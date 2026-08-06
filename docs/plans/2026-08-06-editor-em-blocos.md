@@ -1381,7 +1381,6 @@ import {
   type Node,
   type Edge,
   type NodeChange,
-  applyNodeChanges,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { Passo } from "@/lib/steps";
@@ -1484,10 +1483,11 @@ export default function Quadro({
 }
 ```
 
-> `applyNodeChanges` está importado e ainda não usado — o React Flow o exige
-> quando o componente passa a ser controlado com estado próprio. Se o
-> `typecheck` reclamar de import não usado, **remova o import** em vez de
-> inventar uso para ele.
+> **Nós derivados, não guardados.** `nos` e `setas` são `useMemo` sobre
+> `passos` — não há `useNodesState` nem cópia da lista dentro do React Flow.
+> Guardar os nós criaria uma segunda cópia da mesma informação, e as duas
+> divergiriam na primeira inserção. É a mesma razão de as setas serem derivadas
+> do array: uma fonte de verdade só.
 
 - [ ] **Passo 5: monte numa página de teste e olhe**
 
