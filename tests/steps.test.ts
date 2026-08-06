@@ -341,9 +341,17 @@ describe("indiceDoPortao", () => {
   });
 
   it("o primeiro portão vence, quando há mais de um", () => {
-    // A consequência, que o nome não diz: `FOLLOW:<id>` nomeia a automação, não
-    // o portão. Quem estava parado no SEGUNDO portão e toca em "Já sigo!" sem
-    // cursor desta automação retoma no PRIMEIRO, e o que houver entre os dois é
+    // Desde a Fase 1b, `FOLLOW:<automação>:<bloco>` nomeia o BLOCO em que a
+    // pessoa tocou — o comentário de `indiceDoPortao` (lib/steps.ts) já foi
+    // corrigido para dizer isso. Quando o bloco resolve, `retomadaDoFollow`
+    // acha aquele portão direto e nem chega a `indiceDoPortao`.
+    //
+    // Este teste cobre o que SOBRA: payload sem bloco algum (é o que
+    // `retomadaDoFollow` recebe aqui, `passoId: null`) — a forma antiga
+    // `FOLLOW:<automação>`, que continua tocável para sempre, ou o cursor não
+    // resolvendo por nenhum caminho. Nesses casos o primeiro portão ainda
+    // vence: quem estava parado no SEGUNDO e toca em "Já sigo!" sem cursor
+    // desta automação retoma no PRIMEIRO, e o que houver entre os dois é
     // reentregue. Inalcançável pelo formulário, que emite um portão só;
     // alcançável por lista montada à mão, que é para onde a Fase 1b vai.
     const passos = [
@@ -972,6 +980,37 @@ describe("cursorDaRetomada", () => {
     // do ZERO: `cursorDesta` descarta o cursor de B e não sobra o que afirmar.
     expect(cursorDaRetomada({ passoId: "b_qqq111", automationId: "B" }, "A", "b_bem001", lista)).toEqual({
       passoId: "b_bem001",
+      automationId: "A",
+    });
+  });
+
+  it("cursor de OUTRA automação cuja identidade EXISTE nesta lista não pode mandar", () => {
+    // O caso que separa `const id = cursorDesta(real, automationId)` de
+    // `const id = real.passoId` — a mutação mais perigosa possível aqui, porque
+    // ela sobrevivia à suíte inteira (246 testes) sem um só falhar.
+    //
+    // Os outros testes de "cursor de OUTRA automação" (acima, e em
+    // `retomadaDoBotao`/`retomadaDoFollow`) usam um id que TAMBÉM não existe na
+    // lista de destino: `indiceDoId` devolve null pelos dois caminhos, e a
+    // reserva ganha de qualquer jeito — a mutação fica invisível.
+    //
+    // Aqui o id do cursor de B COLIDE com a identidade de um bloco de A. Não é
+    // hipótese remota: bloco sem id tem o índice em texto por identidade
+    // (`identidadeDoPasso`), e "0" existe em toda lista não vazia — é o dado
+    // legado, que existe hoje.
+    //
+    //   certa   → `cursorDesta` descarta o cursor de B (automação errada), a
+    //             reserva entra e devolve o bloco do PAYLOAD, desta automação.
+    //   mutante → `real.passoId` é "0", `indiceDoId(passos, "0")` acha o bloco 0
+    //             de A, e a mutação devolve `real` inteiro — automationId "B" —
+    //             deixando o cursor de B mandar na lista de A.
+    const passos = [
+      { tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0 — sem id, identidade "0"
+      { tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 1
+    ];
+    const cursorDeB = { passoId: "0", automationId: "B" };
+    expect(cursorDaRetomada(cursorDeB, "A", "1", passos)).toEqual({
+      passoId: "1",
       automationId: "A",
     });
   });

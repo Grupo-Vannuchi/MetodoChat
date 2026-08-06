@@ -377,7 +377,12 @@ export type Payload = {
 export function lerPayload(payload: unknown): Payload | null {
   if (typeof payload !== "string") return null;
   const partes = payload.split(":");
-  if (partes.length < 2 || partes.length > 3) return null;
+  // Só o limite de cima é conferido aqui. O de baixo ("AUTO" sozinho, uma
+  // parte) não precisa de guarda própria: `automationId` sai `undefined`
+  // dessa desestruturação, e `!automationId`, logo abaixo, já mata o caso.
+  // Uma guarda para `partes.length < 2` seria redundante — nenhuma mutação a
+  // mataria, porque ela não decide nada que outra linha já não decida.
+  if (partes.length > 3) return null;
   const [prefixo, automationId, passoId] = partes;
   if (prefixo !== "AUTO" && prefixo !== "FOLLOW") return null;
   if (!automationId) return null;
@@ -476,8 +481,19 @@ export function cursorDaRetomada(
 //   BLOCO DO PAYLOAD (`AUTO:<automação>:<bloco>`) — a RESERVA, só quando o
 //     cursor não serve: nulo, de outra automação, ou apontando para bloco que
 //     sumiu. Aí a automação é sempre esta por construção, `cursorDesta` nunca o
-//     descarta, e o bloco é uma `dm` de resposta rápida, porque é o único passo
-//     que emite esse payload (`enfileirarPasso`, lib/engine.ts).
+//     descarta, e o bloco é sempre uma `dm` de resposta rápida, porque é o
+//     único passo que emite esse payload (`enfileirarPasso`, lib/engine.ts).
+//
+//     ISSO NÃO BASTA para garantir que o `+1` (abaixo) nunca pule um portão:
+//     ele soma sobre a POSIÇÃO do bloco na lista, não sobre o tipo dele. A
+//     conta só fecha ENQUANTO TODA `dm` de resposta rápida da lista vier ANTES
+//     de qualquer portão — é o que o formulário garante hoje (uma só, e é a
+//     boas-vindas, que vem primeiro) e o que o quadro de blocos livres NÃO vai
+//     garantir. Havendo uma `dm` de resposta rápida DEPOIS de um portão, o
+//     `+1` cai depois dele e o portão não é reavaliado. Este é o mesmo
+//     problema que a Tarefa 6 do plano (`docs/plans/2026-08-06-editor-em-
+//     blocos.md`, Passo 5) já registra pela reordenação preservando ids; a
+//     decisão de lá precisa cobrir os dois caminhos, não só aquele.
 //
 // O botão ANTIGO (`AUTO:<automação>`) não traz bloco: a reserva dele é o cursor
 // vazio, e ele cai no ramo do zero, abaixo. Não tem prazo para acabar — botão

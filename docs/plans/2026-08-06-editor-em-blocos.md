@@ -1801,14 +1801,19 @@ e no `data` de cada nó: `aoApagar: apagarBloco`.
 O nó de gatilho **não** recebe este botão — ele não é apagável, e o
 `gatilho.tsx` da Tarefa 7 é um componente próprio justamente por isso.
 
-- [ ] **Passo 5: DECIDIR o que fazer com o portão pulável que a reordenação abre**
+- [ ] **Passo 5: DECIDIR o que fazer com o portão pulável — duas entradas, um problema**
 
-Este passo não escreve código. Ele existe porque preservar id ao reordenar —
-que é o objetivo desta tarefa — torna **alcançável** um pulo de portão de follow
-que hoje não é.
+Este passo não escreve código. Ele existe porque o quadro de blocos livres abre
+**duas** portas para o mesmo problema — um portão que deveria ser reavaliado e
+não é —, achadas em ondas diferentes de revisão. As duas precisam da mesma
+decisão, e a decisão precisa fechar as duas ao mesmo tempo.
 
-**O caso, por inteiro.** Lista `[0 boas-vindas (resposta rápida), 1 portão,
-2 link]`, e uma pessoa parada na boas-vindas (cursor no bloco 0):
+**ENTRADA 1 — a reordenação preservando ids.** Preservar id ao reordenar — que
+é o objetivo desta tarefa — torna **alcançável** um pulo de portão de follow que
+hoje não é.
+
+Lista `[0 boas-vindas (resposta rápida), 1 portão, 2 link]`, e uma pessoa parada
+na boas-vindas (cursor no bloco 0):
 
 1. o dono reordena para `[0 portão, 1 boas-vindas, 2 link]`
 2. a pessoa toca no botão `AUTO:` antigo, que continua tocável na mensagem já
@@ -1827,22 +1832,58 @@ apontar para o portão, e ele era reavaliado.
 antigo não resolve e o caso cai no `return 0`. Passa a ser alcançável
 exatamente quando o quadro preservar ids ao reordenar.
 
-**As duas saídas, com o preço de cada uma:**
+**ENTRADA 2 — a reserva pelo payload, achada na segunda onda da Tarefa 3.** Não
+é a reordenação: é `cursorDaRetomada` caindo na reserva (o bloco do PAYLOAD, e
+não o cursor do contato) e `retomadaDoBotao` somando `+1` sobre esse bloco. O
+comentário de `retomadaDoBotao` (`lib/steps.ts`) justificava a reserva dizendo
+que o bloco do payload é sempre uma `dm` de resposta rápida — verdade, é o único
+passo que emite esse payload —, mas isso garante o TIPO do bloco, não a
+POSIÇÃO dele na lista. O `+1` soma sobre a posição.
+
+A conta só fecha ENQUANTO TODA `dm` de resposta rápida da lista vier ANTES de
+qualquer portão. É o que o formulário garante hoje — ele emite uma única `dm`
+de resposta rápida, a boas-vindas, e ela vem antes de qualquer `pedir_follow`
+— e é exatamente o que o quadro de blocos livres **não vai garantir**.
+
+Medido com as funções reais, lista `[0 dm-qr, 1 pedir_follow, 2 dm-qr, 3 link]`:
+
+```
+cursor de outra automação + payload do bloco 2  →  3   (link enfileirado, portão NÃO reavaliado)
+                                     antes da T3 →  0   (para na boas-vindas, portão intacto)
+```
+
+**Hoje é inalcançável** pelo mesmo motivo do formulário citado acima — ele
+nunca produz uma segunda `dm` de resposta rápida depois de um portão. Passa a
+ser alcançável quando o quadro montar listas livres.
+
+**AS DUAS SAÍDAS PROPOSTAS PRECISAM COBRIR AS DUAS ENTRADAS.** Uma guarda que
+resolva só a reordenação (entrada 1) deixa a reserva pelo payload (entrada 2)
+aberta, e vice-versa — as duas produzem o mesmo sintoma (`+1`/retomada cai
+depois de um portão que nunca foi reavaliado) por caminhos de dado diferentes,
+e uma solução amarrada a um caminho só não enxerga o outro.
 
 **(a) Limitar a retomada ao portão** sempre que existir portão antes do ponto de
-retomada. Mata o pulo. **Custa reentrega:** quem já atravessou o portão
-legitimamente e está num bloco adiante volta ao portão, e depois de passá-lo
-`executarFluxo` reenfileira tudo que houver entre o portão e onde a pessoa
-estava — deduplicado só dentro do dia pela `passoKey`. Virado o balde, sai tudo
-de novo. Troca pulo de portão por mensagem repetida.
+retomada — e "ponto de retomada" aqui precisa cobrir as duas entradas: tanto o
+bloco que o cursor preservado resolve (entrada 1) quanto o bloco que a reserva
+do payload resolve (entrada 2). Mata o pulo nas duas. **Custa reentrega:** quem
+já atravessou o portão legitimamente e está num bloco adiante volta ao portão,
+e depois de passá-lo `executarFluxo` reenfileira tudo que houver entre o portão
+e onde a pessoa estava — deduplicado só dentro do dia pela `passoKey`. Virado o
+balde, sai tudo de novo. Troca pulo de portão por mensagem repetida.
 
-**(b) Invalidar o cursor ao reordenar**, de quem estiver num bloco que passou a
-ter portão antes de si. Mata o pulo **sem reentrega**. **Custa recomeço:** a
-pessoa perde o lugar e refaz o fluxo desde o começo.
+**(b) Invalidar o cursor** de quem estiver num bloco que passou a ter portão
+antes de si. Para a entrada 1 isso é "ao reordenar"; para a entrada 2 não há
+cursor gravado para invalidar — é a RESERVA que precisaria parar de ser
+oferecida quando o bloco do payload está depois de um portão da lista atual, o
+que é a mesma pergunta em outra forma. Mata o pulo **sem reentrega** nas duas,
+quando bem aplicada às duas. **Custa recomeço:** a pessoa perde o lugar e
+refaz o fluxo desde o começo.
 
 **PARE E PERGUNTE qual das duas antes de implementar.** Não escolha sozinho.
 Correção de controle de fluxo feita às pressas nesta base já produziu defeito
-pior que o original três vezes; esta vai ser decidida, não remendada.
+pior que o original três vezes; esta vai ser decidida, não remendada — e a
+decisão, seja qual for, tem que ser verificada contra as duas entradas antes de
+ser dada como concluída.
 
 - [ ] **Passo 6: verifique à mão e reporte**
 

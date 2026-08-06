@@ -635,8 +635,9 @@ async function enfileirarPasso(
     // A regra, na mesma ordem em que `esperaResposta` decide parar:
     //   rótulo e SEM url → resposta rápida (`dm_welcome`), o único caminho do
     //     dreno que monta `quick_replies`. O payload volta no webhook como
-    //     `AUTO:<id da automação>`, e é ele que `handleMessagingEvent` lê para
-    //     continuar do passo seguinte ao que ficou no cursor.
+    //     `AUTO:<id da automação>:<id do bloco>` (`lerPayload`, lib/steps.ts),
+    //     e é ele que `handleMessagingEvent` lê para decidir de onde retomar —
+    //     o cursor do contato manda, este bloco é a reserva.
     //   COM url → botão de link (`dm_link`), que `linkMessage` transforma em
     //     template de botão. Vale também sem rótulo: aí o título cai no padrão
     //     "Abrir link" do próprio `linkMessage`, em vez de a url desaparecer da
@@ -656,7 +657,8 @@ async function enfileirarPasso(
     // dreno só desvia para `linkMessage` quando o tipo é `dm_link`/`dm_reminder`
     // ou quando há url; fora daí, rótulo + payload de resposta rápida viram
     // `quick_replies`. Então a resposta privada sai com o mesmo botão e o mesmo
-    // `AUTO:<id da automação>` que retoma o fluxo quando a pessoa toca.
+    // `AUTO:<id da automação>:<id do bloco>` que retoma o fluxo quando a
+    // pessoa toca.
     const comentario = gastarRespostaPrivada(contexto);
 
     await enqueue({
