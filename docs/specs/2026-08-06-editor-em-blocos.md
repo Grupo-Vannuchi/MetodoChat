@@ -206,15 +206,29 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[]
 4. **Dois portões de follow na mesma lista** — decisão explícita do dono do
    produto.
 5. **Mais de um bloco de `pedir_email`, de `reagir_story` ou de
-   `resposta_publica`** — a chave de deduplicação desses três não distingue o
-   bloco, então o segundo nunca é enviado. Só `passoKey` ganhou identidade na
-   Fase 1b; as irmãs não conhecem o bloco: `emailAskKey(auto, pessoa, dia)` é a
-   mesma para os dois pedidos de e-mail do dia, `storyReactionKey(message_id)` a
-   mesma para as duas reações à mesma story, `commentReplyKey(comment_id)` a
-   mesma para as duas respostas ao mesmo comentário. O `on conflict do nothing`
-   engole o segundo sem erro, e quem montou a lista acha que mandou e não
-   mandou. É a mesma regra do item 4 — bloquear o que o motor engoliria em
-   silêncio — aplicada aos casos que a revisão da Tarefa 1 encontrou.
+   `resposta_publica`** — o segundo nunca é entregue, mas o motivo não é o
+   mesmo nos três.
+
+   Em `reagir_story` e `resposta_publica` é a chave de deduplicação: nenhuma
+   das duas conhece o bloco — `storyReactionKey(message_id)` é a mesma para as
+   duas reações à mesma story, `commentReplyKey(comment_id)` a mesma para as
+   duas respostas ao mesmo comentário —, e o `on conflict do nothing` engole o
+   segundo sem erro.
+
+   Em `pedir_email` quem engole o segundo é o próprio motor, antes de a chave
+   entrar em jogo: o ramo `pedir_email` de `lib/engine.ts` PULA o bloco quando
+   o e-mail do contato já é conhecido
+   (`if (rows[0]?.email) return executarFluxo(..., acao.indice + 1, ...)`), e
+   depois de o primeiro pedido ser respondido o e-mail já está gravado — então
+   o segundo normalmente nem chega a ser enfileirado. `emailAskKey(auto, pessoa,
+   dia)` só entra quando os dois pedidos chegam a ser enfileirados sem que o
+   e-mail tenha sido respondido entre eles — a pessoa responde e reaciona a
+   automação no mesmo dia —, e aí sim a chave, igual para os dois, é quem
+   engole o segundo.
+
+   Nos três casos, quem montou a lista acha que mandou e não mandou. É a mesma
+   regra do item 4 — bloquear o que o motor engoliria em silêncio — aplicada
+   aos casos que a revisão da Tarefa 1 encontrou.
 
 O item 4 vale registrar: com `AUTO:<automação>:<bloco>` a ambiguidade técnica
 some, e permitir dois portões passaria a custar zero. O bloqueio fica porque

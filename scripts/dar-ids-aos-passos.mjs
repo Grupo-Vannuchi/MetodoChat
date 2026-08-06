@@ -17,6 +17,20 @@
 // Preserva a ordem e todo o resto do objeto: só acrescenta o campo `id` onde
 // falta. Idempotente — rodar duas vezes não muda nada na segunda, nem nos
 // passos nem nas chaves.
+//
+// "A QUALQUER HORA" vale para a janela que a MIGRAÇÃO abre, e só para ela. Há
+// uma outra janela da mesma classe que este script NÃO alcança, por construção:
+// `montarPassos` (app/automacoes/actions.ts) chama `novoIdDeBloco()` em todos os
+// sete `passos.push`, tanto ao criar quanto ao editar pelo formulário — nada ali
+// lê os `steps` já gravados. Ou seja, salvar uma automação pelo formulário
+// antigo sorteia ids NOVOS para todos os blocos dela, e as chaves
+// `passo:…:<id antigo>:<hoje>` já enviadas naquele dia deixam de casar — o
+// mesmo sintoma que a migração produziu, com a mesma reação em cadeia. Este
+// script não conserta esse estado porque ele só reconhece identidade NUMÉRICA
+// (índice) como origem da reescrita; `b_antigo → b_novo` está fora do alcance
+// dele. Este script fecha a janela da migração; a janela do formulário só
+// fecha quando o formulário sair (Tarefa 8 do plano) — até lá, salvar uma
+// automação no mesmo dia em que ela entregou mensagens pode reentregá-las.
 import postgres from "postgres";
 import { readFileSync } from "node:fs";
 
@@ -25,6 +39,12 @@ const url = env.match(/^DATABASE_URL=(.*)$/m)[1].trim().replace(/^["']|["']$/g, 
 const sql = postgres(url, { prepare: false, ssl: "require", onnotice: () => {} });
 
 const novoId = () => "b_" + Math.random().toString(36).slice(2, 10);
+// Este regex TEM QUE CONCORDAR com `FORMA_DO_ID` (lib/steps.ts) — mesmo motivo
+// do balde do dia logo abaixo: são a MESMA regra escrita duas vezes porque este
+// script não pode importar de `lib/steps.ts`, que é TypeScript. Divergindo, um
+// id que `identidadeDoPasso` aceitaria como bloco passaria batido aqui como
+// "sem id" (ou vice-versa), e a reescrita de chave e o resto do sistema
+// deixariam de concordar sobre o que é um id válido.
 const temId = (p) => p && typeof p === "object" && /^b_[0-9a-z]{6,}$/.test(p.id ?? "");
 
 // O balde do dia, em BRASÍLIA — e ele TEM QUE CONCORDAR BYTE A BYTE com
@@ -104,6 +124,7 @@ for (const a of linhas) {
       // operador saber que aconteceu.
       if (existentes.has(destino)) {
         batidas++;
+        console.log(`colide ${r.dedupe_key}\n    →  ${destino}`);
         continue;
       }
 
