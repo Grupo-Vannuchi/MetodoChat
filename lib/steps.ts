@@ -389,6 +389,76 @@ export function lerPayload(payload: unknown): Payload | null {
   return { prefixo, automationId, passoId: passoId ?? null };
 }
 
+// Qual cursor vale no toque de um botão: o REAL do contato, ou o bloco que veio
+// no payload do botão.
+//
+// O CURSOR MANDA; o payload é reserva. A ordem não é detalhe, e a versão
+// anterior desta fase tinha a ordem invertida.
+//
+// O payload nomeia o BOTÃO em que a pessoa tocou. O cursor diz onde ela
+// realmente ESTÁ — e ele é sempre a informação mais recente dos dois, porque o
+// botão fica congelado na conversa desde o dia em que foi entregue e continua
+// tocável para sempre.
+//
+// Preferir o payload rebobinava quem já tinha avançado: quem atravessou o portão
+// de follow e está parado num bloco adiante, ao tocar num "Já sigo!" antigo,
+// voltava ao portão — e `executarFluxo` (lib/engine.ts) reenfileira tudo entre o
+// portão e onde a pessoa estava, deduplicado só dentro do dia. Trocava um
+// problema por reentrega, que é exatamente o preço que a onda anterior recusou
+// pagar quando decidiu não pôr guarda no `retomadaDoBotao`.
+//
+// O que o payload continua resolvendo, e é por isso que ele não é inútil:
+//
+//   CURSOR DE OUTRA AUTOMAÇÃO — tocar num botão antigo da automação A enquanto
+//     se está no meio da B recomeçava a A do ZERO, porque `cursorDesta` descarta
+//     o cursor de B e não sobrava nada a afirmar. Com o payload, o toque diz de
+//     qual automação e de qual ponto ele fala.
+//   NENHUM CURSOR — mesma coisa, sem o cursor emprestado.
+//   BLOCO DO CURSOR QUE SUMIU DA LISTA — `indiceDoId` devolve null, o cursor não
+//     afirma nada, e o bloco do botão é o que sobra.
+//
+// A conferência com `indiceDoId` é o que torna a reserva alcançável, e ela não é
+// simetria: um cursor desta automação apontando para bloco que não está mais na
+// lista é tão mudo quanto cursor nenhum. Sem ela, esse caso cairia no cursor e o
+// payload nunca seria usado com cursor desta automação presente.
+//
+// SEM BLOCO NO PAYLOAD (botão entregue antes da Fase 1b, `AUTO:<automação>`) a
+// reserva é o cursor VAZIO, e não "o payload": não há bloco nenhum a afirmar.
+// Daí `retomadaDoBotao` cai no zero e `retomadaDoFollow` cai no portão, que é o
+// que eles já faziam com cursor nulo — a compatibilidade com o botão antigo sai
+// de graça, sem ramo próprio.
+//
+// ---------------------------------------------------------------------------
+// UM AVISO PARA QUEM MEXER AQUI DEPOIS, e ele custou uma onda para ser aprendido:
+//
+//   TESTE DE FUNÇÃO PURA NÃO VÊ O MOTOR TROCAR O ARGUMENTO QUE PASSA PARA ELA.
+//
+// O teste "cursor DESTA num bloco DEPOIS do portão retoma DELE, não do portão"
+// (tests/steps.test.ts) existe justamente para impedir que quem já atravessou o
+// portão volte a ele. Quando a fase anterior passou a alimentar
+// `retomadaDoFollow` com o bloco do PAYLOAD em vez do cursor do contato, esse
+// teste continuou VERDE — a função não mudou, o argumento é que mudou. O defeito
+// atravessou a suíte inteira sem acender uma luz.
+//
+// É por isso que a escolha do cursor mora AQUI, numa função pura com teste, e
+// não como expressão solta dentro de `server-only`: enquanto ela estiver aqui, o
+// teste que compõe `cursorDaRetomada` com `retomadaDoBotao`/`retomadaDoFollow`
+// pega a troca. Quem voltar a decidir isto em lib/engine.ts reabre a classe de
+// defeito que esta suíte, estruturalmente, não pega.
+// ---------------------------------------------------------------------------
+export function cursorDaRetomada(
+  real: Cursor,
+  automationId: string,
+  passoIdDoBotao: string | null,
+  passos: unknown
+): Cursor {
+  const id = cursorDesta(real, automationId);
+  if (id !== null && indiceDoId(passos, id) !== null) return real;
+  return passoIdDoBotao === null
+    ? { passoId: null, automationId: null }
+    : { passoId: passoIdDoBotao, automationId };
+}
+
 // De qual passo o toque num botão de RESPOSTA RÁPIDA (`AUTO:`) retoma.
 //
 // Veio de lib/engine.ts inteira, e não em pedaços, porque era a composição — e
@@ -397,23 +467,27 @@ export function lerPayload(payload: unknown): Payload | null {
 // dentro de `server-only`, onde nenhum teste chega, e foi essa escolha que
 // produziu defeito nas duas ondas anteriores.
 //
-// O `cursor` que chega aqui tem DUAS procedências, e elas não querem dizer a
-// mesma coisa. Quem monta é lib/engine.ts:
+// O `cursor` que chega aqui tem DUAS procedências, e quem escolhe entre elas é
+// `cursorDaRetomada` (acima), não lib/engine.ts:
 //
-//   PAYLOAD NOVO (`AUTO:<automação>:<bloco>`) → o bloco é o do BOTÃO em que a
-//     pessoa tocou, e a automação é sempre esta, por construção. Isso muda quais
-//     ramos abaixo são alcançados: `cursorDesta` nunca devolve null por
-//     "automação errada", e o bloco é uma `dm` de resposta rápida, porque é o
-//     único passo que emite esse payload (`enfileirarPasso`, lib/engine.ts).
-//   PAYLOAD ANTIGO (`AUTO:<automação>`) → não há bloco, e o cursor é o do
-//     CONTATO, lido do banco: onde a pessoa parou. É o caso que os ramos de
-//     portão abaixo descrevem, e ele não tem prazo para acabar — botão entregue
-//     antes da Fase 1b continua tocável para sempre.
+//   CURSOR DO CONTATO, lido do banco — o caso NORMAL. Onde a pessoa realmente
+//     parou. Vale sempre que for desta automação e o bloco ainda estiver na
+//     lista.
+//   BLOCO DO PAYLOAD (`AUTO:<automação>:<bloco>`) — a RESERVA, só quando o
+//     cursor não serve: nulo, de outra automação, ou apontando para bloco que
+//     sumiu. Aí a automação é sempre esta por construção, `cursorDesta` nunca o
+//     descarta, e o bloco é uma `dm` de resposta rápida, porque é o único passo
+//     que emite esse payload (`enfileirarPasso`, lib/engine.ts).
 //
-// Os ramos de PORTÃO, por isso, não são código morto nem com o payload novo. Um
-// bloco `dm` editado depois da entrega do botão pode ter virado `pedir_follow`
+// O botão ANTIGO (`AUTO:<automação>`) não traz bloco: a reserva dele é o cursor
+// vazio, e ele cai no ramo do zero, abaixo. Não tem prazo para acabar — botão
+// entregue antes da Fase 1b continua tocável para sempre.
+//
+// Os ramos de PORTÃO, por isso, não são código morto nem quando a reserva ganha.
+// Um bloco `dm` editado depois da entrega do botão pode ter virado `pedir_follow`
 // ou `pedir_email`, e aí o toque cai neles com a mesma razão de sempre: o toque
-// não é a resposta que um portão espera.
+// não é a resposta que um portão espera. E pelo cursor do contato eles são o
+// caminho COMUM: quem está parado num portão está parado nele.
 //
 // Com cursor DESTA automação, a regra tem dois ramos:
 //
@@ -462,15 +536,18 @@ export function lerPayload(payload: unknown): Payload | null {
 // há índice em que somar, e o zero é o único ponto afirmável — o mesmo
 // raciocínio do cursor nulo, logo acima.
 //
-// E com o payload novo esse ramo ficou mais CARO, o que é o preço declarado de
-// pôr o bloco no botão: quando o bloco do payload não está mais na lista, quem
-// chama já escolheu o payload e não olha mais o cursor do contato — que pode
-// estar íntegro e adiante. A pessoa volta para a boas-vindas e perde o lugar.
-// Enquanto `montarPassos` (app/automacoes/actions.ts) gerar id novo a cada
-// salvamento, isso vale para TODO botão entregue antes do último save, e não só
-// para bloco de fato apagado. A janela é a mesma do cursor órfão e fecha na
-// Tarefa 8; a saída, se ela incomodar antes, é lib/engine.ts voltar ao cursor
-// quando `indiceDoId` não achar o bloco do payload — decisão de lá, não daqui.
+// Quem chega aqui com bloco sumido é, agora, quem tem os DOIS sumidos:
+// `cursorDaRetomada` (acima) só entrega o bloco do payload quando o cursor do
+// contato não resolve, então cair no zero exige que o cursor não sirva E que o
+// bloco do botão também não esteja mais na lista. Uma versão anterior desta fase
+// preferia o payload, e aí bastava o bloco do BOTÃO ter sumido para a pessoa
+// perder um lugar que o cursor sabia — o cursor se recupera na primeira
+// interação seguinte, o bloco congelado no botão não se recupera nunca. A
+// inversão fechou isso.
+//
+// O caso dos dois sumidos continua real enquanto `montarPassos`
+// (app/automacoes/actions.ts) gerar id novo a cada salvamento: um save órfã o
+// cursor e todos os botões entregues de uma vez. A janela fecha na Tarefa 8.
 //
 // BLOCO QUE CONTINUA na lista mas não espera mais nada — foi editado e virou
 // botão de link, ou ficou inválido — cai no `+1`, como antes, e a escolha segue
@@ -526,25 +603,23 @@ export function retomadaDoBotao(
 // Mesma mudança de casa de `retomadaDoBotao`, e pelo mesmo motivo: o
 // comportamento é o que a onda passada instalou, o que faltava era teste.
 //
-// O `cursor` tem as mesmas duas procedências de `retomadaDoBotao` — o bloco do
-// PAYLOAD quando ele o traz, o cursor do CONTATO quando não —, e aqui a
-// diferença entre elas tem consequência de produto, que vale escrever inteira.
+// O `cursor` tem as mesmas duas procedências de `retomadaDoBotao`, escolhidas
+// por `cursorDaRetomada` (acima): o cursor do CONTATO manda, o bloco do PAYLOAD
+// é reserva. Aqui essa ordem tem consequência de produto, e vale escrevê-la.
 //
-// O GANHO: o bloco do payload de um "Já sigo!" é o do PORTÃO que entregou aquele
-// botão. Numa lista com dois portões, o toque passa a nomear qual — é a dívida
-// que o comentário de `indiceDoPortao` (acima) registrava como adiada.
+// O GANHO da reserva: o bloco do payload de um "Já sigo!" é o do PORTÃO que
+// entregou aquele botão. Numa lista com dois portões, quem não tem cursor útil
+// desta automação passa a retomar do portão CERTO em vez do primeiro — é a
+// dívida que o comentário de `indiceDoPortao` (acima) registrava como adiada.
 //
-// A TROCA: o payload nomeia o botão, não o lugar da pessoa. Quem JÁ atravessou o
-// portão e está parado adiante, na mesma automação, e toca de novo no "Já sigo!"
-// antigo, volta ao portão — antes, o cursor do contato o deixava onde estava.
-// Voltar ao portão reconsulta a Meta (inofensivo para quem segue) e reenfileira
-// tudo entre o portão e o ponto em que a pessoa estava; a `passoKey` segura
-// dentro do dia, e não entre dias. É reentrega, não pulo de portão.
-//
-// O teste "cursor DESTA num bloco DEPOIS do portão retoma DELE" (tests/) fixa a
-// função, e continua correto — o que mudou foi QUEM alimenta o cursor no ramo
-// `FOLLOW:`, não o que a função faz com ele. Ele segue valendo para o payload
-// antigo, que não traz bloco e usa o cursor do contato.
+// E o que a ordem PROTEGE: quem JÁ atravessou o portão e está parado adiante, na
+// mesma automação, toca de novo no "Já sigo!" antigo e CONTINUA onde estava. Uma
+// versão anterior desta fase preferia o payload e o mandava de volta ao portão,
+// reenfileirando tudo entre os dois — a `passoKey` só segura isso dentro do dia.
+// É esse caso que o teste "cursor DESTA num bloco DEPOIS do portão retoma DELE"
+// (tests/steps.test.ts) sempre pretendeu impedir; ele não pegou a regressão
+// porque o que mudou não foi a função, foi quem alimentava o argumento dela. O
+// aviso inteiro está no comentário de `cursorDaRetomada`.
 //
 // Com cursor DESTA automação, retoma DELE, seja ele qual for. A promessa "o
 // portão é reavaliado, não pulado" vale QUANDO O BLOCO DO CURSOR É O PORTÃO —

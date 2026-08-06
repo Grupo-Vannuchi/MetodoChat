@@ -17,12 +17,17 @@ import { scheduleTick } from "./qstash";
 // Foram justamente as que mais deram defeito. As duas últimas saíram inteiras, e
 // não em pedaços: as peças (`cursorDesta`, `indiceDoPortao`, `passoEsperado`) já
 // eram testadas uma a uma — o que estava descoberto era a COMPOSIÇÃO delas.
+//
+// `cursorDaRetomada` seguiu o mesmo caminho, e pelo mesmo motivo: ela era o
+// `const cursor = p.passoId ? ... : ...` daqui de baixo, e escolher errado ali
+// desfazia, sem teste nenhum acusar, o que `retomadaDoFollow` garante.
 import {
   interpretar,
   passoEsperado,
   retomadaDoFallback,
   retomadaDoBotao,
   retomadaDoFollow,
+  cursorDaRetomada,
   interrompeOFluxo,
   identidadeDoPasso,
   indiceDoId,
@@ -961,31 +966,25 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     if (p) {
       const auto = await loadAutomation(account.ig_user_id, p.automationId);
       if (auto) {
-        // O bloco vem do PAYLOAD quando ele o traz, e do cursor quando não.
+        // O CURSOR MANDA; o bloco do payload é RESERVA. A escolha entre os dois
+        // é pura e mora em `cursorDaRetomada` (lib/steps.ts), com o porquê de
+        // cada ramo e com teste — aqui ela era uma expressão solta, e uma
+        // expressão solta com a ordem invertida foi o defeito desta fase.
         //
-        // O do payload é melhor: ele diz de qual botão a pessoa tocou, e o
-        // cursor diz só onde ela parou. Quando ela tem dois botões antigos na
-        // conversa, os dois são tocáveis e só o payload distingue.
+        // Que ela viva LÁ e não aqui é o ponto, e o comentário de
+        // `cursorDaRetomada` explica por quê: teste de função pura não vê o
+        // motor trocar o argumento que passa para ela. Enquanto a escolha estiver
+        // dentro de `server-only`, trocá-la não acende luz em teste nenhum.
         //
-        // E ele muda o que as funções de retomada recebem, o que não é óbvio e
-        // precisa estar dito aqui: o cursor do payload é SEMPRE desta automação,
-        // então `cursorDesta` nunca o descarta, e o bloco é sempre o do BOTÃO —
-        // no `AUTO:`, sempre uma `dm` de resposta rápida (é o único passo que
-        // emite esse payload), a não ser que aquele bloco tenha sido editado
-        // para outro tipo desde a entrega. O ramo de PORTÃO de `retomadaDoBotao`
-        // segue vivo por esses dois caminhos, e pelo payload antigo, que não
-        // traz bloco nenhum: não é código morto.
-        //
-        // O PREÇO, porque ele é real: quando o bloco do payload não está mais na
-        // lista, `retomadaDoBotao` cai no zero e a boas-vindas sai de novo —
-        // mesmo que o cursor do contato estivesse íntegro e adiante. Enquanto
-        // `montarPassos` (app/automacoes/actions.ts) gerar id novo a cada
-        // salvamento, isso vale para TODO botão entregue antes do último save. A
-        // janela fecha na Tarefa 8, junto com a do cursor órfão, que tem a mesma
-        // causa. Nenhum desses caminhos pula portão: o pior é mensagem repetida.
-        const cursor = p.passoId
-          ? { passoId: p.passoId, automationId: auto.id }
-          : await lerCursor(account.ig_user_id, senderId);
+        // O cursor passa a ser lido SEMPRE, e não só quando o payload não traz
+        // bloco. É uma consulta a mais por toque de botão, e é o preço de o
+        // cursor mandar: sem ler, não há como saber se ele serve.
+        const cursor = cursorDaRetomada(
+          await lerCursor(account.ig_user_id, senderId),
+          auto.id,
+          p.passoId,
+          auto.steps
+        );
         const de =
           p.prefixo === "AUTO"
             ? retomadaDoBotao(cursor, auto.id, auto.steps)
