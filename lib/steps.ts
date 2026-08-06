@@ -780,3 +780,147 @@ export function interrompeOFluxo(
   if (casada.id === parada.id) return false;
   return casada.match_type !== "any";
 }
+
+export type Problema = {
+  nivel: "erro" | "aviso";
+  // Qual bloco. Null quando o problema é da lista inteira.
+  indice: number | null;
+  mensagem: string;
+};
+
+// Os três tipos de que a lista só pode ter UM, e o motivo de cada um.
+//
+// A regra é a mesma dos dois portões de follow — bloquear o que o motor
+// engoliria em silêncio —, mas o MECANISMO não é o mesmo nos três, e a mensagem
+// precisa dizer o certo porque é ela que o dono lê para decidir o que fazer com
+// o bloco.
+//
+// `reagir_story` e `resposta_publica`: é a CHAVE de deduplicação, e ela não
+// conhece o bloco. `storyReactionKey(mid)` é a mesma string para as duas
+// reações à mesma story, `commentReplyKey(comment_id)` a mesma para as duas
+// respostas ao mesmo comentário (lib/dedupe.ts), e o `on conflict do nothing`
+// do enqueue engole o segundo item sem erro nenhum.
+//
+// `pedir_email`: quem engole o segundo é o próprio MOTOR, antes de a chave
+// entrar em jogo. O ramo `pedir_email` de lib/engine.ts pula o bloco quando o
+// e-mail do contato já é conhecido (`if (rows[0]?.email) return
+// executarFluxo(..., acao.indice + 1, ...)`), e depois de o primeiro pedido ser
+// respondido o endereço já está gravado — então o segundo normalmente nem chega
+// a ser enfileirado. `emailAskKey(auto, pessoa, dia)` só decide no caso restante:
+// os dois enfileirados no mesmo dia sem que o e-mail tenha sido respondido entre
+// eles. Aí sim a chave, igual para os dois, é quem engole o segundo.
+//
+// `passoKey` ganhou a identidade do bloco na Tarefa 1; estas três não. A regra
+// sai daqui no dia em que ganharem. `followGateKey` tem o mesmo buraco e não
+// precisa de entrada própria: o bloqueio dos dois portões já o torna
+// inalcançável pelo editor.
+const SO_UM_POR_LISTA: Record<string, string> = {
+  pedir_email:
+    "Só pode haver um pedido de e-mail. O segundo nunca é entregue: quando o endereço já foi respondido, o motor pula o bloco; quando não foi, ele sai com a mesma chave de envio do primeiro.",
+  reagir_story:
+    "Só pode haver uma reação à story. A segunda sai com a mesma chave de envio da primeira, e por isso nunca é entregue.",
+  resposta_publica:
+    "Só pode haver uma resposta pública. A segunda sai com a mesma chave de envio da primeira, e por isso nunca é entregue.",
+};
+
+// Confere a lista montada no quadro.
+//
+// Roda em DOIS lugares: no navegador, para desabilitar o salvar e dizer por
+// quê; e no Server Action, porque nada vindo do navegador é confiável. É por
+// isso que ela mora aqui e é pura — escrever a regra duas vezes é como as duas
+// versões passam a discordar.
+//
+// ERRO trava o salvar; AVISO explica e deixa passar. A linha entre os dois foi
+// decidida com o dono do produto: trava o que o motor não consegue executar
+// como montado, e avisa o que é incomum mas coerente.
+export function conferirLista(passos: unknown, gatilho: string): Problema[] {
+  const r: Problema[] = [];
+
+  // Os dois motivos são separados porque as causas são diferentes: aqui a
+  // coluna está quebrada; abaixo ela está íntegra e o conteúdo é que falta. É a
+  // mesma distinção que `interpretar` faz nos seus `ignorados`.
+  if (!Array.isArray(passos)) {
+    return [{ nivel: "erro", indice: null, mensagem: "A automação não tem lista de blocos." }];
+  }
+  if (!passos.length) {
+    return [
+      { nivel: "erro", indice: null, mensagem: "Sem nenhum bloco, a automação não envia nada." },
+    ];
+  }
+
+  let portoes = 0;
+  let linkAntesDoPortao = false;
+  const jaVistos = new Set<string>();
+
+  for (let i = 0; i < passos.length; i++) {
+    const { passo, motivo } = conferir(passos[i]);
+
+    // Bloco inválido é ignorado pelo interpretador — quem montou acha que
+    // mandou e não mandou. É a falha mais silenciosa que existe aqui.
+    if (!passo) {
+      r.push({ nivel: "erro", indice: i, mensagem: `Bloco incompleto: ${motivo}.` });
+      continue;
+    }
+
+    // Bloco que não pode disparar naquele gatilho nunca roda. A paleta não o
+    // oferece, mas lista vinda de fora do editor pode trazê-lo.
+    if (passo.tipo === "reagir_story" && gatilho !== "story") {
+      r.push({
+        nivel: "erro",
+        indice: i,
+        mensagem: "O coraçãozinho só funciona no gatilho de story.",
+      });
+    }
+    if (passo.tipo === "resposta_publica" && gatilho !== "comment") {
+      r.push({
+        nivel: "erro",
+        indice: i,
+        mensagem: "A resposta pública só funciona no gatilho de comentário.",
+      });
+    }
+
+    if (passo.tipo === "pedir_follow") {
+      portoes++;
+      if (portoes > 1) {
+        r.push({
+          nivel: "erro",
+          indice: i,
+          mensagem:
+            "Só pode haver um pedido de follow. Com dois, o botão “Já sigo!” não sabe a qual voltar.",
+        });
+      }
+    }
+
+    // Aponta o SEGUNDO, não o primeiro: o primeiro é o que vai ser entregue, e
+    // é o segundo que o dono precisa apagar ou trocar de lugar.
+    const soUm = SO_UM_POR_LISTA[passo.tipo];
+    if (soUm) {
+      if (jaVistos.has(passo.tipo)) r.push({ nivel: "erro", indice: i, mensagem: soUm });
+      jaVistos.add(passo.tipo);
+    }
+
+    if (passo.tipo === "dm" && passo.url && portoes === 0) linkAntesDoPortao = true;
+  }
+
+  // Sem portão nenhum não há o que avisar: o link chegar a quem não segue é o
+  // que a automação faz, não um descuido de ordem.
+  if (linkAntesDoPortao && portoes > 0) {
+    r.push({
+      nivel: "aviso",
+      indice: null,
+      mensagem:
+        "O link sai antes do pedido de follow, então quem não segue recebe o link mesmo assim. O portão só segura o que vier depois dele.",
+    });
+  }
+
+  const ultimo = conferir(passos[passos.length - 1]).passo;
+  if (ultimo?.tipo === "esperar") {
+    r.push({
+      nivel: "aviso",
+      indice: passos.length - 1,
+      mensagem: "Não há nenhum bloco depois desta espera, então ela não atrasa nada.",
+    });
+  }
+
+  return r;
+}

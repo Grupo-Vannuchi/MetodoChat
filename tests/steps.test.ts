@@ -12,6 +12,7 @@ import {
   indiceDoId,
   lerPayload,
   cursorDaRetomada,
+  conferirLista,
 } from "../lib/steps";
 
 describe("interpretar", () => {
@@ -1112,5 +1113,158 @@ describe("cursorDaRetomada", () => {
     const real = { passoId: "b_sumiu9", automationId: "A" };
     const cursor = cursorDaRetomada(real, "A", "b_bem001", lista);
     expect(retomadaDoBotao(cursor, "A", lista)).toBe(1);
+  });
+});
+
+describe("conferirLista", () => {
+  const bem = { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" };
+  const portao = { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" };
+  const link = { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com", botao_label: "Abrir" };
+
+  const erros = (ps: unknown, g = "dm") => conferirLista(ps, g).filter((p) => p.nivel === "erro");
+  const avisos = (ps: unknown, g = "dm") => conferirLista(ps, g).filter((p) => p.nivel === "aviso");
+
+  it("lista boa não tem problema nenhum", () => {
+    expect(conferirLista([bem, portao, link], "dm")).toEqual([]);
+  });
+
+  it("ERRO: lista vazia entrega zero", () => {
+    expect(erros([])).toHaveLength(1);
+    expect(erros([])[0].indice).toBe(null);
+  });
+
+  it("ERRO: o que não é lista", () => {
+    expect(erros(null)).toHaveLength(1);
+    expect(erros(null)[0].indice).toBe(null);
+    // Os dois motivos são diferentes — coluna quebrada não é lista vazia —, e a
+    // mensagem tem que separá-los, porque é ela que o dono lê.
+    expect(erros(null)[0].mensagem).not.toBe(erros([])[0].mensagem);
+  });
+
+  it("ERRO: bloco com campo obrigatório vazio, apontando o bloco", () => {
+    const r = erros([bem, { id: "b_vaz004", tipo: "dm", texto: "  " }]);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+  });
+
+  it("ERRO: bloco que não pode disparar naquele gatilho", () => {
+    const coracao = { id: "b_cor005", tipo: "reagir_story", emoji: "❤️" };
+    expect(erros([bem, coracao], "dm")).toHaveLength(1);
+    expect(erros([bem, coracao], "dm")[0].indice).toBe(1);
+    expect(erros([bem, coracao], "story")).toHaveLength(0);
+
+    const publica = { id: "b_pub006", tipo: "resposta_publica", textos: ["oi"] };
+    expect(erros([publica, bem], "dm")).toHaveLength(1);
+    expect(erros([publica, bem], "dm")[0].indice).toBe(0);
+    expect(erros([publica, bem], "comment")).toHaveLength(0);
+  });
+
+  it("ERRO: dois portões de follow", () => {
+    const outro = { id: "b_por007", tipo: "pedir_follow", texto: "De novo", botao_label: "Sigo" };
+    const r = erros([bem, portao, outro]);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(2);
+  });
+
+  it("ERRO: dois pedidos de e-mail — o segundo é pulado antes de ser enviado", () => {
+    // O motivo NÃO é a chave, e a diferença importa para a mensagem: o ramo
+    // `pedir_email` de lib/engine.ts PULA o bloco quando o e-mail do contato já
+    // é conhecido, e depois do primeiro pedido respondido ele já está gravado.
+    // `emailAskKey(auto, pessoa, dia)` — igual para os dois — só decide quando
+    // os dois chegam a ser enfileirados no mesmo dia sem resposta entre eles.
+    const um = { id: "b_eml011", tipo: "pedir_email", texto: "Seu e-mail?" };
+    const dois = { id: "b_eml012", tipo: "pedir_email", texto: "E agora o e-mail?" };
+    const r = erros([bem, um, dois]);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(2);
+  });
+
+  it("ERRO: duas reações a story — `storyReactionKey` só conhece a mensagem", () => {
+    const um = { id: "b_rea013", tipo: "reagir_story", emoji: "❤️" };
+    const dois = { id: "b_rea014", tipo: "reagir_story", emoji: "🔥" };
+    const r = erros([um, dois], "story");
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+  });
+
+  it("ERRO: duas respostas públicas — `commentReplyKey` só conhece o comentário", () => {
+    const um = { id: "b_pub015", tipo: "resposta_publica", textos: ["oi"] };
+    const dois = { id: "b_pub016", tipo: "resposta_publica", textos: ["oi de novo"] };
+    const r = erros([um, dois], "comment");
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+  });
+
+  it("os três dizem por que o segundo não chega, e não dizem a mesma coisa", () => {
+    // O item 5 da spec junta três tipos numa regra só, mas o MECANISMO é
+    // diferente em cada um — chave de deduplicação nos dois de baixo, o motor
+    // pulando o bloco no de cima. Uma mensagem só para os três esconderia isso
+    // justamente de quem precisa entender o que fazer com o bloco.
+    const dosEmails = erros([
+      { id: "b_eml021", tipo: "pedir_email", texto: "E-mail?" },
+      { id: "b_eml022", tipo: "pedir_email", texto: "E-mail de novo?" },
+    ])[0].mensagem;
+    const dasStories = erros(
+      [
+        { id: "b_rea023", tipo: "reagir_story", emoji: "❤️" },
+        { id: "b_rea024", tipo: "reagir_story", emoji: "🔥" },
+      ],
+      "story"
+    )[0].mensagem;
+    const dasPublicas = erros(
+      [
+        { id: "b_pub025", tipo: "resposta_publica", textos: ["oi"] },
+        { id: "b_pub026", tipo: "resposta_publica", textos: ["tchau"] },
+      ],
+      "comment"
+    )[0].mensagem;
+
+    expect(new Set([dosEmails, dasStories, dasPublicas]).size).toBe(3);
+    expect(dosEmails).toMatch(/e-mail/i);
+    expect(dasStories).toMatch(/story/i);
+    expect(dasPublicas).toMatch(/pública/i);
+  });
+
+  it("um de cada um deles continua valendo", () => {
+    // A regra é sobre o SEGUNDO, não sobre o tipo: um bloco de cada é o que
+    // `montarPassos` sempre emitiu, e nada nele é engolido.
+    const email = { id: "b_eml017", tipo: "pedir_email", texto: "Seu e-mail?" };
+    expect(erros([bem, portao, email, link])).toHaveLength(0);
+  });
+
+  it("AVISO, não erro: link antes do portão", () => {
+    // Pode ser engano, pode ser estratégia — entregar primeiro e pedir follow
+    // depois. Quem decide é o dono.
+    const r = conferirLista([bem, link, portao], "dm");
+    expect(r.filter((p) => p.nivel === "erro")).toHaveLength(0);
+    expect(r.filter((p) => p.nivel === "aviso")).toHaveLength(1);
+    // É problema da ORDEM da lista, não de um bloco: apontar o link sugeriria
+    // que o link é que está errado.
+    expect(r[0].indice).toBe(null);
+  });
+
+  it("sem portão nenhum, o link não é avisado", () => {
+    // O aviso fala do portão não segurar o link. Sem portão não há o que dizer,
+    // e avisar aqui seria ruído em toda automação que só manda um link.
+    expect(avisos([bem, link])).toHaveLength(0);
+  });
+
+  it("AVISO: espera no fim da lista não atrasa nada", () => {
+    const esperar = { id: "b_esp008", tipo: "esperar", minutos: 5 };
+    expect(avisos([bem, portao, link, esperar])).toHaveLength(1);
+    expect(avisos([bem, portao, link, esperar])[0].indice).toBe(3);
+    expect(avisos([bem, esperar, link])).toHaveLength(0);
+  });
+
+  it("acumula vários problemas em vez de parar no primeiro", () => {
+    const quebrado = { id: "b_vaz009", tipo: "dm", texto: "" };
+    const outroQuebrado = { id: "b_vaz010", tipo: "pedir_email", texto: "" };
+    const r = erros([quebrado, outroQuebrado]);
+    expect(r).toHaveLength(2);
+    // Cada um aponta o SEU bloco e diz o SEU motivo. Sem isto, dois problemas
+    // com o mesmo texto e o mesmo índice passariam por "acumulou".
+    expect(r.map((p) => p.indice)).toEqual([0, 1]);
+    expect(r[0].mensagem).not.toBe(r[1].mensagem);
+    expect(r[1].mensagem).toContain("pedir_email");
   });
 });
