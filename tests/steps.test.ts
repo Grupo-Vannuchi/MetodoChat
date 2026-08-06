@@ -8,6 +8,8 @@ import {
   interrompeOFluxo,
   indiceDoPortao,
   cursorDesta,
+  identidadeDoPasso,
+  indiceDoId,
 } from "../lib/steps";
 
 describe("interpretar", () => {
@@ -555,5 +557,61 @@ describe("retomadaDoFollow", () => {
     expect(retomadaDoFollow({ indice: 3, automationId: "B" }, "A", semPortao)).toBe(0);
     // E lista que não é lista não estoura.
     expect(retomadaDoFollow({ indice: null, automationId: null }, "A", null)).toBe(0);
+  });
+});
+
+describe("identidade do passo", () => {
+  // A identidade é o que entra na chave de deduplicação. Antes era o índice,
+  // e por isso arrastar um bloco reenviava tudo que vinha depois dele.
+
+  it("usa o id quando ele existe e tem a forma certa", () => {
+    expect(identidadeDoPasso({ id: "b_7f3a91c2", tipo: "dm", texto: "oi" }, 5)).toBe("b_7f3a91c2");
+  });
+
+  it("cai no índice quando não há id — bloco gravado antes desta fase", () => {
+    // Isto NÃO é tolerância a dado ruim: é o que faz a chave de um bloco
+    // antigo continuar igual à que já está na fila, ou seja, é o que impede
+    // o deploy de reenviar mensagem para quem já recebeu.
+    expect(identidadeDoPasso({ tipo: "dm", texto: "oi" }, 5)).toBe("5");
+  });
+
+  it("recusa id com forma errada e cai no índice", () => {
+    // Sem o prefixo `b_`, um id como "2" colidiria com a chave por índice de
+    // OUTRO bloco. O formato é a defesa contra isso.
+    expect(identidadeDoPasso({ id: "2", tipo: "dm", texto: "oi" }, 5)).toBe("5");
+    expect(identidadeDoPasso({ id: "", tipo: "dm", texto: "oi" }, 5)).toBe("5");
+    expect(identidadeDoPasso({ id: 7, tipo: "dm", texto: "oi" }, 5)).toBe("5");
+  });
+
+  it("passo que não é objeto cai no índice sem estourar", () => {
+    expect(identidadeDoPasso(null, 3)).toBe("3");
+    expect(identidadeDoPasso("x", 3)).toBe("3");
+  });
+});
+
+describe("indiceDoId", () => {
+  const lista = [
+    { id: "b_aaa111", tipo: "dm", texto: "um" },
+    { tipo: "dm", texto: "dois" },
+    { id: "b_ccc333", tipo: "dm", texto: "três" },
+  ];
+
+  it("acha o bloco pelo id, esteja ele onde estiver", () => {
+    expect(indiceDoId(lista, "b_ccc333")).toBe(2);
+  });
+
+  it("acha bloco antigo pela identidade por índice", () => {
+    // O bloco do meio não tem id; a identidade dele é "1". Um cursor gravado
+    // antes desta fase guarda exatamente isso.
+    expect(indiceDoId(lista, "1")).toBe(1);
+  });
+
+  it("devolve null quando o bloco não existe mais — foi apagado", () => {
+    expect(indiceDoId(lista, "b_zzz999")).toBe(null);
+  });
+
+  it("devolve null quando não é lista", () => {
+    expect(indiceDoId(null, "b_aaa111")).toBe(null);
+    expect(indiceDoId({}, "b_aaa111")).toBe(null);
   });
 });

@@ -9,13 +9,29 @@
 // conhece a fila. É a peça mais arriscada da mudança, e assim ela é a única
 // testável sem banco — o que importa num projeto cuja suíte não abre conexão.
 
-export type Passo =
-  | { tipo: "resposta_publica"; textos: string[] }
-  | { tipo: "dm"; texto: string; botao_label?: string; url?: string }
-  | { tipo: "esperar"; minutos: number }
-  | { tipo: "reagir_story"; emoji: string }
-  | { tipo: "pedir_follow"; texto: string; botao_label: string }
-  | { tipo: "pedir_email"; texto: string };
+// O `id` é a identidade do bloco, e ele é OPCIONAL de propósito.
+//
+// Obrigatório quebraria o que já está no banco: toda automação gravada antes
+// da Fase 1b tem passos sem id, e `conferir` passaria a recusá-los — o que
+// significa fluxo que não entrega nada, em silêncio. Opcional, o bloco antigo
+// continua valendo e `identidadeDoPasso` lhe dá a identidade que ele sempre
+// teve na prática: o índice.
+type ComId = { id?: string };
+
+export type Passo = ComId &
+  (
+    | { tipo: "resposta_publica"; textos: string[] }
+    | { tipo: "dm"; texto: string; botao_label?: string; url?: string }
+    | { tipo: "esperar"; minutos: number }
+    | { tipo: "reagir_story"; emoji: string }
+    | { tipo: "pedir_follow"; texto: string; botao_label: string }
+    | { tipo: "pedir_email"; texto: string }
+  );
+
+// A posição no quadro é gravada junto, e NÃO participa de decisão nenhuma —
+// nem de ordem, nem de validação, nem de execução. Quem define a ordem é o
+// array. Isto está aqui só para o editor reabrir do jeito que foi deixado.
+export type Posicao = { x: number; y: number };
 
 // Um passo espera resposta quando ele PEDE alguma coisa.
 //
@@ -78,6 +94,42 @@ function conferir(p: unknown): { passo?: Passo; motivo?: string } {
     return { passo: p as Passo };
   }
   return { motivo: `tipo desconhecido: ${String(tipo)}` };
+}
+
+// A forma do id, e por que ela é conferida em vez de aceita.
+//
+// A identidade entra na `dedupe_key`. Um id como "2" colidiria com a chave por
+// índice de um OUTRO bloco — a chave é a mesma string —, e colisão em
+// `dedupe_key` não dá erro: o `on conflict do nothing` engole o segundo item e
+// a pessoa deixa de receber uma mensagem, sem nada aparecer em lugar nenhum.
+// O prefixo `b_` torna isso impossível por construção.
+const FORMA_DO_ID = /^b_[0-9a-z]{6,}$/;
+
+// Quem este passo é, para efeito de deduplicação e de cursor.
+//
+// Com id, é o id: ele acompanha o bloco quando ele é arrastado, e é isso que
+// faz reordenar deixar de reenviar mensagem.
+//
+// Sem id, é o índice — e isso não é remendo. Um bloco gravado antes da Fase 1b
+// JÁ tem itens na fila com a chave por índice; devolver o índice é o que faz
+// essas chaves continuarem casando. Se devolvesse outra coisa, o primeiro
+// deploy reentregaria tudo que já saiu hoje.
+export function identidadeDoPasso(passo: unknown, indice: number): string {
+  const id = (passo as { id?: unknown } | null | undefined)?.id;
+  return typeof id === "string" && FORMA_DO_ID.test(id) ? id : String(indice);
+}
+
+// Onde, na lista de hoje, está o bloco com esta identidade.
+//
+// Null quando ele não existe mais — o dono apagou aquele bloco. Repare que
+// reordenar NÃO cai aqui: o bloco continua na lista, só mudou de lugar, e é
+// justamente por isso que o cursor sobrevive à reordenação.
+export function indiceDoId(passos: unknown, id: string): number | null {
+  if (!Array.isArray(passos)) return null;
+  for (let i = 0; i < passos.length; i++) {
+    if (identidadeDoPasso(passos[i], i) === id) return i;
+  }
+  return null;
 }
 
 // O passo em que o cursor de um contato está parado — validado, e confirmado

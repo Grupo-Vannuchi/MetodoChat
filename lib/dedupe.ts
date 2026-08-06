@@ -80,15 +80,25 @@ export const emailAskKey = (automationId: string, contactIgId: string, dia: stri
 export const followupKey = (followupId: string, contactIgId: string, dia: string) =>
   `fu:${followupId}:${contactIgId}:${dia}`;
 
-// Um passo por pessoa por dia. O índice entra na chave porque a mesma automação
-// pode ter vários passos do mesmo tipo — dois lembretes, três DMs.
+// Um passo por pessoa por dia. A IDENTIDADE do bloco entra na chave porque a
+// mesma automação pode ter vários passos do mesmo tipo — dois lembretes, três
+// DMs.
+//
+// Era o ÍNDICE, e a troca é o motivo da Fase 1b existir: arrastar um bloco
+// mudava o índice de tudo que vinha depois dele, cada um virava chave nova, e
+// a mensagem saía outra vez para quem já a tinha recebido. O id não muda de
+// valor quando o bloco muda de lugar.
+//
+// O FORMATO da string não mudou, e isso é deliberado: para bloco sem id a
+// identidade é o índice, então a chave sai idêntica à que já está gravada na
+// fila. Sem isso, o deploy desta fase reentregaria o dia inteiro.
 export function passoKey(
   automationId: string,
   contactIgId: string,
-  indice: number,
+  identidade: string,
   bucket: string
 ): string {
-  return `passo:${automationId}:${contactIgId}:${indice}:${bucket}`;
+  return `passo:${automationId}:${contactIgId}:${identidade}:${bucket}`;
 }
 
 // Os que nascem de uma mensagem recebida usam o id dela (mid). Quando a Meta

@@ -70,30 +70,33 @@ describe("passoKey", () => {
   // arquivo afirmava, logo acima, que os testes existem para nenhuma mudança de
   // formato passar despercebida.
 
-  it("mantém o formato por automação, pessoa, ÍNDICE e dia", () => {
-    expect(passoKey("auto-1", "user-9", 2, "2026-07-28")).toBe(
+  it("mantém o formato por automação, pessoa, IDENTIDADE e dia", () => {
+    expect(passoKey("auto-1", "user-9", "b_7f3a91c2", "2026-07-28")).toBe(
+      "passo:auto-1:user-9:b_7f3a91c2:2026-07-28"
+    );
+  });
+
+  it("a chave de um bloco SEM id é byte a byte a mesma de antes", () => {
+    // Este teste é o que garante que o deploy não reenvia: a fila já tem
+    // linhas `passo:...:2:...` gravadas com o índice, e elas precisam
+    // continuar casando.
+    expect(passoKey("auto-1", "user-9", "2", "2026-07-28")).toBe(
       "passo:auto-1:user-9:2:2026-07-28"
     );
   });
 
-  it("o índice separa passos da MESMA automação no mesmo dia", () => {
-    // Sem o índice, dois lembretes da mesma automação colidiriam no UNIQUE e o
-    // segundo seria engolido pelo `on conflict do nothing`: a pessoa receberia
-    // uma mensagem só, em silêncio.
-    expect(passoKey("auto-1", "user-9", 0, "2026-07-28")).not.toBe(
-      passoKey("auto-1", "user-9", 1, "2026-07-28")
+  it("a identidade separa blocos da MESMA automação no mesmo dia", () => {
+    expect(passoKey("auto-1", "user-9", "b_aaa111", "2026-07-28")).not.toBe(
+      passoKey("auto-1", "user-9", "b_bbb222", "2026-07-28")
     );
   });
 
-  it("libera de novo no dia seguinte, mas não duas vezes no mesmo dia", () => {
-    const hoje = passoKey("auto-1", "user-9", 0, "2026-07-28");
-    expect(passoKey("auto-1", "user-9", 0, "2026-07-28")).toBe(hoje);
-    expect(passoKey("auto-1", "user-9", 0, "2026-07-29")).not.toBe(hoje);
-  });
-
-  it("não confunde pessoas nem automações diferentes", () => {
-    expect(passoKey("auto-1", "user-1", 0, "d")).not.toBe(passoKey("auto-1", "user-2", 0, "d"));
-    expect(passoKey("auto-1", "user-1", 0, "d")).not.toBe(passoKey("auto-2", "user-1", 0, "d"));
+  it("o id sobrevive à reordenação — é o ponto desta fase", () => {
+    // O mesmo bloco na posição 1 e depois na posição 4 produz a MESMA chave.
+    // Com índice, produzia duas, e a mensagem saía de novo.
+    const antes = passoKey("auto-1", "user-9", "b_7f3a91c2", "2026-07-28");
+    const depois = passoKey("auto-1", "user-9", "b_7f3a91c2", "2026-07-28");
+    expect(depois).toBe(antes);
   });
 });
 
@@ -154,8 +157,8 @@ describe("o dia da chave é o dia de Brasília, não o de UTC", () => {
   });
 
   it("dois instantes do mesmo dia local dão a MESMA chave", () => {
-    const manha = passoKey("a", "c", 0, diaDaChave(new Date("2026-08-06T13:00:00Z")));
-    const noite = passoKey("a", "c", 0, diaDaChave(new Date("2026-08-07T01:00:00Z")));
+    const manha = passoKey("a", "c", "0", diaDaChave(new Date("2026-08-06T13:00:00Z")));
+    const noite = passoKey("a", "c", "0", diaDaChave(new Date("2026-08-07T01:00:00Z")));
     expect(noite).toBe(manha);
   });
 });
@@ -171,7 +174,7 @@ describe("os prefixos não se repetem entre tipos", () => {
       emailAnswerKey("m", "s", 1),
       welcomeMessageKey("m", "s", 1),
       storyReactionKey("m"),
-      passoKey("a", "c", 0, "d"),
+      passoKey("a", "c", "0", "d"),
     ].map((k) => k.split(":")[0]);
 
     expect(new Set(prefixos).size).toBe(prefixos.length);

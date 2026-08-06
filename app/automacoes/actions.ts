@@ -12,6 +12,26 @@ function splitList(raw: string, sep: RegExp): string[] {
     .filter(Boolean);
 }
 
+// Gera o id de um bloco novo.
+//
+// Curto de propósito: ele entra na `dedupe_key`, que é uma coluna UNIQUE
+// consultada a cada envio. Aleatoriedade suficiente para não colidir dentro de
+// UMA automação, que é o único escopo em que ele precisa ser único — tudo que
+// o consome já é qualificado pelo id da automação.
+//
+// O prefixo `b_` é obrigatório: `identidadeDoPasso` (lib/steps.ts) recusa id
+// sem ele, e o motivo está escrito lá.
+//
+// NÃO exportada: este arquivo tem `"use server"` no topo, e no Next.js 16
+// (Turbopack) TODA exportação de um arquivo `"use server"` é tratada como
+// Server Action, que é obrigada a ser assíncrona — o build falha com
+// "Server Actions must be async functions." em qualquer export que não seja.
+// `montarPassos`, única chamadora, também não é exportada, então não há
+// necessidade real de expor esta função para fora do arquivo.
+function novoIdDeBloco(): string {
+  return "b_" + Math.random().toString(36).slice(2, 10);
+}
+
 // Monta a lista de passos a partir dos campos do formulário.
 //
 // A ordem aqui reproduz a que o engine executava codificada, com UMA diferença
@@ -47,13 +67,14 @@ function montarPassos(f: {
 
   // Reação ao story vem antes de tudo: é o coraçãozinho instantâneo.
   if (f.triggers.includes("story") && f.storyReaction) {
-    passos.push({ tipo: "reagir_story", emoji: f.storyReaction });
+    passos.push({ id: novoIdDeBloco(), tipo: "reagir_story", emoji: f.storyReaction });
   }
   if (f.triggers.includes("comment") && f.publicReplies.length) {
-    passos.push({ tipo: "resposta_publica", textos: f.publicReplies });
+    passos.push({ id: novoIdDeBloco(), tipo: "resposta_publica", textos: f.publicReplies });
   }
   if (f.welcomeText.trim()) {
     passos.push({
+      id: novoIdDeBloco(),
       tipo: "dm",
       texto: f.welcomeText,
       botao_label: f.quickReplyLabel || undefined,
@@ -61,6 +82,7 @@ function montarPassos(f: {
   }
   if (f.requireFollow) {
     passos.push({
+      id: novoIdDeBloco(),
       tipo: "pedir_follow",
       texto: f.followText || "Antes de te mandar o link, me segue lá no perfil 🙏",
       botao_label: f.followButtonLabel || "Já sigo! ✅",
@@ -68,11 +90,17 @@ function montarPassos(f: {
   }
   if (f.askEmail) {
     passos.push({
+      id: novoIdDeBloco(),
       tipo: "pedir_email",
       texto: f.emailText || "Me manda seu melhor e-mail que eu te envio o link 👇",
     });
   }
   // O atraso do followup deixa de ser propriedade dele e vira passo próprio.
+  //
+  // `esperar` fica SEM id de propósito: `interpretar` (lib/steps.ts) nunca o
+  // enfileira — ele só soma no atraso do passo seguinte —, então ele nunca
+  // entra em `identidadeDoPasso` para efeito de dedupe. Dar-lhe um id seria
+  // inofensivo, mas também sem função nesta tarefa.
   for (const fu of f.followups) {
     if (fu.delay_minutes > 0) passos.push({ tipo: "esperar", minutos: fu.delay_minutes });
     if (fu.text.trim()) {
@@ -87,6 +115,7 @@ function montarPassos(f: {
       // No motor antigo essa mesma mensagem era texto puro e não esperava nada.
       const url = fu.url || undefined;
       passos.push({
+        id: novoIdDeBloco(),
         tipo: "dm",
         texto: fu.text,
         botao_label: url ? fu.button_label || undefined : undefined,

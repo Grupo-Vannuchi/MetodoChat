@@ -24,6 +24,7 @@ import {
   retomadaDoBotao,
   retomadaDoFollow,
   interrompeOFluxo,
+  identidadeDoPasso,
   type AcaoEnfileirar,
 } from "./steps";
 // `welcomeMessageKey` não é mais importado aqui: era a chave do enfileiramento
@@ -616,7 +617,12 @@ async function enfileirarPasso(
       // segundo falharia.
       dedupe_key: comentario
         ? privateReplyKey(comentario)
-        : passoKey(auto.id, contactIgId, acao.indice, dayBucket()),
+        : passoKey(
+            auto.id,
+            contactIgId,
+            identidadeDoPasso(acao.passo, acao.indice),
+            dayBucket()
+          ),
     });
     return;
   }
