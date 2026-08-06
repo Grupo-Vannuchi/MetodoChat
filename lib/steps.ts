@@ -833,6 +833,11 @@ const SO_UM_POR_LISTA: Record<string, string> = {
 // ERRO trava o salvar; AVISO explica e deixa passar. A linha entre os dois foi
 // decidida com o dono do produto: trava o que o motor não consegue executar
 // como montado, e avisa o que é incomum mas coerente.
+//
+// `esperar` com `minutos: 0` NÃO entra aqui, e isso é DECISÃO, não esquecimento:
+// uma espera de zero minutos não atrasa nada, mas também não quebra nada, e o
+// aviso de "espera no fim da lista" (mais abaixo) já pega o caso em que ela é
+// de fato inútil. Um erro ou aviso aqui, sobre o valor em si, seria ruído.
 export function conferirLista(passos: unknown, gatilho: string): Problema[] {
   const r: Problema[] = [];
 
@@ -849,7 +854,10 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
   }
 
   let portoes = 0;
-  let linkAntesDoPortao = false;
+  // Guarda o ÍNDICE do primeiro link antes do portão, não só se existe um.
+  // Sem o índice, o aviso não tinha onde acender — `Problema.indice` ficava
+  // `null` e o editor (Tarefa 5) não tinha como destacar o bloco culpado.
+  let indiceDoLinkAntesDoPortao: number | null = null;
   const jaVistos = new Set<string>();
 
   for (let i = 0; i < passos.length; i++) {
@@ -899,15 +907,51 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
       jaVistos.add(passo.tipo);
     }
 
-    if (passo.tipo === "dm" && passo.url && portoes === 0) linkAntesDoPortao = true;
+    // "Mensagem com link" (Tarefa 5) semeia SEMPRE a chave `url`, mesmo vazia
+    // — é a convenção que o editor tem que manter para esta regra funcionar.
+    // "Mensagem" e "Mensagem com botão" NUNCA gravam essa chave. Com isso,
+    // `"url" in passo` distingue os três itens da paleta que o dado sozinho
+    // não distingue: sem a chave, é resposta rápida de verdade (válida);
+    // com a chave presente E vazia, é link a que ninguém deu endereço.
+    //
+    // O MECANISMO por inteiro: um bloco `dm_link` sem endereço salva
+    // `{tipo:"dm", texto, botao_label:"Abrir link", url:""}`. `esperaResposta`
+    // faz `Boolean(botao_label) && !url` — `""` é falso, então `!url` é
+    // verdadeiro — e o bloco vira resposta rápida aos olhos do motor: o fluxo
+    // ENFILEIRA esse passo e PARA nele, esperando o toque num botão que não
+    // tem endereço nenhum para abrir. É parada dura, calada, para sempre — o
+    // mesmo defeito que a fase anterior registrou (lembrete salvo sem link).
+    //
+    // ISTO SÓ VALE enquanto o editor mantiver a convenção. Se ele passar a
+    // semear `url` (mesmo vazia) num bloco de resposta rápida, todo bloco
+    // desse tipo passaria a acender este erro à toa; se ele apagar a chave de
+    // um `dm_link` sem endereço, esta regra deixa de disparar em silêncio e o
+    // defeito volta a passar batido.
+    if (passo.tipo === "dm" && "url" in passo && !passo.url) {
+      r.push({
+        nivel: "erro",
+        indice: i,
+        mensagem:
+          "Mensagem com link sem endereço trava o fluxo para sempre: ele para aqui esperando o toque num botão que não leva a lugar nenhum.",
+      });
+    }
+
+    if (
+      passo.tipo === "dm" &&
+      passo.url &&
+      portoes === 0 &&
+      indiceDoLinkAntesDoPortao === null
+    ) {
+      indiceDoLinkAntesDoPortao = i;
+    }
   }
 
   // Sem portão nenhum não há o que avisar: o link chegar a quem não segue é o
   // que a automação faz, não um descuido de ordem.
-  if (linkAntesDoPortao && portoes > 0) {
+  if (indiceDoLinkAntesDoPortao !== null && portoes > 0) {
     r.push({
       nivel: "aviso",
-      indice: null,
+      indice: indiceDoLinkAntesDoPortao,
       mensagem:
         "O link sai antes do pedido de follow, então quem não segue recebe o link mesmo assim. O portão só segura o que vier depois dele.",
     });

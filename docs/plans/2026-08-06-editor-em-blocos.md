@@ -1409,6 +1409,24 @@ export function arranjoAutomatico(passos: Passo[]): Passo[] {
 > `lib/steps.ts` na Tarefa 5, junto com o comentário que já está escrito lá:
 > `type ComId = { id?: string; pos?: Posicao };`
 
+> **REQUISITO — a convenção da chave `url`, obrigatória para o sexto erro de
+> `conferirLista` (lib/steps.ts) funcionar:** `blocoNovo("dm_link")` tem que
+> gravar a chave `url`, MESMO VAZIA (o código acima já faz isso:
+> `url: ""`) — é a chave presente e vazia que marca a intenção "isto é um
+> botão de link" mesmo antes de o dono digitar o endereço. `blocoNovo("dm")` e
+> `blocoNovo("dm_botao")` têm que NUNCA gravar essa chave (o código acima
+> também já faz isso certo: nenhum dos dois casos inclui `url`).
+>
+> A distinção importa porque o dado sozinho não separa os três itens da
+> paleta: um `dm_link` sem endereço e um `dm_botao` de resposta rápida têm os
+> dois `botao_label` presente e `url` "falsy" aos olhos de `esperaResposta`
+> (lib/steps.ts) — a diferença só existe na presença ou ausência da CHAVE.
+> `conferirLista` usa exatamente essa presença/ausência (`"url" in passo`)
+> para acusar "mensagem com link sem endereço" sem confundir com "resposta
+> rápida válida". Se este passo, ou qualquer edição posterior de um bloco
+> (Tarefa 7, o painel), passar a semear `url` num `dm`/`dm_botao`, ou a apagar
+> a chave de um `dm_link` sem endereço, a regra para de valer — em silêncio.
+
 - [ ] **Passo 3: o nó**
 
 Crie `app/automacoes/editor/no.tsx`:

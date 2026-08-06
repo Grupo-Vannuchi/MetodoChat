@@ -1232,15 +1232,24 @@ describe("conferirLista", () => {
     expect(erros([bem, portao, email, link])).toHaveLength(0);
   });
 
-  it("AVISO, não erro: link antes do portão", () => {
+  it("AVISO, não erro: link antes do portão, apontando o BLOCO do link", () => {
     // Pode ser engano, pode ser estratégia — entregar primeiro e pedir follow
-    // depois. Quem decide é o dono.
+    // depois. Quem decide é o dono; a mensagem continua falando da ORDEM, que
+    // é onde o problema está.
+    //
+    // O índice, porém, tem que ser fixado: sem ele o editor (Tarefa 5) não
+    // tem onde acender o culpado. `link` está no índice 1 desta lista.
     const r = conferirLista([bem, link, portao], "dm");
     expect(r.filter((p) => p.nivel === "erro")).toHaveLength(0);
     expect(r.filter((p) => p.nivel === "aviso")).toHaveLength(1);
-    // É problema da ORDEM da lista, não de um bloco: apontar o link sugeriria
-    // que o link é que está errado.
-    expect(r[0].indice).toBe(null);
+    expect(r[0].indice).toBe(1);
+  });
+
+  it("aponta o PRIMEIRO link antes do portão, quando há mais de um", () => {
+    const outroLink = { id: "b_lnk099", tipo: "dm", texto: "Outro link", url: "https://z.com" };
+    const r = conferirLista([bem, link, outroLink, portao], "dm");
+    expect(r.filter((p) => p.nivel === "aviso")).toHaveLength(1);
+    expect(r.filter((p) => p.nivel === "aviso")[0].indice).toBe(1);
   });
 
   it("sem portão nenhum, o link não é avisado", () => {
@@ -1254,6 +1263,43 @@ describe("conferirLista", () => {
     expect(avisos([bem, portao, link, esperar])).toHaveLength(1);
     expect(avisos([bem, portao, link, esperar])[0].indice).toBe(3);
     expect(avisos([bem, esperar, link])).toHaveLength(0);
+  });
+
+  it("ERRO: link sem endereço trava o fluxo para sempre — a chave `url` presente e vazia acusa", () => {
+    // O defeito de verdade: `blocoNovo("dm_link")` (Tarefa 5) semeia `url: ""`.
+    // Sem endereço digitado, o bloco fica `{tipo:"dm", texto, botao_label,
+    // url:""}` — `esperaResposta` (lib/steps.ts) faz `Boolean(botao_label) &&
+    // !url`, `""` é falso, e o bloco vira resposta rápida aos olhos do motor:
+    // o fluxo para nele para sempre, esperando o toque num botão sem endereço.
+    const semEndereco = {
+      id: "b_lnk020",
+      tipo: "dm",
+      texto: "Aqui está o link!",
+      botao_label: "Abrir link",
+      url: "",
+    };
+    const r = erros([bem, semEndereco]);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+    expect(r[0].mensagem).toMatch(/trava o fluxo/i);
+  });
+
+  it("bloco de resposta rápida — SEM a chave `url` — não dá erro nenhum", () => {
+    // É exatamente o que a convenção promete: `dm_botao` nunca grava `url`, e
+    // é a AUSÊNCIA da chave (não o valor) que diferencia esse bloco válido do
+    // link sem endereço acima. Confundir os dois faria todo `dm_botao` da
+    // paleta acender um erro que não existe.
+    const respostaRapida = {
+      id: "b_bot021",
+      tipo: "dm",
+      texto: "Confirma?",
+      botao_label: "Confirmo",
+    };
+    expect(erros([bem, respostaRapida])).toHaveLength(0);
+  });
+
+  it("link COM endereço não dá erro, mesmo com a chave presente", () => {
+    expect(erros([bem, link])).toHaveLength(0);
   });
 
   it("acumula vários problemas em vez de parar no primeiro", () => {
