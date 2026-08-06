@@ -973,6 +973,26 @@ export type Problema = {
 export function conferirLista(passos: unknown, gatilho: string): Problema[]
 ```
 
+**O que impede salvar** (a lista da spec, `docs/specs/2026-08-06-editor-em-blocos.md`):
+
+1. Lista sem nenhum bloco — entrega zero.
+2. Bloco com campo obrigatório vazio — `interpretar` o ignora, e quem montou
+   acha que mandou.
+3. Bloco que não pode disparar naquele gatilho.
+4. Dois portões de follow na mesma lista.
+5. **Mais de um bloco de `pedir_email`, de `reagir_story` ou de
+   `resposta_publica`** — a chave de deduplicação desses três NÃO distingue o
+   bloco, então o segundo nunca é enviado. Só `passoKey` ganhou identidade na
+   Tarefa 1; as irmãs continuam sem conhecer o bloco:
+   `emailAskKey(auto, pessoa, dia)` é a mesma para os dois pedidos de e-mail do
+   dia, `storyReactionKey(message_id)` a mesma para as duas reações, e
+   `commentReplyKey(comment_id)` a mesma para as duas respostas públicas. O
+   `on conflict do nothing` engole o segundo item sem erro nenhum. Até a Fase 1b
+   isso era inalcançável — `montarPassos` emite no máximo um de cada —, mas o
+   quadro monta lista livre, então passa a ser montável. É a mesma regra do
+   item 4, bloquear o que o motor engoliria em silêncio. `followGateKey` tem o
+   mesmo buraco e não precisa de regra própria: o item 4 já barra dois portões.
+
 - [ ] **Passo 1: escreva os testes que falham**
 
 ```ts
@@ -1018,6 +1038,39 @@ describe("conferirLista", () => {
     const r = erros([bem, portao, outro]);
     expect(r).toHaveLength(1);
     expect(r[0].indice).toBe(2);
+  });
+
+  it("ERRO: dois pedidos de e-mail — a chave deles não distingue o bloco", () => {
+    // `emailAskKey(auto, pessoa, dia)` é a MESMA string para os dois: o
+    // `on conflict do nothing` engole o segundo e ele nunca é enviado.
+    const um = { id: "b_eml011", tipo: "pedir_email", texto: "Seu e-mail?" };
+    const dois = { id: "b_eml012", tipo: "pedir_email", texto: "E agora o e-mail?" };
+    const r = erros([bem, um, dois]);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(2);
+  });
+
+  it("ERRO: duas reações a story — `storyReactionKey` só conhece a mensagem", () => {
+    const um = { id: "b_rea013", tipo: "reagir_story", emoji: "❤️" };
+    const dois = { id: "b_rea014", tipo: "reagir_story", emoji: "🔥" };
+    const r = erros([um, dois], "story");
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+  });
+
+  it("ERRO: duas respostas públicas — `commentReplyKey` só conhece o comentário", () => {
+    const um = { id: "b_pub015", tipo: "resposta_publica", textos: ["oi"] };
+    const dois = { id: "b_pub016", tipo: "resposta_publica", textos: ["oi de novo"] };
+    const r = erros([um, dois], "comment");
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+  });
+
+  it("um de cada um deles continua valendo", () => {
+    // A regra é sobre o SEGUNDO, não sobre o tipo: um bloco de cada é o que
+    // `montarPassos` sempre emitiu, e nada nele é engolido.
+    const email = { id: "b_eml017", tipo: "pedir_email", texto: "Seu e-mail?" };
+    expect(erros([bem, portao, email, link])).toHaveLength(0);
   });
 
   it("AVISO, não erro: link antes do portão", () => {
@@ -1084,6 +1137,22 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
   let linkAntesDoPortao = false;
   let jaTevePortao = false;
 
+  // Os três tipos cuja chave de deduplicação NÃO conhece o bloco. `passoKey`
+  // ganhou identidade na Tarefa 1; estas não: `emailAskKey` é por
+  // automação+pessoa+dia, `storyReactionKey` e `commentReplyKey` são pelo id da
+  // mensagem e do comentário. Dois na mesma lista produzem a MESMA chave, e o
+  // `on conflict do nothing` engole o segundo sem erro — quem montou acha que
+  // mandou e não mandou. Ver "O que impede salvar", item 5.
+  const CHAVE_SEM_BLOCO: Record<string, string> = {
+    pedir_email:
+      "Só pode haver um pedido de e-mail. O segundo sai com a mesma chave de envio do primeiro, e por isso nunca é entregue.",
+    reagir_story:
+      "Só pode haver uma reação à story. A segunda sai com a mesma chave de envio da primeira, e por isso nunca é entregue.",
+    resposta_publica:
+      "Só pode haver uma resposta pública. A segunda sai com a mesma chave de envio da primeira, e por isso nunca é entregue.",
+  };
+  const jaVistos = new Set<string>();
+
   for (let i = 0; i < passos.length; i++) {
     const { passo, motivo } = conferir(passos[i]);
 
@@ -1114,6 +1183,14 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
         });
       }
       jaTevePortao = true;
+    }
+
+    const repetivel = CHAVE_SEM_BLOCO[passo.tipo];
+    if (repetivel) {
+      if (jaVistos.has(passo.tipo)) {
+        r.push({ nivel: "erro", indice: i, mensagem: repetivel });
+      }
+      jaVistos.add(passo.tipo);
     }
 
     if (passo.tipo === "dm" && passo.url && !jaTevePortao) linkAntesDoPortao = true;

@@ -11,6 +11,10 @@ import {
   passoKey,
   diaDaChave,
 } from "@/lib/dedupe";
+// A afirmação "o id sobrevive à reordenação" é sobre a COMPOSIÇÃO das duas
+// funções: `identidadeDoPasso` é quem lê a posição, e `passoKey` é quem a
+// transforma em chave. Testar só uma delas não afirma nada sobre arrastar.
+import { identidadeDoPasso } from "@/lib/steps";
 
 // A coluna dedupe_key é UNIQUE e o enqueue usa `on conflict do nothing`. Esse
 // par é a ÚNICA coisa que impede a mesma pessoa de receber a mesma mensagem
@@ -92,11 +96,48 @@ describe("passoKey", () => {
   });
 
   it("o id sobrevive à reordenação — é o ponto desta fase", () => {
-    // O mesmo bloco na posição 1 e depois na posição 4 produz a MESMA chave.
-    // Com índice, produzia duas, e a mensagem saía de novo.
-    const antes = passoKey("auto-1", "user-9", "b_7f3a91c2", "2026-07-28");
-    const depois = passoKey("auto-1", "user-9", "b_7f3a91c2", "2026-07-28");
-    expect(depois).toBe(antes);
+    // A MESMA lista em duas ordens. O bloco muda de posição e a chave não muda —
+    // é isto que faz arrastar deixar de reenviar mensagem.
+    //
+    // A versão anterior deste teste chamava `passoKey` duas vezes com os mesmos
+    // quatro literais e comparava os resultados: passava com
+    // `passoKey = () => "x"`, e nenhuma posição entrava nele. Quem carrega a
+    // afirmação é a COMPOSIÇÃO com `identidadeDoPasso`, porque é ela que lê a
+    // posição — sem ela não há reordenação nenhuma no teste.
+    const a = { id: "b_aaa111", tipo: "dm", texto: "um" };
+    const b = { id: "b_bbb222", tipo: "dm", texto: "dois" };
+    const antes = [a, b];
+    const depois = [b, a];
+    expect(passoKey("auto-1", "user-9", identidadeDoPasso(depois[1], 1), "2026-07-28")).toBe(
+      passoKey("auto-1", "user-9", identidadeDoPasso(antes[0], 0), "2026-07-28")
+    );
+  });
+
+  // As duas guardas abaixo se perderam quando os testes por índice foram
+  // substituídos pelos de identidade. Elas continuavam cobertas só via
+  // `followupKey`, que o topo de lib/dedupe.ts marca como MORTA — na prática,
+  // guarda de função viva trocada por guarda de função sem chamador.
+
+  it("o balde de dia separa: a mesma identidade em dias diferentes não colide", () => {
+    // O balde é o que deixa a mesma automação entregar de novo AMANHÃ sem
+    // entregar duas vezes hoje. Sem ele, quem acionasse a automação de novo no
+    // dia seguinte não receberia nada.
+    const hoje = passoKey("auto-1", "user-9", "b_aaa111", "2026-07-28");
+    const amanha = passoKey("auto-1", "user-9", "b_aaa111", "2026-07-29");
+    expect(hoje).not.toBe(amanha);
+    // E, dentro do mesmo dia, a chave é estável — é ela que segura a repetição.
+    expect(passoKey("auto-1", "user-9", "b_aaa111", "2026-07-28")).toBe(hoje);
+  });
+
+  it("pessoas diferentes e automações diferentes não colidem", () => {
+    // Colisão aqui não dá erro: o `on conflict do nothing` engole o segundo item
+    // e alguém simplesmente deixa de receber a mensagem, sem rastro.
+    expect(passoKey("auto-1", "user-1", "b_aaa111", "2026-07-28")).not.toBe(
+      passoKey("auto-1", "user-2", "b_aaa111", "2026-07-28")
+    );
+    expect(passoKey("auto-1", "user-9", "b_aaa111", "2026-07-28")).not.toBe(
+      passoKey("auto-2", "user-9", "b_aaa111", "2026-07-28")
+    );
   });
 });
 

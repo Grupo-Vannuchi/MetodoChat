@@ -205,11 +205,28 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[]
    automação de DM.
 4. **Dois portões de follow na mesma lista** — decisão explícita do dono do
    produto.
+5. **Mais de um bloco de `pedir_email`, de `reagir_story` ou de
+   `resposta_publica`** — a chave de deduplicação desses três não distingue o
+   bloco, então o segundo nunca é enviado. Só `passoKey` ganhou identidade na
+   Fase 1b; as irmãs não conhecem o bloco: `emailAskKey(auto, pessoa, dia)` é a
+   mesma para os dois pedidos de e-mail do dia, `storyReactionKey(message_id)` a
+   mesma para as duas reações à mesma story, `commentReplyKey(comment_id)` a
+   mesma para as duas respostas ao mesmo comentário. O `on conflict do nothing`
+   engole o segundo sem erro, e quem montou a lista acha que mandou e não
+   mandou. É a mesma regra do item 4 — bloquear o que o motor engoliria em
+   silêncio — aplicada aos casos que a revisão da Tarefa 1 encontrou.
 
 O item 4 vale registrar: com `AUTO:<automação>:<bloco>` a ambiguidade técnica
 some, e permitir dois portões passaria a custar zero. O bloqueio fica porque
 foi pedido, não porque é necessário. Se um dia virar pedido inverso, é apagar
 uma regra.
+
+O item 5 é diferente: ele não é decisão de produto, é limite do motor. Sai da
+lista no dia em que as três chaves passarem a levar a identidade do bloco, como
+`passoKey` já leva. Enquanto não passarem, permitir o segundo bloco é prometer
+um envio que nunca acontece. `followGateKey` tem exatamente o mesmo buraco, mas
+o item 4 já barra dois portões de follow, então ele não é alcançável pelo
+editor.
 
 ### O que apenas avisa
 

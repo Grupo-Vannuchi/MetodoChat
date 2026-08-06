@@ -610,6 +610,38 @@ describe("indiceDoId", () => {
     expect(indiceDoId(lista, "b_zzz999")).toBe(null);
   });
 
+  it("SEM id, editar a lista faz a identidade apontar OUTRO bloco — limitação conhecida", () => {
+    // Este teste DOCUMENTA UMA LIMITAÇÃO, não um comportamento desejado.
+    //
+    // Para bloco sem id a identidade é a posição, e posição não acompanha o
+    // bloco. Apagar um bloco antes dele não devolve null: devolve outro bloco,
+    // calado. É o modo de falhar mais caro que existe aqui, porque o cursor
+    // (Tarefa 2) é montado em cima desta função e retomar do bloco errado é
+    // entregar o link a quem não segue.
+    //
+    // O que segura isso é o dado, não o código: a migração
+    // (scripts/dar-ids-aos-passos.mjs) dá id a todo bloco já gravado, e
+    // `montarPassos` grava id em tudo que cria. O teste existe para a premissa
+    // não deixar de valer em silêncio.
+    // São precisos DOIS blocos sem id para o erro ser SILENCIOSO. Com um só, a
+    // identidade some da lista e a função devolve null — errado, mas barulhento.
+    const antes = [
+      { id: "b_aaa111", tipo: "dm", texto: "um" },
+      { tipo: "dm", texto: "dois" }, // sem id: identidade "1"
+      { tipo: "dm", texto: "três" }, // sem id: identidade "2"
+    ];
+    const i = indiceDoId(antes, "1");
+    expect(antes[i ?? -1]).toBe(antes[1]);
+
+    // O dono apaga o primeiro bloco. As identidades viram "0" e "1".
+    const depois = [antes[1], antes[2]];
+    const j = indiceDoId(depois, "1");
+    // Não é null — é isto que o comentário de `indiceDoId` afirmava ao contrário.
+    expect(j).toBe(1);
+    expect(depois[j ?? -1]).toBe(antes[2]);
+    expect(depois[j ?? -1]).not.toBe(antes[1]);
+  });
+
   it("devolve null quando não é lista", () => {
     expect(indiceDoId(null, "b_aaa111")).toBe(null);
     expect(indiceDoId({}, "b_aaa111")).toBe(null);

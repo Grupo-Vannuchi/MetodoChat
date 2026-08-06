@@ -11,11 +11,21 @@
 
 // O `id` é a identidade do bloco, e ele é OPCIONAL de propósito.
 //
-// Obrigatório quebraria o que já está no banco: toda automação gravada antes
-// da Fase 1b tem passos sem id, e `conferir` passaria a recusá-los — o que
-// significa fluxo que não entrega nada, em silêncio. Opcional, o bloco antigo
-// continua valendo e `identidadeDoPasso` lhe dá a identidade que ele sempre
-// teve na prática: o índice.
+// O motivo NÃO é execução, e vale dizer porque a explicação anterior dizia que
+// era: `conferir` nunca lê `o.id` — ela valida `tipo`, `texto`, `minutos`,
+// `textos` e `emoji` —, e o `steps` chega do banco como `unknown[]`, ou seja,
+// nada confere este tipo em runtime. Exigir `id` não recusaria bloco antigo
+// nenhum; seria mudança só de tipo, sem efeito em execução.
+//
+// O motivo real é de TIPO, e é concreto: `Passo` é o que todo literal de passo
+// precisa satisfazer, aqui e nos testes. Com `id` obrigatório, cada lista
+// escrita à mão em tests/steps.test.ts — dezenas delas, que existem para fixar
+// decisão de FLUXO e para as quais a identidade do bloco é irrelevante —
+// deixaria de compilar, e o `tsc` do `npm run verify` só voltaria ao verde
+// depois de inventar um id em cada uma.
+//
+// E o bloco antigo segue valendo de qualquer jeito: `identidadeDoPasso` lhe dá
+// a identidade que ele sempre teve na prática, o índice.
 type ComId = { id?: string };
 
 export type Passo = ComId &
@@ -121,9 +131,35 @@ export function identidadeDoPasso(passo: unknown, indice: number): string {
 
 // Onde, na lista de hoje, está o bloco com esta identidade.
 //
-// Null quando ele não existe mais — o dono apagou aquele bloco. Repare que
-// reordenar NÃO cai aqui: o bloco continua na lista, só mudou de lugar, e é
-// justamente por isso que o cursor sobrevive à reordenação.
+// COM ID, a garantia é firme, e é a razão desta fase existir: null quando o
+// bloco não existe mais — o dono o apagou —, e reordenar NÃO cai aqui, porque o
+// bloco continua na lista e só mudou de lugar. É isso que faz o cursor
+// sobreviver à reordenação.
+//
+// SEM ID a garantia NÃO VALE, e o modo de falhar é o pior possível: a identidade
+// É a posição, então ela não acompanha o bloco. Apagar ou inserir na lista faz a
+// mesma identidade resolver para OUTRO bloco, calado — não devolve null:
+//
+//   [ {id:b_aaa}, {sem id: dois}, {sem id: três} ]   identidades: b_aaa, "1", "2"
+//   apaga o primeiro:
+//   [ {sem id: dois}, {sem id: três} ]               identidades: "0", "1"
+//   indiceDoId(lista, "1") → 1                       que agora é "três", OUTRO bloco
+//
+// Repare que são precisos DOIS blocos sem id para o erro aparecer. Com um só, a
+// identidade procurada some da lista e a função devolve null — errado também,
+// mas barulhento. É a vizinhança de blocos sem id que troca um pelo outro em
+// silêncio, e silêncio é o que custa caro.
+//
+// Isso importa porque o cursor (Tarefa 2) é montado em cima desta função, e
+// retomar do bloco errado é o defeito que a fase anterior gastou duas ondas para
+// matar — entregar o link a quem não segue.
+//
+// O que segura o caso na prática é o DADO, não esta função: o script
+// `scripts/dar-ids-aos-passos.mjs` dá id a todo bloco de toda automação já
+// gravada, e `montarPassos` (app/automacoes/actions.ts) grava id em tudo que
+// cria, `esperar` inclusive. Depois disso, lista com bloco sem id não é
+// produzida por caminho nenhum do sistema. O teste em tests/steps.test.ts fixa a
+// limitação para ela não voltar em silêncio se essa premissa mudar.
 export function indiceDoId(passos: unknown, id: string): number | null {
   if (!Array.isArray(passos)) return null;
   for (let i = 0; i < passos.length; i++) {
