@@ -97,12 +97,15 @@ function montarPassos(f: {
   }
   // O atraso do followup deixa de ser propriedade dele e vira passo próprio.
   //
-  // `esperar` fica SEM id de propósito: `interpretar` (lib/steps.ts) nunca o
-  // enfileira — ele só soma no atraso do passo seguinte —, então ele nunca
-  // entra em `identidadeDoPasso` para efeito de dedupe. Dar-lhe um id seria
-  // inofensivo, mas também sem função nesta tarefa.
+  // Todo passo leva id, inclusive `esperar` — que `interpretar` (lib/steps.ts)
+  // nunca enfileira, então nunca passa por `identidadeDoPasso` para efeito de
+  // dedupe. Mas o id não serve só à dedupe: na Fase 1b (editor em blocos) ele
+  // também é o id do nó no React Flow, e o editor precisa desenhar e permitir
+  // arrastar todo bloco do quadro, mesmo os que o motor não enfileira. Sem id
+  // o nó nasce com `id: undefined`, que a biblioteca recusa.
   for (const fu of f.followups) {
-    if (fu.delay_minutes > 0) passos.push({ tipo: "esperar", minutos: fu.delay_minutes });
+    if (fu.delay_minutes > 0)
+      passos.push({ id: novoIdDeBloco(), tipo: "esperar", minutos: fu.delay_minutes });
     if (fu.text.trim()) {
       // O rótulo do botão só entra quando existe url: sem destino não há botão
       // de link para rotular.

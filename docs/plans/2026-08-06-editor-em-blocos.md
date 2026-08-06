@@ -359,7 +359,7 @@ para `passos`. Exemplo do primeiro:
   }
 ```
 
-Faça o mesmo nos outros cinco pontos de `passos.push` da função.
+Faça o mesmo nos outros seis pontos de `passos.push` da função.
 
 > **Atenção, e isto é consequência real:** `montarPassos` roda a cada salvamento
 > do formulário e gera ids **novos** toda vez. Ou seja, salvar pelo formulário
