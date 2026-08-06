@@ -72,38 +72,83 @@ export type Resultado = {
 };
 
 // Valida e normaliza um passo. Devolve o motivo quando não dá para usar.
-function conferir(p: unknown): { passo?: Passo; motivo?: string } {
-  if (!p || typeof p !== "object") return { motivo: "passo não é um objeto" };
+//
+// DOIS textos para a mesma falha, e não um, porque eles têm dois leitores.
+//
+// `motivo` é técnico e nomeia o campo: ele vai para os `ignorados` de
+// `interpretar`, que são diagnóstico — quem os lê está atrás do defeito e
+// conhece o código.
+//
+// `paraODono` é a mesma falha na língua de quem monta a automação, e é o que
+// `conferirLista` mostra na tela. Antes a tela mostrava o `motivo` cru, e o dono
+// do painel lia "Bloco incompleto: pedir_email sem texto." — nome de tipo
+// interno, num painel em que todo o resto fala de "pedido de e-mail".
+//
+// Os dois saem do MESMO `return` de propósito. Numa tabela à parte, ligada por
+// chave, uma falha nova ganharia entrada de um lado e não do outro, e a tela
+// voltaria a vazar jargão — ou pior, mostraria a frase de outra falha.
+function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODono?: string } {
+  if (!p || typeof p !== "object") {
+    return {
+      motivo: "passo não é um objeto",
+      paraODono: "Este bloco está corrompido e não vai ser enviado.",
+    };
+  }
   const o = p as Record<string, unknown>;
   const tipo = o.tipo;
 
   if (tipo === "dm") {
-    if (typeof o.texto !== "string" || !o.texto.trim()) return { motivo: "dm sem texto" };
+    if (typeof o.texto !== "string" || !o.texto.trim()) {
+      return { motivo: "dm sem texto", paraODono: "Esta mensagem está sem texto." };
+    }
     return { passo: p as Passo };
   }
   if (tipo === "esperar") {
     if (typeof o.minutos !== "number" || !Number.isFinite(o.minutos) || o.minutos < 0) {
-      return { motivo: "esperar com minutos inválido" };
+      return {
+        motivo: "esperar com minutos inválido",
+        paraODono: "Esta espera está sem um tempo válido em minutos.",
+      };
     }
     return { passo: p as Passo };
   }
   if (tipo === "resposta_publica") {
-    if (!Array.isArray(o.textos) || !o.textos.length) return { motivo: "resposta pública vazia" };
+    if (!Array.isArray(o.textos) || !o.textos.length) {
+      return {
+        motivo: "resposta pública vazia",
+        paraODono: "Esta resposta pública não tem nenhum texto para publicar.",
+      };
+    }
     return { passo: p as Passo };
   }
   if (tipo === "reagir_story") {
-    if (typeof o.emoji !== "string" || !o.emoji) return { motivo: "reagir_story sem emoji" };
+    if (typeof o.emoji !== "string" || !o.emoji) {
+      return { motivo: "reagir_story sem emoji", paraODono: "Este coraçãozinho está sem emoji." };
+    }
     return { passo: p as Passo };
   }
   if (tipo === "pedir_follow") {
-    if (typeof o.texto !== "string" || !o.texto.trim()) return { motivo: "pedir_follow sem texto" };
+    if (typeof o.texto !== "string" || !o.texto.trim()) {
+      return {
+        motivo: "pedir_follow sem texto",
+        paraODono: "Este pedido de follow está sem texto.",
+      };
+    }
     return { passo: p as Passo };
   }
   if (tipo === "pedir_email") {
-    if (typeof o.texto !== "string" || !o.texto.trim()) return { motivo: "pedir_email sem texto" };
+    if (typeof o.texto !== "string" || !o.texto.trim()) {
+      return {
+        motivo: "pedir_email sem texto",
+        paraODono: "Este pedido de e-mail está sem texto.",
+      };
+    }
     return { passo: p as Passo };
   }
-  return { motivo: `tipo desconhecido: ${String(tipo)}` };
+  return {
+    motivo: `tipo desconhecido: ${String(tipo)}`,
+    paraODono: "Este bloco é de um tipo que o sistema não reconhece e não vai ser enviado.",
+  };
 }
 
 // A forma do id, e por que ela é conferida em vez de aceita.
@@ -859,24 +904,62 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
   // `null` e o editor (Tarefa 5) não tinha como destacar o bloco culpado.
   let indiceDoLinkAntesDoPortao: number | null = null;
   const jaVistos = new Set<string>();
+  const idsVistos = new Set<string>();
 
   for (let i = 0; i < passos.length; i++) {
-    const { passo, motivo } = conferir(passos[i]);
+    const { passo, paraODono } = conferir(passos[i]);
 
     // Bloco inválido é ignorado pelo interpretador — quem montou acha que
     // mandou e não mandou. É a falha mais silenciosa que existe aqui.
+    //
+    // A mensagem é a do DONO, não o `motivo` técnico: esta lista é lida na tela
+    // por quem monta a automação. O `motivo` continua saindo, para diagnóstico,
+    // nos `ignorados` de `interpretar`, que é onde alguém atrás do defeito olha.
     if (!passo) {
-      r.push({ nivel: "erro", indice: i, mensagem: `Bloco incompleto: ${motivo}.` });
+      r.push({ nivel: "erro", indice: i, mensagem: paraODono! });
       continue;
     }
 
-    // Bloco que não pode disparar naquele gatilho nunca roda. A paleta não o
-    // oferece, mas lista vinda de fora do editor pode trazê-lo.
-    if (passo.tipo === "reagir_story" && gatilho !== "story") {
+    // Bloco que não pode disparar naquele gatilho. A paleta não o oferece, mas
+    // lista vinda de fora do editor pode trazê-lo.
+    //
+    // AS DUAS METADES TÊM MECANISMOS DIFERENTES, e por isso níveis diferentes.
+    // Elas já estiveram sob uma afirmação só — "bloco que não pode disparar
+    // naquele gatilho nunca roda" —, e essa afirmação só era verdade para uma.
+    //
+    // `resposta_publica` precisa do id do COMENTÁRIO, e só o gatilho de
+    // comentário o conhece: `handleComment` (lib/engine.ts) chama `executarFluxo`
+    // com `{ commentId }`, e nenhum outro caminho o preenche. O ramo
+    // `resposta_publica` de `enfileirarPasso` faz `if (!contexto.commentId)
+    // return`. Em qualquer outro gatilho o bloco NUNCA roda, e travar o que o
+    // motor não consegue executar é exatamente o que ERRO quer dizer aqui.
+    //
+    // `reagir_story` precisa do id da MENSAGEM, e DOIS gatilhos o fornecem. É o
+    // mesmo `handleMessage` (lib/engine.ts) que atende a resposta de story e a
+    // DM comum — `const trigger = isStoryReply ? "story" : "dm"` decide só qual
+    // automação casa —, e ele chama `executarFluxo(..., { messageId: msg.mid })`
+    // nos dois. `enfileirarPasso` não exige mais nada, e `lib/queue-drain.ts`
+    // entrega: o comentário de lá diz literalmente "reação na mensagem que a
+    // pessoa mandou". No gatilho `dm` o coraçãozinho RODA, então travar o salvar
+    // travaria uma lista que o motor executa — é AVISO, e o texto diz o que vai
+    // acontecer de fato, porque é incomum e o dono pode ter querido outra coisa.
+    //
+    // No gatilho de comentário não há mensagem nenhuma a que reagir, e aí o
+    // bloco volta a nunca rodar: ERRO, pelo mesmo critério da metade de cima.
+    if (passo.tipo === "reagir_story" && gatilho === "dm") {
+      r.push({
+        nivel: "aviso",
+        indice: i,
+        mensagem:
+          "Neste gatilho o coraçãozinho não vai para a story: ele reage à mensagem que a pessoa mandou.",
+      });
+    }
+    if (passo.tipo === "reagir_story" && gatilho !== "dm" && gatilho !== "story") {
       r.push({
         nivel: "erro",
         indice: i,
-        mensagem: "O coraçãozinho só funciona no gatilho de story.",
+        mensagem:
+          "O coraçãozinho precisa de uma mensagem para reagir, e neste gatilho não chega nenhuma.",
       });
     }
     if (passo.tipo === "resposta_publica" && gatilho !== "comment") {
@@ -885,6 +968,79 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
         indice: i,
         mensagem: "A resposta pública só funciona no gatilho de comentário.",
       });
+    }
+
+    // Resposta pública com todos os textos em branco não é publicada, e o motor
+    // documenta isso: `enfileirarPasso` (lib/engine.ts) sorteia um dos textos e
+    // faz `if (!texto?.trim()) return` — sem enfileirar, sem `step_ignorado`,
+    // sem nada em Atividade. `conferir`, acima, só exige que a lista não esteja
+    // VAZIA, então `{textos:[""]}` passa por ela inteira.
+    //
+    // Basta UM texto aproveitável para a regra calar, e isso é deliberado: com
+    // uma mistura de textos cheios e vazios o sorteio às vezes cai no vazio e a
+    // resposta some naquela vez. É perda real, mas é intermitente e não trava
+    // nada — travar o salvar por causa dela recusaria lista que funciona na
+    // maioria dos disparos. Fica registrado aqui para quem quiser transformá-lo
+    // num aviso próprio depois.
+    if (
+      passo.tipo === "resposta_publica" &&
+      !passo.textos.some((t) => typeof t === "string" && t.trim())
+    ) {
+      r.push({
+        nivel: "erro",
+        indice: i,
+        mensagem:
+          "Esta resposta pública está em branco, e por isso não é publicada: o motor sorteia um dos textos e desiste quando ele não tem nada escrito.",
+      });
+    }
+
+    // A IDENTIDADE DO BLOCO, e por que ela é conferida aqui.
+    //
+    // Esta validação existe porque o `id` PASSA A VIR DE FORA. Até a Tarefa 6 só
+    // `montarPassos` e o script de migração o produziam, os dois com
+    // `novoIdDeBloco()`, e a forma era certa por construção. A partir dela o id
+    // é montado no NAVEGADOR e chega pelo Server Action — e nada vindo do
+    // navegador é confiável. `conferirLista` é a única validação do lado do
+    // servidor, então o que ela não pegar não é pego por ninguém.
+    //
+    // O que quebra nos dois casos é a `dedupe_key`, e ela quebra CALADA: o `on
+    // conflict do nothing` do enqueue engole o item repetido sem erro nenhum, e
+    // a pessoa deixa de receber uma mensagem sem que nada apareça em lugar
+    // nenhum.
+    //
+    // ID REPETIDO: dois blocos com o mesmo id têm a mesma `passoKey`, e o
+    // segundo envio some. Duplicar um bloco no editor é exatamente o gesto que
+    // produz isso, e é um gesto que o quadro vai oferecer.
+    //
+    // ID FORA DA FORMA: `identidadeDoPasso` recusa o id e cai no ÍNDICE, e aí a
+    // chave colide com a de outro bloco que também esteja sem id válido — a
+    // colisão que `FORMA_DO_ID` foi criada para tornar impossível. Um id "2" é
+    // a mesma string que o índice 2 de um bloco vizinho.
+    //
+    // SEM `id` NENHUM não é erro, e isso é decisão. Bloco sem id é o que toda
+    // automação anterior à Fase 1b tem gravado, e `identidadeDoPasso` lhe dá a
+    // identidade que ele sempre teve na prática, o índice. Recusá-lo trancaria o
+    // dono fora do painel de toda lista antiga — o mesmo estrago que a condição
+    // pela metade do link sem endereço causou.
+    const idBruto = (passos[i] as { id?: unknown }).id;
+    if (idBruto !== undefined) {
+      if (typeof idBruto !== "string" || !FORMA_DO_ID.test(idBruto)) {
+        r.push({
+          nivel: "erro",
+          indice: i,
+          mensagem:
+            "Este bloco tem uma identidade inválida. Ela é o que separa um envio do outro, e com essa identidade uma das mensagens da automação deixa de ser entregue, sem aviso.",
+        });
+      } else if (idsVistos.has(idBruto)) {
+        r.push({
+          nivel: "erro",
+          indice: i,
+          mensagem:
+            "Dois blocos têm a mesma identidade. Só o primeiro é entregue — o segundo é descartado no envio, sem aviso.",
+        });
+      } else {
+        idsVistos.add(idBruto);
+      }
     }
 
     if (passo.tipo === "pedir_follow") {
@@ -909,10 +1065,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
 
     // "Mensagem com link" (Tarefa 5) semeia SEMPRE a chave `url`, mesmo vazia
     // — é a convenção que o editor tem que manter para esta regra funcionar.
-    // "Mensagem" e "Mensagem com botão" NUNCA gravam essa chave. Com isso,
-    // `"url" in passo` distingue os três itens da paleta que o dado sozinho
-    // não distingue: sem a chave, é resposta rápida de verdade (válida);
-    // com a chave presente E vazia, é link a que ninguém deu endereço.
+    // "Mensagem" e "Mensagem com botão" NUNCA gravam essa chave.
     //
     // O MECANISMO por inteiro: um bloco `dm_link` sem endereço salva
     // `{tipo:"dm", texto, botao_label:"Abrir link", url:""}`. `esperaResposta`
@@ -922,12 +1075,61 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     // tem endereço nenhum para abrir. É parada dura, calada, para sempre — o
     // mesmo defeito que a fase anterior registrou (lembrete salvo sem link).
     //
+    // A CONDIÇÃO ESPELHA `esperaResposta`, e ela tem que espelhá-la INTEIRA. A
+    // versão anterior conferia só o `!url` e deixava o `botao_label` de fora —
+    // metade do mecanismo —, e por isso recusava uma DM comum que funciona.
+    // São três partes, e cada uma exclui uma forma legítima:
+    //
+    //   `botao_label` PRESENTE — é o que faz `esperaResposta` dizer sim, e sem
+    //     ele não há parada dura nenhuma a acusar: `{tipo:"dm", texto, url:""}`
+    //     sem rótulo é DM comum, o fluxo passa por ela e segue. Sem esta parte
+    //     o dono ficava TRANCADO FORA do painel, e por um caminho que a tela
+    //     oferece: o painel da Tarefa 7 mostra o campo do rótulo sempre que
+    //     `botao_label !== undefined` e deixa apagá-lo, então bloco de link
+    //     criado pela paleta, rótulo apagado e endereço ainda vazio dava ERRO
+    //     numa lista sem nada de errado, e o salvar ficava bloqueado.
+    //
+    //   `url` DIFERENTE de `undefined` — e esta parte é a que não se enxerga
+    //     olhando só o banco. A saída EM MEMÓRIA de `montarPassos`
+    //     (app/automacoes/actions.ts) grava `url: fu.url || undefined`: a chave
+    //     ESTÁ presente, com valor `undefined`, e o `undefined` só some no
+    //     `JSON.stringify` que serializa para o jsonb. Conferir a chave por
+    //     `"url" in passo` dava `true` nela, e qualquer
+    //     `conferirLista(montarPassos(...))` chamado ANTES de serializar
+    //     recusaria toda automação sem link. Testar contra `undefined` cobre de
+    //     uma vez esse caso e o do bloco sem a chave — em `{tipo:"dm", texto,
+    //     botao_label}` a leitura de `passo.url` também dá `undefined`.
+    //
+    //   `url` FALSY — o bloco com endereço não tem o que ser acusado.
+    //
     // ISTO SÓ VALE enquanto o editor mantiver a convenção. Se ele passar a
     // semear `url` (mesmo vazia) num bloco de resposta rápida, todo bloco
     // desse tipo passaria a acender este erro à toa; se ele apagar a chave de
     // um `dm_link` sem endereço, esta regra deixa de disparar em silêncio e o
     // defeito volta a passar batido.
-    if (passo.tipo === "dm" && "url" in passo && !passo.url) {
+    //
+    // E A REGRA É CEGA PARA A FORMA QUE JÁ ESTÁ GRAVADA, o que precisa estar
+    // dito porque é justamente o defeito que ela existe para pegar. O
+    // `montarPassos` da `main` grava `url: fu.url || undefined`, e o `undefined`
+    // some na serialização: o que ficou no banco de quem salvou um link sem
+    // endereço é `{tipo:"dm", texto, botao_label:"Abrir link"}` — rótulo, SEM a
+    // chave. É parada dura de verdade, e `conferirLista` devolve `[]` para ela.
+    //
+    // Não há heurística a inventar aqui, e a ausência dela é decisão: esse bloco
+    // é GENUINAMENTE ambíguo. A mesma forma exata — rótulo, sem chave `url` — é
+    // o bloco de resposta rápida legítimo que a paleta oferece, e nada no dado
+    // separa os dois. Adivinhar erraria em cima de listas boas.
+    //
+    // Esta regra vale, portanto, para lista NOVA, montada sob a convenção. O que
+    // fazer com o que o formulário antigo gravou é decisão de quem ABRE a
+    // automação no editor (Tarefa 5), onde há a quem perguntar; está registrada
+    // no plano, junto do requisito da convenção.
+    if (
+      passo.tipo === "dm" &&
+      Boolean(passo.botao_label) &&
+      passo.url !== undefined &&
+      !passo.url
+    ) {
       r.push({
         nivel: "erro",
         indice: i,

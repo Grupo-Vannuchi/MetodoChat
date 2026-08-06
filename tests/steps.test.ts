@@ -1147,16 +1147,42 @@ describe("conferirLista", () => {
     expect(r[0].indice).toBe(1);
   });
 
-  it("ERRO: bloco que não pode disparar naquele gatilho", () => {
-    const coracao = { id: "b_cor005", tipo: "reagir_story", emoji: "❤️" };
-    expect(erros([bem, coracao], "dm")).toHaveLength(1);
-    expect(erros([bem, coracao], "dm")[0].indice).toBe(1);
-    expect(erros([bem, coracao], "story")).toHaveLength(0);
-
+  it("ERRO: resposta pública fora do gatilho de comentário — sem o id, nunca roda", () => {
+    // Só `handleComment` (lib/engine.ts) preenche `contexto.commentId`, e o ramo
+    // `resposta_publica` de `enfileirarPasso` desiste sem ele. Em qualquer outro
+    // gatilho o bloco nunca roda, e é isso que ERRO quer dizer aqui.
     const publica = { id: "b_pub006", tipo: "resposta_publica", textos: ["oi"] };
     expect(erros([publica, bem], "dm")).toHaveLength(1);
     expect(erros([publica, bem], "dm")[0].indice).toBe(0);
+    expect(erros([publica, bem], "story")).toHaveLength(1);
     expect(erros([publica, bem], "comment")).toHaveLength(0);
+  });
+
+  it("AVISO, não erro: coraçãozinho no gatilho de DM — o motor EXECUTA esse", () => {
+    // A outra metade da regra não tem o mesmo mecanismo, e por isso não tem o
+    // mesmo nível. `handleMessage` (lib/engine.ts) atende a resposta de story e
+    // a DM comum pelo MESMO caminho e chama `executarFluxo(..., { messageId:
+    // msg.mid })` nos dois; `lib/queue-drain.ts` entrega ("reação na mensagem
+    // que a pessoa mandou"). Travar o salvar aqui travaria uma lista que roda.
+    const coracao = { id: "b_cor005", tipo: "reagir_story", emoji: "❤️" };
+    expect(erros([bem, coracao], "dm")).toHaveLength(0);
+    expect(avisos([bem, coracao], "dm")).toHaveLength(1);
+    expect(avisos([bem, coracao], "dm")[0].indice).toBe(1);
+  });
+
+  it("no gatilho de story o coraçãozinho não tem nem erro nem aviso", () => {
+    const coracao = { id: "b_cor005", tipo: "reagir_story", emoji: "❤️" };
+    expect(conferirLista([bem, coracao], "story")).toHaveLength(0);
+  });
+
+  it("ERRO: coraçãozinho no gatilho de comentário — ali não chega mensagem nenhuma", () => {
+    // `handleComment` passa só `{ commentId }`, e `enfileirarPasso` faz
+    // `if (!contexto.messageId) return`. Este é o caso em que a metade do
+    // coraçãozinho volta a ser ERRO, pelo mesmo critério da resposta pública.
+    const coracao = { id: "b_cor005", tipo: "reagir_story", emoji: "❤️" };
+    const r = erros([bem, coracao], "comment");
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
   });
 
   it("ERRO: dois portões de follow", () => {
@@ -1265,12 +1291,23 @@ describe("conferirLista", () => {
     expect(avisos([bem, esperar, link])).toHaveLength(0);
   });
 
-  it("ERRO: link sem endereço trava o fluxo para sempre — a chave `url` presente e vazia acusa", () => {
+  // AS QUATRO FORMAS de uma `dm` com a chave `url` em jogo, uma por teste.
+  //
+  // Um teste por forma, e não um teste com quatro `expect`, porque foi a
+  // AUSÊNCIA de um destes casos que deixou passar o defeito da onda anterior: a
+  // condição conferia só o `!url`, sem o `botao_label`, e recusava a segunda
+  // forma — uma DM comum que funciona —, trancando o dono fora do painel. Com
+  // os quatro separados, a condição pela metade não tem como ficar verde.
+  //
+  // A condição espelha `esperaResposta` (`Boolean(botao_label) && !url`), e é o
+  // par rótulo+endereço que decide, nunca o endereço sozinho.
+
+  it("1 de 4 · ERRO: rótulo E `url` vazia — é o link sem endereço, e trava o fluxo", () => {
     // O defeito de verdade: `blocoNovo("dm_link")` (Tarefa 5) semeia `url: ""`.
     // Sem endereço digitado, o bloco fica `{tipo:"dm", texto, botao_label,
-    // url:""}` — `esperaResposta` (lib/steps.ts) faz `Boolean(botao_label) &&
-    // !url`, `""` é falso, e o bloco vira resposta rápida aos olhos do motor:
-    // o fluxo para nele para sempre, esperando o toque num botão sem endereço.
+    // url:""}` — `esperaResposta` faz `Boolean(botao_label) && !url`, `""` é
+    // falso, e o bloco vira resposta rápida aos olhos do motor: o fluxo para
+    // nele para sempre, esperando o toque num botão sem endereço para abrir.
     const semEndereco = {
       id: "b_lnk020",
       tipo: "dm",
@@ -1284,11 +1321,42 @@ describe("conferirLista", () => {
     expect(r[0].mensagem).toMatch(/trava o fluxo/i);
   });
 
-  it("bloco de resposta rápida — SEM a chave `url` — não dá erro nenhum", () => {
-    // É exatamente o que a convenção promete: `dm_botao` nunca grava `url`, e
-    // é a AUSÊNCIA da chave (não o valor) que diferencia esse bloco válido do
-    // link sem endereço acima. Confundir os dois faria todo `dm_botao` da
-    // paleta acender um erro que não existe.
+  it("2 de 4 · sem erro: `url` vazia mas SEM rótulo — é DM comum, e ela funciona", () => {
+    // ESTE é o caso que faltava. Sem `botao_label`, `esperaResposta` é falso: o
+    // fluxo não para aqui, nada trava, e não há botão nenhum sem endereço. Dar
+    // erro nele bloqueia o salvar de uma automação que não tem nada de errado.
+    //
+    // E ele é ALCANÇÁVEL pela tela: o painel da Tarefa 7 mostra o campo do
+    // rótulo sempre que `botao_label !== undefined` e deixa apagá-lo — bloco de
+    // link criado pela paleta, rótulo apagado, endereço ainda vazio.
+    const semRotulo = { id: "b_dmc022", tipo: "dm", texto: "Texto puro", url: "" };
+    expect(erros([bem, semRotulo])).toHaveLength(0);
+  });
+
+  it("3 de 4 · sem erro: rótulo com `url: undefined` — é `montarPassos` em memória", () => {
+    // A chave EXISTE (`"url" in passo` é `true`) e o valor é `undefined`, que é
+    // exatamente a saída em memória de `montarPassos` (app/automacoes/
+    // actions.ts): ele grava `url: fu.url || undefined`, e o `undefined` só some
+    // no `JSON.stringify` que serializa para o jsonb. Conferir a PRESENÇA da
+    // chave recusaria aqui toda automação sem link que passasse por
+    // `conferirLista(montarPassos(...))` antes de ser serializada.
+    const emMemoria = {
+      id: "b_bot023",
+      tipo: "dm",
+      texto: "Confirma?",
+      botao_label: "Confirmo",
+      url: undefined,
+    };
+    expect("url" in emMemoria).toBe(true);
+    expect(erros([bem, emMemoria])).toHaveLength(0);
+  });
+
+  it("4 de 4 · sem erro: rótulo SEM a chave `url` — resposta rápida legítima", () => {
+    // É o que a convenção promete: `dm_botao` nunca grava `url`. Esta é também
+    // a forma que o formulário ANTIGO gravou para um link sem endereço, e a
+    // regra é cega para ela de propósito — as duas são o mesmo dado, e não há
+    // como separá-las sem adivinhar. Ver o comentário da regra em lib/steps.ts
+    // e a nota da Tarefa 5 no plano.
     const respostaRapida = {
       id: "b_bot021",
       tipo: "dm",
@@ -1311,6 +1379,101 @@ describe("conferirLista", () => {
     // com o mesmo texto e o mesmo índice passariam por "acumulou".
     expect(r.map((p) => p.indice)).toEqual([0, 1]);
     expect(r[0].mensagem).not.toBe(r[1].mensagem);
-    expect(r[1].mensagem).toContain("pedir_email");
+    // Diz de QUAL bloco fala, na língua do dono. Antes fixava o `motivo` cru
+    // (`"pedir_email"`), que é nome de tipo interno e não significa nada para
+    // quem está montando a automação na tela.
+    expect(r[1].mensagem).toMatch(/pedido de e-mail/i);
+  });
+
+  it("as mensagens de bloco inválido não vazam jargão interno", () => {
+    // Todas as outras mensagens da função foram escritas na língua do dono, e
+    // estas herdavam o `motivo` técnico de `conferir` — a tela chegava a
+    // mostrar "Bloco incompleto: pedir_email sem texto." e "tipo desconhecido:
+    // coisa_nova". O `motivo` continua existindo, para diagnóstico, nos
+    // `ignorados` de `interpretar`; o que a TELA mostra é outra coisa.
+    const invalidos: unknown[] = [
+      { id: "b_dmx030", tipo: "dm", texto: "  " },
+      { id: "b_esx031", tipo: "esperar", minutos: -1 },
+      { id: "b_pux032", tipo: "resposta_publica", textos: [] },
+      { id: "b_rex033", tipo: "reagir_story", emoji: "" },
+      { id: "b_fox034", tipo: "pedir_follow", texto: "" },
+      { id: "b_emx035", tipo: "pedir_email", texto: "" },
+      { id: "b_nvx036", tipo: "coisa_nova" },
+      "nem é objeto",
+    ];
+    const r = erros(invalidos, "comment");
+    expect(r).toHaveLength(invalidos.length);
+    for (const p of r) {
+      expect(p.mensagem).not.toMatch(
+        /pedir_email|pedir_follow|reagir_story|resposta_publica|tipo desconhecido|não é um objeto|\bdm\b/
+      );
+      // Frase inteira, na língua de quem lê a tela.
+      expect(p.mensagem).toMatch(/^[A-ZÀ-Ú].*\.$/);
+    }
+    // E continuam distinguindo uma falha da outra: oito falhas, oito frases.
+    expect(new Set(r.map((p) => p.mensagem)).size).toBe(invalidos.length);
+  });
+
+  it("ERRO: resposta pública com todos os textos em branco não é publicada", () => {
+    // `enfileirarPasso` (lib/engine.ts) sorteia um dos textos e faz
+    // `if (!texto?.trim()) return` — sem enfileirar e sem `step_ignorado`.
+    // `conferir` só exige que a lista não esteja vazia, então `[""]` passa
+    // inteiro por ela.
+    const branca = { id: "b_pub040", tipo: "resposta_publica", textos: ["", "   "] };
+    const r = erros([branca], "comment");
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(0);
+  });
+
+  it("um texto aproveitável basta para a resposta pública passar", () => {
+    const mista = { id: "b_pub041", tipo: "resposta_publica", textos: ["", "Te mandei!"] };
+    expect(erros([mista], "comment")).toHaveLength(0);
+  });
+
+  it("ERRO: dois blocos com o mesmo id — o segundo envio é engolido pela `passoKey`", () => {
+    // A identidade entra na `dedupe_key`. Mesma identidade, mesma `passoKey`, e
+    // o `on conflict do nothing` descarta o segundo item sem erro nenhum.
+    // Duplicar um bloco no editor é exatamente o gesto que produz isso.
+    const um = { id: "b_dup050", tipo: "dm", texto: "Primeiro" };
+    const dois = { id: "b_dup050", tipo: "dm", texto: "Segundo" };
+    const r = erros([um, dois]);
+    expect(r).toHaveLength(1);
+    // Aponta o SEGUNDO: é ele que o dono precisa mudar.
+    expect(r[0].indice).toBe(1);
+  });
+
+  it("ERRO: id fora da forma `b_` + 6 — cai no índice e colide com outro bloco", () => {
+    // `identidadeDoPasso` recusa o id e usa o ÍNDICE, e a chave passa a colidir
+    // com a de um vizinho sem id válido. É a colisão que `FORMA_DO_ID` existe
+    // para tornar impossível, e a partir da Tarefa 6 o id vem do navegador.
+    expect(erros([{ id: "2", tipo: "dm", texto: "Oi" }])).toHaveLength(1);
+    expect(erros([{ id: "b_curto", tipo: "dm", texto: "Oi" }])).toHaveLength(1);
+    expect(erros([{ id: "B_MAIUS01", tipo: "dm", texto: "Oi" }])).toHaveLength(1);
+    expect(erros([{ id: 7, tipo: "dm", texto: "Oi" }])).toHaveLength(1);
+    expect(erros([{ id: "b_abc123", tipo: "dm", texto: "Oi" }])).toHaveLength(0);
+  });
+
+  it("bloco SEM id não é erro — é toda automação anterior à Fase 1b", () => {
+    // `identidadeDoPasso` lhe dá a identidade que ele sempre teve na prática, o
+    // índice. Recusá-lo trancaria o dono fora do painel de toda lista antiga —
+    // o mesmo estrago da condição pela metade do link sem endereço.
+    const antigos = [
+      { tipo: "dm", texto: "Oi!", botao_label: "Quero" },
+      { tipo: "dm", texto: "Link", url: "https://x.com" },
+    ];
+    expect(erros(antigos)).toHaveLength(0);
+  });
+
+  it("id repetido e id inválido não se sobrepõem: um erro por bloco", () => {
+    // Dois ids inválidos IGUAIS acusam a forma, não a repetição: cada um deles
+    // cai no índice, então as identidades resolvidas ("0" e "1") nem chegam a
+    // colidir entre si. Duas mensagens de repetição aqui seriam mentira.
+    const r = erros([
+      { id: "x", tipo: "dm", texto: "Um" },
+      { id: "x", tipo: "dm", texto: "Dois" },
+    ]);
+    expect(r).toHaveLength(2);
+    expect(r[0].mensagem).toBe(r[1].mensagem);
+    expect(r[0].mensagem).toMatch(/identidade inválida/i);
   });
 });

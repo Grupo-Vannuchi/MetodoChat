@@ -1421,11 +1421,66 @@ export function arranjoAutomatico(passos: Passo[]): Passo[] {
 > paleta: um `dm_link` sem endereço e um `dm_botao` de resposta rápida têm os
 > dois `botao_label` presente e `url` "falsy" aos olhos de `esperaResposta`
 > (lib/steps.ts) — a diferença só existe na presença ou ausência da CHAVE.
-> `conferirLista` usa exatamente essa presença/ausência (`"url" in passo`)
-> para acusar "mensagem com link sem endereço" sem confundir com "resposta
-> rápida válida". Se este passo, ou qualquer edição posterior de um bloco
-> (Tarefa 7, o painel), passar a semear `url` num `dm`/`dm_botao`, ou a apagar
-> a chave de um `dm_link` sem endereço, a regra para de valer — em silêncio.
+> `conferirLista` usa exatamente essa presença/ausência (com o valor
+> `undefined` contando como ausência) para acusar "mensagem com link sem
+> endereço" sem confundir com "resposta rápida válida". Se este passo, ou
+> qualquer edição posterior de um bloco (Tarefa 7, o painel), passar a semear
+> `url` num `dm`/`dm_botao`, ou a apagar a chave de um `dm_link` sem endereço,
+> a regra para de valer — em silêncio.
+>
+> **O requisito vale para TRÊS lugares, não só para `blocoNovo`.** Hoje cada um
+> classifica "isto é um bloco de link" por um critério diferente, e é assim que
+> os três passam a discordar entre si sem ninguém notar:
+>
+> | lugar | critério hoje | o que precisa ser |
+> |---|---|---|
+> | `blocoNovo` (Tarefa 5) | semeia `url: ""` só em `dm_link` | **mantém** — é a origem da convenção |
+> | `resumoDoBloco` (Tarefa 5) | pelo VALOR: `if (p.url)` | pela CHAVE |
+> | painel do bloco (Tarefa 7) | pela chave: `p.url !== undefined` | **mantém**, e nunca apagar a chave |
+>
+> O caso que separa os critérios é sempre o mesmo, o `dm_link` sem endereço
+> (`url: ""`). Pelo VALOR ele é "mensagem com botão": `resumoDoBloco` o
+> intitula MENSAGEM COM BOTÃO, o quadro o desenha como resposta rápida, e
+> `conferirLista` acende ERRO nele — o dono lê "mensagem com link sem
+> endereço" olhando para um bloco que a tela chama de outra coisa. Pela CHAVE
+> ele é MENSAGEM COM LINK em todos os três, que é o que ele de fato é.
+>
+> E o painel da Tarefa 7 tem uma obrigação a mais, porque ele é o único que
+> pode DESTRUIR a chave: esvaziar o campo do endereço tem que gravar `""`, não
+> remover `url` do objeto. Removendo, o bloco vira indistinguível de uma
+> resposta rápida e o erro deixa de acender — em silêncio, que é o modo de
+> falhar que esta convenção inteira existe para evitar.
+
+> **REQUISITO — o que fazer, ao ABRIR uma automação, com os blocos que não têm
+> a chave `url`:** decidir aqui, na Tarefa 5, e não descobrir na hora.
+>
+> O `montarPassos` da `main` grava `url: fu.url || undefined`, e `undefined`
+> some na serialização para jsonb. Então o que está gravado no banco de quem
+> salvou um link SEM endereço é `{tipo:"dm", texto, botao_label:"Abrir link"}`
+> — rótulo, sem a chave. Isso é uma parada dura de verdade no motor
+> (`esperaResposta` diz sim), e `conferirLista` é CEGA para ela: a regra do
+> link sem endereço não dispara, e devolve `[]`.
+>
+> Não há heurística a inventar, e é por isso que a decisão é de produto e não
+> de código: a forma é GENUINAMENTE ambígua. `{tipo:"dm", texto, botao_label}`
+> é exatamente o mesmo dado para um `dm_link` salvo sem endereço pelo
+> formulário antigo e para um `dm_botao` de resposta rápida legítimo. Nada no
+> banco os separa, e adivinhar erraria em cima de listas boas.
+>
+> As opções, e o passo precisa escolher uma:
+>
+> 1. **Tratar como resposta rápida** — é o que o motor faz hoje, e não muda
+>    nada para ninguém. O link sem endereço continua travando o fluxo em
+>    silêncio até alguém abrir o bloco e olhar.
+> 2. **Perguntar ao dono** ao abrir a automação, uma vez, para os blocos nessa
+>    forma: "este bloco é um botão de link ou uma resposta rápida?" — e gravar
+>    a resposta como a chave `url` presente ou ausente. Resolve a ambiguidade
+>    na única fonte que sabe a resposta, e depois disso a lista fica sob a
+>    convenção e `conferirLista` volta a enxergar tudo.
+>
+> Seja qual for a escolha, ela é da Tarefa 5 porque é ela que abre a automação
+> e monta o estado inicial do quadro. Depois dela, todo bloco produzido pelo
+> editor já nasce sob a convenção.
 
 - [ ] **Passo 3: o nó**
 
