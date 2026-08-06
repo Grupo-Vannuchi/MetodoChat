@@ -26,7 +26,11 @@
 //
 // E o bloco antigo segue valendo de qualquer jeito: `identidadeDoPasso` lhe dá
 // a identidade que ele sempre teve na prática, o índice.
-type ComId = { id?: string };
+//
+// `pos` é a posição no quadro, e ela é OPCIONAL pelo mesmo motivo: bloco
+// gravado antes da Fase 1b não tem, e `arranjoAutomatico` (editor/modelos.ts)
+// lhe dá uma na primeira abertura.
+type ComId = { id?: string; pos?: Posicao };
 
 export type Passo = ComId &
   (
