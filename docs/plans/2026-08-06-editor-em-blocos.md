@@ -1746,6 +1746,13 @@ function moverPara(id: string, depoisDe: number) {
 }
 ```
 
+> **Este passo NÃO pode ser dado por concluído sem a decisão do Passo 5.**
+> Preservar o id ao reordenar é exatamente o que torna alcançável o pulo de
+> portão descrito lá. O código acima está certo e fica como está; o que falta é
+> escolher entre (a) e (b), e essa escolha é do dono do produto, não de quem
+> implementa. Marcar este passo com a decisão em aberto entrega uma reordenação
+> que pode mandar o link para quem não segue.
+
 - [ ] **Passo 4: apagar**
 
 Em `no.tsx`, acrescente `aoApagar` ao tipo dos dados e o botão ao nó:
@@ -1794,7 +1801,50 @@ e no `data` de cada nó: `aoApagar: apagarBloco`.
 O nó de gatilho **não** recebe este botão — ele não é apagável, e o
 `gatilho.tsx` da Tarefa 7 é um componente próprio justamente por isso.
 
-- [ ] **Passo 5: verifique à mão e reporte**
+- [ ] **Passo 5: DECIDIR o que fazer com o portão pulável que a reordenação abre**
+
+Este passo não escreve código. Ele existe porque preservar id ao reordenar —
+que é o objetivo desta tarefa — torna **alcançável** um pulo de portão de follow
+que hoje não é.
+
+**O caso, por inteiro.** Lista `[0 boas-vindas (resposta rápida), 1 portão,
+2 link]`, e uma pessoa parada na boas-vindas (cursor no bloco 0):
+
+1. o dono reordena para `[0 portão, 1 boas-vindas, 2 link]`
+2. a pessoa toca no botão `AUTO:` antigo, que continua tocável na mensagem já
+   entregue
+3. `indiceDoId` devolve **1** — a boas-vindas, que só mudou de lugar; o cursor
+   sobreviveu, que é justamente o ponto da Tarefa 2
+4. o bloco 1 não é portão, então `retomadaDoBotao` retoma de **2**
+5. o link é enfileirado. **Quem não segue recebe o link** — a promessa central
+   do produto, quebrada em silêncio.
+
+Com cursor por índice isso era seguro **por acidente**: o índice 0 passava a
+apontar para o portão, e ele era reavaliado.
+
+**Hoje é inalcançável**, e por um motivo que vai embora: `montarPassos`
+(`app/automacoes/actions.ts`) troca todos os ids a cada save, então o cursor
+antigo não resolve e o caso cai no `return 0`. Passa a ser alcançável
+exatamente quando o quadro preservar ids ao reordenar.
+
+**As duas saídas, com o preço de cada uma:**
+
+**(a) Limitar a retomada ao portão** sempre que existir portão antes do ponto de
+retomada. Mata o pulo. **Custa reentrega:** quem já atravessou o portão
+legitimamente e está num bloco adiante volta ao portão, e depois de passá-lo
+`executarFluxo` reenfileira tudo que houver entre o portão e onde a pessoa
+estava — deduplicado só dentro do dia pela `passoKey`. Virado o balde, sai tudo
+de novo. Troca pulo de portão por mensagem repetida.
+
+**(b) Invalidar o cursor ao reordenar**, de quem estiver num bloco que passou a
+ter portão antes de si. Mata o pulo **sem reentrega**. **Custa recomeço:** a
+pessoa perde o lugar e refaz o fluxo desde o começo.
+
+**PARE E PERGUNTE qual das duas antes de implementar.** Não escolha sozinho.
+Correção de controle de fluxo feita às pressas nesta base já produziu defeito
+pior que o original três vezes; esta vai ser decidida, não remendada.
+
+- [ ] **Passo 6: verifique à mão e reporte**
 
 `npm run dev`, e confirme cada um:
 - arrastar "Mensagem" da paleta para um ponto vazio → bloco novo **no fim** da
@@ -1806,7 +1856,7 @@ O nó de gatilho **não** recebe este botão — ele não é apagável, e o
 - no gatilho de DM, "Resposta pública" e "Coraçãozinho" estão apagados e não
   arrastam
 
-- [ ] **Passo 6: verify e commit**
+- [ ] **Passo 7: verify e commit**
 
 ```
 npm run verify

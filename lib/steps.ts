@@ -395,9 +395,25 @@ export function cursorDesta(cursor: Cursor, automationId: string): string | null
 // fim da lista, `interpretar` não enfileira nada e `executarFluxo` limpa o
 // cursor: o toque não faz nada, e a pessoa destrava mandando qualquer mensagem.
 //
-// A diferença que importa, e é o ponto desta fase: a primeira forma ficou RARA.
-// Com índice, toda edição que mexesse no começo da lista tornava o cursor
-// obsoleto. Com id, o bloco só some quando o dono o apaga — reordenar não conta.
+// A diferença que esta fase pretende, e ela AINDA NÃO VALE: com id, o bloco
+// deveria sumir só quando o dono o apaga, e reordenar não contaria.
+//
+// HOJE o bloco some a cada SALVAMENTO, e é preciso dizer isso sem rodeio.
+// `montarPassos` (app/automacoes/actions.ts) chama `novoIdDeBloco()` em todo
+// bloco a cada save, e o `update` grava o `steps` inteiro sem casar com os ids
+// antigos. Enquanto o formulário existir — e ele é o único editor até a Tarefa
+// 8 —, todo salvamento reescreve os ids e ÓRFÃ o cursor de todo mundo que
+// estiver em fluxo, reordenação ou não.
+//
+// E o estrago não para no cursor órfão: a identidade entra na `passoKey`, então
+// a boas-vindas já enviada está gravada com `passo:A:C:b_ANTIGO:dia`, o
+// recomeço do zero enfileira com `passo:A:C:b_NOVO:dia`, o `on conflict` não
+// pega, e a pessoa recebe a boas-vindas DUAS VEZES. Com cursor por índice o
+// mesmo save não causava nada disso.
+//
+// A janela está declarada no plano e fecha na Tarefa 8, quando o quadro
+// substituir o formulário e passar a preservar os ids ao salvar. Só a partir
+// daí "o bloco só some quando o dono o apaga" descreve o sistema.
 //
 // Com a medida certa, porém: isso vale para bloco COM id. Para bloco SEM id a
 // identidade É a posição (`identidadeDoPasso`), então ela não acompanha o
@@ -425,7 +441,19 @@ export function retomadaDoBotao(
 // Mesma mudança de casa de `retomadaDoBotao`, e pelo mesmo motivo: o
 // comportamento é o que a onda passada instalou, o que faltava era teste.
 //
-// Com cursor DESTA automação, retoma DELE — o portão é reavaliado, não pulado.
+// Com cursor DESTA automação, retoma DELE, seja ele qual for. A promessa "o
+// portão é reavaliado, não pulado" vale QUANDO O BLOCO DO CURSOR É O PORTÃO —
+// aí retomar dele é reconsultar a Meta, que é o ponto do botão.
+//
+// QUANDO NÃO É, o toque não faz nada, e isso precisa estar dito. Com o cursor
+// na boas-vindas, a função devolve o índice DELA; `interpretar` a partir daí
+// para na mesma parada dura e `executarFluxo` regrava o cursor no mesmo lugar.
+// Nada avança, nada é enfileirado, e tocar em "Já sigo!" de novo repete o nada.
+//
+// Não é regressão desta tarefa — o comportamento é o que a onda passada
+// instalou — e a pessoa destrava por outro caminho: mandando qualquer texto (o
+// ramo de fallback) ou tocando no botão de resposta rápida, que avança do
+// SEGUINTE. Fica anotado, não consertado aqui.
 //
 // A não ser que o BLOCO tenha sumido da lista, e esse ramo é novo desta fase:
 // com índice, um número sempre resolvia para alguma coisa, então cursor desta

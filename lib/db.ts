@@ -400,9 +400,27 @@ const DDL = [
   // apontar para DEPOIS do portão de follow, entregando o link a quem não
   // segue, em silêncio.
   //
+  // A TROCA AINDA NÃO ENTREGOU O QUE PROMETE, e vale dizer aqui para ninguém
+  // ler esta coluna como já resolvida: `montarPassos` (app/automacoes/actions.ts)
+  // gera id novo para TODO bloco a cada salvamento, e o `update` grava o `steps`
+  // inteiro sem casar com os ids antigos. Enquanto o formulário for o editor —
+  // até a Tarefa 8 —, todo save reescreve os ids e órfã o cursor de todo mundo
+  // que estiver em fluxo. Pior: a identidade também entra na `passoKey`, então
+  // o `on conflict` deixa de casar e a boas-vindas sai uma segunda vez. Isso
+  // fecha quando o quadro substituir o formulário e passar a preservar os ids.
+  //
   // `flow_step_index` NÃO é apagada aqui. Ela sai junto com as outras colunas
   // órfãs; apagar no mesmo deploy tira o caminho de volta. Enquanto existir,
   // `lerCursor` a usa como reserva para quem foi gravado antes desta fase.
+  //
+  // Com a ressalva de que a reserva, no banco de produção, não resolve para
+  // automação NENHUMA: `scripts/dar-ids-aos-passos.mjs` já deu id a todo bloco
+  // de toda automação gravada, e `identidadeDoPasso` (lib/steps.ts) só devolve
+  // o índice para bloco SEM id. Com todo bloco tendo id, um `flow_step_index`
+  // antigo vira a string "2" e `indiceDoId` não a encontra em lista nenhuma —
+  // o cursor velho resolve para null. A reserva é rede para automação ainda não
+  // migrada, e falha na direção segura: cursor que não resolve nunca pula
+  // passo.
   `alter table contacts add column if not exists flow_step_id text`,
 ];
 

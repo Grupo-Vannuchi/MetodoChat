@@ -367,6 +367,16 @@ describe("cursorDesta", () => {
     expect(cursorDesta({ passoId: null, automationId: "A" }, "A")).toBe(null);
     expect(cursorDesta({ passoId: null, automationId: null }, "A")).toBe(null);
   });
+
+  it("bloco SEM automação não é desta automação — é a forma que `lerCursor` emite", () => {
+    // Não é caso inventado: `lerCursor` (lib/engine.ts) monta exatamente isto
+    // quando `last_automation_id` está nulo e `flow_step_id` não. Acontece de
+    // verdade — `limparCursor` zera o cursor sem tocar `last_automation_id`, e
+    // os `upsertContact` dos gatilhos escrevem `last_automation_id` sozinhos —,
+    // e um bloco sem automação não afirma nada: a identidade só é única dentro
+    // de UMA lista. Aplicá-la à lista de A é o defeito que esta função mata.
+    expect(cursorDesta({ passoId: "x", automationId: null }, "A")).toBe(null);
+  });
 });
 
 describe("retomadaDoFallback", () => {
@@ -461,9 +471,27 @@ describe("retomadaDoBotao", () => {
     expect(retomadaDoBotao({ passoId: "b_bem001", automationId: "B" }, "A", lista)).toBe(0);
   });
 
+  it("cursor NULO retoma do zero", () => {
+    // A outra metade do `cursorDesta` devolvendo null, e ela é o caso comum:
+    // quem nunca começou o fluxo, e quem o TERMINOU (`executarFluxo` limpa o
+    // cursor no fim da lista) — a coluna não separa os dois. O zero é o único
+    // ponto afirmável, e o preço é uma mensagem repetida, segurada pela
+    // `passoKey` dentro do dia.
+    expect(retomadaDoBotao({ passoId: null, automationId: "A" }, "A", lista)).toBe(0);
+    expect(retomadaDoBotao({ passoId: null, automationId: null }, "A", lista)).toBe(0);
+  });
+
   it("bloco APAGADO retoma do zero", () => {
-    // Agora só acontece quando o dono apaga aquele bloco de verdade. Antes
-    // acontecia a cada edição que mexesse no começo da lista.
+    // O que esta fase PRETENDE é que este ramo só seja alcançado quando o dono
+    // apagar aquele bloco de verdade — antes, com índice, ele era alcançado a
+    // cada edição que mexesse no começo da lista.
+    //
+    // HOJE ele ainda é alcançado a cada SALVAMENTO. `montarPassos`
+    // (app/automacoes/actions.ts) gera id novo para todo bloco a cada save e
+    // grava o `steps` inteiro sem casar com os ids antigos, então todo save
+    // pelo formulário — o único editor até a Tarefa 8 — órfã o cursor de todo
+    // mundo que estiver em fluxo. Fecha quando o quadro substituir o formulário
+    // e preservar os ids ao salvar.
     expect(retomadaDoBotao({ passoId: "b_sumiu9", automationId: "A" }, "A", lista)).toBe(0);
   });
 
@@ -550,6 +578,52 @@ describe("retomadaDoFollow", () => {
     expect(retomadaDoFollow({ passoId: null, automationId: null }, "A", semPortao)).toBe(0);
   });
 
+  // Os casos acima NÃO fixam nada, e isso foi provado por mutação: com o corpo
+  // trocado por `return indiceDoPortao(passos) ?? 0` — ignorando o cursor e a
+  // automação por completo — todos eles continuam verdes. A causa é que em
+  // `lista` o portão está no índice 1, que é justamente a resposta esperada em
+  // todos eles. Os casos abaixo existem para separar as duas implementações, e
+  // cada um diz o que a cega devolveria.
+  //
+  // Nesta lista o portão está no 1 e há blocos DEPOIS dele, então "retoma do
+  // cursor" e "retoma do portão" deixam de coincidir.
+  const comEmailDepoisDoPortao = [
+    { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0
+    { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 1 portão
+    { id: "b_eml004", tipo: "pedir_email", texto: "seu e-mail?" }, // 2
+    { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" }, // 3
+  ];
+
+  it("cursor DESTA num bloco DEPOIS do portão retoma DELE, não do portão", () => {
+    // O caso mais barato que separa as duas implementações: a certa devolve 2,
+    // a cega devolve 1. Sem ele, nada nesta suíte afirma que a função lê o
+    // cursor — e esta é a função do botão "Já sigo!".
+    //
+    // Retomar do portão aqui seria reentrega: a pessoa já atravessou o portão
+    // (é por isso que o cursor está adiante dele), e voltar reenfileiraria tudo
+    // entre os dois.
+    expect(
+      retomadaDoFollow({ passoId: "b_eml004", automationId: "A" }, "A", comEmailDepoisDoPortao)
+    ).toBe(2);
+  });
+
+  it("o bloco do cursor NÃO precisa ser portão — vale para qualquer um", () => {
+    // Mesma lista, cursor no link (índice 3), que não é portão de espécie
+    // nenhuma. A certa devolve 3, a cega devolve 1.
+    expect(
+      retomadaDoFollow({ passoId: "b_lnk003", automationId: "A" }, "A", comEmailDepoisDoPortao)
+    ).toBe(3);
+  });
+
+  it("ZERO é identidade legítima, e não ausência de cursor", () => {
+    // O `??` de `retomadaDoFollow` tem que ser `??` e não `||`. Com `||`, o
+    // índice 0 — falsy — seria lido como "não achei" e a função cairia no
+    // portão: a pessoa parada na boas-vindas seria empurrada para o portão.
+    //
+    // A certa devolve 0; tanto a versão com `||` quanto a cega devolvem 1.
+    expect(retomadaDoFollow({ passoId: "b_bem001", automationId: "A" }, "A", lista)).toBe(0);
+  });
+
   it("bloco APAGADO cai no PORTÃO, e não no zero", () => {
     // Ramo NOVO desta fase, e ele não existia com índice: um índice sempre
     // resolvia para alguma coisa, então o cursor desta automação nunca caía no
@@ -558,6 +632,23 @@ describe("retomadaDoFollow", () => {
     // ausente: o `FOLLOW:<id>` só existe porque o portão DESTA automação foi
     // entregue.
     expect(retomadaDoFollow({ passoId: "b_sumiu9", automationId: "A" }, "A", lista)).toBe(1);
+
+    // E com o portão LONGE do começo, para o acerto não vir do lugar errado.
+    //
+    // Com a medida certa: contra a versão CEGA este caso não discrimina, e não
+    // tem como discriminar — neste ramo a implementação certa também devolve
+    // `indiceDoPortao`, então as duas concordam por construção. O que ele fixa
+    // são os outros erros plausíveis: cair no zero (devolveria 0), parar na
+    // primeira parada dura (0), ou parar no primeiro passo que espera resposta
+    // (1, o pedido de e-mail). A resposta certa é 3, e nenhum desses a alcança.
+    const portaoLaAtras = [
+      { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0 parada dura
+      { id: "b_eml004", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_esp005", tipo: "esperar", minutos: 5 }, // 2
+      { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 3 portão
+      { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" }, // 4
+    ];
+    expect(retomadaDoFollow({ passoId: "b_sumiu9", automationId: "A" }, "A", portaoLaAtras)).toBe(3);
   });
 
   it("cursor por índice, gravado antes desta fase, continua funcionando", () => {

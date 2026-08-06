@@ -468,6 +468,20 @@ async function executarFluxo(
   // de resposta rápida — portão e e-mail já retornaram acima. Ela espera o toque
   // da pessoa, e sem gravar o cursor o toque recomeçaria a lista do zero e
   // pararia no mesmo passo, para sempre.
+  //
+  // O `as unknown[]` abaixo é cast SEM CONFERÊNCIA, e o que o segura é uma
+  // invariante de `interpretar` (lib/steps.ts) que não estava escrita em lugar
+  // nenhum. Ela é esta, e vale a linha: `interpretar` devolve `pararEm: null`
+  // sempre que `steps` NÃO é array — é a primeira coisa que ela faz, antes de
+  // qualquer laço. Logo, dentro deste `if`, `auto.steps` é comprovadamente um
+  // array, e o índice `r.pararEm` veio do próprio laço dela, ou seja, está
+  // dentro dos limites. O cast não está afirmando nada que a função não tenha
+  // decidido uma linha antes.
+  //
+  // Quem mudar `interpretar` para devolver `pararEm` não-nulo com `steps` de
+  // outra forma quebra isto aqui, e o `identidadeDoPasso` passaria a indexar
+  // undefined — ele não estoura (trata passo não-objeto), mas gravaria o cursor
+  // no índice em texto, apontando para bloco nenhum.
   if (r.pararEm !== null) {
     await gravarCursor(
       account.ig_user_id, contactIgId, auto.id,
@@ -551,19 +565,20 @@ async function lerCursor(accountId: string, contactIgId: string): Promise<Cursor
     last_automation_id: string | null;
   }[];
   const r = rows[0];
-  // A coluna velha é RESERVA, não alternativa: quem foi gravado antes desta
-  // fase tem só `flow_step_index`, e a identidade de um bloco sem id é
-  // justamente o índice em texto (`identidadeDoPasso`, lib/steps.ts). Então o
-  // valor antigo já está na forma certa — não precisa de conversão, precisa de
-  // `String()`. `gravarCursor` zera a coluna velha ao escrever a nova, para as
-  // duas nunca discordarem.
+  // A CONCLUSÃO PRIMEIRO, porque o resto do comentário já saiu daqui com a
+  // informação invertida: o `String()` abaixo NÃO faz o cursor velho voltar a
+  // funcionar. Depois da migração (`scripts/dar-ids-aos-passos.mjs`), todo
+  // bloco de toda automação gravada tem id, e `identidadeDoPasso` (lib/steps.ts)
+  // só devolve o índice para bloco SEM id. Então `indiceDoId` não acha "2" em
+  // lista nenhuma e o cursor velho resolve para NULL. Na prática esta reserva
+  // vale só para automação que a migração não alcançou.
   //
-  // COM A MEDIDA CERTA, porque "forma certa" não é "resolve": o índice em texto
-  // só encontra o bloco enquanto ele NÃO tiver id. A migração
-  // (`scripts/dar-ids-aos-passos.mjs`) deu id a todo bloco de toda automação já
-  // gravada, e a partir daí `identidadeDoPasso` devolve o id, nunca o índice —
-  // então `indiceDoId` não acha "2" em lista nenhuma e o cursor velho resolve
-  // para null. A reserva vale, na prática, só para automação ainda não migrada.
+  // O `String()` está certo mesmo assim, e é só isso que ele é: a forma. Quem
+  // foi gravado antes desta fase tem só `flow_step_index`, e a identidade de um
+  // bloco sem id é justamente o índice em texto — o valor antigo já está na
+  // forma da coluna nova, não precisa de conversão nenhuma além dessa.
+  // `gravarCursor` zera a coluna velha ao escrever a nova, para as duas nunca
+  // discordarem. "Forma certa" não é "resolve", e é a segunda que falta.
   //
   // É aceitável, e o motivo é a DIREÇÃO da falha, não a raridade dela: cursor
   // que não resolve nunca pula passo. `retomadaDoBotao` volta ao zero (a lista
@@ -1074,10 +1089,16 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
   // (por passo/pessoa/dia) — chaves diferentes, nada colide, dois envios.
   // De qual automação era a última conversa. Vem do mesmo `lerCursor` lido lá
   // em cima, e não de uma consulta própria: é a leitura de ANTES do ramo do
-  // cursor, exatamente como era com a consulta solta. Ler de novo aqui mudaria
-  // o comportamento — `limparCursor` pode ter rodado no meio, e ele não toca
-  // `last_automation_id`, mas a segunda leitura seria uma ida ao banco a mais
-  // sem nada a mostrar por ela.
+  // cursor, exatamente como era com a consulta solta.
+  //
+  // O motivo de não reler é UM só, e é economia: entre aquele `lerCursor` e
+  // aqui não há escrita em `last_automation_id` — `limparCursor` zera
+  // `flow_step_id` e `flow_step_index`, e não toca nesta coluna —, então a
+  // segunda leitura devolveria exatamente o mesmo valor. Seria uma ida ao banco
+  // a mais sem nada a mostrar por ela.
+  //
+  // Ou seja: reler não mudaria o comportamento. Quem escrever aqui uma escrita
+  // em `last_automation_id` entre as duas passa a precisar da releitura.
   const lastAuto = cursor.automationId;
   const autoAnterior = lastAuto ? automations.find((a) => a.id === lastAuto) : undefined;
   if (
