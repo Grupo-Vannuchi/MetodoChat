@@ -299,14 +299,27 @@ export function indiceDoPortao(passos: unknown): number | null {
   return null;
 }
 
-// O índice do cursor, mas SÓ quando ele é desta automação. Null nos demais
+// O cursor, como ele sai do banco: qual bloco e de qual automação.
+//
+// Recebe os dois porque um sem o outro não quer dizer nada — o id é único
+// dentro de UMA automação, e o mesmo id pode existir em outra.
+export type Cursor = { passoId: string | null; automationId: string | null };
+
+// O BLOCO do cursor, mas SÓ quando ele é desta automação. Null nos demais
 // casos — inclusive quando existe um cursor, de outra.
 //
 // Veio de lib/engine.ts pelo mesmo motivo de `retomadaDoFallback`: é decisão
-// pura, e ela segura o bloqueador mais grave desta onda — o índice é uma posição
-// dentro de UMA lista, e cada automação tem a sua. Aplicar o cursor de B à lista
-// de A pula passos de A (o portão de follow inclusive, entregando o link a quem
-// não segue) ou aponta para além do fim dela.
+// pura, e ela segura o bloqueador mais grave desta onda — a identidade só é
+// única dentro de UMA lista, e cada automação tem a sua. Aplicar o cursor de B à
+// lista de A pula passos de A (o portão de follow inclusive, entregando o link a
+// quem não segue) ou aponta para bloco nenhum.
+//
+// Guardar o BLOCO em vez da posição não dispensa esta conferência, e chega a
+// aumentar a chance de ela ser necessária: a identidade de um bloco sem id é o
+// índice em texto (`identidadeDoPasso`), então o cursor "1" de B casa com o
+// segundo bloco de A sem nada acusar. Para bloco com id o encontro é
+// improvável, mas ele não é impossível por construção — nada impede a mesma
+// automação ser duplicada com os ids dentro.
 //
 // Recebe o cursor já lido do banco, e não o contato inteiro, para não arrastar
 // o tipo `Contact` (lib/db.ts, `server-only`) para dentro deste arquivo.
@@ -315,11 +328,8 @@ export function indiceDoPortao(passos: unknown): number | null {
 // ramos: o toque numa resposta rápida (`AUTO:`) não afirma posição nenhuma e
 // começa do zero; o toque no "Já sigo!" (`FOLLOW:`) afirma o portão, e usa
 // `indiceDoPortao`.
-export function cursorDesta(
-  cursor: { indice: number | null; automationId: string | null },
-  automationId: string
-): number | null {
-  return cursor.automationId === automationId ? cursor.indice : null;
+export function cursorDesta(cursor: Cursor, automationId: string): string | null {
+  return cursor.automationId === automationId ? cursor.passoId : null;
 }
 
 // De qual passo o toque num botão de RESPOSTA RÁPIDA (`AUTO:<id>`) retoma.
@@ -364,26 +374,47 @@ export function cursorDesta(
 // este.
 //
 // SEM cursor desta automação — nulo, ou de outra —, retoma de 0. Cursor de
-// outra automação é posição em outra lista, e o zero é o único ponto afirmável
+// outra automação é bloco de outra lista, e o zero é o único ponto afirmável
 // para o null: ele tanto pode ser "nunca começou" quanto "o fluxo TERMINOU"
 // (`executarFluxo` limpa o cursor no fim da lista), e a coluna não separa os
 // dois. Repetir a lista é recuperável — ela para na primeira parada dura, e a
 // `passoKey` segura o dia; começar no meio às cegas não é.
 //
-// CURSOR OBSOLETO — índice que não existe mais, ou passo que não espera nada,
-// porque a lista foi editada depois de o cursor ser gravado — cai no `+1`
-// também, e a escolha é deliberada. Índice morto não é portão, então avançar
-// não pula portão nenhum: os portões que vierem depois continuam sendo
-// interpretados normalmente. Do zero, a alternativa, a boas-vindas sairia de
-// novo. Quando o `+1` cai além do fim da lista, `interpretar` não enfileira
-// nada e `executarFluxo` limpa o cursor: o toque não faz nada, e a pessoa
-// destrava mandando qualquer mensagem.
+// CURSOR OBSOLETO tem DUAS formas, e elas não caem no mesmo lugar.
+//
+// BLOCO QUE SUMIU da lista — `indiceDoId` devolve null — retoma do ZERO. Antes
+// desta fase o equivalente era "índice obsoleto", que caía no `+1`; agora não
+// há índice em que somar, e o zero é o único ponto afirmável — o mesmo
+// raciocínio do cursor nulo, logo acima.
+//
+// BLOCO QUE CONTINUA na lista mas não espera mais nada — foi editado e virou
+// botão de link, ou ficou inválido — cai no `+1`, como antes, e a escolha segue
+// deliberada. Passo que não espera não é portão, então avançar não pula portão
+// nenhum: os que vierem depois continuam sendo interpretados normalmente. Do
+// zero, a alternativa, a boas-vindas sairia de novo. Quando o `+1` cai além do
+// fim da lista, `interpretar` não enfileira nada e `executarFluxo` limpa o
+// cursor: o toque não faz nada, e a pessoa destrava mandando qualquer mensagem.
+//
+// A diferença que importa, e é o ponto desta fase: a primeira forma ficou RARA.
+// Com índice, toda edição que mexesse no começo da lista tornava o cursor
+// obsoleto. Com id, o bloco só some quando o dono o apaga — reordenar não conta.
+//
+// Com a medida certa, porém: isso vale para bloco COM id. Para bloco SEM id a
+// identidade É a posição (`identidadeDoPasso`), então ela não acompanha o
+// bloco, e editar a lista faz o cursor resolver para OUTRO bloco em silêncio,
+// sem passar por este null — o comentário de `indiceDoId`, acima, descreve o
+// caso por inteiro. O que segura isso é o DADO, não esta função: depois da
+// migração (`scripts/dar-ids-aos-passos.mjs`) e de `montarPassos`
+// (app/automacoes/actions.ts), lista com bloco sem id não é produzida por
+// caminho nenhum do sistema.
 export function retomadaDoBotao(
-  cursor: { indice: number | null; automationId: string | null },
+  cursor: Cursor,
   automationId: string,
   passos: unknown
 ): number {
-  const indice = cursorDesta(cursor, automationId);
+  const id = cursorDesta(cursor, automationId);
+  if (id === null) return 0;
+  const indice = indiceDoId(passos, id);
   if (indice === null) return 0;
   const tipo = passoEsperado(passos, indice)?.tipo;
   return tipo === "pedir_follow" || tipo === "pedir_email" ? indice : indice + 1;
@@ -395,6 +426,12 @@ export function retomadaDoBotao(
 // comportamento é o que a onda passada instalou, o que faltava era teste.
 //
 // Com cursor DESTA automação, retoma DELE — o portão é reavaliado, não pulado.
+//
+// A não ser que o BLOCO tenha sumido da lista, e esse ramo é novo desta fase:
+// com índice, um número sempre resolvia para alguma coisa, então cursor desta
+// automação nunca chegava ao `??`. Agora `indiceDoId` sabe dizer "esse bloco
+// não está mais aqui", e aí o cursor não afirma nada — cai no portão, junto com
+// o caso de não haver cursor desta, e pelo mesmo motivo.
 //
 // Sem cursor desta, o ponto de partida NÃO é o zero, e é aqui que este ramo
 // difere do `AUTO:`: o payload `FOLLOW:<id>` só existe porque o portão desta
@@ -423,11 +460,13 @@ export function retomadaDoBotao(
 // `FOLLOW:<id>` já entregues continuam tocáveis nas conversas antigas. É "lista
 // que não tem portão AGORA", e aí o zero é mesmo o único ponto afirmável.
 export function retomadaDoFollow(
-  cursor: { indice: number | null; automationId: string | null },
+  cursor: Cursor,
   automationId: string,
   passos: unknown
 ): number {
-  return cursorDesta(cursor, automationId) ?? indiceDoPortao(passos) ?? 0;
+  const id = cursorDesta(cursor, automationId);
+  const indice = id === null ? null : indiceDoId(passos, id);
+  return indice ?? indiceDoPortao(passos) ?? 0;
 }
 
 // De qual passo o fallback retoma. Null quando não dá para afirmar.

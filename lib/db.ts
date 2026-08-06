@@ -209,6 +209,7 @@ export type Contact = {
   first_contact_at: Date;
   last_reply_at: Date | null;
   last_automation_id: string | null;
+  flow_step_id: string | null;
 };
 
 export type QueueItem = {
@@ -393,6 +394,16 @@ const DDL = [
   // havia dois lugares onde parar. Com passos como dados, os lugares são
   // quantos a lista tiver.
   `alter table contacts add column if not exists flow_step_index int`,
+  // Em QUAL BLOCO desta pessoa o fluxo parou. Substitui `flow_step_index`, que
+  // guardava a posição — e posição muda quando o dono reordena ou apaga um
+  // bloco antes dele, fazendo o cursor apontar para outro passo. Já chegou a
+  // apontar para DEPOIS do portão de follow, entregando o link a quem não
+  // segue, em silêncio.
+  //
+  // `flow_step_index` NÃO é apagada aqui. Ela sai junto com as outras colunas
+  // órfãs; apagar no mesmo deploy tira o caminho de volta. Enquanto existir,
+  // `lerCursor` a usa como reserva para quem foi gravado antes desta fase.
+  `alter table contacts add column if not exists flow_step_id text`,
 ];
 
 type SqlClient = ReturnType<typeof sql>;

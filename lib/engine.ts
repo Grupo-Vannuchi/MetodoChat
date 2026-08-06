@@ -25,7 +25,9 @@ import {
   retomadaDoFollow,
   interrompeOFluxo,
   identidadeDoPasso,
+  indiceDoId,
   type AcaoEnfileirar,
+  type Cursor,
 } from "./steps";
 // `welcomeMessageKey` não é mais importado aqui: era a chave do enfileiramento
 // de boas-vindas por coluna, que saiu. Ela continua em lib/dedupe.ts, com teste,
@@ -420,7 +422,10 @@ async function executarFluxo(
       // faria nada. Retoma do próximo índice, senão vencer o portão seria o fim
       // do fluxo e o link nunca chegaria a quem seguiu.
       if (passou) return executarFluxo(account, auto, contactIgId, acao.indice + 1, contexto);
-      await gravarCursor(account.ig_user_id, contactIgId, auto.id, acao.indice);
+      await gravarCursor(
+        account.ig_user_id, contactIgId, auto.id,
+        identidadeDoPasso(p, acao.indice)
+      );
       return;
     }
 
@@ -449,7 +454,10 @@ async function executarFluxo(
           ? privateReplyKey(comentario)
           : emailAskKey(auto.id, contactIgId, dayBucket()),
       });
-      await gravarCursor(account.ig_user_id, contactIgId, auto.id, acao.indice);
+      await gravarCursor(
+        account.ig_user_id, contactIgId, auto.id,
+        identidadeDoPasso(p, acao.indice)
+      );
       return;
     }
 
@@ -461,7 +469,10 @@ async function executarFluxo(
   // da pessoa, e sem gravar o cursor o toque recomeçaria a lista do zero e
   // pararia no mesmo passo, para sempre.
   if (r.pararEm !== null) {
-    await gravarCursor(account.ig_user_id, contactIgId, auto.id, r.pararEm);
+    await gravarCursor(
+      account.ig_user_id, contactIgId, auto.id,
+      identidadeDoPasso((auto.steps as unknown[])[r.pararEm], r.pararEm)
+    );
     return;
   }
 
@@ -473,52 +484,54 @@ async function gravarCursor(
   accountId: string,
   contactIgId: string,
   automationId: string,
-  indice: number
+  passoId: string
 ) {
   await sql().query(
-    `update contacts set flow_step_index = $3, last_automation_id = $4
+    `update contacts set flow_step_id = $3, flow_step_index = null, last_automation_id = $4
      where account_id = $1 and ig_id = $2`,
-    [accountId, contactIgId, indice, automationId]
+    [accountId, contactIgId, passoId, automationId]
   );
 }
 
 async function limparCursor(accountId: string, contactIgId: string) {
   await sql().query(
-    `update contacts set flow_step_index = null where account_id = $1 and ig_id = $2`,
+    `update contacts set flow_step_id = null, flow_step_index = null
+     where account_id = $1 and ig_id = $2`,
     [accountId, contactIgId]
   );
 }
 
 // Lê o cursor JUNTO com a automação dona dele.
 //
-// O índice sozinho não quer dizer nada: ele é a posição dentro de UMA lista de
-// passos, e cada automação tem a sua. É a dupla que responde "qual automação, em
-// que ponto" — o ramo de texto de `handleMessagingEvent` já lia assim.
+// O bloco sozinho não quer dizer nada: a identidade só é única dentro de UMA
+// lista de passos, e cada automação tem a sua. É a dupla que responde "qual
+// automação, em que ponto" — o ramo de texto de `handleMessagingEvent` já lia
+// assim.
 //
 // A dupla NÃO é garantida por `gravarCursor` sozinho, e afirmar isso seria
 // falso: `last_automation_id` tem três escritores, e dois deles escrevem só ele
 // — os `upsertContact` do gatilho de comentário e do gatilho de texto, que
-// deixam `flow_step_index` intocado. O que mantém a dupla coerente é o PAR: os
-// dois são imediatamente seguidos de um `executarFluxo`, e todo caminho de
+// deixam o cursor intocado. O que mantém a dupla coerente é o PAR: os dois são
+// imediatamente seguidos de um `executarFluxo`, e todo caminho de
 // `executarFluxo` termina em `gravarCursor` (que escreve os dois campos) ou em
 // `limparCursor`. A invariante é da sequência escrita-seguida-de-execução, não
 // de uma função só; quem inserir uma escrita de `last_automation_id` sem
 // execução logo depois a quebra.
 //
-// Ler só o índice era o defeito: quem recebeu o botão da automação A, foi
+// Ler só o cursor era o defeito: quem recebeu o botão da automação A, foi
 // interrompido pela B e depois tocou no botão antigo de A tinha o cursor de B
 // aplicado à lista de A. Eram dois estragos, e ler a dupla mata UM:
 //
-//   SUMIU — índice de B válido dentro da lista de A pulava passos de A, o
+//   SUMIU — cursor de B que resolve dentro da lista de A pulava passos de A, o
 //     portão de follow inclusive, e entregava o link a quem não segue. Com
-//     `cursorDesta` (lib/steps.ts), o índice emprestado nunca mais é aplicado.
+//     `cursorDesta` (lib/steps.ts), o cursor emprestado nunca mais é aplicado.
 //   CONTINUA DE PÉ — o lugar da pessoa em B se perde, e pelas DUAS formas, que
 //     coexistem. A comum é a sobrescrita: `executarFluxo(A, ...)` termina em
-//     `gravarCursor(A, ...)`, que escreve `flow_step_index` sem olhar de quem
-//     era. A outra é o apagamento, exatamente como antes: se o portão de A passa
-//     e a lista de A termina, `executarFluxo` cai no `limparCursor` (logo
-//     abaixo) e o cursor de B some. Qual das duas acontece depende só de a lista
-//     de A terminar ou parar; o resultado para B é o mesmo.
+//     `gravarCursor(A, ...)`, que escreve `flow_step_id` sem olhar de quem era.
+//     A outra é o apagamento, exatamente como antes: se o portão de A passa e a
+//     lista de A termina, `executarFluxo` cai no `limparCursor` (logo acima) e o
+//     cursor de B some. Qual das duas acontece depende só de a lista de A
+//     terminar ou parar; o resultado para B é o mesmo.
 //
 // A causa do que continua é outra: `gravarCursor` e `limparCursor` não conferem
 // de quem é o cursor antes de escrever — há um cursor só por contato, e ele é do
@@ -527,18 +540,44 @@ async function limparCursor(accountId: string, contactIgId: string) {
 // original duas vezes nesta branch. Fica para uma mudança própria, com o
 // desenho decidido antes: aqui seria correção de escrita embutida numa onda de
 // correção de leitura.
-async function lerCursor(
-  accountId: string,
-  contactIgId: string
-): Promise<{ indice: number | null; automationId: string | null }> {
+async function lerCursor(accountId: string, contactIgId: string): Promise<Cursor> {
   const rows = (await sql().query(
-    `select flow_step_index, last_automation_id from contacts
+    `select flow_step_id, flow_step_index, last_automation_id from contacts
      where account_id = $1 and ig_id = $2`,
     [accountId, contactIgId]
-  )) as { flow_step_index: number | null; last_automation_id: string | null }[];
+  )) as {
+    flow_step_id: string | null;
+    flow_step_index: number | null;
+    last_automation_id: string | null;
+  }[];
+  const r = rows[0];
+  // A coluna velha é RESERVA, não alternativa: quem foi gravado antes desta
+  // fase tem só `flow_step_index`, e a identidade de um bloco sem id é
+  // justamente o índice em texto (`identidadeDoPasso`, lib/steps.ts). Então o
+  // valor antigo já está na forma certa — não precisa de conversão, precisa de
+  // `String()`. `gravarCursor` zera a coluna velha ao escrever a nova, para as
+  // duas nunca discordarem.
+  //
+  // COM A MEDIDA CERTA, porque "forma certa" não é "resolve": o índice em texto
+  // só encontra o bloco enquanto ele NÃO tiver id. A migração
+  // (`scripts/dar-ids-aos-passos.mjs`) deu id a todo bloco de toda automação já
+  // gravada, e a partir daí `identidadeDoPasso` devolve o id, nunca o índice —
+  // então `indiceDoId` não acha "2" em lista nenhuma e o cursor velho resolve
+  // para null. A reserva vale, na prática, só para automação ainda não migrada.
+  //
+  // É aceitável, e o motivo é a DIREÇÃO da falha, não a raridade dela: cursor
+  // que não resolve nunca pula passo. `retomadaDoBotao` volta ao zero (a lista
+  // reinicia e para na primeira parada dura, com a `passoKey` segurando o dia),
+  // `retomadaDoFollow` cai no portão, e o ramo de texto limpa o cursor e deixa
+  // o evento seguir. Nenhum dos três atravessa o portão de follow — o estrago
+  // possível é mensagem repetida, não link para quem não segue.
+  //
+  // Converter os cursores velhos para id no deploy seria o conserto de verdade,
+  // e ele NÃO cabe aqui: exigiria ler a lista de cada automação para traduzir
+  // índice em id, e escrita no banco é a Tarefa 8. Está anotado lá.
   return {
-    indice: rows[0]?.flow_step_index ?? null,
-    automationId: rows[0]?.last_automation_id ?? null,
+    passoId: r?.flow_step_id ?? (r?.flow_step_index != null ? String(r.flow_step_index) : null),
+    automationId: r?.last_automation_id ?? null,
   };
 }
 
@@ -910,81 +949,93 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
   const auto = findMatch(automations, trigger, text, msg.reply_to?.story?.id);
 
   // Esta pessoa está parada em algum passo?
-  const estado = (await sql().query(
-    `select flow_step_index, last_automation_id from contacts
-     where account_id = $1 and ig_id = $2`,
-    [account.ig_user_id, senderId]
-  )) as { flow_step_index: number | null; last_automation_id: string | null }[];
-
-  const parado = estado[0];
-  const indiceParado = parado?.flow_step_index ?? null;
-  if (indiceParado !== null) {
-    const autoParada = parado.last_automation_id
-      ? await loadAutomation(account.ig_user_id, parado.last_automation_id)
+  //
+  // Pela FUNÇÃO, e não por consulta solta como era aqui: a consulta duplicava
+  // `lerCursor` e agora divergiria dela — ela lia só `flow_step_index`, que
+  // `gravarCursor` deixou de escrever, e este ramo ficaria cego para todo cursor
+  // gravado a partir desta fase.
+  const cursor = await lerCursor(account.ig_user_id, senderId);
+  const idParado = cursor.passoId;
+  if (idParado !== null) {
+    const autoParada = cursor.automationId
+      ? await loadAutomation(account.ig_user_id, cursor.automationId)
       : undefined;
 
     // Sem automação carregável não há passo para retomar — ela foi desativada
-    // ou apagada. Voltar daqui deixaria o `flow_step_index` gravado PARA
+    // ou apagada. Voltar daqui deixaria o `flow_step_id` gravado PARA
     // SEMPRE, porque nada mais o limpa: a pessoa ficaria surda a toda palavra-
     // chave, de toda automação, até alguém mexer no banco. Automação desativada
     // não pode sequestrar o contato: limpa o cursor e deixa o evento seguir.
     if (!autoParada) {
       await limparCursor(account.ig_user_id, senderId);
     } else {
-      // O passo vem CRU do banco, então passa pela mesma validação que o
-      // interpretador faz — e `passoEsperado` ainda confirma que ele espera
-      // alguma coisa. Undefined aqui é cursor obsoleto (lista editada depois de
-      // gravado, passo inválido, índice que não existe mais): não há resposta a
-      // esperar, então o cursor sai da frente e o evento segue.
-      const passo = passoEsperado(autoParada.steps, indiceParado);
-
-      // Este ramo só pode CAPTURAR a mensagem quando ela é mesmo a resposta do
-      // passo esperado. O critério, por tipo de passo:
-      //   pedir_email  → a mensagem é candidata a e-mail. Captura.
-      //   pedir_follow → qualquer mensagem vale como "quero continuar". Captura.
-      //   dm de resposta rápida → o que ela espera é o TOQUE no botão, não
-      //     texto. Então só deixa passar o que for gatilho de OUTRA automação:
-      //     toda boas-vindas estaciona o cursor, e sem esta condição quem
-      //     recebeu a boas-vindas da automação A e não tocou no botão ficaria
-      //     preso — mandar a palavra-chave da automação B seria lido como
-      //     "quero continuar em A", e B nunca dispararia.
-      if (!passo) {
+      // Onde, na lista de HOJE, está o bloco em que a pessoa parou. Uma vez só:
+      // todo o resto do ramo trabalha com o índice, porque `passoEsperado` e
+      // `executarFluxo` continuam falando em posição — é o cursor que deixou de
+      // falar, não o interpretador.
+      const indiceParado = indiceDoId(autoParada.steps, idParado);
+      // Bloco apagado depois de o cursor ser gravado: não há passo para
+      // retomar, então o cursor sai da frente e o evento segue o fluxo normal.
+      // Era o `índice que não existe mais` do caso abaixo, e sai de lá porque
+      // agora é distinguível — e ficou raro: com id, só apagar aquele bloco.
+      if (indiceParado === null) {
         await limparCursor(account.ig_user_id, senderId);
-      } else if (passo.tipo === "dm" && interrompeOFluxo(auto, autoParada)) {
-        // Não é resposta ao passo: é o gatilho de outra automação. Cai fora do
-        // ramo e segue para o fluxo normal, que reinicia naquela automação. O
-        // cursor não precisa ser limpo aqui — `executarFluxo` da automação nova
-        // o reescreve (ou o apaga, se a lista terminar).
       } else {
-        if (passo.tipo === "pedir_email") {
-          const email = extractEmail(text);
-          if (!email) {
-            // Não parecia e-mail: pede de novo, uma vez por mensagem recebida.
-            await enqueue({
-              account_id: account.ig_user_id,
-              kind: "dm_email_ask",
-              contact_ig_id: senderId,
-              automation_id: autoParada.id,
-              payload: {
-                text: "Acho que esse e-mail saiu errado 🤔 Me manda de novo, só o e-mail.",
-              },
-              dedupe_key: emailAnswerKey(msg.mid, senderId, Date.now()),
-            });
-            return;
-          }
-          await sql().query(
-            `update contacts set email = $3 where account_id = $1 and ig_id = $2`,
-            [account.ig_user_id, senderId, email]
-          );
-        }
+        // O passo vem CRU do banco, então passa pela mesma validação que o
+        // interpretador faz — e `passoEsperado` ainda confirma que ele espera
+        // alguma coisa. Undefined aqui é cursor obsoleto (lista editada depois de
+        // gravado, passo inválido, bloco que deixou de esperar resposta): não há
+        // resposta a esperar, então o cursor sai da frente e o evento segue.
+        const passo = passoEsperado(autoParada.steps, indiceParado);
 
-        // Retoma do passo seguinte — menos no portão de follow, que retoma DELE
-        // MESMO, para `resolverFollow` consultar a Meta de novo. O portão só é
-        // portão se cada tentativa reconsultar: retomando do seguinte, bastaria
-        // mandar "ok" para pular o passo e receber o link sem nunca ter seguido.
-        const retomarDe = passo.tipo === "pedir_follow" ? indiceParado : indiceParado + 1;
-        await executarFluxo(account, autoParada, senderId, retomarDe);
-        return;
+        // Este ramo só pode CAPTURAR a mensagem quando ela é mesmo a resposta do
+        // passo esperado. O critério, por tipo de passo:
+        //   pedir_email  → a mensagem é candidata a e-mail. Captura.
+        //   pedir_follow → qualquer mensagem vale como "quero continuar". Captura.
+        //   dm de resposta rápida → o que ela espera é o TOQUE no botão, não
+        //     texto. Então só deixa passar o que for gatilho de OUTRA automação:
+        //     toda boas-vindas estaciona o cursor, e sem esta condição quem
+        //     recebeu a boas-vindas da automação A e não tocou no botão ficaria
+        //     preso — mandar a palavra-chave da automação B seria lido como
+        //     "quero continuar em A", e B nunca dispararia.
+        if (!passo) {
+          await limparCursor(account.ig_user_id, senderId);
+        } else if (passo.tipo === "dm" && interrompeOFluxo(auto, autoParada)) {
+          // Não é resposta ao passo: é o gatilho de outra automação. Cai fora do
+          // ramo e segue para o fluxo normal, que reinicia naquela automação. O
+          // cursor não precisa ser limpo aqui — `executarFluxo` da automação nova
+          // o reescreve (ou o apaga, se a lista terminar).
+        } else {
+          if (passo.tipo === "pedir_email") {
+            const email = extractEmail(text);
+            if (!email) {
+              // Não parecia e-mail: pede de novo, uma vez por mensagem recebida.
+              await enqueue({
+                account_id: account.ig_user_id,
+                kind: "dm_email_ask",
+                contact_ig_id: senderId,
+                automation_id: autoParada.id,
+                payload: {
+                  text: "Acho que esse e-mail saiu errado 🤔 Me manda de novo, só o e-mail.",
+                },
+                dedupe_key: emailAnswerKey(msg.mid, senderId, Date.now()),
+              });
+              return;
+            }
+            await sql().query(
+              `update contacts set email = $3 where account_id = $1 and ig_id = $2`,
+              [account.ig_user_id, senderId, email]
+            );
+          }
+
+          // Retoma do passo seguinte — menos no portão de follow, que retoma DELE
+          // MESMO, para `resolverFollow` consultar a Meta de novo. O portão só é
+          // portão se cada tentativa reconsultar: retomando do seguinte, bastaria
+          // mandar "ok" para pular o passo e receber o link sem nunca ter seguido.
+          const retomarDe = passo.tipo === "pedir_follow" ? indiceParado : indiceParado + 1;
+          await executarFluxo(account, autoParada, senderId, retomarDe);
+          return;
+        }
       }
     }
   }
@@ -1021,7 +1072,13 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
   // repetir DUPLICA de verdade: a boas-vindas de um fluxo por comentário é
   // gravada com `privateReplyKey(commentId)`, e a repetição sai com `passoKey`
   // (por passo/pessoa/dia) — chaves diferentes, nada colide, dois envios.
-  const lastAuto = estado[0]?.last_automation_id;
+  // De qual automação era a última conversa. Vem do mesmo `lerCursor` lido lá
+  // em cima, e não de uma consulta própria: é a leitura de ANTES do ramo do
+  // cursor, exatamente como era com a consulta solta. Ler de novo aqui mudaria
+  // o comportamento — `limparCursor` pode ter rodado no meio, e ele não toca
+  // `last_automation_id`, mas a segunda leitura seria uma ida ao banco a mais
+  // sem nada a mostrar por ela.
+  const lastAuto = cursor.automationId;
   const autoAnterior = lastAuto ? automations.find((a) => a.id === lastAuto) : undefined;
   if (
     autoAnterior &&
