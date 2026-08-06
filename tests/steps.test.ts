@@ -10,6 +10,7 @@ import {
   cursorDesta,
   identidadeDoPasso,
   indiceDoId,
+  lerPayload,
 } from "../lib/steps";
 
 describe("interpretar", () => {
@@ -750,5 +751,185 @@ describe("indiceDoId", () => {
   it("devolve null quando não é lista", () => {
     expect(indiceDoId(null, "b_aaa111")).toBe(null);
     expect(indiceDoId({}, "b_aaa111")).toBe(null);
+  });
+});
+
+describe("lerPayload", () => {
+  // Um botão já entregue vive na conversa da pessoa PARA SEMPRE — ela pode
+  // tocar nele daqui a um mês. Por isso as duas formas convivem, e isto não é
+  // dívida a limpar: é a forma final.
+
+  it("lê a forma nova, com o bloco", () => {
+    expect(lerPayload("AUTO:auto-1:b_7f3a91c2")).toEqual({
+      prefixo: "AUTO",
+      automationId: "auto-1",
+      passoId: "b_7f3a91c2",
+    });
+  });
+
+  it("lê a forma ANTIGA, sem o bloco — botão entregue antes da Fase 1b", () => {
+    expect(lerPayload("AUTO:auto-1")).toEqual({
+      prefixo: "AUTO",
+      automationId: "auto-1",
+      passoId: null,
+    });
+  });
+
+  it("vale para o FOLLOW nas duas formas", () => {
+    expect(lerPayload("FOLLOW:auto-1:b_por002")).toEqual({
+      prefixo: "FOLLOW",
+      automationId: "auto-1",
+      passoId: "b_por002",
+    });
+    expect(lerPayload("FOLLOW:auto-1")).toEqual({
+      prefixo: "FOLLOW",
+      automationId: "auto-1",
+      passoId: null,
+    });
+  });
+
+  it("o id da automação é um uuid, que tem hífen mas não dois-pontos", () => {
+    expect(lerPayload("AUTO:39ae24ec-c487-40ff-a387-c041cb3f0d23:b_aaa111")).toEqual({
+      prefixo: "AUTO",
+      automationId: "39ae24ec-c487-40ff-a387-c041cb3f0d23",
+      passoId: "b_aaa111",
+    });
+  });
+
+  it("o bloco SEM id vira identidade por índice, e ela também cabe no payload", () => {
+    // `identidadeDoPasso` devolve o índice em texto para bloco sem id, e é essa
+    // string que o motor põe no payload. Ela não tem forma especial nenhuma —
+    // quem exigir aqui o prefixo `b_` recusaria o botão de toda automação que a
+    // migração não alcançou, e o toque deixaria de fazer qualquer coisa.
+    expect(lerPayload("AUTO:auto-1:2")).toEqual({
+      prefixo: "AUTO",
+      automationId: "auto-1",
+      passoId: "2",
+    });
+  });
+
+  it("devolve null para o que não é payload nosso", () => {
+    // O webhook aceita o que a Meta mandar, e a Meta aceita o que o cliente
+    // mandar. Nada aqui pode estourar.
+    expect(lerPayload("OUTRACOISA:x")).toBe(null);
+    expect(lerPayload("AUTO:")).toBe(null);
+    expect(lerPayload("AUTO")).toBe(null);
+    expect(lerPayload("")).toBe(null);
+    expect(lerPayload(null)).toBe(null);
+    expect(lerPayload(42)).toBe(null);
+    expect(lerPayload("AUTO:a:b:c")).toBe(null);
+  });
+
+  it("bloco VAZIO na forma de três partes é null, e não bloco vazio", () => {
+    // `AUTO:auto-1:` tem três partes, a última em branco. Deixar passar poria
+    // `passoId: ""` no ramo do payload, e "" não é identidade de bloco nenhum:
+    // `indiceDoId` devolveria null e o toque cairia no zero — a boas-vindas de
+    // novo. Como null, o toque usa o cursor, que é o que ele já fazia antes.
+    expect(lerPayload("AUTO:auto-1:")).toBe(null);
+    expect(lerPayload("FOLLOW:auto-1:")).toBe(null);
+  });
+
+  it("o prefixo é conferido por igualdade, não por parecença", () => {
+    // Nada nosso emite estas formas. Elas estão aqui porque o payload volta do
+    // cliente pela Meta: quem afrouxar a comparação (minúsculas, `startsWith`,
+    // `includes`) passa a aceitar string digitada por terceiro como se fosse
+    // botão nosso, e o toque falso retoma o fluxo de uma automação escolhida
+    // por quem digitou.
+    expect(lerPayload("auto:auto-1")).toBe(null);
+    expect(lerPayload("AUTOX:auto-1")).toBe(null);
+    expect(lerPayload("XAUTO:auto-1")).toBe(null);
+    expect(lerPayload(" AUTO:auto-1")).toBe(null);
+  });
+
+  it("lê de volta exatamente o que o motor emite — as duas pontas casam", () => {
+    // O motor monta o payload com `identidadeDoPasso` (lib/engine.ts), e este
+    // teste é o único lugar em que as duas pontas se encontram: o que monta o
+    // payload está dentro de `server-only` e nenhum teste chega lá. Se o formato
+    // emitido e o formato lido divergirem, o sintoma não é erro — é o botão
+    // parar de fazer efeito, calado.
+    const lista = [
+      { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" },
+      { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" },
+    ];
+    const automationId = "39ae24ec-c487-40ff-a387-c041cb3f0d23";
+
+    const doBotao = `AUTO:${automationId}:${identidadeDoPasso(lista[0], 0)}`;
+    const lidoDoBotao = lerPayload(doBotao);
+    expect(lidoDoBotao).toEqual({ prefixo: "AUTO", automationId, passoId: "b_bem001" });
+    expect(indiceDoId(lista, lidoDoBotao!.passoId!)).toBe(0);
+
+    const doPortao = `FOLLOW:${automationId}:${identidadeDoPasso(lista[1], 1)}`;
+    const lidoDoPortao = lerPayload(doPortao);
+    expect(lidoDoPortao).toEqual({ prefixo: "FOLLOW", automationId, passoId: "b_por002" });
+    expect(indiceDoId(lista, lidoDoPortao!.passoId!)).toBe(1);
+  });
+
+  it("o payload do botão vira cursor DESTA automação, e é assim que ele é usado", () => {
+    // O uso, montado aqui porque o motor não é testável: o bloco do payload
+    // entra em `retomadaDoBotao`/`retomadaDoFollow` como cursor desta automação.
+    // Isto FIXA a consequência que o payload traz, para ela não mudar em
+    // silêncio: o bloco do payload é sempre o do BOTÃO, nunca o do lugar onde a
+    // pessoa parou.
+    const lista = [
+      { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0
+      { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 1
+      { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" }, // 2
+    ];
+    const p = lerPayload("AUTO:A:b_bem001")!;
+    const cursorDoPayload = { passoId: p.passoId, automationId: "A" };
+    // O toque na boas-vindas retoma do SEGUINTE, que é o portão: o portão
+    // continua sendo atravessado por `resolverFollow`, e não pulado.
+    expect(retomadaDoBotao(cursorDoPayload, "A", lista)).toBe(1);
+
+    // Já o botão cujo bloco não está mais na lista não afirma nada, e cai no
+    // zero — a boas-vindas de novo. É o preço do ramo, e ele é alcançado por
+    // TODO botão entregue antes do último salvamento enquanto `montarPassos`
+    // (app/automacoes/actions.ts) gerar id novo a cada save. Fecha na Tarefa 8.
+    const doApagado = lerPayload("AUTO:A:b_sumiu9")!;
+    expect(retomadaDoBotao({ passoId: doApagado.passoId, automationId: "A" }, "A", lista)).toBe(0);
+  });
+
+  it("o payload SALVA quem está no meio de OUTRA automação", () => {
+    // O ganho mais concreto da forma nova, e o que ele custa. Cenário: a pessoa
+    // está parada na automação B, e toca num botão antigo da A, que continua na
+    // conversa dela.
+    const lista = [
+      { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0
+      { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 1
+      { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" }, // 2
+    ];
+    const cursorEmOutra = { passoId: "b_qqq111", automationId: "B" };
+
+    // Com o payload ANTIGO só havia o cursor do contato, que é de B: `cursorDesta`
+    // o descarta e a A recomeça do ZERO — a boas-vindas de novo.
+    expect(retomadaDoBotao(cursorEmOutra, "A", lista)).toBe(0);
+
+    // Com o payload NOVO o bloco é o do botão da A, e a retomada é a certa.
+    const p = lerPayload("AUTO:A:b_bem001")!;
+    expect(retomadaDoBotao({ passoId: p.passoId, automationId: "A" }, "A", lista)).toBe(1);
+  });
+
+  it("no FOLLOW, o payload nomeia o PORTÃO, e não onde a pessoa parou", () => {
+    // A troca do ramo `FOLLOW:`, fixada para não mudar em silêncio. Quem já
+    // atravessou o portão e está parado ADIANTE, e toca de novo no "Já sigo!"
+    // antigo, volta ao portão — o cursor do contato o deixava onde estava.
+    //
+    // Reconsultar a Meta é inofensivo para quem segue; o preço é reenfileirar
+    // tudo entre o portão e o ponto em que a pessoa estava, e a `passoKey` só
+    // segura isso dentro do dia. É reentrega, não pulo de portão.
+    //
+    // Em troca, o toque passa a dizer EM QUAL portão a pessoa tocou, que é a
+    // dívida registrada no comentário de `indiceDoPortao`.
+    const lista = [
+      { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0
+      { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 1
+      { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" }, // 2
+      { id: "b_lem006", tipo: "dm", texto: "não esquece" }, // 3
+    ];
+    const cursorAdiante = { passoId: "b_lem006", automationId: "A" };
+    expect(retomadaDoFollow(cursorAdiante, "A", lista)).toBe(3);
+
+    const p = lerPayload("FOLLOW:A:b_por002")!;
+    expect(retomadaDoFollow({ passoId: p.passoId, automationId: "A" }, "A", lista)).toBe(1);
   });
 });

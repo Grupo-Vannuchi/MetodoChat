@@ -26,6 +26,7 @@ import {
   interrompeOFluxo,
   identidadeDoPasso,
   indiceDoId,
+  lerPayload,
   type AcaoEnfileirar,
   type Cursor,
 } from "./steps";
@@ -661,7 +662,15 @@ async function enfileirarPasso(
         ? {
             text: p.texto,
             quick_reply_label: p.botao_label,
-            quick_reply_payload: `AUTO:${auto.id}`,
+            // O payload leva o BLOCO junto da automação, e é o que faz o toque
+            // dizer de qual botão ele veio. Sem isso, dois botões antigos da
+            // mesma automação na mesma conversa são indistinguíveis, e o motor
+            // só tem o cursor — que diz onde a pessoa parou, não no que tocou.
+            //
+            // A identidade é a MESMA que entra na `passoKey` e no cursor
+            // (`identidadeDoPasso`), de propósito: é ela que `indiceDoId`
+            // procura de volta lá em `handleMessagingEvent`.
+            quick_reply_payload: `AUTO:${auto.id}:${identidadeDoPasso(p, acao.indice)}`,
           }
         : { text: p.texto, button_label: p.botao_label ?? null, url: p.url ?? null },
       // A chave da resposta privada é a mesma do motor antigo: o id do
@@ -758,7 +767,11 @@ async function resolverFollow(
   account: Account,
   auto: Automation,
   contactIgId: string,
-  passo: { texto: string; botao_label: string },
+  // O `id` entra no tipo porque o payload do botão passou a carregá-lo: sem ele
+  // declarado, `identidadeDoPasso(passo, indice)` lá embaixo lê uma propriedade
+  // que o tipo diz não existir e cai SEMPRE no índice — o botão voltaria a
+  // nomear a posição, e o motivo desta fase se perderia sem um erro sequer.
+  passo: { id?: string; texto: string; botao_label: string },
   indice: number,
   contexto: ContextoGatilho
 ): Promise<boolean> {
@@ -807,7 +820,12 @@ async function resolverFollow(
             ? passo.texto
             : "Ainda não consegui ver você na minha lista de seguidores 👀 Segue lá e toca no botão de novo.",
         quick_reply_label: passo.botao_label,
-        quick_reply_payload: `FOLLOW:${auto.id}`,
+        // Mesma razão do `AUTO:` — e aqui ela paga uma dívida nomeada: o
+        // comentário de `indiceDoPortao` (lib/steps.ts) dizia que `FOLLOW:<id>`
+        // nomeia a automação e não o PORTÃO, de modo que numa lista com dois
+        // portões o toque no segundo retomava no primeiro. Com o bloco no
+        // payload, o toque nomeia o portão em que a pessoa tocou.
+        quick_reply_payload: `FOLLOW:${auto.id}:${identidadeDoPasso(passo, indice)}`,
       },
       dedupe_key: comentario
         ? privateReplyKey(comentario)
@@ -925,30 +943,56 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
 
   // Toque num botão de resposta rápida → segue o fluxo
   if (isQuickReply) {
-    const payload = msg.quick_reply!.payload!;
-    if (payload.startsWith("AUTO:")) {
-      // Onde a lista retoma é decisão pura, e ela mora em `retomadaDoBotao`
-      // (lib/steps.ts) — com o porquê de cada ramo e com teste. Aqui era uma
-      // expressão solta dentro de `server-only`, que nenhum teste alcança, e foi
-      // ela que entregou o link a quem não segue: o `+1` valia para a `dm` de
-      // resposta rápida, mas o cursor também pode estar no PORTÃO, e o botão
-      // antigo da boas-vindas continua tocável.
-      const auto = await loadAutomation(account.ig_user_id, payload.slice(5));
+    // As DUAS formas de payload são lidas pela mesma função (`lerPayload`,
+    // lib/steps.ts), e as duas são finais — a antiga não é dívida a limpar. Ver
+    // o comentário de lá: um botão entregue vive na conversa da pessoa
+    // indefinidamente.
+    //
+    // Onde a lista retoma é decisão pura, e ela mora em `retomadaDoBotao` e
+    // `retomadaDoFollow` (lib/steps.ts) — com o porquê de cada ramo e com teste.
+    // Aqui eram expressões soltas dentro de `server-only`, que nenhum teste
+    // alcança, e foi uma delas que entregou o link a quem não segue.
+    //
+    // Os dois ramos são uma chamada cada de propósito: a assimetria entre eles é
+    // regra de produto — o `AUTO:` sem nada a afirmar começa do zero, o
+    // `FOLLOW:` cai no portão —, e regra de produto sem teste foi o que quebrou
+    // duas vezes nesta branch.
+    const p = lerPayload(msg.quick_reply!.payload);
+    if (p) {
+      const auto = await loadAutomation(account.ig_user_id, p.automationId);
       if (auto) {
-        const cursor = await lerCursor(account.ig_user_id, senderId);
-        await executarFluxo(account, auto, senderId, retomadaDoBotao(cursor, auto.id, auto.steps));
-      }
-    } else if (payload.startsWith("FOLLOW:")) {
-      // "Já sigo!" — `resolverFollow` consulta a API de novo, então só passa
-      // quem realmente seguir. De onde a lista retoma, e o preço de cada ramo
-      // dessa escolha, está em `retomadaDoFollow` (lib/steps.ts), junto dos
-      // testes. Os dois ramos de resposta rápida são uma chamada cada de
-      // propósito: a assimetria entre eles é regra de produto, e regra de
-      // produto sem teste foi o que quebrou duas vezes nesta branch.
-      const auto = await loadAutomation(account.ig_user_id, payload.slice(7));
-      if (auto) {
-        const cursor = await lerCursor(account.ig_user_id, senderId);
-        await executarFluxo(account, auto, senderId, retomadaDoFollow(cursor, auto.id, auto.steps));
+        // O bloco vem do PAYLOAD quando ele o traz, e do cursor quando não.
+        //
+        // O do payload é melhor: ele diz de qual botão a pessoa tocou, e o
+        // cursor diz só onde ela parou. Quando ela tem dois botões antigos na
+        // conversa, os dois são tocáveis e só o payload distingue.
+        //
+        // E ele muda o que as funções de retomada recebem, o que não é óbvio e
+        // precisa estar dito aqui: o cursor do payload é SEMPRE desta automação,
+        // então `cursorDesta` nunca o descarta, e o bloco é sempre o do BOTÃO —
+        // no `AUTO:`, sempre uma `dm` de resposta rápida (é o único passo que
+        // emite esse payload), a não ser que aquele bloco tenha sido editado
+        // para outro tipo desde a entrega. O ramo de PORTÃO de `retomadaDoBotao`
+        // segue vivo por esses dois caminhos, e pelo payload antigo, que não
+        // traz bloco nenhum: não é código morto.
+        //
+        // O PREÇO, porque ele é real: quando o bloco do payload não está mais na
+        // lista, `retomadaDoBotao` cai no zero e a boas-vindas sai de novo —
+        // mesmo que o cursor do contato estivesse íntegro e adiante. Enquanto
+        // `montarPassos` (app/automacoes/actions.ts) gerar id novo a cada
+        // salvamento, isso vale para TODO botão entregue antes do último save. A
+        // janela fecha na Tarefa 8, junto com a do cursor órfão, que tem a mesma
+        // causa. Nenhum desses caminhos pula portão: o pior é mensagem repetida.
+        const cursor = p.passoId
+          ? { passoId: p.passoId, automationId: auto.id }
+          : await lerCursor(account.ig_user_id, senderId);
+        const de =
+          p.prefixo === "AUTO"
+            ? retomadaDoBotao(cursor, auto.id, auto.steps)
+            : // "Já sigo!" — `resolverFollow` consulta a API de novo, então só
+              // passa quem realmente seguir.
+              retomadaDoFollow(cursor, auto.id, auto.steps);
+        await executarFluxo(account, auto, senderId, de);
       }
     }
     return;

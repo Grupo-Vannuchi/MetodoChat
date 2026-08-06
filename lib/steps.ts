@@ -282,14 +282,21 @@ function contarParadasDuras(passos: unknown[]): number {
 // portão nenhum. Retomar de um `pedir_follow` sem texto entregaria a quem não
 // segue tudo o que vem depois dele.
 //
-// COM MAIS DE UM PORTÃO, o primeiro vence, e o preço precisa estar dito: o
-// payload `FOLLOW:<id>` nomeia a automação, não o portão. Quem estava parado no
-// SEGUNDO portão e toca em "Já sigo!" sem cursor desta automação (nulo, ou de
-// outra) retoma no primeiro, e tudo o que houver entre os dois é reentregue.
-// Nenhuma lista do formulário chega a isso — `montarPassos`
+// COM MAIS DE UM PORTÃO, o primeiro vence, e o preço precisa estar dito — mas
+// ele encolheu, e a data importa. O payload `FOLLOW:<automação>` nomeava só a
+// automação: quem estava parado no SEGUNDO portão e tocava em "Já sigo!" sem
+// cursor desta automação retomava no primeiro, e tudo o que houvesse entre os
+// dois era reentregue. Desde a Fase 1b o payload leva o BLOCO junto
+// (`FOLLOW:<automação>:<bloco>`), e o toque nomeia o portão em que a pessoa
+// tocou — `retomadaDoFollow` acha aquele bloco e nem chega aqui.
+//
+// Esta função continua sendo o ponto afirmável dos casos em que o bloco não
+// resolve, e todos eles são reais e permanentes: botão entregue ANTES da Fase 1b
+// (que vive na conversa para sempre), e botão cujo bloco não está mais na lista.
+// Nesses, com dois portões, o primeiro ainda vence e a reentrega descrita acima
+// ainda vale. Nenhuma lista do formulário chega a isso — `montarPassos`
 // (app/automacoes/actions.ts) emite um portão só —, mas lista montada à mão
-// chega, e é para lá que a Fase 1b vai. Distinguir os portões exige pôr o índice
-// no payload, o que é mudança de formato de botão já entregue: fica para lá.
+// chega, e é para lá que a Fase 1b vai.
 export function indiceDoPortao(passos: unknown): number | null {
   if (!Array.isArray(passos)) return null;
   for (let i = 0; i < passos.length; i++) {
@@ -332,13 +339,81 @@ export function cursorDesta(cursor: Cursor, automationId: string): string | null
   return cursor.automationId === automationId ? cursor.passoId : null;
 }
 
-// De qual passo o toque num botão de RESPOSTA RÁPIDA (`AUTO:<id>`) retoma.
+// O que um botão de resposta rápida carrega: de qual automação ele é, e — desde
+// a Fase 1b — de qual BLOCO.
+export type Payload = {
+  prefixo: "AUTO" | "FOLLOW";
+  automationId: string;
+  passoId: string | null;
+};
+
+// Lê o payload de um botão de resposta rápida.
+//
+// DUAS FORMAS, e as duas são finais:
+//
+//   `AUTO:<automação>`            entregue antes da Fase 1b
+//   `AUTO:<automação>:<bloco>`    entregue a partir dela
+//
+// A forma antiga NÃO é dívida a limpar, e este parágrafo existe para ninguém a
+// "limpar" depois. Um botão entregue vive na conversa da pessoa indefinidamente,
+// e ela pode tocar nele meses depois — apagar este ramo quebraria todo botão já
+// enviado, de uma vez, e o sintoma seria "o botão não faz mais nada" sem erro
+// nenhum em lugar algum: `lerPayload` devolveria null, `handleMessagingEvent`
+// não faria nada, e não há linha em Atividade para um toque que não decide nada.
+// Não há data em que este ramo pare de ser alcançado.
+//
+// O `<bloco>` é a identidade que `identidadeDoPasso` dá ao passo, e ela é o id
+// (`b_...`) ou o ÍNDICE EM TEXTO, para bloco sem id. Nada aqui confere a forma
+// dela de propósito: exigir o prefixo `b_` recusaria o botão de toda automação
+// que a migração (`scripts/dar-ids-aos-passos.mjs`) não alcançou. Quem confere
+// se aquele bloco ainda existe é `indiceDoId`, na hora de usar.
+//
+// O id da automação é um uuid: ele tem hífen, e não tem dois-pontos. É por isso
+// que separar por `:` basta, e que mais de três partes é payload que não é
+// nosso, e não automação com nome esquisito.
+//
+// Devolve null para qualquer outra coisa, e isso é obrigatório: o webhook recebe
+// o que a Meta manda, e a Meta manda o que o cliente digitou.
+export function lerPayload(payload: unknown): Payload | null {
+  if (typeof payload !== "string") return null;
+  const partes = payload.split(":");
+  if (partes.length < 2 || partes.length > 3) return null;
+  const [prefixo, automationId, passoId] = partes;
+  if (prefixo !== "AUTO" && prefixo !== "FOLLOW") return null;
+  if (!automationId) return null;
+  // Três partes com a última em branco (`AUTO:auto-1:`) não é "bloco vazio", é
+  // payload malformado. Aceitar poria `passoId: ""` no ramo do payload, e ""
+  // não é identidade de bloco nenhum: `indiceDoId` devolveria null e o toque
+  // cairia no zero, reenviando a boas-vindas. Como null, ele usa o cursor.
+  if (partes.length === 3 && !passoId) return null;
+  return { prefixo, automationId, passoId: passoId ?? null };
+}
+
+// De qual passo o toque num botão de RESPOSTA RÁPIDA (`AUTO:`) retoma.
 //
 // Veio de lib/engine.ts inteira, e não em pedaços, porque era a composição — e
 // não as peças — que estava sem teste. `cursorDesta`, `indiceDoPortao` e
 // `passoEsperado` sempre foram puras e cobertas; a ESCOLHA entre elas morava
 // dentro de `server-only`, onde nenhum teste chega, e foi essa escolha que
 // produziu defeito nas duas ondas anteriores.
+//
+// O `cursor` que chega aqui tem DUAS procedências, e elas não querem dizer a
+// mesma coisa. Quem monta é lib/engine.ts:
+//
+//   PAYLOAD NOVO (`AUTO:<automação>:<bloco>`) → o bloco é o do BOTÃO em que a
+//     pessoa tocou, e a automação é sempre esta, por construção. Isso muda quais
+//     ramos abaixo são alcançados: `cursorDesta` nunca devolve null por
+//     "automação errada", e o bloco é uma `dm` de resposta rápida, porque é o
+//     único passo que emite esse payload (`enfileirarPasso`, lib/engine.ts).
+//   PAYLOAD ANTIGO (`AUTO:<automação>`) → não há bloco, e o cursor é o do
+//     CONTATO, lido do banco: onde a pessoa parou. É o caso que os ramos de
+//     portão abaixo descrevem, e ele não tem prazo para acabar — botão entregue
+//     antes da Fase 1b continua tocável para sempre.
+//
+// Os ramos de PORTÃO, por isso, não são código morto nem com o payload novo. Um
+// bloco `dm` editado depois da entrega do botão pode ter virado `pedir_follow`
+// ou `pedir_email`, e aí o toque cai neles com a mesma razão de sempre: o toque
+// não é a resposta que um portão espera.
 //
 // Com cursor DESTA automação, a regra tem dois ramos:
 //
@@ -386,6 +461,16 @@ export function cursorDesta(cursor: Cursor, automationId: string): string | null
 // desta fase o equivalente era "índice obsoleto", que caía no `+1`; agora não
 // há índice em que somar, e o zero é o único ponto afirmável — o mesmo
 // raciocínio do cursor nulo, logo acima.
+//
+// E com o payload novo esse ramo ficou mais CARO, o que é o preço declarado de
+// pôr o bloco no botão: quando o bloco do payload não está mais na lista, quem
+// chama já escolheu o payload e não olha mais o cursor do contato — que pode
+// estar íntegro e adiante. A pessoa volta para a boas-vindas e perde o lugar.
+// Enquanto `montarPassos` (app/automacoes/actions.ts) gerar id novo a cada
+// salvamento, isso vale para TODO botão entregue antes do último save, e não só
+// para bloco de fato apagado. A janela é a mesma do cursor órfão e fecha na
+// Tarefa 8; a saída, se ela incomodar antes, é lib/engine.ts voltar ao cursor
+// quando `indiceDoId` não achar o bloco do payload — decisão de lá, não daqui.
 //
 // BLOCO QUE CONTINUA na lista mas não espera mais nada — foi editado e virou
 // botão de link, ou ficou inválido — cai no `+1`, como antes, e a escolha segue
@@ -436,10 +521,30 @@ export function retomadaDoBotao(
   return tipo === "pedir_follow" || tipo === "pedir_email" ? indice : indice + 1;
 }
 
-// De qual passo o toque em "Já sigo!" (`FOLLOW:<id>`) retoma.
+// De qual passo o toque em "Já sigo!" (`FOLLOW:`) retoma.
 //
 // Mesma mudança de casa de `retomadaDoBotao`, e pelo mesmo motivo: o
 // comportamento é o que a onda passada instalou, o que faltava era teste.
+//
+// O `cursor` tem as mesmas duas procedências de `retomadaDoBotao` — o bloco do
+// PAYLOAD quando ele o traz, o cursor do CONTATO quando não —, e aqui a
+// diferença entre elas tem consequência de produto, que vale escrever inteira.
+//
+// O GANHO: o bloco do payload de um "Já sigo!" é o do PORTÃO que entregou aquele
+// botão. Numa lista com dois portões, o toque passa a nomear qual — é a dívida
+// que o comentário de `indiceDoPortao` (acima) registrava como adiada.
+//
+// A TROCA: o payload nomeia o botão, não o lugar da pessoa. Quem JÁ atravessou o
+// portão e está parado adiante, na mesma automação, e toca de novo no "Já sigo!"
+// antigo, volta ao portão — antes, o cursor do contato o deixava onde estava.
+// Voltar ao portão reconsulta a Meta (inofensivo para quem segue) e reenfileira
+// tudo entre o portão e o ponto em que a pessoa estava; a `passoKey` segura
+// dentro do dia, e não entre dias. É reentrega, não pulo de portão.
+//
+// O teste "cursor DESTA num bloco DEPOIS do portão retoma DELE" (tests/) fixa a
+// função, e continua correto — o que mudou foi QUEM alimenta o cursor no ramo
+// `FOLLOW:`, não o que a função faz com ele. Ele segue valendo para o payload
+// antigo, que não traz bloco e usa o cursor do contato.
 //
 // Com cursor DESTA automação, retoma DELE, seja ele qual for. A promessa "o
 // portão é reavaliado, não pulado" vale QUANDO O BLOCO DO CURSOR É O PORTÃO —
