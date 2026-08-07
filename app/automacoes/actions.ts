@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { sql, ensureSchema } from "@/lib/db";
 import { getSelectedAccountId } from "@/lib/account";
-import type { Passo } from "@/lib/steps";
+import { novoIdDeBloco, type Passo } from "@/lib/steps";
 
 function splitList(raw: string, sep: RegExp): string[] {
   return raw
@@ -12,25 +12,19 @@ function splitList(raw: string, sep: RegExp): string[] {
     .filter(Boolean);
 }
 
-// Gera o id de um bloco novo.
+// `novoIdDeBloco` VEM DE `lib/steps.ts`, e não é mais definida aqui.
 //
-// Curto de propósito: ele entra na `dedupe_key`, que é uma coluna UNIQUE
-// consultada a cada envio. Aleatoriedade suficiente para não colidir dentro de
-// UMA automação, que é o único escopo em que ele precisa ser único — tudo que
-// o consome já é qualificado pelo id da automação.
+// Ela era uma cópia — a mesma linha estava em `app/automacoes/editor/modelos.ts`
+// —, e as duas cópias carregavam o mesmo defeito de comprimento ao mesmo tempo.
+// Agora ela mora ao lado de `FORMA_DO_ID`, que é quem a valida; o motivo inteiro
+// está escrito lá.
 //
-// O prefixo `b_` é obrigatório: `identidadeDoPasso` (lib/steps.ts) recusa id
-// sem ele, e o motivo está escrito lá.
-//
-// NÃO exportada: este arquivo tem `"use server"` no topo, e no Next.js 16
-// (Turbopack) TODA exportação de um arquivo `"use server"` é tratada como
-// Server Action, que é obrigada a ser assíncrona — o build falha com
-// "Server Actions must be async functions." em qualquer export que não seja.
-// `montarPassos`, única chamadora, também não é exportada, então não há
-// necessidade real de expor esta função para fora do arquivo.
-function novoIdDeBloco(): string {
-  return "b_" + Math.random().toString(36).slice(2, 10);
-}
+// IMPORTAR é o que resolve, e RE-EXPORTAR aqui quebraria o build: este arquivo
+// tem `"use server"` no topo, e no Next.js 16 (Turbopack) TODA exportação de um
+// arquivo `"use server"` é tratada como Server Action, obrigada a ser assíncrona
+// ("Server Actions must be async functions."). `lib/steps.ts` não tem essa
+// diretiva e é justamente por isso que ele pode exportar a função para os dois
+// lados.
 
 // Monta a lista de passos a partir dos campos do formulário.
 //

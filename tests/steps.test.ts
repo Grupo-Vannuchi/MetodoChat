@@ -9,6 +9,7 @@ import {
   indiceDoPortao,
   cursorDesta,
   identidadeDoPasso,
+  novoIdDeBloco,
   indiceDoId,
   lerPayload,
   cursorDaRetomada,
@@ -1475,5 +1476,36 @@ describe("conferirLista", () => {
     expect(r).toHaveLength(2);
     expect(r[0].mensagem).toBe(r[1].mensagem);
     expect(r[0].mensagem).toMatch(/identidade inválida/i);
+  });
+});
+
+describe("novoIdDeBloco", () => {
+  // O defeito que estes testes trancam era PROBABILÍSTICO: a geração antiga
+  // (`Math.random().toString(36).slice(2, 10)`) amarrava o comprimento da saída
+  // à representação decimal do sorteio, e devolvia menos de 6 caracteres quando
+  // o sorteio caía num número de representação curta. Amostrar não pega isso —
+  // a chance é ínfima e o teste passaria mil vezes antes de o cliente falhar uma.
+  // Por isso o que se afirma aqui é a CONSTRUÇÃO, não a sorte: comprimento fixo,
+  // alfabeto fixo, em toda amostra.
+  it("gera sempre a mesma forma: `b_` e mais 8 caracteres de [0-9a-z]", () => {
+    for (let i = 0; i < 2000; i++) {
+      const id = novoIdDeBloco();
+      expect(id).toMatch(/^b_[0-9a-z]{8}$/);
+      expect(id).toHaveLength(10);
+    }
+  });
+
+  it("o id gerado é sempre aceito como identidade, nunca cai no índice", () => {
+    // Esta é a consequência que importa: id fora de `FORMA_DO_ID` faz
+    // `identidadeDoPasso` cair no ÍNDICE e `conferirLista` travar o salvar.
+    for (let i = 0; i < 2000; i++) {
+      const id = novoIdDeBloco();
+      expect(identidadeDoPasso({ id, tipo: "dm", texto: "oi" }, 7)).toBe(id);
+    }
+  });
+
+  it("não repete dentro de uma automação de tamanho realista", () => {
+    const ids = new Set(Array.from({ length: 500 }, () => novoIdDeBloco()));
+    expect(ids.size).toBe(500);
   });
 });

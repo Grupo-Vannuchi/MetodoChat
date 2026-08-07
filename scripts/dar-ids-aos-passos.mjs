@@ -38,7 +38,24 @@ const env = readFileSync(".env.local", "utf8");
 const url = env.match(/^DATABASE_URL=(.*)$/m)[1].trim().replace(/^["']|["']$/g, "");
 const sql = postgres(url, { prepare: false, ssl: "require", onnotice: () => {} });
 
-const novoId = () => "b_" + Math.random().toString(36).slice(2, 10);
+// A TERCEIRA CÓPIA de `novoIdDeBloco`, e ela continua sendo uma cópia pelo mesmo
+// motivo do regex logo abaixo: este script é JavaScript solto, roda por `node`
+// direto e NÃO importa de `lib/steps.ts`, que é TypeScript. As outras duas
+// cópias (actions.ts e editor/modelos.ts) viraram uma só lá; esta não tem como.
+//
+// Ela tinha o mesmo defeito que as outras duas: `Math.random().toString(36)
+// .slice(2, 10)` pode devolver menos de 6 caracteres, e aí o id gravado não casa
+// com `temId` — o bloco receberia um id que o resto do sistema recusa, cairia na
+// identidade por índice, e a reescrita de chave que este script existe para
+// fazer pularia justamente ele. Comprimento FIXO em 8 resolve por construção.
+const ALFABETO_DO_ID = "0123456789abcdefghijklmnopqrstuvwxyz";
+const novoId = () => {
+  let id = "b_";
+  for (let i = 0; i < 8; i++) {
+    id += ALFABETO_DO_ID[Math.floor(Math.random() * ALFABETO_DO_ID.length)];
+  }
+  return id;
+};
 // Este regex TEM QUE CONCORDAR com `FORMA_DO_ID` (lib/steps.ts) — mesmo motivo
 // do balde do dia logo abaixo: são a MESMA regra escrita duas vezes porque este
 // script não pode importar de `lib/steps.ts`, que é TypeScript. Divergindo, um

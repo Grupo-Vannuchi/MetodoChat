@@ -1,4 +1,4 @@
-import type { Passo } from "@/lib/steps";
+import { novoIdDeBloco, type Passo } from "@/lib/steps";
 
 // A paleta tem OITO itens sobre SEIS tipos, e a diferença não é maquiagem.
 //
@@ -28,11 +28,9 @@ export const PALETA: ItemDaPaleta[] = [
   { chave: "reagir_story", rotulo: "Coraçãozinho", descricao: "só no gatilho de story", gatilhos: ["story"] },
 ];
 
-// Mesma geração de `app/automacoes/actions.ts`. O prefixo `b_` é exigido por
-// `identidadeDoPasso` (lib/steps.ts), e o motivo está escrito lá.
-export function novoIdDeBloco(): string {
-  return "b_" + Math.random().toString(36).slice(2, 10);
-}
+// `novoIdDeBloco` vinha copiada de `app/automacoes/actions.ts` — as duas cópias
+// tinham o mesmo defeito de comprimento ao mesmo tempo. Agora ela vem de
+// `lib/steps.ts`, ao lado de `FORMA_DO_ID`, que é quem a valida.
 
 // A CONVENÇÃO DA CHAVE `url`, que este arquivo é a origem de.
 //
@@ -58,9 +56,22 @@ export function novoIdDeBloco(): string {
 // erro deixa de acender — em silêncio, que é o modo de falhar que esta
 // convenção inteira existe para evitar.
 
-// Um bloco novo, já válido. Os textos-padrão existem para o bloco recém-criado
-// não nascer inválido e travar o salvar antes de a pessoa digitar qualquer
-// coisa.
+// Um bloco novo. Os textos-padrão existem para que SETE dos oito itens da paleta
+// nasçam válidos: sem eles, um `dm` recém-arrastado teria `texto: ""` e
+// `conferirLista` (lib/steps.ts) travaria o salvar antes de a pessoa ter tido a
+// chance de digitar qualquer coisa.
+//
+// O OITAVO — "Mensagem com link" — NASCE COM ERRO, e isso é de propósito.
+// `url: ""` casa com a regra do link sem endereço e acende ERRO no instante da
+// criação, apontando o campo que falta: o endereço. Não há padrão honesto a
+// inventar aqui — não existe url plausível para semear —, e link sem endereço é
+// erro por definição, não um estado que dê para adiar. Quem arrasta esse bloco
+// arrastou justamente para digitar o endereço, então o erro é a instrução do que
+// fazer em seguida, e ele apaga sozinho na primeira letra digitada.
+//
+// O que NÃO se pode fazer para "consertar" isso é omitir a chave `url`: sem ela
+// o bloco vira indistinguível de uma resposta rápida, o erro deixa de acender, e
+// o fluxo trava em silêncio na hora do envio (a convenção logo acima).
 export function blocoNovo(chave: string): Passo {
   const id = novoIdDeBloco();
   switch (chave) {

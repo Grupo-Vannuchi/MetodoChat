@@ -164,6 +164,44 @@ function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODono?: str
 // O prefixo `b_` torna isso impossível por construção.
 const FORMA_DO_ID = /^b_[0-9a-z]{6,}$/;
 
+// O id de um bloco novo, e ele mora AQUI, coladinho na forma que o valida.
+//
+// Ele já existiu em três cópias — `app/automacoes/actions.ts`,
+// `app/automacoes/editor/modelos.ts` e `scripts/dar-ids-aos-passos.mjs` —, e as
+// três carregavam o MESMO defeito: `Math.random().toString(36).slice(2, 10)`
+// devolve menos de 6 caracteres quando o sorteio cai num número de
+// representação curta (0.5 vira "0.i", e a fatia sai com 1 caractere). Aí
+// `FORMA_DO_ID` recusa o id, `identidadeDoPasso` cai no ÍNDICE, e desde a
+// Tarefa 4 `conferirLista` acende "identidade inválida" e TRAVA O SALVAR de uma
+// automação que a pessoa acabou de montar. Nada disso é cosmético, e sortear
+// menos que 6 caracteres é raro, não impossível: é o modo de falhar que só
+// aparece em produção, num cliente, uma vez.
+//
+// Duas cópias viravam dois consertos, e é por isso que agora é uma só. O
+// alfabeto é escrito à mão e o comprimento é FIXO em 8: `toString(36)` amarra o
+// tamanho da saída à representação decimal do sorteio, e é essa amarra que
+// produzia o id curto. Aqui não há o que torcer — 8 caracteres sempre, todos
+// dentro do `[0-9a-z]` que `FORMA_DO_ID` exige.
+//
+// A terceira cópia, a do script `.mjs`, continua sendo uma cópia porque o script
+// é JavaScript solto e não importa TypeScript (o motivo está escrito lá, junto
+// do regex que ele também repete). Ela foi corrigida do mesmo jeito, e o
+// comentário de lá aponta para cá.
+//
+// Curto de propósito: o id entra na `dedupe_key`, que é uma coluna UNIQUE
+// consultada a cada envio. 36^8 é aleatoriedade de sobra para não colidir dentro
+// de UMA automação, que é o único escopo em que ele precisa ser único — tudo que
+// o consome já é qualificado pelo id da automação.
+const ALFABETO_DO_ID = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+export function novoIdDeBloco(): string {
+  let id = "b_";
+  for (let i = 0; i < 8; i++) {
+    id += ALFABETO_DO_ID[Math.floor(Math.random() * ALFABETO_DO_ID.length)];
+  }
+  return id;
+}
+
 // Quem este passo é, para efeito de deduplicação e de cursor.
 //
 // Com id, é o id: ele acompanha o bloco quando ele é arrastado, e é isso que

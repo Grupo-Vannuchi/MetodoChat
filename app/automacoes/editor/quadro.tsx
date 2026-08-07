@@ -112,6 +112,11 @@ export default function Quadro({
         id: identidades[i],
         type: "bloco",
         position: p.pos ?? { x: 0, y: 0 },
+        // `selected` é o que o React Flow lê; `data.selecionado` é o que o nó
+        // desenha. Os dois saem do MESMO `selecionado`, então não há como
+        // divergirem — o que a biblioteca considera selecionado e o que está com
+        // a borda acesa são sempre o mesmo bloco.
+        selected: identidades[i] === selecionado,
         data: {
           passo: p,
           temErro: false,
@@ -122,8 +127,20 @@ export default function Quadro({
   );
 
   // As setas SEMPRE ligam o bloco i ao i+1 do array. Não há edge que o usuário
-  // possa criar ou apagar: `nodesConnectable` fica desligado, e o React Flow
-  // deixa de oferecer o gesto de ligar.
+  // possa criar ou apagar.
+  //
+  // O `nodesConnectable={false}` lá embaixo NÃO FECHA O GESTO SOZINHO, e é
+  // importante que isto esteja dito aqui, que é o arquivo que se lê primeiro: a
+  // prop chega ao NÓ, e o desligamento só alcança as alças porque `no.tsx`
+  // repassa `isConnectable` (e `isConnectableStart`, que é quem de fato porteia
+  // o `onPointerDown`) para cada `Handle`. Sem esse repasse, `Handle` cai no
+  // próprio padrão — `true` — e arrastar a partir de uma alça abre uma conexão
+  // de verdade, com as alças acendendo, apesar desta prop estar desligada. Isso
+  // foi medido, não deduzido; o mecanismo inteiro está no comentário de
+  // `no.tsx`.
+  //
+  // Ou seja: apagar as props do nó "porque o quadro já resolve" reabre o gesto.
+  // As duas pontas são obrigatórias.
   const setas: Edge[] = useMemo(
     () =>
       identidades.slice(0, -1).map((identidade, i) => ({
@@ -136,14 +153,52 @@ export default function Quadro({
     [identidades]
   );
 
+  // TODA mudança de posição volta para o estado, inclusive as intermediárias do
+  // arraste. NÃO FILTRE POR `m.dragging` AQUI — e a frase é imperativa porque o
+  // filtro já existiu neste lugar, apresentado como otimização.
+  //
+  // POR QUE ELE NÃO PODE EXISTIR: os nós são CONTROLADOS (a prop `nodes`, não
+  // `defaultNodes`). Com nós controlados a posição desenhada vem só do store, e
+  // o store só é alimentado pela prop — o React Flow não guarda um rascunho
+  // próprio durante o gesto. Descartar as mudanças com `dragging: true` faz a
+  // prop `nodes` não mudar enquanto o botão está apertado, então o `transform`
+  // do nó não muda: O BLOCO CONGELA SOB O CURSOR E TELEPORTA AO SOLTAR. Medido
+  // no navegador, amostrando o `transform` durante o gesto — e a medição que
+  // compara só ANTES e DEPOIS não pega isso, porque é exatamente o que esta
+  // falha preserva.
+  //
+  // O que o filtro dizia é verdade e não basta: sim, sem ele cada quadro de
+  // animação vira um `setPassos` e a lista inteira é recriada dezenas de vezes
+  // por segundo. Esse é o custo, é sobre uma lista de dezenas de itens, e é o
+  // que todo exemplo controlado do React Flow faz. O outro caminho legítimo
+  // seria manter uma cópia dos nós em estado local e reconciliar no fim, que
+  // custa uma segunda fonte de verdade para a posição — caro para o que resolve.
+  //
+  // A invariante do arquivo não corre risco nenhum com isso: `moverBloco`
+  // continua escrevendo só `pos`, e o `map` continua não reordenando.
+  //
+  // AS MUDANÇAS DE SELEÇÃO TAMBÉM SÃO REPASSADAS, e não é enfeite. Sem elas
+  // `node.selected` nunca vira `true` no store do React Flow — a borda até
+  // aparecia, porque vem do estado daqui, mas seleção por caixa, por teclado e a
+  // noção de "o nó selecionado" que a biblioteca usa ficavam mortas. A Tarefa 6
+  // tem apagar bloco, e apagar precisa saber qual.
+  //
+  // A seleção continua sendo UMA SÓ (`selecionado` é `string | null`), e isso é
+  // escolha: quem consome a seleção é o painel do bloco (Tarefa 7), que edita um
+  // bloco de cada vez. Múltipla exigiria trocar por um `Set` e decidir o que o
+  // painel mostra com dois blocos escolhidos — decisão que não é desta tarefa.
+  // Repassando as mudanças, porém, o store e este estado passam a concordar, que
+  // é o que faltava.
   const aoMudarNos = useCallback(
     (mudancas: NodeChange[]) => {
       for (const m of mudancas) {
-        // `!m.dragging` grava só quando o arraste TERMINA. Sem isso, cada
-        // quadro de animação viraria um `setPassos` e a lista inteira seria
-        // recriada dezenas de vezes por segundo.
-        if (m.type === "position" && m.position && !m.dragging) {
+        if (m.type === "position" && m.position) {
           moverBloco(m.id, Math.round(m.position.x), Math.round(m.position.y));
+        } else if (m.type === "select") {
+          // Deselecionar só zera se for o nó que estava selecionado: numa troca
+          // de seleção chegam duas mudanças na mesma leva (o antigo com `false`,
+          // o novo com `true`), e a ordem entre elas não é garantida.
+          setSelecionado((atual) => (m.selected ? m.id : atual === m.id ? null : atual));
         }
       }
     },
@@ -157,8 +212,11 @@ export default function Quadro({
         edges={setas}
         nodeTypes={TIPOS_DE_NO}
         onNodesChange={aoMudarNos}
-        onNodeClick={(_, no) => setSelecionado(no.id)}
-        onPaneClick={() => setSelecionado(null)}
+        // Não há `onNodeClick`/`onPaneClick` aqui de propósito: a seleção chega
+        // por `onNodesChange` como mudança do tipo `select`, que é o mesmo
+        // caminho da seleção por caixa e por teclado. Escrever a seleção também
+        // nos dois cliques faria duas fontes para o mesmo estado, e a que
+        // sobrasse de fora (a caixa) seria a que ninguém testa.
         nodesConnectable={false}
         edgesFocusable={false}
         deleteKeyCode={null}
