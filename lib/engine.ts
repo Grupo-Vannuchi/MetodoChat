@@ -417,14 +417,60 @@ async function executarFluxo(
   // nada entre o portão e o destino é reenfileirado, então a passagem não custa
   // mensagem repetida a ninguém.
   //
-  // BARRADO, para no portão exatamente como o ramo de dentro (mais abaixo):
-  // `resolverFollow` já enfileirou o pedido, e o cursor passa a ser o portão.
+  // BARRADO, para no portão exatamente como o ramo de dentro (mais abaixo): o
+  // cursor passa a ser o portão, e a pessoa destrava seguindo o perfil e
+  // voltando a falar.
+  //
+  // O QUE NÃO SE PODE DIZER AQUI, e a frase anterior dizia: que `resolverFollow`
+  // "já enfileirou o pedido". Ele só enfileira enquanto `follow_attempts` não
+  // passa de `MAX_FOLLOW_REQUESTS`; passado o limite ele barra e NÃO manda nada,
+  // e o fluxo para em silêncio — a pessoa deixa de receber qualquer aviso do que
+  // falta fazer. O contador é por CONTATO, não zera por dia nem por automação, e
+  // a armadilha inteira está escrita em `zerarTentativasFollow`.
   //
   // O `pedir_follow` conferido é obrigação de TIPO e não desconfiança:
   // `retomada.portao` só é não-nulo quando `indiceDoPortao` (lib/steps.ts) o
   // achou, e ela valida o passo com o mesmo `conferir` do interpretador. Sem a
   // conferência, porém, não há como estreitar `Passo` para o que
   // `resolverFollow` recebe.
+  //
+  // E ELA FALHA FECHADA, que é a diferença desta versão. Antes, portão que não
+  // resolvesse para um `pedir_follow` válido caía direto no `interpretar` lá
+  // embaixo: o destino era entregue COM O PORTÃO NUNCA AVALIADO, sem erro e sem
+  // linha em Atividade. Era a única linha do sistema em que a promessa "ninguém
+  // atravessa um portão sem ele ser avaliado" era abandonada por OMISSÃO — e
+  // justamente a linha que torna a promessa executável.
+  //
+  // Hoje isso é inalcançável, e dá para demonstrar: `indiceDoPortao` e
+  // `passoEsperado` (lib/steps.ts) chamam o MESMO `conferir` sobre o MESMO array
+  // e `esperaResposta` diz sim a todo `pedir_follow`, então o índice que a
+  // primeira devolveu a segunda reconhece. Só que a invariante é entre DUAS
+  // funções, e nada obriga as duas a continuarem concordando: basta alguém
+  // passar a reler `steps` do banco entre o cálculo da `Retomada` (que acontece
+  // em `handleMessagingEvent`) e a execução daqui, e as duas passam a olhar
+  // listas diferentes. Uma edição da automação nesse intervalo é tudo o que
+  // falta.
+  //
+  // A SAÍDA ESCOLHIDA é PARAR e REGISTRAR, sem tocar no cursor, e cada metade
+  // tem motivo próprio:
+  //
+  //   PARAR é o ponto inteiro: o destino fica do outro lado de um portão que
+  //     ninguém avaliou, então ele não sai. Falha fechada custa mensagem que
+  //     deixa de chegar; falha aberta custa o link entregue a quem não segue,
+  //     que é o defeito que esta branch gastou duas ondas para matar.
+  //   REGISTRAR porque parar calado seria trocar uma omissão por outra. A linha
+  //     em Atividade é o que faz o dono do painel descobrir sem depender de
+  //     cliente reclamando. Vai por `logEventThrottled`, e pelo mesmo motivo dos
+  //     `step_ignorado`: o webhook aceita o que a Meta mandar, e sem janela o
+  //     diagnóstico viraria o maior escritor da tabela.
+  //   NÃO ESCREVER O CURSOR porque a única identidade disponível aqui sairia de
+  //     `identidadeDoPasso(portao, retomada.portao)` com `portao` UNDEFINED —
+  //     ou seja, o índice em texto. Depois da migração (`dar-ids-aos-passos.mjs`)
+  //     todo bloco tem id, e `indiceDoId` não acha índice em texto em lista
+  //     nenhuma: o cursor nasceria morto E por cima teria apagado o cursor real
+  //     da pessoa, que é o único registro de onde ela estava. Deixando-o intacto
+  //     ela não fica pior do que estava, e a interação seguinte tenta de novo —
+  //     arrumada a lista, o fluxo volta sozinho.
   //
   // ESTAS LINHAS NÃO TÊM TESTE, e é a mesma classe de risco que o comentário de
   // `cursorDaRetomada` (lib/steps.ts) descreve: trocar `retomada.destino` por
@@ -442,17 +488,31 @@ async function executarFluxo(
   // seguinte os registra.
   if (retomada.portao !== null) {
     const portao = passoEsperado(auto.steps, retomada.portao);
-    if (portao?.tipo === "pedir_follow") {
-      const passou = await resolverFollow(
-        account, auto, contactIgId, portao, retomada.portao, contexto
+    if (portao?.tipo !== "pedir_follow") {
+      await logEventThrottled(
+        account.ig_user_id,
+        "portao_nao_avaliado",
+        {
+          automation_id: auto.id,
+          contact_ig_id: contactIgId,
+          // o portão que a `Retomada` mandou atravessar, e para onde o fluxo ia
+          indice: retomada.portao,
+          destino: retomada.destino,
+        },
+        10,
+        { campo: "automation_id", valor: auto.id }
       );
-      if (!passou) {
-        await gravarCursor(
-          account.ig_user_id, contactIgId, auto.id,
-          identidadeDoPasso(portao, retomada.portao)
-        );
-        return;
-      }
+      return;
+    }
+    const passou = await resolverFollow(
+      account, auto, contactIgId, portao, retomada.portao, contexto
+    );
+    if (!passou) {
+      await gravarCursor(
+        account.ig_user_id, contactIgId, auto.id,
+        identidadeDoPasso(portao, retomada.portao)
+      );
+      return;
     }
   }
 
@@ -502,6 +562,13 @@ async function executarFluxo(
       // faria nada. Retoma do próximo índice, senão vencer o portão seria o fim
       // do fluxo e o link nunca chegaria a quem seguiu.
       if (passou) return executarFluxo(account, auto, contactIgId, acao.indice + 1, contexto);
+      // BARRADO: o cursor passa a ser o portão e o fluxo para nele.
+      //
+      // E aqui vale a mesma ressalva do portão de passagem (comentário no topo
+      // desta função): parar no portão NÃO garante que um pedido tenha saído.
+      // `resolverFollow` só enfileira enquanto `follow_attempts` não passa de
+      // `MAX_FOLLOW_REQUESTS` — passado o limite ele barra calado, e a pessoa
+      // fica sem saber o que falta fazer. Ver `zerarTentativasFollow`.
       await gravarCursor(
         account.ig_user_id, contactIgId, auto.id,
         identidadeDoPasso(p, acao.indice)

@@ -45,6 +45,15 @@ const EVENT: Record<string, Badge> = {
     label: "Passo da automação ignorado",
     className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
   },
+  // O fluxo ia atravessar um portão de follow e o portão não resolveu — bloco
+  // apagado ou editado entre o cálculo da retomada e a execução. O motor PARA
+  // em vez de entregar o destino sem avaliar o portão (lib/engine.ts), e esta é
+  // a linha que conta isso a quem pode arrumar a automação. Aparece em vermelho:
+  // diferente do passo ignorado, aqui alguém deixou de receber mensagem.
+  portao_nao_avaliado: {
+    label: "Portão de follow não pôde ser avaliado",
+    className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
+  },
 };
 
 const UNKNOWN: Badge = {

@@ -53,15 +53,43 @@ export type DadosDoNo = {
 // `nodesConnectable` e as alças acompanham sozinhas.
 export default function No({ data, isConnectable }: NodeProps & { data: DadosDoNo }) {
   const { titulo, corpo } = resumoDoBloco(data.passo);
-  const portao = data.passo.tipo === "pedir_follow" || data.passo.tipo === "pedir_email";
+
+  // ÂMBAR É SÓ DO `pedir_follow`, e a diferença não é estética.
+  //
+  // Os dois pintados de âmbar era a tela prometendo uma proteção que só existe
+  // para UM deles. A regra do portão (`atravessandoOPortao`, lib/steps.ts) cobre
+  // `pedir_follow` e mais nada: quando uma retomada cai adiante dele, o fluxo
+  // volta e o avalia. O `pedir_email` não tem nada disso — numa lista
+  // `[pedir_email, resposta rápida, link]`, quem está parado na resposta rápida
+  // toca no botão e cai no LINK, com o e-mail nunca capturado.
+  //
+  // Isso é ESCOPO, não defeito: a decisão foi cobrir só o follow, porque é o
+  // follow que sustenta a promessa central do produto. Mas quem monta a
+  // automação não pode concluir da COR que os dois barram do mesmo jeito. Âmbar
+  // = ninguém passa sem cumprir; verde-azulado = pede uma informação e para até
+  // recebê-la, mas quem chegar do outro lado por outro caminho passa.
+  //
+  // A cor do e-mail é TEAL e não violeta, e a escolha é por distância do
+  // indigo da seleção: o bloco selecionado já é indigo, e um violeta ao lado
+  // dele viraria "qual destes está selecionado?". Teal não colide com nenhuma
+  // das outras quatro — vermelho (erro), indigo (selecionado), âmbar (portão),
+  // cinza (o resto) — nem com o sky que o nó de gatilho vai usar na Tarefa 7.
+  //
+  // `pedir_email` PARA o fluxo do mesmo jeito (`esperaResposta` diz sim aos
+  // dois), e é por isso que ele também não fica cinza como uma mensagem comum:
+  // o que muda entre os dois é a proteção, não a parada.
+  const barraDeVerdade = data.passo.tipo === "pedir_follow";
+  const pedeInformacao = data.passo.tipo === "pedir_email";
 
   const borda = data.temErro
     ? "border-red-500 dark:border-red-400"
     : data.selecionado
       ? "border-indigo-500 dark:border-indigo-400"
-      : portao
+      : barraDeVerdade
         ? "border-amber-500/70 dark:border-amber-400/70"
-        : "border-zinc-300 dark:border-zinc-700";
+        : pedeInformacao
+          ? "border-teal-500/70 dark:border-teal-400/70"
+          : "border-zinc-300 dark:border-zinc-700";
 
   return (
     <div

@@ -2234,9 +2234,37 @@ No painel, abaixo dos campos, renderize `phone-preview.tsx` alimentado pela
 lista de passos atual. Se a interface dela não aceitar `Passo[]`, **reporte** —
 é a adaptação que o Passo 1 mandou não fazer por conta própria.
 
+- [ ] **Passo 4b: o painel tem que separar os DOIS "portões"**
+
+> Herdado da revisão da Tarefa 6, achado 2. `pedir_follow` e `pedir_email`
+> param o fluxo do mesmo jeito (`esperaResposta` diz sim aos dois), mas só o
+> `pedir_follow` é protegido pela regra do portão (`atravessandoOPortao`,
+> `lib/steps.ts`): quando uma retomada cai adiante dele, o fluxo volta e o
+> avalia. O `pedir_email` não tem nada disso.
+>
+> O preço, concreto: numa lista `[pedir_email, resposta rápida, link]`, quem
+> está parado na resposta rápida toca no botão e cai no LINK, com o e-mail
+> nunca capturado. É **escopo**, não defeito — a decisão foi cobrir só o
+> follow, porque é ele que sustenta a promessa central do produto.
+>
+> A Tarefa 6 já tirou a palavra "portão" do e-mail na paleta e no rótulo do
+> nó, e deu a cada um uma cor própria (âmbar para o follow, teal para o
+> e-mail). Falta o painel, que é onde a pessoa **edita** cada um deles e onde
+> a diferença precisa estar escrita, não só pintada:
+>
+> - no `pedir_follow`, dizer que ninguém passa deste ponto sem seguir, e que
+>   quem deixar de seguir depois é trazido de volta para cá;
+> - no `pedir_email`, dizer que o fluxo espera aqui até o endereço chegar, mas
+>   que **não** há reavaliação: um bloco adiante alcançado por outro caminho
+>   sai sem o e-mail ter sido capturado.
+>
+> Uma frase por tipo, no mesmo formato do aviso de "o fluxo para aqui" que o
+> `dm` de resposta rápida já mostra.
+
 - [ ] **Passo 5: verifique à mão e reporte**
 
 - clicar num bloco abre o painel com os campos daquele tipo
+- o `pedir_follow` e o `pedir_email` mostram avisos DIFERENTES (Passo 4b)
 - digitar altera o resumo no nó, ao vivo
 - a prévia acompanha
 - fechar o painel devolve o quadro inteiro

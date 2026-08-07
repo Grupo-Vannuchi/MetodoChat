@@ -606,6 +606,20 @@ export function cursorDaRetomada(
 // outro. O que muda é só o TEXTO do pedido enviado a quem é barrado, que será o
 // do primeiro. Lista com dois portões já é ERRO em `conferirLista`, e o resto do
 // preço está escrito no comentário de `indiceDoPortao`.
+//
+// O QUE A REGRA CUSTA, e ela custa. Isto é consequência legítima da decisão, não
+// defeito, mas não estava escrito em lugar nenhum:
+//
+//   UMA CONSULTA A MAIS À META por interação. Todo toque de botão — e todo texto
+//     — que retome ADIANTE de um portão passa a atravessá-lo, e atravessar é
+//     `checkFollowsAccount` (lib/engine.ts). Antes da regra o portão que ficava
+//     para trás não era consultado nenhuma vez; agora é consultado toda vez.
+//   O CONTADOR SOBE em quem deixou de seguir. Quem passou pelo portão e depois
+//     deu unfollow é empurrado de volta a ele com `follow_attempts`
+//     incrementado — e esse contador é por CONTATO, não zera por dia nem por
+//     automação. Ou seja: a regra AUMENTA a exposição à armadilha silenciosa
+//     descrita em `zerarTentativasFollow` (lib/engine.ts), em que passado o
+//     limite a pessoa para de receber qualquer aviso do que falta fazer.
 // ---------------------------------------------------------------------------
 export type Retomada = {
   // O portão a atravessar antes, ou null quando não há nenhum no caminho.

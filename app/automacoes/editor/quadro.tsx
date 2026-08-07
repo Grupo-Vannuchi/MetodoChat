@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -28,9 +28,28 @@ const LARGURA_DO_BLOCO = 190;
 const ALTURA_SUPOSTA = 48;
 
 // A que distância da seta, em unidades do quadro, o ponteiro já conta como
-// "em cima dela". Larga de propósito: a seta desenhada tem 1px, e exigir o
-// pixel exato tornaria o gesto de reordenar impossível na prática.
-const ALCANCE_DA_SETA = 30;
+// "em cima dela". Folga de propósito: a seta desenhada tem 1px, e exigir o pixel
+// exato tornaria o gesto de reordenar impossível na prática.
+//
+// ERA 30, E 30 REORDENAVA SEM QUERER. Medido no navegador, com cinco blocos
+// arranjados à mão em duas linhas (uma "cobra", que é o que sai quando alguém
+// organiza um fluxo numa tela larga):
+//
+//   o bloco B, PARADO, tinha o ponto de pega a 27,5 unidades da seta D→E, que
+//   não é vizinha dele. Um empurrão de 4 PIXELS na horizontal — o bloco andou 2
+//   unidades, e a distância à seta nem mudou — trocou a ordem de
+//   [A,B,C,D,E] para [A,C,D,B,E]. Sem aviso, e sem desfazer.
+//
+// 30 unidades também é metade do vão do arranjo automático (`modelos.ts`:
+// LARGURA 250 menos os 190 do bloco), ou seja: o halo de uma seta encostava no
+// da vizinha. 16 é folgado para a mira — o destaque acende antes de soltar,
+// então quem mira tem resposta — e deixa de cobrir o vão inteiro.
+//
+// MAS REDUZIR O ALCANCE NÃO RESOLVE A CLASSE, e é importante que isto esteja
+// escrito: com 16, basta o bloco estar parado a 15 unidades de uma seta alheia
+// para o mesmo empurrão de 4 pixels reordenar de novo. O que fecha a classe é a
+// segunda condição, em `setasNoInicio` lá embaixo.
+const ALCANCE_DA_SETA = 16;
 
 // Onde o ponteiro está, num evento que pode ser de mouse OU de toque — é assim
 // que o React Flow tipa os eventos de arraste do nó. No toque vale
@@ -214,12 +233,18 @@ export default function Quadro({
   // `ignorar` existe para o arrasto de um bloco: as duas setas que chegam nele e
   // saem dele não são alvo — soltá-lo na própria seta é pedir para ele ficar
   // onde já está.
-  const setaSobOPonto = useCallback(
-    (clientX: number, clientY: number, ignorar: number[]): number | null => {
-      if (!instancia) return null;
+  //
+  // ELA DEVOLVE TODAS AS SETAS ao alcance, e não só a mais perto, porque há dois
+  // leitores com perguntas diferentes: quem solta quer a mais perto
+  // (`setaSobOPonto`, logo abaixo), e quem decide se o gesto CONQUISTOU alguma
+  // coisa (`setasNoInicio`) precisa do conjunto — um bloco parado entre duas
+  // setas está ao alcance das duas, e guardar só a campeã deixaria a outra
+  // passar.
+  const setasAoAlcance = useCallback(
+    (clientX: number, clientY: number, ignorar: number[]): { i: number; d: number }[] => {
+      if (!instancia) return [];
       const p = instancia.screenToFlowPosition({ x: clientX, y: clientY });
-      let melhor: number | null = null;
-      let menor = ALCANCE_DA_SETA;
+      const achadas: { i: number; d: number }[] = [];
       for (let i = 0; i < passos.length - 1; i++) {
         if (ignorar.includes(i)) continue;
         const de = passos[i].pos;
@@ -237,14 +262,60 @@ export default function Quadro({
           distanciaAoSegmento(p.x, p.y, meio, sy, meio, ty),
           distanciaAoSegmento(p.x, p.y, meio, ty, tx, ty)
         );
-        if (d < menor) {
-          menor = d;
-          melhor = i;
-        }
+        if (d < ALCANCE_DA_SETA) achadas.push({ i, d });
       }
-      return melhor;
+      return achadas.sort((a, b) => a.d - b.d);
     },
     [instancia, passos, medidas, identidades]
+  );
+
+  const setaSobOPonto = useCallback(
+    (clientX: number, clientY: number, ignorar: number[]): number | null =>
+      setasAoAlcance(clientX, clientY, ignorar)[0]?.i ?? null,
+    [setasAoAlcance]
+  );
+
+  // AS SETAS QUE JÁ ESTAVAM AO ALCANCE QUANDO O GESTO COMEÇOU — e soltar numa
+  // delas NÃO reordena.
+  //
+  // Esta é a evidência de intenção que faltava, e ela existe porque proximidade
+  // sozinha não é decisão. O caso medido no navegador está escrito em
+  // `ALCANCE_DA_SETA`: um bloco parado a 27,5 unidades de uma seta alheia era
+  // reordenado por um empurrão de 4 pixels. O ponto não é o empurrão ser
+  // pequeno — é a seta já estar ali ANTES dele. Reordenar por proximidade
+  // herdada da posição é exatamente o defeito que este arquivo inteiro existe
+  // para não ter (ver a regra do topo).
+  //
+  // Escrito como conjunto, e conferido no SOLTAR: o gesto legítimo é pegar o
+  // bloco e LEVÁ-LO até um traçado, e um traçado que já estava ao alcance não
+  // foi levado a lugar nenhum. Se o bloco estivesse mesmo em cima daquela seta,
+  // a ordem já seria essa.
+  //
+  // Um `ref`, e não estado: isto é lido dentro dos manipuladores do mesmo gesto
+  // e não desenha nada. Em estado, cada `dragstart` custaria um render a mais
+  // sem nada a mostrar.
+  //
+  // O QUE ISTO NÃO COBRE, dito com a medida certa: o bloco que começa longe de
+  // tudo e é levado — de propósito, mas para arrumar a tela — até a vizinhança
+  // de uma seta que não é dele. Essa seta foi conquistada pelo gesto, e o código
+  // não tem como saber que a pessoa só queria arrumar. Contra ela sobram as
+  // outras duas defesas, e as duas são visíveis: o alcance encolhido, e o
+  // DESTAQUE — a seta acende durante o arraste e apaga quando o alvo não vale,
+  // então a tela diz o que vai acontecer antes de a pessoa soltar.
+  const setasNoInicio = useRef<Set<number>>(new Set());
+
+  // O alvo válido de um arraste de bloco: ao alcance AGORA e fora do que já
+  // estava ao alcance no começo. Os três manipuladores do gesto usam esta mesma
+  // função — destaque e resultado não podem discordar.
+  const alvoDoArraste = useCallback(
+    (clientX: number, clientY: number, indice: number): number | null => {
+      // As setas que TOCAM o bloco arrastado ficam fora da conta: soltá-lo na
+      // seta que já sai dele, ou na que já chega nele, é pedir o lugar em que
+      // ele está.
+      const alvo = setaSobOPonto(clientX, clientY, [indice - 1, indice]);
+      return alvo !== null && !setasNoInicio.current.has(alvo) ? alvo : null;
+    },
+    [setaSobOPonto]
   );
 
   // Soltar num ponto vazio ANEXA NO FIM. Soltar sobre uma seta INSERE ali.
@@ -270,6 +341,11 @@ export default function Quadro({
   //
   // O gesto é explícito de propósito. Se posição definisse ordem, um empurrão
   // acidental trocaria a ordem das mensagens que o cliente recebe.
+  //
+  // E "explícito" passou a ser cobrado, não só declarado: quem chama esta função
+  // é `alvoDoArraste`, que exige a seta ter sido CONQUISTADA pelo gesto. Sem
+  // isso o empurrão acidental acontecia mesmo — medido, com 4 pixels (ver
+  // `ALCANCE_DA_SETA` e `setasNoInicio`).
   //
   // Pela IDENTIDADE, não por `p.id`, pelo mesmo motivo de `moverBloco` logo
   // acima: numa lista anterior à Fase 1b todo bloco tem `id: undefined`, e
@@ -432,13 +508,25 @@ export default function Quadro({
         nodeTypes={TIPOS_DE_NO}
         onNodesChange={aoMudarNos}
         onInit={setInstancia}
-        // As setas que TOCAM o bloco arrastado ficam fora da conta: soltá-lo na
-        // seta que já sai dele, ou na que já chega nele, é pedir o lugar em que
-        // ele está.
+        // O RETRATO DO COMEÇO DO GESTO, e ele é tirado aqui porque só aqui o
+        // bloco ainda não andou: as setas ao alcance neste instante são as que a
+        // POSIÇÃO deu de graça, não as que o gesto foi buscar. `alvoDoArraste`
+        // descarta essas — o porquê está em `setasNoInicio`.
+        onNodeDragStart={(e, no) => {
+          const p = pontoDoEvento(e);
+          const i = identidades.indexOf(no.id);
+          setasNoInicio.current = new Set(
+            p ? setasAoAlcance(p.x, p.y, [i - 1, i]).map((s) => s.i) : []
+          );
+        }}
+        // O DESTAQUE SEGUE A MESMA REGRA DO RESULTADO, e não só a proximidade.
+        // Acender uma seta que o soltar vai recusar é a tela oferecendo um gesto
+        // que não faz nada — a definição de ensinar a fazer errado, e o mesmo
+        // motivo pelo qual `no.tsx` desliga as alças de conexão.
         onNodeDrag={(e, no) => {
           const p = pontoDoEvento(e);
           const i = identidades.indexOf(no.id);
-          setSetaSobEle(p && setaSobOPonto(p.x, p.y, [i - 1, i]));
+          setSetaSobEle(p && alvoDoArraste(p.x, p.y, i));
         }}
         // O alvo é recalculado AQUI, e não lido de `setaSobEle`. Os dois dão o
         // mesmo resultado — mesma função, mesmo ponto —, e recalcular é o que
@@ -447,7 +535,7 @@ export default function Quadro({
         onNodeDragStop={(e, no) => {
           const p = pontoDoEvento(e);
           const i = identidades.indexOf(no.id);
-          const alvo = p && setaSobOPonto(p.x, p.y, [i - 1, i]);
+          const alvo = p && alvoDoArraste(p.x, p.y, i);
           setSetaSobEle(null);
           if (alvo !== null && alvo !== undefined) moverPara(no.id, alvo);
         }}
@@ -461,7 +549,29 @@ export default function Quadro({
           e.dataTransfer.dropEffect = "move";
           setSetaSobEle(setaSobOPonto(e.clientX, e.clientY, []));
         }}
-        onDragLeave={() => setSetaSobEle(null)}
+        // `dragleave` BORBULHA dos filhos, e o quadro é feito deles: cada nó,
+        // cada seta, o fundo e os controles. Apagar o destaque em todo
+        // `dragleave` fazia a seta PISCAR durante o arraste da paleta — o
+        // ponteiro cruza a fronteira entre dois filhos, o `dragleave` do que
+        // ficou para trás sobe até aqui, e só o `dragover` seguinte reacende.
+        //
+        // O resultado nunca dependeu disso — `onDrop` recalcula o alvo em vez de
+        // ler `setaSobEle`, e essa decisão está escrita ali —, mas reordenar é um
+        // gesto que precisa PARECER preciso: destaque que treme é a tela dizendo
+        // que não sabe onde o bloco vai cair.
+        //
+        // `relatedTarget` é para onde o ponteiro foi. Dentro do quadro, o gesto
+        // continua e o destaque fica. Fora — ou `null`, que é sair da janela —,
+        // aí sim apaga.
+        //
+        // O molde é `Element` e não `Node` porque `Node` aqui é o TIPO DO REACT
+        // FLOW, importado lá em cima: o `Node` do DOM está sombreado neste
+        // arquivo. `Element` cobre o que `relatedTarget` pode ser de verdade —
+        // os filhos do quadro são HTML e SVG, e os dois são `Element`.
+        onDragLeave={(e) => {
+          if (e.currentTarget.contains(e.relatedTarget as Element | null)) return;
+          setSetaSobEle(null);
+        }}
         onDrop={(e) => {
           e.preventDefault();
           const chave = e.dataTransfer.getData(TIPO_DO_ARRASTO);

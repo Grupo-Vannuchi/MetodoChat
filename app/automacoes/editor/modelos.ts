@@ -22,8 +22,16 @@ export const PALETA: ItemDaPaleta[] = [
   { chave: "dm_botao", rotulo: "Mensagem com botão", descricao: "o fluxo espera o toque", gatilhos: null },
   { chave: "dm_link", rotulo: "Mensagem com link", descricao: "botão que abre um endereço", gatilhos: null },
   { chave: "esperar", rotulo: "Esperar", descricao: "atrasa o que vier depois", gatilhos: null },
-  { chave: "pedir_follow", rotulo: "Pedir follow", descricao: "portão: só passa quem segue", gatilhos: null },
-  { chave: "pedir_email", rotulo: "Pedir e-mail", descricao: "portão: guarda o endereço", gatilhos: null },
+  // "PORTÃO" É PALAVRA DE UM SÓ, e ela foi tirada do e-mail de propósito.
+  //
+  // Os dois param o fluxo esperando resposta, mas só o follow é REAVALIADO
+  // quando alguém chega do outro lado por outro caminho: a regra do portão
+  // (`atravessandoOPortao`, lib/steps.ts) cobre `pedir_follow` e mais nada.
+  // Chamar os dois de portão fazia a paleta prometer, para o e-mail, uma
+  // proteção que não existe — e o preço disso é o link saindo com o endereço
+  // nunca capturado. A cor do bloco carrega a mesma distinção (ver `no.tsx`).
+  { chave: "pedir_follow", rotulo: "Pedir follow", descricao: "portão: ninguém passa sem seguir", gatilhos: null },
+  { chave: "pedir_email", rotulo: "Pedir e-mail", descricao: "espera o endereço (não é portão)", gatilhos: null },
   { chave: "resposta_publica", rotulo: "Resposta pública", descricao: "só no gatilho de comentário", gatilhos: ["comment"] },
   { chave: "reagir_story", rotulo: "Coraçãozinho", descricao: "só no gatilho de story", gatilhos: ["story"] },
 ];
@@ -118,10 +126,13 @@ export function resumoDoBloco(p: Passo): { titulo: string; corpo: string } {
       return { titulo: "MENSAGEM", corpo: p.texto };
     case "esperar":
       return { titulo: "ESPERAR", corpo: `${p.minutos} minutos` };
+    // Só o follow leva "PORTÃO" no título, pelo mesmo motivo da paleta logo
+    // acima: é o único que a regra do portão reavalia. O e-mail espera resposta
+    // como qualquer parada, e o rótulo diz isso — não que ele barre.
     case "pedir_follow":
       return { titulo: "PORTÃO · PEDIR FOLLOW", corpo: p.texto };
     case "pedir_email":
-      return { titulo: "PORTÃO · PEDIR E-MAIL", corpo: p.texto };
+      return { titulo: "PEDIR E-MAIL", corpo: p.texto };
     case "resposta_publica":
       return { titulo: "RESPOSTA PÚBLICA", corpo: p.textos.join(" · ") };
     case "reagir_story":
