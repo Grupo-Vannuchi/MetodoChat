@@ -14,42 +14,13 @@ import { identidadeDoPasso, type Passo } from "@/lib/steps";
 import No, { type DadosDoNo } from "./no";
 import { arranjoAutomatico, blocoNovo } from "./modelos";
 import Paleta from "./paleta";
+import * as Geo from "./geometria";
 
 const TIPOS_DE_NO = { bloco: No };
 
 // O TIPO DO ARRASTO da paleta. Escrito aqui e lido aqui, para o quadro não
 // reagir a arquivo, imagem ou texto arrastado de outra janela.
 const TIPO_DO_ARRASTO = "application/metodochat-bloco";
-
-// A largura do bloco é fixa em `no.tsx` (`w-[190px]`); a altura varia com o
-// texto e chega medida pelo React Flow. Estes são só o palpite de antes da
-// primeira medição.
-const LARGURA_DO_BLOCO = 190;
-const ALTURA_SUPOSTA = 48;
-
-// A que distância da seta, em unidades do quadro, o ponteiro já conta como
-// "em cima dela". Folga de propósito: a seta desenhada tem 1px, e exigir o pixel
-// exato tornaria o gesto de reordenar impossível na prática.
-//
-// ERA 30, E 30 REORDENAVA SEM QUERER. Medido no navegador, com cinco blocos
-// arranjados à mão em duas linhas (uma "cobra", que é o que sai quando alguém
-// organiza um fluxo numa tela larga):
-//
-//   o bloco B, PARADO, tinha o ponto de pega a 27,5 unidades da seta D→E, que
-//   não é vizinha dele. Um empurrão de 4 PIXELS na horizontal — o bloco andou 2
-//   unidades, e a distância à seta nem mudou — trocou a ordem de
-//   [A,B,C,D,E] para [A,C,D,B,E]. Sem aviso, e sem desfazer.
-//
-// 30 unidades também é metade do vão do arranjo automático (`modelos.ts`:
-// LARGURA 250 menos os 190 do bloco), ou seja: o halo de uma seta encostava no
-// da vizinha. 16 é folgado para a mira — o destaque acende antes de soltar,
-// então quem mira tem resposta — e deixa de cobrir o vão inteiro.
-//
-// MAS REDUZIR O ALCANCE NÃO RESOLVE A CLASSE, e é importante que isto esteja
-// escrito: com 16, basta o bloco estar parado a 15 unidades de uma seta alheia
-// para o mesmo empurrão de 4 pixels reordenar de novo. O que fecha a classe é a
-// segunda condição, em `setasNoInicio` lá embaixo.
-const ALCANCE_DA_SETA = 16;
 
 // Onde o ponteiro está, num evento que pode ser de mouse OU de toque — é assim
 // que o React Flow tipa os eventos de arraste do nó. No toque vale
@@ -59,21 +30,6 @@ function pontoDoEvento(e: MouseEvent | TouchEvent): { x: number; y: number } | n
   if ("clientX" in e) return { x: e.clientX, y: e.clientY };
   const t = e.changedTouches[0];
   return t ? { x: t.clientX, y: t.clientY } : null;
-}
-
-function distanciaAoSegmento(
-  px: number, py: number,
-  ax: number, ay: number,
-  bx: number, by: number
-): number {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const comprimento = dx * dx + dy * dy;
-  // Segmento degenerado (as duas pontas no mesmo lugar): vira distância a um
-  // ponto. Acontece de verdade — dois blocos empilhados na mesma altura fazem
-  // o trecho vertical do meio ter comprimento zero.
-  const t = comprimento === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / comprimento));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
 // O quadro.
@@ -223,99 +179,49 @@ export default function Quadro({
   //     soltar o bloco em cima da seta não mudava a ordem, só a posição.
   //
   // Por geometria os dois funcionam, porque o que decide é o PONTO, e o ponto
-  // existe nos dois gestos. O traçado conferido é o mesmo `smoothstep` que o
-  // React Flow desenha: sai da alça direita do bloco `i`, vai reto até o meio do
-  // vão, desce (ou sobe) e entra na alça esquerda do bloco `i + 1`. São três
-  // trechos, e vale a menor distância aos três — conferir só a reta entre as
-  // duas pontas erraria justamente no meio do vão, que é onde a seta é mais
-  // fácil de acertar.
-  //
-  // `ignorar` existe para o arrasto de um bloco: as duas setas que chegam nele e
-  // saem dele não são alvo — soltá-lo na própria seta é pedir para ele ficar
-  // onde já está.
-  //
-  // ELA DEVOLVE TODAS AS SETAS ao alcance, e não só a mais perto, porque há dois
-  // leitores com perguntas diferentes: quem solta quer a mais perto
-  // (`setaSobOPonto`, logo abaixo), e quem decide se o gesto CONQUISTOU alguma
-  // coisa (`setasNoInicio`) precisa do conjunto — um bloco parado entre duas
-  // setas está ao alcance das duas, e guardar só a campeã deixaria a outra
-  // passar.
+  // existe nos dois gestos. A geometria em si — o traçado conferido, o alcance,
+  // a regra do que conta como "conquistado pelo gesto" — mora em `./geometria`,
+  // módulo puro e testado; aqui só entra a parte que DEPENDE do React Flow: a
+  // conversão do ponto de tela (`clientX`/`clientY`) para coordenada do quadro
+  // via `screenToFlowPosition`.
   const setasAoAlcance = useCallback(
-    (clientX: number, clientY: number, ignorar: number[]): { i: number; d: number }[] => {
+    (clientX: number, clientY: number, ignorar: number[]): Geo.SetaCandidata[] => {
       if (!instancia) return [];
       const p = instancia.screenToFlowPosition({ x: clientX, y: clientY });
-      const achadas: { i: number; d: number }[] = [];
-      for (let i = 0; i < passos.length - 1; i++) {
-        if (ignorar.includes(i)) continue;
-        const de = passos[i].pos;
-        const para = passos[i + 1].pos;
-        if (!de || !para) continue;
-        const mDe = medidas[identidades[i]];
-        const mPara = medidas[identidades[i + 1]];
-        const sx = de.x + (mDe?.width ?? LARGURA_DO_BLOCO);
-        const sy = de.y + (mDe?.height ?? ALTURA_SUPOSTA) / 2;
-        const tx = para.x;
-        const ty = para.y + (mPara?.height ?? ALTURA_SUPOSTA) / 2;
-        const meio = (sx + tx) / 2;
-        const d = Math.min(
-          distanciaAoSegmento(p.x, p.y, sx, sy, meio, sy),
-          distanciaAoSegmento(p.x, p.y, meio, sy, meio, ty),
-          distanciaAoSegmento(p.x, p.y, meio, ty, tx, ty)
-        );
-        if (d < ALCANCE_DA_SETA) achadas.push({ i, d });
-      }
-      return achadas.sort((a, b) => a.d - b.d);
+      return Geo.setasAoAlcance(p, passos, medidas, identidades, ignorar);
     },
     [instancia, passos, medidas, identidades]
   );
 
   const setaSobOPonto = useCallback(
-    (clientX: number, clientY: number, ignorar: number[]): number | null =>
-      setasAoAlcance(clientX, clientY, ignorar)[0]?.i ?? null,
-    [setasAoAlcance]
+    (clientX: number, clientY: number, ignorar: number[]): number | null => {
+      if (!instancia) return null;
+      const p = instancia.screenToFlowPosition({ x: clientX, y: clientY });
+      return Geo.setaSobOPonto(p, passos, medidas, identidades, ignorar);
+    },
+    [instancia, passos, medidas, identidades]
   );
 
   // AS SETAS QUE JÁ ESTAVAM AO ALCANCE QUANDO O GESTO COMEÇOU — e soltar numa
-  // delas NÃO reordena.
+  // delas NÃO reordena. A regra em si (por que proximidade sozinha não é
+  // decisão, o que ela fecha e o que ela não cobre) está documentada junto de
+  // `alvoDoArraste` em `./geometria`, que é quem a aplica.
   //
-  // Esta é a evidência de intenção que faltava, e ela existe porque proximidade
-  // sozinha não é decisão. O caso medido no navegador está escrito em
-  // `ALCANCE_DA_SETA`: um bloco parado a 27,5 unidades de uma seta alheia era
-  // reordenado por um empurrão de 4 pixels. O ponto não é o empurrão ser
-  // pequeno — é a seta já estar ali ANTES dele. Reordenar por proximidade
-  // herdada da posição é exatamente o defeito que este arquivo inteiro existe
-  // para não ter (ver a regra do topo).
-  //
-  // Escrito como conjunto, e conferido no SOLTAR: o gesto legítimo é pegar o
-  // bloco e LEVÁ-LO até um traçado, e um traçado que já estava ao alcance não
-  // foi levado a lugar nenhum. Se o bloco estivesse mesmo em cima daquela seta,
-  // a ordem já seria essa.
-  //
-  // Um `ref`, e não estado: isto é lido dentro dos manipuladores do mesmo gesto
-  // e não desenha nada. Em estado, cada `dragstart` custaria um render a mais
-  // sem nada a mostrar.
-  //
-  // O QUE ISTO NÃO COBRE, dito com a medida certa: o bloco que começa longe de
-  // tudo e é levado — de propósito, mas para arrumar a tela — até a vizinhança
-  // de uma seta que não é dele. Essa seta foi conquistada pelo gesto, e o código
-  // não tem como saber que a pessoa só queria arrumar. Contra ela sobram as
-  // outras duas defesas, e as duas são visíveis: o alcance encolhido, e o
-  // DESTAQUE — a seta acende durante o arraste e apaga quando o alvo não vale,
-  // então a tela diz o que vai acontecer antes de a pessoa soltar.
+  // Aqui só mora o ESTADO do gesto: um `ref`, e não `useState`, porque isto é
+  // lido dentro dos manipuladores do mesmo gesto e não desenha nada — em
+  // estado, cada `dragstart` custaria um render a mais sem nada a mostrar.
   const setasNoInicio = useRef<Set<number>>(new Set());
 
   // O alvo válido de um arraste de bloco: ao alcance AGORA e fora do que já
-  // estava ao alcance no começo. Os três manipuladores do gesto usam esta mesma
-  // função — destaque e resultado não podem discordar.
+  // estava ao alcance no começo (`Geo.alvoDoArraste`). Os três manipuladores do
+  // gesto usam esta mesma função — destaque e resultado não podem discordar.
   const alvoDoArraste = useCallback(
     (clientX: number, clientY: number, indice: number): number | null => {
-      // As setas que TOCAM o bloco arrastado ficam fora da conta: soltá-lo na
-      // seta que já sai dele, ou na que já chega nele, é pedir o lugar em que
-      // ele está.
-      const alvo = setaSobOPonto(clientX, clientY, [indice - 1, indice]);
-      return alvo !== null && !setasNoInicio.current.has(alvo) ? alvo : null;
+      if (!instancia) return null;
+      const p = instancia.screenToFlowPosition({ x: clientX, y: clientY });
+      return Geo.alvoDoArraste(p, passos, medidas, identidades, indice, setasNoInicio.current);
     },
-    [setaSobOPonto]
+    [instancia, passos, medidas, identidades]
   );
 
   // Soltar num ponto vazio ANEXA NO FIM. Soltar sobre uma seta INSERE ali.
@@ -345,7 +251,7 @@ export default function Quadro({
   // E "explícito" passou a ser cobrado, não só declarado: quem chama esta função
   // é `alvoDoArraste`, que exige a seta ter sido CONQUISTADA pelo gesto. Sem
   // isso o empurrão acidental acontecia mesmo — medido, com 4 pixels (ver
-  // `ALCANCE_DA_SETA` e `setasNoInicio`).
+  // `ALCANCE_DA_SETA` e `alvoDoArraste` em `./geometria`).
   //
   // Pela IDENTIDADE, não por `p.id`, pelo mesmo motivo de `moverBloco` logo
   // acima: numa lista anterior à Fase 1b todo bloco tem `id: undefined`, e
