@@ -9,10 +9,24 @@ import { resumoDoBloco } from "./modelos";
 // que ficou faltando: o motor não sabe ramificar. Quem vê duas alças desenha
 // duas setas, e a segunda não roda — a tela teria ensinado a fazer errado.
 // Quando a ramificação chegar, a segunda alça aparece AQUI e nada mais muda.
+// A IDENTIDADE vem no `data` e o botão de apagar a devolve, em vez de `passo.id`.
+//
+// `passo.id` é OPCIONAL (lib/steps.ts), e numa lista anterior à Fase 1b ele é
+// `undefined` em TODO bloco. Um `data.passo.id!` aqui viraria
+// `aoApagar(undefined)` no quadro, e o filtro de lá — que compara identidade —
+// não acharia bloco nenhum: o botão não faria nada, sem erro. Pior: um filtro
+// escrito como `p.id !== id` apagaria a lista inteira de uma vez, porque
+// `undefined !== undefined` é falso para todos.
+//
+// A identidade é a mesma de `identidadeDoPasso`: o id quando ele existe, o
+// índice em texto quando não. É a que o quadro já usa como id do nó, então o
+// que o botão apaga é exatamente o nó em que ele está.
 export type DadosDoNo = {
   passo: Passo;
+  identidade: string;
   temErro: boolean;
   selecionado: boolean;
+  aoApagar: (identidade: string) => void;
 };
 
 // AS TRÊS PROPS DE CONEXÃO DA ALÇA, e por que não basta o `nodesConnectable`
@@ -51,7 +65,7 @@ export default function No({ data, isConnectable }: NodeProps & { data: DadosDoN
 
   return (
     <div
-      className={`w-[190px] rounded-lg border-2 bg-white px-3 py-2 shadow-sm dark:bg-zinc-900 ${borda}`}
+      className={`group relative w-[190px] rounded-lg border-2 bg-white px-3 py-2 shadow-sm dark:bg-zinc-900 ${borda}`}
     >
       <Handle
         type="target"
@@ -61,6 +75,25 @@ export default function No({ data, isConnectable }: NodeProps & { data: DadosDoN
         isConnectableEnd={isConnectable}
         className="!h-2 !w-2 !bg-zinc-400"
       />
+      <button
+        type="button"
+        onClick={(e) => {
+          // Sem isto o clique também seleciona o nó, e o painel abre para um
+          // bloco que acabou de deixar de existir.
+          e.stopPropagation();
+          data.aoApagar(data.identidade);
+        }}
+        // `onPointerDown` também é contido, e não é redundância com o
+        // `stopPropagation` do clique: quem começa o arraste do nó é o
+        // `pointerdown`, não o `click`. Sem esta linha, apertar o botão já
+        // arma o gesto de arrastar o bloco, e um tremido de um pixel entre
+        // apertar e soltar move o nó em vez de apagá-lo.
+        onPointerDown={(e) => e.stopPropagation()}
+        className="absolute -right-2 -top-2 hidden h-5 w-5 rounded-full border border-zinc-300 bg-white text-xs leading-none text-zinc-500 group-hover:block hover:text-red-600 dark:border-zinc-700 dark:bg-zinc-900"
+        aria-label="Apagar bloco"
+      >
+        ✕
+      </button>
       <div className="text-[10px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">
         {titulo}
       </div>

@@ -7,13 +7,55 @@ import {
   type Node,
   type Edge,
   type NodeChange,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { identidadeDoPasso, type Passo } from "@/lib/steps";
 import No, { type DadosDoNo } from "./no";
-import { arranjoAutomatico } from "./modelos";
+import { arranjoAutomatico, blocoNovo } from "./modelos";
+import Paleta from "./paleta";
 
 const TIPOS_DE_NO = { bloco: No };
+
+// O TIPO DO ARRASTO da paleta. Escrito aqui e lido aqui, para o quadro não
+// reagir a arquivo, imagem ou texto arrastado de outra janela.
+const TIPO_DO_ARRASTO = "application/metodochat-bloco";
+
+// A largura do bloco é fixa em `no.tsx` (`w-[190px]`); a altura varia com o
+// texto e chega medida pelo React Flow. Estes são só o palpite de antes da
+// primeira medição.
+const LARGURA_DO_BLOCO = 190;
+const ALTURA_SUPOSTA = 48;
+
+// A que distância da seta, em unidades do quadro, o ponteiro já conta como
+// "em cima dela". Larga de propósito: a seta desenhada tem 1px, e exigir o
+// pixel exato tornaria o gesto de reordenar impossível na prática.
+const ALCANCE_DA_SETA = 30;
+
+// Onde o ponteiro está, num evento que pode ser de mouse OU de toque — é assim
+// que o React Flow tipa os eventos de arraste do nó. No toque vale
+// `changedTouches`, e não `touches`: no `touchend` a lista `touches` já está
+// vazia, e é justamente no fim do gesto que a conta importa.
+function pontoDoEvento(e: MouseEvent | TouchEvent): { x: number; y: number } | null {
+  if ("clientX" in e) return { x: e.clientX, y: e.clientY };
+  const t = e.changedTouches[0];
+  return t ? { x: t.clientX, y: t.clientY } : null;
+}
+
+function distanciaAoSegmento(
+  px: number, py: number,
+  ax: number, ay: number,
+  bx: number, by: number
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const comprimento = dx * dx + dy * dy;
+  // Segmento degenerado (as duas pontas no mesmo lugar): vira distância a um
+  // ponto. Acontece de verdade — dois blocos empilhados na mesma altura fazem
+  // o trecho vertical do meio ter comprimento zero.
+  const t = comprimento === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / comprimento));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
 
 // O quadro.
 //
@@ -29,15 +71,18 @@ const TIPOS_DE_NO = { bloco: No };
 // O ESTADO MORA AQUI, e não num pai. `quadro.tsx` é o container do editor: ele
 // segura `Passo[]`, e paleta, nós e painel só recebem callbacks. Um pai
 // controlando a lista faria duas fontes de verdade para a mesma coisa.
-// `automationId` e `gatilho` fazem parte do contrato desde já, e não são lidos
-// aqui de propósito — por isso não são desestruturados, para o lint não os
-// acusar de esquecimento. `gatilho` é o segundo argumento de `conferirLista`
-// (lib/steps.ts) e `automationId` é o que o salvar precisa; os dois entram em
-// uso quando o painel (Tarefa 7) e a página (Tarefa 8) chegarem. Exigi-los na
-// assinatura agora é o que garante que a página os passe desde a primeira
-// montagem, em vez de a prop nascer opcional e ficar assim.
+// `gatilho` entrou em uso nesta tarefa: é o que a paleta lê para desabilitar os
+// itens que aquele gatilho não executa, e ele continua sendo o segundo argumento
+// de `conferirLista` (lib/steps.ts) quando o painel (Tarefa 7) chegar.
+//
+// `automationId` ainda NÃO é lido aqui, e por isso segue fora da
+// desestruturação, para o lint não o acusar de esquecimento. Ele é o que o
+// salvar precisa, e entra em uso na Tarefa 8. Exigi-lo na assinatura desde já é
+// o que garante que a página o passe desde a primeira montagem, em vez de a prop
+// nascer opcional e ficar assim.
 export default function Quadro({
   passosIniciais,
+  gatilho,
 }: {
   automationId: string;
   passosIniciais: Passo[];
@@ -83,6 +128,41 @@ export default function Quadro({
   const [passos, setPassos] = useState<Passo[]>(() => arranjoAutomatico(passosIniciais));
   const [selecionado, setSelecionado] = useState<string | null>(null);
 
+  // Qual seta está sob o ponteiro durante um arraste. É o alvo dos DOIS gestos
+  // que mexem na ordem — soltar um item da paleta e soltar um bloco que já
+  // existe —, e é null quando o ponteiro não está sobre nenhuma.
+  const [setaSobEle, setSetaSobEle] = useState<number | null>(null);
+
+  // O TAMANHO MEDIDO DE CADA BLOCO, e ele PRECISA voltar para cá. Sem isto o
+  // quadro perde TODAS AS SETAS no primeiro arraste — medido no navegador, e
+  // era assim que a tarefa anterior estava entregue.
+  //
+  // O mecanismo: os nós são CONTROLADOS, e a lista `nos` é derivada de `passos`
+  // a cada render. O React Flow mede a altura real de cada bloco no DOM e
+  // devolve isso como uma mudança do tipo `dimensions`; quem só repassa
+  // `position` e `select` joga essa medida fora, e no render seguinte a prop
+  // `nodes` chega com objetos NOVOS que não têm `measured`. O nó volta a ser
+  // "não inicializado": as setas, que são posicionadas a partir das alças
+  // medidas, deixam de ser desenhadas, e o console do React Flow passa a
+  // repetir "you are trying to drag a node that is not initialized".
+  //
+  // E o estrago é permanente, não um piscar: uma vez que a primeira leva de
+  // `position` recria a lista, nada mais devolve a medida, então a corrente
+  // some da tela e não volta enquanto a página não for recarregada.
+  //
+  // Isso NÃO abre uma segunda fonte de verdade para a ordem nem para a
+  // posição: aqui só entra largura e altura, que são consequência do que o
+  // bloco escreve na tela e não decidem nada. A ordem continua sendo o array, e
+  // a posição continua vindo de `pos`.
+  const [medidas, setMedidas] = useState<Record<string, { width: number; height: number }>>({});
+
+  // A instância do React Flow, guardada só por causa de `screenToFlowPosition`:
+  // ela é quem converte o ponto do ponteiro em coordenada do quadro, levando em
+  // conta o zoom e o deslocamento. Sem ela, o bloco solto nasce no lugar errado
+  // sempre que o quadro não estiver em zoom 1 — e ele nunca está, porque
+  // `fitView` ajusta o zoom na abertura.
+  const [instancia, setInstancia] = useState<ReactFlowInstance<Node, Edge> | null>(null);
+
   // A IDENTIDADE do bloco é a chave do nó, e não `p.id` cru.
   //
   // Bloco sem `id` continua existindo e continua sendo aceito de propósito:
@@ -106,12 +186,134 @@ export default function Quadro({
     );
   }, []);
 
+  // QUAL SETA ESTÁ SOB O PONTEIRO — POR GEOMETRIA, e não pelos eventos de mouse
+  // da seta. Esta escolha é a correção de um mecanismo que não funciona, e o
+  // motivo precisa ficar escrito para ninguém o "simplificar" de volta.
+  //
+  // O caminho natural seria `onEdgeMouseEnter`/`onEdgeMouseLeave` do React Flow,
+  // e ele acende a seta muito bem com o ponteiro solto. Só que NENHUM DOS DOIS
+  // GESTOS QUE PRECISAM DELE é um ponteiro solto, e nos dois ele fica mudo:
+  //
+  //   ARRASTO DA PALETA — é arrasto nativo do HTML. Enquanto ele acontece, o
+  //     navegador não emite evento de mouse nenhum, só os de `drag`. O
+  //     `mouseenter` da seta não chega nunca. Medido: com o item da paleta em
+  //     cima da seta, nenhuma seta acendeu, e soltar ali não inseriu nada.
+  //   ARRASTO DE UM BLOCO — os eventos de mouse até saem, mas quem está embaixo
+  //     do ponteiro é o próprio bloco arrastado, que anda junto com ele. A seta
+  //     fica atrás dele, e o `mouseenter` dela também não chega. Medido:
+  //     soltar o bloco em cima da seta não mudava a ordem, só a posição.
+  //
+  // Por geometria os dois funcionam, porque o que decide é o PONTO, e o ponto
+  // existe nos dois gestos. O traçado conferido é o mesmo `smoothstep` que o
+  // React Flow desenha: sai da alça direita do bloco `i`, vai reto até o meio do
+  // vão, desce (ou sobe) e entra na alça esquerda do bloco `i + 1`. São três
+  // trechos, e vale a menor distância aos três — conferir só a reta entre as
+  // duas pontas erraria justamente no meio do vão, que é onde a seta é mais
+  // fácil de acertar.
+  //
+  // `ignorar` existe para o arrasto de um bloco: as duas setas que chegam nele e
+  // saem dele não são alvo — soltá-lo na própria seta é pedir para ele ficar
+  // onde já está.
+  const setaSobOPonto = useCallback(
+    (clientX: number, clientY: number, ignorar: number[]): number | null => {
+      if (!instancia) return null;
+      const p = instancia.screenToFlowPosition({ x: clientX, y: clientY });
+      let melhor: number | null = null;
+      let menor = ALCANCE_DA_SETA;
+      for (let i = 0; i < passos.length - 1; i++) {
+        if (ignorar.includes(i)) continue;
+        const de = passos[i].pos;
+        const para = passos[i + 1].pos;
+        if (!de || !para) continue;
+        const mDe = medidas[identidades[i]];
+        const mPara = medidas[identidades[i + 1]];
+        const sx = de.x + (mDe?.width ?? LARGURA_DO_BLOCO);
+        const sy = de.y + (mDe?.height ?? ALTURA_SUPOSTA) / 2;
+        const tx = para.x;
+        const ty = para.y + (mPara?.height ?? ALTURA_SUPOSTA) / 2;
+        const meio = (sx + tx) / 2;
+        const d = Math.min(
+          distanciaAoSegmento(p.x, p.y, sx, sy, meio, sy),
+          distanciaAoSegmento(p.x, p.y, meio, sy, meio, ty),
+          distanciaAoSegmento(p.x, p.y, meio, ty, tx, ty)
+        );
+        if (d < menor) {
+          menor = d;
+          melhor = i;
+        }
+      }
+      return melhor;
+    },
+    [instancia, passos, medidas, identidades]
+  );
+
+  // Soltar num ponto vazio ANEXA NO FIM. Soltar sobre uma seta INSERE ali.
+  //
+  // Não existe bloco solto: como a ordem é o array, todo bloco está sempre na
+  // corrente. Isso contraria quem conhece o draw.io, onde caixa solta é normal, e
+  // é deliberado — bloco solto seria um bloco que nunca roda, e nada na tela
+  // explicaria por quê.
+  //
+  // O bloco sai de `blocoNovo` e é ESPALHADO com `pos` por cima, e não montado
+  // campo a campo: é isso que mantém a convenção da chave `url` (modelos.ts)
+  // intacta na inserção — o `dm_link` chega com `url: ""` e continua com ela, e
+  // os outros continuam sem a chave.
+  const inserir = useCallback((chave: string, x: number, y: number, sobreSeta: number | null) => {
+    const bloco = { ...blocoNovo(chave), pos: { x, y } };
+    setPassos((atual) => {
+      if (sobreSeta === null) return [...atual, bloco];
+      return [...atual.slice(0, sobreSeta + 1), bloco, ...atual.slice(sobreSeta + 1)];
+    });
+  }, []);
+
+  // Reordenar é soltar o bloco SOBRE UMA SETA, nunca arrastar pelo quadro.
+  //
+  // O gesto é explícito de propósito. Se posição definisse ordem, um empurrão
+  // acidental trocaria a ordem das mensagens que o cliente recebe.
+  //
+  // Pela IDENTIDADE, não por `p.id`, pelo mesmo motivo de `moverBloco` logo
+  // acima: numa lista anterior à Fase 1b todo bloco tem `id: undefined`, e
+  // comparar por `p.id` casaria com todos de uma vez.
+  //
+  // O `alvo` corrige o deslocamento que a própria remoção causa: tirado o bloco
+  // da posição `de`, tudo que vinha depois dele andou uma casa para trás, então
+  // "depois da seta `depoisDe`" só continua sendo aquele lugar quando o bloco
+  // saiu de ANTES dela.
+  const moverPara = useCallback((identidade: string, depoisDe: number) => {
+    setPassos((atual) => {
+      const de = atual.findIndex((p, i) => identidadeDoPasso(p, i) === identidade);
+      if (de === -1) return atual;
+      const sem = atual.filter((_, i) => i !== de);
+      const alvo = de <= depoisDe ? depoisDe : depoisDe + 1;
+      return [...sem.slice(0, alvo), atual[de], ...sem.slice(alvo)];
+    });
+  }, []);
+
+  // Apagar. A seleção some junto quando é o bloco apagado que estava
+  // selecionado, senão o painel (Tarefa 7) ficaria aberto num bloco que acabou
+  // de deixar de existir.
+  //
+  // Apaga UM bloco, achado pelo índice, e não todos os que casam com a
+  // identidade: `conferirLista` (lib/steps.ts) trata id repetido como ERRO
+  // justamente porque ele é produzível — duplicar um bloco é o gesto que o
+  // produz —, e um `filter` por identidade apagaria os dois de uma vez.
+  const apagarBloco = useCallback((identidade: string) => {
+    setPassos((atual) => {
+      const i = atual.findIndex((p, j) => identidadeDoPasso(p, j) === identidade);
+      return i === -1 ? atual : atual.filter((_, j) => j !== i);
+    });
+    setSelecionado((s) => (s === identidade ? null : s));
+  }, []);
+
   const nos: Node[] = useMemo(
     () =>
       passos.map((p, i) => ({
         id: identidades[i],
         type: "bloco",
         position: p.pos ?? { x: 0, y: 0 },
+        // A medida que o React Flow devolveu, devolvida a ele. `undefined` na
+        // primeira montagem, quando ele ainda não mediu nada.
+        measured: medidas[identidades[i]],
         // `selected` é o que o React Flow lê; `data.selecionado` é o que o nó
         // desenha. Os dois saem do MESMO `selecionado`, então não há como
         // divergirem — o que a biblioteca considera selecionado e o que está com
@@ -119,11 +321,13 @@ export default function Quadro({
         selected: identidades[i] === selecionado,
         data: {
           passo: p,
+          identidade: identidades[i],
           temErro: false,
           selecionado: identidades[i] === selecionado,
+          aoApagar: apagarBloco,
         } as DadosDoNo,
       })),
-    [passos, identidades, selecionado]
+    [passos, identidades, selecionado, apagarBloco, medidas]
   );
 
   // As setas SEMPRE ligam o bloco i ao i+1 do array. Não há edge que o usuário
@@ -149,8 +353,11 @@ export default function Quadro({
         target: identidades[i + 1],
         type: "smoothstep",
         animated: false,
+        // A seta `i` liga o bloco `i` ao `i + 1`, então soltar "nela" é inserir
+        // ou mover para depois de `i`. É esse o número que `setaSobEle` guarda.
+        style: setaSobEle === i ? { stroke: "rgb(99 102 241)", strokeWidth: 3 } : undefined,
       })),
-    [identidades]
+    [identidades, setaSobEle]
   );
 
   // TODA mudança de posição volta para o estado, inclusive as intermediárias do
@@ -199,6 +406,17 @@ export default function Quadro({
           // de seleção chegam duas mudanças na mesma leva (o antigo com `false`,
           // o novo com `true`), e a ordem entre elas não é garantida.
           setSelecionado((atual) => (m.selected ? m.id : atual === m.id ? null : atual));
+        } else if (m.type === "dimensions" && m.dimensions) {
+          // A medida do bloco. O `if` de igualdade não é economia: sem ele, cada
+          // leva de `dimensions` — e elas chegam junto com o redimensionamento —
+          // criaria um objeto novo, `nos` seria recriado, e o React Flow mediria
+          // de novo, num laço que não para.
+          const d = m.dimensions;
+          setMedidas((atual) => {
+            const antes = atual[m.id];
+            if (antes && antes.width === d.width && antes.height === d.height) return atual;
+            return { ...atual, [m.id]: { width: d.width, height: d.height } };
+          });
         }
       }
     },
@@ -206,12 +424,52 @@ export default function Quadro({
   );
 
   return (
-    <div className="h-[calc(100vh-13rem)] w-full rounded-xl border border-zinc-200 dark:border-zinc-800">
+    <div className="relative h-[calc(100vh-13rem)] w-full rounded-xl border border-zinc-200 dark:border-zinc-800">
+      <Paleta gatilho={gatilho} />
       <ReactFlow
         nodes={nos}
         edges={setas}
         nodeTypes={TIPOS_DE_NO}
         onNodesChange={aoMudarNos}
+        onInit={setInstancia}
+        // As setas que TOCAM o bloco arrastado ficam fora da conta: soltá-lo na
+        // seta que já sai dele, ou na que já chega nele, é pedir o lugar em que
+        // ele está.
+        onNodeDrag={(e, no) => {
+          const p = pontoDoEvento(e);
+          const i = identidades.indexOf(no.id);
+          setSetaSobEle(p && setaSobOPonto(p.x, p.y, [i - 1, i]));
+        }}
+        // O alvo é recalculado AQUI, e não lido de `setaSobEle`. Os dois dão o
+        // mesmo resultado — mesma função, mesmo ponto —, e recalcular é o que
+        // garante que a ordem não dependa de qual render chegou primeiro. O
+        // estado fica só para o destaque na tela.
+        onNodeDragStop={(e, no) => {
+          const p = pontoDoEvento(e);
+          const i = identidades.indexOf(no.id);
+          const alvo = p && setaSobOPonto(p.x, p.y, [i - 1, i]);
+          setSetaSobEle(null);
+          if (alvo !== null && alvo !== undefined) moverPara(no.id, alvo);
+        }}
+        onDragOver={(e) => {
+          // Só o que veio da paleta. Sem esta conferência o quadro aceitaria
+          // arquivo e texto arrastados de qualquer lugar, e o `onDrop` abaixo
+          // teria de recusá-los depois de o navegador já ter prometido que
+          // aceita.
+          if (!e.dataTransfer.types.includes(TIPO_DO_ARRASTO)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          setSetaSobEle(setaSobOPonto(e.clientX, e.clientY, []));
+        }}
+        onDragLeave={() => setSetaSobEle(null)}
+        onDrop={(e) => {
+          e.preventDefault();
+          const chave = e.dataTransfer.getData(TIPO_DO_ARRASTO);
+          setSetaSobEle(null);
+          if (!chave) return;
+          const p = instancia?.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+          inserir(chave, p?.x ?? 0, p?.y ?? 0, setaSobOPonto(e.clientX, e.clientY, []));
+        }}
         // Não há `onNodeClick`/`onPaneClick` aqui de propósito: a seleção chega
         // por `onNodesChange` como mudança do tipo `select`, que é o mesmo
         // caminho da seleção por caixa e por teclado. Escrever a seleção também
