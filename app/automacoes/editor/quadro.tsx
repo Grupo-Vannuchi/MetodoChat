@@ -10,13 +10,20 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { identidadeDoPasso, type Passo } from "@/lib/steps";
+import { conferirLista, identidadeDoPasso, type Passo } from "@/lib/steps";
 import No, { type DadosDoNo } from "./no";
+import Gatilho, { type DadosDoGatilho } from "./gatilho";
+import Painel, { type Configuracao } from "./painel";
 import { arranjoAutomatico, blocoNovo } from "./modelos";
 import Paleta from "./paleta";
 import * as Geo from "./geometria";
 
-const TIPOS_DE_NO = { bloco: No };
+const TIPOS_DE_NO = { bloco: No, gatilho: Gatilho };
+
+// O ID DO NÓ DE GATILHO, e ele NÃO COLIDE com id de bloco por construção:
+// `identidadeDoPasso` (lib/steps.ts) devolve ou um id com prefixo `b_`, ou o
+// índice em texto. Nenhum dos dois é "gatilho".
+const ID_DO_GATILHO = "gatilho";
 
 // O TIPO DO ARRASTO da paleta. Escrito aqui e lido aqui, para o quadro não
 // reagir a arquivo, imagem ou texto arrastado de outra janela.
@@ -46,22 +53,31 @@ function pontoDoEvento(e: MouseEvent | TouchEvent): { x: number; y: number } | n
 // O ESTADO MORA AQUI, e não num pai. `quadro.tsx` é o container do editor: ele
 // segura `Passo[]`, e paleta, nós e painel só recebem callbacks. Um pai
 // controlando a lista faria duas fontes de verdade para a mesma coisa.
-// `gatilho` entrou em uso nesta tarefa: é o que a paleta lê para desabilitar os
-// itens que aquele gatilho não executa, e ele continua sendo o segundo argumento
-// de `conferirLista` (lib/steps.ts) quando o painel (Tarefa 7) chegar.
+// O GATILHO SAIU DE PROP E VIROU ESTADO, dentro de `configuracao`, e o motivo é
+// que o painel do nó de gatilho o EDITA. Ele é lido em três lugares que agora
+// concordam sozinhos: a paleta desabilita os itens que aquele gatilho não
+// executa, `conferirLista` (lib/steps.ts) recusa a resposta pública fora do
+// comentário, e o próprio nó mostra o nome. Trocar o gatilho no painel move os
+// três de uma vez.
 //
 // `automationId` ainda NÃO é lido aqui, e por isso segue fora da
 // desestruturação, para o lint não o acusar de esquecimento. Ele é o que o
 // salvar precisa, e entra em uso na Tarefa 8. Exigi-lo na assinatura desde já é
 // o que garante que a página o passe desde a primeira montagem, em vez de a prop
 // nascer opcional e ficar assim.
+//
+// AS DUAS ESCRITAS SÃO SEPARADAS, e a separação começa aqui: `passos` vai para
+// a coluna `steps`, `configuracao` vai para as colunas da automação (nome,
+// ativo, gatilho, palavras-chave, correspondência, post, story). São dois
+// estados, e o salvar da Tarefa 8 são duas gravações — juntá-las faz uma
+// gravação parcial deixar metade de cada coisa no banco.
 export default function Quadro({
   passosIniciais,
-  gatilho,
+  configuracaoInicial,
 }: {
   automationId: string;
   passosIniciais: Passo[];
-  gatilho: string;
+  configuracaoInicial: Configuracao;
 }) {
   // O BLOCO LEGADO SEM A CHAVE `url` É DEIXADO COMO ESTÁ, e esta é a decisão
   // que a Fase 1b devia à convenção da chave (ver `modelos.ts`).
@@ -101,6 +117,10 @@ export default function Quadro({
   // bloco como ele veio, então nem semeiam `url` num bloco que não a tinha nem
   // a apagam de um que a tinha.
   const [passos, setPassos] = useState<Passo[]>(() => arranjoAutomatico(passosIniciais));
+  const [configuracao, setConfiguracao] = useState<Configuracao>(configuracaoInicial);
+
+  // A identidade do nó selecionado — de um bloco, ou `ID_DO_GATILHO`. É ela que
+  // o painel lê para saber o que desenhar.
   const [selecionado, setSelecionado] = useState<string | null>(null);
 
   // Qual seta está sob o ponteiro durante um arraste. É o alvo dos DOIS gestos
@@ -287,9 +307,66 @@ export default function Quadro({
     setSelecionado((s) => (s === identidade ? null : s));
   }, []);
 
-  const nos: Node[] = useMemo(
-    () =>
-      passos.map((p, i) => ({
+  // O QUE ESTÁ ERRADO NA LISTA, pela MESMA função que o Server Action vai usar
+  // para recusar o salvar (`conferirLista`, lib/steps.ts). Uma fonte só: a
+  // borda vermelha do nó, o recado no painel e o bloqueio do salvar não têm
+  // como discordar.
+  //
+  // Isto fecha o fio que a Tarefa 5 deixou solto: `temErro` era `false` fixo, e
+  // a borda vermelha de `no.tsx` era código inalcançável.
+  const problemas = useMemo(
+    () => conferirLista(passos, configuracao.gatilho),
+    [passos, configuracao.gatilho]
+  );
+
+  // Só os ERROS, e só os que apontam um bloco. `nivel: "aviso"` não pinta a
+  // borda: aviso explica e deixa passar, e vermelho é a cor do que trava o
+  // salvar. Os de `indice: null` são da lista inteira e não têm nó a acender.
+  const errosPorIndice = useMemo(() => {
+    const s = new Set<number>();
+    for (const p of problemas) if (p.nivel === "erro" && p.indice !== null) s.add(p.indice);
+    return s;
+  }, [problemas]);
+
+  const nos: Node[] = useMemo(() => {
+    // O GATILHO É O PRIMEIRO NÓ, e ele é o único que não sai de `passos`.
+    //
+    // `draggable: false` não é enfeite, é o que impede um defeito concreto: os
+    // nós são CONTROLADOS, e a posição desenhada vem só da prop. Como este nó
+    // não está em `passos`, `moverBloco` não acharia nada para mudar e a prop
+    // não mudaria — O NÓ CONGELARIA SOB O CURSOR e voltaria ao lugar ao soltar,
+    // exatamente o sintoma descrito em `aoMudarNos`, logo abaixo. Ele também
+    // não participa da corrente: `identidades.indexOf("gatilho")` é -1, e
+    // reordenar a partir de -1 destacaria setas que soltar recusaria.
+    //
+    // `deletable: false` porque sem gatilho não há automação.
+    // ONDE ELE FICA: à ESQUERDA de onde o arranjo automático começa, e não em
+    // (60, 60). `arranjoAutomatico` (modelos.ts) põe o BLOCO 0 exatamente em
+    // (60, 60), então o gatilho ali cobre o primeiro bloco da lista — os dois
+    // nós no mesmo pixel, um escondendo o outro. Medido no navegador: os dois
+    // saíram com `translate(60px, 60px)`.
+    //
+    // -200 deixa o nó (190 de largura) entre -200 e -10, com folga até o 60 do
+    // bloco 0 para a seta aparecer. Fixo de propósito: a posição do gatilho não
+    // é gravada — ele não é um passo — e um bloco 0 arrastado para longe é
+    // seguido pela seta, não pelo gatilho.
+    const doGatilho: Node = {
+      id: ID_DO_GATILHO,
+      type: "gatilho",
+      position: { x: -200, y: 60 },
+      selected: selecionado === ID_DO_GATILHO,
+      draggable: false,
+      deletable: false,
+      data: {
+        tipo: configuracao.gatilho,
+        palavras: configuracao.palavras,
+        selecionado: selecionado === ID_DO_GATILHO,
+      } as DadosDoGatilho,
+    };
+
+    return [
+      doGatilho,
+      ...passos.map((p, i) => ({
         id: identidades[i],
         type: "bloco",
         position: p.pos ?? { x: 0, y: 0 },
@@ -304,13 +381,22 @@ export default function Quadro({
         data: {
           passo: p,
           identidade: identidades[i],
-          temErro: false,
+          temErro: errosPorIndice.has(i),
           selecionado: identidades[i] === selecionado,
           aoApagar: apagarBloco,
         } as DadosDoNo,
       })),
-    [passos, identidades, selecionado, apagarBloco, medidas]
-  );
+    ];
+  }, [
+    passos,
+    identidades,
+    selecionado,
+    apagarBloco,
+    medidas,
+    errosPorIndice,
+    configuracao.gatilho,
+    configuracao.palavras,
+  ]);
 
   // As setas SEMPRE ligam o bloco i ao i+1 do array. Não há edge que o usuário
   // possa criar ou apagar.
@@ -327,20 +413,44 @@ export default function Quadro({
   //
   // Ou seja: apagar as props do nó "porque o quadro já resolve" reabre o gesto.
   // As duas pontas são obrigatórias.
-  const setas: Edge[] = useMemo(
-    () =>
-      identidades.slice(0, -1).map((identidade, i) => ({
-        id: `${identidade}->${identidades[i + 1]}`,
-        source: identidade,
-        target: identidades[i + 1],
+  const setas: Edge[] = useMemo(() => {
+    const daCorrente: Edge[] = identidades.slice(0, -1).map((identidade, i) => ({
+      id: `${identidade}->${identidades[i + 1]}`,
+      source: identidade,
+      target: identidades[i + 1],
+      type: "smoothstep",
+      animated: false,
+      // A seta `i` liga o bloco `i` ao `i + 1`, então soltar "nela" é inserir
+      // ou mover para depois de `i`. É esse o número que `setaSobEle` guarda.
+      style: setaSobEle === i ? { stroke: "rgb(99 102 241)", strokeWidth: 3 } : undefined,
+    }));
+
+    if (!identidades.length) return daCorrente;
+
+    // A SETA DO GATILHO ATÉ O BLOCO 0 fica FORA da numeração das outras, e a
+    // separação é obrigatória: `setaSobEle` e toda a geometria (`./geometria`)
+    // contam as setas por índice DE `passos` — a seta `i` liga o bloco `i` ao
+    // `i + 1`. Empurrar esta para dentro dessa contagem deslocaria todos os
+    // alvos de inserção em um, e soltar um bloco sobre uma seta o poria no
+    // lugar errado.
+    //
+    // O preço, e ele está dito porque é uma seta que a tela desenha: soltar
+    // sobre ELA não insere no começo da lista. `Geo.setaSobOPonto` não a
+    // conhece, então o bloco solto ali é ANEXADO NO FIM, como em qualquer
+    // ponto vazio. Inserir antes do bloco 0 nunca foi possível pelo gesto de
+    // soltar — a seta `i` insere DEPOIS de `i`, e não existe seta -1 —, e
+    // resolver isso mexe na geometria, que é módulo puro e testado à parte.
+    return [
+      {
+        id: `${ID_DO_GATILHO}->${identidades[0]}`,
+        source: ID_DO_GATILHO,
+        target: identidades[0],
         type: "smoothstep",
         animated: false,
-        // A seta `i` liga o bloco `i` ao `i + 1`, então soltar "nela" é inserir
-        // ou mover para depois de `i`. É esse o número que `setaSobEle` guarda.
-        style: setaSobEle === i ? { stroke: "rgb(99 102 241)", strokeWidth: 3 } : undefined,
-      })),
-    [identidades, setaSobEle]
-  );
+      },
+      ...daCorrente,
+    ];
+  }, [identidades, setaSobEle]);
 
   // TODA mudança de posição volta para o estado, inclusive as intermediárias do
   // arraste. NÃO FILTRE POR `m.dragging` AQUI — e a frase é imperativa porque o
@@ -405,9 +515,57 @@ export default function Quadro({
     [moverBloco]
   );
 
+  // ONDE, NA LISTA, ESTÁ O BLOCO SELECIONADO. -1 quando o selecionado é o
+  // gatilho, ou quando não há seleção nenhuma.
+  //
+  // Pelo ÍNDICE, e não só pelo objeto, porque o painel precisa dos dois: o
+  // objeto para desenhar os campos, e o índice para casar com `Problema.indice`
+  // (lib/steps.ts) e para o cabeçalho dizer de qual bloco se trata.
+  const indiceSelecionado =
+    selecionado === null || selecionado === ID_DO_GATILHO ? -1 : identidades.indexOf(selecionado);
+
+  // O QUE O PAINEL MOSTRA de `conferirLista`, e a escolha é por leitor:
+  //
+  //   BLOCO selecionado — só o que aponta AQUELE bloco. Despejar a lista
+  //     inteira faria o painel de um bloco bom mostrar o erro de outro.
+  //   GATILHO selecionado — os de `indice: null`, que são da lista inteira e
+  //     não têm nó em que acender.
+  const problemasDoPainel = useMemo(() => {
+    if (selecionado === ID_DO_GATILHO) return problemas.filter((p) => p.indice === null);
+    if (indiceSelecionado === -1) return [];
+    return problemas.filter((p) => p.indice === indiceSelecionado);
+  }, [problemas, selecionado, indiceSelecionado]);
+
+  // O bloco editado TROCA DE LUGAR NA LISTA sem mudar de posição: o painel
+  // devolve um objeto novo, e ele entra no lugar do antigo.
+  //
+  // Pela IDENTIDADE, e não por `p.id`, pelo mesmo motivo de `moverBloco`: numa
+  // lista anterior à Fase 1b todo bloco tem `id: undefined`, e comparar por
+  // `p.id` casaria com todos de uma vez.
+  //
+  // NADA AQUI MEXE NA CHAVE `url` — quem decide isso é o painel, que só
+  // escreve os campos que já existem no bloco (a convenção está em
+  // `modelos.ts`, e a terceira casa dela é `painel.tsx`).
+  const mudarPasso = useCallback(
+    (novo: Passo) => {
+      setPassos((atual) =>
+        atual.map((p, i) => (identidadeDoPasso(p, i) === selecionado ? novo : p))
+      );
+    },
+    [selecionado]
+  );
+
+  // Fechar o painel é DESSELECIONAR, e não um estado próprio de "aberto".
+  //
+  // Um `aberto` separado seria uma segunda fonte de verdade para a mesma
+  // coisa: dava para ter um bloco com a borda acesa e o painel fechado, e o
+  // clique seguinte no mesmo bloco não abriria nada — ele já estava
+  // selecionado, e nenhuma mudança de seleção chegaria.
+  const fecharPainel = useCallback(() => setSelecionado(null), []);
+
   return (
     <div className="relative h-[calc(100vh-13rem)] w-full rounded-xl border border-zinc-200 dark:border-zinc-800">
-      <Paleta gatilho={gatilho} />
+      <Paleta gatilho={configuracao.gatilho} />
       <ReactFlow
         nodes={nos}
         edges={setas}
@@ -495,11 +653,33 @@ export default function Quadro({
         edgesFocusable={false}
         deleteKeyCode={null}
         fitView
+        // A PALETA FLUTUA SOBRE O QUADRO, e o `fitView` não sabe disso: ele
+        // enquadra o conteúdo na área INTEIRA, então o que ficar à esquerda
+        // nasce embaixo dela. Antes desta tarefa quem sumia era o bloco 0;
+        // agora seria o GATILHO, que é justamente o nó que a pessoa precisa
+        // clicar para configurar a automação. Medido no navegador: com padding
+        // simétrico o nó do gatilho ficou coberto na abertura.
+        //
+        // 200px é a largura da paleta (`w-44`, 176) mais o afastamento dela
+        // (`left-3`, 12) e uma folga.
+        fitViewOptions={{ padding: { left: "200px", top: "24px", right: "24px", bottom: "24px" } }}
         proOptions={{ hideAttribution: false }}
       >
         <Background gap={17} />
         <Controls showInteractive={false} />
       </ReactFlow>
+      {/* DEPOIS do quadro, e sobre ele: o painel é irmão do `ReactFlow`, não
+          filho, para não virar mais um nó do que a biblioteca gerencia — e
+          fechado ele não ocupa nada, então o quadro é inteiro. */}
+      <Painel
+        passo={indiceSelecionado === -1 ? null : passos[indiceSelecionado]}
+        indice={indiceSelecionado}
+        configuracao={selecionado === ID_DO_GATILHO ? configuracao : null}
+        problemas={problemasDoPainel}
+        aoMudar={mudarPasso}
+        aoMudarConfiguracao={setConfiguracao}
+        aoFechar={fecharPainel}
+      />
     </div>
   );
 }
