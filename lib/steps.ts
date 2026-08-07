@@ -551,6 +551,74 @@ export function cursorDaRetomada(
     : { passoId: passoIdDoBotao, automationId };
 }
 
+// ---------------------------------------------------------------------------
+// A REGRA DO PORTÃO, e ela é UMA SÓ: as três funções de retomada abaixo terminam
+// nela.
+//
+//   NINGUÉM ATRAVESSA UM PORTÃO SEM ELE SER AVALIADO, E VENCER O PORTÃO NÃO
+//   CUSTA O RESTO DO FLUXO.
+//
+// O portão é PONTO DE PASSAGEM. Quando o destino decidido cai DEPOIS de um
+// `pedir_follow`, o fluxo atravessa esse portão primeiro e, vencido, continua
+// para o DESTINO ORIGINAL — não para o passo seguinte ao portão.
+//
+// POR QUE A REGRA EXISTE, com as duas entradas medidas. Até a Fase 1b toda `dm`
+// de resposta rápida da lista vinha ANTES do portão, porque era o formulário que
+// montava a lista: uma resposta rápida só, a boas-vindas, e ela é a primeira. O
+// quadro de blocos livres acaba com essa garantia, e o `+1` das retomadas soma
+// sobre a POSIÇÃO, não sobre o tipo — some a garantia, e ele passa a cair do
+// outro lado do portão.
+//
+//   [portão, boas-vindas(resposta rápida), link] — reordenação que o quadro
+//     permite. Quem está parado na boas-vindas manda um texto qualquer, o ramo
+//     de texto retoma do `indiceParado + 1`, que é o LINK, e o portão nunca foi
+//     avaliado.
+//   [resposta rápida, portão, resposta rápida, link] — o toque no botão do
+//     bloco 2 retoma do 3, que é o link, pelo mesmo `+1` e pelo mesmo motivo.
+//
+// Nos dois, o link — a promessa central do produto — sai para quem não segue.
+//
+// POR QUE O DESTINO É PRESERVADO, e não `portão + 1`. Esta é a metade que custou
+// uma rodada de medição, e ela não é detalhe de forma: `portão + 1` REINTERPRETA
+// a lista e para na primeira parada dura do caminho. Na segunda lista acima,
+// essa parada é a PRÓPRIA resposta rápida do índice 2 — vencido o portão,
+// `interpretar(2)` para nela de novo e regrava o cursor ali; o toque seguinte
+// repete o ciclo inteiro. Para sempre, e não para uma pessoa: para TODAS, porque
+// o ramo de texto clampa igual e não sobra saída nenhuma. O bloco 3 deixaria de
+// ser entregue a todo mundo.
+//
+// Preservando o destino isso some, e some junto o outro preço: `interpretar`
+// começa em `destino`, então NADA entre o portão e o destino é reenfileirado. A
+// regra não cobra mensagem repetida de ninguém.
+//
+// `portao < destino` é a comparação inteira, e os dois limites importam:
+//
+//   IGUAL não é passagem. Quem está parado NO portão retoma DELE, e
+//     `interpretar` o encontra sozinho no primeiro passo que lê. Marcar
+//     passagem aqui faria `resolverFollow` consultar a Meta duas vezes no mesmo
+//     toque, e a segunda consulta decidiria sobre um portão já decidido.
+//   DEPOIS não é passagem pelo mesmo motivo: portão adiante do destino está no
+//     caminho que `interpretar` vai percorrer, e ele para nele como sempre.
+//
+// COM MAIS DE UM PORTÃO atravessa-se o PRIMEIRO, porque é o que `indiceDoPortao`
+// devolve, e isso basta: o que um portão pergunta — "esta pessoa segue o perfil?"
+// — é a mesma pergunta em todos eles, e `resolverFollow` não distingue um do
+// outro. O que muda é só o TEXTO do pedido enviado a quem é barrado, que será o
+// do primeiro. Lista com dois portões já é ERRO em `conferirLista`, e o resto do
+// preço está escrito no comentário de `indiceDoPortao`.
+// ---------------------------------------------------------------------------
+export type Retomada = {
+  // O portão a atravessar antes, ou null quando não há nenhum no caminho.
+  portao: number | null;
+  // Onde o fluxo continua — depois de vencer o portão, ou direto se não há.
+  destino: number;
+};
+
+function atravessandoOPortao(passos: unknown, destino: number): Retomada {
+  const portao = indiceDoPortao(passos);
+  return { portao: portao !== null && portao < destino ? portao : null, destino };
+}
+
 // De qual passo o toque num botão de RESPOSTA RÁPIDA (`AUTO:`) retoma.
 //
 // Veio de lib/engine.ts inteira, e não em pedaços, porque era a composição — e
@@ -571,16 +639,17 @@ export function cursorDaRetomada(
 //     descarta, e o bloco é sempre uma `dm` de resposta rápida, porque é o
 //     único passo que emite esse payload (`enfileirarPasso`, lib/engine.ts).
 //
-//     ISSO NÃO BASTA para garantir que o `+1` (abaixo) nunca pule um portão:
-//     ele soma sobre a POSIÇÃO do bloco na lista, não sobre o tipo dele. A
-//     conta só fecha ENQUANTO TODA `dm` de resposta rápida da lista vier ANTES
-//     de qualquer portão — é o que o formulário garante hoje (uma só, e é a
-//     boas-vindas, que vem primeiro) e o que o quadro de blocos livres NÃO vai
-//     garantir. Havendo uma `dm` de resposta rápida DEPOIS de um portão, o
-//     `+1` cai depois dele e o portão não é reavaliado. Este é o mesmo
-//     problema que a Tarefa 6 do plano (`docs/plans/2026-08-06-editor-em-
-//     blocos.md`, Passo 5) já registra pela reordenação preservando ids; a
-//     decisão de lá precisa cobrir os dois caminhos, não só aquele.
+//     ISSO NÃO BASTAVA para garantir que o `+1` (abaixo) nunca pulasse um
+//     portão: ele soma sobre a POSIÇÃO do bloco na lista, não sobre o tipo
+//     dele. A conta só fechava ENQUANTO TODA `dm` de resposta rápida da lista
+//     viesse ANTES de qualquer portão — é o que o formulário garante (uma só, e
+//     é a boas-vindas, que vem primeiro) e o que o quadro de blocos livres NÃO
+//     garante. Havendo uma `dm` de resposta rápida DEPOIS de um portão, o `+1`
+//     caía depois dele e o portão não era reavaliado.
+//
+//     Quem fecha isso agora é a REGRA DO PORTÃO (`atravessandoOPortao`, acima),
+//     e ela fecha pela POSIÇÃO, que é onde o buraco estava: o destino continua
+//     sendo o `+1`, e o portão que ficou para trás vira ponto de passagem.
 //
 // O botão ANTIGO (`AUTO:<automação>`) não traz bloco: a reserva dele é o cursor
 // vazio, e ele cai no ramo do zero, abaixo. Não tem prazo para acabar — botão
@@ -692,13 +761,13 @@ export function retomadaDoBotao(
   cursor: Cursor,
   automationId: string,
   passos: unknown
-): number {
+): Retomada {
   const id = cursorDesta(cursor, automationId);
-  if (id === null) return 0;
-  const indice = indiceDoId(passos, id);
-  if (indice === null) return 0;
+  const indice = id === null ? null : indiceDoId(passos, id);
+  if (indice === null) return atravessandoOPortao(passos, 0);
   const tipo = passoEsperado(passos, indice)?.tipo;
-  return tipo === "pedir_follow" || tipo === "pedir_email" ? indice : indice + 1;
+  const destino = tipo === "pedir_follow" || tipo === "pedir_email" ? indice : indice + 1;
+  return atravessandoOPortao(passos, destino);
 }
 
 // De qual passo o toque em "Já sigo!" (`FOLLOW:`) retoma.
@@ -774,10 +843,48 @@ export function retomadaDoFollow(
   cursor: Cursor,
   automationId: string,
   passos: unknown
-): number {
+): Retomada {
   const id = cursorDesta(cursor, automationId);
   const indice = id === null ? null : indiceDoId(passos, id);
-  return indice ?? indiceDoPortao(passos) ?? 0;
+  return atravessandoOPortao(passos, indice ?? indiceDoPortao(passos) ?? 0);
+}
+
+// De qual passo o TEXTO SOLTO de quem está parado num passo de espera retoma.
+//
+// O QUARTO ponto de retomada, e o último a mudar de casa. Ele era uma expressão
+// solta em lib/engine.ts — `passo.tipo === "pedir_follow" ? indiceParado :
+// indiceParado + 1` —, calculada por conta própria, sem passar por nenhuma das
+// outras três. Expressão de controle de fluxo dentro de `server-only` é
+// exatamente a classe de código que o comentário de `cursorDaRetomada` (acima)
+// descreve como a que nenhum teste alcança, e nesta branch já saíram três de lá
+// pelo mesmo motivo. Esta é a quarta.
+//
+// E ela não vem de graça: é por ELA que a primeira das duas entradas da regra do
+// portão é alcançável. Com a lista reordenada para `[portão, boas-vindas, link]`,
+// quem está parado na boas-vindas e manda qualquer texto caía em `+1` = o link,
+// com o portão nunca avaliado. Enquanto o cálculo morasse no motor, a regra
+// escrita aqui não o alcançaria.
+//
+// O `indice` que chega é o do bloco em que a pessoa está parada, já resolvido
+// por `indiceDoId` e já confirmado por `passoEsperado` lá no motor — este ramo
+// só é alcançado quando há um passo de espera de verdade naquele índice. A
+// releitura do tipo aqui dentro é de propósito: a decisão fica INTEIRA numa
+// função com teste, em vez de metade aqui e metade no argumento que o motor
+// escolhe passar.
+//
+// A regra por tipo é a mesma dos outros ramos, e o motivo também:
+//
+//   `pedir_follow` → retoma DELE MESMO. A mensagem de texto não é o follow, e
+//     avançar entregaria o link a quem não segue — bastaria mandar "ok".
+//   `pedir_email` → retoma do SEGUINTE, e aqui a diferença em relação ao
+//     `AUTO:` é real: o motor acabou de EXTRAIR o e-mail desta mensagem e
+//     gravá-lo em `contacts.email`. O pedido foi atendido; repeti-lo seria pedir
+//     de novo o que a pessoa acabou de mandar.
+//   `dm` de resposta rápida → retoma do SEGUINTE. O texto vale como resposta,
+//     do mesmo jeito que no fallback.
+export function retomadaDoTexto(passos: unknown, indice: number): Retomada {
+  const tipo = passoEsperado(passos, indice)?.tipo;
+  return atravessandoOPortao(passos, tipo === "pedir_follow" ? indice : indice + 1);
 }
 
 // De qual passo o fallback retoma. Null quando não dá para afirmar.
@@ -821,6 +928,24 @@ export function retomadaDoFollow(
 // Sem passo de espera nenhum, a lista teria sido enfileirada inteira — link
 // incluído — e `shouldFallbackFollowup` não teria dito sim. Se ainda assim
 // acontecer, também não retoma nada: repetir a lista manda mensagem repetida.
+//
+// ESTA É A ÚNICA DAS QUATRO RETOMADAS QUE NÃO RECEBE A REGRA DO PORTÃO
+// (`atravessandoOPortao`, acima), e continua devolvendo um número. Não é
+// esquecimento: a regra é INALCANÇÁVEL aqui, por construção, e a demonstração
+// cabe em três linhas.
+//
+// Ela parte de `interpretar(passos, 0)`, que para no PRIMEIRO passo que espera
+// resposta. `pedir_follow` espera resposta. Logo, se houvesse um portão ANTES de
+// `pararEm`, `interpretar` teria parado NELE — nenhum portão precede `pararEm`.
+// E o `+1` do ramo `dm` cai no máximo sobre a posição do portão que vier logo
+// depois, nunca depois dele: `portao < destino` seria falso em toda entrada
+// possível.
+//
+// Aplicá-la assim mesmo seria escrever uma linha que nenhum teste consegue
+// cobrir — e linha não coberta dentro de decisão de fluxo é onde esta base já
+// escondeu defeito duas vezes. O teste "a regra não muda nada no fallback"
+// (tests/steps.test.ts) fixa a demonstração, para ela não deixar de valer em
+// silêncio se `interpretar` mudar de comportamento.
 export function retomadaDoFallback(passos: unknown): number | null {
   const { pararEm } = interpretar(passos, 0);
   if (pararEm === null) return null;

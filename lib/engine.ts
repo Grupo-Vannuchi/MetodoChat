@@ -21,12 +21,20 @@ import { scheduleTick } from "./qstash";
 // `cursorDaRetomada` seguiu o mesmo caminho, e pelo mesmo motivo: ela era o
 // `const cursor = p.passoId ? ... : ...` daqui de baixo, e escolher errado ali
 // desfazia, sem teste nenhum acusar, o que `retomadaDoFollow` garante.
+//
+// `retomadaDoTexto` é a QUARTA, e a última: ela era o `const retomarDe =
+// passo.tipo === "pedir_follow" ? indiceParado : indiceParado + 1` do ramo de
+// texto, calculado aqui por conta própria e sem passar por nenhuma das outras
+// três. É por ela que a primeira das duas entradas da regra do portão é
+// alcançável (o porquê está escrito lá), então deixá-la aqui deixaria a regra
+// pela metade — e sem teste, como as outras estavam.
 import {
   interpretar,
   passoEsperado,
   retomadaDoFallback,
   retomadaDoBotao,
   retomadaDoFollow,
+  retomadaDoTexto,
   cursorDaRetomada,
   interrompeOFluxo,
   identidadeDoPasso,
@@ -34,6 +42,7 @@ import {
   lerPayload,
   type AcaoEnfileirar,
   type Cursor,
+  type Retomada,
 } from "./steps";
 // `welcomeMessageKey` não é mais importado aqui: era a chave do enfileiramento
 // de boas-vindas por coluna, que saiu. Ela continua em lib/dedupe.ts, com teste,
@@ -375,14 +384,79 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
   return contexto.commentId;
 }
 
+// O `de` aceita as DUAS formas, e a união é o que mantém a mudança contida.
+//
+// NÚMERO é o caso de dentro: o gatilho começando do zero, e as chamadas que esta
+// função faz a si mesma (portão vencido no caminho, e-mail já conhecido). Não há
+// portão a atravessar antes — o índice já é o próximo passo a executar.
+//
+// `Retomada` é o caso de fora: os três pontos em que alguém volta a um fluxo
+// parado (`retomadaDoBotao`, `retomadaDoFollow`, `retomadaDoTexto`, lib/steps.ts).
+// Só eles podem cair do outro lado de um portão, e é só por eles que a regra do
+// portão precisa entrar aqui.
 async function executarFluxo(
   account: Account,
   auto: Automation,
   contactIgId: string,
-  deIndice: number,
+  de: number | Retomada,
   contexto: ContextoGatilho = {}
 ): Promise<void> {
-  const r = interpretar(auto.steps, deIndice);
+  const retomada: Retomada = typeof de === "number" ? { portao: null, destino: de } : de;
+
+  // O PORTÃO DE PASSAGEM: atravessa, e segue para o destino.
+  //
+  // A regra e o porquê dela moram em `atravessandoOPortao` (lib/steps.ts), que é
+  // pura e tem teste. Aqui fica só o que ela não pode fazer: consultar a Meta.
+  //
+  // O que este bloco NÃO faz, e é o ponto inteiro da correção: ele não retoma de
+  // `portao + 1`. Vencido o portão, o fluxo continua de `retomada.destino`, que
+  // é para onde ele ia. Retomar do seguinte reinterpretaria a lista e pararia na
+  // primeira parada dura do caminho — e numa lista com resposta rápida depois do
+  // portão essa parada é a própria, o que prende TODO MUNDO antes do link, sem
+  // saída. `interpretar` começando em `destino` também garante o outro lado:
+  // nada entre o portão e o destino é reenfileirado, então a passagem não custa
+  // mensagem repetida a ninguém.
+  //
+  // BARRADO, para no portão exatamente como o ramo de dentro (mais abaixo):
+  // `resolverFollow` já enfileirou o pedido, e o cursor passa a ser o portão.
+  //
+  // O `pedir_follow` conferido é obrigação de TIPO e não desconfiança:
+  // `retomada.portao` só é não-nulo quando `indiceDoPortao` (lib/steps.ts) o
+  // achou, e ela valida o passo com o mesmo `conferir` do interpretador. Sem a
+  // conferência, porém, não há como estreitar `Passo` para o que
+  // `resolverFollow` recebe.
+  //
+  // ESTAS LINHAS NÃO TÊM TESTE, e é a mesma classe de risco que o comentário de
+  // `cursorDaRetomada` (lib/steps.ts) descreve: trocar `retomada.destino` por
+  // `retomada.portao + 1` aqui embaixo não acende luz em teste nenhum, porque a
+  // função pura continuaria devolvendo a mesma coisa. O que existe contra isso é
+  // o teste "A ARMADILHA SUMIU" (tests/steps.test.ts), que mede `interpretar`
+  // nos DOIS índices e fixa a diferença: do destino sai o link, do `portão + 1`
+  // sai a resposta rápida de novo, para sempre. Quem mexer aqui tem lá os dois
+  // números.
+  //
+  // E uma diferença pequena, dita para não ser descoberta como surpresa: barrado
+  // no portão de passagem, `interpretar` não chega a rodar, então os
+  // `step_ignorado` desta lista não são registrados NESTA passagem. O throttle
+  // de 10 minutos já os suprimiria na maioria dos casos, e a interpretação
+  // seguinte os registra.
+  if (retomada.portao !== null) {
+    const portao = passoEsperado(auto.steps, retomada.portao);
+    if (portao?.tipo === "pedir_follow") {
+      const passou = await resolverFollow(
+        account, auto, contactIgId, portao, retomada.portao, contexto
+      );
+      if (!passou) {
+        await gravarCursor(
+          account.ig_user_id, contactIgId, auto.id,
+          identidadeDoPasso(portao, retomada.portao)
+        );
+        return;
+      }
+    }
+  }
+
+  const r = interpretar(auto.steps, retomada.destino);
 
   // Passo mal montado vira linha em Atividade, não exceção. Automação quebrada
   // não pode derrubar o webhook: a Meta reenviaria o evento por 36 horas.
@@ -1088,12 +1162,21 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
             );
           }
 
-          // Retoma do passo seguinte — menos no portão de follow, que retoma DELE
-          // MESMO, para `resolverFollow` consultar a Meta de novo. O portão só é
-          // portão se cada tentativa reconsultar: retomando do seguinte, bastaria
-          // mandar "ok" para pular o passo e receber o link sem nunca ter seguido.
-          const retomarDe = passo.tipo === "pedir_follow" ? indiceParado : indiceParado + 1;
-          await executarFluxo(account, autoParada, senderId, retomarDe);
+          // Onde a lista retoma é decisão pura, e ela mora em `retomadaDoTexto`
+          // (lib/steps.ts) — com o porquê de cada ramo, com a regra do portão
+          // aplicada, e com teste.
+          //
+          // Aqui era o quarto ponto de retomada, e o único que ainda calculava
+          // por conta própria: `passo.tipo === "pedir_follow" ? indiceParado :
+          // indiceParado + 1`. Ele não passava por nenhuma das outras três
+          // funções, e é justamente por ele que a lista reordenada para
+          // `[portão, boas-vindas, link]` entregava o link a quem não segue —
+          // qualquer texto de quem estava parado na boas-vindas caía no `+1`,
+          // que é o link, com o portão nunca avaliado.
+          await executarFluxo(
+            account, autoParada, senderId,
+            retomadaDoTexto(autoParada.steps, indiceParado)
+          );
           return;
         }
       }
