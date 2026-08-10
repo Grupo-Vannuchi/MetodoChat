@@ -291,14 +291,15 @@ describe("interrompeOFluxo", () => {
 });
 
 describe("indiceDoPortao", () => {
-  it("na lista do formulário, o portão NÃO é o índice 0", () => {
+  it("com a boas-vindas antes dele, o portão NÃO é o índice 0", () => {
     // Este é o teste que prova que a correção faz diferença. O ramo `FOLLOW:`
     // caía no zero quando o cursor não era desta automação, e o comentário
     // dizia que "a lista é percorrida desde o início e o portão é reavaliado no
-    // lugar certo". É falso para TODA lista que o formulário produz, e por
-    // construção: a boas-vindas é obrigatória (o `saveAutomation` recusa salvar
-    // sem ela), vem sempre antes do portão, e o rótulo do botão tem padrão não
-    // vazio — rótulo sem url é resposta rápida, ou seja, PARADA DURA.
+    // lugar certo". Era falso para TODA lista que o formulário produzia, e por
+    // construção: a boas-vindas era obrigatória (ele recusava salvar sem ela),
+    // vinha sempre antes do portão, e o rótulo do botão tinha padrão não vazio —
+    // rótulo sem url é resposta rápida, ou seja, PARADA DURA. Essas listas
+    // continuam no banco, e é a forma mais comum que o quadro monta.
     //
     // `interpretar` a partir do zero para na boas-vindas e nunca chega ao
     // portão: o toque em "Já sigo!" não fazia nada.
@@ -356,8 +357,9 @@ describe("indiceDoPortao", () => {
     // resolvendo por nenhum caminho. Nesses casos o primeiro portão ainda
     // vence: quem estava parado no SEGUNDO e toca em "Já sigo!" sem cursor
     // desta automação retoma no PRIMEIRO, e o que houver entre os dois é
-    // reentregue. Inalcançável pelo formulário, que emite um portão só;
-    // alcançável por lista montada à mão, que é para onde a Fase 1b vai.
+    // reentregue. Inalcançável pelo formulário, que emitia um portão só;
+    // no quadro o segundo portão é ERRO em `conferirLista` e não chega a ser
+    // gravado, então o que sobra é lista escrita fora do editor.
     const passos = [
       { tipo: "pedir_follow", texto: "a", botao_label: "x" },
       { tipo: "pedir_follow", texto: "b", botao_label: "y" },
@@ -451,8 +453,10 @@ describe("retomadaDoFallback", () => {
   });
 });
 
-// A lista que o formulário grava, com lembrete: é nela que os dois ramos de
-// resposta rápida decidem, e é dela que saem os índices citados abaixo.
+// A lista que o formulário gravava — e que continua no banco de quem não abriu
+// a automação no quadro desde então. O nome fica porque é a FORMA que importa:
+// é nela que os dois ramos de resposta rápida decidem, e é dela que saem os
+// índices citados abaixo.
 const listaDoFormulario = [
   { tipo: "dm", texto: "oi", botao_label: "Quero o link! 🔗" }, // 0 parada dura
   { tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo! ✅" }, // 1 portão
@@ -528,12 +532,12 @@ describe("retomadaDoBotao", () => {
     // apagar aquele bloco de verdade — antes, com índice, ele era alcançado a
     // cada edição que mexesse no começo da lista.
     //
-    // HOJE ele ainda é alcançado a cada SALVAMENTO. `montarPassos`
-    // (app/automacoes/actions.ts) gera id novo para todo bloco a cada save e
-    // grava o `steps` inteiro sem casar com os ids antigos, então todo save
-    // pelo formulário — o único editor até a Tarefa 8 — órfã o cursor de todo
-    // mundo que estiver em fluxo. Fecha quando o quadro substituir o formulário
-    // e preservar os ids ao salvar.
+    // E É O QUE VALE AGORA. Enquanto o formulário foi o editor, ele sorteava id
+    // novo para todo bloco a cada save e gravava o `steps` inteiro sem casar com
+    // os ids antigos, então todo salvamento órfanava o cursor de quem estivesse
+    // em fluxo. O formulário saiu; `salvarPassos` (app/automacoes/actions.ts)
+    // grava a lista como ela veio do quadro, com os ids preservados. Este ramo
+    // só é alcançado quando o dono apaga o bloco de verdade.
     expect(retomadaDoBotao({ passoId: "b_sumiu9", automationId: "A" }, "A", lista)).toEqual({
       portao: null,
       destino: 0,
@@ -1034,8 +1038,9 @@ describe("indiceDoId", () => {
     //
     // O que segura isso é o dado, não o código: a migração
     // (scripts/dar-ids-aos-passos.mjs) dá id a todo bloco já gravado, e
-    // `montarPassos` grava id em tudo que cria. O teste existe para a premissa
-    // não deixar de valer em silêncio.
+    // `blocoNovo` (app/automacoes/editor/modelos.ts) dá id a todo bloco que a
+    // paleta cria. O teste existe para a premissa não deixar de valer em
+    // silêncio.
     // São precisos DOIS blocos sem id para o erro ser SILENCIOSO. Com um só, a
     // identidade some da lista e a função devolve null — errado, mas barulhento.
     const antes = [
@@ -1192,9 +1197,9 @@ describe("lerPayload", () => {
 
     // Já o botão cujo bloco não está mais na lista não afirma nada, e cai no
     // zero — a boas-vindas de novo. Com o cursor mandando, chegar aqui exige que
-    // os DOIS blocos tenham sumido, o do cursor e o do botão: é o que um save
-    // faz de uma vez enquanto `montarPassos` (app/automacoes/actions.ts) gerar id
-    // novo a cada salvamento. Fecha na Tarefa 8.
+    // os DOIS blocos tenham sumido, o do cursor e o do botão — o que um save do
+    // formulário fazia de uma vez, sorteando ids novos. Com o quadro
+    // preservando os ids, é preciso apagar os dois blocos de verdade.
     const doApagado = lerPayload("AUTO:A:b_sumiu9")!;
     expect(
       retomadaDoBotao({ passoId: doApagado.passoId, automationId: "A" }, "A", lista)
@@ -1607,8 +1612,8 @@ describe("conferirLista", () => {
   });
 
   it("um de cada um deles continua valendo", () => {
-    // A regra é sobre o SEGUNDO, não sobre o tipo: um bloco de cada é o que
-    // `montarPassos` sempre emitiu, e nada nele é engolido.
+    // A regra é sobre o SEGUNDO, não sobre o tipo: um bloco de cada é o que o
+    // formulário sempre emitiu, e nada nele é engolido.
     const email = { id: "b_eml017", tipo: "pedir_email", texto: "Seu e-mail?" };
     expect(erros([bem, portao, email, link])).toHaveLength(0);
   });
@@ -1688,13 +1693,13 @@ describe("conferirLista", () => {
     expect(erros([bem, semRotulo])).toHaveLength(0);
   });
 
-  it("3 de 4 · sem erro: rótulo com `url: undefined` — é `montarPassos` em memória", () => {
+  it("3 de 4 · sem erro: rótulo com `url: undefined` — lista ainda EM MEMÓRIA", () => {
     // A chave EXISTE (`"url" in passo` é `true`) e o valor é `undefined`, que é
-    // exatamente a saída em memória de `montarPassos` (app/automacoes/
-    // actions.ts): ele grava `url: fu.url || undefined`, e o `undefined` só some
-    // no `JSON.stringify` que serializa para o jsonb. Conferir a PRESENÇA da
-    // chave recusaria aqui toda automação sem link que passasse por
-    // `conferirLista(montarPassos(...))` antes de ser serializada.
+    // o que sobra de um campo montado como `url: algo || undefined` antes de a
+    // lista virar jsonb — era assim que o formulário a montava, e o `undefined`
+    // só some no `JSON.stringify` da serialização. Conferir a PRESENÇA da chave
+    // recusaria aqui toda automação sem link conferida antes de ser
+    // serializada.
     const emMemoria = {
       id: "b_bot023",
       tipo: "dm",
@@ -1708,10 +1713,11 @@ describe("conferirLista", () => {
 
   it("4 de 4 · sem erro: rótulo SEM a chave `url` — resposta rápida legítima", () => {
     // É o que a convenção promete: `dm_botao` nunca grava `url`. Esta é também
-    // a forma que o formulário ANTIGO gravou para um link sem endereço, e a
-    // regra é cega para ela de propósito — as duas são o mesmo dado, e não há
-    // como separá-las sem adivinhar. Ver o comentário da regra em lib/steps.ts
-    // e a nota da Tarefa 5 no plano.
+    // a forma que o formulário gravou para um link sem endereço, e a regra é
+    // cega para ela de propósito — as duas são o mesmo dado, e não há como
+    // separá-las sem adivinhar. O que o quadro faz com esse bloco legado (tratar
+    // como resposta rápida, sem mexer na chave) está no comentário de
+    // `quadro.tsx`; a regra em si, em lib/steps.ts.
     const respostaRapida = {
       id: "b_bot021",
       tipo: "dm",

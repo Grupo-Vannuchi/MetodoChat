@@ -53,8 +53,10 @@ export type Posicao = { x: number; y: number };
 // resposta rápida, e resposta rápida existe para ser tocada. Com url é botão de
 // link — a pessoa abre e a vida segue, sem nada para esperar.
 //
-// A distinção não foi inventada aqui: é exatamente como o formulário já grava,
-// boas-vindas com rótulo e sem url, link com rótulo e com url.
+// A distinção não foi inventada aqui: é exatamente como o formulário gravava —
+// boas-vindas com rótulo e sem url, link com rótulo e com url —, e é a mesma
+// que a paleta do quadro nomeia em "Mensagem com botão" e "Mensagem com link"
+// (app/automacoes/editor/modelos.ts).
 //
 // EXPORTADA desde a prévia da conversa (app/automacoes/editor/roteiro.ts), e a
 // alternativa era pior: a prévia precisa dizer QUAIS BLOCOS PARAM O FLUXO —
@@ -178,11 +180,11 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
   // mora em `conferirLista`, que TRAVA O SALVAR e nunca muda o que o motor faz
   // com uma lista já gravada.
   //
-  // E o alcance de uma lista já gravada é conhecido: `montarPassos`
-  // (app/automacoes/actions.ts) escreve `f.followButtonLabel || "Já sigo! ✅"`
-  // sobre um valor que `saveAutomation` já defaultou, então NENHUMA lista do
-  // formulário tem portão sem rótulo. Quem produz o caso é o painel da Tarefa 7,
-  // que deixa apagar o campo — e é justamente ele que `conferirLista` barra.
+  // E o alcance de uma lista já gravada é conhecido: o formulário, enquanto
+  // existiu, escrevia o rótulo do portão sobre um valor já defaultado, então
+  // NENHUMA lista gravada por ele tem portão sem rótulo. Quem produz o caso é o
+  // painel do bloco (app/automacoes/editor/painel.tsx), que deixa apagar o
+  // campo — e é justamente ele que `conferirLista` barra, travando o salvar.
   if (tipo === "pedir_follow") {
     if (typeof o.texto !== "string" || !o.texto.trim()) {
       return {
@@ -295,10 +297,11 @@ export function identidadeDoPasso(passo: unknown, indice: number): string {
 //
 // O que segura o caso na prática é o DADO, não esta função: o script
 // `scripts/dar-ids-aos-passos.mjs` dá id a todo bloco de toda automação já
-// gravada, e `montarPassos` (app/automacoes/actions.ts) grava id em tudo que
-// cria, `esperar` inclusive. Depois disso, lista com bloco sem id não é
-// produzida por caminho nenhum do sistema. O teste em tests/steps.test.ts fixa a
-// limitação para ela não voltar em silêncio se essa premissa mudar.
+// gravada, e `blocoNovo` (app/automacoes/editor/modelos.ts) chama
+// `novoIdDeBloco` em todo bloco que a paleta cria, `esperar` inclusive. Depois
+// disso, lista com bloco sem id não é produzida por caminho nenhum do sistema.
+// O teste em tests/steps.test.ts fixa a limitação para ela não voltar em
+// silêncio se essa premissa mudar.
 export function indiceDoId(passos: unknown, id: string): number | null {
   if (!Array.isArray(passos)) return null;
   for (let i = 0; i < passos.length; i++) {
@@ -349,8 +352,10 @@ export function interpretar(passos: unknown, deIndice: number): Resultado {
   // sem uma linha em Atividade dizendo por quê.
   //
   // E não é caso hipotético: `[]` é o `default '[]'::jsonb` da coluna, ou
-  // seja, é exatamente o que toda automação criada ANTES desta branch tem até
-  // alguém salvá-la de novo pelo formulário.
+  // seja, é o que toda automação criada ANTES desta branch teve até alguém
+  // salvá-la de novo — e é também o que `criarAutomacao`
+  // (app/automacoes/actions.ts) grava numa automação recém-criada, antes de o
+  // primeiro bloco ser arrastado.
   //
   // O motivo é próprio, e não o mesmo de "não é lista", porque as duas causas
   // são diferentes: aqui a coluna está íntegra e o conteúdo é que falta.
@@ -410,11 +415,12 @@ function contarParadasDuras(passos: unknown[]): number {
 // `FOLLOW:<id>` só existe porque o portão daquela automação foi entregue, então
 // o toque AFIRMA onde a pessoa está.
 //
-// Sem isto, o motor caía no zero, e o zero é inútil para toda lista que o
-// formulário grava: a boas-vindas vem sempre antes do portão e sempre com
+// Sem isto, o motor caía no zero, e o zero era inútil para toda lista que o
+// formulário gravou: a boas-vindas vinha sempre antes do portão e sempre com
 // rótulo e sem url (`esperaResposta` → parada dura), então `interpretar` a
-// partir do zero para NELA e o portão nunca é alcançado. O toque no botão não
-// fazia nada.
+// partir do zero parava NELA e o portão nunca era alcançado. O toque no botão
+// não fazia nada. Essas listas continuam no banco, e o quadro produz outras
+// iguais sempre que a boas-vindas vier na frente.
 //
 // Passo inválido não conta, pela mesma regra de `contarParadasDuras` e
 // `passoEsperado`: `interpretar` o ignora, logo ele nunca foi enviado e não é
@@ -433,9 +439,10 @@ function contarParadasDuras(passos: unknown[]): number {
 // resolve, e todos eles são reais e permanentes: botão entregue ANTES da Fase 1b
 // (que vive na conversa para sempre), e botão cujo bloco não está mais na lista.
 // Nesses, com dois portões, o primeiro ainda vence e a reentrega descrita acima
-// ainda vale. Nenhuma lista do formulário chega a isso — `montarPassos`
-// (app/automacoes/actions.ts) emite um portão só —, mas lista montada à mão
-// chega, e é para lá que a Fase 1b vai.
+// ainda vale. Nenhuma lista gravada pelo formulário chegou a isso — ele emitia
+// um portão só —, e o quadro deixa arrastar quantos o dono quiser: quem o
+// impede de gravar é `conferirLista`, lá embaixo, com ERRO no segundo portão.
+// Continua alcançável por lista escrita fora do editor.
 export function indiceDoPortao(passos: unknown): number | null {
   if (!Array.isArray(passos)) return null;
   for (let i = 0; i < passos.length; i++) {
@@ -708,8 +715,8 @@ function atravessandoOPortao(passos: unknown, destino: number): Retomada {
 //     ISSO NÃO BASTAVA para garantir que o `+1` (abaixo) nunca pulasse um
 //     portão: ele soma sobre a POSIÇÃO do bloco na lista, não sobre o tipo
 //     dele. A conta só fechava ENQUANTO TODA `dm` de resposta rápida da lista
-//     viesse ANTES de qualquer portão — é o que o formulário garante (uma só, e
-//     é a boas-vindas, que vem primeiro) e o que o quadro de blocos livres NÃO
+//     viesse ANTES de qualquer portão — é o que o formulário garantia (uma só, e
+//     é a boas-vindas, que vinha primeiro) e o que o quadro de blocos livres NÃO
 //     garante. Havendo uma `dm` de resposta rápida DEPOIS de um portão, o `+1`
 //     caía depois dele e o portão não era reavaliado.
 //
@@ -783,9 +790,12 @@ function atravessandoOPortao(passos: unknown, destino: number): Retomada {
 // interação seguinte, o bloco congelado no botão não se recupera nunca. A
 // inversão fechou isso.
 //
-// O caso dos dois sumidos continua real enquanto `montarPassos`
-// (app/automacoes/actions.ts) gerar id novo a cada salvamento: um save órfã o
-// cursor e todos os botões entregues de uma vez. A janela fecha na Tarefa 8.
+// O caso dos dois sumidos FOI COMUM e hoje é raro, e a diferença é o editor.
+// Enquanto o formulário existiu, ele sorteava id novo para todo bloco a cada
+// salvamento: um save órfanava o cursor e todos os botões entregues de uma vez,
+// e este ramo era alcançado o tempo todo. O quadro grava a lista COMO ELA VEIO,
+// preservando os ids, então chegar aqui exige que os dois blocos tenham sido
+// APAGADOS de verdade — o do cursor e o do botão.
 //
 // BLOCO QUE CONTINUA na lista mas não espera mais nada — foi editado e virou
 // botão de link, ou ficou inválido — cai no `+1`, como antes, e a escolha segue
@@ -795,34 +805,38 @@ function atravessandoOPortao(passos: unknown, destino: number): Retomada {
 // fim da lista, `interpretar` não enfileira nada e `executarFluxo` limpa o
 // cursor: o toque não faz nada, e a pessoa destrava mandando qualquer mensagem.
 //
-// A diferença que esta fase pretende, e ela AINDA NÃO VALE: com id, o bloco
-// deveria sumir só quando o dono o apaga, e reordenar não contaria.
+// A diferença que esta fase pretendia JÁ VALE, e vale a pena dizer o que a
+// fechou: com id, o bloco some só quando o dono o apaga, e reordenar não conta.
 //
-// HOJE o bloco some a cada SALVAMENTO, e é preciso dizer isso sem rodeio.
-// `montarPassos` (app/automacoes/actions.ts) chama `novoIdDeBloco()` em todo
-// bloco a cada save, e o `update` grava o `steps` inteiro sem casar com os ids
-// antigos. Enquanto o formulário existir — e ele é o único editor até a Tarefa
-// 8 —, todo salvamento reescreve os ids e ÓRFÃ o cursor de todo mundo que
-// estiver em fluxo, reordenação ou não.
+// A JANELA ESTEVE ABERTA e está registrada aqui porque o comportamento do banco
+// de produção depende de quando cada automação foi salva pela última vez.
+// Enquanto o formulário foi o editor, ele sorteava id novo para todo bloco a
+// cada save e gravava o `steps` inteiro sem casar com os ids antigos: todo
+// salvamento reescrevia as identidades e ÓRFANAVA o cursor de todo mundo que
+// estivesse em fluxo, reordenação ou não.
 //
-// E o estrago não para no cursor órfão: a identidade entra na `passoKey`, então
-// a boas-vindas já enviada está gravada com `passo:A:C:b_ANTIGO:dia`, o
-// recomeço do zero enfileira com `passo:A:C:b_NOVO:dia`, o `on conflict` não
-// pega, e a pessoa recebe a boas-vindas DUAS VEZES. Com cursor por índice o
+// E o estrago não parava no cursor órfão: a identidade entra na `passoKey`,
+// então a boas-vindas já enviada ficava gravada com `passo:A:C:b_ANTIGO:dia`, o
+// recomeço do zero enfileirava com `passo:A:C:b_NOVO:dia`, o `on conflict` não
+// pegava, e a pessoa recebia a boas-vindas DUAS VEZES. Com cursor por índice o
 // mesmo save não causava nada disso.
 //
-// A janela está declarada no plano e fecha na Tarefa 8, quando o quadro
-// substituir o formulário e passar a preservar os ids ao salvar. Só a partir
-// daí "o bloco só some quando o dono o apaga" descreve o sistema.
+// O QUE FECHOU A JANELA foi o formulário sair. Quem grava a lista agora é
+// `salvarPassos` (app/automacoes/actions.ts), que escreve o `steps` COMO ELE VEIO
+// do quadro, e o quadro espalha cada bloco preservando o `id` — `arranjoAutomatico`
+// só acrescenta `pos`, `moverBloco` e `moverPara` só mexem em posição e ordem, e
+// o painel troca campos do bloco sem tocar na identidade. Só a partir daí "o
+// bloco só some quando o dono o apaga" descreve o sistema. `lib/db.ts` afirma o
+// mesmo no comentário da coluna `flow_step_id`.
 //
 // Com a medida certa, porém: isso vale para bloco COM id. Para bloco SEM id a
 // identidade É a posição (`identidadeDoPasso`), então ela não acompanha o
 // bloco, e editar a lista faz o cursor resolver para OUTRO bloco em silêncio,
 // sem passar por este null — o comentário de `indiceDoId`, acima, descreve o
 // caso por inteiro. O que segura isso é o DADO, não esta função: depois da
-// migração (`scripts/dar-ids-aos-passos.mjs`) e de `montarPassos`
-// (app/automacoes/actions.ts), lista com bloco sem id não é produzida por
-// caminho nenhum do sistema.
+// migração (`scripts/dar-ids-aos-passos.mjs`) e com `blocoNovo`
+// (app/automacoes/editor/modelos.ts) dando id a todo bloco que a paleta cria,
+// lista com bloco sem id não é produzida por caminho nenhum do sistema.
 export function retomadaDoBotao(
   cursor: Cursor,
   automationId: string,
@@ -882,29 +896,30 @@ export function retomadaDoBotao(
 // Sem cursor desta, o ponto de partida NÃO é o zero, e é aqui que este ramo
 // difere do `AUTO:`: o payload `FOLLOW:<id>` só existe porque o portão desta
 // automação foi entregue, então o toque AFIRMA onde a pessoa está. O zero era
-// no-op para toda lista que o formulário grava, e por construção: a boas-vindas
-// é obrigatória, vem antes do portão e sempre com rótulo e sem url — parada
+// no-op para toda lista que o formulário gravou, e por construção: a boas-vindas
+// era obrigatória, vinha antes do portão e sempre com rótulo e sem url — parada
 // dura. `interpretar` do zero parava NELA, nunca chegava ao portão, e ainda
 // gravava o cursor na boas-vindas, de modo que o toque seguinte encontrava esse
 // cursor (agora desta automação) e parava no mesmo lugar: o "Já sigo!" nunca
-// mais funcionava.
+// mais funcionava. Essas listas continuam no banco, e o quadro produz outras
+// com a mesma forma sempre que a boas-vindas vier antes do portão.
 //
 // O PREÇO de retomar do portão, por inteiro, porque ele NÃO é o mesmo do zero
 // no ramo `AUTO:`: se o fluxo já tinha terminado (cursor limpo), o `AUTO:` do
 // zero esbarra na parada dura da boas-vindas e o estrago é UMA mensagem
-// repetida. Do portão não há parada dura depois dele numa lista do formulário —
-// o que vem é o link e os lembretes, nenhum deles resposta rápida —, então
-// `interpretar` enfileira a CAUDA INTEIRA e devolve `pararEm: null`. A
-// `passoKey` só segura dentro do dia; virado o balde, um toque num "Já sigo!"
-// antigo reentrega tudo de novo. A decisão continua valendo, porque a
-// alternativa é não responder nada a quem acabou de tocar no botão, mas ela se
-// paga em mensagens repetidas, não em uma.
+// repetida. Do portão não há parada dura depois dele numa lista com a forma que
+// o formulário gravava — o que vem é o link e os lembretes, nenhum deles
+// resposta rápida —, então `interpretar` enfileira a CAUDA INTEIRA e devolve
+// `pararEm: null`. A `passoKey` só segura dentro do dia; virado o balde, um
+// toque num "Já sigo!" antigo reentrega tudo de novo. A decisão continua
+// valendo, porque a alternativa é não responder nada a quem acabou de tocar no
+// botão, mas ela se paga em mensagens repetidas, não em uma.
 //
-// O `?? 0` final é alcançável PELO FORMULÁRIO, e não só por lista montada à
-// mão: basta o dono desmarcar "exigir follow" e salvar. `montarPassos`
-// (app/automacoes/actions.ts) para de emitir o `pedir_follow`, e os botões
-// `FOLLOW:<id>` já entregues continuam tocáveis nas conversas antigas. É "lista
-// que não tem portão AGORA", e aí o zero é mesmo o único ponto afirmável.
+// O `?? 0` final é alcançável PELA TELA, e não só por lista montada fora dela:
+// basta o dono apagar o bloco de portão no quadro e salvar. Os botões
+// `FOLLOW:<id>` já entregues continuam tocáveis nas conversas antigas, e a
+// lista deixou de ter portão. É "lista que não tem portão AGORA", e aí o zero é
+// mesmo o único ponto afirmável.
 export function retomadaDoFollow(
   cursor: Cursor,
   automationId: string,
@@ -975,8 +990,8 @@ export function retomadaDoTexto(passos: unknown, indice: number): Retomada {
 //
 // O CRITÉRIO CONSERVADOR, e por que ele existe: a dedução acima só vale
 // enquanto houver no máximo UMA parada dura na lista (ver `contarParadasDuras`).
-// É o que toda lista gravada pelo formulário tem hoje — a boas-vindas é a única
-// `dm` com rótulo e sem url —, mas a Fase 1b deixa montar a lista livremente, e
+// É o que toda lista gravada pelo formulário tem — a boas-vindas era a única
+// `dm` com rótulo e sem url —, mas o quadro deixa montar a lista livremente, e
 // com duas `dm` de resposta rápida seguidas a dedução vira mentira: a pessoa
 // pode ter tocado no primeiro botão, recebido a segunda `dm` e travado ALI. Como
 // nenhuma dessas duas é `dm_link`, `shouldFallbackFollowup` continua dizendo sim
@@ -1230,11 +1245,12 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     // A IDENTIDADE DO BLOCO, e por que ela é conferida aqui.
     //
     // Esta validação existe porque o `id` PASSA A VIR DE FORA. Até a Tarefa 6 só
-    // `montarPassos` e o script de migração o produziam, os dois com
+    // o formulário e o script de migração o produziam, os dois no servidor com
     // `novoIdDeBloco()`, e a forma era certa por construção. A partir dela o id
-    // é montado no NAVEGADOR e chega pelo Server Action — e nada vindo do
-    // navegador é confiável. `conferirLista` é a única validação do lado do
-    // servidor, então o que ela não pegar não é pego por ninguém.
+    // é montado no NAVEGADOR (`blocoNovo`, app/automacoes/editor/modelos.ts) e
+    // chega pelo Server Action — e nada vindo do navegador é confiável.
+    // `conferirLista` é a única validação do lado do servidor, então o que ela
+    // não pegar não é pego por ninguém.
     //
     // O que quebra nos dois casos é a `dedupe_key`, e ela quebra CALADA: o `on
     // conflict do nothing` do enqueue engole o item repetido sem erro nenhum, e
@@ -1352,15 +1368,15 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     //     numa lista sem nada de errado, e o salvar ficava bloqueado.
     //
     //   `url` DIFERENTE de `undefined` — e esta parte é a que não se enxerga
-    //     olhando só o banco. A saída EM MEMÓRIA de `montarPassos`
-    //     (app/automacoes/actions.ts) grava `url: fu.url || undefined`: a chave
-    //     ESTÁ presente, com valor `undefined`, e o `undefined` só some no
-    //     `JSON.stringify` que serializa para o jsonb. Conferir a chave por
-    //     `"url" in passo` dava `true` nela, e qualquer
-    //     `conferirLista(montarPassos(...))` chamado ANTES de serializar
-    //     recusaria toda automação sem link. Testar contra `undefined` cobre de
-    //     uma vez esse caso e o do bloco sem a chave — em `{tipo:"dm", texto,
-    //     botao_label}` a leitura de `passo.url` também dá `undefined`.
+    //     olhando só o banco. Uma lista pode ser conferida EM MEMÓRIA, antes de
+    //     virar jsonb, e nela um campo montado como `url: algo || undefined`
+    //     mantém a CHAVE presente com valor `undefined` — o `undefined` só some
+    //     no `JSON.stringify` da serialização. Era assim que o formulário
+    //     montava a lista, e conferir a chave por `"url" in passo` dava `true`
+    //     nela: qualquer conferência anterior à serialização recusaria toda
+    //     automação sem link. Testar contra `undefined` cobre de uma vez esse
+    //     caso e o do bloco sem a chave — em `{tipo:"dm", texto, botao_label}` a
+    //     leitura de `passo.url` também dá `undefined`.
     //
     //   `url` FALSY — o bloco com endereço não tem o que ser acusado.
     //
@@ -1371,11 +1387,11 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     // defeito volta a passar batido.
     //
     // E A REGRA É CEGA PARA A FORMA QUE JÁ ESTÁ GRAVADA, o que precisa estar
-    // dito porque é justamente o defeito que ela existe para pegar. O
-    // `montarPassos` da `main` grava `url: fu.url || undefined`, e o `undefined`
-    // some na serialização: o que ficou no banco de quem salvou um link sem
-    // endereço é `{tipo:"dm", texto, botao_label:"Abrir link"}` — rótulo, SEM a
-    // chave. É parada dura de verdade, e `conferirLista` devolve `[]` para ela.
+    // dito porque é justamente o defeito que ela existe para pegar. O formulário
+    // gravava `url: fu.url || undefined`, e o `undefined` sumia na serialização:
+    // o que ficou no banco de quem salvou um link sem endereço é
+    // `{tipo:"dm", texto, botao_label:"Abrir link"}` — rótulo, SEM a chave. É
+    // parada dura de verdade, e `conferirLista` devolve `[]` para ela.
     //
     // Não há heurística a inventar aqui, e a ausência dela é decisão: esse bloco
     // é GENUINAMENTE ambíguo. A mesma forma exata — rótulo, sem chave `url` — é
@@ -1383,9 +1399,10 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     // separa os dois. Adivinhar erraria em cima de listas boas.
     //
     // Esta regra vale, portanto, para lista NOVA, montada sob a convenção. O que
-    // fazer com o que o formulário antigo gravou é decisão de quem ABRE a
-    // automação no editor (Tarefa 5), onde há a quem perguntar; está registrada
-    // no plano, junto do requisito da convenção.
+    // fazer com o que o formulário gravou já foi decidido por quem ABRE a
+    // automação no quadro (`quadro.tsx`): tratar como resposta rápida, que é o
+    // que o motor já faz, e não mexer na chave. O preço e a saída em aberto —
+    // perguntar ao dono no painel do bloco — estão escritos lá.
     if (
       passo.tipo === "dm" &&
       Boolean(passo.botao_label) &&

@@ -18,19 +18,21 @@
 // falta. Idempotente — rodar duas vezes não muda nada na segunda, nem nos
 // passos nem nas chaves.
 //
-// "A QUALQUER HORA" vale para a janela que a MIGRAÇÃO abre, e só para ela. Há
-// uma outra janela da mesma classe que este script NÃO alcança, por construção:
-// `montarPassos` (app/automacoes/actions.ts) chama `novoIdDeBloco()` em todos os
-// sete `passos.push`, tanto ao criar quanto ao editar pelo formulário — nada ali
-// lê os `steps` já gravados. Ou seja, salvar uma automação pelo formulário
-// antigo sorteia ids NOVOS para todos os blocos dela, e as chaves
-// `passo:…:<id antigo>:<hoje>` já enviadas naquele dia deixam de casar — o
-// mesmo sintoma que a migração produziu, com a mesma reação em cadeia. Este
-// script não conserta esse estado porque ele só reconhece identidade NUMÉRICA
-// (índice) como origem da reescrita; `b_antigo → b_novo` está fora do alcance
-// dele. Este script fecha a janela da migração; a janela do formulário só
-// fecha quando o formulário sair (Tarefa 8 do plano) — até lá, salvar uma
-// automação no mesmo dia em que ela entregou mensagens pode reentregá-las.
+// "A QUALQUER HORA" vale para a janela que a MIGRAÇÃO abre, e só para ela. Houve
+// uma outra janela da mesma classe que este script NUNCA alcançou, por
+// construção: enquanto o formulário foi o editor, ele sorteava `novoIdDeBloco()`
+// em todos os sete `passos.push`, tanto ao criar quanto ao editar, sem ler os
+// `steps` já gravados. Ou seja, salvar uma automação por ele sorteava ids NOVOS
+// para todos os blocos dela, e as chaves `passo:…:<id antigo>:<hoje>` já
+// enviadas naquele dia deixavam de casar — o mesmo sintoma que a migração
+// produziu, com a mesma reação em cadeia. Este script não conserta esse estado
+// porque ele só reconhece identidade NUMÉRICA (índice) como origem da reescrita;
+// `b_antigo → b_novo` está fora do alcance dele.
+//
+// ESSA SEGUNDA JANELA ESTÁ FECHADA: o formulário saiu, e quem grava agora é
+// `salvarPassos` (app/automacoes/actions.ts), que escreve a lista como ela veio
+// do quadro, com os ids preservados. Salvar uma automação no mesmo dia em que
+// ela entregou mensagens deixou de reentregá-las.
 import postgres from "postgres";
 import { readFileSync } from "node:fs";
 

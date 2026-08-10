@@ -13,7 +13,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { conferirLista, identidadeDoPasso, type Passo } from "@/lib/steps";
 import No, { type DadosDoNo } from "./no";
-import Gatilho, { type DadosDoGatilho } from "./gatilho";
+import Gatilho, { nomeDoGatilho, resumoDasPalavras, type DadosDoGatilho } from "./gatilho";
 import Painel, { type Configuracao } from "./painel";
 import { arranjoAutomatico, blocoNovo, resumoDoBloco } from "./modelos";
 import Paleta from "./paleta";
@@ -112,10 +112,10 @@ export default function Quadro({
   // que a Fase 1b devia à convenção da chave (ver `modelos.ts`).
   //
   // O que está gravado no banco de quem salvou um "link sem endereço" pelo
-  // formulário antigo é `{tipo:"dm", texto, botao_label:"Abrir link"}` — o
-  // `montarPassos` da `main` grava `url: fu.url || undefined` e o `undefined`
-  // some na serialização para jsonb. Isso é parada dura de verdade no motor
-  // (`esperaResposta` diz sim), e `conferirLista` é CEGA para ela.
+  // formulário antigo é `{tipo:"dm", texto, botao_label:"Abrir link"}` — ele
+  // gravava `url: fu.url || undefined` e o `undefined` sumia na serialização
+  // para jsonb. Isso é parada dura de verdade no motor (`esperaResposta` diz
+  // sim), e `conferirLista` é CEGA para ela.
   //
   // A forma é GENUINAMENTE AMBÍGUA: esse mesmo objeto, byte por byte, é
   // também a resposta rápida legítima que a paleta oferece em "Mensagem com
@@ -132,19 +132,19 @@ export default function Quadro({
   // A segunda — PERGUNTAR AO DONO ao abrir, uma vez, e gravar a resposta como
   // a chave presente ou ausente — resolve a ambiguidade na única fonte que
   // sabe a resposta, e continua sendo a melhor saída. Ela não cabe aqui: exige
-  // diálogo, Server Action e escrita no banco, e o quadro nem é quem abre a
-  // automação (isso é a Tarefa 8; aqui a lista chega pronta em
-  // `passosIniciais`). Fica registrada para o painel do bloco (Tarefa 7), que
-  // é onde ela sai mais barata e mais honesta: lá o dono JÁ está olhando para
-  // aquele bloco, e a pergunta pode ser um par de opções no próprio painel em
+  // diálogo, Server Action e escrita no banco, e o quadro nem é quem lê a
+  // automação do banco (quem lê é `app/automacoes/[id]/page.tsx`; aqui a lista
+  // chega pronta em `passosIniciais`). Fica registrada para o painel do bloco
+  // (`painel.tsx`), que é onde ela sai mais barata e mais honesta: lá o dono JÁ
+  // está olhando para aquele bloco, e a pergunta pode ser um par de opções em
   // vez de um interrogatório na abertura. Escolhida a opção "abre um link", o
   // painel grava `url: ""`, o bloco entra na convenção, e `conferirLista`
   // volta a enxergá-lo.
   //
-  // O que esta tarefa garante é que nada aqui MEXA na chave: `arranjoAutomatico`
-  // só acrescenta `pos`, e `moverBloco` só troca `pos`. Os dois espalham o
-  // bloco como ele veio, então nem semeiam `url` num bloco que não a tinha nem
-  // a apagam de um que a tinha.
+  // O que este arquivo garante é que nada aqui MEXA na chave:
+  // `arranjoAutomatico` só acrescenta `pos`, e `moverBloco` só troca `pos`. Os
+  // dois espalham o bloco como ele veio, então nem semeiam `url` num bloco que
+  // não a tinha nem a apagam de um que a tinha.
   const [passos, setPassos] = useState<Passo[]>(() => arranjoAutomatico(passosIniciais));
   const [configuracao, setConfiguracao] = useState<Configuracao>(configuracaoInicial);
 
@@ -608,24 +608,92 @@ export default function Quadro({
   //
   // E as duas NÃO viram uma transação só de propósito. A alternativa seria um
   // Server Action que escreve as duas coisas, e é dele que este arquivo inteiro
-  // se protege: era assim `saveAutomation`, que regravava `steps` a partir das
-  // colunas antigas e apagaria a lista montada aqui. Com escopos separados, o
-  // pior caso é uma das duas não acontecer — e não metade de cada uma.
+  // se protege: era assim a escrita única do formulário antigo, que regravava
+  // `steps` a partir das colunas e apagaria a lista montada aqui. Com escopos
+  // separados, o pior caso é uma das duas não acontecer — e não metade de cada
+  // uma.
+  //
+  // AS DUAS SÃO TENTADAS SEMPRE, e a configuração falhar NÃO cancela mais a
+  // gravação dos blocos. Duas razões, e as duas são de produto:
+  //
+  //   O ESCOPO É SEPARADO, então a recusa de uma não diz nada sobre a outra. Um
+  //     nome apagado por engano não é motivo para jogar fora o fluxo que a
+  //     pessoa acabou de montar.
+  //   É O ÚNICO CAMINHO DE VOLTA quando `salvarConfiguracao` recusa o gatilho
+  //     novo por causa de um bloco que ainda está gravado (o mecanismo está no
+  //     comentário de lá). Desistindo aqui, o bloco apagado no quadro nunca
+  //     chegava ao banco e o gatilho nunca passava a valer: o dono ficava preso.
+  //     Tentando as duas, o primeiro clique grava os blocos e o segundo grava o
+  //     gatilho — e o rodapé diz isso, em vez de deixar a pessoa adivinhar.
+  //
+  // A ordem continua sendo configuração-primeiro pelo motivo de sempre. Quando
+  // ela falha, `salvarPassos` confere a lista contra o gatilho ANTIGO — que é o
+  // que continua gravado, ou seja a conferência certa.
   const [salvando, iniciarSalvamento] = useTransition();
-  const [recado, setRecado] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  // O RECADO CARREGA O QUADRO QUE ELE DESCREVE, e é isso que o faz morrer na
+  // primeira mudança em vez de sobreviver até o clique seguinte em Salvar.
+  //
+  // "Salvo." sobrevivia a arrastar um bloco, apagar outro e trocar o gatilho: a
+  // tela continuava afirmando em verde que o banco tinha aquilo, sobre um quadro
+  // que já divergia dele. Numa tela cujo produto é montar e salvar várias vezes,
+  // é o indicador mais fácil de acreditar — e era o mais fácil de estar errado.
+  //
+  // Guardadas as duas REFERÊNCIAS que foram enviadas, a validade do recado é
+  // DERIVADA no render (`recadoDoQuadroAtual`, logo abaixo), sem efeito e sem
+  // render extra: `setPassos` e `setConfiguracao` sempre produzem objetos novos,
+  // então basta comparar por identidade. As duas entram porque são as duas
+  // escritas — `passos` vai para `steps`, `configuracao` vai para as colunas.
+  //
+  // Isso cobre de graça o que um efeito não cobriria: mexer no quadro DURANTE o
+  // salvamento. O recado que chegar depois já nasce descrevendo uma lista que
+  // não é mais a da tela, e por isso não aparece.
+  const [recado, setRecado] = useState<{
+    ok: boolean;
+    texto: string;
+    passos: Passo[];
+    configuracao: Configuracao;
+  } | null>(null);
+
+  const recadoDoQuadroAtual =
+    recado && recado.passos === passos && recado.configuracao === configuracao ? recado : null;
 
   const salvar = useCallback(() => {
     setRecado(null);
     iniciarSalvamento(async () => {
       const daConfiguracao = await salvarConfiguracao(automationId, configuracao);
-      if (!daConfiguracao.ok) {
-        setRecado({ ok: false, texto: daConfiguracao.erro });
+      const dosPassos = await salvarPassos(automationId, passos);
+
+      // O par enviado viaja junto com o recado, e é ele que decide se o recado
+      // ainda descreve o quadro na hora de desenhar.
+      const doQueFoiEnviado = { passos, configuracao };
+
+      if (daConfiguracao.ok && dosPassos.ok) {
+        setRecado({ ok: true, texto: "Salvo.", ...doQueFoiEnviado });
         return;
       }
-      const dosPassos = await salvarPassos(automationId, passos);
-      setRecado(
-        dosPassos.ok ? { ok: true, texto: "Salvo." } : { ok: false, texto: dosPassos.erro }
-      );
+
+      // O SALVAMENTO PARCIAL É NOMEADO, e é o ponto desta segunda frase. Sem
+      // ela o rodapé mostrava só o erro de quem falhou, e a pessoa reabria a
+      // página encontrando metade do que fez — sem nada ter dito que a outra
+      // metade tinha ido para o banco.
+      //
+      // O `Set` não é economia de bytes: as duas gravações compartilham as
+      // recusas de entrada — "Nenhuma conta conectada.", "Automação não
+      // encontrada." —, e quando as duas falham pelo mesmo motivo o rodapé
+      // repetia a mesma frase duas vezes seguidas.
+      const motivos = [
+        ...new Set(
+          [daConfiguracao.ok ? null : daConfiguracao.erro, dosPassos.ok ? null : dosPassos.erro]
+            .filter((m): m is string => Boolean(m))
+        ),
+      ];
+      const oQueFoi = daConfiguracao.ok
+        ? "O nome, o gatilho e as palavras-chave foram salvos; os blocos, não."
+        : dosPassos.ok
+          ? "Os blocos foram salvos; o resto da configuração, não — salve de novo."
+          : "Nada foi salvo.";
+      setRecado({ ok: false, texto: `${motivos.join(" ")} ${oQueFoi}`, ...doQueFoiEnviado });
     });
   }, [automationId, configuracao, passos]);
 
@@ -645,11 +713,17 @@ export default function Quadro({
         fluxo desta automação em modo leitura.
       </div>
       <ol className="space-y-2 sm:hidden">
+        {/* O MESMO CARTÃO DO NÓ DE GATILHO, pelas mesmas duas funções
+            (`./gatilho`). Aqui se imprimia o NOME da automação sob o rótulo
+            "GATILHO": o nome já está no cabeçalho da página, e o que dispara —
+            a única coisa que o rótulo promete — era o que faltava. */}
         <li className="rounded-lg border-2 border-sky-500/70 bg-white px-3 py-2 dark:border-sky-400/70 dark:bg-zinc-900">
           <div className="text-[10px] font-semibold tracking-wide text-sky-600 dark:text-sky-400">
-            GATILHO
+            GATILHO · {nomeDoGatilho(configuracao.gatilho)}
           </div>
-          <div className="mt-1 text-xs text-zinc-700 dark:text-zinc-200">{configuracao.nome}</div>
+          <div className="mt-1 text-xs text-zinc-700 dark:text-zinc-200">
+            {resumoDasPalavras(configuracao.palavras)}
+          </div>
         </li>
         {passos.map((p, i) => {
           // O MESMO `resumoDoBloco` do nó do quadro, e não um texto próprio:
@@ -860,15 +934,15 @@ export default function Quadro({
             {erros.length > 1 && ` (e mais ${erros.length - 1})`}
           </span>
         ) : (
-          recado && (
+          recadoDoQuadroAtual && (
             <span
               className={`text-xs font-medium ${
-                recado.ok
+                recadoDoQuadroAtual.ok
                   ? "text-emerald-600 dark:text-emerald-400"
                   : "text-red-600 dark:text-red-400"
               }`}
             >
-              {recado.texto}
+              {recadoDoQuadroAtual.texto}
             </span>
           )
         )}

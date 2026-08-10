@@ -371,10 +371,11 @@ export type ContextoGatilho = {
 // pelos tipos normais — a essa altura a pessoa já tocou no botão ou respondeu, e
 // a janela está aberta.
 //
-// Na prática a primeira é a de boas-vindas, porque o fluxo para nela esperando o
-// toque. Mas isso é consequência da lista que o formulário grava hoje, não uma
-// garantia: a marca no contexto vale para qualquer lista, inclusive uma que não
-// tenha passo de espera logo no começo.
+// Na prática a primeira costuma ser a de boas-vindas, porque o fluxo para nela
+// esperando o toque. Mas isso é consequência da FORMA de lista que o formulário
+// gravava e que o quadro reproduz na maioria das vezes, não uma garantia: a
+// marca no contexto vale para qualquer lista, inclusive uma que não tenha passo
+// de espera logo no começo.
 //
 // Devolve o id do comentário quando esta mensagem deve sair como resposta
 // privada, e null quando deve sair como DM comum.
@@ -734,9 +735,10 @@ async function lerCursor(accountId: string, contactIgId: string): Promise<Cursor
   // o evento seguir. Nenhum dos três atravessa o portão de follow — o estrago
   // possível é mensagem repetida, não link para quem não segue.
   //
-  // Converter os cursores velhos para id no deploy seria o conserto de verdade,
-  // e ele NÃO cabe aqui: exigiria ler a lista de cada automação para traduzir
-  // índice em id, e escrita no banco é a Tarefa 8. Está anotado lá.
+  // Converter os cursores velhos para id seria o conserto de verdade, e ele NÃO
+  // cabe aqui: exige ler a lista de cada automação para traduzir índice em id,
+  // ou seja escrita no banco. O script existe — `scripts/converter-cursores.mjs`
+  // —, e rodá-lo é passo de DEPLOY, não de código.
   return {
     passoId: r?.flow_step_id ?? (r?.flow_step_index != null ? String(r.flow_step_index) : null),
     automationId: r?.last_automation_id ?? null,
@@ -1041,8 +1043,9 @@ export async function handleCommentEvent(entryId: string | undefined, value: Com
   });
 
   // Não há enfileiramento de boas-vindas aqui, e a ausência é de propósito: a
-  // mensagem de boas-vindas virou um passo `dm` da lista (o formulário grava
-  // `welcome_text` como o primeiro passo), então quem a envia é `executarFluxo`.
+  // mensagem de boas-vindas virou um passo `dm` da lista (o formulário gravava
+  // `welcome_text` como o primeiro passo; hoje é um bloco como os outros),
+  // então quem a envia é `executarFluxo`.
   // O `enqueue` de `private_reply` lido da coluna `auto.welcome_text` continuava
   // aqui por resíduo da migração, e o resultado era a pessoa receber a mesma
   // mensagem DUAS vezes — uma por coluna, outra por passo. As chaves de

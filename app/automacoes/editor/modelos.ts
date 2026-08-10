@@ -114,29 +114,71 @@ export function blocoNovo(chave: string): Passo {
 // Título e diagnóstico falariam de blocos diferentes na mesma tela.
 //
 // O teste é contra `undefined`, e não `"url" in p`, pelo mesmo motivo que
-// `conferirLista` usa: a saída EM MEMÓRIA de `montarPassos`
-// (app/automacoes/actions.ts) grava `url: fu.url || undefined` — a chave está
-// presente com valor `undefined`, e `"url" in p` diria `true` para toda
-// mensagem sem link.
+// `conferirLista` usa: a lista pode ser conferida ANTES de ser serializada para
+// jsonb, e um campo gravado como `undefined` mantém a chave presente em memória
+// — `"url" in p` diria `true` para toda mensagem sem link.
+//
+// ---------------------------------------------------------------------------
+// O CORPO É LIDO COMO JSONB, e não como o campo tipado que a assinatura promete.
+//
+// `Passo` aqui é uma AFIRMAÇÃO de `passosDoBanco` (app/automacoes/[id]/page.tsx)
+// sobre um `unknown` vindo do banco — não uma garantia de runtime. Um
+// `{tipo:"resposta_publica"}` SEM `textos` tem tipo desenhável, passa por lá
+// inteiro, e `p.textos.join(" · ")` derrubava o nó e, com ele, a página: o
+// desfecho exato que aquela função existe para impedir.
+//
+// Coagir aqui é mais barato do que validar lá, e não custa dado nenhum: o bloco
+// aparece com o corpo vazio, `conferir` (lib/steps.ts) o recusa, `conferirLista`
+// acende a frase no painel e trava o salvar. O bloco quebrado vira uma coisa
+// NOMEADA na tela em vez de uma página em branco.
+//
+// `esperar` fica de fora da coerção de propósito: `${p.minutos} minutos` é total
+// para todo valor que o JSON produz — número, texto, nulo, lista ou objeto —, e
+// escrever uma guarda ali seria linha que nenhum teste alcança.
+// ---------------------------------------------------------------------------
+function texto(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+// O RAMO PADRÃO EXISTE PARA O BLOCO NÃO SER APAGADO EM SILÊNCIO, e ele é a outra
+// metade da mesma decisão que deixa o bloco INCOMPLETO chegar até aqui.
+//
+// Sem ele, o `switch` devolvia `undefined` para um `tipo` fora dos seis, a
+// desestruturação de `{ titulo, corpo }` derrubava a página, e a única saída era
+// `passosDoBanco` filtrar esse bloco — ou seja, o primeiro salvamento o apagava
+// do banco sem nada dizer. O argumento que já valia para o bloco incompleto vale
+// igual aqui: com um ramo padrão o bloco APARECE, `conferir` o recusa,
+// `conferirLista` acende "Este bloco é de um tipo que o sistema não reconhece" e
+// TRAVA O SALVAR. A perda passa a ser nomeada, e o dono decide se apaga.
 export function resumoDoBloco(p: Passo): { titulo: string; corpo: string } {
   switch (p.tipo) {
     case "dm":
-      if (p.url !== undefined) return { titulo: "MENSAGEM COM LINK", corpo: p.texto };
-      if (p.botao_label) return { titulo: "MENSAGEM COM BOTÃO", corpo: p.texto };
-      return { titulo: "MENSAGEM", corpo: p.texto };
+      if (p.url !== undefined) return { titulo: "MENSAGEM COM LINK", corpo: texto(p.texto) };
+      if (p.botao_label) return { titulo: "MENSAGEM COM BOTÃO", corpo: texto(p.texto) };
+      return { titulo: "MENSAGEM", corpo: texto(p.texto) };
     case "esperar":
       return { titulo: "ESPERAR", corpo: `${p.minutos} minutos` };
     // Só o follow leva "PORTÃO" no título, pelo mesmo motivo da paleta logo
     // acima: é o único que a regra do portão reavalia. O e-mail espera resposta
     // como qualquer parada, e o rótulo diz isso — não que ele barre.
     case "pedir_follow":
-      return { titulo: "PORTÃO · PEDIR FOLLOW", corpo: p.texto };
+      return { titulo: "PORTÃO · PEDIR FOLLOW", corpo: texto(p.texto) };
     case "pedir_email":
-      return { titulo: "PEDIR E-MAIL", corpo: p.texto };
+      return { titulo: "PEDIR E-MAIL", corpo: texto(p.texto) };
     case "resposta_publica":
-      return { titulo: "RESPOSTA PÚBLICA", corpo: p.textos.join(" · ") };
+      return {
+        titulo: "RESPOSTA PÚBLICA",
+        corpo: Array.isArray(p.textos) ? p.textos.map(texto).join(" · ") : "",
+      };
     case "reagir_story":
-      return { titulo: "CORAÇÃOZINHO", corpo: p.emoji };
+      return { titulo: "CORAÇÃOZINHO", corpo: texto(p.emoji) };
+    default: {
+      // `p` é `never` aqui — o `switch` cobre os seis tipos de `Passo` —, e é
+      // justamente por isso que o `tipo` é relido através de um molde: o que
+      // chega neste ramo é um objeto do banco que o TypeScript nunca viu.
+      const tipo = (p as { tipo?: unknown }).tipo;
+      return { titulo: "BLOCO DESCONHECIDO", corpo: `tipo “${String(tipo)}”` };
+    }
   }
 }
 

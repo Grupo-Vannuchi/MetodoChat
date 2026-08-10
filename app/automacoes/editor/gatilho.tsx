@@ -20,6 +20,23 @@ export type DadosDoGatilho = {
 
 const NOME = { dm: "DM", comment: "COMENTÁRIO", story: "STORY" } as const;
 
+// O QUE O CARTÃO DE GATILHO DIZ, e as duas funções são exportadas porque há
+// DOIS cartões de gatilho: este nó, no quadro, e o primeiro item da lista de
+// leitura no celular (`quadro.tsx`), que existe porque o quadro não funciona no
+// toque.
+//
+// Ela lá imprimia o NOME DA AUTOMAÇÃO sob o rótulo "GATILHO" — o nome já está no
+// cabeçalho da página, e o gatilho, que é a única coisa que aquele rótulo
+// promete, era justamente o que a lista não mostrava. Com as duas leituras
+// saindo daqui, os dois cartões não têm como divergir.
+export function nomeDoGatilho(tipo: string): string {
+  return NOME[tipo as keyof typeof NOME] ?? tipo.toUpperCase();
+}
+
+export function resumoDasPalavras(palavras: string[]): string {
+  return palavras.length ? `contém ${palavras.join(", ")}` : "qualquer mensagem";
+}
+
 export default function Gatilho({ data }: { data: DadosDoGatilho }) {
   return (
     <div
@@ -30,10 +47,10 @@ export default function Gatilho({ data }: { data: DadosDoGatilho }) {
       }`}
     >
       <div className="text-[10px] font-semibold tracking-wide text-sky-600 dark:text-sky-400">
-        GATILHO · {NOME[data.tipo as keyof typeof NOME] ?? data.tipo.toUpperCase()}
+        GATILHO · {nomeDoGatilho(data.tipo)}
       </div>
       <div className="mt-1 line-clamp-2 text-xs text-zinc-700 dark:text-zinc-200">
-        {data.palavras.length ? `contém ${data.palavras.join(", ")}` : "qualquer mensagem"}
+        {resumoDasPalavras(data.palavras)}
       </div>
       {/* Só a alça de SAÍDA. Ela não é conectável — quem porteia o gesto é
           `isConnectableStart`, e o padrão dela é `true` (o mecanismo inteiro

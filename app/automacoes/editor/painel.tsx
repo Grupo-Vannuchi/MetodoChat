@@ -285,9 +285,16 @@ export default function Painel({
               O preço de não filtrar é a variação em branco ficar na lista, e
               ele já é conhecido e tolerado: `conferirLista` (lib/steps.ts) só
               acende erro quando NENHUMA tem texto, e o comentário de lá
-              descreve a mistura de cheias e vazias como perda intermitente. */}
+              descreve a mistura de cheias e vazias como perda intermitente.
+
+              O `Array.isArray` é a mesma defesa de `resumoDoBloco`
+              (`modelos.ts`), e pelo mesmo motivo: `Passo` é uma afirmação sobre
+              jsonb, não uma garantia. `{tipo:"resposta_publica"}` sem `textos`
+              chega até aqui — `passosDoBanco` não descarta bloco por conteúdo,
+              de propósito —, e `.join` num campo ausente derrubaria o painel
+              inteiro do bloco que a pessoa abriu justamente para consertar. */}
           <textarea
-            value={passo.textos.join("\n")}
+            value={Array.isArray(passo.textos) ? passo.textos.join("\n") : ""}
             onChange={(e) => aoMudar({ ...passo, textos: e.target.value.split("\n") })}
             rows={4}
             className={input}

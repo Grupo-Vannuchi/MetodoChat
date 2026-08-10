@@ -9,38 +9,36 @@ import { pageTitle, pageSubtitle, muted } from "../../ui";
 
 export const dynamic = "force-dynamic";
 
-// Os seis tipos que o quadro sabe DESENHAR. É `resumoDoBloco`
-// (editor/modelos.ts) que fixa esta lista: ele é um `switch` sobre `p.tipo` sem
-// ramo padrão, e um tipo fora dela o faz devolver `undefined` — a
-// desestruturação de `{ titulo, corpo }` derruba o nó, e com ele a página.
-const TIPOS_DESENHAVEIS = [
-  "dm",
-  "esperar",
-  "pedir_follow",
-  "pedir_email",
-  "resposta_publica",
-  "reagir_story",
-];
-
 // A LISTA GRAVADA VIRA `Passo[]` AQUI, e a conversão é obrigatória, não
 // cerimônia de tipo: `Automation.steps` é `unknown[]` porque jsonb não dá
 // garantia nenhuma de forma, e o quadro precisa de `Passo[]`.
 //
-// O CRITÉRIO É "DÁ PARA DESENHAR", E NÃO "É VÁLIDO", e a diferença é a decisão
-// desta função. `conferir` (lib/steps.ts) é a validação de CONTEÚDO — ela
-// recusa a mensagem sem texto, a espera sem minutos, o coraçãozinho sem emoji.
+// NADA É DESCARTADO POR CONTEÚDO, e essa é a decisão desta função. `conferir`
+// (lib/steps.ts) é a validação de CONTEÚDO — ela recusa a mensagem sem texto, a
+// espera sem minutos, o coraçãozinho sem emoji, e o bloco de tipo desconhecido.
 // Filtrar por ela aqui APAGARIA esses blocos da tela, e salvar em seguida os
-// apagaria do banco: o dono perde o bloco por tê-lo deixado incompleto, sem
-// nada dizer que aconteceu.
+// apagaria do banco: o dono perde o bloco sem nada dizer que aconteceu.
 //
 // Deixando-os passar, quem fala sobre eles é `conferirLista` dentro do quadro:
 // a borda do nó fica vermelha, o painel mostra a frase, e o salvar fica travado
-// até o campo ser preenchido. É a mesma função nas duas pontas, e é ela que dá
-// ao dono a chance de CONSERTAR em vez de descobrir a perda depois.
+// até o bloco ser consertado ou apagado à mão. É a mesma função nas duas
+// pontas, e é ela que dá ao dono a chance de CONSERTAR em vez de descobrir a
+// perda depois.
 //
-// O que de fato não passa é o bloco que não tem como ser desenhado — sem forma
-// de objeto, ou com um `tipo` que a tela não conhece. Não há como mostrá-lo, e
-// `interpretar` já o ignora, então ele não envia nada hoje tampouco.
+// O TIPO DESCONHECIDO ENTRA NESSA MESMA REGRA, e ele já esteve fora. Esta
+// função filtrava por uma lista dos seis tipos desenháveis, porque
+// `resumoDoBloco` (editor/modelos.ts) era um `switch` sem ramo padrão e um tipo
+// fora dela derrubava o nó e a página. Isso trocava uma queda por um APAGAMENTO
+// SILENCIOSO no primeiro salvamento — a perda que o parágrafo acima recusa, com
+// outro nome. Hoje `resumoDoBloco` tem ramo padrão, o bloco aparece como
+// "BLOCO DESCONHECIDO", `conferirLista` acende o erro e o salvar trava.
+//
+// O QUE SOBRA DE FILTRO é o item que não tem forma de OBJETO — `null`, número,
+// texto solto. Ele não é o mesmo caso: sem objeto não há `id` nem `pos`, ou
+// seja não há nó a desenhar nem identidade para o React Flow, e `p.pos` no
+// quadro estouraria antes de qualquer conferência. `interpretar` (lib/steps.ts)
+// já o ignora, então ele não envia nada hoje tampouco. É a única perda calada
+// que continua aqui, e ela está dita.
 //
 // `pos` É CONFERIDA À PARTE porque ela vem do banco como jsonb qualquer: o
 // quadro faz `p.pos ?? { x: 0, y: 0 }` e entrega isso ao React Flow, e um `pos`
@@ -52,7 +50,6 @@ function passosDoBanco(steps: unknown): Passo[] {
   for (const item of steps) {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
-    if (typeof o.tipo !== "string" || !TIPOS_DESENHAVEIS.includes(o.tipo)) continue;
 
     const p = o.pos as { x?: unknown; y?: unknown } | null | undefined;
     const posBoa =
@@ -83,7 +80,8 @@ export default async function EditarAutomacaoPage({
 
   // O GATILHO É O PRIMEIRO DE `triggers`, e o padrão é `dm`. A coluna é um
   // array por herança — automação antiga chegou a ter vários —, mas o editor
-  // trabalha com um só, como o formulário já fazia.
+  // trabalha com um só, como o formulário também fazia. É a mesma leitura que
+  // `salvarPassos` e `salvarConfiguracao` (../actions.ts) fazem no servidor.
   const configuracaoInicial: Configuracao = {
     nome: a.name,
     ativo: a.active,

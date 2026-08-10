@@ -23,12 +23,12 @@ import { roteiro, type Bolha, type Cena } from "./roteiro";
 
 // A PRÉVIA DA CONVERSA, lendo a lista de blocos.
 //
-// POR QUE ELA NASCE EM VEZ DE `phone-preview.tsx` GANHAR UMA PROP: aquela
-// recebe TREZE props achatadas — `welcomeText`, `quickReplyLabel`,
+// POR QUE ELA NASCEU EM VEZ DE `phone-preview.tsx` GANHAR UMA PROP: aquela
+// recebia TREZE props achatadas — `welcomeText`, `quickReplyLabel`,
 // `linkText`/`linkButtonLabel`/`linkUrl`, `reminderText`/`reminderDelay`,
 // `requireFollow`/`followText`/`followButtonLabel`, `askEmail`/`emailText`,
-// `storyReaction` — e monta a conversa numa ORDEM FIXA escrita no JSX dela. São
-// as caixas do formulário antigo, uma a uma. O quadro produz uma lista ORDENADA
+// `storyReaction` — e montava a conversa numa ORDEM FIXA escrita no JSX dela.
+// Eram as caixas do formulário, uma a uma. O quadro produz uma lista ORDENADA
 // e REPETÍVEL (duas mensagens seguidas, um link antes do portão, uma espera no
 // meio), e não há prop que faça um slot por papel virar uma lista livre.
 //
@@ -47,10 +47,11 @@ import { roteiro, type Bolha, type Cena } from "./roteiro";
 // ---------------------------------------------------------------------------
 
 // SEM `Account`, e a ausência é escolha, não esquecimento: quem monta o quadro
-// (`quadro.tsx`) não recebe a conta conectada — a página que vai montá-lo é a
-// Tarefa 8. Inventar a prop agora seria plumbing morto atravessando três
+// (`quadro.tsx`) não recebe a conta conectada — a página que o monta
+// (`app/automacoes/[id]/page.tsx`) lê a automação e a configuração, e não passa
+// a conta adiante. Inventar a prop seria plumbing morto atravessando três
 // arquivos até alguém ter o que pôr nela. O avatar cai no mesmo espaço reservado
-// que a prévia antiga usa quando não há conta.
+// que a prévia antiga usava quando não havia conta.
 function MiniAvatar({ size = "h-5 w-5" }: { size?: string }) {
   return (
     <span

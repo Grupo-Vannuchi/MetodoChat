@@ -29,9 +29,6 @@ export const pageTitle =
 
 export const pageSubtitle = "mt-1 text-sm text-zinc-600 dark:text-zinc-400";
 
-export const sectionTitle =
-  "text-sm font-semibold tracking-[-0.005em] text-zinc-900 dark:text-zinc-100";
-
 export const muted = "text-zinc-600 dark:text-zinc-400";
 
 export const eyebrow =
@@ -78,7 +75,6 @@ export const badgeNeutral = `${badge} bg-zinc-100 text-zinc-600 dark:bg-zinc-800
 export const badgeOk = `${badge} bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400`;
 export const badgeWarn = `${badge} bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400`;
 export const badgeErr = `${badge} bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400`;
-export const badgeAccent = `${badge} bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300`;
 
 /* ---------- tabelas ---------- */
 

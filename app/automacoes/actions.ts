@@ -60,7 +60,14 @@ const CORRESPONDENCIAS = ["contains", "exact", "any"];
 // coraçãozinho fora do story), e aceitá-lo do navegador seria deixar a própria
 // conferência ser escolhida por quem está sendo conferido. É por isso que o
 // quadro salva a CONFIGURAÇÃO PRIMEIRO: assim o gatilho que esta função lê já é
-// o que a pessoa acabou de escolher na tela.
+// o que a pessoa acabou de escolher na tela — e quando aquela gravação FALHA, o
+// gatilho lido aqui é o que de fato ficou no banco, que continua sendo a
+// conferência certa.
+//
+// A OUTRA METADE DA MESMA INVARIANTE está em `salvarConfiguracao`, logo abaixo:
+// esta função confere a lista contra o gatilho gravado, aquela confere o gatilho
+// contra a lista gravada. Uma sozinha deixava metade do par ser escolhida por
+// quem estava sendo conferido.
 export async function salvarPassos(automationId: string, passos: unknown): Promise<Resultado> {
   await ensureSchema();
   const accountId = await getSelectedAccountId();
@@ -108,6 +115,39 @@ function midiaEscolhida(v: unknown): { id: string; thumb: string; caption: strin
 // A configuração chega como `unknown` de propósito: ela vem do estado de um
 // componente de cliente, e a assinatura tipada daria a impressão de garantia
 // que o POST direto no Server Action não tem.
+//
+// ---------------------------------------------------------------------------
+// O GATILHO TAMBÉM PASSA POR `conferirLista`, e não só a lista de blocos.
+//
+// O gatilho é METADE da entrada de `conferirLista` (lib/steps.ts): é ele que
+// decide se a resposta pública e o coraçãozinho rodam. Enquanto só `salvarPassos`
+// conferia, a defesa "nada vindo do navegador é confiável" valia para uma das
+// duas metades: um POST direto em `salvarConfiguracao(id, {gatilho:"story"})`
+// sobre uma automação com `resposta_publica` gravava exatamente o par que
+// `salvarPassos` recusa, sem passar por conferência nenhuma. O motor pula o
+// bloco, então o estrago é limitado — mas a invariante não era a que o
+// comentário afirmava. Os dois só fazem sentido JUNTOS, e por isso os dois
+// salvares conferem o par.
+//
+// SÓ QUANDO O GATILHO MUDA, e só os erros que a MUDANÇA introduz. As duas
+// medidas são necessárias, e cada uma fecha um bloqueio que a conferência crua
+// abriria:
+//
+//   Conferir sempre trancaria o nome e as palavras-chave de toda automação cuja
+//     lista já esteja com erro — legado com "link sem endereço", por exemplo.
+//     Esses erros não são desta escrita.
+//   Comparar com os erros do gatilho ATUAL isola o que o gatilho novo causa. Um
+//     erro que já existia continua existindo depois da troca, e recusar por
+//     causa dele seria cobrar desta ação uma lista que ela não escreve.
+//
+// O QUE ISSO CUSTA, e o preço é real: trocar o gatilho DEIXANDO na lista um
+// bloco que só o gatilho antigo executa passa a ser recusado. Como o quadro
+// grava as duas coisas em duas escritas, apagar o bloco e trocar o gatilho no
+// MESMO clique não fecha: o gatilho é conferido contra os blocos que ainda estão
+// no banco. O caminho é salvar duas vezes — a primeira grava os blocos, a
+// segunda grava o gatilho —, e é por isso que `quadro.tsx` não desiste do
+// salvamento dos blocos quando esta função recusa, e diz na tela o que faltou.
+// ---------------------------------------------------------------------------
 export async function salvarConfiguracao(
   automationId: string,
   configuracao: unknown
@@ -139,6 +179,35 @@ export async function salvarConfiguracao(
   // para decidir qual automação ganha.
   const post = gatilho === "comment" ? midiaEscolhida(c.post) : null;
   const story = gatilho === "story" ? midiaEscolhida(c.story) : null;
+
+  // o account_id no where impede ler automação de outra conta
+  const atual = (await sql().query(
+    `select triggers, steps from automations where id = $1 and account_id = $2`,
+    [automationId, accountId]
+  )) as { triggers: string[]; steps: unknown }[];
+  if (!atual[0]) return { ok: false, erro: "Automação não encontrada." };
+
+  const gatilhoAtual = atual[0].triggers[0] ?? "dm";
+  if (gatilho !== gatilhoAtual) {
+    // A chave junta índice e mensagem porque é o par que identifica o problema:
+    // o mesmo texto em dois blocos diferentes são dois erros, e o mesmo bloco
+    // pode acumular mais de um.
+    const chave = (p: { indice: number | null; mensagem: string }) => `${p.indice}·${p.mensagem}`;
+    const jaHavia = new Set(
+      conferirLista(atual[0].steps, gatilhoAtual)
+        .filter((p) => p.nivel === "erro")
+        .map(chave)
+    );
+    const novos = conferirLista(atual[0].steps, gatilho).filter(
+      (p) => p.nivel === "erro" && !jaHavia.has(chave(p))
+    );
+    if (novos.length) {
+      return {
+        ok: false,
+        erro: `O gatilho novo não vale para os blocos que estão gravados. ${novos[0].mensagem}`,
+      };
+    }
+  }
 
   // o account_id no where impede gravar em automação de outra conta
   const linhas = (await sql().query(
@@ -183,6 +252,21 @@ export async function salvarConfiguracao(
 // não recebe coisa nenhuma, sem erro em lugar nenhum. Pausada, ela não entra na
 // disputa até o dono marcar "Ativa" no painel do gatilho, que é onde ele já
 // está enquanto monta o fluxo.
+//
+// A AUTOMAÇÃO ABANDONADA FICA NO BANCO, e isso está registrado aqui em vez de
+// consertado. É consequência direta de criar antes de editar: quem fecha a aba
+// logo depois de criar deixa uma linha sem bloco nenhum, e nada a recolhe — não
+// há limpeza por tempo nem marca de rascunho.
+//
+// É inofensiva por NASCER PAUSADA, que é a mesma decisão do parágrafo acima:
+// `findMatch` (lib/engine.ts) só olha automação ativa, então uma linha vazia não
+// disputa palavra-chave com ninguém e não muda o que qualquer contato recebe. O
+// custo é a lista de automações do dono ganhar entradas vazias que só ele
+// apaga.
+//
+// Marcá-la como rascunho custaria uma coluna e um estado a mais em toda leitura
+// da lista, para um problema que não afeta envio nenhum. Fica escrito para não
+// ser descoberto como surpresa.
 //
 // A assinatura é a de `useActionState`: o estado anterior é a mensagem de erro,
 // e devolvê-la é o que deixa o que foi digitado na tela. O formulário antigo
