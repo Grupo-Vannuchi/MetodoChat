@@ -48,6 +48,18 @@ const NAV_GROUPS: {
 // Páginas sem painel (login e páginas públicas exigidas pela Meta)
 const PUBLIC_PATHS = ["/entrar", "/privacidade", "/exclusao-de-dados"];
 
+// A ROTA DO EDITOR, que recebe a janela inteira: nada de menu, nada de `max-w`,
+// nada de padding. Enquanto se edita, o quadro é o aplicativo — e ele traz a
+// própria barra com o caminho de volta, o nome da automação e o salvar
+// (`app/automacoes/editor/quadro.tsx`).
+//
+// O casamento é pela FORMA DO ID, e não por `startsWith("/automacoes/")`, para
+// `/automacoes/nova` — que é o passo curto de criação, e não o quadro —
+// continuar dentro da casca normal. A forma é a MESMA que
+// `app/automacoes/[id]/page.tsx` exige antes de ir ao banco, então as duas
+// concordam sobre o que é um id de automação.
+const EDITOR_PATH = /^\/automacoes\/[0-9a-f-]{36}$/i;
+
 function ThemeToggle() {
   // O estado mora só na classe do <html> (posta pelo script no layout antes
   // da hidratação); o botão alterna via CSS — nada de estado React, nada de
@@ -182,6 +194,13 @@ export default function AppShell({
 
   if (isPublic) {
     return <main className="mx-auto max-w-3xl px-4 py-8">{children}</main>;
+  }
+
+  // Sem casca nenhuma: o quadro se vira com a janela toda e desenha o próprio
+  // `<main>`. Vem ANTES do retorno com o menu porque a rota do editor também
+  // passaria por ele.
+  if (EDITOR_PATH.test(pathname)) {
+    return <>{children}</>;
   }
 
   return (

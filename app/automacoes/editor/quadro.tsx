@@ -19,7 +19,7 @@ import { arranjoAutomatico, blocoNovo, resumoDoBloco } from "./modelos";
 import Paleta from "./paleta";
 import * as Geo from "./geometria";
 import { salvarAutomacao } from "../actions";
-import { btnPrimary, btnSecondary, muted } from "../../ui";
+import { btnPrimary, muted } from "../../ui";
 
 const TIPOS_DE_NO = { bloco: No, gatilho: Gatilho };
 
@@ -720,63 +720,171 @@ export default function Quadro({
   const tema = useTemaDoDocumento();
 
   return (
-    <div className="space-y-3">
+    // A JANELA INTEIRA, e o `<main>` da página mora aqui.
+    //
+    // A casca do aplicativo (`app/app-shell.tsx`) deixa esta rota passar sem
+    // menu e sem `max-w`, e a página (`../[id]/page.tsx`) não tem mais
+    // cabeçalho — então quem monta a tela toda é este componente. Como a casca
+    // era quem desenhava o `<main>`, ele desce para cá: sem isso a página do
+    // editor ficaria sem marco principal na árvore de acessibilidade.
+    //
+    // `h-dvh` E NÃO `h-screen`: no celular `100vh` conta a faixa da barra de
+    // endereço do navegador, então a coluna fica MAIS ALTA que o visível e o
+    // fim da lista em leitura (logo abaixo) cai atrás dessa barra, sem rolagem
+    // que o alcance — o contêiner de rolagem é o filho, e ele já chegou ao fim.
+    // `100dvh` é a altura que existe de verdade. No computador os dois são
+    // iguais.
+    <main className="flex h-dvh flex-col">
+      {/* ------------------------------------------------------------------ */}
+      {/* A BARRA DO QUADRO. Ela é fina de propósito: cada pixel dela sai do   */}
+      {/* quadro, que é o produto desta tela. Leva só o que se precisa         */}
+      {/* enquanto se edita — o caminho de volta, o nome e o salvar.           */}
+      {/*                                                                     */}
+      {/* O CAMINHO DE VOLTA VEM PRIMEIRO E APARECE NO CELULAR TAMBÉM. Com a   */}
+      {/* casca fora, este link é a ÚNICA saída desta tela: não há mais menu    */}
+      {/* lateral no computador nem gaveta no celular. Some ele, e quem abriu   */}
+      {/* uma automação pelo celular fica preso no aviso de "edite pelo         */}
+      {/* computador" com o botão do navegador como única saída.                */}
+      {/*                                                                     */}
+      {/* O NOME SAI DE `configuracao.nome`, o estado, e NÃO de uma prop da     */}
+      {/* página. É o mesmo valor que o painel do gatilho edita, então         */}
+      {/* renomear a automação muda a barra na hora. Uma prop vinda da página   */}
+      {/* seria uma segunda fonte de verdade congelada no que o banco tinha na  */}
+      {/* abertura: o campo mostraria o nome novo e a barra o velho, até        */}
+      {/* alguém salvar e recarregar.                                          */}
+      {/* ------------------------------------------------------------------ */}
+      <header className="flex shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+        <Link
+          href="/automacoes"
+          className="shrink-0 text-sm text-zinc-500 transition-colors hover:text-indigo-600 dark:text-zinc-400 dark:hover:text-indigo-400"
+        >
+          ← Automações
+        </Link>
+        <span className="truncate text-sm font-medium">{configuracao.nome}</span>
+
+        {/* ---------------------------------------------------------------- */}
+        {/* O SALVAR E O RECADO, e é AQUI que a lista de erros continua        */}
+        {/* aparecendo — coisa que o passo 4 mandou decidir e justificar.      */}
+        {/*                                                                   */}
+        {/* Fica COLADO no botão pelo motivo que o rodapé já tinha: botão      */}
+        {/* apagado sem explicação é a tela dizendo "não" e nada mais, e o     */}
+        {/* erro pode estar num bloco que nem está à vista. E a barra é a      */}
+        {/* única moldura que sobrou — deixar o recado só no painel do bloco   */}
+        {/* esconderia o motivo justamente quando nenhum bloco está            */}
+        {/* selecionado, que é o estado em que se clica em Salvar.             */}
+        {/*                                                                   */}
+        {/* A frase é a MESMA de `conferirLista` que o painel mostra, então os */}
+        {/* dois nunca dizem coisas diferentes sobre o mesmo problema. O       */}
+        {/* `max-w` com `truncate` é o que impede um erro comprido de empurrar */}
+        {/* o nome da automação para fora da barra.                            */}
+        {/*                                                                   */}
+        {/* SÓ NO COMPUTADOR, pelo mesmo motivo do quadro: não há o que salvar */}
+        {/* numa tela em que não dá para editar. O link de voltar, esse, fica  */}
+        {/* nas duas.                                                          */}
+        {/* ---------------------------------------------------------------- */}
+        <div className="ml-auto hidden shrink-0 items-center gap-3 sm:flex">
+          {erros.length > 0 ? (
+            <span className="max-w-[40ch] truncate text-xs font-medium text-red-600 dark:text-red-400">
+              {erros[0].mensagem}
+              {erros.length > 1 && ` (e mais ${erros.length - 1})`}
+            </span>
+          ) : (
+            recadoDoQuadroAtual && (
+              <span
+                className={`max-w-[40ch] truncate text-xs font-medium ${
+                  recadoDoQuadroAtual.ok
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                }`}
+              >
+                {recadoDoQuadroAtual.texto}
+              </span>
+            )
+          )}
+          <button
+            type="button"
+            onClick={salvar}
+            disabled={salvando || erros.length > 0}
+            className={btnPrimary}
+          >
+            {salvando ? "Salvando…" : "Salvar automação"}
+          </button>
+        </div>
+      </header>
+
       {/* ------------------------------------------------------------------ */}
       {/* O AVISO NO CELULAR. O quadro precisa de arrastar e soltar, e não há */}
       {/* versão de toque dele — a decisão foi dizer isso em vez de entregar  */}
       {/* um editor que não funciona. A lista em modo leitura logo abaixo é o */}
       {/* que sobra de útil: dá para CONFERIR o fluxo no celular, só não      */}
       {/* mexer nele.                                                         */}
+      {/*                                                                     */}
+      {/* A ROLAGEM É DESTA COLUNA, e não da página: o contêiner de fora tem  */}
+      {/* altura fixa (`h-dvh`), então sem `overflow-y-auto` aqui a lista     */}
+      {/* seria cortada no fim da tela sem jeito de chegar ao resto.          */}
       {/* ------------------------------------------------------------------ */}
-      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/40 sm:hidden">
-        A edição das automações é pelo computador — o quadro precisa de arrastar e soltar. Abaixo, o
-        fluxo desta automação em modo leitura.
-      </div>
-      <ol className="space-y-2 sm:hidden">
+      <div className="flex-1 space-y-3 overflow-y-auto p-4 sm:hidden">
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/40">
+          A edição das automações é pelo computador — o quadro precisa de arrastar e soltar. Abaixo,
+          o fluxo desta automação em modo leitura.
+        </div>
+        <ol className="space-y-2">
         {/* O MESMO CARTÃO DO NÓ DE GATILHO, pelas mesmas duas funções
             (`./gatilho`). Aqui se imprimia o NOME da automação sob o rótulo
-            "GATILHO": o nome já está no cabeçalho da página, e o que dispara —
-            a única coisa que o rótulo promete — era o que faltava. */}
-        <li className="rounded-lg border-2 border-sky-500/70 bg-white px-3 py-2 dark:border-sky-400/70 dark:bg-zinc-900">
-          <div className="text-[10px] font-semibold tracking-wide text-sky-600 dark:text-sky-400">
-            GATILHO · {nomeDoGatilho(configuracao.gatilho)}
-          </div>
-          <div className="mt-1 text-xs text-zinc-700 dark:text-zinc-200">
-            {resumoDasPalavras(configuracao.palavras, configuracao.correspondencia)}
-          </div>
-        </li>
-        {passos.map((p, i) => {
-          // O MESMO `resumoDoBloco` do nó do quadro, e não um texto próprio:
-          // duas descrições do mesmo bloco divergiriam, e esta é justamente a
-          // que ninguém olha depois.
-          const { titulo, corpo } = resumoDoBloco(p);
-          return (
-            <li
-              key={identidades[i]}
-              className={`rounded-lg border-2 bg-white px-3 py-2 dark:bg-zinc-900 ${
-                errosPorIndice.has(i)
-                  ? "border-red-500 dark:border-red-400"
-                  : "border-zinc-300 dark:border-zinc-700"
-              }`}
-            >
-              <div className="text-[10px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">
-                {i + 1}. {titulo}
-              </div>
-              <div className="mt-1 text-xs text-zinc-700 dark:text-zinc-200">{corpo}</div>
-            </li>
-          );
-        })}
-        {!passos.length && (
-          <li className={`rounded-lg border border-dashed border-zinc-300 p-3 text-xs dark:border-zinc-700 ${muted}`}>
-            Nenhum bloco ainda.
+            "GATILHO": o nome está na barra logo acima, e o que dispara — a
+            única coisa que o rótulo promete — era o que faltava. */}
+          <li className="rounded-lg border-2 border-sky-500/70 bg-white px-3 py-2 dark:border-sky-400/70 dark:bg-zinc-900">
+            <div className="text-[10px] font-semibold tracking-wide text-sky-600 dark:text-sky-400">
+              GATILHO · {nomeDoGatilho(configuracao.gatilho)}
+            </div>
+            <div className="mt-1 text-xs text-zinc-700 dark:text-zinc-200">
+              {resumoDasPalavras(configuracao.palavras, configuracao.correspondencia)}
+            </div>
           </li>
-        )}
-      </ol>
+          {passos.map((p, i) => {
+            // O MESMO `resumoDoBloco` do nó do quadro, e não um texto próprio:
+            // duas descrições do mesmo bloco divergiriam, e esta é justamente a
+            // que ninguém olha depois.
+            const { titulo, corpo } = resumoDoBloco(p);
+            return (
+              <li
+                key={identidades[i]}
+                className={`rounded-lg border-2 bg-white px-3 py-2 dark:bg-zinc-900 ${
+                  errosPorIndice.has(i)
+                    ? "border-red-500 dark:border-red-400"
+                    : "border-zinc-300 dark:border-zinc-700"
+                }`}
+              >
+                <div className="text-[10px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">
+                  {i + 1}. {titulo}
+                </div>
+                <div className="mt-1 text-xs text-zinc-700 dark:text-zinc-200">{corpo}</div>
+              </li>
+            );
+          })}
+          {!passos.length && (
+            <li
+              className={`rounded-lg border border-dashed border-zinc-300 p-3 text-xs dark:border-zinc-700 ${muted}`}
+            >
+              Nenhum bloco ainda.
+            </li>
+          )}
+        </ol>
+      </div>
 
       {/* AS DUAS COLUNAS: a paleta ocupa uma faixa PRÓPRIA, e o React Flow o
           resto. Ela flutuava sobre o quadro, e o `fitView` não sabia disso — o
-          mecanismo inteiro está no comentário de `./paleta`. */}
-      <div className="relative hidden h-[calc(100vh-16rem)] w-full overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800 sm:flex">
+          mecanismo inteiro está no comentário de `./paleta`.
+
+          `flex-1` no lugar do `h-[calc(100vh-16rem)]` que estava aqui: o
+          cabeçalho da página não existe mais, e a única coisa acima do quadro é
+          a barra — que tem altura própria e `shrink-0`. Subtrair uma constante
+          da altura da janela era a conta que quebrava toda vez que alguém
+          mexesse no que vem antes; `flex-1` é a mesma conta feita pelo
+          navegador. A borda e o arredondamento saíram junto: o quadro agora
+          encosta nas bordas da janela, e moldura de cartão ali só desenharia um
+          retângulo em volta da tela inteira. */}
+      <div className="relative hidden flex-1 overflow-hidden sm:flex">
         <Paleta gatilho={configuracao.gatilho} />
         {/* `inert` enquanto salva: o quadro e o painel param de aceitar
             ponteiro, teclado e foco, para o que for gravado ser o que está na
@@ -942,47 +1050,9 @@ export default function Quadro({
         </div>
       </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* O RODAPÉ. Só no computador, pelo mesmo motivo do quadro: não há o    */}
-      {/* que salvar numa tela em que não dá para editar.                     */}
-      {/*                                                                     */}
-      {/* O BOTÃO DESABILITADO TRAZ O MOTIVO AO LADO. Botão apagado sem        */}
-      {/* explicação é a tela dizendo "não" e nada mais — e o erro pode estar  */}
-      {/* num bloco que nem está à vista. A frase é a MESMA de `conferirLista` */}
-      {/* que o painel do bloco mostra, então o rodapé e o painel nunca dizem  */}
-      {/* coisas diferentes sobre o mesmo problema.                            */}
-      {/* ------------------------------------------------------------------ */}
-      <div className="hidden flex-wrap items-center gap-3 sm:flex">
-        <button
-          type="button"
-          onClick={salvar}
-          disabled={salvando || erros.length > 0}
-          className={btnPrimary}
-        >
-          {salvando ? "Salvando…" : "Salvar automação"}
-        </button>
-        <Link href="/automacoes" className={btnSecondary}>
-          Voltar
-        </Link>
-        {erros.length > 0 ? (
-          <span className="text-xs font-medium text-red-600 dark:text-red-400">
-            {erros[0].mensagem}
-            {erros.length > 1 && ` (e mais ${erros.length - 1})`}
-          </span>
-        ) : (
-          recadoDoQuadroAtual && (
-            <span
-              className={`text-xs font-medium ${
-                recadoDoQuadroAtual.ok
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-red-600 dark:text-red-400"
-              }`}
-            >
-              {recadoDoQuadroAtual.texto}
-            </span>
-          )
-        )}
-      </div>
-    </div>
+      {/* O RODAPÉ SAIU. Ele tinha o mesmo botão de salvar, o mesmo recado e o
+          mesmo "Voltar" que agora estão na barra — e salvar em dois lugares é
+          ter dois lugares para discordarem. */}
+    </main>
   );
 }

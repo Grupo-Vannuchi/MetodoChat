@@ -1,11 +1,9 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { sql, ensureSchema, Automation } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import type { Passo } from "@/lib/steps";
 import Quadro from "../editor/quadro";
 import type { Configuracao } from "../editor/painel";
-import { pageTitle, pageSubtitle, muted } from "../../ui";
 
 export const dynamic = "force-dynamic";
 
@@ -96,27 +94,29 @@ export default async function EditarAutomacaoPage({
       : null,
   };
 
+  // A PÁGINA NÃO TEM MAIS CABEÇALHO, e ela renderiza SÓ o quadro.
+  //
+  // A migalha, o `<h1>` e o subtítulo comiam 256px de altura — que era
+  // exatamente o `h-[calc(100vh-16rem)]` do quadro —, e a casca do aplicativo
+  // ainda limitava tudo a 1024px de largura. Numa tela cujo produto é um espaço
+  // de trabalho, esse cabeçalho custava mais do que dizia: o nome da automação
+  // reaparece na barra do próprio quadro, e as instruções que estavam no
+  // subtítulo são o que a paleta e o painel já mostram no lugar em que se
+  // precisa delas.
+  //
+  // Quem tira a casca é `app/app-shell.tsx`, que reconhece esta rota pela forma
+  // do id. O `<main>` da página passa a ser o do quadro.
+  //
+  // O NOME NÃO VIAJA COMO PROP SEPARADA: ele já vai em `configuracaoInicial.nome`
+  // e o painel do gatilho o EDITA. Uma segunda cópia vinda daqui ficaria
+  // congelada em `a.name` e a barra mostraria o nome velho enquanto o dono
+  // digita o novo. O porquê inteiro está no comentário da barra, em
+  // `../editor/quadro.tsx`.
   return (
-    <div className="space-y-6">
-      <header>
-        <nav className={`mb-2 text-xs ${muted}`}>
-          <Link href="/automacoes" className="transition-colors hover:text-indigo-600">
-            Automações
-          </Link>
-          <span className="mx-1.5">/</span>
-          <span className="text-zinc-700 dark:text-zinc-300">{a.name}</span>
-        </nav>
-        <h1 className={pageTitle}>{a.name}</h1>
-        <p className={pageSubtitle}>
-          Arraste os blocos da paleta para montar o fluxo. Clique num bloco para editá-lo, e no
-          gatilho para mudar o nome, as palavras-chave e o que dispara a automação.
-        </p>
-      </header>
-      <Quadro
-        automationId={a.id}
-        passosIniciais={passosDoBanco(a.steps)}
-        configuracaoInicial={configuracaoInicial}
-      />
-    </div>
+    <Quadro
+      automationId={a.id}
+      passosIniciais={passosDoBanco(a.steps)}
+      configuracaoInicial={configuracaoInicial}
+    />
   );
 }
