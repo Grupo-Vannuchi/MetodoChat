@@ -535,7 +535,7 @@ describe("retomadaDoBotao", () => {
     // E É O QUE VALE AGORA. Enquanto o formulário foi o editor, ele sorteava id
     // novo para todo bloco a cada save e gravava o `steps` inteiro sem casar com
     // os ids antigos, então todo salvamento órfanava o cursor de quem estivesse
-    // em fluxo. O formulário saiu; `salvarPassos` (app/automacoes/actions.ts)
+    // em fluxo. O formulário saiu; `salvarAutomacao` (app/automacoes/actions.ts)
     // grava a lista como ela veio do quadro, com os ids preservados. Este ramo
     // só é alcançado quando o dono apaga o bloco de verdade.
     expect(retomadaDoBotao({ passoId: "b_sumiu9", automationId: "A" }, "A", lista)).toEqual({

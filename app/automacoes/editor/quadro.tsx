@@ -18,7 +18,7 @@ import Painel, { type Configuracao } from "./painel";
 import { arranjoAutomatico, blocoNovo, resumoDoBloco } from "./modelos";
 import Paleta from "./paleta";
 import * as Geo from "./geometria";
-import { salvarConfiguracao, salvarPassos } from "../actions";
+import { salvarAutomacao } from "../actions";
 import { btnPrimary, btnSecondary, muted } from "../../ui";
 
 const TIPOS_DE_NO = { bloco: No, gatilho: Gatilho };
@@ -94,11 +94,14 @@ function pontoDoEvento(e: MouseEvent | TouchEvent): { x: number; y: number } | n
 // comentário, e o próprio nó mostra o nome. Trocar o gatilho no painel move os
 // três de uma vez.
 //
-// AS DUAS ESCRITAS SÃO SEPARADAS, e a separação começa aqui: `passos` vai para
-// a coluna `steps` (`salvarPassos`), `configuracao` vai para as colunas da
-// automação — nome, ativo, gatilho, palavras-chave, correspondência, post e
-// story — (`salvarConfiguracao`). São dois estados e duas gravações; juntá-las
-// faz uma gravação parcial deixar metade de cada coisa no banco.
+// SÃO DOIS ESTADOS E UMA GRAVAÇÃO SÓ: `passos` vai para a coluna `steps`,
+// `configuracao` vai para as colunas da automação — nome, ativo, gatilho,
+// palavras-chave, correspondência, post e story. Os dois viajam JUNTOS para
+// `salvarAutomacao` (../actions.ts), que os grava dentro de uma transação. Dois
+// estados aqui porque são duas coisas que a tela edita em lugares diferentes
+// (os nós e o painel do gatilho); uma gravação lá porque o que um deles pode
+// ser depende do outro, e conferir metade nova contra metade velha não fecha —
+// o mecanismo inteiro está no comentário daquele arquivo.
 export default function Quadro({
   automationId,
   passosIniciais,
@@ -597,38 +600,31 @@ export default function Quadro({
   const fecharPainel = useCallback(() => setSelecionado(null), []);
 
   // ------------------------------------------------------------------------
-  // SALVAR — duas gravações, nesta ordem, e a ordem é medida, não estética.
+  // SALVAR — UMA CHAMADA SÓ, e não há mais ordem a escolher.
   //
-  // A CONFIGURAÇÃO VAI PRIMEIRO porque `salvarPassos` (app/automacoes/actions.ts)
-  // lê o GATILHO DO BANCO para conferir a lista, e o gatilho é editável aqui no
-  // painel. Na ordem inversa, trocar o gatilho de comentário para story e salvar
-  // faria a lista ser conferida contra o gatilho ANTIGO: a resposta pública, que
-  // `conferirLista` recusa fora do comentário, passaria pela conferência do
-  // servidor por um salvamento — exatamente a defesa que ela existe para dar.
+  // Aqui havia duas: `salvarConfiguracao` e depois `salvarPassos`, nessa ordem
+  // porque cada uma conferia a metade que enviava contra a metade que já estava
+  // no banco. Nenhuma ordem servia. Configuração-primeiro recusava trocar o
+  // gatilho apagando no mesmo salvamento o bloco que o gatilho novo não executa
+  // (o gatilho era conferido contra os blocos velhos); passos-primeiro recusava
+  // acrescentar o bloco que só o gatilho novo executa (a lista era conferida
+  // contra o gatilho velho). O impasse é da divisão, não da ordem.
   //
-  // E as duas NÃO viram uma transação só de propósito. A alternativa seria um
-  // Server Action que escreve as duas coisas, e é dele que este arquivo inteiro
-  // se protege: era assim a escrita única do formulário antigo, que regravava
-  // `steps` a partir das colunas e apagaria a lista montada aqui. Com escopos
-  // separados, o pior caso é uma das duas não acontecer — e não metade de cada
-  // uma.
+  // `salvarAutomacao` (../actions.ts) leva as duas metades juntas, confere o PAR
+  // FINAL uma vez e grava as duas dentro de uma transação. As duas transições
+  // acima passam num clique só.
   //
-  // AS DUAS SÃO TENTADAS SEMPRE, e a configuração falhar NÃO cancela mais a
-  // gravação dos blocos. Duas razões, e as duas são de produto:
+  // NÃO HÁ MAIS SALVAMENTO PARCIAL A NOMEAR, e é por isso que o recado de "os
+  // blocos foram salvos; o resto, não" saiu daqui em vez de virar código morto.
+  // Ele descrevia o estado que duas escritas independentes produziam quando uma
+  // falhava; com transação esse estado não existe — ou as duas valem, ou
+  // nenhuma vale —, e uma frase que descreve o impossível só teria como
+  // enganar.
   //
-  //   O ESCOPO É SEPARADO, então a recusa de uma não diz nada sobre a outra. Um
-  //     nome apagado por engano não é motivo para jogar fora o fluxo que a
-  //     pessoa acabou de montar.
-  //   É O ÚNICO CAMINHO DE VOLTA quando `salvarConfiguracao` recusa o gatilho
-  //     novo por causa de um bloco que ainda está gravado (o mecanismo está no
-  //     comentário de lá). Desistindo aqui, o bloco apagado no quadro nunca
-  //     chegava ao banco e o gatilho nunca passava a valer: o dono ficava preso.
-  //     Tentando as duas, o primeiro clique grava os blocos e o segundo grava o
-  //     gatilho — e o rodapé diz isso, em vez de deixar a pessoa adivinhar.
-  //
-  // A ordem continua sendo configuração-primeiro pelo motivo de sempre. Quando
-  // ela falha, `salvarPassos` confere a lista contra o gatilho ANTIGO — que é o
-  // que continua gravado, ou seja a conferência certa.
+  // O RISCO DE O FORMULÁRIO VOLTAR PELA PORTA DOS FUNDOS continua endereçado, e
+  // não pela separação das chamadas: `salvarAutomacao` grava `steps` COMO A
+  // LISTA VEIO daqui e não deduz bloco nenhum de coluna nenhuma. Era a dedução
+  // que apagava o fluxo montado no quadro, e ela morreu com `montarPassos`.
   const [salvando, iniciarSalvamento] = useTransition();
 
   // O RECADO CARREGA O QUADRO QUE ELE DESCREVE, e é isso que o faz morrer na
@@ -642,8 +638,8 @@ export default function Quadro({
   // Guardadas as duas REFERÊNCIAS que foram enviadas, a validade do recado é
   // DERIVADA no render (`recadoDoQuadroAtual`, logo abaixo), sem efeito e sem
   // render extra: `setPassos` e `setConfiguracao` sempre produzem objetos novos,
-  // então basta comparar por identidade. As duas entram porque são as duas
-  // escritas — `passos` vai para `steps`, `configuracao` vai para as colunas.
+  // então basta comparar por identidade. As duas entram porque as duas são
+  // gravadas — `passos` vai para `steps`, `configuracao` vai para as colunas.
   //
   // Isso cobre de graça o que um efeito não cobriria: mexer no quadro DURANTE o
   // salvamento. O recado que chegar depois já nasce descrevendo uma lista que
@@ -661,39 +657,19 @@ export default function Quadro({
   const salvar = useCallback(() => {
     setRecado(null);
     iniciarSalvamento(async () => {
-      const daConfiguracao = await salvarConfiguracao(automationId, configuracao);
-      const dosPassos = await salvarPassos(automationId, passos);
+      const r = await salvarAutomacao(automationId, passos, configuracao);
 
       // O par enviado viaja junto com o recado, e é ele que decide se o recado
       // ainda descreve o quadro na hora de desenhar.
       const doQueFoiEnviado = { passos, configuracao };
 
-      if (daConfiguracao.ok && dosPassos.ok) {
-        setRecado({ ok: true, texto: "Salvo.", ...doQueFoiEnviado });
-        return;
-      }
-
-      // O SALVAMENTO PARCIAL É NOMEADO, e é o ponto desta segunda frase. Sem
-      // ela o rodapé mostrava só o erro de quem falhou, e a pessoa reabria a
-      // página encontrando metade do que fez — sem nada ter dito que a outra
-      // metade tinha ido para o banco.
-      //
-      // O `Set` não é economia de bytes: as duas gravações compartilham as
-      // recusas de entrada — "Nenhuma conta conectada.", "Automação não
-      // encontrada." —, e quando as duas falham pelo mesmo motivo o rodapé
-      // repetia a mesma frase duas vezes seguidas.
-      const motivos = [
-        ...new Set(
-          [daConfiguracao.ok ? null : daConfiguracao.erro, dosPassos.ok ? null : dosPassos.erro]
-            .filter((m): m is string => Boolean(m))
-        ),
-      ];
-      const oQueFoi = daConfiguracao.ok
-        ? "O nome, o gatilho e as palavras-chave foram salvos; os blocos, não."
-        : dosPassos.ok
-          ? "Os blocos foram salvos; o resto da configuração, não — salve de novo."
-          : "Nada foi salvo.";
-      setRecado({ ok: false, texto: `${motivos.join(" ")} ${oQueFoi}`, ...doQueFoiEnviado });
+      // A RECUSA NÃO PRECISA MAIS DIZER O QUE FOI GRAVADO, porque a resposta é
+      // sempre a mesma: nada. O motivo vem do servidor e é mostrado como veio.
+      setRecado(
+        r.ok
+          ? { ok: true, texto: "Salvo.", ...doQueFoiEnviado }
+          : { ok: false, texto: `${r.erro} Nada foi salvo.`, ...doQueFoiEnviado }
+      );
     });
   }, [automationId, configuracao, passos]);
 

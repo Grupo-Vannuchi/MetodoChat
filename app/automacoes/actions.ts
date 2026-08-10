@@ -12,9 +12,9 @@ function splitList(raw: string, sep: RegExp): string[] {
     .filter(Boolean);
 }
 
-// O que os dois salvares devolvem. Nem um nem outro redireciona: o quadro é uma
-// tela em que se salva várias vezes seguidas, e mandar a pessoa embora a cada
-// gravação era o comportamento do formulário, que tinha um botão só no fim.
+// O que o salvar devolve. Ele NÃO redireciona: o quadro é uma tela em que se
+// salva várias vezes seguidas, e mandar a pessoa embora a cada gravação era o
+// comportamento do formulário, que tinha um botão só no fim.
 type Resultado = { ok: true } | { ok: false; erro: string };
 
 const GATILHOS = ["comment", "story", "dm"];
@@ -28,71 +28,6 @@ const CORRESPONDENCIAS = ["contains", "exact", "any"];
 // `lib/steps.ts` — aquele arquivo não tem a diretiva, e é justamente por isso
 // que ele pode exportar a mesma função para os dois lados.
 
-// ---------------------------------------------------------------------------
-// SALVAR SÃO DOIS, e a separação é a decisão mais importante deste arquivo.
-//
-// `montarPassos` e `saveAutomation` MORRERAM AQUI, junto com `form.tsx`. Elas
-// eram uma escrita só: liam as vinte e oito colunas do formulário, REGRAVAVAM
-// `steps` a partir delas e redirecionavam. Chamar aquilo com o quadro montado
-// apagaria a lista de blocos — a lista virava o que as colunas antigas
-// descreviam, numa ordem fixa escrita em código.
-//
-// No lugar delas, duas gravações com escopos que não se pisam:
-//
-//   `salvarPassos` .......... SÓ a coluna `steps`.
-//   `salvarConfiguracao` .... SÓ as colunas da automação. NUNCA `steps`.
-//
-// Escrita parcial deixa de poder misturar as duas coisas: o pior caso é uma
-// delas não acontecer, e não metade de cada uma no banco.
-// ---------------------------------------------------------------------------
-
-// Grava a lista montada no quadro. NÃO escreve nome, ativo, gatilho,
-// palavras-chave, correspondência nem mídia — isso é `salvarConfiguracao`.
-//
-// A CONFERÊNCIA RODA AQUI DE NOVO, e não é redundância: o cliente já conferiu
-// para desabilitar o botão, mas o cliente é o navegador da pessoa e nada que
-// vem de lá é confiável. É a MESMA função (`conferirLista`, lib/steps.ts) nos
-// dois lados — escrever a regra duas vezes é como as duas versões passam a
-// discordar.
-//
-// O GATILHO VEM DO BANCO, e não do argumento, pelo mesmo motivo: ele decide o
-// que `conferirLista` recusa (resposta pública fora do comentário,
-// coraçãozinho fora do story), e aceitá-lo do navegador seria deixar a própria
-// conferência ser escolhida por quem está sendo conferido. É por isso que o
-// quadro salva a CONFIGURAÇÃO PRIMEIRO: assim o gatilho que esta função lê já é
-// o que a pessoa acabou de escolher na tela — e quando aquela gravação FALHA, o
-// gatilho lido aqui é o que de fato ficou no banco, que continua sendo a
-// conferência certa.
-//
-// A OUTRA METADE DA MESMA INVARIANTE está em `salvarConfiguracao`, logo abaixo:
-// esta função confere a lista contra o gatilho gravado, aquela confere o gatilho
-// contra a lista gravada. Uma sozinha deixava metade do par ser escolhida por
-// quem estava sendo conferido.
-export async function salvarPassos(automationId: string, passos: unknown): Promise<Resultado> {
-  await ensureSchema();
-  const accountId = await getSelectedAccountId();
-  if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
-
-  const linhas = (await sql().query(
-    `select triggers from automations where id = $1 and account_id = $2`,
-    [automationId, accountId]
-  )) as { triggers: string[] }[];
-  if (!linhas[0]) return { ok: false, erro: "Automação não encontrada." };
-
-  const problemas = conferirLista(passos, linhas[0].triggers[0] ?? "dm");
-  const erros = problemas.filter((p) => p.nivel === "erro");
-  if (erros.length) return { ok: false, erro: erros[0].mensagem };
-
-  // o account_id no where impede gravar em automação de outra conta
-  await sql().query(
-    `update automations set steps = $1, updated_at = now()
-     where id = $2 and account_id = $3`,
-    [passos, automationId, accountId]
-  );
-  revalidatePath("/automacoes");
-  return { ok: true };
-}
-
 // O post ou story escolhido no painel do gatilho, normalizado. Devolve null para
 // qualquer coisa que não tenha a forma esperada — é dado do navegador.
 function midiaEscolhida(v: unknown): { id: string; thumb: string; caption: string } | null {
@@ -103,53 +38,75 @@ function midiaEscolhida(v: unknown): { id: string; thumb: string; caption: strin
   return { id, thumb: String(m.thumb ?? ""), caption: String(m.caption ?? "") };
 }
 
-// Grava o que a automação é FORA da lista de blocos: nome, ativo, gatilho,
-// palavras-chave, correspondência, post e story.
+// A mensagem que a automação inexistente (ou de outra conta) produz. Fica numa
+// constante porque ela é LANÇADA de dentro da transação para desfazê-la, e
+// reconhecida por igualdade do lado de fora — comparar textos escritos duas
+// vezes é como as duas cópias passam a divergir.
+const NAO_ENCONTRADA = "Automação não encontrada.";
+
+// ---------------------------------------------------------------------------
+// SALVAR É UM SÓ, E ELE É UMA TRANSAÇÃO — e essa é a decisão mais importante
+// deste arquivo.
 //
-// NÃO ESCREVE `steps`, e é essa ausência que faz esta função existir em vez de
-// `saveAutomation`. Nem escreve as vinte e oito colunas do formulário antigo
+// `montarPassos` e `saveAutomation` MORRERAM AQUI, junto com `form.tsx`. Elas
+// eram uma escrita só: liam as vinte e oito colunas do formulário, REGRAVAVAM
+// `steps` a partir delas e redirecionavam. Chamar aquilo com o quadro montado
+// apagaria a lista de blocos — a lista virava o que as colunas antigas
+// descreviam, numa ordem fixa escrita em código. Nada disso volta: esta função
+// grava a lista COMO ELA VEIO do quadro, e não a deduz de coluna nenhuma.
+//
+// O QUE MORREU AGORA foram `salvarPassos` e `salvarConfiguracao`, que eram DUAS
+// gravações independentes, cada uma conferida contra a METADE que já estava no
+// banco. Elas criavam um IMPASSE, e ele não tinha ordem que resolvesse:
+//
+//   CONFIGURAÇÃO PRIMEIRO — trocar o gatilho de comentário para DM apagando no
+//     mesmo salvamento o bloco de resposta pública era recusado: o gatilho novo
+//     era conferido contra os blocos AINDA GRAVADOS, onde o bloco incompatível
+//     continuava.
+//   PASSOS PRIMEIRO — acrescentar um bloco que só o gatilho NOVO executa era
+//     recusado pelo mesmo motivo espelhado: a lista nova era conferida contra o
+//     gatilho AINDA GRAVADO, que é o antigo.
+//
+// Nenhuma das duas ordens atende às duas transições, porque o problema não é a
+// ordem: é conferir metade nova contra metade velha. A saída é conferir o PAR
+// FINAL — os blocos que estão sendo gravados com o gatilho que está sendo
+// gravado — uma vez só, e gravar as duas coisas juntas ou nenhuma.
+//
+// OS DOIS `update` CONTINUAM SEPARADOS NO SQL, e a separação mudou de natureza:
+// ela era GARANTIA (com duas escritas soltas, escopos disjuntos impediam que um
+// salvar parcial deixasse metade de cada coisa no banco) e agora é LEITURA. A
+// transação já torna o salvar parcial impossível; manter um `update` que toca só
+// `steps` e outro que toca só as colunas do gatilho é o que deixa visível, na
+// hora de ler, o que cada escrita escreve. Juntá-los num `update` só não
+// quebraria nada — só apagaria essa divisão.
+//
+// A CONFERÊNCIA DO SERVIDOR É A RAZÃO DE ISTO SER UM SERVER ACTION. O cliente já
+// conferiu, para desabilitar o botão; o cliente é o navegador da pessoa e nada
+// que vem de lá é confiável. É a MESMA função (`conferirLista`, lib/steps.ts)
+// nos dois lados — escrever a regra duas vezes é como as duas versões passam a
+// discordar. E ela roda sobre o par que ESTÁ SENDO GRAVADO, que é justamente o
+// par de que o motor vai depender depois.
+//
+// O QUE A CONFERÊNCIA DO PAR DESFEZ: a comparação "só os erros que a MUDANÇA de
+// gatilho introduz", que existia em `salvarConfiguracao`. Ela era necessária
+// enquanto aquela ação escrevia METADE do par — sem ela, um erro antigo na lista
+// (o "link sem endereço" do legado) trancaria até a troca do nome, e esse erro
+// não era daquela escrita. Aqui a escrita é o par inteiro, então todo erro do
+// resultado É desta escrita, e recusá-los é o mesmo critério que o botão Salvar
+// do quadro já aplica.
+//
+// A configuração e a lista chegam como `unknown` de propósito: as duas vêm do
+// estado de um componente de cliente, e assinatura tipada daria a impressão de
+// uma garantia que o POST direto no Server Action não tem.
+//
+// O QUE ESTA FUNÇÃO NÃO ESCREVE são as vinte e oito colunas do formulário antigo
 // (`welcome_text`, `link_url`, `require_follow`, …): elas viraram blocos, o
 // motor não as lê mais, e regravá-las aqui seria manter viva uma segunda
 // descrição do mesmo fluxo — a que já divergiu uma vez.
-//
-// A configuração chega como `unknown` de propósito: ela vem do estado de um
-// componente de cliente, e a assinatura tipada daria a impressão de garantia
-// que o POST direto no Server Action não tem.
-//
 // ---------------------------------------------------------------------------
-// O GATILHO TAMBÉM PASSA POR `conferirLista`, e não só a lista de blocos.
-//
-// O gatilho é METADE da entrada de `conferirLista` (lib/steps.ts): é ele que
-// decide se a resposta pública e o coraçãozinho rodam. Enquanto só `salvarPassos`
-// conferia, a defesa "nada vindo do navegador é confiável" valia para uma das
-// duas metades: um POST direto em `salvarConfiguracao(id, {gatilho:"story"})`
-// sobre uma automação com `resposta_publica` gravava exatamente o par que
-// `salvarPassos` recusa, sem passar por conferência nenhuma. O motor pula o
-// bloco, então o estrago é limitado — mas a invariante não era a que o
-// comentário afirmava. Os dois só fazem sentido JUNTOS, e por isso os dois
-// salvares conferem o par.
-//
-// SÓ QUANDO O GATILHO MUDA, e só os erros que a MUDANÇA introduz. As duas
-// medidas são necessárias, e cada uma fecha um bloqueio que a conferência crua
-// abriria:
-//
-//   Conferir sempre trancaria o nome e as palavras-chave de toda automação cuja
-//     lista já esteja com erro — legado com "link sem endereço", por exemplo.
-//     Esses erros não são desta escrita.
-//   Comparar com os erros do gatilho ATUAL isola o que o gatilho novo causa. Um
-//     erro que já existia continua existindo depois da troca, e recusar por
-//     causa dele seria cobrar desta ação uma lista que ela não escreve.
-//
-// O QUE ISSO CUSTA, e o preço é real: trocar o gatilho DEIXANDO na lista um
-// bloco que só o gatilho antigo executa passa a ser recusado. Como o quadro
-// grava as duas coisas em duas escritas, apagar o bloco e trocar o gatilho no
-// MESMO clique não fecha: o gatilho é conferido contra os blocos que ainda estão
-// no banco. O caminho é salvar duas vezes — a primeira grava os blocos, a
-// segunda grava o gatilho —, e é por isso que `quadro.tsx` não desiste do
-// salvamento dos blocos quando esta função recusa, e diz na tela o que faltou.
-// ---------------------------------------------------------------------------
-export async function salvarConfiguracao(
+export async function salvarAutomacao(
   automationId: string,
+  passos: unknown,
   configuracao: unknown
 ): Promise<Resultado> {
   await ensureSchema();
@@ -180,59 +137,70 @@ export async function salvarConfiguracao(
   const post = gatilho === "comment" ? midiaEscolhida(c.post) : null;
   const story = gatilho === "story" ? midiaEscolhida(c.story) : null;
 
-  // o account_id no where impede ler automação de outra conta
-  const atual = (await sql().query(
-    `select triggers, steps from automations where id = $1 and account_id = $2`,
-    [automationId, accountId]
-  )) as { triggers: string[]; steps: unknown }[];
-  if (!atual[0]) return { ok: false, erro: "Automação não encontrada." };
+  // A CONFERÊNCIA DO PAR FINAL, UMA VEZ SÓ: os blocos que vão ser gravados
+  // contra o gatilho que vai ser gravado. Nada do que está no banco entra aqui —
+  // ele está prestes a deixar de valer.
+  const erros = conferirLista(passos, gatilho).filter((p) => p.nivel === "erro");
+  if (erros.length) return { ok: false, erro: erros[0].mensagem };
 
-  const gatilhoAtual = atual[0].triggers[0] ?? "dm";
-  if (gatilho !== gatilhoAtual) {
-    // A chave junta índice e mensagem porque é o par que identifica o problema:
-    // o mesmo texto em dois blocos diferentes são dois erros, e o mesmo bloco
-    // pode acumular mais de um.
-    const chave = (p: { indice: number | null; mensagem: string }) => `${p.indice}·${p.mensagem}`;
-    const jaHavia = new Set(
-      conferirLista(atual[0].steps, gatilhoAtual)
-        .filter((p) => p.nivel === "erro")
-        .map(chave)
-    );
-    const novos = conferirLista(atual[0].steps, gatilho).filter(
-      (p) => p.nivel === "erro" && !jaHavia.has(chave(p))
-    );
-    if (novos.length) {
-      return {
-        ok: false,
-        erro: `O gatilho novo não vale para os blocos que estão gravados. ${novos[0].mensagem}`,
-      };
+  try {
+    await sql().begin(async (tx) => {
+      // ESCOPO 1 — SÓ `steps`. O `returning id` faz o serviço da consulta de
+      // existência que havia antes: zero linhas significa automação que não
+      // existe OU que é de outra conta, e as duas dão a mesma resposta de
+      // propósito — distingui-las contaria a quem tentou que aquele id existe.
+      //
+      // o account_id no where impede gravar em automação de outra conta
+      const linhas = (await tx.query(
+        `update automations set steps = $1, updated_at = now()
+         where id = $2 and account_id = $3
+         returning id`,
+        [passos, automationId, accountId]
+      )) as { id: string }[];
+      // Lançar aqui é o que DESFAZ a transação. Devolver não desfaria: o `update`
+      // seguinte é que ficaria de fora, e o primeiro valeria sozinho.
+      if (!linhas[0]) throw new Error(NAO_ENCONTRADA);
+
+      // ESCOPO 2 — SÓ as colunas da automação, NUNCA `steps`.
+      //
+      // o account_id no where impede gravar em automação de outra conta
+      await tx.query(
+        `update automations set
+           name = $1, active = $2, triggers = $3, keywords = $4, match_type = $5,
+           media_id = $6, media_thumbnail_url = $7, media_caption = $8,
+           story_id = $9, story_thumbnail_url = $10, updated_at = now()
+         where id = $11 and account_id = $12`,
+        [
+          nome,
+          ativo,
+          [gatilho],
+          palavras,
+          correspondencia,
+          post?.id ?? null,
+          post?.thumb ?? null,
+          post?.caption ?? null,
+          story?.id ?? null,
+          story?.thumb ?? null,
+          automationId,
+          accountId,
+        ]
+      );
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === NAO_ENCONTRADA) {
+      return { ok: false, erro: NAO_ENCONTRADA };
     }
+    // FALHA DO BANCO VIRA RECUSA, e não exceção que sobe. Duas razões: a
+    // transação já garante que NADA foi gravado, então há uma frase honesta a
+    // dizer; e uma exceção atravessando o Server Action chegaria ao quadro como
+    // rejeição não tratada dentro da transição, deixando a tela sem recado
+    // nenhum sobre um salvamento que não aconteceu.
+    //
+    // O erro de verdade vai para o log do servidor: engoli-lo aqui esconderia o
+    // motivo de quem pode consertá-lo.
+    console.error("[salvarAutomacao]", err);
+    return { ok: false, erro: "Não deu para salvar agora — tente de novo." };
   }
-
-  // o account_id no where impede gravar em automação de outra conta
-  const linhas = (await sql().query(
-    `update automations set
-       name = $1, active = $2, triggers = $3, keywords = $4, match_type = $5,
-       media_id = $6, media_thumbnail_url = $7, media_caption = $8,
-       story_id = $9, story_thumbnail_url = $10, updated_at = now()
-     where id = $11 and account_id = $12
-     returning id`,
-    [
-      nome,
-      ativo,
-      [gatilho],
-      palavras,
-      correspondencia,
-      post?.id ?? null,
-      post?.thumb ?? null,
-      post?.caption ?? null,
-      story?.id ?? null,
-      story?.thumb ?? null,
-      automationId,
-      accountId,
-    ]
-  )) as { id: string }[];
-  if (!linhas[0]) return { ok: false, erro: "Automação não encontrada." };
 
   revalidatePath("/automacoes");
   return { ok: true };
@@ -240,7 +208,7 @@ export async function salvarConfiguracao(
 
 // Cria a automação com o mínimo e manda para o quadro.
 //
-// POR QUE CRIAR ANTES DE EDITAR: `salvarPassos` precisa de um id, e automação
+// POR QUE CRIAR ANTES DE EDITAR: `salvarAutomacao` precisa de um id, e automação
 // nova não tem. A alternativa seria segurar a lista em memória esperando um id
 // aparecer — e aí o primeiro salvamento teria de criar e gravar de uma vez, com
 // dois caminhos diferentes para a mesma tela.

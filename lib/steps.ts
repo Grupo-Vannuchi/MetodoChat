@@ -822,7 +822,7 @@ function atravessandoOPortao(passos: unknown, destino: number): Retomada {
 // mesmo save não causava nada disso.
 //
 // O QUE FECHOU A JANELA foi o formulário sair. Quem grava a lista agora é
-// `salvarPassos` (app/automacoes/actions.ts), que escreve o `steps` COMO ELE VEIO
+// `salvarAutomacao` (app/automacoes/actions.ts), que escreve o `steps` COMO ELE VEIO
 // do quadro, e o quadro espalha cada bloco preservando o `id` — `arranjoAutomatico`
 // só acrescenta `pos`, `moverBloco` e `moverPara` só mexem em posição e ordem, e
 // o painel troca campos do bloco sem tocar na identidade. Só a partir daí "o

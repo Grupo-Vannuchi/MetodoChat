@@ -5,7 +5,7 @@ import { pageTitle, pageSubtitle, muted } from "../../ui";
 export const dynamic = "force-dynamic";
 
 // ESTA PÁGINA NÃO MONTA O QUADRO, e a decisão está escrita em `./form-nova`:
-// `salvarPassos` precisa de um id, e automação nova não tem. Aqui se cria a
+// `salvarAutomacao` precisa de um id, e automação nova não tem. Aqui se cria a
 // automação com o mínimo; o quadro abre em `/automacoes/<id>`, para onde
 // `criarAutomacao` (app/automacoes/actions.ts) redireciona.
 //

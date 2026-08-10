@@ -16,7 +16,7 @@ import {
 
 // O PASSO CURTO ANTES DO QUADRO — nome, gatilho e palavras-chave, e nada mais.
 //
-// POR QUE ELE EXISTE: `salvarPassos` (app/automacoes/actions.ts) precisa de um
+// POR QUE ELE EXISTE: `salvarAutomacao` (app/automacoes/actions.ts) precisa de um
 // id de automação, e automação nova não tem nenhum. Criar primeiro e editar
 // depois é mais honesto do que segurar a lista de blocos em memória esperando um
 // id aparecer — nesse caminho o primeiro salvamento teria de criar e gravar de

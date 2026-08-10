@@ -80,8 +80,8 @@ export default async function EditarAutomacaoPage({
 
   // O GATILHO É O PRIMEIRO DE `triggers`, e o padrão é `dm`. A coluna é um
   // array por herança — automação antiga chegou a ter vários —, mas o editor
-  // trabalha com um só, como o formulário também fazia. É a mesma leitura que
-  // `salvarPassos` e `salvarConfiguracao` (../actions.ts) fazem no servidor.
+  // trabalha com um só, como o formulário também fazia. É o mesmo gatilho que
+  // `salvarAutomacao` (../actions.ts) grava de volta, num elemento só.
   const configuracaoInicial: Configuracao = {
     nome: a.name,
     ativo: a.active,

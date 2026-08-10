@@ -10,12 +10,33 @@ import { randomBytes } from "node:crypto";
 // statements — daí o `prepare: false`. Sem ele o app não quebra na primeira
 // requisição, e sim sob concorrência, que é o tipo de falha mais caro de achar.
 
+// O que roda DENTRO de uma transação. Tem só `query` de propósito: quem está
+// numa transação escreve consultas montadas, e expor o template marcado aqui
+// convidaria a passar o `sql` de fora para dentro sem perceber — que é o jeito
+// de emitir uma consulta FORA da transação achando que está dentro.
+type SqlTx = {
+  query: (text: string, params?: unknown[]) => Promise<unknown[]>;
+};
+
 // A interface é a mesma de sempre: template marcado para consulta fixa, e
 // .query(texto, params) para consulta montada. Os 73 pontos de chamada não
 // sabem qual driver está por baixo.
+//
+// `begin` é a terceira porta, e ela existe por um caso só: duas escritas que
+// precisam valer JUNTAS ou não valer (`salvarAutomacao`, app/automacoes/
+// actions.ts, grava `steps` e as colunas do gatilho no mesmo salvamento — e o
+// par é conferido como par). Tudo o que ela faz é abrir a transação do driver e
+// entregar um `query` preso à MESMA conexão; qualquer exceção lá dentro desfaz
+// as duas.
+//
+// Ela funciona com o pooler em MODO TRANSAÇÃO — que é o que está na frente
+// deste banco (ver o `prepare: false` acima) — porque `begin` reserva a conexão
+// enquanto o bloco roda. É o `prepare` que o modo transação não suporta, não a
+// transação em si.
 type Sql = {
   (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
   query: (text: string, params?: unknown[]) => Promise<unknown[]>;
+  begin: <T>(fn: (tx: SqlTx) => Promise<T>) => Promise<T>;
 };
 
 let _sql: Sql | null = null;
@@ -109,6 +130,17 @@ export function sql(): Sql {
       {
         query: (text: string, params?: unknown[]) =>
           cliente.unsafe(text, (params ?? []) as postgres.ParameterOrJSON<never>[]),
+        // O `tx` que chega ao bloco é a conexão reservada da transação, e é por
+        // ela que as consultas passam. O molde do retorno é necessário porque o
+        // driver tipa `begin` como "desembrulha se for array" — regra que ele
+        // não consegue reduzir sobre um genérico, e aqui T nunca é array.
+        begin: <T,>(fn: (tx: SqlTx) => Promise<T>): Promise<T> =>
+          cliente.begin((tx) =>
+            fn({
+              query: (text: string, params?: unknown[]) =>
+                tx.unsafe(text, (params ?? []) as postgres.ParameterOrJSON<never>[]),
+            })
+          ) as Promise<T>,
       }
     );
   }
@@ -405,7 +437,7 @@ const DDL = [
   // sorteava um id NOVO para todo bloco a cada salvamento, e cada save orfanava
   // o cursor de quem estivesse em fluxo — a identidade também entra na
   // `passoKey`, então o `on conflict` deixava de casar e a boas-vindas saía uma
-  // segunda vez. O formulário saiu; quem grava agora é `salvarPassos`
+  // segunda vez. O formulário saiu; quem grava agora é `salvarAutomacao`
   // (app/automacoes/actions.ts), que escreve a lista COMO ELA VEIO do quadro, e
   // o quadro espalha cada bloco preservando o `id`. Reordenar e editar deixaram
   // de reescrever identidade.
