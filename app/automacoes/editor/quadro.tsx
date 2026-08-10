@@ -674,7 +674,17 @@ export default function Quadro({
       <Painel
         passo={indiceSelecionado === -1 ? null : passos[indiceSelecionado]}
         indice={indiceSelecionado}
-        configuracao={selecionado === ID_DO_GATILHO ? configuracao : null}
+        // A LISTA INTEIRA vai junto, e é por causa da prévia: ela desenha a
+        // conversa toda, não só o bloco aberto. É o MESMO `passos` que os nós
+        // usam — uma segunda cópia faria a prévia atrasar um render em relação
+        // ao quadro, e o retorno ao vivo é a razão de ela existir.
+        passos={passos}
+        // A CONFIGURAÇÃO VAI SEMPRE, e não só quando o gatilho está
+        // selecionado: a prévia precisa do gatilho para saber se a conversa
+        // começa num comentário, numa resposta de story ou numa DM. Quem diz
+        // que os CAMPOS da automação devem aparecer é `editandoGatilho`.
+        configuracao={configuracao}
+        editandoGatilho={selecionado === ID_DO_GATILHO}
         problemas={problemasDoPainel}
         aoMudar={mudarPasso}
         aoMudarConfiguracao={setConfiguracao}

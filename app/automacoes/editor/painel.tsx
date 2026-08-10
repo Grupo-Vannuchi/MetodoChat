@@ -2,35 +2,25 @@
 import type { Passo, Problema } from "@/lib/steps";
 import type { Picked } from "../types";
 import { resumoDoBloco } from "./modelos";
+import Previa from "./previa";
 import MessageField from "../variable-picker";
 import MediaPicker from "../media-picker";
-import { input, label as labelCls, hint as hintCls } from "../../ui";
+import { input, label as labelCls, hint as hintCls, divider } from "../../ui";
 
-// Os campos do bloco selecionado.
+// Os campos do bloco selecionado, e abaixo deles a prévia da conversa.
 //
 // Abre SOBRE o quadro, à direita, em vez de dividir a tela: fechado, o quadro é
 // inteiro. Num editor espacial a área de trabalho é o produto.
 //
 // ---------------------------------------------------------------------------
-// A PRÉVIA DA CONVERSA NÃO ESTÁ AQUI, e a ausência é achado, não esquecimento.
+// A PRÉVIA MOSTRA A LISTA INTEIRA, e não só o bloco aberto. Quem está editando
+// precisa ver onde aquele bloco CAI — uma mensagem isolada não diz se ela sai
+// antes ou depois do portão, nem se alguma coisa antes dela trava o fluxo.
 //
-// `phone-preview.tsx` NÃO aceita `Passo[]`. Ela recebe treze props achatadas —
-// `welcomeText`, `quickReplyLabel`, `linkText`/`linkButtonLabel`/`linkUrl`,
-// `reminderText`/`reminderDelay`, `requireFollow`/`followText`/
-// `followButtonLabel`, `askEmail`/`emailText`, `storyReaction` — e desenha as
-// bolhas numa ORDEM FIXA, escrita no JSX dela. São as caixas do formulário
-// antigo, uma a uma.
-//
-// Isso não é uma prop faltando, é a forma do dado: o quadro monta uma lista
-// ORDENADA e REPETÍVEL (duas mensagens seguidas, um link antes do portão, uma
-// espera no meio), e a prévia tem um slot só por papel e uma ordem que não se
-// mexe. Alimentá-la com o que der certo desenharia uma conversa que não é a que
-// a lista executa — a tela mentindo sobre o fluxo, que é o defeito que este
-// editor inteiro existe para não cometer.
-//
-// Fazer a prévia ler `Passo[]` é trabalho próprio (reescrever o corpo dela, com
-// o formulário antigo ainda dependendo da forma atual), e a Tarefa 7 mandou
-// REPORTAR em vez de adaptar. Está reportado.
+// Ela é `./previa`, e não `phone-preview.tsx`: aquela recebe treze props
+// achatadas e monta a conversa numa ordem fixa escrita no JSX: é o formulário
+// antigo, caixa por caixa, e ela morre junto com ele na Tarefa 8. O motivo
+// inteiro está no comentário de `./previa`.
 // ---------------------------------------------------------------------------
 
 // O que a automação é, fora da lista de blocos. Editado quando o nó de GATILHO
@@ -73,7 +63,9 @@ function Aviso({ tom, children }: { tom: "ambar" | "teal"; children: React.React
 export default function Painel({
   passo,
   indice,
+  passos,
   configuracao,
+  editandoGatilho,
   problemas,
   aoMudar,
   aoMudarConfiguracao,
@@ -81,19 +73,35 @@ export default function Painel({
 }: {
   // O bloco selecionado, ou null quando o selecionado é o gatilho (ou nada).
   passo: Passo | null;
-  // O índice dele na lista, só para o cabeçalho dizer de qual bloco se trata.
+  // O índice dele na lista. O cabeçalho o usa para dizer de qual bloco se
+  // trata, e a prévia para acender a cena daquele bloco. -1 quando não há bloco
+  // selecionado.
   indice: number;
-  // Não-nula quando o nó selecionado é o GATILHO.
-  configuracao: Configuracao | null;
+  // A LISTA INTEIRA, para a prévia. Não é a mesma coisa que `passo`, e a
+  // diferença é o ponto: os campos editam UM bloco, a prévia mostra a conversa
+  // TODA.
+  passos: Passo[];
+  // SEMPRE PRESENTE desde a prévia, e antes dela era `Configuracao | null`
+  // fazendo as vezes de "o gatilho está selecionado". Os dois papéis se
+  // separaram porque a prévia precisa do gatilho, das palavras-chave e da mídia
+  // escolhida O TEMPO TODO — é o gatilho que decide se a conversa começa com um
+  // comentário no post, uma resposta de story ou uma DM. Com a configuração
+  // nula fora do nó de gatilho, a prévia desenharia a cena errada em todo bloco
+  // que a pessoa abrisse.
+  configuracao: Configuracao;
+  // Quem diz que o nó selecionado é o GATILHO — o papel que a nulidade de
+  // `configuracao` cumpria antes. Explícito é mais barato do que deduzido: os
+  // campos da automação aparecem só com isto ligado.
+  editandoGatilho: boolean;
   problemas: Problema[];
   aoMudar: (p: Passo) => void;
   aoMudarConfiguracao: (c: Configuracao) => void;
   aoFechar: () => void;
 }) {
-  if (!passo && !configuracao) return null;
+  if (!passo && !editandoGatilho) return null;
 
   return (
-    <aside className="absolute right-0 top-0 z-20 flex h-full w-80 flex-col gap-3 overflow-y-auto border-l border-zinc-200 bg-white p-4 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+    <aside className="absolute right-0 top-0 z-20 flex h-full w-96 flex-col gap-3 overflow-y-auto border-l border-zinc-200 bg-white p-4 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-start justify-between gap-2">
         <div className="text-[10px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">
           {passo ? `${indice + 1}. ${resumoDoBloco(passo).titulo}` : "GATILHO"}
@@ -297,7 +305,7 @@ export default function Painel({
       {/* passos: são colunas diferentes, e uma gravação parcial deixaria      */}
       {/* metade de cada coisa no banco.                                       */}
       {/* ------------------------------------------------------------------ */}
-      {configuracao && (
+      {editandoGatilho && (
         <>
           <div>
             <label className={labelCls}>Nome da automação</label>
@@ -442,6 +450,35 @@ export default function Painel({
           {p.mensagem}
         </p>
       ))}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* A PRÉVIA, DEPOIS DOS CAMPOS E DEPOIS DOS PROBLEMAS.                 */}
+      {/*                                                                     */}
+      {/* A ordem é por leitura: primeiro o que se edita, depois o que está    */}
+      {/* errado naquele bloco, e por último a conversa inteira. A prévia é a  */}
+      {/* peça mais alta do painel — pô-la antes empurraria os campos e o erro */}
+      {/* para fora da tela justamente quando eles são o que importa.          */}
+      {/*                                                                     */}
+      {/* ELA MOSTRA A LISTA COMO ELA ESTÁ, inclusive o que ainda não foi      */}
+      {/* salvo. É para isso que ela existe: dar retorno enquanto se monta.    */}
+      {/* ------------------------------------------------------------------ */}
+      <div className={`mt-1 pt-3 ${divider}`}>
+        <p className="mb-1 text-[10px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">
+          PRÉVIA DA CONVERSA
+        </p>
+        <p className={`${hintCls} mb-3 mt-0`}>
+          Como a lista fica para quem recebe, agora — antes de salvar.
+        </p>
+        <Previa
+          passos={passos}
+          gatilho={configuracao.gatilho}
+          palavras={configuracao.palavras}
+          correspondencia={configuracao.correspondencia}
+          post={configuracao.post}
+          story={configuracao.story}
+          indiceSelecionado={indice}
+        />
+      </div>
     </aside>
   );
 }

@@ -55,7 +55,14 @@ export type Posicao = { x: number; y: number };
 //
 // A distinção não foi inventada aqui: é exatamente como o formulário já grava,
 // boas-vindas com rótulo e sem url, link com rótulo e com url.
-function esperaResposta(p: Passo): boolean {
+//
+// EXPORTADA desde a prévia da conversa (app/automacoes/editor/roteiro.ts), e a
+// alternativa era pior: a prévia precisa dizer QUAIS BLOCOS PARAM O FLUXO —
+// essa é metade da razão de ela existir —, e escrever `Boolean(botao_label) &&
+// !url` lá dentro poria a regra mais importante da tela numa segunda cópia. O
+// dia em que as duas discordassem, a prévia mostraria uma conversa que o motor
+// não executa, sem nada acusar.
+export function esperaResposta(p: Passo): boolean {
   if (p.tipo === "pedir_follow" || p.tipo === "pedir_email") return true;
   if (p.tipo === "dm") return Boolean(p.botao_label) && !p.url;
   return false;
@@ -91,7 +98,15 @@ export type Resultado = {
 // Os dois saem do MESMO `return` de propósito. Numa tabela à parte, ligada por
 // chave, uma falha nova ganharia entrada de um lado e não do outro, e a tela
 // voltaria a vazar jargão — ou pior, mostraria a frase de outra falha.
-function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODono?: string } {
+//
+// EXPORTADA desde a prévia da conversa (app/automacoes/editor/roteiro.ts).
+// `conferirLista` não serve para o que a prévia precisa, e a diferença é de
+// significado: ela devolve ERRO para coisas que o motor ENVIA — o `dm` de link
+// sem endereço é enviado (e trava o fluxo, que é o motivo do erro) —, enquanto
+// a prévia precisa saber exatamente o que `interpretar` IGNORA, para não
+// desenhar como mensagem um bloco que nunca sai. Quem responde isso é esta
+// função, e o `paraODono` já vem na língua de quem monta a automação.
+export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODono?: string } {
   if (!p || typeof p !== "object") {
     return {
       motivo: "passo não é um objeto",
