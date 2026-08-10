@@ -270,6 +270,41 @@ export function identidadeDoPasso(passo: unknown, indice: number): string {
   return typeof id === "string" && FORMA_DO_ID.test(id) ? id : String(indice);
 }
 
+// Quantas vezes já pedimos follow a esta pessoa HOJE.
+//
+// O contador vive numa coluna que nunca zerava, e o dia gravado é o que lhe dá
+// validade. Dia diferente — ou nenhum dia, que é o caso de todo contato anterior
+// a esta mudança — significa que o acumulado não é de hoje, e hoje começa do
+// zero.
+//
+// O balde de dia é o de Brasília, o mesmo das chaves de deduplicação
+// (`diaDaChave`, lib/dedupe.ts). Quem chama passa o valor pronto; esta função é
+// pura e não lê relógio.
+//
+// Lixo vindo do banco vira zero em vez de estourar: a coluna é `int not null`
+// hoje, mas esta função é a única barreira entre o banco e uma decisão de envio.
+export function tentativasDeHoje(gravadas: unknown, diaGravado: unknown, hoje: string): number {
+  if (diaGravado !== hoje) return 0;
+  if (typeof gravadas !== "number" || !Number.isFinite(gravadas) || gravadas < 0) return 0;
+  return Math.floor(gravadas);
+}
+
+// O que o portão faz com quem NÃO segue.
+//
+// `pedir` enquanto ainda cabe pedido no dia. `soltar` a partir do limite — e
+// soltar é a mudança: antes o portão parava de pedir e CONTINUAVA segurando o
+// cursor, o que capturava a pessoa sem lhe dar explicação nenhuma. O ramo de
+// texto lê toda mensagem de quem está parado num portão como resposta a ele, e
+// `interrompeOFluxo` só cede a vez a outra automação quando o passo parado é
+// `dm` — então nem a palavra-chave de outra automação a alcançava.
+//
+// Soltar não entrega o link: quem não segue continua sem receber. O que ela
+// devolve é a liberdade de ser alcançada por qualquer outra automação, e a de
+// tentar de novo amanhã.
+export function oQuePortaoFaz(tentativasDeHoje: number, maximo: number): "pedir" | "soltar" {
+  return tentativasDeHoje < maximo ? "pedir" : "soltar";
+}
+
 // Onde, na lista de hoje, está o bloco com esta identidade.
 //
 // COM ID, a garantia é firme, e é a razão desta fase existir: null quando o
@@ -675,10 +710,17 @@ export function cursorDaRetomada(
 //     para trás não era consultado nenhuma vez; agora é consultado toda vez.
 //   O CONTADOR SOBE em quem deixou de seguir. Quem passou pelo portão e depois
 //     deu unfollow é empurrado de volta a ele com `follow_attempts`
-//     incrementado — e esse contador é por CONTATO, não zera por dia nem por
-//     automação. Ou seja: a regra AUMENTA a exposição à armadilha silenciosa
-//     descrita em `zerarTentativasFollow` (lib/engine.ts), em que passado o
-//     limite a pessoa para de receber qualquer aviso do que falta fazer.
+//     incrementado. O contador continua sendo por CONTATO — quem gastou os
+//     pedidos numa automação gastou em todas —, mas ele já ZERA POR DIA
+//     (`follow_attempts_dia`, lib/db.ts), e o preço parou aqui: esgotadas as
+//     tentativas do dia, o portão SOLTA o cursor em vez de gravá-lo
+//     (`oQuePortaoFaz`, abaixo). A armadilha silenciosa que este parágrafo
+//     descrevia — parar de pedir e continuar segurando — não existe mais, e o
+//     que ela era está escrito em `zerarTentativasFollow` (lib/engine.ts).
+//   A POSIÇÃO DE QUEM ESTÁ ADIANTE se perde quando o portão barra ou solta, e é
+//     o único preço que a regra cobra de quem já tinha passado: o cursor vira o
+//     portão (barrado) ou nada (solto). Ele não é novo — barrar já sobrescrevia
+//     o cursor desde que a regra existe.
 // ---------------------------------------------------------------------------
 export type Retomada = {
   // O portão a atravessar antes, ou null quando não há nenhum no caminho.

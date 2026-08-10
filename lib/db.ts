@@ -238,6 +238,7 @@ export type Contact = {
   email: string | null;
   awaiting: string | null;
   follow_attempts: number;
+  follow_attempts_dia: string | null;
   first_contact_at: Date;
   last_reply_at: Date | null;
   last_automation_id: string | null;
@@ -455,6 +456,18 @@ const DDL = [
   // migrada, e falha na direção segura: cursor que não resolve nunca pula
   // passo.
   `alter table contacts add column if not exists flow_step_id text`,
+  // Em que DIA as tentativas de follow contadas em `follow_attempts` foram
+  // feitas. Sem isto o contador nunca zerava, e quem estourasse o limite ficava
+  // sem receber o pedido para sempre — em toda automação, todo dia.
+  //
+  // Texto e não data: guarda o balde de dia de Brasília no mesmo formato das
+  // chaves de deduplicação (`diaDaChave`, lib/dedupe.ts), e os dois precisam
+  // continuar concordando.
+  //
+  // Nulo em todo contato anterior a esta mudança, e `tentativasDeHoje`
+  // (lib/steps.ts) trata nulo como zero de propósito: o acumulado antigo não é
+  // de hoje.
+  `alter table contacts add column if not exists follow_attempts_dia text`,
 ];
 
 type SqlClient = ReturnType<typeof sql>;

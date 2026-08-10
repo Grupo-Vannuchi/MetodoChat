@@ -54,6 +54,18 @@ const EVENT: Record<string, Badge> = {
     label: "Portão de follow não pôde ser avaliado",
     className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
   },
+  // A pessoa não segue, os pedidos de follow do dia acabaram e o fluxo a
+  // SOLTOU: em vez de continuar segurando o cursor no portão sem lhe pedir mais
+  // nada, o motor limpou o cursor. Ela não recebeu o link, e voltou a ser
+  // alcançável por qualquer automação — amanhã o portão pede de novo.
+  //
+  // Âmbar e não vermelho: nada quebrou, e ninguém deixou de receber o que tinha
+  // direito de receber. É a linha que impede a pessoa de simplesmente sumir do
+  // fluxo aos olhos de quem lê o painel.
+  portao_soltou: {
+    label: "Portão de follow soltou o contato",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+  },
 };
 
 const UNKNOWN: Badge = {

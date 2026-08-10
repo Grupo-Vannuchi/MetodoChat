@@ -40,6 +40,8 @@ import {
   identidadeDoPasso,
   indiceDoId,
   lerPayload,
+  tentativasDeHoje,
+  oQuePortaoFaz,
   type AcaoEnfileirar,
   type Cursor,
   type Retomada,
@@ -419,15 +421,29 @@ async function executarFluxo(
   // mensagem repetida a ninguém.
   //
   // BARRADO, para no portão exatamente como o ramo de dentro (mais abaixo): o
-  // cursor passa a ser o portão, e a pessoa destrava seguindo o perfil e
-  // voltando a falar.
+  // cursor passa a ser o portão, o pedido SAIU, e a pessoa destrava seguindo o
+  // perfil e voltando a falar.
   //
-  // O QUE NÃO SE PODE DIZER AQUI, e a frase anterior dizia: que `resolverFollow`
-  // "já enfileirou o pedido". Ele só enfileira enquanto `follow_attempts` não
-  // passa de `MAX_FOLLOW_REQUESTS`; passado o limite ele barra e NÃO manda nada,
-  // e o fluxo para em silêncio — a pessoa deixa de receber qualquer aviso do que
-  // falta fazer. O contador é por CONTATO, não zera por dia nem por automação, e
-  // a armadilha inteira está escrita em `zerarTentativasFollow`.
+  // SOLTO é a terceira resposta, e ela é nova: esgotadas as tentativas do dia,
+  // `resolverFollow` não tem pedido nenhum a enfileirar, e segurar o cursor
+  // seria segurar calado. Aqui o cursor é LIMPO e o fluxo para — o destino fica
+  // do outro lado de um portão que a pessoa não venceu, e ele continua não sendo
+  // entregue.
+  //
+  // QUEM ESTÁ ADIANTE DO PORTÃO perde a posição dele, e isso é preciso estar
+  // dito porque parece perda nova, e não é: barrado, este ramo já sobrescrevia o
+  // cursor com o PORTÃO (`gravarCursor` logo abaixo), então a posição adiante já
+  // se perdia do mesmo jeito. O que muda é o destino da pessoa — antes ela
+  // ficava parada num portão que não pergunta mais nada, e o ramo de texto lia
+  // toda mensagem dela como resposta a ele; agora ela fica sem cursor, e
+  // qualquer palavra-chave de qualquer automação volta a alcançá-la.
+  //
+  // E LIMPAR é mais seguro do que deixar o cursor intacto, que era a alternativa
+  // óbvia para preservar a posição: o destino de uma retomada adiante do portão
+  // pode ser um `pedir_email` ou um SEGUNDO `pedir_follow`, e os dois capturam
+  // toda mensagem pelo mesmo motivo (`interrompeOFluxo` só cede a vez quando o
+  // passo parado é `dm`). Preservar a posição reabriria a captura justamente
+  // para esses casos.
   //
   // O `pedir_follow` conferido é obrigação de TIPO e não desconfiança:
   // `retomada.portao` só é não-nulo quando `indiceDoPortao` (lib/steps.ts) o
@@ -505,10 +521,18 @@ async function executarFluxo(
       );
       return;
     }
-    const passou = await resolverFollow(
+    const r = await resolverFollow(
       account, auto, contactIgId, portao, retomada.portao, contexto
     );
-    if (!passou) {
+    if (r === "soltar") {
+      // Solta em vez de gravar o cursor, e NÃO segue para o destino: o portão
+      // não foi vencido. A pessoa deixa de ser capturada e volta a ser
+      // alcançável por qualquer automação; amanhã o contador do dia zera e o
+      // portão volta a pedir.
+      await limparCursor(account.ig_user_id, contactIgId);
+      return;
+    }
+    if (r === "barrar") {
       await gravarCursor(
         account.ig_user_id, contactIgId, auto.id,
         identidadeDoPasso(portao, retomada.portao)
@@ -557,19 +581,26 @@ async function executarFluxo(
 
     if (p.tipo === "pedir_follow") {
       // O portão é o único passo que consulta a Meta antes de decidir.
-      const passou = await resolverFollow(account, auto, contactIgId, p, acao.indice, contexto);
+      const r = await resolverFollow(account, auto, contactIgId, p, acao.indice, contexto);
       // Passou: `interpretar` PAROU neste passo, então o resto da lista sequer
       // foi olhado — este é o último item que ele devolveu, e seguir o laço não
       // faria nada. Retoma do próximo índice, senão vencer o portão seria o fim
       // do fluxo e o link nunca chegaria a quem seguiu.
-      if (passou) return executarFluxo(account, auto, contactIgId, acao.indice + 1, contexto);
-      // BARRADO: o cursor passa a ser o portão e o fluxo para nele.
-      //
-      // E aqui vale a mesma ressalva do portão de passagem (comentário no topo
-      // desta função): parar no portão NÃO garante que um pedido tenha saído.
-      // `resolverFollow` só enfileira enquanto `follow_attempts` não passa de
-      // `MAX_FOLLOW_REQUESTS` — passado o limite ele barra calado, e a pessoa
-      // fica sem saber o que falta fazer. Ver `zerarTentativasFollow`.
+      if (r === "passou") return executarFluxo(account, auto, contactIgId, acao.indice + 1, contexto);
+      if (r === "soltar") {
+        // Solta em vez de gravar o cursor: a pessoa deixa de ser capturada por
+        // este portão e volta a ser alcançável por qualquer automação. Ela não
+        // recebe o link — o portão fez o trabalho dele —, e se reacionar a
+        // automação depois, o portão roda de novo e solta de novo. Nunca prende.
+        await limparCursor(account.ig_user_id, contactIgId);
+        return;
+      }
+      // BARRADO: o cursor passa a ser o portão e o fluxo para nele. Aqui o
+      // pedido SAIU — `resolverFollow` só devolve `barrar` depois de enfileirá-lo
+      // —, então parar no portão é parar esperando uma resposta que foi pedida.
+      // Era esta a garantia que faltava: passado o limite, o motor barrava calado
+      // e a pessoa ficava sem saber o que faltava fazer. Hoje esse caso é
+      // `soltar`, logo acima.
       await gravarCursor(
         account.ig_user_id, contactIgId, auto.id,
         identidadeDoPasso(p, acao.indice)
@@ -880,26 +911,45 @@ async function enfileirarPasso(
 // Sem isto o contador só sobe: `clearFollowState` saiu junto com o fluxo antigo
 // e nada mais repõe o valor.
 //
-// O QUE ISTO NÃO RESOLVE, e é preciso estar escrito com a medida certa: o
-// contador só volta a zero quando o portão PASSA — a pessoa seguiu, ou a Meta
-// não informou. Estourado o MAX_FOLLOW_REQUESTS, o que fica cortado é a
-// MENSAGEM de pedido, não a reconsulta: `resolverFollow` consulta a Meta ANTES
-// de olhar `follow_attempts`, então toda passagem pelo portão pergunta de novo.
+// NÃO ZERA `follow_attempts_dia` JUNTO, e não precisa. Quem lê as duas colunas é
+// `tentativasDeHoje` (lib/steps.ts), e ela é a ÚNICA leitora delas no sistema
+// inteiro — `resolverFollow`, logo abaixo, é a única consulta que as seleciona.
+// Com o contador em zero ela devolve zero pelos DOIS caminhos: dia diferente sai
+// no primeiro `return 0`, e dia igual passa pelas guardas (zero é número finito
+// e não é negativo) e devolve `Math.floor(0)`. Não há valor de dia que faça um
+// contador zerado parecer tentativa gasta, então zerar o dia junto seria escrita
+// sem efeito nenhum. E o `where follow_attempts > 0` do fim não abre exceção a
+// isso: quando ele não escreve, é porque o contador já era zero.
 //
-// A saída, portanto, existe e não precisa de banco: seguir o perfil e mandar
-// QUALQUER mensagem de texto. Quem está parado num `pedir_follow` captura
-// qualquer texto (a condição de interrupção do ramo do cursor só olha passo
-// `dm`), e o ramo retoma DO PRÓPRIO portão — o que chama `resolverFollow`,
-// zera o contador e segue o fluxo. O botão é conveniência, não a única porta.
+// O QUE ERA, e vale ficar registrado porque foi o defeito mais caro desta fase:
+// o contador nunca zerava por conta própria, só quando o portão PASSAVA. Passado
+// o `MAX_FOLLOW_REQUESTS`, o motor parava de mandar o pedido E CONTINUAVA
+// gravando o cursor no portão. A pessoa ficava capturada — o ramo de texto lia
+// toda mensagem dela como resposta ao portão, e `interrompeOFluxo` só cede a vez
+// a outra automação quando o passo parado é `dm`, então nem a palavra-chave de
+// outra automação a alcançava. Ela parava de ser cobrada, parava de receber
+// explicação, e ninguém a alcançava. A revisão final mediu 4.078 estados
+// alcançáveis sem saída, todos desta forma.
 //
-// O que sobra de armadilha, e não é pouco: passado o limite, a pessoa deixa de
-// receber qualquer aviso do que falta fazer — o fluxo trava em silêncio, e ela
-// só sai se tentar por conta própria. E o contador é por CONTATO, não por
-// automação nem por dia (`follow_attempts` é coluna de `contacts`): quem
-// esgotou as tentativas no portão da automação A também não recebe o pedido da
-// B, hoje nem amanhã. Um reset por balde de dia (como as chaves de deduplicação
-// já fazem) resolveria, e não foi feito aqui: mudaria o comportamento do limite,
-// e esta branch já trocou o motor.
+// O QUE PASSOU A SER, e são duas mudanças com motivos próprios: o contador é
+// POR DIA (`follow_attempts_dia`, lib/db.ts), então quem estourou o limite hoje
+// volta a ser convidado amanhã; e esgotadas as tentativas do dia o portão SOLTA
+// o cursor em vez de gravá-lo (`oQuePortaoFaz`, lib/steps.ts). A pessoa nunca
+// mais fica presa: no máximo `MAX_FOLLOW_REQUESTS` pedidos por dia, e fora
+// disso ela é alcançável por qualquer automação.
+//
+// O QUE CONTINUA VALENDO. A reconsulta nunca foi cortada pelo limite:
+// `resolverFollow` consulta a Meta ANTES de olhar o contador, então toda
+// passagem pelo portão pergunta de novo — quem seguir passa na hora, mesmo com o
+// dia esgotado. E a saída sem banco continua a mesma: seguir o perfil e mandar
+// QUALQUER mensagem de texto, que retoma do próprio portão. O botão é
+// conveniência, não a única porta.
+//
+// O QUE SOBRA, dito com a medida certa: o contador continua sendo por CONTATO,
+// não por automação (`follow_attempts` é coluna de `contacts`). Quem gastou os
+// pedidos do dia no portão da automação A não recebe o pedido da B no mesmo dia
+// — recebe amanhã, o que antes não acontecia nunca. Isto NÃO muda aqui, e mudar
+// exigiria contador por (contato, automação), ou seja, outra tabela.
 //
 // A condição no fim evita escrever à toa em quem já está zerado, que é o caso
 // comum: todo passo de follow vencido passaria por aqui.
@@ -911,8 +961,19 @@ async function zerarTentativasFollow(accountId: string, contactIgId: string) {
   );
 }
 
-// Resolve o passo de follow: consulta a Meta e decide se o fluxo segue.
-// Devolve true quando pode continuar.
+// Resolve o passo de follow: consulta a Meta e decide o que o fluxo faz.
+//
+// TRÊS respostas, e a terceira é a mudança desta tarefa:
+//
+//   `passou`  — segue, ou a Meta não informou. O fluxo continua.
+//   `barrar`  — não segue, e ainda cabe pedido hoje. O pedido foi enfileirado e
+//                quem chama grava o cursor no portão: a pessoa para nele.
+//   `soltar`  — não segue, e as tentativas do dia acabaram. NÃO há pedido a
+//                enfileirar, então segurar o cursor seria segurar calado. Quem
+//                chama LIMPA o cursor, e a pessoa volta a ser alcançável.
+//
+// A decisão entre `barrar` e `soltar` é de `tentativasDeHoje`/`oQuePortaoFaz`
+// (lib/steps.ts), que são puras e testadas. Aqui fica só o efeito.
 async function resolverFollow(
   account: Account,
   auto: Automation,
@@ -924,7 +985,7 @@ async function resolverFollow(
   passo: { id?: string; texto: string; botao_label: string },
   indice: number,
   contexto: ContextoGatilho
-): Promise<boolean> {
+): Promise<"passou" | "barrar" | "soltar"> {
   const segue = await checkFollowsAccount(contactIgId, account.access_token);
 
   if (segue === null) {
@@ -938,51 +999,79 @@ async function resolverFollow(
       indice,
     });
     await zerarTentativasFollow(account.ig_user_id, contactIgId);
-    return true;
+    return "passou";
   }
   if (segue) {
     await zerarTentativasFollow(account.ig_user_id, contactIgId);
-    return true;
+    return "passou";
   }
 
-  const rows = (await sql().query(
-    `update contacts set follow_attempts = follow_attempts + 1
-     where account_id = $1 and ig_id = $2 returning follow_attempts`,
+  // Quantos pedidos já saíram HOJE. A leitura e a decisão são de
+  // `tentativasDeHoje`/`oQuePortaoFaz` (lib/steps.ts), que são puras e testadas
+  // — aqui fica só a ida ao banco.
+  const hoje = dayBucket();
+  const linhas = (await sql().query(
+    `select follow_attempts, follow_attempts_dia from contacts
+     where account_id = $1 and ig_id = $2`,
     [account.ig_user_id, contactIgId]
-  )) as { follow_attempts: number }[];
-  const tentativa = rows[0]?.follow_attempts ?? 1;
+  )) as { follow_attempts: number; follow_attempts_dia: string | null }[];
 
-  if (tentativa <= MAX_FOLLOW_REQUESTS) {
-    // Mesma regra do passo `dm`: se o pedido de follow é o primeiro envio de uma
-    // execução nascida de comentário, ele sai como resposta privada. É o único
-    // jeito de ele chegar — e ele é um portão, então sem ele o fluxo inteiro
-    // fica parado esperando um toque num botão que nunca foi entregue.
-    const comentario = gastarRespostaPrivada(contexto);
-    await enqueue({
-      account_id: account.ig_user_id,
-      kind: comentario ? "private_reply" : "dm_follow_gate",
+  const jaFeitas = tentativasDeHoje(
+    linhas[0]?.follow_attempts,
+    linhas[0]?.follow_attempts_dia,
+    hoje
+  );
+
+  if (oQuePortaoFaz(jaFeitas, MAX_FOLLOW_REQUESTS) === "soltar") {
+    // Parou de pedir, então para de segurar. Quem chama solta o cursor.
+    //
+    // Registrado em Atividade porque, sem isso, o dono do painel vê a pessoa
+    // simplesmente sumir do fluxo — que é exatamente o sintoma que esta mudança
+    // existe para acabar.
+    await logEvent(account.ig_user_id, "portao_soltou", {
       contact_ig_id: contactIgId,
       automation_id: auto.id,
-      comment_id: comentario ?? undefined,
-      payload: {
-        text:
-          tentativa === 1
-            ? passo.texto
-            : "Ainda não consegui ver você na minha lista de seguidores 👀 Segue lá e toca no botão de novo.",
-        quick_reply_label: passo.botao_label,
-        // Mesma razão do `AUTO:` — e aqui ela paga uma dívida nomeada: o
-        // comentário de `indiceDoPortao` (lib/steps.ts) dizia que `FOLLOW:<id>`
-        // nomeia a automação e não o PORTÃO, de modo que numa lista com dois
-        // portões o toque no segundo retomava no primeiro. Com o bloco no
-        // payload, o toque nomeia o portão em que a pessoa tocou.
-        quick_reply_payload: `FOLLOW:${auto.id}:${identidadeDoPasso(passo, indice)}`,
-      },
-      dedupe_key: comentario
-        ? privateReplyKey(comentario)
-        : followGateKey(auto.id, contactIgId, dayBucket(), tentativa),
+      tentativas_hoje: jaFeitas,
     });
+    return "soltar";
   }
-  return false;
+
+  const tentativa = jaFeitas + 1;
+  await sql().query(
+    `update contacts set follow_attempts = $3, follow_attempts_dia = $4
+     where account_id = $1 and ig_id = $2`,
+    [account.ig_user_id, contactIgId, tentativa, hoje]
+  );
+
+  // Mesma regra do passo `dm`: se o pedido de follow é o primeiro envio de uma
+  // execução nascida de comentário, ele sai como resposta privada. É o único
+  // jeito de ele chegar — e ele é um portão, então sem ele o fluxo inteiro
+  // fica parado esperando um toque num botão que nunca foi entregue.
+  const comentario = gastarRespostaPrivada(contexto);
+  await enqueue({
+    account_id: account.ig_user_id,
+    kind: comentario ? "private_reply" : "dm_follow_gate",
+    contact_ig_id: contactIgId,
+    automation_id: auto.id,
+    comment_id: comentario ?? undefined,
+    payload: {
+      text:
+        tentativa === 1
+          ? passo.texto
+          : "Ainda não consegui ver você na minha lista de seguidores 👀 Segue lá e toca no botão de novo.",
+      quick_reply_label: passo.botao_label,
+      // Mesma razão do `AUTO:` — e aqui ela paga uma dívida nomeada: o
+      // comentário de `indiceDoPortao` (lib/steps.ts) dizia que `FOLLOW:<id>`
+      // nomeia a automação e não o PORTÃO, de modo que numa lista com dois
+      // portões o toque no segundo retomava no primeiro. Com o bloco no
+      // payload, o toque nomeia o portão em que a pessoa tocou.
+      quick_reply_payload: `FOLLOW:${auto.id}:${identidadeDoPasso(passo, indice)}`,
+    },
+    dedupe_key: comentario
+      ? privateReplyKey(comentario)
+      : followGateKey(auto.id, contactIgId, hoje, tentativa),
+  });
+  return "barrar";
 }
 
 // Já houve boas-vindas recentes (e o link ainda não saiu)?
