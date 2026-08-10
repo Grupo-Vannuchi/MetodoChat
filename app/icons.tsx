@@ -254,3 +254,126 @@ export function IconAlert({ className }: IconProps) {
     </Svg>
   );
 }
+
+/* ------------------------------------------------------------------------- */
+/* OS ÍCONES DOS BLOCOS — a paleta do editor (`app/automacoes/editor/paleta`)  */
+/* virou uma faixa de ícones, sem rótulo à vista, e estes são os desenhos que  */
+/* passaram a carregar o significado sozinhos.                                 */
+/*                                                                            */
+/* A REGRA QUE ORGANIZA ESTE GRUPO É A SILHUETA, e não o detalhe: na faixa     */
+/* eles saem a 22px, e a essa altura o que separa dois ícones é o CONTORNO     */
+/* GERAL — uma forma, duas formas, uma forma com algo escapando dela. Detalhe  */
+/* interno some. Por isso cada um dos oito tem um contorno diferente, e não    */
+/* só um miolo diferente.                                                      */
+/*                                                                            */
+/* DOIS DOS OITO NÃO ESTÃO AQUI, e a ausência é reúso deliberado:              */
+/*   `esperar`     → `IconClock`, logo acima. É o MESMO ícone que a prévia     */
+/*                   (`editor/previa`) usa na legenda de tempo, e desenhar um  */
+/*                   segundo relógio faria a mesma ideia ter dois desenhos.    */
+/*   `pedir_email` → `IconMail`. Idem: é o ícone da parada de e-mail da prévia.*/
+/*                                                                            */
+/* OS TRÊS DE MENSAGEM SÃO IRMÃOS DE PROPÓSITO — os três salvam `tipo: "dm"`   */
+/* (ver `editor/modelos`), e a tela é o único lugar onde a diferença entre     */
+/* eles aparece. Os três partem do MESMO balão retangular com rabinho embaixo  */
+/* à esquerda. O que muda é o que acontece FORA do balão:                      */
+/*                                                                            */
+/*   MENSAGEM ......... balão sozinho, com duas linhas de texto.               */
+/*   MENSAGEM COM BOTÃO balão + pílula solta embaixo + o toque (ponto e onda). */
+/*   MENSAGEM COM LINK. balão com a seta saindo pelo canto de cima.            */
+/*                                                                            */
+/* O DO BOTÃO É O QUE MAIS SE AFASTA, e isso não é gosto: é ele que PARA O     */
+/* FLUXO (`esperaResposta`, lib/steps.ts), e essa diferença é invisível no     */
+/* dado — ela já causou defeito, um lembrete salvo sem link que virou parada   */
+/* dura. É o único dos três com DUAS formas separadas na silhueta, e o toque   */
+/* repete o `IconTap` que a prévia usa na marca "o fluxo para aqui".           */
+/* ------------------------------------------------------------------------- */
+
+// MENSAGEM (`dm`) — o balão base da família, com duas linhas de texto.
+export function IconMensagem({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <path d="M20 4H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2v4l4.5-4H20a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Z" />
+      <path d="M6 8h10" />
+      <path d="M6 11.5h6" />
+    </Svg>
+  );
+}
+
+// MENSAGEM COM BOTÃO (`dm_botao`) — o balão sobe, e embaixo dele fica a pílula
+// de resposta rápida com o toque. Duas formas separadas: é o único da família
+// com essa silhueta, e é o que o fluxo espera.
+export function IconMensagemBotao({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      {/* O BALÃO SOBE E O RABINHO ENCURTA para abrir uma folga de verdade entre
+          ele e a pílula. Na primeira versão o rabinho terminava a 15 e a pílula
+          começava a 15,5 — com traço de 2 as duas bordas se encostavam, e a 22px
+          o resultado lia como UMA forma só, que é justamente o contrário do que
+          este ícone precisa mostrar. */}
+      <path d="M20 1.5H4a2 2 0 0 0-2 2V8a2 2 0 0 0 2 2h1v2.5L8.5 10H20a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2Z" />
+      <rect x="2" y="16" width="12" height="6" rx="3" />
+      <circle cx="18" cy="19" r="1.4" fill="currentColor" stroke="none" />
+      <path d="M20.8 16.5a3.6 3.6 0 0 1 0 5" />
+    </Svg>
+  );
+}
+
+// MENSAGEM COM LINK (`dm_link`) — o balão fica ABERTO no canto de cima, e a
+// seta sai por ali. O fluxo não para: o botão abre um endereço e a conversa
+// segue, e a seta que escapa é isso desenhado.
+export function IconMensagemLink({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <path d="M12 4H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2v4l4.5-4H18a2 2 0 0 0 2-2v-3" />
+      <path d="M15 3h6v6" />
+      <path d="m21 3-6.5 6.5" />
+    </Svg>
+  );
+}
+
+// PORTÃO · PEDIR FOLLOW (`pedir_follow`) — o cadeado.
+//
+// O desenho diz PORTÃO, não "seguir", e a escolha é essa de propósito: o que
+// distingue este bloco do `pedir_email` — o outro que também espera resposta —
+// é ser o único que a regra do portão (`atravessandoOPortao`, lib/steps.ts)
+// reavalia. Quem chega adiante por outro caminho volta para cá. O nome sai no
+// `title` da faixa; o que o ícone precisa carregar é "ninguém passa".
+export function IconPortao({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <rect x="3" y="10" width="18" height="11" rx="2" />
+      <path d="M7.5 10V6.5a4.5 4.5 0 0 1 9 0V10" />
+      <path d="M12 14v3" />
+    </Svg>
+  );
+}
+
+// RESPOSTA PÚBLICA (`resposta_publica`) — o megafone.
+//
+// NÃO é um quarto balão, e a ausência de balão é o ponto: este bloco é o único
+// que NÃO sai na conversa — ele é publicado no comentário do post, à vista de
+// todo mundo. Um balão o poria na mesma família dos três de mensagem, que é
+// exatamente a confusão que o desenho tem de evitar; `IconComment`, que a
+// prévia usa na marca deste bloco, seria o quarto balão da faixa.
+export function IconRespostaPublica({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      {/* O CORNO INCLINADO COM O CABO, e não um cone com ondas: o cone com
+          ondas é o ícone de VOLUME, e foi o que ele parecia na primeira versão
+          — medido na faixa, a 22px e ampliado. Inclinado e com o cabo embaixo
+          ele vira megafone, que é o que a marca precisa dizer. */}
+      <path d="m3 11 18-5v12L3 14v-3Z" />
+      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+    </Svg>
+  );
+}
+
+// CORAÇÃOZINHO (`reagir_story`) — a reação. O bloco nasce com ❤️, e o coração
+// é a única forma da faixa que não é nem caixa nem balão.
+export function IconCoracao({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <path d="M19 14c1.5-1.5 3-3.2 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.8 0-3 .5-4.5 2-1.5-1.5-2.7-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4 3 5.5l7 7Z" />
+    </Svg>
+  );
+}

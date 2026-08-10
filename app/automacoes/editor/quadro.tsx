@@ -15,6 +15,7 @@ import { conferirLista, identidadeDoPasso, type Passo } from "@/lib/steps";
 import No, { type DadosDoNo } from "./no";
 import Gatilho, { nomeDoGatilho, resumoDasPalavras, type DadosDoGatilho } from "./gatilho";
 import Painel, { type Configuracao } from "./painel";
+import Previa from "./previa";
 import { arranjoAutomatico, blocoNovo, resumoDoBloco } from "./modelos";
 import Paleta from "./paleta";
 import * as Geo from "./geometria";
@@ -602,6 +603,34 @@ export default function Quadro({
   const fecharPainel = useCallback(() => setSelecionado(null), []);
 
   // ------------------------------------------------------------------------
+  // A ALTURA DA FAIXA DE EDIÇÃO, medida — e ela existe por UMA razão só: os
+  // controles de zoom.
+  //
+  // A faixa é ancorada embaixo e COBRE o rodapé do quadro; os controles do
+  // React Flow foram para o canto inferior DIREITO. Sem esta medida os dois
+  // ocupam o mesmo canto, e abrir um bloco esconderia o zoom atrás da faixa —
+  // o desenho aprovado põe os controles ENCOSTADOS no topo dela, não debaixo.
+  //
+  // ISTO NÃO É A MITIGAÇÃO QUE O DESENHO RECUSOU: um bloco do quadro continua
+  // podendo ficar escondido atrás da faixa, que é o preço aceito de cobrir em
+  // vez de empurrar. O que se resolve aqui é só o CONTROLE DA PRÓPRIA TELA não
+  // cair atrás dela.
+  //
+  // `offsetHeight` e não `contentRect`: a faixa tem borda de cima, e o
+  // `contentRect` do `ResizeObserver` não a conta — o controle ficaria um pixel
+  // por baixo. Com a faixa fechada o `Painel` devolve `null`, a `div` medida
+  // fica com 0 de altura, e os controles voltam para o canto.
+  const faixaRef = useRef<HTMLDivElement>(null);
+  const [alturaDaFaixa, setAlturaDaFaixa] = useState(0);
+  useEffect(() => {
+    const el = faixaRef.current;
+    if (!el) return;
+    const observador = new ResizeObserver(() => setAlturaDaFaixa(el.offsetHeight));
+    observador.observe(el);
+    return () => observador.disconnect();
+  }, []);
+
+  // ------------------------------------------------------------------------
   // SALVAR — UMA CHAMADA SÓ, e não há mais ordem a escolher.
   //
   // Aqui havia duas: `salvarConfiguracao` e depois `salvarPassos`, nessa ordem
@@ -872,182 +901,264 @@ export default function Quadro({
         </ol>
       </div>
 
-      {/* AS DUAS COLUNAS: a paleta ocupa uma faixa PRÓPRIA, e o React Flow o
-          resto. Ela flutuava sobre o quadro, e o `fitView` não sabia disso — o
-          mecanismo inteiro está no comentário de `./paleta`.
+      {/* ------------------------------------------------------------------ */}
+      {/* AS DUAS COLUNAS DA TELA: à esquerda o quadro, à direita a prévia.   */}
+      {/*                                                                     */}
+      {/* `flex-1` no lugar do `h-[calc(100vh-16rem)]` que já esteve aqui: a   */}
+      {/* única coisa acima é a barra, que tem altura própria e `shrink-0`.    */}
+      {/* Subtrair uma constante da altura da janela era a conta que quebrava  */}
+      {/* toda vez que alguém mexesse no que vem antes; `flex-1` é a mesma     */}
+      {/* conta feita pelo navegador.                                          */}
+      {/*                                                                     */}
+      {/* A PRÉVIA É IRMÃ DO QUADRO, e não filha: ela vai da barra ao fim da   */}
+      {/* janela, ao lado da paleta E do quadro. Dentro da coluna do quadro    */}
+      {/* ela ficaria abaixo da faixa da paleta, e a faixa é do quadro.         */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="hidden flex-1 overflow-hidden sm:flex">
+        {/* A COLUNA DO QUADRO: a paleta em faixa própria no topo, e o React
+            Flow no resto. A paleta já flutuou sobre o quadro, e o `fitView` não
+            sabia disso — o mecanismo inteiro está no comentário de `./paleta`.
 
-          `flex-1` no lugar do `h-[calc(100vh-16rem)]` que estava aqui: o
-          cabeçalho da página não existe mais, e a única coisa acima do quadro é
-          a barra — que tem altura própria e `shrink-0`. Subtrair uma constante
-          da altura da janela era a conta que quebrava toda vez que alguém
-          mexesse no que vem antes; `flex-1` é a mesma conta feita pelo
-          navegador. A borda e o arredondamento saíram junto: o quadro agora
-          encosta nas bordas da janela, e moldura de cartão ali só desenharia um
-          retângulo em volta da tela inteira. */}
-      <div className="relative hidden flex-1 overflow-hidden sm:flex">
-        <Paleta gatilho={configuracao.gatilho} />
-        {/* `inert` enquanto salva: o quadro e o painel param de aceitar
-            ponteiro, teclado e foco, para o que for gravado ser o que está na
-            tela. O porquê inteiro está no comentário acima de `recado`. */}
-        <div className="relative min-w-0 flex-1" inert={salvando}>
-          <ReactFlow
-            nodes={nos}
-            edges={setas}
-            nodeTypes={TIPOS_DE_NO}
-            onNodesChange={aoMudarNos}
-            onInit={setInstancia}
-            // O RETRATO DO COMEÇO DO GESTO, e ele é tirado aqui porque só aqui o
-            // bloco ainda não andou: as setas ao alcance neste instante são as que a
-            // POSIÇÃO deu de graça, não as que o gesto foi buscar. `alvoDoArraste`
-            // descarta essas — o porquê está em `setasNoInicio`.
-            onNodeDragStart={(e, no) => {
-              const p = pontoDoEvento(e);
-              const i = identidades.indexOf(no.id);
-              setasNoInicio.current = new Set(
-                p ? setasAoAlcance(p.x, p.y, [i - 1, i]).map((s) => s.i) : []
-              );
-            }}
-            // O DESTAQUE SEGUE A MESMA REGRA DO RESULTADO, e não só a proximidade.
-            // Acender uma seta que o soltar vai recusar é a tela oferecendo um gesto
-            // que não faz nada — a definição de ensinar a fazer errado, e o mesmo
-            // motivo pelo qual `no.tsx` desliga as alças de conexão.
-            onNodeDrag={(e, no) => {
-              const p = pontoDoEvento(e);
-              const i = identidades.indexOf(no.id);
-              setSetaSobEle(p && alvoDoArraste(p.x, p.y, i));
-            }}
-            // O alvo é recalculado AQUI, e não lido de `setaSobEle`. Os dois dão o
-            // mesmo resultado — mesma função, mesmo ponto —, e recalcular é o que
-            // garante que a ordem não dependa de qual render chegou primeiro. O
-            // estado fica só para o destaque na tela.
-            onNodeDragStop={(e, no) => {
-              const p = pontoDoEvento(e);
-              const i = identidades.indexOf(no.id);
-              const alvo = p && alvoDoArraste(p.x, p.y, i);
-              setSetaSobEle(null);
-              if (alvo !== null && alvo !== undefined) moverPara(no.id, alvo);
-            }}
-            onDragOver={(e) => {
-              // Só o que veio da paleta. Sem esta conferência o quadro aceitaria
-              // arquivo e texto arrastados de qualquer lugar, e o `onDrop` abaixo
-              // teria de recusá-los depois de o navegador já ter prometido que
-              // aceita.
-              if (!e.dataTransfer.types.includes(TIPO_DO_ARRASTO)) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-              setSetaSobEle(setaSobOPonto(e.clientX, e.clientY, []));
-            }}
-            // `dragleave` BORBULHA dos filhos, e o quadro é feito deles: cada nó,
-            // cada seta, o fundo e os controles. Apagar o destaque em todo
-            // `dragleave` fazia a seta PISCAR durante o arraste da paleta — o
-            // ponteiro cruza a fronteira entre dois filhos, o `dragleave` do que
-            // ficou para trás sobe até aqui, e só o `dragover` seguinte reacende.
-            //
-            // O resultado nunca dependeu disso — `onDrop` recalcula o alvo em vez de
-            // ler `setaSobEle`, e essa decisão está escrita ali —, mas reordenar é um
-            // gesto que precisa PARECER preciso: destaque que treme é a tela dizendo
-            // que não sabe onde o bloco vai cair.
-            //
-            // `relatedTarget` é para onde o ponteiro foi. Dentro do quadro, o gesto
-            // continua e o destaque fica. Fora — ou `null`, que é sair da janela —,
-            // aí sim apaga.
-            //
-            // O molde é `Element` e não `Node` porque `Node` aqui é o TIPO DO REACT
-            // FLOW, importado lá em cima: o `Node` do DOM está sombreado neste
-            // arquivo. `Element` cobre o que `relatedTarget` pode ser de verdade —
-            // os filhos do quadro são HTML e SVG, e os dois são `Element`.
-            onDragLeave={(e) => {
-              if (e.currentTarget.contains(e.relatedTarget as Element | null)) return;
-              setSetaSobEle(null);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              const chave = e.dataTransfer.getData(TIPO_DO_ARRASTO);
-              setSetaSobEle(null);
-              if (!chave) return;
-              const p = instancia?.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-              inserir(chave, p?.x ?? 0, p?.y ?? 0, setaSobOPonto(e.clientX, e.clientY, []));
-            }}
-            // Não há `onNodeClick`/`onPaneClick` aqui de propósito: a seleção chega
-            // por `onNodesChange` como mudança do tipo `select`, que é o mesmo
-            // caminho da seleção por caixa e por teclado. Escrever a seleção também
-            // nos dois cliques faria duas fontes para o mesmo estado, e a que
-            // sobrasse de fora (a caixa) seria a que ninguém testa.
-            nodesConnectable={false}
-            edgesFocusable={false}
-            deleteKeyCode={null}
-            fitView
-            // PADDING SIMÉTRICO, e é a paleta ter saído de cima do quadro que
-            // permite isso. O `left: "200px"` que estava aqui compensava a faixa
-            // coberta por ela, e essa compensação PARAVA DE VALER no `minZoom`: a
-            // partir dali o conteúdo é só centralizado e o primeiro nó voltava para
-            // debaixo da paleta, com os cliques chegando nela. O mecanismo inteiro
-            // está no comentário de `./paleta`; aqui basta que a área do React Flow
-            // seja toda dele.
-            fitViewOptions={{ padding: "24px" }}
-            // O PISO DO ZOOM DESCE DE 0,5 (o padrão do React Flow) PARA 0,2, e isto
-            // é a segunda metade do mesmo defeito — a que a paleta em faixa própria
-            // NÃO resolve.
-            //
-            // Medido nesta página, a 1440×900, com a área do quadro em 782px: com o
-            // piso em 0,5, o `fitView` deixa de caber a partir de SETE blocos, e o
-            // que sobra de fora é o começo da corrente — a 9 blocos, o nó de GATILHO
-            // e o bloco 0 abriam fora da área visível. É o pior lugar possível para
-            // esconder: o gatilho é o nó que a pessoa precisa clicar para dar nome à
-            // automação, escolher as palavras-chave e marcá-la como ativa, e nada na
-            // tela diz que ele está à esquerda.
-            //
-            // O PREÇO ESTÁ DITO: numa lista longa a abertura fica pequena demais para
-            // LER os blocos. É troca deliberada — ver a forma inteira do fluxo e
-            // aproximar é um gesto que os controles oferecem; descobrir que existe
-            // conteúdo fora da tela não é.
-            minZoom={0.2}
-            // O TEMA DO PAINEL, e não `system`. Sem isto os controles nascem pretos
-            // sobre fundo escuro; com `system` eles seguiriam o sistema operacional,
-            // que não é quem decide o tema aqui. O motivo está em
-            // `useTemaDoDocumento`, no topo do arquivo.
-            colorMode={tema}
-            proOptions={{ hideAttribution: false }}
-          >
-            <Background gap={17} />
-            <Controls showInteractive={false} />
-          </ReactFlow>
-          {/* DEPOIS do quadro, e sobre ele: o painel é irmão do `ReactFlow`, não
-              filho, para não virar mais um nó do que a biblioteca gerencia — e
-              fechado ele não ocupa nada, então o quadro é inteiro. */}
-          <Painel
-            passo={indiceSelecionado === -1 ? null : passos[indiceSelecionado]}
-            indice={indiceSelecionado}
-            // A LISTA INTEIRA vai junto, e é por causa da prévia: ela desenha a
-            // conversa toda, não só o bloco aberto. É o MESMO `passos` que os nós
-            // usam — uma segunda cópia faria a prévia atrasar um render em relação
-            // ao quadro, e o retorno ao vivo é a razão de ela existir.
-            passos={passos}
-            // A CONFIGURAÇÃO VAI SEMPRE, e não só quando o gatilho está
-            // selecionado: a prévia precisa do gatilho para saber se a conversa
-            // começa num comentário, numa resposta de story ou numa DM. Quem diz
-            // que os CAMPOS da automação devem aparecer é `editandoGatilho`.
-            configuracao={configuracao}
-            editandoGatilho={selecionado === ID_DO_GATILHO}
-            problemas={problemasDoPainel}
-            aoMudar={mudarPasso}
-            aoMudarConfiguracao={setConfiguracao}
-            aoFechar={fecharPainel}
-          />
+            `min-w-0` porque esta coluna é `flex-1` dentro de um flex: sem ele o
+            conteúdo (a faixa da paleta, que rola na horizontal) definiria a
+            largura mínima e empurraria a prévia para fora da janela. */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Paleta gatilho={configuracao.gatilho} />
+          {/* `inert` enquanto salva: o quadro e a faixa de edição param de
+              aceitar ponteiro, teclado e foco, para o que for gravado ser o que
+              está na tela. O porquê inteiro está no comentário acima de
+              `recado`. A paleta fica FORA: arrastar dela não muda nada sozinho,
+              e o alvo do arrasto está inerte. */}
+          <div className="relative min-w-0 flex-1" inert={salvando}>
+            <ReactFlow
+              nodes={nos}
+              edges={setas}
+              nodeTypes={TIPOS_DE_NO}
+              onNodesChange={aoMudarNos}
+              onInit={setInstancia}
+              // O RETRATO DO COMEÇO DO GESTO, e ele é tirado aqui porque só aqui o
+              // bloco ainda não andou: as setas ao alcance neste instante são as que a
+              // POSIÇÃO deu de graça, não as que o gesto foi buscar. `alvoDoArraste`
+              // descarta essas — o porquê está em `setasNoInicio`.
+              onNodeDragStart={(e, no) => {
+                const p = pontoDoEvento(e);
+                const i = identidades.indexOf(no.id);
+                setasNoInicio.current = new Set(
+                  p ? setasAoAlcance(p.x, p.y, [i - 1, i]).map((s) => s.i) : []
+                );
+              }}
+              // O DESTAQUE SEGUE A MESMA REGRA DO RESULTADO, e não só a proximidade.
+              // Acender uma seta que o soltar vai recusar é a tela oferecendo um gesto
+              // que não faz nada — a definição de ensinar a fazer errado, e o mesmo
+              // motivo pelo qual `no.tsx` desliga as alças de conexão.
+              onNodeDrag={(e, no) => {
+                const p = pontoDoEvento(e);
+                const i = identidades.indexOf(no.id);
+                setSetaSobEle(p && alvoDoArraste(p.x, p.y, i));
+              }}
+              // O alvo é recalculado AQUI, e não lido de `setaSobEle`. Os dois dão o
+              // mesmo resultado — mesma função, mesmo ponto —, e recalcular é o que
+              // garante que a ordem não dependa de qual render chegou primeiro. O
+              // estado fica só para o destaque na tela.
+              onNodeDragStop={(e, no) => {
+                const p = pontoDoEvento(e);
+                const i = identidades.indexOf(no.id);
+                const alvo = p && alvoDoArraste(p.x, p.y, i);
+                setSetaSobEle(null);
+                if (alvo !== null && alvo !== undefined) moverPara(no.id, alvo);
+              }}
+              onDragOver={(e) => {
+                // Só o que veio da paleta. Sem esta conferência o quadro aceitaria
+                // arquivo e texto arrastados de qualquer lugar, e o `onDrop` abaixo
+                // teria de recusá-los depois de o navegador já ter prometido que
+                // aceita.
+                if (!e.dataTransfer.types.includes(TIPO_DO_ARRASTO)) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                setSetaSobEle(setaSobOPonto(e.clientX, e.clientY, []));
+              }}
+              // `dragleave` BORBULHA dos filhos, e o quadro é feito deles: cada nó,
+              // cada seta, o fundo e os controles. Apagar o destaque em todo
+              // `dragleave` fazia a seta PISCAR durante o arraste da paleta — o
+              // ponteiro cruza a fronteira entre dois filhos, o `dragleave` do que
+              // ficou para trás sobe até aqui, e só o `dragover` seguinte reacende.
+              //
+              // O resultado nunca dependeu disso — `onDrop` recalcula o alvo em vez de
+              // ler `setaSobEle`, e essa decisão está escrita ali —, mas reordenar é um
+              // gesto que precisa PARECER preciso: destaque que treme é a tela dizendo
+              // que não sabe onde o bloco vai cair.
+              //
+              // `relatedTarget` é para onde o ponteiro foi. Dentro do quadro, o gesto
+              // continua e o destaque fica. Fora — ou `null`, que é sair da janela —,
+              // aí sim apaga.
+              //
+              // O molde é `Element` e não `Node` porque `Node` aqui é o TIPO DO REACT
+              // FLOW, importado lá em cima: o `Node` do DOM está sombreado neste
+              // arquivo. `Element` cobre o que `relatedTarget` pode ser de verdade —
+              // os filhos do quadro são HTML e SVG, e os dois são `Element`.
+              onDragLeave={(e) => {
+                if (e.currentTarget.contains(e.relatedTarget as Element | null)) return;
+                setSetaSobEle(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const chave = e.dataTransfer.getData(TIPO_DO_ARRASTO);
+                setSetaSobEle(null);
+                if (!chave) return;
+                const p = instancia?.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+                inserir(chave, p?.x ?? 0, p?.y ?? 0, setaSobOPonto(e.clientX, e.clientY, []));
+              }}
+              // Não há `onNodeClick`/`onPaneClick` aqui de propósito: a seleção chega
+              // por `onNodesChange` como mudança do tipo `select`, que é o mesmo
+              // caminho da seleção por caixa e por teclado. Escrever a seleção também
+              // nos dois cliques faria duas fontes para o mesmo estado, e a que
+              // sobrasse de fora (a caixa) seria a que ninguém testa.
+              nodesConnectable={false}
+              edgesFocusable={false}
+              deleteKeyCode={null}
+              fitView
+              // PADDING SIMÉTRICO, e é a paleta ter saído de cima do quadro que
+              // permite isso. O `left: "200px"` que estava aqui compensava a faixa
+              // coberta por ela, e essa compensação PARAVA DE VALER no `minZoom`: a
+              // partir dali o conteúdo é só centralizado e o primeiro nó voltava para
+              // debaixo da paleta, com os cliques chegando nela. O mecanismo inteiro
+              // está no comentário de `./paleta`; aqui basta que a área do React Flow
+              // seja toda dele.
+              fitViewOptions={{ padding: "24px" }}
+              // O PISO DO ZOOM DESCE DE 0,5 (o padrão do React Flow) PARA 0,2, e isto
+              // é a segunda metade do mesmo defeito — a que a paleta em faixa própria
+              // NÃO resolve.
+              //
+              // Medido nesta página, a 1440×900, com a área do quadro em 782px: com o
+              // piso em 0,5, o `fitView` deixa de caber a partir de SETE blocos, e o
+              // que sobra de fora é o começo da corrente — a 9 blocos, o nó de GATILHO
+              // e o bloco 0 abriam fora da área visível. É o pior lugar possível para
+              // esconder: o gatilho é o nó que a pessoa precisa clicar para dar nome à
+              // automação, escolher as palavras-chave e marcá-la como ativa, e nada na
+              // tela diz que ele está à esquerda.
+              //
+              // O PREÇO ESTÁ DITO: numa lista longa a abertura fica pequena demais para
+              // LER os blocos. É troca deliberada — ver a forma inteira do fluxo e
+              // aproximar é um gesto que os controles oferecem; descobrir que existe
+              // conteúdo fora da tela não é.
+              minZoom={0.2}
+              // O TEMA DO PAINEL, e não `system`. Sem isto os controles nascem pretos
+              // sobre fundo escuro; com `system` eles seguiriam o sistema operacional,
+              // que não é quem decide o tema aqui. O motivo está em
+              // `useTemaDoDocumento`, no topo do arquivo.
+              colorMode={tema}
+              proOptions={{ hideAttribution: false }}
+              // A MARCA DO REACT FLOW MUDA DE CANTO, e ela NÃO SAI —
+              // `proOptions.hideAttribution` continua `false`.
+              //
+              // Ela nasce no canto inferior DIREITO (o padrão da biblioteca), que
+              // é para onde os controles de zoom acabaram de ir. Medido na
+              // biblioteca: `Attribution` recebe `position = 'bottom-right'`
+              // quando `attributionPosition` não é passado, e os dois viram
+              // `.react-flow__panel.bottom.right` — mesmo canto, um por cima do
+              // outro. Ela vai para o canto que os controles desocuparam.
+              attributionPosition="bottom-left"
+            >
+              <Background gap={17} />
+              {/* OS CONTROLES DE ZOOM, no canto inferior DIREITO, subidos pela
+                  altura da faixa de edição. Fechada a faixa, `alturaDaFaixa` é 0
+                  e eles ficam no canto; aberta, eles encostam no topo dela em vez
+                  de sumirem atrás. O porquê da medida está em `faixaRef`. */}
+              <Controls
+                showInteractive={false}
+                position="bottom-right"
+                style={{ bottom: alturaDaFaixa }}
+              />
+            </ReactFlow>
+            {/* A FAIXA DE EDIÇÃO, ancorada embaixo e SOBRE o quadro: ela é irmã
+                do `ReactFlow`, não filha, para não virar mais um nó do que a
+                biblioteca gerencia — e fechada não ocupa nada, então o quadro é
+                inteiro.
 
-          {/* O VÉU DIZ QUE TRAVOU. Quem trava é o `inert` da `div` de fora; este
-              é o que impede a tela de ficar muda de outro jeito — um quadro que
-              para de responder sem explicar é indistinguível de um quadro
-              quebrado. `z-30` para ficar acima do painel, que é `z-20`. */}
-          {salvando && (
-            <div className="absolute inset-0 z-30 flex items-start justify-center bg-white/60 dark:bg-zinc-950/60">
-              <span className="mt-6 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-                Salvando… o quadro fica travado até terminar, para o que for gravado ser o que está
-                na tela.
-              </span>
+                ELA COBRE O RODAPÉ DO QUADRO em vez de encolhê-lo. Decisão do
+                dono do produto, tomada vendo as duas no protótipo, e o preço
+                está dito: um bloco lá embaixo pode ficar escondido atrás dela
+                enquanto está aberta.
+
+                Quem posiciona é esta `div`, e não o `aside` de dentro, porque é
+                ela que o `ResizeObserver` mede — com o painel fechado o
+                componente devolve `null` e a `div` fica com altura 0, que é o
+                sinal de "faixa fechada" que os controles de zoom leem. */}
+            <div ref={faixaRef} className="absolute inset-x-0 bottom-0 z-20">
+              <Painel
+                passo={indiceSelecionado === -1 ? null : passos[indiceSelecionado]}
+                indice={indiceSelecionado}
+                // A CONFIGURAÇÃO VAI SEMPRE, e não só quando o gatilho está
+                // selecionado: é ela que os campos da automação editam. Quem diz
+                // que esses campos devem aparecer é `editandoGatilho`.
+                configuracao={configuracao}
+                editandoGatilho={selecionado === ID_DO_GATILHO}
+                problemas={problemasDoPainel}
+                aoMudar={mudarPasso}
+                aoMudarConfiguracao={setConfiguracao}
+                aoFechar={fecharPainel}
+              />
             </div>
-          )}
+  
+            {/* O VÉU DIZ QUE TRAVOU. Quem trava é o `inert` da `div` de fora; este
+                é o que impede a tela de ficar muda de outro jeito — um quadro que
+                para de responder sem explicar é indistinguível de um quadro
+                quebrado. `z-30` para ficar acima do painel, que é `z-20`. */}
+            {salvando && (
+              <div className="absolute inset-0 z-30 flex items-start justify-center bg-white/60 dark:bg-zinc-950/60">
+                <span className="mt-6 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                  Salvando… o quadro fica travado até terminar, para o que for gravado ser o que está
+                  na tela.
+                </span>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* ---------------------------------------------------------------- */}
+        {/* A PRÉVIA, EM COLUNA PRÓPRIA E SEMPRE VISÍVEL.                     */}
+        {/*                                                                   */}
+        {/* Ela morava no fim do painel do bloco, o que a fazia existir só     */}
+        {/* enquanto havia um bloco selecionado — ou seja, ela sumia           */}
+        {/* justamente no estado em que se olha para o fluxo inteiro e se      */}
+        {/* clica em Salvar. Aqui ela é uma coluna da tela, ao lado do quadro. */}
+        {/*                                                                   */}
+        {/* A LARGURA É FIXA e cabe o celular: `./previa` desenha um aparelho  */}
+        {/* de 300px com borda de 5px — 310px de fora a fora. Com `p-3` dos    */}
+        {/* dois lados e a barra de rolagem, 352px é o que sobra sem cortar    */}
+        {/* nem espremer. Fixa, e não proporcional, porque o que ela mostra    */}
+        {/* tem largura própria: esticá-la só afastaria o celular do quadro.   */}
+        {/*                                                                   */}
+        {/* A ROLAGEM É DESTA COLUNA (`overflow-y-auto`): o contêiner de fora  */}
+        {/* tem altura fixa, e uma conversa longa passa da altura da janela.   */}
+        {/*                                                                   */}
+        {/* ELA NÃO ENTRA NO `inert` DO SALVAMENTO, e a ausência é escolha: a  */}
+        {/* prévia não edita nada — não há campo, botão nem foco nela —, então */}
+        {/* não há como mexer na lista por aqui enquanto o salvar acontece. O  */}
+        {/* que o `inert` protege é a EDIÇÃO, e ela está toda do outro lado.   */}
+        {/* ---------------------------------------------------------------- */}
+        <aside className="flex w-[352px] shrink-0 flex-col overflow-y-auto border-l border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-950/40">
+          <p className="text-[10px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">
+            PRÉVIA DA CONVERSA
+          </p>
+          <p className={`mb-3 mt-1 text-xs leading-relaxed ${muted}`}>
+            Como a lista fica para quem recebe, agora — antes de salvar.
+          </p>
+          {/* É O MESMO `passos` que os nós usam, e não uma cópia: uma segunda
+              cópia faria a prévia atrasar um render em relação ao quadro, e o
+              retorno ao vivo é a razão de ela existir. A configuração vai junto
+              porque é o gatilho que decide se a conversa começa num comentário,
+              numa resposta de story ou numa DM. */}
+          <Previa
+            passos={passos}
+            gatilho={configuracao.gatilho}
+            palavras={configuracao.palavras}
+            correspondencia={configuracao.correspondencia}
+            post={configuracao.post}
+            story={configuracao.story}
+            indiceSelecionado={indiceSelecionado}
+          />
+        </aside>
       </div>
 
       {/* O RODAPÉ SAIU. Ele tinha o mesmo botão de salvar, o mesmo recado e o
