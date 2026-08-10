@@ -40,7 +40,6 @@ import {
   identidadeDoPasso,
   indiceDoId,
   lerPayload,
-  tentativasDeHoje,
   oQuePortaoFaz,
   type AcaoEnfileirar,
   type Cursor,
@@ -911,12 +910,11 @@ async function enfileirarPasso(
 // Sem isto o contador só sobe: `clearFollowState` saiu junto com o fluxo antigo
 // e nada mais repõe o valor.
 //
-// NÃO ZERA `follow_attempts_dia` JUNTO, e não precisa. Quem lê as duas colunas é
-// `tentativasDeHoje` (lib/steps.ts), e ela é a ÚNICA leitora delas no sistema
-// inteiro — `resolverFollow`, logo abaixo, é a única consulta que as seleciona.
-// Com o contador em zero ela devolve zero pelos DOIS caminhos: dia diferente sai
-// no primeiro `return 0`, e dia igual passa pelas guardas (zero é número finito
-// e não é negativo) e devolve `Math.floor(0)`. Não há valor de dia que faça um
+// NÃO ZERA `follow_attempts_dia` JUNTO, e não precisa. O `update` de
+// `resolverFollow`, logo abaixo, é a ÚNICA instrução do sistema inteiro que toca
+// nestas duas colunas — varrido, não suposto. Com o contador em zero, os dois
+// caminhos do `case` dele dão no mesmo lugar: dia diferente recomeça em 1, dia
+// igual soma 1 a zero e também dá 1. Não há valor de dia que faça um
 // contador zerado parecer tentativa gasta, então zerar o dia junto seria escrita
 // sem efeito nenhum. E o `where follow_attempts > 0` do fim não abre exceção a
 // isso: quando ele não escreve, é porque o contador já era zero.
@@ -972,8 +970,9 @@ async function zerarTentativasFollow(accountId: string, contactIgId: string) {
 //                enfileirar, então segurar o cursor seria segurar calado. Quem
 //                chama LIMPA o cursor, e a pessoa volta a ser alcançável.
 //
-// A decisão entre `barrar` e `soltar` é de `tentativasDeHoje`/`oQuePortaoFaz`
-// (lib/steps.ts), que são puras e testadas. Aqui fica só o efeito.
+// A decisão entre `barrar` e `soltar` é de `oQuePortaoFaz` (lib/steps.ts), que é
+// pura e testada. Aqui fica o efeito, e a contagem — que é SQL, pelo motivo
+// escrito no `update` mais abaixo.
 async function resolverFollow(
   account: Account,
   auto: Automation,
@@ -1006,42 +1005,64 @@ async function resolverFollow(
     return "passou";
   }
 
-  // Quantos pedidos já saíram HOJE. A leitura e a decisão são de
-  // `tentativasDeHoje`/`oQuePortaoFaz` (lib/steps.ts), que são puras e testadas
-  // — aqui fica só a ida ao banco.
+  // Conta o pedido e vira o dia NUMA INSTRUÇÃO SÓ, e a atomicidade não é
+  // preciosismo: a versão anterior desta mudança lia e depois escrevia, e duas
+  // mensagens chegando juntas liam o mesmo valor, escreviam o mesmo valor e
+  // geravam a MESMA `followGateKey` — a fila colapsava as duas num envio, e o
+  // contador subia menos que as interações. O `follow_attempts + 1 returning`
+  // que existia antes de tudo isso já era atômico; o `case` é o que devolve essa
+  // propriedade agora que o dia também precisa ser considerado.
+  //
+  // O `case` É a virada do dia: dia diferente do gravado recomeça em 1, sem
+  // depender de ninguém ter zerado antes.
+  //
+  // Este `case` é a ÚNICA implementação da virada do dia — existiu uma cópia em
+  // TypeScript, testada, e ela saiu junto com a leitura separada. O motivo está
+  // escrito em lib/steps.ts, acima de `oQuePortaoFaz`, junto do que se perdeu:
+  // esta linha não é coberta pela suíte.
+  //
+  // O balde tem que ser o mesmo de `diaDaChave` (lib/dedupe.ts) — é `dayBucket`
+  // quem garante isso, e a variável abaixo é usada também na chave de
+  // deduplicação, para o dia do contador e o da chave não poderem discordar na
+  // virada.
   const hoje = dayBucket();
   const linhas = (await sql().query(
-    `select follow_attempts, follow_attempts_dia from contacts
-     where account_id = $1 and ig_id = $2`,
-    [account.ig_user_id, contactIgId]
-  )) as { follow_attempts: number; follow_attempts_dia: string | null }[];
+    `update contacts set
+       follow_attempts = case when follow_attempts_dia = $3 then follow_attempts + 1 else 1 end,
+       follow_attempts_dia = $3
+     where account_id = $1 and ig_id = $2
+     returning follow_attempts`,
+    [account.ig_user_id, contactIgId, hoje]
+  )) as { follow_attempts: number }[];
 
-  const jaFeitas = tentativasDeHoje(
-    linhas[0]?.follow_attempts,
-    linhas[0]?.follow_attempts_dia,
-    hoje
-  );
+  const tentativa = linhas[0]?.follow_attempts ?? 1;
 
-  if (oQuePortaoFaz(jaFeitas, MAX_FOLLOW_REQUESTS) === "soltar") {
+  // A decisão é sobre quantos pedidos já tinham saído ANTES deste — por isso
+  // `tentativa - 1`. O contador já subiu, e sobe também quando o portão solta:
+  // ele cresce o dia inteiro sem teto, e isso é inofensivo porque a única
+  // comparação que existe é contra o máximo, e o balde do dia o reinicia. Não há
+  // outro leitor destas colunas no sistema — `resolverFollow` é o único.
+  if (oQuePortaoFaz(tentativa - 1, MAX_FOLLOW_REQUESTS) === "soltar") {
     // Parou de pedir, então para de segurar. Quem chama solta o cursor.
     //
     // Registrado em Atividade porque, sem isso, o dono do painel vê a pessoa
     // simplesmente sumir do fluxo — que é exatamente o sintoma que esta mudança
     // existe para acabar.
-    await logEvent(account.ig_user_id, "portao_soltou", {
-      contact_ig_id: contactIgId,
-      automation_id: auto.id,
-      tentativas_hoje: jaFeitas,
-    });
+    //
+    // COM THROTTLE, e o motivo é que este evento nasce de um ESTADO que se
+    // repete, não de uma transição: quem foi solto fica sem cursor, e sem cursor
+    // toda mensagem dela cai no fallback, que chega ao portão, que solta de
+    // novo. Sem throttle seria uma linha por mensagem recebida, por dias — a
+    // mesma razão que o `portao_nao_avaliado` aqui do lado já registra.
+    await logEventThrottled(
+      account.ig_user_id,
+      "portao_soltou",
+      { contact_ig_id: contactIgId, automation_id: auto.id, tentativas_hoje: tentativa - 1 },
+      10,
+      { campo: "automation_id", valor: auto.id }
+    );
     return "soltar";
   }
-
-  const tentativa = jaFeitas + 1;
-  await sql().query(
-    `update contacts set follow_attempts = $3, follow_attempts_dia = $4
-     where account_id = $1 and ig_id = $2`,
-    [account.ig_user_id, contactIgId, tentativa, hoje]
-  );
 
   // Mesma regra do passo `dm`: se o pedido de follow é o primeiro envio de uma
   // execução nascida de comentário, ele sai como resposta privada. É o único

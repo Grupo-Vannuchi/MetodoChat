@@ -464,9 +464,9 @@ const DDL = [
   // chaves de deduplicação (`diaDaChave`, lib/dedupe.ts), e os dois precisam
   // continuar concordando.
   //
-  // Nulo em todo contato anterior a esta mudança, e `tentativasDeHoje`
-  // (lib/steps.ts) trata nulo como zero de propósito: o acumulado antigo não é
-  // de hoje.
+  // Nulo em todo contato anterior a esta mudança, e o `case` de `resolverFollow`
+  // (lib/engine.ts) trata nulo como dia diferente de propósito: o acumulado
+  // antigo não é de hoje, então o contador recomeça em 1.
   `alter table contacts add column if not exists follow_attempts_dia text`,
 ];
 

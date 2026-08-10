@@ -270,24 +270,22 @@ export function identidadeDoPasso(passo: unknown, indice: number): string {
   return typeof id === "string" && FORMA_DO_ID.test(id) ? id : String(indice);
 }
 
-// Quantas vezes já pedimos follow a esta pessoa HOJE.
+// A VIRADA DO DIA DO CONTADOR DE FOLLOW NÃO MORA MAIS AQUI, e vale dizer onde
+// foi parar: ela é o `case when follow_attempts_dia = $3` do `update` em
+// `resolverFollow` (lib/engine.ts).
 //
-// O contador vive numa coluna que nunca zerava, e o dia gravado é o que lhe dá
-// validade. Dia diferente — ou nenhum dia, que é o caso de todo contato anterior
-// a esta mudança — significa que o acumulado não é de hoje, e hoje começa do
-// zero.
+// Existiu aqui como `tentativasDeHoje`, pura e testada, enquanto o motor lia e
+// depois escrevia. Essa forma perdia a atomicidade que o
+// `follow_attempts + 1 returning` original tinha: duas mensagens chegando juntas
+// liam o mesmo valor e geravam a MESMA chave de deduplicação, colapsando dois
+// pedidos num só. Contar e virar o dia numa instrução só devolve a atomicidade —
+// e, com isso, a regra passou a ter uma implementação, não duas.
 //
-// O balde de dia é o de Brasília, o mesmo das chaves de deduplicação
-// (`diaDaChave`, lib/dedupe.ts). Quem chama passa o valor pronto; esta função é
-// pura e não lê relógio.
-//
-// Lixo vindo do banco vira zero em vez de estourar: a coluna é `int not null`
-// hoje, mas esta função é a única barreira entre o banco e uma decisão de envio.
-export function tentativasDeHoje(gravadas: unknown, diaGravado: unknown, hoje: string): number {
-  if (diaGravado !== hoje) return 0;
-  if (typeof gravadas !== "number" || !Number.isFinite(gravadas) || gravadas < 0) return 0;
-  return Math.floor(gravadas);
-}
+// O QUE SE PERDEU, dito sem rodeio: a virada do dia deixou de ser coberta pela
+// suíte, porque agora ela é SQL. O que continua testado é a decisão que importa
+// — `oQuePortaoFaz`, logo abaixo, que diz se o portão pede ou solta. Manter a
+// função viva só para o teste passar seria manter a mesma regra escrita duas
+// vezes, que é exatamente o que diverge em silêncio.
 
 // O que o portão faz com quem NÃO segue.
 //
@@ -301,8 +299,8 @@ export function tentativasDeHoje(gravadas: unknown, diaGravado: unknown, hoje: s
 // Soltar não entrega o link: quem não segue continua sem receber. O que ela
 // devolve é a liberdade de ser alcançada por qualquer outra automação, e a de
 // tentar de novo amanhã.
-export function oQuePortaoFaz(tentativasDeHoje: number, maximo: number): "pedir" | "soltar" {
-  return tentativasDeHoje < maximo ? "pedir" : "soltar";
+export function oQuePortaoFaz(feitasHoje: number, maximo: number): "pedir" | "soltar" {
+  return feitasHoje < maximo ? "pedir" : "soltar";
 }
 
 // Onde, na lista de hoje, está o bloco com esta identidade.

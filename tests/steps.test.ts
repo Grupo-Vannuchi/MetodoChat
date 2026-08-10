@@ -16,7 +16,6 @@ import {
   cursorDaRetomada,
   conferirLista,
   conferir,
-  tentativasDeHoje,
   oQuePortaoFaz,
 } from "../lib/steps";
 
@@ -1897,33 +1896,6 @@ describe("novoIdDeBloco", () => {
   it("não repete dentro de uma automação de tamanho realista", () => {
     const ids = new Set(Array.from({ length: 500 }, () => novoIdDeBloco()));
     expect(ids.size).toBe(500);
-  });
-});
-
-describe("tentativas do portão, por dia", () => {
-  // O contador era por contato e nunca zerava. Quem estourasse o limite ficava
-  // sem receber o pedido para sempre — em toda automação, todo dia.
-
-  it("conta as de hoje quando o dia gravado é hoje", () => {
-    expect(tentativasDeHoje(3, "2026-08-10", "2026-08-10")).toBe(3);
-  });
-
-  it("ZERA quando o dia gravado é outro — é o ponto da mudança", () => {
-    expect(tentativasDeHoje(5, "2026-08-09", "2026-08-10")).toBe(0);
-  });
-
-  it("zera quando nunca houve dia gravado", () => {
-    // Todo contato anterior a esta mudança cai aqui: tem contador e não tem dia.
-    // Zerar é o certo — o contador acumulado não é de hoje.
-    expect(tentativasDeHoje(5, null, "2026-08-10")).toBe(0);
-    expect(tentativasDeHoje(5, undefined, "2026-08-10")).toBe(0);
-  });
-
-  it("não estoura com lixo vindo do banco", () => {
-    expect(tentativasDeHoje("3", "2026-08-10", "2026-08-10")).toBe(0);
-    expect(tentativasDeHoje(null, "2026-08-10", "2026-08-10")).toBe(0);
-    expect(tentativasDeHoje(-2, "2026-08-10", "2026-08-10")).toBe(0);
-    expect(tentativasDeHoje(2.7, "2026-08-10", "2026-08-10")).toBe(2);
   });
 });
 
