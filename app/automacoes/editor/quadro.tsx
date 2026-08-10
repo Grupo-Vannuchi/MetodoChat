@@ -396,6 +396,7 @@ export default function Quadro({
       data: {
         tipo: configuracao.gatilho,
         palavras: configuracao.palavras,
+        correspondencia: configuracao.correspondencia,
         selecionado: selecionado === ID_DO_GATILHO,
       } as DadosDoGatilho,
     };
@@ -432,6 +433,7 @@ export default function Quadro({
     errosPorIndice,
     configuracao.gatilho,
     configuracao.palavras,
+    configuracao.correspondencia,
   ]);
 
   // As setas SEMPRE ligam o bloco i ao i+1 do array. Não há edge que o usuário
@@ -627,6 +629,45 @@ export default function Quadro({
   // que apagava o fluxo montado no quadro, e ela morreu com `montarPassos`.
   const [salvando, iniciarSalvamento] = useTransition();
 
+  // ------------------------------------------------------------------------
+  // O QUADRO TRAVA ENQUANTO SALVA, e isto fecha o único silêncio que sobrava
+  // nesta tela.
+  //
+  // `salvar` (logo abaixo) captura `passos` e `configuracao` no CLIQUE, e o
+  // quadro continuava editável durante a transição. Quem mexesse no meio gravava
+  // a lista de ANTES — e o recado que voltasse seria suprimido justamente porque
+  // o instantâneo não bate mais com a tela (`recadoDoQuadroAtual`, abaixo).
+  // Resultado: o dono ficava olhando um quadro diferente do que foi gravado, com
+  // NADA na tela dizendo isso. O pior dos dois mundos — a versão velha no banco e
+  // nenhum aviso.
+  //
+  // DAS DUAS SAÍDAS — travar a edição, ou avisar que o gravado não é o que está
+  // na tela —, esta é travar, e o motivo é que ela resolve a CAUSA em vez de
+  // narrar a consequência: sem edição no meio, o instantâneo enviado é sempre
+  // igual ao quadro quando a resposta chega, então o recado SEMPRE aparece. O
+  // aviso, por outro lado, teria de descrever um estado ("o que está na tela não
+  // foi salvo") que a pessoa não pediu e não pode desfazer.
+  //
+  // `inert` E NÃO só um véu por cima: véu com `pointer-events` bloqueia o
+  // ponteiro e deixa o TECLADO passar — o cursor pode estar dentro do campo de
+  // mensagem do painel no instante do clique em Salvar, e continuar digitando ali
+  // é edição no meio do salvamento, que é exatamente o que isto impede. `inert`
+  // desliga ponteiro, teclado e foco de uma vez, e tira o ramo da árvore de
+  // acessibilidade junto.
+  //
+  // O véu continua, com outra função: DIZER que travou. Travar sem explicar é a
+  // tela ficando muda de outro jeito.
+  //
+  // ELE COBRE O PAINEL TAMBÉM, e não só o React Flow, porque o painel edita a
+  // mesma lista e a mesma configuração — é por isso que ele veste a `div` que
+  // contém os dois, e não o `ReactFlow` sozinho. Fora dele ficam o botão Salvar
+  // (que já se desabilita), o "Voltar" e a paleta: arrastar da paleta não muda
+  // nada sozinho, e o alvo do arrasto está inerte.
+  //
+  // A JANELA É CURTA — dura o Server Action —, e por isso não há estado novo a
+  // guardar: `salvando` é o `isPending` da transição, e ele já existia.
+  // ------------------------------------------------------------------------
+
   // O RECADO CARREGA O QUADRO QUE ELE DESCREVE, e é isso que o faz morrer na
   // primeira mudança em vez de sobreviver até o clique seguinte em Salvar.
   //
@@ -641,9 +682,12 @@ export default function Quadro({
   // então basta comparar por identidade. As duas entram porque as duas são
   // gravadas — `passos` vai para `steps`, `configuracao` vai para as colunas.
   //
-  // Isso cobre de graça o que um efeito não cobriria: mexer no quadro DURANTE o
-  // salvamento. O recado que chegar depois já nasce descrevendo uma lista que
-  // não é mais a da tela, e por isso não aparece.
+  // A COMPARAÇÃO CONTINUA VALENDO com o quadro travado, e ela não virou código
+  // morto: ela é o que mata o "Salvo." na PRIMEIRA mudança DEPOIS do salvamento,
+  // que é o caso comum e o motivo original dela. O que o `inert` acima tirou foi
+  // o outro caso — mexer DURANTE —, e é bom que os dois estejam fechados por
+  // mecanismos diferentes: se alguém tirar o travamento amanhã, isto aqui volta a
+  // ser a única barreira e o recado volta a sumir, em vez de mentir.
   const [recado, setRecado] = useState<{
     ok: boolean;
     texto: string;
@@ -698,7 +742,7 @@ export default function Quadro({
             GATILHO · {nomeDoGatilho(configuracao.gatilho)}
           </div>
           <div className="mt-1 text-xs text-zinc-700 dark:text-zinc-200">
-            {resumoDasPalavras(configuracao.palavras)}
+            {resumoDasPalavras(configuracao.palavras, configuracao.correspondencia)}
           </div>
         </li>
         {passos.map((p, i) => {
@@ -734,7 +778,10 @@ export default function Quadro({
           mecanismo inteiro está no comentário de `./paleta`. */}
       <div className="relative hidden h-[calc(100vh-16rem)] w-full overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800 sm:flex">
         <Paleta gatilho={configuracao.gatilho} />
-        <div className="relative min-w-0 flex-1">
+        {/* `inert` enquanto salva: o quadro e o painel param de aceitar
+            ponteiro, teclado e foco, para o que for gravado ser o que está na
+            tela. O porquê inteiro está no comentário acima de `recado`. */}
+        <div className="relative min-w-0 flex-1" inert={salvando}>
           <ReactFlow
             nodes={nos}
             edges={setas}
@@ -879,6 +926,19 @@ export default function Quadro({
             aoMudarConfiguracao={setConfiguracao}
             aoFechar={fecharPainel}
           />
+
+          {/* O VÉU DIZ QUE TRAVOU. Quem trava é o `inert` da `div` de fora; este
+              é o que impede a tela de ficar muda de outro jeito — um quadro que
+              para de responder sem explicar é indistinguível de um quadro
+              quebrado. `z-30` para ficar acima do painel, que é `z-20`. */}
+          {salvando && (
+            <div className="absolute inset-0 z-30 flex items-start justify-center bg-white/60 dark:bg-zinc-950/60">
+              <span className="mt-6 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+                Salvando… o quadro fica travado até terminar, para o que for gravado ser o que está
+                na tela.
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

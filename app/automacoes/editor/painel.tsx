@@ -1,7 +1,7 @@
 "use client";
 import type { Passo, Problema } from "@/lib/steps";
 import type { Picked } from "../types";
-import { resumoDoBloco } from "./modelos";
+import { comoTexto, resumoDoBloco } from "./modelos";
 import Previa from "./previa";
 import MessageField from "../variable-picker";
 import MediaPicker from "../media-picker";
@@ -100,6 +100,30 @@ export default function Painel({
 }) {
   if (!passo && !editandoGatilho) return null;
 
+  // ---------------------------------------------------------------------
+  // TODO CAMPO É COAGIDO NA LEITURA (`comoTexto`, `./modelos`), e isso é
+  // REDE DE SEGURANÇA, não desconfiança do tipo.
+  //
+  // `Passo` aqui é uma AFIRMAÇÃO de `passosDoBanco`
+  // (app/automacoes/[id]/page.tsx) sobre um `unknown` vindo do jsonb — nada
+  // confere a forma dos campos em runtime, e aquela função deixa o bloco
+  // INCOMPLETO passar DE PROPÓSITO, para o dono consertá-lo em vez de
+  // descobrir a perda depois de o primeiro salvamento apagá-lo.
+  //
+  // Sem a coerção, clicar nesse bloco — que é justamente o gesto que o
+  // desenho manda fazer — derrubava a ROTA INTEIRA, e não só o painel:
+  // `../variable-picker` faz `value.includes("{{")` no corpo do componente, e
+  // não existe `error.tsx` em lugar nenhum sob `app/`. O irmão deste arquivo
+  // (`resumoDoBloco`, ./modelos) já coagia pelo mesmo motivo; aqui a rede
+  // estava furada exatamente onde o desenho manda passar.
+  //
+  // A COERÇÃO NÃO GRAVA NADA: ela vale só na LEITURA do campo. O dado do
+  // bloco só muda quando a pessoa digita, e aí `aoMudar` grava o que ela
+  // digitou. Em particular ela não cria nem apaga a chave `url` — a
+  // convenção de `./modelos` continua intacta, porque quem decide se o campo
+  // APARECE continua sendo `passo.url !== undefined`, lido do bloco cru.
+  // ---------------------------------------------------------------------
+
   return (
     <aside className="absolute right-0 top-0 z-20 flex h-full w-96 flex-col gap-3 overflow-y-auto border-l border-zinc-200 bg-white p-4 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-start justify-between gap-2">
@@ -137,7 +161,7 @@ export default function Painel({
           <MessageField
             name="texto"
             label="Mensagem"
-            value={passo.texto}
+            value={comoTexto(passo.texto)}
             onChange={(v) => aoMudar({ ...passo, texto: v })}
             rows={4}
             placeholder="Oi {{first_name}}! Que bom te ver por aqui 😊"
@@ -147,7 +171,7 @@ export default function Painel({
             <div>
               <label className={labelCls}>Texto do botão</label>
               <input
-                value={passo.botao_label}
+                value={comoTexto(passo.botao_label)}
                 onChange={(e) => aoMudar({ ...passo, botao_label: e.target.value })}
                 maxLength={20}
                 className={input}
@@ -160,14 +184,20 @@ export default function Painel({
             <div>
               <label className={labelCls}>Endereço</label>
               <input
-                value={passo.url}
+                value={comoTexto(passo.url)}
                 onChange={(e) => aoMudar({ ...passo, url: e.target.value })}
                 placeholder="https://"
                 className={input}
               />
+              {/* AS DUAS CONSEQUÊNCIAS, porque elas dependem do rótulo e são
+                  diferentes — é a mesma divisão que a mensagem de erro de
+                  `conferirLista` (lib/steps.ts) faz. Com rótulo o fluxo TRAVA
+                  esperando o toque; sem rótulo ele segue e o que se perde é o
+                  link, que chega como texto puro. */}
               <p className={hintCls}>
-                O botão abre este endereço. Sem ele, o fluxo trava esperando um toque que não leva a
-                lugar nenhum.
+                {passo.botao_label
+                  ? "O botão abre este endereço. Sem ele, o fluxo trava esperando um toque que não leva a lugar nenhum."
+                  : "O botão abre este endereço. Sem ele, chega só o texto — sem link e sem botão."}
               </p>
             </div>
           )}
@@ -190,10 +220,16 @@ export default function Painel({
       {passo?.tipo === "esperar" && (
         <div>
           <label className={labelCls}>Esperar (minutos)</label>
+          {/* O CAMPO VAZIO é o que um `minutos` que não é número vira aqui —
+              nulo, texto, lista, ou a chave ausente. Não estoura como o
+              `texto`, mas `value={{}}` desenharia "[object Object]" dentro de
+              um `type="number"`, e o dono não teria como saber o que está
+              gravado. Vazio, ele digita e o bloco se conserta; `conferirLista`
+              (lib/steps.ts) segura o salvar até lá. */}
           <input
             type="number"
             min={0}
-            value={passo.minutos}
+            value={typeof passo.minutos === "number" && Number.isFinite(passo.minutos) ? passo.minutos : ""}
             onChange={(e) => {
               // `Number("")` é 0, e `Number("abc")` é NaN — o segundo é
               // recusado por `conferir` (lib/steps.ts) e viraria ERRO num
@@ -227,7 +263,7 @@ export default function Painel({
           <MessageField
             name="texto"
             label="Mensagem do pedido"
-            value={passo.texto}
+            value={comoTexto(passo.texto)}
             onChange={(v) => aoMudar({ ...passo, texto: v })}
             rows={3}
           />
@@ -237,7 +273,7 @@ export default function Painel({
               <div>
                 <label className={labelCls}>Texto do botão</label>
                 <input
-                  value={passo.botao_label}
+                  value={comoTexto(passo.botao_label)}
                   onChange={(e) => aoMudar({ ...passo, botao_label: e.target.value })}
                   maxLength={20}
                   className={input}
@@ -263,7 +299,7 @@ export default function Painel({
         <div>
           <label className={labelCls}>Emoji</label>
           <input
-            value={passo.emoji}
+            value={comoTexto(passo.emoji)}
             onChange={(e) => aoMudar({ ...passo, emoji: e.target.value })}
             className={input}
           />

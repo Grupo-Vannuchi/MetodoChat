@@ -48,6 +48,11 @@ export default function AutomationsList({ automations }: { automations: Automati
   const [pendente, startTransition] = useTransition();
   // qual linha está em ação, para o retorno visual ficar na linha certa
   const [agindo, setAgindo] = useState<string | null>(null);
+  // A RECUSA DE ATIVAR, e ela é por LINHA. `toggleAutomation` (./actions) confere
+  // a lista antes de ligar a automação, e uma recusa sem lugar na tela é o botão
+  // não fazendo nada — o modo de falhar que esta correção existe para tirar.
+  // Uma só de cada vez: a ação é um clique, e a seguinte apaga a anterior.
+  const [recusa, setRecusa] = useState<{ id: string; mensagem: string } | null>(null);
 
   const contagem = useMemo(
     () => ({
@@ -75,9 +80,24 @@ export default function AutomationsList({ automations }: { automations: Automati
 
   function executar(id: string, fn: () => Promise<void>) {
     setAgindo(id);
+    setRecusa(null);
     startTransition(async () => {
       await fn();
       setAgindo(null);
+    });
+  }
+
+  // Ligar e desligar têm caminho próprio porque só este devolve recusa: ativar
+  // uma automação que não entrega nada é o que `toggleAutomation` barra, e o
+  // motivo vem do servidor na língua do dono (é a mesma frase de `conferirLista`
+  // que o editor mostra no bloco culpado).
+  function alternar(id: string, ativa: boolean) {
+    setAgindo(id);
+    setRecusa(null);
+    startTransition(async () => {
+      const r = await toggleAutomation(id, !ativa);
+      setAgindo(null);
+      if (!r.ok) setRecusa({ id, mensagem: r.erro });
     });
   }
 
@@ -244,7 +264,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                     <button
                       type="button"
                       disabled={ocupado}
-                      onClick={() => executar(a.id, () => toggleAutomation(a.id, !a.active))}
+                      onClick={() => alternar(a.id, a.active)}
                       title={a.active ? "Pausar automação" : "Ativar automação"}
                       className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
                     >
@@ -281,6 +301,20 @@ export default function AutomationsList({ automations }: { automations: Automati
                     </button>
                   </div>
                 </div>
+
+                {/* A RECUSA DE ATIVAR, na própria linha e com o motivo. O botão
+                    fica onde estava — "Ativar" continua clicável, porque
+                    consertar a automação é em outra tela e voltar a tentar
+                    depois é o gesto natural. O link para o editor vem junto:
+                    quem lê o motivo já sabe o que fazer, e é lá que se faz. */}
+                {recusa?.id === a.id && (
+                  <p className="mt-3 rounded-lg border-l-4 border-red-500 bg-red-50 p-2 text-xs leading-relaxed text-red-900 dark:bg-red-950/40 dark:text-red-100">
+                    Não deu para ativar: {recusa.mensagem}{" "}
+                    <Link href={`/automacoes/${a.id}`} className="font-semibold underline">
+                      Abrir o editor
+                    </Link>
+                  </p>
+                )}
               </li>
             );
           })}

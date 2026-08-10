@@ -2430,6 +2430,13 @@ original; a diferença aqui é que quase toda a lógica está em função pura
 testada — o que o revisor mais precisa olhar é a Tarefa 2 (cursor) e a
 Tarefa 3 (payload), que são as únicas que mexem em `lib/engine.ts`.
 
+**O ROTEIRO DE DEPLOY É `docs/deploy/2026-08-06-editor-em-blocos.md`**, e ele é o
+único lugar em que a ordem está escrita por inteiro. São **dois** scripts, não
+um, e os dois **depois** do push: `dar-ids-aos-passos.mjs` antes de
+`converter-cursores.mjs --aplicar`. Ele traz também a conferência a fazer **antes
+do push** — contar as chaves `passo:` do balde do dia —, que é quem diz se a
+janela de reentrega está aberta.
+
 **No deploy, confira o banco de novo.** O número de "contatos em fluxo" e "fila
 pendente" muda entre agora e o deploy. Com qualquer um deles diferente de zero,
 a troca da identidade pode reenviar mensagem do dia. Não presuma — meça.

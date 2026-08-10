@@ -135,8 +135,18 @@ export function blocoNovo(chave: string): Passo {
 // `esperar` fica de fora da coerção de propósito: `${p.minutos} minutos` é total
 // para todo valor que o JSON produz — número, texto, nulo, lista ou objeto —, e
 // escrever uma guarda ali seria linha que nenhum teste alcança.
+//
+// EXPORTADA desde o painel do bloco (`./painel`), e não copiada para lá: o
+// painel tem o MESMO problema deste arquivo, com um desfecho pior. Ele passa
+// `passo.texto` cru para o campo de mensagem (`../variable-picker`), que faz
+// `value.includes("{{")` — um bloco vindo do jsonb sem `texto` string derruba a
+// ROTA INTEIRA no instante em que alguém o SELECIONA. E selecionar o bloco
+// incompleto para consertá-lo é exatamente o que `passosDoBanco`
+// (app/automacoes/[id]/page.tsx) deixa acontecer de propósito, em vez de apagar
+// o bloco em silêncio. Duas cópias da mesma coerção divergiriam; uma função
+// exportada, não.
 // ---------------------------------------------------------------------------
-function texto(v: unknown): string {
+export function comoTexto(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
@@ -153,25 +163,25 @@ function texto(v: unknown): string {
 export function resumoDoBloco(p: Passo): { titulo: string; corpo: string } {
   switch (p.tipo) {
     case "dm":
-      if (p.url !== undefined) return { titulo: "MENSAGEM COM LINK", corpo: texto(p.texto) };
-      if (p.botao_label) return { titulo: "MENSAGEM COM BOTÃO", corpo: texto(p.texto) };
-      return { titulo: "MENSAGEM", corpo: texto(p.texto) };
+      if (p.url !== undefined) return { titulo: "MENSAGEM COM LINK", corpo: comoTexto(p.texto) };
+      if (p.botao_label) return { titulo: "MENSAGEM COM BOTÃO", corpo: comoTexto(p.texto) };
+      return { titulo: "MENSAGEM", corpo: comoTexto(p.texto) };
     case "esperar":
       return { titulo: "ESPERAR", corpo: `${p.minutos} minutos` };
     // Só o follow leva "PORTÃO" no título, pelo mesmo motivo da paleta logo
     // acima: é o único que a regra do portão reavalia. O e-mail espera resposta
     // como qualquer parada, e o rótulo diz isso — não que ele barre.
     case "pedir_follow":
-      return { titulo: "PORTÃO · PEDIR FOLLOW", corpo: texto(p.texto) };
+      return { titulo: "PORTÃO · PEDIR FOLLOW", corpo: comoTexto(p.texto) };
     case "pedir_email":
-      return { titulo: "PEDIR E-MAIL", corpo: texto(p.texto) };
+      return { titulo: "PEDIR E-MAIL", corpo: comoTexto(p.texto) };
     case "resposta_publica":
       return {
         titulo: "RESPOSTA PÚBLICA",
-        corpo: Array.isArray(p.textos) ? p.textos.map(texto).join(" · ") : "",
+        corpo: Array.isArray(p.textos) ? p.textos.map(comoTexto).join(" · ") : "",
       };
     case "reagir_story":
-      return { titulo: "CORAÇÃOZINHO", corpo: texto(p.emoji) };
+      return { titulo: "CORAÇÃOZINHO", corpo: comoTexto(p.emoji) };
     default: {
       // `p` é `never` aqui — o `switch` cobre os seis tipos de `Passo` —, e é
       // justamente por isso que o `tipo` é relido através de um molde: o que

@@ -271,14 +271,66 @@ export async function criarAutomacao(
   redirect(`/automacoes/${linhas[0].id}`);
 }
 
-export async function toggleAutomation(id: string, active: boolean): Promise<void> {
+// ---------------------------------------------------------------------------
+// ATIVAR PASSA PELA MESMA CONFERÊNCIA DO SALVAR; DESLIGAR NÃO PASSA POR NENHUMA.
+//
+// Esta ação gravava `active` direto, e até esta branch isso não tinha como doer:
+// na `main` toda criação passava por `montarPassos`, e `steps` NUNCA nascia
+// vazio. `criarAutomacao` (logo acima) é a primeira coisa do sistema que grava
+// uma linha com `steps = '[]'`, de propósito — e o botão "Ativar" da lista de
+// automações está a UM CLIQUE dessa linha.
+//
+// O ESTRAGO, por inteiro: quem mandar a palavra-chave dessa automação cai em
+// `executarFluxo(auto, …, 0, …)` (lib/engine.ts). `interpretar` (lib/steps.ts)
+// devolve lista vazia — nada a enfileirar, `pararEm: null` —, e o caminho
+// termina em `limparCursor`. Ou seja: a pessoa NÃO RECEBE NADA e ainda PERDE O
+// LUGAR no fluxo em que estivesse, porque o cursor é do contato, não da
+// automação. `findMatch` escolhe a primeira automação ATIVA cujas palavras
+// casam, então basta a automação vazia disputar a palavra-chave de uma que
+// funciona para ela roubar o disparo e não entregar nada.
+//
+// NASCER PAUSADA fecha só a porta da criação — este botão é a outra.
+//
+// É A MESMA `conferirLista` do salvar, e sobre o par que ESTÁ GRAVADO: os blocos
+// do banco contra o gatilho do banco. Não há metade nova aqui — nada está sendo
+// escrito além da coluna `active` —, então o impasse que obrigou `salvarAutomacao`
+// a conferir o par FINAL não existe neste caminho.
+//
+// DESATIVAR NÃO CONFERE NADA, e isso é decisão, não simetria esquecida: desligar
+// uma automação quebrada tem que continuar sempre possível. Conferir aqui
+// trancaria o dono com uma automação com defeito NO AR, que é o oposto do que
+// esta função existe para permitir.
+// ---------------------------------------------------------------------------
+export async function toggleAutomation(id: string, active: boolean): Promise<Resultado> {
   const accountId = await getSelectedAccountId();
-  if (!accountId) return;
+  if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
+
+  if (active) {
+    // o account_id no where impede ler automação de outra conta
+    const linhas = (await sql().query(
+      `select steps, triggers from automations where id = $1 and account_id = $2`,
+      [id, accountId]
+    )) as { steps: unknown; triggers: string[] | null }[];
+    const a = linhas[0];
+    // Zero linhas é automação que não existe OU de outra conta, e as duas dão a
+    // mesma resposta pelo mesmo motivo de `salvarAutomacao`: distingui-las
+    // contaria a quem tentou que aquele id existe.
+    if (!a) return { ok: false, erro: NAO_ENCONTRADA };
+
+    // O GATILHO É O PRIMEIRO DE `triggers`, com `dm` de padrão — a mesma leitura
+    // de `app/automacoes/[id]/page.tsx`. Divergir dela faria esta conferência
+    // julgar a lista contra um gatilho diferente do que o editor mostra.
+    const gatilho = a.triggers?.[0] ?? "dm";
+    const erros = conferirLista(a.steps, gatilho).filter((p) => p.nivel === "erro");
+    if (erros.length) return { ok: false, erro: erros[0].mensagem };
+  }
+
   await sql().query(
     `update automations set active = $1, updated_at = now() where id = $2 and account_id = $3`,
     [active, id, accountId]
   );
   revalidatePath("/automacoes");
+  return { ok: true };
 }
 
 export async function deleteAutomation(id: string): Promise<void> {

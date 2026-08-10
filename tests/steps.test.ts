@@ -1653,14 +1653,18 @@ describe("conferirLista", () => {
 
   // AS QUATRO FORMAS de uma `dm` com a chave `url` em jogo, uma por teste.
   //
-  // Um teste por forma, e não um teste com quatro `expect`, porque foi a
-  // AUSÊNCIA de um destes casos que deixou passar o defeito da onda anterior: a
-  // condição conferia só o `!url`, sem o `botao_label`, e recusava a segunda
-  // forma — uma DM comum que funciona —, trancando o dono fora do painel. Com
-  // os quatro separados, a condição pela metade não tem como ficar verde.
+  // Um teste por forma, e não um teste com quatro `expect`, porque cada uma
+  // delas já foi decidida errado alguma vez. Separadas, uma condição pela metade
+  // não tem como ficar verde.
   //
-  // A condição espelha `esperaResposta` (`Boolean(botao_label) && !url`), e é o
-  // par rótulo+endereço que decide, nunca o endereço sozinho.
+  // QUEM DECIDE É A CHAVE `url`, e não o par rótulo+endereço. A condição já
+  // espelhou `esperaResposta` (`Boolean(botao_label) && !url`), e essa metade
+  // saiu: a chave presente é o que faz o nó dizer MENSAGEM COM LINK
+  // (`resumoDoBloco`, app/automacoes/editor/modelos.ts), e mensagem que promete
+  // link e sai sem link é defeito com ou sem rótulo. O rótulo continua mudando a
+  // MENSAGEM do erro, porque muda a consequência — armadilha com ele, promessa
+  // quebrada sem ele. O raciocínio inteiro está no comentário da regra em
+  // lib/steps.ts.
 
   it("1 de 4 · ERRO: rótulo E `url` vazia — é o link sem endereço, e trava o fluxo", () => {
     // O defeito de verdade: `blocoNovo("dm_link")` (Tarefa 5) semeia `url: ""`.
@@ -1681,16 +1685,40 @@ describe("conferirLista", () => {
     expect(r[0].mensagem).toMatch(/trava o fluxo/i);
   });
 
-  it("2 de 4 · sem erro: `url` vazia mas SEM rótulo — é DM comum, e ela funciona", () => {
-    // ESTE é o caso que faltava. Sem `botao_label`, `esperaResposta` é falso: o
-    // fluxo não para aqui, nada trava, e não há botão nenhum sem endereço. Dar
-    // erro nele bloqueia o salvar de uma automação que não tem nada de errado.
+  it("2 de 4 · ERRO: `url` vazia e SEM rótulo — o nó diz LINK e chega texto puro", () => {
+    // ESTE caso já foi decidido nos dois sentidos, e a decisão de agora é a
+    // terceira. Ele é ALCANÇÁVEL pela tela em dois cliques a partir da paleta:
+    // bloco de link criado, rótulo apagado no painel, endereço ainda vazio.
     //
-    // E ele é ALCANÇÁVEL pela tela: o painel da Tarefa 7 mostra o campo do
-    // rótulo sempre que `botao_label !== undefined` e deixa apagá-lo — bloco de
-    // link criado pela paleta, rótulo apagado, endereço ainda vazio.
+    // Ele NÃO trava o fluxo — sem `botao_label`, `esperaResposta` é falso, e foi
+    // por isso que uma versão anterior o liberou chamando-o de "DM comum, e ela
+    // funciona". Só que TRÊS peças descreviam esse mesmo bloco de três jeitos: o
+    // nó dizia MENSAGEM COM LINK (classifica pela CHAVE), a conferência dizia
+    // que estava tudo certo, e o motor mandava `linkMessage(texto, "Abrir link",
+    // "")`, que sem url devolve TEXTO PURO — sem link e sem botão. Salvava
+    // limpo e entregava uma promessa quebrada.
     const semRotulo = { id: "b_dmc022", tipo: "dm", texto: "Texto puro", url: "" };
-    expect(erros([bem, semRotulo])).toHaveLength(0);
+    const r = erros([bem, semRotulo]);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+  });
+
+  it("as duas formas sem endereço dizem coisas DIFERENTES, porque o preço é diferente", () => {
+    // Com rótulo é armadilha: `esperaResposta` para o fluxo ali para sempre.
+    // Sem rótulo o fluxo SEGUE e o que se perde é o link. Uma frase só para as
+    // duas esconderia justamente o que o dono precisa saber para decidir o que
+    // fazer com o bloco — e "trava o fluxo" seria mentira na segunda.
+    const comRotulo = { id: "b_lnk060", tipo: "dm", texto: "Link", botao_label: "Abrir", url: "" };
+    const semRotulo = { id: "b_lnk061", tipo: "dm", texto: "Link", url: "" };
+    const a = erros([comRotulo])[0].mensagem;
+    const b = erros([semRotulo])[0].mensagem;
+    expect(a).not.toBe(b);
+    expect(a).toMatch(/trava o fluxo/i);
+    expect(b).not.toMatch(/trava o fluxo/i);
+    // O rótulo VAZIO é o mesmo caso do rótulo ausente: é a falsidade que o
+    // `queue-drain` lê, e é ela que decide qual mensagem sai.
+    const rotuloVazio = { id: "b_lnk062", tipo: "dm", texto: "Link", botao_label: "", url: "" };
+    expect(erros([rotuloVazio])[0].mensagem).toBe(b);
   });
 
   it("3 de 4 · sem erro: rótulo com `url: undefined` — lista ainda EM MEMÓRIA", () => {

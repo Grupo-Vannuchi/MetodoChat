@@ -15,6 +15,10 @@ import { Handle, Position } from "@xyflow/react";
 export type DadosDoGatilho = {
   tipo: string;
   palavras: string[];
+  // O TIPO DE CORRESPONDÊNCIA entra no nó porque ele MANDA no resumo. Sem ele o
+  // cartão lia só as palavras, e as duas leituras discordavam do motor — ver
+  // `resumoDasPalavras`, logo abaixo.
+  correspondencia: string;
   selecionado: boolean;
 };
 
@@ -33,8 +37,33 @@ export function nomeDoGatilho(tipo: string): string {
   return NOME[tipo as keyof typeof NOME] ?? tipo.toUpperCase();
 }
 
-export function resumoDasPalavras(palavras: string[]): string {
-  return palavras.length ? `contém ${palavras.join(", ")}` : "qualquer mensagem";
+// O RESUMO É DECIDIDO PELO TIPO DE CORRESPONDÊNCIA, e não pelas palavras.
+//
+// Ele lia só `palavras`, e por isso mentia em dois casos — nos dois o motor faz
+// uma coisa e os dois cartões imprimiam outra:
+//
+//   `any` COM PALAVRAS GUARDADAS. Trocar a correspondência para "Qualquer texto"
+//     no painel do gatilho DESABILITA o campo mas PRESERVA o que estava
+//     digitado, e `salvarAutomacao` (../actions.ts) grava essas palavras do mesmo
+//     jeito. O cartão dizia "contém quero, link" enquanto `findMatch`
+//     (lib/engine.ts) casava TODA mensagem, de todo mundo. É a leitura mais cara
+//     de errar: "qualquer texto" é a rede de arrasto que `interrompeOFluxo`
+//     (lib/steps.ts) trata como caso à parte justamente por pegar todo mundo.
+//   `exact` — "contém" é outra regra. `match.ts` compara a mensagem INTEIRA, e
+//     quem lê "contém quero" espera que "eu quero!" dispare, quando não dispara.
+//
+// SEM PALAVRA NENHUMA fora do `any` não é "qualquer mensagem", que era o que ele
+// respondia: é automação que não dispara com nada, e `salvarAutomacao` recusa
+// gravá-la. Dizer o que falta é mais útil do que prometer o oposto do que
+// acontece.
+//
+// A leitura equivalente da LISTA de automações (`../list-client.tsx`) já decidia
+// pelo `match_type` — era este cartão que estava fora de sincronia.
+export function resumoDasPalavras(palavras: string[], correspondencia: string): string {
+  if (correspondencia === "any") return "qualquer mensagem";
+  if (!palavras.length) return "sem palavra-chave";
+  const lista = palavras.join(", ");
+  return correspondencia === "exact" ? `texto exato: ${lista}` : `contém ${lista}`;
 }
 
 export default function Gatilho({ data }: { data: DadosDoGatilho }) {
@@ -50,7 +79,7 @@ export default function Gatilho({ data }: { data: DadosDoGatilho }) {
         GATILHO · {nomeDoGatilho(data.tipo)}
       </div>
       <div className="mt-1 line-clamp-2 text-xs text-zinc-700 dark:text-zinc-200">
-        {resumoDasPalavras(data.palavras)}
+        {resumoDasPalavras(data.palavras, data.correspondencia)}
       </div>
       {/* Só a alça de SAÍDA. Ela não é conectável — quem porteia o gesto é
           `isConnectableStart`, e o padrão dela é `true` (o mecanismo inteiro

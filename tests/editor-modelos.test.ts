@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { blocoNovo, resumoDoBloco } from "../app/automacoes/editor/modelos";
+import { blocoNovo, comoTexto, resumoDoBloco } from "../app/automacoes/editor/modelos";
 import { conferirLista, type Passo } from "../lib/steps";
 
 // O QUE ESTE ARQUIVO FIXA: `resumoDoBloco` é TOTAL sobre jsonb.
@@ -98,5 +98,30 @@ describe("blocoNovo", () => {
     for (const chave of chaves) {
       expect(resumoDoBloco(blocoNovo(chave)).titulo).not.toBe("BLOCO DESCONHECIDO");
     }
+  });
+});
+
+// A COERÇÃO QUE O PAINEL DO BLOCO USA (`comoTexto`), e ela é exportada por causa
+// dele. O painel passava `passo.texto` cru para `../variable-picker`, que faz
+// `value.includes("{{")` no corpo do componente — um bloco vindo do jsonb sem
+// `texto` string derrubava a ROTA INTEIRA no instante em que alguém o
+// SELECIONAVA, e não há `error.tsx` em lugar nenhum sob `app/`. Selecionar o
+// bloco incompleto para consertá-lo é justamente o que `passosDoBanco`
+// (app/automacoes/[id]/page.tsx) deixa acontecer de propósito.
+describe("comoTexto", () => {
+  it("tudo o que o jsonb produz e não é string vira texto vazio", () => {
+    // A lista é o que um campo pode ser depois de um `JSON.parse`: a chave
+    // ausente, nulo, número, booleano, lista e objeto.
+    for (const v of [undefined, null, 0, 7, false, true, [], ["a"], {}, { a: 1 }]) {
+      expect(comoTexto(v)).toBe("");
+    }
+  });
+
+  it("string passa inteira, inclusive vazia e só com espaços", () => {
+    // Não é `trim` nem placeholder: o que a pessoa digitou é o que ela vê no
+    // campo. Quem recusa o texto em branco é `conferir` (lib/steps.ts).
+    expect(comoTexto("Oi {{first_name}}")).toBe("Oi {{first_name}}");
+    expect(comoTexto("")).toBe("");
+    expect(comoTexto("   ")).toBe("   ");
   });
 });

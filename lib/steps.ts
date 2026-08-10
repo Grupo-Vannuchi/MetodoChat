@@ -1353,19 +1353,53 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     // tem endereço nenhum para abrir. É parada dura, calada, para sempre — o
     // mesmo defeito que a fase anterior registrou (lembrete salvo sem link).
     //
-    // A CONDIÇÃO ESPELHA `esperaResposta`, e ela tem que espelhá-la INTEIRA. A
-    // versão anterior conferia só o `!url` e deixava o `botao_label` de fora —
-    // metade do mecanismo —, e por isso recusava uma DM comum que funciona.
-    // São três partes, e cada uma exclui uma forma legítima:
+    // A VERDADE MORA NA CHAVE `url`, e as outras duas peças se alinham a ela.
+    // Esta linha é a segunda das três, e o alinhamento precisa estar escrito
+    // porque as três já discordaram entre si:
     //
-    //   `botao_label` PRESENTE — é o que faz `esperaResposta` dizer sim, e sem
-    //     ele não há parada dura nenhuma a acusar: `{tipo:"dm", texto, url:""}`
-    //     sem rótulo é DM comum, o fluxo passa por ela e segue. Sem esta parte
-    //     o dono ficava TRANCADO FORA do painel, e por um caminho que a tela
-    //     oferece: o painel da Tarefa 7 mostra o campo do rótulo sempre que
-    //     `botao_label !== undefined` e deixa apagá-lo, então bloco de link
-    //     criado pela paleta, rótulo apagado e endereço ainda vazio dava ERRO
-    //     numa lista sem nada de errado, e o salvar ficava bloqueado.
+    //   O TÍTULO (`resumoDoBloco`, app/automacoes/editor/modelos.ts) classifica
+    //     pela CHAVE: com ela presente, o nó diz MENSAGEM COM LINK.
+    //   ESTA CONFERÊNCIA, agora, acusa toda chave presente sem endereço.
+    //   O MOTOR não tem como discordar e não muda: sem url não sai link. Com
+    //     rótulo, `esperaResposta` faz o bloco virar resposta rápida e o fluxo
+    //     PARA nele; sem rótulo, `enfileirarPasso` (lib/engine.ts) o manda como
+    //     `dm_link` e `linkMessage` devolve TEXTO PURO. Nos dois a promessa do
+    //     título não é cumprida — o que muda é o preço.
+    //
+    // A CONDIÇÃO ESPELHAVA `esperaResposta` (`Boolean(botao_label) && !url`), e
+    // é essa metade que saiu. O motivo de ela ter entrado está registrado e era
+    // razoável: sem rótulo não há parada dura, e a versão ANTERIOR à dela
+    // recusava `{tipo:"dm", texto, url:""}` chamando-o de armadilha, que ele não
+    // é. Mas a conclusão tirada dali — "é DM comum, e ela funciona" — não se
+    // sustenta: a chave `url` presente é o que faz o nó dizer MENSAGEM COM LINK,
+    // e uma mensagem sem link nem botão não é o que aquele nó promete. Calar
+    // aqui deixava o dono salvar, ativar e entregar uma promessa quebrada, com a
+    // tela dizendo que estava tudo certo. Não travar o fluxo não é estar certo.
+    //
+    // O DONO NÃO FICA TRANCADO FORA, que era o risco daquela decisão, e a razão
+    // é a mesma que faz `blocoNovo("dm_link")` (editor/modelos.ts) NASCER COM
+    // ERRO de propósito: o único jeito de chegar a esta forma pela tela é criar
+    // um bloco de link e não digitar o endereço (apagando ou não o rótulo). O
+    // erro é a instrução do que fazer em seguida, e ele apaga na primeira letra
+    // digitada no campo Endereço. Quem não quer link nenhum apaga o bloco e
+    // arrasta uma "Mensagem" — o painel não tira a chave `url`, e é essa mesma
+    // convenção que mantém o erro visível.
+    //
+    // A MENSAGEM MUDA COM O RÓTULO porque a consequência muda, e é ela que o
+    // dono lê para decidir o que fazer:
+    //
+    //   COM rótulo — `esperaResposta` diz sim, o fluxo PARA ali esperando o
+    //     toque num botão sem destino. Armadilha, e nada depois é entregue.
+    //   SEM rótulo — `linkMessage(texto, "Abrir link", "")` devolve só o texto.
+    //     O fluxo SEGUE, e o que se perde é o link. Promessa quebrada.
+    //
+    // AS DUAS SÃO ERRO, e o critério é o mesmo do resto da função: ERRO trava o
+    // que o motor não consegue executar COMO MONTADO. Um bloco que a tela chama
+    // de "mensagem com link" e que sai sem link nenhum não é executável como
+    // montado, mesmo sem travar ninguém.
+    //
+    // As outras duas partes da condição continuam, e cada uma exclui uma forma
+    // legítima:
     //
     //   `url` DIFERENTE de `undefined` — e esta parte é a que não se enxerga
     //     olhando só o banco. Uma lista pode ser conferida EM MEMÓRIA, antes de
@@ -1403,17 +1437,13 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     // automação no quadro (`quadro.tsx`): tratar como resposta rápida, que é o
     // que o motor já faz, e não mexer na chave. O preço e a saída em aberto —
     // perguntar ao dono no painel do bloco — estão escritos lá.
-    if (
-      passo.tipo === "dm" &&
-      Boolean(passo.botao_label) &&
-      passo.url !== undefined &&
-      !passo.url
-    ) {
+    if (passo.tipo === "dm" && passo.url !== undefined && !passo.url) {
       r.push({
         nivel: "erro",
         indice: i,
-        mensagem:
-          "Mensagem com link sem endereço trava o fluxo para sempre: ele para aqui esperando o toque num botão que não leva a lugar nenhum.",
+        mensagem: passo.botao_label
+          ? "Mensagem com link sem endereço trava o fluxo para sempre: ele para aqui esperando o toque num botão que não leva a lugar nenhum."
+          : "Esta mensagem com link está sem endereço e sem texto de botão: chega só o texto, sem link e sem botão nenhum. O bloco promete um link e entrega uma mensagem comum.",
       });
     }
 
