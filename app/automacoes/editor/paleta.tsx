@@ -41,9 +41,22 @@ function motivoDeEstarFora(gatilhos: string[], gatilho: string): string {
   return `Este bloco só roda no gatilho de ${atende}, e esta automação é disparada por ${nomeDoGatilho(gatilho)}.`;
 }
 
+// A PALETA OCUPA UMA FAIXA PRÓPRIA, e não flutua mais sobre o quadro.
+//
+// Ela era `absolute left-3 top-3 z-10` por cima da área do React Flow, e isso
+// produziu um defeito medido: o `fitView` enquadra o conteúdo na área INTEIRA,
+// sem saber que uma parte dela está coberta. O contorno era um `padding.left` de
+// 200px nas opções do `fitView`, e ele PARA DE VALER quando o enquadramento bate
+// no `minZoom` — a partir daí o conteúdo é só centralizado, e o primeiro nó cai
+// na faixa da paleta. Não era só visual: `elementFromPoint` confirmou que o
+// clique naquele nó chegava na paleta.
+//
+// Com a faixa fora da área do React Flow, o `fitView` enquadra exatamente o
+// espaço que existe, em qualquer zoom, e não há padding assimétrico a ajustar.
+// Quem monta o par de colunas é `quadro.tsx`.
 export default function Paleta({ gatilho }: { gatilho: string }) {
   return (
-    <div className="absolute left-3 top-3 z-10 w-44 rounded-lg border border-zinc-200 bg-white/90 p-1.5 shadow-sm backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/90">
+    <div className="h-full w-44 shrink-0 overflow-y-auto border-r border-zinc-200 bg-zinc-50/60 p-1.5 dark:border-zinc-800 dark:bg-zinc-950/40">
       <div className="px-1.5 pb-1 text-[9px] font-semibold tracking-wider text-zinc-400">
         ARRASTE PARA O QUADRO
       </div>

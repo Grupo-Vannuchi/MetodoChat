@@ -1,21 +1,20 @@
 import Link from "next/link";
-import { getSelectedAccount } from "@/lib/account";
-import AutomationForm, { Account } from "../form";
+import FormNovaAutomacao from "./form-nova";
 import { pageTitle, pageSubtitle, muted } from "../../ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function NovaAutomacaoPage() {
-  // Conta selecionada abastece o cabeçalho da pré-visualização (@ e foto)
-  let account: Account | null = null;
-  try {
-    const selected = await getSelectedAccount();
-    if (selected) {
-      account = { username: selected.username, avatar: selected.profile_picture_url };
-    }
-  } catch {
-    // sem banco/conta ainda: a pré-visualização usa um placeholder
-  }
+// ESTA PÁGINA NÃO MONTA O QUADRO, e a decisão está escrita em `./form-nova`:
+// `salvarPassos` precisa de um id, e automação nova não tem. Aqui se cria a
+// automação com o mínimo; o quadro abre em `/automacoes/<id>`, para onde
+// `criarAutomacao` (app/automacoes/actions.ts) redireciona.
+//
+// A CONTA CONECTADA NÃO É MAIS LIDA AQUI. Ela existia para abastecer o cabeçalho
+// da pré-visualização em celular do formulário antigo (`phone-preview.tsx`), que
+// saiu junto com ele. A prévia nova (`editor/previa.tsx`) desenha a moldura sem
+// a conta, e quem recusa a criação sem conta conectada é o próprio
+// `criarAutomacao`, no servidor — que é onde a recusa vale.
+export default function NovaAutomacaoPage() {
   return (
     <div className="space-y-6">
       <header>
@@ -28,11 +27,11 @@ export default async function NovaAutomacaoPage() {
         </nav>
         <h1 className={pageTitle}>Nova automação</h1>
         <p className={pageSubtitle}>
-          Monte o fluxo de cima para baixo: o gatilho dispara e as ações acontecem em sequência. A
-          pré-visualização ao lado mostra o resultado em tempo real.
+          Comece pelo que dispara a automação. Em seguida você monta o fluxo no quadro, arrastando
+          os blocos na ordem em que eles devem acontecer.
         </p>
       </header>
-      <AutomationForm automation={null} account={account} />
+      <FormNovaAutomacao />
     </div>
   );
 }

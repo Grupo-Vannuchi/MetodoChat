@@ -1,5 +1,10 @@
-// Tipos compartilhados pelas três peças da tela de automação: o formulário, o
-// seletor de mídia e a pré-visualização em celular.
+// Tipos compartilhados pelas peças da tela de automação: o seletor de mídia, o
+// painel do nó de gatilho, a prévia da conversa e o passo de criação.
+//
+// `Account` MORREU AQUI junto com `phone-preview.tsx`, que era quem o lia: a
+// prévia nova (`editor/previa.tsx`) desenha a moldura sem a conta conectada, e
+// o motivo está escrito lá. Quem precisa da conta de verdade continua indo em
+// `lib/account.ts`, no servidor.
 
 // O que a API /api/media devolve para cada post ou story.
 export type Media = {
@@ -17,6 +22,3 @@ export type Media = {
 export type Picked = { id: string; thumb: string; caption: string };
 
 export type TriggerKind = "comment" | "story" | "dm";
-
-// A conta conectada, só o que a pré-visualização precisa para parecer real.
-export type Account = { username: string | null; avatar: string | null };

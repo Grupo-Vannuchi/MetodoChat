@@ -17,9 +17,9 @@ import { input, label as labelCls, hint as hintCls, divider } from "../../ui";
 // precisa ver onde aquele bloco CAI — uma mensagem isolada não diz se ela sai
 // antes ou depois do portão, nem se alguma coisa antes dela trava o fluxo.
 //
-// Ela é `./previa`, e não `phone-preview.tsx`: aquela recebe treze props
-// achatadas e monta a conversa numa ordem fixa escrita no JSX: é o formulário
-// antigo, caixa por caixa, e ela morre junto com ele na Tarefa 8. O motivo
+// Ela é `./previa`, e não `phone-preview.tsx`: aquela recebia treze props
+// achatadas e montava a conversa numa ordem fixa escrita no JSX — era o
+// formulário antigo, caixa por caixa —, e foi apagada junto com ele. O motivo
 // inteiro está no comentário de `./previa`.
 // ---------------------------------------------------------------------------
 

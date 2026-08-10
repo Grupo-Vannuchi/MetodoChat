@@ -32,10 +32,11 @@ import { roteiro, type Bolha, type Cena } from "./roteiro";
 // e REPETÍVEL (duas mensagens seguidas, um link antes do portão, uma espera no
 // meio), e não há prop que faça um slot por papel virar uma lista livre.
 //
-// As duas coexistem por UMA tarefa: `phone-preview.tsx` morre junto com
-// `form.tsx` na Tarefa 8. A moldura, o cabeçalho, os balões e as pílulas foram
-// COPIADOS de lá de propósito — adaptar o miolo daquele arquivo para depois
-// apagá-lo custaria mais e mexeria numa tela que hoje funciona.
+// As duas coexistiram por UMA tarefa: `phone-preview.tsx` foi apagada junto com
+// `form.tsx`, e esta é a única prévia que resta. A moldura, o cabeçalho, os
+// balões e as pílulas foram COPIADOS de lá de propósito — adaptar o miolo
+// daquele arquivo para depois apagá-lo custaria mais e mexeria numa tela que
+// então funcionava.
 //
 // O QUE DESENHAR sai de `./roteiro`, que é puro e testado. Aqui só mora COMO.
 // Uma decisão de conteúdo escrita neste arquivo é uma decisão sem teste, e foi

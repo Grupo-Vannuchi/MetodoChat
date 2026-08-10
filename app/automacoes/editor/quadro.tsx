@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import {
   ReactFlow,
   Background,
@@ -14,11 +15,44 @@ import { conferirLista, identidadeDoPasso, type Passo } from "@/lib/steps";
 import No, { type DadosDoNo } from "./no";
 import Gatilho, { type DadosDoGatilho } from "./gatilho";
 import Painel, { type Configuracao } from "./painel";
-import { arranjoAutomatico, blocoNovo } from "./modelos";
+import { arranjoAutomatico, blocoNovo, resumoDoBloco } from "./modelos";
 import Paleta from "./paleta";
 import * as Geo from "./geometria";
+import { salvarConfiguracao, salvarPassos } from "../actions";
+import { btnPrimary, btnSecondary, muted } from "../../ui";
 
 const TIPOS_DE_NO = { bloco: No, gatilho: Gatilho };
+
+// QUAL TEMA O DOCUMENTO ESTÁ USANDO — e por que ele é lido do DOM em vez de vir
+// como prop.
+//
+// O React Flow tem `colorMode`, e sem ele os controles (mais, menos, enquadrar)
+// nascem pretos sobre fundo escuro, ilegíveis. Os três valores são `light`,
+// `dark` e `system` — e `system` NÃO SERVE: ele lê `prefers-color-scheme`, e o
+// tema deste painel não vem daí. Ele vem da classe `dark` no `<html>`, escrita
+// por `app/layout.tsx` a partir do `localStorage` e alternada pelo botão do menu
+// (`app/app-shell.tsx`). Com `system`, quem usa o painel claro num sistema
+// escuro (ou o contrário) veria os controles do tema errado.
+//
+// O `MutationObserver` é o que faz o quadro acompanhar o botão de trocar tema
+// sem recarregar: a troca é uma mudança de classe no `<html>`, e não há evento
+// para ela.
+//
+// Começa em `light` — o servidor não conhece o tema, e o primeiro render precisa
+// ser igual nos dois lados para não haver divergência de hidratação. A correção
+// acontece no efeito, depois da montagem.
+function useTemaDoDocumento(): "light" | "dark" {
+  const [escuro, setEscuro] = useState(false);
+  useEffect(() => {
+    const html = document.documentElement;
+    const ler = () => setEscuro(html.classList.contains("dark"));
+    ler();
+    const observador = new MutationObserver(ler);
+    observador.observe(html, { attributes: true, attributeFilter: ["class"] });
+    return () => observador.disconnect();
+  }, []);
+  return escuro ? "dark" : "light";
+}
 
 // O ID DO NÓ DE GATILHO, e ele NÃO COLIDE com id de bloco por construção:
 // `identidadeDoPasso` (lib/steps.ts) devolve ou um id com prefixo `b_`, ou o
@@ -60,18 +94,13 @@ function pontoDoEvento(e: MouseEvent | TouchEvent): { x: number; y: number } | n
 // comentário, e o próprio nó mostra o nome. Trocar o gatilho no painel move os
 // três de uma vez.
 //
-// `automationId` ainda NÃO é lido aqui, e por isso segue fora da
-// desestruturação, para o lint não o acusar de esquecimento. Ele é o que o
-// salvar precisa, e entra em uso na Tarefa 8. Exigi-lo na assinatura desde já é
-// o que garante que a página o passe desde a primeira montagem, em vez de a prop
-// nascer opcional e ficar assim.
-//
 // AS DUAS ESCRITAS SÃO SEPARADAS, e a separação começa aqui: `passos` vai para
-// a coluna `steps`, `configuracao` vai para as colunas da automação (nome,
-// ativo, gatilho, palavras-chave, correspondência, post, story). São dois
-// estados, e o salvar da Tarefa 8 são duas gravações — juntá-las faz uma
-// gravação parcial deixar metade de cada coisa no banco.
+// a coluna `steps` (`salvarPassos`), `configuracao` vai para as colunas da
+// automação — nome, ativo, gatilho, palavras-chave, correspondência, post e
+// story — (`salvarConfiguracao`). São dois estados e duas gravações; juntá-las
+// faz uma gravação parcial deixar metade de cada coisa no banco.
 export default function Quadro({
+  automationId,
   passosIniciais,
   configuracaoInicial,
 }: {
@@ -319,6 +348,10 @@ export default function Quadro({
     [passos, configuracao.gatilho]
   );
 
+  // OS ERROS DA LISTA INTEIRA, que são o que trava o salvar. `nivel: "aviso"`
+  // não trava nada: aviso explica e deixa passar.
+  const erros = useMemo(() => problemas.filter((p) => p.nivel === "erro"), [problemas]);
+
   // Só os ERROS, e só os que apontam um bloco. `nivel: "aviso"` não pinta a
   // borda: aviso explica e deixa passar, e vermelho é a cor do que trava o
   // salvar. Os de `indice: null` são da lista inteira e não têm nó a acender.
@@ -563,133 +596,283 @@ export default function Quadro({
   // selecionado, e nenhuma mudança de seleção chegaria.
   const fecharPainel = useCallback(() => setSelecionado(null), []);
 
+  // ------------------------------------------------------------------------
+  // SALVAR — duas gravações, nesta ordem, e a ordem é medida, não estética.
+  //
+  // A CONFIGURAÇÃO VAI PRIMEIRO porque `salvarPassos` (app/automacoes/actions.ts)
+  // lê o GATILHO DO BANCO para conferir a lista, e o gatilho é editável aqui no
+  // painel. Na ordem inversa, trocar o gatilho de comentário para story e salvar
+  // faria a lista ser conferida contra o gatilho ANTIGO: a resposta pública, que
+  // `conferirLista` recusa fora do comentário, passaria pela conferência do
+  // servidor por um salvamento — exatamente a defesa que ela existe para dar.
+  //
+  // E as duas NÃO viram uma transação só de propósito. A alternativa seria um
+  // Server Action que escreve as duas coisas, e é dele que este arquivo inteiro
+  // se protege: era assim `saveAutomation`, que regravava `steps` a partir das
+  // colunas antigas e apagaria a lista montada aqui. Com escopos separados, o
+  // pior caso é uma das duas não acontecer — e não metade de cada uma.
+  const [salvando, iniciarSalvamento] = useTransition();
+  const [recado, setRecado] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  const salvar = useCallback(() => {
+    setRecado(null);
+    iniciarSalvamento(async () => {
+      const daConfiguracao = await salvarConfiguracao(automationId, configuracao);
+      if (!daConfiguracao.ok) {
+        setRecado({ ok: false, texto: daConfiguracao.erro });
+        return;
+      }
+      const dosPassos = await salvarPassos(automationId, passos);
+      setRecado(
+        dosPassos.ok ? { ok: true, texto: "Salvo." } : { ok: false, texto: dosPassos.erro }
+      );
+    });
+  }, [automationId, configuracao, passos]);
+
+  const tema = useTemaDoDocumento();
+
   return (
-    <div className="relative h-[calc(100vh-13rem)] w-full rounded-xl border border-zinc-200 dark:border-zinc-800">
-      <Paleta gatilho={configuracao.gatilho} />
-      <ReactFlow
-        nodes={nos}
-        edges={setas}
-        nodeTypes={TIPOS_DE_NO}
-        onNodesChange={aoMudarNos}
-        onInit={setInstancia}
-        // O RETRATO DO COMEÇO DO GESTO, e ele é tirado aqui porque só aqui o
-        // bloco ainda não andou: as setas ao alcance neste instante são as que a
-        // POSIÇÃO deu de graça, não as que o gesto foi buscar. `alvoDoArraste`
-        // descarta essas — o porquê está em `setasNoInicio`.
-        onNodeDragStart={(e, no) => {
-          const p = pontoDoEvento(e);
-          const i = identidades.indexOf(no.id);
-          setasNoInicio.current = new Set(
-            p ? setasAoAlcance(p.x, p.y, [i - 1, i]).map((s) => s.i) : []
+    <div className="space-y-3">
+      {/* ------------------------------------------------------------------ */}
+      {/* O AVISO NO CELULAR. O quadro precisa de arrastar e soltar, e não há */}
+      {/* versão de toque dele — a decisão foi dizer isso em vez de entregar  */}
+      {/* um editor que não funciona. A lista em modo leitura logo abaixo é o */}
+      {/* que sobra de útil: dá para CONFERIR o fluxo no celular, só não      */}
+      {/* mexer nele.                                                         */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/40 sm:hidden">
+        A edição das automações é pelo computador — o quadro precisa de arrastar e soltar. Abaixo, o
+        fluxo desta automação em modo leitura.
+      </div>
+      <ol className="space-y-2 sm:hidden">
+        <li className="rounded-lg border-2 border-sky-500/70 bg-white px-3 py-2 dark:border-sky-400/70 dark:bg-zinc-900">
+          <div className="text-[10px] font-semibold tracking-wide text-sky-600 dark:text-sky-400">
+            GATILHO
+          </div>
+          <div className="mt-1 text-xs text-zinc-700 dark:text-zinc-200">{configuracao.nome}</div>
+        </li>
+        {passos.map((p, i) => {
+          // O MESMO `resumoDoBloco` do nó do quadro, e não um texto próprio:
+          // duas descrições do mesmo bloco divergiriam, e esta é justamente a
+          // que ninguém olha depois.
+          const { titulo, corpo } = resumoDoBloco(p);
+          return (
+            <li
+              key={identidades[i]}
+              className={`rounded-lg border-2 bg-white px-3 py-2 dark:bg-zinc-900 ${
+                errosPorIndice.has(i)
+                  ? "border-red-500 dark:border-red-400"
+                  : "border-zinc-300 dark:border-zinc-700"
+              }`}
+            >
+              <div className="text-[10px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">
+                {i + 1}. {titulo}
+              </div>
+              <div className="mt-1 text-xs text-zinc-700 dark:text-zinc-200">{corpo}</div>
+            </li>
           );
-        }}
-        // O DESTAQUE SEGUE A MESMA REGRA DO RESULTADO, e não só a proximidade.
-        // Acender uma seta que o soltar vai recusar é a tela oferecendo um gesto
-        // que não faz nada — a definição de ensinar a fazer errado, e o mesmo
-        // motivo pelo qual `no.tsx` desliga as alças de conexão.
-        onNodeDrag={(e, no) => {
-          const p = pontoDoEvento(e);
-          const i = identidades.indexOf(no.id);
-          setSetaSobEle(p && alvoDoArraste(p.x, p.y, i));
-        }}
-        // O alvo é recalculado AQUI, e não lido de `setaSobEle`. Os dois dão o
-        // mesmo resultado — mesma função, mesmo ponto —, e recalcular é o que
-        // garante que a ordem não dependa de qual render chegou primeiro. O
-        // estado fica só para o destaque na tela.
-        onNodeDragStop={(e, no) => {
-          const p = pontoDoEvento(e);
-          const i = identidades.indexOf(no.id);
-          const alvo = p && alvoDoArraste(p.x, p.y, i);
-          setSetaSobEle(null);
-          if (alvo !== null && alvo !== undefined) moverPara(no.id, alvo);
-        }}
-        onDragOver={(e) => {
-          // Só o que veio da paleta. Sem esta conferência o quadro aceitaria
-          // arquivo e texto arrastados de qualquer lugar, e o `onDrop` abaixo
-          // teria de recusá-los depois de o navegador já ter prometido que
-          // aceita.
-          if (!e.dataTransfer.types.includes(TIPO_DO_ARRASTO)) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-          setSetaSobEle(setaSobOPonto(e.clientX, e.clientY, []));
-        }}
-        // `dragleave` BORBULHA dos filhos, e o quadro é feito deles: cada nó,
-        // cada seta, o fundo e os controles. Apagar o destaque em todo
-        // `dragleave` fazia a seta PISCAR durante o arraste da paleta — o
-        // ponteiro cruza a fronteira entre dois filhos, o `dragleave` do que
-        // ficou para trás sobe até aqui, e só o `dragover` seguinte reacende.
-        //
-        // O resultado nunca dependeu disso — `onDrop` recalcula o alvo em vez de
-        // ler `setaSobEle`, e essa decisão está escrita ali —, mas reordenar é um
-        // gesto que precisa PARECER preciso: destaque que treme é a tela dizendo
-        // que não sabe onde o bloco vai cair.
-        //
-        // `relatedTarget` é para onde o ponteiro foi. Dentro do quadro, o gesto
-        // continua e o destaque fica. Fora — ou `null`, que é sair da janela —,
-        // aí sim apaga.
-        //
-        // O molde é `Element` e não `Node` porque `Node` aqui é o TIPO DO REACT
-        // FLOW, importado lá em cima: o `Node` do DOM está sombreado neste
-        // arquivo. `Element` cobre o que `relatedTarget` pode ser de verdade —
-        // os filhos do quadro são HTML e SVG, e os dois são `Element`.
-        onDragLeave={(e) => {
-          if (e.currentTarget.contains(e.relatedTarget as Element | null)) return;
-          setSetaSobEle(null);
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          const chave = e.dataTransfer.getData(TIPO_DO_ARRASTO);
-          setSetaSobEle(null);
-          if (!chave) return;
-          const p = instancia?.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-          inserir(chave, p?.x ?? 0, p?.y ?? 0, setaSobOPonto(e.clientX, e.clientY, []));
-        }}
-        // Não há `onNodeClick`/`onPaneClick` aqui de propósito: a seleção chega
-        // por `onNodesChange` como mudança do tipo `select`, que é o mesmo
-        // caminho da seleção por caixa e por teclado. Escrever a seleção também
-        // nos dois cliques faria duas fontes para o mesmo estado, e a que
-        // sobrasse de fora (a caixa) seria a que ninguém testa.
-        nodesConnectable={false}
-        edgesFocusable={false}
-        deleteKeyCode={null}
-        fitView
-        // A PALETA FLUTUA SOBRE O QUADRO, e o `fitView` não sabe disso: ele
-        // enquadra o conteúdo na área INTEIRA, então o que ficar à esquerda
-        // nasce embaixo dela. Antes desta tarefa quem sumia era o bloco 0;
-        // agora seria o GATILHO, que é justamente o nó que a pessoa precisa
-        // clicar para configurar a automação. Medido no navegador: com padding
-        // simétrico o nó do gatilho ficou coberto na abertura.
-        //
-        // 200px é a largura da paleta (`w-44`, 176) mais o afastamento dela
-        // (`left-3`, 12) e uma folga.
-        fitViewOptions={{ padding: { left: "200px", top: "24px", right: "24px", bottom: "24px" } }}
-        proOptions={{ hideAttribution: false }}
-      >
-        <Background gap={17} />
-        <Controls showInteractive={false} />
-      </ReactFlow>
-      {/* DEPOIS do quadro, e sobre ele: o painel é irmão do `ReactFlow`, não
-          filho, para não virar mais um nó do que a biblioteca gerencia — e
-          fechado ele não ocupa nada, então o quadro é inteiro. */}
-      <Painel
-        passo={indiceSelecionado === -1 ? null : passos[indiceSelecionado]}
-        indice={indiceSelecionado}
-        // A LISTA INTEIRA vai junto, e é por causa da prévia: ela desenha a
-        // conversa toda, não só o bloco aberto. É o MESMO `passos` que os nós
-        // usam — uma segunda cópia faria a prévia atrasar um render em relação
-        // ao quadro, e o retorno ao vivo é a razão de ela existir.
-        passos={passos}
-        // A CONFIGURAÇÃO VAI SEMPRE, e não só quando o gatilho está
-        // selecionado: a prévia precisa do gatilho para saber se a conversa
-        // começa num comentário, numa resposta de story ou numa DM. Quem diz
-        // que os CAMPOS da automação devem aparecer é `editandoGatilho`.
-        configuracao={configuracao}
-        editandoGatilho={selecionado === ID_DO_GATILHO}
-        problemas={problemasDoPainel}
-        aoMudar={mudarPasso}
-        aoMudarConfiguracao={setConfiguracao}
-        aoFechar={fecharPainel}
-      />
+        })}
+        {!passos.length && (
+          <li className={`rounded-lg border border-dashed border-zinc-300 p-3 text-xs dark:border-zinc-700 ${muted}`}>
+            Nenhum bloco ainda.
+          </li>
+        )}
+      </ol>
+
+      {/* AS DUAS COLUNAS: a paleta ocupa uma faixa PRÓPRIA, e o React Flow o
+          resto. Ela flutuava sobre o quadro, e o `fitView` não sabia disso — o
+          mecanismo inteiro está no comentário de `./paleta`. */}
+      <div className="relative hidden h-[calc(100vh-16rem)] w-full overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800 sm:flex">
+        <Paleta gatilho={configuracao.gatilho} />
+        <div className="relative min-w-0 flex-1">
+          <ReactFlow
+            nodes={nos}
+            edges={setas}
+            nodeTypes={TIPOS_DE_NO}
+            onNodesChange={aoMudarNos}
+            onInit={setInstancia}
+            // O RETRATO DO COMEÇO DO GESTO, e ele é tirado aqui porque só aqui o
+            // bloco ainda não andou: as setas ao alcance neste instante são as que a
+            // POSIÇÃO deu de graça, não as que o gesto foi buscar. `alvoDoArraste`
+            // descarta essas — o porquê está em `setasNoInicio`.
+            onNodeDragStart={(e, no) => {
+              const p = pontoDoEvento(e);
+              const i = identidades.indexOf(no.id);
+              setasNoInicio.current = new Set(
+                p ? setasAoAlcance(p.x, p.y, [i - 1, i]).map((s) => s.i) : []
+              );
+            }}
+            // O DESTAQUE SEGUE A MESMA REGRA DO RESULTADO, e não só a proximidade.
+            // Acender uma seta que o soltar vai recusar é a tela oferecendo um gesto
+            // que não faz nada — a definição de ensinar a fazer errado, e o mesmo
+            // motivo pelo qual `no.tsx` desliga as alças de conexão.
+            onNodeDrag={(e, no) => {
+              const p = pontoDoEvento(e);
+              const i = identidades.indexOf(no.id);
+              setSetaSobEle(p && alvoDoArraste(p.x, p.y, i));
+            }}
+            // O alvo é recalculado AQUI, e não lido de `setaSobEle`. Os dois dão o
+            // mesmo resultado — mesma função, mesmo ponto —, e recalcular é o que
+            // garante que a ordem não dependa de qual render chegou primeiro. O
+            // estado fica só para o destaque na tela.
+            onNodeDragStop={(e, no) => {
+              const p = pontoDoEvento(e);
+              const i = identidades.indexOf(no.id);
+              const alvo = p && alvoDoArraste(p.x, p.y, i);
+              setSetaSobEle(null);
+              if (alvo !== null && alvo !== undefined) moverPara(no.id, alvo);
+            }}
+            onDragOver={(e) => {
+              // Só o que veio da paleta. Sem esta conferência o quadro aceitaria
+              // arquivo e texto arrastados de qualquer lugar, e o `onDrop` abaixo
+              // teria de recusá-los depois de o navegador já ter prometido que
+              // aceita.
+              if (!e.dataTransfer.types.includes(TIPO_DO_ARRASTO)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setSetaSobEle(setaSobOPonto(e.clientX, e.clientY, []));
+            }}
+            // `dragleave` BORBULHA dos filhos, e o quadro é feito deles: cada nó,
+            // cada seta, o fundo e os controles. Apagar o destaque em todo
+            // `dragleave` fazia a seta PISCAR durante o arraste da paleta — o
+            // ponteiro cruza a fronteira entre dois filhos, o `dragleave` do que
+            // ficou para trás sobe até aqui, e só o `dragover` seguinte reacende.
+            //
+            // O resultado nunca dependeu disso — `onDrop` recalcula o alvo em vez de
+            // ler `setaSobEle`, e essa decisão está escrita ali —, mas reordenar é um
+            // gesto que precisa PARECER preciso: destaque que treme é a tela dizendo
+            // que não sabe onde o bloco vai cair.
+            //
+            // `relatedTarget` é para onde o ponteiro foi. Dentro do quadro, o gesto
+            // continua e o destaque fica. Fora — ou `null`, que é sair da janela —,
+            // aí sim apaga.
+            //
+            // O molde é `Element` e não `Node` porque `Node` aqui é o TIPO DO REACT
+            // FLOW, importado lá em cima: o `Node` do DOM está sombreado neste
+            // arquivo. `Element` cobre o que `relatedTarget` pode ser de verdade —
+            // os filhos do quadro são HTML e SVG, e os dois são `Element`.
+            onDragLeave={(e) => {
+              if (e.currentTarget.contains(e.relatedTarget as Element | null)) return;
+              setSetaSobEle(null);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const chave = e.dataTransfer.getData(TIPO_DO_ARRASTO);
+              setSetaSobEle(null);
+              if (!chave) return;
+              const p = instancia?.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+              inserir(chave, p?.x ?? 0, p?.y ?? 0, setaSobOPonto(e.clientX, e.clientY, []));
+            }}
+            // Não há `onNodeClick`/`onPaneClick` aqui de propósito: a seleção chega
+            // por `onNodesChange` como mudança do tipo `select`, que é o mesmo
+            // caminho da seleção por caixa e por teclado. Escrever a seleção também
+            // nos dois cliques faria duas fontes para o mesmo estado, e a que
+            // sobrasse de fora (a caixa) seria a que ninguém testa.
+            nodesConnectable={false}
+            edgesFocusable={false}
+            deleteKeyCode={null}
+            fitView
+            // PADDING SIMÉTRICO, e é a paleta ter saído de cima do quadro que
+            // permite isso. O `left: "200px"` que estava aqui compensava a faixa
+            // coberta por ela, e essa compensação PARAVA DE VALER no `minZoom`: a
+            // partir dali o conteúdo é só centralizado e o primeiro nó voltava para
+            // debaixo da paleta, com os cliques chegando nela. O mecanismo inteiro
+            // está no comentário de `./paleta`; aqui basta que a área do React Flow
+            // seja toda dele.
+            fitViewOptions={{ padding: "24px" }}
+            // O PISO DO ZOOM DESCE DE 0,5 (o padrão do React Flow) PARA 0,2, e isto
+            // é a segunda metade do mesmo defeito — a que a paleta em faixa própria
+            // NÃO resolve.
+            //
+            // Medido nesta página, a 1440×900, com a área do quadro em 782px: com o
+            // piso em 0,5, o `fitView` deixa de caber a partir de SETE blocos, e o
+            // que sobra de fora é o começo da corrente — a 9 blocos, o nó de GATILHO
+            // e o bloco 0 abriam fora da área visível. É o pior lugar possível para
+            // esconder: o gatilho é o nó que a pessoa precisa clicar para dar nome à
+            // automação, escolher as palavras-chave e marcá-la como ativa, e nada na
+            // tela diz que ele está à esquerda.
+            //
+            // O PREÇO ESTÁ DITO: numa lista longa a abertura fica pequena demais para
+            // LER os blocos. É troca deliberada — ver a forma inteira do fluxo e
+            // aproximar é um gesto que os controles oferecem; descobrir que existe
+            // conteúdo fora da tela não é.
+            minZoom={0.2}
+            // O TEMA DO PAINEL, e não `system`. Sem isto os controles nascem pretos
+            // sobre fundo escuro; com `system` eles seguiriam o sistema operacional,
+            // que não é quem decide o tema aqui. O motivo está em
+            // `useTemaDoDocumento`, no topo do arquivo.
+            colorMode={tema}
+            proOptions={{ hideAttribution: false }}
+          >
+            <Background gap={17} />
+            <Controls showInteractive={false} />
+          </ReactFlow>
+          {/* DEPOIS do quadro, e sobre ele: o painel é irmão do `ReactFlow`, não
+              filho, para não virar mais um nó do que a biblioteca gerencia — e
+              fechado ele não ocupa nada, então o quadro é inteiro. */}
+          <Painel
+            passo={indiceSelecionado === -1 ? null : passos[indiceSelecionado]}
+            indice={indiceSelecionado}
+            // A LISTA INTEIRA vai junto, e é por causa da prévia: ela desenha a
+            // conversa toda, não só o bloco aberto. É o MESMO `passos` que os nós
+            // usam — uma segunda cópia faria a prévia atrasar um render em relação
+            // ao quadro, e o retorno ao vivo é a razão de ela existir.
+            passos={passos}
+            // A CONFIGURAÇÃO VAI SEMPRE, e não só quando o gatilho está
+            // selecionado: a prévia precisa do gatilho para saber se a conversa
+            // começa num comentário, numa resposta de story ou numa DM. Quem diz
+            // que os CAMPOS da automação devem aparecer é `editandoGatilho`.
+            configuracao={configuracao}
+            editandoGatilho={selecionado === ID_DO_GATILHO}
+            problemas={problemasDoPainel}
+            aoMudar={mudarPasso}
+            aoMudarConfiguracao={setConfiguracao}
+            aoFechar={fecharPainel}
+          />
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* O RODAPÉ. Só no computador, pelo mesmo motivo do quadro: não há o    */}
+      {/* que salvar numa tela em que não dá para editar.                     */}
+      {/*                                                                     */}
+      {/* O BOTÃO DESABILITADO TRAZ O MOTIVO AO LADO. Botão apagado sem        */}
+      {/* explicação é a tela dizendo "não" e nada mais — e o erro pode estar  */}
+      {/* num bloco que nem está à vista. A frase é a MESMA de `conferirLista` */}
+      {/* que o painel do bloco mostra, então o rodapé e o painel nunca dizem  */}
+      {/* coisas diferentes sobre o mesmo problema.                            */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="hidden flex-wrap items-center gap-3 sm:flex">
+        <button
+          type="button"
+          onClick={salvar}
+          disabled={salvando || erros.length > 0}
+          className={btnPrimary}
+        >
+          {salvando ? "Salvando…" : "Salvar automação"}
+        </button>
+        <Link href="/automacoes" className={btnSecondary}>
+          Voltar
+        </Link>
+        {erros.length > 0 ? (
+          <span className="text-xs font-medium text-red-600 dark:text-red-400">
+            {erros[0].mensagem}
+            {erros.length > 1 && ` (e mais ${erros.length - 1})`}
+          </span>
+        ) : (
+          recado && (
+            <span
+              className={`text-xs font-medium ${
+                recado.ok
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-red-600 dark:text-red-400"
+              }`}
+            >
+              {recado.texto}
+            </span>
+          )
+        )}
+      </div>
     </div>
   );
 }

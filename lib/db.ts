@@ -400,14 +400,15 @@ const DDL = [
   // apontar para DEPOIS do portão de follow, entregando o link a quem não
   // segue, em silêncio.
   //
-  // A TROCA AINDA NÃO ENTREGOU O QUE PROMETE, e vale dizer aqui para ninguém
-  // ler esta coluna como já resolvida: `montarPassos` (app/automacoes/actions.ts)
-  // gera id novo para TODO bloco a cada salvamento, e o `update` grava o `steps`
-  // inteiro sem casar com os ids antigos. Enquanto o formulário for o editor —
-  // até a Tarefa 8 —, todo save reescreve os ids e órfã o cursor de todo mundo
-  // que estiver em fluxo. Pior: a identidade também entra na `passoKey`, então
-  // o `on conflict` deixa de casar e a boas-vindas sai uma segunda vez. Isso
-  // fecha quando o quadro substituir o formulário e passar a preservar os ids.
+  // A TROCA JÁ ENTREGA O QUE PROMETE, e vale dizer aqui porque este comentário
+  // dizia o contrário: enquanto o formulário era o editor, `montarPassos`
+  // sorteava um id NOVO para todo bloco a cada salvamento, e cada save orfanava
+  // o cursor de quem estivesse em fluxo — a identidade também entra na
+  // `passoKey`, então o `on conflict` deixava de casar e a boas-vindas saía uma
+  // segunda vez. O formulário saiu; quem grava agora é `salvarPassos`
+  // (app/automacoes/actions.ts), que escreve a lista COMO ELA VEIO do quadro, e
+  // o quadro espalha cada bloco preservando o `id`. Reordenar e editar deixaram
+  // de reescrever identidade.
   //
   // `flow_step_index` NÃO é apagada aqui. Ela sai junto com as outras colunas
   // órfãs; apagar no mesmo deploy tira o caminho de volta. Enquanto existir,
