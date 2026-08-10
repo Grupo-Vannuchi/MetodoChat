@@ -146,6 +146,43 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
     }
     return { passo: p as Passo };
   }
+  // O RÓTULO DO BOTÃO NÃO É CONFERIDO AQUI, e a ausência é DECISÃO MEDIDA — não
+  // esquecimento. Quem recusa o portão sem rótulo é `conferirLista`, lá embaixo,
+  // e o motivo é o que este bloco de comentário existe para registrar.
+  //
+  // O buraco é real e está medido: com `botao_label: ""`, `resolverFollow`
+  // (lib/engine.ts) enfileira `quick_reply_label: ""`, e `lib/queue-drain.ts`
+  // exige `quick_reply_label && quick_reply_payload` — falso — e cai no `else`
+  // de texto puro. A mensagem sai SEM BOTÃO NENHUM, e o fluxo para no portão.
+  //
+  // A pergunta é ONDE fechá-lo, e as duas respostas não custam a mesma coisa:
+  //
+  //   RECUSANDO AQUI, o portão vira bloco inválido, e `interpretar` IGNORA bloco
+  //     inválido — ele segue o laço e enfileira TUDO o que vem depois, o link
+  //     inclusive. `indiceDoPortao` deixa de achá-lo, então `atravessandoOPortao`
+  //     não marca passagem nenhuma, e `passoEsperado` devolve undefined no
+  //     cursor. Somadas, essas três fazem exatamente o que esta fase gastou duas
+  //     ondas para impedir: ENTREGAR O LINK A QUEM NÃO SEGUE. Calado, sem erro,
+  //     sem linha em Atividade.
+  //
+  //   NÃO RECUSANDO, o portão continua portão: `interpretar` para nele,
+  //     `resolverFollow` reconsulta a Meta, e ninguém passa sem seguir. O preço
+  //     é a pessoa receber o pedido sem botão para tocar — e ele NÃO é uma
+  //     parada sem saída: o ramo de texto de lib/engine.ts leva
+  //     `retomadaDoTexto` a devolver o próprio portão, então quem seguir e
+  //     mandar qualquer mensagem atravessa. É armadilha de usabilidade, não
+  //     entrega indevida.
+  //
+  // Ignorar o portão é PIOR do que não conseguir atravessá-lo: a segunda deixa a
+  // promessa central do produto de pé, a primeira a quebra. Por isso a recusa
+  // mora em `conferirLista`, que TRAVA O SALVAR e nunca muda o que o motor faz
+  // com uma lista já gravada.
+  //
+  // E o alcance de uma lista já gravada é conhecido: `montarPassos`
+  // (app/automacoes/actions.ts) escreve `f.followButtonLabel || "Já sigo! ✅"`
+  // sobre um valor que `saveAutomation` já defaultou, então NENHUMA lista do
+  // formulário tem portão sem rótulo. Quem produz o caso é o painel da Tarefa 7,
+  // que deixa apagar o campo — e é justamente ele que `conferirLista` barra.
   if (tipo === "pedir_follow") {
     if (typeof o.texto !== "string" || !o.texto.trim()) {
       return {
@@ -1237,6 +1274,35 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
       } else {
         idsVistos.add(idBruto);
       }
+    }
+
+    // PORTÃO SEM RÓTULO NÃO É PORTÃO: é uma parada sem o que tocar.
+    //
+    // O mecanismo, por inteiro: `resolverFollow` (lib/engine.ts) enfileira
+    // `quick_reply_label: passo.botao_label`, e `lib/queue-drain.ts` só monta a
+    // resposta rápida quando `quick_reply_label && quick_reply_payload`. Com o
+    // rótulo vazio a condição é falsa e a mensagem cai no `else`: sai TEXTO
+    // PURO, sem botão nenhum. O fluxo para no portão — `esperaResposta` diz sim
+    // a todo `pedir_follow` — e a pessoa fica olhando um pedido sem o botão que
+    // ele promete. É a mesma classe de armadilha do "link sem endereço", logo
+    // abaixo, e por isso tem o mesmo nível.
+    //
+    // ELA MORA AQUI E NÃO EM `conferir`, e o porquê está escrito por extenso no
+    // comentário do ramo `pedir_follow` de lá: recusar em `conferir` faria
+    // `interpretar` IGNORAR o portão e entregar o link a quem não segue. Travar
+    // o salvar impede que a lista nasça; ignorar o portão quebraria a promessa
+    // central do produto em toda lista que já nasceu.
+    //
+    // O `dm` de resposta rápida NÃO precisa de regra igual: sem rótulo,
+    // `esperaResposta` diz não, o motor manda texto puro e o fluxo SEGUE. Não
+    // há parada a destravar. É a assimetria entre os dois, e ela é do motor.
+    if (passo.tipo === "pedir_follow" && !passo.botao_label) {
+      r.push({
+        nivel: "erro",
+        indice: i,
+        mensagem:
+          "Este pedido de follow está sem o texto do botão, e sem ele o Instagram não entrega botão nenhum: a mensagem sai como texto puro e o fluxo para aqui, sem nada para a pessoa tocar.",
+      });
     }
 
     if (passo.tipo === "pedir_follow") {

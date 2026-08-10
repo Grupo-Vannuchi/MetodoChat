@@ -16,6 +16,15 @@
 // para as duas coisas que a prévia existe para contar — e a prévia mentindo
 // sobre o fluxo é pior do que prévia nenhuma.
 //
+// E `esperaResposta` MANDA NOS TRÊS QUE PARAM, não só na `dm`. A versão
+// anterior deste arquivo consultava `esperaResposta` no ramo `dm` e escrevia a
+// parada À MÃO nos ramos `pedir_follow` e `pedir_email` — o cabeçalho prometia
+// fonte única e ela valia em um terço dos casos. A revisão provou a divergência
+// mutando `esperaResposta` para o `pedir_email` deixar de esperar:
+// `tests/editor-roteiro.test.ts` continuava verde e a prévia continuava
+// desenhando a parada. Hoje os três passam pela função, e a mesma mutação
+// acende teste.
+//
 // SEM O TIPO `Passo` NA ASSINATURA de propósito — ver `roteiro`, lá embaixo: a
 // entrada é `unknown`, e quem devolve o passo já tipado é `conferir`.
 import { conferir, esperaResposta } from "@/lib/steps";
@@ -40,8 +49,41 @@ export type Bolha =
   // Estas duas NÃO são DM, e é por isso que têm tipo próprio em vez de virarem
   // balão: a resposta pública sai no comentário do post, e o coraçãozinho é
   // uma reação na mensagem que a pessoa mandou.
-  | { tipo: "publica"; texto: string; variacoes: number }
-  | { tipo: "reacao"; emoji: string }
+  //
+  // AS DUAS CARREGAM O QUE O GATILHO DECIDE, e carregam aqui em vez de na tela.
+  // A `resposta_publica` já era consciente do gatilho — mas pela prop `noPost`
+  // de `previa.tsx`, ou seja, numa decisão de conteúdo escrita no JSX —, e o
+  // `reagir_story` não era de jeito nenhum: com o gatilho de comentário o nó
+  // ficava com borda vermelha (`conferirLista` acusa) e a prévia, logo abaixo do
+  // mesmo erro, prometia "reage à mensagem que a pessoa mandou". Agora as duas
+  // decidem no mesmo lugar, com teste.
+  //
+  // `situacao` da pública, e os três casos são os que `conferirLista` conhece:
+  //   `publicada`      — sai mesmo. Só no gatilho de comentário, e só a
+  //                      PRIMEIRA da lista.
+  //   `fora_do_gatilho`— `enfileirarPasso` (lib/engine.ts) faz
+  //                      `if (!contexto.commentId) return`, e só o comentário
+  //                      traz o post a responder.
+  //   `repetida`       — a segunda em diante. `commentReplyKey(comment_id)`
+  //                      (lib/dedupe.ts) é a mesma string das duas, e o
+  //                      `on conflict do nothing` engole a segunda.
+  //
+  // `vazias` é quantas das variações não têm nada escrito. O motor SORTEIA uma
+  // delas a cada disparo e desiste quando a sorteada está em branco, então
+  // "uma das 2 variações" sem essa contagem promete duas e entrega uma às
+  // vezes — a perda intermitente que `conferirLista` decidiu não acusar, e que
+  // a prévia PODE dizer porque ela é o lugar onde se vê o resultado.
+  | {
+      tipo: "publica";
+      texto: string;
+      variacoes: number;
+      vazias: number;
+      situacao: "publicada" | "fora_do_gatilho" | "repetida";
+    }
+  // `alvo` é a QUEM o coraçãozinho reage naquele gatilho, e o `nenhum` é o
+  // ponto: no gatilho de comentário não chega mensagem nenhuma, o bloco não
+  // roda, e a cena não pode prometer entrega.
+  | { tipo: "reacao"; emoji: string; alvo: "story" | "mensagem" | "nenhum" }
   // Bloco que `conferir` recusa. Ele NÃO é enviado — `interpretar` o ignora —,
   // então ele não pode aparecer como se fosse uma mensagem.
   | { tipo: "incompleto"; mensagem: string };
@@ -60,16 +102,26 @@ export type Cena = { indice: number; itens: Bolha[] };
 // mesmo exemplo que a prévia antiga usa.
 const EMAIL_DE_EXEMPLO = "ana@email.com";
 
-// O rótulo do "Já sigo!" quando o bloco está com o campo vazio.
+// O rótulo do botão de link quando ele está sem nome. `conferir` (lib/steps.ts)
+// não exige `botao_label` em `dm` nenhuma, então este caso chega aqui.
 //
-// `conferir` (lib/steps.ts) exige o TEXTO do `pedir_follow`, não o rótulo do
-// botão — então `botao_label: ""` é um bloco válido, que o motor envia com um
-// botão sem nome. Desenhar uma pílula em branco esconderia isso; o padrão é o
-// mesmo texto que a paleta semeia, e é o que a prévia antiga já mostrava.
-const FOLLOW_PADRAO = "Já sigo! ✅";
-
-// O rótulo do botão de link quando ele está sem nome, pelo mesmo motivo acima:
-// `conferir` não exige `botao_label` em `dm` nenhuma.
+// ELE FICA PORQUE É VERDADE, e a frase abaixo existe para ninguém "uniformizar"
+// os dois padrões de novo — houve um `FOLLOW_PADRAO` irmão deste, e ele saiu.
+//
+// `linkMessage` (lib/ig.ts) monta o botão com
+// `title: buttonLabel || "Abrir link"`: sem rótulo, o botão SAI, com esse texto
+// exato. A prévia desenhando "Abrir link" está mostrando o que a pessoa vai
+// receber.
+//
+// O PORTÃO NÃO TEM NADA DISSO, e é por isso que os dois só PARECEM simétricos.
+// `resolverFollow` (lib/engine.ts) passa `quick_reply_label: passo.botao_label`
+// sem default nenhum, e `lib/queue-drain.ts` exige
+// `quick_reply_label && quick_reply_payload` para montar a resposta rápida —
+// com o rótulo vazio a mensagem cai no `else` e sai como TEXTO PURO, sem botão.
+// Um `FOLLOW_PADRAO` aqui desenharia uma pílula que o Instagram nunca entrega,
+// escondendo justamente a armadilha. Quem recusa esse bloco é `conferirLista`
+// (lib/steps.ts), com ERRO, e a prévia mostra a consequência: balão sem botão e
+// a parada logo abaixo, sem ninguém para tocá-la.
 const LINK_PADRAO = "Abrir link";
 
 // A marca de tempo de um `esperar`, em português de gente.
@@ -107,10 +159,24 @@ export function textoDoTempo(minutos: number): string {
 // (lib/steps.ts): a lista também chega do banco, onde ela é `unknown[]` e nada
 // confere o tipo em runtime. Uma lista que não é lista devolve roteiro vazio, e
 // a tela mostra o vazio em vez de quebrar.
-export function roteiro(passos: unknown): Cena[] {
+//
+// O GATILHO É OBRIGATÓRIO, e não tem valor padrão de propósito. Dois dos seis
+// tipos só rodam em alguns gatilhos, e um padrão faria a prévia prometer
+// entrega no gatilho errado calada — que é exatamente o defeito que esta
+// assinatura veio corrigir. Um chamador que não sabe o gatilho não sabe o
+// suficiente para desenhar a conversa.
+export function roteiro(passos: unknown, gatilho: string): Cena[] {
   if (!Array.isArray(passos)) return [];
 
   const cenas: Cena[] = [];
+  // Só a PRIMEIRA resposta pública é publicada, e é preciso contar para saber
+  // qual é: `commentReplyKey` (lib/dedupe.ts) não conhece o bloco, então a
+  // segunda sai com a mesma chave e o `on conflict do nothing` a engole. É a
+  // mesma razão pela qual `conferirLista` (lib/steps.ts) trata a segunda como
+  // ERRO — e a prévia apontava a segunda para o texto da PRIMEIRA no cartão do
+  // post, dizendo "sai no comentário do post, acima" sobre um texto que não é
+  // o dela.
+  let publicasVistas = 0;
 
   for (let i = 0; i < passos.length; i++) {
     const { passo, paraODono } = conferir(passos[i]);
@@ -179,18 +245,38 @@ export function roteiro(passos: unknown): Cena[] {
       // por outro caminho (a regra do portão, `atravessandoOPortao` em
       // lib/steps.ts, cobre `pedir_follow` e mais nada). É a mesma distinção
       // que o painel escreve e que a cor do nó carrega.
+      //
+      // A PARADA SAI DE `esperaResposta` NOS DOIS, como no ramo `dm` acima. Ela
+      // diz sim a todo `pedir_follow` e a todo `pedir_email` hoje, então a cena
+      // não muda — o que muda é que a prévia deixa de ter uma cópia da regra: se
+      // um dos dois deixar de esperar, a parada some daqui sozinha, em vez de
+      // continuar desenhada por um `push` escrito à mão.
       case "pedir_follow": {
-        const rotulo = passo.botao_label || FOLLOW_PADRAO;
+        // SEM PÍLULA QUANDO NÃO HÁ RÓTULO, e este é o caso que a prévia existe
+        // para denunciar. Com `botao_label: ""` o motor manda TEXTO PURO —
+        // `lib/queue-drain.ts` exige `quick_reply_label && quick_reply_payload`
+        // — e o fluxo para no portão sem nada para tocar. Desenhar um "Já sigo!
+        // ✅" inventado (o antigo `FOLLOW_PADRAO`) escondia exatamente isso. O
+        // motivo por extenso, e por que o `LINK_PADRAO` fica, está lá em cima.
+        //
+        // E não há `resposta` nenhuma nesse caso: a bolha da direita é o TOQUE
+        // da pessoa, e não há botão em que tocar. `conferirLista` (lib/steps.ts)
+        // acusa ERRO nesse bloco, logo acima da prévia, no painel.
+        const rotulo = passo.botao_label || null;
         itens.push({ tipo: "balao", texto: passo.texto, botao: rotulo, link: false });
-        itens.push({ tipo: "parada", motivo: "follow" });
-        itens.push({ tipo: "resposta", texto: rotulo });
+        if (esperaResposta(passo)) {
+          itens.push({ tipo: "parada", motivo: "follow" });
+          if (rotulo) itens.push({ tipo: "resposta", texto: rotulo });
+        }
         break;
       }
 
       case "pedir_email":
         itens.push({ tipo: "balao", texto: passo.texto, botao: null, link: false });
-        itens.push({ tipo: "parada", motivo: "email" });
-        itens.push({ tipo: "resposta", texto: EMAIL_DE_EXEMPLO });
+        if (esperaResposta(passo)) {
+          itens.push({ tipo: "parada", motivo: "email" });
+          itens.push({ tipo: "resposta", texto: EMAIL_DE_EXEMPLO });
+        }
         break;
 
       // O MOTOR SORTEIA UMA DAS VARIAÇÕES a cada disparo (`enfileirarPasso`,
@@ -202,16 +288,45 @@ export function roteiro(passos: unknown): Cena[] {
       // branco de propósito (sem `.filter()`, senão não dá para digitar a
       // segunda variação), então `textos[0]` é "" com frequência — e a prévia
       // mostraria vazio uma resposta pública que funciona.
-      case "resposta_publica":
+      //
+      // AS VAZIAS SÃO CONTADAS À PARTE porque o sorteio não as pula: o motor
+      // sorteia e faz `if (!texto?.trim()) return`. Logo depois do Enter — o
+      // gesto normal para criar a segunda variação — existe uma linha em branco,
+      // e "uma das 2 variações, sorteada" prometia duas com uma que não publica
+      // nada.
+      case "resposta_publica": {
+        publicasVistas++;
         itens.push({
           tipo: "publica",
           texto: passo.textos.find((t) => typeof t === "string" && t.trim()) ?? "",
           variacoes: passo.textos.length,
+          vazias: passo.textos.filter((t) => typeof t !== "string" || !t.trim()).length,
+          situacao:
+            gatilho !== "comment"
+              ? "fora_do_gatilho"
+              : publicasVistas > 1
+                ? "repetida"
+                : "publicada",
         });
         break;
+      }
 
+      // O CORAÇÃOZINHO REAGE À MENSAGEM QUE A PESSOA MANDOU, e é o gatilho que
+      // decide se existe alguma.
+      //
+      //   `story` — a mensagem é a resposta dela ao story. `handleMessage`
+      //     (lib/engine.ts) chama `executarFluxo(..., { messageId: msg.mid })`.
+      //   `dm` — o MESMO caminho, com a DM comum. O bloco roda, e é por isso que
+      //     `conferirLista` (lib/steps.ts) dá AVISO aqui e não erro.
+      //   qualquer outro (comentário) — não chega mensagem nenhuma, e
+      //     `enfileirarPasso` desiste. O bloco NUNCA roda, `conferirLista` dá
+      //     ERRO, e a cena não pode prometer entrega — era o que ela fazia.
       case "reagir_story":
-        itens.push({ tipo: "reacao", emoji: passo.emoji });
+        itens.push({
+          tipo: "reacao",
+          emoji: passo.emoji,
+          alvo: gatilho === "story" ? "story" : gatilho === "dm" ? "mensagem" : "nenhum",
+        });
         break;
     }
 

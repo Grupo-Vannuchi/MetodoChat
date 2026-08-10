@@ -15,6 +15,7 @@ import {
   lerPayload,
   cursorDaRetomada,
   conferirLista,
+  conferir,
 } from "../lib/steps";
 
 describe("interpretar", () => {
@@ -1496,6 +1497,47 @@ describe("conferirLista", () => {
     const r = erros([bem, coracao], "comment");
     expect(r).toHaveLength(1);
     expect(r[0].indice).toBe(1);
+  });
+
+  // O PORTÃO SEM RÓTULO É IMPOSSÍVEL DE ATRAVESSAR, e nada o recusava.
+  //
+  // `resolverFollow` (lib/engine.ts) enfileira
+  // `quick_reply_label: passo.botao_label`, e `lib/queue-drain.ts` só monta a
+  // resposta rápida quando `quick_reply_label && quick_reply_payload`. Com o
+  // rótulo vazio a mensagem cai no `else` e sai como TEXTO PURO, sem botão. O
+  // fluxo para no portão — `esperaResposta` diz sim a todo `pedir_follow` — e a
+  // pessoa lê um pedido cujo botão não existe.
+  it("ERRO: portão de follow sem o texto do botão — o Instagram não entrega botão nenhum", () => {
+    const semRotulo = { id: "b_por031", tipo: "pedir_follow", texto: "Me segue", botao_label: "" };
+    const r = erros([bem, semRotulo]);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+    // A chave ausente é o mesmo caso da vazia: `passo.botao_label` é falso nos
+    // dois, e é a falsidade que o `queue-drain` lê.
+    const semChave = { id: "b_por032", tipo: "pedir_follow", texto: "Me segue" };
+    expect(erros([bem, semChave])).toHaveLength(1);
+  });
+
+  // A RECUSA MORA AQUI E NÃO EM `conferir`, e este teste é o que fixa a
+  // diferença. Se ela estivesse em `conferir`, o portão viraria bloco inválido e
+  // `interpretar` o IGNORARIA — seguiria o laço e entregaria a cauda inteira, o
+  // link inclusive, a quem não segue. `indiceDoPortao` também deixaria de
+  // achá-lo, e `atravessandoOPortao` não marcaria passagem nenhuma.
+  //
+  // Travar o salvar impede que a lista nasça; ignorar o portão quebraria a
+  // promessa central do produto em toda lista que já nasceu. O raciocínio por
+  // extenso está no ramo `pedir_follow` de `conferir` (lib/steps.ts).
+  it("o portão sem rótulo continua sendo PORTÃO para o motor, e não bloco ignorado", () => {
+    const semRotulo = { id: "b_por033", tipo: "pedir_follow", texto: "Me segue", botao_label: "" };
+    const lista = [semRotulo, { id: "b_lnk034", tipo: "dm", texto: "Link", url: "https://x.com" }];
+    // `conferir` continua aceitando: o bloco É enviado (como texto puro).
+    expect(conferir(semRotulo).passo).toBeTruthy();
+    // `indiceDoPortao` continua achando o portão.
+    expect(indiceDoPortao(lista)).toBe(0);
+    // E `interpretar` PARA nele em vez de pular para o link.
+    const r = interpretar(lista, 0);
+    expect(r.pararEm).toBe(0);
+    expect(r.enfileirar.map((a) => a.indice)).toEqual([0]);
   });
 
   it("ERRO: dois portões de follow", () => {

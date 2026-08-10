@@ -9,6 +9,13 @@ function feitio(cenas: Cena[], i = 0): string[] {
   return cenas[i].itens.map((b) => b.tipo);
 }
 
+// O gatilho é obrigatório em `roteiro`, e de propósito (o motivo está lá). Aqui
+// o padrão é `dm` porque é o gatilho em que os quatro tipos de DM rodam sem
+// ressalva — os testes que perguntam sobre gatilho passam o seu.
+function cenasDe(passos: unknown, gatilho = "dm"): Cena[] {
+  return roteiro(passos, gatilho);
+}
+
 describe("textoDoTempo", () => {
   it("zero não é erro: é espera que não atrasa nada", () => {
     expect(textoDoTempo(0)).toBe("logo em seguida");
@@ -37,7 +44,7 @@ describe("textoDoTempo", () => {
 
 describe("roteiro — os seis tipos de bloco", () => {
   it("`dm` sem rótulo é um balão só, e a conversa continua", () => {
-    const cenas = roteiro([{ tipo: "dm", texto: "Oi!" }] as Passo[]);
+    const cenas = cenasDe([{ tipo: "dm", texto: "Oi!" }] as Passo[]);
     expect(cenas).toEqual([
       { indice: 0, itens: [{ tipo: "balao", texto: "Oi!", botao: null, link: false }] },
     ]);
@@ -47,7 +54,7 @@ describe("roteiro — os seis tipos de bloco", () => {
     // A cena inteira, e não só a presença da parada: a ordem é o que a prévia
     // promete — a pessoa lê o balão, vê a pílula, e só depois de tocar é que a
     // conversa segue.
-    const cenas = roteiro([
+    const cenas = cenasDe([
       { tipo: "dm", texto: "Quer o link?", botao_label: "Quero!" },
     ] as Passo[]);
     expect(cenas[0].itens).toEqual([
@@ -58,7 +65,7 @@ describe("roteiro — os seis tipos de bloco", () => {
   });
 
   it("`dm` com url é botão de link, e NÃO para o fluxo", () => {
-    const cenas = roteiro([
+    const cenas = cenasDe([
       { tipo: "dm", texto: "Aqui está", botao_label: "Abrir", url: "https://x.com" },
     ] as Passo[]);
     expect(cenas[0].itens).toEqual([
@@ -67,7 +74,7 @@ describe("roteiro — os seis tipos de bloco", () => {
   });
 
   it("`pedir_follow` é balão, parada de follow e o toque no botão", () => {
-    const cenas = roteiro([
+    const cenas = cenasDe([
       { tipo: "pedir_follow", texto: "Me segue lá 🙏", botao_label: "Já sigo! ✅" },
     ] as Passo[]);
     expect(cenas[0].itens).toEqual([
@@ -78,7 +85,7 @@ describe("roteiro — os seis tipos de bloco", () => {
   });
 
   it("`pedir_email` é balão sem botão, parada de e-mail e o endereço de exemplo", () => {
-    const cenas = roteiro([{ tipo: "pedir_email", texto: "Seu e-mail?" }] as Passo[]);
+    const cenas = cenasDe([{ tipo: "pedir_email", texto: "Seu e-mail?" }] as Passo[]);
     expect(cenas[0].itens).toEqual([
       { tipo: "balao", texto: "Seu e-mail?", botao: null, link: false },
       { tipo: "parada", motivo: "email" },
@@ -87,12 +94,12 @@ describe("roteiro — os seis tipos de bloco", () => {
   });
 
   it("`esperar` NÃO é mensagem: é marca de tempo", () => {
-    const cenas = roteiro([{ tipo: "esperar", minutos: 5 }] as Passo[]);
+    const cenas = cenasDe([{ tipo: "esperar", minutos: 5 }] as Passo[]);
     expect(cenas[0].itens).toEqual([{ tipo: "tempo", texto: "5 minutos depois" }]);
   });
 
   it("`resposta_publica` e `reagir_story` não viram balão", () => {
-    const cenas = roteiro([
+    const cenas = cenasDe([
       { tipo: "resposta_publica", textos: ["Te mandei no direct! 📩"] },
       { tipo: "reagir_story", emoji: "❤️" },
     ] as Passo[]);
@@ -111,7 +118,7 @@ describe("roteiro — as paradas", () => {
   // Desenhá-lo como botão de link seria a prévia escondendo exatamente a coisa
   // que ela deveria denunciar.
   it("link SEM ENDEREÇO aparece como parada dura, não como botão de link", () => {
-    const cenas = roteiro([
+    const cenas = cenasDe([
       { tipo: "dm", texto: "Aqui está o seu link!", botao_label: "Abrir link", url: "" },
     ] as Passo[]);
     expect(cenas[0].itens).toEqual([
@@ -124,7 +131,7 @@ describe("roteiro — as paradas", () => {
   it("`url: \"\"` SEM rótulo é mensagem comum: não há botão, logo não há parada", () => {
     // `esperaResposta` exige o rótulo, e o motor manda texto puro. Marcar
     // parada aqui acusaria de travar o fluxo um bloco por onde o fluxo passa.
-    const cenas = roteiro([{ tipo: "dm", texto: "Oi", botao_label: "", url: "" }] as Passo[]);
+    const cenas = cenasDe([{ tipo: "dm", texto: "Oi", botao_label: "", url: "" }] as Passo[]);
     expect(cenas[0].itens).toEqual([
       { tipo: "balao", texto: "Oi", botao: null, link: false },
     ]);
@@ -133,7 +140,7 @@ describe("roteiro — as paradas", () => {
   it("a lista continua DEPOIS da parada dura, e a parada fica visível", () => {
     // Esconder a cauda depois da primeira parada apagaria metade da lista mais
     // comum que existe — a que começa com a boas-vindas de resposta rápida.
-    const cenas = roteiro([
+    const cenas = cenasDe([
       { tipo: "dm", texto: "Quer?", botao_label: "Quero!" },
       { tipo: "dm", texto: "Toma o link", url: "https://x.com", botao_label: "Abrir" },
     ] as Passo[]);
@@ -143,7 +150,7 @@ describe("roteiro — as paradas", () => {
   });
 
   it("duas paradas duras seguidas marcam as duas", () => {
-    const cenas = roteiro([
+    const cenas = cenasDe([
       { tipo: "dm", texto: "Um", botao_label: "A" },
       { tipo: "dm", texto: "Dois", botao_label: "B" },
     ] as Passo[]);
@@ -153,22 +160,37 @@ describe("roteiro — as paradas", () => {
 });
 
 describe("roteiro — rótulo em branco", () => {
-  // `conferir` (lib/steps.ts) exige o TEXTO, nunca o rótulo do botão. Um rótulo
-  // vazio é bloco VÁLIDO, e desenhar uma pílula em branco esconderia isso.
-  it("`pedir_follow` sem rótulo cai no padrão da paleta", () => {
-    const cenas = roteiro([
+  // O `FOLLOW_PADRAO` SAIU DAQUI, e este teste é o que ele fixava ao contrário.
+  //
+  // A versão anterior desenhava a pílula "Já sigo! ✅" quando o campo estava
+  // vazio, com o argumento de que `conferir` (lib/steps.ts) aceita o bloco. Ele
+  // aceita — mas o que o motor faz com ele NÃO é o que a pílula prometia:
+  // `resolverFollow` (lib/engine.ts) enfileira `quick_reply_label: ""` e
+  // `lib/queue-drain.ts` exige `quick_reply_label && quick_reply_payload` para
+  // montar a resposta rápida. Com o rótulo vazio a mensagem sai como TEXTO
+  // PURO, sem botão nenhum, e o fluxo para no portão sem nada para tocar.
+  //
+  // A prévia inventava um botão que o Instagram nunca entrega — e escondia
+  // exatamente a armadilha que ela existe para denunciar. Agora ela mostra o
+  // que sai: balão sem botão, a parada, e NENHUM toque da pessoa, porque não há
+  // em que tocar. Quem recusa o bloco é `conferirLista` (lib/steps.ts), com
+  // ERRO, no painel logo acima da prévia.
+  //
+  // O `LINK_PADRAO` ficou, e a assimetria é do MOTOR: `linkMessage` (lib/ig.ts)
+  // monta o botão com `title: buttonLabel || "Abrir link"`, então ali o padrão
+  // diz a verdade. O teste logo abaixo é o par deste.
+  it("`pedir_follow` sem rótulo NÃO inventa pílula: sai texto puro, e não há o que tocar", () => {
+    const cenas = cenasDe([
       { tipo: "pedir_follow", texto: "Me segue", botao_label: "" },
     ] as Passo[]);
-    expect(cenas[0].itens[0]).toEqual({
-      tipo: "balao",
-      texto: "Me segue",
-      botao: "Já sigo! ✅",
-      link: false,
-    });
+    expect(cenas[0].itens).toEqual([
+      { tipo: "balao", texto: "Me segue", botao: null, link: false },
+      { tipo: "parada", motivo: "follow" },
+    ]);
   });
 
   it("botão de link sem rótulo cai em “Abrir link”", () => {
-    const cenas = roteiro([
+    const cenas = cenasDe([
       { tipo: "dm", texto: "Toma", botao_label: "", url: "https://x.com" },
     ] as Passo[]);
     expect(cenas[0].itens[0]).toEqual({
@@ -184,19 +206,109 @@ describe("roteiro — resposta pública", () => {
   it("mostra a PRIMEIRA variação com texto, não a primeira linha", () => {
     // O painel guarda as linhas em branco de propósito — sem elas não dá para
     // digitar a segunda variação —, então `textos[0]` é "" com frequência.
-    const cenas = roteiro([
-      { tipo: "resposta_publica", textos: ["", "Te mandei! 📩", "Olha o direct"] },
-    ] as Passo[]);
+    const cenas = cenasDe(
+      [{ tipo: "resposta_publica", textos: ["", "Te mandei! 📩", "Olha o direct"] }] as Passo[],
+      "comment"
+    );
     expect(cenas[0].itens).toEqual([
-      { tipo: "publica", texto: "Te mandei! 📩", variacoes: 3 },
+      {
+        tipo: "publica",
+        texto: "Te mandei! 📩",
+        variacoes: 3,
+        vazias: 1,
+        situacao: "publicada",
+      },
     ]);
   });
 
   it("todas em branco não inventam texto — e a contagem continua honesta", () => {
     // Esta lista é ERRO em `conferirLista` (o motor sorteia e desiste), mas
     // `conferir` a aceita, então ela chega aqui como bloco válido.
-    const cenas = roteiro([{ tipo: "resposta_publica", textos: ["", " "] }] as Passo[]);
-    expect(cenas[0].itens).toEqual([{ tipo: "publica", texto: "", variacoes: 2 }]);
+    const cenas = cenasDe([{ tipo: "resposta_publica", textos: ["", " "] }] as Passo[], "comment");
+    expect(cenas[0].itens).toEqual([
+      { tipo: "publica", texto: "", variacoes: 2, vazias: 2, situacao: "publicada" },
+    ]);
+  });
+
+  // A CONTAGEM DAS VAZIAS EXISTE PARA UM GESTO, e ele é o normal: logo depois do
+  // Enter — que é como se cria a segunda variação — existe uma linha em branco,
+  // e a prévia prometia "uma das 2 variações, sorteada" sem dizer que uma delas
+  // não publica nada. `enfileirarPasso` (lib/engine.ts) sorteia e faz
+  // `if (!texto?.trim()) return`: naquele disparo a resposta some.
+  //
+  // É a perda intermitente que `conferirLista` (lib/steps.ts) decidiu NÃO
+  // acusar, de propósito — basta um texto aproveitável para ela calar. A prévia
+  // pode dizer, porque ela é o lugar onde se vê o resultado, não o que trava o
+  // salvar.
+  it("conta as variações em branco separadamente das que publicam", () => {
+    const cenas = cenasDe(
+      [{ tipo: "resposta_publica", textos: ["Te mandei! 📩", ""] }] as Passo[],
+      "comment"
+    );
+    expect(cenas[0].itens[0]).toEqual({
+      tipo: "publica",
+      texto: "Te mandei! 📩",
+      variacoes: 2,
+      vazias: 1,
+      situacao: "publicada",
+    });
+  });
+
+  // O CARTÃO DO POST DESENHA UMA SÓ, e antes a segunda mandava olhar "acima"
+  // apontando para o texto da PRIMEIRA. `commentReplyKey` (lib/dedupe.ts) é a
+  // mesma string para as duas e o `on conflict do nothing` engole a segunda —
+  // é o mesmo mecanismo que `conferirLista` (lib/steps.ts) acusa como ERRO.
+  it("a SEGUNDA resposta pública é `repetida`, e não aponta para o cartão", () => {
+    const cenas = cenasDe(
+      [
+        { tipo: "resposta_publica", textos: ["Primeira"] },
+        { tipo: "resposta_publica", textos: ["Segunda"] },
+      ] as Passo[],
+      "comment"
+    );
+    expect(cenas[0].itens[0]).toMatchObject({ situacao: "publicada", texto: "Primeira" });
+    expect(cenas[1].itens[0]).toMatchObject({ situacao: "repetida", texto: "Segunda" });
+  });
+
+  // Fora do gatilho de comentário nada é publicado, e o cartão do post sequer
+  // existe: `enfileirarPasso` faz `if (!contexto.commentId) return`.
+  it("fora do gatilho de comentário a situação é `fora_do_gatilho`, mesmo na primeira", () => {
+    const lista = [{ tipo: "resposta_publica", textos: ["Te mandei! 📩"] }] as Passo[];
+    expect(cenasDe(lista, "dm")[0].itens[0]).toMatchObject({ situacao: "fora_do_gatilho" });
+    expect(cenasDe(lista, "story")[0].itens[0]).toMatchObject({ situacao: "fora_do_gatilho" });
+  });
+});
+
+// O DEFEITO QUE ESTE BLOCO FIXA: `roteiro` não recebia o gatilho, então a cena
+// do coraçãozinho saía IGUAL nos três. Com o gatilho de comentário o nó ficava
+// com borda vermelha (`conferirLista` acusa) e a prévia, logo abaixo do mesmo
+// erro, escrevia "reage à mensagem que a pessoa mandou" — prometendo entrega de
+// um bloco que nunca roda.
+//
+// A assimetria era o que denunciava: a `resposta_publica` já era consciente do
+// gatilho, o `reagir_story` não. Agora os dois são, e no mesmo lugar.
+describe("roteiro — o coraçãozinho depende do gatilho", () => {
+  const coracao = [{ tipo: "reagir_story", emoji: "❤️" }] as Passo[];
+
+  it("no gatilho de story reage à resposta que a pessoa mandou ao story", () => {
+    expect(cenasDe(coracao, "story")[0].itens).toEqual([
+      { tipo: "reacao", emoji: "❤️", alvo: "story" },
+    ]);
+  });
+
+  it("no gatilho de DM ele RODA, na mensagem comum — é o AVISO de `conferirLista`", () => {
+    // `handleMessage` (lib/engine.ts) atende os dois pelo mesmo caminho e chama
+    // `executarFluxo(..., { messageId: msg.mid })` nos dois. Marcar isto como
+    // "não sai" acusaria de não rodar um bloco que roda.
+    expect(cenasDe(coracao, "dm")[0].itens).toEqual([
+      { tipo: "reacao", emoji: "❤️", alvo: "mensagem" },
+    ]);
+  });
+
+  it("no gatilho de comentário NÃO PROMETE ENTREGA: não há mensagem a que reagir", () => {
+    expect(cenasDe(coracao, "comment")[0].itens).toEqual([
+      { tipo: "reacao", emoji: "❤️", alvo: "nenhum" },
+    ]);
   });
 });
 
@@ -205,14 +317,14 @@ describe("roteiro — bloco que não é enviado", () => {
     // `interpretar` (lib/steps.ts) IGNORA este bloco: ele nunca é enviado.
     // Desenhá-lo como mensagem seria a prévia prometendo um envio que não
     // acontece — a falha mais silenciosa que existe aqui.
-    const cenas = roteiro([{ tipo: "dm", texto: "   " }] as Passo[]);
+    const cenas = cenasDe([{ tipo: "dm", texto: "   " }] as Passo[]);
     expect(cenas[0].itens).toEqual([
       { tipo: "incompleto", mensagem: "Esta mensagem está sem texto." },
     ]);
   });
 
   it("a mensagem é a do DONO, sem nome de tipo interno", () => {
-    const cenas = roteiro([{ tipo: "pedir_email", texto: "" }] as Passo[]);
+    const cenas = cenasDe([{ tipo: "pedir_email", texto: "" }] as Passo[]);
     expect(cenas[0].itens[0]).toEqual({
       tipo: "incompleto",
       mensagem: "Este pedido de e-mail está sem texto.",
@@ -220,14 +332,14 @@ describe("roteiro — bloco que não é enviado", () => {
   });
 
   it("tipo desconhecido também não vira mensagem", () => {
-    const cenas = roteiro([{ tipo: "ramificar" }]);
+    const cenas = cenasDe([{ tipo: "ramificar" }]);
     expect(feitio(cenas, 0)).toEqual(["incompleto"]);
   });
 
   it("o bloco inválido NÃO desloca o índice dos outros", () => {
     // O índice é o que liga a cena ao bloco selecionado no quadro. Pulando o
     // inválido, o destaque cairia no bloco errado a partir dele.
-    const cenas = roteiro([
+    const cenas = cenasDe([
       { tipo: "dm", texto: "Um" },
       { tipo: "dm", texto: "" },
       { tipo: "dm", texto: "Três" },
@@ -239,20 +351,20 @@ describe("roteiro — bloco que não é enviado", () => {
 
 describe("roteiro — o que não pode quebrar a tela", () => {
   it("lista vazia devolve roteiro vazio", () => {
-    expect(roteiro([])).toEqual([]);
+    expect(cenasDe([])).toEqual([]);
   });
 
   it("o que não é lista devolve roteiro vazio", () => {
     // A lista também chega do banco, onde ela é `unknown` e nada confere o tipo
     // em runtime — o mesmo motivo pelo qual `interpretar` se defende disso.
-    expect(roteiro(null)).toEqual([]);
-    expect(roteiro(undefined)).toEqual([]);
-    expect(roteiro("dm")).toEqual([]);
-    expect(roteiro({ tipo: "dm" })).toEqual([]);
+    expect(cenasDe(null)).toEqual([]);
+    expect(cenasDe(undefined)).toEqual([]);
+    expect(cenasDe("dm")).toEqual([]);
+    expect(cenasDe({ tipo: "dm" })).toEqual([]);
   });
 
   it("lista só com bloco corrompido não desenha mensagem nenhuma", () => {
-    const cenas = roteiro([null, 7]);
+    const cenas = cenasDe([null, 7]);
     expect(cenas.map((c) => c.itens.map((b) => b.tipo))).toEqual([
       ["incompleto"],
       ["incompleto"],

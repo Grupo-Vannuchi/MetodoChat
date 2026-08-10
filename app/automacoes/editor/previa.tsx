@@ -166,7 +166,67 @@ function Parada({ motivo }: { motivo: "toque" | "follow" | "email" }) {
 // ---------------------------------------------------------------------------
 // Uma bolha do roteiro virando tela.
 // ---------------------------------------------------------------------------
-function Item({ bolha, noPost }: { bolha: Bolha; noPost: boolean }) {
+// A moldura das marcas que NÃO são mensagem — a resposta pública e o
+// coraçãozinho fora do gatilho. Uma só, porque o enquadramento é o mesmo: uma
+// caixa tracejada e apagada, que nunca pode ser confundida com um balão.
+function Marca({
+  icone,
+  titulo,
+  children,
+}: {
+  icone: React.ReactNode;
+  titulo: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="my-0.5 self-stretch rounded border border-dashed border-zinc-700 px-2 py-1.5">
+      <p className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
+        {icone}
+        {titulo}
+      </p>
+      <p className="mt-0.5 text-[9px] leading-snug text-zinc-500">{children}</p>
+    </div>
+  );
+}
+
+// O QUE O CARTÃO DO POST DIZ SOBRE UMA RESPOSTA PÚBLICA. A frase é montada
+// aqui, mas os NÚMEROS e a SITUAÇÃO vêm de `./roteiro`, que é puro e testado —
+// a decisão de conteúdo é de lá, a redação é daqui.
+function recadoDaPublica(b: Extract<Bolha, { tipo: "publica" }>): string {
+  if (b.situacao === "fora_do_gatilho")
+    return "Neste gatilho ela não é publicada: só o comentário traz o post a responder.";
+  // A SEGUNDA NÃO SAI, e mandá-la olhar "acima" apontava para o texto da
+  // PRIMEIRA — o único que o cartão do post desenha. `commentReplyKey`
+  // (lib/dedupe.ts) é a mesma para as duas, e o `on conflict do nothing` engole
+  // esta. É o mesmo mecanismo que `conferirLista` (lib/steps.ts) acusa como
+  // ERRO, e a prévia agora diz a mesma coisa em vez de contradizê-lo.
+  if (b.situacao === "repetida")
+    return "Esta é a segunda resposta pública da lista, e ela não é publicada: sai com a mesma chave de envio da primeira. O cartão acima mostra a primeira.";
+
+  // UMA VARIAÇÃO EM BRANCO NÃO É DETALHE: o motor sorteia uma das linhas e
+  // desiste quando a sorteada não tem nada escrito, então a resposta some
+  // naquele disparo. Logo depois do Enter — o gesto normal para criar a segunda
+  // variação — é exatamente o estado da lista, e "uma das 2 variações,
+  // sorteada" prometia duas.
+  if (b.variacoes > 1) {
+    const aviso = b.vazias
+      ? ` — ${b.vazias === 1 ? "1 delas está em branco e, quando ela é sorteada" : `${b.vazias} delas estão em branco e, quando uma delas é sorteada`}, nada é publicado`
+      : "";
+    return `Sai no comentário do post, acima — uma das ${b.variacoes} variações, sorteada${aviso}.`;
+  }
+  return "Sai no comentário do post, acima.";
+}
+
+// O QUE A CENA DO CORAÇÃOZINHO DIZ, por alvo. O `nenhum` é o caso que a prévia
+// escondia: no gatilho de comentário o bloco não roda — `conferirLista`
+// (lib/steps.ts) já acusa ERRO —, e a cena prometia "reage à mensagem que a
+// pessoa mandou" logo abaixo do mesmo erro.
+const REACAO = {
+  story: "reage à resposta que a pessoa mandou ao story",
+  mensagem: "reage à mensagem que a pessoa mandou",
+} as const;
+
+function Item({ bolha }: { bolha: Bolha }) {
   switch (bolha.tipo) {
     case "balao":
       return (
@@ -203,35 +263,35 @@ function Item({ bolha, noPost }: { bolha: Bolha; noPost: boolean }) {
     // ONDE, NA LISTA, o bloco está — sem ela, o bloco sumiria da prévia e quem
     // o arrastasse para outro lugar não veria nada mudar.
     //
-    // FORA DO GATILHO DE COMENTÁRIO não há cartão nenhum acima, e mandar "veja
-    // acima" apontaria para o nada. Aí o recado é outro, e é o que de fato
-    // acontece: `enfileirarPasso` (lib/engine.ts) faz `if (!contexto.commentId)
-    // return` — só o comentário traz o id do post a responder —, e por isso
-    // `conferirLista` já acusa ERRO nesse bloco.
+    // QUAL DOS TRÊS RECADOS SAI é decisão de `./roteiro` (a `situacao`), não
+    // desta tela: fora do gatilho não há cartão acima, e a segunda da lista não
+    // é publicada. Nos dois casos "veja acima" apontava para a coisa errada.
     case "publica":
       return (
-        <div className="my-0.5 self-stretch rounded border border-dashed border-zinc-700 px-2 py-1.5">
-          <p className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
-            <IconComment className="h-3 w-3 shrink-0" />
-            resposta pública — fora da conversa
-          </p>
-          <p className="mt-0.5 text-[9px] leading-snug text-zinc-500">
-            {noPost
-              ? `Sai no comentário do post, acima${
-                  bolha.variacoes > 1 ? ` — uma das ${bolha.variacoes} variações, sorteada` : ""
-                }.`
-              : "Neste gatilho ela não é publicada: só o comentário traz o post a responder."}
-          </p>
-        </div>
+        <Marca
+          icone={<IconComment className="h-3 w-3 shrink-0" />}
+          titulo="resposta pública — fora da conversa"
+        >
+          {recadoDaPublica(bolha)}
+        </Marca>
       );
 
     // O coraçãozinho também não é balão: é uma reação NA MENSAGEM que a pessoa
     // mandou. Fica no lugar dele na lista, como marca.
+    //
+    // FORA DOS GATILHOS QUE ENTREGAM MENSAGEM ele não roda, e aí a cena troca
+    // de forma, não só de texto: uma legenda apagada dizendo que não sai se
+    // perderia no meio dos balões, e este é o bloco em que `conferirLista`
+    // (lib/steps.ts) acende ERRO.
     case "reacao":
-      return (
+      return bolha.alvo === "nenhum" ? (
+        <Marca icone={<span className="text-[11px]">{bolha.emoji}</span>} titulo="coraçãozinho">
+          Neste gatilho ele não sai: não chega nenhuma mensagem a que reagir.
+        </Marca>
+      ) : (
         <Legenda>
           <span className="text-[11px]">{bolha.emoji}</span>
-          reage à mensagem que a pessoa mandou
+          {REACAO[bolha.alvo]}
         </Legenda>
       );
 
@@ -258,15 +318,7 @@ function Item({ bolha, noPost }: { bolha: Bolha; noPost: boolean }) {
 // O DESTAQUE É INDIGO porque indigo é a cor da seleção no quadro (`no.tsx`), e
 // a prévia só liga o que a pessoa está digitando ao que ela vê se as duas
 // telas usarem a mesma cor para "este é o bloco aberto".
-function CenaNaConversa({
-  cena,
-  aceso,
-  noPost,
-}: {
-  cena: Cena;
-  aceso: boolean;
-  noPost: boolean;
-}) {
+function CenaNaConversa({ cena, aceso }: { cena: Cena; aceso: boolean }) {
   return (
     <div
       className={`flex flex-col gap-1.5 ${
@@ -274,7 +326,7 @@ function CenaNaConversa({
       }`}
     >
       {cena.itens.map((b, i) => (
-        <Item key={i} bolha={b} noPost={noPost} />
+        <Item key={i} bolha={b} />
       ))}
     </div>
   );
@@ -301,15 +353,19 @@ export default function Previa({
   // o gatilho, ou quando não há nenhum.
   indiceSelecionado: number;
 }) {
-  const cenas = useMemo(() => roteiro(passos), [passos]);
+  // O GATILHO ENTRA NO ROTEIRO, e não só na moldura desta tela: dois dos seis
+  // tipos só rodam em alguns gatilhos, e essa decisão é de conteúdo — ela mora
+  // no arquivo puro, com teste. Antes o coraçãozinho saía igual nos três.
+  const cenas = useMemo(() => roteiro(passos, gatilho), [passos, gatilho]);
 
   // A RESPOSTA PÚBLICA sai no comentário, então ela é desenhada no cartão do
-  // post — não na conversa. A primeira ganha, pela mesma razão de
-  // `conferirLista` (lib/steps.ts) tratar a segunda como ERRO: a chave de
-  // deduplicação não conhece o bloco, e a segunda nunca é publicada.
+  // post — não na conversa. Só a PUBLICADA entra aqui: `conferirLista`
+  // (lib/steps.ts) trata a segunda como ERRO porque a chave de deduplicação não
+  // conhece o bloco, e desenhar o texto da segunda no cartão mostraria no post
+  // um comentário que nunca é publicado.
   const publica = useMemo(() => {
     for (const c of cenas) {
-      for (const b of c.itens) if (b.tipo === "publica") return b.texto;
+      for (const b of c.itens) if (b.tipo === "publica" && b.situacao === "publicada") return b.texto;
     }
     return null;
   }, [cenas]);
@@ -425,12 +481,7 @@ export default function Previa({
           {gatilho === "dm" && <Enviada>{disparo}</Enviada>}
 
           {cenas.map((c) => (
-            <CenaNaConversa
-              key={c.indice}
-              cena={c}
-              aceso={c.indice === indiceSelecionado}
-              noPost={gatilho === "comment"}
-            />
+            <CenaNaConversa key={c.indice} cena={c} aceso={c.indice === indiceSelecionado} />
           ))}
 
           {/* LISTA VAZIA NÃO QUEBRA A TELA, e também não fica muda: sem nenhum
