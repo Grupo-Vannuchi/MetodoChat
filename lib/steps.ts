@@ -270,37 +270,35 @@ export function identidadeDoPasso(passo: unknown, indice: number): string {
   return typeof id === "string" && FORMA_DO_ID.test(id) ? id : String(indice);
 }
 
-// A VIRADA DO DIA DO CONTADOR DE FOLLOW NÃO MORA MAIS AQUI, e vale dizer onde
-// foi parar: ela é o `case when follow_attempts_dia = $3` do `update` em
-// `resolverFollow` (lib/engine.ts).
-//
-// Existiu aqui como `tentativasDeHoje`, pura e testada, enquanto o motor lia e
-// depois escrevia. Essa forma perdia a atomicidade que o
-// `follow_attempts + 1 returning` original tinha: duas mensagens chegando juntas
-// liam o mesmo valor e geravam a MESMA chave de deduplicação, colapsando dois
-// pedidos num só. Contar e virar o dia numa instrução só devolve a atomicidade —
-// e, com isso, a regra passou a ter uma implementação, não duas.
-//
-// O QUE SE PERDEU, dito sem rodeio: a virada do dia deixou de ser coberta pela
-// suíte, porque agora ela é SQL. O que continua testado é a decisão que importa
-// — `oQuePortaoFaz`, logo abaixo, que diz se o portão pede ou solta. Manter a
-// função viva só para o teste passar seria manter a mesma regra escrita duas
-// vezes, que é exatamente o que diverge em silêncio.
-
 // O que o portão faz com quem NÃO segue.
 //
-// `pedir` enquanto ainda cabe pedido no dia. `soltar` a partir do limite — e
-// soltar é a mudança: antes o portão parava de pedir e CONTINUAVA segurando o
-// cursor, o que capturava a pessoa sem lhe dar explicação nenhuma. O ramo de
-// texto lê toda mensagem de quem está parado num portão como resposta a ele, e
-// `interrompeOFluxo` só cede a vez a outra automação quando o passo parado é
-// `dm` — então nem a palavra-chave de outra automação a alcançava.
+// A REGRA É UMA SÓ: cinco pedidos por contato, NA VIDA. `pedir` enquanto ainda
+// cabe pedido; `soltar` a partir do limite — e soltar é a mudança: antes o
+// portão parava de pedir e CONTINUAVA segurando o cursor, o que capturava a
+// pessoa sem lhe dar explicação nenhuma. O ramo de texto lê toda mensagem de
+// quem está parado num portão como resposta a ele, e `interrompeOFluxo` só cede
+// a vez a outra automação quando o passo parado é `dm` — então nem a
+// palavra-chave de outra automação a alcançava.
+//
+// `feitas` são os pedidos JÁ SAÍDOS antes deste, e o chamador
+// (`resolverFollow`, lib/engine.ts) o obtém do `returning` do incremento menos
+// um. Com `maximo` = 5 os valores são estes, percorridos e conferidos:
+// `returning` 1 a 5 dão `feitas` 0 a 4 e mandam pedido; `returning` 6 dá
+// `feitas` 5 e é o PRIMEIRO que solta. Cinco pedidos, soltura no sexto.
+//
+// NÃO HÁ CONTADOR POR DIA, e a ausência é decisão medida: um contador que
+// reinicia todo dia nunca chega ao limite para quem manda uma mensagem por dia,
+// então a soltura nunca aconteceria e a pessoa ficaria presa para sempre
+// recebendo um DM diário. O contador zera num caso só — quando a pessoa PASSA
+// pelo portão (`zerarTentativasFollow`, lib/engine.ts).
 //
 // Soltar não entrega o link: quem não segue continua sem receber. O que ela
-// devolve é a liberdade de ser alcançada por qualquer outra automação, e a de
-// tentar de novo amanhã.
-export function oQuePortaoFaz(feitasHoje: number, maximo: number): "pedir" | "soltar" {
-  return feitasHoje < maximo ? "pedir" : "soltar";
+// devolve é a liberdade de ser alcançada por qualquer outra automação — e a
+// segunda chance de verdade, que é seguir o perfil: `checkFollowsAccount` roda
+// ANTES de o contador ser olhado, então quem seguir depois passa na hora, com o
+// contador esgotado ou não.
+export function oQuePortaoFaz(feitas: number, maximo: number): "pedir" | "soltar" {
+  return feitas < maximo ? "pedir" : "soltar";
 }
 
 // Onde, na lista de hoje, está o bloco com esta identidade.
@@ -708,13 +706,13 @@ export function cursorDaRetomada(
 //     para trás não era consultado nenhuma vez; agora é consultado toda vez.
 //   O CONTADOR SOBE em quem deixou de seguir. Quem passou pelo portão e depois
 //     deu unfollow é empurrado de volta a ele com `follow_attempts`
-//     incrementado. O contador continua sendo por CONTATO — quem gastou os
-//     pedidos numa automação gastou em todas —, mas ele já ZERA POR DIA
-//     (`follow_attempts_dia`, lib/db.ts), e o preço parou aqui: esgotadas as
-//     tentativas do dia, o portão SOLTA o cursor em vez de gravá-lo
-//     (`oQuePortaoFaz`, abaixo). A armadilha silenciosa que este parágrafo
-//     descrevia — parar de pedir e continuar segurando — não existe mais, e o
-//     que ela era está escrito em `zerarTentativasFollow` (lib/engine.ts).
+//     incrementado. O contador é por CONTATO e na VIDA — quem gastou os pedidos
+//     numa automação gastou em todas —, e o preço parou aqui: esgotadas as
+//     tentativas, o portão SOLTA o cursor em vez de gravá-lo (`oQuePortaoFaz`,
+//     abaixo). A armadilha silenciosa que este parágrafo descrevia — parar de
+//     pedir e continuar segurando — não existe mais, e o que ela era está
+//     escrito em `zerarTentativasFollow` (lib/engine.ts). Quem seguir o perfil
+//     passa na hora e tem o contador zerado, esgotado ou não.
 //   A POSIÇÃO DE QUEM ESTÁ ADIANTE se perde quando o portão barra ou solta, e é
 //     o único preço que a regra cobra de quem já tinha passado: o cursor vira o
 //     portão (barrado) ou nada (solto). Ele não é novo — barrar já sobrescrevia

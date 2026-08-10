@@ -238,7 +238,6 @@ export type Contact = {
   email: string | null;
   awaiting: string | null;
   follow_attempts: number;
-  follow_attempts_dia: string | null;
   first_contact_at: Date;
   last_reply_at: Date | null;
   last_automation_id: string | null;
@@ -388,7 +387,18 @@ const DDL = [
   `alter table contacts add column if not exists email text`,
   // o que estamos esperando dessa pessoa na próxima mensagem ('follow' | 'email')
   `alter table contacts add column if not exists awaiting text`,
-  // quantas vezes já pedimos que ela siga (evita virar spam)
+  // Quantas vezes já pedimos que ela siga. O limite é POR CONTATO E NA VIDA
+  // (`MAX_FOLLOW_REQUESTS`, lib/engine.ts): atingido o limite, o portão para de
+  // pedir E SOLTA o cursor, em vez de seguir segurando quem não é mais cobrado.
+  // Volta a zero quando a pessoa passa pelo portão (`zerarTentativasFollow`).
+  //
+  // NÃO EXISTE contador por dia, e a tentativa de criar um está registrada
+  // porque ela se desfazia sozinha: com o contador reiniciando a cada dia, quem
+  // manda uma mensagem por dia nunca chega ao limite, nunca é solto, e passa a
+  // receber um DM diário para sempre — o oposto do que o limite existe para
+  // fazer. A segunda chance não depende dele: `checkFollowsAccount` roda ANTES
+  // de o contador ser olhado, então quem for solto e seguir depois passa na
+  // hora.
   `alter table contacts add column if not exists follow_attempts int not null default 0`,
   `create index if not exists automations_account_idx on automations(account_id)`,
   `create index if not exists queue_account_idx on queue(account_id, status)`,
@@ -456,18 +466,6 @@ const DDL = [
   // migrada, e falha na direção segura: cursor que não resolve nunca pula
   // passo.
   `alter table contacts add column if not exists flow_step_id text`,
-  // Em que DIA as tentativas de follow contadas em `follow_attempts` foram
-  // feitas. Sem isto o contador nunca zerava, e quem estourasse o limite ficava
-  // sem receber o pedido para sempre — em toda automação, todo dia.
-  //
-  // Texto e não data: guarda o balde de dia de Brasília no mesmo formato das
-  // chaves de deduplicação (`diaDaChave`, lib/dedupe.ts), e os dois precisam
-  // continuar concordando.
-  //
-  // Nulo em todo contato anterior a esta mudança, e o `case` de `resolverFollow`
-  // (lib/engine.ts) trata nulo como dia diferente de propósito: o acumulado
-  // antigo não é de hoje, então o contador recomeça em 1.
-  `alter table contacts add column if not exists follow_attempts_dia text`,
 ];
 
 type SqlClient = ReturnType<typeof sql>;

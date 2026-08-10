@@ -54,10 +54,12 @@ const EVENT: Record<string, Badge> = {
     label: "Portão de follow não pôde ser avaliado",
     className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
   },
-  // A pessoa não segue, os pedidos de follow do dia acabaram e o fluxo a
-  // SOLTOU: em vez de continuar segurando o cursor no portão sem lhe pedir mais
-  // nada, o motor limpou o cursor. Ela não recebeu o link, e voltou a ser
-  // alcançável por qualquer automação — amanhã o portão pede de novo.
+  // A pessoa não segue, os pedidos de follow dela acabaram (cinco, por contato,
+  // na vida) e o fluxo a SOLTOU: em vez de continuar segurando o cursor no
+  // portão sem lhe pedir mais nada, o motor limpou o cursor. Ela não recebeu o
+  // link, e voltou a ser alcançável por qualquer automação. O portão não volta a
+  // pedir, mas continua consultando a Meta a cada passagem: se ela seguir o
+  // perfil, passa na hora.
   //
   // Âmbar e não vermelho: nada quebrou, e ninguém deixou de receber o que tinha
   // direito de receber. É a linha que impede a pessoa de simplesmente sumir do

@@ -333,9 +333,18 @@ async function loadAutomation(
   return rows[0];
 }
 
-// Quantas vezes repetimos o pedido antes de parar de insistir. A verificação
-// continua acontecendo depois disso — só o lembrete para, para não virar spam
-// (e não chamar a atenção da Meta).
+// Quantas vezes repetimos o pedido antes de parar de insistir. É por CONTATO e
+// NA VIDA: não há contador por dia, e o motivo está em `oQuePortaoFaz`
+// (lib/steps.ts).
+//
+// Atingido o limite, param DUAS coisas — e a segunda é o que a frase antiga
+// deixava de fora: para o lembrete, para não virar spam (e não chamar a atenção
+// da Meta), E para o portão de segurar o cursor, que era o que capturava a
+// pessoa depois de parar de cobrá-la.
+//
+// A VERIFICAÇÃO continua acontecendo depois disso: `checkFollowsAccount` roda
+// ANTES de o contador ser olhado, então quem seguir o perfil passa na hora e
+// tem o contador zerado — inclusive quem já foi solto.
 const MAX_FOLLOW_REQUESTS = 5;
 
 // Executa o fluxo desta automação a partir de `deIndice`.
@@ -420,10 +429,11 @@ async function executarFluxo(
   // mensagem repetida a ninguém.
   //
   // BARRADO, para no portão exatamente como o ramo de dentro (mais abaixo): o
-  // cursor passa a ser o portão, o pedido SAIU, e a pessoa destrava seguindo o
-  // perfil e voltando a falar.
+  // cursor passa a ser o portão, o pedido foi ENFILEIRADO — com a ressalva do
+  // `on conflict` que o ramo de dentro descreve —, e a pessoa destrava seguindo
+  // o perfil e voltando a falar.
   //
-  // SOLTO é a terceira resposta, e ela é nova: esgotadas as tentativas do dia,
+  // SOLTO é a terceira resposta, e ela é nova: esgotadas as tentativas,
   // `resolverFollow` não tem pedido nenhum a enfileirar, e segurar o cursor
   // seria segurar calado. Aqui o cursor é LIMPO e o fluxo para — o destino fica
   // do outro lado de um portão que a pessoa não venceu, e ele continua não sendo
@@ -526,8 +536,9 @@ async function executarFluxo(
     if (r === "soltar") {
       // Solta em vez de gravar o cursor, e NÃO segue para o destino: o portão
       // não foi vencido. A pessoa deixa de ser capturada e volta a ser
-      // alcançável por qualquer automação; amanhã o contador do dia zera e o
-      // portão volta a pedir.
+      // alcançável por qualquer automação. O portão não volta a pedir — os cinco
+      // pedidos são na vida —, mas a consulta à Meta continua acontecendo a cada
+      // passagem: quem seguir o perfil passa na hora e tem o contador zerado.
       await limparCursor(account.ig_user_id, contactIgId);
       return;
     }
@@ -594,12 +605,23 @@ async function executarFluxo(
         await limparCursor(account.ig_user_id, contactIgId);
         return;
       }
-      // BARRADO: o cursor passa a ser o portão e o fluxo para nele. Aqui o
-      // pedido SAIU — `resolverFollow` só devolve `barrar` depois de enfileirá-lo
-      // —, então parar no portão é parar esperando uma resposta que foi pedida.
-      // Era esta a garantia que faltava: passado o limite, o motor barrava calado
-      // e a pessoa ficava sem saber o que faltava fazer. Hoje esse caso é
-      // `soltar`, logo acima.
+      // BARRADO: o cursor passa a ser o portão e o fluxo para nele. Passado o
+      // limite, isto não acontece mais calado — esse caso é `soltar`, logo
+      // acima, e era essa a captura que faltava resolver.
+      //
+      // O PEDIDO FOI ENFILEIRADO, e o verbo certo é esse, não "saiu".
+      // `resolverFollow` chama `enqueue` antes de devolver `barrar`, mas
+      // `enqueue` devolve um booleano que ninguém lê e o `on conflict do
+      // nothing` engole a colisão em silêncio. Há caminho real que colide:
+      // pedido nº1 sai; a pessoa segue e passa; `zerarTentativasFollow` zera o
+      // contador; ela dá unfollow e volta ao portão; o contador volta a 1 e a
+      // `followGateKey` — automação, contato, dia, tentativa — é a MESMA do
+      // pedido nº1. O DM é descartado calado e o motor grava o cursor achando
+      // que pediu.
+      //
+      // É comportamento PRÉ-EXISTENTE, e continua fora do alcance desta
+      // correção: fechá-lo é trabalho na chave de deduplicação, não aqui. O que
+      // esta linha deve ao leitor é não prometer o contrário.
       await gravarCursor(
         account.ig_user_id, contactIgId, auto.id,
         identidadeDoPasso(p, acao.indice)
@@ -910,15 +932,6 @@ async function enfileirarPasso(
 // Sem isto o contador só sobe: `clearFollowState` saiu junto com o fluxo antigo
 // e nada mais repõe o valor.
 //
-// NÃO ZERA `follow_attempts_dia` JUNTO, e não precisa. O `update` de
-// `resolverFollow`, logo abaixo, é a ÚNICA instrução do sistema inteiro que toca
-// nestas duas colunas — varrido, não suposto. Com o contador em zero, os dois
-// caminhos do `case` dele dão no mesmo lugar: dia diferente recomeça em 1, dia
-// igual soma 1 a zero e também dá 1. Não há valor de dia que faça um
-// contador zerado parecer tentativa gasta, então zerar o dia junto seria escrita
-// sem efeito nenhum. E o `where follow_attempts > 0` do fim não abre exceção a
-// isso: quando ele não escreve, é porque o contador já era zero.
-//
 // O QUE ERA, e vale ficar registrado porque foi o defeito mais caro desta fase:
 // o contador nunca zerava por conta própria, só quando o portão PASSAVA. Passado
 // o `MAX_FOLLOW_REQUESTS`, o motor parava de mandar o pedido E CONTINUAVA
@@ -929,25 +942,35 @@ async function enfileirarPasso(
 // explicação, e ninguém a alcançava. A revisão final mediu 4.078 estados
 // alcançáveis sem saída, todos desta forma.
 //
-// O QUE PASSOU A SER, e são duas mudanças com motivos próprios: o contador é
-// POR DIA (`follow_attempts_dia`, lib/db.ts), então quem estourou o limite hoje
-// volta a ser convidado amanhã; e esgotadas as tentativas do dia o portão SOLTA
-// o cursor em vez de gravá-lo (`oQuePortaoFaz`, lib/steps.ts). A pessoa nunca
-// mais fica presa: no máximo `MAX_FOLLOW_REQUESTS` pedidos por dia, e fora
-// disso ela é alcançável por qualquer automação.
+// O QUE PASSOU A SER, e é UMA mudança só: esgotadas as tentativas, o portão
+// SOLTA o cursor em vez de gravá-lo (`oQuePortaoFaz`, lib/steps.ts). A pessoa
+// nunca mais fica presa — no máximo `MAX_FOLLOW_REQUESTS` pedidos, e passado
+// isso ela é alcançável por qualquer automação. A frase é literal: com a
+// soltura, não existe estado em que o portão pare de cobrar e continue segurando.
 //
-// O QUE CONTINUA VALENDO. A reconsulta nunca foi cortada pelo limite:
-// `resolverFollow` consulta a Meta ANTES de olhar o contador, então toda
-// passagem pelo portão pergunta de novo — quem seguir passa na hora, mesmo com o
-// dia esgotado. E a saída sem banco continua a mesma: seguir o perfil e mandar
-// QUALQUER mensagem de texto, que retoma do próprio portão. O botão é
-// conveniência, não a única porta.
+// CHEGOU A HAVER UM CONTADOR POR DIA JUNTO, e ele saiu porque IMPEDIA esta
+// soltura de acontecer. Quem manda uma mensagem por dia recomeça o contador em 1
+// toda vez, nunca chega ao limite, nunca é solto — e, com o portão pedindo de
+// novo a cada dia, passa a receber um DM diário indefinidamente. "5 na vida"
+// virava "5 por dia, para sempre", que é o oposto do que este limite existe para
+// fazer. A justificativa dada para ele — sem contador por dia a pessoa nunca
+// mais receberia o link, mesmo seguindo depois — também não se sustenta: ver o
+// parágrafo seguinte.
 //
-// O QUE SOBRA, dito com a medida certa: o contador continua sendo por CONTATO,
-// não por automação (`follow_attempts` é coluna de `contacts`). Quem gastou os
-// pedidos do dia no portão da automação A não recebe o pedido da B no mesmo dia
-// — recebe amanhã, o que antes não acontecia nunca. Isto NÃO muda aqui, e mudar
-// exigiria contador por (contato, automação), ou seja, outra tabela.
+// O QUE CONTINUA VALENDO, e é o que torna a segunda chance gratuita: a
+// reconsulta nunca foi cortada pelo limite. `resolverFollow` consulta a Meta
+// ANTES de olhar o contador, então toda passagem pelo portão pergunta de novo —
+// quem seguir passa na hora e é zerado aqui, com o contador esgotado ou não. E a
+// saída sem banco continua a mesma: seguir o perfil e mandar QUALQUER mensagem
+// de texto, que retoma do próprio portão. O botão é conveniência, não a única
+// porta.
+//
+// O QUE SOBRA, dito com a medida certa: o contador é por CONTATO, não por
+// automação (`follow_attempts` é coluna de `contacts`). Quem gastou os cinco
+// pedidos no portão da automação A não recebe o pedido da B — é solto por ela
+// também, e volta a receber pedido só depois de passar por um portão, que é o
+// que zera o contador. Isto NÃO muda aqui, e mudar exigiria contador por
+// (contato, automação), ou seja, outra tabela.
 //
 // A condição no fim evita escrever à toa em quem já está zerado, que é o caso
 // comum: todo passo de follow vencido passaria por aqui.
@@ -964,9 +987,10 @@ async function zerarTentativasFollow(accountId: string, contactIgId: string) {
 // TRÊS respostas, e a terceira é a mudança desta tarefa:
 //
 //   `passou`  — segue, ou a Meta não informou. O fluxo continua.
-//   `barrar`  — não segue, e ainda cabe pedido hoje. O pedido foi enfileirado e
+//   `barrar`  — não segue, e ainda cabe pedido. O pedido foi ENFILEIRADO (com a
+//                ressalva do `on conflict` escrita no `enqueue` mais abaixo) e
 //                quem chama grava o cursor no portão: a pessoa para nele.
-//   `soltar`  — não segue, e as tentativas do dia acabaram. NÃO há pedido a
+//   `soltar`  — não segue, e as tentativas acabaram. NÃO há pedido a
 //                enfileirar, então segurar o cursor seria segurar calado. Quem
 //                chama LIMPA o cursor, e a pessoa volta a ser alcançável.
 //
@@ -1005,43 +1029,41 @@ async function resolverFollow(
     return "passou";
   }
 
-  // Conta o pedido e vira o dia NUMA INSTRUÇÃO SÓ, e a atomicidade não é
-  // preciosismo: a versão anterior desta mudança lia e depois escrevia, e duas
-  // mensagens chegando juntas liam o mesmo valor, escreviam o mesmo valor e
-  // geravam a MESMA `followGateKey` — a fila colapsava as duas num envio, e o
-  // contador subia menos que as interações. O `follow_attempts + 1 returning`
-  // que existia antes de tudo isso já era atômico; o `case` é o que devolve essa
-  // propriedade agora que o dia também precisa ser considerado.
+  // Conta o pedido NUMA INSTRUÇÃO SÓ — ler e depois escrever não serve —, e a
+  // atomicidade é a única coisa que sobrou da tentativa do contador por dia.
+  // Ela não é preciosismo: a versão que lia e depois escrevia deixava duas
+  // mensagens chegando juntas lerem o mesmo valor, escreverem o mesmo valor e
+  // gerarem a MESMA `followGateKey` — a fila colapsava as duas num envio, e o
+  // contador subia menos que as interações. `follow_attempts + 1 returning` é a
+  // forma original, e ela já era atômica.
   //
-  // O `case` É a virada do dia: dia diferente do gravado recomeça em 1, sem
-  // depender de ninguém ter zerado antes.
+  // NÃO HÁ VIRADA DE DIA aqui, e não deve haver: o contador é na vida, e o
+  // porquê está em `oQuePortaoFaz` (lib/steps.ts). Ele só volta a zero em
+  // `zerarTentativasFollow`, quando a pessoa PASSA pelo portão.
   //
-  // Este `case` é a ÚNICA implementação da virada do dia — existiu uma cópia em
-  // TypeScript, testada, e ela saiu junto com a leitura separada. O motivo está
-  // escrito em lib/steps.ts, acima de `oQuePortaoFaz`, junto do que se perdeu:
-  // esta linha não é coberta pela suíte.
-  //
-  // O balde tem que ser o mesmo de `diaDaChave` (lib/dedupe.ts) — é `dayBucket`
-  // quem garante isso, e a variável abaixo é usada também na chave de
-  // deduplicação, para o dia do contador e o da chave não poderem discordar na
-  // virada.
+  // O `hoje` abaixo é só da chave de deduplicação — `followGateKey` guarda o
+  // envio dentro do balde de dia, e o balde tem que ser o mesmo de `diaDaChave`
+  // (lib/dedupe.ts), que é o que `dayBucket` garante.
   const hoje = dayBucket();
   const linhas = (await sql().query(
-    `update contacts set
-       follow_attempts = case when follow_attempts_dia = $3 then follow_attempts + 1 else 1 end,
-       follow_attempts_dia = $3
+    `update contacts set follow_attempts = follow_attempts + 1
      where account_id = $1 and ig_id = $2
      returning follow_attempts`,
-    [account.ig_user_id, contactIgId, hoje]
+    [account.ig_user_id, contactIgId]
   )) as { follow_attempts: number }[];
 
   const tentativa = linhas[0]?.follow_attempts ?? 1;
 
   // A decisão é sobre quantos pedidos já tinham saído ANTES deste — por isso
-  // `tentativa - 1`. O contador já subiu, e sobe também quando o portão solta:
-  // ele cresce o dia inteiro sem teto, e isso é inofensivo porque a única
-  // comparação que existe é contra o máximo, e o balde do dia o reinicia. Não há
-  // outro leitor destas colunas no sistema — `resolverFollow` é o único.
+  // `tentativa - 1`. Percorridos os valores, com `MAX_FOLLOW_REQUESTS` = 5:
+  // `returning` 1, 2, 3, 4 e 5 dão 0, 1, 2, 3 e 4, e todos mandam pedido;
+  // `returning` 6 dá 5 e é o PRIMEIRO que solta. Cinco pedidos, soltura no
+  // sexto.
+  //
+  // O contador sobe também quando o portão solta, e cresce sem teto. É
+  // inofensivo: a única comparação que existe é contra o máximo, e depois do
+  // máximo toda passagem solta do mesmo jeito. Não há outro leitor desta coluna
+  // no sistema — `resolverFollow` é o único.
   if (oQuePortaoFaz(tentativa - 1, MAX_FOLLOW_REQUESTS) === "soltar") {
     // Parou de pedir, então para de segurar. Quem chama solta o cursor.
     //
@@ -1054,12 +1076,20 @@ async function resolverFollow(
     // toda mensagem dela cai no fallback, que chega ao portão, que solta de
     // novo. Sem throttle seria uma linha por mensagem recebida, por dias — a
     // mesma razão que o `portao_nao_avaliado` aqui do lado já registra.
+    //
+    // O DISCRIMINADOR É O CONTATO, e não a automação. O evento existe para o
+    // dono não ver A PESSOA sumir do fluxo, então a janela tem que ser por
+    // pessoa: discriminando por `automation_id`, o primeiro contato solto
+    // gravaria a linha e todos os outros soltos nos 10 minutos seguintes não
+    // gravariam nada — a mesma perda de diagnóstico que o comentário de
+    // `logEventThrottled` descreve, só que entre contatos.
     await logEventThrottled(
       account.ig_user_id,
       "portao_soltou",
-      { contact_ig_id: contactIgId, automation_id: auto.id, tentativas_hoje: tentativa - 1 },
+      // `tentativas` e não `tentativas_hoje`: o contador é na vida.
+      { contact_ig_id: contactIgId, automation_id: auto.id, tentativas: tentativa - 1 },
       10,
-      { campo: "automation_id", valor: auto.id }
+      { campo: "contact_ig_id", valor: contactIgId }
     );
     return "soltar";
   }
