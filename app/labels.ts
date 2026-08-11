@@ -103,9 +103,15 @@ const KIND: Record<string, string> = {
 
 // Kind sem rótulo devolve algo legível, e nunca o nome interno — como
 // eventBadge() já fazia com UNKNOWN. Um kind novo no motor pode aparecer na tela
-// antes de alguém lembrar deste dicionário; que apareça vago, não técnico.
+// antes de alguém lembrar deste dicionário.
+//
+// A reserva é "Outro envio", e não "Mensagem", porque "Mensagem" é uma
+// AFIRMAÇÃO: um kind novo pode ser reação a story, resposta pública a
+// comentário, qualquer coisa — e a tela estaria dizendo que é DM sem saber.
+// "Outro envio" não vaza jargão e não mente; de quebra, deixa perceber que
+// apareceu algo que este dicionário ainda não conhece.
 export function kindLabel(kind: string): string {
-  return KIND[kind] ?? "Mensagem";
+  return KIND[kind] ?? "Outro envio";
 }
 
 // ---------- Quem mandou ----------
