@@ -153,7 +153,7 @@ export default async function EventosPage({
             </p>
             {account && <FiltrosEnvios />}
             {account && (
-              <Carregando>
+              <Carregando secao="envios">
                 <p className={`mt-2 text-xs ${muted}`}>
                   <b className="font-semibold">{totalEnvios}</b>{" "}
                   {totalEnvios === 1 ? "envio" : "envios"}
@@ -165,7 +165,7 @@ export default async function EventosPage({
             )}
           </div>
 
-          <Carregando>
+          <Carregando secao="envios">
             {!queue.length ? (
               <div
                 className={`flex flex-col items-center gap-3 p-6 text-center text-sm ${card} ${muted}`}
@@ -252,7 +252,7 @@ export default async function EventosPage({
             </p>
             {account && <Filtros posts={opcoesPost} />}
             {account && (
-              <Carregando>
+              <Carregando secao="eventos">
                 <p className={`mt-3 text-xs ${muted}`}>
                   <b className="font-semibold">{total}</b>{" "}
                   {total === 1 ? "interação" : "interações"}
@@ -263,7 +263,7 @@ export default async function EventosPage({
             )}
           </div>
 
-          <Carregando>
+          <Carregando secao="eventos">
             {!events.length ? (
               <div
                 className={`flex flex-col items-center gap-3 p-8 text-center text-sm ${card} ${muted}`}

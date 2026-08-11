@@ -29,6 +29,10 @@ export const SEM_FILTROS: FiltrosDaPagina = {
 
 // A união discriminada amarra a seção à forma da mudança: pedir `origem` para a
 // seção de eventos não compila.
+// As duas metades da página. Nomeadas porque quem indica carregamento precisa
+// dizer DE QUAL seção está falando, e não só que algo está em voo.
+export type Secao = "eventos" | "envios";
+
 export type MudancaDeFiltro =
   | { secao: "eventos"; mudanca: Partial<EventFilters> }
   | { secao: "envios"; mudanca: Partial<EnvioFilters> };

@@ -1,12 +1,20 @@
 "use client";
 
-import { createContext, useContext, useOptimistic, useTransition, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useOptimistic,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   aplicarMudanca,
   queryDaPagina,
   type FiltrosDaPagina,
   type MudancaDeFiltro,
+  type Secao,
 } from "@/lib/eventos-url";
 import { NO_FILTERS, type EventFilters } from "@/lib/event-filters";
 import { NO_ENVIO_FILTERS, type EnvioFilters } from "@/lib/envio-filters";
@@ -31,9 +39,9 @@ import { NO_ENVIO_FILTERS, type EnvioFilters } from "@/lib/envio-filters";
 type Dono = {
   filtros: FiltrosDaPagina;
   atualizar: (m: MudancaDeFiltro) => void;
-  // Verdadeiro enquanto a navegação não terminou. Serve para as LISTAS
+  // Qual seção está esperando dado novo, ou null. Serve para as LISTAS
   // indicarem carregamento; as barras seguem vivas.
-  pendente: boolean;
+  secaoEmVoo: Secao | null;
 };
 
 const Contexto = createContext<Dono | null>(null);
@@ -57,6 +65,7 @@ export default function DonoDosFiltros({
   const router = useRouter();
   const pathname = usePathname();
   const [pendente, iniciar] = useTransition();
+  const [ultimaSecao, setUltimaSecao] = useState<Secao | null>(null);
 
   // A base é o que o servidor mandou; as mudanças ainda em voo são reaplicadas
   // por cima dela a cada render. Como toda mudança é absoluta, reaplicar uma
@@ -70,6 +79,7 @@ export default function DonoDosFiltros({
     // O endereço sai do estado deste instante — nunca de uma prop congelada no
     // render anterior. É aqui que a atualização perdida deixa de existir.
     const qs = queryDaPagina(aplicarMudanca(filtros, m));
+    setUltimaSecao(m.secao);
     iniciar(() => {
       aplicar(m);
       // Sem rolar: nenhuma das duas trocas de filtro pode arrancar o leitor do
@@ -78,7 +88,13 @@ export default function DonoDosFiltros({
     });
   }
 
-  return <Contexto.Provider value={{ filtros, atualizar, pendente }}>{children}</Contexto.Provider>;
+  return (
+    <Contexto.Provider
+      value={{ filtros, atualizar, secaoEmVoo: pendente ? ultimaSecao : null }}
+    >
+      {children}
+    </Contexto.Provider>
+  );
 }
 
 // Onde o dado muda, e portanto onde o carregamento aparece.
@@ -88,15 +104,24 @@ export default function DonoDosFiltros({
 // fica esperando é a lista, e é a lista que esmaece — de leve, e sem sair do
 // fluxo, para o conteúdo antigo continuar legível enquanto o novo não chega.
 //
-// As duas listas esmaecem em qualquer troca de filtro, e não só a da seção
-// mexida: a página inteira é refeita no servidor a cada navegação, então as duas
-// realmente estão sendo recarregadas.
-export function Carregando({ children }: { children: ReactNode }) {
-  const { pendente } = useFiltros();
+// ESMAECE SÓ A SEÇÃO MEXIDA, e a decisão é de experiência, não de exatidão.
+//
+// É verdade que a página inteira é refeita no servidor a cada navegação — as
+// duas consultas rodam de novo. Mas trocar um filtro de ENVIOS não pode mudar a
+// lista de interações: ela é consultada com exatamente os mesmos parâmetros.
+// Apagar 7.900px de conteúdo que não vai mudar é ruído, não informação.
+//
+// O que se abre mão: se um evento novo chegar do Instagram entre uma
+// renderização e outra, a lista de interações muda sem ter esmaecido antes. É o
+// mesmo que acontece em qualquer recarregamento de página, e ninguém esmaece por
+// isso.
+export function Carregando({ secao, children }: { secao: Secao; children: ReactNode }) {
+  const { secaoEmVoo } = useFiltros();
+  const esperando = secaoEmVoo === secao;
   return (
     <div
-      aria-busy={pendente}
-      className={`transition-opacity duration-200 ${pendente ? "opacity-50" : ""}`}
+      aria-busy={esperando}
+      className={`transition-opacity duration-200 ${esperando ? "opacity-50" : ""}`}
     >
       {children}
     </div>
