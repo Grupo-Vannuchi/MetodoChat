@@ -455,7 +455,7 @@ export default function Painel({
                   placeholder="quero, link, eu quero"
                   disabled={configuracao.correspondencia === "any"}
                 />
-                <p className={hintCls}>Separadas por vírgula. Sem diferença de maiúsculas.</p>
+                <p className={hintCls}>Separadas por vírgula. Sem diferença de maiúsculas nem de acentos.</p>
               </div>
 
               <div className={CAMPO_CURTO}>

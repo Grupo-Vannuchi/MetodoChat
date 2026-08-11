@@ -32,9 +32,17 @@ export function buildEnviosWhere(accountId: string, f: EnvioFilters): Where {
   const ref = () => `$${params.length}`;
 
   // Origem não é coluna: é uma leitura do `kind`. A lista de kinds manuais vem
-  // de envio-filters.ts, a mesma que origemDoKind() usa na tela — assim o que o
-  // filtro estreita e o que o rótulo diz nunca discordam. Os kinds entram como
-  // $n mesmo sendo constante do código: um só caminho de valor para o banco.
+  // de envio-filters.ts, que é onde a regra mora.
+  //
+  // RESSALVA, porque o comentário anterior afirmava mais do que o código faz:
+  // `origemDoKind()` existe lá e hoje só os testes a chamam — a tela não exibe
+  // a origem por ela, e sim pelo RÓTULO do kind ("Resposta sua"). As duas
+  // concordam por virem da mesma lista, não por uma chamar a outra. No dia em
+  // que a origem virar coluna ou selo na linha, é `origemDoKind()` que deve
+  // alimentá-lo, e aí a garantia passa a ser real.
+  //
+  // Os kinds entram como $n mesmo sendo constante do código: um só caminho de
+  // valor para o banco.
   if (f.origem) {
     const marcadores = KINDS_MANUAIS.map((k) => {
       params.push(k);

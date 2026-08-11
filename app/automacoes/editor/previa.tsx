@@ -1,5 +1,5 @@
 "use client";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Passo } from "@/lib/steps";
 import type { Picked } from "../types";
 import { card } from "../../ui";
@@ -64,14 +64,27 @@ export type ContaDaPrevia = {
 
 // A foto real da conta, com a inicial como reserva.
 //
-// A reserva não é enfeite: a foto vem de uma URL da Meta que expira, e conta
+// A reserva não é enfeite: a foto vem de uma URL da Meta que EXPIRA, e conta
 // recém-conectada pode ainda não tê-la. Cair num círculo com a inicial é melhor
 // do que um quadrado quebrado — e a inicial sai do @, que é o que a pessoa
 // reconhece.
+//
+// O `onError` é o que faz a reserva valer no caso que importa: url ausente é
+// fácil, mas url EXPIRADA continua sendo string não-vazia, e sem ele a tela
+// mostraria a imagem quebrada justamente no caso que o comentário acima nomeia.
+// É a mesma solução, pelo mesmo motivo, de `app/avatar.tsx`.
 function MiniAvatar({ conta, size = "h-5 w-5" }: { conta: ContaDaPrevia; size?: string }) {
-  if (conta.foto) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img src={conta.foto} alt="" className={`${size} shrink-0 rounded-full object-cover`} />;
+  const [falhou, setFalhou] = useState(false);
+  if (conta.foto && !falhou) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={conta.foto}
+        alt=""
+        onError={() => setFalhou(true)}
+        className={`${size} shrink-0 rounded-full object-cover`}
+      />
+    );
   }
   return (
     <span
@@ -438,7 +451,9 @@ export default function Previa({
               </p>
               {publica !== null && (
                 <p className="mt-1 border-l border-zinc-300 pl-2 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">@sua_conta</span>{" "}
+                  <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                    {perfil.usuario ? `@${perfil.usuario}` : "Sua conta"}
+                  </span>{" "}
                   {publica || <Vazio texto="sem texto — nada é publicado" />}
                 </p>
               )}
