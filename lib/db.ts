@@ -77,9 +77,24 @@ function findDatabaseUrl(): string | undefined {
   return candidates[0]?.[1];
 }
 
-// O ensureSchema roda em TODA requisição e é idempotente de propósito: todo
-// `create ... if not exists` e `add column if not exists` faz o Postgres emitir
-// um NOTICE dizendo que já existe. São ~36 por requisição.
+// O ensureSchema é idempotente de propósito: todo `create ... if not exists` e
+// `add column if not exists` faz o Postgres emitir um NOTICE dizendo que já
+// existe. São ~36 deles numa passada — 8 tabelas, 8 índices e 22 colunas, de um
+// total de 54 instruções.
+//
+// QUANDO ele roda, e isto está escrito porque a versão anterior deste comentário
+// dizia "em TODA requisição", o que é falso e custou um diagnóstico errado:
+// `ensureSchema` guarda a promessa em `schemaReady` (fim deste arquivo) e
+// devolve a mesma daí em diante — ou seja, UMA VEZ POR INSTÂNCIA. Na Vercel,
+// uma vez por partida a frio. Em desenvolvimento roda mais, porque o
+// recarregamento a quente reavalia o módulo e zera a memoização.
+//
+// E o que isso cobra, dito porque já mordeu: são 54 idas ao banco em sequência
+// antes de a instância servir a primeira página, e 22 delas são `alter table`,
+// que pede trava exclusiva na tabela. Uma leitura demorada em `contacts` — ou
+// uma conexão órfã com transação aberta — bloqueia essa partida inteira, e com
+// o pool em `max: 3` as requisições enfileiram atrás dela. Foi exatamente isso
+// que travou o painel local em 11/08, e o caminho existe em produção.
 //
 // O driver HTTP anterior descartava notices em silêncio. O postgres.js os
 // imprime no console, e o efeito nos logs da Vercel foi imediato: uma chamada ao
