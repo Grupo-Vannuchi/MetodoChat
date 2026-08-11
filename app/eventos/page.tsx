@@ -15,9 +15,20 @@ import Avatar from "../avatar";
 import PostLine from "./post-line";
 import Realce from "./realce";
 import Filtros, { type OpcaoPost } from "./filtros";
+import FiltrosEnvios from "./filtros-envios";
 import { resolvePosts, type PostRef } from "@/lib/media-lookup";
-import { EVENTS_LIMIT, parseFilters, hasFilters } from "@/lib/event-filters";
+import { EVENTS_LIMIT, parseFilters, hasFilters, toQueryString } from "@/lib/event-filters";
 import { EVENTS_FROM, buildWhere, postsComEventos } from "@/lib/event-query";
+import {
+  ENVIOS_LIMIT,
+  parseEnvioFilters,
+  hasEnvioFilters,
+  toEnvioQueryString,
+  resumoSituacoes,
+  totalDeEnvios,
+  type ContagemPorSituacao,
+} from "@/lib/envio-filters";
+import { ENVIOS_FROM, ENVIOS_QUANDO, buildEnviosWhere, contagemPorSituacao } from "@/lib/envio-query";
 
 export const dynamic = "force-dynamic";
 
@@ -47,15 +58,19 @@ export default async function EventosPage({
 }) {
   await ensureSchema();
   const account = await getSelectedAccount();
-  const filtros = parseFilters(await searchParams);
+  const params = await searchParams;
+  const filtros = parseFilters(params);
+  const envios = parseEnvioFilters(params);
   const where = account ? buildWhere(account.ig_user_id, filtros) : null;
+  const whereEnvios = account ? buildEnviosWhere(account.ig_user_id, envios) : null;
+  const situacoes = whereEnvios ? contagemPorSituacao(whereEnvios) : null;
   const opcoes = account ? postsComEventos(account.ig_user_id, POSTS_NO_SELETOR) : null;
 
   // Junta com contatos para mostrar QUEM é a pessoa, não o número dela.
-  // As quatro consultas são independentes — em paralelo para não empilhar
+  // As cinco consultas são independentes — em paralelo para não empilhar
   // latência de rede uma atrás da outra.
-  const [eventRows, queueRows, totalRows, postRows] =
-    account && where && opcoes
+  const [eventRows, queueRows, totalRows, situacaoRows, postRows] =
+    account && where && whereEnvios && situacoes && opcoes
       ? await Promise.all([
           sql().query(
             `select e.*,
@@ -66,26 +81,40 @@ export default async function EventosPage({
              order by e.created_at desc limit ${EVENTS_LIMIT}`,
             where.params
           ),
+          // Ordena pela MESMA data que a linha mostra, e não por created_at:
+          // com a lista cortada em ENVIOS_LIMIT, um item recente ficando de fora
+          // por causa de outro critério de "recente" pareceria sumiço.
           sql().query(
             `select q.*, c.username as person_username, c.name as person_name,
                     c.profile_pic as person_pic
-             from queue q
-             left join contacts c
-               on c.account_id = q.account_id and c.ig_id = q.contact_ig_id
-             where q.account_id = $1
-             order by q.created_at desc limit 50`,
-            [account.ig_user_id]
+             ${ENVIOS_FROM}
+             where ${whereEnvios.sql}
+             order by ${ENVIOS_QUANDO} desc limit ${ENVIOS_LIMIT}`,
+            whereEnvios.params
           ),
           // Mesmo where da listagem: o número na tela nunca discorda da lista.
           sql().query(`select count(*)::int as total ${EVENTS_FROM} where ${where.sql}`, where.params),
+          sql().query(situacoes.sql, situacoes.params),
           sql().query(opcoes.sql, opcoes.params),
         ])
-      : [[], [], [], []];
+      : [[], [], [], [], []];
 
   const events = eventRows as EventRow[];
   const queue = queueRows as QueueRow[];
   const total = (totalRows as { total: number }[])[0]?.total ?? 0;
   const contagens = postRows as { id: string; total: number }[];
+
+  // Total e resumo saem da MESMA contagem, do MESMO recorte da listagem: o
+  // número grande é a soma exata das parcelas que aparecem ao lado dele.
+  const porSituacao = situacaoRows as ContagemPorSituacao;
+  const totalEnvios = totalDeEnvios(porSituacao);
+  const resumoEnvios = resumoSituacoes(porSituacao);
+  const filtrandoEnvios = hasEnvioFilters(envios);
+
+  // Cada barra monta só os seus parâmetros e carrega os da outra intactos — as
+  // duas seções dividem uma URL só.
+  const qsEnvios = toEnvioQueryString(envios);
+  const qsEventos = toQueryString(filtros);
 
   // De qual post veio cada comentário, e as capas do seletor. Os ids repetem
   // muito (vários comentários no mesmo post), então juntamos os dois conjuntos
@@ -112,44 +141,77 @@ export default async function EventosPage({
 
   return (
     <div className="space-y-10">
-      <section className="space-y-4">
+      <section className="space-y-3">
         <div>
-          <h1 className="text-2xl font-bold">Mensagens enviadas</h1>
+          {/* O título antigo dizia "Tudo que o robô mandou por você", e 20 das
+              28 linhas eram resposta digitada pelo dono na caixa de entrada. A
+              lista é das DUAS origens, e agora diz isso. */}
+          <h1 className="text-2xl font-bold">Tudo que saiu da sua conta</h1>
           <p className={`mt-1 text-sm ${muted}`}>
-            Tudo que o robô mandou por você — e o que ainda está a caminho.
+            O que o robô enviou por você e o que você mesmo respondeu — e o que ainda está a
+            caminho.
           </p>
+          {account && <FiltrosEnvios filtros={envios} preservar={qsEventos} />}
+          {account && (
+            <p className={`mt-2 text-xs ${muted}`}>
+              <b className="font-semibold">{totalEnvios}</b>{" "}
+              {totalEnvios === 1 ? "envio" : "envios"}
+              {filtrandoEnvios && " neste recorte"}
+              {resumoEnvios && ` · ${resumoEnvios}`}
+              {totalEnvios > ENVIOS_LIMIT && ` · mostrando os ${ENVIOS_LIMIT} mais recentes`}
+            </p>
+          )}
         </div>
 
         {!queue.length ? (
-          <p className={`p-6 text-sm ${card} ${muted}`}>
-            {account
-              ? "Nenhuma mensagem enviada ainda. Assim que alguém comentar sua palavra-chave, aparece aqui."
-              : "Conecte uma conta do Instagram primeiro."}
-          </p>
+          <div className={`flex flex-col items-center gap-3 p-6 text-center text-sm ${card} ${muted}`}>
+            {!account ? (
+              <p>Conecte uma conta do Instagram primeiro.</p>
+            ) : filtrandoEnvios ? (
+              <>
+                <p>Nenhum envio com esses filtros.</p>
+                <a
+                  href={qsEventos ? `/eventos?${qsEventos}` : "/eventos"}
+                  className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  Limpar filtros
+                </a>
+              </>
+            ) : (
+              <p>
+                Nenhuma mensagem enviada ainda. Assim que alguém comentar sua palavra-chave,
+                aparece aqui.
+              </p>
+            )}
+          </div>
         ) : (
           <div className={tableWrap}>
             <table className="w-full text-left text-sm">
               <thead className={thead}>
                 <tr>
-                  <th className="px-4 py-3">Para quem</th>
-                  <th className="px-4 py-3">O que foi enviado</th>
-                  <th className="px-4 py-3">Quando</th>
-                  <th className="px-4 py-3">Situação</th>
+                  <th className="px-3 py-2">Para quem</th>
+                  <th className="px-3 py-2">O que foi enviado</th>
+                  <th className="px-3 py-2">Quando</th>
                 </tr>
               </thead>
               <tbody className={rowDivide}>
                 {queue.map((q) => {
                   const badge = statusBadge(q.status);
                   const erro = friendlyError(q.error);
+                  // A coluna "Situação" saiu: 28 de 28 linhas diziam "Entregue".
+                  // Ela virou filtro, e a contagem lá em cima diz o placar
+                  // completo. O selo só aparece na linha que FOGE do normal —
+                  // que é a única em que ele informava alguma coisa.
+                  const normal = q.status === "sent";
                   return (
                     <tr key={q.id}>
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-2.5">
+                      <td className="px-3 py-1.5">
+                        <div className="flex items-center gap-2">
                           <Avatar
                             src={q.person_pic}
                             name={q.person_name ?? q.person_username ?? "?"}
-                            className="h-8 w-8"
-                            textClassName="text-xs"
+                            className="h-6 w-6"
+                            textClassName="text-[10px]"
                           />
                           <span className="truncate font-medium">
                             {q.person_username
@@ -158,15 +220,15 @@ export default async function EventosPage({
                           </span>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5">{kindLabel(q.kind)}</td>
-                      <td className={`px-4 py-2.5 ${muted}`}>
-                        {fmtDate(q.sent_at ?? q.created_at)}
+                      <td className="px-3 py-1.5">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          {kindLabel(q.kind)}
+                          {!normal && <span className={badge.className}>{badge.label}</span>}
+                        </span>
+                        {erro && <p className="max-w-md text-xs text-zinc-500">{erro}</p>}
                       </td>
-                      <td className="px-4 py-2.5">
-                        <span className={badge.className}>{badge.label}</span>
-                        {erro && (
-                          <p className="mt-1 max-w-xs text-xs text-zinc-500">{erro}</p>
-                        )}
+                      <td className={`whitespace-nowrap px-3 py-1.5 text-xs ${muted}`}>
+                        {fmtDate(q.sent_at ?? q.created_at)}
                       </td>
                     </tr>
                   );
@@ -183,7 +245,7 @@ export default async function EventosPage({
           <p className={`mt-1 text-sm ${muted}`}>
             Cada comentário, story respondido e mensagem que chegou até você.
           </p>
-          {account && <Filtros filtros={filtros} posts={opcoesPost} />}
+          {account && <Filtros filtros={filtros} posts={opcoesPost} preservar={qsEnvios} />}
           {account && (
             <p className={`mt-3 text-xs ${muted}`}>
               <b className="font-semibold">{total}</b>{" "}
@@ -201,8 +263,9 @@ export default async function EventosPage({
             ) : filtrando ? (
               <>
                 <p>Nenhuma interação com esses filtros.</p>
+                {/* Limpa só os filtros DESTA seção: os da de cima seguem na URL. */}
                 <a
-                  href="/eventos"
+                  href={qsEnvios ? `/eventos?${qsEnvios}` : "/eventos"}
                   className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
                 >
                   Limpar filtros

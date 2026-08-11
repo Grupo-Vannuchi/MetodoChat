@@ -12,6 +12,7 @@ import {
   type EventFilters,
   type EventTypeKey,
 } from "@/lib/event-filters";
+import { juntarQuery } from "@/lib/envio-filters";
 import { eventBadge } from "../labels";
 import { subtle } from "../ui";
 
@@ -26,7 +27,19 @@ const controle =
 
 const ativo = "border-indigo-500 text-zinc-900 dark:border-indigo-500 dark:text-zinc-100";
 
-export default function Filtros({ filtros, posts }: { filtros: EventFilters; posts: OpcaoPost[] }) {
+export default function Filtros({
+  filtros,
+  posts,
+  preservar,
+}: {
+  filtros: EventFilters;
+  posts: OpcaoPost[];
+  // Parâmetros da seção de envios, já montados no servidor. Esta barra monta só
+  // os SEUS parâmetros; sem carregar os de lá junto, qualquer clique aqui —
+  // inclusive "Limpar filtros", que navega para a URL nua — apagaria o recorte
+  // da outra seção. Os filtros desta barra seguem exatamente os mesmos.
+  preservar: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const [pendente, iniciar] = useTransition();
@@ -34,7 +47,7 @@ export default function Filtros({ filtros, posts }: { filtros: EventFilters; pos
   const [busca, setBusca] = useState(filtros.q ?? "");
 
   function navigate(mudanca: Partial<EventFilters>) {
-    const qs = toQueryString({ ...filtros, ...mudanca });
+    const qs = juntarQuery(preservar, toQueryString({ ...filtros, ...mudanca }));
     setAbrirPosts(false);
     iniciar(() => router.push(qs ? `${pathname}?${qs}` : pathname));
   }

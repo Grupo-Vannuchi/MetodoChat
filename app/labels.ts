@@ -80,18 +80,45 @@ export function eventBadge(type: string): Badge {
   return { ...b, className: `${BADGE_BASE} ${b.className}` };
 }
 
-// ---------- O que o robô enviou ----------
+// ---------- O que saiu da conta ----------
 
+// Todos os `kind` que a tabela `queue` aceita (o `check` em lib/db.ts) precisam
+// estar aqui. Faltando um, ele ia CRU para a tela — foi o que aconteceu com
+// `dm_manual`, que é o rótulo mais frequente da lista e aparecia como
+// identificador técnico.
 const KIND: Record<string, string> = {
   private_reply: "Boas-vindas no privado",
   comment_reply: "Resposta no comentário",
   dm_welcome: "Boas-vindas na DM",
   dm_link: "DM com o seu link",
   dm_reminder: "Lembrete",
+  dm_follow_gate: "Pedido para seguir o perfil",
+  dm_email_ask: "Pedido de e-mail",
+  story_reaction: "Reação no story",
+  // Resposta que uma pessoa digitou na caixa de entrada do painel. Entra na
+  // mesma fila das automáticas (lib/engine.ts, enqueueManualReply) e por isso
+  // aparece nesta lista junto com o que o robô mandou.
+  dm_manual: "Resposta sua",
 };
 
+// Kind sem rótulo devolve algo legível, e nunca o nome interno — como
+// eventBadge() já fazia com UNKNOWN. Um kind novo no motor pode aparecer na tela
+// antes de alguém lembrar deste dicionário; que apareça vago, não técnico.
 export function kindLabel(kind: string): string {
-  return KIND[kind] ?? kind;
+  return KIND[kind] ?? "Mensagem";
+}
+
+// ---------- Quem mandou ----------
+
+// As chaves vivem em lib/envio-filters.ts, junto da regra que decide a origem a
+// partir do kind; aqui fica só como elas se chamam para quem lê o painel.
+const ORIGEM: Record<string, string> = {
+  robo: "O robô enviou",
+  voce: "Você respondeu",
+};
+
+export function origemLabel(origem: string): string {
+  return ORIGEM[origem] ?? "Todas as origens";
 }
 
 // ---------- Situação do envio ----------
