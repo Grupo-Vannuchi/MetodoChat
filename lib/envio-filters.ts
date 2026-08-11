@@ -107,14 +107,6 @@ export function toEnvioQueryString(f: EnvioFilters): string {
   return p.toString();
 }
 
-// As duas barras de filtro da página escrevem na mesma URL. Cada uma monta só os
-// SEUS parâmetros, então quem navega precisa carregar junto os da outra — senão
-// mexer no período dos envios apagaria a busca da lista de interações. Junta na
-// ordem dada e descarta pedaço vazio.
-export function juntarQuery(...partes: string[]): string {
-  return partes.filter(Boolean).join("&");
-}
-
 export type ContagemPorSituacao = { situacao: string; total: number }[];
 
 export function totalDeEnvios(contagens: ContagemPorSituacao): number {

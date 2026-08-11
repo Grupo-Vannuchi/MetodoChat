@@ -1,55 +1,52 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   SEARCH_MAX_LENGTH,
   PERIODS,
   NO_FILTERS,
   EVENT_TYPES,
   hasFilters,
-  toQueryString,
   type EventFilters,
   type EventTypeKey,
 } from "@/lib/event-filters";
-import { juntarQuery } from "@/lib/envio-filters";
+import { useFiltros } from "./filtros-dono";
 import { eventBadge } from "../labels";
 import { subtle } from "../ui";
 
 export type OpcaoPost = { id: string; total: number; thumb: string | null; caption: string | null };
 
-// Os filtros chegam prontos do servidor, que já validou tudo. A barra não lê a
-// URL — só escreve nela. Isso mantém uma única fonte da verdade e dispensa o
-// Suspense que useSearchParams exigiria.
+// Só apresentação: mostra os valores que o dono da URL segura e devolve as
+// mudanças para ele. Esta barra não lê a URL nem escreve nela, e por isso não
+// precisa carregar nada da outra seção.
+//
+// Ela também não se apaga durante a navegação: com estado otimista, o botão já
+// mostra o valor novo no clique, e quem espera é a lista.
 
 const controle =
   "inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-zinc-400 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/15 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300 dark:hover:border-zinc-600";
 
 const ativo = "border-indigo-500 text-zinc-900 dark:border-indigo-500 dark:text-zinc-100";
 
-export default function Filtros({
-  filtros,
-  posts,
-  preservar,
-}: {
-  filtros: EventFilters;
-  posts: OpcaoPost[];
-  // Parâmetros da seção de envios, já montados no servidor. Esta barra monta só
-  // os SEUS parâmetros; sem carregar os de lá junto, qualquer clique aqui —
-  // inclusive "Limpar filtros", que navega para a URL nua — apagaria o recorte
-  // da outra seção. Os filtros desta barra seguem exatamente os mesmos.
-  preservar: string;
-}) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const [pendente, iniciar] = useTransition();
+export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
+  const { filtros: daPagina, atualizar } = useFiltros();
+  const filtros = daPagina.eventos;
   const [abrirPosts, setAbrirPosts] = useState(false);
   const [busca, setBusca] = useState(filtros.q ?? "");
 
-  function navigate(mudanca: Partial<EventFilters>) {
-    const qs = juntarQuery(preservar, toQueryString({ ...filtros, ...mudanca }));
+  // A caixa de busca é digitada, então guarda o próprio rascunho. Quando o termo
+  // muda por fora dela — "Limpar filtros" daqui ou do estado vazio, ou o botão
+  // voltar do navegador — o rascunho acompanha, senão a caixa continuaria
+  // mostrando uma palavra que não está mais filtrando nada.
+  const [ultimoQ, setUltimoQ] = useState(filtros.q);
+  if (filtros.q !== ultimoQ) {
+    setUltimoQ(filtros.q);
+    setBusca(filtros.q ?? "");
+  }
+
+  function mudar(mudanca: Partial<EventFilters>) {
     setAbrirPosts(false);
-    iniciar(() => router.push(qs ? `${pathname}?${qs}` : pathname));
+    atualizar({ secao: "eventos", mudanca });
   }
 
   // O post filtrado pode estar fora da lista oferecida (é a dos mais recentes).
@@ -60,10 +57,7 @@ export default function Filtros({
     : "Todos os posts";
 
   return (
-    <div
-      className={`mt-4 flex flex-wrap items-center gap-2 p-2.5 ${subtle} ${pendente ? "opacity-60" : ""}`}
-      aria-busy={pendente}
-    >
+    <div className={`mt-4 flex flex-wrap items-center gap-2 p-2.5 ${subtle}`}>
       {/* período */}
       <div className="inline-flex gap-0.5 rounded-xl border border-zinc-300 p-0.5 dark:border-zinc-700">
         {PERIODS.map((p) => {
@@ -72,7 +66,7 @@ export default function Filtros({
             <button
               key={p.key}
               type="button"
-              onClick={() => navigate({ period: p.key })}
+              onClick={() => mudar({ period: p.key })}
               aria-pressed={marcado}
               className={`rounded-[9px] px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/20 ${
                 marcado
@@ -107,7 +101,7 @@ export default function Filtros({
           {filtros.post && (
             <button
               type="button"
-              onClick={() => navigate({ post: null })}
+              onClick={() => mudar({ post: null })}
               aria-label="Remover filtro de post"
               className="ml-1 rounded-lg px-1.5 py-1 text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
             >
@@ -120,7 +114,7 @@ export default function Filtros({
       {/* tipo */}
       <select
         value={filtros.type ?? ""}
-        onChange={(e) => navigate({ type: (e.target.value || null) as EventTypeKey | null })}
+        onChange={(e) => mudar({ type: (e.target.value || null) as EventTypeKey | null })}
         aria-label="Tipo de interação"
         className={`${controle} ${filtros.type ? ativo : ""}`}
       >
@@ -137,7 +131,7 @@ export default function Filtros({
         className="flex min-w-[11rem] flex-1 items-center"
         onSubmit={(e) => {
           e.preventDefault();
-          navigate({ q: busca.trim() || null });
+          mudar({ q: busca.trim() || null });
         }}
       >
         <input
@@ -154,10 +148,7 @@ export default function Filtros({
       {hasFilters(filtros) && (
         <button
           type="button"
-          onClick={() => {
-            setBusca("");
-            navigate(NO_FILTERS);
-          }}
+          onClick={() => mudar(NO_FILTERS)}
           className="ml-auto rounded-lg px-2 py-1 text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
         >
           Limpar filtros
@@ -175,7 +166,7 @@ export default function Filtros({
               <button
                 key={p.id}
                 type="button"
-                onClick={() => navigate({ post: p.id })}
+                onClick={() => mudar({ post: p.id })}
                 title={p.caption ?? p.id}
                 className="flex flex-col gap-1 focus-visible:outline-none"
               >

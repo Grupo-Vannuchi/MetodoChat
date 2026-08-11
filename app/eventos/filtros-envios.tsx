@@ -1,59 +1,38 @@
 "use client";
 
-import { useTransition } from "react";
-import { usePathname, useRouter } from "next/navigation";
 import { PERIODS } from "@/lib/event-filters";
 import {
   ORIGENS,
   SITUACOES,
   NO_ENVIO_FILTERS,
   hasEnvioFilters,
-  toEnvioQueryString,
-  juntarQuery,
   type EnvioFilters,
   type OrigemKey,
   type SituacaoKey,
 } from "@/lib/envio-filters";
+import { useFiltros } from "./filtros-dono";
 import { origemLabel, statusBadge } from "../labels";
 import { subtle } from "../ui";
 
-// Mesmo desenho da barra da lista de interações: os filtros chegam prontos do
-// servidor, que já validou tudo. A barra não lê a URL — só escreve nela. Isso
-// mantém uma única fonte da verdade e dispensa o Suspense que useSearchParams
-// exigiria.
-//
-// `preservar` são os parâmetros da OUTRA seção da página, já montados no
-// servidor. Sem eles, mexer num filtro daqui apagaria o recorte de lá, porque as
-// duas seções dividem a mesma barra de endereço.
+// Mesmo desenho da barra da lista de interações: só apresentação. Os valores e a
+// função de atualizar vêm do dono da URL; esta barra não monta endereço nenhum e
+// não sabe que existe outra seção na página.
 
 const controle =
   "inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-zinc-400 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/15 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300 dark:hover:border-zinc-600";
 
 const ativo = "border-indigo-500 text-zinc-900 dark:border-indigo-500 dark:text-zinc-100";
 
-export default function FiltrosEnvios({
-  filtros,
-  preservar,
-}: {
-  filtros: EnvioFilters;
-  preservar: string;
-}) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const [pendente, iniciar] = useTransition();
+export default function FiltrosEnvios() {
+  const { filtros: daPagina, atualizar } = useFiltros();
+  const filtros = daPagina.envios;
 
-  function navigate(mudanca: Partial<EnvioFilters>) {
-    const qs = juntarQuery(preservar, toEnvioQueryString({ ...filtros, ...mudanca }));
-    // Sem rolar para o topo: esta seção JÁ está no topo, e forçar o scroll
-    // arrancaria de lá quem estivesse conferindo a lista de baixo.
-    iniciar(() => router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false }));
+  function mudar(mudanca: Partial<EnvioFilters>) {
+    atualizar({ secao: "envios", mudanca });
   }
 
   return (
-    <div
-      className={`mt-3 flex flex-wrap items-center gap-2 p-2 ${subtle} ${pendente ? "opacity-60" : ""}`}
-      aria-busy={pendente}
-    >
+    <div className={`mt-3 flex flex-wrap items-center gap-2 p-2 ${subtle}`}>
       {/* período */}
       <div className="inline-flex gap-0.5 rounded-xl border border-zinc-300 p-0.5 dark:border-zinc-700">
         {PERIODS.map((p) => {
@@ -62,7 +41,7 @@ export default function FiltrosEnvios({
             <button
               key={p.key}
               type="button"
-              onClick={() => navigate({ period: p.key })}
+              onClick={() => mudar({ period: p.key })}
               aria-pressed={marcado}
               className={`rounded-[9px] px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/20 ${
                 marcado
@@ -79,7 +58,7 @@ export default function FiltrosEnvios({
       {/* origem: o robô × você */}
       <select
         value={filtros.origem ?? ""}
-        onChange={(e) => navigate({ origem: (e.target.value || null) as OrigemKey | null })}
+        onChange={(e) => mudar({ origem: (e.target.value || null) as OrigemKey | null })}
         aria-label="Quem enviou"
         className={`${controle} ${filtros.origem ? ativo : ""}`}
       >
@@ -94,7 +73,7 @@ export default function FiltrosEnvios({
       {/* situação: virou filtro porque como coluna dizia "Entregue" 28 vezes */}
       <select
         value={filtros.situacao ?? ""}
-        onChange={(e) => navigate({ situacao: (e.target.value || null) as SituacaoKey | null })}
+        onChange={(e) => mudar({ situacao: (e.target.value || null) as SituacaoKey | null })}
         aria-label="Situação do envio"
         className={`${controle} ${filtros.situacao ? ativo : ""}`}
       >
@@ -109,7 +88,7 @@ export default function FiltrosEnvios({
       {hasEnvioFilters(filtros) && (
         <button
           type="button"
-          onClick={() => navigate(NO_ENVIO_FILTERS)}
+          onClick={() => mudar(NO_ENVIO_FILTERS)}
           className="ml-auto rounded-lg px-2 py-1 text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
         >
           Limpar filtros

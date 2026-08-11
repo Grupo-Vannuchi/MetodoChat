@@ -3,7 +3,6 @@ import {
   parseEnvioFilters,
   toEnvioQueryString,
   hasEnvioFilters,
-  juntarQuery,
   origemDoKind,
   resumoSituacoes,
   totalDeEnvios,
@@ -119,21 +118,9 @@ describe("hasEnvioFilters", () => {
   });
 });
 
-describe("juntarQuery", () => {
-  // As duas barras da página escrevem na mesma URL: cada uma monta só os seus
-  // parâmetros e carrega os da outra intactos.
-  it("junta os pedaços com &", () => {
-    expect(juntarQuery("periodo=7d&q=oi", "envios_origem=voce")).toBe(
-      "periodo=7d&q=oi&envios_origem=voce"
-    );
-  });
-
-  it("pedaço vazio não deixa & solto", () => {
-    expect(juntarQuery("", "envios_origem=voce")).toBe("envios_origem=voce");
-    expect(juntarQuery("periodo=7d", "")).toBe("periodo=7d");
-    expect(juntarQuery("", "")).toBe("");
-  });
-});
+// O que era `juntarQuery` — colar a metade de uma barra na metade da outra —
+// virou queryDaPagina, em lib/eventos-url.ts, e está testado lá: a página
+// inteira passou a ter um dono só da URL, então não há mais metades para colar.
 
 describe("origemDoKind", () => {
   it("o que a pessoa digitou na caixa de entrada é 'voce'", () => {
