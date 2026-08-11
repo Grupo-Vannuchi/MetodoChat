@@ -295,7 +295,11 @@ export default function Quadro({
   // intacta na inserção — o `dm_link` chega com `url: ""` e continua com ela, e
   // os outros continuam sem a chave.
   const inserir = useCallback((chave: string, x: number, y: number, sobreSeta: number | null) => {
-    const bloco = { ...blocoNovo(chave), pos: { x, y } };
+    // Arredonda como `moverBloco` — `screenToFlowPosition` devolve fracionário,
+    // e sem isto os dois escritores de `pos` discordam: bloco arrastado grava
+    // inteiro e bloco recém-inserido grava `73.00000000000001`. É cosmético (a
+    // posição não decide nada), mas a inconsistência apareceu no banco.
+    const bloco = { ...blocoNovo(chave), pos: { x: Math.round(x), y: Math.round(y) } };
     setPassos((atual) => {
       if (sobreSeta === null) return [...atual, bloco];
       return [...atual.slice(0, sobreSeta + 1), bloco, ...atual.slice(sobreSeta + 1)];

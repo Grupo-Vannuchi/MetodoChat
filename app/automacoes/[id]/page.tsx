@@ -112,18 +112,26 @@ export default async function EditarAutomacaoPage({
   // congelada em `a.name` e a barra mostraria o nome velho enquanto o dono
   // digita o novo. O porquê inteiro está no comentário da barra, em
   // `../editor/quadro.tsx`.
+  // A CONTA vai junto porque a prévia desenha o celular de quem RECEBE, e o
+  // cabeçalho daquele celular é esta conta. Ela já foi buscada acima para saber
+  // de quem é a automação, então isto reaproveita a mesma leitura.
+  //
+  // O comentário fica AQUI e não entre os atributos: comentário `//` dentro da
+  // lista de atributos de um elemento JSX passa no `tsc` e no `next build` e
+  // engole a prop seguinte no compilador do modo de desenvolvimento — a página
+  // quebrou em produção local com `conta` chegando `undefined`, e nada acusou.
+  const contaDaPrevia = {
+    usuario: selected.username,
+    nome: selected.name,
+    foto: selected.profile_picture_url,
+  };
+
   return (
     <Quadro
       automationId={a.id}
       passosIniciais={passosDoBanco(a.steps)}
       configuracaoInicial={configuracaoInicial}
-      // A conta já foi buscada acima para saber de quem é a automação; a prévia
-      // reaproveita a mesma leitura em vez de fazer outra.
-      conta={{
-        usuario: selected.username,
-        nome: selected.name,
-        foto: selected.profile_picture_url,
-      }}
+      conta={contaDaPrevia}
     />
   );
 }

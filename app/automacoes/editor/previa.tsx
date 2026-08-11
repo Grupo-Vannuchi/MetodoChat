@@ -374,7 +374,12 @@ export default function Previa({
   story: Picked | null;
   // A conta conectada. A prévia mostrava `sua_conta` e uma inicial fixa, o que
   // faz a tela parecer um exemplo em vez do fluxo desta conta.
-  conta: ContaDaPrevia;
+  //
+  // OPCIONAL de propósito, e não por preguiça: esta prop chegou `undefined` uma
+  // vez por um comentário mal posicionado na página que a monta, e o efeito foi
+  // a ROTA INTEIRA cair — não a prévia ficar sem foto. Um dado de enfeite não
+  // pode derrubar a tela onde se edita o fluxo.
+  conta?: ContaDaPrevia;
   // O bloco aberto no painel, para acender na prévia. -1 quando o selecionado é
   // o gatilho, ou quando não há nenhum.
   indiceSelecionado: number;
@@ -383,6 +388,9 @@ export default function Previa({
   // tipos só rodam em alguns gatilhos, e essa decisão é de conteúdo — ela mora
   // no arquivo puro, com teste. Antes o coraçãozinho saía igual nos três.
   const cenas = useMemo(() => roteiro(passos, gatilho), [passos, gatilho]);
+
+  // Sem conta, a prévia continua desenhando — só sem identidade.
+  const perfil: ContaDaPrevia = conta ?? { usuario: null, nome: null, foto: null };
 
   // A RESPOSTA PÚBLICA sai no comentário, então ela é desenhada no cartão do
   // post — não na conversa. Só a PUBLICADA entra aqui: `conferirLista`
@@ -463,7 +471,7 @@ export default function Previa({
           <IconChevronLeft className="h-4 w-4 text-zinc-300" />
           <span className="rounded-full bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 p-[2px]">
             <span className="block rounded-full bg-black p-[2px]">
-              <MiniAvatar conta={conta} size="h-6 w-6" />
+              <MiniAvatar conta={perfil} size="h-6 w-6" />
             </span>
           </span>
           <div className="min-w-0 leading-tight">
@@ -471,10 +479,10 @@ export default function Previa({
                 Sem nome, o @ sobe — repetir o @ nas duas linhas ficaria pior do
                 que mostrar uma linha só. */}
             <p className="truncate text-xs font-semibold text-zinc-100">
-              {conta.nome ?? (conta.usuario ? `@${conta.usuario}` : "Sua conta")}
+              {perfil.nome ?? (perfil.usuario ? `@${perfil.usuario}` : "Sua conta")}
             </p>
-            {conta.nome && conta.usuario && (
-              <p className="truncate text-[9px] text-zinc-500">@{conta.usuario}</p>
+            {perfil.nome && perfil.usuario && (
+              <p className="truncate text-[9px] text-zinc-500">@{perfil.usuario}</p>
             )}
           </div>
           <div className="ml-auto flex items-center gap-3 text-zinc-300">
@@ -518,7 +526,7 @@ export default function Previa({
               key={c.indice}
               cena={c}
               aceso={c.indice === indiceSelecionado}
-              conta={conta}
+              conta={perfil}
             />
           ))}
 
