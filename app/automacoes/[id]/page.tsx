@@ -117,6 +117,13 @@ export default async function EditarAutomacaoPage({
       automationId={a.id}
       passosIniciais={passosDoBanco(a.steps)}
       configuracaoInicial={configuracaoInicial}
+      // A conta já foi buscada acima para saber de quem é a automação; a prévia
+      // reaproveita a mesma leitura em vez de fazer outra.
+      conta={{
+        usuario: selected.username,
+        nome: selected.name,
+        foto: selected.profile_picture_url,
+      }}
     />
   );
 }

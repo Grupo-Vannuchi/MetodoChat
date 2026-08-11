@@ -15,7 +15,7 @@ import { conferirLista, identidadeDoPasso, type Passo } from "@/lib/steps";
 import No, { type DadosDoNo } from "./no";
 import Gatilho, { nomeDoGatilho, resumoDasPalavras, type DadosDoGatilho } from "./gatilho";
 import Painel, { type Configuracao } from "./painel";
-import Previa from "./previa";
+import Previa, { type ContaDaPrevia } from "./previa";
 import { arranjoAutomatico, blocoNovo, resumoDoBloco } from "./modelos";
 import Paleta from "./paleta";
 import * as Geo from "./geometria";
@@ -107,10 +107,16 @@ export default function Quadro({
   automationId,
   passosIniciais,
   configuracaoInicial,
+  conta,
 }: {
   automationId: string;
   passosIniciais: Passo[];
   configuracaoInicial: Configuracao;
+  // A conta conectada, só para a prévia deixar de mostrar `sua_conta` e uma
+  // inicial fixa. Ela ATRAVESSA este componente sem ser usada aqui — a página
+  // já a tem, e consultá-la de novo lá embaixo seria uma ida ao banco a mais
+  // para o mesmo dado.
+  conta: ContaDaPrevia;
 }) {
   // O BLOCO LEGADO SEM A CHAVE `url` É DEIXADO COMO ESTÁ, e esta é a decisão
   // que a Fase 1b devia à convenção da chave (ver `modelos.ts`).
@@ -1157,6 +1163,7 @@ export default function Quadro({
             post={configuracao.post}
             story={configuracao.story}
             indiceSelecionado={indiceSelecionado}
+            conta={conta}
           />
         </aside>
       </div>

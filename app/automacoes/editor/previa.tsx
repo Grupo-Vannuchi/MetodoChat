@@ -52,22 +52,42 @@ import { roteiro, type Bolha, type Cena } from "./roteiro";
 // a conta adiante. Inventar a prop seria plumbing morto atravessando três
 // arquivos até alguém ter o que pôr nela. O avatar cai no mesmo espaço reservado
 // que a prévia antiga usava quando não havia conta.
-function MiniAvatar({ size = "h-5 w-5" }: { size?: string }) {
+// A conta conectada, só o que a prévia precisa para deixar de inventar.
+//
+// Vem da página, que já a busca para saber de quem é a automação — o caminho é
+// página → quadro → aqui, e nenhum dos três a consulta de novo.
+export type ContaDaPrevia = {
+  usuario: string | null;
+  nome: string | null;
+  foto: string | null;
+};
+
+// A foto real da conta, com a inicial como reserva.
+//
+// A reserva não é enfeite: a foto vem de uma URL da Meta que expira, e conta
+// recém-conectada pode ainda não tê-la. Cair num círculo com a inicial é melhor
+// do que um quadrado quebrado — e a inicial sai do @, que é o que a pessoa
+// reconhece.
+function MiniAvatar({ conta, size = "h-5 w-5" }: { conta: ContaDaPrevia; size?: string }) {
+  if (conta.foto) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={conta.foto} alt="" className={`${size} shrink-0 rounded-full object-cover`} />;
+  }
   return (
     <span
       className={`${size} flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-600 to-orange-400 text-[9px] font-bold text-white`}
     >
-      S
+      {(conta.usuario ?? "?").slice(0, 1).toUpperCase()}
     </span>
   );
 }
 
 // O que A CONTA manda. Fica à esquerda, com avatar: a prévia é o celular de
 // QUEM RECEBE, então a mensagem da automação chega, e a da pessoa sai.
-function Recebida({ children }: { children: React.ReactNode }) {
+function Recebida({ conta, children }: { conta: ContaDaPrevia; children: React.ReactNode }) {
   return (
     <div className="flex max-w-[85%] items-end gap-1.5 self-start">
-      <MiniAvatar />
+      <MiniAvatar conta={conta} />
       <div className="min-w-0 overflow-hidden rounded-2xl rounded-bl-md bg-zinc-800 text-[11px] leading-snug text-zinc-100">
         {children}
       </div>
@@ -228,12 +248,12 @@ const REACAO = {
   mensagem: "reage à mensagem que a pessoa mandou",
 } as const;
 
-function Item({ bolha }: { bolha: Bolha }) {
+function Item({ bolha, conta }: { bolha: Bolha; conta: ContaDaPrevia }) {
   switch (bolha.tipo) {
     case "balao":
       return (
         <>
-          <Recebida>
+          <Recebida conta={conta}>
             <p className="whitespace-pre-wrap break-words px-3 py-1.5">
               {bolha.texto || <Vazio texto="Sem texto…" />}
             </p>
@@ -320,7 +340,7 @@ function Item({ bolha }: { bolha: Bolha }) {
 // O DESTAQUE É INDIGO porque indigo é a cor da seleção no quadro (`no.tsx`), e
 // a prévia só liga o que a pessoa está digitando ao que ela vê se as duas
 // telas usarem a mesma cor para "este é o bloco aberto".
-function CenaNaConversa({ cena, aceso }: { cena: Cena; aceso: boolean }) {
+function CenaNaConversa({ cena, aceso, conta }: { cena: Cena; aceso: boolean; conta: ContaDaPrevia }) {
   return (
     <div
       className={`flex flex-col gap-1.5 ${
@@ -328,7 +348,7 @@ function CenaNaConversa({ cena, aceso }: { cena: Cena; aceso: boolean }) {
       }`}
     >
       {cena.itens.map((b, i) => (
-        <Item key={i} bolha={b} />
+        <Item key={i} bolha={b} conta={conta} />
       ))}
     </div>
   );
@@ -344,6 +364,7 @@ export default function Previa({
   post,
   story,
   indiceSelecionado,
+  conta,
 }: {
   passos: Passo[];
   gatilho: string;
@@ -351,6 +372,9 @@ export default function Previa({
   correspondencia: string;
   post: Picked | null;
   story: Picked | null;
+  // A conta conectada. A prévia mostrava `sua_conta` e uma inicial fixa, o que
+  // faz a tela parecer um exemplo em vez do fluxo desta conta.
+  conta: ContaDaPrevia;
   // O bloco aberto no painel, para acender na prévia. -1 quando o selecionado é
   // o gatilho, ou quando não há nenhum.
   indiceSelecionado: number;
@@ -439,12 +463,19 @@ export default function Previa({
           <IconChevronLeft className="h-4 w-4 text-zinc-300" />
           <span className="rounded-full bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 p-[2px]">
             <span className="block rounded-full bg-black p-[2px]">
-              <MiniAvatar size="h-6 w-6" />
+              <MiniAvatar conta={conta} size="h-6 w-6" />
             </span>
           </span>
           <div className="min-w-0 leading-tight">
-            <p className="truncate text-xs font-semibold text-zinc-100">sua_conta</p>
-            <p className="text-[9px] text-zinc-500">Instagram</p>
+            {/* Nome em cima e @ embaixo, que é a ordem do direct de verdade.
+                Sem nome, o @ sobe — repetir o @ nas duas linhas ficaria pior do
+                que mostrar uma linha só. */}
+            <p className="truncate text-xs font-semibold text-zinc-100">
+              {conta.nome ?? (conta.usuario ? `@${conta.usuario}` : "Sua conta")}
+            </p>
+            {conta.nome && conta.usuario && (
+              <p className="truncate text-[9px] text-zinc-500">@{conta.usuario}</p>
+            )}
           </div>
           <div className="ml-auto flex items-center gap-3 text-zinc-300">
             <IconPhone className="h-4 w-4" />
@@ -483,7 +514,12 @@ export default function Previa({
           {gatilho === "dm" && <Enviada>{disparo}</Enviada>}
 
           {cenas.map((c) => (
-            <CenaNaConversa key={c.indice} cena={c} aceso={c.indice === indiceSelecionado} />
+            <CenaNaConversa
+              key={c.indice}
+              cena={c}
+              aceso={c.indice === indiceSelecionado}
+              conta={conta}
+            />
           ))}
 
           {/* LISTA VAZIA NÃO QUEBRA A TELA, e também não fica muda: sem nenhum
