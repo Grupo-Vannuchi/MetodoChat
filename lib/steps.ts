@@ -32,10 +32,21 @@
 // lhe dá uma na primeira abertura.
 type ComId = { id?: string; pos?: Posicao };
 
+// A `dm` tem tipo próprio porque `envioDaDm` (abaixo) precisa recebê-la sozinha,
+// já estreitada. É o MESMO membro que sempre esteve dentro da união — só ganhou
+// nome.
+export type PassoDm = {
+  tipo: "dm";
+  texto: string;
+  botao_label?: string;
+  url?: string;
+  botoes?: Botao[];
+};
+
 export type Passo = ComId &
   (
     | { tipo: "resposta_publica"; textos: string[] }
-    | { tipo: "dm"; texto: string; botao_label?: string; url?: string; botoes?: Botao[] }
+    | PassoDm
     | { tipo: "esperar"; minutos: number }
     | { tipo: "reagir_story"; emoji: string }
     | { tipo: "pedir_follow"; texto: string; botao_label: string }
@@ -47,44 +58,85 @@ export type Passo = ComId &
 // array. Isto está aqui só para o editor reabrir do jeito que foi deixado.
 export type Posicao = { x: number; y: number };
 
-// Um passo espera resposta quando ele PEDE alguma coisa.
+// EM QUE FORMA UMA `dm` SAI. É a única resposta a essa pergunta em todo o
+// sistema, e é de propósito que ela seja uma só.
 //
-// `dm` entra nessa conta quando tem rótulo de botão e não tem url: isso é uma
-// resposta rápida, e resposta rápida existe para ser tocada. Com url é botão de
-// link — a pessoa abre e a vida segue, sem nada para esperar.
+// TRÊS LEITORES, e antes desta correção cada um decidia por conta própria:
+//
+//   `enfileirarPasso` (lib/engine.ts) escrevia
+//     `const respostaRapida = Boolean(p.botao_label) && !p.url` para escolher o
+//     `kind` e o payload da fila;
+//   a prévia (app/automacoes/editor/roteiro.ts) lia `passo.url` no ramo de link
+//     e afirmava `passo.botao_label!` no de resposta rápida;
+//   `esperaResposta` (logo abaixo) decidia se o fluxo PARA no bloco.
+//
+// O QUE A SEGUNDA CÓPIA CUSTOU, medido: quando `esperaResposta` passou a dizer
+// sim a um `dm` com `botoes`, a linha do motor não mudou junto. Um bloco com
+// `botoes` e sem `botao_label` fazia `interpretar` parar nele e o cursor ser
+// gravado, enquanto `enfileirarPasso` montava a mensagem como TEXTO PURO, sem
+// botão nenhum — o motor parava esperando um toque que ele não entregou. Junto,
+// o `passo.botao_label!` da prévia virou mentira: a asserção não-nula seguia
+// compilando sobre um campo que podia não existir.
+//
+// A REGRA, e ela é a mesma de sempre — o que mudou foi só o número de lugares
+// em que ela está escrita:
+//
+//   rótulo e SEM url → resposta rápida. É o único caminho do dreno que monta
+//     `quick_replies` (lib/queue-drain.ts), e é o único bloco `dm` que espera:
+//     resposta rápida existe para ser tocada.
+//   COM url → botão de link, mesmo sem rótulo (aí `linkMessage`, lib/ig.ts, usa
+//     "Abrir link"). A pessoa abre e a vida segue; não há toque a esperar.
+//   nem uma coisa nem outra → texto puro.
 //
 // A distinção não foi inventada aqui: é exatamente como o formulário gravava —
 // boas-vindas com rótulo e sem url, link com rótulo e com url —, e é a mesma
 // que a paleta do quadro nomeia em "Mensagem com botão" e "Mensagem com link"
 // (app/automacoes/editor/modelos.ts).
 //
+// `botoes` NÃO APARECE AQUI, e a ausência é a metade importante desta correção.
+// Nada no sistema entrega vários botões hoje: `enfileirarPasso` monta um rótulo
+// só e o dreno exige `quick_reply_label && quick_reply_payload`. Enquanto for
+// assim, um bloco com `botoes` sai como as regras acima mandam — e, por sair sem
+// nada para tocar, ele não pode ser uma parada. Fazer `esperaResposta` dizer sim
+// a ele sem esta função saber entregá-lo é justamente o estado que a medição
+// acima descreve.
+//
+// QUEM DEVOLVE A PARADA AOS `botoes` É A TAREFA 4, e ela a devolve DAQUI: no dia
+// em que o motor e o dreno souberem montar vários botões, `botoes` ganha um ramo
+// nesta função e `esperaResposta` volta a parar no menu sem que ninguém precise
+// lembrar de mexer nela. É essa a diferença entre uma regra e duas — a segunda
+// cópia era o que exigia lembrar.
+//
+// O RÓTULO VEM JUNTO, e não como um campo à parte para o chamador reler: era o
+// `botao_label!` da prévia que provava a necessidade. Quem recebe
+// `{forma: "resposta_rapida"}` recebe o rótulo já garantido pelo tipo.
+export type EnvioDaDm =
+  | { forma: "resposta_rapida"; rotulo: string }
+  | { forma: "link"; rotulo: string | null; url: string }
+  | { forma: "texto" };
+
+export function envioDaDm(p: PassoDm): EnvioDaDm {
+  if (p.botao_label && !p.url) return { forma: "resposta_rapida", rotulo: p.botao_label };
+  if (p.url) return { forma: "link", rotulo: p.botao_label || null, url: p.url };
+  return { forma: "texto" };
+}
+
+// Um passo espera resposta quando ele PEDE alguma coisa.
+//
+// `dm` espera quando, e só quando, ela SAI com uma resposta rápida — a pergunta
+// é feita a `envioDaDm` (acima), e não respondida de novo aqui. Assim "o fluxo
+// para neste bloco" e "este bloco entrega um botão" não são duas afirmações que
+// podem discordar: são a mesma.
+//
 // EXPORTADA desde a prévia da conversa (app/automacoes/editor/roteiro.ts), e a
 // alternativa era pior: a prévia precisa dizer QUAIS BLOCOS PARAM O FLUXO —
-// essa é metade da razão de ela existir —, e escrever `Boolean(botao_label) &&
-// !url` lá dentro poria a regra mais importante da tela numa segunda cópia. O
-// dia em que as duas discordassem, a prévia mostraria uma conversa que o motor
-// não executa, sem nada acusar.
-//
-// BLOCO COM `botoes` ESPERA, e o motivo é o mais duro de todos os desta função:
-// NÃO HÁ COMO O FLUXO ESCOLHER SOZINHO QUAL BRAÇO SEGUIR. A pergunta que o
-// bloco faz é a bifurcação, e a resposta é o toque — sem ele, seguir por
-// qualquer uma das saídas seria decidir no lugar da pessoa e entregar o braço de
-// uma pergunta que ela não respondeu. `interpretar` não tem esse direito, e por
-// isso a caminhada para aqui.
-//
-// A leitura vem ANTES da de `botao_label`, e a ordem importa: um bloco pode
-// carregar as duas coisas (rótulo antigo e botões novos), e havendo botões são
-// eles que mandam. `url` não desfaz a parada como desfaz no caso do rótulo —
-// botão de link é "abra e a vida segue", botão de escolha é uma pergunta, e
-// pergunta com destino não deixa de ser pergunta.
-//
-// COM UM BOTÃO SÓ TAMBÉM ESPERA. É uma mensagem com botão com outra roupa: o
-// fluxo continua sem poder escolher, porque a única saída é condicional ao toque
-// que ninguém deu. Quem avisa o dono de que aquilo provavelmente devia ser um
-// `sempre` é a conferência da lista, não esta função — aqui ele só espera.
+// essa é metade da razão de ela existir —, e reescrever a regra lá dentro poria
+// a regra mais importante da tela numa segunda cópia. O dia em que as duas
+// discordassem, a prévia mostraria uma conversa que o motor não executa, sem
+// nada acusar.
 export function esperaResposta(p: Passo): boolean {
   if (p.tipo === "pedir_follow" || p.tipo === "pedir_email") return true;
-  if (p.tipo === "dm") return Boolean(p.botoes?.length) || (Boolean(p.botao_label) && !p.url);
+  if (p.tipo === "dm") return envioDaDm(p).forma === "resposta_rapida";
   return false;
 }
 
@@ -106,17 +158,59 @@ export type Resultado = {
   // exigia sai junto.
   pararEm: string | null;
   ignorados: { indice: number; motivo: string }[];
+  // O CHAMADOR NÃO NOMEOU BLOCO DE PARTIDA (`deBloco` nulo).
+  //
+  // Isto NÃO é defeito da automação, e é por isso que ele não vai junto dos
+  // `ignorados`: o caso normal é o `+1` de quem estava parado no ÚLTIMO bloco —
+  // `identidadeNoIndice` devolve null para uma posição que não existe —, ou
+  // seja, um fluxo que tinha começo e chegou ao fim.
+  //
+  // Ele saía como `ignorado` com o motivo "o fluxo não tem por onde começar",
+  // e as duas metades estavam erradas: a frase AFIRMAVA o que não aconteceu, e
+  // o tipo `step_ignorado` é limitado a uma linha por automação a cada 10
+  // minutos (`logEventThrottled`, lib/engine.ts) — essa linha benigna suprimia
+  // os `step_ignorado` de VERDADE da mesma automação pela janela inteira.
+  //
+  // Esta função não tem como saber por que o chamador não nomeou bloco nenhum:
+  // ela recebeu null e mais nada. Quem sabe é quem chamou, e é lá que a linha
+  // em Atividade é escrita, com tipo próprio.
+  semPartida: boolean;
+  // O que fazer com o cursor do contato QUANDO a caminhada não parou em ninguém
+  // (`pararEm` nulo). Com `pararEm` não nulo esta resposta não é consultada: o
+  // cursor é aquele bloco.
+  //
+  //   "limpar" — o caminho ACABOU. Não há mais nada a entregar, e a pessoa não
+  //     está no meio de nada: é o fim normal do fluxo.
+  //   "manter" — a caminhada foi INTERROMPIDA por dado quebrado (ligação
+  //     pendurada, teto estourado). Onde a pessoa estava continua valendo, e o
+  //     cursor é o único registro disso; apagá-lo por causa de uma seta quebrada
+  //     a deixaria PIOR do que estava, que é a preferência oposta à que
+  //     lib/engine.ts já registra para o portão não avaliado — "deixando-o
+  //     intacto ela não fica pior do que estava". Arrumada a seta, a interação
+  //     seguinte continua de onde parou.
+  //
+  // "A automação não tem lista de passos" e "não tem nenhum passo" continuam
+  // LIMPANDO, e a diferença é real: ali não existe bloco nenhum na lista, então
+  // o cursor não aponta para lugar algum que possa voltar a valer. Aqui a lista
+  // existe e o bloco da pessoa quase sempre continua nela.
+  cursorNoFim: "limpar" | "manter";
 };
 
 // Quantos blocos uma caminhada pode percorrer antes de ser interrompida.
 //
 // ELE EXISTE CONTRA DADO QUE ENTROU POR FORA DO EDITOR, e não contra o dono do
-// painel. `conferirLista` protege quem monta a automação na tela — e a partir
-// desta fase `temCicloDeSempre` (mais abaixo) acusa o anel antes de o salvar
-// passar —, mas `ligacoes` é uma coluna `jsonb` e nada impede que ela seja
-// escrita por um script, por uma restauração de backup ou por uma consulta à
-// mão. A Fase 1b já registrou isso como premissa: o que chega do banco não tem
-// forma garantida, e quem valida é este arquivo.
+// painel. `conferirLista` protege quem monta a automação na tela, mas `ligacoes`
+// é uma coluna `jsonb` e nada impede que ela seja escrita por um script, por uma
+// restauração de backup ou por uma consulta à mão. A Fase 1b já registrou isso
+// como premissa: o que chega do banco não tem forma garantida, e quem valida é
+// este arquivo.
+//
+// E O TETO É A ÚNICA DEFESA QUE EXISTE HOJE, o que vale dizer porque a versão
+// anterior deste comentário prometia outra: `temCicloDeSempre` (mais abaixo)
+// está escrita e testada, mas NINGUÉM a chama fora dos testes — `conferirLista`
+// não a consulta, e portanto o anel de `sempre` passa no salvar sem que nada
+// acuse. Quem a liga é a Tarefa 5. Até lá, um anel gravado pela tela chega aqui
+// exatamente como um gravado à mão, e é este teto que o segura.
 //
 // Sem o teto, um anel de `sempre` faz a caminhada não retornar NUNCA: a fila
 // cresce até a memória acabar, dentro de um webhook que a Meta reenvia por 36
@@ -546,7 +640,13 @@ export function passoEsperado(passos: unknown, indice: number): Passo | undefine
 // descoberto num cliente.
 // ---------------------------------------------------------------------------
 export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string | null): Resultado {
-  const r: Resultado = { enfileirar: [], pararEm: null, ignorados: [] };
+  const r: Resultado = {
+    enfileirar: [],
+    pararEm: null,
+    ignorados: [],
+    semPartida: false,
+    cursorNoFim: "limpar",
+  };
 
   if (!Array.isArray(passos)) {
     r.ignorados.push({ indice: -1, motivo: "a automação não tem lista de passos" });
@@ -574,16 +674,13 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
     return r;
   }
 
-  // PARTIDA QUE NÃO EXISTE, e ela tem que deixar rastro pelo mesmo motivo da
-  // lista vazia: sem a linha em Atividade, o motor limparia o cursor e ninguém
-  // receberia nada, sem nada dizendo por quê. O caso é real e não exige dado
-  // corrompido — `identidadeNoIndice` devolve null para o `+1` de quem estava
-  // parado no último bloco da lista.
+  // SEM BLOCO DE PARTIDA. Merece sinal — sem ele o motor limparia o cursor e
+  // ninguém receberia nada, sem nada dizendo por quê —, mas NÃO como defeito da
+  // automação: o caso comum é o `+1` de quem estava parado no último bloco, um
+  // fluxo que tinha começo e terminou. O motivo por inteiro, e o que a frase
+  // antiga afirmava sem saber, está no comentário de `semPartida` (acima).
   if (deBloco === null) {
-    r.ignorados.push({
-      indice: -1,
-      motivo: "o fluxo não tem por onde começar: o bloco de partida não está na lista",
-    });
+    r.semPartida = true;
     return r;
   }
 
@@ -603,8 +700,22 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
     // Uma ligação pode apontar para um id que sumiu — o dono apagou o bloco e a
     // seta que chegava nele ficou. PARA em vez de estourar, e registra: seguir
     // não há para onde, e o silêncio esconderia um fluxo cortado no meio.
+    //
+    // NA PRIMEIRA VOLTA A CAUSA É OUTRA, e o motivo tem que dizer qual: aqui
+    // `atual` ainda é o bloco de partida, e quem o nomeou foi o CHAMADOR — não
+    // há ligação nenhuma no caminho a acusar. Culpar a ligação seria afirmar o
+    // que esta função não sabe.
     if (i === null) {
-      r.ignorados.push({ indice: -1, motivo: `a ligação aponta para um bloco que não existe: ${atual}` });
+      r.ignorados.push({
+        indice: -1,
+        motivo: voltas
+          ? `a ligação aponta para um bloco que não existe: ${atual}`
+          : `o bloco de partida não está na lista: ${atual}`,
+      });
+      // O cursor fica como está nos dois casos: a lista existe, o bloco em que
+      // a pessoa parou quase sempre continua nela, e o que quebrou foi o
+      // caminho até aqui. Ver `cursorNoFim`, acima.
+      r.cursorNoFim = "manter";
       return r;
     }
 
@@ -636,6 +747,20 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
     atual = seguinte.para;
   }
 
+  // BATEU NO TETO: NADA É ENTREGUE, e o descarte é o ponto desta linha.
+  //
+  // A caminhada chegou aqui com até `TETO_DE_PASSOS` ações montadas, e devolvê-las
+  // fazia o motor chamar `enfileirarPasso` cem vezes DENTRO do webhook que a Meta
+  // reenvia por 36 horas. Mensagem repetida não saía — a `passoKey` colapsa as
+  // ações do mesmo bloco no mesmo dia —, mas cada uma é uma escrita e uma
+  // latência, pagas por um caminho que a própria função acabou de declarar
+  // quebrado. Cem ações que não deviam ser executadas custam mais do que zero.
+  //
+  // E o que fica no lugar não é silêncio: o motivo abaixo vira linha em
+  // Atividade, e o cursor não é tocado — a pessoa continua exatamente onde
+  // estava, e um anel arrumado no editor volta a andar dali.
+  r.enfileirar = [];
+  r.cursorNoFim = "manter";
   r.ignorados.push({
     indice: -1,
     motivo: `o fluxo passou de ${TETO_DE_PASSOS} blocos e foi interrompido: há uma volta no caminho`,

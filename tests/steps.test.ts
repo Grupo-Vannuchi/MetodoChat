@@ -23,6 +23,8 @@ import {
   conferirLigacao,
   ligacoesDe,
   novoIdDeBotao,
+  envioDaDm,
+  esperaResposta,
 } from "../lib/steps";
 
 // A CORRENTE que a lista sempre teve na prática: bloco 0 → bloco 1 → bloco 2 …,
@@ -190,15 +192,26 @@ describe("interpretar", () => {
     expect(r.pararEm).toBeNull();
   });
 
-  it("índice além do fim devolve nada, sem estourar — e agora DIZ por quê", () => {
-    // O `+1` de quem parou no último bloco cai aqui. Antes desta fase o laço por
-    // índice simplesmente não iterava e o caso saía calado; agora a conversão de
-    // posição para identidade devolve null e a caminhada registra o motivo.
+  it("índice além do fim devolve nada, e o sinal NÃO é de passo ignorado", () => {
+    // O `+1` de quem parou no último bloco cai aqui — um fim de fluxo NORMAL.
+    //
+    // Ele saía como `ignorado` com o motivo "o fluxo não tem por onde começar:
+    // o bloco de partida não está na lista", e as duas metades estavam erradas.
+    // A frase afirmava o que não aconteceu: o fluxo tinha começo e terminou. E o
+    // tipo era o mesmo do passo mal montado, cuja janela em `logEventThrottled`
+    // é de 10 minutos POR AUTOMAÇÃO — essa linha benigna suprimia os avisos de
+    // verdade da mesma automação pela janela inteira.
+    //
+    // É por isso que a asserção que importa aqui é a de `ignorados` VAZIO: sem
+    // ela, o sinal volta a caber no mesmo balde.
     const passos = [{ tipo: "dm", texto: "oi" }];
     const r = interpretar(passos, emCorrente(passos), identidadeNoIndice(passos, 99));
     expect(r.enfileirar).toEqual([]);
     expect(r.pararEm).toBeNull();
-    expect(r.ignorados[0].motivo).toMatch(/não tem por onde começar/);
+    expect(r.semPartida).toBe(true);
+    expect(r.ignorados).toEqual([]);
+    // Fim de fluxo de verdade: a pessoa não está mais no meio de nada.
+    expect(r.cursorNoFim).toBe("limpar");
   });
 
   it("esperar com minutos inválido é ignorado e não atrasa nada", () => {
@@ -2016,7 +2029,54 @@ describe("interpretar caminhando o grafo", () => {
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_bem001", "b_mei002", "b_fim003"]);
   });
 
-  it("bloco com BOTÕES é parada dura", () => {
+  // ------------------------------------------------------------------------
+  // O BLOCO COM `botoes` NÃO PARA — AINDA —, e a medição que decidiu isso está
+  // aqui porque ela derrubou dois testes desta suíte.
+  //
+  // `esperaResposta` passou a dizer sim a um `dm` com `botoes`, com o argumento
+  // (verdadeiro) de que o fluxo não pode escolher sozinho qual braço seguir. Só
+  // que quem ENTREGA a mensagem não aprendeu junto: `enfileirarPasso`
+  // (lib/engine.ts) monta um rótulo só, e o dreno exige
+  // `quick_reply_label && quick_reply_payload` (lib/queue-drain.ts). Um bloco
+  // com `botoes` e sem `botao_label` saía como TEXTO PURO e mesmo assim fazia o
+  // motor gravar o cursor: parada esperando um toque que ninguém entregou.
+  //
+  // A parada volta na TAREFA 4, e volta de um lugar só: `envioDaDm` aprende
+  // `botoes`, e `esperaResposta` — que deriva dela — para no menu sozinha. O
+  // teste logo abaixo é o que garante que não dá para reabrir o buraco.
+  // ------------------------------------------------------------------------
+
+  it("A PARADA E A ENTREGA SÃO A MESMA PERGUNTA: nenhum `dm` para sem entregar um botão", () => {
+    // A invariante que substitui a segunda cópia da regra. Toda forma de `dm`
+    // que este projeto sabe produzir passa por aqui: se algum dia uma delas
+    // parar o fluxo sem sair com resposta rápida, é este teste que acende.
+    const formas: unknown[] = [
+      { tipo: "dm", texto: "oi" },
+      { tipo: "dm", texto: "oi", botao_label: "quero" },
+      { tipo: "dm", texto: "oi", botao_label: "" },
+      { tipo: "dm", texto: "oi", url: "https://x.y" },
+      { tipo: "dm", texto: "oi", botao_label: "abrir", url: "https://x.y" },
+      { tipo: "dm", texto: "oi", botoes: [{ id: "op_aaaaaa", rotulo: "A" }] },
+      { tipo: "dm", texto: "oi", botao_label: "quero", botoes: [{ id: "op_aaaaaa", rotulo: "A" }] },
+      // Lixo no campo: `conferir` não olha `botoes`, então ele chega assim.
+      { tipo: "dm", texto: "oi", botoes: "sim" },
+    ];
+    for (const bruto of formas) {
+      const { passo } = conferir(bruto);
+      // Todas as formas acima são `dm` válidas; se alguma deixar de ser, o
+      // resto do teste não estaria medindo o que diz medir.
+      if (!passo || passo.tipo !== "dm") throw new Error(`não é dm válida: ${JSON.stringify(bruto)}`);
+      const envio = envioDaDm(passo);
+      expect(esperaResposta(passo)).toBe(envio.forma === "resposta_rapida");
+      // E o que a parada promete existe de verdade: um rótulo não vazio para
+      // tocar. É esta linha que o `botoes` sem `botao_label` quebrava.
+      if (envio.forma === "resposta_rapida") expect(envio.rotulo.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("bloco com BOTÕES não para o fluxo enquanto ninguém entrega os botões", () => {
+    // Sem `botao_label` não há botão na mensagem, então não há toque a esperar:
+    // a caminhada segue pela `sempre` e, não havendo nenhuma, o fluxo acaba.
     const menu = {
       id: "b_men001",
       tipo: "dm",
@@ -2031,26 +2091,32 @@ describe("interpretar caminhando o grafo", () => {
       [{ de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_fim003" }],
       "b_men001"
     );
+    // O menu SAI — como texto puro, que é o que o dreno sabe montar hoje.
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_men001"]);
-    expect(r.pararEm).toBe("b_men001");
+    // E o cursor NÃO é gravado nele: ninguém fica esperando um toque que não
+    // foi entregue. A `botao` não move a caminhada, então o caminho acaba aqui.
+    expect(r.pararEm).toBe(null);
+    expect(r.cursorNoFim).toBe("limpar");
   });
 
-  it("bloco com UM botão só também espera", () => {
-    // É uma mensagem com botão com outra roupa: o fluxo não tem como escolher o
-    // braço sozinho, mesmo havendo um só. Quem avisa sobre isso é a conferência.
-    const um = {
-      id: "b_um0001",
+  it("bloco com botões E rótulo PARA: aí existe o que tocar", () => {
+    // O mesmo menu com um `botao_label` é uma mensagem com botão — o dreno monta
+    // a resposta rápida, e por isso o fluxo para. É a forma que a Tarefa 4 vai
+    // generalizar para vários botões.
+    const menu = {
+      id: "b_men001",
       tipo: "dm",
-      texto: "Vai?",
+      texto: "Qual?",
+      botao_label: "Escolher",
       botoes: [{ id: "op_aaaaaa", rotulo: "A" }],
     };
     const r = interpretar(
-      [um, fim],
-      [{ de: "b_um0001", quando: { tipo: "sempre" }, para: "b_fim003" }],
-      "b_um0001"
+      [menu, fim],
+      [{ de: "b_men001", quando: { tipo: "sempre" }, para: "b_fim003" }],
+      "b_men001"
     );
-    expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_um0001"]);
-    expect(r.pararEm).toBe("b_um0001");
+    expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_men001"]);
+    expect(r.pararEm).toBe("b_men001");
   });
 
   it("bloco sem saída encerra o fluxo", () => {
@@ -2103,7 +2169,42 @@ describe("interpretar caminhando o grafo", () => {
     expect(porB.enfileirar.map((x) => x.passo.id)).toEqual(["b_ramb02", "b_fim003"]);
   });
 
-  it("O TETO SEGURA O CICLO em vez de andar para sempre", () => {
+  // Uma corrente reta de `quantos` blocos: b_c000000 → b_c000001 → …
+  // Serve para medir o teto pelo NÚMERO DE PASSOS, e não por um anel — é a única
+  // forma de distinguir "contei 100 visitas" de "achei uma repetição".
+  function corrida(quantos: number) {
+    const passos = Array.from({ length: quantos }, (_, i) => ({
+      id: `b_c${String(i).padStart(6, "0")}`,
+      tipo: "dm",
+      texto: `bloco ${i}`,
+    }));
+    return { passos, ligacoes: emCorrente(passos) };
+  }
+
+  it("O TETO É EXATAMENTE ISSO: 100 blocos passam, 101 é interrompido", () => {
+    // A versão anterior deste teste media `enfileirar.length <=
+    // TETO_DE_PASSOS`, o que qualquer parada satisfaz, e casava o motivo com
+    // /teto|ciclo|volta/ — uma implementação com conjunto de visitados e motivo
+    // "volta no caminho" passava nas duas asserções sem ter teto nenhum. Estes
+    // dois casos fixam o número: numa CORRENTE RETA não há repetição a achar, e
+    // só um contador de passos distingue 100 de 101.
+    const cheio = corrida(TETO_DE_PASSOS);
+    const r1 = interpretar(cheio.passos, cheio.ligacoes, "b_c000000");
+    expect(r1.enfileirar.length).toBe(TETO_DE_PASSOS);
+    expect(r1.ignorados).toEqual([]);
+    expect(r1.cursorNoFim).toBe("limpar");
+
+    const passando = corrida(TETO_DE_PASSOS + 1);
+    const r2 = interpretar(passando.passos, passando.ligacoes, "b_c000000");
+    expect(r2.ignorados).toEqual([
+      {
+        indice: -1,
+        motivo: `o fluxo passou de ${TETO_DE_PASSOS} blocos e foi interrompido: há uma volta no caminho`,
+      },
+    ]);
+  });
+
+  it("O TETO SEGURA O CICLO em vez de andar para sempre — e NÃO ENTREGA NADA", () => {
     // Sem o teto, isto nunca retorna e a fila cresce até a memória acabar.
     const x = { id: "b_xxx001", tipo: "dm", texto: "X" };
     const y = { id: "b_yyy002", tipo: "dm", texto: "Y" };
@@ -2112,8 +2213,16 @@ describe("interpretar caminhando o grafo", () => {
       { de: "b_yyy002", quando: { tipo: "sempre" }, para: "b_xxx001" },
     ];
     const r = interpretar([x, y], anel, "b_xxx001");
-    expect(r.enfileirar.length).toBeLessThanOrEqual(TETO_DE_PASSOS);
+    // A caminhada devolvia as 100 ações que montou até bater no teto, e o motor
+    // chamava `enfileirarPasso` 100 vezes dentro do webhook que a Meta reenvia
+    // por 36 horas. A `passoKey` colapsava as repetições, então não saía
+    // mensagem duplicada — o custo era latência e escrita, por um caminho que a
+    // própria função acabou de declarar quebrado.
+    expect(r.enfileirar).toEqual([]);
     expect(r.ignorados.some((i) => /teto|ciclo|volta/i.test(i.motivo))).toBe(true);
+    // E o cursor não é apagado por causa do anel: arrumado o fluxo, a pessoa
+    // continua de onde estava.
+    expect(r.cursorNoFim).toBe("manter");
   });
 
   it("o esperar continua somando ao longo do caminho percorrido", () => {
@@ -2138,7 +2247,34 @@ describe("interpretar caminhando o grafo", () => {
     );
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_bem001"]);
     expect(r.pararEm).toBe(null);
-    expect(r.ignorados.some((i) => /b_sumiu9/.test(i.motivo))).toBe(true);
+    expect(r.ignorados).toEqual([
+      { indice: -1, motivo: "a ligação aponta para um bloco que não existe: b_sumiu9" },
+    ]);
+    // O cursor NÃO é apagado: uma seta quebrada não é motivo para perder o
+    // único registro de onde a pessoa estava. É a mesma preferência que
+    // lib/engine.ts registra para o portão não avaliado.
+    expect(r.cursorNoFim).toBe("manter");
+  });
+
+  it("na PRIMEIRA volta o motivo não culpa uma ligação que não existe", () => {
+    // Aqui `atual` ainda é o bloco de partida, e quem o nomeou foi o CHAMADOR —
+    // não há ligação nenhuma no caminho. Culpar a ligação era afirmar uma causa
+    // que a função não conhece, o mesmo defeito corrigido em `kindLabel`
+    // (app/labels.ts).
+    const r = interpretar([bem], [], "b_naoexiste9");
+    expect(r.enfileirar).toEqual([]);
+    expect(r.ignorados).toEqual([
+      { indice: -1, motivo: "o bloco de partida não está na lista: b_naoexiste9" },
+    ]);
+    expect(r.cursorNoFim).toBe("manter");
+  });
+
+  it("o fim NORMAL do caminho limpa o cursor — só o quebrado o mantém", () => {
+    // A contraprova dos dois testes acima: sem ela, `cursorNoFim: "manter"` em
+    // toda saída passaria despercebido, e ninguém mais sairia do fluxo.
+    expect(interpretar([bem], [], "b_bem001").cursorNoFim).toBe("limpar");
+    expect(interpretar([], [], "0").cursorNoFim).toBe("limpar");
+    expect(interpretar(null, [], "0").cursorNoFim).toBe("limpar");
   });
 
   it("SÓ a ligação `sempre` é seguida: `botao` e `senao` não movem a caminhada", () => {
@@ -2185,10 +2321,17 @@ describe("temCicloDeSempre", () => {
 
   it("CICLO QUE PASSA POR UMA PARADA NÃO CONTA — é padrão legítimo", () => {
     // "menu → opção → volta ao menu" é um fluxo bom, e a caminhada para no menu.
+    //
+    // O menu leva `botao_label` além dos `botoes` porque é o rótulo que faz dele
+    // uma parada hoje — sem botão entregue não há toque a esperar
+    // (`envioDaDm`, lib/steps.ts). Com `botoes` sozinhos este teste ficaria
+    // verde pelo motivo errado: a caminhada pararia por falta de `sempre`, e não
+    // por uma parada.
     const menu = {
       id: "b_men001",
       tipo: "dm",
       texto: "Qual?",
+      botao_label: "Escolher",
       botoes: [{ id: "op_aaaaaa", rotulo: "A" }],
     };
     const op = { id: "b_opa002", tipo: "dm", texto: "Opção A" };
@@ -2267,14 +2410,21 @@ describe("temCicloDeSempre", () => {
     expect(r.ignorados).toEqual([]);
   });
 
-  it("A GUARDA DA PARADA sozinha: anel de `sempre` que atravessa um bloco com botões", () => {
+  it("A GUARDA DA PARADA sozinha: anel de `sempre` que atravessa uma mensagem com botão", () => {
     // Aqui as duas ligações são `sempre`, então o filtro de condição não tem o
     // que descartar. O que impede o falso positivo é a parada: o menu espera o
     // toque, e cada volta do anel custa uma resposta da pessoa.
+    //
+    // O menu É UMA MENSAGEM COM BOTÃO (`botao_label`), e não um bloco de
+    // `botoes`: hoje a parada mora em quem entrega um botão, e `botoes` sem
+    // rótulo não entrega nenhum (ver `envioDaDm`, lib/steps.ts). Com o bloco de
+    // `botoes` este anel seria REAL — nada o interromperia —, e a resposta certa
+    // deixaria de ser `false`.
     const menu = {
       id: "b_men001",
       tipo: "dm",
       texto: "Qual?",
+      botao_label: "Escolher",
       botoes: [{ id: "op_aaaaaa", rotulo: "A" }],
     };
     const antes = { id: "b_ant002", tipo: "dm", texto: "Antes" };

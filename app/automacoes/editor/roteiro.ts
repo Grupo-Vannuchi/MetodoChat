@@ -10,11 +10,11 @@
 // QUEM FALA, EM QUE ORDEM e ONDE O FLUXO PARA; lá mora como isso aparece. Uma
 // decisão de conteúdo escrita no JSX é uma decisão sem teste.
 //
-// AS DUAS REGRAS DE CONTEÚDO VÊM DE `lib/steps.ts`, e não são reescritas aqui:
-// `conferir` diz se o bloco é enviado, `esperaResposta` diz se ele para o
-// fluxo. Copiá-las para cá criaria uma segunda fonte de verdade justamente
-// para as duas coisas que a prévia existe para contar — e a prévia mentindo
-// sobre o fluxo é pior do que prévia nenhuma.
+// AS REGRAS DE CONTEÚDO VÊM DE `lib/steps.ts`, e não são reescritas aqui:
+// `conferir` diz se o bloco é enviado, `envioDaDm` diz em que forma uma `dm`
+// sai, e `esperaResposta` diz se o bloco para o fluxo. Copiá-las para cá criaria
+// uma segunda fonte de verdade justamente para as coisas que a prévia existe
+// para contar — e a prévia mentindo sobre o fluxo é pior do que prévia nenhuma.
 //
 // E `esperaResposta` MANDA NOS TRÊS QUE PARAM, não só na `dm`. A versão
 // anterior deste arquivo consultava `esperaResposta` no ramo `dm` e escrevia a
@@ -27,7 +27,7 @@
 //
 // SEM O TIPO `Passo` NA ASSINATURA de propósito — ver `roteiro`, lá embaixo: a
 // entrada é `unknown`, e quem devolve o passo já tipado é `conferir`.
-import { conferir, esperaResposta } from "@/lib/steps";
+import { conferir, envioDaDm, esperaResposta } from "@/lib/steps";
 
 // O que a prévia desenha. Cada item é uma coisa na tela, na ordem em que ela
 // aparece na conversa.
@@ -193,40 +193,46 @@ export function roteiro(passos: unknown, gatilho: string): Cena[] {
 
     switch (passo.tipo) {
       case "dm": {
-        // A PARADA DURA SAI DE `esperaResposta`, e não de uma condição escrita
-        // aqui. É a mesma leitura que o motor faz — `enfileirarPasso`
-        // (lib/engine.ts) monta `respostaRapida = Boolean(p.botao_label) &&
-        // !p.url` —, então o que a prévia marca como parada é exatamente o que
-        // trava a conversa de verdade.
+        // A FORMA DA MENSAGEM SAI DE `envioDaDm`, e não de condições escritas
+        // aqui. É a MESMA chamada que `enfileirarPasso` (lib/engine.ts) faz para
+        // escolher o `kind` e o payload da fila, e é dela que `esperaResposta`
+        // deriva a parada — então o que a prévia desenha é, por construção, o
+        // que a pessoa recebe.
         //
-        // ISSO INCLUI O "LINK SEM ENDEREÇO" (`url: ""` com rótulo), e incluir é
-        // o ponto: pelo VALOR ele é indistinguível de uma resposta rápida, o
-        // motor o envia como resposta rápida, e o fluxo para nele para sempre
-        // esperando um toque que não leva a lugar nenhum. É o defeito que esta
-        // base já teve — um lembrete salvo sem link virou parada dura sem
-        // ninguém pedir —, e aqui ele fica visível na tela. Quem diz que aquilo
-        // é ERRO é `conferirLista`, no painel, logo acima da prévia; o que a
-        // prévia mostra é a consequência.
-        if (esperaResposta(passo)) {
-          const rotulo = passo.botao_label!;
-          itens.push({ tipo: "balao", texto: passo.texto, botao: rotulo, link: false });
+        // Este ramo tinha DUAS cópias da regra: `esperaResposta` seguida de
+        // `passo.botao_label!`, e um `if (passo.url)` logo abaixo. A asserção
+        // não-nula era a mais cara das duas — ela afirmava ao `tsc` uma
+        // invariante de OUTRO arquivo, e quando `esperaResposta` passou a dizer
+        // sim a um `dm` com `botoes` (sem rótulo nenhum) a afirmação virou
+        // falsa sem nada acusar. Agora o rótulo vem do próprio `envio`, com
+        // tipo, e não há o que afirmar.
+        //
+        // O "LINK SEM ENDEREÇO" (`url: ""` com rótulo) continua caindo na
+        // resposta rápida, e continua sendo o ponto: pelo VALOR ele é
+        // indistinguível de uma, o motor o envia como uma, e o fluxo para nele
+        // para sempre esperando um toque que não leva a lugar nenhum. É o
+        // defeito que esta base já teve — um lembrete salvo sem link virou
+        // parada dura sem ninguém pedir —, e aqui ele fica visível na tela. Quem
+        // diz que aquilo é ERRO é `conferirLista`, no painel, logo acima da
+        // prévia; o que a prévia mostra é a consequência.
+        const envio = envioDaDm(passo);
+        if (envio.forma === "resposta_rapida") {
+          itens.push({ tipo: "balao", texto: passo.texto, botao: envio.rotulo, link: false });
           itens.push({ tipo: "parada", motivo: "toque" });
-          itens.push({ tipo: "resposta", texto: rotulo });
+          itens.push({ tipo: "resposta", texto: envio.rotulo });
           break;
         }
         // Botão de link: a pessoa abre o endereço e a vida segue — não há o que
         // esperar, e por isso não há parada.
         //
-        // Pelo VALOR de `url`, e não pela chave, ao contrário de
-        // `resumoDoBloco` (modelos.ts): o título do nó classifica o que o bloco
-        // É (a chave `url` diz "isto é um bloco de link"), e a prévia desenha o
-        // que ele FAZ. Um `url: ""` não abre endereço nenhum, e já caiu no ramo
-        // de cima quando tem rótulo.
-        if (passo.url) {
+        // O padrão de rótulo é da PRÉVIA, e não de `envioDaDm`: quem escreve
+        // "Abrir link" numa mensagem sem rótulo é `linkMessage` (lib/ig.ts), na
+        // hora de montar o template, e é isso que esta linha está desenhando.
+        if (envio.forma === "link") {
           itens.push({
             tipo: "balao",
             texto: passo.texto,
-            botao: passo.botao_label || LINK_PADRAO,
+            botao: envio.rotulo || LINK_PADRAO,
             link: true,
           });
           break;

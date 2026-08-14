@@ -111,9 +111,9 @@ describe("roteiro — os seis tipos de bloco", () => {
 describe("roteiro — as paradas", () => {
   // O CASO QUE ESTA PRÉVIA EXISTE PARA MOSTRAR, e o defeito que esta base já
   // teve: um bloco de link SEM ENDEREÇO (`url: ""` com rótulo) é enviado pelo
-  // motor como RESPOSTA RÁPIDA — `enfileirarPasso` (lib/engine.ts) decide por
-  // `Boolean(botao_label) && !url` — e o fluxo para nele para sempre,
-  // esperando o toque num botão que não leva a lugar nenhum.
+  // motor como RESPOSTA RÁPIDA — `envioDaDm` (lib/steps.ts) decide isso, e
+  // `enfileirarPasso` (lib/engine.ts) pergunta a ela — e o fluxo para nele para
+  // sempre, esperando o toque num botão que não leva a lugar nenhum.
   //
   // Desenhá-lo como botão de link seria a prévia escondendo exatamente a coisa
   // que ela deveria denunciar.
@@ -147,6 +147,30 @@ describe("roteiro — as paradas", () => {
     expect(cenas).toHaveLength(2);
     expect(feitio(cenas, 0)).toEqual(["balao", "parada", "resposta"]);
     expect(feitio(cenas, 1)).toEqual(["balao"]);
+  });
+
+  it("bloco de `botoes` sem rótulo não desenha botão nem parada", () => {
+    // A prévia afirmava `passo.botao_label!` no ramo da parada, e a asserção
+    // ficou FALSA no dia em que `esperaResposta` passou a dizer sim a um `dm`
+    // com `botoes`: um bloco assim não tem rótulo nenhum, e o `!` escondia isso
+    // do `tsc`. A prévia teria desenhado uma pílula `undefined` e uma parada
+    // sobre uma mensagem que o motor manda como texto puro.
+    //
+    // Hoje as duas perguntas — o que sai e onde para — são a mesma
+    // (`envioDaDm`, lib/steps.ts), e a cena mostra o que a pessoa recebe: um
+    // balão, sem botão. Quando a Tarefa 4 ensinar o motor a entregar vários
+    // botões, esta cena muda sozinha.
+    const cenas = cenasDe([
+      {
+        tipo: "dm",
+        texto: "Qual?",
+        botoes: [
+          { id: "op_aaaaaa", rotulo: "A" },
+          { id: "op_bbbbbb", rotulo: "B" },
+        ],
+      },
+    ] as Passo[]);
+    expect(cenas[0].itens).toEqual([{ tipo: "balao", texto: "Qual?", botao: null, link: false }]);
   });
 
   it("duas paradas duras seguidas marcam as duas", () => {

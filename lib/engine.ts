@@ -30,6 +30,7 @@ import { scheduleTick } from "./qstash";
 // pela metade — e sem teste, como as outras estavam.
 import {
   interpretar,
+  envioDaDm,
   passoEsperado,
   retomadaDoFallback,
   retomadaDoBotao,
@@ -613,6 +614,38 @@ async function executarFluxo(
     );
   }
 
+  // NÃO HAVIA BLOCO DE PARTIDA, e esta linha tem tipo PRÓPRIO por dois motivos
+  // que se somam.
+  //
+  // A FRASE. O caso saía como `step_ignorado` com o motivo "o fluxo não tem por
+  // onde começar: o bloco de partida não está na lista", e isso afirmava o que
+  // não aconteceu: quem chega aqui é, quase sempre, quem estava parado no ÚLTIMO
+  // bloco e respondeu — `identidadeNoIndice` devolve null para o `+1` que cai
+  // além do fim. O fluxo tinha começo e terminou.
+  //
+  // A JANELA. `logEventThrottled` grava um `step_ignorado` por automação a cada
+  // 10 minutos. Uma linha benigna gravada nesse tipo SUPRIME por 10 minutos os
+  // `step_ignorado` de verdade da mesma automação — passo mal montado deixaria
+  // de aparecer em Atividade por causa de um fim de fluxo normal. Tipo próprio,
+  // janela própria.
+  //
+  // Continua throttled, e pelo mesmo motivo de sempre: nasce de webhook, que
+  // aceita o que a Meta mandar.
+  if (r.semPartida) {
+    await logEventThrottled(
+      account.ig_user_id,
+      "fluxo_sem_partida",
+      {
+        automation_id: auto.id,
+        contact_ig_id: contactIgId,
+        // a posição pedida, que é o que não existe na lista
+        destino: retomada.destino,
+      },
+      10,
+      { campo: "automation_id", valor: auto.id }
+    );
+  }
+
   for (const acao of r.enfileirar) {
     const p = acao.passo;
 
@@ -711,6 +744,29 @@ async function executarFluxo(
     await gravarCursor(account.ig_user_id, contactIgId, auto.id, r.pararEm);
     return;
   }
+
+  // A CAMINHADA QUEBROU NO MEIO — ligação pendurada, ou teto estourado — e aqui
+  // o cursor NÃO é tocado.
+  //
+  // É a mesma preferência que o ramo do portão não avaliado registra lá em cima:
+  // "deixando-o intacto ela não fica pior do que estava". Lá o risco era
+  // escrever um cursor que nasceria morto; aqui é APAGAR o único registro de
+  // onde a pessoa estava por causa de uma seta quebrada — arrumada a seta, o
+  // cursor intacto faz o fluxo voltar exatamente de onde parou, e o cursor
+  // apagado não faz voltar de lugar nenhum.
+  //
+  // O PREÇO, dito porque ele existe: enquanto a seta não for arrumada, cada
+  // mensagem da pessoa refaz a mesma caminhada e reenfileira o trecho que vem
+  // ANTES da quebra. A `passoKey` colapsa isso dentro do dia; virado o balde, o
+  // trecho sai de novo. Continua sendo menos caro do que perder o lugar dela — e
+  // no ramo do teto não custa nada, porque `interpretar` já devolve a lista de
+  // ações vazia.
+  //
+  // Quem decide isto é `interpretar` (lib/steps.ts, `cursorNoFim`), e não uma
+  // condição escrita aqui: a distinção entre "o caminho acabou" e "o caminho
+  // quebrou" é da caminhada, e regra dentro deste arquivo é a que nenhum teste
+  // alcança.
+  if (r.cursorNoFim === "manter") return;
 
   // A lista acabou: esta pessoa não está mais no meio de nada.
   await limparCursor(account.ig_user_id, contactIgId);
@@ -836,33 +892,30 @@ async function enfileirarPasso(
   };
 
   if (p.tipo === "dm") {
-    // UM tipo de passo, TRÊS mensagens diferentes — e quem decide qual é a forma
-    // do próprio passo: a presença do rótulo de botão e a da url.
+    // UM tipo de passo, TRÊS mensagens diferentes — e QUEM DECIDE QUAL NÃO É
+    // ESTA LINHA. Aqui havia `const respostaRapida = Boolean(p.botao_label) &&
+    // !p.url`, uma segunda cópia da regra que `esperaResposta` (lib/steps.ts)
+    // também escrevia, e as duas divergiram: com `botoes` no bloco, a de lá
+    // passou a PARAR o fluxo e esta continuou montando texto puro — o motor
+    // parava esperando um toque que ele mesmo não entregava. O motivo por
+    // inteiro, com a medição, está em `envioDaDm` (lib/steps.ts).
     //
-    // Isto não é preferência de estilo, é o que o dreno sabe fazer. `processItem`
-    // manda todo `dm_link` por `linkMessage`, que sem url devolve TEXTO PURO —
-    // então enfileirar tudo como `dm_link`, como era feito aqui, apagava o botão
-    // de resposta rápida da mensagem de boas-vindas. E com o botão sumia o
-    // payload `AUTO:<id>`, que é o que retoma o fluxo quando a pessoa toca.
+    // A pergunta agora é feita, não repetida. O que cada forma vira aqui:
+    //   `resposta_rapida` → `dm_welcome`, o único caminho do dreno que monta
+    //     `quick_replies` (`processItem`, lib/queue-drain.ts). O payload volta
+    //     no webhook como `AUTO:<id da automação>:<id do bloco>` (`lerPayload`,
+    //     lib/steps.ts), e é ele que `handleMessagingEvent` lê para decidir de
+    //     onde retomar — o cursor do contato manda, este bloco é a reserva.
+    //   `link` → `dm_link`, que `linkMessage` (lib/ig.ts) transforma em template
+    //     de botão. Vale também sem rótulo: aí o título cai no padrão "Abrir
+    //     link" do próprio `linkMessage`, em vez de a url desaparecer da
+    //     mensagem.
+    //   `texto` → `dm_link` sem url, que é como o mesmo `linkMessage` devolve
+    //     só `{ text }`.
     //
-    // Pior: `esperaResposta` (lib/steps.ts) PARA o fluxo justamente no `dm` com
-    // rótulo e sem url. Parar esperando um toque num botão que não foi enviado
-    // deixa a pessoa sem o que tocar e o fluxo travado para sempre.
-    //
-    // A regra, na mesma ordem em que `esperaResposta` decide parar:
-    //   rótulo e SEM url → resposta rápida (`dm_welcome`), o único caminho do
-    //     dreno que monta `quick_replies`. O payload volta no webhook como
-    //     `AUTO:<id da automação>:<id do bloco>` (`lerPayload`, lib/steps.ts),
-    //     e é ele que `handleMessagingEvent` lê para decidir de onde retomar —
-    //     o cursor do contato manda, este bloco é a reserva.
-    //   COM url → botão de link (`dm_link`), que `linkMessage` transforma em
-    //     template de botão. Vale também sem rótulo: aí o título cai no padrão
-    //     "Abrir link" do próprio `linkMessage`, em vez de a url desaparecer da
-    //     mensagem — e `esperaResposta` também não para aqui, porque a pessoa
-    //     abre o link e a vida segue.
-    //   sem rótulo e sem url → texto puro, que é `dm_link` sem url: o mesmo
-    //     `linkMessage` devolve só `{ text }`.
-    const respostaRapida = Boolean(p.botao_label) && !p.url;
+    // As duas últimas dividem `kind` e payload de propósito: o que as separa é a
+    // presença da url DENTRO do mesmo payload, e é `linkMessage` quem lê isso.
+    const envio = envioDaDm(p);
 
     // ...e sobre essas três formas vem uma quarta decisão, que é de ENTREGA, não
     // de conteúdo: a primeira mensagem de uma execução disparada por comentário
@@ -880,12 +933,20 @@ async function enfileirarPasso(
 
     await enqueue({
       ...base,
-      kind: comentario ? "private_reply" : respostaRapida ? "dm_welcome" : "dm_link",
+      kind: comentario
+        ? "private_reply"
+        : envio.forma === "resposta_rapida"
+          ? "dm_welcome"
+          : "dm_link",
       comment_id: comentario ?? undefined,
-      payload: respostaRapida
+      payload:
+        envio.forma === "resposta_rapida"
         ? {
             text: p.texto,
-            quick_reply_label: p.botao_label,
+            // O rótulo vem do `envio`, e não de `p.botao_label`: é o mesmo
+            // valor, mas aqui ele é `string` garantido pelo tipo, em vez de um
+            // campo opcional que este ramo teria de afirmar não ser vazio.
+            quick_reply_label: envio.rotulo,
             // O payload leva o BLOCO junto da automação, e é o que faz o toque
             // dizer de qual botão ele veio. Sem isso, dois botões antigos da
             // mesma automação na mesma conversa são indistinguíveis, e o motor
