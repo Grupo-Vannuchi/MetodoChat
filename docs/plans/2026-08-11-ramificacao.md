@@ -864,6 +864,18 @@ git commit -m "Uma mensagem passa a poder levar varios botoes"
 **Impede SALVAR** — dado que o motor não consegue ler:
 ciclo de `sempre`; dois destinos para o mesmo botão; bloco incompleto (já existe).
 
+### O anel que `temCicloDeSempre` NÃO acusa, e que é seu
+
+A Tarefa 3b mediu e achou um buraco na função que você vai ligar: **um anel de
+`sempre` com um PORTÃO dentro passa livre.** A caminhada de `temCicloDeSempre`
+quebra em bloco que espera resposta, e o portão espera — então ela não fecha a
+volta e não acusa. Quem monta esse anel salva sem aviso nenhum, e o motor pode
+recursar sem fim.
+
+Quem mediu **não conseguiu provar contra o motor real** — `lib/engine.ts` é
+`server-only` e a suíte não o alcança. **Meça você**, e se a recursão não
+existir, **diga isso**: as duas respostas valem e nenhuma se resolve seguindo.
+
 **Impede ATIVAR** — fluxo que entregaria errado, mas que é montagem normal:
 botão sem destino; bloco inalcançável; **portão de seguidor que é o fim do
 caminho** (alguém segue, e não recebe nada); mais botões do que cabe numa
