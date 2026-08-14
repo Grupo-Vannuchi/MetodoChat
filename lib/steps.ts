@@ -299,6 +299,81 @@ export function ligacoesDe(ligacoes: unknown, bloco: string): Ligacao[] {
   return saidas;
 }
 
+// O SEGUINTE. É a seta `sempre` que sai deste bloco, e nada mais.
+//
+// ELA SUBSTITUI `indice + 1`, e essa é a mudança inteira da Tarefa 3b. "O
+// seguinte" já foi a posição de baixo no array, e isso funcionava enquanto o
+// fluxo era uma fila: a migração (`scripts/ligar-passos-existentes.mjs`) grava
+// exatamente a corrente `bloco i → bloco i+1`, então as duas respostas coincidem
+// em toda automação já gravada. Elas deixam de coincidir no dia em que o dono
+// desenhar um braço de verdade — e aí `indice + 1` responde por um caminho que o
+// motor não percorre.
+//
+// NÃO RECEBE `passos`, e a ausência é o ponto: sem a lista não há índice em que
+// somar, então a aritmética de posição não é só desaconselhada aqui dentro, ela
+// é impossível de escrever. É a mesma propriedade que `caminhoDoBotao` (mais
+// abaixo) tem em relação ao cursor.
+//
+// Null quando não há seta `sempre` saindo: o caminho ACABOU ali. Quem recebe o
+// null trata como fim de fluxo — é o mesmo lugar em que `indice + 1` caía quando
+// passava do fim da lista.
+//
+// Havendo mais de uma `sempre` (lista montada fora do editor), ganha a primeira
+// gravada, que é a regra de desempate de `ligacoesDe`.
+export function seguinteDe(ligacoes: unknown, bloco: string): string | null {
+  const l = ligacoesDe(ligacoes, bloco).find((s) => s.quando.tipo === "sempre");
+  return l ? l.para : null;
+}
+
+// DÁ PARA CHEGAR DE UM BLOCO A OUTRO SEGUINDO AS SETAS?
+//
+// É a peça que a regra do portão (`atravessandoOPortao`, mais abaixo) passou a
+// usar no lugar da comparação de índices. A pergunta que ela responde é "o
+// destino está DEPOIS do portão no fluxo", e num grafo a única forma de
+// responder isso é caminhando.
+//
+// TODAS AS CONDIÇÕES CONTAM, não só a `sempre`, e a diferença é de segurança:
+// um bloco alcançável a partir do portão por um braço de `botao` é tão "depois
+// do portão" quanto um alcançável pela `sempre`. Contar só a `sempre` deixaria
+// de fora exatamente o caso que esta tarefa existe para fechar — a seta de um
+// botão que salta por cima do portão.
+//
+// NÃO RECEBE `passos`, pelo mesmo motivo de `seguinteDe`: alcançabilidade é
+// pergunta sobre as SETAS, e a lista de blocos não participa dela. Sem `passos`
+// aqui dentro não há índice a comparar, e a comparação posicional que esta
+// tarefa removeu não tem como voltar por esta porta.
+//
+// A CONSEQUÊNCIA disso, dita porque ela é escolha e não descuido: uma ligação
+// que atravessa um id que NÃO está na lista conta como caminho. `interpretar`
+// pararia naquele bloco inexistente, então é um caminho que a execução não
+// percorre — e contá-lo faz esta função dizer "há portão" onde a execução não
+// chegaria. O erro cai para o lado de atravessar um portão a mais, que custa uma
+// consulta à Meta; o outro lado custa o link entregue a quem não segue.
+//
+// `de` e `para` IGUAIS devolvem true só quando há um anel que volta ao ponto de
+// partida — a busca começa nas saídas de `de`, não nele mesmo. Quem chama trata
+// o caso "portão é o próprio destino" antes, e o porquê está lá.
+//
+// O CONJUNTO DE VISITADOS é o que segura o anel, e ele basta: cada bloco entra
+// na fila uma vez só, então a busca termina em no máximo tantos passos quantas
+// forem as ligações válidas. Não precisa de teto como `interpretar` — o teto de
+// lá existe porque a caminhada de ENTREGA pode legitimamente repetir bloco (um
+// menu que volta a si mesmo), e aqui repetir não acrescenta resposta nenhuma.
+export function haCaminho(ligacoes: unknown, de: string, para: string): boolean {
+  const vistos = new Set<string>([de]);
+  const fila: string[] = [de];
+  while (fila.length) {
+    for (const l of ligacoesDe(ligacoes, fila.shift()!)) {
+      if (l.para === para) return true;
+      if (!vistos.has(l.para)) {
+        vistos.add(l.para);
+        fila.push(l.para);
+      }
+    }
+  }
+  return false;
+}
+
 // QUAL LIGAÇÃO O TOQUE ESCOLHE. É a bifurcação em si: `interpretar` caminha
 // pela `sempre` sozinha, e é esta função que decide o próximo passo quando
 // quem decide é a PESSOA — tocando um botão, ou respondendo por texto.
@@ -735,14 +810,15 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
   // passo mal montado de VERDADE. Depois virou `fluxo_sem_partida`, tipo e
   // janela próprios, e o defeito que sobrou é o que fecha a questão:
   //
-  // ELE DISPARA SE E SÓ SE A PESSOA PASSOU O ÚLTIMO BLOCO. Quem chama converte
-  // `indice + 1` em identidade com `identidadeNoIndice`, que devolve null só
-  // para uma posição fora da lista — ou seja, só para o `+1` do último. Isso
-  // junta três casos que o payload não separa: o último bloco era `pedir_email` e
-  // o e-mail foi capturado (fim CERTO, e a forma mais comum de terminar um fluxo
-  // de captura); era uma `dm` de resposta rápida cujo botão não tem destino; era
-  // um `pedir_follow` e quem seguiu não recebeu nada. O primeiro gravaria linha
-  // em toda conta saudável, e uma linha que aparece em operação normal treina o
+  // ELE DISPARA SE E SÓ SE O CAMINHO ACABOU. O null chega aqui de `seguinteDe`
+  // (acima) — o bloco de onde a pessoa saiu não tem seta `sempre` — ou de
+  // `identidadeNoIndice` sobre uma posição que não existe. Era o `indice + 1` do
+  // último bloco antes da Tarefa 3b, e é o mesmo fim de caminho. Isso junta três
+  // casos que o payload não separa: o último bloco era `pedir_email` e o e-mail
+  // foi capturado (fim CERTO, e a forma mais comum de terminar um fluxo de
+  // captura); era uma `dm` de resposta rápida cujo botão não tem destino; era um
+  // `pedir_follow` e quem seguiu não recebeu nada. O primeiro gravaria linha em
+  // toda conta saudável, e uma linha que aparece em operação normal treina o
   // dono a ignorar Atividade.
   //
   // Os outros dois são diagnóstico de verdade, e o lugar deles NÃO é o tempo de
@@ -808,11 +884,13 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
     // uma delas aqui seria entregar o braço de uma pergunta que ninguém
     // respondeu.
     //
-    // Havendo mais de uma `sempre` (lista montada fora do editor), ganha a
-    // primeira gravada, que é a regra de desempate de `ligacoesDe`.
-    const seguinte = ligacoesDe(ligacoes, atual).find((l) => l.quando.tipo === "sempre");
-    if (!seguinte) return r;
-    atual = seguinte.para;
+    // A pergunta é feita a `seguinteDe` (acima), e não respondida de novo aqui:
+    // é a MESMA pergunta que as retomadas fazem desde a Tarefa 3b, e ela existe
+    // num lugar só para as duas metades nunca discordarem sobre o que é "o
+    // seguinte".
+    const seguinte = seguinteDe(ligacoes, atual);
+    if (seguinte === null) return r;
+    atual = seguinte;
   }
 
   // BATEU NO TETO: NADA É ENTREGUE, e o descarte é o ponto desta linha.
@@ -888,10 +966,7 @@ export function temCicloDeSempre(passos: unknown, ligacoes: unknown): boolean {
       const { passo } = conferir(passos[j]);
       if (passo && esperaResposta(passo)) break;
 
-      const seguinte: Ligacao | undefined = ligacoesDe(ligacoes, atual).find(
-        (l) => l.quando.tipo === "sempre"
-      );
-      atual = seguinte ? seguinte.para : null;
+      atual = seguinteDe(ligacoes, atual);
     }
   }
 
@@ -1106,14 +1181,19 @@ export function lerPayload(payload: unknown): Payload | null {
 // conclui que nada se perdeu, e conclui errado.
 //
 // Isso importa porque é justamente o toque atrasado que cai longe na lista, e
-// a guarda do portão (`atravessandoOPortao`, abaixo) é POSICIONAL: ela compara
-// índices, e uma seta de botão salta livremente sobre posições. Medido: com
-// [dm com botão, pedir_follow, dm com url] e a seta do botão apontando para o
-// terceiro, o toque entrega a url e o portão não é visto. O substituto certo
-// NÃO é restaurar "o cursor manda" — isso quebraria os botões legítimos que a
-// medição acima defende. É a REGRA DO PORTÃO POR CAMINHO, da Tarefa 3b: o
-// portão passa a ser procurado no caminho percorrido, não em faixa de índices.
-// Até ela existir, este ramo entrega sem portão, e está registrado lá.
+// era ele que entregava o link sem portão. MEDIDO, com [dm com botão,
+// pedir_follow, dm com url] e a seta do botão apontando do primeiro para o
+// terceiro: `caminhoDoBotao` devolvia `{indice: 2}`, o motor passava esse número
+// cru a `executarFluxo`, a `Retomada` saía `{portao: null, destino: 2}` e a url
+// era enfileirada com o `pedir_follow` do meio nunca avaliado.
+//
+// O SUBSTITUTO NÃO É restaurar "o cursor manda" — isso quebraria os botões
+// legítimos que a medição acima defende —, e também não era aplicar a guarda
+// posicional ao destino: ela tem falso-negativo próprio (portão no índice 2,
+// link no índice 1, `2 < 1` falso), e o comentário da REGRA DO PORTÃO, abaixo,
+// traz o caso. É a regra POR CAMINHO da Tarefa 3b, e é por isso que esta função
+// passou a devolver uma `Retomada` em vez de um índice: com um índice, o motor
+// tinha como pular a regra, e pulou. Com uma `Retomada`, não tem.
 //
 // O `motivo` fecha o outro buraco, o do botão órfão. Sem ligação (ou com o
 // bloco de destino apagado da lista) não há o que entregar, e não entregar
@@ -1128,17 +1208,21 @@ export function caminhoDoBotao(
   p: Payload,
   passos: unknown,
   ligacoes: unknown
-): { indice?: number; motivo?: string } | null {
+): { retomada?: Retomada; motivo?: string } | null {
   if (p.prefixo !== "AUTO" || p.botaoId === null || p.passoId === null) return null;
   const destino = ligacaoEscolhida(ligacoes, p.passoId, { tipo: "botao", botao: p.botaoId });
   if (destino === null) {
     return { motivo: `o botão ${p.botaoId}, do bloco ${p.passoId}, não tem ligação de saída` };
   }
-  const indice = indiceDoId(passos, destino);
-  if (indice === null) {
+  // O destino continua sendo conferido contra a LISTA, e o índice é descartado
+  // logo em seguida: o que ele responde aqui é "esse bloco ainda existe?", que é
+  // o segundo dos dois motivos de botão órfão. Sem a conferência, o toque cairia
+  // num `interpretar` que para no primeiro passo por bloco inexistente — sem
+  // linha em Atividade dizendo qual botão levou até lá.
+  if (indiceDoId(passos, destino) === null) {
     return { motivo: `o botão ${p.botaoId} leva a um bloco que não está na lista: ${destino}` };
   }
-  return { indice };
+  return { retomada: atravessandoOPortao(passos, ligacoes, destino) };
 }
 
 // Qual cursor vale no toque de um botão: o REAL do contato, ou o bloco que veio
@@ -1251,14 +1335,57 @@ export function cursorDaRetomada(
 // começa em `destino`, então NADA entre o portão e o destino é reenfileirado. A
 // regra não cobra mensagem repetida de ninguém.
 //
-// `portao < destino` é a comparação inteira, e os dois limites importam:
+// "HÁ PORTÃO NO CAMINHO?" É A PERGUNTA, e ela substituiu "o portão está antes no
+// array?". A troca é a Tarefa 3b inteira, e o motivo é que a segunda pergunta
+// deixou de responder a primeira quando o fluxo virou grafo.
+//
+// `portao < destino` foi a comparação por duas fases, e ela era CERTA enquanto a
+// ordem do array era o caminho: numa corrente `bloco i → bloco i+1`, "o portão
+// tem índice menor" e "dá para chegar do portão ao destino" são a mesma
+// afirmação. Com bifurcação elas se separam, e erram para os DOIS lados:
+//
+//   PORTÃO NOUTRO BRAÇO, com índice menor. A posição diz "atravesse"; o caminho
+//     diz que a pessoa nunca passaria por ali. Ela é mandada a um portão que não
+//     é dela — uma consulta à Meta e, para quem não segue, um pedido de follow
+//     que o fluxo dela não exigia.
+//   PORTÃO NO CAMINHO, com índice MAIOR. A posição diz "não atravesse", e ela
+//     está errada: o destino está depois do portão no fluxo, e a pessoa recebe o
+//     que houver lá — o link inclusive — SEM SEGUIR. É a única falha do produto
+//     que não tem conserto depois, e é ela que esta regra existe para fechar.
+//
+// O CASO MEDIDO que fecha a questão, e ele é o que torna a adaptação da
+// comparação impossível: portão no índice 2, link no índice 1, seta do portão
+// para o link. `portao < destino` é `2 < 1`, falso — a guarda posicional não vê
+// portão nenhum, e o link sai. Não há como consertar isso comparando posições,
+// porque a posição simplesmente não carrega mais a informação.
+//
+// QUEM RESPONDE A PERGUNTA CERTA é `haCaminho` (acima), que caminha as setas do
+// portão até o destino. Ela não recebe `passos`, então a comparação posicional
+// não tem por onde voltar.
+//
+// TODAS AS SETAS contam nessa caminhada, e não só a `sempre`. É por isso que a
+// seta de um botão que salta por cima do portão passa a ser vista: o destino
+// dela é alcançável a partir do portão, então o portão está no caminho.
+//
+// Os dois limites de antes continuam valendo, com o motivo intacto:
 //
 //   IGUAL não é passagem. Quem está parado NO portão retoma DELE, e
 //     `interpretar` o encontra sozinho no primeiro passo que lê. Marcar
 //     passagem aqui faria `resolverFollow` consultar a Meta duas vezes no mesmo
-//     toque, e a segunda consulta decidiria sobre um portão já decidido.
-//   DEPOIS não é passagem pelo mesmo motivo: portão adiante do destino está no
-//     caminho que `interpretar` vai percorrer, e ele para nele como sempre.
+//     toque, e a segunda consulta decidiria sobre um portão já decidido. Ele é
+//     conferido à parte porque `haCaminho` diria SIM para um portão que fecha
+//     anel consigo mesmo.
+//   PORTÃO ADIANTE DO DESTINO não é passagem pelo mesmo motivo de sempre: ele
+//     está no caminho que `interpretar` vai percorrer, e ela para nele. Agora
+//     isso sai de graça — se o portão está adiante, o destino não o alcança, e
+//     `haCaminho(portão, destino)` é falso.
+//
+// O QUE A TROCA CUSTA, e ela custa: onde há ANEL, tudo alcança tudo, e o portão
+// passa a estar "no caminho" de destinos que a pessoa alcançaria sem passar por
+// ele — o zero de uma retomada sem cursor, por exemplo, num fluxo de menu que
+// volta a si mesmo. O preço é a consulta a mais à Meta já descrita mais abaixo, e
+// a escolha é deliberada: errar para o lado de atravessar um portão a mais custa
+// latência; errar para o outro custa o link entregue a quem não segue.
 //
 // COM MAIS DE UM PORTÃO atravessa-se o PRIMEIRO, porque é o que `indiceDoPortao`
 // devolve, e isso basta: o que um portão pergunta — "esta pessoa segue o perfil?"
@@ -1290,14 +1417,44 @@ export function cursorDaRetomada(
 // ---------------------------------------------------------------------------
 export type Retomada = {
   // O portão a atravessar antes, ou null quando não há nenhum no caminho.
+  //
+  // Continua sendo ÍNDICE porque é isso que o chamador faz com ele: `executarFluxo`
+  // (lib/engine.ts) precisa do passo (`passoEsperado`) e da identidade
+  // (`identidadeDoPasso`), e as duas saem do índice que `indiceDoPortao`
+  // devolveu. Convertê-lo aqui só empurraria a volta para lá.
   portao: number | null;
   // Onde o fluxo continua — depois de vencer o portão, ou direto se não há.
-  destino: number;
+  //
+  // É IDENTIDADE, e era número. A troca é o outro lado da Tarefa 3b: enquanto
+  // ele fosse um índice, `indice + 1` continuava sendo uma expressão escrevível
+  // — e foi ela, em seis lugares, que fez "o seguinte" responder por um caminho
+  // que o grafo não percorre. Com identidade, somar um não compila.
+  //
+  // Null quando não há para onde ir: o bloco não tem seta `sempre` saindo, ou a
+  // posição de partida não existe na lista. `interpretar` trata o null saindo
+  // calada e o motor limpa o cursor — é o mesmo fim de fluxo em que `indice + 1`
+  // caía ao passar do fim da lista.
+  destino: string | null;
 };
 
-function atravessandoOPortao(passos: unknown, destino: number): Retomada {
+// A REGRA DO PORTÃO aplicada a um destino. O comentário acima é o porquê; aqui
+// está só o como.
+//
+// AS LIGAÇÕES SÃO ARGUMENTO desde a Tarefa 3b, e sem elas esta função não tem
+// como responder a pergunta que ela faz — "há portão no caminho?" é pergunta
+// sobre setas.
+function atravessandoOPortao(
+  passos: unknown,
+  ligacoes: unknown,
+  destino: string | null
+): Retomada {
   const portao = indiceDoPortao(passos);
-  return { portao: portao !== null && portao < destino ? portao : null, destino };
+  if (portao === null || destino === null) return { portao: null, destino };
+  const id = identidadeNoIndice(passos, portao);
+  // `id` nulo é obrigação de tipo e não caso alcançável: o índice acabou de sair
+  // de `indiceDoPortao`, que o achou nesta mesma lista.
+  if (id === null || id === destino) return { portao: null, destino };
+  return { portao: haCaminho(ligacoes, id, destino) ? portao : null, destino };
 }
 
 // De qual passo o toque num botão de RESPOSTA RÁPIDA (`AUTO:`) retoma.
@@ -1320,17 +1477,19 @@ function atravessandoOPortao(passos: unknown, destino: number): Retomada {
 //     descarta, e o bloco é sempre uma `dm` de resposta rápida, porque é o
 //     único passo que emite esse payload (`enfileirarPasso`, lib/engine.ts).
 //
-//     ISSO NÃO BASTAVA para garantir que o `+1` (abaixo) nunca pulasse um
-//     portão: ele soma sobre a POSIÇÃO do bloco na lista, não sobre o tipo
-//     dele. A conta só fechava ENQUANTO TODA `dm` de resposta rápida da lista
-//     viesse ANTES de qualquer portão — é o que o formulário garantia (uma só, e
-//     é a boas-vindas, que vinha primeiro) e o que o quadro de blocos livres NÃO
+//     ISSO NÃO BASTAVA para garantir que o `+1` nunca pulasse um portão: ele
+//     somava sobre a POSIÇÃO do bloco na lista, não sobre o tipo dele. A conta
+//     só fechava ENQUANTO TODA `dm` de resposta rápida da lista viesse ANTES de
+//     qualquer portão — é o que o formulário garantia (uma só, e é a
+//     boas-vindas, que vinha primeiro) e o que o quadro de blocos livres NÃO
 //     garante. Havendo uma `dm` de resposta rápida DEPOIS de um portão, o `+1`
 //     caía depois dele e o portão não era reavaliado.
 //
-//     Quem fecha isso agora é a REGRA DO PORTÃO (`atravessandoOPortao`, acima),
-//     e ela fecha pela POSIÇÃO, que é onde o buraco estava: o destino continua
-//     sendo o `+1`, e o portão que ficou para trás vira ponto de passagem.
+//     O `+1` NÃO EXISTE MAIS: o destino é a seta `sempre` que sai do bloco
+//     (`seguinteDe`, acima), e a REGRA DO PORTÃO (`atravessandoOPortao`, acima)
+//     pergunta se o portão está no CAMINHO até ele. As duas juntas fecham o
+//     buraco pelos dois lados — o destino deixa de ser uma posição, e a guarda
+//     deixa de comparar posições.
 //
 // O botão ANTIGO (`AUTO:<automação>`) não traz bloco: a reserva dele é o cursor
 // vazio, e ele cai no ramo do zero, abaixo. Não tem prazo para acabar — botão
@@ -1344,9 +1503,10 @@ function atravessandoOPortao(passos: unknown, destino: number): Retomada {
 //
 // Com cursor DESTA automação, a regra tem dois ramos:
 //
-//   `dm` de resposta rápida → retoma do SEGUINTE. O toque É a resposta que ela
-//     esperava, exatamente como no ramo de texto de lib/engine.ts.
-//   PORTÃO — `pedir_follow` ou `pedir_email` → retoma DELE MESMO. O `+1` aqui
+//   `dm` de resposta rápida → retoma do SEGUINTE, e "o seguinte" é a seta
+//     `sempre` que sai dela. O toque É a resposta que ela esperava, exatamente
+//     como no ramo de texto de lib/engine.ts.
+//   PORTÃO — `pedir_follow` ou `pedir_email` → retoma DELE MESMO. Avançar aqui
 //     era o defeito: quem está parado no portão de A continua podendo tocar no
 //     botão antigo da boas-vindas de A, que segue tocável na mensagem já
 //     entregue. O cursor é o do portão, o `+1` o pulava. A alcançabilidade é a
@@ -1406,12 +1566,13 @@ function atravessandoOPortao(passos: unknown, destino: number): Retomada {
 // APAGADOS de verdade — o do cursor e o do botão.
 //
 // BLOCO QUE CONTINUA na lista mas não espera mais nada — foi editado e virou
-// botão de link, ou ficou inválido — cai no `+1`, como antes, e a escolha segue
-// deliberada. Passo que não espera não é portão, então avançar não pula portão
-// nenhum: os que vierem depois continuam sendo interpretados normalmente. Do
-// zero, a alternativa, a boas-vindas sairia de novo. Quando o `+1` cai além do
-// fim da lista, `interpretar` não enfileira nada e `executarFluxo` limpa o
-// cursor: o toque não faz nada, e a pessoa destrava mandando qualquer mensagem.
+// botão de link, ou ficou inválido — SEGUE A SETA, como antes seguia o `+1`, e a
+// escolha segue deliberada. Passo que não espera não é portão, e avançar não
+// pula portão nenhum: a regra do portão olha o caminho até o destino, e os que
+// vierem depois continuam sendo interpretados normalmente. Do zero, a
+// alternativa, a boas-vindas sairia de novo. Quando não há seta `sempre` saindo,
+// `interpretar` não enfileira nada e `executarFluxo` limpa o cursor: o toque não
+// faz nada, e a pessoa destrava mandando qualquer mensagem.
 //
 // A diferença que esta fase pretendia JÁ VALE, e vale a pena dizer o que a
 // fechou: com id, o bloco some só quando o dono o apaga, e reordenar não conta.
@@ -1448,14 +1609,21 @@ function atravessandoOPortao(passos: unknown, destino: number): Retomada {
 export function retomadaDoBotao(
   cursor: Cursor,
   automationId: string,
-  passos: unknown
+  passos: unknown,
+  ligacoes: unknown
 ): Retomada {
   const id = cursorDesta(cursor, automationId);
   const indice = id === null ? null : indiceDoId(passos, id);
-  if (indice === null) return atravessandoOPortao(passos, 0);
+  // A ENTRADA DO FLUXO é `steps[0]`, e é o único significado que a ordem do
+  // array guarda depois da caminhada por grafo. O "zero" deste ramo sempre foi
+  // isso; só passou a ser dito por identidade.
+  if (indice === null || id === null) {
+    return atravessandoOPortao(passos, ligacoes, identidadeNoIndice(passos, 0));
+  }
   const tipo = passoEsperado(passos, indice)?.tipo;
-  const destino = tipo === "pedir_follow" || tipo === "pedir_email" ? indice : indice + 1;
-  return atravessandoOPortao(passos, destino);
+  const destino =
+    tipo === "pedir_follow" || tipo === "pedir_email" ? id : seguinteDe(ligacoes, id);
+  return atravessandoOPortao(passos, ligacoes, destino);
 }
 
 // De qual passo o toque em "Já sigo!" (`FOLLOW:`) retoma.
@@ -1531,11 +1699,21 @@ export function retomadaDoBotao(
 export function retomadaDoFollow(
   cursor: Cursor,
   automationId: string,
-  passos: unknown
+  passos: unknown,
+  ligacoes: unknown
 ): Retomada {
   const id = cursorDesta(cursor, automationId);
   const indice = id === null ? null : indiceDoId(passos, id);
-  return atravessandoOPortao(passos, indice ?? indiceDoPortao(passos) ?? 0);
+  // Não há "seguinte" nenhum aqui — este ramo sempre retomou DO bloco, nunca do
+  // próximo —, então a Tarefa 3b não mexeu no destino. O que ele ganhou foram as
+  // ligações, que a regra do portão passou a exigir.
+  //
+  // O `?? 0` continua sendo posição, e é o único lugar em que ela ainda decide
+  // alguma coisa: `steps[0]` é a ENTRADA do fluxo, o significado que a ordem do
+  // array guarda depois do grafo.
+  const destino =
+    indice !== null && id !== null ? id : identidadeNoIndice(passos, indiceDoPortao(passos) ?? 0);
+  return atravessandoOPortao(passos, ligacoes, destino);
 }
 
 // De qual passo o TEXTO SOLTO de quem está parado num passo de espera retoma.
@@ -1571,9 +1749,22 @@ export function retomadaDoFollow(
 //     de novo o que a pessoa acabou de mandar.
 //   `dm` de resposta rápida → retoma do SEGUINTE. O texto vale como resposta,
 //     do mesmo jeito que no fallback.
-export function retomadaDoTexto(passos: unknown, indice: number): Retomada {
+//
+// "O SEGUINTE" É A SETA `sempre` (`seguinteDe`, acima), e não a posição de baixo
+// no array. Enquanto foi `indice + 1`, esta função respondia por uma ordem que o
+// motor deixou de percorrer — e ela é o ramo mais alcançável dos seis que a
+// Tarefa 3b converteu: toda mensagem de texto de quem está parado passa por aqui.
+//
+// O ÍNDICE CONTINUA SENDO O ARGUMENTO porque é o que lib/engine.ts tem na mão
+// (`indiceParado`, já resolvido por `indiceDoId`) e porque `passoEsperado` fala
+// em posição. A conversão para identidade acontece aqui dentro, uma vez, e o
+// destino sai como identidade — que é o que impede o `+1` de voltar.
+export function retomadaDoTexto(passos: unknown, ligacoes: unknown, indice: number): Retomada {
+  const id = identidadeNoIndice(passos, indice);
   const tipo = passoEsperado(passos, indice)?.tipo;
-  return atravessandoOPortao(passos, tipo === "pedir_follow" ? indice : indice + 1);
+  const destino =
+    id === null ? null : tipo === "pedir_follow" ? id : seguinteDe(ligacoes, id);
+  return atravessandoOPortao(passos, ligacoes, destino);
 }
 
 // De qual passo o fallback retoma. Null quando não dá para afirmar.
@@ -1618,34 +1809,37 @@ export function retomadaDoTexto(passos: unknown, indice: number): Retomada {
 // incluído — e `shouldFallbackFollowup` não teria dito sim. Se ainda assim
 // acontecer, também não retoma nada: repetir a lista manda mensagem repetida.
 //
-// ESTA É A ÚNICA DAS QUATRO RETOMADAS QUE NÃO RECEBE A REGRA DO PORTÃO
-// (`atravessandoOPortao`, acima), e continua devolvendo um número. Não é
-// esquecimento: a regra é INALCANÇÁVEL aqui, por construção, e a demonstração
-// cabe em três linhas.
+// ELA PASSOU A RECEBER A REGRA DO PORTÃO, e era a única das quatro que não
+// recebia. A dispensa tinha demonstração escrita, ela era CORRETA para uma fila,
+// e o grafo a derrubou — vale registrar as duas metades, porque foi a mudança de
+// premissa e não um erro de então.
 //
-// Ela parte de `interpretar(passos, 0)`, que para no PRIMEIRO passo que espera
-// resposta. `pedir_follow` espera resposta. Logo, se houvesse um portão ANTES de
-// `pararEm`, `interpretar` teria parado NELE — nenhum portão precede `pararEm`.
-// E o `+1` do ramo `dm` cai no máximo sobre a posição do portão que vier logo
-// depois, nunca depois dele: `portao < destino` seria falso em toda entrada
-// possível.
+// A DEMONSTRAÇÃO ANTIGA: `interpretar` a partir da entrada para no PRIMEIRO
+// passo que espera resposta, e `pedir_follow` espera resposta; logo nenhum
+// portão precede `pararEm`. Numa fila, "não precede" é "tem índice maior", e
+// `portao < destino` era falso em toda entrada possível — a regra não tinha como
+// mudar coisa alguma.
 //
-// Aplicá-la assim mesmo seria escrever uma linha que nenhum teste consegue
-// cobrir — e linha não coberta dentro de decisão de fluxo é onde esta base já
-// escondeu defeito duas vezes. O teste "a regra não muda nada no fallback"
-// (tests/steps.test.ts) fixa a demonstração, para ela não deixar de valer em
-// silêncio se `interpretar` mudar de comportamento.
+// O QUE MUDOU: "há portão no caminho?" não é mais a mesma pergunta que "o portão
+// tem índice menor?". Um portão que a caminhada da entrada não encontra pode
+// mesmo assim alcançar o destino por OUTRO braço — uma junção basta: o bloco de
+// link recebendo uma seta do portão e outra de um braço sem portão. Aí o destino
+// deduzido está depois do portão no fluxo, e entregá-lo sem avaliar o portão é
+// exatamente o vazamento que esta tarefa fecha.
 //
-// AS LIGAÇÕES ENTRARAM NO ARGUMENTO, e não por simetria: esta função DEDUZ onde
-// a pessoa parou reexecutando a caminhada, e a caminhada passou a depender
-// delas. Sem elas ela deduziria por um caminho que o motor não percorre mais.
+// NÃO É MAIS INALCANÇÁVEL, portanto, e a linha é coberta: o teste do braço com
+// junção (tests/steps.test.ts) a exercita. A demonstração antiga fica registrada
+// porque quem a ler no histórico precisa saber que ela não estava errada — ela
+// falava de um sistema que deixou de existir.
 //
-// E ela devolve ÍNDICE, não identidade, apesar de `pararEm` agora ser
-// identidade. É deliberado: o valor vai para `executarFluxo`, que ainda fala em
-// posição, e as outras três retomadas também devolvem número. Converter de volta
-// aqui — com `indiceDoId` — mantém as quatro com a mesma forma; converter as
-// quatro de uma vez é mudança de outra tarefa.
-export function retomadaDoFallback(passos: unknown, ligacoes: unknown): number | null {
+// AS LIGAÇÕES JÁ ERAM ARGUMENTO, e não por simetria: esta função DEDUZ onde a
+// pessoa parou reexecutando a caminhada, e a caminhada depende delas.
+//
+// DEVOLVE `Retomada`, como as outras três, e null continua querendo dizer "não
+// dá para afirmar nada" — que é diferente de "afirmo que não há para onde ir"
+// (`destino: null`). O chamador (lib/engine.ts) só executa no segundo caso, e
+// não faz nada no primeiro.
+export function retomadaDoFallback(passos: unknown, ligacoes: unknown): Retomada | null {
   const { pararEm } = interpretar(passos, ligacoes, identidadeNoIndice(passos, 0));
   if (pararEm === null) return null;
   if (Array.isArray(passos) && contarParadasDuras(passos) > 1) return null;
@@ -1654,7 +1848,8 @@ export function retomadaDoFallback(passos: unknown, ligacoes: unknown): number |
   const indice = indiceDoId(passos, pararEm);
   if (indice === null) return null;
   const passo = passoEsperado(passos, indice);
-  return passo?.tipo === "dm" ? indice + 1 : indice;
+  const destino = passo?.tipo === "dm" ? seguinteDe(ligacoes, pararEm) : pararEm;
+  return atravessandoOPortao(passos, ligacoes, destino);
 }
 
 // Quem está parado esperando o toque num botão pode ser interrompido por outra
@@ -1719,7 +1914,7 @@ export type Problema = {
 // `pedir_email`: quem engole o segundo é o próprio MOTOR, antes de a chave
 // entrar em jogo. O ramo `pedir_email` de lib/engine.ts pula o bloco quando o
 // e-mail do contato já é conhecido (`if (rows[0]?.email) return
-// executarFluxo(..., acao.indice + 1, ...)`), e depois de o primeiro pedido ser
+// executarFluxo(..., seguinteDe(...), ...)`), e depois de o primeiro pedido ser
 // respondido o endereço já está gravado — então o segundo normalmente nem chega
 // a ser enfileirado. `emailAskKey(auto, pessoa, dia)` só decide no caso restante:
 // os dois enfileirados no mesmo dia sem que o e-mail tenha sido respondido entre

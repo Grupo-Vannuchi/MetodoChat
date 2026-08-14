@@ -40,6 +40,7 @@ import {
   interrompeOFluxo,
   identidadeDoPasso,
   identidadeNoIndice,
+  seguinteDe,
   indiceDoId,
   lerPayload,
   caminhoDoBotao,
@@ -400,22 +401,34 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 
 // O `de` aceita as DUAS formas, e a união é o que mantém a mudança contida.
 //
-// NÚMERO é o caso de dentro: o gatilho começando do zero, e as chamadas que esta
-// função faz a si mesma (portão vencido no caminho, e-mail já conhecido). Não há
-// portão a atravessar antes — o índice já é o próximo passo a executar.
+// IDENTIDADE DE BLOCO (ou null) é o caso de DENTRO: o gatilho começando na
+// entrada do fluxo, e as chamadas que esta função faz a si mesma (portão vencido
+// no caminho, e-mail já conhecido). Não há portão a atravessar antes, e a razão é
+// de GRAFO, não de confiança: os três destinos são a ENTRADA ou o VIZINHO
+// imediato pela seta `sempre` do bloco que acabou de ser tratado. Vizinho não
+// salta por cima de ninguém, então não há portão entre um e outro; e o que vier
+// depois, `interpretar` percorre e encontra como sempre.
 //
-// `Retomada` é o caso de fora: os três pontos em que alguém volta a um fluxo
-// parado (`retomadaDoBotao`, `retomadaDoFollow`, `retomadaDoTexto`, lib/steps.ts).
-// Só eles podem cair do outro lado de um portão, e é só por eles que a regra do
-// portão precisa entrar aqui.
+// ERA NÚMERO, e era aí que dois dos seis pontos da Tarefa 3b moravam: as duas
+// chamadas recursivas somavam `acao.indice + 1`, que é o vizinho no ARRAY e não
+// no grafo. Enquanto as ligações forem a corrente da migração os dois coincidem;
+// desenhado um braço, a soma entrega o bloco errado — e, se esse bloco estiver
+// depois de um portão, entrega-o sem portão. Com identidade, somar um não
+// compila.
+//
+// `Retomada` é o caso de FORA: os pontos em que alguém volta a um fluxo parado
+// (`retomadaDoBotao`, `retomadaDoFollow`, `retomadaDoTexto`, `retomadaDoFallback`
+// e `caminhoDoBotao`, lib/steps.ts). Só eles podem cair do outro lado de um
+// portão, e é só por eles que a regra do portão precisa entrar aqui.
 async function executarFluxo(
   account: Account,
   auto: Automation,
   contactIgId: string,
-  de: number | Retomada,
+  de: string | null | Retomada,
   contexto: ContextoGatilho = {}
 ): Promise<void> {
-  const retomada: Retomada = typeof de === "number" ? { portao: null, destino: de } : de;
+  const retomada: Retomada =
+    de !== null && typeof de === "object" ? de : { portao: null, destino: de };
 
   // O PORTÃO DE PASSAGEM: atravessa, e segue para o destino.
   //
@@ -557,33 +570,25 @@ async function executarFluxo(
   // A ÚNICA chamada de `interpretar` do motor, e ela é a fronteira entre as duas
   // metades do sistema nesta fase.
   //
-  // `interpretar` passou a CAMINHAR O GRAFO: ela recebe as ligações e a
-  // IDENTIDADE do bloco de partida, e a ordem do array não diz mais o que vem
-  // depois. Quem calcula `retomada.destino`, porém, ainda fala em POSIÇÃO — as
-  // quatro retomadas de lib/steps.ts devolvem número —, e a conversão de posição
-  // para identidade é `identidadeNoIndice` (lib/steps.ts), pura e com teste.
+  // `interpretar` CAMINHA O GRAFO: ela recebe as ligações e a IDENTIDADE do
+  // bloco de partida, e a ordem do array não diz o que vem depois.
   //
-  // A conversão devolve null quando a posição não existe, e o caso é comum, não
-  // defensivo: é o `+1` de quem estava parado no último bloco. `interpretar`
-  // trata o null SAINDO CALADA — sem `ignorados` e sem sinalizador —, e o motor
-  // limpa o cursor logo abaixo como em qualquer fim de fluxo. A razão de o sinal
-  // ter sido removido está escrita no ramo `deBloco === null` de `interpretar`
+  // A CONVERSÃO DE POSIÇÃO SAIU DAQUI, e essa é a metade da Tarefa 3b que se vê
+  // nesta linha. Até ela, `retomada.destino` era um índice e este argumento era
+  // `identidadeNoIndice(auto.steps, retomada.destino)` — aritmética de POSIÇÃO
+  // calculada nas retomadas e traduzida aqui. Agora o destino já nasce
+  // identidade, e não há tradução: quem decide para onde ir decide falando a
+  // mesma língua que a caminhada.
+  //
+  // O null é comum, não defensivo: é o bloco sem seta `sempre` saindo — onde
+  // antes estava o `+1` de quem parou no último bloco. `interpretar` trata o
+  // null SAINDO CALADA — sem `ignorados` e sem sinalizador —, e o motor limpa o
+  // cursor logo abaixo como em qualquer fim de fluxo. A razão de o sinal ter
+  // sido removido está escrita no ramo `deBloco === null` de `interpretar`
   // (lib/steps.ts): ele dispara se e só se a pessoa passou o ÚLTIMO bloco, o que
   // é fim NORMAL na maioria das vezes, e os casos que são defeito de verdade são
   // de MONTAGEM — a conferência os pega no salvar, não na entrega.
-  //
-  // O QUE FICA EM ABERTO, e precisa estar dito porque é a metade que esta tarefa
-  // não fechou: `retomada.destino` é aritmética de POSIÇÃO (`indice + 1`), e o
-  // grafo não reproduz essa aritmética. Enquanto as ligações forem a corrente
-  // que a migração gerou (bloco i → bloco i+1), as duas concordam em toda
-  // entrada. No dia em que o editor deixar o dono desenhar um braço de verdade,
-  // "o seguinte na lista" e "o destino da seta `sempre`" passam a ser blocos
-  // diferentes, e é este argumento que fica errado — não a caminhada.
-  const r = interpretar(
-    auto.steps,
-    auto.ligacoes,
-    identidadeNoIndice(auto.steps, retomada.destino)
-  );
+  const r = interpretar(auto.steps, auto.ligacoes, retomada.destino);
 
   // Passo mal montado vira linha em Atividade, não exceção. Automação quebrada
   // não pode derrubar o webhook: a Meta reenviaria o evento por 36 horas.
@@ -626,9 +631,22 @@ async function executarFluxo(
       const r = await resolverFollow(account, auto, contactIgId, p, acao.indice, contexto);
       // Passou: `interpretar` PAROU neste passo, então o resto da lista sequer
       // foi olhado — este é o último item que ele devolveu, e seguir o laço não
-      // faria nada. Retoma do próximo índice, senão vencer o portão seria o fim
-      // do fluxo e o link nunca chegaria a quem seguiu.
-      if (r === "passou") return executarFluxo(account, auto, contactIgId, acao.indice + 1, contexto);
+      // faria nada. Retoma do SEGUINTE, senão vencer o portão seria o fim do
+      // fluxo e o link nunca chegaria a quem seguiu.
+      //
+      // "O SEGUINTE" É A SETA `sempre` (`seguinteDe`, lib/steps.ts), e era
+      // `acao.indice + 1` — um dos seis pontos que a Tarefa 3b converteu, e o
+      // mais perigoso dos dois que ficavam aqui dentro: somar sobre a posição
+      // depois de vencer o portão entrega o bloco que estiver na posição de
+      // baixo, que num grafo pode não ser o destino da seta nem ter nada a ver
+      // com o braço percorrido.
+      if (r === "passou") {
+        return executarFluxo(
+          account, auto, contactIgId,
+          seguinteDe(auto.ligacoes, identidadeDoPasso(p, acao.indice)),
+          contexto
+        );
+      }
       if (r === "soltar") {
         // Solta em vez de gravar o cursor: a pessoa deixa de ser capturada por
         // este portão e volta a ser alcançável por qualquer automação. Ela não
@@ -667,9 +685,15 @@ async function executarFluxo(
         [account.ig_user_id, contactIgId]
       )) as { email: string | null }[];
       // Mesmo motivo do portão: o e-mail que já temos resolve este passo, e o
-      // que vem depois dele só é visto numa nova interpretação.
+      // que vem depois dele só é visto numa nova interpretação. E "o que vem
+      // depois" é a seta `sempre`, pelo mesmo motivo do portão vencido logo
+      // acima — aqui também era `acao.indice + 1`.
       if (rows[0]?.email) {
-        return executarFluxo(account, auto, contactIgId, acao.indice + 1, contexto);
+        return executarFluxo(
+          account, auto, contactIgId,
+          seguinteDe(auto.ligacoes, identidadeDoPasso(p, acao.indice)),
+          contexto
+        );
       }
       // Quando o pedido de e-mail é o primeiro envio de uma execução nascida de
       // comentário, ele também tem que furar a janela: como DM comum seria
@@ -1271,7 +1295,11 @@ export async function handleCommentEvent(entryId: string | undefined, value: Com
   // esse id que faz a primeira mensagem sair como resposta privada e furar a
   // janela de 24h (ver `gastarRespostaPrivada`). Sem ele, esta automação
   // enfileira tudo como DM comum e o dreno descarta tudo, em silêncio.
-  await executarFluxo(account, auto, fromId, 0, { commentId });
+  // A ENTRADA DO FLUXO é `steps[0]`, e é o único significado que a ordem do
+  // array guarda depois da caminhada por grafo: onde a caminhada começa quando o
+  // gatilho dispara. O zero de antes queria dizer isso; agora ele é dito por
+  // identidade, que é a língua de `interpretar`.
+  await executarFluxo(account, auto, fromId, identidadeNoIndice(auto.steps, 0), { commentId });
 }
 
 export async function handleMessagingEvent(entryId: string | undefined, ev: MessagingEvent) {
@@ -1335,26 +1363,24 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
         // mesmo defeito que fez `cursorDaRetomada` sair daqui.
         const caminho = caminhoDoBotao(p, auto.steps, auto.ligacoes);
         if (caminho) {
-          if (caminho.indice !== undefined) {
-            // `executarFluxo` recebe NÚMERO, não `Retomada`, e o efeito disso é
-            // PULAR a REGRA DO PORTÃO (`atravessandoOPortao`, lib/steps.ts): o
-            // número cai no ramo `{portao: null, destino}`.
+          if (caminho.retomada !== undefined) {
+            // A `Retomada` VEM PRONTA de `caminhoDoBotao`, com a regra do portão
+            // já aplicada, e é por isso que esta linha não decide nada.
             //
-            // ISSO É UM BURACO ABERTO, e não uma dispensa justificada. A guarda
-            // do portão é POSICIONAL — `indiceDoPortao` varre o array e compara
-            // ÍNDICES —, e a seta de um botão salta livremente sobre posições:
-            // o destino dela é vizinho no GRAFO, o que não quer dizer vizinho na
-            // LISTA. Medido, com [dm de botão, pedir_follow, dm com url] e a
-            // seta apontando do primeiro para o terceiro: o toque entrega a url
-            // e o `pedir_follow` do meio não é sequer visto. `interpretar`
-            // começa NO destino; ele não caminha do bloco do botão até lá.
+            // Ela já entregou o link a quem não segue, e a medição está no
+            // comentário daquela função: enquanto `caminhoDoBotao` devolvia um
+            // ÍNDICE, este ramo o passava cru, o índice caía em
+            // `{portao: null, destino}` e a REGRA DO PORTÃO era pulada por
+            // inteiro. Com [dm de botão, pedir_follow, dm com url] e a seta do
+            // botão apontando do primeiro para o terceiro, a url saía e o
+            // `pedir_follow` do meio não era sequer visto — `interpretar` começa
+            // NO destino, ela não caminha do bloco do botão até lá.
             //
-            // Quem fecha é a Tarefa 3b, e do único jeito que fecha: o portão
-            // passa a ser procurado NO CAMINHO percorrido, não em faixa de
-            // índices. Está registrado lá, com este caso. Passar `Retomada`
-            // aqui, com a regra posicional de hoje, não conserta nada — só
-            // troca o buraco de lugar.
-            await executarFluxo(account, auto, senderId, caminho.indice);
+            // Passar `Retomada` só bastou porque a regra deixou de ser
+            // posicional junto: com a comparação de índices, ela tinha
+            // falso-negativo próprio (portão no índice 2, link no índice 1) e
+            // teria trocado o buraco de lugar. As duas metades são a Tarefa 3b.
+            await executarFluxo(account, auto, senderId, caminho.retomada);
           } else {
             // BOTÃO SEM CAMINHO — sem ligação de saída, ou com o bloco de
             // destino apagado da lista. Não há o que entregar, e o que NÃO pode
@@ -1409,10 +1435,10 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
         );
         const de =
           p.prefixo === "AUTO"
-            ? retomadaDoBotao(cursor, auto.id, auto.steps)
+            ? retomadaDoBotao(cursor, auto.id, auto.steps, auto.ligacoes)
             : // "Já sigo!" — `resolverFollow` consulta a API de novo, então só
               // passa quem realmente seguir.
-              retomadaDoFollow(cursor, auto.id, auto.steps);
+              retomadaDoFollow(cursor, auto.id, auto.steps, auto.ligacoes);
         await executarFluxo(account, auto, senderId, de);
       }
     }
@@ -1521,7 +1547,7 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
           // que é o link, com o portão nunca avaliado.
           await executarFluxo(
             account, autoParada, senderId,
-            retomadaDoTexto(autoParada.steps, indiceParado)
+            retomadaDoTexto(autoParada.steps, autoParada.ligacoes, indiceParado)
           );
           return;
         }
@@ -1547,7 +1573,11 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     // O coraçãozinho na resposta de story deixou de ser caso à parte lido de
     // `story_reaction` e virou passo da lista. O id da mensagem vai junto
     // porque só o gatilho o conhece.
-    await executarFluxo(account, auto, senderId, 0, { messageId: msg.mid });
+    // A entrada é `steps[0]`, dita por identidade — o mesmo do gatilho de
+    // comentário, e pelo mesmo motivo.
+    await executarFluxo(account, auto, senderId, identidadeNoIndice(auto.steps, 0), {
+      messageId: msg.mid,
+    });
     return;
   }
 
