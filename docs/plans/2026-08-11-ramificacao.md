@@ -633,6 +633,102 @@ git commit -m "O botao tocado escolhe o caminho, e o payload ganha uma quarta pa
 
 ---
 
+# Tarefa 3b · "O seguinte" e o portão deixam de ser aritmética de posição
+
+**Files:**
+- Modify: `lib/steps.ts` (`retomadaDoBotao`, `retomadaDoTexto`, `retomadaDoFallback`, `atravessandoOPortao`)
+- Test: `tests/steps.test.ts`
+
+**Esta tarefa não estava no plano original. Ela existe porque a Tarefa 2 mediu
+e reportou o que faltava** — seis pontos de partida continuavam calculando o
+próximo bloco com `indice + 1`, e o grafo não reproduz isso. Eles concordam hoje
+só porque a migração produz corrente reta.
+
+## Por que é UMA tarefa e não duas
+
+As retomadas e o portão estão entrelaçados: `retomadaDoTexto` chama
+`atravessandoOPortao(passos, indice + 1)`. Converter só as retomadas deixaria
+metade em seta e metade em índice — que é exatamente a "mesma regra em dois
+lugares" que este projeto foi punido por três vezes.
+
+## O que muda
+
+**"O seguinte" vira "a seta `sempre` que sai daqui".** Nas três retomadas, onde
+hoje está `indice + 1`. Onde está `indice` (retomar do próprio bloco) **não
+muda** — o motivo de `pedir_follow` retomar dele mesmo continua valendo: a
+mensagem de texto não é o follow, e avançar entregaria o link a quem não segue.
+
+**O portão deixa de ser "está antes no array" e vira "está no caminho".**
+Hoje `atravessandoOPortao` faz `portao < destino`, comparando posições. Num
+grafo isso erra **dos dois lados**:
+
+- o portão pode estar noutro braço, e a pessoa é mandada para um portão que não
+  está no caminho dela
+- o portão pode estar no caminho dela e ter índice maior, e ela **recebe o link
+  sem seguir** — que é a única falha do produto que não tem conserto depois
+
+## Esta é a garantia central do produto
+
+A revisão final da Fase 1b provou, em **43.476 casos** simulados sobre as funções
+puras, que nenhum caminho entrega o link a quem não segue. Essa prova é sobre o
+código de índice. **Com o grafo, ela precisa ser refeita** — e é o entregável
+mais importante desta tarefa, mais do que o código.
+
+- [ ] **Passo 1: escreva os testes que falham**
+
+Cubra, com nomes que digam a consequência e não a mecânica:
+
+- retomada de um bloco `dm` segue a seta, e **não** o vizinho de array
+- com o array embaralhado e as mesmas ligações, a retomada é a mesma
+- `pedir_follow` continua retomando **dele mesmo**
+- **portão noutro braço não é atravessado** — quem não passa por ele não é
+  desviado para ele
+- **portão no caminho é atravessado mesmo com índice MAIOR que o destino** —
+  este é o teste que a versão de índice não passa, e é o que prova a correção
+- portão já atravessado não desvia de novo
+
+- [ ] **Passo 2: rode e confirme que falha**
+
+Pelo menos o teste do "índice maior" **tem que** ficar vermelho antes. Se ele
+passar de primeira, **pare e reporte**: ou o teste não discrimina, ou eu entendi
+o defeito errado. As duas hipóteses são úteis e nenhuma se resolve seguindo.
+
+- [ ] **Passo 3: implemente**
+
+`atravessandoOPortao` passa a receber as ligações e a perguntar **se há portão no
+caminho** entre onde a pessoa está e o destino. Use a caminhada que a Tarefa 2 já
+construiu — **não escreva uma segunda travessia do grafo.** Se precisar de uma
+peça nova, ela é pura e vai para `lib/steps.ts` com teste próprio.
+
+Cuidado com ciclo: a busca de caminho precisa de visitados, pelo mesmo motivo do
+teto da Tarefa 2.
+
+- [ ] **Passo 4: rode e confirme que passa**
+
+- [ ] **Passo 5: A VARREDURA — o entregável principal**
+
+Escreva um script de varredura (fora da suíte, em `scripts/` ou no scratchpad) que
+gere fluxos com bifurcação, junção, portão em posições e braços variados, e
+simule **todos** os caminhos possíveis sobre as funções puras.
+
+**O que precisa ficar provado:** não existe caminho, em nenhum fluxo gerado, que
+entregue um passo com `url` a quem não passou pelo portão.
+
+**Reporte o número de casos e o número de vazamentos.** Se der zero vazamentos,
+rode a contraprova: reverta para a comparação de índice e mostre que a varredura
+ACUSA. Uma varredura que dá zero nos dois casos não provou nada — foi o que
+aconteceu quatro vezes nesta base com comparações "antes e depois".
+
+- [ ] **Passo 6: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run
+git add lib/steps.ts tests/steps.test.ts
+git commit -m "O portao deixa de comparar posicao e passa a perguntar pelo caminho"
+```
+
+---
+
 # Tarefa 4 · Vários botões numa mensagem
 
 **Files:**
