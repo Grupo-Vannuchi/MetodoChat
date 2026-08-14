@@ -192,26 +192,29 @@ describe("interpretar", () => {
     expect(r.pararEm).toBeNull();
   });
 
-  it("índice além do fim devolve nada, e o sinal NÃO é de passo ignorado", () => {
+  it("índice além do fim devolve nada, e SEM sinal nenhum", () => {
     // O `+1` de quem parou no último bloco cai aqui — um fim de fluxo NORMAL.
     //
-    // Ele saía como `ignorado` com o motivo "o fluxo não tem por onde começar:
-    // o bloco de partida não está na lista", e as duas metades estavam erradas.
-    // A frase afirmava o que não aconteceu: o fluxo tinha começo e terminou. E o
+    // Ele já saiu de duas formas, e as duas erravam. Como `ignorado` com o motivo
+    // "o fluxo não tem por onde começar" ele afirmava o que não aconteceu, e o
     // tipo era o mesmo do passo mal montado, cuja janela em `logEventThrottled`
-    // é de 10 minutos POR AUTOMAÇÃO — essa linha benigna suprimia os avisos de
-    // verdade da mesma automação pela janela inteira.
+    // é de 10 minutos POR AUTOMAÇÃO — a linha benigna suprimia os avisos de
+    // verdade da mesma automação pela janela inteira. Depois virou
+    // `fluxo_sem_partida`, com tipo e janela próprios, e continuava errado por
+    // outro motivo: ele dispara se e só se a pessoa passou o ÚLTIMO bloco, o que
+    // é o fim CERTO de todo fluxo de captura — linha em conta saudável.
     //
-    // É por isso que a asserção que importa aqui é a de `ignorados` VAZIO: sem
-    // ela, o sinal volta a caber no mesmo balde.
+    // Por isso as duas asserções de silêncio aqui: `ignorados` vazio impede a
+    // volta ao balde compartilhado, e a ausência de qualquer outro campo no
+    // resultado é o que impede um sinal próprio de renascer.
     const passos = [{ tipo: "dm", texto: "oi" }];
     const r = interpretar(passos, emCorrente(passos), identidadeNoIndice(passos, 99));
     expect(r.enfileirar).toEqual([]);
     expect(r.pararEm).toBeNull();
-    expect(r.semPartida).toBe(true);
     expect(r.ignorados).toEqual([]);
     // Fim de fluxo de verdade: a pessoa não está mais no meio de nada.
     expect(r.cursorNoFim).toBe("limpar");
+    expect(Object.keys(r).sort()).toEqual(["cursorNoFim", "enfileirar", "ignorados", "pararEm"]);
   });
 
   it("esperar com minutos inválido é ignorado e não atrasa nada", () => {
@@ -2269,12 +2272,32 @@ describe("interpretar caminhando o grafo", () => {
     expect(r.cursorNoFim).toBe("manter");
   });
 
+  it("`steps` que não é lista MANTÉM o cursor — é o dado mais quebrado que chega", () => {
+    // Ele limpava, e limpar contradizia o critério que o próprio tipo declara:
+    // dado quebrado mantém, fim normal limpa. A razão escrita para a exceção —
+    // "ali não existe bloco nenhum na lista" — não é sabível: com a coluna fora
+    // de forma esta função não sabe se a lista está vazia ou ilegível, e coluna
+    // corrompida e DEPOIS RESTAURADA é exatamente o cenário que o "manter"
+    // existe para atender. Limpando, a pessoa perdia o lugar dela por causa de
+    // um `jsonb` que voltaria ao normal na restauração seguinte.
+    const r = interpretar(null, [], "0");
+    expect(r.enfileirar).toEqual([]);
+    expect(r.ignorados).toEqual([
+      { indice: -1, motivo: "a automação não tem lista de passos" },
+    ]);
+    expect(r.cursorNoFim).toBe("manter");
+  });
+
   it("o fim NORMAL do caminho limpa o cursor — só o quebrado o mantém", () => {
-    // A contraprova dos dois testes acima: sem ela, `cursorNoFim: "manter"` em
-    // toda saída passaria despercebido, e ninguém mais sairia do fluxo.
+    // A contraprova dos testes de "manter" acima: sem ela, `cursorNoFim:
+    // "manter"` em toda saída passaria despercebido, e ninguém mais sairia do
+    // fluxo.
     expect(interpretar([bem], [], "b_bem001").cursorNoFim).toBe("limpar");
+    // LISTA VAZIA continua limpando, e a diferença com o caso acima é real: aqui
+    // a coluna está ÍNTEGRA e diz, sem ambiguidade, que não há bloco algum.
     expect(interpretar([], [], "0").cursorNoFim).toBe("limpar");
-    expect(interpretar(null, [], "0").cursorNoFim).toBe("limpar");
+    // E o `+1` de quem passou o último bloco: fim de fluxo, não dado quebrado.
+    expect(interpretar([bem], [], null).cursorNoFim).toBe("limpar");
   });
 
   it("SÓ a ligação `sempre` é seguida: `botao` e `senao` não movem a caminhada", () => {

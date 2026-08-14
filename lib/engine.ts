@@ -564,9 +564,12 @@ async function executarFluxo(
   //
   // A conversão devolve null quando a posição não existe, e o caso é comum, não
   // defensivo: é o `+1` de quem estava parado no último bloco. `interpretar`
-  // trata o null registrando o motivo em `ignorados`, que o `logEventThrottled`
-  // logo abaixo grava — antes desta fase esse caso saía calado, porque o laço
-  // por índice simplesmente não iterava.
+  // trata o null SAINDO CALADA — sem `ignorados` e sem sinalizador —, e o motor
+  // limpa o cursor logo abaixo como em qualquer fim de fluxo. A razão de o sinal
+  // ter sido removido está escrita no ramo `deBloco === null` de `interpretar`
+  // (lib/steps.ts): ele dispara se e só se a pessoa passou o ÚLTIMO bloco, o que
+  // é fim NORMAL na maioria das vezes, e os casos que são defeito de verdade são
+  // de MONTAGEM — a conferência os pega no salvar, não na entrega.
   //
   // O QUE FICA EM ABERTO, e precisa estar dito porque é a metade que esta tarefa
   // não fechou: `retomada.destino` é aritmética de POSIÇÃO (`indice + 1`), e o
@@ -609,38 +612,6 @@ async function executarFluxo(
       account.ig_user_id,
       "step_ignorado",
       { automation_id: auto.id, passos: r.ignorados },
-      10,
-      { campo: "automation_id", valor: auto.id }
-    );
-  }
-
-  // NÃO HAVIA BLOCO DE PARTIDA, e esta linha tem tipo PRÓPRIO por dois motivos
-  // que se somam.
-  //
-  // A FRASE. O caso saía como `step_ignorado` com o motivo "o fluxo não tem por
-  // onde começar: o bloco de partida não está na lista", e isso afirmava o que
-  // não aconteceu: quem chega aqui é, quase sempre, quem estava parado no ÚLTIMO
-  // bloco e respondeu — `identidadeNoIndice` devolve null para o `+1` que cai
-  // além do fim. O fluxo tinha começo e terminou.
-  //
-  // A JANELA. `logEventThrottled` grava um `step_ignorado` por automação a cada
-  // 10 minutos. Uma linha benigna gravada nesse tipo SUPRIME por 10 minutos os
-  // `step_ignorado` de verdade da mesma automação — passo mal montado deixaria
-  // de aparecer em Atividade por causa de um fim de fluxo normal. Tipo próprio,
-  // janela própria.
-  //
-  // Continua throttled, e pelo mesmo motivo de sempre: nasce de webhook, que
-  // aceita o que a Meta mandar.
-  if (r.semPartida) {
-    await logEventThrottled(
-      account.ig_user_id,
-      "fluxo_sem_partida",
-      {
-        automation_id: auto.id,
-        contact_ig_id: contactIgId,
-        // a posição pedida, que é o que não existe na lista
-        destino: retomada.destino,
-      },
       10,
       { campo: "automation_id", valor: auto.id }
     );
@@ -745,8 +716,8 @@ async function executarFluxo(
     return;
   }
 
-  // A CAMINHADA QUEBROU NO MEIO — ligação pendurada, ou teto estourado — e aqui
-  // o cursor NÃO é tocado.
+  // A CAMINHADA QUEBROU NO MEIO — `steps` que não é lista, ligação pendurada, ou
+  // teto estourado — e aqui o cursor NÃO é tocado.
   //
   // É a mesma preferência que o ramo do portão não avaliado registra lá em cima:
   // "deixando-o intacto ela não fica pior do que estava". Lá o risco era
@@ -755,12 +726,19 @@ async function executarFluxo(
   // cursor intacto faz o fluxo voltar exatamente de onde parou, e o cursor
   // apagado não faz voltar de lugar nenhum.
   //
-  // O PREÇO, dito porque ele existe: enquanto a seta não for arrumada, cada
-  // mensagem da pessoa refaz a mesma caminhada e reenfileira o trecho que vem
-  // ANTES da quebra. A `passoKey` colapsa isso dentro do dia; virado o balde, o
-  // trecho sai de novo. Continua sendo menos caro do que perder o lugar dela — e
-  // no ramo do teto não custa nada, porque `interpretar` já devolve a lista de
-  // ações vazia.
+  // O PREÇO TEM DUAS METADES, e esta linha só paga a primeira: enquanto o dado
+  // não for arrumado, cada mensagem da pessoa refaz a mesma caminhada e
+  // reenfileira o trecho que vem ANTES da quebra. A `passoKey` colapsa isso
+  // dentro do dia; virado o balde, o trecho sai de novo — e no ramo do teto não
+  // custa nada, porque `interpretar` já devolve a lista de ações vazia.
+  //
+  // A SEGUNDA METADE É A CARA, e ela está escrita por inteiro junto da decisão,
+  // no comentário de `cursorNoFim` (lib/steps.ts): cursor não nulo faz
+  // `handleMessagingEvent` (mais abaixo neste arquivo) ler toda mensagem da
+  // pessoa como resposta ao passo parado. É a mesma captura que este arquivo
+  // recusa em "automação desativada não pode sequestrar o contato" — só que aqui
+  // ela é aceita de propósito, por tempo indeterminado, e a única fuga é
+  // `interrompeOFluxo`, que só cede a vez quando o bloco parado é `dm`.
   //
   // Quem decide isto é `interpretar` (lib/steps.ts, `cursorNoFim`), e não uma
   // condição escrita aqui: a distinção entre "o caminho acabou" e "o caminho
@@ -944,8 +922,17 @@ async function enfileirarPasso(
         ? {
             text: p.texto,
             // O rótulo vem do `envio`, e não de `p.botao_label`: é o mesmo
-            // valor, mas aqui ele é `string` garantido pelo tipo, em vez de um
-            // campo opcional que este ramo teria de afirmar não ser vazio.
+            // valor, mas aqui ele chega como `string` NÃO OPCIONAL, em vez de um
+            // campo que este ramo teria de afirmar existir e não ser vazio.
+            //
+            // O TIPO DIZ `string`, E O RUNTIME NÃO GARANTE ISSO — a frase antiga
+            // dizia "garantido pelo tipo" e essa garantia não existe. O ramo `dm`
+            // de `conferir` (lib/steps.ts) valida só `texto` e devolve
+            // `p as Passo`, então `botao_label` entra CRU do `jsonb`: pode ser
+            // número, objeto, o que estiver gravado na coluna. `envioDaDm` só
+            // exige que ele seja verdadeiro, e o cast é que o chama de `string`.
+            // A exposição é anterior a esta linha e não se conserta aqui — o que
+            // esta linha pode fazer é não mentir sobre ela.
             quick_reply_label: envio.rotulo,
             // O payload leva o BLOCO junto da automação, e é o que faz o toque
             // dizer de qual botão ele veio. Sem isso, dois botões antigos da

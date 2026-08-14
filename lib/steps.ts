@@ -158,41 +158,48 @@ export type Resultado = {
   // exigia sai junto.
   pararEm: string | null;
   ignorados: { indice: number; motivo: string }[];
-  // O CHAMADOR NÃO NOMEOU BLOCO DE PARTIDA (`deBloco` nulo).
-  //
-  // Isto NÃO é defeito da automação, e é por isso que ele não vai junto dos
-  // `ignorados`: o caso normal é o `+1` de quem estava parado no ÚLTIMO bloco —
-  // `identidadeNoIndice` devolve null para uma posição que não existe —, ou
-  // seja, um fluxo que tinha começo e chegou ao fim.
-  //
-  // Ele saía como `ignorado` com o motivo "o fluxo não tem por onde começar",
-  // e as duas metades estavam erradas: a frase AFIRMAVA o que não aconteceu, e
-  // o tipo `step_ignorado` é limitado a uma linha por automação a cada 10
-  // minutos (`logEventThrottled`, lib/engine.ts) — essa linha benigna suprimia
-  // os `step_ignorado` de VERDADE da mesma automação pela janela inteira.
-  //
-  // Esta função não tem como saber por que o chamador não nomeou bloco nenhum:
-  // ela recebeu null e mais nada. Quem sabe é quem chamou, e é lá que a linha
-  // em Atividade é escrita, com tipo próprio.
-  semPartida: boolean;
   // O que fazer com o cursor do contato QUANDO a caminhada não parou em ninguém
   // (`pararEm` nulo). Com `pararEm` não nulo esta resposta não é consultada: o
   // cursor é aquele bloco.
   //
   //   "limpar" — o caminho ACABOU. Não há mais nada a entregar, e a pessoa não
   //     está no meio de nada: é o fim normal do fluxo.
-  //   "manter" — a caminhada foi INTERROMPIDA por dado quebrado (ligação
-  //     pendurada, teto estourado). Onde a pessoa estava continua valendo, e o
-  //     cursor é o único registro disso; apagá-lo por causa de uma seta quebrada
-  //     a deixaria PIOR do que estava, que é a preferência oposta à que
-  //     lib/engine.ts já registra para o portão não avaliado — "deixando-o
-  //     intacto ela não fica pior do que estava". Arrumada a seta, a interação
-  //     seguinte continua de onde parou.
+  //   "manter" — a caminhada foi INTERROMPIDA por dado quebrado (coluna que não
+  //     é lista, ligação pendurada, teto estourado). Onde a pessoa estava
+  //     continua valendo, e o cursor é o único registro disso; apagá-lo por
+  //     causa de uma seta quebrada a deixaria PIOR do que estava, que é a
+  //     preferência oposta à que lib/engine.ts já registra para o portão não
+  //     avaliado — "deixando-o intacto ela não fica pior do que estava".
+  //     Arrumado o dado, a interação seguinte continua de onde parou.
   //
-  // "A automação não tem lista de passos" e "não tem nenhum passo" continuam
-  // LIMPANDO, e a diferença é real: ali não existe bloco nenhum na lista, então
-  // o cursor não aponta para lugar algum que possa voltar a valer. Aqui a lista
-  // existe e o bloco da pessoa quase sempre continua nela.
+  // O CRITÉRIO É DADO QUEBRADO → "manter", FIM NORMAL → "limpar", e ele vale
+  // para os três ramos de dado quebrado sem exceção. "A automação não tem lista
+  // de passos" mantém junto com os outros dois, e a razão que ele já teve para
+  // limpar ("ali não existe bloco nenhum na lista") não é sabível: com `steps`
+  // fora de forma esta função não sabe se a lista está vazia ou ilegível, e
+  // coluna corrompida e depois restaurada é exatamente o cenário que o "manter"
+  // existe para atender. Quem continua LIMPANDO é "não tem nenhum passo": ali a
+  // coluna está íntegra e diz, sem ambiguidade, que a lista não tem bloco algum.
+  //
+  // O PREÇO DO "manter", inteiro, porque ele é o argumento de quem um dia quiser
+  // reverter esta decisão. Ele tem duas metades, e a segunda é a cara:
+  //
+  //   REENFILEIRAMENTO. Enquanto o dado não for arrumado, cada mensagem da
+  //     pessoa refaz a mesma caminhada e reenfileira o trecho ANTES da quebra. A
+  //     `passoKey` colapsa isso dentro do dia; virado o balde, o trecho sai de
+  //     novo. É o preço que lib/engine.ts já nomeia.
+  //   CAPTURA DO CONTATO. Cursor não nulo faz `handleMessagingEvent`
+  //     (lib/engine.ts) ler toda mensagem da pessoa como resposta ao passo
+  //     parado — é a mesma regra que aquele arquivo escreve como "automação
+  //     desativada não pode sequestrar o contato". Com "manter", uma seta
+  //     quebrada prende a pessoa por tempo INDETERMINADO: nenhuma outra
+  //     automação a alcança, e a única fuga é `interrompeOFluxo`, que só cede a
+  //     vez quando o bloco parado é `dm`. Parada num `pedir_follow` ou num
+  //     `pedir_email`, ela não sai até alguém arrumar a automação.
+  //
+  // A escolha continua sendo "manter" porque o outro lado é perder o lugar da
+  // pessoa em silêncio, e o dado quebrado tem conserto — mas ela é uma escolha,
+  // não uma obviedade.
   cursorNoFim: "limpar" | "manter";
 };
 
@@ -644,12 +651,15 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
     enfileirar: [],
     pararEm: null,
     ignorados: [],
-    semPartida: false,
     cursorNoFim: "limpar",
   };
 
+  // `steps` NÃO É LISTA: é o dado mais quebrado que chega aqui, e por isso ele
+  // MANTÉM o cursor, como a ligação pendurada e o teto. O critério inteiro, com
+  // o preço, está no comentário de `cursorNoFim` (acima).
   if (!Array.isArray(passos)) {
     r.ignorados.push({ indice: -1, motivo: "a automação não tem lista de passos" });
+    r.cursorNoFim = "manter";
     return r;
   }
 
@@ -674,15 +684,31 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
     return r;
   }
 
-  // SEM BLOCO DE PARTIDA. Merece sinal — sem ele o motor limparia o cursor e
-  // ninguém receberia nada, sem nada dizendo por quê —, mas NÃO como defeito da
-  // automação: o caso comum é o `+1` de quem estava parado no último bloco, um
-  // fluxo que tinha começo e terminou. O motivo por inteiro, e o que a frase
-  // antiga afirmava sem saber, está no comentário de `semPartida` (acima).
-  if (deBloco === null) {
-    r.semPartida = true;
-    return r;
-  }
+  // SEM BLOCO DE PARTIDA, e a saída é CALADA: nem `ignorados`, nem sinalizador
+  // para o chamador registrar. É um fim de fluxo, e o motor limpa o cursor.
+  //
+  // Ele já saiu de duas formas, e as duas erravam. Como `ignorado` com o motivo
+  // "o fluxo não tem por onde começar" ele AFIRMAVA o que não aconteceu, e ainda
+  // gastava a janela de 10 minutos que `logEventThrottled` (lib/engine.ts) dá ao
+  // tipo `step_ignorado` por automação — a linha benigna suprimia os avisos de
+  // passo mal montado de VERDADE. Depois virou `fluxo_sem_partida`, tipo e
+  // janela próprios, e o defeito que sobrou é o que fecha a questão:
+  //
+  // ELE DISPARA SE E SÓ SE A PESSOA PASSOU O ÚLTIMO BLOCO. Quem chama converte
+  // `indice + 1` em identidade com `identidadeNoIndice`, que devolve null só
+  // para uma posição fora da lista — ou seja, só para o `+1` do último. Isso
+  // junta três casos que o payload não separa: o último bloco era `pedir_email` e
+  // o e-mail foi capturado (fim CERTO, e a forma mais comum de terminar um fluxo
+  // de captura); era uma `dm` de resposta rápida cujo botão não tem destino; era
+  // um `pedir_follow` e quem seguiu não recebeu nada. O primeiro gravaria linha
+  // em toda conta saudável, e uma linha que aparece em operação normal treina o
+  // dono a ignorar Atividade.
+  //
+  // Os outros dois são diagnóstico de verdade, e o lugar deles NÃO é o tempo de
+  // entrega: são defeitos de MONTAGEM, que a conferência da automação pega no
+  // salvar ou no ativar — quando o dono está com o editor aberto e pode
+  // consertar. Avisar na entrega é avisar tarde e para a pessoa errada.
+  if (deBloco === null) return r;
 
   let atrasoSegundos = 0;
   let atual: string = deBloco;
@@ -774,10 +800,20 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
 // `sempre`:
 //
 //   CICLO QUE PASSA POR UMA PARADA É LEGÍTIMO, e é um dos padrões mais úteis que
-//     a ramificação traz: "menu → opção A → volta ao menu". A caminhada não roda
-//     nele, porque ela PARA no menu — o menu tem botões, e `esperaResposta` diz
-//     que ele espera. Cada volta custa um toque da pessoa. Acusar isso recusaria
-//     o fluxo que o produto existe para permitir.
+//     a ramificação traz: "menu → opção A → volta ao menu". Cada volta custa um
+//     toque da pessoa, e acusar isso recusaria o fluxo que o produto existe para
+//     permitir.
+//
+//     QUAL DAS DUAS GUARDAS SEGURA ESSE ANEL DEPENDE DE COMO O MENU FOI MONTADO,
+//     e vale dito porque a versão anterior deste comentário afirmava sempre a
+//     parada. Um menu de `botoes` sem `botao_label` NÃO é parada hoje: nada no
+//     sistema entrega vários botões, então `envioDaDm` o manda como texto puro e
+//     `esperaResposta` diz não (ver `envioDaDm`, acima). O que segura o anel
+//     nesse caso é o FILTRO DE CONDIÇÃO — as setas que saem do menu para as
+//     opções são `botao`, e não `sempre`, então não há `sempre` a seguir. Com
+//     `botao_label`, aí sim a parada trabalha. As duas guardas estão medidas uma
+//     a uma em tests/steps.test.ts, e o comportamento é o mesmo nos dois casos:
+//     `false`.
 //   CICLO SÓ DE `sempre` É INFINITO. Nada nele espera resposta, então nada
 //     interrompe a caminhada: ela anda até o teto a cada disparo, e o dono não
 //     tem como descobrir por quê olhando a tela.

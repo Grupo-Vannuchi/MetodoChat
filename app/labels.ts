@@ -64,22 +64,6 @@ const EVENT: Record<string, Badge> = {
   // Âmbar e não vermelho: nada quebrou, e ninguém deixou de receber o que tinha
   // direito de receber. É a linha que impede a pessoa de simplesmente sumir do
   // fluxo aos olhos de quem lê o painel.
-  // O fluxo não tinha bloco por onde continuar: a retomada caiu depois do
-  // último bloco da lista. Na esmagadora maioria das vezes isso é um fim de
-  // fluxo NORMAL — a pessoa estava parada no último bloco e respondeu.
-  //
-  // Aparece nomeado, e não escondido, porque também é o que se vê quando a
-  // lista foi editada e encolheu debaixo de quem estava no fim dela. Zinco, e
-  // não âmbar: nada quebrou, e ninguém deixou de receber o que tinha para
-  // receber.
-  //
-  // TIPO PRÓPRIO de propósito. Isto já saiu como `step_ignorado`, e a janela de
-  // 10 minutos daquele tipo é por automação: um fim de fluxo normal calava por
-  // 10 minutos os avisos de passo mal montado da mesma automação.
-  fluxo_sem_partida: {
-    label: "Fluxo sem bloco para continuar",
-    className: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400",
-  },
   portao_soltou: {
     label: "Portão de follow soltou o contato",
     className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
