@@ -42,7 +42,7 @@ import {
   identidadeNoIndice,
   indiceDoId,
   lerPayload,
-  ligacaoEscolhida,
+  caminhoDoBotao,
   oQuePortaoFaz,
   type AcaoEnfileirar,
   type Cursor,
@@ -1305,9 +1305,9 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
 
   // Toque num botão de resposta rápida → segue o fluxo
   if (isQuickReply) {
-    // As DUAS formas de payload são lidas pela mesma função (`lerPayload`,
-    // lib/steps.ts), e as duas são finais — a antiga não é dívida a limpar. Ver
-    // o comentário de lá: um botão entregue vive na conversa da pessoa
+    // As TRÊS formas de payload são lidas pela mesma função (`lerPayload`,
+    // lib/steps.ts), e as três são finais — as antigas não são dívida a limpar.
+    // Ver o comentário de lá: um botão entregue vive na conversa da pessoa
     // indefinidamente.
     //
     // Onde a lista retoma é decisão pura, e ela mora em `retomadaDoBotao` e
@@ -1324,60 +1324,66 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
       const auto = await loadAutomation(account.ig_user_id, p.automationId);
       if (auto) {
         // COM BOTÃO (`AUTO:<automação>:<bloco>:<botão>`), a bifurcação decide
-        // sozinha — e NÃO passa pelo cursor. Esta é a medição que a Tarefa 3
-        // pediu, e ela muda a regra:
+        // sozinha — e NÃO passa pelo cursor.
         //
-        // "O CURSOR MANDA; o PAYLOAD é RESERVA" (`cursorDaRetomada`, abaixo) foi
-        // escrita para a FILA: ali o payload só respondia "de qual bloco
-        // continuar", e qualquer resposta rápida da lista servia igual — a
-        // aritmética era a mesma para todo mundo, `indice + 1`. Nesse mundo,
-        // preferir o cursor fazia sentido: ele é a informação mais recente.
-        //
-        // Com bloco de vários botões (Tarefa 4), a pergunta deixa de ser "de
-        // qual bloco continuar" e passa a ser "qual ligação SAI DESTE botão
-        // específico" — e uma ligação de botão é `{de: <bloco que o emitiu>,
-        // quando: {botao: <este id>}}`. O bloco que emitiu o botão é dado
-        // NO MOMENTO DO ENVIO e gravado no próprio payload; nada no cursor do
-        // contato guarda essa informação, porque o cursor fala de onde a
-        // pessoa ESTÁ agora, não de qual bloco mandou qual botão no passado.
-        //
-        // Se este ramo usasse "cursor manda" (isto é, buscasse a ligação a
-        // partir do bloco do CURSOR em vez do bloco do PAYLOAD), um botão
-        // antigo tocado depois de a pessoa já ter avançado por outro caminho
-        // buscaria a ligação no bloco ERRADO — o de onde ela está agora, que
-        // não é o bloco que desenhou aquele botão — e o toque não acharia
-        // ligação nenhuma (ou, pior, coincidiria com o id de um botão de
-        // outro menu). Um botão que a pessoa vê na tela, tocável, deixaria de
-        // fazer efeito, calado, sempre que ela tivesse seguido em frente
-        // antes de tocar — que é justamente o caso comum de um botão entregue
-        // há tempo, com toque atrasado.
-        //
-        // A REGRA AQUI, então, é a oposta: o payload manda, porque só ele
-        // sabe de qual bloco este botão é. O cursor nem é lido neste ramo — a
-        // consulta que `cursorDaRetomada` faz é dispensável quando a origem
-        // já está afirmada pelo próprio toque.
-        if (p.prefixo === "AUTO" && p.botaoId !== null && p.passoId !== null) {
-          const destino = ligacaoEscolhida(auto.ligacoes, p.passoId, {
-            tipo: "botao",
-            botao: p.botaoId,
-          });
-          const indice = destino === null ? null : indiceDoId(auto.steps, destino);
-          // Sem ligação (botão órfão) ou bloco de destino que sumiu da lista:
-          // nada a entregar. O silêncio é o mesmo de `ligacaoEscolhida` — não
-          // afirma o que não sabe, e não inventa caminho.
-          //
-          // `executarFluxo` recebe NÚMERO, não `Retomada`, e é de propósito: o
-          // número cai no ramo `{portao: null, destino}`, sem passar pela
-          // REGRA DO PORTÃO (`atravessandoOPortao`, lib/steps.ts). Essa regra
-          // existe para consertar um jeito específico de errar — a aritmética
-          // `indice + 1` podia PULAR por cima de um `pedir_follow` que ficasse
-          // entre a posição antiga e a nova, entregando o que vem depois a
-          // quem não segue. Aqui não há salto: `destino` é o próximo passo do
-          // GRAFO, um vizinho direto do bloco do botão, e `interpretar`
-          // caminha ligação por ligação, visitando e conferindo cada bloco do
-          // caminho — um `pedir_follow` nesse caminho não é saltado, é
-          // encontrado, e o fluxo para nele como em qualquer outra parada.
-          if (indice !== null) await executarFluxo(account, auto, senderId, indice);
+        // A DECISÃO INTEIRA mora em `caminhoDoBotao` (lib/steps.ts), com o
+        // porquê e com teste: de qual bloco a ligação sai (do PAYLOAD, e não
+        // do cursor — a medição que a Tarefa 3 pediu está lá), qual ligação o
+        // botão escolhe, e o que dizer quando não há caminho. Aqui isto era
+        // uma expressão solta dentro de `server-only`, e trocar o bloco de
+        // origem por um vindo do cursor não acendia luz em teste nenhum — o
+        // mesmo defeito que fez `cursorDaRetomada` sair daqui.
+        const caminho = caminhoDoBotao(p, auto.steps, auto.ligacoes);
+        if (caminho) {
+          if (caminho.indice !== undefined) {
+            // `executarFluxo` recebe NÚMERO, não `Retomada`, e o efeito disso é
+            // PULAR a REGRA DO PORTÃO (`atravessandoOPortao`, lib/steps.ts): o
+            // número cai no ramo `{portao: null, destino}`.
+            //
+            // ISSO É UM BURACO ABERTO, e não uma dispensa justificada. A guarda
+            // do portão é POSICIONAL — `indiceDoPortao` varre o array e compara
+            // ÍNDICES —, e a seta de um botão salta livremente sobre posições:
+            // o destino dela é vizinho no GRAFO, o que não quer dizer vizinho na
+            // LISTA. Medido, com [dm de botão, pedir_follow, dm com url] e a
+            // seta apontando do primeiro para o terceiro: o toque entrega a url
+            // e o `pedir_follow` do meio não é sequer visto. `interpretar`
+            // começa NO destino; ele não caminha do bloco do botão até lá.
+            //
+            // Quem fecha é a Tarefa 3b, e do único jeito que fecha: o portão
+            // passa a ser procurado NO CAMINHO percorrido, não em faixa de
+            // índices. Está registrado lá, com este caso. Passar `Retomada`
+            // aqui, com a regra posicional de hoje, não conserta nada — só
+            // troca o buraco de lugar.
+            await executarFluxo(account, auto, senderId, caminho.indice);
+          } else {
+            // BOTÃO SEM CAMINHO — sem ligação de saída, ou com o bloco de
+            // destino apagado da lista. Não há o que entregar, e o que NÃO pode
+            // acontecer é isso passar calado: a pessoa toca, nada acontece, e
+            // não haveria erro em lugar nenhum para quem for procurar.
+            //
+            // Esta linha não treina o dono a ignorar Atividade porque ela não
+            // aparece em operação normal: botão órfão é montagem errada, e a
+            // conferência da Tarefa 5 recusa salvar um assim. O que chega até
+            // aqui é o que ela não vê — ligação gravada fora do editor, ou
+            // bloco apagado depois de o botão já ter saído.
+            //
+            // Com janela, como os vizinhos `step_ignorado` e
+            // `portao_nao_avaliado`, e pelo mesmo motivo: um botão quebrado
+            // tocado em série não pode virar uma linha por toque.
+            await logEventThrottled(
+              account.ig_user_id,
+              "botao_sem_caminho",
+              {
+                automation_id: auto.id,
+                contact_ig_id: senderId,
+                bloco: p.passoId,
+                botao: p.botaoId,
+                motivo: caminho.motivo,
+              },
+              10,
+              { campo: "automation_id", valor: auto.id }
+            );
+          }
           return;
         }
 

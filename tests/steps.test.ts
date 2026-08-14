@@ -23,6 +23,7 @@ import {
   conferirLigacao,
   ligacoesDe,
   ligacaoEscolhida,
+  caminhoDoBotao,
   novoIdDeBotao,
   envioDaDm,
   esperaResposta,
@@ -1106,7 +1107,8 @@ describe("indiceDoId", () => {
 
 describe("lerPayload", () => {
   // Um botão já entregue vive na conversa da pessoa PARA SEMPRE — ela pode
-  // tocar nele daqui a um mês. Por isso as duas formas convivem, e isto não é
+  // tocar nele daqui a um mês. Por isso as três formas convivem (a quarta parte
+  // chegou na Tarefa 3 — ver describe("lerPayload com o botão")), e isto não é
   // dívida a limpar: é a forma final.
 
   it("lê a forma nova, com o bloco", () => {
@@ -1346,6 +1348,28 @@ describe("ligacaoEscolhida", () => {
     expect(ligacaoEscolhida(ls, "b_men001", { tipo: "botao", botao: "op_zzzzzz" })).toBe(null);
   });
 
+  it("havendo mais de uma que sirva, ganha a PRIMEIRA gravada", () => {
+    // A regra do desempate estava escrita no comentário e no código, e nada a
+    // media: trocar o `find` por uma busca de trás para frente não derrubava
+    // teste nenhum. Duas ligações para o MESMO botão só chegam de lista
+    // gravada fora do editor, e é justamente por isso que a escolha precisa ser
+    // afirmada — não há conferência antes dela.
+    const duas = [
+      { de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_pri002" },
+      { de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_seg003" },
+    ];
+    expect(ligacaoEscolhida(duas, "b_men001", { tipo: "botao", botao: "op_aaaaaa" })).toBe(
+      "b_pri002"
+    );
+
+    // E o mesmo vale para o `senao`, que tem o mesmo desempate.
+    const doisSenao = [
+      { de: "b_men001", quando: { tipo: "senao" }, para: "b_pri002" },
+      { de: "b_men001", quando: { tipo: "senao" }, para: "b_seg003" },
+    ];
+    expect(ligacaoEscolhida(doisSenao, "b_men001", { tipo: "texto" })).toBe("b_pri002");
+  });
+
   it("não estoura com lixo", () => {
     expect(ligacaoEscolhida(null, "b_men001", { tipo: "texto" })).toBe(null);
     expect(ligacaoEscolhida(ls, "", { tipo: "texto" })).toBe(null);
@@ -1376,6 +1400,90 @@ describe("lerPayload com o botão", () => {
 
   it("quarta parte em branco é recusada", () => {
     expect(lerPayload("AUTO:auto-1:b_men001:")).toBe(null);
+  });
+
+  it("BLOCO em branco é recusado TAMBÉM na forma de quatro partes", () => {
+    // A guarda do bloco vazio passou de `=== 3` para `>= 3` justamente para
+    // cobrir este caso, e nada media a diferença: voltando para `=== 3` toda a
+    // suíte continuava verde. Aceitar poria `passoId: ""` no payload, e ""
+    // não é identidade de bloco nenhum — `caminhoDoBotao` procuraria as saídas
+    // de um bloco que não existe e o toque morreria como órfão.
+    expect(lerPayload("AUTO:auto-1::op_aaaaaa")).toBe(null);
+    expect(lerPayload("FOLLOW:auto-1::op_aaaaaa")).toBe(null);
+  });
+});
+
+describe("caminhoDoBotao", () => {
+  const passos = [
+    { id: "b_men001", tipo: "dm", texto: "escolha", botao_label: "quero" },
+    { id: "b_opa002", tipo: "dm", texto: "opção A" },
+    { id: "b_opb003", tipo: "dm", texto: "opção B" },
+  ];
+  const ligacoes = [
+    { de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_opa002" },
+    { de: "b_men001", quando: { tipo: "botao", botao: "op_bbbbbb" }, para: "b_opb003" },
+    { de: "b_men001", quando: { tipo: "senao" }, para: "b_opa002" },
+  ];
+
+  it("o bloco de origem vem do PAYLOAD, e o índice é o do destino daquele botão", () => {
+    expect(caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_bbbbbb")!, passos, ligacoes)).toEqual({
+      indice: 2,
+    });
+  });
+
+  it("O CURSOR NÃO É ARGUMENTO — nem o de fora, nem nenhum outro bloco", () => {
+    // Esta é a peça que faltava ter teste, e a ausência dela era a mesma classe
+    // de risco de `cursorDaRetomada`: enquanto a escolha de "de qual bloco sai a
+    // ligação" fosse uma expressão solta dentro de lib/engine.ts, trocar
+    // `p.passoId` por um id vindo do cursor não acendia luz em teste nenhum.
+    //
+    // A função recebe o payload e a automação, e mais nada: não há por onde o
+    // bloco de origem chegar que não seja o próprio toque. O que isto fixa é o
+    // efeito da troca — pedir o caminho a partir de OUTRO bloco não acha a
+    // ligação, porque o id do botão é escopado ao bloco que o emitiu.
+    const deOutroBloco = { prefixo: "AUTO" as const, automationId: "A", passoId: "b_opa002", botaoId: "op_bbbbbb" };
+    expect(caminhoDoBotao(deOutroBloco, passos, ligacoes)).toEqual({
+      motivo: "o botão op_bbbbbb, do bloco b_opa002, não tem ligação de saída",
+    });
+  });
+
+  it("botão órfão devolve MOTIVO, e não silêncio", () => {
+    // O comentário de `ligacaoEscolhida` recusa mandar o órfão para o `senao`
+    // dizendo que isso esconderia o defeito de montagem. Não entregar nada e
+    // não dizer nada o esconderia igual, só por outra porta: é este `motivo`
+    // que vira linha em Atividade (`botao_sem_caminho`, lib/engine.ts).
+    const r = caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_zzzzzz")!, passos, ligacoes);
+    expect(r?.indice).toBe(undefined);
+    expect(r?.motivo).toContain("não tem ligação de saída");
+  });
+
+  it("destino apagado da lista tem motivo PRÓPRIO", () => {
+    // Dois motivos e não um porque se arrumam em lugares diferentes: aqui a
+    // ligação existe, o que sumiu foi o bloco de destino.
+    const sumido = [
+      { de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_sumiu9" },
+    ];
+    const r = caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_aaaaaa")!, passos, sumido);
+    expect(r?.indice).toBe(undefined);
+    expect(r?.motivo).toContain("não está na lista: b_sumiu9");
+  });
+
+  it("payload SEM botão devolve null — a pergunta ali é a antiga", () => {
+    // null não é "não há caminho": é "esta função não responde por este toque".
+    // As duas formas antigas continuam com `cursorDaRetomada` e o cursor
+    // mandando, e é o null que as deixa passar.
+    expect(caminhoDoBotao(lerPayload("AUTO:A:b_men001")!, passos, ligacoes)).toBe(null);
+    expect(caminhoDoBotao(lerPayload("AUTO:A")!, passos, ligacoes)).toBe(null);
+    // O `FOLLOW:` nunca traz botão, mas se um dia trouxer ele não entra aqui:
+    // o portão tem regra própria (`retomadaDoFollow`), e ela consulta a Meta.
+    const followComBotao = { prefixo: "FOLLOW" as const, automationId: "A", passoId: "b_men001", botaoId: "op_aaaaaa" };
+    expect(caminhoDoBotao(followComBotao, passos, ligacoes)).toBe(null);
+  });
+
+  it("não estoura com lixo", () => {
+    const p = lerPayload("AUTO:A:b_men001:op_aaaaaa")!;
+    expect(caminhoDoBotao(p, null, null)?.motivo).toContain("não tem ligação de saída");
+    expect(caminhoDoBotao(p, null, ligacoes)?.motivo).toContain("não está na lista");
   });
 });
 

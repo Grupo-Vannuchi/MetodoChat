@@ -68,6 +68,19 @@ const EVENT: Record<string, Badge> = {
     label: "Portão de follow soltou o contato",
     className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
   },
+  // Alguém tocou num botão que não leva a lugar nenhum: a ligação de saída não
+  // existe, ou o bloco de destino foi apagado da lista depois que o botão já
+  // tinha saído. O motor não entrega nada (`caminhoDoBotao`, lib/steps.ts), e
+  // sem esta linha o defeito seria invisível — a pessoa toca, não acontece
+  // nada, e não há erro em canto nenhum.
+  //
+  // Vermelho, pelo mesmo critério de `portao_nao_avaliado`: alguém deixou de
+  // receber mensagem. E não é ruído de operação normal — botão órfão é
+  // montagem errada, que a conferência do editor recusa salvar.
+  botao_sem_caminho: {
+    label: "Botão sem caminho",
+    className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
+  },
 };
 
 const UNKNOWN: Badge = {

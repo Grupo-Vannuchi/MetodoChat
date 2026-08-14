@@ -318,6 +318,12 @@ export function ligacoesDe(ligacoes: unknown, bloco: string): Ligacao[] {
 //     conferência da Tarefa 5 vai recusar salvar um assim, mas ligação
 //     gravada fora do editor pode chegar quebrada), e mandá-lo para a
 //     `senao` esconderia esse defeito atrás de um caminho que não é o dele.
+//     ESTE null NÃO É SILÊNCIO, e é `caminhoDoBotao` (mais abaixo) quem o
+//     impede de virar um: ela recebe o null desta função e devolve um
+//     `motivo`, que o motor grava em Atividade. Sem aquele registro, o
+//     argumento acima seria falso — recusar a `senao` para não esconder o
+//     defeito e depois não entregar nada, calado, esconde o defeito do mesmo
+//     jeito, só por outra porta.
 //   HAVENDO MAIS DE UMA que sirva — dado de fora do editor, que a
 //     conferência não viu —, ganha a primeira, que é a ordem que
 //     `ligacoesDe` já devolve.
@@ -798,8 +804,9 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
     }
 
     // SÓ a `sempre` move a caminhada sozinha. `botao` e `senao` são respostas de
-    // alguém, e quem as case com o toque é a Tarefa 3 — seguir uma delas aqui
-    // seria entregar o braço de uma pergunta que ninguém respondeu.
+    // alguém, e quem as case com o toque é `ligacaoEscolhida` (acima) — seguir
+    // uma delas aqui seria entregar o braço de uma pergunta que ninguém
+    // respondeu.
     //
     // Havendo mais de uma `sempre` (lista montada fora do editor), ganha a
     // primeira gravada, que é a regra de desempate de `ligacoesDe`.
@@ -1055,6 +1062,83 @@ export function lerPayload(payload: unknown): Payload | null {
   // acharia ligação para ela mesmo que aceitasse.
   if (partes.length === 4 && !botaoId) return null;
   return { prefixo, automationId, passoId: passoId ?? null, botaoId: botaoId ?? null };
+}
+
+// PARA ONDE VAI UM TOQUE EM BOTÃO — do payload até o índice, numa função só.
+//
+// Devolve `null` quando o toque NÃO é da forma de quatro partes: aí a pergunta
+// é a antiga ("de qual bloco continuar"), e quem responde é `cursorDaRetomada`
+// (logo abaixo) com `retomadaDoBotao`/`retomadaDoFollow`. Devolve `{indice}`
+// quando há caminho, e `{motivo}` quando não há — e o motivo existe porque
+// nada a entregar não pode virar nada a dizer (ver o final deste comentário).
+//
+// AQUI O PAYLOAD MANDA, E O CURSOR NEM É ARGUMENTO. É o oposto de
+// `cursorDaRetomada`, e a inversão é medida, não gosto:
+//
+//   "O CURSOR MANDA; o payload é RESERVA" foi escrita para a FILA. Ali o
+//   payload só respondia "de qual bloco continuar", e toda resposta rápida
+//   avançava pela MESMA aritmética (`indice + 1`) — a resposta não dependia de
+//   QUAL botão foi tocado. Nesse mundo preferir o cursor era estritamente
+//   melhor: ele é a informação mais recente, e não custava nada.
+//
+//   Com bifurcação a pergunta muda: não é mais "de onde continuar", é "qual
+//   ligação sai DESTE botão". E uma ligação de botão é `{de: <bloco que o
+//   emitiu>, quando: {botao: <este id>}}` — o `de` só pode ser o bloco que
+//   desenhou aquele botão, porque o id do botão é escopado ao bloco, não é
+//   global. Essa informação existe num lugar só: no payload, gravado no
+//   momento do envio. O cursor não a tem — ele diz onde a pessoa ESTÁ, não
+//   qual bloco mandou qual botão no passado.
+//
+//   Usar o cursor aqui buscaria a ligação no bloco ERRADO sempre que a pessoa
+//   já tivesse seguido em frente antes de tocar: `ligacoesDe` do bloco de
+//   agora não tem aquele id, e o toque não faria nada, calado. Um botão
+//   visível e tocável que parou de funcionar. No pior caso — colisão de id de
+//   botão entre blocos, que os 6 caracteres não impedem — acertaria a ligação
+//   ERRADA.
+//
+// O QUE SE PERDEU NA INVERSÃO, E AINDA NÃO TEM SUBSTITUTO. "O cursor manda"
+// fazia DUAS coisas, e só uma delas foi derrubada pela medição acima. A outra
+// era AFERIÇÃO DE FRESCOR: passando pelo cursor, um botão VELHO não
+// teleportava quem já tinha seguido adiante — a retomada saía de onde a pessoa
+// está, não de onde o botão foi emitido. Essa segunda função foi descartada
+// junto com a primeira, e nada a substituiu: hoje um toque atrasado num botão
+// antigo é honrado incondicionalmente. Quem lê o parágrafo de cima sozinho
+// conclui que nada se perdeu, e conclui errado.
+//
+// Isso importa porque é justamente o toque atrasado que cai longe na lista, e
+// a guarda do portão (`atravessandoOPortao`, abaixo) é POSICIONAL: ela compara
+// índices, e uma seta de botão salta livremente sobre posições. Medido: com
+// [dm com botão, pedir_follow, dm com url] e a seta do botão apontando para o
+// terceiro, o toque entrega a url e o portão não é visto. O substituto certo
+// NÃO é restaurar "o cursor manda" — isso quebraria os botões legítimos que a
+// medição acima defende. É a REGRA DO PORTÃO POR CAMINHO, da Tarefa 3b: o
+// portão passa a ser procurado no caminho percorrido, não em faixa de índices.
+// Até ela existir, este ramo entrega sem portão, e está registrado lá.
+//
+// O `motivo` fecha o outro buraco, o do botão órfão. Sem ligação (ou com o
+// bloco de destino apagado da lista) não há o que entregar, e não entregar
+// nada sem dizer nada deixa o defeito invisível: a pessoa toca, não acontece
+// coisa nenhuma, e não há erro em lugar nenhum. Botão órfão não é operação
+// normal — é montagem errada, e ligação gravada fora do editor é justamente a
+// que a conferência da Tarefa 5 não vê. Por isso vira linha em Atividade
+// (`botao_sem_caminho`, lib/engine.ts), e por isso são DOIS motivos e não um:
+// "sem ligação" e "destino apagado" se arrumam em lugares diferentes do
+// editor.
+export function caminhoDoBotao(
+  p: Payload,
+  passos: unknown,
+  ligacoes: unknown
+): { indice?: number; motivo?: string } | null {
+  if (p.prefixo !== "AUTO" || p.botaoId === null || p.passoId === null) return null;
+  const destino = ligacaoEscolhida(ligacoes, p.passoId, { tipo: "botao", botao: p.botaoId });
+  if (destino === null) {
+    return { motivo: `o botão ${p.botaoId}, do bloco ${p.passoId}, não tem ligação de saída` };
+  }
+  const indice = indiceDoId(passos, destino);
+  if (indice === null) {
+    return { motivo: `o botão ${p.botaoId} leva a um bloco que não está na lista: ${destino}` };
+  }
+  return { indice };
 }
 
 // Qual cursor vale no toque de um botão: o REAL do contato, ou o bloco que veio
