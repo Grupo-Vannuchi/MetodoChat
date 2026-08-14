@@ -114,7 +114,8 @@ export type Ligacao = { de: string; quando: Quando; para: string };
 // duas gerações nunca poderem divergir sobre o que é um caractere válido.
 export function novoIdDeBotao(): string {
   let id = "op_";
-  for (let i = 0; i < 6; i++) id += ALFABETO_DO_ID[Math.floor(Math.random() * 36)];
+  for (let i = 0; i < 6; i++)
+    id += ALFABETO_DO_ID[Math.floor(Math.random() * ALFABETO_DO_ID.length)];
   return id;
 }
 
