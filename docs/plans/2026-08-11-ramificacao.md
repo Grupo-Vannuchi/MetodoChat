@@ -990,7 +990,17 @@ Com o servidor de desenvolvimento, na tela real:
 - soltar um bloco sobre uma seta o põe no meio, e as duas ligações resultantes
   estão certas
 - soltar num ponto vazio cria bloco solto, e a conferência acusa
-- apagar um bloco apaga as ligações que entram e saem dele
+- apagar um bloco apaga as ligações que entram e saem dele — **hoje `apagarBloco`
+  não toca em `ligacoes`**, e é aqui que isso passa a importar
+
+**E reavalie um evento por causa desta tarefa.** A Tarefa 3 criou
+`botao_sem_caminho`, que grava em Atividade quando alguém toca num botão sem
+destino. Ele foi aceito como sinal porque hoje **só dado escrito por fora**
+consegue produzi-lo. A partir desta tarefa isso muda: apagar um bloco que um
+botão já entregue aponta vira **operação normal**, e a pessoa pode tocar naquele
+botão dias depois. Diga se o evento continua raro o bastante para não virar
+ruído — o critério medido nesta fase é que linha aparecendo em operação normal
+treina o dono a ignorar Atividade.
 
 **Meça durante o gesto.** Nesta base, comparar "antes e depois" já aprovou item
 quebrado quatro vezes, porque o defeito preservava o estado final.
