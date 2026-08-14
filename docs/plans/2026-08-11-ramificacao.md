@@ -724,6 +724,16 @@ o defeito errado. As duas hipóteses são úteis e nenhuma se resolve seguindo.
 
 - [ ] **Passo 3: implemente**
 
+### Medido pela revisão da Tarefa 3, e economiza uma tentativa errada
+
+**Aplicar `atravessandoOPortao` ao destino do botão NÃO conserta.** A guarda de
+hoje tem falso-negativo próprio, provado com este caso: portão no índice 2, link
+no índice 1 → `atravessandoOPortao(steps, 1)` devolve `{portao: null}`, porque a
+pergunta que ela faz é *"há portão numa posição menor?"*.
+
+Com grafo, a pergunta certa é **"há portão no caminho?"**, e as duas deixaram de
+ser a mesma coisa. Não tente adaptar a comparação posicional — ela precisa sair.
+
 `atravessandoOPortao` passa a receber as ligações e a perguntar **se há portão no
 caminho** entre onde a pessoa está e o destino. Use a caminhada que a Tarefa 2 já
 construiu — **não escreva uma segunda travessia do grafo.** Se precisar de uma
