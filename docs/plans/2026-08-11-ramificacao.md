@@ -647,6 +647,17 @@ deixado de fora ao escrever esta tarefa, e são **os piores dos seis**:
 |---|---|
 | `lib/engine.ts` · portão vencido | `acao.indice + 1` |
 | `lib/engine.ts` · e-mail já conhecido | `acao.indice + 1` |
+| `lib/engine.ts` · **o botão tocado (Tarefa 3)** | índice cru de `ligacaoEscolhida` |
+
+**O terceiro nasceu depois**, na Tarefa 3, e é o mais grave dos três: ele está no
+caminho principal da bifurcação. Quem implementou reportou com todas as letras
+que o destino escolhido "é passado a `executarFluxo` como número puro, o que faz
+o caminho pular por completo `atravessandoOPortao`". Ou seja: **tocar num botão
+que leva a um bloco com link entrega o link sem passar pelo portão.**
+
+Confirme isso medindo antes de consertar. Se estiver certo, é o vazamento que
+esta tarefa existe para fechar, e ele precisa de teste que o reproduza — um
+teste que fique **vermelho** com o código de hoje.
 
 Piores por dois motivos. Eles passam **número cru** para `executarFluxo`, e o
 ramo `typeof de === "number"` **contorna `atravessandoOPortao` inteiro** — ou
