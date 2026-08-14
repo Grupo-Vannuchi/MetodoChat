@@ -230,6 +230,10 @@ export type Automation = {
   // não tem garantia de forma, e quem valida é o interpretador de lib/steps.ts.
   // Tipar como Passo[] aqui seria afirmar uma garantia que o jsonb não dá.
   steps: unknown[];
+  // As ligações entre os blocos, com a mesma garantia de `steps`: `unknown[]`
+  // porque o jsonb não confere forma nenhuma, e quem valida é `conferirLigacao`
+  // (lib/steps.ts).
+  ligacoes: unknown[];
   created_at: Date;
 };
 
@@ -481,6 +485,14 @@ const DDL = [
   // migrada, e falha na direção segura: cursor que não resolve nunca pula
   // passo.
   `alter table contacts add column if not exists flow_step_id text`,
+  // As ligações entre os blocos: de qual bloco, sob qual condição, para qual
+  // bloco. Com elas, a ORDEM DO ARRAY `steps` deixa de significar o próximo — é
+  // a seta que manda.
+  //
+  // Coluna nova em vez de mudança em `steps`, de propósito: `steps` continua com
+  // a mesma forma, então uma automação que ninguém abriu continua sendo lida
+  // exatamente como antes. Quem a converte em corrente é o script de migração.
+  `alter table automations add column if not exists ligacoes jsonb not null default '[]'::jsonb`,
 ];
 
 type SqlClient = ReturnType<typeof sql>;

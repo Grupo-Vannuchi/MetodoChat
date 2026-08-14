@@ -17,6 +17,9 @@ import {
   conferirLista,
   conferir,
   oQuePortaoFaz,
+  conferirLigacao,
+  ligacoesDe,
+  novoIdDeBotao,
 } from "../lib/steps";
 
 describe("interpretar", () => {
@@ -1914,5 +1917,62 @@ describe("o que o portão faz", () => {
 
   it("com limite zero, solta sempre", () => {
     expect(oQuePortaoFaz(0, 0)).toBe("soltar");
+  });
+});
+
+describe("conferirLigacao", () => {
+  it("aceita a forma completa dos três tipos", () => {
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "sempre" }, para: "b_bbb222" }).ligacao)
+      .toEqual({ de: "b_aaa111", quando: { tipo: "sempre" }, para: "b_bbb222" });
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "botao", botao: "op_a" }, para: "b_bbb222" }).motivo)
+      .toBeUndefined();
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "senao" }, para: "b_bbb222" }).motivo)
+      .toBeUndefined();
+  });
+
+  it("recusa ligação sem de, sem para, ou com tipo desconhecido", () => {
+    // Ligação quebrada é caminho que não existe. Ignorar em silêncio faria a
+    // pessoa parar no meio do fluxo sem nada em Atividade.
+    expect(conferirLigacao({ quando: { tipo: "sempre" }, para: "b_bbb222" }).ligacao).toBeUndefined();
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "sempre" } }).ligacao).toBeUndefined();
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "voar" }, para: "b_bbb222" }).ligacao).toBeUndefined();
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "botao" }, para: "b_bbb222" }).ligacao).toBeUndefined();
+  });
+
+  it("não estoura com lixo", () => {
+    expect(conferirLigacao(null).ligacao).toBeUndefined();
+    expect(conferirLigacao("x").ligacao).toBeUndefined();
+    expect(conferirLigacao(42).ligacao).toBeUndefined();
+  });
+});
+
+describe("ligacoesDe", () => {
+  const ls = [
+    { de: "b_aaa111", quando: { tipo: "botao", botao: "op_a" }, para: "b_bbb222" },
+    { de: "b_aaa111", quando: { tipo: "senao" }, para: "b_ccc333" },
+    { de: "b_bbb222", quando: { tipo: "sempre" }, para: "b_ccc333" },
+    { de: "b_aaa111", quando: { tipo: "voar" }, para: "b_ddd444" },
+  ];
+
+  it("devolve as ligações VÁLIDAS que saem daquele bloco, na ordem", () => {
+    const r = ligacoesDe(ls, "b_aaa111");
+    expect(r).toHaveLength(2);
+    expect(r[0].para).toBe("b_bbb222");
+    expect(r[1].quando.tipo).toBe("senao");
+  });
+
+  it("bloco sem saída devolve lista vazia", () => {
+    expect(ligacoesDe(ls, "b_zzz999")).toEqual([]);
+  });
+
+  it("não estoura quando não é lista", () => {
+    expect(ligacoesDe(null, "b_aaa111")).toEqual([]);
+    expect(ligacoesDe({}, "b_aaa111")).toEqual([]);
+  });
+});
+
+describe("novoIdDeBotao", () => {
+  it("sai sempre no formato aceito e com comprimento fixo", () => {
+    for (let i = 0; i < 500; i++) expect(novoIdDeBotao()).toMatch(/^op_[0-9a-z]{6}$/);
   });
 });

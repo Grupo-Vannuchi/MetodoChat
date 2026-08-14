@@ -35,7 +35,7 @@ type ComId = { id?: string; pos?: Posicao };
 export type Passo = ComId &
   (
     | { tipo: "resposta_publica"; textos: string[] }
-    | { tipo: "dm"; texto: string; botao_label?: string; url?: string }
+    | { tipo: "dm"; texto: string; botao_label?: string; url?: string; botoes?: Botao[] }
     | { tipo: "esperar"; minutos: number }
     | { tipo: "reagir_story"; emoji: string }
     | { tipo: "pedir_follow"; texto: string; botao_label: string }
@@ -83,6 +83,75 @@ export type Resultado = {
   pararEm: number | null;
   ignorados: { indice: number; motivo: string }[];
 };
+
+// Um botão de escolha. O `id` é o que viaja no payload, e é ele que
+// `ligacaoEscolhida` (mais abaixo) casa com a ligação — NÃO o rótulo, que o dono
+// pode reescrever a qualquer momento sem querer trocar de caminho.
+export type Botao = { id: string; rotulo: string };
+
+// A pergunta feita na bifurcação.
+//
+// `sempre` é o caso comum: um bloco que não bifurca tem uma saída só, e ela vale
+// sem condição. `botao` casa com o toque. `senao` recebe quem respondeu
+// DIGITANDO em vez de tocar — é opcional, e sem ela o fluxo simplesmente para.
+//
+// As outras duas ramificações do produto entram AQUI, sem tocar em mais nada:
+// `{tipo:"texto", palavras:[…]}` e `{tipo:"segue"}`. É por isso que `quando` é
+// um objeto com discriminante em vez de uma string.
+export type Quando =
+  | { tipo: "sempre" }
+  | { tipo: "botao"; botao: string }
+  | { tipo: "senao" };
+
+export type Ligacao = { de: string; quando: Quando; para: string };
+
+// Comprimento FIXO, pelo mesmo motivo de `novoIdDeBloco`: um id curto demais
+// seria recusado pela forma e o botão deixaria de casar com a ligação, em
+// silêncio.
+//
+// O alfabeto é o mesmo de `novoIdDeBloco` (`ALFABETO_DO_ID`, declarado mais
+// abaixo, junto de `FORMA_DO_ID`) — reaproveitado em vez de repetido, para as
+// duas gerações nunca poderem divergir sobre o que é um caractere válido.
+export function novoIdDeBotao(): string {
+  let id = "op_";
+  for (let i = 0; i < 6; i++) id += ALFABETO_DO_ID[Math.floor(Math.random() * 36)];
+  return id;
+}
+
+// Valida e normaliza uma ligação. Devolve o motivo quando não dá para usar.
+//
+// Ligação quebrada é caminho que não existe. Ignorar em silêncio faria a pessoa
+// parar no meio do fluxo sem nada em Atividade — a mesma falha muda que o
+// `step_ignorado` existe para evitar do lado dos blocos.
+export function conferirLigacao(l: unknown): { ligacao?: Ligacao; motivo?: string } {
+  if (!l || typeof l !== "object") return { motivo: "ligação não é um objeto" };
+  const o = l as Record<string, unknown>;
+  if (typeof o.de !== "string" || !o.de) return { motivo: "ligação sem bloco de origem" };
+  if (typeof o.para !== "string" || !o.para) return { motivo: "ligação sem bloco de destino" };
+  const q = o.quando as Record<string, unknown> | undefined;
+  if (!q || typeof q !== "object") return { motivo: "ligação sem condição" };
+  if (q.tipo === "sempre" || q.tipo === "senao") return { ligacao: l as Ligacao };
+  if (q.tipo === "botao") {
+    if (typeof q.botao !== "string" || !q.botao) return { motivo: "ligação de botão sem o botão" };
+    return { ligacao: l as Ligacao };
+  }
+  return { motivo: `condição desconhecida: ${String(q.tipo)}` };
+}
+
+// As saídas VÁLIDAS de um bloco, na ordem em que foram gravadas.
+//
+// A ordem importa em um caso só, e ele está em `ligacaoEscolhida`: havendo mais
+// de uma que sirva, ganha a primeira. Fora disso, ordem de ligação não quer
+// dizer nada — quem manda é a condição.
+export function ligacoesDe(ligacoes: unknown, bloco: string): Ligacao[] {
+  if (!Array.isArray(ligacoes)) return [];
+  const saidas: Ligacao[] = [];
+  for (const bruta of ligacoes) {
+    const { ligacao } = conferirLigacao(bruta);
+    if (ligacao && ligacao.de === bloco) saidas.push(ligacao);
+  }
+  return saidas;
+}
 
 // Valida e normaliza um passo. Devolve o motivo quando não dá para usar.
 //
