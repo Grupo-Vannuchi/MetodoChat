@@ -38,6 +38,7 @@ import {
   cursorDaRetomada,
   interrompeOFluxo,
   identidadeDoPasso,
+  identidadeNoIndice,
   indiceDoId,
   lerPayload,
   oQuePortaoFaz,
@@ -551,7 +552,33 @@ async function executarFluxo(
     }
   }
 
-  const r = interpretar(auto.steps, retomada.destino);
+  // A ÚNICA chamada de `interpretar` do motor, e ela é a fronteira entre as duas
+  // metades do sistema nesta fase.
+  //
+  // `interpretar` passou a CAMINHAR O GRAFO: ela recebe as ligações e a
+  // IDENTIDADE do bloco de partida, e a ordem do array não diz mais o que vem
+  // depois. Quem calcula `retomada.destino`, porém, ainda fala em POSIÇÃO — as
+  // quatro retomadas de lib/steps.ts devolvem número —, e a conversão de posição
+  // para identidade é `identidadeNoIndice` (lib/steps.ts), pura e com teste.
+  //
+  // A conversão devolve null quando a posição não existe, e o caso é comum, não
+  // defensivo: é o `+1` de quem estava parado no último bloco. `interpretar`
+  // trata o null registrando o motivo em `ignorados`, que o `logEventThrottled`
+  // logo abaixo grava — antes desta fase esse caso saía calado, porque o laço
+  // por índice simplesmente não iterava.
+  //
+  // O QUE FICA EM ABERTO, e precisa estar dito porque é a metade que esta tarefa
+  // não fechou: `retomada.destino` é aritmética de POSIÇÃO (`indice + 1`), e o
+  // grafo não reproduz essa aritmética. Enquanto as ligações forem a corrente
+  // que a migração gerou (bloco i → bloco i+1), as duas concordam em toda
+  // entrada. No dia em que o editor deixar o dono desenhar um braço de verdade,
+  // "o seguinte na lista" e "o destino da seta `sempre`" passam a ser blocos
+  // diferentes, e é este argumento que fica errado — não a caminhada.
+  const r = interpretar(
+    auto.steps,
+    auto.ligacoes,
+    identidadeNoIndice(auto.steps, retomada.destino)
+  );
 
   // Passo mal montado vira linha em Atividade, não exceção. Automação quebrada
   // não pode derrubar o webhook: a Meta reenviaria o evento por 36 horas.
@@ -669,24 +696,19 @@ async function executarFluxo(
   // da pessoa, e sem gravar o cursor o toque recomeçaria a lista do zero e
   // pararia no mesmo passo, para sempre.
   //
-  // O `as unknown[]` abaixo é cast SEM CONFERÊNCIA, e o que o segura é uma
-  // invariante de `interpretar` (lib/steps.ts) que não estava escrita em lugar
-  // nenhum. Ela é esta, e vale a linha: `interpretar` devolve `pararEm: null`
-  // sempre que `steps` NÃO é array — é a primeira coisa que ela faz, antes de
-  // qualquer laço. Logo, dentro deste `if`, `auto.steps` é comprovadamente um
-  // array, e o índice `r.pararEm` veio do próprio laço dela, ou seja, está
-  // dentro dos limites. O cast não está afirmando nada que a função não tenha
-  // decidido uma linha antes.
+  // `r.pararEm` JÁ É A IDENTIDADE, e o cursor é gravado com ela direto.
   //
-  // Quem mudar `interpretar` para devolver `pararEm` não-nulo com `steps` de
-  // outra forma quebra isto aqui, e o `identidadeDoPasso` passaria a indexar
-  // undefined — ele não estoura (trata passo não-objeto), mas gravaria o cursor
-  // no índice em texto, apontando para bloco nenhum.
+  // Aqui havia `identidadeDoPasso((auto.steps as unknown[])[r.pararEm],
+  // r.pararEm)`: um cast SEM CONFERÊNCIA, sustentado por uma invariante de
+  // `interpretar` que precisava de treze linhas de comentário para ser afirmada
+  // — "ela devolve `pararEm: null` sempre que `steps` não é array, logo o cast é
+  // seguro". A invariante continua valendo, mas ninguém mais depende dela: a
+  // caminhada não tem índice a converter, porque ela nunca falou em índice.
+  //
+  // É a conversão que o comentário daquela linha avisava ser frágil, e ela sumiu
+  // por deixar de existir, não por ter sido consertada.
   if (r.pararEm !== null) {
-    await gravarCursor(
-      account.ig_user_id, contactIgId, auto.id,
-      identidadeDoPasso((auto.steps as unknown[])[r.pararEm], r.pararEm)
-    );
+    await gravarCursor(account.ig_user_id, contactIgId, auto.id, r.pararEm);
     return;
   }
 
@@ -1443,7 +1465,7 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     autoAnterior &&
     (await shouldFallbackFollowup(account.ig_user_id, autoAnterior.id, senderId))
   ) {
-    const de = retomadaDoFallback(autoAnterior.steps);
+    const de = retomadaDoFallback(autoAnterior.steps, autoAnterior.ligacoes);
     if (de !== null) await executarFluxo(account, autoAnterior, senderId, de);
   }
 }

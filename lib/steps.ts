@@ -64,9 +64,27 @@ export type Posicao = { x: number; y: number };
 // !url` lá dentro poria a regra mais importante da tela numa segunda cópia. O
 // dia em que as duas discordassem, a prévia mostraria uma conversa que o motor
 // não executa, sem nada acusar.
+//
+// BLOCO COM `botoes` ESPERA, e o motivo é o mais duro de todos os desta função:
+// NÃO HÁ COMO O FLUXO ESCOLHER SOZINHO QUAL BRAÇO SEGUIR. A pergunta que o
+// bloco faz é a bifurcação, e a resposta é o toque — sem ele, seguir por
+// qualquer uma das saídas seria decidir no lugar da pessoa e entregar o braço de
+// uma pergunta que ela não respondeu. `interpretar` não tem esse direito, e por
+// isso a caminhada para aqui.
+//
+// A leitura vem ANTES da de `botao_label`, e a ordem importa: um bloco pode
+// carregar as duas coisas (rótulo antigo e botões novos), e havendo botões são
+// eles que mandam. `url` não desfaz a parada como desfaz no caso do rótulo —
+// botão de link é "abra e a vida segue", botão de escolha é uma pergunta, e
+// pergunta com destino não deixa de ser pergunta.
+//
+// COM UM BOTÃO SÓ TAMBÉM ESPERA. É uma mensagem com botão com outra roupa: o
+// fluxo continua sem poder escolher, porque a única saída é condicional ao toque
+// que ninguém deu. Quem avisa o dono de que aquilo provavelmente devia ser um
+// `sempre` é a conferência da lista, não esta função — aqui ele só espera.
 export function esperaResposta(p: Passo): boolean {
   if (p.tipo === "pedir_follow" || p.tipo === "pedir_email") return true;
-  if (p.tipo === "dm") return Boolean(p.botao_label) && !p.url;
+  if (p.tipo === "dm") return Boolean(p.botoes?.length) || (Boolean(p.botao_label) && !p.url);
   return false;
 }
 
@@ -79,10 +97,36 @@ export type AcaoEnfileirar = {
 
 export type Resultado = {
   enfileirar: AcaoEnfileirar[];
-  // Índice do passo que espera resposta, ou null se a lista terminou.
-  pararEm: number | null;
+  // A IDENTIDADE do bloco que espera resposta, ou null quando o caminho acabou.
+  //
+  // Era o ÍNDICE, e virou identidade porque é isso que o chamador faz com ele: o
+  // único leitor (`executarFluxo`, lib/engine.ts) o convertia em identidade na
+  // linha seguinte, com `identidadeDoPasso((steps as unknown[])[pararEm],
+  // pararEm)`, só para gravar o cursor. O cast sem conferência que aquela linha
+  // exigia sai junto.
+  pararEm: string | null;
   ignorados: { indice: number; motivo: string }[];
 };
+
+// Quantos blocos uma caminhada pode percorrer antes de ser interrompida.
+//
+// ELE EXISTE CONTRA DADO QUE ENTROU POR FORA DO EDITOR, e não contra o dono do
+// painel. `conferirLista` protege quem monta a automação na tela — e a partir
+// desta fase `temCicloDeSempre` (mais abaixo) acusa o anel antes de o salvar
+// passar —, mas `ligacoes` é uma coluna `jsonb` e nada impede que ela seja
+// escrita por um script, por uma restauração de backup ou por uma consulta à
+// mão. A Fase 1b já registrou isso como premissa: o que chega do banco não tem
+// forma garantida, e quem valida é este arquivo.
+//
+// Sem o teto, um anel de `sempre` faz a caminhada não retornar NUNCA: a fila
+// cresce até a memória acabar, dentro de um webhook que a Meta reenvia por 36
+// horas. É a falha mais cara que este arquivo pode produzir, e ela custa uma
+// linha para não existir.
+//
+// 100 é folga grande de propósito. O maior fluxo montável na tela não chega
+// perto disso, então bater no teto é sinal de anel, não de fluxo comprido —
+// e é por isso que o motivo registrado em `ignorados` fala de volta no caminho.
+export const TETO_DE_PASSOS = 100;
 
 // Um botão de escolha. O `id` é o que viaja no payload, e é ele que
 // `ligacaoEscolhida` (mais abaixo) casa com a ligação — NÃO o rótulo, que o dono
@@ -340,6 +384,28 @@ export function identidadeDoPasso(passo: unknown, indice: number): string {
   return typeof id === "string" && FORMA_DO_ID.test(id) ? id : String(indice);
 }
 
+// A identidade do bloco que está NESTA posição da lista. Null quando a posição
+// não existe.
+//
+// É a volta de `indiceDoId`, e ela é a ponte entre as duas metades do sistema
+// nesta fase: `interpretar` passou a falar em IDENTIDADE, e quem decide de onde
+// retomar (`retomadaDoBotao`, `retomadaDoFollow`, `retomadaDoTexto`) ainda fala
+// em POSIÇÃO. Enquanto as duas metades convivem, a conversão precisa acontecer
+// em algum lugar — e o lugar é aqui, numa função pura com teste, não numa
+// expressão solta dentro de `server-only`.
+//
+// O null NÃO é detalhe defensivo: `destino` pode legitimamente cair além do fim
+// da lista (é o `+1` de quem estava parado no último bloco), e antes desta fase
+// esse caso era absorvido pelo laço de `interpretar`, que simplesmente não
+// iterava. Com a caminhada por identidade não há índice em que não iterar, e
+// devolver `String(indice)` para uma posição que não existe seria pior do que
+// null: inventaria uma identidade que `indiceDoId` não acha, e o motivo
+// registrado falaria de um bloco que nunca esteve lá.
+export function identidadeNoIndice(passos: unknown, indice: number): string | null {
+  if (!Array.isArray(passos) || indice < 0 || indice >= passos.length) return null;
+  return identidadeDoPasso(passos[indice], indice);
+}
+
 // O que o portão faz com quem NÃO segue.
 //
 // A REGRA É UMA SÓ: cinco pedidos por contato, NA VIDA. `pedir` enquanto ainda
@@ -431,12 +497,55 @@ export function passoEsperado(passos: unknown, indice: number): Passo | undefine
   return passo;
 }
 
-// Percorre a lista a partir de `deIndice` e diz o que fazer.
+// CAMINHA O GRAFO a partir de `deBloco` e diz o que fazer.
+//
+// ELA ANDAVA `i++` PELO ARRAY, e essa era a tese antiga: a ordem da lista ERA o
+// caminho. Agora quem diz o que vem depois é a ligação `sempre` que sai do bloco
+// atual (`ligacoesDe`, acima), e a ordem do array deixa de significar o próximo.
+//
+// A ORDEM GUARDA EXATAMENTE UM SIGNIFICADO, e ele não mora aqui: `steps[0]` é a
+// entrada do fluxo — onde a caminhada começa quando o gatilho dispara. Quem
+// afirma isso é o chamador, passando a identidade do primeiro bloco; esta função
+// só recebe um ponto de partida e anda. A alternativa considerada — "a entrada é
+// o bloco que ninguém aponta" — não serve: um menu que volta para si mesmo tem
+// seta chegando na entrada, e o fluxo ficaria sem começo.
+//
+// O PONTO DE PARTIDA É IDENTIDADE, não índice, e isso não é troca de tipo por
+// gosto: com ligações, "a posição 3" não quer dizer nada — nada garante que o
+// bloco 3 seja alcançável, nem que ele venha depois do 2. O cursor já guarda
+// identidade desde a Fase 1b, então é o argumento que o chamador já tem na mão.
 //
 // `esperar` NÃO é enfileirado: ele soma no atraso dos passos seguintes. É assim
 // que a fila já funciona — cada item carrega o próprio atraso —, então espera
-// como passo custa zero mudança no dreno.
-export function interpretar(passos: unknown, deIndice: number): Resultado {
+// como passo custa zero mudança no dreno. O atraso acumula ao longo do CAMINHO
+// PERCORRIDO, e não da fatia do array: duas esperas em braços diferentes nunca
+// se somam, porque a caminhada passa por um braço só.
+//
+// ---------------------------------------------------------------------------
+// LISTA SEM LIGAÇÃO NENHUMA ENTREGA UM BLOCO SÓ, e isto é a consequência mais
+// cara desta mudança. Vale escrito porque ela é INVISÍVEL no código:
+//
+// `ligacoes` tem `default '[]'::jsonb` (lib/db.ts), então toda automação gravada
+// antes desta fase chega aqui com a lista de setas VAZIA. O array de `steps`
+// continua com os cinco blocos na ordem certa — só que a ordem não é mais o
+// caminho, e não há seta nenhuma a seguir. A automação passa a entregar o
+// primeiro bloco e parar, sem erro e sem nada em Atividade além do fim normal
+// do fluxo.
+//
+// O que fecha isso é DADO, não código: `scripts/ligar-passos-existentes.mjs
+// --aplicar` escreve a corrente `bloco i → bloco i+1` que a ordem já expressava.
+// A ordem de implantação é, portanto, obrigatória e nesta sequência:
+//
+//   1. a coluna `ligacoes` existir no banco (`ensureSchema`, lib/db.ts);
+//   2. a migração rodar com `--aplicar`;
+//   3. só então este motor entrar no ar.
+//
+// Inverter 2 e 3 não quebra nada de forma barulhenta — é o pior tipo de falha
+// que este arquivo pode produzir. O teste "LISTA SEM LIGAÇÃO NENHUMA ENTREGA UM
+// BLOCO SÓ" (tests/steps.test.ts) fixa o comportamento para ele não ser
+// descoberto num cliente.
+// ---------------------------------------------------------------------------
+export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string | null): Resultado {
   const r: Resultado = { enfileirar: [], pararEm: null, ignorados: [] };
 
   if (!Array.isArray(passos)) {
@@ -465,29 +574,125 @@ export function interpretar(passos: unknown, deIndice: number): Resultado {
     return r;
   }
 
+  // PARTIDA QUE NÃO EXISTE, e ela tem que deixar rastro pelo mesmo motivo da
+  // lista vazia: sem a linha em Atividade, o motor limparia o cursor e ninguém
+  // receberia nada, sem nada dizendo por quê. O caso é real e não exige dado
+  // corrompido — `identidadeNoIndice` devolve null para o `+1` de quem estava
+  // parado no último bloco da lista.
+  if (deBloco === null) {
+    r.ignorados.push({
+      indice: -1,
+      motivo: "o fluxo não tem por onde começar: o bloco de partida não está na lista",
+    });
+    return r;
+  }
+
   let atrasoSegundos = 0;
+  let atual: string = deBloco;
 
-  for (let i = Math.max(0, deIndice); i < passos.length; i++) {
-    const { passo, motivo } = conferir(passos[i]);
-    if (!passo) {
-      r.ignorados.push({ indice: i, motivo: motivo! });
-      continue;
-    }
+  // O TETO CONTA PASSOS DA CAMINHADA, não blocos da lista, e a diferença é o
+  // ponto: uma junção legítima faz dois braços chegarem ao mesmo bloco, mas UMA
+  // caminhada passa por ele uma vez só — quem passa duas vezes está num anel.
+  // Contar visitas em vez de manter um conjunto de visitados é deliberado: o
+  // conjunto PROIBIRIA a volta, e a volta é padrão legítimo ("menu → opção →
+  // volta ao menu"), só que ela sempre atravessa uma parada. O teto deixa a volta
+  // acontecer e só interrompe o que não para nunca.
+  for (let voltas = 0; voltas < TETO_DE_PASSOS; voltas++) {
+    const i = indiceDoId(passos, atual);
 
-    if (passo.tipo === "esperar") {
-      atrasoSegundos += passo.minutos * 60;
-      continue;
-    }
-
-    r.enfileirar.push({ passo, indice: i, atrasoSegundos });
-
-    if (esperaResposta(passo)) {
-      r.pararEm = i;
+    // Uma ligação pode apontar para um id que sumiu — o dono apagou o bloco e a
+    // seta que chegava nele ficou. PARA em vez de estourar, e registra: seguir
+    // não há para onde, e o silêncio esconderia um fluxo cortado no meio.
+    if (i === null) {
+      r.ignorados.push({ indice: -1, motivo: `a ligação aponta para um bloco que não existe: ${atual}` });
       return r;
+    }
+
+    const { passo, motivo } = conferir(passos[i]);
+
+    if (!passo) {
+      // Bloco inválido é ignorado, mas a CAMINHADA SEGUE pela seta que sai dele:
+      // a ligação é do bloco, não do conteúdo dele, e cortar o caminho aqui
+      // perderia tudo o que vem depois por causa de um texto em branco.
+      r.ignorados.push({ indice: i, motivo: motivo! });
+    } else if (passo.tipo === "esperar") {
+      atrasoSegundos += passo.minutos * 60;
+    } else {
+      r.enfileirar.push({ passo, indice: i, atrasoSegundos });
+      if (esperaResposta(passo)) {
+        r.pararEm = atual;
+        return r;
+      }
+    }
+
+    // SÓ a `sempre` move a caminhada sozinha. `botao` e `senao` são respostas de
+    // alguém, e quem as case com o toque é a Tarefa 3 — seguir uma delas aqui
+    // seria entregar o braço de uma pergunta que ninguém respondeu.
+    //
+    // Havendo mais de uma `sempre` (lista montada fora do editor), ganha a
+    // primeira gravada, que é a regra de desempate de `ligacoesDe`.
+    const seguinte = ligacoesDe(ligacoes, atual).find((l) => l.quando.tipo === "sempre");
+    if (!seguinte) return r;
+    atual = seguinte.para;
+  }
+
+  r.ignorados.push({
+    indice: -1,
+    motivo: `o fluxo passou de ${TETO_DE_PASSOS} blocos e foi interrompido: há uma volta no caminho`,
+  });
+  return r;
+}
+
+// Existe um anel de ligações `sempre` neste fluxo?
+//
+// A DISTINÇÃO QUE DECIDE A REGRA, e ela é a razão de esta função olhar SÓ as
+// `sempre`:
+//
+//   CICLO QUE PASSA POR UMA PARADA É LEGÍTIMO, e é um dos padrões mais úteis que
+//     a ramificação traz: "menu → opção A → volta ao menu". A caminhada não roda
+//     nele, porque ela PARA no menu — o menu tem botões, e `esperaResposta` diz
+//     que ele espera. Cada volta custa um toque da pessoa. Acusar isso recusaria
+//     o fluxo que o produto existe para permitir.
+//   CICLO SÓ DE `sempre` É INFINITO. Nada nele espera resposta, então nada
+//     interrompe a caminhada: ela anda até o teto a cada disparo, e o dono não
+//     tem como descobrir por quê olhando a tela.
+//
+// É por isso que a caminhada aqui para em todo bloco que espera resposta: um
+// caminho que atravessa uma parada não é um caminho que a execução percorre de
+// uma vez, e ele não pode fechar anel nenhum.
+//
+// PERCORRE A PARTIR DE CADA BLOCO, e não só da entrada: um anel pendurado num
+// braço que a entrada não alcança hoje trava do mesmo jeito no dia em que uma
+// seta chegar nele — e o dono está justamente montando essas setas quando esta
+// conferência roda.
+export function temCicloDeSempre(passos: unknown, ligacoes: unknown): boolean {
+  if (!Array.isArray(passos)) return false;
+
+  for (let i = 0; i < passos.length; i++) {
+    const vistos = new Set<string>();
+    let atual: string | null = identidadeDoPasso(passos[i], i);
+
+    while (atual !== null) {
+      // Achou o mesmo bloco duas vezes NO MESMO CAMINHO: é anel. O conjunto é
+      // por caminhada, e não compartilhado entre as partidas, porque encontrar o
+      // mesmo bloco a partir de duas entradas diferentes é junção, não ciclo.
+      if (vistos.has(atual)) return true;
+      vistos.add(atual);
+
+      const j = indiceDoId(passos, atual);
+      if (j === null) break;
+
+      const { passo } = conferir(passos[j]);
+      if (passo && esperaResposta(passo)) break;
+
+      const seguinte: Ligacao | undefined = ligacoesDe(ligacoes, atual).find(
+        (l) => l.quando.tipo === "sempre"
+      );
+      atual = seguinte ? seguinte.para : null;
     }
   }
 
-  return r;
+  return false;
 }
 
 // Quantos passos da lista PARAM o fluxo de vez.
@@ -1135,12 +1340,26 @@ export function retomadaDoTexto(passos: unknown, indice: number): Retomada {
 // escondeu defeito duas vezes. O teste "a regra não muda nada no fallback"
 // (tests/steps.test.ts) fixa a demonstração, para ela não deixar de valer em
 // silêncio se `interpretar` mudar de comportamento.
-export function retomadaDoFallback(passos: unknown): number | null {
-  const { pararEm } = interpretar(passos, 0);
+//
+// AS LIGAÇÕES ENTRARAM NO ARGUMENTO, e não por simetria: esta função DEDUZ onde
+// a pessoa parou reexecutando a caminhada, e a caminhada passou a depender
+// delas. Sem elas ela deduziria por um caminho que o motor não percorre mais.
+//
+// E ela devolve ÍNDICE, não identidade, apesar de `pararEm` agora ser
+// identidade. É deliberado: o valor vai para `executarFluxo`, que ainda fala em
+// posição, e as outras três retomadas também devolvem número. Converter de volta
+// aqui — com `indiceDoId` — mantém as quatro com a mesma forma; converter as
+// quatro de uma vez é mudança de outra tarefa.
+export function retomadaDoFallback(passos: unknown, ligacoes: unknown): number | null {
+  const { pararEm } = interpretar(passos, ligacoes, identidadeNoIndice(passos, 0));
   if (pararEm === null) return null;
   if (Array.isArray(passos) && contarParadasDuras(passos) > 1) return null;
-  const passo = passoEsperado(passos, pararEm);
-  return passo?.tipo === "dm" ? pararEm + 1 : pararEm;
+  // `pararEm` saiu da própria caminhada, que só o produz depois de `indiceDoId`
+  // ter achado o bloco — o null é obrigação de tipo, não caso alcançável.
+  const indice = indiceDoId(passos, pararEm);
+  if (indice === null) return null;
+  const passo = passoEsperado(passos, indice);
+  return passo?.tipo === "dm" ? indice + 1 : indice;
 }
 
 // Quem está parado esperando o toque num botão pode ser interrompido por outra
