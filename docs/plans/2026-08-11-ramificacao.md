@@ -844,7 +844,16 @@ git commit -m "Uma mensagem passa a poder levar varios botoes"
 ciclo de `sempre`; dois destinos para o mesmo botão; bloco incompleto (já existe).
 
 **Impede ATIVAR** — fluxo que entregaria errado, mas que é montagem normal:
-botão sem destino; bloco inalcançável.
+botão sem destino; bloco inalcançável; **portão de seguidor que é o fim do
+caminho** (alguém segue, e não recebe nada); mais botões do que cabe numa
+mensagem (o limite da Meta, ver Tarefa 4).
+
+**Os dois primeiros chegaram aqui vindos do tempo de entrega.** A Tarefa 2
+registrava-os em Atividade na hora de enviar, e a re-revisão mostrou que a linha
+disparava também no fim NORMAL de um fluxo de captura — treinando o dono a
+ignorar Atividade. Avisar na entrega é avisar tarde e para quem não pode
+consertar. **A conferência avisa na montagem, que é quando ele pode.** Se você
+achar que algum destes não cabe aqui, diga — mas ele não volta para a entrega.
 
 **Avisa:** bifurcação com um botão só.
 
