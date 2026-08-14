@@ -753,7 +753,29 @@ git commit -m "O portao deixa de comparar posicao e passa a perguntar pelo camin
 - Modify: `lib/queue-drain.ts`, `lib/engine.ts`
 - Test: nenhum automatizado — ver a conferência no fim
 
-**Interfaces consumidas:** `Botao` (Tarefa 1).
+**Interfaces consumidas:** `Botao` (Tarefa 1), `envioDaDm` (correção da Tarefa 2).
+
+## OBRIGATÓRIO: esta tarefa devolve uma parada que hoje não existe
+
+A correção da Tarefa 2 criou `envioDaDm(p): EnvioDaDm` em `lib/steps.ts` — a
+**única** função que decide a forma de uma `dm` (`texto`, `resposta_rapida`,
+`link`). `esperaResposta` pergunta a ela; o motor e a prévia também. Antes disso
+a regra estava escrita em três lugares e eles discordavam, e um `dm` com botões
+parava o fluxo enquanto a mensagem saía sem botão nenhum: a pessoa ficava presa
+esperando um toque que nunca chegou.
+
+Para acabar com a cópia, a correção tirou `botoes` de `envioDaDm`. **Hoje um
+bloco com `botoes` não é parada.** Nada no sistema grava `botoes` ainda, então
+não há defeito no ar — mas a Tarefa 5 e a Tarefa 7 passam a gravar.
+
+**Você devolve a parada acrescentando o ramo `botoes` a `envioDaDm`**, antes do
+ramo de `botao_label`. A parada volta sozinha, porque `esperaResposta` já
+pergunta a ela — e é esse o ponto: ninguém precisa lembrar de atualizar um
+segundo lugar. **Não** acrescente a condição em `esperaResposta`; se você se
+pegar fazendo isso, a doença voltou.
+
+Escreva teste para as duas metades: `envioDaDm` devolve a forma nova, e
+`esperaResposta` volta a parar por consequência.
 
 `lib/ig.ts` **já aceita** `quick_replies` como lista (confira antes de mexer:
 `OutgoingMessage` tem `quick_replies?: {...}[]`). O que está estreitado é o
