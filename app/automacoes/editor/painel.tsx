@@ -1,4 +1,5 @@
 "use client";
+import { envioDaDm } from "@/lib/steps";
 import type { Passo, Problema } from "@/lib/steps";
 import type { Picked } from "../types";
 import { comoTexto, resumoDoBloco } from "./modelos";
@@ -217,13 +218,30 @@ export default function Painel({
                 </div>
               )}
 
-              {/* PELA CHAVE, e não por `!passo.url`, pelo mesmo motivo de
-                  `resumoDoBloco`: `url: ""` é o bloco de LINK sem endereço, e nele
-                  `conferirLista` já acende ERRO. Ler o VALOR poria este aviso —
-                  que descreve o funcionamento normal de uma resposta rápida —
-                  coladinho num erro que fala de outra coisa, e o cabeçalho do
-                  painel ainda diria MENSAGEM COM LINK. */}
-              {passo.url === undefined && Boolean(passo.botao_label) && (
+              {/* DUAS PERGUNTAS, e cada uma vai a quem sabe respondê-la.
+
+                  QUE BLOCO É ESTE? — pela CHAVE, e não por `!passo.url`, pelo
+                  mesmo motivo de `resumoDoBloco`: `url: ""` é o bloco de LINK sem
+                  endereço, e nele `conferirLista` já acende ERRO. Ler o VALOR
+                  poria este aviso — que descreve o funcionamento normal de uma
+                  resposta rápida — coladinho num erro que fala de outra coisa, e o
+                  cabeçalho do painel ainda diria MENSAGEM COM LINK. Esta metade é
+                  da convenção da chave `url`, documentada em modelos.ts, e ela NÃO
+                  pode sair daqui.
+
+                  O FLUXO PARA NELE? — de `envioDaDm` (lib/steps.ts), que é o único
+                  decisor da forma de uma `dm` em todo o sistema. Aqui havia
+                  `Boolean(passo.botao_label)`, a última cópia solta da regra que
+                  `esperaResposta` também escreve; ela dava a MESMA resposta, mas
+                  era a segunda cópia que precisaria ser lembrada no dia em que a
+                  forma mudar — e é assim que o motor e a prévia já divergiram uma
+                  vez (ver a medição em `envioDaDm`).
+
+                  A DIVERGÊNCIA COM `envioDaDm` FICA DE PÉ, e é intencional: em
+                  `{botao_label, url: ""}` ele diz `resposta_rapida` e esta tela
+                  não mostra o aviso. Quem a produz é a guarda da chave, do lado de
+                  fora — o que saiu foi a repetição da regra, não a convenção. */}
+              {passo.url === undefined && envioDaDm(passo).forma === "resposta_rapida" && (
                 <Aviso tom="ambar">
                   <strong>O fluxo para aqui</strong> esperando o toque. O que vier depois só sai
                   quando a pessoa tocar no botão.
