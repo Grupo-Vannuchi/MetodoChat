@@ -22,6 +22,7 @@ import {
   oQuePortaoFaz,
   conferirLigacao,
   ligacoesDe,
+  ligacaoEscolhida,
   novoIdDeBotao,
   envioDaDm,
   esperaResposta,
@@ -1113,6 +1114,7 @@ describe("lerPayload", () => {
       prefixo: "AUTO",
       automationId: "auto-1",
       passoId: "b_7f3a91c2",
+      botaoId: null,
     });
   });
 
@@ -1121,6 +1123,7 @@ describe("lerPayload", () => {
       prefixo: "AUTO",
       automationId: "auto-1",
       passoId: null,
+      botaoId: null,
     });
   });
 
@@ -1129,11 +1132,13 @@ describe("lerPayload", () => {
       prefixo: "FOLLOW",
       automationId: "auto-1",
       passoId: "b_por002",
+      botaoId: null,
     });
     expect(lerPayload("FOLLOW:auto-1")).toEqual({
       prefixo: "FOLLOW",
       automationId: "auto-1",
       passoId: null,
+      botaoId: null,
     });
   });
 
@@ -1142,6 +1147,7 @@ describe("lerPayload", () => {
       prefixo: "AUTO",
       automationId: "39ae24ec-c487-40ff-a387-c041cb3f0d23",
       passoId: "b_aaa111",
+      botaoId: null,
     });
   });
 
@@ -1154,6 +1160,7 @@ describe("lerPayload", () => {
       prefixo: "AUTO",
       automationId: "auto-1",
       passoId: "2",
+      botaoId: null,
     });
   });
 
@@ -1166,7 +1173,10 @@ describe("lerPayload", () => {
     expect(lerPayload("")).toBe(null);
     expect(lerPayload(null)).toBe(null);
     expect(lerPayload(42)).toBe(null);
-    expect(lerPayload("AUTO:a:b:c")).toBe(null);
+    // "AUTO:a:b:c" NÃO entra aqui: são quatro partes (automação "a", bloco
+    // "b", botão "c"), e desde a Tarefa 3 essa é a forma VÁLIDA de um botão
+    // dentro de um bloco de escolha — ver describe("lerPayload com o botão").
+    // Cinco partes é que não é payload nosso, e está lá embaixo.
   });
 
   it("bloco VAZIO na forma de três partes é null, e não bloco vazio", () => {
@@ -1204,12 +1214,16 @@ describe("lerPayload", () => {
 
     const doBotao = `AUTO:${automationId}:${identidadeDoPasso(lista[0], 0)}`;
     const lidoDoBotao = lerPayload(doBotao);
-    expect(lidoDoBotao).toEqual({ prefixo: "AUTO", automationId, passoId: "b_bem001" });
+    expect(lidoDoBotao).toEqual({
+      prefixo: "AUTO", automationId, passoId: "b_bem001", botaoId: null,
+    });
     expect(indiceDoId(lista, lidoDoBotao!.passoId!)).toBe(0);
 
     const doPortao = `FOLLOW:${automationId}:${identidadeDoPasso(lista[1], 1)}`;
     const lidoDoPortao = lerPayload(doPortao);
-    expect(lidoDoPortao).toEqual({ prefixo: "FOLLOW", automationId, passoId: "b_por002" });
+    expect(lidoDoPortao).toEqual({
+      prefixo: "FOLLOW", automationId, passoId: "b_por002", botaoId: null,
+    });
     expect(indiceDoId(lista, lidoDoPortao!.passoId!)).toBe(1);
   });
 
@@ -1303,6 +1317,65 @@ describe("lerPayload", () => {
       portao: null,
       destino: 1,
     });
+  });
+});
+
+describe("ligacaoEscolhida", () => {
+  const ls = [
+    { de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_opa002" },
+    { de: "b_men001", quando: { tipo: "botao", botao: "op_bbbbbb" }, para: "b_opb003" },
+    { de: "b_men001", quando: { tipo: "senao" }, para: "b_sen004" },
+  ];
+
+  it("o botão tocado leva ao destino DAQUELE botão", () => {
+    expect(ligacaoEscolhida(ls, "b_men001", { tipo: "botao", botao: "op_bbbbbb" })).toBe("b_opb003");
+  });
+
+  it("texto cai no senão", () => {
+    expect(ligacaoEscolhida(ls, "b_men001", { tipo: "texto" })).toBe("b_sen004");
+  });
+
+  it("sem senão, texto não leva a lugar nenhum", () => {
+    const semSenao = ls.slice(0, 2);
+    expect(ligacaoEscolhida(semSenao, "b_men001", { tipo: "texto" })).toBe(null);
+  });
+
+  it("botão que não tem ligação devolve null, e NÃO cai no senão", () => {
+    // O senão é para quem DIGITOU. Um botão sem destino é defeito de montagem,
+    // e mandá-lo para o senão esconderia isso.
+    expect(ligacaoEscolhida(ls, "b_men001", { tipo: "botao", botao: "op_zzzzzz" })).toBe(null);
+  });
+
+  it("não estoura com lixo", () => {
+    expect(ligacaoEscolhida(null, "b_men001", { tipo: "texto" })).toBe(null);
+    expect(ligacaoEscolhida(ls, "", { tipo: "texto" })).toBe(null);
+  });
+});
+
+describe("lerPayload com o botão", () => {
+  it("lê a forma de quatro partes", () => {
+    expect(lerPayload("AUTO:auto-1:b_men001:op_aaaaaa")).toEqual({
+      prefixo: "AUTO", automationId: "auto-1", passoId: "b_men001", botaoId: "op_aaaaaa",
+    });
+  });
+
+  it("AS TRÊS FORMAS ANTIGAS CONTINUAM VÁLIDAS", () => {
+    // Um botão entregue vive na conversa da pessoa indefinidamente. Apagar
+    // qualquer um destes ramos quebraria todo botão já enviado, de uma vez.
+    expect(lerPayload("AUTO:auto-1")).toEqual({
+      prefixo: "AUTO", automationId: "auto-1", passoId: null, botaoId: null });
+    expect(lerPayload("AUTO:auto-1:b_men001")).toEqual({
+      prefixo: "AUTO", automationId: "auto-1", passoId: "b_men001", botaoId: null });
+    expect(lerPayload("FOLLOW:auto-1:b_por002")).toEqual({
+      prefixo: "FOLLOW", automationId: "auto-1", passoId: "b_por002", botaoId: null });
+  });
+
+  it("cinco partes continuam sendo recusadas", () => {
+    expect(lerPayload("AUTO:a:b:c:d")).toBe(null);
+  });
+
+  it("quarta parte em branco é recusada", () => {
+    expect(lerPayload("AUTO:auto-1:b_men001:")).toBe(null);
   });
 });
 

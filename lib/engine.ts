@@ -42,6 +42,7 @@ import {
   identidadeNoIndice,
   indiceDoId,
   lerPayload,
+  ligacaoEscolhida,
   oQuePortaoFaz,
   type AcaoEnfileirar,
   type Cursor,
@@ -1322,7 +1323,66 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     if (p) {
       const auto = await loadAutomation(account.ig_user_id, p.automationId);
       if (auto) {
-        // O CURSOR MANDA; o bloco do payload é RESERVA. A escolha entre os dois
+        // COM BOTÃO (`AUTO:<automação>:<bloco>:<botão>`), a bifurcação decide
+        // sozinha — e NÃO passa pelo cursor. Esta é a medição que a Tarefa 3
+        // pediu, e ela muda a regra:
+        //
+        // "O CURSOR MANDA; o PAYLOAD é RESERVA" (`cursorDaRetomada`, abaixo) foi
+        // escrita para a FILA: ali o payload só respondia "de qual bloco
+        // continuar", e qualquer resposta rápida da lista servia igual — a
+        // aritmética era a mesma para todo mundo, `indice + 1`. Nesse mundo,
+        // preferir o cursor fazia sentido: ele é a informação mais recente.
+        //
+        // Com bloco de vários botões (Tarefa 4), a pergunta deixa de ser "de
+        // qual bloco continuar" e passa a ser "qual ligação SAI DESTE botão
+        // específico" — e uma ligação de botão é `{de: <bloco que o emitiu>,
+        // quando: {botao: <este id>}}`. O bloco que emitiu o botão é dado
+        // NO MOMENTO DO ENVIO e gravado no próprio payload; nada no cursor do
+        // contato guarda essa informação, porque o cursor fala de onde a
+        // pessoa ESTÁ agora, não de qual bloco mandou qual botão no passado.
+        //
+        // Se este ramo usasse "cursor manda" (isto é, buscasse a ligação a
+        // partir do bloco do CURSOR em vez do bloco do PAYLOAD), um botão
+        // antigo tocado depois de a pessoa já ter avançado por outro caminho
+        // buscaria a ligação no bloco ERRADO — o de onde ela está agora, que
+        // não é o bloco que desenhou aquele botão — e o toque não acharia
+        // ligação nenhuma (ou, pior, coincidiria com o id de um botão de
+        // outro menu). Um botão que a pessoa vê na tela, tocável, deixaria de
+        // fazer efeito, calado, sempre que ela tivesse seguido em frente
+        // antes de tocar — que é justamente o caso comum de um botão entregue
+        // há tempo, com toque atrasado.
+        //
+        // A REGRA AQUI, então, é a oposta: o payload manda, porque só ele
+        // sabe de qual bloco este botão é. O cursor nem é lido neste ramo — a
+        // consulta que `cursorDaRetomada` faz é dispensável quando a origem
+        // já está afirmada pelo próprio toque.
+        if (p.prefixo === "AUTO" && p.botaoId !== null && p.passoId !== null) {
+          const destino = ligacaoEscolhida(auto.ligacoes, p.passoId, {
+            tipo: "botao",
+            botao: p.botaoId,
+          });
+          const indice = destino === null ? null : indiceDoId(auto.steps, destino);
+          // Sem ligação (botão órfão) ou bloco de destino que sumiu da lista:
+          // nada a entregar. O silêncio é o mesmo de `ligacaoEscolhida` — não
+          // afirma o que não sabe, e não inventa caminho.
+          //
+          // `executarFluxo` recebe NÚMERO, não `Retomada`, e é de propósito: o
+          // número cai no ramo `{portao: null, destino}`, sem passar pela
+          // REGRA DO PORTÃO (`atravessandoOPortao`, lib/steps.ts). Essa regra
+          // existe para consertar um jeito específico de errar — a aritmética
+          // `indice + 1` podia PULAR por cima de um `pedir_follow` que ficasse
+          // entre a posição antiga e a nova, entregando o que vem depois a
+          // quem não segue. Aqui não há salto: `destino` é o próximo passo do
+          // GRAFO, um vizinho direto do bloco do botão, e `interpretar`
+          // caminha ligação por ligação, visitando e conferindo cada bloco do
+          // caminho — um `pedir_follow` nesse caminho não é saltado, é
+          // encontrado, e o fluxo para nele como em qualquer outra parada.
+          if (indice !== null) await executarFluxo(account, auto, senderId, indice);
+          return;
+        }
+
+        // SEM BOTÃO (as duas formas antigas), o comportamento é o de sempre: O
+        // CURSOR MANDA; o bloco do payload é RESERVA. A escolha entre os dois
         // é pura e mora em `cursorDaRetomada` (lib/steps.ts), com o porquê de
         // cada ramo e com teste — aqui ela era uma expressão solta, e uma
         // expressão solta com a ordem invertida foi o defeito desta fase.

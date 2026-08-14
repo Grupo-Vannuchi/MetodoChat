@@ -299,6 +299,41 @@ export function ligacoesDe(ligacoes: unknown, bloco: string): Ligacao[] {
   return saidas;
 }
 
+// QUAL LIGAÇÃO O TOQUE ESCOLHE. É a bifurcação em si: `interpretar` caminha
+// pela `sempre` sozinha, e é esta função que decide o próximo passo quando
+// quem decide é a PESSOA — tocando um botão, ou respondendo por texto.
+//
+// A REGRA, uma linha por motivo:
+//
+//   BOTÃO casa com a ligação `{tipo:"botao", botao: <id>}` DAQUELE botão, por
+//     ID — não pelo rótulo. O dono reescreve o rótulo de um botão o tempo
+//     todo (é texto solto no painel), e trocar o texto exibido não pode
+//     trocar o caminho que a pessoa percorre. O ID é gerado uma vez
+//     (`novoIdDeBotao`) e nunca muda; é a única coisa nesse botão que o dono
+//     não edita.
+//   TEXTO cai na `senao`, quando ela existe. É a ligação para quem respondeu
+//     digitando em vez de tocar.
+//   BOTÃO SEM LIGAÇÃO devolve null, e NÃO cai na `senao` — a `senao` é para
+//     quem DIGITOU. Um botão sem destino é defeito de montagem (a
+//     conferência da Tarefa 5 vai recusar salvar um assim, mas ligação
+//     gravada fora do editor pode chegar quebrada), e mandá-lo para a
+//     `senao` esconderia esse defeito atrás de um caminho que não é o dele.
+//   HAVENDO MAIS DE UMA que sirva — dado de fora do editor, que a
+//     conferência não viu —, ganha a primeira, que é a ordem que
+//     `ligacoesDe` já devolve.
+export function ligacaoEscolhida(
+  ligacoes: unknown,
+  deBloco: string,
+  oQueAconteceu: { tipo: "botao"; botao: string } | { tipo: "texto" }
+): string | null {
+  const saidas = ligacoesDe(ligacoes, deBloco);
+  const l =
+    oQueAconteceu.tipo === "botao"
+      ? saidas.find((s) => s.quando.tipo === "botao" && s.quando.botao === oQueAconteceu.botao)
+      : saidas.find((s) => s.quando.tipo === "senao");
+  return l ? l.para : null;
+}
+
 // Valida e normaliza um passo. Devolve o motivo quando não dá para usar.
 //
 // DOIS textos para a mesma falha, e não um, porque eles têm dois leitores.
@@ -952,28 +987,32 @@ export function cursorDesta(cursor: Cursor, automationId: string): string | null
   return cursor.automationId === automationId ? cursor.passoId : null;
 }
 
-// O que um botão de resposta rápida carrega: de qual automação ele é, e — desde
-// a Fase 1b — de qual BLOCO.
+// O que um botão de resposta rápida carrega: de qual automação ele é, de qual
+// BLOCO (desde a Fase 1b), e — desde a Tarefa 3 — de qual BOTÃO daquele bloco,
+// para bloco com mais de um.
 export type Payload = {
   prefixo: "AUTO" | "FOLLOW";
   automationId: string;
   passoId: string | null;
+  botaoId: string | null;
 };
 
 // Lê o payload de um botão de resposta rápida.
 //
-// DUAS FORMAS, e as duas são finais:
+// TRÊS FORMAS, e as três são finais — CONVIVEM PARA SEMPRE, não é dívida a
+// limpar:
 //
-//   `AUTO:<automação>`            entregue antes da Fase 1b
-//   `AUTO:<automação>:<bloco>`    entregue a partir dela
+//   `AUTO:<automação>`                    entregue antes da Fase 1b
+//   `AUTO:<automação>:<bloco>`            entregue a partir dela
+//   `AUTO:<automação>:<bloco>:<botão>`    entregue a partir da Tarefa 3
 //
-// A forma antiga NÃO é dívida a limpar, e este parágrafo existe para ninguém a
-// "limpar" depois. Um botão entregue vive na conversa da pessoa indefinidamente,
-// e ela pode tocar nele meses depois — apagar este ramo quebraria todo botão já
-// enviado, de uma vez, e o sintoma seria "o botão não faz mais nada" sem erro
-// nenhum em lugar algum: `lerPayload` devolveria null, `handleMessagingEvent`
-// não faria nada, e não há linha em Atividade para um toque que não decide nada.
-// Não há data em que este ramo pare de ser alcançado.
+// Um botão entregue vive na conversa da pessoa indefinidamente, e ela pode
+// tocar nele meses ou anos depois — apagar qualquer um destes ramos quebraria
+// todo botão já enviado daquela forma, de uma vez, e o sintoma seria "o botão
+// não faz mais nada" sem erro nenhum em lugar algum: `lerPayload` devolveria
+// null, `handleMessagingEvent` não faria nada, e não há linha em Atividade
+// para um toque que não decide nada. Não há data em que nenhum destes ramos
+// pare de ser alcançado.
 //
 // O `<bloco>` é a identidade que `identidadeDoPasso` dá ao passo, e ela é o id
 // (`b_...`) ou o ÍNDICE EM TEXTO, para bloco sem id. Nada aqui confere a forma
@@ -981,8 +1020,13 @@ export type Payload = {
 // que a migração (`scripts/dar-ids-aos-passos.mjs`) não alcançou. Quem confere
 // se aquele bloco ainda existe é `indiceDoId`, na hora de usar.
 //
+// O `<botão>` é o id que `novoIdDeBotao` dá ao botão (`op_...`), e por isso
+// mesmo não tem a barreira do `b_` para conferir — a forma vale, mas não é
+// exigida aqui pela mesma razão do bloco: quem confere se aquele botão ainda
+// tem ligação é `ligacaoEscolhida`, na hora de usar.
+//
 // O id da automação é um uuid: ele tem hífen, e não tem dois-pontos. É por isso
-// que separar por `:` basta, e que mais de três partes é payload que não é
+// que separar por `:` basta, e que mais de quatro partes é payload que não é
 // nosso, e não automação com nome esquisito.
 //
 // Devolve null para qualquer outra coisa, e isso é obrigatório: o webhook recebe
@@ -995,16 +1039,22 @@ export function lerPayload(payload: unknown): Payload | null {
   // dessa desestruturação, e `!automationId`, logo abaixo, já mata o caso.
   // Uma guarda para `partes.length < 2` seria redundante — nenhuma mutação a
   // mataria, porque ela não decide nada que outra linha já não decida.
-  if (partes.length > 3) return null;
-  const [prefixo, automationId, passoId] = partes;
+  if (partes.length > 4) return null;
+  const [prefixo, automationId, passoId, botaoId] = partes;
   if (prefixo !== "AUTO" && prefixo !== "FOLLOW") return null;
   if (!automationId) return null;
-  // Três partes com a última em branco (`AUTO:auto-1:`) não é "bloco vazio", é
-  // payload malformado. Aceitar poria `passoId: ""` no ramo do payload, e ""
-  // não é identidade de bloco nenhum: `indiceDoId` devolveria null e o toque
-  // cairia no zero, reenviando a boas-vindas. Como null, ele usa o cursor.
-  if (partes.length === 3 && !passoId) return null;
-  return { prefixo, automationId, passoId: passoId ?? null };
+  // Bloco em branco (`AUTO:auto-1:` ou `AUTO:auto-1::op_aaaaaa`) não é "bloco
+  // vazio", é payload malformado — nos dois casos por igual, porque a forma de
+  // quatro partes também precisa saber de qual bloco o botão é. Aceitar poria
+  // `passoId: ""` no ramo do payload, e "" não é identidade de bloco nenhum:
+  // `indiceDoId` devolveria null e o toque cairia no zero, reenviando a
+  // boas-vindas. Como null, ele usa o cursor.
+  if (partes.length >= 3 && !passoId) return null;
+  // Botão em branco (`AUTO:auto-1:b_men001:`) é o mesmo defeito, uma parte
+  // adiante: "" não é identidade de botão nenhuma, e `ligacaoEscolhida` não
+  // acharia ligação para ela mesmo que aceitasse.
+  if (partes.length === 4 && !botaoId) return null;
+  return { prefixo, automationId, passoId: passoId ?? null, botaoId: botaoId ?? null };
 }
 
 // Qual cursor vale no toque de um botão: o REAL do contato, ou o bloco que veio
