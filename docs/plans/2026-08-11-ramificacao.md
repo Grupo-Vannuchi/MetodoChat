@@ -637,7 +637,25 @@ git commit -m "O botao tocado escolhe o caminho, e o payload ganha uma quarta pa
 
 **Files:**
 - Modify: `lib/steps.ts` (`retomadaDoBotao`, `retomadaDoTexto`, `retomadaDoFallback`, `atravessandoOPortao`)
+- Modify: `lib/engine.ts` (o portão vencido e o e-mail já conhecido)
 - Test: `tests/steps.test.ts`
+
+**São SEIS pontos, não quatro.** A revisão da Tarefa 2 achou dois que eu tinha
+deixado de fora ao escrever esta tarefa, e são **os piores dos seis**:
+
+| local | expressão |
+|---|---|
+| `lib/engine.ts` · portão vencido | `acao.indice + 1` |
+| `lib/engine.ts` · e-mail já conhecido | `acao.indice + 1` |
+
+Piores por dois motivos. Eles passam **número cru** para `executarFluxo`, e o
+ramo `typeof de === "number"` **contorna `atravessandoOPortao` inteiro** — ou
+seja, escapam da própria regra do portão que esta tarefa está consertando. E são
+controle de fluxo dentro de `server-only`, sem teste: exatamente a classe que
+produziu os treze defeitos da Fase 1a.
+
+**A decisão vai para `lib/steps.ts` com teste**, como o resto da fase. No engine
+fica a chamada.
 
 **Esta tarefa não estava no plano original. Ela existe porque a Tarefa 2 mediu
 e reportou o que faltava** — seis pontos de partida continuavam calculando o
