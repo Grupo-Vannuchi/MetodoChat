@@ -34,6 +34,7 @@ import {
   botoesDaMensagem,
   LIMITE_DE_BOTOES,
 } from "../lib/steps";
+import type { EnvioDaDm } from "../lib/steps";
 
 // A CORRENTE que a lista sempre teve na prática: bloco 0 → bloco 1 → bloco 2 …,
 // cada seta `{tipo:"sempre"}`. É exatamente o que `scripts/ligar-passos-existentes.mjs`
@@ -2919,17 +2920,41 @@ describe("interpretar caminhando o grafo", () => {
   // `esperaResposta` deriva dela.
   // ------------------------------------------------------------------------
 
-  it("A PARADA E A ENTREGA SÃO A MESMA PERGUNTA: nenhum `dm` para sem entregar algo para tocar", () => {
-    // A invariante que substitui a segunda cópia da regra. Toda forma de `dm`
-    // que este projeto sabe produzir passa por aqui: se algum dia uma delas
-    // parar o fluxo sem sair com resposta rápida OU menu de `botoes`, é este
-    // teste que acende.
-    const formas: unknown[] = [
+  // A LISTA DE FORMAS É DERIVADA DO TIPO, e essa é a correção da rodada final
+  // da Tarefa 4. Ela era um literal escrito à mão, e a revisão mediu o que isso
+  // deixava passar: uma QUINTA forma plantada em `envioDaDm` (`{forma:
+  // "enquete"}`), listada em `esperaResposta`, parava o fluxo sem entregar nada
+  // — e a suíte ficava 217/217 VERDE, porque forma sem fixture é forma
+  // invisível. O comentário de `envioDaDm` (lib/steps.ts) prometia o contrário,
+  // e era essa promessa que justificava não escrever uma segunda guarda.
+  //
+  // O `Record<EnvioDaDm["forma"], …>` é o que fecha isso: `Record` sobre uma
+  // união EXIGE todas as chaves e RECUSA chave que não esteja na união, então
+  // acrescentar um membro a `EnvioDaDm` sem trazer fixture para cá não compila.
+  //
+  // ONDE ELA ACENDE, dito sem inflar: no `tsc` — `npm run typecheck`, que o
+  // `npm run verify` roda —, e NÃO no `vitest` sozinho, que apaga os tipos. A
+  // metade que o vitest cobre é a de baixo: cada chave precisa ter fixture, e
+  // cada fixture precisa de fato SAIR na forma sob a qual foi escrita. Fixture
+  // no balde errado (ou balde vazio) é falha de teste, não de tipo.
+  const FIXTURES: Record<EnvioDaDm["forma"], unknown[]> = {
+    texto: [
       { tipo: "dm", texto: "oi" },
-      { tipo: "dm", texto: "oi", botao_label: "quero" },
       { tipo: "dm", texto: "oi", botao_label: "" },
+      // `botoes` vazio não é menu — nada para tocar, então cai como texto.
+      { tipo: "dm", texto: "oi", botoes: [] },
+      // Lixo no campo: `conferir` não olha `botoes`, então ele chega assim.
+      { tipo: "dm", texto: "oi", botoes: "sim" },
+    ],
+    resposta_rapida: [{ tipo: "dm", texto: "oi", botao_label: "quero" }],
+    link: [
       { tipo: "dm", texto: "oi", url: "https://x.y" },
       { tipo: "dm", texto: "oi", botao_label: "abrir", url: "https://x.y" },
+      // Com url, nem `botoes` nem `botao_label` viram parada: é link, e o link
+      // não espera toque nenhum.
+      { tipo: "dm", texto: "oi", url: "https://x.y", botoes: [{ id: "op_aaaaaa", rotulo: "A" }] },
+    ],
+    botoes: [
       { tipo: "dm", texto: "oi", botoes: [{ id: "op_aaaaaa", rotulo: "A" }] },
       {
         tipo: "dm",
@@ -2941,34 +2966,46 @@ describe("interpretar caminhando o grafo", () => {
       },
       // Com as duas coisas, `botoes` vence — é a ordem escrita em `envioDaDm`.
       { tipo: "dm", texto: "oi", botao_label: "quero", botoes: [{ id: "op_aaaaaa", rotulo: "A" }] },
-      // Com url, nem `botoes` nem `botao_label` viram parada: é link, e o link
-      // não espera toque nenhum.
-      { tipo: "dm", texto: "oi", url: "https://x.y", botoes: [{ id: "op_aaaaaa", rotulo: "A" }] },
-      // `botoes` vazio não é menu — nada para tocar, então cai como texto.
-      { tipo: "dm", texto: "oi", botoes: [] },
-      // Lixo no campo: `conferir` não olha `botoes`, então ele chega assim.
-      { tipo: "dm", texto: "oi", botoes: "sim" },
-    ];
-    for (const bruto of formas) {
-      const { passo } = conferir(bruto);
-      // Todas as formas acima são `dm` válidas; se alguma deixar de ser, o
-      // resto do teste não estaria medindo o que diz medir.
-      if (!passo || passo.tipo !== "dm") throw new Error(`não é dm válida: ${JSON.stringify(bruto)}`);
-      const envio = envioDaDm(passo);
-      expect(esperaResposta(passo)).toBe(envio.forma === "resposta_rapida" || envio.forma === "botoes");
-      // E o que a parada promete existe de verdade: um rótulo não vazio, ou
-      // uma lista de botões não vazia. É esta linha que o `botoes` sem
-      // `botao_label` quebrava antes da Tarefa 4.
-      if (envio.forma === "resposta_rapida") expect(envio.rotulo.length).toBeGreaterThan(0);
-      if (envio.forma === "botoes") {
-        expect(envio.botoes.length).toBeGreaterThan(0);
-        // O CONTEÚDO, e não só a contagem. `toBeGreaterThan(0)` sozinho era o
-        // que esta linha afirmava, e a revisão da Tarefa 4 mediu o que ele
-        // deixa passar: `return { forma: "botoes", botoes: p.botoes.slice(0, 1) }`
-        // — "o menu entrega só o primeiro botão", o defeito central da tarefa —
-        // ficava VERDE, 485/485. O menu sai inteiro e na ordem em que o dono o
-        // desenhou; é essa ordem que o dreno pareia com os payloads.
-        expect(envio.botoes).toEqual((passo as { botoes?: unknown }).botoes);
+    ],
+  };
+
+  it("A PARADA E A ENTREGA SÃO A MESMA PERGUNTA: nenhum `dm` para sem entregar algo para tocar", () => {
+    // A invariante que substitui a segunda cópia da regra: se algum dia uma das
+    // formas parar o fluxo sem sair com resposta rápida OU menu de `botoes`, é
+    // este teste que acende.
+    for (const [forma, brutos] of Object.entries(FIXTURES)) {
+      // BALDE VAZIO É FALHA. Sem esta linha, a chave nova exigida pelo
+      // `Record` podia ser satisfeita com `[]` e a forma voltaria a ser
+      // invisível — a mesma falha, uma camada adiante.
+      expect(brutos.length).toBeGreaterThan(0);
+      for (const bruto of brutos) {
+        const { passo } = conferir(bruto);
+        // Todas as formas acima são `dm` válidas; se alguma deixar de ser, o
+        // resto do teste não estaria medindo o que diz medir.
+        if (!passo || passo.tipo !== "dm")
+          throw new Error(`não é dm válida: ${JSON.stringify(bruto)}`);
+        const envio = envioDaDm(passo);
+        // A fixture SAI na forma sob a qual foi escrita. É o que impede o balde
+        // de virar decoração: `{forma: "enquete"}` com fixture que na verdade
+        // sai como `texto` falha aqui, no vitest, sem depender do `tsc`.
+        expect(envio.forma).toBe(forma);
+        expect(esperaResposta(passo)).toBe(
+          envio.forma === "resposta_rapida" || envio.forma === "botoes"
+        );
+        // E o que a parada promete existe de verdade: um rótulo não vazio, ou
+        // uma lista de botões não vazia. É esta linha que o `botoes` sem
+        // `botao_label` quebrava antes da Tarefa 4.
+        if (envio.forma === "resposta_rapida") expect(envio.rotulo.length).toBeGreaterThan(0);
+        if (envio.forma === "botoes") {
+          expect(envio.botoes.length).toBeGreaterThan(0);
+          // O CONTEÚDO, e não só a contagem. `toBeGreaterThan(0)` sozinho era o
+          // que esta linha afirmava, e a revisão da Tarefa 4 mediu o que ele
+          // deixa passar: `return { forma: "botoes", botoes: p.botoes.slice(0, 1) }`
+          // — "o menu entrega só o primeiro botão", o defeito central da tarefa —
+          // ficava VERDE, 485/485. O menu sai inteiro e na ordem em que o dono o
+          // desenhou; é essa ordem que o dreno pareia com os payloads.
+          expect(envio.botoes).toEqual((passo as { botoes?: unknown }).botoes);
+        }
       }
     }
   });

@@ -61,13 +61,21 @@ export type Posicao = { x: number; y: number };
 // EM QUE FORMA UMA `dm` SAI. É a única resposta a essa pergunta em todo o
 // sistema, e é de propósito que ela seja uma só.
 //
-// TRÊS LEITORES, e antes desta correção cada um decidia por conta própria:
+// QUATRO LEITORES, e cada um já decidiu por conta própria — o inventário é
+// HISTÓRICO, e hoje nenhum deles reescreve a regra (a lista de quem PERGUNTA a
+// esta função está mais abaixo, em "O QUE NÃO SE DUPLICA"):
 //
 //   `enfileirarPasso` (lib/engine.ts) escrevia
 //     `const respostaRapida = Boolean(p.botao_label) && !p.url` para escolher o
 //     `kind` e o payload da fila;
 //   a prévia (app/automacoes/editor/roteiro.ts) lia `passo.url` no ramo de link
 //     e afirmava `passo.botao_label!` no de resposta rápida;
+//   o painel do bloco (app/automacoes/editor/painel.tsx) decidia se mostrava o
+//     aviso "o fluxo para aqui" com `Boolean(passo.botao_label)` — a última
+//     cópia solta, que só saiu na Tarefa 4, e cuja correção seguinte está
+//     registrada lá: trocada por `envioDaDm(passo).forma === "resposta_rapida"`,
+//     ela ficou errada no commit seguinte (o menu de `botoes` passou a parar) e
+//     hoje pergunta pela PARADA, `esperaResposta(passo)`;
 //   `esperaResposta` (logo abaixo) decidia se o fluxo PARA no bloco.
 //
 // O QUE A SEGUNDA CÓPIA CUSTOU, medido: quando `esperaResposta` passou a dizer
@@ -78,11 +86,18 @@ export type Posicao = { x: number; y: number };
 // o `passo.botao_label!` da prévia virou mentira: a asserção não-nula seguia
 // compilando sobre um campo que podia não existir.
 //
-// A REGRA, e ela é a mesma de sempre — o que mudou foi só o número de lugares
-// em que ela está escrita:
+// A REGRA, e ela tem QUATRO formas desde a Tarefa 4 — DUAS PARAM. A versão
+// anterior deste parágrafo listava três e chamava a resposta rápida de "o
+// único caminho do dreno que monta `quick_replies`" e "o único bloco `dm` que
+// espera": as duas frases são falsas desde que o menu de `botoes` existe, e
+// quem lesse até aqui e parasse sairia com a regra errada.
 //
-//   rótulo e SEM url → resposta rápida. É o único caminho do dreno que monta
-//     `quick_replies` (lib/queue-drain.ts), e é o único bloco `dm` que espera:
+//   `botoes` não vazio e SEM url → MENU. Segundo caminho do dreno que monta
+//     `quick_replies` (lib/queue-drain.ts, ramo plural), e segundo bloco `dm`
+//     que ESPERA: o menu existe para ser tocado. Entra ANTES do ramo de
+//     `botao_label` — ver o parágrafo de `botoes`, mais abaixo.
+//   rótulo e SEM url → resposta rápida. Primeiro caminho do dreno que monta
+//     `quick_replies` (ramo singular), e o outro bloco `dm` que espera:
 //     resposta rápida existe para ser tocada.
 //   COM url → botão de link, mesmo sem rótulo (aí `linkMessage`, lib/ig.ts, usa
 //     "Abrir link"). A pessoa abre e a vida segue; não há toque a esperar.
@@ -139,15 +154,29 @@ export type Posicao = { x: number; y: number };
 //
 // O QUE NÃO SE DUPLICA É A DECISÃO DA FORMA, e é essa a diferença entre uma
 // regra e duas. "O que este bloco entrega" é respondido AQUI e só aqui:
-// `esperaResposta` (abaixo), o motor (`enfileirarPasso`, lib/engine.ts) e o
-// painel do bloco (app/automacoes/editor/painel.tsx) PERGUNTAM a esta função —
-// nenhum deles reescreve `Boolean(p.botao_label) && !p.url`. O que
+// `esperaResposta` (abaixo), o motor (`enfileirarPasso`, lib/engine.ts) e a
+// prévia da conversa (app/automacoes/editor/roteiro.ts) PERGUNTAM a esta
+// função, e o painel do bloco (app/automacoes/editor/painel.tsx) pergunta a
+// `esperaResposta`, que pergunta a esta — nenhum dos quatro reescreve
+// `Boolean(p.botao_label) && !p.url`. O que
 // `esperaResposta` acrescenta é uma linha sobre o RESULTADO dela, e essa linha
 // não some de vista: o teste "A PARADA E A ENTREGA SÃO A MESMA PERGUNTA"
-// (tests/steps.test.ts) percorre TODA forma de `dm` que este projeto sabe
-// produzir e exige que "para" e "entrega algo tocável" sejam a mesma resposta —
-// uma forma nova que pare sem entregar nada, ou que entregue sem parar, acende
-// ali.
+// (tests/steps.test.ts) exige que "para" e "entrega algo tocável" sejam a mesma
+// resposta em toda forma que ele percorra.
+//
+// E O QUE ELE PERCORRE VEM DAQUI, do TIPO — as fixtures moram num
+// `Record<EnvioDaDm["forma"], …>`, e `Record` sobre uma união exige todas as
+// chaves. Acrescentar um membro a `EnvioDaDm` sem levar fixture para lá NÃO
+// COMPILA.
+//
+// ONDE ISSO ACENDE, dito com precisão porque a versão anterior desta frase era
+// FALSA e era load-bearing (ela dizia que o teste percorre "TODA forma que este
+// projeto sabe produzir", e a revisão mediu o contrário: uma quinta forma
+// plantada, que parava sem entregar nada, deixou a suíte 217/217 VERDE, porque
+// a lista era um literal escrito à mão): quem acende é o `tsc`
+// — `npm run typecheck`, dentro do `npm run verify` —, e NÃO o `vitest`
+// sozinho, que apaga os tipos. O vitest cobre a metade de baixo: balde vazio e
+// fixture que não sai na forma sob a qual foi escrita.
 //
 // O que a versão anterior descrevia bem, e continua valendo, é a MEDIÇÃO: antes
 // desta tarefa `esperaResposta` dizia sim a um `dm` com `botoes`,
