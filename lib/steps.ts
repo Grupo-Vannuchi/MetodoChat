@@ -126,10 +126,25 @@ export type Posicao = { x: number; y: number };
 // E ELA VALIDA A LISTA, NÃO OS ELEMENTOS — o que sai daqui é tipado `Botao[]`
 // por CAST, e nada garante que cada item tenha `id` e `rotulo` de texto. Quem
 // lê `b.rotulo`/`b.id` crus é `enfileirarPasso` (lib/engine.ts), e o que um
-// elemento quebrado produz é botão com título ausente ou payload com
-// `undefined` no lugar do id — a mesma classe de falha que `botoesDaMensagem`
-// (mais abaixo) apara na saída do dreno, mas aparada tarde, depois de o item
-// já ter ido para a fila.
+// elemento quebrado produz depende de QUAL elemento — a descrição anterior
+// juntava os dois casos num só, e errava o pior deles. Medido:
+//
+//   `null` ou `undefined` na lista → `[null].map(b => b.rotulo)` estoura
+//     `TypeError`. Não é "aparado tarde", é QUEDA: `enfileirarPasso` morre
+//     antes de o item chegar à fila, a caminhada aborta no meio (nada mais é
+//     enfileirado, e o cursor, gravado depois do laço, não é gravado), e o
+//     `try/catch` do webhook (app/api/webhook/route.ts) engole a exceção e
+//     grava um `error` genérico — que derruba junto o resto do lote de eventos
+//     daquela requisição, porque o catch está fora dos dois laços.
+//   objeto sem os campos, texto, número → aí sim o que a versão anterior
+//     descrevia: rótulo ausente e `undefined` no lugar do id dentro do
+//     payload. Essa metade é aparada tarde, na saída do dreno, por
+//     `botoesDaMensagem` (mais abaixo) — e, quando ela apara TODOS, o menu sai
+//     vazio, que é o caso que `lib/queue-drain.ts` registra como
+//     `menu_sem_botoes`.
+//
+// A distinção importa para quem for priorizar a Tarefa 5: o primeiro caso é
+// perda de entrega para todo mundo daquela requisição, não um botão feio.
 //
 // FECHAR ISSO É DA TAREFA 5, e está registrado aqui — e não só num relatório —
 // porque é aqui que quem mexer vai ler: a conferência de CONTEÚDO de `botoes`

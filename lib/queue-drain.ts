@@ -19,12 +19,10 @@ import { renderVariables, type VariableContext } from "./variables";
 // A REVISÃO SUGERIU MUDAR `logEvent`/`logEventThrottled` DE CASA (para
 // `lib/db.ts` ou um `lib/activity.ts` novo), e a sugestão está certa no mérito:
 // elas não têm nada de motor, e este import traz um `server-only` grande para o
-// grafo do dreno. A decisão é NÃO FAZER AGORA, e o motivo é o custo do
-// movimento contra o que ele compra: são 8 chamadas dentro de lib/engine.ts, 5
-// em app/api (webhook e oauth) e 1 aqui — e nenhum teste alcança nenhum desses
-// arquivos. Ou seja, é um movimento amplo, no meio da fase, cuja única prova
-// seria o typecheck. O que ele compra é higiene de grafo, não comportamento.
-// Fica anotado aqui, que é onde quem for mexer vai ler.
+// grafo do dreno. A decisão é NÃO FAZER AGORA — o custo, a contagem de
+// chamadas e o que o movimento compra estão escritos JUNTO DA DEFINIÇÃO, em
+// lib/engine.ts, que é por onde quem for mover começa. Esta nota já morou só
+// aqui, no importador, que é o último lugar em que alguém olharia.
 import { logEventThrottled } from "./engine";
 import { botoesDaMensagem, LIMITE_DE_BOTOES } from "./steps";
 

@@ -110,6 +110,18 @@ export type MessagingEvent = {
   };
 };
 
+// MUDAR ESTA FUNÇÃO E `logEventThrottled` DE CASA está proposto e ADIADO, e a
+// nota fica aqui porque é aqui que quem for mover começa. Ela estava só no
+// importador (lib/queue-drain.ts), que é o último lugar em que alguém olharia.
+//
+// A proposta é levá-las para `lib/db.ts` ou um `lib/activity.ts` novo: elas não
+// têm nada de motor, e importá-las daqui arrasta um `server-only` grande para o
+// grafo de quem só quer gravar uma linha em Atividade. O mérito está certo.
+//
+// O ADIAMENTO é o custo contra o que ele compra: são 8 chamadas neste arquivo,
+// 5 em app/api (webhook e oauth) e 1 no dreno, e nenhum teste alcança nenhum
+// desses arquivos — movimento amplo, no meio da fase, cuja única prova seria o
+// typecheck. O que ele compra é higiene de grafo, não comportamento.
 export async function logEvent(accountId: string | null, type: string, payload: unknown) {
   await ensureSchema();
   // O payload vai CRU para uma coluna jsonb — sem JSON.stringify.
@@ -1025,7 +1037,10 @@ async function enfileirarPasso(
     // O `payload` NÃO muda por causa disso, e é isso que preserva o botão: o
     // dreno só desvia para `linkMessage` quando o tipo é `dm_link`/`dm_reminder`
     // ou quando há url; fora daí, os rótulos e os payloads viram
-    // `quick_replies`. Então a resposta privada sai com os mesmos botões e os
+    // `quick_replies` — com UMA exceção, aberta no mesmo commit desta frase:
+    // menu cujos botões são TODOS descartados no dreno (rótulo em branco, par
+    // sem metade) sai como TEXTO PURO, e o dreno o registra como
+    // `menu_sem_botoes`. Fora dela, a resposta privada sai com os mesmos botões e os
     // mesmos payloads que retomam o fluxo quando a pessoa toca — o de TRÊS
     // partes (`AUTO:<automação>:<bloco>`) quando é resposta rápida de um botão
     // só, e um de QUATRO (`AUTO:<automação>:<bloco>:<botão>`) por botão quando

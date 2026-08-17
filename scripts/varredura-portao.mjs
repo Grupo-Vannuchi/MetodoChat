@@ -87,11 +87,25 @@ const S = await import(pathToFileURL(CAMINHO_STEPS).href);
 // NO MODO ANTIGO A FUNÇÃO NÃO EXISTE — `payloadDoBotao` nasceu na revisão da
 // Tarefa 4, e o arquivo carregado pela contraprova é anterior a ela. Ali a
 // interpolação à mão é o que é FIEL ao commit medido: a contraprova tem que
-// reproduzir aquele código, não este. O `??` é essa fidelidade, não um remendo
-// defensivo — no modo ATUAL ele nunca é usado, e se um dia for, a varredura
-// volta a medir a própria ideia dela de payload em vez da do sistema.
-const montarPayload =
-  S.payloadDoBotao ?? ((automacao, bloco, botao) => `AUTO:${automacao}:${bloco}:${botao}`);
+// reproduzir aquele código, não este.
+//
+// A ESCOLHA É PELO MODO, E NÃO PELO `??`, e essa é a correção da rodada final.
+// Com `S.payloadDoBotao ?? (…)`, renomear ou remover o export deixava a
+// varredura cair na interpolação à mão SEM UMA PALAVRA — medido: ela imprimia
+// "SEM VAZAMENTO" idêntico. Ou seja, ela voltava a medir a própria ideia dela
+// de payload, na única ferramenta do projeto cujo trabalho é não ser
+// silenciosa. Escrito assim, o modo atual EXIGE a função do sistema e estoura
+// se ela não estiver lá, e a cópia à mão só é alcançável onde ela é a resposta
+// certa.
+const montarAntigo = (automacao, bloco, botao) => `AUTO:${automacao}:${bloco}:${botao}`;
+if (!MODO_ANTIGO && typeof S.payloadDoBotao !== "function") {
+  throw new Error(
+    "lib/steps.ts não exporta `payloadDoBotao`. A varredura mede o payload do SISTEMA; " +
+      "sem essa função ela mediria a própria cópia, e isso não é medição. " +
+      "Se a função mudou de nome, mude aqui também."
+  );
+}
+const montarPayload = MODO_ANTIGO ? montarAntigo : S.payloadDoBotao;
 
 // ---------------------------------------------------------------------------
 // OS BLOCOS. Cinco papéis, e cada um está aqui por um motivo:
