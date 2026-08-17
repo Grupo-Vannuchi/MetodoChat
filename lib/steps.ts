@@ -92,13 +92,13 @@ export type Posicao = { x: number; y: number };
 // espera": as duas frases são falsas desde que o menu de `botoes` existe, e
 // quem lesse até aqui e parasse sairia com a regra errada.
 //
-//   `botoes` não vazio e SEM url → MENU. Segundo caminho do dreno que monta
-//     `quick_replies` (lib/queue-drain.ts, ramo plural), e segundo bloco `dm`
-//     que ESPERA: o menu existe para ser tocado. Entra ANTES do ramo de
-//     `botao_label` — ver o parágrafo de `botoes`, mais abaixo.
-//   rótulo e SEM url → resposta rápida. Primeiro caminho do dreno que monta
-//     `quick_replies` (ramo singular), e o outro bloco `dm` que espera:
-//     resposta rápida existe para ser tocada.
+//   `botoes` não vazio e SEM url → MENU. Monta `quick_replies` pelo ramo
+//     PLURAL do dreno (lib/queue-drain.ts) e ESPERA: o menu existe para ser
+//     tocado. Entra ANTES do ramo de `botao_label` — ver o parágrafo de
+//     `botoes`, mais abaixo.
+//   rótulo e SEM url → resposta rápida. Monta `quick_replies` pelo ramo
+//     SINGULAR do mesmo dreno, e também ESPERA: resposta rápida existe para
+//     ser tocada.
 //   COM url → botão de link, mesmo sem rótulo (aí `linkMessage`, lib/ig.ts, usa
 //     "Abrir link"). A pessoa abre e a vida segue; não há toque a esperar.
 //   nem uma coisa nem outra → texto puro.
