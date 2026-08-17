@@ -91,8 +91,10 @@ por `scripts/migrar.mjs` no deploy, e reduzir `ensureSchema` a nada.
 
 ## Frente 2 · Um harness fino contra um banco descartável
 
-**Esta é a que muda o jogo**, e é o único item que teria pego os dois defeitos
-plantados na Tarefa 4.
+**Esta é a que fecha a metade que sobrou.** Depois de `3949e43`, os dois defeitos
+da Tarefa 4 são pegos quando plantados na **regra** — e continuam invisíveis
+quando plantados na **fiação**, porque nada executa `lib/engine.ts` nem
+`lib/queue-drain.ts`. É essa metade que mora aqui.
 
 **Não é "testar tudo".** São três ou quatro caminhos, rodando o **motor de
 verdade** contra um **banco de verdade**, num schema temporário criado e
@@ -105,7 +107,8 @@ destruído pelo próprio teste:
 | portão → link | a recompensa não sai para quem não segue |
 | dreno → mensagem | os rótulos e payloads chegam pareados |
 
-O quarto é literalmente o defeito que ninguém pegou.
+O quarto é literalmente o que continua invisível: trocar a ordem de dois
+argumentos na chamada do dreno deixa 496 testes verdes e a varredura idêntica.
 
 **Por que schema temporário e não banco separado:** o Postgres já em uso serve;
 cada rodada cria um schema com nome próprio, roda as migrações nele, e o derruba
@@ -116,7 +119,7 @@ no fim. Sem infraestrutura nova, sem tocar no banco de produção, e o mesmo
 
 - a suíte deixa de rodar em ~2 segundos; estes testes são de outra ordem de
   grandeza
-- por isso eles ficam **separados** dos 485 puros — comando próprio, e o
+- por isso eles ficam **separados** dos 496 puros — comando próprio, e o
   `verify` decide se os chama ou não
 - exige que as migrações da Frente 1 existam, porque é delas que o schema
   temporário nasce. **A Frente 1 vem primeiro por dependência, não por
@@ -124,7 +127,8 @@ no fim. Sem infraestrutura nova, sem tocar no banco de produção, e o mesmo
 
 **O que NÃO fazer:** transformar isto em suíte de integração que cresce sem
 limite. A regra que mantém o valor: **um caminho novo entra aqui só quando um
-defeito real escapou por ele.** A lista acima já tem três que escaparam.
+defeito real escapou por ele.** Os quatro da tabela escaparam de verdade, e o
+quarto **ainda escapa** — é o único da lista que continua sem rede hoje.
 
 ---
 
