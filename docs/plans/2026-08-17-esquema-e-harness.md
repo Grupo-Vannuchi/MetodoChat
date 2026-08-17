@@ -23,6 +23,28 @@ idêntica, e até a prova offline do próprio implementador. **Ninguém pegou.**
 
 Um deles é, em português, *"o menu entrega só o primeiro botão"*.
 
+### E a correção mostrou exatamente onde a fronteira está
+
+O commit `3949e43` levou as duas regras para `lib/steps.ts`. Replantando os
+mesmos defeitos **depois** da correção, medido:
+
+| onde o defeito é plantado | quem pega |
+|---|---|
+| na **regra**, dentro de `lib/steps.ts` | 4, 6 e 2 testes vermelhos, conforme o caso — e um deles move a varredura |
+| na **fiação**, no ponto de chamada em `engine.ts` / `queue-drain.ts` | **ninguém: 496 verdes, varredura idêntica** |
+
+Isto corrige o que este documento afirmava antes — que a Frente 2 era o *único*
+item capaz de pegá-los. Não é: levar a decisão para a função pura já pegou a
+metade da regra, e é a metade maior.
+
+**O que sobrou é menor e mais preciso:** em que ordem os argumentos entram na
+função pura. Nada executa esses dois arquivos, então trocar dois parâmetros na
+chamada continua invisível.
+
+É exatamente a quarta linha da tabela da Frente 2 — *dreno → mensagem* — e é a
+melhor notícia deste documento: o buraco passou de **invisível em qualquer
+lugar** para **invisível só na linha de chamada**.
+
 **O padrão é único: o que é puro é provável; o que é `server-only` é invisível.**
 
 E o impasse do deploy é a mesma coisa de outro ângulo — o esquema mora dentro da
