@@ -1658,11 +1658,20 @@ describe("lerPayload", () => {
   });
 
   it("lê de volta exatamente o que o motor emite — as duas pontas casam", () => {
-    // O motor monta o payload com `identidadeDoPasso` (lib/engine.ts), e este
-    // teste é o único lugar em que as duas pontas se encontram: o que monta o
-    // payload está dentro de `server-only` e nenhum teste chega lá. Se o formato
-    // emitido e o formato lido divergirem, o sintoma não é erro — é o botão
-    // parar de fazer efeito, calado.
+    // Se o formato emitido e o formato lido divergirem, o sintoma não é erro —
+    // é o botão parar de fazer efeito, calado.
+    //
+    // ESTE COMENTÁRIO DIZIA que o teste era "o único lugar em que as duas pontas
+    // se encontram, porque o que monta o payload está dentro de `server-only` e
+    // nenhum teste chega lá". Deixou de ser verdade na Tarefa 4: as três
+    // escritoras — `payloadDoBotao`, `payloadDaRespostaRapida` e
+    // `payloadDoPortao` — saíram do motor para `lib/steps.ts` e têm teste
+    // próprio.
+    //
+    // O teste continua valendo, e por um motivo que sobreviveu à mudança: ele é
+    // o único que casa a escrita com a LEITURA sobre a mesma lista de blocos.
+    // Testar cada ponta em separado deixa passar uma divergência de formato em
+    // que as duas estão internamente certas.
     const lista = [
       { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" },
       { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" },
