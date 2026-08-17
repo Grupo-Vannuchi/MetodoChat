@@ -898,6 +898,29 @@ ignorar Atividade. Avisar na entrega é avisar tarde e para quem não pode
 consertar. **A conferência avisa na montagem, que é quando ele pode.** Se você
 achar que algum destes não cabe aqui, diga — mas ele não volta para a entrega.
 
+### A regra que a Tarefa 3b não pôde fazer, e que é sua
+
+**"O portão existe, mas o link é alcançável sem passar por ele" → impede ATIVAR.**
+
+A Tarefa 3b fechou a fuga no motor: qualquer retomada agora pergunta se há portão
+no caminho. Mas ela **deliberadamente deixou o gatilho de fora**, e mediu por quê:
+aplicar a regra na porta da frente faz uma seta de volta transformar o pedido de
+"me siga" na **primeira** mensagem que todo mundo recebe. O argumento contrário
+está escrito no código.
+
+Então sobra um caso que só a montagem pode resolver: o dono põe um portão no
+fluxo **e** desenha um caminho da entrada até o link que não passa por ele. O
+motor obedece — é o desenho dele. Mas quase certamente não é o que ele quis, e o
+sintoma é o pior possível: o link sai para quem não segue, e nada acusa.
+
+**Não impede salvar** — montar por partes é trabalho normal. **Impede ativar**,
+que é o momento em que ele diz "pode valer para o público".
+
+A varredura da Tarefa 3b já mede esse conjunto: é o grupo **B**, hoje em 261.536
+casos, que ela classifica como *falha de montagem, não do código*. **Use a mesma
+definição** — se a sua divergir da dela, uma das duas está errada e eu quero
+saber qual.
+
 **Avisa:** bifurcação com um botão só.
 
 Montar um menu de três opções, ligar duas e voltar amanhã é trabalho normal;
