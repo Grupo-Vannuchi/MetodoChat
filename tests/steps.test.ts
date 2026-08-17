@@ -2154,6 +2154,29 @@ describe("botoesDaMensagem", () => {
     expect(r.botoes.map((b) => b.payload)).toContain("p13");
   });
 
+  it("MENU INTEIRAMENTE DESCARTADO: a lista sai vazia, e `descartados` não basta para nomear o caso", () => {
+    // O caso que o dreno passou a registrar com evento PRÓPRIO
+    // (`menu_sem_botoes`, lib/queue-drain.ts): o item pedia menu e NENHUM botão
+    // saiu. `esperaResposta` já disse que o bloco para e o motor já gravou o
+    // cursor — a mensagem sai como texto puro e todo braço de `botao` daquele
+    // bloco deixa de ser alcançável.
+    //
+    // Ele chega por DOIS caminhos, e é por isso que ele não cabe dentro do
+    // evento de "sem rótulo":
+    //
+    //   TODOS os pares sem rótulo — `descartados` conta.
+    const todosSemRotulo = botoesDaMensagem([""], ["p1"]);
+    expect(todosSemRotulo.botoes).toEqual([]);
+    expect(todosSemRotulo.descartados).toBe(1);
+    //   a lista de RÓTULOS mais curta (ou ausente) — a sobra sai de fininho, e
+    //   `descartados` fica em ZERO. Dobrado no evento de rótulo, o caso grave
+    //   seria invisível exatamente aqui.
+    const semRotulos = botoesDaMensagem([], ["p1", "p2"]);
+    expect(semRotulos.botoes).toEqual([]);
+    expect(semRotulos.descartados).toBe(0);
+    expect(semRotulos.pareados).toBe(0);
+  });
+
   it("o que não é lista vira menu vazio", () => {
     // As duas chegam de `jsonb`. `undefined`, texto ou objeto no lugar da lista
     // não podem estourar dentro do dreno — o dreno cai no texto puro, e o texto

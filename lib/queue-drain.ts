@@ -257,6 +257,59 @@ async function processItem(
     // a lista vazia é justamente a forma malformada que faz a Meta recusar a
     // mensagem inteira. É a mesma escolha do ramo singular, logo abaixo, que
     // cai no texto quando falta rótulo ou payload — o texto ainda chega.
+    //
+    // E ELE TEM NOME PRÓPRIO, que é a outra metade e faltava: o texto chegar é
+    // ganho, mas `esperaResposta` (lib/steps.ts) já disse que este bloco PARA e
+    // o motor já gravou o cursor. A mensagem sai sem botão nenhum, e o menu
+    // inteiro — cada braço de `botao` que saía dele — deixa de ser alcançável.
+    //
+    // É LITERALMENTE A MEDIÇÃO PRÉ-TAREFA-4, a que está escrita no comentário de
+    // `envioDaDm`: "o motor gravava o cursor esperando um toque que nunca
+    // chegaria". A Tarefa 4 fechou o caminho do bloco sem `botao_label`; este é
+    // o mesmo desfecho chegando pelo outro lado, o dos rótulos.
+    //
+    // É ALCANÇÁVEL HOJE: `botoes: [{id: "op_x"}]` sem `rotulo` atravessa
+    // `envioDaDm`, que valida a LISTA e não os elementos (é comentário dela), e
+    // a conferência de conteúdo é da Tarefa 5.
+    //
+    // O QUE ACONTECE COM A PESSOA, medido em vez de suposto — a versão desta
+    // nota que dizia "fica parada para sempre" exagerava: o cursor está num
+    // `dm`, e `handleMessagingEvent` (lib/engine.ts) cede a vez a outra
+    // automação nesse caso (`interrompeOFluxo`); e o texto solto dela cai em
+    // `retomadaDoTexto`, que segue a seta `sempre` do menu — normalmente
+    // inexistente num menu, e aí a caminhada acaba e o cursor é LIMPO. Ou seja:
+    // ela não fica capturada, ela SAI DO FLUXO CALADA, sem nunca receber o
+    // braço que o botão levava. É por ser calado que o caso precisa de linha
+    // própria.
+    //
+    // POR QUE UM EVENTO E NÃO UM CONSERTO AQUI: o dreno não tem como desfazer a
+    // parada — o cursor é do motor, e reescrevê-lo daqui poria decisão de fluxo
+    // dentro do arquivo que menos pode tê-la (nenhum teste o alcança). O
+    // conserto de verdade é a Tarefa 5, que recusa SALVAR botão sem rótulo.
+    // Até lá, o que este arquivo pode fazer é não deixar o caso ser mudo.
+    //
+    // E ELE NÃO CABE DENTRO DE `quick_replies_sem_rotulo`: aquele evento conta
+    // descartes, e o menu vazio acontece TAMBÉM com `descartados: 0` — basta a
+    // lista de rótulos faltar ou vir mais curta, e a sobra sai de fininho
+    // (`botoesDaMensagem`, lib/steps.ts, e o teste "MENU INTEIRAMENTE
+    // DESCARTADO"). Dobrado lá dentro, o caso grave seria invisível
+    // justamente na forma em que nada é "descartado".
+    if (!menu.botoes.length) {
+      await logEventThrottled(
+        igUserId,
+        "menu_sem_botoes",
+        {
+          queue_id: item.id,
+          automation_id: item.automation_id,
+          contact_ig_id: item.contact_ig_id,
+          pareados: menu.pareados,
+          descartados: menu.descartados,
+        },
+        10,
+        { campo: "automation_id", valor: item.automation_id ?? "" }
+      );
+    }
+
     message = menu.botoes.length
       ? {
           text: texto,
