@@ -30,6 +30,9 @@ import {
   novoIdDeBotao,
   envioDaDm,
   esperaResposta,
+  payloadDoBotao,
+  botoesDaMensagem,
+  LIMITE_DE_BOTOES,
 } from "../lib/steps";
 
 // A CORRENTE que a lista sempre teve na prática: bloco 0 → bloco 1 → bloco 2 …,
@@ -1874,6 +1877,202 @@ describe("lerPayload com o botão", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// A ESCRITA DO PAYLOAD, e por que ela ganhou testes só na revisão da Tarefa 4.
+//
+// Ela existia desde aquela tarefa, mas como interpolação solta dentro de
+// `enfileirarPasso` (lib/engine.ts) — arquivo `server-only` que NENHUM teste
+// desta suíte executa, e que `scripts/varredura-portao.mjs` também não importa
+// (a varredura escrevia o payload à mão, com a ideia DELA do formato). A
+// revisão mediu o que isso custava: trocando o id do botão pelo id do bloco
+// naquela linha, a suíte fechava 485/485, o typecheck saía limpo e a varredura
+// saía idêntica. Cada botão do menu levaria a pessoa ao destino de outro botão,
+// e nada no projeto tinha como dizer isso.
+//
+// Agora a regra mora em `payloadDoBotao` (lib/steps.ts), coladinha em
+// `lerPayload`, que a lê de volta — e é a MESMA função que a varredura importa.
+// ---------------------------------------------------------------------------
+describe("payloadDoBotao", () => {
+  it("escreve a forma de quatro partes, na ordem em que `lerPayload` a lê", () => {
+    expect(payloadDoBotao("auto-1", "b_men001", "op_aaaaaa")).toBe(
+      "AUTO:auto-1:b_men001:op_aaaaaa"
+    );
+  });
+
+  it("IDA E VOLTA: o que ela escreve, `lerPayload` lê de volta campo a campo", () => {
+    // É este teste que fixa a ORDEM. Os três argumentos são `string`, então
+    // trocar dois deles compila — e o payload continua com quatro partes e
+    // continua sendo lido sem erro. O que muda é o SIGNIFICADO de cada parte, e
+    // só uma asserção campo a campo o vê.
+    expect(lerPayload(payloadDoBotao("auto-1", "b_men001", "op_aaaaaa"))).toEqual({
+      prefixo: "AUTO",
+      automationId: "auto-1",
+      passoId: "b_men001",
+      botaoId: "op_aaaaaa",
+    });
+  });
+
+  it("o BLOCO SEM ID entra como índice em texto, e a ida e volta continua valendo", () => {
+    // `identidadeDoPasso` devolve o índice quando o bloco não tem id, e é esse
+    // valor que o motor passa aqui. Exigir o prefixo `b_` recusaria o botão de
+    // toda automação que a migração não alcançou — a mesma razão pela qual
+    // `lerPayload` não confere a forma do bloco.
+    expect(lerPayload(payloadDoBotao("auto-1", "2", "op_aaaaaa"))).toEqual({
+      prefixo: "AUTO",
+      automationId: "auto-1",
+      passoId: "2",
+      botaoId: "op_aaaaaa",
+    });
+  });
+
+  it("CADA BOTÃO DO MENU LEVA AO DESTINO DO SEU PRÓPRIO BOTÃO", () => {
+    // A prova de ponta a ponta do lado puro: escrever o payload como o motor o
+    // escreve, ler de volta e resolver o caminho. Três botões, três destinos
+    // distintos, nenhum vazando para o vizinho.
+    //
+    // É este teste que pega o defeito que a revisão plantou — o payload
+    // carregando o id do BLOCO no lugar do id do botão. Com ele, os três
+    // toques procurariam a ligação `{de: op_xxxxxx}`, que não existe, e os três
+    // virariam botão órfão de uma vez.
+    const menu = {
+      id: "b_men001",
+      tipo: "dm",
+      texto: "Qual?",
+      botoes: [
+        { id: "op_aaaaaa", rotulo: "A" },
+        { id: "op_bbbbbb", rotulo: "B" },
+        { id: "op_cccccc", rotulo: "C" },
+      ],
+    };
+    const passos = [
+      menu,
+      { id: "b_desa01", tipo: "dm", texto: "destino A" },
+      { id: "b_desb02", tipo: "dm", texto: "destino B" },
+      { id: "b_desc03", tipo: "dm", texto: "destino C" },
+    ];
+    const ligacoes = [
+      { de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_desa01" },
+      { de: "b_men001", quando: { tipo: "botao", botao: "op_bbbbbb" }, para: "b_desb02" },
+      { de: "b_men001", quando: { tipo: "botao", botao: "op_cccccc" }, para: "b_desc03" },
+    ];
+
+    const envio = envioDaDm(menu as Parameters<typeof envioDaDm>[0]);
+    if (envio.forma !== "botoes") throw new Error(`o menu não saiu como menu: ${envio.forma}`);
+
+    const destinos = envio.botoes.map((b) => {
+      const payload = lerPayload(payloadDoBotao("auto-1", menu.id, b.id));
+      return caminhoDoBotao(payload!, passos, ligacoes);
+    });
+    expect(destinos).toEqual([
+      { retomada: { portao: null, destino: "b_desa01" } },
+      { retomada: { portao: null, destino: "b_desb02" } },
+      { retomada: { portao: null, destino: "b_desc03" } },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O PAREAMENTO E O CORTE, pelo mesmo motivo: eles moravam em `processItem`
+// (lib/queue-drain.ts), `server-only` que nenhum teste executa. A revisão
+// plantou os rótulos pareados AO CONTRÁRIO dos payloads e mediu 485/485 verdes,
+// typecheck limpo, varredura idêntica — cada botão do menu mostrando o rótulo
+// de outro e levando ao destino do outro.
+// ---------------------------------------------------------------------------
+describe("botoesDaMensagem", () => {
+  it("PAREIA POR ÍNDICE, na ordem em que o dono desenhou", () => {
+    // O rótulo da posição i é o do botão cujo payload está na posição i. É a
+    // única correspondência que existe entre as duas listas irmãs, e inverter
+    // uma delas troca o destino de cada botão sem mudar nada visível.
+    expect(
+      botoesDaMensagem(
+        ["A", "B", "C"],
+        ["AUTO:a:b_men001:op_aaaaaa", "AUTO:a:b_men001:op_bbbbbb", "AUTO:a:b_men001:op_cccccc"]
+      )
+    ).toEqual({
+      botoes: [
+        { rotulo: "A", payload: "AUTO:a:b_men001:op_aaaaaa" },
+        { rotulo: "B", payload: "AUTO:a:b_men001:op_bbbbbb" },
+        { rotulo: "C", payload: "AUTO:a:b_men001:op_cccccc" },
+      ],
+      pareados: 3,
+      descartados: 0,
+    });
+  });
+
+  it("listas de tamanhos diferentes: a sobra fica de fora", () => {
+    // As duas saem sempre do mesmo tamanho de `enfileirarPasso`, mas a coluna é
+    // `jsonb` e sobrevive a edição à mão. Nunca lê um índice que a outra lista
+    // não tem.
+    const r = botoesDaMensagem(["A", "B", "C"], ["p1", "p2"]);
+    expect(r.botoes).toEqual([
+      { rotulo: "A", payload: "p1" },
+      { rotulo: "B", payload: "p2" },
+    ]);
+    expect(r.descartados).toBe(0);
+  });
+
+  it("PAR SEM RÓTULO É DESCARTADO E CONTADO, em vez de virar `title: \"\"`", () => {
+    // O dreno mandava `title: rotulos[i] ?? ""`. Título vazio é campo
+    // obrigatório malformado, e a Meta recusa a mensagem INTEIRA — os outros
+    // botões E o texto. Descartando, sai o que está inteiro; `descartados` vira
+    // linha em Atividade para o botão não sumir calado.
+    const r = botoesDaMensagem(["A", "", "  ", null, 7, "E"], ["p1", "p2", "p3", "p4", "p5", "p6"]);
+    expect(r.botoes).toEqual([
+      { rotulo: "A", payload: "p1" },
+      { rotulo: "E", payload: "p6" },
+    ]);
+    expect(r.pareados).toBe(2);
+    expect(r.descartados).toBe(4);
+  });
+
+  it("payload em branco ou fora de tipo também é descartado", () => {
+    const r = botoesDaMensagem(["A", "B", "C"], ["", { x: 1 }, "p3"]);
+    expect(r.botoes).toEqual([{ rotulo: "C", payload: "p3" }]);
+    expect(r.descartados).toBe(2);
+  });
+
+  it("CORTA NO LIMITE DA META e diz quantos havia", () => {
+    // Sem o corte, a Meta recusa a mensagem inteira e ninguém recebe nada, nem
+    // o texto. `pareados` é o que o dreno registra em Atividade.
+    const n = 20;
+    const rotulos = Array.from({ length: n }, (_, i) => `r${i}`);
+    const payloads = Array.from({ length: n }, (_, i) => `p${i}`);
+    const r = botoesDaMensagem(rotulos, payloads);
+    expect(LIMITE_DE_BOTOES).toBe(13);
+    expect(r.botoes).toHaveLength(LIMITE_DE_BOTOES);
+    expect(r.botoes[0]).toEqual({ rotulo: "r0", payload: "p0" });
+    expect(r.botoes[12]).toEqual({ rotulo: "r12", payload: "p12" });
+    expect(r.pareados).toBe(n);
+    expect(r.descartados).toBe(0);
+  });
+
+  it("O CORTE VEM DEPOIS DO DESCARTE", () => {
+    // Cortar antes deixaria o rótulo em branco ocupar uma das 13 vagas e ainda
+    // empurrar um botão bom para fora da mensagem. Aqui há 14 pares, um deles
+    // sem rótulo: os 13 bons saem, e nenhum é perdido para o vazio.
+    const rotulos = Array.from({ length: 14 }, (_, i) => (i === 3 ? "" : `r${i}`));
+    const payloads = Array.from({ length: 14 }, (_, i) => `p${i}`);
+    const r = botoesDaMensagem(rotulos, payloads);
+    expect(r.botoes).toHaveLength(13);
+    expect(r.pareados).toBe(13);
+    expect(r.descartados).toBe(1);
+    expect(r.botoes.map((b) => b.payload)).not.toContain("p3");
+    expect(r.botoes.map((b) => b.payload)).toContain("p13");
+  });
+
+  it("o que não é lista vira menu vazio", () => {
+    // As duas chegam de `jsonb`. `undefined`, texto ou objeto no lugar da lista
+    // não podem estourar dentro do dreno — o dreno cai no texto puro, e o texto
+    // ainda chega.
+    expect(botoesDaMensagem(undefined, ["p1"])).toEqual({
+      botoes: [],
+      pareados: 0,
+      descartados: 0,
+    });
+    expect(botoesDaMensagem("A", "p1")).toEqual({ botoes: [], pareados: 0, descartados: 0 });
+  });
+});
+
 describe("caminhoDoBotao", () => {
   const passos = [
     { id: "b_men001", tipo: "dm", texto: "escolha", botao_label: "quero" },
@@ -2701,12 +2900,23 @@ describe("interpretar caminhando o grafo", () => {
   // e mesmo assim o motor gravava o cursor: parada esperando um toque que
   // ninguém entregou.
   //
-  // A TAREFA 4 fechou o buraco de um lugar só: `envioDaDm` aprendeu `botoes`,
-  // e `esperaResposta` — que deriva dela — passou a parar no menu por
-  // consequência, sem ganhar condição própria. `enfileirarPasso` e o dreno
-  // aprenderam a entregar a lista inteira no mesmo commit. Os dois testes
-  // abaixo são as duas metades: a forma nova de `envioDaDm`, e a parada que
-  // ela devolve a `esperaResposta`.
+  // A TAREFA 4 fechou o buraco pelo lado que faltava: `envioDaDm` aprendeu
+  // `botoes`, e `enfileirarPasso` e o dreno aprenderam a entregar a lista
+  // inteira no mesmo commit.
+  //
+  // E `esperaResposta` GANHOU A FORMA NOVA NA CONDIÇÃO, no mesmo commit —
+  // `forma === "resposta_rapida"` virou `|| forma === "botoes"`. A versão
+  // anterior deste comentário dizia "sem ganhar condição própria", repetindo
+  // uma previsão do brief que o próprio commit desmentiu vinte linhas adiante.
+  // Criar uma forma NOVA obriga alguém a dizer se ela para: das quatro, duas
+  // param e duas não, e isso não se deduz da forma. O que continua não
+  // duplicado é a DECISÃO DA FORMA — `esperaResposta` pergunta a `envioDaDm` e
+  // não reescreve `Boolean(p.botao_label) && !p.url`. O porquê inteiro está no
+  // comentário de `envioDaDm` (lib/steps.ts).
+  //
+  // Os dois testes abaixo são as duas metades: a forma nova de `envioDaDm` — e
+  // o CONTEÚDO que ela entrega, não só a contagem —, e a parada que
+  // `esperaResposta` deriva dela.
   // ------------------------------------------------------------------------
 
   it("A PARADA E A ENTREGA SÃO A MESMA PERGUNTA: nenhum `dm` para sem entregar algo para tocar", () => {
@@ -2750,7 +2960,16 @@ describe("interpretar caminhando o grafo", () => {
       // uma lista de botões não vazia. É esta linha que o `botoes` sem
       // `botao_label` quebrava antes da Tarefa 4.
       if (envio.forma === "resposta_rapida") expect(envio.rotulo.length).toBeGreaterThan(0);
-      if (envio.forma === "botoes") expect(envio.botoes.length).toBeGreaterThan(0);
+      if (envio.forma === "botoes") {
+        expect(envio.botoes.length).toBeGreaterThan(0);
+        // O CONTEÚDO, e não só a contagem. `toBeGreaterThan(0)` sozinho era o
+        // que esta linha afirmava, e a revisão da Tarefa 4 mediu o que ele
+        // deixa passar: `return { forma: "botoes", botoes: p.botoes.slice(0, 1) }`
+        // — "o menu entrega só o primeiro botão", o defeito central da tarefa —
+        // ficava VERDE, 485/485. O menu sai inteiro e na ordem em que o dono o
+        // desenhou; é essa ordem que o dreno pareia com os payloads.
+        expect(envio.botoes).toEqual((passo as { botoes?: unknown }).botoes);
+      }
     }
   });
 

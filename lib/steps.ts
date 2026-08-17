@@ -108,16 +108,54 @@ export type Posicao = { x: number; y: number };
 // entraria em `{forma: "botoes"}` e quebraria todo mundo que confia em ler
 // `.botoes` dali como lista.
 //
-// A PARADA VOLTA SEM `esperaResposta` MUDAR — e essa é a diferença entre uma
-// regra e duas: ela já pergunta a esta função (abaixo), então um menu de
-// `botoes` passa a parar o fluxo no mesmo instante em que passa a ser
-// entregável, sem ninguém precisar lembrar de tocar num segundo lugar. Antes
-// desta tarefa isso não era verdade: `esperaResposta` dizia sim a um `dm` com
-// `botoes`, `enfileirarPasso` (lib/engine.ts) só sabia montar um rótulo, e a
-// mensagem saía como texto puro enquanto o motor gravava o cursor esperando um
-// toque que nunca chegaria — é a medição que o comentário desta função já
-// registrava. Ela fecha porque o motor e o dreno aprenderam a entregar vários
-// botões (`lib/engine.ts`, `lib/queue-drain.ts`) no mesmo commit desta função.
+// E ELA VALIDA A LISTA, NÃO OS ELEMENTOS — o que sai daqui é tipado `Botao[]`
+// por CAST, e nada garante que cada item tenha `id` e `rotulo` de texto. Quem
+// lê `b.rotulo`/`b.id` crus é `enfileirarPasso` (lib/engine.ts), e o que um
+// elemento quebrado produz é botão com título ausente ou payload com
+// `undefined` no lugar do id — a mesma classe de falha que `botoesDaMensagem`
+// (mais abaixo) apara na saída do dreno, mas aparada tarde, depois de o item
+// já ter ido para a fila.
+//
+// FECHAR ISSO É DA TAREFA 5, e está registrado aqui — e não só num relatório —
+// porque é aqui que quem mexer vai ler: a conferência de CONTEÚDO de `botoes`
+// (cada elemento é objeto, com `id` e `rotulo` de texto não vazios, ids
+// distintos dentro do bloco) pertence a `conferir`/`conferirLista`, que é o
+// lugar que TRAVA O SALVAR. Esta função não recusa bloco nenhum de propósito —
+// recusar aqui faria `interpretar` IGNORAR o bloco, que é a troca cara descrita
+// no comentário do rótulo do portão, em `conferir`.
+//
+// A QUARTA FORMA OBRIGA `esperaResposta` A LISTÁ-LA, e isso é o contrário do
+// que este parágrafo prometeu até a revisão da Tarefa 4. Ele dizia "a parada
+// volta sem `esperaResposta` mudar" — e o commit que escreveu essa frase mudou
+// `esperaResposta` vinte linhas abaixo, trocando `forma === "resposta_rapida"`
+// por `forma === "resposta_rapida" || forma === "botoes"`. Fica registrado
+// porque previsão errada é o tipo de frase que alguém repete sem medir, e esta
+// já tinha sido repetida em dois testes.
+//
+// E ela não podia sair certa: criar uma forma NOVA obriga alguém a dizer se ela
+// para. Das quatro, duas param e duas não (`link` e `texto` não esperam toque
+// nenhum), e nada na forma em si permite deduzir de que lado a nova cai — é
+// decisão de produto, e alguém tem que escrevê-la.
+//
+// O QUE NÃO SE DUPLICA É A DECISÃO DA FORMA, e é essa a diferença entre uma
+// regra e duas. "O que este bloco entrega" é respondido AQUI e só aqui:
+// `esperaResposta` (abaixo), o motor (`enfileirarPasso`, lib/engine.ts) e o
+// painel do bloco (app/automacoes/editor/painel.tsx) PERGUNTAM a esta função —
+// nenhum deles reescreve `Boolean(p.botao_label) && !p.url`. O que
+// `esperaResposta` acrescenta é uma linha sobre o RESULTADO dela, e essa linha
+// não some de vista: o teste "A PARADA E A ENTREGA SÃO A MESMA PERGUNTA"
+// (tests/steps.test.ts) percorre TODA forma de `dm` que este projeto sabe
+// produzir e exige que "para" e "entrega algo tocável" sejam a mesma resposta —
+// uma forma nova que pare sem entregar nada, ou que entregue sem parar, acende
+// ali.
+//
+// O que a versão anterior descrevia bem, e continua valendo, é a MEDIÇÃO: antes
+// desta tarefa `esperaResposta` dizia sim a um `dm` com `botoes`,
+// `enfileirarPasso` (lib/engine.ts) só sabia montar um rótulo, e a mensagem saía
+// como texto puro enquanto o motor gravava o cursor esperando um toque que nunca
+// chegaria. O que fecha isso é o motor e o dreno terem aprendido a entregar
+// vários botões (`lib/engine.ts`, `lib/queue-drain.ts`) no mesmo commit desta
+// função — não a ausência de uma linha em `esperaResposta`.
 //
 // O RÓTULO VEM JUNTO nos dois ramos que entregam algo tocável, e não como um
 // campo à parte para o chamador reler: era o `botao_label!` da prévia que
@@ -1163,6 +1201,109 @@ export function lerPayload(payload: unknown): Payload | null {
   // acharia ligação para ela mesmo que aceitasse.
   if (partes.length === 4 && !botaoId) return null;
   return { prefixo, automationId, passoId: passoId ?? null, botaoId: botaoId ?? null };
+}
+
+// A METADE ESCRITORA do payload de quatro partes, coladinha na leitora.
+//
+// ELA ESTAVA EM `lib/engine.ts`, dentro de `enfileirarPasso`, como uma
+// interpolação solta — e é o achado principal da revisão da Tarefa 4: um
+// `server-only` que NENHUM teste desta suíte alcança, e que a varredura
+// (`scripts/varredura-portao.mjs`) também não importa. A revisão trocou o id do
+// botão pelo id do bloco naquela linha e mediu: 485/485 testes verdes,
+// typecheck limpo, varredura idêntica. Ninguém pegava, porque a regra "como se
+// escreve um payload" não rodava em harness nenhum.
+//
+// A MESMA REGRA EM DOIS LUGARES já puniu este projeto três vezes (o id de
+// bloco em três cópias, a forma da `dm` em três leitores, a regra do portão no
+// motor e na varredura), e aqui a segunda cópia era pior que as outras: ela
+// morava justamente do lado que nada executa. `lerPayload` está a três linhas
+// daqui, e é o teste de ida e volta entre as duas — escrever e ler de novo —
+// que fixa a ordem dos campos.
+//
+// A ORDEM DOS ARGUMENTOS É A ORDEM DO PAYLOAD, de propósito: automação, bloco,
+// botão, na mesma sequência em que `lerPayload` os desestrutura. Trocar dois
+// deles ainda compila — os três são `string` —, e é por isso que o teste
+// afirma o CONTEÚDO de cada parte, e não só o formato.
+//
+// NÃO CONFERE NADA, e a ausência é a mesma de `lerPayload`: o `<bloco>` pode
+// ser um id `b_...` ou o ÍNDICE EM TEXTO (`identidadeDoPasso`), e exigir
+// prefixo aqui recusaria o botão de toda automação que a migração não
+// alcançou. O que impede um payload malformado de virar toque perdido é o lado
+// leitor, que devolve null.
+export function payloadDoBotao(automacaoId: string, blocoId: string, botaoId: string): string {
+  return `AUTO:${automacaoId}:${blocoId}:${botaoId}`;
+}
+
+// O limite da Meta para respostas rápidas numa única mensagem.
+//
+// 13, lido no guia oficial ao implementar a Tarefa 4 (developers.facebook.com/
+// documentation/business-messaging/instagram-messaging/features/quick-replies):
+// "A maximum of 13 quick replies are supported". Não é o número da memória de
+// ninguém — é o que o guia diz.
+//
+// ELE MORA AQUI, e não no dreno, porque quem corta é a função abaixo. A
+// conferência do editor (Tarefa 5) vai precisar do mesmo número para avisar o
+// dono ANTES de salvar, e ela também é código puro: um número só, num arquivo
+// que os dois já importam.
+export const LIMITE_DE_BOTOES = 13;
+
+// O MENU QUE VAI NA MENSAGEM: pareia rótulos com payloads e corta no limite.
+//
+// ELA ESTAVA EM `lib/queue-drain.ts`, e sai de lá pelo mesmo motivo de
+// `payloadDoBotao`: é `server-only`, nenhum teste a alcança, e a revisão da
+// Tarefa 4 mediu isso plantando os rótulos pareados AO CONTRÁRIO dos payloads
+// — 485/485 verdes, typecheck limpo, varredura idêntica. Cada botão do menu
+// levaria a pessoa ao destino de OUTRO botão, e nada no projeto tinha como
+// dizer isso.
+//
+// RECEBE `unknown` NOS DOIS LADOS de propósito. As duas listas chegam de uma
+// coluna `jsonb` (`queue.payload`), que é editável por fora do painel e
+// sobrevive a restauração de backup: nada garante que sejam listas, nem que
+// tenham o mesmo tamanho, nem que os elementos sejam texto. `enfileirarPasso`
+// (lib/engine.ts) sempre escreve as duas do mesmo tamanho — o que esta função
+// faz é não DEPENDER disso.
+//
+// O PAREAMENTO É POR ÍNDICE, e é a única correspondência que existe: o rótulo
+// da posição i é o do botão cujo payload está na posição i. Sobra de um lado é
+// descartada em silêncio (não há botão a montar sem as duas metades).
+//
+// PAR SEM RÓTULO É DESCARTADO, e esta é decisão nova da revisão — antes o
+// dreno mandava `title: rotulos[i] ?? ""`. O motivo é o mesmo do corte em 13:
+// a Meta recusa a mensagem INTEIRA quando uma resposta rápida está malformada,
+// e título é campo obrigatório. Um rótulo em branco no meio de cinco botões
+// derrubaria os outros quatro E o texto — ninguém receberia nada. Descartando,
+// sai o que está inteiro. É também o que o ramo SINGULAR do dreno já fazia
+// desde sempre (`quick_reply_label && quick_reply_payload`, senão texto puro):
+// o plural é que não exigia nada.
+//
+// E O DESCARTE NÃO É CALADO: `descartados` volta para o chamador justamente
+// para virar linha em Atividade (lib/queue-drain.ts). Botão que some da
+// mensagem sem registro é o defeito que este projeto passou a fase inteira
+// fechando.
+//
+// O CORTE VEM DEPOIS DO DESCARTE, e a ordem importa: cortar antes deixaria um
+// rótulo em branco ocupar uma das 13 vagas e ainda derrubar um botão bom para
+// fora da mensagem.
+export type BotaoDaMensagem = { rotulo: string; payload: string };
+
+export function botoesDaMensagem(
+  rotulos: unknown,
+  payloads: unknown
+): { botoes: BotaoDaMensagem[]; pareados: number; descartados: number } {
+  const rs = Array.isArray(rotulos) ? rotulos : [];
+  const ps = Array.isArray(payloads) ? payloads : [];
+  const pares: BotaoDaMensagem[] = [];
+  let descartados = 0;
+  for (let i = 0; i < Math.min(rs.length, ps.length); i++) {
+    const rotulo = rs[i];
+    const payload = ps[i];
+    if (typeof rotulo !== "string" || !rotulo.trim() || typeof payload !== "string" || !payload) {
+      descartados++;
+      continue;
+    }
+    pares.push({ rotulo, payload });
+  }
+  return { botoes: pares.slice(0, LIMITE_DE_BOTOES), pareados: pares.length, descartados };
 }
 
 // PARA ONDE VAI UM TOQUE EM BOTÃO — do payload até o índice, numa função só.

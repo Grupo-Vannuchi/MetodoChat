@@ -11,10 +11,22 @@ import {
   OutgoingMessage,
 } from "./ig";
 import { renderVariables, type VariableContext } from "./variables";
-// Só para registrar em Atividade o corte de botões além do limite da Meta
-// (ver `LIMITE_QUICK_REPLIES`, abaixo). Não há import na direção oposta —
-// lib/engine.ts não importa deste arquivo — então não há ciclo.
+// Só para registrar em Atividade o que este arquivo tira da mensagem — o corte
+// além do limite da Meta e o botão sem rótulo (ver `botoesDaMensagem`, abaixo).
+// Não há import na direção oposta — lib/engine.ts não importa deste arquivo —
+// então não há ciclo.
+//
+// A REVISÃO SUGERIU MUDAR `logEvent`/`logEventThrottled` DE CASA (para
+// `lib/db.ts` ou um `lib/activity.ts` novo), e a sugestão está certa no mérito:
+// elas não têm nada de motor, e este import traz um `server-only` grande para o
+// grafo do dreno. A decisão é NÃO FAZER AGORA, e o motivo é o custo do
+// movimento contra o que ele compra: são 8 chamadas dentro de lib/engine.ts, 5
+// em app/api (webhook e oauth) e 1 aqui — e nenhum teste alcança nenhum desses
+// arquivos. Ou seja, é um movimento amplo, no meio da fase, cuja única prova
+// seria o typecheck. O que ele compra é higiene de grafo, não comportamento.
+// Fica anotado aqui, que é onde quem for mexer vai ler.
 import { logEventThrottled } from "./engine";
+import { botoesDaMensagem, LIMITE_DE_BOTOES } from "./steps";
 
 // ============================================================
 // Envio: drena a fila respeitando limites da Meta
@@ -24,18 +36,15 @@ const HOURLY_CAP = 190; // margem sobre o limite prático de ~200/h, POR CONTA
 const BATCH_SIZE = 15;
 const GAP_MS = 600; // ~1,6 envios/segundo
 
-// O limite da Meta para respostas rápidas numa única mensagem. Lido no guia
-// oficial ao implementar esta tarefa (developers.facebook.com/documentation/
-// business-messaging/instagram-messaging/features/quick-replies): "A maximum
-// of 13 quick replies are supported". Não é o número da memória de ninguém —
-// é o que o guia diz hoje.
+// O LIMITE DA META (13) E O CORTE SAÍRAM DAQUI, e viraram `LIMITE_DE_BOTOES` e
+// `botoesDaMensagem` em lib/steps.ts. O motivo é o achado principal da revisão
+// da Tarefa 4: este arquivo é `server-only` e NENHUM teste da suíte o executa,
+// então o pareamento rótulo↔payload e o corte eram regra viva que nada podia
+// medir — plantar os rótulos ao contrário aqui deixava 485/485 verdes.
 //
-// A DEFESA É NO DRENO, e não só na conferência do editor (Tarefa 5), porque a
-// coluna `payload` é `jsonb` e pode ser editada por fora do painel. Sem o
-// corte aqui, um item com mais de 13 botões faz a Meta recusar a mensagem
-// INTEIRA — ninguém recebe nada, nem o texto. Cortar entrega o que cabe e
-// registra o resto em Atividade, para o dono descobrir sem cliente reclamando.
-const LIMITE_QUICK_REPLIES = 13;
+// A DEFESA CONTINUA SENDO NO DRENO, e não só na conferência do editor (Tarefa
+// 5): a coluna `payload` é `jsonb` e pode ser editada por fora do painel. O que
+// mudou é onde a regra está escrita, não onde ela roda.
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -136,8 +145,12 @@ async function processItem(
     // este arquivo lê os dois pares independentemente. Itens enfileirados
     // antes desta tarefa só têm a forma singular, e continuam sendo lidos por
     // ela — é por isso que ela não sai daqui.
-    quick_reply_labels?: string[];
-    quick_reply_payloads?: string[];
+    // `unknown[]`, e não `string[]`: o `jsonb` não garante o tipo dos
+    // elementos, e declará-los como texto faria o `tsc` apagar as guardas de
+    // runtime como código morto. Quem os valida um a um é `botoesDaMensagem`
+    // (lib/steps.ts).
+    quick_reply_labels?: unknown[];
+    quick_reply_payloads?: unknown[];
     button_label?: string;
     url?: string;
     message_id?: string;
@@ -192,42 +205,68 @@ async function processItem(
     // `lib/ig.ts` já aceitava `quick_replies` como lista — o que faltava era
     // este arquivo montar mais de uma entrada.
     //
-    // PAREADOS POR ÍNDICE, e por `Math.min` dos dois tamanhos: rótulo e payload
-    // andam juntos em `envio.botoes` (lib/steps.ts) e são escritos como duas
-    // listas irmãs em `enfileirarPasso` (lib/engine.ts), sempre do mesmo
-    // tamanho — mas o `jsonb` é editável por fora do painel, e nada IMPEDE as
-    // duas listas de chegarem com tamanhos diferentes. `Math.min` é a defesa
-    // contra isso: nunca lê um índice que a outra lista não tem.
-    const rotulos = p.quick_reply_labels ?? [];
-    const n = Math.min(rotulos.length, p.quick_reply_payloads.length);
-    const pares = Array.from({ length: n }, (_, i) => ({
-      title: renderVariables(rotulos[i] ?? "", ctx),
-      payload: p.quick_reply_payloads![i],
-    }));
+    // QUEM PAREIA E QUEM CORTA É `botoesDaMensagem` (lib/steps.ts): pareamento
+    // por índice, descarte do par sem rótulo, corte no limite da Meta. Os três
+    // porquês estão lá, junto do teste que os fixa.
+    //
+    // AS VARIÁVEIS SÃO RESOLVIDAS ANTES DO PAREAMENTO, e a ordem é o que fecha
+    // um buraco: um rótulo `{{first_name}}` de contato sem nome vira "" depois
+    // do `render`, e a Meta recusa a mensagem inteira por título vazio. Se o
+    // descarte olhasse o rótulo CRU, esse caso passaria batido. Elemento que
+    // não é texto atravessa intocado — quem o recusa é a função pura.
+    const rotulos = (Array.isArray(p.quick_reply_labels) ? p.quick_reply_labels : []).map((r) =>
+      typeof r === "string" ? renderVariables(r, ctx) : r
+    );
+    const menu = botoesDaMensagem(rotulos, p.quick_reply_payloads);
 
-    // O CORTE E O REGISTRO — ver `LIMITE_QUICK_REPLIES`, acima, para o porquê
-    // de a defesa estar aqui e não só na conferência do editor (Tarefa 5).
-    if (pares.length > LIMITE_QUICK_REPLIES) {
+    // OS DOIS REGISTROS, e são dois porque se arrumam em lugares diferentes: o
+    // corte é o dono ter desenhado botões demais; o descarte é botão com
+    // rótulo em branco (ou payload em branco, que só chega por `jsonb` editado
+    // à mão). Sem eles, o botão some da mensagem e não há linha nenhuma
+    // dizendo por quê — que é a falha muda que esta fase inteira passou
+    // fechando.
+    if (menu.pareados > LIMITE_DE_BOTOES) {
       await logEventThrottled(
         igUserId,
         "quick_replies_cortados",
         {
           queue_id: item.id,
           automation_id: item.automation_id,
-          total: pares.length,
-          limite: LIMITE_QUICK_REPLIES,
+          total: menu.pareados,
+          limite: LIMITE_DE_BOTOES,
+        },
+        10,
+        { campo: "automation_id", valor: item.automation_id ?? "" }
+      );
+    }
+    if (menu.descartados) {
+      await logEventThrottled(
+        igUserId,
+        "quick_replies_sem_rotulo",
+        {
+          queue_id: item.id,
+          automation_id: item.automation_id,
+          descartados: menu.descartados,
         },
         10,
         { campo: "automation_id", valor: item.automation_id ?? "" }
       );
     }
 
-    message = {
-      text: texto,
-      quick_replies: pares
-        .slice(0, LIMITE_QUICK_REPLIES)
-        .map((q) => ({ content_type: "text" as const, title: q.title, payload: q.payload })),
-    };
+    // MENU QUE SOBROU VAZIO SAI COMO TEXTO PURO, e não como `quick_replies: []`:
+    // a lista vazia é justamente a forma malformada que faz a Meta recusar a
+    // mensagem inteira. É a mesma escolha do ramo singular, logo abaixo, que
+    // cai no texto quando falta rótulo ou payload — o texto ainda chega.
+    message = menu.botoes.length
+      ? {
+          text: texto,
+          quick_replies: menu.botoes.map((b) => ({
+            content_type: "text" as const,
+            title: b.rotulo,
+            payload: b.payload,
+          })),
+        }
+      : { text: texto };
   } else if (p.quick_reply_label && p.quick_reply_payload) {
     message = {
       text: texto,

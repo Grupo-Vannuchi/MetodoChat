@@ -1,5 +1,5 @@
 "use client";
-import { envioDaDm } from "@/lib/steps";
+import { esperaResposta } from "@/lib/steps";
 import type { Passo, Problema } from "@/lib/steps";
 import type { Picked } from "../types";
 import { comoTexto, resumoDoBloco } from "./modelos";
@@ -229,19 +229,29 @@ export default function Painel({
                   da convenção da chave `url`, documentada em modelos.ts, e ela NÃO
                   pode sair daqui.
 
-                  O FLUXO PARA NELE? — de `envioDaDm` (lib/steps.ts), que é o único
-                  decisor da forma de uma `dm` em todo o sistema. Aqui havia
-                  `Boolean(passo.botao_label)`, a última cópia solta da regra que
-                  `esperaResposta` também escreve; ela dava a MESMA resposta, mas
-                  era a segunda cópia que precisaria ser lembrada no dia em que a
-                  forma mudar — e é assim que o motor e a prévia já divergiram uma
-                  vez (ver a medição em `envioDaDm`).
+                  O FLUXO PARA NELE? — de `esperaResposta` (lib/steps.ts), que é
+                  a pergunta que este aviso FAZ, escrita uma vez só. Aqui havia
+                  `Boolean(passo.botao_label)`, a última cópia solta da regra; ela
+                  saiu, e a linha passou a perguntar `envioDaDm(passo).forma ===
+                  "resposta_rapida"` — que é uma cópia mais discreta da MESMA
+                  coisa, listando as formas que param.
+
+                  E ELA JÁ FICOU ERRADA, no commit seguinte: a Tarefa 4 fez o
+                  menu de `botoes` parar o fluxo, `esperaResposta` ganhou a forma
+                  nova, e esta linha não. Um bloco só de botões passava a travar
+                  o fluxo com este aviso APAGADO — a tela dizendo o contrário do
+                  que o motor faz. A ironia está medida: o parágrafo acima existe
+                  justamente para não haver "a segunda cópia que precisaria ser
+                  lembrada no dia em que a forma mudar", e a forma mudou no dia
+                  seguinte sem esta linha ser lembrada. Por isso ela agora
+                  pergunta pela PARADA, e não pela lista de formas que param.
 
                   A DIVERGÊNCIA COM `envioDaDm` FICA DE PÉ, e é intencional: em
-                  `{botao_label, url: ""}` ele diz `resposta_rapida` e esta tela
-                  não mostra o aviso. Quem a produz é a guarda da chave, do lado de
-                  fora — o que saiu foi a repetição da regra, não a convenção. */}
-              {passo.url === undefined && envioDaDm(passo).forma === "resposta_rapida" && (
+                  `{botao_label, url: ""}` ele diz `resposta_rapida` — e portanto
+                  `esperaResposta` diz que para — e esta tela não mostra o aviso.
+                  Quem a produz é a guarda da chave, do lado de fora — o que saiu
+                  foi a repetição da regra, não a convenção. */}
+              {passo.url === undefined && esperaResposta(passo) && (
                 <Aviso tom="ambar">
                   <strong>O fluxo para aqui</strong> esperando o toque. O que vier depois só sai
                   quando a pessoa tocar no botão.

@@ -51,6 +51,7 @@ import {
   seguinteDe,
   indiceDoId,
   lerPayload,
+  payloadDoBotao,
   caminhoDoBotao,
   oQuePortaoFaz,
   type AcaoEnfileirar,
@@ -1013,18 +1014,21 @@ async function enfileirarPasso(
     // payload é a reserva.
     const envio = envioDaDm(p);
 
-    // ...e sobre essas três formas vem uma quarta decisão, que é de ENTREGA, não
-    // de conteúdo: a primeira mensagem de uma execução disparada por comentário
-    // sai como `private_reply`, presa ao id do comentário. É o que fura a janela
-    // de 24h (ver `gastarRespostaPrivada`) — sem isso ela é descartada como
-    // `skipped` e a automação por comentário não entrega nada.
+    // ...e sobre essas QUATRO formas vem uma decisão a mais, que é de ENTREGA,
+    // não de conteúdo: a primeira mensagem de uma execução disparada por
+    // comentário sai como `private_reply`, presa ao id do comentário. É o que
+    // fura a janela de 24h (ver `gastarRespostaPrivada`) — sem isso ela é
+    // descartada como `skipped` e a automação por comentário não entrega nada.
     //
     // O `payload` NÃO muda por causa disso, e é isso que preserva o botão: o
     // dreno só desvia para `linkMessage` quando o tipo é `dm_link`/`dm_reminder`
-    // ou quando há url; fora daí, rótulo + payload de resposta rápida viram
-    // `quick_replies`. Então a resposta privada sai com o mesmo botão e o mesmo
-    // `AUTO:<id da automação>:<id do bloco>` que retoma o fluxo quando a
-    // pessoa toca.
+    // ou quando há url; fora daí, os rótulos e os payloads viram
+    // `quick_replies`. Então a resposta privada sai com os mesmos botões e os
+    // mesmos payloads que retomam o fluxo quando a pessoa toca — o de TRÊS
+    // partes (`AUTO:<automação>:<bloco>`) quando é resposta rápida de um botão
+    // só, e um de QUATRO (`AUTO:<automação>:<bloco>:<botão>`) por botão quando
+    // é menu, que desde a Tarefa 4 também pode ser a primeira mensagem de um
+    // fluxo por comentário.
     const comentario = gastarRespostaPrivada(contexto);
 
     await enqueue({
@@ -1088,8 +1092,16 @@ async function enfileirarPasso(
             // `{de: <este bloco>, quando: {botao: <este id>}}`). É a forma de
             // QUATRO partes que `lerPayload` (lib/steps.ts) já sabe ler desde
             // a Tarefa 3, e que só passa a ser EMITIDA a partir desta tarefa.
-            quick_reply_payloads: envio.botoes.map(
-              (b) => `AUTO:${auto.id}:${identidadeDoPasso(p, acao.indice)}:${b.id}`
+            //
+            // A STRING NÃO É MONTADA AQUI, e essa é a correção da revisão
+            // desta tarefa: era `AUTO:${auto.id}:${bloco}:${b.id}` escrito à
+            // mão, dentro de um arquivo `server-only` que nenhum teste
+            // executa. Trocar o id do bloco pelo do botão nesta linha passava
+            // com 485/485 verdes. Agora quem escreve é `payloadDoBotao`
+            // (lib/steps.ts), ao lado de `lerPayload`, que a lê de volta — e é
+            // a MESMA função que a varredura importa para forjar os toques.
+            quick_reply_payloads: envio.botoes.map((b) =>
+              payloadDoBotao(auto.id, identidadeDoPasso(p, acao.indice), b.id)
             ),
           }
         : { text: p.texto, button_label: p.botao_label ?? null, url: p.url ?? null },

@@ -157,9 +157,21 @@ describe("roteiro — as paradas", () => {
     // sobre uma mensagem que o motor manda como texto puro.
     //
     // Hoje as duas perguntas — o que sai e onde para — são a mesma
-    // (`envioDaDm`, lib/steps.ts), e a cena mostra o que a pessoa recebe: um
-    // balão, sem botão. Quando a Tarefa 4 ensinar o motor a entregar vários
-    // botões, esta cena muda sozinha.
+    // (`envioDaDm`, lib/steps.ts), e a cena mostra um balão sem botão.
+    //
+    // ESTA CENA NÃO MUDOU SOZINHA NA TAREFA 4, e a frase que dizia que mudaria
+    // ficou aqui depois de MEDIDA COMO FALSA — quem pegar a Tarefa 8 lê esta
+    // linha, não o relatório de outra tarefa. O motor passou a entregar os dois
+    // botões e a parar no menu; esta cena continuou idêntica porque
+    // `roteiro.ts` não tem ramo para `envio.forma === "botoes"` — ele só trata
+    // `"resposta_rapida"` e `"link"`, e um menu cai no `else` de texto puro.
+    // Ou seja: a prévia hoje MENTE sobre este bloco, desenhando como mensagem
+    // solta uma parada que o motor executa.
+    //
+    // QUEM FECHA ISSO É A TAREFA 8 (docs/plans/2026-08-11-ramificacao.md, Passo
+    // 4 — "a prévia mostra o botão escolhido"), e é ela que vai reescrever as
+    // asserções abaixo. Até lá elas fixam o que a prévia realmente faz, para a
+    // divergência não sumir de vista.
     const cenas = cenasDe([
       {
         tipo: "dm",

@@ -82,6 +82,17 @@ const CAMINHO_STEPS = MODO_ANTIGO
 
 const S = await import(pathToFileURL(CAMINHO_STEPS).href);
 
+// A escrita do payload de botão, do jeito que o sistema a faz.
+//
+// NO MODO ANTIGO A FUNÇÃO NÃO EXISTE — `payloadDoBotao` nasceu na revisão da
+// Tarefa 4, e o arquivo carregado pela contraprova é anterior a ela. Ali a
+// interpolação à mão é o que é FIEL ao commit medido: a contraprova tem que
+// reproduzir aquele código, não este. O `??` é essa fidelidade, não um remendo
+// defensivo — no modo ATUAL ele nunca é usado, e se um dia for, a varredura
+// volta a medir a própria ideia dela de payload em vez da do sistema.
+const montarPayload =
+  S.payloadDoBotao ?? ((automacao, bloco, botao) => `AUTO:${automacao}:${bloco}:${botao}`);
+
 // ---------------------------------------------------------------------------
 // OS BLOCOS. Cinco papéis, e cada um está aqui por um motivo:
 //
@@ -301,9 +312,18 @@ function pontosDeEntrada(passos, ligacoes) {
 
   // Todo toque em todo botão. Um botão entregue vive na conversa da pessoa
   // indefinidamente, então todos são tocáveis a qualquer momento.
+  //
+  // O PAYLOAD É MONTADO PELA FUNÇÃO DE PRODUÇÃO (`payloadDoBotao`), e não à mão
+  // como até a revisão da Tarefa 4. Aqui havia `AUTO:A:${l.de}:${l.quando.botao}`
+  // escrito neste arquivo — ou seja, a varredura forjava o toque com a SUA
+  // ideia do payload, e não com a do sistema. Enquanto isso fosse verdade, ela
+  // não podia dizer nada sobre a entrega: a revisão trocou o id do botão pelo
+  // do bloco em lib/engine.ts e esta varredura saiu idêntica, porque ela nunca
+  // tinha visto aquela linha. É a mesma razão pela qual a cola do motor daqui
+  // é a limitação declarada lá em cima — só que esta metade tinha conserto.
   for (const l of ligacoes) {
     if (l.quando.tipo !== "botao") continue;
-    const p = S.lerPayload(`AUTO:A:${l.de}:${l.quando.botao}`);
+    const p = S.lerPayload(montarPayload("A", l.de, l.quando.botao));
     const c = S.caminhoDoBotao(p, passos, ligacoes);
     if (!c) continue;
     if (MODO_ANTIGO) {
