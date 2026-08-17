@@ -40,29 +40,23 @@ feita antes dos dois.** Não dá para fatiar.
 
 ---
 
-## A decisão que falta, e é sua
+## Como o impasse foi resolvido
 
-O script `scripts/ligar-passos-existentes.mjs` hoje **só confere** se a coluna
-existe (`information_schema.columns`) — ele não a cria. Isso deixa um
-impasse: a coluna nasce quando a aplicação sobe, e a aplicação não pode subir
-antes da migração.
+A primeira ideia era fazer `scripts/ligar-passos-existentes.mjs` criar a coluna.
+**Recusada ao ler o código:** o comentário daquele script diz, com todas as
+letras, que ele não grava DDL *"para não fazer esquema ser coisa de script de
+dado"*. O princípio está certo — misturar os dois faria um script de migração de
+dado precisar de permissão de DDL, e tornaria impossível rodar só um deles.
 
-Duas saídas:
+Nasceu então um passo próprio: **`migrations/` + `scripts/migrar.mjs`**. Aquele
+script preenche; este cria. É também a primeira parcela da mudança maior —
+tirar o esquema de dentro da aplicação — descrita em
+`docs/plans/2026-08-17-esquema-e-harness.md`.
 
-**A · O script passa a criar a coluna** (recomendado). Uma linha —
-`alter table automations add column if not exists ligacoes jsonb not null default
-'[]'::jsonb`, a mesma que já está em `lib/db.ts`. No Postgres 11+ acrescentar
-coluna com `default` não reescreve a tabela, então é rápido mesmo com dados. A
-sequência vira **script → deploy**, em dois passos, e a janela de risco fecha.
-
-**B · Um deploy só com a DDL primeiro.** Levar para `main` apenas a mudança de
-`lib/db.ts`, deixar a aplicação subir e criar a coluna, rodar o script, e só
-então implantar a branch inteira. **Três passos, e um deles é um deploy que não
-entrega nada** — mais superfície para errar, e mais tempo com o banco num estado
-intermediário.
-
-Recomendo **A**. Vou implementá-la quando você aprovar; ela é pequena e cabe
-antes da revisão final.
+A DDL de `ligacoes` fica **nos dois lugares** durante a transição, e é
+deliberado: em `lib/db.ts` ela é a **rede** (implantar sem rodar a migração ainda
+cria a coluna), em `migrations/001` ela é a **ordem** (existir antes do código
+subir). As duas são `if not exists`, então não podem divergir em efeito.
 
 ---
 
@@ -83,7 +77,21 @@ Não presuma o que o ensaio a seco de hoje disse — ele foi rodado dias antes.
 - quantas automações há, e quantos blocos cada uma tem?
 - quantas já têm ligações? (devem ser zero)
 
-### 2 · Ensaio a seco da migração
+### 2 · Crie a coluna
+
+```
+node scripts/migrar.mjs              # ensaio a seco, mostra o que faria
+node scripts/migrar.mjs --aplicar    # grava
+```
+
+Ele **confere no banco** depois de aplicar, e não confia no próprio "aplicada" —
+`if not exists` tem sucesso mesmo quando não faz nada, inclusive quando o arquivo
+está errado. Espere ver `automations.ligacoes existe (jsonb, default …)`.
+
+Ensaio a seco rodado em 17/08 contra o banco real: a coluna **não existe**, e o
+único comando previsto é o `alter table` de `migrations/001-ligacoes.sql`.
+
+### 3 · Ensaio a seco da migração de DADO
 
 ```
 node scripts/ligar-passos-existentes.mjs
@@ -95,7 +103,7 @@ significa que o dado não é o que se espera. **Se divergir, pare.**
 
 Medição de 14/08: "Bacana" 2 blocos → 1 ligação; "Fluxo de teste 1a" 5 → 4.
 
-### 3 · Aplique
+### 4 · Preencha a corrente
 
 ```
 node scripts/ligar-passos-existentes.mjs --aplicar
@@ -104,13 +112,13 @@ node scripts/ligar-passos-existentes.mjs --aplicar
 Idempotente: automação que já tem ligações não é tocada. Rode **duas vezes** e
 confirme que a segunda não muda nada — é a prova barata da idempotência.
 
-### 4 · Confira antes de implantar
+### 5 · Confira antes de implantar
 
 Cada automação tem `blocos − 1` ligações, todas `{"tipo":"sempre"}`, e a corrente
 reproduz a ordem do array de hoje. **Este é o último ponto de volta sem
 consequência para quem usa.**
 
-### 5 · Implante a branch
+### 6 · Implante a branch
 
 Motor e editor juntos. Depois, com a aplicação no ar:
 
@@ -120,7 +128,7 @@ Motor e editor juntos. Depois, com a aplicação no ar:
 - rode a automação de ponta a ponta com um dos dois perfis autorizados
   (**@jvsiqueira_** ou **@alicistica**) e confira em Atividade
 
-### 6 · A prova que não pôde ser dada antes
+### 7 · A prova que não pôde ser dada antes
 
 A Tarefa 4 **não conseguiu** provar o envio de vários botões de ponta a ponta —
 o caminho do webhook forjado escreve no banco, o que estava proibido, e não havia
@@ -136,15 +144,15 @@ papel.
 
 ## Como voltar atrás
 
-**Antes do passo 5**, é só não implantar: a coluna `ligacoes` preenchida não é
+**Antes do passo 6**, é só não implantar: a coluna `ligacoes` preenchida não é
 lida por nenhum código no ar. A Fase 1b ignora a coluna inteira.
 
-**Depois do passo 5**, voltar a aplicação para o commit anterior devolve o
+**Depois do passo 6**, voltar a aplicação para o commit anterior devolve o
 comportamento antigo — a coluna fica no banco e é ignorada, exatamente como antes
-do passo 3. **Não apague a coluna** para reverter; ela é inofensiva parada, e
+do passo 4. **Não apague a coluna** para reverter; ela é inofensiva parada, e
 apagá-la obrigaria a refazer a migração.
 
 O que **não** volta sozinho: mensagens já entregues. Um botão de bifurcação já
 enviado continua vivo na conversa da pessoa, e o payload de quatro partes deixa
 de ser entendido se a aplicação voltar. **É o argumento mais forte para fazer o
-passo 4 com calma.**
+passo 5 com calma.**
