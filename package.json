@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run build"
+    "varredura": "node scripts/varredura-portao.mjs",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run varredura && npm run build"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
