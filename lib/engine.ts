@@ -426,8 +426,16 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 // O QUE SOBROU DE VERDADEIRO, por destino, e sem generalização:
 //
 //   O GATILHO começa na ENTRADA do fluxo (`steps[0]`). Não há nada antes dela
-//     por onde passar, então não há caminho a examinar. É a única dispensa que
-//     é de GRAFO.
+//     por onde a PESSOA passe, então não há caminho a examinar — mas isso é
+//     verdade sobre a TRAVESSIA da pessoa, não sobre o grafo: no grafo o
+//     portão PODE alcançar a entrada dando a volta pelo próprio link (medido,
+//     34.940 casos assim em scripts/varredura-portao.mjs, no ponto "gatilho").
+//     A dispensa continua certa mesmo assim — é a pessoa que começa em
+//     `steps[0]` sem pular nada, e aplicar a regra aqui seria pior: bastaria
+//     uma seta de volta para o portão passar a alcançar a entrada em QUALQUER
+//     fluxo, e o pedido de follow viraria a primeira mensagem de todo mundo.
+//     Ela é a única dispensa que é de TRAVESSIA, não de grafo — o parágrafo
+//     acima já corrigiu uma demonstração que confundia os dois.
 //   O PORTÃO VENCIDO retoma de `seguinteDe(portão)`, e aí a regra não é
 //     dispensável por não se aplicar — ela se aplica SEMPRE, e por isso não é
 //     usada. O porquê inteiro está no ramo `pedir_follow` do laço, abaixo.
@@ -667,12 +675,19 @@ async function executarFluxo(
       // baixo, que num grafo pode não ser o destino da seta nem ter nada a ver
       // com o braço percorrido.
       //
-      // E ESTE É O ÚNICO PONTO QUE NÃO PASSA PELA REGRA DO PORTÃO. Passa string
-      // crua de propósito, e o motivo está por escrito no ramo `pedir_email`
-      // logo abaixo, junto com o do ramo que FAZ o contrário — os dois lados da
-      // assimetria ficam num lugar só para ninguém "consertar" metade dela. Em
-      // uma linha: aqui o destino é `seguinteDe(portão)`, então a regra
-      // dispararia sempre e mandaria reatravessar o portão recém-vencido, ao
+      // E ESTE É O ÚNICO PONTO DE RETOMADA QUE NÃO PASSA PELA REGRA DO PORTÃO —
+      // não o único ponto de fato: o gatilho também entra sem passar pela
+      // regra, por identidade crua, em outros dois lugares deste arquivo
+      // (handleCommentEvent e handleMessagingEvent, mais abaixo, ambos com
+      // `identidadeNoIndice(auto.steps, 0)`), pela mesma dispensa. A varredura
+      // documenta essa dispensa à exaustão
+      // (scripts/varredura-portao.mjs, o ponto "gatilho", que entra "pela porta
+      // da frente" e é medido à parte dos cinco pontos de RETOMADA). Passa
+      // string crua de propósito, e o motivo está por escrito no ramo
+      // `pedir_email` logo abaixo, junto com o do ramo que FAZ o contrário — os
+      // dois lados da assimetria ficam num lugar só para ninguém "consertar"
+      // metade dela. Em uma linha: aqui o destino é `seguinteDe(portão)`, então
+      // a regra dispararia sempre e mandaria reatravessar o portão recém-vencido, ao
       // custo de uma consulta à Meta por passagem e sem mudar nada do que é
       // entregue.
       if (r === "passou") {

@@ -47,10 +47,17 @@
 // geral — os outros três passavam com código de saída 0. O porquê está escrito
 // lá embaixo, na separação dos grupos.
 //
-// E repare que B NÃO SE MEXE em nenhum dos quatro (261.536 sempre). Isso é
-// propriedade, não coincidência: B é o grupo em que o portão não está a montante
-// do destino, e aí não há regra que possa disparar. B mede a MONTAGEM; A e C
-// medem o CÓDIGO.
+// E repare que B NÃO SE MEXE em nenhum dos quatro (261.536 sempre). Isso NÃO é
+// "mudança de código nunca aparece em B" — a revisão plantou `seguinteDe`
+// devolvendo a primeira ligação de saída de QUALQUER tipo (mudança de código
+// puro, nenhuma REGRA envolvida) e mediu B saltar de 261.536 para 321.008, com
+// a varredura saindo em código 0 e imprimindo "SEM VAZAMENTO" — contraexemplo
+// medido, não hipotético.
+//
+// O que É verdade, e o que este arquivo mede: nenhuma REGRA pode disparar em
+// B, porque o portão não está a montante do destino. É essa afirmação, e só
+// ela, que sustenta B ficar fora do código de saída — B mede a MONTAGEM; A e C
+// medem a REGRA.
 //
 // O QUE ELA NÃO COBRE, dito para o número não valer mais do que vale:
 //
@@ -198,13 +205,18 @@ const TETO_RECURSAO = 10;
 //     grupo B; o salto do e-mail vem DEPOIS e é do grupo C. A regra não tinha
 //     como impedir o que já havia saído antes dela existir.
 //
-// Cada salto, então, registra só a entrega que aconteceu debaixo dele.
-function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, profundidade = 0) {
+// Cada salto, então, registra só a entrega que aconteceu debaixo dele. `rotulo`
+// identifica QUAL salto é este — o ponto de entrada na chamada de fora, ou o
+// nome do salto interno na chamada recursiva (abaixo, no ramo `pedir_email`) —
+// porque um exemplo de vazamento tem que apontar o salto que vazou, não o
+// ponto de entrada que a recursão começou percorrendo.
+function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, profundidade = 0, rotulo = "entrada") {
   if (profundidade > TETO_RECURSAO) return;
 
   const medida = {
     grupo: gateado ? "A" : fechaPelaRegra(passos, ligacoes, retomada, regraSeAplica) ? "C" : "B",
     retomada,
+    rotulo,
     vazou: false,
   };
   medidas.push(medida);
@@ -241,7 +253,7 @@ function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, p
       // A regra SE APLICA a este salto nos dois modos: o grupo é definido por
       // onde a regra DEVE fechar, e o modo ANTIGO é justamente o código em que
       // ela não fechava.
-      executar(passos, ligacoes, seguinte, true, gateado, medidas, profundidade + 1);
+      executar(passos, ligacoes, seguinte, true, gateado, medidas, profundidade + 1, "e-mail já conhecido (retomada interna)");
       return;
     }
     if (p.tipo === "dm" && p.url) medida.vazou = true;
@@ -427,7 +439,7 @@ function medir(passos, ligacoes, arranjo, gateado) {
 
   for (const { nome, retomada, regraSeAplica } of pontosDeEntrada(passos, ligacoes)) {
     const medidas = [];
-    executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas);
+    executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, 0, nome);
 
     for (const m of medidas) {
       conta[`n${m.grupo}`]++;
@@ -437,7 +449,13 @@ function medir(passos, ligacoes, arranjo, gateado) {
         exemplos.push({
           grupo: m.grupo,
           arranjo: arranjo.join(""),
-          ponto: nome,
+          // O SALTO QUE VAZOU, não o ponto de entrada da recursão: nas chamadas
+          // internas (o ramo `pedir_email`, em `executar`) os dois divergem, e
+          // imprimir o ponto de entrada aqui já produziu, na tela, "exemplo de
+          // vazamento em C / ponto: gatilho" para um vazamento que na verdade
+          // aconteceu no salto interno do e-mail já conhecido — contradizendo
+          // "o gatilho fica de fora de C", documentado acima.
+          ponto: m.rotulo,
           retomada: m.retomada,
           ligacoes: ligacoes.map(
             (l) =>
@@ -516,9 +534,13 @@ for (const e of exemplos) {
 
 // O CÓDIGO DE SAÍDA OLHA A E C, e olhar só A era o defeito que a revisão pegou:
 // o plantio do `haCaminho` levou B de 714.908 para 2.045.528 e a varredura saía
-// com código 0, porque A não o via. A e C juntas veem os três plantios medidos —
-// `haCaminho` só com `sempre`, `retomadaDoFallback` sem a regra, e a regra
-// desligada por completo.
+// com código 0, porque A não o via. ESSES DOIS NÚMEROS SÃO HISTÓRICOS — da
+// classificação ANTIGA, por ponto de entrada. Na classificação atual, por
+// SALTO (ver "A UNIDADE DOS TRÊS É O SALTO" acima), o mesmo plantio deixa B em
+// 261.536 — o número do cabeçalho no topo do arquivo, não este. A e C juntas
+// veem os QUATRO plantios medidos lá em cima: `haCaminho` só com `sempre`,
+// `retomadaDoFallback` sem a regra, `retomadaDoEmailConhecido` sem a regra, e a
+// regra desligada por completo.
 //
 // B FICA DE FORA do código de saída de propósito. Ele não tem valor-alvo: é o
 // tamanho da falha que a MONTAGEM abre e que nenhum código fecha, e prendê-lo a
