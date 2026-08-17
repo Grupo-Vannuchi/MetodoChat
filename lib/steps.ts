@@ -1232,7 +1232,8 @@ export function lerPayload(payload: unknown): Payload | null {
   return { prefixo, automationId, passoId: passoId ?? null, botaoId: botaoId ?? null };
 }
 
-// A METADE ESCRITORA do payload de quatro partes, coladinha na leitora.
+// A METADE ESCRITORA do payload, coladinha na leitora. TRÊS funções, uma por
+// forma que o sistema EMITE — e as três nasceram do mesmo achado.
 //
 // ELA ESTAVA EM `lib/engine.ts`, dentro de `enfileirarPasso`, como uma
 // interpolação solta — e é o achado principal da revisão da Tarefa 4: um
@@ -1261,6 +1262,40 @@ export function lerPayload(payload: unknown): Payload | null {
 // leitor, que devolve null.
 export function payloadDoBotao(automacaoId: string, blocoId: string, botaoId: string): string {
   return `AUTO:${automacaoId}:${blocoId}:${botaoId}`;
+}
+
+// AS OUTRAS DUAS, e elas são o caminho MUITO mais comum: toda resposta rápida
+// de um botão só, e todo portão de seguidor. Elas ficaram para trás quando
+// `payloadDoBotao` saiu de lib/engine.ts — a correção fechou a forma de quatro
+// partes e deixou as de três escritas à mão, como interpolações soltas de
+// "AUTO:" e de "FOLLOW:" dentro do mesmo arquivo `server-only` que nenhum teste
+// alcança.
+//
+// O ARGUMENTO DE `payloadDoBotao` VALE PALAVRA POR PALAVRA PARA ELAS, e por
+// isso a decisão foi trazê-las junto em vez de registrar exceção: `lerPayload`
+// tem teste, elas não tinham nenhum, e a varredura (`scripts/varredura-portao.mjs`)
+// forja os toques por outro caminho — ela nunca passava por aquelas linhas.
+// Eram a última cópia da regra "como se escreve um payload", e a única sem
+// dono escrito.
+//
+// SÃO DUAS FUNÇÕES, E NÃO UMA COM O PREFIXO POR ARGUMENTO. O prefixo não é
+// parâmetro de formatação: ele é a PERGUNTA que o toque responde —
+// `AUTO:` é "de onde continuar", `FOLLOW:` é "eu já sigo, confere de novo" —, e
+// `handleMessagingEvent` (lib/engine.ts) ramifica por ele. Com o prefixo como
+// argumento, trocar um pelo outro no chamador continuaria compilando e o toque
+// no portão viraria retomada comum, sem reconsultar a Meta: exatamente a classe
+// de troca silenciosa que esta separação existe para impedir.
+//
+// A FORMA DE DUAS PARTES (`AUTO:<automação>`, sem bloco) NÃO GANHA ESCRITORA,
+// e a ausência é decisão: `lerPayload` a LÊ para sempre — botão entregue antes
+// da Fase 1b vive na conversa da pessoa —, mas nada neste sistema a EMITE desde
+// então. Uma escritora para ela seria um convite a voltar a emiti-la.
+export function payloadDaRespostaRapida(automacaoId: string, blocoId: string): string {
+  return `AUTO:${automacaoId}:${blocoId}`;
+}
+
+export function payloadDoPortao(automacaoId: string, blocoId: string): string {
+  return `FOLLOW:${automacaoId}:${blocoId}`;
 }
 
 // O limite da Meta para respostas rápidas numa única mensagem.

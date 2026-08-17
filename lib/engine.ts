@@ -52,6 +52,8 @@ import {
   indiceDoId,
   lerPayload,
   payloadDoBotao,
+  payloadDaRespostaRapida,
+  payloadDoPortao,
   caminhoDoBotao,
   oQuePortaoFaz,
   type AcaoEnfileirar,
@@ -1064,7 +1066,17 @@ async function enfileirarPasso(
             // A identidade é a MESMA que entra na `passoKey` e no cursor
             // (`identidadeDoPasso`), de propósito: é ela que `indiceDoId`
             // procura de volta lá em `handleMessagingEvent`.
-            quick_reply_payload: `AUTO:${auto.id}:${identidadeDoPasso(p, acao.indice)}`,
+            //
+            // A STRING NÃO É MONTADA AQUI pelo mesmo motivo do ramo plural
+            // abaixo, e esta linha ficou para trás uma rodada: quem escreve é
+            // `payloadDaRespostaRapida` (lib/steps.ts), do lado de `lerPayload`,
+            // que a lê de volta. Este é o caminho MAIS comum dos três — toda
+            // resposta rápida de um botão só —, e era o único ainda sem teste
+            // nenhum.
+            quick_reply_payload: payloadDaRespostaRapida(
+              auto.id,
+              identidadeDoPasso(p, acao.indice)
+            ),
           }
         : envio.forma === "botoes"
         ? {
@@ -1346,7 +1358,13 @@ async function resolverFollow(
       // nomeia a automação e não o PORTÃO, de modo que numa lista com dois
       // portões o toque no segundo retomava no primeiro. Com o bloco no
       // payload, o toque nomeia o portão em que a pessoa tocou.
-      quick_reply_payload: `FOLLOW:${auto.id}:${identidadeDoPasso(passo, indice)}`,
+      //
+      // E a montagem da string saiu daqui na rodada final da Tarefa 4: quem
+      // escreve é `payloadDoPortao` (lib/steps.ts). O prefixo `FOLLOW:` tem
+      // função — `handleMessagingEvent` ramifica por ele para reconsultar a
+      // Meta —, e ele era, até aqui, uma interpolação à mão num arquivo que
+      // nenhum teste executa.
+      quick_reply_payload: payloadDoPortao(auto.id, identidadeDoPasso(passo, indice)),
     },
     dedupe_key: comentario
       ? privateReplyKey(comentario)

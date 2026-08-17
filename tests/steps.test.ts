@@ -31,6 +31,8 @@ import {
   envioDaDm,
   esperaResposta,
   payloadDoBotao,
+  payloadDaRespostaRapida,
+  payloadDoPortao,
   botoesDaMensagem,
   LIMITE_DE_BOTOES,
 } from "../lib/steps";
@@ -1969,6 +1971,97 @@ describe("payloadDoBotao", () => {
       { retomada: { portao: null, destino: "b_desb02" } },
       { retomada: { portao: null, destino: "b_desc03" } },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AS OUTRAS DUAS ESCRITORAS, e elas chegaram uma rodada depois: `payloadDoBotao`
+// fechou só a forma de QUATRO partes, e as de três — a resposta rápida de um
+// botão só e o portão de seguidor — continuaram como interpolação à mão dentro
+// de lib/engine.ts, o mesmo `server-only` que nenhum teste executa e que a
+// varredura não importa.
+//
+// E ELAS SÃO O CAMINHO MAIS COMUM: toda `dm` de um botão só passa pela
+// primeira, e todo pedido de follow pela segunda. `lerPayload` tinha teste;
+// elas não tinham nenhum.
+// ---------------------------------------------------------------------------
+describe("payloadDaRespostaRapida e payloadDoPortao", () => {
+  it("escrevem a forma de três partes, cada uma com o SEU prefixo", () => {
+    expect(payloadDaRespostaRapida("auto-1", "b_bem001")).toBe("AUTO:auto-1:b_bem001");
+    expect(payloadDoPortao("auto-1", "b_por002")).toBe("FOLLOW:auto-1:b_por002");
+  });
+
+  it("IDA E VOLTA: o que elas escrevem, `lerPayload` lê de volta campo a campo", () => {
+    // Campo a campo, e não só "tem três partes": os dois argumentos são
+    // `string`, então trocá-los compila e o payload continua legível — o que
+    // muda é qual parte é a automação e qual é o bloco.
+    expect(lerPayload(payloadDaRespostaRapida("auto-1", "b_bem001"))).toEqual({
+      prefixo: "AUTO",
+      automationId: "auto-1",
+      passoId: "b_bem001",
+      botaoId: null,
+    });
+    expect(lerPayload(payloadDoPortao("auto-1", "b_por002"))).toEqual({
+      prefixo: "FOLLOW",
+      automationId: "auto-1",
+      passoId: "b_por002",
+      botaoId: null,
+    });
+  });
+
+  it("O PREFIXO É A PERGUNTA, e as duas não são intercambiáveis", () => {
+    // É por isso que são duas funções, e não uma com o prefixo por argumento:
+    // `handleMessagingEvent` (lib/engine.ts) ramifica pelo prefixo — `FOLLOW:`
+    // reconsulta a Meta, `AUTO:` só retoma. Trocar uma pela outra no chamador
+    // compilaria, e o toque no portão viraria retomada comum.
+    const daResposta = lerPayload(payloadDaRespostaRapida("auto-1", "b_por002"))!;
+    const doPortao = lerPayload(payloadDoPortao("auto-1", "b_por002"))!;
+    expect(daResposta.prefixo).toBe("AUTO");
+    expect(doPortao.prefixo).toBe("FOLLOW");
+    expect(daResposta.prefixo).not.toBe(doPortao.prefixo);
+  });
+
+  it("nenhuma das duas escreve o campo do BOTÃO — quem faz isso é `payloadDoBotao`", () => {
+    // A separação é a que `lerPayload` já lê: três partes é "de qual bloco
+    // continuar", quatro é "qual braço seguir". Uma escritora de três partes
+    // que emitisse quatro faria `caminhoDoBotao` procurar ligação de um botão
+    // que não existe, e o toque viraria botão órfão.
+    expect(lerPayload(payloadDaRespostaRapida("auto-1", "b_bem001"))!.botaoId).toBe(null);
+    expect(lerPayload(payloadDoPortao("auto-1", "b_por002"))!.botaoId).toBe(null);
+    expect(payloadDaRespostaRapida("auto-1", "b_bem001").split(":")).toHaveLength(3);
+    expect(payloadDoPortao("auto-1", "b_por002").split(":")).toHaveLength(3);
+  });
+
+  it("o BLOCO SEM ID entra como índice em texto, nas duas", () => {
+    // Mesma razão de `payloadDoBotao`: `identidadeDoPasso` devolve o índice
+    // para bloco sem id, e é esse valor que o motor passa aqui.
+    expect(lerPayload(payloadDaRespostaRapida("auto-1", "2"))).toEqual({
+      prefixo: "AUTO",
+      automationId: "auto-1",
+      passoId: "2",
+      botaoId: null,
+    });
+    expect(lerPayload(payloadDoPortao("auto-1", "0"))).toEqual({
+      prefixo: "FOLLOW",
+      automationId: "auto-1",
+      passoId: "0",
+      botaoId: null,
+    });
+  });
+
+  it("O TOQUE NA RESPOSTA RÁPIDA RETOMA DAQUELE BLOCO, e não do zero", () => {
+    // Ponta a ponta do lado puro, como o teste do menu faz para os quatro
+    // campos: escrever o payload como o motor o escreve, ler de volta e
+    // resolver a retomada. Com o bloco errado no payload, o toque retomaria
+    // outro passo — e é a asserção campo a campo que vê isso.
+    const passos = [
+      { id: "b_bem001", tipo: "dm", texto: "oi", botao_label: "quero" },
+      { id: "b_fim003", tipo: "dm", texto: "toma", url: "https://x.y" },
+    ];
+    const p = lerPayload(payloadDaRespostaRapida("A", "b_bem001"))!;
+    expect(
+      retomadaDoBotao({ passoId: p.passoId, automationId: "A" }, "A", passos, emCorrente(passos))
+    ).toEqual({ portao: null, destino: "b_fim003" });
   });
 });
 
