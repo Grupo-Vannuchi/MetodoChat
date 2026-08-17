@@ -22,12 +22,19 @@ import { scheduleTick } from "./qstash";
 // `const cursor = p.passoId ? ... : ...` daqui de baixo, e escolher errado ali
 // desfazia, sem teste nenhum acusar, o que `retomadaDoFollow` garante.
 //
-// `retomadaDoTexto` é a QUARTA, e a última: ela era o `const retomarDe =
+// `retomadaDoTexto` é a QUARTA: ela era o `const retomarDe =
 // passo.tipo === "pedir_follow" ? indiceParado : indiceParado + 1` do ramo de
 // texto, calculado aqui por conta própria e sem passar por nenhuma das outras
 // três. É por ela que a primeira das duas entradas da regra do portão é
 // alcançável (o porquê está escrito lá), então deixá-la aqui deixaria a regra
 // pela metade — e sem teste, como as outras estavam.
+//
+// `retomadaDoEmailConhecido` é a QUINTA, e a última, e ela é a que prova que a
+// lista não estava completa: as quatro acima saíram, a regra do portão foi
+// escrita, e este ponto CONTINUOU escapando dela por um detalhe de tipo — ele
+// devolvia uma string, e string entra em `executarFluxo` como
+// `{ portao: null, destino }`. Enquanto a decisão ficou aqui, a suíte inteira
+// ficou verde por cima de um link entregue a quem não segue.
 import {
   interpretar,
   envioDaDm,
@@ -36,6 +43,7 @@ import {
   retomadaDoBotao,
   retomadaDoFollow,
   retomadaDoTexto,
+  retomadaDoEmailConhecido,
   cursorDaRetomada,
   interrompeOFluxo,
   identidadeDoPasso,
@@ -402,12 +410,30 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 // O `de` aceita as DUAS formas, e a união é o que mantém a mudança contida.
 //
 // IDENTIDADE DE BLOCO (ou null) é o caso de DENTRO: o gatilho começando na
-// entrada do fluxo, e as chamadas que esta função faz a si mesma (portão vencido
-// no caminho, e-mail já conhecido). Não há portão a atravessar antes, e a razão é
-// de GRAFO, não de confiança: os três destinos são a ENTRADA ou o VIZINHO
-// imediato pela seta `sempre` do bloco que acabou de ser tratado. Vizinho não
-// salta por cima de ninguém, então não há portão entre um e outro; e o que vier
-// depois, `interpretar` percorre e encontra como sempre.
+// entrada do fluxo, e a chamada que esta função faz a si mesma quando vence um
+// portão no caminho.
+//
+// A DEMONSTRAÇÃO QUE ESTAVA ESCRITA AQUI ERA FALSA, e é preciso dizer isso em
+// vez de apagá-la, porque ela tinha a forma de uma prova e foi lida como uma:
+// "os destinos são a ENTRADA ou o VIZINHO imediato pela seta `sempre`; vizinho
+// não salta por cima de ninguém, então não há portão entre um e outro". A
+// primeira metade é verdadeira. A segunda é a MESMA demonstração que
+// `retomadaDoFallback` (lib/steps.ts) registra como CAÍDA COM O GRAFO: "não há
+// portão ENTRE os dois" não é "não há portão a atravessar". O portão pode
+// alcançar o vizinho por OUTRO braço, e uma junção basta — foi exatamente assim
+// que o ramo do e-mail já conhecido vazou o link, medido.
+//
+// O QUE SOBROU DE VERDADEIRO, por destino, e sem generalização:
+//
+//   O GATILHO começa na ENTRADA do fluxo (`steps[0]`). Não há nada antes dela
+//     por onde passar, então não há caminho a examinar. É a única dispensa que
+//     é de GRAFO.
+//   O PORTÃO VENCIDO retoma de `seguinteDe(portão)`, e aí a regra não é
+//     dispensável por não se aplicar — ela se aplica SEMPRE, e por isso não é
+//     usada. O porquê inteiro está no ramo `pedir_follow` do laço, abaixo.
+//   O E-MAIL JÁ CONHECIDO deixou de ser um caso de DENTRO: ele passa
+//     `retomadaDoEmailConhecido` (lib/steps.ts), que é uma `Retomada`, e entra
+//     por baixo — pela mesma porta dos pontos de FORA. É a correção do vazamento.
 //
 // ERA NÚMERO, e era aí que dois dos seis pontos da Tarefa 3b moravam: as duas
 // chamadas recursivas somavam `acao.indice + 1`, que é o vizinho no ARRAY e não
@@ -640,6 +666,15 @@ async function executarFluxo(
       // depois de vencer o portão entrega o bloco que estiver na posição de
       // baixo, que num grafo pode não ser o destino da seta nem ter nada a ver
       // com o braço percorrido.
+      //
+      // E ESTE É O ÚNICO PONTO QUE NÃO PASSA PELA REGRA DO PORTÃO. Passa string
+      // crua de propósito, e o motivo está por escrito no ramo `pedir_email`
+      // logo abaixo, junto com o do ramo que FAZ o contrário — os dois lados da
+      // assimetria ficam num lugar só para ninguém "consertar" metade dela. Em
+      // uma linha: aqui o destino é `seguinteDe(portão)`, então a regra
+      // dispararia sempre e mandaria reatravessar o portão recém-vencido, ao
+      // custo de uma consulta à Meta por passagem e sem mudar nada do que é
+      // entregue.
       if (r === "passou") {
         return executarFluxo(
           account, auto, contactIgId,
@@ -686,12 +721,44 @@ async function executarFluxo(
       )) as { email: string | null }[];
       // Mesmo motivo do portão: o e-mail que já temos resolve este passo, e o
       // que vem depois dele só é visto numa nova interpretação. E "o que vem
-      // depois" é a seta `sempre`, pelo mesmo motivo do portão vencido logo
-      // acima — aqui também era `acao.indice + 1`.
+      // depois" é a seta `sempre` — aqui também era `acao.indice + 1`.
+      //
+      // MAS ESTE PONTO PASSA PELA REGRA DO PORTÃO, e o de cima não. A diferença
+      // não é descuido de um dos dois, é a única assimetria real entre eles, e
+      // ela precisa estar escrita aqui porque a simetria aparente convida a
+      // "uniformizar" — nos dois sentidos, e os dois estragam alguma coisa.
+      //
+      //   AQUI a regra é indispensável. A seta `sempre` que sai deste bloco pode
+      //     chegar num destino que o PORTÃO também alcança, por outro braço —
+      //     uma junção no bloco de link basta, e é o grafo mais banal do quadro.
+      //     Enquanto isto passou `seguinteDe` como string crua, `executarFluxo`
+      //     a embrulhava em `{ portao: null, destino }` e `atravessandoOPortao`
+      //     não era chamada NENHUMA VEZ: o link saía para quem não segue. Medido,
+      //     e no mesmo grafo `retomadaDoFallback` devolvia `{ portao, destino }`
+      //     para o mesmo bloco de chegada — duas respostas opostas à mesma
+      //     pergunta. A decisão inteira mora em `retomadaDoEmailConhecido`
+      //     (lib/steps.ts), que é pura e tem teste.
+      //   LÁ EM CIMA a regra é um NO-OP CARO. O destino é `seguinteDe(portão)`,
+      //     então `haCaminho(portão, destino)` é verdadeiro por CONSTRUÇÃO — a
+      //     seta que define o destino é a própria testemunha do caminho. A regra
+      //     dispararia em 100% das passagens e mandaria o fluxo atravessar de
+      //     novo o portão que ele ACABOU de vencer.
+      //
+      // E o que ela custaria lá em cima é UMA CONSULTA À META A MAIS por
+      // passagem, não recursão sem fim — a diferença importa para quem for
+      // reavaliar a decisão. `executarFluxo`, quando `resolverFollow` devolve
+      // "passou" no ramo de cima, NÃO chama a si mesmo: ele cai para o
+      // `interpretar(retomada.destino)` lá embaixo. Medido sobre as funções
+      // puras, numa corrente `portão -> dm -> link`: sem a regra, 2 voltas e 1
+      // consulta; com a regra, 2 voltas e 2 consultas, e a mesma entrega. O único
+      // laço infinito que existe nessa vizinhança é o ANEL de `sempre` com portão
+      // dentro, e ele roda igual COM ou SEM a regra (medido: 500 voltas nos dois)
+      // — é defeito pré-existente, registrado para a Tarefa 5, e não uma
+      // consequência desta escolha.
       if (rows[0]?.email) {
         return executarFluxo(
           account, auto, contactIgId,
-          seguinteDe(auto.ligacoes, identidadeDoPasso(p, acao.indice)),
+          retomadaDoEmailConhecido(auto.steps, auto.ligacoes, acao.indice),
           contexto
         );
       }

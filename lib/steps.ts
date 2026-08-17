@@ -1767,6 +1767,71 @@ export function retomadaDoTexto(passos: unknown, ligacoes: unknown, indice: numb
   return atravessandoOPortao(passos, ligacoes, destino);
 }
 
+// De onde o fluxo continua quando o pedido de e-mail é RESOLVIDO SEM PERGUNTAR,
+// porque o endereço do contato já está em `contacts.email`.
+//
+// O QUINTO ponto de retomada, e o último a sair de lib/engine.ts. Ele era a
+// última das seis conversões da Tarefa 3b que continuava escapando da regra do
+// portão: a aritmética `acao.indice + 1` foi trocada por `seguinteDe` na hora,
+// mas o resultado seguia saindo como STRING CRUA para `executarFluxo`, que
+// embrulha string em `{ portao: null, destino }` — e `atravessandoOPortao` nunca
+// era chamada. O destino deixou de ser uma posição errada e passou a ser a
+// posição certa SEM PORTÃO, que é o mesmo vazamento por outra porta.
+//
+// A MEDIÇÃO que fechou a questão, e ela não é hipotética — é o grafo mais banal
+// que se monta no quadro, uma JUNÇÃO no bloco de link:
+//
+//   blocos: [dm "oi", pedir_email, dm com url, pedir_follow]
+//   setas:  oi -sempre-> e-mail -sempre-> LINK ;  portão -sempre-> LINK
+//
+// Quem já tinha e-mail gravado recebia o LINK sem o portão ser avaliado uma
+// única vez. E no MESMO grafo, para o MESMO destino, `retomadaDoFallback`
+// devolvia `{ portao: 3, destino: "b_lnk00003" }` — a regra aplicada. Dois
+// caminhos de código, o mesmo bloco de chegada, respostas opostas. É essa
+// inconsistência que esta função apaga.
+//
+// A REGRA É A MESMA das outras quatro, sem exceção nenhuma: "o portão está a
+// montante do destino?". Não há aqui nenhuma razão de grafo para dispensá-la —
+// e havia uma escrita em lib/engine.ts, que dizia que os destinos das chamadas
+// que o motor faz a si mesmo são sempre "o VIZINHO imediato" e que "vizinho não
+// salta por cima de ninguém". A primeira metade continua verdadeira; a segunda
+// é a forma exata da demonstração que `retomadaDoFallback` (abaixo) registra
+// como CAÍDA COM O GRAFO. Vizinho não salta por cima de ninguém, mas o portão
+// pode alcançar esse vizinho por OUTRO braço — uma junção basta, e é a junção
+// medida acima.
+//
+// O PREÇO, dito por inteiro, porque ele é cobrado no caminho mais comum que
+// existe: numa lista em corrente `portão -> pedido de e-mail -> link`, quem já
+// tem e-mail gravado e ACABOU de vencer o portão volta a atravessá-lo aqui — o
+// portão alcança o link através deste mesmo bloco. `resolverFollow` reconsulta a
+// Meta, a pessoa passa de novo, e o fluxo segue para o mesmo destino. Custa UMA
+// consulta à Meta por passagem, e não altera o que é entregue.
+//
+// A alternativa examinada era perguntar se o portão alcança o destino SEM passar
+// por este bloco, o que zeraria esse custo. Ela foi recusada porque reabre o
+// vazamento na forma espelhada: com `E -sempre-> e-mail -sempre-> LINK` e
+// `portão -sempre-> e-mail`, o portão só alcança o link ATRAVÉS deste bloco, e
+// excluí-lo devolveria o link a quem não segue. Errar para o lado da consulta a
+// mais é a direção já escolhida e registrada nesta fase (ver `atravessandoOPortao`).
+//
+// O ÍNDICE é o argumento pelo mesmo motivo de `retomadaDoTexto`: é o que
+// lib/engine.ts tem na mão (`acao.indice`, vindo de `interpretar`). A conversão
+// para identidade acontece aqui dentro, uma vez, e o destino sai identidade.
+//
+// NÃO CONFERE O TIPO do bloco de propósito. Quem chama já sabe que está num
+// `pedir_email` — foi `interpretar` que parou nele e o motor que consultou o
+// banco. Reconferir aqui só criaria um segundo lugar onde a resposta pode
+// divergir; o que esta função decide é UMA coisa, o destino e o portão dele.
+export function retomadaDoEmailConhecido(
+  passos: unknown,
+  ligacoes: unknown,
+  indice: number
+): Retomada {
+  const id = identidadeNoIndice(passos, indice);
+  const destino = id === null ? null : seguinteDe(ligacoes, id);
+  return atravessandoOPortao(passos, ligacoes, destino);
+}
+
 // De qual passo o fallback retoma. Null quando não dá para afirmar.
 //
 // Veio de lib/engine.ts, onde era pura e por isso não testável — e onde esteve

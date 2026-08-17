@@ -11,6 +11,7 @@ import {
   retomadaDoBotao,
   retomadaDoFollow,
   retomadaDoTexto,
+  retomadaDoEmailConhecido,
   interrompeOFluxo,
   indiceDoPortao,
   cursorDesta,
@@ -950,6 +951,119 @@ describe("retomadaDoTexto", () => {
   });
 });
 
+describe("retomadaDoEmailConhecido", () => {
+  // O QUINTO ponto de retomada, e o último a sair de lib/engine.ts. Ele foi o
+  // único dos seis pontos da Tarefa 3b que perdeu a aritmética `+ 1` e MESMO
+  // ASSIM continuou fora da regra do portão: `seguinteDe` devolve string, e
+  // `executarFluxo` embrulha string em `{ portao: null, destino }`. A suíte
+  // inteira ficava verde por cima do vazamento, porque a decisão morava dentro
+  // de `server-only`.
+
+  it("A JUNÇÃO NO LINK: e-mail já conhecido não entrega o link sem o portão", () => {
+    // O grafo medido contra o código anterior, e é o mais banal que se monta no
+    // quadro. O portão não está no caminho que `interpretar` percorre a partir
+    // da entrada — ele chega no link por uma junção, por fora.
+    //
+    // Medido antes: a `Retomada` saía `{ portao: null, destino: "b_lnk00003" }`
+    // e o link era enfileirado com o `pedir_follow` nunca avaliado.
+    const comJuncao = [
+      { id: "b_bem00001", tipo: "dm", texto: "oi" }, // 0 entrada
+      { id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_lnk00003", tipo: "dm", texto: "toma", url: "https://x.y" }, // 2 o link
+      { id: "b_por00004", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 3
+    ];
+    const ligacoes = [
+      { de: "b_bem00001", quando: { tipo: "sempre" }, para: "b_eml00002" },
+      { de: "b_eml00002", quando: { tipo: "sempre" }, para: "b_lnk00003" },
+      { de: "b_por00004", quando: { tipo: "sempre" }, para: "b_lnk00003" }, // a junção
+    ];
+    expect(indiceDoPortao(comJuncao)).toBe(3);
+    expect(retomadaDoEmailConhecido(comJuncao, ligacoes, 1)).toEqual({
+      portao: 3,
+      destino: "b_lnk00003",
+    });
+  });
+
+  it("A INCONSISTÊNCIA QUE ISSO APAGA: mesmo grafo, mesmo destino, uma resposta só", () => {
+    // O grafo medido pela revisão, e o ponto dele é a comparação: DOIS caminhos
+    // de código deduziam o MESMO bloco de chegada e respondiam coisas opostas.
+    //
+    //   fallback -> { portao: 3, destino: "b_lnk00003" }   a regra aplicada
+    //   e-mail   -> { portao: null, destino: "b_lnk00003" } a regra pulada
+    //
+    // A entrada aqui é uma `dm` de RESPOSTA RÁPIDA (rótulo, sem url), então é
+    // nela que `interpretar` para e é dela que o fallback deduz o seguinte — que
+    // é o link. É o que faz os dois pousarem no mesmo bloco.
+    const passos = [
+      { id: "b_men00001", tipo: "dm", texto: "escolha", botao_label: "quero" }, // 0
+      { id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_lnk00003", tipo: "dm", texto: "toma", url: "https://x.y" }, // 2
+      { id: "b_por00004", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 3
+    ];
+    const ligacoes = [
+      { de: "b_men00001", quando: { tipo: "sempre" }, para: "b_lnk00003" },
+      { de: "b_eml00002", quando: { tipo: "sempre" }, para: "b_lnk00003" },
+      { de: "b_por00004", quando: { tipo: "sempre" }, para: "b_lnk00003" }, // a junção
+    ];
+    const esperado = { portao: 3, destino: "b_lnk00003" };
+    expect(retomadaDoFallback(passos, ligacoes)).toEqual(esperado);
+    expect(retomadaDoEmailConhecido(passos, ligacoes, 1)).toEqual(esperado);
+  });
+
+  it("sem portão no caminho, segue a seta `sempre` e não desvia ninguém", () => {
+    // O braço sem portão: o portão existe na lista e tem índice MENOR que o
+    // destino, e mesmo assim não há nada a atravessar. É o falso-positivo que a
+    // comparação de posição fazia.
+    const doisBracos = [
+      { id: "b_por00001", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 0
+      { id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_out00003", tipo: "dm", texto: "o outro braço" }, // 2
+    ];
+    const ligacoes = [
+      { de: "b_eml00002", quando: { tipo: "sempre" }, para: "b_out00003" },
+    ];
+    expect(retomadaDoEmailConhecido(doisBracos, ligacoes, 1)).toEqual({
+      portao: null,
+      destino: "b_out00003",
+    });
+  });
+
+  it("bloco sem seta `sempre` saindo, e lista que não é lista, devolvem destino null", () => {
+    const lista = [{ id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }];
+    expect(retomadaDoEmailConhecido(lista, [], 0)).toEqual({ portao: null, destino: null });
+    expect(retomadaDoEmailConhecido(null, [], 0)).toEqual({ portao: null, destino: null });
+    // Índice fora da lista: sem identidade não há de onde sair.
+    expect(retomadaDoEmailConhecido(lista, [], 7)).toEqual({ portao: null, destino: null });
+  });
+
+  it("A REGRA É A MESMA das outras quatro — o portão a montante desvia, o de outro braço não", () => {
+    // A prova de que este ponto não ganhou regra própria: nos dois arranjos
+    // abaixo o destino é o mesmo bloco, e o que decide é só o CAMINHO.
+    const passos = [
+      { id: "b_eml00001", tipo: "pedir_email", texto: "seu e-mail?" }, // 0
+      { id: "b_lnk00002", tipo: "dm", texto: "toma", url: "https://x.y" }, // 1
+      { id: "b_por00003", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 2
+    ];
+    const base = [{ de: "b_eml00001", quando: { tipo: "sempre" }, para: "b_lnk00002" }];
+    // Portão sem seta nenhuma: não alcança o link, não desvia.
+    expect(retomadaDoEmailConhecido(passos, base, 0)).toEqual({
+      portao: null,
+      destino: "b_lnk00002",
+    });
+    // O MESMO destino, com o portão alcançando-o por um BOTÃO — e não por uma
+    // `sempre`. Contar só as `sempre` deixaria este caso passar; é o plantio que
+    // a varredura acusa.
+    const comBotao = [
+      ...base,
+      { de: "b_por00003", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_lnk00002" },
+    ];
+    expect(retomadaDoEmailConhecido(passos, comBotao, 0)).toEqual({
+      portao: 2,
+      destino: "b_lnk00002",
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // A REGRA DO PORTÃO, medida nas duas entradas que a motivaram e na armadilha que
 // derrubou a primeira versão dela.
@@ -1203,6 +1317,15 @@ describe("o portão deixa de ser posição e passa a ser caminho", () => {
     // atravessar — um portão que não está no caminho daquela pessoa. Custava uma
     // consulta à Meta e, para quem não segue, um pedido de follow que o braço
     // dela não exigia.
+    //
+    // POR QUE ESTE TESTE PASSA, dito exatamente, porque o nome dele promete mais
+    // do que a regra entrega: ele passa porque o portão NÃO ALCANÇA `b_out004` —
+    // não porque a regra saiba de quem é o braço. A pergunta implementada é
+    // `haCaminho(portão, destino)`, "o portão está a montante do destino", e não
+    // "o portão está no braço desta pessoa". Bastaria uma seta do portão para
+    // `b_out004` e este mesmo caso passaria a desviar, com a pessoa continuando
+    // a não passar por ele. É conservador de propósito — erra para o lado da
+    // consulta a mais — e o porquê está em `atravessandoOPortao` (lib/steps.ts).
     const doisBracos = [
       { id: "b_men001", tipo: "dm", texto: "escolha", botao_label: "quero" }, // 0
       { id: "b_por002", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 1
@@ -1226,10 +1349,18 @@ describe("o portão deixa de ser posição e passa a ser caminho", () => {
     ).toEqual({ retomada: { portao: null, destino: "b_por002" } });
   });
 
-  it("portão JÁ ATRAVESSADO não desvia de novo", () => {
-    // Quem está parado ADIANTE do portão e segue em frente pelo próprio braço
-    // não é mandado de volta a ele — o destino não é alcançável a partir do
-    // portão, porque o caminho é de mão única e já passou.
+  it("quem já passou pelo portão desvia SE ele ainda alcança o destino, e só então", () => {
+    // O NOME ANTES DIZIA "portão JÁ ATRAVESSADO não desvia de novo", e a primeira
+    // asserção deste teste diz `{ portao: 0 }` — ou seja, DESVIA. O nome afirmava
+    // o contrário do que o teste mede, e foi trocado por isso.
+    //
+    // A regra implementada não sabe se alguém já atravessou: `haCaminho(portão,
+    // destino)` pergunta se o portão está A MONTANTE do destino, e um portão já
+    // vencido continua a montante de tudo o que vem depois dele. Quem desvia de
+    // novo, desvia; o custo é uma consulta à Meta que devolve "passou".
+    //
+    // O que o teste mede de verdade é que o desvio acompanha o CAMINHO e nada
+    // mais: com seta do portão até o link, desvia; sem ela, não.
     const depoisDoPortao = [
       { id: "b_por002", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 0
       { id: "b_seg003", tipo: "dm", texto: "Pronto?", botao_label: "Pronto" }, // 1
