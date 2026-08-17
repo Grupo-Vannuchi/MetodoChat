@@ -872,9 +872,19 @@ quebra em bloco que espera resposta, e o portão espera — então ela não fech
 volta e não acusa. Quem monta esse anel salva sem aviso nenhum, e o motor pode
 recursar sem fim.
 
-Quem mediu **não conseguiu provar contra o motor real** — `lib/engine.ts` é
-`server-only` e a suíte não o alcança. **Meça você**, e se a recursão não
-existir, **diga isso**: as duas respostas valem e nenhuma se resolve seguindo.
+**A revisão da 3b mediu, e a recursão existe.** Com
+`passos: [pedir_follow G, dm X]` e setas `G --sempre--> X --sempre--> G`:
+`temCicloDeSempre` devolve **false** (não acusa), e o motor deu **201 voltas**
+antes de a medição ser interrompida por teto próprio.
+
+**O mecanismo, e é pior do que "trava":** em `executarFluxo` a recursão é
+`return executarFluxo(...)` dentro de uma `async`. Isso **não estoura a pilha** —
+simplesmente nunca retorna. O webhook fica pendurado, e **a Meta reenvia o
+evento por 36 horas**.
+
+É pré-existente (com `indice + 1` o laço se fechava igual nesta ordem de array),
+então não é regressão da Fase 2a — mas passa a ser fácil de montar quando o
+editor deixar desenhar setas.
 
 **Impede ATIVAR** — fluxo que entregaria errado, mas que é montagem normal:
 botão sem destino; bloco inalcançável; **portão de seguidor que é o fim do
