@@ -977,7 +977,7 @@ async function enfileirarPasso(
   };
 
   if (p.tipo === "dm") {
-    // UM tipo de passo, TRÊS mensagens diferentes — e QUEM DECIDE QUAL NÃO É
+    // UM tipo de passo, QUATRO mensagens diferentes — e QUEM DECIDE QUAL NÃO É
     // ESTA LINHA. Aqui havia `const respostaRapida = Boolean(p.botao_label) &&
     // !p.url`, uma segunda cópia da regra que `esperaResposta` (lib/steps.ts)
     // também escrevia, e as duas divergiram: com `botoes` no bloco, a de lá
@@ -986,11 +986,13 @@ async function enfileirarPasso(
     // inteiro, com a medição, está em `envioDaDm` (lib/steps.ts).
     //
     // A pergunta agora é feita, não repetida. O que cada forma vira aqui:
-    //   `resposta_rapida` → `dm_welcome`, o único caminho do dreno que monta
-    //     `quick_replies` (`processItem`, lib/queue-drain.ts). O payload volta
-    //     no webhook como `AUTO:<id da automação>:<id do bloco>` (`lerPayload`,
-    //     lib/steps.ts), e é ele que `handleMessagingEvent` lê para decidir de
-    //     onde retomar — o cursor do contato manda, este bloco é a reserva.
+    //   `resposta_rapida` → `dm_welcome`, com um rótulo e um payload — o único
+    //     caminho do dreno que montava `quick_replies` até esta tarefa
+    //     (`processItem`, lib/queue-drain.ts).
+    //   `botoes` → também `dm_welcome`, e é a NOVIDADE da Tarefa 4: uma lista de
+    //     rótulos e uma de payloads, um por botão, na MESMA ordem — é essa
+    //     correspondência por índice que o dreno lê para montar vários
+    //     `quick_replies` na mesma mensagem.
     //   `link` → `dm_link`, que `linkMessage` (lib/ig.ts) transforma em template
     //     de botão. Vale também sem rótulo: aí o título cai no padrão "Abrir
     //     link" do próprio `linkMessage`, em vez de a url desaparecer da
@@ -998,8 +1000,17 @@ async function enfileirarPasso(
     //   `texto` → `dm_link` sem url, que é como o mesmo `linkMessage` devolve
     //     só `{ text }`.
     //
-    // As duas últimas dividem `kind` e payload de propósito: o que as separa é a
+    // As duas primeiras dividem `kind` (`dm_welcome`) porque as duas terminam em
+    // `quick_replies` no dreno — uma com uma entrada, a outra com várias. As duas
+    // últimas dividem `dm_link` pelo mesmo motivo de sempre: o que as separa é a
     // presença da url DENTRO do mesmo payload, e é `linkMessage` quem lê isso.
+    //
+    // O payload volta no webhook como `AUTO:<automação>:<bloco>` para o botão
+    // único, e `AUTO:<automação>:<bloco>:<botão>` para cada botão de um menu
+    // (`lerPayload`, lib/steps.ts) — é ele que `handleMessagingEvent` lê para
+    // decidir de onde retomar e, no caso do menu, qual braço seguir
+    // (`caminhoDoBotao`, lib/steps.ts). O cursor do contato manda; o bloco no
+    // payload é a reserva.
     const envio = envioDaDm(p);
 
     // ...e sobre essas três formas vem uma quarta decisão, que é de ENTREGA, não
@@ -1020,7 +1031,7 @@ async function enfileirarPasso(
       ...base,
       kind: comentario
         ? "private_reply"
-        : envio.forma === "resposta_rapida"
+        : envio.forma === "resposta_rapida" || envio.forma === "botoes"
           ? "dm_welcome"
           : "dm_link",
       comment_id: comentario ?? undefined,
@@ -1050,6 +1061,36 @@ async function enfileirarPasso(
             // (`identidadeDoPasso`), de propósito: é ela que `indiceDoId`
             // procura de volta lá em `handleMessagingEvent`.
             quick_reply_payload: `AUTO:${auto.id}:${identidadeDoPasso(p, acao.indice)}`,
+          }
+        : envio.forma === "botoes"
+        ? {
+            text: p.texto,
+            // FORMA PLURAL, ao lado da singular acima — NÃO no lugar dela. A
+            // fila pode ter itens já enfileirados com `quick_reply_label` e
+            // `quick_reply_payload` no momento em que este código sobe (a
+            // Tarefa 4 não migra fila em voo), e o dreno (lib/queue-drain.ts)
+            // continua lendo os dois pares: singular quando existe, plural
+            // quando existe. As duas convivem, e nenhuma é dívida a limpar.
+            //
+            // PAREADAS POR ÍNDICE, de propósito: `quick_reply_labels[i]` é o
+            // rótulo do MESMO botão de `quick_reply_payloads[i]`. Um objeto
+            // `{label, payload}[]` evitaria a correspondência por índice, mas
+            // trocaria uma forma de payload jsonb testada (a singular já é
+            // dois campos irmãos) por outra sem necessidade — o dreno lê os
+            // dois arrays juntos, `map` com o mesmo índice, e a ordem de
+            // `envio.botoes` é a mesma em que o dono os desenhou.
+            quick_reply_labels: envio.botoes.map((b) => b.rotulo),
+            // Cada payload leva o BLOCO **e** o BOTÃO, pelo mesmo motivo do
+            // `quick_reply_payload` singular acima — mas aqui o payload
+            // também precisa dizer QUAL dos vários botões foi tocado, porque
+            // o id do botão só faz sentido escopado ao bloco que o desenhou
+            // (`ligacaoEscolhida`, lib/steps.ts, casa por
+            // `{de: <este bloco>, quando: {botao: <este id>}}`). É a forma de
+            // QUATRO partes que `lerPayload` (lib/steps.ts) já sabe ler desde
+            // a Tarefa 3, e que só passa a ser EMITIDA a partir desta tarefa.
+            quick_reply_payloads: envio.botoes.map(
+              (b) => `AUTO:${auto.id}:${identidadeDoPasso(p, acao.indice)}:${b.id}`
+            ),
           }
         : { text: p.texto, button_label: p.botao_label ?? null, url: p.url ?? null },
       // A chave da resposta privada é a mesma do motor antigo: o id do

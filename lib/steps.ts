@@ -93,29 +93,48 @@ export type Posicao = { x: number; y: number };
 // que a paleta do quadro nomeia em "Mensagem com botão" e "Mensagem com link"
 // (app/automacoes/editor/modelos.ts).
 //
-// `botoes` NÃO APARECE AQUI, e a ausência é a metade importante desta correção.
-// Nada no sistema entrega vários botões hoje: `enfileirarPasso` monta um rótulo
-// só e o dreno exige `quick_reply_label && quick_reply_payload`. Enquanto for
-// assim, um bloco com `botoes` sai como as regras acima mandam — e, por sair sem
-// nada para tocar, ele não pode ser uma parada. Fazer `esperaResposta` dizer sim
-// a ele sem esta função saber entregá-lo é justamente o estado que a medição
-// acima descreve.
+// `botoes` GANHA RAMO AQUI NA TAREFA 4 — a ausência acima era a metade
+// importante da correção anterior, e ela era temporária de propósito: "QUEM
+// DEVOLVE A PARADA AOS `botoes` É A TAREFA 4" já estava escrito aqui antes de
+// esta função existir. O ramo entra ANTES do de `botao_label`, e a ordem
+// decide o caso em que um bloco tem as duas coisas: sai como MENU, não como
+// resposta rápida de um botão só.
 //
-// QUEM DEVOLVE A PARADA AOS `botoes` É A TAREFA 4, e ela a devolve DAQUI: no dia
-// em que o motor e o dreno souberem montar vários botões, `botoes` ganha um ramo
-// nesta função e `esperaResposta` volta a parar no menu sem que ninguém precise
-// lembrar de mexer nela. É essa a diferença entre uma regra e duas — a segunda
-// cópia era o que exigia lembrar.
+// A CONFERÊNCIA É DE FORMA, não de conteúdo — `Array.isArray` e `.length`, não
+// o tipo estático `Botao[]` — pelo mesmo motivo de todo outro campo lido nesta
+// função: `conferir` não olha `botoes` (é comentário dela, mais abaixo), então
+// o que chega aqui é `jsonb` cru, e nada garante que seja de fato uma lista.
+// Sem a conferência, um `botoes` de outro tipo (string, número, objeto solto)
+// entraria em `{forma: "botoes"}` e quebraria todo mundo que confia em ler
+// `.botoes` dali como lista.
 //
-// O RÓTULO VEM JUNTO, e não como um campo à parte para o chamador reler: era o
-// `botao_label!` da prévia que provava a necessidade. Quem recebe
-// `{forma: "resposta_rapida"}` recebe o rótulo já garantido pelo tipo.
+// A PARADA VOLTA SEM `esperaResposta` MUDAR — e essa é a diferença entre uma
+// regra e duas: ela já pergunta a esta função (abaixo), então um menu de
+// `botoes` passa a parar o fluxo no mesmo instante em que passa a ser
+// entregável, sem ninguém precisar lembrar de tocar num segundo lugar. Antes
+// desta tarefa isso não era verdade: `esperaResposta` dizia sim a um `dm` com
+// `botoes`, `enfileirarPasso` (lib/engine.ts) só sabia montar um rótulo, e a
+// mensagem saía como texto puro enquanto o motor gravava o cursor esperando um
+// toque que nunca chegaria — é a medição que o comentário desta função já
+// registrava. Ela fecha porque o motor e o dreno aprenderam a entregar vários
+// botões (`lib/engine.ts`, `lib/queue-drain.ts`) no mesmo commit desta função.
+//
+// O RÓTULO VEM JUNTO nos dois ramos que entregam algo tocável, e não como um
+// campo à parte para o chamador reler: era o `botao_label!` da prévia que
+// provava a necessidade, para `resposta_rapida`. Para `botoes` a mesma ideia
+// vale por lista: quem recebe `{forma: "botoes"}` recebe os botões inteiros,
+// id e rótulo juntos, não um rótulo solto que o chamador teria de casar com
+// `p.botoes` de novo.
 export type EnvioDaDm =
   | { forma: "resposta_rapida"; rotulo: string }
+  | { forma: "botoes"; botoes: Botao[] }
   | { forma: "link"; rotulo: string | null; url: string }
   | { forma: "texto" };
 
 export function envioDaDm(p: PassoDm): EnvioDaDm {
+  if (Array.isArray(p.botoes) && p.botoes.length && !p.url) {
+    return { forma: "botoes", botoes: p.botoes };
+  }
   if (p.botao_label && !p.url) return { forma: "resposta_rapida", rotulo: p.botao_label };
   if (p.url) return { forma: "link", rotulo: p.botao_label || null, url: p.url };
   return { forma: "texto" };
@@ -123,10 +142,11 @@ export function envioDaDm(p: PassoDm): EnvioDaDm {
 
 // Um passo espera resposta quando ele PEDE alguma coisa.
 //
-// `dm` espera quando, e só quando, ela SAI com uma resposta rápida — a pergunta
-// é feita a `envioDaDm` (acima), e não respondida de novo aqui. Assim "o fluxo
-// para neste bloco" e "este bloco entrega um botão" não são duas afirmações que
-// podem discordar: são a mesma.
+// `dm` espera quando, e só quando, ela SAI com algo tocável — resposta rápida
+// OU menu de `botoes`, desde a Tarefa 4 — e a pergunta é feita a `envioDaDm`
+// (acima), e não respondida de novo aqui. Assim "o fluxo para neste bloco" e
+// "este bloco entrega algo para tocar" não são duas afirmações que podem
+// discordar: são a mesma, para as duas formas.
 //
 // EXPORTADA desde a prévia da conversa (app/automacoes/editor/roteiro.ts), e a
 // alternativa era pior: a prévia precisa dizer QUAIS BLOCOS PARAM O FLUXO —
@@ -136,7 +156,10 @@ export function envioDaDm(p: PassoDm): EnvioDaDm {
 // nada acusar.
 export function esperaResposta(p: Passo): boolean {
   if (p.tipo === "pedir_follow" || p.tipo === "pedir_email") return true;
-  if (p.tipo === "dm") return envioDaDm(p).forma === "resposta_rapida";
+  if (p.tipo === "dm") {
+    const forma = envioDaDm(p).forma;
+    return forma === "resposta_rapida" || forma === "botoes";
+  }
   return false;
 }
 
@@ -926,14 +949,16 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
 //
 //     QUAL DAS DUAS GUARDAS SEGURA ESSE ANEL DEPENDE DE COMO O MENU FOI MONTADO,
 //     e vale dito porque a versão anterior deste comentário afirmava sempre a
-//     parada. Um menu de `botoes` sem `botao_label` NÃO é parada hoje: nada no
-//     sistema entrega vários botões, então `envioDaDm` o manda como texto puro e
-//     `esperaResposta` diz não (ver `envioDaDm`, acima). O que segura o anel
-//     nesse caso é o FILTRO DE CONDIÇÃO — as setas que saem do menu para as
-//     opções são `botao`, e não `sempre`, então não há `sempre` a seguir. Com
-//     `botao_label`, aí sim a parada trabalha. As duas guardas estão medidas uma
-//     a uma em tests/steps.test.ts, e o comportamento é o mesmo nos dois casos:
-//     `false`.
+//     mesma guarda. ANTES DA TAREFA 4, um menu de `botoes` sem `botao_label` não
+//     era parada: nada no sistema entregava vários botões, `envioDaDm` o mandava
+//     como texto puro e `esperaResposta` dizia não. Quem segurava o anel nesse
+//     caso era só o FILTRO DE CONDIÇÃO — as setas que saem do menu para as
+//     opções são `botao`, e não `sempre`, então não há `sempre` a seguir.
+//     DESDE A TAREFA 4 a PARADA também trabalha nesse caso: `envioDaDm`
+//     reconhece `botoes` e `esperaResposta` para no menu sem rótulo nenhum, então
+//     as duas guardas seguram esse anel ao mesmo tempo, e nenhuma precisa mais
+//     bastar sozinha. As duas continuam medidas uma a uma em
+//     tests/steps.test.ts, e o comportamento é o mesmo nos dois casos: `false`.
 //   CICLO SÓ DE `sempre` É INFINITO. Nada nele espera resposta, então nada
 //     interrompe a caminhada: ela anda até o teto a cada disparo, e o dono não
 //     tem como descobrir por quê olhando a tela.
@@ -975,11 +1000,12 @@ export function temCicloDeSempre(passos: unknown, ligacoes: unknown): boolean {
 
 // Quantos passos da lista PARAM o fluxo de vez.
 //
-// Só a `dm` de resposta rápida entra nesta conta, e a distinção não é
-// decorativa: `pedir_follow` e `pedir_email` são portões que a própria execução
-// reavalia (o portão reconsulta a Meta; o pedido de e-mail é pulado quando o
-// endereço já é conhecido), então o fluxo pode atravessá-los sozinho. A `dm` de
-// resposta rápida não: nada além do toque da pessoa a destrava.
+// Só a `dm` que espera entra nesta conta — resposta rápida OU `botoes`, desde a
+// Tarefa 4, porque as duas passam pela mesma pergunta em `esperaResposta` — e a
+// distinção não é decorativa: `pedir_follow` e `pedir_email` são portões que a
+// própria execução reavalia (o portão reconsulta a Meta; o pedido de e-mail é
+// pulado quando o endereço já é conhecido), então o fluxo pode atravessá-los
+// sozinho. A `dm` que espera não: nada além do toque da pessoa a destrava.
 //
 // Passo inválido não conta, pelo mesmo motivo de `passoEsperado`: `interpretar`
 // o ignora, então ele nunca foi enviado e nunca parou nada.

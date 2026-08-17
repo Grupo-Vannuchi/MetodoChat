@@ -2690,26 +2690,30 @@ describe("interpretar caminhando o grafo", () => {
   });
 
   // ------------------------------------------------------------------------
-  // O BLOCO COM `botoes` NÃO PARA — AINDA —, e a medição que decidiu isso está
-  // aqui porque ela derrubou dois testes desta suíte.
+  // O BLOCO COM `botoes` PASSOU A PARAR NA TAREFA 4, e o comentário abaixo é a
+  // medição que decidiu isso — mantida porque ela derrubou dois testes desta
+  // suíte, e quem reabrir o buraco vai derrubá-los de novo.
   //
-  // `esperaResposta` passou a dizer sim a um `dm` com `botoes`, com o argumento
-  // (verdadeiro) de que o fluxo não pode escolher sozinho qual braço seguir. Só
-  // que quem ENTREGA a mensagem não aprendeu junto: `enfileirarPasso`
-  // (lib/engine.ts) monta um rótulo só, e o dreno exige
-  // `quick_reply_label && quick_reply_payload` (lib/queue-drain.ts). Um bloco
-  // com `botoes` e sem `botao_label` saía como TEXTO PURO e mesmo assim fazia o
-  // motor gravar o cursor: parada esperando um toque que ninguém entregou.
+  // `esperaResposta` passou a dizer sim a um `dm` com `botoes` ANTES de
+  // `enfileirarPasso` (lib/engine.ts) saber entregar mais de um botão: um
+  // bloco com `botoes` e sem `botao_label` saía como TEXTO PURO — o dreno
+  // exigia `quick_reply_label && quick_reply_payload` (lib/queue-drain.ts) —
+  // e mesmo assim o motor gravava o cursor: parada esperando um toque que
+  // ninguém entregou.
   //
-  // A parada volta na TAREFA 4, e volta de um lugar só: `envioDaDm` aprende
-  // `botoes`, e `esperaResposta` — que deriva dela — para no menu sozinha. O
-  // teste logo abaixo é o que garante que não dá para reabrir o buraco.
+  // A TAREFA 4 fechou o buraco de um lugar só: `envioDaDm` aprendeu `botoes`,
+  // e `esperaResposta` — que deriva dela — passou a parar no menu por
+  // consequência, sem ganhar condição própria. `enfileirarPasso` e o dreno
+  // aprenderam a entregar a lista inteira no mesmo commit. Os dois testes
+  // abaixo são as duas metades: a forma nova de `envioDaDm`, e a parada que
+  // ela devolve a `esperaResposta`.
   // ------------------------------------------------------------------------
 
-  it("A PARADA E A ENTREGA SÃO A MESMA PERGUNTA: nenhum `dm` para sem entregar um botão", () => {
+  it("A PARADA E A ENTREGA SÃO A MESMA PERGUNTA: nenhum `dm` para sem entregar algo para tocar", () => {
     // A invariante que substitui a segunda cópia da regra. Toda forma de `dm`
     // que este projeto sabe produzir passa por aqui: se algum dia uma delas
-    // parar o fluxo sem sair com resposta rápida, é este teste que acende.
+    // parar o fluxo sem sair com resposta rápida OU menu de `botoes`, é este
+    // teste que acende.
     const formas: unknown[] = [
       { tipo: "dm", texto: "oi" },
       { tipo: "dm", texto: "oi", botao_label: "quero" },
@@ -2717,7 +2721,21 @@ describe("interpretar caminhando o grafo", () => {
       { tipo: "dm", texto: "oi", url: "https://x.y" },
       { tipo: "dm", texto: "oi", botao_label: "abrir", url: "https://x.y" },
       { tipo: "dm", texto: "oi", botoes: [{ id: "op_aaaaaa", rotulo: "A" }] },
+      {
+        tipo: "dm",
+        texto: "oi",
+        botoes: [
+          { id: "op_aaaaaa", rotulo: "A" },
+          { id: "op_bbbbbb", rotulo: "B" },
+        ],
+      },
+      // Com as duas coisas, `botoes` vence — é a ordem escrita em `envioDaDm`.
       { tipo: "dm", texto: "oi", botao_label: "quero", botoes: [{ id: "op_aaaaaa", rotulo: "A" }] },
+      // Com url, nem `botoes` nem `botao_label` viram parada: é link, e o link
+      // não espera toque nenhum.
+      { tipo: "dm", texto: "oi", url: "https://x.y", botoes: [{ id: "op_aaaaaa", rotulo: "A" }] },
+      // `botoes` vazio não é menu — nada para tocar, então cai como texto.
+      { tipo: "dm", texto: "oi", botoes: [] },
       // Lixo no campo: `conferir` não olha `botoes`, então ele chega assim.
       { tipo: "dm", texto: "oi", botoes: "sim" },
     ];
@@ -2727,16 +2745,26 @@ describe("interpretar caminhando o grafo", () => {
       // resto do teste não estaria medindo o que diz medir.
       if (!passo || passo.tipo !== "dm") throw new Error(`não é dm válida: ${JSON.stringify(bruto)}`);
       const envio = envioDaDm(passo);
-      expect(esperaResposta(passo)).toBe(envio.forma === "resposta_rapida");
-      // E o que a parada promete existe de verdade: um rótulo não vazio para
-      // tocar. É esta linha que o `botoes` sem `botao_label` quebrava.
+      expect(esperaResposta(passo)).toBe(envio.forma === "resposta_rapida" || envio.forma === "botoes");
+      // E o que a parada promete existe de verdade: um rótulo não vazio, ou
+      // uma lista de botões não vazia. É esta linha que o `botoes` sem
+      // `botao_label` quebrava antes da Tarefa 4.
       if (envio.forma === "resposta_rapida") expect(envio.rotulo.length).toBeGreaterThan(0);
+      if (envio.forma === "botoes") expect(envio.botoes.length).toBeGreaterThan(0);
     }
   });
 
-  it("bloco com BOTÕES não para o fluxo enquanto ninguém entrega os botões", () => {
-    // Sem `botao_label` não há botão na mensagem, então não há toque a esperar:
-    // a caminhada segue pela `sempre` e, não havendo nenhuma, o fluxo acaba.
+  it("bloco com BOTÕES agora PARA — o motor sabe entregar o menu inteiro (Tarefa 4)", () => {
+    // Antes da Tarefa 4 este mesmo menu não parava: sem `botao_label` o motor
+    // não sabia entregar nada tocável, e a caminhada seguia adiante. Hoje
+    // `envioDaDm` reconhece `botoes` sozinhos como MENU, e `esperaResposta`
+    // para por consequência.
+    //
+    // NENHUMA ligação `botao` é seguida por esta caminhada, e não é o que faz
+    // o fluxo parar: `interpretar` só anda pela `sempre` (`seguinteDe`) —
+    // `botao` só é percorrida pelo TOQUE (`ligacaoEscolhida`). O motivo de
+    // parar aqui é só a mensagem esperar resposta, mesmo sem `sempre` nenhuma
+    // saindo do menu.
     const menu = {
       id: "b_men001",
       tipo: "dm",
@@ -2751,18 +2779,16 @@ describe("interpretar caminhando o grafo", () => {
       [{ de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_fim003" }],
       "b_men001"
     );
-    // O menu SAI — como texto puro, que é o que o dreno sabe montar hoje.
+    // O menu SAI, e a caminhada PARA nele.
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_men001"]);
-    // E o cursor NÃO é gravado nele: ninguém fica esperando um toque que não
-    // foi entregue. A `botao` não move a caminhada, então o caminho acaba aqui.
-    expect(r.pararEm).toBe(null);
-    expect(r.cursorNoFim).toBe("limpar");
+    expect(r.pararEm).toBe("b_men001");
   });
 
-  it("bloco com botões E rótulo PARA: aí existe o que tocar", () => {
-    // O mesmo menu com um `botao_label` é uma mensagem com botão — o dreno monta
-    // a resposta rápida, e por isso o fluxo para. É a forma que a Tarefa 4 vai
-    // generalizar para vários botões.
+  it("bloco com botões E rótulo também PARA: `botoes` manda na forma, não na parada", () => {
+    // Este bloco tem as duas coisas. Desde a Tarefa 4 a FORMA é menu — não
+    // resposta rápida de um botão só, `envioDaDm` olha `botoes` primeiro —,
+    // mas a pergunta que interessa aqui é só uma: o fluxo para? Sim, porque
+    // `esperaResposta` diz sim às duas formas.
     const menu = {
       id: "b_men001",
       tipo: "dm",
@@ -3002,11 +3028,14 @@ describe("temCicloDeSempre", () => {
   it("CICLO QUE PASSA POR UMA PARADA NÃO CONTA — é padrão legítimo", () => {
     // "menu → opção → volta ao menu" é um fluxo bom, e a caminhada para no menu.
     //
-    // O menu leva `botao_label` além dos `botoes` porque é o rótulo que faz dele
-    // uma parada hoje — sem botão entregue não há toque a esperar
-    // (`envioDaDm`, lib/steps.ts). Com `botoes` sozinhos este teste ficaria
-    // verde pelo motivo errado: a caminhada pararia por falta de `sempre`, e não
-    // por uma parada.
+    // O menu leva `botao_label` além dos `botoes` para ficar igual ao teste
+    // gêmeo logo abaixo ("A GUARDA DA PARADA sozinha"), que PRECISA da parada
+    // — sem ela, sobraria só o filtro de condição segurando os dois, e cada
+    // teste deixaria de medir a guarda que diz medir. Desde a Tarefa 4,
+    // `botoes` sozinhos também bastariam aqui (`envioDaDm` os reconhece como
+    // parada), mas a combinação fica porque o par de testes é sobre ISOLAR
+    // cada guarda, e trocar a fixture de um sem trocar a do outro quebraria
+    // essa simetria.
     const menu = {
       id: "b_men001",
       tipo: "dm",
@@ -3095,11 +3124,15 @@ describe("temCicloDeSempre", () => {
     // que descartar. O que impede o falso positivo é a parada: o menu espera o
     // toque, e cada volta do anel custa uma resposta da pessoa.
     //
-    // O menu É UMA MENSAGEM COM BOTÃO (`botao_label`), e não um bloco de
-    // `botoes`: hoje a parada mora em quem entrega um botão, e `botoes` sem
-    // rótulo não entrega nenhum (ver `envioDaDm`, lib/steps.ts). Com o bloco de
-    // `botoes` este anel seria REAL — nada o interromperia —, e a resposta certa
-    // deixaria de ser `false`.
+    // O menu leva `botao_label` (mensagem com um botão) além de `botoes`, pelo
+    // mesmo motivo do teste gêmeo acima: isolar esta guarda da outra. ANTES DA
+    // TAREFA 4, um bloco de `botoes` sozinho não parava — a parada morava só
+    // em `botao_label` —, e por isso a resposta certa dependia dele estar
+    // aqui: sem ele, este anel seria REAL. DESDE A TAREFA 4 isso não é mais
+    // verdade — `envioDaDm` reconhece `botoes` sozinhos como parada —, mas a
+    // fixture continua com as duas coisas porque o par de testes mede as
+    // guardas ISOLADAMENTE, e a mudança de uma fixture sem a outra quebraria a
+    // simetria entre eles.
     const menu = {
       id: "b_men001",
       tipo: "dm",

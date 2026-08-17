@@ -11,6 +11,10 @@ import {
   OutgoingMessage,
 } from "./ig";
 import { renderVariables, type VariableContext } from "./variables";
+// Só para registrar em Atividade o corte de botões além do limite da Meta
+// (ver `LIMITE_QUICK_REPLIES`, abaixo). Não há import na direção oposta —
+// lib/engine.ts não importa deste arquivo — então não há ciclo.
+import { logEventThrottled } from "./engine";
 
 // ============================================================
 // Envio: drena a fila respeitando limites da Meta
@@ -19,6 +23,19 @@ import { renderVariables, type VariableContext } from "./variables";
 const HOURLY_CAP = 190; // margem sobre o limite prático de ~200/h, POR CONTA
 const BATCH_SIZE = 15;
 const GAP_MS = 600; // ~1,6 envios/segundo
+
+// O limite da Meta para respostas rápidas numa única mensagem. Lido no guia
+// oficial ao implementar esta tarefa (developers.facebook.com/documentation/
+// business-messaging/instagram-messaging/features/quick-replies): "A maximum
+// of 13 quick replies are supported". Não é o número da memória de ninguém —
+// é o que o guia diz hoje.
+//
+// A DEFESA É NO DRENO, e não só na conferência do editor (Tarefa 5), porque a
+// coluna `payload` é `jsonb` e pode ser editada por fora do painel. Sem o
+// corte aqui, um item com mais de 13 botões faz a Meta recusar a mensagem
+// INTEIRA — ninguém recebe nada, nem o texto. Cortar entrega o que cabe e
+// registra o resto em Atividade, para o dono descobrir sem cliente reclamando.
+const LIMITE_QUICK_REPLIES = 13;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -113,6 +130,14 @@ async function processItem(
     text?: string;
     quick_reply_label?: string;
     quick_reply_payload?: string;
+    // A forma PLURAL, ao lado da singular — não no lugar dela. `lib/engine.ts`
+    // (`enfileirarPasso`) só grava um par por item: os dois nunca convivem no
+    // MESMO item, mas a coluna é `jsonb` e nada garante isso em runtime, então
+    // este arquivo lê os dois pares independentemente. Itens enfileirados
+    // antes desta tarefa só têm a forma singular, e continuam sendo lidos por
+    // ela — é por isso que ela não sai daqui.
+    quick_reply_labels?: string[];
+    quick_reply_payloads?: string[];
     button_label?: string;
     url?: string;
     message_id?: string;
@@ -162,6 +187,47 @@ async function processItem(
   // isto não muda o caminho de mais ninguém.
   if (item.kind === "dm_link" || item.kind === "dm_reminder" || p.url) {
     message = linkMessage(texto, rotuloBotao || "Abrir link", p.url ?? "");
+  } else if (Array.isArray(p.quick_reply_payloads) && p.quick_reply_payloads.length) {
+    // A forma PLURAL: vários botões na mesma mensagem, a novidade da Tarefa 4.
+    // `lib/ig.ts` já aceitava `quick_replies` como lista — o que faltava era
+    // este arquivo montar mais de uma entrada.
+    //
+    // PAREADOS POR ÍNDICE, e por `Math.min` dos dois tamanhos: rótulo e payload
+    // andam juntos em `envio.botoes` (lib/steps.ts) e são escritos como duas
+    // listas irmãs em `enfileirarPasso` (lib/engine.ts), sempre do mesmo
+    // tamanho — mas o `jsonb` é editável por fora do painel, e nada IMPEDE as
+    // duas listas de chegarem com tamanhos diferentes. `Math.min` é a defesa
+    // contra isso: nunca lê um índice que a outra lista não tem.
+    const rotulos = p.quick_reply_labels ?? [];
+    const n = Math.min(rotulos.length, p.quick_reply_payloads.length);
+    const pares = Array.from({ length: n }, (_, i) => ({
+      title: renderVariables(rotulos[i] ?? "", ctx),
+      payload: p.quick_reply_payloads![i],
+    }));
+
+    // O CORTE E O REGISTRO — ver `LIMITE_QUICK_REPLIES`, acima, para o porquê
+    // de a defesa estar aqui e não só na conferência do editor (Tarefa 5).
+    if (pares.length > LIMITE_QUICK_REPLIES) {
+      await logEventThrottled(
+        igUserId,
+        "quick_replies_cortados",
+        {
+          queue_id: item.id,
+          automation_id: item.automation_id,
+          total: pares.length,
+          limite: LIMITE_QUICK_REPLIES,
+        },
+        10,
+        { campo: "automation_id", valor: item.automation_id ?? "" }
+      );
+    }
+
+    message = {
+      text: texto,
+      quick_replies: pares
+        .slice(0, LIMITE_QUICK_REPLIES)
+        .map((q) => ({ content_type: "text" as const, title: q.title, payload: q.payload })),
+    };
   } else if (p.quick_reply_label && p.quick_reply_payload) {
     message = {
       text: texto,
