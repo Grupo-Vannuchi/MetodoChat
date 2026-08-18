@@ -1127,6 +1127,35 @@ export default function Quadro({
               `recado`. A paleta fica FORA: arrastar dela não muda nada sozinho,
               e o alvo do arrasto está inerte. */}
           <div className="relative min-w-0 flex-1" inert={salvando}>
+            {/* LIGAR DEIXOU DE SER PROIBIDO (`nodesConnectable`, lá embaixo), e
+                essa prop NÃO ALCANÇA AS ALÇAS SOZINHA — o que era verdade
+                quando ela desligava o gesto continua verdade agora que ela o
+                liga.
+
+                A prop chega ao NÓ, não à alça: o React Flow calcula
+                `isConnectable` no invólucro do nó e o entrega como PROP para o
+                componente, e cabe a ele repassá-la a cada `Handle`. Sem o
+                repasse, `Handle` cai no próprio padrão — que é `true` —, e foi
+                MEDIDO na Fase 1b que com ela em `false` o gesto acontecia assim
+                mesmo, com as alças acendendo. São DUAS pontas
+                (`isConnectableStart` e `isConnectableEnd`), porque quem porteia
+                o `onPointerDown` da alça é a primeira. O mecanismo inteiro está
+                no comentário de `no.tsx`.
+
+                Ou seja: apagar as props do nó "porque o quadro já resolve" foi,
+                e continua sendo, o jeito de o desligamento — ou a permissão —
+                deixar de valer.
+
+                ELE FICA AQUI, FORA DA LISTA DE ATRIBUTOS, e não colado na prop
+                que descreve. O comentário de `../[id]/page.tsx` afirma, com
+                medição, que um comentário `//` entre atributos de um elemento
+                JSX ENGOLE A PROP SEGUINTE no compilador do modo de
+                desenvolvimento. Esta lista tem oito comentários assim, e as
+                props depois deles funcionam (o piso do zoom e o tema foram
+                medidos na Fase 1b) — ou seja, uma das duas coisas está errada, e
+                não deu para medir qual nesta tarefa. `nodesConnectable` é a prop
+                de que esta tarefa inteira depende, e ela não vai apostar nisso.
+                A dúvida está registrada no relatório. */}
             <ReactFlow
               nodes={nos}
               edges={setas}
@@ -1209,24 +1238,6 @@ export default function Quadro({
               // caminho da seleção por caixa e por teclado. Escrever a seleção também
               // nos dois cliques faria duas fontes para o mesmo estado, e a que
               // sobrasse de fora (a caixa) seria a que ninguém testa.
-              // LIGAR DEIXOU DE SER PROIBIDO, e esta prop NÃO ALCANÇA AS ALÇAS
-              // SOZINHA — o que era verdade quando ela desligava o gesto
-              // continua verdade agora que ela o liga, e é importante que esteja
-              // dito aqui, que é o arquivo que se lê primeiro.
-              //
-              // A prop chega ao NÓ, não à alça: o React Flow calcula
-              // `isConnectable` no invólucro do nó e o entrega como PROP para o
-              // componente, e cabe a ele repassá-la a cada `Handle`. Sem o
-              // repasse, `Handle` cai no próprio padrão — que é `true` —, e foi
-              // MEDIDO na Fase 1b que com ela em `false` o gesto acontecia
-              // assim mesmo, alças acendendo e tudo. São DUAS pontas
-              // (`isConnectableStart` e `isConnectableEnd`), porque quem porteia
-              // o `onPointerDown` da alça é a primeira. O mecanismo inteiro está
-              // no comentário de `no.tsx`.
-              //
-              // Ou seja: apagar as props do nó "porque o quadro já resolve" foi
-              // e continua sendo o jeito de o desligamento (ou a permissão)
-              // deixar de valer.
               nodesConnectable
               onConnect={ligarBlocos}
               edgesFocusable={false}
