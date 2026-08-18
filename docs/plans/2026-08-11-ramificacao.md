@@ -1197,37 +1197,36 @@ Medido na sessão dele, ao vivo:
 - `app/automacoes/editor/paleta.tsx:130-131` tem **`draggable` e `onDragStart`,
   e nenhum `onClick`**
 
-## São DOIS defeitos, e consertar um não conserta o outro
+## ERA UM DEFEITO, NÃO DOIS — a metade do congelamento caiu na medição
 
-**1 · Clicar não faz nada, por construção.** Os itens são ícones de 36×36 que só
-respondem a arrastar. Quem clica não recebe resposta nenhuma — nem o bloco, nem
-um aviso de que precisa arrastar.
+A primeira redação desta tarefa dizia que havia dois defeitos. **Estava errada, e
+o erro era meu.**
 
-**2 · O clique escorregado vira arrasto nativo pendurado.** Um clique que move
-um ou dois pixels inicia um arrasto do sistema operacional. Se ele não termina
-num alvo válido, **o navegador para de entregar cliques para a página** até o
-arrasto acabar. É isso que parece congelamento.
+Medido ao vivo na sessão do dono, com ele ainda preso:
 
-**Acrescentar `onClick` resolve o primeiro e NÃO resolve o segundo.** Quem
-arrastar de verdade e soltar fora do quadro continua podendo travar.
+1. cliques **sintéticos** também não chegavam na página — zero recebidos por um
+   ouvinte em captura. Logo o bloqueio era do navegador, não do React
+2. despachar um `mouseReleased` pelo protocolo **destravou na hora**
 
-## O que construir
+A causa: uma tentativa **minha** de arrastar, minutos antes, estourou o tempo no
+meio da sequência — o `mousePressed` foi enviado e o `mouseReleased` nunca foi. O
+navegador ficou com o botão esquerdo preso e passou a capturar tudo.
 
-**Clicar cria o bloco.** Onde ele cai é sua escolha — o mais previsível é o
-centro da área visível do quadro. Reaproveite o caminho que o soltar já usa;
-**não escreva uma segunda forma de criar bloco.**
+**Não existe arrasto nativo pendurado no produto.** Quem prendeu a sessão do dono
+foi a ferramenta de automação, não o editor.
 
-**Arrastar continua igual.** É como se escolhe onde o bloco cai, e quem já
-aprendeu não pode perder o gesto.
+**Lição que fica:** ao despachar evento de mouse por protocolo, garanta o
+`mouseReleased` num `finally`. E, antes de abrir tarefa a partir de um relato de
+travamento, **verifique se a automação não foi a causa** — foi o que o dono do
+produto percebeu ao dizer que recarregar seria "trapaça", e é por ele não ter
+recarregado que deu para medir.
 
-**Ache por que o arrasto pode ficar pendurado, e feche.** Comece medindo: o
-`dragend` chega quando se solta fora do quadro? O tratador de soltar estoura?
-**Meça antes de consertar** — nesta fase, quatro correções foram feitas contra
-uma causa errada porque alguém supôs o mecanismo em vez de olhar.
+## O defeito que sobrou, e é real
 
-Se descobrir que o pendurado é do navegador e não do código, **diga isso** e
-mostre a medição: aí a defesa é outra (por exemplo, o clique deixar de disparar
-arrasto quando não houve movimento suficiente).
+`app/automacoes/editor/paleta.tsx:130-131` tem **`draggable` e `onDragStart`, e
+nenhum `onClick`**. Clicar num item da paleta não cria bloco nenhum, por
+construção — quem clica não recebe resposta, nem o bloco, nem um aviso de que
+precisa arrastar. Verificado por leitura do código.
 
 ## Como provar
 
@@ -1242,12 +1241,10 @@ ligar funciona.
 
 ## Passos
 
-- [ ] **Passo 1: meça o estado atual** — clique num item e registre o que
-      acontece; solte um arrasto fora do quadro e registre se trava
+- [ ] **Passo 1: meça o estado atual** — clique num item da paleta e registre
+      que nada acontece
 - [ ] **Passo 2: clicar cria o bloco**, pelo mesmo caminho do soltar
-- [ ] **Passo 3: feche o pendurado**, com a causa medida escrita no comentário
-- [ ] **Passo 4: prove na tela** — clicar cria; arrastar continua criando; soltar
-      fora não trava mais
+- [ ] **Passo 3: prove na tela** — clicar cria, e arrastar continua criando
 - [ ] **Passo 5: verify e commit**
 
 ```
