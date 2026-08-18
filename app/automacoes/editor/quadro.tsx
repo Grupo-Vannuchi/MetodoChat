@@ -1237,20 +1237,6 @@ export default function Quadro({
               </span>
             )
           )}
-          {/* O RECADO DO SALVAMENTO, na vaga dele, COLADO NO BOTÃO que o
-              produziu. Ele responde por um CLIQUE e não pela lista, então não
-              compete com o que está errado nela. */}
-          {recadoDoQuadroAtual && (
-            <span
-              className={`max-w-[36ch] truncate text-xs font-medium ${
-                recadoDoQuadroAtual.ok
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-red-600 dark:text-red-400"
-              }`}
-            >
-              {recadoDoQuadroAtual.texto}
-            </span>
-          )}
           <button
             type="button"
             onClick={salvar}
@@ -1261,6 +1247,56 @@ export default function Quadro({
           </button>
         </div>
       </header>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* O RECADO DO SALVAMENTO, EM LARGURA PRÓPRIA — e não mais um `<span>`
+          na vaga que ele dividia com o nome da automação e os botões, na
+          barra acima.
+
+          A TAREFA 6b MEDIU A INCOMPATIBILIDADE: aquela vaga era `max-w-[36ch]
+          truncate`, e o prefixo fixo "Salvo, mas ficou pausada: " sozinho já
+          consome 26 dos 36 caracteres. Das frases que `conferirLista`
+          (lib/steps.ts) produz para `nivel: "erro"` e `quando: "ativar"` — o
+          que falta para poder ativar —, a mais curta soma 105 caracteres com
+          esse prefixo, e a mais longa 175. Nenhuma cabia; truncar não
+          encurtava o aviso, apagava o motivo por completo.
+
+          "A MUDANÇA DE ESTADO NÃO PODE SER SILENCIOSA" é a frase que
+          justifica esta mensagem existir (comentário de `salvar`, abaixo no
+          arquivo) — um `<span>` que a corta de volta à ilegibilidade é a
+          mesma falha por um caminho diferente. Por isso este é um bloco de
+          LARGURA INTEIRA, sem `truncate`, no estilo do aviso do celular (mais
+          abaixo nesta função): `rounded-lg border … p-3`, sem cortar texto.
+
+          NÃO É UM `title`: passar o mouse para ler não é o oposto de
+          silencioso, é a mesma informação escondida atrás de um gesto que
+          "não pode ser silenciosa" não pede.
+
+          CONTINUA SEPARADO da vaga de erro/âmbar da barra (o porquê de ela
+          existir separada está no comentário "SÃO DUAS VAGAS", lá dentro do
+          `<header>`) — só mudou de ficar ao lado do botão para ficar embaixo
+          da barra inteira. E CONTINUA RESPONDENDO POR UM CLIQUE em Salvar, e
+          não pela lista de blocos: por isso ele mora aqui, fora do
+          `<header>` mas antes do quadro, e não dentro do painel do bloco
+          selecionado — a mesma frase de `conferirLista` já aparece ali
+          (`./painel.tsx`), completa e sem truncar, para o bloco que ela
+          aponta. Esta cópia é a única no quadro; não crie uma terceira.
+
+          SÓ NO COMPUTADOR, pelo mesmo motivo da barra: não há o que salvar
+          numa tela em que não dá para editar. */}
+      {recadoDoQuadroAtual && (
+        <div className="hidden shrink-0 border-b border-zinc-200 bg-white px-4 py-2 sm:block dark:border-zinc-800 dark:bg-zinc-950">
+          <p
+            className={`rounded-lg border p-3 text-sm font-medium ${
+              recadoDoQuadroAtual.ok
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                : "border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-950/40 dark:text-red-300"
+            }`}
+          >
+            {recadoDoQuadroAtual.texto}
+          </p>
+        </div>
+      )}
 
       {/* ------------------------------------------------------------------ */}
       {/* O AVISO NO CELULAR. O quadro precisa de arrastar e soltar, e não há */}

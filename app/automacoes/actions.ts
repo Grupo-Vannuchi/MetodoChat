@@ -197,10 +197,16 @@ export async function salvarAutomacao(
   // um botão sem destino, um bloco inalcançável ou um portão contornável sem
   // nunca passar pela porta que `toggleAutomation` construiu.
   //
-  // `podeFicarAtiva` (lib/steps.ts) é a mesma pergunta que aquela porta faz —
-  // "há algum erro de `quando: 'ativar'` no par que vai ser gravado?" — e o
-  // `active` gravado passa a ser a resposta combinada com o que foi pedido:
-  // só fica ativa se as duas coisas forem verdade.
+  // `podeFicarAtiva` (lib/steps.ts) faz a MESMA PERGUNTA que aquela porta faz
+  // — "há algum erro de `quando: 'ativar'` no par que vai ser gravado?" —,
+  // mas as duas não são a mesma checagem: `toggleAutomation` filtra só
+  // `p.nivel === "erro"`, sem filtrar por `quando`. Elas dão a mesma resposta
+  // AQUI porque `erros`, acima, já filtrou e teria retornado por qualquer
+  // erro de `quando: "salvar"` — do que sobra em `problemas`, só o de
+  // `quando: "ativar"` importa, que é exatamente o que `podeFicarAtiva`
+  // pergunta. Se um dos dois filtros mudar sozinho, a equivalência some. E o
+  // `active` gravado passa a ser essa resposta combinada com o que foi
+  // pedido: só fica ativa se as duas coisas forem verdade.
   //
   // VALE PARA OS DOIS CASOS que o dono do produto decidiu cobrir com a mesma
   // regra: marcar "Ativa" numa automação pausada que tem um erro de ativar, e
