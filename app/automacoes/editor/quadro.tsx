@@ -8,11 +8,13 @@ import {
   type Connection,
   type Node,
   type Edge,
+  type EdgeChange,
   type NodeChange,
   type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
+  apagarLigacoes,
   conferirLista,
   desligarBloco,
   identidadeDoPasso,
@@ -204,6 +206,21 @@ export default function Quadro({
   // um item da paleta e soltar um bloco que já existe —, e é null quando o
   // ponteiro não está sobre nenhuma.
   const [setaSobEle, setSetaSobEle] = useState<number | null>(null);
+
+  // QUAL SETA ESTÁ SELECIONADA — o ÍNDICE dela em `ligacoes`, e é o estado que
+  // torna APAGAR UMA SETA um gesto que existe.
+  //
+  // Separado de `setaSobEle` porque são duas perguntas diferentes: aquele é "o
+  // ponteiro está passando por cima desta seta DURANTE um arraste" e morre no
+  // fim do gesto; este é "esta é a seta escolhida", e ele sobrevive ao clique
+  // para o Delete ter em que agir. Os dois nunca acendem juntos — não se
+  // arrasta um bloco e se clica numa seta ao mesmo tempo —, e é por isso que
+  // podem dividir o mesmo destaque.
+  //
+  // ELE MORRE A CADA APAGAMENTO, e isso é obrigatório: a identidade da seta é o
+  // ÍNDICE, então tirar uma renumera todas as que vinham depois. Guardar o
+  // índice antigo faria o Delete seguinte apagar a vizinha.
+  const [ligacaoSelecionada, setLigacaoSelecionada] = useState<number | null>(null);
 
   // O TAMANHO MEDIDO DE CADA BLOCO, e ele PRECISA voltar para cá. Sem isto o
   // quadro perde TODAS AS SETAS no primeiro arraste — medido no navegador, e
@@ -536,6 +553,16 @@ export default function Quadro({
         // divergirem — o que a biblioteca considera selecionado e o que está com
         // a borda acesa são sempre o mesmo bloco.
         selected: identidades[i] === selecionado,
+        // O DELETE NÃO APAGA BLOCO, e a linha é o que segura isso: o quadro
+        // passou a ter tecla de apagar por causa das SETAS, e a tecla do React
+        // Flow apaga tudo o que estiver selecionado.
+        //
+        // A diferença entre os dois é o que se perde: uma seta apagada por
+        // engano se redesenha arrastando a alça de novo; um bloco apagado leva
+        // junto o texto, os botões e o endereço que alguém digitou, e não há
+        // desfazer neste quadro. Apagar bloco continua sendo o botão do próprio
+        // cartão — um clique deliberado, naquele bloco.
+        deletable: false,
         data: {
           passo: p,
           identidade: identidades[i],
@@ -566,8 +593,11 @@ export default function Quadro({
   // diferem), e um id montado a partir de origem e destino repetiria — que é
   // exatamente o que o React Flow não tolera. O índice é único por construção.
   //
-  // `data.ligacao` CARREGA DE QUAL LIGAÇÃO A ARESTA É. É por ele que o resto do
-  // editor mexe nela sem ter de reencontrá-la comparando campos.
+  // `data.ligacao` CARREGA DE QUAL LIGAÇÃO A ARESTA É, e quem o lê é
+  // `ligacaoDaSeta` (logo abaixo): as mudanças que o React Flow devolve trazem
+  // só o ID da aresta, e é por este campo que selecionar e apagar chegam ao
+  // índice em `ligacoes` sem comparar `de`, `quando` e `para` de novo. Ele
+  // esteve escrito e sem leitor nenhum até o gesto de apagar existir.
   //
   // A LIGAÇÃO PARA UM BLOCO QUE NÃO ESTÁ NA LISTA NÃO VIRA ARESTA, e o descarte
   // é só de DESENHO — ela continua no estado e é gravada de volta. O React Flow
@@ -593,9 +623,23 @@ export default function Quadro({
         type: "smoothstep",
         animated: false,
         data: { ligacao: i },
+        // A SELEÇÃO PRECISA VOLTAR PELA PROP, pelo mesmo motivo dos nós: as
+        // arestas são CONTROLADAS, então o `selected` que o React Flow desenha
+        // vem daqui e não de um rascunho interno. Sem esta linha, clicar numa
+        // seta acenderia por um render e apagaria no seguinte.
+        selected: ligacaoSelecionada === i,
         // `setaSobEle` guarda o índice da ligação, que é o mesmo número que
         // `partirLigacao` recebe: destaque e resultado leem a mesma coisa.
-        style: setaSobEle === i ? { stroke: "rgb(99 102 241)", strokeWidth: 3 } : undefined,
+        //
+        // A SELEÇÃO USA O MESMO DESTAQUE, e não uma cor própria: os dois estados
+        // não coexistem (um é durante o arraste de um bloco, o outro é depois de
+        // um clique), e o cinza que o `.selected` do React Flow pinta por padrão
+        // é quase o mesmo cinza da seta comum — seleção invisível faria o Delete
+        // parecer sorteio.
+        style:
+          setaSobEle === i || ligacaoSelecionada === i
+            ? { stroke: "rgb(99 102 241)", strokeWidth: 3 }
+            : undefined,
       });
     }
 
@@ -610,6 +654,11 @@ export default function Quadro({
     // tela desenha: a geometria só conhece as ligações, então o bloco solto ali
     // nasce solto, como em qualquer ponto vazio. Trocar a entrada é reordenar o
     // array, e nenhum gesto do quadro faz isso hoje.
+    //
+    // NEM SELECIONÁVEL NEM APAGÁVEL, e as duas linhas entraram junto com o
+    // Delete: ela não é uma ligação gravada, então não há índice em `ligacoes`
+    // para o apagamento alcançar. Selecionável, ela aceitaria o clique e o
+    // Delete não faria nada — a tela oferecendo um gesto que não existe.
     return [
       {
         id: `${ID_DO_GATILHO}->${identidades[0]}`,
@@ -617,10 +666,74 @@ export default function Quadro({
         target: identidades[0],
         type: "smoothstep",
         animated: false,
+        selectable: false,
+        deletable: false,
       },
       ...desenhadas,
     ];
-  }, [identidades, passos, ligacoes, setaSobEle]);
+  }, [identidades, passos, ligacoes, setaSobEle, ligacaoSelecionada]);
+
+  // DE QUAL LIGAÇÃO É A ARESTA QUE O REACT FLOW ACABOU DE CITAR. As mudanças
+  // (`EdgeChange`) trazem só o `id` da aresta, e o que o estado guarda é o
+  // ÍNDICE em `ligacoes` — este é o tradutor entre os dois, e ele lê
+  // `data.ligacao`, que é justamente o campo que a aresta carrega para isso.
+  //
+  // `null` para a seta do gatilho (ela não tem `data`) e para qualquer aresta
+  // que não esteja mais na lista, o que acontece de verdade: o React Flow avisa
+  // da remoção depois de a lista já ter mudado.
+  const ligacaoDaSeta = useCallback(
+    (id: string): number | null => {
+      const i = setas.find((s) => s.id === id)?.data?.ligacao;
+      return typeof i === "number" ? i : null;
+    },
+    [setas]
+  );
+
+  // APAGAR UMA SETA É O GESTO QUE FALTAVA, e sem ele um gesto normal deixava a
+  // sessão inteira sem como gravar.
+  //
+  // O QUE ACONTECIA: redesenhar uma alça TROCA o destino (`ligar`, lib/steps.ts)
+  // e nunca tira a seta. Então um bloco que deve TERMINAR o fluxo não tinha como
+  // perder a saída dele, e a seta desenhada por engano que fecha um anel de
+  // `sempre` — erro de SALVAR — não tinha como sair. As duas únicas saídas eram
+  // apagar o bloco, que perde o conteúdo, e recarregar a página, que perde tudo
+  // desde o último salvamento.
+  //
+  // A REGRA, e ela vale para o quadro inteiro: nenhum gesto pode levar a um
+  // estado sem volta.
+  //
+  // A SELEÇÃO CHEGA POR AQUI, e não por `onEdgeClick`, pelo mesmo motivo pelo
+  // qual a dos nós chega por `onNodesChange`: a caixa de seleção também
+  // seleciona setas, e escrever o estado nos dois lugares faria a metade que
+  // ninguém testa divergir.
+  //
+  // O APAGAMENTO É UMA LISTA E UMA CHAMADA SÓ (`apagarLigacoes`, lib/steps.ts),
+  // porque uma leva pode trazer várias remoções e a identidade da seta é o
+  // ÍNDICE: apagar de uma em uma faria a segunda remoção cair na vizinha.
+  const aoMudarSetas = useCallback(
+    (mudancas: EdgeChange[]) => {
+      const apagadas: number[] = [];
+      for (const m of mudancas) {
+        if (m.type === "select") {
+          const i = ligacaoDaSeta(m.id);
+          if (i === null) continue;
+          // Mesma regra da seleção dos nós: desselecionar só zera quando é a
+          // seta que estava escolhida, porque numa troca chegam duas mudanças na
+          // mesma leva e a ordem entre elas não é garantida.
+          setLigacaoSelecionada((atual) => (m.selected ? i : atual === i ? null : atual));
+        } else if (m.type === "remove") {
+          const i = ligacaoDaSeta(m.id);
+          if (i !== null) apagadas.push(i);
+        }
+      }
+      if (apagadas.length) {
+        setLigacoes((atual) => apagarLigacoes(atual, apagadas));
+        // Os índices que sobram são outros depois disto. Ver `ligacaoSelecionada`.
+        setLigacaoSelecionada(null);
+      }
+    },
+    [ligacaoDaSeta]
+  );
 
   // TODA mudança de posição volta para o estado, inclusive as intermediárias do
   // arraste. NÃO FILTRE POR `m.dragging` AQUI — e a frase é imperativa porque o
@@ -736,14 +849,35 @@ export default function Quadro({
   //
   // A SETA NOVA SUBSTITUI A QUE JÁ SAÍA DAQUELA ALÇA (`ligar`, lib/steps.ts), e
   // o porquê está lá: duas setas da mesma condição para destinos diferentes é
-  // ERRO DE SALVAR, e um gesto normal não pode produzir um estado que o salvar
-  // recusa.
+  // ERRO DE SALVAR, e essa é a forma que a substituição impede de nascer.
   //
-  // LIGAR UM BLOCO A ELE MESMO É PERMITIDO, e não é descuido: o menu que volta
-  // para si mesmo ("quero outro") é o desenho que a Tarefa 3b teve de proteger no
-  // motor, e ele é feito exatamente assim. O anel que o motor percorre sozinho —
-  // o de `sempre` — continua sendo recusado, por `conferirLista`, na porta do
-  // salvar.
+  // O QUE A SUBSTITUIÇÃO NÃO PROMETE, e a frase que estava aqui prometia: que
+  // NENHUM gesto produza um estado que o salvar recusa. Ela é falsa, e cada
+  // metade tem hoje uma resposta própria.
+  //
+  //   O ANEL DE `sempre` CONTINUA PRODUZÍVEL — ligar de volta num bloco
+  //     anterior "para recomeçar" fecha um, e soltar um bloco em cima de uma
+  //     seta (`partirCom`, acima) também pode fechar. Ele é erro de SALVAR, e o
+  //     recado da barra explica o que fazer com ele ("faça a volta passar por
+  //     uma mensagem com botão"). O que faltava não era impedir: era ter como
+  //     DESFAZER, e agora tem — a seta se seleciona e some com Delete
+  //     (`aoMudarSetas`, acima). Impedir no gesto tiraria a explicação e daria
+  //     em troca uma alça que não responde.
+  //   A AUTO-LIGAÇÃO DE `sempre` É RECUSADA NO GESTO (`setaPermitida`, abaixo),
+  //     e essa é a exceção medida. Ela também é anel, mas o desfazer não
+  //     alcança: numa aresta com origem e destino no MESMO nó o traçado passa
+  //     POR BAIXO do bloco. Medido com `getSmoothStepPath` (@xyflow/system, o
+  //     mesmo que desenha o quadro) para um bloco em (60,60) com 190 de largura:
+  //     `M250 105 L270 105 L40 105 L60 105`, com o bloco cobrindo x de 60 a 250
+  //     — sobram dois tocos de 20px, e o resto da seta fica atrás do cartão, que
+  //     é opaco e come o clique. Aceitar essa é oferecer o desfazer no pior alvo
+  //     do quadro.
+  //
+  // LIGAR UM BLOCO A ELE MESMO PELO BOTÃO CONTINUA PERMITIDO, e não é descuido:
+  // o menu que volta para si mesmo ("quero outro") é o desenho que a Tarefa 3b
+  // teve de proteger no motor, e ele é feito exatamente assim. Ele não fecha
+  // anel nenhum — o motor para na mensagem e espera o toque —, então não trava
+  // porta nenhuma, e redesenhar a alça troca o destino.
   //
   // O GATILHO FICA DE FORA DAS DUAS PONTAS, e a guarda não é hipotética: `ligar`
   // gravaria `de: "gatilho"` como se fosse um bloco, e nenhuma das duas metades
@@ -756,6 +890,24 @@ export default function Quadro({
     if (!quando || !c.source || !c.target) return;
     if (c.source === ID_DO_GATILHO || c.target === ID_DO_GATILHO) return;
     setLigacoes((atual) => ligar(atual, c.source, quando, c.target));
+  }, []);
+
+  // A ÚNICA SETA QUE O GESTO RECUSA: a de `sempre` de um bloco para ELE MESMO.
+  // O porquê — e a medida do traçado que passa por baixo do bloco — está no
+  // comentário de `ligarBlocos`, logo acima.
+  //
+  // MORA EM `isValidConnection` E NÃO DENTRO DE `ligarBlocos`, e é uma escolha
+  // por não ter duas cópias da regra: com ela aqui, o React Flow nem chega a
+  // chamar `onConnect`, e a alça de destino perde a classe `valid` enquanto o
+  // arrasto passa por cima dela. Repetir a mesma condição lá embaixo seria a
+  // segunda cópia — a que discorda no dia em que uma das duas mudar.
+  //
+  // O PREÇO ESTÁ DITO: a recusa é calada, a seta simplesmente não aparece. É o
+  // mesmo silêncio de qualquer conexão recusada pelo React Flow, e a alternativa
+  // — aceitar — é a que deixa o dono sem como gravar.
+  const setaPermitida = useCallback((c: Connection | Edge): boolean => {
+    if (c.source !== c.target) return true;
+    return quandoDaChave(c.sourceHandle)?.tipo !== "sempre";
   }, []);
 
   // Fechar o painel é DESSELECIONAR, e não um estado próprio de "aberto".
@@ -1240,8 +1392,23 @@ export default function Quadro({
               // sobrasse de fora (a caixa) seria a que ninguém testa.
               nodesConnectable
               onConnect={ligarBlocos}
+              isValidConnection={setaPermitida}
+              onEdgesChange={aoMudarSetas}
               edgesFocusable={false}
-              deleteKeyCode={null}
+              // A TECLA QUE APAGA A SETA SELECIONADA. Era `null`, e com ela
+              // `null` não havia gesto nenhum para tirar uma seta do quadro —
+              // redesenhar a alça só troca o destino. O que isso custava está no
+              // comentário de `aoMudarSetas`.
+              //
+              // ELA SÓ ALCANÇA SETAS: todo nó vai com `deletable: false` (ver
+              // `nos`, acima), então a tecla não apaga bloco nenhum. É por isso
+              // que `Backspace` pode ficar na lista.
+              //
+              // DIGITAR NO PAINEL CONTINUA INTOCADO: o `useKeyPress` do React
+              // Flow ignora o evento quando ele nasce dentro de um campo
+              // (`isInputDOMNode`), então o Backspace que apaga uma letra no
+              // texto da mensagem não chega aqui.
+              deleteKeyCode={["Delete", "Backspace"]}
               fitView
               // PADDING SIMÉTRICO, e é a paleta ter saído de cima do quadro que
               // permite isso. O `left: "200px"` que estava aqui compensava a faixa

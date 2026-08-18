@@ -689,6 +689,28 @@ export function desligarBloco(ligacoes: Ligacao[], bloco: string): Ligacao[] {
   return ligacoes.filter((l) => l.de !== bloco && l.para !== bloco);
 }
 
+// APAGAR SETAS PELO ÍNDICE — o gesto que faltava no quadro, e a única saída de
+// um estado que o salvar recusa.
+//
+// Redesenhar uma alça TROCA o destino (`ligar`, acima) e nunca tira a seta.
+// Enquanto apagar não existiu, um bloco que devia TERMINAR o fluxo não tinha
+// como perder a saída dele, e uma seta desenhada por engano — a que fecha um
+// anel de `sempre` é o caso caro — só saía apagando o bloco (perde o conteúdo)
+// ou recarregando a página (perde tudo desde o último salvamento).
+//
+// UMA LISTA DE ÍNDICES E NÃO UM SÓ, e não é generalidade de graça: a seleção do
+// quadro é múltipla (a caixa de seleção pega várias setas de uma vez), e apagar
+// uma por vez faria o segundo índice apontar para a seta errada assim que o
+// primeiro saísse. Aqui todos são resolvidos contra a MESMA lista.
+//
+// Índice fora da lista é ignorado, pelo mesmo motivo de `partirLigacao`: quem
+// chama é um gesto, e uma seta que sumiu entre o apontar e o soltar não é
+// motivo para estourar.
+export function apagarLigacoes(ligacoes: Ligacao[], indices: number[]): Ligacao[] {
+  const fora = new Set(indices);
+  return ligacoes.filter((_, i) => !fora.has(i));
+}
+
 // PARTIR UMA LIGAÇÃO EM DUAS, com um bloco no meio. É o que soltar um bloco em
 // cima de uma seta passou a significar.
 //

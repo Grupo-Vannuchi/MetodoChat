@@ -40,6 +40,7 @@ import {
   ligacoesValidas,
   ligar,
   desligarBloco,
+  apagarLigacoes,
   partirLigacao,
   type Ligacao,
 } from "../lib/steps";
@@ -4061,6 +4062,52 @@ describe("desligarBloco — apagar um bloco apaga as setas das duas pontas", () 
 
   it("bloco sem seta nenhuma não muda a lista", () => {
     expect(desligarBloco(ligacoes, "b_zzzzzzz9")).toEqual(ligacoes);
+  });
+});
+
+describe("apagarLigacoes — a saída de um estado que o salvar recusa", () => {
+  const a = "b_aaaaaaa1";
+  const b = "b_bbbbbbb2";
+  const c = "b_ccccccc3";
+  const ligacoes: Ligacao[] = [
+    { de: a, quando: { tipo: "sempre" }, para: b },
+    { de: b, quando: { tipo: "sempre" }, para: c },
+    { de: c, quando: { tipo: "sempre" }, para: a },
+  ];
+
+  it("apaga a seta pedida e mantém as outras na ordem", () => {
+    expect(apagarLigacoes(ligacoes, [2])).toEqual([ligacoes[0], ligacoes[1]]);
+  });
+
+  // Os índices são resolvidos todos contra a MESMA lista: apagar um por vez
+  // faria o segundo apontar para a seta que tomou o lugar da primeira.
+  it("apaga várias de uma vez sem escorregar de índice", () => {
+    expect(apagarLigacoes(ligacoes, [0, 2])).toEqual([ligacoes[1]]);
+  });
+
+  it("índice que não existe não tira nada", () => {
+    expect(apagarLigacoes(ligacoes, [7])).toEqual(ligacoes);
+    expect(apagarLigacoes(ligacoes, [])).toEqual(ligacoes);
+  });
+
+  // A prova de que este gesto é MESMO a saída: o anel de `sempre` é erro de
+  // SALVAR, e apagar a seta que o fecha destrava o salvamento.
+  it("apagar a seta que fecha o anel destrava o salvar", () => {
+    const passos = [
+      { tipo: "dm", texto: "a", id: a },
+      { tipo: "dm", texto: "b", id: b },
+      { tipo: "dm", texto: "c", id: c },
+    ];
+    const travado = conferirLista(passos, "dm", ligacoes).filter(
+      (p) => p.nivel === "erro" && p.quando === "salvar"
+    );
+    expect(travado).toHaveLength(1);
+    expect(travado[0].mensagem).toContain("volta no fluxo");
+
+    const solto = conferirLista(passos, "dm", apagarLigacoes(ligacoes, [2])).filter(
+      (p) => p.nivel === "erro" && p.quando === "salvar"
+    );
+    expect(solto).toEqual([]);
   });
 });
 
