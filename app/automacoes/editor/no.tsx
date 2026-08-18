@@ -1,14 +1,23 @@
 "use client";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { useEffect } from "react";
+import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import type { Passo } from "@/lib/steps";
-import { resumoDoBloco } from "./modelos";
+import { alcasDeSaida, resumoDoBloco } from "./modelos";
+import { fracaoDaAlca } from "./geometria";
 
 // Um bloco no quadro.
 //
-// UMA alça de saída, e isso é a decisão central desta fase, não uma limitação
-// que ficou faltando: o motor não sabe ramificar. Quem vê duas alças desenha
-// duas setas, e a segunda não roda — a tela teria ensinado a fazer errado.
-// Quando a ramificação chegar, a segunda alça aparece AQUI e nada mais muda.
+// UMA ALÇA DE SAÍDA POR CAMINHO, e não mais uma só. Aqui esteve escrito que a
+// alça única era "a decisão central desta fase", porque o motor não sabia
+// ramificar e duas alças ensinariam a fazer errado. As cinco tarefas de motor
+// desta fase acabaram com essa limitação: `ligacaoEscolhida` (lib/steps.ts) casa
+// o toque com a ligação daquele botão, e uma `dm` carrega vários botões.
+//
+// QUEM DIZ QUANTAS ALÇAS é `alcasDeSaida` (./modelos), e o rótulo de cada uma
+// fica à vista ao lado dela: sem o rótulo, um menu de três botões viraria três
+// pontinhos idênticos, e ligar o botão errado seria um erro que a tela não
+// deixaria ver.
+//
 // A IDENTIDADE vem no `data` e o botão de apagar a devolve, em vez de `passo.id`.
 //
 // `passo.id` é OPCIONAL (lib/steps.ts), e numa lista anterior à Fase 1b ele é
@@ -48,11 +57,31 @@ export type DadosDoNo = {
 // oferecia um gesto que não faz nada, que é a definição de ensinar a fazer
 // errado.
 //
-// Repassadas as três, o desligamento vale de ponta a ponta, e o dia em que a
-// ramificação chegar continua sendo "mexe só aqui": basta o quadro ligar
-// `nodesConnectable` e as alças acompanham sozinhas.
-export default function No({ data, isConnectable }: NodeProps & { data: DadosDoNo }) {
+// O QUADRO LIGOU `nodesConnectable` NA TAREFA 6, e o repasse continua sendo o
+// que faz o gesto alcançar a alça — agora no sentido de PERMITIR. As três props
+// não são simetria de estilo: sem `isConnectableStart` o `onPointerDown` da alça
+// cairia no padrão, e o que muda de dono é só quem está ligado ou desligado.
+export default function No({ id, data, isConnectable }: NodeProps & { data: DadosDoNo }) {
   const { titulo, corpo } = resumoDoBloco(data.passo);
+
+  // AS ALÇAS DE SAÍDA DESTE BLOCO. `alcasDeSaida` decide quantas e quais; aqui
+  // só se desenha.
+  const alcas = alcasDeSaida(data.passo);
+
+  // O REACT FLOW MEDE AS ALÇAS UMA VEZ, no DOM, e guarda o resultado. Trocar o
+  // conjunto de alças sem avisá-lo deixa as setas presas às posições antigas —
+  // ou sem posição nenhuma, para a alça que acabou de nascer. `useUpdateNodeInternals`
+  // é o aviso, e ele existe para exatamente isto.
+  //
+  // A DEPENDÊNCIA É A LISTA DE CHAVES EM TEXTO, e não o array: `alcas` é recriado
+  // a cada render, então um array na lista de dependências dispararia o efeito
+  // sempre. As chaves são o que de fato muda quando um botão é acrescentado,
+  // apagado ou reordenado no painel (Tarefa 7).
+  const chavesDasAlcas = alcas.map((a) => a.chave).join("|");
+  const atualizarInternos = useUpdateNodeInternals();
+  useEffect(() => {
+    atualizarInternos(id);
+  }, [id, chavesDasAlcas, atualizarInternos]);
 
   // ÂMBAR É SÓ DO `pedir_follow`, e a diferença não é estética.
   //
@@ -92,8 +121,14 @@ export default function No({ data, isConnectable }: NodeProps & { data: DadosDoN
           : "border-zinc-300 dark:border-zinc-700";
 
   return (
+    // A ALTURA MÍNIMA CRESCE COM O NÚMERO DE ALÇAS, e ela não é enfeite: as alças
+    // são distribuídas ao longo da altura do bloco (`fracaoDaAlca`), então num
+    // bloco baixo com cinco botões elas nasceriam empilhadas com dois pixels
+    // entre uma e outra — impossíveis de mirar, e com os rótulos por cima uns
+    // dos outros. 22 pixels por alça é o que separa duas linhas do rótulo.
     <div
       className={`group relative w-[190px] rounded-lg border-2 bg-white px-3 py-2 shadow-sm dark:bg-zinc-900 ${borda}`}
+      style={alcas.length > 1 ? { minHeight: alcas.length * 22 + 16 } : undefined}
     >
       <Handle
         type="target"
@@ -126,14 +161,45 @@ export default function No({ data, isConnectable }: NodeProps & { data: DadosDoN
         {titulo}
       </div>
       <div className="mt-1 line-clamp-2 text-xs text-zinc-700 dark:text-zinc-200">{corpo}</div>
-      <Handle
-        type="source"
-        position={Position.Right}
-        isConnectable={isConnectable}
-        isConnectableStart={isConnectable}
-        isConnectableEnd={isConnectable}
-        className="!h-2 !w-2 !bg-zinc-400"
-      />
+      {/* AS ALÇAS DE SAÍDA, uma por caminho.
+
+          A ALTURA DE CADA UMA SAI DE `fracaoDaAlca` (./geometria), e é a MESMA
+          conta que a mira do gesto de soltar usa para saber onde a seta começa.
+          Escrever a fração aqui à mão faria a seta sair de um ponto e o alvo do
+          arrasto ser medido em outro.
+
+          O RÓTULO FICA FORA DA CAIXA, à direita da alça, e não dentro do bloco:
+          dentro, ele brigaria com o texto da mensagem, que é o que o dono lê
+          para reconhecer o bloco. `pointer-events-none` para ele não roubar o
+          começo do arrasto da alça que nomeia, e `truncate` porque rótulo de
+          botão é texto livre — sem ele, um rótulo comprido atravessa o quadro.
+
+          Bloco de uma alça só não leva rótulo: não há o que distinguir. */}
+      {alcas.map((a, k) => {
+        const altura = `${fracaoDaAlca(k, alcas.length) * 100}%`;
+        return (
+          <div key={a.chave}>
+            <Handle
+              id={a.chave}
+              type="source"
+              position={Position.Right}
+              isConnectable={isConnectable}
+              isConnectableStart={isConnectable}
+              isConnectableEnd={isConnectable}
+              style={{ top: altura }}
+              className="!h-2 !w-2 !bg-zinc-400"
+            />
+            {alcas.length > 1 && (
+              <span
+                style={{ top: altura }}
+                className="pointer-events-none absolute left-full ml-2 max-w-[110px] -translate-y-1/2 truncate text-[9px] leading-none text-zinc-500 dark:text-zinc-400"
+              >
+                {a.rotulo}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

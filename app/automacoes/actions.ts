@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { sql, ensureSchema } from "@/lib/db";
 import { getSelectedAccountId } from "@/lib/account";
-import { conferirLista } from "@/lib/steps";
+import { conferirLista, ligacoesValidas } from "@/lib/steps";
 
 function splitList(raw: string, sep: RegExp): string[] {
   return raw
@@ -95,18 +95,25 @@ const NAO_ENCONTRADA = "Automação não encontrada.";
 // resultado É desta escrita, e recusá-los é o mesmo critério que o botão Salvar
 // do quadro já aplica.
 //
-// A configuração e a lista chegam como `unknown` de propósito: as duas vêm do
-// estado de um componente de cliente, e assinatura tipada daria a impressão de
-// uma garantia que o POST direto no Server Action não tem.
+// A configuração, a lista e as setas chegam como `unknown` de propósito: as três
+// vêm do estado de um componente de cliente, e assinatura tipada daria a
+// impressão de uma garantia que o POST direto no Server Action não tem.
 //
 // O QUE ESTA FUNÇÃO NÃO ESCREVE são as vinte e oito colunas do formulário antigo
 // (`welcome_text`, `link_url`, `require_follow`, …): elas viraram blocos, o
 // motor não as lê mais, e regravá-las aqui seria manter viva uma segunda
 // descrição do mesmo fluxo — a que já divergiu uma vez.
+//
+// O QUE ELA PASSOU A ESCREVER, na Tarefa 6, é `ligacoes`. O quadro é quem desenha
+// as setas, e até aqui elas só chegavam ao banco pela migração
+// (`scripts/ligar-passos-existentes.mjs`). O `select ligacoes` que esta função
+// fazia — para conferir o par final contra as setas gravadas — saiu no mesmo
+// commit, e o porquê está no lugar em que ele estava.
 // ---------------------------------------------------------------------------
 export async function salvarAutomacao(
   automationId: string,
   passos: unknown,
+  ligacoesRecebidas: unknown,
   configuracao: unknown
 ): Promise<Resultado> {
   await ensureSchema();
@@ -137,40 +144,31 @@ export async function salvarAutomacao(
   const post = gatilho === "comment" ? midiaEscolhida(c.post) : null;
   const story = gatilho === "story" ? midiaEscolhida(c.story) : null;
 
-  // AS SETAS DO PAR FINAL VÊM DO BANCO, e isso NÃO contradiz "nada do que está
-  // no banco entra aqui" — é a mesma regra aplicada com honestidade.
+  // AS SETAS CHEGAM POR ARGUMENTO, e é a Tarefa 6 que as põe aqui.
   //
-  // A regra do par final é: confira o que vai VALER DEPOIS desta escrita. Esta
-  // função escreve `steps` e as colunas do gatilho, e NÃO escreve `ligacoes` —
-  // então, depois deste salvamento, as setas que valem são exatamente as que já
-  // estão gravadas. Elas são a metade final do par, não a metade velha.
+  // ELAS VINHAM DO BANCO, por um `select ligacoes` que existia neste lugar com a
+  // data de saída escrita: enquanto o quadro não tinha as ligações no estado, não
+  // havia metade NOVA de setas, e a metade final do par era mesmo a que já estava
+  // gravada. Agora há — o quadro desenha, liga e parte setas —, então a lista que
+  // chegou é a metade final, e a do banco é a metade velha. Conferir contra ela
+  // seria exatamente o erro que a fusão de `salvarPassos` com `salvarConfiguracao`
+  // desfez, com outro nome.
   //
-  // O IMPASSE QUE OBRIGOU A CONFERIR O PAR FINAL NÃO SE REPETE AQUI, e vale
-  // dizer por quê: ele existia porque duas escritas independentes conferiam cada
-  // uma a sua metade nova contra a metade velha da OUTRA. Aqui não há metade
-  // nova de setas — nenhuma está sendo escrita.
+  // O `select` SAIU JUNTO. Ele era uma ida ao banco a mais por salvamento, e
+  // seria pior do que inútil: leria o valor que este mesmo salvamento vai
+  // sobrescrever.
   //
-  // QUEM MANDAR AS SETAS TROCA ESTA LEITURA. A Tarefa 6 põe as ligações no
-  // estado do quadro; a partir dela, elas chegam por argumento e são gravadas
-  // junto, e é a lista que chegou — não a do banco — que passa a ser a metade
-  // final. Este `select` sai no mesmo commit em que isso acontecer.
-  //
-  // ZERO LINHAS AQUI NÃO DECIDE NADA: automação inexistente (ou de outra conta)
-  // cai em `[]`, a conferência a trata como lista sem seta nenhuma, e quem
-  // devolve `NAO_ENCONTRADA` continua sendo o `update` da transação, pelo
-  // `returning id` que já existia. Duas respostas para a mesma pergunta, em dois
-  // lugares, é como elas passam a divergir.
-  //
-  // o account_id no where impede ler automação de outra conta
-  const gravado = (await sql().query(
-    `select ligacoes from automations where id = $1 and account_id = $2`,
-    [automationId, accountId]
-  )) as { ligacoes: unknown }[];
-  const ligacoes = gravado[0]?.ligacoes ?? [];
+  // `ligacoesValidas` (lib/steps.ts) é a peneira, e ela é a mesma que o quadro
+  // usa ao abrir. Nada do que vem do navegador é confiável: sem ela, uma seta
+  // sem destino (ou com uma condição que não existe) entraria em `ligacoes` pelo
+  // POST direto, e `ligacoesDe` a descartaria em silêncio na hora de caminhar —
+  // um desenho gravado que o motor não percorre, sem nada acusando. Peneirada
+  // aqui, o que é gravado é exatamente o que a conferência julgou.
+  const ligacoes = ligacoesValidas(ligacoesRecebidas);
 
-  // A CONFERÊNCIA DO PAR FINAL, UMA VEZ SÓ: os blocos que vão ser gravados
-  // contra o gatilho que vai ser gravado, e contra as setas que continuam
-  // valendo.
+  // A CONFERÊNCIA DO PAR FINAL, UMA VEZ SÓ: os blocos, as setas e o gatilho que
+  // vão ser gravados, conferidos uns contra os outros. As três metades são as
+  // três que esta função escreve, então não sobra nada de velho a que comparar.
   //
   // SÓ OS ERROS DE SALVAR, e essa é a decisão de produto da Tarefa 5. O outro
   // nível — botão sem destino, bloco ainda solto no quadro, portão sem saída —
@@ -186,23 +184,33 @@ export async function salvarAutomacao(
 
   try {
     await sql().begin(async (tx) => {
-      // ESCOPO 1 — SÓ `steps`. O `returning id` faz o serviço da consulta de
-      // existência que havia antes: zero linhas significa automação que não
-      // existe OU que é de outra conta, e as duas dão a mesma resposta de
-      // propósito — distingui-las contaria a quem tentou que aquele id existe.
+      // ESCOPO 1 — SÓ O DESENHO: `steps` e `ligacoes`. Os dois JUNTOS, e não em
+      // dois `update`, porque eles são um par: uma seta aponta para um bloco, e
+      // gravar uma metade sem a outra é o estado que a conferência recusaria.
+      //
+      // O `returning id` faz o serviço da consulta de existência que havia
+      // antes: zero linhas significa automação que não existe OU que é de outra
+      // conta, e as duas dão a mesma resposta de propósito — distingui-las
+      // contaria a quem tentou que aquele id existe.
+      //
+      // `ligacoes` vai como ARRAY CRU, igual a `passos`, e não como texto de
+      // JSON. MEDIDO contra este banco, com o driver deste projeto: um
+      // `select $1::jsonb` com um array de objetos devolve o jsonb certo, e com
+      // `[]` devolve `[]`. Serializar à mão aqui seria uma segunda forma de
+      // mandar a mesma coisa para duas colunas do mesmo tipo.
       //
       // o account_id no where impede gravar em automação de outra conta
       const linhas = (await tx.query(
-        `update automations set steps = $1, updated_at = now()
-         where id = $2 and account_id = $3
+        `update automations set steps = $1, ligacoes = $2, updated_at = now()
+         where id = $3 and account_id = $4
          returning id`,
-        [passos, automationId, accountId]
+        [passos, ligacoes, automationId, accountId]
       )) as { id: string }[];
       // Lançar aqui é o que DESFAZ a transação. Devolver não desfaria: o `update`
       // seguinte é que ficaria de fora, e o primeiro valeria sozinho.
       if (!linhas[0]) throw new Error(NAO_ENCONTRADA);
 
-      // ESCOPO 2 — SÓ as colunas da automação, NUNCA `steps`.
+      // ESCOPO 2 — SÓ as colunas da automação, NUNCA `steps` nem `ligacoes`.
       //
       // o account_id no where impede gravar em automação de outra conta
       await tx.query(

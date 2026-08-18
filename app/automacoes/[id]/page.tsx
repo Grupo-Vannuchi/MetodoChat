@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { sql, ensureSchema, Automation } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
-import type { Passo } from "@/lib/steps";
+import { ligacoesValidas, type Passo } from "@/lib/steps";
 import Quadro from "../editor/quadro";
 import type { Configuracao } from "../editor/painel";
 
@@ -42,6 +42,12 @@ export const dynamic = "force-dynamic";
 // quadro faz `p.pos ?? { x: 0, y: 0 }` e entrega isso ao React Flow, e um `pos`
 // que não seja um par de números vira posição inválida no nó. Descartada,
 // `arranjoAutomatico` (editor/modelos.ts) dá uma posição nova ao bloco.
+//
+// AS SETAS NÃO GANHAM FUNÇÃO PRÓPRIA AQUI: quem as peneira é `ligacoesValidas`
+// (lib/steps.ts), a mesma função que `salvarAutomacao` (../actions.ts) usa na
+// volta. A regra de descarte delas é a OPOSTA da desta função, e o porquê está
+// escrito lá: um bloco quebrado tem nó, painel e conserto, então é mantido; uma
+// ligação quebrada não tem nenhum dos três, e `ligacoesDe` já a ignora.
 function passosDoBanco(steps: unknown): Passo[] {
   if (!Array.isArray(steps)) return [];
   const lista: Passo[] = [];
@@ -130,6 +136,7 @@ export default async function EditarAutomacaoPage({
     <Quadro
       automationId={a.id}
       passosIniciais={passosDoBanco(a.steps)}
+      ligacoesIniciais={ligacoesValidas(a.ligacoes)}
       configuracaoInicial={configuracaoInicial}
       conta={contaDaPrevia}
     />

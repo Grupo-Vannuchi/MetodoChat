@@ -590,6 +590,131 @@ export function ligacaoEscolhida(
   return l ? l.para : null;
 }
 
+// ---------------------------------------------------------------------------
+// AS TRÊS EDIÇÕES DE SETA QUE O QUADRO FAZ. Elas moram aqui, e não no editor,
+// pelo mesmo motivo de `conferirLista`: são DECISÕES sobre o grafo, e decisão
+// escrita dentro de um componente é decisão sem teste.
+//
+// AS TRÊS RECEBEM `Ligacao[]` JÁ VÁLIDO, e não `unknown` como `ligacoesDe` e
+// `haCaminho`. A diferença é de porta: aquelas leem o que o BANCO tem, e o
+// banco não promete forma nenhuma; estas editam a lista que o quadro segura, e
+// quem a normaliza na entrada é `ligacoesValidas`, logo abaixo. Tolerar lixo
+// aqui dentro seria uma segunda validação, com outra régua, sobre o mesmo dado.
+// ---------------------------------------------------------------------------
+
+// A CHAVE DE UMA CONDIÇÃO — a mesma string nos dois lados do editor.
+//
+// Ela é o id da ALÇA no quadro (`no.tsx` desenha uma alça por condição, e o
+// React Flow devolve esse id ao criar a ligação) e é o critério de "duas setas
+// para a mesma condição" de `conferirLista`, que a escrevia à mão logo abaixo.
+// Uma cópia só, porque as duas perguntas são a mesma: quantas setas saem
+// DAQUELA saída do bloco.
+//
+// O PREFIXO EM `botao:` NÃO É ENFEITE: sem ele, um botão cujo id fosse
+// literalmente `sempre` ou `senao` teria a chave de outra condição, e a seta
+// dele grudaria na alça errada. `novoIdDeBotao` nunca produz esses dois, mas
+// `botoes` pode chegar de fora do painel.
+export function chaveDoQuando(q: Quando): string {
+  return q.tipo === "botao" ? `botao:${q.botao}` : q.tipo;
+}
+
+// A volta de `chaveDoQuando`: o id da alça de onde o gesto partiu vira a
+// condição da ligação nova. Null para qualquer coisa que não seja uma das três
+// formas — o `sourceHandle` do React Flow é `string | null | undefined`, e uma
+// alça sem id não decide caminho nenhum.
+export function quandoDaChave(chave: unknown): Quando | null {
+  if (chave === "sempre") return { tipo: "sempre" };
+  if (chave === "senao") return { tipo: "senao" };
+  if (typeof chave !== "string" || !chave.startsWith("botao:")) return null;
+  const botao = chave.slice("botao:".length);
+  return botao ? { tipo: "botao", botao } : null;
+}
+
+// O QUE O QUADRO SEGURA, a partir do que o banco tem.
+//
+// Descarta o que `conferirLigacao` recusa, e NADA MAIS. A diferença para
+// `passosDoBanco` (app/automacoes/[id]/page.tsx), que se recusa a descartar
+// bloco por conteúdo, é que ali existe um nó a desenhar e um dono a consertá-lo:
+// o bloco quebrado aparece na tela, `conferirLista` acende a frase, e o salvar
+// trava até alguém resolver. Uma ligação quebrada não tem nó, não tem painel e
+// não tem gesto que a conserte — `ligacoesDe` já a ignora, então o motor
+// caminha hoje exatamente como caminhará depois de ela sumir.
+//
+// A LIGAÇÃO QUE APONTA PARA UM BLOCO QUE NÃO EXISTE PASSA, e a permissão é
+// deliberada: ela é VÁLIDA na forma, `haCaminho` a percorre, e é `conferirLista`
+// quem fala sobre o que ela causa. Descartá-la aqui mudaria a resposta da
+// conferência no primeiro salvamento, calada.
+export function ligacoesValidas(ligacoes: unknown): Ligacao[] {
+  if (!Array.isArray(ligacoes)) return [];
+  const boas: Ligacao[] = [];
+  for (const bruta of ligacoes) {
+    const { ligacao } = conferirLigacao(bruta);
+    if (ligacao) boas.push(ligacao);
+  }
+  return boas;
+}
+
+// LIGAR: a seta nova SUBSTITUI a que já saía daquela alça.
+//
+// Não é conveniência — é a única regra que não produz, com um gesto normal, um
+// estado que o próprio salvar recusa. `conferirLista` trata duas setas da mesma
+// condição para destinos diferentes como ERRO DE SALVAR ("só a primeira é
+// percorrida"), e uma alça é um ponto só na tela: arrastar dela de novo é dizer
+// "o caminho daqui passa a ser este", não "somei um segundo caminho".
+//
+// A seta trocada SOME DA TELA no mesmo render, então a substituição não é
+// silenciosa: o desenho é o retrato do dado.
+//
+// Ela vai para o FIM da lista, e a posição importa em um caso só — o desempate
+// de `ligacoesDe`, que fica com a primeira. Como não sobra nenhuma outra com
+// esta condição, não há desempate a fazer.
+export function ligar(ligacoes: Ligacao[], de: string, quando: Quando, para: string): Ligacao[] {
+  const chave = chaveDoQuando(quando);
+  const restantes = ligacoes.filter(
+    (l) => l.de !== de || chaveDoQuando(l.quando) !== chave
+  );
+  return [...restantes, { de, quando, para }];
+}
+
+// APAGAR UM BLOCO APAGA AS SETAS QUE ENTRAM E SAEM DELE.
+//
+// Sem isto, apagar um bloco deixaria ligações apontando para um id que não
+// existe mais: nada as desenha (não há nó), `conferirLista` continua as vendo, e
+// `interpretar` para no bloco inexistente. O dono ficaria com um fluxo que morre
+// num lugar que a tela não mostra.
+//
+// AS DUAS PONTAS, e não só as de saída: a seta que CHEGAVA nele é a que
+// deixaria o bloco anterior com um caminho para lugar nenhum.
+export function desligarBloco(ligacoes: Ligacao[], bloco: string): Ligacao[] {
+  return ligacoes.filter((l) => l.de !== bloco && l.para !== bloco);
+}
+
+// PARTIR UMA LIGAÇÃO EM DUAS, com um bloco no meio. É o que soltar um bloco em
+// cima de uma seta passou a significar.
+//
+// Era REORDENAR o array, e reordenar deixou de querer dizer alguma coisa quando
+// as setas viraram o fluxo. O gesto continua o mesmo na mão de quem usa; o que
+// muda é o dado que ele escreve.
+//
+// `A -q-> B` vira `A -q-> MEIO` e `MEIO -sempre-> B`. A condição original fica
+// na primeira metade — é ela que decide quem entra no desvio — e a segunda é
+// sempre uma continuação, porque um bloco recém-posto no meio não pergunta nada.
+//
+// AS DUAS METADES PASSAM POR `ligar`, e é daí que sai a única sutileza: se o
+// bloco do meio JÁ tinha uma seta de continuação, ela é substituída pela nova. O
+// contrário produziria duas `sempre` saindo do mesmo bloco, que é ERRO DE
+// SALVAR — ou seja, um gesto normal deixaria o dono sem conseguir gravar.
+//
+// Índice fora da lista devolve a lista como estava: quem chama é o gesto do
+// quadro, e uma seta que sumiu entre o apontar e o soltar não é motivo para
+// estourar.
+export function partirLigacao(ligacoes: Ligacao[], indice: number, meio: string): Ligacao[] {
+  const l = ligacoes[indice];
+  if (!l) return ligacoes;
+  const sem = ligacoes.filter((_, i) => i !== indice);
+  return ligar(ligar(sem, l.de, l.quando, meio), meio, { tipo: "sempre" }, l.para);
+}
+
 // Valida e normaliza um passo. Devolve o motivo quando não dá para usar.
 //
 // DOIS textos para a mesma falha, e não um, porque eles têm dois leitores.
@@ -3079,7 +3204,9 @@ export function conferirLista(
     const id = identidadeDoPasso(passos[i], i);
     const primeiroDestino = new Map<string, string>();
     for (const l of ligacoesDe(ligacoes, id)) {
-      const chave = l.quando.tipo === "botao" ? `botao:${l.quando.botao}` : l.quando.tipo;
+      // A MESMA CHAVE que o id da alça do quadro usa (`chaveDoQuando`, mais
+      // acima). Ela era escrita à mão aqui.
+      const chave = chaveDoQuando(l.quando);
       const ja = primeiroDestino.get(chave);
       if (ja === undefined) {
         primeiroDestino.set(chave, l.para);

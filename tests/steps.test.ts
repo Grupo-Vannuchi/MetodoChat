@@ -35,6 +35,13 @@ import {
   payloadDoPortao,
   botoesDaMensagem,
   LIMITE_DE_BOTOES,
+  chaveDoQuando,
+  quandoDaChave,
+  ligacoesValidas,
+  ligar,
+  desligarBloco,
+  partirLigacao,
+  type Ligacao,
 } from "../lib/steps";
 import type { EnvioDaDm } from "../lib/steps";
 
@@ -3930,5 +3937,179 @@ describe("conferirLista em dois níveis", () => {
     const r = conferirLista([bem, vazio], "dm", [sempre("b_bem001", "b_vaz080")]);
     expect(r.filter((p) => p.nivel === "erro")).toHaveLength(1);
     expect(r.filter((p) => p.nivel === "erro")[0].quando).toBe("salvar");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AS EDIÇÕES DE SETA QUE O QUADRO FAZ (Tarefa 6).
+//
+// Elas moram em lib/steps.ts, e não dentro do componente, porque são decisões
+// sobre o grafo — e é este arquivo que prova o que elas decidem.
+// ---------------------------------------------------------------------------
+describe("chaveDoQuando / quandoDaChave — o id da alça e a condição", () => {
+  it("as três condições viram três chaves distintas", () => {
+    expect(chaveDoQuando({ tipo: "sempre" })).toBe("sempre");
+    expect(chaveDoQuando({ tipo: "senao" })).toBe("senao");
+    expect(chaveDoQuando({ tipo: "botao", botao: "op_abc123" })).toBe("botao:op_abc123");
+  });
+
+  it("a volta devolve a mesma condição", () => {
+    for (const q of [
+      { tipo: "sempre" } as const,
+      { tipo: "senao" } as const,
+      { tipo: "botao", botao: "op_abc123" } as const,
+    ]) {
+      expect(quandoDaChave(chaveDoQuando(q))).toEqual(q);
+    }
+  });
+
+  // O PREFIXO É O QUE SEPARA UM BOTÃO CHAMADO "sempre" DA CONTINUAÇÃO. Sem ele,
+  // a seta daquele botão grudaria na alça de continuação — e o dado de `botoes`
+  // pode vir de fora do painel.
+  it("um botão cujo id é “sempre” não vira a condição de continuação", () => {
+    const q = chaveDoQuando({ tipo: "botao", botao: "sempre" });
+    expect(q).toBe("botao:sempre");
+    expect(quandoDaChave(q)).toEqual({ tipo: "botao", botao: "sempre" });
+  });
+
+  it("chave que não é de condição nenhuma devolve null", () => {
+    expect(quandoDaChave(null)).toBeNull();
+    expect(quandoDaChave(undefined)).toBeNull();
+    expect(quandoDaChave("")).toBeNull();
+    expect(quandoDaChave("botao:")).toBeNull();
+    expect(quandoDaChave("outra")).toBeNull();
+    expect(quandoDaChave(7)).toBeNull();
+  });
+});
+
+describe("ligacoesValidas — a peneira da porta", () => {
+  it("descarta o que `conferirLigacao` recusa e mantém a ordem do resto", () => {
+    const boa1 = { de: "b_um00001", quando: { tipo: "sempre" }, para: "b_dois0002" };
+    const boa2 = { de: "b_um00001", quando: { tipo: "senao" }, para: "b_tres0003" };
+    const r = ligacoesValidas([boa1, null, { de: "b_um00001" }, "x", boa2]);
+    expect(r).toEqual([boa1, boa2]);
+  });
+
+  it("coluna que não é lista vira lista vazia", () => {
+    expect(ligacoesValidas(null)).toEqual([]);
+    expect(ligacoesValidas({})).toEqual([]);
+    expect(ligacoesValidas(undefined)).toEqual([]);
+  });
+
+  // A LIGAÇÃO PARA UM BLOCO QUE NÃO EXISTE PASSA: ela é válida na forma, e quem
+  // fala sobre o que ela causa é `conferirLista`. Descartá-la aqui mudaria a
+  // resposta da conferência no primeiro salvamento, calada.
+  it("mantém a ligação que aponta para um bloco que não está na lista", () => {
+    const orfa = { de: "b_um00001", quando: { tipo: "sempre" }, para: "b_sumiu999" };
+    expect(ligacoesValidas([orfa])).toEqual([orfa]);
+  });
+});
+
+describe("ligar — a seta nova substitui a que saía daquela alça", () => {
+  const a = "b_aaaaaaa1";
+  const b = "b_bbbbbbb2";
+  const c = "b_ccccccc3";
+
+  it("liga um bloco sem saída nenhuma", () => {
+    expect(ligar([], a, { tipo: "sempre" }, b)).toEqual([
+      { de: a, quando: { tipo: "sempre" }, para: b },
+    ]);
+  });
+
+  // É esta regra que impede o gesto normal de produzir "duas setas de
+  // continuação para blocos diferentes", que `conferirLista` trata como ERRO DE
+  // SALVAR.
+  it("redesenhar a continuação troca o destino, e não soma uma segunda", () => {
+    const antes: Ligacao[] = [{ de: a, quando: { tipo: "sempre" }, para: b }];
+    const depois = ligar(antes, a, { tipo: "sempre" }, c);
+    expect(depois).toEqual([{ de: a, quando: { tipo: "sempre" }, para: c }]);
+  });
+
+  it("cada botão tem a sua saída, e ligar um não mexe no outro", () => {
+    let l: Ligacao[] = [];
+    l = ligar(l, a, { tipo: "botao", botao: "op_1" }, b);
+    l = ligar(l, a, { tipo: "botao", botao: "op_2" }, c);
+    expect(l).toHaveLength(2);
+    l = ligar(l, a, { tipo: "botao", botao: "op_1" }, c);
+    expect(l).toEqual([
+      { de: a, quando: { tipo: "botao", botao: "op_2" }, para: c },
+      { de: a, quando: { tipo: "botao", botao: "op_1" }, para: c },
+    ]);
+  });
+
+  it("a saída de OUTRO bloco com a mesma condição não é tocada", () => {
+    const antes: Ligacao[] = [{ de: b, quando: { tipo: "sempre" }, para: c }];
+    expect(ligar(antes, a, { tipo: "sempre" }, c)).toHaveLength(2);
+  });
+});
+
+describe("desligarBloco — apagar um bloco apaga as setas das duas pontas", () => {
+  const a = "b_aaaaaaa1";
+  const b = "b_bbbbbbb2";
+  const c = "b_ccccccc3";
+  const ligacoes: Ligacao[] = [
+    { de: a, quando: { tipo: "sempre" }, para: b },
+    { de: b, quando: { tipo: "sempre" }, para: c },
+    { de: a, quando: { tipo: "botao", botao: "op_1" }, para: c },
+  ];
+
+  it("tira a que chega e a que sai", () => {
+    expect(desligarBloco(ligacoes, b)).toEqual([
+      { de: a, quando: { tipo: "botao", botao: "op_1" }, para: c },
+    ]);
+  });
+
+  it("bloco sem seta nenhuma não muda a lista", () => {
+    expect(desligarBloco(ligacoes, "b_zzzzzzz9")).toEqual(ligacoes);
+  });
+});
+
+describe("partirLigacao — soltar um bloco em cima de uma seta", () => {
+  const a = "b_aaaaaaa1";
+  const b = "b_bbbbbbb2";
+  const meio = "b_mmmmmmm4";
+
+  it("a condição fica na primeira metade e a segunda é continuação", () => {
+    const antes: Ligacao[] = [{ de: a, quando: { tipo: "botao", botao: "op_1" }, para: b }];
+    expect(partirLigacao(antes, 0, meio)).toEqual([
+      { de: a, quando: { tipo: "botao", botao: "op_1" }, para: meio },
+      { de: meio, quando: { tipo: "sempre" }, para: b },
+    ]);
+  });
+
+  it("as outras setas não são tocadas", () => {
+    const outra: Ligacao = { de: b, quando: { tipo: "sempre" }, para: a };
+    const antes: Ligacao[] = [{ de: a, quando: { tipo: "sempre" }, para: b }, outra];
+    expect(partirLigacao(antes, 0, meio)).toContainEqual(outra);
+  });
+
+  // A sutileza que `ligar` resolve: o bloco levado para o meio podia já ter uma
+  // continuação. Duas `sempre` saindo dele seriam ERRO DE SALVAR, produzido por
+  // um gesto normal.
+  it("o bloco do meio não fica com duas continuações", () => {
+    const antes: Ligacao[] = [
+      { de: a, quando: { tipo: "sempre" }, para: b },
+      { de: meio, quando: { tipo: "sempre" }, para: a },
+    ];
+    const depois = partirLigacao(antes, 0, meio);
+    expect(depois.filter((l) => l.de === meio && l.quando.tipo === "sempre")).toEqual([
+      { de: meio, quando: { tipo: "sempre" }, para: b },
+    ]);
+  });
+
+  it("índice que não existe devolve a lista como estava", () => {
+    const antes: Ligacao[] = [{ de: a, quando: { tipo: "sempre" }, para: b }];
+    expect(partirLigacao(antes, 7, meio)).toBe(antes);
+    expect(partirLigacao([], 0, meio)).toEqual([]);
+  });
+
+  // A prova de que o gesto não quebra o fluxo: depois de partir, `seguinteDe`
+  // leva de A ao bloco novo, e do bloco novo a B.
+  it("o caminho continua inteiro, agora passando pelo bloco do meio", () => {
+    const antes: Ligacao[] = [{ de: a, quando: { tipo: "sempre" }, para: b }];
+    const depois = partirLigacao(antes, 0, meio);
+    expect(seguinteDe(depois, a)).toBe(meio);
+    expect(seguinteDe(depois, meio)).toBe(b);
+    expect(haCaminho(depois, a, b)).toBe(true);
   });
 });

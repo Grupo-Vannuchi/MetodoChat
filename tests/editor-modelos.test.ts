@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { blocoNovo, comoTexto, resumoDoBloco } from "../app/automacoes/editor/modelos";
+import {
+  alcasDeSaida,
+  blocoNovo,
+  comoTexto,
+  indiceDaAlca,
+  resumoDoBloco,
+} from "../app/automacoes/editor/modelos";
 import { conferirLista, type Passo } from "../lib/steps";
 
 // O QUE ESTE ARQUIVO FIXA: `resumoDoBloco` é TOTAL sobre jsonb.
@@ -123,5 +129,99 @@ describe("comoTexto", () => {
     expect(comoTexto("Oi {{first_name}}")).toBe("Oi {{first_name}}");
     expect(comoTexto("")).toBe("");
     expect(comoTexto("   ")).toBe("   ");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AS ALÇAS DE SAÍDA (Tarefa 6). O mesmo cuidado do resto deste arquivo vale
+// aqui: `alcasDeSaida` recebe um `Passo` que é uma AFIRMAÇÃO sobre jsonb, e uma
+// queda dela derruba o nó e a página.
+// ---------------------------------------------------------------------------
+describe("alcasDeSaida", () => {
+  it("bloco sem botões tem uma alça só, a de continuação", () => {
+    for (const p of [
+      { tipo: "dm", texto: "oi" },
+      { tipo: "dm", texto: "oi", botao_label: "Quero" },
+      { tipo: "esperar", minutos: 5 },
+      { tipo: "pedir_follow", texto: "segue", botao_label: "Já sigo" },
+      { tipo: "pedir_email", texto: "email" },
+    ]) {
+      const alcas = alcasDeSaida(doBanco(p));
+      expect(alcas).toHaveLength(1);
+      expect(alcas[0].chave).toBe("sempre");
+      expect(alcas[0].rotulo).toBe("");
+    }
+  });
+
+  it("bloco com botões tem uma alça por botão, mais a do “senão”", () => {
+    const alcas = alcasDeSaida(
+      doBanco({
+        tipo: "dm",
+        texto: "Escolha",
+        botoes: [
+          { id: "op_1", rotulo: "Quero" },
+          { id: "op_2", rotulo: "Não quero" },
+        ],
+      })
+    );
+    expect(alcas.map((a) => a.chave)).toEqual(["botao:op_1", "botao:op_2", "senao"]);
+    expect(alcas.map((a) => a.rotulo)).toEqual(["Quero", "Não quero", "digitou"]);
+  });
+
+  // A CHAVE `url` MANDA (`envioDaDm`): o motor envia isto como LINK e nunca olha
+  // `botoes`. Três alças aqui seriam três caminhos que ninguém percorre.
+  it("mensagem com link não ganha alça de botão, mesmo com `botoes` preenchido", () => {
+    const alcas = alcasDeSaida(
+      doBanco({
+        tipo: "dm",
+        texto: "link",
+        url: "https://x",
+        botoes: [{ id: "op_1", rotulo: "Quero" }],
+      })
+    );
+    expect(alcas.map((a) => a.chave)).toEqual(["sempre"]);
+  });
+
+  it("botão sem texto ganha um nome, para a alça não ficar anônima", () => {
+    const alcas = alcasDeSaida(
+      doBanco({ tipo: "dm", texto: "x", botoes: [{ id: "op_1", rotulo: "   " }] })
+    );
+    expect(alcas[0].rotulo).toBe("sem texto");
+  });
+
+  it("botão corrompido não derruba a tela: ele é pulado", () => {
+    const alcas = alcasDeSaida(
+      doBanco({ tipo: "dm", texto: "x", botoes: [null, { id: "op_1", rotulo: "Ok" }, 7] })
+    );
+    expect(alcas.map((a) => a.chave)).toEqual(["botao:op_1", "senao"]);
+  });
+
+  it("lista de botões sem nenhum aproveitável volta para a alça de continuação", () => {
+    const alcas = alcasDeSaida(doBanco({ tipo: "dm", texto: "x", botoes: [null, {}] }));
+    expect(alcas.map((a) => a.chave)).toEqual(["sempre"]);
+  });
+});
+
+describe("indiceDaAlca", () => {
+  const menu = doBanco({
+    tipo: "dm",
+    texto: "Escolha",
+    botoes: [
+      { id: "op_1", rotulo: "A" },
+      { id: "op_2", rotulo: "B" },
+    ],
+  });
+
+  it("acha a alça de cada condição", () => {
+    expect(indiceDaAlca(menu, { tipo: "botao", botao: "op_1" })).toBe(0);
+    expect(indiceDaAlca(menu, { tipo: "botao", botao: "op_2" })).toBe(1);
+    expect(indiceDaAlca(menu, { tipo: "senao" })).toBe(2);
+  });
+
+  // A seta de um botão apagado continua desenhada, presa à primeira alça. Sumir
+  // com ela esconderia do dono o que `conferirLista` ainda enxerga.
+  it("condição sem alça cai na primeira, em vez de sumir", () => {
+    expect(indiceDaAlca(menu, { tipo: "botao", botao: "op_apagado" })).toBe(0);
+    expect(indiceDaAlca(menu, { tipo: "sempre" })).toBe(0);
   });
 });

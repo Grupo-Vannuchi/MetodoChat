@@ -1,4 +1,10 @@
-import { novoIdDeBloco, type Passo } from "@/lib/steps";
+import {
+  chaveDoQuando,
+  envioDaDm,
+  novoIdDeBloco,
+  type Passo,
+  type Quando,
+} from "@/lib/steps";
 
 // A paleta tem OITO itens sobre SEIS tipos, e a diferença não é maquiagem.
 //
@@ -190,6 +196,88 @@ export function resumoDoBloco(p: Passo): { titulo: string; corpo: string } {
       return { titulo: "BLOCO DESCONHECIDO", corpo: `tipo “${String(tipo)}”` };
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// AS ALÇAS DE SAÍDA DE UM BLOCO — uma por caminho que pode sair dele.
+//
+// Ela mora aqui, junto de `resumoDoBloco`, porque é a MESMA pergunta: o que
+// este bloco mostra no quadro. O título e o corpo são o que ele diz; as alças
+// são por onde ele sai.
+//
+// A PERGUNTA "TEM BOTÕES?" É FEITA A `envioDaDm` (lib/steps.ts) e não relida
+// aqui, e é a mesma razão de sempre neste projeto: é aquela função que decide o
+// que a mensagem entrega. Ler `p.botoes` direto faria a tela desenhar três alças
+// num bloco que o motor envia como LINK — a chave `url` manda, e `envioDaDm`
+// devolve `{forma:"link"}` mesmo com `botoes` preenchido. Três alças ali seriam
+// três caminhos que ninguém percorre.
+//
+// A ALÇA DO "SENÃO" VEM DEPOIS DOS BOTÕES, e ela é para quem respondeu
+// DIGITANDO em vez de tocar (`ligacaoEscolhida`, lib/steps.ts). Ela é opcional
+// no dado — sem a seta, quem digita simplesmente não recebe nada —, mas a alça
+// existe sempre que há botões, porque é o único lugar da tela em que esse
+// caminho pode ser desenhado.
+//
+// BLOCO SEM BOTÕES TEM UMA ALÇA SÓ, a de continuação (`sempre`), e ela não leva
+// rótulo: não há o que distinguir quando o caminho é um.
+//
+// O BOTÃO CORROMPIDO NÃO DERRUBA A TELA, e a guarda é a mesma lição de
+// `resumoDoBloco` logo acima: `envioDaDm` valida a LISTA (`Array.isArray` e
+// `.length`) e NÃO os elementos, de propósito — o comentário de lá tem a
+// medição —, então `botoes: [null]` chega aqui inteiro e um `b.id` cru
+// derrubaria o nó e, com ele, a rota. `conferirLista` já trava o salvar dessa
+// lista; o que este ramo garante é que o dono consiga ABRIR o quadro para
+// apagá-la. Sem nenhum botão aproveitável, o bloco volta a ter a alça de
+// continuação, que é o que ele de fato entrega.
+export type Alca = {
+  // O id da alça no React Flow, e a chave da condição no dado. Uma string só
+  // para os dois, por `chaveDoQuando` (lib/steps.ts).
+  chave: string;
+  quando: Quando;
+  // O que fica escrito ao lado da alça. Vazio na alça de continuação.
+  rotulo: string;
+};
+
+const ALCA_DE_CONTINUACAO: Alca[] = [{ chave: "sempre", quando: { tipo: "sempre" }, rotulo: "" }];
+
+export function alcasDeSaida(p: Passo): Alca[] {
+  if (p.tipo !== "dm") return ALCA_DE_CONTINUACAO;
+  const envio = envioDaDm(p);
+  if (envio.forma !== "botoes") return ALCA_DE_CONTINUACAO;
+
+  const alcas: Alca[] = [];
+  for (const b of envio.botoes) {
+    const id = (b as { id?: unknown } | null | undefined)?.id;
+    if (typeof id !== "string" || !id) continue;
+    const quando: Quando = { tipo: "botao", botao: id };
+    alcas.push({
+      chave: chaveDoQuando(quando),
+      quando,
+      // "sem texto" e não vazio: botão sem rótulo não é entregue
+      // (`botoesDaMensagem`, lib/steps.ts), e `conferirLista` já acusa isso no
+      // ativar. A alça precisa de um nome para o dono saber de qual botão ela é.
+      rotulo: comoTexto((b as { rotulo?: unknown }).rotulo).trim() || "sem texto",
+    });
+  }
+  if (!alcas.length) return ALCA_DE_CONTINUACAO;
+
+  alcas.push({ chave: "senao", quando: { tipo: "senao" }, rotulo: "digitou" });
+  return alcas;
+}
+
+// QUAL ALÇA DESENHA ESTA LIGAÇÃO. Devolve o ÍNDICE dentro de `alcasDeSaida`,
+// porque é o índice — e não a chave — que decide a ALTURA da alça no bloco
+// (`fracaoDaAlca`, ./geometria).
+//
+// A CONDIÇÃO SEM ALÇA CAI NA PRIMEIRA, e a seta continua desenhada. É o caso da
+// ligação de um botão que foi apagado, e da `senao` num bloco que deixou de ter
+// botões: some a alça, fica a ligação. Sumir com a seta junto esconderia do dono
+// exatamente o que `conferirLista` ainda enxerga — e o gesto de consertar é
+// olhar para ela.
+export function indiceDaAlca(p: Passo, quando: Quando): number {
+  const chave = chaveDoQuando(quando);
+  const i = alcasDeSaida(p).findIndex((a) => a.chave === chave);
+  return i === -1 ? 0 : i;
 }
 
 // Onde pôr os blocos que não têm posição gravada — toda automação criada antes
