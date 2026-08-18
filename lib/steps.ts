@@ -1194,8 +1194,19 @@ function contarParadasDuras(passos: unknown[]): number {
 // `temCicloDeSempre` (acima) a usa para dizer o que interrompe uma volta. As
 // duas querem a mesma coisa — "isto só destrava com um toque de PESSOA" —, e
 // enquanto foram duas expressões, uma delas estava escrita errado: a de
-// `temCicloDeSempre` era `esperaResposta`, que inclui o portão, e foi essa
-// diferença de uma palavra que deixou o anel com portão dentro passar no salvar.
+// `temCicloDeSempre` era `esperaResposta` PELADA, sem a guarda `p.tipo === "dm"`
+// — quatro tokens de diferença, e não uma palavra —, e `esperaResposta` inclui
+// o portão.
+//
+// O QUE ESSA DIFERENÇA EXPLICA, com a medida certa: por que a FUNÇÃO calava. Com
+// o portão contando como parada, a caminhada de `temCicloDeSempre` quebrava
+// nele e o anel `[pedir_follow, dm]` não fechava — ela respondia `false` para um
+// anel de verdade. NÃO explica por que o anel passava no salvar: até a Tarefa 5
+// o salvar NÃO CONSULTAVA esta função, que passou três tarefas sem um único
+// chamador fora dos testes (é o que o comentário do teto de passos e o da
+// chamada em `conferirLista` registram). Fosse a expressão certa desde o
+// começo, o anel teria passado no salvar do mesmo jeito — não havia quem
+// perguntasse.
 //
 // A REGRA, e o porquê do recorte em `dm`: `pedir_follow` e `pedir_email` são
 // portões que a PRÓPRIA EXECUÇÃO reavalia — o portão reconsulta a Meta e segue
@@ -3099,12 +3110,37 @@ export function conferirLista(
   // dele, e não há como contorná-lo.
   //
   // A REGRA POSICIONAL LOGO ACIMA ("o link sai antes do pedido de follow") NÃO
-  // SAI, e a convivência é deliberada: aquela olha a ORDEM DO ARRAY, esta olha o
-  // CAMINHO, e enquanto o quadro não mandar as ligações (Tarefa 6) a posicional
-  // é a única das duas que fala. Elas não se contradizem — uma é aviso sobre a
-  // ordem, a outra é erro sobre o desenho —, mas o dia em que o editor desenhar
-  // setas de verdade é o dia de reavaliar se a posicional ainda diz algo sobre o
-  // sistema.
+  // SAI NESTA TAREFA, e a convivência é temporária: aquela olha a ORDEM DO
+  // ARRAY, esta olha o CAMINHO, e enquanto o quadro não mandar as ligações
+  // (Tarefa 6) a posicional é a única das duas que fala.
+  //
+  // ELAS SE CONTRADIZEM, e isso é MEDIDO, não uma preocupação de estilo. Na
+  // lista `[boas-vindas, link, portão]` com a corrente que a migração grava
+  // (`sempre` de cada bloco para o seguinte), `conferirLista` devolve as duas
+  // sobre O MESMO BLOCO — `indice: 1`, o link — com veredictos opostos:
+  //
+  //   AVISO: "O link sai antes do pedido de follow, então quem não segue recebe
+  //     o link mesmo assim." Aviso não tranca porta nenhuma; a decisão fica com
+  //     o dono, e a razão escrita para isso é que aquilo pode ser estratégia —
+  //     entregar primeiro e pedir o follow depois.
+  //   ERRO DE ATIVAR: "Dá para chegar neste link sem passar pelo pedido de
+  //     follow." Ou seja: o dono NÃO pode publicar.
+  //
+  // Uma diz "você decide", a outra diz "você não pode". Não é uma falar da ordem
+  // e a outra do desenho — na corrente que a migração grava, ordem e desenho são
+  // a mesma coisa, e é por isso que as duas acendem juntas.
+  //
+  // QUEM RESOLVE É A TAREFA 9, e a saída não é nenhuma das duas: levada ao dono
+  // do produto, a contradição virou uma CHAVE POR AUTOMAÇÃO — "entregar o link
+  // sem exigir que a pessoa siga" —, desligada por padrão, porque nem sempre é
+  // engano e nem sempre é estratégia; depende da automação. Com ela ligada, esta
+  // regra deixa de impedir ativar. O portão continua funcionando no motor: a
+  // chave diz "não me impeça de publicar", e não "ignore o portão na entrega".
+  //
+  // E O AVISO POSICIONAL MORRE DE QUALQUER JEITO, ligada a chave ou não, porque
+  // ele lê a ORDEM DO ARRAY, que a Tarefa 3b tirou de circulação: "link antes do
+  // portão na lista" deixou de significar "link antes do portão no fluxo".
+  // Mantê-lo é manter uma terceira voz sobre o mesmo caso.
   const iPortao = indiceDoPortao(passos);
   if (temSeta && iPortao !== null) {
     const idPortao = identidadeDoPasso(passos[iPortao], iPortao);
