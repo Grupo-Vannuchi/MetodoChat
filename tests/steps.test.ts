@@ -3658,8 +3658,6 @@ describe("conferirLista em dois níveis", () => {
     const com = (botoes: unknown) => [{ id: "b_qbr002", tipo: "dm", texto: "Escolha", botoes }];
     // não é lista
     expect(salvar(com("op_aaaaaa"), [])).toHaveLength(1);
-    // elemento sem rótulo
-    expect(salvar(com([{ id: "op_aaaaaa", rotulo: "  " }]), [])).toHaveLength(1);
     // elemento sem id
     expect(salvar(com([{ rotulo: "A" }]), [])).toHaveLength(1);
     // dois botões com o mesmo id: o segundo nunca casa com ligação nenhuma
@@ -3677,6 +3675,60 @@ describe("conferirLista em dois níveis", () => {
     expect(salvar(com([{ id: "op_a:aaaa", rotulo: "A" }]), [])).toHaveLength(1);
     // e a lista vazia não é defeito nenhum: `envioDaDm` nem a reconhece
     expect(salvar(com([]), [])).toHaveLength(0);
+  });
+
+  it("ATIVAR, não salvar: botão sem texto — é o menu que ficou pela metade", () => {
+    // O dono clica "adicionar botão", o painel grava `{id:"op_…", rotulo:""}` e
+    // ele sai para o almoço. Travar o salvar aí o deixa sem onde guardar o meio
+    // do trabalho, e o sintoma é "entrega errado" — `botoesDaMensagem` descarta
+    // o par e o botão some da mensagem —, não "o motor não lê".
+    const meio = [
+      {
+        id: "b_qbr003",
+        tipo: "dm",
+        texto: "Escolha",
+        botoes: [
+          { id: "op_aaaaaa", rotulo: "A" },
+          { id: "op_bbbbbb", rotulo: "" },
+        ],
+      },
+    ];
+    expect(salvar(meio, [])).toHaveLength(0);
+    const r = ativar(meio, []);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(0);
+    expect(r[0].mensagem).toContain("sem texto");
+  });
+
+  it("a QUEDA ganha do rótulo em branco mesmo vindo DEPOIS dele na lista", () => {
+    // A precedência não é a da ordem da lista, e essa é a parte que a separação
+    // custou: com uma frase por bloco e duas portas, varrer por ordem devolveria
+    // o rótulo em branco (ativar) e deixaria o `null` — que derruba o lote
+    // inteiro de eventos daquele POST — passar no salvar.
+    const misto = [
+      {
+        id: "b_qbr004",
+        tipo: "dm",
+        texto: "Escolha",
+        botoes: [{ id: "op_aaaaaa", rotulo: "" }, null],
+      },
+    ];
+    const r = salvar(misto, []);
+    expect(r).toHaveLength(1);
+    expect(r[0].mensagem).toContain("corrompido");
+    // E uma frase só por bloco: a de ativar não sai junto.
+    expect(ativar(misto, [])).toHaveLength(0);
+  });
+
+  it("o id inválido ganha do rótulo em branco no MESMO botão", () => {
+    // Dentro de um elemento a ordem também é a da porta: o id que não atravessa
+    // o payload é dado que o motor não lê; o rótulo é montagem pela metade.
+    const doisDefeitos = [
+      { id: "b_qbr005", tipo: "dm", texto: "Escolha", botoes: [{ id: "op_a:aaaa", rotulo: "" }] },
+    ];
+    const r = salvar(doisDefeitos, []);
+    expect(r).toHaveLength(1);
+    expect(r[0].mensagem).toContain("identidade inválida");
   });
 
   // -------------------------------------------------------------------------

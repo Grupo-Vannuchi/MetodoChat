@@ -2802,19 +2802,32 @@ export function conferirLista(
     // ramo `pedir_follow` de `conferir` descreve. Aqui a recusa TRAVA O SALVAR e
     // não muda nada do que o motor faz com uma lista já gravada.
     //
-    // É ERRO DE SALVAR, e não de ativar, porque o motor CAI. Medido na Tarefa 4:
-    // `[null].map(b => b.rotulo)` estoura `TypeError` dentro de
-    // `enfileirarPasso` (lib/engine.ts), a caminhada aborta no meio, o cursor —
-    // gravado depois do laço — não é gravado, e o `try/catch` do webhook, que
-    // está FORA dos dois laços, derruba junto o resto do lote de eventos daquela
-    // requisição. Não é "botão aparado tarde": é perda de entrega para todo mundo
-    // que chegou naquele POST. `conferir`, no ramo `dm`, valida só `texto` — este
-    // é o único lugar que olha `botoes`.
+    // A PORTA É `botoesCrus` QUEM DIZ, uma causa de cada vez: quatro das cinco
+    // travam o SALVAR porque o motor CAI ou não lê, e a quinta — rótulo em
+    // branco — só o ATIVAR. O critério de cada uma está por extenso lá.
+    //
+    // Medido na Tarefa 4, para a mais cara delas: `[null].map(b => b.rotulo)`
+    // estoura `TypeError` dentro de `enfileirarPasso` (lib/engine.ts), a
+    // caminhada aborta no meio, o cursor — gravado depois do laço — não é
+    // gravado, e o `try/catch` do webhook, que está FORA dos dois laços, derruba
+    // junto o resto do lote de eventos daquela requisição. Não é "botão aparado
+    // tarde": é perda de entrega para todo mundo que chegou naquele POST.
+    // `conferir`, no ramo `dm`, valida só `texto` — este é o único lugar que
+    // olha `botoes`.
+    //
+    // ELA RODA MESMO QUANDO O MOTOR IGNORA `botoes`, e isto fica REGISTRADO e
+    // não consertado: em `{tipo:"dm", url:"…", botoes:[null]}` a chave `url`
+    // manda, `envioDaDm` devolve `{forma:"link"}` e o motor nunca toca em
+    // `botoes` — mas o `botoesCrus` acima trava o salvar assim mesmo. É excesso
+    // de rigor sobre lixo que ninguém lê, inofensivo, e a forma não é produzida
+    // pelo painel (nenhum bloco da paleta semeia as duas chaves). Filtrar por
+    // `envioDaDm(passo).forma === "botoes"` mudaria a resposta dessa lista sem
+    // consertar defeito nenhum; está aqui para não virar surpresa em quem medir.
     if (passo.tipo === "dm") {
       const brutos = (passos[i] as { botoes?: unknown }).botoes;
       const cru = brutos === undefined ? null : botoesCrus(brutos);
       if (cru) {
-        r.push({ nivel: "erro", quando: "salvar", indice: i, mensagem: cru });
+        r.push({ nivel: "erro", quando: cru.quando, indice: i, mensagem: cru.mensagem });
       } else {
         const envio = envioDaDm(passo);
         if (envio.forma === "botoes") {
@@ -3118,7 +3131,8 @@ export function conferirLista(
 }
 
 // O CONTEÚDO DE `botoes`, conferido elemento a elemento. Devolve a frase do DONO
-// para a primeira coisa errada, ou null quando a lista está inteira.
+// para UMA coisa errada, com a porta em que ela trava, ou null quando a lista
+// está inteira.
 //
 // UMA FRASE POR BLOCO, e não uma por botão: as cinco causas abaixo se consertam
 // no mesmo lugar — o menu daquele bloco —, e cinco linhas vermelhas sobre o
@@ -3133,9 +3147,6 @@ export function conferirLista(
 //     `enfileirarPasso` (lib/engine.ts) faz `envio.botoes.map(b => b.rotulo)`, e
 //     `null.rotulo` estoura `TypeError`. O comentário do bloco de botões, lá em
 //     cima, tem o estrago inteiro.
-//   RÓTULO EM BRANCO — `botoesDaMensagem` descarta o par, e o botão some da
-//     mensagem. Descartando TODOS, o menu sai vazio, que é o
-//     `menu_sem_botoes` de lib/queue-drain.ts.
 //   ID COM DOIS-PONTOS — o id viaja dentro do payload
 //     (`AUTO:<automação>:<bloco>:<botão>`), e `lerPayload` separa por `:` e
 //     recusa mais de quatro partes. O botão é entregue, é tocável, e o toque
@@ -3144,6 +3155,35 @@ export function conferirLista(
 //   IDS REPETIDOS DENTRO DO BLOCO — `ligacaoEscolhida` casa pelo id e fica com a
 //     primeira ligação que serve, então os dois botões levam ao mesmo destino,
 //     por mais diferentes que sejam os rótulos.
+//   RÓTULO EM BRANCO — `botoesDaMensagem` descarta o par, e o botão some da
+//     mensagem. Descartando TODOS, o menu sai vazio, que é o
+//     `menu_sem_botoes` de lib/queue-drain.ts.
+//
+// AS QUATRO PRIMEIRAS TRAVAM O SALVAR; A QUINTA SÓ O ATIVAR, e a linha entre
+// elas é a do tipo `Problema`: salvar é dado que o motor NÃO CONSEGUE LER,
+// ativar é fluxo que ele lê perfeitamente e ENTREGA ERRADO por montagem pela
+// metade.
+//
+//   As quatro primeiras são inalcançáveis pelo editor: `blocoNovo` e
+//     `novoIdDeBotao` (app/automacoes/editor/modelos.ts) produzem lista, objeto
+//     e id novo sempre, e nenhum campo da tela edita o id de um botão. Chegar
+//     nelas é lista montada fora do painel — dado, não montagem.
+//   O RÓTULO EM BRANCO é o estado mais normal de menu pela metade que existe: o
+//     dono clica "adicionar botão", o painel grava `{id:"op_…", rotulo:""}` e ele
+//     sai para o almoço. Travar o salvar aí é hostil — ele fica sem onde guardar
+//     o meio do trabalho —, e o sintoma é "entrega errado" (o botão some da
+//     mensagem), não "o motor não lê". Ela nasceu em "salvar" junto com as
+//     outras quatro e foi movida por decisão de produto, com o critério que a
+//     própria Tarefa 5 escreveu.
+//
+// A ORDEM DE PRECEDÊNCIA NÃO É A DA LISTA, e essa é a parte que a separação
+// custou. Com uma frase por bloco e duas portas, "a primeira coisa errada"
+// deixou de servir: num menu `[{rotulo:""}, null]` a varredura por ordem
+// devolveria o rótulo em branco (ativar), e a QUEDA — que derruba o lote inteiro
+// de eventos daquela requisição — passaria no salvar. Por isso o rótulo em
+// branco é GUARDADO e a varredura continua: quem sai é a primeira causa de
+// SALVAR que houver na lista toda, e o rótulo só é devolvido quando não há
+// nenhuma. A porta mais forte ganha, venha ela de qual posição vier.
 //
 // A FORMA `op_……` NÃO É EXIGIDA, e a diferença para `FORMA_DO_ID` (a dos blocos)
 // é de mecanismo, não de rigor: a do bloco é exigida porque a identidade entra
@@ -3151,26 +3191,47 @@ export function conferirLista(
 // bloco, em silêncio. O id de botão não entra em chave nenhuma — ele só precisa
 // atravessar o payload e casar com a ligação, e é isso que as duas linhas acima
 // conferem. `lerPayload` registra a mesma escolha para o lado leitor.
-function botoesCrus(bruto: unknown): string | null {
+function botoesCrus(bruto: unknown): { quando: "salvar" | "ativar"; mensagem: string } | null {
   if (!Array.isArray(bruto)) {
-    return "A lista de botões deste bloco não é uma lista, e por isso ela não é entregue: a mensagem sai sem botão nenhum.";
+    return {
+      quando: "salvar",
+      mensagem:
+        "A lista de botões deste bloco não é uma lista, e por isso ela não é entregue: a mensagem sai sem botão nenhum.",
+    };
   }
   const vistos = new Set<string>();
+  let semTexto: { quando: "ativar"; mensagem: string } | null = null;
   for (const b of bruto) {
     if (!b || typeof b !== "object") {
-      return "Um dos botões deste bloco está corrompido, e ele derruba o envio da automação inteira naquele momento.";
+      return {
+        quando: "salvar",
+        mensagem:
+          "Um dos botões deste bloco está corrompido, e ele derruba o envio da automação inteira naquele momento.",
+      };
     }
     const o = b as Record<string, unknown>;
-    if (typeof o.rotulo !== "string" || !o.rotulo.trim()) {
-      return "Um dos botões deste bloco está sem texto, e botão sem texto não é entregue: ele some da mensagem.";
-    }
     if (typeof o.id !== "string" || !o.id || o.id.includes(":")) {
-      return "Um dos botões deste bloco tem uma identidade inválida: ele é entregue, mas o toque nele não faz nada.";
+      return {
+        quando: "salvar",
+        mensagem:
+          "Um dos botões deste bloco tem uma identidade inválida: ele é entregue, mas o toque nele não faz nada.",
+      };
     }
     if (vistos.has(o.id)) {
-      return "Dois botões deste bloco têm a mesma identidade, e por isso os dois levam ao mesmo lugar.";
+      return {
+        quando: "salvar",
+        mensagem:
+          "Dois botões deste bloco têm a mesma identidade, e por isso os dois levam ao mesmo lugar.",
+      };
     }
     vistos.add(o.id);
+    if (!semTexto && (typeof o.rotulo !== "string" || !o.rotulo.trim())) {
+      semTexto = {
+        quando: "ativar",
+        mensagem:
+          "Um dos botões deste bloco está sem texto, e botão sem texto não é entregue: ele some da mensagem.",
+      };
+    }
   }
-  return null;
+  return semTexto;
 }
