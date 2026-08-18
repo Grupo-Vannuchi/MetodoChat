@@ -981,6 +981,32 @@ git commit -m "A conferencia passa a separar o que impede salvar do que impede a
 **Files:**
 - Modify: `app/automacoes/editor/quadro.tsx`, `no.tsx`, `geometria.ts`
 
+## OBRIGATÓRIO, e vira defeito no seu primeiro commit se você esquecer
+
+`app/automacoes/editor/quadro.tsx` tem **duas** linhas que filtram por
+`p.nivel === "erro"` **sem olhar `p.quando`**:
+
+```
+:367  const erros = useMemo(() => problemas.filter((p) => p.nivel === "erro"), …)
+:374  for (const p of problemas) if (p.nivel === "erro" && p.indice !== null) s.add(p.indice)
+```
+
+A Tarefa 5 separou os problemas em dois níveis: `quando: "salvar"` trava o salvar,
+`quando: "ativar"` só impede publicar. **A linha 367 é a que trava o salvar** —
+sem `&& p.quando === "salvar"`, o quadro passa a travar o salvar em erro de
+ATIVAR, que é o oposto exato do que a Tarefa 5 decidiu.
+
+**Não é hipotético.** Rótulo de botão em branco é erro de *ativar*, e é o estado
+em que **todo menu recém-criado nasce**. Sem a correção, o primeiro botão que o
+painel criar trava o salvar do quadro.
+
+Hoje é inerte só porque o painel ainda não escreve `botoes` e o quadro chama
+`conferirLista` sem ligações. **Você acaba com as duas coisas.**
+
+A linha 374 é outra decisão: ela escolhe quais blocos ficam realçados. Realçar os
+dois níveis pode ser certo — **julgue e diga o que escolheu**, mas não a deixe
+igual por descuido.
+
 - [ ] **Passo 1: as setas vêm do dado**
 
 Hoje `quadro.tsx` deriva as setas da ordem do array. Passa a montá-las a partir

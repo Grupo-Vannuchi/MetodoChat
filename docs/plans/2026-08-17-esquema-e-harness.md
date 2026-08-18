@@ -158,4 +158,11 @@ frente nova agora troca uma fase quase pronta por duas pela metade.
 
 **Frente 1 primeiro**, porque a Frente 2 depende dela.
 
+**E a prioridade da Frente 2 subiu**, por uma medição da Tarefa 5. A decisão de
+produto mais discutida da fase — **qual porta recusa o quê**, salvar ou ativar —
+é uma linha de filtro em cada Server Action, e trocar as duas deixa **525 de 525
+testes verdes**. Não é mais só "o código de entrega não tem rede": é a regra que
+o dono do produto passou uma conversa inteira decidindo, sem nada que a segure no
+lugar.
+
 **A Frente 3 já está valendo** — é descrição, não construção.
