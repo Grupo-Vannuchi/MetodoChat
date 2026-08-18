@@ -1176,6 +1176,87 @@ git commit -m "A caixa Ativa deixa de driblar a conferencia de ativar"
 
 ---
 
+# Tarefa 6c · Clicar na paleta cria o bloco, e o clique escorregado para de travar
+
+**Files:**
+- Modify: `app/automacoes/editor/paleta.tsx`, `app/automacoes/editor/quadro.tsx`
+- Test: `tests/editor-geometria.test.ts` (se a escolha do lugar virar função pura)
+
+**Achada pelo dono do produto usando o editor**, em 18/08. Não estava no plano.
+
+## O que aconteceu, medido
+
+Ele clicou num item da paleta para acrescentar um bloco de texto, e **a tela
+parou de aceitar cliques**.
+
+Medido na sessão dele, ao vivo:
+
+- **não há erro nenhum** — a sobreposição de erro do Next está vazia, e o
+  registro do servidor tem só `200`
+- **o React não está travado** — comandos de JavaScript respondem normalmente
+- `app/automacoes/editor/paleta.tsx:130-131` tem **`draggable` e `onDragStart`,
+  e nenhum `onClick`**
+
+## São DOIS defeitos, e consertar um não conserta o outro
+
+**1 · Clicar não faz nada, por construção.** Os itens são ícones de 36×36 que só
+respondem a arrastar. Quem clica não recebe resposta nenhuma — nem o bloco, nem
+um aviso de que precisa arrastar.
+
+**2 · O clique escorregado vira arrasto nativo pendurado.** Um clique que move
+um ou dois pixels inicia um arrasto do sistema operacional. Se ele não termina
+num alvo válido, **o navegador para de entregar cliques para a página** até o
+arrasto acabar. É isso que parece congelamento.
+
+**Acrescentar `onClick` resolve o primeiro e NÃO resolve o segundo.** Quem
+arrastar de verdade e soltar fora do quadro continua podendo travar.
+
+## O que construir
+
+**Clicar cria o bloco.** Onde ele cai é sua escolha — o mais previsível é o
+centro da área visível do quadro. Reaproveite o caminho que o soltar já usa;
+**não escreva uma segunda forma de criar bloco.**
+
+**Arrastar continua igual.** É como se escolhe onde o bloco cai, e quem já
+aprendeu não pode perder o gesto.
+
+**Ache por que o arrasto pode ficar pendurado, e feche.** Comece medindo: o
+`dragend` chega quando se solta fora do quadro? O tratador de soltar estoura?
+**Meça antes de consertar** — nesta fase, quatro correções foram feitas contra
+uma causa errada porque alguém supôs o mecanismo em vez de olhar.
+
+Se descobrir que o pendurado é do navegador e não do código, **diga isso** e
+mostre a medição: aí a defesa é outra (por exemplo, o clique deixar de disparar
+arrasto quando não houve movimento suficiente).
+
+## Como provar
+
+**O dono liberou o Chrome com depuração remota em `127.0.0.1:9222`, e a sessão
+do painel está autenticada.** Use-a. O editor de teste é
+`/automacoes/39ae24ec-c487-40ff-a387-c041cb3f0d23` (5 blocos).
+
+**Cuidado medido:** cliques via protocolo funcionam; **eventos de arrasto
+sintéticos vêm estourando tempo**. Se o seu arrasto não passar, **diga** em vez
+de concluir que o gesto está quebrado — o dono confirmou à mão que arrastar para
+ligar funciona.
+
+## Passos
+
+- [ ] **Passo 1: meça o estado atual** — clique num item e registre o que
+      acontece; solte um arrasto fora do quadro e registre se trava
+- [ ] **Passo 2: clicar cria o bloco**, pelo mesmo caminho do soltar
+- [ ] **Passo 3: feche o pendurado**, com a causa medida escrita no comentário
+- [ ] **Passo 4: prove na tela** — clicar cria; arrastar continua criando; soltar
+      fora não trava mais
+- [ ] **Passo 5: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run && npm run varredura
+git commit -m "Clicar na paleta cria o bloco, e o arrasto solto fora para de travar"
+```
+
+---
+
 # Tarefa 7 · O painel: editar os botões
 
 **Files:**
