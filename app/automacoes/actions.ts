@@ -361,6 +361,22 @@ export async function criarAutomacao(
 // esta função existe para permitir.
 // ---------------------------------------------------------------------------
 export async function toggleAutomation(id: string, active: boolean): Promise<Resultado> {
+  // O `ensureSchema` ENTROU AQUI NA TAREFA 5, e ele não é zelo: esta função
+  // passou a ler a coluna `ligacoes`, e `ligacoes` é uma das colunas que
+  // `ensureSchema` CRIA (`add column if not exists`, lib/db.ts). Num banco que
+  // ainda não a tem, o `select` abaixo não devolve nulo — ele estoura
+  // `column "ligacoes" does not exist`, e o botão "Ativar" da lista de
+  // automações para de funcionar inteiro.
+  //
+  // MEDIDO NESTE BANCO: a coluna NÃO EXISTE hoje. Um `select ligacoes from
+  // automations` contra a `DATABASE_URL` deste projeto devolve o erro 42703. As
+  // outras telas a criam de passagem porque chamam `ensureSchema` antes de ler,
+  // e `salvarAutomacao` (acima) já fazia isso — esta era a única das duas que
+  // lia o par e não chamava.
+  //
+  // Custa uma vez por instância: a promessa é memoizada em `schemaReady`
+  // (lib/db.ts), então a segunda chamada em diante não vai ao banco.
+  await ensureSchema();
   const accountId = await getSelectedAccountId();
   if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
 
