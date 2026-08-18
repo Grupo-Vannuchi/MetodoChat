@@ -1022,6 +1022,12 @@ export default function Quadro({
   // aviso, por outro lado, teria de descrever um estado ("o que está na tela não
   // foi salvo") que a pessoa não pediu e não pode desfazer.
   //
+  // "SEMPRE APARECE" É SOBRE ESTA COMPARAÇÃO, e por um tempo a barra não
+  // cumpriu a promessa por outro motivo: o recado dividia a vaga com o âmbar do
+  // "impede publicar" num ternário exclusivo, e o âmbar está aceso durante toda
+  // a montagem. Salvava e não aparecia nada. As duas vagas são separadas desde
+  // então — o porquê está na barra, junto delas.
+  //
   // `inert` E NÃO só um véu por cima: véu com `pointer-events` bloqueia o
   // ponteiro e deixa o TECLADO passar — o cursor pode estar dentro do campo de
   // mensagem do painel no instante do clique em Salvar, e continuar digitando ali
@@ -1165,39 +1171,59 @@ export default function Quadro({
         {/* numa tela em que não dá para editar. O link de voltar, esse, fica  */}
         {/* nas duas.                                                          */}
         {/* ---------------------------------------------------------------- */}
+        {/* SÃO DUAS VAGAS E NÃO UMA, e a segunda existe por um defeito medido.
+            Isto era UM ternário exclusivo — erro, senão âmbar, senão recado —, e
+            o âmbar tomava a vaga do recado PERMANENTEMENTE no caso mais comum
+            que existe nesta tela.
+            O mecanismo: o âmbar é o que impede PUBLICAR (bloco solto, botão sem
+            destino), que é o estado normal de quem está montando, e ele NÃO
+            desabilita o Salvar — a decisão de `actions.ts` é justamente essa,
+            "montar um menu de três opções, ligar duas e voltar amanhã é trabalho
+            normal". Com o âmbar aceso, o dono clicava em Salvar, o servidor
+            gravava, o recado voltava — e a barra continuava mostrando o âmbar.
+            Nada na tela dizia que o trabalho tinha sido guardado, exatamente no
+            cenário que a permissão de salvar meio-caminho protege.
+            O ERRO E O ÂMBAR CONTINUAM DISPUTANDO A MESMA VAGA, e essa metade do
+            ternário fica: os dois falam da MESMA lista, e o vermelho é o que
+            trava o Salvar — mostrar os dois seria a barra dizendo "não dá para
+            salvar" e "dá para salvar, mas não publicar" ao mesmo tempo. */}
         <div className="ml-auto hidden shrink-0 items-center gap-3 sm:flex">
           {erros.length > 0 ? (
-            <span className="max-w-[40ch] truncate text-xs font-medium text-red-600 dark:text-red-400">
+            <span className="max-w-[36ch] truncate text-xs font-medium text-red-600 dark:text-red-400">
               {erros[0].mensagem}
               {erros.length > 1 && ` (e mais ${erros.length - 1})`}
             </span>
-          ) : impedemAtivar.length > 0 ? (
-            /* O QUE IMPEDE PUBLICAR, EM ÂMBAR, e ele não desabilita o salvar.
-               Ele entrou nesta tarefa porque foi ela que tornou esses problemas
-               produzíveis pela tela: o bloco solto e o botão sem destino. Sem
-               esta linha, o dono monta, salva, fecha o quadro — e só descobre na
-               LISTA de automações, ao clicar em Ativar, que o fluxo não pode ir
-               ao ar. A frase é a MESMA de `conferirLista` que o painel e o
-               `toggleAutomation` mostram. */
-            <span
-              className="max-w-[40ch] truncate text-xs font-medium text-amber-600 dark:text-amber-400"
-              title="Isto não impede salvar, só publicar."
-            >
-              {impedemAtivar[0].mensagem}
-              {impedemAtivar.length > 1 && ` (e mais ${impedemAtivar.length - 1})`}
-            </span>
           ) : (
-            recadoDoQuadroAtual && (
+            impedemAtivar.length > 0 && (
+              /* O QUE IMPEDE PUBLICAR, EM ÂMBAR, e ele não desabilita o salvar.
+                 Ele entrou nesta tarefa porque foi ela que tornou esses problemas
+                 produzíveis pela tela: o bloco solto e o botão sem destino. Sem
+                 esta linha, o dono monta, salva, fecha o quadro — e só descobre na
+                 LISTA de automações, ao clicar em Ativar, que o fluxo não pode ir
+                 ao ar. A frase é a MESMA de `conferirLista` que o painel e o
+                 `toggleAutomation` mostram. */
               <span
-                className={`max-w-[40ch] truncate text-xs font-medium ${
-                  recadoDoQuadroAtual.ok
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-red-600 dark:text-red-400"
-                }`}
+                className="max-w-[36ch] truncate text-xs font-medium text-amber-600 dark:text-amber-400"
+                title="Isto não impede salvar, só publicar."
               >
-                {recadoDoQuadroAtual.texto}
+                {impedemAtivar[0].mensagem}
+                {impedemAtivar.length > 1 && ` (e mais ${impedemAtivar.length - 1})`}
               </span>
             )
+          )}
+          {/* O RECADO DO SALVAMENTO, na vaga dele, COLADO NO BOTÃO que o
+              produziu. Ele responde por um CLIQUE e não pela lista, então não
+              compete com o que está errado nela. */}
+          {recadoDoQuadroAtual && (
+            <span
+              className={`max-w-[36ch] truncate text-xs font-medium ${
+                recadoDoQuadroAtual.ok
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-red-600 dark:text-red-400"
+              }`}
+            >
+              {recadoDoQuadroAtual.texto}
+            </span>
           )}
           <button
             type="button"
