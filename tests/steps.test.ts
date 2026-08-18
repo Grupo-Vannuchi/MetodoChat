@@ -3539,3 +3539,302 @@ describe("temCicloDeSempre", () => {
     expect(temCicloDeSempre([{ tipo: "dm", texto: "x" }], "não é lista")).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A CONFERÊNCIA EM DOIS NÍVEIS.
+//
+// A linha entre os dois é de PRODUTO, e não de gravidade: ERRO DE SALVAR é dado
+// que o motor NÃO CONSEGUE LER — ele cai, ou anda sem parar. ERRO DE ATIVAR é
+// fluxo que o motor lê perfeitamente e ENTREGA ERRADO, mas cuja causa é montagem
+// pela metade, que é trabalho normal de quem está desenhando.
+//
+// Cada teste daqui afirma o `quando`, e não só o `nivel`. Sem isso, mover um
+// item de um nível para o outro deixaria a suíte inteira verde — e é justamente
+// a colocação de cada item que esta tarefa decide.
+// ---------------------------------------------------------------------------
+describe("conferirLista em dois níveis", () => {
+  const bem = { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" };
+  const portao = {
+    id: "b_por002",
+    tipo: "pedir_follow",
+    texto: "Me segue",
+    botao_label: "Já sigo",
+  };
+  const link = { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" };
+
+  const sempre = (de: string, para: string) => ({ de, quando: { tipo: "sempre" }, para });
+  const porBotao = (de: string, botao: string, para: string) => ({
+    de,
+    quando: { tipo: "botao", botao },
+    para,
+  });
+
+  const salvar = (ps: unknown, ls: unknown, g = "dm") =>
+    conferirLista(ps, g, ls).filter((p) => p.nivel === "erro" && p.quando === "salvar");
+  const ativar = (ps: unknown, ls: unknown, g = "dm") =>
+    conferirLista(ps, g, ls).filter((p) => p.nivel === "erro" && p.quando === "ativar");
+  const avisos = (ps: unknown, ls: unknown, g = "dm") =>
+    conferirLista(ps, g, ls).filter((p) => p.nivel === "aviso");
+
+  // -------------------------------------------------------------------------
+  // IMPEDE SALVAR
+  // -------------------------------------------------------------------------
+
+  it("SALVAR: o anel de `sempre` — a caminhada não termina nunca", () => {
+    const x = { id: "b_xxx001", tipo: "dm", texto: "X" };
+    const y = { id: "b_yyy002", tipo: "dm", texto: "Y" };
+    const anel = [sempre("b_xxx001", "b_yyy002"), sempre("b_yyy002", "b_xxx001")];
+    const r = salvar([x, y], anel);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(null);
+  });
+
+  it("SALVAR: o anel com um PORTÃO dentro, que `temCicloDeSempre` deixava passar", () => {
+    // A MEDIÇÃO DA TAREFA 3b, refeita: com `[pedir_follow, dm]` e o anel de
+    // `sempre` entre os dois, a caminhada de `temCicloDeSempre` quebrava no
+    // portão (ele espera resposta) e o anel não fechava. O motor deu 201 voltas.
+    //
+    // O mecanismo do laço está em lib/engine.ts: quando `resolverFollow` devolve
+    // "passou", o ramo `pedir_follow` faz `return executarFluxo(…)` de dentro de
+    // uma `async` — não estoura a pilha, simplesmente NUNCA RETORNA, e a Meta
+    // reenvia o evento por 36 horas.
+    const g = { id: "b_gat001", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" };
+    const x = { id: "b_xxx002", tipo: "dm", texto: "X" };
+    const anel = [sempre("b_gat001", "b_xxx002"), sempre("b_xxx002", "b_gat001")];
+
+    expect(temCicloDeSempre([g, x], anel)).toBe(true);
+    expect(salvar([g, x], anel)).toHaveLength(1);
+  });
+
+  it("o anel que atravessa uma PARADA DURA continua legítimo — é o menu que volta", () => {
+    // A distinção inteira: o portão a execução reavalia sozinha (reconsulta a
+    // Meta, pula o e-mail já conhecido), então o anel roda sem ninguém tocar em
+    // nada. A `dm` que espera não — cada volta custa um toque da pessoa.
+    const menu = {
+      id: "b_men001",
+      tipo: "dm",
+      texto: "Qual?",
+      botoes: [{ id: "op_aaaaaa", rotulo: "A" }],
+    };
+    const antes = { id: "b_ant002", tipo: "dm", texto: "Antes" };
+    const anel = [sempre("b_ant002", "b_men001"), sempre("b_men001", "b_ant002")];
+    expect(temCicloDeSempre([menu, antes], anel)).toBe(false);
+    expect(salvar([menu, antes], anel)).toHaveLength(0);
+  });
+
+  it("SALVAR: dois destinos para o mesmo botão — o segundo nunca é seguido", () => {
+    const menu = {
+      id: "b_men010",
+      tipo: "dm",
+      texto: "Escolha",
+      botoes: [
+        { id: "op_aaaaaa", rotulo: "A" },
+        { id: "op_bbbbbb", rotulo: "B" },
+      ],
+    };
+    const opA = { id: "b_opa011", tipo: "dm", texto: "A" };
+    const opB = { id: "b_opb012", tipo: "dm", texto: "B" };
+    const ls = [
+      porBotao("b_men010", "op_aaaaaa", "b_opa011"),
+      porBotao("b_men010", "op_aaaaaa", "b_opb012"),
+      porBotao("b_men010", "op_bbbbbb", "b_opb012"),
+    ];
+    const r = salvar([menu, opA, opB], ls);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(0);
+  });
+
+  it("SALVAR: `botoes: [null]` — é QUEDA, e ela derruba o lote inteiro", () => {
+    // Medido na Tarefa 4: `[null].map(b => b.rotulo)` estoura `TypeError` dentro
+    // de `enfileirarPasso`, a caminhada aborta no meio, o cursor não é gravado e
+    // o `try/catch` do webhook — que está FORA dos dois laços — derruba junto o
+    // resto dos eventos daquela requisição. Não é botão feio: é perda de entrega
+    // para todo mundo que chegou naquele POST.
+    const quebrado = { id: "b_qbr001", tipo: "dm", texto: "Escolha", botoes: [null] };
+    expect(salvar([quebrado], [])).toHaveLength(1);
+  });
+
+  it("SALVAR: as outras formas de `botoes` cru", () => {
+    const com = (botoes: unknown) => [{ id: "b_qbr002", tipo: "dm", texto: "Escolha", botoes }];
+    // não é lista
+    expect(salvar(com("op_aaaaaa"), [])).toHaveLength(1);
+    // elemento sem rótulo
+    expect(salvar(com([{ id: "op_aaaaaa", rotulo: "  " }]), [])).toHaveLength(1);
+    // elemento sem id
+    expect(salvar(com([{ rotulo: "A" }]), [])).toHaveLength(1);
+    // dois botões com o mesmo id: o segundo nunca casa com ligação nenhuma
+    expect(
+      salvar(
+        com([
+          { id: "op_aaaaaa", rotulo: "A" },
+          { id: "op_aaaaaa", rotulo: "B" },
+        ]),
+        []
+      )
+    ).toHaveLength(1);
+    // dois-pontos no id: `lerPayload` conta as partes e devolve null — o toque
+    // não faz nada, calado
+    expect(salvar(com([{ id: "op_a:aaaa", rotulo: "A" }]), [])).toHaveLength(1);
+    // e a lista vazia não é defeito nenhum: `envioDaDm` nem a reconhece
+    expect(salvar(com([]), [])).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // IMPEDE ATIVAR
+  // -------------------------------------------------------------------------
+
+  const menuDeDois = {
+    id: "b_men020",
+    tipo: "dm",
+    texto: "Escolha",
+    botoes: [
+      { id: "op_aaaaaa", rotulo: "A" },
+      { id: "op_bbbbbb", rotulo: "B" },
+    ],
+  };
+  const opA = { id: "b_opa021", tipo: "dm", texto: "A" };
+
+  it("ATIVAR, não salvar: botão sem destino — menu pela metade é trabalho normal", () => {
+    // Montar um menu de três opções, ligar duas e voltar amanhã não pode travar
+    // o salvar. Publicar um botão que não faz nada é outra história.
+    const ls = [porBotao("b_men020", "op_aaaaaa", "b_opa021")];
+    expect(salvar([menuDeDois, opA], ls)).toHaveLength(0);
+    const r = ativar([menuDeDois, opA], ls);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(0);
+  });
+
+  it("ATIVAR: bloco que nenhuma seta alcança a partir da entrada", () => {
+    const outro = { id: "b_out031", tipo: "dm", texto: "Outro" };
+    const solto = { id: "b_sol032", tipo: "dm", texto: "Solto" };
+    const ls = [sempre("b_bem001", "b_out031")];
+    expect(salvar([bem, outro, solto], ls)).toHaveLength(0);
+    const r = ativar([bem, outro, solto], ls);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(2);
+  });
+
+  it("O BLOCO DE PARTIDA NÃO É INALCANÇÁVEL — nada aponta para ele por definição", () => {
+    // Sem esta linha, a regra de alcançabilidade acusa a própria entrada do
+    // fluxo e NENHUMA automação pode mais ser ativada.
+    const outro = { id: "b_out033", tipo: "dm", texto: "Outro" };
+    const ls = [sempre("b_bem001", "b_out033")];
+    expect(ativar([bem, outro], ls)).toHaveLength(0);
+    expect(conferirLista([bem, outro], "dm", ls)).toEqual([]);
+  });
+
+  it("ATIVAR: portão de seguidor que é o fim do caminho — segue e não recebe nada", () => {
+    const ls = [sempre("b_bem001", "b_por002")];
+    const r = ativar([bem, portao], ls);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+  });
+
+  it("ATIVAR: mais botões do que cabe numa mensagem", () => {
+    const botoes = Array.from({ length: LIMITE_DE_BOTOES + 1 }, (_, i) => ({
+      id: `op_x${String(i).padStart(5, "0")}`,
+      rotulo: `Opção ${i}`,
+    }));
+    const menu = { id: "b_men040", tipo: "dm", texto: "Escolha", botoes };
+    const destino = { id: "b_dst041", tipo: "dm", texto: "Destino" };
+    const ls = botoes.map((b) => porBotao("b_men040", b.id, "b_dst041"));
+    expect(salvar([menu, destino], ls)).toHaveLength(0);
+    const r = ativar([menu, destino], ls);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(0);
+    // Um a menos cabe, e não acusa nada.
+    const cabe = { ...menu, botoes: botoes.slice(0, LIMITE_DE_BOTOES) };
+    expect(ativar([cabe, destino], ls)).toHaveLength(0);
+  });
+
+  it("ATIVAR: o portão existe, mas o link é alcançável sem passar por ele", () => {
+    // O caso que a Tarefa 3b não pôde fechar no motor: aplicar a regra na porta
+    // da frente faria uma seta de volta pôr o pedido de "me siga" como PRIMEIRA
+    // mensagem de todo mundo. Sobra o que só a montagem resolve.
+    const menu = {
+      id: "b_men050",
+      tipo: "dm",
+      texto: "Escolha",
+      botoes: [
+        { id: "op_aaaaaa", rotulo: "Quero" },
+        { id: "op_bbbbbb", rotulo: "Direto" },
+      ],
+    };
+    const comFuga = [
+      porBotao("b_men050", "op_aaaaaa", "b_por002"),
+      sempre("b_por002", "b_lnk003"),
+      porBotao("b_men050", "op_bbbbbb", "b_lnk003"),
+    ];
+    const r = ativar([menu, portao, link], comFuga);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(2);
+    expect(salvar([menu, portao, link], comFuga)).toHaveLength(0);
+
+    // Sem a fuga — os dois botões passam pelo portão — não sobra nada a dizer.
+    const semFuga = [
+      porBotao("b_men050", "op_aaaaaa", "b_por002"),
+      porBotao("b_men050", "op_bbbbbb", "b_por002"),
+      sempre("b_por002", "b_lnk003"),
+    ];
+    expect(ativar([menu, portao, link], semFuga)).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // AVISO, E O QUE NÃO É PROBLEMA NENHUM
+  // -------------------------------------------------------------------------
+
+  it("AVISO: bifurcação com um botão só", () => {
+    const menu = {
+      id: "b_men060",
+      tipo: "dm",
+      texto: "Escolha",
+      botoes: [{ id: "op_aaaaaa", rotulo: "A" }],
+    };
+    const ls = [porBotao("b_men060", "op_aaaaaa", "b_opa021")];
+    expect(salvar([menu, opA], ls)).toHaveLength(0);
+    expect(ativar([menu, opA], ls)).toHaveLength(0);
+    const r = avisos([menu, opA], ls);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(0);
+  });
+
+  it("lista válida com bifurcação E junção não tem problema nenhum", () => {
+    const menu = {
+      id: "b_men070",
+      tipo: "dm",
+      texto: "Escolha",
+      botoes: [
+        { id: "op_aaaaaa", rotulo: "A" },
+        { id: "op_bbbbbb", rotulo: "B" },
+      ],
+    };
+    const a = { id: "b_opa071", tipo: "dm", texto: "Braço A" };
+    const b = { id: "b_opb072", tipo: "dm", texto: "Braço B" };
+    const fim = { id: "b_fim073", tipo: "dm", texto: "Até logo" };
+    const ls = [
+      porBotao("b_men070", "op_aaaaaa", "b_opa071"),
+      porBotao("b_men070", "op_bbbbbb", "b_opb072"),
+      sempre("b_opa071", "b_fim073"),
+      sempre("b_opb072", "b_fim073"),
+    ];
+    expect(conferirLista([menu, a, b, fim], "dm", ls)).toEqual([]);
+  });
+
+  it("SEM SETA NENHUMA as regras de grafo ficam caladas — é a lista de antes da fase", () => {
+    // `ligacoes` tem `default '[]'::jsonb`: toda automação gravada antes desta
+    // fase chega sem seta alguma, e quem as escreve é a migração
+    // (`scripts/ligar-passos-existentes.mjs --aplicar`), que é DADO. Acusar
+    // aqui trancaria o dono fora do painel de toda automação antiga.
+    expect(conferirLista([bem, portao, link], "dm", [])).toEqual([]);
+    expect(conferirLista([bem, portao, link], "dm")).toEqual([]);
+  });
+
+  it("os erros que já existiam continuam sendo de SALVAR", () => {
+    // Bloco incompleto é dado que o motor não consegue ler, e ele não mudou de
+    // porta nesta tarefa.
+    const vazio = { id: "b_vaz080", tipo: "dm", texto: "  " };
+    const r = conferirLista([bem, vazio], "dm", [sempre("b_bem001", "b_vaz080")]);
+    expect(r.filter((p) => p.nivel === "erro")).toHaveLength(1);
+    expect(r.filter((p) => p.nivel === "erro")[0].quando).toBe("salvar");
+  });
+});

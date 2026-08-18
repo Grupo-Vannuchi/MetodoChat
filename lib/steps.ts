@@ -146,11 +146,12 @@ export type Posicao = { x: number; y: number };
 // A distinção importa para quem for priorizar a Tarefa 5: o primeiro caso é
 // perda de entrega para todo mundo daquela requisição, não um botão feio.
 //
-// FECHAR ISSO É DA TAREFA 5, e está registrado aqui — e não só num relatório —
-// porque é aqui que quem mexer vai ler: a conferência de CONTEÚDO de `botoes`
-// (cada elemento é objeto, com `id` e `rotulo` de texto não vazios, ids
-// distintos dentro do bloco) pertence a `conferir`/`conferirLista`, que é o
-// lugar que TRAVA O SALVAR. Esta função não recusa bloco nenhum de propósito —
+// ISSO FOI FECHADO NA TAREFA 5, e o registro fica aqui — e não só num relatório
+// — porque é aqui que quem mexer vai ler: a conferência de CONTEÚDO de `botoes`
+// (cada elemento é objeto, com `id` e `rotulo` de texto não vazios, sem
+// dois-pontos no id, ids distintos dentro do bloco) mora em `conferirLista`, que
+// é o lugar que TRAVA O SALVAR, e a peça que a executa é `botoesCrus`, no fim
+// deste arquivo. Esta função continua não recusando bloco nenhum de propósito —
 // recusar aqui faria `interpretar` IGNORAR o bloco, que é a troca cara descrita
 // no comentário do rótulo do portão, em `conferir`.
 //
@@ -317,12 +318,18 @@ export type Resultado = {
 // como premissa: o que chega do banco não tem forma garantida, e quem valida é
 // este arquivo.
 //
-// E O TETO É A ÚNICA DEFESA QUE EXISTE HOJE, o que vale dizer porque a versão
-// anterior deste comentário prometia outra: `temCicloDeSempre` (mais abaixo)
-// está escrita e testada, mas NINGUÉM a chama fora dos testes — `conferirLista`
-// não a consulta, e portanto o anel de `sempre` passa no salvar sem que nada
-// acuse. Quem a liga é a Tarefa 5. Até lá, um anel gravado pela tela chega aqui
-// exatamente como um gravado à mão, e é este teto que o segura.
+// O TETO JÁ FOI A ÚNICA DEFESA QUE EXISTIA, e desde a Tarefa 5 não é mais:
+// `conferirLista` (lá embaixo) chama `temCicloDeSempre` e TRAVA O SALVAR de um
+// anel de `sempre`. Este parágrafo já prometeu essa ligação antes de ela existir
+// — a função foi escrita na Tarefa 2 e passou três tarefas sem um único chamador
+// fora dos testes —, e a correção que apontava a mentira fica registrada aqui
+// para ninguém reescrevê-la de memória.
+//
+// O QUE O TETO CONTINUA SEGURANDO, e é por isso que ele não sai: o anel que
+// chega pela TELA agora é barrado no salvar, mas `ligacoes` é uma coluna `jsonb`
+// e o anel escrito por um script, por uma restauração de backup ou por uma
+// consulta à mão não passa por conferência nenhuma. Para ele, este teto é a
+// defesa, e continua sendo a única.
 //
 // Sem o teto, um anel de `sempre` faz a caminhada não retornar NUNCA: a fila
 // cresce até a memória acabar, dentro de um webhook que a Meta reenvia por 36
@@ -464,11 +471,34 @@ export function seguinteDe(ligacoes: unknown, bloco: string): string | null {
 // forem as ligações válidas. Não precisa de teto como `interpretar` — o teto de
 // lá existe porque a caminhada de ENTREGA pode legitimamente repetir bloco (um
 // menu que volta a si mesmo), e aqui repetir não acrescenta resposta nenhuma.
-export function haCaminho(ligacoes: unknown, de: string, para: string): boolean {
+//
+// `evitar` FECHA UM BLOCO, e é assim que se pergunta "dá para chegar lá SEM
+// passar por este". Ele existe para a conferência do portão contornável
+// (`conferirLista`, lá embaixo): fechando o portão, o que ainda alcança o link é
+// exatamente o caminho que não passa por ele.
+//
+// FECHA O BLOCO PELA CHEGADA, e não pela saída, e a diferença importa: descartar
+// as setas que SAEM dele deixaria a busca entrar no bloco e parar ali, contando
+// como "não alcança" um caminho que de fato atravessa o portão. Descartando as
+// que CHEGAM, o bloco nunca é pisado, que é o que "sem passar por ele" quer
+// dizer. O ponto de partida é a única exceção possível, e quem chama trata dela
+// antes — partir do próprio portão é partir de dentro dele.
+//
+// É O MESMO PARÂMETRO que o BFS independente da varredura
+// (`scripts/varredura-portao.mjs`) já tem com o nome `sem`. Os dois continuam
+// separados de propósito — a varredura não pergunta ao réu se o crime aconteceu
+// —, mas a pergunta que eles respondem é a mesma, e é bom que se pareçam.
+export function haCaminho(
+  ligacoes: unknown,
+  de: string,
+  para: string,
+  evitar?: string
+): boolean {
   const vistos = new Set<string>([de]);
   const fila: string[] = [de];
   while (fila.length) {
     for (const l of ligacoesDe(ligacoes, fila.shift()!)) {
+      if (l.para === evitar) continue;
       if (l.para === para) return true;
       if (!vistos.has(l.para)) {
         vistos.add(l.para);
@@ -494,9 +524,10 @@ export function haCaminho(ligacoes: unknown, de: string, para: string): boolean 
 //   TEXTO cai na `senao`, quando ela existe. É a ligação para quem respondeu
 //     digitando em vez de tocar.
 //   BOTÃO SEM LIGAÇÃO devolve null, e NÃO cai na `senao` — a `senao` é para
-//     quem DIGITOU. Um botão sem destino é defeito de montagem (a
-//     conferência da Tarefa 5 vai recusar salvar um assim, mas ligação
-//     gravada fora do editor pode chegar quebrada), e mandá-lo para a
+//     quem DIGITOU. Um botão sem destino é defeito de montagem, e desde a
+//     Tarefa 5 `conferirLista` o recusa — no ATIVAR, e não no salvar, porque
+//     menu pela metade é trabalho normal de quem está desenhando; ligação
+//     gravada fora do editor continua podendo chegar quebrada. Mandá-lo para a
 //     `senao` esconderia esse defeito atrás de um caminho que não é o dele.
 //     ESTE null NÃO É SILÊNCIO, e é `caminhoDoBotao` (mais abaixo) quem o
 //     impede de virar um: ela recebe o null desta função e devolve um
@@ -1045,9 +1076,39 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
 //     interrompe a caminhada: ela anda até o teto a cada disparo, e o dono não
 //     tem como descobrir por quê olhando a tela.
 //
-// É por isso que a caminhada aqui para em todo bloco que espera resposta: um
-// caminho que atravessa uma parada não é um caminho que a execução percorre de
-// uma vez, e ele não pode fechar anel nenhum.
+// É por isso que a caminhada aqui para em toda PARADA DURA: um caminho que
+// atravessa uma parada dessas não é um caminho que a execução percorre de uma
+// vez, e ele não pode fechar anel nenhum.
+//
+// ---------------------------------------------------------------------------
+// PARADA DURA, E NÃO `esperaResposta`, E ISSO É A CORREÇÃO DA TAREFA 5.
+//
+// A caminhada quebrava em `esperaResposta`, e `esperaResposta` diz sim ao
+// PORTÃO — `pedir_follow` e `pedir_email`. Só que o portão NÃO segura anel
+// nenhum: quem o destrava não é a pessoa, é a própria execução. Medido pela
+// revisão da Tarefa 3b, com `passos: [pedir_follow G, dm X]` e as setas
+// `G --sempre--> X --sempre--> G`: esta função devolvia FALSE e o motor deu
+// 201 VOLTAS antes de a medição ser interrompida por teto próprio.
+//
+// O MECANISMO, e ele é pior do que travar: em `executarFluxo` (lib/engine.ts) o
+// ramo `pedir_follow` faz `return executarFluxo(…)` quando `resolverFollow`
+// devolve "passou", e o ramo `pedir_email` faz o mesmo quando o endereço já é
+// conhecido. Os dois estão dentro de uma `async`, então a recursão NÃO estoura a
+// pilha — ela simplesmente nunca retorna. O webhook fica pendurado, e a Meta
+// reenvia o evento por 36 horas. O comentário do ramo `pedir_email` de lá já
+// nomeava este anel como "o único laço infinito que existe nessa vizinhança" e
+// o registrava para esta tarefa.
+//
+// A LINHA CERTA, então, é a mesma de `contarParadasDuras` (logo abaixo), e por
+// isso as duas perguntam à mesma função: quem interrompe uma volta é a `dm` que
+// espera, porque só o toque de uma PESSOA a destrava. Portão a execução
+// reavalia sozinha — reconsulta a Meta, pula o e-mail já conhecido —, e por
+// isso ele não interrompe volta nenhuma.
+//
+// O QUE NÃO MUDOU: um anel que atravessa um menu, ou uma resposta rápida,
+// continua devolvendo `false`. É o padrão legítimo "menu → opção → volta ao
+// menu", e cada volta dele custa um toque.
+// ---------------------------------------------------------------------------
 //
 // PERCORRE A PARTIR DE CADA BLOCO, e não só da entrada: um anel pendurado num
 // braço que a entrada não alcança hoje trava do mesmo jeito no dia em que uma
@@ -1071,7 +1132,7 @@ export function temCicloDeSempre(passos: unknown, ligacoes: unknown): boolean {
       if (j === null) break;
 
       const { passo } = conferir(passos[j]);
-      if (passo && esperaResposta(passo)) break;
+      if (passo && paradaDura(passo)) break;
 
       atual = seguinteDe(ligacoes, atual);
     }
@@ -1095,9 +1156,28 @@ function contarParadasDuras(passos: unknown[]): number {
   let n = 0;
   for (const p of passos) {
     const { passo } = conferir(p);
-    if (passo && passo.tipo === "dm" && esperaResposta(passo)) n++;
+    if (passo && paradaDura(passo)) n++;
   }
   return n;
+}
+
+// A PERGUNTA ACIMA, ISOLADA, porque ela tem DOIS donos e eles não podem
+// discordar.
+//
+// `contarParadasDuras` (acima) a usa para dizer de onde o fallback pode partir;
+// `temCicloDeSempre` (acima) a usa para dizer o que interrompe uma volta. As
+// duas querem a mesma coisa — "isto só destrava com um toque de PESSOA" —, e
+// enquanto foram duas expressões, uma delas estava escrita errado: a de
+// `temCicloDeSempre` era `esperaResposta`, que inclui o portão, e foi essa
+// diferença de uma palavra que deixou o anel com portão dentro passar no salvar.
+//
+// A REGRA, e o porquê do recorte em `dm`: `pedir_follow` e `pedir_email` são
+// portões que a PRÓPRIA EXECUÇÃO reavalia — o portão reconsulta a Meta e segue
+// sozinho quando a pessoa já segue; o pedido de e-mail é pulado quando o
+// endereço já é conhecido. A `dm` que espera não tem nada disso: nada além do
+// toque a destrava.
+function paradaDura(p: Passo): boolean {
+  return p.tipo === "dm" && esperaResposta(p);
 }
 
 // O índice do PRIMEIRO portão de follow da lista. Null quando não há nenhum.
@@ -1320,10 +1400,11 @@ export function payloadDoPortao(automacaoId: string, blocoId: string): string {
 // "A maximum of 13 quick replies are supported". Não é o número da memória de
 // ninguém — é o que o guia diz.
 //
-// ELE MORA AQUI, e não no dreno, porque quem corta é a função abaixo. A
-// conferência do editor (Tarefa 5) vai precisar do mesmo número para avisar o
-// dono ANTES de salvar, e ela também é código puro: um número só, num arquivo
-// que os dois já importam.
+// ELE MORA AQUI, e não no dreno, porque quem corta é a função abaixo. E a
+// conferência do editor precisa do MESMO número: desde a Tarefa 5,
+// `conferirLista` recusa ATIVAR um bloco com mais botões do que isto, para o
+// dono saber antes de publicar em vez de descobrir pelos botões que sumiram da
+// mensagem. Um número só, num arquivo que os dois já importam.
 export const LIMITE_DE_BOTOES = 13;
 
 // O MENU QUE VAI NA MENSAGEM: pareia rótulos com payloads e corta no limite.
@@ -2204,6 +2285,34 @@ export function interrompeOFluxo(
 
 export type Problema = {
   nivel: "erro" | "aviso";
+  // EM QUAL PORTA ESTE PROBLEMA TRAVA, e a linha entre as duas é de PRODUTO.
+  //
+  //   "salvar" — DADO QUE O MOTOR NÃO CONSEGUE LER. Ele cai (`botoes: [null]`
+  //     estoura `TypeError` dentro de `enfileirarPasso` e derruba o resto do
+  //     lote de eventos daquela requisição), ou anda sem parar (o anel de
+  //     `sempre`, que faz a recursão de `executarFluxo` nunca retornar).
+  //     Nenhuma tela deve conseguir gravar isso, então trava as DUAS portas: o
+  //     salvar recusa, e o ativar também.
+  //   "ativar" — FLUXO QUE ENTREGA ERRADO, mas que o motor lê perfeitamente e
+  //     cuja causa é MONTAGEM PELA METADE. Montar um menu de três opções, ligar
+  //     duas e voltar amanhã é trabalho normal; travar o salvar nisso seria
+  //     hostil, e o dono ficaria sem onde guardar o meio do trabalho. O que não
+  //     pode é isso ir ao ar: publicar um botão que não faz nada é a falha
+  //     silenciosa que este projeto combate desde a Fase 1a.
+  //
+  // POR QUE NÃO BASTA `nivel`: os dois eixos são independentes. `nivel` diz se
+  // o problema TRAVA alguma coisa (erro) ou só explica (aviso); `quando` diz
+  // QUAL porta ele tranca. Fundir os dois num campo só ("erro", "aviso",
+  // "erro_de_ativar") faria todo leitor que hoje filtra por `nivel === "erro"`
+  // — a borda vermelha do nó, o recado da barra, os dois Server Actions —
+  // precisar aprender um terceiro valor de uma vez, e quem esquecesse um deles
+  // passaria a deixar erro passar em silêncio.
+  //
+  // AVISO NÃO TRANCA PORTA NENHUMA, então o `quando` dele não decide nada. Ele
+  // vem preenchido porque o tipo exige um valor, e o valor é `"ativar"` por ser
+  // o mais fraco dos dois: se um aviso um dia virar erro por engano de edição,
+  // ele vira o erro que só impede publicar, e não o que tranca o salvar.
+  quando: "salvar" | "ativar";
   // Qual bloco. Null quando o problema é da lista inteira.
   indice: number | null;
   mensagem: string;
@@ -2251,28 +2360,91 @@ const SO_UM_POR_LISTA: Record<string, string> = {
 // isso que ela mora aqui e é pura — escrever a regra duas vezes é como as duas
 // versões passam a discordar.
 //
-// ERRO trava o salvar; AVISO explica e deixa passar. A linha entre os dois foi
-// decidida com o dono do produto: trava o que o motor não consegue executar
-// como montado, e avisa o que é incomum mas coerente.
+// ERRO trava uma porta; AVISO explica e deixa passar. QUAL porta cada erro
+// tranca é o campo `quando` (ver `Problema`, acima), e a linha entre as duas foi
+// decidida com o dono do produto: trava o SALVAR o que o motor não consegue LER,
+// e trava só o ATIVAR o fluxo que ele lê e entrega errado por montagem pela
+// metade. Avisa o que é incomum mas coerente.
 //
 // `esperar` com `minutos: 0` NÃO entra aqui, e isso é DECISÃO, não esquecimento:
 // uma espera de zero minutos não atrasa nada, mas também não quebra nada, e o
 // aviso de "espera no fim da lista" (mais abaixo) já pega o caso em que ela é
 // de fato inútil. Um erro ou aviso aqui, sobre o valor em si, seria ruído.
-export function conferirLista(passos: unknown, gatilho: string): Problema[] {
+//
+// ---------------------------------------------------------------------------
+// AS LIGAÇÕES SÃO ARGUMENTO desde a Tarefa 5, porque metade das regras desta
+// função é sobre SETAS e nenhuma delas é respondível sem elas: "há anel", "este
+// botão leva a algum lugar", "este bloco é alcançável", "dá para chegar no link
+// sem passar pelo portão".
+//
+// O PADRÃO `[]` EXISTE POR UMA RAZÃO NOMEADA, e ela tem data para acabar: o
+// quadro (app/automacoes/editor/quadro.tsx) ainda não tem as ligações no estado
+// dele — quem as põe lá é a Tarefa 6, e é ela que passa a mandá-las por aqui.
+// Enquanto isso, a chamada de duas partes que já existe continua compilando e,
+// pela regra do parágrafo seguinte, continua respondendo o mesmo que respondia.
+//
+// SEM SETA NENHUMA, AS REGRAS DE GRAFO FICAM CALADAS, e isso NÃO é uma exceção
+// para o padrão do parâmetro: é a resposta para toda lista sem setas, venha ela
+// de onde vier. O motivo está escrito em `interpretar`: `ligacoes` tem
+// `default '[]'::jsonb`, então TODA automação gravada antes desta fase chega
+// aqui sem uma seta sequer, e quem as escreve é a migração
+// (`scripts/ligar-passos-existentes.mjs --aplicar`), que é DADO e não montagem.
+// Acusar essa lista aqui trancaria o dono fora do painel de toda automação
+// antiga — o mesmo estrago que os comentários do bloco sem `id` e do link legado
+// já recusaram duas vezes neste arquivo.
+//
+// O PREÇO, dito inteiro: uma lista com blocos e nenhuma seta entrega UM BLOCO SÓ
+// (é o parágrafo de `interpretar` com esse título), e esta função não diz nada
+// sobre isso. Quem fecha esse caso é a ordem de implantação registrada lá —
+// coluna, migração, motor —, e não a conferência.
+// ---------------------------------------------------------------------------
+export function conferirLista(
+  passos: unknown,
+  gatilho: string,
+  ligacoes: unknown = []
+): Problema[] {
   const r: Problema[] = [];
 
   // Os dois motivos são separados porque as causas são diferentes: aqui a
   // coluna está quebrada; abaixo ela está íntegra e o conteúdo é que falta. É a
   // mesma distinção que `interpretar` faz nos seus `ignorados`.
   if (!Array.isArray(passos)) {
-    return [{ nivel: "erro", indice: null, mensagem: "A automação não tem lista de blocos." }];
+    return [
+      {
+        nivel: "erro",
+        quando: "salvar",
+        indice: null,
+        mensagem: "A automação não tem lista de blocos.",
+      },
+    ];
   }
   if (!passos.length) {
     return [
-      { nivel: "erro", indice: null, mensagem: "Sem nenhum bloco, a automação não envia nada." },
+      {
+        nivel: "erro",
+        quando: "salvar",
+        indice: null,
+        mensagem: "Sem nenhum bloco, a automação não envia nada.",
+      },
     ];
   }
+
+  // A ENTRADA DO FLUXO É `steps[0]`, e é a partir dela que "alcançável" quer
+  // dizer alguma coisa. O porquê está por extenso em `interpretar`: com as
+  // ligações a ordem do array deixa de significar o próximo, mas guarda
+  // EXATAMENTE UM significado, que é este. A alternativa — "a entrada é o bloco
+  // que ninguém aponta" — não serve: um menu que volta para si mesmo tem seta
+  // chegando na entrada, e o fluxo ficaria sem começo.
+  const entrada = identidadeDoPasso(passos[0], 0);
+
+  // HÁ ALGUMA SETA DESENHADA? É a guarda das regras de grafo, e o motivo inteiro
+  // está no cabeçalho desta função.
+  //
+  // Conta LIGAÇÃO VÁLIDA, e não `ligacoes.length`, porque uma coluna com lixo
+  // dentro não é uma lista de setas: `ligacoesDe` descarta o que
+  // `conferirLigacao` recusa, então uma lista só de lixo caminha exatamente como
+  // uma lista vazia, e as regras têm que responder a mesma coisa nas duas.
+  const temSeta = Array.isArray(ligacoes) && ligacoes.some((l) => Boolean(conferirLigacao(l).ligacao));
 
   let portoes = 0;
   // Guarda o ÍNDICE do primeiro link antes do portão, não só se existe um.
@@ -2292,7 +2464,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     // por quem monta a automação. O `motivo` continua saindo, para diagnóstico,
     // nos `ignorados` de `interpretar`, que é onde alguém atrás do defeito olha.
     if (!passo) {
-      r.push({ nivel: "erro", indice: i, mensagem: paraODono! });
+      r.push({ nivel: "erro", quando: "salvar", indice: i, mensagem: paraODono! });
       continue;
     }
 
@@ -2325,6 +2497,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     if (passo.tipo === "reagir_story" && gatilho === "dm") {
       r.push({
         nivel: "aviso",
+        quando: "ativar",
         indice: i,
         mensagem:
           "Neste gatilho o coraçãozinho não vai para a story: ele reage à mensagem que a pessoa mandou.",
@@ -2333,6 +2506,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     if (passo.tipo === "reagir_story" && gatilho !== "dm" && gatilho !== "story") {
       r.push({
         nivel: "erro",
+        quando: "salvar",
         indice: i,
         mensagem:
           "O coraçãozinho precisa de uma mensagem para reagir, e neste gatilho não chega nenhuma.",
@@ -2341,6 +2515,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     if (passo.tipo === "resposta_publica" && gatilho !== "comment") {
       r.push({
         nivel: "erro",
+        quando: "salvar",
         indice: i,
         mensagem: "A resposta pública só funciona no gatilho de comentário.",
       });
@@ -2364,6 +2539,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     ) {
       r.push({
         nivel: "erro",
+        quando: "salvar",
         indice: i,
         mensagem:
           "Esta resposta pública está em branco, e por isso não é publicada: o motor sorteia um dos textos e desiste quando ele não tem nada escrito.",
@@ -2404,6 +2580,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
       if (typeof idBruto !== "string" || !FORMA_DO_ID.test(idBruto)) {
         r.push({
           nivel: "erro",
+          quando: "salvar",
           indice: i,
           mensagem:
             "Este bloco tem uma identidade inválida. Ela é o que separa um envio do outro, e com essa identidade uma das mensagens da automação deixa de ser entregue, sem aviso.",
@@ -2411,6 +2588,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
       } else if (idsVistos.has(idBruto)) {
         r.push({
           nivel: "erro",
+          quando: "salvar",
           indice: i,
           mensagem:
             "Dois blocos têm a mesma identidade. Só o primeiro é entregue — o segundo é descartado no envio, sem aviso.",
@@ -2443,6 +2621,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     if (passo.tipo === "pedir_follow" && !passo.botao_label) {
       r.push({
         nivel: "erro",
+        quando: "salvar",
         indice: i,
         mensagem:
           "Este pedido de follow está sem o texto do botão, e sem ele o Instagram não entrega botão nenhum: a mensagem sai como texto puro e o fluxo para aqui, sem nada para a pessoa tocar.",
@@ -2454,6 +2633,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
       if (portoes > 1) {
         r.push({
           nivel: "erro",
+          quando: "salvar",
           indice: i,
           mensagem:
             "Só pode haver um pedido de follow. Com dois, o botão “Já sigo!” não sabe a qual voltar.",
@@ -2465,7 +2645,8 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     // é o segundo que o dono precisa apagar ou trocar de lugar.
     const soUm = SO_UM_POR_LISTA[passo.tipo];
     if (soUm) {
-      if (jaVistos.has(passo.tipo)) r.push({ nivel: "erro", indice: i, mensagem: soUm });
+      if (jaVistos.has(passo.tipo))
+        r.push({ nivel: "erro", quando: "salvar", indice: i, mensagem: soUm });
       jaVistos.add(passo.tipo);
     }
 
@@ -2568,6 +2749,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     if (passo.tipo === "dm" && passo.url !== undefined && !passo.url) {
       r.push({
         nivel: "erro",
+        quando: "salvar",
         indice: i,
         mensagem: passo.botao_label
           ? "Mensagem com link sem endereço trava o fluxo para sempre: ele para aqui esperando o toque num botão que não leva a lugar nenhum."
@@ -2583,6 +2765,141 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
     ) {
       indiceDoLinkAntesDoPortao = i;
     }
+
+    // -----------------------------------------------------------------------
+    // OS BOTÕES DO BLOCO.
+    //
+    // A CONFERÊNCIA DE CONTEÚDO DE `botoes` MORA AQUI, e o pedido está escrito
+    // no comentário de `envioDaDm` desde a Tarefa 4, com a medição: aquela
+    // função valida a LISTA (`Array.isArray` e `.length`) e não os ELEMENTOS,
+    // porque recusar lá faria `interpretar` IGNORAR o bloco — a troca cara que o
+    // ramo `pedir_follow` de `conferir` descreve. Aqui a recusa TRAVA O SALVAR e
+    // não muda nada do que o motor faz com uma lista já gravada.
+    //
+    // É ERRO DE SALVAR, e não de ativar, porque o motor CAI. Medido na Tarefa 4:
+    // `[null].map(b => b.rotulo)` estoura `TypeError` dentro de
+    // `enfileirarPasso` (lib/engine.ts), a caminhada aborta no meio, o cursor —
+    // gravado depois do laço — não é gravado, e o `try/catch` do webhook, que
+    // está FORA dos dois laços, derruba junto o resto do lote de eventos daquela
+    // requisição. Não é "botão aparado tarde": é perda de entrega para todo mundo
+    // que chegou naquele POST. `conferir`, no ramo `dm`, valida só `texto` — este
+    // é o único lugar que olha `botoes`.
+    if (passo.tipo === "dm") {
+      const brutos = (passos[i] as { botoes?: unknown }).botoes;
+      const cru = brutos === undefined ? null : botoesCrus(brutos);
+      if (cru) {
+        r.push({ nivel: "erro", quando: "salvar", indice: i, mensagem: cru });
+      } else {
+        const envio = envioDaDm(passo);
+        if (envio.forma === "botoes") {
+          // O TETO DA META (Tarefa 4). `botoesDaMensagem` corta em
+          // `LIMITE_DE_BOTOES` e o dreno registra `menu_cortado`, então nada
+          // quebra — o que acontece é que os botões de baixo SOMEM da mensagem,
+          // e com eles os braços do fluxo que só eles alcançam. O motor lê a
+          // lista sem dificuldade nenhuma; o que ela entrega é que não é o que a
+          // tela mostra. É a definição de erro de ATIVAR.
+          if (envio.botoes.length > LIMITE_DE_BOTOES) {
+            r.push({
+              nivel: "erro",
+              quando: "ativar",
+              indice: i,
+              mensagem: `Uma mensagem do Instagram cabe ${LIMITE_DE_BOTOES} botões, e este menu tem ${envio.botoes.length}. Os de baixo não são entregues, e quem só chegaria por eles não recebe nada.`,
+            });
+          }
+
+          // BIFURCAÇÃO COM UM BOTÃO SÓ é AVISO, e não erro, porque ela FUNCIONA:
+          // a mensagem sai com um botão, o toque casa com a ligação e o fluxo
+          // segue. O que ela não faz é escolher — todo mundo vai para o mesmo
+          // lugar —, e isso costuma ser um menu que ficou pela metade. Quem
+          // decide é o dono.
+          if (envio.botoes.length === 1) {
+            r.push({
+              nivel: "aviso",
+              quando: "ativar",
+              indice: i,
+              mensagem:
+                "Esta bifurcação tem um botão só, então ela não escolhe nada: todo mundo segue pelo mesmo caminho.",
+            });
+          }
+
+          // BOTÃO SEM DESTINO é ERRO DE ATIVAR, e a colocação é a decisão de
+          // produto desta tarefa. Montar um menu de três opções, ligar duas e
+          // voltar amanhã é trabalho normal, e travar o salvar nisso seria
+          // hostil — o dono ficaria sem onde guardar o meio do trabalho.
+          // Publicar um botão que não faz nada é outra coisa: a pessoa toca,
+          // `ligacaoEscolhida` devolve null, e o que sai é uma linha
+          // `botao_sem_caminho` em Atividade que ela nunca vê.
+          //
+          // A pergunta é feita a `ligacaoEscolhida` e não respondida de novo
+          // aqui: é a MESMA que o motor faz no toque, e duas cópias dela
+          // discordariam no dia em que o desempate mudasse.
+          if (temSeta) {
+            const id = identidadeDoPasso(passos[i], i);
+            const orfaos = envio.botoes.filter(
+              (b) => ligacaoEscolhida(ligacoes, id, { tipo: "botao", botao: b.id }) === null
+            );
+            if (orfaos.length) {
+              r.push({
+                nivel: "erro",
+                quando: "ativar",
+                indice: i,
+                mensagem:
+                  orfaos.length === 1
+                    ? `O botão “${orfaos[0].rotulo}” não leva a lugar nenhum: quem tocar nele não recebe nada.`
+                    : `${orfaos.length} botões deste menu não levam a lugar nenhum: quem tocar neles não recebe nada.`,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // O QUE SÓ AS SETAS RESPONDEM.
+    // -----------------------------------------------------------------------
+    if (temSeta) {
+      const id = identidadeDoPasso(passos[i], i);
+
+      // BLOCO INALCANÇÁVEL. Nenhuma seta chega nele partindo da entrada, então
+      // ele nunca é entregue — está na tela, ocupa espaço no quadro, e o dono
+      // acha que mandou.
+      //
+      // O BLOCO DE PARTIDA NUNCA ENTRA AQUI, e essa linha é a mais importante
+      // desta regra: nada aponta para a entrada POR DEFINIÇÃO, e sem o `i > 0`
+      // a conferência acusaria a própria entrada de toda automação — nenhuma
+      // poderia mais ser ativada. `haCaminho` começa nas SAÍDAS de `de`, então
+      // ela só diz sim à própria entrada quando existe um anel que volta nela.
+      //
+      // É ERRO DE ATIVAR pelo mesmo critério do botão sem destino: um bloco
+      // ainda solto no quadro é o estado normal de quem está montando.
+      if (i > 0 && !haCaminho(ligacoes, entrada, id)) {
+        r.push({
+          nivel: "erro",
+          quando: "ativar",
+          indice: i,
+          mensagem:
+            "Nenhuma seta chega neste bloco a partir do começo do fluxo, então ele nunca é entregue.",
+        });
+      }
+
+      // PORTÃO QUE É O FIM DO CAMINHO: a pessoa segue o perfil, vence o portão —
+      // e não recebe mais nada. `executarFluxo` (lib/engine.ts), quando
+      // `resolverFollow` devolve "passou", retoma de `seguinteDe(portão)`; sem
+      // essa seta o destino é null, `interpretar` sai calada e o cursor é limpo.
+      //
+      // É o pior fim possível para o fluxo, porque a pessoa fez exatamente o que
+      // foi pedido. E é ERRO DE ATIVAR e não de salvar: o portão recém-arrastado
+      // ainda sem seta de saída é o estado normal de quem acabou de arrastá-lo.
+      if (passo.tipo === "pedir_follow" && seguinteDe(ligacoes, id) === null) {
+        r.push({
+          nivel: "erro",
+          quando: "ativar",
+          indice: i,
+          mensagem:
+            "Não há nenhum bloco depois deste pedido de follow: quem seguir o perfil não recebe mais nada.",
+        });
+      }
+    }
   }
 
   // Sem portão nenhum não há o que avisar: o link chegar a quem não segue é o
@@ -2590,6 +2907,7 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
   if (indiceDoLinkAntesDoPortao !== null && portoes > 0) {
     r.push({
       nivel: "aviso",
+      quando: "ativar",
       indice: indiceDoLinkAntesDoPortao,
       mensagem:
         "O link sai antes do pedido de follow, então quem não segue recebe o link mesmo assim. O portão só segura o que vier depois dele.",
@@ -2600,10 +2918,209 @@ export function conferirLista(passos: unknown, gatilho: string): Problema[] {
   if (ultimo?.tipo === "esperar") {
     r.push({
       nivel: "aviso",
+      quando: "ativar",
       indice: passos.length - 1,
       mensagem: "Não há nenhum bloco depois desta espera, então ela não atrasa nada.",
     });
   }
 
+  // -------------------------------------------------------------------------
+  // O ANEL DE `sempre`: A CAMINHADA QUE NÃO TERMINA.
+  //
+  // `temCicloDeSempre` FOI ESCRITA NA TAREFA 2 E NUNCA TINHA SIDO CHAMADA. Até
+  // esta linha, o único lugar do sistema que a mencionava fora dos testes era um
+  // comentário — o do teto de passos, que já teve de ser corrigido uma vez por
+  // prometer que ela estava ligada. É esta linha que torna aquele parágrafo
+  // verdadeiro.
+  //
+  // E O TETO NÃO ERA SUBSTITUTO: ele interrompe UMA caminhada de `interpretar`
+  // depois de 100 blocos, e a caminhada de entrega não é a única que anda. Quem
+  // não retorna nunca é `executarFluxo` (lib/engine.ts), que chama a si mesmo a
+  // cada portão vencido — o teto de `interpretar` não conta essas voltas, porque
+  // cada uma delas é uma interpretação NOVA.
+  //
+  // É ERRO DE SALVAR porque é dado que o motor não consegue ler: com o anel
+  // gravado, o webhook fica pendurado e a Meta reenvia o evento por 36 horas.
+  // Nenhuma tela deve conseguir produzir isso, ativada ou não.
+  //
+  // `indice: null` porque o anel é da LISTA: ele tem dois ou mais blocos e
+  // nenhum deles é "o culpado" — o que está errado é o desenho entre eles.
+  if (temCicloDeSempre(passos, ligacoes)) {
+    r.push({
+      nivel: "erro",
+      quando: "salvar",
+      indice: null,
+      mensagem:
+        "Há uma volta no fluxo que o motor percorre sozinho, sem parar em nenhuma pergunta: a automação nunca termina de responder. Faça a volta passar por uma mensagem com botão, que é o que espera a pessoa.",
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // DUAS SAÍDAS PARA A MESMA CONDIÇÃO.
+  //
+  // `ligacoesDe` devolve as saídas na ordem em que foram gravadas, e tanto
+  // `seguinteDe` quanto `ligacaoEscolhida` ficam com a PRIMEIRA que serve. A
+  // segunda, então, é uma seta desenhada na tela que a execução nunca percorre —
+  // e nada acusa. É ERRO DE SALVAR pelo mesmo critério de "identidade repetida":
+  // o motor não consegue ler o que o desenho diz, porque o desenho diz duas
+  // coisas.
+  //
+  // A REGRA É POR CONDIÇÃO, e não só por botão, porque o mecanismo é o mesmo nos
+  // três casos — o desempate de `ligacoesDe` não conhece o tipo da condição.
+  // Duas `sempre` saindo do mesmo bloco e duas `senao` são a mesma ambiguidade
+  // que dois destinos para o mesmo botão, e a mensagem é que muda.
+  //
+  // DESTINOS IGUAIS NÃO CONTAM: duas setas para o mesmo lugar são redundância,
+  // não ambiguidade — a execução segue para onde as duas mandam, e não há
+  // decisão perdida.
+  //
+  // UM POR BLOCO: com três setas do mesmo botão, o dono conserta o bloco, não
+  // cada par.
+  for (let i = 0; i < passos.length; i++) {
+    const id = identidadeDoPasso(passos[i], i);
+    const primeiroDestino = new Map<string, string>();
+    for (const l of ligacoesDe(ligacoes, id)) {
+      const chave = l.quando.tipo === "botao" ? `botao:${l.quando.botao}` : l.quando.tipo;
+      const ja = primeiroDestino.get(chave);
+      if (ja === undefined) {
+        primeiroDestino.set(chave, l.para);
+        continue;
+      }
+      if (ja === l.para) continue;
+      r.push({
+        nivel: "erro",
+        quando: "salvar",
+        indice: i,
+        mensagem:
+          l.quando.tipo === "botao"
+            ? "Um dos botões deste bloco tem duas setas saindo para blocos diferentes. Só a primeira leva alguém a algum lugar; a outra nunca é percorrida."
+            : l.quando.tipo === "sempre"
+              ? "Este bloco tem duas setas de continuação para blocos diferentes. Só a primeira é percorrida."
+              : "Este bloco tem duas setas de “respondeu digitando” para blocos diferentes. Só a primeira é percorrida.",
+      });
+      break;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // O PORTÃO CONTORNÁVEL POR DESENHO.
+  //
+  // O caso que a Tarefa 3b fechou no motor e NÃO pôde fechar no gatilho, com a
+  // medição escrita lá e em `scripts/varredura-portao.mjs`: aplicar a regra do
+  // portão na porta da frente faz uma seta de volta (um "quero outro" que
+  // devolve ao menu) pôr o pedido de "me siga" como PRIMEIRA mensagem que todo
+  // mundo recebe, sem nunca ver a boas-vindas. A porta da frente é o único ponto
+  // em que "não há nada antes por onde passar" continua verdadeiro depois do
+  // grafo.
+  //
+  // Sobra, então, o caso que só a MONTAGEM resolve: o dono põe um portão no
+  // fluxo E desenha um caminho da entrada até o link que não passa por ele. O
+  // motor obedece — é o desenho dele —, e o sintoma é o pior possível: o link
+  // sai para quem não segue, e nada acusa.
+  //
+  // NÃO IMPEDE SALVAR — montar por partes é trabalho normal, e o portão que
+  // ainda não foi ligado no meio do caminho é um estado de meio de desenho.
+  // IMPEDE ATIVAR, que é o momento em que o dono diz "pode valer para o
+  // público".
+  //
+  // COMO SE PERGUNTA: fechando o portão (`haCaminho` com `evitar`), o que ainda
+  // alcança o link é exatamente o caminho que não passa por ele. É a mesma
+  // pergunta que o BFS independente da varredura faz com o parâmetro `sem`.
+  //
+  // O LINK QUE É A PRÓPRIA ENTRADA entra pela primeira metade da condição, e
+  // sem ela escaparia: `haCaminho` começa nas SAÍDAS da entrada, então um link
+  // em `steps[0]` só seria "alcançável" se houvesse um anel voltando nele. Ele é
+  // o caso mais óbvio de todos — sai no disparo, antes de qualquer portão.
+  //
+  // O PORTÃO QUE É A ENTRADA não produz caso nenhum: todo caminho começa dentro
+  // dele, e não há como contorná-lo.
+  //
+  // A REGRA POSICIONAL LOGO ACIMA ("o link sai antes do pedido de follow") NÃO
+  // SAI, e a convivência é deliberada: aquela olha a ORDEM DO ARRAY, esta olha o
+  // CAMINHO, e enquanto o quadro não mandar as ligações (Tarefa 6) a posicional
+  // é a única das duas que fala. Elas não se contradizem — uma é aviso sobre a
+  // ordem, a outra é erro sobre o desenho —, mas o dia em que o editor desenhar
+  // setas de verdade é o dia de reavaliar se a posicional ainda diz algo sobre o
+  // sistema.
+  const iPortao = indiceDoPortao(passos);
+  if (temSeta && iPortao !== null) {
+    const idPortao = identidadeDoPasso(passos[iPortao], iPortao);
+    if (idPortao !== entrada) {
+      for (let i = 0; i < passos.length; i++) {
+        const { passo } = conferir(passos[i]);
+        if (!passo || passo.tipo !== "dm" || !passo.url) continue;
+        const id = identidadeDoPasso(passos[i], i);
+        if (id === idPortao) continue;
+        if (id === entrada || haCaminho(ligacoes, entrada, id, idPortao)) {
+          r.push({
+            nivel: "erro",
+            quando: "ativar",
+            indice: i,
+            mensagem:
+              "Dá para chegar neste link sem passar pelo pedido de follow, então ele sai para quem não segue. O portão só segura o que só é alcançável através dele.",
+          });
+        }
+      }
+    }
+  }
+
   return r;
+}
+
+// O CONTEÚDO DE `botoes`, conferido elemento a elemento. Devolve a frase do DONO
+// para a primeira coisa errada, ou null quando a lista está inteira.
+//
+// UMA FRASE POR BLOCO, e não uma por botão: as cinco causas abaixo se consertam
+// no mesmo lugar — o menu daquele bloco —, e cinco linhas vermelhas sobre o
+// mesmo nó só escondem qual é o bloco culpado.
+//
+// AS CINCO CAUSAS, e cada uma tem um mecanismo próprio no motor:
+//
+//   NÃO É LISTA — `envioDaDm` faz `Array.isArray` e não reconhece o menu, então
+//     a mensagem sai como texto puro (ou como resposta rápida, se houver
+//     rótulo). A tela promete um menu e a pessoa recebe outra coisa.
+//   ELEMENTO NULO OU QUE NÃO É OBJETO — é a QUEDA, e é o caso caro:
+//     `enfileirarPasso` (lib/engine.ts) faz `envio.botoes.map(b => b.rotulo)`, e
+//     `null.rotulo` estoura `TypeError`. O comentário do bloco de botões, lá em
+//     cima, tem o estrago inteiro.
+//   RÓTULO EM BRANCO — `botoesDaMensagem` descarta o par, e o botão some da
+//     mensagem. Descartando TODOS, o menu sai vazio, que é o
+//     `menu_sem_botoes` de lib/queue-drain.ts.
+//   ID COM DOIS-PONTOS — o id viaja dentro do payload
+//     (`AUTO:<automação>:<bloco>:<botão>`), e `lerPayload` separa por `:` e
+//     recusa mais de quatro partes. O botão é entregue, é tocável, e o toque
+//     não faz absolutamente nada — sem erro em lugar nenhum, porque não há
+//     linha em Atividade para um toque que não decide nada.
+//   IDS REPETIDOS DENTRO DO BLOCO — `ligacaoEscolhida` casa pelo id e fica com a
+//     primeira ligação que serve, então os dois botões levam ao mesmo destino,
+//     por mais diferentes que sejam os rótulos.
+//
+// A FORMA `op_……` NÃO É EXIGIDA, e a diferença para `FORMA_DO_ID` (a dos blocos)
+// é de mecanismo, não de rigor: a do bloco é exigida porque a identidade entra
+// na `dedupe_key` e um id fora da forma COLIDE com a chave por índice de outro
+// bloco, em silêncio. O id de botão não entra em chave nenhuma — ele só precisa
+// atravessar o payload e casar com a ligação, e é isso que as duas linhas acima
+// conferem. `lerPayload` registra a mesma escolha para o lado leitor.
+function botoesCrus(bruto: unknown): string | null {
+  if (!Array.isArray(bruto)) {
+    return "A lista de botões deste bloco não é uma lista, e por isso ela não é entregue: a mensagem sai sem botão nenhum.";
+  }
+  const vistos = new Set<string>();
+  for (const b of bruto) {
+    if (!b || typeof b !== "object") {
+      return "Um dos botões deste bloco está corrompido, e ele derruba o envio da automação inteira naquele momento.";
+    }
+    const o = b as Record<string, unknown>;
+    if (typeof o.rotulo !== "string" || !o.rotulo.trim()) {
+      return "Um dos botões deste bloco está sem texto, e botão sem texto não é entregue: ele some da mensagem.";
+    }
+    if (typeof o.id !== "string" || !o.id || o.id.includes(":")) {
+      return "Um dos botões deste bloco tem uma identidade inválida: ele é entregue, mas o toque nele não faz nada.";
+    }
+    if (vistos.has(o.id)) {
+      return "Dois botões deste bloco têm a mesma identidade, e por isso os dois levam ao mesmo lugar.";
+    }
+    vistos.add(o.id);
+  }
+  return null;
 }
