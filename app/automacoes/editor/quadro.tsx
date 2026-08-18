@@ -16,7 +16,7 @@ import "@xyflow/react/dist/style.css";
 import {
   apagarLigacoes,
   conferirLista,
-  desligarBloco,
+  desligarERenumerar,
   identidadeDoPasso,
   ligar,
   partirLigacao,
@@ -191,8 +191,8 @@ export default function Quadro({
   // SEPARADO DE `passos` de propósito: são duas listas com identidades
   // diferentes (uma de blocos, outra de setas), e guardar a seta dentro do bloco
   // de origem faria a ligação que aponta para um bloco apagado sumir do dado sem
-  // ninguém decidir isso — é `desligarBloco` (lib/steps.ts) que decide, e ele
-  // precisa da lista inteira para achar as setas que CHEGAM no bloco.
+  // ninguém decidir isso — é `desligarERenumerar` (lib/steps.ts) que decide, e
+  // ela precisa da lista inteira para achar as setas que CHEGAM no bloco.
   const [ligacoes, setLigacoes] = useState<Ligacao[]>(ligacoesIniciais);
 
   const [configuracao, setConfiguracao] = useState<Configuracao>(configuracaoInicial);
@@ -418,20 +418,48 @@ export default function Quadro({
   // identidade: `conferirLista` (lib/steps.ts) trata id repetido como ERRO
   // justamente porque ele é produzível — duplicar um bloco é o gesto que o
   // produz —, e um `filter` por identidade apagaria os dois de uma vez.
-  // AS SETAS QUE ENTRAM E SAEM DO BLOCO VÃO JUNTO (`desligarBloco`,
-  // lib/steps.ts), e é nesta tarefa que isso passou a importar: até aqui o
-  // quadro não tinha ligações no estado, e apagar um bloco não tinha seta a
-  // deixar para trás. Sem isto, o bloco anterior ficaria com um caminho para um
-  // id que não existe mais — `interpretar` para nele, e nada na tela mostra por
-  // quê, porque não há nó a desenhar.
-  const apagarBloco = useCallback((identidade: string) => {
-    setPassos((atual) => {
-      const i = atual.findIndex((p, j) => identidadeDoPasso(p, j) === identidade);
-      return i === -1 ? atual : atual.filter((_, j) => j !== i);
-    });
-    setLigacoes((atual) => desligarBloco(atual, identidade));
-    setSelecionado((s) => (s === identidade ? null : s));
-  }, []);
+  // AS SETAS QUE ENTRAM E SAEM DO BLOCO VÃO JUNTO, e é nesta tarefa que isso
+  // passou a importar: até aqui o quadro não tinha ligações no estado, e apagar
+  // um bloco não tinha seta a deixar para trás. Sem isto, o bloco anterior
+  // ficaria com um caminho para um id que não existe mais — `interpretar` para
+  // nele, e nada na tela mostra por quê, porque não há nó a desenhar.
+  //
+  // QUEM FAZ ISSO É `desligarERenumerar` (lib/steps.ts) E NÃO `desligarBloco`,
+  // e a troca é a correção de uma seta fantasma que era GRAVADA NO BANCO.
+  // `desligarBloco` sozinho só tira as setas do bloco que sai, e isso basta
+  // enquanto a identidade é o `id`. Numa lista anterior à Fase 1b — nenhum
+  // bloco com `id` — a identidade É a POSIÇÃO, então apagar um bloco RENOMEIA
+  // todos os que vêm depois, e as setas que os citavam passam a citar o vizinho
+  // ou ninguém. Medido: `[A,B,C]` sem id, setas `0→1` e `1→2`, apagando "0",
+  // sobrava `{de:"1", para:"2"}` numa lista que só tem "0" e "1" — uma seta
+  // saindo do último bloco para um bloco que não existe. Ela não é desenhada
+  // (as setas sem os dois nós são descartadas no desenho), `ligacoesValidas` a
+  // aceita porque a FORMA é válida, e `conferirLista` só acusa o bloco
+  // "inalcançável", que é erro de ATIVAR e não trava o salvar. Ou seja: salvava
+  // calada.
+  //
+  // O ÍNDICE É ACHADO AQUI FORA e passado adiante, e é por isso que este
+  // `useCallback` depende de `passos`: as duas listas têm de ser cortadas no
+  // MESMO ponto, e `setLigacoes` não enxerga a lista de blocos. Achar de novo lá
+  // dentro seria a segunda cópia da busca.
+  //
+  // Apaga UM bloco, achado pelo índice, e não todos os que casam com a
+  // identidade: `conferirLista` (lib/steps.ts) trata id repetido como ERRO
+  // justamente porque ele é produzível — duplicar um bloco é o gesto que o
+  // produz —, e um `filter` por identidade apagaria os dois de uma vez.
+  const apagarBloco = useCallback(
+    (identidade: string) => {
+      const i = passos.findIndex((p, j) => identidadeDoPasso(p, j) === identidade);
+      if (i === -1) return;
+      setPassos((atual) => atual.filter((_, j) => j !== i));
+      setLigacoes((atual) => desligarERenumerar(passos, atual, i));
+      setSelecionado((s) => (s === identidade ? null : s));
+      // O índice da seta escolhida também deixa de valer: a lista de ligações
+      // acabou de mudar de tamanho. Ver `ligacaoSelecionada`.
+      setLigacaoSelecionada(null);
+    },
+    [passos]
+  );
 
   // O QUE ESTÁ ERRADO NA LISTA, pela MESMA função que o Server Action vai usar
   // para recusar o salvar (`conferirLista`, lib/steps.ts). Uma fonte só: a
@@ -603,7 +631,8 @@ export default function Quadro({
   // é só de DESENHO — ela continua no estado e é gravada de volta. O React Flow
   // não desenha aresta sem os dois nós (ele registra um erro no console e a
   // ignora), e o dado continua sendo o que `conferirLista` julga. É forma que o
-  // editor não produz: `desligarBloco` limpa as duas pontas ao apagar um bloco.
+  // editor não produz: `desligarERenumerar` limpa as duas pontas ao apagar um
+  // bloco, e renumera as que sobram quando a identidade é a posição.
   //
   // A ALÇA DE ORIGEM SAI DE `indiceDaAlca` (./modelos), a MESMA função que a
   // geometria usa para saber de que altura a seta parte. Duas contas separadas

@@ -685,8 +685,68 @@ export function ligar(ligacoes: Ligacao[], de: string, quando: Quando, para: str
 //
 // AS DUAS PONTAS, e não só as de saída: a seta que CHEGAVA nele é a que
 // deixaria o bloco anterior com um caminho para lugar nenhum.
+//
+// ELA SOZINHA NÃO DÁ A GARANTIA ACIMA, e a ressalva não é teórica: ela vale
+// para o bloco cuja identidade é o `id`. Para bloco SEM `id` a identidade É a
+// POSIÇÃO (`identidadeDoPasso`), então apagar um bloco RENOMEIA todos os que
+// vêm depois dele, e as setas que os citavam passam a citar o vizinho — ou
+// ninguém. Quem fecha esse caso é `desligarERenumerar`, logo abaixo, e é ela
+// que o editor chama; esta continua sendo a metade "apaga as duas pontas".
 export function desligarBloco(ligacoes: Ligacao[], bloco: string): Ligacao[] {
   return ligacoes.filter((l) => l.de !== bloco && l.para !== bloco);
+}
+
+// APAGAR O BLOCO DE ÍNDICE `indice`: as setas das duas pontas somem E as que
+// sobram são RENUMERADAS.
+//
+// A renumeração é a metade que faltava, e a medida está registrada porque o
+// defeito era silencioso de ponta a ponta. Lista sem `id` — toda automação
+// anterior à Fase 1b —, três blocos, identidades `["0","1","2"]`, setas
+// `0→1` e `1→2`. `desligarBloco` sozinho, apagando o bloco "0", deixava
+// `[{de:"1", para:"2"}]` sobre uma lista que agora tem identidades `["0","1"]`:
+// a seta SAI do último bloco e VAI para um bloco que não existe. Ela não é
+// desenhada (o quadro descarta seta sem os dois nós), passa por
+// `ligacoesValidas` (a forma é válida), `conferirLista` só a vê de lado — o
+// bloco vira "inalcançável", que é erro de ATIVAR e não trava o salvar — e ela
+// é GRAVADA no banco.
+//
+// COMO A RENUMERAÇÃO É FEITA, e por que não há um `if` de "a lista é
+// posicional": o nome novo de cada sobrevivente é `identidadeDoPasso` do mesmo
+// bloco no ÍNDICE novo. Bloco COM `id` devolve o mesmo id nos dois índices e
+// não entra no mapa — listas com id não pagam nada por esta função. Bloco SEM
+// `id` devolve o índice em texto, e é exatamente aí que o nome muda. Numa lista
+// MISTA os dois casos convivem sem regra extra, porque a pergunta é feita à
+// mesma função que dá a identidade em todo o resto do sistema.
+//
+// A ORDEM IMPORTA: primeiro apagam-se as setas do bloco que sai (pelo nome
+// ANTIGO dele, que é o que está gravado nelas), depois renomeia-se o que sobrou.
+// Invertida, o bloco apagado já teria sido renomeado e as setas dele
+// sobreviveriam com o nome de outro.
+export function desligarERenumerar(
+  passos: unknown,
+  ligacoes: Ligacao[],
+  indice: number
+): Ligacao[] {
+  const lista = Array.isArray(passos) ? passos : [];
+  if (indice < 0 || indice >= lista.length) return ligacoes;
+
+  const sem = desligarBloco(ligacoes, identidadeDoPasso(lista[indice], indice));
+
+  // Só os que vêm DEPOIS do apagado mudam de índice, e só os sem `id` mudam de
+  // nome com isso.
+  const nomeNovo = new Map<string, string>();
+  for (let j = indice + 1; j < lista.length; j++) {
+    const antes = identidadeDoPasso(lista[j], j);
+    const depois = identidadeDoPasso(lista[j], j - 1);
+    if (antes !== depois) nomeNovo.set(antes, depois);
+  }
+  if (!nomeNovo.size) return sem;
+
+  return sem.map((l) => {
+    const de = nomeNovo.get(l.de) ?? l.de;
+    const para = nomeNovo.get(l.para) ?? l.para;
+    return de === l.de && para === l.para ? l : { ...l, de, para };
+  });
 }
 
 // APAGAR SETAS PELO ÍNDICE — o gesto que faltava no quadro, e a única saída de

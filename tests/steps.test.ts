@@ -40,6 +40,7 @@ import {
   ligacoesValidas,
   ligar,
   desligarBloco,
+  desligarERenumerar,
   apagarLigacoes,
   partirLigacao,
   type Ligacao,
@@ -4062,6 +4063,64 @@ describe("desligarBloco — apagar um bloco apaga as setas das duas pontas", () 
 
   it("bloco sem seta nenhuma não muda a lista", () => {
     expect(desligarBloco(ligacoes, "b_zzzzzzz9")).toEqual(ligacoes);
+  });
+});
+
+describe("desligarERenumerar — apagar um bloco não deixa seta fantasma", () => {
+  const comId = [
+    { tipo: "dm", texto: "a", id: "b_aaaaaaa1" },
+    { tipo: "dm", texto: "b", id: "b_bbbbbbb2" },
+    { tipo: "dm", texto: "c", id: "b_ccccccc3" },
+  ];
+  // A lista anterior à Fase 1b: nenhum bloco tem `id`, e a identidade de cada um
+  // é a POSIÇÃO. É a lista em que apagar renomeia os vizinhos.
+  const semId = [
+    { tipo: "dm", texto: "a" },
+    { tipo: "dm", texto: "b" },
+    { tipo: "dm", texto: "c" },
+  ];
+  const emFila = (ids: string[]): Ligacao[] =>
+    ids.slice(0, -1).map((de, i) => ({ de, quando: { tipo: "sempre" }, para: ids[i + 1] }));
+
+  it("com id, as setas do bloco somem e as outras ficam intactas", () => {
+    const ls = emFila(["b_aaaaaaa1", "b_bbbbbbb2", "b_ccccccc3"]);
+    expect(desligarERenumerar(comId, ls, 1)).toEqual([]);
+    expect(desligarERenumerar(comId, ls, 2)).toEqual([
+      { de: "b_aaaaaaa1", quando: { tipo: "sempre" }, para: "b_bbbbbbb2" },
+    ]);
+  });
+
+  // A MEDIÇÃO DO DEFEITO, virada do avesso: sem a renumeração isto devolvia
+  // `[{de:"1", para:"2"}]` — uma seta saindo do último bloco para um bloco que
+  // não existe mais, gravada no banco sem nada acusar.
+  it("sem id, a seta que sobra acompanha o bloco que mudou de nome", () => {
+    const ls = emFila(["0", "1", "2"]);
+    expect(desligarERenumerar(semId, ls, 0)).toEqual([
+      { de: "0", quando: { tipo: "sempre" }, para: "1" },
+    ]);
+  });
+
+  it("sem id, apagar o do meio não deixa nada apontando para fora da lista", () => {
+    const ls = emFila(["0", "1", "2"]);
+    const depois = desligarERenumerar(semId, ls, 1);
+    const restam = new Set(["0", "1"]);
+    expect(depois.every((l) => restam.has(l.de) && restam.has(l.para))).toBe(true);
+  });
+
+  // Numa lista MISTA a regra não precisa de exceção: quem tem id mantém o nome,
+  // quem não tem segue a posição.
+  it("lista mista renomeia só quem não tem id", () => {
+    const mista = [{ tipo: "dm", texto: "a" }, { tipo: "dm", texto: "b", id: "b_bbbbbbb2" }, { tipo: "dm", texto: "c" }];
+    const ls: Ligacao[] = [{ de: "b_bbbbbbb2", quando: { tipo: "sempre" }, para: "2" }];
+    expect(desligarERenumerar(mista, ls, 0)).toEqual([
+      { de: "b_bbbbbbb2", quando: { tipo: "sempre" }, para: "1" },
+    ]);
+  });
+
+  it("índice fora da lista devolve as ligações como estavam", () => {
+    const ls = emFila(["0", "1", "2"]);
+    expect(desligarERenumerar(semId, ls, 9)).toBe(ls);
+    expect(desligarERenumerar(semId, ls, -1)).toBe(ls);
   });
 });
 
