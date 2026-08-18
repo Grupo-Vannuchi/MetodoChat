@@ -728,8 +728,14 @@ export default function Quadro({
   // apagar o bloco, que perde o conteúdo, e recarregar a página, que perde tudo
   // desde o último salvamento.
   //
-  // A REGRA, e ela vale para o quadro inteiro: nenhum gesto pode levar a um
-  // estado sem volta.
+  // A REGRA, e ela é mais estreita do que a primeira redação dizia: nenhum gesto
+  // pode deixar o quadro SEM COMO SALVAR.
+  //
+  // A versão anterior desta frase dizia "nenhum gesto pode levar a um estado sem
+  // volta", e era falsa dentro deste mesmo arquivo: `apagarBloco` é sem desfazer
+  // POR ESCOLHA, e o comentário de `nos` (acima) diz isso com todas as letras.
+  // Perder o texto de um bloco é caro e é aceito; ficar sem como gravar a sessão
+  // inteira não é.
   //
   // A SELEÇÃO CHEGA POR AQUI, e não por `onEdgeClick`, pelo mesmo motivo pelo
   // qual a dos nós chega por `onNodesChange`: a caixa de seleção também
@@ -897,7 +903,8 @@ export default function Quadro({
   //     alcança: numa aresta com origem e destino no MESMO nó o traçado passa
   //     POR BAIXO do bloco. Medido com `getSmoothStepPath` (@xyflow/system, o
   //     mesmo que desenha o quadro) para um bloco em (60,60) com 190 de largura:
-  //     `M250 105 L270 105 L40 105 L60 105`, com o bloco cobrindo x de 60 a 250
+  //     `M250 105L270 105L40 105L60 105` (sem espaço antes dos `L` — é o retorno
+  //     literal, conferido chamando a função), com o bloco cobrindo x de 60 a 250
   //     — sobram dois tocos de 20px, e o resto da seta fica atrás do cartão, que
   //     é opaco e come o clique. Aceitar essa é oferecer o desfazer no pior alvo
   //     do quadro.
