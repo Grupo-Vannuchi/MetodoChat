@@ -1086,6 +1086,96 @@ git commit -m "O quadro desenha as ligacoes gravadas, e passa a deixar ligar"
 
 ---
 
+# Tarefa 6b · A caixa "Ativa" para de driblar a conferência de ativar
+
+**Files:**
+- Modify: `lib/steps.ts` (a decisão, pura e testada), `app/automacoes/actions.ts`
+- Modify: onde a mensagem de salvar aparece no editor
+- Test: `tests/steps.test.ts`
+
+**Achada pela Tarefa 6, decidida pelo dono do produto.** Não estava no plano.
+
+## O buraco, e por que ele só ficou perigoso agora
+
+`salvarAutomacao` grava a coluna `active`, e filtra **só** os erros de
+`quando === "salvar"`. O painel do gatilho tem a caixa "Ativa".
+
+Logo: **dá para publicar sem nunca passar pela porta que a Tarefa 5 construiu.**
+Botão sem destino, bloco inalcançável, portão contornável — todos impedem clicar
+em "Ativar", e nenhum impede marcar a caixa e salvar.
+
+Era teórico enquanto o editor não produzia esses erros. **A Tarefa 6 os tornou
+produzíveis em três cliques.**
+
+Segunda metade: automação **já ativa nunca revalida**. Se está no ar e o dono
+salva uma mudança que a quebra, ela **continua no ar quebrada**.
+
+## O que fazer — decisão do dono do produto
+
+**Salvar o conteúdo, gravar como PAUSADA, e dizer por quê.**
+
+Vale para os dois casos: marcar "Ativa" numa pausada, e salvar uma edição que
+quebra uma que já estava no ar.
+
+**Por que não recusar o salvar:** a Tarefa 5 chamou isso de hostil, e aqui seria
+pior — o dono que quebrou uma automação viva ficaria preso com a versão quebrada
+**no ar** até consertar tudo. Gravar pausado protege quem recebe e não trava quem
+monta.
+
+**Por que não deixar a que já está no ar seguir:** o sintoma é entrega errada
+para gente de verdade, e ninguém avisa.
+
+## O cuidado que decide se isso é bom ou irritante
+
+**A mudança de estado não pode ser silenciosa.** "Cliquei em salvar com Ativa
+marcada e ela voltou desmarcada" sem explicação é pior que o buraco.
+
+A mensagem precisa dizer **as três coisas**: que foi salvo, que está pausada, e
+**o que falta** para poder ativar — reaproveitando a frase que `conferirLista` já
+produz, que é a mesma que o botão "Ativar" mostraria.
+
+- [ ] **Passo 1: a decisão vai para `lib/steps.ts`, com teste**
+
+Ela é de uma linha e mesmo assim vai para lá, e o motivo é medido: a fase inteira
+provou que regra dentro de `"use server"` **não tem rede** — trocar os níveis em
+`salvarAutomacao` e `toggleAutomation` deixa a suíte **inteira** verde.
+
+Algo como `podeFicarAtiva(problemas): boolean` — verdadeiro quando não há nenhum
+`nivel: "erro"` com `quando: "ativar"`. Nome e forma são seus; o que não é seu é
+a decisão morar no Server Action.
+
+Teste os dois lados **e** o caso que separa: problema de `salvar` presente não
+deve influenciar esta resposta, porque quem barra o salvar já barrou antes.
+
+- [ ] **Passo 2: rode e confirme que falha**
+
+- [ ] **Passo 3: `salvarAutomacao` consulta a decisão**
+
+O `active` gravado passa a ser `active && podeFicarAtiva(...)`. O resultado
+devolvido carrega o que falta.
+
+- [ ] **Passo 4: a mensagem na tela**
+
+As três coisas, na mesma frase de `conferirLista`. **Não invente texto novo** —
+duas frases diferentes para o mesmo problema é a doença que esta fase passou seis
+comentários curando.
+
+- [ ] **Passo 5: mute e prove**
+
+Faça `podeFicarAtiva` devolver sempre `true` e confirme que o teste do Passo 1
+fica vermelho. Depois faça `salvarAutomacao` ignorá-la e **confirme que a suíte
+continua verde** — é a demonstração do buraco estrutural, e o número é o que
+justifica a Frente 2 do plano de melhoria. Reporte os dois.
+
+- [ ] **Passo 6: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run && npm run varredura
+git commit -m "A caixa Ativa deixa de driblar a conferencia de ativar"
+```
+
+---
+
 # Tarefa 7 · O painel: editar os botões
 
 **Files:**
