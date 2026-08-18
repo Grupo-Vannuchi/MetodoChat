@@ -43,9 +43,10 @@ import {
   desligarERenumerar,
   apagarLigacoes,
   partirLigacao,
+  podeFicarAtiva,
   type Ligacao,
 } from "../lib/steps";
-import type { EnvioDaDm } from "../lib/steps";
+import type { EnvioDaDm, Problema } from "../lib/steps";
 
 // A CORRENTE que a lista sempre teve na prática: bloco 0 → bloco 1 → bloco 2 …,
 // cada seta `{tipo:"sempre"}`. É exatamente o que `scripts/ligar-passos-existentes.mjs`
@@ -3939,6 +3940,54 @@ describe("conferirLista em dois níveis", () => {
     const r = conferirLista([bem, vazio], "dm", [sempre("b_bem001", "b_vaz080")]);
     expect(r.filter((p) => p.nivel === "erro")).toHaveLength(1);
     expect(r.filter((p) => p.nivel === "erro")[0].quando).toBe("salvar");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A CAIXA "ATIVA" PARA DE DRIBLAR A CONFERÊNCIA DE ATIVAR (Tarefa 6b).
+//
+// `podeFicarAtiva` é a decisão de uma linha que `salvarAutomacao`
+// (app/automacoes/actions.ts) passa a consultar antes de gravar a coluna
+// `active` — ela mora aqui, e não naquele Server Action, porque é a única
+// forma de testá-la sem banco.
+// ---------------------------------------------------------------------------
+describe("podeFicarAtiva", () => {
+  const erroDeAtivar: Problema = {
+    nivel: "erro",
+    quando: "ativar",
+    indice: 0,
+    mensagem: "Um botão deste bloco não leva a lugar nenhum.",
+  };
+  const erroDeSalvar: Problema = {
+    nivel: "erro",
+    quando: "salvar",
+    indice: 0,
+    mensagem: "Um dos botões deste bloco está corrompido.",
+  };
+  const aviso: Problema = {
+    nivel: "aviso",
+    quando: "ativar",
+    indice: 1,
+    mensagem: "O link sai antes do pedido de follow.",
+  };
+
+  it("falso quando há um erro de ATIVAR na lista", () => {
+    expect(podeFicarAtiva([erroDeAtivar])).toBe(false);
+  });
+
+  it("verdadeiro quando não há nenhum erro de ATIVAR — lista vazia, ou só aviso", () => {
+    expect(podeFicarAtiva([])).toBe(true);
+    expect(podeFicarAtiva([aviso])).toBe(true);
+  });
+
+  it("um erro de SALVAR presente não influencia esta resposta — quem barra o salvar já barrou antes", () => {
+    // Sem erro de ativar, a lista pode ficar ativa mesmo com um erro de salvar
+    // junto — essa combinação nunca chega a `podeFicarAtiva` na prática, porque
+    // `salvarAutomacao` já recusou o salvamento antes de consultar esta função,
+    // mas a própria função não deve depender dessa ordem para responder certo.
+    expect(podeFicarAtiva([erroDeSalvar])).toBe(true);
+    // E com os dois juntos, quem decide é só o de ativar.
+    expect(podeFicarAtiva([erroDeSalvar, erroDeAtivar])).toBe(false);
   });
 });
 

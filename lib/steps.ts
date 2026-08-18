@@ -3401,6 +3401,31 @@ export function conferirLista(
   return r;
 }
 
+// SE A LISTA PODE FICAR ATIVA — verdadeiro quando não há nenhum `nivel: "erro"`
+// com `quando: "ativar"` no resultado de `conferirLista`.
+//
+// A TAREFA 6b A ACHOU, e não estava no plano: `salvarAutomacao`
+// (app/automacoes/actions.ts) gravava a coluna `active` filtrando só os erros
+// de `quando === "salvar"`, e o painel do gatilho tem a caixa "Ativa" bem ao
+// lado do botão Salvar. Ou seja: publicar um fluxo com botão sem destino, bloco
+// inalcançável ou link antes do portão não exigia clicar em "Ativar" — bastava
+// marcar a caixa e salvar. A porta que a Tarefa 5 construiu (`toggleAutomation`,
+// que recusa os dois níveis) tinha um jeito de nunca ser usada.
+//
+// POR QUE ISTO MORA AQUI e não em `app/automacoes/actions.ts`, apesar de ser
+// uma linha só: aquele arquivo tem `"use server"` no topo, e é o motivo desta
+// fase inteira — regra escrita ali não é testável sem banco. A suíte que este
+// arquivo tem hoje é o que garante que a decisão continua a mesma depois de
+// qualquer mudança em `conferirLista`; movida para o Server Action, a mesma
+// mudança só apareceria quebrada em produção.
+//
+// NÃO FILTRA POR `quando === "salvar"` DE PROPÓSITO: um erro dessa porta já
+// travou o salvar mais acima, em `salvarAutomacao` — chegar aqui com um deles
+// presente não muda esta resposta, porque quem barra o salvar já barrou antes.
+export function podeFicarAtiva(problemas: Problema[]): boolean {
+  return !problemas.some((p) => p.nivel === "erro" && p.quando === "ativar");
+}
+
 // O CONTEÚDO DE `botoes`, conferido elemento a elemento. Devolve a frase do DONO
 // para UMA coisa errada, com a porta em que ela trava, ou null quando a lista
 // está inteira.
