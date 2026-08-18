@@ -2177,10 +2177,11 @@ function atravessandoOPortao(
 // O QUE FECHOU A JANELA foi o formulário sair. Quem grava a lista agora é
 // `salvarAutomacao` (app/automacoes/actions.ts), que escreve o `steps` COMO ELE VEIO
 // do quadro, e o quadro espalha cada bloco preservando o `id` — `arranjoAutomatico`
-// só acrescenta `pos`, `moverBloco` e `moverPara` só mexem em posição e ordem, e
-// o painel troca campos do bloco sem tocar na identidade. Só a partir daí "o
-// bloco só some quando o dono o apaga" descreve o sistema. `lib/db.ts` afirma o
-// mesmo no comentário da coluna `flow_step_id`.
+// só acrescenta `pos` e `moverBloco` só mexe em posição, e o painel troca
+// campos do bloco sem tocar na identidade. (`moverPara`, que também reordenava
+// o array, saiu na Tarefa 6 junto com a ordem significar "o próximo".) Só a
+// partir daí "o bloco só some quando o dono o apaga" descreve o sistema.
+// `lib/db.ts` afirma o mesmo no comentário da coluna `flow_step_id`.
 //
 // Com a medida certa, porém: isso vale para bloco COM id. Para bloco SEM id a
 // identidade É a posição (`identidadeDoPasso`), então ela não acompanha o

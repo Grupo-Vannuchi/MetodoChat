@@ -1536,7 +1536,7 @@ export default function Quadro({
                 aoFechar={fecharPainel}
               />
             </div>
-  
+
             {/* O VÉU DIZ QUE TRAVOU. Quem trava é o `inert` da `div` de fora; este
                 é o que impede a tela de ficar muda de outro jeito — um quadro que
                 para de responder sem explicar é indistinguível de um quadro
