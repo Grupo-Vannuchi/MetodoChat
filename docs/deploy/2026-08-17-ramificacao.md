@@ -141,7 +141,10 @@ Medido em `Fluxo de teste 1a` (5 blocos, nenhuma seta gravada):
 - **as setas desenhadas batem com as gravadas** — zero ligações desenhadas,
   zero gravadas. A única seta é `gatilho→primeiro bloco`, que é sintética
 - **arrastar de uma alça cria a ligação** — a seta `ligacao-0` apareceu no
-  quadro depois do gesto
+  quadro depois do gesto, e **o dono confirmou à mão**, com mouse de verdade.
+  Vale registrar a diferença: a medição automatizada usa evento sintético, e o
+  gesto de arrasto é justamente onde ela é mais frágil — a confirmação humana é
+  a prova mais forte aqui, não a mais fraca
 - **selecionar uma seta e apertar Delete a apaga** — era a armadilha que a
   revisão achou, e ela está fechada
 - **a seta do gatilho é PROTEGIDA** — o React Flow não a marca como
