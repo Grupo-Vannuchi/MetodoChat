@@ -253,9 +253,22 @@ export function esperaResposta(p: Passo): boolean {
 // jeitos de retomar um bloco de espera, e cada um consulta uma seta diferente.
 //
 //   `pedir_follow`, `pedir_email` e a `dm` de RESPOSTA RÁPIDA retomam pela
-//     `sempre`. É `seguinteDe` em `retomadaDoTexto`, em `retomadaDoBotao` e em
-//     `retomadaDoEmailConhecido` — os três ramos, sem exceção. Sem a `sempre`,
-//     o destino é null, `interpretar` sai calada e a pessoa não recebe nada.
+//     `sempre`: sem ela o destino é null, `interpretar` sai calada e a pessoa
+//     não recebe nada. Mas isso NÃO É um mapa único de três-tipos-para-três-
+//     funções — cada tipo bate nessa parede pelo SEU ponto de chamada, não os
+//     três pelos mesmos três ramos. Só a `dm` de resposta rápida consulta
+//     `seguinteDe` nas três (`retomadaDoTexto`, `retomadaDoBotao`,
+//     `retomadaDoEmailConhecido`). `pedir_follow` NUNCA consulta `seguinteDe`
+//     em `retomadaDoTexto` (:2130) nem em `retomadaDoBotao` (:1989) — as duas
+//     devolvem o PRÓPRIO bloco, porque ali quem retoma é o PORTÃO, e o portão
+//     se reavalia. O `seguinteDe` que de fato destrava o portão mora em
+//     lib/engine.ts:711, no ramo `resolverFollow === "passou"`. `pedir_email`
+//     também não consulta `seguinteDe` em `retomadaDoBotao` (:1989) — devolve
+//     o bloco —, mas consulta em `retomadaDoTexto` (:2130) e em
+//     `retomadaDoEmailConhecido` (:2195), que é o único desses cinco pontos
+//     dedicado a um tipo só. A regra continua valendo para os três: cada um
+//     vira beco sem saída quando `seguinteDe` é null, só que cada um no SEU
+//     lugar, não nos três ramos citados de uma vez.
 //   A `dm` de `botoes` NÃO: o toque é resolvido por
 //     `ligacaoEscolhida(..., {tipo:"botao"})` (`caminhoDoBotao`), uma seta POR
 //     BOTÃO. Um menu inteiramente ligado não tem `sempre` nenhuma saindo, e
@@ -2817,6 +2830,18 @@ export function conferirLista(
     // travam o SALVAR porque o motor CAI ou não lê, e a quinta — rótulo em
     // branco — só o ATIVAR. O critério de cada uma está por extenso lá.
     //
+    // UM EFEITO DE MASCARAMENTO, CONHECIDO E ACEITO: `cru` truthy pula o
+    // `else` inteiro, abaixo — inclusive a checagem de BOTÃO SEM DESTINO, que
+    // mora dentro dele. Então quando `botoesCrus` acusa RÓTULO EM BRANCO num
+    // botão do bloco, a checagem de destino dos OUTROS botões do mesmo bloco
+    // nem roda. Não há buraco de bloqueio nisso — as duas são erro de ATIVAR,
+    // e o ativar já recusava na primeira causa que achasse, estruturalmente
+    // igual antes desta fase. O que É novo: agora existe uma causa de
+    // `botoesCrus` que NÃO trava o salvar, então o dono chega até a porta de
+    // ativar, conserta o rótulo, tenta de novo, e pode levar uma recusa
+    // DIFERENTE (botão sem destino) que a primeira tentativa nunca revelou.
+    // É experiência de uso esperada, não comportamento a consertar aqui.
+    //
     // Medido na Tarefa 4, para a mais cara delas: `[null].map(b => b.rotulo)`
     // estoura `TypeError` dentro de `enfileirarPasso` (lib/engine.ts), a
     // caminhada aborta no meio, o cursor — gravado depois do laço — não é
@@ -3200,17 +3225,22 @@ export function conferirLista(
 // ativar é fluxo que ele lê perfeitamente e ENTREGA ERRADO por montagem pela
 // metade.
 //
-//   As quatro primeiras são inalcançáveis pelo editor: `blocoNovo` e
-//     `novoIdDeBotao` (app/automacoes/editor/modelos.ts) produzem lista, objeto
-//     e id novo sempre, e nenhum campo da tela edita o id de um botão. Chegar
-//     nelas é lista montada fora do painel — dado, não montagem.
-//   O RÓTULO EM BRANCO é o estado mais normal de menu pela metade que existe: o
-//     dono clica "adicionar botão", o painel grava `{id:"op_…", rotulo:""}` e ele
-//     sai para o almoço. Travar o salvar aí é hostil — ele fica sem onde guardar
-//     o meio do trabalho —, e o sintoma é "entrega errado" (o botão some da
-//     mensagem), não "o motor não lê". Ela nasceu em "salvar" junto com as
-//     outras quatro e foi movida por decisão de produto, com o critério que a
-//     própria Tarefa 5 escreveu.
+//   As quatro primeiras são inalcançáveis pelo editor, e por um motivo mais
+//     forte do que "a tela não edita o id de um botão": o editor não escreve
+//     `botoes` NENHUM ainda. `blocoNovo` (app/automacoes/editor/modelos.ts)
+//     nunca semeia essa chave, em nenhum dos nove ramos, e
+//     `grep -rn botoes app/automacoes/editor/` só acha duas linhas de
+//     comentário, nenhuma de código. `novoIdDeBotao` já existe (lib/steps.ts),
+//     mas ninguém no editor o chama. Chegar nas quatro primeiras é lista
+//     montada fora do painel — dado, não montagem.
+//   O RÓTULO EM BRANCO vai ser o estado mais normal de menu pela metade quando
+//     o editor ganhar o botão "adicionar botão" (Tarefa 6/7): o dono clica, o
+//     painel grava `{id:"op_…", rotulo:""}` e ele sai para o almoço. Travar o
+//     salvar aí seria hostil — ele ficaria sem onde guardar o meio do trabalho
+//     —, e o sintoma é "entrega errado" (o botão some da mensagem), não "o
+//     motor não lê". Ela nasceu em "salvar" junto com as outras quatro e foi
+//     movida por decisão de produto, com o critério que a própria Tarefa 5
+//     escreveu.
 //
 // A ORDEM DE PRECEDÊNCIA NÃO É A DA LISTA, e essa é a parte que a separação
 // custou. Com uma frase por bloco e duas portas, "a primeira coisa errada"

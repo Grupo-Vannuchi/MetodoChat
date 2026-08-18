@@ -3721,8 +3721,13 @@ describe("conferirLista em dois níveis", () => {
   });
 
   it("o id inválido ganha do rótulo em branco no MESMO botão", () => {
-    // Dentro de um elemento a ordem também é a da porta: o id que não atravessa
-    // o payload é dado que o motor não lê; o rótulo é montagem pela metade.
+    // NÃO é ordem dentro do laço: mover o bloco do rótulo em branco para ANTES
+    // da conferência de id, dentro do laço, ainda deixa 246/246 verdes. Quem
+    // decide é RETORNAR vs ATRIBUIR — o id inválido devolve na hora; o rótulo
+    // em branco só grava em `semTexto` e o laço continua, então ele nunca
+    // disputa posição com nada. Só fica vermelho quando a mutação posicional
+    // (`return` no lugar da atribuição do rótulo) também está plantada — e
+    // essa já tem teste próprio, cirúrgico, sozinho.
     const doisDefeitos = [
       { id: "b_qbr005", tipo: "dm", texto: "Escolha", botoes: [{ id: "op_a:aaaa", rotulo: "" }] },
     ];
