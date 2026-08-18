@@ -1105,9 +1105,28 @@ export default function Quadro({
 
       // A RECUSA NÃO PRECISA MAIS DIZER O QUE FOI GRAVADO, porque a resposta é
       // sempre a mesma: nada. O motivo vem do servidor e é mostrado como veio.
+      //
+      // `r.pausada` É A TAREFA 6b, e o `?? ""` do servidor nunca deveria
+      // aparecer aqui: ela só vem preenchida vazia se `podeFicarAtiva`
+      // recusou sem nenhum erro de ativar na lista, o que não deveria
+      // acontecer — as duas funções leem o mesmo `problemas`. Truthy chega a
+      // decidir o ramo mesmo assim, e uma string vazia cairia no "Salvo."
+      // comum, que é a falha mais silenciosa das duas.
+      //
+      // A MUDANÇA DE ESTADO NÃO PODE SER SILENCIOSA: "cliquei em salvar com
+      // Ativa marcada e ela voltou desmarcada" sem explicação é pior do que o
+      // buraco que esta tarefa fecha. A frase diz as três coisas — que foi
+      // salvo, que ficou pausada, e o que falta para poder ativar —, e o "o
+      // que falta" é a MESMA frase que `conferirLista` produz e que o painel
+      // do gatilho mostraria em âmbar: nunca um texto novo para o mesmo
+      // problema.
       setRecado(
         r.ok
-          ? { ok: true, texto: "Salvo.", ...doQueFoiEnviado }
+          ? {
+              ok: true,
+              texto: r.pausada ? `Salvo, mas ficou pausada: ${r.pausada}` : "Salvo.",
+              ...doQueFoiEnviado,
+            }
           : { ok: false, texto: `${r.erro} Nada foi salvo.`, ...doQueFoiEnviado }
       );
     });

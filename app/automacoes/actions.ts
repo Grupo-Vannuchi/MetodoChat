@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { sql, ensureSchema } from "@/lib/db";
 import { getSelectedAccountId } from "@/lib/account";
-import { conferirLista, ligacoesValidas } from "@/lib/steps";
+import { conferirLista, ligacoesValidas, podeFicarAtiva } from "@/lib/steps";
 
 function splitList(raw: string, sep: RegExp): string[] {
   return raw
@@ -15,7 +15,14 @@ function splitList(raw: string, sep: RegExp): string[] {
 // O que o salvar devolve. Ele NÃO redireciona: o quadro é uma tela em que se
 // salva várias vezes seguidas, e mandar a pessoa embora a cada gravação era o
 // comportamento do formulário, que tinha um botão só no fim.
-type Resultado = { ok: true } | { ok: false; erro: string };
+//
+// `pausada` É A TAREFA 6b: quando presente, o que foi gravado saiu diferente
+// do que a caixa "Ativa" pedia — o dono marcou ativa, ou já estava ativa, e
+// `podeFicarAtiva` (lib/steps.ts) recusou. O valor é a MESMA frase que
+// `conferirLista` produz para o erro de ativar que causou a recusa, a mesma
+// que o botão "Ativar" mostraria: duas frases diferentes para o mesmo
+// problema é a doença que esta fase passou sete comentários curando.
+type Resultado = { ok: true; pausada?: string } | { ok: false; erro: string };
 
 const GATILHOS = ["comment", "story", "dm"];
 const CORRESPONDENCIAS = ["contains", "exact", "any"];
@@ -169,18 +176,44 @@ export async function salvarAutomacao(
   // A CONFERÊNCIA DO PAR FINAL, UMA VEZ SÓ: os blocos, as setas e o gatilho que
   // vão ser gravados, conferidos uns contra os outros. As três metades são as
   // três que esta função escreve, então não sobra nada de velho a que comparar.
-  //
-  // SÓ OS ERROS DE SALVAR, e essa é a decisão de produto da Tarefa 5. O outro
-  // nível — botão sem destino, bloco ainda solto no quadro, portão sem saída —
-  // descreve um desenho PELA METADE, que é o estado normal de quem está
-  // montando: montar um menu de três opções, ligar duas e voltar amanhã é
-  // trabalho normal, e recusar a gravação disso deixaria o dono sem onde guardar
-  // o meio do trabalho. Quem recusa esses é `toggleAutomation` (mais abaixo), na
-  // hora de publicar.
-  const erros = conferirLista(passos, gatilho, ligacoes).filter(
-    (p) => p.nivel === "erro" && p.quando === "salvar"
-  );
+  const problemas = conferirLista(passos, gatilho, ligacoes);
+
+  // SÓ OS ERROS DE SALVAR TRAVAM O SALVAR, e essa é a decisão de produto da
+  // Tarefa 5. O outro nível — botão sem destino, bloco ainda solto no quadro,
+  // portão sem saída — descreve um desenho PELA METADE, que é o estado normal
+  // de quem está montando: montar um menu de três opções, ligar duas e voltar
+  // amanhã é trabalho normal, e recusar a gravação disso deixaria o dono sem
+  // onde guardar o meio do trabalho.
+  const erros = problemas.filter((p) => p.nivel === "erro" && p.quando === "salvar");
   if (erros.length) return { ok: false, erro: erros[0].mensagem };
+
+  // ---------------------------------------------------------------------
+  // A TAREFA 6b: A CAIXA "ATIVA" PARA DE DRIBLAR A CONFERÊNCIA DE ATIVAR.
+  //
+  // Até aqui, o `active` gravado era `ativo` cru — o que a caixa do painel do
+  // gatilho pedia. `toggleAutomation` (mais abaixo) recusa os dois níveis de
+  // `conferirLista` antes de publicar; esta função só recusava um. Como o
+  // dono marca "Ativa" e clica em Salvar no MESMO painel, dava para publicar
+  // um botão sem destino, um bloco inalcançável ou um portão contornável sem
+  // nunca passar pela porta que `toggleAutomation` construiu.
+  //
+  // `podeFicarAtiva` (lib/steps.ts) é a mesma pergunta que aquela porta faz —
+  // "há algum erro de `quando: 'ativar'` no par que vai ser gravado?" — e o
+  // `active` gravado passa a ser a resposta combinada com o que foi pedido:
+  // só fica ativa se as duas coisas forem verdade.
+  //
+  // VALE PARA OS DOIS CASOS que o dono do produto decidiu cobrir com a mesma
+  // regra: marcar "Ativa" numa automação pausada que tem um erro de ativar, e
+  // salvar uma edição que introduz um erro de ativar numa automação que JÁ
+  // estava ativa — `ativo`, aqui, é o que a caixa mostra no momento do clique,
+  // e ela reflete o `active` gravado quando o dono não a tocou.
+  //
+  // NÃO RECUSA O SALVAR: seria hostil, e pior aqui do que na Tarefa 5 — o dono
+  // que acabou de quebrar uma automação viva ficaria preso com a versão
+  // quebrada NO AR até consertar tudo. Gravar pausada protege quem recebe e
+  // não trava quem monta.
+  const podeAtivar = podeFicarAtiva(problemas);
+  const ativoGravado = ativo && podeAtivar;
 
   try {
     await sql().begin(async (tx) => {
@@ -221,7 +254,7 @@ export async function salvarAutomacao(
          where id = $11 and account_id = $12`,
         [
           nome,
-          ativo,
+          ativoGravado,
           [gatilho],
           palavras,
           correspondencia,
@@ -252,6 +285,16 @@ export async function salvarAutomacao(
   }
 
   revalidatePath("/automacoes");
+
+  // `ativo && !podeAtivar` É A ÚNICA CONDIÇÃO EM QUE O QUE FOI GRAVADO SAIU
+  // DIFERENTE DO QUE FOI PEDIDO — e é a que precisa de recado, porque uma
+  // mudança de estado silenciosa é pior do que o buraco que este bloco fecha.
+  // A frase devolvida é a MESMA que o erro de ativar já carrega — não uma
+  // nova, escrita aqui, para o mesmo problema.
+  if (ativo && !podeAtivar) {
+    const motivo = problemas.find((p) => p.nivel === "erro" && p.quando === "ativar");
+    return { ok: true, pausada: motivo?.mensagem ?? "" };
+  }
   return { ok: true };
 }
 
