@@ -7,7 +7,11 @@ import {
   setasAoAlcance,
   setaSobOPonto,
   alvoDoArraste,
+  lugarDoBlocoNovo,
   ALCANCE_DA_SETA,
+  ALTURA_SUPOSTA,
+  DESVIO_DO_EMPILHAMENTO,
+  LARGURA_DO_BLOCO,
 } from "../app/automacoes/editor/geometria";
 import type { Ligacao, Passo } from "../lib/steps";
 
@@ -338,5 +342,93 @@ describe("setasAoAlcance — usa a medida real do bloco quando ela existe", () =
     expect(
       setaSobOPonto({ x: 200, y: 24 }, passos, medidas, identidades, ligacoes, [])
     ).toBeNull();
+  });
+});
+
+describe("lugarDoBlocoNovo", () => {
+  // O centro da area visivel usado em quase todos os casos. Com LARGURA 190 e
+  // ALTURA_SUPOSTA 48, o canto esperado e (500 - 95, 300 - 24) = (405, 276).
+  const centro = { x: 500, y: 300 };
+  const canto = {
+    x: centro.x - LARGURA_DO_BLOCO / 2,
+    y: centro.y - ALTURA_SUPOSTA / 2,
+  };
+
+  it("poe o CENTRO do bloco no ponto pedido, devolvendo o canto", () => {
+    expect(lugarDoBlocoNovo(centro, [])).toEqual({ x: 405, y: 276 });
+    expect(lugarDoBlocoNovo(centro, [])).toEqual(canto);
+  });
+
+  it("arredonda, para nao repetir o `73.00000000000001` que ja apareceu no banco", () => {
+    // `screenToFlowPosition` devolve fracionario, e o centro de um retangulo de
+    // largura impar cai no meio de um pixel.
+    const lugar = lugarDoBlocoNovo({ x: 500.4, y: 300.7 }, []);
+    expect(Number.isInteger(lugar.x)).toBe(true);
+    expect(Number.isInteger(lugar.y)).toBe(true);
+  });
+
+  it("nao desvia por causa de bloco que esta longe do centro", () => {
+    expect(lugarDoBlocoNovo(centro, [passoEm(0, 0), passoEm(2000, 900)])).toEqual(canto);
+  });
+
+  it("nao desvia por causa de bloco sem `pos` — ele nao esta em lugar nenhum", () => {
+    // Bloco sem posicao e forma valida (toda lista anterior a Fase 1b e assim),
+    // e ele nao pode reivindicar o centro do quadro.
+    const semPos: Passo = { tipo: "dm", texto: "x" };
+    expect(lugarDoBlocoNovo(centro, [semPos, semPos])).toEqual(canto);
+  });
+
+  it("desvia na diagonal quando o centro ja esta ocupado", () => {
+    const lugar = lugarDoBlocoNovo(centro, [passoEm(canto.x, canto.y)]);
+    expect(lugar).toEqual({
+      x: canto.x + DESVIO_DO_EMPILHAMENTO,
+      y: canto.y + DESVIO_DO_EMPILHAMENTO,
+    });
+  });
+
+  it("desvia de novo quando o primeiro desvio tambem esta ocupado", () => {
+    const passos = [
+      passoEm(canto.x, canto.y),
+      passoEm(canto.x + DESVIO_DO_EMPILHAMENTO, canto.y + DESVIO_DO_EMPILHAMENTO),
+    ];
+    expect(lugarDoBlocoNovo(centro, passos)).toEqual({
+      x: canto.x + 2 * DESVIO_DO_EMPILHAMENTO,
+      y: canto.y + 2 * DESVIO_DO_EMPILHAMENTO,
+    });
+  });
+
+  it("cobrir e coisa de retangulo: desvia por CHEBYSHEV, nao por distancia reta", () => {
+    // Um bloco 20 para o lado e 20 para baixo do canto: a distancia reta e
+    // 28,3 — passaria por um raio de 24 —, mas na tela ele cobre quase todo o
+    // lugar pedido. O maior dos dois afastamentos e 20, e 20 < 24, entao desvia.
+    const vizinho = passoEm(canto.x + 20, canto.y + 20);
+    expect(Math.hypot(20, 20)).toBeGreaterThan(DESVIO_DO_EMPILHAMENTO);
+    expect(lugarDoBlocoNovo(centro, [vizinho])).not.toEqual(canto);
+  });
+
+  it("um bloco entre duas posicoes da diagonal barra as DUAS, e o laco passa por cima", () => {
+    // Este e o caso que obriga o limite a ser `2 * passos.length + 1`: com um
+    // unico bloco a 12/12 do canto, as posicoes k=0 e k=1 estao ambas ocupadas
+    // (afastamentos 12 e 12), e a resposta e k=2.
+    const meio = passoEm(canto.x + 12, canto.y + 12);
+    expect(lugarDoBlocoNovo(centro, [meio])).toEqual({
+      x: canto.x + 2 * DESVIO_DO_EMPILHAMENTO,
+      y: canto.y + 2 * DESVIO_DO_EMPILHAMENTO,
+    });
+  });
+
+  it("sempre acha lugar livre — nenhuma pilha devolve um canto ja ocupado", () => {
+    // Vinte blocos plantados EM CIMA da diagonal, um por posicao, para provar
+    // que o laco nao esgota e nao devolve posicao ocupada.
+    const passos = Array.from({ length: 20 }, (_, k) =>
+      passoEm(canto.x + k * DESVIO_DO_EMPILHAMENTO, canto.y + k * DESVIO_DO_EMPILHAMENTO)
+    );
+    const lugar = lugarDoBlocoNovo(centro, passos);
+    const colide = passos.some(
+      (p) =>
+        Math.abs(p.pos!.x - lugar.x) < DESVIO_DO_EMPILHAMENTO &&
+        Math.abs(p.pos!.y - lugar.y) < DESVIO_DO_EMPILHAMENTO
+    );
+    expect(colide).toBe(false);
   });
 });

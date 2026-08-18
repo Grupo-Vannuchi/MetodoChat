@@ -242,3 +242,75 @@ export function alvoDoArraste(
   );
   return alvo !== null && !setasNoInicio.has(alvo) ? alvo : null;
 }
+
+// ONDE CAI O BLOCO CRIADO POR CLIQUE NA PALETA — a conta que o arrasto não
+// precisa fazer, porque lá o ponteiro já diz o lugar.
+//
+// Clicar não tem ponteiro sobre o quadro, então o lugar tem de ser ESCOLHIDO, e
+// escolher é decisão: por isso ela mora aqui, no módulo puro, e não solta dentro
+// do manipulador de clique. `quadro.tsx` entra só com o que depende do React
+// Flow — o retângulo da área visível e o `screenToFlowPosition` que traduz o
+// centro dele para coordenada do quadro. Daí para cá é aritmética.
+//
+// O CENTRO É DA ÁREA VISÍVEL, e não do conteúdo: quem clica está olhando para
+// um pedaço do quadro, e o bloco tem de nascer onde os olhos já estão. Nascer no
+// centro do CONTEÚDO poria o bloco fora da tela sempre que o quadro estivesse
+// deslocado — e o efeito seria idêntico ao defeito que este trabalho conserta:
+// clicar, não ver nada acontecer, concluir que o clique não funciona.
+//
+// O PONTO DEVOLVIDO É O CANTO SUPERIOR ESQUERDO, porque é isso que `pos`
+// significa para o React Flow e para `pontasDaSeta` aqui em cima. Por isso a
+// metade da largura e da altura sai do centro: sem esse desconto o bloco fica
+// com o canto no meio da tela, deslocado para baixo e para a direita do lugar
+// para onde a pessoa está olhando. A altura usada é `ALTURA_SUPOSTA` e não a
+// medida — o bloco ainda não existe, então não há medida; o erro é de poucos
+// pixels e some no primeiro arrasto.
+export const DESVIO_DO_EMPILHAMENTO = 24;
+
+// O DESVIO EXISTE PORQUE O CENTRO É SEMPRE O MESMO PONTO. Dois cliques seguidos
+// põem o segundo bloco exatamente por cima do primeiro, que o esconde inteiro —
+// e a pessoa vê a mesma tela de antes do clique. Ou seja: sem o desvio, o
+// conserto reproduz o sintoma que ele existe para tirar, a partir do segundo
+// clique.
+//
+// Empilhar em diagonal é o que faz a pilha ser LEGÍVEL como pilha: com blocos de
+// 190 de largura, 24 para o lado e 24 para baixo deixa aparecer a borda e o topo
+// de cada um dos de baixo, que é como uma pilha de papel diz quantas folhas tem.
+//
+// A ocupação é conferida em CHEBYSHEV (o maior dos dois afastamentos), e não em
+// distância reta, porque quem se cobre são retângulos e não pontos: dois blocos
+// afastados 24 na diagonal têm distância reta 34 — passariam por um raio de 24 e
+// continuariam empilhados na tela.
+//
+// O QUE ISTO NÃO FAZ, dito com a medida certa: não é desvio de colisão. O bloco
+// tem 190 de largura, e o teste recusa apenas 24 — ou seja, o lugar devolvido
+// pode SOBREPOR PARCIALMENTE um bloco que já estava ali, e sobrepõe mesmo
+// (medido na tela, com o quadro de teste). Isso é de propósito. O que precisa
+// ser impossível é a superposição EXATA, que é a que não deixa rastro nenhum na
+// tela; um bloco meio por cima do outro aparece, tem borda visível e se arrasta
+// para o lado. Desviar de toda colisão exigiria a altura MEDIDA de cada bloco,
+// que não existe para o que ainda vai nascer, e escolheria posição por conta
+// própria — arrumar o quadro é gesto de quem monta, não deste arquivo.
+//
+// O LIMITE DO LAÇO é `2 * passos.length + 1` porque um bloco parado no meio do
+// caminho pode barrar DUAS posições consecutivas da diagonal (elas distam 24, e
+// o teste recusa até 24 para cada lado). Com o dobro de tentativas por bloco,
+// alguma posição sobra sempre; o `return` de fora do laço é a saída que o
+// TypeScript exige e que a aritmética não alcança.
+export function lugarDoBlocoNovo(centro: Ponto, passos: Passo[]): Ponto {
+  const x0 = Math.round(centro.x - LARGURA_DO_BLOCO / 2);
+  const y0 = Math.round(centro.y - ALTURA_SUPOSTA / 2);
+  const limite = 2 * passos.length + 1;
+  for (let k = 0; k < limite; k++) {
+    const x = x0 + k * DESVIO_DO_EMPILHAMENTO;
+    const y = y0 + k * DESVIO_DO_EMPILHAMENTO;
+    const ocupado = passos.some(
+      (p) =>
+        p.pos !== undefined &&
+        Math.abs(p.pos.x - x) < DESVIO_DO_EMPILHAMENTO &&
+        Math.abs(p.pos.y - y) < DESVIO_DO_EMPILHAMENTO
+    );
+    if (!ocupado) return { x, y };
+  }
+  return { x: x0 + limite * DESVIO_DO_EMPILHAMENTO, y: y0 + limite * DESVIO_DO_EMPILHAMENTO };
+}

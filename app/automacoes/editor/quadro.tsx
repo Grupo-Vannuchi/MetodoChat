@@ -388,6 +388,47 @@ export default function Quadro({
     if (sobreSeta !== null) setLigacoes((atual) => partirLigacao(atual, sobreSeta, identidade));
   }, []);
 
+  // A ÁREA DO REACT FLOW, guardada só para achar o CENTRO DO QUE ESTÁ À VISTA
+  // quando o bloco vem de um clique na paleta. Este é o retângulo exato do
+  // quadro: a faixa da paleta fica fora dele (o porquê está em `./paleta`), de
+  // modo que o centro daqui é o centro do que a pessoa está olhando, e não o de
+  // uma área que inclui a barra de onde ela clicou.
+  const areaDoQuadro = useRef<HTMLDivElement>(null);
+
+  // CLICAR NUM ITEM DA PALETA CRIA O BLOCO, e ele cai no centro da área visível.
+  //
+  // Isto NÃO é uma segunda forma de criar bloco: os dois gestos terminam em
+  // `inserir`, a mesma de sempre, e é ela quem monta o bloco, arredonda a
+  // posição e o anexa no fim do array. A única coisa que o clique tem a mais é
+  // que ninguém lhe deu um ponto — arrastar traz o ponteiro, clicar não —, e
+  // essa conta é `Geo.lugarDoBlocoNovo`, pura e testada.
+  //
+  // `sobreSeta` é SEMPRE `null` aqui, e é decisão, não esquecimento: partir uma
+  // ligação em duas é o significado de soltar EM CIMA de uma seta, e um clique
+  // na paleta não mira coisa nenhuma. Se o centro da tela por acaso calhasse
+  // sobre uma seta, aceitar isso seria reescrever o fluxo por coincidência —
+  // exatamente a classe de defeito que `alvoDoArraste` (./geometria) existe para
+  // fechar do outro lado.
+  //
+  // Sai sem fazer nada enquanto `instancia` for nula: ela chega no `onInit`, e
+  // até lá não há como traduzir tela em coordenada do quadro. Na prática a faixa
+  // e o quadro nascem juntos, então esta saída é a garantia de não inventar
+  // posição, não um caso que se veja.
+  const inserirNoCentro = useCallback(
+    (chave: string) => {
+      const area = areaDoQuadro.current;
+      if (!area || !instancia) return;
+      const r = area.getBoundingClientRect();
+      const centro = instancia.screenToFlowPosition({
+        x: r.left + r.width / 2,
+        y: r.top + r.height / 2,
+      });
+      const lugar = Geo.lugarDoBlocoNovo(centro, passos);
+      inserir(chave, lugar.x, lugar.y, null);
+    },
+    [instancia, passos, inserir]
+  );
+
   // PÔR UM BLOCO QUE JÁ EXISTE NO MEIO DE UMA SETA é soltá-lo SOBRE ELA, nunca
   // arrastá-lo pelo quadro.
   //
@@ -1389,13 +1430,20 @@ export default function Quadro({
             conteúdo (a faixa da paleta, que rola na horizontal) definiria a
             largura mínima e empurraria a prévia para fora da janela. */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <Paleta gatilho={configuracao.gatilho} />
+          {/* A PALETA TAMBÉM FICA INERTE ENQUANTO SALVA, e isto MUDOU com o
+              clique. Ela ficava de fora, e o motivo escrito era que arrastar
+              dela não muda nada sozinho — o alvo do arrasto é o quadro, e o
+              quadro está inerte. Isso continua verdade para o ARRASTO e deixou
+              de ser verdade para o item da faixa: clicar chama `inserirNoCentro`
+              direto, sem passar pelo quadro, e acrescentaria um bloco no meio da
+              gravação. O que seria gravado deixaria de ser o que está na tela,
+              que é exatamente o que o `inert` do quadro existe para garantir. */}
+          <Paleta gatilho={configuracao.gatilho} aoEscolher={inserirNoCentro} inerte={salvando} />
           {/* `inert` enquanto salva: o quadro e a faixa de edição param de
               aceitar ponteiro, teclado e foco, para o que for gravado ser o que
               está na tela. O porquê inteiro está no comentário acima de
-              `recado`. A paleta fica FORA: arrastar dela não muda nada sozinho,
-              e o alvo do arrasto está inerte. */}
-          <div className="relative min-w-0 flex-1" inert={salvando}>
+              `recado`. */}
+          <div ref={areaDoQuadro} className="relative min-w-0 flex-1" inert={salvando}>
             <ReactFlow
               nodes={nos}
               edges={setas}

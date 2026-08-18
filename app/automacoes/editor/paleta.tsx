@@ -24,6 +24,35 @@ import {
 // por que aquele item está apagado; o motivo é a comparação entre o gatilho
 // DESTA automação e os gatilhos que o bloco atende, e é isso que a frase diz.
 //
+// SÃO DOIS GESTOS PARA O MESMO FIM, e o clique é o que faltava.
+//
+// A faixa só respondia a ARRASTAR, e isso foi achado pelo dono do produto
+// usando o editor: ele clicou num item para acrescentar um bloco de texto e não
+// aconteceu nada — nem o bloco, nem aviso de que precisava arrastar. Medido no
+// navegador: o `click` CHEGA no item (um ouvinte em captura o registrou) e a
+// contagem de nós ficou em 7 antes e depois. Ou seja, não era evento perdido
+// nem erro engolido: era ausência de `onClick`, e o item continuava mudo.
+//
+// Clicar chama `aoEscolher`, e quem decide ONDE o bloco cai é `quadro.tsx` — a
+// paleta não conhece coordenada nenhuma. Arrastar continua sendo o gesto que
+// ESCOLHE o lugar, e ele não mudou em nada: mesmo `draggable`, mesmo
+// `onDragStart`, mesmo tipo de dado. Quem já aprendeu a arrastar não perde nada,
+// e o `onDrop` do quadro é o único lugar que cria bloco a partir de um ponto.
+//
+// É `<button>` E NÃO `<div>`, agora que o clique existe. Um `div` que responde a
+// clique é alcançável só pelo ponteiro: sem tabulação, sem Enter, sem Espaço, e
+// anunciado como caixa sem papel. O `button` traz os três de graça, e o
+// `type="button"` é o que impede o padrão `submit` de aparecer se um dia esta
+// faixa cair dentro de um formulário. O `draggable` continua valendo — é
+// atributo global de HTML, não privilégio de `div` —, e foi CONFERIDO no
+// navegador depois da troca.
+//
+// O item que não serve para este gatilho fica com `aria-disabled` e sem ação, e
+// NÃO com `disabled`: o atributo tiraria o item da tabulação, e com ele o motivo
+// escrito no `title` — que é a única explicação de por que aquele desenho está
+// apagado — deixaria de ser alcançável por teclado. Quem não pode usar o item é
+// justamente quem mais precisa ler o porquê.
+//
 // O TIPO DO ARRASTO é `application/metodochat-bloco`, e o nome próprio não é
 // enfeite: o quadro é uma área que aceita soltura, e o navegador manda para ela
 // tudo que for arrastado por cima — arquivo, imagem, trecho de texto de outra
@@ -104,11 +133,28 @@ const ICONE: Record<string, (p: { className?: string }) => React.JSX.Element> = 
 // Com a faixa fora da área do React Flow, o `fitView` enquadra exatamente o
 // espaço que existe, em qualquer zoom. Quem monta a coluna é `quadro.tsx`.
 // ---------------------------------------------------------------------------
-export default function Paleta({ gatilho }: { gatilho: string }) {
+//
+// `inerte` chega de `quadro.tsx` e vale enquanto a automação está sendo gravada.
+// Ele não existia enquanto a faixa só arrastava: o alvo do arrasto é o quadro, e
+// o quadro já ficava inerte. Com o clique a faixa passou a mexer no estado
+// SOZINHA, sem tocar no quadro, e sem isto um clique no meio da gravação
+// acrescentaria um bloco que não estava na tela quando o salvar começou.
+export default function Paleta({
+  gatilho,
+  aoEscolher,
+  inerte,
+}: {
+  gatilho: string;
+  aoEscolher: (chave: string) => void;
+  inerte: boolean;
+}) {
   return (
-    <div className="flex shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-200 bg-zinc-50/60 px-3 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/40">
+    <div
+      inert={inerte}
+      className="flex shrink-0 items-center gap-3 overflow-x-auto border-b border-zinc-200 bg-zinc-50/60 px-3 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/40"
+    >
       <span className="shrink-0 text-[9px] font-semibold tracking-wider text-zinc-400">
-        ARRASTE PARA O QUADRO
+        ARRASTE OU CLIQUE
       </span>
       <div className="flex items-center gap-1">
         {PALETA.map((item) => {
@@ -125,12 +171,21 @@ export default function Paleta({ gatilho }: { gatilho: string }) {
           // serve para este gatilho.
           const legenda = `${item.rotulo} — ${item.descricao}`;
           return (
-            <div
+            <button
               key={item.chave}
+              type="button"
               draggable={serve}
               onDragStart={(e) => {
                 e.dataTransfer.setData("application/metodochat-bloco", item.chave);
                 e.dataTransfer.effectAllowed = "move";
+              }}
+              // A guarda repete o que `draggable={serve}` e o cursor já dizem,
+              // porque `aria-disabled` NÃO impede nada: ele só anuncia. Sem o
+              // `return`, clicar num item apagado criaria o bloco que a faixa
+              // acabou de dizer que não serve para este gatilho.
+              onClick={() => {
+                if (!serve) return;
+                aoEscolher(item.chave);
               }}
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
                 serve
@@ -144,7 +199,7 @@ export default function Paleta({ gatilho }: { gatilho: string }) {
             >
               <Icone className="h-[22px] w-[22px]" />
               <span className="sr-only">{item.rotulo}</span>
-            </div>
+            </button>
           );
         })}
       </div>
