@@ -3730,6 +3730,43 @@ describe("conferirLista em dois níveis", () => {
     expect(r[0].indice).toBe(1);
   });
 
+  it("ATIVAR: resposta rápida que é o fim do caminho — toca o botão e não recebe nada", () => {
+    // O beco sem saída no tipo de bloco MAIS COMUM do produto, e ele passava
+    // batido: a regra tinha nascido só para o portão. A pessoa toca "Quero",
+    // `seguinteDe` devolve null, `interpretar` sai calada e nada chega.
+    const abre = { id: "b_abr090", tipo: "dm", texto: "Oi" };
+    const ls = [sempre("b_abr090", "b_bem001")];
+    expect(salvar([abre, bem], ls)).toHaveLength(0);
+    const r = ativar([abre, bem], ls);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+    // A frase nomeia o botão, porque é por ele que o dono acha o bloco.
+    expect(r[0].mensagem).toContain("Quero");
+  });
+
+  it("ATIVAR: pedido de e-mail que é o fim do caminho — manda o endereço e não recebe nada", () => {
+    const email = { id: "b_eml091", tipo: "pedir_email", texto: "Seu e-mail?" };
+    const ls = [sempre("b_bem001", "b_eml091")];
+    const r = ativar([bem, email], ls);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+    expect(r[0].mensagem).toContain("e-mail");
+  });
+
+  it("o MENU de botões inteiramente ligado NÃO é beco sem saída, mesmo sem `sempre`", () => {
+    // A linha que impede a generalização de acusar todo menu certo do produto:
+    // o toque num menu é resolvido por `ligacaoEscolhida`, uma seta POR BOTÃO, e
+    // um menu completo não tem `sempre` nenhuma saindo. Perguntar `seguinteDe` a
+    // ele daria erro em cima da montagem correta.
+    const destino = { id: "b_dst092", tipo: "dm", texto: "Pronto" };
+    const ls = [
+      sempre("b_bem001", "b_men020"),
+      porBotao("b_men020", "op_aaaaaa", "b_dst092"),
+      porBotao("b_men020", "op_bbbbbb", "b_dst092"),
+    ];
+    expect(conferirLista([bem, menuDeDois, destino], "dm", ls)).toEqual([]);
+  });
+
   it("ATIVAR: mais botões do que cabe numa mensagem", () => {
     const botoes = Array.from({ length: LIMITE_DE_BOTOES + 1 }, (_, i) => ({
       id: `op_x${String(i).padStart(5, "0")}`,

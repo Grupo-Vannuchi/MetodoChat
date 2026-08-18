@@ -246,6 +246,32 @@ export function esperaResposta(p: Passo): boolean {
   return false;
 }
 
+// O BLOCO QUE ESPERA E QUE SÓ DESTRAVA PELA SETA `sempre`.
+//
+// `esperaResposta` (acima) diz que o fluxo PARA no bloco. Esta diz por ONDE ele
+// volta a andar, e as duas perguntas não têm a mesma resposta: o motor tem dois
+// jeitos de retomar um bloco de espera, e cada um consulta uma seta diferente.
+//
+//   `pedir_follow`, `pedir_email` e a `dm` de RESPOSTA RÁPIDA retomam pela
+//     `sempre`. É `seguinteDe` em `retomadaDoTexto`, em `retomadaDoBotao` e em
+//     `retomadaDoEmailConhecido` — os três ramos, sem exceção. Sem a `sempre`,
+//     o destino é null, `interpretar` sai calada e a pessoa não recebe nada.
+//   A `dm` de `botoes` NÃO: o toque é resolvido por
+//     `ligacaoEscolhida(..., {tipo:"botao"})` (`caminhoDoBotao`), uma seta POR
+//     BOTÃO. Um menu inteiramente ligado não tem `sempre` nenhuma saindo, e
+//     perguntar `seguinteDe` a ele acusaria de beco sem saída todo menu certo
+//     do produto. Quem cobre esse caso é a regra do BOTÃO SEM DESTINO, em
+//     `conferirLista`, que faz a mesma pergunta que o motor faz no toque.
+//
+// EXISTE SEPARADA DE `esperaResposta` E NÃO DENTRO DELA porque as duas têm
+// donos diferentes: `esperaResposta` é lida pelo motor, pela prévia e pelas
+// paradas duras, e todas as três querem "para aqui" sem se importar com a seta.
+// Esta é a pergunta da CONFERÊNCIA, e ela é a de retomada.
+function retomaPelaSempre(p: Passo): boolean {
+  if (!esperaResposta(p)) return false;
+  return p.tipo !== "dm" || envioDaDm(p).forma !== "botoes";
+}
+
 export type AcaoEnfileirar = {
   passo: Passo;
   indice: number;
@@ -2882,21 +2908,45 @@ export function conferirLista(
         });
       }
 
-      // PORTÃO QUE É O FIM DO CAMINHO: a pessoa segue o perfil, vence o portão —
-      // e não recebe mais nada. `executarFluxo` (lib/engine.ts), quando
-      // `resolverFollow` devolve "passou", retoma de `seguinteDe(portão)`; sem
-      // essa seta o destino é null, `interpretar` sai calada e o cursor é limpo.
+      // O BECO SEM SAÍDA: o bloco PEDE alguma coisa, a pessoa faz exatamente o
+      // que foi pedido — e não recebe nada. `interpretar` sai calada e o cursor
+      // é limpo. É o pior fim possível para um fluxo, e é sempre o MESMO
+      // mecanismo: a retomada pergunta `seguinteDe` e leva null de volta.
       //
-      // É o pior fim possível para o fluxo, porque a pessoa fez exatamente o que
-      // foi pedido. E é ERRO DE ATIVAR e não de salvar: o portão recém-arrastado
-      // ainda sem seta de saída é o estado normal de quem acabou de arrastá-lo.
-      if (passo.tipo === "pedir_follow" && seguinteDe(ligacoes, id) === null) {
+      // ESTA REGRA NASCEU SÓ PARA O PORTÃO e passou dois commits assim, o que é
+      // um recorte e não uma decisão: o mesmo beco no tipo de bloco mais comum
+      // do produto — a `dm` de resposta rápida — não era acusado por ninguém.
+      // Medido, com seta e tudo: `[dm "oi", dm "Quer?" botao_label:"Quero"]` com
+      // `sempre(oi → Quer?)` devolvia `[]`. A pessoa toca "Quero" e não recebe
+      // nada, nem erro nem aviso. `pedir_email` sem saída era idêntico.
+      //
+      // QUEM ENTRA está em `retomaPelaSempre` (lá em cima), e o recorte é o do
+      // MOTOR, não o desta função: o menu de `botoes` fica de fora porque a
+      // retomada dele é por botão, e é a regra do BOTÃO SEM DESTINO, acima, que
+      // faz aquela pergunta.
+      //
+      // UMA FRASE POR TIPO, e não uma só: quem toca um botão, quem manda o
+      // e-mail e quem segue o perfil consertam isso de jeitos diferentes, e a
+      // mensagem é o que o dono lê para saber qual é o seu caso.
+      //
+      // É ERRO DE ATIVAR e não de salvar, pelo mesmo critério do botão sem
+      // destino: o bloco recém-arrastado ainda sem seta de saída é o estado
+      // normal de quem acabou de arrastá-lo.
+      if (retomaPelaSempre(passo) && seguinteDe(ligacoes, id) === null) {
+        // O RÓTULO SAI DE `envioDaDm` e não de `passo.botao_label` pelo motivo
+        // de sempre neste arquivo: é aquela função que decide o que a mensagem
+        // entrega, e reler o campo cru aqui seria a segunda cópia da regra.
+        const envio = passo.tipo === "dm" ? envioDaDm(passo) : null;
         r.push({
           nivel: "erro",
           quando: "ativar",
           indice: i,
           mensagem:
-            "Não há nenhum bloco depois deste pedido de follow: quem seguir o perfil não recebe mais nada.",
+            passo.tipo === "pedir_email"
+              ? "Não há nenhum bloco depois deste pedido de e-mail: quem mandar o endereço não recebe mais nada."
+              : envio?.forma === "resposta_rapida"
+                ? `Não há nenhum bloco depois desta mensagem: quem tocar em “${envio.rotulo}” não recebe nada.`
+                : "Não há nenhum bloco depois deste pedido de follow: quem seguir o perfil não recebe mais nada.",
         });
       }
     }
