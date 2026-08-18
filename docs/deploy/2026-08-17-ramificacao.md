@@ -130,28 +130,43 @@ Motor e editor juntos. Depois, com a aplicação no ar:
 
 ### 7 · O quadro, item por item — a prova que a sessão não conseguiu dar
 
-A Tarefa 6 (o quadro desenhando setas de verdade) **não pôde ser conferida na
-tela**: os perfis de navegador guardados caem na tela de login, e entrar exigiria
-a senha de admin ou forjar cookie — as duas proibidas na sessão que a construiu.
-A metade pura de cada item está testada; a metade visual não.
+O dono liberou o Chrome com depuração remota em 18/08 e **parte destes itens
+foi medida na tela**. O que ficou provado sai da lista; o resto continua aqui.
 
-**Confira estes seis, um a um, antes de considerar a fase entregue:**
+### JÁ PROVADO na tela — não precisa refazer
 
-- [ ] as setas desenhadas **batem com as gravadas** — abra uma automação migrada
-      e compare com a corrente que o passo 5 conferiu
-- [ ] arrastar de uma alça até outro bloco **cria a ligação**, e ela sobrevive ao
-      salvar e reabrir
-- [ ] um bloco com dois botões mostra **duas alças, cada uma nomeada**
-- [ ] soltar um bloco **sobre uma seta** o põe no meio, e as duas ligações
-      resultantes estão certas
+Medido em `Fluxo de teste 1a` (5 blocos, nenhuma seta gravada):
+
+- **o editor abre e desenha** — 6 nós (5 blocos + gatilho), 11 alças
+- **as setas desenhadas batem com as gravadas** — zero ligações desenhadas,
+  zero gravadas. A única seta é `gatilho→primeiro bloco`, que é sintética
+- **arrastar de uma alça cria a ligação** — a seta `ligacao-0` apareceu no
+  quadro depois do gesto
+- **selecionar uma seta e apertar Delete a apaga** — era a armadilha que a
+  revisão achou, e ela está fechada
+- **a seta do gatilho é PROTEGIDA** — o React Flow não a marca como
+  selecionável, então ela não pode ser apagada por engano
+- **lista sem seta nenhuma mantém as regras de grafo caladas**, e o Salvar fica
+  habilitado — é a decisão da Tarefa 5 confirmada na tela, e é o que impede o
+  dono de ser trancado fora das automações antigas antes da migração
+
+### AINDA POR PROVAR — confira antes de considerar a fase entregue
+
+A conexão da ferramenta de navegador passou a estourar tempo no envio de eventos
+de arrasto, e estes ficaram sem medição:
+
+- [ ] apertar **Backspace dentro de um campo de texto do painel NÃO apaga a seta
+      selecionada** — a proteção existe na biblioteca (verificada por leitura do
+      `node_modules`), mas não foi exercitada na tela
+- [ ] a ligação criada **sobrevive ao salvar e reabrir**
+- [ ] soltar um bloco **sobre uma seta** o põe no meio, com as duas ligações
+      resultantes certas
 - [ ] soltar num ponto vazio cria **bloco solto**, e a barra avisa em âmbar sem
       travar o salvar
-- [ ] selecionar uma seta e apertar **Delete a apaga** — e apertar Backspace
-      dentro de um campo de texto do painel **não** apaga seta nenhuma
-
-**O último é o que fecha uma armadilha medida:** antes da correção não havia
-gesto para tirar uma seta, e uma seta acidental num bloco final travava o salvar
-da sessão inteira.
+- [ ] um bloco com dois botões mostra **duas alças, cada uma nomeada** — depende
+      da Tarefa 7, que é quem cria botões pelo painel
+- [ ] a mensagem **"Salvo, mas ficou pausada: …"** aparece legível e inteira —
+      ela estava cortada em 100% dos casos e ganhou bloco próprio na Tarefa 6b
 
 **E meça durante o gesto, não antes e depois.** Nesta base a comparação
 antes/depois já aprovou item quebrado quatro vezes, porque o defeito preservava o
