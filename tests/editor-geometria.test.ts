@@ -407,13 +407,37 @@ describe("lugarDoBlocoNovo", () => {
   });
 
   it("um bloco entre duas posicoes da diagonal barra as DUAS, e o laco passa por cima", () => {
-    // Este e o caso que obriga o limite a ser `2 * passos.length + 1`: com um
-    // unico bloco a 12/12 do canto, as posicoes k=0 e k=1 estao ambas ocupadas
-    // (afastamentos 12 e 12), e a resposta e k=2.
+    // Um unico bloco a 12/12 do canto barra as posicoes k=0 e k=1 (afastamentos
+    // 12 e 12 dele), e a resposta e k=2 — prova que o laco pula por cima de DOIS
+    // candidatos barrados pelo mesmo obstaculo.
+    //
+    // O QUE ISTO NAO PROVA, medido: que o multiplicador precisa ser `2`. Com um
+    // so obstaculo, mutar o limite para `passos.length + 1` (n=1 -> limite=2)
+    // ainda passa aqui — o laco para em k=0,1 sem achar vaga, e o `return` de
+    // fora do laco reusa a mesma variavel `limite` (ja mutada) para devolver
+    // k=2, que acerta POR SORTE: aquele `return` nao sabe que k=2 esta livre, so
+    // repete o ultimo `limite` tentado. Quem prova o multiplicador de verdade e
+    // o caso seguinte, com dois obstaculos ENCADEADOS.
     const meio = passoEm(canto.x + 12, canto.y + 12);
     expect(lugarDoBlocoNovo(centro, [meio])).toEqual({
       x: canto.x + 2 * DESVIO_DO_EMPILHAMENTO,
       y: canto.y + 2 * DESVIO_DO_EMPILHAMENTO,
+    });
+
+    // DOIS obstaculos encadeados: o primeiro (12/12 do canto) barra k=0 e k=1;
+    // o segundo (60/60 do canto) barra k=2 e k=3 (afastamentos 12 e 12 dele). A
+    // primeira vaga livre e k=4.
+    //
+    // Com `passos.length + 1` (n=2 -> limite=3) o laco testa so k=0,1,2 — todos
+    // ocupados — e sai sem `return`. O `return` de fora do laco devolve
+    // `limite` (3, ja mutado): k=3, que TAMBEM esta ocupado, pelo segundo
+    // bloco. A resposta errada deixa de coincidir com a certa aqui, e e por
+    // isso que este segundo caso — e nao o de um obstaculo so, acima — e quem
+    // obriga o multiplicador a ser `2 * passos.length + 1`.
+    const passos = [passoEm(canto.x + 12, canto.y + 12), passoEm(canto.x + 60, canto.y + 60)];
+    expect(lugarDoBlocoNovo(centro, passos)).toEqual({
+      x: canto.x + 4 * DESVIO_DO_EMPILHAMENTO,
+      y: canto.y + 4 * DESVIO_DO_EMPILHAMENTO,
     });
   });
 
