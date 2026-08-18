@@ -122,10 +122,32 @@ export default async function EditarAutomacaoPage({
   // cabeçalho daquele celular é esta conta. Ela já foi buscada acima para saber
   // de quem é a automação, então isto reaproveita a mesma leitura.
   //
-  // O comentário fica AQUI e não entre os atributos: comentário `//` dentro da
-  // lista de atributos de um elemento JSX passa no `tsc` e no `next build` e
-  // engole a prop seguinte no compilador do modo de desenvolvimento — a página
-  // quebrou em produção local com `conta` chegando `undefined`, e nada acusou.
+  // AQUI ESTEVE ESCRITO QUE COMENTÁRIO `//` ENTRE ATRIBUTOS DE JSX ENGOLE A
+  // PROP SEGUINTE, "com medição". É FALSO, e o registro fica porque a frase
+  // errada já custou uma mudança de código em outro arquivo: o quadro tirou uma
+  // prop de dentro da lista de atributos por causa dela.
+  //
+  // MEDIDO COM O COMPILADOR DESTE PROJETO — `@next/swc-win32-x64-msvc`, next
+  // 16.2.10, `development: true` —, compilando o arquivo EXATO em que a rota
+  // caiu (a versão anterior a `ea5e09a`, com o comentário entre `configuracaoInicial`
+  // e `conta`). A saída traz o comentário e a prop logo depois dele:
+  //
+  //     configuracaoInicial: configuracaoInicial,
+  //     // A conta já foi buscada acima para saber de quem é a automação; …
+  //     conta: { usuario: selected.username, nome: …, foto: … }
+  //
+  // No caso mínimo — `a`, comentário `//`, `b`, comentário de bloco, `c` — os
+  // três sobrevivem. O mesmo vale para o `quadro.tsx` inteiro: 15 de 15 props
+  // conferidas presentes, oito delas precedidas por comentário `//`.
+  //
+  // O QUE DERRUBOU A ROTA foi a outra metade daquele mesmo commit, e é ela que
+  // segue segurando: `Previa` passou a aceitar `conta` OPCIONAL e a cair num
+  // perfil vazio. Antes disso a prévia lia `conta.nome` direto, e `conta`
+  // chegando `undefined` estoura dentro do componente de cliente — o que leva a
+  // rota inteira junto. POR QUE ela chegou `undefined` naquele dia continua sem
+  // medição, e o que se pode afirmar é o que foi medido: não foi o comentário.
+  //
+  // A extração para uma constante fica por leitura, não por medo.
   const contaDaPrevia = {
     usuario: selected.username,
     nome: selected.name,

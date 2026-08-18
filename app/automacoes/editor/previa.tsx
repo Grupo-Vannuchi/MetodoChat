@@ -389,9 +389,15 @@ export default function Previa({
   // faz a tela parecer um exemplo em vez do fluxo desta conta.
   //
   // OPCIONAL de propósito, e não por preguiça: esta prop chegou `undefined` uma
-  // vez por um comentário mal posicionado na página que a monta, e o efeito foi
-  // a ROTA INTEIRA cair — não a prévia ficar sem foto. Um dado de enfeite não
-  // pode derrubar a tela onde se edita o fluxo.
+  // vez e o efeito foi a ROTA INTEIRA cair — não a prévia ficar sem foto —,
+  // porque `conta.nome` lido direto num componente de cliente estoura e leva a
+  // rota junto. Um dado de enfeite não pode derrubar a tela onde se edita o
+  // fluxo, e é ESTA linha (com o `perfil` logo abaixo) que segura isso.
+  //
+  // POR QUE ela chegou `undefined` naquele dia nunca foi medido. A explicação
+  // que já esteve escrita aqui — um comentário `//` mal posicionado na página
+  // que a monta — foi MEDIDA e é falsa; o registro inteiro está no comentário de
+  // `../[id]/page.tsx`.
   conta?: ContaDaPrevia;
   // O bloco aberto no painel, para acender na prévia. -1 quando o selecionado é
   // o gatilho, ou quando não há nenhum.
