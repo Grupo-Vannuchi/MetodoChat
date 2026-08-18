@@ -744,9 +744,17 @@ export default function Quadro({
   // motor, e ele é feito exatamente assim. O anel que o motor percorre sozinho —
   // o de `sempre` — continua sendo recusado, por `conferirLista`, na porta do
   // salvar.
+  //
+  // O GATILHO FICA DE FORA DAS DUAS PONTAS, e a guarda não é hipotética: `ligar`
+  // gravaria `de: "gatilho"` como se fosse um bloco, e nenhuma das duas metades
+  // do sistema saberia o que fazer com esse id — `identidadeDoPasso` nunca o
+  // produz, e `interpretar` não o acharia na lista. A tela não oferece o gesto
+  // (o `Handle` de `./gatilho` vai com as três props em `false`, fixas), e esta
+  // linha é o que segura o caso se alguém "uniformizar" aquele arquivo um dia.
   const ligarBlocos = useCallback((c: Connection) => {
     const quando = quandoDaChave(c.sourceHandle);
     if (!quando || !c.source || !c.target) return;
+    if (c.source === ID_DO_GATILHO || c.target === ID_DO_GATILHO) return;
     setLigacoes((atual) => ligar(atual, c.source, quando, c.target));
   }, []);
 

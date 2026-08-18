@@ -85,7 +85,15 @@ export default function Gatilho({ data }: { data: DadosDoGatilho }) {
           `isConnectableStart`, e o padrão dela é `true` (o mecanismo inteiro
           está em `no.tsx`). Aqui as três vão fixas em `false` em vez de virem
           do invólucro: nada, nunca, se conecta a partir do gatilho à mão, e a
-          seta que sai dele é derivada da lista como todas as outras. */}
+          seta que sai dele é derivada da lista como todas as outras.
+
+          O `false` FIXO PASSOU A SER O QUE SEGURA O GESTO, e não uma formalidade:
+          a Tarefa 6 ligou `nodesConnectable` no quadro, então `isConnectable`
+          chega aqui VERDADEIRO. Trocar estas três por `isConnectable` "para
+          ficar igual ao `no.tsx`" abriria o arrasto a partir do gatilho, e a
+          ligação nascida dele teria `de: "gatilho"` — um id que não é bloco
+          nenhum. `ligarBlocos` (./quadro) recusa esse caso também, mas é esta
+          linha que o impede de ser oferecido na tela. */}
       <Handle
         type="source"
         position={Position.Right}

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect } from "react";
+import { Fragment, useEffect } from "react";
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import type { Passo } from "@/lib/steps";
 import { alcasDeSaida, resumoDoBloco } from "./modelos";
@@ -178,7 +178,10 @@ export default function No({ id, data, isConnectable }: NodeProps & { data: Dado
       {alcas.map((a, k) => {
         const altura = `${fracaoDaAlca(k, alcas.length) * 100}%`;
         return (
-          <div key={a.chave}>
+          // `Fragment` e não uma `div`: um invólucro seria mais uma caixa no
+          // fluxo do bloco, e a alça já se posiciona sozinha contra a caixa do
+          // nó (que é quem tem `relative`).
+          <Fragment key={a.chave}>
             <Handle
               id={a.chave}
               type="source"
@@ -192,12 +195,12 @@ export default function No({ id, data, isConnectable }: NodeProps & { data: Dado
             {alcas.length > 1 && (
               <span
                 style={{ top: altura }}
-                className="pointer-events-none absolute left-full ml-2 max-w-[110px] -translate-y-1/2 truncate text-[9px] leading-none text-zinc-500 dark:text-zinc-400"
+                className="pointer-events-none absolute left-full ml-2 max-w-[88px] -translate-y-1/2 truncate text-[9px] leading-none text-zinc-500 dark:text-zinc-400"
               >
                 {a.rotulo}
               </span>
             )}
-          </div>
+          </Fragment>
         );
       })}
     </div>
