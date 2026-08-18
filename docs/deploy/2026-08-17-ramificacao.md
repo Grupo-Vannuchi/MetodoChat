@@ -128,7 +128,36 @@ Motor e editor juntos. Depois, com a aplicação no ar:
 - rode a automação de ponta a ponta com um dos dois perfis autorizados
   (**@jvsiqueira_** ou **@alicistica**) e confira em Atividade
 
-### 7 · A prova que não pôde ser dada antes
+### 7 · O quadro, item por item — a prova que a sessão não conseguiu dar
+
+A Tarefa 6 (o quadro desenhando setas de verdade) **não pôde ser conferida na
+tela**: os perfis de navegador guardados caem na tela de login, e entrar exigiria
+a senha de admin ou forjar cookie — as duas proibidas na sessão que a construiu.
+A metade pura de cada item está testada; a metade visual não.
+
+**Confira estes seis, um a um, antes de considerar a fase entregue:**
+
+- [ ] as setas desenhadas **batem com as gravadas** — abra uma automação migrada
+      e compare com a corrente que o passo 5 conferiu
+- [ ] arrastar de uma alça até outro bloco **cria a ligação**, e ela sobrevive ao
+      salvar e reabrir
+- [ ] um bloco com dois botões mostra **duas alças, cada uma nomeada**
+- [ ] soltar um bloco **sobre uma seta** o põe no meio, e as duas ligações
+      resultantes estão certas
+- [ ] soltar num ponto vazio cria **bloco solto**, e a barra avisa em âmbar sem
+      travar o salvar
+- [ ] selecionar uma seta e apertar **Delete a apaga** — e apertar Backspace
+      dentro de um campo de texto do painel **não** apaga seta nenhuma
+
+**O último é o que fecha uma armadilha medida:** antes da correção não havia
+gesto para tirar uma seta, e uma seta acidental num bloco final travava o salvar
+da sessão inteira.
+
+**E meça durante o gesto, não antes e depois.** Nesta base a comparação
+antes/depois já aprovou item quebrado quatro vezes, porque o defeito preservava o
+estado final.
+
+### 8 · A prova que não pôde ser dada antes
 
 A Tarefa 4 **não conseguiu** provar o envio de vários botões de ponta a ponta —
 o caminho do webhook forjado escreve no banco, o que estava proibido, e não havia
