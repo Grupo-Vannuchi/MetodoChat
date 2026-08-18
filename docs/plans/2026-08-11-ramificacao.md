@@ -1154,6 +1154,113 @@ git commit -m "A previa mostra o caminho que leva ate o bloco selecionado"
 
 ---
 
+# Tarefa 9 · O dono decide, por automação, se aquele fluxo entrega sem portão
+
+**Files:**
+- Create: `migrations/002-entrega-sem-portao.sql`
+- Modify: `lib/db.ts`, `lib/steps.ts` (`conferirLista`), `app/automacoes/actions.ts`
+- Modify: o editor (onde ficam as configurações da automação, não o quadro)
+- Test: `tests/steps.test.ts`
+
+**Esta tarefa não estava no plano.** Ela nasceu de uma decisão do dono do
+produto, tomada durante a revisão da Tarefa 5.
+
+## O caso, e por que ele precisou de decisão
+
+A Tarefa 5 fez "dá para chegar no link sem passar pelo portão" **impedir ativar**.
+Mas já existia, desde antes da fase, um **aviso** dizendo o contrário sobre o
+mesmo caso: *"Pode ser engano, pode ser estratégia — entregar primeiro e pedir
+follow depois. Quem decide é o dono."*
+
+Dois textos, o mesmo caso, respostas opostas. Levado ao dono, ele escolheu a
+terceira saída: **nem sempre engano, nem sempre estratégia — depende da
+automação.**
+
+## O que construir
+
+**Uma chave por automação.** Coluna nova, `false` por padrão — o padrão é o
+comportamento seguro, e quem quiser entregar sem portão **diz que quer**.
+
+`conferirLista` passa a receber essa chave. Com ela ligada:
+
+- a regra do **portão contornável** deixa de impedir ativar
+- o **aviso posicional antigo** morre de vez, ligada ou não — ele lê a ORDEM DO
+  ARRAY, que a Tarefa 3b tirou de circulação. *"Link antes do portão na lista"*
+  deixou de significar *"link antes do portão no fluxo"*, e mantê-lo é manter
+  uma terceira voz sobre o mesmo caso
+
+**O que a chave NÃO desliga:** o portão continua funcionando no motor. Ela diz
+"não me impeça de publicar", **não** "ignore o portão em tempo de entrega". Se o
+dono desenhou um caminho que passa pelo portão, aquele caminho continua passando.
+
+## O controle, e onde ele fica
+
+**Não vai no quadro.** É configuração da automação, não do fluxo — mesmo lugar do
+nome e do gatilho.
+
+O rótulo precisa dizer a consequência, não o mecanismo. *"Entregar o link sem
+exigir que a pessoa siga"* diz o que acontece; *"desativar conferência do portão"*
+diz o que o código faz e não ajuda ninguém a decidir.
+
+E precisa dizer o preço junto, porque é a única defesa que sobra: com a chave
+ligada, **ninguém mais avisa** se o fluxo entregar a recompensa a quem não segue.
+
+## Por que ela vem por último
+
+Depende do editor existir para ter onde morar. E é a única tarefa desta fase que
+**acrescenta uma decisão de produto**, em vez de construir o que já foi decidido.
+
+## Passos
+
+- [ ] **Passo 1: a migração**
+
+`migrations/002-entrega-sem-portao.sql`, no formato de `001` — idempotente
+(`if not exists`), com o porquê escrito. A mesma linha entra em `ensureSchema`
+(`lib/db.ts`) durante a transição, pelo motivo já registrado em `001`: lá é a
+rede, aqui é a ordem.
+
+Rode `node scripts/migrar.mjs` (ensaio a seco) e **reporte a saída**. Não aplique.
+
+- [ ] **Passo 2: escreva os testes que falham**
+
+Cubra, com nomes que digam a consequência:
+
+- com a chave **desligada**, portão contornável **impede ativar** (é o de hoje)
+- com a chave **ligada**, o mesmo fluxo **ativa**
+- com a chave ligada, **as outras regras continuam valendo** — botão sem destino,
+  bloco inalcançável e anel de `sempre` não são afetados
+- o aviso posicional **não aparece mais**, com a chave ligada ou desligada
+
+O terceiro é o que mais importa: a chave tem que ser **estreita**. Se ligá-la
+silenciar outra regra, ela virou um "ignorar tudo" com nome bonito.
+
+- [ ] **Passo 3: rode e confirme que falha**
+
+- [ ] **Passo 4: implemente**
+
+A chave é argumento de `conferirLista`, com padrão `false`. **Não** leia
+configuração dentro de `lib/steps.ts` — ele é puro e não conhece banco.
+
+- [ ] **Passo 5: rode e confirme que passa**
+
+- [ ] **Passo 6: o controle no editor**
+
+Com o preço escrito ao lado, não escondido em ajuda.
+
+- [ ] **Passo 7: mute e prove**
+
+Faça a chave ligada silenciar **também** o botão sem destino, e confirme que o
+teste do Passo 2 fica vermelho. É a prova de que a chave é estreita. Reporte.
+
+- [ ] **Passo 8: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run && npm run varredura
+git commit -m "O dono decide por automacao se aquele fluxo entrega sem portao"
+```
+
+---
+
 ## Depois do plano
 
 **Revisão da branch inteira**, no modelo mais capaz, com uma exigência que não é
