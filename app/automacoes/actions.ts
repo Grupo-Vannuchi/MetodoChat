@@ -137,10 +137,51 @@ export async function salvarAutomacao(
   const post = gatilho === "comment" ? midiaEscolhida(c.post) : null;
   const story = gatilho === "story" ? midiaEscolhida(c.story) : null;
 
+  // AS SETAS DO PAR FINAL VÊM DO BANCO, e isso NÃO contradiz "nada do que está
+  // no banco entra aqui" — é a mesma regra aplicada com honestidade.
+  //
+  // A regra do par final é: confira o que vai VALER DEPOIS desta escrita. Esta
+  // função escreve `steps` e as colunas do gatilho, e NÃO escreve `ligacoes` —
+  // então, depois deste salvamento, as setas que valem são exatamente as que já
+  // estão gravadas. Elas são a metade final do par, não a metade velha.
+  //
+  // O IMPASSE QUE OBRIGOU A CONFERIR O PAR FINAL NÃO SE REPETE AQUI, e vale
+  // dizer por quê: ele existia porque duas escritas independentes conferiam cada
+  // uma a sua metade nova contra a metade velha da OUTRA. Aqui não há metade
+  // nova de setas — nenhuma está sendo escrita.
+  //
+  // QUEM MANDAR AS SETAS TROCA ESTA LEITURA. A Tarefa 6 põe as ligações no
+  // estado do quadro; a partir dela, elas chegam por argumento e são gravadas
+  // junto, e é a lista que chegou — não a do banco — que passa a ser a metade
+  // final. Este `select` sai no mesmo commit em que isso acontecer.
+  //
+  // ZERO LINHAS AQUI NÃO DECIDE NADA: automação inexistente (ou de outra conta)
+  // cai em `[]`, a conferência a trata como lista sem seta nenhuma, e quem
+  // devolve `NAO_ENCONTRADA` continua sendo o `update` da transação, pelo
+  // `returning id` que já existia. Duas respostas para a mesma pergunta, em dois
+  // lugares, é como elas passam a divergir.
+  //
+  // o account_id no where impede ler automação de outra conta
+  const gravado = (await sql().query(
+    `select ligacoes from automations where id = $1 and account_id = $2`,
+    [automationId, accountId]
+  )) as { ligacoes: unknown }[];
+  const ligacoes = gravado[0]?.ligacoes ?? [];
+
   // A CONFERÊNCIA DO PAR FINAL, UMA VEZ SÓ: os blocos que vão ser gravados
-  // contra o gatilho que vai ser gravado. Nada do que está no banco entra aqui —
-  // ele está prestes a deixar de valer.
-  const erros = conferirLista(passos, gatilho).filter((p) => p.nivel === "erro");
+  // contra o gatilho que vai ser gravado, e contra as setas que continuam
+  // valendo.
+  //
+  // SÓ OS ERROS DE SALVAR, e essa é a decisão de produto da Tarefa 5. O outro
+  // nível — botão sem destino, bloco ainda solto no quadro, portão sem saída —
+  // descreve um desenho PELA METADE, que é o estado normal de quem está
+  // montando: montar um menu de três opções, ligar duas e voltar amanhã é
+  // trabalho normal, e recusar a gravação disso deixaria o dono sem onde guardar
+  // o meio do trabalho. Quem recusa esses é `toggleAutomation` (mais abaixo), na
+  // hora de publicar.
+  const erros = conferirLista(passos, gatilho, ligacoes).filter(
+    (p) => p.nivel === "erro" && p.quando === "salvar"
+  );
   if (erros.length) return { ok: false, erro: erros[0].mensagem };
 
   try {
@@ -292,9 +333,27 @@ export async function criarAutomacao(
 // NASCER PAUSADA fecha só a porta da criação — este botão é a outra.
 //
 // É A MESMA `conferirLista` do salvar, e sobre o par que ESTÁ GRAVADO: os blocos
-// do banco contra o gatilho do banco. Não há metade nova aqui — nada está sendo
-// escrito além da coluna `active` —, então o impasse que obrigou `salvarAutomacao`
-// a conferir o par FINAL não existe neste caminho.
+// do banco, as setas do banco, contra o gatilho do banco. Não há metade nova
+// aqui — nada está sendo escrito além da coluna `active` —, então o impasse que
+// obrigou `salvarAutomacao` a conferir o par FINAL não existe neste caminho.
+//
+// MAS ELA RECUSA OS DOIS NÍVEIS, e o salvar recusa um só. Essa é a assimetria
+// que a Tarefa 5 introduziu, e ela é de PRODUTO:
+//
+//   "salvar" é dado que o motor NÃO CONSEGUE LER — ele cai, ou anda sem parar.
+//     Nenhuma tela pode gravar isso, então trava as duas portas.
+//   "ativar" é fluxo que o motor lê perfeitamente e ENTREGA ERRADO: botão sem
+//     destino, bloco que nenhuma seta alcança, portão que é o fim do caminho,
+//     link a que se chega sem passar pelo portão, menu com mais botões do que
+//     cabe numa mensagem. Todos eles descrevem um desenho pela metade, que é o
+//     estado normal de quem está montando — e nenhum deles pode ir ao ar.
+//
+// ESTE É O MOMENTO EM QUE O DONO DIZ "PODE VALER PARA O PÚBLICO", e é por isso
+// que ele é a porta certa para o segundo nível. Avisar na ENTREGA seria avisar
+// tarde e para quem não pode consertar — foi o que a Tarefa 2 fez com dois
+// destes, registrando-os em Atividade na hora de enviar, e a linha disparava
+// também no fim NORMAL de um fluxo de captura, treinando o dono a ignorar
+// Atividade.
 //
 // DESATIVAR NÃO CONFERE NADA, e isso é decisão, não simetria esquecida: desligar
 // uma automação quebrada tem que continuar sempre possível. Conferir aqui
@@ -308,9 +367,9 @@ export async function toggleAutomation(id: string, active: boolean): Promise<Res
   if (active) {
     // o account_id no where impede ler automação de outra conta
     const linhas = (await sql().query(
-      `select steps, triggers from automations where id = $1 and account_id = $2`,
+      `select steps, ligacoes, triggers from automations where id = $1 and account_id = $2`,
       [id, accountId]
-    )) as { steps: unknown; triggers: string[] | null }[];
+    )) as { steps: unknown; ligacoes: unknown; triggers: string[] | null }[];
     const a = linhas[0];
     // Zero linhas é automação que não existe OU de outra conta, e as duas dão a
     // mesma resposta pelo mesmo motivo de `salvarAutomacao`: distingui-las
@@ -321,7 +380,10 @@ export async function toggleAutomation(id: string, active: boolean): Promise<Res
     // de `app/automacoes/[id]/page.tsx`. Divergir dela faria esta conferência
     // julgar a lista contra um gatilho diferente do que o editor mostra.
     const gatilho = a.triggers?.[0] ?? "dm";
-    const erros = conferirLista(a.steps, gatilho).filter((p) => p.nivel === "erro");
+    // OS DOIS NÍVEIS, sem filtrar por `quando`: o de cima já foi recusado no
+    // salvar, e chegar aqui com um deles significa que a lista entrou por fora do
+    // painel. O de baixo é o que esta porta existe para segurar.
+    const erros = conferirLista(a.steps, gatilho, a.ligacoes).filter((p) => p.nivel === "erro");
     if (erros.length) return { ok: false, erro: erros[0].mensagem };
   }
 
