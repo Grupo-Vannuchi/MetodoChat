@@ -7,7 +7,15 @@ import {
   PALETA,
   resumoDoBloco,
 } from "../app/automacoes/editor/modelos";
-import { conferirLista, type Passo } from "../lib/steps";
+import {
+  conferirLista,
+  desligarBotao,
+  ligacaoEscolhida,
+  ligar,
+  novoIdDeBotao,
+  podeFicarAtiva,
+  type Passo,
+} from "../lib/steps";
 
 // O QUE ESTE ARQUIVO FIXA: `resumoDoBloco` é TOTAL sobre jsonb.
 //
@@ -199,6 +207,119 @@ describe("blocoNovo", () => {
       ]);
       expect(ids.size).toBe(4);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OS GESTOS DO PAINEL DE BOTÕES (Tarefa 7), NO DADO.
+//
+// O QUE ESTE BLOCO É E O QUE ELE NÃO É: ele refaz, com as mesmas funções puras
+// que o painel chama, a sequência que a conferência à mão pediu — criar pela
+// paleta, ligar um braço, renomear, acrescentar, apagar. NÃO é prova de tela:
+// não há render aqui, e a suíte deste projeto não testa componente. O que ele
+// fixa é que o DADO que cada gesto escreve é o que o motor e a conferência leem.
+//
+// O gesto de renomear é `{...botao, rotulo}` — o mesmo objeto com o rótulo
+// trocado, que é literalmente o que o `onChange` do campo grava. Se um dia
+// alguém o trocar por "monta um botão novo com o rótulo digitado", o id muda e
+// o caminho troca junto; é isso que o segundo teste acusa.
+// ---------------------------------------------------------------------------
+describe("os gestos do painel de botões, no dado", () => {
+  const menu = blocoNovo("dm_opcoes");
+  const botoes = (menu.tipo === "dm" && menu.botoes) || [];
+  const idDoMenu = menu.id!;
+  const destino: Passo = { id: "b_dest0001", tipo: "dm", texto: "braço um" };
+  const lista = [menu, destino];
+  const ligado = ligar([], idDoMenu, { tipo: "botao", botao: botoes[0].id }, destino.id!);
+
+  it("o menu criado pela paleta desenha duas alças de botão, mais a do “senão”", () => {
+    expect(alcasDeSaida(menu).map((a) => a.rotulo)).toEqual(["Opção 1", "Opção 2", "digitou"]);
+  });
+
+  it("renomear um botão NÃO troca o caminho: quem manda é o id", () => {
+    const renomeado: Passo = {
+      ...menu,
+      tipo: "dm",
+      texto: "Escolha",
+      botoes: botoes.map((b, i) => (i === 0 ? { ...b, rotulo: "Outro nome" } : b)),
+    };
+    // A pergunta é a MESMA que o motor faz no toque, e a resposta é o DESTINO.
+    expect(ligacaoEscolhida(ligado, idDoMenu, { tipo: "botao", botao: botoes[0].id })).toBe(
+      destino.id
+    );
+    // E a alça continua a mesma, só com o nome novo escrito nela.
+    expect(alcasDeSaida(renomeado)[0].chave).toBe(alcasDeSaida(menu)[0].chave);
+    expect(alcasDeSaida(renomeado)[0].rotulo).toBe("Outro nome");
+  });
+
+  it("acrescentar um botão cria a alça, e o novo nasce sem destino e sem texto", () => {
+    const acrescido: Passo = {
+      ...menu,
+      tipo: "dm",
+      texto: "Escolha",
+      botoes: [...botoes, { id: novoIdDeBotao(), rotulo: "" }],
+    };
+    expect(alcasDeSaida(acrescido).map((a) => a.rotulo)).toEqual([
+      "Opção 1",
+      "Opção 2",
+      "sem texto",
+      "digitou",
+    ]);
+
+    // AS DUAS PORTAS, e é a decisão da Tarefa 5: rótulo em branco e botão sem
+    // destino impedem PUBLICAR, e nenhum dos dois impede GUARDAR o trabalho.
+    const problemas = conferirLista([acrescido, destino], "dm", ligado);
+    expect(problemas.filter((p) => p.nivel === "erro" && p.quando === "salvar")).toEqual([]);
+    expect(podeFicarAtiva(problemas)).toBe(false);
+    expect(problemas.map((p) => p.mensagem)).toContain(
+      "Um dos botões deste bloco está sem texto, e botão sem texto não é entregue: ele some da mensagem."
+    );
+  });
+
+  it("a conferência acusa botão sem destino, e o salvar continua permitido", () => {
+    // O menu inteiro, com um braço ligado e o outro não.
+    const problemas = conferirLista(lista, "dm", ligado);
+    expect(problemas.filter((p) => p.nivel === "erro" && p.quando === "salvar")).toEqual([]);
+    expect(problemas).toContainEqual({
+      nivel: "erro",
+      quando: "ativar",
+      indice: 0,
+      mensagem: "O botão “Opção 2” não leva a lugar nenhum: quem tocar nele não recebe nada.",
+    });
+    expect(podeFicarAtiva(problemas)).toBe(false);
+  });
+
+  it("apagar um botão apaga a ligação dele, e o bloco que sobrou fica acusado", () => {
+    // O menu INTEIRO ligado: um braço para cada bloco. Os dois braços são
+    // precisos aqui — com um só, apagá-lo deixa a lista SEM NENHUMA SETA, e aí
+    // as regras de grafo ficam caladas por decisão (o comentário de
+    // `conferirLista` diz por quê), o que esconderia o que este teste mede.
+    const outro: Passo = { id: "b_outro002", tipo: "dm", texto: "braço dois" };
+    const doisBracos = ligar(ligado, idDoMenu, { tipo: "botao", botao: botoes[1].id }, outro.id!);
+
+    // O gesto do ✕: o botão sai da lista (painel) e a seta sai das ligações
+    // (`desligarBotao`, no quadro). As duas metades juntas.
+    const semOBotao: Passo = {
+      ...menu,
+      tipo: "dm",
+      texto: "Escolha",
+      botoes: botoes.filter((_, i) => i !== 0),
+    };
+    const semASeta = desligarBotao(doisBracos, idDoMenu, botoes[0].id);
+    expect(semASeta.map((l) => l.para)).toEqual([outro.id]);
+
+    // E O ERRO QUE A ÓRFÃ ESCONDERIA: com a seta apagada, o primeiro braço não
+    // é alcançado por ninguém, e a conferência diz isso. Deixando a órfã, ela
+    // fica calada — é a medição que está escrita em `desligarBotao`.
+    const problemas = conferirLista([semOBotao, destino, outro], "dm", semASeta);
+    expect(problemas.map((p) => p.mensagem)).toContain(
+      "Nenhuma seta chega neste bloco a partir do começo do fluxo, então ele nunca é entregue."
+    );
+    expect(
+      conferirLista([semOBotao, destino, outro], "dm", doisBracos).map((p) => p.mensagem)
+    ).not.toContain(
+      "Nenhuma seta chega neste bloco a partir do começo do fluxo, então ele nunca é entregue."
+    );
   });
 });
 
