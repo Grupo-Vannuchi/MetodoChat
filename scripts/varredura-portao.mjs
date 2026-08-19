@@ -47,10 +47,21 @@
 // roda. Não vale a pena montar um modo de amostra para o `verify` e guardar a
 // completa para "sob demanda": amostra é um segundo número para manter, e "sob
 // demanda" é o mesmo que não rodar. Uma prova que ninguém roda não protege nada,
-// e esta é a única prova que o produto tem da promessa central. O corte certo,
-// quando chegar a hora, continua sendo reduzir os ARRANJOS — que é o eixo mais
-// redundante — e não sortear topologias: as duas varreduras são EXAUSTIVAS sobre
-// o espaço que declaram, e é isso que separa esta prova de uma amostra.
+// e esta é a única prova que o produto tem da promessa central.
+//
+// O CORTE DOS ARRANJOS JÁ FOI FEITO ONDE DÁ PARA FAZER, e não é mais "o corte
+// certo, quando chegar a hora": a varredura do menu anda só com as cinco
+// ROTAÇÕES desde a Tarefa 7c. Estender o mesmo corte à exaustiva foi tentado e
+// MEDIDO na revisão daquela tarefa, e ele derruba a contraprova — o eixo dos
+// arranjos é redundante para o código de HOJE e é o instrumento inteiro da
+// contraprova para o de ONTEM. A medição dos dois lados está em `arranjosDe`, lá
+// embaixo, e é ela que fixa a fronteira. Sortear topologias segue fora de
+// questão.
+//
+// AS DUAS SÃO EXAUSTIVAS SOBRE AS TOPOLOGIAS que declaram, e é isso que separa
+// esta prova de uma amostra. Não sobre a ORDEM do array, e essa ressalva está na
+// lista do que elas não cobrem — um corte não declarado é uma amostra que se
+// chama de exaustiva.
 //
 // A CONTRAPROVA fica de fora do `verify` por um motivo prático: ela precisa de
 // um arquivo que não está no repositório. Para rodá-la:
@@ -62,12 +73,22 @@
 // contraprova não provou nada — provou que não mede. O modo `--antigo` carrega o
 // lib/steps.ts de ANTES da Tarefa 3b (o arquivo de verdade, tirado do git, e não
 // uma reimplementação) e reproduz a cola do motor daquele commit. Ele TEM que
-// acusar, em A e em C DA EXAUSTIVA, e sai com código 1 se não acusar. Medido, em
-// 82 s: exaustiva A 76.020 e C 3.366.888 (B 849.150); do menu A 0 e C 1.530.346
-// (B 882.060). O zero em A na varredura do menu é o que se espera daquele
-// commit — ali `envioDaDm` não conhece `botoes`, então N é uma `dm` de texto que
-// não para, e a `senao` é seta que ninguém segue. Por isso o critério cobra a
-// exaustiva; o porquê inteiro está junto do código de saída, lá embaixo.
+// acusar — em A e em C DA EXAUSTIVA, e em C DA DO MENU —, e sai com código 1 se
+// não acusar. Medido, em 80 a 84 s: exaustiva A 76.020 e C 3.366.888 (B 849.150); do
+// menu A 0 e C 1.530.346 (B 882.060).
+//
+// O ZERO EM A NA VARREDURA DO MENU NÃO É PROPRIEDADE DAQUELE COMMIT, e este
+// arquivo afirmava que era. A explicação antiga — "ali `envioDaDm` não conhece
+// `botoes`, então N é uma `dm` de texto que não para, e a `senao` é seta que
+// ninguém segue" — é verdadeira SOBRE O COMMIT e falsa COMO CAUSA DO ZERO.
+// Medido, rodando a mesma contraprova no mesmo commit com os DEZ arranjos na
+// varredura do menu: A acusa 112.380. O zero vem do CORTE DOS ARRANJOS da
+// Tarefa 7c, não do código antigo — e a razão está em `arranjosDe`, lá embaixo,
+// junto com a medição.
+//
+// POR ISSO O CRITÉRIO COBRA C NA VARREDURA DO MENU, e não A: C é o que o espaço
+// EFETIVAMENTE VARRIDO produz. O porquê de A e C serem cobrados na exaustiva
+// está junto do código de saída, lá embaixo.
 //
 // OS PLANTIOS que esta varredura precisa acusar, e os números medidos — eles são
 // o critério de que ela DISCRIMINA, e não um enfeite. Refazê-los é o teste do
@@ -138,6 +159,14 @@
 //   - Cinco blocos por fluxo, em cada uma das duas varreduras. Fluxos maiores
 //     existem; o que estas varreduras afirmam é sobre a forma das ligações, não
 //     sobre o tamanho.
+//   - A ORDEM DO ARRAY, e este é o único eixo em que "EXAUSTIVA" não vale para
+//     nenhuma das duas. São 120 ordens possíveis de cinco blocos: a exaustiva
+//     percorre 10 e a do menu 5. As cinco ROTAÇÕES estão nas duas, e são o que
+//     garante "cada papel é a entrada uma vez" — o único significado que a ordem
+//     guarda depois do grafo. As cinco INVERTIDAS estão só na exaustiva, e o que
+//     elas acrescentam, o que custam e por que a do menu passa sem elas está
+//     medido em `arranjosDe`, lá embaixo. Nenhuma das duas percorre as outras
+//     110.
 //   - UMA `senao` por fluxo, na segunda varredura. Um fluxo com duas — um menu e
 //     um portão com a `senao` gravada fora do editor, por exemplo — não é
 //     percorrido. A ORIGEM da `senao` varre os cinco papéis, então cada uma das
@@ -421,20 +450,61 @@ function arranjosDe(papeis) {
   }
   return a;
 }
-const ARRANJOS = arranjosDe(PAPEIS);
-// A VARREDURA DO MENU ANDA COM METADE DOS ARRANJOS, e este é o corte que o
-// cabeçalho deste arquivo prescreve desde a Tarefa 4: quando o tempo aperta,
-// corta-se o eixo MAIS REDUNDANTE, que são os arranjos, e não o de topologias.
-// As cinco ROTAÇÕES ficam — elas são o que garante "cada papel é a entrada uma
-// vez", que é o único significado que a ordem do array guarda. As cinco
-// invertidas saem, e o que elas cobriam de mais importante as rotações já
-// cobrem: a rotação que começa em L põe o LINK antes do portão no array, então
-// as duas ordens relativas de G e L estão no espaço sem elas.
+// A EXAUSTIVA ANDA COM OS DEZ ARRANJOS E A DO MENU COM CINCO, e essa assimetria
+// não é descuido: ela foi medida dos dois lados, e o lado que a decide é a
+// CONTRAPROVA. Quem for cortar aqui — e o cabeçalho deste arquivo já prescreveu
+// cortar, por duas tarefas — precisa ler os dois blocos abaixo antes.
 //
-// Medido, com as duas varreduras juntas na mesma máquina: dez arranjos levam
-// 67 s, cinco levam 58 s. Nove segundos por um eixo que a exaustiva já varre
-// inteiro é caro para o `verify`, e é a diferença entre os dois lados do minuto
-// que o cabeçalho deste arquivo escolheu como limite.
+// PARA O CÓDIGO DE HOJE OS INVERTIDOS SÃO DUPLICATA LITERAL. Medido, rodando a
+// exaustiva com os dez e com as cinco rotações: TODO contador dá exatamente o
+// dobro, e todo número plantado que este arquivo cita também.
+//
+//                                        dez arranjos          cinco
+//   A  casos / saltos                  73.720 / 2.088.628   36.860 / 1.044.314
+//   C  casos / saltos                 954.160 / 11.333.976 477.080 / 5.666.988
+//   B  saltos / entregas           13.271.180 / 261.536  6.635.590 / 130.768
+//   plantio do `haCaminho`                C 2.713.648      C 1.356.824
+//   plantio do `retomadaDoFallback`       C 91.200         C 45.600
+//   plantio do `retomadaDoEmailConhecido` C 1.102.772      C 551.386
+//   plantio do interruptor geral   A 73.720 C 15.091.792   A 36.860 C 7.545.896
+//   plantio do `seguinteDe`               B 321.008        B 160.504
+//   "marcar a execução inteira"           32.040           16.020
+//
+// (`descartadas` é o único que não cai pela metade, 460.070 -> 286.260, e não é
+// exceção: parte dele é contada UMA VEZ por topologia, fora do laço dos
+// arranjos, em `varrer`.)
+//
+// E O TEMPO QUE ISSO PAGARIA É REAL: com o corte nas duas, as varreduras juntas
+// levam 33 a 37 s (32,5; 34,6; 37,2) contra os 52 de hoje (51,7 e 52,3).
+//
+// E MESMO ASSIM O CORTE NÃO PODE SER FEITO NA EXAUSTIVA, porque o `--antigo` não
+// roda o código de hoje. Ele roda um código POSICIONAL, e ali a ordem do array é
+// a regra inteira — é exatamente a troca que a Tarefa 3b fez. Medido, a mesma
+// contraprova sobre o mesmo commit:
+//
+//   exaustiva com os dez arranjos    A 76.020   C 3.366.888   B 849.150  -> OK
+//   exaustiva só com as rotações     A      0   C   514.298   B  70.830  -> MUDA
+//   exaustiva só com as invertidas   A 76.020   C 2.852.590   B 778.320
+//
+// OS 76.020 VAZAMENTOS EM A DA CONTRAPROVA VÊM TODOS DAS INVERTIDAS, e as
+// rotações contribuem ZERO. Cortá-las levaria a contraprova a "CONTRAPROVA MUDA"
+// e o processo a sair com código 1 — a varredura perderia a única prova que tem
+// de que o A dela discrimina.
+//
+// E A CAUSA É VERIFICÁVEL SEM RODAR NADA, o que é o que separa isto de
+// coincidência. Um vazamento em A exige que o LINK esteja ANTES do portão no
+// array (é assim que o código posicional salta o portão), e exige que o caso não
+// seja descartado. Das cinco rotações, a ÚNICA com L antes de G é `LMPEG` — e
+// ela tem L como entrada, então `varrer` a descarta sempre ("caso vazio não
+// prova nada"). Ou seja: as rotações NUNCA medem um fluxo com o link antes do
+// portão. Três das cinco invertidas medem — `PMLGE`, `EPMLG` e `MLGEP`.
+//
+// A DO MENU PAGA ESSE PREÇO, e ele está declarado: com os dez arranjos, a
+// contraprova acusa A 112.380 nela; com as cinco rotações, A 0. Por isso o
+// critério de saída cobra C nela, e não A. Foi troca consciente por 15 segundos
+// de `verify`, e não uma propriedade do commit antigo — o cabeçalho deste
+// arquivo dizia que era, e estava errado.
+const ARRANJOS = arranjosDe(PAPEIS);
 const ARRANJOS_DO_MENU = arranjosDe(PAPEIS_MENU).filter((_, i) => i % 2 === 0);
 
 // ---------------------------------------------------------------------------
@@ -860,17 +930,25 @@ console.log("");
 const vazouA = exaustiva.vazamentosA + doMenu.vazamentosA;
 const vazouC = exaustiva.vazamentosC + doMenu.vazamentosC;
 if (MODO_ANTIGO) {
-  // A CONTRAPROVA COBRA A EXAUSTIVA, e não as duas somadas, porque o commit
-  // carregado é anterior ao menu e à `senao`: lá `envioDaDm` não conhece
-  // `botoes` e `retomadaDoTexto` nem recebe ligações. Exigir acusação na
-  // varredura do menu seria exigir que aquele código respondesse por um recurso
-  // que ele não tem. Os números dela saem impressos assim mesmo, para serem
-  // lidos — e eles não são zero: C acusa 1.530.346 saltos daquele commit,
-  // porque a regra POSICIONAL do portão erra do mesmo jeito num fluxo com menu.
-  const acusou = exaustiva.vazamentosA > 0 && exaustiva.vazamentosC > 0;
+  // A CONTRAPROVA COBRA A E C DA EXAUSTIVA, E C DA DO MENU. A parcela do menu é
+  // da revisão da Tarefa 7c, e ela sai de graça: o número já estava sendo
+  // impresso. Enquanto ele só era impresso "para ser lido", a segunda varredura
+  // não tinha contraprova NENHUMA — se `topologiasDoMenu` parasse de produzir
+  // fluxos mensuráveis, nada neste repositório notaria, e o zero dela seguiria
+  // significando "não procurei" sem ninguém saber. Somar esta parcela dá à
+  // varredura nova a mesma proteção do "um zero aqui não prova nada" que a
+  // exaustiva tem desde a Tarefa 4.
+  //
+  // E O A DO MENU FICA DE FORA porque ele é ZERO com os cinco arranjos que ela
+  // percorre — o que é consequência do corte, e não do commit antigo; a medição
+  // dos dois lados está em `arranjosDe`. C não é zero: 1.530.346 saltos daquele
+  // commit, porque a regra POSICIONAL do portão erra do mesmo jeito num fluxo
+  // com menu.
+  const acusou =
+    exaustiva.vazamentosA > 0 && exaustiva.vazamentosC > 0 && doMenu.vazamentosC > 0;
   console.log(
     acusou
-      ? "CONTRAPROVA OK: o código antigo vaza em A e em C na varredura exaustiva."
+      ? "CONTRAPROVA OK: o código antigo vaza em A e em C na exaustiva, e em C na do menu."
       : "CONTRAPROVA MUDA: a varredura não discrimina — um zero aqui não prova nada."
   );
   process.exitCode = acusou ? 0 : 1;
