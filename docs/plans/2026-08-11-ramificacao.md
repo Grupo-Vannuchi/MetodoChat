@@ -1294,6 +1294,101 @@ git commit -m "O painel edita os botoes de escolha de um bloco"
 
 ---
 
+# Tarefa 7b · A seta do "digitou" passa a rotear alguém
+
+**Files:**
+- Modify: `lib/steps.ts` (`retomadaDoTexto`), possivelmente `lib/engine.ts`
+- Test: `tests/steps.test.ts`
+
+**Achada ao fechar a Tarefa 7**, por uma dúvida de quem a implementou. Não
+estava no plano, e é uma promessa da spec que nunca foi cumprida.
+
+## O buraco, medido
+
+A spec desta fase diz, com todas as letras:
+
+> O "senão" é uma ligação como as outras, não um caso especial no motor. **Ele
+> recebe quem responde digitando em vez de tocar.**
+
+`ligacaoEscolhida(ligacoes, bloco, {tipo:"texto"})` existe, está testada, e
+devolve o destino do `senao`. **Nada em produção a chama assim.** Medido:
+
+```
+ligacaoEscolhida( … {tipo:"botao"} )   → 3 chamadas
+ligacaoEscolhida( … {tipo:"texto"} )   → NENHUMA
+grep '"senao"' em lib/ fora de steps.ts → NADA
+```
+
+Quem decide para onde ir quando a pessoa **digita** é `retomadaDoTexto`, e ela
+usa `seguinteDe(ligacoes, id)` — que segue a seta **`sempre`**.
+
+**Consequência:** o dono desenha a seta do "digitou", nomeia, salva, a
+conferência valida — e o motor a **ignora**. Quem digita segue pelo `sempre`, ou
+não segue por lugar nenhum.
+
+O editor promete um caminho que o motor não percorre. É exatamente a regra que a
+correção da Tarefa 7 acabou de fixar para o desenho das setas, agora do outro
+lado.
+
+## Por que ninguém pegou
+
+`ligacaoEscolhida` **tem teste do caso de texto**, e ele passa. Olhando a função,
+ela parece pronta. O que falta é o **chamador**, e chamador que não existe não
+aparece em teste de função pura.
+
+É o mesmo formato do buraco estrutural desta fase: a regra está protegida, a
+fiação não. Só que aqui a fiação nem existe.
+
+## O que construir
+
+**`retomadaDoTexto` passa a perguntar pelo `senao` antes de cair no `sempre`.**
+
+A ordem importa e precisa de decisão medida: quando o bloco tem **os dois** — uma
+seta de `senao` e uma de `sempre` —, qual vale para quem digitou? Escreva a
+resposta e o porquê.
+
+**Cuidado com o que já está certo e não pode mudar:** `pedir_follow` retoma **do
+próprio bloco**, e o motivo está escrito no comentário — a mensagem de texto não
+é o follow, e avançar entregaria o link a quem não segue. **Não toque nisso.**
+
+- [ ] **Passo 1: escreva os testes que falham**
+
+Cubra, com nomes que digam a consequência:
+
+- menu com seta de `senao`: quem digita vai para **o destino do `senao`**
+- menu **sem** `senao`, com `sempre`: quem digita continua indo pelo `sempre`
+- menu com os dois: vale o que você decidiu no Passo 3, e o teste fixa a decisão
+- `pedir_follow` **continua retomando dele mesmo**, com ou sem `senao`
+
+- [ ] **Passo 2: rode e confirme que falha**
+
+O primeiro teste **tem que** ficar vermelho. Se passar de primeira, **pare e
+reporte** — ou o teste não discrimina, ou eu li o código errado.
+
+- [ ] **Passo 3: implemente**
+
+A decisão é pura e mora em `lib/steps.ts`. Se precisar de peça nova, ela também.
+
+- [ ] **Passo 4: mute e prove**
+
+Faça `retomadaDoTexto` voltar a ignorar o `senao` e confirme que o teste do Passo
+1 fica vermelho. Reporte.
+
+- [ ] **Passo 5: a varredura**
+
+Rode `npm run varredura` e **confirme que continua sem vazamento**. O caminho do
+texto passa a levar a lugares novos, e o portão precisa continuar valendo neles.
+Se acusar, **pare e reporte com os números.**
+
+- [ ] **Passo 6: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run && npm run varredura
+git commit -m "A seta do digitou passa a rotear quem responde digitando"
+```
+
+---
+
 # Tarefa 8 · A prévia pelo caminho selecionado
 
 **Files:**
