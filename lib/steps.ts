@@ -2448,9 +2448,11 @@ export function retomadaDoFollow(
 // A spec desta fase promete, com todas as letras, que o "senão" "recebe quem
 // responde digitando em vez de tocar". `ligacaoEscolhida(..., {tipo:"texto"})`
 // devolve exatamente esse destino desde a Tarefa 3b, TEM TESTE, e passou várias
-// tarefas sem um único CHAMADOR em produção — medido: três chamadas com
-// `{tipo:"botao"}`, nenhuma com `{tipo:"texto"}`. Quem decidia o destino de quem
-// digita era `seguinteDe`, ou seja, a seta `sempre`.
+// tarefas sem um único CHAMADOR em produção — medido em todo o `lib/` e o
+// `app/`: DUAS chamadas com `{tipo:"botao"}` (`caminhoDoBotao`, :1900, e a regra
+// do botão sem destino em `conferirLista`, :3318), nenhuma com `{tipo:"texto"}`.
+// Quem decidia o destino de quem digita era `seguinteDe`, ou seja, a seta
+// `sempre`.
 //
 // O QUE ISSO CUSTAVA, e o pior caso é justamente o do menu: um menu inteiramente
 // ligado NÃO TEM `sempre` saindo — `retomaPelaSempre` (lá em cima) diz isso com
@@ -2488,6 +2490,17 @@ export function retomadaDoFollow(
 //     fazer a seta que o dono não consegue mais ver ganhar da que ele acabou de
 //     desenhar.
 //
+// O PREÇO DESSA ORDEM, medido, porque precedência incondicional cobra num caso:
+// com a `senao` apontando para um bloco QUE NÃO EXISTE e a `sempre` apontando
+// para um bloco válido, esta função devolve o destino inexistente — antes desta
+// tarefa devolvia o da `sempre`, e a pessoa recebia alguma coisa. NÃO É
+// SILÊNCIO: `interpretar` registra em `ignorados` "o bloco de partida não está
+// na lista: <id>", que é a linha que quem for atrás do defeito lê. E só é
+// produzível por dado gravado FORA do painel — a mesma ressalva que esta função
+// já carrega para a `senao` em `pedir_follow`, logo abaixo. Preferir a `sempre`
+// nesse caso seria pôr um desempate por validade dentro de uma regra que hoje é
+// só "o mais específico entra antes"; não vale a segunda regra.
+//
 // `pedir_follow` FICA DE FORA DISSO, e a exceção é anterior à pergunta: ele
 // retoma DELE MESMO, com ou sem `senao`, porque a mensagem de texto não é o
 // follow. Uma `senao` gravada nele — só produzível fora do editor, que não lhe
@@ -2504,10 +2517,25 @@ export function retomadaDoFollow(
 //     `{portao: null, destino}`, sem passar por `atravessandoOPortao` —, a
 //     varredura CONTINUA imprimindo "SEM VAZAMENTO", com os mesmos números.
 //   Uma amostra independente sobre fluxos COM `senao` (2.000.000 de sorteios,
-//     1.708.044 deles com uma `senao` sorteada, 3.199.986 saltos de texto
-//     medidos) dá 0 vazamentos em A e em C com o código desta função — e
-//     19.097 em A e 144.614 em C com aquele mesmo plantio. Ou seja, o defeito
-//     existe, é grande, e só a amostra o enxerga.
+//     1.708.044 deles com uma `senao` sorteada; 491.094 saltos de texto no
+//     grupo A e 2.712.195 no C) dá 0 vazamentos em A e em C com o código desta
+//     função. Com o plantio ela ACUSA — e O NÚMERO DEPENDE DE ONDE O PLANTIO
+//     ENTRA, o que é a diferença entre medir a fiação da `senao` e medir a
+//     quebra do portão. Os dois foram medidos:
+//
+//       DEPOIS do ramo `pedir_follow` — o plantio descrito acima, em que só a
+//         fiação nova sai sem portão: A 0, C 87.313. O zero em A é ESTRUTURAL e
+//         não sorte: em fluxo gateado toda seta que chega no link sai do
+//         portão, e o ramo `pedir_follow` não consulta a `senao`, então a
+//         retomada do próprio portão continua saindo por `atravessandoOPortao`.
+//       ANTES do ramo `pedir_follow` — que quebra TAMBÉM a retomada do portão,
+//         porque uma `senao` gravada nele passa a sair crua: A 19.097, C
+//         144.614 (e a contagem de saltos de C muda para 2.870.457, porque os
+//         destinos mudam junto).
+//
+//     Ou seja: o defeito da fiação existe e é grande — 87.313 vazamentos em C
+//     que a varredura oficial não enxerga —, e um número em A só aparece quando
+//     o plantio derruba o portão, que é outro defeito.
 //
 // O que segura o portão aqui é ESTRUTURAL: o destino, venha da `senao` ou da
 // `sempre`, é uma identidade que sai por `atravessandoOPortao` na última linha,
@@ -2685,6 +2713,15 @@ export function retomadaDoEmailConhecido(
 // Dois caminhos de código, a mesma pessoa digitando no mesmo menu, respostas
 // opostas — que é a forma exata da inconsistência que `retomadaDoEmailConhecido`
 // (acima) registra ter apagado. Fica anotado, não consertado aqui.
+//
+// E A DIVERGÊNCIA FOI CRIADA PELA PRÓPRIA TAREFA 7b — dito por extenso porque é
+// o que o registro tem de valer para quem chegar aqui pelo histórico. ANTES de
+// 7b os dois pontos perguntavam `seguinteDe` e davam a MESMA resposta: no grafo
+// acima, `{portao: null, destino: null}` nos dois, e num grafo com `sempre`
+// saindo do menu, o destino DELA nos dois. Não há aqui uma inconsistência
+// antiga que ninguém tinha notado; há uma inconsistência INTRODUZIDA, de
+// propósito, com o motivo escrito no parágrafo anterior. Quem for fechá-la está
+// desfazendo uma escolha desta tarefa, não consertando um esquecimento.
 export function retomadaDoFallback(passos: unknown, ligacoes: unknown): Retomada | null {
   const { pararEm } = interpretar(passos, ligacoes, identidadeNoIndice(passos, 0));
   if (pararEm === null) return null;
