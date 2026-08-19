@@ -42,10 +42,11 @@
 // continua vivo.
 //
 // ELA ESTÁ NO `npm run verify`, e a decisão tem número: as duas varreduras
-// juntas levam de 52 a 58 segundos — duas rodadas medidas, e a exaustiva
-// sozinha levava 38 —, contra os minutos do `next build` que o `verify` já
-// roda. Não vale a pena montar um modo de amostra para o `verify` e guardar a
-// completa para "sob demanda": amostra é um segundo número para manter, e "sob
+// juntas levam ~52 segundos (duas rodadas medidas: 51,7 e 52,3, e a exaustiva
+// sozinha responde por 37 deles), contra os minutos do `next build` que o
+// `verify` já roda. Não vale a pena montar um modo de amostra para o `verify`
+// e guardar a completa para "sob demanda": amostra é um segundo número para
+// manter, e "sob
 // demanda" é o mesmo que não rodar. Uma prova que ninguém roda não protege nada,
 // e esta é a única prova que o produto tem da promessa central.
 //
@@ -74,8 +75,8 @@
 // lib/steps.ts de ANTES da Tarefa 3b (o arquivo de verdade, tirado do git, e não
 // uma reimplementação) e reproduz a cola do motor daquele commit. Ele TEM que
 // acusar — em A e em C DA EXAUSTIVA, e em C DA DO MENU —, e sai com código 1 se
-// não acusar. Medido, em 80 a 84 s: exaustiva A 76.020 e C 3.366.888 (B 849.150); do
-// menu A 0 e C 1.530.346 (B 882.060).
+// não acusar. Medido, em 80 a 84 s: exaustiva A 76.020 e C 3.366.888
+// (B 849.150); do menu A 0 e C 1.530.346 (B 882.060).
 //
 // O ZERO EM A NA VARREDURA DO MENU NÃO É PROPRIEDADE DAQUELE COMMIT, e este
 // arquivo afirmava que era. A explicação antiga — "ali `envioDaDm` não conhece
@@ -329,14 +330,25 @@ if (!MODO_ANTIGO) {
 // se a varredura usasse `haCaminho` para decidir quais fluxos medir, ela estaria
 // perguntando ao réu se o crime aconteceu. Este BFS é independente e serve só
 // para escolher os casos.
-function alcanca(ligacoes, de, para, so_sempre = false, sem = null) {
+//
+// `sem` NÃO TEM CHAMADOR NESTE ARQUIVO, e fica assim de propósito: ele é a
+// contraparte declarada do `evitar` de `haCaminho` (lib/steps.ts), que o nomeia
+// por escrito em dois lugares — "é o mesmo parâmetro que o BFS independente da
+// varredura já tem com o nome `sem`". Apagá-lo apodreceria as duas referências
+// sem devolver nada. O que ele NÃO é: um caminho exercitado — nenhuma das duas
+// varreduras o usa, então ele não está coberto por medição nenhuma daqui.
+//
+// (Havia um segundo parâmetro morto, `so_sempre`, e esse saiu: ele não era
+// contraparte de nada, e a pergunta que respondia — "e se só as `sempre`
+// contassem?" — é justamente um dos plantios da tabela lá em cima, feito no
+// `haCaminho` do sistema, que é onde ele mede alguma coisa.)
+function alcanca(ligacoes, de, para, sem = null) {
   const vistos = new Set([de]);
   const fila = [de];
   while (fila.length) {
     const atual = fila.shift();
     for (const l of ligacoes) {
       if (l.de !== atual) continue;
-      if (so_sempre && l.quando.tipo !== "sempre") continue;
       if (l.para === sem) continue;
       if (l.para === para) return true;
       if (!vistos.has(l.para)) {
@@ -671,9 +683,16 @@ function pontosDeEntrada(passos, ligacoes) {
   }
 
   // Todo cursor possível, pelos três ramos que o leem.
+  //
+  // O BLOCO DO CURSOR DE OUTRA AUTOMAÇÃO SAI DE `passos`, e não de um papel
+  // fixo: escrito `ID.E`, como estava, a varredura DO MENU citava um bloco que
+  // não está no fluxo dela (E é da lista da exaustiva). Não muda o que é medido
+  // — `cursorDesta` devolve null para automação que não bate, então o `passoId`
+  // é inerte neste ponto —, mas um ponto de entrada que nomeia bloco de fora da
+  // lista é a espécie de detalhe que faz alguém procurar defeito onde não há.
   const cursores = [
     { passoId: null, automationId: null },
-    { passoId: ID.E, automationId: "B" }, // cursor de OUTRA automação
+    { passoId: passos[0].id, automationId: "B" }, // cursor de OUTRA automação
   ];
   for (let i = 0; i < passos.length; i++) {
     cursores.push({ passoId: S.identidadeDoPasso(passos[i], i), automationId: "A" });
