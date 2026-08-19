@@ -10,10 +10,12 @@ import {
 import {
   conferirLista,
   desligarBotao,
+  desligarSenao,
   ligacaoEscolhida,
   ligar,
   novoIdDeBotao,
   podeFicarAtiva,
+  seguinteDe,
   type Passo,
 } from "../lib/steps";
 
@@ -320,6 +322,76 @@ describe("os gestos do painel de botões, no dado", () => {
     ).not.toContain(
       "Nenhuma seta chega neste bloco a partir do começo do fluxo, então ele nunca é entregue."
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // O SEGUNDO CLIQUE NO ✕ — o que sobra quando a lista de botões esvazia.
+  //
+  // O painel mantém o editor aberto com a lista vazia de propósito (ele
+  // aparece pela CHAVE, `botoes !== undefined`), então este estado é
+  // alcançável com dois cliques e não é canto nenhum.
+  //
+  // O gesto refeito aqui é o de `apagarBotao` (quadro.tsx) INTEIRO: o painel
+  // corta o botão da lista, `desligarBotao` corta a seta dele, e
+  // `desligarSenao` corta a `senao` quando o bloco deixou de ter a alça do
+  // "digitou" — que é a pergunta feita a `alcasDeSaida`.
+  // ---------------------------------------------------------------------
+  it("apagar o ÚLTIMO botão tira a alça do “digitou”, e a `senao` fica órfã", () => {
+    const vazio: Passo = { ...menu, tipo: "dm", texto: "Escolha", botoes: [] };
+    // Some a alça: o bloco volta a ter só a de continuação.
+    expect(alcasDeSaida(vazio).map((a) => a.chave)).toEqual(["sempre"]);
+    // E a seta da `senao` passa a ser desenhada SAINDO DELA — `indiceDaAlca`
+    // não acha a chave e cai na primeira.
+    expect(indiceDaAlca(vazio, { tipo: "senao" })).toBe(0);
+  });
+
+  it("o gesto do ✕ tira a `senao` junto, e o erro escondido reaparece", () => {
+    // O MENU NÃO É O PRIMEIRO BLOCO aqui, e a `sempre` que chega nele é
+    // precisa: sem seta nenhuma sobrando, as regras de grafo ficam caladas por
+    // decisão (o comentário de `conferirLista` diz por quê), e o que este teste
+    // mede sumiria junto.
+    const entrada: Passo = { id: "b_entra001", tipo: "dm", texto: "oi" };
+    const vazio: Passo = { ...menu, tipo: "dm", texto: "Escolha", botoes: [] };
+    const perdeuOSenao = !alcasDeSaida(vazio).some((a) => a.chave === "senao");
+    expect(perdeuOSenao).toBe(true);
+
+    const comSenao = ligar(
+      ligar(ligado, entrada.id!, { tipo: "sempre" }, idDoMenu),
+      idDoMenu,
+      { tipo: "senao" },
+      destino.id!
+    );
+    // Os dois cliques no ✕: cada botão sai da lista e a seta dele sai junto.
+    const so = desligarBotao(
+      desligarBotao(comSenao, idDoMenu, botoes[0].id),
+      idDoMenu,
+      botoes[1].id
+    );
+    expect(so.map((l) => l.quando.tipo)).toEqual(["sempre", "senao"]);
+
+    // COM a `senao` sobrando, a conferência fica calada sobre o braço solto.
+    const acusa = (ls: typeof so) =>
+      conferirLista([entrada, vazio, destino], "dm", ls)
+        .map((p) => p.mensagem)
+        .filter((m) => m.startsWith("Nenhuma seta chega"));
+    expect(acusa(so)).toEqual([]);
+    // E o quadro desenharia a continuação daquele bloco, que o motor não tem.
+    expect(seguinteDe(so, idDoMenu)).toBeNull();
+
+    // SEM ela, o erro que ela escondia aparece.
+    expect(acusa(desligarSenao(so, idDoMenu))).toEqual([
+      "Nenhuma seta chega neste bloco a partir do começo do fluxo, então ele nunca é entregue.",
+    ]);
+  });
+
+  it("a pergunta é a `alcasDeSaida`, e não `botoes.length`: `[null]` já perdeu a alça", () => {
+    // A lista tem comprimento 1 e NENHUM botão aproveitável, então a alça do
+    // "digitou" já não existe — contar o comprimento deixaria a `senao` órfã
+    // exatamente aqui. É a causa mais cara de `botoesCrus`, e o ✕ dela é o
+    // gesto de conserto.
+    const soLixo = doBanco({ ...menu, tipo: "dm", texto: "Escolha", botoes: [null] });
+    expect((soLixo as unknown as { botoes: unknown[] }).botoes).toHaveLength(1);
+    expect(alcasDeSaida(soLixo).some((a) => a.chave === "senao")).toBe(false);
   });
 });
 

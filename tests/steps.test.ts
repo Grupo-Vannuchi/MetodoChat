@@ -41,6 +41,7 @@ import {
   ligar,
   desligarBloco,
   desligarBotao,
+  desligarSenao,
   desligarERenumerar,
   apagarLigacoes,
   partirLigacao,
@@ -4182,6 +4183,75 @@ describe("desligarBotao — apagar um botão apaga a seta dele", () => {
 
     expect(inalcancavel(comOrfa)).toHaveLength(0);
     expect(inalcancavel(desligarBotao(comOrfa, "b_menu0001", "op_b"))).toEqual([
+      {
+        nivel: "erro",
+        quando: "ativar",
+        indice: 2,
+        mensagem:
+          "Nenhuma seta chega neste bloco a partir do começo do fluxo, então ele nunca é entregue.",
+      },
+    ]);
+  });
+});
+
+describe("desligarSenao — o último botão leva a `senao` junto", () => {
+  const menu = "b_aaaaaaa1";
+  const outro = "b_bbbbbbb2";
+  const ligacoes: Ligacao[] = [
+    { de: menu, quando: { tipo: "botao", botao: "op_1" }, para: outro },
+    { de: menu, quando: { tipo: "senao" }, para: outro },
+    { de: menu, quando: { tipo: "sempre" }, para: outro },
+    // A `senao` de OUTRO bloco: sem o `de` na comparação esta sairia junto.
+    { de: outro, quando: { tipo: "senao" }, para: menu },
+  ];
+
+  it("tira só a `senao` daquele bloco", () => {
+    expect(desligarSenao(ligacoes, menu)).toEqual([
+      { de: menu, quando: { tipo: "botao", botao: "op_1" }, para: outro },
+      { de: menu, quando: { tipo: "sempre" }, para: outro },
+      { de: outro, quando: { tipo: "senao" }, para: menu },
+    ]);
+  });
+
+  it("bloco sem `senao` não muda a lista", () => {
+    expect(desligarSenao([ligacoes[0]], menu)).toEqual([ligacoes[0]]);
+  });
+
+  it("duas `senao` do mesmo bloco somem juntas", () => {
+    // Forma produzível fora do editor, e `conferirLista` a acusa como "duas
+    // setas saindo para blocos diferentes" — deixar a segunda consertaria o
+    // desenho e não o erro, que é o argumento de `desligarBotao`.
+    const duas: Ligacao[] = [
+      { de: menu, quando: { tipo: "senao" }, para: outro },
+      { de: menu, quando: { tipo: "senao" }, para: "b_ccccccc3" },
+    ];
+    expect(desligarSenao(duas, menu)).toEqual([]);
+  });
+
+  // O MOTIVO INTEIRO DE ELA EXISTIR, e é o mesmo de `desligarBotao`: a órfã
+  // ESCONDE um erro verdadeiro. `haCaminho` conta todas as condições, então a
+  // `senao` de um menu que não tem mais botão nenhum ainda torna o destino
+  // "alcançável" — e o menu sem botões não tem alça de `senao` nenhuma.
+  it("deixar a `senao` órfã ESCONDE o erro de bloco inalcançável", () => {
+    const passos = [
+      { id: "b_umuuuu001", tipo: "dm", texto: "oi" },
+      { id: "b_menu0002", tipo: "dm", texto: "Escolha", botoes: [] },
+      { id: "b_tres0003", tipo: "dm", texto: "tres" },
+    ];
+    const comOrfa: Ligacao[] = [
+      { de: "b_umuuuu001", quando: { tipo: "sempre" }, para: "b_menu0002" },
+      { de: "b_menu0002", quando: { tipo: "senao" }, para: "b_tres0003" },
+    ];
+
+    // E ela promete um caminho que o motor não percorre: a retomada de um menu
+    // sem botões pergunta a `seguinteDe`, e não há `sempre` saindo dali.
+    expect(seguinteDe(comOrfa, "b_menu0002")).toBeNull();
+
+    const inalcancavel = (ls: Ligacao[]) =>
+      conferirLista(passos, "dm", ls).filter((p) => p.mensagem.startsWith("Nenhuma seta chega"));
+
+    expect(inalcancavel(comOrfa)).toHaveLength(0);
+    expect(inalcancavel(desligarSenao(comOrfa, "b_menu0002"))).toEqual([
       {
         nivel: "erro",
         quando: "ativar",

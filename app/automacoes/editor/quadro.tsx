@@ -17,6 +17,7 @@ import {
   apagarLigacoes,
   conferirLista,
   desligarBotao,
+  desligarSenao,
   desligarERenumerar,
   identidadeDoPasso,
   ligar,
@@ -930,6 +931,23 @@ export default function Quadro({
   //
   // AS SETAS QUE CHEGAM NO BLOCO NÃO SÃO TOCADAS, e as dos OUTROS botões
   // também não: o único caminho que deixou de existir é o daquele botão.
+  //
+  // A `senao` SAI COM O ÚLTIMO BOTÃO, e essa é a segunda edição de seta que este
+  // gesto faz. Ela não é simetria: sem ela, dois cliques no ✕ deixam uma `senao`
+  // órfã, e a medida está em `desligarSenao` (lib/steps.ts) — a órfã ESCONDE o
+  // erro de bloco inalcançável, exatamente como a órfã de botão escondia, e o
+  // quadro desenha a seta dela saindo da ALÇA DE CONTINUAÇÃO, cujo `seguinteDe`
+  // é null. Seta desenhada prometendo caminho que o motor não percorre.
+  //
+  // QUEM RESPONDE "AINDA TEM ALÇA DE `senao`?" É `alcasDeSaida` (./modelos), e a
+  // pergunta não é reescrita aqui como `botoes.length === 0`. As duas respostas
+  // divergem, e o caso está medido em `alcasDeSaida`: `botoes: [null]` tem
+  // comprimento 1 e NÃO produz alça nenhuma de botão, então o bloco volta à alça
+  // de continuação com a lista ainda cheia. Perguntar à função que DESENHA a
+  // alça é o que impede o dado e o desenho de discordarem.
+  //
+  // A PERGUNTA É FEITA AO BLOCO DEPOIS DO CORTE, e não ao de antes: é o que ele
+  // vira que decide quais alças sobram.
   const apagarBotao = useCallback(
     (iBotao: number) => {
       const i = passos.findIndex((p, j) => identidadeDoPasso(p, j) === selecionado);
@@ -939,16 +957,20 @@ export default function Quadro({
       const alvo = bloco.botoes[iBotao] as { id?: unknown } | null | undefined;
       if (alvo === undefined) return;
 
-      setPassos((atual) =>
-        atual.map((p, j) =>
-          j === i ? { ...bloco, botoes: bloco.botoes!.filter((_, k) => k !== iBotao) } : p
-        )
-      );
+      const depois: Passo = { ...bloco, botoes: bloco.botoes.filter((_, k) => k !== iBotao) };
+      setPassos((atual) => atual.map((p, j) => (j === i ? depois : p)));
 
       const idDoBotao = alvo?.id;
-      if (typeof idDoBotao === "string" && idDoBotao) {
+      const temSeta = typeof idDoBotao === "string" && !!idDoBotao;
+      const perdeuOSenao = !alcasDeSaida(depois).some((a) => a.chave === "senao");
+      if (temSeta || perdeuOSenao) {
         const idDoBloco = identidadeDoPasso(bloco, i);
-        setLigacoes((atual) => desligarBotao(atual, idDoBloco, idDoBotao));
+        setLigacoes((atual) => {
+          const semOBotao = temSeta
+            ? desligarBotao(atual, idDoBloco, idDoBotao as string)
+            : atual;
+          return perdeuOSenao ? desligarSenao(semOBotao, idDoBloco) : semOBotao;
+        });
         // O índice da seta escolhida deixa de valer quando a lista encolhe. Ver
         // `ligacaoSelecionada`, e é a mesma linha de `apagarBloco`.
         setLigacaoSelecionada(null);

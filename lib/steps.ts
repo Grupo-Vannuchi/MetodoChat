@@ -744,6 +744,51 @@ export function desligarBotao(ligacoes: Ligacao[], bloco: string, botao: string)
   );
 }
 
+// APAGAR A `senao` DE UM BLOCO. É a outra metade do gesto de apagar botão, e ela
+// só é chamada quando o botão apagado era o ÚLTIMO — quando o bloco deixou de
+// ter a alça do "digitou".
+//
+// SEM ELA, DOIS CLIQUES NO ✕ REPRODUZEM O MASCARAMENTO QUE `desligarBotao`
+// ACABOU DE CONSERTAR, e a medida é a mesma daquela função, com a `senao` no
+// lugar da órfã de botão. Lista `[dm "oi", menu(botoes: []), tres]`, ligações
+// `sempre(oi→menu)` e `senao(menu→tres)`:
+//
+//   COM a `senao` .. `conferirLista` devolve `[]`.
+//   SEM ela ....... devolve "Nenhuma seta chega neste bloco a partir do começo
+//                   do fluxo, então ele nunca é entregue", sobre `tres`.
+//
+// `haCaminho` conta TODAS as condições, então a `senao` de um menu que não tem
+// mais botão nenhum continua valendo como caminho para o BLOCO INALCANÇÁVEL —
+// erro de ativar que some da conferência enquanto ela estiver lá. É o mesmo
+// estrago da órfã de botão, pela mesma porta.
+//
+// E O DESENHO TAMBÉM MENTE, e aqui pior do que lá: sem botões, `alcasDeSaida`
+// (app/automacoes/editor/modelos.ts) devolve a ALÇA DE CONTINUAÇÃO e mais nada,
+// `indiceDaAlca` não acha a chave `senao` e cai na primeira — medido,
+// `indiceDaAlca(menu, {tipo:"senao"})` é 0. Ou seja: a seta é desenhada saindo
+// da alça da `sempre`, e `seguinteDe(ligacoes, menu)` daquele mesmo bloco é
+// null. O quadro promete uma continuação que o motor não percorre.
+//
+// O PREÇO, dito porque é escolha: quem esvazia o menu e põe botões de volta
+// perde a seta do "digitou" junto. É o mesmo preço das setas dos botões, e pela
+// mesma razão — a alça de onde ela saía deixou de existir.
+//
+// SEPARADA DE `desligarBotao` E NÃO DENTRO DELA: aquela recebe o botão que saiu
+// e responde sobre ele; a pergunta desta é sobre o que SOBROU na lista, e a
+// lista não é argumento de nenhuma das duas. Quem tem as duas metades é o gesto
+// (`apagarBotao`, app/automacoes/editor/quadro.tsx), e é lá que a pergunta "o
+// bloco ainda tem alça de `senao`?" é feita — a `alcasDeSaida`, que é a função
+// que DESENHA a alça. Perguntar a ela é o que impede a regra daqui e o desenho
+// de discordarem um dia.
+//
+// NÃO É "APAGAR A `senao` SEMPRE QUE NÃO HÁ BOTÕES": ela apaga a `senao` DAQUELE
+// bloco, e só quando chamada. Um bloco que nunca teve botões e tem uma `senao`
+// gravada por fora do editor continua com ela, e continua sendo `conferirLista`
+// quem fala sobre o que ela causa — como em `ligacoesValidas`.
+export function desligarSenao(ligacoes: Ligacao[], bloco: string): Ligacao[] {
+  return ligacoes.filter((l) => !(l.de === bloco && l.quando.tipo === "senao"));
+}
+
 // APAGAR O BLOCO DE ÍNDICE `indice`: as setas das duas pontas somem E as que
 // sobram são RENUMERADAS.
 //
