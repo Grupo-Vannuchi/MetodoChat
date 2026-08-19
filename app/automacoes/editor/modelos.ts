@@ -338,11 +338,32 @@ export function alcasDeSaida(p: Passo): Alca[] {
 // porque é o índice — e não a chave — que decide a ALTURA da alça no bloco
 // (`fracaoDaAlca`, ./geometria).
 //
-// A CONDIÇÃO SEM ALÇA CAI NA PRIMEIRA, e a seta continua desenhada. É o caso da
-// ligação de um botão que foi apagado, e da `senao` num bloco que deixou de ter
-// botões: some a alça, fica a ligação. Sumir com a seta junto esconderia do dono
-// exatamente o que `conferirLista` ainda enxerga — e o gesto de consertar é
-// olhar para ela.
+// A CONDIÇÃO SEM ALÇA CAI NA PRIMEIRA, e a seta continua desenhada. São TRÊS os
+// casos, e o dado é o mesmo nos três — some a alça, fica a ligação:
+//
+//   a ligação de um BOTÃO APAGADO;
+//   a `senao` num bloco que DEIXOU DE TER botões;
+//   a `sempre` num MENU — a que a Tarefa 7b tornou relevante. Desde ela, quem
+//     digita num menu com `senao` segue a `senao`, e a `sempre` ficou servindo
+//     só as retomadas que não sabem qual foi o gesto (`retomadaDoBotao` e
+//     `retomadaDoFallback`, lib/steps.ts). Ela NÃO virou seta morta — isso foi
+//     medido, e os dois pontos acima continuam saindo por ela.
+//
+// A SETA FICA PORQUE APAGÁ-LA SERIA APAGAR DADO DO DONO sem ele pedir, a partir
+// de uma inferência da TELA sobre uma ligação que o motor ainda lê. Essa razão
+// se sustenta sozinha.
+//
+// A RAZÃO QUE ESTAVA ESCRITA AQUI ERA OUTRA, E ERA FALSA — "sumir com a seta
+// junto esconderia do dono exatamente o que `conferirLista` ainda enxerga" —, e
+// o registro fica porque premissa não medida foi o defeito desta fase. Medido:
+// nenhum dos três estava coberto. No botão apagado a conferência não diz nada
+// sobre a ligação órfã. Na `senao` de um bloco sem botões ela só fala quando
+// FALTA a `sempre`, e o que ela acusa é o beco sem saída — a `senao` gravada
+// não entra na pergunta; havendo `sempre`, devolve `[]`. Na `sempre` órfã do
+// menu, não dizia nada. Só o terceiro caso deixou de ser falso:
+// `conferirLista` ganhou o aviso do MENU COM AS DUAS SETAS. Os outros dois
+// continuam invisíveis, e ficam anotados como buraco conhecido em vez de
+// voltarem a ser premissa.
 export function indiceDaAlca(p: Passo, quando: Quando): number {
   const chave = chaveDoQuando(quando);
   const i = alcasDeSaida(p).findIndex((a) => a.chave === chave);

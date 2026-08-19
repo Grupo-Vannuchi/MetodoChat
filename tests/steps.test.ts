@@ -3978,6 +3978,58 @@ describe("conferirLista em dois níveis", () => {
     expect(r[0].indice).toBe(0);
   });
 
+  it("AVISO: menu com a seta do `senao` E uma `sempre` sobrando", () => {
+    // O estado é produzido POR EDIÇÃO NORMAL: uma `dm` de resposta rápida com
+    // `sempre` já desenhada ganha `botoes` e vira menu — `apagarBotao`
+    // (app/automacoes/editor/quadro.tsx) só apaga a `senao`, nada apaga a
+    // `sempre`. Ela perde a alça e passa a ser desenhada saindo do primeiro
+    // botão (`indiceDaAlca`), prometendo um caminho que o toque não percorre.
+    //
+    // E ela NÃO É SETA MORTA — medido, e é por isso que o nível é aviso e não
+    // erro: `retomadaDoBotao` (payload sem botão) e `retomadaDoFallback`
+    // (digita sem cursor) continuam saindo por ela. O que a Tarefa 7b tirou
+    // dela foi um caminho só: quem digita e TEM cursor, que agora vai pela
+    // `senao`.
+    const menu = {
+      id: "b_men080",
+      tipo: "dm",
+      texto: "Escolha",
+      botoes: [
+        { id: "op_aaaaaa", rotulo: "A" },
+        { id: "op_bbbbbb", rotulo: "B" },
+      ],
+    };
+    const b = { id: "b_opb082", tipo: "dm", texto: "B" };
+    const digitou = { id: "b_dig083", tipo: "dm", texto: "Você digitou" };
+    const sobra = { id: "b_sob084", tipo: "dm", texto: "A sobra" };
+    const seNao = { de: "b_men080", quando: { tipo: "senao" }, para: "b_dig083" };
+    const base = [
+      porBotao("b_men080", "op_aaaaaa", "b_opa021"),
+      porBotao("b_men080", "op_bbbbbb", "b_opb082"),
+    ];
+    const passos = [menu, opA, b, digitou, sobra];
+
+    // COM AS DUAS: um aviso, e só. Nada trava.
+    const duas = [...base, seNao, sempre("b_men080", "b_sob084")];
+    expect(salvar(passos, duas)).toHaveLength(0);
+    expect(ativar(passos, duas)).toHaveLength(0);
+    const r = avisos(passos, duas);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(0);
+    expect(r[0].quando).toBe("ativar");
+
+    // SÓ A `senao`, sem `sempre`: nada a dizer — é o menu certo do produto, e
+    // quem digita tem para onde ir. (`b_sob084` fica inalcançável, então ele
+    // sai da lista neste caso.)
+    const soSenao = [...base, seNao];
+    expect(avisos([menu, opA, b, digitou], soSenao)).toHaveLength(0);
+
+    // SÓ A `sempre`, sem `senao`: também nada. Aí ela É o caminho de quem
+    // digita (`retomadaDoTexto` cai em `seguinteDe`), e o aviso seria mentira.
+    const soSempre = [...base, sempre("b_men080", "b_sob084")];
+    expect(avisos([menu, opA, b, sobra], soSempre)).toHaveLength(0);
+  });
+
   it("lista válida com bifurcação E junção não tem problema nenhum", () => {
     const menu = {
       id: "b_men070",

@@ -3365,6 +3365,59 @@ export function conferirLista(
                     : `${orfaos.length} botões deste menu não levam a lugar nenhum: quem tocar neles não recebe nada.`,
               });
             }
+
+            // MENU COM AS DUAS SETAS — a `sempre` deixa de ser o caminho de
+            // quem digita, e ninguém contava isso ao dono. É a conferência que
+            // faltava depois da Tarefa 7b.
+            //
+            // O QUE ESTA REGRA NÃO DIZ, porque foi MEDIDO e é o contrário do
+            // que parece: a `sempre` de um menu com `senao` NÃO É SETA MORTA.
+            // No grafo `[menu(op_aaaaaa) → b_opa002 por botão, → b_sen003 por
+            // senão, → b_smp004 por sempre]`, os cinco pontos de retomada dão:
+            //
+            //   toque em "Quero"        `caminhoDoBotao`         b_opa002
+            //   digita COM cursor       `retomadaDoTexto`        b_sen003
+            //   payload sem botão       `retomadaDoBotao`        b_smp004
+            //   digita SEM cursor       `retomadaDoFallback`     b_smp004
+            //
+            // Ou seja, ela continua sendo percorrida pelos dois pontos que não
+            // sabem qual foi o gesto. O que a Tarefa 7b tirou dela foi UM
+            // caminho: quem digita e TEM cursor. Chamar isso de seta morta
+            // seria escrever de novo um número que a medição não produz.
+            //
+            // E É POR ISSO QUE É AVISO, pelo critério desta fase. Não trava o
+            // SALVAR: o estado é produzido por edição normal — uma `dm` de
+            // resposta rápida com `sempre` já desenhada que ganha `botoes` e
+            // vira menu deixa a `sempre` para trás (`apagarBotao`,
+            // app/automacoes/editor/quadro.tsx, só apaga a `senao`) —, e travar
+            // o salvar no meio de um trabalho é hostil, o mesmo critério do
+            // botão sem destino, acima. Não trava o ATIVAR: nada é entregue
+            // errado, cada gesto vai para onde a seta DELE manda. O que sobra é
+            // o dono acreditar numa coisa que não é, e isso é o que aviso é.
+            //
+            // A PERGUNTA É FEITA ÀS DUAS FUNÇÕES DO MOTOR, `ligacaoEscolhida` e
+            // `seguinteDe`, pelo mesmo motivo do botão sem destino: é a mesma
+            // dupla que `retomadaDoTexto` consulta, na mesma ordem, e uma
+            // terceira cópia da regra discordaria no dia em que o desempate
+            // mudar.
+            //
+            // NO QUADRO essa seta aparece SAINDO DO PRIMEIRO BOTÃO —
+            // `indiceDaAlca` (app/automacoes/editor/modelos.ts) devolve 0 para
+            // uma condição sem alça, e o menu não tem alça de `sempre`. A
+            // mensagem não diz isso porque é a tela que decide onde desenhar, e
+            // repetir aqui a decisão dela seria a cópia que este arquivo evita.
+            if (
+              ligacaoEscolhida(ligacoes, id, { tipo: "texto" }) !== null &&
+              seguinteDe(ligacoes, id) !== null
+            ) {
+              r.push({
+                nivel: "aviso",
+                quando: "ativar",
+                indice: i,
+                mensagem:
+                  "Este menu tem a seta “digitou” e também uma seta de continuação. Quem digita segue a do “digitou”: a de continuação só vale quando o fluxo é retomado sem saber onde a pessoa parou.",
+              });
+            }
           }
         }
       }
