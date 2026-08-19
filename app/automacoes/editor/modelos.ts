@@ -2,18 +2,25 @@ import {
   chaveDoQuando,
   envioDaDm,
   novoIdDeBloco,
+  novoIdDeBotao,
   type Passo,
   type Quando,
 } from "@/lib/steps";
 
-// A paleta tem OITO itens sobre SEIS tipos, e a diferença não é maquiagem.
+// A paleta tem NOVE itens sobre SEIS tipos, e a diferença não é maquiagem.
 //
-// "Mensagem", "Mensagem com botão" e "Mensagem com link" salvam todas
-// `tipo: "dm"`. O que separa uma DM que PARA o fluxo de uma que segue é ter
-// rótulo de botão SEM url — uma diferença invisível no dado, que já causou
-// defeito: um lembrete salvo sem link virou parada dura e o fluxo travou ali,
-// sem ninguém ter pedido isso. Nomear os três casos faz a distinção aparecer
-// na hora de criar, não depois.
+// "Mensagem", "Mensagem com botão", "Mensagem com link" e "Mensagem com
+// opções" salvam todas `tipo: "dm"`. O que separa uma DM que PARA o fluxo de
+// uma que segue é ter rótulo de botão SEM url — uma diferença invisível no
+// dado, que já causou defeito: um lembrete salvo sem link virou parada dura e
+// o fluxo travou ali, sem ninguém ter pedido isso. Nomear os quatro casos faz a
+// distinção aparecer na hora de criar, não depois.
+//
+// O QUARTO É O ÚNICO QUE BIFURCA, e ele é a razão desta fase inteira: um `dm`
+// com `botoes` entrega um menu, PARA o fluxo (`envioDaDm` → `esperaResposta`,
+// lib/steps.ts) e continua por uma seta POR BOTÃO. Até a Tarefa 7 nenhuma tela
+// do sistema gravava essa chave — o motor, a conferência e as alças do quadro
+// já a liam, e nada a escrevia.
 //
 // `gatilhos: null` = serve em qualquer um.
 export type ItemDaPaleta = {
@@ -27,6 +34,7 @@ export const PALETA: ItemDaPaleta[] = [
   { chave: "dm", rotulo: "Mensagem", descricao: "texto simples", gatilhos: null },
   { chave: "dm_botao", rotulo: "Mensagem com botão", descricao: "o fluxo espera o toque", gatilhos: null },
   { chave: "dm_link", rotulo: "Mensagem com link", descricao: "botão que abre um endereço", gatilhos: null },
+  { chave: "dm_opcoes", rotulo: "Mensagem com opções", descricao: "cada botão leva a um caminho", gatilhos: null },
   { chave: "esperar", rotulo: "Esperar", descricao: "atrasa o que vier depois", gatilhos: null },
   // "PORTÃO" É PALAVRA DE UM SÓ, e ela foi tirada do e-mail de propósito.
   //
@@ -63,19 +71,58 @@ export const PALETA: ItemDaPaleta[] = [
 // Ela vale em TRÊS lugares, e os três precisam usar o mesmo critério:
 //   `blocoNovo` (aqui) ....... semeia `url: ""` só em `dm_link`
 //   `resumoDoBloco` (aqui) ... classifica pela CHAVE, `p.url !== undefined`
-//   painel do bloco (T7) ..... pela chave, e NUNCA apaga a chave: esvaziar o
+//   painel do bloco .......... pela chave, e NUNCA apaga a chave: esvaziar o
 //                              campo do endereço grava `""`, não remove `url`
 //
 // Removendo a chave, o bloco vira indistinguível de uma resposta rápida e o
 // erro deixa de acender — em silêncio, que é o modo de falhar que esta
 // convenção inteira existe para evitar.
+//
+// ---------------------------------------------------------------------------
+// A VIZINHA, desde a Tarefa 7: UM BLOCO COM `botoes` NÃO TEM `botao_label` NEM
+// `url`. As casas são as MESMAS três, e o critério de cada uma é o que muda de
+// lugar para lugar — de propósito, e o porquê está dito em cada uma.
+//
+//   `blocoNovo` (aqui) ....... `botoes` só em `dm_opcoes`, e ele NÃO semeia
+//                              `botao_label` nem `url` junto. As três chaves
+//                              convivem no tipo `PassoDm`, e `envioDaDm`
+//                              (lib/steps.ts) desempata entre elas — mas o
+//                              desempate existe para o dado que veio de fora,
+//                              não para a paleta produzir bloco ambíguo.
+//   `resumoDoBloco` (aqui) ... pela FORMA (`envioDaDm`), e NÃO pela chave. É a
+//                              diferença para o `url`, e ela tem motivo: a
+//                              chave `url` vazia é ERRO ACESO, e o título tem de
+//                              falar do mesmo bloco que o diagnóstico; a lista
+//                              de botões VAZIA não acende nada — `botoesCrus`
+//                              (lib/steps.ts) aceita `[]` — e o bloco entrega
+//                              texto puro. Titulá-lo "MENSAGEM COM OPÇÕES" pela
+//                              chave seria a tela prometendo um menu que o motor
+//                              não manda, sem nada acusando.
+//   painel do bloco .......... pela CHAVE, como no `url`, e aqui é a chave que
+//                              serve: é ela que decide se a LISTA aparece para
+//                              editar. Pela forma, o menu que ficou sem nenhum
+//                              botão perderia o próprio editor, e o dono não
+//                              teria como pôr o primeiro de volta.
+// ---------------------------------------------------------------------------
 
-// Um bloco novo. Os textos-padrão existem para que SETE dos oito itens da paleta
-// nasçam válidos: sem eles, um `dm` recém-arrastado teria `texto: ""` e
+// Um bloco novo. Os textos-padrão existem para que OITO dos nove itens da
+// paleta nasçam válidos: sem eles, um `dm` recém-arrastado teria `texto: ""` e
 // `conferirLista` (lib/steps.ts) travaria o salvar antes de a pessoa ter tido a
 // chance de digitar qualquer coisa.
 //
-// O OITAVO — "Mensagem com link" — NASCE COM ERRO, e isso é de propósito.
+// OS DOIS BOTÕES DE `dm_opcoes` NASCEM COM RÓTULO ESCRITO, e não em branco, pelo
+// mesmo motivo do "Quero!" do `dm_botao`: rótulo em branco é erro de ATIVAR
+// (`botoesCrus`, lib/steps.ts), e um bloco que nasce acusado ensina que o
+// diagnóstico é ruído. "Opção 1" e "Opção 2" são neutros porque não há frase
+// honesta a inventar — o que cada braço oferece é a coisa mais específica da
+// automação inteira —, e são visivelmente provisórios, que é o que se quer de um
+// texto que PRECISA ser trocado. O rótulo em branco continua sendo estado
+// normal, mas do botão ACRESCENTADO à mão no painel, não do bloco recém-criado.
+//
+// SÃO DOIS, e não um: um menu de um botão só não escolhe nada, e `conferirLista`
+// avisa exatamente isso. Nascer avisado é o mesmo defeito de nascer acusado.
+//
+// O NONO — "Mensagem com link" — NASCE COM ERRO, e isso é de propósito.
 // `url: ""` casa com a regra do link sem endereço e acende ERRO no instante da
 // criação, apontando o campo que falta: o endereço. Não há padrão honesto a
 // inventar aqui — não existe url plausível para semear —, e link sem endereço é
@@ -95,6 +142,20 @@ export function blocoNovo(chave: string): Passo {
       return { id, tipo: "dm", texto: "Escreva a mensagem aqui", botao_label: "Quero!" };
     case "dm_link":
       return { id, tipo: "dm", texto: "Aqui está o seu link!", botao_label: "Abrir link", url: "" };
+    // NEM `botao_label` NEM `url` — é a vizinha da convenção da chave `url`,
+    // logo acima. Os ids saem de `novoIdDeBotao` (lib/steps.ts) e não de um
+    // contador local: é o id que casa com a ligação do braço, e dois blocos
+    // criados na mesma sessão não podem sair com os mesmos.
+    case "dm_opcoes":
+      return {
+        id,
+        tipo: "dm",
+        texto: "Escolha uma opção 👇",
+        botoes: [
+          { id: novoIdDeBotao(), rotulo: "Opção 1" },
+          { id: novoIdDeBotao(), rotulo: "Opção 2" },
+        ],
+      };
     case "esperar":
       return { id, tipo: "esperar", minutos: 60 };
     case "pedir_follow":
@@ -113,7 +174,9 @@ export function blocoNovo(chave: string): Passo {
 // O que o nó mostra fechado. O corpo é cortado por CSS, não aqui — cortar no
 // dado esconderia da prévia o texto que a pessoa acabou de digitar.
 //
-// A `dm` é classificada pela CHAVE `url`, e não pelo valor dela. `if (p.url)`
+// A `dm` é classificada pela CHAVE `url`, e não pelo valor dela. O MENU é o
+// contrário — pela FORMA —, e as duas metades da vizinha da convenção estão
+// escritas por extenso lá em cima, junto da convenção. `if (p.url)`
 // seria a mesma leitura que `esperaResposta` (lib/steps.ts) faz, e por isso
 // intitularia MENSAGEM COM BOTÃO justamente o bloco em que `conferirLista`
 // acende ERRO de "mensagem com link sem endereço" — o `dm_link` com `url: ""`.
@@ -170,6 +233,12 @@ export function resumoDoBloco(p: Passo): { titulo: string; corpo: string } {
   switch (p.tipo) {
     case "dm":
       if (p.url !== undefined) return { titulo: "MENSAGEM COM LINK", corpo: comoTexto(p.texto) };
+      // O MENU VEM ANTES DO RÓTULO, e a ordem é a MESMA de `envioDaDm`
+      // (lib/steps.ts): num bloco que tem as duas chaves é o menu que sai, então
+      // é o menu que o título tem de nomear. Perguntar à forma em vez de reler a
+      // chave é o que mantém as duas ordens sendo uma só.
+      if (envioDaDm(p).forma === "botoes")
+        return { titulo: "MENSAGEM COM OPÇÕES", corpo: comoTexto(p.texto) };
       if (p.botao_label) return { titulo: "MENSAGEM COM BOTÃO", corpo: comoTexto(p.texto) };
       return { titulo: "MENSAGEM", corpo: comoTexto(p.texto) };
     case "esperar":

@@ -4,6 +4,7 @@ import {
   blocoNovo,
   comoTexto,
   indiceDaAlca,
+  PALETA,
   resumoDoBloco,
 } from "../app/automacoes/editor/modelos";
 import { conferirLista, type Passo } from "../lib/steps";
@@ -86,8 +87,43 @@ describe("resumoDoBloco classifica a `dm` pela CHAVE `url`", () => {
   });
 });
 
+// A VIZINHA DA CONVENÇÃO (Tarefa 7): o MENU é classificado pela FORMA
+// (`envioDaDm`), e não pela chave. O motivo está por extenso em `modelos.ts`, e
+// é o que estes três casos fixam — em especial o do meio, que é o único jeito de
+// a diferença entre chave e forma aparecer.
+describe("resumoDoBloco classifica o MENU pela FORMA", () => {
+  it("bloco com botões é MENSAGEM COM OPÇÕES", () => {
+    const r = resumoDoBloco(doBanco({ tipo: "dm", texto: "t", botoes: [{ id: "op_1", rotulo: "A" }] }));
+    expect(r.titulo).toBe("MENSAGEM COM OPÇÕES");
+  });
+
+  it("lista de botões VAZIA volta a ser MENSAGEM: é texto puro que sai", () => {
+    // Pela CHAVE este bloco seria "MENSAGEM COM OPÇÕES", e a tela prometeria um
+    // menu que o motor não manda — sem nada acusando, porque `botoesCrus`
+    // aceita `[]`.
+    expect(resumoDoBloco(doBanco({ tipo: "dm", texto: "t", botoes: [] })).titulo).toBe("MENSAGEM");
+    expect(
+      conferirLista([{ id: "b_abc123", tipo: "dm", texto: "t", botoes: [] }], "dm")
+    ).toEqual([]);
+  });
+
+  it("com `url` continua sendo MENSAGEM COM LINK, que é o que o motor envia", () => {
+    const r = resumoDoBloco(
+      doBanco({ tipo: "dm", texto: "t", url: "https://x", botoes: [{ id: "op_1", rotulo: "A" }] })
+    );
+    expect(r.titulo).toBe("MENSAGEM COM LINK");
+  });
+
+  it("com rótulo E botões ganha o título do MENU, na mesma ordem de `envioDaDm`", () => {
+    const r = resumoDoBloco(
+      doBanco({ tipo: "dm", texto: "t", botao_label: "Quero", botoes: [{ id: "op_1", rotulo: "A" }] })
+    );
+    expect(r.titulo).toBe("MENSAGEM COM OPÇÕES");
+  });
+});
+
 describe("blocoNovo", () => {
-  it("os oito itens da paleta nascem desenháveis", () => {
+  it("os nove itens da paleta nascem desenháveis", () => {
     // Se um item novo da paleta produzisse um tipo que `resumoDoBloco` não
     // conhece, ele nasceria como "BLOCO DESCONHECIDO" — visível, mas com o
     // salvar travado desde o arrasto.
@@ -95,6 +131,7 @@ describe("blocoNovo", () => {
       "dm",
       "dm_botao",
       "dm_link",
+      "dm_opcoes",
       "esperar",
       "pedir_follow",
       "pedir_email",
@@ -104,6 +141,64 @@ describe("blocoNovo", () => {
     for (const chave of chaves) {
       expect(resumoDoBloco(blocoNovo(chave)).titulo).not.toBe("BLOCO DESCONHECIDO");
     }
+  });
+
+  // A LISTA DA PALETA E O `switch` SÃO A MESMA COISA, e este teste é o que
+  // impede um item novo de cair no ramo padrão em silêncio — que é como ele
+  // viraria uma "Mensagem" comum, com o nome certo na faixa e o bloco errado no
+  // quadro.
+  //
+  // "dm" FICA DE FORA da comparação, e não por conveniência: o ramo padrão
+  // devolve exatamente o bloco de "dm" de propósito, então ele é o único item da
+  // paleta indistinguível do padrão. É a chave cujo item já é o padrão.
+  it("toda chave da PALETA tem ramo próprio: nenhuma cai no padrão", () => {
+    const padrao = blocoNovo("chave-que-nao-existe");
+    for (const item of PALETA) {
+      if (item.chave === "dm") continue;
+      expect({ ...blocoNovo(item.chave), id: "" }).not.toEqual({ ...padrao, id: "" });
+    }
+  });
+
+  // O ITEM DESTA TAREFA. Ele é o primeiro — e hoje o único — lugar do sistema
+  // que ESCREVE `botoes`: até aqui o motor, a conferência e as alças do quadro
+  // liam a chave e nada a gravava.
+  describe("dm_opcoes", () => {
+    const menu = blocoNovo("dm_opcoes");
+    const botoes = menu.tipo === "dm" ? menu.botoes : undefined;
+
+    it("nasce com DOIS botões, cada um com id próprio e rótulo escrito", () => {
+      expect(botoes).toHaveLength(2);
+      expect(botoes?.[0].id).not.toBe(botoes?.[1].id);
+      for (const b of botoes ?? []) {
+        expect(b.id).toMatch(/^op_/);
+        expect(b.rotulo.trim()).not.toBe("");
+      }
+    });
+
+    it("não semeia `botao_label` nem `url` — é a vizinha da convenção", () => {
+      expect(menu.tipo === "dm" && menu.botao_label).toBeUndefined();
+      expect(menu.tipo === "dm" && menu.url).toBeUndefined();
+    });
+
+    it("nasce SEM erro e SEM aviso de conteúdo: só falta ligar os braços", () => {
+      // Um bloco recém-criado é o único da lista, então ele é a entrada e as
+      // regras de grafo ficam caladas (não há seta nenhuma). O que este teste
+      // fixa é que o CONTEÚDO do menu nasce inteiro: nada de rótulo em branco,
+      // nada de menu de um botão só.
+      expect(conferirLista([menu], "dm")).toEqual([]);
+    });
+
+    it("dois blocos criados na mesma sessão não compartilham id de botão", () => {
+      // O id do botão é o que casa com a ligação do braço. Repetido entre dois
+      // blocos ele não quebra nada por si (a ligação também traz o bloco), mas é
+      // exatamente o tipo de coincidência que faz uma medição parecer certa.
+      const outro = blocoNovo("dm_opcoes");
+      const ids = new Set([
+        ...(botoes ?? []).map((b) => b.id),
+        ...((outro.tipo === "dm" && outro.botoes) || []).map((b) => b.id),
+      ]);
+      expect(ids.size).toBe(4);
+    });
   });
 });
 

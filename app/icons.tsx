@@ -263,23 +263,24 @@ export function IconAlert({ className }: IconProps) {
 /* A REGRA QUE ORGANIZA ESTE GRUPO É A SILHUETA, e não o detalhe: na faixa     */
 /* eles saem a 22px, e a essa altura o que separa dois ícones é o CONTORNO     */
 /* GERAL — uma forma, duas formas, uma forma com algo escapando dela. Detalhe  */
-/* interno some. Por isso cada um dos oito tem um contorno diferente, e não    */
+/* interno some. Por isso cada um dos NOVE tem um contorno diferente, e não    */
 /* só um miolo diferente.                                                      */
 /*                                                                            */
-/* DOIS DOS OITO NÃO ESTÃO AQUI, e a ausência é reúso deliberado:              */
+/* DOIS DOS NOVE NÃO ESTÃO AQUI, e a ausência é reúso deliberado:              */
 /*   `esperar`     → `IconClock`, logo acima. É o MESMO ícone que a prévia     */
 /*                   (`editor/previa`) usa na legenda de tempo, e desenhar um  */
 /*                   segundo relógio faria a mesma ideia ter dois desenhos.    */
 /*   `pedir_email` → `IconMail`. Idem: é o ícone da parada de e-mail da prévia.*/
 /*                                                                            */
-/* OS TRÊS DE MENSAGEM SÃO IRMÃOS DE PROPÓSITO — os três salvam `tipo: "dm"`   */
-/* (ver `editor/modelos`), e a tela é o único lugar onde a diferença entre     */
-/* eles aparece. Os três partem do MESMO balão retangular com rabinho embaixo  */
-/* à esquerda. O que muda é o que acontece FORA do balão:                      */
+/* OS QUATRO DE MENSAGEM SÃO IRMÃOS DE PROPÓSITO — os quatro salvam            */
+/* `tipo: "dm"` (ver `editor/modelos`), e a tela é o único lugar onde a        */
+/* diferença entre eles aparece. Os quatro partem do MESMO balão retangular    */
+/* com rabinho embaixo à esquerda. O que muda é o que acontece FORA do balão:  */
 /*                                                                            */
 /*   MENSAGEM ......... balão sozinho, com duas linhas de texto.               */
 /*   MENSAGEM COM BOTÃO balão + pílula solta embaixo + o toque (ponto e onda). */
 /*   MENSAGEM COM LINK. balão com a seta saindo pelo canto de cima.            */
+/*   MENSAGEM COM OPÇÕES balão + DUAS pílulas lado a lado embaixo.             */
 /*                                                                            */
 /* O DO BOTÃO É O QUE MAIS SE AFASTA, e isso não é gosto: é ele que PARA O     */
 /* FLUXO (`esperaResposta`, lib/steps.ts), e essa diferença é invisível no     */
@@ -327,6 +328,31 @@ export function IconMensagemLink({ className }: IconProps) {
       <path d="M12 4H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2v4l4.5-4H18a2 2 0 0 0 2-2v-3" />
       <path d="M15 3h6v6" />
       <path d="m21 3-6.5 6.5" />
+    </Svg>
+  );
+}
+
+// MENSAGEM COM OPÇÕES (`dm_opcoes`) — o balão sobe igual ao do botão, e
+// embaixo dele ficam DUAS pílulas lado a lado. A silhueta é a diferença: uma
+// pílula larga com o toque ao lado é "um botão a tocar"; duas pílulas menores,
+// separadas, são "escolha uma das duas", que é o que este bloco faz.
+//
+// O TOQUE (`IconTap`) NÃO SE REPETE AQUI de propósito. Ele é a marca de "o
+// fluxo para", e o menu também para (`esperaResposta`, lib/steps.ts) — mas
+// desenhá-lo nos dois deixaria os dois ícones com o mesmo apêndice à direita, e
+// a 22px é justamente esse apêndice que hoje separa o "com botão" dos outros
+// dois da família. O que este ícone precisa dizer primeiro é ESCOLHA.
+//
+// A FOLGA ENTRE AS DUAS PÍLULAS é de 4 unidades (x=10 até x=14) pelo motivo
+// medido em `IconMensagemBotao`: com traço de 2, duas bordas a menos de 2
+// unidades de distância se encostam e as duas formas leem como uma só — que
+// aqui apagaria a única coisa que o desenho tem a dizer.
+export function IconMensagemOpcoes({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <path d="M20 1.5H4a2 2 0 0 0-2 2V8a2 2 0 0 0 2 2h1v2.5L8.5 10H20a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2Z" />
+      <rect x="2" y="16" width="8" height="6" rx="3" />
+      <rect x="14" y="16" width="8" height="6" rx="3" />
     </Svg>
   );
 }

@@ -7,6 +7,7 @@ import {
   IconMensagem,
   IconMensagemBotao,
   IconMensagemLink,
+  IconMensagemOpcoes,
   IconPortao,
   IconRespostaPublica,
 } from "../../icons";
@@ -91,11 +92,12 @@ function motivoDeEstarFora(gatilhos: string[], gatilho: string): string {
 // `IconMail` para o pedido de e-mail. São os MESMOS que a prévia
 // (`./previa`) já usa para a legenda de tempo e para a parada de e-mail, e um
 // desenho novo ali só criaria um segundo símbolo para a mesma ideia. O motivo
-// completo, e por que os outros seis precisaram nascer, está em `app/icons`.
+// completo, e por que os outros sete precisaram nascer, está em `app/icons`.
 const ICONE: Record<string, (p: { className?: string }) => React.JSX.Element> = {
   dm: IconMensagem,
   dm_botao: IconMensagemBotao,
   dm_link: IconMensagemLink,
+  dm_opcoes: IconMensagemOpcoes,
   esperar: IconClock,
   pedir_follow: IconPortao,
   pedir_email: IconMail,
@@ -107,7 +109,7 @@ const ICONE: Record<string, (p: { className?: string }) => React.JSX.Element> = 
 //
 // Ela era uma coluna vertical de 176px à esquerda, com rótulo e descrição
 // impressos. Passou a ser faixa por decisão do dono do produto, aprovada por
-// protótipo: a coluna comia largura do quadro o tempo todo para mostrar oito
+// protótipo: a coluna comia largura do quadro o tempo todo para mostrar nove
 // frases que só importam no instante de escolher o bloco.
 //
 // O NOME E A DESCRIÇÃO NÃO SUMIRAM — foram para o `title`, que é onde o motivo
