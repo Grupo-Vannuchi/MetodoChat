@@ -1389,6 +1389,97 @@ git commit -m "A seta do digitou passa a rotear quem responde digitando"
 
 ---
 
+# Tarefa 7c · A varredura passa a enxergar o "digitou" e o menu
+
+**Files:**
+- Modify: `scripts/varredura-portao.mjs`
+- Test: nenhum na suíte — a varredura é a própria prova
+
+**Achada ao fechar a Tarefa 7b, e confirmada por três medições independentes.**
+
+## O buraco, e por que ele é o mais sério que sobrou
+
+A varredura é a prova de que **o link de recompensa não sai para quem não segue
+o perfil**. É a garantia central deste produto, e a única coisa que cobre o
+espaço de fluxos inteiro em vez de casos escolhidos a dedo.
+
+**Ela é cega para os dois recursos mais novos da fase.** Medido:
+
+```
+grep -c "senao"  scripts/varredura-portao.mjs  ->  0
+grep -c "botoes" scripts/varredura-portao.mjs  ->  0
+```
+
+`topologias()` só emite `{tipo:"sempre"}` e `{tipo:"botao"}`. Nenhuma seta de
+`senao`, nenhum bloco de menu, em nenhum dos 954.160 casos.
+
+**E a cegueira foi provada, não deduzida:** plantaram o defeito óbvio no caminho
+do `senao` e a varredura oficial **continuou imprimindo "SEM VAZAMENTO" com
+números byte-idênticos**. Duas pessoas diferentes reproduziram isso.
+
+## O que existe hoje e precisa ser incorporado
+
+A Tarefa 7b escreveu uma **amostra independente** no scratchpad
+(`varredura-senao.mjs`) porque `scripts/` estava proibido para ela. Ela sorteia
+2.000.000 de casos, tem um **sexto papel** que a oficial não tem — o menu de
+`botoes` — e foi **julgada válida pela revisão**, que a reproduziu dígito a
+dígito:
+
+```
+A 491.094 / 0 vazamentos    C 2.712.195 / 0    B 2.264.721 / 8.186
+com o defeito plantado:     C 87.313 acusados
+```
+
+**Essa amostra é o rascunho da sua tarefa.** Leia-a antes de escrever. Mas ela
+tem um viés que a revisão mediu e que **você precisa corrigir ao incorporar**:
+ela devolve um booleano e atribui o vazamento ao grupo do salto **externo**,
+enquanto a oficial grava uma medida **por salto**. Um vazamento no salto interno
+de `retomadaDoEmailConhecido`, sob um salto de texto do grupo B, cairia em B sem
+ser acusado.
+
+## O critério de pronto, e não é negociável
+
+**Os defeitos plantados têm que ser acusados pela varredura OFICIAL**, rodada
+por `npm run varredura`:
+
+1. destino do `senao` entregue sem passar por `atravessandoOPortao`
+2. `retomadaDoTexto` voltando a ignorar o `senao`
+3. um plantio seu, no caminho do menu, que a oficial hoje não veria
+
+**Reporte os números de cada um, e os da linha de base.** Uma varredura que dá
+zero pode estar certa ou pode não estar procurando — e esta acabou de provar que
+estava na segunda situação.
+
+**E rode a contraprova**, como a oficial já faz: com o código antigo, ela precisa
+acusar.
+
+## O que NÃO fazer
+
+**Não deixe a varredura mais lenta do que precisa.** Ela roda no `verify`, hoje
+em ~35 s. Se o espaço novo a fizer estourar isso, **diga o número** e proponha —
+amostragem, ou um modo completo separado do modo do `verify`.
+
+**Não invente papéis novos além do menu.** O espaço já é grande; o que falta é
+específico e está nomeado.
+
+## Passos
+
+- [ ] **Passo 1: meça a linha de base** — rode `npm run varredura` e guarde os
+      seis números
+- [ ] **Passo 2: plante os três defeitos e confirme que a oficial NÃO os vê** —
+      é a reprodução do buraco, e é o que dá sentido ao resto
+- [ ] **Passo 3: acrescente `senao` e o bloco de menu às topologias**
+- [ ] **Passo 4: replante os três e confirme que agora ela ACUSA**, com números
+- [ ] **Passo 5: contraprova com o código antigo**, e o tempo de execução medido
+- [ ] **Passo 6: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run && npm run varredura
+git commit -m "A varredura passa a enxergar a seta do digitou e o bloco de menu"
+```
+
+---
+
 # Tarefa 8 · A prévia pelo caminho selecionado
 
 **Files:**
