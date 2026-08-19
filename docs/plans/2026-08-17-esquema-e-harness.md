@@ -149,6 +149,36 @@ alguém executa antes de subir, em vez de uma ressalva que ninguém relê.
 não estar procurando. A da Fase 2a só virou prova quando plantaram defeitos nela
 e ela acusou — inclusive um que a suíte inteira não vê.
 
+**Toda revisão pergunta pelo chamador.** A pergunta, literal:
+
+> *Cada variante que esta função aceita é produzida por alguém em produção? Se
+> não, isso é deliberado e está escrito?*
+
+**Por que ela existe.** A Fase 2a fez nove descobertas por medição, e **todas as
+nove foram na fronteira entre camadas**, nunca dentro delas: o motor chamando o
+arquivo puro com o argumento errado, o dreno pareando rótulo com payload
+trocados, a Server Action filtrando o nível errado, o quadro filtrando sem olhar
+o campo novo — e, a última, **um chamador que nunca existiu**.
+
+`ligacaoEscolhida` aceita `{tipo:"botao"}` e `{tipo:"texto"}`. Produção a chama
+**três vezes, sempre com `botao`**. A seta do "digitou" ficava desenhada,
+editável, salva e validada, e o motor nunca a consultava. A função pura tinha
+teste do caso de texto, e ele passava.
+
+**Por que nenhuma ferramenta pega isso, medido:**
+
+- **detector de código morto:** zero funções exportadas estão mortas — todas as
+  44 têm chamador. Não é código morto, é **ramo** morto
+- **cobertura de teste:** o ramo *está* coberto, por teste
+- **`tsc` e `eslint`:** a variante é legítima, só ninguém a produz
+
+**O que pega é a pergunta**, e ela custa uma linha. Quem a responde precisa
+mostrar o chamador e a forma do argumento — não afirmar que existe.
+
+**E a Frente 2 é quem a torna mecânica.** Um caminho de ponta a ponta "a pessoa
+digitou em vez de tocar" teria falhado sozinho, sem depender de alguém ser
+esperto na hora certa.
+
 ---
 
 ## Quando
