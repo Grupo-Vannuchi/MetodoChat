@@ -217,17 +217,39 @@ const ID = Object.fromEntries(Object.keys(BLOCOS).map((p) => [p, BLOCOS[p].id]))
 //
 // A segunda varredura desenha `senao` e monta um bloco de MENU. Se o sistema
 // deixar de reconhecer qualquer uma dessas duas coisas, essas setas e esse bloco
-// viram DECORAÇÃO: a varredura continua rodando, continua levando ~20 segundos e
-// continua imprimindo zero — só que zero sobre um espaço que ela não está mais
+// viram DECORAÇÃO: a varredura continua rodando, continua levando os seus ~15
+// segundos (quatro rodadas medidas: 14,6; 14,7; 15,3; 15,5) e continua
+// imprimindo zero — só que zero sobre um espaço que ela não está mais
 // percorrendo. É exatamente a falha da reserva silenciosa que este arquivo já
 // levou uma vez, e ela custa mais aqui: lá a varredura media a própria ideia dela
 // de payload; aqui ela mediria um eixo inteiro que não existe.
 //
-// AS QUATRO PERGUNTAS SÃO DE FIAÇÃO, E NÃO DE PORTÃO, e a diferença é o que
+// AS SEIS PERGUNTAS SÃO DE FIAÇÃO, E NÃO DE PORTÃO, e a diferença é o que
 // mantém a guarda honesta: nenhuma delas afirma que o link é barrado — isso é o
 // que as varreduras medem, e uma guarda que o afirmasse estaria respondendo pela
 // medição. O que elas afirmam é que o caminho que a varredura desenha É um
 // caminho que o sistema percorre.
+//
+// AS DUAS ÚLTIMAS NASCERAM DA REVISÃO DESTA TAREFA, e as duas fecham eixos que
+// as quatro primeiras deixavam abertos — as duas medidas, e não supostas:
+//
+//   `caminhoDoBotao` É O EIXO DO BOTÃO DE MENU, que carrega uma das duas
+//     acusações numéricas desta varredura (o plantio do toque em botão de menu
+//     sem a regra do portão, C 178.450). Sem esta pergunta, o eixo morre em
+//     silêncio: medido, fazendo `caminhoDoBotao` devolver `{motivo}` para bloco
+//     de `botoes`, o ramo `else if (c.retomada)` de `pontosDeEntrada` descarta
+//     todo toque sem uma palavra e a varredura imprime "SEM VAZAMENTO em A nem
+//     em C, nas duas varreduras" com CÓDIGO 0 — a exaustiva intacta, e na do
+//     menu só as contagens se mexendo: saltos de A 1.484.984 -> 1.414.624,
+//     saltos de C 4.730.958 -> 4.408.632, entregas de B 125.583 -> 119.568.
+//   `retomadaDoFallback` É A TROCA DE PAPEL, e é a medição do cabeçalho virada
+//     em pergunta. Ela devolve null quando o fluxo tem mais de UMA parada dura
+//     (`contarParadasDuras`), e `pontosDeEntrada` só empurra o fallback quando
+//     ela não é null — então acrescentar um segundo bloco de parada dura a
+//     `PAPEIS_MENU` apaga um ponto de medição inteiro sem erro nenhum. Medido,
+//     tirando só esse ponto da varredura do menu: saltos de A 1.484.984 ->
+//     1.415.894, saltos de C 4.730.958 -> 4.532.252, entregas de B 125.583 ->
+//     123.371. Meio milhão de saltos que sumiriam calados.
 //
 // FICA FORA DO MODO ANTIGO porque o commit da contraprova é anterior às duas
 // coisas: lá `envioDaDm` não conhece `botoes` e `retomadaDoTexto` nem recebe
@@ -254,6 +276,23 @@ if (!MODO_ANTIGO) {
   }
   if (S.retomadaDoTexto([BLOCOS.N, BLOCOS.M], [setaSenao], 0).destino !== ID.M) {
     reclamar("`retomadaDoTexto` não segue mais a `senao` de quem digitou num menu.");
+  }
+  const setaBotao = { de: ID.N, quando: { tipo: "botao", botao: "op_dddddd" }, para: ID.M };
+  const doBotao = S.caminhoDoBotao(
+    S.lerPayload(montarPayload("A", ID.N, "op_dddddd")),
+    [BLOCOS.N, BLOCOS.M],
+    [setaBotao]
+  );
+  if (!doBotao?.retomada) {
+    reclamar("`caminhoDoBotao` não retoma mais de um toque em botão de MENU.");
+  }
+  // SEM LIGAÇÃO NENHUMA, de propósito: o que se pergunta aqui é se a LISTA tem
+  // uma parada dura só — é `contarParadasDuras` que decide o null, e ele olha os
+  // blocos, não as setas. Com a lista do menu a resposta é uma `Retomada` (de
+  // destino nulo, que é o que se espera sem setas); pondo E e N na mesma lista,
+  // medido, ela vira null e o ponto do fallback some.
+  if (S.retomadaDoFallback(PAPEIS_MENU.map((p) => BLOCOS[p]), []) === null) {
+    reclamar("`retomadaDoFallback` não devolve mais retomada para a lista da varredura do menu.");
   }
 }
 
