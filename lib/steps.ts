@@ -276,6 +276,12 @@ export function esperaResposta(p: Passo): boolean {
 //     do produto. Quem cobre esse caso é a regra do BOTÃO SEM DESTINO, em
 //     `conferirLista`, que faz a mesma pergunta que o motor faz no toque.
 //
+// E "NÃO RETOMA PELA `sempre`" NÃO QUER DIZER "NÃO RETOMA": desde a Tarefa 7b quem
+// DIGITA num menu retoma pela `senao` (`retomadaDoTexto`, lá embaixo). Esta
+// função continua respondendo só pela `sempre`, que é o que a conferência do beco
+// sem saída pergunta — mas quem ler o parágrafo acima procurando "por onde um
+// menu volta a andar" tem hoje DUAS respostas, e o toque é só uma delas.
+//
 // EXISTE SEPARADA DE `esperaResposta` E NÃO DENTRO DELA porque as duas têm
 // donos diferentes: `esperaResposta` é lida pelo motor, pela prévia e pelas
 // paradas duras, e todas as três querem "para aqui" sem se importar com a seta.
@@ -561,7 +567,11 @@ export function haCaminho(
 //     (`novoIdDeBotao`) e nunca muda; é a única coisa nesse botão que o dono
 //     não edita.
 //   TEXTO cai na `senao`, quando ela existe. É a ligação para quem respondeu
-//     digitando em vez de tocar.
+//     digitando em vez de tocar. QUEM PERGUNTA ASSIM É `retomadaDoTexto` (mais
+//     abaixo), e só ela — desde a Tarefa 7b, porque até lá esta variante não
+//     tinha chamador nenhum em produção e a promessa da spec era só o teste
+//     desta função passando. Quando não há `senao`, o null volta e o chamador
+//     cai na `sempre`, que é o que ele sempre fez.
 //   BOTÃO SEM LIGAÇÃO devolve null, e NÃO cai na `senao` — a `senao` é para
 //     quem DIGITOU. Um botão sem destino é defeito de montagem, e desde a
 //     Tarefa 5 `conferirLista` o recusa — no ATIVAR, e não no salvar, porque
@@ -2433,6 +2443,78 @@ export function retomadaDoFollow(
 // motor deixou de percorrer — e ela é o ramo mais alcançável dos seis que a
 // Tarefa 3b converteu: toda mensagem de texto de quem está parado passa por aqui.
 //
+// A SETA DO "digitou" VEM ANTES DO SEGUINTE, e é isto que a Tarefa 7b liga.
+//
+// A spec desta fase promete, com todas as letras, que o "senão" "recebe quem
+// responde digitando em vez de tocar". `ligacaoEscolhida(..., {tipo:"texto"})`
+// devolve exatamente esse destino desde a Tarefa 3b, TEM TESTE, e passou várias
+// tarefas sem um único CHAMADOR em produção — medido: três chamadas com
+// `{tipo:"botao"}`, nenhuma com `{tipo:"texto"}`. Quem decidia o destino de quem
+// digita era `seguinteDe`, ou seja, a seta `sempre`.
+//
+// O QUE ISSO CUSTAVA, e o pior caso é justamente o do menu: um menu inteiramente
+// ligado NÃO TEM `sempre` saindo — `retomaPelaSempre` (lá em cima) diz isso com
+// todas as letras, e o quadro nem desenha a alça de continuação para ele
+// (`alcasDeSaida`, app/automacoes/editor/modelos.ts). Então quem digitava num
+// menu caía em `seguinteDe` → null, `interpretar` saía calada e o cursor era
+// limpo. O dono desenhava a seta do "digitou", nomeava, salvava, `conferirLista`
+// validava — e a pessoa não recebia nada. O editor prometia um caminho que o
+// motor não percorria, que é a mesma falha que a Tarefa 7 fechou do outro lado.
+//
+// NENHUMA PEÇA NOVA, e a ausência é o ponto: a regra já estava inteira em
+// `ligacaoEscolhida`, com o desempate e o teste do caso de texto. O que faltava
+// era o chamador — e chamador que não existe não aparece em teste de função
+// pura, que é a forma exata do buraco estrutural desta fase.
+//
+// COM AS DUAS SETAS SAINDO DO MESMO BLOCO, GANHA A `senao`. A decisão é medida, e
+// não é preferência:
+//
+//   A `senao` FOI DESENHADA PARA ESTE CASO. A alça dela se chama literalmente
+//     "digitou" (`alcasDeSaida`), e só existe em bloco que é menu. A `sempre` é
+//     a saída que vale SEM CONDIÇÃO — ela responde por todo o resto, não por
+//     este caso. Havendo as duas, o dono disse duas coisas, e só uma delas fala
+//     do texto. É a mesma ordem que `envioDaDm` (lá em cima) já usa no bloco que
+//     tem `botoes` E `botao_label`: o ramo mais específico entra antes, e é essa
+//     ordem que "decide o caso em que um bloco tem as duas coisas".
+//   E A `sempre` É, DAS DUAS, A QUE TEM COMO SOBRAR. Medido nos dois sentidos:
+//     do lado da `senao`, o editor a APAGA sozinho quando o bloco perde a alça
+//     dela — `apagarBotao` (app/automacoes/editor/quadro.tsx) chama
+//     `desligarSenao` quando o último botão sai. Do lado da `sempre`, NADA A
+//     APAGA quando uma `dm` de resposta rápida com seta já desenhada ganha
+//     `botoes` e vira menu: ela fica, perde a alça e passa a ser DESENHADA
+//     saindo do primeiro botão (`indiceDaAlca` cai na primeira quando não acha a
+//     chave). Ou seja, "tem os dois" é produzível PELA TELA, e o caminho que o
+//     produz deixa a `sempre` órfã, não a `senao`. Preferir a `sempre` seria
+//     fazer a seta que o dono não consegue mais ver ganhar da que ele acabou de
+//     desenhar.
+//
+// `pedir_follow` FICA DE FORA DISSO, e a exceção é anterior à pergunta: ele
+// retoma DELE MESMO, com ou sem `senao`, porque a mensagem de texto não é o
+// follow. Uma `senao` gravada nele — só produzível fora do editor, que não lhe
+// dá a alça — não pode virar a porta dos fundos do portão: bastaria mandar
+// "ok" para receber o link sem seguir. Há teste fixando isso.
+//
+// A VARREDURA NÃO VÊ ESTE CAMINHO, e isso precisa estar escrito onde quem mexer
+// vai ler. `topologias()` (scripts/varredura-portao.mjs) só emite ligações
+// `sempre` e `botao` — nenhuma `senao`. Medido de três jeitos:
+//
+//   `npm run varredura` dá números IDÊNTICOS com e sem esta mudança (A 73.720
+//     casos / 2.088.628 saltos / 0; C 954.160 / 11.333.976 / 0; B 261.536).
+//   Plantando o defeito óbvio — o destino da `senao` devolvido como
+//     `{portao: null, destino}`, sem passar por `atravessandoOPortao` —, a
+//     varredura CONTINUA imprimindo "SEM VAZAMENTO", com os mesmos números.
+//   Uma amostra independente sobre fluxos COM `senao` (2.000.000 de sorteios,
+//     1.708.044 deles com uma `senao` sorteada, 3.199.986 saltos de texto
+//     medidos) dá 0 vazamentos em A e em C com o código desta função — e
+//     19.097 em A e 144.614 em C com aquele mesmo plantio. Ou seja, o defeito
+//     existe, é grande, e só a amostra o enxerga.
+//
+// O que segura o portão aqui é ESTRUTURAL: o destino, venha da `senao` ou da
+// `sempre`, é uma identidade que sai por `atravessandoOPortao` na última linha,
+// e ela não pergunta de onde ele veio. Mas "estrutural" é argumento, e este
+// projeto prefere medida — quem acrescentar `senao` às topologias da varredura
+// fecha a lacuna de vez.
+//
 // O ÍNDICE CONTINUA SENDO O ARGUMENTO porque é o que lib/engine.ts tem na mão
 // (`indiceParado`, já resolvido por `indiceDoId`) e porque `passoEsperado` fala
 // em posição. A conversão para identidade acontece aqui dentro, uma vez, e o
@@ -2441,7 +2523,11 @@ export function retomadaDoTexto(passos: unknown, ligacoes: unknown, indice: numb
   const id = identidadeNoIndice(passos, indice);
   const tipo = passoEsperado(passos, indice)?.tipo;
   const destino =
-    id === null ? null : tipo === "pedir_follow" ? id : seguinteDe(ligacoes, id);
+    id === null
+      ? null
+      : tipo === "pedir_follow"
+        ? id
+        : (ligacaoEscolhida(ligacoes, id, { tipo: "texto" }) ?? seguinteDe(ligacoes, id));
   return atravessandoOPortao(passos, ligacoes, destino);
 }
 
@@ -2582,6 +2668,23 @@ export function retomadaDoEmailConhecido(
 // dá para afirmar nada" — que é diferente de "afirmo que não há para onde ir"
 // (`destino: null`). O chamador (lib/engine.ts) só executa no segundo caso, e
 // não faz nada no primeiro.
+//
+// ELA NÃO PERGUNTA PELA `senao`, e a ausência é REGISTRO, não decisão tomada. A
+// Tarefa 7b ligou a seta do "digitou" em `retomadaDoTexto` (acima) e deixou este
+// ponto como estava, de propósito: aqui a pessoa TAMBÉM respondeu digitando, mas
+// onde ela parou é DEDUZIDO por uma recaminhada, não sabido por cursor — e
+// mandar quem talvez nem esteja naquele bloco pelo braço do "digitou" é uma
+// decisão de produto que ninguém tomou ainda.
+//
+// O BURACO É REAL E ESTÁ MEDIDO, com `[menu(op_aaaaaa), b_opa002, b_sen003]`,
+// `botao(menu→b_opa002)` e `senao(menu→b_sen003)` — o mesmo grafo nas duas:
+//
+//   `retomadaDoTexto(passos, ls, 0)` .. `{portao: null, destino: "b_sen003"}`
+//   `retomadaDoFallback(passos, ls)` .. `{portao: null, destino: null}`
+//
+// Dois caminhos de código, a mesma pessoa digitando no mesmo menu, respostas
+// opostas — que é a forma exata da inconsistência que `retomadaDoEmailConhecido`
+// (acima) registra ter apagado. Fica anotado, não consertado aqui.
 export function retomadaDoFallback(passos: unknown, ligacoes: unknown): Retomada | null {
   const { pararEm } = interpretar(passos, ligacoes, identidadeNoIndice(passos, 0));
   if (pararEm === null) return null;
@@ -3262,6 +3365,15 @@ export function conferirLista(
       // que foi pedido — e não recebe nada. `interpretar` sai calada e o cursor
       // é limpo. É o pior fim possível para um fluxo, e é sempre o MESMO
       // mecanismo: a retomada pergunta `seguinteDe` e leva null de volta.
+      //
+      // COM UMA `senao` GRAVADA a frase acima fica imprecisa, e continua
+      // bastando: desde a Tarefa 7b quem DIGITA retoma pela `senao`
+      // (`retomadaDoTexto`), então um bloco com `senao` e sem `sempre` deixou de
+      // ser beco PARA O TEXTO. Ele continua sendo para todo o resto —
+      // `retomadaDoBotao` e `retomadaDoEmailConhecido` só perguntam `seguinteDe`
+      // —, e é disso que a frase fala. Nenhum tipo que ENTRA nesta regra ganha
+      // alça de `senao` no editor (`alcasDeSaida` só a dá ao menu, e o menu está
+      // fora daqui), então o caso exige ligação gravada por fora do painel.
       //
       // ESTA REGRA NASCEU SÓ PARA O PORTÃO e passou dois commits assim, o que é
       // um recorte e não uma decisão: o mesmo beco no tipo de bloco mais comum

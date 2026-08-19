@@ -967,6 +967,80 @@ describe("retomadaDoTexto", () => {
     });
     expect(retomadaDoTexto(null, [], 0)).toEqual({ portao: null, destino: null });
   });
+
+  // A SETA DO "digitou" — a promessa da spec que o motor não percorria.
+  //
+  // `ligacaoEscolhida(..., {tipo:"texto"})` existia, tinha teste, e NENHUM
+  // chamador em produção: quem decidia o destino de quem digita era
+  // `seguinteDe`, ou seja, a seta `sempre`. O menu inteiramente ligado não tem
+  // `sempre` nenhuma saindo (`retomaPelaSempre`, lib/steps.ts), então quem
+  // digitava num menu não ia para lugar nenhum — a seta que o dono desenhou,
+  // nomeou e salvou, e que a conferência valida, era ignorada.
+  const menu = [
+    {
+      id: "b_men001",
+      tipo: "dm",
+      texto: "Escolha:",
+      botoes: [{ id: "op_aaaaaa", rotulo: "Quero" }],
+    }, // 0 — menu, e o único bloco de espera desta lista
+    { id: "b_opa002", tipo: "dm", texto: "veio do botão" }, // 1
+    { id: "b_sen003", tipo: "dm", texto: "veio do digitou" }, // 2
+  ];
+  const doBotao = { de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_opa002" };
+  const doSenao = { de: "b_men001", quando: { tipo: "senao" }, para: "b_sen003" };
+  const daSempre = { de: "b_men001", quando: { tipo: "sempre" }, para: "b_opa002" };
+
+  it("parado num MENU com a seta do `senao`, quem digita vai para o destino DELA", () => {
+    expect(retomadaDoTexto(menu, [doBotao, doSenao], 0)).toEqual({
+      portao: null,
+      destino: "b_sen003",
+    });
+  });
+
+  it("menu SEM `senao` continua indo pela `sempre` — nada muda para quem já andava", () => {
+    expect(retomadaDoTexto(menu, [doBotao, daSempre], 0)).toEqual({
+      portao: null,
+      destino: "b_opa002",
+    });
+  });
+
+  it("com as DUAS setas, quem digita segue a do `senao` — a específica ganha da geral", () => {
+    // O caso é produzível PELA TELA, e não só por dado de fora: um bloco `dm`
+    // de resposta rápida com uma `sempre` desenhada que depois ganha `botoes`
+    // vira menu, e nada apaga a `sempre` (o gesto que apaga tem a direção
+    // oposta — `desligarSenao`, chamada quando o último botão sai). A `sempre`
+    // que sobra nem alça tem: `indiceDaAlca` não acha a chave e a desenha
+    // saindo do PRIMEIRO botão.
+    //
+    // A `senao` ganha porque foi desenhada para ESTE caso — a alça se chama
+    // "digitou" (`alcasDeSaida`, app/automacoes/editor/modelos.ts) —, enquanto
+    // a `sempre` é a saída que vale sem condição. É a mesma ordem que
+    // `envioDaDm` já usa para o bloco que tem `botoes` e `botao_label`: o ramo
+    // mais específico entra antes.
+    expect(retomadaDoTexto(menu, [doBotao, doSenao, daSempre], 0)).toEqual({
+      portao: null,
+      destino: "b_sen003",
+    });
+    // E a ordem das setas na lista não decide nada: a condição decide.
+    expect(retomadaDoTexto(menu, [daSempre, doSenao, doBotao], 0)).toEqual({
+      portao: null,
+      destino: "b_sen003",
+    });
+  });
+
+  it("PORTÃO com uma `senao` gravada CONTINUA retomando dele mesmo", () => {
+    // A garantia central do produto: a mensagem de texto não é o follow, e
+    // avançar entregaria o link a quem não segue — bastaria mandar "ok". O
+    // `senao` não abre exceção nenhuma nisso.
+    const comSenao = [
+      ...emCorrente(lista),
+      { de: "b_por002", quando: { tipo: "senao" }, para: "b_lnk003" },
+    ];
+    expect(retomadaDoTexto(lista, comSenao, 1)).toEqual({
+      portao: null,
+      destino: "b_por002",
+    });
+  });
 });
 
 describe("retomadaDoEmailConhecido", () => {
