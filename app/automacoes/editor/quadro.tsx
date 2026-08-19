@@ -552,6 +552,47 @@ export default function Quadro({
     [problemas]
   );
 
+  // TODAS AS MENSAGENS DE ATIVAR, UMA POR LINHA, e é isso que vai para o `title`
+  // da vaga âmbar. A vaga mostra a PRIMEIRA e conta o resto ("e mais 7"), e sem
+  // isto não havia como ler as outras sete a não ser clicando bloco por bloco.
+  //
+  // POR QUE O `title` E NÃO MAIS ESPAÇO: a vaga é `max-w-[36ch] truncate` de
+  // propósito — alargá-la empurra o nome da automação para fora da barra —, e
+  // medido na tela agora ela corta menos da metade da primeira frase:
+  // `scrollWidth` 661 em `clientWidth` 324. O `title` é o único lugar em que o
+  // texto inteiro cabe sem mexer no layout.
+  //
+  // ELE CARREGAVA UMA FRASE GENÉRICA, "Isto não impede salvar, só publicar.", e
+  // era o desperdício exato: passar o mouse sobre uma frase cortada não revelava
+  // nada da frase. A explicação continua, agora como primeira linha, e as
+  // mensagens vêm embaixo dela.
+  //
+  // NÃO É A FAIXA DA TAREFA 6b, e as duas continuam separadas: aquela é do
+  // "salvo, mas ficou pausada" — uma MUDANÇA DE ESTADO, que o comentário dela
+  // diz não poder ser silenciosa, e por isso não pode morar num `title`. Esta é
+  // o detalhe de uma lista que a barra já mostra por cima, e ler o detalhe é
+  // gesto de quem quer o detalhe.
+  //
+  // E ELE NÃO É O ÚNICO CANAL POR ESCOLHA, é por falta de outro: `errosPorIndice`
+  // (abaixo) só acende a borda vermelha para `quando: "salvar"`, então nenhum nó
+  // fica marcado por problema de ATIVAR. O porquê está lá, e continua valendo.
+  //
+  // O QUE FOI MEDIDO E O QUE NÃO FOI: no fluxo de teste, com os 8 problemas de
+  // ativar que ele tem, o atributo sai com 745 caracteres em 10 linhas, e as 8
+  // frases estão lá inteiras — o "(e mais 7)" da vaga passa a ser enumerável. O
+  // que ESTE arquivo não tem como medir é a dica em si: ela é janela do sistema,
+  // não entra no render, e não aparece em captura de tela. Uma lista muito maior
+  // que esta pode esbarrar no limite do navegador, e isso fica sem medida.
+  const detalheDeAtivar = useMemo(
+    () =>
+      [
+        "Isto não impede salvar, só publicar.",
+        "",
+        ...impedemAtivar.map((p) => p.mensagem),
+      ].join("\n"),
+    [impedemAtivar]
+  );
+
   // Só os ERROS DE SALVAR, e só os que apontam um bloco. Os de `indice: null`
   // são da lista inteira e não têm nó a acender.
   //
@@ -1336,7 +1377,7 @@ export default function Quadro({
                  `toggleAutomation` mostram. */
               <span
                 className="max-w-[36ch] truncate text-xs font-medium text-amber-600 dark:text-amber-400"
-                title="Isto não impede salvar, só publicar."
+                title={detalheDeAtivar}
               >
                 {impedemAtivar[0].mensagem}
                 {impedemAtivar.length > 1 && ` (e mais ${impedemAtivar.length - 1})`}
