@@ -10,6 +10,7 @@ import {
 import {
   conferirLista,
   desligarBotao,
+  envioDaDm,
   desligarSenao,
   ligacaoEscolhida,
   ligar,
@@ -117,11 +118,28 @@ describe("resumoDoBloco classifica o MENU pela FORMA", () => {
     ).toEqual([]);
   });
 
-  it("com `url` continua sendo MENSAGEM COM LINK, que é o que o motor envia", () => {
+  it("com `url` de verdade continua sendo MENSAGEM COM LINK, e é o que o motor envia", () => {
     const r = resumoDoBloco(
       doBanco({ tipo: "dm", texto: "t", url: "https://x", botoes: [{ id: "op_1", rotulo: "A" }] })
     );
     expect(r.titulo).toBe("MENSAGEM COM LINK");
+    // "É O QUE O MOTOR ENVIA" VALE PARA URL DE VERDADE, e não para a chave
+    // `url` em si — a frase daqui generalizava além do caso testado. Medido:
+    // com `url: ""` o título é o MESMO "MENSAGEM COM LINK" e `envioDaDm`
+    // devolve `{forma:"botoes"}`, ou seja o resumo e o motor discordam. Não é
+    // defeito a consertar: `conferirLista` trava o SALVAR desse bloco ("Esta
+    // mensagem com link está sem endereço…") e o painel não tem gesto que
+    // produza a chave `url` num menu. É canto de dado vindo de fora, e está
+    // aqui para a frase acima não valer mais do que mediu.
+    const vazia = doBanco({ tipo: "dm", texto: "t", url: "", botoes: [{ id: "op_1", rotulo: "A" }] });
+    expect(resumoDoBloco(vazia).titulo).toBe("MENSAGEM COM LINK");
+    expect(envioDaDm(vazia as never).forma).toBe("botoes");
+    expect(
+      conferirLista(
+        [{ id: "b_abc12345", tipo: "dm", texto: "t", url: "", botoes: [{ id: "op_1", rotulo: "A" }] }],
+        "dm"
+      ).filter((p) => p.nivel === "erro" && p.quando === "salvar")
+    ).toHaveLength(1);
   });
 
   it("com rótulo E botões ganha o título do MENU, na mesma ordem de `envioDaDm`", () => {
@@ -222,9 +240,15 @@ describe("blocoNovo", () => {
 // fixa é que o DADO que cada gesto escreve é o que o motor e a conferência leem.
 //
 // O gesto de renomear é `{...botao, rotulo}` — o mesmo objeto com o rótulo
-// trocado, que é literalmente o que o `onChange` do campo grava. Se um dia
-// alguém o trocar por "monta um botão novo com o rótulo digitado", o id muda e
-// o caminho troca junto; é isso que o segundo teste acusa.
+// trocado, que é literalmente o que o `onChange` do campo grava.
+//
+// O QUE O SEGUNDO TESTE NÃO ACUSA, e a frase que estava aqui dizia que sim:
+// alguém trocar aquele `onChange` por "monta um botão novo com o rótulo
+// digitado". Ele refaz o gesto À MÃO, então uma troca no componente passa por
+// ele intocada — é a mesma ressalva do parágrafo acima, aplicada a este teste.
+// O QUE ELE ACUSA, medido por mutação: `alcasDeSaida` deixar de casar por id.
+// Com a chave montada a partir do rótulo, ele cai (junto de outros três deste
+// arquivo), e é essa a propriedade que ele guarda.
 // ---------------------------------------------------------------------------
 describe("os gestos do painel de botões, no dado", () => {
   const menu = blocoNovo("dm_opcoes");

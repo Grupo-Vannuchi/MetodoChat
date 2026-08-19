@@ -299,6 +299,12 @@ export const DESVIO_DO_EMPILHAMENTO = 24;
 // TypeScript exige e que a aritmética não alcança.
 export function lugarDoBlocoNovo(centro: Ponto, passos: Passo[]): Ponto {
   const x0 = Math.round(centro.x - LARGURA_DO_BLOCO / 2);
+  // VISTO E MEDIDO, NÃO CONSERTADO: o menu (`dm_opcoes`) é o bloco mais ALTO que
+  // a paleta produz — 82px medidos na tela, contra 55 a 71 dos outros —, e
+  // `ALTURA_SUPOSTA` é 48. Quanto mais os menus crescem (um botão a mais é uma
+  // linha a mais), mais o centro sai errado e mais frequente fica a sobreposição
+  // parcial que o comentário acima aceita de propósito. Continua aceitável; quem
+  // voltar aqui para mexer nisso já sabe que o caso foi olhado.
   const y0 = Math.round(centro.y - ALTURA_SUPOSTA / 2);
   const limite = 2 * passos.length + 1;
   for (let k = 0; k < limite; k++) {

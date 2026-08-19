@@ -116,8 +116,15 @@ function trocar(lista: unknown[], i: number, j: number): unknown[] {
 //
 // A DEDUPLICAÇÃO EXISTE PORQUE O ID PODE VIR REPETIDO — é uma das cinco causas
 // de `botoesCrus` (lib/steps.ts), produzível fora do painel e travada só no
-// salvar. Sem ela, o bloco que o dono abriu justamente para consertar recebe um
-// aviso de chave duplicada do React em vez do editor.
+// salvar. Sem ela, DUAS LINHAS DIVIDEM A MESMA CHAVE, e o defeito é o mesmo do
+// índice, agravado: o React reaproveita um nó só para as duas, o foco pula de
+// linha e o reordenar mexe na linha errada.
+//
+// O EDITOR RENDERIZA DO MESMO JEITO, e a frase que estava aqui dizia o
+// contrário ("recebe um aviso de chave duplicada do React EM VEZ do editor").
+// Chave duplicada é aviso de console, não queda: o bloco que o dono abriu para
+// consertar aparece com ou sem esta função. O que ela protege é o gesto, não a
+// existência da tela.
 function chavesDasLinhas(lista: unknown[]): string[] {
   const usadas = new Set<string>();
   return lista.map((b, i) => {
@@ -167,9 +174,15 @@ function Aviso({ tom, children }: { tom: "ambar" | "teal"; children: React.React
 // que exista o gesto de CONSERTAR o que elas acusam.
 //
 // GRAVAR REESCREVE A CHAVE COMO LISTA, e isso conserta o caso "não é uma lista":
-// nada acontece só por desenhar — quem reescreve é o gesto do dono (digitar,
-// acrescentar, remover, reordenar), e é ele que troca um `botoes: "x"` gravado
-// por fora por uma lista de verdade.
+// nada acontece só por desenhar, e é o gesto do dono que troca um `botoes: "x"`
+// gravado por fora por uma lista de verdade.
+//
+// O GESTO É ACRESCENTAR, E SÓ ELE. A frase que estava aqui listava os quatro
+// (digitar, acrescentar, remover, reordenar) e os quatro não são alcançáveis
+// neste caso: `lista` é `[]` quando `botoes` não é lista, então NENHUMA LINHA
+// renderiza — não há campo em que digitar, nem ↑ ↓ ✕ em que clicar. Sobra o
+// botão de acrescentar, que é justamente o que a dica visível lá embaixo já
+// dizia certo ("Acrescentar um botão substitui isso por uma lista de verdade").
 //
 // O RÓTULO NOVO NASCE EM BRANCO, e é decisão da Tarefa 5, não descuido: das
 // cinco causas de `botoesCrus` (lib/steps.ts) essa é a única que NÃO trava o
