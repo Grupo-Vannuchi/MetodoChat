@@ -40,6 +40,7 @@ import {
   ligacoesValidas,
   ligar,
   desligarBloco,
+  desligarBotao,
   desligarERenumerar,
   apagarLigacoes,
   partirLigacao,
@@ -4112,6 +4113,83 @@ describe("desligarBloco — apagar um bloco apaga as setas das duas pontas", () 
 
   it("bloco sem seta nenhuma não muda a lista", () => {
     expect(desligarBloco(ligacoes, "b_zzzzzzz9")).toEqual(ligacoes);
+  });
+});
+
+describe("desligarBotao — apagar um botão apaga a seta dele", () => {
+  const menu = "b_aaaaaaa1";
+  const outro = "b_bbbbbbb2";
+  const destino = "b_ccccccc3";
+  const ligacoes: Ligacao[] = [
+    { de: menu, quando: { tipo: "botao", botao: "op_1" }, para: destino },
+    { de: menu, quando: { tipo: "botao", botao: "op_2" }, para: outro },
+    { de: menu, quando: { tipo: "senao" }, para: outro },
+    { de: outro, quando: { tipo: "sempre" }, para: menu },
+    // A MESMA condição saindo de OUTRO bloco: o id do botão é escopado ao
+    // bloco, e sem o `de` na comparação esta sairia junto.
+    { de: outro, quando: { tipo: "botao", botao: "op_1" }, para: destino },
+  ];
+
+  it("tira só a do botão apagado, naquele bloco", () => {
+    expect(desligarBotao(ligacoes, menu, "op_1")).toEqual([
+      { de: menu, quando: { tipo: "botao", botao: "op_2" }, para: outro },
+      { de: menu, quando: { tipo: "senao" }, para: outro },
+      { de: outro, quando: { tipo: "sempre" }, para: menu },
+      { de: outro, quando: { tipo: "botao", botao: "op_1" }, para: destino },
+    ]);
+  });
+
+  it("a seta que CHEGA no bloco fica: ela não é do botão", () => {
+    expect(desligarBotao(ligacoes, menu, "op_2")).toContainEqual({
+      de: outro,
+      quando: { tipo: "sempre" },
+      para: menu,
+    });
+  });
+
+  it("as DUAS setas do mesmo botão somem juntas", () => {
+    // Forma produzível fora do editor, e `conferirLista` a acusa como "duas
+    // setas saindo para blocos diferentes". Deixar a segunda faria o gesto
+    // consertar o desenho e não o erro.
+    const duas: Ligacao[] = [
+      { de: menu, quando: { tipo: "botao", botao: "op_1" }, para: destino },
+      { de: menu, quando: { tipo: "botao", botao: "op_1" }, para: outro },
+    ];
+    expect(desligarBotao(duas, menu, "op_1")).toEqual([]);
+  });
+
+  it("botão sem seta nenhuma não muda a lista", () => {
+    expect(desligarBotao(ligacoes, menu, "op_naoligado")).toEqual(ligacoes);
+  });
+
+  // O MOTIVO INTEIRO DE ELA EXISTIR, e ele é o contrário do que o plano da
+  // Tarefa 7 dizia. A previsão era "a ligação órfã faria a conferência acusar um
+  // botão que não existe mais"; o que ela faz é APAGAR UM ERRO VERDADEIRO —
+  // `haCaminho` conta todas as condições, então a seta do botão apagado ainda
+  // torna o destino "alcançável".
+  it("deixar a órfã ESCONDE o erro de bloco inalcançável", () => {
+    const passos = [
+      { id: "b_menu0001", tipo: "dm", texto: "Escolha", botoes: [{ id: "op_a", rotulo: "Fica" }] },
+      { id: "b_dois0002", tipo: "dm", texto: "dois" },
+      { id: "b_tres0003", tipo: "dm", texto: "tres" },
+    ];
+    const comOrfa: Ligacao[] = [
+      { de: "b_menu0001", quando: { tipo: "botao", botao: "op_a" }, para: "b_dois0002" },
+      { de: "b_menu0001", quando: { tipo: "botao", botao: "op_b" }, para: "b_tres0003" },
+    ];
+    const inalcancavel = (ls: Ligacao[]) =>
+      conferirLista(passos, "dm", ls).filter((p) => p.mensagem.startsWith("Nenhuma seta chega"));
+
+    expect(inalcancavel(comOrfa)).toHaveLength(0);
+    expect(inalcancavel(desligarBotao(comOrfa, "b_menu0001", "op_b"))).toEqual([
+      {
+        nivel: "erro",
+        quando: "ativar",
+        indice: 2,
+        mensagem:
+          "Nenhuma seta chega neste bloco a partir do começo do fluxo, então ele nunca é entregue.",
+      },
+    ]);
   });
 });
 

@@ -696,6 +696,54 @@ export function desligarBloco(ligacoes: Ligacao[], bloco: string): Ligacao[] {
   return ligacoes.filter((l) => l.de !== bloco && l.para !== bloco);
 }
 
+// APAGAR UM BOTÃO APAGA A SETA DELE. É a metade do gesto do painel (Tarefa 7)
+// que não mexe na lista de blocos.
+//
+// SEM ISTO A LIGAÇÃO FICA ÓRFÃ, e o estrago é o OPOSTO do que o plano desta
+// tarefa previa. Ele dizia que a órfã "faria a conferência acusar um botão que
+// não existe mais", e isso está MEDIDO E É FALSO: a regra de BOTÃO SEM DESTINO
+// (`conferirLista`) caminha da lista de `botoes` para as setas, e não ao
+// contrário — botão apagado não é botão, e nenhuma regra desta função olha uma
+// ligação de `botao` procurando o botão dela. A conferência fica CALADA sobre a
+// sobra.
+//
+// O QUE ELA FAZ DE FATO É APAGAR UM ERRO VERDADEIRO, e por isso a órfã é pior
+// do que uma sobra inofensiva. `haCaminho` conta TODAS as condições, então a
+// seta do botão apagado continua valendo como caminho para o BLOCO INALCANÇÁVEL
+// — que é erro de ativar. Medido, com `[menu(op_a), dois, tres]`, a seta de
+// `op_a` para `dois` e uma órfã de `op_b` (que não está mais no menu) para
+// `tres`:
+//
+//   COM a órfã .. `conferirLista` devolve só o aviso do menu de um botão só.
+//   SEM a órfã .. devolve o mesmo aviso MAIS "Nenhuma seta chega neste bloco a
+//                 partir do começo do fluxo, então ele nunca é entregue",
+//                 sobre `tres`.
+//
+// Ou seja: deixando a órfã, o bloco que ficou solto some da conferência, e o
+// dono publica um fluxo com um pedaço que ninguém alcança. `haCaminho` também
+// responde `true` para `tres` com a órfã e `false` sem ela — a diferença inteira
+// vem dela.
+//
+// E O DESENHO TAMBÉM MENTE: `indiceDaAlca` (app/automacoes/editor/modelos.ts)
+// devolve a PRIMEIRA alça para a condição que não tem alça, então a seta órfã é
+// desenhada saindo do PRIMEIRO botão do menu — dois caminhos partindo do mesmo
+// ponto, um deles de um botão que não existe. `ligacaoEscolhida` casa por id, e
+// nenhum toque produz aquele id: é caminho que ninguém percorre.
+//
+// DUAS SETAS DO MESMO BOTÃO somem juntas, e não só a primeira: a forma é
+// produzível fora do editor, `conferirLista` a acusa como "duas setas saindo
+// para blocos diferentes", e deixar a segunda para trás faria o gesto consertar
+// o desenho e não o erro.
+//
+// SÓ AS DE SAÍDA DAQUELE BOTÃO, e nada mais. As setas que CHEGAM no bloco não
+// têm nada com o botão que saiu — quem apaga as duas pontas é `desligarBloco`,
+// acima, e ela responde a outro gesto (o bloco inteiro sumiu).
+export function desligarBotao(ligacoes: Ligacao[], bloco: string, botao: string): Ligacao[] {
+  return ligacoes.filter(
+    (l) => !(l.de === bloco && l.quando.tipo === "botao" && l.quando.botao === botao)
+  );
+}
+
 // APAGAR O BLOCO DE ÍNDICE `indice`: as setas das duas pontas somem E as que
 // sobram são RENUMERADAS.
 //

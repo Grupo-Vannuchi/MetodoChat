@@ -16,6 +16,7 @@ import "@xyflow/react/dist/style.css";
 import {
   apagarLigacoes,
   conferirLista,
+  desligarBotao,
   desligarERenumerar,
   identidadeDoPasso,
   ligar,
@@ -914,6 +915,48 @@ export default function Quadro({
     [selecionado]
   );
 
+  // APAGAR UM BOTÃO DO MENU. É o único gesto do painel que mexe nas DUAS listas,
+  // e é por isso que ele mora aqui e não lá: o bloco perde o botão, e as
+  // ligações perdem a seta daquele botão (`desligarBotao`, lib/steps.ts).
+  //
+  // O ARGUMENTO É O ÍNDICE NA LISTA DE `botoes`, e não o id, porque o botão
+  // corrompido também tem de sair: `botoes: [null]` é a causa mais cara de
+  // `botoesCrus` (ela derruba o lote de eventos inteiro no envio), e um elemento
+  // sem id não teria como ser nomeado. O id ainda é lido — mas só para achar a
+  // seta —, e um elemento sem id simplesmente não tem seta a apagar.
+  //
+  // O ÍNDICE DO BLOCO VEM DA SELEÇÃO, e é a mesma leitura que o painel usou para
+  // desenhar aqueles campos: quem está com o painel aberto é quem clicou no ✕.
+  //
+  // AS SETAS QUE CHEGAM NO BLOCO NÃO SÃO TOCADAS, e as dos OUTROS botões
+  // também não: o único caminho que deixou de existir é o daquele botão.
+  const apagarBotao = useCallback(
+    (iBotao: number) => {
+      const i = passos.findIndex((p, j) => identidadeDoPasso(p, j) === selecionado);
+      if (i === -1) return;
+      const bloco = passos[i];
+      if (bloco.tipo !== "dm" || !Array.isArray(bloco.botoes)) return;
+      const alvo = bloco.botoes[iBotao] as { id?: unknown } | null | undefined;
+      if (alvo === undefined) return;
+
+      setPassos((atual) =>
+        atual.map((p, j) =>
+          j === i ? { ...bloco, botoes: bloco.botoes!.filter((_, k) => k !== iBotao) } : p
+        )
+      );
+
+      const idDoBotao = alvo?.id;
+      if (typeof idDoBotao === "string" && idDoBotao) {
+        const idDoBloco = identidadeDoPasso(bloco, i);
+        setLigacoes((atual) => desligarBotao(atual, idDoBloco, idDoBotao));
+        // O índice da seta escolhida deixa de valer quando a lista encolhe. Ver
+        // `ligacaoSelecionada`, e é a mesma linha de `apagarBloco`.
+        setLigacaoSelecionada(null);
+      }
+    },
+    [passos, selecionado]
+  );
+
   // LIGAR DOIS BLOCOS. É o gesto que a Tarefa 6 abriu, e ele é a outra metade de
   // `nodesConnectable` (lá embaixo).
   //
@@ -1642,6 +1685,7 @@ export default function Quadro({
                 editandoGatilho={selecionado === ID_DO_GATILHO}
                 problemas={problemasDoPainel}
                 aoMudar={mudarPasso}
+                aoApagarBotao={apagarBotao}
                 aoMudarConfiguracao={setConfiguracao}
                 aoFechar={fecharPainel}
               />
