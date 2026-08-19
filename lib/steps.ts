@@ -2507,41 +2507,55 @@ export function retomadaDoFollow(
 // dá a alça — não pode virar a porta dos fundos do portão: bastaria mandar
 // "ok" para receber o link sem seguir. Há teste fixando isso.
 //
-// A VARREDURA NÃO VÊ ESTE CAMINHO, e isso precisa estar escrito onde quem mexer
-// vai ler. `topologias()` (scripts/varredura-portao.mjs) só emite ligações
-// `sempre` e `botao` — nenhuma `senao`. Medido de três jeitos:
+// A VARREDURA VÊ ESTE CAMINHO, DESDE A TAREFA 7c, e as duas metades disto
+// precisam estar escritas onde quem mexer vai ler: o que a rede pega hoje, e a
+// lacuna que ela fechou — porque é a lacuna que explica por que a rede existe.
 //
-//   `npm run varredura` dá números IDÊNTICOS com e sem esta mudança (A 73.720
-//     casos / 2.088.628 saltos / 0; C 954.160 / 11.333.976 / 0; B 261.536).
-//   Plantando o defeito óbvio — o destino da `senao` devolvido como
-//     `{portao: null, destino}`, sem passar por `atravessandoOPortao` —, a
-//     varredura CONTINUA imprimindo "SEM VAZAMENTO", com os mesmos números.
-//   Uma amostra independente sobre fluxos COM `senao` (2.000.000 de sorteios,
-//     1.708.044 deles com uma `senao` sorteada; 491.094 saltos de texto no
-//     grupo A e 2.712.195 no C) dá 0 vazamentos em A e em C com o código desta
-//     função. Com o plantio ela ACUSA — e O NÚMERO DEPENDE DE ONDE O PLANTIO
-//     ENTRA, o que é a diferença entre medir a fiação da `senao` e medir a
-//     quebra do portão. Os dois foram medidos:
+// HOJE ELA PEGA. `topologiasDoMenu()` (scripts/varredura-portao.mjs) emite
+// ligações `senao`, com a ORIGEM varrendo os cinco papéis. Plantando o defeito
+// óbvio — o destino da `senao` devolvido como `{portao: null, destino}`, sem
+// passar por `atravessandoOPortao` —, `npm run varredura` sai com CÓDIGO 1 e
+// acusa C 99.726 na varredura do menu, apontando "texto parado em <i>" como o
+// salto que vazou. Medido, e é o mesmo plantio que a tabela daquele arquivo
+// registra.
 //
-//       DEPOIS do ramo `pedir_follow` — o plantio descrito acima, em que só a
-//         fiação nova sai sem portão: A 0, C 87.313. O zero em A é ESTRUTURAL e
-//         não sorte: em fluxo gateado toda seta que chega no link sai do
-//         portão, e o ramo `pedir_follow` não consulta a `senao`, então a
-//         retomada do próprio portão continua saindo por `atravessandoOPortao`.
-//       ANTES do ramo `pedir_follow` — que quebra TAMBÉM a retomada do portão,
-//         porque uma `senao` gravada nele passa a sair crua: A 19.097, C
-//         144.614 (e a contagem de saltos de C muda para 2.870.457, porque os
-//         destinos mudam junto).
+// MAS SÓ A SEGUNDA VARREDURA PEGA, e isso importa para quem for medir. Com esse
+// plantio a EXAUSTIVA fica byte a byte idêntica à linha de base — A 73.720
+// casos / 2.088.628 saltos / 0; C 954.160 / 11.333.976 / 0; B 261.536 —, porque
+// `topologias()` não emite `senao`, de propósito. Rodar só a exaustiva não
+// responde NADA sobre esta função.
 //
-//     Ou seja: o defeito da fiação existe e é grande — 87.313 vazamentos em C
-//     que a varredura oficial não enxerga —, e um número em A só aparece quando
-//     o plantio derruba o portão, que é outro defeito.
+// ANTES DA TAREFA 7c NENHUMA DAS DUAS VIA, e a lacuna não era suposta: este
+// comentário registrava, com os números da época, que o mesmo plantio deixava a
+// varredura imprimindo "SEM VAZAMENTO" com os contadores intactos. O que
+// sustentava esta função naquele período era uma amostra independente sobre
+// fluxos COM `senao` — 2.000.000 de sorteios, 1.708.044 com uma `senao`
+// sorteada; 491.094 saltos de texto no grupo A e 2.712.195 no C —, que dava
+// zero vazamentos com o código desta função e acusava com o plantio. Aquela
+// amostra não está no repositório; a varredura do menu tomou o lugar dela, e
+// tem a vantagem de rodar no `verify`.
+//
+// E O NÚMERO DEPENDE DE ONDE O PLANTIO ENTRA, que é a parte reaproveitável e
+// segue valendo. É a diferença entre medir a fiação da `senao` e medir a quebra
+// do portão:
+//
+//   DEPOIS do ramo `pedir_follow` — o plantio descrito acima, em que só a
+//     fiação nova sai sem portão. A fica em ZERO, e o zero é ESTRUTURAL, não
+//     sorte: em fluxo gateado toda seta que chega no link sai do portão, e o
+//     ramo `pedir_follow` não consulta a `senao`, então a retomada do próprio
+//     portão continua saindo por `atravessandoOPortao`.
+//   ANTES do ramo `pedir_follow` — quebra TAMBÉM a retomada do portão, porque
+//     uma `senao` gravada nele passa a sair crua, e aí A acende.
+//
+// Na amostra da época os dois deram A 0 / C 87.313 e A 19.097 / C 144.614. A
+// varredura de hoje mede o PRIMEIRO em C 99.726; o segundo não foi refeito
+// nela, e a afirmação que sobrevive dele é a qualitativa — um número em A só
+// aparece quando o plantio derruba o portão, que é outro defeito.
 //
 // O que segura o portão aqui é ESTRUTURAL: o destino, venha da `senao` ou da
 // `sempre`, é uma identidade que sai por `atravessandoOPortao` na última linha,
-// e ela não pergunta de onde ele veio. Mas "estrutural" é argumento, e este
-// projeto prefere medida — quem acrescentar `senao` às topologias da varredura
-// fecha a lacuna de vez.
+// e ela não pergunta de onde ele veio. "Estrutural" era argumento, e este
+// projeto prefere medida — agora há as duas coisas, e a medida roda sozinha.
 //
 // O ÍNDICE CONTINUA SENDO O ARGUMENTO porque é o que lib/engine.ts tem na mão
 // (`indiceParado`, já resolvido por `indiceDoId`) e porque `passoEsperado` fala
