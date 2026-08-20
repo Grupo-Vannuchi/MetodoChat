@@ -3,6 +3,11 @@
 // Uso:  node scripts/migrar.mjs            ← ENSAIO A SECO, só mostra o que faria
 //       node scripts/migrar.mjs --aplicar  ← grava
 //
+// CÓDIGO DE SAÍDA: 0 quando toda coluna esperada existe com o tipo e o padrão
+// esperados; 1 quando alguma confere errado — coluna ausente depois de aplicar,
+// ou coluna presente com forma divergente. É o que um roteiro de implantação lê
+// para decidir se segue ou para.
+//
 // -----------------------------------------------------------------------------
 // POR QUE ELE EXISTE
 //
@@ -115,27 +120,106 @@ for (const nome of arquivos) {
 // que só entende `add column` ficaria calado justamente na migração de forma
 // nova. Uma lista à mão que alguém esquece de atualizar falha em silêncio uma
 // vez; um extrator que não entende a DDL falha em silêncio sempre.
+//
+// `tipo` E `padrao` SÃO A SEGUNDA METADE DA CONFERÊNCIA, e vieram da revisão da
+// Tarefa 9. Até então esta parte IMPRIMIA os dois e não os comparava com nada:
+// uma coluna nascida `boolean not null default true` — que é exatamente o risco
+// que `lib/db.ts` e `migrations/002` declaram um ao outro, por terem a mesma DDL
+// escrita duas vezes — sairia daqui como "CONFERIDO … existe" e ninguém veria.
+// Presença é o que `if not exists` garante; FORMA é o que ele não garante.
+//
+// Os valores são os que o Postgres devolve, não os que a DDL escreve: `boolean`
+// e não `bool`, `false` e não `'false'`. Quem acrescentar linha aqui roda o
+// ensaio a seco uma vez e copia o que saiu.
 const ESPERADAS = [
-  { tabela: "automations", coluna: "ligacoes", de: "001-ligacoes.sql" },
-  { tabela: "automations", coluna: "entrega_sem_portao", de: "002-entrega-sem-portao.sql" },
+  {
+    tabela: "automations",
+    coluna: "ligacoes",
+    de: "001-ligacoes.sql",
+    tipo: "jsonb",
+    padrao: "'[]'::jsonb",
+  },
+  {
+    tabela: "automations",
+    coluna: "entrega_sem_portao",
+    de: "002-entrega-sem-portao.sql",
+    tipo: "boolean",
+    padrao: "false",
+  },
 ];
 
-console.log("");
-for (const { tabela, coluna, de } of ESPERADAS) {
-  const colunas = await sql`
-    select data_type, column_default
-    from information_schema.columns
-    where table_name = ${tabela} and column_name = ${coluna}`;
+// QUANTAS CONFERÊNCIAS FALHARAM. É o que decide o código de saída lá embaixo.
+let falhas = 0;
 
-  console.log(
-    colunas.length
-      ? `CONFERIDO no banco: ${tabela}.${coluna} existe (${colunas[0].data_type}, default ${colunas[0].column_default})`
-      : `CONFERIDO no banco: ${tabela}.${coluna} NÃO existe (${de})` +
+console.log("");
+for (const { tabela, coluna, de, tipo, padrao } of ESPERADAS) {
+  // A PERGUNTA É FEITA AO `pg_catalog` E NÃO AO `information_schema`, e o motivo
+  // é o `table_schema` que faltava: `where table_name = 'automations'` casa a
+  // coluna em QUALQUER schema visível ou não — dois bancos com a mesma tabela em
+  // schemas diferentes conferiam um contra o outro. `to_regclass` resolve o nome
+  // pelo `search_path`, que é EXATAMENTE como o `alter table` acima o resolveu:
+  // não sobra ambiguidade para filtrar. Tabela inexistente devolve null, o `=`
+  // não casa nada, e a linha sai como "NÃO existe" — que é a resposta certa.
+  const colunas = await sql`
+    select format_type(a.atttypid, a.atttypmod) as tipo,
+           pg_get_expr(d.adbin, d.adrelid) as padrao
+    from pg_attribute a
+    left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+    where a.attrelid = to_regclass(${tabela})
+      and a.attname = ${coluna}
+      and a.attnum > 0
+      and not a.attisdropped`;
+
+  if (!colunas.length) {
+    // AUSENTE NO ENSAIO A SECO É O ESPERADO — nada foi gravado, então não há o
+    // que conferir e isto não é falha. Ausente DEPOIS DE APLICAR é falha: o
+    // script disse "aplicada" e o banco discorda.
+    console.log(
+      `CONFERIDO no banco: ${tabela}.${coluna} NÃO existe (${de})` +
         (aplicar
           ? " — A MIGRAÇÃO NÃO FEZ EFEITO, pare e investigue."
           : " (esperado no ensaio a seco)")
+    );
+    if (aplicar) falhas++;
+    continue;
+  }
+
+  const achado = { tipo: colunas[0].tipo, padrao: colunas[0].padrao };
+  const divergentes = [];
+  if (achado.tipo !== tipo) divergentes.push(`tipo esperado ${tipo}, achado ${achado.tipo}`);
+  if (achado.padrao !== padrao)
+    divergentes.push(`default esperado ${padrao}, achado ${achado.padrao}`);
+
+  if (divergentes.length) {
+    // DIVERGÊNCIA DE FORMA É FALHA NOS DOIS MODOS, e não só ao aplicar: a coluna
+    // já está no banco com a forma errada, e rodar `--aplicar` de novo não
+    // conserta — `if not exists` vai achar que está tudo certo para sempre.
+    console.log(
+      `CONFERIDO no banco: ${tabela}.${coluna} existe, MAS DIVERGE de ${de} — ` +
+        divergentes.join("; ") +
+        ". Pare e investigue: `if not exists` não vai corrigir isto sozinho."
+    );
+    falhas++;
+    continue;
+  }
+
+  console.log(
+    `CONFERIDO no banco: ${tabela}.${coluna} existe e confere (${achado.tipo}, default ${achado.padrao})`
   );
 }
 
 if (!aplicar) console.log("\nNada foi gravado. Rode com --aplicar para valer.");
+
+// O CÓDIGO DE SAÍDA É O QUE SEPARA "SEGUIU" DE "PAROU". Este script é rodado à
+// mão dentro de um roteiro de implantação, e um roteiro lê o código de saída,
+// não a tela: até a revisão da Tarefa 9 ele saía 0 mesmo imprimindo "A MIGRAÇÃO
+// NÃO FEZ EFEITO, pare e investigue", ou seja o passo seguinte da implantação
+// rodava por cima de um esquema que não existia.
+if (falhas) {
+  console.log(
+    `\n${falhas} confer${falhas === 1 ? "ência falhou" : "ências falharam"}. Saindo com código 1.`
+  );
+  process.exitCode = 1;
+}
+
 await sql.end();
