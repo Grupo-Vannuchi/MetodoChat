@@ -1802,15 +1802,27 @@ export default function Quadro({
               cópia faria a prévia atrasar um render em relação ao quadro, e o
               retorno ao vivo é a razão de ela existir. A configuração vai junto
               porque é o gatilho que decide se a conversa começa num comentário,
-              numa resposta de story ou numa DM. */}
+              numa resposta de story ou numa DM.
+
+              E O MESMO `ligacoes`, pela mesma razão: a prévia mostra o CAMINHO
+              até o bloco aberto, e caminho é pergunta sobre as setas. Uma seta
+              recém-desenhada tem de trocar a conversa no mesmo render em que ela
+              aparece no quadro.
+
+              O GATILHO NÃO É BLOCO, e por isso vira `null` aqui: ele não tem
+              cena a acender nem caminho a percorrer, e com ele selecionado a
+              prévia mostra o caminho da entrada — que é o que ela já mostrava
+              antes de haver seleção nenhuma. É a mesma tradução que
+              `indiceSelecionado` faz logo acima, para o painel. */}
           <Previa
             passos={passos}
             gatilho={configuracao.gatilho}
+            ligacoes={ligacoes}
             palavras={configuracao.palavras}
             correspondencia={configuracao.correspondencia}
             post={configuracao.post}
             story={configuracao.story}
-            indiceSelecionado={indiceSelecionado}
+            selecionado={selecionado === ID_DO_GATILHO ? null : selecionado}
             conta={conta}
           />
         </aside>

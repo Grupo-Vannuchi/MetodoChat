@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import type { Passo } from "@/lib/steps";
+import type { Ligacao, Passo } from "@/lib/steps";
 import type { Picked } from "../types";
 import { card } from "../../ui";
 import {
@@ -139,6 +139,39 @@ function Pilula({ children }: { children: React.ReactNode }) {
   return (
     <span className="mt-0.5 self-center rounded-full border border-[#3797f0]/60 bg-[#3797f0]/10 px-3 py-1 text-[10px] font-medium text-[#3797f0]">
       {children}
+    </span>
+  );
+}
+
+// O MENU: as pílulas de um bloco com vários botões, e a marca de qual delas é o
+// braço que está sendo mostrado.
+//
+// EM LINHA E QUEBRANDO, porque é assim que o Instagram entrega as respostas
+// rápidas — lado a lado abaixo do balão. Empilhá-las faria um menu de treze
+// botões (o `LIMITE_DE_BOTOES`, lib/steps.ts) ocupar a tela inteira.
+//
+// A ESCOLHIDA É SÓLIDA, na mesma cor da bolha do toque que vem logo abaixo. É a
+// ligação visual inteira: a pílula cheia e o balão azul da direita são o MESMO
+// gesto — a pessoa tocou ali, e a conversa seguiu por ali. As outras ficam como
+// qualquer pílula, porque elas continuam sendo caminhos de verdade; o que muda é
+// que não é o deles que está na tela.
+//
+// QUAL É A ESCOLHIDA É DECISÃO DE `./roteiro`, com teste. Aqui só se pinta.
+function Menu({ botoes }: { botoes: { rotulo: string; escolhido: boolean }[] }) {
+  return (
+    <span className="mt-0.5 flex flex-wrap justify-center gap-1 self-center">
+      {botoes.map((b, i) => (
+        <span
+          key={i}
+          className={`rounded-full border px-3 py-1 text-[10px] font-medium ${
+            b.escolhido
+              ? "border-[#3797f0] bg-[#3797f0] text-white"
+              : "border-[#3797f0]/60 bg-[#3797f0]/10 text-[#3797f0]"
+          }`}
+        >
+          {b.rotulo || <Vazio texto="sem rótulo" />}
+        </span>
+      ))}
     </span>
   );
 }
@@ -283,6 +316,9 @@ function Item({ bolha, conta }: { bolha: Bolha; conta: ContaDaPrevia }) {
         </>
       );
 
+    case "botoes":
+      return <Menu botoes={bolha.botoes} />;
+
     case "parada":
       return <Parada motivo={bolha.motivo} />;
 
@@ -372,15 +408,20 @@ function CenaNaConversa({ cena, aceso, conta }: { cena: Cena; aceso: boolean; co
 export default function Previa({
   passos,
   gatilho,
+  ligacoes,
   palavras,
   correspondencia,
   post,
   story,
-  indiceSelecionado,
+  selecionado,
   conta,
 }: {
   passos: Passo[];
   gatilho: string;
+  // AS SETAS. Elas entram porque a prévia deixou de desenhar o array e passou a
+  // desenhar um CAMINHO — e quem vem depois de quem é resposta das ligações, não
+  // da ordem da lista, desde a Tarefa 3b.
+  ligacoes: Ligacao[];
   palavras: string[];
   correspondencia: string;
   post: Picked | null;
@@ -399,14 +440,29 @@ export default function Previa({
   // que a monta — foi MEDIDA e é falsa; o registro inteiro está no comentário de
   // `../[id]/page.tsx`.
   conta?: ContaDaPrevia;
-  // O bloco aberto no painel, para acender na prévia. -1 quando o selecionado é
-  // o gatilho, ou quando não há nenhum.
-  indiceSelecionado: number;
+  // A IDENTIDADE do bloco aberto no painel — a mesma string que o quadro guarda
+  // em `selecionado`. `null` quando não há bloco aberto, e também quando quem
+  // está selecionado é o GATILHO: ele não é bloco e não tem cena.
+  //
+  // ELA DECIDE QUAL BRAÇO A CONVERSA MOSTRA, e não só qual cena acende. Era um
+  // ÍNDICE, e o índice servia enquanto a prévia desenhava o array na ordem
+  // dele; um caminho salta posições, e quem sabe caminhar no grafo é
+  // `./roteiro`, que fala em identidade porque as ligações falam.
+  selecionado: string | null;
 }) {
   // O GATILHO ENTRA NO ROTEIRO, e não só na moldura desta tela: dois dos seis
   // tipos só rodam em alguns gatilhos, e essa decisão é de conteúdo — ela mora
   // no arquivo puro, com teste. Antes o coraçãozinho saía igual nos três.
-  const cenas = useMemo(() => roteiro(passos, gatilho), [passos, gatilho]);
+  //
+  // AS SETAS E O BLOCO SELECIONADO ENTRAM PELO MESMO MOTIVO: qual caminho
+  // mostrar é decisão, não desenho. Uma busca de caminho escrita aqui dentro
+  // seria a decisão mais delicada desta tela — a que precisa de visitados para
+  // um menu em anel não travar o navegador — morando no único arquivo do par que
+  // não tem teste.
+  const cenas = useMemo(
+    () => roteiro(passos, gatilho, ligacoes, selecionado),
+    [passos, gatilho, ligacoes, selecionado]
+  );
 
   // Sem conta, a prévia continua desenhando — só sem identidade.
   const perfil: ContaDaPrevia = conta ?? { usuario: null, nome: null, foto: null };
@@ -543,12 +599,7 @@ export default function Previa({
           {gatilho === "dm" && <Enviada>{disparo}</Enviada>}
 
           {cenas.map((c) => (
-            <CenaNaConversa
-              key={c.indice}
-              cena={c}
-              aceso={c.indice === indiceSelecionado}
-              conta={perfil}
-            />
+            <CenaNaConversa key={c.id} cena={c} aceso={c.id === selecionado} conta={perfil} />
           ))}
 
           {/* LISTA VAZIA NÃO QUEBRA A TELA, e também não fica muda: sem nenhum

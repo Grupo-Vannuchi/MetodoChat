@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { roteiro, textoDoTempo, type Cena } from "../app/automacoes/editor/roteiro";
-import type { Passo } from "../lib/steps";
+import { identidadeDoPasso, type Ligacao, type Passo } from "../lib/steps";
 
 // Os tipos das bolhas de uma cena, na ordem. É o que quase todo teste daqui
 // pergunta — "o que este bloco desenha, e nessa ordem?" — e escrever isso à mão
@@ -9,11 +9,47 @@ function feitio(cenas: Cena[], i = 0): string[] {
   return cenas[i].itens.map((b) => b.tipo);
 }
 
+// A CORRENTE `bloco i → bloco i+1`, toda de `sempre`.
+//
+// Ela existe porque `roteiro` deixou de percorrer o array e passou a percorrer
+// as SETAS: sem ligação nenhuma, uma lista de cinco blocos desenha um só, e
+// todo teste de conteúdo daqui viraria um teste de grafo por acidente.
+//
+// E ela não é um andaime inventado para o teste: é EXATAMENTE o que a migração
+// (`scripts/ligar-passos-existentes.mjs`) gravou em toda automação que já
+// existia, e portanto a forma em que a maioria dos fluxos deste produto chega à
+// prévia. Os testes que perguntam sobre BIFURCAÇÃO montam as ligações à mão, com
+// `cenasCom` logo abaixo.
+function corrente(passos: unknown): Ligacao[] {
+  if (!Array.isArray(passos)) return [];
+  const ligacoes: Ligacao[] = [];
+  for (let i = 0; i + 1 < passos.length; i++) {
+    ligacoes.push({
+      de: identidadeDoPasso(passos[i], i),
+      quando: { tipo: "sempre" },
+      para: identidadeDoPasso(passos[i + 1], i + 1),
+    });
+  }
+  return ligacoes;
+}
+
 // O gatilho é obrigatório em `roteiro`, e de propósito (o motivo está lá). Aqui
 // o padrão é `dm` porque é o gatilho em que os quatro tipos de DM rodam sem
 // ressalva — os testes que perguntam sobre gatilho passam o seu.
 function cenasDe(passos: unknown, gatilho = "dm"): Cena[] {
-  return roteiro(passos, gatilho);
+  return roteiro(passos, gatilho, corrente(passos), null);
+}
+
+// A mesma coisa com o grafo na mão: as ligações e o bloco selecionado.
+function cenasCom(passos: unknown, ligacoes: Ligacao[], selecionado: string | null): Cena[] {
+  return roteiro(passos, "dm", ligacoes, selecionado);
+}
+
+// Quais blocos a conversa mostrou, na ordem. É a pergunta inteira dos testes de
+// caminho — "que braço apareceu?" — e ela se lê pela identidade, que é o que o
+// quadro usa para saber qual nó está aceso.
+function trilha(cenas: Cena[]): string[] {
+  return cenas.map((c) => c.id);
 }
 
 describe("textoDoTempo", () => {
@@ -46,7 +82,7 @@ describe("roteiro — os seis tipos de bloco", () => {
   it("`dm` sem rótulo é um balão só, e a conversa continua", () => {
     const cenas = cenasDe([{ tipo: "dm", texto: "Oi!" }] as Passo[]);
     expect(cenas).toEqual([
-      { indice: 0, itens: [{ tipo: "balao", texto: "Oi!", botao: null, link: false }] },
+      { id: "0", itens: [{ tipo: "balao", texto: "Oi!", botao: null, link: false }] },
     ]);
   });
 
@@ -149,29 +185,25 @@ describe("roteiro — as paradas", () => {
     expect(feitio(cenas, 1)).toEqual(["balao"]);
   });
 
-  it("bloco de `botoes` sem rótulo não desenha botão nem parada", () => {
+  it("bloco de `botoes` desenha o MENU e a parada, mesmo sem braço nenhum ligado", () => {
     // A prévia afirmava `passo.botao_label!` no ramo da parada, e a asserção
     // ficou FALSA no dia em que `esperaResposta` passou a dizer sim a um `dm`
     // com `botoes`: um bloco assim não tem rótulo nenhum, e o `!` escondia isso
     // do `tsc`. A prévia teria desenhado uma pílula `undefined` e uma parada
     // sobre uma mensagem que o motor manda como texto puro.
     //
-    // Hoje as duas perguntas — o que sai e onde para — são a mesma
-    // (`envioDaDm`, lib/steps.ts), e a cena mostra um balão sem botão.
+    // ATÉ A TAREFA 8 A PRÉVIA MENTIA AO CONTRÁRIO: `roteiro.ts` não tinha ramo
+    // para `envio.forma === "botoes"`, o menu caía no `else` de texto puro, e a
+    // tela desenhava como mensagem solta uma parada que o motor executa. Este
+    // teste fixava aquela mentira de propósito, para ela não sumir de vista.
     //
-    // ESTA CENA NÃO MUDOU SOZINHA NA TAREFA 4, e a frase que dizia que mudaria
-    // ficou aqui depois de MEDIDA COMO FALSA — quem pegar a Tarefa 8 lê esta
-    // linha, não o relatório de outra tarefa. O motor passou a entregar os dois
-    // botões e a parar no menu; esta cena continuou idêntica porque
-    // `roteiro.ts` não tem ramo para `envio.forma === "botoes"` — ele só trata
-    // `"resposta_rapida"` e `"link"`, e um menu cai no `else` de texto puro.
-    // Ou seja: a prévia hoje MENTE sobre este bloco, desenhando como mensagem
-    // solta uma parada que o motor executa.
+    // Agora o menu tem ramo: os botões saem, e a parada com eles — quem diz que
+    // ela existe continua sendo `esperaResposta` (lib/steps.ts), não uma cópia
+    // da regra escrita aqui.
     //
-    // QUEM FECHA ISSO É A TAREFA 8 (docs/plans/2026-08-11-ramificacao.md, Passo
-    // 4 — "a prévia mostra o botão escolhido"), e é ela que vai reescrever as
-    // asserções abaixo. Até lá elas fixam o que a prévia realmente faz, para a
-    // divergência não sumir de vista.
+    // NENHUM `escolhido`, e é o ponto deste caso: sem ligação de botão nenhuma
+    // não há braço a mostrar, então não há toque a desenhar. Marcar um botão
+    // aqui seria a prévia escolhendo caminho por conta própria.
     const cenas = cenasDe([
       {
         tipo: "dm",
@@ -182,7 +214,17 @@ describe("roteiro — as paradas", () => {
         ],
       },
     ] as Passo[]);
-    expect(cenas[0].itens).toEqual([{ tipo: "balao", texto: "Qual?", botao: null, link: false }]);
+    expect(cenas[0].itens).toEqual([
+      { tipo: "balao", texto: "Qual?", botao: null, link: false },
+      {
+        tipo: "botoes",
+        botoes: [
+          { rotulo: "A", escolhido: false },
+          { rotulo: "B", escolhido: false },
+        ],
+      },
+      { tipo: "parada", motivo: "toque" },
+    ]);
   });
 
   it("duas paradas duras seguidas marcam as duas", () => {
@@ -372,15 +414,20 @@ describe("roteiro — bloco que não é enviado", () => {
     expect(feitio(cenas, 0)).toEqual(["incompleto"]);
   });
 
-  it("o bloco inválido NÃO desloca o índice dos outros", () => {
-    // O índice é o que liga a cena ao bloco selecionado no quadro. Pulando o
-    // inválido, o destaque cairia no bloco errado a partir dele.
+  it("o bloco inválido NÃO some do caminho nem troca a identidade dos outros", () => {
+    // A identidade é o que liga a cena ao bloco selecionado no quadro. Pulando
+    // o inválido, o destaque cairia no bloco errado a partir dele — e, pior
+    // desde a Tarefa 8, a caminhada perderia a seta que ATRAVESSA o bloco
+    // inválido e a conversa acabaria ali.
+    //
+    // Sem `id` gravado, a identidade É a posição (`identidadeDoPasso`,
+    // lib/steps.ts) — daí os "0", "1", "2".
     const cenas = cenasDe([
       { tipo: "dm", texto: "Um" },
       { tipo: "dm", texto: "" },
       { tipo: "dm", texto: "Três" },
     ] as Passo[]);
-    expect(cenas.map((c) => c.indice)).toEqual([0, 1, 2]);
+    expect(trilha(cenas)).toEqual(["0", "1", "2"]);
     expect(feitio(cenas, 1)).toEqual(["incompleto"]);
   });
 });
@@ -405,5 +452,328 @@ describe("roteiro — o que não pode quebrar a tela", () => {
       ["incompleto"],
       ["incompleto"],
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O CAMINHO MOSTRADO — a Tarefa 8.
+//
+// Até aqui a prévia desenhava o ARRAY, de cabo a rabo. Com bifurcação isso
+// deixou de ser uma conversa: uma lista com dois braços não é uma conversa que
+// alguém tenha, é duas — e desenhá-las emendadas mostra ao dono uma sequência
+// que o motor nunca executa.
+//
+// A prévia passa a mostrar UM caminho: o que leva até o bloco aberto no painel,
+// e o que segue dali. Clicar noutro braço troca a conversa mostrada, e é isso
+// que liga o que a pessoa está editando ao que ela vê.
+// ---------------------------------------------------------------------------
+describe("roteiro — o caminho mostrado", () => {
+  // Um menu com dois braços que voltam a se encontrar. É a forma mais comum de
+  // bifurcação do produto — "qual você quer?", duas respostas, e o mesmo fecho.
+  //
+  //   b_menu01 --botao op_a--> b_aum001 --> b_ados01 --> b_junta1
+  //       +-----botao op_b--> b_bum001 --------------------^
+  const bifurcado = [
+    {
+      id: "b_menu01",
+      tipo: "dm",
+      texto: "Qual?",
+      botoes: [
+        { id: "op_aaaaaa", rotulo: "A" },
+        { id: "op_bbbbbb", rotulo: "B" },
+      ],
+    },
+    { id: "b_aum001", tipo: "dm", texto: "Braço A" },
+    { id: "b_ados01", tipo: "dm", texto: "Ainda o A" },
+    { id: "b_bum001", tipo: "dm", texto: "Braço B" },
+    { id: "b_junta1", tipo: "dm", texto: "Fecho" },
+  ] as Passo[];
+
+  const setas: Ligacao[] = [
+    { de: "b_menu01", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_aum001" },
+    { de: "b_menu01", quando: { tipo: "botao", botao: "op_bbbbbb" }, para: "b_bum001" },
+    { de: "b_aum001", quando: { tipo: "sempre" }, para: "b_ados01" },
+    { de: "b_ados01", quando: { tipo: "sempre" }, para: "b_junta1" },
+    { de: "b_bum001", quando: { tipo: "sempre" }, para: "b_junta1" },
+  ];
+
+  it("clicar num bloco de um braço mostra o caminho ATÉ ele, e o que segue dali", () => {
+    expect(trilha(cenasCom(bifurcado, setas, "b_bum001"))).toEqual([
+      "b_menu01",
+      "b_bum001",
+      "b_junta1",
+    ]);
+  });
+
+  it("clicar no OUTRO braço troca a conversa mostrada", () => {
+    // É a prova da tarefa inteira: o mesmo fluxo, a mesma tela, e duas
+    // conversas diferentes conforme o bloco aberto. O braço A não aparece no
+    // teste acima, e o B não aparece neste.
+    expect(trilha(cenasCom(bifurcado, setas, "b_ados01"))).toEqual([
+      "b_menu01",
+      "b_aum001",
+      "b_ados01",
+      "b_junta1",
+    ]);
+  });
+
+  // A ESCOLHA ARBITRÁRIA DESTA TAREFA, e é por isso que ela está fixada aqui.
+  //
+  // `b_junta1` é alcançado pelos DOIS braços. Algum tem que ganhar, e ganha o
+  // PRIMEIRO EM ORDEM DE LIGAÇÃO — a mesma regra de desempate que `ligacoesDe`
+  // (lib/steps.ts) já usa em todo o resto do grafo.
+  //
+  // Repare que o braço A é o MAIS LONGO dos dois. É de propósito: se a busca
+  // fosse por largura, o caminho mostrado seria o do B (dois saltos contra
+  // três), e a regra escrita acima seria falsa sem nada acusar. Este teste
+  // separa as duas.
+  //
+  // Sem a regra fixada, a prévia trocaria de braço sozinha conforme as ligações
+  // fossem reordenadas no banco, e o dono veria a conversa mudar sem ter mexido
+  // em nada.
+  it("num bloco de JUNÇÃO ganha o primeiro braço em ordem de ligação, não o mais curto", () => {
+    expect(trilha(cenasCom(bifurcado, setas, "b_junta1"))).toEqual([
+      "b_menu01",
+      "b_aum001",
+      "b_ados01",
+      "b_junta1",
+    ]);
+  });
+
+  it("sem bloco selecionado, o caminho começa em `steps[0]` e segue o primeiro braço", () => {
+    // A ENTRADA DO FLUXO É `steps[0]` — o único significado que a ordem do
+    // array guardou depois que as ligações passaram a dizer quem vem depois.
+    expect(trilha(cenasCom(bifurcado, setas, null))).toEqual([
+      "b_menu01",
+      "b_aum001",
+      "b_ados01",
+      "b_junta1",
+    ]);
+  });
+
+  it("bloco SOLTO mostra só ele, sem tronco", () => {
+    // Ninguém aponta para `b_solto1`, então não há caminho da entrada até ele.
+    // Mostrar o tronco assim mesmo seria emendar duas conversas que não se
+    // encostam; mostrar nada esconderia o bloco que a pessoa acabou de abrir.
+    const passos = [
+      { id: "b_um00001", tipo: "dm", texto: "Oi" },
+      { id: "b_solto1", tipo: "dm", texto: "Sozinho" },
+    ] as Passo[];
+    expect(trilha(cenasCom(passos, [], "b_solto1"))).toEqual(["b_solto1"]);
+  });
+
+  it("bloco solto SEGUE dali: o que sai dele aparece, o que não chega nele não", () => {
+    const passos = [
+      { id: "b_um00001", tipo: "dm", texto: "Oi" },
+      { id: "b_solto1", tipo: "dm", texto: "Sozinho" },
+      { id: "b_dep0001", tipo: "dm", texto: "Depois do sozinho" },
+    ] as Passo[];
+    const so: Ligacao[] = [{ de: "b_solto1", quando: { tipo: "sempre" }, para: "b_dep0001" }];
+    expect(trilha(cenasCom(passos, so, "b_solto1"))).toEqual(["b_solto1", "b_dep0001"]);
+  });
+
+  // O CICLO É PRODUZÍVEL PELA TELA, e não é defeito: um menu que volta para si
+  // mesmo ("escolha outra opção") é padrão legítimo, e `temCicloDeSempre`
+  // (lib/steps.ts) só recusa o anel de `sempre`.
+  //
+  // Sem visitados, a caminhada aqui não termina — e o que trava não é um teste,
+  // é a tela de quem está editando.
+  describe("ciclo", () => {
+    const passos = [
+      { id: "b_um00001", tipo: "dm", texto: "Oi" },
+      {
+        id: "b_menu01",
+        tipo: "dm",
+        texto: "Qual?",
+        botoes: [
+          { id: "op_aaaaaa", rotulo: "De novo" },
+          { id: "op_bbbbbb", rotulo: "Voltar" },
+        ],
+      },
+    ] as Passo[];
+    const setas: Ligacao[] = [
+      { de: "b_um00001", quando: { tipo: "sempre" }, para: "b_menu01" },
+      // O menu volta para SI MESMO.
+      { de: "b_menu01", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_menu01" },
+      // …e para o bloco que já passou.
+      { de: "b_menu01", quando: { tipo: "botao", botao: "op_bbbbbb" }, para: "b_um00001" },
+    ];
+
+    it("um menu que volta para si mesmo não trava, e não se repete na conversa", () => {
+      expect(trilha(cenasCom(passos, setas, null))).toEqual(["b_um00001", "b_menu01"]);
+    });
+
+    it("selecionar o menu do anel também termina", () => {
+      expect(trilha(cenasCom(passos, setas, "b_menu01"))).toEqual(["b_um00001", "b_menu01"]);
+    });
+
+    // O CASO QUE DE FATO EXIGE OS VISITADOS NA BUSCA, e ele não é nenhum dos
+    // dois acima — os dois foram MEDIDOS: com o `Set` de `caminhoAte` arrancado,
+    // a suíte inteira continuava VERDE. A razão é que os dois acham o alvo antes
+    // de dar a segunda volta (ou nem chamam a busca, no caso sem seleção, que
+    // tem visitados PRÓPRIOS em `seguindoDe`).
+    //
+    // O que trava é procurar um bloco que o anel NÃO alcança: a busca varre tudo
+    // o que dá para alcançar antes de desistir, e sem visitados ela dá voltas no
+    // anel para sempre. `b_solto1` não tem seta chegando nele, então abri-lo no
+    // painel obriga a busca a percorrer o anel inteiro e concluir que não há
+    // caminho.
+    //
+    // O QUE ISSO CUSTA NA TELA é uma aba travada enquanto o dono edita — não um
+    // teste vermelho. Por isso ele está aqui, e por isso este comentário diz
+    // exatamente qual gesto o produz.
+    it("procurar um bloco que o anel NÃO alcança termina, em vez de dar voltas", () => {
+      const comSolto = [...passos, { id: "b_solto1", tipo: "dm", texto: "Sozinho" }] as Passo[];
+      expect(trilha(cenasCom(comSolto, setas, "b_solto1"))).toEqual(["b_solto1"]);
+    });
+
+    it("o botão que volta para trás NÃO é marcado como escolhido", () => {
+      // A conversa acaba ali — o destino já está desenhado acima. Marcar o
+      // botão prometeria uma continuação que a prévia não mostra.
+      expect(cenasCom(passos, setas, null)[1].itens[1]).toEqual({
+        tipo: "botoes",
+        botoes: [
+          { rotulo: "De novo", escolhido: false },
+          { rotulo: "Voltar", escolhido: false },
+        ],
+      });
+    });
+  });
+
+  // O PASSO 4 DA TAREFA: o menu desenha os botões, e o do braço que está sendo
+  // mostrado aparece marcado. É o que liga o bloco aberto no painel à conversa.
+  describe("o botão do braço mostrado", () => {
+    it("marca o botão que leva ao braço mostrado, e o toque dele vira resposta", () => {
+      const cenas = cenasCom(bifurcado, setas, "b_bum001");
+      expect(cenas[0].itens).toEqual([
+        { tipo: "balao", texto: "Qual?", botao: null, link: false },
+        {
+          tipo: "botoes",
+          botoes: [
+            { rotulo: "A", escolhido: false },
+            { rotulo: "B", escolhido: true },
+          ],
+        },
+        { tipo: "parada", motivo: "toque" },
+        { tipo: "resposta", texto: "B" },
+      ]);
+    });
+
+    it("trocar de braço troca o botão marcado e o toque desenhado", () => {
+      const cenas = cenasCom(bifurcado, setas, "b_aum001");
+      expect(cenas[0].itens[1]).toEqual({
+        tipo: "botoes",
+        botoes: [
+          { rotulo: "A", escolhido: true },
+          { rotulo: "B", escolhido: false },
+        ],
+      });
+      expect(cenas[0].itens[3]).toEqual({ tipo: "resposta", texto: "A" });
+    });
+
+    it("botão SEM destino não é marcado, e o menu segue pelo que tem", () => {
+      // É o estado normal de quem está montando: um braço ligado e o outro
+      // ainda não. `conferirLista` (lib/steps.ts) recusa isso no ATIVAR, não no
+      // salvar — então a prévia precisa saber desenhá-lo.
+      const passos = [
+        {
+          id: "b_menu01",
+          tipo: "dm",
+          texto: "Qual?",
+          botoes: [
+            { id: "op_aaaaaa", rotulo: "Sem destino" },
+            { id: "op_bbbbbb", rotulo: "Com destino" },
+          ],
+        },
+        { id: "b_dep0001", tipo: "dm", texto: "Chegou" },
+      ] as Passo[];
+      const so: Ligacao[] = [
+        { de: "b_menu01", quando: { tipo: "botao", botao: "op_bbbbbb" }, para: "b_dep0001" },
+      ];
+      const cenas = cenasCom(passos, so, null);
+      expect(trilha(cenas)).toEqual(["b_menu01", "b_dep0001"]);
+      expect(cenas[0].itens[1]).toEqual({
+        tipo: "botoes",
+        botoes: [
+          { rotulo: "Sem destino", escolhido: false },
+          { rotulo: "Com destino", escolhido: true },
+        ],
+      });
+    });
+  });
+
+  // A `senao` É DE QUEM DIGITOU, e a prévia não a percorre — nem para chegar ao
+  // bloco selecionado, nem para seguir dali. O motivo está em `roteiro.ts`: a
+  // conversa desenhada é a de quem TOCA, e a prévia não tem o que a pessoa
+  // digitou para pôr no balão dela.
+  it("a `senao` não entra no caminho mostrado", () => {
+    const passos = [
+      {
+        id: "b_menu01",
+        tipo: "dm",
+        texto: "Qual?",
+        botoes: [{ id: "op_aaaaaa", rotulo: "A" }],
+      },
+      { id: "b_digit1", tipo: "dm", texto: "Quem digitou" },
+      { id: "b_tocou1", tipo: "dm", texto: "Quem tocou" },
+    ] as Passo[];
+    // A `senao` foi gravada ANTES da ligação do botão, de propósito: se a
+    // caminhada seguisse "a primeira seta que sai", ela ganharia.
+    const so: Ligacao[] = [
+      { de: "b_menu01", quando: { tipo: "senao" }, para: "b_digit1" },
+      { de: "b_menu01", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_tocou1" },
+    ];
+    expect(trilha(cenasCom(passos, so, null))).toEqual(["b_menu01", "b_tocou1"]);
+    // E o bloco da `senao` é inalcançável pela prévia: abri-lo mostra só ele.
+    expect(trilha(cenasCom(passos, so, "b_digit1"))).toEqual(["b_digit1"]);
+  });
+
+  it("identidade selecionada que não existe mais na lista cai no caminho da entrada", () => {
+    // Produzível: numa lista SEM `id` a identidade é a POSIÇÃO
+    // (`identidadeDoPasso`, lib/steps.ts), então apagar um bloco RENOMEIA os
+    // outros e a seleção guardada pode apontar para uma posição que sumiu.
+    expect(trilha(cenasCom(bifurcado, setas, "b_sumiu1"))).toEqual([
+      "b_menu01",
+      "b_aum001",
+      "b_ados01",
+      "b_junta1",
+    ]);
+  });
+
+  it("ligação para um bloco que não existe encerra a conversa sem quebrar a tela", () => {
+    // `haCaminho` (lib/steps.ts) documenta o mesmo caso: uma seta pode citar um
+    // id que não está na lista. Aqui não há bloco a desenhar, e a conversa acaba
+    // no último que existe.
+    const passos = [{ id: "b_um00001", tipo: "dm", texto: "Oi" }] as Passo[];
+    const so: Ligacao[] = [{ de: "b_um00001", quando: { tipo: "sempre" }, para: "b_fantas1" }];
+    expect(trilha(cenasCom(passos, so, null))).toEqual(["b_um00001"]);
+  });
+
+  // A CONTAGEM DAS RESPOSTAS PÚBLICAS PASSOU A SER POR CAMINHO, e não por
+  // array. É a consequência certa: `commentReplyKey` (lib/dedupe.ts) engole a
+  // SEGUNDA QUE EXECUTA, e só executa quem está no caminho percorrido. Uma
+  // pública no braço A não faz a do braço B deixar de ser publicada — os dois
+  // braços nunca rodam no mesmo disparo.
+  it("a resposta pública de OUTRO braço não torna esta `repetida`", () => {
+    const passos = [
+      {
+        id: "b_menu01",
+        tipo: "dm",
+        texto: "Qual?",
+        botoes: [
+          { id: "op_aaaaaa", rotulo: "A" },
+          { id: "op_bbbbbb", rotulo: "B" },
+        ],
+      },
+      { id: "b_puba001", tipo: "resposta_publica", textos: ["Do braço A"] },
+      { id: "b_pubb001", tipo: "resposta_publica", textos: ["Do braço B"] },
+    ] as Passo[];
+    const so: Ligacao[] = [
+      { de: "b_menu01", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_puba001" },
+      { de: "b_menu01", quando: { tipo: "botao", botao: "op_bbbbbb" }, para: "b_pubb001" },
+    ];
+    const b = roteiro(passos, "comment", so, "b_pubb001");
+    expect(trilha(b)).toEqual(["b_menu01", "b_pubb001"]);
+    expect(b[1].itens[0]).toMatchObject({ situacao: "publicada", texto: "Do braço B" });
   });
 });
