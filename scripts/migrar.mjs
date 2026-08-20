@@ -131,6 +131,13 @@ for (const nome of arquivos) {
 // Os valores são os que o Postgres devolve, não os que a DDL escreve: `boolean`
 // e não `bool`, `false` e não `'false'`. Quem acrescentar linha aqui roda o
 // ensaio a seco uma vez e copia o que saiu.
+// `naoNulo` COMPLETA A FORMA, e vem desta re-revisão: `tipo` e `padrao` já
+// aferiam dois terços da DDL enquanto o terceiro — `not null` — nem chegava a
+// ser lido. `boolean not null default true`, o risco que o parágrafo acima
+// cita para justificar aferir forma, tem justamente um `not null` nele; uma
+// coluna que nascesse SEM essa cláusula — "o `not null` caiu numa das cópias
+// da DDL" é uma divergência tão plausível quanto o tipo ou o padrão trocados
+// — saía CONFERIDO até aqui.
 const ESPERADAS = [
   {
     tabela: "automations",
@@ -138,6 +145,7 @@ const ESPERADAS = [
     de: "001-ligacoes.sql",
     tipo: "jsonb",
     padrao: "'[]'::jsonb",
+    naoNulo: true,
   },
   {
     tabela: "automations",
@@ -145,6 +153,7 @@ const ESPERADAS = [
     de: "002-entrega-sem-portao.sql",
     tipo: "boolean",
     padrao: "false",
+    naoNulo: true,
   },
 ];
 
@@ -152,7 +161,7 @@ const ESPERADAS = [
 let falhas = 0;
 
 console.log("");
-for (const { tabela, coluna, de, tipo, padrao } of ESPERADAS) {
+for (const { tabela, coluna, de, tipo, padrao, naoNulo } of ESPERADAS) {
   // A PERGUNTA É FEITA AO `pg_catalog` E NÃO AO `information_schema`, e o motivo
   // é o `table_schema` que faltava: `where table_name = 'automations'` casa a
   // coluna em QUALQUER schema visível ou não — dois bancos com a mesma tabela em
@@ -160,9 +169,13 @@ for (const { tabela, coluna, de, tipo, padrao } of ESPERADAS) {
   // pelo `search_path`, que é EXATAMENTE como o `alter table` acima o resolveu:
   // não sobra ambiguidade para filtrar. Tabela inexistente devolve null, o `=`
   // não casa nada, e a linha sai como "NÃO existe" — que é a resposta certa.
+  //
+  // `attnotnull` está no MESMO `pg_attribute` que já dá `tipo`, a um campo de
+  // distância — não é consulta nova, é uma coluna a mais no mesmo select.
   const colunas = await sql`
     select format_type(a.atttypid, a.atttypmod) as tipo,
-           pg_get_expr(d.adbin, d.adrelid) as padrao
+           pg_get_expr(d.adbin, d.adrelid) as padrao,
+           a.attnotnull as nao_nulo
     from pg_attribute a
     left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
     where a.attrelid = to_regclass(${tabela})
@@ -184,11 +197,17 @@ for (const { tabela, coluna, de, tipo, padrao } of ESPERADAS) {
     continue;
   }
 
-  const achado = { tipo: colunas[0].tipo, padrao: colunas[0].padrao };
+  const achado = {
+    tipo: colunas[0].tipo,
+    padrao: colunas[0].padrao,
+    naoNulo: colunas[0].nao_nulo,
+  };
   const divergentes = [];
   if (achado.tipo !== tipo) divergentes.push(`tipo esperado ${tipo}, achado ${achado.tipo}`);
   if (achado.padrao !== padrao)
     divergentes.push(`default esperado ${padrao}, achado ${achado.padrao}`);
+  if (achado.naoNulo !== naoNulo)
+    divergentes.push(`not null esperado ${naoNulo}, achado ${achado.naoNulo}`);
 
   if (divergentes.length) {
     // DIVERGÊNCIA DE FORMA É FALHA NOS DOIS MODOS, e não só ao aplicar: a coluna
@@ -204,7 +223,8 @@ for (const { tabela, coluna, de, tipo, padrao } of ESPERADAS) {
   }
 
   console.log(
-    `CONFERIDO no banco: ${tabela}.${coluna} existe e confere (${achado.tipo}, default ${achado.padrao})`
+    `CONFERIDO no banco: ${tabela}.${coluna} existe e confere (${achado.tipo}, ` +
+      `not null ${achado.naoNulo}, default ${achado.padrao})`
   );
 }
 
