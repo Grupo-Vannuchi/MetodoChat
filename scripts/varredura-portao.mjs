@@ -183,6 +183,27 @@
 //     posições perigosas aparece; o que falta é a combinação delas.
 //   - A `dm` de RESPOSTA RÁPIDA e o MENU nunca aparecem no mesmo fluxo, que é o
 //     outro lado da troca de papel explicada lá em cima.
+//   - A CHAVE `entrega_sem_portao` (Tarefa 9) — a decisão POR AUTOMAÇÃO de
+//     publicar um fluxo cujo link é alcançável sem passar pelo portão. Esta
+//     varredura não a percorre, e a razão é que ela não muda NADA do que esta
+//     varredura mede: a chave é argumento de `conferirLista`, que é a
+//     CONFERÊNCIA — a porta de publicar —, e esta varredura mede o MOTOR, a
+//     entrega. Ela nunca importou `conferirLista` e continua sem importar;
+//     `lib/engine.ts` não lê a coluna. "Não me impeça de publicar" e "ignore o
+//     portão na entrega" são coisas diferentes, e a chave é só a primeira.
+//
+//     MEDIDO, e não deduzido, porque o eixo era novo e a cegueira da Tarefa 7c
+//     nasceu exatamente de supor: `npm run varredura` no commit anterior a esta
+//     tarefa e no commit dela dá saída BYTE A BYTE IDÊNTICA, nas duas varreduras
+//     e nos três grupos — exaustiva A 73.720 / 2.088.628, C 954.160 /
+//     11.333.976, B 261.536; do menu A 118.700 / 2.969.968, C 867.480 /
+//     9.461.916, B 251.166. São os mesmos números da LINHA DE BASE lá em cima,
+//     que por isso não precisou ser refeita.
+//
+//     O QUE MUDARIA ISTO, dito para o parágrafo não envelhecer calado: no dia em
+//     que a chave chegar a `lib/engine.ts` — qualquer ramo que a leia para
+//     decidir se entrega —, ela passa a ser um eixo desta varredura, e sem ela a
+//     prova central do produto estaria medindo metade do sistema.
 
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
