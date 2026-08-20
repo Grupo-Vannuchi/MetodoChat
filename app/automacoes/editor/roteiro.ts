@@ -74,9 +74,24 @@ export type Bolha =
   // com dois botões e a conversa continuaria por um deles sem dizer qual, que é
   // a prévia mentindo por omissão sobre a única coisa que o menu decide.
   //
-  // NENHUM `escolhido` é caso normal, e são três: menu sem ligação de botão
-  // nenhuma (quem está montando), botão cujo braço volta para um bloco já
-  // desenhado (o anel), e menu que é o fim do caminho mostrado.
+  // NENHUM `escolhido` É CASO NORMAL, e são CINCO. A lista já esteve errada
+  // aqui — dizia "três" e omitia justamente o único que NÃO é fim de caminho:
+  //
+  //   MENU SEM LIGAÇÃO DE BOTÃO NENHUMA — quem está montando.
+  //   MENU QUE É O FIM DO CAMINHO MOSTRADO.
+  //   MENU CUJAS SAÍDAS TODAS VOLTAM para blocos já desenhados (o anel). É
+  //     "todas", e não "a primeira": desde a revisão da Tarefa 8 a cauda pula a
+  //     saída que repete e segue pela próxima (`seguindoDe`), então basta um
+  //     braço novo para haver pílula marcada.
+  //   MENU CUJO CAMINHO SAI PELA `senao` OU PELA `sempre` — ninguém tocou em
+  //     botão nenhum, e o que conta isso é a marca `retomada`, logo abaixo.
+  //   LIGAÇÃO DE BOTÃO CITANDO UM ID QUE NÃO ESTÁ EM `botoes`, e ESTE é o que
+  //     não é fim de caminho nem tem marca. Medido: a conversa CONTINUA, e
+  //     nenhuma pílula fica marcada — exatamente a omissão que `escolhido`
+  //     existe para impedir. Ele é produzível apagando um botão e deixando a
+  //     ligação dele para trás; `conferirLista` não diz nada sobre a ligação
+  //     órfã, e `indiceDaAlca` (./modelos) já registra esse par como buraco
+  //     conhecido. Fica anotado aqui em vez de voltar a ser premissa.
   | { tipo: "botoes"; botoes: { rotulo: string; escolhido: boolean }[] }
   // A MARCA DA PARADA. É a informação mais valiosa da prévia: daqui não sai
   // nada até a pessoa fazer alguma coisa.
@@ -336,10 +351,21 @@ function saidasMostradas(passos: unknown, ligacoes: unknown, id: string): Saida[
 // grafo: havendo mais de uma que sirva, ganha a primeira gravada.
 //
 // Em largura a resposta seria "o braço mais CURTO", e isso é pior por um motivo
-// concreto: o comprimento de um braço muda quando o dono acrescenta um bloco no
-// meio dele, então a conversa mostrada num bloco de junção trocaria de braço
-// sozinha ao se editar OUTRO braço. Em ordem de ligação ela só muda quando as
-// setas mudam.
+// concreto e MEDIDO: com braços de 3 e 2, acrescentar UM bloco no braço B faz a
+// junção saltar para o A — o dono vê a conversa trocar por ter editado O OUTRO
+// braço, que é a regra desta fase sendo violada. O comprimento de um braço muda
+// quando se acrescenta um bloco no meio dele; a ordem das setas só muda quando
+// as setas mudam.
+//
+// E O QUE A PROFUNDIDADE CUSTA, dito porque este arquivo não deixa escolha sem
+// o preço escrito, e porque o contra-exemplo existe e foi medido: num menu com
+// "Ver tudo" gravado primeiro e "Direto" segundo, os dois chegando no MESMO
+// bloco, abrir esse bloco mostra o DESVIO DE CINCO e não o salto de um —
+// `["b_menu01","b_ver0001","b_ver0002","b_ver0003","b_ver0004","b_alvo001"]`,
+// com o braço "Direto" fora da tela. Os dois são caminhos de verdade, e o dono
+// alcança o curto clicando no botão "Direto"; em largura ele viria de graça. O
+// negócio continua valendo a pena — o custo da largura acima é pior, porque ele
+// troca a tela sem ninguém ter mexido naquele braço —, mas ele não é de graça.
 //
 // OS VISITADOS SÃO O QUE SEGURA O ANEL, e um menu que volta para si mesmo é
 // padrão legítimo do produto — `temCicloDeSempre` (lib/steps.ts) só recusa o
@@ -347,7 +373,17 @@ function saidasMostradas(passos: unknown, ligacoes: unknown, id: string): Saida[
 // é a tela de quem está editando.
 //
 // Cada bloco entra uma vez só, então a recursão é tão funda quanto o número de
-// blocos distintos alcançáveis — e `TETO_DE_PASSOS` (lib/steps.ts) é 100.
+// blocos DISTINTOS alcançáveis, e é o `Set` de visitados que garante isso.
+//
+// NENHUM NÚMERO A LIMITA, e a frase que estava aqui dizia o contrário: que "a
+// recursão é tão funda quanto o número de blocos alcançáveis — e
+// `TETO_DE_PASSOS` (lib/steps.ts) é 100". A segunda metade é um número
+// emprestado que não limita nada disto. `TETO_DE_PASSOS` conta as VOLTAS da
+// caminhada de `interpretar`, e mais nada: nem `roteiro` nem `caminhoAte`
+// consultam a constante, e não há no projeto limite nenhum para `passos.length`
+// — a revisão procurou. O que segura esta função é o conjunto de visitados; o
+// teto de outro arquivo não é a rede dela, e citá-lo como se fosse era a forma
+// numérica do defeito desta fase.
 function caminhoAte(
   passos: unknown,
   ligacoes: unknown,

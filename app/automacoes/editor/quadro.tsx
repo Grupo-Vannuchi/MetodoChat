@@ -1813,7 +1813,9 @@ export default function Quadro({
               cena a acender nem caminho a percorrer, e com ele selecionado a
               prévia mostra o caminho da entrada — que é o que ela já mostrava
               antes de haver seleção nenhuma. É a mesma tradução que
-              `indiceSelecionado` faz logo acima, para o painel. */}
+              `indiceSelecionado` faz para o painel, lá no alto do componente,
+              junto dos problemas da conferência — umas novecentas linhas acima
+              daqui, e não "logo acima" como esta frase já disse. */}
           <Previa
             passos={passos}
             gatilho={configuracao.gatilho}
