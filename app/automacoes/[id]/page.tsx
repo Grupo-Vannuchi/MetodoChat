@@ -98,13 +98,23 @@ export default async function EditarAutomacaoPage({
     story: a.story_id
       ? { id: a.story_id, thumb: a.story_thumbnail_url ?? "", caption: "" }
       : null,
-    // O `Boolean` NÃO É ENFEITE sobre uma coluna que já é `boolean not null`: até
-    // `migrations/002-entrega-sem-portao.sql` ter rodado neste banco, a coluna não
-    // existe, o `select *` acima não a traz, e `a.entrega_sem_portao` chega
-    // `undefined`. Sem ele, o `undefined` viajaria como prop para um `checked` de
-    // caixa controlada e o React trocaria o campo para não controlado no meio do
-    // caminho. Com ele, o valor ausente vira `false` — que é o lado seguro: a
-    // regra do portão contornável continua impedindo publicar.
+    // O `Boolean` NÃO É ENFEITE, mas a razão dele NESTE arquivo não é a coluna
+    // faltando: `await ensureSchema()` roda algumas linhas acima, ANTES do
+    // `select *`, e ele carrega a mesma DDL `if not exists` de
+    // `migrations/002-entrega-sem-portao.sql`. Quando esta consulta acontece a
+    // coluna já existe, mesmo em banco que nunca viu o script de migração — o
+    // cenário "a coluna não veio" não é alcançável daqui. (Em
+    // `toggleAutomation`, ../actions.ts, a mesma defesa tem razão de execução:
+    // lá o `select` é nominal e o valor pode chegar nulo de linha antiga.)
+    //
+    // O QUE ELE DEFENDE AQUI É O TIPO, e isso basta para ele ficar. `as
+    // Automation[]` acima é um cast, não uma conferência: ninguém olha o que o
+    // driver devolveu, e `Automation.entrega_sem_portao` é `boolean | undefined`
+    // justamente porque a coluna pode faltar em OUTROS caminhos. O destino deste
+    // valor é o `checked` de uma caixa controlada; `undefined` ali faria o React
+    // trocar o campo para não controlado no meio do caminho. O `Boolean`
+    // normaliza para `false`, que é o lado seguro: a regra do portão contornável
+    // continua impedindo publicar.
     entregaSemPortao: Boolean(a.entrega_sem_portao),
   };
 
