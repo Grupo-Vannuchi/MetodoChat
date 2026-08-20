@@ -128,7 +128,34 @@ Sem `--aplicar` ele **não grava nada**. Confira que **as ligações previstas p
 automação são `blocos − 1`** — é uma corrente reta, e qualquer outro número
 significa que o dado não é o que se espera. **Se divergir, pare.**
 
-Medição de 14/08: "Bacana" 2 blocos → 1 ligação; "Fluxo de teste 1a" 5 → 4.
+#### A ARMADILHA: "já tem N ligações, não mexida" é um AVISO, não um `ok`
+
+O script é idempotente por uma regra só: **automação que já tem qualquer
+ligação não é tocada.** Essa regra existe para proteger contra rodar duas vezes
+— e ela **não distingue** "já migrada" de "meio ligada à mão". As duas saem na
+tela com a mesma palavra: `ok`.
+
+Medido em 20/08, no banco real:
+
+| automação | ativa | blocos | ligações | esperado |
+|---|---|---|---|---|
+| Bacana | não | 2 | **0** | 1 |
+| Fluxo de teste 1a | não | 6 | **1** | 5 |
+
+Aquela ligação única de "Fluxo de teste 1a" é `{"quando":{"tipo":"botao"}}`,
+sobra das provas de tela desta fase. **Se a migração rodar assim, o script pula
+essa automação inteira** — ela vai para o ar com 6 blocos e uma seta, entregando
+`steps[0]` e o braço daquele botão. **Quatro blocos ficam inalcançáveis, e nada
+acusa**, porque o motor entrega o que alcança e cala sobre o resto.
+
+**A conferência certa, então, não é só o número previsto.** Antes de preencher:
+
+- toda automação tem **zero** ligações? Se alguma tiver, ela **não** será
+  migrada — abra no editor e resolva à mão, ou zere a coluna dela de propósito
+- só depois rode com `--aplicar`
+
+Isto vale para qualquer banco, não só para este: a linha `ok … não mexida` é a
+única saída do script que parece sucesso e pode ser perda silenciosa.
 
 ### 4 · Preencha a corrente
 
@@ -144,6 +171,11 @@ confirme que a segunda não muda nada — é a prova barata da idempotência.
 Cada automação tem `blocos − 1` ligações, todas `{"tipo":"sempre"}`, e a corrente
 reproduz a ordem do array de hoje. **Este é o último ponto de volta sem
 consequência para quem usa.**
+
+**Confira automação por automação, não o total.** Uma que ficou de fora por já
+ter ligação (a armadilha do passo 3) some numa soma e aparece numa lista. E
+confira que **todo bloco é alcançável a partir de `steps[0]`** — é o que o motor
+vai fazer, e é a diferença entre "6 blocos gravados" e "6 blocos entregues".
 
 ### 6 · Implante a branch
 
