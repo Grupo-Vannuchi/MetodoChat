@@ -239,10 +239,16 @@ export type Automation = {
   // contrário de `steps` e `ligacoes`, a coluna é `boolean not null default
   // false` — o banco garante a forma, e não há jsonb no meio.
   //
-  // A RESSALVA que o tipo não cobre: enquanto a migração não tiver rodado, a
-  // coluna não existe e o `select *` devolve `undefined` aqui. Quem lê passa por
-  // `Boolean(...)` de propósito, e o `false` que sai é o lado seguro.
-  entrega_sem_portao: boolean;
+  // O `| undefined` NÃO É FROUXIDÃO, É A VERDADE: enquanto a migração não tiver
+  // rodado neste banco a coluna não existe, o `select *` não a traz, e o campo
+  // chega `undefined`. O tipo dizia só `boolean`, e um tipo que promete mais do
+  // que o banco entrega convida a próxima pessoa a apagar o `Boolean(...)` dos
+  // leitores por parecer redundante — que é exatamente a linha que segura o
+  // caso. Com o `| undefined` escrito, apagá-la deixa de compilar.
+  //
+  // QUEM LÊ passa por `Boolean(...)` de propósito, e o `false` que sai é o lado
+  // seguro: a regra do portão contornável continua impedindo publicar.
+  entrega_sem_portao: boolean | undefined;
   created_at: Date;
 };
 
