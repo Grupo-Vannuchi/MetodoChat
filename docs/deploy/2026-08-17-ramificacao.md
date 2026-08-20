@@ -1,8 +1,8 @@
 # Implantação da Fase 2a — ramificação por botões
 
-**Estado:** rascunho. As Tarefas 5 a 8 ainda não terminaram, e o roteiro cresce
-com elas. **A ordem já está fechada** e é o que este documento existe para
-registrar, porque errá-la quebra todas as automações em silêncio.
+**Estado:** as doze tarefas terminaram; falta a revisão final da branch. **A
+ordem já está fechada** e é o que este documento existe para registrar, porque
+errá-la quebra todas as automações em silêncio.
 
 **Branch:** `ramificacao`. **Produção hoje:** Fase 1b, intocada.
 
@@ -77,19 +77,46 @@ Não presuma o que o ensaio a seco de hoje disse — ele foi rodado dias antes.
 - quantas automações há, e quantos blocos cada uma tem?
 - quantas já têm ligações? (devem ser zero)
 
-### 2 · Crie a coluna
+### 2 · Crie as colunas — são DUAS
 
 ```
 node scripts/migrar.mjs              # ensaio a seco, mostra o que faria
 node scripts/migrar.mjs --aplicar    # grava
 ```
 
+**São duas migrações**, e a segunda nasceu na Tarefa 9:
+
+- `001-ligacoes.sql` — `automations.ligacoes`, o mapa de caminhos
+- `002-entrega-sem-portao.sql` — `automations.entrega_sem_portao`, a chave por
+  automação de entregar o link sem exigir o follow. Nasce `false`, que é o
+  comportamento de hoje, então **nenhuma automação muda de veredicto** por causa
+  dela
+
 Ele **confere no banco** depois de aplicar, e não confia no próprio "aplicada" —
 `if not exists` tem sucesso mesmo quando não faz nada, inclusive quando o arquivo
-está errado. Espere ver `automations.ligacoes existe (jsonb, default …)`.
+está errado. Espere ver as duas linhas de `CONFERIDO no banco`.
 
-Ensaio a seco rodado em 17/08 contra o banco real: a coluna **não existe**, e o
-único comando previsto é o `alter table` de `migrations/001-ligacoes.sql`.
+**LEIA O CÓDIGO DE SAÍDA, não só a tela.** Desde a Tarefa 9 o script sai
+diferente de zero quando a migração não faz efeito ou quando a coluna existe
+com forma diferente da esperada — é o que separa "seguiu" de "parou" num roteiro
+executado à mão. Coluna ausente **no ensaio a seco** não conta como falha, de
+propósito.
+
+#### Uma armadilha achada na Tarefa 9, e ela vale para todo deploy futuro
+
+**No banco de desenvolvimento, a coluna `entrega_sem_portao` já existe — e
+ninguém decidiu aplicá-la.** O `npm run dev` de pé recompilou `lib/db.ts` e
+rodou `ensureSchema` na requisição seguinte. Confirmado por `ordinal_position`:
+ela é a coluna 31, a mais alta da tabela.
+
+Ou seja: **enquanto `ensureSchema` existir, editar `lib/db.ts` com um servidor
+de dev de pé É aplicar a migração.** "O script roda em ensaio a seco e para" não
+basta para manter o banco intocado. Contra o banco de dev, `--aplicar` hoje é um
+no-op. **Contra produção, não é** — lá o passo continua obrigatório e continua
+sendo o que quebra o impasse.
+
+É mais um argumento para a Frente 1 de `docs/plans/2026-08-17-esquema-e-harness.md`,
+que tira o esquema de dentro da aplicação.
 
 ### 3 · Ensaio a seco da migração de DADO
 
@@ -170,6 +197,17 @@ de arrasto, e estes ficaram sem medição:
       da Tarefa 7, que é quem cria botões pelo painel
 - [ ] a mensagem **"Salvo, mas ficou pausada: …"** aparece legível e inteira —
       ela estava cortada em 100% dos casos e ganhou bloco próprio na Tarefa 6b
+- [ ] **a chave "entregar sem exigir o follow" CALA a acusação do portão
+      contornável — e só ela.** A Tarefa 9 provou na tela a metade fácil: com um
+      fluxo cujos 8 impedimentos são de outras regras, marcar a caixa deixou os 8
+      **caractere por caractere iguais**. Falta a metade que exige montar a forma:
+      um caminho que chegue ao link sem passar pelo pedido de follow. Desmarcada,
+      a barra tem que acusar e o Salvar tem que deixar pausada; marcada, a mesma
+      automação publica. Montar isso exige **arrastar setas**, que é justamente o
+      gesto que a medição automatizada não alcançou.
+      Fora da tela isso está coberto por 10 testes puros e por três mutações que
+      ficam vermelhas — a estreiteza é a parte mais medida desta fase. O que falta
+      é ver com os olhos.
 
 **E meça durante o gesto, não antes e depois.** Nesta base a comparação
 antes/depois já aprovou item quebrado quatro vezes, porque o defeito preservava o
@@ -191,8 +229,9 @@ papel.
 
 ## Como voltar atrás
 
-**Antes do passo 6**, é só não implantar: a coluna `ligacoes` preenchida não é
-lida por nenhum código no ar. A Fase 1b ignora a coluna inteira.
+**Antes do passo 6**, é só não implantar: as duas colunas novas não são lidas
+por nenhum código no ar. A Fase 1b ignora `ligacoes` e `entrega_sem_portao`
+inteiras.
 
 **Depois do passo 6**, voltar a aplicação para o commit anterior devolve o
 comportamento antigo — a coluna fica no banco e é ignorada, exatamente como antes
