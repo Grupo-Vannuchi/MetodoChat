@@ -239,12 +239,16 @@ export type Automation = {
   // contrário de `steps` e `ligacoes`, a coluna é `boolean not null default
   // false` — o banco garante a forma, e não há jsonb no meio.
   //
-  // O `| undefined` NÃO É FROUXIDÃO, É A VERDADE: enquanto a migração não tiver
-  // rodado neste banco a coluna não existe, o `select *` não a traz, e o campo
-  // chega `undefined`. O tipo dizia só `boolean`, e um tipo que promete mais do
-  // que o banco entrega convida a próxima pessoa a apagar o `Boolean(...)` dos
+  // O `| undefined` NÃO É FROUXIDÃO, É A REDE: os quatro leitores desta coluna
+  // (`app/automacoes/page.tsx`, `app/automacoes/[id]/page.tsx` e as duas
+  // consultas de `lib/engine.ts`) são `select *` atrás de `ensureSchema()`, que
+  // já garante a coluna — o mesmo caminho que o achado M2 declarou inalcançável
+  // em `app/automacoes/[id]/page.tsx`; hoje o campo NÃO chega `undefined` por
+  // nenhum deles. O tipo dizia só `boolean`, e um tipo que promete mais do que
+  // o banco garante convida a próxima pessoa a apagar o `Boolean(...)` dos
   // leitores por parecer redundante — que é exatamente a linha que segura o
-  // caso. Com o `| undefined` escrito, apagá-la deixa de compilar.
+  // caso se um leitor novo aparecer sem passar por `ensureSchema()`. Com o
+  // `| undefined` escrito, apagá-la deixa de compilar.
   //
   // QUEM LÊ passa por `Boolean(...)` de propósito, e o `false` que sai é o lado
   // seguro: a regra do portão contornável continua impedindo publicar.
