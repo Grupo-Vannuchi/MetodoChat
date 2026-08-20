@@ -13,11 +13,13 @@ import {
   IconMail,
   IconMic,
   IconPhone,
+  IconSend,
   IconSmile,
   IconTap,
   IconUsers,
   IconVideo,
   IconWifi,
+  IconZap,
 } from "../../icons";
 import { roteiro, type Bolha, type Cena } from "./roteiro";
 
@@ -169,7 +171,15 @@ function Menu({ botoes }: { botoes: { rotulo: string; escolhido: boolean }[] }) 
               : "border-[#3797f0]/60 bg-[#3797f0]/10 text-[#3797f0]"
           }`}
         >
-          {b.rotulo || <Vazio texto="sem rótulo" />}
+          {/* SEM `Vazio` AQUI, e a exceção é de CONTRASTE, não de estilo.
+              `Vazio` pinta `text-zinc-500`, e a pílula ESCOLHIDA é
+              `bg-[#3797f0]` sólido: cinza sobre azul cheio. O caso não é
+              hipotético — é o do teste `botão escolhido SEM rótulo`, em que a
+              pílula marcada é justamente a que não tem texto, e era ali que a
+              frase ficava ilegível. Herdando a cor da pílula, ela sai branca na
+              sólida e azul na vazada, e o itálico com opacidade continua
+              dizendo que aquilo não é texto do dono. */}
+          {b.rotulo || <span className="italic opacity-70">sem rótulo</span>}
         </span>
       ))}
     </span>
@@ -257,6 +267,38 @@ function Marca({
   );
 }
 
+// COMO A CONVERSA SEGUIU, quando ela não seguiu por um toque em botão.
+//
+// É MARCA, E NÃO BOLHA, e o motivo está por extenso em `Bolha.retomada`
+// (./roteiro): a bolha da direita é o que A PESSOA MANDA, e nestes dois casos a
+// prévia não tem o texto dela para pôr lá. Inventar um mostraria uma mensagem
+// que ninguém mandou; esconder o passo escondia o BLOCO INTEIRO, e é esse o
+// defeito que esta marca veio corrigir.
+//
+// O ENQUADRAMENTO É O DE `Marca` — a caixa tracejada e apagada das coisas que
+// não são mensagem —, e de propósito NÃO é o de `Parada`. As três paradas são
+// âmbar ou teal porque ali o fluxo PREGA; pintar estas duas da mesma cor diria
+// que elas travam alguma coisa, quando elas dizem o contrário: é por aqui que
+// ele volta a andar.
+//
+// QUAL DAS DUAS SAI É DECISÃO DE `./roteiro`, com teste. Aqui só se pinta — e a
+// `sempre` de um bloco COMUM não chega aqui nunca, porque nela não há o que
+// contar: é a conversa seguindo.
+const RETOMADA = {
+  digitou: {
+    icone: <IconSend className="h-3 w-3 shrink-0" />,
+    titulo: "quem respondeu digitando",
+    texto:
+      "Esta é a conversa de quem escreve em vez de tocar num botão. O texto é dela, e por isso a prévia não o mostra.",
+  },
+  continuacao: {
+    icone: <IconZap className="h-3 w-3 shrink-0" />,
+    titulo: "continuação do menu",
+    texto:
+      "Ninguém tocou em botão nenhum: é por aqui que o fluxo segue quando ele é retomado sem saber onde a pessoa parou.",
+  },
+} as const;
+
 // O QUE O CARTÃO DO POST DIZ SOBRE UMA RESPOSTA PÚBLICA. A frase é montada
 // aqui, mas os NÚMEROS e a SITUAÇÃO vêm de `./roteiro`, que é puro e testado —
 // a decisão de conteúdo é de lá, a redação é daqui.
@@ -324,6 +366,18 @@ function Item({ bolha, conta }: { bolha: Bolha; conta: ContaDaPrevia }) {
 
     case "resposta":
       return <Enviada>{bolha.texto}</Enviada>;
+
+    // A CONVERSA SEGUIU SEM TOQUE. Fica logo abaixo da parada, e é o que
+    // impede a prévia de mostrar um menu com a parada desenhada, nenhuma
+    // pílula marcada, e a conversa continuando mesmo assim.
+    case "retomada": {
+      const r = RETOMADA[bolha.via];
+      return (
+        <Marca icone={r.icone} titulo={r.titulo}>
+          {r.texto}
+        </Marca>
+      );
+    }
 
     case "tempo":
       return <Legenda icone={<IconClock className="h-2.5 w-2.5" />}>{bolha.texto}</Legenda>;

@@ -43,8 +43,10 @@ import {
   esperaResposta,
   identidadeDoPasso,
   indiceDoId,
+  ligacaoEscolhida,
   ligacoesDe,
   seguinteDe,
+  type Quando,
 } from "@/lib/steps";
 
 // O que a prévia desenha. Cada item é uma coisa na tela, na ordem em que ela
@@ -80,6 +82,27 @@ export type Bolha =
   // nada até a pessoa fazer alguma coisa.
   | { tipo: "parada"; motivo: "toque" | "follow" | "email" }
   | { tipo: "resposta"; texto: string }
+  // POR QUE A CONVERSA SEGUIU, quando ela não seguiu por um toque em botão.
+  //
+  // É MARCA, E NÃO BOLHA, e a diferença é a razão inteira de este tipo existir.
+  // A prévia desenha à direita o que A PESSOA MANDA, e nestes dois casos ela não
+  // mandou nada que esta tela conheça: no `digitou` ela escreveu um texto que só
+  // ela sabe, e no `continuacao` não houve gesto nenhum. Pôr qualquer um dos
+  // dois num balão azul inventaria uma mensagem que ninguém mandou — e deixá-los
+  // de fora escondia o bloco inteiro, que é o defeito que este tipo veio
+  // corrigir. A marca diz o caminho sem inventar o texto.
+  //
+  //   `digitou`     — a `senao`. Quem responde ESCREVENDO em vez de tocar segue
+  //                   por aqui, e quem resolve isso no motor é
+  //                   `retomadaDoTexto` (lib/steps.ts).
+  //   `continuacao` — a `sempre` DE UM MENU, e só dela: num bloco sem botões a
+  //                   `sempre` é a conversa simplesmente seguindo, e marcar toda
+  //                   continuação encheria de ruído o fluxo mais comum que
+  //                   existe. Num menu ela é outra coisa — o caminho das
+  //                   retomadas que não sabem qual foi o gesto
+  //                   (`retomadaDoBotao` e `retomadaDoFallback`, lib/steps.ts) —,
+  //                   e é isso que a marca conta.
+  | { tipo: "retomada"; via: "digitou" | "continuacao" }
   // `esperar` não é mensagem: é uma marca de tempo entre os balões.
   | { tipo: "tempo"; texto: string }
   // Estas duas NÃO são DM, e é por isso que têm tipo próprio em vez de virarem
@@ -192,47 +215,114 @@ export function textoDoTempo(minutos: number): string {
 // ---------------------------------------------------------------------------
 
 // Uma saída de um bloco DO PONTO DE VISTA DA PRÉVIA: para onde a conversa
-// segue, e por qual botão — `null` quando não passa por botão nenhum.
-type Saida = { para: string; botao: string | null };
+// segue, e POR QUE GESTO ela segue.
+//
+// O `quando` É A CONDIÇÃO INTEIRA, e não mais só o id do botão. Ele passou a
+// ser preciso quando a prévia deixou de percorrer apenas botão e `sempre`: a
+// cena tem de DIZER por que a conversa continuou, e "tocou no botão X",
+// "digitou alguma coisa" e "o fluxo foi retomado sem saber onde a pessoa parou"
+// são três respostas diferentes que a tela não pode confundir numa só.
+type Saida = { para: string; quando: Quando };
 
-// POR ONDE A CONVERSA DESENHADA PODE SEGUIR, na ordem em que as setas foram
-// gravadas.
+// POR ONDE A CONVERSA DESENHADA PODE SEGUIR, na ordem em que O MOTOR prefere as
+// setas.
 //
-// É a peça que decide o formato do caminho, e ela tem UMA regra por tipo de
-// bloco — a mesma divisão que `retomaPelaSempre` (lib/steps.ts) faz no motor:
+// A REGRA DESTA FUNÇÃO É A DA FASE, DITA PELO AVESSO. A Tarefa 7 fixou que o
+// quadro não pode desenhar uma seta que promete um caminho que o motor não
+// percorre; a pergunta simétrica foi medida na revisão da Tarefa 8, e a resposta
+// é que A PRÉVIA NÃO PODE ESCONDER UM CAMINHO QUE O MOTOR PERCORRE. Esta função
+// escondia dois, e os dois estão registrados mais abaixo.
 //
-//   MENU (`dm` com `botoes`) → as ligações de BOTÃO, todas, em ordem. Um menu
-//     inteiramente ligado não tem `sempre` nenhuma saindo, e perguntar
-//     `seguinteDe` a ele diria "acabou aqui" sobre todo menu certo do produto.
-//     Quem resolve o toque no motor é `ligacaoEscolhida(..., {tipo:"botao"})`,
-//     e são essas setas que ela consulta.
-//   QUALQUER OUTRO → a `sempre`, por `seguinteDe`. É a mesma seta que
-//     `interpretar` percorre sozinha.
+// ELA DEVOLVE TODAS AS SETAS QUE O MOTOR PERCORRE a partir do bloco, e nenhuma
+// que ele não percorra. NENHUMA DELAS É REESCRITA AQUI: cada uma sai da MESMA
+// função de lib/steps.ts que o motor consulta, que é a regra deste arquivo.
 //
-// A `senao` FICA DE FORA DOS DOIS, e essa é a única exclusão desta função. Ela
-// é a seta de quem RESPONDEU DIGITANDO (`retomadaDoTexto`, lib/steps.ts), e a
-// prévia desenha a conversa de quem TOCA: não há como pôr no balão da direita um
-// texto que a pessoa ainda não escreveu, e inventá-lo seria a prévia mostrando
-// uma mensagem que ninguém mandou. A consequência, dita porque é escolha: um
-// bloco alcançável SÓ pela `senao` aparece como bloco solto quando aberto no
-// painel — só ele, sem tronco.
+//   TOQUE, só em MENU (`dm` com `botoes`) -> as ligações de BOTÃO, todas, em
+//     ordem. Um menu inteiramente ligado não precisa de `sempre` nenhuma, e
+//     perguntar só `seguinteDe` a ele diria "acabou aqui" sobre todo menu certo
+//     do produto. Quem resolve o toque no motor é
+//     `ligacaoEscolhida(..., {tipo:"botao"})`, e são essas setas que ela lê.
+//   DIGITOU -> a `senao`, por `ligacaoEscolhida(..., {tipo:"texto"})`. É a
+//     PRIMEIRA escolha de `retomadaDoTexto`, e esta é a mesma chamada.
+//   CONTINUAÇÃO -> a `sempre`, por `seguinteDe`. É a seta que `interpretar`
+//     percorre sozinha, é onde `retomadaDoTexto` cai pelo `?? seguinteDe`
+//     quando não há `senao`, e é por onde saem `retomadaDoBotao` e
+//     `retomadaDoFallback`.
 //
-// O BLOCO QUE `conferir` RECUSA cai no ramo da `sempre`, e é o certo: um bloco
-// incompleto não tem `botoes` em que confiar, mas a seta que ATRAVESSA ele
+// A ORDEM É A DE `retomadaDoTexto`, e ela depende de o bloco PARAR ou não —
+// quem responde isso é `esperaResposta`, como em todo o resto deste arquivo, e
+// não uma cópia da regra escrita aqui:
+//
+//   O BLOCO QUE PARA tem a `senao` ANTES da `sempre`, porque essa é a ordem do
+//     `?? seguinteDe`: quem digita segue a `senao` sempre que ela existe. Todo
+//     menu para, então a `sempre` de um menu é a ÚLTIMA da lista — que é o lugar
+//     dela, já que ela só serve às retomadas que não sabem qual foi o gesto.
+//   O BLOCO QUE NÃO PARA tem a `sempre` ANTES, porque `interpretar` a percorre
+//     sozinha e ninguém fica parado ali para digitar. A `senao` dele é
+//     produzível — um menu que perdeu os botões a deixa para trás, e
+//     `indiceDaAlca` (./modelos) registra o caso —, e fica no fim.
+//
+// A `senao` DE UM `pedir_follow` NÃO ENTRA, E É A ÚNICA EXCLUSÃO QUE SOBROU.
+// Ela não é escolha desta tela: `retomadaDoTexto` retoma o portão DELE MESMO,
+// com ou sem `senao`, e o comentário dela diz por quê — bastaria mandar "ok"
+// para receber o link sem seguir. Uma prévia que desenhasse esse braço mostraria
+// ao dono uma porta dos fundos que o motor recusa, que é exatamente o defeito da
+// Tarefa 7 acontecendo nesta tela em vez de no quadro.
+//
+// O QUE ELA ESCONDIA, e os dois foram medidos antes de serem consertados:
+//
+//   A `sempre` DE UM MENU. O ramo do menu devolvia SÓ as ligações de botão, e o
+//     comentário antigo afirmava que a `senao` era "a única exclusão desta
+//     função" — a segunda exclusão estava no código e não estava escrita. E ela
+//     não é seta morta: o comentário de `conferirLista` (lib/steps.ts) mede isso
+//     por extenso, e `retomadaDoTexto` cai nela pelo `?? seguinteDe` quando não
+//     há `senao`. Medido, com o menu INTEIRAMENTE ligado e uma `sempre` saindo
+//     dele: o motor entrega `{portao:null, destino:"b_smp004"}`, a conferência
+//     devolve `[]` — nem erro, nem aviso — e a prévia desenhava `["b_smp004"]`,
+//     um bloco solto. O motor entregava, a conferência calava, e a prévia dizia
+//     que o bloco não era de fluxo nenhum.
+//   A `senao` DE QUALQUER BLOCO. O comentário antigo dizia que inventar o texto
+//     digitado "seria a prévia mostrando uma mensagem que ninguém mandou", e
+//     aceitava em troca o bloco invisível. As duas metades caíram. A prévia não
+//     precisa inventar mensagem nenhuma para desenhar esse passo, porque ele é
+//     uma MARCA e não uma bolha (`Bolha.retomada`, lá em cima); e o argumento já
+//     estava falsificado por ESTE arquivo, onde `EMAIL_DE_EXEMPLO` é empurrado
+//     como `{tipo:"resposta"}` há tarefas. As outras três superfícies do MESMO
+//     painel já tratavam o bloco da `senao` como parte do fluxo: o quadro
+//     desenha a seta, na alça "digitou"; o motor entrega
+//     (`retomadaDoTexto` -> o destino da `senao`); e a conferência o trata como
+//     rio abaixo da entrada — ela NÃO diz "Nenhuma seta chega neste bloco",
+//     porque `haCaminho` conta TODAS as condições. Três de quatro concordavam,
+//     e a prévia era a dissidente na mesma tela.
+//
+// O BLOCO QUE `conferir` RECUSA continua sem ramo de botões, e é o certo: um
+// bloco incompleto não tem `botoes` em que confiar, mas a seta que ATRAVESSA ele
 // continua existindo, e cortar o caminho ali esconderia toda a cauda do fluxo
 // por causa de um campo vazio.
 function saidasMostradas(passos: unknown, ligacoes: unknown, id: string): Saida[] {
   const i = indiceDoId(passos, id);
   const passo = i === null ? undefined : conferir((passos as unknown[])[i]).passo;
+
+  const porToque: Saida[] = [];
   if (passo && passo.tipo === "dm" && envioDaDm(passo).forma === "botoes") {
-    const saidas: Saida[] = [];
     for (const l of ligacoesDe(ligacoes, id)) {
-      if (l.quando.tipo === "botao") saidas.push({ para: l.para, botao: l.quando.botao });
+      if (l.quando.tipo === "botao") porToque.push({ para: l.para, quando: l.quando });
     }
-    return saidas;
   }
+
+  const digitou =
+    passo && passo.tipo === "pedir_follow"
+      ? null
+      : ligacaoEscolhida(ligacoes, id, { tipo: "texto" });
+  const porTexto: Saida[] = digitou === null ? [] : [{ para: digitou, quando: { tipo: "senao" } }];
+
   const sempre = seguinteDe(ligacoes, id);
-  return sempre === null ? [] : [{ para: sempre, botao: null }];
+  const porContinuacao: Saida[] =
+    sempre === null ? [] : [{ para: sempre, quando: { tipo: "sempre" } }];
+
+  return passo && esperaResposta(passo)
+    ? [...porToque, ...porTexto, ...porContinuacao]
+    : [...porToque, ...porContinuacao, ...porTexto];
 }
 
 // O CAMINHO DA ENTRADA ATÉ O BLOCO ABERTO NO PAINEL. `null` quando não há
@@ -318,21 +408,28 @@ function seguindoDe(
   }
 }
 
-// QUAL BOTÃO LEVA DAQUI PARA O PRÓXIMO BLOCO DO CAMINHO. `null` quando a
-// conversa não segue por botão nenhum.
+// POR ONDE O CAMINHO SAI DAQUI PARA O PRÓXIMO BLOCO DELE. `null` no último
+// bloco mostrado, e também quando o próximo bloco não é alcançável a partir
+// deste — uma seta citando id que não está na lista, por exemplo.
 //
-// Dois botões ligados ao mesmo destino devolvem o primeiro — a mesma regra de
+// ELA DEVOLVE A SAÍDA INTEIRA, e não só o botão, desde a revisão da Tarefa 8. É
+// o que diz qual pílula do menu aparece marcada, e é também o que diz à cena que
+// a conversa seguiu SEM toque nenhum — por quem digitou, ou por uma retomada que
+// não soube qual foi o gesto. As duas perguntas se respondem com a mesma busca,
+// e separá-las em duas funções faria a tela consultar o grafo duas vezes para
+// desenhar um bloco só.
+//
+// Duas saídas para o mesmo destino devolvem a primeira — a mesma regra de
 // desempate de tudo o mais aqui, e o caso é produzível pela tela: duas opções
 // que dão no mesmo lugar.
-function botaoDaSaida(
+function saidaDoCaminho(
   passos: unknown,
   ligacoes: unknown,
   de: string,
   para: string | null
-): string | null {
+): Saida | null {
   if (para === null) return null;
-  for (const s of saidasMostradas(passos, ligacoes, de)) if (s.para === para) return s.botao;
-  return null;
+  return saidasMostradas(passos, ligacoes, de).find((s) => s.para === para) ?? null;
 }
 
 // A conversa que este fluxo produz NO CAMINHO DO BLOCO SELECIONADO.
@@ -452,9 +549,18 @@ export function roteiro(
       continue;
     }
 
-    // Para onde a conversa segue DEPOIS deste bloco. É o que diz qual botão de
-    // um menu está sendo mostrado — e `null` no último bloco do caminho.
+    // Para onde a conversa segue DEPOIS deste bloco, e POR QUE GESTO. É o que
+    // diz qual botão de um menu está sendo mostrado, e — quando não foi por
+    // toque — qual marca fecha a cena. `null` no último bloco do caminho.
     const proximo = caminho[k + 1] ?? null;
+    const saida = saidaDoCaminho(passos, ligacoes, id, proximo);
+
+    // SE ESTE BLOCO É UM MENU, e a pergunta é feita aqui porque as duas
+    // respostas que dependem dela ficam em lugares diferentes: o ramo `dm`, logo
+    // abaixo, e a marca da retomada, no fim do laço. `envioDaDm` é pura, e
+    // chamá-la duas vezes custa menos do que carregar a resposta para fora do
+    // `switch` num `let`.
+    const ehMenu = passo.tipo === "dm" && envioDaDm(passo).forma === "botoes";
 
     const itens: Bolha[] = [];
 
@@ -501,7 +607,12 @@ export function roteiro(
         // um menu para o fluxo é lib/steps.ts, não uma cópia da regra escrita
         // nesta tela.
         if (envio.forma === "botoes") {
-          const escolhido = botaoDaSaida(passos, ligacoes, id, proximo);
+          // O BOTÃO PELO QUAL A CONVERSA SEGUE — e `null` quando ela segue por
+          // outra coisa. Desde a revisão da Tarefa 8 a saída do caminho pode ser
+          // a `senao` ou a `sempre` do menu, e nesses dois casos NENHUMA pílula
+          // é marcada: não houve toque. Quem diz o que houve, então, é a marca
+          // que fecha a cena, no fim do laço.
+          const escolhido = saida?.quando.tipo === "botao" ? saida.quando.botao : null;
           itens.push({ tipo: "balao", texto: passo.texto, botao: null, link: false });
           itens.push({
             tipo: "botoes",
@@ -645,6 +756,26 @@ export function roteiro(
           alvo: gatilho === "story" ? "story" : gatilho === "dm" ? "mensagem" : "nenhum",
         });
         break;
+    }
+
+    // A MARCA DE COMO A CONVERSA SEGUIU, quando ela não seguiu por um toque.
+    //
+    // ELA FECHA A CENA, depois da parada, e a ordem é a informação: primeiro a
+    // tela diz que o fluxo PARA ali, e só então por qual porta ele voltou a
+    // andar. Sem ela o menu apareceria com a parada desenhada, nenhuma pílula
+    // marcada, e a conversa continuando mesmo assim — a prévia mostrando o
+    // caminho certo e calando o motivo dele, que é a metade do defeito que esta
+    // correção veio resolver. A outra metade era o caminho não aparecer.
+    //
+    // A `sempre` DE QUEM NÃO É MENU NÃO GANHA MARCA, e é a única assimetria
+    // daqui: num bloco comum ela é a conversa simplesmente seguindo, e marcar
+    // toda continuação encheria de ruído o fluxo mais comum que existe — a
+    // corrente que a migração gravou em toda automação que já existia. Num menu
+    // ela é outra coisa, e o comentário de `Bolha.retomada` diz o quê.
+    if (saida?.quando.tipo === "senao") {
+      itens.push({ tipo: "retomada", via: "digitou" });
+    } else if (saida?.quando.tipo === "sempre" && ehMenu) {
+      itens.push({ tipo: "retomada", via: "continuacao" });
     }
 
     cenas.push({ id, itens });
