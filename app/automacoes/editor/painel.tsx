@@ -5,7 +5,7 @@ import type { Picked } from "../types";
 import { comoTexto, resumoDoBloco } from "./modelos";
 import MessageField from "../variable-picker";
 import MediaPicker from "../media-picker";
-import { input, label as labelCls, hint as hintCls } from "../../ui";
+import { input, label as labelCls, hint as hintCls, alertWarn } from "../../ui";
 
 // Os campos do bloco selecionado.
 //
@@ -793,11 +793,36 @@ export default function Painel({
                   />
                   Entregar o link sem exigir que a pessoa siga
                 </label>
-                <p className={hintCls}>
-                  {configuracao.entregaSemPortao
-                    ? "Marcada: ninguém mais avisa se o fluxo entregar o link a quem não segue o perfil. O pedido de follow continua funcionando nos caminhos em que você o desenhou — o que muda é que esta automação pode ir ao ar com um caminho que passa por fora dele."
-                    : "Desmarcada, esta automação não vai ao ar enquanto houver um caminho que chegue ao link sem passar pelo pedido de follow. Marque só se entregar sem exigir o follow for o que você quer: marcada, ninguém mais avisa."}
-                </p>
+                {/* OS DOIS ESTADOS NÃO PESAM IGUAL, e até a revisão da Tarefa 9
+                    eles pesavam: as duas frases saíam em `hintCls`, o mesmo
+                    cinza pequeno de "Só você vê esse nome, na lista de
+                    automações." A frase da caixa MARCADA é a mais consequente
+                    deste painel — é a que diz que ninguém mais avisa —, e era
+                    a que menos se distinguia de uma dica de preenchimento.
+
+                    MARCADA sai em `alertWarn`, que é o âmbar de atenção que
+                    esta base já usa em todo lugar (app/ui.ts) — cor, moldura e
+                    `text-sm` em vez de `text-xs`. DESMARCADA continua em
+                    `hintCls`, porque ela descreve o estado inofensivo: a
+                    conferência ligada, que é o padrão.
+
+                    O NEGRITO É NA ORAÇÃO, e não na frase toda: negritar tudo
+                    não destaca nada, e o que o dono precisa levar da tela é
+                    justamente "ninguém mais avisa". */}
+                {configuracao.entregaSemPortao ? (
+                  <p className={`${alertWarn} mt-2 leading-relaxed`}>
+                    Marcada: <strong className="font-semibold">ninguém mais avisa</strong> se o
+                    fluxo entregar o link a quem não segue o perfil. O pedido de follow continua
+                    funcionando nos caminhos em que você o desenhou — o que muda é que esta
+                    automação pode ir ao ar com um caminho que passa por fora dele.
+                  </p>
+                ) : (
+                  <p className={hintCls}>
+                    Desmarcada, esta automação não vai ao ar enquanto houver um caminho que chegue
+                    ao link sem passar pelo pedido de follow. Marque só se entregar sem exigir o
+                    follow for o que você quer: marcada, ninguém mais avisa.
+                  </p>
+                )}
               </div>
             </>
           )}
