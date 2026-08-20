@@ -897,8 +897,17 @@ describe("roteiro — o caminho mostrado", () => {
   // `conferirLista` (lib/steps.ts): `retomadaDoTexto` cai nela pelo
   // `?? seguinteDe` quando não há `senao`, e `retomadaDoBotao` e
   // `retomadaDoFallback` saem por ela sempre. Medido neste grafo, com o menu
-  // inteiramente ligado: o motor entrega `b_smp004`, a conferência devolve `[]`
-  // — nem erro, nem aviso — e a prévia desenhava só `["b_smp004"]`.
+  // inteiramente ligado: o motor entrega `b_smp004` e a prévia desenhava só
+  // `["b_smp004"]`, um bloco solto.
+  //
+  // A CONFERÊNCIA NÃO CALA NESTE GRAFO, e a versão anterior deste comentário
+  // dizia que ela devolvia "`[]` — nem erro, nem aviso". Medido: o menu aqui tem
+  // UM botão só, e `conferirLista` (lib/steps.ts) dá AVISO por isso ("Esta
+  // bifurcação tem um botão só..."). O aviso é sobre o botão único, e não sobre a
+  // `sempre` escondida — a conferência continua sem ter o que dizer sobre a seta
+  // que a prévia omitia —, mas a frase como estava era falsa sobre a saída da
+  // função. O grafo em que ela realmente devolve `[]` é o do CRÍTICO A, mais
+  // abaixo, com o menu que virou link.
   it("a `sempre` de um MENU entra no caminho, com a marca da retomada", () => {
     const passos = [
       {
@@ -939,19 +948,76 @@ describe("roteiro — o caminho mostrado", () => {
   // `esperaResposta` (lib/steps.ts) — a mesma fonte que decide a parada, e não
   // uma cópia da regra escrita na prévia.
   describe("a ordem entre `senao` e `sempre`", () => {
-    // O BLOCO QUE NÃO PARA segue pela `sempre`: `interpretar` a percorre
-    // sozinha, e ninguém fica parado ali para digitar coisa nenhuma.
-    it("num bloco que NÃO para, a `sempre` vem antes da `senao`", () => {
+    // O BLOCO QUE NÃO PARA NÃO TEM `senao` NENHUMA — e a versão anterior deste
+    // teste só perguntava a ORDEM, com a `sempre` presente para ganhar dela.
+    // Assim ele ficava verde com a `senao` na lista, bastando estar no fim: no
+    // fim ainda é percorrida quando não sobra mais nada.
+    //
+    // AQUI NÃO HÁ `sempre` PARA GANHAR DELA, e é isso que discrimina. Medido no
+    // motor com este mesmo grafo: `interpretar` enfileira `b_um00001` e devolve
+    // `pararEm: null` — o fluxo ACABA ali, ninguém fica parado para digitar, e
+    // `retomadaDoTexto` (o único ponto que lê esta `senao`) só é chamada do ramo
+    // do CURSOR. A prévia desenhava `b_sen001` e ainda fechava a cena com a marca
+    // "quem respondeu digitando", afirmando um gesto que não existe.
+    it("num bloco que NÃO para, a `senao` não entra nem quando é a única saída", () => {
       const passos = [
         { id: "b_um00001", tipo: "dm", texto: "Oi" },
-        { id: "b_smp001", tipo: "dm", texto: "Continuação" },
         { id: "b_sen001", tipo: "dm", texto: "Quem digitou" },
       ] as Passo[];
       const so: Ligacao[] = [
         { de: "b_um00001", quando: { tipo: "senao" }, para: "b_sen001" },
-        { de: "b_um00001", quando: { tipo: "sempre" }, para: "b_smp001" },
       ];
-      expect(trilha(cenasCom(passos, so, null))).toEqual(["b_um00001", "b_smp001"]);
+      const cenas = cenasCom(passos, so, null);
+      expect(trilha(cenas)).toEqual(["b_um00001"]);
+      // E nenhuma marca: não houve retomada nenhuma a contar.
+      expect(cenas[0].itens.some((b) => b.tipo === "retomada")).toBe(false);
+    });
+
+    // O GUARDA-COSTAS DO ANEL: a cauda pula a saída que repete (`seguindoDe`),
+    // então numa corrente que volta para si mesma a `senao` de um bloco que não
+    // para era a próxima da fila — e a prévia caía nela. É o mesmo defeito por
+    // um caminho que não precisa de menu nenhum.
+    it("num anel de `sempre`, a `senao` de um bloco que não para continua fora", () => {
+      const passos = [
+        { id: "b_um00001", tipo: "dm", texto: "Um" },
+        { id: "b_dois001", tipo: "dm", texto: "Dois" },
+        { id: "b_sen001", tipo: "dm", texto: "Quem digitou" },
+      ] as Passo[];
+      const so: Ligacao[] = [
+        { de: "b_um00001", quando: { tipo: "sempre" }, para: "b_dois001" },
+        { de: "b_dois001", quando: { tipo: "sempre" }, para: "b_um00001" },
+        { de: "b_dois001", quando: { tipo: "senao" }, para: "b_sen001" },
+      ];
+      expect(trilha(cenasCom(passos, so, null))).toEqual(["b_um00001", "b_dois001"]);
+    });
+
+    // A `sempre` DE UM BLOCO QUE NÃO PARA VEM ANTES DO BRAÇO DO BOTÃO, e a
+    // pergunta só passou a existir quando o toque deixou de exigir `forma ===
+    // "botoes"` (o CRÍTICO A, logo abaixo). `interpretar` percorre a `sempre`
+    // SOZINHA, no mesmo disparo, para todo mundo; o braço do botão de um bloco
+    // que não para só acende se alguém tocar depois num botão congelado. Pôr o
+    // caso raro na frente mostraria ao dono como conversa o que é a exceção.
+    it("num bloco que NÃO para, a `sempre` vem antes do braço do botão congelado", () => {
+      const passos = [
+        {
+          id: "b_menu001",
+          tipo: "dm",
+          texto: "Virou link",
+          url: "https://exemplo.com",
+          botoes: [{ id: "op_aaaaaa", rotulo: "A" }],
+        },
+        { id: "b_smp001", tipo: "dm", texto: "Continuação" },
+        { id: "b_toca001", tipo: "dm", texto: "Quem tocou" },
+      ] as Passo[];
+      // O botão está gravado PRIMEIRO de propósito: quem manda na ordem é o
+      // gesto, não a gravação.
+      const so: Ligacao[] = [
+        { de: "b_menu001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_toca001" },
+        { de: "b_menu001", quando: { tipo: "sempre" }, para: "b_smp001" },
+      ];
+      expect(trilha(cenasCom(passos, so, null))).toEqual(["b_menu001", "b_smp001"]);
+      // E o braço do botão continua sendo caminho: abrir `b_toca001` o alcança.
+      expect(trilha(cenasCom(passos, so, "b_toca001"))).toEqual(["b_menu001", "b_toca001"]);
     });
 
     // O BLOCO QUE PARA segue pela `senao`, porque é essa a ordem do
@@ -990,6 +1056,155 @@ describe("roteiro — o caminho mostrado", () => {
     // O link continua sendo bloco solto na prévia, como é no motor.
     expect(trilha(cenasCom(passos, so, "b_link01"))).toEqual(["b_link01"]);
     expect(trilha(cenasCom(passos, so, null))).toEqual(["b_port01"]);
+  });
+
+  // O BLOCO QUE DEIXOU DE SER MENU — o CRÍTICO A, e ele é o defeito das duas
+  // correções anteriores acontecendo num vizinho.
+  //
+  // O ramo do toque de `saidasMostradas` exigia `envioDaDm(passo).forma ===
+  // "botoes"`, e O MOTOR NÃO PERGUNTA ISSO: `caminhoDoBotao` (lib/steps.ts) lê
+  // `ligacaoEscolhida(..., {tipo:"botao"})` do bloco que veio no payload e
+  // confere só se o DESTINO está na lista. O porquê está em `cursorDaRetomada`,
+  // ao lado dela — o botão fica congelado na conversa desde o dia em que foi
+  // entregue e continua tocável para sempre.
+  //
+  // UM GESTO PRODUZ O CASO: digitar uma URL num menu já ligado. `envioDaDm` dá
+  // precedência a `url` sobre `botoes`, `apagarBotao` (../app/automacoes/editor/
+  // modelos) não roda, e as ligações de botão ficam para trás.
+  //
+  // MEDIDO, neste mesmo grafo, antes do conserto:
+  //   prévia sem seleção      = ["b_menu001","b_digit01"]  (o braço do botão sumiu)
+  //   prévia com b_toca001    = ["b_toca001"]              (bloco solto)
+  //   caminhoDoBotao(op_aaaaaa) -> {portao:null, destino:"b_toca001"}
+  //   conferirLista(...)      = []                          (nem erro, nem aviso)
+  // Motor entrega, conferência cala, prévia esconde.
+  it("um menu que virou LINK continua percorrendo o braço do botão congelado", () => {
+    const passos = [
+      {
+        id: "b_menu001",
+        tipo: "dm",
+        texto: "Escolha",
+        url: "https://exemplo.com",
+        botoes: [{ id: "op_aaaaaa", rotulo: "Quero" }],
+      },
+      { id: "b_toca001", tipo: "dm", texto: "Quem tocou" },
+    ] as Passo[];
+    const so: Ligacao[] = [
+      { de: "b_menu001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_toca001" },
+    ];
+    const cenas = cenasCom(passos, so, null);
+    expect(trilha(cenas)).toEqual(["b_menu001", "b_toca001"]);
+    // E O BLOCO NÃO DESENHA PÍLULA NENHUMA: ele não é mais um menu, então não há
+    // `botoes` na cena e não há rótulo a marcar. O braço aparece sem dizer por
+    // qual botão saiu — é o preço de não esconder o que o motor entrega, e está
+    // anotado no comentário de `Bolha.botoes` (./roteiro).
+    expect(cenas[0].itens).toEqual([
+      { tipo: "balao", texto: "Escolha", botao: "Abrir link", link: true },
+    ]);
+  });
+
+  // A `senao` DE UM BLOCO QUE NÃO PARA NÃO ROUBA O BRAÇO DO BOTÃO, e este é o
+  // grafo em que os dois Críticos se cruzam: o mesmo bloco tem as duas setas.
+  // Antes do conserto a prévia percorria a `senao` (seta morta) e escondia o
+  // botão (seta viva) — as duas direções da regra erradas de uma vez.
+  it("no mesmo bloco, o braço do botão entra e o da `senao` fica fora", () => {
+    const passos = [
+      {
+        id: "b_menu001",
+        tipo: "dm",
+        texto: "Escolha",
+        url: "https://exemplo.com",
+        botoes: [{ id: "op_aaaaaa", rotulo: "Quero" }],
+      },
+      { id: "b_toca001", tipo: "dm", texto: "Quem tocou" },
+      { id: "b_digit01", tipo: "dm", texto: "Quem digitou" },
+    ] as Passo[];
+    const so: Ligacao[] = [
+      { de: "b_menu001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_toca001" },
+      { de: "b_menu001", quando: { tipo: "senao" }, para: "b_digit01" },
+    ];
+    expect(trilha(cenasCom(passos, so, null))).toEqual(["b_menu001", "b_toca001"]);
+    // `b_digit01` não é alcançável nem sendo o bloco aberto: ele é solto.
+    expect(trilha(cenasCom(passos, so, "b_digit01"))).toEqual(["b_digit01"]);
+  });
+
+  // O BLOCO QUE `conferir` RECUSA TAMBÉM TEM BRAÇO DE BOTÃO. `caminhoDoBotao`
+  // não chama `conferir` em lugar nenhum, então o toque num botão congelado de
+  // um bloco cujo texto foi apagado DEPOIS continua sendo entregue — e cortar o
+  // caminho ali esconderia toda a cauda do fluxo por causa de um campo vazio.
+  it("um bloco incompleto não perde o braço do botão", () => {
+    const passos = [
+      { id: "b_quebra1", tipo: "dm", texto: "", botoes: [{ id: "op_aaaaaa", rotulo: "A" }] },
+      { id: "b_toca001", tipo: "dm", texto: "Quem tocou" },
+    ] as Passo[];
+    const so: Ligacao[] = [
+      { de: "b_quebra1", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_toca001" },
+    ];
+    const cenas = cenasCom(passos, so, null);
+    expect(trilha(cenas)).toEqual(["b_quebra1", "b_toca001"]);
+    expect(cenas[0].itens[0].tipo).toBe("incompleto");
+  });
+
+  // A BOLHA DO TOQUE NÃO SAI NO CAMINHO DE QUEM DIGITOU — o IMPORTANTE 1. A
+  // bolha da direita é o que A PESSOA MANDA, e num caminho que sai pela `senao`
+  // ela não tocou na pílula: ela escreveu. Medido, antes do conserto, a cena
+  // saía `[balão "Toca ai"/Quero, parada, resposta "Quero", retomada digitou]` —
+  // a tela mostrava o toque em "Quero" e, uma linha abaixo, a marca dizendo que
+  // ela respondeu digitando. Era a prévia inventando a mensagem que a marca
+  // existe para NÃO inventar.
+  it("a resposta rápida não desenha o toque quando o caminho sai pela `senao`", () => {
+    const passos = [
+      { id: "b_rr00001", tipo: "dm", texto: "Toca ai", botao_label: "Quero" },
+      { id: "b_digit01", tipo: "dm", texto: "Quem digitou" },
+    ] as Passo[];
+    const so: Ligacao[] = [{ de: "b_rr00001", quando: { tipo: "senao" }, para: "b_digit01" }];
+    const cenas = cenasCom(passos, so, null);
+    expect(trilha(cenas)).toEqual(["b_rr00001", "b_digit01"]);
+    expect(cenas[0].itens).toEqual([
+      { tipo: "balao", texto: "Toca ai", botao: "Quero", link: false },
+      { tipo: "parada", motivo: "toque" },
+      { tipo: "retomada", via: "digitou" },
+    ]);
+  });
+
+  // E ELA VOLTA A SAIR QUANDO O CAMINHO SAI PELO TOQUE — o guarda-costas da
+  // correção acima: a guarda é sobre a `senao`, e não sobre a bolha inteira.
+  it("a resposta rápida desenha o toque quando o caminho sai pela `sempre`", () => {
+    const passos = [
+      { id: "b_rr00001", tipo: "dm", texto: "Toca ai", botao_label: "Quero" },
+      { id: "b_smp001", tipo: "dm", texto: "Depois do toque" },
+    ] as Passo[];
+    const cenas = cenasDe(passos);
+    expect(cenas[0].itens).toEqual([
+      { tipo: "balao", texto: "Toca ai", botao: "Quero", link: false },
+      { tipo: "parada", motivo: "toque" },
+      { tipo: "resposta", texto: "Quero" },
+    ]);
+    // E no ÚLTIMO bloco do caminho ela também sai: não há `senao` a contradizer,
+    // e o toque é o gesto que a parada está pedindo.
+    const so: Ligacao[] = [];
+    expect(cenasCom(passos, so, null)[0].itens.some((b) => b.tipo === "resposta")).toBe(true);
+  });
+
+  // O `pedir_email` MANTÉM O EXEMPLO NO CAMINHO DA `senao`, e ele NÃO é o mesmo
+  // caso da resposta rápida acima. A medição é do motor: `handleMessage`
+  // (lib/engine.ts) só chega em `retomadaDoTexto` DEPOIS de `extractEmail(text)`
+  // ter dado certo — e-mail que não parece e-mail re-pergunta e RETORNA, sem sair
+  // do bloco. Logo, a `senao` de um `pedir_email` é o caminho de quem digitou um
+  // e-mail VÁLIDO, e `ana@email.com` é um EXEMPLO do que ela digitou, não um
+  // gesto inventado.
+  it("o `pedir_email` mostra o e-mail de exemplo mesmo saindo pela `senao`", () => {
+    const passos = [
+      { id: "b_mail001", tipo: "pedir_email", texto: "Seu e-mail?" },
+      { id: "b_digit01", tipo: "dm", texto: "Depois do e-mail" },
+    ] as Passo[];
+    const so: Ligacao[] = [{ de: "b_mail001", quando: { tipo: "senao" }, para: "b_digit01" }];
+    expect(cenasCom(passos, so, null)[0].itens).toEqual([
+      { tipo: "balao", texto: "Seu e-mail?", botao: null, link: false },
+      { tipo: "parada", motivo: "email" },
+      { tipo: "resposta", texto: "ana@email.com" },
+      { tipo: "retomada", via: "digitou" },
+    ]);
   });
 
 

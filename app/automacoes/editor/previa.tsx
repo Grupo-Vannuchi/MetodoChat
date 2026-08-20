@@ -284,12 +284,20 @@ function Marca({
 // QUAL DAS DUAS SAI É DECISÃO DE `./roteiro`, com teste. Aqui só se pinta — e a
 // `sempre` de um bloco COMUM não chega aqui nunca, porque nela não há o que
 // contar: é a conversa seguindo.
+//
+// A FRASE DO `digitou` DIZIA "e por isso a prévia não o mostra", E ISSO ERA
+// FALSO NA MESMA CENA. Num `pedir_email` a prévia mostra `ana@email.com` uma
+// linha acima desta caixa — um EXEMPLO do que a pessoa digitou —, e a frase logo
+// abaixo negava mostrar. O que a prévia não tem é o texto REAL; dizer isso é
+// verdade nas duas cenas, e é o que ela diz agora. (A outra metade da mesma
+// contradição era pior e foi consertada no roteiro: a resposta rápida desenhava
+// a pessoa TOCANDO na pílula num caminho que sai pela `senao`.)
 const RETOMADA = {
   digitou: {
     icone: <IconSend className="h-3 w-3 shrink-0" />,
     titulo: "quem respondeu digitando",
     texto:
-      "Esta é a conversa de quem escreve em vez de tocar num botão. O texto é dela, e por isso a prévia não o mostra.",
+      "Esta é a conversa de quem escreve em vez de tocar num botão. O que ela escreveu só ela sabe — a prévia não tem como mostrar o texto de verdade.",
   },
   continuacao: {
     icone: <IconZap className="h-3 w-3 shrink-0" />,

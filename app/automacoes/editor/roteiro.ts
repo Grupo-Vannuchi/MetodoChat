@@ -92,6 +92,16 @@ export type Bolha =
   //     ligação dele para trás; `conferirLista` não diz nada sobre a ligação
   //     órfã, e `indiceDaAlca` (./modelos) já registra esse par como buraco
   //     conhecido. Fica anotado aqui em vez de voltar a ser premissa.
+  //
+  // E HÁ UM SEXTO CASO QUE NEM CHEGA A ESTA BOLHA, e ele é irmão do último: o
+  // BLOCO QUE DEIXOU DE SER MENU. Digitar uma URL num menu já ligado faz
+  // `envioDaDm` (lib/steps.ts) devolver `link`, as ligações de botão continuam
+  // gravadas, e `caminhoDoBotao` continua entregando o braço delas — mas a cena
+  // não desenha `botoes` nenhum, porque o bloco não é mais um menu. Então o braço
+  // do botão APARECE no caminho, sem pílula alguma dizendo por qual botão ele
+  // saiu. É o preço de a prévia não esconder o que o motor entrega, e é o certo:
+  // a cena não mente, ela só não tem rótulo para mostrar. A cabeça de
+  // `saidasMostradas` (abaixo) mede o caso por extenso.
   | { tipo: "botoes"; botoes: { rotulo: string; escolhido: boolean }[] }
   // A MARCA DA PARADA. É a informação mais valiosa da prévia: daqui não sai
   // nada até a pessoa fazer alguma coisa.
@@ -107,9 +117,15 @@ export type Bolha =
   // de fora escondia o bloco inteiro, que é o defeito que este tipo veio
   // corrigir. A marca diz o caminho sem inventar o texto.
   //
-  //   `digitou`     — a `senao`. Quem responde ESCREVENDO em vez de tocar segue
-  //                   por aqui, e quem resolve isso no motor é
-  //                   `retomadaDoTexto` (lib/steps.ts).
+  //   `digitou`     — a `senao` DE UM BLOCO QUE PARA, e a segunda metade é a
+  //                   parte que já esteve errada aqui. Quem responde ESCREVENDO
+  //                   em vez de tocar segue por aqui, e quem resolve isso no
+  //                   motor é `retomadaDoTexto` (lib/steps.ts) — que só é
+  //                   chamada do ramo do CURSOR, e o cursor só descansa onde
+  //                   `esperaResposta` diz sim. Num bloco que NÃO para não há
+  //                   ninguém parado para digitar, a marca afirmaria um gesto que
+  //                   não existe, e `saidasMostradas` (abaixo) exclui essa
+  //                   `senao` justamente por isso.
   //   `continuacao` — a `sempre` DE UM MENU, e só dela: num bloco sem botões a
   //                   `sempre` é a conversa simplesmente seguindo, e marcar toda
   //                   continuação encheria de ruído o fluxo mais comum que
@@ -242,49 +258,74 @@ type Saida = { para: string; quando: Quando };
 // POR ONDE A CONVERSA DESENHADA PODE SEGUIR, na ordem em que O MOTOR prefere as
 // setas.
 //
-// A REGRA DESTA FUNÇÃO É A DA FASE, DITA PELO AVESSO. A Tarefa 7 fixou que o
-// quadro não pode desenhar uma seta que promete um caminho que o motor não
-// percorre; a pergunta simétrica foi medida na revisão da Tarefa 8, e a resposta
-// é que A PRÉVIA NÃO PODE ESCONDER UM CAMINHO QUE O MOTOR PERCORRE. Esta função
-// escondia dois, e os dois estão registrados mais abaixo.
+// A REGRA DESTA FUNÇÃO É A DA FASE, E ELA TEM DUAS DIREÇÕES. A Tarefa 7 fixou
+// que o quadro não pode desenhar uma seta que promete um caminho que o motor não
+// percorre; a revisão da Tarefa 8 fixou o espelho, e A PRÉVIA NÃO PODE ESCONDER
+// UM CAMINHO QUE O MOTOR PERCORRE. Esta função já errou nos DOIS sentidos, e as
+// duas versões erradas estão registradas por extenso mais abaixo — inclusive a
+// que consertava o esconder e passava a desenhar seta morta no mesmo commit.
 //
-// ELA DEVOLVE TODAS AS SETAS QUE O MOTOR PERCORRE a partir do bloco, e nenhuma
-// que ele não percorra. NENHUMA DELAS É REESCRITA AQUI: cada uma sai da MESMA
-// função de lib/steps.ts que o motor consulta, que é a regra deste arquivo.
+// ELA DEVOLVE AS SETAS QUE O MOTOR PERCORRE a partir do bloco, e nenhuma que ele
+// não percorra. NENHUMA DELAS É REESCRITA AQUI: cada uma sai da MESMA função de
+// lib/steps.ts que o motor consulta, que é a regra deste arquivo.
 //
-//   TOQUE, só em MENU (`dm` com `botoes`) -> as ligações de BOTÃO, todas, em
-//     ordem. Um menu inteiramente ligado não precisa de `sempre` nenhuma, e
-//     perguntar só `seguinteDe` a ele diria "acabou aqui" sobre todo menu certo
-//     do produto. Quem resolve o toque no motor é
-//     `ligacaoEscolhida(..., {tipo:"botao"})`, e são essas setas que ela lê.
-//   DIGITOU -> a `senao`, por `ligacaoEscolhida(..., {tipo:"texto"})`. É a
-//     PRIMEIRA escolha de `retomadaDoTexto`, e esta é a mesma chamada.
+//   TOQUE -> as ligações de BOTÃO, todas, em ordem, E SEM PERGUNTAR SE O BLOCO
+//     AINDA É UM MENU. Quem resolve o toque no motor é `caminhoDoBotao`
+//     (lib/steps.ts): ela lê `ligacaoEscolhida(..., {tipo:"botao"})` do bloco que
+//     veio no payload e confere só se o DESTINO está na lista — não olha
+//     `botoes`, não olha `conferir`. O motivo está escrito em `cursorDaRetomada`,
+//     ao lado dela: o botão fica congelado na conversa desde o dia em que foi
+//     entregue e continua tocável para sempre. E um menu inteiramente ligado não
+//     precisa de `sempre` nenhuma, então perguntar só `seguinteDe` a ele diria
+//     "acabou aqui" sobre todo menu certo do produto.
+//   DIGITOU -> a `senao`, por `ligacaoEscolhida(..., {tipo:"texto"})`, SÓ EM
+//     BLOCO QUE PARA. É a PRIMEIRA escolha de `retomadaDoTexto`, e esta é a
+//     mesma chamada — mas `retomadaDoTexto` só é chamada do ramo do CURSOR
+//     (lib/engine.ts), e o cursor só descansa onde `interpretar` gravou
+//     `pararEm`, que é onde `esperaResposta` diz sim.
 //   CONTINUAÇÃO -> a `sempre`, por `seguinteDe`. É a seta que `interpretar`
 //     percorre sozinha, é onde `retomadaDoTexto` cai pelo `?? seguinteDe`
 //     quando não há `senao`, e é por onde saem `retomadaDoBotao` e
 //     `retomadaDoFallback`.
 //
-// A ORDEM É A DE `retomadaDoTexto`, e ela depende de o bloco PARAR ou não —
-// quem responde isso é `esperaResposta`, como em todo o resto deste arquivo, e
-// não uma cópia da regra escrita aqui:
+// A ORDEM DEPENDE DE O BLOCO PARAR, e quem responde isso é `esperaResposta`,
+// como em todo o resto deste arquivo, e não uma cópia da regra escrita aqui:
 //
-//   O BLOCO QUE PARA tem a `senao` ANTES da `sempre`, porque essa é a ordem do
-//     `?? seguinteDe`: quem digita segue a `senao` sempre que ela existe. Todo
-//     menu para, então a `sempre` de um menu é a ÚLTIMA da lista — que é o lugar
-//     dela, já que ela só serve às retomadas que não sabem qual foi o gesto.
-//   O BLOCO QUE NÃO PARA tem a `sempre` ANTES, porque `interpretar` a percorre
-//     sozinha e ninguém fica parado ali para digitar. A `senao` dele é
-//     produzível — um menu que perdeu os botões a deixa para trás, e
-//     `indiceDaAlca` (./modelos) registra o caso —, e fica no fim.
+//   O BLOCO QUE PARA tem toque, depois `senao`, depois `sempre`. O `senao`
+//     antes da `sempre` é a ordem do `?? seguinteDe` de `retomadaDoTexto`: quem
+//     digita segue a `senao` sempre que ela existe. Todo menu para, então a
+//     `sempre` de um menu é a ÚLTIMA da lista — que é o lugar dela, já que ela só
+//     serve às retomadas que não sabem qual foi o gesto.
+//   O BLOCO QUE NÃO PARA tem a `sempre` ANTES do toque, e não tem `senao`
+//     nenhuma. A `sempre` vem antes porque `interpretar` a percorre sozinha, no
+//     MESMO disparo, para todo mundo; o braço do botão dele só acende se alguém
+//     tocar depois num botão congelado, o que é o caso raro e não o padrão. A
+//     revisão sugeriu colapsar os dois ramos do `return` num só, e isso está
+//     recusado de propósito: colapsar poria o braço do botão congelado na frente
+//     da `sempre` que todo mundo percorre, e a prévia mostraria o caso raro como
+//     se fosse a conversa.
 //
-// A `senao` DE UM `pedir_follow` NÃO ENTRA, E É A ÚNICA EXCLUSÃO QUE SOBROU.
-// Ela não é escolha desta tela: `retomadaDoTexto` retoma o portão DELE MESMO,
-// com ou sem `senao`, e o comentário dela diz por quê — bastaria mandar "ok"
-// para receber o link sem seguir. Uma prévia que desenhasse esse braço mostraria
-// ao dono uma porta dos fundos que o motor recusa, que é exatamente o defeito da
-// Tarefa 7 acontecendo nesta tela em vez de no quadro.
+// AS DUAS EXCLUSÕES, E AS DUAS SÃO `senao`. Esta lista já disse "a única" duas
+// vezes, e nas duas estava errada — é o defeito desta fase na forma de contagem:
 //
-// O QUE ELA ESCONDIA, e os dois foram medidos antes de serem consertados:
+//   A `senao` DE UM `pedir_follow`. Ela não é escolha desta tela:
+//     `retomadaDoTexto` retoma o portão DELE MESMO, com ou sem `senao`, e o
+//     comentário dela diz por quê — bastaria mandar "ok" para receber o link sem
+//     seguir. Uma prévia que desenhasse esse braço mostraria ao dono uma porta
+//     dos fundos que o motor recusa, que é exatamente o defeito da Tarefa 7
+//     acontecendo nesta tela em vez de no quadro.
+//   A `senao` DE UM BLOCO QUE NÃO PARA. Ninguém fica parado ali para digitar, e
+//     é o motor que diz isso: `interpretar` (lib/steps.ts) só grava `pararEm`
+//     onde `esperaResposta` diz sim, e `retomadaDoTexto` só é chamada do ramo do
+//     cursor. Medido, num `dm` de link com `senao` para `b_digit01`:
+//     `interpretar` enfileira o bloco e devolve `pararEm: null` — o fluxo ACABA
+//     ali, `b_digit01` não é entregue a pessoa nenhuma —, e a prévia desenhava
+//     `["b_menu001","b_digit01"]` e ainda fechava a cena com a marca "quem
+//     respondeu digitando", AFIRMANDO UM GESTO QUE NÃO EXISTE. Pô-la "no fim da
+//     lista" não resolvia: no fim ainda é percorrida quando não sobra mais nada,
+//     e num menu inteiramente ligado não há `sempre`.
+//
+// O QUE ELA JÁ ESCONDEU, e os três foram medidos antes de serem consertados:
 //
 //   A `sempre` DE UM MENU. O ramo do menu devolvia SÓ as ligações de botão, e o
 //     comentário antigo afirmava que a `senao` era "a única exclusão desta
@@ -292,13 +333,12 @@ type Saida = { para: string; quando: Quando };
 //     não é seta morta: o comentário de `conferirLista` (lib/steps.ts) mede isso
 //     por extenso, e `retomadaDoTexto` cai nela pelo `?? seguinteDe` quando não
 //     há `senao`. Medido, com o menu INTEIRAMENTE ligado e uma `sempre` saindo
-//     dele: o motor entrega `{portao:null, destino:"b_smp004"}`, a conferência
-//     devolve `[]` — nem erro, nem aviso — e a prévia desenhava `["b_smp004"]`,
-//     um bloco solto. O motor entregava, a conferência calava, e a prévia dizia
-//     que o bloco não era de fluxo nenhum.
-//   A `senao` DE QUALQUER BLOCO. O comentário antigo dizia que inventar o texto
-//     digitado "seria a prévia mostrando uma mensagem que ninguém mandou", e
-//     aceitava em troca o bloco invisível. As duas metades caíram. A prévia não
+//     dele: o motor entrega `{portao:null, destino:"b_smp004"}` e a prévia
+//     desenhava `["b_smp004"]`, um bloco solto — o motor entregava e a prévia
+//     dizia que o bloco não era de fluxo nenhum.
+//   A `senao` DE UM BLOCO QUE PARA. O comentário antigo dizia que inventar o
+//     texto digitado "seria a prévia mostrando uma mensagem que ninguém mandou",
+//     e aceitava em troca o bloco invisível. As duas metades caíram. A prévia não
 //     precisa inventar mensagem nenhuma para desenhar esse passo, porque ele é
 //     uma MARCA e não uma bolha (`Bolha.retomada`, lá em cima); e o argumento já
 //     estava falsificado por ESTE arquivo, onde `EMAIL_DE_EXEMPLO` é empurrado
@@ -309,35 +349,58 @@ type Saida = { para: string; quando: Quando };
 //     rio abaixo da entrada — ela NÃO diz "Nenhuma seta chega neste bloco",
 //     porque `haCaminho` conta TODAS as condições. Três de quatro concordavam,
 //     e a prévia era a dissidente na mesma tela.
+//   O TOQUE DE UM BLOCO QUE DEIXOU DE SER MENU, e este é o mesmo defeito num
+//     vizinho, encontrado depois de os dois de cima terem sido fechados. O ramo
+//     do toque só existia sob `envioDaDm(passo).forma === "botoes"`, e o motor
+//     não pergunta isso. UM GESTO produz o caso: digitar uma URL num menu já
+//     ligado — `envioDaDm` (lib/steps.ts) dá precedência a `url` sobre `botoes`,
+//     `apagarBotao` (./modelos) não roda, e as ligações de botão ficam para trás.
+//     Medido, com o menu ligado a `b_toca001` e uma `senao` a `b_digit01`: a
+//     prévia desenhava `["b_menu001","b_digit01"]` — o braço do botão SUMIU —,
+//     abrir `b_toca001` mostrava um bloco solto, `caminhoDoBotao` entregava
+//     `{portao:null, destino:"b_toca001"}` e `conferirLista` devolvia `[]`. O
+//     motor entregava, a conferência calava, e a prévia escondia.
 //
-// O BLOCO QUE `conferir` RECUSA continua sem ramo de botões, e é o certo: um
-// bloco incompleto não tem `botoes` em que confiar, mas a seta que ATRAVESSA ele
-// continua existindo, e cortar o caminho ali esconderia toda a cauda do fluxo
-// por causa de um campo vazio.
+// O BLOCO QUE `conferir` RECUSA TAMBÉM TEM RAMO DE BOTÕES, e a versão anterior
+// dizia o contrário com o argumento de que "um bloco incompleto não tem `botoes`
+// em que confiar". O argumento é sobre o CONTEÚDO do bloco, e a seta não é
+// conteúdo: `caminhoDoBotao` não chama `conferir` em lugar nenhum, então o toque
+// num botão congelado de um bloco cujo texto foi apagado depois continua sendo
+// entregue. O que ele não ganha é `senao` — ele não para, `interpretar` o ignora
+// e segue pela `sempre` —, e é a mesma regra do bloco que não para, acima.
 function saidasMostradas(passos: unknown, ligacoes: unknown, id: string): Saida[] {
   const i = indiceDoId(passos, id);
   const passo = i === null ? undefined : conferir((passos as unknown[])[i]).passo;
+  // O BLOCO PARA AQUI? É a pergunta que decide a `senao` e a ordem, e ela é
+  // feita UMA vez porque as duas respostas têm de ser a mesma.
+  const para = passo ? esperaResposta(passo) : false;
 
+  // SEM PERGUNTAR SE O BLOCO AINDA É UM MENU — `caminhoDoBotao` também não
+  // pergunta. O porquê está no comentário acima.
   const porToque: Saida[] = [];
-  if (passo && passo.tipo === "dm" && envioDaDm(passo).forma === "botoes") {
-    for (const l of ligacoesDe(ligacoes, id)) {
-      if (l.quando.tipo === "botao") porToque.push({ para: l.para, quando: l.quando });
-    }
+  for (const l of ligacoesDe(ligacoes, id)) {
+    if (l.quando.tipo === "botao") porToque.push({ para: l.para, quando: l.quando });
   }
 
   const digitou =
-    passo && passo.tipo === "pedir_follow"
-      ? null
-      : ligacaoEscolhida(ligacoes, id, { tipo: "texto" });
+    passo && para && passo.tipo !== "pedir_follow"
+      ? ligacaoEscolhida(ligacoes, id, { tipo: "texto" })
+      : null;
   const porTexto: Saida[] = digitou === null ? [] : [{ para: digitou, quando: { tipo: "senao" } }];
 
   const sempre = seguinteDe(ligacoes, id);
   const porContinuacao: Saida[] =
     sempre === null ? [] : [{ para: sempre, quando: { tipo: "sempre" } }];
 
-  return passo && esperaResposta(passo)
+  // O `return` É SÓ SOBRE ORDEM, e `...porTexto` aparece nos dois ramos de
+  // propósito: no ramo de baixo ele é VAZIO POR CONSTRUÇÃO — `digitou` já disse
+  // `null` para todo bloco que não para. A exclusão mora numa linha só, lá em
+  // cima, e não metade lá e metade aqui. Ela chegou a estar nos dois lugares, e
+  // o preço foi medido: com a guarda duplicada, apagar a de cima não acendia
+  // teste nenhum, porque a de baixo segurava calada.
+  return para
     ? [...porToque, ...porTexto, ...porContinuacao]
-    : [...porToque, ...porContinuacao, ...porTexto];
+    : [...porContinuacao, ...porToque, ...porTexto];
 }
 
 // O CAMINHO DA ENTRADA ATÉ O BLOCO ABERTO NO PAINEL. `null` quando não há
@@ -677,7 +740,22 @@ export function roteiro(
         if (envio.forma === "resposta_rapida") {
           itens.push({ tipo: "balao", texto: passo.texto, botao: envio.rotulo, link: false });
           itens.push({ tipo: "parada", motivo: "toque" });
-          itens.push({ tipo: "resposta", texto: envio.rotulo });
+          // O TOQUE SÓ APARECE SE A CONVERSA SAIU POR ELE, e é a mesma guarda do
+          // menu logo acima — este ramo é que tinha ficado para trás. A bolha da
+          // direita é o que A PESSOA MANDA; num caminho que sai pela `senao` ela
+          // NÃO tocou na pílula, ela DIGITOU. Medido, antes: a cena saía
+          // `[balão "Toca ai"/Quero, parada, resposta "Quero", retomada digitou]`
+          // — a tela mostrava a pessoa tocando em "Quero" e, logo abaixo, a marca
+          // dizendo que ela respondeu digitando. Era a prévia inventando uma
+          // mensagem que ninguém mandou, que é o argumento com que a marca
+          // `retomada` (lá em cima) foi justificada.
+          //
+          // SEM SAÍDA NENHUMA a bolha FICA, e é o certo: no último bloco do
+          // caminho não há `senao` a contradizer, e o toque é o gesto que a
+          // parada logo acima está pedindo.
+          if (saida?.quando.tipo !== "senao") {
+            itens.push({ tipo: "resposta", texto: envio.rotulo });
+          }
           break;
         }
         // Botão de link: a pessoa abre o endereço e a vida segue — não há o que
@@ -735,6 +813,21 @@ export function roteiro(
         break;
       }
 
+      // O E-MAIL DE EXEMPLO FICA, INCLUSIVE NO CAMINHO DA `senao`, e este é o
+      // ramo que PARECE o da resposta rápida acima e não é. A revisão pediu a
+      // mesma guarda aqui, apontando a contradição literal — `ana@email.com`
+      // seguido da marca que diz "o texto é dela". A contradição é da REDAÇÃO da
+      // marca (./previa.tsx), não da bolha, e a medição é do motor:
+      //
+      //   `handleMessage` (lib/engine.ts) só chega em `retomadaDoTexto` DEPOIS de
+      //   `extractEmail(text)` ter dado certo — e-mail que não parece e-mail
+      //   re-pergunta e RETORNA, sem sair do bloco.
+      //
+      // Ou seja: a `senao` de um `pedir_email` é o caminho de quem digitou um
+      // e-mail VÁLIDO. A bolha da direita não está inventando um gesto — ela está
+      // mostrando um EXEMPLO do que a pessoa digitou, que é a única coisa que
+      // esta tela sabe sobre esse texto. Na resposta rápida é diferente: lá a
+      // bolha afirma um TOQUE na pílula, e quem sai pela `senao` não tocou nela.
       case "pedir_email":
         itens.push({ tipo: "balao", texto: passo.texto, botao: null, link: false });
         if (esperaResposta(passo)) {
