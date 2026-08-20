@@ -135,6 +135,13 @@ export async function salvarAutomacao(
   const palavras = Array.isArray(c.palavras)
     ? c.palavras.map((p) => String(p).trim()).filter(Boolean)
     : [];
+  // A DECISÃO DO DONO SOBRE ESTE FLUXO, da Tarefa 9. `Boolean` pelo mesmo motivo
+  // dos outros campos desta função: `configuracao` chega como `unknown` porque
+  // vem do estado de um componente de cliente, e o POST direto no Server Action
+  // pode mandar qualquer coisa aqui. Tudo que não for verdadeiro vira `false`,
+  // que é o lado seguro — a regra do portão contornável continua impedindo
+  // publicar.
+  const entregaSemPortao = Boolean(c.entregaSemPortao);
 
   if (!GATILHOS.includes(gatilho)) return { ok: false, erro: "Escolha o gatilho da automação." };
   if (!CORRESPONDENCIAS.includes(correspondencia))
@@ -176,7 +183,14 @@ export async function salvarAutomacao(
   // A CONFERÊNCIA DO PAR FINAL, UMA VEZ SÓ: os blocos, as setas e o gatilho que
   // vão ser gravados, conferidos uns contra os outros. As três metades são as
   // três que esta função escreve, então não sobra nada de velho a que comparar.
-  const problemas = conferirLista(passos, gatilho, ligacoes);
+  //
+  // A CHAVE ENTRA NA MESMA CHAMADA, e ela é o quarto pedaço deste par: a
+  // conferência tem que julgar a lista contra a decisão que ESTE salvamento
+  // grava, e não contra a que está no banco. Julgar contra a gravada faria o
+  // dono desmarcar a caixa, salvar, e a automação continuar publicável por um
+  // salvamento — o mesmo erro que o `select ligacoes` desta função cometia e que
+  // saiu na Tarefa 6, com outro nome.
+  const problemas = conferirLista(passos, gatilho, ligacoes, entregaSemPortao);
 
   // SÓ OS ERROS DE SALVAR TRAVAM O SALVAR, e essa é a decisão de produto da
   // Tarefa 5. O outro nível — botão sem destino, bloco ainda solto no quadro,
@@ -256,8 +270,9 @@ export async function salvarAutomacao(
         `update automations set
            name = $1, active = $2, triggers = $3, keywords = $4, match_type = $5,
            media_id = $6, media_thumbnail_url = $7, media_caption = $8,
-           story_id = $9, story_thumbnail_url = $10, updated_at = now()
-         where id = $11 and account_id = $12`,
+           story_id = $9, story_thumbnail_url = $10, entrega_sem_portao = $11,
+           updated_at = now()
+         where id = $12 and account_id = $13`,
         [
           nome,
           ativoGravado,
@@ -269,6 +284,7 @@ export async function salvarAutomacao(
           post?.caption ?? null,
           story?.id ?? null,
           story?.thumb ?? null,
+          entregaSemPortao,
           automationId,
           accountId,
         ]
@@ -449,10 +465,25 @@ export async function toggleAutomation(id: string, active: boolean): Promise<Res
     await ensureSchema();
 
     // o account_id no where impede ler automação de outra conta
+    // `entrega_sem_portao` ENTRA NESTE `select` NA TAREFA 9, e ela é lida do
+    // BANCO e não de argumento — ao contrário de `salvarAutomacao`, que grava a
+    // decisão. Esta porta não escreve nada da automação: ela julga o que está
+    // gravado, e a decisão do dono é parte do que está gravado.
+    //
+    // O `ensureSchema` LOGO ACIMA É A REDE DELA TAMBÉM. Um `select` de coluna
+    // inexistente estoura 42703 e leva o botão "Ativar" da lista de automações
+    // inteiro — que é o mesmo estrago que o comentário acima registra para
+    // `ligacoes`, e a razão de aquela chamada existir neste ramo.
     const linhas = (await sql().query(
-      `select steps, ligacoes, triggers from automations where id = $1 and account_id = $2`,
+      `select steps, ligacoes, triggers, entrega_sem_portao
+         from automations where id = $1 and account_id = $2`,
       [id, accountId]
-    )) as { steps: unknown; ligacoes: unknown; triggers: string[] | null }[];
+    )) as {
+      steps: unknown;
+      ligacoes: unknown;
+      triggers: string[] | null;
+      entrega_sem_portao: boolean | null;
+    }[];
     const a = linhas[0];
     // Zero linhas é automação que não existe OU de outra conta, e as duas dão a
     // mesma resposta pelo mesmo motivo de `salvarAutomacao`: distingui-las
@@ -466,7 +497,18 @@ export async function toggleAutomation(id: string, active: boolean): Promise<Res
     // OS DOIS NÍVEIS, sem filtrar por `quando`: o de cima já foi recusado no
     // salvar, e chegar aqui com um deles significa que a lista entrou por fora do
     // painel. O de baixo é o que esta porta existe para segurar.
-    const erros = conferirLista(a.steps, gatilho, a.ligacoes).filter((p) => p.nivel === "erro");
+    //
+    // A CHAVE DO DONO É O QUARTO ARGUMENTO, e sem ela esta porta e o quadro
+    // discordariam: o editor deixaria o dono terminar o fluxo com a caixa
+    // marcada, e o "Ativar" da lista de automações — outra tela, depois de ele
+    // ter fechado o quadro achando que terminou — recusaria com a frase de um
+    // problema que ele já respondeu.
+    const erros = conferirLista(
+      a.steps,
+      gatilho,
+      a.ligacoes,
+      Boolean(a.entrega_sem_portao)
+    ).filter((p) => p.nivel === "erro");
     if (erros.length) return { ok: false, erro: erros[0].mensagem };
   }
 

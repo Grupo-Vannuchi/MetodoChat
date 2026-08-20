@@ -98,6 +98,14 @@ export default async function EditarAutomacaoPage({
     story: a.story_id
       ? { id: a.story_id, thumb: a.story_thumbnail_url ?? "", caption: "" }
       : null,
+    // O `Boolean` NÃO É ENFEITE sobre uma coluna que já é `boolean not null`: até
+    // `migrations/002-entrega-sem-portao.sql` ter rodado neste banco, a coluna não
+    // existe, o `select *` acima não a traz, e `a.entrega_sem_portao` chega
+    // `undefined`. Sem ele, o `undefined` viajaria como prop para um `checked` de
+    // caixa controlada e o React trocaria o campo para não controlado no meio do
+    // caminho. Com ele, o valor ausente vira `false` — que é o lado seguro: a
+    // regra do portão contornável continua impedindo publicar.
+    entregaSemPortao: Boolean(a.entrega_sem_portao),
   };
 
   // A PÁGINA NÃO TEM MAIS CABEÇALHO, e ela renderiza SÓ o quadro.

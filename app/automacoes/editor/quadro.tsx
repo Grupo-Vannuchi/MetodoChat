@@ -518,9 +518,15 @@ export default function Quadro({
   // chamava `conferirLista` com duas partes, e o padrão `[]` do terceiro
   // argumento deixava todas essas regras CALADAS — a tela conferia menos do que
   // o `toggleAutomation` do servidor conferia.
+  //
+  // A CHAVE DO DONO ENTRA AQUI NA TAREFA 9, e ela é a razão de a tela precisar
+  // reagir na hora: o controle dela está no painel do gatilho, dois campos
+  // acima. Sem esta dependência, marcar a caixa deixaria a borda vermelha do nó
+  // e a vaga âmbar da barra dizendo o contrário do que o servidor vai decidir no
+  // salvar — e o dono só descobriria fechando o quadro.
   const problemas = useMemo(
-    () => conferirLista(passos, configuracao.gatilho, ligacoes),
-    [passos, configuracao.gatilho, ligacoes]
+    () => conferirLista(passos, configuracao.gatilho, ligacoes, configuracao.entregaSemPortao),
+    [passos, configuracao.gatilho, ligacoes, configuracao.entregaSemPortao]
   );
 
   // O QUE TRAVA O SALVAR — erro, E de `quando: "salvar"`. As duas metades da

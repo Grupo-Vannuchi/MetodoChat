@@ -56,6 +56,14 @@ export type Configuracao = {
   correspondencia: string;
   post: Picked | null;
   story: Picked | null;
+  // A DECISÃO DO DONO SOBRE ESTE FLUXO: publicar mesmo que dê para chegar no
+  // link sem passar pelo pedido de follow. Coluna `automations.entrega_sem_portao`.
+  //
+  // ELA MORA AQUI, e não no quadro, porque não é do FLUXO — é da AUTOMAÇÃO,
+  // mesmo lugar do nome e do gatilho. No quadro ela seria um adereço de um nó ou
+  // de uma seta, e não é nem de um nem da outra: é uma resposta que vale para a
+  // automação inteira, dada uma vez.
+  entregaSemPortao: boolean;
 };
 
 const NOME_DO_GATILHO: { valor: string; titulo: string }[] = [
@@ -744,6 +752,53 @@ export default function Painel({
                   </p>
                 </div>
               )}
+
+              {/* ---------------------------------------------------------- */}
+              {/* A DECISÃO DO DONO SOBRE ESTE FLUXO (Tarefa 9).             */}
+              {/*                                                             */}
+              {/* ELA NÃO VAI NO QUADRO. Não é do fluxo — é da automação,     */}
+              {/* mesmo lugar do nome e do gatilho. No quadro seria adereço   */}
+              {/* de um nó ou de uma seta, e não é de nenhum dos dois: vale   */}
+              {/* para a automação inteira e se responde uma vez.             */}
+              {/*                                                             */}
+              {/* O RÓTULO DIZ A CONSEQUÊNCIA, e não o mecanismo. "Desativar  */}
+              {/* a conferência do portão" descreve o que o código faz e não  */}
+              {/* ajuda ninguém a decidir; "entregar o link sem exigir que a  */}
+              {/* pessoa siga" é a coisa que vai acontecer com quem receber a */}
+              {/* mensagem, que é sobre o que o dono está decidindo.          */}
+              {/*                                                             */}
+              {/* O PREÇO VEM JUNTO, e VISÍVEL — não num `title`, não atrás   */}
+              {/* de um "saiba mais". Com a caixa marcada, a acusação do      */}
+              {/* portão contornável é a ÚNICA voz que existia sobre isso, e  */}
+              {/* calá-la não deixa nenhuma outra no lugar. Uma escolha cujo  */}
+              {/* preço só aparece depois não foi escolhida.                  */}
+              {/*                                                             */}
+              {/* LINHA INTEIRA (`basis-full`) porque o preço é uma frase, e  */}
+              {/* espremido numa coluna de 240px ele viraria cinco linhas de  */}
+              {/* três palavras — que é como texto importante deixa de ser    */}
+              {/* lido.                                                       */}
+              {/* ---------------------------------------------------------- */}
+              <div className="min-w-0 basis-full">
+                <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={configuracao.entregaSemPortao}
+                    onChange={(e) =>
+                      aoMudarConfiguracao({
+                        ...configuracao,
+                        entregaSemPortao: e.target.checked,
+                      })
+                    }
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-indigo-500"
+                  />
+                  Entregar o link sem exigir que a pessoa siga
+                </label>
+                <p className={hintCls}>
+                  {configuracao.entregaSemPortao
+                    ? "Marcada: ninguém mais avisa se o fluxo entregar o link a quem não segue o perfil. O pedido de follow continua funcionando nos caminhos em que você o desenhou — o que muda é que esta automação pode ir ao ar com um caminho que passa por fora dele."
+                    : "Desmarcada, esta automação não vai ao ar enquanto houver um caminho que chegue ao link sem passar pelo pedido de follow. Marque só se entregar sem exigir o follow for o que você quer: marcada, ninguém mais avisa."}
+                </p>
+              </div>
             </>
           )}
 
