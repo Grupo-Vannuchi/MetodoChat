@@ -2749,12 +2749,15 @@ describe("conferirLista", () => {
     // "PRIMEIRO link" cobria.
     const outroLink = { id: "b_lnk099", tipo: "dm", texto: "Outro link", url: "https://z.com" };
     expect(conferirLista([bem, link, outroLink, portao], "dm")).toEqual([]);
-  });
 
-  it("sem portão nenhum, o link não é avisado", () => {
-    // O aviso fala do portão não segurar o link. Sem portão não há o que dizer,
-    // e avisar aqui seria ruído em toda automação que só manda um link.
-    expect(avisos([bem, link])).toHaveLength(0);
+    // E SEM PORTÃO NENHUM, idem. Este caso teve teste próprio ("sem portão
+    // nenhum, o link não é avisado") enquanto o aviso existia: lá ele media uma
+    // condição de verdade — a regra olhava a lista e escolhia calar. Apagado o
+    // aviso, ele virou tautologia (nenhuma regra pode falar ali) e descrevia,
+    // no presente, uma regra morta. Ficou aqui, dentro do teste que explica a
+    // morte, porque o que ele ainda vale é a companhia deste: seja com portão
+    // ou sem, a lista sem seta nenhuma é limpa.
+    expect(conferirLista([bem, link], "dm")).toEqual([]);
   });
 
   it("AVISO: espera no fim da lista não atrasa nada", () => {
@@ -4386,11 +4389,16 @@ describe("podeFicarAtiva", () => {
     indice: 0,
     mensagem: "Um dos botões deste bloco está corrompido.",
   };
+  // A FRASE É COPIADA DE UMA QUE `conferirLista` PRODUZ HOJE, e isso é de
+  // propósito: as fixturas daqui são sintéticas (esta função só olha `nivel` e
+  // `quando`, e passaria com qualquer texto), mas uma frase inventada manda a
+  // próxima pessoa procurar de onde ela sai e não achar. Esta era "O link sai
+  // antes do pedido de follow." — o aviso posicional, apagado na Tarefa 9.
   const aviso: Problema = {
     nivel: "aviso",
     quando: "ativar",
     indice: 1,
-    mensagem: "O link sai antes do pedido de follow.",
+    mensagem: "Não há nenhum bloco depois desta espera, então ela não atrasa nada.",
   };
 
   it("falso quando há um erro de ATIVAR na lista", () => {
