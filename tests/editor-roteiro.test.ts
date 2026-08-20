@@ -702,6 +702,63 @@ describe("roteiro — o caminho mostrado", () => {
     });
   });
 
+  // `envioDaDm` (lib/steps.ts) VALIDA A LISTA E NÃO OS ELEMENTOS — está escrito
+  // no comentário dela —, e o que sai de lá é `Botao[]` por CAST. `conferir` não
+  // olha `botoes`, então o que chega aqui é `jsonb` cru: quem trava o salvar de
+  // um botão quebrado é `conferirLista`, e ele só trava o que passa PELO EDITOR.
+  //
+  // A PRÉVIA NÃO PODE CAIR POR CAUSA DISSO. É a mesma classe de defeito que
+  // `enfileirarPasso` (lib/engine.ts) já teve com `[null].map(b => b.rotulo)`, e
+  // ali o preço foi o lote inteiro de eventos daquela requisição; aqui seria a
+  // tela onde se conserta o bloco.
+  it("elemento quebrado em `botoes` não derruba a prévia, e não vira botão marcado", () => {
+    const passos = [
+      {
+        id: "b_menu01",
+        tipo: "dm",
+        texto: "Qual?",
+        botoes: [null, { id: "op_aaaaaa", rotulo: "A" }, { id: "op_bbbbbb" }, "solto"],
+      },
+      { id: "b_dep0001", tipo: "dm", texto: "Chegou" },
+    ] as unknown as Passo[];
+    const so: Ligacao[] = [
+      { de: "b_menu01", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_dep0001" },
+    ];
+    const cenas = cenasCom(passos, so, null);
+    expect(trilha(cenas)).toEqual(["b_menu01", "b_dep0001"]);
+    expect(cenas[0].itens[1]).toEqual({
+      tipo: "botoes",
+      botoes: [
+        { rotulo: "", escolhido: false },
+        { rotulo: "A", escolhido: true },
+        { rotulo: "", escolhido: false },
+        { rotulo: "", escolhido: false },
+      ],
+    });
+  });
+
+  it("botão escolhido SEM rótulo não desenha toque: não há texto que entre na conversa", () => {
+    // Mesmo caso do `pedir_follow` sem rótulo: a bolha da direita é o TEXTO que
+    // o toque põe na conversa, e um botão sem rótulo não põe nenhum. A parada
+    // fica — quem a decide é `esperaResposta` —, e a conversa acaba ali, sem
+    // ninguém para destravá-la.
+    const passos = [
+      { id: "b_menu01", tipo: "dm", texto: "Qual?", botoes: [{ id: "op_aaaaaa", rotulo: "" }] },
+      { id: "b_dep0001", tipo: "dm", texto: "Chegou" },
+    ] as Passo[];
+    const so: Ligacao[] = [
+      { de: "b_menu01", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_dep0001" },
+    ];
+    const cenas = cenasCom(passos, so, null);
+    expect(cenas[0].itens).toEqual([
+      { tipo: "balao", texto: "Qual?", botao: null, link: false },
+      { tipo: "botoes", botoes: [{ rotulo: "", escolhido: true }] },
+      { tipo: "parada", motivo: "toque" },
+    ]);
+    // O braço continua sendo mostrado: o que falta é o rótulo, não o caminho.
+    expect(trilha(cenas)).toEqual(["b_menu01", "b_dep0001"]);
+  });
+
   // A `senao` É DE QUEM DIGITOU, e a prévia não a percorre — nem para chegar ao
   // bloco selecionado, nem para seguir dali. O motivo está em `roteiro.ts`: a
   // conversa desenhada é a de quem TOCA, e a prévia não tem o que a pessoa
