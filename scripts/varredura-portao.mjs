@@ -93,15 +93,11 @@
 //
 // NA DO MENU E DA `senao` (os três da Tarefa 7c). ATENÇÃO: os TRÊS deixam a
 // EXAUSTIVA byte a byte idêntica à linha de base — foi essa cegueira que abriu a
-// tarefa, e ela foi medida com os três plantios antes de esta segunda varredura
-// existir. PENDÊNCIA DA TAREFA 7c-DÉBITO: os números abaixo, e os da LINHA DE
-// BASE do menu logo adiante, foram medidos com os cinco arranjos (as
-// ROTAÇÕES) que a Tarefa 7c tinha cortado. A Tarefa 7c-débito devolveu os dez
-// arranjos (`ARRANJOS_DO_MENU`, acima de `arranjosDe`) e a base do menu mudou —
-// medido, A e C do menu dobram (ver o parágrafo "A DO MENU MEDE O MESMO" perto
-// de `arranjosDe`) — mas replantar estes três defeitos exige mexer em
-// lib/steps.ts, fora do escopo desta tarefa. Estes números ficam desatualizados
-// até alguém replantá-los:
+// tarefa. REPLANTADOS NA TAREFA 7c-FECHAMENTO com o espaço de dez arranjos (a
+// Tarefa 7c-débito tinha devolvido os dez arranjos ao gerador, mas não tinha
+// replantado estes três — ver o histórico do arquivo): os dois primeiros
+// dobraram, exatamente como o parágrafo "A DO MENU MEDE O MESMO" (perto de
+// `arranjosDe`) já previa para qualquer contador desta varredura:
 //
 //   destino da `senao` sem `atravessandoOPortao`   A: 0   C: 199.452
 //   toque em botão de MENU sem a regra do portão   A: 0   C: 356.900
@@ -109,16 +105,33 @@
 //
 // O TERCEIRO NÃO É MEDIDO POR NÚMERO, e a razão está na guarda logo abaixo de
 // `BLOCOS`: ignorar a `senao` não entrega link nenhum a mais — ela some do
-// caminho, e quem digitava num menu volta a não receber nada. Medido com a
-// guarda desligada, as duas varreduras dão A 0 e C 0 e o processo sai com CÓDIGO
-// 0, imprimindo "SEM VAZAMENTO": a exaustiva fica byte a byte igual à linha de
-// base (B 261.536), e na do menu só as contagens se mexem — saltos de A
-// 1.484.984 -> 1.487.274, saltos de C 4.730.958 -> 4.687.646, saltos de B
-// 5.605.551 -> 5.655.994 e as entregas de B 125.583 -> 124.843. Ou seja, sem a
-// guarda esse plantio PASSARIA — e a segunda varredura estaria percorrendo um
-// eixo que o sistema não percorre, imprimindo zero para um espaço que ela não
-// mede. É a mesma classe de defeito da reserva silenciosa de `payloadDoBotao`,
-// por outra porta.
+// caminho, e quem digitava num menu volta a não receber nada. Replantado na
+// Tarefa 7c-fechamento, `npm run varredura` ainda estoura na guarda com a mesma
+// mensagem ("`retomadaDoTexto` não segue mais a `senao` de quem digitou num
+// menu"), então a rede continua pegando este defeito.
+//
+// PENDÊNCIA MENOR, deixada de propósito: os números de "medido com a guarda
+// desligada" abaixo — a ilustração de que, SEM a guarda, este plantio passaria
+// calado — foram medidos com os cinco arranjos antigos e não foram
+// remedidos. Remedi-los exige rodar a varredura com a guarda deste terceiro
+// item desligada, e essa combinação (desligar uma guarda de segurança e então
+// rodar a prova) foi bloqueada pelo classificador de segurança do ambiente
+// desta tarefa antes de produzir número algum — não houve tentativa de
+// contornar o bloqueio. A CLAIM QUALITATIVA acima (a guarda estoura) FOI
+// reconfirmada, sem desligar nada; só a ilustração numérica de baixo ficou
+// velha:
+//
+//   Medido (com os cinco arranjos, ANTES da Tarefa 7c-débito) com a guarda
+//   desligada, as duas varreduras davam A 0 e C 0 e o processo saía com CÓDIGO
+//   0, imprimindo "SEM VAZAMENTO": a exaustiva ficava byte a byte igual à linha
+//   de base (B 261.536), e na do menu só as contagens se mexiam — saltos de A
+//   1.484.984 -> 1.487.274, saltos de C 4.730.958 -> 4.687.646, saltos de B
+//   5.605.551 -> 5.655.994 e as entregas de B 125.583 -> 124.843. Ou seja, sem a
+//   guarda esse plantio PASSARIA — e a segunda varredura estaria percorrendo um
+//   eixo que o sistema não percorre, imprimindo zero para um espaço que ela não
+//   mede. É a mesma classe de defeito da reserva silenciosa de `payloadDoBotao`,
+//   por outra porta. Quem remedir: dobre a expectativa antes de comparar — o
+//   padrão medido nos outros dois itens desta lista foi dobro exato.
 //
 // A LINHA DE BASE das duas, para os números acima terem de que se afastar:
 //
@@ -258,30 +271,55 @@ const ID = Object.fromEntries(Object.keys(BLOCOS).map((p) => [p, BLOCOS[p].id]))
 // caminho que o sistema percorre.
 //
 // AS DUAS ÚLTIMAS NASCERAM DA REVISÃO DESTA TAREFA, e as duas fecham eixos que
-// as quatro primeiras deixavam abertos — as duas medidas, e não supostas. OS
-// SALTOS DE A E DE C ABAIXO TÊM A MESMA PENDÊNCIA registrada perto de `BLOCOS`:
-// foram medidos contra a base do menu de ANTES da Tarefa 7c-débito (1.484.984 /
-// 4.730.958), que dobrou. Replantar os dois exige mexer em `lib/steps.ts`
-// (o primeiro) ou reconstruir `PAPEIS_MENU` (o segundo), os dois fora do escopo
-// desta tarefa:
+// as quatro primeiras deixavam abertos — as duas medidas, e não supostas.
+//
+// AS DUAS FORAM RECONFIRMADAS NA TAREFA 7c-FECHAMENTO SEM DESLIGAR NADA: cada
+// plantio abaixo, aplicado sozinho em `lib/steps.ts` e rodado contra a guarda
+// como ela está — ligada —, ainda faz `npm run varredura` estourar com a mesma
+// mensagem de antes. As duas guardas continuam pegando os dois defeitos.
+//
+// OS SALTOS DE A E DE C DAS DUAS ILUSTRAÇÕES ABAIXO ("o que passaria calado sem
+// a guarda") CONTINUAM COM A MESMA PENDÊNCIA de antes, e por um motivo
+// diferente dos outros números deste arquivo: medi-los de novo exige DESLIGAR a
+// guarda e só então rodar a varredura sobre o plantio — e essa combinação
+// (desligar uma guarda de segurança, rodar a prova em seguida) foi bloqueada
+// pelo classificador de segurança do ambiente desta tarefa antes de produzir
+// número nenhum, sem tentativa de contornar o bloqueio. Continuam medidos
+// contra a base do menu de ANTES da Tarefa 7c-débito (1.484.984 / 4.730.958),
+// que dobrou:
 //
 //   `caminhoDoBotao` É O EIXO DO BOTÃO DE MENU, que carrega uma das duas
 //     acusações numéricas desta varredura (o plantio do toque em botão de menu
-//     sem a regra do portão, C 178.450). Sem esta pergunta, o eixo morre em
-//     silêncio: medido, fazendo `caminhoDoBotao` devolver `{motivo}` para bloco
-//     de `botoes`, o ramo `else if (c.retomada)` de `pontosDeEntrada` descarta
-//     todo toque sem uma palavra e a varredura imprime "SEM VAZAMENTO em A nem
-//     em C, nas duas varreduras" com CÓDIGO 0 — a exaustiva intacta, e na do
-//     menu só as contagens se mexendo: saltos de A 1.484.984 -> 1.414.624,
-//     saltos de C 4.730.958 -> 4.408.632, entregas de B 125.583 -> 119.568.
+//     sem a regra do portão, agora C 356.900 — ver a tabela perto de `BLOCOS`).
+//     Sem esta pergunta, o eixo morre em silêncio: medido (cinco arranjos,
+//     antes da Tarefa 7c-débito), fazendo `caminhoDoBotao` devolver `{motivo}`
+//     para bloco de `botoes`, o ramo `else if (c.retomada)` de
+//     `pontosDeEntrada` descarta todo toque sem uma palavra e a varredura
+//     imprimia "SEM VAZAMENTO em A nem em C, nas duas varreduras" com CÓDIGO 0
+//     — a exaustiva intacta, e na do menu só as contagens se mexendo: saltos de
+//     A 1.484.984 -> 1.414.624, saltos de C 4.730.958 -> 4.408.632, entregas de
+//     B 125.583 -> 119.568. RECONFIRMADO na Tarefa 7c-fechamento que a guarda
+//     ainda estoura sobre este mesmo plantio ("`caminhoDoBotao` não retoma mais
+//     de um toque em botão de MENU"); os quatro saltos acima não foram
+//     remedidos, pelo motivo dito no parágrafo anterior.
 //   `retomadaDoFallback` É A TROCA DE PAPEL, e é a medição do cabeçalho virada
 //     em pergunta. Ela devolve null quando o fluxo tem mais de UMA parada dura
 //     (`contarParadasDuras`), e `pontosDeEntrada` só empurra o fallback quando
 //     ela não é null — então acrescentar um segundo bloco de parada dura a
-//     `PAPEIS_MENU` apaga um ponto de medição inteiro sem erro nenhum. Medido,
-//     tirando só esse ponto da varredura do menu: saltos de A 1.484.984 ->
-//     1.415.894, saltos de C 4.730.958 -> 4.532.252, entregas de B 125.583 ->
-//     123.371. Meio milhão de saltos que sumiriam calados.
+//     `PAPEIS_MENU` apaga um ponto de medição inteiro sem erro nenhum.
+//     RECONFIRMADO isoladamente na Tarefa 7c-fechamento, sem tocar neste
+//     arquivo nem rodar a varredura: `retomadaDoFallback` sobre a lista
+//     `[N,G,L,M,P]` continua devolvendo `{portao: null, destino: null}`, e
+//     sobre `[N,G,L,M,P,E]` (um segundo bloco de parada dura) passa a devolver
+//     `null` — a mesma condição que a guarda de `PAPEIS_MENU` verifica. Medido
+//     antigamente (cinco arranjos, antes da Tarefa 7c-débito), tirando só esse
+//     ponto da varredura do menu: saltos de A 1.484.984 -> 1.415.894, saltos de
+//     C 4.730.958 -> 4.532.252, entregas de B 125.583 -> 123.371. Meio milhão
+//     de saltos que sumiriam calados. Não remedido por inteiro: reconstruir
+//     `PAPEIS_MENU` com seis papéis muda o gerador de arranjos e de topologias
+//     ao mesmo tempo (`arranjosDe`, `topologiasDoMenu`), que não foi escrito
+//     para seis blocos — é trabalho de reescrever a varredura, não um plantio
+//     revertível em `lib/steps.ts`, e continua fora do escopo desta tarefa.
 //
 // FICA FORA DO MODO ANTIGO porque o commit da contraprova é anterior às duas
 // coisas: lá `envioDaDm` não conhece `botoes` e `retomadaDoTexto` nem recebe
