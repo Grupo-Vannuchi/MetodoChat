@@ -630,11 +630,60 @@ describe("roteiro — o caminho mostrado", () => {
     it("o botão que volta para trás NÃO é marcado como escolhido", () => {
       // A conversa acaba ali — o destino já está desenhado acima. Marcar o
       // botão prometeria uma continuação que a prévia não mostra.
+      //
+      // NESTE GRAFO OS DOIS BOTÕES VOLTAM, e por isso ele NÃO separa "esta saída
+      // repete" de "TODAS repetem". Quem separa é o teste logo abaixo, e ele
+      // existe porque a suíte ficou verde com o defeito.
       expect(cenasCom(passos, setas, null)[1].itens[1]).toEqual({
         tipo: "botoes",
         botoes: [
           { rotulo: "De novo", escolhido: false },
           { rotulo: "Voltar", escolhido: false },
+        ],
+      });
+    });
+
+    // A CAUDA NÃO PODE DESISTIR NA PRIMEIRA SAÍDA QUE REPETE — o caso que o
+    // teste acima deixava passar, e que foi MEDIDO antes de ser consertado.
+    //
+    // O grafo é o padrão legítimo do produto que `caminhoAte` já nomeia: um menu
+    // com "Escolher de novo" e um braço que segue. O botão que VOLTA está
+    // gravado PRIMEIRO — que é a ordem natural de quem desenhou o "voltar" antes
+    // de desenhar o resto —, e com `saidasMostradas(...)[0]` a prévia parava no
+    // menu e `b_novo001` sumia da tela.
+    //
+    // COM O DEFEITO A SUÍTE INTEIRA FICAVA VERDE: 632 de 632. É por isso que
+    // este teste está escrito com a trilha E com a pílula — o braço escondido e
+    // a marca que diz por onde ele segue são a mesma informação, e o dono perdia
+    // as duas de uma vez.
+    it("a cauda PULA a saída que repete e segue pela próxima, em vez de acabar ali", () => {
+      const comBraco = [
+        { id: "b_um00001", tipo: "dm", texto: "Oi" },
+        {
+          id: "b_menu01",
+          tipo: "dm",
+          texto: "Qual?",
+          botoes: [
+            { id: "op_denovo", rotulo: "Escolher de novo" },
+            { id: "op_seguir", rotulo: "Seguir" },
+          ],
+        },
+        { id: "b_novo001", tipo: "dm", texto: "O braço que continua" },
+      ] as Passo[];
+      const comVolta: Ligacao[] = [
+        { de: "b_um00001", quando: { tipo: "sempre" }, para: "b_menu01" },
+        // A volta está gravada ANTES do braço que segue, de propósito.
+        { de: "b_menu01", quando: { tipo: "botao", botao: "op_denovo" }, para: "b_um00001" },
+        { de: "b_menu01", quando: { tipo: "botao", botao: "op_seguir" }, para: "b_novo001" },
+      ];
+      const cenas = cenasCom(comBraco, comVolta, null);
+      expect(trilha(cenas)).toEqual(["b_um00001", "b_menu01", "b_novo001"]);
+      // E a pílula do braço mostrado é a do SEGUNDO botão, não a do primeiro.
+      expect(cenas[1].itens[1]).toEqual({
+        tipo: "botoes",
+        botoes: [
+          { rotulo: "Escolher de novo", escolhido: false },
+          { rotulo: "Seguir", escolhido: true },
         ],
       });
     });

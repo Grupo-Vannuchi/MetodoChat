@@ -278,14 +278,29 @@ function caminhoAte(
   return anda(entrada) ? trilha : null;
 }
 
-// O QUE SEGUE DALI. Do último bloco do caminho para a frente, sempre pela
-// PRIMEIRA saída — que é a `sempre` de quem tem uma, e o primeiro botão ligado
-// de um menu.
+// O QUE SEGUE DALI. Do último bloco do caminho para a frente, pela primeira
+// saída QUE AINDA NÃO ESTÁ DESENHADA — a `sempre` de quem tem uma, e o primeiro
+// botão de um menu cujo destino seja novo.
 //
-// PARA AO REPETIR BLOCO, e `jaVistos` chega com o caminho inteiro dentro: a
-// conversa acaba quando ela voltaria a um bloco já desenhado. Desenhá-lo de novo
-// não acrescenta nada — a pessoa já leu aquele balão — e num anel não acabaria
-// nunca.
+// PULA A SAÍDA QUE REPETE, EM VEZ DE DESISTIR NELA, e essa é a mesma regra que
+// `caminhoAte` já usa uma função acima. A versão anterior olhava só
+// `saidasMostradas(...)[0]` e parava quando AQUELE destino já estava desenhado,
+// sem tentar o segundo — e o grafo que isso esconde é o padrão legítimo que o
+// comentário de `caminhoAte` nomeia, com o botão que VOLTA gravado primeiro:
+//
+//   b_um00001 --sempre--> b_menu01
+//   b_menu01  --botao "Escolher de novo"--> b_um00001
+//   b_menu01  --botao "Seguir"--> b_novo001
+//
+// Sem seleção nenhuma a prévia desenhava `['b_um00001','b_menu01']` — medido —,
+// acabando no menu SEM PÍLULA MARCADA e escondendo o único braço que continua.
+// É a regra desta fase pelo avesso: o quadro não pode desenhar uma seta que o
+// motor não percorre, e a prévia não pode esconder um caminho que ele percorre.
+//
+// PARA QUANDO NÃO SOBRA SAÍDA NOVA, e `jaVistos` chega com o caminho inteiro
+// dentro: desenhar de novo um bloco já lido não acrescenta nada — a pessoa já
+// leu aquele balão — e num anel não acabaria nunca. Cada volta acrescenta um
+// bloco a `jaVistos`, então o laço termina.
 function seguindoDe(
   passos: unknown,
   ligacoes: unknown,
@@ -295,8 +310,8 @@ function seguindoDe(
   const cauda: string[] = [];
   let atual = de;
   for (;;) {
-    const proxima = saidasMostradas(passos, ligacoes, atual)[0];
-    if (!proxima || jaVistos.has(proxima.para)) return cauda;
+    const proxima = saidasMostradas(passos, ligacoes, atual).find((s) => !jaVistos.has(s.para));
+    if (!proxima) return cauda;
     jaVistos.add(proxima.para);
     cauda.push(proxima.para);
     atual = proxima.para;
