@@ -4282,14 +4282,35 @@ describe("conferirLista — a chave de entregar sem portão", () => {
     expect(podeFicarAtiva(conferirLista(passos, "dm", semSaida, true))).toBe(false);
   });
 
-  it("LIGADA, o ANEL DE `sempre` continua travando o SALVAR", () => {
-    // O anel é a outra porta: dado que o motor não consegue percorrer, e a chave
-    // é sobre PUBLICAR. Ela não pode encostar num erro de salvar.
+  it("LIGADA, TODOS os erros de SALVAR continuam iguais — lista inteira, não só o anel", () => {
+    // A frase de `lib/steps.ts` promete "todos os erros de salvar", no plural,
+    // e só o anel tinha teste — uma mutação guardando qualquer OUTRO erro de
+    // salvar com `!entregaSemPortao` (por exemplo a regra do link sem
+    // endereço) passava batido. Comparar a LISTA INTEIRA de erros de salvar
+    // entre os dois estados, com `toEqual`, é o mesmo padrão que o teste dos
+    // avisos usa logo abaixo: pega qualquer regra desta classe de uma vez,
+    // inclusive as que ainda não existem, em vez de exigir um teste por regra.
     const x = { id: "b_xxx001", tipo: "dm", texto: "X" };
     const y = { id: "b_yyy002", tipo: "dm", texto: "Y" };
+    // O anel é a outra porta: dado que o motor não consegue percorrer, e a
+    // chave é sobre PUBLICAR. Ela não pode encostar num erro de salvar.
     const anel = [sempre("b_xxx001", "b_yyy002"), sempre("b_yyy002", "b_xxx001")];
-    expect(salvar([x, y], anel, true)).toHaveLength(1);
-    expect(salvar([x, y], anel, false)).toHaveLength(1);
+    // Link sem endereço: o outro erro de salvar, por bloco e não de anel —
+    // é ele que a mutação replantada nesta onda guardou com a chave.
+    const semEndereco = {
+      id: "b_sem009",
+      tipo: "dm",
+      texto: "Link",
+      url: "",
+      botao_label: "Abrir",
+    };
+    const passos = [x, y, semEndereco];
+
+    const desligada = salvar(passos, anel, false);
+    const ligada = salvar(passos, anel, true);
+
+    expect(ligada).toEqual(desligada);
+    expect(ligada).toHaveLength(2);
   });
 
   it("LIGADA, os AVISOS continuam saindo — ela não é um filtro no fim da função", () => {
