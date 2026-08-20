@@ -234,6 +234,15 @@ export type Automation = {
   // porque o jsonb não confere forma nenhuma, e quem valida é `conferirLigacao`
   // (lib/steps.ts).
   ligacoes: unknown[];
+  // A decisão do dono para ESTA automação: publicar mesmo com um caminho que
+  // chega ao link sem passar pelo portão. `boolean` e não `unknown` porque, ao
+  // contrário de `steps` e `ligacoes`, a coluna é `boolean not null default
+  // false` — o banco garante a forma, e não há jsonb no meio.
+  //
+  // A RESSALVA que o tipo não cobre: enquanto a migração não tiver rodado, a
+  // coluna não existe e o `select *` devolve `undefined` aqui. Quem lê passa por
+  // `Boolean(...)` de propósito, e o `false` que sai é o lado seguro.
+  entrega_sem_portao: boolean;
   created_at: Date;
 };
 
@@ -493,6 +502,22 @@ const DDL = [
   // a mesma forma, então uma automação que ninguém abriu continua sendo lida
   // exatamente como antes. Quem a converte em corrente é o script de migração.
   `alter table automations add column if not exists ligacoes jsonb not null default '[]'::jsonb`,
+  // A DECISÃO DO DONO SOBRE ESTA AUTOMAÇÃO: pode publicar um fluxo em que o link
+  // é alcançável sem passar pelo pedido de follow?
+  //
+  // `false` de padrão porque o padrão é o comportamento seguro — a regra do
+  // portão contornável continua impedindo ativar, que é o que vale hoje, e quem
+  // quiser entregar sem portão diz que quer. Nenhuma automação já gravada muda
+  // de veredicto.
+  //
+  // ELA NÃO MUDA O MOTOR. É argumento de `conferirLista` (lib/steps.ts) e só
+  // dela: diz "não me impeça de publicar", e não "ignore o portão na entrega".
+  // `lib/engine.ts` não lê esta coluna.
+  //
+  // A MESMA LINHA ESTÁ EM `migrations/002-entrega-sem-portao.sql`, e a
+  // duplicação é a mesma de `ligacoes`, pelo mesmo motivo: aqui é a REDE, lá é a
+  // ORDEM. O porquê inteiro está no cabeçalho daquele arquivo.
+  `alter table automations add column if not exists entrega_sem_portao boolean not null default false`,
 ];
 
 type SqlClient = ReturnType<typeof sql>;

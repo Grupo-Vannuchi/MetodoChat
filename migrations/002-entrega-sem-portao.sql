@@ -1,0 +1,49 @@
+-- A chave que deixa o dono publicar um fluxo que entrega o link sem exigir o
+-- follow — POR AUTOMAÇÃO, e não para o produto inteiro.
+--
+-- POR QUE ELA PRECISA EXISTIR ANTES DO CÓDIGO NOVO SUBIR:
+-- `conferirLista` (lib/steps.ts) passa a receber esta coluna como argumento, e
+-- quem a lê do banco são `app/automacoes/[id]/page.tsx` (para o editor mostrar o
+-- estado da chave) e `toggleAutomation` (app/automacoes/actions.ts, para decidir
+-- se pode publicar). Com a coluna ausente, o `select *` da página devolve
+-- `undefined`, `Boolean(undefined)` vira `false` e o editor mostra a chave
+-- DESLIGADA para uma automação cujo dono a tinha ligado — some sem avisar, e o
+-- primeiro salvamento regrava o `false`. `toggleAutomation` nomeia a coluna no
+-- `select`, e ESSE não degrada: `select` de coluna inexistente estoura 42703 e o
+-- botão "Ativar" da lista de automações para de funcionar inteiro. É o mesmo
+-- estrago que o comentário de `toggleAutomation` já registrou para `ligacoes`.
+--
+-- Por isso a ordem é: esta migração, depois o deploy. Ao contrário de `001`, ela
+-- NÃO precisa de script de dado no meio: o padrão `false` É o valor certo para
+-- toda automação já gravada. O comportamento de hoje — portão contornável
+-- impede ativar — é exatamente o que `false` produz, então nenhuma automação
+-- existente muda de veredicto por causa desta coluna.
+--
+-- POR QUE O PADRÃO É `false` E NÃO `true`: o padrão é o comportamento seguro, e
+-- quem quiser entregar sem portão DIZ QUE QUER. Com `true` de padrão, toda
+-- automação do banco passaria a poder publicar um link alcançável por fora do
+-- portão sem ninguém ter decidido nada — e a única voz que avisa sobre isso é
+-- justamente a que a chave cala.
+--
+-- O QUE ELA NÃO FAZ, dito aqui porque o nome da coluna sozinho sugere mais do
+-- que ela é: o portão continua funcionando NO MOTOR. Esta chave diz "não me
+-- impeça de publicar", e não "ignore o portão na hora de entregar". Um caminho
+-- desenhado passando pelo portão continua passando por ele, com a chave ligada
+-- ou desligada — `lib/engine.ts` não lê esta coluna, e `scripts/varredura-portao.mjs`,
+-- que mede o motor, também não.
+--
+-- IDEMPOTENTE por construção (`if not exists`), que é o contrato de toda
+-- migração desta pasta enquanto não houver tabela de controle. Ver o cabeçalho
+-- de `scripts/migrar.mjs`.
+--
+-- Acrescentar coluna com `default` não reescreve a tabela no Postgres 11+,
+-- então roda rápido mesmo com dados.
+--
+-- ESTA LINHA TAMBÉM ESTÁ EM `lib/db.ts` (`ensureSchema`), e isso é deliberado
+-- durante a transição, pelo mesmo motivo escrito em `001`: lá ela é a REDE (se
+-- alguém implantar sem rodar isto, a coluna ainda nasce), aqui ela é a ORDEM
+-- (existir antes do código subir). As duas são `if not exists`, então não podem
+-- divergir em efeito — podem divergir em definição, e é por isso que a transição
+-- tem prazo: ver `docs/plans/2026-08-17-esquema-e-harness.md`.
+alter table automations
+  add column if not exists entrega_sem_portao boolean not null default false;

@@ -99,17 +99,43 @@ for (const nome of arquivos) {
 // A CONFERÊNCIA VALE MAIS QUE O "aplicada" ACIMA, porque `if not exists` tem
 // sucesso mesmo quando não faz nada — inclusive quando o arquivo está errado.
 // Perguntar ao banco o que existe de verdade é a única leitura que não mente.
-const colunas = await sql`
-  select column_name, data_type, column_default
-  from information_schema.columns
-  where table_name = 'automations' and column_name = 'ligacoes'`;
+//
+// A LISTA É ESCRITA À MÃO, E QUEM ACRESCENTAR MIGRAÇÃO ACRESCENTA AQUI. Ela
+// nasceu com uma linha só (`ligacoes`), e a Tarefa 9 a encontrou VELHA no
+// primeiro dia em que houve uma segunda migração: com `002` na pasta, o script
+// imprimia "aplicada" para as duas e depois conferia SÓ a coluna de `001`. Ou
+// seja, `002` podia não fazer efeito nenhum e a única leitura que não mente
+// diria "CONFERIDO" sobre outra coisa — que é a mesma classe de defeito que o
+// parágrafo acima existe para fechar, por outra porta.
+//
+// POR QUE NÃO EXTRAIR OS NOMES DO PRÓPRIO `.sql`: daria uma expressão regular
+// casando `add column if not exists <nome>`, e ela passaria a ser a definição do
+// que esta pasta pode conter. O contrato escrito lá em cima é `if not exists` em
+// TODA DDL — `create index`, `create table`, `add constraint` —, e um extrator
+// que só entende `add column` ficaria calado justamente na migração de forma
+// nova. Uma lista à mão que alguém esquece de atualizar falha em silêncio uma
+// vez; um extrator que não entende a DDL falha em silêncio sempre.
+const ESPERADAS = [
+  { tabela: "automations", coluna: "ligacoes", de: "001-ligacoes.sql" },
+  { tabela: "automations", coluna: "entrega_sem_portao", de: "002-entrega-sem-portao.sql" },
+];
 
-console.log(
-  colunas.length
-    ? `\nCONFERIDO no banco: automations.ligacoes existe (${colunas[0].data_type}, default ${colunas[0].column_default})`
-    : "\nCONFERIDO no banco: automations.ligacoes NÃO existe" +
-      (aplicar ? " — A MIGRAÇÃO NÃO FEZ EFEITO, pare e investigue." : " (esperado no ensaio a seco)")
-);
+console.log("");
+for (const { tabela, coluna, de } of ESPERADAS) {
+  const colunas = await sql`
+    select data_type, column_default
+    from information_schema.columns
+    where table_name = ${tabela} and column_name = ${coluna}`;
+
+  console.log(
+    colunas.length
+      ? `CONFERIDO no banco: ${tabela}.${coluna} existe (${colunas[0].data_type}, default ${colunas[0].column_default})`
+      : `CONFERIDO no banco: ${tabela}.${coluna} NÃO existe (${de})` +
+        (aplicar
+          ? " — A MIGRAÇÃO NÃO FEZ EFEITO, pare e investigue."
+          : " (esperado no ensaio a seco)")
+  );
+}
 
 if (!aplicar) console.log("\nNada foi gravado. Rode com --aplicar para valer.");
 await sql.end();
