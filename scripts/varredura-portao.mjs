@@ -104,7 +104,7 @@
 // até alguém replantá-los:
 //
 //   destino da `senao` sem `atravessandoOPortao`   A: 0   C: 199.452
-//   toque em botão de MENU sem a regra do portão   A: 0   C: 178.450
+//   toque em botão de MENU sem a regra do portão   A: 0   C: 356.900
 //   `retomadaDoTexto` voltando a ignorar a `senao` -> a GUARDA DA FIAÇÃO estoura
 //
 // O TERCEIRO NÃO É MEDIDO POR NÚMERO, e a razão está na guarda logo abaixo de
