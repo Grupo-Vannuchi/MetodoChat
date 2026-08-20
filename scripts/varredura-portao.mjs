@@ -124,8 +124,8 @@
 //
 //   exaustiva     A  73.720 casos /  2.088.628 saltos / 0    B: 261.536
 //                 C 954.160 casos / 11.333.976 saltos / 0
-//   do menu       A  59.350 casos /  1.484.984 saltos / 0    B: 125.583
-//                 C 433.740 casos /  4.730.958 saltos / 0
+//   do menu       A 118.700 casos /  2.969.968 saltos / 0    B: 251.166
+//                 C 867.480 casos /  9.461.916 saltos / 0
 //
 // Repare que TRÊS DOS QUATRO da exaustiva deixam A em ZERO, e que os dois novos
 // também. Foi por isso que C existe: até a revisão da Tarefa 4 a varredura tinha
