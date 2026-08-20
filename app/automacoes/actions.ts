@@ -135,12 +135,35 @@ export async function salvarAutomacao(
   const palavras = Array.isArray(c.palavras)
     ? c.palavras.map((p) => String(p).trim()).filter(Boolean)
     : [];
-  // A DECISÃO DO DONO SOBRE ESTE FLUXO, da Tarefa 9. `Boolean` pelo mesmo motivo
-  // dos outros campos desta função: `configuracao` chega como `unknown` porque
-  // vem do estado de um componente de cliente, e o POST direto no Server Action
-  // pode mandar qualquer coisa aqui. Tudo que não for verdadeiro vira `false`,
-  // que é o lado seguro — a regra do portão contornável continua impedindo
-  // publicar.
+  // A DECISÃO DO DONO SOBRE ESTE FLUXO, da Tarefa 9. `Boolean` porque
+  // `configuracao` chega como `unknown` — vem do estado de um componente de
+  // cliente, e um POST direto no Server Action pode mandar qualquer coisa aqui.
+  // Tudo que não for verdadeiro vira `false`, que é o lado seguro: a regra do
+  // portão contornável continua impedindo publicar.
+  //
+  // O QUE ISSO CUSTA, E A DECISÃO DE ACEITAR. `Boolean(undefined)` é `false`, e
+  // isso significa que quem não MANDA o campo o apaga. Cenário concreto:
+  // automação publicada com `entrega_sem_portao = true` e um caminho que
+  // contorna o portão; uma aba aberta ANTES do deploy salva sem o campo, grava
+  // `false`, `conferirLista` volta a acusar, `ativo && podeAtivar` dá `false` e
+  // a automação sai do ar. Foi medido e está aceito, por três razões:
+  //
+  //   1. A JANELA É A DO DEPLOY. Só uma aba carregada com o painel ANTIGO monta
+  //      `configuracao` sem esta chave; qualquer recarga depois do deploy passa
+  //      a mandá-la, e a caixa desmarcada manda `false` explícito.
+  //   2. A DESPUBLICAÇÃO NÃO É SILENCIOSA. O bloco de `ativo && !podeAtivar`, no
+  //      fim desta função, devolve `{ ok: true, pausada: motivo }` exatamente
+  //      nesse caso, e o dono lê na tela a frase do erro de ativar. O que fica
+  //      sem recado é só o apagamento do `true` em si.
+  //   3. DISTINGUIR AUSENTE DE DESMARCADO É POSSÍVEL (`c.entregaSemPortao ===
+  //      undefined` não é `false`), e não foi feito de propósito: mitigar aqui
+  //      seria construir um caminho novo para uma janela que fecha sozinha.
+  //
+  // E NÃO É "COMO OS OUTROS CAMPOS": `nome`, `ativo` e `gatilho` existem no
+  // cliente velho e são enviados por ele, então nenhum deles corre este risco.
+  // `entregaSemPortao` é o ÚNICO campo desta função que um cliente velho não tem
+  // como mandar, e é só por isso que ele é o único exposto. Quem for acrescentar
+  // campo aqui herda esta janela junto, e não a analogia.
   const entregaSemPortao = Boolean(c.entregaSemPortao);
 
   if (!GATILHOS.includes(gatilho)) return { ok: false, erro: "Escolha o gatilho da automação." };
