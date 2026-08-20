@@ -3717,6 +3717,15 @@ export function conferirLista(
   // os erros de salvar continuam iguais, porque a condição está SÓ aqui e não
   // num filtro no fim da função. Um filtro por mensagem, ou por `quando`, é como
   // isto viraria um "ignorar tudo" sem ninguém decidir que virou.
+  //
+  // E ISSO É MEDIDO, não deduzido: as quatro regras nomeadas acima, um erro de
+  // salvar (o anel de `sempre`) e os avisos têm um teste cada, com a chave
+  // LIGADA, em `tests/steps.test.ts` — o bloco "A CHAVE É ESTREITA" do describe
+  // "conferirLista — a chave de entregar sem portão". Eles nasceram porque esta
+  // frase já esteve escrita com só duas das regras medidas, e duas mutações
+  // passaram por baixo dela sem deixar um teste vermelho: calar TAMBÉM o portão
+  // sem saída, e o tal filtro de avisos no `return`. Quem acrescentar regra
+  // nesta função e quiser citá-la aqui, acrescente o teste junto.
   const iPortao = indiceDoPortao(passos);
   if (!entregaSemPortao && temSeta && iPortao !== null) {
     const idPortao = identidadeDoPasso(passos[iPortao], iPortao);

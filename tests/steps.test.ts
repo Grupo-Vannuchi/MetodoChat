@@ -4177,9 +4177,21 @@ describe("conferirLista — a chave de entregar sem portão", () => {
   });
 
   // -------------------------------------------------------------------------
-  // A CHAVE É ESTREITA. Estes três são a prova, e é por eles que ela não é um
-  // "ignorar tudo": o fluxo abaixo tem, ao mesmo tempo, o portão contornável E
-  // a outra falha. Ligada a chave, sobra EXATAMENTE a outra falha.
+  // A CHAVE É ESTREITA. Estes seis são a prova, e é por eles que ela não é um
+  // "ignorar tudo": cada fluxo abaixo tem, ao mesmo tempo, o portão contornável
+  // E a outra falha. Ligada a chave, sobra EXATAMENTE a outra falha.
+  //
+  // A LISTA DELES É A FRASE ESCRITA EM `lib/steps.ts` (no comentário logo acima
+  // do `if` da regra do portão contornável), e é de propósito que ela seja um
+  // teste cada: aquela frase nomeia botão sem destino, bloco inalcançável, menu
+  // grande demais, portão sem saída e "todos os erros de salvar", e diz ainda
+  // que a chave não é um filtro no fim da função. Uma garantia afirmada em
+  // comentário e não medida é a forma de defeito que esta fase existe para
+  // fechar — foram DUAS mutações que sobreviveram à suíte antes destes testes
+  // existirem: fazer a chave calar o portão sem saída, e pendurar no `return`
+  // final um filtro que apaga todos os avisos.
+  //
+  // A ORDEM AQUI SEGUE A ORDEM DA FRASE, para que quem mudar uma veja a outra.
   // -------------------------------------------------------------------------
 
   it("LIGADA, o BOTÃO SEM DESTINO continua impedindo publicar", () => {
@@ -4208,6 +4220,65 @@ describe("conferirLista — a chave de entregar sem portão", () => {
     expect(r[0].mensagem).toMatch(/Nenhuma seta chega/);
   });
 
+  it("LIGADA, o MENU GRANDE DEMAIS continua impedindo publicar", () => {
+    // O teto da Meta: uma mensagem do Instagram cabe `LIMITE_DE_BOTOES` botões,
+    // e os de baixo somem da mensagem entregue. Aqui o menu tem um a mais, e
+    // TODOS os botões têm seta — o último vai direto ao link, e é ele que faz o
+    // portão ser contornável. Ou seja: as duas falhas no mesmo desenho.
+    //
+    // Os botões são gerados e não escritos à mão porque o que importa é a
+    // QUANTIDADE em relação ao limite; escrever catorze literais deixaria o
+    // teste verde por engano no dia em que o limite mudasse.
+    const rotulos = Array.from({ length: LIMITE_DE_BOTOES + 1 }, (_, n) => ({
+      id: `op_g${String(n).padStart(5, "0")}`,
+      rotulo: `Opção ${n + 1}`,
+    }));
+    const menuGrande = { id: "b_men060", tipo: "dm", texto: "Escolha", botoes: rotulos };
+    const ls = [
+      ...rotulos.slice(0, -1).map((b) => porBotao("b_men060", b.id, "b_por002")),
+      // A FUGA: o último botão pula o portão e vai direto ao link.
+      porBotao("b_men060", rotulos[rotulos.length - 1].id, "b_lnk003"),
+      sempre("b_por002", "b_lnk003"),
+    ];
+    const passos = [menuGrande, portao, link];
+
+    // Desligada, as duas falam.
+    const desligada = ativar(passos, ls);
+    expect(desligada).toHaveLength(2);
+    expect(desligada.map((p) => p.indice).sort()).toEqual([0, 2]);
+
+    // Ligada, sobra o teto — e sobra ele SOZINHO.
+    const r = ativar(passos, ls, true);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(0);
+    expect(r[0].mensagem).toMatch(/cabe 13 botões/);
+    expect(podeFicarAtiva(conferirLista(passos, "dm", ls, true))).toBe(false);
+  });
+
+  it("LIGADA, o PORTÃO SEM SAÍDA continua impedindo publicar", () => {
+    // O beco: o portão PEDE o follow e não tem nenhum bloco depois. Quem seguir
+    // o perfil fica esperando para sempre — e é a chave que decide se a
+    // automação publica, então este é o caso em que ela precisa continuar muda.
+    //
+    // O mesmo desenho é contornável: `op_bbbbbb` vai direto ao link, sem passar
+    // pelo portão. Duas falhas, e a chave só pode encostar em uma.
+    const semSaida = [
+      porBotao("b_men050", "op_aaaaaa", "b_por002"),
+      porBotao("b_men050", "op_bbbbbb", "b_lnk003"),
+    ];
+    const passos = [menu, portao, link];
+
+    const desligada = ativar(passos, semSaida);
+    expect(desligada).toHaveLength(2);
+    expect(desligada.map((p) => p.indice).sort()).toEqual([1, 2]);
+
+    const r = ativar(passos, semSaida, true);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+    expect(r[0].mensagem).toMatch(/quem seguir o perfil não recebe mais nada/);
+    expect(podeFicarAtiva(conferirLista(passos, "dm", semSaida, true))).toBe(false);
+  });
+
   it("LIGADA, o ANEL DE `sempre` continua travando o SALVAR", () => {
     // O anel é a outra porta: dado que o motor não consegue percorrer, e a chave
     // é sobre PUBLICAR. Ela não pode encostar num erro de salvar.
@@ -4216,6 +4287,39 @@ describe("conferirLista — a chave de entregar sem portão", () => {
     const anel = [sempre("b_xxx001", "b_yyy002"), sempre("b_yyy002", "b_xxx001")];
     expect(salvar([x, y], anel, true)).toHaveLength(1);
     expect(salvar([x, y], anel, false)).toHaveLength(1);
+  });
+
+  it("LIGADA, os AVISOS continuam saindo — ela não é um filtro no fim da função", () => {
+    // A última coisa que a frase de `lib/steps.ts` promete, e a que mais barato
+    // seria quebrar: bastaria pendurar no `return` final um
+    // `if (entregaSemPortao) return r.filter(p => p.nivel !== "aviso")` para a
+    // barra ficar muda com a caixa marcada, sem que uma linha de erro mudasse.
+    //
+    // O fluxo termina num `esperar`, que é o aviso mais fácil de provocar: ele
+    // não atrasa nada porque não há bloco depois dele. E o desenho é o
+    // contornável de sempre, para a chave estar de fato LIGADA sobre alguma
+    // coisa — se não houvesse portão contornável aqui, o teste passaria mesmo
+    // com a chave nunca tendo sido consultada.
+    const esperar = { id: "b_esp008", tipo: "esperar", minutos: 5 };
+    const ls = [...comFuga, sempre("b_lnk003", "b_esp008")];
+    const passos = [menu, portao, link, esperar];
+
+    const desligada = conferirLista(passos, "dm", ls, false);
+    const ligada = conferirLista(passos, "dm", ls, true);
+
+    // O aviso é o MESMO nos dois estados: mesma quantidade, mesmo bloco, mesma
+    // frase. O que muda entre eles é só o erro do portão contornável.
+    const avisosDesligada = desligada.filter((p) => p.nivel === "aviso");
+    const avisosLigada = ligada.filter((p) => p.nivel === "aviso");
+    expect(avisosLigada).toEqual(avisosDesligada);
+    expect(avisosLigada).toHaveLength(1);
+    expect(avisosLigada[0].indice).toBe(3);
+    expect(avisosLigada[0].mensagem).toMatch(/não atrasa nada/);
+
+    expect(ativar(passos, ls)).toHaveLength(1);
+    expect(ativar(passos, ls, true)).toHaveLength(0);
+    // E o aviso sozinho não impede publicar — a chave entregou o que prometeu.
+    expect(podeFicarAtiva(ligada)).toBe(true);
   });
 
   it("LIGADA, ela não inventa problema em fluxo que já estava inteiro", () => {
