@@ -103,7 +103,7 @@
 // lib/steps.ts, fora do escopo desta tarefa. Estes números ficam desatualizados
 // até alguém replantá-los:
 //
-//   destino da `senao` sem `atravessandoOPortao`   A: 0   C:  99.726
+//   destino da `senao` sem `atravessandoOPortao`   A: 0   C: 199.452
 //   toque em botão de MENU sem a regra do portão   A: 0   C: 178.450
 //   `retomadaDoTexto` voltando a ignorar a `senao` -> a GUARDA DA FIAÇÃO estoura
 //
