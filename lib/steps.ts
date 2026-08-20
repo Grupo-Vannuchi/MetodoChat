@@ -2903,10 +2903,35 @@ const SO_UM_POR_LISTA: Record<string, string> = {
 // sobre isso. Quem fecha esse caso é a ordem de implantação registrada lá —
 // coluna, migração, motor —, e não a conferência.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// A CHAVE `entregaSemPortao` É ARGUMENTO, E TEM QUE SER (Tarefa 9).
+//
+// Ela é uma COLUNA — `automations.entrega_sem_portao`, `false` de padrão —, e
+// mesmo assim chega por parâmetro, porque este arquivo é puro e não conhece
+// banco. Ler configuração aqui dentro faria a única regra testável sem banco
+// depender de uma coisa que só existe com banco, e a suíte que segura esta
+// função pararia de segurá-la.
+//
+// QUEM A LÊ DO BANCO são `app/automacoes/[id]/page.tsx` (que a manda para o
+// quadro, que a devolve no salvar) e `toggleAutomation`
+// (app/automacoes/actions.ts), que é a porta de publicar.
+//
+// O PADRÃO É `false` E ISSO É A REGRA DE HOJE: com ela desligada, esta função
+// responde exatamente o que respondia antes desta tarefa. É o que faz uma
+// automação gravada antes da coluna existir — e uma chamada de três argumentos
+// que ninguém atualizou — não mudar de veredicto.
+//
+// ELA DESLIGA UMA REGRA SÓ, e a estreiteza é o produto inteiro desta tarefa:
+// botão sem destino, bloco inalcançável, menu grande demais, portão sem saída e
+// o anel de `sempre` continuam falando com ela ligada. Uma chave que cala mais
+// de uma é um "ignorar tudo" com nome bonito, e aí o dono que queria dizer
+// "entrego sem exigir follow" acabou dizendo "não me conte mais nada".
+// ---------------------------------------------------------------------------
 export function conferirLista(
   passos: unknown,
   gatilho: string,
-  ligacoes: unknown = []
+  ligacoes: unknown = [],
+  entregaSemPortao: boolean = false
 ): Problema[] {
   const r: Problema[] = [];
 
@@ -2952,10 +2977,13 @@ export function conferirLista(
   const temSeta = Array.isArray(ligacoes) && ligacoes.some((l) => Boolean(conferirLigacao(l).ligacao));
 
   let portoes = 0;
-  // Guarda o ÍNDICE do primeiro link antes do portão, não só se existe um.
-  // Sem o índice, o aviso não tinha onde acender — `Problema.indice` ficava
-  // `null` e o editor (Tarefa 5) não tinha como destacar o bloco culpado.
-  let indiceDoLinkAntesDoPortao: number | null = null;
+  // `indiceDoLinkAntesDoPortao` MORAVA AQUI, e saiu junto com o aviso posicional
+  // que era o seu único leitor (Tarefa 9 — o porquê está no lugar em que o aviso
+  // estava). Deixá-lo vivo seria uma varredura da lista inteira alimentando
+  // ninguém, e o próximo a ler este arquivo procurando por quem a consome.
+  //
+  // `portoes` FICA, e não é o mesmo caso: quem o lê é a regra de "só pode haver
+  // um portão de follow" e a condição da regra do caminho, lá embaixo.
   const jaVistos = new Set<string>();
   const idsVistos = new Set<string>();
 
@@ -3262,15 +3290,6 @@ export function conferirLista(
       });
     }
 
-    if (
-      passo.tipo === "dm" &&
-      passo.url &&
-      portoes === 0 &&
-      indiceDoLinkAntesDoPortao === null
-    ) {
-      indiceDoLinkAntesDoPortao = i;
-    }
-
     // -----------------------------------------------------------------------
     // OS BOTÕES DO BLOCO.
     //
@@ -3518,18 +3537,23 @@ export function conferirLista(
     }
   }
 
-  // Sem portão nenhum não há o que avisar: o link chegar a quem não segue é o
-  // que a automação faz, não um descuido de ordem.
-  if (indiceDoLinkAntesDoPortao !== null && portoes > 0) {
-    r.push({
-      nivel: "aviso",
-      quando: "ativar",
-      indice: indiceDoLinkAntesDoPortao,
-      mensagem:
-        "O link sai antes do pedido de follow, então quem não segue recebe o link mesmo assim. O portão só segura o que vier depois dele.",
-    });
-  }
-
+  // O AVISO POSICIONAL — "o link sai antes do pedido de follow" — ESTAVA AQUI, e
+  // saiu na Tarefa 9. Ele não foi substituído: foi APAGADO, e o registro fica
+  // porque a ausência dele é uma decisão, não um esquecimento.
+  //
+  // ELE LIA A ORDEM DO ARRAY (`indiceDoLinkAntesDoPortao`, acima, que contava
+  // links vistos antes do primeiro portão), e a Tarefa 3b tirou a ordem de
+  // circulação: quem decide o próximo bloco é a SETA. "Link antes do portão na
+  // lista" deixou de significar "link antes do portão no fluxo" — a MESMA lista,
+  // com as setas desenhadas ao contrário, entrega o link depois do portão, e ele
+  // acendia assim mesmo.
+  //
+  // E ELE ERA A TERCEIRA VOZ. Sobre o mesmo bloco da mesma lista, ele dizia
+  // "pode ser estratégia, quem decide é o dono" enquanto o erro de ativar do
+  // portão contornável (lá embaixo) dizia "você não pode publicar". A
+  // contradição foi medida e levada ao dono do produto, e a saída dele não foi
+  // nenhuma das duas: virou a chave `entregaSemPortao`, por automação. Com duas
+  // vozes — a regra e a chave que a cala — não sobra lugar para uma terceira.
   const ultimo = conferir(passos[passos.length - 1]).passo;
   if (ultimo?.tipo === "esperar") {
     r.push({
@@ -3653,40 +3677,48 @@ export function conferirLista(
   // O PORTÃO QUE É A ENTRADA não produz caso nenhum: todo caminho começa dentro
   // dele, e não há como contorná-lo.
   //
-  // A REGRA POSICIONAL LOGO ACIMA ("o link sai antes do pedido de follow") NÃO
-  // SAI NESTA TAREFA, e a convivência é temporária: aquela olha a ORDEM DO
-  // ARRAY, esta olha o CAMINHO, e enquanto o quadro não mandar as ligações
-  // (Tarefa 6) a posicional é a única das duas que fala.
+  // A CHAVE DO DONO É QUEM CALA ESTA REGRA, E SÓ ESTA (Tarefa 9).
   //
-  // ELAS SE CONTRADIZEM, e isso é MEDIDO, não uma preocupação de estilo. Na
-  // lista `[boas-vindas, link, portão]` com a corrente que a migração grava
-  // (`sempre` de cada bloco para o seguinte), `conferirLista` devolve as duas
+  // A REGRA POSICIONAL QUE MORAVA ACIMA ("o link sai antes do pedido de follow")
+  // CONTRADIZIA ESTA, e a contradição era MEDIDA, não uma preocupação de estilo.
+  // Na lista `[boas-vindas, link, portão]` com a corrente que a migração grava
+  // (`sempre` de cada bloco para o seguinte), `conferirLista` devolvia as duas
   // sobre O MESMO BLOCO — `indice: 1`, o link — com veredictos opostos:
   //
   //   AVISO: "O link sai antes do pedido de follow, então quem não segue recebe
-  //     o link mesmo assim." Aviso não tranca porta nenhuma; a decisão fica com
-  //     o dono, e a razão escrita para isso é que aquilo pode ser estratégia —
+  //     o link mesmo assim." Aviso não tranca porta nenhuma; a decisão ficava com
+  //     o dono, e a razão escrita para isso era que aquilo pode ser estratégia —
   //     entregar primeiro e pedir o follow depois.
-  //   ERRO DE ATIVAR: "Dá para chegar neste link sem passar pelo pedido de
-  //     follow." Ou seja: o dono NÃO pode publicar.
+  //   ERRO DE ATIVAR (esta regra): "Dá para chegar neste link sem passar pelo
+  //     pedido de follow." Ou seja: o dono NÃO pode publicar.
   //
-  // Uma diz "você decide", a outra diz "você não pode". Não é uma falar da ordem
-  // e a outra do desenho — na corrente que a migração grava, ordem e desenho são
-  // a mesma coisa, e é por isso que as duas acendem juntas.
+  // Uma dizia "você decide", a outra diz "você não pode". Não era uma falar da
+  // ordem e a outra do desenho — na corrente que a migração grava, ordem e
+  // desenho são a mesma coisa, e é por isso que as duas acendiam juntas.
   //
-  // QUEM RESOLVE É A TAREFA 9, e a saída não é nenhuma das duas: levada ao dono
-  // do produto, a contradição virou uma CHAVE POR AUTOMAÇÃO — "entregar o link
-  // sem exigir que a pessoa siga" —, desligada por padrão, porque nem sempre é
-  // engano e nem sempre é estratégia; depende da automação. Com ela ligada, esta
-  // regra deixa de impedir ativar. O portão continua funcionando no motor: a
-  // chave diz "não me impeça de publicar", e não "ignore o portão na entrega".
+  // LEVADA AO DONO DO PRODUTO, a contradição não foi resolvida por nenhum dos
+  // dois lados: nem sempre é engano, nem sempre é estratégia, DEPENDE DA
+  // AUTOMAÇÃO. Virou uma chave por automação — para o dono, "entregar o link sem
+  // exigir que a pessoa siga" —, desligada por padrão. O aviso posicional foi
+  // apagado (ver o lugar em que ele estava), e esta regra passou a ter um
+  // interruptor com nome e dono.
   //
-  // E O AVISO POSICIONAL MORRE DE QUALQUER JEITO, ligada a chave ou não, porque
-  // ele lê a ORDEM DO ARRAY, que a Tarefa 3b tirou de circulação: "link antes do
-  // portão na lista" deixou de significar "link antes do portão no fluxo".
-  // Mantê-lo é manter uma terceira voz sobre o mesmo caso.
+  // O QUE A CHAVE NÃO FAZ, e o limite é o que a torna honesta: o portão continua
+  // funcionando NO MOTOR. Ela diz "não me impeça de publicar", e não "ignore o
+  // portão em tempo de entrega" — `lib/engine.ts` nunca a lê, e um caminho
+  // desenhado passando pelo portão continua passando por ele. O que muda é
+  // exatamente uma coisa: o `push` abaixo deixa de acontecer.
+  //
+  // E O PREÇO, que o rótulo na tela diz junto: com ela ligada, esta era a ÚNICA
+  // voz que avisaria que o link sai para quem não segue. Ninguém mais avisa.
+  //
+  // ELA NÃO ENCOSTA EM MAIS NADA. As outras regras de ativar — botão sem
+  // destino, bloco inalcançável, menu grande demais, portão sem saída — e todos
+  // os erros de salvar continuam iguais, porque a condição está SÓ aqui e não
+  // num filtro no fim da função. Um filtro por mensagem, ou por `quando`, é como
+  // isto viraria um "ignorar tudo" sem ninguém decidir que virou.
   const iPortao = indiceDoPortao(passos);
-  if (temSeta && iPortao !== null) {
+  if (!entregaSemPortao && temSeta && iPortao !== null) {
     const idPortao = identidadeDoPasso(passos[iPortao], iPortao);
     if (idPortao !== entrada) {
       for (let i = 0; i < passos.length; i++) {

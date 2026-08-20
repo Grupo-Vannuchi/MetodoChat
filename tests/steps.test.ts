@@ -2723,24 +2723,32 @@ describe("conferirLista", () => {
     expect(erros([bem, portao, email, link])).toHaveLength(0);
   });
 
-  it("AVISO, não erro: link antes do portão, apontando o BLOCO do link", () => {
-    // Pode ser engano, pode ser estratégia — entregar primeiro e pedir follow
-    // depois. Quem decide é o dono; a mensagem continua falando da ORDEM, que
-    // é onde o problema está.
+  it("o link antes do portão NA LISTA não diz mais nada — a ordem parou de significar isso", () => {
+    // ELE FOI UM AVISO ATÉ A TAREFA 9, com a frase "o link sai antes do pedido
+    // de follow, então quem não segue recebe o link mesmo assim", e a razão
+    // escrita para ser aviso e não erro era que aquilo pode ser estratégia —
+    // entregar primeiro e pedir o follow depois.
     //
-    // O índice, porém, tem que ser fixado: sem ele o editor (Tarefa 5) não
-    // tem onde acender o culpado. `link` está no índice 1 desta lista.
-    const r = conferirLista([bem, link, portao], "dm");
-    expect(r.filter((p) => p.nivel === "erro")).toHaveLength(0);
-    expect(r.filter((p) => p.nivel === "aviso")).toHaveLength(1);
-    expect(r[0].indice).toBe(1);
-  });
+    // MORREU PORQUE A PERGUNTA DELE DEIXOU DE TER RESPOSTA. Ele lia a ORDEM DO
+    // ARRAY, e a Tarefa 3b tirou a ordem de circulação: quem decide o próximo
+    // bloco é a SETA. "Link antes do portão na lista" deixou de significar
+    // "link antes do portão no fluxo" — a mesma lista, com as setas invertidas,
+    // entrega o link DEPOIS do portão e ele acendia assim mesmo.
+    //
+    // E ELE ERA A TERCEIRA VOZ sobre um caso que agora tem duas: o erro de
+    // ativar do portão contornável (que olha o CAMINHO) e a chave por automação
+    // que o dono liga (que decide o que fazer com ele). Deixá-lo vivo seria
+    // manter no ar a voz que diz "você decide" ao lado da que diz "você não
+    // pode", sobre o mesmo bloco — que é a contradição que abriu esta tarefa.
+    //
+    // SEM SETA NENHUMA a lista fica limpa: nenhuma regra de grafo fala, e o
+    // aviso posicional era a única que falava.
+    expect(conferirLista([bem, link, portao], "dm")).toEqual([]);
 
-  it("aponta o PRIMEIRO link antes do portão, quando há mais de um", () => {
+    // Com mais de um link antes do portão, idem — este é o caso que o teste do
+    // "PRIMEIRO link" cobria.
     const outroLink = { id: "b_lnk099", tipo: "dm", texto: "Outro link", url: "https://z.com" };
-    const r = conferirLista([bem, link, outroLink, portao], "dm");
-    expect(r.filter((p) => p.nivel === "aviso")).toHaveLength(1);
-    expect(r.filter((p) => p.nivel === "aviso")[0].indice).toBe(1);
+    expect(conferirLista([bem, link, outroLink, portao], "dm")).toEqual([]);
   });
 
   it("sem portão nenhum, o link não é avisado", () => {
@@ -4068,6 +4076,188 @@ describe("conferirLista em dois níveis", () => {
     const r = conferirLista([bem, vazio], "dm", [sempre("b_bem001", "b_vaz080")]);
     expect(r.filter((p) => p.nivel === "erro")).toHaveLength(1);
     expect(r.filter((p) => p.nivel === "erro")[0].quando).toBe("salvar");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A CHAVE "ENTREGAR O LINK SEM EXIGIR QUE A PESSOA SIGA" (Tarefa 9).
+//
+// Ela nasceu de uma decisão do dono do produto: dois textos deste projeto diziam
+// coisas opostas sobre o mesmo caso — o aviso posicional dizia "pode ser
+// estratégia, você decide", o erro de ativar da Tarefa 5 dizia "você não pode
+// publicar". Levada ao dono, a contradição virou uma terceira saída: nem sempre
+// engano, nem sempre estratégia, DEPENDE DA AUTOMAÇÃO.
+//
+// ELA É ARGUMENTO, e não leitura de configuração aqui dentro: `lib/steps.ts` é
+// puro e não conhece banco. Quem a lê da coluna `entrega_sem_portao` são
+// `app/automacoes/[id]/page.tsx` e `toggleAutomation`
+// (app/automacoes/actions.ts), e quem a manda de volta é o quadro.
+//
+// O QUE ESTES TESTES PROVAM, e o terceiro grupo é o que mais importa: a chave é
+// ESTREITA. Ela desliga UMA regra. Se ligá-la calar qualquer outra, ela virou um
+// "ignorar tudo" com nome bonito, e o produto perdeu as três defesas que
+// sobraram sem ninguém notar.
+// ---------------------------------------------------------------------------
+describe("conferirLista — a chave de entregar sem portão", () => {
+  const bem = { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" };
+  const portao = {
+    id: "b_por002",
+    tipo: "pedir_follow",
+    texto: "Me segue",
+    botao_label: "Já sigo",
+  };
+  const link = { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" };
+
+  const sempre = (de: string, para: string) => ({ de, quando: { tipo: "sempre" }, para });
+  const porBotao = (de: string, botao: string, para: string) => ({
+    de,
+    quando: { tipo: "botao", botao },
+    para,
+  });
+
+  const ativar = (ps: unknown, ls: unknown, chave = false) =>
+    conferirLista(ps, "dm", ls, chave).filter((p) => p.nivel === "erro" && p.quando === "ativar");
+  const salvar = (ps: unknown, ls: unknown, chave = false) =>
+    conferirLista(ps, "dm", ls, chave).filter((p) => p.nivel === "erro" && p.quando === "salvar");
+
+  // O MENU COM FUGA: um botão passa pelo portão, o outro vai direto ao link.
+  // É o desenho que a regra do portão contornável existe para acusar, e o mesmo
+  // que a chave existe para deixar passar.
+  const menu = {
+    id: "b_men050",
+    tipo: "dm",
+    texto: "Escolha",
+    botoes: [
+      { id: "op_aaaaaa", rotulo: "Quero" },
+      { id: "op_bbbbbb", rotulo: "Direto" },
+    ],
+  };
+  const comFuga = [
+    porBotao("b_men050", "op_aaaaaa", "b_por002"),
+    sempre("b_por002", "b_lnk003"),
+    porBotao("b_men050", "op_bbbbbb", "b_lnk003"),
+  ];
+
+  it("DESLIGADA: o portão contornável continua impedindo publicar — é o de hoje", () => {
+    // O padrão do argumento é `false`, e o padrão é o comportamento seguro. As
+    // duas formas de chamar têm que dar a mesma resposta, senão a coluna nova
+    // muda o veredicto de toda automação gravada antes dela.
+    const r = ativar([menu, portao, link], comFuga);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(2);
+    expect(r[0].mensagem).toMatch(/sem passar pelo pedido de follow/);
+    expect(conferirLista([menu, portao, link], "dm", comFuga)).toEqual(
+      conferirLista([menu, portao, link], "dm", comFuga, false)
+    );
+  });
+
+  it("LIGADA: o MESMO fluxo passa a poder ser publicado", () => {
+    expect(ativar([menu, portao, link], comFuga, true)).toHaveLength(0);
+    expect(podeFicarAtiva(conferirLista([menu, portao, link], "dm", comFuga, true))).toBe(true);
+    // E com ela desligada, não pode — o par completo, para a diferença ser da
+    // CHAVE e não de outra coisa da lista.
+    expect(podeFicarAtiva(conferirLista([menu, portao, link], "dm", comFuga, false))).toBe(false);
+  });
+
+  it("LIGADA, o link que É A ENTRADA também deixa de impedir", () => {
+    // A primeira metade da condição da regra: `haCaminho` começa nas SAÍDAS da
+    // entrada, então um link em `steps[0]` só seria "alcançável" por um anel. Ele
+    // sai no disparo, antes de qualquer portão, e é o caso mais óbvio de todos.
+    //
+    // O `fim` está aqui e não é enfeite: um portão que é a última parada do
+    // caminho é OUTRO erro de ativar ("segue o perfil e não recebe mais nada"),
+    // e sem ele a lista traria duas acusações — a diferença medida deixaria de
+    // ser só a da chave.
+    const fim = { id: "b_fim004", tipo: "dm", texto: "Pronto" };
+    const ls = [sempre("b_lnk003", "b_por002"), sempre("b_por002", "b_fim004")];
+    const r = ativar([link, portao, fim], ls);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(0);
+    expect(ativar([link, portao, fim], ls, true)).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // A CHAVE É ESTREITA. Estes três são a prova, e é por eles que ela não é um
+  // "ignorar tudo": o fluxo abaixo tem, ao mesmo tempo, o portão contornável E
+  // a outra falha. Ligada a chave, sobra EXATAMENTE a outra falha.
+  // -------------------------------------------------------------------------
+
+  it("LIGADA, o BOTÃO SEM DESTINO continua impedindo publicar", () => {
+    // `op_bbbbbb` não tem seta nenhuma: quem tocar "Direto" não recebe nada.
+    // A chave não tem nada a dizer sobre isso — o problema não é o portão.
+    const semODestino = [
+      porBotao("b_men050", "op_aaaaaa", "b_por002"),
+      sempre("b_por002", "b_lnk003"),
+    ];
+    const r = ativar([menu, portao, link], semODestino, true);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(0);
+    expect(r[0].mensagem).toMatch(/não leva a lugar nenhum|não leva a bloco nenhum/);
+    expect(podeFicarAtiva(conferirLista([menu, portao, link], "dm", semODestino, true))).toBe(
+      false
+    );
+  });
+
+  it("LIGADA, o BLOCO INALCANÇÁVEL continua impedindo publicar", () => {
+    // `solto` fica fora do desenho. Com a chave ligada, o portão contornável
+    // cala e ESTE continua falando — uma acusação, não zero e não duas.
+    const solto = { id: "b_sol032", tipo: "dm", texto: "Solto" };
+    const r = ativar([menu, portao, link, solto], comFuga, true);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(3);
+    expect(r[0].mensagem).toMatch(/Nenhuma seta chega/);
+  });
+
+  it("LIGADA, o ANEL DE `sempre` continua travando o SALVAR", () => {
+    // O anel é a outra porta: dado que o motor não consegue percorrer, e a chave
+    // é sobre PUBLICAR. Ela não pode encostar num erro de salvar.
+    const x = { id: "b_xxx001", tipo: "dm", texto: "X" };
+    const y = { id: "b_yyy002", tipo: "dm", texto: "Y" };
+    const anel = [sempre("b_xxx001", "b_yyy002"), sempre("b_yyy002", "b_xxx001")];
+    expect(salvar([x, y], anel, true)).toHaveLength(1);
+    expect(salvar([x, y], anel, false)).toHaveLength(1);
+  });
+
+  it("LIGADA, ela não inventa problema em fluxo que já estava inteiro", () => {
+    // O outro lado do estreito: a chave não pode ACRESCENTAR nada. Sem fuga, os
+    // dois botões passam pelo portão, e a lista é limpa nos dois estados.
+    const semFuga = [
+      porBotao("b_men050", "op_aaaaaa", "b_por002"),
+      porBotao("b_men050", "op_bbbbbb", "b_por002"),
+      sempre("b_por002", "b_lnk003"),
+    ];
+    expect(conferirLista([menu, portao, link], "dm", semFuga, true)).toEqual([]);
+    expect(conferirLista([menu, portao, link], "dm", semFuga, false)).toEqual([]);
+  });
+
+  it("o AVISO POSICIONAL não aparece em estado nenhum da chave", () => {
+    // Ele morreu de vez, e não por causa da chave: lia a ORDEM DO ARRAY, que a
+    // Tarefa 3b tirou de circulação. Ligada ou desligada, ele não volta.
+    //
+    // A lista é `[boas-vindas, link, portão]` com a corrente que a migração
+    // grava — o caso EXATO em que ele e o erro de ativar acendiam juntos, sobre
+    // o mesmo bloco, com veredictos opostos. Agora fala um só, e a chave decide
+    // se ele fala.
+    //
+    // O `fim` fecha a corrente pelo mesmo motivo do teste do link-entrada: um
+    // portão que é a última parada é outro erro de ativar, e ele encobriria a
+    // medição que este teste faz.
+    const fim = { id: "b_fim004", tipo: "dm", texto: "Pronto" };
+    const corrente = [
+      sempre("b_bem001", "b_lnk003"),
+      sempre("b_lnk003", "b_por002"),
+      sempre("b_por002", "b_fim004"),
+    ];
+    const desligada = conferirLista([bem, link, portao, fim], "dm", corrente, false);
+    const ligada = conferirLista([bem, link, portao, fim], "dm", corrente, true);
+
+    expect(desligada.filter((p) => p.nivel === "aviso")).toEqual([]);
+    expect(ligada.filter((p) => p.nivel === "aviso")).toEqual([]);
+
+    // E o que sobra é UMA voz, a do caminho, que a chave silencia.
+    expect(desligada).toHaveLength(1);
+    expect(desligada[0]).toMatchObject({ nivel: "erro", quando: "ativar", indice: 1 });
+    expect(ligada).toEqual([]);
   });
 });
 
