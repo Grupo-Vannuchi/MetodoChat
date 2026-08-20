@@ -3758,9 +3758,18 @@ export function conferirLista(
 // (app/automacoes/actions.ts) gravava a coluna `active` filtrando só os erros
 // de `quando === "salvar"`, e o painel do gatilho tem a caixa "Ativa" bem ao
 // lado do botão Salvar. Ou seja: publicar um fluxo com botão sem destino, bloco
-// inalcançável ou link antes do portão não exigia clicar em "Ativar" — bastava
-// marcar a caixa e salvar. A porta que a Tarefa 5 construiu (`toggleAutomation`,
-// que recusa os dois níveis) tinha um jeito de nunca ser usada.
+// inalcançável ou link contornando o portão não exigia clicar em "Ativar" —
+// bastava marcar a caixa e salvar. A porta que a Tarefa 5 construiu
+// (`toggleAutomation`, que recusa os dois níveis) tinha um jeito de nunca ser
+// usada.
+//
+// A LISTA ACIMA É A DE HOJE, e não a que a Tarefa 6b escreveu: lá o terceiro
+// item era "link antes do portão", o AVISO POSICIONAL, apagado na Tarefa 9 (o
+// registro da morte dele está em `conferirLista`, no lugar em que ele ficava).
+// Ele nunca chegou a barrar nada, porque era aviso e esta função só olha erro —
+// então nada do que este parágrafo conta muda com a troca. O que sobrou no lugar
+// dele é o erro de ativar do portão CONTORNÁVEL, que olha o caminho e não a
+// ordem, e que a chave `entregaSemPortao` cala por automação.
 //
 // POR QUE ISTO MORA AQUI e não em `app/automacoes/actions.ts`, apesar de ser
 // uma linha só: aquele arquivo tem `"use server"` no topo, e é o motivo desta
