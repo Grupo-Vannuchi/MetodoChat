@@ -77,8 +77,14 @@
 // lib/steps.ts de ANTES da Tarefa 3b (o arquivo de verdade, tirado do git, e não
 // uma reimplementação) e reproduz a cola do motor daquele commit. Ele TEM que
 // acusar — em A e em C, NAS DUAS VARREDURAS —, e sai com código 1 se não
-// acusar. Medido, em 120 a 121 s: exaustiva A 76.020 e C 3.366.888 (B 849.150);
-// do menu A 112.380 e C 4.576.743 (B 1.974.317).
+// acusar. Medido, DEPOIS da guarda `emiteBotao` (ver abaixo): exaustiva A 76.020
+// e C 2.168.750 (B 682.400); do menu A 112.380 e C 3.946.534 (B 1.809.814).
+//
+// OS DOIS NUMEROS DE A NAO SE MEXERAM com aquela guarda — 76.020 e 112.380 são
+// os mesmos de antes dela —, e isso importa mais do que parece: já houve nesta
+// fase um corte de arranjos que levou A da contraprova de 76.020 a ZERO e matou
+// a prova sem uma palavra. Os de C e de B caíram porque a guarda tira pontos de
+// ENTRADA fictícios; A continua acusando o mesmo tanto.
 //
 // E ELA JÁ QUEBROU CALADA UMA VEZ, por mudança de assinatura: três dos pontos de
 // chamada convertidos à mão ficaram sem o ramo `MODO_ANTIGO` e a contraprova
@@ -90,6 +96,11 @@
 // OS PLANTIOS que esta varredura precisa acusar, e os números medidos — eles são
 // o critério de que ela DISCRIMINA, e não um enfeite. Refazê-los é o teste do
 // teste, e quem mexer aqui deve refazê-los.
+//
+// OS SEIS NÚMEROS ABAIXO SÃO ANTERIORES À GUARDA `emiteBotao` e estão sendo
+// remedidos com o eixo fiel — leia-os como históricos até esta marca sair. O
+// que NÃO muda é o critério: os seis têm que continuar acusando, e um que passe
+// a dar zero é defeito da guarda, não do plantio.
 //
 // NA EXAUSTIVA (os quatro da revisão da Tarefa 4, inalterados por esta tarefa):
 //
@@ -142,10 +153,33 @@
 //
 // A LINHA DE BASE das duas, para os números acima terem de que se afastar:
 //
-//   exaustiva     A  73.720 casos /  2.088.628 saltos / 0    B: 261.536
-//                 C 954.160 casos / 11.333.976 saltos / 0
+//   exaustiva     A  73.720 casos /  1.831.804 saltos / 0    B: 232.320
+//                 C 954.160 casos /  9.405.896 saltos / 0
 //   do menu       A 118.700 casos /  2.969.968 saltos / 0    B: 251.166
 //                 C 867.480 casos /  9.461.916 saltos / 0
+//
+// ELA MUDOU, E O PORQUÊ É A GUARDA `emiteBotao` (perto de `pontosDeEntrada`).
+// Até então este arquivo forjava um payload de QUATRO partes para todo bloco com
+// seta `botao` desenhada. Na varredura EXAUSTIVA isso quer dizer TODO ponto de
+// entrada de botão: as três setas saem de E (`resposta_rapida`, que emite TRÊS
+// partes) e de M (`texto`, que não emite botão nenhum). A varredura media um
+// toque que a produção não consegue emitir.
+//
+// O que mudou, exatamente:
+//
+//   exaustiva  A saltos  2.088.628 -> 1.831.804   (-256.824,  -12,3%)
+//              C saltos 11.333.976 -> 9.405.896   (-1.928.080, -17,0%)
+//              B saltos 13.271.180 -> 12.327.688  (-943.492,   -7,1%)
+//              B entregas  261.536 -> 232.320     (-29.216,   -11,2%)
+//              A/C casos: IGUAIS (73.720 e 954.160) — o espaço de fluxos é o
+//                mesmo; o que encolheu foram os pontos de ENTRADA por caso.
+//   do menu    TUDO IGUAL, até o último dígito. N é o único bloco do projeto
+//                que emite quatro partes de verdade, e ele só existe aqui.
+//
+// NÃO ERA VAZAMENTO NENHUM: a ficção media pontos de entrada A MAIS, nunca a
+// menos, e zero num conjunto maior continua zero no conjunto real. O que ela
+// estragava era a LEITURA — 17% dos saltos de C, o grupo que carrega "a garantia
+// pela REGRA", mediam um toque impossível.
 //
 // Repare que TRÊS DOS QUATRO da exaustiva deixam A em ZERO, e que os dois novos
 // também. Foi por isso que C existe: até a revisão da Tarefa 4 a varredura tinha
@@ -589,6 +623,12 @@ function arranjosDe(papeis) {
 // exaustiva com os dez e com as cinco rotações: TODO contador dá exatamente o
 // dobro, e todo número plantado que este arquivo cita também.
 //
+// A TABELA ABAIXO É DE ANTES DA GUARDA `emiteBotao` (as duas colunas), e fica
+// como está de propósito: o que ela mede é a RAZÃO entre dez arranjos e cinco,
+// e essa razão é dois dos dois lados da guarda — a guarda tira pontos de
+// entrada por caso, e o número de casos não mudou. Para os valores absolutos de
+// hoje, a linha de base está no topo do arquivo.
+//
 //                                        dez arranjos          cinco
 //   A  casos / saltos                  73.720 / 2.088.628   36.860 / 1.044.314
 //   C  casos / saltos                 954.160 / 11.333.976 477.080 / 5.666.988
@@ -738,6 +778,47 @@ function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, p
   }
 }
 
+// QUEM EMITE UM BOTAO DE VERDADE — e a pergunta é feita ao SISTEMA, não a este
+// arquivo.
+//
+// O payload de QUATRO partes (`AUTO:<automação>:<bloco>:<botão>`) é escrito por
+// `payloadDoBotao`, e `enfileirarPasso` (lib/engine.ts) só o escreve no ramo
+// `envio.forma === "botoes"`. As outras formas de `envioDaDm` emitem outra coisa:
+//
+//   `resposta_rapida` emite TRÊS partes, por `payloadDaRespostaRapida` — e
+//     `lerPayload` devolve `botaoId: null` para três partes, então
+//     `caminhoDoBotao` devolve NULL e a produção cai no CURSOR. Esse caminho
+//     continua varrido, e à exaustão: o laço dos cursores logo abaixo enumera
+//     todos.
+//   `link` e `texto` não emitem botão nenhum — o ramo `else` de
+//     `enfileirarPasso` manda `{text, button_label, url}`, sem payload.
+//
+// O QUE ESTA LINHA CONSERTA: até aqui o laço forjava QUATRO partes para todo
+// bloco que tivesse uma seta `botao` desenhada, e na varredura EXAUSTIVA isso
+// quer dizer TODO ponto de entrada de botão — as três setas saem de E
+// (`resposta_rapida`) e de M (`texto`), e nenhum dos dois emite quatro partes.
+// A varredura media um toque que a produção não consegue produzir. O bloco N,
+// da varredura DO MENU, é o único emissor fiel do projeto — e por isso a
+// varredura do menu NÃO MUDA UM DÍGITO com esta guarda.
+//
+// NÃO ERA VAZAMENTO, e isso precisa estar dito: a ficção media pontos de
+// entrada A MAIS, nunca a menos, e zero num conjunto maior continua zero no
+// conjunto real. O que ela estragava era a LEITURA — o comentário acima diz que
+// o payload é montado pela função de produção, o que é verdade sobre quem
+// ESCREVE a string e era falso sobre quem a EMITE.
+//
+// VALE NOS DOIS MODOS, de propósito. No commit da contraprova `envioDaDm` nem
+// conhece `botoes`, então lá a resposta é "nenhum bloco emite" — que é a
+// verdade daquele commit, e é o que a contraprova tem que reproduzir. Medido:
+// com a guarda nos dois modos a contraprova continua acusando A e C nas duas
+// varreduras (os números estão no cabeçalho). Escrever a guarda só no modo
+// atual seria calibrar o instrumento com um eixo que o instrumento não tem.
+function emiteBotao(passos, blocoId) {
+  const bloco = passos.find((p, i) => S.identidadeDoPasso(p, i) === blocoId);
+  if (!bloco || bloco.tipo !== "dm") return false;
+  return S.envioDaDm(bloco).forma === "botoes";
+}
+
 // Todo ponto por onde alguém volta a um fluxo, do jeito que lib/engine.ts os
 // monta. É a lista que a Tarefa 3b converteu, e por isso ela é a lista que
 // precisa ser varrida.
@@ -795,6 +876,7 @@ function pontosDeEntrada(passos, ligacoes) {
   // que faltava era um menu no espaço de fluxos.
   for (const l of ligacoes) {
     if (l.quando.tipo !== "botao") continue;
+    if (!emiteBotao(passos, l.de)) continue;
     const p = S.lerPayload(montarPayload("A", l.de, l.quando.botao));
     // `caminhoDoBotao` era `(p, passos, ligacoes)` no arquivo antigo.
     const c = MODO_ANTIGO
@@ -1071,8 +1153,8 @@ imprimir("VARREDURA DO MENU E DA `senao` (N, G, L, M, P — mais uma `senao`)", 
 // para 2.045.528 e a varredura saía com código 0, porque A não o via. ESSES DOIS
 // NÚMEROS SÃO HISTÓRICOS — da classificação ANTIGA, por ponto de entrada. Na
 // classificação atual, por SALTO (ver "A UNIDADE DOS TRÊS É O SALTO" acima), o
-// mesmo plantio deixa B em 261.536 — o número do cabeçalho no topo do arquivo,
-// não este.
+// mesmo plantio deixa B no número do cabeçalho no topo do arquivo, não neste —
+// era 261.536 e passou a ser 232.320 com a guarda `emiteBotao`.
 //
 // E OLHAR SÓ A EXAUSTIVA era o defeito que a Tarefa 7c pegou: os dois plantios
 // no caminho da `senao` e no do menu deixavam a exaustiva byte a byte idêntica.
@@ -1137,7 +1219,9 @@ if (MODO_ANTIGO) {
 //
 // B conta as entregas sem portão em fluxos que o portão nem alcança. É o número
 // que o próprio desenho produz, e por construção do espaço de fluxos ele nunca
-// deu zero: 261.536 e 251.166 no modo atual, 849.150 e 1.974.317 na contraprova.
+// deu zero: 232.320 e 251.166 no modo atual, 682.400 e 1.809.814 na contraprova.
+// (Os quatro encolheram com a guarda `emiteBotao`, e nenhum chegou perto de
+// zero — os de antes dela eram 261.536 / 251.166 / 849.150 / 1.974.317.)
 // ZERO em B não é uma leitura boa, é o instrumento mudo — foi exatamente o que a
 // contraprova quebrada imprimiu, com os três contadores no chão, e o único aviso
 // que ela deu foi "CONTRAPROVA MUDA", que qualquer um lê como "o código de hoje
