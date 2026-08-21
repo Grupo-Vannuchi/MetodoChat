@@ -22,7 +22,21 @@ function splitList(raw: string, sep: RegExp): string[] {
 // `conferirLista` produz para o erro de ativar que causou a recusa, a mesma
 // que o botão "Ativar" mostraria: duas frases diferentes para o mesmo
 // problema é a doença que esta fase passou sete comentários curando.
-type Resultado = { ok: true; pausada?: string } | { ok: false; erro: string };
+// `ativoGravado` É O QUE O BANCO FICOU, e não o que foi pedido. Ele existe
+// porque a caixa "Ativa" do painel é um estado do CLIENTE (`configuracao.ativo`)
+// e nada a sincronizava com o `active` que esta função grava: depois de "Salvo,
+// mas ficou pausada: …", o recado morre na primeira mudança do quadro
+// (`recadoDoQuadroAtual`, ./editor/quadro.tsx, por construção) e a caixa
+// continuava MARCADA sobre uma automação `active = false`. Da mudança em diante
+// a única coisa na tela que falava de publicação afirmava o contrário do banco.
+//
+// SAI NOS DOIS RAMOS DE `ok`, e não só no de "ficou pausada": o cliente escreve
+// o que veio, sem inferir. Inferindo de `pausada`, a sincronia dependeria de a
+// frase estar preenchida — e o `?? ""` daquele ramo já é um caso em que ela não
+// está.
+type Resultado =
+  | { ok: true; pausada?: string; ativoGravado: boolean }
+  | { ok: false; erro: string };
 
 const GATILHOS = ["comment", "story", "dm"];
 const CORRESPONDENCIAS = ["contains", "exact", "any"];
@@ -251,6 +265,12 @@ export async function salvarAutomacao(
   // estava ativa — `ativo`, aqui, é o que a caixa mostra no momento do clique,
   // e ela reflete o `active` gravado quando o dono não a tocou.
   //
+  // ESSA SEGUNDA FRASE JÁ FOI FALSA, e o que a faz verdadeira é o
+  // `ativoGravado` do retorno: sem ele, um salvamento que gravava pausada
+  // deixava a caixa MARCADA sobre `active = false`, e o clique seguinte em
+  // Salvar mandava de novo o `ativo` que a tela nunca corrigiu. A premissa
+  // passou a ser sustentada por dado devolvido, e não por suposição.
+  //
   // NÃO RECUSA O SALVAR: seria hostil, e pior aqui do que na Tarefa 5 — o dono
   // que acabou de quebrar uma automação viva ficaria preso com a versão
   // quebrada NO AR até consertar tudo. Gravar pausada protege quem recebe e
@@ -338,9 +358,9 @@ export async function salvarAutomacao(
   // nova, escrita aqui, para o mesmo problema.
   if (ativo && !podeAtivar) {
     const motivo = problemas.find((p) => p.nivel === "erro" && p.quando === "ativar");
-    return { ok: true, pausada: motivo?.mensagem ?? "" };
+    return { ok: true, pausada: motivo?.mensagem ?? "", ativoGravado };
   }
-  return { ok: true };
+  return { ok: true, ativoGravado };
 }
 
 // Cria a automação com o mínimo e manda para o quadro.
@@ -540,7 +560,11 @@ export async function toggleAutomation(id: string, active: boolean): Promise<Res
     [active, id, accountId]
   );
   revalidatePath("/automacoes");
-  return { ok: true };
+  // `ativoGravado` É O `active` PEDIDO, aqui, e não uma combinação: esta porta
+  // RECUSA quando não pode ativar, em vez de gravar pausada. Quem chegou até
+  // esta linha gravou exatamente o que pediu. Quem tem os dois comportamentos
+  // diferentes é `salvarAutomacao`, e o porquê está no tipo `Resultado`.
+  return { ok: true, ativoGravado: active };
 }
 
 export async function deleteAutomation(id: string): Promise<void> {

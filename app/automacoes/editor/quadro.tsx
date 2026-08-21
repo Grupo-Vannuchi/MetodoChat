@@ -1295,9 +1295,33 @@ export default function Quadro({
     iniciarSalvamento(async () => {
       const r = await salvarAutomacao(automationId, passos, ligacoes, configuracao);
 
+      // A CAIXA "ATIVA" PASSA A MOSTRAR O QUE FOI GRAVADO, e não o que foi
+      // pedido. O servidor grava `active = ativo && podeAtivar`
+      // (`salvarAutomacao`, ../actions), e nada trazia esse valor de volta:
+      // depois de "Salvo, mas ficou pausada: …" o recado morre na primeira
+      // mudança do quadro — por construção, e essa construção está certa — e a
+      // caixa continuava marcada sobre uma automação pausada no banco. O dono
+      // fechava o quadro achando que tinha publicado.
+      //
+      // A ATUALIZAÇÃO ENTRA NO MESMO INSTANTÂNEO QUE O RECADO CARREGA, e é essa
+      // a sutileza inteira: `configuracao` é comparada POR IDENTIDADE em
+      // `recadoDoQuadroAtual`, então trocá-la sem trocar a cópia que viaja com o
+      // recado mataria o recado no mesmo render — o dono veria a caixa
+      // desmarcar e não leria por quê, que é a mudança silenciosa que a Tarefa
+      // 6b existe para não fazer.
+      //
+      // O OBJETO SÓ É NOVO QUANDO O VALOR MUDA. Sem essa comparação, todo
+      // salvamento trocaria a identidade de `configuracao` por nada, e um
+      // efeito que dependa dela rodaria de novo a cada Salvar.
+      const gravada =
+        r.ok && r.ativoGravado !== configuracao.ativo
+          ? { ...configuracao, ativo: r.ativoGravado }
+          : configuracao;
+      if (gravada !== configuracao) setConfiguracao(gravada);
+
       // O que foi enviado viaja junto com o recado, e é isso que decide se o
       // recado ainda descreve o quadro na hora de desenhar.
-      const doQueFoiEnviado = { passos, ligacoes, configuracao };
+      const doQueFoiEnviado = { passos, ligacoes, configuracao: gravada };
 
       // A RECUSA NÃO PRECISA MAIS DIZER O QUE FOI GRAVADO, porque a resposta é
       // sempre a mesma: nada. O motivo vem do servidor e é mostrado como veio.
