@@ -194,7 +194,14 @@ export default function No({ id, data, isConnectable }: NodeProps & { data: Dado
               type="source"
               position={Position.Right}
               isConnectable={isConnectable}
-              isConnectableStart={isConnectable}
+              // A ALÇA DE SOBRA NÃO COMEÇA SETA NENHUMA. Ela existe porque há
+              // uma ligação gravada numa condição que o bloco não oferece — a
+              // `sempre` de um menu, a seta de um botão apagado —, e o serviço
+              // dela é deixar o dono VER e APAGAR essa seta, que é o que
+              // `sourceHandle` e o Delete precisam. Puxar uma NOVA dali criaria
+              // uma segunda seta impossível pelo gesto, que é justamente o que
+              // `podeEntrarNaSeta` (./modelos) fechou do outro lado.
+              isConnectableStart={isConnectable && !a.sobra}
               isConnectableEnd={isConnectable}
               style={{ top: altura }}
               className="!h-2 !w-2 !bg-zinc-400"

@@ -630,6 +630,20 @@ describe("alcasDoQuadro", () => {
     expect(alcasDoQuadro(menu, ls, id).filter((a) => a.chave === "sempre")).toHaveLength(1);
   });
 
+  // A MARCA `sobra` É O QUE DESLIGA O COMEÇO DO ARRASTO na alça (`no.tsx`): a
+  // alça existe para o dono ver e apagar a seta que já está lá, e puxar uma
+  // SEGUNDA dali criaria pelo gesto a seta impossível que `podeEntrarNaSeta`
+  // acabou de fechar do outro lado. As alças do TIPO nunca a levam.
+  it("só as alças acrescentadas levam a marca `sobra`", () => {
+    const ls: Ligacao[] = [
+      { de: id, quando: { tipo: "botao", botao: "op_1" }, para: "b_x" },
+      { de: id, quando: { tipo: "sempre" }, para: "b_fim" },
+    ];
+    const alcas = alcasDoQuadro(menu, ls, id);
+    expect(alcas.map((a) => Boolean(a.sobra))).toEqual([false, false, false, true]);
+    expect(alcasDeSaida(menu).every((a) => !a.sobra)).toBe(true);
+  });
+
   it("as ligações de OUTROS blocos não põem alça neste", () => {
     const ls: Ligacao[] = [{ de: "b_outro", quando: { tipo: "sempre" }, para: id }];
     expect(alcasDoQuadro(menu, ls, id)).toEqual(alcasDeSaida(menu));

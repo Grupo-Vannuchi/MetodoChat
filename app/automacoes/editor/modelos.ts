@@ -307,6 +307,12 @@ export type Alca = {
   quando: Quando;
   // O que fica escrito ao lado da alça. Vazio na alça de continuação.
   rotulo: string;
+  // ELA EXISTE SÓ PORQUE HÁ UMA SETA GRAVADA NELA (`alcasDoQuadro`, abaixo), e
+  // não porque o bloco ofereça esta saída. Quem lê é `no.tsx`, para NÃO deixar
+  // um arrasto COMEÇAR dela: a alça está ali para o dono ver e poder apagar a
+  // seta que já existe, e puxar uma segunda de uma condição que o bloco não
+  // produz é criar do zero o que esta onda fechou.
+  sobra?: true;
 };
 
 const ALCA_DE_CONTINUACAO: Alca[] = [{ chave: "sempre", quando: { tipo: "sempre" }, rotulo: "" }];
@@ -424,7 +430,7 @@ export function alcasDoQuadro(p: Passo, ligacoes: Ligacao[], identidade: string)
     const chave = chaveDoQuando(l.quando);
     if (chaves.has(chave)) continue;
     chaves.add(chave);
-    sobras.push({ chave, quando: l.quando, rotulo: rotuloDaSobra(l.quando) });
+    sobras.push({ chave, quando: l.quando, rotulo: rotuloDaSobra(l.quando), sobra: true });
   }
   if (!sobras.length) return base;
   return [
