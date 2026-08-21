@@ -22,24 +22,43 @@ import { scheduleTick } from "./qstash";
 // `const cursor = p.passoId ? ... : ...` daqui de baixo, e escolher errado ali
 // desfazia, sem teste nenhum acusar, o que `retomadaDoFollow` garante.
 //
-// `retomadaDoTexto` é a QUARTA, e a última: ela era o `const retomarDe =
+// `retomadaDoTexto` é a QUARTA: ela era o `const retomarDe =
 // passo.tipo === "pedir_follow" ? indiceParado : indiceParado + 1` do ramo de
 // texto, calculado aqui por conta própria e sem passar por nenhuma das outras
 // três. É por ela que a primeira das duas entradas da regra do portão é
 // alcançável (o porquê está escrito lá), então deixá-la aqui deixaria a regra
 // pela metade — e sem teste, como as outras estavam.
+//
+// `retomadaDoEmailConhecido` é a QUINTA, e a última, e ela é a que prova que a
+// lista não estava completa: as quatro acima saíram, a regra do portão foi
+// escrita, e este ponto CONTINUOU escapando dela por um detalhe de tipo — ele
+// devolvia uma string, e string ENTRAVA em `executarFluxo` como
+// `{ portao: null, destino }`. Enquanto a decisão ficou aqui, a suíte inteira
+// ficou verde por cima de um link entregue a quem não segue.
+//
+// O tempo verbal do parágrafo acima é passado por um motivo: `executarFluxo`
+// não aceita mais string. O parâmetro é `Retomada`, e o único jeito de entrar
+// com destino cru é dizer `semRegraDoPortao` — ver o comentário dela.
 import {
   interpretar,
+  envioDaDm,
   passoEsperado,
   retomadaDoFallback,
   retomadaDoBotao,
   retomadaDoFollow,
   retomadaDoTexto,
+  retomadaDoEmailConhecido,
   cursorDaRetomada,
   interrompeOFluxo,
   identidadeDoPasso,
+  identidadeNoIndice,
+  seguinteDe,
   indiceDoId,
   lerPayload,
+  payloadDoBotao,
+  payloadDaRespostaRapida,
+  payloadDoPortao,
+  caminhoDoBotao,
   oQuePortaoFaz,
   type AcaoEnfileirar,
   type Cursor,
@@ -95,6 +114,18 @@ export type MessagingEvent = {
   };
 };
 
+// MUDAR ESTA FUNÇÃO E `logEventThrottled` DE CASA está proposto e ADIADO, e a
+// nota fica aqui porque é aqui que quem for mover começa. Ela estava só no
+// importador (lib/queue-drain.ts), que é o último lugar em que alguém olharia.
+//
+// A proposta é levá-las para `lib/db.ts` ou um `lib/activity.ts` novo: elas não
+// têm nada de motor, e importá-las daqui arrasta um `server-only` grande para o
+// grafo de quem só quer gravar uma linha em Atividade. O mérito está certo.
+//
+// O ADIAMENTO é o custo contra o que ele compra: são 8 chamadas neste arquivo,
+// 5 em app/api (webhook e oauth) e 1 no dreno, e nenhum teste alcança nenhum
+// desses arquivos — movimento amplo, no meio da fase, cuja única prova seria o
+// typecheck. O que ele compra é higiene de grafo, não comportamento.
 export async function logEvent(accountId: string | null, type: string, payload: unknown) {
   await ensureSchema();
   // O payload vai CRU para uma coluna jsonb — sem JSON.stringify.
@@ -397,22 +428,83 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 
 // O `de` aceita as DUAS formas, e a união é o que mantém a mudança contida.
 //
-// NÚMERO é o caso de dentro: o gatilho começando do zero, e as chamadas que esta
-// função faz a si mesma (portão vencido no caminho, e-mail já conhecido). Não há
-// portão a atravessar antes — o índice já é o próximo passo a executar.
+// IDENTIDADE DE BLOCO (ou null) é o caso de DENTRO: o gatilho começando na
+// entrada do fluxo, e a chamada que esta função faz a si mesma quando vence um
+// portão no caminho.
 //
-// `Retomada` é o caso de fora: os três pontos em que alguém volta a um fluxo
-// parado (`retomadaDoBotao`, `retomadaDoFollow`, `retomadaDoTexto`, lib/steps.ts).
-// Só eles podem cair do outro lado de um portão, e é só por eles que a regra do
-// portão precisa entrar aqui.
+// A DEMONSTRAÇÃO QUE ESTAVA ESCRITA AQUI ERA FALSA, e é preciso dizer isso em
+// vez de apagá-la, porque ela tinha a forma de uma prova e foi lida como uma:
+// "os destinos são a ENTRADA ou o VIZINHO imediato pela seta `sempre`; vizinho
+// não salta por cima de ninguém, então não há portão entre um e outro". A
+// primeira metade é verdadeira. A segunda é a MESMA demonstração que
+// `retomadaDoFallback` (lib/steps.ts) registra como CAÍDA COM O GRAFO: "não há
+// portão ENTRE os dois" não é "não há portão a atravessar". O portão pode
+// alcançar o vizinho por OUTRO braço, e uma junção basta — foi exatamente assim
+// que o ramo do e-mail já conhecido vazou o link, medido.
+//
+// O QUE SOBROU DE VERDADEIRO, por destino, e sem generalização:
+//
+//   O GATILHO começa na ENTRADA do fluxo (`steps[0]`). Não há nada antes dela
+//     por onde a PESSOA passe, então não há caminho a examinar — mas isso é
+//     verdade sobre a TRAVESSIA da pessoa, não sobre o grafo: no grafo o
+//     portão PODE alcançar a entrada dando a volta pelo próprio link (medido,
+//     34.940 casos assim em scripts/varredura-portao.mjs, no ponto "gatilho").
+//     A dispensa continua certa mesmo assim — é a pessoa que começa em
+//     `steps[0]` sem pular nada, e aplicar a regra aqui seria pior: bastaria
+//     uma seta de volta para o portão passar a alcançar a entrada em QUALQUER
+//     fluxo, e o pedido de follow viraria a primeira mensagem de todo mundo.
+//     Ela é a única dispensa que é de TRAVESSIA, não de grafo — o parágrafo
+//     acima já corrigiu uma demonstração que confundia os dois.
+//   O PORTÃO VENCIDO retoma de `seguinteDe(portão)`, e aí a regra não é
+//     dispensável por não se aplicar — ela se aplica SEMPRE, e por isso não é
+//     usada. O porquê inteiro está no ramo `pedir_follow` do laço, abaixo.
+//   O E-MAIL JÁ CONHECIDO deixou de ser um caso de DENTRO: ele passa
+//     `retomadaDoEmailConhecido` (lib/steps.ts), que é uma `Retomada`, e entra
+//     por baixo — pela mesma porta dos pontos de FORA. É a correção do vazamento.
+//
+// ERA NÚMERO, e era aí que dois dos seis pontos da Tarefa 3b moravam: as duas
+// chamadas recursivas somavam `acao.indice + 1`, que é o vizinho no ARRAY e não
+// no grafo. Enquanto as ligações forem a corrente da migração os dois coincidem;
+// desenhado um braço, a soma entrega o bloco errado — e, se esse bloco estiver
+// depois de um portão, entrega-o sem portão. Com identidade, somar um não
+// compila.
+//
+// `Retomada` é o caso de FORA: os pontos em que alguém volta a um fluxo parado
+// (`retomadaDoBotao`, `retomadaDoFollow`, `retomadaDoTexto`, `retomadaDoFallback`
+// e `caminhoDoBotao`, lib/steps.ts). Só eles podem cair do outro lado de um
+// portão, e é só por eles que a regra do portão precisa entrar aqui.
+//
+// A DISPENSA DELIBERADA da regra do portão passa por AQUI, e só por aqui.
+//
+// Ela existe: três dos oito pontos de chamada de `executarFluxo` entram sem
+// `Retomada` de propósito — o gatilho de comentário, o gatilho de mensagem e o
+// portão recém-vencido —, e o porquê de cada um está escrito no próprio ponto
+// de chamada. O que faltava era a dispensa ser DIZÍVEL: enquanto o parâmetro
+// aceitava `string | null | Retomada`, escrever `.destino` num ponto de chamada
+// jogava a regra do portão fora e ficava IDENTICO a uma dispensa legítima —
+// as duas coisas eram "uma string". Medido no commit 4ba91f7, com os CINCO
+// `.destino` plantados de uma vez: eslint 0, tsc 0, 675 testes verdes e a
+// varredura imprimindo "SEM VAZAMENTO" byte a byte igual à linha de base.
+//
+// Com o parâmetro estreitado para `Retomada`, `.destino` num ponto de chamada
+// deixa de compilar (TS2345), e a dispensa deixa de ser invisível: ela passa a
+// ter NOME, e o nome é `grep`-ável. Três ocorrências de `semRegraDoPortao` são
+// as três dispensas; uma quarta é alguém dispensando a regra de novo, e a
+// revisão vê isso no diff.
+//
+// O que ela NÃO compra, e precisa estar dito: ela não pega passar a `Retomada`
+// ERRADA, nem inverter dois parâmetros. Isso continua sem rede aqui.
+function semRegraDoPortao(destino: string | null): Retomada {
+  return { portao: null, destino };
+}
+
 async function executarFluxo(
   account: Account,
   auto: Automation,
   contactIgId: string,
-  de: number | Retomada,
+  retomada: Retomada,
   contexto: ContextoGatilho = {}
 ): Promise<void> {
-  const retomada: Retomada = typeof de === "number" ? { portao: null, destino: de } : de;
 
   // O PORTÃO DE PASSAGEM: atravessa, e segue para o destino.
   //
@@ -551,7 +643,28 @@ async function executarFluxo(
     }
   }
 
-  const r = interpretar(auto.steps, retomada.destino);
+  // A ÚNICA chamada de `interpretar` do motor, e ela é a fronteira entre as duas
+  // metades do sistema nesta fase.
+  //
+  // `interpretar` CAMINHA O GRAFO: ela recebe as ligações e a IDENTIDADE do
+  // bloco de partida, e a ordem do array não diz o que vem depois.
+  //
+  // A CONVERSÃO DE POSIÇÃO SAIU DAQUI, e essa é a metade da Tarefa 3b que se vê
+  // nesta linha. Até ela, `retomada.destino` era um índice e este argumento era
+  // `identidadeNoIndice(auto.steps, retomada.destino)` — aritmética de POSIÇÃO
+  // calculada nas retomadas e traduzida aqui. Agora o destino já nasce
+  // identidade, e não há tradução: quem decide para onde ir decide falando a
+  // mesma língua que a caminhada.
+  //
+  // O null é comum, não defensivo: é o bloco sem seta `sempre` saindo — onde
+  // antes estava o `+1` de quem parou no último bloco. `interpretar` trata o
+  // null SAINDO CALADA — sem `ignorados` e sem sinalizador —, e o motor limpa o
+  // cursor logo abaixo como em qualquer fim de fluxo. A razão de o sinal ter
+  // sido removido está escrita no ramo `deBloco === null` de `interpretar`
+  // (lib/steps.ts): ele dispara se e só se a pessoa passou o ÚLTIMO bloco, o que
+  // é fim NORMAL na maioria das vezes, e os casos que são defeito de verdade são
+  // de MONTAGEM — a conferência os pega no salvar, não na entrega.
+  const r = interpretar(auto, retomada.destino);
 
   // Passo mal montado vira linha em Atividade, não exceção. Automação quebrada
   // não pode derrubar o webhook: a Meta reenviaria o evento por 36 horas.
@@ -594,9 +707,41 @@ async function executarFluxo(
       const r = await resolverFollow(account, auto, contactIgId, p, acao.indice, contexto);
       // Passou: `interpretar` PAROU neste passo, então o resto da lista sequer
       // foi olhado — este é o último item que ele devolveu, e seguir o laço não
-      // faria nada. Retoma do próximo índice, senão vencer o portão seria o fim
-      // do fluxo e o link nunca chegaria a quem seguiu.
-      if (r === "passou") return executarFluxo(account, auto, contactIgId, acao.indice + 1, contexto);
+      // faria nada. Retoma do SEGUINTE, senão vencer o portão seria o fim do
+      // fluxo e o link nunca chegaria a quem seguiu.
+      //
+      // "O SEGUINTE" É A SETA `sempre` (`seguinteDe`, lib/steps.ts), e era
+      // `acao.indice + 1` — um dos seis pontos que a Tarefa 3b converteu, e o
+      // mais perigoso dos dois que ficavam aqui dentro: somar sobre a posição
+      // depois de vencer o portão entrega o bloco que estiver na posição de
+      // baixo, que num grafo pode não ser o destino da seta nem ter nada a ver
+      // com o braço percorrido.
+      //
+      // E ESTE É O ÚNICO PONTO DE RETOMADA QUE NÃO PASSA PELA REGRA DO PORTÃO —
+      // não o único ponto de fato: o gatilho também entra sem passar pela
+      // regra, por identidade crua, em outros dois lugares deste arquivo
+      // (handleCommentEvent e handleMessagingEvent, mais abaixo, ambos com
+      // `identidadeNoIndice(auto.steps, 0)`), pela mesma dispensa. A varredura
+      // documenta essa dispensa à exaustão
+      // (scripts/varredura-portao.mjs, o ponto "gatilho", que entra "pela porta
+      // da frente" e é medido à parte dos cinco pontos de RETOMADA). Os TRÊS
+      // dizem a dispensa pelo nome, com `semRegraDoPortao` — são as três
+      // únicas ocorrências dela no arquivo, e é assim que quem lê o diff
+      // distingue uma dispensa deliberada de uma regra jogada fora. O motivo
+      // está por escrito no ramo
+      // `pedir_email` logo abaixo, junto com o do ramo que FAZ o contrário — os
+      // dois lados da assimetria ficam num lugar só para ninguém "consertar"
+      // metade dela. Em uma linha: aqui o destino é `seguinteDe(portão)`, então
+      // a regra dispararia sempre e mandaria reatravessar o portão recém-vencido, ao
+      // custo de uma consulta à Meta por passagem e sem mudar nada do que é
+      // entregue.
+      if (r === "passou") {
+        return executarFluxo(
+          account, auto, contactIgId,
+          semRegraDoPortao(seguinteDe(auto.ligacoes, identidadeDoPasso(p, acao.indice))),
+          contexto
+        );
+      }
       if (r === "soltar") {
         // Solta em vez de gravar o cursor: a pessoa deixa de ser capturada por
         // este portão e volta a ser alcançável por qualquer automação. Ela não
@@ -635,9 +780,48 @@ async function executarFluxo(
         [account.ig_user_id, contactIgId]
       )) as { email: string | null }[];
       // Mesmo motivo do portão: o e-mail que já temos resolve este passo, e o
-      // que vem depois dele só é visto numa nova interpretação.
+      // que vem depois dele só é visto numa nova interpretação. E "o que vem
+      // depois" é a seta `sempre` — aqui também era `acao.indice + 1`.
+      //
+      // MAS ESTE PONTO PASSA PELA REGRA DO PORTÃO, e o de cima não. A diferença
+      // não é descuido de um dos dois, é a única assimetria real entre eles, e
+      // ela precisa estar escrita aqui porque a simetria aparente convida a
+      // "uniformizar" — nos dois sentidos, e os dois estragam alguma coisa.
+      //
+      //   AQUI a regra é indispensável. A seta `sempre` que sai deste bloco pode
+      //     chegar num destino que o PORTÃO também alcança, por outro braço —
+      //     uma junção no bloco de link basta, e é o grafo mais banal do quadro.
+      //     Enquanto isto passou `seguinteDe` como string crua, `executarFluxo`
+      //     a embrulhava em `{ portao: null, destino }` — o embrulho que hoje só
+      //     acontece por `semRegraDoPortao`, com nome — e `atravessandoOPortao`
+      //     não era chamada NENHUMA VEZ: o link saía para quem não segue. Medido,
+      //     e no mesmo grafo `retomadaDoFallback` devolvia `{ portao, destino }`
+      //     para o mesmo bloco de chegada — duas respostas opostas à mesma
+      //     pergunta. A decisão inteira mora em `retomadaDoEmailConhecido`
+      //     (lib/steps.ts), que é pura e tem teste.
+      //   LÁ EM CIMA a regra é um NO-OP CARO. O destino é `seguinteDe(portão)`,
+      //     então `haCaminho(portão, destino)` é verdadeiro por CONSTRUÇÃO — a
+      //     seta que define o destino é a própria testemunha do caminho. A regra
+      //     dispararia em 100% das passagens e mandaria o fluxo atravessar de
+      //     novo o portão que ele ACABOU de vencer.
+      //
+      // E o que ela custaria lá em cima é UMA CONSULTA À META A MAIS por
+      // passagem, não recursão sem fim — a diferença importa para quem for
+      // reavaliar a decisão. `executarFluxo`, quando `resolverFollow` devolve
+      // "passou" no ramo de cima, NÃO chama a si mesmo: ele cai para o
+      // `interpretar(retomada.destino)` lá embaixo. Medido sobre as funções
+      // puras, numa corrente `portão -> dm -> link`: sem a regra, 2 voltas e 1
+      // consulta; com a regra, 2 voltas e 2 consultas, e a mesma entrega. O único
+      // laço infinito que existe nessa vizinhança é o ANEL de `sempre` com portão
+      // dentro, e ele roda igual COM ou SEM a regra (medido: 500 voltas nos dois)
+      // — é defeito pré-existente, registrado para a Tarefa 5, e não uma
+      // consequência desta escolha.
       if (rows[0]?.email) {
-        return executarFluxo(account, auto, contactIgId, acao.indice + 1, contexto);
+        return executarFluxo(
+          account, auto, contactIgId,
+          retomadaDoEmailConhecido(auto, acao.indice),
+          contexto
+        );
       }
       // Quando o pedido de e-mail é o primeiro envio de uma execução nascida de
       // comentário, ele também tem que furar a janela: como DM comum seria
@@ -669,26 +853,51 @@ async function executarFluxo(
   // da pessoa, e sem gravar o cursor o toque recomeçaria a lista do zero e
   // pararia no mesmo passo, para sempre.
   //
-  // O `as unknown[]` abaixo é cast SEM CONFERÊNCIA, e o que o segura é uma
-  // invariante de `interpretar` (lib/steps.ts) que não estava escrita em lugar
-  // nenhum. Ela é esta, e vale a linha: `interpretar` devolve `pararEm: null`
-  // sempre que `steps` NÃO é array — é a primeira coisa que ela faz, antes de
-  // qualquer laço. Logo, dentro deste `if`, `auto.steps` é comprovadamente um
-  // array, e o índice `r.pararEm` veio do próprio laço dela, ou seja, está
-  // dentro dos limites. O cast não está afirmando nada que a função não tenha
-  // decidido uma linha antes.
+  // `r.pararEm` JÁ É A IDENTIDADE, e o cursor é gravado com ela direto.
   //
-  // Quem mudar `interpretar` para devolver `pararEm` não-nulo com `steps` de
-  // outra forma quebra isto aqui, e o `identidadeDoPasso` passaria a indexar
-  // undefined — ele não estoura (trata passo não-objeto), mas gravaria o cursor
-  // no índice em texto, apontando para bloco nenhum.
+  // Aqui havia `identidadeDoPasso((auto.steps as unknown[])[r.pararEm],
+  // r.pararEm)`: um cast SEM CONFERÊNCIA, sustentado por uma invariante de
+  // `interpretar` que precisava de treze linhas de comentário para ser afirmada
+  // — "ela devolve `pararEm: null` sempre que `steps` não é array, logo o cast é
+  // seguro". A invariante continua valendo, mas ninguém mais depende dela: a
+  // caminhada não tem índice a converter, porque ela nunca falou em índice.
+  //
+  // É a conversão que o comentário daquela linha avisava ser frágil, e ela sumiu
+  // por deixar de existir, não por ter sido consertada.
   if (r.pararEm !== null) {
-    await gravarCursor(
-      account.ig_user_id, contactIgId, auto.id,
-      identidadeDoPasso((auto.steps as unknown[])[r.pararEm], r.pararEm)
-    );
+    await gravarCursor(account.ig_user_id, contactIgId, auto.id, r.pararEm);
     return;
   }
+
+  // A CAMINHADA QUEBROU NO MEIO — `steps` que não é lista, ligação pendurada, ou
+  // teto estourado — e aqui o cursor NÃO é tocado.
+  //
+  // É a mesma preferência que o ramo do portão não avaliado registra lá em cima:
+  // "deixando-o intacto ela não fica pior do que estava". Lá o risco era
+  // escrever um cursor que nasceria morto; aqui é APAGAR o único registro de
+  // onde a pessoa estava por causa de uma seta quebrada — arrumada a seta, o
+  // cursor intacto faz o fluxo voltar exatamente de onde parou, e o cursor
+  // apagado não faz voltar de lugar nenhum.
+  //
+  // O PREÇO TEM DUAS METADES, e esta linha só paga a primeira: enquanto o dado
+  // não for arrumado, cada mensagem da pessoa refaz a mesma caminhada e
+  // reenfileira o trecho que vem ANTES da quebra. A `passoKey` colapsa isso
+  // dentro do dia; virado o balde, o trecho sai de novo — e no ramo do teto não
+  // custa nada, porque `interpretar` já devolve a lista de ações vazia.
+  //
+  // A SEGUNDA METADE É A CARA, e ela está escrita por inteiro junto da decisão,
+  // no comentário de `cursorNoFim` (lib/steps.ts): cursor não nulo faz
+  // `handleMessagingEvent` (mais abaixo neste arquivo) ler toda mensagem da
+  // pessoa como resposta ao passo parado. É a mesma captura que este arquivo
+  // recusa em "automação desativada não pode sequestrar o contato" — só que aqui
+  // ela é aceita de propósito, por tempo indeterminado, e a única fuga é
+  // `interrompeOFluxo`, que só cede a vez quando o bloco parado é `dm`.
+  //
+  // Quem decide isto é `interpretar` (lib/steps.ts, `cursorNoFim`), e não uma
+  // condição escrita aqui: a distinção entre "o caminho acabou" e "o caminho
+  // quebrou" é da caminhada, e regra dentro deste arquivo é a que nenhum teste
+  // alcança.
+  if (r.cursorNoFim === "manter") return;
 
   // A lista acabou: esta pessoa não está mais no meio de nada.
   await limparCursor(account.ig_user_id, contactIgId);
@@ -814,56 +1023,87 @@ async function enfileirarPasso(
   };
 
   if (p.tipo === "dm") {
-    // UM tipo de passo, TRÊS mensagens diferentes — e quem decide qual é a forma
-    // do próprio passo: a presença do rótulo de botão e a da url.
+    // UM tipo de passo, QUATRO mensagens diferentes — e QUEM DECIDE QUAL NÃO É
+    // ESTA LINHA. Aqui havia `const respostaRapida = Boolean(p.botao_label) &&
+    // !p.url`, uma segunda cópia da regra que `esperaResposta` (lib/steps.ts)
+    // também escrevia, e as duas divergiram: com `botoes` no bloco, a de lá
+    // passou a PARAR o fluxo e esta continuou montando texto puro — o motor
+    // parava esperando um toque que ele mesmo não entregava. O motivo por
+    // inteiro, com a medição, está em `envioDaDm` (lib/steps.ts).
     //
-    // Isto não é preferência de estilo, é o que o dreno sabe fazer. `processItem`
-    // manda todo `dm_link` por `linkMessage`, que sem url devolve TEXTO PURO —
-    // então enfileirar tudo como `dm_link`, como era feito aqui, apagava o botão
-    // de resposta rápida da mensagem de boas-vindas. E com o botão sumia o
-    // payload `AUTO:<id>`, que é o que retoma o fluxo quando a pessoa toca.
+    // A pergunta agora é feita, não repetida. O que cada forma vira aqui:
+    //   `resposta_rapida` → `dm_welcome`, com um rótulo e um payload — o único
+    //     caminho do dreno que montava `quick_replies` até esta tarefa
+    //     (`processItem`, lib/queue-drain.ts).
+    //   `botoes` → também `dm_welcome`, e é a NOVIDADE da Tarefa 4: uma lista de
+    //     rótulos e uma de payloads, um por botão, na MESMA ordem — é essa
+    //     correspondência por índice que o dreno lê para montar vários
+    //     `quick_replies` na mesma mensagem.
+    //   `link` → `dm_link`, que `linkMessage` (lib/ig.ts) transforma em template
+    //     de botão. Vale também sem rótulo: aí o título cai no padrão "Abrir
+    //     link" do próprio `linkMessage`, em vez de a url desaparecer da
+    //     mensagem.
+    //   `texto` → `dm_link` sem url, que é como o mesmo `linkMessage` devolve
+    //     só `{ text }`.
     //
-    // Pior: `esperaResposta` (lib/steps.ts) PARA o fluxo justamente no `dm` com
-    // rótulo e sem url. Parar esperando um toque num botão que não foi enviado
-    // deixa a pessoa sem o que tocar e o fluxo travado para sempre.
+    // As duas primeiras dividem `kind` (`dm_welcome`) porque as duas terminam em
+    // `quick_replies` no dreno — uma com uma entrada, a outra com várias. As duas
+    // últimas dividem `dm_link` pelo mesmo motivo de sempre: o que as separa é a
+    // presença da url DENTRO do mesmo payload, e é `linkMessage` quem lê isso.
     //
-    // A regra, na mesma ordem em que `esperaResposta` decide parar:
-    //   rótulo e SEM url → resposta rápida (`dm_welcome`), o único caminho do
-    //     dreno que monta `quick_replies`. O payload volta no webhook como
-    //     `AUTO:<id da automação>:<id do bloco>` (`lerPayload`, lib/steps.ts),
-    //     e é ele que `handleMessagingEvent` lê para decidir de onde retomar —
-    //     o cursor do contato manda, este bloco é a reserva.
-    //   COM url → botão de link (`dm_link`), que `linkMessage` transforma em
-    //     template de botão. Vale também sem rótulo: aí o título cai no padrão
-    //     "Abrir link" do próprio `linkMessage`, em vez de a url desaparecer da
-    //     mensagem — e `esperaResposta` também não para aqui, porque a pessoa
-    //     abre o link e a vida segue.
-    //   sem rótulo e sem url → texto puro, que é `dm_link` sem url: o mesmo
-    //     `linkMessage` devolve só `{ text }`.
-    const respostaRapida = Boolean(p.botao_label) && !p.url;
+    // O payload volta no webhook como `AUTO:<automação>:<bloco>` para o botão
+    // único, e `AUTO:<automação>:<bloco>:<botão>` para cada botão de um menu
+    // (`lerPayload`, lib/steps.ts) — é ele que `handleMessagingEvent` lê para
+    // decidir de onde retomar e, no caso do menu, qual braço seguir
+    // (`caminhoDoBotao`, lib/steps.ts). O cursor do contato manda; o bloco no
+    // payload é a reserva.
+    const envio = envioDaDm(p);
 
-    // ...e sobre essas três formas vem uma quarta decisão, que é de ENTREGA, não
-    // de conteúdo: a primeira mensagem de uma execução disparada por comentário
-    // sai como `private_reply`, presa ao id do comentário. É o que fura a janela
-    // de 24h (ver `gastarRespostaPrivada`) — sem isso ela é descartada como
-    // `skipped` e a automação por comentário não entrega nada.
+    // ...e sobre essas QUATRO formas vem uma decisão a mais, que é de ENTREGA,
+    // não de conteúdo: a primeira mensagem de uma execução disparada por
+    // comentário sai como `private_reply`, presa ao id do comentário. É o que
+    // fura a janela de 24h (ver `gastarRespostaPrivada`) — sem isso ela é
+    // descartada como `skipped` e a automação por comentário não entrega nada.
     //
     // O `payload` NÃO muda por causa disso, e é isso que preserva o botão: o
     // dreno só desvia para `linkMessage` quando o tipo é `dm_link`/`dm_reminder`
-    // ou quando há url; fora daí, rótulo + payload de resposta rápida viram
-    // `quick_replies`. Então a resposta privada sai com o mesmo botão e o mesmo
-    // `AUTO:<id da automação>:<id do bloco>` que retoma o fluxo quando a
-    // pessoa toca.
+    // ou quando há url; fora daí, os rótulos e os payloads viram
+    // `quick_replies` — com UMA exceção, aberta no mesmo commit desta frase:
+    // menu cujos botões são TODOS descartados no dreno (rótulo em branco, par
+    // sem metade) sai como TEXTO PURO, e o dreno o registra como
+    // `menu_sem_botoes`. Fora dela, a resposta privada sai com os mesmos botões e os
+    // mesmos payloads que retomam o fluxo quando a pessoa toca — o de TRÊS
+    // partes (`AUTO:<automação>:<bloco>`) quando é resposta rápida de um botão
+    // só, e um de QUATRO (`AUTO:<automação>:<bloco>:<botão>`) por botão quando
+    // é menu, que desde a Tarefa 4 também pode ser a primeira mensagem de um
+    // fluxo por comentário.
     const comentario = gastarRespostaPrivada(contexto);
 
     await enqueue({
       ...base,
-      kind: comentario ? "private_reply" : respostaRapida ? "dm_welcome" : "dm_link",
+      kind: comentario
+        ? "private_reply"
+        : envio.forma === "resposta_rapida" || envio.forma === "botoes"
+          ? "dm_welcome"
+          : "dm_link",
       comment_id: comentario ?? undefined,
-      payload: respostaRapida
+      payload:
+        envio.forma === "resposta_rapida"
         ? {
             text: p.texto,
-            quick_reply_label: p.botao_label,
+            // O rótulo vem do `envio`, e não de `p.botao_label`: é o mesmo
+            // valor, mas aqui ele chega como `string` NÃO OPCIONAL, em vez de um
+            // campo que este ramo teria de afirmar existir e não ser vazio.
+            //
+            // O TIPO DIZ `string`, E O RUNTIME NÃO GARANTE ISSO — a frase antiga
+            // dizia "garantido pelo tipo" e essa garantia não existe. O ramo `dm`
+            // de `conferir` (lib/steps.ts) valida só `texto` e devolve
+            // `p as Passo`, então `botao_label` entra CRU do `jsonb`: pode ser
+            // número, objeto, o que estiver gravado na coluna. `envioDaDm` só
+            // exige que ele seja verdadeiro, e o cast é que o chama de `string`.
+            // A exposição é anterior a esta linha e não se conserta aqui — o que
+            // esta linha pode fazer é não mentir sobre ela.
+            quick_reply_label: envio.rotulo,
             // O payload leva o BLOCO junto da automação, e é o que faz o toque
             // dizer de qual botão ele veio. Sem isso, dois botões antigos da
             // mesma automação na mesma conversa são indistinguíveis, e o motor
@@ -872,7 +1112,55 @@ async function enfileirarPasso(
             // A identidade é a MESMA que entra na `passoKey` e no cursor
             // (`identidadeDoPasso`), de propósito: é ela que `indiceDoId`
             // procura de volta lá em `handleMessagingEvent`.
-            quick_reply_payload: `AUTO:${auto.id}:${identidadeDoPasso(p, acao.indice)}`,
+            //
+            // A STRING NÃO É MONTADA AQUI pelo mesmo motivo do ramo plural
+            // abaixo, e esta linha ficou para trás uma rodada: quem escreve é
+            // `payloadDaRespostaRapida` (lib/steps.ts), do lado de `lerPayload`,
+            // que a lê de volta. Este é o caminho MAIS comum dos três — toda
+            // resposta rápida de um botão só —, e era o único ainda sem teste
+            // nenhum.
+            quick_reply_payload: payloadDaRespostaRapida(
+              auto.id,
+              identidadeDoPasso(p, acao.indice)
+            ),
+          }
+        : envio.forma === "botoes"
+        ? {
+            text: p.texto,
+            // FORMA PLURAL, ao lado da singular acima — NÃO no lugar dela. A
+            // fila pode ter itens já enfileirados com `quick_reply_label` e
+            // `quick_reply_payload` no momento em que este código sobe (a
+            // Tarefa 4 não migra fila em voo), e o dreno (lib/queue-drain.ts)
+            // continua lendo os dois pares: singular quando existe, plural
+            // quando existe. As duas convivem, e nenhuma é dívida a limpar.
+            //
+            // PAREADAS POR ÍNDICE, de propósito: `quick_reply_labels[i]` é o
+            // rótulo do MESMO botão de `quick_reply_payloads[i]`. Um objeto
+            // `{label, payload}[]` evitaria a correspondência por índice, mas
+            // trocaria uma forma de payload jsonb testada (a singular já é
+            // dois campos irmãos) por outra sem necessidade — o dreno lê os
+            // dois arrays juntos, `map` com o mesmo índice, e a ordem de
+            // `envio.botoes` é a mesma em que o dono os desenhou.
+            quick_reply_labels: envio.botoes.map((b) => b.rotulo),
+            // Cada payload leva o BLOCO **e** o BOTÃO, pelo mesmo motivo do
+            // `quick_reply_payload` singular acima — mas aqui o payload
+            // também precisa dizer QUAL dos vários botões foi tocado, porque
+            // o id do botão só faz sentido escopado ao bloco que o desenhou
+            // (`ligacaoEscolhida`, lib/steps.ts, casa por
+            // `{de: <este bloco>, quando: {botao: <este id>}}`). É a forma de
+            // QUATRO partes que `lerPayload` (lib/steps.ts) já sabe ler desde
+            // a Tarefa 3, e que só passa a ser EMITIDA a partir desta tarefa.
+            //
+            // A STRING NÃO É MONTADA AQUI, e essa é a correção da revisão
+            // desta tarefa: era `AUTO:${auto.id}:${bloco}:${b.id}` escrito à
+            // mão, dentro de um arquivo `server-only` que nenhum teste
+            // executa. Trocar o id do bloco pelo do botão nesta linha passava
+            // com 485/485 verdes. Agora quem escreve é `payloadDoBotao`
+            // (lib/steps.ts), ao lado de `lerPayload`, que a lê de volta — e é
+            // a MESMA função que a varredura importa para forjar os toques.
+            quick_reply_payloads: envio.botoes.map((b) =>
+              payloadDoBotao(auto.id, identidadeDoPasso(p, acao.indice), b.id)
+            ),
           }
         : { text: p.texto, button_label: p.botao_label ?? null, url: p.url ?? null },
       // A chave da resposta privada é a mesma do motor antigo: o id do
@@ -1116,7 +1404,13 @@ async function resolverFollow(
       // nomeia a automação e não o PORTÃO, de modo que numa lista com dois
       // portões o toque no segundo retomava no primeiro. Com o bloco no
       // payload, o toque nomeia o portão em que a pessoa tocou.
-      quick_reply_payload: `FOLLOW:${auto.id}:${identidadeDoPasso(passo, indice)}`,
+      //
+      // E a montagem da string saiu daqui na rodada final da Tarefa 4: quem
+      // escreve é `payloadDoPortao` (lib/steps.ts). O prefixo `FOLLOW:` tem
+      // função — `handleMessagingEvent` ramifica por ele para reconsultar a
+      // Meta —, e ele era, até aqui, uma interpolação à mão num arquivo que
+      // nenhum teste executa.
+      quick_reply_payload: payloadDoPortao(auto.id, identidadeDoPasso(passo, indice)),
     },
     dedupe_key: comentario
       ? privateReplyKey(comentario)
@@ -1200,7 +1494,11 @@ export async function handleCommentEvent(entryId: string | undefined, value: Com
   // esse id que faz a primeira mensagem sair como resposta privada e furar a
   // janela de 24h (ver `gastarRespostaPrivada`). Sem ele, esta automação
   // enfileira tudo como DM comum e o dreno descarta tudo, em silêncio.
-  await executarFluxo(account, auto, fromId, 0, { commentId });
+  // A ENTRADA DO FLUXO é `steps[0]`, e é o único significado que a ordem do
+  // array guarda depois da caminhada por grafo: onde a caminhada começa quando o
+  // gatilho dispara. O zero de antes queria dizer isso; agora ele é dito por
+  // identidade, que é a língua de `interpretar`.
+  await executarFluxo(account, auto, fromId, semRegraDoPortao(identidadeNoIndice(auto.steps, 0)), { commentId });
 }
 
 export async function handleMessagingEvent(entryId: string | undefined, ev: MessagingEvent) {
@@ -1234,9 +1532,9 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
 
   // Toque num botão de resposta rápida → segue o fluxo
   if (isQuickReply) {
-    // As DUAS formas de payload são lidas pela mesma função (`lerPayload`,
-    // lib/steps.ts), e as duas são finais — a antiga não é dívida a limpar. Ver
-    // o comentário de lá: um botão entregue vive na conversa da pessoa
+    // As TRÊS formas de payload são lidas pela mesma função (`lerPayload`,
+    // lib/steps.ts), e as três são finais — as antigas não são dívida a limpar.
+    // Ver o comentário de lá: um botão entregue vive na conversa da pessoa
     // indefinidamente.
     //
     // Onde a lista retoma é decisão pura, e ela mora em `retomadaDoBotao` e
@@ -1252,7 +1550,70 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     if (p) {
       const auto = await loadAutomation(account.ig_user_id, p.automationId);
       if (auto) {
-        // O CURSOR MANDA; o bloco do payload é RESERVA. A escolha entre os dois
+        // COM BOTÃO (`AUTO:<automação>:<bloco>:<botão>`), a bifurcação decide
+        // sozinha — e NÃO passa pelo cursor.
+        //
+        // A DECISÃO INTEIRA mora em `caminhoDoBotao` (lib/steps.ts), com o
+        // porquê e com teste: de qual bloco a ligação sai (do PAYLOAD, e não
+        // do cursor — a medição que a Tarefa 3 pediu está lá), qual ligação o
+        // botão escolhe, e o que dizer quando não há caminho. Aqui isto era
+        // uma expressão solta dentro de `server-only`, e trocar o bloco de
+        // origem por um vindo do cursor não acendia luz em teste nenhum — o
+        // mesmo defeito que fez `cursorDaRetomada` sair daqui.
+        const caminho = caminhoDoBotao(p, auto);
+        if (caminho) {
+          if (caminho.retomada !== undefined) {
+            // A `Retomada` VEM PRONTA de `caminhoDoBotao`, com a regra do portão
+            // já aplicada, e é por isso que esta linha não decide nada.
+            //
+            // Ela já entregou o link a quem não segue, e a medição está no
+            // comentário daquela função: enquanto `caminhoDoBotao` devolvia um
+            // ÍNDICE, este ramo o passava cru, o índice caía em
+            // `{portao: null, destino}` e a REGRA DO PORTÃO era pulada por
+            // inteiro. Com [dm de botão, pedir_follow, dm com url] e a seta do
+            // botão apontando do primeiro para o terceiro, a url saía e o
+            // `pedir_follow` do meio não era sequer visto — `interpretar` começa
+            // NO destino, ela não caminha do bloco do botão até lá.
+            //
+            // Passar `Retomada` só bastou porque a regra deixou de ser
+            // posicional junto: com a comparação de índices, ela tinha
+            // falso-negativo próprio (portão no índice 2, link no índice 1) e
+            // teria trocado o buraco de lugar. As duas metades são a Tarefa 3b.
+            await executarFluxo(account, auto, senderId, caminho.retomada);
+          } else {
+            // BOTÃO SEM CAMINHO — sem ligação de saída, ou com o bloco de
+            // destino apagado da lista. Não há o que entregar, e o que NÃO pode
+            // acontecer é isso passar calado: a pessoa toca, nada acontece, e
+            // não haveria erro em lugar nenhum para quem for procurar.
+            //
+            // Esta linha não treina o dono a ignorar Atividade porque ela não
+            // aparece em operação normal: botão órfão é montagem errada, e a
+            // conferência da Tarefa 5 recusa salvar um assim. O que chega até
+            // aqui é o que ela não vê — ligação gravada fora do editor, ou
+            // bloco apagado depois de o botão já ter saído.
+            //
+            // Com janela, como os vizinhos `step_ignorado` e
+            // `portao_nao_avaliado`, e pelo mesmo motivo: um botão quebrado
+            // tocado em série não pode virar uma linha por toque.
+            await logEventThrottled(
+              account.ig_user_id,
+              "botao_sem_caminho",
+              {
+                automation_id: auto.id,
+                contact_ig_id: senderId,
+                bloco: p.passoId,
+                botao: p.botaoId,
+                motivo: caminho.motivo,
+              },
+              10,
+              { campo: "automation_id", valor: auto.id }
+            );
+          }
+          return;
+        }
+
+        // SEM BOTÃO (as duas formas antigas), o comportamento é o de sempre: O
+        // CURSOR MANDA; o bloco do payload é RESERVA. A escolha entre os dois
         // é pura e mora em `cursorDaRetomada` (lib/steps.ts), com o porquê de
         // cada ramo e com teste — aqui ela era uma expressão solta, e uma
         // expressão solta com a ordem invertida foi o defeito desta fase.
@@ -1273,10 +1634,10 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
         );
         const de =
           p.prefixo === "AUTO"
-            ? retomadaDoBotao(cursor, auto.id, auto.steps)
+            ? retomadaDoBotao(cursor, auto.id, auto)
             : // "Já sigo!" — `resolverFollow` consulta a API de novo, então só
               // passa quem realmente seguir.
-              retomadaDoFollow(cursor, auto.id, auto.steps);
+              retomadaDoFollow(cursor, auto.id, auto);
         await executarFluxo(account, auto, senderId, de);
       }
     }
@@ -1385,7 +1746,7 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
           // que é o link, com o portão nunca avaliado.
           await executarFluxo(
             account, autoParada, senderId,
-            retomadaDoTexto(autoParada.steps, indiceParado)
+            retomadaDoTexto(autoParada, indiceParado)
           );
           return;
         }
@@ -1411,7 +1772,11 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     // O coraçãozinho na resposta de story deixou de ser caso à parte lido de
     // `story_reaction` e virou passo da lista. O id da mensagem vai junto
     // porque só o gatilho o conhece.
-    await executarFluxo(account, auto, senderId, 0, { messageId: msg.mid });
+    // A entrada é `steps[0]`, dita por identidade — o mesmo do gatilho de
+    // comentário, e pelo mesmo motivo.
+    await executarFluxo(account, auto, senderId, semRegraDoPortao(identidadeNoIndice(auto.steps, 0)), {
+      messageId: msg.mid,
+    });
     return;
   }
 
@@ -1443,7 +1808,7 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     autoAnterior &&
     (await shouldFallbackFollowup(account.ig_user_id, autoAnterior.id, senderId))
   ) {
-    const de = retomadaDoFallback(autoAnterior.steps);
+    const de = retomadaDoFallback(autoAnterior);
     if (de !== null) await executarFluxo(account, autoAnterior, senderId, de);
   }
 }

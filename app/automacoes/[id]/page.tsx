@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { sql, ensureSchema, Automation } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
-import type { Passo } from "@/lib/steps";
+import { ligacoesValidas, type Passo } from "@/lib/steps";
 import Quadro from "../editor/quadro";
 import type { Configuracao } from "../editor/painel";
 
@@ -42,6 +42,12 @@ export const dynamic = "force-dynamic";
 // quadro faz `p.pos ?? { x: 0, y: 0 }` e entrega isso ao React Flow, e um `pos`
 // que não seja um par de números vira posição inválida no nó. Descartada,
 // `arranjoAutomatico` (editor/modelos.ts) dá uma posição nova ao bloco.
+//
+// AS SETAS NÃO GANHAM FUNÇÃO PRÓPRIA AQUI: quem as peneira é `ligacoesValidas`
+// (lib/steps.ts), a mesma função que `salvarAutomacao` (../actions.ts) usa na
+// volta. A regra de descarte delas é a OPOSTA da desta função, e o porquê está
+// escrito lá: um bloco quebrado tem nó, painel e conserto, então é mantido; uma
+// ligação quebrada não tem nenhum dos três, e `ligacoesDe` já a ignora.
 function passosDoBanco(steps: unknown): Passo[] {
   if (!Array.isArray(steps)) return [];
   const lista: Passo[] = [];
@@ -92,6 +98,24 @@ export default async function EditarAutomacaoPage({
     story: a.story_id
       ? { id: a.story_id, thumb: a.story_thumbnail_url ?? "", caption: "" }
       : null,
+    // O `Boolean` NÃO É ENFEITE, mas a razão dele NESTE arquivo não é a coluna
+    // faltando: `await ensureSchema()` roda algumas linhas acima, ANTES do
+    // `select *`, e ele carrega a mesma DDL `if not exists` de
+    // `migrations/002-entrega-sem-portao.sql`. Quando esta consulta acontece a
+    // coluna já existe, mesmo em banco que nunca viu o script de migração — o
+    // cenário "a coluna não veio" não é alcançável daqui. (Em
+    // `toggleAutomation`, ../actions.ts, a mesma defesa tem razão de execução:
+    // lá o `select` é nominal e o valor pode chegar nulo de linha antiga.)
+    //
+    // O QUE ELE DEFENDE AQUI É O TIPO, e isso basta para ele ficar. `as
+    // Automation[]` acima é um cast, não uma conferência: ninguém olha o que o
+    // driver devolveu, e `Automation.entrega_sem_portao` é `boolean | undefined`
+    // justamente porque a coluna pode faltar em OUTROS caminhos. O destino deste
+    // valor é o `checked` de uma caixa controlada; `undefined` ali faria o React
+    // trocar o campo para não controlado no meio do caminho. O `Boolean`
+    // normaliza para `false`, que é o lado seguro: a regra do portão contornável
+    // continua impedindo publicar.
+    entregaSemPortao: Boolean(a.entrega_sem_portao),
   };
 
   // A PÁGINA NÃO TEM MAIS CABEÇALHO, e ela renderiza SÓ o quadro.
@@ -116,10 +140,32 @@ export default async function EditarAutomacaoPage({
   // cabeçalho daquele celular é esta conta. Ela já foi buscada acima para saber
   // de quem é a automação, então isto reaproveita a mesma leitura.
   //
-  // O comentário fica AQUI e não entre os atributos: comentário `//` dentro da
-  // lista de atributos de um elemento JSX passa no `tsc` e no `next build` e
-  // engole a prop seguinte no compilador do modo de desenvolvimento — a página
-  // quebrou em produção local com `conta` chegando `undefined`, e nada acusou.
+  // AQUI ESTEVE ESCRITO QUE COMENTÁRIO `//` ENTRE ATRIBUTOS DE JSX ENGOLE A
+  // PROP SEGUINTE, "com medição". É FALSO, e o registro fica porque a frase
+  // errada já custou uma mudança de código em outro arquivo: o quadro tirou uma
+  // prop de dentro da lista de atributos por causa dela.
+  //
+  // MEDIDO COM O COMPILADOR DESTE PROJETO — `@next/swc-win32-x64-msvc`, next
+  // 16.2.10, `development: true` —, compilando o arquivo EXATO em que a rota
+  // caiu (a versão anterior a `ea5e09a`, com o comentário entre `configuracaoInicial`
+  // e `conta`). A saída traz o comentário e a prop logo depois dele:
+  //
+  //     configuracaoInicial: configuracaoInicial,
+  //     // A conta já foi buscada acima para saber de quem é a automação; …
+  //     conta: { usuario: selected.username, nome: …, foto: … }
+  //
+  // No caso mínimo — `a`, comentário `//`, `b`, comentário de bloco, `c` — os
+  // três sobrevivem. O mesmo vale para o `quadro.tsx` inteiro: 15 de 15 props
+  // conferidas presentes, oito delas precedidas por comentário `//`.
+  //
+  // O QUE DERRUBOU A ROTA foi a outra metade daquele mesmo commit, e é ela que
+  // segue segurando: `Previa` passou a aceitar `conta` OPCIONAL e a cair num
+  // perfil vazio. Antes disso a prévia lia `conta.nome` direto, e `conta`
+  // chegando `undefined` estoura dentro do componente de cliente — o que leva a
+  // rota inteira junto. POR QUE ela chegou `undefined` naquele dia continua sem
+  // medição, e o que se pode afirmar é o que foi medido: não foi o comentário.
+  //
+  // A extração para uma constante fica por leitura, não por medo.
   const contaDaPrevia = {
     usuario: selected.username,
     nome: selected.name,
@@ -130,6 +176,7 @@ export default async function EditarAutomacaoPage({
     <Quadro
       automationId={a.id}
       passosIniciais={passosDoBanco(a.steps)}
+      ligacoesIniciais={ligacoesValidas(a.ligacoes)}
       configuracaoInicial={configuracaoInicial}
       conta={contaDaPrevia}
     />

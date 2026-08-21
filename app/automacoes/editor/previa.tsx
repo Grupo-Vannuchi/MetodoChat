@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import type { Passo } from "@/lib/steps";
+import type { Ligacao, Passo } from "@/lib/steps";
 import type { Picked } from "../types";
 import { card } from "../../ui";
 import {
@@ -13,11 +13,13 @@ import {
   IconMail,
   IconMic,
   IconPhone,
+  IconSend,
   IconSmile,
   IconTap,
   IconUsers,
   IconVideo,
   IconWifi,
+  IconZap,
 } from "../../icons";
 import { roteiro, type Bolha, type Cena } from "./roteiro";
 
@@ -143,6 +145,47 @@ function Pilula({ children }: { children: React.ReactNode }) {
   );
 }
 
+// O MENU: as pílulas de um bloco com vários botões, e a marca de qual delas é o
+// braço que está sendo mostrado.
+//
+// EM LINHA E QUEBRANDO, porque é assim que o Instagram entrega as respostas
+// rápidas — lado a lado abaixo do balão. Empilhá-las faria um menu de treze
+// botões (o `LIMITE_DE_BOTOES`, lib/steps.ts) ocupar a tela inteira.
+//
+// A ESCOLHIDA É SÓLIDA, na mesma cor da bolha do toque que vem logo abaixo. É a
+// ligação visual inteira: a pílula cheia e o balão azul da direita são o MESMO
+// gesto — a pessoa tocou ali, e a conversa seguiu por ali. As outras ficam como
+// qualquer pílula, porque elas continuam sendo caminhos de verdade; o que muda é
+// que não é o deles que está na tela.
+//
+// QUAL É A ESCOLHIDA É DECISÃO DE `./roteiro`, com teste. Aqui só se pinta.
+function Menu({ botoes }: { botoes: { rotulo: string; escolhido: boolean }[] }) {
+  return (
+    <span className="mt-0.5 flex flex-wrap justify-center gap-1 self-center">
+      {botoes.map((b, i) => (
+        <span
+          key={i}
+          className={`rounded-full border px-3 py-1 text-[10px] font-medium ${
+            b.escolhido
+              ? "border-[#3797f0] bg-[#3797f0] text-white"
+              : "border-[#3797f0]/60 bg-[#3797f0]/10 text-[#3797f0]"
+          }`}
+        >
+          {/* SEM `Vazio` AQUI, e a exceção é de CONTRASTE, não de estilo.
+              `Vazio` pinta `text-zinc-500`, e a pílula ESCOLHIDA é
+              `bg-[#3797f0]` sólido: cinza sobre azul cheio. O caso não é
+              hipotético — é o do teste `botão escolhido SEM rótulo`, em que a
+              pílula marcada é justamente a que não tem texto, e era ali que a
+              frase ficava ilegível. Herdando a cor da pílula, ela sai branca na
+              sólida e azul na vazada, e o itálico com opacidade continua
+              dizendo que aquilo não é texto do dono. */}
+          {b.rotulo || <span className="italic opacity-70">sem rótulo</span>}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // A MARCA DA PARADA — a informação mais valiosa desta tela.
 //
@@ -224,6 +267,46 @@ function Marca({
   );
 }
 
+// COMO A CONVERSA SEGUIU, quando ela não seguiu por um toque em botão.
+//
+// É MARCA, E NÃO BOLHA, e o motivo está por extenso em `Bolha.retomada`
+// (./roteiro): a bolha da direita é o que A PESSOA MANDA, e nestes dois casos a
+// prévia não tem o texto dela para pôr lá. Inventar um mostraria uma mensagem
+// que ninguém mandou; esconder o passo escondia o BLOCO INTEIRO, e é esse o
+// defeito que esta marca veio corrigir.
+//
+// O ENQUADRAMENTO É O DE `Marca` — a caixa tracejada e apagada das coisas que
+// não são mensagem —, e de propósito NÃO é o de `Parada`. As três paradas são
+// âmbar ou teal porque ali o fluxo PREGA; pintar estas duas da mesma cor diria
+// que elas travam alguma coisa, quando elas dizem o contrário: é por aqui que
+// ele volta a andar.
+//
+// QUAL DAS DUAS SAI É DECISÃO DE `./roteiro`, com teste. Aqui só se pinta — e a
+// `sempre` de um bloco COMUM não chega aqui nunca, porque nela não há o que
+// contar: é a conversa seguindo.
+//
+// A FRASE DO `digitou` DIZIA "e por isso a prévia não o mostra", E ISSO ERA
+// FALSO NA MESMA CENA. Num `pedir_email` a prévia mostra `ana@email.com` uma
+// linha acima desta caixa — um EXEMPLO do que a pessoa digitou —, e a frase logo
+// abaixo negava mostrar. O que a prévia não tem é o texto REAL; dizer isso é
+// verdade nas duas cenas, e é o que ela diz agora. (A outra metade da mesma
+// contradição era pior e foi consertada no roteiro: a resposta rápida desenhava
+// a pessoa TOCANDO na pílula num caminho que sai pela `senao`.)
+const RETOMADA = {
+  digitou: {
+    icone: <IconSend className="h-3 w-3 shrink-0" />,
+    titulo: "quem respondeu digitando",
+    texto:
+      "Esta é a conversa de quem escreve em vez de tocar num botão. O que ela escreveu só ela sabe — a prévia não tem como mostrar o texto de verdade.",
+  },
+  continuacao: {
+    icone: <IconZap className="h-3 w-3 shrink-0" />,
+    titulo: "continuação do menu",
+    texto:
+      "Ninguém tocou em botão nenhum: é por aqui que o fluxo segue quando ele é retomado sem saber onde a pessoa parou.",
+  },
+} as const;
+
 // O QUE O CARTÃO DO POST DIZ SOBRE UMA RESPOSTA PÚBLICA. A frase é montada
 // aqui, mas os NÚMEROS e a SITUAÇÃO vêm de `./roteiro`, que é puro e testado —
 // a decisão de conteúdo é de lá, a redação é daqui.
@@ -283,11 +366,26 @@ function Item({ bolha, conta }: { bolha: Bolha; conta: ContaDaPrevia }) {
         </>
       );
 
+    case "botoes":
+      return <Menu botoes={bolha.botoes} />;
+
     case "parada":
       return <Parada motivo={bolha.motivo} />;
 
     case "resposta":
       return <Enviada>{bolha.texto}</Enviada>;
+
+    // A CONVERSA SEGUIU SEM TOQUE. Fica logo abaixo da parada, e é o que
+    // impede a prévia de mostrar um menu com a parada desenhada, nenhuma
+    // pílula marcada, e a conversa continuando mesmo assim.
+    case "retomada": {
+      const r = RETOMADA[bolha.via];
+      return (
+        <Marca icone={r.icone} titulo={r.titulo}>
+          {r.texto}
+        </Marca>
+      );
+    }
 
     case "tempo":
       return <Legenda icone={<IconClock className="h-2.5 w-2.5" />}>{bolha.texto}</Legenda>;
@@ -372,15 +470,20 @@ function CenaNaConversa({ cena, aceso, conta }: { cena: Cena; aceso: boolean; co
 export default function Previa({
   passos,
   gatilho,
+  ligacoes,
   palavras,
   correspondencia,
   post,
   story,
-  indiceSelecionado,
+  selecionado,
   conta,
 }: {
   passos: Passo[];
   gatilho: string;
+  // AS SETAS. Elas entram porque a prévia deixou de desenhar o array e passou a
+  // desenhar um CAMINHO — e quem vem depois de quem é resposta das ligações, não
+  // da ordem da lista, desde a Tarefa 3b.
+  ligacoes: Ligacao[];
   palavras: string[];
   correspondencia: string;
   post: Picked | null;
@@ -389,18 +492,39 @@ export default function Previa({
   // faz a tela parecer um exemplo em vez do fluxo desta conta.
   //
   // OPCIONAL de propósito, e não por preguiça: esta prop chegou `undefined` uma
-  // vez por um comentário mal posicionado na página que a monta, e o efeito foi
-  // a ROTA INTEIRA cair — não a prévia ficar sem foto. Um dado de enfeite não
-  // pode derrubar a tela onde se edita o fluxo.
+  // vez e o efeito foi a ROTA INTEIRA cair — não a prévia ficar sem foto —,
+  // porque `conta.nome` lido direto num componente de cliente estoura e leva a
+  // rota junto. Um dado de enfeite não pode derrubar a tela onde se edita o
+  // fluxo, e é ESTA linha (com o `perfil` logo abaixo) que segura isso.
+  //
+  // POR QUE ela chegou `undefined` naquele dia nunca foi medido. A explicação
+  // que já esteve escrita aqui — um comentário `//` mal posicionado na página
+  // que a monta — foi MEDIDA e é falsa; o registro inteiro está no comentário de
+  // `../[id]/page.tsx`.
   conta?: ContaDaPrevia;
-  // O bloco aberto no painel, para acender na prévia. -1 quando o selecionado é
-  // o gatilho, ou quando não há nenhum.
-  indiceSelecionado: number;
+  // A IDENTIDADE do bloco aberto no painel — a mesma string que o quadro guarda
+  // em `selecionado`. `null` quando não há bloco aberto, e também quando quem
+  // está selecionado é o GATILHO: ele não é bloco e não tem cena.
+  //
+  // ELA DECIDE QUAL BRAÇO A CONVERSA MOSTRA, e não só qual cena acende. Era um
+  // ÍNDICE, e o índice servia enquanto a prévia desenhava o array na ordem
+  // dele; um caminho salta posições, e quem sabe caminhar no grafo é
+  // `./roteiro`, que fala em identidade porque as ligações falam.
+  selecionado: string | null;
 }) {
   // O GATILHO ENTRA NO ROTEIRO, e não só na moldura desta tela: dois dos seis
   // tipos só rodam em alguns gatilhos, e essa decisão é de conteúdo — ela mora
   // no arquivo puro, com teste. Antes o coraçãozinho saía igual nos três.
-  const cenas = useMemo(() => roteiro(passos, gatilho), [passos, gatilho]);
+  //
+  // AS SETAS E O BLOCO SELECIONADO ENTRAM PELO MESMO MOTIVO: qual caminho
+  // mostrar é decisão, não desenho. Uma busca de caminho escrita aqui dentro
+  // seria a decisão mais delicada desta tela — a que precisa de visitados para
+  // um menu em anel não travar o navegador — morando no único arquivo do par que
+  // não tem teste.
+  const cenas = useMemo(
+    () => roteiro(passos, gatilho, ligacoes, selecionado),
+    [passos, gatilho, ligacoes, selecionado]
+  );
 
   // Sem conta, a prévia continua desenhando — só sem identidade.
   const perfil: ContaDaPrevia = conta ?? { usuario: null, nome: null, foto: null };
@@ -537,12 +661,7 @@ export default function Previa({
           {gatilho === "dm" && <Enviada>{disparo}</Enviada>}
 
           {cenas.map((c) => (
-            <CenaNaConversa
-              key={c.indice}
-              cena={c}
-              aceso={c.indice === indiceSelecionado}
-              conta={perfil}
-            />
+            <CenaNaConversa key={c.id} cena={c} aceso={c.id === selecionado} conta={perfil} />
           ))}
 
           {/* LISTA VAZIA NÃO QUEBRA A TELA, e também não fica muda: sem nenhum

@@ -68,6 +68,46 @@ const EVENT: Record<string, Badge> = {
     label: "Portão de follow soltou o contato",
     className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
   },
+  // Alguém tocou num botão que não leva a lugar nenhum: a ligação de saída não
+  // existe, ou o bloco de destino foi apagado da lista depois que o botão já
+  // tinha saído. O motor não entrega nada (`caminhoDoBotao`, lib/steps.ts), e
+  // sem esta linha o defeito seria invisível — a pessoa toca, não acontece
+  // nada, e não há erro em canto nenhum.
+  //
+  // Vermelho, pelo mesmo critério de `portao_nao_avaliado`: alguém deixou de
+  // receber mensagem. E não é ruído de operação normal — botão órfão é
+  // montagem errada, que a conferência do editor recusa salvar.
+  botao_sem_caminho: {
+    label: "Botão sem caminho",
+    className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
+  },
+  // OS TRÊS DO MENU DE BOTÕES (lib/queue-drain.ts, Tarefa 4). Eles existiam no
+  // banco e não existiam aqui: caíam no UNKNOWN, e o dono via uma linha cinza
+  // escrita "Interação" — que não diz que um botão sumiu da mensagem. O
+  // comentário logo acima de `KIND`, sobre o `dm_manual` que aparecia cru na
+  // tela, é exatamente esta falha do outro lado do arquivo.
+  //
+  // Âmbar: a mensagem saiu e a pessoa tem no que tocar; o que se perdeu foram
+  // as opções além da décima terceira, e quem arruma é o dono, desenhando
+  // menos botões.
+  quick_replies_cortados: {
+    label: "Botões demais na mensagem",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+  },
+  // Âmbar pelo mesmo critério: os botões inteiros saíram, e o que caiu foi o
+  // que estava sem rótulo. Ele some da mensagem, e sem esta linha some calado.
+  quick_replies_sem_rotulo: {
+    label: "Botão sem rótulo não foi enviado",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+  },
+  // Vermelho, pelo mesmo critério de `portao_nao_avaliado` e `botao_sem_caminho`:
+  // alguém deixou de receber mensagem. O bloco PARA o fluxo (`esperaResposta`,
+  // lib/steps.ts) e a mensagem saiu sem botão nenhum — nenhum braço daquele
+  // menu é alcançável, e a pessoa sai do fluxo sem ver o que vinha depois.
+  menu_sem_botoes: {
+    label: "Menu saiu sem botão nenhum",
+    className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
+  },
 };
 
 const UNKNOWN: Badge = {

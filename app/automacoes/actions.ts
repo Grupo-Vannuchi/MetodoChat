@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { sql, ensureSchema } from "@/lib/db";
 import { getSelectedAccountId } from "@/lib/account";
-import { conferirLista } from "@/lib/steps";
+import { conferirLista, ligacoesValidas, podeFicarAtiva } from "@/lib/steps";
 
 function splitList(raw: string, sep: RegExp): string[] {
   return raw
@@ -15,7 +15,28 @@ function splitList(raw: string, sep: RegExp): string[] {
 // O que o salvar devolve. Ele NÃO redireciona: o quadro é uma tela em que se
 // salva várias vezes seguidas, e mandar a pessoa embora a cada gravação era o
 // comportamento do formulário, que tinha um botão só no fim.
-type Resultado = { ok: true } | { ok: false; erro: string };
+//
+// `pausada` É A TAREFA 6b: quando presente, o que foi gravado saiu diferente
+// do que a caixa "Ativa" pedia — o dono marcou ativa, ou já estava ativa, e
+// `podeFicarAtiva` (lib/steps.ts) recusou. O valor é a MESMA frase que
+// `conferirLista` produz para o erro de ativar que causou a recusa, a mesma
+// que o botão "Ativar" mostraria: duas frases diferentes para o mesmo
+// problema é a doença que esta fase passou sete comentários curando.
+// `ativoGravado` É O QUE O BANCO FICOU, e não o que foi pedido. Ele existe
+// porque a caixa "Ativa" do painel é um estado do CLIENTE (`configuracao.ativo`)
+// e nada a sincronizava com o `active` que esta função grava: depois de "Salvo,
+// mas ficou pausada: …", o recado morre na primeira mudança do quadro
+// (`recadoDoQuadroAtual`, ./editor/quadro.tsx, por construção) e a caixa
+// continuava MARCADA sobre uma automação `active = false`. Da mudança em diante
+// a única coisa na tela que falava de publicação afirmava o contrário do banco.
+//
+// SAI NOS DOIS RAMOS DE `ok`, e não só no de "ficou pausada": o cliente escreve
+// o que veio, sem inferir. Inferindo de `pausada`, a sincronia dependeria de a
+// frase estar preenchida — e o `?? ""` daquele ramo já é um caso em que ela não
+// está.
+type Resultado =
+  | { ok: true; pausada?: string; ativoGravado: boolean }
+  | { ok: false; erro: string };
 
 const GATILHOS = ["comment", "story", "dm"];
 const CORRESPONDENCIAS = ["contains", "exact", "any"];
@@ -95,18 +116,25 @@ const NAO_ENCONTRADA = "Automação não encontrada.";
 // resultado É desta escrita, e recusá-los é o mesmo critério que o botão Salvar
 // do quadro já aplica.
 //
-// A configuração e a lista chegam como `unknown` de propósito: as duas vêm do
-// estado de um componente de cliente, e assinatura tipada daria a impressão de
-// uma garantia que o POST direto no Server Action não tem.
+// A configuração, a lista e as setas chegam como `unknown` de propósito: as três
+// vêm do estado de um componente de cliente, e assinatura tipada daria a
+// impressão de uma garantia que o POST direto no Server Action não tem.
 //
 // O QUE ESTA FUNÇÃO NÃO ESCREVE são as vinte e oito colunas do formulário antigo
 // (`welcome_text`, `link_url`, `require_follow`, …): elas viraram blocos, o
 // motor não as lê mais, e regravá-las aqui seria manter viva uma segunda
 // descrição do mesmo fluxo — a que já divergiu uma vez.
+//
+// O QUE ELA PASSOU A ESCREVER, na Tarefa 6, é `ligacoes`. O quadro é quem desenha
+// as setas, e até aqui elas só chegavam ao banco pela migração
+// (`scripts/ligar-passos-existentes.mjs`). O `select ligacoes` que esta função
+// fazia — para conferir o par final contra as setas gravadas — saiu no mesmo
+// commit, e o porquê está no lugar em que ele estava.
 // ---------------------------------------------------------------------------
 export async function salvarAutomacao(
   automationId: string,
   passos: unknown,
+  ligacoesRecebidas: unknown,
   configuracao: unknown
 ): Promise<Resultado> {
   await ensureSchema();
@@ -121,6 +149,36 @@ export async function salvarAutomacao(
   const palavras = Array.isArray(c.palavras)
     ? c.palavras.map((p) => String(p).trim()).filter(Boolean)
     : [];
+  // A DECISÃO DO DONO SOBRE ESTE FLUXO, da Tarefa 9. `Boolean` porque
+  // `configuracao` chega como `unknown` — vem do estado de um componente de
+  // cliente, e um POST direto no Server Action pode mandar qualquer coisa aqui.
+  // Tudo que não for verdadeiro vira `false`, que é o lado seguro: a regra do
+  // portão contornável continua impedindo publicar.
+  //
+  // O QUE ISSO CUSTA, E A DECISÃO DE ACEITAR. `Boolean(undefined)` é `false`, e
+  // isso significa que quem não MANDA o campo o apaga. Cenário concreto:
+  // automação publicada com `entrega_sem_portao = true` e um caminho que
+  // contorna o portão; uma aba aberta ANTES do deploy salva sem o campo, grava
+  // `false`, `conferirLista` volta a acusar, `ativo && podeAtivar` dá `false` e
+  // a automação sai do ar. Foi medido e está aceito, por três razões:
+  //
+  //   1. A JANELA É A DO DEPLOY. Só uma aba carregada com o painel ANTIGO monta
+  //      `configuracao` sem esta chave; qualquer recarga depois do deploy passa
+  //      a mandá-la, e a caixa desmarcada manda `false` explícito.
+  //   2. A DESPUBLICAÇÃO NÃO É SILENCIOSA. O bloco de `ativo && !podeAtivar`, no
+  //      fim desta função, devolve `{ ok: true, pausada: motivo }` exatamente
+  //      nesse caso, e o dono lê na tela a frase do erro de ativar. O que fica
+  //      sem recado é só o apagamento do `true` em si.
+  //   3. DISTINGUIR AUSENTE DE DESMARCADO É POSSÍVEL (`c.entregaSemPortao ===
+  //      undefined` não é `false`), e não foi feito de propósito: mitigar aqui
+  //      seria construir um caminho novo para uma janela que fecha sozinha.
+  //
+  // E NÃO É "COMO OS OUTROS CAMPOS": `nome`, `ativo` e `gatilho` existem no
+  // cliente velho e são enviados por ele, então nenhum deles corre este risco.
+  // `entregaSemPortao` é o ÚNICO campo desta função que um cliente velho não tem
+  // como mandar, e é só por isso que ele é o único exposto. Quem for acrescentar
+  // campo aqui herda esta janela junto, e não a analogia.
+  const entregaSemPortao = Boolean(c.entregaSemPortao);
 
   if (!GATILHOS.includes(gatilho)) return { ok: false, erro: "Escolha o gatilho da automação." };
   if (!CORRESPONDENCIAS.includes(correspondencia))
@@ -137,42 +195,130 @@ export async function salvarAutomacao(
   const post = gatilho === "comment" ? midiaEscolhida(c.post) : null;
   const story = gatilho === "story" ? midiaEscolhida(c.story) : null;
 
-  // A CONFERÊNCIA DO PAR FINAL, UMA VEZ SÓ: os blocos que vão ser gravados
-  // contra o gatilho que vai ser gravado. Nada do que está no banco entra aqui —
-  // ele está prestes a deixar de valer.
-  const erros = conferirLista(passos, gatilho).filter((p) => p.nivel === "erro");
+  // AS SETAS CHEGAM POR ARGUMENTO, e é a Tarefa 6 que as põe aqui.
+  //
+  // ELAS VINHAM DO BANCO, por um `select ligacoes` que existia neste lugar com a
+  // data de saída escrita: enquanto o quadro não tinha as ligações no estado, não
+  // havia metade NOVA de setas, e a metade final do par era mesmo a que já estava
+  // gravada. Agora há — o quadro desenha, liga e parte setas —, então a lista que
+  // chegou é a metade final, e a do banco é a metade velha. Conferir contra ela
+  // seria exatamente o erro que a fusão de `salvarPassos` com `salvarConfiguracao`
+  // desfez, com outro nome.
+  //
+  // O `select` SAIU JUNTO. Ele era uma ida ao banco a mais por salvamento, e
+  // seria pior do que inútil: leria o valor que este mesmo salvamento vai
+  // sobrescrever.
+  //
+  // `ligacoesValidas` (lib/steps.ts) é a peneira, e ela é a mesma que o quadro
+  // usa ao abrir. Nada do que vem do navegador é confiável: sem ela, uma seta
+  // sem destino (ou com uma condição que não existe) entraria em `ligacoes` pelo
+  // POST direto, e `ligacoesDe` a descartaria em silêncio na hora de caminhar —
+  // um desenho gravado que o motor não percorre, sem nada acusando. Peneirada
+  // aqui, o que é gravado é exatamente o que a conferência julgou.
+  const ligacoes = ligacoesValidas(ligacoesRecebidas);
+
+  // A CONFERÊNCIA DO PAR FINAL, UMA VEZ SÓ: os blocos, as setas e o gatilho que
+  // vão ser gravados, conferidos uns contra os outros. As três metades são as
+  // três que esta função escreve, então não sobra nada de velho a que comparar.
+  //
+  // A CHAVE ENTRA NA MESMA CHAMADA, e ela é o quarto pedaço deste par: a
+  // conferência tem que julgar a lista contra a decisão que ESTE salvamento
+  // grava, e não contra a que está no banco. Julgar contra a gravada faria o
+  // dono desmarcar a caixa, salvar, e a automação continuar publicável por um
+  // salvamento — o mesmo erro que o `select ligacoes` desta função cometia e que
+  // saiu na Tarefa 6, com outro nome.
+  const problemas = conferirLista(passos, gatilho, ligacoes, entregaSemPortao);
+
+  // SÓ OS ERROS DE SALVAR TRAVAM O SALVAR, e essa é a decisão de produto da
+  // Tarefa 5. O outro nível — botão sem destino, bloco ainda solto no quadro,
+  // portão sem saída — descreve um desenho PELA METADE, que é o estado normal
+  // de quem está montando: montar um menu de três opções, ligar duas e voltar
+  // amanhã é trabalho normal, e recusar a gravação disso deixaria o dono sem
+  // onde guardar o meio do trabalho.
+  const erros = problemas.filter((p) => p.nivel === "erro" && p.quando === "salvar");
   if (erros.length) return { ok: false, erro: erros[0].mensagem };
+
+  // ---------------------------------------------------------------------
+  // A TAREFA 6b: A CAIXA "ATIVA" PARA DE DRIBLAR A CONFERÊNCIA DE ATIVAR.
+  //
+  // Até aqui, o `active` gravado era `ativo` cru — o que a caixa do painel do
+  // gatilho pedia. `toggleAutomation` (mais abaixo) recusa os dois níveis de
+  // `conferirLista` antes de publicar; esta função só recusava um. Como o
+  // dono marca "Ativa" e clica em Salvar no MESMO painel, dava para publicar
+  // um botão sem destino, um bloco inalcançável ou um portão contornável sem
+  // nunca passar pela porta que `toggleAutomation` construiu.
+  //
+  // `podeFicarAtiva` (lib/steps.ts) faz a MESMA PERGUNTA que aquela porta faz
+  // — "há algum erro de `quando: 'ativar'` no par que vai ser gravado?" —,
+  // mas as duas não são a mesma checagem: `toggleAutomation` filtra só
+  // `p.nivel === "erro"`, sem filtrar por `quando`. Elas dão a mesma resposta
+  // AQUI porque `erros`, acima, já filtrou e teria retornado por qualquer
+  // erro de `quando: "salvar"` — do que sobra em `problemas`, só o de
+  // `quando: "ativar"` importa, que é exatamente o que `podeFicarAtiva`
+  // pergunta. Se um dos dois filtros mudar sozinho, a equivalência some. E o
+  // `active` gravado passa a ser essa resposta combinada com o que foi
+  // pedido: só fica ativa se as duas coisas forem verdade.
+  //
+  // VALE PARA OS DOIS CASOS que o dono do produto decidiu cobrir com a mesma
+  // regra: marcar "Ativa" numa automação pausada que tem um erro de ativar, e
+  // salvar uma edição que introduz um erro de ativar numa automação que JÁ
+  // estava ativa — `ativo`, aqui, é o que a caixa mostra no momento do clique,
+  // e ela reflete o `active` gravado quando o dono não a tocou.
+  //
+  // ESSA SEGUNDA FRASE JÁ FOI FALSA, e o que a faz verdadeira é o
+  // `ativoGravado` do retorno: sem ele, um salvamento que gravava pausada
+  // deixava a caixa MARCADA sobre `active = false`, e o clique seguinte em
+  // Salvar mandava de novo o `ativo` que a tela nunca corrigiu. A premissa
+  // passou a ser sustentada por dado devolvido, e não por suposição.
+  //
+  // NÃO RECUSA O SALVAR: seria hostil, e pior aqui do que na Tarefa 5 — o dono
+  // que acabou de quebrar uma automação viva ficaria preso com a versão
+  // quebrada NO AR até consertar tudo. Gravar pausada protege quem recebe e
+  // não trava quem monta.
+  const podeAtivar = podeFicarAtiva(problemas);
+  const ativoGravado = ativo && podeAtivar;
 
   try {
     await sql().begin(async (tx) => {
-      // ESCOPO 1 — SÓ `steps`. O `returning id` faz o serviço da consulta de
-      // existência que havia antes: zero linhas significa automação que não
-      // existe OU que é de outra conta, e as duas dão a mesma resposta de
-      // propósito — distingui-las contaria a quem tentou que aquele id existe.
+      // ESCOPO 1 — SÓ O DESENHO: `steps` e `ligacoes`. Os dois JUNTOS, e não em
+      // dois `update`, porque eles são um par: uma seta aponta para um bloco, e
+      // gravar uma metade sem a outra é o estado que a conferência recusaria.
+      //
+      // O `returning id` faz o serviço da consulta de existência que havia
+      // antes: zero linhas significa automação que não existe OU que é de outra
+      // conta, e as duas dão a mesma resposta de propósito — distingui-las
+      // contaria a quem tentou que aquele id existe.
+      //
+      // `ligacoes` vai como ARRAY CRU, igual a `passos`, e não como texto de
+      // JSON. MEDIDO contra este banco, com o driver deste projeto: um
+      // `select $1::jsonb` com um array de objetos devolve o jsonb certo, e com
+      // `[]` devolve `[]`. Serializar à mão aqui seria uma segunda forma de
+      // mandar a mesma coisa para duas colunas do mesmo tipo.
       //
       // o account_id no where impede gravar em automação de outra conta
       const linhas = (await tx.query(
-        `update automations set steps = $1, updated_at = now()
-         where id = $2 and account_id = $3
+        `update automations set steps = $1, ligacoes = $2, updated_at = now()
+         where id = $3 and account_id = $4
          returning id`,
-        [passos, automationId, accountId]
+        [passos, ligacoes, automationId, accountId]
       )) as { id: string }[];
       // Lançar aqui é o que DESFAZ a transação. Devolver não desfaria: o `update`
       // seguinte é que ficaria de fora, e o primeiro valeria sozinho.
       if (!linhas[0]) throw new Error(NAO_ENCONTRADA);
 
-      // ESCOPO 2 — SÓ as colunas da automação, NUNCA `steps`.
+      // ESCOPO 2 — SÓ as colunas da automação, NUNCA `steps` nem `ligacoes`.
       //
       // o account_id no where impede gravar em automação de outra conta
       await tx.query(
         `update automations set
            name = $1, active = $2, triggers = $3, keywords = $4, match_type = $5,
            media_id = $6, media_thumbnail_url = $7, media_caption = $8,
-           story_id = $9, story_thumbnail_url = $10, updated_at = now()
-         where id = $11 and account_id = $12`,
+           story_id = $9, story_thumbnail_url = $10, entrega_sem_portao = $11,
+           updated_at = now()
+         where id = $12 and account_id = $13`,
         [
           nome,
-          ativo,
+          ativoGravado,
           [gatilho],
           palavras,
           correspondencia,
@@ -181,6 +327,7 @@ export async function salvarAutomacao(
           post?.caption ?? null,
           story?.id ?? null,
           story?.thumb ?? null,
+          entregaSemPortao,
           automationId,
           accountId,
         ]
@@ -203,7 +350,17 @@ export async function salvarAutomacao(
   }
 
   revalidatePath("/automacoes");
-  return { ok: true };
+
+  // `ativo && !podeAtivar` É A ÚNICA CONDIÇÃO EM QUE O QUE FOI GRAVADO SAIU
+  // DIFERENTE DO QUE FOI PEDIDO — e é a que precisa de recado, porque uma
+  // mudança de estado silenciosa é pior do que o buraco que este bloco fecha.
+  // A frase devolvida é a MESMA que o erro de ativar já carrega — não uma
+  // nova, escrita aqui, para o mesmo problema.
+  if (ativo && !podeAtivar) {
+    const motivo = problemas.find((p) => p.nivel === "erro" && p.quando === "ativar");
+    return { ok: true, pausada: motivo?.mensagem ?? "", ativoGravado };
+  }
+  return { ok: true, ativoGravado };
 }
 
 // Cria a automação com o mínimo e manda para o quadro.
@@ -292,9 +449,28 @@ export async function criarAutomacao(
 // NASCER PAUSADA fecha só a porta da criação — este botão é a outra.
 //
 // É A MESMA `conferirLista` do salvar, e sobre o par que ESTÁ GRAVADO: os blocos
-// do banco contra o gatilho do banco. Não há metade nova aqui — nada está sendo
-// escrito além da coluna `active` —, então o impasse que obrigou `salvarAutomacao`
-// a conferir o par FINAL não existe neste caminho.
+// do banco, as setas do banco, contra o gatilho do banco. Não há metade nova
+// aqui — nada está sendo escrito além da coluna `active` —, então o impasse que
+// obrigou `salvarAutomacao` a conferir o par FINAL não existe neste caminho.
+//
+// MAS ELA RECUSA OS DOIS NÍVEIS, e o salvar recusa um só. Essa é a assimetria
+// que a Tarefa 5 introduziu, e ela é de PRODUTO:
+//
+//   "salvar" é dado que o motor NÃO CONSEGUE LER — ele cai, ou anda sem parar.
+//     Nenhuma tela pode gravar isso, então trava as duas portas.
+//   "ativar" é fluxo que o motor lê perfeitamente e ENTREGA ERRADO: botão sem
+//     destino, botão sem texto, bloco que nenhuma seta alcança, bloco de espera
+//     que é o fim do caminho (o portão, o pedido de e-mail ou a resposta
+//     rápida), link a que se chega sem passar pelo portão, menu com mais botões
+//     do que cabe numa mensagem. Todos eles descrevem um desenho pela metade,
+//     que é o estado normal de quem está montando — e nenhum deles pode ir ao ar.
+//
+// ESTE É O MOMENTO EM QUE O DONO DIZ "PODE VALER PARA O PÚBLICO", e é por isso
+// que ele é a porta certa para o segundo nível. Avisar na ENTREGA seria avisar
+// tarde e para quem não pode consertar — foi o que a Tarefa 2 fez com dois
+// destes, registrando-os em Atividade na hora de enviar, e a linha disparava
+// também no fim NORMAL de um fluxo de captura, treinando o dono a ignorar
+// Atividade.
 //
 // DESATIVAR NÃO CONFERE NADA, e isso é decisão, não simetria esquecida: desligar
 // uma automação quebrada tem que continuar sempre possível. Conferir aqui
@@ -306,11 +482,51 @@ export async function toggleAutomation(id: string, active: boolean): Promise<Res
   if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
 
   if (active) {
+    // O `ensureSchema` ENTROU AQUI NA TAREFA 5, e ele não é zelo: esta função
+    // passou a ler a coluna `ligacoes`, e `ligacoes` é uma das colunas que
+    // `ensureSchema` CRIA (`add column if not exists`, lib/db.ts). Num banco que
+    // ainda não a tem, o `select` abaixo não devolve nulo — ele estoura
+    // `column "ligacoes" does not exist`, e o botão "Ativar" da lista de
+    // automações para de funcionar inteiro.
+    //
+    // MEDIDO NESTE BANCO: a coluna NÃO EXISTE hoje. Um `select ligacoes from
+    // automations` contra a `DATABASE_URL` deste projeto devolve o erro 42703. As
+    // outras telas a criam de passagem porque chamam `ensureSchema` antes de ler,
+    // e `salvarAutomacao` (acima) já fazia isso — esta era a única das duas que
+    // lia o par e não chamava.
+    //
+    // ELE MORA DENTRO DO `if (active)`, e o lugar é o invariante escrito no
+    // cabeçalho desta função: "desligar uma automação quebrada tem que continuar
+    // sempre possível". Fora do `if`, DESATIVAR passava a depender de ~40
+    // comandos de DDL terem sucesso — um `alter table` que falhe por permissão,
+    // por lock ou por disco cheio tirava do dono a única saída que ele tem para
+    // uma automação com defeito NO AR. Quem precisa da garantia é só o `select
+    // ligacoes` logo abaixo, e ele só existe neste ramo.
+    //
+    // Custa uma vez por instância: a promessa é memoizada em `schemaReady`
+    // (lib/db.ts), então a segunda chamada em diante não vai ao banco.
+    await ensureSchema();
+
     // o account_id no where impede ler automação de outra conta
+    // `entrega_sem_portao` ENTRA NESTE `select` NA TAREFA 9, e ela é lida do
+    // BANCO e não de argumento — ao contrário de `salvarAutomacao`, que grava a
+    // decisão. Esta porta não escreve nada da automação: ela julga o que está
+    // gravado, e a decisão do dono é parte do que está gravado.
+    //
+    // O `ensureSchema` LOGO ACIMA É A REDE DELA TAMBÉM. Um `select` de coluna
+    // inexistente estoura 42703 e leva o botão "Ativar" da lista de automações
+    // inteiro — que é o mesmo estrago que o comentário acima registra para
+    // `ligacoes`, e a razão de aquela chamada existir neste ramo.
     const linhas = (await sql().query(
-      `select steps, triggers from automations where id = $1 and account_id = $2`,
+      `select steps, ligacoes, triggers, entrega_sem_portao
+         from automations where id = $1 and account_id = $2`,
       [id, accountId]
-    )) as { steps: unknown; triggers: string[] | null }[];
+    )) as {
+      steps: unknown;
+      ligacoes: unknown;
+      triggers: string[] | null;
+      entrega_sem_portao: boolean | null;
+    }[];
     const a = linhas[0];
     // Zero linhas é automação que não existe OU de outra conta, e as duas dão a
     // mesma resposta pelo mesmo motivo de `salvarAutomacao`: distingui-las
@@ -321,7 +537,21 @@ export async function toggleAutomation(id: string, active: boolean): Promise<Res
     // de `app/automacoes/[id]/page.tsx`. Divergir dela faria esta conferência
     // julgar a lista contra um gatilho diferente do que o editor mostra.
     const gatilho = a.triggers?.[0] ?? "dm";
-    const erros = conferirLista(a.steps, gatilho).filter((p) => p.nivel === "erro");
+    // OS DOIS NÍVEIS, sem filtrar por `quando`: o de cima já foi recusado no
+    // salvar, e chegar aqui com um deles significa que a lista entrou por fora do
+    // painel. O de baixo é o que esta porta existe para segurar.
+    //
+    // A CHAVE DO DONO É O QUARTO ARGUMENTO, e sem ela esta porta e o quadro
+    // discordariam: o editor deixaria o dono terminar o fluxo com a caixa
+    // marcada, e o "Ativar" da lista de automações — outra tela, depois de ele
+    // ter fechado o quadro achando que terminou — recusaria com a frase de um
+    // problema que ele já respondeu.
+    const erros = conferirLista(
+      a.steps,
+      gatilho,
+      a.ligacoes,
+      Boolean(a.entrega_sem_portao)
+    ).filter((p) => p.nivel === "erro");
     if (erros.length) return { ok: false, erro: erros[0].mensagem };
   }
 
@@ -330,7 +560,11 @@ export async function toggleAutomation(id: string, active: boolean): Promise<Res
     [active, id, accountId]
   );
   revalidatePath("/automacoes");
-  return { ok: true };
+  // `ativoGravado` É O `active` PEDIDO, aqui, e não uma combinação: esta porta
+  // RECUSA quando não pode ativar, em vez de gravar pausada. Quem chegou até
+  // esta linha gravou exatamente o que pediu. Quem tem os dois comportamentos
+  // diferentes é `salvarAutomacao`, e o porquê está no tipo `Resultado`.
+  return { ok: true, ativoGravado: active };
 }
 
 export async function deleteAutomation(id: string): Promise<void> {

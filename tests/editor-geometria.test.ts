@@ -1,17 +1,36 @@
 import { describe, it, expect } from "vitest";
 import {
   distanciaAoSegmento,
+  fracaoDaAlca,
+  ligacoesDoBloco,
+  pontasDaSeta,
   setasAoAlcance,
   setaSobOPonto,
   alvoDoArraste,
+  alvoDaPaleta,
+  lugarDoBlocoNovo,
   ALCANCE_DA_SETA,
+  ALTURA_SUPOSTA,
+  DESVIO_DO_EMPILHAMENTO,
+  LARGURA_DO_BLOCO,
 } from "../app/automacoes/editor/geometria";
-import type { Passo } from "../lib/steps";
+import type { Ligacao, Passo } from "../lib/steps";
 
 // Um passo mínimo, só com a posição que a geometria lê. O `tipo`/`texto` são
-// irrelevantes aqui — a geometria nunca os olha.
+// irrelevantes aqui — a geometria só os olha para saber quantas ALÇAS o bloco
+// tem, e um `dm` sem botões tem uma só.
 function passoEm(x: number, y: number): Passo {
   return { tipo: "dm", texto: "x", pos: { x, y } };
+}
+
+// A CORRENTE, agora explícita. Ela era deduzida da ordem do array, e a Tarefa 6
+// tirou essa dedução: a seta `i` deixou de ser o par `i → i + 1` e passou a ser
+// a LIGAÇÃO de índice `i`. Escrevê-la à mão aqui é o que faz os casos medidos
+// continuarem sendo os mesmos casos.
+function corrente(identidades: string[]): Ligacao[] {
+  return identidades
+    .slice(0, -1)
+    .map((de, i) => ({ de, quando: { tipo: "sempre" } as const, para: identidades[i + 1] }));
 }
 
 describe("distanciaAoSegmento", () => {
@@ -35,6 +54,123 @@ describe("distanciaAoSegmento", () => {
   });
 });
 
+// A ALTURA DA ALÇA. Esta conta é escrita em DOIS lugares que precisam concordar:
+// aqui ela decide onde a mira acha que a seta começa, e `no.tsx` a escreve no
+// `style` da alça. Por isso ela é exportada em vez de embutida.
+describe("fracaoDaAlca", () => {
+  it("uma alça só fica no meio do bloco", () => {
+    expect(fracaoDaAlca(0, 1)).toBe(0.5);
+  });
+
+  it("três alças ficam em 1/4, 2/4 e 3/4 — folga igual nas duas pontas", () => {
+    expect([0, 1, 2].map((k) => fracaoDaAlca(k, 3))).toEqual([0.25, 0.5, 0.75]);
+  });
+
+  it("nenhuma alça encosta no topo nem na base", () => {
+    for (const total of [1, 2, 5, 13]) {
+      for (let k = 0; k < total; k++) {
+        expect(fracaoDaAlca(k, total)).toBeGreaterThan(0);
+        expect(fracaoDaAlca(k, total)).toBeLessThan(1);
+      }
+    }
+  });
+});
+
+describe("pontasDaSeta", () => {
+  const passos = [passoEm(0, 0), passoEm(300, 0)];
+  const identidades = ["0", "1"];
+
+  it("sai da alça direita do bloco de origem e chega no meio da esquerda do destino", () => {
+    const l: Ligacao = { de: "0", quando: { tipo: "sempre" }, para: "1" };
+    const r = pontasDaSeta(passos, {}, identidades, [l], l);
+    // Sem medida: LARGURA_DO_BLOCO 190, ALTURA_SUPOSTA 48, alça única no meio.
+    expect(r).toEqual({ de: { x: 190, y: 24 }, para: { x: 300, y: 24 } });
+  });
+
+  // A LIGAÇÃO PARA UM BLOCO QUE NÃO ESTÁ NA LISTA é forma VÁLIDA
+  // (`conferirLigacao`, lib/steps.ts) e não tem traço a desenhar: quem fala
+  // sobre o que ela causa é `conferirLista`, não a geometria.
+  it("ligação para um bloco que não existe não tem traço", () => {
+    const l: Ligacao = { de: "0", quando: { tipo: "sempre" }, para: "sumiu" };
+    expect(pontasDaSeta(passos, {}, identidades, [l], l)).toBeNull();
+  });
+
+  it("bloco ainda sem posição não tem traço", () => {
+    const semPos: Passo[] = [{ tipo: "dm", texto: "x" }, passoEm(300, 0)];
+    const l: Ligacao = { de: "0", quando: { tipo: "sempre" }, para: "1" };
+    expect(pontasDaSeta(semPos, {}, identidades, [l], l)).toBeNull();
+  });
+
+  // O CASO QUE A TAREFA 6 CRIOU: um bloco com botões tem uma alça por botão,
+  // espalhadas pela altura. A seta de cada botão sai de uma altura diferente, e
+  // é isso que a mira precisa acertar.
+  it("cada botão sai de uma altura própria, e o “senão” da última", () => {
+    const menu = {
+      tipo: "dm",
+      texto: "Escolha",
+      pos: { x: 0, y: 0 },
+      botoes: [
+        { id: "op_1", rotulo: "A" },
+        { id: "op_2", rotulo: "B" },
+      ],
+    } as unknown as Passo;
+    const comMenu = [menu, passoEm(300, 0)];
+    const medidas = { "0": { width: 190, height: 80 } };
+    const ls: Ligacao[] = (
+      [
+        { tipo: "botao", botao: "op_1" },
+        { tipo: "botao", botao: "op_2" },
+        { tipo: "senao" },
+      ] as const
+    ).map((quando) => ({ de: "0", quando, para: "1" }));
+    const alturas = ls.map((l) => pontasDaSeta(comMenu, medidas, identidades, ls, l)!.de.y);
+    // Três alças em 1/4, 2/4 e 3/4 de 80.
+    expect(alturas).toEqual([20, 40, 60]);
+  });
+
+  // A SETA QUE PERDEU A ALÇA GANHA A DELA, e a altura muda por causa disso: a
+  // `sempre` de um menu não tem alça de tipo nenhum (`alcasDeSaida`), e até esta
+  // onda ela era desenhada saindo do ÍNDICE 0 — a alça do PRIMEIRO BOTÃO, no
+  // mesmo pixel da seta daquele botão. `alcasDoQuadro` lhe dá uma alça própria,
+  // no fim, e o bloco passa a ter quatro.
+  it("a `sempre` de um menu sai de uma alça só dela, e não da do primeiro botão", () => {
+    const menu = {
+      tipo: "dm",
+      texto: "Escolha",
+      pos: { x: 0, y: 0 },
+      botoes: [
+        { id: "op_1", rotulo: "A" },
+        { id: "op_2", rotulo: "B" },
+      ],
+    } as unknown as Passo;
+    const comMenu = [menu, passoEm(300, 0)];
+    const medidas = { "0": { width: 190, height: 80 } };
+    const doBotao: Ligacao = { de: "0", quando: { tipo: "botao", botao: "op_1" }, para: "1" };
+    const aSempre: Ligacao = { de: "0", quando: { tipo: "sempre" }, para: "1" };
+    const ls = [doBotao, aSempre];
+    const yBotao = pontasDaSeta(comMenu, medidas, identidades, ls, doBotao)!.de.y;
+    const ySempre = pontasDaSeta(comMenu, medidas, identidades, ls, aSempre)!.de.y;
+    // Quatro alças (dois botões, "digitou" e a continuação) em 1/5..4/5 de 80.
+    expect(yBotao).toBe(16);
+    expect(ySempre).toBe(64);
+    expect(ySempre).not.toBe(yBotao);
+  });
+});
+
+describe("ligacoesDoBloco", () => {
+  const ligacoes = corrente(["0", "1", "2"]);
+
+  it("acha as setas das duas pontas", () => {
+    expect(ligacoesDoBloco(ligacoes, "1")).toEqual([0, 1]);
+    expect(ligacoesDoBloco(ligacoes, "0")).toEqual([0]);
+    expect(ligacoesDoBloco(ligacoes, "2")).toEqual([1]);
+  });
+
+  it("bloco solto não toca seta nenhuma", () => {
+    expect(ligacoesDoBloco(ligacoes, "9")).toEqual([]);
+  });
+});
+
 describe("setasAoAlcance / setaSobOPonto — dois blocos, uma seta", () => {
   // A(0,0) -> B(300,0), ambos sem medida (cai no palpite: LARGURA 190,
   // ALTURA 48). A alça de saída de A fica em (190,24); a de entrada de B em
@@ -44,16 +180,24 @@ describe("setasAoAlcance / setaSobOPonto — dois blocos, uma seta", () => {
   // (dois blocos na mesma linha).
   const passos = [passoEm(0, 0), passoEm(300, 0)];
   const identidades = ["0", "1"];
+  const ligacoes = corrente(identidades);
   const medidas = {};
 
   it("um ponto sobre a seta tem distância zero e é achado", () => {
-    const r = setasAoAlcance({ x: 245, y: 24 }, passos, medidas, identidades, []);
+    const r = setasAoAlcance({ x: 245, y: 24 }, passos, medidas, identidades, ligacoes, []);
     expect(r).toEqual([{ i: 0, d: 0 }]);
-    expect(setaSobOPonto({ x: 245, y: 24 }, passos, medidas, identidades, [])).toBe(0);
+    expect(setaSobOPonto({ x: 245, y: 24 }, passos, medidas, identidades, ligacoes, [])).toBe(0);
   });
 
   it("respeita a lista `ignorar`", () => {
-    expect(setaSobOPonto({ x: 245, y: 24 }, passos, medidas, identidades, [0])).toBeNull();
+    expect(setaSobOPonto({ x: 245, y: 24 }, passos, medidas, identidades, ligacoes, [0])).toBeNull();
+  });
+
+  // SEM LIGAÇÃO NENHUMA NÃO HÁ SETA A ACERTAR, e este é o estado normal do
+  // quadro desde a Tarefa 6: bloco solto é possível, e uma automação recém-criada
+  // pode ter blocos e nenhuma seta.
+  it("lista de ligações vazia não acha nada", () => {
+    expect(setaSobOPonto({ x: 245, y: 24 }, passos, medidas, identidades, [], [])).toBeNull();
   });
 
   // A FRONTEIRA DO ALCANCE, NOS DOIS LADOS. `ALCANCE_DA_SETA` é comparado com
@@ -61,7 +205,7 @@ describe("setasAoAlcance / setaSobOPonto — dois blocos, uma seta", () => {
   // já fica de fora.
   it("dentro do alcance: uma distância logo abaixo de ALCANCE_DA_SETA conta", () => {
     const d = ALCANCE_DA_SETA - 0.5;
-    const alvo = setaSobOPonto({ x: 245, y: 24 + d }, passos, medidas, identidades, []);
+    const alvo = setaSobOPonto({ x: 245, y: 24 + d }, passos, medidas, identidades, ligacoes, []);
     expect(alvo).toBe(0);
   });
 
@@ -71,6 +215,7 @@ describe("setasAoAlcance / setaSobOPonto — dois blocos, uma seta", () => {
       passos,
       medidas,
       identidades,
+      ligacoes,
       []
     );
     expect(alvo).toBeNull();
@@ -78,7 +223,7 @@ describe("setasAoAlcance / setaSobOPonto — dois blocos, uma seta", () => {
 
   it("fora do alcance: uma distância logo acima de ALCANCE_DA_SETA não conta", () => {
     const d = ALCANCE_DA_SETA + 0.5;
-    const alvo = setaSobOPonto({ x: 245, y: 24 + d }, passos, medidas, identidades, []);
+    const alvo = setaSobOPonto({ x: 245, y: 24 + d }, passos, medidas, identidades, ligacoes, []);
     expect(alvo).toBeNull();
   });
 });
@@ -88,10 +233,11 @@ describe("setasAoAlcance / setaSobOPonto — dois blocos, uma seta", () => {
 // vizinha dele, e um empurrão de poucos pixels na horizontal que NÃO muda a
 // distância — porque o traçado ali é horizontal, e mexer ao longo dele não
 // aproxima nem afasta. Com o alcance antigo (30) isso reordenava; com o
-// atual (16) não reordena mais.
+// atual (16) não acontece mais.
 describe("o caso medido: 27,5 unidades de uma seta alheia", () => {
   const passos = [passoEm(0, 0), passoEm(300, 0)];
   const identidades = ["0", "1"];
+  const ligacoes = corrente(identidades);
   const medidas = {};
   // Mesma seta reta do bloco anterior (x de 190 a 300, y=24). Um ponto a
   // 27,5 unidades verticais, com x dentro do vão, mede exatamente 27,5 de
@@ -103,14 +249,7 @@ describe("o caso medido: 27,5 unidades de uma seta alheia", () => {
   const pontoEmpurrado = { x: 247, y: 24 + 27.5 };
 
   it("27,5 está entre o alcance atual e o antigo — ficaria pego com 30, não com 16", () => {
-    const d = distanciaAoSegmento(
-      pontoParado.x,
-      pontoParado.y,
-      190,
-      24,
-      300,
-      24
-    );
+    const d = distanciaAoSegmento(pontoParado.x, pontoParado.y, 190, 24, 300, 24);
     expect(d).toBe(27.5);
     expect(d).toBeLessThan(30); // o alcance antigo pegava
     expect(d).toBeGreaterThanOrEqual(ALCANCE_DA_SETA); // o atual não pega
@@ -123,8 +262,8 @@ describe("o caso medido: 27,5 unidades de uma seta alheia", () => {
   });
 
   it("com o alcance atual, nem parado nem empurrado a seta é alcançada", () => {
-    expect(setaSobOPonto(pontoParado, passos, medidas, identidades, [])).toBeNull();
-    expect(setaSobOPonto(pontoEmpurrado, passos, medidas, identidades, [])).toBeNull();
+    expect(setaSobOPonto(pontoParado, passos, medidas, identidades, ligacoes, [])).toBeNull();
+    expect(setaSobOPonto(pontoEmpurrado, passos, medidas, identidades, ligacoes, [])).toBeNull();
   });
 });
 
@@ -132,10 +271,14 @@ describe("o caso medido: 27,5 unidades de uma seta alheia", () => {
 // é a segunda defesa — a que fecha a CLASSE do defeito, e não só o caso
 // medido: mesmo uma seta dentro do alcance atual (16) não pode ser
 // "conquistada" só porque o bloco já nasceu perto dela.
+//
+// O QUE ELA PROTEGE MUDOU DE NOME NA TAREFA 6 e não de natureza: era a ORDEM do
+// array, e é o DESENHO das setas. O estrago é o mesmo — o cliente recebe outra
+// coisa, sem erro e sem aviso.
 describe("alvoDoArraste — a seta precisa ser conquistada pelo gesto", () => {
-  // Cinco blocos: A(0) B(1) C(2) D(3) E(4). B é o bloco arrastado (índice 1).
-  // A seta D->E (índice 3) não é vizinha de B (as vizinhas de B são as setas
-  // 0 e 1). C fica fora do caminho (y=500) para não interferir na medição.
+  // Cinco blocos: A(0) B(1) C(2) D(3) E(4). B é o bloco arrastado (identidade
+  // "1"). A seta D->E (ligação 3) não toca B (as que tocam B são as ligações 0
+  // e 1). C fica fora do caminho (y=500) para não interferir na medição.
   const passos = [
     passoEm(0, 0), // A (0)
     passoEm(300, 0), // B (1) — o bloco arrastado
@@ -144,15 +287,16 @@ describe("alvoDoArraste — a seta precisa ser conquistada pelo gesto", () => {
     passoEm(900, 0), // E (4)
   ];
   const identidades = ["0", "1", "2", "3", "4"];
+  const ligacoes = corrente(identidades);
   const medidas = {};
-  const indiceDoBlocoArrastado = 1;
+  const blocoArrastado = "1";
 
   // A seta D->E vai de (600+190, 24) = (790,24) a (900,24). Um ponto a 10
   // unidades dela, dentro do alcance atual (16).
   const pontoPertoDeDE = { x: 845, y: 34 };
 
-  it("confere a distância e que a seta 3 é mesmo a candidata (setup do teste)", () => {
-    const r = setasAoAlcance(pontoPertoDeDE, passos, medidas, identidades, []);
+  it("confere a distância e que a ligação 3 é mesmo a candidata (setup do teste)", () => {
+    const r = setasAoAlcance(pontoPertoDeDE, passos, medidas, identidades, ligacoes, []);
     expect(r).toEqual([{ i: 3, d: 10 }]);
   });
 
@@ -162,7 +306,8 @@ describe("alvoDoArraste — a seta precisa ser conquistada pelo gesto", () => {
       passos,
       medidas,
       identidades,
-      indiceDoBlocoArrastado,
+      ligacoes,
+      blocoArrastado,
       new Set()
     );
     expect(alvo).toBe(3);
@@ -177,17 +322,96 @@ describe("alvoDoArraste — a seta precisa ser conquistada pelo gesto", () => {
       passos,
       medidas,
       identidades,
-      indiceDoBlocoArrastado,
+      ligacoes,
+      blocoArrastado,
       new Set([3])
     );
     expect(alvo).toBeNull();
   });
 
   it("as setas que tocam o próprio bloco nunca são alvo, mesmo fora de setasNoInicio", () => {
-    // Arrastando D (índice 3): a seta 3 (D->E) toca o próprio bloco, então
-    // fica de fora mesmo sem ter sido marcada como já-ao-alcance.
-    const alvo = alvoDoArraste(pontoPertoDeDE, passos, medidas, identidades, 3, new Set());
+    // Arrastando D (identidade "3"): a ligação 3 (D->E) sai do próprio bloco,
+    // então fica de fora mesmo sem ter sido marcada como já-ao-alcance.
+    const alvo = alvoDoArraste(
+      pontoPertoDeDE,
+      passos,
+      medidas,
+      identidades,
+      ligacoes,
+      "3",
+      new Set()
+    );
     expect(alvo).toBeNull();
+  });
+});
+
+// O BLOCO PRECISA TER `sempre` PARA DAR — o Crítico desta onda.
+//
+// Partir uma seta escreve `MEIO --sempre--> B` (`partirLigacao`, lib/steps.ts).
+// O menu de `botoes` não tem alça de `sempre` (`alcasDeSaida`, ./modelos), e o
+// gesto escrevia a seta assim mesmo: `indiceDaAlca` caía no índice 0 e o quadro
+// a desenhava saindo da alça do PRIMEIRO BOTÃO — dois caminhos do mesmo ponto,
+// e o toque naquele botão nunca percorre o segundo.
+//
+// A ORDEM DAS PERGUNTAS IMPORTA e está medida aqui: o mesmo ponto, as mesmas
+// setas e o mesmo `setasNoInicio` vazio devolvem 3 para um bloco comum e `null`
+// para o menu. Ou seja, o que muda é só o BLOCO.
+describe("alvoDoArraste — quem não tem `sempre` não entra no meio da seta", () => {
+  const menuEm = (x: number, y: number): Passo => ({
+    tipo: "dm",
+    texto: "Escolha",
+    botoes: [
+      { id: "op_aaaaaa", rotulo: "A" },
+      { id: "op_bbbbbb", rotulo: "B" },
+    ],
+    pos: { x, y },
+  });
+
+  const identidades = ["0", "1", "2", "3", "4"];
+  const ligacoes = corrente(identidades);
+  const medidas = {};
+  const pontoPertoDeDE = { x: 845, y: 34 };
+  const comuns = [passoEm(0, 0), passoEm(300, 0), passoEm(300, 500), passoEm(600, 0), passoEm(900, 0)];
+
+  it("um bloco comum arrastado até a seta 3 continua sendo alvo", () => {
+    expect(
+      alvoDoArraste(pontoPertoDeDE, comuns, medidas, identidades, ligacoes, "1", new Set())
+    ).toBe(3);
+  });
+
+  it("o MESMO gesto com um MENU no lugar do bloco arrastado não tem alvo", () => {
+    const comMenu = [...comuns];
+    comMenu[1] = menuEm(300, 0);
+    expect(
+      alvoDoArraste(pontoPertoDeDE, comMenu, medidas, identidades, ligacoes, "1", new Set())
+    ).toBeNull();
+  });
+
+  it("identidade que não está na lista não tem alvo — é o nó do gatilho", () => {
+    // `identidades.indexOf("gatilho")` é -1, e sem a guarda a pergunta sobre as
+    // alças seria feita a `passos[-1]`.
+    expect(
+      alvoDoArraste(pontoPertoDeDE, comuns, medidas, identidades, ligacoes, "gatilho", new Set())
+    ).toBeNull();
+  });
+
+  // A PALETA PASSA PELA MESMA PERGUNTA, e é o caminho do gesto que produziu o
+  // defeito: "Mensagem com opções" arrastada da faixa e solta em cima da seta.
+  it("alvoDaPaleta: bloco comum acha a seta, menu não acha", () => {
+    expect(
+      alvoDaPaleta(pontoPertoDeDE, comuns, medidas, identidades, ligacoes, {
+        tipo: "dm",
+        texto: "novo",
+      })
+    ).toBe(3);
+    expect(
+      alvoDaPaleta(pontoPertoDeDE, comuns, medidas, identidades, ligacoes, menuEm(0, 0))
+    ).toBeNull();
+    // Sem bloco nenhum (o arrasto ainda não disse qual item é) também não
+    // acende: o destaque não pode prometer o que o soltar vai recusar.
+    expect(
+      alvoDaPaleta(pontoPertoDeDE, comuns, medidas, identidades, ligacoes, null)
+    ).toBeNull();
   });
 });
 
@@ -195,6 +419,7 @@ describe("setasAoAlcance — usa a medida real do bloco quando ela existe", () =
   it("uma medida maior estica a alça de saída, e muda a seta encontrada", () => {
     const passos = [passoEm(0, 0), passoEm(300, 0)];
     const identidades = ["0", "1"];
+    const ligacoes = corrente(identidades);
     // Sem medida: alça de saída em x=190 (0 + LARGURA_DO_BLOCO palpite).
     // Com uma medida de largura 280, a alça de saída vai para x=280 — bem
     // mais perto de x=300, e a distância medida no eixo x muda de acordo.
@@ -203,6 +428,120 @@ describe("setasAoAlcance — usa a medida real do bloco quando ela existe", () =
     expect(semMedida).toBe(0); // x=200 cai dentro do vão 190–300
     expect(comMedida).toBe(80); // x=200 cai antes do vão 280–300 agora
     const medidas = { "0": { width: 280, height: 48 } };
-    expect(setaSobOPonto({ x: 200, y: 24 }, passos, medidas, identidades, [])).toBeNull();
+    expect(
+      setaSobOPonto({ x: 200, y: 24 }, passos, medidas, identidades, ligacoes, [])
+    ).toBeNull();
+  });
+});
+
+describe("lugarDoBlocoNovo", () => {
+  // O centro da area visivel usado em quase todos os casos. Com LARGURA 190 e
+  // ALTURA_SUPOSTA 48, o canto esperado e (500 - 95, 300 - 24) = (405, 276).
+  const centro = { x: 500, y: 300 };
+  const canto = {
+    x: centro.x - LARGURA_DO_BLOCO / 2,
+    y: centro.y - ALTURA_SUPOSTA / 2,
+  };
+
+  it("poe o CENTRO do bloco no ponto pedido, devolvendo o canto", () => {
+    expect(lugarDoBlocoNovo(centro, [])).toEqual({ x: 405, y: 276 });
+    expect(lugarDoBlocoNovo(centro, [])).toEqual(canto);
+  });
+
+  it("arredonda, para nao repetir o `73.00000000000001` que ja apareceu no banco", () => {
+    // `screenToFlowPosition` devolve fracionario, e o centro de um retangulo de
+    // largura impar cai no meio de um pixel.
+    const lugar = lugarDoBlocoNovo({ x: 500.4, y: 300.7 }, []);
+    expect(Number.isInteger(lugar.x)).toBe(true);
+    expect(Number.isInteger(lugar.y)).toBe(true);
+  });
+
+  it("nao desvia por causa de bloco que esta longe do centro", () => {
+    expect(lugarDoBlocoNovo(centro, [passoEm(0, 0), passoEm(2000, 900)])).toEqual(canto);
+  });
+
+  it("nao desvia por causa de bloco sem `pos` — ele nao esta em lugar nenhum", () => {
+    // Bloco sem posicao e forma valida (toda lista anterior a Fase 1b e assim),
+    // e ele nao pode reivindicar o centro do quadro.
+    const semPos: Passo = { tipo: "dm", texto: "x" };
+    expect(lugarDoBlocoNovo(centro, [semPos, semPos])).toEqual(canto);
+  });
+
+  it("desvia na diagonal quando o centro ja esta ocupado", () => {
+    const lugar = lugarDoBlocoNovo(centro, [passoEm(canto.x, canto.y)]);
+    expect(lugar).toEqual({
+      x: canto.x + DESVIO_DO_EMPILHAMENTO,
+      y: canto.y + DESVIO_DO_EMPILHAMENTO,
+    });
+  });
+
+  it("desvia de novo quando o primeiro desvio tambem esta ocupado", () => {
+    const passos = [
+      passoEm(canto.x, canto.y),
+      passoEm(canto.x + DESVIO_DO_EMPILHAMENTO, canto.y + DESVIO_DO_EMPILHAMENTO),
+    ];
+    expect(lugarDoBlocoNovo(centro, passos)).toEqual({
+      x: canto.x + 2 * DESVIO_DO_EMPILHAMENTO,
+      y: canto.y + 2 * DESVIO_DO_EMPILHAMENTO,
+    });
+  });
+
+  it("cobrir e coisa de retangulo: desvia por CHEBYSHEV, nao por distancia reta", () => {
+    // Um bloco 20 para o lado e 20 para baixo do canto: a distancia reta e
+    // 28,3 — passaria por um raio de 24 —, mas na tela ele cobre quase todo o
+    // lugar pedido. O maior dos dois afastamentos e 20, e 20 < 24, entao desvia.
+    const vizinho = passoEm(canto.x + 20, canto.y + 20);
+    expect(Math.hypot(20, 20)).toBeGreaterThan(DESVIO_DO_EMPILHAMENTO);
+    expect(lugarDoBlocoNovo(centro, [vizinho])).not.toEqual(canto);
+  });
+
+  it("um bloco entre duas posicoes da diagonal barra as DUAS, e o laco passa por cima", () => {
+    // Um unico bloco a 12/12 do canto barra as posicoes k=0 e k=1 (afastamentos
+    // 12 e 12 dele), e a resposta e k=2 — prova que o laco pula por cima de DOIS
+    // candidatos barrados pelo mesmo obstaculo.
+    //
+    // O QUE ISTO NAO PROVA, medido: que o multiplicador precisa ser `2`. Com um
+    // so obstaculo, mutar o limite para `passos.length + 1` (n=1 -> limite=2)
+    // ainda passa aqui — o laco para em k=0,1 sem achar vaga, e o `return` de
+    // fora do laco reusa a mesma variavel `limite` (ja mutada) para devolver
+    // k=2, que acerta POR SORTE: aquele `return` nao sabe que k=2 esta livre, so
+    // repete o ultimo `limite` tentado. Quem prova o multiplicador de verdade e
+    // o caso seguinte, com dois obstaculos ENCADEADOS.
+    const meio = passoEm(canto.x + 12, canto.y + 12);
+    expect(lugarDoBlocoNovo(centro, [meio])).toEqual({
+      x: canto.x + 2 * DESVIO_DO_EMPILHAMENTO,
+      y: canto.y + 2 * DESVIO_DO_EMPILHAMENTO,
+    });
+
+    // DOIS obstaculos encadeados: o primeiro (12/12 do canto) barra k=0 e k=1;
+    // o segundo (60/60 do canto) barra k=2 e k=3 (afastamentos 12 e 12 dele). A
+    // primeira vaga livre e k=4.
+    //
+    // Com `passos.length + 1` (n=2 -> limite=3) o laco testa so k=0,1,2 — todos
+    // ocupados — e sai sem `return`. O `return` de fora do laco devolve
+    // `limite` (3, ja mutado): k=3, que TAMBEM esta ocupado, pelo segundo
+    // bloco. A resposta errada deixa de coincidir com a certa aqui, e e por
+    // isso que este segundo caso — e nao o de um obstaculo so, acima — e quem
+    // obriga o multiplicador a ser `2 * passos.length + 1`.
+    const passos = [passoEm(canto.x + 12, canto.y + 12), passoEm(canto.x + 60, canto.y + 60)];
+    expect(lugarDoBlocoNovo(centro, passos)).toEqual({
+      x: canto.x + 4 * DESVIO_DO_EMPILHAMENTO,
+      y: canto.y + 4 * DESVIO_DO_EMPILHAMENTO,
+    });
+  });
+
+  it("sempre acha lugar livre — nenhuma pilha devolve um canto ja ocupado", () => {
+    // Vinte blocos plantados EM CIMA da diagonal, um por posicao, para provar
+    // que o laco nao esgota e nao devolve posicao ocupada.
+    const passos = Array.from({ length: 20 }, (_, k) =>
+      passoEm(canto.x + k * DESVIO_DO_EMPILHAMENTO, canto.y + k * DESVIO_DO_EMPILHAMENTO)
+    );
+    const lugar = lugarDoBlocoNovo(centro, passos);
+    const colide = passos.some(
+      (p) =>
+        Math.abs(p.pos!.x - lugar.x) < DESVIO_DO_EMPILHAMENTO &&
+        Math.abs(p.pos!.y - lugar.y) < DESVIO_DO_EMPILHAMENTO
+    );
+    expect(colide).toBe(false);
   });
 });

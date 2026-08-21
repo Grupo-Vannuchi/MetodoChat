@@ -1,0 +1,1656 @@
+# Ramificação por botões — plano de implementação (Fase 2a)
+
+> **Para quem executa:** SUB-SKILL OBRIGATÓRIA — use
+> `superpowers:subagent-driven-development`, tarefa a tarefa. Os passos usam
+> caixinha (`- [ ]`).
+
+**Objetivo:** o fluxo de uma automação deixa de ser uma fila e vira um mapa de
+caminhos, e uma mensagem passa a poder ter vários botões, cada um levando a um
+lugar diferente.
+
+**Arquitetura:** `steps` continua sendo a lista de blocos; nasce a coluna
+`ligacoes`, e a ordem do array deixa de significar qualquer coisa. Toda decisão
+— a caminhada pelo grafo, a escolha da ligação, a detecção de ciclo, as duas
+conferências — vai para `lib/steps.ts`, que é puro e testado; `lib/engine.ts`
+fica só com o efeito.
+
+**Tecnologia:** Next.js 16.2.10, React 19.2.4, `@xyflow/react` 12.11.2, Tailwind,
+Vitest, postgres.js.
+
+**Spec:** `docs/specs/2026-08-11-ramificacao.md`
+**Base:** branch `ramificacao`, commit `63eea5a`.
+
+## Restrições globais
+
+- **`lib/steps.ts` não tem NENHUM import.** Confira com
+  `grep -c "^import\|require(" lib/steps.ts` — tem que dar 0.
+- **A suíte só testa função pura.** Sem banco, sem mock, sem teste de componente.
+- **Este Next.js não é o que você conhece.** Leia o guia em
+  `node_modules/next/dist/docs/` antes de escrever código específico de Next.
+- **Três formatos de payload convivem PARA SEMPRE:** `AUTO:<automação>`,
+  `AUTO:<automação>:<bloco>` e `AUTO:<automação>:<bloco>:<botão>`. Um botão
+  entregue vive na conversa da pessoa indefinidamente. **Não é dívida a limpar.**
+- **A marca do React Flow fica.** Não mexa em `proOptions`.
+- Comentários em português; commit em português sem acentos, sem menção a agente
+  ou ferramenta.
+- Nada de `ADMIN_PASSWORD`, nada de cookie de sessão.
+- **A ENTRADA DO FLUXO É `steps[0]`.** Com as ligações, a ordem do array deixa de
+  significar o próximo — mas guarda **exatamente um** significado: o primeiro
+  elemento é onde a caminhada começa quando o gatilho dispara. É o que já vale
+  hoje, então nenhuma automação migrada muda de entrada, e não exige dado novo.
+  A alternativa — "o bloco que ninguém aponta" — **não serve**: um menu que volta
+  para si mesmo tem seta chegando na entrada, e o fluxo ficaria sem começo.
+- **Se houver um `npm run dev` na porta 3000, use-o e NÃO o encerre** — matá-lo à
+  força já deixou conexão órfã segurando trava em `contacts` e travou o painel
+  inteiro. Pelo mesmo motivo, **pergunte antes de rodar `next build`**.
+- `npm run lint`, `npm run typecheck` e `npx vitest run` têm que passar. Reporte
+  a saída real.
+
+---
+
+## Estrutura de arquivos
+
+| arquivo | responsabilidade nova |
+|---|---|
+| `lib/steps.ts` | tipos `Ligacao`/`Quando`/`Botao`; `interpretar` caminha o grafo; `ligacaoEscolhida`; `temCicloDeSempre`; as duas conferências |
+| `lib/db.ts` | coluna `ligacoes`; campo no tipo `Automation` |
+| `lib/engine.ts` | passa as ligações ao interpretador; lê o botão do payload |
+| `lib/queue-drain.ts` | envia vários botões numa mensagem |
+| `lib/ig.ts` | (já aceita `quick_replies` como lista — confira antes de mexer) |
+| `app/automacoes/actions.ts` | grava `ligacoes`; a conferência de ativar |
+| `app/automacoes/editor/quadro.tsx` | setas vindas do dado; ligar; soltar sobre a seta parte a ligação |
+| `app/automacoes/editor/no.tsx` | uma alça por botão, mais a do "senão" |
+| `app/automacoes/editor/painel.tsx` | editar os botões de um bloco |
+| `app/automacoes/editor/previa.tsx` | o caminho até o bloco selecionado |
+| `scripts/ligar-passos-existentes.mjs` | migração: cada automação vira uma corrente |
+
+---
+
+# Tarefa 1 · A coluna, os tipos e a migração
+
+**Files:**
+- Modify: `lib/steps.ts`, `lib/db.ts`
+- Create: `scripts/ligar-passos-existentes.mjs`
+- Test: `tests/steps.test.ts`
+
+**Interfaces produzidas:**
+
+```ts
+export type Botao = { id: string; rotulo: string };
+export type Quando =
+  | { tipo: "sempre" }
+  | { tipo: "botao"; botao: string }
+  | { tipo: "senao" };
+export type Ligacao = { de: string; quando: Quando; para: string };
+
+export function conferirLigacao(l: unknown): { ligacao?: Ligacao; motivo?: string };
+export function ligacoesDe(ligacoes: unknown, bloco: string): Ligacao[];
+export function novoIdDeBotao(): string;
+```
+
+**Nada muda de comportamento nesta tarefa.** `interpretar` continua andando pelo
+array; as ligações entram no dado e ficam paradas. A Tarefa 2 as liga.
+
+- [ ] **Passo 1: escreva os testes que falham**
+
+Em `tests/steps.test.ts`:
+
+```ts
+describe("conferirLigacao", () => {
+  it("aceita a forma completa dos três tipos", () => {
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "sempre" }, para: "b_bbb222" }).ligacao)
+      .toEqual({ de: "b_aaa111", quando: { tipo: "sempre" }, para: "b_bbb222" });
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "botao", botao: "op_a" }, para: "b_bbb222" }).motivo)
+      .toBeUndefined();
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "senao" }, para: "b_bbb222" }).motivo)
+      .toBeUndefined();
+  });
+
+  it("recusa ligação sem de, sem para, ou com tipo desconhecido", () => {
+    // Ligação quebrada é caminho que não existe. Ignorar em silêncio faria a
+    // pessoa parar no meio do fluxo sem nada em Atividade.
+    expect(conferirLigacao({ quando: { tipo: "sempre" }, para: "b_bbb222" }).ligacao).toBeUndefined();
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "sempre" } }).ligacao).toBeUndefined();
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "voar" }, para: "b_bbb222" }).ligacao).toBeUndefined();
+    expect(conferirLigacao({ de: "b_aaa111", quando: { tipo: "botao" }, para: "b_bbb222" }).ligacao).toBeUndefined();
+  });
+
+  it("não estoura com lixo", () => {
+    expect(conferirLigacao(null).ligacao).toBeUndefined();
+    expect(conferirLigacao("x").ligacao).toBeUndefined();
+    expect(conferirLigacao(42).ligacao).toBeUndefined();
+  });
+});
+
+describe("ligacoesDe", () => {
+  const ls = [
+    { de: "b_aaa111", quando: { tipo: "botao", botao: "op_a" }, para: "b_bbb222" },
+    { de: "b_aaa111", quando: { tipo: "senao" }, para: "b_ccc333" },
+    { de: "b_bbb222", quando: { tipo: "sempre" }, para: "b_ccc333" },
+    { de: "b_aaa111", quando: { tipo: "voar" }, para: "b_ddd444" },
+  ];
+
+  it("devolve as ligações VÁLIDAS que saem daquele bloco, na ordem", () => {
+    const r = ligacoesDe(ls, "b_aaa111");
+    expect(r).toHaveLength(2);
+    expect(r[0].para).toBe("b_bbb222");
+    expect(r[1].quando.tipo).toBe("senao");
+  });
+
+  it("bloco sem saída devolve lista vazia", () => {
+    expect(ligacoesDe(ls, "b_zzz999")).toEqual([]);
+  });
+
+  it("não estoura quando não é lista", () => {
+    expect(ligacoesDe(null, "b_aaa111")).toEqual([]);
+    expect(ligacoesDe({}, "b_aaa111")).toEqual([]);
+  });
+});
+
+describe("novoIdDeBotao", () => {
+  it("sai sempre no formato aceito e com comprimento fixo", () => {
+    for (let i = 0; i < 500; i++) expect(novoIdDeBotao()).toMatch(/^op_[0-9a-z]{6}$/);
+  });
+});
+```
+
+- [ ] **Passo 2: rode e confirme que falha**
+
+```
+npx vitest run tests/steps.test.ts
+```
+
+Esperado: FAIL — `conferirLigacao is not a function`.
+
+- [ ] **Passo 3: os tipos e as três funções**
+
+Em `lib/steps.ts`, perto de `conferir`:
+
+```ts
+// Um botão de escolha. O `id` é o que viaja no payload, e é ele que
+// `ligacaoEscolhida` (mais abaixo) casa com a ligação — NÃO o rótulo, que o dono
+// pode reescrever a qualquer momento sem querer trocar de caminho.
+export type Botao = { id: string; rotulo: string };
+
+// A pergunta feita na bifurcação.
+//
+// `sempre` é o caso comum: um bloco que não bifurca tem uma saída só, e ela vale
+// sem condição. `botao` casa com o toque. `senao` recebe quem respondeu
+// DIGITANDO em vez de tocar — é opcional, e sem ela o fluxo simplesmente para.
+//
+// As outras duas ramificações do produto entram AQUI, sem tocar em mais nada:
+// `{tipo:"texto", palavras:[…]}` e `{tipo:"segue"}`. É por isso que `quando` é
+// um objeto com discriminante em vez de uma string.
+export type Quando =
+  | { tipo: "sempre" }
+  | { tipo: "botao"; botao: string }
+  | { tipo: "senao" };
+
+export type Ligacao = { de: string; quando: Quando; para: string };
+
+const ALFABETO_DO_ID = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+// Comprimento FIXO, pelo mesmo motivo de `novoIdDeBloco`: um id curto demais
+// seria recusado pela forma e o botão deixaria de casar com a ligação, em
+// silêncio.
+export function novoIdDeBotao(): string {
+  let id = "op_";
+  for (let i = 0; i < 6; i++) id += ALFABETO_DO_ID[Math.floor(Math.random() * 36)];
+  return id;
+}
+
+// Valida e normaliza uma ligação. Devolve o motivo quando não dá para usar.
+//
+// Ligação quebrada é caminho que não existe. Ignorar em silêncio faria a pessoa
+// parar no meio do fluxo sem nada em Atividade — a mesma falha muda que o
+// `step_ignorado` existe para evitar do lado dos blocos.
+export function conferirLigacao(l: unknown): { ligacao?: Ligacao; motivo?: string } {
+  if (!l || typeof l !== "object") return { motivo: "ligação não é um objeto" };
+  const o = l as Record<string, unknown>;
+  if (typeof o.de !== "string" || !o.de) return { motivo: "ligação sem bloco de origem" };
+  if (typeof o.para !== "string" || !o.para) return { motivo: "ligação sem bloco de destino" };
+  const q = o.quando as Record<string, unknown> | undefined;
+  if (!q || typeof q !== "object") return { motivo: "ligação sem condição" };
+  if (q.tipo === "sempre" || q.tipo === "senao") return { ligacao: l as Ligacao };
+  if (q.tipo === "botao") {
+    if (typeof q.botao !== "string" || !q.botao) return { motivo: "ligação de botão sem o botão" };
+    return { ligacao: l as Ligacao };
+  }
+  return { motivo: `condição desconhecida: ${String(q.tipo)}` };
+}
+
+// As saídas VÁLIDAS de um bloco, na ordem em que foram gravadas.
+//
+// A ordem importa em um caso só, e ele está em `ligacaoEscolhida`: havendo mais
+// de uma que sirva, ganha a primeira. Fora disso, ordem de ligação não quer
+// dizer nada — quem manda é a condição.
+export function ligacoesDe(ligacoes: unknown, bloco: string): Ligacao[] {
+  if (!Array.isArray(ligacoes)) return [];
+  const saidas: Ligacao[] = [];
+  for (const bruta of ligacoes) {
+    const { ligacao } = conferirLigacao(bruta);
+    if (ligacao && ligacao.de === bloco) saidas.push(ligacao);
+  }
+  return saidas;
+}
+```
+
+E acrescente `botoes?: Botao[]` ao ramo `dm` do tipo `Passo`.
+
+- [ ] **Passo 4: rode e confirme que passa**
+
+```
+npx vitest run tests/steps.test.ts
+grep -c "^import\|require(" lib/steps.ts
+```
+
+Esperado: PASS, e o grep devolvendo `0`.
+
+- [ ] **Passo 5: a coluna**
+
+Em `lib/db.ts`, no fim do array de DDL:
+
+```ts
+  // As ligações entre os blocos: de qual bloco, sob qual condição, para qual
+  // bloco. Com elas, a ORDEM DO ARRAY `steps` deixa de significar o próximo — é
+  // a seta que manda.
+  //
+  // Coluna nova em vez de mudança em `steps`, de propósito: `steps` continua com
+  // a mesma forma, então uma automação que ninguém abriu continua sendo lida
+  // exatamente como antes. Quem a converte em corrente é o script de migração.
+  `alter table automations add column if not exists ligacoes jsonb not null default '[]'::jsonb`,
+```
+
+E no tipo `Automation`, acrescente `ligacoes: unknown[];`.
+
+- [ ] **Passo 6: o script de migração**
+
+Crie `scripts/ligar-passos-existentes.mjs`. Ele lê `steps` de cada automação e
+grava em `ligacoes` uma corrente `sempre` reproduzindo a ordem do array.
+
+Leia `scripts/dar-ids-aos-passos.mjs` antes de escrever: ele é o modelo desta
+série — como lê a credencial, como usa transação por automação, como imprime, e
+como é idempotente. **Siga o mesmo formato.**
+
+Regras que este precisa ter:
+
+- **idempotente**: automação que já tem ligações não é tocada. Imprima `ok`.
+- **só a corrente**: bloco `i` → bloco `i+1`, sempre `{tipo:"sempre"}`, usando a
+  identidade de `identidadeDoPasso` (bloco sem id usa o índice em texto).
+- **o último bloco não ganha saída** — é o fim do fluxo.
+- **automação com menos de dois blocos** não gera ligação nenhuma; imprima `ok`.
+
+- [ ] **Passo 7: ensaio a seco e conferência**
+
+O script **não** aplica por padrão: sem `--aplicar`, imprime o que faria e sai.
+Rode o ensaio e confira que o número de ligações previstas por automação é
+`blocos - 1`.
+
+**PARE E REPORTE antes de aplicar.** Escrita em produção é autorizada por quem
+conduz, não por você.
+
+- [ ] **Passo 8: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run
+git add lib/steps.ts lib/db.ts scripts/ligar-passos-existentes.mjs tests/steps.test.ts
+git commit -m "As ligacoes entram no dado, e a ordem do array para de mandar"
+```
+
+---
+
+# Tarefa 2 · `interpretar` caminha o grafo
+
+**Files:**
+- Modify: `lib/steps.ts` (`interpretar`), `lib/engine.ts` (as chamadas)
+- Test: `tests/steps.test.ts`
+
+**Interfaces consumidas:** `Ligacao`, `ligacoesDe` (Tarefa 1).
+
+**Interfaces produzidas:**
+
+```ts
+export const TETO_DE_PASSOS = 100;
+export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string): Resultado;
+export function temCicloDeSempre(passos: unknown, ligacoes: unknown): boolean;
+```
+
+`Resultado` ganha `pararEm: string | null` (a identidade do bloco, não o índice).
+
+## O que muda na caminhada
+
+Hoje `interpretar(passos, deIndice)` anda `i++` até achar um bloco que espera.
+Passa a andar seguindo a ligação `sempre` que sai do bloco atual.
+
+**O ponto de partida deixa de ser um índice e vira a identidade de um bloco.** O
+cursor já guarda identidade desde a Fase 1b — é a mesma coisa que
+`indiceDoId` resolve hoje.
+
+**Um bloco com `botoes` ESPERA**, exatamente como a `dm` de resposta rápida
+espera. `esperaResposta` precisa saber disso.
+
+- [ ] **Passo 1: escreva os testes que falham**
+
+```ts
+describe("interpretar caminhando o grafo", () => {
+  const bem = { id: "b_bem001", tipo: "dm", texto: "Oi!" };
+  const meio = { id: "b_mei002", tipo: "dm", texto: "Meio" };
+  const fim = { id: "b_fim003", tipo: "dm", texto: "Fim" };
+  const corrente = [
+    { de: "b_bem001", quando: { tipo: "sempre" }, para: "b_mei002" },
+    { de: "b_mei002", quando: { tipo: "sempre" }, para: "b_fim003" },
+  ];
+
+  it("segue a corrente até o fim e não para em lugar nenhum", () => {
+    const r = interpretar([bem, meio, fim], corrente, "b_bem001");
+    expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_bem001", "b_mei002", "b_fim003"]);
+    expect(r.pararEm).toBe(null);
+  });
+
+  it("A ORDEM DO ARRAY NÃO MANDA MAIS — a seta manda", () => {
+    // Mesmos blocos, array embaralhado, mesmas ligações: o resultado é idêntico.
+    // É este teste que prova que a ordem deixou de significar o próximo.
+    const r = interpretar([fim, bem, meio], corrente, "b_bem001");
+    expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_bem001", "b_mei002", "b_fim003"]);
+  });
+
+  it("bloco com BOTÕES é parada dura", () => {
+    const menu = { id: "b_men001", tipo: "dm", texto: "Qual?",
+                   botoes: [{ id: "op_aaaaaa", rotulo: "A" }, { id: "op_bbbbbb", rotulo: "B" }] };
+    const r = interpretar([menu, fim], [{ de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_fim003" }], "b_men001");
+    expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_men001"]);
+    expect(r.pararEm).toBe("b_men001");
+  });
+
+  it("bloco sem saída encerra o fluxo", () => {
+    const r = interpretar([bem], [], "b_bem001");
+    expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_bem001"]);
+    expect(r.pararEm).toBe(null);
+  });
+
+  it("A JUNÇÃO FUNCIONA: dois braços chegam no mesmo fim, e ele não é repetido", () => {
+    // A fila não conseguia representar isto — o fim teria que ser copiado em cada
+    // braço. Aqui é UM bloco, e cada caminhada passa nele uma vez só.
+    const a = { id: "b_ramA01", tipo: "dm", texto: "A" };
+    const b = { id: "b_ramB02", tipo: "dm", texto: "B" };
+    const ligs = [
+      { de: "b_ramA01", quando: { tipo: "sempre" }, para: "b_fim003" },
+      { de: "b_ramB02", quando: { tipo: "sempre" }, para: "b_fim003" },
+    ];
+    const porA = interpretar([a, b, fim], ligs, "b_ramA01");
+    const porB = interpretar([a, b, fim], ligs, "b_ramB02");
+    expect(porA.enfileirar.map((x) => x.passo.id)).toEqual(["b_ramA01", "b_fim003"]);
+    expect(porB.enfileirar.map((x) => x.passo.id)).toEqual(["b_ramB02", "b_fim003"]);
+  });
+
+  it("O TETO SEGURA O CICLO em vez de andar para sempre", () => {
+    // Sem o teto, isto nunca retorna e a fila cresce até a memória acabar.
+    const x = { id: "b_xxx001", tipo: "dm", texto: "X" };
+    const y = { id: "b_yyy002", tipo: "dm", texto: "Y" };
+    const anel = [
+      { de: "b_xxx001", quando: { tipo: "sempre" }, para: "b_yyy002" },
+      { de: "b_yyy002", quando: { tipo: "sempre" }, para: "b_xxx001" },
+    ];
+    const r = interpretar([x, y], anel, "b_xxx001");
+    expect(r.enfileirar.length).toBeLessThanOrEqual(TETO_DE_PASSOS);
+    expect(r.ignorados.some((i) => /teto|ciclo|volta/i.test(i.motivo))).toBe(true);
+  });
+
+  it("o esperar continua somando ao longo do caminho percorrido", () => {
+    const esperar = { id: "b_esp001", tipo: "esperar", minutos: 5 };
+    const ligs = [
+      { de: "b_bem001", quando: { tipo: "sempre" }, para: "b_esp001" },
+      { de: "b_esp001", quando: { tipo: "sempre" }, para: "b_fim003" },
+    ];
+    const r = interpretar([bem, esperar, fim], ligs, "b_bem001");
+    const ultimo = r.enfileirar[r.enfileirar.length - 1];
+    expect(ultimo.passo.id).toBe("b_fim003");
+    expect(ultimo.atrasoSegundos).toBe(300);
+  });
+});
+
+describe("temCicloDeSempre", () => {
+  it("acha o anel de sempre", () => {
+    expect(temCicloDeSempre(
+      [{ id: "b_xxx001", tipo: "dm", texto: "X" }, { id: "b_yyy002", tipo: "dm", texto: "Y" }],
+      [{ de: "b_xxx001", quando: { tipo: "sempre" }, para: "b_yyy002" },
+       { de: "b_yyy002", quando: { tipo: "sempre" }, para: "b_xxx001" }]
+    )).toBe(true);
+  });
+
+  it("CICLO QUE PASSA POR UMA PARADA NÃO CONTA — é padrão legítimo", () => {
+    // "menu → opção → volta ao menu" é um fluxo bom, e a caminhada para no menu.
+    const menu = { id: "b_men001", tipo: "dm", texto: "Qual?",
+                   botoes: [{ id: "op_aaaaaa", rotulo: "A" }] };
+    const op = { id: "b_opa002", tipo: "dm", texto: "Opção A" };
+    expect(temCicloDeSempre([menu, op], [
+      { de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_opa002" },
+      { de: "b_opa002", quando: { tipo: "sempre" }, para: "b_men001" },
+    ])).toBe(false);
+  });
+
+  it("corrente reta não tem ciclo", () => {
+    expect(temCicloDeSempre(
+      [{ id: "b_aaa111", tipo: "dm", texto: "A" }, { id: "b_bbb222", tipo: "dm", texto: "B" }],
+      [{ de: "b_aaa111", quando: { tipo: "sempre" }, para: "b_bbb222" }]
+    )).toBe(false);
+  });
+});
+```
+
+- [ ] **Passo 2: rode e confirme que falha**
+
+```
+npx vitest run tests/steps.test.ts
+```
+
+- [ ] **Passo 3: `esperaResposta` aprende os botões**
+
+Um bloco com dois ou mais botões espera o toque. Ajuste `esperaResposta` para o
+ramo `dm` considerar `botoes`, e **escreva no comentário** por que ele espera:
+não há como o fluxo escolher sozinho qual braço seguir.
+
+Um bloco com `botoes` de **um item só** também espera — é uma mensagem com botão
+com outra roupa. A conferência avisa sobre isso na Tarefa 5; aqui ele só espera.
+
+- [ ] **Passo 4: a caminhada**
+
+Reescreva o laço de `interpretar`. O que muda: em vez de `i++`, siga a ligação
+`sempre` que sai do bloco atual (`ligacoesDe`), e pare quando não houver nenhuma.
+
+**Três coisas que o laço precisa ter, e cada uma tem um motivo:**
+
+1. **O teto.** `TETO_DE_PASSOS = 100`. Batendo nele, para e registra em
+   `ignorados` com motivo próprio. Escreva no comentário que ele existe contra
+   dado que entrou por fora do editor — a conferência protege quem monta, mas o
+   `jsonb` é editável por fora, e a Fase 1b já registrou isso como premissa.
+2. **Bloco que não existe.** Uma ligação pode apontar para um id que sumiu.
+   Registre em `ignorados` e pare — não estoure.
+3. **`pararEm` vira identidade**, não índice. Os chamadores em `lib/engine.ts`
+   já trabalham com identidade desde a Fase 1b.
+
+- [ ] **Passo 5: `temCicloDeSempre`**
+
+Percorra o grafo seguindo **só** as ligações `sempre`, a partir de cada bloco,
+com um conjunto de visitados. Achou um bloco duas vezes no mesmo caminho, é
+ciclo.
+
+Escreva no comentário a distinção que decide a regra: ciclo que passa por uma
+parada é legítimo e útil; ciclo só de `sempre` é infinito. **Esta função olha só
+as `sempre`, e é por isso que ela não acusa o padrão bom.**
+
+- [ ] **Passo 6: as chamadas no motor**
+
+`grep -n "interpretar(" lib/engine.ts` e ajuste cada uma para passar
+`auto.ligacoes` e a identidade do bloco de partida.
+
+Onde hoje o motor converte identidade em índice para chamar `interpretar`, essa
+conversão **some** — a caminhada já fala em identidade.
+
+**Leia cada chamada antes de mexer.** Se alguma deixar de fazer sentido com o
+grafo, **pare e reporte** em vez de adivinhar.
+
+- [ ] **Passo 7: mute e prove**
+
+Tire o teto e rode o teste do ciclo: ele tem que travar (mate o processo). Depois
+faça `temCicloDeSempre` olhar todas as ligações em vez de só as `sempre`, e
+confirme que o teste do padrão legítimo fica vermelho. Desfaça as duas e
+**reporte o que viu**.
+
+- [ ] **Passo 8: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run
+git add lib/steps.ts lib/engine.ts tests/steps.test.ts
+git commit -m "O interpretador passa a caminhar o grafo, com teto contra ciclo"
+```
+
+---
+
+# Tarefa 3 · A escolha da ligação e o payload de quatro partes
+
+**Files:**
+- Modify: `lib/steps.ts` (`ligacaoEscolhida`, `lerPayload`), `lib/engine.ts`
+- Test: `tests/steps.test.ts`
+
+**Interfaces produzidas:**
+
+```ts
+export function ligacaoEscolhida(
+  ligacoes: unknown,
+  deBloco: string,
+  oQueAconteceu: { tipo: "botao"; botao: string } | { tipo: "texto" }
+): string | null;
+```
+
+`Payload` ganha `botaoId: string | null`.
+
+- [ ] **Passo 1: escreva os testes que falham**
+
+```ts
+describe("ligacaoEscolhida", () => {
+  const ls = [
+    { de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_opa002" },
+    { de: "b_men001", quando: { tipo: "botao", botao: "op_bbbbbb" }, para: "b_opb003" },
+    { de: "b_men001", quando: { tipo: "senao" }, para: "b_sen004" },
+  ];
+
+  it("o botão tocado leva ao destino DAQUELE botão", () => {
+    expect(ligacaoEscolhida(ls, "b_men001", { tipo: "botao", botao: "op_bbbbbb" })).toBe("b_opb003");
+  });
+
+  it("texto cai no senão", () => {
+    expect(ligacaoEscolhida(ls, "b_men001", { tipo: "texto" })).toBe("b_sen004");
+  });
+
+  it("sem senão, texto não leva a lugar nenhum", () => {
+    const semSenao = ls.slice(0, 2);
+    expect(ligacaoEscolhida(semSenao, "b_men001", { tipo: "texto" })).toBe(null);
+  });
+
+  it("botão que não tem ligação devolve null, e NÃO cai no senão", () => {
+    // O senão é para quem DIGITOU. Um botão sem destino é defeito de montagem,
+    // e mandá-lo para o senão esconderia isso.
+    expect(ligacaoEscolhida(ls, "b_men001", { tipo: "botao", botao: "op_zzzzzz" })).toBe(null);
+  });
+
+  it("não estoura com lixo", () => {
+    expect(ligacaoEscolhida(null, "b_men001", { tipo: "texto" })).toBe(null);
+    expect(ligacaoEscolhida(ls, "", { tipo: "texto" })).toBe(null);
+  });
+});
+
+describe("lerPayload com o botão", () => {
+  it("lê a forma de quatro partes", () => {
+    expect(lerPayload("AUTO:auto-1:b_men001:op_aaaaaa")).toEqual({
+      prefixo: "AUTO", automationId: "auto-1", passoId: "b_men001", botaoId: "op_aaaaaa",
+    });
+  });
+
+  it("AS TRÊS FORMAS ANTIGAS CONTINUAM VÁLIDAS", () => {
+    // Um botão entregue vive na conversa da pessoa indefinidamente. Apagar
+    // qualquer um destes ramos quebraria todo botão já enviado, de uma vez.
+    expect(lerPayload("AUTO:auto-1")).toEqual({
+      prefixo: "AUTO", automationId: "auto-1", passoId: null, botaoId: null });
+    expect(lerPayload("AUTO:auto-1:b_men001")).toEqual({
+      prefixo: "AUTO", automationId: "auto-1", passoId: "b_men001", botaoId: null });
+    expect(lerPayload("FOLLOW:auto-1:b_por002")).toEqual({
+      prefixo: "FOLLOW", automationId: "auto-1", passoId: "b_por002", botaoId: null });
+  });
+
+  it("cinco partes continuam sendo recusadas", () => {
+    expect(lerPayload("AUTO:a:b:c:d")).toBe(null);
+  });
+
+  it("quarta parte em branco é recusada", () => {
+    expect(lerPayload("AUTO:auto-1:b_men001:")).toBe(null);
+  });
+});
+```
+
+- [ ] **Passo 2: rode e confirme que falha**
+
+- [ ] **Passo 3: `ligacaoEscolhida`**
+
+Em `lib/steps.ts`. A regra, e cada linha dela tem motivo:
+
+- toque num botão casa com a ligação **daquele botão**, por id
+- texto cai na `senao`, se houver
+- **botão sem ligação devolve null e NÃO cai no senão** — o `senao` é para quem
+  digitou; mandar um botão órfão para lá esconderia um defeito de montagem
+- havendo mais de uma que sirva, ganha a **primeira** (a conferência da Tarefa 5
+  recusa salvar duas para o mesmo botão, mas dado de fora pode chegar assim)
+
+Escreva no comentário **por que o id do botão e não o rótulo**: o dono reescreve
+rótulo o tempo todo, e trocar o texto de um botão não pode trocar o caminho.
+
+- [ ] **Passo 4: `lerPayload` aceita quatro partes**
+
+Hoje ela faz `if (partes.length > 3) return null`. Passa a aceitar quatro.
+
+**Escreva no comentário que agora são TRÊS formas convivendo, e que isso não é
+dívida a limpar.** Sem essa frase, alguém "arruma" os ramos antigos e quebra
+todo botão já entregue.
+
+- [ ] **Passo 5: o motor usa o botão**
+
+No ramo de resposta rápida de `lib/engine.ts`: quando o payload traz `botaoId`,
+o próximo bloco vem de `ligacaoEscolhida`. Sem `botaoId`, o comportamento é o de
+hoje.
+
+**Confira e reporte:** o que acontece quando a pessoa toca num botão de um bloco
+que não é mais o do cursor dela? A Fase 1b decidiu que **o cursor manda e o
+payload é reserva** — confirme que essa regra continua fazendo sentido com
+bifurcação, e diga o que encontrou mesmo que atrapalhe.
+
+- [ ] **Passo 6: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run
+git add lib/steps.ts lib/engine.ts tests/steps.test.ts
+git commit -m "O botao tocado escolhe o caminho, e o payload ganha uma quarta parte"
+```
+
+---
+
+# Tarefa 3b · "O seguinte" e o portão deixam de ser aritmética de posição
+
+**Files:**
+- Modify: `lib/steps.ts` (`retomadaDoBotao`, `retomadaDoTexto`, `retomadaDoFallback`, `atravessandoOPortao`)
+- Modify: `lib/engine.ts` (o portão vencido e o e-mail já conhecido)
+- Test: `tests/steps.test.ts`
+
+**São SEIS pontos, não quatro.** A revisão da Tarefa 2 achou dois que eu tinha
+deixado de fora ao escrever esta tarefa, e são **os piores dos seis**:
+
+| local | expressão |
+|---|---|
+| `lib/engine.ts` · portão vencido | `acao.indice + 1` |
+| `lib/engine.ts` · e-mail já conhecido | `acao.indice + 1` |
+| `lib/engine.ts` · **o botão tocado (Tarefa 3)** | índice cru de `ligacaoEscolhida` |
+
+**O terceiro nasceu depois**, na Tarefa 3, e é o mais grave dos três: ele está no
+caminho principal da bifurcação. Quem implementou reportou com todas as letras
+que o destino escolhido "é passado a `executarFluxo` como número puro, o que faz
+o caminho pular por completo `atravessandoOPortao`". Ou seja: **tocar num botão
+que leva a um bloco com link entrega o link sem passar pelo portão.**
+
+Confirme isso medindo antes de consertar. Se estiver certo, é o vazamento que
+esta tarefa existe para fechar, e ele precisa de teste que o reproduza — um
+teste que fique **vermelho** com o código de hoje.
+
+Piores por dois motivos. Eles passam **número cru** para `executarFluxo`, e o
+ramo `typeof de === "number"` **contorna `atravessandoOPortao` inteiro** — ou
+seja, escapam da própria regra do portão que esta tarefa está consertando. E são
+controle de fluxo dentro de `server-only`, sem teste: exatamente a classe que
+produziu os treze defeitos da Fase 1a.
+
+**A decisão vai para `lib/steps.ts` com teste**, como o resto da fase. No engine
+fica a chamada.
+
+**Esta tarefa não estava no plano original. Ela existe porque a Tarefa 2 mediu
+e reportou o que faltava** — seis pontos de partida continuavam calculando o
+próximo bloco com `indice + 1`, e o grafo não reproduz isso. Eles concordam hoje
+só porque a migração produz corrente reta.
+
+## Por que é UMA tarefa e não duas
+
+As retomadas e o portão estão entrelaçados: `retomadaDoTexto` chama
+`atravessandoOPortao(passos, indice + 1)`. Converter só as retomadas deixaria
+metade em seta e metade em índice — que é exatamente a "mesma regra em dois
+lugares" que este projeto foi punido por três vezes.
+
+## O que muda
+
+**"O seguinte" vira "a seta `sempre` que sai daqui".** Nas três retomadas, onde
+hoje está `indice + 1`. Onde está `indice` (retomar do próprio bloco) **não
+muda** — o motivo de `pedir_follow` retomar dele mesmo continua valendo: a
+mensagem de texto não é o follow, e avançar entregaria o link a quem não segue.
+
+**O portão deixa de ser "está antes no array" e vira "está no caminho".**
+Hoje `atravessandoOPortao` faz `portao < destino`, comparando posições. Num
+grafo isso erra **dos dois lados**:
+
+- o portão pode estar noutro braço, e a pessoa é mandada para um portão que não
+  está no caminho dela
+- o portão pode estar no caminho dela e ter índice maior, e ela **recebe o link
+  sem seguir** — que é a única falha do produto que não tem conserto depois
+
+## Esta é a garantia central do produto
+
+A revisão final da Fase 1b provou, em **43.476 casos** simulados sobre as funções
+puras, que nenhum caminho entrega o link a quem não segue. Essa prova é sobre o
+código de índice. **Com o grafo, ela precisa ser refeita** — e é o entregável
+mais importante desta tarefa, mais do que o código.
+
+- [ ] **Passo 1: escreva os testes que falham**
+
+Cubra, com nomes que digam a consequência e não a mecânica:
+
+- retomada de um bloco `dm` segue a seta, e **não** o vizinho de array
+- com o array embaralhado e as mesmas ligações, a retomada é a mesma
+- `pedir_follow` continua retomando **dele mesmo**
+- **portão noutro braço não é atravessado** — quem não passa por ele não é
+  desviado para ele
+- **portão no caminho é atravessado mesmo com índice MAIOR que o destino** —
+  este é o teste que a versão de índice não passa, e é o que prova a correção
+- portão já atravessado não desvia de novo
+
+- [ ] **Passo 2: rode e confirme que falha**
+
+Pelo menos o teste do "índice maior" **tem que** ficar vermelho antes. Se ele
+passar de primeira, **pare e reporte**: ou o teste não discrimina, ou eu entendi
+o defeito errado. As duas hipóteses são úteis e nenhuma se resolve seguindo.
+
+- [ ] **Passo 3: implemente**
+
+### Medido pela revisão da Tarefa 3, e economiza uma tentativa errada
+
+**Aplicar `atravessandoOPortao` ao destino do botão NÃO conserta.** A guarda de
+hoje tem falso-negativo próprio, provado com este caso: portão no índice 2, link
+no índice 1 → `atravessandoOPortao(steps, 1)` devolve `{portao: null}`, porque a
+pergunta que ela faz é *"há portão numa posição menor?"*.
+
+Com grafo, a pergunta certa é **"há portão no caminho?"**, e as duas deixaram de
+ser a mesma coisa. Não tente adaptar a comparação posicional — ela precisa sair.
+
+`atravessandoOPortao` passa a receber as ligações e a perguntar **se há portão no
+caminho** entre onde a pessoa está e o destino. Use a caminhada que a Tarefa 2 já
+construiu — **não escreva uma segunda travessia do grafo.** Se precisar de uma
+peça nova, ela é pura e vai para `lib/steps.ts` com teste próprio.
+
+Cuidado com ciclo: a busca de caminho precisa de visitados, pelo mesmo motivo do
+teto da Tarefa 2.
+
+- [ ] **Passo 4: rode e confirme que passa**
+
+- [ ] **Passo 5: A VARREDURA — o entregável principal**
+
+Escreva um script de varredura (fora da suíte, em `scripts/` ou no scratchpad) que
+gere fluxos com bifurcação, junção, portão em posições e braços variados, e
+simule **todos** os caminhos possíveis sobre as funções puras.
+
+**O que precisa ficar provado:** não existe caminho, em nenhum fluxo gerado, que
+entregue um passo com `url` a quem não passou pelo portão.
+
+**Reporte o número de casos e o número de vazamentos.** Se der zero vazamentos,
+rode a contraprova: reverta para a comparação de índice e mostre que a varredura
+ACUSA. Uma varredura que dá zero nos dois casos não provou nada — foi o que
+aconteceu quatro vezes nesta base com comparações "antes e depois".
+
+- [ ] **Passo 6: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run
+git add lib/steps.ts tests/steps.test.ts
+git commit -m "O portao deixa de comparar posicao e passa a perguntar pelo caminho"
+```
+
+---
+
+# Tarefa 4 · Vários botões numa mensagem
+
+**Files:**
+- Modify: `lib/queue-drain.ts`, `lib/engine.ts`
+- Test: nenhum automatizado — ver a conferência no fim
+
+**Interfaces consumidas:** `Botao` (Tarefa 1), `envioDaDm` (correção da Tarefa 2).
+
+## OBRIGATÓRIO: esta tarefa devolve uma parada que hoje não existe
+
+A correção da Tarefa 2 criou `envioDaDm(p): EnvioDaDm` em `lib/steps.ts` — a
+**única** função que decide a forma de uma `dm` (`texto`, `resposta_rapida`,
+`link`). `esperaResposta` pergunta a ela; o motor e a prévia também. Antes disso
+a regra estava escrita em três lugares e eles discordavam, e um `dm` com botões
+parava o fluxo enquanto a mensagem saía sem botão nenhum: a pessoa ficava presa
+esperando um toque que nunca chegou.
+
+Para acabar com a cópia, a correção tirou `botoes` de `envioDaDm`. **Hoje um
+bloco com `botoes` não é parada.** Nada no sistema grava `botoes` ainda, então
+não há defeito no ar — mas a Tarefa 5 e a Tarefa 7 passam a gravar.
+
+**Você devolve a parada acrescentando o ramo `botoes` a `envioDaDm`**, antes do
+ramo de `botao_label`. A parada volta sozinha, porque `esperaResposta` já
+pergunta a ela — e é esse o ponto: ninguém precisa lembrar de atualizar um
+segundo lugar. **Não** acrescente a condição em `esperaResposta`; se você se
+pegar fazendo isso, a doença voltou.
+
+Escreva teste para as duas metades: `envioDaDm` devolve a forma nova, e
+`esperaResposta` volta a parar por consequência.
+
+`lib/ig.ts` **já aceita** `quick_replies` como lista (confira antes de mexer:
+`OutgoingMessage` tem `quick_replies?: {...}[]`). O que está estreitado é o
+aplicativo, que só monta um.
+
+- [ ] **Passo 1: o item da fila carrega os botões**
+
+Hoje o payload da fila tem `quick_reply_label` e `quick_reply_payload`, no
+singular. Acrescente a forma plural.
+
+**Não apague a singular.** Itens já enfileirados a usam, e a fila pode ter linhas
+esperando quando o código novo subir. As duas convivem: plural quando existe,
+singular como está hoje.
+
+- [ ] **Passo 2: o motor enfileira os botões**
+
+Em `enfileirarPasso`, um bloco `dm` com `botoes` enfileira todos, cada um com o
+payload `AUTO:<automação>:<bloco>:<botão>`.
+
+- [ ] **Passo 3: o dreno envia**
+
+Monte `quick_replies` a partir da lista. **Confira o limite no guia da API antes
+de escrever** — a Meta limita a quantidade de respostas rápidas por mensagem.
+
+**A defesa fica nos dois lados, e não é redundância à toa.** A conferência da
+Tarefa 5 impede ATIVAR uma automação com mais botões do que cabe — é lá que o
+dono vê o problema enquanto monta. O dreno **corta e registra em Atividade** —
+porque o `jsonb` é editável por fora, e sem o corte a mensagem inteira é recusada
+pela Meta e ninguém recebe nada. Um avisa; o outro impede o silêncio.
+
+Se o limite que você encontrar no guia não for 13, **use o do guia e diga qual
+é** — o número aqui veio de memória, não de leitura.
+
+- [ ] **Passo 4: confira à mão e reporte**
+
+O envio de verdade exige a Meta, e as fases anteriores exercitaram isso com
+webhook forjado e assinado contra um build local. **Se conseguir fazer o mesmo,
+faça; se não, diga o que ficou de fora** — não presuma que saiu.
+
+O que precisa ficar provado: uma mensagem com três botões chega com os três, e
+cada um carrega o payload do SEU botão.
+
+- [ ] **Passo 5: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run
+git add lib/engine.ts lib/queue-drain.ts
+git commit -m "Uma mensagem passa a poder levar varios botoes"
+```
+
+---
+
+# Tarefa 5 · A conferência, em dois níveis
+
+**Files:**
+- Modify: `lib/steps.ts` (`conferirLista`), `app/automacoes/actions.ts`
+- Test: `tests/steps.test.ts`
+
+**Interfaces produzidas:**
+
+`Problema` ganha `quando: "salvar" | "ativar"`.
+
+## A regra, e por que dois níveis
+
+**Impede SALVAR** — dado que o motor não consegue ler:
+ciclo de `sempre`; dois destinos para o mesmo botão; bloco incompleto (já existe).
+
+### O anel que `temCicloDeSempre` NÃO acusa, e que é seu
+
+A Tarefa 3b mediu e achou um buraco na função que você vai ligar: **um anel de
+`sempre` com um PORTÃO dentro passa livre.** A caminhada de `temCicloDeSempre`
+quebra em bloco que espera resposta, e o portão espera — então ela não fecha a
+volta e não acusa. Quem monta esse anel salva sem aviso nenhum, e o motor pode
+recursar sem fim.
+
+**A revisão da 3b mediu, e a recursão existe.** Com
+`passos: [pedir_follow G, dm X]` e setas `G --sempre--> X --sempre--> G`:
+`temCicloDeSempre` devolve **false** (não acusa), e o motor deu **201 voltas**
+antes de a medição ser interrompida por teto próprio.
+
+**O mecanismo, e é pior do que "trava":** em `executarFluxo` a recursão é
+`return executarFluxo(...)` dentro de uma `async`. Isso **não estoura a pilha** —
+simplesmente nunca retorna. O webhook fica pendurado, e **a Meta reenvia o
+evento por 36 horas**.
+
+É pré-existente (com `indice + 1` o laço se fechava igual nesta ordem de array),
+então não é regressão da Fase 2a — mas passa a ser fácil de montar quando o
+editor deixar desenhar setas.
+
+**Impede ATIVAR** — fluxo que entregaria errado, mas que é montagem normal:
+botão sem destino; bloco inalcançável; **portão de seguidor que é o fim do
+caminho** (alguém segue, e não recebe nada); mais botões do que cabe numa
+mensagem (o limite da Meta, ver Tarefa 4).
+
+**Os dois primeiros chegaram aqui vindos do tempo de entrega.** A Tarefa 2
+registrava-os em Atividade na hora de enviar, e a re-revisão mostrou que a linha
+disparava também no fim NORMAL de um fluxo de captura — treinando o dono a
+ignorar Atividade. Avisar na entrega é avisar tarde e para quem não pode
+consertar. **A conferência avisa na montagem, que é quando ele pode.** Se você
+achar que algum destes não cabe aqui, diga — mas ele não volta para a entrega.
+
+### A regra que a Tarefa 3b não pôde fazer, e que é sua
+
+**"O portão existe, mas o link é alcançável sem passar por ele" → impede ATIVAR.**
+
+A Tarefa 3b fechou a fuga no motor: qualquer retomada agora pergunta se há portão
+no caminho. Mas ela **deliberadamente deixou o gatilho de fora**, e mediu por quê:
+aplicar a regra na porta da frente faz uma seta de volta transformar o pedido de
+"me siga" na **primeira** mensagem que todo mundo recebe. O argumento contrário
+está escrito no código.
+
+Então sobra um caso que só a montagem pode resolver: o dono põe um portão no
+fluxo **e** desenha um caminho da entrada até o link que não passa por ele. O
+motor obedece — é o desenho dele. Mas quase certamente não é o que ele quis, e o
+sintoma é o pior possível: o link sai para quem não segue, e nada acusa.
+
+**Não impede salvar** — montar por partes é trabalho normal. **Impede ativar**,
+que é o momento em que ele diz "pode valer para o público".
+
+A varredura da Tarefa 3b já mede esse conjunto: é o grupo **B**, hoje em 261.536
+casos, que ela classifica como *falha de montagem, não do código*. **Use a mesma
+definição** — se a sua divergir da dela, uma das duas está errada e eu quero
+saber qual.
+
+**Avisa:** bifurcação com um botão só.
+
+Montar um menu de três opções, ligar duas e voltar amanhã é trabalho normal;
+travar o salvar nisso seria hostil. Publicar um botão que não faz nada é a falha
+silenciosa que este projeto combate desde a Fase 1a.
+
+- [ ] **Passo 1: escreva os testes que falham**
+
+Cubra, com asserção sobre o `quando` de cada um:
+
+- ciclo de `sempre` → erro de **salvar**
+- dois destinos para o mesmo botão → erro de **salvar**
+- botão sem destino → erro de **ativar**
+- bloco que nada aponta → erro de **ativar**
+- bifurcação com um botão só → **aviso**
+- **o bloco de partida não é "inalcançável"** — nada aponta para ele por
+  definição, e acusá-lo travaria toda automação
+- lista válida com bifurcação e junção → **nenhum problema**
+
+O penúltimo é o que mais importa: sem ele, a regra de alcançabilidade acusa a
+própria entrada do fluxo e nada mais pode ser ativado.
+
+- [ ] **Passo 2: rode e confirme que falha**
+
+- [ ] **Passo 3: as regras novas**
+
+Em `conferirLista`. **Alcançável é "alcançável a partir de `steps[0]`"**, seguindo
+qualquer tipo de ligação — a regra da entrada está nas restrições globais, com o
+motivo.
+
+Acrescente aqui a conferência do teto de botões da Meta (Tarefa 4): bloco com
+mais botões do que cabe numa mensagem impede **ativar**.
+
+- [ ] **Passo 4: o salvar e o ativar usam níveis diferentes**
+
+`salvarAutomacao` recusa só os de `quando: "salvar"`. `toggleAutomation`, **ao
+ativar**, recusa os dois níveis. Desativar não confere nada — desligar uma
+automação quebrada tem que continuar sempre possível.
+
+- [ ] **Passo 5: mute e prove**
+
+Faça o salvar recusar os dois níveis e confirme que o teste do menu pela metade
+fica vermelho. Depois faça o ativar recusar só um nível e confirme o mesmo do
+outro lado. Reporte.
+
+- [ ] **Passo 6: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run
+git add lib/steps.ts app/automacoes/actions.ts tests/steps.test.ts
+git commit -m "A conferencia passa a separar o que impede salvar do que impede ativar"
+```
+
+---
+
+# Tarefa 6 · O quadro: setas de verdade
+
+**Files:**
+- Modify: `app/automacoes/editor/quadro.tsx`, `no.tsx`, `geometria.ts`
+
+## OBRIGATÓRIO, e vira defeito no seu primeiro commit se você esquecer
+
+`app/automacoes/editor/quadro.tsx` tem **duas** linhas que filtram por
+`p.nivel === "erro"` **sem olhar `p.quando`**:
+
+```
+:367  const erros = useMemo(() => problemas.filter((p) => p.nivel === "erro"), …)
+:374  for (const p of problemas) if (p.nivel === "erro" && p.indice !== null) s.add(p.indice)
+```
+
+A Tarefa 5 separou os problemas em dois níveis: `quando: "salvar"` trava o salvar,
+`quando: "ativar"` só impede publicar. **A linha 367 é a que trava o salvar** —
+sem `&& p.quando === "salvar"`, o quadro passa a travar o salvar em erro de
+ATIVAR, que é o oposto exato do que a Tarefa 5 decidiu.
+
+**Não é hipotético.** Rótulo de botão em branco é erro de *ativar*, e é o estado
+em que **todo menu recém-criado nasce**. Sem a correção, o primeiro botão que o
+painel criar trava o salvar do quadro.
+
+Hoje é inerte só porque o painel ainda não escreve `botoes` e o quadro chama
+`conferirLista` sem ligações. **Você acaba com as duas coisas.**
+
+A linha 374 é outra decisão: ela escolhe quais blocos ficam realçados. Realçar os
+dois níveis pode ser certo — **julgue e diga o que escolheu**, mas não a deixe
+igual por descuido.
+
+- [ ] **Passo 1: as setas vêm do dado**
+
+Hoje `quadro.tsx` deriva as setas da ordem do array. Passa a montá-las a partir
+de `ligacoes`. **Sai lógica, não entra.**
+
+Cada aresta do React Flow precisa carregar de qual ligação ela é, para o resto
+dos passos poder mexer nela.
+
+- [ ] **Passo 2: uma alça por botão**
+
+Em `no.tsx`: um bloco com `botoes` ganha uma alça de saída **por botão**, cada
+uma com o rótulo do botão à vista, mais uma para o "senão". Bloco sem botões
+continua com uma alça só.
+
+A alça precisa dizer **qual** botão ela é — é isso que o React Flow devolve ao
+criar a ligação.
+
+- [ ] **Passo 3: ligar deixa de ser proibido**
+
+`nodesConnectable` passa a ser verdadeiro, e `onConnect` grava a ligação nova.
+
+**Confira o que a Fase 1b descobriu medindo:** `nodesConnectable` sozinho não
+alcança as alças — `no.tsx` precisa repassar `isConnectable`, e o gesto tem duas
+pontas (`isConnectableStart` e `isConnectableEnd`). Está escrito no comentário
+de `no.tsx`.
+
+- [ ] **Passo 4: soltar sobre a seta parte a ligação**
+
+O gesto continua; o significado muda. Era reordenar o array; passa a ser
+**partir a ligação em duas** com o bloco novo no meio.
+
+A geometria já existe em `editor/geometria.ts`, pura e testada — inclusive a
+regra das setas já ao alcance no início do gesto, que existe porque um empurrão
+de 4 pixels reordenava o fluxo. **Reaproveite; não reescreva.**
+
+- [ ] **Passo 5: bloco solto passa a ser possível**
+
+A invariante "todo bloco está sempre na corrente" **cai**, por decisão registrada
+na spec. Soltar num ponto vazio cria um bloco sem ligação, e a conferência diz
+que ele não é alcançável.
+
+**Tire o código que anexava no fim**, e o comentário que promete a invariante
+antiga — ele passa a mentir.
+
+- [ ] **Passo 6: confira à mão e reporte item por item**
+
+Com o servidor de desenvolvimento, na tela real:
+
+- as setas desenhadas batem com as ligações gravadas
+- um bloco com dois botões mostra duas alças, cada uma nomeada
+- arrastar de uma alça até outro bloco cria a ligação, e ela sobrevive ao salvar
+- soltar um bloco sobre uma seta o põe no meio, e as duas ligações resultantes
+  estão certas
+- soltar num ponto vazio cria bloco solto, e a conferência acusa
+- apagar um bloco apaga as ligações que entram e saem dele — **hoje `apagarBloco`
+  não toca em `ligacoes`**, e é aqui que isso passa a importar
+
+**E reavalie um evento por causa desta tarefa.** A Tarefa 3 criou
+`botao_sem_caminho`, que grava em Atividade quando alguém toca num botão sem
+destino. Ele foi aceito como sinal porque hoje **só dado escrito por fora**
+consegue produzi-lo. A partir desta tarefa isso muda: apagar um bloco que um
+botão já entregue aponta vira **operação normal**, e a pessoa pode tocar naquele
+botão dias depois. Diga se o evento continua raro o bastante para não virar
+ruído — o critério medido nesta fase é que linha aparecendo em operação normal
+treina o dono a ignorar Atividade.
+
+**Meça durante o gesto.** Nesta base, comparar "antes e depois" já aprovou item
+quebrado quatro vezes, porque o defeito preservava o estado final.
+
+- [ ] **Passo 7: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run
+git add app/automacoes/editor/
+git commit -m "O quadro desenha as ligacoes gravadas, e passa a deixar ligar"
+```
+
+---
+
+# Tarefa 6b · A caixa "Ativa" para de driblar a conferência de ativar
+
+**Files:**
+- Modify: `lib/steps.ts` (a decisão, pura e testada), `app/automacoes/actions.ts`
+- Modify: onde a mensagem de salvar aparece no editor
+- Test: `tests/steps.test.ts`
+
+**Achada pela Tarefa 6, decidida pelo dono do produto.** Não estava no plano.
+
+## O buraco, e por que ele só ficou perigoso agora
+
+`salvarAutomacao` grava a coluna `active`, e filtra **só** os erros de
+`quando === "salvar"`. O painel do gatilho tem a caixa "Ativa".
+
+Logo: **dá para publicar sem nunca passar pela porta que a Tarefa 5 construiu.**
+Botão sem destino, bloco inalcançável, portão contornável — todos impedem clicar
+em "Ativar", e nenhum impede marcar a caixa e salvar.
+
+Era teórico enquanto o editor não produzia esses erros. **A Tarefa 6 os tornou
+produzíveis em três cliques.**
+
+Segunda metade: automação **já ativa nunca revalida**. Se está no ar e o dono
+salva uma mudança que a quebra, ela **continua no ar quebrada**.
+
+## O que fazer — decisão do dono do produto
+
+**Salvar o conteúdo, gravar como PAUSADA, e dizer por quê.**
+
+Vale para os dois casos: marcar "Ativa" numa pausada, e salvar uma edição que
+quebra uma que já estava no ar.
+
+**Por que não recusar o salvar:** a Tarefa 5 chamou isso de hostil, e aqui seria
+pior — o dono que quebrou uma automação viva ficaria preso com a versão quebrada
+**no ar** até consertar tudo. Gravar pausado protege quem recebe e não trava quem
+monta.
+
+**Por que não deixar a que já está no ar seguir:** o sintoma é entrega errada
+para gente de verdade, e ninguém avisa.
+
+## O cuidado que decide se isso é bom ou irritante
+
+**A mudança de estado não pode ser silenciosa.** "Cliquei em salvar com Ativa
+marcada e ela voltou desmarcada" sem explicação é pior que o buraco.
+
+A mensagem precisa dizer **as três coisas**: que foi salvo, que está pausada, e
+**o que falta** para poder ativar — reaproveitando a frase que `conferirLista` já
+produz, que é a mesma que o botão "Ativar" mostraria.
+
+- [ ] **Passo 1: a decisão vai para `lib/steps.ts`, com teste**
+
+Ela é de uma linha e mesmo assim vai para lá, e o motivo é medido: a fase inteira
+provou que regra dentro de `"use server"` **não tem rede** — trocar os níveis em
+`salvarAutomacao` e `toggleAutomation` deixa a suíte **inteira** verde.
+
+Algo como `podeFicarAtiva(problemas): boolean` — verdadeiro quando não há nenhum
+`nivel: "erro"` com `quando: "ativar"`. Nome e forma são seus; o que não é seu é
+a decisão morar no Server Action.
+
+Teste os dois lados **e** o caso que separa: problema de `salvar` presente não
+deve influenciar esta resposta, porque quem barra o salvar já barrou antes.
+
+- [ ] **Passo 2: rode e confirme que falha**
+
+- [ ] **Passo 3: `salvarAutomacao` consulta a decisão**
+
+O `active` gravado passa a ser `active && podeFicarAtiva(...)`. O resultado
+devolvido carrega o que falta.
+
+- [ ] **Passo 4: a mensagem na tela**
+
+As três coisas, na mesma frase de `conferirLista`. **Não invente texto novo** —
+duas frases diferentes para o mesmo problema é a doença que esta fase passou seis
+comentários curando.
+
+- [ ] **Passo 5: mute e prove**
+
+Faça `podeFicarAtiva` devolver sempre `true` e confirme que o teste do Passo 1
+fica vermelho. Depois faça `salvarAutomacao` ignorá-la e **confirme que a suíte
+continua verde** — é a demonstração do buraco estrutural, e o número é o que
+justifica a Frente 2 do plano de melhoria. Reporte os dois.
+
+- [ ] **Passo 6: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run && npm run varredura
+git commit -m "A caixa Ativa deixa de driblar a conferencia de ativar"
+```
+
+---
+
+# Tarefa 6c · Clicar na paleta cria o bloco, e o clique escorregado para de travar
+
+**Files:**
+- Modify: `app/automacoes/editor/paleta.tsx`, `app/automacoes/editor/quadro.tsx`
+- Test: `tests/editor-geometria.test.ts` (se a escolha do lugar virar função pura)
+
+**Achada pelo dono do produto usando o editor**, em 18/08. Não estava no plano.
+
+## O que aconteceu, medido
+
+Ele clicou num item da paleta para acrescentar um bloco de texto, e **a tela
+parou de aceitar cliques**.
+
+Medido na sessão dele, ao vivo:
+
+- **não há erro nenhum** — a sobreposição de erro do Next está vazia, e o
+  registro do servidor tem só `200`
+- **o React não está travado** — comandos de JavaScript respondem normalmente
+- `app/automacoes/editor/paleta.tsx:130-131` tem **`draggable` e `onDragStart`,
+  e nenhum `onClick`**
+
+## ERA UM DEFEITO, NÃO DOIS — a metade do congelamento caiu na medição
+
+A primeira redação desta tarefa dizia que havia dois defeitos. **Estava errada, e
+o erro era meu.**
+
+Medido ao vivo na sessão do dono, com ele ainda preso:
+
+1. cliques **sintéticos** também não chegavam na página — zero recebidos por um
+   ouvinte em captura. Logo o bloqueio era do navegador, não do React
+2. despachar um `mouseReleased` pelo protocolo **destravou na hora**
+
+A causa: uma tentativa **minha** de arrastar, minutos antes, estourou o tempo no
+meio da sequência — o `mousePressed` foi enviado e o `mouseReleased` nunca foi. O
+navegador ficou com o botão esquerdo preso e passou a capturar tudo.
+
+**Não existe arrasto nativo pendurado no produto.** Quem prendeu a sessão do dono
+foi a ferramenta de automação, não o editor.
+
+**Lição que fica:** ao despachar evento de mouse por protocolo, garanta o
+`mouseReleased` num `finally`. E, antes de abrir tarefa a partir de um relato de
+travamento, **verifique se a automação não foi a causa** — foi o que o dono do
+produto percebeu ao dizer que recarregar seria "trapaça", e é por ele não ter
+recarregado que deu para medir.
+
+## O defeito que sobrou, e é real
+
+`app/automacoes/editor/paleta.tsx:130-131` tem **`draggable` e `onDragStart`, e
+nenhum `onClick`**. Clicar num item da paleta não cria bloco nenhum, por
+construção — quem clica não recebe resposta, nem o bloco, nem um aviso de que
+precisa arrastar. Verificado por leitura do código.
+
+## Como provar
+
+**O dono liberou o Chrome com depuração remota em `127.0.0.1:9222`, e a sessão
+do painel está autenticada.** Use-a. O editor de teste é
+`/automacoes/39ae24ec-c487-40ff-a387-c041cb3f0d23` (5 blocos).
+
+**Cuidado medido:** cliques via protocolo funcionam; **eventos de arrasto
+sintéticos vêm estourando tempo**. Se o seu arrasto não passar, **diga** em vez
+de concluir que o gesto está quebrado — o dono confirmou à mão que arrastar para
+ligar funciona.
+
+## Passos
+
+- [ ] **Passo 1: meça o estado atual** — clique num item da paleta e registre
+      que nada acontece
+- [ ] **Passo 2: clicar cria o bloco**, pelo mesmo caminho do soltar
+- [ ] **Passo 3: prove na tela** — clicar cria, e arrastar continua criando
+- [ ] **Passo 5: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run && npm run varredura
+git commit -m "Clicar na paleta cria o bloco, e o arrasto solto fora para de travar"
+```
+
+---
+
+# Tarefa 7 · O painel: editar os botões
+
+**Files:**
+- Modify: `app/automacoes/editor/painel.tsx`, `modelos.ts`
+
+- [ ] **Passo 1: a paleta ganha o bloco de menu**
+
+Um item novo — "Mensagem com opções" — que cria um `dm` com `botoes` já com dois
+itens. Ícone novo, no estilo dos seis que já existem.
+
+**A convenção da chave `url` continua valendo**, e agora tem uma vizinha: um
+bloco com `botoes` **não tem** `botao_label` nem `url`. Escreva isso junto da
+convenção existente, nos três lugares que ela já cita.
+
+- [ ] **Passo 2: os campos dos botões**
+
+No painel, um bloco com `botoes` mostra a lista: rótulo de cada um, acrescentar,
+remover, reordenar.
+
+**Apagar um botão apaga a ligação dele.** Deixar a ligação órfã faria a
+conferência acusar um botão que não existe mais.
+
+- [ ] **Passo 3: confira à mão e reporte**
+
+- criar um menu pela paleta traz dois botões
+- renomear um botão **não** troca o caminho (é o id que manda, não o rótulo)
+- acrescentar um botão cria a alça no nó, ao vivo
+- apagar um botão apaga a ligação junto
+- a conferência acusa botão sem destino, e o salvar continua permitido
+
+- [ ] **Passo 4: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run
+git add app/automacoes/editor/
+git commit -m "O painel edita os botoes de escolha de um bloco"
+```
+
+---
+
+# Tarefa 7b · A seta do "digitou" passa a rotear alguém
+
+**Files:**
+- Modify: `lib/steps.ts` (`retomadaDoTexto`), possivelmente `lib/engine.ts`
+- Test: `tests/steps.test.ts`
+
+**Achada ao fechar a Tarefa 7**, por uma dúvida de quem a implementou. Não
+estava no plano, e é uma promessa da spec que nunca foi cumprida.
+
+## O buraco, medido
+
+A spec desta fase diz, com todas as letras:
+
+> O "senão" é uma ligação como as outras, não um caso especial no motor. **Ele
+> recebe quem responde digitando em vez de tocar.**
+
+`ligacaoEscolhida(ligacoes, bloco, {tipo:"texto"})` existe, está testada, e
+devolve o destino do `senao`. **Nada em produção a chama assim.** Medido:
+
+```
+ligacaoEscolhida( … {tipo:"botao"} )   → 3 chamadas
+ligacaoEscolhida( … {tipo:"texto"} )   → NENHUMA
+grep '"senao"' em lib/ fora de steps.ts → NADA
+```
+
+Quem decide para onde ir quando a pessoa **digita** é `retomadaDoTexto`, e ela
+usa `seguinteDe(ligacoes, id)` — que segue a seta **`sempre`**.
+
+**Consequência:** o dono desenha a seta do "digitou", nomeia, salva, a
+conferência valida — e o motor a **ignora**. Quem digita segue pelo `sempre`, ou
+não segue por lugar nenhum.
+
+O editor promete um caminho que o motor não percorre. É exatamente a regra que a
+correção da Tarefa 7 acabou de fixar para o desenho das setas, agora do outro
+lado.
+
+## Por que ninguém pegou
+
+`ligacaoEscolhida` **tem teste do caso de texto**, e ele passa. Olhando a função,
+ela parece pronta. O que falta é o **chamador**, e chamador que não existe não
+aparece em teste de função pura.
+
+É o mesmo formato do buraco estrutural desta fase: a regra está protegida, a
+fiação não. Só que aqui a fiação nem existe.
+
+## O que construir
+
+**`retomadaDoTexto` passa a perguntar pelo `senao` antes de cair no `sempre`.**
+
+A ordem importa e precisa de decisão medida: quando o bloco tem **os dois** — uma
+seta de `senao` e uma de `sempre` —, qual vale para quem digitou? Escreva a
+resposta e o porquê.
+
+**Cuidado com o que já está certo e não pode mudar:** `pedir_follow` retoma **do
+próprio bloco**, e o motivo está escrito no comentário — a mensagem de texto não
+é o follow, e avançar entregaria o link a quem não segue. **Não toque nisso.**
+
+- [ ] **Passo 1: escreva os testes que falham**
+
+Cubra, com nomes que digam a consequência:
+
+- menu com seta de `senao`: quem digita vai para **o destino do `senao`**
+- menu **sem** `senao`, com `sempre`: quem digita continua indo pelo `sempre`
+- menu com os dois: vale o que você decidiu no Passo 3, e o teste fixa a decisão
+- `pedir_follow` **continua retomando dele mesmo**, com ou sem `senao`
+
+- [ ] **Passo 2: rode e confirme que falha**
+
+O primeiro teste **tem que** ficar vermelho. Se passar de primeira, **pare e
+reporte** — ou o teste não discrimina, ou eu li o código errado.
+
+- [ ] **Passo 3: implemente**
+
+A decisão é pura e mora em `lib/steps.ts`. Se precisar de peça nova, ela também.
+
+- [ ] **Passo 4: mute e prove**
+
+Faça `retomadaDoTexto` voltar a ignorar o `senao` e confirme que o teste do Passo
+1 fica vermelho. Reporte.
+
+- [ ] **Passo 5: a varredura**
+
+Rode `npm run varredura` e **confirme que continua sem vazamento**. O caminho do
+texto passa a levar a lugares novos, e o portão precisa continuar valendo neles.
+Se acusar, **pare e reporte com os números.**
+
+- [ ] **Passo 6: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run && npm run varredura
+git commit -m "A seta do digitou passa a rotear quem responde digitando"
+```
+
+---
+
+# Tarefa 7c · A varredura passa a enxergar o "digitou" e o menu
+
+**Files:**
+- Modify: `scripts/varredura-portao.mjs`
+- Test: nenhum na suíte — a varredura é a própria prova
+
+**Achada ao fechar a Tarefa 7b, e confirmada por três medições independentes.**
+
+## O buraco, e por que ele é o mais sério que sobrou
+
+A varredura é a prova de que **o link de recompensa não sai para quem não segue
+o perfil**. É a garantia central deste produto, e a única coisa que cobre o
+espaço de fluxos inteiro em vez de casos escolhidos a dedo.
+
+**Ela é cega para os dois recursos mais novos da fase.** Medido:
+
+```
+grep -c "senao"  scripts/varredura-portao.mjs  ->  0
+grep -c "botoes" scripts/varredura-portao.mjs  ->  0
+```
+
+`topologias()` só emite `{tipo:"sempre"}` e `{tipo:"botao"}`. Nenhuma seta de
+`senao`, nenhum bloco de menu, em nenhum dos 954.160 casos.
+
+**E a cegueira foi provada, não deduzida:** plantaram o defeito óbvio no caminho
+do `senao` e a varredura oficial **continuou imprimindo "SEM VAZAMENTO" com
+números byte-idênticos**. Duas pessoas diferentes reproduziram isso.
+
+## O que existe hoje e precisa ser incorporado
+
+A Tarefa 7b escreveu uma **amostra independente** no scratchpad
+(`varredura-senao.mjs`) porque `scripts/` estava proibido para ela. Ela sorteia
+2.000.000 de casos, tem um **sexto papel** que a oficial não tem — o menu de
+`botoes` — e foi **julgada válida pela revisão**, que a reproduziu dígito a
+dígito:
+
+```
+A 491.094 / 0 vazamentos    C 2.712.195 / 0    B 2.264.721 / 8.186
+com o defeito plantado:     C 87.313 acusados
+```
+
+**Essa amostra é o rascunho da sua tarefa.** Leia-a antes de escrever. Mas ela
+tem um viés que a revisão mediu e que **você precisa corrigir ao incorporar**:
+ela devolve um booleano e atribui o vazamento ao grupo do salto **externo**,
+enquanto a oficial grava uma medida **por salto**. Um vazamento no salto interno
+de `retomadaDoEmailConhecido`, sob um salto de texto do grupo B, cairia em B sem
+ser acusado.
+
+## O critério de pronto, e não é negociável
+
+**Os defeitos plantados têm que ser acusados pela varredura OFICIAL**, rodada
+por `npm run varredura`:
+
+1. destino do `senao` entregue sem passar por `atravessandoOPortao`
+2. `retomadaDoTexto` voltando a ignorar o `senao`
+3. um plantio seu, no caminho do menu, que a oficial hoje não veria
+
+**Reporte os números de cada um, e os da linha de base.** Uma varredura que dá
+zero pode estar certa ou pode não estar procurando — e esta acabou de provar que
+estava na segunda situação.
+
+**E rode a contraprova**, como a oficial já faz: com o código antigo, ela precisa
+acusar.
+
+## O que NÃO fazer
+
+**Não deixe a varredura mais lenta do que precisa.** Ela roda no `verify`, hoje
+em ~35 s. Se o espaço novo a fizer estourar isso, **diga o número** e proponha —
+amostragem, ou um modo completo separado do modo do `verify`.
+
+**Não invente papéis novos além do menu.** O espaço já é grande; o que falta é
+específico e está nomeado.
+
+## Passos
+
+- [ ] **Passo 1: meça a linha de base** — rode `npm run varredura` e guarde os
+      seis números
+- [ ] **Passo 2: plante os três defeitos e confirme que a oficial NÃO os vê** —
+      é a reprodução do buraco, e é o que dá sentido ao resto
+- [ ] **Passo 3: acrescente `senao` e o bloco de menu às topologias**
+- [ ] **Passo 4: replante os três e confirme que agora ela ACUSA**, com números
+- [ ] **Passo 5: contraprova com o código antigo**, e o tempo de execução medido
+- [ ] **Passo 6: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run && npm run varredura
+git commit -m "A varredura passa a enxergar a seta do digitou e o bloco de menu"
+```
+
+---
+
+# Tarefa 8 · A prévia pelo caminho selecionado
+
+**Files:**
+- Modify: `app/automacoes/editor/roteiro.ts`, `previa.tsx`
+- Test: `tests/editor-roteiro.test.ts`
+
+`roteiro.ts` é puro e tem teste. **Toda a decisão desta tarefa vai para lá.**
+
+- [ ] **Passo 1: escreva os testes que falham**
+
+`roteiro` passa a receber as ligações e o bloco selecionado, e devolve as cenas
+do **caminho que leva até ele**, seguindo dali.
+
+Cubra quatro casos:
+
+- caminho até um bloco de um braço
+- **bloco de junção**: o caminho mostrado é o do **primeiro braço** que chega
+  até ele, em ordem de ligação. Escolha arbitrária, e é por isso que precisa
+  estar fixada em teste: sem a regra escrita, a prévia trocaria de braço sozinha
+  conforme o dado fosse reordenado, e o dono veria a conversa mudar sem ter
+  mexido em nada
+- nenhum bloco selecionado: o caminho a partir de `steps[0]`
+- bloco solto: só ele, sem tronco
+
+- [ ] **Passo 2: rode e confirme que falha**
+
+- [ ] **Passo 3: implemente a busca do caminho**
+
+Achar o caminho até um bloco num grafo com ciclos precisa de visitados — o mesmo
+cuidado da Tarefa 2. **Sem ele, um menu que volta para si mesmo trava a tela.**
+
+- [ ] **Passo 4: a prévia mostra o botão escolhido**
+
+Num bloco de menu, a prévia desenha os botões, e o do braço que está sendo
+mostrado aparece marcado — é o que liga o que a pessoa está editando ao que ela
+vê.
+
+- [ ] **Passo 5: confira à mão e reporte**
+
+- clicar num bloco de um braço mostra o caminho até ele
+- clicar noutro braço troca a conversa mostrada
+- um menu que volta para si mesmo **não** trava a tela
+- bloco solto mostra só ele
+
+- [ ] **Passo 6: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run
+git add app/automacoes/editor/ tests/editor-roteiro.test.ts
+git commit -m "A previa mostra o caminho que leva ate o bloco selecionado"
+```
+
+---
+
+# Tarefa 9 · O dono decide, por automação, se aquele fluxo entrega sem portão
+
+**Files:**
+- Create: `migrations/002-entrega-sem-portao.sql`
+- Modify: `lib/db.ts`, `lib/steps.ts` (`conferirLista`), `app/automacoes/actions.ts`
+- Modify: o editor (onde ficam as configurações da automação, não o quadro)
+- Test: `tests/steps.test.ts`
+
+**Esta tarefa não estava no plano.** Ela nasceu de uma decisão do dono do
+produto, tomada durante a revisão da Tarefa 5.
+
+## O caso, e por que ele precisou de decisão
+
+A Tarefa 5 fez "dá para chegar no link sem passar pelo portão" **impedir ativar**.
+Mas já existia, desde antes da fase, um **aviso** dizendo o contrário sobre o
+mesmo caso: *"Pode ser engano, pode ser estratégia — entregar primeiro e pedir
+follow depois. Quem decide é o dono."*
+
+Dois textos, o mesmo caso, respostas opostas. Levado ao dono, ele escolheu a
+terceira saída: **nem sempre engano, nem sempre estratégia — depende da
+automação.**
+
+## O que construir
+
+**Uma chave por automação.** Coluna nova, `false` por padrão — o padrão é o
+comportamento seguro, e quem quiser entregar sem portão **diz que quer**.
+
+`conferirLista` passa a receber essa chave. Com ela ligada:
+
+- a regra do **portão contornável** deixa de impedir ativar
+- o **aviso posicional antigo** morre de vez, ligada ou não — ele lê a ORDEM DO
+  ARRAY, que a Tarefa 3b tirou de circulação. *"Link antes do portão na lista"*
+  deixou de significar *"link antes do portão no fluxo"*, e mantê-lo é manter
+  uma terceira voz sobre o mesmo caso
+
+**O que a chave NÃO desliga:** o portão continua funcionando no motor. Ela diz
+"não me impeça de publicar", **não** "ignore o portão em tempo de entrega". Se o
+dono desenhou um caminho que passa pelo portão, aquele caminho continua passando.
+
+## O controle, e onde ele fica
+
+**Não vai no quadro.** É configuração da automação, não do fluxo — mesmo lugar do
+nome e do gatilho.
+
+O rótulo precisa dizer a consequência, não o mecanismo. *"Entregar o link sem
+exigir que a pessoa siga"* diz o que acontece; *"desativar conferência do portão"*
+diz o que o código faz e não ajuda ninguém a decidir.
+
+E precisa dizer o preço junto, porque é a única defesa que sobra: com a chave
+ligada, **ninguém mais avisa** se o fluxo entregar a recompensa a quem não segue.
+
+## Por que ela vem por último
+
+Depende do editor existir para ter onde morar. E é a única tarefa desta fase que
+**acrescenta uma decisão de produto**, em vez de construir o que já foi decidido.
+
+## Passos
+
+- [ ] **Passo 1: a migração**
+
+`migrations/002-entrega-sem-portao.sql`, no formato de `001` — idempotente
+(`if not exists`), com o porquê escrito. A mesma linha entra em `ensureSchema`
+(`lib/db.ts`) durante a transição, pelo motivo já registrado em `001`: lá é a
+rede, aqui é a ordem.
+
+Rode `node scripts/migrar.mjs` (ensaio a seco) e **reporte a saída**. Não aplique.
+
+- [ ] **Passo 2: escreva os testes que falham**
+
+Cubra, com nomes que digam a consequência:
+
+- com a chave **desligada**, portão contornável **impede ativar** (é o de hoje)
+- com a chave **ligada**, o mesmo fluxo **ativa**
+- com a chave ligada, **as outras regras continuam valendo** — botão sem destino,
+  bloco inalcançável e anel de `sempre` não são afetados
+- o aviso posicional **não aparece mais**, com a chave ligada ou desligada
+
+O terceiro é o que mais importa: a chave tem que ser **estreita**. Se ligá-la
+silenciar outra regra, ela virou um "ignorar tudo" com nome bonito.
+
+- [ ] **Passo 3: rode e confirme que falha**
+
+- [ ] **Passo 4: implemente**
+
+A chave é argumento de `conferirLista`, com padrão `false`. **Não** leia
+configuração dentro de `lib/steps.ts` — ele é puro e não conhece banco.
+
+- [ ] **Passo 5: rode e confirme que passa**
+
+- [ ] **Passo 6: o controle no editor**
+
+Com o preço escrito ao lado, não escondido em ajuda.
+
+- [ ] **Passo 7: mute e prove**
+
+Faça a chave ligada silenciar **também** o botão sem destino, e confirme que o
+teste do Passo 2 fica vermelho. É a prova de que a chave é estreita. Reporte.
+
+- [ ] **Passo 8: verify e commit**
+
+```
+npm run lint && npm run typecheck && npx vitest run && npm run varredura
+git commit -m "O dono decide por automacao se aquele fluxo entrega sem portao"
+```
+
+---
+
+## Depois do plano
+
+**Revisão da branch inteira**, no modelo mais capaz, com uma exigência que não é
+opcional: **refazer a varredura exaustiva** que a revisão final da Fase 1b fez.
+Ela simulou o motor sobre as funções puras e provou, em 43.476 casos, que nenhum
+caminho entrega o link a quem não segue.
+
+Com o grafo, o espaço cresce muito — e essa varredura passa a ser o único jeito
+de manter a mesma prova. Sem ela, a garantia central do produto fica sem rede.
+
+**No deploy**, o roteiro é o mesmo formato de
+`docs/deploy/2026-08-06-editor-em-blocos.md`: push primeiro, script depois. Meça
+o estado do banco antes, e não presuma.

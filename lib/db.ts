@@ -230,6 +230,29 @@ export type Automation = {
   // não tem garantia de forma, e quem valida é o interpretador de lib/steps.ts.
   // Tipar como Passo[] aqui seria afirmar uma garantia que o jsonb não dá.
   steps: unknown[];
+  // As ligações entre os blocos, com a mesma garantia de `steps`: `unknown[]`
+  // porque o jsonb não confere forma nenhuma, e quem valida é `conferirLigacao`
+  // (lib/steps.ts).
+  ligacoes: unknown[];
+  // A decisão do dono para ESTA automação: publicar mesmo com um caminho que
+  // chega ao link sem passar pelo portão. `boolean` e não `unknown` porque, ao
+  // contrário de `steps` e `ligacoes`, a coluna é `boolean not null default
+  // false` — o banco garante a forma, e não há jsonb no meio.
+  //
+  // O `| undefined` NÃO É FROUXIDÃO, É A REDE: os quatro leitores desta coluna
+  // (`app/automacoes/page.tsx`, `app/automacoes/[id]/page.tsx` e as duas
+  // consultas de `lib/engine.ts`) são `select *` atrás de `ensureSchema()`, que
+  // já garante a coluna — o mesmo caminho que o achado M2 declarou inalcançável
+  // em `app/automacoes/[id]/page.tsx`; hoje o campo NÃO chega `undefined` por
+  // nenhum deles. O tipo dizia só `boolean`, e um tipo que promete mais do que
+  // o banco garante convida a próxima pessoa a apagar o `Boolean(...)` dos
+  // leitores por parecer redundante — que é exatamente a linha que segura o
+  // caso se um leitor novo aparecer sem passar por `ensureSchema()`. Com o
+  // `| undefined` escrito, apagá-la deixa de compilar.
+  //
+  // QUEM LÊ passa por `Boolean(...)` de propósito, e o `false` que sai é o lado
+  // seguro: a regra do portão contornável continua impedindo publicar.
+  entrega_sem_portao: boolean | undefined;
   created_at: Date;
 };
 
@@ -481,6 +504,30 @@ const DDL = [
   // migrada, e falha na direção segura: cursor que não resolve nunca pula
   // passo.
   `alter table contacts add column if not exists flow_step_id text`,
+  // As ligações entre os blocos: de qual bloco, sob qual condição, para qual
+  // bloco. Com elas, a ORDEM DO ARRAY `steps` deixa de significar o próximo — é
+  // a seta que manda.
+  //
+  // Coluna nova em vez de mudança em `steps`, de propósito: `steps` continua com
+  // a mesma forma, então uma automação que ninguém abriu continua sendo lida
+  // exatamente como antes. Quem a converte em corrente é o script de migração.
+  `alter table automations add column if not exists ligacoes jsonb not null default '[]'::jsonb`,
+  // A DECISÃO DO DONO SOBRE ESTA AUTOMAÇÃO: pode publicar um fluxo em que o link
+  // é alcançável sem passar pelo pedido de follow?
+  //
+  // `false` de padrão porque o padrão é o comportamento seguro — a regra do
+  // portão contornável continua impedindo ativar, que é o que vale hoje, e quem
+  // quiser entregar sem portão diz que quer. Nenhuma automação já gravada muda
+  // de veredicto.
+  //
+  // ELA NÃO MUDA O MOTOR. É argumento de `conferirLista` (lib/steps.ts) e só
+  // dela: diz "não me impeça de publicar", e não "ignore o portão na entrega".
+  // `lib/engine.ts` não lê esta coluna.
+  //
+  // A MESMA LINHA ESTÁ EM `migrations/002-entrega-sem-portao.sql`, e a
+  // duplicação é a mesma de `ligacoes`, pelo mesmo motivo: aqui é a REDE, lá é a
+  // ORDEM. O porquê inteiro está no cabeçalho daquele arquivo.
+  `alter table automations add column if not exists entrega_sem_portao boolean not null default false`,
 ];
 
 type SqlClient = ReturnType<typeof sql>;

@@ -5,18 +5,39 @@ import {
   ReactFlow,
   Background,
   Controls,
+  type Connection,
   type Node,
   type Edge,
+  type EdgeChange,
   type NodeChange,
   type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { conferirLista, identidadeDoPasso, type Passo } from "@/lib/steps";
+import {
+  apagarLigacoes,
+  conferirLista,
+  desligarBotao,
+  desligarSenao,
+  desligarERenumerar,
+  identidadeDoPasso,
+  ligar,
+  partirLigacao,
+  quandoDaChave,
+  type Ligacao,
+  type Passo,
+} from "@/lib/steps";
 import No, { type DadosDoNo } from "./no";
 import Gatilho, { nomeDoGatilho, resumoDasPalavras, type DadosDoGatilho } from "./gatilho";
 import Painel, { type Configuracao } from "./painel";
 import Previa, { type ContaDaPrevia } from "./previa";
-import { arranjoAutomatico, blocoNovo, resumoDoBloco } from "./modelos";
+import {
+  alcasDeSaida,
+  alcasDoQuadro,
+  arranjoAutomatico,
+  blocoNovo,
+  indiceDaAlca,
+  resumoDoBloco,
+} from "./modelos";
 import Paleta from "./paleta";
 import * as Geo from "./geometria";
 import { salvarAutomacao } from "../actions";
@@ -64,6 +85,28 @@ const ID_DO_GATILHO = "gatilho";
 // reagir a arquivo, imagem ou texto arrastado de outra janela.
 const TIPO_DO_ARRASTO = "application/metodochat-bloco";
 
+// QUAL ITEM DA PALETA ESTÁ SENDO ARRASTADO, lido do TIPO e não do dado.
+//
+// `dataTransfer.getData` devolve string vazia durante o `dragover` — é regra do
+// HTML, não defeito do navegador: o conteúdo do arrasto só fica legível no
+// `drop`. E o destaque acontece no `dragover`, ou seja, antes disso. Sem esta
+// leitura, a seta acenderia para QUALQUER item da faixa e o soltar recusaria
+// metade deles, que é a tela oferecendo um gesto que não faz nada.
+//
+// A LISTA DE TIPOS, ao contrário, é legível o arrasto inteiro. Por isso a paleta
+// grava uma segunda entrada cujo NOME carrega a chave (`${TIPO_DO_ARRASTO}+dm`,
+// por exemplo) e cujo conteúdo é vazio: o que interessa dela é existir.
+//
+// O tipo chega em MINÚSCULAS (o navegador normaliza), e as chaves da paleta são
+// minúsculas por construção (`PALETA`, ./modelos) — a comparação é direta.
+function chaveArrastada(dt: DataTransfer): string | null {
+  const prefixo = `${TIPO_DO_ARRASTO}+`;
+  for (const t of Array.from(dt.types)) {
+    if (t.startsWith(prefixo)) return t.slice(prefixo.length);
+  }
+  return null;
+}
+
 // Onde o ponteiro está, num evento que pode ser de mouse OU de toque — é assim
 // que o React Flow tipa os eventos de arraste do nó. No toque vale
 // `changedTouches`, e não `touches`: no `touchend` a lista `touches` já está
@@ -76,15 +119,23 @@ function pontoDoEvento(e: MouseEvent | TouchEvent): { x: number; y: number } | n
 
 // O quadro.
 //
-// A REGRA QUE ORGANIZA ESTE ARQUIVO: a ordem de execução é a ordem do array
-// `passos`. Arrastar um nó muda `pos` e NADA MAIS. As setas são derivadas do
-// array, não o contrário.
+// A REGRA QUE ORGANIZA ESTE ARQUIVO, e ela TROCOU NA TAREFA 6: o caminho é a
+// LIGAÇÃO desenhada, e não mais a ordem do array. As setas saem de `ligacoes`;
+// arrastar um nó continua mudando `pos` e NADA MAIS.
 //
-// Isso não é preferência de implementação — é a defesa contra o pior defeito
-// possível aqui. Se a posição definisse a ordem, empurrar um bloco três pixels
-// sem querer reordenaria o fluxo, e a próxima pessoa a acionar a automação
-// receberia as mensagens fora de ordem. Sem erro, sem aviso. Descobre-se pelo
-// cliente reclamando.
+// O QUE A ORDEM DO ARRAY AINDA SIGNIFICA, e é exatamente uma coisa: `passos[0]`
+// é a ENTRADA do fluxo, onde a caminhada começa quando o gatilho dispara. O
+// porquê está por extenso em `conferirLista` e em `interpretar` (lib/steps.ts) —
+// a alternativa, "a entrada é o bloco que ninguém aponta", não serve, porque um
+// menu que volta para si mesmo tem seta chegando na entrada e o fluxo ficaria
+// sem começo. Fora disso, a posição de um bloco no array não decide nada.
+//
+// A DEFESA CONTRA O EMPURRÃO ACIDENTAL CONTINUA VALENDO, e ela só mudou de
+// alvo. Antes, um bloco empurrado três pixels podia REORDENAR o fluxo; hoje ele
+// pode PARTIR uma ligação e se pôr no meio dela. O sintoma é o mesmo — o cliente
+// recebe outra coisa, sem erro e sem aviso —, e a defesa é a mesma: soltar sobre
+// uma seta só vale quando o gesto CONQUISTOU aquela seta (`alvoDoArraste`,
+// ./geometria), e o alcance é curto.
 // O ESTADO MORA AQUI, e não num pai. `quadro.tsx` é o container do editor: ele
 // segura `Passo[]`, e paleta, nós e painel só recebem callbacks. Um pai
 // controlando a lista faria duas fontes de verdade para a mesma coisa.
@@ -106,11 +157,16 @@ function pontoDoEvento(e: MouseEvent | TouchEvent): { x: number; y: number } | n
 export default function Quadro({
   automationId,
   passosIniciais,
+  ligacoesIniciais,
   configuracaoInicial,
   conta,
 }: {
   automationId: string;
   passosIniciais: Passo[];
+  // AS SETAS GRAVADAS, já peneiradas por `ligacoesValidas` (lib/steps.ts) na
+  // página. Elas chegam como prop pelo mesmo motivo de `passosIniciais`: quem lê
+  // o banco é a página, e o quadro é quem edita.
+  ligacoesIniciais: Ligacao[];
   configuracaoInicial: Configuracao;
   // A conta conectada, só para a prévia deixar de mostrar `sua_conta` e uma
   // inicial fixa. Ela ATRAVESSA este componente sem ser usada aqui — a página
@@ -156,16 +212,46 @@ export default function Quadro({
   // dois espalham o bloco como ele veio, então nem semeiam `url` num bloco que
   // não a tinha nem a apagam de um que a tinha.
   const [passos, setPassos] = useState<Passo[]>(() => arranjoAutomatico(passosIniciais));
+
+  // AS SETAS SÃO ESTADO, e é isso que a Tarefa 6 acrescenta ao quadro. São TRÊS
+  // estados e uma gravação só: `passos` vai para a coluna `steps`, `ligacoes`
+  // para a coluna `ligacoes`, `configuracao` para as colunas da automação — e os
+  // três viajam juntos para `salvarAutomacao` (../actions.ts), que os confere
+  // como um par final e os grava numa transação.
+  //
+  // SEPARADO DE `passos` de propósito: são duas listas com identidades
+  // diferentes (uma de blocos, outra de setas), e guardar a seta dentro do bloco
+  // de origem faria a ligação que aponta para um bloco apagado sumir do dado sem
+  // ninguém decidir isso — é `desligarERenumerar` (lib/steps.ts) que decide, e
+  // ela precisa da lista inteira para achar as setas que CHEGAM no bloco.
+  const [ligacoes, setLigacoes] = useState<Ligacao[]>(ligacoesIniciais);
+
   const [configuracao, setConfiguracao] = useState<Configuracao>(configuracaoInicial);
 
   // A identidade do nó selecionado — de um bloco, ou `ID_DO_GATILHO`. É ela que
   // o painel lê para saber o que desenhar.
   const [selecionado, setSelecionado] = useState<string | null>(null);
 
-  // Qual seta está sob o ponteiro durante um arraste. É o alvo dos DOIS gestos
-  // que mexem na ordem — soltar um item da paleta e soltar um bloco que já
-  // existe —, e é null quando o ponteiro não está sobre nenhuma.
+  // Qual seta está sob o ponteiro durante um arraste — o ÍNDICE dela em
+  // `ligacoes`. É o alvo dos DOIS gestos que partem uma ligação em duas — soltar
+  // um item da paleta e soltar um bloco que já existe —, e é null quando o
+  // ponteiro não está sobre nenhuma.
   const [setaSobEle, setSetaSobEle] = useState<number | null>(null);
+
+  // QUAL SETA ESTÁ SELECIONADA — o ÍNDICE dela em `ligacoes`, e é o estado que
+  // torna APAGAR UMA SETA um gesto que existe.
+  //
+  // Separado de `setaSobEle` porque são duas perguntas diferentes: aquele é "o
+  // ponteiro está passando por cima desta seta DURANTE um arraste" e morre no
+  // fim do gesto; este é "esta é a seta escolhida", e ele sobrevive ao clique
+  // para o Delete ter em que agir. Os dois nunca acendem juntos — não se
+  // arrasta um bloco e se clica numa seta ao mesmo tempo —, e é por isso que
+  // podem dividir o mesmo destaque.
+  //
+  // ELE MORRE A CADA APAGAMENTO, e isso é obrigatório: a identidade da seta é o
+  // ÍNDICE, então tirar uma renumera todas as que vinham depois. Guardar o
+  // índice antigo faria o Delete seguinte apagar a vizinha.
+  const [ligacaoSelecionada, setLigacaoSelecionada] = useState<number | null>(null);
 
   // O TAMANHO MEDIDO DE CADA BLOCO, e ele PRECISA voltar para cá. Sem isto o
   // quadro perde TODAS AS SETAS no primeiro arraste — medido no navegador, e
@@ -247,18 +333,26 @@ export default function Quadro({
     (clientX: number, clientY: number, ignorar: number[]): Geo.SetaCandidata[] => {
       if (!instancia) return [];
       const p = instancia.screenToFlowPosition({ x: clientX, y: clientY });
-      return Geo.setasAoAlcance(p, passos, medidas, identidades, ignorar);
+      return Geo.setasAoAlcance(p, passos, medidas, identidades, ligacoes, ignorar);
     },
-    [instancia, passos, medidas, identidades]
+    [instancia, passos, medidas, identidades, ligacoes]
   );
 
-  const setaSobOPonto = useCallback(
-    (clientX: number, clientY: number, ignorar: number[]): number | null => {
-      if (!instancia) return null;
+  // A SETA EM QUE UM BLOCO DA PALETA PODE ENTRAR. Era `setaSobOPonto` cru — só
+  // "qual seta está sob o ponteiro" —, e a pergunta que faltava é a do bloco:
+  // partir a seta escreve uma `sempre` saindo dele, e um menu de `botoes` não
+  // tem essa saída (`Geo.alvoDaPaleta` -> `podeEntrarNaSeta`, ./modelos).
+  //
+  // A CHAVE VIRA BLOCO AQUI, com `blocoNovo`, e é o mesmo que `inserir` cria
+  // depois. Um bloco jogado fora por chamada é o preço de a decisão ser sobre
+  // ALÇAS e não sobre uma segunda lista de "quais itens da paleta são menu".
+  const alvoDaPaleta = useCallback(
+    (clientX: number, clientY: number, chave: string | null): number | null => {
+      if (!instancia || !chave) return null;
       const p = instancia.screenToFlowPosition({ x: clientX, y: clientY });
-      return Geo.setaSobOPonto(p, passos, medidas, identidades, ignorar);
+      return Geo.alvoDaPaleta(p, passos, medidas, identidades, ligacoes, blocoNovo(chave));
     },
-    [instancia, passos, medidas, identidades]
+    [instancia, passos, medidas, identidades, ligacoes]
   );
 
   // AS SETAS QUE JÁ ESTAVAM AO ALCANCE QUANDO O GESTO COMEÇOU — e soltar numa
@@ -275,20 +369,44 @@ export default function Quadro({
   // estava ao alcance no começo (`Geo.alvoDoArraste`). Os três manipuladores do
   // gesto usam esta mesma função — destaque e resultado não podem discordar.
   const alvoDoArraste = useCallback(
-    (clientX: number, clientY: number, indice: number): number | null => {
+    (clientX: number, clientY: number, identidade: string): number | null => {
       if (!instancia) return null;
       const p = instancia.screenToFlowPosition({ x: clientX, y: clientY });
-      return Geo.alvoDoArraste(p, passos, medidas, identidades, indice, setasNoInicio.current);
+      return Geo.alvoDoArraste(
+        p,
+        passos,
+        medidas,
+        identidades,
+        ligacoes,
+        identidade,
+        setasNoInicio.current
+      );
     },
-    [instancia, passos, medidas, identidades]
+    [instancia, passos, medidas, identidades, ligacoes]
   );
 
-  // Soltar num ponto vazio ANEXA NO FIM. Soltar sobre uma seta INSERE ali.
+  // Soltar num ponto vazio CRIA UM BLOCO SOLTO. Soltar sobre uma seta PARTE a
+  // ligação em duas, com o bloco novo no meio.
   //
-  // Não existe bloco solto: como a ordem é o array, todo bloco está sempre na
-  // corrente. Isso contraria quem conhece o draw.io, onde caixa solta é normal, e
-  // é deliberado — bloco solto seria um bloco que nunca roda, e nada na tela
-  // explicaria por quê.
+  // A INVARIANTE "TODO BLOCO ESTÁ SEMPRE NA CORRENTE" CAIU AQUI, por decisão
+  // registrada na spec, e o que estava escrito neste lugar — "não existe bloco
+  // solto" — passou a ser falso. Ela existia porque a ordem do array ERA o
+  // fluxo: um bloco no array estava, por construção, entre dois outros. Com as
+  // ligações, estar na lista não liga o bloco a nada.
+  //
+  // O ARGUMENTO ANTIGO CONTINUA VERDADEIRO E DEIXOU DE SER SUFICIENTE: sim,
+  // bloco solto é um bloco que nunca roda. O que mudou é que agora existe quem
+  // diga isso — `conferirLista` (lib/steps.ts) acusa "nenhuma seta chega neste
+  // bloco a partir do começo do fluxo", como erro de ATIVAR. E o preço de manter
+  // a invariante seria pior do que o que ela evitava: com braços de verdade, um
+  // bloco arrastado para o quadro tem de ficar parado enquanto o dono decide de
+  // onde ele sai; anexá-lo automaticamente no fim inventaria um caminho que
+  // ninguém pediu.
+  //
+  // O BLOCO NOVO VAI SEMPRE PARA O FIM DO ARRAY, e nunca mais para o meio: a
+  // posição no array deixou de significar ordem, e o único significado que
+  // sobrou — `passos[0]` é a entrada — é justamente o que empurrar para o meio
+  // poderia estragar. Anexando, a entrada nunca muda por causa de um arrasto.
   //
   // O bloco sai de `blocoNovo` e é ESPALHADO com `pos` por cima, e não montado
   // campo a campo: é isso que mantém a convenção da chave `url` (modelos.ts)
@@ -300,38 +418,76 @@ export default function Quadro({
     // inteiro e bloco recém-inserido grava `73.00000000000001`. É cosmético (a
     // posição não decide nada), mas a inconsistência apareceu no banco.
     const bloco = { ...blocoNovo(chave), pos: { x: Math.round(x), y: Math.round(y) } };
-    setPassos((atual) => {
-      if (sobreSeta === null) return [...atual, bloco];
-      return [...atual.slice(0, sobreSeta + 1), bloco, ...atual.slice(sobreSeta + 1)];
-    });
+    // A identidade do bloco novo é o id que `blocoNovo` acabou de sortear
+    // (`novoIdDeBloco`), e `identidadeDoPasso` é quem a lê — em vez de um
+    // `bloco.id!`, que seria uma promessa que o tipo não faz. O -1 é o índice de
+    // reserva daquela função, e ele não colide com índice nenhum da lista.
+    const identidade = identidadeDoPasso(bloco, -1);
+    setPassos((atual) => [...atual, bloco]);
+    if (sobreSeta !== null) setLigacoes((atual) => partirLigacao(atual, sobreSeta, identidade));
   }, []);
 
-  // Reordenar é soltar o bloco SOBRE UMA SETA, nunca arrastar pelo quadro.
+  // A ÁREA DO REACT FLOW, guardada só para achar o CENTRO DO QUE ESTÁ À VISTA
+  // quando o bloco vem de um clique na paleta. Este é o retângulo exato do
+  // quadro: a faixa da paleta fica fora dele (o porquê está em `./paleta`), de
+  // modo que o centro daqui é o centro do que a pessoa está olhando, e não o de
+  // uma área que inclui a barra de onde ela clicou.
+  const areaDoQuadro = useRef<HTMLDivElement>(null);
+
+  // CLICAR NUM ITEM DA PALETA CRIA O BLOCO, e ele cai no centro da área visível.
   //
-  // O gesto é explícito de propósito. Se posição definisse ordem, um empurrão
-  // acidental trocaria a ordem das mensagens que o cliente recebe.
+  // Isto NÃO é uma segunda forma de criar bloco: os dois gestos terminam em
+  // `inserir`, a mesma de sempre, e é ela quem monta o bloco, arredonda a
+  // posição e o anexa no fim do array. A única coisa que o clique tem a mais é
+  // que ninguém lhe deu um ponto — arrastar traz o ponteiro, clicar não —, e
+  // essa conta é `Geo.lugarDoBlocoNovo`, pura e testada.
   //
-  // E "explícito" passou a ser cobrado, não só declarado: quem chama esta função
-  // é `alvoDoArraste`, que exige a seta ter sido CONQUISTADA pelo gesto. Sem
-  // isso o empurrão acidental acontecia mesmo — medido, com 4 pixels (ver
-  // `ALCANCE_DA_SETA` e `alvoDoArraste` em `./geometria`).
+  // `sobreSeta` é SEMPRE `null` aqui, e é decisão, não esquecimento: partir uma
+  // ligação em duas é o significado de soltar EM CIMA de uma seta, e um clique
+  // na paleta não mira coisa nenhuma. Se o centro da tela por acaso calhasse
+  // sobre uma seta, aceitar isso seria reescrever o fluxo por coincidência —
+  // exatamente a classe de defeito que `alvoDoArraste` (./geometria) existe para
+  // fechar do outro lado.
   //
-  // Pela IDENTIDADE, não por `p.id`, pelo mesmo motivo de `moverBloco` logo
-  // acima: numa lista anterior à Fase 1b todo bloco tem `id: undefined`, e
-  // comparar por `p.id` casaria com todos de uma vez.
+  // Sai sem fazer nada enquanto `instancia` for nula: ela chega no `onInit`, e
+  // até lá não há como traduzir tela em coordenada do quadro. Na prática a faixa
+  // e o quadro nascem juntos, então esta saída é a garantia de não inventar
+  // posição, não um caso que se veja.
+  const inserirNoCentro = useCallback(
+    (chave: string) => {
+      const area = areaDoQuadro.current;
+      if (!area || !instancia) return;
+      const r = area.getBoundingClientRect();
+      const centro = instancia.screenToFlowPosition({
+        x: r.left + r.width / 2,
+        y: r.top + r.height / 2,
+      });
+      const lugar = Geo.lugarDoBlocoNovo(centro, passos);
+      inserir(chave, lugar.x, lugar.y, null);
+    },
+    [instancia, passos, inserir]
+  );
+
+  // PÔR UM BLOCO QUE JÁ EXISTE NO MEIO DE UMA SETA é soltá-lo SOBRE ELA, nunca
+  // arrastá-lo pelo quadro.
   //
-  // O `alvo` corrige o deslocamento que a própria remoção causa: tirado o bloco
-  // da posição `de`, tudo que vinha depois dele andou uma casa para trás, então
-  // "depois da seta `depoisDe`" só continua sendo aquele lugar quando o bloco
-  // saiu de ANTES dela.
-  const moverPara = useCallback((identidade: string, depoisDe: number) => {
-    setPassos((atual) => {
-      const de = atual.findIndex((p, i) => identidadeDoPasso(p, i) === identidade);
-      if (de === -1) return atual;
-      const sem = atual.filter((_, i) => i !== de);
-      const alvo = de <= depoisDe ? depoisDe : depoisDe + 1;
-      return [...sem.slice(0, alvo), atual[de], ...sem.slice(alvo)];
-    });
+  // O GESTO É O MESMO DE ANTES E O SIGNIFICADO É OUTRO: ele reordenava o array,
+  // e agora parte a ligação em duas (`partirLigacao`, lib/steps.ts). A mão de
+  // quem usa não aprende nada novo; o que muda é o dado que sai.
+  //
+  // O gesto é explícito de propósito, e "explícito" é cobrado e não só
+  // declarado: quem chama esta função é `alvoDoArraste`, que exige a seta ter
+  // sido CONQUISTADA pelo gesto. Sem isso o empurrão acidental acontecia mesmo —
+  // medido, com 4 pixels (ver `ALCANCE_DA_SETA` e `alvoDoArraste` em
+  // `./geometria`).
+  //
+  // O ARRAY NÃO É MAIS TOCADO POR ESTE GESTO, e essa é a lógica que saiu: não há
+  // mais `de`, `alvo` nem a correção do deslocamento que a remoção causava. A
+  // posição do bloco na lista deixou de significar alguma coisa, então movê-lo
+  // ali seria trabalho sem efeito — e mexer no array poderia trocar a ENTRADA do
+  // fluxo, que é o único significado que a ordem guardou.
+  const partirCom = useCallback((identidade: string, seta: number) => {
+    setLigacoes((atual) => partirLigacao(atual, seta, identidade));
   }, []);
 
   // Apagar. A seleção some junto quando é o bloco apagado que estava
@@ -342,13 +498,48 @@ export default function Quadro({
   // identidade: `conferirLista` (lib/steps.ts) trata id repetido como ERRO
   // justamente porque ele é produzível — duplicar um bloco é o gesto que o
   // produz —, e um `filter` por identidade apagaria os dois de uma vez.
-  const apagarBloco = useCallback((identidade: string) => {
-    setPassos((atual) => {
-      const i = atual.findIndex((p, j) => identidadeDoPasso(p, j) === identidade);
-      return i === -1 ? atual : atual.filter((_, j) => j !== i);
-    });
-    setSelecionado((s) => (s === identidade ? null : s));
-  }, []);
+  // AS SETAS QUE ENTRAM E SAEM DO BLOCO VÃO JUNTO, e é nesta tarefa que isso
+  // passou a importar: até aqui o quadro não tinha ligações no estado, e apagar
+  // um bloco não tinha seta a deixar para trás. Sem isto, o bloco anterior
+  // ficaria com um caminho para um id que não existe mais — `interpretar` para
+  // nele, e nada na tela mostra por quê, porque não há nó a desenhar.
+  //
+  // QUEM FAZ ISSO É `desligarERenumerar` (lib/steps.ts) E NÃO `desligarBloco`,
+  // e a troca é a correção de uma seta fantasma que era GRAVADA NO BANCO.
+  // `desligarBloco` sozinho só tira as setas do bloco que sai, e isso basta
+  // enquanto a identidade é o `id`. Numa lista anterior à Fase 1b — nenhum
+  // bloco com `id` — a identidade É a POSIÇÃO, então apagar um bloco RENOMEIA
+  // todos os que vêm depois, e as setas que os citavam passam a citar o vizinho
+  // ou ninguém. Medido: `[A,B,C]` sem id, setas `0→1` e `1→2`, apagando "0",
+  // sobrava `{de:"1", para:"2"}` numa lista que só tem "0" e "1" — uma seta
+  // saindo do último bloco para um bloco que não existe. Ela não é desenhada
+  // (as setas sem os dois nós são descartadas no desenho), `ligacoesValidas` a
+  // aceita porque a FORMA é válida, e `conferirLista` só acusa o bloco
+  // "inalcançável", que é erro de ATIVAR e não trava o salvar. Ou seja: salvava
+  // calada.
+  //
+  // O ÍNDICE É ACHADO AQUI FORA e passado adiante, e é por isso que este
+  // `useCallback` depende de `passos`: as duas listas têm de ser cortadas no
+  // MESMO ponto, e `setLigacoes` não enxerga a lista de blocos. Achar de novo lá
+  // dentro seria a segunda cópia da busca.
+  //
+  // Apaga UM bloco, achado pelo índice, e não todos os que casam com a
+  // identidade: `conferirLista` (lib/steps.ts) trata id repetido como ERRO
+  // justamente porque ele é produzível — duplicar um bloco é o gesto que o
+  // produz —, e um `filter` por identidade apagaria os dois de uma vez.
+  const apagarBloco = useCallback(
+    (identidade: string) => {
+      const i = passos.findIndex((p, j) => identidadeDoPasso(p, j) === identidade);
+      if (i === -1) return;
+      setPassos((atual) => atual.filter((_, j) => j !== i));
+      setLigacoes((atual) => desligarERenumerar(passos, atual, i));
+      setSelecionado((s) => (s === identidade ? null : s));
+      // O índice da seta escolhida também deixa de valer: a lista de ligações
+      // acabou de mudar de tamanho. Ver `ligacaoSelecionada`.
+      setLigacaoSelecionada(null);
+    },
+    [passos]
+  );
 
   // O QUE ESTÁ ERRADO NA LISTA, pela MESMA função que o Server Action vai usar
   // para recusar o salvar (`conferirLista`, lib/steps.ts). Uma fonte só: a
@@ -357,21 +548,112 @@ export default function Quadro({
   //
   // Isto fecha o fio que a Tarefa 5 deixou solto: `temErro` era `false` fixo, e
   // a borda vermelha de `no.tsx` era código inalcançável.
+  //
+  // AS LIGAÇÕES ENTRAM AQUI DESDE A TAREFA 6, e metade das regras desta função
+  // depende delas: "há anel", "este botão leva a algum lugar", "este bloco é
+  // alcançável", "dá para chegar no link sem passar pelo portão". O quadro
+  // chamava `conferirLista` com duas partes, e o padrão `[]` do terceiro
+  // argumento deixava todas essas regras CALADAS — a tela conferia menos do que
+  // o `toggleAutomation` do servidor conferia.
+  //
+  // A CHAVE DO DONO ENTRA AQUI NA TAREFA 9, e ela é a razão de a tela precisar
+  // reagir na hora: o controle dela está no painel do gatilho, dois campos
+  // acima. Sem esta dependência, marcar a caixa deixaria a borda vermelha do nó
+  // e a vaga âmbar da barra dizendo o contrário do que o servidor vai decidir no
+  // salvar — e o dono só descobriria fechando o quadro.
   const problemas = useMemo(
-    () => conferirLista(passos, configuracao.gatilho),
-    [passos, configuracao.gatilho]
+    () => conferirLista(passos, configuracao.gatilho, ligacoes, configuracao.entregaSemPortao),
+    [passos, configuracao.gatilho, ligacoes, configuracao.entregaSemPortao]
   );
 
-  // OS ERROS DA LISTA INTEIRA, que são o que trava o salvar. `nivel: "aviso"`
-  // não trava nada: aviso explica e deixa passar.
-  const erros = useMemo(() => problemas.filter((p) => p.nivel === "erro"), [problemas]);
+  // O QUE TRAVA O SALVAR — erro, E de `quando: "salvar"`. As duas metades da
+  // condição são obrigatórias, e a segunda ESTAVA FALTANDO.
+  //
+  // A Tarefa 5 separou os problemas em duas portas: `salvar` é dado que o motor
+  // NÃO CONSEGUE LER, `ativar` é fluxo que ele lê e entrega errado por montagem
+  // pela metade. Sem `p.quando === "salvar"` aqui, o quadro trava o SALVAR num
+  // erro de ATIVAR — o oposto exato do que aquela tarefa decidiu, e o oposto do
+  // que `salvarAutomacao` (../actions.ts) faz, que filtra os dois campos.
+  //
+  // ERA INERTE E DEIXOU DE SER NESTA TAREFA: enquanto o quadro não mandava as
+  // ligações, nenhuma regra de `quando: "ativar"` chegava a disparar aqui. Agora
+  // chegam — e o estado em que TODO bloco recém-solto nasce (nenhuma seta chega
+  // nele) é justamente um erro de ativar. Sem esta linha, arrastar um bloco
+  // travaria o salvar do quadro inteiro.
+  const erros = useMemo(
+    () => problemas.filter((p) => p.nivel === "erro" && p.quando === "salvar"),
+    [problemas]
+  );
 
-  // Só os ERROS, e só os que apontam um bloco. `nivel: "aviso"` não pinta a
-  // borda: aviso explica e deixa passar, e vermelho é a cor do que trava o
-  // salvar. Os de `indice: null` são da lista inteira e não têm nó a acender.
+  // O QUE IMPEDE PUBLICAR, e não travar nada. Ele aparece na barra em âmbar,
+  // porque é a única voz que a tela tem sobre o bloco solto e o botão sem
+  // destino: `toggleAutomation` (../actions.ts) recusa ativar por causa deles, e
+  // esse "não" acontece em OUTRA tela (a lista de automações), depois de o dono
+  // ter fechado o quadro achando que terminou.
+  const impedemAtivar = useMemo(
+    () => problemas.filter((p) => p.nivel === "erro" && p.quando === "ativar"),
+    [problemas]
+  );
+
+  // TODAS AS MENSAGENS DE ATIVAR, UMA POR LINHA, e é isso que vai para o `title`
+  // da vaga âmbar. A vaga mostra a PRIMEIRA e conta o resto ("e mais 7"), e sem
+  // isto não havia como ler as outras sete a não ser clicando bloco por bloco.
+  //
+  // POR QUE O `title` E NÃO MAIS ESPAÇO: a vaga é `max-w-[36ch] truncate` de
+  // propósito — alargá-la empurra o nome da automação para fora da barra —, e
+  // medido na tela agora ela corta menos da metade da primeira frase:
+  // `scrollWidth` 661 em `clientWidth` 324. O `title` é o único lugar em que o
+  // texto inteiro cabe sem mexer no layout.
+  //
+  // ELE CARREGAVA UMA FRASE GENÉRICA, "Isto não impede salvar, só publicar.", e
+  // era o desperdício exato: passar o mouse sobre uma frase cortada não revelava
+  // nada da frase. A explicação continua, agora como primeira linha, e as
+  // mensagens vêm embaixo dela.
+  //
+  // NÃO É A FAIXA DA TAREFA 6b, e as duas continuam separadas: aquela é do
+  // "salvo, mas ficou pausada" — uma MUDANÇA DE ESTADO, que o comentário dela
+  // diz não poder ser silenciosa, e por isso não pode morar num `title`. Esta é
+  // o detalhe de uma lista que a barra já mostra por cima, e ler o detalhe é
+  // gesto de quem quer o detalhe.
+  //
+  // E ELE NÃO É O ÚNICO CANAL POR ESCOLHA, é por falta de outro: `errosPorIndice`
+  // (abaixo) só acende a borda vermelha para `quando: "salvar"`, então nenhum nó
+  // fica marcado por problema de ATIVAR. O porquê está lá, e continua valendo.
+  //
+  // O QUE FOI MEDIDO E O QUE NÃO FOI: no fluxo de teste, com os 8 problemas de
+  // ativar que ele tem, o atributo sai com 745 caracteres em 10 linhas, e as 8
+  // frases estão lá inteiras — o "(e mais 7)" da vaga passa a ser enumerável. O
+  // que ESTE arquivo não tem como medir é a dica em si: ela é janela do sistema,
+  // não entra no render, e não aparece em captura de tela. Uma lista muito maior
+  // que esta pode esbarrar no limite do navegador, e isso fica sem medida.
+  const detalheDeAtivar = useMemo(
+    () =>
+      [
+        "Isto não impede salvar, só publicar.",
+        "",
+        ...impedemAtivar.map((p) => p.mensagem),
+      ].join("\n"),
+    [impedemAtivar]
+  );
+
+  // Só os ERROS DE SALVAR, e só os que apontam um bloco. Os de `indice: null`
+  // são da lista inteira e não têm nó a acender.
+  //
+  // O `quando` ENTROU AQUI TAMBÉM, e esta é uma decisão diferente da de cima —
+  // aquela é sobre travar, esta é sobre a COR. Pintar os dois níveis de vermelho
+  // foi considerado e recusado com o critério medido nesta fase: sinal que
+  // aparece em operação normal treina o dono a ignorá-lo. Todo bloco arrastado
+  // para o quadro nasce sem seta chegando nele, e todo botão criado no painel
+  // (Tarefa 7) nasce sem rótulo e sem destino — os três são erro de ATIVAR. Com
+  // eles em vermelho, o quadro ficaria vermelho durante toda a montagem, e o
+  // vermelho deixaria de apontar o bloco que de fato está quebrado.
+  //
+  // ELES NÃO FICAM MUDOS: aparecem na barra (`impedemAtivar`, acima), no painel
+  // do bloco selecionado, e são o que a porta de ativar recusa.
   const errosPorIndice = useMemo(() => {
     const s = new Set<number>();
-    for (const p of problemas) if (p.nivel === "erro" && p.indice !== null) s.add(p.indice);
+    for (const p of problemas)
+      if (p.nivel === "erro" && p.quando === "salvar" && p.indice !== null) s.add(p.indice);
     return s;
   }, [problemas]);
 
@@ -426,18 +708,34 @@ export default function Quadro({
         // divergirem — o que a biblioteca considera selecionado e o que está com
         // a borda acesa são sempre o mesmo bloco.
         selected: identidades[i] === selecionado,
+        // O DELETE NÃO APAGA BLOCO, e a linha é o que segura isso: o quadro
+        // passou a ter tecla de apagar por causa das SETAS, e a tecla do React
+        // Flow apaga tudo o que estiver selecionado.
+        //
+        // A diferença entre os dois é o que se perde: uma seta apagada por
+        // engano se redesenha arrastando a alça de novo; um bloco apagado leva
+        // junto o texto, os botões e o endereço que alguém digitou, e não há
+        // desfazer neste quadro. Apagar bloco continua sendo o botão do próprio
+        // cartão — um clique deliberado, naquele bloco.
+        deletable: false,
         data: {
           passo: p,
           identidade: identidades[i],
+          ligacoes,
           temErro: errosPorIndice.has(i),
           selecionado: identidades[i] === selecionado,
           aoApagar: apagarBloco,
         } as DadosDoNo,
       })),
     ];
+    // `ligacoes` ENTRA AQUI desde que o nó desenha as alças das condições
+    // GRAVADAS (`alcasDoQuadro`, ./modelos): apagar a última seta de um botão
+    // que já não existe tira uma alça, e sem esta dependência o nó continuaria
+    // desenhando a alça de uma seta que sumiu.
   }, [
     passos,
     identidades,
+    ligacoes,
     selecionado,
     apagarBloco,
     medidas,
@@ -447,48 +745,82 @@ export default function Quadro({
     configuracao.correspondencia,
   ]);
 
-  // As setas SEMPRE ligam o bloco i ao i+1 do array. Não há edge que o usuário
-  // possa criar ou apagar.
+  // AS SETAS SÃO AS LIGAÇÕES GRAVADAS, uma a uma. Nada aqui é deduzido da ordem
+  // do array — era `identidades[i] -> identidades[i + 1]`, e essa dedução é a
+  // lógica que a Tarefa 6 tirou.
   //
-  // O `nodesConnectable={false}` lá embaixo NÃO FECHA O GESTO SOZINHO, e é
-  // importante que isto esteja dito aqui, que é o arquivo que se lê primeiro: a
-  // prop chega ao NÓ, e o desligamento só alcança as alças porque `no.tsx`
-  // repassa `isConnectable` (e `isConnectableStart`, que é quem de fato porteia
-  // o `onPointerDown`) para cada `Handle`. Sem esse repasse, `Handle` cai no
-  // próprio padrão — `true` — e arrastar a partir de uma alça abre uma conexão
-  // de verdade, com as alças acendendo, apesar desta prop estar desligada. Isso
-  // foi medido, não deduzido; o mecanismo inteiro está no comentário de
-  // `no.tsx`.
+  // O ID DA ARESTA É O ÍNDICE DA LIGAÇÃO, e não o par de blocos: duas ligações
+  // idênticas são forma válida (`conferirLista` só acusa quando os DESTINOS
+  // diferem), e um id montado a partir de origem e destino repetiria — que é
+  // exatamente o que o React Flow não tolera. O índice é único por construção.
   //
-  // Ou seja: apagar as props do nó "porque o quadro já resolve" reabre o gesto.
-  // As duas pontas são obrigatórias.
+  // `data.ligacao` CARREGA DE QUAL LIGAÇÃO A ARESTA É, e quem o lê é
+  // `ligacaoDaSeta` (logo abaixo): as mudanças que o React Flow devolve trazem
+  // só o ID da aresta, e é por este campo que selecionar e apagar chegam ao
+  // índice em `ligacoes` sem comparar `de`, `quando` e `para` de novo. Ele
+  // esteve escrito e sem leitor nenhum até o gesto de apagar existir.
+  //
+  // A LIGAÇÃO PARA UM BLOCO QUE NÃO ESTÁ NA LISTA NÃO VIRA ARESTA, e o descarte
+  // é só de DESENHO — ela continua no estado e é gravada de volta. O React Flow
+  // não desenha aresta sem os dois nós (ele registra um erro no console e a
+  // ignora), e o dado continua sendo o que `conferirLista` julga. É forma que o
+  // editor não produz: `desligarERenumerar` limpa as duas pontas ao apagar um
+  // bloco, e renumera as que sobram quando a identidade é a posição.
+  //
+  // A ALÇA DE ORIGEM SAI DE `indiceDaAlca` (./modelos), a MESMA função que a
+  // geometria usa para saber de que altura a seta parte. Duas contas separadas
+  // fariam a seta ser desenhada de um ponto e o alvo do gesto medido em outro.
   const setas: Edge[] = useMemo(() => {
-    const daCorrente: Edge[] = identidades.slice(0, -1).map((identidade, i) => ({
-      id: `${identidade}->${identidades[i + 1]}`,
-      source: identidade,
-      target: identidades[i + 1],
-      type: "smoothstep",
-      animated: false,
-      // A seta `i` liga o bloco `i` ao `i + 1`, então soltar "nela" é inserir
-      // ou mover para depois de `i`. É esse o número que `setaSobEle` guarda.
-      style: setaSobEle === i ? { stroke: "rgb(99 102 241)", strokeWidth: 3 } : undefined,
-    }));
+    const desenhadas: Edge[] = [];
+    for (let i = 0; i < ligacoes.length; i++) {
+      const l = ligacoes[i];
+      const iDe = identidades.indexOf(l.de);
+      if (iDe === -1 || !identidades.includes(l.para)) continue;
+      const alcas = alcasDoQuadro(passos[iDe], ligacoes, l.de);
+      desenhadas.push({
+        id: `ligacao-${i}`,
+        source: l.de,
+        target: l.para,
+        sourceHandle: alcas[indiceDaAlca(alcas, l.quando)].chave,
+        type: "smoothstep",
+        animated: false,
+        data: { ligacao: i },
+        // A SELEÇÃO PRECISA VOLTAR PELA PROP, pelo mesmo motivo dos nós: as
+        // arestas são CONTROLADAS, então o `selected` que o React Flow desenha
+        // vem daqui e não de um rascunho interno. Sem esta linha, clicar numa
+        // seta acenderia por um render e apagaria no seguinte.
+        selected: ligacaoSelecionada === i,
+        // `setaSobEle` guarda o índice da ligação, que é o mesmo número que
+        // `partirLigacao` recebe: destaque e resultado leem a mesma coisa.
+        //
+        // A SELEÇÃO USA O MESMO DESTAQUE, e não uma cor própria: os dois estados
+        // não coexistem (um é durante o arraste de um bloco, o outro é depois de
+        // um clique), e o cinza que o `.selected` do React Flow pinta por padrão
+        // é quase o mesmo cinza da seta comum — seleção invisível faria o Delete
+        // parecer sorteio.
+        style:
+          setaSobEle === i || ligacaoSelecionada === i
+            ? { stroke: "rgb(99 102 241)", strokeWidth: 3 }
+            : undefined,
+      });
+    }
 
-    if (!identidades.length) return daCorrente;
+    if (!identidades.length) return desenhadas;
 
-    // A SETA DO GATILHO ATÉ O BLOCO 0 fica FORA da numeração das outras, e a
-    // separação é obrigatória: `setaSobEle` e toda a geometria (`./geometria`)
-    // contam as setas por índice DE `passos` — a seta `i` liga o bloco `i` ao
-    // `i + 1`. Empurrar esta para dentro dessa contagem deslocaria todos os
-    // alvos de inserção em um, e soltar um bloco sobre uma seta o poria no
-    // lugar errado.
+    // A SETA DO GATILHO ATÉ A ENTRADA. Ela não é uma ligação gravada e nunca
+    // foi: a entrada do fluxo é `passos[0]`, e isso é regra, não dado (o porquê
+    // está em `conferirLista`, lib/steps.ts). Ela existe para o quadro mostrar
+    // por onde a caminhada começa.
     //
-    // O preço, e ele está dito porque é uma seta que a tela desenha: soltar
-    // sobre ELA não insere no começo da lista. `Geo.setaSobOPonto` não a
-    // conhece, então o bloco solto ali é ANEXADO NO FIM, como em qualquer
-    // ponto vazio. Inserir antes do bloco 0 nunca foi possível pelo gesto de
-    // soltar — a seta `i` insere DEPOIS de `i`, e não existe seta -1 —, e
-    // resolver isso mexe na geometria, que é módulo puro e testado à parte.
+    // SOLTAR SOBRE ELA NÃO FAZ NADA, e o preço está dito porque é uma seta que a
+    // tela desenha: a geometria só conhece as ligações, então o bloco solto ali
+    // nasce solto, como em qualquer ponto vazio. Trocar a entrada é reordenar o
+    // array, e nenhum gesto do quadro faz isso hoje.
+    //
+    // NEM SELECIONÁVEL NEM APAGÁVEL, e as duas linhas entraram junto com o
+    // Delete: ela não é uma ligação gravada, então não há índice em `ligacoes`
+    // para o apagamento alcançar. Selecionável, ela aceitaria o clique e o
+    // Delete não faria nada — a tela oferecendo um gesto que não existe.
     return [
       {
         id: `${ID_DO_GATILHO}->${identidades[0]}`,
@@ -496,10 +828,80 @@ export default function Quadro({
         target: identidades[0],
         type: "smoothstep",
         animated: false,
+        selectable: false,
+        deletable: false,
       },
-      ...daCorrente,
+      ...desenhadas,
     ];
-  }, [identidades, setaSobEle]);
+  }, [identidades, passos, ligacoes, setaSobEle, ligacaoSelecionada]);
+
+  // DE QUAL LIGAÇÃO É A ARESTA QUE O REACT FLOW ACABOU DE CITAR. As mudanças
+  // (`EdgeChange`) trazem só o `id` da aresta, e o que o estado guarda é o
+  // ÍNDICE em `ligacoes` — este é o tradutor entre os dois, e ele lê
+  // `data.ligacao`, que é justamente o campo que a aresta carrega para isso.
+  //
+  // `null` para a seta do gatilho (ela não tem `data`) e para qualquer aresta
+  // que não esteja mais na lista, o que acontece de verdade: o React Flow avisa
+  // da remoção depois de a lista já ter mudado.
+  const ligacaoDaSeta = useCallback(
+    (id: string): number | null => {
+      const i = setas.find((s) => s.id === id)?.data?.ligacao;
+      return typeof i === "number" ? i : null;
+    },
+    [setas]
+  );
+
+  // APAGAR UMA SETA É O GESTO QUE FALTAVA, e sem ele um gesto normal deixava a
+  // sessão inteira sem como gravar.
+  //
+  // O QUE ACONTECIA: redesenhar uma alça TROCA o destino (`ligar`, lib/steps.ts)
+  // e nunca tira a seta. Então um bloco que deve TERMINAR o fluxo não tinha como
+  // perder a saída dele, e a seta desenhada por engano que fecha um anel de
+  // `sempre` — erro de SALVAR — não tinha como sair. As duas únicas saídas eram
+  // apagar o bloco, que perde o conteúdo, e recarregar a página, que perde tudo
+  // desde o último salvamento.
+  //
+  // A REGRA, e ela é mais estreita do que a primeira redação dizia: nenhum gesto
+  // pode deixar o quadro SEM COMO SALVAR.
+  //
+  // A versão anterior desta frase dizia "nenhum gesto pode levar a um estado sem
+  // volta", e era falsa dentro deste mesmo arquivo: `apagarBloco` é sem desfazer
+  // POR ESCOLHA, e o comentário de `nos` (acima) diz isso com todas as letras.
+  // Perder o texto de um bloco é caro e é aceito; ficar sem como gravar a sessão
+  // inteira não é.
+  //
+  // A SELEÇÃO CHEGA POR AQUI, e não por `onEdgeClick`, pelo mesmo motivo pelo
+  // qual a dos nós chega por `onNodesChange`: a caixa de seleção também
+  // seleciona setas, e escrever o estado nos dois lugares faria a metade que
+  // ninguém testa divergir.
+  //
+  // O APAGAMENTO É UMA LISTA E UMA CHAMADA SÓ (`apagarLigacoes`, lib/steps.ts),
+  // porque uma leva pode trazer várias remoções e a identidade da seta é o
+  // ÍNDICE: apagar de uma em uma faria a segunda remoção cair na vizinha.
+  const aoMudarSetas = useCallback(
+    (mudancas: EdgeChange[]) => {
+      const apagadas: number[] = [];
+      for (const m of mudancas) {
+        if (m.type === "select") {
+          const i = ligacaoDaSeta(m.id);
+          if (i === null) continue;
+          // Mesma regra da seleção dos nós: desselecionar só zera quando é a
+          // seta que estava escolhida, porque numa troca chegam duas mudanças na
+          // mesma leva e a ordem entre elas não é garantida.
+          setLigacaoSelecionada((atual) => (m.selected ? i : atual === i ? null : atual));
+        } else if (m.type === "remove") {
+          const i = ligacaoDaSeta(m.id);
+          if (i !== null) apagadas.push(i);
+        }
+      }
+      if (apagadas.length) {
+        setLigacoes((atual) => apagarLigacoes(atual, apagadas));
+        // Os índices que sobram são outros depois disto. Ver `ligacaoSelecionada`.
+        setLigacaoSelecionada(null);
+      }
+    },
+    [ligacaoDaSeta]
+  );
 
   // TODA mudança de posição volta para o estado, inclusive as intermediárias do
   // arraste. NÃO FILTRE POR `m.dragging` AQUI — e a frase é imperativa porque o
@@ -522,8 +924,8 @@ export default function Quadro({
   // seria manter uma cópia dos nós em estado local e reconciliar no fim, que
   // custa uma segunda fonte de verdade para a posição — caro para o que resolve.
   //
-  // A invariante do arquivo não corre risco nenhum com isso: `moverBloco`
-  // continua escrevendo só `pos`, e o `map` continua não reordenando.
+  // A regra do arquivo não corre risco nenhum com isso: `moverBloco` continua
+  // escrevendo só `pos`, e nada aqui toca em `ligacoes`.
   //
   // AS MUDANÇAS DE SELEÇÃO TAMBÉM SÃO REPASSADAS, e não é enfeite. Sem elas
   // `node.selected` nunca vira `true` no store do React Flow — a borda até
@@ -603,6 +1005,142 @@ export default function Quadro({
     },
     [selecionado]
   );
+
+  // APAGAR UM BOTÃO DO MENU. É o único gesto do painel que mexe nas DUAS listas,
+  // e é por isso que ele mora aqui e não lá: o bloco perde o botão, e as
+  // ligações perdem a seta daquele botão (`desligarBotao`, lib/steps.ts).
+  //
+  // O ARGUMENTO É O ÍNDICE NA LISTA DE `botoes`, e não o id, porque o botão
+  // corrompido também tem de sair: `botoes: [null]` é a causa mais cara de
+  // `botoesCrus` (ela derruba o lote de eventos inteiro no envio), e um elemento
+  // sem id não teria como ser nomeado. O id ainda é lido — mas só para achar a
+  // seta —, e um elemento sem id simplesmente não tem seta a apagar.
+  //
+  // O ÍNDICE DO BLOCO VEM DA SELEÇÃO, e é a mesma leitura que o painel usou para
+  // desenhar aqueles campos: quem está com o painel aberto é quem clicou no ✕.
+  //
+  // AS SETAS QUE CHEGAM NO BLOCO NÃO SÃO TOCADAS, e as dos OUTROS botões
+  // também não: o único caminho que deixou de existir é o daquele botão.
+  //
+  // A `senao` SAI COM O ÚLTIMO BOTÃO, e essa é a segunda edição de seta que este
+  // gesto faz. Ela não é simetria: sem ela, dois cliques no ✕ deixam uma `senao`
+  // órfã, e a medida está em `desligarSenao` (lib/steps.ts) — a órfã ESCONDE o
+  // erro de bloco inalcançável, exatamente como a órfã de botão escondia, e o
+  // quadro desenha a seta dela saindo da ALÇA DE CONTINUAÇÃO, cujo `seguinteDe`
+  // é null. Seta desenhada prometendo caminho que o motor não percorre.
+  //
+  // QUEM RESPONDE "AINDA TEM ALÇA DE `senao`?" É `alcasDeSaida` (./modelos), e a
+  // pergunta não é reescrita aqui como `botoes.length === 0`. As duas respostas
+  // divergem, e o caso está medido em `alcasDeSaida`: `botoes: [null]` tem
+  // comprimento 1 e NÃO produz alça nenhuma de botão, então o bloco volta à alça
+  // de continuação com a lista ainda cheia. Perguntar à função que DESENHA a
+  // alça é o que impede o dado e o desenho de discordarem.
+  //
+  // A PERGUNTA É FEITA AO BLOCO DEPOIS DO CORTE, e não ao de antes: é o que ele
+  // vira que decide quais alças sobram.
+  const apagarBotao = useCallback(
+    (iBotao: number) => {
+      const i = passos.findIndex((p, j) => identidadeDoPasso(p, j) === selecionado);
+      if (i === -1) return;
+      const bloco = passos[i];
+      if (bloco.tipo !== "dm" || !Array.isArray(bloco.botoes)) return;
+      const alvo = bloco.botoes[iBotao] as { id?: unknown } | null | undefined;
+      if (alvo === undefined) return;
+
+      const depois: Passo = { ...bloco, botoes: bloco.botoes.filter((_, k) => k !== iBotao) };
+      setPassos((atual) => atual.map((p, j) => (j === i ? depois : p)));
+
+      const idDoBotao = alvo?.id;
+      const temSeta = typeof idDoBotao === "string" && !!idDoBotao;
+      const perdeuOSenao = !alcasDeSaida(depois).some((a) => a.chave === "senao");
+      if (temSeta || perdeuOSenao) {
+        const idDoBloco = identidadeDoPasso(bloco, i);
+        setLigacoes((atual) => {
+          const semOBotao = temSeta
+            ? desligarBotao(atual, idDoBloco, idDoBotao as string)
+            : atual;
+          return perdeuOSenao ? desligarSenao(semOBotao, idDoBloco) : semOBotao;
+        });
+        // O índice da seta escolhida deixa de valer quando a lista encolhe. Ver
+        // `ligacaoSelecionada`, e é a mesma linha de `apagarBloco`.
+        setLigacaoSelecionada(null);
+      }
+    },
+    [passos, selecionado]
+  );
+
+  // LIGAR DOIS BLOCOS. É o gesto que a Tarefa 6 abriu, e ele é a outra metade de
+  // `nodesConnectable` (lá embaixo).
+  //
+  // O QUE O REACT FLOW DEVOLVE é `sourceHandle` — o id da alça de onde o arrasto
+  // partiu —, e é ele que diz QUAL caminho está sendo desenhado. `quandoDaChave`
+  // (lib/steps.ts) o traduz de volta para a condição. Sem alça identificada não
+  // há condição, e sem condição não há ligação a gravar: um `null` aqui seria
+  // uma seta que a tela desenha e o motor não sabe percorrer.
+  //
+  // A SETA NOVA SUBSTITUI A QUE JÁ SAÍA DAQUELA ALÇA (`ligar`, lib/steps.ts), e
+  // o porquê está lá: duas setas da mesma condição para destinos diferentes é
+  // ERRO DE SALVAR, e essa é a forma que a substituição impede de nascer.
+  //
+  // O QUE A SUBSTITUIÇÃO NÃO PROMETE, e a frase que estava aqui prometia: que
+  // NENHUM gesto produza um estado que o salvar recusa. Ela é falsa, e cada
+  // metade tem hoje uma resposta própria.
+  //
+  //   O ANEL DE `sempre` CONTINUA PRODUZÍVEL — ligar de volta num bloco
+  //     anterior "para recomeçar" fecha um, e soltar um bloco em cima de uma
+  //     seta (`partirCom`, acima) também pode fechar. Ele é erro de SALVAR, e o
+  //     recado da barra explica o que fazer com ele ("faça a volta passar por
+  //     uma mensagem com botão"). O que faltava não era impedir: era ter como
+  //     DESFAZER, e agora tem — a seta se seleciona e some com Delete
+  //     (`aoMudarSetas`, acima). Impedir no gesto tiraria a explicação e daria
+  //     em troca uma alça que não responde.
+  //   A AUTO-LIGAÇÃO DE `sempre` É RECUSADA NO GESTO (`setaPermitida`, abaixo),
+  //     e essa é a exceção medida. Ela também é anel, mas o desfazer não
+  //     alcança: numa aresta com origem e destino no MESMO nó o traçado passa
+  //     POR BAIXO do bloco. Medido com `getSmoothStepPath` (@xyflow/system, o
+  //     mesmo que desenha o quadro) para um bloco em (60,60) com 190 de largura:
+  //     `M250 105L270 105L40 105L60 105` (sem espaço antes dos `L` — é o retorno
+  //     literal, conferido chamando a função), com o bloco cobrindo x de 60 a 250
+  //     — sobram dois tocos de 20px, e o resto da seta fica atrás do cartão, que
+  //     é opaco e come o clique. Aceitar essa é oferecer o desfazer no pior alvo
+  //     do quadro.
+  //
+  // LIGAR UM BLOCO A ELE MESMO PELO BOTÃO CONTINUA PERMITIDO, e não é descuido:
+  // o menu que volta para si mesmo ("quero outro") é o desenho que a Tarefa 3b
+  // teve de proteger no motor, e ele é feito exatamente assim. Ele não fecha
+  // anel nenhum — o motor para na mensagem e espera o toque —, então não trava
+  // porta nenhuma, e redesenhar a alça troca o destino.
+  //
+  // O GATILHO FICA DE FORA DAS DUAS PONTAS, e a guarda não é hipotética: `ligar`
+  // gravaria `de: "gatilho"` como se fosse um bloco, e nenhuma das duas metades
+  // do sistema saberia o que fazer com esse id — `identidadeDoPasso` nunca o
+  // produz, e `interpretar` não o acharia na lista. A tela não oferece o gesto
+  // (o `Handle` de `./gatilho` vai com as três props em `false`, fixas), e esta
+  // linha é o que segura o caso se alguém "uniformizar" aquele arquivo um dia.
+  const ligarBlocos = useCallback((c: Connection) => {
+    const quando = quandoDaChave(c.sourceHandle);
+    if (!quando || !c.source || !c.target) return;
+    if (c.source === ID_DO_GATILHO || c.target === ID_DO_GATILHO) return;
+    setLigacoes((atual) => ligar(atual, c.source, quando, c.target));
+  }, []);
+
+  // A ÚNICA SETA QUE O GESTO RECUSA: a de `sempre` de um bloco para ELE MESMO.
+  // O porquê — e a medida do traçado que passa por baixo do bloco — está no
+  // comentário de `ligarBlocos`, logo acima.
+  //
+  // MORA EM `isValidConnection` E NÃO DENTRO DE `ligarBlocos`, e é uma escolha
+  // por não ter duas cópias da regra: com ela aqui, o React Flow nem chega a
+  // chamar `onConnect`, e a alça de destino perde a classe `valid` enquanto o
+  // arrasto passa por cima dela. Repetir a mesma condição lá embaixo seria a
+  // segunda cópia — a que discorda no dia em que uma das duas mudar.
+  //
+  // O PREÇO ESTÁ DITO: a recusa é calada, a seta simplesmente não aparece. É o
+  // mesmo silêncio de qualquer conexão recusada pelo React Flow, e a alternativa
+  // — aceitar — é a que deixa o dono sem como gravar.
+  const setaPermitida = useCallback((c: Connection | Edge): boolean => {
+    if (c.source !== c.target) return true;
+    return quandoDaChave(c.sourceHandle)?.tipo !== "sempre";
+  }, []);
 
   // Fechar o painel é DESSELECIONAR, e não um estado próprio de "aberto".
   //
@@ -687,6 +1225,12 @@ export default function Quadro({
   // aviso, por outro lado, teria de descrever um estado ("o que está na tela não
   // foi salvo") que a pessoa não pediu e não pode desfazer.
   //
+  // "SEMPRE APARECE" É SOBRE ESTA COMPARAÇÃO, e por um tempo a barra não
+  // cumpriu a promessa por outro motivo: o recado dividia a vaga com o âmbar do
+  // "impede publicar" num ternário exclusivo, e o âmbar está aceso durante toda
+  // a montagem. Salvava e não aparecia nada. As duas vagas são separadas desde
+  // então — o porquê está na barra, junto delas.
+  //
   // `inert` E NÃO só um véu por cima: véu com `pointer-events` bloqueia o
   // ponteiro e deixa o TECLADO passar — o cursor pode estar dentro do campo de
   // mensagem do painel no instante do clique em Salvar, e continuar digitando ali
@@ -715,11 +1259,14 @@ export default function Quadro({
   // que já divergia dele. Numa tela cujo produto é montar e salvar várias vezes,
   // é o indicador mais fácil de acreditar — e era o mais fácil de estar errado.
   //
-  // Guardadas as duas REFERÊNCIAS que foram enviadas, a validade do recado é
+  // Guardadas as TRÊS REFERÊNCIAS que foram enviadas, a validade do recado é
   // DERIVADA no render (`recadoDoQuadroAtual`, logo abaixo), sem efeito e sem
-  // render extra: `setPassos` e `setConfiguracao` sempre produzem objetos novos,
-  // então basta comparar por identidade. As duas entram porque as duas são
-  // gravadas — `passos` vai para `steps`, `configuracao` vai para as colunas.
+  // render extra: `setPassos`, `setLigacoes` e `setConfiguracao` sempre produzem
+  // objetos novos, então basta comparar por identidade. As três entram porque as
+  // três são gravadas — `passos` vai para `steps`, `ligacoes` para `ligacoes`,
+  // `configuracao` para as colunas. Deixar as setas de fora faria "Salvo."
+  // sobreviver a desenhar uma seta nova, que é a mesma mentira que esta
+  // comparação existe para impedir.
   //
   // A COMPARAÇÃO CONTINUA VALENDO com o quadro travado, e ela não virou código
   // morto: ela é o que mata o "Salvo." na PRIMEIRA mudança DEPOIS do salvamento,
@@ -731,30 +1278,79 @@ export default function Quadro({
     ok: boolean;
     texto: string;
     passos: Passo[];
+    ligacoes: Ligacao[];
     configuracao: Configuracao;
   } | null>(null);
 
   const recadoDoQuadroAtual =
-    recado && recado.passos === passos && recado.configuracao === configuracao ? recado : null;
+    recado &&
+    recado.passos === passos &&
+    recado.ligacoes === ligacoes &&
+    recado.configuracao === configuracao
+      ? recado
+      : null;
 
   const salvar = useCallback(() => {
     setRecado(null);
     iniciarSalvamento(async () => {
-      const r = await salvarAutomacao(automationId, passos, configuracao);
+      const r = await salvarAutomacao(automationId, passos, ligacoes, configuracao);
 
-      // O par enviado viaja junto com o recado, e é ele que decide se o recado
-      // ainda descreve o quadro na hora de desenhar.
-      const doQueFoiEnviado = { passos, configuracao };
+      // A CAIXA "ATIVA" PASSA A MOSTRAR O QUE FOI GRAVADO, e não o que foi
+      // pedido. O servidor grava `active = ativo && podeAtivar`
+      // (`salvarAutomacao`, ../actions), e nada trazia esse valor de volta:
+      // depois de "Salvo, mas ficou pausada: …" o recado morre na primeira
+      // mudança do quadro — por construção, e essa construção está certa — e a
+      // caixa continuava marcada sobre uma automação pausada no banco. O dono
+      // fechava o quadro achando que tinha publicado.
+      //
+      // A ATUALIZAÇÃO ENTRA NO MESMO INSTANTÂNEO QUE O RECADO CARREGA, e é essa
+      // a sutileza inteira: `configuracao` é comparada POR IDENTIDADE em
+      // `recadoDoQuadroAtual`, então trocá-la sem trocar a cópia que viaja com o
+      // recado mataria o recado no mesmo render — o dono veria a caixa
+      // desmarcar e não leria por quê, que é a mudança silenciosa que a Tarefa
+      // 6b existe para não fazer.
+      //
+      // O OBJETO SÓ É NOVO QUANDO O VALOR MUDA. Sem essa comparação, todo
+      // salvamento trocaria a identidade de `configuracao` por nada, e um
+      // efeito que dependa dela rodaria de novo a cada Salvar.
+      const gravada =
+        r.ok && r.ativoGravado !== configuracao.ativo
+          ? { ...configuracao, ativo: r.ativoGravado }
+          : configuracao;
+      if (gravada !== configuracao) setConfiguracao(gravada);
+
+      // O que foi enviado viaja junto com o recado, e é isso que decide se o
+      // recado ainda descreve o quadro na hora de desenhar.
+      const doQueFoiEnviado = { passos, ligacoes, configuracao: gravada };
 
       // A RECUSA NÃO PRECISA MAIS DIZER O QUE FOI GRAVADO, porque a resposta é
       // sempre a mesma: nada. O motivo vem do servidor e é mostrado como veio.
+      //
+      // `r.pausada` É A TAREFA 6b, e o `?? ""` do servidor nunca deveria
+      // aparecer aqui: ela só vem preenchida vazia se `podeFicarAtiva`
+      // recusou sem nenhum erro de ativar na lista, o que não deveria
+      // acontecer — as duas funções leem o mesmo `problemas`. Truthy chega a
+      // decidir o ramo mesmo assim, e uma string vazia cairia no "Salvo."
+      // comum, que é a falha mais silenciosa das duas.
+      //
+      // A MUDANÇA DE ESTADO NÃO PODE SER SILENCIOSA: "cliquei em salvar com
+      // Ativa marcada e ela voltou desmarcada" sem explicação é pior do que o
+      // buraco que esta tarefa fecha. A frase diz as três coisas — que foi
+      // salvo, que ficou pausada, e o que falta para poder ativar —, e o "o
+      // que falta" é a MESMA frase que `conferirLista` produz e que o painel
+      // do gatilho mostraria em âmbar: nunca um texto novo para o mesmo
+      // problema.
       setRecado(
         r.ok
-          ? { ok: true, texto: "Salvo.", ...doQueFoiEnviado }
+          ? {
+              ok: true,
+              texto: r.pausada ? `Salvo, mas ficou pausada: ${r.pausada}` : "Salvo.",
+              ...doQueFoiEnviado,
+            }
           : { ok: false, texto: `${r.erro} Nada foi salvo.`, ...doQueFoiEnviado }
       );
     });
-  }, [automationId, configuracao, passos]);
+  }, [automationId, configuracao, ligacoes, passos]);
 
   const tema = useTemaDoDocumento();
 
@@ -821,22 +1417,43 @@ export default function Quadro({
         {/* numa tela em que não dá para editar. O link de voltar, esse, fica  */}
         {/* nas duas.                                                          */}
         {/* ---------------------------------------------------------------- */}
+        {/* SÃO DUAS VAGAS E NÃO UMA, e a segunda existe por um defeito medido.
+            Isto era UM ternário exclusivo — erro, senão âmbar, senão recado —, e
+            o âmbar tomava a vaga do recado PERMANENTEMENTE no caso mais comum
+            que existe nesta tela.
+            O mecanismo: o âmbar é o que impede PUBLICAR (bloco solto, botão sem
+            destino), que é o estado normal de quem está montando, e ele NÃO
+            desabilita o Salvar — a decisão de `actions.ts` é justamente essa,
+            "montar um menu de três opções, ligar duas e voltar amanhã é trabalho
+            normal". Com o âmbar aceso, o dono clicava em Salvar, o servidor
+            gravava, o recado voltava — e a barra continuava mostrando o âmbar.
+            Nada na tela dizia que o trabalho tinha sido guardado, exatamente no
+            cenário que a permissão de salvar meio-caminho protege.
+            O ERRO E O ÂMBAR CONTINUAM DISPUTANDO A MESMA VAGA, e essa metade do
+            ternário fica: os dois falam da MESMA lista, e o vermelho é o que
+            trava o Salvar — mostrar os dois seria a barra dizendo "não dá para
+            salvar" e "dá para salvar, mas não publicar" ao mesmo tempo. */}
         <div className="ml-auto hidden shrink-0 items-center gap-3 sm:flex">
           {erros.length > 0 ? (
-            <span className="max-w-[40ch] truncate text-xs font-medium text-red-600 dark:text-red-400">
+            <span className="max-w-[36ch] truncate text-xs font-medium text-red-600 dark:text-red-400">
               {erros[0].mensagem}
               {erros.length > 1 && ` (e mais ${erros.length - 1})`}
             </span>
           ) : (
-            recadoDoQuadroAtual && (
+            impedemAtivar.length > 0 && (
+              /* O QUE IMPEDE PUBLICAR, EM ÂMBAR, e ele não desabilita o salvar.
+                 Ele entrou nesta tarefa porque foi ela que tornou esses problemas
+                 produzíveis pela tela: o bloco solto e o botão sem destino. Sem
+                 esta linha, o dono monta, salva, fecha o quadro — e só descobre na
+                 LISTA de automações, ao clicar em Ativar, que o fluxo não pode ir
+                 ao ar. A frase é a MESMA de `conferirLista` que o painel e o
+                 `toggleAutomation` mostram. */
               <span
-                className={`max-w-[40ch] truncate text-xs font-medium ${
-                  recadoDoQuadroAtual.ok
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-red-600 dark:text-red-400"
-                }`}
+                className="max-w-[36ch] truncate text-xs font-medium text-amber-600 dark:text-amber-400"
+                title={detalheDeAtivar}
               >
-                {recadoDoQuadroAtual.texto}
+                {impedemAtivar[0].mensagem}
+                {impedemAtivar.length > 1 && ` (e mais ${impedemAtivar.length - 1})`}
               </span>
             )
           )}
@@ -852,6 +1469,56 @@ export default function Quadro({
       </header>
 
       {/* ------------------------------------------------------------------ */}
+      {/* O RECADO DO SALVAMENTO, EM LARGURA PRÓPRIA — e não mais um `<span>`
+          na vaga que ele dividia com o nome da automação e os botões, na
+          barra acima.
+
+          A TAREFA 6b MEDIU A INCOMPATIBILIDADE: aquela vaga era `max-w-[36ch]
+          truncate`, e o prefixo fixo "Salvo, mas ficou pausada: " sozinho já
+          consome 26 dos 36 caracteres. Das frases que `conferirLista`
+          (lib/steps.ts) produz para `nivel: "erro"` e `quando: "ativar"` — o
+          que falta para poder ativar —, a mais curta soma 105 caracteres com
+          esse prefixo, e a mais longa 175. Nenhuma cabia; truncar não
+          encurtava o aviso, apagava o motivo por completo.
+
+          "A MUDANÇA DE ESTADO NÃO PODE SER SILENCIOSA" é a frase que
+          justifica esta mensagem existir (comentário de `salvar`, abaixo no
+          arquivo) — um `<span>` que a corta de volta à ilegibilidade é a
+          mesma falha por um caminho diferente. Por isso este é um bloco de
+          LARGURA INTEIRA, sem `truncate`, no estilo do aviso do celular (mais
+          abaixo nesta função): `rounded-lg border … p-3`, sem cortar texto.
+
+          NÃO É UM `title`: passar o mouse para ler não é o oposto de
+          silencioso, é a mesma informação escondida atrás de um gesto que
+          "não pode ser silenciosa" não pede.
+
+          CONTINUA SEPARADO da vaga de erro/âmbar da barra (o porquê de ela
+          existir separada está no comentário "SÃO DUAS VAGAS", lá dentro do
+          `<header>`) — só mudou de ficar ao lado do botão para ficar embaixo
+          da barra inteira. E CONTINUA RESPONDENDO POR UM CLIQUE em Salvar, e
+          não pela lista de blocos: por isso ele mora aqui, fora do
+          `<header>` mas antes do quadro, e não dentro do painel do bloco
+          selecionado — a mesma frase de `conferirLista` já aparece ali
+          (`./painel.tsx`), completa e sem truncar, para o bloco que ela
+          aponta. Esta cópia é a única no quadro; não crie uma terceira.
+
+          SÓ NO COMPUTADOR, pelo mesmo motivo da barra: não há o que salvar
+          numa tela em que não dá para editar. */}
+      {recadoDoQuadroAtual && (
+        <div className="hidden shrink-0 border-b border-zinc-200 bg-white px-4 py-2 sm:block dark:border-zinc-800 dark:bg-zinc-950">
+          <p
+            className={`rounded-lg border p-3 text-sm font-medium ${
+              recadoDoQuadroAtual.ok
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                : "border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-950/40 dark:text-red-300"
+            }`}
+          >
+            {recadoDoQuadroAtual.texto}
+          </p>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
       {/* O AVISO NO CELULAR. O quadro precisa de arrastar e soltar, e não há */}
       {/* versão de toque dele — a decisão foi dizer isso em vez de entregar  */}
       {/* um editor que não funciona. A lista em modo leitura logo abaixo é o */}
@@ -865,13 +1532,22 @@ export default function Quadro({
       <div className="flex-1 space-y-3 overflow-y-auto p-4 sm:hidden">
         <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/40">
           A edição das automações é pelo computador — o quadro precisa de arrastar e soltar. Abaixo,
-          o fluxo desta automação em modo leitura.
+          os blocos desta automação em modo leitura. O caminho entre eles são as setas do quadro, e
+          elas só aparecem no computador.
         </div>
         <ol className="space-y-2">
         {/* O MESMO CARTÃO DO NÓ DE GATILHO, pelas mesmas duas funções
             (`./gatilho`). Aqui se imprimia o NOME da automação sob o rótulo
             "GATILHO": o nome está na barra logo acima, e o que dispara — a
-            única coisa que o rótulo promete — era o que faltava. */}
+            única coisa que o rótulo promete — era o que faltava.
+
+            ESTA LISTA NÃO É MAIS O FLUXO, e a numeração "1. 2. 3." saiu por
+            isso: ela lê a ORDEM DO ARRAY, e a Tarefa 6 tirou dessa ordem o
+            significado de "o que vem depois". O que sobrou é um INVENTÁRIO dos
+            blocos, que continua servindo para conferir o que existe pelo
+            celular — e é o que o aviso acima passou a dizer. Desenhar o fluxo de
+            verdade aqui é caminhar pelas setas, que é o que a prévia
+            (`./roteiro`) precisa aprender a fazer, e ela é outra tarefa. */}
           <li className="rounded-lg border-2 border-sky-500/70 bg-white px-3 py-2 dark:border-sky-400/70 dark:bg-zinc-900">
             <div className="text-[10px] font-semibold tracking-wide text-sky-600 dark:text-sky-400">
               GATILHO · {nomeDoGatilho(configuracao.gatilho)}
@@ -895,7 +1571,7 @@ export default function Quadro({
                 }`}
               >
                 <div className="text-[10px] font-semibold tracking-wide text-zinc-500 dark:text-zinc-400">
-                  {i + 1}. {titulo}
+                  {titulo}
                 </div>
                 <div className="mt-1 text-xs text-zinc-700 dark:text-zinc-200">{corpo}</div>
               </li>
@@ -933,13 +1609,20 @@ export default function Quadro({
             conteúdo (a faixa da paleta, que rola na horizontal) definiria a
             largura mínima e empurraria a prévia para fora da janela. */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <Paleta gatilho={configuracao.gatilho} />
+          {/* A PALETA TAMBÉM FICA INERTE ENQUANTO SALVA, e isto MUDOU com o
+              clique. Ela ficava de fora, e o motivo escrito era que arrastar
+              dela não muda nada sozinho — o alvo do arrasto é o quadro, e o
+              quadro está inerte. Isso continua verdade para o ARRASTO e deixou
+              de ser verdade para o item da faixa: clicar chama `inserirNoCentro`
+              direto, sem passar pelo quadro, e acrescentaria um bloco no meio da
+              gravação. O que seria gravado deixaria de ser o que está na tela,
+              que é exatamente o que o `inert` do quadro existe para garantir. */}
+          <Paleta gatilho={configuracao.gatilho} aoEscolher={inserirNoCentro} inerte={salvando} />
           {/* `inert` enquanto salva: o quadro e a faixa de edição param de
               aceitar ponteiro, teclado e foco, para o que for gravado ser o que
               está na tela. O porquê inteiro está no comentário acima de
-              `recado`. A paleta fica FORA: arrastar dela não muda nada sozinho,
-              e o alvo do arrasto está inerte. */}
-          <div className="relative min-w-0 flex-1" inert={salvando}>
+              `recado`. */}
+          <div ref={areaDoQuadro} className="relative min-w-0 flex-1" inert={salvando}>
             <ReactFlow
               nodes={nos}
               edges={setas}
@@ -952,9 +1635,10 @@ export default function Quadro({
               // descarta essas — o porquê está em `setasNoInicio`.
               onNodeDragStart={(e, no) => {
                 const p = pontoDoEvento(e);
-                const i = identidades.indexOf(no.id);
                 setasNoInicio.current = new Set(
-                  p ? setasAoAlcance(p.x, p.y, [i - 1, i]).map((s) => s.i) : []
+                  p
+                    ? setasAoAlcance(p.x, p.y, Geo.ligacoesDoBloco(ligacoes, no.id)).map((s) => s.i)
+                    : []
                 );
               }}
               // O DESTAQUE SEGUE A MESMA REGRA DO RESULTADO, e não só a proximidade.
@@ -963,8 +1647,7 @@ export default function Quadro({
               // motivo pelo qual `no.tsx` desliga as alças de conexão.
               onNodeDrag={(e, no) => {
                 const p = pontoDoEvento(e);
-                const i = identidades.indexOf(no.id);
-                setSetaSobEle(p && alvoDoArraste(p.x, p.y, i));
+                setSetaSobEle(p && alvoDoArraste(p.x, p.y, no.id));
               }}
               // O alvo é recalculado AQUI, e não lido de `setaSobEle`. Os dois dão o
               // mesmo resultado — mesma função, mesmo ponto —, e recalcular é o que
@@ -972,10 +1655,9 @@ export default function Quadro({
               // estado fica só para o destaque na tela.
               onNodeDragStop={(e, no) => {
                 const p = pontoDoEvento(e);
-                const i = identidades.indexOf(no.id);
-                const alvo = p && alvoDoArraste(p.x, p.y, i);
+                const alvo = p && alvoDoArraste(p.x, p.y, no.id);
                 setSetaSobEle(null);
-                if (alvo !== null && alvo !== undefined) moverPara(no.id, alvo);
+                if (alvo !== null && alvo !== undefined) partirCom(no.id, alvo);
               }}
               onDragOver={(e) => {
                 // Só o que veio da paleta. Sem esta conferência o quadro aceitaria
@@ -985,7 +1667,7 @@ export default function Quadro({
                 if (!e.dataTransfer.types.includes(TIPO_DO_ARRASTO)) return;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "move";
-                setSetaSobEle(setaSobOPonto(e.clientX, e.clientY, []));
+                setSetaSobEle(alvoDaPaleta(e.clientX, e.clientY, chaveArrastada(e.dataTransfer)));
               }}
               // `dragleave` BORBULHA dos filhos, e o quadro é feito deles: cada nó,
               // cada seta, o fundo e os controles. Apagar o destaque em todo
@@ -1016,16 +1698,50 @@ export default function Quadro({
                 setSetaSobEle(null);
                 if (!chave) return;
                 const p = instancia?.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-                inserir(chave, p?.x ?? 0, p?.y ?? 0, setaSobOPonto(e.clientX, e.clientY, []));
+                inserir(chave, p?.x ?? 0, p?.y ?? 0, alvoDaPaleta(e.clientX, e.clientY, chave));
               }}
               // Não há `onNodeClick`/`onPaneClick` aqui de propósito: a seleção chega
               // por `onNodesChange` como mudança do tipo `select`, que é o mesmo
               // caminho da seleção por caixa e por teclado. Escrever a seleção também
               // nos dois cliques faria duas fontes para o mesmo estado, e a que
               // sobrasse de fora (a caixa) seria a que ninguém testa.
-              nodesConnectable={false}
+              // LIGAR DEIXOU DE SER PROIBIDO, e esta prop NÃO ALCANÇA AS ALÇAS
+              // SOZINHA — o que era verdade quando ela desligava o gesto
+              // continua verdade agora que ela o liga, e é importante que esteja
+              // dito aqui, que é o arquivo que se lê primeiro.
+              //
+              // A prop chega ao NÓ, não à alça: o React Flow calcula
+              // `isConnectable` no invólucro do nó e o entrega como PROP para o
+              // componente, e cabe a ele repassá-la a cada `Handle`. Sem o
+              // repasse, `Handle` cai no próprio padrão — que é `true` —, e foi
+              // MEDIDO na Fase 1b que com ela em `false` o gesto acontecia
+              // assim mesmo, alças acendendo e tudo. São DUAS pontas
+              // (`isConnectableStart` e `isConnectableEnd`), porque quem porteia
+              // o `onPointerDown` da alça é a primeira. O mecanismo inteiro está
+              // no comentário de `no.tsx`.
+              //
+              // Ou seja: apagar as props do nó "porque o quadro já resolve" foi
+              // e continua sendo o jeito de o desligamento (ou a permissão)
+              // deixar de valer.
+              nodesConnectable
+              onConnect={ligarBlocos}
+              isValidConnection={setaPermitida}
+              onEdgesChange={aoMudarSetas}
               edgesFocusable={false}
-              deleteKeyCode={null}
+              // A TECLA QUE APAGA A SETA SELECIONADA. Era `null`, e com ela
+              // `null` não havia gesto nenhum para tirar uma seta do quadro —
+              // redesenhar a alça só troca o destino. O que isso custava está no
+              // comentário de `aoMudarSetas`.
+              //
+              // ELA SÓ ALCANÇA SETAS: todo nó vai com `deletable: false` (ver
+              // `nos`, acima), então a tecla não apaga bloco nenhum. É por isso
+              // que `Backspace` pode ficar na lista.
+              //
+              // DIGITAR NO PAINEL CONTINUA INTOCADO: o `useKeyPress` do React
+              // Flow ignora o evento quando ele nasce dentro de um campo
+              // (`isInputDOMNode`), então o Backspace que apaga uma letra no
+              // texto da mensagem não chega aqui.
+              deleteKeyCode={["Delete", "Backspace"]}
               fitView
               // PADDING SIMÉTRICO, e é a paleta ter saído de cima do quadro que
               // permite isso. O `left: "200px"` que estava aqui compensava a faixa
@@ -1105,11 +1821,12 @@ export default function Quadro({
                 editandoGatilho={selecionado === ID_DO_GATILHO}
                 problemas={problemasDoPainel}
                 aoMudar={mudarPasso}
+                aoApagarBotao={apagarBotao}
                 aoMudarConfiguracao={setConfiguracao}
                 aoFechar={fecharPainel}
               />
             </div>
-  
+
             {/* O VÉU DIZ QUE TRAVOU. Quem trava é o `inert` da `div` de fora; este
                 é o que impede a tela de ficar muda de outro jeito — um quadro que
                 para de responder sem explicar é indistinguível de um quadro
@@ -1158,15 +1875,29 @@ export default function Quadro({
               cópia faria a prévia atrasar um render em relação ao quadro, e o
               retorno ao vivo é a razão de ela existir. A configuração vai junto
               porque é o gatilho que decide se a conversa começa num comentário,
-              numa resposta de story ou numa DM. */}
+              numa resposta de story ou numa DM.
+
+              E O MESMO `ligacoes`, pela mesma razão: a prévia mostra o CAMINHO
+              até o bloco aberto, e caminho é pergunta sobre as setas. Uma seta
+              recém-desenhada tem de trocar a conversa no mesmo render em que ela
+              aparece no quadro.
+
+              O GATILHO NÃO É BLOCO, e por isso vira `null` aqui: ele não tem
+              cena a acender nem caminho a percorrer, e com ele selecionado a
+              prévia mostra o caminho da entrada — que é o que ela já mostrava
+              antes de haver seleção nenhuma. É a mesma tradução que
+              `indiceSelecionado` faz para o painel, lá no alto do componente,
+              junto dos problemas da conferência — umas novecentas linhas acima
+              daqui, e não "logo acima" como esta frase já disse. */}
           <Previa
             passos={passos}
             gatilho={configuracao.gatilho}
+            ligacoes={ligacoes}
             palavras={configuracao.palavras}
             correspondencia={configuracao.correspondencia}
             post={configuracao.post}
             story={configuracao.story}
-            indiceSelecionado={indiceSelecionado}
+            selecionado={selecionado === ID_DO_GATILHO ? null : selecionado}
             conta={conta}
           />
         </aside>

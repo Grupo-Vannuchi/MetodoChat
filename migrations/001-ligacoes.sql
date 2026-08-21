@@ -1,0 +1,27 @@
+-- A coluna que faz o fluxo deixar de ser uma fila e virar um mapa de caminhos.
+--
+-- POR QUE ELA PRECISA EXISTIR ANTES DO CÓDIGO NOVO SUBIR:
+-- o motor da Fase 2a caminha seguindo as setas gravadas aqui. Com a coluna
+-- ausente ou vazia, a caminhada para no bloco de entrada e ninguém recebe nada
+-- — e não estoura, porque `lib/engine.ts` usa `select *`, a coluna faltando
+-- vira `undefined` e `ligacoesDe` devolve `[]`. Medido: uma automação de cinco
+-- blocos passa a entregar um. Silêncio total.
+--
+-- Por isso a ordem é: esta migração, depois `scripts/ligar-passos-existentes.mjs`
+-- (que preenche a corrente), e só então o deploy.
+--
+-- IDEMPOTENTE por construção (`if not exists`), que é o contrato de toda
+-- migração desta pasta enquanto não houver tabela de controle. Ver o cabeçalho
+-- de `scripts/migrar.mjs`.
+--
+-- Acrescentar coluna com `default` não reescreve a tabela no Postgres 11+,
+-- então roda rápido mesmo com dados.
+--
+-- ESTA LINHA TAMBÉM ESTÁ EM `lib/db.ts` (`ensureSchema`), e isso é deliberado
+-- durante a transição: lá ela é a REDE (se alguém implantar sem rodar isto, a
+-- coluna ainda nasce), aqui ela é a ORDEM (existir antes do código subir). As
+-- duas são `if not exists`, então não podem divergir em efeito — podem divergir
+-- em definição, e é por isso que a transição tem prazo: ver
+-- `docs/plans/2026-08-17-esquema-e-harness.md`.
+alter table automations
+  add column if not exists ligacoes jsonb not null default '[]'::jsonb;
