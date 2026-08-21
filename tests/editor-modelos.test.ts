@@ -4,6 +4,7 @@ import {
   blocoNovo,
   comoTexto,
   indiceDaAlca,
+  podeEntrarNaSeta,
   PALETA,
   resumoDoBloco,
 } from "../app/automacoes/editor/modelos";
@@ -511,6 +512,38 @@ describe("alcasDeSaida", () => {
   it("lista de botões sem nenhum aproveitável volta para a alça de continuação", () => {
     const alcas = alcasDeSaida(doBanco({ tipo: "dm", texto: "x", botoes: [null, {}] }));
     expect(alcas.map((a) => a.chave)).toEqual(["sempre"]);
+  });
+});
+
+// SOLTAR UM BLOCO EM CIMA DE UMA SETA — quem pode e quem não pode.
+//
+// A pergunta é feita a `alcasDeSaida` e não a `envioDaDm`, e é isso que o
+// primeiro caso prova: `botoes: [null]` NÃO é menu para efeito de alça (a lista
+// não tem nenhum botão aproveitável, e o bloco volta a ter a continuação), então
+// ele pode entrar na seta. Uma cópia da regra escrita com `botoes.length`
+// responderia o contrário.
+describe("podeEntrarNaSeta", () => {
+  it("todo bloco com alça de continuação pode; o menu de `botoes` não", () => {
+    expect(podeEntrarNaSeta({ tipo: "dm", texto: "oi" })).toBe(true);
+    expect(podeEntrarNaSeta({ tipo: "dm", texto: "oi", botao_label: "Quero" })).toBe(true);
+    expect(podeEntrarNaSeta({ tipo: "dm", texto: "oi", botao_label: "Abrir", url: "x" })).toBe(true);
+    expect(podeEntrarNaSeta({ tipo: "esperar", minutos: 5 })).toBe(true);
+    expect(podeEntrarNaSeta({ tipo: "pedir_email", texto: "seu e-mail" })).toBe(true);
+    expect(
+      podeEntrarNaSeta({ tipo: "dm", texto: "Escolha", botoes: [{ id: "op_a", rotulo: "A" }] })
+    ).toBe(false);
+  });
+
+  it("é o item da paleta que o defeito usava: `dm_opcoes` não entra, `dm` entra", () => {
+    expect(podeEntrarNaSeta(blocoNovo("dm_opcoes"))).toBe(false);
+    expect(podeEntrarNaSeta(blocoNovo("dm"))).toBe(true);
+    expect(podeEntrarNaSeta(blocoNovo("dm_link"))).toBe(true);
+  });
+
+  it("menu com a lista só de lixo VOLTA a poder — a pergunta é a alça", () => {
+    const soLixo = doBanco({ tipo: "dm", texto: "x", botoes: [null] });
+    expect(alcasDeSaida(soLixo).map((a) => a.chave)).toEqual(["sempre"]);
+    expect(podeEntrarNaSeta(soLixo)).toBe(true);
   });
 });
 

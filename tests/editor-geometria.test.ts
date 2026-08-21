@@ -7,6 +7,7 @@ import {
   setasAoAlcance,
   setaSobOPonto,
   alvoDoArraste,
+  alvoDaPaleta,
   lugarDoBlocoNovo,
   ALCANCE_DA_SETA,
   ALTURA_SUPOSTA,
@@ -323,6 +324,76 @@ describe("alvoDoArraste — a seta precisa ser conquistada pelo gesto", () => {
       new Set()
     );
     expect(alvo).toBeNull();
+  });
+});
+
+// O BLOCO PRECISA TER `sempre` PARA DAR — o Crítico desta onda.
+//
+// Partir uma seta escreve `MEIO --sempre--> B` (`partirLigacao`, lib/steps.ts).
+// O menu de `botoes` não tem alça de `sempre` (`alcasDeSaida`, ./modelos), e o
+// gesto escrevia a seta assim mesmo: `indiceDaAlca` caía no índice 0 e o quadro
+// a desenhava saindo da alça do PRIMEIRO BOTÃO — dois caminhos do mesmo ponto,
+// e o toque naquele botão nunca percorre o segundo.
+//
+// A ORDEM DAS PERGUNTAS IMPORTA e está medida aqui: o mesmo ponto, as mesmas
+// setas e o mesmo `setasNoInicio` vazio devolvem 3 para um bloco comum e `null`
+// para o menu. Ou seja, o que muda é só o BLOCO.
+describe("alvoDoArraste — quem não tem `sempre` não entra no meio da seta", () => {
+  const menuEm = (x: number, y: number): Passo => ({
+    tipo: "dm",
+    texto: "Escolha",
+    botoes: [
+      { id: "op_aaaaaa", rotulo: "A" },
+      { id: "op_bbbbbb", rotulo: "B" },
+    ],
+    pos: { x, y },
+  });
+
+  const identidades = ["0", "1", "2", "3", "4"];
+  const ligacoes = corrente(identidades);
+  const medidas = {};
+  const pontoPertoDeDE = { x: 845, y: 34 };
+  const comuns = [passoEm(0, 0), passoEm(300, 0), passoEm(300, 500), passoEm(600, 0), passoEm(900, 0)];
+
+  it("um bloco comum arrastado até a seta 3 continua sendo alvo", () => {
+    expect(
+      alvoDoArraste(pontoPertoDeDE, comuns, medidas, identidades, ligacoes, "1", new Set())
+    ).toBe(3);
+  });
+
+  it("o MESMO gesto com um MENU no lugar do bloco arrastado não tem alvo", () => {
+    const comMenu = [...comuns];
+    comMenu[1] = menuEm(300, 0);
+    expect(
+      alvoDoArraste(pontoPertoDeDE, comMenu, medidas, identidades, ligacoes, "1", new Set())
+    ).toBeNull();
+  });
+
+  it("identidade que não está na lista não tem alvo — é o nó do gatilho", () => {
+    // `identidades.indexOf("gatilho")` é -1, e sem a guarda a pergunta sobre as
+    // alças seria feita a `passos[-1]`.
+    expect(
+      alvoDoArraste(pontoPertoDeDE, comuns, medidas, identidades, ligacoes, "gatilho", new Set())
+    ).toBeNull();
+  });
+
+  // A PALETA PASSA PELA MESMA PERGUNTA, e é o caminho do gesto que produziu o
+  // defeito: "Mensagem com opções" arrastada da faixa e solta em cima da seta.
+  it("alvoDaPaleta: bloco comum acha a seta, menu não acha", () => {
+    expect(
+      alvoDaPaleta(pontoPertoDeDE, comuns, medidas, identidades, ligacoes, {
+        tipo: "dm",
+        texto: "novo",
+      })
+    ).toBe(3);
+    expect(
+      alvoDaPaleta(pontoPertoDeDE, comuns, medidas, identidades, ligacoes, menuEm(0, 0))
+    ).toBeNull();
+    // Sem bloco nenhum (o arrasto ainda não disse qual item é) também não
+    // acende: o destaque não pode prometer o que o soltar vai recusar.
+    expect(
+      alvoDaPaleta(pontoPertoDeDE, comuns, medidas, identidades, ligacoes, null)
+    ).toBeNull();
   });
 });
 

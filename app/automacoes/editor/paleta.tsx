@@ -177,8 +177,19 @@ export default function Paleta({
               key={item.chave}
               type="button"
               draggable={serve}
+              // A SEGUNDA ENTRADA CARREGA A CHAVE NO NOME DO TIPO, e o
+              // conteúdo dela é vazio de propósito: `getData` só devolve
+              // conteúdo no `drop`, e o quadro precisa saber QUAL item está
+              // vindo já no `dragover`, que é quando ele acende (ou não) a seta
+              // sob o ponteiro. A lista de TIPOS é legível o arrasto inteiro, e
+              // é por ela que a resposta passa (`chaveArrastada`, ./quadro).
+              //
+              // A primeira entrada fica como estava, com o dado de verdade: é
+              // ela que o `onDrop` lê, e é o tipo que o `onDragOver` confere
+              // para recusar arquivo e texto arrastados de outra aba.
               onDragStart={(e) => {
                 e.dataTransfer.setData("application/metodochat-bloco", item.chave);
+                e.dataTransfer.setData(`application/metodochat-bloco+${item.chave}`, "");
                 e.dataTransfer.effectAllowed = "move";
               }}
               // A guarda repete o que `draggable={serve}` e o cursor já dizem,

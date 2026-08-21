@@ -334,6 +334,37 @@ export function alcasDeSaida(p: Passo): Alca[] {
   return alcas;
 }
 
+// ESTE BLOCO PODE ENTRAR NO MEIO DE UMA SETA?
+//
+// Soltar um bloco em cima de uma seta quer dizer "põe este bloco NO MEIO deste
+// caminho", e `partirLigacao` (lib/steps.ts) escreve a segunda metade como
+// `sempre` — a CONTINUAÇÃO do bloco que entrou. Um bloco sem alça de `sempre`
+// não tem essa saída para dar, e o gesto escrevia mesmo assim.
+//
+// O QUE ISSO PRODUZIA, medido com as funções puras e com o bloco-bandeira da
+// fase: solta-se "Mensagem com opções" sobre `Bem-vindo --sempre--> Fim` e o
+// dado gravado fica `menu --sempre--> Fim`. O menu não tem alça de `sempre`,
+// `indiceDaAlca` (logo abaixo) cai no índice 0, e o quadro desenha essa seta
+// SAINDO DA ALÇA "Opção 1" — duas setas do mesmo ponto, e o toque em "Opção 1"
+// nunca percorre a segunda. `conferirLista` devolvia `[]`: salvava e ativava
+// assim.
+//
+// A PERGUNTA É FEITA A `alcasDeSaida`, e não a `envioDaDm` de novo, pelo mesmo
+// motivo de `apagarBotao` (./quadro): quem decide se a alça existe é a função
+// que a DESENHA. Uma segunda cópia da regra discordaria no dia em que um tipo
+// novo ganhasse ou perdesse a continuação, e o gesto voltaria a escrever uma
+// seta que a tela não sabe mostrar.
+//
+// O QUE ELA NÃO FAZ: não apaga nem conserta `sempre` de menu já gravada. Aquela
+// forma é dado VÁLIDO — a suíte tem um fluxo certo que depende dela, o "menu que
+// volta" (`temCicloDeSempre`, tests/steps.test.ts), e o motor a percorre por
+// `retomadaDoTexto` sem `senao`, `retomadaDoBotao` e `retomadaDoFallback`.
+// Mostrá-la sem mentir é problema do DESENHO, e é onde `indiceDaAlca` continua
+// caindo no índice 0. Esta função fecha só a porta de CRIAR mais uma.
+export function podeEntrarNaSeta(p: Passo): boolean {
+  return alcasDeSaida(p).some((a) => a.chave === "sempre");
+}
+
 // QUAL ALÇA DESENHA ESTA LIGAÇÃO. Devolve o ÍNDICE dentro de `alcasDeSaida`,
 // porque é o índice — e não a chave — que decide a ALTURA da alça no bloco
 // (`fracaoDaAlca`, ./geometria).

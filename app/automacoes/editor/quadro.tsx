@@ -78,6 +78,28 @@ const ID_DO_GATILHO = "gatilho";
 // reagir a arquivo, imagem ou texto arrastado de outra janela.
 const TIPO_DO_ARRASTO = "application/metodochat-bloco";
 
+// QUAL ITEM DA PALETA ESTÁ SENDO ARRASTADO, lido do TIPO e não do dado.
+//
+// `dataTransfer.getData` devolve string vazia durante o `dragover` — é regra do
+// HTML, não defeito do navegador: o conteúdo do arrasto só fica legível no
+// `drop`. E o destaque acontece no `dragover`, ou seja, antes disso. Sem esta
+// leitura, a seta acenderia para QUALQUER item da faixa e o soltar recusaria
+// metade deles, que é a tela oferecendo um gesto que não faz nada.
+//
+// A LISTA DE TIPOS, ao contrário, é legível o arrasto inteiro. Por isso a paleta
+// grava uma segunda entrada cujo NOME carrega a chave (`${TIPO_DO_ARRASTO}+dm`,
+// por exemplo) e cujo conteúdo é vazio: o que interessa dela é existir.
+//
+// O tipo chega em MINÚSCULAS (o navegador normaliza), e as chaves da paleta são
+// minúsculas por construção (`PALETA`, ./modelos) — a comparação é direta.
+function chaveArrastada(dt: DataTransfer): string | null {
+  const prefixo = `${TIPO_DO_ARRASTO}+`;
+  for (const t of Array.from(dt.types)) {
+    if (t.startsWith(prefixo)) return t.slice(prefixo.length);
+  }
+  return null;
+}
+
 // Onde o ponteiro está, num evento que pode ser de mouse OU de toque — é assim
 // que o React Flow tipa os eventos de arraste do nó. No toque vale
 // `changedTouches`, e não `touches`: no `touchend` a lista `touches` já está
@@ -309,11 +331,19 @@ export default function Quadro({
     [instancia, passos, medidas, identidades, ligacoes]
   );
 
-  const setaSobOPonto = useCallback(
-    (clientX: number, clientY: number, ignorar: number[]): number | null => {
-      if (!instancia) return null;
+  // A SETA EM QUE UM BLOCO DA PALETA PODE ENTRAR. Era `setaSobOPonto` cru — só
+  // "qual seta está sob o ponteiro" —, e a pergunta que faltava é a do bloco:
+  // partir a seta escreve uma `sempre` saindo dele, e um menu de `botoes` não
+  // tem essa saída (`Geo.alvoDaPaleta` -> `podeEntrarNaSeta`, ./modelos).
+  //
+  // A CHAVE VIRA BLOCO AQUI, com `blocoNovo`, e é o mesmo que `inserir` cria
+  // depois. Um bloco jogado fora por chamada é o preço de a decisão ser sobre
+  // ALÇAS e não sobre uma segunda lista de "quais itens da paleta são menu".
+  const alvoDaPaleta = useCallback(
+    (clientX: number, clientY: number, chave: string | null): number | null => {
+      if (!instancia || !chave) return null;
       const p = instancia.screenToFlowPosition({ x: clientX, y: clientY });
-      return Geo.setaSobOPonto(p, passos, medidas, identidades, ligacoes, ignorar);
+      return Geo.alvoDaPaleta(p, passos, medidas, identidades, ligacoes, blocoNovo(chave));
     },
     [instancia, passos, medidas, identidades, ligacoes]
   );
@@ -1600,7 +1630,7 @@ export default function Quadro({
                 if (!e.dataTransfer.types.includes(TIPO_DO_ARRASTO)) return;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "move";
-                setSetaSobEle(setaSobOPonto(e.clientX, e.clientY, []));
+                setSetaSobEle(alvoDaPaleta(e.clientX, e.clientY, chaveArrastada(e.dataTransfer)));
               }}
               // `dragleave` BORBULHA dos filhos, e o quadro é feito deles: cada nó,
               // cada seta, o fundo e os controles. Apagar o destaque em todo
@@ -1631,7 +1661,7 @@ export default function Quadro({
                 setSetaSobEle(null);
                 if (!chave) return;
                 const p = instancia?.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-                inserir(chave, p?.x ?? 0, p?.y ?? 0, setaSobOPonto(e.clientX, e.clientY, []));
+                inserir(chave, p?.x ?? 0, p?.y ?? 0, alvoDaPaleta(e.clientX, e.clientY, chave));
               }}
               // Não há `onNodeClick`/`onPaneClick` aqui de propósito: a seleção chega
               // por `onNodesChange` como mudança do tipo `select`, que é o mesmo

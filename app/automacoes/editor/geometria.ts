@@ -15,7 +15,7 @@
 // índice `i`. A conta em si — três trechos de `smoothstep`, a menor distância
 // aos três — é a mesma; o que ela recebe é que deixou de ser deduzido da ordem.
 import type { Ligacao, Passo } from "@/lib/steps";
-import { alcasDeSaida, indiceDaAlca } from "./modelos";
+import { alcasDeSaida, indiceDaAlca, podeEntrarNaSeta } from "./modelos";
 
 export type Ponto = { x: number; y: number };
 
@@ -223,6 +223,19 @@ export function setaSobOPonto(
 // Contra ela sobram as outras duas defesas, que são de `quadro.tsx`: o
 // alcance encolhido, e o destaque que acende durante o arrasto e apaga
 // quando o alvo não vale.
+//
+// E O BLOCO PRECISA TER O QUE DAR, que é a terceira condição e a que fechou o
+// Crítico desta onda: partir a seta escreve `MEIO --sempre--> B`
+// (`partirLigacao`, lib/steps.ts), e um bloco sem alça de `sempre` — hoje, o
+// menu de `botoes` — não tem essa saída. A pergunta é `podeEntrarNaSeta`
+// (./modelos), a MESMA para o destaque e para o resultado, porque os dois
+// passam por aqui. O porquê inteiro, com a medida, está lá.
+//
+// O BLOCO QUE NÃO ESTÁ NA LISTA também não entra, e não é caso teórico: o nó do
+// GATILHO não sai de `passos`, `identidades.indexOf("gatilho")` é -1, e sem esta
+// linha ele responderia à pergunta com `passos[-1]`. Ele é `draggable: false`
+// (./quadro), então o gesto não chega aqui — a linha é o que impede que passe a
+// chegar no dia em que essa prop mudar.
 export function alvoDoArraste(
   ponto: Ponto,
   passos: Passo[],
@@ -232,6 +245,9 @@ export function alvoDoArraste(
   identidade: string,
   setasNoInicio: ReadonlySet<number>
 ): number | null {
+  const i = identidades.indexOf(identidade);
+  const bloco = i === -1 ? undefined : passos[i];
+  if (!bloco || !podeEntrarNaSeta(bloco)) return null;
   const alvo = setaSobOPonto(
     ponto,
     passos,
@@ -241,6 +257,30 @@ export function alvoDoArraste(
     ligacoesDoBloco(ligacoes, identidade)
   );
   return alvo !== null && !setasNoInicio.has(alvo) ? alvo : null;
+}
+
+// O ALVO DE UM ARRASTO VINDO DA PALETA — o bloco ainda não existe, então não há
+// identidade nem setas próprias a descartar, e a única pergunta que sobra é a
+// que `alvoDoArraste` faz por último: este bloco tem `sempre` para dar?
+//
+// SEPARADA E NÃO UM ARGUMENTO OPCIONAL DA DE CIMA: as duas condições daquela —
+// a seta conquistada pelo gesto e as setas do próprio bloco — não existem aqui,
+// e passá-las vazias seria escrever na chamada que elas foram consideradas.
+//
+// O BLOCO É O DE `blocoNovo` (./modelos), o MESMO que `inserir` vai criar, e não
+// a chave da paleta: a pergunta é sobre as alças de um `Passo`, e quem traduz
+// chave em passo é aquela função. Fosse a chave, esta linha teria uma segunda
+// lista de "quais itens da paleta são menu" para discordar da primeira.
+export function alvoDaPaleta(
+  ponto: Ponto,
+  passos: Passo[],
+  medidas: Medidas,
+  identidades: string[],
+  ligacoes: Ligacao[],
+  bloco: Passo | null
+): number | null {
+  if (!bloco || !podeEntrarNaSeta(bloco)) return null;
+  return setaSobOPonto(ponto, passos, medidas, identidades, ligacoes, []);
 }
 
 // ONDE CAI O BLOCO CRIADO POR CLIQUE NA PALETA — a conta que o arrasto não
