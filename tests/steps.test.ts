@@ -2173,6 +2173,13 @@ describe("botoesDaMensagem", () => {
     // O rótulo da posição i é o do botão cujo payload está na posição i. É a
     // única correspondência que existe entre as duas listas irmãs, e inverter
     // uma delas troca o destino de cada botão sem mudar nada visível.
+    //
+    // E O QUE SAI É A FORMA FINAL DA MENSAGEM, com `content_type` e `title` já
+    // nos campos certos. Enquanto esta função devolvia `{rotulo, payload}`, o
+    // dreno remontava o objeto uma linha depois — fora de qualquer teste —, e a
+    // revisão do motor plantou os dois campos trocados ali com 671 testes
+    // verdes. Não há mais o que remontar; é por isso que estas chaves são as da
+    // Meta e não as do arquivo.
     expect(
       botoesDaMensagem(
         ["A", "B", "C"],
@@ -2180,9 +2187,9 @@ describe("botoesDaMensagem", () => {
       )
     ).toEqual({
       botoes: [
-        { rotulo: "A", payload: "AUTO:a:b_men001:op_aaaaaa" },
-        { rotulo: "B", payload: "AUTO:a:b_men001:op_bbbbbb" },
-        { rotulo: "C", payload: "AUTO:a:b_men001:op_cccccc" },
+        { content_type: "text", title: "A", payload: "AUTO:a:b_men001:op_aaaaaa" },
+        { content_type: "text", title: "B", payload: "AUTO:a:b_men001:op_bbbbbb" },
+        { content_type: "text", title: "C", payload: "AUTO:a:b_men001:op_cccccc" },
       ],
       pareados: 3,
       descartados: 0,
@@ -2195,8 +2202,8 @@ describe("botoesDaMensagem", () => {
     // não tem.
     const r = botoesDaMensagem(["A", "B", "C"], ["p1", "p2"]);
     expect(r.botoes).toEqual([
-      { rotulo: "A", payload: "p1" },
-      { rotulo: "B", payload: "p2" },
+      { content_type: "text", title: "A", payload: "p1" },
+      { content_type: "text", title: "B", payload: "p2" },
     ]);
     expect(r.descartados).toBe(0);
   });
@@ -2208,8 +2215,8 @@ describe("botoesDaMensagem", () => {
     // linha em Atividade para o botão não sumir calado.
     const r = botoesDaMensagem(["A", "", "  ", null, 7, "E"], ["p1", "p2", "p3", "p4", "p5", "p6"]);
     expect(r.botoes).toEqual([
-      { rotulo: "A", payload: "p1" },
-      { rotulo: "E", payload: "p6" },
+      { content_type: "text", title: "A", payload: "p1" },
+      { content_type: "text", title: "E", payload: "p6" },
     ]);
     expect(r.pareados).toBe(2);
     expect(r.descartados).toBe(4);
@@ -2217,7 +2224,7 @@ describe("botoesDaMensagem", () => {
 
   it("payload em branco ou fora de tipo também é descartado", () => {
     const r = botoesDaMensagem(["A", "B", "C"], ["", { x: 1 }, "p3"]);
-    expect(r.botoes).toEqual([{ rotulo: "C", payload: "p3" }]);
+    expect(r.botoes).toEqual([{ content_type: "text", title: "C", payload: "p3" }]);
     expect(r.descartados).toBe(2);
   });
 
@@ -2230,8 +2237,8 @@ describe("botoesDaMensagem", () => {
     const r = botoesDaMensagem(rotulos, payloads);
     expect(LIMITE_DE_BOTOES).toBe(13);
     expect(r.botoes).toHaveLength(LIMITE_DE_BOTOES);
-    expect(r.botoes[0]).toEqual({ rotulo: "r0", payload: "p0" });
-    expect(r.botoes[12]).toEqual({ rotulo: "r12", payload: "p12" });
+    expect(r.botoes[0]).toEqual({ content_type: "text", title: "r0", payload: "p0" });
+    expect(r.botoes[12]).toEqual({ content_type: "text", title: "r12", payload: "p12" });
     expect(r.pareados).toBe(n);
     expect(r.descartados).toBe(0);
   });

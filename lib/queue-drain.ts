@@ -43,6 +43,13 @@ const GAP_MS = 600; // ~1,6 envios/segundo
 // A DEFESA CONTINUA SENDO NO DRENO, e não só na conferência do editor (Tarefa
 // 5): a coluna `payload` é `jsonb` e pode ser editada por fora do painel. O que
 // mudou é onde a regra está escrita, não onde ela roda.
+//
+// A SEGUNDA METADE DO MESMO ACHADO só fechou na revisão do MOTOR: a Tarefa 4
+// levou o PAREAMENTO para a função pura e deixou o MAPEAMENTO uma linha abaixo,
+// aqui, montando `{content_type, title, payload}` a partir do par. Plantar os
+// dois campos trocados nessa linha deixava 671/671 verdes. Agora
+// `botoesDaMensagem` devolve a forma FINAL e o dreno só a entrega — não sobra
+// transformação nenhuma neste arquivo para plantar.
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -308,16 +315,15 @@ async function processItem(
       );
     }
 
-    message = menu.botoes.length
-      ? {
-          text: texto,
-          quick_replies: menu.botoes.map((b) => ({
-            content_type: "text" as const,
-            title: b.rotulo,
-            payload: b.payload,
-          })),
-        }
-      : { text: texto };
+    // SEM `map` NENHUM AQUI, E A AUSÊNCIA É O CONSERTO. Esta linha era
+    // `menu.botoes.map((b) => ({content_type: "text", title: b.rotulo, payload:
+    // b.payload}))`, e a revisão do motor plantou os dois campos trocados: 671
+    // testes verdes, `tsc` e `eslint` limpos, e em produção nenhum botão do
+    // produto funcionaria — `lerPayload` recusaria o rótulo e o toque não geraria
+    // nem linha em Atividade. Nenhum teste alcança este arquivo, então a única
+    // defesa possível era não haver o que plantar: `botoesDaMensagem`
+    // (lib/steps.ts) passou a devolver a forma final, e aqui só sobra entregá-la.
+    message = menu.botoes.length ? { text: texto, quick_replies: menu.botoes } : { text: texto };
   } else if (p.quick_reply_label && p.quick_reply_payload) {
     message = {
       text: texto,

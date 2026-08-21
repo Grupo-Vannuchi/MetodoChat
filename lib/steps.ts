@@ -1916,7 +1916,33 @@ export const LIMITE_DE_BOTOES = 13;
 // O CORTE VEM DEPOIS DO DESCARTE, e a ordem importa: cortar antes deixaria um
 // rótulo em branco ocupar uma das 13 vagas e ainda derrubar um botão bom para
 // fora da mensagem.
-export type BotaoDaMensagem = { rotulo: string; payload: string };
+// ELA DEVOLVE A FORMA FINAL DA MENSAGEM, E NÃO AS PARTES PARA O DRENO REMONTAR.
+// Este é o conserto do defeito HISTÓRICO da Tarefa 4, pela segunda vez.
+//
+// A Tarefa 4 tirou o PAREAMENTO do dreno e o trouxe para cá, com teste. O
+// MAPEAMENTO ficou uma linha abaixo, fora da rede: `lib/queue-drain.ts` fazia
+// `menu.botoes.map((b) => ({content_type: "text", title: b.rotulo, payload:
+// b.payload}))`, e a revisão do motor plantou `title: b.payload` / `payload:
+// b.rotulo` ali — 671 testes verdes, `tsc` limpo, `eslint` limpo. Em produção
+// cada botão apareceria com a string `AUTO:…` como rótulo e devolveria o rótulo
+// do dono como payload; `lerPayload` recusaria, e o toque não faria NADA, sem
+// gerar linha nenhuma em Atividade. Nem `botao_sem_caminho`, porque nem se
+// chega lá.
+//
+// Com a forma final saindo daqui, o dreno escreve `quick_replies: menu.botoes` e
+// não sobra transformação nenhuma para plantar: qual string vai em qual campo é
+// decisão, e decisão mora na função pura. É a mesma regra que trouxe o
+// pareamento, aplicada à linha que ficou para trás.
+//
+// `content_type: "text"` NÃO É ACOPLAMENTO NOVO com a API do Instagram: este
+// arquivo já carrega as constantes da Meta que são REGRA — `LIMITE_DE_BOTOES` é
+// 13 porque o guia oficial diz 13, e a gramática dos payloads `AUTO:` é daqui.
+// O que ele continua não sabendo é como FALAR com a Meta: nada aqui monta
+// requisição, lê resposta ou importa `lib/ig.ts` (que segue sem import, e o
+// `grep -c "^import" lib/steps.ts` segue em 0). O tipo abaixo casa por ESTRUTURA
+// com `OutgoingMessage["quick_replies"]`, e é `lib/ig.ts` quem continua sendo o
+// dono do envio.
+export type BotaoDaMensagem = { content_type: "text"; title: string; payload: string };
 
 export function botoesDaMensagem(
   rotulos: unknown,
@@ -1933,7 +1959,7 @@ export function botoesDaMensagem(
       descartados++;
       continue;
     }
-    pares.push({ rotulo, payload });
+    pares.push({ content_type: "text", title: rotulo, payload });
   }
   return { botoes: pares.slice(0, LIMITE_DE_BOTOES), pareados: pares.length, descartados };
 }
