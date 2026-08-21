@@ -80,6 +80,13 @@
 // acusar. Medido, em 120 a 121 s: exaustiva A 76.020 e C 3.366.888 (B 849.150);
 // do menu A 112.380 e C 4.576.743 (B 1.974.317).
 //
+// E ELA JÁ QUEBROU CALADA UMA VEZ, por mudança de assinatura: três dos pontos de
+// chamada convertidos à mão ficaram sem o ramo `MODO_ANTIGO` e a contraprova
+// inteira foi a zero. Por isso existem, hoje, duas guardas que essa quebra teria
+// acendido — `comGuardaDeAssinatura`, logo abaixo dos imports, e a GUARDA DO
+// INSTRUMENTO, no fim do arquivo. Quem mexer nas assinaturas de lib/steps.ts vai
+// encontrar a primeira; quem quebrar de outro jeito, a segunda.
+//
 // OS PLANTIOS que esta varredura precisa acusar, e os números medidos — eles são
 // o critério de que ela DISCRIMINA, e não um enfeite. Refazê-los é o teste do
 // teste, e quem mexer aqui deve refazê-los.
@@ -214,7 +221,58 @@ const CAMINHO_STEPS = MODO_ANTIGO
   ? resolve(process.argv[argAntigo + 1])
   : resolve(import.meta.dirname, "../lib/steps.ts");
 
-const S = await import(pathToFileURL(CAMINHO_STEPS).href);
+const MODULO = await import(pathToFileURL(CAMINHO_STEPS).href);
+
+// A GUARDA DA ASSINATURA — e ela é a causa, não o sintoma.
+//
+// A Tarefa que colapsou o par `(passos, ligacoes)` em `Fluxo = {steps, ligacoes}`
+// converteu 163 pontos de chamada, 11 deles À MÃO, aqui dentro. Oito ganharam o
+// ramo `MODO_ANTIGO`; TRÊS NÃO — e o arquivo que a contraprova carrega é
+// POSICIONAL, de antes de `Fluxo` existir. Cada um desses três passou a entregar
+// o OBJETO onde o código antigo espera `passos`, ele caía no
+// `if (!Array.isArray(passos))` e devolvia lista vazia. A contraprova inteira foi
+// a zero — inclusive B, que nunca deu zero — e o único sinal foi
+// "CONTRAPROVA MUDA", que é indistinguível de "a varredura não discrimina mais".
+// Um instrumento desligado lendo como um instrumento honesto.
+//
+// ESTA GUARDA FAZ O DEFEITO GRITAR NO PONTO DE CHAMADA. No modo antigo, NENHUMA
+// função daquele arquivo aceita um `Fluxo` — o tipo é posterior a ele —, então
+// receber um objeto com as duas chaves só pode ser um ponto de chamada sem ramo.
+// Ela não tem lista de funções a manter em dia de propósito: envolve TODO export
+// que for função, e é por isso que ela continua valendo na próxima mudança de
+// assinatura, que é o que de fato vai acontecer.
+//
+// NO MODO ATUAL ELA NÃO EXISTE. O módulo passa inteiro e sem envoltório: o
+// caminho que produz os números da linha de base não ganha nem uma comparação a
+// mais, e a promessa de que "os números do modo atual não mudaram" continua
+// sendo sobre o mesmo código.
+const pareceFluxo = (v) =>
+  typeof v === "object" && v !== null && !Array.isArray(v) && "steps" in v && "ligacoes" in v;
+
+function comGuardaDeAssinatura(modulo) {
+  const guardado = {};
+  for (const [nome, valor] of Object.entries(modulo)) {
+    if (typeof valor !== "function") {
+      guardado[nome] = valor;
+      continue;
+    }
+    guardado[nome] = (...args) => {
+      const i = args.findIndex(pareceFluxo);
+      if (i !== -1) {
+        throw new Error(
+          `MODO ANTIGO: \`${nome}\` recebeu um objeto {steps, ligacoes} no argumento ${i}. ` +
+            "O lib/steps.ts da contraprova é POSICIONAL — ele leria esse objeto como `passos`, " +
+            "responderia \"a automação não tem lista de passos\" e a varredura mediria ZERO sem " +
+            "dizer por quê. Este ponto de chamada está sem o ramo `MODO_ANTIGO`; escreva os dois."
+        );
+      }
+      return valor(...args);
+    };
+  }
+  return guardado;
+}
+
+const S = MODO_ANTIGO ? comGuardaDeAssinatura(MODULO) : MODULO;
 
 // A escrita do payload de botão, do jeito que o sistema a faz.
 //
@@ -649,7 +707,11 @@ function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, p
   const partida = MODO_ANTIGO
     ? S.identidadeNoIndice(passos, retomada.destino)
     : retomada.destino;
-  const r = S.interpretar({ steps: passos, ligacoes }, partida);
+  // O ramo dos dois modos: `interpretar` era `(passos, ligacoes, deBloco)` no
+  // arquivo que a contraprova carrega, e virou `(fluxo, deBloco)` aqui.
+  const r = MODO_ANTIGO
+    ? S.interpretar(passos, ligacoes, partida)
+    : S.interpretar({ steps: passos, ligacoes }, partida);
 
   for (const acao of r.enfileirar) {
     const p = acao.passo;
@@ -734,7 +796,10 @@ function pontosDeEntrada(passos, ligacoes) {
   for (const l of ligacoes) {
     if (l.quando.tipo !== "botao") continue;
     const p = S.lerPayload(montarPayload("A", l.de, l.quando.botao));
-    const c = S.caminhoDoBotao(p, { steps: passos, ligacoes });
+    // `caminhoDoBotao` era `(p, passos, ligacoes)` no arquivo antigo.
+    const c = MODO_ANTIGO
+      ? S.caminhoDoBotao(p, passos, ligacoes)
+      : S.caminhoDoBotao(p, { steps: passos, ligacoes });
     if (!c) continue;
     if (MODO_ANTIGO) {
       // O buraco medido: índice CRU para `executarFluxo`, que o embrulha em
@@ -790,7 +855,13 @@ function pontosDeEntrada(passos, ligacoes) {
   }
 
   // O fallback.
-  const f = S.retomadaDoFallback({ steps: passos, ligacoes });
+  // `retomadaDoFallback` era `(passos, ligacoes)` e devolvia um ÍNDICE cru no
+  // arquivo antigo; hoje recebe o fluxo e devolve uma `Retomada`. O embrulho do
+  // índice em `{portao: null, destino}`, na linha de baixo, é o outro lado deste
+  // mesmo ramo.
+  const f = MODO_ANTIGO
+    ? S.retomadaDoFallback(passos, ligacoes)
+    : S.retomadaDoFallback({ steps: passos, ligacoes });
   if (f !== null) {
     empurrar("fallback", MODO_ANTIGO ? { portao: null, destino: f } : f);
   }
@@ -1041,4 +1112,36 @@ if (MODO_ANTIGO) {
   const limpo = vazouA === 0 && vazouC === 0;
   console.log(limpo ? "SEM VAZAMENTO em A nem em C, nas duas varreduras." : "VAZOU.");
   process.exitCode = limpo ? 0 : 1;
+}
+
+// A GUARDA DO INSTRUMENTO, e ela vale NOS DOIS MODOS.
+//
+// O parágrafo acima explica por que B fica fora do código de saída: ele não tem
+// valor-alvo, e prendê-lo a um número seria criar um limiar para alguém ajustar.
+// ISTO NÃO É UM LIMIAR — é a pergunta "esta varredura mediu ALGUMA COISA?".
+//
+// B conta as entregas sem portão em fluxos que o portão nem alcança. É o número
+// que o próprio desenho produz, e por construção do espaço de fluxos ele nunca
+// deu zero: 261.536 e 251.166 no modo atual, 849.150 e 1.974.317 na contraprova.
+// ZERO em B não é uma leitura boa, é o instrumento mudo — foi exatamente o que a
+// contraprova quebrada imprimiu, com os três contadores no chão, e o único aviso
+// que ela deu foi "CONTRAPROVA MUDA", que qualquer um lê como "o código de hoje
+// e o de ontem ficaram parecidos".
+//
+// Ela é a rede de FORA da guarda de assinatura, e as duas não são redundantes: a
+// de assinatura sabe reconhecer UM defeito (o ponto de chamada sem ramo) e diz o
+// nome dele; esta não sabe reconhecer nenhum, e por isso pega os que virão.
+for (const [nome, t] of [
+  ["exaustiva", exaustiva],
+  ["do menu", doMenu],
+]) {
+  if (t.vazamentosB === 0) {
+    console.log(
+      `INSTRUMENTO MUDO: a varredura ${nome} mediu ZERO entrega sem portão em B. ` +
+        "B é o que a MONTAGEM abre e nenhum código fecha; por construção do espaço de fluxos " +
+        "ele nunca é zero. Zero aqui não é um resultado — é a varredura não tendo percorrido " +
+        "nada, e todo zero em A e em C ao lado dele não prova coisa alguma."
+    );
+    process.exitCode = 1;
+  }
 }
