@@ -1,6 +1,7 @@
 # Implantação da Fase 2a — ramificação por botões
 
-**Estado:** as doze tarefas terminaram; falta a revisão final da branch. **A
+**Estado:** as doze tarefas terminaram, a revisão final da branch foi feita em
+três frentes, e **os nove itens de tela foram provados ao vivo em 21/08**. **A
 ordem já está fechada** e é o que este documento existe para registrar, porque
 errá-la quebra todas as automações em silêncio.
 
@@ -212,38 +213,66 @@ Medido em `Fluxo de teste 1a` (5 blocos, nenhuma seta gravada):
   habilitado — é a decisão da Tarefa 5 confirmada na tela, e é o que impede o
   dono de ser trancado fora das automações antigas antes da migração
 
-### AINDA POR PROVAR — confira antes de considerar a fase entregue
+### PROVADO NA TELA em 21/08 — os nove, com o navegador do dono
 
-A conexão da ferramenta de navegador passou a estourar tempo no envio de eventos
-de arrasto, e estes ficaram sem medição:
+A depuração remota foi liberada e **todos os itens que faltavam foram medidos ao
+vivo**, no editor real, com 30 capturas guardadas. Nenhum defeito de produto.
 
-- [ ] apertar **Backspace dentro de um campo de texto do painel NÃO apaga a seta
-      selecionada** — a proteção existe na biblioteca (verificada por leitura do
-      `node_modules`), mas não foi exercitada na tela
-- [ ] a ligação criada **sobrevive ao salvar e reabrir**
-- [ ] soltar um bloco **sobre uma seta** o põe no meio, com as duas ligações
-      resultantes certas
-- [ ] soltar num ponto vazio cria **bloco solto**, e a barra avisa em âmbar sem
-      travar o salvar
-- [ ] um bloco com dois botões mostra **duas alças, cada uma nomeada** — depende
-      da Tarefa 7, que é quem cria botões pelo painel
-- [ ] a mensagem **"Salvo, mas ficou pausada: …"** aparece legível e inteira —
-      ela estava cortada em 100% dos casos e ganhou bloco próprio na Tarefa 6b
-- [ ] **a chave "entregar sem exigir o follow" CALA a acusação do portão
-      contornável — e só ela.** A Tarefa 9 provou na tela a metade fácil: com um
-      fluxo cujos 8 impedimentos são de outras regras, marcar a caixa deixou os 8
-      **caractere por caractere iguais**. Falta a metade que exige montar a forma:
-      um caminho que chegue ao link sem passar pelo pedido de follow. Desmarcada,
-      a barra tem que acusar e o Salvar tem que deixar pausada; marcada, a mesma
-      automação publica. Montar isso exige **arrastar setas**, que é justamente o
-      gesto que a medição automatizada não alcançou.
-      Fora da tela isso está coberto por 10 testes puros e por três mutações que
-      ficam vermelhas — a estreiteza é a parte mais medida desta fase. O que falta
-      é ver com os olhos.
+- [x] **Backspace num campo do painel NÃO apaga a seta selecionada.** O cenário
+      só existe com Ctrl segurado (nó + seta selecionados, painel aberto). A seta
+      continuou lá **entre o keyDown e o keyUp**, e o campo perdeu um caractere —
+      que é o que impede a prova de ser vazia
+- [x] **A ligação sobrevive ao salvar e reabrir** — gravada no banco, redesenhada
+- [x] **Bloco solto SOBRE a seta entra no meio.** Medido DURANTE o `dragover`: a
+      seta acendeu, e as duas ligações resultantes foram conferidas pelo ponto de
+      saída do traço, não pelo estado final
+- [x] **Ponto vazio cria bloco solto**, a barra avisa em âmbar, o Salvar continua
+      habilitado
+- [x] **Dois botões, duas alças nomeadas** — e `+ Adicionar botão` faz a alça
+      nascer na hora
+- [x] **"Salvo, mas ficou pausada: …"** aparece na largura inteira, sem truncar,
+      e a caixa "Ativa" volta sozinha para desmarcada
+- [x] **A chave do portão CALA a acusação, e só ela.** A forma que faltava foi
+      montada: menu com um braço passando pelo portão e outro direto no link.
+      Desmarcada, um único impedimento e `ativa: false` no banco; marcada, barra
+      muda e a **mesma automação publicou**; desmarcando, a acusação volta
+- [x] **O menu solto sobre a seta RECUSA** — e a prova é do jeito certo: **no
+      mesmo ponto (609,384)** em que "Mensagem" acendeu a seta e a partiu,
+      "Mensagem com opções" não acendeu nada e virou bloco solto
+- [x] **A alça "continuação"** mostra a seta, **não começa** arrasto, **não
+      termina** arrasto (classes durante o gesto: `connectingto` sem `valid`,
+      contra `connectingto valid` na alça normal) e **apaga com Delete**
 
-**E meça durante o gesto, não antes e depois.** Nesta base a comparação
-antes/depois já aprovou item quebrado quatro vezes, porque o defeito preservava o
-estado final.
+#### O que essa sessão ensinou, e vale mais que os itens
+
+**Um quase-falso-positivo.** No item da alça "continuação", a primeira medição
+disse "não criou nada" — mas o **controle na alça normal também não criou**. Só
+depois de dar tempo de assentamento o controle passou a funcionar, e aí a recusa
+virou prova. **Sem o controle, o item teria passado pelo motivo errado.**
+
+**Um sintoma disfarçado.** No meio da sessão cada evento de mouse passou a custar
+~5s e estourar o socket. O sintoma não foi um erro: o quadro **panoramizava** em
+vez de arrastar. Resolvido subindo o tempo limite.
+
+**Nenhum `mousePressed` ficou sem `mouseReleased`.** Três scripts estouraram
+tempo no meio de um gesto; nas três o `finally` correu, e depois foi conferido
+`dragging === false`, sem traço de conexão e setas intactas. É a regra que nasceu
+do dia em que a tela do dono ficou travada por minutos.
+
+#### Uma correção a este documento
+
+Este roteiro dizia que a ligação gravada de "Fluxo de teste 1a" produzia o caso
+da alça de sobra. **Não produz:** ela é `botao/op_zgg37i` e **esse botão existe**,
+então ela tem alça própria. O caso teve de ser construído à mão (soltar menu →
+apagar os dois botões → arrastar a `sempre` → recolocar um botão).
+
+#### O estado foi devolvido
+
+Todo trabalho destrutivo foi feito numa **cópia** criada pelo botão Duplicar e
+excluída pela tela ao fim. As duas automações estão como estavam — "Fluxo de
+teste 1a" com 6 blocos e 1 ligação, "Bacana" com 2 blocos e 0 —, ambas pausadas.
+A cópia esteve ativa por menos de um minuto e **nunca disparou; nada foi enviado
+a perfil nenhum.**
 
 ### 8 · A prova que não pôde ser dada antes
 
