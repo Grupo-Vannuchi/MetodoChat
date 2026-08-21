@@ -32,9 +32,13 @@ import { scheduleTick } from "./qstash";
 // `retomadaDoEmailConhecido` é a QUINTA, e a última, e ela é a que prova que a
 // lista não estava completa: as quatro acima saíram, a regra do portão foi
 // escrita, e este ponto CONTINUOU escapando dela por um detalhe de tipo — ele
-// devolvia uma string, e string entra em `executarFluxo` como
+// devolvia uma string, e string ENTRAVA em `executarFluxo` como
 // `{ portao: null, destino }`. Enquanto a decisão ficou aqui, a suíte inteira
 // ficou verde por cima de um link entregue a quem não segue.
+//
+// O tempo verbal do parágrafo acima é passado por um motivo: `executarFluxo`
+// não aceita mais string. O parâmetro é `Retomada`, e o único jeito de entrar
+// com destino cru é dizer `semRegraDoPortao` — ver o comentário dela.
 import {
   interpretar,
   envioDaDm,
@@ -469,15 +473,38 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 // (`retomadaDoBotao`, `retomadaDoFollow`, `retomadaDoTexto`, `retomadaDoFallback`
 // e `caminhoDoBotao`, lib/steps.ts). Só eles podem cair do outro lado de um
 // portão, e é só por eles que a regra do portão precisa entrar aqui.
+//
+// A DISPENSA DELIBERADA da regra do portão passa por AQUI, e só por aqui.
+//
+// Ela existe: três dos oito pontos de chamada de `executarFluxo` entram sem
+// `Retomada` de propósito — o gatilho de comentário, o gatilho de mensagem e o
+// portão recém-vencido —, e o porquê de cada um está escrito no próprio ponto
+// de chamada. O que faltava era a dispensa ser DIZÍVEL: enquanto o parâmetro
+// aceitava `string | null | Retomada`, escrever `.destino` num ponto de chamada
+// jogava a regra do portão fora e ficava IDENTICO a uma dispensa legítima —
+// as duas coisas eram "uma string". Medido no commit 4ba91f7, com os CINCO
+// `.destino` plantados de uma vez: eslint 0, tsc 0, 675 testes verdes e a
+// varredura imprimindo "SEM VAZAMENTO" byte a byte igual à linha de base.
+//
+// Com o parâmetro estreitado para `Retomada`, `.destino` num ponto de chamada
+// deixa de compilar (TS2345), e a dispensa deixa de ser invisível: ela passa a
+// ter NOME, e o nome é `grep`-ável. Três ocorrências de `semRegraDoPortao` são
+// as três dispensas; uma quarta é alguém dispensando a regra de novo, e a
+// revisão vê isso no diff.
+//
+// O que ela NÃO compra, e precisa estar dito: ela não pega passar a `Retomada`
+// ERRADA, nem inverter dois parâmetros. Isso continua sem rede aqui.
+function semRegraDoPortao(destino: string | null): Retomada {
+  return { portao: null, destino };
+}
+
 async function executarFluxo(
   account: Account,
   auto: Automation,
   contactIgId: string,
-  de: string | null | Retomada,
+  retomada: Retomada,
   contexto: ContextoGatilho = {}
 ): Promise<void> {
-  const retomada: Retomada =
-    de !== null && typeof de === "object" ? de : { portao: null, destino: de };
 
   // O PORTÃO DE PASSAGEM: atravessa, e segue para o destino.
   //
@@ -697,8 +724,11 @@ async function executarFluxo(
       // `identidadeNoIndice(auto.steps, 0)`), pela mesma dispensa. A varredura
       // documenta essa dispensa à exaustão
       // (scripts/varredura-portao.mjs, o ponto "gatilho", que entra "pela porta
-      // da frente" e é medido à parte dos cinco pontos de RETOMADA). Passa
-      // string crua de propósito, e o motivo está por escrito no ramo
+      // da frente" e é medido à parte dos cinco pontos de RETOMADA). Os TRÊS
+      // dizem a dispensa pelo nome, com `semRegraDoPortao` — são as três
+      // únicas ocorrências dela no arquivo, e é assim que quem lê o diff
+      // distingue uma dispensa deliberada de uma regra jogada fora. O motivo
+      // está por escrito no ramo
       // `pedir_email` logo abaixo, junto com o do ramo que FAZ o contrário — os
       // dois lados da assimetria ficam num lugar só para ninguém "consertar"
       // metade dela. Em uma linha: aqui o destino é `seguinteDe(portão)`, então
@@ -708,7 +738,7 @@ async function executarFluxo(
       if (r === "passou") {
         return executarFluxo(
           account, auto, contactIgId,
-          seguinteDe(auto.ligacoes, identidadeDoPasso(p, acao.indice)),
+          semRegraDoPortao(seguinteDe(auto.ligacoes, identidadeDoPasso(p, acao.indice))),
           contexto
         );
       }
@@ -762,7 +792,8 @@ async function executarFluxo(
       //     chegar num destino que o PORTÃO também alcança, por outro braço —
       //     uma junção no bloco de link basta, e é o grafo mais banal do quadro.
       //     Enquanto isto passou `seguinteDe` como string crua, `executarFluxo`
-      //     a embrulhava em `{ portao: null, destino }` e `atravessandoOPortao`
+      //     a embrulhava em `{ portao: null, destino }` — o embrulho que hoje só
+      //     acontece por `semRegraDoPortao`, com nome — e `atravessandoOPortao`
       //     não era chamada NENHUMA VEZ: o link saía para quem não segue. Medido,
       //     e no mesmo grafo `retomadaDoFallback` devolvia `{ portao, destino }`
       //     para o mesmo bloco de chegada — duas respostas opostas à mesma
@@ -1467,7 +1498,7 @@ export async function handleCommentEvent(entryId: string | undefined, value: Com
   // array guarda depois da caminhada por grafo: onde a caminhada começa quando o
   // gatilho dispara. O zero de antes queria dizer isso; agora ele é dito por
   // identidade, que é a língua de `interpretar`.
-  await executarFluxo(account, auto, fromId, identidadeNoIndice(auto.steps, 0), { commentId });
+  await executarFluxo(account, auto, fromId, semRegraDoPortao(identidadeNoIndice(auto.steps, 0)), { commentId });
 }
 
 export async function handleMessagingEvent(entryId: string | undefined, ev: MessagingEvent) {
@@ -1743,7 +1774,7 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     // porque só o gatilho o conhece.
     // A entrada é `steps[0]`, dita por identidade — o mesmo do gatilho de
     // comentário, e pelo mesmo motivo.
-    await executarFluxo(account, auto, senderId, identidadeNoIndice(auto.steps, 0), {
+    await executarFluxo(account, auto, senderId, semRegraDoPortao(identidadeNoIndice(auto.steps, 0)), {
       messageId: msg.mid,
     });
     return;
