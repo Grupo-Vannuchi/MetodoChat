@@ -2545,11 +2545,11 @@ describe("conferirLista", () => {
   const portao = { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" };
   const link = { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com", botao_label: "Abrir" };
 
-  const erros = (ps: unknown, g = "dm") => conferirLista(ps, g).filter((p) => p.nivel === "erro");
-  const avisos = (ps: unknown, g = "dm") => conferirLista(ps, g).filter((p) => p.nivel === "aviso");
+  const erros = (ps: unknown, g = "dm") => conferirLista(ps, g, []).filter((p) => p.nivel === "erro");
+  const avisos = (ps: unknown, g = "dm") => conferirLista(ps, g, []).filter((p) => p.nivel === "aviso");
 
   it("lista boa não tem problema nenhum", () => {
-    expect(conferirLista([bem, portao, link], "dm")).toEqual([]);
+    expect(conferirLista([bem, portao, link], "dm", [])).toEqual([]);
   });
 
   it("ERRO: lista vazia entrega zero", () => {
@@ -2596,7 +2596,7 @@ describe("conferirLista", () => {
 
   it("no gatilho de story o coraçãozinho não tem nem erro nem aviso", () => {
     const coracao = { id: "b_cor005", tipo: "reagir_story", emoji: "❤️" };
-    expect(conferirLista([bem, coracao], "story")).toHaveLength(0);
+    expect(conferirLista([bem, coracao], "story", [])).toHaveLength(0);
   });
 
   it("ERRO: coraçãozinho no gatilho de comentário — ali não chega mensagem nenhuma", () => {
@@ -2743,12 +2743,12 @@ describe("conferirLista", () => {
     //
     // SEM SETA NENHUMA a lista fica limpa: nenhuma regra de grafo fala, e o
     // aviso posicional era a única que falava.
-    expect(conferirLista([bem, link, portao], "dm")).toEqual([]);
+    expect(conferirLista([bem, link, portao], "dm", [])).toEqual([]);
 
     // Com mais de um link antes do portão, idem — este é o caso que o teste do
     // "PRIMEIRO link" cobria.
     const outroLink = { id: "b_lnk099", tipo: "dm", texto: "Outro link", url: "https://z.com" };
-    expect(conferirLista([bem, link, outroLink, portao], "dm")).toEqual([]);
+    expect(conferirLista([bem, link, outroLink, portao], "dm", [])).toEqual([]);
 
     // E SEM PORTÃO NENHUM, idem. Este caso teve teste próprio ("sem portão
     // nenhum, o link não é avisado") enquanto o aviso existia: lá ele media uma
@@ -2757,7 +2757,7 @@ describe("conferirLista", () => {
     // no presente, uma regra morta. Ficou aqui, dentro do teste que explica a
     // morte, porque o que ele ainda vale é a companhia deste: seja com portão
     // ou sem, a lista sem seta nenhuma é limpa.
-    expect(conferirLista([bem, link], "dm")).toEqual([]);
+    expect(conferirLista([bem, link], "dm", [])).toEqual([]);
   });
 
   it("AVISO: espera no fim da lista não atrasa nada", () => {
@@ -4069,8 +4069,10 @@ describe("conferirLista em dois níveis", () => {
     // fase chega sem seta alguma, e quem as escreve é a migração
     // (`scripts/ligar-passos-existentes.mjs --aplicar`), que é DADO. Acusar
     // aqui trancaria o dono fora do painel de toda automação antiga.
+    // A lista VAZIA de setas é escrita à mão aqui porque `ligacoes` não tem mais
+    // valor-padrão: a chamada de dois argumentos deixou de compilar, de
+    // propósito. Ver o parágrafo `ligacoes` NÃO TEM PADRÃO em `conferirLista`.
     expect(conferirLista([bem, portao, link], "dm", [])).toEqual([]);
-    expect(conferirLista([bem, portao, link], "dm")).toEqual([]);
   });
 
   it("os erros que já existiam continuam sendo de SALVAR", () => {

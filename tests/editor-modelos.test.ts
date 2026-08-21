@@ -76,7 +76,7 @@ describe("resumoDoBloco não derruba a página com o que está no banco", () => 
     // A outra metade da mesma decisão. Desenhar o bloco só vale a pena porque a
     // conferência fala sobre ele — é isso que troca "apagado em silêncio" por
     // "o dono decide".
-    const problemas = conferirLista([{ id: "b_abc123", tipo: "ramificar" }], "dm");
+    const problemas = conferirLista([{ id: "b_abc123", tipo: "ramificar" }], "dm", []);
     expect(problemas.filter((p) => p.nivel === "erro")).toHaveLength(1);
     expect(problemas[0].indice).toBe(0);
   });
@@ -117,7 +117,7 @@ describe("resumoDoBloco classifica o MENU pela FORMA", () => {
     // aceita `[]`.
     expect(resumoDoBloco(doBanco({ tipo: "dm", texto: "t", botoes: [] })).titulo).toBe("MENSAGEM");
     expect(
-      conferirLista([{ id: "b_abc123", tipo: "dm", texto: "t", botoes: [] }], "dm")
+      conferirLista([{ id: "b_abc123", tipo: "dm", texto: "t", botoes: [] }], "dm", [])
     ).toEqual([]);
   });
 
@@ -140,7 +140,8 @@ describe("resumoDoBloco classifica o MENU pela FORMA", () => {
     expect(
       conferirLista(
         [{ id: "b_abc12345", tipo: "dm", texto: "t", url: "", botoes: [{ id: "op_1", rotulo: "A" }] }],
-        "dm"
+        "dm",
+        []
       ).filter((p) => p.nivel === "erro" && p.quando === "salvar")
     ).toHaveLength(1);
   });
@@ -216,7 +217,7 @@ describe("blocoNovo", () => {
       // regras de grafo ficam caladas (não há seta nenhuma). O que este teste
       // fixa é que o CONTEÚDO do menu nasce inteiro: nada de rótulo em branco,
       // nada de menu de um botão só.
-      expect(conferirLista([menu], "dm")).toEqual([]);
+      expect(conferirLista([menu], "dm", [])).toEqual([]);
     });
 
     it("dois blocos criados na mesma sessão não compartilham id de botão", () => {

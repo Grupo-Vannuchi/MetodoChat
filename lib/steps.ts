@@ -2926,6 +2926,28 @@ const SO_UM_POR_LISTA: Record<string, string> = {
 // automação gravada antes da coluna existir — e uma chamada de três argumentos
 // que ninguém atualizou — não mudar de veredicto.
 //
+// ELA É O ÚNICO PADRÃO QUE SOBROU NESTA ASSINATURA, e sobrou por uma medida, não
+// por simetria: `false` é o valor MAIS ESTRITO dos dois. Ligar a chave só APAGA
+// um erro de ativar (o do portão contornável) e não acende nenhum — é o que o
+// describe "A CHAVE É ESTREITA" mede par a par —, então omiti-la nunca deixa uma
+// lista passar por engano. O padrão de `ligacoes` era o contrário disso, e por
+// isso morreu: ver o parágrafo logo abaixo.
+//
+// `ligacoes` NÃO TEM PADRÃO, E A AUSÊNCIA É A CORREÇÃO DE UM DEFEITO LATENTE.
+// Ela já teve `= []`, e esse valor era fail-OPEN: sem setas, `temSeta` é falso e
+// TODAS as regras de grafo — bloco inalcançável, botão sem destino, beco sem
+// saída, portão contornável — deixam de rodar sem uma palavra. Medido sobre uma
+// lista com portão contornável por desenho:
+//
+//   conferirLista(g, "dm", lg, false)  ->  erro de ativar   podeFicarAtiva: false
+//   conferirLista(g, "dm")             ->  []               podeFicarAtiva: true
+//
+// Ou seja: a variante curta PUBLICAVA um fluxo que entrega o link a quem não
+// segue — a promessa central do produto — e nenhum dos três chamadores de
+// produção jamais a produziu. Era uma variante que só existia para o dia em que
+// alguém escrevesse a quarta chamada e esquecesse um argumento. Sem o padrão,
+// esse dia vira erro de `tsc`, e não uma automação publicada errada.
+//
 // ELA DESLIGA UMA REGRA SÓ, e a estreiteza é o produto inteiro desta tarefa:
 // botão sem destino, bloco inalcançável, menu grande demais, portão sem saída e
 // o anel de `sempre` continuam falando com ela ligada. Uma chave que cala mais
@@ -2935,7 +2957,7 @@ const SO_UM_POR_LISTA: Record<string, string> = {
 export function conferirLista(
   passos: unknown,
   gatilho: string,
-  ligacoes: unknown = [],
+  ligacoes: unknown,
   entregaSemPortao: boolean = false
 ): Problema[] {
   const r: Problema[] = [];
