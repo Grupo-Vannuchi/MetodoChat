@@ -212,6 +212,9 @@ function Botoes({
   aoApagarBotao: (indice: number) => void;
 }) {
   const lista: unknown[] = Array.isArray(passo.botoes) ? passo.botoes : [];
+  // O TETO DA META, lido uma vez: ele decide o botão de acrescentar e a frase
+  // que explica por que ele está apagado.
+  const noTeto = lista.length >= LIMITE_DE_BOTOES;
   const chaves = chavesDasLinhas(lista);
   const gravar = (novos: unknown[]) => aoMudar({ ...passo, botoes: novos as Botao[] });
 
@@ -271,10 +274,41 @@ function Botoes({
         })}
       </ul>
 
+      {/* NO TETO, ELE APAGA — e este é o único gesto do painel cujo efeito era
+          sempre inútil. O 14º botão nasce, ocupa uma linha, aceita texto e
+          seta, e NUNCA É ENTREGUE: `botoesDaMensagem` (lib/steps.ts) corta em
+          `LIMITE_DE_BOTOES`, que é o teto da Meta. Quem acusava era
+          `conferirLista`, como erro de ATIVAR — ou seja, depois de o trabalho
+          estar feito.
+
+          `aria-disabled` E NÃO `disabled`, pelo mesmo motivo da paleta
+          (./paleta): o atributo tiraria o botão da tabulação e levaria junto o
+          `title`, que é a única explicação de por que ele está apagado. A
+          guarda no `onClick` é o que de fato impede — `aria-disabled` só
+          anuncia.
+
+          A CONTA É `lista.length` E NÃO O NÚMERO DE BOTÕES VÁLIDOS, e é de
+          propósito: o corte da Meta é por POSIÇÃO na lista que sai
+          (`botoesDaMensagem` peneira e DEPOIS corta), então quem está no teto
+          com um botão sem texto no meio da lista não ganha uma vaga a mais —
+          ele tem uma linha para consertar. */}
       <button
         type="button"
-        onClick={() => gravar([...lista, { id: novoIdDeBotao(), rotulo: "" }])}
-        className="mt-1.5 rounded-lg border border-dashed border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-indigo-500 dark:hover:text-indigo-400"
+        onClick={() => {
+          if (noTeto) return;
+          gravar([...lista, { id: novoIdDeBotao(), rotulo: "" }]);
+        }}
+        aria-disabled={noTeto}
+        title={
+          noTeto
+            ? `Uma mensagem do Instagram cabe ${LIMITE_DE_BOTOES} botões, e este menu já tem ${lista.length}.`
+            : undefined
+        }
+        className={`mt-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          noTeto
+            ? "cursor-not-allowed border-zinc-300 text-zinc-300 dark:border-zinc-800 dark:text-zinc-700"
+            : "border-zinc-300 text-zinc-600 hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-indigo-500 dark:hover:text-indigo-400"
+        }`}
       >
         + Adicionar botão
       </button>

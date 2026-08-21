@@ -95,7 +95,7 @@ export type Bolha =
   //     para ela. Fica anotado aqui em vez de voltar a ser premissa.
   //
   // E HÁ UM SEXTO CASO QUE NEM CHEGA A ESTA BOLHA, e ele é irmão do último: o
-  // BLOCO QUE DEIXOU DE SER MENU. Digitar uma URL num menu já ligado faz
+  // BLOCO QUE DEIXOU DE SER MENU. Um bloco com `url` E `botoes` faz
   // `envioDaDm` (lib/steps.ts) devolver `link`, as ligações de botão continuam
   // gravadas, e `caminhoDoBotao` continua entregando o braço delas — mas a cena
   // não desenha `botoes` nenhum, porque o bloco não é mais um menu. Então o braço
@@ -353,9 +353,19 @@ type Saida = { para: string; quando: Quando };
 //   O TOQUE DE UM BLOCO QUE DEIXOU DE SER MENU, e este é o mesmo defeito num
 //     vizinho, encontrado depois de os dois de cima terem sido fechados. O ramo
 //     do toque só existia sob `envioDaDm(passo).forma === "botoes"`, e o motor
-//     não pergunta isso. UM GESTO produz o caso: digitar uma URL num menu já
-//     ligado — `envioDaDm` (lib/steps.ts) dá precedência a `url` sobre `botoes`,
-//     `apagarBotao` (./modelos) não roda, e as ligações de botão ficam para trás.
+//     não pergunta isso. O caso é um bloco com `url` E `botoes`: `envioDaDm`
+//     (lib/steps.ts) dá precedência a `url` sobre `botoes`, `apagarBotao`
+//     (./modelos) não roda, e as ligações de botão ficam para trás.
+//
+//     AQUI ESTEVE ESCRITO QUE UM GESTO O PRODUZ — "digitar uma URL num menu já
+//     ligado" —, e isso é FALSO: não há onde digitar. O campo do endereço só
+//     aparece sob `passo.url !== undefined` (./painel) e o editor de botões só
+//     sob `passo.botoes !== undefined`; nenhum item da paleta semeia as duas
+//     chaves (`blocoNovo`, ./modelos: `url: ""` só em `dm_link`, `botoes` só em
+//     `dm_opcoes`). Chega-se lá por dado legado ou por POST direto — o mesmo
+//     lugar de onde vem o caso de cima. A correção fica de pé sem a premissa:
+//     ela fez a prévia mostrar MAIS, e o motor entrega esse braço venha o dado
+//     de onde vier.
 //     Medido, com o menu ligado a `b_toca001` e uma `senao` a `b_digit01`: a
 //     prévia desenhava `["b_menu001","b_digit01"]` — o braço do botão SUMIU —,
 //     abrir `b_toca001` mostrava um bloco solto, `caminhoDoBotao` entregava
