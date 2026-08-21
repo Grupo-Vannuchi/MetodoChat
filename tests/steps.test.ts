@@ -57,7 +57,7 @@ import type { EnvioDaDm, Problema } from "../lib/steps";
 // da caminhada por grafo continuarem dizendo o que sempre disseram.
 //
 // Ela existe para essa continuidade ser VISÍVEL: onde um teste chama
-// `interpretar(passos, emCorrente(passos), "0")`, ele está afirmando "com a
+// `interpretar({steps: passos, ligacoes: emCorrente(passos)}, "0")`, ele está afirmando "com a
 // corrente da migração, o comportamento é o de antes". Os testes que provam a
 // caminhada em si montam as ligações à mão, e é assim que se distingue um do
 // outro.
@@ -79,7 +79,7 @@ describe("interpretar", () => {
       { tipo: "dm", texto: "oi" },
       { tipo: "dm", texto: "aqui está o link", url: "https://x.y" },
     ];
-    const r = interpretar(passos, emCorrente(passos), "0");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar.map((a) => a.indice)).toEqual([0, 1]);
     expect(r.pararEm).toBeNull();
   });
@@ -91,7 +91,7 @@ describe("interpretar", () => {
       { tipo: "pedir_follow", texto: "me segue", botao_label: "já sigo" },
       { tipo: "dm", texto: "link" },
     ];
-    const r = interpretar(passos, emCorrente(passos), "0");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar.map((a) => a.indice)).toEqual([0, 1]);
     expect(r.pararEm).toBe("1");
   });
@@ -104,7 +104,7 @@ describe("interpretar", () => {
       { tipo: "dm", texto: "oi", botao_label: "quero!" },
       { tipo: "pedir_follow", texto: "me segue", botao_label: "já sigo" },
     ];
-    const r = interpretar(passos, emCorrente(passos), "0");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar.map((a) => a.indice)).toEqual([0]);
     expect(r.pararEm).toBe("0");
   });
@@ -115,7 +115,7 @@ describe("interpretar", () => {
       { tipo: "dm", texto: "o link", botao_label: "abrir", url: "https://x.y" },
       { tipo: "dm", texto: "depois" },
     ];
-    const r = interpretar(passos, emCorrente(passos), "0");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar.map((a) => a.indice)).toEqual([0, 1]);
     expect(r.pararEm).toBeNull();
   });
@@ -125,7 +125,7 @@ describe("interpretar", () => {
       { tipo: "dm", texto: "oi" },
       { tipo: "dm", texto: "tchau" },
     ];
-    const r = interpretar(passos, emCorrente(passos), "0");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar.map((a) => a.indice)).toEqual([0, 1]);
     expect(r.pararEm).toBeNull();
   });
@@ -136,7 +136,7 @@ describe("interpretar", () => {
       { tipo: "pedir_follow", texto: "me segue", botao_label: "já sigo" },
       { tipo: "dm", texto: "link" },
     ];
-    const r = interpretar(passos, emCorrente(passos), "2");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "2");
     expect(r.enfileirar.map((a) => a.indice)).toEqual([2]);
     expect(r.pararEm).toBeNull();
   });
@@ -147,7 +147,7 @@ describe("interpretar", () => {
       { tipo: "esperar", minutos: 60 },
       { tipo: "dm", texto: "lembrete" },
     ];
-    const r = interpretar(passos, emCorrente(passos), "0");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar.map((a) => [a.indice, a.atrasoSegundos])).toEqual([
       [0, 0],
       [2, 3600],
@@ -160,7 +160,7 @@ describe("interpretar", () => {
       { tipo: "esperar", minutos: 5 },
       { tipo: "dm", texto: "depois" },
     ];
-    const r = interpretar(passos, emCorrente(passos), "0");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar[0].atrasoSegundos).toBe(900);
   });
 
@@ -168,20 +168,20 @@ describe("interpretar", () => {
     // Automação mal montada tem que virar linha em Atividade, não exceção que
     // derruba o webhook e faz a Meta reenviar por 36 horas.
     const passos = [{ tipo: "dm", texto: "ok" }, { tipo: "inventado" }, { tipo: "dm", texto: "fim" }];
-    const r = interpretar(passos, emCorrente(passos), "0");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar.map((a) => a.indice)).toEqual([0, 2]);
     expect(r.ignorados).toEqual([{ indice: 1, motivo: "tipo desconhecido: inventado" }]);
   });
 
   it("pula dm sem texto", () => {
     const passos = [{ tipo: "dm" }, { tipo: "dm", texto: "vale" }];
-    const r = interpretar(passos, emCorrente(passos), "0");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar.map((a) => a.indice)).toEqual([1]);
     expect(r.ignorados[0].motivo).toBe("dm sem texto");
   });
 
   it("lista que não é lista não estoura", () => {
-    const r = interpretar(null, [], "0");
+    const r = interpretar({ steps: null, ligacoes: [] }, "0");
     expect(r.enfileirar).toEqual([]);
     expect(r.pararEm).toBeNull();
     expect(r.ignorados[0].motivo).toBe("a automação não tem lista de passos");
@@ -193,13 +193,13 @@ describe("interpretar", () => {
     // motor limpa o cursor e ninguém recebe nada — sem nenhum evento dizendo
     // por quê. E `[]` é o `default '[]'::jsonb` da coluna, ou seja, é o que
     // toda automação criada antes desta branch tem até ser salva de novo.
-    const r = interpretar([], [], "0");
+    const r = interpretar({ steps: [], ligacoes: [] }, "0");
     expect(r.enfileirar).toEqual([]);
     expect(r.pararEm).toBeNull();
     expect(r.ignorados).toEqual([{ indice: -1, motivo: "a automação não tem nenhum passo" }]);
     // Motivo PRÓPRIO: quem lê Atividade precisa distinguir "a coluna não é uma
     // lista" (dado corrompido) de "a lista está vazia" (automação sem fluxo).
-    expect(r.ignorados[0].motivo).not.toBe(interpretar(null, [], "0").ignorados[0].motivo);
+    expect(r.ignorados[0].motivo).not.toBe(interpretar({ steps: null, ligacoes: [] }, "0").ignorados[0].motivo);
   });
 
   it("dm com rótulo VAZIO não espera nada", () => {
@@ -211,7 +211,7 @@ describe("interpretar", () => {
       { tipo: "dm", texto: "oi", botao_label: "" },
       { tipo: "dm", texto: "o link", url: "https://x.y" },
     ];
-    const r = interpretar(passos, emCorrente(passos), "0");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar.map((a) => a.indice)).toEqual([0, 1]);
     expect(r.pararEm).toBeNull();
   });
@@ -232,7 +232,7 @@ describe("interpretar", () => {
     // volta ao balde compartilhado, e a ausência de qualquer outro campo no
     // resultado é o que impede um sinal próprio de renascer.
     const passos = [{ tipo: "dm", texto: "oi" }];
-    const r = interpretar(passos, emCorrente(passos), identidadeNoIndice(passos, 99));
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, identidadeNoIndice(passos, 99));
     expect(r.enfileirar).toEqual([]);
     expect(r.pararEm).toBeNull();
     expect(r.ignorados).toEqual([]);
@@ -243,7 +243,7 @@ describe("interpretar", () => {
 
   it("esperar com minutos inválido é ignorado e não atrasa nada", () => {
     const passos = [{ tipo: "esperar", minutos: -5 }, { tipo: "dm", texto: "x" }];
-    const r = interpretar(passos, emCorrente(passos), "0");
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar[0].atrasoSegundos).toBe(0);
     expect(r.ignorados[0].motivo).toBe("esperar com minutos inválido");
   });
@@ -364,7 +364,7 @@ describe("indiceDoPortao", () => {
     expect(indiceDoPortao(passos)).toBe(1);
     expect(indiceDoPortao(passos)).not.toBe(0);
     // E a confirmação do porquê: do zero, o fluxo para antes do portão.
-    expect(interpretar(passos, emCorrente(passos), "0").pararEm).toBe("0");
+    expect(interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0").pararEm).toBe("0");
   });
 
   it("lista sem pedir_follow devolve null", () => {
@@ -420,7 +420,7 @@ describe("indiceDoPortao", () => {
     expect(indiceDoPortao(passos)).toBe(0);
     // Sem passagem: o destino É o portão, e `interpretar` o encontra sozinho.
     expect(
-      retomadaDoFollow({ passoId: null, automationId: null }, "A", passos, emCorrente(passos))
+      retomadaDoFollow({ passoId: null, automationId: null }, "A", { steps: passos, ligacoes: emCorrente(passos) })
     ).toEqual({ portao: null, destino: "0" });
   });
 });
@@ -464,7 +464,7 @@ describe("retomadaDoFallback", () => {
     ];
     // O destino é a seta `sempre` que sai da boas-vindas, e não a posição de
     // baixo: com identidade não há `+1` a escrever.
-    expect(retomadaDoFallback(passos, emCorrente(passos))).toEqual({
+    expect(retomadaDoFallback({ steps: passos, ligacoes: emCorrente(passos) })).toEqual({
       portao: null,
       destino: "1",
     });
@@ -479,7 +479,7 @@ describe("retomadaDoFallback", () => {
       { tipo: "pedir_follow", texto: "me segue", botao_label: "já sigo" },
       { tipo: "dm", texto: "o link", url: "https://x.y" },
     ];
-    expect(retomadaDoFallback(passos, emCorrente(passos))).toEqual({
+    expect(retomadaDoFallback({ steps: passos, ligacoes: emCorrente(passos) })).toEqual({
       portao: null,
       destino: "1",
     });
@@ -492,9 +492,9 @@ describe("retomadaDoFallback", () => {
       { tipo: "dm", texto: "oi" },
       { tipo: "dm", texto: "o link", url: "https://x.y" },
     ];
-    expect(retomadaDoFallback(passos, emCorrente(passos))).toBeNull();
+    expect(retomadaDoFallback({ steps: passos, ligacoes: emCorrente(passos) })).toBeNull();
     // Automação sem lista nenhuma: o `steps` vem CRU do banco.
-    expect(retomadaDoFallback(null, [])).toBeNull();
+    expect(retomadaDoFallback({ steps: null, ligacoes: [] })).toBeNull();
   });
 
   it("com duas dm de resposta rápida, não retoma nada", () => {
@@ -509,7 +509,7 @@ describe("retomadaDoFallback", () => {
       { tipo: "dm", texto: "confirma?", botao_label: "confirmo" },
       { tipo: "dm", texto: "o link", url: "https://x.y" },
     ];
-    expect(retomadaDoFallback(passos, emCorrente(passos))).toBeNull();
+    expect(retomadaDoFallback({ steps: passos, ligacoes: emCorrente(passos) })).toBeNull();
   });
 });
 
@@ -536,7 +536,7 @@ describe("retomadaDoBotao", () => {
     // O seguinte é o portão, e por isso não há passagem a marcar: `interpretar`
     // começa NELE e `resolverFollow` o resolve no caminho, como sempre fez.
     expect(
-      retomadaDoBotao({ passoId: "b_bem001", automationId: "A" }, "A", lista, emCorrente(lista))
+      retomadaDoBotao({ passoId: "b_bem001", automationId: "A" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_por002" });
   });
 
@@ -554,7 +554,7 @@ describe("retomadaDoBotao", () => {
       { de: "b_por002", quando: { tipo: "sempre" }, para: "b_lnk003" },
     ];
     expect(
-      retomadaDoBotao({ passoId: "b_bem001", automationId: "A" }, "A", lista, setaQuePula)
+      retomadaDoBotao({ passoId: "b_bem001", automationId: "A" }, "A", { steps: lista, ligacoes: setaQuePula })
     ).toEqual({ portao: 1, destino: "b_lnk003" });
   });
 
@@ -566,9 +566,9 @@ describe("retomadaDoBotao", () => {
     const embaralhada = [lista[2], lista[0], lista[1]];
     const ligacoes = emCorrente(lista);
     expect(
-      retomadaDoBotao({ passoId: "b_bem001", automationId: "A" }, "A", lista, ligacoes)
+      retomadaDoBotao({ passoId: "b_bem001", automationId: "A" }, "A", { steps: lista, ligacoes })
     ).toEqual(
-      retomadaDoBotao({ passoId: "b_bem001", automationId: "A" }, "A", embaralhada, ligacoes)
+      retomadaDoBotao({ passoId: "b_bem001", automationId: "A" }, "A", { steps: embaralhada, ligacoes })
     );
   });
 
@@ -580,7 +580,7 @@ describe("retomadaDoBotao", () => {
     // passagem" da regra: marcar passagem aqui faria `resolverFollow` consultar
     // a Meta duas vezes no mesmo toque, decidindo de novo o que já foi decidido.
     expect(
-      retomadaDoBotao({ passoId: "b_por002", automationId: "A" }, "A", lista, emCorrente(lista))
+      retomadaDoBotao({ passoId: "b_por002", automationId: "A" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_por002" });
   });
 
@@ -589,13 +589,13 @@ describe("retomadaDoBotao", () => {
     // no índice 2. Com índice, ele apontaria para o bloco errado.
     const trocada = [lista[0], lista[2], lista[1]];
     expect(
-      retomadaDoBotao({ passoId: "b_por002", automationId: "A" }, "A", trocada, emCorrente(lista))
+      retomadaDoBotao({ passoId: "b_por002", automationId: "A" }, "A", { steps: trocada, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_por002" });
   });
 
   it("cursor de outra automação retoma da ENTRADA", () => {
     expect(
-      retomadaDoBotao({ passoId: "b_bem001", automationId: "B" }, "A", lista, emCorrente(lista))
+      retomadaDoBotao({ passoId: "b_bem001", automationId: "B" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_bem001" });
   });
 
@@ -606,10 +606,10 @@ describe("retomadaDoBotao", () => {
     // ponto afirmável, e o preço é uma mensagem repetida, segurada pela
     // `passoKey` dentro do dia.
     expect(
-      retomadaDoBotao({ passoId: null, automationId: "A" }, "A", lista, emCorrente(lista))
+      retomadaDoBotao({ passoId: null, automationId: "A" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_bem001" });
     expect(
-      retomadaDoBotao({ passoId: null, automationId: null }, "A", lista, emCorrente(lista))
+      retomadaDoBotao({ passoId: null, automationId: null }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_bem001" });
   });
 
@@ -625,7 +625,7 @@ describe("retomadaDoBotao", () => {
     // grava a lista como ela veio do quadro, com os ids preservados. Este ramo
     // só é alcançado quando o dono apaga o bloco de verdade.
     expect(
-      retomadaDoBotao({ passoId: "b_sumiu9", automationId: "A" }, "A", lista, emCorrente(lista))
+      retomadaDoBotao({ passoId: "b_sumiu9", automationId: "A" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_bem001" });
   });
 
@@ -633,7 +633,7 @@ describe("retomadaDoBotao", () => {
     // Lista sem ids e cursor "0": a identidade do primeiro bloco é "0".
     const antiga = [{ tipo: "dm", texto: "Oi!", botao_label: "Quero" }, { tipo: "dm", texto: "Link", url: "https://x.com" }];
     expect(
-      retomadaDoBotao({ passoId: "0", automationId: "A" }, "A", antiga, emCorrente(antiga))
+      retomadaDoBotao({ passoId: "0", automationId: "A" }, "A", { steps: antiga, ligacoes: emCorrente(antiga) })
     ).toEqual({ portao: null, destino: "1" });
   });
 
@@ -653,10 +653,10 @@ describe("retomadaDoBotao", () => {
       { id: "b_lnk003", tipo: "dm", texto: "o link", url: "https://x.y" },
     ];
     expect(
-      retomadaDoBotao({ passoId: "b_eml004", automationId: "A" }, "A", passos, emCorrente(passos))
+      retomadaDoBotao({ passoId: "b_eml004", automationId: "A" }, "A", { steps: passos, ligacoes: emCorrente(passos) })
     ).toEqual({ portao: null, destino: "b_eml004" });
     expect(
-      retomadaDoBotao({ passoId: "b_eml004", automationId: "A" }, "A", passos, emCorrente(passos))
+      retomadaDoBotao({ passoId: "b_eml004", automationId: "A" }, "A", { steps: passos, ligacoes: emCorrente(passos) })
     ).not.toEqual({ portao: null, destino: "b_lnk003" });
     // Pedido INVÁLIDO não é portão, pela mesma regra do `pedir_follow` sem
     // texto: `interpretar` o ignora, logo ele nunca foi enviado.
@@ -672,8 +672,7 @@ describe("retomadaDoBotao", () => {
       retomadaDoBotao(
         { passoId: "b_eml004", automationId: "A" },
         "A",
-        comPedidoQuebrado,
-        emCorrente(comPedidoQuebrado)
+        { steps: comPedidoQuebrado, ligacoes: emCorrente(comPedidoQuebrado) }
       )
     ).toEqual({ portao: null, destino: null });
   });
@@ -697,8 +696,7 @@ describe("retomadaDoBotao", () => {
       retomadaDoBotao(
         { passoId: "2", automationId: "A" },
         "A",
-        listaDoFormulario,
-        emCorrente(listaDoFormulario)
+        { steps: listaDoFormulario, ligacoes: emCorrente(listaDoFormulario) }
       )
     ).toEqual({ portao: 1, destino: "3" });
     // Portão INVÁLIDO não é portão: `interpretar` o ignora, logo ele nunca foi
@@ -712,16 +710,14 @@ describe("retomadaDoBotao", () => {
       retomadaDoBotao(
         { passoId: "b_por002", automationId: "A" },
         "A",
-        comPortaoQuebrado,
-        emCorrente(comPortaoQuebrado)
+        { steps: comPortaoQuebrado, ligacoes: emCorrente(comPortaoQuebrado) }
       )
     ).toEqual({ portao: null, destino: null });
     // E quando não há seta saindo, `interpretar` não enfileira nada: o toque não
     // faz nada, e a pessoa destrava mandando qualquer mensagem.
     expect(
       interpretar(
-        listaDoFormulario,
-        emCorrente(listaDoFormulario),
+        { steps: listaDoFormulario, ligacoes: emCorrente(listaDoFormulario) },
         seguinteDe(emCorrente(listaDoFormulario), "4")
       ).enfileirar
     ).toEqual([]);
@@ -733,7 +729,7 @@ describe("retomadaDoBotao", () => {
     // Antes desta fase isto caía no `+1` e devolvia 2 — um índice inventado
     // sobre uma lista que não existe.
     expect(
-      retomadaDoBotao({ passoId: "b_bem001", automationId: "A" }, "A", null, [])
+      retomadaDoBotao({ passoId: "b_bem001", automationId: "A" }, "A", { steps: null, ligacoes: [] })
     ).toEqual({ portao: null, destino: null });
   });
 });
@@ -747,23 +743,23 @@ describe("retomadaDoFollow", () => {
 
   it("cursor desta automação retoma DELE, para o portão ser reavaliado", () => {
     expect(
-      retomadaDoFollow({ passoId: "b_por002", automationId: "A" }, "A", lista, emCorrente(lista))
+      retomadaDoFollow({ passoId: "b_por002", automationId: "A" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_por002" });
   });
 
   it("sem cursor desta, retoma do PORTÃO — o toque afirma onde a pessoa está", () => {
     expect(
-      retomadaDoFollow({ passoId: null, automationId: null }, "A", lista, emCorrente(lista))
+      retomadaDoFollow({ passoId: null, automationId: null }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_por002" });
     expect(
-      retomadaDoFollow({ passoId: "b_bem001", automationId: "B" }, "A", lista, emCorrente(lista))
+      retomadaDoFollow({ passoId: "b_bem001", automationId: "B" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_por002" });
   });
 
   it("lista sem portão nenhum retoma da ENTRADA", () => {
     const semPortao = [{ id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }];
     expect(
-      retomadaDoFollow({ passoId: null, automationId: null }, "A", semPortao, [])
+      retomadaDoFollow({ passoId: null, automationId: null }, "A", { steps: semPortao, ligacoes: [] })
     ).toEqual({ portao: null, destino: "b_bem001" });
   });
 
@@ -812,8 +808,7 @@ describe("retomadaDoFollow", () => {
       retomadaDoFollow(
         { passoId: "b_eml004", automationId: "A" },
         "A",
-        comEmailDepoisDoPortao,
-        emCorrente(comEmailDepoisDoPortao)
+        { steps: comEmailDepoisDoPortao, ligacoes: emCorrente(comEmailDepoisDoPortao) }
       )
     ).toEqual({ portao: 1, destino: "b_eml004" });
   });
@@ -825,8 +820,7 @@ describe("retomadaDoFollow", () => {
       retomadaDoFollow(
         { passoId: "b_lnk003", automationId: "A" },
         "A",
-        comEmailDepoisDoPortao,
-        emCorrente(comEmailDepoisDoPortao)
+        { steps: comEmailDepoisDoPortao, ligacoes: emCorrente(comEmailDepoisDoPortao) }
       )
     ).toEqual({ portao: 1, destino: "b_lnk003" });
   });
@@ -841,7 +835,7 @@ describe("retomadaDoFollow", () => {
     // destino: ele está no caminho que `interpretar` vai percorrer, e não atrás
     // dele — agora medido por alcançabilidade, e não por posição.
     expect(
-      retomadaDoFollow({ passoId: "b_bem001", automationId: "A" }, "A", lista, emCorrente(lista))
+      retomadaDoFollow({ passoId: "b_bem001", automationId: "A" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_bem001" });
   });
 
@@ -853,7 +847,7 @@ describe("retomadaDoFollow", () => {
     // ausente: o `FOLLOW:<id>` só existe porque o portão DESTA automação foi
     // entregue.
     expect(
-      retomadaDoFollow({ passoId: "b_sumiu9", automationId: "A" }, "A", lista, emCorrente(lista))
+      retomadaDoFollow({ passoId: "b_sumiu9", automationId: "A" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_por002" });
 
     // E com o portão LONGE do começo, para o acerto não vir do lugar errado.
@@ -876,8 +870,7 @@ describe("retomadaDoFollow", () => {
       retomadaDoFollow(
         { passoId: "b_sumiu9", automationId: "A" },
         "A",
-        portaoLaAtras,
-        emCorrente(portaoLaAtras)
+        { steps: portaoLaAtras, ligacoes: emCorrente(portaoLaAtras) }
       )
     ).toEqual({ portao: null, destino: "b_por002" });
   });
@@ -888,21 +881,20 @@ describe("retomadaDoFollow", () => {
       retomadaDoFollow(
         { passoId: "1", automationId: "A" },
         "A",
-        listaDoFormulario,
-        emCorrente(listaDoFormulario)
+        { steps: listaDoFormulario, ligacoes: emCorrente(listaDoFormulario) }
       )
     ).toEqual({ portao: null, destino: "1" });
     // E do zero seria no-op: `interpretar` para na boas-vindas (parada dura) e
     // nunca chega ao portão.
-    expect(interpretar(listaDoFormulario, emCorrente(listaDoFormulario), "0").pararEm).toBe("0");
+    expect(interpretar({ steps: listaDoFormulario, ligacoes: emCorrente(listaDoFormulario) }, "0").pararEm).toBe("0");
   });
 
   it("lista que NÃO É LISTA não retoma de lugar nenhum, sem estourar", () => {
-    expect(retomadaDoFollow({ passoId: null, automationId: null }, "A", null, [])).toEqual({
+    expect(retomadaDoFollow({ passoId: null, automationId: null }, "A", { steps: null, ligacoes: [] })).toEqual({
       portao: null,
       destino: null,
     });
-    expect(retomadaDoFollow({ passoId: "b_por002", automationId: "A" }, "A", null, [])).toEqual({
+    expect(retomadaDoFollow({ passoId: "b_por002", automationId: "A" }, "A", { steps: null, ligacoes: [] })).toEqual({
       portao: null,
       destino: null,
     });
@@ -924,14 +916,14 @@ describe("retomadaDoTexto", () => {
   it("parado no PORTÃO retoma DELE — a mensagem de texto não é o follow", () => {
     // Avançar aqui bastaria mandar "ok" para receber o link sem nunca ter
     // seguido. É o único tipo que não avança.
-    expect(retomadaDoTexto(lista, emCorrente(lista), 1)).toEqual({
+    expect(retomadaDoTexto({ steps: lista, ligacoes: emCorrente(lista) }, 1)).toEqual({
       portao: null,
       destino: "b_por002",
     });
   });
 
   it("parado numa RESPOSTA RÁPIDA retoma do SEGUINTE — o texto vale como resposta", () => {
-    expect(retomadaDoTexto(lista, emCorrente(lista), 0)).toEqual({
+    expect(retomadaDoTexto({ steps: lista, ligacoes: emCorrente(lista) }, 0)).toEqual({
       portao: null,
       destino: "b_por002",
     });
@@ -945,7 +937,7 @@ describe("retomadaDoTexto", () => {
     //
     // E o destino está DEPOIS do portão do índice 1 no caminho, então ele vira
     // PASSAGEM.
-    expect(retomadaDoTexto(lista, emCorrente(lista), 2)).toEqual({
+    expect(retomadaDoTexto({ steps: lista, ligacoes: emCorrente(lista) }, 2)).toEqual({
       portao: 1,
       destino: "b_lnk003",
     });
@@ -953,7 +945,7 @@ describe("retomadaDoTexto", () => {
     // no toque do botão e o link no texto. A passagem é a mesma nos dois, porque
     // ela olha o CAMINHO até o destino, não o tipo do bloco.
     expect(
-      retomadaDoBotao({ passoId: "b_eml004", automationId: "A" }, "A", lista, emCorrente(lista))
+      retomadaDoBotao({ passoId: "b_eml004", automationId: "A" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: 1, destino: "b_eml004" });
   });
 
@@ -962,11 +954,11 @@ describe("retomadaDoTexto", () => {
     // mas a função é pura e a decisão é dela: sem tipo, segue a seta, que é o
     // mesmo que os outros ramos fazem com cursor obsoleto. Do último bloco não
     // sai seta nenhuma, então o destino é `null`.
-    expect(retomadaDoTexto(lista, emCorrente(lista), 3)).toEqual({
+    expect(retomadaDoTexto({ steps: lista, ligacoes: emCorrente(lista) }, 3)).toEqual({
       portao: null,
       destino: null,
     });
-    expect(retomadaDoTexto(null, [], 0)).toEqual({ portao: null, destino: null });
+    expect(retomadaDoTexto({ steps: null, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
   });
 
   // A SETA DO "digitou" — a promessa da spec que o motor não percorria.
@@ -992,14 +984,14 @@ describe("retomadaDoTexto", () => {
   const daSempre = { de: "b_men001", quando: { tipo: "sempre" }, para: "b_opa002" };
 
   it("parado num MENU com a seta do `senao`, quem digita vai para o destino DELA", () => {
-    expect(retomadaDoTexto(menu, [doBotao, doSenao], 0)).toEqual({
+    expect(retomadaDoTexto({ steps: menu, ligacoes: [doBotao, doSenao] }, 0)).toEqual({
       portao: null,
       destino: "b_sen003",
     });
   });
 
   it("menu SEM `senao` continua indo pela `sempre` — nada muda para quem já andava", () => {
-    expect(retomadaDoTexto(menu, [doBotao, daSempre], 0)).toEqual({
+    expect(retomadaDoTexto({ steps: menu, ligacoes: [doBotao, daSempre] }, 0)).toEqual({
       portao: null,
       destino: "b_opa002",
     });
@@ -1018,12 +1010,12 @@ describe("retomadaDoTexto", () => {
     // a `sempre` é a saída que vale sem condição. É a mesma ordem que
     // `envioDaDm` já usa para o bloco que tem `botoes` e `botao_label`: o ramo
     // mais específico entra antes.
-    expect(retomadaDoTexto(menu, [doBotao, doSenao, daSempre], 0)).toEqual({
+    expect(retomadaDoTexto({ steps: menu, ligacoes: [doBotao, doSenao, daSempre] }, 0)).toEqual({
       portao: null,
       destino: "b_sen003",
     });
     // E a ordem das setas na lista não decide nada: a condição decide.
-    expect(retomadaDoTexto(menu, [daSempre, doSenao, doBotao], 0)).toEqual({
+    expect(retomadaDoTexto({ steps: menu, ligacoes: [daSempre, doSenao, doBotao] }, 0)).toEqual({
       portao: null,
       destino: "b_sen003",
     });
@@ -1037,7 +1029,7 @@ describe("retomadaDoTexto", () => {
       ...emCorrente(lista),
       { de: "b_por002", quando: { tipo: "senao" }, para: "b_lnk003" },
     ];
-    expect(retomadaDoTexto(lista, comSenao, 1)).toEqual({
+    expect(retomadaDoTexto({ steps: lista, ligacoes: comSenao }, 1)).toEqual({
       portao: null,
       destino: "b_por002",
     });
@@ -1071,7 +1063,7 @@ describe("retomadaDoEmailConhecido", () => {
       { de: "b_por00004", quando: { tipo: "sempre" }, para: "b_lnk00003" }, // a junção
     ];
     expect(indiceDoPortao(comJuncao)).toBe(3);
-    expect(retomadaDoEmailConhecido(comJuncao, ligacoes, 1)).toEqual({
+    expect(retomadaDoEmailConhecido({ steps: comJuncao, ligacoes }, 1)).toEqual({
       portao: 3,
       destino: "b_lnk00003",
     });
@@ -1099,8 +1091,8 @@ describe("retomadaDoEmailConhecido", () => {
       { de: "b_por00004", quando: { tipo: "sempre" }, para: "b_lnk00003" }, // a junção
     ];
     const esperado = { portao: 3, destino: "b_lnk00003" };
-    expect(retomadaDoFallback(passos, ligacoes)).toEqual(esperado);
-    expect(retomadaDoEmailConhecido(passos, ligacoes, 1)).toEqual(esperado);
+    expect(retomadaDoFallback({ steps: passos, ligacoes })).toEqual(esperado);
+    expect(retomadaDoEmailConhecido({ steps: passos, ligacoes }, 1)).toEqual(esperado);
   });
 
   it("sem portão no caminho, segue a seta `sempre` e não desvia ninguém", () => {
@@ -1115,7 +1107,7 @@ describe("retomadaDoEmailConhecido", () => {
     const ligacoes = [
       { de: "b_eml00002", quando: { tipo: "sempre" }, para: "b_out00003" },
     ];
-    expect(retomadaDoEmailConhecido(doisBracos, ligacoes, 1)).toEqual({
+    expect(retomadaDoEmailConhecido({ steps: doisBracos, ligacoes }, 1)).toEqual({
       portao: null,
       destino: "b_out00003",
     });
@@ -1123,10 +1115,10 @@ describe("retomadaDoEmailConhecido", () => {
 
   it("bloco sem seta `sempre` saindo, e lista que não é lista, devolvem destino null", () => {
     const lista = [{ id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }];
-    expect(retomadaDoEmailConhecido(lista, [], 0)).toEqual({ portao: null, destino: null });
-    expect(retomadaDoEmailConhecido(null, [], 0)).toEqual({ portao: null, destino: null });
+    expect(retomadaDoEmailConhecido({ steps: lista, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
+    expect(retomadaDoEmailConhecido({ steps: null, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
     // Índice fora da lista: sem identidade não há de onde sair.
-    expect(retomadaDoEmailConhecido(lista, [], 7)).toEqual({ portao: null, destino: null });
+    expect(retomadaDoEmailConhecido({ steps: lista, ligacoes: [] }, 7)).toEqual({ portao: null, destino: null });
   });
 
   it("A REGRA É A MESMA das outras quatro — o portão a montante desvia, o de outro braço não", () => {
@@ -1139,7 +1131,7 @@ describe("retomadaDoEmailConhecido", () => {
     ];
     const base = [{ de: "b_eml00001", quando: { tipo: "sempre" }, para: "b_lnk00002" }];
     // Portão sem seta nenhuma: não alcança o link, não desvia.
-    expect(retomadaDoEmailConhecido(passos, base, 0)).toEqual({
+    expect(retomadaDoEmailConhecido({ steps: passos, ligacoes: base }, 0)).toEqual({
       portao: null,
       destino: "b_lnk00002",
     });
@@ -1150,7 +1142,7 @@ describe("retomadaDoEmailConhecido", () => {
       ...base,
       { de: "b_por00003", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_lnk00002" },
     ];
-    expect(retomadaDoEmailConhecido(passos, comBotao, 0)).toEqual({
+    expect(retomadaDoEmailConhecido({ steps: passos, ligacoes: comBotao }, 0)).toEqual({
       portao: 2,
       destino: "b_lnk00002",
     });
@@ -1194,7 +1186,7 @@ describe("a regra do portão — ponto de passagem", () => {
     //
     // Com ela o portão é atravessado, e o destino continua sendo o link para
     // quem vencer.
-    expect(retomadaDoTexto(entrada1, emCorrente(entrada1), 1)).toEqual({
+    expect(retomadaDoTexto({ steps: entrada1, ligacoes: emCorrente(entrada1) }, 1)).toEqual({
       portao: 0,
       destino: "b_lnk00003",
     });
@@ -1203,17 +1195,17 @@ describe("a regra do portão — ponto de passagem", () => {
   it("ENTRADA 2 FECHA: o toque no botão do bloco depois do portão não o pula", () => {
     // Sem a regra o resultado era 3 — o LINK —, com o portão do índice 1 nunca
     // avaliado.
-    expect(retomadaDoBotao(noBloco2, "A", entrada2, emCorrente(entrada2))).toEqual({
+    expect(retomadaDoBotao(noBloco2, "A", { steps: entrada2, ligacoes: emCorrente(entrada2) })).toEqual({
       portao: 1,
       destino: "b_lnk00004",
     });
     // O "Já sigo!" e o texto chegam ao mesmo lugar pela mesma regra: nenhum dos
     // três caminhos de volta atravessa um portão sem avaliá-lo.
-    expect(retomadaDoFollow(noBloco2, "A", entrada2, emCorrente(entrada2))).toEqual({
+    expect(retomadaDoFollow(noBloco2, "A", { steps: entrada2, ligacoes: emCorrente(entrada2) })).toEqual({
       portao: 1,
       destino: "b_seg00003",
     });
-    expect(retomadaDoTexto(entrada2, emCorrente(entrada2), 2)).toEqual({
+    expect(retomadaDoTexto({ steps: entrada2, ligacoes: emCorrente(entrada2) }, 2)).toEqual({
       portao: 1,
       destino: "b_lnk00004",
     });
@@ -1226,19 +1218,19 @@ describe("a regra do portão — ponto de passagem", () => {
     // Os argumentos são IDÊNTICOS aos da ENTRADA 2 acima. A diferença está só na
     // história: aqui o cursor é o real de quem seguiu o perfil, venceu o portão,
     // recebeu o bloco 2 e parou nele.
-    const r = retomadaDoBotao(noBloco2, "A", entrada2, emCorrente(entrada2));
+    const r = retomadaDoBotao(noBloco2, "A", { steps: entrada2, ligacoes: emCorrente(entrada2) });
     expect(r).toEqual({ portao: 1, destino: "b_lnk00004" });
 
     // Vencido o portão, o motor executa a partir do DESTINO: o link sai, e a
     // lista termina (`pararEm: null`, o que faz `executarFluxo` limpar o cursor).
-    const daPassagem = interpretar(entrada2, emCorrente(entrada2), r.destino);
+    const daPassagem = interpretar({ steps: entrada2, ligacoes: emCorrente(entrada2) }, r.destino);
     expect(daPassagem.enfileirar.map((a) => a.indice)).toEqual([3]);
     expect(daPassagem.pararEm).toBeNull();
 
     // E a versão RECUSADA da regra, `portão + 1`, medida no mesmo lugar: ela
     // reinterpreta a lista e para na PRÓPRIA resposta rápida do índice 2. O
     // bloco 3 — o link — não é alcançado.
-    const daRebobinada = interpretar(entrada2, emCorrente(entrada2), identidadeNoIndice(entrada2, r.portao! + 1));
+    const daRebobinada = interpretar({ steps: entrada2, ligacoes: emCorrente(entrada2) }, identidadeNoIndice(entrada2, r.portao! + 1));
     expect(daRebobinada.enfileirar.map((a) => a.indice)).toEqual([2]);
     expect(daRebobinada.pararEm).toBe(identidadeNoIndice(entrada2, 2));
 
@@ -1246,8 +1238,8 @@ describe("a regra do portão — ponto de passagem", () => {
     // 2, `executarFluxo` regrava o cursor no 2 — o mesmo com que este teste
     // começou. O toque seguinte devolve a mesma coisa, e o seguinte também.
     // Mandar texto não salvava: o ramo de texto rebobinaria igual.
-    expect(retomadaDoBotao(noBloco2, "A", entrada2, emCorrente(entrada2))).toEqual(r);
-    expect(retomadaDoTexto(entrada2, emCorrente(entrada2), 2).portao).toBe(1);
+    expect(retomadaDoBotao(noBloco2, "A", { steps: entrada2, ligacoes: emCorrente(entrada2) })).toEqual(r);
+    expect(retomadaDoTexto({ steps: entrada2, ligacoes: emCorrente(entrada2) }, 2).portao).toBe(1);
   });
 
   it("NINGUÉM RECEBE MENSAGEM REPETIDA por causa da regra", () => {
@@ -1255,8 +1247,8 @@ describe("a regra do portão — ponto de passagem", () => {
     // reenfileira nada: `interpretar` começa em `destino`, então todo bloco
     // entre o portão e o destino fica de fora — inclusive o bloco 2, que a
     // pessoa acabou de receber.
-    const r = retomadaDoBotao(noBloco2, "A", entrada2, emCorrente(entrada2));
-    const daPassagem = interpretar(entrada2, emCorrente(entrada2), r.destino).enfileirar.map(
+    const r = retomadaDoBotao(noBloco2, "A", { steps: entrada2, ligacoes: emCorrente(entrada2) });
+    const daPassagem = interpretar({ steps: entrada2, ligacoes: emCorrente(entrada2) }, r.destino).enfileirar.map(
       (a) => a.indice
     );
     expect(daPassagem.every((i) => i >= indiceDoId(entrada2, r.destino!)!)).toBe(true);
@@ -1265,7 +1257,7 @@ describe("a regra do portão — ponto de passagem", () => {
     // A rebobinada reenviava o bloco 2 — segurado pela `passoKey` só dentro do
     // dia, e virado o balde ele sai de novo para uma pessoa real.
     expect(
-      interpretar(entrada2, emCorrente(entrada2), identidadeNoIndice(entrada2, r.portao! + 1)).enfileirar.map((a) => a.indice)
+      interpretar({ steps: entrada2, ligacoes: emCorrente(entrada2) }, identidadeNoIndice(entrada2, r.portao! + 1)).enfileirar.map((a) => a.indice)
     ).toContain(2);
 
     // O portão em si não é reenviado quando é vencido: `resolverFollow`
@@ -1286,7 +1278,7 @@ describe("a regra do portão — ponto de passagem", () => {
       { tipo: "pedir_follow", texto: "me segue", botao_label: "já sigo" },
       { tipo: "dm", texto: "o link", url: "https://x.y" },
     ];
-    expect(retomadaDoFallback(portaoDepois, emCorrente(portaoDepois))).toEqual({
+    expect(retomadaDoFallback({ steps: portaoDepois, ligacoes: emCorrente(portaoDepois) })).toEqual({
       portao: null,
       destino: "1",
     });
@@ -1297,7 +1289,7 @@ describe("a regra do portão — ponto de passagem", () => {
       { tipo: "dm", texto: "oi", botao_label: "quero!" },
       { tipo: "dm", texto: "o link", url: "https://x.y" },
     ];
-    expect(retomadaDoFallback(portaoPrimeiro, emCorrente(portaoPrimeiro))).toEqual({
+    expect(retomadaDoFallback({ steps: portaoPrimeiro, ligacoes: emCorrente(portaoPrimeiro) })).toEqual({
       portao: null,
       destino: "0",
     });
@@ -1305,7 +1297,7 @@ describe("a regra do portão — ponto de passagem", () => {
     // Duas paradas duras: não retoma nada, e não há destino sobre o qual a
     // regra pudesse decidir. É a MESMA lista da armadilha, o que mostra que a
     // proteção do fallback vem de outro lugar (`contarParadasDuras`).
-    expect(retomadaDoFallback(entrada2, emCorrente(entrada2))).toBeNull();
+    expect(retomadaDoFallback({ steps: entrada2, ligacoes: emCorrente(entrada2) })).toBeNull();
   });
 
   it("A DEMONSTRAÇÃO ANTIGA CAIU: com JUNÇÃO, o fallback alcança o link por fora do portão", () => {
@@ -1331,7 +1323,7 @@ describe("a regra do portão — ponto de passagem", () => {
       { de: "b_por002", quando: { tipo: "sempre" }, para: "b_lnk003" },
     ];
     expect(indiceDoPortao(comJuncao)).toBe(2);
-    expect(retomadaDoFallback(comJuncao, ligacoes)).toEqual({
+    expect(retomadaDoFallback({ steps: comJuncao, ligacoes })).toEqual({
       portao: 2,
       destino: "b_lnk003",
     });
@@ -1366,8 +1358,7 @@ describe("o portão deixa de ser posição e passa a ser caminho", () => {
     // do meio nunca avaliado.
     const r = caminhoDoBotao(
       lerPayload("AUTO:A:b_men001:op_aaaaaa")!,
-      saltandoOPortao,
-      setaDoBotao
+      { steps: saltandoOPortao, ligacoes: setaDoBotao }
     );
     expect(r).toEqual({ retomada: { portao: 1, destino: "b_lnk003" } });
   });
@@ -1389,7 +1380,7 @@ describe("o portão deixa de ser posição e passa a ser caminho", () => {
     expect(indiceDoPortao(portaoDepoisNoArray)).toBe(2);
     // Pela seta `sempre`, quem está parado na boas-vindas vai para o PORTÃO, que
     // é o destino e não passagem.
-    expect(retomadaDoTexto(portaoDepoisNoArray, ligacoes, 0)).toEqual({
+    expect(retomadaDoTexto({ steps: portaoDepoisNoArray, ligacoes }, 0)).toEqual({
       portao: null,
       destino: "b_por002",
     });
@@ -1400,7 +1391,7 @@ describe("o portão deixa de ser posição e passa a ser caminho", () => {
       { de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_lnk003" },
     ];
     expect(
-      caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_aaaaaa")!, portaoDepoisNoArray, comSalto)
+      caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_aaaaaa")!, { steps: portaoDepoisNoArray, ligacoes: comSalto })
     ).toEqual({ retomada: { portao: 2, destino: "b_lnk003" } });
   });
 
@@ -1433,12 +1424,12 @@ describe("o portão deixa de ser posição e passa a ser caminho", () => {
     // O braço SEM portão: o índice do portão (1) é menor que o do destino (3), e
     // mesmo assim não há nada a atravessar.
     expect(
-      caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_bbbbbb")!, doisBracos, ligacoes)
+      caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_bbbbbb")!, { steps: doisBracos, ligacoes })
     ).toEqual({ retomada: { portao: null, destino: "b_out004" } });
     // O braço COM portão: o destino é o próprio portão, e "igual não é
     // passagem" — `interpretar` para nele sozinha.
     expect(
-      caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_aaaaaa")!, doisBracos, ligacoes)
+      caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_aaaaaa")!, { steps: doisBracos, ligacoes })
     ).toEqual({ retomada: { portao: null, destino: "b_por002" } });
   });
 
@@ -1467,7 +1458,7 @@ describe("o portão deixa de ser posição e passa a ser caminho", () => {
     // braço do botão — e ele alcança, então a passagem VALE. É o mesmo resultado
     // da regra antiga, e o motivo é diferente.
     expect(
-      caminhoDoBotao(lerPayload("AUTO:A:b_seg003:op_aaaaaa")!, depoisDoPortao, ligacoes)
+      caminhoDoBotao(lerPayload("AUTO:A:b_seg003:op_aaaaaa")!, { steps: depoisDoPortao, ligacoes })
     ).toEqual({ retomada: { portao: 0, destino: "b_lnk004" } });
 
     // O caso em que ele NÃO desvia: o link num braço que o portão não alcança.
@@ -1477,8 +1468,7 @@ describe("o portão deixa de ser posição e passa a ser caminho", () => {
     expect(
       caminhoDoBotao(
         lerPayload("AUTO:A:b_seg003:op_aaaaaa")!,
-        depoisDoPortao,
-        semLigacaoDoPortao
+        { steps: depoisDoPortao, ligacoes: semLigacaoDoPortao }
       )
     ).toEqual({ retomada: { portao: null, destino: "b_lnk004" } });
   });
@@ -1797,7 +1787,7 @@ describe("lerPayload", () => {
     // O toque na boas-vindas retoma do SEGUINTE, que é o portão: o portão
     // continua sendo atravessado por `resolverFollow`, e não pulado. Aqui ele é
     // o próprio DESTINO, então não há passagem a marcar.
-    expect(retomadaDoBotao(cursorDoPayload, "A", lista, emCorrente(lista))).toEqual({
+    expect(retomadaDoBotao(cursorDoPayload, "A", { steps: lista, ligacoes: emCorrente(lista) })).toEqual({
       portao: null,
       destino: "b_por002",
     });
@@ -1812,8 +1802,7 @@ describe("lerPayload", () => {
       retomadaDoBotao(
         { passoId: doApagado.passoId, automationId: "A" },
         "A",
-        lista,
-        emCorrente(lista)
+        { steps: lista, ligacoes: emCorrente(lista) }
       )
     ).toEqual({ portao: null, destino: "b_bem001" });
   });
@@ -1835,7 +1824,7 @@ describe("lerPayload", () => {
 
     // Com o payload ANTIGO só havia o cursor do contato, que é de B: `cursorDesta`
     // o descarta e a A recomeça da ENTRADA — a boas-vindas de novo.
-    expect(retomadaDoBotao(cursorEmOutra, "A", lista, emCorrente(lista))).toEqual({
+    expect(retomadaDoBotao(cursorEmOutra, "A", { steps: lista, ligacoes: emCorrente(lista) })).toEqual({
       portao: null,
       destino: "b_bem001",
     });
@@ -1843,7 +1832,7 @@ describe("lerPayload", () => {
     // Com o payload NOVO o bloco é o do botão da A, e a retomada é a certa.
     const p = lerPayload("AUTO:A:b_bem001")!;
     expect(
-      retomadaDoBotao({ passoId: p.passoId, automationId: "A" }, "A", lista, emCorrente(lista))
+      retomadaDoBotao({ passoId: p.passoId, automationId: "A" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_por002" });
   });
 
@@ -1873,14 +1862,14 @@ describe("lerPayload", () => {
       { id: "b_lem006", tipo: "dm", texto: "não esquece" }, // 3
     ];
     const cursorAdiante = { passoId: "b_lem006", automationId: "A" };
-    expect(retomadaDoFollow(cursorAdiante, "A", lista, emCorrente(lista))).toEqual({
+    expect(retomadaDoFollow(cursorAdiante, "A", { steps: lista, ligacoes: emCorrente(lista) })).toEqual({
       portao: 1,
       destino: "b_lem006",
     });
 
     const p = lerPayload("FOLLOW:A:b_por002")!;
     expect(
-      retomadaDoFollow({ passoId: p.passoId, automationId: "A" }, "A", lista, emCorrente(lista))
+      retomadaDoFollow({ passoId: p.passoId, automationId: "A" }, "A", { steps: lista, ligacoes: emCorrente(lista) })
     ).toEqual({ portao: null, destino: "b_por002" });
   });
 });
@@ -2060,7 +2049,7 @@ describe("payloadDoBotao", () => {
 
     const destinos = envio.botoes.map((b) => {
       const payload = lerPayload(payloadDoBotao("auto-1", menu.id, b.id));
-      return caminhoDoBotao(payload!, passos, ligacoes);
+      return caminhoDoBotao(payload!, { steps: passos, ligacoes });
     });
     expect(destinos).toEqual([
       { retomada: { portao: null, destino: "b_desa01" } },
@@ -2156,7 +2145,7 @@ describe("payloadDaRespostaRapida e payloadDoPortao", () => {
     ];
     const p = lerPayload(payloadDaRespostaRapida("A", "b_bem001"))!;
     expect(
-      retomadaDoBotao({ passoId: p.passoId, automationId: "A" }, "A", passos, emCorrente(passos))
+      retomadaDoBotao({ passoId: p.passoId, automationId: "A" }, "A", { steps: passos, ligacoes: emCorrente(passos) })
     ).toEqual({ portao: null, destino: "b_fim003" });
   });
 });
@@ -2310,7 +2299,7 @@ describe("caminhoDoBotao", () => {
     // portão na lista, então não há passagem a marcar. Ela devolvia `{indice}`
     // até a Tarefa 3b, e era esse índice cru que o motor passava a
     // `executarFluxo` pulando a regra por inteiro.
-    expect(caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_bbbbbb")!, passos, ligacoes)).toEqual({
+    expect(caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_bbbbbb")!, { steps: passos, ligacoes })).toEqual({
       retomada: { portao: null, destino: "b_opb003" },
     });
   });
@@ -2326,7 +2315,7 @@ describe("caminhoDoBotao", () => {
     // efeito da troca — pedir o caminho a partir de OUTRO bloco não acha a
     // ligação, porque o id do botão é escopado ao bloco que o emitiu.
     const deOutroBloco = { prefixo: "AUTO" as const, automationId: "A", passoId: "b_opa002", botaoId: "op_bbbbbb" };
-    expect(caminhoDoBotao(deOutroBloco, passos, ligacoes)).toEqual({
+    expect(caminhoDoBotao(deOutroBloco, { steps: passos, ligacoes })).toEqual({
       motivo: "o botão op_bbbbbb, do bloco b_opa002, não tem ligação de saída",
     });
   });
@@ -2336,7 +2325,7 @@ describe("caminhoDoBotao", () => {
     // dizendo que isso esconderia o defeito de montagem. Não entregar nada e
     // não dizer nada o esconderia igual, só por outra porta: é este `motivo`
     // que vira linha em Atividade (`botao_sem_caminho`, lib/engine.ts).
-    const r = caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_zzzzzz")!, passos, ligacoes);
+    const r = caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_zzzzzz")!, { steps: passos, ligacoes });
     expect(r?.retomada).toBe(undefined);
     expect(r?.motivo).toContain("não tem ligação de saída");
   });
@@ -2347,7 +2336,7 @@ describe("caminhoDoBotao", () => {
     const sumido = [
       { de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_sumiu9" },
     ];
-    const r = caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_aaaaaa")!, passos, sumido);
+    const r = caminhoDoBotao(lerPayload("AUTO:A:b_men001:op_aaaaaa")!, { steps: passos, ligacoes: sumido });
     expect(r?.retomada).toBe(undefined);
     expect(r?.motivo).toContain("não está na lista: b_sumiu9");
   });
@@ -2356,18 +2345,18 @@ describe("caminhoDoBotao", () => {
     // null não é "não há caminho": é "esta função não responde por este toque".
     // As duas formas antigas continuam com `cursorDaRetomada` e o cursor
     // mandando, e é o null que as deixa passar.
-    expect(caminhoDoBotao(lerPayload("AUTO:A:b_men001")!, passos, ligacoes)).toBe(null);
-    expect(caminhoDoBotao(lerPayload("AUTO:A")!, passos, ligacoes)).toBe(null);
+    expect(caminhoDoBotao(lerPayload("AUTO:A:b_men001")!, { steps: passos, ligacoes })).toBe(null);
+    expect(caminhoDoBotao(lerPayload("AUTO:A")!, { steps: passos, ligacoes })).toBe(null);
     // O `FOLLOW:` nunca traz botão, mas se um dia trouxer ele não entra aqui:
     // o portão tem regra própria (`retomadaDoFollow`), e ela consulta a Meta.
     const followComBotao = { prefixo: "FOLLOW" as const, automationId: "A", passoId: "b_men001", botaoId: "op_aaaaaa" };
-    expect(caminhoDoBotao(followComBotao, passos, ligacoes)).toBe(null);
+    expect(caminhoDoBotao(followComBotao, { steps: passos, ligacoes })).toBe(null);
   });
 
   it("não estoura com lixo", () => {
     const p = lerPayload("AUTO:A:b_men001:op_aaaaaa")!;
-    expect(caminhoDoBotao(p, null, null)?.motivo).toContain("não tem ligação de saída");
-    expect(caminhoDoBotao(p, null, ligacoes)?.motivo).toContain("não está na lista");
+    expect(caminhoDoBotao(p, { steps: null, ligacoes: null })?.motivo).toContain("não tem ligação de saída");
+    expect(caminhoDoBotao(p, { steps: null, ligacoes })?.motivo).toContain("não está na lista");
   });
 });
 
@@ -2516,7 +2505,7 @@ describe("cursorDaRetomada", () => {
     // que este teste mede.
     const real = { passoId: "b_lem006", automationId: "A" };
     const cursor = cursorDaRetomada(real, "A", "b_por002", lista);
-    expect(retomadaDoFollow(cursor, "A", lista, emCorrente(lista))).toEqual({
+    expect(retomadaDoFollow(cursor, "A", { steps: lista, ligacoes: emCorrente(lista) })).toEqual({
       portao: 1,
       destino: "b_lem006",
     });
@@ -2529,7 +2518,7 @@ describe("cursorDaRetomada", () => {
     // de novo.
     const real = { passoId: "b_qqq111", automationId: "B" };
     const cursor = cursorDaRetomada(real, "A", "b_bem001", lista);
-    expect(retomadaDoBotao(cursor, "A", lista, emCorrente(lista))).toEqual({
+    expect(retomadaDoBotao(cursor, "A", { steps: lista, ligacoes: emCorrente(lista) })).toEqual({
       portao: null,
       destino: "b_por002",
     });
@@ -2541,7 +2530,7 @@ describe("cursorDaRetomada", () => {
     // a boas-vindas repetida.
     const real = { passoId: "b_sumiu9", automationId: "A" };
     const cursor = cursorDaRetomada(real, "A", "b_bem001", lista);
-    expect(retomadaDoBotao(cursor, "A", lista, emCorrente(lista))).toEqual({
+    expect(retomadaDoBotao(cursor, "A", { steps: lista, ligacoes: emCorrente(lista) })).toEqual({
       portao: null,
       destino: "b_por002",
     });
@@ -2653,7 +2642,7 @@ describe("conferirLista", () => {
     // `indiceDoPortao` continua achando o portão.
     expect(indiceDoPortao(lista)).toBe(0);
     // E `interpretar` PARA nele em vez de pular para o link.
-    const r = interpretar(lista, emCorrente(lista), "b_por033");
+    const r = interpretar({ steps: lista, ligacoes: emCorrente(lista) }, "b_por033");
     expect(r.pararEm).toBe("b_por033");
     expect(r.enfileirar.map((a) => a.indice)).toEqual([0]);
   });
@@ -3107,7 +3096,7 @@ describe("interpretar caminhando o grafo", () => {
   ];
 
   it("segue a corrente até o fim e não para em lugar nenhum", () => {
-    const r = interpretar([bem, meio, fim], corrente, "b_bem001");
+    const r = interpretar({ steps: [bem, meio, fim], ligacoes: corrente }, "b_bem001");
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_bem001", "b_mei002", "b_fim003"]);
     expect(r.pararEm).toBe(null);
   });
@@ -3115,7 +3104,7 @@ describe("interpretar caminhando o grafo", () => {
   it("A ORDEM DO ARRAY NÃO MANDA MAIS — a seta manda", () => {
     // Mesmos blocos, array embaralhado, mesmas ligações: o resultado é idêntico.
     // É este teste que prova que a ordem deixou de significar o próximo.
-    const r = interpretar([fim, bem, meio], corrente, "b_bem001");
+    const r = interpretar({ steps: [fim, bem, meio], ligacoes: corrente }, "b_bem001");
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_bem001", "b_mei002", "b_fim003"]);
   });
 
@@ -3261,8 +3250,7 @@ describe("interpretar caminhando o grafo", () => {
       ],
     };
     const r = interpretar(
-      [menu, fim],
-      [{ de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_fim003" }],
+      { steps: [menu, fim], ligacoes: [{ de: "b_men001", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_fim003" }] },
       "b_men001"
     );
     // O menu SAI, e a caminhada PARA nele.
@@ -3283,8 +3271,7 @@ describe("interpretar caminhando o grafo", () => {
       botoes: [{ id: "op_aaaaaa", rotulo: "A" }],
     };
     const r = interpretar(
-      [menu, fim],
-      [{ de: "b_men001", quando: { tipo: "sempre" }, para: "b_fim003" }],
+      { steps: [menu, fim], ligacoes: [{ de: "b_men001", quando: { tipo: "sempre" }, para: "b_fim003" }] },
       "b_men001"
     );
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_men001"]);
@@ -3292,7 +3279,7 @@ describe("interpretar caminhando o grafo", () => {
   });
 
   it("bloco sem saída encerra o fluxo", () => {
-    const r = interpretar([bem], [], "b_bem001");
+    const r = interpretar({ steps: [bem], ligacoes: [] }, "b_bem001");
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_bem001"]);
     expect(r.pararEm).toBe(null);
   });
@@ -3308,11 +3295,11 @@ describe("interpretar caminhando o grafo", () => {
     // `scripts/ligar-passos-existentes.mjs --aplicar`, e a ordem de implantação
     // não é negociável: a coluna, depois a migração, e só então este motor.
     const lista = [bem, meio, fim];
-    expect(interpretar(lista, [], "b_bem001").enfileirar.map((a) => a.passo.id)).toEqual([
+    expect(interpretar({ steps: lista, ligacoes: [] }, "b_bem001").enfileirar.map((a) => a.passo.id)).toEqual([
       "b_bem001",
     ]);
     // Com a corrente que a migração grava, os três voltam.
-    expect(interpretar(lista, corrente, "b_bem001").enfileirar.map((a) => a.passo.id)).toEqual([
+    expect(interpretar({ steps: lista, ligacoes: corrente }, "b_bem001").enfileirar.map((a) => a.passo.id)).toEqual([
       "b_bem001",
       "b_mei002",
       "b_fim003",
@@ -3335,8 +3322,8 @@ describe("interpretar caminhando o grafo", () => {
       { de: "b_rama01", quando: { tipo: "sempre" }, para: "b_fim003" },
       { de: "b_ramb02", quando: { tipo: "sempre" }, para: "b_fim003" },
     ];
-    const porA = interpretar([a, b, fim], ligs, "b_rama01");
-    const porB = interpretar([a, b, fim], ligs, "b_ramb02");
+    const porA = interpretar({ steps: [a, b, fim], ligacoes: ligs }, "b_rama01");
+    const porB = interpretar({ steps: [a, b, fim], ligacoes: ligs }, "b_ramb02");
     expect(porA.enfileirar.map((x) => x.passo.id)).toEqual(["b_rama01", "b_fim003"]);
     expect(porB.enfileirar.map((x) => x.passo.id)).toEqual(["b_ramb02", "b_fim003"]);
   });
@@ -3361,13 +3348,13 @@ describe("interpretar caminhando o grafo", () => {
     // dois casos fixam o número: numa CORRENTE RETA não há repetição a achar, e
     // só um contador de passos distingue 100 de 101.
     const cheio = corrida(TETO_DE_PASSOS);
-    const r1 = interpretar(cheio.passos, cheio.ligacoes, "b_c000000");
+    const r1 = interpretar({ steps: cheio.passos, ligacoes: cheio.ligacoes }, "b_c000000");
     expect(r1.enfileirar.length).toBe(TETO_DE_PASSOS);
     expect(r1.ignorados).toEqual([]);
     expect(r1.cursorNoFim).toBe("limpar");
 
     const passando = corrida(TETO_DE_PASSOS + 1);
-    const r2 = interpretar(passando.passos, passando.ligacoes, "b_c000000");
+    const r2 = interpretar({ steps: passando.passos, ligacoes: passando.ligacoes }, "b_c000000");
     expect(r2.ignorados).toEqual([
       {
         indice: -1,
@@ -3383,7 +3370,7 @@ describe("interpretar caminhando o grafo", () => {
     // Mandava procurar o que não existe.
     const passando = corrida(TETO_DE_PASSOS + 1);
     expect(temCicloDeSempre(passando.passos, passando.ligacoes)).toBe(false);
-    const r = interpretar(passando.passos, passando.ligacoes, "b_c000000");
+    const r = interpretar({ steps: passando.passos, ligacoes: passando.ligacoes }, "b_c000000");
     expect(r.ignorados[0].motivo).toContain("comprido demais");
     expect(r.ignorados[0].motivo).not.toContain("volta");
 
@@ -3395,7 +3382,7 @@ describe("interpretar caminhando o grafo", () => {
       { de: "b_xxx001", quando: { tipo: "sempre" }, para: "b_yyy002" },
       { de: "b_yyy002", quando: { tipo: "sempre" }, para: "b_xxx001" },
     ];
-    expect(interpretar([x, y], anel, "b_xxx001").ignorados[0].motivo).toContain(
+    expect(interpretar({ steps: [x, y], ligacoes: anel }, "b_xxx001").ignorados[0].motivo).toContain(
       "há uma volta no caminho"
     );
 
@@ -3405,7 +3392,7 @@ describe("interpretar caminhando o grafo", () => {
     // discordarem sobre onde o teto cai.
     const cheio = corrida(TETO_DE_PASSOS);
     expect(caminhadaPassaDoTeto(cheio.passos, cheio.ligacoes)).toBe(false);
-    expect(interpretar(cheio.passos, cheio.ligacoes, "b_c000000").ignorados).toEqual([]);
+    expect(interpretar({ steps: cheio.passos, ligacoes: cheio.ligacoes }, "b_c000000").ignorados).toEqual([]);
     expect(caminhadaPassaDoTeto(passando.passos, passando.ligacoes)).toBe(true);
 
     // A METADE QUE IMPEDE DE CHEGAR LÁ: antes desta regra `conferirLista`
@@ -3450,7 +3437,7 @@ describe("interpretar caminhando o grafo", () => {
       { de: "b_xxx001", quando: { tipo: "sempre" }, para: "b_yyy002" },
       { de: "b_yyy002", quando: { tipo: "sempre" }, para: "b_xxx001" },
     ];
-    const r = interpretar([x, y], anel, "b_xxx001");
+    const r = interpretar({ steps: [x, y], ligacoes: anel }, "b_xxx001");
     // A caminhada devolvia as 100 ações que montou até bater no teto, e o motor
     // chamava `enfileirarPasso` 100 vezes dentro do webhook que a Meta reenvia
     // por 36 horas. A `passoKey` colapsava as repetições, então não saía
@@ -3469,7 +3456,7 @@ describe("interpretar caminhando o grafo", () => {
       { de: "b_bem001", quando: { tipo: "sempre" }, para: "b_esp001" },
       { de: "b_esp001", quando: { tipo: "sempre" }, para: "b_fim003" },
     ];
-    const r = interpretar([bem, esperar, fim], ligs, "b_bem001");
+    const r = interpretar({ steps: [bem, esperar, fim], ligacoes: ligs }, "b_bem001");
     const ultimo = r.enfileirar[r.enfileirar.length - 1];
     expect(ultimo.passo.id).toBe("b_fim003");
     expect(ultimo.atrasoSegundos).toBe(300);
@@ -3479,8 +3466,7 @@ describe("interpretar caminhando o grafo", () => {
     // O `jsonb` é editável por fora do editor, e o dono pode apagar o bloco de
     // destino sem que nada apague a ligação que apontava para ele.
     const r = interpretar(
-      [bem],
-      [{ de: "b_bem001", quando: { tipo: "sempre" }, para: "b_sumiu9" }],
+      { steps: [bem], ligacoes: [{ de: "b_bem001", quando: { tipo: "sempre" }, para: "b_sumiu9" }] },
       "b_bem001"
     );
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_bem001"]);
@@ -3499,7 +3485,7 @@ describe("interpretar caminhando o grafo", () => {
     // não há ligação nenhuma no caminho. Culpar a ligação era afirmar uma causa
     // que a função não conhece, o mesmo defeito corrigido em `kindLabel`
     // (app/labels.ts).
-    const r = interpretar([bem], [], "b_naoexiste9");
+    const r = interpretar({ steps: [bem], ligacoes: [] }, "b_naoexiste9");
     expect(r.enfileirar).toEqual([]);
     expect(r.ignorados).toEqual([
       { indice: -1, motivo: "o bloco de partida não está na lista: b_naoexiste9" },
@@ -3515,7 +3501,7 @@ describe("interpretar caminhando o grafo", () => {
     // corrompida e DEPOIS RESTAURADA é exatamente o cenário que o "manter"
     // existe para atender. Limpando, a pessoa perdia o lugar dela por causa de
     // um `jsonb` que voltaria ao normal na restauração seguinte.
-    const r = interpretar(null, [], "0");
+    const r = interpretar({ steps: null, ligacoes: [] }, "0");
     expect(r.enfileirar).toEqual([]);
     expect(r.ignorados).toEqual([
       { indice: -1, motivo: "a automação não tem lista de passos" },
@@ -3527,20 +3513,19 @@ describe("interpretar caminhando o grafo", () => {
     // A contraprova dos testes de "manter" acima: sem ela, `cursorNoFim:
     // "manter"` em toda saída passaria despercebido, e ninguém mais sairia do
     // fluxo.
-    expect(interpretar([bem], [], "b_bem001").cursorNoFim).toBe("limpar");
+    expect(interpretar({ steps: [bem], ligacoes: [] }, "b_bem001").cursorNoFim).toBe("limpar");
     // LISTA VAZIA continua limpando, e a diferença com o caso acima é real: aqui
     // a coluna está ÍNTEGRA e diz, sem ambiguidade, que não há bloco algum.
-    expect(interpretar([], [], "0").cursorNoFim).toBe("limpar");
+    expect(interpretar({ steps: [], ligacoes: [] }, "0").cursorNoFim).toBe("limpar");
     // E o `+1` de quem passou o último bloco: fim de fluxo, não dado quebrado.
-    expect(interpretar([bem], [], null).cursorNoFim).toBe("limpar");
+    expect(interpretar({ steps: [bem], ligacoes: [] }, null).cursorNoFim).toBe("limpar");
   });
 
   it("SÓ a ligação `sempre` é seguida: `botao` e `senao` não movem a caminhada", () => {
     // Sem isto, um bloco sem botão nenhum seguiria por uma seta de escolha e
     // entregaria o braço de uma pergunta que nunca foi feita.
     const r = interpretar(
-      [bem, fim],
-      [{ de: "b_bem001", quando: { tipo: "senao" }, para: "b_fim003" }],
+      { steps: [bem, fim], ligacoes: [{ de: "b_bem001", quando: { tipo: "senao" }, para: "b_fim003" }] },
       "b_bem001"
     );
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_bem001"]);
@@ -3549,11 +3534,10 @@ describe("interpretar caminhando o grafo", () => {
   it("bloco inválido no meio do caminho é ignorado e a caminhada SEGUE", () => {
     const quebrado = { id: "b_qbr001", tipo: "dm" };
     const r = interpretar(
-      [bem, quebrado, fim],
-      [
+      { steps: [bem, quebrado, fim], ligacoes: [
         { de: "b_bem001", quando: { tipo: "sempre" }, para: "b_qbr001" },
         { de: "b_qbr001", quando: { tipo: "sempre" }, para: "b_fim003" },
-      ],
+      ] },
       "b_bem001"
     );
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_bem001", "b_fim003"]);
@@ -3666,7 +3650,7 @@ describe("temCicloDeSempre", () => {
     ];
     expect(temCicloDeSempre(passos, anelDeSenao)).toBe(false);
     // E a medição que sustenta a resposta: a caminhada para em A, sem teto.
-    const r = interpretar(passos, anelDeSenao, "b_aaa111");
+    const r = interpretar({ steps: passos, ligacoes: anelDeSenao }, "b_aaa111");
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_aaa111"]);
     expect(r.ignorados).toEqual([]);
   });
@@ -3699,7 +3683,7 @@ describe("temCicloDeSempre", () => {
     ];
     expect(temCicloDeSempre([menu, antes], anel)).toBe(false);
     // E a medição: a caminhada para no menu, sem chegar perto do teto.
-    const r = interpretar([menu, antes], anel, "b_ant002");
+    const r = interpretar({ steps: [menu, antes], ligacoes: anel }, "b_ant002");
     expect(r.enfileirar.map((a) => a.passo.id)).toEqual(["b_ant002", "b_men001"]);
     expect(r.pararEm).toBe("b_men001");
     expect(r.ignorados).toEqual([]);

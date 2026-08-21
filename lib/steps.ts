@@ -1262,7 +1262,54 @@ export function passoEsperado(passos: unknown, indice: number): Passo | undefine
 // BLOCO SÓ" (tests/steps.test.ts) fixa o comportamento para ele não ser
 // descoberto num cliente.
 // ---------------------------------------------------------------------------
-export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string | null): Resultado {
+// ---------------------------------------------------------------------------
+// O FLUXO É UM ARGUMENTO SÓ, E ISSO É O CONSERTO DE UM DEFEITO LATENTE MEDIDO.
+//
+// `passos` e `ligacoes` são as duas metades do mesmo mapa e chegavam como dois
+// parâmetros `unknown` VIZINHOS. Trocar um pelo outro compilava. A revisão do
+// motor plantou `caminhoDoBotao(p, auto.ligacoes, auto.steps)` em
+// `lib/engine.ts` e mediu: **671 testes verdes, `tsc` 0, `eslint` 0**. Em
+// produção, `indiceDoId(ligacoes, destino)` seria `null` para TODO toque, todo
+// botão viraria `botao_sem_caminho` e nenhum menu do produto funcionaria — com
+// os três instrumentos do projeto calados.
+//
+// A ORDEM ERA INCONSISTENTE DENTRO DESTE PRÓPRIO ARQUIVO, e era isso que tornava
+// a troca fácil de escrever: `seguinteDe`, `haCaminho` e `ligacaoEscolhida`
+// recebem `ligacoes` primeiro; as sete funções que agora tomam `Fluxo` recebiam
+// `passos` primeiro. Com um objeto só, essas sete deixam de ter ordem para ser
+// inconsistente.
+//
+// UNIFORMIZAR A ORDEM NÃO ERA CONSERTO, e a distinção é o ponto: dois `unknown`
+// vizinhos continuam trocáveis em qualquer ordem que se escolha. O que fecha o
+// buraco é não haver dois argumentos.
+//
+// AS CHAVES SÃO `steps` E `ligacoes` — os nomes das COLUNAS, e não `passos` —,
+// e a escolha é o conserto inteiro: `Automation` (lib/db.ts) satisfaz `Fluxo`
+// por estrutura, então `lib/engine.ts` escreve `interpretar(auto, destino)` e
+// não há mais nada a trocar. Com a chave em português, o motor teria de montar
+// `{passos: auto.steps, ligacoes: auto.ligacoes}` — e escrever esse objeto ao
+// contrário voltaria a compilar. A troca deixou de ser possível porque o par
+// deixou de ser escrito, não porque ganhou nome.
+//
+// O TIPO NOMINAL FOI TENTADO ANTES E MEDIDO IMPOSSÍVEL: marcar `unknown` com uma
+// propriedade fantasma (`{readonly __lista?: "passos"}`) faz o TypeScript aplicar
+// a detecção de WEAK TYPE e recusar TODO argumento real — `unknown[]`, `[]`,
+// `"não é lista"`, `null` —, porque nenhum deles tem propriedade em comum com a
+// marca. Sem cast em cada ponto de chamada não há tipo nominal sobre `unknown`,
+// e cast em ponto de chamada é o mesmo buraco com outra roupa.
+//
+// AS OUTRAS DUAS QUE RECEBEM O PAR — `temCicloDeSempre` e `caminhadaPassaDoTeto`
+// — FICARAM COM DOIS ARGUMENTOS, e a razão é medida: `lib/steps.ts` é o único
+// chamador das duas, e a suíte executa este arquivo. Trocar o par lá dentro
+// derruba teste. O que não tinha rede era só a fronteira com `lib/engine.ts`, que
+// é `server-only` e que nenhum teste alcança — e é exatamente ela que estas sete
+// fecham. `conferirLista` também fica: o `gatilho: string` entre os dois já torna
+// a troca um erro de `tsc`.
+// ---------------------------------------------------------------------------
+export type Fluxo = { steps: unknown; ligacoes: unknown };
+
+export function interpretar(fluxo: Fluxo, deBloco: string | null): Resultado {
+  const { steps: passos, ligacoes } = fluxo;
   const r: Resultado = {
     enfileirar: [],
     pararEm: null,
@@ -2031,9 +2078,9 @@ export function botoesDaMensagem(
 // editor.
 export function caminhoDoBotao(
   p: Payload,
-  passos: unknown,
-  ligacoes: unknown
+  fluxo: Fluxo
 ): { retomada?: Retomada; motivo?: string } | null {
+  const { steps: passos, ligacoes } = fluxo;
   if (p.prefixo !== "AUTO" || p.botaoId === null || p.passoId === null) return null;
   const destino = ligacaoEscolhida(ligacoes, p.passoId, { tipo: "botao", botao: p.botaoId });
   if (destino === null) {
@@ -2435,9 +2482,9 @@ function atravessandoOPortao(
 export function retomadaDoBotao(
   cursor: Cursor,
   automationId: string,
-  passos: unknown,
-  ligacoes: unknown
+  fluxo: Fluxo
 ): Retomada {
+  const { steps: passos, ligacoes } = fluxo;
   const id = cursorDesta(cursor, automationId);
   const indice = id === null ? null : indiceDoId(passos, id);
   // A ENTRADA DO FLUXO é `steps[0]`, e é o único significado que a ordem do
@@ -2525,9 +2572,9 @@ export function retomadaDoBotao(
 export function retomadaDoFollow(
   cursor: Cursor,
   automationId: string,
-  passos: unknown,
-  ligacoes: unknown
+  fluxo: Fluxo
 ): Retomada {
+  const { steps: passos, ligacoes } = fluxo;
   const id = cursorDesta(cursor, automationId);
   const indice = id === null ? null : indiceDoId(passos, id);
   // Não há "seguinte" nenhum aqui — este ramo sempre retomou DO bloco, nunca do
@@ -2700,7 +2747,8 @@ export function retomadaDoFollow(
 // (`indiceParado`, já resolvido por `indiceDoId`) e porque `passoEsperado` fala
 // em posição. A conversão para identidade acontece aqui dentro, uma vez, e o
 // destino sai como identidade — que é o que impede o `+1` de voltar.
-export function retomadaDoTexto(passos: unknown, ligacoes: unknown, indice: number): Retomada {
+export function retomadaDoTexto(fluxo: Fluxo, indice: number): Retomada {
+  const { steps: passos, ligacoes } = fluxo;
   const id = identidadeNoIndice(passos, indice);
   const tipo = passoEsperado(passos, indice)?.tipo;
   const destino =
@@ -2768,10 +2816,10 @@ export function retomadaDoTexto(passos: unknown, ligacoes: unknown, indice: numb
 // banco. Reconferir aqui só criaria um segundo lugar onde a resposta pode
 // divergir; o que esta função decide é UMA coisa, o destino e o portão dele.
 export function retomadaDoEmailConhecido(
-  passos: unknown,
-  ligacoes: unknown,
+  fluxo: Fluxo,
   indice: number
 ): Retomada {
+  const { steps: passos, ligacoes } = fluxo;
   const id = identidadeNoIndice(passos, indice);
   const destino = id === null ? null : seguinteDe(ligacoes, id);
   return atravessandoOPortao(passos, ligacoes, destino);
@@ -2860,8 +2908,8 @@ export function retomadaDoEmailConhecido(
 // O BURACO É REAL E ESTÁ MEDIDO, com `[menu(op_aaaaaa), b_opa002, b_sen003]`,
 // `botao(menu→b_opa002)` e `senao(menu→b_sen003)` — o mesmo grafo nas duas:
 //
-//   `retomadaDoTexto(passos, ls, 0)` .. `{portao: null, destino: "b_sen003"}`
-//   `retomadaDoFallback(passos, ls)` .. `{portao: null, destino: null}`
+//   `retomadaDoTexto({steps, ligacoes}, 0)` ..... `{portao: null, destino: "b_sen003"}`
+//   `retomadaDoFallback({steps, ligacoes})` ...... `{portao: null, destino: null}`
 //
 // Dois caminhos de código, a mesma pessoa digitando no mesmo menu, respostas
 // opostas — que é a forma exata da inconsistência que `retomadaDoEmailConhecido`
@@ -2875,8 +2923,9 @@ export function retomadaDoEmailConhecido(
 // antiga que ninguém tinha notado; há uma inconsistência INTRODUZIDA, de
 // propósito, com o motivo escrito no parágrafo anterior. Quem for fechá-la está
 // desfazendo uma escolha desta tarefa, não consertando um esquecimento.
-export function retomadaDoFallback(passos: unknown, ligacoes: unknown): Retomada | null {
-  const { pararEm } = interpretar(passos, ligacoes, identidadeNoIndice(passos, 0));
+export function retomadaDoFallback(fluxo: Fluxo): Retomada | null {
+  const { steps: passos, ligacoes } = fluxo;
+  const { pararEm } = interpretar(fluxo, identidadeNoIndice(passos, 0));
   if (pararEm === null) return null;
   if (Array.isArray(passos) && contarParadasDuras(passos) > 1) return null;
   // `pararEm` saiu da própria caminhada, que só o produz depois de `indiceDoId`

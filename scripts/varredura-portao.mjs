@@ -365,15 +365,14 @@ if (!MODO_ANTIGO) {
   if (!S.conferirLigacao(setaSenao).ligacao) {
     reclamar("`conferirLigacao` não aceita mais uma ligação `senao`.");
   }
-  if (S.retomadaDoTexto([BLOCOS.N, BLOCOS.M], [setaSenao], 0).destino !== ID.M) {
+  if (S.retomadaDoTexto({ steps: [BLOCOS.N, BLOCOS.M], ligacoes: [setaSenao] }, 0).destino !== ID.M) {
     reclamar("`retomadaDoTexto` não segue mais a `senao` de quem digitou num menu.");
   }
   const setaBotao = { de: ID.N, quando: { tipo: "botao", botao: "op_dddddd" }, para: ID.M };
-  const doBotao = S.caminhoDoBotao(
-    S.lerPayload(montarPayload("A", ID.N, "op_dddddd")),
-    [BLOCOS.N, BLOCOS.M],
-    [setaBotao]
-  );
+  const doBotao = S.caminhoDoBotao(S.lerPayload(montarPayload("A", ID.N, "op_dddddd")), {
+    steps: [BLOCOS.N, BLOCOS.M],
+    ligacoes: [setaBotao],
+  });
   if (!doBotao?.retomada) {
     reclamar("`caminhoDoBotao` não retoma mais de um toque em botão de MENU.");
   }
@@ -382,7 +381,7 @@ if (!MODO_ANTIGO) {
   // blocos, não as setas. Com a lista do menu a resposta é uma `Retomada` (de
   // destino nulo, que é o que se espera sem setas); pondo E e N na mesma lista,
   // medido, ela vira null e o ponto do fallback some.
-  if (S.retomadaDoFallback(PAPEIS_MENU.map((p) => BLOCOS[p]), []) === null) {
+  if (S.retomadaDoFallback({ steps: PAPEIS_MENU.map((p) => BLOCOS[p]), ligacoes: [] }) === null) {
     reclamar("`retomadaDoFallback` não devolve mais retomada para a lista da varredura do menu.");
   }
 }
@@ -650,7 +649,7 @@ function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, p
   const partida = MODO_ANTIGO
     ? S.identidadeNoIndice(passos, retomada.destino)
     : retomada.destino;
-  const r = S.interpretar(passos, ligacoes, partida);
+  const r = S.interpretar({ steps: passos, ligacoes }, partida);
 
   for (const acao of r.enfileirar) {
     const p = acao.passo;
@@ -666,7 +665,7 @@ function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, p
       // ATUAL, o vazamento que o motor tinha.
       const seguinte = MODO_ANTIGO
         ? { portao: null, destino: acao.indice + 1 }
-        : S.retomadaDoEmailConhecido(passos, ligacoes, acao.indice);
+        : S.retomadaDoEmailConhecido({ steps: passos, ligacoes }, acao.indice);
       // A regra SE APLICA a este salto nos dois modos: o grupo é definido por
       // onde a regra DEVE fechar, e o modo ANTIGO é justamente o código em que
       // ela não fechava.
@@ -735,7 +734,7 @@ function pontosDeEntrada(passos, ligacoes) {
   for (const l of ligacoes) {
     if (l.quando.tipo !== "botao") continue;
     const p = S.lerPayload(montarPayload("A", l.de, l.quando.botao));
-    const c = S.caminhoDoBotao(p, passos, ligacoes);
+    const c = S.caminhoDoBotao(p, { steps: passos, ligacoes });
     if (!c) continue;
     if (MODO_ANTIGO) {
       // O buraco medido: índice CRU para `executarFluxo`, que o embrulha em
@@ -769,13 +768,13 @@ function pontosDeEntrada(passos, ligacoes) {
       `AUTO: cursor ${cursor.passoId}/${cursor.automationId}`,
       MODO_ANTIGO
         ? S.retomadaDoBotao(cursor, "A", passos)
-        : S.retomadaDoBotao(cursor, "A", passos, ligacoes)
+        : S.retomadaDoBotao(cursor, "A", { steps: passos, ligacoes })
     );
     empurrar(
       `FOLLOW: cursor ${cursor.passoId}/${cursor.automationId}`,
       MODO_ANTIGO
         ? S.retomadaDoFollow(cursor, "A", passos)
-        : S.retomadaDoFollow(cursor, "A", passos, ligacoes)
+        : S.retomadaDoFollow(cursor, "A", { steps: passos, ligacoes })
     );
   }
   // Toda mensagem de texto de quem está parado em cada bloco. É por AQUI que a
@@ -784,12 +783,14 @@ function pontosDeEntrada(passos, ligacoes) {
   for (let i = 0; i < passos.length; i++) {
     empurrar(
       `texto parado em ${i}`,
-      MODO_ANTIGO ? S.retomadaDoTexto(passos, i) : S.retomadaDoTexto(passos, ligacoes, i)
+      MODO_ANTIGO
+        ? S.retomadaDoTexto(passos, i)
+        : S.retomadaDoTexto({ steps: passos, ligacoes }, i)
     );
   }
 
   // O fallback.
-  const f = S.retomadaDoFallback(passos, ligacoes);
+  const f = S.retomadaDoFallback({ steps: passos, ligacoes });
   if (f !== null) {
     empurrar("fallback", MODO_ANTIGO ? { portao: null, destino: f } : f);
   }

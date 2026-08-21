@@ -637,7 +637,7 @@ async function executarFluxo(
   // (lib/steps.ts): ele dispara se e só se a pessoa passou o ÚLTIMO bloco, o que
   // é fim NORMAL na maioria das vezes, e os casos que são defeito de verdade são
   // de MONTAGEM — a conferência os pega no salvar, não na entrega.
-  const r = interpretar(auto.steps, auto.ligacoes, retomada.destino);
+  const r = interpretar(auto, retomada.destino);
 
   // Passo mal montado vira linha em Atividade, não exceção. Automação quebrada
   // não pode derrubar o webhook: a Meta reenviaria o evento por 36 horas.
@@ -788,7 +788,7 @@ async function executarFluxo(
       if (rows[0]?.email) {
         return executarFluxo(
           account, auto, contactIgId,
-          retomadaDoEmailConhecido(auto.steps, auto.ligacoes, acao.indice),
+          retomadaDoEmailConhecido(auto, acao.indice),
           contexto
         );
       }
@@ -1529,7 +1529,7 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
         // uma expressão solta dentro de `server-only`, e trocar o bloco de
         // origem por um vindo do cursor não acendia luz em teste nenhum — o
         // mesmo defeito que fez `cursorDaRetomada` sair daqui.
-        const caminho = caminhoDoBotao(p, auto.steps, auto.ligacoes);
+        const caminho = caminhoDoBotao(p, auto);
         if (caminho) {
           if (caminho.retomada !== undefined) {
             // A `Retomada` VEM PRONTA de `caminhoDoBotao`, com a regra do portão
@@ -1603,10 +1603,10 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
         );
         const de =
           p.prefixo === "AUTO"
-            ? retomadaDoBotao(cursor, auto.id, auto.steps, auto.ligacoes)
+            ? retomadaDoBotao(cursor, auto.id, auto)
             : // "Já sigo!" — `resolverFollow` consulta a API de novo, então só
               // passa quem realmente seguir.
-              retomadaDoFollow(cursor, auto.id, auto.steps, auto.ligacoes);
+              retomadaDoFollow(cursor, auto.id, auto);
         await executarFluxo(account, auto, senderId, de);
       }
     }
@@ -1715,7 +1715,7 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
           // que é o link, com o portão nunca avaliado.
           await executarFluxo(
             account, autoParada, senderId,
-            retomadaDoTexto(autoParada.steps, autoParada.ligacoes, indiceParado)
+            retomadaDoTexto(autoParada, indiceParado)
           );
           return;
         }
@@ -1777,7 +1777,7 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     autoAnterior &&
     (await shouldFallbackFollowup(account.ig_user_id, autoAnterior.id, senderId))
   ) {
-    const de = retomadaDoFallback(autoAnterior.steps, autoAnterior.ligacoes);
+    const de = retomadaDoFallback(autoAnterior);
     if (de !== null) await executarFluxo(account, autoAnterior, senderId, de);
   }
 }
