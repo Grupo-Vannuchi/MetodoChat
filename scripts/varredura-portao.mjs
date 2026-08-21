@@ -97,17 +97,30 @@
 // o critério de que ela DISCRIMINA, e não um enfeite. Refazê-los é o teste do
 // teste, e quem mexer aqui deve refazê-los.
 //
-// OS SEIS NÚMEROS ABAIXO SÃO ANTERIORES À GUARDA `emiteBotao` e estão sendo
-// remedidos com o eixo fiel — leia-os como históricos até esta marca sair. O
-// que NÃO muda é o critério: os seis têm que continuar acusando, e um que passe
-// a dar zero é defeito da guarda, não do plantio.
+// OS SEIS FORAM REPLANTADOS COM O EIXO FIEL (a guarda `emiteBotao`), um de cada
+// vez, com `git checkout --` entre eles: OS SEIS CONTINUAM ACUSANDO, e os seis
+// saem com código 1. Os números abaixo são os do eixo fiel, com os antigos ao
+// lado. Repare no padrão, que é a mesma coisa dita de outro jeito: na varredura
+// DO MENU nenhum dos seis mudou UM DÍGITO, e na EXAUSTIVA só encolheu quem
+// passava pelo eixo de botão.
 //
 // NA EXAUSTIVA (os quatro da revisão da Tarefa 4, inalterados por esta tarefa):
 //
-//   `haCaminho` contando só setas `sempre`      A: 0        C:  2.713.648
-//   `retomadaDoFallback` sem a regra             A: 0        C:     91.200
-//   `retomadaDoEmailConhecido` sem a regra       A: 0        C:  1.102.772
-//   a regra do portão desligada por completo     A: 73.720   C: 15.091.792
+//                                                             C, eixo fiel   (antes)
+//   `haCaminho` contando só setas `sempre`      A: 0            1.996.016  (2.713.648)
+//   `retomadaDoFallback` sem a regra             A: 0               91.200  (   91.200)
+//   `retomadaDoEmailConhecido` sem a regra       A: 0            1.000.852  (1.102.772)
+//   a regra do portão desligada por completo     A: 73.720      12.494.128 (15.091.792)
+//
+// `retomadaDoFallback` NÃO SE MEXEU (91.200 dos dois lados), e a razão é boa: o
+// ponto de entrada do fallback não é um toque em botão, então a guarda não o
+// alcança. `A` do interruptor geral também ficou em 73.720 — A conta CASOS de
+// arranjo, e o espaço de fluxos não mudou.
+//
+// E OS TRÊS PRIMEIROS ACUSAM NA DO MENU TAMBÉM, o que o cabeçalho não dizia:
+// `haCaminho` dá A 20.400 e C 2.487.070 lá, `retomadaDoFallback` C 100.800,
+// `retomadaDoEmailConhecido` C 1.050.378, e o interruptor geral A 118.700 e
+// C 13.879.664.
 //
 // NA DO MENU E DA `senao` (os três da Tarefa 7c). ATENÇÃO: os TRÊS deixam a
 // EXAUSTIVA byte a byte idêntica à linha de base — foi essa cegueira que abriu a
@@ -119,6 +132,11 @@
 //
 //   destino da `senao` sem `atravessandoOPortao`   A: 0   C: 199.452
 //   toque em botão de MENU sem a regra do portão   A: 0   C: 356.900
+//
+// OS DOIS SOBREVIVERAM À GUARDA `emiteBotao` SEM MUDAR UM DÍGITO (replantados,
+// código 1 nos dois), e não é coincidência: N é o único bloco do projeto que
+// emite payload de quatro partes de verdade, então a guarda não tira nada da
+// varredura do menu. Os dois continuam deixando a EXAUSTIVA em A 0 e C 0.
 //   `retomadaDoTexto` voltando a ignorar a `senao` -> a GUARDA DA FIAÇÃO estoura
 //
 // O TERCEIRO NÃO É MEDIDO POR NÚMERO, e a razão está na guarda logo abaixo de
@@ -189,9 +207,10 @@
 // E repare que B NÃO SE MEXE em nenhum dos quatro da exaustiva (261.536
 // sempre). Isso NÃO é "mudança de código nunca aparece em B" — a revisão plantou
 // `seguinteDe` devolvendo a primeira ligação de saída de QUALQUER tipo (mudança
-// de código puro, nenhuma REGRA envolvida) e mediu B saltar de 261.536 para
-// 321.008, com a varredura saindo em código 0 e imprimindo "SEM VAZAMENTO" —
-// contraexemplo medido, não hipotético.
+// de código puro, nenhuma REGRA envolvida) e mediu B saltar, com a varredura
+// saindo em código 0 e imprimindo "SEM VAZAMENTO" — contraexemplo medido, não
+// hipotético. Replantado com o eixo fiel: B 232.320 -> 286.272 na exaustiva e
+// 251.166 -> 270.112 na do menu, código 0 nas duas. (Era 261.536 -> 321.008.)
 //
 // O que É verdade, e o que este arquivo mede: nenhuma REGRA pode disparar em
 // B, porque o portão não está a montante do destino. É essa afirmação, e só
