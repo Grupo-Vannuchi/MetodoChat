@@ -3340,6 +3340,16 @@ describe("interpretar caminhando o grafo", () => {
     return { passos, ligacoes: emCorrente(passos) };
   }
 
+  // A mesma corrente, com UM bloco do meio trocado por outro. O id do bloco
+  // trocado é o mesmo, então a corrente continua inteira e a ÚNICA variável
+  // entre dois casos é o que aquele bloco É — que é exatamente o eixo em que as
+  // duas caminhadas do teto podem divergir.
+  function corridaCom(quantos: number, indice: number, bloco: unknown) {
+    const passos: unknown[] = corrida(quantos).passos.slice();
+    passos[indice] = bloco;
+    return { passos, ligacoes: emCorrente(passos) };
+  }
+
   it("O TETO É EXATAMENTE ISSO: 100 blocos passam, 101 é interrompido", () => {
     // A versão anterior deste teste media `enfileirar.length <=
     // TETO_DE_PASSOS`, o que qualquer parada satisfaz, e casava o motivo com
@@ -3411,6 +3421,91 @@ describe("interpretar caminhando o grafo", () => {
         x2.mensagem.includes("blocos seguidos")
       )
     ).toEqual([]);
+  });
+
+  it("AS DUAS CAMINHADAS PARAM NO MESMO LUGAR, e não só no mesmo NÚMERO", () => {
+    // O par de 100/101 do teste acima prende o LIMIAR das duas caminhadas, e o
+    // limiar é o eixo em que elas mal podem divergir: aquela lista é corrente de
+    // `dm` comum, onde ninguém para. A PARADA é o outro eixo, e era o único sem
+    // nada prendendo — apagar `if (passo && esperaResposta(passo)) break;` de
+    // `caminhadaPassaDoTeto` deixava a suíte inteira verde e o `tsc` limpo.
+    //
+    // DOIS LAÇOS QUE PRECISAM CONCORDAR SÃO UMA ARMADILHA ENQUANTO NADA OS
+    // OBRIGA A CONCORDAR. Este teste percorre os TRÊS eixos em que eles decidem
+    // separado — a parada, a espera e o bloco inválido — com a MESMA lista de
+    // 121 blocos, mudando só o bloco do índice 60.
+
+    // 1 · A PARADA. `interpretar` percorre 61 blocos e para no menu, muito antes
+    // do teto. Sem a parada no outro laço, ele conta os 121 e devolve `true` — e
+    // `conferirLista` recusa o ativar dizendo "sem nenhuma pergunta pelo meio",
+    // num fluxo cuja pergunta está exatamente no meio. É o falso positivo que
+    // tranca o dono fora do painel, que é o risco que esta regra nomeou ao
+    // escolher recusar o ATIVAR.
+    const comMenu = corridaCom(TETO_DE_PASSOS + 21, 60, {
+      id: "b_c000060",
+      tipo: "dm",
+      texto: "Escolha:",
+      botoes: [{ id: "op_zzzzzz", rotulo: "Quero" }],
+    });
+    const rMenu = interpretar({ steps: comMenu.passos, ligacoes: comMenu.ligacoes }, "b_c000000");
+    expect(rMenu.enfileirar.length).toBe(61);
+    expect(rMenu.pararEm).toBe("b_c000060");
+    expect(rMenu.ignorados).toEqual([]);
+    expect(caminhadaPassaDoTeto(comMenu.passos, comMenu.ligacoes)).toBe(false);
+    expect(
+      conferirLista(comMenu.passos, "dm", comMenu.ligacoes).filter((p) =>
+        p.mensagem.includes("blocos seguidos")
+      )
+    ).toEqual([]);
+
+    // E a lista de 121 é comprida DE VERDADE: sem a parada no meio, os dois
+    // laços acusam. Sem esta metade, o `false` acima passaria numa função que
+    // respondesse `false` a tudo.
+    const semParada = corrida(TETO_DE_PASSOS + 21);
+    expect(caminhadaPassaDoTeto(semParada.passos, semParada.ligacoes)).toBe(true);
+    expect(
+      interpretar({ steps: semParada.passos, ligacoes: semParada.ligacoes }, "b_c000000")
+        .ignorados[0].motivo
+    ).toContain("comprido demais");
+
+    // 2 · A ESPERA, e este eixo não tinha teste nenhum. `interpretar` só
+    // pergunta `esperaResposta` no ramo que ENFILEIRA, então nunca a pergunta
+    // sobre um bloco `esperar`; `caminhadaPassaDoTeto` a pergunta sobre TODO
+    // bloco válido. Os dois concordam hoje só porque `esperaResposta` responde
+    // `false` a `esperar` — nada além disso os obrigava. Uma espera no meio não
+    // para a caminhada nem sai da contagem: os dois têm de acusar os 121.
+    const comEspera = corridaCom(TETO_DE_PASSOS + 21, 60, {
+      id: "b_c000060",
+      tipo: "esperar",
+      minutos: 5,
+    });
+    expect(caminhadaPassaDoTeto(comEspera.passos, comEspera.ligacoes)).toBe(true);
+    expect(
+      interpretar({ steps: comEspera.passos, ligacoes: comEspera.ligacoes }, "b_c000000")
+        .ignorados[0].motivo
+    ).toContain("comprido demais");
+
+    // 3 · O BLOCO INVÁLIDO. `interpretar` registra o motivo e SEGUE pela seta
+    // que sai dele — a ligação é do bloco, não do conteúdo —, gastando uma volta
+    // do laço nele. O outro laço tem de contá-lo e seguir igual: se ele
+    // interrompesse ali, um texto em branco no meio da lista apagaria a acusação
+    // de comprimento sem apagar o corte da entrega, e o dono publicaria uma
+    // automação que entrega ZERO.
+    const comQuebrado = corridaCom(TETO_DE_PASSOS + 21, 60, {
+      id: "b_c000060",
+      tipo: "dm",
+      texto: "   ",
+    });
+    expect(caminhadaPassaDoTeto(comQuebrado.passos, comQuebrado.ligacoes)).toBe(true);
+    const rQuebrado = interpretar(
+      { steps: comQuebrado.passos, ligacoes: comQuebrado.ligacoes },
+      "b_c000000"
+    );
+    expect(rQuebrado.enfileirar).toEqual([]);
+    expect(rQuebrado.ignorados.map((x) => x.motivo)).toContain("dm sem texto");
+    expect(rQuebrado.ignorados[rQuebrado.ignorados.length - 1].motivo).toContain(
+      "comprido demais"
+    );
   });
 
   it("O ANEL NÃO GANHA DUAS LINHAS: com volta, só a regra do anel fala", () => {
