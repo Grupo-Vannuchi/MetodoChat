@@ -308,12 +308,40 @@ export type Alca = {
   // O que fica escrito ao lado da alça. Vazio na alça de continuação.
   rotulo: string;
   // ELA EXISTE SÓ PORQUE HÁ UMA SETA GRAVADA NELA (`alcasDoQuadro`, abaixo), e
-  // não porque o bloco ofereça esta saída. Quem lê é `no.tsx`, para NÃO deixar
-  // um arrasto COMEÇAR dela: a alça está ali para o dono ver e poder apagar a
-  // seta que já existe, e puxar uma segunda de uma condição que o bloco não
-  // produz é criar do zero o que esta onda fechou.
+  // não porque o bloco ofereça esta saída. A alça está ali para o dono VER e
+  // APAGAR a seta que já existe; quem lê a marca para tirá-la do gesto é
+  // `alcaAceitaArrasto`, logo abaixo.
   sobra?: true;
 };
+
+// ESTA ALÇA PODE SER PONTA DE UM ARRASTO?
+//
+// UMA PERGUNTA SÓ PARA AS DUAS PONTAS, e o motivo é o defeito que ela fecha. A
+// guarda anterior morava direto no JSX e era de MÃO ÚNICA: `isConnectableStart`
+// recusava a alça de sobra, `isConnectableEnd` não. Medido, com
+// `menu --sempre--> Fim` gravada: começar o arrasto na alça de DESTINO de outro
+// bloco (que tem `isConnectableStart`) e soltar sobre a alça "continuação" do
+// menu produz `{source: menu, sourceHandle: "sempre", target: o outro}` — em
+// modo Strict, uma conexão VÁLIDA; `setaPermitida` (./quadro) só recusa
+// `source === target`; `ligar` (lib/steps.ts) SUBSTITUI a de mesma condição; e
+// `seguinteDe(menu)` passa a devolver o outro bloco. A alça que "não começa seta
+// nenhuma" REDIRECIONAVA a seta.
+//
+// E O QUE DECIDE NÃO É O DADO RESULTANTE — ele é válido, `menu --sempre--> X` é
+// percorrida por `retomadaDoTexto` sem `senao`, por `retomadaDoBotao` e por
+// `retomadaDoFallback`. O que decide é o gesto ser DE IDA SÓ: o editor não tem
+// desfazer, não tem `onReconnect`, e `deleteKeyCode` só APAGA (./quadro). Depois
+// de redirecionar sem querer — e `connectionRadius` é 20px, então a mira não
+// precisa ser exata — o dono não tem por onde pôr a seta de volta, porque a alça
+// recusa começar o arrasto. Mover sem poder devolver é pior do que não mover.
+//
+// UMA FUNÇÃO E NÃO DUAS, e é aqui que a classe do defeito fecha: com duas
+// expressões no JSX, guardar uma e esquecer a outra é um descuido de uma linha,
+// e foi exatamente o que aconteceu. Com uma resposta só alimentando as duas
+// pontas, a assimetria deixa de ser escrivível por engano.
+export function alcaAceitaArrasto(a: Alca): boolean {
+  return !a.sobra;
+}
 
 const ALCA_DE_CONTINUACAO: Alca[] = [{ chave: "sempre", quando: { tipo: "sempre" }, rotulo: "" }];
 

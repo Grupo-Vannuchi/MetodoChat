@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  alcaAceitaArrasto,
   alcasDeSaida,
   blocoNovo,
   comoTexto,
@@ -648,6 +649,55 @@ describe("alcasDoQuadro", () => {
   it("as ligações de OUTROS blocos não põem alça neste", () => {
     const ls: Ligacao[] = [{ de: "b_outro", quando: { tipo: "sempre" }, para: id }];
     expect(alcasDoQuadro(menu, ls, id)).toEqual(alcasDeSaida(menu));
+  });
+
+  // A ALÇA DE SOBRA NÃO É PONTA DE ARRASTO NENHUM, e o "nenhum" é a correção.
+  // A guarda anterior vivia solta no JSX de `no.tsx` e era de mão única: ela
+  // recusava COMEÇAR (`isConnectableStart`) e deixava TERMINAR
+  // (`isConnectableEnd`). Um arrasto REVERSO — começado na alça de destino de
+  // outro bloco, que é ponta de começo legítima, e solto sobre a alça de sobra —
+  // produzia uma conexão que o React Flow aceita em modo Strict, `setaPermitida`
+  // não recusa (ela só barra `source === target`) e `ligar` SUBSTITUI: a seta que
+  // a alça só deveria mostrar mudava de destino.
+  //
+  // E O GESTO É DE IDA SÓ, que é o que decide. O dado resultante é válido, mas o
+  // editor não tem desfazer nem `onReconnect`, e a alça recusa começar o arrasto
+  // — então não há por onde pôr a seta de volta. Com `connectionRadius` em 20px,
+  // a mira nem precisa ser exata para isso acontecer sem querer.
+  //
+  // O QUE ESTE TESTE PRENDE é a resposta ÚNICA das duas pontas. Ele não alcança
+  // o JSX — a suíte não testa componente —, mas alcança a única coisa que as duas
+  // props leem, e é por isso que elas passaram a ler uma coisa só: com duas
+  // expressões independentes, guardar uma e esquecer a outra volta a ser um
+  // descuido de uma linha.
+  it("a alça de sobra recusa as DUAS pontas do arrasto, e as do tipo aceitam as duas", () => {
+    const ls: Ligacao[] = [
+      { de: id, quando: { tipo: "botao", botao: "op_1" }, para: "b_x" },
+      { de: id, quando: { tipo: "sempre" }, para: "b_fim" },
+    ];
+    const alcas = alcasDoQuadro(menu, ls, id);
+    // botao:op_1 | botao:op_2 | senao | sempre[sobra]
+    expect(alcas.map(alcaAceitaArrasto)).toEqual([true, true, true, false]);
+
+    // A seta de botão apagado e a `senao` órfã são a mesma regra: as três formas
+    // de sobra recusam.
+    const apagado: Ligacao[] = [
+      { de: id, quando: { tipo: "botao", botao: "op_sumiu" }, para: "b_z" },
+    ];
+    expect(alcasDoQuadro(menu, apagado, id).map(alcaAceitaArrasto)).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+    const vazio = doBanco({ id: "b_vazi003", tipo: "dm", texto: "Escolha", botoes: [] });
+    const orfa: Ligacao[] = [{ de: vazio.id!, quando: { tipo: "senao" }, para: "b_w" }];
+    expect(alcasDoQuadro(vazio, orfa, vazio.id!).map(alcaAceitaArrasto)).toEqual([true, false]);
+
+    // E nenhuma alça do TIPO é recusada: a pergunta não pode virar "recuse
+    // tudo", que passaria no `false` acima sem guardar nada.
+    expect(alcasDeSaida(menu).every(alcaAceitaArrasto)).toBe(true);
+    expect(alcasDeSaida(vazio).every(alcaAceitaArrasto)).toBe(true);
   });
 });
 
