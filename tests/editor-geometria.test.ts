@@ -81,11 +81,8 @@ describe("pontasDaSeta", () => {
   const identidades = ["0", "1"];
 
   it("sai da alça direita do bloco de origem e chega no meio da esquerda do destino", () => {
-    const r = pontasDaSeta(passos, {}, identidades, {
-      de: "0",
-      quando: { tipo: "sempre" },
-      para: "1",
-    });
+    const l: Ligacao = { de: "0", quando: { tipo: "sempre" }, para: "1" };
+    const r = pontasDaSeta(passos, {}, identidades, [l], l);
     // Sem medida: LARGURA_DO_BLOCO 190, ALTURA_SUPOSTA 48, alça única no meio.
     expect(r).toEqual({ de: { x: 190, y: 24 }, para: { x: 300, y: 24 } });
   });
@@ -94,20 +91,14 @@ describe("pontasDaSeta", () => {
   // (`conferirLigacao`, lib/steps.ts) e não tem traço a desenhar: quem fala
   // sobre o que ela causa é `conferirLista`, não a geometria.
   it("ligação para um bloco que não existe não tem traço", () => {
-    expect(
-      pontasDaSeta(passos, {}, identidades, {
-        de: "0",
-        quando: { tipo: "sempre" },
-        para: "sumiu",
-      })
-    ).toBeNull();
+    const l: Ligacao = { de: "0", quando: { tipo: "sempre" }, para: "sumiu" };
+    expect(pontasDaSeta(passos, {}, identidades, [l], l)).toBeNull();
   });
 
   it("bloco ainda sem posição não tem traço", () => {
     const semPos: Passo[] = [{ tipo: "dm", texto: "x" }, passoEm(300, 0)];
-    expect(
-      pontasDaSeta(semPos, {}, identidades, { de: "0", quando: { tipo: "sempre" }, para: "1" })
-    ).toBeNull();
+    const l: Ligacao = { de: "0", quando: { tipo: "sempre" }, para: "1" };
+    expect(pontasDaSeta(semPos, {}, identidades, [l], l)).toBeNull();
   });
 
   // O CASO QUE A TAREFA 6 CRIOU: um bloco com botões tem uma alça por botão,
@@ -125,17 +116,44 @@ describe("pontasDaSeta", () => {
     } as unknown as Passo;
     const comMenu = [menu, passoEm(300, 0)];
     const medidas = { "0": { width: 190, height: 80 } };
-    const alturas = (
+    const ls: Ligacao[] = (
       [
         { tipo: "botao", botao: "op_1" },
         { tipo: "botao", botao: "op_2" },
         { tipo: "senao" },
       ] as const
-    ).map(
-      (quando) => pontasDaSeta(comMenu, medidas, identidades, { de: "0", quando, para: "1" })!.de.y
-    );
+    ).map((quando) => ({ de: "0", quando, para: "1" }));
+    const alturas = ls.map((l) => pontasDaSeta(comMenu, medidas, identidades, ls, l)!.de.y);
     // Três alças em 1/4, 2/4 e 3/4 de 80.
     expect(alturas).toEqual([20, 40, 60]);
+  });
+
+  // A SETA QUE PERDEU A ALÇA GANHA A DELA, e a altura muda por causa disso: a
+  // `sempre` de um menu não tem alça de tipo nenhum (`alcasDeSaida`), e até esta
+  // onda ela era desenhada saindo do ÍNDICE 0 — a alça do PRIMEIRO BOTÃO, no
+  // mesmo pixel da seta daquele botão. `alcasDoQuadro` lhe dá uma alça própria,
+  // no fim, e o bloco passa a ter quatro.
+  it("a `sempre` de um menu sai de uma alça só dela, e não da do primeiro botão", () => {
+    const menu = {
+      tipo: "dm",
+      texto: "Escolha",
+      pos: { x: 0, y: 0 },
+      botoes: [
+        { id: "op_1", rotulo: "A" },
+        { id: "op_2", rotulo: "B" },
+      ],
+    } as unknown as Passo;
+    const comMenu = [menu, passoEm(300, 0)];
+    const medidas = { "0": { width: 190, height: 80 } };
+    const doBotao: Ligacao = { de: "0", quando: { tipo: "botao", botao: "op_1" }, para: "1" };
+    const aSempre: Ligacao = { de: "0", quando: { tipo: "sempre" }, para: "1" };
+    const ls = [doBotao, aSempre];
+    const yBotao = pontasDaSeta(comMenu, medidas, identidades, ls, doBotao)!.de.y;
+    const ySempre = pontasDaSeta(comMenu, medidas, identidades, ls, aSempre)!.de.y;
+    // Quatro alças (dois botões, "digitou" e a continuação) em 1/5..4/5 de 80.
+    expect(yBotao).toBe(16);
+    expect(ySempre).toBe(64);
+    expect(ySempre).not.toBe(yBotao);
   });
 });
 

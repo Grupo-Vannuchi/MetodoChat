@@ -15,7 +15,7 @@
 // índice `i`. A conta em si — três trechos de `smoothstep`, a menor distância
 // aos três — é a mesma; o que ela recebe é que deixou de ser deduzido da ordem.
 import type { Ligacao, Passo } from "@/lib/steps";
-import { alcasDeSaida, indiceDaAlca, podeEntrarNaSeta } from "./modelos";
+import { alcasDoQuadro, indiceDaAlca, podeEntrarNaSeta } from "./modelos";
 
 export type Ponto = { x: number; y: number };
 
@@ -106,10 +106,17 @@ export function fracaoDaAlca(k: number, total: number): number {
 //
 // A ponta de saída é a ALÇA da condição daquela ligação; a de chegada é sempre o
 // meio da borda esquerda do bloco de destino, porque a alça de entrada é uma só.
+//
+// A LISTA INTEIRA DE LIGAÇÕES ENTRA AQUI, e não só a desta seta, porque as alças
+// do bloco de origem dependem do que está gravado NELE: uma condição que perdeu
+// a alça do tipo ganha uma alça própria (`alcasDoQuadro`, ./modelos), e isso
+// muda tanto QUAL é o índice desta seta quanto QUANTAS alças o bloco tem — os
+// dois números que a altura da ponta usa.
 export function pontasDaSeta(
   passos: Passo[],
   medidas: Medidas,
   identidades: string[],
+  ligacoes: Ligacao[],
   l: Ligacao
 ): { de: Ponto; para: Ponto } | null {
   const iDe = identidades.indexOf(l.de);
@@ -121,11 +128,12 @@ export function pontasDaSeta(
   const mDe = medidas[l.de];
   const mPara = medidas[l.para];
   const alturaDe = mDe?.height ?? ALTURA_SUPOSTA;
-  const k = indiceDaAlca(passos[iDe], l.quando);
+  const alcas = alcasDoQuadro(passos[iDe], ligacoes, l.de);
+  const k = indiceDaAlca(alcas, l.quando);
   return {
     de: {
       x: de.x + (mDe?.width ?? LARGURA_DO_BLOCO),
-      y: de.y + alturaDe * fracaoDaAlca(k, alcasDeSaida(passos[iDe]).length),
+      y: de.y + alturaDe * fracaoDaAlca(k, alcas.length),
     },
     para: { x: para.x, y: para.y + (mPara?.height ?? ALTURA_SUPOSTA) / 2 },
   };
@@ -173,7 +181,7 @@ export function setasAoAlcance(
   const achadas: SetaCandidata[] = [];
   for (let i = 0; i < ligacoes.length; i++) {
     if (ignorar.includes(i)) continue;
-    const pontas = pontasDaSeta(passos, medidas, identidades, ligacoes[i]);
+    const pontas = pontasDaSeta(passos, medidas, identidades, ligacoes, ligacoes[i]);
     if (!pontas) continue;
     const { de, para } = pontas;
     const meio = (de.x + para.x) / 2;

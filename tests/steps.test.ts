@@ -1009,8 +1009,8 @@ describe("retomadaDoTexto", () => {
     // de resposta rápida com uma `sempre` desenhada que depois ganha `botoes`
     // vira menu, e nada apaga a `sempre` (o gesto que apaga tem a direção
     // oposta — `desligarSenao`, chamada quando o último botão sai). A `sempre`
-    // que sobra nem alça tem: `indiceDaAlca` não acha a chave e a desenha
-    // saindo do PRIMEIRO botão.
+    // que sobra não tem alça do TIPO; o quadro lhe dá uma alça própria
+    // rotulada "continuação" (`alcasDoQuadro`).
     //
     // A `senao` ganha porque foi desenhada para ESTE caso — a alça se chama
     // "digitou" (`alcasDeSaida`, app/automacoes/editor/modelos.ts) —, enquanto
@@ -3993,8 +3993,9 @@ describe("conferirLista em dois níveis", () => {
     // O estado é produzido POR EDIÇÃO NORMAL: uma `dm` de resposta rápida com
     // `sempre` já desenhada ganha `botoes` e vira menu — `apagarBotao`
     // (app/automacoes/editor/quadro.tsx) só apaga a `senao`, nada apaga a
-    // `sempre`. Ela perde a alça e passa a ser desenhada saindo do primeiro
-    // botão (`indiceDaAlca`), prometendo um caminho que o toque não percorre.
+    // `sempre`. Ela perde a alça do TIPO e ganha uma alça própria no quadro,
+    // rotulada "continuação" (`alcasDoQuadro`) — antes era desenhada saindo do
+    // primeiro botão, prometendo um caminho que o toque não percorre.
     //
     // E ela NÃO É SETA MORTA — medido, e é por isso que o nível é aviso e não
     // erro: `retomadaDoBotao` (payload sem botão) e `retomadaDoFallback`

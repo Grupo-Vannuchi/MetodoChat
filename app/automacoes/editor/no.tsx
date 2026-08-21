@@ -1,8 +1,8 @@
 "use client";
 import { Fragment, useEffect } from "react";
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
-import type { Passo } from "@/lib/steps";
-import { alcasDeSaida, resumoDoBloco } from "./modelos";
+import type { Ligacao, Passo } from "@/lib/steps";
+import { alcasDoQuadro, resumoDoBloco } from "./modelos";
 import { fracaoDaAlca } from "./geometria";
 
 // Um bloco no quadro.
@@ -33,6 +33,11 @@ import { fracaoDaAlca } from "./geometria";
 export type DadosDoNo = {
   passo: Passo;
   identidade: string;
+  // AS LIGAÇÕES INTEIRAS, e não só as deste bloco, porque quem as peneira é
+  // `alcasDoQuadro` (./modelos) — a mesma função que o quadro usa para saber de
+  // qual alça cada seta parte. Peneirar aqui seria a segunda cópia da regra, e
+  // ela discordaria da primeira no dia em que a peneira mudasse.
+  ligacoes: Ligacao[];
   temErro: boolean;
   selecionado: boolean;
   aoApagar: (identidade: string) => void;
@@ -64,9 +69,11 @@ export type DadosDoNo = {
 export default function No({ id, data, isConnectable }: NodeProps & { data: DadosDoNo }) {
   const { titulo, corpo } = resumoDoBloco(data.passo);
 
-  // AS ALÇAS DE SAÍDA DESTE BLOCO. `alcasDeSaida` decide quantas e quais; aqui
-  // só se desenha.
-  const alcas = alcasDeSaida(data.passo);
+  // AS ALÇAS DE SAÍDA DESTE BLOCO. `alcasDoQuadro` decide quantas e quais; aqui
+  // só se desenha. É ela e não `alcasDeSaida` porque uma condição GRAVADA que
+  // perdeu a alça do tipo — a `sempre` de um menu, a seta de um botão apagado —
+  // precisa de uma alça própria para não ser desenhada saindo da alça de outra.
+  const alcas = alcasDoQuadro(data.passo, data.ligacoes, data.identidade);
 
   // O REACT FLOW MEDE AS ALÇAS UMA VEZ, no DOM, e guarda o resultado. Trocar o
   // conjunto de alças sem avisá-lo deixa as setas presas às posições antigas —

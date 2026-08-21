@@ -30,7 +30,14 @@ import No, { type DadosDoNo } from "./no";
 import Gatilho, { nomeDoGatilho, resumoDasPalavras, type DadosDoGatilho } from "./gatilho";
 import Painel, { type Configuracao } from "./painel";
 import Previa, { type ContaDaPrevia } from "./previa";
-import { alcasDeSaida, arranjoAutomatico, blocoNovo, indiceDaAlca, resumoDoBloco } from "./modelos";
+import {
+  alcasDeSaida,
+  alcasDoQuadro,
+  arranjoAutomatico,
+  blocoNovo,
+  indiceDaAlca,
+  resumoDoBloco,
+} from "./modelos";
 import Paleta from "./paleta";
 import * as Geo from "./geometria";
 import { salvarAutomacao } from "../actions";
@@ -714,15 +721,21 @@ export default function Quadro({
         data: {
           passo: p,
           identidade: identidades[i],
+          ligacoes,
           temErro: errosPorIndice.has(i),
           selecionado: identidades[i] === selecionado,
           aoApagar: apagarBloco,
         } as DadosDoNo,
       })),
     ];
+    // `ligacoes` ENTRA AQUI desde que o nó desenha as alças das condições
+    // GRAVADAS (`alcasDoQuadro`, ./modelos): apagar a última seta de um botão
+    // que já não existe tira uma alça, e sem esta dependência o nó continuaria
+    // desenhando a alça de uma seta que sumiu.
   }, [
     passos,
     identidades,
+    ligacoes,
     selecionado,
     apagarBloco,
     medidas,
@@ -763,12 +776,12 @@ export default function Quadro({
       const l = ligacoes[i];
       const iDe = identidades.indexOf(l.de);
       if (iDe === -1 || !identidades.includes(l.para)) continue;
-      const alcas = alcasDeSaida(passos[iDe]);
+      const alcas = alcasDoQuadro(passos[iDe], ligacoes, l.de);
       desenhadas.push({
         id: `ligacao-${i}`,
         source: l.de,
         target: l.para,
-        sourceHandle: alcas[indiceDaAlca(passos[iDe], l.quando)].chave,
+        sourceHandle: alcas[indiceDaAlca(alcas, l.quando)].chave,
         type: "smoothstep",
         animated: false,
         data: { ligacao: i },

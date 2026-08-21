@@ -734,11 +734,14 @@ export function desligarBloco(ligacoes: Ligacao[], bloco: string): Ligacao[] {
 // responde `true` para `tres` com a órfã e `false` sem ela — a diferença inteira
 // vem dela.
 //
-// E O DESENHO TAMBÉM MENTE: `indiceDaAlca` (app/automacoes/editor/modelos.ts)
-// devolve a PRIMEIRA alça para a condição que não tem alça, então a seta órfã é
-// desenhada saindo do PRIMEIRO botão do menu — dois caminhos partindo do mesmo
-// ponto, um deles de um botão que não existe. `ligacaoEscolhida` casa por id, e
-// nenhum toque produz aquele id: é caminho que ninguém percorre.
+// E O DESENHO MENTIA JUNTO, até esta onda: `indiceDaAlca` devolvia a PRIMEIRA
+// alça para a condição sem alça, e a seta órfã era desenhada saindo do PRIMEIRO
+// botão do menu — dois caminhos do mesmo ponto, um deles de um botão que não
+// existe. Hoje ela ganha uma alça própria, rotulada "botão apagado"
+// (`alcasDoQuadro`, app/automacoes/editor/modelos.ts), e é por isso que APAGÁ-LA
+// aqui continua sendo o gesto certo e não uma correção de desenho: o que a órfã
+// estraga é a CONFERÊNCIA, acima — `ligacaoEscolhida` casa por id, nenhum toque
+// produz aquele id, e ela segue valendo como caminho para o bloco inalcançável.
 //
 // DUAS SETAS DO MESMO BOTÃO somem juntas, e não só a primeira: a forma é
 // produzível fora do editor, `conferirLista` a acusa como "duas setas saindo
@@ -772,12 +775,13 @@ export function desligarBotao(ligacoes: Ligacao[], bloco: string, botao: string)
 // erro de ativar que some da conferência enquanto ela estiver lá. É o mesmo
 // estrago da órfã de botão, pela mesma porta.
 //
-// E O DESENHO TAMBÉM MENTE, e aqui pior do que lá: sem botões, `alcasDeSaida`
+// E O DESENHO MENTIA JUNTO, e aqui pior do que lá: sem botões, `alcasDeSaida`
 // (app/automacoes/editor/modelos.ts) devolve a ALÇA DE CONTINUAÇÃO e mais nada,
-// `indiceDaAlca` não acha a chave `senao` e cai na primeira — medido,
-// `indiceDaAlca(menu, {tipo:"senao"})` é 0. Ou seja: a seta é desenhada saindo
-// da alça da `sempre`, e `seguinteDe(ligacoes, menu)` daquele mesmo bloco é
-// null. O quadro promete uma continuação que o motor não percorre.
+// a chave `senao` não era achada e caía na primeira — a seta era desenhada
+// saindo da alça da `sempre`, e `seguinteDe(ligacoes, menu)` daquele mesmo bloco
+// é null: o quadro prometia uma continuação que o motor não percorre. Hoje ela
+// ganha alça própria (`alcasDoQuadro`), e o que sobra para esta função é o
+// estrago na CONFERÊNCIA, que é o de cima.
 //
 // O PREÇO, dito porque é escolha: quem esvazia o menu e põe botões de volta
 // perde a seta do "digitou" junto. É o mesmo preço das setas dos botões, e pela
@@ -2483,9 +2487,10 @@ export function retomadaDoFollow(
 //     dela — `apagarBotao` (app/automacoes/editor/quadro.tsx) chama
 //     `desligarSenao` quando o último botão sai. Do lado da `sempre`, NADA A
 //     APAGA quando uma `dm` de resposta rápida com seta já desenhada ganha
-//     `botoes` e vira menu: ela fica, perde a alça e passa a ser DESENHADA
-//     saindo do primeiro botão (`indiceDaAlca` cai na primeira quando não acha a
-//     chave). Ou seja, "tem os dois" é produzível PELA TELA, e o caminho que o
+//     `botoes` e vira menu: ela fica e perde a alça do TIPO — o quadro passou a
+//     lhe dar uma alça própria, rotulada "continuação" (`alcasDoQuadro`,
+//     app/automacoes/editor/modelos.ts), em vez de desenhá-la saindo do primeiro
+//     botão. Ou seja, "tem os dois" é produzível PELA TELA, e o caminho que o
 //     produz deixa a `sempre` órfã, não a `senao`. Preferir a `sempre` seria
 //     fazer a seta que o dono não consegue mais ver ganhar da que ele acabou de
 //     desenhar.
@@ -3434,11 +3439,13 @@ export function conferirLista(
             // terceira cópia da regra discordaria no dia em que o desempate
             // mudar.
             //
-            // NO QUADRO essa seta aparece SAINDO DO PRIMEIRO BOTÃO —
-            // `indiceDaAlca` (app/automacoes/editor/modelos.ts) devolve 0 para
-            // uma condição sem alça, e o menu não tem alça de `sempre`. A
-            // mensagem não diz isso porque é a tela que decide onde desenhar, e
-            // repetir aqui a decisão dela seria a cópia que este arquivo evita.
+            // NO QUADRO essa seta APARECIA SAINDO DO PRIMEIRO BOTÃO —
+            // `indiceDaAlca` (app/automacoes/editor/modelos.ts) devolvia 0 para
+            // uma condição sem alça, e o menu não tem alça de `sempre`. Desde a
+            // onda que fechou aquele Crítico ela tem alça própria, rotulada
+            // "continuação" (`alcasDoQuadro`). A mensagem não diz isso porque é
+            // a tela que decide onde desenhar, e repetir aqui a decisão dela
+            // seria a cópia que este arquivo evita.
             if (
               ligacaoEscolhida(ligacoes, id, { tipo: "texto" }) !== null &&
               seguinteDe(ligacoes, id) !== null

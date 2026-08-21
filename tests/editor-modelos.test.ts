@@ -3,6 +3,7 @@ import {
   alcasDeSaida,
   blocoNovo,
   comoTexto,
+  alcasDoQuadro,
   indiceDaAlca,
   podeEntrarNaSeta,
   PALETA,
@@ -18,6 +19,7 @@ import {
   novoIdDeBotao,
   podeFicarAtiva,
   seguinteDe,
+  type Ligacao,
   type Passo,
 } from "../lib/steps";
 
@@ -365,9 +367,14 @@ describe("os gestos do painel de botões, no dado", () => {
     const vazio: Passo = { ...menu, tipo: "dm", texto: "Escolha", botoes: [] };
     // Some a alça: o bloco volta a ter só a de continuação.
     expect(alcasDeSaida(vazio).map((a) => a.chave)).toEqual(["sempre"]);
-    // E a seta da `senao` passa a ser desenhada SAINDO DELA — `indiceDaAlca`
-    // não acha a chave e cai na primeira.
-    expect(indiceDaAlca(vazio, { tipo: "senao" })).toBe(0);
+    // E a `senao` gravada deixa de ser desenhada saindo da continuação: ela
+    // ganha alça própria em `alcasDoQuadro`, que é a lista que o quadro usa.
+    const ls: Ligacao[] = [{ de: vazio.id!, quando: { tipo: "senao" }, para: "b_algum" }];
+    const alcas = alcasDoQuadro(vazio, ls, vazio.id!);
+    expect(indiceDaAlca(alcas, { tipo: "senao" })).toBe(1);
+    // Perguntando só às alças do TIPO, ela continua sem lugar — e é essa a
+    // pergunta que `apagarBotao` faz para decidir apagá-la.
+    expect(indiceDaAlca(alcasDeSaida(vazio), { tipo: "senao" })).toBe(0);
   });
 
   it("o gesto do ✕ tira a `senao` junto, e o erro escondido reaparece", () => {
@@ -547,6 +554,88 @@ describe("podeEntrarNaSeta", () => {
   });
 });
 
+// AS ALÇAS QUE O QUADRO DESENHA, que são as do tipo MAIS as das condições
+// gravadas que perderam a alça delas.
+//
+// O CASO CENTRAL É O CRÍTICO DESTA ONDA: `menu --sempre--> X`. Ela não tem alça
+// de tipo nenhum e era desenhada saindo do ÍNDICE 0 — a alça do primeiro botão
+// —, ou seja, o quadro desenhava, saindo de "Opção 1", um caminho que o toque em
+// "Opção 1" nunca percorre.
+//
+// E ELA NÃO É SETA MORTA, o que é a razão de ganhar alça em vez de sumir: o
+// motor sai por ela em `retomadaDoTexto` (sem `senao`), `retomadaDoBotao` e
+// `retomadaDoFallback`, e a suíte de `lib/steps.ts` tem um fluxo CERTO que
+// depende dela — o "menu que volta" do teste do anel.
+describe("alcasDoQuadro", () => {
+  const menu = doBanco({
+    id: "b_menu001",
+    tipo: "dm",
+    texto: "Escolha",
+    botoes: [
+      { id: "op_1", rotulo: "A" },
+      { id: "op_2", rotulo: "B" },
+    ],
+  });
+  const id = menu.id!;
+
+  it("sem sobra nenhuma, é exatamente `alcasDeSaida`", () => {
+    const ls: Ligacao[] = [
+      { de: id, quando: { tipo: "botao", botao: "op_1" }, para: "b_x" },
+      { de: id, quando: { tipo: "senao" }, para: "b_y" },
+    ];
+    expect(alcasDoQuadro(menu, ls, id)).toEqual(alcasDeSaida(menu));
+    expect(alcasDoQuadro(menu, [], id)).toEqual(alcasDeSaida(menu));
+  });
+
+  it("a `sempre` de um menu ganha uma alça própria, no fim, chamada “continuação”", () => {
+    const ls: Ligacao[] = [{ de: id, quando: { tipo: "sempre" }, para: "b_fim" }];
+    const alcas = alcasDoQuadro(menu, ls, id);
+    expect(alcas.map((a) => a.chave)).toEqual(["botao:op_1", "botao:op_2", "senao", "sempre"]);
+    expect(alcas[3].rotulo).toBe("continuação");
+    // E a seta deixa de ser desenhada na alça do primeiro botão.
+    expect(indiceDaAlca(alcas, { tipo: "sempre" })).toBe(3);
+    expect(indiceDaAlca(alcas, { tipo: "botao", botao: "op_1" })).toBe(0);
+  });
+
+  it("a seta de um botão apagado ganha alça, e o rótulo diz o que ela é", () => {
+    const ls: Ligacao[] = [{ de: id, quando: { tipo: "botao", botao: "op_sumiu" }, para: "b_z" }];
+    const alcas = alcasDoQuadro(menu, ls, id);
+    expect(alcas.map((a) => a.chave)).toEqual([
+      "botao:op_1",
+      "botao:op_2",
+      "senao",
+      "botao:op_sumiu",
+    ]);
+    expect(alcas[3].rotulo).toBe("botão apagado");
+  });
+
+  it("a `senao` de um bloco sem botões ganha alça, e a continuação ganha nome", () => {
+    // O bloco perdeu os botões (o gesto do ✕ no último) e a `senao` ficou. Sem
+    // rótulo na continuação, a tela mostraria duas alças e explicaria uma.
+    const vazio = doBanco({ id: "b_vazi002", tipo: "dm", texto: "Escolha", botoes: [] });
+    const ls: Ligacao[] = [{ de: vazio.id!, quando: { tipo: "senao" }, para: "b_w" }];
+    const alcas = alcasDoQuadro(vazio, ls, vazio.id!);
+    expect(alcas.map((a) => a.chave)).toEqual(["sempre", "senao"]);
+    expect(alcas.map((a) => a.rotulo)).toEqual(["continuação", "digitou"]);
+  });
+
+  it("duas setas da MESMA condição sobrando dão UMA alça, não duas", () => {
+    // Duas setas iguais são forma válida (`conferirLista` acusa quando os
+    // destinos diferem, não a forma), e dois `Handle` de mesmo id no mesmo nó
+    // são o que o React Flow não tolera.
+    const ls: Ligacao[] = [
+      { de: id, quando: { tipo: "sempre" }, para: "b_a" },
+      { de: id, quando: { tipo: "sempre" }, para: "b_b" },
+    ];
+    expect(alcasDoQuadro(menu, ls, id).filter((a) => a.chave === "sempre")).toHaveLength(1);
+  });
+
+  it("as ligações de OUTROS blocos não põem alça neste", () => {
+    const ls: Ligacao[] = [{ de: "b_outro", quando: { tipo: "sempre" }, para: id }];
+    expect(alcasDoQuadro(menu, ls, id)).toEqual(alcasDeSaida(menu));
+  });
+});
+
 describe("indiceDaAlca", () => {
   const menu = doBanco({
     tipo: "dm",
@@ -558,15 +647,18 @@ describe("indiceDaAlca", () => {
   });
 
   it("acha a alça de cada condição", () => {
-    expect(indiceDaAlca(menu, { tipo: "botao", botao: "op_1" })).toBe(0);
-    expect(indiceDaAlca(menu, { tipo: "botao", botao: "op_2" })).toBe(1);
-    expect(indiceDaAlca(menu, { tipo: "senao" })).toBe(2);
+    const alcas = alcasDeSaida(menu);
+    expect(indiceDaAlca(alcas, { tipo: "botao", botao: "op_1" })).toBe(0);
+    expect(indiceDaAlca(alcas, { tipo: "botao", botao: "op_2" })).toBe(1);
+    expect(indiceDaAlca(alcas, { tipo: "senao" })).toBe(2);
   });
 
-  // A seta de um botão apagado continua desenhada, presa à primeira alça. Sumir
-  // com ela esconderia do dono o que `conferirLista` ainda enxerga.
-  it("condição sem alça cai na primeira, em vez de sumir", () => {
-    expect(indiceDaAlca(menu, { tipo: "botao", botao: "op_apagado" })).toBe(0);
-    expect(indiceDaAlca(menu, { tipo: "sempre" })).toBe(0);
+  // O -1 vira 0 e virou inalcançável pelo desenho: `alcasDoQuadro` acrescenta
+  // alça para toda condição gravada. A linha fica para quem passar a lista do
+  // TIPO — `alcas[-1]` derrubaria o nó e, com ele, a rota.
+  it("condição fora da lista dada cai na primeira, em vez de sair da lista", () => {
+    const alcas = alcasDeSaida(menu);
+    expect(indiceDaAlca(alcas, { tipo: "botao", botao: "op_apagado" })).toBe(0);
+    expect(indiceDaAlca(alcas, { tipo: "sempre" })).toBe(0);
   });
 });

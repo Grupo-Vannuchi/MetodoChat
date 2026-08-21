@@ -1,8 +1,10 @@
 import {
   chaveDoQuando,
   envioDaDm,
+  ligacoesDe,
   novoIdDeBloco,
   novoIdDeBotao,
+  type Ligacao,
   type Passo,
   type Quando,
 } from "@/lib/steps";
@@ -358,46 +360,99 @@ export function alcasDeSaida(p: Passo): Alca[] {
 // O QUE ELA NÃO FAZ: não apaga nem conserta `sempre` de menu já gravada. Aquela
 // forma é dado VÁLIDO — a suíte tem um fluxo certo que depende dela, o "menu que
 // volta" (`temCicloDeSempre`, tests/steps.test.ts), e o motor a percorre por
-// `retomadaDoTexto` sem `senao`, `retomadaDoBotao` e `retomadaDoFallback`.
-// Mostrá-la sem mentir é problema do DESENHO, e é onde `indiceDaAlca` continua
-// caindo no índice 0. Esta função fecha só a porta de CRIAR mais uma.
+// `retomadaDoTexto` sem `senao`, `retomadaDoBotao` e `retomadaDoFallback`. Quem
+// cuida de MOSTRÁ-LA sem mentir é `alcasDoQuadro`, logo abaixo. Esta função
+// fecha só a porta de CRIAR mais uma.
 export function podeEntrarNaSeta(p: Passo): boolean {
   return alcasDeSaida(p).some((a) => a.chave === "sempre");
 }
 
-// QUAL ALÇA DESENHA ESTA LIGAÇÃO. Devolve o ÍNDICE dentro de `alcasDeSaida`,
-// porque é o índice — e não a chave — que decide a ALTURA da alça no bloco
-// (`fracaoDaAlca`, ./geometria).
+// AS ALÇAS QUE O QUADRO DESENHA — as do TIPO do bloco (`alcasDeSaida`, acima)
+// mais UMA para cada condição que está GRAVADA e perdeu a alça dela.
 //
-// A CONDIÇÃO SEM ALÇA CAI NA PRIMEIRA, e a seta continua desenhada. São TRÊS os
-// casos, e o dado é o mesmo nos três — some a alça, fica a ligação:
+// AS DUAS FUNÇÕES TÊM PERGUNTAS DIFERENTES, e é por isso que são duas. Aquela
+// responde "que saídas este bloco OFERECE" — é a pergunta do gesto
+// (`podeEntrarNaSeta`, acima) e a de `apagarBotao` (./quadro), que decide se a
+// `senao` ainda tem de onde sair. Esta responde "que alças esta tela precisa
+// TER para desenhar o que está gravado sem mentir", e a resposta depende do
+// dado, não só do tipo.
+//
+// O QUE ELA CONSERTA são os TRÊS casos que `indiceDaAlca` registrava como
+// buraco conhecido, e nos três o dado é o mesmo — some a alça, fica a ligação:
 //
 //   a ligação de um BOTÃO APAGADO;
 //   a `senao` num bloco que DEIXOU DE TER botões;
-//   a `sempre` num MENU — a que a Tarefa 7b tornou relevante. Desde ela, quem
-//     digita num menu com `senao` segue a `senao`, e a `sempre` ficou servindo
-//     só as retomadas que não sabem qual foi o gesto (`retomadaDoBotao` e
-//     `retomadaDoFallback`, lib/steps.ts). Ela NÃO virou seta morta — isso foi
-//     medido, e os dois pontos acima continuam saindo por ela.
+//   a `sempre` num MENU.
 //
-// A SETA FICA PORQUE APAGÁ-LA SERIA APAGAR DADO DO DONO sem ele pedir, a partir
-// de uma inferência da TELA sobre uma ligação que o motor ainda lê. Essa razão
-// se sustenta sozinha.
+// Até aqui as três caíam no ÍNDICE 0 e eram desenhadas saindo da PRIMEIRA alça
+// — num menu, a do primeiro botão. Duas setas do mesmo ponto, e o toque naquele
+// botão percorre uma só. Era o quadro DESENHANDO um caminho que o motor não
+// percorre, que é a regra que esta fase declara como invariante.
 //
-// A RAZÃO QUE ESTAVA ESCRITA AQUI ERA OUTRA, E ERA FALSA — "sumir com a seta
-// junto esconderia do dono exatamente o que `conferirLista` ainda enxerga" —, e
-// o registro fica porque premissa não medida foi o defeito desta fase. Medido:
-// nenhum dos três estava coberto. No botão apagado a conferência não diz nada
-// sobre a ligação órfã. Na `senao` de um bloco sem botões ela só fala quando
-// FALTA a `sempre`, e o que ela acusa é o beco sem saída — a `senao` gravada
-// não entra na pergunta; havendo `sempre`, devolve `[]`. Na `sempre` órfã do
-// menu, não dizia nada. Só o terceiro caso deixou de ser falso:
-// `conferirLista` ganhou o aviso do MENU COM AS DUAS SETAS. Os outros dois
-// continuam invisíveis, e ficam anotados como buraco conhecido em vez de
-// voltarem a ser premissa.
-export function indiceDaAlca(p: Passo, quando: Quando): number {
+// APAGAR A SETA CONTINUA FORA DE QUESTÃO, e a razão não mudou: seria apagar dado
+// do dono sem ele pedir, a partir de uma inferência da TELA sobre uma ligação que
+// o motor ainda lê. E ESCONDÊ-LA também não serve — sem traço na tela não há o
+// que selecionar, e o gesto de apagar (Delete numa seta) deixaria de alcançá-la.
+// Desenhar numa alça PRÓPRIA é o que dá as duas coisas: a verdade e o gesto.
+//
+// A `sempre` DE UM MENU NÃO É SETA MORTA, e isso é medido e vale contra a
+// tentação de tratar as três como lixo: o motor sai por ela em `retomadaDoTexto`
+// (quando não há `senao`), `retomadaDoBotao` e `retomadaDoFallback`
+// (lib/steps.ts), e a suíte tem um fluxo CERTO que depende dela — o "menu que
+// volta" do teste do anel. Por isso o rótulo dela é "continuação", que é a
+// palavra que `conferirLista` já usa com o dono, e não "sobra".
+//
+// A ORDEM É A DAS LIGAÇÕES GRAVADAS, e as repetidas entram uma vez só: duas
+// setas da mesma condição são forma válida (`conferirLista` acusa quando os
+// destinos diferem, e não a forma), e duas alças com a mesma chave fariam o
+// React Flow ter dois `Handle` de mesmo id no mesmo nó.
+//
+// A CONTINUAÇÃO GANHA RÓTULO quando alguma sobra aparece ao lado dela. Ela nasce
+// sem rótulo porque num bloco de uma alça só não há o que distinguir; com uma
+// segunda alça na mesma borda, "sem nome" vira a alça que a tela não explica.
+function rotuloDaSobra(q: Quando): string {
+  if (q.tipo === "sempre") return "continuação";
+  if (q.tipo === "senao") return "digitou";
+  return "botão apagado";
+}
+
+export function alcasDoQuadro(p: Passo, ligacoes: Ligacao[], identidade: string): Alca[] {
+  const base = alcasDeSaida(p);
+  const chaves = new Set(base.map((a) => a.chave));
+  const sobras: Alca[] = [];
+  for (const l of ligacoesDe(ligacoes, identidade)) {
+    const chave = chaveDoQuando(l.quando);
+    if (chaves.has(chave)) continue;
+    chaves.add(chave);
+    sobras.push({ chave, quando: l.quando, rotulo: rotuloDaSobra(l.quando) });
+  }
+  if (!sobras.length) return base;
+  return [
+    ...base.map((a) =>
+      a.chave === "sempre" && !a.rotulo ? { ...a, rotulo: "continuação" } : a
+    ),
+    ...sobras,
+  ];
+}
+
+// QUAL ALÇA DESENHA ESTA LIGAÇÃO. Devolve o ÍNDICE dentro da lista de alças que
+// lhe é dada, porque é o índice — e não a chave — que decide a ALTURA da alça no
+// bloco (`fracaoDaAlca`, ./geometria).
+//
+// RECEBE A LISTA E NÃO O PASSO, e a troca é estrutural: com o passo, cada
+// chamador escolhia sozinho ENTRE `alcasDeSaida` e `alcasDoQuadro`, e bastava um
+// escolher diferente para a seta ser desenhada de um ponto e o alvo do gesto
+// medido em outro. Recebendo a lista pronta, a pergunta é sempre "onde, DENTRO
+// DESTAS, fica esta condição".
+//
+// O -1 VIRA 0 e agora é inalcançável por construção — `alcasDoQuadro` acrescenta
+// uma alça para toda condição gravada, então a chave está sempre lá. A linha
+// fica porque o tipo não prova isso: quem passar `alcasDeSaida` aqui (o gesto de
+// apagar botão tem razão para olhar só as do tipo) receberia um índice fora da
+// lista, e um `alcas[-1]` derruba o nó e, com ele, a rota.
+export function indiceDaAlca(alcas: Alca[], quando: Quando): number {
   const chave = chaveDoQuando(quando);
-  const i = alcasDeSaida(p).findIndex((a) => a.chave === chave);
+  const i = alcas.findIndex((a) => a.chave === chave);
   return i === -1 ? 0 : i;
 }
 

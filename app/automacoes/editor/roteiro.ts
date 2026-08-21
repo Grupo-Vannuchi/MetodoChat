@@ -90,8 +90,9 @@ export type Bolha =
   //     nenhuma pílula fica marcada — exatamente a omissão que `escolhido`
   //     existe para impedir. Ele é produzível apagando um botão e deixando a
   //     ligação dele para trás; `conferirLista` não diz nada sobre a ligação
-  //     órfã, e `indiceDaAlca` (./modelos) já registra esse par como buraco
-  //     conhecido. Fica anotado aqui em vez de voltar a ser premissa.
+  //     órfã — o QUADRO passou a desenhá-la numa alça própria, rotulada "botão
+  //     apagado" (`alcasDoQuadro`, ./modelos), mas a prévia continua sem marca
+  //     para ela. Fica anotado aqui em vez de voltar a ser premissa.
   //
   // E HÁ UM SEXTO CASO QUE NEM CHEGA A ESTA BOLHA, e ele é irmão do último: o
   // BLOCO QUE DEIXOU DE SER MENU. Digitar uma URL num menu já ligado faz
