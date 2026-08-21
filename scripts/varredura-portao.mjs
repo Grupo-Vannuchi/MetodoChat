@@ -1087,6 +1087,15 @@ imprimir("VARREDURA DO MENU E DA `senao` (N, G, L, M, P — mais uma `senao`)", 
 console.log("");
 const vazouA = exaustiva.vazamentosA + doMenu.vazamentosA;
 const vazouC = exaustiva.vazamentosC + doMenu.vazamentosC;
+
+// A GUARDA DO INSTRUMENTO RODA ANTES DO VEREDICTO, e é por isso que ela está
+// aqui em cima e não no fim do arquivo, que é onde ela nasceu.
+//
+// Lá embaixo ela já corrigia o código de saída — mas depois de a tela ter
+// impresso "SEM VAZAMENTO". Quem roda isto à mão num roteiro de implantação lê
+// de cima para baixo e para na primeira linha que parece um veredicto. O código
+// de saída desempatava; o olho, não.
+const mudo = mudez();
 if (MODO_ANTIGO) {
   // A CONTRAPROVA COBRA A E C NAS DUAS VARREDURAS, sem distinção — a mesma
   // simetria que a exaustiva tem desde a Tarefa 4, e que a do menu só ganhou por
@@ -1103,15 +1112,21 @@ if (MODO_ANTIGO) {
     doMenu.vazamentosA > 0 &&
     doMenu.vazamentosC > 0;
   console.log(
-    acusou
+    acusou && !mudo
       ? "CONTRAPROVA OK: o código antigo vaza em A e em C na exaustiva, e em A e em C na do menu."
       : "CONTRAPROVA MUDA: a varredura não discrimina — um zero aqui não prova nada."
   );
-  process.exitCode = acusou ? 0 : 1;
+  process.exitCode = acusou && !mudo ? 0 : 1;
 } else {
   const limpo = vazouA === 0 && vazouC === 0;
-  console.log(limpo ? "SEM VAZAMENTO em A nem em C, nas duas varreduras." : "VAZOU.");
-  process.exitCode = limpo ? 0 : 1;
+  console.log(
+    mudo
+      ? "SEM VEREDICTO: o instrumento está mudo (acima), então o zero em A e em C não diz nada."
+      : limpo
+        ? "SEM VAZAMENTO em A nem em C, nas duas varreduras."
+        : "VAZOU."
+  );
+  process.exitCode = limpo && !mudo ? 0 : 1;
 }
 
 // A GUARDA DO INSTRUMENTO, e ela vale NOS DOIS MODOS.
@@ -1131,17 +1146,35 @@ if (MODO_ANTIGO) {
 // Ela é a rede de FORA da guarda de assinatura, e as duas não são redundantes: a
 // de assinatura sabe reconhecer UM defeito (o ponto de chamada sem ramo) e diz o
 // nome dele; esta não sabe reconhecer nenhum, e por isso pega os que virão.
-for (const [nome, t] of [
-  ["exaustiva", exaustiva],
-  ["do menu", doMenu],
-]) {
-  if (t.vazamentosB === 0) {
-    console.log(
-      `INSTRUMENTO MUDO: a varredura ${nome} mediu ZERO entrega sem portão em B. ` +
-        "B é o que a MONTAGEM abre e nenhum código fecha; por construção do espaço de fluxos " +
-        "ele nunca é zero. Zero aqui não é um resultado — é a varredura não tendo percorrido " +
-        "nada, e todo zero em A e em C ao lado dele não prova coisa alguma."
-    );
-    process.exitCode = 1;
+// ELA PERGUNTA `> 0`, E NÃO `=== 0`, E ESTA LINHA JÁ FOI A OUTRA.
+//
+// `t.vazamentosB === 0` só reconhece o zero que é NÚMERO. Renomeie o contador —
+// e renomear contador é exatamente a classe de mudança mecânica que já emudeceu
+// a contraprova uma vez, com três pontos de chamada de onze — e `t.vazamentosB`
+// vira `undefined`. `undefined === 0` é FALSO: a guarda cala, e a varredura sai
+// em código 0 imprimindo "SEM VAZAMENTO" com o instrumento inteiro no chão.
+//
+// `!(x > 0)` é verdadeiro para 0, para `undefined`, para `NaN` e para negativo —
+// ou seja, para "não mediu" em qualquer forma que isso chegue. A guarda que
+// existe para pegar o instrumento mudo não pode depender de o instrumento ainda
+// estar inteiro o bastante para responder com um número. A leitura crua entra na
+// mensagem para quem for consertar saber se recebeu zero ou `undefined`.
+function mudez() {
+  let algumMudo = false;
+  for (const [nome, t] of [
+    ["exaustiva", exaustiva],
+    ["do menu", doMenu],
+  ]) {
+    if (!(t.vazamentosB > 0)) {
+      console.log(
+        `INSTRUMENTO MUDO: a varredura ${nome} não mediu entrega sem portão nenhuma em B ` +
+          `(leitura: ${String(t.vazamentosB)}). ` +
+          "B é o que a MONTAGEM abre e nenhum código fecha; por construção do espaço de fluxos " +
+          "ele nunca é zero. Zero aqui não é um resultado — é a varredura não tendo percorrido " +
+          "nada, e todo zero em A e em C ao lado dele não prova coisa alguma."
+      );
+      algumMudo = true;
+    }
   }
+  return algumMudo;
 }
