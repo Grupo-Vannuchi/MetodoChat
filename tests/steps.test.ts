@@ -3508,6 +3508,85 @@ describe("interpretar caminhando o grafo", () => {
     );
   });
 
+  it("O QUARTO EIXO: a seta pendurada NÃO gasta o passo 101", () => {
+    // A INVERSÃO DA REGRA GÊMEA, medida: o motor percorria um caminho que o
+    // quadro não desenha. Uma seta `sempre` apontando para um id que não está na
+    // lista NÃO É DESENHADA (`quadro.tsx` descarta a aresta cujo destino sumiu),
+    // e `ligacoesValidas` a preserva de propósito dizendo que quem fala sobre
+    // ela é `conferirLista`.
+    //
+    // Com EXATAMENTE 100 blocos em corrente mais essa seta no último, as cinco
+    // vozes calavam ao mesmo tempo: `interpretar` entregava ZERO por "comprido
+    // demais", `caminhadaPassaDoTeto` dizia false (ela quebra em `j === null`
+    // sem contar), `temCicloDeSempre` dizia false e `conferirLista` devolvia
+    // lista vazia. O dono ativava e toda entrega era descartada sem uma linha no
+    // painel, por uma seta que ele não podia ver nem apagar.
+    //
+    // A causa era a ORDEM: o teto era checado antes de a identidade resolver,
+    // então o passo 101 era gasto por uma seta que não leva a lugar nenhum.
+    const cheio = corrida(TETO_DE_PASSOS);
+    const pendurada = [
+      ...cheio.ligacoes,
+      {
+        de: `b_c${String(TETO_DE_PASSOS - 1).padStart(6, "0")}`,
+        quando: { tipo: "sempre" },
+        para: "b_fantasma",
+      },
+    ];
+
+    // ENTREGA OS 100, e o motivo é o que de fato aconteceu.
+    const r = interpretar({ steps: cheio.passos, ligacoes: pendurada }, "b_c000000");
+    expect(r.enfileirar.length).toBe(TETO_DE_PASSOS);
+    expect(r.ignorados).toEqual([
+      { indice: -1, motivo: "a ligação aponta para um bloco que não existe: b_fantasma" },
+    ]);
+    expect(r.ignorados[0].motivo).not.toContain("comprido demais");
+
+    // E AS DUAS CAMINHADAS CONCORDAM: nenhuma passa do teto.
+    expect(caminhadaPassaDoTeto(cheio.passos, pendurada)).toBe(false);
+    expect(temCicloDeSempre(cheio.passos, pendurada)).toBe(false);
+
+    // O TETO CONTINUA SENDO 100: com 101 blocos a seta pendurada não muda nada,
+    // e as duas continuam acusando. É o que impede o conserto de virar "o teto
+    // subiu para 101".
+    const passando = corrida(TETO_DE_PASSOS + 1);
+    const passandoPendurada = [
+      ...passando.ligacoes,
+      {
+        de: `b_c${String(TETO_DE_PASSOS).padStart(6, "0")}`,
+        quando: { tipo: "sempre" },
+        para: "b_fantasma",
+      },
+    ];
+    expect(caminhadaPassaDoTeto(passando.passos, passandoPendurada)).toBe(true);
+    expect(
+      interpretar({ steps: passando.passos, ligacoes: passandoPendurada }, "b_c000000")
+        .ignorados[0].motivo
+    ).toContain("comprido demais");
+  });
+
+  it("O ANEL QUE FECHA NO PASSO 101 é acusado como ANEL, e não como comprimento", () => {
+    // Consequência da mesma ordem, e ela custava a linha de Atividade: com o
+    // anel fechando EXATAMENTE no passo 101, `repetiu` nunca chegava a ser
+    // marcado — o teto disparava antes de a volta 101 passar pelo conjunto de
+    // vistos — e o motivo saía "sem repetir nenhum … comprido demais" num fluxo
+    // que TEM anel. Mandava o dono encurtar uma lista cujo defeito é a volta.
+    const anel = corrida(TETO_DE_PASSOS);
+    const ligacoes = [
+      ...anel.ligacoes,
+      {
+        de: `b_c${String(TETO_DE_PASSOS - 1).padStart(6, "0")}`,
+        quando: { tipo: "sempre" },
+        para: "b_c000000",
+      },
+    ];
+    expect(temCicloDeSempre(anel.passos, ligacoes)).toBe(true);
+    const r = interpretar({ steps: anel.passos, ligacoes }, "b_c000000");
+    expect(r.enfileirar).toEqual([]);
+    expect(r.ignorados[0].motivo).toContain("há uma volta no caminho");
+    expect(r.ignorados[0].motivo).not.toContain("sem repetir nenhum");
+  });
+
   it("O ANEL NÃO GANHA DUAS LINHAS: com volta, só a regra do anel fala", () => {
     // Uma lista com anel também é "comprida" para quem só conta passos. Duas
     // linhas sobre o mesmo desenho mandariam o dono consertar duas coisas que

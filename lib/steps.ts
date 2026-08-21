@@ -1393,7 +1393,42 @@ export function interpretar(fluxo: Fluxo, deBloco: string | null): Resultado {
   const vistos = new Set<string>();
   let repetiu = false;
 
-  for (let voltas = 0; voltas < TETO_DE_PASSOS; voltas++) {
+  // O LAÇO ENTRA NA VOLTA 101, E SÓ PARA RESOLVER A IDENTIDADE — esta é a
+  // ordem, e ela é o quarto eixo de divergência entre esta caminhada e
+  // `caminhadaPassaDoTeto` (abaixo), fechado aqui.
+  //
+  // ANTES O TETO ERA CHECADO NA CONDIÇÃO DO `for`, portanto ANTES do corpo: uma
+  // seta `sempre` pendurada (apontando para um id que não está na lista) GASTAVA
+  // o passo 101 sem nunca resolver. Medido, com exatamente 100 blocos em
+  // corrente mais uma seta pendurada no último:
+  //
+  //   interpretar          -> enfileirar ZERO, cursor "manter",
+  //                           "o caminho é comprido demais"
+  //   caminhadaPassaDoTeto -> false   (ela quebra em `j === null` sem contar)
+  //   temCicloDeSempre     -> false
+  //   conferirLista        -> LISTA VAZIA
+  //
+  // O dono salvava, ativava, e toda entrega era descartada sem uma linha no
+  // painel — e a seta pendurada NÃO É DESENHADA no quadro (`quadro.tsx`
+  // descarta a aresta cujo destino não está na lista), então ele não podia nem
+  // vê-la nem apagá-la. É a INVERSÃO da regra gêmea: o motor percorria um
+  // caminho que o quadro não desenha.
+  //
+  // O CONSERTO É O MOTOR PARAR DE PERCORRÊ-LO, e não a caminhada passar a
+  // contá-lo. As duas direções faziam as funções concordarem; só esta melhora o
+  // que o dono recebe. Com a resolução ANTES do teto, os mesmos 100 blocos mais
+  // a seta pendurada passam a ENTREGAR os 100 e a registrar o motivo certo ("a
+  // ligação aponta para um bloco que não existe"), que é o que de fato aconteceu.
+  // Um passo só é gasto quando ele existe.
+  //
+  // E ISSO CONSERTA UMA SEGUNDA COISA, de graça: com o anel fechando EXATAMENTE
+  // no passo 101, `repetiu` nunca chegava a ser marcado e o motivo saía "sem
+  // repetir nenhum … comprido demais" num fluxo que TEM anel. Agora a volta 101
+  // passa pelo `vistos` antes do teto, e o motivo acusa a volta.
+  //
+  // O LIMITE CONTINUA SENDO 100 PASSOS ENTREGUES: a volta 101 nunca enfileira
+  // nada — ela resolve a identidade e cai no teto logo abaixo.
+  for (let voltas = 0; voltas <= TETO_DE_PASSOS; voltas++) {
     if (vistos.has(atual)) repetiu = true;
     else vistos.add(atual);
 
@@ -1420,6 +1455,11 @@ export function interpretar(fluxo: Fluxo, deBloco: string | null): Resultado {
       r.cursorNoFim = "manter";
       return r;
     }
+
+    // RESOLVEU, E SÓ AGORA O TETO FALA. É a volta 101 chegando com um bloco de
+    // verdade: aí sim o caminho é comprido demais (ou tem anel), e o bloco do
+    // teto lá embaixo decide qual dos dois dizer.
+    if (voltas >= TETO_DE_PASSOS) break;
 
     const { passo, motivo } = conferir(passos[i]);
 
@@ -1619,6 +1659,15 @@ export function temCicloDeSempre(passos: unknown, ligacoes: unknown): boolean {
 // PARTE DE CADA BLOCO, pelo mesmo motivo de `temCicloDeSempre`: a entrada não é
 // o único ponto de onde a entrega anda — toda parada é um começo de caminhada
 // quando a pessoa responde.
+//
+// O `break` EM `j === null` É O LADO CERTO DO QUARTO EIXO, e ele não mudou. Uma
+// seta que aponta para um id fora da lista não é um passo: não há bloco a
+// percorrer. Quem estava errado era `interpretar`, que checava o teto ANTES de
+// resolver a identidade e portanto GASTAVA o passo 101 numa seta pendurada —
+// com exatamente 100 blocos em corrente isso zerava a entrega enquanto as
+// quatro vozes calavam. A medição inteira está no laço de `interpretar`, e o
+// par de asserções que prende os dois lados é "O QUARTO EIXO: a seta pendurada
+// NÃO gasta o passo 101" (tests/steps.test.ts).
 export function caminhadaPassaDoTeto(passos: unknown, ligacoes: unknown): boolean {
   if (!Array.isArray(passos)) return false;
 
