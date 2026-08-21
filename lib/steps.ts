@@ -381,9 +381,20 @@ export type Resultado = {
 // horas. É a falha mais cara que este arquivo pode produzir, e ela custa uma
 // linha para não existir.
 //
-// 100 é folga grande de propósito. O maior fluxo montável na tela não chega
-// perto disso, então bater no teto é sinal de anel, não de fluxo comprido —
-// e é por isso que o motivo registrado em `ignorados` fala de volta no caminho.
+// 100 é folga grande de propósito, MAS "bater no teto é sinal de anel" era uma
+// garantia afirmada e não medida, e ela caiu. Este parágrafo dizia que o maior
+// fluxo montável na tela não chega perto disso; a revisão do motor mediu que o
+// quadro não limita blocos (`setPassos((atual) => [...atual, bloco])`,
+// app/automacoes/editor/quadro.tsx) e que 101 blocos `dm` encadeados por
+// `sempre`, sem anel nenhum, batem aqui.
+//
+// AS DUAS CAUSAS ESTÃO SEPARADAS DESDE ENTÃO, cada uma com a sua dona:
+//
+//   NO SALVAR/ATIVAR — `temCicloDeSempre` acusa o anel, e `caminhadaPassaDoTeto`
+//     (abaixo) acusa o caminho comprido demais. Uma lista que passa daqui não
+//     pode mais ser PUBLICADA.
+//   NA ENTREGA — `interpretar` registra motivos diferentes para as duas, porque
+//     o texto único mandava o dono procurar uma volta que não existia.
 export const TETO_DE_PASSOS = 100;
 
 // Um botão de escolha. O `id` é o que viaja no payload, e é ele que
@@ -1326,7 +1337,19 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
   // conjunto PROIBIRIA a volta, e a volta é padrão legítimo ("menu → opção →
   // volta ao menu"), só que ela sempre atravessa uma parada. O teto deixa a volta
   // acontecer e só interrompe o que não para nunca.
+  //
+  // O CONJUNTO ABAIXO NÃO PROÍBE NADA, E É POR ISSO QUE ELE PODE EXISTIR AQUI.
+  // Ele só ANOTA quem já passou, para o motivo registrado no teto poder dizer
+  // qual das duas coisas aconteceu. Se ele decidisse a caminhada, a volta
+  // legítima do parágrafo acima morreria — a contagem de visitas continua sendo
+  // quem interrompe.
+  const vistos = new Set<string>();
+  let repetiu = false;
+
   for (let voltas = 0; voltas < TETO_DE_PASSOS; voltas++) {
+    if (vistos.has(atual)) repetiu = true;
+    else vistos.add(atual);
+
     const i = indiceDoId(passos, atual);
 
     // Uma ligação pode apontar para um id que sumiu — o dono apagou o bloco e a
@@ -1394,11 +1417,32 @@ export function interpretar(passos: unknown, ligacoes: unknown, deBloco: string 
   // E o que fica no lugar não é silêncio: o motivo abaixo vira linha em
   // Atividade, e o cursor não é tocado — a pessoa continua exatamente onde
   // estava, e um anel arrumado no editor volta a andar dali.
+  //
+  // SÃO DOIS MOTIVOS, E ANTES ERA UM SÓ QUE MENTIA NA METADE DOS CASOS. O texto
+  // único falava de "uma volta no caminho" sempre, e a revisão do motor mediu o
+  // contrário com 101 blocos `dm` encadeados por `sempre`: entrega ZERO, cursor
+  // mantido, e a única linha que o dono vê em Atividade acusa um anel que
+  // `temCicloDeSempre` responde não existir. Culpar a coisa errada é pior do que
+  // calar: manda o dono procurar uma volta numa lista que não tem nenhuma.
+  //
+  // A pergunta que separa as duas causas é "algum bloco apareceu duas vezes
+  // NESTA caminhada?" — a mesma que `temCicloDeSempre` faz no salvar, e a mesma
+  // que `caminhadaPassaDoTeto` (abaixo) usa para não acusar anel como comprimento.
+  //
+  // O DESCARTE FICA NOS DOIS CASOS, e isso é decisão medida, não descuido. Um
+  // fluxo comprido demais deixou de ser publicável nesta mesma mudança
+  // (`conferirLista` recusa o ativar), então chegar aqui sem anel significa dado
+  // escrito FORA do editor — script, backup, consulta à mão. Entregar 100 dos
+  // 101 blocos calando o corte não é melhor do que entregar zero e dizer por
+  // quê: nos dois casos o que a pessoa recebe não é o fluxo que o dono desenhou,
+  // e só o segundo aparece em Atividade.
   r.enfileirar = [];
   r.cursorNoFim = "manter";
   r.ignorados.push({
     indice: -1,
-    motivo: `o fluxo passou de ${TETO_DE_PASSOS} blocos e foi interrompido: há uma volta no caminho`,
+    motivo: repetiu
+      ? `o fluxo passou de ${TETO_DE_PASSOS} blocos e foi interrompido: há uma volta no caminho`
+      : `o fluxo passou de ${TETO_DE_PASSOS} blocos sem repetir nenhum e foi interrompido: o caminho é comprido demais`,
   });
   return r;
 }
@@ -1486,6 +1530,70 @@ export function temCicloDeSempre(passos: unknown, ligacoes: unknown): boolean {
 
       const { passo } = conferir(passos[j]);
       if (passo && paradaDura(passo)) break;
+
+      atual = seguinteDe(ligacoes, atual);
+    }
+  }
+
+  return false;
+}
+
+// A CAMINHADA COMPRIDA DEMAIS — a outra causa de bater no teto, e a que nada
+// acusava.
+//
+// `TETO_DE_PASSOS` interrompe `interpretar` depois de 100 blocos, e o comentário
+// do teto afirmava que bater nele "é sinal de anel, não de fluxo comprido". A
+// revisão do motor mediu que não: 101 blocos `dm` encadeados por `sempre`, sem
+// anel nenhum, dão entrega ZERO e cursor mantido, e nem o salvar nem o ativar
+// diziam uma palavra — `conferirLista` devolvia `[]` e `podeFicarAtiva`, `true`.
+// A garantia era afirmada, não medida.
+//
+// ESTA FUNÇÃO É A METADE "IMPEDIR DE CHEGAR LÁ". A outra é o motivo honesto que
+// `interpretar` passou a registrar. As duas são necessárias porque respondem a
+// donos diferentes: uma fala com quem está montando, a outra com quem está lendo
+// Atividade depois.
+//
+// ELA REPETE O LAÇO DE `interpretar` DE PROPÓSITO, e a repetição tem rede: o
+// teste "O TETO SEM ANEL" prende as duas à MESMA lista de 100 e de 101 blocos,
+// então divergirem quebra a suíte. Copiar o laço é mais barato do que fazer a
+// conferência montar um `Resultado` inteiro — com ações a enfileirar que ninguém
+// vai executar — só para ler um motivo de dentro dele por comparação de texto.
+//
+// AS PARADAS SÃO AS DE `esperaResposta`, E NÃO AS DE `paradaDura`, e a diferença
+// com `temCicloDeSempre` (acima) é deliberada: quem manda aqui é o que
+// `interpretar` FAZ, e `interpretar` retorna em `esperaResposta` — que inclui o
+// portão e o pedido de e-mail. Contá-los como travessia daria um comprimento que
+// a entrega nunca percorre, e a conferência acusaria fluxo que anda.
+//
+// BLOCO REPETIDO INTERROMPE A CONTAGEM, e não vira acusação: isso é anel, e o
+// anel já tem dona uma função acima. Uma caminhada que fecha em círculo não tem
+// comprimento a medir, e acusá-la aqui daria duas linhas para o mesmo defeito.
+//
+// PARTE DE CADA BLOCO, pelo mesmo motivo de `temCicloDeSempre`: a entrada não é
+// o único ponto de onde a entrega anda — toda parada é um começo de caminhada
+// quando a pessoa responde.
+export function caminhadaPassaDoTeto(passos: unknown, ligacoes: unknown): boolean {
+  if (!Array.isArray(passos)) return false;
+
+  for (let i = 0; i < passos.length; i++) {
+    const vistos = new Set<string>();
+    let atual: string | null = identidadeDoPasso(passos[i], i);
+    let percorridos = 0;
+
+    while (atual !== null) {
+      if (vistos.has(atual)) break;
+      vistos.add(atual);
+
+      const j = indiceDoId(passos, atual);
+      if (j === null) break;
+
+      // O bloco foi percorrido ANTES de perguntar se ele para: `interpretar`
+      // gasta uma volta do laço nele de qualquer jeito.
+      percorridos++;
+      if (percorridos > TETO_DE_PASSOS) return true;
+
+      const { passo } = conferir(passos[j]);
+      if (passo && esperaResposta(passo)) break;
 
       atual = seguinteDe(ligacoes, atual);
     }
@@ -3621,6 +3729,36 @@ export function conferirLista(
       indice: null,
       mensagem:
         "Há uma volta no fluxo que o motor percorre sozinho, sem parar em nenhuma pergunta: a automação nunca termina de responder. Faça a volta passar por uma mensagem com botão, que é o que espera a pessoa.",
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // O FLUXO COMPRIDO DEMAIS: A OUTRA CAUSA DO TETO, e a que não tinha dona.
+  //
+  // `TETO_DE_PASSOS` é 100, e o comentário dele prometia que "o maior fluxo
+  // montável na tela não chega perto disso". A promessa era afirmada e não
+  // medida: o quadro não limita blocos (`setPassos((atual) => [...atual, bloco])`),
+  // e 101 blocos encadeados por `sempre` fazem `interpretar` entregar ZERO e
+  // manter o cursor. Sem esta regra, nada impedia PUBLICAR essa automação —
+  // `podeFicarAtiva` respondia `true` sobre uma lista que não entrega nada.
+  //
+  // É ERRO DE ATIVAR, E NÃO DE SALVAR, e a escolha é a de sempre neste arquivo:
+  // o dano só existe quando a automação entrega, e um falso positivo aqui
+  // trancaria o dono fora do painel de uma lista que ele precisa justamente
+  // ABRIR para encurtar. O anel logo acima é de salvar porque ele pendura o
+  // webhook; comprimento não pendura nada — só não chega ao fim.
+  //
+  // O ANEL TEM PRIORIDADE, e por isso a pergunta é feita com `!`: uma lista com
+  // anel também é comprida, e duas linhas sobre o mesmo desenho mandariam o dono
+  // consertar duas coisas que são uma. `caminhadaPassaDoTeto` já para em bloco
+  // repetido pelo mesmo motivo — esta guarda é a segunda volta da mesma decisão,
+  // e existe para o caso de o anel estar num braço e o comprimento em outro.
+  if (!temCicloDeSempre(passos, ligacoes) && caminhadaPassaDoTeto(passos, ligacoes)) {
+    r.push({
+      nivel: "erro",
+      quando: "ativar",
+      indice: null,
+      mensagem: `Há um caminho com mais de ${TETO_DE_PASSOS} blocos seguidos sem nenhuma pergunta pelo meio, e o motor interrompe a entrega aí: a pessoa não recebe nada. Encurte o caminho, ou quebre-o com uma mensagem com botão.`,
     });
   }
 

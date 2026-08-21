@@ -6,6 +6,7 @@ import {
   seguinteDe,
   haCaminho,
   TETO_DE_PASSOS,
+  caminhadaPassaDoTeto,
   passoEsperado,
   retomadaDoFallback,
   retomadaDoBotao,
@@ -3363,9 +3364,75 @@ describe("interpretar caminhando o grafo", () => {
     expect(r2.ignorados).toEqual([
       {
         indice: -1,
-        motivo: `o fluxo passou de ${TETO_DE_PASSOS} blocos e foi interrompido: há uma volta no caminho`,
+        motivo: `o fluxo passou de ${TETO_DE_PASSOS} blocos sem repetir nenhum e foi interrompido: o caminho é comprido demais`,
       },
     ]);
+  });
+
+  it("O TETO SEM ANEL não acusa anel, e a conferência recusa PUBLICAR a lista", () => {
+    // A revisão do motor mediu que o motivo único mentia: numa corrente reta de
+    // 101 blocos não há volta nenhuma (`temCicloDeSempre` responde `false`) e a
+    // única linha que o dono via em Atividade dizia "há uma volta no caminho".
+    // Mandava procurar o que não existe.
+    const passando = corrida(TETO_DE_PASSOS + 1);
+    expect(temCicloDeSempre(passando.passos, passando.ligacoes)).toBe(false);
+    const r = interpretar(passando.passos, passando.ligacoes, "b_c000000");
+    expect(r.ignorados[0].motivo).toContain("comprido demais");
+    expect(r.ignorados[0].motivo).not.toContain("volta");
+
+    // E o anel continua acusando anel: a distinção é entre as duas causas, não a
+    // troca de uma mentira por outra.
+    const x = { id: "b_xxx001", tipo: "dm", texto: "X" };
+    const y = { id: "b_yyy002", tipo: "dm", texto: "Y" };
+    const anel = [
+      { de: "b_xxx001", quando: { tipo: "sempre" }, para: "b_yyy002" },
+      { de: "b_yyy002", quando: { tipo: "sempre" }, para: "b_xxx001" },
+    ];
+    expect(interpretar([x, y], anel, "b_xxx001").ignorados[0].motivo).toContain(
+      "há uma volta no caminho"
+    );
+
+    // A REDE CONTRA AS DUAS CAMINHADAS DIVERGIREM. `caminhadaPassaDoTeto` repete
+    // o laço de `interpretar` para a conferência não ter de montar um
+    // `Resultado` inteiro; este par de asserções é o que impede as duas de
+    // discordarem sobre onde o teto cai.
+    const cheio = corrida(TETO_DE_PASSOS);
+    expect(caminhadaPassaDoTeto(cheio.passos, cheio.ligacoes)).toBe(false);
+    expect(interpretar(cheio.passos, cheio.ligacoes, "b_c000000").ignorados).toEqual([]);
+    expect(caminhadaPassaDoTeto(passando.passos, passando.ligacoes)).toBe(true);
+
+    // A METADE QUE IMPEDE DE CHEGAR LÁ: antes desta regra `conferirLista`
+    // devolvia `[]` sobre a corrente de 101 e `podeFicarAtiva` respondia `true`
+    // — publicava-se uma automação que entrega ZERO.
+    const problemas = conferirLista(passando.passos, "dm", passando.ligacoes);
+    const doTeto = problemas.filter((x2) => x2.mensagem.includes("blocos seguidos"));
+    expect(doTeto).toHaveLength(1);
+    expect(doTeto[0]).toMatchObject({ nivel: "erro", quando: "ativar", indice: null });
+    expect(podeFicarAtiva(problemas)).toBe(false);
+
+    // Com 100 a conferência cala: o teto é exatamente o mesmo número nos dois
+    // lados.
+    expect(
+      conferirLista(cheio.passos, "dm", cheio.ligacoes).filter((x2) =>
+        x2.mensagem.includes("blocos seguidos")
+      )
+    ).toEqual([]);
+  });
+
+  it("O ANEL NÃO GANHA DUAS LINHAS: com volta, só a regra do anel fala", () => {
+    // Uma lista com anel também é "comprida" para quem só conta passos. Duas
+    // linhas sobre o mesmo desenho mandariam o dono consertar duas coisas que
+    // são uma.
+    const x = { id: "b_xxx001", tipo: "dm", texto: "X" };
+    const y = { id: "b_yyy002", tipo: "dm", texto: "Y" };
+    const anel = [
+      { de: "b_xxx001", quando: { tipo: "sempre" }, para: "b_yyy002" },
+      { de: "b_yyy002", quando: { tipo: "sempre" }, para: "b_xxx001" },
+    ];
+    expect(caminhadaPassaDoTeto([x, y], anel)).toBe(false);
+    expect(
+      conferirLista([x, y], "dm", anel).filter((p2) => p2.mensagem.includes("blocos seguidos"))
+    ).toEqual([]);
   });
 
   it("O TETO SEGURA O CICLO em vez de andar para sempre — e NÃO ENTREGA NADA", () => {
