@@ -4,6 +4,10 @@
 de ele ser escrito. Quatro afirmações da versão original caíram — estão listadas
 na seção seguinte, com o que as derrubou.
 
+**A pergunta que decidia a ordem foi RESPONDIDA em 24/08, por sonda executada
+contra o banco real: SIM, e por zero linhas de mudança.** A ordem se inverteu —
+ver "A ordem" no fim.
+
 **Data:** 17/08/2026 · **última correção:** 24/08/2026
 **Contexto:** a Fase 2a está implantada. Suíte hoje: **677 testes puros**.
 
@@ -138,10 +142,33 @@ promessa num módulo — uma vez por instância.
 ### O que fazer
 
 1. **Mover as 42 instruções** para arquivos numerados em `migrations/`
-2. **Separar o que não é esquema**: a semente de `config` e o `migrateAccounts`
-   não são DDL e não devem viajar junto
+2. **Separar o que não é esquema** — E AQUI MORA UMA ARMADILHA, ver abaixo
 3. **Reduzir `ensureSchema` a nada**, e limpar os 27 pontos de chamada
 4. **Criar a tabela de controle** — ver o aviso abaixo
+
+### O passo 2 está CERTO NA INTENÇÃO E PERIGOSO NA LETRA
+
+A versão anterior dizia: *"a semente de `config` e o `migrateAccounts` não são
+DDL e não devem viajar junto"*. A semente, sim. O `migrateAccounts`, **não** — e
+a sonda de 24/08 mediu por quê.
+
+**`migrateAccounts` carrega duas mudanças de FORMA que a lista `DDL` não tem:**
+
+| | a `DDL` diz | o que de fato fica no schema |
+|---|---|---|
+| chave primária de `contacts` | `ig_id text primary key` (`db.ts:367`) | **`primary key (account_id, ig_id)`** |
+| `queue_kind_check` | 5 tipos (`db.ts:375`) | **9 tipos** |
+
+Descartá-lo como "migração de dado" faria **todo banco novo nascer com a chave
+primária errada** — o `on conflict (account_id, ig_id)` estoura em runtime — e
+**recusando quatro tipos de fila em uso**. Quebraria em produção, não em teste.
+
+**O que fazer:** extrair essas duas mudanças de forma para migrações próprias
+ANTES de mexer no `migrateAccounts`. O resto dele é dado, seleciona zero linhas
+num banco vazio, e aí sim pode sair.
+
+**A semente de `config`** (uma linha, com o token do webhook) é desejável até em
+banco de teste — ela não é DDL, mas é pré-requisito de funcionamento.
 
 ### O que ganha
 
@@ -195,28 +222,59 @@ oito defeitos que sobrevivem hoje.
 **A prioridade mudou em 21/08**, e a medição que a mudou: o defeito de três
 tokens que passou por tudo estava no caminho do portão, não no do dreno.
 
-### A PERGUNTA ABERTA, e ela decide o tamanho do projeto
+### A PERGUNTA FOI RESPONDIDA: SIM, POR ZERO LINHAS
 
 O plano original dizia: *"exige que as migrações da Frente 1 existam, porque é
 delas que o schema temporário nasce. A Frente 1 vem primeiro por dependência."*
 
-**Isso pode não ser verdade**, e medi o que sustenta a dúvida:
+**Falso.** Sonda executada em 24/08 contra o banco real, com inventário
+antes/depois idêntico e nenhum schema temporário deixado para trás.
 
-- a DDL de `lib/db.ts` **não é qualificada por schema** (zero ocorrências de
-  `public.`), então ela obedece ao `search_path`
-- ou seja, o schema temporário poderia nascer de `ensureSchema` rodando contra
-  ele, em vez de das migrações
+**O caminho mínimo é mais barato do que qualquer versão deste plano supôs: NÃO
+MUDA UMA LINHA DE `lib/db.ts`.** O `search_path` viaja como parâmetro de query da
+própria `DATABASE_URL`:
 
-**O que impede hoje, e é pequeno:** a lista `DDL` não é exportada,
-`ensureSchema()` não aceita argumento, e ela mistura DDL com semente de dado e
-com migração de instalação antiga. Um `export` ou um parâmetro opcional
-resolveriam o primeiro; a mistura é justamente o que a Frente 1 desfaz.
+```
+postgresql://…/postgres?search_path=sonda_tmp_ab12cd34
+```
 
-**Se funcionar, a ordem se inverte:** a Frente 2 vem primeiro, entrega valor
-semanas antes, e a Frente 1 deixa de ser bloqueio.
+Quatro peças medidas sustentam isso:
 
-**É a primeira coisa a fazer**, antes de escolher a ordem. Uma sonda de mais ou
-menos uma hora, e ela responde por medição em vez de por suposição.
+1. `limparUrl` (`lib/db.ts:53`) só remove `channel_binding` e `pgbouncer` — o
+   parâmetro novo sobrevive
+2. o `parseOptions` do postgres.js joga todo parâmetro desconhecido em
+   `connection`, o que o torna **parâmetro de startup**, não um `set`
+3. o **Supavisor em modo transação** deixa passar — era o risco real
+4. **a armadilha do `max: 3` não morde**, e isto foi medido, não deduzido: 6
+   consultas simultâneas, 3 PIDs distintos, e **as 6** responderam com o schema
+   temporário. É a diferença entre `set search_path` (vale para uma conexão) e
+   parâmetro de startup (vale para todas)
+
+**A prova que fecha:** `ensureSchema()` montou 8 tabelas, 16 índices e 99 colunas
+no schema temporário, em ~4 segundos; e o `handleCommentEvent` do **motor de
+verdade** leu a automação de lá, casou a palavra-chave, gravou o contato e
+enfileirou a resposta. **Zero linhas escritas em `public`.**
+
+### A ARMADILHA QUE O HARNESS PRECISA HERDAR
+
+`search_path=<temporário>,public` é o reflexo natural de quem escreve isso, e é
+**veneno**. Medido:
+
+```
+[só o temporário]        select count(*) from contacts  ->  ERRO 42P01
+[temporário + public]    select count(*) from contacts  ->  93 ... da PRODUÇÃO
+```
+
+Com `public` de reserva, **`current_schema()` mente**: devolve o nome do
+temporário enquanto lê os contatos reais. Um teste escrito assim **passa** — lendo
+dado de verdade — e ninguém desconfia.
+
+**A regra: o `search_path` é o schema temporário SOZINHO.** O que faltar tem que
+falhar alto, em vez de cair calado na produção.
+
+*(A sonda também derrubou uma hipótese dela mesma no caminho: supunha que
+`create table if not exists` viraria no-op nesse arranjo. Não vira — ele olha só
+o schema de criação. Medir venceu presumir, de novo.)*
 
 ### Por que schema temporário e não banco separado
 
@@ -226,10 +284,15 @@ produção, e com o mesmo `DATABASE_URL` que os scripts já usam.
 
 ### O que custa, e é decisão do dono
 
-- a suíte deixa de rodar em ~2 segundos; estes testes são de outra ordem de
-  grandeza
-- por isso ficam **separados** dos 677 puros, com comando próprio — e **o dono
-  decide se `verify` os chama**
+- **"outra ordem de grandeza" era exagero, e a medição de 24/08 desfaz:** a ida e
+  volta ao banco tem mediana de **24ms**, e montar a estrutura inteira levou
+  **3,7 a 4,8 segundos** na sonda. Quatro caminhos compartilhando um schema
+  ficam em **5 a 10 segundos**; um schema por caminho, em **15 a 25**. Para
+  comparar: a varredura, que **já está** no `verify`, leva ~60 segundos
+- **o custo real não é tempo, é dependência:** o `verify` roda offline hoje. Com
+  estes testes dentro, ele passa a exigir banco. **É essa a decisão do dono**, e
+  não o relógio
+- por isso ficam **separados** dos 677 puros, com comando próprio
 - **nada de mock.** O protótipo de sondagem funcionou e **pegou** o defeito nº 1,
   mas usava `vi.mock` e um banco de mentira que despachava por texto de SQL:
   trocava "cópia da cola" por "cópia do esquema", que é **a mesma doença por
@@ -293,13 +356,23 @@ quebrando a automação dele.
 
 ---
 
-## A ordem, e o que decide
+## A ordem — decidida por medição em 24/08
 
-1. **A sonda do schema temporário** — uma hora, e responde se a Frente 2 depende
-   mesmo da Frente 1
-2. **Conforme a resposta:** ou Frente 2 primeiro (valor mais cedo), ou Frente 1
-   primeiro (como o plano original supunha)
-3. **A remoção de `flow_step_index`** vem depois da tabela de controle, nunca
-   antes — e em dois passos: primeiro a leitura de reserva sai do código
+A sonda foi feita e respondeu SIM. **A ordem original está invertida:**
+
+1. **FRENTE 2 PRIMEIRO.** Ela não depende de nada. Zero linhas de mudança para o
+   schema temporário nascer, e o motor de verdade já provou que lê de lá
+2. **FRENTE 1 DEPOIS**, e ela deixa de ser pré-requisito para virar melhoria: a
+   primeira requisição para de carregar 42 comandos, o impasse do deploy some, e
+   acaba a armadilha de "editar `lib/db.ts` com dev de pé é aplicar migração"
+3. **As remoções de coluna vêm por último**, depois da tabela de controle:
+   - **`flow_step_index`** — em dois passos, a leitura de reserva sai do código
+     primeiro (ver correção 3 no topo)
+   - **`contacts.follow_attempts_dia`** — **esta sim é órfã de verdade**: existe
+     no banco e **não aparece em nenhum arquivo do repositório** (`grep` em
+     `.ts`, `.tsx`, `.sql` e `.mjs`: zero). É o oposto exato do
+     `flow_step_index`, e o par das duas é o melhor argumento para a pergunta
+     pelo chamador: **parecer órfã e ser órfã não são a mesma coisa, e só a
+     medição separa as duas**
 
 **A Frente 3 já está valendo** — é descrição, não construção.
