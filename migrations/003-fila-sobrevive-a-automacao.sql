@@ -1,0 +1,54 @@
+-- A fila de entregas passa a SOBREVIVER à exclusão da automação.
+--
+-- -----------------------------------------------------------------------------
+-- O QUE ACONTECIA
+--
+-- `queue` guarda o que já foi ENTREGUE — é dela que saem o gráfico "Mensagens
+-- por dia" e o cartão "mensagens enviadas em 7 dias" do painel. A chave
+-- estrangeira dela era `on delete cascade`, então apagar uma automação apagava
+-- junto TODO o histórico do que aquela automação entregou.
+--
+-- Medido em 24/08, depois de o dono apagar as automações de teste: o gráfico
+-- ficou vazio enquanto a aba Conversas mostrava 75 mensagens só no dia 21. As
+-- entregas do teste de ponta a ponta daquele dia existiam e foram embora com a
+-- exclusão. Sobraram 21 linhas, todas de automação já nula, a mais recente de
+-- 04/08 — fora da janela de 14 dias do gráfico.
+--
+-- -----------------------------------------------------------------------------
+-- POR QUE `set null` E NÃO OUTRA COISA
+--
+-- O PRÓPRIO ESQUEMA JÁ TINHA TOMADO ESSA DECISÃO, do outro lado:
+-- `contacts.last_automation_id` é `on delete set null` desde sempre. Alguém já
+-- concluiu que apagar uma automação não pode apagar o CONTATO — só desfazer o
+-- vínculo. A entrega recebeu a regra oposta, provavelmente sem que as duas
+-- fossem comparadas. Isto alinha a segunda à primeira.
+--
+-- O PREÇO, escrito para não ser descoberto tarde: a linha que sobrevive fica
+-- ÓRFÃ. Ela não sabe mais de qual automação veio, porque a automação não existe.
+-- Para quem só CONTA (o gráfico, o cartão) isso é indiferente. Para um relatório
+-- futuro "por automação", essas entregas apareceriam como "sem automação" — e é
+-- melhor que sumirem, mas é bom saber antes de escrevê-lo.
+--
+-- -----------------------------------------------------------------------------
+-- O QUE NÃO MUDA, E É DELIBERADO
+--
+-- `followups.automation_id` CONTINUA `on delete cascade`, e está certo: ele
+-- guarda mensagem FUTURA agendada. Se a automação morre, o acompanhamento dela
+-- tem que morrer junto — senão o sistema mandaria mensagem de uma automação que
+-- não existe mais. Além disso aquela coluna é `not null`, então `set null` nem
+-- seria possível ali.
+--
+-- -----------------------------------------------------------------------------
+-- SOBRE A IDEMPOTÊNCIA
+--
+-- O cabeçalho de `scripts/migrar.mjs` diz "`if not exists` em TODA DDL". Aqui
+-- não existe `add constraint if not exists` no Postgres — o par abaixo é a forma
+-- idempotente equivalente: derruba se houver, cria em seguida. Rodar duas vezes
+-- é inofensivo, que é o que aquele contrato de fato exige.
+--
+-- Isto NÃO move dado: nenhuma linha é lida, escrita ou apagada. Só a regra que
+-- vale da próxima vez que uma automação for excluída.
+alter table queue drop constraint if exists queue_automation_id_fkey;
+
+alter table queue add constraint queue_automation_id_fkey
+  foreign key (automation_id) references automations(id) on delete set null;
