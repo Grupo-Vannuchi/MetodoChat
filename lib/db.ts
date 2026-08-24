@@ -374,7 +374,12 @@ const DDL = [
     id uuid primary key default gen_random_uuid(),
     kind text not null check (kind in ('private_reply','comment_reply','dm_welcome','dm_link','dm_reminder')),
     contact_ig_id text,
-    automation_id uuid references automations(id) on delete cascade,
+    -- "set null", e nao "cascade": a fila e o HISTORICO do que foi entregue, e
+    -- apagar uma automacao nao pode apagar o que ela ja entregou. Ver
+    -- migrations/003. Segue a mesma regra de contacts.last_automation_id.
+    -- (sem crases aqui: este comentario mora DENTRO de um template literal, e
+    --  uma crase o fecharia no meio — foi o que quebrou a suite ao escrever.)
+    automation_id uuid references automations(id) on delete set null,
     comment_id text,
     payload jsonb not null default '{}',
     dedupe_key text unique,
@@ -387,6 +392,18 @@ const DDL = [
     created_at timestamptz not null default now()
   )`,
   `create index if not exists queue_pending_idx on queue(status, not_before)`,
+  // A REDE DA migrations/003, e ela precisa existir SEPARADA da criação acima.
+  //
+  // `create table if not exists` não toca em tabela que já existe, então mudar a
+  // linha da coluna lá em cima só vale para banco NOVO. Todo banco que já rodou
+  // este esquema continuaria com o `cascade` antigo — e o `cascade` é justamente
+  // o que apagava o histórico de entregas junto com a automação.
+  //
+  // Par idempotente (não há `add constraint if not exists` no Postgres): derruba
+  // se houver, cria em seguida. Roda em toda instância, uma vez por deploy.
+  `alter table queue drop constraint if exists queue_automation_id_fkey`,
+  `alter table queue add constraint queue_automation_id_fkey
+     foreign key (automation_id) references automations(id) on delete set null`,
   `create table if not exists events (
     id uuid primary key default gen_random_uuid(),
     type text not null,

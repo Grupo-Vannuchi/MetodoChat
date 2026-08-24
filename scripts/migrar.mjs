@@ -157,6 +157,44 @@ const ESPERADAS = [
   },
 ];
 
+// A SEGUNDA LISTA, E ELA NASCE DO DIA QUE O PARÁGRAFO ACIMA PREVIU.
+//
+// Lá em cima está escrito, desde a Tarefa 9, que um extrator que só entende
+// `add column` "ficaria calado justamente na migração de forma nova". A `003` é
+// essa migração: ela não cria coluna nenhuma — muda a REGRA DE EXCLUSÃO de uma
+// chave estrangeira. A conferência de colunas passaria por ela sem uma palavra,
+// e o script sairia 0 dizendo "CONFERIDO" sobre outras duas coisas.
+//
+// Ou seja: a lista à mão tinha o mesmo ponto cego do extrator que ela recusou,
+// só que por outro motivo — não por não entender a DDL, mas por só saber
+// PERGUNTAR sobre coluna. Presença de coluna era tudo que ela sabia checar.
+//
+// `confdeltype` é uma letra: c = cascade, n = set null, a = no action,
+// r = restrict, d = set default. Aferimos a letra, não a presença: uma chave que
+// exista com a regra ERRADA é exatamente o caso que esta migração conserta, e
+// seria absurdo que a conferência dela não soubesse ver a diferença.
+const ESPERADAS_CHAVES = [
+  {
+    tabela: "queue",
+    coluna: "automation_id",
+    aponta: "automations",
+    aoExcluir: "n", // set null — a fila é histórico e sobrevive à automação
+    de: "003-fila-sobrevive-a-automacao.sql",
+  },
+  {
+    // NÃO É ALVO DE MIGRAÇÃO NENHUMA, e está aqui de propósito: é a regra que
+    // deve CONTINUAR sendo cascade. Acompanhamento é mensagem FUTURA agendada —
+    // se a automação morre, ele tem que morrer junto, senão o sistema manda
+    // mensagem de uma automação que não existe. Se alguém "consertar" esta para
+    // set null por simetria com a de cima, esta linha acusa.
+    tabela: "followups",
+    coluna: "automation_id",
+    aponta: "automations",
+    aoExcluir: "c", // cascade, e é o certo
+    de: "esquema base (lib/db.ts) — deliberado, ver migrations/003",
+  },
+];
+
 // QUANTAS CONFERÊNCIAS FALHARAM. É o que decide o código de saída lá embaixo.
 let falhas = 0;
 
@@ -225,6 +263,48 @@ for (const { tabela, coluna, de, tipo, padrao, naoNulo } of ESPERADAS) {
   console.log(
     `CONFERIDO no banco: ${tabela}.${coluna} existe e confere (${achado.tipo}, ` +
       `not null ${achado.naoNulo}, default ${achado.padrao})`
+  );
+}
+
+const NOME_DA_REGRA = { a: "no action", r: "restrict", c: "cascade", n: "set null", d: "set default" };
+
+for (const { tabela, coluna, aponta, aoExcluir, de } of ESPERADAS_CHAVES) {
+  const chaves = await sql`
+    select c.conname as nome, c.confdeltype as ao_excluir
+    from pg_constraint c
+    join pg_attribute a
+      on a.attrelid = c.conrelid and a.attnum = any(c.conkey) and not a.attisdropped
+    where c.contype = 'f'
+      and c.conrelid = to_regclass(${tabela})
+      and c.confrelid = to_regclass(${aponta})
+      and a.attname = ${coluna}`;
+
+  if (!chaves.length) {
+    console.log(
+      `CONFERIDO no banco: ${tabela}.${coluna} NÃO tem chave para ${aponta} (${de})` +
+        (aplicar ? " — A MIGRAÇÃO NÃO FEZ EFEITO, pare e investigue." : " (esperado no ensaio a seco)")
+    );
+    if (aplicar) falhas++;
+    continue;
+  }
+
+  const achada = chaves[0].ao_excluir;
+  if (achada !== aoExcluir) {
+    // DIVERGÊNCIA DE REGRA É FALHA NOS DOIS MODOS, pelo mesmo motivo da forma de
+    // coluna: a chave já está no banco com a regra errada, e rodar a migração de
+    // novo não a conserta sozinha se alguém tiver mexido nela por fora.
+    console.log(
+      `CONFERIDO no banco: ${tabela}.${coluna} -> ${aponta} DIVERGE de ${de} — ` +
+        `ao excluir esperado "${NOME_DA_REGRA[aoExcluir]}", achado ` +
+        `"${NOME_DA_REGRA[achada] || achada}". Pare e investigue.`
+    );
+    falhas++;
+    continue;
+  }
+
+  console.log(
+    `CONFERIDO no banco: ${tabela}.${coluna} -> ${aponta} confere ` +
+      `(ao excluir: ${NOME_DA_REGRA[achada]})`
   );
 }
 
