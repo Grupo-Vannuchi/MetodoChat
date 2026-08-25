@@ -248,6 +248,24 @@ export async function conferirCaminho(
 // de um schema descartável: linha apagada, linha cuja chave mudou, tabela que
 // sumiu e coluna que sumiu continuam ficando VERMELHAS.
 //
+// -----------------------------------------------------------------------------
+// ONDE ESTA VERIFICAÇÃO AINDA PODE ACUSAR DEMAIS — e por que fica assim
+//
+// Ela reprova quando uma linha anterior ao corte é APAGADA, e a produção também
+// apaga. Dois lugares onde isso pode acontecer sem culpa do teste:
+//
+//   - `login_attempts`: `lib/login-throttle.ts:43` apaga tudo com mais de um dia
+//     a cada tentativa de login no painel. Hoje a tabela tem ZERO linhas, então
+//     não há o que apagar; num dia de tentativa de login com histórico velho,
+//     isto ficaria vermelho sem o teste ter feito nada
+//   - `lib/db.ts:760`, quando alguém desconecta uma conta no painel: apaga as
+//     linhas dela em todas as tabelas
+//
+// Os dois ficam como estão, e a escolha é deliberada: são raros (medido em 32
+// dias: 2 deleções em `login_attempts`, 1 conta desconectada) e **acusar demais
+// é o lado certo de errar**. Quem vir esse vermelho tem a mensagem dizendo qual
+// tabela e quantas linhas, o que é o bastante para separar isto de uma perda.
+//
 // A coluna do corte é descoberta por tabela, e não fixada numa lista: tabela nova
 // entra no inventário sozinha — e uma tabela que o teste criasse em `public` por
 // engano apareceria como diferença.
