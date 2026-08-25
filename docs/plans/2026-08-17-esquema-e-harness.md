@@ -97,10 +97,18 @@ arquivos que os testes importam. **Zero exceções.**
 Entre os sobreviventes, em português: *"o dreno entrega só o primeiro botão"* e
 *"o toque em botão pula a regra do portão"*.
 
-**TRÊS DOS OITO DEIXARAM DE SOBREVIVER EM 25/08** — os três do caminho do
-portão, replantados um a um e mortos pelo primeiro caminho da Frente 2 (ver "A
-prova que fecha", mais abaixo). Os outros cinco continuam de pé, e continuam
-todos em arquivos que nenhum teste importa.
+**CINCO DOS OITO DEIXARAM DE SOBREVIVER EM 25/08.** Três caíram com o primeiro
+caminho da Frente 2 (os do portão) e dois com o segundo (os do dreno), todos
+replantados um a um e medidos (ver "A prova que fecha" e "A segunda prova que
+fecha", mais abaixo). **Os três que sobram continuam em arquivos que nenhum
+teste importa**, e dois deles são o mesmo arquivo: `app/automacoes/actions.ts`.
+
+Sobre *"o dreno pareia rótulo com payload trocados"*, o segundo caminho mediu
+uma coisa que muda como se lê a lista: **a linha em que a revisão o plantava não
+existe mais**. A correção da Tarefa 4 levou o mapeamento para a função pura, e o
+dreno passou a só entregar a forma pronta. O defeito foi replantado **reescrevendo
+o `map` histórico** para provar que morre — e morre —, mas a superfície natural
+dele foi fechada por construção, não por teste.
 
 ---
 
@@ -220,20 +228,21 @@ oito defeitos que sobrevivem hoje.
 | caminho | o que prova | prioridade |
 |---|---|---|
 | **portão → link** | a recompensa não sai para quem não segue | **1ª — FEITO em 25/08** |
-| **dreno → mensagem** | rótulos e payloads chegam pareados | 2ª |
+| **dreno → mensagem** | rótulos e payloads chegam pareados | **2ª — FEITO em 25/08** |
 | toque em botão → braço certo | o payload de quatro partes leva ao destino certo | 3ª |
 | gatilho → entrega | a automação entrega o que o editor montou | 4ª |
 
 **A prioridade mudou em 21/08**, e a medição que a mudou: o defeito de três
 tokens que passou por tudo estava no caminho do portão, não no do dreno.
 
-### Onde está — a FUNDAÇÃO desde 25/08, e o PRIMEIRO CAMINHO desde 25/08
+### Onde está — a FUNDAÇÃO, o PRIMEIRO e o SEGUNDO CAMINHO, todos de 25/08
 
-**O caminho do portão está escrito. Faltam os outros três.**
+**Os caminhos do portão e do dreno estão escritos. Faltam os outros dois.**
 
 | | |
 |---|---|
 | `testes-integracao/portao-link.integracao.ts` | **portão → link**, o 1º da tabela acima — 4 casos |
+| `testes-integracao/dreno-botoes.integracao.ts` | **dreno → mensagem**, o 2º da tabela acima — 4 casos |
 
 **O nó dele era a Meta, e ele foi desatado sem mock.** O portão pergunta à Meta
 se a pessoa segue, e a resposta decide se a recompensa sai. Deixar a chamada
@@ -283,6 +292,51 @@ VAZAMENTO". **É essa metade que o caminho novo fecha** — e é a lição intei
 Frente 2 num caso só: tornar o erro impossível de escrever fecha a porta da
 frente, e a dispensa deliberada continua sendo uma porta.
 
+### O SEGUNDO CAMINHO: o dreno e os botões
+
+`lib/queue-drain.ts` é onde a fila vira mensagem no Instagram, e **nenhum teste
+do projeto o importava**. Ele já escondeu dois defeitos plantados que passaram
+por 485 e por 671 verdes, `tsc` e `eslint` limpos.
+
+**Ele não precisou de mecanismo novo:** herdou `IG_GRAPH_BASE`/`baseDoGraph()` do
+primeiro caminho e a guarda que falha ANTES de qualquer requisição sair. A
+diferença é o que atravessa a fronteira: lá era uma consulta, aqui é um **POST de
+envio de mensagem**, com o texto e os botões dentro.
+
+**A prova é feita no FIO** — o corpo JSON que chegou no servidor local —, e o caso
+central fecha o círculo inteiro: o motor escreve os payloads, o dreno os entrega,
+o payload do **terceiro** botão é lido **do fio** e devolvido ao motor como toque,
+e o braço que chega é o que o **rótulo** daquele botão prometia. Afirmar só os
+títulos passaria com os payloads embaralhados entre si — e isso foi medido, não
+suposto (ver a linha "payloads rodados uma casa" na tabela abaixo).
+
+**Sobre o teto de 13 da Meta, o dreno TEM o que dizer, e são duas coisas:** ele
+corta preservando a ordem e o pareamento do que sobrou, **e** grava
+`quick_replies_cortados` em Atividade, com o total e o limite. Os dois são
+afirmados. Desde a Tarefa 5 `conferirLista` recusa ATIVAR um bloco com mais de 13
+botões, então a porta que sobra para exceder é o `jsonb` editado por fora do
+painel — que é exatamente a porta que o dreno diz defender, e é por ela que o
+caso entra.
+
+### A SEGUNDA PROVA QUE FECHA: os dois defeitos do dreno MORREM
+
+| defeito plantado | onde | `tsc` | `eslint` | 677 puros | **caminho novo** |
+|---|---|---|---|---|---|
+| o dreno entrega só o primeiro botão (`slice(0, 1)`) | `lib/queue-drain.ts` | 0 | — | **677 ✓** | **2 vermelhos** |
+| rótulo e payload trocados na função pura | `lib/steps.ts` | 0 | — | 671 (6 vermelhos) | **2 vermelhos** |
+| rótulo e payload trocados, com o `map` histórico reescrito no dreno | `lib/queue-drain.ts` | 0 | 0 | **677 ✓** | **2 vermelhos** |
+| payloads rodados uma casa: rótulos certos, cada botão leva ao destino do vizinho | `lib/queue-drain.ts` | 0 | — | **677 ✓** | **2 vermelhos** |
+
+**As três linhas com 677 verdes são o ponto.** O plantio na função pura morre nos
+testes puros (6 vermelhos) porque `botoesDaMensagem` é alcançável; os outros três
+vivem no `server-only` e não têm quem os veja — até este caminho.
+
+**A quarta linha existe para provar o próprio teste**, e não o produto: com os
+rótulos todos certos e só os payloads rodados, um teste que comparasse os títulos
+passaria. É o formato exato do defeito histórico da Tarefa 4 ("cada botão levaria
+a pessoa ao destino de OUTRO botão"), e é a razão de o caso afirmar o par inteiro
+e depois fazer a volta pelo motor.
+
 **O chão sobre o qual os caminhos rodam:**
 
 | | |
@@ -307,8 +361,8 @@ acontece quando ninguém digita nada.
 do dono, e segue adiada.
 
 Medido em 25/08: `npm test` = **677 em 22 arquivos**, sem banco.
-`npm run test:integracao` = **4 casos, ~3,1 s**, um schema temporário por
-arquivo. `public` intacto por digital ancorada num corte, e **zero schemas
+`npm run test:integracao` = **12 casos em 3 arquivos, ~27 s**, um schema
+temporário por arquivo. `public` intacto por digital ancorada num corte, e **zero schemas
 `teste_tmp_` no banco** antes e depois.
 
 **A destruição foi provada com o teste QUEBRADO de propósito:** a rodada falhou
