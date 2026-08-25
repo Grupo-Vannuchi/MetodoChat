@@ -479,7 +479,8 @@ export function compararInventarios(
       );
     } else if (d.n > a.n) {
       // Sobe se uma linha com carimbo anterior ao corte aparecer só depois — a
-      // corrida entre o `now()` do corte e o commit de quem inseriu. Fica como
+      // corrida entre o `now()` do corte e o commit de quem inseriu. Medido
+      // contra este banco vivo: ZERO vezes em 30 ciclos de 25 s. Fica como
       // PERDA, e não como vida, porque acusar demais é o lado certo de errar.
       perdas.push(
         `${antes.schema}.${t}: linhas até o corte SUBIRAM de ${a.n} para ${d.n} — ` +
