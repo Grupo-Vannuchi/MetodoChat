@@ -364,42 +364,29 @@ describe("o gatilho dispara, e o que sai é o que o mapa de caminhos manda", () 
     // chegou no fio.
     await dreno.drainQueue();
 
-    // NO FIO, O CONJUNTO — E NÃO A ORDEM. A afirmação está mais fraca do que
-    // este caso queria, e o motivo NÃO é cautela: é uma medição, feita ao
-    // escrever este arquivo, que descobriu que a ordem de ENTREGA não é
-    // garantida pelo dreno de hoje.
+    // NO FIO, A ORDEM — e esta linha é a razão de o defeito de ordem existir na
+    // lista de achados da Frente 2, em vez de continuar em produção.
     //
-    // O QUE FOI MEDIDO, com sonda executada e apagada: os três itens nascem com
-    // `created_at` DISTINTO e crescente (35 ms entre eles, `ctid` (0,1) (0,2)
-    // (0,3), ou seja nem empate nem ordem física invertida). A consulta do
-    // dreno (`drainQueue`, lib/queue-drain.ts) é
+    // A afirmação da FILA, logo acima, prova a decisão do MOTOR: a caminhada é a
+    // do grafo. Esta prova a decisão do DRENO, que é outra e mora noutro arquivo
+    // — e as duas juntas são a promessa inteira, porque uma fila em ordem
+    // entregue fora de ordem é a mesma conversa quebrada.
     //
-    //   update queue q set status='sending' … where q.id in (
-    //     select id from queue where … order by created_at limit 15 for update
-    //     skip locked) returning q.*
+    // O QUE FOI MEDIDO, quando este caso nasceu: os três itens nascem com
+    // `created_at` DISTINTO e crescente (26 ms entre eles), e mesmo assim o fio
+    // recebia `["3 · o fim", "1 · o começo", "2 · o meio"]` — e noutra sonda, com
+    // oito itens, `u8 u5 u6 u7 u1 u4 u2 u3`. A causa estava na consulta de
+    // `drainQueue` (lib/queue-drain.ts): o `order by created_at` vivia DENTRO da
+    // subconsulta, onde escolhe QUAIS itens entram no lote e não em que ordem
+    // eles voltam — a ordem do `returning` de um `update` não é especificada pelo
+    // Postgres. O laço que envia segue a ordem que vier.
     //
-    // e o `order by` está DENTRO da subconsulta: ele escolhe QUAIS itens entram
-    // no lote, e não em que ordem eles voltam. A ordem do `returning` de um
-    // `update` não é especificada pelo Postgres, e aqui ela de fato varia — duas
-    // execuções deram `um, três, dois` e `dois, três, um` para a mesma fila. O
-    // laço que envia (`for (const item of items)`) segue essa ordem.
-    //
-    // OU SEJA: hoje, uma automação de três DMs pode chegar fora de ordem na
-    // conversa da pessoa. Isto é achado de PRODUTO, não deste teste, e ele mora
-    // num arquivo que nenhum teste da suíte importava. NÃO foi consertado aqui —
-    // consertar é decisão do dono, e a tarefa que escreveu este arquivo era
-    // construir os caminhos, não mexer no dreno. O conserto cabe numa linha
-    // (ordenar `items` antes do laço, ou trazer a ordenação para fora com um
-    // `with`), e no dia em que ele existir a afirmação abaixo volta a ser
-    // `toEqual` na ordem — que é como ela nasceu, e como ela falhou.
-    //
-    // O QUE ESTE CASO CONTINUA PROVANDO, sem depender disso: a caminhada é a do
-    // GRAFO. Quem afirma a ordem é a FILA, logo acima — é lá que a decisão do
-    // motor está registrada, e é ela que um motor caminhando pelo array
-    // derrubaria.
-    expect([...textosNoFio(EU)].sort()).toEqual(
-      ["1 · o começo", "2 · o meio", "3 · o fim"].sort()
-    );
+    // Em produção isso é "Oi! Toca no botão pra receber o link" chegando DEPOIS
+    // do cartão com o link. NÃO era regressão de nada nosso: é antigo, e ninguém
+    // tinha como ver porque nenhum teste executava o dreno. Consertado com um
+    // `with` que ordena o lote POR FORA, no banco — o porquê de não ser um
+    // `sort()` em JavaScript está escrito lá, e é medição, não gosto.
+    expect(textosNoFio(EU)).toEqual(["1 · o começo", "2 · o meio", "3 · o fim"]);
     // O bloco solto não foi entregue por caminho nenhum — nem fora de ordem, nem
     // no fim. É a metade que uma afirmação só sobre os três primeiros não faria.
     expect(textosNoFio(EU)).not.toContain("bloco solto, sem seta chegando");

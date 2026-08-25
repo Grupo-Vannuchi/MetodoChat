@@ -360,19 +360,56 @@ export async function drainQueue(): Promise<{ sent: number; skipped: number; fai
   // Trava atômica: FOR UPDATE SKIP LOCKED garante que dois drenos
   // simultâneos nunca peguem o mesmo item. Itens presos em 'sending'
   // há mais de 3 minutos são recuperados.
+  //
+  // O `with` NÃO É ENFEITE, E A ORDEM DELE É O CONSERTO DE UM DEFEITO DE
+  // PRODUÇÃO. Esta consulta já tinha um `order by created_at`, e ele continua
+  // aqui embaixo — mas ele vive DENTRO da subconsulta, onde decide QUAIS itens
+  // entram no lote e não em que ordem eles voltam. A ordem do `returning` de um
+  // `update` não é especificada pelo Postgres, e medindo dá bem isso: oito itens
+  // gravados em ordem voltaram `u8 u5 u6 u7 u1 u4 u2 u3`. O laço abaixo envia na
+  // ordem que vier, então "Toca no botão pra receber o link" podia chegar DEPOIS
+  // do cartão com o link, na conversa da pessoa. Achado por teste de integração
+  // (`testes-integracao/gatilho-entrega.integracao.ts`, o primeiro caso), e não
+  // por relato — nenhum teste executava o dreno até a Frente 2 existir.
+  //
+  // POR QUE NO SQL, E NÃO UM `items.sort()` EM JAVASCRIPT. Ordenar em JS parece
+  // mais simples e é ERRADO aqui, e a medição é curta: o driver (postgres.js)
+  // entrega `created_at` como `Date`, que tem resolução de MILISSEGUNDO, e o
+  // Postgres guarda MICROSSEGUNDO. Com oito itens separados por 200 µs — que é o
+  // que acontece quando o banco está perto do app, e não a 26 ms de distância
+  // como nesta máquina — o `sort` em JS devolveu `u1 u4 u3 u2 u8 u6 u5 u7`: os
+  // microssegundos já tinham sido jogados fora antes de o JavaScript ver a
+  // coluna. Ordenar aqui compara a coluna inteira. Custo medido: 833 ms contra
+  // 835 ms em 20 rodadas — empate.
+  //
+  // E O `, id` É O DESEMPATE. Dois itens gravados no MESMO instante existem, e
+  // `order by created_at` sozinho deixaria a ordem entre eles por conta da ordem
+  // de entrada do sort — que é justamente a do `returning`, a que não se pode
+  // prometer. Com `(created_at, id)` a ordem é a mesma em toda drenagem e em toda
+  // retentativa (medido: 6 leituras de 12 empatados, 1 resultado distinto). Ela
+  // não recupera a ordem de INSERÇÃO dos empatados — o `id` é
+  // `gen_random_uuid()`, e não há coluna monotônica em `queue` —; o que ela
+  // promete é estabilidade, não adivinhação. Recuperar inserção exigiria coluna
+  // nova, que é migração em banco vivo e decisão de outro dia.
+  //
+  // O `skip locked` continua onde estava: o `explain` mostra o `LockRows`
+  // debaixo do `Limit` dentro da CTE, e o `Sort` só por cima do `CTE Scan`.
   const items = (await sql().query(
-    `update queue q
-     set status = 'sending', claimed_at = now(), attempts = q.attempts + 1
-     where q.id in (
-       select id from queue
-       where ((status = 'pending' and not_before <= now())
-          or (status = 'sending' and claimed_at < now() - interval '3 minutes'))
-         and (account_id is null or not (account_id = any($2::text[])))
-       order by created_at
-       limit $1
-       for update skip locked
+    `with lote as (
+       update queue q
+       set status = 'sending', claimed_at = now(), attempts = q.attempts + 1
+       where q.id in (
+         select id from queue
+         where ((status = 'pending' and not_before <= now())
+            or (status = 'sending' and claimed_at < now() - interval '3 minutes'))
+           and (account_id is null or not (account_id = any($2::text[])))
+         order by created_at
+         limit $1
+         for update skip locked
+       )
+       returning q.*
      )
-     returning q.*`,
+     select * from lote order by created_at, id`,
     [BATCH_SIZE, blocked]
   )) as QueueItem[];
 
