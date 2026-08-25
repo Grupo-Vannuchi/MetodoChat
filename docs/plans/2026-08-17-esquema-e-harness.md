@@ -219,14 +219,15 @@ sobre outra coisa.
 
 ### O que ela é
 
-Três ou quatro caminhos rodando o **motor de verdade** contra um **banco de
-verdade**, num schema temporário criado e destruído pelo próprio teste.
+Caminhos rodando o **código de verdade** contra um **banco de verdade**, num
+schema temporário criado e destruído pelo próprio teste. São **cinco**: quatro
+entram pelo motor, e o quinto pelas duas portas de publicar.
 
 **Não é "testar tudo".** É fechar a metade que nenhum teste puro alcança — os
-oito defeitos que sobreviviam quando isto foi escrito. **Em 25/08, cinco deles
-morreram**, e os três que restam não são alcançáveis por estes quatro caminhos
-(o porquê está mais abaixo). Além deles, um defeito que ninguém tinha na lista
-foi achado **por teste**, e não por plantio.
+oito defeitos que sobreviviam quando isto foi escrito. **Cinco morreram nos
+quatro primeiros caminhos e dois no quinto; sobra um**, num componente de tela,
+fora de alcance por decisão do dono (o porquê está mais abaixo). Além deles, um
+defeito que ninguém tinha na lista foi achado **por teste**, e não por plantio.
 
 | caminho | o que prova | prioridade |
 |---|---|---|
@@ -238,9 +239,10 @@ foi achado **por teste**, e não por plantio.
 **A prioridade mudou em 21/08**, e a medição que a mudou: o defeito de três
 tokens que passou por tudo estava no caminho do portão, não no do dreno.
 
-### Onde está — a FUNDAÇÃO E OS QUATRO CAMINHOS, todos de 25/08
+### Onde está — a FUNDAÇÃO E OS CINCO CAMINHOS
 
-**Os quatro caminhos estão escritos. Não falta nenhum da tabela acima.**
+**Os quatro caminhos da tabela acima estão escritos, e um quinto entrou depois
+deles pela regra do fim desta frente.**
 
 | | |
 |---|---|
@@ -248,8 +250,10 @@ tokens que passou por tudo estava no caminho do portão, não no do dreno.
 | `testes-integracao/dreno-botoes.integracao.ts` | **dreno → mensagem**, o 2º da tabela acima — 4 casos |
 | `testes-integracao/toque-botao.integracao.ts` | **toque em botão → braço certo**, o 3º — 4 casos |
 | `testes-integracao/gatilho-entrega.integracao.ts` | **gatilho → entrega**, o 4º — 4 casos |
+| `testes-integracao/portas-de-publicar.integracao.ts` | **as duas portas de publicar** — 5 casos |
+| `testes-integracao/semear-requisicao.ts` | a fundação do 5º: semeia o escopo de requisição do Next, com a guarda |
 
-Com a fundação (4 casos), a suíte de integração é de **20 casos em 5 arquivos**.
+Com a fundação (4 casos), a suíte de integração é de **25 casos em 6 arquivos**.
 
 **O nó dele era a Meta, e ele foi desatado sem mock.** O portão pergunta à Meta
 se a pessoa segue, e a resposta decide se a recompensa sai. Deixar a chamada
@@ -461,30 +465,197 @@ mortos não é taxa de detecção — é a confirmação de que os casos têm de
 **onde foram apontados**. O que mede o resto é o achado da seção anterior, que
 ninguém apontou.
 
-### OS TRÊS SOBREVIVENTES QUE RESTAM NÃO SÃO ALCANÇÁVEIS POR ESTES QUATRO
+### O QUINTO CAMINHO: as duas portas de publicar
 
-Dos oito defeitos que sobreviviam à medição da Fase 2a, **cinco morreram**. Os
-três que restam **não** morrem por nenhum destes quatro caminhos, e isso é
-estrutura, não descuido:
+`testes-integracao/portas-de-publicar.integracao.ts` — 5 casos, sobre
+`testes-integracao/semear-requisicao.ts`. Ele exercita `salvarAutomacao` e
+`toggleAutomation` de `app/automacoes/actions.ts` contra o schema descartável.
 
-- **dois vivem em `app/automacoes/actions.ts`**, que continua sem nenhum teste
-  que o importe
-- **um vive num componente de tela**, que também não é alcançável daqui
+**ELE NÃO ESTAVA NO PLANO ORIGINAL, e a razão é a regra da Frente 2:** *"um
+caminho novo entra só quando um defeito real escapou por ele."* Escaparam
+**dois**, e os dois moram naquele arquivo, que não tinha nenhum teste que o
+importasse.
 
-**Um quinto caminho existe — e tem um obstáculo próprio, ainda não medido.** As
-Server Actions de `app/automacoes/actions.ts` passam por `getSelectedAccountId`
-(lib/account.ts), que chama `cookies()` de `next/headers`. Medido pelo dono:
-fora de uma requisição isso **estoura**, com
+**O nó nunca foi o banco.** As duas funções passam por `getSelectedAccountId`
+(lib/account.ts), que chama `cookies()` de `next/headers`; fora de uma requisição
+isso estoura com "`cookies` was called outside a request scope". O nó é o
+**escopo de requisição do Next**, e ele foi desatado com quatro peças do próprio
+pacote `next`, sem uma linha de produção:
+
+| peça | de onde | por quê |
+|---|---|---|
+| planta `globalThis.AsyncLocalStorage` | `next/dist/server/node-environment-baseline.js` | sem ela o Next cai no `FakeAsyncLocalStorage`, cujo `run()` lança |
+| `createRequestStoreForAPI` | `next/dist/server/async-storage/request-store.js` | monta a jarra de cookies e os headers |
+| `createWorkStore` | `next/dist/server/async-storage/work-store.js` | sem ele `revalidatePath` não acha `incrementalCache` |
+| `IncrementalCache` | `next/dist/server/lib/incremental-cache/index.js` | o cache real, em memória — sem `fs`, sem `serverDistDir` |
+
+**A ordem é obrigatória:** `createAsyncLocalStorage` lê
+`globalThis.AsyncLocalStorage` **uma vez, na avaliação do módulo**. Em Node puro
+esse global não existe (medido: Node v24.16.0 → `undefined`). Quem carregar os
+módulos de armazenamento antes do baseline não tem conserto depois.
+
+**NADA É IMITADO, E NENHUM COOKIE É FORJADO.** Sem `vi.mock`, sem `vi.stubGlobal`,
+sem banco de mentira: os dois armazenamentos são `AsyncLocalStorage` **do Node**
+(conferido com `instanceof`), exportados pelos módulos `.external.js` do próprio
+Next, e `cookies()` continua sendo o `cookies()` do Next. **A jarra sai VAZIA** —
+sem `metodochat_session`, sem `metodochat_account`. `getSelectedAccount` cai na
+**primeira conta** quando o cookie está ausente, e o schema descartável tem
+exatamente uma. **Esse tombo é o comportamento declarado da função**, e não uma
+brecha: a conta que as portas enxergam é a conta do teste por construção do
+schema, não por credencial inventada.
+
+**O limite honesto, o mesmo dos outros quatro:** sob o vitest o `"use server"` é
+inerte, então as funções são chamadas direto. Isto exercita o **corpo** do Server
+Action, não a fronteira de serialização do POST.
+
+**A GUARDA, e ela é metade do valor do caminho.** Ele depende de caminhos
+internos do Next, que não são API pública. Sem proteção, uma atualização do Next
+não o deixaria vermelho — poderia deixá-lo **verde sem medir nada**, que é o pior
+defeito possível num instrumento, e esta base já foi mordida por ele **duas
+vezes** (a contraprova da varredura ficou muda por três pontos de chamada; e a
+guarda do instrumento perguntava `=== 0` onde devia perguntar `> 0`). São três
+níveis, e a resposta errada estoura **na importação do módulo**:
+
+| nível | o que ele pergunta |
+|---|---|
+| **A** a peça resolve | `pecaDoNext` nomeia o caminho interno que sumiu |
+| **B** a exportação existe e é do tipo certo | `fabricaDoNext` lista o que o módulo exporta hoje; `alsDoNext` pergunta `instanceof AsyncLocalStorage` do Node — e **não** "tem `.run`?", porque o `FakeAsyncLocalStorage` **tem** `.run` e só lança quando chamado |
+| **C** o contexto faz efeito, nas **duas** metades | sem semear, `cookies()` **tem de estourar**; semeado, tem de responder de **jarra vazia**. Só a metade positiva não distingue "o contexto chegou" de "o Next parou de exigir contexto" |
+
+A prova do nível C roda **dentro de `comoNumaRequisicao`**, na primeira chamada:
+é parte do caminho, e não um teste ao lado que dá para apagar sem ninguém notar.
+
+**A GUARDA FOI PROVADA QUEBRANDO CADA PEÇA, uma de cada vez** — uma guarda que
+não guarda é pior que nenhuma, porque agora existe alguém dizendo que está
+protegido. Nove quebras, nove mensagens que nomeiam a peça:
+
+| o que foi quebrado | o que saiu |
+|---|---|
+| o caminho do baseline não resolve | `PEÇA DO NEXT NÃO RESOLVE: …node-environment-baseline-QUE-SUMIU.js` |
+| o baseline resolve mas não planta o global | `BASELINE DO NEXT NÃO FEZ EFEITO: … continua \`undefined\`` |
+| o baseline é pulado | `ARMAZENAMENTO DO NEXT NÃO É O DO NODE: … veio \`object\` (FakeAsyncLocalStorage)` |
+| `createRequestStoreForAPI` renomeada | `EXPORTAÇÃO DO NEXT AUSENTE: … (o módulo exporta hoje: createRequestStoreForAPI, createRequestStoreForRender, synchronizeMutableCookies)` |
+| `createWorkStore` renomeada | `EXPORTAÇÃO DO NEXT AUSENTE: … (o módulo exporta hoje: createWorkStore)` |
+| `IncrementalCache` renomeada | `EXPORTAÇÃO DO NEXT AUSENTE: … (o módulo exporta hoje: CacheHandler, IncrementalCache)` |
+| `workUnitAsyncStorage` renomeada | `ARMAZENAMENTO DO NEXT NÃO É O DO NODE: … veio \`undefined\`` |
+| alguém forja um cookie na montagem | `CONTEXTO SEMEADO COM COOKIE DENTRO: a jarra veio com 1 cookie(s)` |
+| `cookies()` para de estourar fora de escopo | `O CONTEXTO DO NEXT DEIXOU DE SER EXIGIDO` |
+
+**OS DOIS PLANTIOS, no arquivo de verdade e não numa cópia, medidos nas cinco
+camadas:**
+
+| defeito plantado | onde | `tsc` | `eslint` | 677 puros | varredura | **o quinto caminho** |
+|---|---|---|---|---|---|---|
+| **as duas portas trocadas** (`:238` passa a filtrar os dois níveis, `:554` passa a filtrar só os de salvar) | `app/automacoes/actions.ts` | 0 | 0 | **677 ✓** | **SEM VAZAMENTO** | **3 vermelhos** |
+| **`toggleAutomation` tratando toda automação como chave ligada** (`:553`, `Boolean(a.entrega_sem_portao)` → `true`) | `app/automacoes/actions.ts` | 0 | 0 | **677 ✓** | **SEM VAZAMENTO** | **1 vermelho** |
+
+**Os dois passaram por `tsc`, `eslint`, os 677 puros e a varredura, e só o
+caminho novo os viu.** O primeiro acusa **três vezes e pelos dois lados** — a
+porta que passou a deixar subir link contornável, e a porta que passou a travar
+quem está montando pela metade. Cada plantio foi revertido na mesma chamada de
+shell, com `git status --porcelain` vazio conferido em seguida.
+
+**A prova é a coluna `active` no banco**, e não o objeto que a porta devolveu: é
+ela que decide se o motor entrega.
+
+**UM ACHADO DE LADO, sobre o instrumento e não sobre o código:** em duas rodadas
+seguidas o caso "public ficou intacto, por digital ancorada no corte"
+(`fundacao.integracao.ts`) também ficou vermelho, e **não foi o plantio**. Aquele
+arquivo roda **antes** do quinto caminho, e nada nele importa
+`app/automacoes/actions.ts`. Na terceira rodada com o **mesmo** plantio ele
+passou. **O banco é de produção e está vivo**: a digital afirma que nenhuma linha
+anterior ao corte foi escrita, apagada ou alterada, e produção altera linha
+antiga enquanto a rodada acontece. É ruído do mundo real, não do plantio — mas
+quem for medir aqui precisa saber que esse caso pode piscar, e conferir **qual**
+arquivo ficou vermelho antes de concluir qualquer coisa.
+
+### O PLACAR: DOS OITO SOBREVIVENTES, SOBRA UM
+
+Dos **oito** defeitos que sobreviviam a `tsc`, `eslint`, aos 677 puros e à
+varredura na medição da Fase 2a:
+
+| | quantos | quem matou |
+|---|---|---|
+| morreram nos quatro primeiros caminhos | **cinco** | portão-link, dreno-botões, toque-botão, gatilho-entrega |
+| morreram no quinto caminho | **dois** | portas-de-publicar (os dois de `app/automacoes/actions.ts`) |
+| **sobra** | **um** | vive num **componente de tela**, e está **fora de alcance por decisão do dono** |
+
+**O último não é descuido, e não é tarefa pendente.** Ele mora num componente de
+tela; alcançá-lo exigiria uma categoria de teste que esta base decidiu não ter, e
+a decisão é do dono. Fica registrado como **fora de alcance por decisão**, e não
+como dívida.
+
+**A seção anterior deste plano dizia que o quinto caminho tinha "um obstáculo
+próprio, ainda não medido", e que afirmar um número ali seria inventá-lo.** Foi
+medido. O número é **zero linha de produção**: um arquivo novo de fundação, um
+arquivo novo de caminho, nenhum ponto de chamada tocado, nenhuma dependência
+nova, nenhuma mudança de configuração.
+
+### POR QUE O PARÂMETRO DE CONTA FOI RECUSADO — e este é o registro mais importante
+
+Havia um caminho mais curto para desatar o nó, e ele foi **recusado**. Ele
+custava **quatro linhas**: as duas funções ganhariam `contaExplicita?: string`, e
+duas linhas virariam
+
+```ts
+const accountId = contaExplicita ?? (await getSelectedAccountId());
+```
+
+**Nenhum ponto de chamada mudaria.** Medido: os pontos de chamada reais são
+exatamente **dois** — `app/automacoes/editor/quadro.tsx:1296` (`salvarAutomacao`)
+e `app/automacoes/list-client.tsx:98` (`toggleAutomation`) —, e os dois
+continuariam como estão.
+
+**E é por isso que ele é inaceitável.** Os dois arquivos começam com
+`"use client"`. **Argumento de Server Action vem do navegador.** Hoje o
+`where account_id = $n` das duas funções é a única coisa que separa uma conta da
+outra, e o valor dele **nasce no servidor**, num cookie que o painel controla.
+Com o parâmetro, ele passaria a nascer no **corpo da requisição**: um POST direto
+com o id de outra conta **grava, ou publica, na automação alheia**. Isso é
+**travessia entre contas**, e não é hipótese — é desfazer, para o teste ver,
+exatamente o comentário que já está escrito quatro vezes naquele arquivo:
 
 ```
-cookies was called outside a request scope
+// o account_id no where impede gravar em automação de outra conta
 ```
 
-Ou seja: o banco descartável, que era o nó dos quatro primeiros caminhos, **não
-é** o nó deste. O nó é o escopo de requisição do Next. Quanto custa desatá-lo —
-e se dá para desatar sem mock, que é a regra desta base — **não foi medido**, e
-afirmar um número aqui seria inventá-lo. Fica como a próxima pergunta da
-Frente 2, e não como tarefa com estimativa.
+Dava para trancá-lo com as duas travas de `baseDoGraph()` (só sob `VITEST`), por
+mais ~6 linhas. Mas aí seria **código de teste dentro de produção**, na superfície
+de autorização, para comprar o que o caminho escolhido dá de graça.
+
+**Barato em linha, inaceitável em risco.** Quatro linhas é o preço da edição, não
+o preço da mudança.
+
+### E EXTRAIR A DECISÃO PARA FUNÇÃO PURA NÃO FECHAVA
+
+A saída de reflexo desta base — "decisão vai para função pura" — foi medida
+contra estes dois defeitos, e **não os pega**.
+
+**Aquelas funções são recheio, não camada.** Contadas sem comentário e sem linha
+em branco:
+
+| função | linhas de código | decisão | efeito | decisão |
+|---|---|---|---|---|
+| `salvarAutomacao` (134–364) | 79 | 23 | 44 | 29% |
+| `toggleAutomation` (480–568) | 33 | 8 | 21 | 24% |
+| **as duas** | **112** | **31** | **65** | **28%** |
+
+É a mesma proporção que a sondagem achou em `lib/engine.ts`. Mas o argumento
+decisivo não é a proporção — é **onde os defeitos moram**:
+
+- **O defeito 1 é FIAÇÃO, não decisão.** Ele é *qual das duas listas cada porta
+  usa*. Mesmo com `errosDoSalvar()` e `errosDoAtivar()` puras e testadas em
+  `lib/steps.ts`, a **troca das chamadas** continua dentro do `server-only`, e
+  nenhum teste puro a enxerga. **`podeFicarAtiva` (lib/steps.ts:4075) já é essa
+  função pura, já tem teste** (`tests/editor-modelos.test.ts`) — e o defeito 1
+  **passa por baixo dela**.
+- **O defeito 2 é o valor que o chamador lê da coluna.** Uma função pura que
+  recebesse a linha inteira pegaria a versão de hoje do defeito; a versão
+  seguinte — `{ ...a, entrega_sem_portao: true }` no chamador — volta a passar.
+
+Extrair decisão continua sendo boa higiene, e a Frente 3 a registra como
+disciplina. **Como prova destes dois defeitos, não serve.**
+
 
 **O chão sobre o qual os caminhos rodam:**
 
@@ -509,8 +680,8 @@ acontece quando ninguém digita nada.
 **O `verify` continua sem chamar nada disto** — a decisão de exigir banco nele é
 do dono, e segue adiada.
 
-Medido em 25/08: `npm test` = **677 em 22 arquivos**, sem banco.
-`npm run test:integracao` = **20 casos em 5 arquivos, ~37 s**, um schema
+Medido: `npm test` = **677 em 22 arquivos**, sem banco.
+`npm run test:integracao` = **25 casos em 6 arquivos, ~40 s**, um schema
 temporário por arquivo. `public` intacto por digital ancorada num corte, e **zero schemas
 `teste_tmp_` no banco** antes e depois.
 
@@ -598,7 +769,9 @@ produção, e com o mesmo `DATABASE_URL` que os scripts já usam.
 ### A regra que impede virar suíte sem fim
 
 **Um caminho novo entra aqui só quando um defeito real escapou por ele.** Os
-quatro da tabela escaparam de verdade.
+quatro da tabela escaparam de verdade, e o quinto entrou pela mesma porta:
+os dois defeitos de `app/automacoes/actions.ts` escaparam de `tsc`, de `eslint`,
+dos 677 puros e da varredura, e nenhum dos quatro os alcançava.
 
 ---
 
