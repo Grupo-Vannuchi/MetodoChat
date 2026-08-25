@@ -219,14 +219,15 @@ sobre outra coisa.
 
 ### O que ela é
 
-Três ou quatro caminhos rodando o **motor de verdade** contra um **banco de
-verdade**, num schema temporário criado e destruído pelo próprio teste.
+Caminhos rodando o **código de verdade** contra um **banco de verdade**, num
+schema temporário criado e destruído pelo próprio teste. São **cinco**: quatro
+entram pelo motor, e o quinto pelas duas portas de publicar.
 
 **Não é "testar tudo".** É fechar a metade que nenhum teste puro alcança — os
-oito defeitos que sobreviviam quando isto foi escrito. **Em 25/08, cinco deles
-morreram**, e os três que restam não são alcançáveis por estes quatro caminhos
-(o porquê está mais abaixo). Além deles, um defeito que ninguém tinha na lista
-foi achado **por teste**, e não por plantio.
+oito defeitos que sobreviviam quando isto foi escrito. **Cinco morreram nos
+quatro primeiros caminhos e dois no quinto; sobra um**, num componente de tela,
+fora de alcance por decisão do dono (o porquê está mais abaixo). Além deles, um
+defeito que ninguém tinha na lista foi achado **por teste**, e não por plantio.
 
 | caminho | o que prova | prioridade |
 |---|---|---|
@@ -238,9 +239,10 @@ foi achado **por teste**, e não por plantio.
 **A prioridade mudou em 21/08**, e a medição que a mudou: o defeito de três
 tokens que passou por tudo estava no caminho do portão, não no do dreno.
 
-### Onde está — a FUNDAÇÃO E OS QUATRO CAMINHOS, todos de 25/08
+### Onde está — a FUNDAÇÃO E OS CINCO CAMINHOS
 
-**Os quatro caminhos estão escritos. Não falta nenhum da tabela acima.**
+**Os quatro caminhos da tabela acima estão escritos, e um quinto entrou depois
+deles pela regra do fim desta frente.**
 
 | | |
 |---|---|
@@ -248,8 +250,10 @@ tokens que passou por tudo estava no caminho do portão, não no do dreno.
 | `testes-integracao/dreno-botoes.integracao.ts` | **dreno → mensagem**, o 2º da tabela acima — 4 casos |
 | `testes-integracao/toque-botao.integracao.ts` | **toque em botão → braço certo**, o 3º — 4 casos |
 | `testes-integracao/gatilho-entrega.integracao.ts` | **gatilho → entrega**, o 4º — 4 casos |
+| `testes-integracao/portas-de-publicar.integracao.ts` | **as duas portas de publicar** — 5 casos |
+| `testes-integracao/semear-requisicao.ts` | a fundação do 5º: semeia o escopo de requisição do Next, com a guarda |
 
-Com a fundação (4 casos), a suíte de integração é de **20 casos em 5 arquivos**.
+Com a fundação (4 casos), a suíte de integração é de **25 casos em 6 arquivos**.
 
 **O nó dele era a Meta, e ele foi desatado sem mock.** O portão pergunta à Meta
 se a pessoa segue, e a resposta decide se a recompensa sai. Deixar a chamada
@@ -565,30 +569,93 @@ antiga enquanto a rodada acontece. É ruído do mundo real, não do plantio — 
 quem for medir aqui precisa saber que esse caso pode piscar, e conferir **qual**
 arquivo ficou vermelho antes de concluir qualquer coisa.
 
-### OS TRÊS SOBREVIVENTES QUE RESTAM NÃO SÃO ALCANÇÁVEIS POR ESTES QUATRO
+### O PLACAR: DOS OITO SOBREVIVENTES, SOBRA UM
 
-Dos oito defeitos que sobreviviam à medição da Fase 2a, **cinco morreram**. Os
-três que restam **não** morrem por nenhum destes quatro caminhos, e isso é
-estrutura, não descuido:
+Dos **oito** defeitos que sobreviviam a `tsc`, `eslint`, aos 677 puros e à
+varredura na medição da Fase 2a:
 
-- **dois vivem em `app/automacoes/actions.ts`**, que continua sem nenhum teste
-  que o importe
-- **um vive num componente de tela**, que também não é alcançável daqui
+| | quantos | quem matou |
+|---|---|---|
+| morreram nos quatro primeiros caminhos | **cinco** | portão-link, dreno-botões, toque-botão, gatilho-entrega |
+| morreram no quinto caminho | **dois** | portas-de-publicar (os dois de `app/automacoes/actions.ts`) |
+| **sobra** | **um** | vive num **componente de tela**, e está **fora de alcance por decisão do dono** |
 
-**Um quinto caminho existe — e tem um obstáculo próprio, ainda não medido.** As
-Server Actions de `app/automacoes/actions.ts` passam por `getSelectedAccountId`
-(lib/account.ts), que chama `cookies()` de `next/headers`. Medido pelo dono:
-fora de uma requisição isso **estoura**, com
+**O último não é descuido, e não é tarefa pendente.** Ele mora num componente de
+tela; alcançá-lo exigiria uma categoria de teste que esta base decidiu não ter, e
+a decisão é do dono. Fica registrado como **fora de alcance por decisão**, e não
+como dívida.
+
+**A seção anterior deste plano dizia que o quinto caminho tinha "um obstáculo
+próprio, ainda não medido", e que afirmar um número ali seria inventá-lo.** Foi
+medido. O número é **zero linha de produção**: um arquivo novo de fundação, um
+arquivo novo de caminho, nenhum ponto de chamada tocado, nenhuma dependência
+nova, nenhuma mudança de configuração.
+
+### POR QUE O PARÂMETRO DE CONTA FOI RECUSADO — e este é o registro mais importante
+
+Havia um caminho mais curto para desatar o nó, e ele foi **recusado**. Ele
+custava **quatro linhas**: as duas funções ganhariam `contaExplicita?: string`, e
+duas linhas virariam
+
+```ts
+const accountId = contaExplicita ?? (await getSelectedAccountId());
+```
+
+**Nenhum ponto de chamada mudaria.** Medido: os pontos de chamada reais são
+exatamente **dois** — `app/automacoes/editor/quadro.tsx:1296` (`salvarAutomacao`)
+e `app/automacoes/list-client.tsx:98` (`toggleAutomation`) —, e os dois
+continuariam como estão.
+
+**E é por isso que ele é inaceitável.** Os dois arquivos começam com
+`"use client"`. **Argumento de Server Action vem do navegador.** Hoje o
+`where account_id = $n` das duas funções é a única coisa que separa uma conta da
+outra, e o valor dele **nasce no servidor**, num cookie que o painel controla.
+Com o parâmetro, ele passaria a nascer no **corpo da requisição**: um POST direto
+com o id de outra conta **grava, ou publica, na automação alheia**. Isso é
+**travessia entre contas**, e não é hipótese — é desfazer, para o teste ver,
+exatamente o comentário que já está escrito quatro vezes naquele arquivo:
 
 ```
-cookies was called outside a request scope
+// o account_id no where impede gravar em automação de outra conta
 ```
 
-Ou seja: o banco descartável, que era o nó dos quatro primeiros caminhos, **não
-é** o nó deste. O nó é o escopo de requisição do Next. Quanto custa desatá-lo —
-e se dá para desatar sem mock, que é a regra desta base — **não foi medido**, e
-afirmar um número aqui seria inventá-lo. Fica como a próxima pergunta da
-Frente 2, e não como tarefa com estimativa.
+Dava para trancá-lo com as duas travas de `baseDoGraph()` (só sob `VITEST`), por
+mais ~6 linhas. Mas aí seria **código de teste dentro de produção**, na superfície
+de autorização, para comprar o que o caminho escolhido dá de graça.
+
+**Barato em linha, inaceitável em risco.** Quatro linhas é o preço da edição, não
+o preço da mudança.
+
+### E EXTRAIR A DECISÃO PARA FUNÇÃO PURA NÃO FECHAVA
+
+A saída de reflexo desta base — "decisão vai para função pura" — foi medida
+contra estes dois defeitos, e **não os pega**.
+
+**Aquelas funções são recheio, não camada.** Contadas sem comentário e sem linha
+em branco:
+
+| função | linhas de código | decisão | efeito | decisão |
+|---|---|---|---|---|
+| `salvarAutomacao` (134–364) | 79 | 23 | 44 | 29% |
+| `toggleAutomation` (480–568) | 33 | 8 | 21 | 24% |
+| **as duas** | **112** | **31** | **65** | **28%** |
+
+É a mesma proporção que a sondagem achou em `lib/engine.ts`. Mas o argumento
+decisivo não é a proporção — é **onde os defeitos moram**:
+
+- **O defeito 1 é FIAÇÃO, não decisão.** Ele é *qual das duas listas cada porta
+  usa*. Mesmo com `errosDoSalvar()` e `errosDoAtivar()` puras e testadas em
+  `lib/steps.ts`, a **troca das chamadas** continua dentro do `server-only`, e
+  nenhum teste puro a enxerga. **`podeFicarAtiva` (lib/steps.ts:4075) já é essa
+  função pura, já tem teste** (`tests/editor-modelos.test.ts`) — e o defeito 1
+  **passa por baixo dela**.
+- **O defeito 2 é o valor que o chamador lê da coluna.** Uma função pura que
+  recebesse a linha inteira pegaria a versão de hoje do defeito; a versão
+  seguinte — `{ ...a, entrega_sem_portao: true }` no chamador — volta a passar.
+
+Extrair decisão continua sendo boa higiene, e a Frente 3 a registra como
+disciplina. **Como prova destes dois defeitos, não serve.**
+
 
 **O chão sobre o qual os caminhos rodam:**
 
@@ -613,8 +680,8 @@ acontece quando ninguém digita nada.
 **O `verify` continua sem chamar nada disto** — a decisão de exigir banco nele é
 do dono, e segue adiada.
 
-Medido em 25/08: `npm test` = **677 em 22 arquivos**, sem banco.
-`npm run test:integracao` = **20 casos em 5 arquivos, ~37 s**, um schema
+Medido: `npm test` = **677 em 22 arquivos**, sem banco.
+`npm run test:integracao` = **25 casos em 6 arquivos, ~40 s**, um schema
 temporário por arquivo. `public` intacto por digital ancorada num corte, e **zero schemas
 `teste_tmp_` no banco** antes e depois.
 
@@ -702,7 +769,9 @@ produção, e com o mesmo `DATABASE_URL` que os scripts já usam.
 ### A regra que impede virar suíte sem fim
 
 **Um caminho novo entra aqui só quando um defeito real escapou por ele.** Os
-quatro da tabela escaparam de verdade.
+quatro da tabela escaparam de verdade, e o quinto entrou pela mesma porta:
+os dois defeitos de `app/automacoes/actions.ts` escaparam de `tsc`, de `eslint`,
+dos 677 puros e da varredura, e nenhum dos quatro os alcançava.
 
 ---
 
