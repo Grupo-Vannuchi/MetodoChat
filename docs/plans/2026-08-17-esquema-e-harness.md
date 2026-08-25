@@ -222,6 +222,42 @@ oito defeitos que sobrevivem hoje.
 **A prioridade mudou em 21/08**, e a medição que a mudou: o defeito de três
 tokens que passou por tudo estava no caminho do portão, não no do dreno.
 
+### Onde está — a FUNDAÇÃO existe desde 25/08
+
+**Os quatro caminhos ainda não foram escritos. O chão sobre o qual eles rodam,
+sim.**
+
+| | |
+|---|---|
+| `testes-integracao/banco-descartavel.ts` | a mecânica: nome, URL, inventário, criar, destruir. Não importa o vitest |
+| `testes-integracao/harness.ts` | `bancoDescartavel()`, os ganchos que um teste usa |
+| `testes-integracao/rede-global.ts` | recolhe schema órfão no início e no fim da rodada, e **falha alto** se achou |
+| `testes-integracao/fundacao.integracao.ts` | o teste mínimo que prova a fundação — 4 casos |
+| `vitest.integracao.config.ts` | configuração própria |
+| `npm run test:integracao` | o comando novo |
+
+**Eles moram fora da suíte padrão, e a separação é dupla de propósito:** o
+`include` dos 677 é `tests/**/*.test.ts`, e estes vivem em `testes-integracao/`
+com sufixo `*.integracao.ts`. Cada metade sozinha já bastaria.
+
+**Não se usou `test.projects`**, que esta versão do vitest suporta, e a razão é
+o padrão: com projetos, um `vitest run` sem argumento roda todos, e a suíte
+padrão passaria a tocar o banco por omissão. O padrão seguro tem de ser o que
+acontece quando ninguém digita nada.
+
+**O `verify` continua sem chamar nada disto** — a decisão de exigir banco nele é
+do dono, e segue adiada.
+
+Medido em 25/08: `npm test` = **677 em 22 arquivos**, sem banco.
+`npm run test:integracao` = **4 casos, ~3,1 s**, um schema temporário por
+arquivo. `public` intacto por digital ancorada num corte, e **zero schemas
+`teste_tmp_` no banco** antes e depois.
+
+**A destruição foi provada com o teste QUEBRADO de propósito:** a rodada falhou
+(saída 1) e o schema `teste_tmp_54a28896` foi derrubado assim mesmo. E a
+rede-global foi provada com um órfão plantado à mão: ela o derrubou e **fez a
+rodada falhar**, em vez de limpar calada.
+
 ### A PERGUNTA FOI RESPONDIDA: SIM, POR ZERO LINHAS
 
 O plano original dizia: *"exige que as migrações da Frente 1 existam, porque é
