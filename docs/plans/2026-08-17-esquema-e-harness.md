@@ -569,6 +569,12 @@ antiga enquanto a rodada acontece. É ruído do mundo real, não do plantio — 
 quem for medir aqui precisa saber que esse caso pode piscar, e conferir **qual**
 arquivo ficou vermelho antes de concluir qualquer coisa.
 
+> **ATUALIZAÇÃO de 25/08:** isto deixou de ser "ruído que se convive". Foi
+> medido e consertado — a coluna que se mexia sozinha é `contacts.last_reply_at`,
+> a rajada é o que explica "duas vezes em três", e a verificação passou a julgar
+> presença e identidade em vez de conteúdo. Ver a última seção deste plano, com
+> o **preço** do conserto escrito por extenso.
+
 ### O PLACAR: DOS OITO SOBREVIVENTES, SOBRA UM
 
 Dos **oito** defeitos que sobreviviam a `tsc`, `eslint`, aos 677 puros e à
@@ -681,9 +687,11 @@ acontece quando ninguém digita nada.
 do dono, e segue adiada.
 
 Medido: `npm test` = **677 em 22 arquivos**, sem banco.
-`npm run test:integracao` = **25 casos em 6 arquivos, ~40 s**, um schema
-temporário por arquivo. `public` intacto por digital ancorada num corte, e **zero schemas
-`teste_tmp_` no banco** antes e depois.
+`npm run test:integracao` = **32 casos em 7 arquivos**, um schema temporário por
+arquivo. `public` intacto por **presença e identidade** ancoradas num corte — a
+digital da linha inteira foi trocada por isso em 25/08, e o motivo, a medição e o
+**preço** estão na última seção deste plano —, e **zero schemas `teste_tmp_` no
+banco** antes e depois.
 
 **A destruição foi provada com o teste QUEBRADO de propósito:** a rodada falhou
 (saída 1) e o schema `teste_tmp_54a28896` foi derrubado assim mesmo. E a
@@ -846,3 +854,171 @@ A sonda foi feita e respondeu SIM. **A ordem original está invertida:**
      medição separa as duas**
 
 **A Frente 3 já está valendo** — é descrição, não construção.
+
+---
+
+## A INSTABILIDADE DO INSTRUMENTO, MEDIDA E CONSERTADA — 25/08
+
+O "achado de lado" registrado acima virou trabalho: o caso `public ficou
+intacto` de `fundacao.integracao.ts` ficou **vermelho duas vezes sem relação
+nenhuma com a mudança que estava sendo medida**, e verde na terceira. **Um teste
+que fica vermelho por motivo alheio à mudança é o que destrói a confiança numa
+suíte inteira** — em duas semanas alguém começa a ignorar o vermelho, e aí a
+rede toda perde o valor, inclusive as partes que funcionam.
+
+### 1 · O QUE SE MOVE SOZINHO NO BANCO VIVO — medido, não suposto
+
+**Primeira medição, no catálogo.** `pg_stat_user_tables`, estatísticas desde
+**2026-07-24** (32 dias), lidas em 25/08:
+
+| tabela | inserções | **ATUALIZAÇÕES** | deleções |
+|---|---|---|---|
+| `contacts` | 134 | **1432** | 33 |
+| `queue` | 144 | **278** | 49 |
+| `automations` | 21 | **120** | 11 |
+| `accounts` | 5 | **59** | 1 |
+| `config` | 2 | 9 | 1 |
+| `followups` | 15 | 4 | 15 |
+| `events` | 6395 | 1 | 572 |
+| `login_attempts` | 2 | 0 | 2 |
+
+**`contacts` é atualizada dez vezes para cada linha que nasce.** O caminho é o
+`upsertContact` (`lib/engine.ts:296`), por onde passa todo webhook de DM: o
+`on conflict do update` reescreve `username`, `name`, `profile_pic`,
+`last_reply_at` e `last_automation_id` de um contato **que já existia**. O dreno
+faz o mesmo com `queue` (`lib/queue-drain.ts:82`: `status`, `sent_at`,
+`not_before`, `error`, `message_id`, `payload`).
+
+**Segunda medição, ao vivo, com o instrumento do próprio teste.** 30 ciclos de
+`corte → inventário → espera 25 s → inventário → compara`, entre 15h43 e 15h56
+de 25/08, **só leitura sobre `public`**:
+
+```
+## regra ATUAL     reprovou: 1/30
+## regra CANDIDATA reprovou: 0/30
+## por categoria: estrutura=0 n_caiu=0 n_subiu=0 identidade=0 conteudo=1
+## colunas que se mexeram sozinhas: contacts.last_reply_at (1)
+```
+
+O ciclo 30 saiu assim, e é a prova direta:
+
+```
+[ciclo 30/30] atual=VERMELHO candidata=verde :: contacts: conteudo mexeu [last_reply_at]
+```
+
+Uma leitura paralela de 40 minutos com corte fixo, a cada 15 s, achou a mesma
+coisa uma vez (`contacts: DIGITAL mexeu em [last_reply_at]`) e mais nada: as
+outras divergências foram todas `events: total 5818 -> 5826`, que é **linha
+NOVA** e o corte já tolerava.
+
+**A coluna que se move sozinha é `contacts.last_reply_at`, e não
+`last_seen_at`** — vale corrigir o palpite: `last_seen_at` é escrita pelo painel
+(`app/conversas/[id]/marcar-visto.ts:32`), quando alguém abre a conversa;
+`last_reply_at` é escrita pelo **webhook**, sem ninguém por perto.
+
+**Por que duas vezes em três, se a média é baixa.** A taxa média não explica o
+que se viu; a **rajada** explica. Nos últimos 7 dias: **2697 eventos em 1861
+minutos distintos**, pico de **22 num único minuto**, 28 minutos com 5 ou mais.
+Fora de rajada o teste passa sempre; dentro de uma, ele reprova quase sempre.
+Foi por isso que a terceira rodada com o mesmo cenário passou — a rajada tinha
+acabado, e não o defeito.
+
+### 2 · OS CANDIDATOS, E POR QUE DOIS FORAM RECUSADOS POR MEDIÇÃO
+
+**"O corte considerar atualização além de inserção."** Recusado: **não existe
+coluna para isso**. Colunas lidas do banco, em 25/08 — só `config` e
+`automations` têm `updated_at`. `contacts`, `queue`, `events`, `accounts`,
+`followups` e `login_attempts` não têm. E `config` e `followups` não têm nem
+coluna de nascimento, o que significa que hoje elas são comparadas **sem corte
+nenhum**. Criar a coluna seria migração em banco de produção vivo, que é decisão
+de outro dia.
+
+**"A assinatura olhar só as colunas que não podem mudar sozinhas, listadas à
+mão."** Recusado, e a razão é o próprio defeito que estamos consertando: uma
+lista de "colunas que produção não reescreve" envelhece **em silêncio**. O dia
+em que uma funcionalidade nova passasse a escrever numa delas, o teste voltaria
+a piscar — e ninguém ligaria a causa ao efeito.
+
+### 3 · A FORMA ESCOLHIDA: PRESENÇA E IDENTIDADE, NÃO CONTEÚDO
+
+A comparação passa a julgar **três coisas**, todas ancoradas no mesmo corte:
+
+1. a **ESTRUTURA** — tabelas e colunas, em força total
+2. a **CONTAGEM** das linhas anteriores ao corte
+3. a **IDENTIDADE** dessas linhas — `sum(hashtext(row(<chave>)::text))`, onde
+   `<chave>` é a **chave primária perguntada ao `pg_index`** mais a coluna do
+   corte
+
+**A identidade vem do catálogo, e não de uma lista escrita à mão.** Chave
+primária e carimbo de nascimento não são reescritos por definição: são o NOME da
+linha, e não o conteúdo dela. Nenhum código de produção os escreve, e nenhum
+código futuro os escreverá sem mudar o modelo de dados.
+
+**Tabela sem chave primária cai no lado ESTRITO, e não no frouxo:** a identidade
+dela é a linha inteira. Hoje é o caso de `login_attempts`, e há um teste que
+prova isso — porque emudecer pelo lado que ninguém confere é exatamente como
+esta base já se machucou duas vezes.
+
+O veredito deixou de ser uma lista só. São duas: **`perdas`**, que reprova, e
+**`vida`**, que é **impressa em voz alta** e não reprova. Sem a impressão, o
+afrouxamento seria mudo.
+
+### 4 · O PREÇO — o que esta forma DEIXA DE PEGAR
+
+**Ela deixa de pegar uma coisa, e é grande: escrita que muda só o CONTEÚDO de
+uma linha que já existia, com a chave e o carimbo intactos.** Se um teste
+escapasse para `public` e virasse `automations.active`, sobrescrevesse
+`accounts.access_token` ou trocasse `contacts.email` de uma linha real, a
+comparação ficaria **verde**.
+
+Não é descuido: é que a produção faz exatamente isso, milhares de vezes, e
+nenhuma leitura de fora separa a escrita do teste da escrita do mundo.
+
+**O preço está escrito no código, e não só aqui:** o cabeçalho de
+`banco-descartavel.ts` o diz por extenso, e `digital.integracao.ts` o prova como
+**asserção executada** — o caso `O PREÇO` afirma que a digital da linha inteira
+**mudou** (é ela que a regra antiga usava para reprovar) e que `perdas` está
+**vazio**.
+
+O que continua fechando aquela porta são as travas que agem **antes** da
+escrita, e são três: `exigirPrefixo` recusa a cauda `,public` no nome;
+`conferirCaminho` pergunta ao banco quantos schemas o caminho tem antes de a
+estrutura nascer; e `fundacao.integracao.ts` confere que `contacts` do schema
+temporário tem ZERO linhas enquanto a produção tem mais de zero.
+
+### 5 · A PROVA DOS DOIS LADOS
+
+**Que ainda acusa** — `testes-integracao/digital.integracao.ts`, **7 casos,
+todos dentro de um schema descartável**. Nenhuma simulação de perda tocou
+`public`:
+
+| perda simulada | fica |
+|---|---|
+| linha anterior ao corte APAGADA | **vermelho** (`linhas até o corte CAÍRAM de 3 para 2`) |
+| linha velha que VIROU OUTRA (chave primária trocada, contagem igual) | **vermelho** (`a IDENTIDADE das linhas até o corte mudou`) |
+| alteração em tabela SEM chave primária | **vermelho** (identidade = linha inteira) |
+| COLUNA que sumiu | **vermelho** |
+| TABELA que sumiu | **vermelho** |
+| conteúdo de linha velha alterado (o PREÇO) | **verde**, e dito em voz alta no balde `vida` |
+| linha NOVA, nascida depois do corte | **verde**, como sempre foi |
+
+**Que o instrumento não está mudo** — quatro quebras de propósito na regra, uma
+de cada vez, cada uma revertida na mesma chamada de shell com
+`git status --porcelain` vazio conferido em seguida:
+
+| o que foi quebrado | o que ficou vermelho |
+|---|---|
+| a identidade parou de reprovar | **2** (linha que virou outra; tabela sem chave) |
+| a contagem que CAI parou de reprovar | **1** (linha apagada) |
+| tabela e coluna que somem pararam de reprovar | **2** |
+| a REGRA ANTIGA de volta (conteúdo volta a reprovar) | **1** (o caso do PREÇO) |
+
+### 6 · O QUE ESTA SEÇÃO CORRIGE DO QUE ESTAVA ESCRITO ACIMA
+
+- **"~6 linhas por minuto" em `public.events` está errado.** Medido em 25/08:
+  2697 eventos em 7 dias = **0,27/min de média**, com pico de 22 num minuto. O
+  número certo não é a média: é a rajada.
+- **"`public` intacto por digital ancorada num corte"** virou **"por presença e
+  identidade ancoradas num corte"**, e o que isso deixa de afirmar está no
+  parágrafo 4.
+- **`npm run test:integracao` = 32 casos em 7 arquivos**, e não 25 em 6.
