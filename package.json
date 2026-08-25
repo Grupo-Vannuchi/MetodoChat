@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integracao": "vitest run --config vitest.integracao.config.ts",
     "typecheck": "tsc --noEmit",
     "varredura": "node scripts/varredura-portao.mjs",
     "verify": "npm run lint && npm run typecheck && npm test && npm run varredura && npm run build"
