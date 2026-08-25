@@ -131,6 +131,24 @@ beforeAll(async () => {
   engine = await import("@/lib/engine");
   ig = await import("@/lib/ig");
 
+  // FALHA ANTES DE QUALQUER REQUISIÇÃO, e não depois. Se o desvio não pegasse,
+  // o `fetch` iria para `graph.instagram.com` de verdade, com um token
+  // inventado — e o teste até acusaria o estrago (a Meta recusaria o token,
+  // `checkFollowsAccount` devolveria null, `resolverFollow` trataria como
+  // "passou" e o link sairia), só que DEPOIS de a requisição ter saído desta
+  // máquina. Esta linha é o que garante que ela não sai.
+  //
+  // Provado quebrando o desvio de propósito: `beforeAll` lançou o RECUSADO
+  // abaixo, os 4 casos ficaram como `skipped`, e ZERO pedidos chegaram ao
+  // servidor local — ou seja, nenhum saiu para lugar nenhum.
+  if (ig.baseDoGraph() !== process.env.IG_GRAPH_BASE) {
+    throw new Error(
+      `RECUSADO: a base do Graph é ${ig.baseDoGraph()}, e tinha de ser a desta ` +
+        `rodada (${process.env.IG_GRAPH_BASE}). Sem o desvio, este teste falaria ` +
+        `com a Meta de verdade.`
+    );
+  }
+
   await banco.db().upsertAccount({
     ig_user_id: CONTA,
     username: "conta_do_portao",
