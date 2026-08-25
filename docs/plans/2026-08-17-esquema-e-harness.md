@@ -97,6 +97,11 @@ arquivos que os testes importam. **Zero exceções.**
 Entre os sobreviventes, em português: *"o dreno entrega só o primeiro botão"* e
 *"o toque em botão pula a regra do portão"*.
 
+**TRÊS DOS OITO DEIXARAM DE SOBREVIVER EM 25/08** — os três do caminho do
+portão, replantados um a um e mortos pelo primeiro caminho da Frente 2 (ver "A
+prova que fecha", mais abaixo). Os outros cinco continuam de pé, e continuam
+todos em arquivos que nenhum teste importa.
+
 ---
 
 ## O que já foi fechado SEM a Frente 2
@@ -214,7 +219,7 @@ oito defeitos que sobrevivem hoje.
 
 | caminho | o que prova | prioridade |
 |---|---|---|
-| **portão → link** | a recompensa não sai para quem não segue | **1ª** |
+| **portão → link** | a recompensa não sai para quem não segue | **1ª — FEITO em 25/08** |
 | **dreno → mensagem** | rótulos e payloads chegam pareados | 2ª |
 | toque em botão → braço certo | o payload de quatro partes leva ao destino certo | 3ª |
 | gatilho → entrega | a automação entrega o que o editor montou | 4ª |
@@ -222,10 +227,63 @@ oito defeitos que sobrevivem hoje.
 **A prioridade mudou em 21/08**, e a medição que a mudou: o defeito de três
 tokens que passou por tudo estava no caminho do portão, não no do dreno.
 
-### Onde está — a FUNDAÇÃO existe desde 25/08
+### Onde está — a FUNDAÇÃO desde 25/08, e o PRIMEIRO CAMINHO desde 25/08
 
-**Os quatro caminhos ainda não foram escritos. O chão sobre o qual eles rodam,
-sim.**
+**O caminho do portão está escrito. Faltam os outros três.**
+
+| | |
+|---|---|
+| `testes-integracao/portao-link.integracao.ts` | **portão → link**, o 1º da tabela acima — 4 casos |
+
+**O nó dele era a Meta, e ele foi desatado sem mock.** O portão pergunta à Meta
+se a pessoa segue, e a resposta decide se a recompensa sai. Deixar a chamada
+FALHAR é a saída que parece inofensiva e é a pior: `checkFollowsAccount` engole
+o erro e devolve `null`, `resolverFollow` trata `null` como PASSOU — o teste
+exercitaria justamente o ramo que NÃO prova a promessa, depois de ter disparado
+uma requisição de verdade contra a Meta com um token inventado.
+
+O que se fez: um **servidor HTTP na própria máquina**, que o teste sobe e
+derruba, com a base do Graph apontada para ele por `IG_GRAPH_BASE`. **Não é
+mock** — o `fetch` é real, a resposta é HTTP de verdade, o parsing é o do
+`graphFetch`, e quem decide é o `resolverFollow` de verdade. O que foi
+substituído é a **fronteira de rede**, e só ela. Medido: **6 requisições HTTP
+reais** atravessam essa fronteira só no primeiro caso.
+
+**Custou 12 linhas em `lib/ig.ts`** — `baseDoGraph()`, lida no momento da
+chamada, com o valor real como padrão e **duas travas independentes**: `VITEST
+=== "true"` (medido: no vitest deste projeto, `VITEST=true`, `NODE_ENV=test`; o
+`next dev`, o `next build` e a Vercel não a definem) **e loopback só** (o
+`access_token` viaja na query destas chamadas, então base apontando para fora
+seria exfiltração de credencial por painel de deploy). **As duas são medidas por
+teste, não afirmadas em comentário.**
+
+**Recusado por medição:** desviar o DNS por um dispatcher do `undici` manteria o
+`fetch` real, mas `undici` **não está instalado** (`require` → MODULE_NOT_FOUND),
+seria dependência nova, e como a URL é `https` exigiria certificado
+auto-assinado de fixture — além de sequestrar um hostname REAL no processo
+inteiro, sem nome nenhum no código dizendo que isso aconteceu.
+
+### A PROVA QUE FECHA: três dos oito sobreviventes MORRERAM
+
+Os três defeitos deste caminho foram plantados de novo, um por vez, e medidos
+contra tudo o que existe:
+
+| defeito plantado | `tsc` | `eslint` | 677 puros | varredura | **caminho novo** |
+|---|---|---|---|---|---|
+| o motor ignora `retomada.portao` (bloco apagado) | 0 | 0 | 677 ✓ | SEM VAZAMENTO | **3 vermelhos** |
+| e-mail já conhecido pula a regra do portão | 0 | 0 | 677 ✓ | SEM VAZAMENTO | **1 vermelho** |
+| toque em botão pula a regra do portão | 0 | 0 | 677 ✓ | SEM VAZAMENTO | **1 vermelho** |
+
+**Sobre o terceiro, a dúvida era legítima e a medição a separou em duas
+metades.** A união estreitada de 21/08 fechou a forma MUDA: escrever
+`executarFluxo(…, caminho.retomada.destino)` **não compila** (TS2345, medido). Ela
+**não** fecha a forma NOMEADA: `semRegraDoPortao(caminho.retomada.destino)`
+compila, passa no eslint, deixa os 677 verdes e a varredura imprime "SEM
+VAZAMENTO". **É essa metade que o caminho novo fecha** — e é a lição inteira da
+Frente 2 num caso só: tornar o erro impossível de escrever fecha a porta da
+frente, e a dispensa deliberada continua sendo uma porta.
+
+**O chão sobre o qual os caminhos rodam:**
 
 | | |
 |---|---|
