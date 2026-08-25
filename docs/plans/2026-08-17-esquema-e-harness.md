@@ -223,26 +223,33 @@ Três ou quatro caminhos rodando o **motor de verdade** contra um **banco de
 verdade**, num schema temporário criado e destruído pelo próprio teste.
 
 **Não é "testar tudo".** É fechar a metade que nenhum teste puro alcança — os
-oito defeitos que sobrevivem hoje.
+oito defeitos que sobreviviam quando isto foi escrito. **Em 25/08, cinco deles
+morreram**, e os três que restam não são alcançáveis por estes quatro caminhos
+(o porquê está mais abaixo). Além deles, um defeito que ninguém tinha na lista
+foi achado **por teste**, e não por plantio.
 
 | caminho | o que prova | prioridade |
 |---|---|---|
 | **portão → link** | a recompensa não sai para quem não segue | **1ª — FEITO em 25/08** |
 | **dreno → mensagem** | rótulos e payloads chegam pareados | **2ª — FEITO em 25/08** |
-| toque em botão → braço certo | o payload de quatro partes leva ao destino certo | 3ª |
-| gatilho → entrega | a automação entrega o que o editor montou | 4ª |
+| toque em botão → braço certo | o payload de quatro partes leva ao destino certo | **3ª — FEITO em 25/08** |
+| gatilho → entrega | a automação entrega o que o editor montou | **4ª — FEITO em 25/08** |
 
 **A prioridade mudou em 21/08**, e a medição que a mudou: o defeito de três
 tokens que passou por tudo estava no caminho do portão, não no do dreno.
 
-### Onde está — a FUNDAÇÃO, o PRIMEIRO e o SEGUNDO CAMINHO, todos de 25/08
+### Onde está — a FUNDAÇÃO E OS QUATRO CAMINHOS, todos de 25/08
 
-**Os caminhos do portão e do dreno estão escritos. Faltam os outros dois.**
+**Os quatro caminhos estão escritos. Não falta nenhum da tabela acima.**
 
 | | |
 |---|---|
 | `testes-integracao/portao-link.integracao.ts` | **portão → link**, o 1º da tabela acima — 4 casos |
 | `testes-integracao/dreno-botoes.integracao.ts` | **dreno → mensagem**, o 2º da tabela acima — 4 casos |
+| `testes-integracao/toque-botao.integracao.ts` | **toque em botão → braço certo**, o 3º — 4 casos |
+| `testes-integracao/gatilho-entrega.integracao.ts` | **gatilho → entrega**, o 4º — 4 casos |
+
+Com a fundação (4 casos), a suíte de integração é de **20 casos em 5 arquivos**.
 
 **O nó dele era a Meta, e ele foi desatado sem mock.** O portão pergunta à Meta
 se a pessoa segue, e a resposta decide se a recompensa sai. Deixar a chamada
@@ -337,6 +344,148 @@ passaria. É o formato exato do defeito histórico da Tarefa 4 ("cada botão lev
 a pessoa ao destino de OUTRO botão"), e é a razão de o caso afirmar o par inteiro
 e depois fazer a volta pelo motor.
 
+### O TERCEIRO CAMINHO: o toque em botão e o braço dele
+
+`testes-integracao/toque-botao.integracao.ts` — 4 casos. A prova é feita olhando
+**a fila, o cursor e a Atividade**, nunca perguntando de novo à função que
+decidiu. E o toque **não é forjado**: o payload vem da fila, achado pelo
+**rótulo** do botão, que é exatamente o que a Meta devolve quando a pessoa toca
+no botão que mostra aquele rótulo. Nenhuma string de payload é montada à mão.
+
+Os quatro: cada botão ao braço dele (duas pessoas, o mesmo menu, e a `senao` não
+sai para nenhuma); quem digita cai na `senao` (com o texto mencionando uma das
+opções de propósito — um motor que casasse por rótulo cairia no braço errado); o
+botão **antigo** continua indo ao braço dele, com a pessoa já num segundo menu; e
+botão sem caminho não entrega nada e vira linha em Atividade, nas duas formas de
+orfandade.
+
+### O QUARTO CAMINHO: do gatilho até a entrega
+
+`testes-integracao/gatilho-entrega.integracao.ts` — 4 casos. É o único que
+atravessa o sistema inteiro numa tacada: webhook → `handleMessagingEvent` /
+`handleCommentEvent` → `interpretar` → fila → `drainQueue` → o corpo JSON que
+chegaria à Meta. Os três anteriores mediam um trecho cada; este mede a costura.
+
+Os quatro: a ordem é a do **grafo**, não a do array (array embaralhado de
+propósito, e o bloco solto não sai por caminho nenhum); a espera do editor segura
+o que vem depois **e depois solta** — com o tempo passando pela coluna que o
+dreno compara, não por relógio falso; o gatilho por comentário fura a janela, com
+a resposta privada endereçada ao comentário e a pública saindo pelo **outro**
+caminho de rede; e o gatilho certo dispara a automação certa, com duas ativas ao
+mesmo tempo.
+
+**Uma trava nova, que os anteriores não precisavam:** este arquivo tem um item
+adiado, e `enqueue`/`drainQueue` chamam `scheduleTick` (lib/qstash.ts) quando há
+um. Essa chamada **não** passa por `baseDoGraph()`. O `beforeAll` apaga
+`QSTASH_TOKEN` e **afirma** `qstashEnabled() === false`, em vez de torcer.
+
+### O ACHADO QUE NENHUM PLANTIO PLANTOU — e é o melhor argumento da Frente 2
+
+**As mensagens de uma automação chegavam fora de ordem na conversa da pessoa.**
+Defeito de produção, antigo, em `lib/queue-drain.ts`. Não é regressão de nada
+deste trabalho — e **ninguém tinha como ver, porque nenhum teste executava o
+dreno** até esta frente existir.
+
+Ele apareceu sozinho: o primeiro caso do quarto caminho **nasceu** afirmando a
+ordem no fio, e falhou. A consulta que reivindica o lote era
+
+```sql
+update queue q set status = 'sending', … where q.id in (
+  select id from queue where … order by created_at limit 15 for update skip locked
+) returning q.*
+```
+
+O `order by` vive **dentro da subconsulta**: ele decide QUAIS itens entram no
+lote, não em que ordem o `returning` os devolve — e a ordem do `returning` de um
+`update` não é especificada pelo Postgres. O laço que envia segue a ordem que
+vier.
+
+Medido, com `created_at` distinto e crescente (26 ms entre itens): três itens
+voltaram `3, 1, 2` numa execução e `2, 3, 1` noutra; oito voltaram
+`u8 u5 u6 u7 u1 u4 u2 u3`. Em produção isso é "Oi! Toca no botão pra receber o
+link" chegando **depois** do cartão com o link.
+
+**Consertado em 25/08** (`61c82d2`), com a ordenação subindo para um `with` por
+fora do `update` — e **não** para um `items.sort()` em JavaScript. A escolha foi
+por medição, não por gosto: o driver (postgres.js) entrega `created_at` como
+`Date`, de resolução de **milissegundo**, e o Postgres guarda **microssegundo**;
+com oito itens separados por 200 µs — que é o que acontece quando o banco está
+perto do app, e não a 26 ms como nesta máquina — o `sort` em JS devolveu
+`u1 u4 u3 u2 u8 u6 u5 u7`, porque os microssegundos já tinham sido jogados fora
+antes de o JavaScript ver a coluna. Custo das duas formas: **833 ms contra
+835 ms** em 20 rodadas. O `explain` confirma que o `skip locked` continua debaixo
+do `limit`, dentro da CTE.
+
+Sobre **empate de `created_at`** — dois itens gravados no mesmo instante existem
+—, a ordenação é `(created_at, id)`. Medido com 12 linhas empatadas, 6 leituras:
+**1 resultado distinto**, ou seja a mesma ordem em toda drenagem e retentativa.
+Ela **não** recupera a ordem de inserção dos empatados: o `id` é
+`gen_random_uuid()` e `queue` não tem coluna monotônica. O que ela promete é
+estabilidade, não adivinhação — recuperar inserção exigiria coluna nova, que é
+migração em banco vivo e decisão de outro dia.
+
+**Por que isto é o melhor argumento que a Frente 2 tem de existir:** todos os
+outros achados desta frente vieram de defeito **plantado** — alguém escolheu o
+defeito, escondeu, e mediu quem via. Este não. Ele estava lá, em produção, e a
+única coisa que precisou acontecer foi um teste executar o dreno de verdade e
+perguntar a coisa certa. Plantio prova que o teste tem dentes; achado prova que
+os dentes servem para alguma coisa.
+
+### O PLACAR DOS PLANTIOS — com o viés declarado
+
+Dez plantios nos caminhos 3 e 4, um por vez, medidos contra tudo o que existia:
+
+| defeito plantado | onde | `tsc` | `eslint` | 677 puros | varredura | **caminho novo** |
+|---|---|---|---|---|---|---|
+| `ligacaoEscolhida` deixa de comparar o id do botão | `lib/steps.ts` | 0 | 0 | 668 (9 vermelhos) | SEM VAZAMENTO | **2 vermelhos** |
+| `caminhoDoBotao` cai na `senao` quando o botão não tem ligação | `lib/steps.ts` | 0 | 0 | 676 (1 vermelho) | SEM VAZAMENTO | **1 vermelho** |
+| **o toque resolve a ligação a partir do CURSOR, não do payload** | `lib/engine.ts` | 0 | 0 | **677 ✓** | **SEM VAZAMENTO** | **1 vermelho** |
+| **`payloadDoBotao` chamado com bloco e botão trocados** | `lib/engine.ts` | 0 | 0 | **677 ✓** | **SEM VAZAMENTO** | **3 vermelhos** |
+| `retomadaDoTexto` deixa de consultar a `senao` | `lib/steps.ts` | 0 | 0 | 675 (2 vermelhos) | **ACUSOU** | **1 vermelho** |
+| `interpretar` volta a caminhar pelo ARRAY | `lib/steps.ts` | 0 | 2 | 666 (11 vermelhos) | **87.420 VAZAMENTOS** | **2 vermelhos** |
+| **a resposta privada some do `kind`** | `lib/engine.ts` | 0 | 0 | **677 ✓** | **SEM VAZAMENTO** | **1 vermelho** |
+| **o dreno perde o link da resposta privada** | `lib/queue-drain.ts` | 0 | 0 | **677 ✓** | **SEM VAZAMENTO** | **1 vermelho** |
+| **o dreno ignora `not_before` (a espera some)** | `lib/queue-drain.ts` | 0 | 0 | **677 ✓** | **SEM VAZAMENTO** | **1 vermelho** |
+| **`findMatch` cai em `automations[0]` quando nada casa** | `lib/engine.ts` | 0 | 0 | **677 ✓** | **SEM VAZAMENTO** | **3 vermelhos** |
+
+**Seis das dez passaram por `tsc`, `eslint`, os 677 puros e a varredura, e só o
+caminho novo as viu. Nenhuma das dez sobreviveu.**
+
+E o replantio do defeito de ordem, feito depois do conserto, tem a mesma forma:
+tirar o `order by created_at, id` de fora da CTE deixa `tsc`, `eslint` e os 677
+limpos, e devolve o vermelho no primeiro caso do quarto caminho.
+
+**O VIÉS, declarado:** cada plantio foi escolhido **por quem escreveu os casos**
+para ser plausível **e alcançável** por eles, e isso pende a favor. Dez de dez
+mortos não é taxa de detecção — é a confirmação de que os casos têm dentes
+**onde foram apontados**. O que mede o resto é o achado da seção anterior, que
+ninguém apontou.
+
+### OS TRÊS SOBREVIVENTES QUE RESTAM NÃO SÃO ALCANÇÁVEIS POR ESTES QUATRO
+
+Dos oito defeitos que sobreviviam à medição da Fase 2a, **cinco morreram**. Os
+três que restam **não** morrem por nenhum destes quatro caminhos, e isso é
+estrutura, não descuido:
+
+- **dois vivem em `app/automacoes/actions.ts`**, que continua sem nenhum teste
+  que o importe
+- **um vive num componente de tela**, que também não é alcançável daqui
+
+**Um quinto caminho existe — e tem um obstáculo próprio, ainda não medido.** As
+Server Actions de `app/automacoes/actions.ts` passam por `getSelectedAccountId`
+(lib/account.ts), que chama `cookies()` de `next/headers`. Medido pelo dono:
+fora de uma requisição isso **estoura**, com
+
+```
+cookies was called outside a request scope
+```
+
+Ou seja: o banco descartável, que era o nó dos quatro primeiros caminhos, **não
+é** o nó deste. O nó é o escopo de requisição do Next. Quanto custa desatá-lo —
+e se dá para desatar sem mock, que é a regra desta base — **não foi medido**, e
+afirmar um número aqui seria inventá-lo. Fica como a próxima pergunta da
+Frente 2, e não como tarefa com estimativa.
+
 **O chão sobre o qual os caminhos rodam:**
 
 | | |
@@ -361,7 +510,7 @@ acontece quando ninguém digita nada.
 do dono, e segue adiada.
 
 Medido em 25/08: `npm test` = **677 em 22 arquivos**, sem banco.
-`npm run test:integracao` = **12 casos em 3 arquivos, ~27 s**, um schema
+`npm run test:integracao` = **20 casos em 5 arquivos, ~37 s**, um schema
 temporário por arquivo. `public` intacto por digital ancorada num corte, e **zero schemas
 `teste_tmp_` no banco** antes e depois.
 
