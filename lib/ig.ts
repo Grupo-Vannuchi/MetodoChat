@@ -1,7 +1,71 @@
 import "server-only";
 
 // API "Instagram com Login do Instagram" — não precisa de página do Facebook.
+//
+// ESTE É O VALOR REAL, E ELE CONTINUA SENDO O PADRÃO. Quem lê a base é
+// `baseDoGraph()`, logo abaixo, e ela só devolve outra coisa quando as DUAS
+// travas de lá cedem ao mesmo tempo.
 export const GRAPH = "https://graph.instagram.com";
+
+// ---------- A base do Graph, e a única coisa neste arquivo que um teste move ----------
+//
+// POR QUE ISTO EXISTE. O portão de follow (`resolverFollow`, lib/engine.ts)
+// pergunta à Meta se a pessoa segue, e a resposta decide se a recompensa sai. Um
+// teste que prove essa promessa precisa das TRÊS respostas — segue, não segue, e
+// "a Meta não informou" —, e nenhuma delas pode vir da Meta de verdade.
+//
+// O QUE FOI RECUSADO, e por medição, não por gosto:
+//
+//   MOCK do `fetch` (`vi.mock`, `vi.stubGlobal`) — troca a chamada por uma cópia
+//     da cola. O `fetch`, o parsing da resposta e o tratamento de erro de
+//     `checkFollowsAccount` deixariam de ser exercitados, que é justamente o que
+//     o teste precisa exercitar.
+//   DESVIAR O DNS por um dispatcher do undici (`setGlobalDispatcher` com
+//     `connect.lookup`) — mantém o `fetch` real, mas custa: `undici` NÃO está
+//     instalado neste projeto (medido: `require("undici")` dá MODULE_NOT_FOUND),
+//     então seria dependência nova; e como a URL é `https`, exigiria um
+//     certificado auto-assinado de fixture mais `rejectUnauthorized: false`. Pior
+//     que o preço: ele sequestra um HOSTNAME REAL no processo inteiro, sem nome
+//     nenhum no código dizendo que isso aconteceu.
+//   DEIXAR A CHAMADA FALHAR — é o pior de todos, e é o que parece inofensivo:
+//     `checkFollowsAccount` engole o erro e devolve `null`, que `resolverFollow`
+//     trata como PASSOU. O teste exercitaria exatamente o ramo que não prova a
+//     promessa. E, de quebra, teria disparado uma requisição de verdade contra a
+//     Meta com um token inventado.
+//
+// O QUE SOBROU é uma variável de ambiente lida NO MOMENTO DA CHAMADA, com o
+// valor real como padrão. O teste sobe um servidor HTTP na própria máquina e
+// aponta a base para ele: o `fetch` é real, o parsing é real, o motor é real — o
+// que muda é só a outra ponta do fio.
+//
+// POR QUE PRODUÇÃO NÃO CAI NISSO POR ACIDENTE. São duas travas independentes, e
+// as duas precisam ceder juntas:
+//
+//   1. `VITEST === "true"`. Medido no processo do vitest deste projeto:
+//      `VITEST=true`, `NODE_ENV=test`. `next dev`, `next build` e a Vercel não
+//      definem `VITEST` — quem quiser derrubar esta trava em produção precisa
+//      declarar, num painel de deploy, uma variável chamada VITEST.
+//   2. LOOPBACK, e só. O `access_token` viaja na QUERY destas chamadas, então uma
+//      base apontando para fora seria exfiltração de credencial por variável de
+//      ambiente. Com esta trava, o pior que a variável consegue fazer é falar com
+//      um servidor da própria máquina.
+//
+// E não é inlining de build: `IG_GRAPH_BASE` não tem prefixo `NEXT_PUBLIC_`,
+// então o Next a mantém como leitura de runtime no servidor e nunca a embute em
+// bundle (node_modules/next/dist/docs/01-app/02-guides/environment-variables.md).
+//
+// As duas travas são medidas por teste, e não só afirmadas aqui:
+// `testes-integracao/portao-link.integracao.ts`, caso "a base do Graph só se move
+// sob as duas travas".
+const BASE_DE_TESTE = /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{2,5}$/;
+
+export function baseDoGraph(): string {
+  const pedida = process.env.IG_GRAPH_BASE;
+  if (!pedida) return GRAPH;
+  if (process.env.VITEST !== "true") return GRAPH;
+  if (!BASE_DE_TESTE.test(pedida)) return GRAPH;
+  return pedida;
+}
 // A configuração de webhook do APP (subscriptions) vive no Facebook Graph,
 // não no graph.instagram.com — é uma operação de nível de app.
 export const FB_GRAPH = "https://graph.facebook.com";
@@ -20,7 +84,7 @@ export class IgError extends Error {
 }
 
 async function graphFetch(path: string, init?: RequestInit): Promise<Json> {
-  const res = await fetch(`${GRAPH}/${API_VERSION}${path}`, init);
+  const res = await fetch(`${baseDoGraph()}/${API_VERSION}${path}`, init);
   const text = await res.text();
   if (!res.ok) throw new IgError(res.status, text);
   return text ? (JSON.parse(text) as Json) : {};
@@ -75,7 +139,7 @@ export async function exchangeForLongLivedToken(
     client_secret: appSecret,
     access_token: shortToken,
   });
-  const res = await fetch(`${GRAPH}/access_token?${p.toString()}`);
+  const res = await fetch(`${baseDoGraph()}/access_token?${p.toString()}`);
   const text = await res.text();
   if (!res.ok) throw new IgError(res.status, text);
   return JSON.parse(text);
@@ -85,7 +149,7 @@ export async function refreshLongLivedToken(
   token: string
 ): Promise<{ access_token: string; expires_in: number }> {
   const p = new URLSearchParams({ grant_type: "ig_refresh_token", access_token: token });
-  const res = await fetch(`${GRAPH}/refresh_access_token?${p.toString()}`);
+  const res = await fetch(`${baseDoGraph()}/refresh_access_token?${p.toString()}`);
   const text = await res.text();
   if (!res.ok) throw new IgError(res.status, text);
   return JSON.parse(text);
