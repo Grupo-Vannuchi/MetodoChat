@@ -461,6 +461,110 @@ mortos não é taxa de detecção — é a confirmação de que os casos têm de
 **onde foram apontados**. O que mede o resto é o achado da seção anterior, que
 ninguém apontou.
 
+### O QUINTO CAMINHO: as duas portas de publicar
+
+`testes-integracao/portas-de-publicar.integracao.ts` — 5 casos, sobre
+`testes-integracao/semear-requisicao.ts`. Ele exercita `salvarAutomacao` e
+`toggleAutomation` de `app/automacoes/actions.ts` contra o schema descartável.
+
+**ELE NÃO ESTAVA NO PLANO ORIGINAL, e a razão é a regra da Frente 2:** *"um
+caminho novo entra só quando um defeito real escapou por ele."* Escaparam
+**dois**, e os dois moram naquele arquivo, que não tinha nenhum teste que o
+importasse.
+
+**O nó nunca foi o banco.** As duas funções passam por `getSelectedAccountId`
+(lib/account.ts), que chama `cookies()` de `next/headers`; fora de uma requisição
+isso estoura com "`cookies` was called outside a request scope". O nó é o
+**escopo de requisição do Next**, e ele foi desatado com quatro peças do próprio
+pacote `next`, sem uma linha de produção:
+
+| peça | de onde | por quê |
+|---|---|---|
+| planta `globalThis.AsyncLocalStorage` | `next/dist/server/node-environment-baseline.js` | sem ela o Next cai no `FakeAsyncLocalStorage`, cujo `run()` lança |
+| `createRequestStoreForAPI` | `next/dist/server/async-storage/request-store.js` | monta a jarra de cookies e os headers |
+| `createWorkStore` | `next/dist/server/async-storage/work-store.js` | sem ele `revalidatePath` não acha `incrementalCache` |
+| `IncrementalCache` | `next/dist/server/lib/incremental-cache/index.js` | o cache real, em memória — sem `fs`, sem `serverDistDir` |
+
+**A ordem é obrigatória:** `createAsyncLocalStorage` lê
+`globalThis.AsyncLocalStorage` **uma vez, na avaliação do módulo**. Em Node puro
+esse global não existe (medido: Node v24.16.0 → `undefined`). Quem carregar os
+módulos de armazenamento antes do baseline não tem conserto depois.
+
+**NADA É IMITADO, E NENHUM COOKIE É FORJADO.** Sem `vi.mock`, sem `vi.stubGlobal`,
+sem banco de mentira: os dois armazenamentos são `AsyncLocalStorage` **do Node**
+(conferido com `instanceof`), exportados pelos módulos `.external.js` do próprio
+Next, e `cookies()` continua sendo o `cookies()` do Next. **A jarra sai VAZIA** —
+sem `metodochat_session`, sem `metodochat_account`. `getSelectedAccount` cai na
+**primeira conta** quando o cookie está ausente, e o schema descartável tem
+exatamente uma. **Esse tombo é o comportamento declarado da função**, e não uma
+brecha: a conta que as portas enxergam é a conta do teste por construção do
+schema, não por credencial inventada.
+
+**O limite honesto, o mesmo dos outros quatro:** sob o vitest o `"use server"` é
+inerte, então as funções são chamadas direto. Isto exercita o **corpo** do Server
+Action, não a fronteira de serialização do POST.
+
+**A GUARDA, e ela é metade do valor do caminho.** Ele depende de caminhos
+internos do Next, que não são API pública. Sem proteção, uma atualização do Next
+não o deixaria vermelho — poderia deixá-lo **verde sem medir nada**, que é o pior
+defeito possível num instrumento, e esta base já foi mordida por ele **duas
+vezes** (a contraprova da varredura ficou muda por três pontos de chamada; e a
+guarda do instrumento perguntava `=== 0` onde devia perguntar `> 0`). São três
+níveis, e a resposta errada estoura **na importação do módulo**:
+
+| nível | o que ele pergunta |
+|---|---|
+| **A** a peça resolve | `pecaDoNext` nomeia o caminho interno que sumiu |
+| **B** a exportação existe e é do tipo certo | `fabricaDoNext` lista o que o módulo exporta hoje; `alsDoNext` pergunta `instanceof AsyncLocalStorage` do Node — e **não** "tem `.run`?", porque o `FakeAsyncLocalStorage` **tem** `.run` e só lança quando chamado |
+| **C** o contexto faz efeito, nas **duas** metades | sem semear, `cookies()` **tem de estourar**; semeado, tem de responder de **jarra vazia**. Só a metade positiva não distingue "o contexto chegou" de "o Next parou de exigir contexto" |
+
+A prova do nível C roda **dentro de `comoNumaRequisicao`**, na primeira chamada:
+é parte do caminho, e não um teste ao lado que dá para apagar sem ninguém notar.
+
+**A GUARDA FOI PROVADA QUEBRANDO CADA PEÇA, uma de cada vez** — uma guarda que
+não guarda é pior que nenhuma, porque agora existe alguém dizendo que está
+protegido. Nove quebras, nove mensagens que nomeiam a peça:
+
+| o que foi quebrado | o que saiu |
+|---|---|
+| o caminho do baseline não resolve | `PEÇA DO NEXT NÃO RESOLVE: …node-environment-baseline-QUE-SUMIU.js` |
+| o baseline resolve mas não planta o global | `BASELINE DO NEXT NÃO FEZ EFEITO: … continua \`undefined\`` |
+| o baseline é pulado | `ARMAZENAMENTO DO NEXT NÃO É O DO NODE: … veio \`object\` (FakeAsyncLocalStorage)` |
+| `createRequestStoreForAPI` renomeada | `EXPORTAÇÃO DO NEXT AUSENTE: … (o módulo exporta hoje: createRequestStoreForAPI, createRequestStoreForRender, synchronizeMutableCookies)` |
+| `createWorkStore` renomeada | `EXPORTAÇÃO DO NEXT AUSENTE: … (o módulo exporta hoje: createWorkStore)` |
+| `IncrementalCache` renomeada | `EXPORTAÇÃO DO NEXT AUSENTE: … (o módulo exporta hoje: CacheHandler, IncrementalCache)` |
+| `workUnitAsyncStorage` renomeada | `ARMAZENAMENTO DO NEXT NÃO É O DO NODE: … veio \`undefined\`` |
+| alguém forja um cookie na montagem | `CONTEXTO SEMEADO COM COOKIE DENTRO: a jarra veio com 1 cookie(s)` |
+| `cookies()` para de estourar fora de escopo | `O CONTEXTO DO NEXT DEIXOU DE SER EXIGIDO` |
+
+**OS DOIS PLANTIOS, no arquivo de verdade e não numa cópia, medidos nas cinco
+camadas:**
+
+| defeito plantado | onde | `tsc` | `eslint` | 677 puros | varredura | **o quinto caminho** |
+|---|---|---|---|---|---|---|
+| **as duas portas trocadas** (`:238` passa a filtrar os dois níveis, `:554` passa a filtrar só os de salvar) | `app/automacoes/actions.ts` | 0 | 0 | **677 ✓** | **SEM VAZAMENTO** | **3 vermelhos** |
+| **`toggleAutomation` tratando toda automação como chave ligada** (`:553`, `Boolean(a.entrega_sem_portao)` → `true`) | `app/automacoes/actions.ts` | 0 | 0 | **677 ✓** | **SEM VAZAMENTO** | **1 vermelho** |
+
+**Os dois passaram por `tsc`, `eslint`, os 677 puros e a varredura, e só o
+caminho novo os viu.** O primeiro acusa **três vezes e pelos dois lados** — a
+porta que passou a deixar subir link contornável, e a porta que passou a travar
+quem está montando pela metade. Cada plantio foi revertido na mesma chamada de
+shell, com `git status --porcelain` vazio conferido em seguida.
+
+**A prova é a coluna `active` no banco**, e não o objeto que a porta devolveu: é
+ela que decide se o motor entrega.
+
+**UM ACHADO DE LADO, sobre o instrumento e não sobre o código:** em duas rodadas
+seguidas o caso "public ficou intacto, por digital ancorada no corte"
+(`fundacao.integracao.ts`) também ficou vermelho, e **não foi o plantio**. Aquele
+arquivo roda **antes** do quinto caminho, e nada nele importa
+`app/automacoes/actions.ts`. Na terceira rodada com o **mesmo** plantio ele
+passou. **O banco é de produção e está vivo**: a digital afirma que nenhuma linha
+anterior ao corte foi escrita, apagada ou alterada, e produção altera linha
+antiga enquanto a rodada acontece. É ruído do mundo real, não do plantio — mas
+quem for medir aqui precisa saber que esse caso pode piscar, e conferir **qual**
+arquivo ficou vermelho antes de concluir qualquer coisa.
+
 ### OS TRÊS SOBREVIVENTES QUE RESTAM NÃO SÃO ALCANÇÁVEIS POR ESTES QUATRO
 
 Dos oito defeitos que sobreviviam à medição da Fase 2a, **cinco morreram**. Os
