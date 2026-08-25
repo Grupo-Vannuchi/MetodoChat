@@ -2,8 +2,11 @@
 // coisas — nenhuma delas é sobre o produto:
 //
 //   1. a estrutura nasce DENTRO do schema temporário, e o caminho não tem cauda
-//   2. `public` não foi tocado — por digital das linhas que já existiam,
-//      ancorada num corte, porque o banco cresce sozinho enquanto o teste roda
+//   2. `public` não foi tocado — por PRESENÇA e IDENTIDADE das linhas que já
+//      existiam, ancoradas num corte, porque o banco não só cresce sozinho
+//      enquanto o teste roda: ele REESCREVE linha velha sozinho. O que essa
+//      verificação deixou de pegar em troca está escrito no cabeçalho de
+//      `banco-descartavel.ts`, e provado em `digital.integracao.ts`
 //   3. o schema temporário some no fim, mesmo quando o teste falha
 //
 // A prova do item 3 não cabe aqui dentro: o `afterAll` roda depois do último
@@ -117,17 +120,35 @@ describe("a fundação do banco descartável", () => {
     expect(banco.inventarioAntes().linhas.accounts.total).toBeGreaterThan(0);
   });
 
-  test("public ficou intacto, por digital ancorada no corte", async () => {
+  test("public ficou intacto, por presença e identidade ancoradas no corte", async () => {
     const depois = await inventarioDoPublic(banco.corte());
-    const divergencias = compararInventarios(banco.inventarioAntes(), depois);
-    expect(divergencias).toEqual([]);
+    const { perdas, vida } = compararInventarios(banco.inventarioAntes(), depois);
 
-    // O que este teste NÃO afirma, dito para não ser lido como mais do que é: as
-    // linhas nascidas DEPOIS do corte ficam de fora da conta, porque a produção
-    // grava webhooks o tempo todo e elas não são nossas. O que ele afirma é que
-    // nenhuma linha antiga foi escrita, apagada ou alterada, que nenhuma tabela
-    // ou coluna nasceu ou sumiu de `public`, e que isso vale para as oito
-    // tabelas — não só para as que este teste tocou.
+    // A produção mexendo no que é dela é IMPRESSA, e não reprovada. Sem esta
+    // linha o afrouxamento seria mudo, e um instrumento mudo é pior do que um
+    // instrumento que pisca: ninguém descobre que ele parou de olhar.
+    if (vida.length) {
+      console.log(`[public vivo, e isto não reprova] ${vida.join(" | ")}`);
+    }
+
+    expect(perdas).toEqual([]);
+
+    // O QUE ESTE TESTE NÃO AFIRMA, dito para não ser lido como mais do que é, e
+    // são TRÊS coisas:
+    //
+    //   1. as linhas nascidas DEPOIS do corte ficam de fora da conta — a
+    //      produção grava webhooks o tempo todo, e elas não são nossas
+    //   2. o CONTEÚDO de uma linha anterior ao corte pode ter mudado sem que
+    //      isto reprove, desde que a chave primária e o carimbo de nascimento
+    //      continuem os mesmos. É o preço medido de parar de piscar, e está
+    //      escrito por extenso no cabeçalho de `banco-descartavel.ts`
+    //   3. logo, este caso NÃO prova que nada em `public` foi reescrito
+    //
+    // O que ele afirma é que nenhuma linha anterior ao corte foi APAGADA nem
+    // virou OUTRA linha, que nenhuma tabela ou coluna nasceu ou sumiu de
+    // `public`, e que isso vale para as oito tabelas — não só para as que este
+    // teste tocou. Quem prova que a verificação ainda acusa cada uma dessas
+    // perdas é `digital.integracao.ts`, dentro de um schema descartável.
     expect(depois.tabelas).toEqual(TABELAS_ESPERADAS);
   });
 });
