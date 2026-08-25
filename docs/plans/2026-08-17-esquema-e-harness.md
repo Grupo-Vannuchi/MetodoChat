@@ -906,10 +906,26 @@ O ciclo 30 saiu assim, e é a prova direta:
 [ciclo 30/30] atual=VERMELHO candidata=verde :: contacts: conteudo mexeu [last_reply_at]
 ```
 
-Uma leitura paralela de 40 minutos com corte fixo, a cada 15 s, achou a mesma
-coisa uma vez (`contacts: DIGITAL mexeu em [last_reply_at]`) e mais nada: as
-outras divergências foram todas `events: total 5818 -> 5826`, que é **linha
-NOVA** e o corte já tolerava.
+Uma leitura paralela de **40 minutos, 152 leituras a cada 15 s, corte fixo**,
+fechou com isto:
+
+```
+## janelas de 15s com movimento ATE O CORTE: 1/152
+## [vs BASE] tabelas cuja DIGITAL ate o corte mudou:   contacts: 101/152
+## [vs BASE] COLUNAS que se mexeram sozinhas:          contacts.last_reply_at: 101/152
+## [vs BASE] tabelas cujo N ate o corte mudou:         (nada)
+## [vs ANTERIOR] TOTAL cresceu (linha nova, tolerada): events: 13/152
+## [vs ANTERIOR] COLUNAS que se mexeram por janela:    contacts.last_reply_at: 1/152
+```
+
+**Três coisas se leem aí, e as três importam.** Primeira: a única coluna que se
+moveu sozinha em 40 minutos foi `contacts.last_reply_at` — a mesma dos 30 ciclos.
+Segunda: **a contagem das linhas anteriores ao corte NÃO se mexeu nenhuma vez**
+(`N ate o corte: (nada)`, 0/152), o que sustenta manter a contagem como PERDA nos
+dois sentidos. Terceira, e é a que explica o pisca: a divergência aconteceu em
+**uma** janela de 15 s, mas a partir dela **101 das 152 leituras** divergiram da
+base. **Uma escrita só envenena todo o resto da rodada** — não é preciso azar
+repetido, basta um webhook cair entre o corte e a conferência.
 
 **A coluna que se move sozinha é `contacts.last_reply_at`, e não
 `last_seen_at`** — vale corrigir o palpite: `last_seen_at` é escrita pelo painel
