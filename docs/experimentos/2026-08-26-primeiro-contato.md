@@ -246,3 +246,132 @@ e não pelo botão de configuração automática. **Se depois de reassinar nada 
 nos passos 1–3, é aqui que está o problema:** no painel da Meta, em *Webhooks →
 Instagram → Gerenciar*, marcar também `messaging_postbacks` e
 `messaging_referral`.
+
+---
+---
+
+# SEGUNDA RODADA — com as perguntas de abertura no ar
+
+**Data:** 26/08/2026 · **Estado:** instrumento pronto e conta de teste
+configurada; medição ao vivo pendente do dono.
+
+## O que a primeira rodada mediu, e o que ela derrubou
+
+O dono executou. Lido no banco:
+
+| passo | o que chegou |
+|---|---|
+| tocar o link **sem digitar** | **NADA.** Nenhum evento, em nenhuma das duas contas. |
+| `@imzetti` (nunca falou com @vannuchi.eng) digitou "Oi" | `message`, **sem `referral`** |
+| `@alicistica` (já tinha conversa com @thiagovannuchi) digitou "Oi" | `message`, **sem `referral`** |
+
+Payload cru, conferido: `{"sender":{…},"message":{"mid":"…","text":"Oi"},"recipient":{…}}`.
+
+**As duas previsões da primeira rodada se confirmaram**, e a linha de cima é a
+mais importante das duas: *a Meta não avisa que alguém abriu a conversa*. O
+gatilho `link` **não pode disparar antes de a pessoa agir** — nem com pergunta de
+abertura configurada, porque não há evento nenhum para disparar em cima.
+
+A ausência do `referral` no passo 2 é a **pré-condição da documentação aparecendo
+na tela**: as quatro contas tinham `ice_breakers` vazio. É exatamente isso que a
+segunda rodada existe para separar de "a documentação está desatualizada".
+
+## O que mudou para a segunda rodada
+
+**1 · As perguntas de abertura, SÓ em @vannuchi.eng.** Escritas em 26/08,
+leitura de volta conferida:
+
+| pergunta | payload |
+|---|---|
+| Quando começa a próxima turma? | `abertura-proxima-turma` |
+| O que o curso cobre? | `abertura-conteudo` |
+| Quais são os valores? | `abertura-valores` |
+| Como faço a inscrição? | `abertura-inscricao` |
+
+As outras três contas seguem com `{"data":[]}`. **@thiagovannuchi não foi
+tocada de propósito**: ela tem automação real no ar, e uma pergunta de abertura
+aparece para toda pessoa que abrir a conversa.
+
+Ler, escrever e apagar: `scripts/perguntas-de-abertura.mjs`. **Desfazer é uma
+linha:** `node scripts/perguntas-de-abertura.mjs --apagar vannuchi.eng`.
+
+**A DOCUMENTAÇÃO ESTÁ ERRADA NO CORPO DA CHAMADA, e isto foi medido.** A forma
+que ela mostra — `ice_breakers: [{call_to_actions: […]}]` — responde **400,
+subcode 2534058**: *"os conjuntos de chaves dos parâmetros de quebra-gelo devem
+ter o formato (question, payload) ou (call_to_actions, locale)"*. O `locale` é
+obrigatório. Com `{"locale":"default","call_to_actions":[…]}` responde
+`{"result":"success"}`.
+
+Os payloads começam com `abertura-`, e não com `AUTO:`/`FOLLOW:`. `lerPayload`
+(lib/steps.ts) os devolve como `null`: **tocar numa pergunta não dispara
+automação nenhuma**. @vannuchi.eng também não tem nenhuma automação de gatilho
+`dm` — as quatro dela são `comment` e `story`.
+
+**2 · O registro do que não é tratado ficou estreito.** As 3 únicas linhas que
+`webhook_messaging_nao_tratado` gravou eram **confirmação de leitura** (chave
+`read`), que é conhecida e não tem nada a fazer. Ela deixou de virar evento; ver
+`lib/webhook-messaging.ts`, onde está escrito que a lista é do que foi
+**observado**, e não do catálogo da Meta. `referral` e `postback` continuam
+virando evento — é para eles que este registro existe.
+
+## @imzetti NÃO SERVE MAIS COMO PRIMEIRO CONTATO — conferido em `contacts`
+
+O "Oi" da primeira rodada criou a conversa. Medido, não presumido:
+
+| perfil | linha em `contacts` de @vannuchi.eng | evento `message` de entrada |
+|---|---|---|
+| `@imzetti` | **SIM**, 26/08 13:33:51 | 26/08 13:33:50, texto "Oi" |
+| `@alicistica` | **SIM**, 22/08 09:56:01 | 22/08 09:56:00 |
+| `@n8xmarketing` | **não** | nenhum |
+| `@saas.metodoia` | **não** | nenhum |
+
+E isso **desqualifica os dois perfis autorizados de uma vez**, porque as
+perguntas de abertura **só aparecem em conversa nova**: *"if the user has an
+existing thread with an Instagram Business account, when the user follows an
+ig.me link, Instagram just opens that respective thread, rather than displaying
+Ice Breakers"*. Sem as perguntas na tela, **nenhum dos dois caminhos da segunda
+rodada é testável** por @imzetti nem por @alicistica em @vannuchi.eng.
+
+Os dois perfis que ainda nunca falaram com @vannuchi.eng são **contas conectadas
+neste mesmo install** — o dono já tem as duas no seletor de conta do celular. É
+por elas que o roteiro passa.
+
+## O roteiro da segunda rodada — três linhas
+
+1. **De `@n8xmarketing`**, no **celular**, toque
+   `https://ig.me/m/vannuchi.eng?ref=exp-abertura-toque`.
+2. Na tela que abrir, **toque numa das quatro perguntas** e não digite mais
+   nada — deve chegar `messaging_postbacks`, com o `payload` da pergunta **e**
+   `referral.ref = exp-abertura-toque`.
+3. Em seguida, **troque para `@saas.metodoia`** e toque
+   `https://ig.me/m/vannuchi.eng?ref=exp-abertura-digitar`; **ignore as
+   perguntas** e digite "oi" no campo de texto — deve chegar `messages`, com
+   `referral.ref = exp-abertura-digitar`.
+
+Marcadores distintos por caminho de propósito: no banco dá para dizer qual dos
+dois produziu qual evento, sem depender da ordem nem do relógio.
+
+**Se o dono não conseguir trocar de conta**, o mesmo par de linhas serve de
+`@imzetti` e `@alicistica` **depois de apagar a conversa com @vannuchi.eng** no
+celular delas (segurar o chat → Excluir). Isso é um **caminho de segunda
+escolha**, e por um motivo escrito: apagar remove a conversa do lado de quem
+apagou, e **não está medido** se a Meta volta a tratar o thread como novo. Se as
+perguntas não aparecerem na tela, é essa a resposta, e o passo não é para
+insistir.
+
+## Como ler o resultado
+
+Em `/eventos`, a linha **"Evento de conversa ainda sem tratamento"** — e agora
+ela é sinal, não ruído: a confirmação de leitura parou de aparecer ali.
+
+| o que aparece | o que fica provado |
+|---|---|
+| `postback` com `referral.ref` no passo 2 | O caminho do toque funciona. É o desenho do gatilho `link` para primeiro contato. |
+| `message` com `referral.ref` no passo 3 | O caminho de digitar funciona **sob a pré-condição**, e a documentação está certa. |
+| `message` **sem** `referral` no passo 3 | A pré-condição não basta, ou falta a assinatura de nível de APP. |
+| nada, nos dois passos | Vá para "O que pode dar errado": é a assinatura de nível de APP. |
+
+**A assinatura por CONTA está confirmada**, e não é mais suspeita: as quatro
+contas listam hoje `["comments","messages","messaging_postbacks","messaging_referral"]`
+em `/{ig_user_id}/subscribed_apps`, lido em 26/08. Se nada chegar, o que sobra é
+o **nível de APP**, no painel da Meta — *Webhooks → Instagram → Gerenciar*.
