@@ -170,16 +170,53 @@ deixou de ser tratada como a primeira.
 
 ## O QUE CONTINUA MANUAL — e é mais do que parece
 
-### 1 · A rede do `ensureSchema` continua existindo
+### 1 · ~~A rede do `ensureSchema` continua existindo~~ — ELA CAIU EM 26/08
 
-O esquema base ainda nasce dentro da aplicação: `ensureSchema` (`lib/db.ts`) roda
-42 instruções na primeira requisição de cada instância. **Esta esteira não o
-tocou**, e é deliberado. Enquanto ele existir, implantar sem migração ainda
-funciona — e a armadilha de 17/08 continua valendo: **com um servidor de dev de
-pé, editar `lib/db.ts` É aplicar a migração** no banco de desenvolvimento.
+Este item envelheceu no mesmo dia. `ensureSchema` **foi apagado**, com os 24
+pontos de chamada, e nada na aplicação executa DDL. A estrutura é
+responsabilidade exclusiva de `migrations/`.
 
-Tirar o esquema de dentro da aplicação é o resto da Frente 1
-(`docs/plans/2026-08-17-esquema-e-harness.md`), e é outro degrau.
+O que isso muda na operação, e é o que este roteiro precisa dizer:
+
+- **implantar sem migrar deixou de funcionar.** O deploy de produção migra
+  sozinho; qualquer outro caminho que ponha código novo sobre banco velho é
+  agora um erro visível — ver o item 1b, abaixo
+- **a armadilha de 17/08 acabou.** Medido em 26/08, com um servidor de dev
+  apontado para um schema descartável: coluna derrubada à mão, `lib/db.ts`
+  editado com o servidor de pé, requisição feita — **a coluna continuou
+  ausente**. Antes, editar aquele arquivo era aplicar a migração
+- **a primeira requisição de cada instância ficou 1398 ms mais barata**, e 49
+  idas ao banco mais curta (26 delas `alter table`, que pede trava exclusiva de
+  tabela). No lugar entrou UMA consulta de catálogo, de 19 a 23 ms — ver o item 1b
+
+### 1b · A CONFERÊNCIA DE PARTIDA: o que a aplicação faz se o banco ficar para trás
+
+`lib/esquema.ts` confere, uma vez por instância, que as tabelas e as colunas que
+o código exige existem. Ela **não cria nada** — a diferença inteira para o
+`ensureSchema` que ela substitui é essa palavra. O ponto de chamada é um só:
+`register()` de `instrumentation.ts`, que o Next chama antes de o servidor
+aceitar requisições.
+
+**Se o banco estiver atrás, o servidor NÃO SOBE.** Medido em `next dev` contra um
+schema descartável com `automations.ligacoes` derrubada:
+
+```
+Error: An error occurred while loading instrumentation hook: ESQUEMA DESATUALIZADO: …
+  Falta:
+    - coluna ausente: automations.ligacoes (migrations/001-ligacoes.sql)
+  Conserto: `node scripts/migrar.mjs --aplicar --a-mao` (ou um deploy de
+  produção, que roda a migração dentro do build).
+```
+
+O processo morre, e a requisição seguinte devolve conexão recusada. **É o
+comportamento que se quer**, e o motivo é um número: sem aquela coluna, uma
+automação de três blocos entrega UM bloco, com `ignorados = 0` e nenhum erro em
+lugar nenhum. Recusar servir é melhor do que servir errado em silêncio.
+
+**O caminho por onde isso pode acontecer de verdade é o PREVIEW**: a trava de
+produção pula em deploy de branch, de propósito, e o preview fala com o mesmo
+banco. Uma branch com migração nova, em preview, encontra o banco sem ela — e
+agora isso aparece na hora, em vez de virar "testei e funcionou".
 
 ### 2 · Migração que MOVE dado não é suportada
 
