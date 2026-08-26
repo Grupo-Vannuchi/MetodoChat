@@ -1,13 +1,12 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { sql, ensureSchema } from "@/lib/db";
+import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { getUserProfile } from "@/lib/ig";
 
 // Preenche nome/@ dos contatos que ficaram salvos só com o número (IGSID),
 // criados antes de o app buscar o perfil na hora do webhook.
 export async function atualizarPerfis(): Promise<void> {
-  await ensureSchema();
   const account = await getSelectedAccount();
   if (!account) return;
 

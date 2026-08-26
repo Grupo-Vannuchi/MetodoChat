@@ -1,4 +1,3 @@
-import { ensureSchema } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { listConversations } from "@/lib/conversations";
 import { card, muted, pageTitle } from "../ui";
@@ -20,7 +19,6 @@ export const dynamic = "force-dynamic";
 // o segundo argumento "layout", já que é este arquivo, e não a página, quem
 // desenha a lista. As duas coisas juntas é que fazem o badge sumir sem F5.
 export default async function ConversasLayout({ children }: { children: React.ReactNode }) {
-  await ensureSchema();
   const account = await getSelectedAccount();
   const conversas = account ? await listConversations(account.ig_user_id) : [];
 

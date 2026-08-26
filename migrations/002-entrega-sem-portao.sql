@@ -39,11 +39,10 @@
 -- Acrescentar coluna com `default` não reescreve a tabela no Postgres 11+,
 -- então roda rápido mesmo com dados.
 --
--- ESTA LINHA TAMBÉM ESTÁ EM `lib/db.ts` (`ensureSchema`), e isso é deliberado
--- durante a transição, pelo mesmo motivo escrito em `001`: lá ela é a REDE (se
--- alguém implantar sem rodar isto, a coluna ainda nasce), aqui ela é a ORDEM
--- (existir antes do código subir). As duas são `if not exists`, então não podem
--- divergir em efeito — podem divergir em definição, e é por isso que a transição
--- tem prazo: ver `docs/plans/2026-08-17-esquema-e-harness.md`.
+-- ESTA LINHA JÁ ESTEVE EM DOIS LUGARES, e desde 26/08 está só aqui — pelo mesmo
+-- motivo escrito em `001`, com o mesmo desfecho: a cópia que morava em
+-- `lib/db.ts` (`ensureSchema`) era a REDE, esta é a ORDEM, e a rede foi apagada.
+-- Sem esta migração, `select *` traz a linha sem a chave e `entrega_sem_portao`
+-- chega `undefined` aos quatro leitores.
 alter table automations
   add column if not exists entrega_sem_portao boolean not null default false;

@@ -4,13 +4,12 @@ import { getSelectedAccount } from "@/lib/account";
 import { enqueueManualReply } from "@/lib/engine";
 import { drainQueue } from "@/lib/queue-drain";
 import { windowState } from "@/lib/inbox-window";
-import { sql, ensureSchema } from "@/lib/db";
+import { sql } from "@/lib/db";
 
 export async function sendReply(
   _prev: { error?: string } | undefined,
   formData: FormData
 ): Promise<{ error?: string }> {
-  await ensureSchema();
   const account = await getSelectedAccount();
   if (!account) return { error: "Conecte uma conta do Instagram primeiro." };
 

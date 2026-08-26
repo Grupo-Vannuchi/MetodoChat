@@ -1,6 +1,5 @@
 import "server-only";
 import postgres from "postgres";
-import { randomBytes } from "node:crypto";
 
 // Banco Postgres. Acesso só no servidor — a única credencial é a DATABASE_URL,
 // que nunca chega ao navegador.
@@ -77,43 +76,29 @@ function findDatabaseUrl(): string | undefined {
   return candidates[0]?.[1];
 }
 
-// O ensureSchema é idempotente de propósito: todo `create ... if not exists` e
-// `add column if not exists` faz o Postgres emitir um NOTICE dizendo que já
-// existe. São ~36 deles numa passada — 8 tabelas, 8 índices e 22 colunas, de um
-// total de 54 instruções.
+// O QUE ESTE ARQUIVO NÃO FAZ MAIS: CRIAR ESQUEMA.
 //
-// QUANDO ele roda, e isto está escrito porque a versão anterior deste comentário
-// dizia "em TODA requisição", o que é falso e custou um diagnóstico errado:
-// `ensureSchema` guarda a promessa em `schemaReady` (fim deste arquivo) e
-// devolve a mesma daí em diante — ou seja, UMA VEZ POR INSTÂNCIA. Na Vercel,
-// uma vez por partida a frio. Em desenvolvimento roda mais, porque o
-// recarregamento a quente reavalia o módulo e zera a memoização.
+// Até 26/08 vivia aqui um `ensureSchema()` com 42 instruções de DDL, chamado de
+// 24 lugares, que montava o banco na primeira requisição de cada instância. Ele
+// foi APAGADO, e a estrutura passou a ser responsabilidade exclusiva de
+// `migrations/`, aplicada por `scripts/migrar.mjs` dentro do `build`.
 //
-// E o que isso cobra, dito porque já mordeu: são 54 idas ao banco em sequência
-// antes de a instância servir a primeira página, e 22 delas são `alter table`,
-// que pede trava exclusiva na tabela. Uma leitura demorada em `contacts` — ou
-// uma conexão órfã com transação aberta — bloqueia essa partida inteira, e com
-// o pool em `max: 3` as requisições enfileiram atrás dela. Foi exatamente isso
-// que travou o painel local em 11/08, e o caminho existe em produção.
+// O que se ganhou está medido em `scratchpad/frente1-desligar-a-rede.md`:
 //
-// O driver HTTP anterior descartava notices em silêncio. O postgres.js os
-// imprime no console, e o efeito nos logs da Vercel foi imediato: uma chamada ao
-// cron virou 36 blocos de "already exists, skipping". Isso não é erro, mas
-// ENTERRA os erros de verdade — que é uma forma de quebrar o log sem quebrar o
-// app.
+//   - a primeira requisição de cada instância deixou de pagar 49 idas ao banco,
+//     26 delas `alter table` (trava exclusiva de tabela). Medido a frio, contra
+//     um schema vazio deste mesmo Postgres: **1398 ms → 0 ms**
+//   - editar este arquivo com um servidor de dev de pé deixou de aplicar DDL no
+//     banco vivo. A coluna `entrega_sem_portao` nasceu em produção assim, sem
+//     ninguém ter decidido aplicá-la
 //
-// Filtra só os dois códigos que a idempotência produz. Qualquer outro notice
-// continua aparecendo: eles podem significar algo, e engolir tudo trocaria um
-// problema por outro.
-const RUIDO_ESPERADO = new Set([
-  "42P07", // relation already exists
-  "42701", // column already exists
-]);
-
-function engoleRuidoDoEnsureSchema(aviso: { code?: string; message?: string }): void {
-  if (RUIDO_ESPERADO.has(aviso.code ?? "")) return;
-  console.warn(`[postgres] ${aviso.code}: ${aviso.message}`);
-}
+// O QUE SE PERDEU, e onde a perda foi coberta: `ensureSchema` era a rede que
+// criava a coluna que faltasse. Sem ele, uma coluna ausente é LIDA COMO
+// `undefined` por `select *`, e o motor decide diferente SEM ERRO NENHUM —
+// medido: uma automação de três blocos entregou **um** bloco, com
+// `ignorados=0`. Quem fecha esse buraco agora é `exigirEsquema()`
+// (`lib/esquema.ts`), chamado uma vez por instância em `instrumentation.ts`:
+// ele CONFERE e recusa servir, e nunca cria.
 
 export function sql(): Sql {
   if (!_sql) {
@@ -126,7 +111,12 @@ export function sql(): Sql {
     const cliente = postgres(limparUrl(url), {
       prepare: false,
       ssl: "require",
-      onnotice: engoleRuidoDoEnsureSchema,
+      // Com o DDL fora da aplicação, os dois códigos de ruído que a
+      // idempotência produzia (42P07 "relation already exists" e 42701 "column
+      // already exists") não têm mais como acontecer daqui. O filtro que os
+      // engolia saiu junto: todo aviso do servidor volta a aparecer, que é o
+      // que se quer de um log.
+      onnotice: (aviso) => console.warn(`[postgres] ${aviso.code}: ${aviso.message}`),
       // Baixo de propósito: em serverless cada instância vive pouco e atende
       // poucas requisições ao mesmo tempo. Pool grande aqui vira conexão ociosa
       // segurando vaga num pooler que é compartilhado.
@@ -239,16 +229,19 @@ export type Automation = {
   // contrário de `steps` e `ligacoes`, a coluna é `boolean not null default
   // false` — o banco garante a forma, e não há jsonb no meio.
   //
-  // O `| undefined` NÃO É FROUXIDÃO, É A REDE: os quatro leitores desta coluna
-  // (`app/automacoes/page.tsx`, `app/automacoes/[id]/page.tsx` e as duas
-  // consultas de `lib/engine.ts`) são `select *` atrás de `ensureSchema()`, que
-  // já garante a coluna — o mesmo caminho que o achado M2 declarou inalcançável
-  // em `app/automacoes/[id]/page.tsx`; hoje o campo NÃO chega `undefined` por
-  // nenhum deles. O tipo dizia só `boolean`, e um tipo que promete mais do que
-  // o banco garante convida a próxima pessoa a apagar o `Boolean(...)` dos
-  // leitores por parecer redundante — que é exatamente a linha que segura o
-  // caso se um leitor novo aparecer sem passar por `ensureSchema()`. Com o
-  // `| undefined` escrito, apagá-la deixa de compilar.
+  // O `| undefined` NÃO É FROUXIDÃO, É A REDE, E ELA FICOU MAIS NECESSÁRIA EM
+  // 26/08. Os quatro leitores desta coluna (`app/automacoes/page.tsx`,
+  // `app/automacoes/[id]/page.tsx` e as duas consultas de `lib/engine.ts`) são
+  // `select *`. Até 26/08 havia um `ensureSchema()` na frente deles garantindo a
+  // coluna; ele foi APAGADO, e quem garante agora é a migração `002` mais a
+  // conferência de partida (`lib/esquema.ts`). Num banco que ficasse para trás,
+  // `select *` traz a linha SEM a chave e o campo chega `undefined` de verdade —
+  // medido, e sem erro nenhum no caminho.
+  //
+  // O tipo dizia só `boolean`, e um tipo que promete mais do que o banco garante
+  // convida a próxima pessoa a apagar o `Boolean(...)` dos leitores por parecer
+  // redundante — que é exatamente a linha que segura o caso. Com o `| undefined`
+  // escrito, apagá-la deixa de compilar.
   //
   // QUEM LÊ passa por `Boolean(...)` de propósito, e o `false` que sai é o lado
   // seguro: a regra do portão contornável continua impedindo publicar.
@@ -310,357 +303,9 @@ export type QueueItem = {
   created_at: Date;
 };
 
-// ---------- Schema automático ----------
-// Criado na primeira requisição: quem clona o projeto nunca roda SQL.
-
-const DDL = [
-  `create table if not exists config (
-    id int primary key default 1 check (id = 1),
-    ig_user_id text,
-    username text,
-    name text,
-    profile_picture_url text,
-    access_token text,
-    token_expires_at timestamptz,
-    connected_at timestamptz,
-    instagram_app_id text,
-    instagram_app_secret text,
-    meta_app_id text,
-    meta_app_secret text,
-    webhook_verify_token text,
-    app_url text,
-    updated_at timestamptz not null default now()
-  )`,
-  `create table if not exists automations (
-    id uuid primary key default gen_random_uuid(),
-    name text not null,
-    active boolean not null default true,
-    triggers text[] not null default '{comment}',
-    keywords text[] not null default '{}',
-    match_type text not null default 'contains' check (match_type in ('contains','exact','any')),
-    media_id text,
-    media_thumbnail_url text,
-    media_caption text,
-    public_replies text[] not null default '{}',
-    welcome_text text not null default '',
-    quick_reply_label text not null default 'Quero o link! 🔗',
-    link_text text not null default '',
-    link_button_label text not null default 'Abrir link',
-    link_url text not null default '',
-    reminder_text text not null default '',
-    reminder_delay_minutes int not null default 60,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
-  )`,
-  `create table if not exists followups (
-    id uuid primary key default gen_random_uuid(),
-    automation_id uuid not null references automations(id) on delete cascade,
-    position int not null,
-    kind text not null check (kind in ('link','reminder')),
-    text text not null default '',
-    button_label text,
-    url text,
-    delay_minutes int not null default 0
-  )`,
-  `create index if not exists followups_automation_idx on followups(automation_id, position)`,
-  `create table if not exists contacts (
-    ig_id text primary key,
-    username text,
-    first_contact_at timestamptz not null default now(),
-    last_reply_at timestamptz,
-    last_automation_id uuid references automations(id) on delete set null
-  )`,
-  `create table if not exists queue (
-    id uuid primary key default gen_random_uuid(),
-    kind text not null check (kind in ('private_reply','comment_reply','dm_welcome','dm_link','dm_reminder')),
-    contact_ig_id text,
-    -- "set null", e nao "cascade": a fila e o HISTORICO do que foi entregue, e
-    -- apagar uma automacao nao pode apagar o que ela ja entregou. Ver
-    -- migrations/003. Segue a mesma regra de contacts.last_automation_id.
-    -- (sem crases aqui: este comentario mora DENTRO de um template literal, e
-    --  uma crase o fecharia no meio — foi o que quebrou a suite ao escrever.)
-    automation_id uuid references automations(id) on delete set null,
-    comment_id text,
-    payload jsonb not null default '{}',
-    dedupe_key text unique,
-    status text not null default 'pending' check (status in ('pending','sending','sent','failed','skipped')),
-    attempts int not null default 0,
-    not_before timestamptz not null default now(),
-    claimed_at timestamptz,
-    sent_at timestamptz,
-    error text,
-    created_at timestamptz not null default now()
-  )`,
-  `create index if not exists queue_pending_idx on queue(status, not_before)`,
-  // A REDE DA migrations/003, e ela precisa existir SEPARADA da criação acima.
-  //
-  // `create table if not exists` não toca em tabela que já existe, então mudar a
-  // linha da coluna lá em cima só vale para banco NOVO. Todo banco que já rodou
-  // este esquema continuaria com o `cascade` antigo — e o `cascade` é justamente
-  // o que apagava o histórico de entregas junto com a automação.
-  //
-  // Par idempotente (não há `add constraint if not exists` no Postgres): derruba
-  // se houver, cria em seguida. Roda em toda instância, uma vez por deploy.
-  `alter table queue drop constraint if exists queue_automation_id_fkey`,
-  `alter table queue add constraint queue_automation_id_fkey
-     foreign key (automation_id) references automations(id) on delete set null`,
-  `create table if not exists events (
-    id uuid primary key default gen_random_uuid(),
-    type text not null,
-    payload jsonb not null default '{}',
-    created_at timestamptz not null default now()
-  )`,
-  `create index if not exists events_created_idx on events(created_at desc)`,
-  // Uma linha por conta de Instagram conectada (multi-conta)
-  `create table if not exists accounts (
-    ig_user_id text primary key,
-    username text,
-    name text,
-    profile_picture_url text,
-    access_token text not null,
-    token_expires_at timestamptz,
-    connected_at timestamptz,
-    created_at timestamptz not null default now()
-  )`,
-  // Migrações leves para bancos criados antes destas colunas
-  `alter table automations add column if not exists story_id text`,
-  `alter table automations add column if not exists story_thumbnail_url text`,
-  `alter table contacts add column if not exists name text`,
-  `alter table contacts add column if not exists profile_pic text`,
-  // Vínculo com a conta dona (multi-conta)
-  `alter table automations add column if not exists account_id text`,
-  `alter table contacts add column if not exists account_id text`,
-  `alter table queue add column if not exists account_id text`,
-  `alter table events add column if not exists account_id text`,
-  // Etapas opcionais do fluxo: pedir follow, pedir e-mail, reagir ao story
-  `alter table automations add column if not exists require_follow boolean not null default false`,
-  `alter table automations add column if not exists follow_text text not null default ''`,
-  `alter table automations add column if not exists follow_button_label text not null default 'Já sigo! ✅'`,
-  `alter table automations add column if not exists ask_email boolean not null default false`,
-  `alter table automations add column if not exists email_text text not null default ''`,
-  `alter table automations add column if not exists story_reaction text not null default ''`,
-  `alter table contacts add column if not exists email text`,
-  // o que estamos esperando dessa pessoa na próxima mensagem ('follow' | 'email')
-  `alter table contacts add column if not exists awaiting text`,
-  // Quantas vezes já pedimos que ela siga. O limite é POR CONTATO E NA VIDA
-  // (`MAX_FOLLOW_REQUESTS`, lib/engine.ts): atingido o limite, o portão para de
-  // pedir E SOLTA o cursor, em vez de seguir segurando quem não é mais cobrado.
-  // Volta a zero quando a pessoa passa pelo portão (`zerarTentativasFollow`).
-  //
-  // NÃO EXISTE contador por dia, e a tentativa de criar um está registrada
-  // porque ela se desfazia sozinha: com o contador reiniciando a cada dia, quem
-  // manda uma mensagem por dia nunca chega ao limite, nunca é solto, e passa a
-  // receber um DM diário para sempre — o oposto do que o limite existe para
-  // fazer. A segunda chance não depende dele: `checkFollowsAccount` roda ANTES
-  // de o contador ser olhado, então quem for solto e seguir depois passa na
-  // hora.
-  `alter table contacts add column if not exists follow_attempts int not null default 0`,
-  `create index if not exists automations_account_idx on automations(account_id)`,
-  `create index if not exists queue_account_idx on queue(account_id, status)`,
-  `create index if not exists events_account_idx on events(account_id, created_at desc)`,
-  // Freio de força bruta no login: uma linha por tentativa errada, por IP.
-  `create table if not exists login_attempts (
-    ip text not null,
-    attempted_at timestamptz not null default now()
-  )`,
-  `create index if not exists login_attempts_idx on login_attempts(ip, attempted_at desc)`,
-  // Id que a Meta devolve ao aceitar a mensagem. Guardado para o inbox saber
-  // que o eco que chegou depois é desta mesma mensagem, e não mostrá-la duas
-  // vezes na conversa.
-  `alter table queue add column if not exists message_id text`,
-  // Filtro "de qual post veio" em /eventos: sem este índice de expressão, cada
-  // filtragem varre a tabela inteira.
-  `create index if not exists events_media_idx on events ((payload->'media'->>'id'))`,
-  // Quando esta conversa foi aberta pela última vez. Alimenta a contagem de não
-  // lidas da lista. Fica em contacts porque a chave já é (account_id, ig_id),
-  // que é exatamente o escopo de "esta conversa desta conta".
-  //
-  // Nulo em contato nunca aberto, e nesse caso toda mensagem recebida conta como
-  // não lida — que é o certo para quem chegou agora.
-  `alter table contacts add column if not exists last_seen_at timestamptz`,
-  // O fluxo da automação como lista ordenada de passos. Substitui a sequência
-  // que estava codificada no engine e as colunas que a alimentavam.
-  //
-  // jsonb e não tabela: a lista é sempre lida e gravada inteira, a ordem é o
-  // próprio índice, e não há consulta que precise de um passo isolado.
-  `alter table automations add column if not exists steps jsonb not null default '[]'::jsonb`,
-  // Em que passo desta pessoa o fluxo parou, esperando resposta. Junto com
-  // last_automation_id, que já existe, responde "qual automação e onde".
-  // Nulo = não está no meio de nada.
-  //
-  // Substitui `awaiting`, que só sabia guardar 'follow' ou 'email' porque só
-  // havia dois lugares onde parar. Com passos como dados, os lugares são
-  // quantos a lista tiver.
-  `alter table contacts add column if not exists flow_step_index int`,
-  // Em QUAL BLOCO desta pessoa o fluxo parou. Substitui `flow_step_index`, que
-  // guardava a posição — e posição muda quando o dono reordena ou apaga um
-  // bloco antes dele, fazendo o cursor apontar para outro passo. Já chegou a
-  // apontar para DEPOIS do portão de follow, entregando o link a quem não
-  // segue, em silêncio.
-  //
-  // A TROCA JÁ ENTREGA O QUE PROMETE, e vale dizer aqui porque este comentário
-  // dizia o contrário: enquanto o formulário era o editor, `montarPassos`
-  // sorteava um id NOVO para todo bloco a cada salvamento, e cada save orfanava
-  // o cursor de quem estivesse em fluxo — a identidade também entra na
-  // `passoKey`, então o `on conflict` deixava de casar e a boas-vindas saía uma
-  // segunda vez. O formulário saiu; quem grava agora é `salvarAutomacao`
-  // (app/automacoes/actions.ts), que escreve a lista COMO ELA VEIO do quadro, e
-  // o quadro espalha cada bloco preservando o `id`. Reordenar e editar deixaram
-  // de reescrever identidade.
-  //
-  // `flow_step_index` NÃO é apagada aqui. Ela sai junto com as outras colunas
-  // órfãs; apagar no mesmo deploy tira o caminho de volta. Enquanto existir,
-  // `lerCursor` a usa como reserva para quem foi gravado antes desta fase.
-  //
-  // Com a ressalva de que a reserva, no banco de produção, não resolve para
-  // automação NENHUMA: `scripts/dar-ids-aos-passos.mjs` já deu id a todo bloco
-  // de toda automação gravada, e `identidadeDoPasso` (lib/steps.ts) só devolve
-  // o índice para bloco SEM id. Com todo bloco tendo id, um `flow_step_index`
-  // antigo vira a string "2" e `indiceDoId` não a encontra em lista nenhuma —
-  // o cursor velho resolve para null. A reserva é rede para automação ainda não
-  // migrada, e falha na direção segura: cursor que não resolve nunca pula
-  // passo.
-  `alter table contacts add column if not exists flow_step_id text`,
-  // As ligações entre os blocos: de qual bloco, sob qual condição, para qual
-  // bloco. Com elas, a ORDEM DO ARRAY `steps` deixa de significar o próximo — é
-  // a seta que manda.
-  //
-  // Coluna nova em vez de mudança em `steps`, de propósito: `steps` continua com
-  // a mesma forma, então uma automação que ninguém abriu continua sendo lida
-  // exatamente como antes. Quem a converte em corrente é o script de migração.
-  `alter table automations add column if not exists ligacoes jsonb not null default '[]'::jsonb`,
-  // A DECISÃO DO DONO SOBRE ESTA AUTOMAÇÃO: pode publicar um fluxo em que o link
-  // é alcançável sem passar pelo pedido de follow?
-  //
-  // `false` de padrão porque o padrão é o comportamento seguro — a regra do
-  // portão contornável continua impedindo ativar, que é o que vale hoje, e quem
-  // quiser entregar sem portão diz que quer. Nenhuma automação já gravada muda
-  // de veredicto.
-  //
-  // ELA NÃO MUDA O MOTOR. É argumento de `conferirLista` (lib/steps.ts) e só
-  // dela: diz "não me impeça de publicar", e não "ignore o portão na entrega".
-  // `lib/engine.ts` não lê esta coluna.
-  //
-  // A MESMA LINHA ESTÁ EM `migrations/002-entrega-sem-portao.sql`, e a
-  // duplicação é a mesma de `ligacoes`, pelo mesmo motivo: aqui é a REDE, lá é a
-  // ORDEM. O porquê inteiro está no cabeçalho daquele arquivo.
-  `alter table automations add column if not exists entrega_sem_portao boolean not null default false`,
-];
-
-type SqlClient = ReturnType<typeof sql>;
-
-// Migração de instalação single-conta → multi-conta. Idempotente: roda em todo
-// boot sem efeito quando já aplicada.
-async function migrateAccounts(s: SqlClient): Promise<void> {
-  // 1) Semeia a conta legada (que morava em config) na tabela accounts
-  await s.query(
-    `insert into accounts (ig_user_id, username, name, profile_picture_url,
-                           access_token, token_expires_at, connected_at)
-     select ig_user_id, username, name, profile_picture_url,
-            access_token, token_expires_at, connected_at
-     from config
-     where id = 1 and ig_user_id is not null and access_token is not null
-     on conflict (ig_user_id) do nothing`
-  );
-
-  // 2) Registros órfãos (account_id nulo) são anteriores ao multi-conta,
-  //    portanto pertencem à conta conectada PRIMEIRO — não havia outra quando
-  //    foram criados. Atribuir por connected_at é determinístico e correto.
-  //
-  //    A versão anterior só fazia isso com exatamente uma conta. Com duas ou
-  //    mais, os órfãos ficavam para trás, o passo (3) nunca instalava a chave
-  //    primária composta e o `on conflict (account_id, ig_id)` do upsert de
-  //    contatos passava a estourar em tempo de execução.
-  const primeira = (await s.query(
-    `select ig_user_id from accounts
-     order by connected_at asc nulls last, created_at asc
-     limit 1`
-  )) as { ig_user_id: string }[];
-  if (primeira.length) {
-    const dona = primeira[0].ig_user_id;
-    for (const t of ["automations", "queue", "events", "contacts"]) {
-      await s.query(`update ${t} set account_id = $1 where account_id is null`, [dona]);
-    }
-  }
-
-  // 2b) A fila ganhou tipos novos (follow, e-mail, reação). A restrição
-  //     antiga barraria esses valores, então é recriada.
-  await s.query(`
-    do $$
-    begin
-      if exists (
-        select 1 from pg_constraint
-        where conrelid = 'queue'::regclass and conname = 'queue_kind_check'
-      ) then
-        alter table queue drop constraint queue_kind_check;
-      end if;
-      alter table queue add constraint queue_kind_check check (kind in (
-        'private_reply','comment_reply','dm_welcome','dm_link','dm_reminder',
-        'dm_follow_gate','dm_email_ask','story_reaction','dm_manual'
-      ));
-    exception when duplicate_object then null;
-    end $$;
-  `);
-
-  // 3) Promove a PK de contacts para (account_id, ig_id) — a mesma pessoa pode
-  //    falar com duas contas conectadas. Cada passo tem sua própria guarda,
-  //    então rodar de novo (ou parar no meio) nunca quebra.
-  await s.query(`
-    do $$
-    begin
-      -- derruba a PK antiga (só ig_id), agora que cada linha sabe a conta
-      if exists (
-           select 1 from pg_constraint
-           where conrelid = 'contacts'::regclass and contype = 'p'
-             and array_length(conkey, 1) = 1
-         )
-         and not exists (select 1 from contacts where account_id is null) then
-        alter table contacts drop constraint contacts_pkey;
-      end if;
-
-      -- instala a PK composta quando a tabela está sem PK e sem nulos
-      if not exists (
-           select 1 from pg_constraint
-           where conrelid = 'contacts'::regclass and contype = 'p'
-         )
-         and not exists (select 1 from contacts where account_id is null) then
-        alter table contacts add primary key (account_id, ig_id);
-      end if;
-    end $$;
-  `);
-}
-
-let schemaReady: Promise<void> | null = null;
-
-export function ensureSchema(): Promise<void> {
-  if (!schemaReady) {
-    schemaReady = (async () => {
-      const s = sql();
-      for (const ddl of DDL) {
-        await s.query(ddl);
-      }
-      // migração p/ instalações antigas: colunas do app principal (Básico)
-      await s.query(`alter table config add column if not exists meta_app_id text`);
-      await s.query(`alter table config add column if not exists meta_app_secret text`);
-      // garante a linha única de config com um verify token já gerado
-      await s.query(
-        `insert into config (id, webhook_verify_token) values (1, $1)
-         on conflict (id) do nothing`,
-        [randomBytes(16).toString("hex")]
-      );
-      await migrateAccounts(s);
-    })().catch((err) => {
-      schemaReady = null; // deixa a próxima requisição tentar de novo
-      throw err;
-    });
-  }
-  return schemaReady;
-}
-
 // ---------- Config ----------
 
 export async function getConfig(): Promise<Config> {
-  await ensureSchema();
   const rows = (await sql()`select * from config where id = 1`) as Config[];
   return rows[0];
 }
@@ -682,7 +327,6 @@ const CONFIG_COLUMNS = new Set([
 ]);
 
 export async function updateConfig(fields: Partial<Config>): Promise<void> {
-  await ensureSchema();
   const entries = Object.entries(fields).filter(([k]) => CONFIG_COLUMNS.has(k));
   if (!entries.length) return;
   const sets = entries.map(([k], i) => `${k} = $${i + 1}`).join(", ");
@@ -699,12 +343,10 @@ export function isMetaConfigured(c: Config): boolean {
 // ---------- Contas ----------
 
 export async function listAccounts(): Promise<Account[]> {
-  await ensureSchema();
   return (await sql()`select * from accounts order by created_at asc`) as Account[];
 }
 
 export async function getAccount(igUserId: string): Promise<Account | undefined> {
-  await ensureSchema();
   const rows = (await sql().query(`select * from accounts where ig_user_id = $1`, [
     igUserId,
   ])) as Account[];
@@ -719,7 +361,6 @@ export async function upsertAccount(a: {
   access_token: string;
   token_expires_at: Date | null;
 }): Promise<void> {
-  await ensureSchema();
   await sql().query(
     `insert into accounts (ig_user_id, username, name, profile_picture_url,
                            access_token, token_expires_at, connected_at)
@@ -755,7 +396,6 @@ export async function updateAccountToken(
 // Desconecta uma conta e apaga tudo que era dela (automações em cascata levam
 // followups; contatos, fila e eventos são removidos explicitamente).
 export async function deleteAccount(igUserId: string): Promise<void> {
-  await ensureSchema();
   for (const t of ["queue", "events", "contacts", "automations"]) {
     await sql().query(`delete from ${t} where account_id = $1`, [igUserId]);
   }

@@ -23,10 +23,10 @@
 // -----------------------------------------------------------------------------
 // POR QUE ELE EXISTE
 //
-// Hoje o esquema nasce dentro da aplicação: `ensureSchema` (lib/db.ts) roda 54
-// comandos de DDL na primeira requisição de cada instância. Isso funciona, mas
-// deixa o esquema AMARRADO AO DEPLOY — a estrutura só existe depois que o código
-// novo sobe.
+// Até 26/08 o esquema nascia dentro da aplicação: `ensureSchema` (lib/db.ts)
+// rodava 49 comandos na primeira requisição de cada instância. Isso funcionava,
+// mas deixava o esquema AMARRADO AO DEPLOY — a estrutura só existia depois que o
+// código novo subia.
 //
 // A Fase 2a esbarrou nisso de frente. O motor novo precisa da coluna `ligacoes`
 // PREENCHIDA para funcionar, e preencher exige que ela exista, e ela só existia
@@ -38,18 +38,19 @@
 //
 // DESDE 26/08 O ESQUEMA BASE INTEIRO MORA AQUI. `000-esquema-base.sql` traz as
 // 42 instruções da lista `DDL` de `lib/db.ts`, os dois `alter` que
-// `ensureSchema` roda fora dela e a semente de `config`; `004` e `005` trazem as
+// `ensureSchema` rodava fora dela e a semente de `config`; `004` e `005` trazem as
 // duas mudanças de FORMA que estavam escondidas dentro de `migrateAccounts`. Um
 // banco vazio passa a nascer inteiro só desta pasta.
 //
-// **`ensureSchema` CONTINUA EXISTINDO, e a duplicação é deliberada.** Enquanto
-// ele estiver de pé, implantar sem rodar isto ainda funciona; no dia em que ele
-// morrer, esquecer de rodar passa a QUEBRAR o deploy, e isso precisa ser
-// intencional e não descoberto. O que impede as duas fontes de verdade de
-// divergirem enquanto coexistem é `testes-integracao/esquema-base.integracao.ts`:
-// ele monta um schema descartável por lado e os compara campo a campo — tabela,
-// coluna (com posição, tipo, nulidade e padrão), índice, chave primária, chave
-// estrangeira com regra de exclusão e `check`.
+// **`ensureSchema` FOI APAGADO EM 26/08, E ESTA PASTA É A ÚNICA FONTE DA
+// ESTRUTURA.** Enquanto ele existia, implantar sem rodar isto ainda funcionava;
+// hoje, esquecer de rodar QUEBRA o deploy — e isso é intencional, não
+// descoberto. A remoção foi feita com a prova de equivalência na mão: um schema
+// descartável por lado, comparados campo a campo (tabela, coluna com posição,
+// tipo, nulidade e padrão, índice, chave primária, chave estrangeira com regra
+// de exclusão e `check`), **ZERO divergências**. Aquele caminho continua
+// existindo, com as perguntas que sobreviveram: ver
+// `testes-integracao/esquema-base.integracao.ts`.
 //
 // -----------------------------------------------------------------------------
 // POR QUE NÃO NO SCRIPT DE DADO
@@ -153,10 +154,10 @@ const aplicar = process.argv.includes("--aplicar");
 // seguro enquanto `ensureSchema` existia: pular devolvia o estado antigo, em que
 // a aplicação criava o esquema sozinha na primeira requisição.
 //
-// **`ensureSchema` SAI NO COMMIT SEGUINTE DESTA BRANCH**, e é por isso que esta
-// trava vem ANTES dele: com a caixa "Enable access to System Environment
-// Variables" desmarcada, `VERCEL_ENV` some, o script pularia, o build passaria,
-// o deploy subiria — e não haveria mais nada criando o esquema.
+// **`ensureSchema` NÃO EXISTE MAIS**, e esta trava entrou ANTES da remoção dele,
+// de propósito: com a caixa "Enable access to System Environment Variables"
+// desmarcada, `VERCEL_ENV` some, o script pularia, o build passaria, o deploy
+// subiria — e não há mais nada criando o esquema.
 // Uma migração nova nunca seria aplicada, e o defeito apareceria longe da causa.
 // Pular calado é a classe de defeito que esta base passou a semana fechando.
 //

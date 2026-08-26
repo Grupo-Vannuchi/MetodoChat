@@ -1,8 +1,10 @@
 // Copia os dados de um Postgres para outro.
 //
-// NÃO cria schema: quem faz isso é o ensureSchema do app, na primeira requisição
-// contra o banco novo. Isso é possível porque o projeto não usa extensão nenhuma
-// além de plpgsql e todo o SQL é padrão — foi verificado, não suposto.
+// NÃO cria schema. Até 26/08 quem fazia isso era o `ensureSchema` do app, na
+// primeira requisição contra o banco novo; ele foi apagado, e hoje quem monta a
+// estrutura é `node scripts/migrar.mjs --aplicar --a-mao`, que precisa ter
+// rodado ANTES deste script. Isso é possível porque o projeto não usa extensão
+// nenhuma além de plpgsql e todo o SQL é padrão — foi verificado, não suposto.
 //
 // Uso:  node scripts/migrar-banco.mjs "<url-de-destino>"
 //       a origem é a DATABASE_URL do .env.local
@@ -89,8 +91,9 @@ const destino = postgres(limparUrl(destinoUrl), opcoes);
 // contacts.last_reply_at, que é o que decide a janela de 24 horas — congelado,
 // o painel recusaria respostas que a Meta ainda aceita, ou o contrário.
 //
-// `config` merece nota à parte: o ensureSchema JÁ insere uma linha id=1 com um
-// webhook_verify_token novo em folha ao construir o schema. Sem sobrescrever, o
+// `config` merece nota à parte: a semente de `migrations/000-esquema-base.sql`
+// JÁ insere uma linha id=1 com um webhook_verify_token novo em folha ao
+// construir o schema (era o ensureSchema quem fazia isso, até 26/08). Sem sobrescrever, o
 // app subiria com um token que a Meta não conhece e o webhook pararia de
 // entregar sem nenhum erro aparecer — e a contagem de linhas não pega, porque
 // config tem 1 linha dos dois lados. Daí a conferência de conteúdo no fim.

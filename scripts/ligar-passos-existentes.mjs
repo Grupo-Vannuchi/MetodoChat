@@ -66,9 +66,11 @@ function identidadeDoPasso(passo, indice) {
 console.log(aplicar ? "MODO: APLICANDO (grava no banco)\n" : "MODO: ENSAIO A SECO (nada é gravado)\n");
 
 // A COLUNA PODE AINDA NÃO EXISTIR no banco contra o qual este script roda: quem
-// a cria é o `ensureSchema` do app (lib/db.ts), na primeira requisição depois do
-// deploy — e este script não chama `ensureSchema` nem grava DDL nenhuma, para
-// não fazer esquema ser coisa de script de dado. Sem a coluna, toda automação
+// a cria é `migrations/001-ligacoes.sql`, aplicada por `scripts/migrar.mjs` — e
+// este script não grava DDL nenhuma, para não fazer esquema ser coisa de script
+// de dado. (Até 26/08 havia uma segunda porta, o `ensureSchema` do app na
+// primeira requisição depois do deploy; ela foi apagada, e a ordem "migrar
+// antes" deixou de ter rede.) Sem a coluna, toda automação
 // está, na prática, no estado que o `default '[]'::jsonb` promete: sem ligação
 // nenhuma. É a mesma leitura, só que sem a coluna para confirmar.
 const [{ existe }] = await sql`

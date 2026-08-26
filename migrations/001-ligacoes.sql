@@ -17,11 +17,12 @@
 -- Acrescentar coluna com `default` não reescreve a tabela no Postgres 11+,
 -- então roda rápido mesmo com dados.
 --
--- ESTA LINHA TAMBÉM ESTÁ EM `lib/db.ts` (`ensureSchema`), e isso é deliberado
--- durante a transição: lá ela é a REDE (se alguém implantar sem rodar isto, a
--- coluna ainda nasce), aqui ela é a ORDEM (existir antes do código subir). As
--- duas são `if not exists`, então não podem divergir em efeito — podem divergir
--- em definição, e é por isso que a transição tem prazo: ver
--- `docs/plans/2026-08-17-esquema-e-harness.md`.
+-- ESTA LINHA JÁ ESTEVE EM DOIS LUGARES, e desde 26/08 está só aqui. Durante a
+-- transição ela também vivia em `lib/db.ts` (`ensureSchema`): lá era a REDE (se
+-- alguém implantasse sem rodar isto, a coluna ainda nascia), aqui é a ORDEM
+-- (existir antes do código subir). **A rede foi apagada.** Não há mais nada na
+-- aplicação criando esta coluna, e um banco que não rodar esta migração faz o
+-- motor ler `undefined` de `select *` e decidir diferente sem erro nenhum —
+-- medido, e é a razão de `exigirEsquema()` (lib/esquema.ts) existir.
 alter table automations
   add column if not exists ligacoes jsonb not null default '[]'::jsonb;

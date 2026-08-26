@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { sql, ensureSchema, Automation } from "@/lib/db";
+import { sql, Automation } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { ligacoesValidas, type Passo } from "@/lib/steps";
 import Quadro from "../editor/quadro";
@@ -70,7 +70,6 @@ export default async function EditarAutomacaoPage({
 }) {
   const { id } = await params; // Next 16: params é assíncrono
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  await ensureSchema();
   const selected = await getSelectedAccount();
   if (!selected) notFound();
 
@@ -98,14 +97,16 @@ export default async function EditarAutomacaoPage({
     story: a.story_id
       ? { id: a.story_id, thumb: a.story_thumbnail_url ?? "", caption: "" }
       : null,
-    // O `Boolean` NÃO É ENFEITE, mas a razão dele NESTE arquivo não é a coluna
-    // faltando: `await ensureSchema()` roda algumas linhas acima, ANTES do
-    // `select *`, e ele carrega a mesma DDL `if not exists` de
-    // `migrations/002-entrega-sem-portao.sql`. Quando esta consulta acontece a
-    // coluna já existe, mesmo em banco que nunca viu o script de migração — o
-    // cenário "a coluna não veio" não é alcançável daqui. (Em
-    // `toggleAutomation`, ../actions.ts, a mesma defesa tem razão de execução:
-    // lá o `select` é nominal e o valor pode chegar nulo de linha antiga.)
+    // O `Boolean` NÃO É ENFEITE, E EM 26/08 ELE GANHOU RAZÃO DE EXECUÇÃO AQUI
+    // TAMBÉM. Até então, um `await ensureSchema()` rodava algumas linhas acima,
+    // ANTES do `select *`, carregando a mesma DDL `if not exists` de
+    // `migrations/002-entrega-sem-portao.sql` — a coluna existia por construção e
+    // o cenário "a coluna não veio" não era alcançável daqui. **Essa rede foi
+    // apagada**: quem garante a coluna agora é a migração, e num banco que
+    // ficasse para trás o `select *` traz a linha SEM a chave, com
+    // `a.entrega_sem_portao` chegando `undefined` de verdade. (A conferência de
+    // partida, `lib/esquema.ts`, recusa servir nesse caso — mas esta linha é a
+    // defesa que não depende dela.)
     //
     // O QUE ELE DEFENDE AQUI É O TIPO, e isso basta para ele ficar. `as
     // Automation[]` acima é um cast, não uma conferência: ninguém olha o que o

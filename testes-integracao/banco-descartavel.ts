@@ -6,9 +6,10 @@
 // ganchos de teste vivem no harness.ts, ao lado.
 //
 // O que ela faz, em uma frase: cria um schema temporário no MESMO Postgres de
-// produção, monta a estrutura inteira dentro dele com o `ensureSchema()` de
-// verdade, entrega o `lib/db` já apontado para lá, e derruba o schema no fim —
-// inclusive quando o teste explode.
+// produção, monta a estrutura inteira dentro dele aplicando `migrations/` (era
+// `ensureSchema()` até 26/08, e ele não existe mais), entrega o `lib/db` já
+// apontado para lá, e derruba o schema no fim — inclusive quando o teste
+// explode.
 //
 // -----------------------------------------------------------------------------
 // COMO O SCHEMA TEMPORÁRIO É ALCANÇADO — e por que não muda uma linha de lib/db

@@ -1,7 +1,7 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { sql, ensureSchema } from "@/lib/db";
+import { sql } from "@/lib/db";
 import { getSelectedAccountId } from "@/lib/account";
 import { conferirLista, ligacoesValidas, podeFicarAtiva } from "@/lib/steps";
 
@@ -137,7 +137,6 @@ export async function salvarAutomacao(
   ligacoesRecebidas: unknown,
   configuracao: unknown
 ): Promise<Resultado> {
-  await ensureSchema();
   const accountId = await getSelectedAccountId();
   if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
 
@@ -400,7 +399,6 @@ export async function criarAutomacao(
   _anterior: string | null,
   formData: FormData
 ): Promise<string | null> {
-  await ensureSchema();
   const accountId = await getSelectedAccountId();
   if (!accountId) return "Conecte uma conta do Instagram antes.";
 
@@ -482,41 +480,21 @@ export async function toggleAutomation(id: string, active: boolean): Promise<Res
   if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
 
   if (active) {
-    // O `ensureSchema` ENTROU AQUI NA TAREFA 5, e ele não é zelo: esta função
-    // passou a ler a coluna `ligacoes`, e `ligacoes` é uma das colunas que
-    // `ensureSchema` CRIA (`add column if not exists`, lib/db.ts). Num banco que
-    // ainda não a tem, o `select` abaixo não devolve nulo — ele estoura
-    // `column "ligacoes" does not exist`, e o botão "Ativar" da lista de
-    // automações para de funcionar inteiro.
-    //
-    // MEDIDO NESTE BANCO: a coluna NÃO EXISTE hoje. Um `select ligacoes from
-    // automations` contra a `DATABASE_URL` deste projeto devolve o erro 42703. As
-    // outras telas a criam de passagem porque chamam `ensureSchema` antes de ler,
-    // e `salvarAutomacao` (acima) já fazia isso — esta era a única das duas que
-    // lia o par e não chamava.
-    //
-    // ELE MORA DENTRO DO `if (active)`, e o lugar é o invariante escrito no
-    // cabeçalho desta função: "desligar uma automação quebrada tem que continuar
-    // sempre possível". Fora do `if`, DESATIVAR passava a depender de ~40
-    // comandos de DDL terem sucesso — um `alter table` que falhe por permissão,
-    // por lock ou por disco cheio tirava do dono a única saída que ele tem para
-    // uma automação com defeito NO AR. Quem precisa da garantia é só o `select
-    // ligacoes` logo abaixo, e ele só existe neste ramo.
-    //
-    // Custa uma vez por instância: a promessa é memoizada em `schemaReady`
-    // (lib/db.ts), então a segunda chamada em diante não vai ao banco.
-    await ensureSchema();
-
     // o account_id no where impede ler automação de outra conta
     // `entrega_sem_portao` ENTRA NESTE `select` NA TAREFA 9, e ela é lida do
     // BANCO e não de argumento — ao contrário de `salvarAutomacao`, que grava a
     // decisão. Esta porta não escreve nada da automação: ela julga o que está
     // gravado, e a decisão do dono é parte do que está gravado.
     //
-    // O `ensureSchema` LOGO ACIMA É A REDE DELA TAMBÉM. Um `select` de coluna
-    // inexistente estoura 42703 e leva o botão "Ativar" da lista de automações
-    // inteiro — que é o mesmo estrago que o comentário acima registra para
-    // `ligacoes`, e a razão de aquela chamada existir neste ramo.
+    // ESTE `select` É NOMINAL, e desde 26/08 isso é a única defesa que ele tem.
+    // Até então havia um `await ensureSchema()` nesta linha, criando `ligacoes` e
+    // `entrega_sem_portao` de passagem com `add column if not exists`; ele foi
+    // apagado com o resto da rede. Num banco que ficasse para trás das
+    // migrações, este `select` estoura `42703 column does not exist` e o botão
+    // "Ativar" para de funcionar inteiro — ALTO, e não calado, que é o lado
+    // certo de falhar. Quem impede o banco de ficar para trás é a migração no
+    // build; quem recusa servir se ele ficar é `exigirEsquema()`
+    // (lib/esquema.ts).
     const linhas = (await sql().query(
       `select steps, ligacoes, triggers, entrega_sem_portao
          from automations where id = $1 and account_id = $2`,

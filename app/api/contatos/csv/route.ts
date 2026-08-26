@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sql, ensureSchema } from "@/lib/db";
+import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
 import { diaDaChave } from "@/lib/dedupe";
@@ -18,7 +18,6 @@ export async function GET(req: NextRequest) {
   if (!isValidSession(req.cookies.get(SESSION_COOKIE)?.value)) {
     return new NextResponse("unauthorized", { status: 401 });
   }
-  await ensureSchema();
   const account = await getSelectedAccount();
   if (!account) {
     return NextResponse.json({ error: "Conecte o Instagram primeiro" }, { status: 400 });
