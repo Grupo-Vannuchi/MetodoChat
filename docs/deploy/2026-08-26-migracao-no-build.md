@@ -37,13 +37,18 @@ Ligado ao build do jeito que estava, ele derrubaria o primeiro deploy.
 |---|---|---|---|
 | deploy de **produção** (`VERCEL_ENV=production`) | **aplica** e confere no banco | 0 se conferiu; 1 se não | sim, se a migração passou |
 | deploy de **preview** (`VERCEL_ENV=preview`) | **pula**, e diz por quê | **0** | **sim** |
-| `npm run build` na máquina de alguém (sem `VERCEL_ENV`) | **pula**, e diz por quê | **0** | sim |
+| `npm run build` na máquina de alguém (sem `VERCEL_ENV`, com `.env.local`) | **pula**, e diz por quê | **0** | sim |
+| **build sem `VERCEL_ENV` E sem `.env.local`** — a caixa desmarcada | **RECUSA**, e nomeia a caixa | **1** | **não** |
 
-**Pular sai com 0 de propósito.** Num preview, não aplicar é o comportamento
-certo, e um deploy de branch não pode ficar vermelho por estar se comportando
-bem. **Branch de teste não toca o banco** — e o pulo acontece **antes** de a
-`DATABASE_URL` ser lida, então um build de branch sem variável de banco nenhuma
-também passa. Medido nos três casos da tabela.
+**Pular sai com 0 quando o script SABE onde está.** Num preview, não aplicar é o
+comportamento certo, e um deploy de branch não pode ficar vermelho por estar se
+comportando bem. **Branch de teste não toca o banco** — e o pulo acontece
+**antes** de a `DATABASE_URL` ser lida, então um build de branch sem variável de
+banco nenhuma também passa.
+
+**A quarta linha é nova, e é o buraco que a Frente 1 fechou.** Ver "A CAIXA
+DESMARCADA", mais abaixo. Medido nos quatro casos da tabela, mais os três do
+`--a-mao`.
 
 ### A senha do banco
 
@@ -96,19 +101,51 @@ mesmo estado que o roteiro de 17/08 chama de "ponto de volta sem consequência".
 
 ---
 
-## A CONFERÊNCIA DO PRIMEIRO DEPLOY DE PRODUÇÃO — não pule esta
+## A CAIXA DESMARCADA — o buraco, e como ele foi fechado
 
 `VERCEL_ENV` é variável de sistema da Vercel, e a documentação dela diz que
 essas variáveis só existem com a caixa **"Enable access to System Environment
 Variables"** marcada nas configurações do projeto.
 
-**Com a caixa desmarcada, `VERCEL_ENV` não existe nem em produção, e o script
-pula em todo deploy.** Nada quebra — pular devolve exatamente o estado de hoje,
-em que nada roda migração no deploy e `ensureSchema` é a rede. Mas a esteira não
-estaria fazendo nada, e ninguém saberia.
+**Até 26/08, com a caixa desmarcada, o script pulava em todo deploy, calado e
+com código 0.** Isso era seguro enquanto `ensureSchema` existia: pular devolvia o
+estado antigo, em que a aplicação criava o esquema na primeira requisição. **Com
+`ensureSchema` desligado, deixou de ser** — o deploy subiria verde sobre um banco
+que ninguém migrou, e o defeito apareceria longe da causa.
 
-**Como saber, e custa dez segundos:** no primeiro deploy de produção, abra o log
-do build e procure a linha
+**A pergunta foi medida, e a resposta é NÃO:** nenhuma variável da Vercel
+distingue "build da Vercel com a caixa desmarcada" de "máquina de alguém". A
+documentação diz o que `VERCEL` significa, e a frase encerra o assunto:
+
+> `VERCEL=1` — *An indicator to show that system environment variables have been
+> exposed to your project's Deployments.*
+
+`VERCEL` **é** o indicador da caixa. `CI`, `VERCEL_URL`, `VERCEL_DEPLOYMENT_ID` e
+todas as outras saem pela mesma caixa. Com ela desmarcada, os dois ambientes são
+indistinguíveis por construção.
+
+**Então o script parou de perguntar ao ambiente e passou a exigir PROVA:**
+
+| mundo | prova | o que acontece |
+|---|---|---|
+| um deploy | `VERCEL_ENV` existe | aplica se `production`; pula (0) se `preview`/`development` |
+| a máquina de uma pessoa | existe `.env.local` no diretório | pula, com código 0, dizendo qual prova usou |
+| **nenhum dos dois** | — | **recusa, código 1, e o deploy fica vermelho** |
+
+**Por que `.env.local` é prova:** o `.gitignore` o mantém fora do repositório, a
+Vercel constrói a partir do repositório, e **já estava medido em 26/08 que ele
+não existe num build da Vercel** — foi o ENOENT desta leitura que obrigou a URL
+do banco a vir do ambiente primeiro (ver "A senha do banco", acima).
+
+**O `--a-mao` ganhou a mesma exigência**, e ela fecha o espelho do buraco: a
+tranca antiga recusava `--a-mao` quando `VERCEL_ENV` existia, mas com a caixa
+desmarcada ela não dispararia, e um `--a-mao` escrito no `build` do
+`package.json` faria um deploy de **preview** gravar no banco vivo. Hoje
+`--a-mao` sem `.env.local` é recusado com código 1.
+
+**A conferência do log continua valendo, e continua custando dez segundos.**
+
+No deploy de produção, o log do build tem de mostrar
 
 ```
 MODO: APLICANDO (grava no banco)
@@ -117,15 +154,17 @@ MODO: APLICANDO (grava no banco)
 Se em vez dela aparecer
 
 ```
-MIGRAÇÃO PULADA — este não é um deploy de produção.
-  VERCEL_ENV: ausente
+RECUSADO: não dá para saber onde este script está rodando.
+  VERCEL_ENV: ausente — ...
 ```
 
-a caixa está desmarcada. Marque-a e implante de novo.
+a caixa está desmarcada. Marque-a e implante de novo — e agora o deploy **já
+está vermelho**, então ninguém precisa lembrar de conferir.
 
 **Por que a trava erra para este lado:** pular sem precisar é perder uma
 comodidade; aplicar sem dever é uma branch de teste escrevendo no banco vivo. O
-segundo é irreversível, o primeiro não.
+segundo é irreversível, o primeiro não. **Não saber** é a terceira coisa, e ela
+deixou de ser tratada como a primeira.
 
 ---
 

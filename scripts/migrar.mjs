@@ -14,8 +14,11 @@
 // para decidir se segue ou para — e, desde 26/08, é também o que decide se o
 // `next build` chega a acontecer.
 //
-// PULAR TAMBÉM SAI 0. Fora de um deploy de produção o script não aplica e diz
-// por quê, com código 0: num preview, não aplicar é o comportamento certo.
+// PULAR SAI 0, MAS SÓ QUANDO O SCRIPT SABE ONDE ESTÁ. Num preview, ou na
+// máquina de quem desenvolve, não aplicar é o comportamento certo e sai 0. Sem
+// prova de estar num dos dois lugares — `VERCEL_ENV` ausente E `.env.local`
+// ausente — ele RECUSA com código 1, em vez de pular calado. O porquê inteiro
+// está em "A TRAVA DE PRODUÇÃO", abaixo.
 //
 // -----------------------------------------------------------------------------
 // POR QUE ELE EXISTE
@@ -77,7 +80,7 @@
 // token de quem já está usando o sistema. Está medido, como asserção executada,
 // em `testes-integracao/esquema-base.integracao.ts`.
 import postgres from "postgres";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 // Espelha `limparUrl` de lib/db.ts: cada fornecedor inventa o seu parâmetro de
@@ -115,20 +118,20 @@ const aplicar = process.argv.includes("--aplicar");
 // node_modules/next/dist/docs/` devolve ZERO. Quem for reconferir olha a
 // documentação da Vercel, não a do Next.
 //
-// PULAR SAI COM CÓDIGO 0, e é deliberado: num preview, não aplicar é o
-// comportamento CERTO, e um deploy de branch não pode falhar por estar se
-// comportando bem. Quem lê o código de saída (o `&&` do `build`) tem de seguir.
+// PULAR SAI COM CÓDIGO 0 QUANDO O SCRIPT SABE ONDE ESTÁ: num preview, não
+// aplicar é o comportamento CERTO, e um deploy de branch não pode falhar por
+// estar se comportando bem. Quem lê o código de saída (o `&&` do `build`) tem de
+// seguir. **O que mudou em 26/08 é o caso em que ele NÃO sabe** — ver "O BURACO
+// QUE ESTA SEÇÃO FECHOU", abaixo.
 //
-// O QUE ELA CUSTA, ESCRITO PARA NÃO SER DESCOBERTO TARDE. A mesma documentação
-// diz que essas variáveis só existem com a caixa **"Enable access to System
-// Environment Variables"** marcada nas configurações do projeto. Com ela
-// DESMARCADA, `VERCEL_ENV` não existe nem em produção, e este script PULA em
-// todo deploy. Isso é o lado certo de errar — pular devolve exatamente o estado
-// de hoje, em que nada roda migração no deploy e `ensureSchema` é a rede; o erro
-// contrário seria um deploy de branch escrevendo no banco vivo. Mas é preciso
-// CONFERIR, e a conferência é barata: no primeiro deploy de produção, o log do
-// build tem de mostrar a linha "MODO: APLICANDO". Se mostrar "MIGRAÇÃO PULADA",
-// a caixa está desmarcada. Está escrito no roteiro de deploy.
+// A CAIXA, E O QUE ELA CUSTA. A mesma documentação diz que essas variáveis só
+// existem com a caixa **"Enable access to System Environment Variables"**
+// marcada nas configurações do projeto. Com ela DESMARCADA, `VERCEL_ENV` não
+// existe nem em produção. Até 26/08 isso fazia o script pular em todo deploy,
+// calado e com código 0; hoje faz o deploy ficar VERMELHO, e a mensagem nomeia a
+// caixa. A conferência do log continua valendo e continua barata: no deploy de
+// produção, o log do build tem de mostrar "MODO: APLICANDO". Está escrito no
+// roteiro de deploy.
 //
 // A SEGUNDA PORTA, e por que ela é uma porta e não um buraco. Este script
 // continua sendo rodado À MÃO — foi assim que as três migrações de hoje
@@ -143,10 +146,74 @@ const aplicar = process.argv.includes("--aplicar");
 // num deploy"; estar num deploy a contradiz. Assim, alguém que a escrevesse no
 // `build` do `package.json` para "destravar" não ganharia um deploy que aplica
 // em preview — ganharia um deploy vermelho, na primeira tentativa.
+// -----------------------------------------------------------------------------
+// O BURACO QUE ESTA SEÇÃO FECHOU EM 26/08, E POR QUE ELE ERA GRANDE
+//
+// Até aqui, `VERCEL_ENV` AUSENTE fazia o script pular com código 0. Isso era
+// seguro enquanto `ensureSchema` existia: pular devolvia o estado antigo, em que
+// a aplicação criava o esquema sozinha na primeira requisição.
+//
+// **`ensureSchema` SAI NO COMMIT SEGUINTE DESTA BRANCH**, e é por isso que esta
+// trava vem ANTES dele: com a caixa "Enable access to System Environment
+// Variables" desmarcada, `VERCEL_ENV` some, o script pularia, o build passaria,
+// o deploy subiria — e não haveria mais nada criando o esquema.
+// Uma migração nova nunca seria aplicada, e o defeito apareceria longe da causa.
+// Pular calado é a classe de defeito que esta base passou a semana fechando.
+//
+// A PERGUNTA FOI MEDIDA, E A RESPOSTA É NÃO: **nenhuma variável da Vercel
+// distingue "build da Vercel com a caixa desmarcada" de "máquina de alguém".**
+// A documentação da Vercel (System environment variables, lida em 26/08) diz o
+// que `VERCEL` significa, e a frase encerra o assunto:
+//
+//     VERCEL=1 — "An indicator to show that system environment variables have
+//                 been exposed to your project's Deployments."
+//
+// Ou seja: `VERCEL` é o indicador de que a CAIXA está marcada. Ele, `CI`,
+// `VERCEL_URL`, `VERCEL_DEPLOYMENT_ID` e todos os outros saem pela MESMA caixa.
+// Com ela desmarcada, o ambiente de um build da Vercel e o de um laptop são
+// indistinguíveis — não por descuido do script, mas por construção.
+//
+// ENTÃO O SCRIPT PARA DE PERGUNTAR AO AMBIENTE ONDE ELE ESTÁ, e passa a exigir
+// PROVA. São dois mundos, e cada um tem a sua:
+//
+//   1. UM DEPLOY — prova: `VERCEL_ENV` existe. Aplica se `production`, pula se
+//      `preview` ou `development` (com código 0, que continua sendo o certo).
+//   2. A MÁQUINA DE UMA PESSOA — prova: existe um `.env.local` no diretório de
+//      trabalho.
+//   3. QUALQUER OUTRA COISA — recusa, com código 1.
+//
+// POR QUE `.env.local` É PROVA, e isto não é palpite: ele está no `.gitignore`,
+// a Vercel constrói a partir do repositório, e **já foi medido em 26/08 que ele
+// não existe num build da Vercel** — foi justamente o ENOENT desta leitura que
+// obrigou a URL do banco a vir do ambiente primeiro (ver a seção seguinte e
+// `docs/deploy/2026-08-26-migracao-no-build.md`). O arquivo é o que existe de um
+// lado e não pode existir do outro.
+//
+// O QUE ISSO CUSTA: num diretório sem `.env.local` e sem `VERCEL_ENV`, um
+// `npm run build` fica VERMELHO. É o lado barato de errar — o outro lado é um
+// deploy verde sobre um banco sem migração e sem rede. A mensagem diz as duas
+// saídas.
+//
+// A TRANCA DO `--a-mao` GANHOU A SEGUNDA METADE, E ELA FECHA O ESPELHO DO MESMO
+// BURACO. A tranca antiga recusava `--a-mao` quando `VERCEL_ENV` existia — mas
+// com a caixa desmarcada ela não dispararia, e um `--a-mao` escrito no `build`
+// do `package.json` faria um deploy de PREVIEW aplicar no banco vivo. Agora
+// `--a-mao` exige a mesma prova do mundo 2: sem `.env.local`, é recusado.
+
 const ambienteDaVercel = process.env.VERCEL_ENV;
 const naVercel = typeof ambienteDaVercel === "string" && ambienteDaVercel !== "";
 const emDeployDeProducao = ambienteDaVercel === "production";
 const aMao = process.argv.includes("--a-mao");
+// Relativo ao diretório de trabalho, como o `readdirSync("migrations")` e o
+// `readFileSync(".env.local")` logo abaixo: o contrato deste script é ser rodado
+// da RAIZ do repositório.
+const temEnvLocal = existsSync(".env.local");
+
+const COMO_SAIR =
+  "  Se você está num build da Vercel: marque a caixa \"Enable access to System\n" +
+  "    Environment Variables\" nas configurações do projeto e implante de novo.\n" +
+  "  Se você está construindo na sua máquina: rode da raiz do repositório, onde\n" +
+  "    o `.env.local` está — ou `npx next build` direto, que não migra nada.\n";
 
 if (aplicar && aMao && naVercel) {
   console.error(
@@ -160,15 +227,59 @@ if (aplicar && aMao && naVercel) {
   process.exit(1);
 }
 
+if (aplicar && aMao && !temEnvLocal) {
+  console.error(
+    "RECUSADO: `--a-mao` sem `.env.local` no diretório de trabalho.\n" +
+      "  A bandeira significa \"estou aplicando à mão, da minha máquina\", e a\n" +
+      "  prova disso é o `.env.local` — que o `.gitignore` mantém fora do\n" +
+      "  repositório e que, medido em 26/08, NÃO existe num build da Vercel.\n" +
+      "  Sem ela, um `--a-mao` escrito no `build` do package.json faria um deploy\n" +
+      "  de PREVIEW gravar no banco de produção quando a caixa de variáveis de\n" +
+      "  sistema estivesse desmarcada.\n" +
+      "  Rode da raiz do repositório.\n" +
+      "Saindo com código 1."
+  );
+  process.exit(1);
+}
+
+if (aplicar && !naVercel && !aMao && !temEnvLocal) {
+  // O BURACO, FECHADO. Nem prova de deploy nem prova de máquina: o script não
+  // sabe onde está, e o lugar mais caro de estar sem saber é um build de
+  // produção com a caixa desmarcada. Falhar aqui deixa o deploy vermelho; o
+  // contrário deixaria o deploy verde sobre um banco sem migração.
+  console.error(
+    "RECUSADO: não dá para saber onde este script está rodando.\n" +
+      "  VERCEL_ENV: ausente — e nenhuma variável da Vercel distingue \"build com\n" +
+      "    a caixa de variáveis de sistema desmarcada\" de \"máquina de alguém\":\n" +
+      "    `VERCEL`, `CI` e as outras saem pela MESMA caixa (documentação da\n" +
+      "    Vercel, System environment variables).\n" +
+      "  `.env.local`: ausente — e é ele a prova de estar numa máquina.\n" +
+      "  ANTES DE 26/08 ISTO PULAVA COM CÓDIGO 0, e era seguro porque\n" +
+      "    `ensureSchema` criava o esquema na primeira requisição. Essa rede foi\n" +
+      "    desligada (Frente 1): pular aqui seria subir um deploy sobre um banco\n" +
+      "    sem migração, e sem nada para criá-la.\n" +
+      COMO_SAIR +
+      "Saindo com código 1, sem abrir conexão com o banco."
+  );
+  process.exit(1);
+}
+
 if (aplicar && !emDeployDeProducao && !aMao) {
   // A mensagem diz o valor que ACHOU, e não só que pulou: "VERCEL_ENV ausente" e
   // "VERCEL_ENV=preview" são dois mundos diferentes, e quem lê o log precisa
-  // saber em qual está.
+  // saber em qual está. E ela diz QUAL PROVA a fez pular — sem isso, "pulei"
+  // volta a ser indistinguível de "não sei o que estou fazendo".
   console.log(
     "MIGRAÇÃO PULADA — este não é um deploy de produção.\n" +
       `  VERCEL_ENV: ${naVercel ? ambienteDaVercel : "ausente"}\n` +
-      "  A migração aplica só quando VERCEL_ENV=production. Num preview isto é o\n" +
-      "  comportamento correto, e por isso NÃO é falha.\n" +
+      `  A prova de onde estou: ${
+        naVercel
+          ? "um deploy da Vercel, e não é o de produção"
+          : "`.env.local` no diretório — a máquina de alguém"
+      }\n` +
+      "  A migração aplica só quando VERCEL_ENV=production. Num preview, e na\n" +
+      "  máquina de quem desenvolve, isto é o comportamento correto — e por isso\n" +
+      "  NÃO é falha.\n" +
       "  Para aplicar à mão, fora de um deploy: node scripts/migrar.mjs --aplicar --a-mao\n" +
       "Saindo com código 0, sem abrir conexão com o banco."
   );
