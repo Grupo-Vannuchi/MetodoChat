@@ -1,12 +1,21 @@
 // Aplica as migrações de esquema de `migrations/`, em ordem de nome.
 //
-// Uso:  node scripts/migrar.mjs            ← ENSAIO A SECO, só mostra o que faria
-//       node scripts/migrar.mjs --aplicar  ← grava
+// Uso:  node scripts/migrar.mjs                     ← ENSAIO A SECO, só mostra o que faria
+//       node scripts/migrar.mjs --aplicar           ← grava, e SÓ em deploy de produção
+//       node scripts/migrar.mjs --aplicar --a-mao   ← grava fora de um deploy, à mão
+//
+// Desde 26/08 ele roda DENTRO do `build` (package.json), e a trava que decide se
+// aplica mora aqui embaixo, em "A TRAVA DE PRODUÇÃO". O ensaio a seco não é
+// travado: ele só lê.
 //
 // CÓDIGO DE SAÍDA: 0 quando toda coluna esperada existe com o tipo e o padrão
 // esperados; 1 quando alguma confere errado — coluna ausente depois de aplicar,
 // ou coluna presente com forma divergente. É o que um roteiro de implantação lê
-// para decidir se segue ou para.
+// para decidir se segue ou para — e, desde 26/08, é também o que decide se o
+// `next build` chega a acontecer.
+//
+// PULAR TAMBÉM SAI 0. Fora de um deploy de produção o script não aplica e diz
+// por quê, com código 0: num preview, não aplicar é o comportamento certo.
 //
 // -----------------------------------------------------------------------------
 // POR QUE ELE EXISTE
@@ -59,8 +68,143 @@ function limparUrl(url) {
 }
 
 const aplicar = process.argv.includes("--aplicar");
-const url = readFileSync(".env.local", "utf8").match(/^DATABASE_URL=(.+)$/m)[1].trim();
-const sql = postgres(limparUrl(url), { prepare: false, ssl: "require", max: 1, onnotice: () => {} });
+
+// ---------- A TRAVA DE PRODUÇÃO ----------
+//
+// A partir de 26/08 este script roda DENTRO do `build` (ver `package.json`), e
+// portanto em TODO deploy — inclusive nos de branch. O dono decidiu: **a
+// migração aplica em deploy de produção, e só nele. Branch de teste não toca o
+// banco.**
+//
+// POR QUE A TRAVA MORA AQUI, E NÃO NUMA LINHA DE SHELL. Dava para escrever
+// `[ "$VERCEL_ENV" = production ] && node scripts/migrar.mjs --aplicar` no
+// `package.json`. Seria mais curto e seria pior: uma condição de shell não tem
+// onde ser comentada, não diz nada quando pula, e não pode ser exercitada por
+// ninguém. Aqui ela é legível, comentada e MEDÍVEL — quem duvidar roda o script
+// com `VERCEL_ENV` valendo cada coisa e lê a saída. É o mesmo raciocínio de
+// `baseDoGraph()` (lib/ig.ts), que é o precedente desta base: a decisão de "isto
+// pode se mover?" mora no código, com o porquê ao lado.
+//
+// A VARIÁVEL, E DE ONDE VEM A AFIRMAÇÃO. `VERCEL_ENV` é definida pela Vercel,
+// vale `production`, `preview` ou `development`, e está disponível **tanto no
+// build quanto em runtime** — documentação da Vercel, "System environment
+// variables" (/docs/environment-variables/system-environment-variables), lida em
+// 26/08. Isto NÃO está nos documentos do Next: `grep -rn VERCEL_ENV
+// node_modules/next/dist/docs/` devolve ZERO. Quem for reconferir olha a
+// documentação da Vercel, não a do Next.
+//
+// PULAR SAI COM CÓDIGO 0, e é deliberado: num preview, não aplicar é o
+// comportamento CERTO, e um deploy de branch não pode falhar por estar se
+// comportando bem. Quem lê o código de saída (o `&&` do `build`) tem de seguir.
+//
+// O QUE ELA CUSTA, ESCRITO PARA NÃO SER DESCOBERTO TARDE. A mesma documentação
+// diz que essas variáveis só existem com a caixa **"Enable access to System
+// Environment Variables"** marcada nas configurações do projeto. Com ela
+// DESMARCADA, `VERCEL_ENV` não existe nem em produção, e este script PULA em
+// todo deploy. Isso é o lado certo de errar — pular devolve exatamente o estado
+// de hoje, em que nada roda migração no deploy e `ensureSchema` é a rede; o erro
+// contrário seria um deploy de branch escrevendo no banco vivo. Mas é preciso
+// CONFERIR, e a conferência é barata: no primeiro deploy de produção, o log do
+// build tem de mostrar a linha "MODO: APLICANDO". Se mostrar "MIGRAÇÃO PULADA",
+// a caixa está desmarcada. Está escrito no roteiro de deploy.
+//
+// A SEGUNDA PORTA, e por que ela é uma porta e não um buraco. Este script
+// continua sendo rodado À MÃO — foi assim que as três migrações de hoje
+// entraram, e o roteiro de deploy continua mandando rodar o ensaio a seco antes.
+// Fora da Vercel não existe `VERCEL_ENV`, então sem uma porta o `--aplicar`
+// manual morreria junto com o preview. A porta é uma segunda bandeira,
+// `--a-mao`, que obriga quem aplica de fora de um deploy a DIZER que é isso que
+// está fazendo.
+//
+// E ela tem tranca própria: `--a-mao` DENTRO de um build da Vercel é recusado
+// com código 1, qualquer que seja o ambiente. O sentido da bandeira é "não estou
+// num deploy"; estar num deploy a contradiz. Assim, alguém que a escrevesse no
+// `build` do `package.json` para "destravar" não ganharia um deploy que aplica
+// em preview — ganharia um deploy vermelho, na primeira tentativa.
+const ambienteDaVercel = process.env.VERCEL_ENV;
+const naVercel = typeof ambienteDaVercel === "string" && ambienteDaVercel !== "";
+const emDeployDeProducao = ambienteDaVercel === "production";
+const aMao = process.argv.includes("--a-mao");
+
+if (aplicar && aMao && naVercel) {
+  console.error(
+    "RECUSADO: `--a-mao` dentro de um build da Vercel (VERCEL_ENV=" +
+      `${ambienteDaVercel}).\n` +
+      "  Essa bandeira significa \"não estou num deploy\", e estar num deploy a\n" +
+      "  contradiz. Se ela veio do `build` do package.json, tire-a de lá: a\n" +
+      "  trava de produção existe para que branch de teste não toque o banco.\n" +
+      "Saindo com código 1."
+  );
+  process.exit(1);
+}
+
+if (aplicar && !emDeployDeProducao && !aMao) {
+  // A mensagem diz o valor que ACHOU, e não só que pulou: "VERCEL_ENV ausente" e
+  // "VERCEL_ENV=preview" são dois mundos diferentes, e quem lê o log precisa
+  // saber em qual está.
+  console.log(
+    "MIGRAÇÃO PULADA — este não é um deploy de produção.\n" +
+      `  VERCEL_ENV: ${naVercel ? ambienteDaVercel : "ausente"}\n` +
+      "  A migração aplica só quando VERCEL_ENV=production. Num preview isto é o\n" +
+      "  comportamento correto, e por isso NÃO é falha.\n" +
+      "  Para aplicar à mão, fora de um deploy: node scripts/migrar.mjs --aplicar --a-mao\n" +
+      "Saindo com código 0, sem abrir conexão com o banco."
+  );
+  process.exit(0);
+}
+
+// ---------- DE ONDE VEM A URL DO BANCO ----------
+//
+// O AMBIENTE PRIMEIRO, O ARQUIVO COMO RESERVA — e a ordem é esta porque o
+// arquivo é justamente o que NÃO EXISTE no lugar novo. Até 26/08 aqui havia uma
+// linha só:
+//
+//     readFileSync(".env.local", "utf8").match(/^DATABASE_URL=(.+)$/m)[1].trim()
+//
+// Na máquina de quem roda à mão ela funciona. Num build da Vercel, `.env.local`
+// não existe — o `.gitignore` o mantém fora do repositório, e é assim que tem de
+// ser —, então o script morria de ENOENT antes de abrir conexão. MEDIDO em
+// 26/08, rodando o script de um diretório sem o arquivo: `Error: ENOENT … open
+// '…\.env.local'`, código de saída **1**.
+//
+// Isso deixou de ser detalhe no dia em que este script passou a rodar DENTRO do
+// `build` (ver `package.json`): o ENOENT derrubaria o deploy inteiro, e por um
+// motivo que nada tem a ver com o esquema.
+//
+// A FORMA É A MESMA de `testes-integracao/banco-descartavel.ts:urlDoBanco()`, de
+// propósito: as duas perguntam ao ambiente e só depois ao arquivo. Duas formas
+// diferentes para a mesma pergunta é como nasce a divergência que ninguém vê.
+//
+// O CAMINHO CONTINUA RELATIVO AO DIRETÓRIO DE TRABALHO, como o
+// `readdirSync("migrations")` logo abaixo: o contrato deste script é ser rodado
+// da RAIZ do repositório, e na Vercel a raiz é o diretório de trabalho do build.
+// Ancorar só um dos dois no arquivo daria a impressão falsa de que ele roda de
+// qualquer lugar — o outro continuaria não rodando.
+//
+// DO ARQUIVO SAI UMA LINHA E NADA MAIS. A `ADMIN_PASSWORD` mora nele e não é
+// lida — e não é lida porque não é procurada.
+function urlDoBanco() {
+  const doAmbiente = process.env.DATABASE_URL;
+  if (doAmbiente && doAmbiente.trim()) return doAmbiente.trim();
+
+  let texto;
+  try {
+    texto = readFileSync(".env.local", "utf8");
+  } catch {
+    throw new Error(
+      "DATABASE_URL não veio do ambiente, e `.env.local` não existe neste " +
+        "diretório. Rode da raiz do repositório, ou defina DATABASE_URL no ambiente."
+    );
+  }
+  const achado = texto.match(/^DATABASE_URL=(.+)$/m);
+  if (!achado) {
+    throw new Error("DATABASE_URL não encontrada: nem no ambiente, nem no `.env.local`.");
+  }
+  // As aspas saem porque um arquivo `.env` pode trazê-las e a URL não as quer.
+  return achado[1].trim().replace(/^["']|["']$/g, "");
+}
+
+const sql = postgres(limparUrl(urlDoBanco()), { prepare: false, ssl: "require", max: 1, onnotice: () => {} });
 
 console.log(aplicar ? "MODO: APLICANDO (grava no banco)\n" : "MODO: ENSAIO A SECO (nada é gravado)\n");
 
