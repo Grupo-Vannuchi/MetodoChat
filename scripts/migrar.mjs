@@ -33,6 +33,21 @@
 // ANTES, por um passo próprio. É também a primeira parcela da mudança maior
 // descrita em `docs/plans/2026-08-17-esquema-e-harness.md`.
 //
+// DESDE 26/08 O ESQUEMA BASE INTEIRO MORA AQUI. `000-esquema-base.sql` traz as
+// 42 instruções da lista `DDL` de `lib/db.ts`, os dois `alter` que
+// `ensureSchema` roda fora dela e a semente de `config`; `004` e `005` trazem as
+// duas mudanças de FORMA que estavam escondidas dentro de `migrateAccounts`. Um
+// banco vazio passa a nascer inteiro só desta pasta.
+//
+// **`ensureSchema` CONTINUA EXISTINDO, e a duplicação é deliberada.** Enquanto
+// ele estiver de pé, implantar sem rodar isto ainda funciona; no dia em que ele
+// morrer, esquecer de rodar passa a QUEBRAR o deploy, e isso precisa ser
+// intencional e não descoberto. O que impede as duas fontes de verdade de
+// divergirem enquanto coexistem é `testes-integracao/esquema-base.integracao.ts`:
+// ele monta um schema descartável por lado e os compara campo a campo — tabela,
+// coluna (com posição, tipo, nulidade e padrão), índice, chave primária, chave
+// estrangeira com regra de exclusão e `check`.
+//
 // -----------------------------------------------------------------------------
 // POR QUE NÃO NO SCRIPT DE DADO
 //
@@ -54,6 +69,13 @@
 // duas). Essas não são idempotentes por natureza e precisam de registro do que
 // já rodou. **No dia em que aparecer a primeira, a tabela de controle vira
 // obrigatória** — e este parágrafo é o aviso de que ela não existe.
+//
+// A ÚNICA LINHA DESTA PASTA QUE ESCREVE DADO é a semente de `config` em `000`, e
+// ela cabe no contrato: `on conflict (id) do nothing` não lê, não altera e não
+// apaga nada — só faz nascer a linha única quando não há nenhuma. O token dela é
+// GERADO, e é por isso que a cláusula importa: rodar de novo não pode trocar o
+// token de quem já está usando o sistema. Está medido, como asserção executada,
+// em `testes-integracao/esquema-base.integracao.ts`.
 import postgres from "postgres";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -339,6 +361,70 @@ const ESPERADAS_CHAVES = [
   },
 ];
 
+// A TERCEIRA LISTA, E ELA NASCE DO MESMO DIA QUE A SEGUNDA PREVIU.
+//
+// `000-esquema-base.sql` é a maior migração desta pasta — 8 tabelas, 8 índices,
+// 26 `alter table`, os dois `alter` soltos e a semente de `config`. As duas
+// listas acima olham COLUNA e CHAVE ESTRANGEIRA, e nenhuma delas sabe perguntar
+// "a tabela existe". Sem esta lista, um `000` que não fizesse efeito nenhum
+// passaria calado, e o script sairia 0 dizendo "CONFERIDO" sobre duas colunas
+// que já estavam lá.
+//
+// A LISTA É AS OITO TABELAS DO ESQUEMA BASE, e não uma amostra: a graça de
+// conferir presença de tabela é justamente pegar a que faltou.
+const ESPERADAS_TABELAS = {
+  de: "000-esquema-base.sql",
+  nomes: [
+    "accounts",
+    "automations",
+    "config",
+    "contacts",
+    "events",
+    "followups",
+    "login_attempts",
+    "queue",
+  ],
+};
+
+// A QUARTA LISTA, E ELA NASCE DE `004` E `005`.
+//
+// As duas migrações novas mudam formas que NENHUMA das listas acima enxerga:
+// `004` reescreve um `check`, e `005` troca a CHAVE PRIMÁRIA de `contacts`. Uma
+// conferência que só sabe perguntar por coluna e por chave estrangeira imprimiria
+// "CONFERIDO" sobre outra coisa nas duas — que é exatamente o defeito que a
+// segunda lista existe para não repetir.
+//
+// AFERIMOS A DEFINIÇÃO INTEIRA, e não a presença, pelo mesmo motivo do
+// `confdeltype` acima: uma restrição que exista com o conteúdo ERRADO é o caso
+// que estas migrações consertam, e seria absurdo que a conferência delas não
+// soubesse ver a diferença. Um `queue_kind_check` com CINCO tipos existe, tem o
+// nome certo, e recusa quatro tipos de fila em uso.
+//
+// OS TEXTOS SÃO OS QUE O POSTGRES DEVOLVE (`pg_get_constraintdef`), e não os que
+// a DDL escreve — `ANY (ARRAY[…::text])` e não `in (…)`. Quem acrescentar linha
+// aqui roda o ensaio a seco uma vez e copia o que saiu.
+const ESPERADAS_RESTRICOES = [
+  {
+    tabela: "contacts",
+    nome: "contacts_pkey",
+    de: "005-contatos-chave-composta.sql",
+    // A mesma pessoa pode falar com duas contas conectadas. Com a chave só em
+    // `ig_id`, o `on conflict (account_id, ig_id)` de `upsertContact` estoura
+    // 42P10 no primeiro webhook de DM.
+    definicao: "PRIMARY KEY (account_id, ig_id)",
+  },
+  {
+    tabela: "queue",
+    nome: "queue_kind_check",
+    de: "004-fila-tipos-novos.sql",
+    definicao:
+      "CHECK ((kind = ANY (ARRAY['private_reply'::text, 'comment_reply'::text, " +
+      "'dm_welcome'::text, 'dm_link'::text, 'dm_reminder'::text, " +
+      "'dm_follow_gate'::text, 'dm_email_ask'::text, 'story_reaction'::text, " +
+      "'dm_manual'::text])))",
+  },
+];
+
 // QUANTAS CONFERÊNCIAS FALHARAM. É o que decide o código de saída lá embaixo.
 let falhas = 0;
 
@@ -450,6 +536,68 @@ for (const { tabela, coluna, aponta, aoExcluir, de } of ESPERADAS_CHAVES) {
     `CONFERIDO no banco: ${tabela}.${coluna} -> ${aponta} confere ` +
       `(ao excluir: ${NOME_DA_REGRA[achada]})`
   );
+}
+
+// `to_regclass` devolve null para tabela que não existe, e é essa a resposta que
+// interessa: perguntar ao `information_schema` casaria o nome em qualquer schema
+// visível, e o `search_path` desta conexão é o mesmo pelo qual as migrações
+// acabaram de rodar.
+{
+  const ausentes = [];
+  for (const nome of ESPERADAS_TABELAS.nomes) {
+    const r = await sql`select to_regclass(${nome}) is not null as existe`;
+    if (!r[0].existe) ausentes.push(nome);
+  }
+  if (ausentes.length) {
+    console.log(
+      `CONFERIDO no banco: tabelas AUSENTES (${ESPERADAS_TABELAS.de}): ` +
+        ausentes.join(", ") +
+        (aplicar
+          ? " — A MIGRAÇÃO NÃO FEZ EFEITO, pare e investigue."
+          : " (esperado no ensaio a seco, num banco vazio)")
+    );
+    if (aplicar) falhas++;
+  } else {
+    console.log(
+      `CONFERIDO no banco: as ${ESPERADAS_TABELAS.nomes.length} tabelas do esquema ` +
+        `base existem (${ESPERADAS_TABELAS.de})`
+    );
+  }
+}
+
+for (const { tabela, nome, definicao, de } of ESPERADAS_RESTRICOES) {
+  const achadas = await sql`
+    select pg_get_constraintdef(c.oid) as definicao
+    from pg_constraint c
+    where c.conrelid = to_regclass(${tabela}) and c.conname = ${nome}`;
+
+  if (!achadas.length) {
+    console.log(
+      `CONFERIDO no banco: ${tabela}.${nome} NÃO existe (${de})` +
+        (aplicar
+          ? " — A MIGRAÇÃO NÃO FEZ EFEITO, pare e investigue."
+          : " (esperado no ensaio a seco)")
+    );
+    if (aplicar) falhas++;
+    continue;
+  }
+
+  if (achadas[0].definicao !== definicao) {
+    // DIVERGÊNCIA DE DEFINIÇÃO É FALHA NOS DOIS MODOS, pelo mesmo motivo da forma
+    // de coluna e da regra de exclusão: a restrição já está no banco com o
+    // conteúdo errado, e o par "derruba se houver, cria em seguida" só a conserta
+    // se ELE for quem rodar — se alguém a tiver reescrito por fora, não.
+    console.log(
+      `CONFERIDO no banco: ${tabela}.${nome} existe, MAS DIVERGE de ${de}\n` +
+        `  esperado: ${definicao}\n` +
+        `  achado:   ${achadas[0].definicao}\n` +
+        "  Pare e investigue."
+    );
+    falhas++;
+    continue;
+  }
+
+  console.log(`CONFERIDO no banco: ${tabela}.${nome} existe e confere (${de})`);
 }
 
 if (!aplicar) console.log("\nNada foi gravado. Rode com --aplicar para valer.");
