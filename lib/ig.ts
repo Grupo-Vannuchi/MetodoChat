@@ -191,9 +191,42 @@ export async function getProfile(token: string): Promise<IgProfile> {
   };
 }
 
+// OS CAMPOS DE WEBHOOK QUE ESTE APP ASSINA, num lugar só.
+//
+// Estavam escritos duas vezes — aqui e no padrão de `configureAppWebhook`, logo
+// abaixo —, e as duas assinaturas são de NÍVEIS DIFERENTES: esta é por CONTA
+// (`/{ig_user_id}/subscribed_apps`), a outra é do APP inteiro
+// (`/{app_id}/subscriptions`, no Graph do Facebook). As duas precisam listar o
+// mesmo campo para o evento chegar; com a lista escrita em dois lugares, mexer
+// num e esquecer o outro dá um webhook que não entrega e não acusa.
+//
+// `messaging_postbacks` e `messaging_referral` entraram para o EXPERIMENTO DE
+// PRIMEIRO CONTATO (docs/experimentos/2026-08-26-primeiro-contato.md). A razão
+// está medida na documentação da Meta, e não deduzida:
+//
+//   - `messaging_referral` só chega "when an ig.me link with a referral
+//     parameter is clicked by a customer in an existing conversation" — o tipo
+//     `OPEN_THREAD` é anotado lá como "Only supported for existing
+//     conversations".
+//   - No PRIMEIRO contato, quem carrega o marcador é outro evento: quem toca
+//     numa pergunta de abertura cai em `messaging_postbacks` (com o `referral`
+//     dentro do `postback`), e quem digita direto cai em `messages`.
+//
+// As permissões são as MESMAS de `messages` (`instagram_business_basic` e
+// `instagram_business_manage_messages`, tabela de permissões da página de
+// webhooks da Instagram Platform), então assinar os dois campos novos não pede
+// revisão nova da Meta — medido, porque essa era a dúvida.
+//
+// MUDAR ESTA LISTA NÃO REASSINA NINGUÉM. A inscrição por conta acontece uma vez,
+// no OAuth (app/api/oauth/callback/route.ts). Quem já está conectado só passa a
+// receber o campo novo depois que alguém apertar "Reassinar webhooks" no
+// /setup — que é `reassinarWebhooks()`, em app/setup/actions.ts, e não
+// desconecta nada.
+export const CAMPOS_DE_WEBHOOK = "comments,messages,messaging_postbacks,messaging_referral";
+
 export async function subscribeToWebhooks(igUserId: string, token: string): Promise<Json> {
   return graphFetch(
-    `/${igUserId}/subscribed_apps?subscribed_fields=comments,messages&access_token=${encodeURIComponent(token)}`,
+    `/${igUserId}/subscribed_apps?subscribed_fields=${CAMPOS_DE_WEBHOOK}&access_token=${encodeURIComponent(token)}`,
     { method: "POST" }
   );
 }
@@ -214,7 +247,7 @@ export async function configureAppWebhook(opts: {
     object: "instagram",
     callback_url: opts.callbackUrl,
     verify_token: opts.verifyToken,
-    fields: opts.fields ?? "comments,messages",
+    fields: opts.fields ?? CAMPOS_DE_WEBHOOK,
     access_token: `${opts.appId}|${opts.appSecret}`,
   });
   const res = await fetch(`${FB_GRAPH}/${API_VERSION}/${opts.appId}/subscriptions`, {

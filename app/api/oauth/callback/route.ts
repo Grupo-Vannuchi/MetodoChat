@@ -54,7 +54,10 @@ export async function GET(req: NextRequest) {
       token_expires_at: new Date(Date.now() + long.expires_in * 1000),
     });
 
-    // Liga os webhooks de comments/messages para esta conta.
+    // Liga os campos de webhook (`CAMPOS_DE_WEBHOOK`, lib/ig.ts) para esta conta.
+    // ESTA É A ÚNICA VEZ QUE ISSO ACONTECE SOZINHO: campo acrescentado à lista
+    // depois, com a conta já conectada, só entra pelo botão "Reassinar webhooks"
+    // do /setup.
     // NÃO é fatal: a conta já está salva e o login deu certo. Se a assinatura
     // falhar aqui, mandar o usuário para uma tela de erro faz parecer que a
     // conexão não funcionou — quando na verdade só falta reassinar (botão no

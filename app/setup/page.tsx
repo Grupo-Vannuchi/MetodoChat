@@ -3,6 +3,7 @@ import { getConfig, isMetaConfigured, listAccounts, sql } from "@/lib/db";
 import { qstashEnabled } from "@/lib/qstash";
 import { saveMetaCredentials, testarWebhook } from "./actions";
 import { canonicalAppUrl, isEphemeralUrl } from "@/lib/app-url";
+import { CAMPOS_DE_WEBHOOK } from "@/lib/ig";
 import { Suspense } from "react";
 import SubscriptionStatus, { SubscriptionStatusSkeleton } from "./subscription-status";
 import CopyField from "./copy-field";
@@ -271,8 +272,8 @@ export default async function SetupPage({
           </form>
           <p className={`text-xs ${muted}`}>
             Deu certo? Então <b>2.</b> cole os dois campos acima na Meta e clique em{" "}
-            <b>Verificar e salvar</b>. Depois <b>3.</b> assine os campos <b>comments</b> e{" "}
-            <b>messages</b> em <b>Gerenciar</b>.
+            <b>Verificar e salvar</b>. Depois <b>3.</b> assine os campos{" "}
+            <b>{CAMPOS_DE_WEBHOOK}</b> em <b>Gerenciar</b>.
           </p>
         </div>
         <details className="mt-2">
@@ -280,7 +281,7 @@ export default async function SetupPage({
           <div className="mt-2 space-y-2">
             <p>
               Depois de salvar o webhook, clique em <b>Gerenciar</b> e assine os campos{" "}
-              <b>comments</b> e <b>messages</b>.
+              <b>{CAMPOS_DE_WEBHOOK}</b>.
             </p>
           </div>
         </details>
@@ -522,8 +523,10 @@ export default async function SetupPage({
             Diagnóstico das contas
           </h3>
           <p className={`mb-3 text-xs ${muted}`}>
-            Cada conta precisa estar assinando <b>comments</b> e <b>messages</b>. Se alguma
-            estiver fora, nada chega no painel — e o botão abaixo religa sem reconectar.
+            Cada conta precisa estar assinando <b>{CAMPOS_DE_WEBHOOK}</b>. Se alguma estiver
+            fora, nada chega no painel — e o botão abaixo religa sem reconectar. Campo
+            acrescentado depois que a conta conectou só entra por esse botão: a inscrição é
+            gravada uma vez, no OAuth.
           </p>
           <Suspense fallback={<SubscriptionStatusSkeleton />}>
             <SubscriptionStatus />
