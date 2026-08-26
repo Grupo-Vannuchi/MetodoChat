@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { sql, ensureSchema, Automation } from "@/lib/db";
+import { sql, Automation } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import AutomationsList, { ListaVazia, AutomationRow } from "./list-client";
 import { card, btnPrimary, muted, alertError, link, pageTitle, pageSubtitle } from "../ui";
@@ -12,7 +12,6 @@ export default async function AutomacoesPage({
   searchParams: Promise<{ erro?: string }>;
 }) {
   const sp = await searchParams;
-  await ensureSchema();
   const account = await getSelectedAccount();
   // cada automação pertence a uma conta conectada
   const automations = account

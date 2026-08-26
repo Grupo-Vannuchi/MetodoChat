@@ -1,4 +1,4 @@
-import { sql, ensureSchema, Contact } from "@/lib/db";
+import { sql, Contact } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { fmtDate, hoursAgo } from "@/lib/format";
 import { atualizarPerfis } from "./actions";
@@ -87,7 +87,6 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
 }
 
 export default async function ContatosPage() {
-  await ensureSchema();
   const account = await getSelectedAccount();
   const rows = account
     ? ((await sql().query(

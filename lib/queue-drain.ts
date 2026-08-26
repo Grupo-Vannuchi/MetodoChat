@@ -1,5 +1,5 @@
 import "server-only";
-import { sql, ensureSchema, listAccounts, getConfig, QueueItem } from "./db";
+import { sql, listAccounts, getConfig, QueueItem } from "./db";
 import { windowState } from "./inbox-window";
 import { scheduleTick } from "./qstash";
 import {
@@ -341,7 +341,6 @@ async function processItem(
 
 export async function drainQueue(): Promise<{ sent: number; skipped: number; failed: number }> {
   const result = { sent: 0, skipped: 0, failed: 0 };
-  await ensureSchema();
   const accounts = await listAccounts();
   if (!accounts.length) return result;
   const byId = new Map(accounts.map((a) => [a.ig_user_id, a]));

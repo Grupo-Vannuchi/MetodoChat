@@ -39,9 +39,10 @@
 -- Isto NÃO move dado: nenhuma linha é lida, escrita ou apagada. Mas o
 -- `add constraint` VALIDA as linhas existentes, e é bom saber: num banco onde
 -- alguém tivesse gravado um `kind` fora dos nove, ele falharia alto em vez de
--- passar calado. Em produção isso não é risco novo — `ensureSchema` recria esta
--- mesma restrição, com estes mesmos nove tipos, em toda instância desde que ela
--- nasceu.
+-- passar calado. Em produção isso não era risco novo quando esta migração
+-- nasceu: `ensureSchema` recriava esta mesma restrição, com estes mesmos nove
+-- tipos, em toda instância. Ele foi apagado em 26/08, e desde então esta linha é
+-- a única que a instala.
 alter table queue drop constraint if exists queue_kind_check;
 
 alter table queue add constraint queue_kind_check check (kind in (

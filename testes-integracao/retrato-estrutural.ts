@@ -1,10 +1,15 @@
 // O RETRATO ESTRUTURAL DE UM SCHEMA, e a comparação entre dois.
 //
-// Ele existe para uma pergunta só: **um banco nascido apenas das migrações de
-// `migrations/` é o MESMO que um banco nascido de `ensureSchema()`?** Enquanto a
-// resposta for sim, as duas fontes de verdade que esta base tem hoje não
-// divergiram. No dia em que alguém acrescentar DDL só num dos dois lados, é este
-// arquivo que acusa.
+// Ele nasceu para uma pergunta que já foi respondida: **um banco nascido apenas
+// das migrações de `migrations/` é o MESMO que um banco nascido de
+// `ensureSchema()`?** A resposta foi ZERO divergências, e com ela na mão
+// `ensureSchema` foi apagado em 26/08 — a segunda fonte de verdade deixou de
+// existir.
+//
+// ELE CONTINUA SENDO USADO, para duas perguntas que sobreviveram à primeira: o
+// `public` de produção contém tudo o que a pasta produz? e o retrato ainda
+// DISCRIMINA, ou passou a imprimir verde sobre nada? As duas estão em
+// `esquema-base.integracao.ts`.
 //
 // -----------------------------------------------------------------------------
 // O QUE ELE OLHA — e a lista é a resposta a "comparação que não olha nada"

@@ -1,7 +1,6 @@
 import "server-only";
 import {
   sql,
-  ensureSchema,
   getConfig,
   listAccounts,
   Account,
@@ -127,7 +126,6 @@ export type MessagingEvent = {
 // desses arquivos — movimento amplo, no meio da fase, cuja única prova seria o
 // typecheck. O que ele compra é higiene de grafo, não comportamento.
 export async function logEvent(accountId: string | null, type: string, payload: unknown) {
-  await ensureSchema();
   // O payload vai CRU para uma coluna jsonb — sem JSON.stringify.
   //
   // Isto já foi `JSON.stringify(payload)` e estava certo no driver HTTP, que só
@@ -180,7 +178,6 @@ export async function logEventThrottled(
   minutos = 10,
   discriminador?: { campo: string; valor: string }
 ): Promise<void> {
-  await ensureSchema();
   // `payload` é jsonb (ver lib/db.ts), então `->>` devolve o campo como texto —
   // e a CHAVE também vai como parâmetro, verificado contra o banco.
   const filtros = ["type = $1", "created_at > now() - make_interval(mins => $2::int)"];

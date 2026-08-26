@@ -1,5 +1,5 @@
 import "server-only";
-import { sql, ensureSchema } from "./db";
+import { sql } from "./db";
 
 // Freio de força bruta no login.
 //
@@ -22,7 +22,6 @@ export const LOCKOUT_MESSAGE = `Muitas tentativas. Espere ${WINDOW_MINUTES} minu
 // exigida de qualquer forma.
 export async function isLockedOut(ip: string): Promise<boolean> {
   try {
-    await ensureSchema();
     const rows = (await sql().query(
       `select count(*)::int as total from login_attempts
        where ip = $1 and attempted_at > now() - make_interval(mins => $2::int)`,
@@ -36,7 +35,6 @@ export async function isLockedOut(ip: string): Promise<boolean> {
 
 export async function recordFailure(ip: string): Promise<void> {
   try {
-    await ensureSchema();
     await sql().query(`insert into login_attempts (ip) values ($1)`, [ip]);
     // limpeza oportunista: sem isto a tabela cresceria para sempre
     await sql().query(

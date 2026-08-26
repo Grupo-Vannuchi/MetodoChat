@@ -1253,7 +1253,9 @@ export function passoEsperado(passos: unknown, indice: number): Passo | undefine
 // --aplicar` escreve a corrente `bloco i → bloco i+1` que a ordem já expressava.
 // A ordem de implantação é, portanto, obrigatória e nesta sequência:
 //
-//   1. a coluna `ligacoes` existir no banco (`ensureSchema`, lib/db.ts);
+//   1. a coluna `ligacoes` existir no banco (`migrations/001-ligacoes.sql`,
+//      aplicada por `scripts/migrar.mjs` dentro do build — era `ensureSchema`,
+//      lib/db.ts, até ele ser apagado em 26/08);
 //   2. a migração rodar com `--aplicar`;
 //   3. só então este motor entrar no ar.
 //

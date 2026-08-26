@@ -1,4 +1,4 @@
-import { sql, ensureSchema, QueueItem } from "@/lib/db";
+import { sql, QueueItem } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
 import { card, muted, tableWrap, thead, rowDivide } from "../ui";
@@ -56,7 +56,6 @@ export default async function EventosPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await ensureSchema();
   const account = await getSelectedAccount();
   const params = await searchParams;
   const filtros = parseFilters(params);

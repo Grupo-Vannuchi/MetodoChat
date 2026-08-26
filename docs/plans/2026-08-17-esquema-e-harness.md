@@ -151,15 +151,21 @@ na pasta**, e são seis migrações:
 `002` e `003` são `alter table` sobre tabelas que num banco vazio ainda não
 existem.
 
-**A rede continua inteira, de propósito.** `ensureSchema()` não perdeu uma linha
-e continua sendo chamado dos **27 lugares**. Enquanto ele existir, implantar sem
-rodar a migração ainda funciona — e é isso que o "O que precisa de cuidado", mais
-abaixo, manda preservar até a hora.
+**A REDE CAIU EM 26/08.** `ensureSchema()` foi apagado — a lista `DDL`, o
+`migrateAccounts`, a memoização e a função inteira —, e com ela os **24 pontos de
+chamada em 15 arquivos**. `lib/db.ts` caiu de 763 para 403 linhas, e **nada na
+aplicação executa DDL**.
 
-**O que impede as duas fontes de verdade de divergirem enquanto coexistem:**
-`testes-integracao/esquema-base.integracao.ts` monta um schema descartável por
-lado e os compara campo a campo. Medido em 26/08, com **8 tabelas, 99 colunas, 16
-índices e 16 restrições de cada lado: ZERO divergências**.
+**O que autorizou a remoção:** `testes-integracao/esquema-base.integracao.ts`
+montou um schema descartável por lado e os comparou campo a campo. Medido em
+26/08, com **8 tabelas, 99 colunas, 16 índices e 16 restrições de cada lado: ZERO
+divergências**. A remoção foi, por isso, apagamento puro — sem tradução no meio.
+
+**O que a substituiu, e a palavra é a diferença inteira:** `lib/esquema.ts`
+CONFERE, e não CRIA. Uma consulta de catálogo, uma vez por instância, chamada de
+um lugar só (`register()` de `instrumentation.ts`), que **recusa servir** se o
+banco estiver atrás. Nenhuma linha dela emite DDL, e há um caso de teste que
+falha se alguém a fizer criar.
 
 ### O que fazer
 
@@ -168,8 +174,12 @@ lado e os compara campo a campo. Medido em 26/08, com **8 tabelas, 99 colunas, 1
    próprio `lib/db.ts` e não por cópia à mão
 2. ~~**Separar o que não é esquema**~~ — **FEITO**, e a armadilha abaixo era
    maior do que estava escrito: ver "TRÊS, e não duas"
-3. **Reduzir `ensureSchema` a nada**, e limpar os 27 pontos de chamada — o
-   degrau seguinte, e o único que ainda muda comportamento de deploy
+3. ~~**Reduzir `ensureSchema` a nada**, e limpar os 27 pontos de chamada~~ —
+   **FEITO em 26/08.** Eram **24** chamadas em 15 arquivos (o 27 contava os
+   `import`). O degrau veio com duas coisas que não estavam na lista, e as duas
+   foram medidas antes de escritas: a trava de produção deixou de poder **pular
+   calada** num build, e a aplicação ganhou uma **conferência de partida** no
+   lugar da criação. Ver "O QUE O DEGRAU 3 MEDIU", no fim desta seção
 4. **Criar a tabela de controle** — ver o aviso abaixo
 
 ### O passo 2 está CERTO NA INTENÇÃO E PERIGOSO NA LETRA
@@ -226,23 +236,59 @@ não dão o mesmo número.
 **A semente de `config`** (uma linha, com o token do webhook) é desejável até em
 banco de teste — ela não é DDL, mas é pré-requisito de funcionamento.
 
-### O que ganha
+### O que ganhou — MEDIDO em 26/08, e não estimado
 
-- some a classe de impasse que a Fase 2a viveu: preparar o banco deixa de
+- some a classe de impasse que a Fase 2a viveu: preparar o banco deixou de
   depender de subir o código
-- a primeira requisição depois de cada deploy deixa de carregar 42 comandos, dos
-  quais 26 pedem trava exclusiva de tabela
-- **some a armadilha medida na Tarefa 9**: hoje, com um servidor de dev de pé,
-  **editar `lib/db.ts` É aplicar a migração**. A coluna `entrega_sem_portao`
-  nasceu no banco assim, sem ninguém ter decidido aplicá-la
-- a estrutura vira coisa que se lê num diretório, em ordem, em vez de um array
+- **a primeira requisição de cada instância**: de **49 idas ao banco e 1398 ms**
+  (a frio, contra um schema vazio deste mesmo Postgres) para **zero**. Das 49, 26
+  eram `alter table`, que pede trava exclusiva de tabela. No lugar entrou UMA
+  consulta de catálogo, de **19 a 23 ms**, memoizada por instância
+- **a rodada de integração inteira** caiu de **61,1 s para 41,2 s** — oito
+  arquivos que deixaram de montar o esquema pela aplicação
+- **A ARMADILHA DA TAREFA 9 SUMIU, e foi medida sumindo.** Com um servidor de dev
+  apontado para um schema descartável: coluna `automations.ligacoes` derrubada à
+  mão, `lib/db.ts` editado com o servidor de pé, requisição feita — **a coluna
+  continuou ausente**. Antes, editar aquele arquivo era aplicar a migração; foi
+  assim que `entrega_sem_portao` nasceu no banco de produção
+- a estrutura virou coisa que se lê num diretório, em ordem, em vez de um array
 
-### O que precisa de cuidado
+### O QUE O DEGRAU 3 MEDIU, e que não estava na lista
 
-**A rede não pode sumir antes da hora.** Enquanto `ensureSchema` existe,
-implantar sem rodar a migração ainda funciona. No dia em que ele morrer, esquecer
-de rodar passa a **quebrar o deploy** — e isso precisa ser intencional, não
-descoberto.
+**1 · A trava de produção podia pular CALADA, e isso deixou de ser inofensivo.**
+Com a caixa "Enable access to System Environment Variables" desmarcada,
+`VERCEL_ENV` some, o script pulava com código 0 e o build seguia. Enquanto
+`ensureSchema` existia, isso devolvia o estado antigo. Sem ele, seria um deploy
+verde sobre um banco sem migração.
+
+A pergunta "dá para distinguir um build da Vercel sem as variáveis de uma máquina
+qualquer?" foi levada à documentação da Vercel, e a resposta é **NÃO, por
+construção**: `VERCEL=1` é definida como *"an indicator to show that system
+environment variables have been exposed"* — ela **é** o indicador da caixa, e
+`CI`, `VERCEL_URL` e as outras saem pela mesma. Então o script parou de perguntar
+ao ambiente e passou a exigir **prova**: `VERCEL_ENV` (é um deploy) ou
+`.env.local` (é a máquina de alguém — o arquivo que o `.gitignore` mantém fora do
+repositório, e cuja ausência num build da Vercel já estava medida desde o ENOENT
+de 26/08). Sem prova nenhuma, **recusa com código 1**, e o `next build` não roda.
+A mesma prova passou a ser exigida do `--a-mao`, o que fecha o espelho do buraco.
+
+**2 · O que a aplicação faz se uma coluna faltar — medido, e é o pior caso.**
+
+| | com `automations.ligacoes` | sem ela |
+|---|---|---|
+| mensagens enfileiradas | **3**, na ordem do grafo | **1** |
+| `ignorados` | 0 | **0** |
+| erro | nenhum | **nenhum** |
+
+A chave nem chega na linha: `select *` devolve o objeto sem ela, e `interpretar`
+lê `undefined`. É o mesmo formato do precedente da `003`. O contraste importa: um
+`select` que **nomeia** a coluna estoura `42703`, e uma tabela ausente estoura
+`42P01` — os dois ALTO. **A única forma calada é a coluna ausente lida por
+`select *`**, e é exatamente ela que a conferência de partida cobre.
+
+**O caminho real por onde isso aconteceria é o PREVIEW:** a trava pula em deploy
+de branch, de propósito, e o preview fala com o mesmo banco. Uma branch com
+migração nova encontraria o banco sem ela e pareceria funcionar.
 
 **A tabela de controle vira obrigatória** no dia da primeira migração que MOVE
 dado — e a remoção de `flow_step_index` é exatamente ela. O contrato de hoje
@@ -715,7 +761,9 @@ disciplina. **Como prova destes dois defeitos, não serve.**
 | `testes-integracao/rede-global.ts` | recolhe schema órfão no início e no fim da rodada, e **falha alto** se achou |
 | `testes-integracao/fundacao.integracao.ts` | o teste mínimo que prova a fundação — 4 casos |
 | `testes-integracao/retrato-estrutural.ts` | o retrato de um schema (tabela, coluna, índice, restrição) e a comparação entre dois |
-| `testes-integracao/esquema-base.integracao.ts` | **A × B**: `ensureSchema()` contra `migrations/`, 4 casos — o caminho da Frente 1 |
+| `testes-integracao/migracoes.ts` | a leitura de `migrations/`, uma vez só, para o harness e para o caminho do esquema |
+| `testes-integracao/esquema-base.integracao.ts` | a pasta basta? 4 casos — inclusive **`public` de produção contém tudo o que ela produz** |
+| `testes-integracao/esquema-de-partida.integracao.ts` | a conferência de `lib/esquema.ts`, dos dois lados: ela acusa, e **não cria** — 6 casos |
 | `vitest.integracao.config.ts` | configuração própria |
 | `npm run test:integracao` | o comando novo |
 
@@ -732,9 +780,10 @@ acontece quando ninguém digita nada.
 do dono, e segue adiada.
 
 Medido: `npm test` = **677 em 22 arquivos**, sem banco.
-`npm run test:integracao` = **36 casos em 8 arquivos** (26/08, com o caminho do
-esquema base), um schema temporário por
-arquivo. `public` intacto por **presença e identidade** ancoradas num corte — a
+`npm run test:integracao` = **42 casos em 9 arquivos** (26/08, com o caminho da
+conferência de partida), um schema temporário por arquivo. **A rodada caiu de
+61,1 s para 41,2 s** quando o esquema descartável passou a nascer de
+`migrations/` em vez de `ensureSchema()`. `public` intacto por **presença e identidade** ancoradas num corte — a
 digital da linha inteira foi trocada por isso em 25/08, e o motivo, a medição e o
 **preço** estão na última seção deste plano —, e **zero schemas `teste_tmp_` no
 banco** antes e depois.

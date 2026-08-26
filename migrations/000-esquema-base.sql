@@ -36,16 +36,15 @@
 --   3. ESTE ARQUIVO É TRANSCRIÇÃO, E NÃO REDESENHO. As 42 instruções estão aqui
 --      na MESMA ordem e com o MESMO texto da lista `DDL` de `lib/db.ts` —
 --      extraídas do próprio arquivo, não copiadas à mão. Isso é o que torna
---      possível provar que os dois lados produzem o mesmo banco (ver
---      `testes-integracao/esquema-base.integracao.ts`), e é o que fará da
---      remoção futura de `ensureSchema` um apagamento puro, sem tradução no
---      meio. Qualquer melhoria de forma aqui teria de ser paga com uma
---      divergência entre as duas fontes de verdade que ainda coexistem.
+--      possível provar que os dois lados produziam o mesmo banco (ver
+--      `testes-integracao/esquema-base.integracao.ts`), e foi essa prova — ZERO
+--      divergências — que tornou a remoção de `ensureSchema`, em 26/08, um
+--      apagamento puro, sem tradução no meio.
 --
 -- =============================================================================
 -- O QUE ESTE ARQUIVO **NÃO** TEM, e onde está
 --
--- `ensureSchema` faz quatro coisas, e só a primeira é a lista `DDL`. Duas das
+-- `ensureSchema` fazia quatro coisas, e só a primeira era a lista `DDL`. Duas das
 -- outras três estão aqui embaixo (os dois `alter` extras e a semente de
 -- `config`); a quarta, `migrateAccounts`, é migração de DADO com DUAS mudanças
 -- de FORMA escondidas dentro, e essas duas viraram `004` e `005`. Estão fora
@@ -91,7 +90,7 @@
 -- nem token novo. A trava é a chave primária `id`, e a tabela tem
 -- `check (id = 1)`, então existe no máximo uma linha e ela é sempre esta. Ou
 -- seja: a primeira execução semeia, e toda execução seguinte é silêncio.
--- É exatamente a garantia que `ensureSchema` dá hoje, com a MESMA cláusula.
+-- É exatamente a garantia que `ensureSchema` dava, com a MESMA cláusula.
 --
 -- O QUE FOI ESCOLHIDO, E O QUE FOI RECUSADO:
 --
@@ -119,16 +118,12 @@
 --
 -- Toda instrução abaixo é `if not exists`, exceto o par que derruba e recria a
 -- chave estrangeira de `queue` — que é a forma idempotente equivalente para
--- restrição, o precedente é `migrations/003`, e é a MESMA dupla que `lib/db.ts`
--- já roda em toda instância.
+-- restrição, e o precedente é `migrations/003`.
 --
--- ESTAS LINHAS TAMBÉM ESTÃO EM `lib/db.ts` (`ensureSchema`), e a duplicação é
--- deliberada durante a transição, pelo motivo já escrito em `001` e `002`: lá
--- elas são a REDE, aqui são a ORDEM. **A rede não sai antes da hora** — ver
--- `docs/plans/2026-08-17-esquema-e-harness.md`. O que impede as duas de
--- divergirem enquanto coexistem é `testes-integracao/esquema-base.integracao.ts`,
--- que monta um schema por cada lado e compara tabela, coluna, índice, chave e
--- `check`, campo a campo.
+-- ESTAS LINHAS JÁ ESTIVERAM EM DOIS LUGARES, e desde 26/08 estão só aqui. A
+-- cópia de `lib/db.ts` (`ensureSchema`) era a REDE; esta é a ORDEM. A rede foi
+-- apagada, com a prova de equivalência na mão. **ESTE ARQUIVO É, HOJE, A ÚNICA
+-- DESCRIÇÃO DO ESQUEMA BASE QUE EXISTE.** Nada na aplicação executa DDL.
 
 create table if not exists config (
     id int primary key default 1 check (id = 1),
@@ -303,7 +298,7 @@ alter table automations add column if not exists ligacoes jsonb not null default
 
 alter table automations add column if not exists entrega_sem_portao boolean not null default false;
 
--- Os dois `alter` extras que `ensureSchema` roda FORA da lista. Ver o cabeçalho.
+-- Os dois `alter` extras que `ensureSchema` rodava FORA da lista. Ver o cabeçalho.
 alter table config add column if not exists meta_app_id text;
 
 alter table config add column if not exists meta_app_secret text;

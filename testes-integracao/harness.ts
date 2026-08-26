@@ -18,6 +18,7 @@ import {
   urlDoBanco,
   type InventarioPublic,
 } from "./banco-descartavel";
+import { aplicarMigracoes, exigirPastaInteira } from "./migracoes";
 
 type ModuloDb = typeof import("@/lib/db");
 
@@ -51,10 +52,11 @@ function aindaNao<T>(o: T | null, oQue: string): T {
  * teste correria depois deste — retratando `public` quando o trabalho já tivesse
  * começado, que é exatamente o retrato que não prova nada.
  *
- * Um schema por ARQUIVO de teste, e não por caso: `schemaReady` memoriza a
- * promessa dentro do módulo `lib/db` (lib/db.ts:633), então dois schemas no
- * mesmo arquivo exigiriam recarregar o módulo. O isolamento por arquivo do
- * vitest já dá um registro de módulos limpo para cada um.
+ * Um schema por ARQUIVO de teste, e não por caso: `_sql` é singleton de módulo
+ * (lib/db.ts) e nasce apontado para a URL que estiver no ambiente na primeira
+ * chamada, então dois schemas no mesmo arquivo exigiriam recarregar o módulo. O
+ * isolamento por arquivo do vitest já dá um registro de módulos limpo para cada
+ * um.
  */
 export function bancoDescartavel(): BancoDescartavel {
   let nome: string | null = null;
@@ -86,8 +88,19 @@ export function bancoDescartavel(): BancoDescartavel {
       // 4) o caminho é conferido NO BANCO antes de a estrutura nascer
       await conferirCaminho((texto) => carregado.sql().query(texto), escolhido);
 
-      // 5) a estrutura, pelo `ensureSchema()` de verdade
-      await carregado.ensureSchema();
+      // 5) a estrutura, PELA PASTA `migrations/` — que é a única fonte dela.
+      //
+      //    Até 26/08 esta linha era `await carregado.ensureSchema()`, e a troca
+      //    é o degrau da Frente 1: o esquema deixou de nascer dentro da
+      //    aplicação. O que isto compra para os testes é maior do que economizar
+      //    uma chamada — é que TODO caminho de integração passa a rodar o motor
+      //    de verdade contra um banco montado do jeito que produção é montada.
+      //    Um banco vazio mais as migrações tem de bastar para a aplicação
+      //    funcionar; se não bastar, os 36 casos ficam vermelhos.
+      //
+      //    A conexão é a do `lib/db` de propósito: ela já carrega o
+      //    `search_path` do schema descartável, conferido no passo 4 acima.
+      exigirPastaInteira(await aplicarMigracoes((texto) => carregado.sql().query(texto)));
       db = carregado;
     } catch (erro) {
       // Se a montagem morrer no meio, o schema meio-feito morre junto. O

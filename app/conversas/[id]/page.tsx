@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ensureSchema, sql } from "@/lib/db";
+import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import {
   conversationMessages,
@@ -82,7 +82,6 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   if (!/^\d{1,32}$/.test(id)) notFound();
 
-  await ensureSchema();
   const account = await getSelectedAccount();
   if (!account) notFound();
 
