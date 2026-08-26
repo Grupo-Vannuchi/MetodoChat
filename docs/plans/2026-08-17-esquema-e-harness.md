@@ -135,28 +135,41 @@ tornado **impossível de escrever**. Foi o que funcionou aqui, e foi barato.
 ### Onde está
 
 **Começou.** `migrations/` e `scripts/migrar.mjs` nasceram na Fase 2a porque o
-impasse do deploy não deixava seguir sem eles. Existem três migrações:
+impasse do deploy não deixava seguir sem eles. **Em 26/08 o esquema base entrou
+na pasta**, e são seis migrações:
 
 | | |
 |---|---|
+| `000-esquema-base.sql` | as 42 instruções da lista `DDL`, os dois `alter` extras e a semente de `config` |
 | `001-ligacoes.sql` | a coluna do mapa de caminhos |
 | `002-entrega-sem-portao.sql` | a chave por automação |
 | `003-fila-sobrevive-a-automacao.sql` | a fila deixa de morrer com a automação |
+| `004-fila-tipos-novos.sql` | `queue_kind_check` com os 9 tipos, tirada de `migrateAccounts` |
+| `005-contatos-chave-composta.sql` | a chave primária `(account_id, ig_id)`, tirada de `migrateAccounts` |
 
-**Falta o essencial.** O esquema base ainda nasce dentro da aplicação. Medido em
-24/08, na lista `DDL` de `lib/db.ts`: **42 instruções** — 8 tabelas, 8 índices e
-26 `alter table`. E `ensureSchema` faz mais que rodar essa lista: dois `alter`
-extras, um `insert` que semeia a linha de `config`, e `migrateAccounts`, que é
-migração de dado para instalações antigas.
+**`000` e não `004`** porque `migrar.mjs` aplica por ordem de nome, e `001`,
+`002` e `003` são `alter table` sobre tabelas que num banco vazio ainda não
+existem.
 
-`ensureSchema()` é chamado de **27 lugares**, não recebe argumento, e memoriza a
-promessa num módulo — uma vez por instância.
+**A rede continua inteira, de propósito.** `ensureSchema()` não perdeu uma linha
+e continua sendo chamado dos **27 lugares**. Enquanto ele existir, implantar sem
+rodar a migração ainda funciona — e é isso que o "O que precisa de cuidado", mais
+abaixo, manda preservar até a hora.
+
+**O que impede as duas fontes de verdade de divergirem enquanto coexistem:**
+`testes-integracao/esquema-base.integracao.ts` monta um schema descartável por
+lado e os compara campo a campo. Medido em 26/08, com **8 tabelas, 99 colunas, 16
+índices e 16 restrições de cada lado: ZERO divergências**.
 
 ### O que fazer
 
-1. **Mover as 42 instruções** para arquivos numerados em `migrations/`
-2. **Separar o que não é esquema** — E AQUI MORA UMA ARMADILHA, ver abaixo
-3. **Reduzir `ensureSchema` a nada**, e limpar os 27 pontos de chamada
+1. ~~**Mover as 42 instruções** para arquivos numerados em `migrations/`~~ —
+   **FEITO em 26/08**, num arquivo só (`000`), por transcrição extraída do
+   próprio `lib/db.ts` e não por cópia à mão
+2. ~~**Separar o que não é esquema**~~ — **FEITO**, e a armadilha abaixo era
+   maior do que estava escrito: ver "TRÊS, e não duas"
+3. **Reduzir `ensureSchema` a nada**, e limpar os 27 pontos de chamada — o
+   degrau seguinte, e o único que ainda muda comportamento de deploy
 4. **Criar a tabela de controle** — ver o aviso abaixo
 
 ### O passo 2 está CERTO NA INTENÇÃO E PERIGOSO NA LETRA
@@ -179,6 +192,36 @@ primária errada** — o `on conflict (account_id, ig_id)` estoura em runtime �
 **O que fazer:** extrair essas duas mudanças de forma para migrações próprias
 ANTES de mexer no `migrateAccounts`. O resto dele é dado, seleciona zero linhas
 num banco vazio, e aí sim pode sair.
+
+#### TRÊS, e não duas — medido em 26/08
+
+A tabela acima está certa e está **incompleta**. Sonda de 26/08: dois schemas
+descartáveis, um com a lista `DDL` sozinha e outro com `ensureSchema()` inteiro,
+comparados campo a campo pelo catálogo. Saíram **quatro divergências**, que são
+**três mudanças** (a chave primária conta duas vezes, pela restrição e pelo
+índice que a implementa):
+
+| | a `DDL` deixa | `migrateAccounts` faz ficar |
+|---|---|---|
+| restrição `contacts_pkey` | `PRIMARY KEY (ig_id)` | **`PRIMARY KEY (account_id, ig_id)`** |
+| índice `contacts_pkey` | `btree (ig_id)` | **`btree (account_id, ig_id)`** |
+| **coluna `contacts.account_id`** | **`nao_nulo=false`** | **`nao_nulo=true`** |
+| restrição `queue_kind_check` | 5 tipos | **9 tipos** |
+
+**A terceira não está escrita em lugar nenhum**, e é o achado: `account_id` nasce
+de um `alter table … add column if not exists account_id text`, sem `not null`.
+Quem a torna `not null` é o próprio `add primary key`, por definição do Postgres.
+Uma migração que instalasse a chave "na mão" — um índice único, por exemplo —
+produziria um schema **parecido e não igual**, e a diferença só apareceria no dia
+em que uma linha com `account_id` nulo fosse gravada.
+
+**Medido também, porque a pergunta é legítima:** derrubar a chave antiga **não**
+solta o `not null` de `ig_id`. Ele continua `nao_nulo=true` dos dois lados.
+
+**A lição é a mesma da pergunta pelo chamador:** a tabela de 24/08 listava o que
+alguém tinha ido procurar. A de 26/08 é o que o catálogo devolveu quando a
+pergunta foi "o que MUDA", sem lista de candidatos. As duas formas de perguntar
+não dão o mesmo número.
 
 **A semente de `config`** (uma linha, com o token do webhook) é desejável até em
 banco de teste — ela não é DDL, mas é pré-requisito de funcionamento.
@@ -671,6 +714,8 @@ disciplina. **Como prova destes dois defeitos, não serve.**
 | `testes-integracao/harness.ts` | `bancoDescartavel()`, os ganchos que um teste usa |
 | `testes-integracao/rede-global.ts` | recolhe schema órfão no início e no fim da rodada, e **falha alto** se achou |
 | `testes-integracao/fundacao.integracao.ts` | o teste mínimo que prova a fundação — 4 casos |
+| `testes-integracao/retrato-estrutural.ts` | o retrato de um schema (tabela, coluna, índice, restrição) e a comparação entre dois |
+| `testes-integracao/esquema-base.integracao.ts` | **A × B**: `ensureSchema()` contra `migrations/`, 4 casos — o caminho da Frente 1 |
 | `vitest.integracao.config.ts` | configuração própria |
 | `npm run test:integracao` | o comando novo |
 
@@ -687,7 +732,8 @@ acontece quando ninguém digita nada.
 do dono, e segue adiada.
 
 Medido: `npm test` = **677 em 22 arquivos**, sem banco.
-`npm run test:integracao` = **32 casos em 7 arquivos**, um schema temporário por
+`npm run test:integracao` = **36 casos em 8 arquivos** (26/08, com o caminho do
+esquema base), um schema temporário por
 arquivo. `public` intacto por **presença e identidade** ancoradas num corte — a
 digital da linha inteira foi trocada por isso em 25/08, e o motivo, a medição e o
 **preço** estão na última seção deste plano —, e **zero schemas `teste_tmp_` no
@@ -1037,4 +1083,5 @@ de cada vez, cada uma revertida na mesma chamada de shell com
 - **"`public` intacto por digital ancorada num corte"** virou **"por presença e
   identidade ancoradas num corte"**, e o que isso deixa de afirmar está no
   parágrafo 4.
-- **`npm run test:integracao` = 32 casos em 7 arquivos**, e não 25 em 6.
+- **`npm run test:integracao` = 32 casos em 7 arquivos**, e não 25 em 6. (Em
+  26/08 passou a 36 em 8, com `esquema-base.integracao.ts`.)
