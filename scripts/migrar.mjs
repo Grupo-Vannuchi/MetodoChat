@@ -59,8 +59,59 @@ function limparUrl(url) {
 }
 
 const aplicar = process.argv.includes("--aplicar");
-const url = readFileSync(".env.local", "utf8").match(/^DATABASE_URL=(.+)$/m)[1].trim();
-const sql = postgres(limparUrl(url), { prepare: false, ssl: "require", max: 1, onnotice: () => {} });
+
+// ---------- DE ONDE VEM A URL DO BANCO ----------
+//
+// O AMBIENTE PRIMEIRO, O ARQUIVO COMO RESERVA — e a ordem é esta porque o
+// arquivo é justamente o que NÃO EXISTE no lugar novo. Até 26/08 aqui havia uma
+// linha só:
+//
+//     readFileSync(".env.local", "utf8").match(/^DATABASE_URL=(.+)$/m)[1].trim()
+//
+// Na máquina de quem roda à mão ela funciona. Num build da Vercel, `.env.local`
+// não existe — o `.gitignore` o mantém fora do repositório, e é assim que tem de
+// ser —, então o script morria de ENOENT antes de abrir conexão. MEDIDO em
+// 26/08, rodando o script de um diretório sem o arquivo: `Error: ENOENT … open
+// '…\.env.local'`, código de saída **1**.
+//
+// Isso deixou de ser detalhe no dia em que este script passou a rodar DENTRO do
+// `build` (ver `package.json`): o ENOENT derrubaria o deploy inteiro, e por um
+// motivo que nada tem a ver com o esquema.
+//
+// A FORMA É A MESMA de `testes-integracao/banco-descartavel.ts:urlDoBanco()`, de
+// propósito: as duas perguntam ao ambiente e só depois ao arquivo. Duas formas
+// diferentes para a mesma pergunta é como nasce a divergência que ninguém vê.
+//
+// O CAMINHO CONTINUA RELATIVO AO DIRETÓRIO DE TRABALHO, como o
+// `readdirSync("migrations")` logo abaixo: o contrato deste script é ser rodado
+// da RAIZ do repositório, e na Vercel a raiz é o diretório de trabalho do build.
+// Ancorar só um dos dois no arquivo daria a impressão falsa de que ele roda de
+// qualquer lugar — o outro continuaria não rodando.
+//
+// DO ARQUIVO SAI UMA LINHA E NADA MAIS. A `ADMIN_PASSWORD` mora nele e não é
+// lida — e não é lida porque não é procurada.
+function urlDoBanco() {
+  const doAmbiente = process.env.DATABASE_URL;
+  if (doAmbiente && doAmbiente.trim()) return doAmbiente.trim();
+
+  let texto;
+  try {
+    texto = readFileSync(".env.local", "utf8");
+  } catch {
+    throw new Error(
+      "DATABASE_URL não veio do ambiente, e `.env.local` não existe neste " +
+        "diretório. Rode da raiz do repositório, ou defina DATABASE_URL no ambiente."
+    );
+  }
+  const achado = texto.match(/^DATABASE_URL=(.+)$/m);
+  if (!achado) {
+    throw new Error("DATABASE_URL não encontrada: nem no ambiente, nem no `.env.local`.");
+  }
+  // As aspas saem porque um arquivo `.env` pode trazê-las e a URL não as quer.
+  return achado[1].trim().replace(/^["']|["']$/g, "");
+}
+
+const sql = postgres(limparUrl(urlDoBanco()), { prepare: false, ssl: "require", max: 1, onnotice: () => {} });
 
 console.log(aplicar ? "MODO: APLICANDO (grava no banco)\n" : "MODO: ENSAIO A SECO (nada é gravado)\n");
 
