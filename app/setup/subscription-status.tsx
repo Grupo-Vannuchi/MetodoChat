@@ -1,5 +1,5 @@
 import { listAccounts } from "@/lib/db";
-import { getSubscribedFields } from "@/lib/ig";
+import { getSubscribedFields, CAMPOS_DE_WEBHOOK } from "@/lib/ig";
 import { reassinarWebhooks } from "./actions";
 import SubmitButton from "./submit-button";
 import { btnPrimary, muted } from "../ui";
@@ -19,14 +19,20 @@ export default async function SubscriptionStatus() {
       fields: await getSubscribedFields(a.ig_user_id, a.access_token),
     }))
   );
-  const assinaturaOk = (f: string[] | null) =>
-    Boolean(f && f.includes("comments") && f.includes("messages"));
+  // A CONFERÊNCIA LÊ A MESMA LISTA QUE A INSCRIÇÃO ESCREVE (`CAMPOS_DE_WEBHOOK`,
+  // lib/ig.ts). Antes ela citava "comments" e "messages" à mão: acrescentar um
+  // campo à inscrição deixava esta tela dizendo "recebendo eventos ✓" para uma
+  // conta que assinava só metade — a tela viraria a prova de que está tudo bem
+  // justamente quando não está.
+  const esperados = CAMPOS_DE_WEBHOOK.split(",");
+  const faltando = (f: string[] | null) => (f ? esperados.filter((c) => !f.includes(c)) : esperados);
 
   return (
     <>
       <ul className="space-y-2">
         {assinaturas.map((s) => {
-          const ok = assinaturaOk(s.fields);
+          const ausentes = faltando(s.fields);
+          const ok = s.fields !== null && ausentes.length === 0;
           return (
             <li
               key={s.ig_user_id}
@@ -42,8 +48,11 @@ export default async function SubscriptionStatus() {
                   recebendo eventos ✓
                 </span>
               ) : (
+                // DIZ O QUE FALTA, e não só que falta: sem os nomes, o dono lê
+                // "assinatura incompleta" e o único caminho é adivinhar. Com
+                // eles, ele sabe se apertar "Reassinar webhooks" resolve.
                 <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-800 dark:bg-red-950 dark:text-red-400">
-                  assinatura incompleta
+                  falta assinar: {ausentes.join(", ")}
                 </span>
               )}
               {s.fields && s.fields.length > 0 && (
