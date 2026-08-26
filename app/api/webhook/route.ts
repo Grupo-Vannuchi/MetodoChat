@@ -12,6 +12,7 @@ import { getConfig } from "@/lib/db";
 import { drainQueue } from "@/lib/queue-drain";
 import { safeEqualSecret } from "@/lib/crypto";
 import { signatureMatchesAny } from "@/lib/webhook-signature";
+import { ehConhecidoEIgnorado } from "@/lib/webhook-messaging";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -197,6 +198,13 @@ export async function POST(req: NextRequest) {
           await handleMessagingEvent(entry.id, messaging);
           continue;
         }
+        // CONHECIDO-E-IGNORADO não é o mesmo que NÃO ENTENDI, e misturar os
+        // dois foi o defeito medido: as 3 únicas linhas que este registro
+        // gravou eram confirmação de leitura, que é conhecida e não tem nada a
+        // fazer. Ruído numa tela de diagnóstico ensina o dono a ignorá-la.
+        // A lista das formas ignoradas é do que o banco OBSERVOU — o porquê,
+        // por extenso, em lib/webhook-messaging.ts.
+        if (ehConhecidoEIgnorado(messaging)) continue;
         // O item vai CRU, inteiro, sem escolher campo nenhum: o que este ramo
         // pega é justamente o que ainda não se sabe a forma — `referral`,
         // `postback`, e o que a Meta acrescentar depois. Escolher campos aqui
