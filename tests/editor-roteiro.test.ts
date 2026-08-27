@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { roteiro, textoDoTempo, type Cena } from "../app/automacoes/editor/roteiro";
+import {
+  oQueAVisitanteFez,
+  roteiro,
+  textoDoDisparo,
+  textoDoTempo,
+  type Cena,
+} from "../app/automacoes/editor/roteiro";
 import { identidadeDoPasso, type Ligacao, type Passo } from "../lib/steps";
 
 // Os tipos das bolhas de uma cena, na ordem. É o que quase todo teste daqui
@@ -75,6 +81,114 @@ describe("textoDoTempo", () => {
     expect(textoDoTempo(120)).toBe("2 horas depois");
     expect(textoDoTempo(90)).toBe("1 hora e 30 min depois");
     expect(textoDoTempo(61)).toBe("1 hora e 1 min depois");
+  });
+});
+
+describe("textoDoDisparo — o que ela digitou", () => {
+  it("a primeira palavra escrita, e não a primeira da lista", () => {
+    // O painel deixa entradas em branco na lista enquanto a pessoa digita, e a
+    // primeira delas desenharia um balão vazio na prévia.
+    expect(textoDoDisparo("contains", ["", "  ", "promo"])).toBe("promo");
+    expect(textoDoDisparo("exact", ["promo", "cupom"])).toBe("promo");
+  });
+
+  it("sem palavra nenhuma, um lugar reservado — e nunca um balão vazio", () => {
+    expect(textoDoDisparo("contains", [])).toBe("sua palavra-chave");
+    expect(textoDoDisparo("contains", ["", " "])).toBe("sua palavra-chave");
+  });
+
+  it("com `any` não há palavra a mostrar, e desenhar uma seria mentira", () => {
+    // Aquela automação casa com TODA mensagem, de todo mundo. O exemplo é uma
+    // mensagem qualquer, e a lista de palavras é ignorada de propósito.
+    expect(textoDoDisparo("any", ["promo"])).toBe("oi, tudo bem?");
+    expect(textoDoDisparo("any", [])).toBe("oi, tudo bem?");
+  });
+});
+
+describe("oQueAVisitanteFez — o gesto que abre a conversa", () => {
+  // O QUE ESTE BLOCO PROTEGE, e por que ele existe: as três condições por
+  // gatilho moravam dentro do JSX de `previa.tsx`, e a revisão mediu o preço —
+  // apagando de lá o ramo de `abertura`, a suíte inteira ficava VERDE. A suíte
+  // não testa componente, e não vai passar a testar; a saída foi a decisão
+  // mudar de lado. É a partir daqui que apagá-la fica vermelho.
+
+  it("no comentário a conversa não tem gesto dela — a cena é o cartão do post", () => {
+    // `null` não é omissão: ela COMENTOU, não mandou DM. O que ela fez está
+    // desenhado fora do celular, no cartão "No post".
+    expect(oQueAVisitanteFez("comment", "contains", ["promo"])).toBeNull();
+  });
+
+  it("na mensagem direta o balão dela é a conversa, e não pede legenda", () => {
+    expect(oQueAVisitanteFez("dm", "contains", ["promo"])).toEqual({
+      legenda: null,
+      miniaturaDoStory: false,
+      texto: "promo",
+      descricao: false,
+    });
+  });
+
+  it("no story vêm a legenda e a miniatura, com o que ela respondeu", () => {
+    expect(oQueAVisitanteFez("story", "any", [])).toEqual({
+      legenda: "Respondeu ao seu story",
+      miniaturaDoStory: true,
+      texto: "oi, tudo bem?",
+      descricao: false,
+    });
+  });
+
+  it("na abertura o TOQUE dela vira mensagem dela, e o texto é uma descrição", () => {
+    // ESTE É O CASO QUE A PRÉVIA NÃO TINHA. Sem ele a conversa começava direto
+    // na resposta da automação, e quem olhasse concluiria que ela dispara
+    // sozinha — a mesma confusão que os dois avisos do painel existem para
+    // evitar, e sem o cartão "No post" para compensar.
+    //
+    // `descricao: true` porque o texto da pergunta NÃO ESTÁ NO BANCO: as
+    // perguntas vivem no perfil da conta na Meta. Inventar uma seria a prévia
+    // mostrando um dado que a automação não tem.
+    expect(oQueAVisitanteFez("abertura", "contains", ["promo"])).toEqual({
+      legenda: "Tocou numa pergunta de abertura",
+      miniaturaDoStory: false,
+      texto: "a pergunta que ela tocou",
+      descricao: true,
+    });
+  });
+
+  it("a abertura não tem palavra-chave, e o que a lista disser não a alcança", () => {
+    // `gatilhoPedePalavraChave` (lib/steps.ts) diz que ali não há palavra
+    // nenhuma. Se o balão dela lesse a lista, a prévia mostraria a visitante
+    // digitando uma palavra que aquela automação não usa para nada.
+    const comLista = oQueAVisitanteFez("abertura", "contains", ["promo"]);
+    const semLista = oQueAVisitanteFez("abertura", "any", []);
+    expect(comLista).toEqual(semLista);
+  });
+
+  it("gatilho desconhecido mostra a mensagem dela, em vez de sumir", () => {
+    // TODA PORTA DESTE PRODUTO É ABERTA POR UM GESTO DELA — não existe
+    // automação que comece sozinha. Então "ela mandou alguma coisa" é verdade
+    // para qualquer gatilho novo, e é muito melhor do que a conversa começando
+    // na resposta da conta: foi exatamente esse sumiço que custou o defeito de
+    // `abertura`. Mesmo padrão do `default` de `blocoNovo` e `tipoDoItem`
+    // (`./modelos`): a resposta genérica em vez do nada.
+    expect(oQueAVisitanteFez("gatilho_novo", "contains", ["promo"])).toEqual({
+      legenda: null,
+      miniaturaDoStory: false,
+      texto: "promo",
+      descricao: false,
+    });
+    expect(oQueAVisitanteFez("", "contains", ["promo"])).not.toBeNull();
+  });
+
+  it("só o story pede miniatura, e só a abertura marca o texto como descrição", () => {
+    // A tabela por extenso: é ela que impede um gatilho novo de herdar a
+    // moldura de outro sem ninguém ver.
+    const comMiniatura = ["comment", "story", "dm", "abertura"].filter(
+      (g) => oQueAVisitanteFez(g, "contains", ["promo"])?.miniaturaDoStory
+    );
+    const comDescricao = ["comment", "story", "dm", "abertura"].filter(
+      (g) => oQueAVisitanteFez(g, "contains", ["promo"])?.descricao
+    );
+    expect(comMiniatura).toEqual(["story"]);
+    expect(comDescricao).toEqual(["abertura"]);
   });
 });
 
