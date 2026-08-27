@@ -12,6 +12,7 @@ import { getConfig } from "@/lib/db";
 import { drainQueue } from "@/lib/queue-drain";
 import { safeEqualSecret } from "@/lib/crypto";
 import { signatureMatchesAny } from "@/lib/webhook-signature";
+import { ehConhecidoEIgnorado } from "@/lib/webhook-messaging";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -134,11 +135,17 @@ export async function POST(req: NextRequest) {
     return new NextResponse("invalid signature", { status: 401 });
   }
 
+  // `value` é `unknown` de propósito, e isso é uma correção de tipo além de
+  // conveniência: a FORMA do `value` depende do `field`, e só dá para afirmar
+  // que ele é um `CommentValue` DEPOIS de ler que o campo é "comments". Enquanto
+  // estava tipado como `CommentValue` fixo, o valor de qualquer outro campo
+  // assinado — `messaging_referral`, `live_comments` — era um `CommentValue`
+  // mentiroso aos olhos do compilador.
   let body: {
     object?: string;
     entry?: {
       id?: string;
-      changes?: { field?: string; value?: CommentValue }[];
+      changes?: { field?: string; value?: unknown }[];
       messaging?: MessagingEvent[];
     }[];
   };
@@ -148,16 +155,62 @@ export async function POST(req: NextRequest) {
     return new NextResponse("bad json", { status: 400 });
   }
 
+  // ============================================================
+  // NADA CHEGA AQUI E SAI SEM DEIXAR RASTRO.
+  //
+  // Esta rota despachava dois ramos — `changes` com `field === "comments"` e
+  // item de `messaging` com `message` — e TUDO o mais caía fora do `if` e
+  // morria em silêncio. Um webhook que descarta calado o que não entende é a
+  // mesma doença que esta base passou a semana fechando (`botao_sem_caminho`,
+  // `menu_sem_botoes`, `quick_replies_cortados`): o dono vê "não chega nada" e
+  // não tem uma única linha para onde olhar.
+  //
+  // O custo do silêncio já está medido: a assinatura deste app é
+  // `CAMPOS_DE_WEBHOOK` (lib/ig.ts) e passou a incluir `messaging_postbacks` e
+  // `messaging_referral`. Esses dois eventos chegam SEM `message` — eles são
+  // exatamente a forma que o ramo antigo jogava fora.
+  //
+  // POR QUE `logEvent` E NÃO `logEventThrottled`. Os dois vizinhos com janela
+  // (`signature_mismatch`, `webhook_verify_failed`) nascem de requisição NÃO
+  // autenticada, e a janela existe para a internet não encher a tabela. Estas
+  // duas linhas ficam DEPOIS da conferência de assinatura: só a Meta escreve
+  // aqui, e o volume é limitado ao que o app assina. Uma janela de 10 minutos
+  // engoliria o segundo evento de uma sequência — o `postback` logo depois do
+  // `referral` —, que é precisamente o que se quer ler.
+  //
+  // O tipo é `webhook_campo_nao_tratado` / `webhook_messaging_nao_tratado`, com
+  // rótulo em app/labels.ts: no painel isso tem que ser uma frase, não um nome
+  // interno.
+  // ============================================================
   try {
     for (const entry of body.entry ?? []) {
       // entry.id diz QUAL conta conectada recebeu o evento (multi-conta)
       for (const change of entry.changes ?? []) {
         if (change.field === "comments" && change.value) {
-          await handleCommentEvent(entry.id, change.value);
+          // O `field` já foi lido: aqui, e só aqui, o `value` é um comentário.
+          await handleCommentEvent(entry.id, change.value as CommentValue);
+          continue;
         }
+        await logEvent(entry.id ?? null, "webhook_campo_nao_tratado", change);
       }
       for (const messaging of entry.messaging ?? []) {
-        await handleMessagingEvent(entry.id, messaging);
+        if (messaging.message) {
+          await handleMessagingEvent(entry.id, messaging);
+          continue;
+        }
+        // CONHECIDO-E-IGNORADO não é o mesmo que NÃO ENTENDI, e misturar os
+        // dois foi o defeito medido: as 3 únicas linhas que este registro
+        // gravou eram confirmação de leitura, que é conhecida e não tem nada a
+        // fazer. Ruído numa tela de diagnóstico ensina o dono a ignorá-la.
+        // A lista das formas ignoradas é do que o banco OBSERVOU — o porquê,
+        // por extenso, em lib/webhook-messaging.ts.
+        if (ehConhecidoEIgnorado(messaging)) continue;
+        // O item vai CRU, inteiro, sem escolher campo nenhum: o que este ramo
+        // pega é justamente o que ainda não se sabe a forma — `referral`,
+        // `postback`, e o que a Meta acrescentar depois. Escolher campos aqui
+        // seria decidir de antemão o que vale a pena olhar, que é o erro que
+        // este registro existe para não repetir.
+        await logEvent(entry.id ?? null, "webhook_messaging_nao_tratado", messaging);
       }
     }
   } catch (err) {

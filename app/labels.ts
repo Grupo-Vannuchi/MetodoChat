@@ -108,6 +108,27 @@ const EVENT: Record<string, Badge> = {
     label: "Menu saiu sem botão nenhum",
     className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
   },
+  // OS DOIS DO WEBHOOK QUE NÃO ENTENDEU (app/api/webhook/route.ts). A Meta
+  // mandou alguma coisa que não cai em nenhum ramo conhecido: um `field` em
+  // `changes` que não é "comments", ou um item de `messaging` sem `message` —
+  // que é a forma de `messaging_referral` e de `messaging_postbacks`.
+  //
+  // Âmbar, e não vermelho: nada quebrou e ninguém deixou de receber o que tinha
+  // direito de receber. O que aconteceu é que apareceu uma forma nova, e ela
+  // ficou guardada CRUA no payload em vez de sumir. É a linha que o dono manda
+  // para quem for desenhar o ramo novo.
+  //
+  // Sem estas duas entradas os eventos cairiam no UNKNOWN e o painel escreveria
+  // "Interação" — que é a mesma falha do `dm_manual` aparecendo cru na tela,
+  // registrada no comentário de `kindLabel`, só que do lado do silêncio.
+  webhook_campo_nao_tratado: {
+    label: "Campo de webhook ainda sem tratamento",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+  },
+  webhook_messaging_nao_tratado: {
+    label: "Evento de conversa ainda sem tratamento",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+  },
 };
 
 const UNKNOWN: Badge = {

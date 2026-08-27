@@ -3,12 +3,18 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { updateConfig, listAccounts, getConfig } from "@/lib/db";
-import { subscribeToWebhooks, configureAppWebhook } from "@/lib/ig";
+import { subscribeToWebhooks, configureAppWebhook, CAMPOS_DE_WEBHOOK } from "@/lib/ig";
 import { canonicalAppUrl, isEphemeralUrl } from "@/lib/app-url";
 
-// Reassina comments/messages em todas as contas conectadas. A assinatura já
-// acontece sozinha no OAuth, mas se falhar naquele momento nada chega e o
-// painel fica mudo — este botão conserta sem precisar reconectar tudo.
+// Reassina `CAMPOS_DE_WEBHOOK` (lib/ig.ts) em todas as contas conectadas. A
+// assinatura já acontece sozinha no OAuth, mas se falhar naquele momento nada
+// chega e o painel fica mudo — este botão conserta sem precisar reconectar tudo.
+//
+// E ELE É TAMBÉM O ÚNICO CAMINHO PARA CAMPO NOVO. A inscrição por conta é
+// gravada uma vez, no OAuth: acrescentar um campo em `CAMPOS_DE_WEBHOOK` não
+// mexe em quem já está conectado. Sem este botão, a única saída seria
+// desconectar e reconectar a conta do dono — o que apagaria a ligação viva com
+// a Meta por causa de uma linha de configuração.
 export async function reassinarWebhooks(): Promise<void> {
   const accounts = await listAccounts();
   let ok = 0;
@@ -112,7 +118,9 @@ export async function testarWebhook(): Promise<void> {
 }
 
 // Configura o webhook do app na Meta automaticamente (callback + verify token +
-// campos comments/messages), no lugar de o usuário colar isso à mão no painel.
+// os campos de `CAMPOS_DE_WEBHOOK`, lib/ig.ts), no lugar de o usuário colar isso
+// à mão no painel. Esta é a assinatura do APP, e ela é OUTRA que não a de cada
+// conta: as duas precisam listar o campo para o evento chegar.
 // Usa o App ID + Chave secreta PRINCIPAIS (Configurações → Básico) — que são
 // diferentes das credenciais do login do Instagram. Se vierem no formulário,
 // são salvas; senão, usa as já salvas (com fallback nas do login).
@@ -164,7 +172,7 @@ export async function configurarWebhookAuto(formData: FormData): Promise<void> {
   revalidatePath("/setup");
   redirect(
     `/setup?salvo=${encodeURIComponent(
-      "Webhook configurado automaticamente ✓ (callback + campos comments e messages)."
+      `Webhook configurado automaticamente ✓ (callback + campos ${CAMPOS_DE_WEBHOOK}).`
     )}`
   );
 }
