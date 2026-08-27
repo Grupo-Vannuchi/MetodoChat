@@ -24,6 +24,17 @@ const EVENT: Record<string, Badge> = {
     label: "Tocou no botão",
     className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400",
   },
+  // A PORTA DE ENTRADA: a pessoa abriu a conversa e tocou numa das perguntas de
+  // abertura da conta (o gatilho `abertura`, lib/engine.ts).
+  //
+  // TIPO PRÓPRIO, e não `quick_reply`, porque a pergunta que esta tela precisa
+  // responder é QUAL DAS QUATRO PORTAS traz gente. Com um tipo só, as quatro
+  // ficavam iguais entre si e iguais aos botões de dentro do fluxo. Aqui o
+  // rótulo separa a origem, e `eventText` (abaixo) mostra o texto da pergunta.
+  abertura: {
+    label: "Tocou numa pergunta de abertura",
+    className: "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-400",
+  },
   // Resposta enviada pela própria conta, fora do robô (pelo celular, por
   // exemplo). Gravada para o histórico de conversa; hoje não aparece nas listas
   // de "o que chegou até você", que são sobre interações RECEBIDAS.
@@ -274,13 +285,25 @@ type EventPayload = {
   sender?: { id?: string };
   media?: { id?: string; media_product_type?: string };
   message?: { text?: string; quick_reply?: { payload?: string } };
+  postback?: { title?: string; payload?: string };
 };
 
 // Texto que a pessoa escreveu (o botão de resposta rápida não tem texto útil:
 // o payload dele é um identificador interno da automação)
+//
+// A PORTA DE ENTRADA É A EXCEÇÃO, e é a exceção porque ela TEM texto legível: o
+// postback traz `title`, que é a pergunta escrita na tela da Meta e lida pela
+// pessoa antes de tocar. É o `payload` dela que é identificador interno — e é
+// justamente ele que não aparece. Sem esta linha as quatro portas viravam N
+// linhas idênticas sem texto nenhum, que é a tela não respondendo à única
+// pergunta que ela existe para responder.
 export function eventText(payload: unknown, type: string): string | null {
   if (type === "quick_reply") return null;
   const p = (payload ?? {}) as EventPayload;
+  if (type === "abertura") {
+    const t = p.postback?.title;
+    return t?.trim() ? t.trim() : null;
+  }
   const t = p.text ?? p.message?.text;
   return t?.trim() ? t.trim() : null;
 }

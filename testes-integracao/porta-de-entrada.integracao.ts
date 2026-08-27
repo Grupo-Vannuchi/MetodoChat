@@ -345,11 +345,20 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
     // número na lista de contatos.
     expect(contatos[0].username).toBe("quem_abriu");
 
-    // 5) E O TOQUE FICOU EM ATIVIDADE como toque em botão — não como evento sem
-    //    tratamento, que é onde ele caía antes deste ramo existir.
+    // 5) E O TOQUE FICOU EM ATIVIDADE COM TIPO PRÓPRIO — não como evento sem
+    //    tratamento, que é onde ele caía antes deste ramo existir, e nem como
+    //    `quick_reply`, que é o botão de DENTRO do fluxo.
+    //
+    //    O tipo é `abertura` porque a tela precisa responder QUAL DAS QUATRO
+    //    PORTAS traz gente: com um tipo só, as quatro ficam iguais entre si,
+    //    iguais aos botões do fluxo, e sem texto — `eventText` (app/labels.ts)
+    //    devolve null para `quick_reply` de propósito.
     expect(await eventos(CONTA, "webhook_messaging_nao_tratado")).toEqual([]);
-    const tocou = await eventos(CONTA, "quick_reply");
+    expect(await eventos(CONTA, "quick_reply")).toEqual([]);
+    const tocou = await eventos(CONTA, "abertura");
     expect(tocou.length).toBe(1);
+    // O `title` fica GRAVADO no payload, e é dele que a tela tira o texto
+    // legível da pergunta. Sem ele no banco, nenhum rótulo salva a linha.
     expect((tocou[0].postback as { title?: string })?.title).toBe("Quero saber mais");
 
     expect(meta.desconhecidos).toEqual([]);

@@ -1641,9 +1641,20 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
       await logEvent(account.ig_user_id, "webhook_messaging_nao_tratado", ev);
       return;
     }
-    // "Tocou no botão" (app/labels.ts) — é o que aconteceu, e `eventText` já
-    // sabe que evento deste tipo não tem texto útil para mostrar.
-    await logEvent(account.ig_user_id, "quick_reply", ev);
+    // TIPO PRÓPRIO, e não `quick_reply`, e a razão é a tela.
+    //
+    // Gravar isto como `quick_reply` fazia três coisas erradas de uma vez: as
+    // quatro portas ficavam iguais ENTRE SI, iguais aos toques em botão de
+    // DENTRO do fluxo, e sem texto — `eventText` (app/labels.ts) devolve null
+    // para `quick_reply` de propósito, porque o payload dele é identificador
+    // interno. Só que um postback de abertura TEM campo legível, e é o `title`:
+    // a pergunta que a pessoa leu na tela.
+    //
+    // O número que esta fase inteira existe para produzir é QUAL DAS QUATRO
+    // PORTAS traz gente. Com um tipo só, a tela não responde: N linhas
+    // idênticas escritas "Tocou no botão". Com tipo próprio, ela vira filtro em
+    // /eventos e cada linha diz a pergunta.
+    await logEvent(account.ig_user_id, "abertura", ev);
     const auto = await loadAutomation(account.ig_user_id, p.automationId);
     // Automação apagada ou pausada com a pergunta ainda no ar: nada a começar.
     // Calado como o vizinho `quick_reply`, e pelo mesmo motivo — não é montagem

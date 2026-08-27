@@ -84,7 +84,12 @@ export function mergeMessages(
   return [...fromEvents, ...daFila].sort((a, b) => a.at.getTime() - b.at.getTime());
 }
 
-const TIPOS_RECEBIDOS = ["message", "story_reply", "quick_reply"];
+// `abertura` está aqui porque ela É uma troca recebida: é a PRIMEIRA coisa que
+// acontece na conversa, e sem ela a linha de quem entrou pela porta de entrada
+// nasceria sem começo. TIPO NOVO DE EVENTO RECEBIDO PRECISA ENTRAR AQUI —
+// esquecer some a mensagem da conversa em silêncio, do mesmo jeito que a lista
+// de kinds da fila, logo abaixo.
+const TIPOS_RECEBIDOS = ["message", "story_reply", "quick_reply", "abertura"];
 
 // Lista de conversas: uma linha por pessoa, ordenada pela última troca.
 //
@@ -182,7 +187,10 @@ export async function conversationMessages(
       `select case when e.type = 'message_sent' then 'out' else 'in' end as direction,
               e.created_at as at,
               e.payload->'message'->>'mid' as mid,
-              coalesce(e.payload->'message'->>'text', '') as text,
+              -- O postback da porta de entrada não tem 'message': o texto dele
+              -- é o 'title', a pergunta que a pessoa leu antes de tocar. Sem
+              -- este segundo termo a conversa começava com uma bolha vazia.
+              coalesce(e.payload->'message'->>'text', e.payload->'postback'->>'title', '') as text,
               -- Evento é fato consumado: chegou ou saiu, não há meio caminho.
               'sent' as delivery,
               -- Só o primeiro anexo. A Meta manda um array, mas na prática vem
