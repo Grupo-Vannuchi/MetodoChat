@@ -1,5 +1,11 @@
 // Tradução dos nomes internos do sistema para a linguagem de quem usa o painel.
 // Ninguém deveria precisar saber o que é "dm_link" ou "story_reply".
+//
+// O ÚNICO IMPORT deste arquivo é `lib/steps.ts`, e ele entrou com `oQueDispara`
+// (lá embaixo): a coluna "o que dispara" da lista de automações precisa fazer a
+// MESMA pergunta que o salvar e o painel fazem sobre palavra-chave, e reescrevê-
+// la aqui criaria a segunda resposta que esta fase inteira vem apagando.
+import { gatilhoPedePalavraChave } from "@/lib/steps";
 
 type Badge = { label: string; className: string };
 
@@ -337,4 +343,55 @@ export function eventMedia(payload: unknown): { id: string; kind: string } | nul
   const m = ((payload ?? {}) as EventPayload).media;
   if (!m?.id) return null;
   return { id: m.id, kind: mediaKind(m.media_product_type) };
+}
+
+// ---------- O que faz uma automação disparar ----------
+
+// A COLUNA "O QUE DISPARA" DA LISTA DE AUTOMAÇÕES.
+//
+// AS DUAS METADES SAEM JUNTAS, e não uma no lugar da outra. Isto já foi um
+// `some` que ESCOLHIA: numa linha com `["dm","abertura"]` a coluna dizia
+// "pergunta de abertura" e ESCONDIA as palavras do `dm`, que são dado de
+// verdade daquela linha. A tela só escreve um gatilho por automação, mas
+// `triggers` é coluna de array e já teve outros valores — é o mesmo argumento
+// do caso "gatilho desconhecido aparece em vez de sumir".
+//
+// A PERGUNTA É `gatilhoPedePalavraChave` (lib/steps.ts), a mesma que o salvar e
+// o painel fazem. `abertura` não casa por texto: quem dispara é o toque numa
+// pergunta de abertura da conta, e sem esta pergunta a coluna saía VAZIA —
+// `keywords` é `[]` e `match_type` não é "any", então o `join` devolvia "".
+//
+// ELA MORAVA DENTRO DO JSX de `list-client.tsx`, e ali era rede zero: a revisão
+// reverteu as duas metades para o `some` que escolhia e a suíte ficou com 722
+// VERDES. A suíte não testa componente, e não vai passar a testar.
+//
+// METADE VAZIA SOME SOZINHA, e é o `filter` que faz isso: um `dm` ainda sem
+// palavra nenhuma não deixa " · " sobrando na ponta.
+export function oQueDispara(a: {
+  triggers: string[];
+  keywords: string[];
+  match_type: string;
+}): string {
+  const semPalavra = a.triggers.some((t) => !gatilhoPedePalavraChave(t));
+  const comPalavra = a.triggers.some((t) => gatilhoPedePalavraChave(t));
+  return [
+    semPalavra ? "pergunta de abertura" : "",
+    comPalavra ? palavrasResumidas(a.keywords, a.match_type) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+// AS PALAVRAS QUE CABEM NA LINHA, e quantas ficaram de fora.
+//
+// TRÊS E O RESTO CONTADO: a linha da lista é estreita e trunca por CSS, e uma
+// lista de vinte palavras cortada no meio não diz quantas eram. "+17" diz.
+//
+// COM `any` NÃO HÁ PALAVRA A MOSTRAR — aquela automação casa com qualquer
+// mensagem —, e escrever as `keywords` que sobraram no banco seria a lista
+// prometendo um filtro que o motor não aplica.
+function palavrasResumidas(palavras: string[], correspondencia: string): string {
+  if (correspondencia === "any") return "qualquer texto";
+  const sobra = palavras.length - 3;
+  return palavras.slice(0, 3).join(", ") + (sobra > 0 ? ` +${sobra}` : "");
 }

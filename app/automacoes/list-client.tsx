@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
-import { gatilhoPedePalavraChave } from "@/lib/steps";
 import Link from "next/link";
+import { oQueDispara } from "../labels";
 import { toggleAutomation, deleteAutomation, duplicateAutomation } from "./actions";
 import {
   card,
@@ -252,37 +252,13 @@ export default function AutomationsList({ automations }: { automations: Automati
                         })}
                       </span>
                       <span className="text-zinc-300 dark:text-zinc-700">·</span>
-                      {/* O QUE DISPARA. Para os três gatilhos de texto é a
-                          palavra-chave; `abertura` não tem nenhuma, e sem esta
-                          pergunta a coluna saía VAZIA — `keywords` é `[]` e
-                          `match_type` não é "any", então o `join` devolvia "".
-                          A pergunta é a mesma que o salvar e o painel fazem
-                          (`gatilhoPedePalavraChave`, @/lib/steps).
-
-                          AS DUAS METADES SAEM JUNTAS, e não uma no lugar da
-                          outra. Isto já foi um `some` que ESCOLHIA: numa linha
-                          com `["dm","abertura"]` a coluna dizia "pergunta de
-                          abertura" e escondia as palavras do `dm`, que são
-                          dado de verdade daquela linha. A tela só escreve um
-                          gatilho por automação, mas `triggers` é coluna de
-                          array e já teve outros valores — é o mesmo argumento
-                          do caso "gatilho desconhecido aparece em vez de
-                          sumir". Metade vazia some sozinha no `filter`. */}
-                      <span className={`truncate ${muted}`}>
-                        {[
-                          a.triggers.some((t) => !gatilhoPedePalavraChave(t))
-                            ? "pergunta de abertura"
-                            : "",
-                          a.triggers.some((t) => gatilhoPedePalavraChave(t))
-                            ? a.match_type === "any"
-                              ? "qualquer texto"
-                              : a.keywords.slice(0, 3).join(", ") +
-                                (a.keywords.length > 3 ? ` +${a.keywords.length - 3}` : "")
-                            : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </span>
+                      {/* O QUE DISPARA — a frase inteira é `oQueDispara`
+                          (`../labels`), e não esta linha. Ela decidia aqui, e
+                          a revisão mediu o que isso valia: revertendo as duas
+                          metades para o `some` que ESCOLHIA entre elas, a
+                          suíte ficava com 722 verdes. O porquê de cada metade
+                          está escrito junto da função, com teste. */}
+                      <span className={`truncate ${muted}`}>{oQueDispara(a)}</span>
                       <span className="text-zinc-300 dark:text-zinc-700">·</span>
                       <span className="text-zinc-400 dark:text-zinc-500">
                         {formatarData(a.created_at)}

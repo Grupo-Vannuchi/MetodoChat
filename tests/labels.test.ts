@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { eventBadge, eventText } from "@/app/labels";
+import { eventBadge, eventText, oQueDispara } from "@/app/labels";
 import { EVENT_TYPES } from "@/lib/event-filters";
 
 // O QUE ESTE ARQUIVO PROTEGE é a tela de Atividade dizendo o que aconteceu.
@@ -74,5 +74,87 @@ describe("a porta de entrada é distinguível, e traz o texto da pergunta", () =
     expect(eventText(EVENTO, "quick_reply")).toBe(null);
     expect(eventText({ message: { text: "quero" } }, "message")).toBe("quero");
     expect(eventText({ text: "comentei" }, "comment")).toBe("comentei");
+  });
+});
+
+describe("oQueDispara — a coluna da lista de automações", () => {
+  // O QUE ESTE BLOCO PROTEGE: a coluna morava dentro do JSX de
+  // `list-client.tsx`, e ali era rede zero — a revisão reverteu as duas metades
+  // para o `some` que ESCOLHIA e a suíte ficou verde. A suíte não testa
+  // componente, e não vai passar a testar; a decisão mudou de lado.
+
+  it("nos três gatilhos de texto, a coluna é a palavra-chave", () => {
+    expect(
+      oQueDispara({ triggers: ["dm"], keywords: ["promo"], match_type: "contains" })
+    ).toBe("promo");
+    expect(
+      oQueDispara({ triggers: ["comment"], keywords: ["oi", "eu"], match_type: "exact" })
+    ).toBe("oi, eu");
+  });
+
+  it("com `any` não há palavra a mostrar, e as que sobraram no banco não saem", () => {
+    // Aquela automação casa com QUALQUER mensagem; escrever as `keywords`
+    // herdadas seria a lista prometendo um filtro que o motor não aplica.
+    expect(
+      oQueDispara({ triggers: ["dm"], keywords: ["promo", "cupom"], match_type: "any" })
+    ).toBe("qualquer texto");
+  });
+
+  it("três palavras e o resto CONTADO, porque a linha trunca por CSS", () => {
+    const cinco = ["a", "b", "c", "d", "e"];
+    expect(oQueDispara({ triggers: ["dm"], keywords: cinco, match_type: "contains" })).toBe(
+      "a, b, c +2"
+    );
+    expect(
+      oQueDispara({ triggers: ["dm"], keywords: ["a", "b", "c"], match_type: "contains" })
+    ).toBe("a, b, c");
+  });
+
+  it("na abertura a coluna diz o que dispara, em vez de ficar vazia", () => {
+    // `keywords` é `[]` e `match_type` não é "any": sem esta pergunta o `join`
+    // devolvia "" e a linha ficava com o separador e mais nada.
+    expect(
+      oQueDispara({ triggers: ["abertura"], keywords: [], match_type: "contains" })
+    ).toBe("pergunta de abertura");
+  });
+
+  it("AS DUAS METADES SAEM JUNTAS, e nenhuma esconde a outra", () => {
+    // ESTE É O CASO QUE A VERSÃO ANTIGA ERRAVA: com um `some` escolhendo, a
+    // linha `["dm","abertura"]` dizia "pergunta de abertura" e sumia com as
+    // palavras do `dm`, que são dado de verdade daquela linha. A tela só
+    // escreve um gatilho por automação, mas `triggers` é coluna de array e já
+    // teve outros valores.
+    expect(
+      oQueDispara({ triggers: ["dm", "abertura"], keywords: ["promo"], match_type: "contains" })
+    ).toBe("pergunta de abertura · promo");
+    expect(
+      oQueDispara({ triggers: ["abertura", "dm"], keywords: ["promo"], match_type: "any" })
+    ).toBe("pergunta de abertura · qualquer texto");
+  });
+
+  it("metade vazia some sozinha, e não deixa separador na ponta", () => {
+    expect(
+      oQueDispara({ triggers: ["dm"], keywords: [], match_type: "contains" })
+    ).toBe("");
+    expect(
+      oQueDispara({ triggers: ["dm", "abertura"], keywords: [], match_type: "contains" })
+    ).toBe("pergunta de abertura");
+    expect(oQueDispara({ triggers: [], keywords: ["promo"], match_type: "contains" })).toBe("");
+  });
+
+  it("gatilho desconhecido cai na metade das palavras — é `abertura` que é a exceção", () => {
+    // MEDIDO, e não deduzido: `gatilhoPedePalavraChave` (lib/steps.ts) é
+    // `gatilho !== "abertura"`, então todo gatilho novo entra na metade que
+    // MOSTRA palavra-chave. A coluna não reescreve essa pergunta — ela a faz.
+    expect(
+      oQueDispara({ triggers: ["gatilho_novo"], keywords: ["promo"], match_type: "contains" })
+    ).toBe("promo");
+    // E um gatilho novo SEM palavra nenhuma sai em branco. É a metade que a
+    // função não tem como preencher: quem sabe o que aquele gatilho dispara é
+    // `lib/steps.ts`, e enquanto ele não souber, inventar frase aqui seria a
+    // lista afirmando sobre um gatilho que o produto ainda não conhece.
+    expect(
+      oQueDispara({ triggers: ["gatilho_novo"], keywords: [], match_type: "contains" })
+    ).toBe("");
   });
 });
