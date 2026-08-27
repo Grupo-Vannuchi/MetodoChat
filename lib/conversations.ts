@@ -89,6 +89,16 @@ export function mergeMessages(
 // nasceria sem começo. TIPO NOVO DE EVENTO RECEBIDO PRECISA ENTRAR AQUI —
 // esquecer some a mensagem da conversa em silêncio, do mesmo jeito que a lista
 // de kinds da fila, logo abaixo.
+//
+// E ESTE AVISO TEM REDE, que é o que o distingue de um aviso. Tirar `"abertura"`
+// daqui passa por tsc, por eslint e pelos testes puros — um comentário sozinho
+// não segura nada, e esta base já pagou três vezes por confiar num. Quem fica
+// vermelho é `testes-integracao/porta-de-entrada.integracao.ts`, no caso "quem
+// entra pela porta aparece na caixa de entrada": ele grava o evento com o motor
+// de verdade e abre a caixa pelas duas funções abaixo. A rede é de INTEGRAÇÃO
+// porque as duas peças só se medem pelo efeito — a lista alimenta SQL, e afirmar
+// aqui que a constante contém `"abertura"` seria perguntar de novo à linha que
+// decide.
 const TIPOS_RECEBIDOS = ["message", "story_reply", "quick_reply", "abertura"];
 
 // Lista de conversas: uma linha por pessoa, ordenada pela última troca.
@@ -190,6 +200,9 @@ export async function conversationMessages(
               -- O postback da porta de entrada não tem 'message': o texto dele
               -- é o 'title', a pergunta que a pessoa leu antes de tocar. Sem
               -- este segundo termo a conversa começava com uma bolha vazia.
+              -- Apagá-lo não quebra nada que o tsc veja: quem fica vermelho é o
+              -- caso da caixa de entrada em porta-de-entrada.integracao.ts, que
+              -- afirma o TEXTO da bolha e não só a existência dela.
               coalesce(e.payload->'message'->>'text', e.payload->'postback'->>'title', '') as text,
               -- Evento é fato consumado: chegou ou saiu, não há meio caminho.
               'sent' as delivery,

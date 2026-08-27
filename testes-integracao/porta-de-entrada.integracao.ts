@@ -75,6 +75,7 @@ import { payloadDaPergunta } from "@/lib/steps";
 
 type ModuloEngine = typeof import("@/lib/engine");
 type ModuloIg = typeof import("@/lib/ig");
+type ModuloConversas = typeof import("@/lib/conversations");
 
 const banco = bancoDescartavel();
 
@@ -100,6 +101,7 @@ const meta = { desconhecidos: [] as string[] };
 let servidor: Server;
 let engine: ModuloEngine;
 let ig: ModuloIg;
+let conversas: ModuloConversas;
 
 beforeAll(async () => {
   servidor = createServer((req, res) => {
@@ -121,6 +123,7 @@ beforeAll(async () => {
 
   engine = await import("@/lib/engine");
   ig = await import("@/lib/ig");
+  conversas = await import("@/lib/conversations");
 
   // FALHA ANTES DE QUALQUER REQUISIÇÃO, e não depois — a mesma guarda dos outros
   // caminhos, pela mesma razão. Sem o desvio, o `getUserProfile` deste teste
@@ -533,6 +536,71 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
     const divergencias = await eventos(CONTA, "abertura_com_gatilho_trocado");
     // A única é a do caso anterior, e ela é de OUTRA automação.
     expect(divergencias.every((d) => d.automation_id !== SEGUNDA)).toBe(true);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // A CAIXA DE ENTRADA — a única tela de uso diário que este ramo alcança, e a
+  // que ficou sem rede.
+  //
+  // O tipo `abertura` nasceu neste commit, e ele atravessa DUAS peças de
+  // `lib/conversations.ts` que não têm nada além de um comentário segurando:
+  //
+  //   `TIPOS_RECEBIDOS` (:92)  alimenta `e.type = any($n::text[])` na lista de
+  //     conversas E na lista de mensagens. Tirar `"abertura"` de lá não quebra
+  //     tsc, não quebra eslint e não quebra teste puro nenhum — a conversa de
+  //     quem entrou pela porta simplesmente SOME da caixa de entrada.
+  //   o segundo termo do `coalesce` (:193)  o postback não tem `message`: o
+  //     texto legível dele é o `title`. Sem esse termo a conversa nasce com uma
+  //     BOLHA VAZIA, e nada acusa.
+  //
+  // POR QUE AQUI, E NÃO NO LADO PURO. Afirmar que a constante contém
+  // `"abertura"` seria perguntar de novo à mesma linha que decide — o teste
+  // concordando consigo mesmo —, e nenhum teste puro alcança o `coalesce`, que
+  // é SQL. As duas peças só se medem pelo EFEITO: gravar o evento com o motor de
+  // verdade e depois abrir a caixa de entrada pelas mesmas funções que a tela
+  // usa. Uma asserção sobre a bolha mata as duas de uma vez — sem a lista de
+  // tipos não vem linha nenhuma; sem o `coalesce` vem linha sem texto.
+  // -------------------------------------------------------------------------
+  test("quem entra pela porta aparece na caixa de entrada, com a pergunta na bolha", async () => {
+    const NA_CAIXA = "9300000000000007";
+    const PERGUNTA = "Quero o passo a passo";
+
+    // Antes do toque a pessoa não está na caixa: sem esta linha, "ela aparece"
+    // no fim não distinguiria o efeito do toque de um resíduo de outro caso.
+    const antes = await conversas.listConversations(CONTA);
+    expect(antes.map((c) => c.ig_id)).not.toContain(NA_CAIXA);
+
+    await tocarNaPergunta(
+      CONTA,
+      NA_CAIXA,
+      PERGUNTA,
+      payloadDaPergunta(SEGUNDA),
+      "mid-caixa-de-entrada-1"
+    );
+
+    // 1) A CONVERSA EXISTE NA LISTA — é a linha que o dono clica.
+    const depois = await conversas.listConversations(CONTA);
+    const linha = depois.find((c) => c.ig_id === NA_CAIXA);
+    expect(linha, "a conversa de quem entrou pela porta sumiu da caixa de entrada").toBeTruthy();
+    // E ela chega como NÃO LIDA e SEM RESPOSTA: é uma pessoa esperando, e é
+    // esse par que faz a linha subir na tela em vez de ficar enterrada.
+    expect(linha!.nao_lidas).toBe(1);
+    expect(linha!.sem_resposta).toBe(true);
+    expect(linha!.username).toBe("quem_abriu");
+
+    // 2) A BOLHA TRAZ A PERGUNTA. É o `title`, que é o que a pessoa leu na tela
+    //    antes de tocar — e nunca o `payload`, que é identificador interno.
+    const mensagens = await conversas.conversationMessages(CONTA, NA_CAIXA);
+    const recebidas = mensagens.filter((m) => m.direction === "in");
+    expect(recebidas.length).toBe(1);
+    expect(recebidas[0].text, "a conversa começou com uma bolha vazia").toBe(PERGUNTA);
+    expect(recebidas[0].text).not.toContain("AUTO:");
+
+    // 3) E A RESPOSTA DA AUTOMAÇÃO ESTÁ LOGO ABAIXO, saindo da fila: a conversa
+    //    que o dono abre tem as duas pontas, e não só a metade que chegou.
+    expect(mensagens.map((m) => m.text)).toEqual([PERGUNTA, BOAS_VINDAS]);
 
     expect(meta.desconhecidos).toEqual([]);
   });
