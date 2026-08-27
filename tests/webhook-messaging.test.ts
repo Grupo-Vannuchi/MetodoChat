@@ -85,3 +85,33 @@ describe("o que chega é JSON da Meta, e a única garantia é a assinatura", () 
     expect(ehConhecidoEIgnorado(7)).toBe(false);
   });
 });
+
+// A METADE QUE NÃO SE IGNORA.
+//
+// `message_edit` acompanha toda mensagem comum com `num_edit: 0` — 6 linhas em 6
+// horas, contra 226 eventos, medidas em 26/08/2026. Isso é ruído.
+//
+// Mas `num_edit` maior que zero é outra coisa: a pessoa MUDOU o texto depois de
+// mandá-lo, e o motor pode já ter agido sobre o original. Ignorar a forma
+// inteira trocaria ruído por cegueira, e é isto que estes casos seguram.
+describe("message_edit: ruído quando num_edit é 0, notícia quando não é", () => {
+  it("num_edit 0 é ignorado — é o companheiro silencioso de uma mensagem comum", () => {
+    expect(ehConhecidoEIgnorado({ message_edit: { mid: "m1", num_edit: 0 } })).toBe(true);
+  });
+
+  it("num_edit MAIOR QUE ZERO registra: houve edição de verdade", () => {
+    expect(ehConhecidoEIgnorado({ message_edit: { mid: "m1", num_edit: 1 } })).toBe(false);
+    expect(ehConhecidoEIgnorado({ message_edit: { mid: "m1", num_edit: 7 } })).toBe(false);
+  });
+
+  it("forma sem num_edit registra: o recorte não vale para o que não se reconhece", () => {
+    expect(ehConhecidoEIgnorado({ message_edit: { mid: "m1" } })).toBe(false);
+    expect(ehConhecidoEIgnorado({ message_edit: null })).toBe(false);
+    expect(ehConhecidoEIgnorado({ message_edit: "editado" })).toBe(false);
+  });
+
+  it("`read` continua valendo para a forma inteira — lá não há metade que interesse", () => {
+    expect(ehConhecidoEIgnorado({ read: { mid: "m1" } })).toBe(true);
+    expect(ehConhecidoEIgnorado({ read: {} })).toBe(true);
+  });
+});

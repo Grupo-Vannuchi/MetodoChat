@@ -48,6 +48,31 @@ export const FORMAS_CONHECIDAS_E_IGNORADAS = [
     // lidas em 26/08/2026 — todas da conta @thiagovannuchi.
     observado_em: "2026-08-26",
   },
+  {
+    chave: "message_edit",
+    porque:
+      "acompanha toda mensagem com `num_edit: 0`, e nesse caso não houve edição nenhuma",
+    // 6 linhas em 6 horas, contra 226 eventos no mesmo período, lidas em
+    // 26/08/2026 depois que o dono ligou os campos que faltavam no painel da
+    // Meta. Todas com `num_edit: 0`.
+    observado_em: "2026-08-26",
+    // E ESTA É A METADE QUE NÃO SE IGNORA.
+    //
+    // `num_edit: 0` é o companheiro silencioso de uma mensagem comum — ruído.
+    // `num_edit` MAIOR QUE ZERO é outra coisa inteiramente: a pessoa MUDOU o
+    // texto depois de mandá-lo, e o motor pode já ter agido sobre o original.
+    // Uma automação que respondeu à palavra-chave "quero" e viu o texto virar
+    // outra coisa é exatamente o tipo de fato que o dono precisa poder ver em
+    // Atividade.
+    //
+    // Ignorar a forma inteira seria trocar ruído por cegueira. Nunca vimos um
+    // `num_edit` maior que zero neste banco — e é por isso que ele continua
+    // caindo no registro, em vez de numa entrada escrita de antemão.
+    soQuando: (valor: unknown) =>
+      typeof valor === "object" &&
+      valor !== null &&
+      (valor as { num_edit?: unknown }).num_edit === 0,
+  },
 ] as const;
 
 /**
@@ -62,5 +87,14 @@ export function ehConhecidoEIgnorado(item: unknown): boolean {
   // chega aqui é JSON da Meta, e a única garantia é a assinatura do corpo — não
   // o formato dele. Um `null` no meio do array derrubaria o `in`.
   if (typeof item !== "object" || item === null || Array.isArray(item)) return false;
-  return FORMAS_CONHECIDAS_E_IGNORADAS.some((f) => f.chave in item);
+  const registro = item as Record<string, unknown>;
+  return FORMAS_CONHECIDAS_E_IGNORADAS.some((f) => {
+    if (!(f.chave in registro)) return false;
+    // A ENTRADA PODE IGNORAR A FORMA INTEIRA OU SÓ UM RECORTE DELA, e o recorte
+    // é o caso mais interessante: `message_edit` é ruído quando `num_edit` é 0 e
+    // é notícia quando não é. Sem `soQuando`, a entrada vale para a forma toda —
+    // que é o caso de `read`, onde não há metade que interesse.
+    const so = (f as { soQuando?: (valor: unknown) => boolean }).soQuando;
+    return so ? so(registro[f.chave]) : true;
+  });
 }
