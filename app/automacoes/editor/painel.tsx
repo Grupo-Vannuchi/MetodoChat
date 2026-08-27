@@ -1,5 +1,11 @@
 "use client";
-import { esperaResposta, LIMITE_DE_BOTOES, novoIdDeBotao } from "@/lib/steps";
+import Link from "next/link";
+import {
+  esperaResposta,
+  gatilhoPedePalavraChave,
+  LIMITE_DE_BOTOES,
+  novoIdDeBotao,
+} from "@/lib/steps";
 import type { Botao, Passo, PassoDm, Problema } from "@/lib/steps";
 import type { Picked } from "../types";
 import { comoTexto, resumoDoBloco } from "./modelos";
@@ -70,6 +76,7 @@ const NOME_DO_GATILHO: { valor: string; titulo: string }[] = [
   { valor: "comment", titulo: "Comentário em post" },
   { valor: "story", titulo: "Resposta a story" },
   { valor: "dm", titulo: "DM recebida" },
+  { valor: "abertura", titulo: "Pergunta de abertura" },
 ];
 
 // AS MEDIDAS DOS CAMPOS NA FAIXA, num lugar só.
@@ -720,42 +727,110 @@ export default function Painel({
                 </p>
               </div>
 
-              <div className={CAMPO_MEDIO}>
-                <label className={labelCls}>Palavras-chave</label>
-                <input
-                  value={configuracao.palavras.join(", ")}
-                  onChange={(e) =>
-                    aoMudarConfiguracao({
-                      ...configuracao,
-                      // Mesma separação do formulário antigo (`splitList`): vírgula,
-                      // sem espaço em volta e sem entrada vazia.
-                      palavras: e.target.value
-                        .split(",")
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  className={input}
-                  placeholder="quero, link, eu quero"
-                  disabled={configuracao.correspondencia === "any"}
-                />
-                <p className={hintCls}>Separadas por vírgula. Sem diferença de maiúsculas nem de acentos.</p>
-              </div>
+              {/* ---------------------------------------------------------- */}
+              {/* A PORTA DE ENTRADA NÃO PEDE PALAVRA-CHAVE, e o par de campos */}
+              {/* some inteiro — os dois, e não só o primeiro: sem palavra a    */}
+              {/* escolher, "Contém / Texto exato / Qualquer texto" é uma       */}
+              {/* pergunta sobre nada.                                          */}
+              {/*                                                               */}
+              {/* `salvarAutomacao` (../actions) faz a MESMA pergunta antes de   */}
+              {/* exigir a lista. Sem ela lá, esconder os campos aqui deixava a  */}
+              {/* automação de abertura IMPOSSÍVEL DE GRAVAR: o salvar devolvia  */}
+              {/* "Informe as palavras-chave" sobre um campo que a tela não      */}
+              {/* mostra. As duas metades desta decisão são a mesma função,      */}
+              {/* `gatilhoPedePalavraChave` (@/lib/steps).                       */}
+              {/* ---------------------------------------------------------- */}
+              {gatilhoPedePalavraChave(configuracao.gatilho) && (
+                <>
+                <div className={CAMPO_MEDIO}>
+                  <label className={labelCls}>Palavras-chave</label>
+                  <input
+                    value={configuracao.palavras.join(", ")}
+                    onChange={(e) =>
+                      aoMudarConfiguracao({
+                        ...configuracao,
+                        // Mesma separação do formulário antigo (`splitList`): vírgula,
+                        // sem espaço em volta e sem entrada vazia.
+                        palavras: e.target.value
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                    className={input}
+                    placeholder="quero, link, eu quero"
+                    disabled={configuracao.correspondencia === "any"}
+                  />
+                  <p className={hintCls}>Separadas por vírgula. Sem diferença de maiúsculas nem de acentos.</p>
+                </div>
 
-              <div className={CAMPO_CURTO}>
-                <label className={labelCls}>Correspondência</label>
-                <select
-                  value={configuracao.correspondencia}
-                  onChange={(e) =>
-                    aoMudarConfiguracao({ ...configuracao, correspondencia: e.target.value })
-                  }
-                  className={input}
-                >
-                  <option value="contains">Contém a palavra</option>
-                  <option value="exact">Texto exato</option>
-                  <option value="any">Qualquer texto</option>
-                </select>
-              </div>
+                <div className={CAMPO_CURTO}>
+                  <label className={labelCls}>Correspondência</label>
+                  <select
+                    value={configuracao.correspondencia}
+                    onChange={(e) =>
+                      aoMudarConfiguracao({ ...configuracao, correspondencia: e.target.value })
+                    }
+                    className={input}
+                  >
+                    <option value="contains">Contém a palavra</option>
+                    <option value="exact">Texto exato</option>
+                    <option value="any">Qualquer texto</option>
+                  </select>
+                </div>
+                </>
+              )}
+
+              {/* ---------------------------------------------------------- */}
+              {/* O QUE DISPARA A AUTOMAÇÃO DE ABERTURA, no lugar dos campos  */}
+              {/* de palavra-chave.                                           */}
+              {/*                                                             */}
+              {/* ELE NÃO IMPRIME O TEXTO DA PERGUNTA, e a ausência é medida, */}
+              {/* não esquecimento: as perguntas de abertura NÃO ESTÃO NO     */}
+              {/* BANCO. Elas vivem no perfil da conta na Meta                */}
+              {/* (`messenger_profile`, campo `ice_breakers`), e o único      */}
+              {/* leitor que este projeto tem hoje é                          */}
+              {/* `scripts/perguntas-de-abertura.mjs`, de linha de comando —  */}
+              {/* está escrito em `lib/engine.ts`, no ramo do postback: "a    */}
+              {/* pergunta vive no perfil da conta na Meta — fora do banco".  */}
+              {/* Quem vai buscá-las é a tela de Configuração, e é ela quem   */}
+              {/* poderá dizer QUAL das quatro aponta para esta automação.    */}
+              {/*                                                             */}
+              {/* Então o que este bloco dá é o CAMINHO, que é a outra metade */}
+              {/* do que a spec pede — "um caminho para a tela de             */}
+              {/* Configuração se ainda não houver nenhuma". Enquanto a tela  */}
+              {/* não existe, o caminho é o de sempre: /setup, o mesmo item   */}
+              {/* "Configuração" do menu (`app/app-shell.tsx`).               */}
+              {/*                                                             */}
+              {/* OS DOIS AVISOS SAEM EM `alertWarn`, VISÍVEIS, e não num     */}
+              {/* `title` nem atrás de um "saiba mais": os dois são o motivo  */}
+              {/* número um de alguém achar que a automação está quebrada. O  */}
+              {/* dono que testar pela PRÓPRIA conversa com a conta não vê    */}
+              {/* pergunta nenhuma — a conversa dele não é nova —, e sem esta */}
+              {/* frase ele procuraria o defeito no fluxo.                    */}
+              {/* ---------------------------------------------------------- */}
+              {!gatilhoPedePalavraChave(configuracao.gatilho) && (
+                <div className="min-w-0 basis-full">
+                  <span className={labelCls}>O que dispara esta automação</span>
+                  <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                    O toque numa das <strong>perguntas de abertura</strong> da conta. Elas são até
+                    quatro, pertencem à conta (não à automação), e cada uma pode apontar para uma
+                    automação diferente —{" "}
+                    <Link
+                      href="/setup"
+                      className="font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-500 dark:text-indigo-400"
+                    >
+                      escolher qual delas abre esta, em Configuração
+                    </Link>
+                    .
+                  </p>
+                  <div className={`${alertWarn} mt-2`}>
+                    As perguntas <strong>não aparecem no computador</strong> — só no aplicativo do
+                    celular. E <strong>só aparecem em conversa nova</strong>: quem já conversou com
+                    a sua conta nunca as vê, você inclusive, testando pela sua própria conversa.
+                  </div>
+                </div>
+              )}
 
               {/* O SELETOR DE MÍDIA OCUPA A LINHA INTEIRA (`basis-full`): aberto
                   ele é uma grade de posts com rolagem própria, e espremê-lo numa
