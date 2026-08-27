@@ -802,6 +802,20 @@ export default function Painel({
               {/* não existe, o caminho é o de sempre: /setup, o mesmo item   */}
               {/* "Configuração" do menu (`app/app-shell.tsx`).               */}
               {/*                                                             */}
+              {/* E O RÓTULO DO LINK NÃO PROMETE A ESCOLHA, porque ela ainda  */}
+              {/* não está lá. Ele já disse "escolher qual delas abre esta,   */}
+              {/* em Configuração", e isso foi MEDIDO e é falso: `app/setup`  */}
+              {/* não cita pergunta de abertura em lugar nenhum — é a lista   */}
+              {/* de passos para criar o app na Meta e conectar a conta. O    */}
+              {/* dono clicava, chegava, e não havia o que escolher; um       */}
+              {/* caminho que decepciona custa mais do que caminho nenhum.    */}
+              {/*                                                             */}
+              {/* A frase diz o PRESENTE — as perguntas são definidas fora do */}
+              {/* painel, e a escolha ainda não está em Configuração —, e o   */}
+              {/* link continua indo para lá, que é onde a tela vai nascer.   */}
+              {/* Quando ela existir, o "ainda não está" vira "fica", e nada  */}
+              {/* aqui precisa ser desfeito.                                  */}
+              {/*                                                             */}
               {/* OS DOIS AVISOS SAEM EM `alertWarn`, VISÍVEIS, e não num     */}
               {/* `title` nem atrás de um "saiba mais": os dois são o motivo  */}
               {/* número um de alguém achar que a automação está quebrada. O  */}
@@ -815,12 +829,13 @@ export default function Painel({
                   <p className="text-sm text-zinc-700 dark:text-zinc-300">
                     O toque numa das <strong>perguntas de abertura</strong> da conta. Elas são até
                     quatro, pertencem à conta (não à automação), e cada uma pode apontar para uma
-                    automação diferente —{" "}
+                    automação diferente. Hoje elas são definidas fora do painel, no perfil da conta:
+                    escolher qual delas abre esta automação ainda não está em{" "}
                     <Link
                       href="/setup"
                       className="font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-500 dark:text-indigo-400"
                     >
-                      escolher qual delas abre esta, em Configuração
+                      Configuração
                     </Link>
                     .
                   </p>
