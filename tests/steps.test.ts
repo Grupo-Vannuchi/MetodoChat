@@ -3002,6 +3002,35 @@ describe("conferirLista", () => {
   });
 });
 
+describe("o gatilho abertura", () => {
+  // `abertura` é gatilho novo (Tarefa 2 da fase "portas de entrada"), e as
+  // regras acima já são deny-list: negam gatilho específico em vez de listar
+  // os permitidos. Estes três casos medem que `abertura` cai nas mesmas regras
+  // sem precisar de uma linha nova em `conferirLista`.
+  //
+  // O id usado aqui é `b_abert01`, e não o `b_1` do plano original: `b_1` não
+  // casa com `FORMA_DO_ID` (`/^b_[0-9a-z]{6,}$/`, lib/steps.ts:1050) e acende
+  // "identidade inválida" — um erro de FORMA do fixture, não de lógica do
+  // gatilho. É a mesma classe de correção que trocou `texto` por `textos`.
+  it("recusa resposta pública, que só existe em comentário", () => {
+    // `resposta_publica` carrega `textos` (LISTA), e não `texto` — lib/steps.ts:48.
+    const passos = [{ id: "b_abert01", tipo: "resposta_publica", textos: ["oi"] }];
+    const erros = conferirLista(passos, "abertura", []);
+    expect(erros.filter((p) => p.nivel === "erro").length).toBeGreaterThan(0);
+  });
+
+  it("recusa reagir à story, que precisa do id da mensagem", () => {
+    const passos = [{ id: "b_abert01", tipo: "reagir_story", emoji: "❤️" }];
+    const erros = conferirLista(passos, "abertura", []);
+    expect(erros.filter((p) => p.nivel === "erro").length).toBeGreaterThan(0);
+  });
+
+  it("aceita uma DM comum", () => {
+    const passos = [{ id: "b_abert01", tipo: "dm", texto: "Que bom te ver por aqui!" }];
+    expect(conferirLista(passos, "abertura", [])).toEqual([]);
+  });
+});
+
 describe("novoIdDeBloco", () => {
   // O defeito que estes testes trancam era PROBABILÍSTICO: a geração antiga
   // (`Math.random().toString(36).slice(2, 10)`) amarrava o comprimento da saída
