@@ -286,7 +286,10 @@ não aparecem no computador; só aparecem em conversa nova.
 ## Tarefa 5 · A tela das quatro portas
 
 **Files:**
-- Create: `lib/perguntas-de-abertura.ts` (falar com a Meta), `app/configuracao/perguntas/page.tsx` e a Server Action
+- Create: `lib/perguntas-de-abertura.ts` (falar com a Meta) e a tela, **dentro de
+  `app/setup/`** — conferido em 27/08: **NÃO existe `app/configuracao/`**, e o item
+  "Configuração" do menu aponta para `/setup` (`app/app-shell.tsx:43`). A primeira
+  versão deste plano mandou a tela para um diretório que não existe.
 - Modify: `scripts/perguntas-de-abertura.mjs` (passa a usar o módulo, sem duplicar a regra)
 
 **Interfaces:**
