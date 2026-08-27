@@ -1951,16 +1951,39 @@ export function payloadDoBotao(automacaoId: string, blocoId: string, botaoId: st
 // no portão viraria retomada comum, sem reconsultar a Meta: exatamente a classe
 // de troca silenciosa que esta separação existe para impedir.
 //
-// A FORMA DE DUAS PARTES (`AUTO:<automação>`, sem bloco) NÃO GANHA ESCRITORA,
-// e a ausência é decisão: `lerPayload` a LÊ para sempre — botão entregue antes
-// da Fase 1b vive na conversa da pessoa —, mas nada neste sistema a EMITE desde
-// então. Uma escritora para ela seria um convite a voltar a emiti-la.
+// A FORMA DE DUAS PARTES (`AUTO:<automação>`, sem bloco) FICOU SEM ESCRITORA
+// ATÉ AQUI de propósito: `lerPayload` a LÊ para sempre — botão entregue antes
+// da Fase 1b vive na conversa da pessoa —, mas nada emitia ela de novo, e uma
+// escritora sem motivo seria um convite a voltar a emiti-la à toa. A pergunta
+// de abertura (`payloadDaPergunta`, mais abaixo) é o motivo que faltava: ela
+// não tem bloco para apontar, então a forma de duas partes É a forma certa
+// para ela — não uma reversão da decisão, um uso novo dela.
 export function payloadDaRespostaRapida(automacaoId: string, blocoId: string): string {
   return `AUTO:${automacaoId}:${blocoId}`;
 }
 
 export function payloadDoPortao(automacaoId: string, blocoId: string): string {
   return `FOLLOW:${automacaoId}:${blocoId}`;
+}
+
+// A QUARTA ESCRITORA, e a única que reaproveita a forma de duas partes
+// (`AUTO:<automação>`, sem bloco). O comentário acima dizia que essa forma
+// "NÃO GANHA ESCRITORA" — mas aquela decisão era sobre o caso antigo: nenhuma
+// automação com bloco tinha motivo para reemitir a forma que a Fase 1b
+// aposentou. A pergunta de abertura é um caso NOVO e DIFERENTE: ela não tem
+// bloco nenhum para apontar, porque ela é sempre a primeira coisa que
+// acontece na conversa — "comece esta automação do início" é exatamente o
+// que a forma de duas partes já significa, sem precisar de campo a mais.
+// `lerPayload` devolve `passoId: null`, e `steps[0]` é a entrada do fluxo
+// (ver `cursorDaRetomada`) — o caminho já existe, ponta a ponta, e não
+// precisou de formato novo.
+//
+// MEDIDO, não presumido: as perguntas de teste em produção usam payload
+// como `abertura-saber-mais` — sem dois-pontos —, então `partes.length` fica
+// 1, o prefixo vira a string inteira, `prefixo !== "AUTO"` mata o caso, e
+// `lerPayload` devolve null. Elas nunca colidem com esta forma.
+export function payloadDaPergunta(automationId: string): string {
+  return `AUTO:${automationId}`;
 }
 
 // O limite da Meta para respostas rápidas numa única mensagem.

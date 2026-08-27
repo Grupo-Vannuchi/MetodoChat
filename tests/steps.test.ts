@@ -34,6 +34,7 @@ import {
   payloadDoBotao,
   payloadDaRespostaRapida,
   payloadDoPortao,
+  payloadDaPergunta,
   botoesDaMensagem,
   LIMITE_DE_BOTOES,
   chaveDoQuando,
@@ -2147,6 +2148,27 @@ describe("payloadDaRespostaRapida e payloadDoPortao", () => {
     expect(
       retomadaDoBotao({ passoId: p.passoId, automationId: "A" }, "A", { steps: passos, ligacoes: emCorrente(passos) })
     ).toEqual({ portao: null, destino: "b_fim003" });
+  });
+});
+
+describe("o identificador de uma pergunta de abertura", () => {
+  it("aponta para a automação, e nada mais", () => {
+    // O shape aqui é o `Payload` real (`prefixo`, `passoId`, `null`), o mesmo
+    // que todo outro teste de `lerPayload` neste arquivo usa — não o
+    // `{ blocoId: undefined }` do plano, que não bate com o tipo devolvido.
+    const p = payloadDaPergunta("39ae24ec-c487-40ff-a387-c041cb3f0d23");
+    expect(lerPayload(p)).toEqual({
+      prefixo: "AUTO",
+      automationId: "39ae24ec-c487-40ff-a387-c041cb3f0d23",
+      passoId: null,
+      botaoId: null,
+    });
+  });
+
+  it("o formato de teste do experimento NAO dispara nada", () => {
+    // As perguntas configuradas em 26/08 usam este formato de proposito.
+    // Enquanto elas existirem em producao, isto tem de continuar valendo.
+    expect(lerPayload("abertura-saber-mais")).toBe(null);
   });
 });
 
