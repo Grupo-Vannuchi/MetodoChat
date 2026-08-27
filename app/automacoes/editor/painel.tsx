@@ -722,8 +722,17 @@ export default function Painel({
                     </label>
                   ))}
                 </div>
+                {/* "SÓ É OFERECIDO", e não "só roda" — a diferença foi medida.
+                    Em `dm` o coraçãozinho RODA: `conferirLista` (@/lib/steps) ali
+                    devolve AVISO, não erro, dizendo que ele reage à mensagem que
+                    a pessoa mandou, e o roteiro da prévia o desenha reagindo.
+                    Quem não o oferece em `dm` é a lista à mão da faixa
+                    (`./modelos`), que pode ser mais restritiva do que o salvar.
+                    Esta frase falava de execução e por isso era falsa; agora ela
+                    fala do que a faixa faz, que é o assunto dela. */}
                 <p className={hintCls}>
-                  O gatilho decide quais blocos a paleta oferece: o coraçãozinho só roda em story.
+                  O gatilho decide quais blocos a paleta oferece: o coraçãozinho só é oferecido em
+                  story.
                 </p>
               </div>
 

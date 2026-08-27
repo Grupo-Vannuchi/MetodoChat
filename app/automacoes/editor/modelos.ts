@@ -230,7 +230,19 @@ export function tipoDoItem(chave: string): string {
 // aceita. O contrário é que era possível, e não é mais.
 export function paletaOferece(item: ItemDaPaleta, gatilho: string): boolean {
   const porLista = !item.gatilhos || item.gatilhos.includes(gatilho);
-  return porLista && !salvarRecusaOBloco(tipoDoItem(item.chave), gatilho);
+  return porLista && !salvarRecusaOItem(item, gatilho);
+}
+
+// A REGRA DO SALVAR, perguntada pela CHAVE do item — a mesma resposta de
+// `salvarRecusaOBloco`, só que sem obrigar quem chama a converter a chave em
+// tipo por conta própria.
+//
+// Ela é exportada porque a faixa precisa da resposta separada para ESCREVER O
+// MOTIVO: as duas metades de "este item está apagado" têm causas diferentes (a
+// regra do salvar, ou só a lista à mão), e dizer a errada foi defeito medido —
+// ver o `title` em `./paleta`.
+export function salvarRecusaOItem(item: ItemDaPaleta, gatilho: string): boolean {
+  return salvarRecusaOBloco(tipoDoItem(item.chave), gatilho);
 }
 
 // O que o nó mostra fechado. O corpo é cortado por CSS, não aqui — cortar no

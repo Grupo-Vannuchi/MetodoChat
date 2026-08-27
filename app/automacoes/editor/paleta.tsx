@@ -1,5 +1,5 @@
 "use client";
-import { PALETA, paletaOferece } from "./modelos";
+import { PALETA, paletaOferece, salvarRecusaOItem } from "./modelos";
 import {
   IconClock,
   IconCoracao,
@@ -76,17 +76,46 @@ function nomeDoGatilho(g: string): string {
 // Por que este bloco está apagado — a frase inteira, e não o rótulo do item.
 //
 // `gatilhos` não-nulo é o que torna o item dependente; quando ele é nulo o item
-// serve sempre e esta função nem é chamada.
-function motivoDeEstarFora(gatilhos: string[] | null, gatilho: string): string {
+// serve sempre e esta função só é chamada se a regra do salvar o recusar.
+//
+// SÃO TRÊS FRASES PORQUE SÃO TRÊS CAUSAS, e a terceira nasceu de uma medição:
+// a frase única dizia "Este bloco só roda no gatilho de X", e em `dm` isso é
+// FALSO sobre o coraçãozinho. Medido: `conferirLista(["reagir_story"], "dm")`
+// devolve AVISO, não erro — "Neste gatilho o coraçãozinho não vai para a story:
+// ele reage à mensagem que a pessoa mandou" —, e `./roteiro` o desenha
+// reagindo. Quem duplicasse uma automação de story e trocasse o gatilho para
+// `dm` ficava com um bloco que RODA, que o painel documenta rodando e que a
+// prévia desenha rodando, e uma faixa apagada dizendo que ele não roda: duas
+// telas afirmando o contrário uma da outra.
+//
+// A causa ali não é a regra do salvar — é a LISTA À MÃO de `./modelos`, que
+// pode ser mais restritiva do que ela (essa metade da diferença é a que não
+// fere ninguém: o que a faixa oferece, o salvar aceita). Medido em 9 itens × 4
+// gatilhos, esse par é a ÚNICA divergência que resta entre as duas no produto
+// inteiro. Manter a lista mais restritiva é decisão de escopo; imprimir sobre
+// ela uma frase falsa não era.
+function motivoDeEstarFora(
+  gatilhos: string[] | null,
+  gatilho: string,
+  recusaDoSalvar: boolean
+): string {
   // SEM `gatilhos`, quem apagou o item foi a regra do salvar, e a frase não tem
   // lista à mão para citar. Ela diz a mesma coisa pelo outro lado: este gatilho
   // não executa este bloco. É o caso que só aparece quando a lista à mão e a
-  // regra discordam — hoje nenhum item cai aqui, e é por isso que a frase
-  // precisa existir antes de o dia chegar.
+  // regra discordam para o outro lado — hoje nenhum item cai aqui, e é por isso
+  // que a frase precisa existir antes de o dia chegar.
   if (!gatilhos)
     return `O salvar recusa este bloco numa automação disparada por ${nomeDoGatilho(gatilho)}.`;
   const atende = gatilhos.map(nomeDoGatilho).join(" ou ");
-  return `Este bloco só roda no gatilho de ${atende}, e esta automação é disparada por ${nomeDoGatilho(gatilho)}.`;
+  // O SALVAR RECUSA: o bloco realmente não roda aqui, e a frase de sempre está
+  // certa — é o caso de `resposta_publica` fora do comentário e do coraçãozinho
+  // em comentário ou em abertura.
+  if (recusaDoSalvar)
+    return `Este bloco só roda no gatilho de ${atende}, e esta automação é disparada por ${nomeDoGatilho(gatilho)}.`;
+  // SÓ A LISTA À MÃO: o bloco roda neste gatilho, e o salvar o aceita. O que a
+  // faixa diz é o que ela faz — não o acrescenta aqui —, sem afirmar nada sobre
+  // executar.
+  return `A faixa oferece este bloco só no gatilho de ${atende}. Numa automação disparada por ${nomeDoGatilho(gatilho)} o salvar aceita quem já o tem, e o painel diz o que ele faz.`;
 }
 
 // O DESENHO DE CADA ITEM, pela chave — a mesma chave que `blocoNovo`
@@ -178,6 +207,10 @@ export default function Paleta({
           // trancava reescrevia a conta numa função local: com a fórmula em dois
           // lugares, apagar a pergunta daqui deixava a suíte verde.
           const serve = paletaOferece(item, gatilho);
+          // QUAL DAS DUAS METADES APAGOU O ITEM — e ela decide só a FRASE do
+          // motivo. Quem decide se o item serve continua sendo `paletaOferece`,
+          // numa linha e num lugar só.
+          const recusaDoSalvar = salvarRecusaOItem(item, gatilho);
           const Icone = ICONE[item.chave] ?? IconMensagem;
           // O `title` leva SEMPRE o nome e a descrição, porque agora é o único
           // lugar onde eles existem. Quando o item está fora, o motivo entra
@@ -219,7 +252,7 @@ export default function Paleta({
                   : "cursor-not-allowed border-dashed border-zinc-300 text-zinc-300 dark:border-zinc-800 dark:text-zinc-700"
               }`}
               title={
-                serve ? legenda : `${legenda}\n${motivoDeEstarFora(gatilhos, gatilho)}`
+                serve ? legenda : `${legenda}\n${motivoDeEstarFora(gatilhos, gatilho, recusaDoSalvar)}`
               }
               aria-disabled={!serve}
             >
