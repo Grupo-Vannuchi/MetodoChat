@@ -12,9 +12,11 @@ diz como lê-lo.
 > Quando uma pessoa que **nunca falou** com a conta toca num link do Instagram
 > e/ou abre a conversa, o que exatamente chega no nosso webhook?
 
-Ela existe porque a spec `docs/specs/2026-08-26-gatilho-por-link.md` está
-desatualizada num ponto, e o ponto é o caso principal: a documentação diz que
-`messaging_referral` só ocorre em conversa **que já existe**.
+Ela existe porque a spec de então — hoje reescrita como
+`docs/specs/2026-08-26-portas-de-entrada.md`, e renomeada justamente por causa
+do que este experimento mediu — estava desatualizada num ponto, e o ponto era o
+caso principal: a documentação diz que `messaging_referral` só ocorre em conversa
+**que já existe**.
 
 ---
 
