@@ -498,7 +498,8 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 // Ela existe: quatro dos nove pontos de chamada de `executarFluxo` entram sem
 // `Retomada` de propósito — o gatilho de comentário, o gatilho de mensagem, a
 // porta de entrada (o gatilho `abertura`) e o portão recém-vencido —, e o
-// porquê de cada um está escrito no próprio ponto de chamada. O que faltava era a dispensa ser DIZÍVEL: enquanto o parâmetro
+// porquê de cada um está escrito no próprio ponto de chamada. O que faltava
+// era a dispensa ser DIZÍVEL: enquanto o parâmetro
 // aceitava `string | null | Retomada`, escrever `.destino` num ponto de chamada
 // jogava a regra do portão fora e ficava IDENTICO a uma dispensa legítima —
 // as duas coisas eram "uma string". Medido no commit 4ba91f7, com os CINCO
@@ -754,7 +755,8 @@ async function executarFluxo(
       // (scripts/varredura-portao.mjs, o ponto "gatilho", que entra "pela porta
       // da frente" e é medido à parte dos cinco pontos de RETOMADA). Os QUATRO
       // dizem a dispensa pelo nome, com `semRegraDoPortao` — são as quatro
-      // únicas ocorrências dela como chamada no arquivo, e é assim que quem lê o diff
+      // únicas ocorrências dela como chamada no arquivo, e é assim que quem
+      // lê o diff
       // distingue uma dispensa deliberada de uma regra jogada fora. O motivo
       // está por escrito no ramo
       // `pedir_email` logo abaixo, junto com o do ramo que FAZ o contrário — os
@@ -1546,14 +1548,38 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
   // para a forma que motivou o registro, exatamente o buraco que o cabeçalho da
   // rota diz que fechou: NADA CHEGA AQUI E SAI SEM DEIXAR RASTRO.
   //
-  // Sem janela, pela mesma razão escrita na rota: é depois da conferência de
-  // assinatura, só a Meta escreve aqui, e uma janela de 10 minutos engoliria o
-  // segundo evento de uma sequência — que é precisamente o que se quer ler.
+  // COM JANELA, E A RAZÃO ANTERIOR ERA EMPRESTADA. Estava escrito aqui que não
+  // havia janela "pela mesma razão da rota" — mas a razão da rota é ler a FORMA
+  // de uma sequência desconhecida (`referral` e depois `postback`), e ali uma
+  // janela engoliria o segundo evento, que é justamente o que se quer ver. Aqui
+  // o diagnóstico é um FATO ÚNICO — "não há conta para este `entry.id`" —, e
+  // repeti-lo não acrescenta nada.
   //
-  // `entryId` vai como conta mesmo sem par: é o id que a Meta disse, e é por
-  // ele que quem for diagnosticar descobre para qual conta o evento vinha.
+  // O que a ausência de janela custava está medido no desenho: desconectada a
+  // conta, isto gravaria uma linha por DM PARA SEMPRE, e ninguém veria crescer.
+  // `lib/event-query.ts` traz `account_id = $1 or account_id is null`, e estas
+  // linhas nascem sob um `entry.id` que, por definição, não é a conta
+  // selecionada — elas são forenses, e nunca aparecem na tela. Crescimento que
+  // ninguém vê é o pior tipo.
+  //
+  // O DISCRIMINADOR É O `entry.id`, e é ele que preserva o diagnóstico inteiro:
+  // dois `entry.id` desconhecidos diferentes continuam dando duas linhas, que é
+  // a única distinção que esta linha carrega. É o mesmo desenho de
+  // `abertura_com_gatilho_trocado`, aqui do lado.
+  //
+  // O id entra TAMBÉM no payload (`entry_id`) porque é de lá que a janela o lê —
+  // `logEventThrottled` compara `payload->>campo`. Nada do item original sai: o
+  // `entry_id` é um campo A MAIS, e é o que faz a linha dizer sozinha para qual
+  // conta o evento vinha, sem depender da coluna.
   if (!account) {
-    await logEvent(entryId ?? null, "webhook_sem_conta", ev);
+    const deQuem = entryId ?? "(sem entry.id)";
+    await logEventThrottled(
+      entryId ?? null,
+      "webhook_sem_conta",
+      { ...ev, entry_id: deQuem },
+      10,
+      { campo: "entry_id", valor: deQuem }
+    );
     return;
   }
   const senderId = ev.sender?.id;

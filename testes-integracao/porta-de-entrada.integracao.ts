@@ -507,14 +507,45 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
     expect(await fila(CONTA, ALGUEM)).toEqual([]);
 
     // Mas ficou a linha, gravada sob o id que a Meta disse — é por ele que
-    // quem for diagnosticar descobre para qual conta o evento vinha.
+    // quem for diagnosticar descobre para qual conta o evento vinha. E o id vai
+    // TAMBÉM dentro do payload, que é de onde a janela o lê.
     const semConta = await eventos(DE_FORA, "webhook_sem_conta");
     expect(semConta.length).toBe(1);
     expect((semConta[0].postback as { mid?: string })?.mid).toBe("mid-sem-conta-1");
+    expect(semConta[0].entry_id).toBe(DE_FORA);
 
     // E não foi parar em nenhuma das contas de verdade.
     expect(await eventos(CONTA, "webhook_sem_conta")).toEqual([]);
     expect(await eventos(VIZINHA, "webhook_sem_conta")).toEqual([]);
+
+    // A JANELA SEGURA A REPETIÇÃO. Desconectada a conta, a Meta continua
+    // entregando: sem janela, isto gravaria uma linha por DM para sempre, num
+    // canto da tabela que `lib/event-query.ts` nem mostra (o filtro é por conta
+    // selecionada, e este id não é nenhuma). O diagnóstico é um fato único —
+    // "não há conta para este `entry.id`" —, e a segunda linha não diz nada.
+    await tocarNaPergunta(
+      DE_FORA,
+      "9300000000000008",
+      "Quero saber mais",
+      payloadDaPergunta(SEGUNDA),
+      "mid-sem-conta-2"
+    );
+    expect((await eventos(DE_FORA, "webhook_sem_conta")).length).toBe(1);
+
+    // E O DISCRIMINADOR PRESERVA O QUE INTERESSA: outro `entry.id` desconhecido
+    // é outro fato, e ganha a linha dele. Sem esta contra-prova, uma janela sem
+    // discriminador passaria pelo caso acima escondendo a segunda conta.
+    const OUTRO_DE_FORA = "17800000000000998";
+    await tocarNaPergunta(
+      OUTRO_DE_FORA,
+      "9300000000000009",
+      "Quero saber mais",
+      payloadDaPergunta(SEGUNDA),
+      "mid-sem-conta-3"
+    );
+    const doOutro = await eventos(OUTRO_DE_FORA, "webhook_sem_conta");
+    expect(doOutro.length).toBe(1);
+    expect(doOutro[0].entry_id).toBe(OUTRO_DE_FORA);
 
     expect(meta.desconhecidos).toEqual([]);
   });

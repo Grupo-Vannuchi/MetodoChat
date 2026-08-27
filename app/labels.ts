@@ -169,6 +169,13 @@ const EVENT: Record<string, Badge> = {
   // Âmbar: nada quebrou do lado do código. O que há é o painel e a Meta
   // discordando sobre quais contas existem, e quem arruma é o dono, reconectando
   // a conta em Configuração.
+  //
+  // HONESTIDADE SOBRE ESTE CRACHÁ: no caso do `entry.id` SEM PAR, o dono não o
+  // vê. `lib/event-query.ts` traz só `account_id = $1 or account_id is null`, e
+  // estas linhas nascem sob um id que não é a conta selecionada — elas são
+  // forenses, para quem for ler a tabela. O rótulo continua aqui porque o outro
+  // caso (NENHUMA conta conectada, com `entry.id` nulo) cai em `account_id is
+  // null` e aparece.
   webhook_sem_conta: {
     label: "Evento sem conta conectada",
     className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
