@@ -173,6 +173,37 @@ export function blocoNovo(chave: string): Passo {
   }
 }
 
+// O TIPO DE PASSO QUE CADA ITEM DA PALETA CRIA.
+//
+// Os NOVE itens são SEIS tipos: os quatro de mensagem salvam todos `dm`. Quem
+// precisa dessa resposta é a paleta (`./paleta`), para perguntar a
+// `salvarRecusaOBloco` (@/lib/steps) se o salvar recusaria aquele bloco NESTE
+// gatilho — e ela não pode chamar `blocoNovo` só para descobrir o tipo: aquela
+// função gera identidades a cada chamada, e a faixa se redesenha a cada tecla.
+//
+// É a MESMA resposta do `switch` acima, escrita uma segunda vez, e é por isso
+// que existe teste puro travando as duas juntas (`tests/paleta-e-salvar.test.ts`):
+// item novo na paleta cujo tipo aqui discorde do que `blocoNovo` cria derruba a
+// suíte em vez de aparecer como bloco apagado sem motivo na faixa.
+const TIPO_DO_ITEM: Record<string, string> = {
+  dm: "dm",
+  dm_botao: "dm",
+  dm_link: "dm",
+  dm_opcoes: "dm",
+  esperar: "esperar",
+  pedir_follow: "pedir_follow",
+  pedir_email: "pedir_email",
+  resposta_publica: "resposta_publica",
+  reagir_story: "reagir_story",
+};
+
+// Chave desconhecida devolve `"dm"` pelo mesmo motivo do `default` de
+// `blocoNovo`: é o bloco que serve em qualquer gatilho, então uma chave que
+// escapar da tabela é OFERECIDA na faixa em vez de sumir dela.
+export function tipoDoItem(chave: string): string {
+  return TIPO_DO_ITEM[chave] ?? "dm";
+}
+
 // O que o nó mostra fechado. O corpo é cortado por CSS, não aqui — cortar no
 // dado esconderia da prévia o texto que a pessoa acabou de digitar.
 //

@@ -1,5 +1,6 @@
 "use client";
-import { PALETA } from "./modelos";
+import { salvarRecusaOBloco } from "@/lib/steps";
+import { PALETA, tipoDoItem } from "./modelos";
 import {
   IconClock,
   IconCoracao,
@@ -66,6 +67,7 @@ const NOME_DO_GATILHO: Record<string, string> = {
   dm: "mensagem direta",
   comment: "comentário",
   story: "resposta de story",
+  abertura: "pergunta de abertura",
 };
 
 function nomeDoGatilho(g: string): string {
@@ -76,7 +78,14 @@ function nomeDoGatilho(g: string): string {
 //
 // `gatilhos` não-nulo é o que torna o item dependente; quando ele é nulo o item
 // serve sempre e esta função nem é chamada.
-function motivoDeEstarFora(gatilhos: string[], gatilho: string): string {
+function motivoDeEstarFora(gatilhos: string[] | null, gatilho: string): string {
+  // SEM `gatilhos`, quem apagou o item foi a regra do salvar, e a frase não tem
+  // lista à mão para citar. Ela diz a mesma coisa pelo outro lado: este gatilho
+  // não executa este bloco. É o caso que só aparece quando a lista à mão e a
+  // regra discordam — hoje nenhum item cai aqui, e é por isso que a frase
+  // precisa existir antes de o dia chegar.
+  if (!gatilhos)
+    return `O salvar recusa este bloco numa automação disparada por ${nomeDoGatilho(gatilho)}.`;
   const atende = gatilhos.map(nomeDoGatilho).join(" ou ");
   return `Este bloco só roda no gatilho de ${atende}, e esta automação é disparada por ${nomeDoGatilho(gatilho)}.`;
 }
@@ -164,7 +173,27 @@ export default function Paleta({
           // que o TypeScript consegue estreitar no `title` lá embaixo — sem
           // isso a checagem exigiria um `!` para provar o que `serve` já sabe.
           const gatilhos = item.gatilhos;
-          const serve = !gatilhos || gatilhos.includes(gatilho);
+          // DUAS PERGUNTAS, E A SEGUNDA É A QUE GARANTE.
+          //
+          // A primeira é a lista `gatilhos` do item, escrita à mão em
+          // `./modelos`. A segunda é a REGRA DO SALVAR (`salvarRecusaOBloco`,
+          // @/lib/steps), a mesma função que `conferirLista` usa para acender
+          // ERRO — a faixa pergunta a ela em vez de esperar que a lista à mão
+          // adivinhe cada gatilho novo.
+          //
+          // MEDIDO no gatilho `abertura`: a lista à mão já dava o resultado
+          // certo (nem resposta pública nem coraçãozinho são oferecidos), mas
+          // por coincidência de desenho — nenhuma das duas linhas de `./modelos`
+          // sabe que `abertura` existe. Com a segunda pergunta, o acerto deixa
+          // de depender de alguém lembrar de voltar naquela lista.
+          //
+          // A LISTA À MÃO CONTINUA, e continua podendo ser MAIS restritiva: em
+          // `dm` ela apaga o coraçãozinho que a regra aceitaria (lá o salvar só
+          // avisa). Essa metade da diferença não fere ninguém — o que a faixa
+          // oferece, o salvar aceita. O contrário é que era possível, e não é
+          // mais.
+          const recusadoNoSalvar = salvarRecusaOBloco(tipoDoItem(item.chave), gatilho);
+          const serve = (!gatilhos || gatilhos.includes(gatilho)) && !recusadoNoSalvar;
           const Icone = ICONE[item.chave] ?? IconMensagem;
           // O `title` leva SEMPRE o nome e a descrição, porque agora é o único
           // lugar onde eles existem. Quando o item está fora, o motivo entra
@@ -206,7 +235,7 @@ export default function Paleta({
                   : "cursor-not-allowed border-dashed border-zinc-300 text-zinc-300 dark:border-zinc-800 dark:text-zinc-700"
               }`}
               title={
-                serve || !gatilhos ? legenda : `${legenda}\n${motivoDeEstarFora(gatilhos, gatilho)}`
+                serve ? legenda : `${legenda}\n${motivoDeEstarFora(gatilhos, gatilho)}`
               }
               aria-disabled={!serve}
             >

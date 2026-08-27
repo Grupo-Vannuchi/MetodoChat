@@ -3211,6 +3211,39 @@ const SO_UM_POR_LISTA: Record<string, string> = {
 // de uma é um "ignorar tudo" com nome bonito, e aí o dono que queria dizer
 // "entrego sem exigir follow" acabou dizendo "não me conte mais nada".
 // ---------------------------------------------------------------------------
+// O QUE O SALVAR RECUSA POR CAUSA DO GATILHO, numa pergunta só.
+//
+// As duas condições abaixo já viviam DENTRO de `conferirLista`, escritas em
+// linha. Elas saíram para cá porque há um SEGUNDO leitor delas, e ele estava
+// respondendo a mesma pergunta por conta própria: a paleta do editor
+// (`app/automacoes/editor/paleta.tsx`) apaga os blocos que não servem para o
+// gatilho da automação, lendo o campo `gatilhos` de `PALETA`
+// (`app/automacoes/editor/modelos.ts`) — uma lista escrita à mão, item a item.
+//
+// MEDIDO ao acrescentar o gatilho `abertura`: as duas listas concordavam nele
+// por COINCIDÊNCIA. `resposta_publica` tem `gatilhos: ["comment"]` e
+// `reagir_story` tem `gatilhos: ["story"]`, então nenhum dos dois é oferecido em
+// `abertura` — que é o resultado certo —, mas nada no código ligava esse acerto
+// à regra daqui. Um gatilho novo que a lista à mão não previsse seria oferecido
+// na faixa e recusado no salvar, e o dono descobriria montando o fluxo.
+//
+// E A DIVERGÊNCIA NÃO É HIPOTÉTICA — ela JÁ EXISTE, em `dm`: a paleta não
+// oferece o coraçãozinho ali, e esta regra o ACEITA (logo abaixo, no gatilho
+// `dm` o bloco roda e sai só um AVISO de ativar). A paleta é mais restritiva do
+// que o salvar, e essa metade da diferença é inofensiva: nada que ela oferece é
+// recusado depois. A metade PERIGOSA é a outra — oferecer o que o salvar nega —,
+// e é essa que a paleta passou a perguntar aqui, em vez de deduzir da lista.
+//
+// `true` = o salvar acende ERRO neste par. Não cobre os avisos: quem quiser a
+// lista inteira de problemas continua chamando `conferirLista`.
+export function salvarRecusaOBloco(tipo: string, gatilho: string): boolean {
+  // O coraçãozinho precisa do id da MENSAGEM, e só `dm` e `story` o fornecem.
+  if (tipo === "reagir_story") return gatilho !== "dm" && gatilho !== "story";
+  // A resposta pública precisa do id do COMENTÁRIO.
+  if (tipo === "resposta_publica") return gatilho !== "comment";
+  return false;
+}
+
 export function conferirLista(
   passos: unknown,
   gatilho: string,
@@ -3285,8 +3318,10 @@ export function conferirLista(
       continue;
     }
 
-    // Bloco que não pode disparar naquele gatilho. A paleta não o oferece, mas
-    // lista vinda de fora do editor pode trazê-lo.
+    // Bloco que não pode disparar naquele gatilho. A paleta não o oferece —
+    // e não o oferece porque PERGUNTA a `salvarRecusaOBloco`, a mesma função
+    // que as duas linhas de ERRO daqui usam —, mas lista vinda de fora do
+    // editor pode trazê-lo.
     //
     // AS DUAS METADES TÊM MECANISMOS DIFERENTES, e por isso níveis diferentes.
     // Elas já estiveram sob uma afirmação só — "bloco que não pode disparar
@@ -3320,7 +3355,7 @@ export function conferirLista(
           "Neste gatilho o coraçãozinho não vai para a story: ele reage à mensagem que a pessoa mandou.",
       });
     }
-    if (passo.tipo === "reagir_story" && gatilho !== "dm" && gatilho !== "story") {
+    if (passo.tipo === "reagir_story" && salvarRecusaOBloco(passo.tipo, gatilho)) {
       r.push({
         nivel: "erro",
         quando: "salvar",
@@ -3329,7 +3364,7 @@ export function conferirLista(
           "O coraçãozinho precisa de uma mensagem para reagir, e neste gatilho não chega nenhuma.",
       });
     }
-    if (passo.tipo === "resposta_publica" && gatilho !== "comment") {
+    if (passo.tipo === "resposta_publica" && salvarRecusaOBloco(passo.tipo, gatilho)) {
       r.push({
         nivel: "erro",
         quando: "salvar",
