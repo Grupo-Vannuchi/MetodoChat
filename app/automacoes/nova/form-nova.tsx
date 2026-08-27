@@ -1,9 +1,10 @@
 "use client";
 import { useActionState, useState } from "react";
 import Link from "next/link";
+import { gatilhoPedePalavraChave } from "@/lib/steps";
 import { criarAutomacao } from "../actions";
 import type { TriggerKind } from "../types";
-import { IconComment, IconStory, IconSend } from "../../icons";
+import { IconComment, IconStory, IconSend, IconPorta } from "../../icons";
 import {
   card,
   input,
@@ -56,12 +57,30 @@ const GATILHOS: {
     titulo: "DM recebida",
     descricao: "Alguém manda a palavra-chave direto na sua DM.",
   },
+  // O QUARTO, E O ÚNICO QUE NÃO FALA DE PALAVRA-CHAVE — porque não tem nenhuma.
+  // A descrição diz as duas coisas que a spec exige que apareçam sem estar
+  // escondidas em ajuda, e a segunda delas (só em conversa nova) é a que mais
+  // surpreende: o dono testando com a própria conversa antiga nunca veria as
+  // perguntas. O painel do gatilho repete as duas, com destaque, para quem
+  // chegar na automação sem ter passado por aqui.
+  {
+    valor: "abertura",
+    icone: IconPorta,
+    titulo: "Pergunta de abertura",
+    descricao:
+      "Alguém abre sua conversa pela primeira vez e toca numa pergunta. Só no celular, e só em conversa nova.",
+  },
 ];
 
 const DICA_DA_PALAVRA: Record<TriggerKind, string> = {
   comment: "O que a pessoa precisa comentar no post.",
   story: "O que a pessoa precisa responder no seu story.",
   dm: "O que a pessoa precisa mandar na sua DM.",
+  // Nunca sai na tela: o par de campos inteiro some no gatilho de abertura. A
+  // linha existe porque `TriggerKind` tem quatro valores e o `Record` os exige
+  // todos — e essa exigência é o que faz um gatilho novo parar o `tsc` aqui em
+  // vez de virar `undefined` embaixo do campo.
+  abertura: "",
 };
 
 export default function FormNovaAutomacao() {
@@ -88,7 +107,11 @@ export default function FormNovaAutomacao() {
 
       <div>
         <span className={labelCls}>Quando alguém…</span>
-        <div className="grid gap-3 sm:grid-cols-3">
+        {/* DOIS POR DOIS, e não três numa fila: com o quarto gatilho, a fila de
+            três punha um cartão sozinho na segunda linha, e num formulário de
+            672px quatro colunas dariam 160px por cartão — estreito demais para a
+            descrição, que é onde os dois avisos da abertura moram. */}
+        <div className="grid gap-3 sm:grid-cols-2">
           {GATILHOS.map((o) => {
             const escolhido = gatilho === o.valor;
             const Icone = o.icone;
@@ -136,34 +159,42 @@ export default function FormNovaAutomacao() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelCls}>Palavras-chave (separadas por vírgula)</label>
-          <input
-            name="keywords"
-            required={correspondencia !== "any"}
-            disabled={correspondencia === "any"}
-            className={input}
-            placeholder="quero, link, eu quero"
-          />
-          <p className={hintCls}>
-            {DICA_DA_PALAVRA[gatilho]} Sem diferença de maiúsculas ou acentos.
-          </p>
+      {/* O PAR DE CAMPOS SOME NO GATILHO DE ABERTURA — a spec é explícita: ele
+          "não pede palavra-chave". Somem os DOIS, e não só o primeiro: sem
+          palavra a escolher, "Contém a palavra / Texto exato / Qualquer texto" é
+          uma pergunta sobre nada. `criarAutomacao` (../actions) faz a mesma
+          pergunta antes de exigir a lista, senão o formulário mandaria o pedido
+          e receberia de volta um recado sobre um campo que não está na tela. */}
+      {gatilhoPedePalavraChave(gatilho) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className={labelCls}>Palavras-chave (separadas por vírgula)</label>
+            <input
+              name="keywords"
+              required={correspondencia !== "any"}
+              disabled={correspondencia === "any"}
+              className={input}
+              placeholder="quero, link, eu quero"
+            />
+            <p className={hintCls}>
+              {DICA_DA_PALAVRA[gatilho]} Sem diferença de maiúsculas ou acentos.
+            </p>
+          </div>
+          <div>
+            <label className={labelCls}>Tipo de correspondência</label>
+            <select
+              name="match_type"
+              value={correspondencia}
+              onChange={(e) => setCorrespondencia(e.target.value)}
+              className={input}
+            >
+              <option value="contains">Contém a palavra</option>
+              <option value="exact">Texto exato</option>
+              <option value="any">Qualquer texto</option>
+            </select>
+          </div>
         </div>
-        <div>
-          <label className={labelCls}>Tipo de correspondência</label>
-          <select
-            name="match_type"
-            value={correspondencia}
-            onChange={(e) => setCorrespondencia(e.target.value)}
-            className={input}
-          >
-            <option value="contains">Contém a palavra</option>
-            <option value="exact">Texto exato</option>
-            <option value="any">Qualquer texto</option>
-          </select>
-        </div>
-      </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <button type="submit" disabled={enviando} className={btnPrimary}>

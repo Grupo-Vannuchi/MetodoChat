@@ -3211,6 +3211,37 @@ const SO_UM_POR_LISTA: Record<string, string> = {
 // de uma é um "ignorar tudo" com nome bonito, e aí o dono que queria dizer
 // "entrego sem exigir follow" acabou dizendo "não me conte mais nada".
 // ---------------------------------------------------------------------------
+// O GATILHO PEDE PALAVRA-CHAVE?
+//
+// Os três gatilhos antigos casam por TEXTO: `findMatch` (lib/engine.ts) filtra
+// pelo gatilho e chama `matches(texto, keywords, match_type)`. Sem palavra e sem
+// "qualquer texto", a automação não dispara com nada — e é por isso que as duas
+// portas de escrita (`salvarAutomacao` e `criarAutomacao`,
+// app/automacoes/actions.ts) recusam esse par com "Informe as palavras-chave".
+//
+// `abertura` NÃO CASA POR TEXTO. Quem dispara é o toque numa pergunta de
+// abertura, e o que liga a pergunta à automação é o identificador
+// (`payloadDaPergunta`, mais acima) — `lerPayload` devolve o id da automação, e
+// o ramo de `messaging_postback` (lib/engine.ts) a busca por id. `keywords` e
+// `match_type` não são lidos em nenhum ponto desse caminho, e `findMatch` nem
+// chega perto: ele só é chamado com "comment", "story" e "dm".
+//
+// MEDIDO, e é o motivo de esta função existir: sem ela, a tela do editor não
+// consegue GRAVAR uma automação de abertura. O painel esconde o campo de
+// palavra-chave (é o que a spec pede), a automação chega ao servidor com
+// `palavras: []` e `correspondencia: "contains"`, e a linha acima devolve
+// "Informe as palavras-chave (ou mude para “Qualquer texto”)." — um recado sobre
+// um campo que a tela não mostra, num gatilho que não tem texto para casar.
+//
+// A SAÍDA NÃO É GRAVAR `"any"` NO LUGAR. Isso passaria pela regra, mas gravaria
+// no banco a frase "esta automação casa com QUALQUER mensagem" — que é a rede de
+// arrasto do produto — sobre uma automação que não casa com mensagem nenhuma. A
+// lista de automações e o cartão do gatilho leem `match_type` para se descrever,
+// e os dois passariam a mentir. O que muda é a PERGUNTA, não o dado.
+export function gatilhoPedePalavraChave(gatilho: string): boolean {
+  return gatilho !== "abertura";
+}
+
 // O QUE O SALVAR RECUSA POR CAUSA DO GATILHO, numa pergunta só.
 //
 // As duas condições abaixo já viviam DENTRO de `conferirLista`, escritas em

@@ -3,7 +3,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { sql } from "@/lib/db";
 import { getSelectedAccountId } from "@/lib/account";
-import { conferirLista, ligacoesValidas, podeFicarAtiva } from "@/lib/steps";
+import {
+  conferirLista,
+  gatilhoPedePalavraChave,
+  ligacoesValidas,
+  podeFicarAtiva,
+} from "@/lib/steps";
 
 function splitList(raw: string, sep: RegExp): string[] {
   return raw
@@ -191,7 +196,13 @@ export async function salvarAutomacao(
   if (!CORRESPONDENCIAS.includes(correspondencia))
     return { ok: false, erro: "Escolha o tipo de correspondência." };
   if (!nome) return { ok: false, erro: "Dê um nome à automação." };
-  if (correspondencia !== "any" && !palavras.length)
+  // A EXIGÊNCIA É DO GATILHO, e não de toda automação — `gatilhoPedePalavraChave`
+  // (@/lib/steps) tem o porquê inteiro. `abertura` dispara pelo identificador da
+  // pergunta, não por texto, e sem esta pergunta a tela do editor não conseguia
+  // GRAVAR uma automação de abertura: o painel esconde o campo (a spec manda),
+  // o pedido chega com a lista vazia, e isto devolvia um recado sobre um campo
+  // que não está na tela.
+  if (gatilhoPedePalavraChave(gatilho) && correspondencia !== "any" && !palavras.length)
     return { ok: false, erro: "Informe as palavras-chave (ou mude para “Qualquer texto”)." };
 
   // Post e story só valem no gatilho correspondente — é a mesma regra que o
@@ -418,7 +429,9 @@ export async function criarAutomacao(
   if (!GATILHOS.includes(gatilho)) return "Escolha o gatilho da automação.";
   if (!CORRESPONDENCIAS.includes(correspondencia)) return "Escolha o tipo de correspondência.";
   if (!nome) return "Dê um nome à automação.";
-  if (correspondencia !== "any" && !palavras.length)
+  // A mesma pergunta do salvar, pelo mesmo motivo — ver `salvarAutomacao`,
+  // acima, e `gatilhoPedePalavraChave` (@/lib/steps).
+  if (gatilhoPedePalavraChave(gatilho) && correspondencia !== "any" && !palavras.length)
     return "Informe as palavras-chave (ou mude para “Qualquer texto”).";
 
   const linhas = (await sql().query(

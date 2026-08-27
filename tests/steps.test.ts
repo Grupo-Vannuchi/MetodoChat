@@ -22,6 +22,7 @@ import {
   lerPayload,
   cursorDaRetomada,
   conferirLista,
+  gatilhoPedePalavraChave,
   conferir,
   oQuePortaoFaz,
   conferirLigacao,
@@ -3028,6 +3029,26 @@ describe("o gatilho abertura", () => {
   it("aceita uma DM comum", () => {
     const passos = [{ id: "b_abert01", tipo: "dm", texto: "Que bom te ver por aqui!" }];
     expect(conferirLista(passos, "abertura", [])).toEqual([]);
+  });
+
+  it("não pede palavra-chave, e os três antigos continuam pedindo", () => {
+    // A regra que as duas portas de escrita (`salvarAutomacao` e
+    // `criarAutomacao`, app/automacoes/actions.ts) passaram a consultar antes de
+    // exigir a lista de palavras. Sem ela a tela do editor não conseguia GRAVAR
+    // uma automação de abertura: o painel esconde o campo, o pedido chega com a
+    // lista vazia, e o servidor devolvia "Informe as palavras-chave" — um recado
+    // sobre um campo que não está na tela, num gatilho que não casa por texto.
+    expect(gatilhoPedePalavraChave("abertura")).toBe(false);
+    expect(gatilhoPedePalavraChave("dm")).toBe(true);
+    expect(gatilhoPedePalavraChave("comment")).toBe(true);
+    expect(gatilhoPedePalavraChave("story")).toBe(true);
+  });
+
+  it("gatilho desconhecido pede palavra-chave, e é o lado seguro", () => {
+    // A coluna `triggers` é texto livre. Errar para "não pede" deixaria passar
+    // uma automação sem palavra nenhuma num gatilho que casa por texto — ela
+    // nunca dispararia, e nada na tela diria por quê.
+    expect(gatilhoPedePalavraChave("coisa_nova")).toBe(true);
   });
 });
 

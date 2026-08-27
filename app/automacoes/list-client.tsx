@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
+import { gatilhoPedePalavraChave } from "@/lib/steps";
 import Link from "next/link";
 import { toggleAutomation, deleteAutomation, duplicateAutomation } from "./actions";
 import {
@@ -12,7 +13,7 @@ import {
   btnPrimary,
   emptyWrap,
 } from "../ui";
-import { IconZap, IconComment, IconStory, IconSend } from "../icons";
+import { IconZap, IconComment, IconStory, IconSend, IconPorta } from "../icons";
 
 export type AutomationRow = {
   id: string;
@@ -32,6 +33,11 @@ const TRIGGER_META: Record<
   comment: { label: "Comentário", icon: IconComment },
   story: { label: "Story", icon: IconStory },
   dm: { label: "DM", icon: IconSend },
+  // SEM ESTA LINHA A AUTOMAÇÃO DE ABERTURA APARECIA SEM CANAL NENHUM: o `if
+  // (!meta) return null` lá embaixo apaga o gatilho que a tabela não conhece, e
+  // a linha ficaria com o ponto separador e mais nada onde os outros três dizem
+  // por onde a automação dispara.
+  abertura: { label: "Abertura", icon: IconPorta },
 };
 
 type Filtro = "todas" | "ativas" | "pausadas";
@@ -246,11 +252,19 @@ export default function AutomationsList({ automations }: { automations: Automati
                         })}
                       </span>
                       <span className="text-zinc-300 dark:text-zinc-700">·</span>
+                      {/* O QUE DISPARA. Para os três gatilhos de texto é a
+                          palavra-chave; `abertura` não tem nenhuma, e sem esta
+                          pergunta a coluna saía VAZIA — `keywords` é `[]` e
+                          `match_type` não é "any", então o `join` devolvia "".
+                          A pergunta é a mesma que o salvar e o painel fazem
+                          (`gatilhoPedePalavraChave`, @/lib/steps). */}
                       <span className={`truncate ${muted}`}>
-                        {a.match_type === "any"
-                          ? "qualquer texto"
-                          : a.keywords.slice(0, 3).join(", ") +
-                            (a.keywords.length > 3 ? ` +${a.keywords.length - 3}` : "")}
+                        {a.triggers.some((t) => !gatilhoPedePalavraChave(t))
+                          ? "pergunta de abertura"
+                          : a.match_type === "any"
+                            ? "qualquer texto"
+                            : a.keywords.slice(0, 3).join(", ") +
+                              (a.keywords.length > 3 ? ` +${a.keywords.length - 3}` : "")}
                       </span>
                       <span className="text-zinc-300 dark:text-zinc-700">·</span>
                       <span className="text-zinc-400 dark:text-zinc-500">
