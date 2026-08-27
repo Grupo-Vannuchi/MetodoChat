@@ -108,6 +108,23 @@ const EVENT: Record<string, Badge> = {
     label: "Menu saiu sem botão nenhum",
     className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
   },
+  // A PERGUNTA DE ABERTURA APONTA PARA UMA AUTOMAÇÃO QUE NÃO TEM O GATILHO
+  // `abertura` (lib/engine.ts). A pergunta mora no perfil da conta na Meta, fora
+  // do banco, e continua disparando — recusar aqui faria a pergunta que está no
+  // ar parar de funcionar em silêncio, e nenhum outro caminho por identificador
+  // deste motor reconfere gatilho.
+  //
+  // Esta linha é a terceira saída: executa, e o dono vê que a montagem
+  // divergiu. Sem ela, quem trocasse o gatilho de uma automação esperando que a
+  // pergunta parasse não teria NENHUM lugar onde ver que ela não parou.
+  //
+  // Âmbar: nada quebrou e ninguém deixou de receber. O que há é a configuração
+  // dizendo uma coisa e a tela da Meta dizendo outra — e quem arruma é o dono,
+  // ou tirando a pergunta da tela de Configuração, ou pondo o gatilho de volta.
+  abertura_com_gatilho_trocado: {
+    label: "Pergunta de abertura com gatilho trocado",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+  },
   // OS DOIS DO WEBHOOK QUE NÃO ENTENDEU (app/api/webhook/route.ts). A Meta
   // mandou alguma coisa que não cai em nenhum ramo conhecido: um `field` em
   // `changes` que não é "comments", ou um item de `messaging` sem `message` —

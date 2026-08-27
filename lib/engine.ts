@@ -1587,6 +1587,20 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
   // automação cujo gatilho o dono trocou depois faria a pergunta que está no ar
   // parar de funcionar em silêncio, que é o pior dos dois lados. O escopo que
   // importa — a CONTA — é conferido, e é `loadAutomation` que o confere.
+  //
+  // E a razão maior é de CONSISTÊNCIA: `loadAutomation` confere `account_id` e
+  // `active`, e NUNCA `triggers` — nem aqui, nem no `quick_reply`, nem na
+  // retomada por cursor. Toda entrada POR IDENTIFICADOR neste motor ignora o
+  // gatilho de propósito, porque a regra escrita do produto é que um botão
+  // entregue vive na conversa da pessoa indefinidamente e sobrevive à
+  // configuração que o produziu. Conferir aqui faria da abertura a única
+  // exceção contra a regra do próprio motor.
+  //
+  // MAS EXECUTAR EM SILÊNCIO SERIA OUTRA COISA, e é o que a linha de
+  // `abertura_com_gatilho_trocado` fecha, lá embaixo: o dono que virar o
+  // gatilho de uma automação esperando que a pergunta pare precisa ter ONDE
+  // ver que ela não parou. Executa — a pergunta que está no ar não para calada
+  // — e a divergência vira linha em Atividade.
   // ============================================================
   if (ev.postback) {
     const p = lerPayload(ev.postback.payload);
@@ -1611,6 +1625,34 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     // Calado como o vizinho `quick_reply`, e pelo mesmo motivo — não é montagem
     // errada, é o dono tendo pausado o que ele mesmo publicou.
     if (!auto) return;
+    // A MONTAGEM DIVERGIU, E ISSO VIRA LINHA — a terceira saída entre executar
+    // calado e recusar.
+    //
+    // Acontece de duas formas, e as duas são ato do dono: ele ligou a pergunta
+    // a uma automação e depois trocou o gatilho dela, ou apontou a pergunta
+    // para uma automação que nunca teve `abertura`. Nos dois casos a pergunta
+    // continua no perfil da conta na Meta e continua disparando — é a decisão
+    // acima, e ela não muda. O que muda é que ela deixa de ser invisível.
+    //
+    // Com janela e discriminador por automação, no padrão de `botao_sem_caminho`
+    // e pelo mesmo motivo: uma pergunta divergente tocada em série não pode
+    // virar uma linha por toque.
+    if (!auto.triggers.includes("abertura")) {
+      await logEventThrottled(
+        account.ig_user_id,
+        "abertura_com_gatilho_trocado",
+        {
+          automation_id: auto.id,
+          contact_ig_id: senderId,
+          gatilhos: auto.triggers,
+          // O texto da pergunta, para a linha dizer QUAL porta divergiu sem
+          // ninguém precisar abrir a configuração na Meta para descobrir.
+          pergunta: ev.postback.title ?? null,
+        },
+        10,
+        { campo: "automation_id", valor: auto.id }
+      );
+    }
     const perfil = await fetchProfileFields(account.ig_user_id, senderId, account.access_token);
     await upsertContact(account.ig_user_id, senderId, {
       ...perfil,

@@ -176,7 +176,13 @@ afterAll(async () => {
 async function semearAbertura(
   contaId: string,
   nome: string,
-  steps: unknown[]
+  steps: unknown[],
+  // O GATILHO É PARÂMETRO por causa de um caso só, e ele é o ponto: uma pergunta
+  // pode apontar para uma automação que NÃO tem `abertura` — o dono trocou o
+  // gatilho depois, ou escolheu na tela uma automação que nunca teve. O motor
+  // executa assim mesmo (a pergunta mora fora do banco), e o que se mede é a
+  // linha que conta isso ao dono.
+  gatilhos: string[] = ["abertura"]
 ): Promise<string> {
   const linhas = (await banco
     .db()
@@ -184,10 +190,10 @@ async function semearAbertura(
     .query(
       `insert into automations
          (account_id, name, active, triggers, keywords, match_type, steps, ligacoes)
-       values ($1, $2, true, '{abertura}'::text[], '{}'::text[], 'any',
+       values ($1, $2, true, $4::text[], '{}'::text[], 'any',
                $3::text::jsonb, '[]'::jsonb)
        returning id`,
-      [contaId, nome, JSON.stringify(steps)]
+      [contaId, nome, JSON.stringify(steps), gatilhos]
     )) as { id: string }[];
   return linhas[0].id;
 }
@@ -405,6 +411,79 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
     // E a fila é da conta do evento, não da vizinha.
     expect((await fila(CONTA, OS_DOIS)).map((l) => l.payload.text)).toEqual([BOAS_VINDAS]);
     expect(await fila(VIZINHA, OS_DOIS)).toEqual([]);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // A MONTAGEM DIVERGIU: a pergunta aponta para uma automação SEM o gatilho
+  // `abertura`.
+  //
+  // O motor EXECUTA — a pergunta mora no perfil da conta na Meta, fora do
+  // banco, e nenhum caminho por identificador deste motor reconfere gatilho.
+  // Recusar aqui faria a pergunta que está no ar parar de funcionar calada.
+  //
+  // O que este caso segura é a TERCEIRA SAÍDA: executar E registrar. Sem a
+  // linha em Atividade, o dono que trocasse o gatilho esperando que a pergunta
+  // parasse não teria nenhum lugar onde ver que ela não parou.
+  // -------------------------------------------------------------------------
+  test("gatilho trocado: a automação roda E a divergência vira linha", async () => {
+    const CURIOSA = "9300000000000004";
+    const DE_OUTRO_GATILHO = "Esta automação é de palavra-chave, não de abertura.";
+    const POR_PALAVRA = await semearAbertura(
+      CONTA,
+      "D · automacao de palavra-chave",
+      [{ id: "b_palavr1", tipo: "dm", texto: DE_OUTRO_GATILHO }],
+      // Nem `abertura`, e é o ponto do caso.
+      ["dm"]
+    );
+
+    await tocarNaPergunta(
+      CONTA,
+      CURIOSA,
+      "Quero saber mais",
+      payloadDaPergunta(POR_PALAVRA),
+      "mid-gatilho-trocado-1"
+    );
+
+    // 1) EXECUTOU. A pergunta que está no ar não para em silêncio.
+    const naFila = await fila(CONTA, CURIOSA);
+    expect(naFila.map((l) => l.payload.text)).toEqual([DE_OUTRO_GATILHO]);
+    expect(naFila[0].automation_id).toBe(POR_PALAVRA);
+    // E o contato nasceu igual aos outros — não é meio caminho.
+    expect((await contatosDe(CURIOSA)).map((c) => c.account_id)).toEqual([CONTA]);
+
+    // 2) E DEIXOU A LINHA. É esta que o dono lê para descobrir que a montagem
+    //    diverge do que ele configurou.
+    const divergencias = await eventos(CONTA, "abertura_com_gatilho_trocado");
+    expect(divergencias.length).toBe(1);
+    expect(divergencias[0].automation_id).toBe(POR_PALAVRA);
+    expect(divergencias[0].contact_ig_id).toBe(CURIOSA);
+    // Os gatilhos de verdade da automação, para a linha dizer o que ELA é.
+    expect(divergencias[0].gatilhos).toEqual(["dm"]);
+    // E qual das quatro portas divergiu, pelo texto que a pessoa leu.
+    expect(divergencias[0].pergunta).toBe("Quero saber mais");
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  test("automação COM o gatilho abertura não gera linha de divergência", async () => {
+    // A contra-prova: sem ela, uma linha gravada em TODO toque passaria pelo
+    // caso acima e viraria ruído na tela que o dono usa para diagnosticar.
+    const QUALQUER = "9300000000000005";
+
+    await tocarNaPergunta(
+      CONTA,
+      QUALQUER,
+      "Quero saber mais",
+      payloadDaPergunta(SEGUNDA),
+      "mid-sem-divergencia-1"
+    );
+
+    expect((await fila(CONTA, QUALQUER)).map((l) => l.payload.text)).toEqual([BOAS_VINDAS]);
+    const divergencias = await eventos(CONTA, "abertura_com_gatilho_trocado");
+    // A única é a do caso anterior, e ela é de OUTRA automação.
+    expect(divergencias.every((d) => d.automation_id !== SEGUNDA)).toBe(true);
 
     expect(meta.desconhecidos).toEqual([]);
   });
