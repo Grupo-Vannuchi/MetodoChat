@@ -125,8 +125,23 @@ export function ehConhecidoEIgnorado(item: unknown): boolean {
 // rota — é a decisão não morar na fiação. Aqui ela é função pura, este arquivo
 // não tem import nenhum, e cada ramo tem caso afirmando as duas formas.
 //
-// O QUE SOBRA NA ROTA é despachar o que esta função decidiu. Não sobra
-// condição nenhuma para alguém apagar dois tokens de dentro.
+// O QUE SOBRA NA ROTA é despachar o que esta função decidiu — e ISSO AINDA É
+// MUTÁVEL EM SILÊNCIO. A frase que estava aqui ("não sobra condição nenhuma
+// para alguém apagar dois tokens de dentro") era FALSA como escrita, e foi
+// medida: trocar o literal `"motor"` por `"registrar"` no `if` da rota passa por
+// tsc, eslint, 709 puros, varredura e integração, e mata TODO o tratamento de
+// mensagens — não só a porta de entrada. Um comentário que promete uma garantia
+// que não existe é pior que nenhum: é onde o próximo leitor para de olhar.
+//
+// O que esta função de fato entrega são duas coisas menores e verdadeiras:
+//   1. o CONHECIMENTO saiu da fiação e tem caso para cada saída, aqui do lado;
+//   2. `DestinoDoMessaging` é união NOMEADA de três, e o estreitamento do
+//      segundo `if` da rota faz o `tsc` recusar sozinho a troca para
+//      `"ignorar"` (TS2367). Metade das mutações restantes tem dono.
+//
+// A OUTRA METADE tem rede desde `testes-integracao/porta-do-webhook.integracao.ts`,
+// que importa a rota e POSTa um corpo assinado: um caso por destino, e os três
+// juntos prendem os três literais.
 // ============================================================
 
 /**

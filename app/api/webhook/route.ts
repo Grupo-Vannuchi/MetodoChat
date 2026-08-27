@@ -204,6 +204,22 @@ export async function POST(req: NextRequest) {
         // (lib/webhook-messaging.ts), que é pura e tem caso para cada ramo; o
         // porquê, por extenso, está lá.
         //
+        // MAS NÃO DECIDIR NÃO É ESTAR PROTEGIDO, e é preciso dizer isto aqui
+        // porque já se escreveu o contrário. Os três literais abaixo continuam
+        // mutáveis em silêncio: trocar `"motor"` por `"registrar"` deixa tsc,
+        // eslint, 709 puros, varredura e integração verdes e mata TODO o
+        // tratamento de mensagens — não só a porta nova. (A troca para
+        // `"ignorar"` o tsc recusa sozinho, com TS2367, porque
+        // `DestinoDoMessaging` é união nomeada de três e o segundo `if`
+        // estreita o tipo.)
+        //
+        // QUEM SEGURA ISTO é `testes-integracao/porta-do-webhook.integracao.ts`,
+        // que importa esta rota e POSTa um corpo assinado por HMAC dentro de
+        // `comoNumaRequisicao` — um caso por destino, mais o 401 da assinatura
+        // errada. Não havia limite estrutural nenhum: o que faltava eram os
+        // campos `waitUntil` e `onClose` da fundação, sem os quais o `after()`
+        // do fim desta função estourava.
+        //
         // NENHUM DOS RAMOS SABE LER PAYLOAD, de propósito: quem decide se
         // aquele postback é nosso é `lerPayload`, dentro do motor. Um postback
         // que o motor não reconhece continua virando
