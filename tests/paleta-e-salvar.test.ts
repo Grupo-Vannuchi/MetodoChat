@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { conferirLista, salvarRecusaOBloco } from "../lib/steps";
-import { PALETA, blocoNovo, tipoDoItem } from "../app/automacoes/editor/modelos";
+import {
+  PALETA,
+  blocoNovo,
+  paletaOferece,
+  tipoDoItem,
+  type ItemDaPaleta,
+} from "../app/automacoes/editor/modelos";
 
 // O QUE ESTE ARQUIVO FIXA: a faixa de blocos do editor nunca oferece um bloco
 // que o salvar vai recusar.
@@ -23,17 +29,18 @@ import { PALETA, blocoNovo, tipoDoItem } from "../app/automacoes/editor/modelos"
 // diferença não fere ninguém. O que este arquivo tranca é a outra metade.
 const GATILHOS = ["comment", "story", "dm", "abertura"];
 
-// A mesma conta que a paleta faz para apagar o item.
-function ofereceria(item: (typeof PALETA)[number], gatilho: string): boolean {
-  const porLista = !item.gatilhos || item.gatilhos.includes(gatilho);
-  return porLista && !salvarRecusaOBloco(tipoDoItem(item.chave), gatilho);
-}
+// A CONTA VEM DE `paletaOferece`, E NÃO É REESCRITA AQUI — e a troca tem
+// medição. Este arquivo tinha uma `function ofereceria` local, com a fórmula da
+// faixa copiada, e o efeito foi medido apagando `&& !salvarRecusaOBloco(...)`
+// da paleta: 721 verdes. O teste trancava a propriedade de uma CÓPIA da regra,
+// e a tela podia voltar a decidir sozinha sem ninguém ficar sabendo. Agora a
+// faixa (`paleta.tsx`) e este arquivo chamam a MESMA função.
 
 describe("a paleta e as regras de publicar", () => {
   it("nada do que a faixa oferece é recusado pelo salvar", () => {
     for (const item of PALETA) {
       for (const gatilho of GATILHOS) {
-        if (!ofereceria(item, gatilho)) continue;
+        if (!paletaOferece(item, gatilho)) continue;
         expect(
           salvarRecusaOBloco(tipoDoItem(item.chave), gatilho),
           `${item.chave} em ${gatilho}`
@@ -42,11 +49,43 @@ describe("a paleta e as regras de publicar", () => {
     }
   });
 
+  it("a faixa pergunta a REGRA do salvar, e não só a lista à mão", () => {
+    // O ITEM SINTÉTICO É O QUE MEDE A SEGUNDA PERGUNTA — e ele não é imitação
+    // de nada: é um `ItemDaPaleta` de verdade, entregue à função de verdade.
+    //
+    // Nos NOVE itens de hoje as duas metades concordam por COINCIDÊNCIA de
+    // desenho: `resposta_publica` lista `["comment"]` e `reagir_story` lista
+    // `["story"]`, então a lista à mão já recusa sozinha todo par que a regra
+    // recusaria. É essa coincidência que faz o caso acima passar mesmo com a
+    // pergunta à regra apagada — medido, 721 verdes —, e é ela que este caso
+    // tira do caminho.
+    //
+    // A FORMA DO ITEM É A FORMA DO DEFEITO QUE A FASE TEMIA: um item que a
+    // lista à mão oferece em TODO gatilho (`gatilhos: null`, como os sete
+    // primeiros da faixa) sobre um tipo que o salvar recusa em alguns. É o que
+    // acontece sozinho no dia em que entra um gatilho novo e ninguém volta
+    // àquela lista — e a partir daqui isso fica vermelho em vez de virar bloco
+    // oferecido e recusado no salvar.
+    for (const tipo of ["resposta_publica", "reagir_story"]) {
+      const semLista: ItemDaPaleta = {
+        chave: tipo,
+        rotulo: "item sem lista à mão",
+        descricao: "serve em qualquer gatilho, pela lista",
+        gatilhos: null,
+      };
+      for (const gatilho of GATILHOS) {
+        expect(paletaOferece(semLista, gatilho), `${tipo} em ${gatilho}`).toBe(
+          !salvarRecusaOBloco(tipo, gatilho)
+        );
+      }
+    }
+  });
+
   it("no gatilho `abertura` a faixa apaga exatamente os dois que o salvar nega", () => {
     // Não é o resultado que mudou — é de onde ele vem. As duas asserções abaixo
     // passavam antes desta tarefa, pela lista à mão; agora elas passam pela
     // regra, e continuariam passando se aquela lista fosse apagada.
-    const apagados = PALETA.filter((i) => !ofereceria(i, "abertura")).map((i) => i.chave);
+    const apagados = PALETA.filter((i) => !paletaOferece(i, "abertura")).map((i) => i.chave);
     expect(apagados).toEqual(["resposta_publica", "reagir_story"]);
 
     expect(salvarRecusaOBloco("resposta_publica", "abertura")).toBe(true);

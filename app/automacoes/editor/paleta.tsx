@@ -1,6 +1,5 @@
 "use client";
-import { salvarRecusaOBloco } from "@/lib/steps";
-import { PALETA, tipoDoItem } from "./modelos";
+import { PALETA, paletaOferece } from "./modelos";
 import {
   IconClock,
   IconCoracao,
@@ -173,27 +172,12 @@ export default function Paleta({
           // que o TypeScript consegue estreitar no `title` lá embaixo — sem
           // isso a checagem exigiria um `!` para provar o que `serve` já sabe.
           const gatilhos = item.gatilhos;
-          // DUAS PERGUNTAS, E A SEGUNDA É A QUE GARANTE.
-          //
-          // A primeira é a lista `gatilhos` do item, escrita à mão em
-          // `./modelos`. A segunda é a REGRA DO SALVAR (`salvarRecusaOBloco`,
-          // @/lib/steps), a mesma função que `conferirLista` usa para acender
-          // ERRO — a faixa pergunta a ela em vez de esperar que a lista à mão
-          // adivinhe cada gatilho novo.
-          //
-          // MEDIDO no gatilho `abertura`: a lista à mão já dava o resultado
-          // certo (nem resposta pública nem coraçãozinho são oferecidos), mas
-          // por coincidência de desenho — nenhuma das duas linhas de `./modelos`
-          // sabe que `abertura` existe. Com a segunda pergunta, o acerto deixa
-          // de depender de alguém lembrar de voltar naquela lista.
-          //
-          // A LISTA À MÃO CONTINUA, e continua podendo ser MAIS restritiva: em
-          // `dm` ela apaga o coraçãozinho que a regra aceitaria (lá o salvar só
-          // avisa). Essa metade da diferença não fere ninguém — o que a faixa
-          // oferece, o salvar aceita. O contrário é que era possível, e não é
-          // mais.
-          const recusadoNoSalvar = salvarRecusaOBloco(tipoDoItem(item.chave), gatilho);
-          const serve = (!gatilhos || gatilhos.includes(gatilho)) && !recusadoNoSalvar;
+          // A DECISÃO NÃO MORA MAIS AQUI — ela é `paletaOferece` (`./modelos`),
+          // e o porquê inteiro (as duas perguntas, e qual delas garante) está
+          // escrito em cima dela. Ela saiu desta linha porque o teste que a
+          // trancava reescrevia a conta numa função local: com a fórmula em dois
+          // lugares, apagar a pergunta daqui deixava a suíte verde.
+          const serve = paletaOferece(item, gatilho);
           const Icone = ICONE[item.chave] ?? IconMensagem;
           // O `title` leva SEMPRE o nome e a descrição, porque agora é o único
           // lugar onde eles existem. Quando o item está fora, o motivo entra

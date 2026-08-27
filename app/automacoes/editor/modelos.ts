@@ -4,6 +4,7 @@ import {
   ligacoesDe,
   novoIdDeBloco,
   novoIdDeBotao,
+  salvarRecusaOBloco,
   type Ligacao,
   type Passo,
   type Quando,
@@ -202,6 +203,34 @@ const TIPO_DO_ITEM: Record<string, string> = {
 // escapar da tabela é OFERECIDA na faixa em vez de sumir dela.
 export function tipoDoItem(chave: string): string {
   return TIPO_DO_ITEM[chave] ?? "dm";
+}
+
+// SE A FAIXA OFERECE ESTE ITEM NESTE GATILHO — a conta inteira, num lugar só.
+//
+// DUAS PERGUNTAS, E A SEGUNDA É A QUE GARANTE. A primeira é a lista `gatilhos`
+// do item, escrita à mão aqui em cima. A segunda é a REGRA DO SALVAR
+// (`salvarRecusaOBloco`, @/lib/steps), a mesma função que `conferirLista` usa
+// para acender ERRO — a faixa pergunta a ela em vez de esperar que a lista à
+// mão adivinhe cada gatilho novo.
+//
+// ELA MORAVA DENTRO DE `paleta.tsx`, E O TESTE A REESCREVIA. `tests/paleta-e-
+// salvar.test.ts` tinha uma `function ofereceria` local com esta mesma conta
+// copiada, e o efeito foi medido: apagar `&& !salvarRecusaOBloco(...)` da
+// paleta deixava os 721 puros VERDES. O teste trancava a propriedade de uma
+// CÓPIA da regra, não a da tela. Com a conta aqui, a faixa e o teste leem a
+// mesma função, e apagar a segunda pergunta fica vermelho.
+//
+// POR QUE AQUI E NÃO EM `lib/steps.ts`: esta função fala de `ItemDaPaleta`, que
+// é dado do editor, e `steps.ts` não importa nada e não conhece a faixa. O que
+// vem de lá é só a metade que decide o salvar, e continua vindo.
+//
+// A LISTA À MÃO CONTINUA, e continua podendo ser MAIS restritiva: em `dm` ela
+// apaga o coraçãozinho que a regra aceitaria (lá o salvar só avisa). Essa
+// metade da diferença não fere ninguém — o que a faixa oferece, o salvar
+// aceita. O contrário é que era possível, e não é mais.
+export function paletaOferece(item: ItemDaPaleta, gatilho: string): boolean {
+  const porLista = !item.gatilhos || item.gatilhos.includes(gatilho);
+  return porLista && !salvarRecusaOBloco(tipoDoItem(item.chave), gatilho);
 }
 
 // O que o nó mostra fechado. O corpo é cortado por CSS, não aqui — cortar no
