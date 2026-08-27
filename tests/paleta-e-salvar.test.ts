@@ -96,20 +96,37 @@ describe("a paleta e as regras de publicar", () => {
     expect(salvarRecusaOBloco("pedir_email", "abertura")).toBe(false);
   });
 
-  it("a regra responde o mesmo que `conferirLista` acende", () => {
-    // `salvarRecusaOBloco` saiu de dentro de `conferirLista`, e é ela que as
-    // duas linhas de ERRO de lá chamam. Isto mede que a extração não trocou o
-    // veredito de nenhum dos dois blocos dependentes de gatilho.
-    const casos: [Record<string, unknown>, string][] = [
-      [{ id: "b_pub001", tipo: "resposta_publica", textos: ["oi"] }, "resposta_publica"],
-      [{ id: "b_cor001", tipo: "reagir_story", emoji: "❤️" }, "reagir_story"],
-    ];
-    for (const [passo, tipo] of casos) {
-      for (const gatilho of GATILHOS) {
-        const temErro = conferirLista([passo], gatilho, []).some((p) => p.nivel === "erro");
-        expect(temErro, `${tipo} em ${gatilho}`).toBe(salvarRecusaOBloco(tipo, gatilho));
-      }
-    }
+  it("os níveis que `conferirLista` acende nos dois blocos, gatilho a gatilho", () => {
+    // ESTE CASO ERA UMA TAUTOLOGIA, e a revisão a mediu. Ele comparava
+    // `conferirLista(...).some(erro)` com `salvarRecusaOBloco(...)` DEPOIS de a
+    // segunda ter saído de dentro da primeira: hoje `conferirLista` delega a
+    // ela, então as duas não podem discordar. Confirmado plantando defeitos:
+    // este caso nunca ficava vermelho — quem acusava eram os casos antigos de
+    // `tests/steps.test.ts`. Ele media que a extração foi feita, não que ela
+    // está certa.
+    //
+    // O QUE ELE MEDE AGORA É A TABELA, escrita por extenso, e nela está a
+    // linha que sustenta duas frases da tela: em `dm` o coraçãozinho é AVISO, e
+    // não erro — ele RODA ali, reagindo à mensagem que a pessoa mandou. É por
+    // isso que o `title` da faixa não diz "só roda em story" naquele gatilho e
+    // que a dica do painel fala em OFERECER. No dia em que esta linha virar
+    // erro, as duas frases passam a mentir, e é aqui que isso aparece.
+    const CORACAO = { id: "b_cor001", tipo: "reagir_story", emoji: "❤️" };
+    const PUBLICA = { id: "b_pub001", tipo: "resposta_publica", textos: ["oi"] };
+    const niveis = (passo: Record<string, unknown>, gatilho: string): string[] =>
+      conferirLista([passo], gatilho, [])
+        .map((p) => p.nivel)
+        .sort();
+
+    expect(niveis(CORACAO, "story"), "coração em story").toEqual([]);
+    expect(niveis(CORACAO, "dm"), "coração em dm").toEqual(["aviso"]);
+    expect(niveis(CORACAO, "comment"), "coração em comment").toEqual(["erro"]);
+    expect(niveis(CORACAO, "abertura"), "coração em abertura").toEqual(["erro"]);
+
+    expect(niveis(PUBLICA, "comment"), "pública em comment").toEqual([]);
+    expect(niveis(PUBLICA, "dm"), "pública em dm").toEqual(["erro"]);
+    expect(niveis(PUBLICA, "story"), "pública em story").toEqual(["erro"]);
+    expect(niveis(PUBLICA, "abertura"), "pública em abertura").toEqual(["erro"]);
   });
 
   it("o tipo que a paleta declara é o tipo que `blocoNovo` cria", () => {

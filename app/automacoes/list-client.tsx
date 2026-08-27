@@ -257,14 +257,31 @@ export default function AutomationsList({ automations }: { automations: Automati
                           pergunta a coluna saía VAZIA — `keywords` é `[]` e
                           `match_type` não é "any", então o `join` devolvia "".
                           A pergunta é a mesma que o salvar e o painel fazem
-                          (`gatilhoPedePalavraChave`, @/lib/steps). */}
+                          (`gatilhoPedePalavraChave`, @/lib/steps).
+
+                          AS DUAS METADES SAEM JUNTAS, e não uma no lugar da
+                          outra. Isto já foi um `some` que ESCOLHIA: numa linha
+                          com `["dm","abertura"]` a coluna dizia "pergunta de
+                          abertura" e escondia as palavras do `dm`, que são
+                          dado de verdade daquela linha. A tela só escreve um
+                          gatilho por automação, mas `triggers` é coluna de
+                          array e já teve outros valores — é o mesmo argumento
+                          do caso "gatilho desconhecido aparece em vez de
+                          sumir". Metade vazia some sozinha no `filter`. */}
                       <span className={`truncate ${muted}`}>
-                        {a.triggers.some((t) => !gatilhoPedePalavraChave(t))
-                          ? "pergunta de abertura"
-                          : a.match_type === "any"
-                            ? "qualquer texto"
-                            : a.keywords.slice(0, 3).join(", ") +
-                              (a.keywords.length > 3 ? ` +${a.keywords.length - 3}` : "")}
+                        {[
+                          a.triggers.some((t) => !gatilhoPedePalavraChave(t))
+                            ? "pergunta de abertura"
+                            : "",
+                          a.triggers.some((t) => gatilhoPedePalavraChave(t))
+                            ? a.match_type === "any"
+                              ? "qualquer texto"
+                              : a.keywords.slice(0, 3).join(", ") +
+                                (a.keywords.length > 3 ? ` +${a.keywords.length - 3}` : "")
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </span>
                       <span className="text-zinc-300 dark:text-zinc-700">·</span>
                       <span className="text-zinc-400 dark:text-zinc-500">
