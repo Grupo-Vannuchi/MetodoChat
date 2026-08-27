@@ -636,8 +636,27 @@ export default function Previa({
 
           {/* QUEM DISPARA APARECE, porque a primeira mensagem da conversa é a
               dela. No gatilho de comentário não há mensagem nenhuma aqui — ela
-              comentou, não mandou DM —, e é por isso que este ramo não cobre os
-              três: a conversa começa direto na resposta da automação. */}
+              comentou, não mandou DM —, e é por isso que estes ramos não cobrem
+              os quatro: lá a conversa começa direto na resposta da automação, e
+              o que ela fez está desenhado no cartão "No post", acima.
+              ---------------------------------------------------------------
+              `abertura` PRECISOU DE RAMO, e a ausência dele foi achada em
+              revisão: com três ramos e nenhum caso final, a prévia daquele
+              gatilho mostrava a conta mandando DM sem ninguém ter falado —
+              e sem cartão nenhum fora do celular para compensar, como o
+              comentário tem. Era o gatilho em que a omissão custava mais: o
+              TOQUE DELA VIRA MENSAGEM DELA na conversa (`lib/engine.ts`, ramo
+              do `messaging_postback`, e é o `title` do postback que aparece
+              como mensagem), e esse é o único movimento que caracteriza a
+              porta de entrada. Quem olhasse a prévia concluiria que a
+              automação dispara sozinha — a mesma confusão que os dois avisos
+              do painel existem para evitar.
+              O TEXTO DA PERGUNTA NÃO ENTRA porque ele não está no banco: as
+              perguntas vivem no perfil da conta na Meta (`ice_breakers`), e o
+              painel do gatilho já diz isso por extenso. Escrever uma pergunta
+              de exemplo aqui inventaria um dado que a automação não tem — o
+              balão diz o que é, em itálico, como todo texto ausente desta
+              tela. */}
           {gatilho === "story" && (
             <div className="flex flex-col items-end gap-1 self-end">
               <p className="text-[9px] text-zinc-500">Respondeu ao seu story</p>
@@ -659,6 +678,18 @@ export default function Previa({
             </div>
           )}
           {gatilho === "dm" && <Enviada>{disparo}</Enviada>}
+          {gatilho === "abertura" && (
+            <div className="flex flex-col items-end gap-1 self-end">
+              <p className="text-[9px] text-zinc-500">Tocou numa pergunta de abertura</p>
+              <Enviada>
+                {/* O itálico é o mesmo de `Vazio`, com a cor do balão: dentro
+                    do azul, o `text-zinc-500` daquele componente ficaria
+                    ilegível. É texto que a prévia não tem, e não texto que a
+                    pessoa escreveu. */}
+                <span className="italic text-white/80">a pergunta que ela tocou</span>
+              </Enviada>
+            </div>
+          )}
 
           {cenas.map((c) => (
             <CenaNaConversa key={c.id} cena={c} aceso={c.id === selecionado} conta={perfil} />
