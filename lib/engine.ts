@@ -466,6 +466,14 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 //     fluxo, e o pedido de follow viraria a primeira mensagem de todo mundo.
 //     Ela é a única dispensa que é de TRAVESSIA, não de grafo — o parágrafo
 //     acima já corrigiu uma demonstração que confundia os dois.
+//   A PORTA DE ENTRADA (o gatilho `abertura`) é o QUARTO nome desta lista, e é
+//     a MESMA forma do GATILHO acima, byte a byte: `identidadeNoIndice(steps, 0)`
+//     com `portao: null`. Quem toca numa pergunta de abertura entra na ENTRADA
+//     do fluxo sem cursor e sem nada antes, então tudo o que está escrito no
+//     GATILHO vale aqui palavra por palavra — inclusive a volta do portão pelo
+//     próprio link, que a varredura já mede no ponto "gatilho". Ela está
+//     nomeada à parte por uma razão só: é um ponto de chamada NOVO, e esta lista
+//     é onde se confere se a contagem abaixo ainda fecha.
 //   O PORTÃO VENCIDO retoma de `seguinteDe(portão)`, e aí a regra não é
 //     dispensável por não se aplicar — ela se aplica SEMPRE, e por isso não é
 //     usada. O porquê inteiro está no ramo `pedir_follow` do laço, abaixo.
@@ -487,10 +495,10 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 //
 // A DISPENSA DELIBERADA da regra do portão passa por AQUI, e só por aqui.
 //
-// Ela existe: três dos oito pontos de chamada de `executarFluxo` entram sem
-// `Retomada` de propósito — o gatilho de comentário, o gatilho de mensagem e o
-// portão recém-vencido —, e o porquê de cada um está escrito no próprio ponto
-// de chamada. O que faltava era a dispensa ser DIZÍVEL: enquanto o parâmetro
+// Ela existe: quatro dos nove pontos de chamada de `executarFluxo` entram sem
+// `Retomada` de propósito — o gatilho de comentário, o gatilho de mensagem, a
+// porta de entrada (o gatilho `abertura`) e o portão recém-vencido —, e o
+// porquê de cada um está escrito no próprio ponto de chamada. O que faltava era a dispensa ser DIZÍVEL: enquanto o parâmetro
 // aceitava `string | null | Retomada`, escrever `.destino` num ponto de chamada
 // jogava a regra do portão fora e ficava IDENTICO a uma dispensa legítima —
 // as duas coisas eram "uma string". Medido no commit 4ba91f7, com os CINCO
@@ -499,9 +507,17 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 //
 // Com o parâmetro estreitado para `Retomada`, `.destino` num ponto de chamada
 // deixa de compilar (TS2345), e a dispensa deixa de ser invisível: ela passa a
-// ter NOME, e o nome é `grep`-ável. Três ocorrências de `semRegraDoPortao` são
-// as três dispensas; uma quarta é alguém dispensando a regra de novo, e a
-// revisão vê isso no diff.
+// ter NOME, e o nome é `grep`-ável. QUATRO ocorrências de `semRegraDoPortao`
+// como chamada são as quatro dispensas — nesta ordem no arquivo: o portão
+// recém-vencido, o gatilho de comentário, a porta de entrada e o gatilho de
+// mensagem. Uma quinta é alguém dispensando a regra de novo, e a revisão vê
+// isso no diff.
+//
+// ESTES NÚMEROS SÃO O MECANISMO, e não enfeite: quem acrescentar uma dispensa
+// e não os rearmar deixa o alarme pior do que desligado, porque quem o ler vai
+// achar que está conferindo. A contagem foi rearmada de três para quatro
+// quando a porta de entrada entrou; a lista nominal das dispensas está umas
+// cinquenta linhas acima.
 //
 // O que ela NÃO compra, e precisa estar dito: ela não pega passar a `Retomada`
 // ERRADA, nem inverter dois parâmetros. Isso continua sem rede aqui.
@@ -730,14 +746,15 @@ async function executarFluxo(
       //
       // E ESTE É O ÚNICO PONTO DE RETOMADA QUE NÃO PASSA PELA REGRA DO PORTÃO —
       // não o único ponto de fato: o gatilho também entra sem passar pela
-      // regra, por identidade crua, em outros dois lugares deste arquivo
-      // (handleCommentEvent e handleMessagingEvent, mais abaixo, ambos com
+      // regra, por identidade crua, em outros TRÊS pontos deste arquivo
+      // (handleCommentEvent, e handleMessagingEvent duas vezes — a porta de
+      // entrada e o gatilho de mensagem —, todos com
       // `identidadeNoIndice(auto.steps, 0)`), pela mesma dispensa. A varredura
       // documenta essa dispensa à exaustão
       // (scripts/varredura-portao.mjs, o ponto "gatilho", que entra "pela porta
-      // da frente" e é medido à parte dos cinco pontos de RETOMADA). Os TRÊS
-      // dizem a dispensa pelo nome, com `semRegraDoPortao` — são as três
-      // únicas ocorrências dela no arquivo, e é assim que quem lê o diff
+      // da frente" e é medido à parte dos cinco pontos de RETOMADA). Os QUATRO
+      // dizem a dispensa pelo nome, com `semRegraDoPortao` — são as quatro
+      // únicas ocorrências dela como chamada no arquivo, e é assim que quem lê o diff
       // distingue uma dispensa deliberada de uma regra jogada fora. O motivo
       // está por escrito no ramo
       // `pedir_email` logo abaixo, junto com o do ramo que FAZ o contrário — os
