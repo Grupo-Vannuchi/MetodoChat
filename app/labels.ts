@@ -146,6 +146,22 @@ const EVENT: Record<string, Badge> = {
     label: "Evento de conversa ainda sem tratamento",
     className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
   },
+  // O EVENTO CHEGOU E NÃO HÁ CONTA PARA ELE (lib/engine.ts). Ou nenhuma conta
+  // está conectada — desconectar apaga a linha de `accounts`, e a assinatura do
+  // webhook é do app, então a Meta continua entregando —, ou há várias e o
+  // `entry.id` não bate com nenhuma.
+  //
+  // Sem esta linha o evento evaporava: o motor saía calado, e o toque numa
+  // pergunta de abertura entregue depois de a conta ser desconectada não
+  // deixava rastro nenhum.
+  //
+  // Âmbar: nada quebrou do lado do código. O que há é o painel e a Meta
+  // discordando sobre quais contas existem, e quem arruma é o dono, reconectando
+  // a conta em Configuração.
+  webhook_sem_conta: {
+    label: "Evento sem conta conectada",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+  },
 };
 
 const UNKNOWN: Badge = {

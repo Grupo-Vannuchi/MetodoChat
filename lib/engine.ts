@@ -1531,7 +1531,31 @@ export async function handleCommentEvent(entryId: string | undefined, value: Com
 
 export async function handleMessagingEvent(entryId: string | undefined, ev: MessagingEvent) {
   const account = await resolveAccount(entryId);
-  if (!account) return;
+  // SEM CONTA PARA O EVENTO — e ele NÃO SAI DAQUI CALADO.
+  //
+  // `resolveAccount` devolve null em dois casos, e os dois são alcançáveis:
+  //   NENHUMA conta conectada. `lib/db.ts` apaga a linha de `accounts` ao
+  //     desconectar, e a assinatura do webhook é do APP, não da conta — a Meta
+  //     continua entregando. Numa instalação de uma conta só, basta o dono
+  //     desconectar.
+  //   MAIS DE UMA conta e `entry.id` sem par entre elas.
+  //
+  // Antes de o `postback` ser delegado a esta função, ele virava linha na rota
+  // (`webhook_messaging_nao_tratado`), e `events.account_id` não tem chave
+  // estrangeira, então o insert passava sempre. Delegar sem esta linha reabriu,
+  // para a forma que motivou o registro, exatamente o buraco que o cabeçalho da
+  // rota diz que fechou: NADA CHEGA AQUI E SAI SEM DEIXAR RASTRO.
+  //
+  // Sem janela, pela mesma razão escrita na rota: é depois da conferência de
+  // assinatura, só a Meta escreve aqui, e uma janela de 10 minutos engoliria o
+  // segundo evento de uma sequência — que é precisamente o que se quer ler.
+  //
+  // `entryId` vai como conta mesmo sem par: é o id que a Meta disse, e é por
+  // ele que quem for diagnosticar descobre para qual conta o evento vinha.
+  if (!account) {
+    await logEvent(entryId ?? null, "webhook_sem_conta", ev);
+    return;
+  }
   const senderId = ev.sender?.id;
   if (!senderId) return;
 

@@ -467,6 +467,46 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
     expect(meta.desconhecidos).toEqual([]);
   });
 
+  // -------------------------------------------------------------------------
+  // NÃO HÁ CONTA PARA O EVENTO — e ele não sai calado.
+  //
+  // O caso alcançável neste schema é o de `entry.id` sem par com DUAS contas
+  // conectadas. O outro — NENHUMA conta conectada, depois de o dono desconectar
+  // — cai no mesmo `if` da mesma função, pela mesma leitura de `listAccounts`.
+  //
+  // Antes de o postback ser delegado ao motor, ele virava linha na rota. Sem
+  // esta, delegar reabriu o buraco justamente para a forma que motivou o
+  // registro existir.
+  // -------------------------------------------------------------------------
+  test("postback de conta desconhecida deixa linha em vez de evaporar", async () => {
+    const DE_FORA = "17800000000000999";
+    const ALGUEM = "9300000000000006";
+
+    await tocarNaPergunta(
+      DE_FORA,
+      ALGUEM,
+      "Quero saber mais",
+      payloadDaPergunta(SEGUNDA),
+      "mid-sem-conta-1"
+    );
+
+    // Nada rodou: não há conta, então não há automação nem contato.
+    expect(await contatosDe(ALGUEM)).toEqual([]);
+    expect(await fila(CONTA, ALGUEM)).toEqual([]);
+
+    // Mas ficou a linha, gravada sob o id que a Meta disse — é por ele que
+    // quem for diagnosticar descobre para qual conta o evento vinha.
+    const semConta = await eventos(DE_FORA, "webhook_sem_conta");
+    expect(semConta.length).toBe(1);
+    expect((semConta[0].postback as { mid?: string })?.mid).toBe("mid-sem-conta-1");
+
+    // E não foi parar em nenhuma das contas de verdade.
+    expect(await eventos(CONTA, "webhook_sem_conta")).toEqual([]);
+    expect(await eventos(VIZINHA, "webhook_sem_conta")).toEqual([]);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
   test("automação COM o gatilho abertura não gera linha de divergência", async () => {
     // A contra-prova: sem ela, uma linha gravada em TODO toque passaria pelo
     // caso acima e viraria ruído na tela que o dono usa para diagnosticar.
