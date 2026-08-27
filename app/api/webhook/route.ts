@@ -194,7 +194,19 @@ export async function POST(req: NextRequest) {
         await logEvent(entry.id ?? null, "webhook_campo_nao_tratado", change);
       }
       for (const messaging of entry.messaging ?? []) {
-        if (messaging.message) {
+        // `postback` entra AO LADO de `message`, e não num ramo próprio: os dois
+        // são a mesma pergunta ("o que esta pessoa fez na conversa?") e quem
+        // responde é a mesma função. O toque numa PERGUNTA DE ABERTURA chega
+        // nesta forma — sem `message` —, e era exatamente por isso que ele caía
+        // no registro lá embaixo em vez de virar automação.
+        //
+        // ESTA LINHA NÃO SABE LER PAYLOAD, de propósito: quem decide se aquele
+        // postback é nosso é `lerPayload`, dentro do motor. Um postback que o
+        // motor não reconhece continua virando `webhook_messaging_nao_tratado`,
+        // gravado lá — é o que mantém as quatro perguntas de teste que estão no
+        // ar (payload `abertura-...`, escolhido para não disparar nada) visíveis
+        // onde o dono as observa.
+        if (messaging.message || messaging.postback) {
           await handleMessagingEvent(entry.id, messaging);
           continue;
         }

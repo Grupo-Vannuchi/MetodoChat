@@ -111,6 +111,20 @@ export type MessagingEvent = {
     quick_reply?: { payload?: string };
     reply_to?: { story?: { url?: string; id?: string }; mid?: string };
   };
+  // O TOQUE NUMA PERGUNTA DE ABERTURA, e ele chega IRMÃO de `message`, não
+  // dentro dela: o evento não tem `message` nenhuma. A forma abaixo é a MEDIDA
+  // em produção, capturada pelo registro `webhook_messaging_nao_tratado` em
+  // 26/08/2026 — não a que a documentação promete:
+  //
+  //   {"sender":{"id":"..."},
+  //    "postback":{"mid":"...","title":"Quero saber mais","payload":"abertura-saber-mais"},
+  //    "recipient":{"id":"..."},"timestamp":...}
+  //
+  // `title` e `payload` são coisas DIFERENTES, e a distinção é a razão de os dois
+  // estarem nomeados aqui: `title` é o TEXTO da pergunta, escrito por quem montou
+  // a tela e reescrito quando ele quiser; `payload` é o identificador. Ler o
+  // primeiro no lugar do segundo "funciona" até a primeira reescrita da pergunta.
+  postback?: { mid?: string; title?: string; payload?: string };
 };
 
 // MUDAR ESTA FUNÇÃO E `logEventThrottled` DE CASA está proposto e ADIADO, e a
@@ -1501,9 +1515,105 @@ export async function handleCommentEvent(entryId: string | undefined, value: Com
 export async function handleMessagingEvent(entryId: string | undefined, ev: MessagingEvent) {
   const account = await resolveAccount(entryId);
   if (!account) return;
-  const msg = ev.message;
   const senderId = ev.sender?.id;
-  if (!msg || !senderId) return;
+  if (!senderId) return;
+
+  // ============================================================
+  // A PORTA DE ENTRADA: o toque numa PERGUNTA DE ABERTURA (`postback`).
+  //
+  // ELE VEM ANTES DO RESTO DA FUNÇÃO porque o evento NÃO TEM `message`: era
+  // exatamente a forma que o `if (!msg)` daqui jogava fora, e é por isso que
+  // até 26/08/2026 ele só existia como linha em `webhook_messaging_nao_tratado`.
+  //
+  // O QUE ESTE RAMO REAPROVEITA do vizinho `quick_reply`, e é quase tudo, porque
+  // o postback é primo dele — os dois são "a pessoa tocou num botão":
+  //   `lerPayload`      a mesma leitora, e ela já entende a forma de DUAS partes
+  //                     (`AUTO:<automação>`) que `payloadDaPergunta` emite —
+  //                     "comece esta automação do início", sem bloco e sem cursor.
+  //   `loadAutomation`  achar a automação PELO IDENTIFICADOR do payload, e presa
+  //                     à conta do evento. Nunca por posição numa lista: duas
+  //                     perguntas da mesma conta apontam para automações
+  //                     diferentes, e a posição não distingue as duas.
+  //   `fetchProfileFields` + `upsertContact`  quem chega aqui é, por construção,
+  //                     alguém que NUNCA falou com a conta (as perguntas só
+  //                     aparecem em conversa nova), então esta é a linha de
+  //                     `contacts` NASCENDO. Sem o perfil ela ficaria salva como
+  //                     um número; sem `last_reply_at` a janela de 24h nunca
+  //                     abriria e `processItem` (lib/queue-drain.ts) descartaria
+  //                     como `skipped` tudo que o fluxo enfileirasse.
+  //   `executarFluxo`   com a lista começando na ENTRADA (`steps[0]`).
+  //
+  // O QUE NÃO SERVE, e forçar é como um defeito desta base nasceu:
+  //   O ECO (`msg.is_echo`). Não existe postback da própria conta — ela não toca
+  //     nas próprias perguntas de abertura —, e não há `message` para trazer a
+  //     marca.
+  //   TODA A ÁRVORE DE RETOMADA do `quick_reply` (`caminhoDoBotao`,
+  //     `cursorDaRetomada`, `retomadaDoBotao`). Ela responde "de onde CONTINUAR",
+  //     e aqui não há de onde: a pergunta de abertura é a primeira coisa que
+  //     acontece na conversa, e o cursor é nulo por construção. Passar por ela
+  //     custaria uma leitura de cursor para chegar ao mesmo `steps[0]`.
+  //   O `mid` COMO `messageId` no contexto. O contexto só o usa para o passo
+  //     `reagir` (`storyReactionKey`), e o `mid` de um postback não é o de uma
+  //     mensagem — reagir a ele seria pedir à Meta para reagir ao que não existe.
+  //
+  // A DISPENSA DA REGRA DO PORTÃO (`semRegraDoPortao`) é a QUARTA, e é a mesma
+  // dispensa dos três gatilhos que já existem, pelo mesmo motivo escrito lá:
+  // este ramo É UM GATILHO — o quarto, `abertura` —, e gatilho começa na ENTRADA
+  // do fluxo. Não há nada antes dela por onde a pessoa passe, então não há
+  // caminho a examinar, e `interpretar` encontra qualquer `pedir_follow` do
+  // percurso caminhando normalmente até ele.
+  //
+  // O GATILHO DA AUTOMAÇÃO NÃO É CONFERIDO AQUI de propósito, e isto precisa
+  // estar dito porque a ausência parece esquecimento. Quem decide que uma
+  // pergunta existe e para onde ela aponta é a tela de Configuração, e a
+  // pergunta vive no perfil da conta na Meta — fora do banco. Recusar aqui uma
+  // automação cujo gatilho o dono trocou depois faria a pergunta que está no ar
+  // parar de funcionar em silêncio, que é o pior dos dois lados. O escopo que
+  // importa — a CONTA — é conferido, e é `loadAutomation` que o confere.
+  // ============================================================
+  if (ev.postback) {
+    const p = lerPayload(ev.postback.payload);
+    if (!p) {
+      // NÃO É PAYLOAD NOSSO, e continua indo para o registro do webhook em vez
+      // de sumir aqui. Não é simetria com o `quick_reply` (que registra o toque
+      // mesmo sem payload legível), e a assimetria é medida: um `quick_reply` só
+      // chega de um botão que ESTE produto enviou, enquanto uma pergunta de
+      // abertura mora no perfil da conta na Meta e pode ter sido escrita no
+      // painel dela — foi assim que as quatro perguntas de teste em produção
+      // nasceram, com payload `abertura-...` de propósito, para não disparar
+      // nada. Elas continuam sendo "forma ainda sem tratamento", que é o que
+      // são, e continuam visíveis para quem for olhar.
+      await logEvent(account.ig_user_id, "webhook_messaging_nao_tratado", ev);
+      return;
+    }
+    // "Tocou no botão" (app/labels.ts) — é o que aconteceu, e `eventText` já
+    // sabe que evento deste tipo não tem texto útil para mostrar.
+    await logEvent(account.ig_user_id, "quick_reply", ev);
+    const auto = await loadAutomation(account.ig_user_id, p.automationId);
+    // Automação apagada ou pausada com a pergunta ainda no ar: nada a começar.
+    // Calado como o vizinho `quick_reply`, e pelo mesmo motivo — não é montagem
+    // errada, é o dono tendo pausado o que ele mesmo publicou.
+    if (!auto) return;
+    const perfil = await fetchProfileFields(account.ig_user_id, senderId, account.access_token);
+    await upsertContact(account.ig_user_id, senderId, {
+      ...perfil,
+      last_reply_at: new Date(),
+      // De quem é a conversa a partir de agora — o mesmo que os outros dois
+      // gatilhos gravam, e pelo mesmo motivo: é por ele que o ramo de texto e o
+      // de fallback sabem o que retomar quando a pessoa responder.
+      last_automation_id: auto.id,
+    });
+    await executarFluxo(
+      account,
+      auto,
+      senderId,
+      semRegraDoPortao(identidadeNoIndice(auto.steps, 0))
+    );
+    return;
+  }
+
+  const msg = ev.message;
+  if (!msg) return;
 
   // Mensagem que a PRÓPRIA conta enviou — o "eco" da Meta. Acontece quando
   // alguém responde pelo Instagram do celular, ou por outra ferramenta.
