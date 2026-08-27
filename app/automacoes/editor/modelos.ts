@@ -245,6 +245,113 @@ export function salvarRecusaOItem(item: ItemDaPaleta, gatilho: string): boolean 
   return salvarRecusaOBloco(tipoDoItem(item.chave), gatilho);
 }
 
+// O NOME DO GATILHO na língua de quem monta a automação. O `??` cobre gatilho
+// que a lista não conheça: melhor mostrar o nome cru do que não mostrar motivo.
+//
+// Ele MORAVA EM `./paleta`, e veio para cá junto com a frase que o usa: é
+// cadeia de caracteres pura, sem uma linha de JSX, e do lado de lá nenhum teste
+// o alcançava.
+const NOME_DO_GATILHO: Record<string, string> = {
+  dm: "mensagem direta",
+  comment: "comentário",
+  story: "resposta de story",
+  abertura: "pergunta de abertura",
+};
+
+function nomeDoGatilho(g: string): string {
+  return NOME_DO_GATILHO[g] ?? g;
+}
+
+// POR QUE ESTE BLOCO ESTÁ APAGADO — a frase inteira, e não o rótulo do item.
+//
+// SÃO TRÊS FRASES PORQUE SÃO TRÊS CAUSAS, e a terceira nasceu de uma medição:
+// a frase única dizia "Este bloco só roda no gatilho de X", e em `dm` isso é
+// FALSO sobre o coraçãozinho. Medido: `conferirLista(["reagir_story"], "dm")`
+// devolve AVISO, não erro — "Neste gatilho o coraçãozinho não vai para a story:
+// ele reage à mensagem que a pessoa mandou" —, e `./roteiro` o desenha
+// reagindo. Quem duplicasse uma automação de story e trocasse o gatilho para
+// `dm` ficava com um bloco que RODA, que o painel documenta rodando e que a
+// prévia desenha rodando, e uma faixa apagada dizendo que ele não roda: duas
+// telas afirmando o contrário uma da outra.
+//
+// A causa ali não é a regra do salvar — é a LISTA À MÃO lá em cima, que pode
+// ser MAIS restritiva do que ela (essa metade da diferença é a que não fere
+// ninguém: o que a faixa oferece, o salvar aceita). Medido em 9 itens × 4
+// gatilhos, esse par é a ÚNICA divergência que resta entre as duas no produto
+// inteiro. Manter a lista mais restritiva é decisão de escopo; imprimir sobre
+// ela uma frase falsa não era.
+//
+// ELA TAMBÉM MORAVA NO JSX, e ali era rede zero: a revisão plantou a volta da
+// frase única e a suíte deu 722 verdes. Aqui a tabela das três frases está
+// trancada por teste (`tests/paleta-e-salvar.test.ts`).
+//
+// A PERGUNTA "QUAL DAS DUAS METADES APAGOU O ITEM" é feita AQUI DENTRO, e não
+// pelo chamador: era mais uma decisão que sobrava no JSX, e quem sabe responder
+// é este arquivo.
+export function motivoDeEstarFora(item: ItemDaPaleta, gatilho: string): string {
+  const recusaDoSalvar = salvarRecusaOItem(item, gatilho);
+  // SEM `gatilhos`, quem apagou o item foi a regra do salvar, e a frase não tem
+  // lista à mão para citar. Ela diz a mesma coisa pelo outro lado: este gatilho
+  // não executa este bloco. É o caso que só aparece quando a lista à mão e a
+  // regra discordam para o outro lado — hoje nenhum item cai aqui, e é por isso
+  // que a frase precisa existir antes de o dia chegar.
+  if (!item.gatilhos)
+    return `O salvar recusa este bloco numa automação disparada por ${nomeDoGatilho(gatilho)}.`;
+  const atende = item.gatilhos.map(nomeDoGatilho).join(" ou ");
+  // O SALVAR RECUSA: o bloco realmente não roda aqui, e a frase de sempre está
+  // certa — é o caso de `resposta_publica` fora do comentário e do coraçãozinho
+  // em comentário ou em abertura.
+  if (recusaDoSalvar)
+    return `Este bloco só roda no gatilho de ${atende}, e esta automação é disparada por ${nomeDoGatilho(gatilho)}.`;
+  // SÓ A LISTA À MÃO: o bloco roda neste gatilho, e o salvar o aceita. O que a
+  // faixa diz é o que ela faz — não o acrescenta aqui —, sem afirmar nada sobre
+  // executar.
+  return `A faixa oferece este bloco só no gatilho de ${atende}. Numa automação disparada por ${nomeDoGatilho(gatilho)} o salvar aceita quem já o tem, e o painel diz o que ele faz.`;
+}
+
+// ---------------------------------------------------------------------------
+// A FAIXA INTEIRA, JÁ DECIDIDA — e é por isso que `./paleta` NÃO IMPORTA MAIS
+// `PALETA`.
+//
+// O QUE ESTA FUNÇÃO EXISTE PARA FECHAR foi medido em revisão. `paletaOferece`
+// saiu do JSX e ficou trancada, mas a CHAMADA dela continuou lá, e a frase do
+// motivo nunca saiu. Dois plantios provaram que o lado de lá é rede ZERO:
+// trocar `paletaOferece(item, gatilho)` pela lista à mão em linha deu 722
+// verdes, e voltar a frase única falsa deu 722 verdes. A suíte não testa
+// componente — é regra do produto, e não muda —, então toda decisão que fica
+// no JSX não tem como ficar vermelha.
+//
+// COM A LISTA JÁ DECIDIDA AQUI, reintroduzir qualquer um dos dois defeitos
+// deixa de ser APAGAR UMA CLÁUSULA e passa a ser ACRESCENTAR UM IMPORT e
+// escrever lógica nova dentro do JSX — que é coisa que uma revisão vê.
+//
+// A ORDEM É A DE `PALETA`, e a lista sai INTEIRA: item que não serve continua
+// vindo, com `serve: false`. Filtrar aqui seria o desenho antigo, o que SUMIA
+// com o item — e o motivo de ele ficar visível e apagado está escrito no
+// cabeçalho de `./paleta`.
+export type ItemDaFaixa = {
+  item: ItemDaPaleta;
+  serve: boolean;
+  // O `title` inteiro, com o motivo já na SEGUNDA LINHA quando o item está
+  // fora. A composição vem junto porque ela também é decisão: o nome e a
+  // descrição ficam SEMPRE, e o motivo ACRESCENTA uma linha em vez de
+  // substituí-los — saber que aquele desenho é o coraçãozinho continua valendo
+  // mesmo quando ele não serve para este gatilho.
+  titulo: string;
+};
+
+export function itensDaFaixa(gatilho: string): ItemDaFaixa[] {
+  return PALETA.map((item) => {
+    const serve = paletaOferece(item, gatilho);
+    const legenda = `${item.rotulo} — ${item.descricao}`;
+    return {
+      item,
+      serve,
+      titulo: serve ? legenda : `${legenda}\n${motivoDeEstarFora(item, gatilho)}`,
+    };
+  });
+}
+
 // O que o nó mostra fechado. O corpo é cortado por CSS, não aqui — cortar no
 // dado esconderia da prévia o texto que a pessoa acabou de digitar.
 //
