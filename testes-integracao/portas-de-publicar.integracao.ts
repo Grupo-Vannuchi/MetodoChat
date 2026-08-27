@@ -238,4 +238,35 @@ describe("as duas portas de publicar, com o contexto de requisição semeado", (
     expect((valor as { ativoGravado?: boolean }).ativoGravado).toBe(false);
     expect(await ativaNoBanco(id)).toBe(false);
   });
+
+  // --------------------------------------------------------------------------
+  // O ACHADO DA REVISÃO DA TAREFA 2 (fase "portas de entrada"): `GATILHOS`, em
+  // `actions.ts`, é ALLOW-LIST — o oposto de `conferirLista` (lib/steps.ts), que
+  // é deny-list e por isso já aceitava "abertura" sem mudança nenhuma (medido em
+  // tests/steps.test.ts, describe "o gatilho abertura"). `GATILHOS` roda ANTES
+  // daquela conferência, então sem "abertura" nela `salvarAutomacao` recusa com
+  // "Escolha o gatilho da automação." antes mesmo de perguntar a `conferirLista`
+  // qualquer coisa — nenhum teste puro enxerga essa porta, porque ela mora num
+  // arquivo `"use server"`.
+  //
+  // POR QUE ISTO TEM DE SER INTEGRAÇÃO, E NÃO PURO: `GATILHOS` é uma constante
+  // de módulo dentro de `app/automacoes/actions.ts`, que não é importável pelos
+  // testes puros (o arquivo tem `"use server"`, e não exporta a lista). Não há
+  // função pura por trás dela para isolar — a única forma de medir se o valor
+  // novo é aceito é chamar a porta de verdade, como as demais deste arquivo.
+  // --------------------------------------------------------------------------
+  test("SALVAR aceita o gatilho abertura", async () => {
+    const id = await semear("gatilho abertura", false);
+    const { valor } = await comoNumaRequisicao("/automacoes", () =>
+      acoes.salvarAutomacao(id, [{ id: "b_abert01", tipo: "dm", texto: "Que bom te ver!" }], [], {
+        nome: "porta de entrada",
+        ativo: false,
+        gatilho: "abertura",
+        correspondencia: "any",
+        palavras: [],
+        entregaSemPortao: false,
+      })
+    );
+    expect(valor.ok).toBe(true);
+  });
 });

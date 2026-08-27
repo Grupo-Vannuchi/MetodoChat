@@ -38,7 +38,15 @@ type Resultado =
   | { ok: true; pausada?: string; ativoGravado: boolean }
   | { ok: false; erro: string };
 
-const GATILHOS = ["comment", "story", "dm"];
+// ALLOW-LIST, ao contrário de `conferirLista` (lib/steps.ts), que é deny-list.
+// `abertura` já passa nas regras de lá (medido e registrado no commit que
+// acrescentou "o gatilho abertura" a tests/steps.test.ts) — mas esta lista
+// roda ANTES daquela conferência, nos dois pontos que a usam (`salvarAutomacao`
+// e `criarAutomacao`, abaixo), e sem o valor novo aqui nenhum dos dois chega a
+// perguntar a `conferirLista` coisa nenhuma: devolve "Escolha o gatilho da
+// automação." primeiro. Medido ao vivo contra schema descartável: sem esta
+// linha, `criarAutomacao` com `trigger: "abertura"` recusa exatamente assim.
+const GATILHOS = ["comment", "story", "dm", "abertura"];
 const CORRESPONDENCIAS = ["contains", "exact", "any"];
 
 // NADA AQUI É EXPORTADO ALÉM DE FUNÇÃO ASSÍNCRONA, e isso não é estilo: este
