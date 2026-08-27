@@ -217,6 +217,18 @@ export async function getProfile(token: string): Promise<IgProfile> {
 // webhooks da Instagram Platform), então assinar os dois campos novos não pede
 // revisão nova da Meta — medido, porque essa era a dúvida.
 //
+// ESTA LINHA É A MORTE NA ORIGEM, e agora ela tem rede. Apagar um campo daqui é
+// um token, passa por tsc, eslint, testes puros, varredura e integração — e a
+// Meta PARA DE ENTREGAR o evento, antes de qualquer linha deste repositório
+// rodar. E o conferidor de /setup (`app/setup/subscription-status.tsx`) lê ESTA
+// MESMA string, então ele diria "recebendo eventos ✓" enquanto nada chega: a
+// tela vira a prova de que está tudo bem justamente quando não está.
+//
+// Quem segura é `tests/campos-de-webhook.test.ts`, e ele não pergunta de novo a
+// esta linha: ele parte de `FORMAS_DO_MOTOR` (lib/webhook-messaging.ts) — as
+// formas de `entry.messaging[]` que o motor trata — e exige, para cada uma, o
+// campo que a entrega. Dois arquivos, e não um.
+//
 // MUDAR ESTA LISTA NÃO REASSINA NINGUÉM. A inscrição por conta acontece uma vez,
 // no OAuth (app/api/oauth/callback/route.ts). Quem já está conectado só passa a
 // receber o campo novo depois que alguém apertar "Reassinar webhooks" no
