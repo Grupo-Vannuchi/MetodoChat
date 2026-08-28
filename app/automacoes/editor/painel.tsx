@@ -803,27 +803,32 @@ export default function Painel({
               {/* está escrito em `lib/engine.ts`, no ramo do postback: "a    */}
               {/* pergunta vive no perfil da conta na Meta — fora do banco".  */}
               {/* Quem vai buscá-las é a tela de Configuração, e é ela quem   */}
-              {/* poderá dizer QUAL das quatro aponta para esta automação.    */}
+              {/* diz QUAL das quatro aponta para esta automação.             */}
               {/*                                                             */}
               {/* Então o que este bloco dá é o CAMINHO, que é a outra metade */}
               {/* do que a spec pede — "um caminho para a tela de             */}
-              {/* Configuração se ainda não houver nenhuma". Enquanto a tela  */}
-              {/* não existe, o caminho é o de sempre: /setup, o mesmo item   */}
-              {/* "Configuração" do menu (`app/app-shell.tsx`).               */}
+              {/* Configuração se ainda não houver nenhuma": /setup, o mesmo  */}
+              {/* item "Configuração" do menu (`app/app-shell.tsx`).          */}
               {/*                                                             */}
-              {/* E O RÓTULO DO LINK NÃO PROMETE A ESCOLHA, porque ela ainda  */}
-              {/* não está lá. Ele já disse "escolher qual delas abre esta,   */}
-              {/* em Configuração", e isso foi MEDIDO e é falso: `app/setup`  */}
-              {/* não cita pergunta de abertura em lugar nenhum — é a lista   */}
-              {/* de passos para criar o app na Meta e conectar a conta. O    */}
-              {/* dono clicava, chegava, e não havia o que escolher; um       */}
-              {/* caminho que decepciona custa mais do que caminho nenhum.    */}
+              {/* E O RÓTULO DO LINK PROMETE A ESCOLHA, PORQUE ELA ESTÁ LÁ.   */}
+              {/* Esta frase já disse o contrário — "escolher qual delas abre */}
+              {/* esta automação ainda não está em Configuração" — e aquilo   */}
+              {/* era verdade no dia em que foi escrito: `app/setup` era só a */}
+              {/* lista de passos para criar o app na Meta e conectar a       */}
+              {/* conta, e o dono clicava, chegava, e não havia o que         */}
+              {/* escolher. `app/setup/portas-de-entrada.tsx` nasceu no dia   */}
+              {/* seguinte, com um seletor de automação por posição, e a      */}
+              {/* frase ficou para trás.                                      */}
               {/*                                                             */}
-              {/* A frase diz o PRESENTE — as perguntas são definidas fora do */}
-              {/* painel, e a escolha ainda não está em Configuração —, e o   */}
-              {/* link continua indo para lá, que é onde a tela vai nascer.   */}
-              {/* Quando ela existir, o "ainda não está" vira "fica", e nada  */}
-              {/* aqui precisa ser desfeito.                                  */}
+              {/* O CUSTO DE ELA FICAR PARA TRÁS ERA O RECURSO INTEIRO: o     */}
+              {/* dono cria a automação de abertura, lê aqui que a ligação    */}
+              {/* não existe, não abre /setup, e a automação nunca dispara —  */}
+              {/* pelo único caminho que existe para abri-la. Um caminho que  */}
+              {/* decepciona custa mais que caminho nenhum, e um caminho      */}
+              {/* NEGADO que existe custa mais ainda.                         */}
+              {/*                                                             */}
+              {/* A frase diz o PRESENTE — as perguntas pertencem à conta, e  */}
+              {/* a escolha fica em Configuração —, e o link vai para lá.     */}
               {/*                                                             */}
               {/* OS DOIS AVISOS SAEM EM `alertWarn`, VISÍVEIS, e não num     */}
               {/* `title` nem atrás de um "saiba mais": os dois são o motivo  */}
@@ -838,8 +843,8 @@ export default function Painel({
                   <p className="text-sm text-zinc-700 dark:text-zinc-300">
                     O toque numa das <strong>perguntas de abertura</strong> da conta. Elas são até
                     quatro, pertencem à conta (não à automação), e cada uma pode apontar para uma
-                    automação diferente. Hoje elas são definidas fora do painel, no perfil da conta:
-                    escolher qual delas abre esta automação ainda não está em{" "}
+                    automação diferente. Escrever as perguntas e escolher qual delas abre esta
+                    automação fica em{" "}
                     <Link
                       href="/setup"
                       className="font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-500 dark:text-indigo-400"

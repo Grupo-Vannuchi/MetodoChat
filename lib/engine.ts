@@ -1594,9 +1594,14 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
   //
   // O QUE ESTE RAMO REAPROVEITA do vizinho `quick_reply`, e é quase tudo, porque
   // o postback é primo dele — os dois são "a pessoa tocou num botão":
-  //   `lerPayload`      a mesma leitora, e ela já entende a forma de DUAS partes
-  //                     (`AUTO:<automação>`) que `payloadDaPergunta` emite —
-  //                     "comece esta automação do início", sem bloco e sem cursor.
+  //   `lerPayload`      a mesma leitora, e ela entende a QUARTA forma
+  //                     (`ABERTURA_<automação>`) que `payloadDaPergunta` emite —
+  //                     "comece esta automação do início", sem bloco e sem
+  //                     cursor. O desfecho é o mesmo da forma de duas partes
+  //                     (`prefixo: "AUTO"`, `passoId: null`), e é por isso que
+  //                     este ramo não mudou quando a forma mudou; mas quem lê
+  //                     `payloadDaPergunta` hoje encontra `ABERTURA_`, e não
+  //                     dois-pontos — a Meta não guarda `:` neste campo.
   //   `loadAutomation`  achar a automação PELO IDENTIFICADOR do payload, e presa
   //                     à conta do evento. Nunca por posição numa lista: duas
   //                     perguntas da mesma conta apontam para automações
