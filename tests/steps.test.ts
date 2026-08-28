@@ -18,6 +18,7 @@ import {
   cursorDesta,
   identidadeDoPasso,
   novoIdDeBloco,
+  resumoDoErroDaMeta,
   indiceDoId,
   lerPayload,
   cursorDaRetomada,
@@ -5360,5 +5361,132 @@ describe("partirLigacao — soltar um bloco em cima de uma seta", () => {
     expect(seguinteDe(depois, a)).toBe(meio);
     expect(seguinteDe(depois, meio)).toBe(b);
     expect(haCaminho(depois, a, b)).toBe(true);
+  });
+});
+
+// ============================================================
+// A LEITURA DO ERRO DA META
+//
+// O caso real que obrigou esta função está no comentário de `lib/steps.ts`: um
+// `catch` que engolia o erro fez o registro dizer só "não deu", e o palpite que
+// nasceu desse silêncio (190) errou o número real (230). Cada caso abaixo é uma
+// forma que a Meta OU a rede já mandaram neste produto.
+// ============================================================
+describe("resumoDoErroDaMeta", () => {
+  // Medido em 28/08/2026 contra a conta @thiagovannuchi, com controle pareado.
+  it("lê o erro que estava escondido: 230, consentimento", () => {
+    const erro = {
+      status: 500,
+      body: JSON.stringify({
+        error: {
+          message: "User consent is required to access user profile",
+          type: "IGApiException",
+          code: 230,
+          fbtrace_id: "AS0h-P4w",
+        },
+      }),
+    };
+    expect(resumoDoErroDaMeta(erro)).toEqual({
+      http: 500,
+      codigo: 230,
+      subcodigo: null,
+      mensagem: "User consent is required to access user profile",
+    });
+  });
+
+  // O número que o monitoramento chutou, e que existe de verdade noutro lugar
+  // (o par app_id|app_secret errado). A função tem de distinguir os dois.
+  it("lê o 190 de token inválido, que é OUTRO erro", () => {
+    const r = resumoDoErroDaMeta({
+      status: 400,
+      body: '{"error":{"message":"Error validating application.","type":"OAuthException","code":190}}',
+    });
+    expect(r.codigo).toBe(190);
+    expect(r.http).toBe(400);
+  });
+
+  it("lê o subcódigo, que é quem separa a janela de 24h do resto", () => {
+    const r = resumoDoErroDaMeta({
+      status: 403,
+      body: '{"error":{"message":"Essa mensagem foi enviada fora do período permitido.","code":10,"error_subcode":2534022}}',
+    });
+    expect(r.codigo).toBe(10);
+    expect(r.subcodigo).toBe(2534022);
+    expect(r.mensagem).toBe("Essa mensagem foi enviada fora do período permitido.");
+  });
+
+  // ESTE É O CASO QUE JUSTIFICA O APAGAMENTO. O endereço do follow leva o token
+  // na query; um erro de rede que carregue a URL viraria linha em Atividade.
+  it("apaga o token quando ele vem junto no texto", () => {
+    const r = resumoDoErroDaMeta(
+      new Error(
+        "fetch failed: https://graph.instagram.com/v25.0/123?fields=is_user_follow_business&access_token=IGAAxyzSEGREDO"
+      )
+    );
+    expect(r.mensagem).toContain("access_token=OCULTO");
+    expect(r.mensagem).not.toContain("IGAAxyzSEGREDO");
+  });
+
+  it("apaga também a chave secreta e a prova de app", () => {
+    const r = resumoDoErroDaMeta({
+      status: 400,
+      body: "erro em ?client_secret=abc123&appsecret_proof=def456&outro=fica",
+    });
+    expect(r.mensagem).toBe(
+      "erro em ?client_secret=OCULTO&appsecret_proof=OCULTO&outro=fica"
+    );
+  });
+
+  // A ordem entre apagar e cortar é a diferença entre um segredo apagado e um
+  // segredo partido ao meio que a expressão não reconhece mais.
+  it("apaga antes de cortar, mesmo quando o segredo está além do limite", () => {
+    const enchimento = "x".repeat(400);
+    const r = resumoDoErroDaMeta({
+      status: 500,
+      body: `${enchimento}&access_token=SEGREDOLONGO`,
+    });
+    expect(r.mensagem).not.toContain("SEGREDOLONGO");
+    expect(r.mensagem!.length).toBeLessThanOrEqual(300);
+  });
+
+  it("corpo que não é JSON sobrevive como texto cru", () => {
+    const r = resumoDoErroDaMeta({ status: 502, body: "<html>Bad Gateway</html>" });
+    expect(r).toEqual({
+      http: 502,
+      codigo: null,
+      subcodigo: null,
+      mensagem: "<html>Bad Gateway</html>",
+    });
+  });
+
+  it("JSON sem a forma da Meta não inventa código nenhum", () => {
+    const r = resumoDoErroDaMeta({ status: 400, body: '{"outra":"coisa"}' });
+    expect(r.codigo).toBeNull();
+    expect(r.subcodigo).toBeNull();
+    expect(r.mensagem).toBe('{"outra":"coisa"}');
+  });
+
+  it("aceita o número que a Meta mandou como texto", () => {
+    const r = resumoDoErroDaMeta({ body: '{"error":{"code":"230","error_subcode":"7"}}' });
+    expect(r.codigo).toBe(230);
+    expect(r.subcodigo).toBe(7);
+  });
+
+  it("nada dentro devolve tudo nulo, sem estourar", () => {
+    const vazio = { http: null, codigo: null, subcodigo: null, mensagem: null };
+    expect(resumoDoErroDaMeta(null)).toEqual(vazio);
+    expect(resumoDoErroDaMeta(undefined)).toEqual(vazio);
+    expect(resumoDoErroDaMeta({})).toEqual(vazio);
+    expect(resumoDoErroDaMeta(123)).toEqual(vazio);
+    expect(resumoDoErroDaMeta({ status: 500, body: "   " })).toEqual({
+      http: 500,
+      codigo: null,
+      subcodigo: null,
+      mensagem: null,
+    });
+  });
+
+  it("texto solto também é lido", () => {
+    expect(resumoDoErroDaMeta("caiu a rede").mensagem).toBe("caiu a rede");
   });
 });

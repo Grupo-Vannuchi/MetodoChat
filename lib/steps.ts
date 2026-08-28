@@ -4381,3 +4381,131 @@ function botoesCrus(bruto: unknown): { quando: "salvar" | "ativar"; mensagem: st
   }
   return semTexto;
 }
+
+// ============================================================
+// O QUE A META DISSE QUANDO A CHAMADA FALHOU — legível, e sem segredo dentro.
+//
+// POR QUE ESTA FUNÇÃO EXISTE, com a medição que a obrigou.
+//
+// `checkFollowsAccount` (lib/ig.ts) tinha `catch { return null }`. O motor
+// registrava `follow_check_unavailable` com o contato, a automação e o índice —
+// e NADA sobre a causa. Em 28/08/2026 esse registro tinha 6 linhas, todas do dia
+// 26, e ninguém conseguia dizer por quê: o chat de monitoramento leu o sintoma e
+// chutou "erro 400 code 190".
+//
+// Medido no mesmo dia, perguntando à Meta em leitura, com controle pareado:
+//
+//   contato que falhou    HTTP 500  code 230  "User consent is required…"
+//   outro contato         HTTP 200  is_user_follow_business: true
+//   o próprio perfil      HTTP 200  @thiagovannuchi
+//
+// O número real era 230, não 190 — e o controle prova que o token estava bom.
+// O chute não foi burrice de quem chutou: era a única coisa possível diante de
+// um registro que dizia "não deu" e mais nada. UM ERRO ENGOLIDO NÃO É UM ERRO A
+// MENOS: é um diagnóstico a menos, e ele reaparece como palpite.
+//
+// A LEITURA MORA AQUI, E NÃO EM `lib/ig.ts`, pelo motivo de sempre nesta base:
+// é decisão, não encanamento. Aqui ela tem caso para cada forma que a Meta já
+// mandou, e este arquivo continua sem NENHUM import.
+//
+// E ELA APAGA SEGREDO ANTES DE DEVOLVER. Não é zelo decorativo: o endereço do
+// `is_user_follow_business` leva o `access_token` NA QUERY (está escrito em
+// lib/ig.ts, e é a razão de `baseDoGraph` ter duas trancas). Um erro de rede
+// que carregue a URL viraria linha em Atividade — uma tela que o dono abre, com
+// o token dentro. O apagamento é a última coisa que acontece, sobre o texto já
+// montado, para valer também no caminho em que o corpo não é JSON.
+// ============================================================
+
+export type ResumoDoErroDaMeta = {
+  /** o código HTTP, quando quem chamou soube dizer */
+  http: number | null;
+  /** `error.code` da Meta — 190 é token, 230 é consentimento, 10 é janela */
+  codigo: number | null;
+  /** `error.error_subcode`, quando vem */
+  subcodigo: number | null;
+  /** a frase da Meta, ou o texto cru quando o corpo não é JSON */
+  mensagem: string | null;
+};
+
+/** Quanto do texto sobrevive. Registro é para ler, não para arquivar corpo. */
+const LIMITE_DA_MENSAGEM = 300;
+
+/**
+ * Apaga qualquer segredo que tenha vindo junto no texto.
+ *
+ * Vale para `access_token`, `client_secret` e `appsecret_proof` — os três que
+ * este produto põe em query string em algum caminho. O valor é substituído,
+ * não removido: quem lê precisa saber que ele ESTAVA ali.
+ */
+function semSegredo(texto: string): string {
+  return texto.replace(
+    /(access_token|client_secret|appsecret_proof)=([^&\s"']*)/gi,
+    "$1=OCULTO"
+  );
+}
+
+/** Um número, aceitando também o número que veio como texto. */
+function numeroOuNulo(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() && Number.isFinite(Number(v))) return Number(v);
+  return null;
+}
+
+export function resumoDoErroDaMeta(erro: unknown): ResumoDoErroDaMeta {
+  const vazio: ResumoDoErroDaMeta = {
+    http: null,
+    codigo: null,
+    subcodigo: null,
+    mensagem: null,
+  };
+  if (erro === null || erro === undefined) return vazio;
+
+  const objeto = typeof erro === "object" ? (erro as Record<string, unknown>) : null;
+
+  // `IgError` carrega os dois; um erro de rede não carrega nenhum, e aí sobra a
+  // mensagem do próprio Error — que é o caso em que o apagamento mais importa.
+  const http = numeroOuNulo(objeto?.status);
+  const corpo =
+    typeof objeto?.body === "string"
+      ? objeto.body
+      : typeof objeto?.message === "string"
+        ? objeto.message
+        : typeof erro === "string"
+          ? erro
+          : null;
+
+  let codigo: number | null = null;
+  let subcodigo: number | null = null;
+  let mensagem: string | null = corpo;
+
+  if (corpo) {
+    try {
+      const lido = JSON.parse(corpo) as unknown;
+      // A Meta responde SEMPRE em `{"error": {...}}`. Se o corpo é JSON mas não
+      // tem essa forma, o texto cru é a melhor coisa que temos — e é melhor que
+      // inventar campo nenhum.
+      if (typeof lido === "object" && lido !== null) {
+        const e = (lido as Record<string, unknown>).error;
+        if (typeof e === "object" && e !== null) {
+          const m = e as Record<string, unknown>;
+          codigo = numeroOuNulo(m.code);
+          subcodigo = numeroOuNulo(m.error_subcode);
+          if (typeof m.message === "string" && m.message) mensagem = m.message;
+        }
+      }
+    } catch {
+      // Corpo que não é JSON: HTML de gateway, texto vazio, o que for. Fica o
+      // cru, cortado e sem segredo — e é exatamente aqui que o apagamento vale,
+      // porque `IgError.message` começa com o corpo inteiro.
+    }
+  }
+
+  if (mensagem !== null) {
+    // A ORDEM IMPORTA: apagar ANTES de cortar. Cortar primeiro poderia deixar um
+    // `access_token=` partido ao meio, que a expressão não reconheceria mais.
+    const limpo = semSegredo(mensagem).trim();
+    mensagem = limpo ? limpo.slice(0, LIMITE_DA_MENSAGEM) : null;
+  }
+
+  return { http, codigo, subcodigo, mensagem };
+}

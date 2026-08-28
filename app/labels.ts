@@ -299,6 +299,10 @@ type EventPayload = {
   media?: { id?: string; media_product_type?: string };
   message?: { text?: string; quick_reply?: { payload?: string } };
   postback?: { title?: string; payload?: string };
+  // `follow_check_unavailable` carrega UM dos dois, nunca os dois: `erro`
+  // quando a chamada falhou, `motivo` quando a Meta respondeu sem o campo.
+  erro?: { http?: number | null; codigo?: number | null; subcodigo?: number | null; mensagem?: string | null };
+  motivo?: string;
 };
 
 // Texto que a pessoa escreveu (o botão de resposta rápida não tem texto útil:
@@ -313,6 +317,29 @@ type EventPayload = {
 export function eventText(payload: unknown, type: string): string | null {
   if (type === "quick_reply") return null;
   const p = (payload ?? {}) as EventPayload;
+  // A CONFERÊNCIA DE SEGUIDOR QUE NÃO DEU: aqui o texto do evento é o MOTIVO.
+  //
+  // Esta linha é o conserto de um silêncio medido. O registro nasceu dizendo só
+  // "não deu para conferir" — e diante disso o chat de monitoramento chutou
+  // "erro 400 code 190" quando o número real era 230. O número e a frase da
+  // Meta aparecerem aqui é a diferença entre diagnosticar e adivinhar.
+  if (type === "follow_check_unavailable") {
+    const e = p.erro;
+    if (e) {
+      const numeros = [e.codigo, e.subcodigo].filter((n): n is number => typeof n === "number");
+      // O código da Meta vale mais que o HTTP para quem vai procurar: 230 e 190
+      // chegam os dois em respostas de famílias diferentes de HTTP.
+      const cabeca = numeros.length
+        ? `Meta ${numeros.join("/")}`
+        : typeof e.http === "number"
+          ? `HTTP ${e.http}`
+          : null;
+      const frase = e.mensagem?.trim() || null;
+      if (cabeca && frase) return `${cabeca}: ${frase}`;
+      return cabeca ?? frase;
+    }
+    return p.motivo?.trim() ? p.motivo.trim() : null;
+  }
   if (type === "abertura") {
     const t = p.postback?.title;
     return t?.trim() ? t.trim() : null;

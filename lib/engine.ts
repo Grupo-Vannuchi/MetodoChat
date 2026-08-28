@@ -1327,7 +1327,7 @@ async function resolverFollow(
   indice: number,
   contexto: ContextoGatilho
 ): Promise<"passou" | "barrar" | "soltar"> {
-  const segue = await checkFollowsAccount(contactIgId, account.access_token);
+  const { segue, erro } = await checkFollowsAccount(contactIgId, account.access_token);
 
   if (segue === null) {
     // A Meta não informou. Barrar aqui deixaria TODA a base presa caso o campo
@@ -1338,6 +1338,12 @@ async function resolverFollow(
       automation_id: auto.id,
       // qual passo da lista foi liberado sem confirmação
       indice,
+      // POR QUE não deu para saber. Sem isto, este registro dizia só "não deu",
+      // e o palpite que nasceu desse silêncio errou o número (190 em vez de
+      // 230). O segredo já vem apagado de `resumoDoErroDaMeta`.
+      ...(erro
+        ? { erro }
+        : { motivo: "a Meta respondeu sem o campo is_user_follow_business" }),
     });
     await zerarTentativasFollow(account.ig_user_id, contactIgId);
     return "passou";

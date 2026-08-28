@@ -171,3 +171,79 @@ describe("oQueDispara — a coluna da lista de automações", () => {
     ).toBe("");
   });
 });
+
+// ============================================================
+// A CONFERÊNCIA DE SEGUIDOR QUE NÃO DEU: a linha diz o motivo.
+//
+// O registro `follow_check_unavailable` existia dizendo só "não deu para
+// conferir". Diante disso, em 28/08/2026, o chat de monitoramento leu o sintoma
+// e chutou "erro 400 code 190" — o número real, medido contra a Meta com
+// controle pareado, era 230. Estes casos prendem o número e a frase na tela.
+// ============================================================
+describe("eventText de follow_check_unavailable", () => {
+  it("mostra o número da Meta e a frase, que é o que faltava", () => {
+    const payload = {
+      contact_ig_id: "1097362922715224",
+      erro: {
+        http: 500,
+        codigo: 230,
+        subcodigo: null,
+        mensagem: "User consent is required to access user profile",
+      },
+    };
+    expect(eventText(payload, "follow_check_unavailable")).toBe(
+      "Meta 230: User consent is required to access user profile"
+    );
+  });
+
+  it("junta código e subcódigo, que é quem separa a janela de 24h", () => {
+    const payload = {
+      erro: { http: 403, codigo: 10, subcodigo: 2534022, mensagem: "fora do período permitido" },
+    };
+    expect(eventText(payload, "follow_check_unavailable")).toBe(
+      "Meta 10/2534022: fora do período permitido"
+    );
+  });
+
+  // Erro de rede: não há número da Meta, e o HTTP some junto. Sobra a frase —
+  // e ela ainda vale mais que "não deu".
+  it("sem número nenhum, a frase sozinha aparece", () => {
+    const payload = { erro: { http: null, codigo: null, subcodigo: null, mensagem: "fetch failed" } };
+    expect(eventText(payload, "follow_check_unavailable")).toBe("fetch failed");
+  });
+
+  it("sem frase, o HTTP sozinho aparece", () => {
+    const payload = { erro: { http: 502, codigo: null, subcodigo: null, mensagem: null } };
+    expect(eventText(payload, "follow_check_unavailable")).toBe("HTTP 502");
+  });
+
+  // A OUTRA forma de não saber, e ela é diferente: a chamada FUNCIONOU e a Meta
+  // respondeu sem o campo. Juntar as duas devolveria o silêncio pela porta dos
+  // fundos.
+  it("a Meta respondendo sem o campo tem texto próprio", () => {
+    const payload = { motivo: "a Meta respondeu sem o campo is_user_follow_business" };
+    expect(eventText(payload, "follow_check_unavailable")).toBe(
+      "a Meta respondeu sem o campo is_user_follow_business"
+    );
+  });
+
+  // O registro ANTIGO, que existe no banco de produção desde 26/08 e não tem
+  // nem `erro` nem `motivo`. A tela não pode quebrar por causa dele.
+  it("o registro antigo, sem causa nenhuma, não quebra a tela", () => {
+    const antigo = { indice: 1, automation_id: "dd742caf", contact_ig_id: "1097362922715224" };
+    expect(eventText(antigo, "follow_check_unavailable")).toBe(null);
+    expect(eventText(null, "follow_check_unavailable")).toBe(null);
+    expect(eventText({ erro: {} }, "follow_check_unavailable")).toBe(null);
+  });
+
+  // O TOKEN NUNCA CHEGA AQUI — `resumoDoErroDaMeta` o apaga antes. Este caso
+  // prova o que a tela faz com o texto já apagado: mostra o rastro, não o
+  // segredo.
+  it("mostra que havia um token sem mostrar o token", () => {
+    const payload = {
+      erro: { http: null, codigo: null, subcodigo: null, mensagem: "fetch failed: ...&access_token=OCULTO" },
+    };
+    const linha = eventText(payload, "follow_check_unavailable");
+    expect(linha).toContain("access_token=OCULTO");
+  });
+});
