@@ -5,9 +5,10 @@ import {
   opcoesDeAutomacao,
   perguntasDoFormulario,
   resumoDoLimite,
+  LIGAR_FUNCIONA,
   type AutomacaoConhecida,
 } from "@/app/setup/portas";
-import { MAXIMO_DE_PERGUNTAS } from "@/lib/perguntas-de-abertura";
+import { MAXIMO_DE_PERGUNTAS, identificadorSobrevive } from "@/lib/perguntas-de-abertura";
 import { payloadDaPergunta } from "@/lib/steps";
 
 // O QUE ESTE ARQUIVO PROTEGE é a tela das quatro portas de entrada.
@@ -258,5 +259,30 @@ describe("o seletor oferece todas as automações, e marca as que divergem", () 
     expect(rotulos.get(OK.id)).toBe(OK.name);
     expect(rotulos.get(PAUSADA.id)).toContain("pausada");
     expect(rotulos.get(OUTRO_GATILHO.id)).toContain("gatilho");
+  });
+});
+
+describe("a tela diz ANTES que ligar não funciona hoje", () => {
+  // MEDIDO EM 28/08/2026: a Meta não guarda identificador com dois-pontos, e
+  // `payloadDaPergunta` emite `AUTO:<automação>`. Enquanto as duas regras
+  // disserem isso, escolher uma automação aqui poria no ar uma pergunta que
+  // aparece para toda pessoa que abre a conversa e não dispara nada.
+  it("a resposta é CALCULADA das duas regras, e não escrita à mão", () => {
+    // É isto que faz o aviso sumir sozinho no dia em que a forma mudar. Se
+    // alguém trocar `payloadDaPergunta` por uma forma que a Meta guarda, esta
+    // linha vira `true` sem ninguém editar a tela.
+    expect(LIGAR_FUNCIONA).toBe(identificadorSobrevive(payloadDaPergunta("qualquer-id")));
+  });
+
+  it("hoje ela é falsa, e é por causa do dois-pontos", () => {
+    expect(payloadDaPergunta("x")).toContain(":");
+    expect(LIGAR_FUNCIONA).toBe(false);
+  });
+
+  // Mandar "escolha uma automação" enquanto a ligação está bloqueada é fazer o
+  // dono descobrir no clique — o mesmo defeito que o limite de quatro evita.
+  it("o conselho de escolher automação só aparece se ele funcionar", () => {
+    const [l] = linhasDasPortas([{ question: "Antiga", payload: "abertura-valores" }], TODAS);
+    expect(l.aviso?.texto.includes("Escolha uma automação")).toBe(LIGAR_FUNCIONA);
   });
 });

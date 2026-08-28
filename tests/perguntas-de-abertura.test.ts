@@ -7,6 +7,9 @@ import {
   corpoDeApagar,
   corpoDeEscrita,
   perguntasDaResposta,
+  identificadorSobrevive,
+  perguntasQueNaoFicaram,
+  CARACTERES_QUE_A_META_NAO_GUARDA,
 } from "@/lib/perguntas-de-abertura";
 
 // O QUE ESTE ARQUIVO PROTEGE é a regra da Meta para as perguntas de abertura.
@@ -77,7 +80,7 @@ describe("a conferência recusa antes de gastar chamada", () => {
   it("o limite de quatro é da CONTA inteira", () => {
     const cinco = Array.from({ length: MAXIMO_DE_PERGUNTAS + 1 }, (_, i) => ({
       question: `p${i}`,
-      payload: `AUTO:a${i}`,
+      payload: `auto-a${i}`,
     }));
     const { perguntas, motivo } = conferirPerguntas(cinco);
     expect(perguntas).toBeUndefined();
@@ -88,9 +91,12 @@ describe("a conferência recusa antes de gastar chamada", () => {
   });
 
   it("quatro passa", () => {
+    // Identificadores sem dois-pontos de propósito: com eles a conferência
+    // recusaria por OUTRO motivo (ver "o identificador que a Meta engole", mais
+    // abaixo), e este caso deixaria de medir o limite.
     const quatro = Array.from({ length: MAXIMO_DE_PERGUNTAS }, (_, i) => ({
       question: `p${i}`,
-      payload: `AUTO:a${i}`,
+      payload: `auto-a${i}`,
     }));
     expect(conferirPerguntas(quatro).perguntas).toHaveLength(MAXIMO_DE_PERGUNTAS);
   });
@@ -111,8 +117,8 @@ describe("a conferência recusa antes de gastar chamada", () => {
   });
 
   it("apara o texto, porque espaço na ponta vira espaço na conversa", () => {
-    expect(conferirPerguntas([{ question: "  Oi  ", payload: " AUTO:a1 " }]).perguntas).toEqual([
-      { question: "Oi", payload: "AUTO:a1" },
+    expect(conferirPerguntas([{ question: "  Oi  ", payload: " auto-a1 " }]).perguntas).toEqual([
+      { question: "Oi", payload: "auto-a1" },
     ]);
   });
 
@@ -209,5 +215,68 @@ describe("a leitura da resposta da Meta", () => {
         ],
       })
     ).toEqual([{ question: "Vale", payload: "AUTO:a1" }]);
+  });
+});
+
+describe("o identificador que a Meta engole", () => {
+  // MEDIDO EM 28/08/2026, com controle pareado na conta de teste
+  // @saas.metodoia: a mesma string trocando um caractere só.
+  //
+  //   "AUTO:436412ba-…"  -> 200 success, e a leitura de volta traz a pergunta
+  //                         SEM payload nenhum
+  //   "AUTO-436412ba-…"  -> 200 success, e o payload volta inteiro
+  //
+  // Sem esta guarda, a tela põe no ar — para TODA pessoa que abrir a conversa
+  // da conta — uma pergunta que não dispara nada, e diz "salvo ✓".
+  it("dois-pontos não sobrevive", () => {
+    expect(identificadorSobrevive("AUTO:436412ba-e0b8-4721-af41-a677aa3c03c8")).toBe(false);
+    expect(identificadorSobrevive("a:b")).toBe(false);
+  });
+
+  it("barra vertical não sobrevive — ela TRUNCA, e isso é pior que sumir", () => {
+    // `AUTO|x` volta como `AUTO`: um identificador diferente do que se mandou.
+    expect(identificadorSobrevive("AUTO|x")).toBe(false);
+  });
+
+  it("o que foi medido sobrevivendo continua passando", () => {
+    for (const p of ["ab", "AUTO_x", "AUTO%3Ax", "AUTO-436412ba", "abertura-saber-mais"]) {
+      expect(identificadorSobrevive(p), p).toBe(true);
+    }
+  });
+
+  it("a conferência recusa antes da chamada, e o recado diz o que aconteceria", () => {
+    const { perguntas, motivo } = conferirPerguntas([
+      { question: "Quero saber mais", payload: "AUTO:auto-1" },
+    ]);
+    expect(perguntas).toBeUndefined();
+    expect(motivo).toContain("Quero saber mais");
+    expect(motivo).toContain("sem disparar nada");
+  });
+
+  it("a lista de caracteres é uma só, e o recado a cita", () => {
+    for (const c of CARACTERES_QUE_A_META_NAO_GUARDA) {
+      expect(identificadorSobrevive(`x${c}y`), c).toBe(false);
+    }
+  });
+});
+
+describe("a leitura de volta conferida contra o que se mandou", () => {
+  // A guarda acima cobre o que foi medido; esta cobre o que não foi. Um 200 da
+  // Meta não é prova de nada — foi assim que o caso do dois-pontos apareceu.
+  const a = { question: "A", payload: "auto-a" };
+  const b = { question: "B", payload: "auto-b" };
+
+  it("nada sumiu quando a leitura traz o mesmo", () => {
+    expect(perguntasQueNaoFicaram([a, b], [a, b])).toEqual([]);
+  });
+
+  it("pergunta que a Meta não guardou aparece nomeada", () => {
+    expect(perguntasQueNaoFicaram([a, b], [a])).toEqual([b]);
+  });
+
+  it("identificador trocado pela Meta conta como não ficou", () => {
+    // O caso do `|`: a pergunta volta, o identificador volta TRUNCADO. Comparar
+    // só o texto diria que está tudo certo.
+    expect(perguntasQueNaoFicaram([b], [{ question: "B", payload: "auto" }])).toEqual([b]);
   });
 });

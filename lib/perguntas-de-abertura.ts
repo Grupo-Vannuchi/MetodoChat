@@ -79,6 +79,53 @@ export function acaoDaEscrita(perguntas: Pergunta[]): "apagar" | "escrever" {
   return perguntas.length === 0 ? "apagar" : "escrever";
 }
 
+// O QUE A META COME DO IDENTIFICADOR, E ISTO FOI MEDIDO EM 28/08/2026, NÃO LIDO.
+//
+// O endpoint `messenger_profile` responde `{"result":"success"}` e HTTP 200, e
+// mesmo assim GUARDA A PERGUNTA SEM O `payload` quando ele tem certos
+// caracteres. O toque naquela pergunta chega ao webhook sem identificador
+// nenhum, e nada dispara — sem erro, sem log, sem nada em lugar algum.
+//
+// CONTROLE PAREADO, na conta de teste @saas.metodoia, mesma string trocando um
+// caractere só:
+//
+//   payload "AUTO:436412ba-…"  ->  200 success  ->  a leitura de volta traz
+//                                  {"question":"Controle"} — SEM payload
+//   payload "AUTO-436412ba-…"  ->  200 success  ->  a leitura de volta traz
+//                                  {"question":"Controle","payload":"AUTO-436412ba-…"}
+//
+// E o `|` é pior ainda, porque não some: ele TRUNCA. `AUTO|x` volta como
+// `AUTO`, um identificador diferente do que se mandou.
+//
+// Outros medidos, e todos sobrevivem: `ab`, `AUTO_x`, `AUTO%3Ax` (o `%3A` fica
+// literal, não vira dois-pontos), `abertura-saber-mais` — que é a forma das
+// perguntas que estão em produção hoje.
+//
+// A CONSEQUÊNCIA É GRANDE E NÃO É DESTE MÓDULO RESOLVER: `payloadDaPergunta`
+// (lib/steps.ts) emite `AUTO:<automação>`, e `lerPayload` exige o dois-pontos
+// para reconhecê-lo. Enquanto essa forma for a forma, uma pergunta de abertura
+// NÃO CONSEGUE apontar para automação nenhuma por este endpoint. O que este
+// módulo faz é recusar antes: pôr no ar uma pergunta que não responde ao toque
+// é pior que não pôr, porque ela aparece para TODA pessoa que abrir a conversa
+// e o defeito só existe do lado de quem tocou.
+export const CARACTERES_QUE_A_META_NAO_GUARDA = [":", "|"];
+
+export function identificadorSobrevive(payload: string): boolean {
+  return !CARACTERES_QUE_A_META_NAO_GUARDA.some((c) => payload.includes(c));
+}
+
+// A LEITURA DE VOLTA CONFERIDA CONTRA O QUE SE MANDOU.
+//
+// A guarda acima cobre o que foi MEDIDO; esta cobre o que não foi. Um 200 da
+// Meta não é prova de nada — foi assim que o caso do dois-pontos apareceu —, e
+// esta função é a diferença entre a tela dizer "salvo ✓" e a tela dizer o que
+// de fato ficou no ar.
+export function perguntasQueNaoFicaram(enviadas: Pergunta[], noAr: Pergunta[]): Pergunta[] {
+  return enviadas.filter(
+    (e) => !noAr.some((n) => n.question === e.question && n.payload === e.payload)
+  );
+}
+
 // O QUE A META RECUSARIA, RECUSADO ANTES DA CHAMADA.
 //
 // Devolve `{ perguntas }` com o texto já aparado, ou `{ motivo }` em português
@@ -105,6 +152,17 @@ export function conferirPerguntas(entrada: unknown): {
     // pergunta que não responde.
     if (!question) return { motivo: "Toda pergunta precisa de um texto." };
     if (!payload) return { motivo: `A pergunta “${question}” está sem identificador.` };
+    // MEDIDO: a Meta responde 200 e guarda a pergunta SEM o identificador (ver
+    // `identificadorSobrevive`). Deixar passar poria no ar, para toda pessoa
+    // que abrir a conversa, uma pergunta que não responde ao toque.
+    if (!identificadorSobrevive(payload)) {
+      return {
+        motivo:
+          `O identificador da pergunta “${question}” tem ${CARACTERES_QUE_A_META_NAO_GUARDA.map((c) => `“${c}”`).join(" ou ")}, ` +
+          "e a Meta não guarda identificador com esses caracteres — ela aceita a chamada e devolve a pergunta sem ele. " +
+          "A pergunta ficaria no ar sem disparar nada.",
+      };
+    }
     perguntas.push({ question, payload });
   }
   return { perguntas };

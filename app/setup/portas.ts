@@ -15,7 +15,11 @@
 // limite) mora em `lib/perguntas-de-abertura.ts`, e o formato do identificador
 // mora em `lib/steps.ts`. Aqui só se responde o que a TELA pergunta.
 import { lerPayload, payloadDaPergunta } from "@/lib/steps";
-import { MAXIMO_DE_PERGUNTAS, type Pergunta } from "@/lib/perguntas-de-abertura";
+import {
+  MAXIMO_DE_PERGUNTAS,
+  identificadorSobrevive,
+  type Pergunta,
+} from "@/lib/perguntas-de-abertura";
 
 // O que a tela sabe de cada automação da conta. Só estes quatro campos, e cada
 // um responde a um aviso diferente lá embaixo.
@@ -30,6 +34,31 @@ export type AutomacaoConhecida = {
 // Escrito aqui uma vez porque tanto o aviso quanto a lista do seletor
 // perguntam por ele.
 export const GATILHO_DE_ABERTURA = "abertura";
+
+// LIGAR PERGUNTA A AUTOMAÇÃO FUNCIONA HOJE?
+//
+// A resposta é CALCULADA a partir das duas regras que já existem, e não escrita
+// à mão — é isso que faz este aviso sumir sozinho no dia em que a forma do
+// identificador mudar, em vez de virar um recado velho na tela.
+//
+//   `payloadDaPergunta` (lib/steps.ts) emite `AUTO:<automação>`
+//   `identificadorSobrevive` (lib/perguntas-de-abertura.ts) diz que a Meta NÃO
+//     guarda identificador com dois-pontos — medido em 28/08/2026, com controle
+//     pareado
+//
+// Enquanto as duas disserem isso, escolher uma automação aqui produziria uma
+// pergunta que aparece para toda pessoa que abre a conversa e não dispara nada.
+// A gravação recusa (`conferirPerguntas`), e esta constante é o que faz a tela
+// DIZER ANTES em vez de deixar o dono descobrir no clique.
+const EXEMPLO_DE_IDENTIFICADOR = payloadDaPergunta("00000000-0000-0000-0000-000000000000");
+
+export const LIGAR_FUNCIONA = identificadorSobrevive(EXEMPLO_DE_IDENTIFICADOR);
+
+export const AVISO_DA_LIGACAO =
+  "Ligar uma pergunta a uma automação está indisponível: a Meta não guarda o identificador " +
+  "que este painel usa (medido — ela aceita a chamada e devolve a pergunta sem ele). " +
+  "Dá para escrever e reordenar as perguntas normalmente; o que não sai daqui, por enquanto, " +
+  "é apontar uma delas para uma automação.";
 
 export type Aviso = { texto: string; grau: "aviso" | "erro" };
 
@@ -121,8 +150,13 @@ function destinoDe(
       dispara: SEM_AUTOMACAO,
       aviso: {
         grau: "aviso",
+        // O CONSELHO SÓ APARECE SE ELE FUNCIONAR. Mandar "escolha uma
+        // automação" enquanto a ligação está bloqueada é fazer o dono
+        // descobrir no clique — que é exatamente o que esta tela existe para
+        // evitar com o limite de quatro.
         texto:
-          "O identificador desta pergunta não é deste painel — quem tocar nela não começa automação nenhuma. Escolha uma automação para ligá-la.",
+          "O identificador desta pergunta não é deste painel — quem tocar nela não começa automação nenhuma." +
+          (LIGAR_FUNCIONA ? " Escolha uma automação para ligá-la." : ""),
       },
     };
   }
