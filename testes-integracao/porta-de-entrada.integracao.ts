@@ -72,6 +72,19 @@ import { bancoDescartavel } from "./harness";
 // esta forma, e montar a string à mão aqui seria o teste concordando consigo
 // mesmo sobre o formato.
 import { payloadDaPergunta } from "@/lib/steps";
+// A GUARDA DA META e a MONTAGEM DA TELA, e as duas entram por serem PURAS: uma
+// diz o que o endpoint `messenger_profile` guarda do identificador, a outra é a
+// linha do formulário virando pergunta. Nenhuma das duas fala com banco nem com
+// rede, então elas podem vir no topo como `lib/steps.ts` vem.
+//
+// ELAS ESTÃO AQUI POR CAUSA DO ACHADO DE 28/08/2026: a Meta responde 200
+// `{"result":"success"}` e NÃO GUARDA a pergunta quando o payload tem `:`.
+// Enquanto `payloadDaPergunta` emitia `AUTO:<automação>`, este arquivo ficava
+// VERDE — o motor entendia a forma perfeitamente — sobre uma pergunta que nunca
+// chegava a existir na conta. O motor não é a única ponta deste caminho, e a
+// outra ponta agora é medida aqui.
+import { conferirPerguntas, identificadorSobrevive } from "@/lib/perguntas-de-abertura";
+import { perguntasDoFormulario } from "@/app/setup/portas";
 
 type ModuloEngine = typeof import("@/lib/engine");
 type ModuloIg = typeof import("@/lib/ig");
@@ -316,6 +329,16 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
       payloadDaPergunta(SEGUNDA),
       "mid-abertura-1"
     );
+
+    // 0) O IDENTIFICADOR SOBREVIVE À META, e esta é a asserção que faltava.
+    //    Ela não é sobre o motor: é sobre a pergunta CHEGAR a existir na conta.
+    //    Medido em 28/08/2026, com controle pareado em @saas.metodoia — o
+    //    payload com `:` volta do `messenger_profile` sem a pergunta, depois de
+    //    um 200 de sucesso. Sem esta linha, este caminho ficava verde sobre uma
+    //    forma que a Meta descarta, que foi exatamente o que aconteceu.
+    const identificador = payloadDaPergunta(SEGUNDA);
+    expect(identificador.includes(":")).toBe(false);
+    expect(identificadorSobrevive(identificador)).toBe(true);
 
     // 1) A FILA GANHOU UMA ENTRADA, e é a da automação TOCADA.
     const naFila = await fila(CONTA, QUEM_ABRIU);
@@ -627,11 +650,82 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
     const recebidas = mensagens.filter((m) => m.direction === "in");
     expect(recebidas.length).toBe(1);
     expect(recebidas[0].text, "a conversa começou com uma bolha vazia").toBe(PERGUNTA);
-    expect(recebidas[0].text).not.toContain("AUTO:");
+    // E a bolha não é o identificador, seja ele qual for. Citar a forma pelo
+    // nome (`"AUTO:"`) fazia esta linha envelhecer junto com o formato: ela
+    // continuaria verde depois de a forma mudar, medindo uma string que o
+    // produto não emite mais. O que se pergunta é sobre o payload de VERDADE.
+    expect(recebidas[0].text).not.toContain(payloadDaPergunta(SEGUNDA));
 
     // 3) E A RESPOSTA DA AUTOMAÇÃO ESTÁ LOGO ABAIXO, saindo da fila: a conversa
     //    que o dono abre tem as duas pontas, e não só a metade que chegou.
     expect(mensagens.map((m) => m.text)).toEqual([PERGUNTA, BOAS_VINDAS]);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // O FECHO DA FASE: a TELA monta, a META guarda, o MOTOR entende.
+  //
+  // Os outros casos deste arquivo entram pelo motor com um identificador que
+  // este arquivo mesmo montou. Este entra pela ponta de cima — a linha do
+  // formulário que a pessoa preenche — e desce por todas as decisões até a
+  // fila, sem ninguém remontar a string no meio.
+  //
+  // ELE NÃO EXISTIA PORQUE NÃO PODIA EXISTIR. Enquanto `payloadDaPergunta`
+  // emitia `AUTO:<automação>`, o passo 2 abaixo era vermelho: `conferirPerguntas`
+  // recusava antes da chamada, porque a Meta responde 200 e some com a pergunta
+  // quando o payload tem `:`. A tela dizia, na própria seção, que ligar uma
+  // pergunta a uma automação estava indisponível.
+  //
+  // AS TRÊS PEÇAS SÃO DE MÓDULOS DIFERENTES, e é isso que este caso segura:
+  // `app/setup/portas.ts` (a tela), `lib/perguntas-de-abertura.ts` (a Meta) e
+  // `lib/engine.ts` (o motor) concordam sobre UMA string. Cada um tem teste
+  // puro do seu lado; nenhum deles pode ver os outros dois errarem junto.
+  // -------------------------------------------------------------------------
+  test("o identificador que a TELA monta é o que a META guarda e o MOTOR entende", async () => {
+    const PELA_TELA = "9300000000000010";
+    const naoTratadosAntes = (await eventos(CONTA, "webhook_messaging_nao_tratado")).length;
+
+    // 1) A TELA MONTA. Uma posição do formulário como o dono a preenche: texto
+    //    escrito, automação escolhida no seletor e nenhum identificador herdado
+    //    — a posição estava livre.
+    const { perguntas, motivo } = perguntasDoFormulario([
+      { texto: "Quero saber mais", automacaoId: SEGUNDA, payload: "" },
+    ]);
+    expect(motivo).toBe(undefined);
+    expect(perguntas!.length).toBe(1);
+    const [pergunta] = perguntas!;
+
+    // 2) A META GUARDA. É a conferência que a gravação faz ANTES de gastar a
+    //    chamada, e era aqui que esta fase parava.
+    expect(identificadorSobrevive(pergunta.payload)).toBe(true);
+    const conferida = conferirPerguntas([pergunta]);
+    expect(conferida.motivo).toBe(undefined);
+    expect(conferida.perguntas).toEqual([pergunta]);
+
+    // 3) O MOTOR ENTENDE. O toque chega com EXATAMENTE a string que a tela
+    //    montou — `pergunta.payload`, e não uma remontada aqui, que seria o
+    //    teste concordando consigo mesmo sobre o formato.
+    await tocarNaPergunta(CONTA, PELA_TELA, pergunta.question, pergunta.payload, "mid-pela-tela-1");
+
+    const naFila = await fila(CONTA, PELA_TELA);
+    expect(naFila.length).toBe(1);
+    expect(naFila[0].automation_id).toBe(SEGUNDA);
+    expect(naFila[0].payload.text).toBe(BOAS_VINDAS);
+    // E não é a da outra porta da mesma conta.
+    expect(naFila.map((l) => l.payload.text)).not.toContain(A_OUTRA);
+
+    // O contato nasceu, na conta do evento, com a automação apontada.
+    const contatos = await contatosDe(PELA_TELA);
+    expect(contatos.length).toBe(1);
+    expect(contatos[0].account_id).toBe(CONTA);
+    expect(contatos[0].last_automation_id).toBe(SEGUNDA);
+
+    // 4) E NÃO CAIU NO BALDE DOS NÃO TRATADOS. É onde uma forma que o motor não
+    //    reconhece vai parar — caladamente, com a pessoa sem receber nada —, e é
+    //    onde as perguntas de teste de produção caem de propósito. A contagem é
+    //    relativa porque o segundo caso deste arquivo põe uma linha lá.
+    expect((await eventos(CONTA, "webhook_messaging_nao_tratado")).length).toBe(naoTratadosAntes);
 
     expect(meta.desconhecidos).toEqual([]);
   });
