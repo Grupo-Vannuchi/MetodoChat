@@ -3,9 +3,15 @@
 // `app/automacoes/actions.ts`, rodadas de verdade contra o schema descartável.
 //
 // O NOME é o que as duas fazem juntas. Elas não são "as ações da automação"
-// (`criarAutomacao`, `deleteAutomation` e `duplicateAutomation` também são, e
-// não estão aqui): são as duas únicas que respondem à pergunta "isto pode ir ao
-// ar?", cada uma de um lado, e é a DIVISÃO ENTRE AS DUAS que este arquivo mede.
+// (`deleteAutomation` e `duplicateAutomation` também são, e não estão aqui): são
+// as duas únicas que respondem à pergunta "isto pode ir ao ar?", cada uma de um
+// lado, e é a DIVISÃO ENTRE AS DUAS que este arquivo mede.
+//
+// E ENTROU UM CASO DE `criarAutomacao`, no fim, por uma razão só: a guarda de
+// palavra-chave por gatilho é a MESMA linha escrita duas vezes, uma em cada
+// função (`actions.ts`; o porquê inteiro está em `gatilhoPedePalavraChave`,
+// @/lib/steps). Medir uma e deixar a outra sem rede é deixar metade da correção
+// que desbloqueou o gatilho de abertura sem teste nenhum.
 //
 // -----------------------------------------------------------------------------
 // POR QUE ELE EXISTE — e a regra da Frente 2 é explícita sobre isto.
@@ -145,6 +151,27 @@ async function semear(nome: string, entregaSemPortao: boolean): Promise<string> 
   return linhas[0].id;
 }
 
+/**
+ * O QUE FICOU GRAVADO NO LUGAR DA PALAVRA-CHAVE — as três colunas que a lista de
+ * automações e o cartão do gatilho leem para se descrever. É por elas que se vê
+ * se a porta gravou o dado INERTE (`contains` com a lista vazia) ou o atalho
+ * `"any"`, que poria "casa com qualquer mensagem" numa automação que não casa
+ * com mensagem nenhuma.
+ */
+async function configuracaoNoBanco(
+  id: string
+): Promise<{ triggers: string[]; match_type: string; keywords: string[] }> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(`select triggers, match_type, keywords from automations where id = $1`, [id])) as {
+    triggers: string[];
+    match_type: string;
+    keywords: string[];
+  }[];
+  return linhas[0];
+}
+
 /** A PROVA FINAL: a coluna que o motor lê, e não o objeto que a porta devolveu. */
 async function ativaNoBanco(id: string): Promise<boolean> {
   const linhas = (await banco
@@ -237,5 +264,111 @@ describe("as duas portas de publicar, com o contexto de requisição semeado", (
     expect((valor as { pausada?: string }).pausada).toMatch(FRASE_DO_PORTAO);
     expect((valor as { ativoGravado?: boolean }).ativoGravado).toBe(false);
     expect(await ativaNoBanco(id)).toBe(false);
+  });
+
+  // --------------------------------------------------------------------------
+  // O ACHADO DA REVISÃO DA TAREFA 2 (fase "portas de entrada"): `GATILHOS`, em
+  // `actions.ts`, é ALLOW-LIST — o oposto de `conferirLista` (lib/steps.ts), que
+  // é deny-list e por isso já aceitava "abertura" sem mudança nenhuma (medido em
+  // tests/steps.test.ts, describe "o gatilho abertura"). `GATILHOS` roda ANTES
+  // daquela conferência, então sem "abertura" nela `salvarAutomacao` recusa com
+  // "Escolha o gatilho da automação." antes mesmo de perguntar a `conferirLista`
+  // qualquer coisa — nenhum teste puro enxerga essa porta, porque ela mora num
+  // arquivo `"use server"`.
+  //
+  // POR QUE ISTO TEM DE SER INTEGRAÇÃO, E NÃO PURO: `GATILHOS` é uma constante
+  // de módulo dentro de `app/automacoes/actions.ts`, que não é importável pelos
+  // testes puros (o arquivo tem `"use server"`, e não exporta a lista). Não há
+  // função pura por trás dela para isolar — a única forma de medir se o valor
+  // novo é aceito é chamar a porta de verdade, como as demais deste arquivo.
+  // --------------------------------------------------------------------------
+  test("SALVAR aceita o gatilho abertura com o payload que o PAINEL manda", async () => {
+    const id = await semear("gatilho abertura", false);
+    const { valor } = await comoNumaRequisicao("/automacoes", () =>
+      acoes.salvarAutomacao(id, [{ id: "b_abert01", tipo: "dm", texto: "Que bom te ver!" }], [], {
+        nome: "porta de entrada",
+        ativo: false,
+        gatilho: "abertura",
+        // ESTE PAR DE LINHAS É O CASO INTEIRO, e ele já esteve errado aqui.
+        //
+        // Este caso mandava `correspondencia: "any"` — o ATALHO que a tarefa
+        // recusou por escrito, porque gravaria "casa com qualquer mensagem" no
+        // banco de uma automação que não casa com mensagem nenhuma. Com "any" a
+        // guarda de palavra-chave nem chega a ser alcançada
+        // (`correspondencia !== "any"` é falso), então este caso passava com as
+        // duas guardas revertidas: medido, os 54 de integração e os 721 puros
+        // continuavam verdes com o defeito plantado.
+        //
+        // O que o painel manda de verdade é isto. Ele ESCONDE o par de campos
+        // no gatilho de abertura (`gatilhoPedePalavraChave`, @/lib/steps), então
+        // o pedido sai com a correspondência padrão e a lista vazia — e era
+        // exatamente esse payload que a linha original recusava, com "Informe as
+        // palavras-chave" sobre um campo que a tela não mostra.
+        correspondencia: "contains",
+        palavras: [],
+        entregaSemPortao: false,
+      })
+    );
+    expect(valor.ok).toBe(true);
+
+    // E O DADO QUE FICOU NO BANCO É O INERTE, e não o "any" que passaria pela
+    // porta mentindo: `list-client.tsx` e o cartão do gatilho leem `match_type`
+    // para se descrever. A correção mudou a PERGUNTA, não o dado, e sem estas
+    // três linhas gravar "any" às escondidas continuaria verde aqui.
+    const linha = await configuracaoNoBanco(id);
+    expect(linha.triggers).toEqual(["abertura"]);
+    expect(linha.match_type).toBe("contains");
+    expect(linha.keywords).toEqual([]);
+  });
+
+  // --------------------------------------------------------------------------
+  // A MESMA GUARDA, DO OUTRO LADO — `criarAutomacao`.
+  //
+  // A pergunta de palavra-chave por gatilho está escrita DUAS VEZES em
+  // `actions.ts`, uma em cada porta. Quem "simplificar" uma tende a simplificar
+  // a outra no mesmo gesto, e a de criar é a PRIMEIRA que o dono atravessa: sem
+  // ela a automação de abertura nem chega a existir para o painel salvar.
+  // Nenhum outro teste deste projeto chama esta função.
+  //
+  // O PEDIDO É O DO FORMULÁRIO DE `/nova`, campo por campo. Lá o campo de
+  // palavras-chave e o `select` de correspondência DESMONTAM no gatilho de
+  // abertura (`form-nova.tsx`), então nem `keywords` nem `match_type` são
+  // enviados — o servidor cai no padrão `"contains"` com a lista vazia, que é o
+  // par que a linha original recusava.
+  //
+  // O FIM DELA É UM `redirect`, e em Server Action isso é uma EXCEÇÃO de
+  // controle de fluxo: chegar até ela é a prova de que a porta deixou passar. A
+  // recusa não lança nada — devolve a frase de erro —, então é o `digest`
+  // ausente que fica vermelho no dia em que a guarda voltar.
+  // --------------------------------------------------------------------------
+  test("CRIAR aceita o gatilho abertura com o pedido que o formulario de /nova manda", async () => {
+    const form = new FormData();
+    form.set("name", "porta de entrada recem-criada");
+    form.set("trigger", "abertura");
+
+    const { valor } = await comoNumaRequisicao("/automacoes/nova", async () => {
+      try {
+        const erro = await acoes.criarAutomacao(null, form);
+        return { erro, digest: null as string | null };
+      } catch (e) {
+        // `redirect` marca a exceção no `digest`, e afirmar o formato dele é de
+        // propósito: o dia em que o Next mudar essa marca, este caso fica
+        // VERMELHO em vez de passar a não medir nada.
+        return { erro: null, digest: (e as { digest?: string }).digest ?? null };
+      }
+    });
+
+    expect(valor.erro).toBe(null);
+    expect(valor.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+
+    // A LINHA EXISTE E O DADO É O INERTE — a mesma prova do caso de salvar, pelo
+    // mesmo motivo. O id sai do destino do redirecionamento, que é o único lugar
+    // onde a função o publica.
+    const id = (valor.digest ?? "").match(/\/automacoes\/([0-9a-fA-F-]+)/)?.[1];
+    expect(id).toBeTruthy();
+    const linha = await configuracaoNoBanco(id!);
+    expect(linha.triggers).toEqual(["abertura"]);
+    expect(linha.match_type).toBe("contains");
+    expect(linha.keywords).toEqual([]);
   });
 });

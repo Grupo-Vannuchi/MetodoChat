@@ -155,7 +155,10 @@ regras (`:3291` e `:3300`).
 ```ts
 describe("o gatilho abertura", () => {
   it("recusa resposta pública, que só existe em comentário", () => {
-    const passos = [{ id: "b_1", tipo: "resposta_publica", texto: "oi" }];
+    // `resposta_publica` carrega `textos` (LISTA), e não `texto` — conferido em
+    // `lib/steps.ts:48`. A primeira versão deste plano escreveu `texto` e o
+    // teste falhava por FORMA, não por lógica.
+    const passos = [{ id: "b_1", tipo: "resposta_publica", textos: ["oi"] }];
     const erros = conferirLista(passos, "abertura", []);
     expect(erros.filter((p) => p.nivel === "erro").length).toBeGreaterThan(0);
   });
@@ -208,26 +211,25 @@ não serve é como um defeito desta base nasceu.
 Em `testes-integracao/`, no padrão dos cinco que já existem (leia
 `banco-descartavel.ts` e `portas-de-publicar.integracao.ts`):
 
+**ATENÇÃO — ESTE BLOCO É INTENÇÃO, NÃO CÓDIGO PARA COLAR.** A primeira versão
+deste plano citou três ajudantes (`criarAutomacaoDeTeste`, `lerFila`,
+`lerContato`) que **não existem**. Conferido: `testes-integracao/` exporta
+`bancoDescartavel`, `comoNumaRequisicao`, `consultarPor` e outros — **leia
+`portas-de-publicar.integracao.ts` e siga o padrão de lá**, escrevendo os
+ajudantes que faltarem no estilo dos que existem.
+
+O que o caso precisa fazer, e a forma das asserções:
+
 ```ts
 it("tocar numa pergunta de abertura cria o contato e começa a automação", async () => {
-  // monta como a produção monta: grava a automação no schema descartável
-  const auto = await criarAutomacaoDeTeste({
-    triggers: ["abertura"],
-    steps: [{ id: "b_1", tipo: "dm", texto: "Que bom te ver por aqui!" }],
-    active: true,
-  });
-
-  await handleMessagingEvent(CONTA_DE_TESTE, {
-    sender: { id: "9999" },
-    recipient: { id: CONTA_DE_TESTE },
-    postback: { mid: "m1", title: "Quero saber mais", payload: payloadDaPergunta(auto.id) },
-  });
-
-  // confere pelo que SAIU, não perguntando à mesma função que decidiu
-  const fila = await lerFila(auto.id);
-  expect(fila.map((f) => f.kind)).toEqual(["dm_welcome"]);
-  const contato = await lerContato("9999");
-  expect(contato?.last_automation_id).toBe(auto.id);
+  // 1. grave a automação no schema descartável COMO A PRODUÇÃO GRAVA:
+  //    triggers ["abertura"], um passo `dm`, active true
+  // 2. chame handleMessagingEvent com o evento de botão:
+  //    { sender, recipient, postback: { mid, title, payload: payloadDaPergunta(id) } }
+  // 3. confira PELO QUE SAIU, não perguntando à função que decidiu:
+  //      - a fila ganhou uma entrada, e o `kind` dela é o esperado
+  //      - o contato existe, com `last_automation_id` apontando para a automação
+  //      - e o contato nasceu COM A CONTA CERTA (o plantio 3 do Passo 6 é esse)
 });
 ```
 
@@ -284,7 +286,10 @@ não aparecem no computador; só aparecem em conversa nova.
 ## Tarefa 5 · A tela das quatro portas
 
 **Files:**
-- Create: `lib/perguntas-de-abertura.ts` (falar com a Meta), `app/configuracao/perguntas/page.tsx` e a Server Action
+- Create: `lib/perguntas-de-abertura.ts` (falar com a Meta) e a tela, **dentro de
+  `app/setup/`** — conferido em 27/08: **NÃO existe `app/configuracao/`**, e o item
+  "Configuração" do menu aponta para `/setup` (`app/app-shell.tsx:43`). A primeira
+  versão deste plano mandou a tela para um diretório que não existe.
 - Modify: `scripts/perguntas-de-abertura.mjs` (passa a usar o módulo, sem duplicar a regra)
 
 **Interfaces:**

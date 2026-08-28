@@ -2,9 +2,17 @@
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { updateConfig, listAccounts, getConfig } from "@/lib/db";
+import { updateConfig, listAccounts, getConfig, getAccount } from "@/lib/db";
 import { subscribeToWebhooks, configureAppWebhook, CAMPOS_DE_WEBHOOK } from "@/lib/ig";
 import { canonicalAppUrl, isEphemeralUrl } from "@/lib/app-url";
+import { perguntasQueNaoFicaram, sincronizarPerguntas } from "@/lib/perguntas-de-abertura";
+import {
+  contaDoFormulario,
+  escreverRascunho,
+  linhasDoFormulario,
+  perguntasDoFormulario,
+  type LinhaDoFormulario,
+} from "./portas";
 
 // Reassina `CAMPOS_DE_WEBHOOK` (lib/ig.ts) em todas as contas conectadas. A
 // assinatura já acontece sozinha no OAuth, mas se falhar naquele momento nada
@@ -200,4 +208,104 @@ export async function saveMetaCredentials(formData: FormData): Promise<void> {
   });
   revalidatePath("/setup");
   redirect("/setup?salvo=1");
+}
+
+// ============================================================
+// AS QUATRO PERGUNTAS DE ABERTURA DE UMA CONTA (`portas-de-entrada.tsx`).
+//
+// Ela grava na META, e não no banco: as perguntas vivem no perfil da conta lá,
+// e é de lá que a tela as lê de volta. Não há linha em tabela nenhuma para
+// manter em dia — o que evita o pior desfecho possível desta tela, que seria o
+// painel e a Meta discordarem sobre o que está no ar.
+//
+// TUDO QUE ELA DECIDE ESTÁ FORA DAQUI, e é de propósito: `perguntasDoFormulario`
+// (./portas.ts) traduz o formulário em lista, `conferirPerguntas` aplica o
+// limite de quatro e `acaoDaEscrita` escolhe entre POST e DELETE — as três com
+// teste puro. Aqui só se lê `FormData`, se chama, e se conta o que aconteceu.
+// ============================================================
+// A RECUSA LEVA O QUE O DONO TINHA ESCRITO DE VOLTA COM ELA.
+//
+// Sem isto, o dono que reescreve as quatro perguntas e erra uma delas perde as
+// outras três: a resposta é um `redirect` e a tela recarrega DA META, sem as
+// edições. O rascunho vai na URL e `linhasComRascunho` (./portas.ts) redesenha a
+// tela com ele — a conferência de conta, a validação do que vem da URL e o
+// recálculo de cada identificador moram lá, com teste.
+function recusar(motivo: string, conta: string, linhas: LinhaDoFormulario[]): never {
+  const rascunho = escreverRascunho(conta, linhas);
+  redirect(
+    `/setup?erro=${encodeURIComponent(motivo)}` +
+      (rascunho ? `&rascunho=${encodeURIComponent(rascunho)}` : "")
+  );
+}
+
+export async function salvarPerguntasDeAbertura(formData: FormData): Promise<void> {
+  const igUserId = contaDoFormulario(formData);
+  const conta = await getAccount(igUserId);
+  // A CONTA VEM DO FORMULÁRIO, então ela é conferida contra as conectadas. Sem
+  // isto, um id qualquer viraria uma chamada à Meta com o token de outra conta.
+  if (!conta) {
+    redirect(`/setup?erro=${encodeURIComponent("Esta conta não está conectada neste painel.")}`);
+  }
+
+  // O `FormData` VIRA LINHAS FORA DAQUI, pelos mesmos construtores de nome que o
+  // JSX usa para escrever os campos (`./portas.ts`). Montar os nomes aqui à mão
+  // era a costura sem rede: cinco desencontros plantados passaram por tsc,
+  // eslint, 805 puros e 56 de integração, e o pior deles apagava o campo
+  // `ice_breakers` inteiro da conta anunciando sucesso.
+  const { linhas, motivo: motivoDaLeitura } = linhasDoFormulario(formData);
+  if (!linhas) {
+    redirect(`/setup?erro=${encodeURIComponent(motivoDaLeitura ?? "Não deu para ler o formulário.")}`);
+  }
+
+  const { perguntas, motivo } = perguntasDoFormulario(linhas);
+  if (!perguntas) {
+    recusar(motivo ?? "Não deu para ler o formulário.", igUserId, linhas);
+  }
+
+  const r = await sincronizarPerguntas(conta.ig_user_id, conta.access_token, perguntas);
+  if (!r.efeito) {
+    recusar(r.motivo ?? "Não deu para gravar as perguntas.", igUserId, linhas);
+  }
+  const efeito = r.efeito;
+  if (efeito.status !== 200) {
+    // O CORPO DA META VAI JUNTO, cortado. O erro mais provável aqui é de
+    // formato, e o subcode dele é a única coisa que diz qual — sem ele, o dono
+    // lê "não deu certo" e não tem por onde seguir. O token não aparece em
+    // resposta de erro da Meta: o que volta é `message`, `type`, `code` e
+    // `fbtrace_id`.
+    recusar(
+      `A Meta recusou as perguntas de @${conta.username ?? conta.ig_user_id} (HTTP ${efeito.status}): ${efeito.corpo.slice(0, 300)}`,
+      igUserId,
+      linhas
+    );
+  }
+
+  // A LEITURA DE VOLTA É A PROVA, e não o 200 do POST.
+  //
+  // ISTO NÃO É ZELO ABSTRATO: foi assim que o caso do dois-pontos apareceu. A
+  // Meta respondeu `{"result":"success"}` com HTTP 200 e guardou a pergunta SEM
+  // o identificador — a tela teria dito "salvo ✓" sobre uma pergunta que
+  // aparece para toda pessoa que abre a conversa e não dispara nada.
+  const sumiram = perguntasQueNaoFicaram(perguntas, efeito.leitura.perguntas);
+  if (sumiram.length) {
+    recusar(
+      `A Meta aceitou a chamada (HTTP 200) mas não guardou como foi mandado: ${sumiram
+        .map((p) => `“${p.question}”`)
+        .join(", ")}. Confira as perguntas desta conta antes de contar com elas.`,
+      igUserId,
+      linhas
+    );
+  }
+
+  // O número que aparece na confirmação é o que a META devolveu, não o que
+  // mandamos.
+  const noAr = efeito.leitura.perguntas.length;
+  revalidatePath("/setup");
+  redirect(
+    `/setup?salvo=${encodeURIComponent(
+      noAr === 0
+        ? `@${conta.username ?? conta.ig_user_id} ficou sem pergunta de abertura nenhuma ✓`
+        : `@${conta.username ?? conta.ig_user_id} está com ${noAr} pergunta(s) de abertura no ar ✓`
+    )}`
+  );
 }

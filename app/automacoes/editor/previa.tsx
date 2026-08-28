@@ -21,7 +21,14 @@ import {
   IconWifi,
   IconZap,
 } from "../../icons";
-import { roteiro, type Bolha, type Cena } from "./roteiro";
+import {
+  oQueAVisitanteFez,
+  roteiro,
+  textoDoDisparo,
+  type Bolha,
+  type Cena,
+  type GestoDaVisitante,
+} from "./roteiro";
 
 // A PRÉVIA DA CONVERSA, lendo a lista de blocos.
 //
@@ -465,6 +472,52 @@ function CenaNaConversa({ cena, aceso, conta }: { cena: Cena; aceso: boolean; co
   );
 }
 
+// A MENSAGEM DELA — o que a visitante fez, desenhado.
+//
+// O QUE desenhar é resposta de `oQueAVisitanteFez` (`./roteiro`); aqui só mora
+// COMO. Este componente não pergunta nada sobre gatilho: ele lê os quatro
+// campos do gesto.
+//
+// SEM LEGENDA E SEM MINIATURA O BALÃO VAI SOLTO na conversa, e é assim que a
+// mensagem direta sempre foi desenhada. A caixa existe para AGRUPAR a legenda e
+// a miniatura com o balão, num `gap` mais apertado que o da conversa; envolver
+// também o balão solto mudaria a largura dele — o `max-w-[80%]` de `Enviada`
+// passaria a medir a caixa, e não a conversa. Esta tarefa move decisão, não
+// desenho.
+function MensagemDela({ gesto, story }: { gesto: GestoDaVisitante; story: Picked | null }) {
+  const balao = (
+    <Enviada>
+      {gesto.descricao ? (
+        // O itálico é o mesmo de `Vazio`, com a cor do balão: dentro do azul, o
+        // `text-zinc-500` daquele componente ficaria ilegível. É texto que a
+        // prévia não tem, e não texto que a pessoa escreveu.
+        <span className="italic text-white/80">{gesto.texto}</span>
+      ) : (
+        gesto.texto
+      )}
+    </Enviada>
+  );
+  if (!gesto.legenda && !gesto.miniaturaDoStory) return balao;
+  return (
+    <div className="flex flex-col items-end gap-1 self-end">
+      {gesto.legenda && <p className="text-[9px] text-zinc-500">{gesto.legenda}</p>}
+      {gesto.miniaturaDoStory && (
+        <span className="rounded-xl bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 p-[2px]">
+          {story?.thumb ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={story.thumb} alt="" className="block h-20 w-12 rounded-[10px] object-cover" />
+          ) : (
+            <span className="flex h-20 w-12 items-center justify-center rounded-[10px] bg-zinc-900 text-zinc-500">
+              <IconCamera className="h-4 w-4" />
+            </span>
+          )}
+        </span>
+      )}
+      {balao}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 
 export default function Previa({
@@ -541,14 +594,12 @@ export default function Previa({
     return null;
   }, [cenas]);
 
-  // O QUE A PESSOA DIGITA PARA DISPARAR. Com "Qualquer texto" não há palavra
-  // nenhuma a mostrar, e desenhar uma seria mentira — aquela automação casa com
-  // TODA mensagem, de todo mundo. Por isso o exemplo, nesse caso, é uma
-  // mensagem qualquer, e não uma palavra-chave.
-  const disparo =
-    correspondencia === "any"
-      ? "oi, tudo bem?"
-      : palavras.find((p) => p.trim()) || "sua palavra-chave";
+  // O QUE ELA DIGITOU e O QUE ELA FEZ saem os dois de `./roteiro`, que é puro e
+  // testado. Eram três condições e um ternário escritos aqui dentro, e a
+  // revisão mediu o preço: apagando o ramo de `abertura` deste JSX a suíte
+  // ficava com 722 verdes. Aqui só sobra o desenho.
+  const disparo = textoDoDisparo(correspondencia, palavras);
+  const gesto = oQueAVisitanteFez(gatilho, correspondencia, palavras);
 
   return (
     <div>
@@ -635,30 +686,13 @@ export default function Previa({
           <Legenda>Hoje</Legenda>
 
           {/* QUEM DISPARA APARECE, porque a primeira mensagem da conversa é a
-              dela. No gatilho de comentário não há mensagem nenhuma aqui — ela
-              comentou, não mandou DM —, e é por isso que este ramo não cobre os
-              três: a conversa começa direto na resposta da automação. */}
-          {gatilho === "story" && (
-            <div className="flex flex-col items-end gap-1 self-end">
-              <p className="text-[9px] text-zinc-500">Respondeu ao seu story</p>
-              <span className="rounded-xl bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 p-[2px]">
-                {story?.thumb ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={story.thumb}
-                    alt=""
-                    className="block h-20 w-12 rounded-[10px] object-cover"
-                  />
-                ) : (
-                  <span className="flex h-20 w-12 items-center justify-center rounded-[10px] bg-zinc-900 text-zinc-500">
-                    <IconCamera className="h-4 w-4" />
-                  </span>
-                )}
-              </span>
-              <Enviada>{disparo}</Enviada>
-            </div>
-          )}
-          {gatilho === "dm" && <Enviada>{disparo}</Enviada>}
+              dela — e QUEM DECIDE ISSO é `oQueAVisitanteFez` (`./roteiro`), não
+              esta tela. Eram três condições por gatilho escritas aqui, sem caso
+              final: no gatilho de comentário não há mensagem nenhuma na
+              conversa (ela comentou, não mandou DM, e o que ela fez está no
+              cartão "No post", acima), e a função devolve `null` para dizer
+              isso. O que ficou aqui é o desenho de uma resposta só. */}
+          {gesto && <MensagemDela gesto={gesto} story={story} />}
 
           {cenas.map((c) => (
             <CenaNaConversa key={c.id} cena={c} aceso={c.id === selecionado} conta={perfil} />

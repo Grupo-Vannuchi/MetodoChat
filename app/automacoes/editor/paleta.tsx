@@ -1,5 +1,5 @@
 "use client";
-import { PALETA } from "./modelos";
+import { itensDaFaixa } from "./modelos";
 import {
   IconClock,
   IconCoracao,
@@ -19,7 +19,8 @@ import {
 // coraçãozinho não está na lista. Desabilitado com o motivo escrito responde a
 // pergunta antes de ela ser feita.
 //
-// E o MOTIVO é o `title` de `motivoDeEstarFora`, não a descrição do item. O
+// E o MOTIVO é o `title` de `motivoDeEstarFora` (`./modelos`), e não a
+// descrição do item. O
 // `title` já foi `item.descricao` — a mesma frase que está impressa logo abaixo
 // do rótulo, dois pixels dali. Repetir o que a pessoa acabou de ler não explica
 // por que aquele item está apagado; o motivo é a comparação entre o gatilho
@@ -60,26 +61,34 @@ import {
 // aba. Lendo um tipo que só esta paleta escreve, o `onDrop` do quadro sai sem
 // fazer nada em tudo que não veio daqui, em vez de criar um bloco a partir de
 // um pedaço de texto qualquer.
-// O nome do gatilho na língua de quem monta a automação. O `??` cobre gatilho
-// que a lista não conheça: melhor mostrar o nome cru do que não mostrar motivo.
-const NOME_DO_GATILHO: Record<string, string> = {
-  dm: "mensagem direta",
-  comment: "comentário",
-  story: "resposta de story",
-};
-
-function nomeDoGatilho(g: string): string {
-  return NOME_DO_GATILHO[g] ?? g;
-}
-
-// Por que este bloco está apagado — a frase inteira, e não o rótulo do item.
+// ONDE ESTE ARQUIVO PARA DE DECIDIR — e onde ele ainda decide.
 //
-// `gatilhos` não-nulo é o que torna o item dependente; quando ele é nulo o item
-// serve sempre e esta função nem é chamada.
-function motivoDeEstarFora(gatilhos: string[], gatilho: string): string {
-  const atende = gatilhos.map(nomeDoGatilho).join(" ou ");
-  return `Este bloco só roda no gatilho de ${atende}, e esta automação é disparada por ${nomeDoGatilho(gatilho)}.`;
-}
+// `NOME_DO_GATILHO`, `nomeDoGatilho` e `motivoDeEstarFora` MORAVAM AQUI, e a
+// última era a frase de três causas que existe para a faixa não afirmar em `dm`
+// que o coraçãozinho não roda. Foram para `./modelos` inteiras, e a mudança foi
+// medida: com elas aqui, plantar a volta da frase única falsa deixava a suíte
+// com 722 VERDES — a suíte não testa componente, e não vai passar a testar; a
+// saída é a decisão não morar deste lado.
+//
+// Hoje este arquivo NÃO IMPORTA `PALETA`: ele pede `itensDaFaixa(gatilho)`, que
+// devolve a lista com `serve` e `titulo` já resolvidos, e mapeia. Voltar a
+// decidir aqui exige acrescentar um import e escrever lógica nova, e não apagar
+// uma cláusula.
+//
+// O QUE FICA DESTE LADO, de propósito, e por quê:
+//   `ICONE` ............. o valor é componente React, e `./modelos` é o módulo
+//                         puro do editor (o motivo inteiro está no mapa abaixo).
+//   `draggable`, `onClick`, `aria-disabled`, as classes ....... são USOS de
+//                         `serve`, não decisões sobre ele — nenhum deles
+//                         escolhe se o item serve.
+//
+// E FICA UMA DECISÃO DE VERDADE, que é onde esta fronteira parou e está anotada
+// para quem vier: a guarda `if (!serve) return` dentro do `onClick`. Ela é a
+// única coisa que impede um clique num item apagado de criar o bloco —
+// `aria-disabled` só ANUNCIA —, é comportamento de EVENTO, e por isso não tem
+// como sair para um módulo puro: não há função pura a chamar, há um manipulador
+// a não chamar. Medido: apagando essa linha, a suíte fica em 722 VERDES. Ela só
+// ficaria vermelha com teste de componente, que a regra do produto não permite.
 
 // O DESENHO DE CADA ITEM, pela chave — a mesma chave que `blocoNovo`
 // (`./modelos`) lê para montar o bloco.
@@ -159,19 +168,11 @@ export default function Paleta({
         ARRASTE OU CLIQUE
       </span>
       <div className="flex items-center gap-1">
-        {PALETA.map((item) => {
-          // Numa constante local, e não `item.gatilhos` direto, porque é ela
-          // que o TypeScript consegue estreitar no `title` lá embaixo — sem
-          // isso a checagem exigiria um `!` para provar o que `serve` já sabe.
-          const gatilhos = item.gatilhos;
-          const serve = !gatilhos || gatilhos.includes(gatilho);
+        {itensDaFaixa(gatilho).map(({ item, serve, titulo }) => {
+          // A LISTA JÁ CHEGA DECIDIDA — `serve` e `titulo` vêm de `./modelos`,
+          // que é onde a rede alcança. Aqui não sobra conta nenhuma sobre
+          // gatilho: o que este `map` faz é escolher o desenho.
           const Icone = ICONE[item.chave] ?? IconMensagem;
-          // O `title` leva SEMPRE o nome e a descrição, porque agora é o único
-          // lugar onde eles existem. Quando o item está fora, o motivo entra
-          // numa SEGUNDA LINHA em vez de substituir o nome: saber que aquele
-          // desenho é o coraçãozinho continua valendo mesmo quando ele não
-          // serve para este gatilho.
-          const legenda = `${item.rotulo} — ${item.descricao}`;
           return (
             <button
               key={item.chave}
@@ -205,9 +206,7 @@ export default function Paleta({
                   ? "cursor-grab border-zinc-300 bg-white text-zinc-700 hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-indigo-500 dark:hover:text-indigo-400"
                   : "cursor-not-allowed border-dashed border-zinc-300 text-zinc-300 dark:border-zinc-800 dark:text-zinc-700"
               }`}
-              title={
-                serve || !gatilhos ? legenda : `${legenda}\n${motivoDeEstarFora(gatilhos, gatilho)}`
-              }
+              title={titulo}
               aria-disabled={!serve}
             >
               <Icone className="h-[22px] w-[22px]" />

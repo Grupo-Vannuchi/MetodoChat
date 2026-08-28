@@ -1837,14 +1837,63 @@ export type Payload = {
   botaoId: string | null;
 };
 
+// O PREFIXO DA QUARTA FORMA, a das PERGUNTAS DE ABERTURA. Ele mora aqui, ao
+// lado da leitora e da escritora, porque as duas precisam da MESMA string — e
+// porque a escolha dele foi MEDIDA, não arbitrada. O porquê inteiro está no
+// bloco de `lerPayload`, logo abaixo.
+export const PREFIXO_DA_PERGUNTA = "ABERTURA_";
+
 // Lê o payload de um botão de resposta rápida.
 //
-// TRÊS FORMAS, e as três são finais — CONVIVEM PARA SEMPRE, não é dívida a
+// QUATRO FORMAS, e as quatro são finais — CONVIVEM PARA SEMPRE, não é dívida a
 // limpar:
 //
 //   `AUTO:<automação>`                    entregue antes da Fase 1b
 //   `AUTO:<automação>:<bloco>`            entregue a partir dela
 //   `AUTO:<automação>:<bloco>:<botão>`    entregue a partir da Tarefa 3
+//   `ABERTURA_<automação>`                pergunta de abertura, a partir daqui
+//
+// A QUARTA CHEGOU POR MEDIÇÃO, E ACRESCENTADA — NÃO TROCADA. Ela não substitui
+// a forma de duas partes: as três de cima continuam sendo lidas exatamente como
+// eram, e há tabela e fuzz afirmando isso caractere a caractere.
+//
+// O QUE A META FAZ COM O DOIS-PONTOS, medido em 28/08/2026 contra a conta de
+// teste @saas.metodoia, com controle pareado — mesma automação, quatro
+// prefixos, uma escrita só:
+//
+//   `AUTO:436412ba-…`      -> POST 200 {"result":"success"} -> a leitura de
+//                             volta NÃO TRAZ A PERGUNTA. Ela some inteira.
+//   `AUTO-436412ba-…`      -> 200 -> volta byte a byte
+//   `ABERTURA_436412ba-…`  -> 200 -> volta byte a byte
+//   `abertura-436412ba-…`  -> 200 -> volta byte a byte
+//
+// O `|` é pior que sumir, porque não some: `AUTO|x` volta como `AUTO`, um
+// identificador DIFERENTE do que se mandou. A Meta responde sucesso nos três
+// casos — ela mente por omissão, e é por isso que a forma antiga NÃO PODE ser a
+// da pergunta de abertura: a pergunta ficaria no ar, visível para toda pessoa
+// que abre a conversa, sem disparar nada.
+//
+// POR QUE `ABERTURA_` E NÃO `AUTO_`, `AUTO.`, `AUTO/` OU `AUTO~`. Os quatro
+// foram medidos na mesma conta, e OS QUATRO SOBREVIVEM — a Meta só come `:` e
+// `|`. Quer dizer: a medição não escolhe entre eles, ela só elimina os dois
+// separadores proibidos. Quem escolhe é a regra que este arquivo já pratica em
+// `payloadDaRespostaRapida` × `payloadDoPortao`: prefixo que difere por UM
+// caractere é troca silenciosa esperando acontecer. `AUTO_${id}` escrito onde
+// se queria `AUTO:${id}` compila, passa no lint e muda o significado do toque.
+// `ABERTURA_` difere por uma PALAVRA, e a troca vira erro de leitura óbvio.
+//
+// E ELE NÃO COLIDE COM AS PERGUNTAS DE TESTE QUE ESTÃO NO AR. Elas usam
+// `abertura-saber-mais`, `abertura-valores`, `abertura-como-funciona` — e a
+// diferença para `ABERTURA_` é DUPLA e independente: a caixa e o separador.
+// As duas sobrevivem à Meta separadamente e voltaram DISTINTAS na mesma
+// escrita, com o mesmo uuid nas duas (é o que as linhas C3 e C4 acima medem).
+// Perder uma das duas diferenças não basta para colidir.
+//
+// RECONHECE POR PREFIXO, E NUNCA POR DIVISÃO. O id da automação é um uuid, e
+// uuid TEM HÍFEN: `ABERTURA_436412ba-e0b8-…`.split("-") daria seis pedaços e
+// nenhum deles é a automação. O que sobra depois do prefixo é o identificador
+// INTEIRO, sem separar mais nada — não há mais nada para separar, porque a
+// pergunta de abertura não tem bloco nem botão a apontar.
 //
 // Um botão entregue vive na conversa da pessoa indefinidamente, e ela pode
 // tocar nele meses ou anos depois — apagar qualquer um destes ramos quebraria
@@ -1873,6 +1922,25 @@ export type Payload = {
 // o que a Meta manda, e a Meta manda o que o cliente digitou.
 export function lerPayload(payload: unknown): Payload | null {
   if (typeof payload !== "string") return null;
+  // A QUARTA FORMA, E ELA SAI ANTES DE QUALQUER `split`. Não é otimização: é o
+  // que torna as duas gramáticas DISJUNTAS por construção. Nenhuma string
+  // começa por `ABERTURA_` e por `AUTO:`/`FOLLOW:` ao mesmo tempo, então este
+  // ramo nunca rouba um payload das três formas antigas — e elas nunca roubam
+  // um dele, porque `ABERTURA_<uuid>` não tem dois-pontos e morreria no
+  // `prefixo !== "AUTO"` logo abaixo.
+  //
+  // O DESFECHO É O MESMO DA FORMA DE DUAS PARTES de propósito: `passoId: null`
+  // é "comece esta automação do início" (`steps[0]`, ver `cursorDaRetomada`), e
+  // `prefixo: "AUTO"` é o ramo que `handleMessagingEvent` já executa para o
+  // toque numa pergunta. O motor não ganha ramo novo — ele nem fica sabendo
+  // que a forma mudou, e é essa a prova de que acrescentar não é mexer.
+  if (payload.startsWith(PREFIXO_DA_PERGUNTA)) {
+    const automationId = payload.slice(PREFIXO_DA_PERGUNTA.length);
+    // `ABERTURA_` sozinho é payload sem automação nenhuma. Mesma guarda, mesma
+    // razão e mesmo desfecho do `!automationId` do caminho de baixo.
+    if (!automationId) return null;
+    return { prefixo: "AUTO", automationId, passoId: null, botaoId: null };
+  }
   const partes = payload.split(":");
   // Só o limite de cima é conferido aqui. O de baixo ("AUTO" sozinho, uma
   // parte) não precisa de guarda própria: `automationId` sai `undefined`
@@ -1951,10 +2019,14 @@ export function payloadDoBotao(automacaoId: string, blocoId: string, botaoId: st
 // no portão viraria retomada comum, sem reconsultar a Meta: exatamente a classe
 // de troca silenciosa que esta separação existe para impedir.
 //
-// A FORMA DE DUAS PARTES (`AUTO:<automação>`, sem bloco) NÃO GANHA ESCRITORA,
-// e a ausência é decisão: `lerPayload` a LÊ para sempre — botão entregue antes
-// da Fase 1b vive na conversa da pessoa —, mas nada neste sistema a EMITE desde
-// então. Uma escritora para ela seria um convite a voltar a emiti-la.
+// A FORMA DE DUAS PARTES (`AUTO:<automação>`, sem bloco) CONTINUA SEM
+// ESCRITORA, e agora para sempre: `lerPayload` a LÊ eternamente — botão
+// entregue antes da Fase 1b vive na conversa da pessoa —, mas nada a emite de
+// novo. Ela chegou a ter uma candidata, a pergunta de abertura, e a MEDIÇÃO
+// contra a Meta a tirou de lá: o endpoint `messenger_profile` não guarda
+// identificador com dois-pontos, então aquela forma nunca chegava sequer a
+// ficar gravada. A pergunta de abertura tem forma própria hoje
+// (`payloadDaPergunta`, mais abaixo, com o prefixo `ABERTURA_`).
 export function payloadDaRespostaRapida(automacaoId: string, blocoId: string): string {
   return `AUTO:${automacaoId}:${blocoId}`;
 }
@@ -1962,6 +2034,61 @@ export function payloadDaRespostaRapida(automacaoId: string, blocoId: string): s
 export function payloadDoPortao(automacaoId: string, blocoId: string): string {
   return `FOLLOW:${automacaoId}:${blocoId}`;
 }
+
+// A QUARTA ESCRITORA, e a ÚNICA que escreve a forma sem dois-pontos.
+//
+// ELA JÁ EMITIU `AUTO:<automação>`, e a troca é o achado desta parte: a Meta
+// NÃO GUARDA identificador com dois-pontos no endpoint `messenger_profile`.
+// Responde 200 `{"result":"success"}` e some com a pergunta inteira na leitura
+// de volta — medido com controle pareado, quatro prefixos numa escrita só (a
+// tabela está no bloco de `lerPayload`). Enquanto esta função emitisse aquela
+// forma, ligar pergunta a automação era impossível por este endpoint: a
+// pergunta subia sem identificador e não disparava nada.
+//
+// O QUE MUDOU AQUI, E SÓ AQUI: as três formas antigas continuam escritas e
+// lidas exatamente como eram. `payloadDoBotao`, `payloadDaRespostaRapida` e
+// `payloadDoPortao` não foram tocadas, e não podiam ser — um botão entregue
+// vive na conversa da pessoa indefinidamente, e trocar o separador delas faria
+// um botão entregue ontem deixar de ser entendido hoje. Nenhuma pergunta de
+// abertura foi entregue com a forma antiga (ela nunca chegou a ficar gravada
+// na Meta), e é por isso que ESTA escritora pôde mudar e as outras três não.
+//
+// NÃO TEM BLOCO, e não é omissão: a pergunta de abertura é sempre a primeira
+// coisa que acontece na conversa. "Comece esta automação do início" é tudo o
+// que ela precisa dizer, e é o que `lerPayload` devolve — `passoId: null`,
+// `steps[0]`.
+export function payloadDaPergunta(automationId: string): string {
+  return `${PREFIXO_DA_PERGUNTA}${automationId}`;
+}
+
+// A PERGUNTA QUE NÃO DISPARA NADA, E ELA É PEDIDA PELA SPEC.
+//
+// A spec decide, com todas as letras: o menu de abertura "resolve um caso que o
+// campo-por-automação não resolveria: uma pergunta que não dispara automação
+// nenhuma. 'Quais são os valores?' pode ser só uma pergunta que o dono responde
+// à mão — e ainda assim vale estar no menu."
+//
+// TODA PERGUNTA PRECISA DE UM IDENTIFICADOR: sem ele a Meta recusa (`question` e
+// `payload` são as duas metades obrigatórias, ver `conferirPerguntas`), então
+// "sem automação" não pode ser "sem payload". Precisa ser um payload que exista
+// e que não signifique nada — e é este.
+//
+// AS TRÊS COISAS QUE ELE TEM DE SER, e as três estão medidas:
+//
+//   1. LIDO COMO NADA. `lerPayload` devolve `null` para ele, e o motor então o
+//      trata como qualquer forma que não é nossa: registra
+//      `webhook_messaging_nao_tratado` e não entrega nada. É o mesmo desfecho
+//      das perguntas de teste que estão no ar em produção (`abertura-...`), e
+//      ele é o desfecho DESEJADO aqui, não um acidente.
+//   2. SOBREVIVENTE DA META. Sem `:` e sem `|` — os dois únicos caracteres que o
+//      `messenger_profile` come (ver `identificadorSobrevive`). Uma pergunta
+//      inerte que a Meta engolisse sumiria do menu, que é o contrário do pedido.
+//   3. LONGE DE `ABERTURA_`. Ele NÃO PODE começar pelo prefixo da pergunta: se
+//      começasse, `lerPayload` devolveria `{ automationId: "SEM_AUTOMACAO" }`,
+//      `loadAutomation` não acharia nada, o motor sairia calado — e a TELA
+//      pintaria a linha de VERMELHO dizendo "aponta para uma automação que não
+//      existe mais nesta conta". Um estado escolhido de propósito viraria erro.
+export const PAYLOAD_SEM_AUTOMACAO = "SEM_AUTOMACAO";
 
 // O limite da Meta para respostas rápidas numa única mensagem.
 //
@@ -3188,6 +3315,70 @@ const SO_UM_POR_LISTA: Record<string, string> = {
 // de uma é um "ignorar tudo" com nome bonito, e aí o dono que queria dizer
 // "entrego sem exigir follow" acabou dizendo "não me conte mais nada".
 // ---------------------------------------------------------------------------
+// O GATILHO PEDE PALAVRA-CHAVE?
+//
+// Os três gatilhos antigos casam por TEXTO: `findMatch` (lib/engine.ts) filtra
+// pelo gatilho e chama `matches(texto, keywords, match_type)`. Sem palavra e sem
+// "qualquer texto", a automação não dispara com nada — e é por isso que as duas
+// portas de escrita (`salvarAutomacao` e `criarAutomacao`,
+// app/automacoes/actions.ts) recusam esse par com "Informe as palavras-chave".
+//
+// `abertura` NÃO CASA POR TEXTO. Quem dispara é o toque numa pergunta de
+// abertura, e o que liga a pergunta à automação é o identificador
+// (`payloadDaPergunta`, mais acima) — `lerPayload` devolve o id da automação, e
+// o ramo de `messaging_postback` (lib/engine.ts) a busca por id. `keywords` e
+// `match_type` não são lidos em nenhum ponto desse caminho, e `findMatch` nem
+// chega perto: ele só é chamado com "comment", "story" e "dm".
+//
+// MEDIDO, e é o motivo de esta função existir: sem ela, a tela do editor não
+// consegue GRAVAR uma automação de abertura. O painel esconde o campo de
+// palavra-chave (é o que a spec pede), a automação chega ao servidor com
+// `palavras: []` e `correspondencia: "contains"`, e a linha acima devolve
+// "Informe as palavras-chave (ou mude para “Qualquer texto”)." — um recado sobre
+// um campo que a tela não mostra, num gatilho que não tem texto para casar.
+//
+// A SAÍDA NÃO É GRAVAR `"any"` NO LUGAR. Isso passaria pela regra, mas gravaria
+// no banco a frase "esta automação casa com QUALQUER mensagem" — que é a rede de
+// arrasto do produto — sobre uma automação que não casa com mensagem nenhuma. A
+// lista de automações e o cartão do gatilho leem `match_type` para se descrever,
+// e os dois passariam a mentir. O que muda é a PERGUNTA, não o dado.
+export function gatilhoPedePalavraChave(gatilho: string): boolean {
+  return gatilho !== "abertura";
+}
+
+// O QUE O SALVAR RECUSA POR CAUSA DO GATILHO, numa pergunta só.
+//
+// As duas condições abaixo já viviam DENTRO de `conferirLista`, escritas em
+// linha. Elas saíram para cá porque há um SEGUNDO leitor delas, e ele estava
+// respondendo a mesma pergunta por conta própria: a paleta do editor
+// (`app/automacoes/editor/paleta.tsx`) apaga os blocos que não servem para o
+// gatilho da automação, lendo o campo `gatilhos` de `PALETA`
+// (`app/automacoes/editor/modelos.ts`) — uma lista escrita à mão, item a item.
+//
+// MEDIDO ao acrescentar o gatilho `abertura`: as duas listas concordavam nele
+// por COINCIDÊNCIA. `resposta_publica` tem `gatilhos: ["comment"]` e
+// `reagir_story` tem `gatilhos: ["story"]`, então nenhum dos dois é oferecido em
+// `abertura` — que é o resultado certo —, mas nada no código ligava esse acerto
+// à regra daqui. Um gatilho novo que a lista à mão não previsse seria oferecido
+// na faixa e recusado no salvar, e o dono descobriria montando o fluxo.
+//
+// E A DIVERGÊNCIA NÃO É HIPOTÉTICA — ela JÁ EXISTE, em `dm`: a paleta não
+// oferece o coraçãozinho ali, e esta regra o ACEITA (logo abaixo, no gatilho
+// `dm` o bloco roda e sai só um AVISO de ativar). A paleta é mais restritiva do
+// que o salvar, e essa metade da diferença é inofensiva: nada que ela oferece é
+// recusado depois. A metade PERIGOSA é a outra — oferecer o que o salvar nega —,
+// e é essa que a paleta passou a perguntar aqui, em vez de deduzir da lista.
+//
+// `true` = o salvar acende ERRO neste par. Não cobre os avisos: quem quiser a
+// lista inteira de problemas continua chamando `conferirLista`.
+export function salvarRecusaOBloco(tipo: string, gatilho: string): boolean {
+  // O coraçãozinho precisa do id da MENSAGEM, e só `dm` e `story` o fornecem.
+  if (tipo === "reagir_story") return gatilho !== "dm" && gatilho !== "story";
+  // A resposta pública precisa do id do COMENTÁRIO.
+  if (tipo === "resposta_publica") return gatilho !== "comment";
+  return false;
+}
+
 export function conferirLista(
   passos: unknown,
   gatilho: string,
@@ -3262,8 +3453,10 @@ export function conferirLista(
       continue;
     }
 
-    // Bloco que não pode disparar naquele gatilho. A paleta não o oferece, mas
-    // lista vinda de fora do editor pode trazê-lo.
+    // Bloco que não pode disparar naquele gatilho. A paleta não o oferece —
+    // e não o oferece porque PERGUNTA a `salvarRecusaOBloco`, a mesma função
+    // que as duas linhas de ERRO daqui usam —, mas lista vinda de fora do
+    // editor pode trazê-lo.
     //
     // AS DUAS METADES TÊM MECANISMOS DIFERENTES, e por isso níveis diferentes.
     // Elas já estiveram sob uma afirmação só — "bloco que não pode disparar
@@ -3297,7 +3490,7 @@ export function conferirLista(
           "Neste gatilho o coraçãozinho não vai para a story: ele reage à mensagem que a pessoa mandou.",
       });
     }
-    if (passo.tipo === "reagir_story" && gatilho !== "dm" && gatilho !== "story") {
+    if (passo.tipo === "reagir_story" && salvarRecusaOBloco(passo.tipo, gatilho)) {
       r.push({
         nivel: "erro",
         quando: "salvar",
@@ -3306,7 +3499,7 @@ export function conferirLista(
           "O coraçãozinho precisa de uma mensagem para reagir, e neste gatilho não chega nenhuma.",
       });
     }
-    if (passo.tipo === "resposta_publica" && gatilho !== "comment") {
+    if (passo.tipo === "resposta_publica" && salvarRecusaOBloco(passo.tipo, gatilho)) {
       r.push({
         nivel: "erro",
         quando: "salvar",
@@ -4187,4 +4380,143 @@ function botoesCrus(bruto: unknown): { quando: "salvar" | "ativar"; mensagem: st
     }
   }
   return semTexto;
+}
+
+// ============================================================
+// O QUE A META DISSE QUANDO A CHAMADA FALHOU — legível, e sem segredo dentro.
+//
+// POR QUE ESTA FUNÇÃO EXISTE, com a medição que a obrigou.
+//
+// `checkFollowsAccount` (lib/ig.ts) tinha `catch { return null }`. O motor
+// registrava `follow_check_unavailable` com o contato, a automação e o índice —
+// e NADA sobre a causa. Em 28/08/2026 esse registro tinha 6 linhas, todas do dia
+// 26, e ninguém conseguia dizer por quê: o chat de monitoramento leu o sintoma e
+// chutou "erro 400 code 190".
+//
+// Medido no mesmo dia, perguntando à Meta em leitura, com controle pareado:
+//
+//   contato que falhou    HTTP 500  code 230  "User consent is required…"
+//   outro contato         HTTP 200  is_user_follow_business: true
+//   o próprio perfil      HTTP 200  @thiagovannuchi
+//
+// O número real era 230, não 190 — e o controle prova que o token estava bom.
+// O chute não foi burrice de quem chutou: era a única coisa possível diante de
+// um registro que dizia "não deu" e mais nada. UM ERRO ENGOLIDO NÃO É UM ERRO A
+// MENOS: é um diagnóstico a menos, e ele reaparece como palpite.
+//
+// A LEITURA MORA AQUI, E NÃO EM `lib/ig.ts`, pelo motivo de sempre nesta base:
+// é decisão, não encanamento. Aqui ela tem caso para cada forma que a Meta já
+// mandou, e este arquivo continua sem NENHUM import.
+//
+// E ELA APAGA SEGREDO ANTES DE DEVOLVER. Não é zelo decorativo: o endereço do
+// `is_user_follow_business` leva o `access_token` NA QUERY (está escrito em
+// lib/ig.ts, e é a razão de `baseDoGraph` ter duas trancas). Um erro de rede
+// que carregue a URL viraria linha em Atividade — uma tela que o dono abre, com
+// o token dentro. O apagamento é a última coisa que acontece, sobre o texto já
+// montado, para valer também no caminho em que o corpo não é JSON.
+// ============================================================
+
+export type ResumoDoErroDaMeta = {
+  /** o código HTTP, quando quem chamou soube dizer */
+  http: number | null;
+  /** `error.code` da Meta — 190 é token, 230 é consentimento, 10 é janela */
+  codigo: number | null;
+  /** `error.error_subcode`, quando vem */
+  subcodigo: number | null;
+  /** a frase da Meta, ou o texto cru quando o corpo não é JSON */
+  mensagem: string | null;
+};
+
+/** Quanto do texto sobrevive. Registro é para ler, não para arquivar corpo. */
+const LIMITE_DA_MENSAGEM = 300;
+
+/**
+ * Apaga qualquer segredo que tenha vindo junto no texto.
+ *
+ * Vale para `access_token`, `client_secret` e `appsecret_proof` — os três que
+ * este produto põe em query string em algum caminho. O valor é substituído,
+ * não removido: quem lê precisa saber que ele ESTAVA ali.
+ */
+function semSegredo(texto: string): string {
+  return texto.replace(
+    /(access_token|client_secret|appsecret_proof)=([^&\s"']*)/gi,
+    "$1=OCULTO"
+  );
+}
+
+/** Um número, aceitando também o número que veio como texto. */
+function numeroOuNulo(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() && Number.isFinite(Number(v))) return Number(v);
+  return null;
+}
+
+export function resumoDoErroDaMeta(erro: unknown): ResumoDoErroDaMeta {
+  const vazio: ResumoDoErroDaMeta = {
+    http: null,
+    codigo: null,
+    subcodigo: null,
+    mensagem: null,
+  };
+  if (erro === null || erro === undefined) return vazio;
+
+  const objeto = typeof erro === "object" ? (erro as Record<string, unknown>) : null;
+
+  // `IgError` carrega os dois; um erro de rede não carrega nenhum, e aí sobra a
+  // mensagem do próprio Error — que é o caso em que o apagamento mais importa.
+  const http = numeroOuNulo(objeto?.status);
+  const corpo =
+    typeof objeto?.body === "string"
+      ? objeto.body
+      : typeof objeto?.message === "string"
+        ? objeto.message
+        : typeof erro === "string"
+          ? erro
+          : null;
+
+  let codigo: number | null = null;
+  let subcodigo: number | null = null;
+  let mensagem: string | null = corpo;
+
+  if (corpo) {
+    try {
+      const lido = JSON.parse(corpo) as unknown;
+      // A Meta responde SEMPRE em `{"error": {...}}`. Se o corpo é JSON mas não
+      // tem essa forma, o texto cru é a melhor coisa que temos — e é melhor que
+      // inventar campo nenhum.
+      if (typeof lido === "object" && lido !== null) {
+        const e = (lido as Record<string, unknown>).error;
+        if (typeof e === "object" && e !== null) {
+          const m = e as Record<string, unknown>;
+          codigo = numeroOuNulo(m.code);
+          subcodigo = numeroOuNulo(m.error_subcode);
+          if (typeof m.message === "string" && m.message) mensagem = m.message;
+        }
+      }
+    } catch {
+      // Corpo que não é JSON: HTML de gateway, texto vazio, o que for. Fica o
+      // cru, cortado e sem segredo — e é exatamente aqui que o apagamento vale,
+      // porque `IgError.message` começa com o corpo inteiro.
+    }
+  }
+
+  if (mensagem !== null) {
+    // A ORDEM É APAGAR E DEPOIS CORTAR, E O MOTIVO NÃO É SEGURANÇA — foi medido.
+    //
+    // A frase que estava aqui dizia que cortar primeiro deixaria um segredo
+    // partido ao meio, "que a expressão não reconheceria mais". É FALSA:
+    // trocando as duas linhas de lugar, os 355 testes continuaram verdes, porque
+    // `semSegredo` rodando sobre o texto já cortado apaga igual o que sobrou
+    // dele. Cortar primeiro não vaza nada.
+    //
+    // O que a ordem muda é QUANTO TEXTO ÚTIL sobra. Um segredo de 250 caracteres
+    // come 250 dos 300 do limite antes de virar `OCULTO`, e o que vinha depois
+    // dele — que é a parte que explica o erro — não cabe mais. Apagando antes, o
+    // segredo ocupa seis caracteres e a explicação sobrevive. O caso
+    // "a explicação depois do segredo sobrevive ao corte" prende exatamente isso.
+    const limpo = semSegredo(mensagem).trim();
+    mensagem = limpo ? limpo.slice(0, LIMITE_DA_MENSAGEM) : null;
+  }
+
+  return { http, codigo, subcodigo, mensagem };
 }

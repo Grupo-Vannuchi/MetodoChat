@@ -98,3 +98,90 @@ export function ehConhecidoEIgnorado(item: unknown): boolean {
     return so ? so(registro[f.chave]) : true;
   });
 }
+
+// ============================================================
+// PARA QUAL RAMO VAI ESTE ITEM DE `messaging`? — a decisão inteira, aqui.
+//
+// POR QUE ELA MUDOU DE CASA, com a medição que a obrigou.
+//
+// A rota do webhook decidia isto sozinha, em três linhas suas:
+//
+//   if (messaging.message || messaging.postback) { ...motor...; continue; }
+//   if (ehConhecidoEIgnorado(messaging)) continue;
+//   await logEvent(..., "webhook_messaging_nao_tratado", messaging);
+//
+// A primeira delas é a única linha que faz a PORTA DE ENTRADA existir, e ela
+// não estava protegida por nada. Medido: apagar os dois tokens `|| postback`
+// deixa `tsc` limpo, `eslint` limpo, os 693 testes puros verdes, a varredura
+// imprimindo SEM VAZAMENTO e os 46 de integração TODOS VERDES — com o toque em
+// pergunta de abertura morto em produção, voltando a virar
+// `webhook_messaging_nao_tratado`. Os casos de integração da porta de entrada
+// não pegam: eles chamam `handleMessagingEvent` direto, e o defeito mora uma
+// camada acima deles.
+//
+// É a mesma doença que esta base passou semanas fechando (os cinco `.destino`
+// do commit 4ba91f7, com a mesma assinatura de gates verdes): A FIAÇÃO ENTRE
+// CAMADAS É ONDE O DEFEITO SOBREVIVE. O conserto não é escrever um teste da
+// rota — é a decisão não morar na fiação. Aqui ela é função pura, este arquivo
+// não tem import nenhum, e cada ramo tem caso afirmando as duas formas.
+//
+// O QUE SOBRA NA ROTA é despachar o que esta função decidiu — e ISSO AINDA É
+// MUTÁVEL EM SILÊNCIO. A frase que estava aqui ("não sobra condição nenhuma
+// para alguém apagar dois tokens de dentro") era FALSA como escrita, e foi
+// medida: trocar o literal `"motor"` por `"registrar"` no `if` da rota passa por
+// tsc, eslint, 709 puros, varredura e integração, e mata TODO o tratamento de
+// mensagens — não só a porta de entrada. Um comentário que promete uma garantia
+// que não existe é pior que nenhum: é onde o próximo leitor para de olhar.
+//
+// O que esta função de fato entrega são duas coisas menores e verdadeiras:
+//   1. o CONHECIMENTO saiu da fiação e tem caso para cada saída, aqui do lado;
+//   2. `DestinoDoMessaging` é união NOMEADA de três, e o estreitamento do
+//      segundo `if` da rota faz o `tsc` recusar sozinho a troca para
+//      `"ignorar"` (TS2367). Metade das mutações restantes tem dono.
+//
+// A OUTRA METADE tem rede desde `testes-integracao/porta-do-webhook.integracao.ts`,
+// que importa a rota e POSTa um corpo assinado: um caso por destino, e os três
+// juntos prendem os três literais.
+// ============================================================
+
+/**
+ * As chaves de topo que o MOTOR trata (`lib/engine.ts`,
+ * `handleMessagingEvent`).
+ *
+ * `postback` está ao lado de `message` e não num ramo próprio: os dois são a
+ * mesma pergunta — "o que esta pessoa fez na conversa?" — e quem responde é a
+ * mesma função. O toque numa PERGUNTA DE ABERTURA chega nesta forma, sem
+ * `message`.
+ */
+export const FORMAS_DO_MOTOR = ["message", "postback"] as const;
+
+/**
+ * Para onde vai um item de `entry.messaging[]`:
+ *
+ *   `"motor"`      o motor trata (`handleMessagingEvent`).
+ *   `"ignorar"`    forma conhecida que não vira linha, de propósito.
+ *   `"registrar"`  tudo o mais — inclusive o que ainda não tem nome.
+ *
+ * A ORDEM É PARTE DA DECISÃO: o motor vem primeiro. Uma forma que o motor trata
+ * nunca cai na lista do silêncio, mesmo que um dia alguém escreva `message` lá.
+ *
+ * `"registrar"` é o padrão, e é o padrão porque o silêncio é que precisa ser
+ * justificado — uma forma por vez, depois de vista no banco.
+ */
+export type DestinoDoMessaging = "motor" | "ignorar" | "registrar";
+
+export function destinoDoMessaging(item: unknown): DestinoDoMessaging {
+  // Vale para qualquer objeto que não seja nulo nem lista, pela mesma razão de
+  // `ehConhecidoEIgnorado`: o que chega aqui é JSON da Meta, e a única garantia
+  // é a assinatura do corpo — não o formato dele. Um `null` no meio do array
+  // derrubava a rota com TypeError; aqui ele vira uma linha em Atividade, que é
+  // o que este registro existe para fazer.
+  if (typeof item !== "object" || item === null || Array.isArray(item)) return "registrar";
+  const registro = item as Record<string, unknown>;
+  // Presença COM VALOR, e não `in`: era o teste que a rota fazia
+  // (`messaging.message || messaging.postback`), e ele é o certo — um
+  // `{"postback": null}` não tem postback nenhum para o motor ler.
+  if (FORMAS_DO_MOTOR.some((chave) => Boolean(registro[chave]))) return "motor";
+  if (ehConhecidoEIgnorado(registro)) return "ignorar";
+  return "registrar";
+}

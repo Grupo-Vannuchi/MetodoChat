@@ -243,6 +243,93 @@ export function textoDoTempo(minutos: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// O QUE A VISITANTE FEZ — a primeira coisa da conversa, e ela é do GATILHO.
+// ---------------------------------------------------------------------------
+
+// O QUE A PESSOA DIGITA PARA DISPARAR. Com "Qualquer texto" não há palavra
+// nenhuma a mostrar, e desenhar uma seria mentira — aquela automação casa com
+// TODA mensagem, de todo mundo. Por isso o exemplo, nesse caso, é uma mensagem
+// qualquer, e não uma palavra-chave.
+//
+// A PALAVRA VAZIA NÃO CONTA: o painel deixa a lista com entradas em branco
+// enquanto a pessoa digita, e a primeira delas desenharia um balão vazio.
+//
+// ELA VEIO DO JSX, onde era três operadores dentro do corpo do componente. Aqui
+// ela é lida pelas DUAS cenas que precisam dela — o cartão do post, no gatilho
+// de comentário, e o balão dela, nos outros — e as duas leem a mesma resposta.
+export function textoDoDisparo(correspondencia: string, palavras: string[]): string {
+  if (correspondencia === "any") return "oi, tudo bem?";
+  return palavras.find((p) => p.trim()) || "sua palavra-chave";
+}
+
+// O GESTO DELA, o que a conversa mostra ANTES de a automação responder.
+//
+// `null` = não há gesto DENTRO da conversa. É o caso do comentário, e a ausência
+// ali é escolha: ela comentou, não mandou DM, e o que ela fez está desenhado no
+// cartão "No post", fora do celular.
+//
+// POR QUE ISTO SAIU DO JSX. Eram três condições soltas em `previa.tsx`
+// (`gatilho === "story"`, `=== "dm"`, `=== "abertura"`) e nenhum caso final. A
+// primeira versão tinha só as duas antigas, e a prévia de `abertura` mostrava a
+// conta mandando DM SEM NINGUÉM TER FALADO — quem olhasse concluiria que a
+// automação dispara sozinha, que é a confusão exata que os dois avisos do painel
+// existem para evitar. O ramo foi acrescentado e o comportamento ficou certo,
+// mas a revisão mediu o que restava: apagando aquele ramo do JSX a suíte ficava
+// com 722 VERDES. A suíte não testa componente, então a única forma de a rede
+// alcançar isto é a decisão morar deste lado.
+//
+// GATILHO DESCONHECIDO CAI NO MESMO CASO DE `dm`, e não em `null`. É o mesmo
+// padrão de `blocoNovo` e `tipoDoItem` (`./modelos`): a resposta genérica em vez
+// do sumiço. Toda porta deste produto é aberta por um gesto da visitante — não
+// existe automação que comece sozinha —, então "ela mandou alguma coisa" é
+// verdade para qualquer gatilho novo, e é infinitamente melhor do que a conversa
+// começando na resposta da conta. Foi exatamente esse sumiço que custou o
+// defeito de `abertura`.
+export type GestoDaVisitante = {
+  // A linha cinza acima do balão. `null` quando não há: em `dm` a mensagem dela
+  // É a conversa, e rotulá-la seria legenda para o óbvio.
+  legenda: string | null;
+  // A miniatura do story acima do balão — só o gatilho de story a tem.
+  miniaturaDoStory: boolean;
+  // O que aparece no balão dela.
+  texto: string;
+  // O TEXTO É UMA DESCRIÇÃO, e não o que ela escreveu. Vale em `abertura`: as
+  // perguntas vivem no perfil da conta na Meta (`ice_breakers`) e não estão no
+  // banco, então escrever uma pergunta de exemplo inventaria um dado que a
+  // automação não tem. Quem lê isto desenha o texto em itálico, como todo texto
+  // ausente daquela tela.
+  descricao: boolean;
+};
+
+export function oQueAVisitanteFez(
+  gatilho: string,
+  correspondencia: string,
+  palavras: string[]
+): GestoDaVisitante | null {
+  if (gatilho === "comment") return null;
+  if (gatilho === "abertura")
+    return {
+      legenda: "Tocou numa pergunta de abertura",
+      miniaturaDoStory: false,
+      // O TOQUE DELA VIRA MENSAGEM DELA, e é isso que a conversa mostra:
+      // `lib/engine.ts`, no ramo do `messaging_postback`, grava o `title` do
+      // postback como a mensagem recebida. É o único movimento que caracteriza
+      // a porta de entrada.
+      texto: "a pergunta que ela tocou",
+      descricao: true,
+    };
+  const texto = textoDoDisparo(correspondencia, palavras);
+  if (gatilho === "story")
+    return {
+      legenda: "Respondeu ao seu story",
+      miniaturaDoStory: true,
+      texto,
+      descricao: false,
+    };
+  return { legenda: null, miniaturaDoStory: false, texto, descricao: false };
+}
+
+// ---------------------------------------------------------------------------
 // O CAMINHO MOSTRADO — a escolha de braço, e ela é toda desta seção.
 // ---------------------------------------------------------------------------
 

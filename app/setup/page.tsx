@@ -6,6 +6,7 @@ import { canonicalAppUrl, isEphemeralUrl } from "@/lib/app-url";
 import { CAMPOS_DE_WEBHOOK } from "@/lib/ig";
 import { Suspense } from "react";
 import SubscriptionStatus, { SubscriptionStatusSkeleton } from "./subscription-status";
+import PortasDeEntrada, { PortasDeEntradaSkeleton } from "./portas-de-entrada";
 import CopyField from "./copy-field";
 import SubmitButton from "./submit-button";
 import { IconAlert } from "../icons";
@@ -72,7 +73,7 @@ function Step({
 export default async function SetupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ erro?: string; salvo?: string }>;
+  searchParams: Promise<{ erro?: string; salvo?: string; rascunho?: string }>;
 }) {
   const sp = await searchParams;
   const config = await getConfig();
@@ -530,6 +531,26 @@ export default async function SetupPage({
           </p>
           <Suspense fallback={<SubscriptionStatusSkeleton />}>
             <SubscriptionStatus />
+          </Suspense>
+        </section>
+      )}
+
+      {connected && (
+        <section className={`p-5 ${card}`}>
+          <h3 className="mb-1 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+            Perguntas de abertura
+          </h3>
+          <p className={`mb-3 text-xs ${muted}`}>
+            Quem abre a conversa da sua conta pela primeira vez vê até quatro perguntas e toca
+            numa delas — sem digitar nada e sem palavra-chave. Cada pergunta pode começar uma
+            automação. O que aparece aqui é o que está na <b>Meta</b> agora, e não uma cópia no
+            painel: se você mexeu por lá, é isto que a pessoa está vendo.
+          </p>
+          <Suspense fallback={<PortasDeEntradaSkeleton />}>
+            {/* O RASCUNHO da última recusa, se houve uma: o que o dono tinha
+                escrito quando a gravação foi negada. Daqui ele passa como texto
+                cru de URL; quem o lê e o valida é `lerRascunho` (./portas.ts). */}
+            <PortasDeEntrada rascunho={sp.rascunho} />
           </Suspense>
         </section>
       )}

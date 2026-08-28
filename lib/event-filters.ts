@@ -17,7 +17,17 @@ export type PeriodKey = (typeof PERIODS)[number]["key"];
 
 // Quais `type` de evento podem ser consultados. Os rótulos não moram aqui:
 // vêm de eventBadge(), para não existirem dois lugares dizendo a mesma coisa.
-export const EVENT_TYPES = ["comment", "message", "story_reply", "quick_reply", "error"] as const;
+// `abertura` entra aqui, e não é enfeite: a fase das portas de entrada existe
+// para responder QUAL DAS QUATRO PERGUNTAS traz gente, e sem o filtro por tipo
+// o dono não tem como isolar as linhas dela do resto de Atividade.
+export const EVENT_TYPES = [
+  "comment",
+  "message",
+  "story_reply",
+  "quick_reply",
+  "abertura",
+  "error",
+] as const;
 export type EventTypeKey = (typeof EVENT_TYPES)[number];
 
 export type EventFilters = {

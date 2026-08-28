@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
+  destinoDoMessaging,
   ehConhecidoEIgnorado,
   FORMAS_CONHECIDAS_E_IGNORADAS,
+  FORMAS_DO_MOTOR,
 } from "@/lib/webhook-messaging";
 
 // O que este arquivo protege é uma ASSIMETRIA, e ela é o ponto inteiro da
@@ -113,5 +115,91 @@ describe("message_edit: ruído quando num_edit é 0, notícia quando não é", (
   it("`read` continua valendo para a forma inteira — lá não há metade que interesse", () => {
     expect(ehConhecidoEIgnorado({ read: { mid: "m1" } })).toBe(true);
     expect(ehConhecidoEIgnorado({ read: {} })).toBe(true);
+  });
+});
+
+// ============================================================
+// PARA QUAL RAMO VAI O ITEM — a rede que faltava, e o defeito que a obrigou.
+//
+// Esta decisão morava em três linhas da rota do webhook, e a primeira delas era
+// a única linha que fazia a PORTA DE ENTRADA existir. Apagar os dois tokens
+// `|| postback` de lá deixava tsc, eslint, os 693 puros, a varredura e os 46 de
+// integração TODOS VERDES, com o toque em pergunta de abertura morto em
+// produção — porque os casos de integração chamam `handleMessagingEvent`
+// direto, e o defeito morava uma camada acima deles.
+//
+// O caso "um postback vai para o motor", abaixo, é o vermelho que faltava.
+// ============================================================
+
+describe("para qual ramo vai um item de `messaging`", () => {
+  it("uma mensagem comum vai para o MOTOR", () => {
+    expect(
+      destinoDoMessaging({
+        sender: { id: "918596204654394" },
+        recipient: { id: "17841454481842903" },
+        message: { mid: "m1", text: "quero" },
+      })
+    ).toBe("motor");
+  });
+
+  it("UM POSTBACK VAI PARA O MOTOR — é a porta de entrada, e é o que some calado", () => {
+    // Copiado da forma que o experimento de primeiro contato mediu em produção:
+    // sem `message`, com `title` (o texto da pergunta) e `payload` (o
+    // identificador). Sem este caso, tirar `postback` da decisão passa por
+    // todos os gates do projeto.
+    expect(
+      destinoDoMessaging({
+        sender: { id: "918596204654394" },
+        recipient: { id: "17841454481842903" },
+        postback: { mid: "m1", title: "Quero saber mais", payload: "AUTO:abc" },
+      })
+    ).toBe("motor");
+  });
+
+  it("as duas formas do motor estão nomeadas, e são só duas", () => {
+    // Uma forma a mais aqui é um ramo novo do motor, e quem a acrescentar tem de
+    // acrescentar o caso junto. Uma forma a menos é uma funcionalidade morta.
+    expect([...FORMAS_DO_MOTOR]).toEqual(["message", "postback"]);
+  });
+
+  it("confirmação de leitura é IGNORADA — não vira linha e não vai ao motor", () => {
+    expect(destinoDoMessaging({ read: { mid: "m1" } })).toBe("ignorar");
+    expect(destinoDoMessaging({ message_edit: { mid: "m1", num_edit: 0 } })).toBe("ignorar");
+  });
+
+  it("o que não tem nome é REGISTRADO, e é esse o padrão", () => {
+    expect(destinoDoMessaging({ referral: { ref: "exp-abertura-digitar" } })).toBe("registrar");
+    expect(destinoDoMessaging({ delivery: { mids: ["m1"] } })).toBe("registrar");
+    expect(destinoDoMessaging({ message_edit: { mid: "m1", num_edit: 2 } })).toBe("registrar");
+    expect(destinoDoMessaging({})).toBe("registrar");
+  });
+
+  it("o MOTOR vem primeiro: forma tratada nunca cai no silêncio", () => {
+    // Um item que traz as duas coisas ao mesmo tempo é do motor, e não da lista
+    // do silêncio. Sem a ordem, escrever `message` na lista das ignoradas um dia
+    // desligaria o motor inteiro sem uma linha em lugar nenhum.
+    expect(destinoDoMessaging({ read: { mid: "m1" }, message: { mid: "m2", text: "oi" } })).toBe(
+      "motor"
+    );
+    expect(
+      destinoDoMessaging({ message_edit: { mid: "m1", num_edit: 0 }, postback: { payload: "AUTO:a" } })
+    ).toBe("motor");
+  });
+
+  it("campo presente e VAZIO não é forma do motor", () => {
+    // Era o teste que a rota fazia (`messaging.message || messaging.postback`), e
+    // ele é o certo: um `postback` nulo não tem postback nenhum para o motor ler.
+    expect(destinoDoMessaging({ postback: null })).toBe("registrar");
+    expect(destinoDoMessaging({ message: undefined, sender: { id: "1" } })).toBe("registrar");
+  });
+
+  it("nulo, lista e escalar viram linha em vez de derrubar a rota", () => {
+    // A rota fazia `messaging.message` direto: um `null` no meio do array
+    // estourava e o item inteiro sumia dentro do `catch`.
+    expect(destinoDoMessaging(null)).toBe("registrar");
+    expect(destinoDoMessaging(undefined)).toBe("registrar");
+    expect(destinoDoMessaging([{ message: { mid: "m" } }])).toBe("registrar");
+    expect(destinoDoMessaging("message")).toBe("registrar");
+    expect(destinoDoMessaging(7)).toBe("registrar");
   });
 });

@@ -59,6 +59,27 @@
 // chamada DIRETO. Isto exercita o CORPO do Server Action, e não a fronteira de
 // serialização do POST — a mesma fronteira que os outros quatro caminhos da
 // Frente 2 também não testam.
+//
+// -----------------------------------------------------------------------------
+// E SERVE PARA ROUTE HANDLER TAMBÉM — foi para isso que o `after()` entrou.
+//
+// Um `POST` de `app/api/.../route.ts` é uma função exportada que recebe um
+// `Request`: não há fronteira de serialização nenhuma no caminho, então chamá-lo
+// aqui exercita a rota INTEIRA — corpo cru, conferência de assinatura, parse e
+// despacho. O que faltava era só o fim: `after()` (next/server) EXIGE `waitUntil`
+// e `onClose` no `renderOpts`, e com os dois `undefined` a última linha do
+// handler estourava com "after() will not work correctly, because waitUntil is
+// not available in the current environment".
+//
+// Os dois campos abaixo são o que uma plataforma serverless faz, e nada além:
+// `onClose` é "a resposta foi entregue" e `waitUntil` é "segure o processo vivo
+// até esta promessa terminar". Aqui a resposta é dada quando `corpo` retorna, e
+// então este arquivo fecha a requisição e espera o trabalho de fundo — a MESMA
+// ordem da plataforma, e não uma imitação dela: quem roda o `after` continua
+// sendo o `AfterContext` do Next, com a fila dele.
+//
+// NENHUM COOKIE ENTROU JUNTO. A jarra continua vazia (ver acima), e o webhook
+// nem a consultaria: ele autentica por assinatura HMAC do corpo.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createRequire } from "node:module";
 
@@ -270,6 +291,12 @@ export type DentroDaRequisicao<T> = {
   valor: T;
   /** As tags que `revalidatePath` empilhou — a prova de que a revalidação foi pedida. */
   tags: unknown[];
+  /**
+   * Quantas promessas o handler entregou ao `waitUntil` — a prova de que o
+   * `after()` do fim da rota rodou, e não morreu calado. Zero para quem não usa
+   * `after`, que é o caso dos Server Actions.
+   */
+  depois: number;
 };
 
 async function rodarNoContexto<T>(
@@ -283,14 +310,34 @@ async function rodarNoContexto<T>(
     undefined,
     undefined
   );
+  // O TRABALHO DE FUNDO desta requisição. Ver o cabeçalho: `after()` só existe
+  // com estes dois, e os dois são do tamanho do que a plataforma promete.
+  const pendentes: Promise<unknown>[] = [];
+  const aoFechar: (() => void)[] = [];
+  let fechada = false;
+  let entregues = 0;
+
   const workStore = criarWorkStore({
     page: rota,
     renderOpts: {
       supportsDynamicResponse: true,
       isPossibleServerAction: true,
       incrementalCache: cacheDeVerdade(),
-      waitUntil: undefined,
-      onClose: undefined,
+      // "Segure o processo vivo até isto terminar." Guardar a promessa é
+      // exatamente a promessa que o nome faz; quem a espera é o fim desta
+      // função, depois de a resposta estar pronta.
+      waitUntil: (p: Promise<unknown>) => {
+        entregues++;
+        pendentes.push(p);
+      },
+      // "Avise quando a resposta tiver sido entregue." O `AfterContext` do Next
+      // registra aqui o gatilho da fila dele. Se alguém registrar depois de a
+      // resposta já ter fechado, dispara na hora — senão a fila ficaria parada
+      // para sempre e o teste travaria sem dizer por quê.
+      onClose: (cb: () => void) => {
+        if (fechada) cb();
+        else aoFechar.push(cb);
+      },
       onAfterTaskError: undefined,
     },
     isPrefetchRequest: false,
@@ -303,7 +350,29 @@ async function rodarNoContexto<T>(
   const valor = await workAsyncStorage.run(workStore, () =>
     workUnitAsyncStorage.run(requestStore, corpo)
   );
-  return { valor, tags: workStore.pendingRevalidatedTags ?? [] };
+
+  // A RESPOSTA ESTÁ PRONTA: é aqui que a plataforma fecha a requisição e só
+  // depois deixa o trabalho de fundo correr. A ordem é a dela, e não uma
+  // conveniência daqui.
+  fechada = true;
+  for (const cb of aoFechar.splice(0)) cb();
+  // Em laço porque o trabalho de fundo pode pedir mais trabalho de fundo — é o
+  // que o próprio `AfterContext` faz ao empilhar a fila de callbacks.
+  // `allSettled` e não `all`: uma tarefa que rejeita é assunto do teste que a
+  // provocou, e não motivo para esta fundação estourar por cima dela.
+  let rodadas = 0;
+  while (pendentes.length) {
+    if (++rodadas > 20) {
+      throw new Error(
+        "TRABALHO DE FUNDO SEM FIM: o `after()` desta requisição continua pedindo " +
+          "`waitUntil` depois de 20 rodadas. Alguma tarefa está se reagendando em " +
+          "laço — pare de esperar por ela aqui e meça o que a reagenda."
+      );
+    }
+    await Promise.allSettled(pendentes.splice(0));
+  }
+
+  return { valor, tags: workStore.pendingRevalidatedTags ?? [], depois: entregues };
 }
 
 // --- Nível C: o EFEITO, com as duas metades --------------------------------

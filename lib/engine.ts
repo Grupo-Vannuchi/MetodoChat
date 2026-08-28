@@ -111,6 +111,20 @@ export type MessagingEvent = {
     quick_reply?: { payload?: string };
     reply_to?: { story?: { url?: string; id?: string }; mid?: string };
   };
+  // O TOQUE NUMA PERGUNTA DE ABERTURA, e ele chega IRMÃO de `message`, não
+  // dentro dela: o evento não tem `message` nenhuma. A forma abaixo é a MEDIDA
+  // em produção, capturada pelo registro `webhook_messaging_nao_tratado` em
+  // 26/08/2026 — não a que a documentação promete:
+  //
+  //   {"sender":{"id":"..."},
+  //    "postback":{"mid":"...","title":"Quero saber mais","payload":"abertura-saber-mais"},
+  //    "recipient":{"id":"..."},"timestamp":...}
+  //
+  // `title` e `payload` são coisas DIFERENTES, e a distinção é a razão de os dois
+  // estarem nomeados aqui: `title` é o TEXTO da pergunta, escrito por quem montou
+  // a tela e reescrito quando ele quiser; `payload` é o identificador. Ler o
+  // primeiro no lugar do segundo "funciona" até a primeira reescrita da pergunta.
+  postback?: { mid?: string; title?: string; payload?: string };
 };
 
 // MUDAR ESTA FUNÇÃO E `logEventThrottled` DE CASA está proposto e ADIADO, e a
@@ -452,6 +466,14 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 //     fluxo, e o pedido de follow viraria a primeira mensagem de todo mundo.
 //     Ela é a única dispensa que é de TRAVESSIA, não de grafo — o parágrafo
 //     acima já corrigiu uma demonstração que confundia os dois.
+//   A PORTA DE ENTRADA (o gatilho `abertura`) é o QUARTO nome desta lista, e é
+//     a MESMA forma do GATILHO acima, byte a byte: `identidadeNoIndice(steps, 0)`
+//     com `portao: null`. Quem toca numa pergunta de abertura entra na ENTRADA
+//     do fluxo sem cursor e sem nada antes, então tudo o que está escrito no
+//     GATILHO vale aqui palavra por palavra — inclusive a volta do portão pelo
+//     próprio link, que a varredura já mede no ponto "gatilho". Ela está
+//     nomeada à parte por uma razão só: é um ponto de chamada NOVO, e esta lista
+//     é onde se confere se a contagem abaixo ainda fecha.
 //   O PORTÃO VENCIDO retoma de `seguinteDe(portão)`, e aí a regra não é
 //     dispensável por não se aplicar — ela se aplica SEMPRE, e por isso não é
 //     usada. O porquê inteiro está no ramo `pedir_follow` do laço, abaixo.
@@ -473,10 +495,11 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 //
 // A DISPENSA DELIBERADA da regra do portão passa por AQUI, e só por aqui.
 //
-// Ela existe: três dos oito pontos de chamada de `executarFluxo` entram sem
-// `Retomada` de propósito — o gatilho de comentário, o gatilho de mensagem e o
-// portão recém-vencido —, e o porquê de cada um está escrito no próprio ponto
-// de chamada. O que faltava era a dispensa ser DIZÍVEL: enquanto o parâmetro
+// Ela existe: quatro dos nove pontos de chamada de `executarFluxo` entram sem
+// `Retomada` de propósito — o gatilho de comentário, o gatilho de mensagem, a
+// porta de entrada (o gatilho `abertura`) e o portão recém-vencido —, e o
+// porquê de cada um está escrito no próprio ponto de chamada. O que faltava
+// era a dispensa ser DIZÍVEL: enquanto o parâmetro
 // aceitava `string | null | Retomada`, escrever `.destino` num ponto de chamada
 // jogava a regra do portão fora e ficava IDENTICO a uma dispensa legítima —
 // as duas coisas eram "uma string". Medido no commit 4ba91f7, com os CINCO
@@ -485,9 +508,17 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 //
 // Com o parâmetro estreitado para `Retomada`, `.destino` num ponto de chamada
 // deixa de compilar (TS2345), e a dispensa deixa de ser invisível: ela passa a
-// ter NOME, e o nome é `grep`-ável. Três ocorrências de `semRegraDoPortao` são
-// as três dispensas; uma quarta é alguém dispensando a regra de novo, e a
-// revisão vê isso no diff.
+// ter NOME, e o nome é `grep`-ável. QUATRO ocorrências de `semRegraDoPortao`
+// como chamada são as quatro dispensas — nesta ordem no arquivo: o portão
+// recém-vencido, o gatilho de comentário, a porta de entrada e o gatilho de
+// mensagem. Uma quinta é alguém dispensando a regra de novo, e a revisão vê
+// isso no diff.
+//
+// ESTES NÚMEROS SÃO O MECANISMO, e não enfeite: quem acrescentar uma dispensa
+// e não os rearmar deixa o alarme pior do que desligado, porque quem o ler vai
+// achar que está conferindo. A contagem foi rearmada de três para quatro
+// quando a porta de entrada entrou; a lista nominal das dispensas está umas
+// cinquenta linhas acima.
 //
 // O que ela NÃO compra, e precisa estar dito: ela não pega passar a `Retomada`
 // ERRADA, nem inverter dois parâmetros. Isso continua sem rede aqui.
@@ -716,14 +747,16 @@ async function executarFluxo(
       //
       // E ESTE É O ÚNICO PONTO DE RETOMADA QUE NÃO PASSA PELA REGRA DO PORTÃO —
       // não o único ponto de fato: o gatilho também entra sem passar pela
-      // regra, por identidade crua, em outros dois lugares deste arquivo
-      // (handleCommentEvent e handleMessagingEvent, mais abaixo, ambos com
+      // regra, por identidade crua, em outros TRÊS pontos deste arquivo
+      // (handleCommentEvent, e handleMessagingEvent duas vezes — a porta de
+      // entrada e o gatilho de mensagem —, todos com
       // `identidadeNoIndice(auto.steps, 0)`), pela mesma dispensa. A varredura
       // documenta essa dispensa à exaustão
       // (scripts/varredura-portao.mjs, o ponto "gatilho", que entra "pela porta
-      // da frente" e é medido à parte dos cinco pontos de RETOMADA). Os TRÊS
-      // dizem a dispensa pelo nome, com `semRegraDoPortao` — são as três
-      // únicas ocorrências dela no arquivo, e é assim que quem lê o diff
+      // da frente" e é medido à parte dos cinco pontos de RETOMADA). Os QUATRO
+      // dizem a dispensa pelo nome, com `semRegraDoPortao` — são as quatro
+      // únicas ocorrências dela como chamada no arquivo, e é assim que quem
+      // lê o diff
       // distingue uma dispensa deliberada de uma regra jogada fora. O motivo
       // está por escrito no ramo
       // `pedir_email` logo abaixo, junto com o do ramo que FAZ o contrário — os
@@ -1294,7 +1327,7 @@ async function resolverFollow(
   indice: number,
   contexto: ContextoGatilho
 ): Promise<"passou" | "barrar" | "soltar"> {
-  const segue = await checkFollowsAccount(contactIgId, account.access_token);
+  const { segue, erro } = await checkFollowsAccount(contactIgId, account.access_token);
 
   if (segue === null) {
     // A Meta não informou. Barrar aqui deixaria TODA a base presa caso o campo
@@ -1305,6 +1338,12 @@ async function resolverFollow(
       automation_id: auto.id,
       // qual passo da lista foi liberado sem confirmação
       indice,
+      // POR QUE não deu para saber. Sem isto, este registro dizia só "não deu",
+      // e o palpite que nasceu desse silêncio errou o número (190 em vez de
+      // 230). O segredo já vem apagado de `resumoDoErroDaMeta`.
+      ...(erro
+        ? { erro }
+        : { motivo: "a Meta respondeu sem o campo is_user_follow_business" }),
     });
     await zerarTentativasFollow(account.ig_user_id, contactIgId);
     return "passou";
@@ -1500,10 +1539,212 @@ export async function handleCommentEvent(entryId: string | undefined, value: Com
 
 export async function handleMessagingEvent(entryId: string | undefined, ev: MessagingEvent) {
   const account = await resolveAccount(entryId);
-  if (!account) return;
-  const msg = ev.message;
+  // SEM CONTA PARA O EVENTO — e ele NÃO SAI DAQUI CALADO.
+  //
+  // `resolveAccount` devolve null em dois casos, e os dois são alcançáveis:
+  //   NENHUMA conta conectada. `lib/db.ts` apaga a linha de `accounts` ao
+  //     desconectar, e a assinatura do webhook é do APP, não da conta — a Meta
+  //     continua entregando. Numa instalação de uma conta só, basta o dono
+  //     desconectar.
+  //   MAIS DE UMA conta e `entry.id` sem par entre elas.
+  //
+  // Antes de o `postback` ser delegado a esta função, ele virava linha na rota
+  // (`webhook_messaging_nao_tratado`), e `events.account_id` não tem chave
+  // estrangeira, então o insert passava sempre. Delegar sem esta linha reabriu,
+  // para a forma que motivou o registro, exatamente o buraco que o cabeçalho da
+  // rota diz que fechou: NADA CHEGA AQUI E SAI SEM DEIXAR RASTRO.
+  //
+  // COM JANELA, E A RAZÃO ANTERIOR ERA EMPRESTADA. Estava escrito aqui que não
+  // havia janela "pela mesma razão da rota" — mas a razão da rota é ler a FORMA
+  // de uma sequência desconhecida (`referral` e depois `postback`), e ali uma
+  // janela engoliria o segundo evento, que é justamente o que se quer ver. Aqui
+  // o diagnóstico é um FATO ÚNICO — "não há conta para este `entry.id`" —, e
+  // repeti-lo não acrescenta nada.
+  //
+  // O que a ausência de janela custava está medido no desenho: desconectada a
+  // conta, isto gravaria uma linha por DM PARA SEMPRE, e ninguém veria crescer.
+  // `lib/event-query.ts` traz `account_id = $1 or account_id is null`, e estas
+  // linhas nascem sob um `entry.id` que, por definição, não é a conta
+  // selecionada — elas são forenses, e nunca aparecem na tela. Crescimento que
+  // ninguém vê é o pior tipo.
+  //
+  // O DISCRIMINADOR É O `entry.id`, e é ele que preserva o diagnóstico inteiro:
+  // dois `entry.id` desconhecidos diferentes continuam dando duas linhas, que é
+  // a única distinção que esta linha carrega. É o mesmo desenho de
+  // `abertura_com_gatilho_trocado`, aqui do lado.
+  //
+  // O id entra TAMBÉM no payload (`entry_id`) porque é de lá que a janela o lê —
+  // `logEventThrottled` compara `payload->>campo`. Nada do item original sai: o
+  // `entry_id` é um campo A MAIS, e é o que faz a linha dizer sozinha para qual
+  // conta o evento vinha, sem depender da coluna.
+  if (!account) {
+    const deQuem = entryId ?? "(sem entry.id)";
+    await logEventThrottled(
+      entryId ?? null,
+      "webhook_sem_conta",
+      { ...ev, entry_id: deQuem },
+      10,
+      { campo: "entry_id", valor: deQuem }
+    );
+    return;
+  }
   const senderId = ev.sender?.id;
-  if (!msg || !senderId) return;
+  if (!senderId) return;
+
+  // ============================================================
+  // A PORTA DE ENTRADA: o toque numa PERGUNTA DE ABERTURA (`postback`).
+  //
+  // ELE VEM ANTES DO RESTO DA FUNÇÃO porque o evento NÃO TEM `message`: era
+  // exatamente a forma que o `if (!msg)` daqui jogava fora, e é por isso que
+  // até 26/08/2026 ele só existia como linha em `webhook_messaging_nao_tratado`.
+  //
+  // O QUE ESTE RAMO REAPROVEITA do vizinho `quick_reply`, e é quase tudo, porque
+  // o postback é primo dele — os dois são "a pessoa tocou num botão":
+  //   `lerPayload`      a mesma leitora, e ela entende a QUARTA forma
+  //                     (`ABERTURA_<automação>`) que `payloadDaPergunta` emite —
+  //                     "comece esta automação do início", sem bloco e sem
+  //                     cursor. O desfecho é o mesmo da forma de duas partes
+  //                     (`prefixo: "AUTO"`, `passoId: null`), e é por isso que
+  //                     este ramo não mudou quando a forma mudou; mas quem lê
+  //                     `payloadDaPergunta` hoje encontra `ABERTURA_`, e não
+  //                     dois-pontos — a Meta não guarda `:` neste campo.
+  //   `loadAutomation`  achar a automação PELO IDENTIFICADOR do payload, e presa
+  //                     à conta do evento. Nunca por posição numa lista: duas
+  //                     perguntas da mesma conta apontam para automações
+  //                     diferentes, e a posição não distingue as duas.
+  //   `fetchProfileFields` + `upsertContact`  quem chega aqui é, por construção,
+  //                     alguém que NUNCA falou com a conta (as perguntas só
+  //                     aparecem em conversa nova), então esta é a linha de
+  //                     `contacts` NASCENDO. Sem o perfil ela ficaria salva como
+  //                     um número; sem `last_reply_at` a janela de 24h nunca
+  //                     abriria e `processItem` (lib/queue-drain.ts) descartaria
+  //                     como `skipped` tudo que o fluxo enfileirasse.
+  //   `executarFluxo`   com a lista começando na ENTRADA (`steps[0]`).
+  //
+  // O QUE NÃO SERVE, e forçar é como um defeito desta base nasceu:
+  //   O ECO (`msg.is_echo`). Não existe postback da própria conta — ela não toca
+  //     nas próprias perguntas de abertura —, e não há `message` para trazer a
+  //     marca.
+  //   TODA A ÁRVORE DE RETOMADA do `quick_reply` (`caminhoDoBotao`,
+  //     `cursorDaRetomada`, `retomadaDoBotao`). Ela responde "de onde CONTINUAR",
+  //     e aqui não há de onde: a pergunta de abertura é a primeira coisa que
+  //     acontece na conversa, e o cursor é nulo por construção. Passar por ela
+  //     custaria uma leitura de cursor para chegar ao mesmo `steps[0]`.
+  //   O `mid` COMO `messageId` no contexto. O contexto só o usa para o passo
+  //     `reagir` (`storyReactionKey`), e o `mid` de um postback não é o de uma
+  //     mensagem — reagir a ele seria pedir à Meta para reagir ao que não existe.
+  //
+  // A DISPENSA DA REGRA DO PORTÃO (`semRegraDoPortao`) é a QUARTA, e é a mesma
+  // dispensa dos três gatilhos que já existem, pelo mesmo motivo escrito lá:
+  // este ramo É UM GATILHO — o quarto, `abertura` —, e gatilho começa na ENTRADA
+  // do fluxo. Não há nada antes dela por onde a pessoa passe, então não há
+  // caminho a examinar, e `interpretar` encontra qualquer `pedir_follow` do
+  // percurso caminhando normalmente até ele.
+  //
+  // O GATILHO DA AUTOMAÇÃO NÃO É CONFERIDO AQUI de propósito, e isto precisa
+  // estar dito porque a ausência parece esquecimento. Quem decide que uma
+  // pergunta existe e para onde ela aponta é a tela de Configuração, e a
+  // pergunta vive no perfil da conta na Meta — fora do banco. Recusar aqui uma
+  // automação cujo gatilho o dono trocou depois faria a pergunta que está no ar
+  // parar de funcionar em silêncio, que é o pior dos dois lados. O escopo que
+  // importa — a CONTA — é conferido, e é `loadAutomation` que o confere.
+  //
+  // E a razão maior é de CONSISTÊNCIA: `loadAutomation` confere `account_id` e
+  // `active`, e NUNCA `triggers` — nem aqui, nem no `quick_reply`, nem na
+  // retomada por cursor. Toda entrada POR IDENTIFICADOR neste motor ignora o
+  // gatilho de propósito, porque a regra escrita do produto é que um botão
+  // entregue vive na conversa da pessoa indefinidamente e sobrevive à
+  // configuração que o produziu. Conferir aqui faria da abertura a única
+  // exceção contra a regra do próprio motor.
+  //
+  // MAS EXECUTAR EM SILÊNCIO SERIA OUTRA COISA, e é o que a linha de
+  // `abertura_com_gatilho_trocado` fecha, lá embaixo: o dono que virar o
+  // gatilho de uma automação esperando que a pergunta pare precisa ter ONDE
+  // ver que ela não parou. Executa — a pergunta que está no ar não para calada
+  // — e a divergência vira linha em Atividade.
+  // ============================================================
+  if (ev.postback) {
+    const p = lerPayload(ev.postback.payload);
+    if (!p) {
+      // NÃO É PAYLOAD NOSSO, e continua indo para o registro do webhook em vez
+      // de sumir aqui. Não é simetria com o `quick_reply` (que registra o toque
+      // mesmo sem payload legível), e a assimetria é medida: um `quick_reply` só
+      // chega de um botão que ESTE produto enviou, enquanto uma pergunta de
+      // abertura mora no perfil da conta na Meta e pode ter sido escrita no
+      // painel dela — foi assim que as quatro perguntas de teste em produção
+      // nasceram, com payload `abertura-...` de propósito, para não disparar
+      // nada. Elas continuam sendo "forma ainda sem tratamento", que é o que
+      // são, e continuam visíveis para quem for olhar.
+      await logEvent(account.ig_user_id, "webhook_messaging_nao_tratado", ev);
+      return;
+    }
+    // TIPO PRÓPRIO, e não `quick_reply`, e a razão é a tela.
+    //
+    // Gravar isto como `quick_reply` fazia três coisas erradas de uma vez: as
+    // quatro portas ficavam iguais ENTRE SI, iguais aos toques em botão de
+    // DENTRO do fluxo, e sem texto — `eventText` (app/labels.ts) devolve null
+    // para `quick_reply` de propósito, porque o payload dele é identificador
+    // interno. Só que um postback de abertura TEM campo legível, e é o `title`:
+    // a pergunta que a pessoa leu na tela.
+    //
+    // O número que esta fase inteira existe para produzir é QUAL DAS QUATRO
+    // PORTAS traz gente. Com um tipo só, a tela não responde: N linhas
+    // idênticas escritas "Tocou no botão". Com tipo próprio, ela vira filtro em
+    // /eventos e cada linha diz a pergunta.
+    await logEvent(account.ig_user_id, "abertura", ev);
+    const auto = await loadAutomation(account.ig_user_id, p.automationId);
+    // Automação apagada ou pausada com a pergunta ainda no ar: nada a começar.
+    // Calado como o vizinho `quick_reply`, e pelo mesmo motivo — não é montagem
+    // errada, é o dono tendo pausado o que ele mesmo publicou.
+    if (!auto) return;
+    // A MONTAGEM DIVERGIU, E ISSO VIRA LINHA — a terceira saída entre executar
+    // calado e recusar.
+    //
+    // Acontece de duas formas, e as duas são ato do dono: ele ligou a pergunta
+    // a uma automação e depois trocou o gatilho dela, ou apontou a pergunta
+    // para uma automação que nunca teve `abertura`. Nos dois casos a pergunta
+    // continua no perfil da conta na Meta e continua disparando — é a decisão
+    // acima, e ela não muda. O que muda é que ela deixa de ser invisível.
+    //
+    // Com janela e discriminador por automação, no padrão de `botao_sem_caminho`
+    // e pelo mesmo motivo: uma pergunta divergente tocada em série não pode
+    // virar uma linha por toque.
+    if (!auto.triggers.includes("abertura")) {
+      await logEventThrottled(
+        account.ig_user_id,
+        "abertura_com_gatilho_trocado",
+        {
+          automation_id: auto.id,
+          contact_ig_id: senderId,
+          gatilhos: auto.triggers,
+          // O texto da pergunta, para a linha dizer QUAL porta divergiu sem
+          // ninguém precisar abrir a configuração na Meta para descobrir.
+          pergunta: ev.postback.title ?? null,
+        },
+        10,
+        { campo: "automation_id", valor: auto.id }
+      );
+    }
+    const perfil = await fetchProfileFields(account.ig_user_id, senderId, account.access_token);
+    await upsertContact(account.ig_user_id, senderId, {
+      ...perfil,
+      last_reply_at: new Date(),
+      // De quem é a conversa a partir de agora — o mesmo que os outros dois
+      // gatilhos gravam, e pelo mesmo motivo: é por ele que o ramo de texto e o
+      // de fallback sabem o que retomar quando a pessoa responder.
+      last_automation_id: auto.id,
+    });
+    await executarFluxo(
+      account,
+      auto,
+      senderId,
+      semRegraDoPortao(identidadeNoIndice(auto.steps, 0))
+    );
+    return;
+  }
+
+  const msg = ev.message;
+  if (!msg) return;
 
   // Mensagem que a PRÓPRIA conta enviou — o "eco" da Meta. Acontece quando
   // alguém responde pelo Instagram do celular, ou por outra ferramenta.

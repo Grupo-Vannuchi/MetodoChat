@@ -1,4 +1,5 @@
 import "server-only";
+import { resumoDoErroDaMeta, type ResumoDoErroDaMeta } from "./steps";
 
 // API "Instagram com Login do Instagram" — não precisa de página do Facebook.
 //
@@ -217,6 +218,18 @@ export async function getProfile(token: string): Promise<IgProfile> {
 // webhooks da Instagram Platform), então assinar os dois campos novos não pede
 // revisão nova da Meta — medido, porque essa era a dúvida.
 //
+// ESTA LINHA É A MORTE NA ORIGEM, e agora ela tem rede. Apagar um campo daqui é
+// um token, passa por tsc, eslint, testes puros, varredura e integração — e a
+// Meta PARA DE ENTREGAR o evento, antes de qualquer linha deste repositório
+// rodar. E o conferidor de /setup (`app/setup/subscription-status.tsx`) lê ESTA
+// MESMA string, então ele diria "recebendo eventos ✓" enquanto nada chega: a
+// tela vira a prova de que está tudo bem justamente quando não está.
+//
+// Quem segura é `tests/campos-de-webhook.test.ts`, e ele não pergunta de novo a
+// esta linha: ele parte de `FORMAS_DO_MOTOR` (lib/webhook-messaging.ts) — as
+// formas de `entry.messaging[]` que o motor trata — e exige, para cada uma, o
+// campo que a entrega. Dois arquivos, e não um.
+//
 // MUDAR ESTA LISTA NÃO REASSINA NINGUÉM. A inscrição por conta acontece uma vez,
 // no OAuth (app/api/oauth/callback/route.ts). Quem já está conectado só passa a
 // receber o campo novo depois que alguém apertar "Reassinar webhooks" no
@@ -321,19 +334,40 @@ export async function getUserProfile(
 // A Meta informa se a pessoa segue a conta conectada. Fica numa chamada
 // SEPARADA de propósito: se este campo exigir permissão extra e falhar, os
 // nomes e fotos dos contatos continuam funcionando normalmente.
-// null = não deu para saber (nunca tratar como "não segue").
+//
+// `segue: null` = não deu para saber (NUNCA tratar como "não segue"), e `erro`
+// diz por quê.
+//
+// A DEVOLUÇÃO DEIXOU DE SER `boolean | null` E O MOTIVO ESTÁ MEDIDO. Aqui havia
+// `catch { return null }`: o erro da Meta morria dentro deste bloco, e o motor
+// registrava `follow_check_unavailable` sem uma palavra sobre a causa. Em
+// 28/08/2026 esse registro tinha 6 linhas e ninguém sabia dizer por quê — o chat
+// de monitoramento leu o sintoma e chutou "400 code 190". Perguntando à Meta em
+// leitura, com controle pareado, o número real era **230** (falta de
+// consentimento do perfil), e o token estava bom.
+//
+// As DUAS formas de não saber continuam distintas de propósito, e é por isso
+// que `erro` pode ser `null` com `segue: null`:
+//   - a chamada FALHOU        → `erro` preenchido
+//   - a Meta respondeu SEM o campo → `erro: null`
+// Quem registra separa as duas na tela; juntá-las devolveria o silêncio pela
+// porta dos fundos.
 export async function checkFollowsAccount(
   igsid: string,
   token: string
-): Promise<boolean | null> {
+): Promise<{ segue: boolean | null; erro: ResumoDoErroDaMeta | null }> {
   try {
     const json = await graphFetch(
       `/${igsid}?fields=is_user_follow_business&access_token=${encodeURIComponent(token)}`
     );
     const v = (json as { is_user_follow_business?: boolean }).is_user_follow_business;
-    return typeof v === "boolean" ? v : null;
-  } catch {
-    return null;
+    return { segue: typeof v === "boolean" ? v : null, erro: null };
+  } catch (e) {
+    // `resumoDoErroDaMeta` apaga o token antes de devolver, e isso importa
+    // NESTA chamada em particular: o endereço acima leva o `access_token` na
+    // query, então um erro de rede que carregue a URL chegaria com o segredo
+    // dentro — e daqui ele iria direto para uma tela que o dono abre.
+    return { segue: null, erro: resumoDoErroDaMeta(e) };
   }
 }
 

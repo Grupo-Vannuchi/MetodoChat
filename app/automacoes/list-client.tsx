@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { oQueDispara } from "../labels";
 import { toggleAutomation, deleteAutomation, duplicateAutomation } from "./actions";
 import {
   card,
@@ -12,7 +13,7 @@ import {
   btnPrimary,
   emptyWrap,
 } from "../ui";
-import { IconZap, IconComment, IconStory, IconSend } from "../icons";
+import { IconZap, IconComment, IconStory, IconSend, IconPorta } from "../icons";
 
 export type AutomationRow = {
   id: string;
@@ -32,6 +33,11 @@ const TRIGGER_META: Record<
   comment: { label: "Comentário", icon: IconComment },
   story: { label: "Story", icon: IconStory },
   dm: { label: "DM", icon: IconSend },
+  // SEM ESTA LINHA A AUTOMAÇÃO DE ABERTURA APARECIA SEM CANAL NENHUM: o `if
+  // (!meta) return null` lá embaixo apaga o gatilho que a tabela não conhece, e
+  // a linha ficaria com o ponto separador e mais nada onde os outros três dizem
+  // por onde a automação dispara.
+  abertura: { label: "Abertura", icon: IconPorta },
 };
 
 type Filtro = "todas" | "ativas" | "pausadas";
@@ -246,12 +252,13 @@ export default function AutomationsList({ automations }: { automations: Automati
                         })}
                       </span>
                       <span className="text-zinc-300 dark:text-zinc-700">·</span>
-                      <span className={`truncate ${muted}`}>
-                        {a.match_type === "any"
-                          ? "qualquer texto"
-                          : a.keywords.slice(0, 3).join(", ") +
-                            (a.keywords.length > 3 ? ` +${a.keywords.length - 3}` : "")}
-                      </span>
+                      {/* O QUE DISPARA — a frase inteira é `oQueDispara`
+                          (`../labels`), e não esta linha. Ela decidia aqui, e
+                          a revisão mediu o que isso valia: revertendo as duas
+                          metades para o `some` que ESCOLHIA entre elas, a
+                          suíte ficava com 722 verdes. O porquê de cada metade
+                          está escrito junto da função, com teste. */}
+                      <span className={`truncate ${muted}`}>{oQueDispara(a)}</span>
                       <span className="text-zinc-300 dark:text-zinc-700">·</span>
                       <span className="text-zinc-400 dark:text-zinc-500">
                         {formatarData(a.created_at)}

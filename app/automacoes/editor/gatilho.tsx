@@ -1,5 +1,6 @@
 "use client";
 import { Handle, Position } from "@xyflow/react";
+import { gatilhoPedePalavraChave } from "@/lib/steps";
 
 // O gatilho é o primeiro nó, e ele é diferente dos outros em três coisas: não
 // tem alça de ENTRADA (nada vem antes dele), não tem botão de apagar (sem
@@ -22,7 +23,16 @@ export type DadosDoGatilho = {
   selecionado: boolean;
 };
 
-const NOME = { dm: "DM", comment: "COMENTÁRIO", story: "STORY" } as const;
+// `abertura` sai curto — "ABERTURA" e não "PERGUNTA DE ABERTURA" — porque este
+// rótulo divide uma linha de 190px com a palavra "GATILHO ·", e o nome inteiro a
+// quebraria em duas. Quem lê a linha de baixo (`resumoDoGatilho`) recebe a
+// frase completa logo abaixo.
+const NOME = {
+  dm: "DM",
+  comment: "COMENTÁRIO",
+  story: "STORY",
+  abertura: "ABERTURA",
+} as const;
 
 // O QUE O CARTÃO DE GATILHO DIZ, e as duas funções são exportadas porque há
 // DOIS cartões de gatilho: este nó, no quadro, e o primeiro item da lista de
@@ -66,6 +76,32 @@ export function resumoDasPalavras(palavras: string[], correspondencia: string): 
   return correspondencia === "exact" ? `texto exato: ${lista}` : `contém ${lista}`;
 }
 
+// O RESUMO DO CARTÃO, AGORA PELO GATILHO INTEIRO — e não só pelas palavras.
+//
+// `resumoDasPalavras` continua exatamente como estava, e continua exportada:
+// ela é a resposta dos três gatilhos que casam por TEXTO, e é dela que os testes
+// que trancam "qualquer mensagem", "contém" e "texto exato" falam. O que faltava
+// era uma pergunta ANTES dela.
+//
+// `abertura` não tem palavra-chave nenhuma (`gatilhoPedePalavraChave`,
+// @/lib/steps), e passar por `resumoDasPalavras` a fazia imprimir "sem
+// palavra-chave" — a frase que este arquivo escolheu para dizer "esta automação
+// não dispara com NADA, e o salvar recusa gravá-la". Seria o diagnóstico mais
+// alarmante do cartão, sobre a automação mais saudável possível: a de abertura
+// dispara pelo identificador da pergunta, e não tem o que preencher.
+//
+// A MESMA PERGUNTA QUE O SALVAR FAZ, e não um `if (tipo === "abertura")` local:
+// é a decisão que já dispensa o campo em `salvarAutomacao` e no painel, e
+// escrevê-la uma terceira vez é como as três passam a discordar.
+export function resumoDoGatilho(
+  tipo: string,
+  palavras: string[],
+  correspondencia: string
+): string {
+  if (!gatilhoPedePalavraChave(tipo)) return "toque numa pergunta de abertura da conta";
+  return resumoDasPalavras(palavras, correspondencia);
+}
+
 export default function Gatilho({ data }: { data: DadosDoGatilho }) {
   return (
     <div
@@ -79,7 +115,7 @@ export default function Gatilho({ data }: { data: DadosDoGatilho }) {
         GATILHO · {nomeDoGatilho(data.tipo)}
       </div>
       <div className="mt-1 line-clamp-2 text-xs text-zinc-700 dark:text-zinc-200">
-        {resumoDasPalavras(data.palavras, data.correspondencia)}
+        {resumoDoGatilho(data.tipo, data.palavras, data.correspondencia)}
       </div>
       {/* Só a alça de SAÍDA. Ela não é conectável — quem porteia o gesto é
           `isConnectableStart`, e o padrão dela é `true` (o mecanismo inteiro

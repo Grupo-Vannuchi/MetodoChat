@@ -45,6 +45,28 @@ export function IconSend({ className }: IconProps) {
   );
 }
 
+// A PORTA DE ENTRADA (o gatilho `abertura`) — a marca de canal do quarto
+// gatilho, ao lado de `IconComment`, `IconStory` e `IconSend`.
+//
+// É uma PORTA, e não o cadeado de `IconPortao`: aquele é o bloco "pedir follow",
+// e a palavra "portão" ali quer dizer "ninguém passa". Aqui é o contrário — é
+// por onde se entra —, e os dois desenhos precisam ser distinguíveis a 20px na
+// lista de automações. Cadeado é uma caixa com um arco em cima; a porta é um
+// retângulo alto, encostado no chão, com a maçaneta ao lado da fresta.
+//
+// TAMBÉM NÃO É `IconTap`: o toque já é a marca de "o fluxo para aqui" na prévia
+// (`editor/previa`) e no ícone da mensagem com botão, e reusá-lo aqui poria a
+// mesma forma sobre duas ideias sem parentesco.
+export function IconPorta({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17" />
+      <path d="M3 21h18" />
+      <path d="M14.5 12h.5" />
+    </Svg>
+  );
+}
+
 export function IconCamera({ className }: IconProps) {
   return (
     <Svg className={className}>

@@ -21,4 +21,8 @@ export type Media = {
 // capa mesmo que a publicação saia do alcance da API depois.
 export type Picked = { id: string; thumb: string; caption: string };
 
-export type TriggerKind = "comment" | "story" | "dm";
+// `abertura` é o quarto, e ele não casa por texto: quem dispara é o toque numa
+// pergunta de abertura da conta (`payloadDaPergunta`, lib/steps.ts). Quem lê
+// este tipo e mostra campo de palavra-chave precisa perguntar antes a
+// `gatilhoPedePalavraChave` (lib/steps.ts).
+export type TriggerKind = "comment" | "story" | "dm" | "abertura";

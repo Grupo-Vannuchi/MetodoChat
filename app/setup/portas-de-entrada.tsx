@@ -1,0 +1,205 @@
+import { listAccounts, sql } from "@/lib/db";
+import { lerPerguntas, leituraDeuCerto } from "@/lib/perguntas-de-abertura";
+import {
+  AVISO_DA_LIGACAO,
+  LIGAR_FUNCIONA,
+  formularioDasPortas,
+  lerRascunho,
+  linhasComRascunho,
+  linhasDasPortas,
+  opcoesDeAutomacao,
+  resumoDoLimite,
+  textoDeApagar,
+  type AutomacaoConhecida,
+} from "./portas";
+import { salvarPerguntasDeAbertura } from "./actions";
+import SubmitButton from "./submit-button";
+import {
+  btnPrimary,
+  input,
+  muted,
+  subtle,
+  alertWarn,
+  alertInfo,
+  alertError,
+  badgeWarn,
+  badgeErr,
+} from "../ui";
+
+// AS QUATRO PORTAS DE ENTRADA DE CADA CONTA.
+//
+// Quem abre a conversa da conta pela primeira vez vê até quatro perguntas,
+// toca numa, e vira contato com uma automação rodando. Esta é a tela onde o
+// dono decide quais são as quatro — antes dela, só dava por linha de comando
+// (`scripts/perguntas-de-abertura.mjs`).
+//
+// ESTE JSX NÃO DECIDE NADA. Toda decisão — o que cada posição mostra, o que
+// dispara, qual aviso acende, quantas posições sobram — vem de `./portas.ts`,
+// que tem teste puro (`tests/setup-portas.test.ts`). A suíte deste projeto NÃO
+// testa componente, por decisão do dono: uma cláusula escrita aqui dentro seria
+// rede zero, e isso foi medido plantando defeito em três telas com 743 testes
+// verdes. O que este arquivo faz é mapear e desenhar.
+//
+// CHAMADAS EXTERNAS, UMA POR CONTA: como `subscription-status.tsx`, ele é
+// isolado e carregado dentro de um <Suspense> para não segurar o /setup inteiro
+// até a Meta responder.
+//
+// LÊ DA META, E NÃO DO BANCO. As perguntas vivem no perfil da conta na Meta, e
+// o dono pode ter mexido pelo painel dela — o banco não saberia. A Meta é a
+// verdade, e é o que esta tela mostra; o banco entra só para dar NOME às
+// automações que os identificadores apontam.
+export default async function PortasDeEntrada({ rascunho }: { rascunho?: string }) {
+  const accounts = await listAccounts();
+  if (!accounts.length) return null;
+
+  // O QUE O DONO TINHA ESCRITO QUANDO A GRAVAÇÃO RECUSOU. Chega como texto de
+  // URL e é tratado como não confiável — quem decide se ele vale, de qual conta
+  // é e como cada linha fica na tela é `./portas.ts`, com teste.
+  const doRascunho = lerRascunho(rascunho);
+
+  const contas = await Promise.all(
+    accounts.map(async (a) => ({
+      igUserId: a.ig_user_id,
+      username: a.username ?? a.ig_user_id,
+      leitura: await lerPerguntas(a.ig_user_id, a.access_token),
+      automacoes: (await sql().query(
+        `select id, name, active, triggers from automations where account_id = $1 order by created_at desc`,
+        [a.ig_user_id]
+      )) as AutomacaoConhecida[],
+    }))
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* OS DOIS AVISOS, VISÍVEIS. Eles não estão escondidos atrás de um "saiba
+          mais" de propósito: os dois explicam por que a pergunta que o dono
+          acabou de salvar "não apareceu", e é a dúvida que ele teria em
+          seguida. Sem eles, o caminho para descobrir é achar que quebrou. */}
+      <div className={alertWarn}>
+        <b>Estas perguntas só aparecem no aplicativo do celular.</b> No Instagram do computador
+        elas não são exibidas — se você for conferir por lá, não vai vê-las.
+      </div>
+      <div className={alertInfo}>
+        <b>E só aparecem em conversa nova.</b> Quem já trocou mensagem com a conta alguma vez
+        nunca mais vê as perguntas. Para testar, use um perfil que nunca falou com esta conta.
+      </div>
+
+      {/* O TERCEIRO AVISO, E ELE JÁ SUMIU — sozinho, sem esta linha mudar.
+          `LIGAR_FUNCIONA` é CALCULADO das duas regras (o formato do
+          identificador e o que a Meta guarda), não escrito à mão, e virou
+          verdadeiro quando o formato deixou de ter dois-pontos. O aviso fica
+          aqui porque o caminho de volta é real: se a forma mudar outra vez, ou
+          a Meta passar a comer outro caractere, ele reaparece pelo mesmo
+          mecanismo que o tirou. */}
+      {!LIGAR_FUNCIONA && <div className={alertError}>{AVISO_DA_LIGACAO}</div>}
+
+      {contas.map((c) => {
+        const linhas = linhasComRascunho(
+          linhasDasPortas(c.leitura.perguntas, c.automacoes),
+          c.automacoes,
+          doRascunho,
+          c.igUserId
+        );
+        const form = formularioDasPortas(c.igUserId, linhas);
+        const resumo = resumoDoLimite(c.leitura.perguntas.length);
+        const opcoes = opcoesDeAutomacao(c.automacoes);
+        // A MESMA pergunta que `lerPerguntas` faz para decidir se lê a lista.
+        // Escrita aqui à mão, ela era mais estrita que a de lá — e um 204 faria
+        // este bloco dizer "não deu para consultar" sobre perguntas que já
+        // tinham sido lidas.
+        const falhou = !leituraDeuCerto(c.leitura.status);
+        return (
+          <div key={c.igUserId} className={`p-4 ${subtle}`}>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="font-medium">@{c.username}</span>
+              {/* O LIMITE É DA CONTA, e ele fica escrito ao lado do nome dela —
+                  não numa nota de rodapé, e não no erro da Meta depois de
+                  tentar a quinta. */}
+              <span className={`text-xs ${muted}`}>{resumo.texto}</span>
+              {resumo.acima && <span className={badgeErr}>acima do limite</span>}
+              {resumo.cheio && <span className={badgeWarn}>cheia</span>}
+            </div>
+
+            {falhou ? (
+              <p className={`text-sm ${muted}`}>
+                Não deu para consultar as perguntas desta conta na Meta (HTTP {c.leitura.status}).
+                Confira o diagnóstico das contas acima.
+              </p>
+            ) : (
+              <form action={salvarPerguntasDeAbertura} className="space-y-3">
+                {/* NENHUM NOME DE CAMPO É ESCRITO AQUI. Quais campos este
+                    formulário tem, como cada um se chama e o que vai em cada um
+                    é `formularioDasPortas` (./portas.ts) quem diz, e é pelos
+                    MESMOS construtores de nome que a ação lê do outro lado.
+                    Escrever `name="texto-3"` aqui à mão é o desencontro que
+                    passou por tsc, eslint, 805 puros e 56 de integração. */}
+                <input type="hidden" name={form.conta.nome} value={form.conta.valor} />
+                <input type="hidden" name={form.posicoes.nome} value={form.posicoes.valor} />
+                {form.linhas.map((l) => (
+                  <div key={l.posicao} className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                    <span
+                      className={`mt-2.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-bold text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200`}
+                    >
+                      {l.posicao}
+                    </span>
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <input
+                        name={l.texto.nome}
+                        defaultValue={l.texto.valor}
+                        placeholder="Pergunta que a pessoa vê ao abrir a conversa"
+                        className={input}
+                      />
+                      {l.aviso && (
+                        <p
+                          className={`text-xs ${
+                            l.aviso.grau === "erro"
+                              ? "text-red-600 dark:text-red-400"
+                              : "text-amber-700 dark:text-amber-400"
+                          }`}
+                        >
+                          {l.aviso.texto}
+                        </p>
+                      )}
+                    </div>
+                    <div className="w-full space-y-1.5 sm:w-64">
+                      <select
+                        name={l.automacao.nome}
+                        defaultValue={l.automacao.valor}
+                        className={input}
+                      >
+                        <option value="">Nenhuma automação</option>
+                        {opcoes.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.rotulo}
+                          </option>
+                        ))}
+                      </select>
+                      <p className={`text-xs ${muted}`}>Dispara: {l.dispara}</p>
+                    </div>
+                    <input type="hidden" name={l.payload.nome} value={l.payload.valor} />
+                  </div>
+                ))}
+                <SubmitButton
+                  className={btnPrimary}
+                  etapas={["Falando com a Meta…", "Lendo de volta para conferir…"]}
+                >
+                  Salvar as perguntas de @{c.username}
+                </SubmitButton>
+                <p className={`text-xs ${muted}`}>{textoDeApagar(form.linhas.length)}</p>
+              </form>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function PortasDeEntradaSkeleton() {
+  return (
+    <div className="animate-pulse space-y-3">
+      <div className="h-12 rounded-xl bg-zinc-200/70 dark:bg-zinc-800/70" />
+      <div className="h-48 rounded-xl bg-zinc-200/70 dark:bg-zinc-800/70" />
+    </div>
+  );
+}

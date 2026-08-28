@@ -1,5 +1,11 @@
 // Tradução dos nomes internos do sistema para a linguagem de quem usa o painel.
 // Ninguém deveria precisar saber o que é "dm_link" ou "story_reply".
+//
+// O ÚNICO IMPORT deste arquivo é `lib/steps.ts`, e ele entrou com `oQueDispara`
+// (lá embaixo): a coluna "o que dispara" da lista de automações precisa fazer a
+// MESMA pergunta que o salvar e o painel fazem sobre palavra-chave, e reescrevê-
+// la aqui criaria a segunda resposta que esta fase inteira vem apagando.
+import { gatilhoPedePalavraChave } from "@/lib/steps";
 
 type Badge = { label: string; className: string };
 
@@ -23,6 +29,17 @@ const EVENT: Record<string, Badge> = {
   quick_reply: {
     label: "Tocou no botão",
     className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400",
+  },
+  // A PORTA DE ENTRADA: a pessoa abriu a conversa e tocou numa das perguntas de
+  // abertura da conta (o gatilho `abertura`, lib/engine.ts).
+  //
+  // TIPO PRÓPRIO, e não `quick_reply`, porque a pergunta que esta tela precisa
+  // responder é QUAL DAS QUATRO PORTAS traz gente. Com um tipo só, as quatro
+  // ficavam iguais entre si e iguais aos botões de dentro do fluxo. Aqui o
+  // rótulo separa a origem, e `eventText` (abaixo) mostra o texto da pergunta.
+  abertura: {
+    label: "Tocou numa pergunta de abertura",
+    className: "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-400",
   },
   // Resposta enviada pela própria conta, fora do robô (pelo celular, por
   // exemplo). Gravada para o histórico de conversa; hoje não aparece nas listas
@@ -108,6 +125,23 @@ const EVENT: Record<string, Badge> = {
     label: "Menu saiu sem botão nenhum",
     className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
   },
+  // A PERGUNTA DE ABERTURA APONTA PARA UMA AUTOMAÇÃO QUE NÃO TEM O GATILHO
+  // `abertura` (lib/engine.ts). A pergunta mora no perfil da conta na Meta, fora
+  // do banco, e continua disparando — recusar aqui faria a pergunta que está no
+  // ar parar de funcionar em silêncio, e nenhum outro caminho por identificador
+  // deste motor reconfere gatilho.
+  //
+  // Esta linha é a terceira saída: executa, e o dono vê que a montagem
+  // divergiu. Sem ela, quem trocasse o gatilho de uma automação esperando que a
+  // pergunta parasse não teria NENHUM lugar onde ver que ela não parou.
+  //
+  // Âmbar: nada quebrou e ninguém deixou de receber. O que há é a configuração
+  // dizendo uma coisa e a tela da Meta dizendo outra — e quem arruma é o dono,
+  // ou tirando a pergunta da tela de Configuração, ou pondo o gatilho de volta.
+  abertura_com_gatilho_trocado: {
+    label: "Pergunta de abertura com gatilho trocado",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+  },
   // OS DOIS DO WEBHOOK QUE NÃO ENTENDEU (app/api/webhook/route.ts). A Meta
   // mandou alguma coisa que não cai em nenhum ramo conhecido: um `field` em
   // `changes` que não é "comments", ou um item de `messaging` sem `message` —
@@ -127,6 +161,29 @@ const EVENT: Record<string, Badge> = {
   },
   webhook_messaging_nao_tratado: {
     label: "Evento de conversa ainda sem tratamento",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+  },
+  // O EVENTO CHEGOU E NÃO HÁ CONTA PARA ELE (lib/engine.ts). Ou nenhuma conta
+  // está conectada — desconectar apaga a linha de `accounts`, e a assinatura do
+  // webhook é do app, então a Meta continua entregando —, ou há várias e o
+  // `entry.id` não bate com nenhuma.
+  //
+  // Sem esta linha o evento evaporava: o motor saía calado, e o toque numa
+  // pergunta de abertura entregue depois de a conta ser desconectada não
+  // deixava rastro nenhum.
+  //
+  // Âmbar: nada quebrou do lado do código. O que há é o painel e a Meta
+  // discordando sobre quais contas existem, e quem arruma é o dono, reconectando
+  // a conta em Configuração.
+  //
+  // HONESTIDADE SOBRE ESTE CRACHÁ: no caso do `entry.id` SEM PAR, o dono não o
+  // vê. `lib/event-query.ts` traz só `account_id = $1 or account_id is null`, e
+  // estas linhas nascem sob um id que não é a conta selecionada — elas são
+  // forenses, para quem for ler a tabela. O rótulo continua aqui porque o outro
+  // caso (NENHUMA conta conectada, com `entry.id` nulo) cai em `account_id is
+  // null` e aparece.
+  webhook_sem_conta: {
+    label: "Evento sem conta conectada",
     className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
   },
 };
@@ -241,13 +298,52 @@ type EventPayload = {
   sender?: { id?: string };
   media?: { id?: string; media_product_type?: string };
   message?: { text?: string; quick_reply?: { payload?: string } };
+  postback?: { title?: string; payload?: string };
+  // `follow_check_unavailable` carrega UM dos dois, nunca os dois: `erro`
+  // quando a chamada falhou, `motivo` quando a Meta respondeu sem o campo.
+  erro?: { http?: number | null; codigo?: number | null; subcodigo?: number | null; mensagem?: string | null };
+  motivo?: string;
 };
 
 // Texto que a pessoa escreveu (o botão de resposta rápida não tem texto útil:
 // o payload dele é um identificador interno da automação)
+//
+// A PORTA DE ENTRADA É A EXCEÇÃO, e é a exceção porque ela TEM texto legível: o
+// postback traz `title`, que é a pergunta escrita na tela da Meta e lida pela
+// pessoa antes de tocar. É o `payload` dela que é identificador interno — e é
+// justamente ele que não aparece. Sem esta linha as quatro portas viravam N
+// linhas idênticas sem texto nenhum, que é a tela não respondendo à única
+// pergunta que ela existe para responder.
 export function eventText(payload: unknown, type: string): string | null {
   if (type === "quick_reply") return null;
   const p = (payload ?? {}) as EventPayload;
+  // A CONFERÊNCIA DE SEGUIDOR QUE NÃO DEU: aqui o texto do evento é o MOTIVO.
+  //
+  // Esta linha é o conserto de um silêncio medido. O registro nasceu dizendo só
+  // "não deu para conferir" — e diante disso o chat de monitoramento chutou
+  // "erro 400 code 190" quando o número real era 230. O número e a frase da
+  // Meta aparecerem aqui é a diferença entre diagnosticar e adivinhar.
+  if (type === "follow_check_unavailable") {
+    const e = p.erro;
+    if (e) {
+      const numeros = [e.codigo, e.subcodigo].filter((n): n is number => typeof n === "number");
+      // O código da Meta vale mais que o HTTP para quem vai procurar: 230 e 190
+      // chegam os dois em respostas de famílias diferentes de HTTP.
+      const cabeca = numeros.length
+        ? `Meta ${numeros.join("/")}`
+        : typeof e.http === "number"
+          ? `HTTP ${e.http}`
+          : null;
+      const frase = e.mensagem?.trim() || null;
+      if (cabeca && frase) return `${cabeca}: ${frase}`;
+      return cabeca ?? frase;
+    }
+    return p.motivo?.trim() ? p.motivo.trim() : null;
+  }
+  if (type === "abertura") {
+    const t = p.postback?.title;
+    return t?.trim() ? t.trim() : null;
+  }
   const t = p.text ?? p.message?.text;
   return t?.trim() ? t.trim() : null;
 }
@@ -274,4 +370,67 @@ export function eventMedia(payload: unknown): { id: string; kind: string } | nul
   const m = ((payload ?? {}) as EventPayload).media;
   if (!m?.id) return null;
   return { id: m.id, kind: mediaKind(m.media_product_type) };
+}
+
+// ---------- O que faz uma automação disparar ----------
+
+// A COLUNA "O QUE DISPARA" DA LISTA DE AUTOMAÇÕES.
+//
+// AS DUAS METADES SAEM JUNTAS, e não uma no lugar da outra. Isto já foi um
+// `some` que ESCOLHIA: numa linha com `["dm","abertura"]` a coluna dizia
+// "pergunta de abertura" e ESCONDIA as palavras do `dm`, que são dado de
+// verdade daquela linha. A tela só escreve um gatilho por automação, mas
+// `triggers` é coluna de array e já teve outros valores — é o mesmo argumento
+// do caso "gatilho desconhecido aparece em vez de sumir".
+//
+// A PERGUNTA É `gatilhoPedePalavraChave` (lib/steps.ts), a mesma que o salvar e
+// o painel fazem. `abertura` não casa por texto: quem dispara é o toque numa
+// pergunta de abertura da conta, e sem esta pergunta a coluna saía VAZIA —
+// `keywords` é `[]` e `match_type` não é "any", então o `join` devolvia "".
+//
+// ELA MORAVA DENTRO DO JSX de `list-client.tsx`, e ali era rede zero: a revisão
+// reverteu as duas metades para o `some` que escolhia e a suíte ficou com 722
+// VERDES. A suíte não testa componente, e não vai passar a testar.
+//
+// METADE VAZIA SOME SOZINHA, e é o `filter` que faz isso: um `dm` ainda sem
+// palavra nenhuma não deixa " · " sobrando na ponta.
+//
+// SEM GATILHO NENHUM É DITO, e não deixado em branco. As duas metades perguntam
+// por `triggers`, então uma lista VAZIA esvazia as duas e a coluna sumia — o
+// JSX que esta função substituiu sempre imprimia alguma coisa. Isto não é a
+// mesma coisa que o gatilho desconhecido logo abaixo: lá a função não SABE o que
+// aquele gatilho dispara e calar é honesto; aqui ela sabe, e o que ela sabe é
+// que não há gatilho. As duas portas de escrita garantem um gatilho hoje, então
+// é defesa ausente e não regressão — mas uma linha em branco na lista é uma
+// linha que não diz nada a ninguém.
+const SEM_GATILHO = "sem gatilho definido";
+
+export function oQueDispara(a: {
+  triggers: string[];
+  keywords: string[];
+  match_type: string;
+}): string {
+  if (a.triggers.length === 0) return SEM_GATILHO;
+  const semPalavra = a.triggers.some((t) => !gatilhoPedePalavraChave(t));
+  const comPalavra = a.triggers.some((t) => gatilhoPedePalavraChave(t));
+  return [
+    semPalavra ? "pergunta de abertura" : "",
+    comPalavra ? palavrasResumidas(a.keywords, a.match_type) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+// AS PALAVRAS QUE CABEM NA LINHA, e quantas ficaram de fora.
+//
+// TRÊS E O RESTO CONTADO: a linha da lista é estreita e trunca por CSS, e uma
+// lista de vinte palavras cortada no meio não diz quantas eram. "+17" diz.
+//
+// COM `any` NÃO HÁ PALAVRA A MOSTRAR — aquela automação casa com qualquer
+// mensagem —, e escrever as `keywords` que sobraram no banco seria a lista
+// prometendo um filtro que o motor não aplica.
+function palavrasResumidas(palavras: string[], correspondencia: string): string {
+  if (correspondencia === "any") return "qualquer texto";
+  const sobra = palavras.length - 3;
+  return palavras.slice(0, 3).join(", ") + (sobra > 0 ? ` +${sobra}` : "");
 }

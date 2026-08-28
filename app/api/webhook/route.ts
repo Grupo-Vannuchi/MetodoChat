@@ -12,7 +12,7 @@ import { getConfig } from "@/lib/db";
 import { drainQueue } from "@/lib/queue-drain";
 import { safeEqualSecret } from "@/lib/crypto";
 import { signatureMatchesAny } from "@/lib/webhook-signature";
-import { ehConhecidoEIgnorado } from "@/lib/webhook-messaging";
+import { destinoDoMessaging } from "@/lib/webhook-messaging";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -194,7 +194,40 @@ export async function POST(req: NextRequest) {
         await logEvent(entry.id ?? null, "webhook_campo_nao_tratado", change);
       }
       for (const messaging of entry.messaging ?? []) {
-        if (messaging.message) {
+        // ESTA FIAÇÃO NÃO DECIDE NADA, e é de propósito.
+        //
+        // A condição que ficava aqui (`messaging.message || messaging.postback`)
+        // era a única linha que fazia a PORTA DE ENTRADA existir, e apagar dois
+        // tokens dela passava por tsc, eslint, 693 testes puros, a varredura e
+        // os 46 de integração — todos verdes, com a funcionalidade morta. A
+        // decisão inteira mudou de casa para `destinoDoMessaging`
+        // (lib/webhook-messaging.ts), que é pura e tem caso para cada ramo; o
+        // porquê, por extenso, está lá.
+        //
+        // MAS NÃO DECIDIR NÃO É ESTAR PROTEGIDO, e é preciso dizer isto aqui
+        // porque já se escreveu o contrário. Os três literais abaixo continuam
+        // mutáveis em silêncio: trocar `"motor"` por `"registrar"` deixa tsc,
+        // eslint, 709 puros, varredura e integração verdes e mata TODO o
+        // tratamento de mensagens — não só a porta nova. (A troca para
+        // `"ignorar"` o tsc recusa sozinho, com TS2367, porque
+        // `DestinoDoMessaging` é união nomeada de três e o segundo `if`
+        // estreita o tipo.)
+        //
+        // QUEM SEGURA ISTO é `testes-integracao/porta-do-webhook.integracao.ts`,
+        // que importa esta rota e POSTa um corpo assinado por HMAC dentro de
+        // `comoNumaRequisicao` — um caso por destino, mais o 401 da assinatura
+        // errada. Não havia limite estrutural nenhum: o que faltava eram os
+        // campos `waitUntil` e `onClose` da fundação, sem os quais o `after()`
+        // do fim desta função estourava.
+        //
+        // NENHUM DOS RAMOS SABE LER PAYLOAD, de propósito: quem decide se
+        // aquele postback é nosso é `lerPayload`, dentro do motor. Um postback
+        // que o motor não reconhece continua virando
+        // `webhook_messaging_nao_tratado` — é o que mantém as quatro perguntas
+        // de teste que estão no ar (payload `abertura-...`, escolhido para não
+        // disparar nada) visíveis onde o dono as observa.
+        const destino = destinoDoMessaging(messaging);
+        if (destino === "motor") {
           await handleMessagingEvent(entry.id, messaging);
           continue;
         }
@@ -204,7 +237,7 @@ export async function POST(req: NextRequest) {
         // fazer. Ruído numa tela de diagnóstico ensina o dono a ignorá-la.
         // A lista das formas ignoradas é do que o banco OBSERVOU — o porquê,
         // por extenso, em lib/webhook-messaging.ts.
-        if (ehConhecidoEIgnorado(messaging)) continue;
+        if (destino === "ignorar") continue;
         // O item vai CRU, inteiro, sem escolher campo nenhum: o que este ramo
         // pega é justamente o que ainda não se sabe a forma — `referral`,
         // `postback`, e o que a Meta acrescentar depois. Escolher campos aqui

@@ -1,0 +1,791 @@
+// O SEXTO CAMINHO DA FRENTE 2: a PORTA DE ENTRADA.
+//
+// A PROMESSA, escrita como teste: **quem nunca falou com a conta toca numa
+// pergunta de abertura e, sem digitar nada, VIRA CONTATO DAQUELA CONTA com a
+// automação daquela pergunta rodando.**
+//
+// Ela é provada com o motor de verdade (`handleMessagingEvent`, lib/engine.ts)
+// contra um banco de verdade (o schema descartável de `harness.ts`), e a prova é
+// feita OLHANDO O QUE SAIU — a fila, a linha em `contacts` e a Atividade —, e
+// nunca perguntando de novo à função que decidiu.
+//
+// -----------------------------------------------------------------------------
+// O EVENTO É O QUE A PRODUÇÃO MEDIU, E NÃO O QUE A DOCUMENTAÇÃO PROMETE
+//
+// Desde 26/08/2026 o webhook grava como `webhook_messaging_nao_tratado` tudo que
+// não cai num ramo conhecido, e foi assim que o experimento de primeiro contato
+// capturou a forma real do toque numa pergunta de abertura:
+//
+//   {"sender":{"id":"..."},
+//    "postback":{"mid":"...","title":"Quero saber mais","payload":"abertura-saber-mais"},
+//    "recipient":{"id":"..."},"timestamp":...}
+//
+// É essa forma, campo por campo, que os casos abaixo entregam ao motor. Ela tem
+// DUAS coisas que parecem o identificador e só uma é: o `title` é o TEXTO da
+// pergunta, escrito por quem montou a tela, e o `payload` é o identificador. Ler
+// o `title` "funcionaria" até alguém reescrever a pergunta — e é por isso que os
+// dois são DIFERENTES em todo caso deste arquivo, de propósito.
+//
+// -----------------------------------------------------------------------------
+// AS PERGUNTAS DE TESTE DA PRODUÇÃO NÃO PODEM VOLTAR A DISPARAR NADA
+//
+// As quatro perguntas que estão no ar hoje usam payload `abertura-...` — sem
+// dois-pontos —, escolhido de propósito para que `lerPayload` (lib/steps.ts)
+// devolva null e nada aconteça enquanto o ramo não existia. O ramo passou a
+// existir, e essa escolha continua valendo: o segundo caso deste arquivo é a
+// prova disso PELO MOTOR, e não só pela função pura (tests/steps.test.ts já
+// segura o lado puro).
+//
+// -----------------------------------------------------------------------------
+// DUAS CONTAS, E ELAS SÃO O CORAÇÃO DESTE ARQUIVO
+//
+// O schema tem a conta que recebe o toque e uma VIZINHA, criada ANTES dela (é a
+// primeira de `listAccounts`, que ordena por `created_at asc`). A vizinha tem
+// automação de abertura própria e já conhece a pessoa que vai tocar.
+//
+// Isso existe para uma coisa só: **criar o contato sem a conta certa atravessa
+// contas**, e é o defeito mais grave que este caminho pode pegar. Com uma conta
+// só no schema, "a conta certa" e "a única conta" são indistinguíveis, e todo
+// erro de escopo passaria despercebido. Com duas, o erro tem para onde ir — e as
+// afirmações abaixo perguntam ao banco QUAIS contas têm contato com aquele
+// `ig_id`, e não se a conta esperada tem.
+//
+// -----------------------------------------------------------------------------
+// NADA DE MOCK, E NADA SAI DA MÁQUINA
+//
+// Não há `vi.mock`, não há `vi.stubGlobal`, não há banco de mentira. O motor
+// consulta o perfil de quem aparece pela primeira vez (`getUserProfile`), e essa
+// consulta é HTTP de verdade — para um servidor desta máquina, pelo mesmo
+// mecanismo dos outros caminhos: `IG_GRAPH_BASE` + `baseDoGraph()` (lib/ig.ts).
+// A guarda que falha ANTES de qualquer requisição sair está no `beforeAll`,
+// herdada dali.
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { bancoDescartavel } from "./harness";
+// `lib/steps.ts` não tem import nenhum e não fala com o banco: pode ser
+// importado no topo. Os módulos que tocam o banco (ou a rede) são importados
+// dentro do `beforeAll`, depois de a DATABASE_URL estar pronta.
+//
+// `payloadDaPergunta` entra aqui como a ESCRITORA que a tela de Configuração vai
+// usar para montar a pergunta na Meta — é o único lugar do produto que emite
+// esta forma, e montar a string à mão aqui seria o teste concordando consigo
+// mesmo sobre o formato.
+import { payloadDaPergunta } from "@/lib/steps";
+// A GUARDA DA META e a MONTAGEM DA TELA, e as duas entram por serem PURAS: uma
+// diz o que o endpoint `messenger_profile` guarda do identificador, a outra é a
+// linha do formulário virando pergunta. Nenhuma das duas fala com banco nem com
+// rede, então elas podem vir no topo como `lib/steps.ts` vem.
+//
+// ELAS ESTÃO AQUI POR CAUSA DO ACHADO DE 28/08/2026: a Meta responde 200
+// `{"result":"success"}` e NÃO GUARDA a pergunta quando o payload tem `:`.
+// Enquanto `payloadDaPergunta` emitia `AUTO:<automação>`, este arquivo ficava
+// VERDE — o motor entendia a forma perfeitamente — sobre uma pergunta que nunca
+// chegava a existir na conta. O motor não é a única ponta deste caminho, e a
+// outra ponta agora é medida aqui.
+import { conferirPerguntas, identificadorSobrevive } from "@/lib/perguntas-de-abertura";
+import { perguntasDoFormulario } from "@/app/setup/portas";
+
+type ModuloEngine = typeof import("@/lib/engine");
+type ModuloIg = typeof import("@/lib/ig");
+type ModuloConversas = typeof import("@/lib/conversations");
+
+const banco = bancoDescartavel();
+
+// A VIZINHA nasce PRIMEIRO: `listAccounts` ordena por `created_at asc`, então
+// ela é `accounts[0]`. Quem escrever "pega a conta da lista" em vez de "a conta
+// do evento" cai nela, e o caso 3 fica vermelho.
+const VIZINHA = "17800000000000111";
+const CONTA = "17800000000000222";
+// Valor inventado. Nenhuma credencial de verdade entra em teste.
+const TOKEN = "token-de-teste-que-nao-vale-nada";
+
+// ---------------------------------------------------------------------------
+// A META FALSA — a outra ponta do fio, e nada além disso.
+//
+// Este caminho não envia mensagem: ele mede a FILA, que é onde o motor para. O
+// único pedido que sai é o perfil de quem aparece pela primeira vez. Qualquer
+// outro caminho volta 404, para que uma pergunta nova apareça na lista em vez de
+// receber resposta inventada.
+// ---------------------------------------------------------------------------
+
+const meta = { desconhecidos: [] as string[] };
+
+let servidor: Server;
+let engine: ModuloEngine;
+let ig: ModuloIg;
+let conversas: ModuloConversas;
+
+beforeAll(async () => {
+  servidor = createServer((req, res) => {
+    const u = new URL(req.url ?? "/", "http://127.0.0.1");
+    const campos = u.searchParams.get("fields") ?? "";
+    if (campos.includes("username")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ username: "quem_abriu", name: "Quem abriu a conversa" }));
+      return;
+    }
+    meta.desconhecidos.push(`${req.method} ${u.pathname}?${u.searchParams.toString()}`);
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: { message: `a Meta falsa não conhece ${u.pathname}` } }));
+  });
+
+  await new Promise<void>((pronto) => servidor.listen(0, "127.0.0.1", pronto));
+  const porta = (servidor.address() as AddressInfo).port;
+  process.env.IG_GRAPH_BASE = `http://127.0.0.1:${porta}`;
+
+  engine = await import("@/lib/engine");
+  ig = await import("@/lib/ig");
+  conversas = await import("@/lib/conversations");
+
+  // FALHA ANTES DE QUALQUER REQUISIÇÃO, e não depois — a mesma guarda dos outros
+  // caminhos, pela mesma razão. Sem o desvio, o `getUserProfile` deste teste
+  // sairia para `graph.instagram.com` com um token inventado.
+  if (ig.baseDoGraph() !== process.env.IG_GRAPH_BASE) {
+    throw new Error(
+      `RECUSADO: a base do Graph é ${ig.baseDoGraph()}, e tinha de ser a desta ` +
+        `rodada (${process.env.IG_GRAPH_BASE}). Sem o desvio, este teste falaria ` +
+        `com a Meta de verdade.`
+    );
+  }
+
+  // A ORDEM IMPORTA: a vizinha primeiro (ver o comentário da constante).
+  await banco.db().upsertAccount({
+    ig_user_id: VIZINHA,
+    username: "conta_vizinha",
+    name: "Conta vizinha",
+    profile_picture_url: null,
+    access_token: TOKEN,
+    token_expires_at: null,
+  });
+  await banco.db().upsertAccount({
+    ig_user_id: CONTA,
+    username: "conta_da_porta",
+    name: "Conta da porta de entrada",
+    profile_picture_url: null,
+    access_token: TOKEN,
+    token_expires_at: null,
+  });
+});
+
+afterAll(async () => {
+  delete process.env.IG_GRAPH_BASE;
+  await new Promise<void>((pronto) => servidor.close(() => pronto()));
+});
+
+// ---------------------------------------------------------------------------
+// Semear e ler. Nada aqui decide nada: as decisões são todas do motor.
+//
+// `$n::text::jsonb`, e nunca `$n::jsonb` sobre string — a segunda forma grava um
+// ESCALAR JSON e o motor registra `step_ignorado`. (O porquê inteiro está no
+// primeiro caminho da Frente 2.)
+// ---------------------------------------------------------------------------
+
+/**
+ * Uma automação de ABERTURA, gravada COMO A PRODUÇÃO GRAVA: `insert` cru na
+ * tabela, com o gatilho `abertura`, ativa, e sem palavra-chave nenhuma — quem
+ * dispara é o toque na pergunta, não texto.
+ *
+ * Nenhuma função de decisão participa da montagem, de propósito: um teste que
+ * monta o cenário com as mesmas funções que testa concorda consigo mesmo.
+ */
+async function semearAbertura(
+  contaId: string,
+  nome: string,
+  steps: unknown[],
+  // O GATILHO É PARÂMETRO por causa de um caso só, e ele é o ponto: uma pergunta
+  // pode apontar para uma automação que NÃO tem `abertura` — o dono trocou o
+  // gatilho depois, ou escolheu na tela uma automação que nunca teve. O motor
+  // executa assim mesmo (a pergunta mora fora do banco), e o que se mede é a
+  // linha que conta isso ao dono.
+  gatilhos: string[] = ["abertura"]
+): Promise<string> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(
+      `insert into automations
+         (account_id, name, active, triggers, keywords, match_type, steps, ligacoes)
+       values ($1, $2, true, $4::text[], '{}'::text[], 'any',
+               $3::text::jsonb, '[]'::jsonb)
+       returning id`,
+      [contaId, nome, JSON.stringify(steps), gatilhos]
+    )) as { id: string }[];
+  return linhas[0].id;
+}
+
+type LinhaDaFila = { kind: string; automation_id: string | null; payload: { text?: string } };
+
+async function fila(contaId: string, contatoIgId: string): Promise<LinhaDaFila[]> {
+  return (await banco
+    .db()
+    .sql()
+    .query(
+      `select kind, automation_id, payload from queue
+        where account_id = $1 and contact_ig_id = $2
+        order by created_at asc, id asc`,
+      [contaId, contatoIgId]
+    )) as LinhaDaFila[];
+}
+
+type LinhaDeContato = {
+  account_id: string;
+  last_automation_id: string | null;
+  username: string | null;
+  last_reply_at: Date | null;
+};
+
+/**
+ * TODAS as linhas de `contacts` daquele `ig_id`, de QUALQUER conta, com a conta
+ * junto. É a leitura que torna o defeito de escopo visível: perguntar
+ * `where account_id = $conta` esconderia exatamente o erro que se procura.
+ */
+async function contatosDe(igId: string): Promise<LinhaDeContato[]> {
+  return (await banco
+    .db()
+    .sql()
+    .query(
+      `select account_id, last_automation_id, username, last_reply_at
+         from contacts where ig_id = $1 order by account_id asc`,
+      [igId]
+    )) as LinhaDeContato[];
+}
+
+async function eventos(contaId: string, tipo: string): Promise<Record<string, unknown>[]> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(
+      `select payload from events where account_id = $1 and type = $2 order by created_at asc`,
+      [contaId, tipo]
+    )) as { payload: Record<string, unknown> }[];
+  return linhas.map((l) => l.payload);
+}
+
+/**
+ * O toque numa pergunta de abertura, na forma MEDIDA em produção — `postback` no
+ * lugar de `message`, com `mid`, `title` e `payload`.
+ *
+ * O `title` e o `payload` são sempre DIFERENTES aqui, e é isso que separa "leu o
+ * identificador" de "leu o texto da pergunta".
+ */
+async function tocarNaPergunta(
+  contaId: string,
+  igId: string,
+  title: string,
+  payload: string,
+  mid: string
+) {
+  await engine.handleMessagingEvent(contaId, {
+    sender: { id: igId },
+    recipient: { id: contaId },
+    timestamp: Date.now(),
+    postback: { mid, title, payload },
+  });
+}
+
+// ---------------------------------------------------------------------------
+
+describe("a porta de entrada: o toque numa pergunta de abertura", () => {
+  const BOAS_VINDAS = "Que bom te ver por aqui! 👋";
+  const A_OUTRA = "Esta é a OUTRA porta desta conta.";
+  const DA_VIZINHA = "Esta é a porta da conta VIZINHA.";
+
+  let PRIMEIRA = "";
+  let SEGUNDA = "";
+  // A automação da conta VIZINHA, e ela é o alvo do caso de travessia entre
+  // contas: um identificador dela chegando por um postback DESTA conta.
+  let DA_VIZINHA_ID = "";
+
+  beforeAll(async () => {
+    // DUAS automações de abertura na MESMA conta, e o toque é sempre na SEGUNDA.
+    // Quem achar a automação pela POSIÇÃO na lista em vez do identificador cai
+    // na primeira, e a fila mostra o texto errado.
+    PRIMEIRA = await semearAbertura(CONTA, "A · a outra porta", [
+      { id: "b_outra01", tipo: "dm", texto: A_OUTRA },
+    ]);
+    SEGUNDA = await semearAbertura(CONTA, "B · a porta tocada", [
+      { id: "b_boasv01", tipo: "dm", texto: BOAS_VINDAS },
+    ]);
+    // E uma na VIZINHA, para que "a conta errada" tenha automação ativa e o erro
+    // de escopo tenha para onde ir em vez de morrer por falta de candidata.
+    DA_VIZINHA_ID = await semearAbertura(VIZINHA, "C · porta da vizinha", [
+      { id: "b_vizinh1", tipo: "dm", texto: DA_VIZINHA },
+    ]);
+    expect(PRIMEIRA).not.toBe(SEGUNDA);
+  });
+
+  test("tocar numa pergunta de abertura cria o contato e começa a automação", async () => {
+    const QUEM_ABRIU = "9300000000000001";
+
+    // A PESSOA NÃO EXISTE ANTES. Sem esta linha, "o contato existe" no fim não
+    // diria nada — ele poderia já estar lá.
+    expect(await contatosDe(QUEM_ABRIU)).toEqual([]);
+
+    await tocarNaPergunta(
+      CONTA,
+      QUEM_ABRIU,
+      // O TEXTO da pergunta, que é o que a pessoa leu na tela...
+      "Quero saber mais",
+      // ...e o IDENTIFICADOR dela, que é outra coisa. Quem escreve esta forma no
+      // produto é `payloadDaPergunta`, e é dela que ela sai aqui.
+      payloadDaPergunta(SEGUNDA),
+      "mid-abertura-1"
+    );
+
+    // 0) O IDENTIFICADOR SOBREVIVE À META, e esta é a asserção que faltava.
+    //    Ela não é sobre o motor: é sobre a pergunta CHEGAR a existir na conta.
+    //    Medido em 28/08/2026, com controle pareado em @saas.metodoia — o
+    //    payload com `:` volta do `messenger_profile` sem a pergunta, depois de
+    //    um 200 de sucesso. Sem esta linha, este caminho ficava verde sobre uma
+    //    forma que a Meta descarta, que foi exatamente o que aconteceu.
+    const identificador = payloadDaPergunta(SEGUNDA);
+    expect(identificador.includes(":")).toBe(false);
+    expect(identificadorSobrevive(identificador)).toBe(true);
+
+    // 1) A FILA GANHOU UMA ENTRADA, e é a da automação TOCADA.
+    const naFila = await fila(CONTA, QUEM_ABRIU);
+    expect(naFila.length).toBe(1);
+    expect(naFila[0].automation_id).toBe(SEGUNDA);
+    // `dm` de texto puro (sem url, sem botão) é `forma: "texto"` em `envioDaDm`,
+    // e `enfileirarPasso` a enfileira como `dm_link`. O nome é herança: o que ele
+    // discrimina no dreno é "DM comum", contra `dm_welcome` (que leva botões),
+    // `private_reply` e `dm_follow_gate`.
+    expect(naFila[0].kind).toBe("dm_link");
+    expect(naFila[0].payload.text).toBe(BOAS_VINDAS);
+    // E NÃO É A DA OUTRA PORTA DA MESMA CONTA. Sem esta linha, achar a automação
+    // pela posição na lista passaria despercebido em metade dos casos.
+    expect(naFila.map((l) => l.payload.text)).not.toContain(A_OUTRA);
+
+    // 2) O CONTATO EXISTE, E NASCEU COM A CONTA CERTA — e a pergunta é feita ao
+    //    banco sem filtrar por conta, para que o escopo errado apareça em vez de
+    //    ser escondido pela própria consulta.
+    const contatos = await contatosDe(QUEM_ABRIU);
+    expect(contatos.length).toBe(1);
+    expect(contatos[0].account_id).toBe(CONTA);
+    // 3) COM A AUTOMAÇÃO APONTADA: é `last_automation_id` que faz o ramo de texto
+    //    saber o que retomar quando a pessoa responder.
+    expect(contatos[0].last_automation_id).toBe(SEGUNDA);
+    // 4) E COM A JANELA DE 24h ABERTA. Não é enfeite: `processItem`
+    //    (lib/queue-drain.ts) descarta como `skipped` toda DM comum fora da
+    //    janela, então sem esta coluna o fluxo enfileira e não entrega nada.
+    expect(contatos[0].last_reply_at).not.toBe(null);
+    // O perfil foi buscado: quem abre a conversa não pode ficar salvo como um
+    // número na lista de contatos.
+    expect(contatos[0].username).toBe("quem_abriu");
+
+    // 5) E O TOQUE FICOU EM ATIVIDADE COM TIPO PRÓPRIO — não como evento sem
+    //    tratamento, que é onde ele caía antes deste ramo existir, e nem como
+    //    `quick_reply`, que é o botão de DENTRO do fluxo.
+    //
+    //    O tipo é `abertura` porque a tela precisa responder QUAL DAS QUATRO
+    //    PORTAS traz gente: com um tipo só, as quatro ficam iguais entre si,
+    //    iguais aos botões do fluxo, e sem texto — `eventText` (app/labels.ts)
+    //    devolve null para `quick_reply` de propósito.
+    expect(await eventos(CONTA, "webhook_messaging_nao_tratado")).toEqual([]);
+    expect(await eventos(CONTA, "quick_reply")).toEqual([]);
+    const tocou = await eventos(CONTA, "abertura");
+    expect(tocou.length).toBe(1);
+    // O `title` fica GRAVADO no payload, e é dele que a tela tira o texto
+    // legível da pergunta. Sem ele no banco, nenhum rótulo salva a linha.
+    expect((tocou[0].postback as { title?: string })?.title).toBe("Quero saber mais");
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  test("a pergunta de teste que está no ar (`abertura-...`) continua sem disparar nada", async () => {
+    // As quatro perguntas de produção usam esta forma de propósito: sem
+    // dois-pontos, `lerPayload` devolve null e nada acontece. O ramo novo não
+    // pode ter mudado isso — e o que elas tinham de continuar fazendo é aparecer
+    // no registro do webhook, que é onde o dono as observa.
+    const CURIOSO = "9300000000000002";
+
+    await tocarNaPergunta(CONTA, CURIOSO, "Quero saber mais", "abertura-saber-mais", "mid-inerte-1");
+
+    expect(await fila(CONTA, CURIOSO)).toEqual([]);
+    expect(await contatosDe(CURIOSO)).toEqual([]);
+
+    const registrados = await eventos(CONTA, "webhook_messaging_nao_tratado");
+    expect(registrados.length).toBe(1);
+    expect((registrados[0].postback as { payload?: string })?.payload).toBe("abertura-saber-mais");
+  });
+
+  test("o contato nasce NA CONTA DO EVENTO, e não na vizinha que já o conhece", async () => {
+    // O MESMO `ig_id` em duas contas é o caso normal do multi-conta: a mesma
+    // pessoa fala com dois negócios diferentes. Aqui ela JÁ é contato da vizinha
+    // — e é isso que dá ao erro de escopo um alvo plausível: um `upsert` sem a
+    // conta acerta a linha que já existe, e o toque numa conta vira automação
+    // rodando na OUTRA.
+    const OS_DOIS = "9300000000000003";
+    await banco
+      .db()
+      .sql()
+      .query(
+        `insert into contacts (account_id, ig_id, username) values ($1, $2, 'ja_conhecida')`,
+        [VIZINHA, OS_DOIS]
+      );
+
+    await tocarNaPergunta(
+      CONTA,
+      OS_DOIS,
+      "Quero saber mais",
+      payloadDaPergunta(SEGUNDA),
+      "mid-duas-contas-1"
+    );
+
+    // DUAS LINHAS, uma por conta, e cada uma com o seu.
+    const contatos = await contatosDe(OS_DOIS);
+    expect(contatos.map((c) => c.account_id).sort()).toEqual([VIZINHA, CONTA].sort());
+
+    const naConta = contatos.find((c) => c.account_id === CONTA)!;
+    const naVizinha = contatos.find((c) => c.account_id === VIZINHA)!;
+
+    expect(naConta.last_automation_id).toBe(SEGUNDA);
+    // A VIZINHA NÃO FOI TOCADA: nem automação, nem janela de 24h. Se esta linha
+    // ficar vermelha, o produto está atravessando contas.
+    expect(naVizinha.last_automation_id).toBe(null);
+    expect(naVizinha.last_reply_at).toBe(null);
+
+    // E a fila é da conta do evento, não da vizinha.
+    expect((await fila(CONTA, OS_DOIS)).map((l) => l.payload.text)).toEqual([BOAS_VINDAS]);
+    expect(await fila(VIZINHA, OS_DOIS)).toEqual([]);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // A OUTRA METADE DO ESCOPO: a conta da AUTOMAÇÃO, e não a do contato.
+  //
+  // O caso acima tranca `upsertContact` — o contato nasce na conta do evento. Ele
+  // NÃO tranca `loadAutomation`: neutralizar o `and account_id = $2` do `select`
+  // dela deixa os dois casos verdes, e deixou também `tsc`, `eslint`, os 805
+  // puros e os 56 de integração. É o mesmo escopo, medido do outro lado.
+  //
+  // COMO ISSO ACONTECE NA VIDA REAL, e nenhuma das três formas precisa de má-fé:
+  // o dono digitou o id errado ao montar a pergunta pela linha de comando,
+  // duplicou uma pergunta entre duas contas suas, ou a Meta reentregou um evento
+  // antigo. Com quatro contas conectadas no mesmo painel, o identificador de uma
+  // é uma string perfeitamente válida chegando pelo webhook da outra.
+  //
+  // O QUE CUSTA SEM O ESCOPO: a visitante de `@vannuchi.eng` recebe o fluxo de
+  // `@thiagovannuchi` — mensagem de outro negócio, escrita para outra gente — e o
+  // contato dela nasce sob a conta A com `last_automation_id` da conta B. É a
+  // mesma classe que esta base recusou duas vezes por segurança.
+  //
+  // O QUE ESTE CASO MEDE é o desfecho 2 que a própria tela de Configuração
+  // desenha: "aponta para uma automação que não existe mais NESTA conta" — o
+  // motor sai calado, sem fila, sem contato, e o toque continua visível em
+  // Atividade como `abertura`.
+  // -------------------------------------------------------------------------
+  test("postback com automação de OUTRA conta não roda, e não cria contato", async () => {
+    const DA_OUTRA_PORTA = "9300000000000011";
+    const aberturasAntes = (await eventos(CONTA, "abertura")).length;
+
+    // A automação existe, está ativa e tem o gatilho `abertura` — só que ela é da
+    // VIZINHA. A única coisa errada aqui é a conta, e é só ela que pode recusar.
+    await tocarNaPergunta(
+      CONTA,
+      DA_OUTRA_PORTA,
+      "Quero saber mais",
+      payloadDaPergunta(DA_VIZINHA_ID),
+      "mid-conta-errada-1"
+    );
+
+    // NADA FOI ENTREGUE, em conta nenhuma. Sem o escopo, a fila de CONTA sai com
+    // a mensagem da vizinha — a frase que este arquivo guarda em `DA_VIZINHA`.
+    expect(await fila(CONTA, DA_OUTRA_PORTA)).toEqual([]);
+    expect(await fila(VIZINHA, DA_OUTRA_PORTA)).toEqual([]);
+
+    // E NINGUÉM NASCEU. O motor para em `if (!auto) return`, que é ANTES de
+    // `upsertContact` — sem o escopo, esta pessoa vira contato de `CONTA` com a
+    // `last_automation_id` de uma automação que não é desta conta.
+    expect(await contatosDe(DA_OUTRA_PORTA)).toEqual([]);
+
+    // MAS O TOQUE NÃO EVAPOROU: ele é gravado como `abertura` ANTES de a
+    // automação ser procurada, e é por essa linha que o dono vê em /eventos que
+    // alguém tocou numa pergunta que não leva a lugar nenhum.
+    expect((await eventos(CONTA, "abertura")).length).toBe(aberturasAntes + 1);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // A MONTAGEM DIVERGIU: a pergunta aponta para uma automação SEM o gatilho
+  // `abertura`.
+  //
+  // O motor EXECUTA — a pergunta mora no perfil da conta na Meta, fora do
+  // banco, e nenhum caminho por identificador deste motor reconfere gatilho.
+  // Recusar aqui faria a pergunta que está no ar parar de funcionar calada.
+  //
+  // O que este caso segura é a TERCEIRA SAÍDA: executar E registrar. Sem a
+  // linha em Atividade, o dono que trocasse o gatilho esperando que a pergunta
+  // parasse não teria nenhum lugar onde ver que ela não parou.
+  // -------------------------------------------------------------------------
+  test("gatilho trocado: a automação roda E a divergência vira linha", async () => {
+    const CURIOSA = "9300000000000004";
+    const DE_OUTRO_GATILHO = "Esta automação é de palavra-chave, não de abertura.";
+    const POR_PALAVRA = await semearAbertura(
+      CONTA,
+      "D · automacao de palavra-chave",
+      [{ id: "b_palavr1", tipo: "dm", texto: DE_OUTRO_GATILHO }],
+      // Nem `abertura`, e é o ponto do caso.
+      ["dm"]
+    );
+
+    await tocarNaPergunta(
+      CONTA,
+      CURIOSA,
+      "Quero saber mais",
+      payloadDaPergunta(POR_PALAVRA),
+      "mid-gatilho-trocado-1"
+    );
+
+    // 1) EXECUTOU. A pergunta que está no ar não para em silêncio.
+    const naFila = await fila(CONTA, CURIOSA);
+    expect(naFila.map((l) => l.payload.text)).toEqual([DE_OUTRO_GATILHO]);
+    expect(naFila[0].automation_id).toBe(POR_PALAVRA);
+    // E o contato nasceu igual aos outros — não é meio caminho.
+    expect((await contatosDe(CURIOSA)).map((c) => c.account_id)).toEqual([CONTA]);
+
+    // 2) E DEIXOU A LINHA. É esta que o dono lê para descobrir que a montagem
+    //    diverge do que ele configurou.
+    const divergencias = await eventos(CONTA, "abertura_com_gatilho_trocado");
+    expect(divergencias.length).toBe(1);
+    expect(divergencias[0].automation_id).toBe(POR_PALAVRA);
+    expect(divergencias[0].contact_ig_id).toBe(CURIOSA);
+    // Os gatilhos de verdade da automação, para a linha dizer o que ELA é.
+    expect(divergencias[0].gatilhos).toEqual(["dm"]);
+    // E qual das quatro portas divergiu, pelo texto que a pessoa leu.
+    expect(divergencias[0].pergunta).toBe("Quero saber mais");
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // NÃO HÁ CONTA PARA O EVENTO — e ele não sai calado.
+  //
+  // O caso alcançável neste schema é o de `entry.id` sem par com DUAS contas
+  // conectadas. O outro — NENHUMA conta conectada, depois de o dono desconectar
+  // — cai no mesmo `if` da mesma função, pela mesma leitura de `listAccounts`.
+  //
+  // Antes de o postback ser delegado ao motor, ele virava linha na rota. Sem
+  // esta, delegar reabriu o buraco justamente para a forma que motivou o
+  // registro existir.
+  // -------------------------------------------------------------------------
+  test("postback de conta desconhecida deixa linha em vez de evaporar", async () => {
+    const DE_FORA = "17800000000000999";
+    const ALGUEM = "9300000000000006";
+
+    await tocarNaPergunta(
+      DE_FORA,
+      ALGUEM,
+      "Quero saber mais",
+      payloadDaPergunta(SEGUNDA),
+      "mid-sem-conta-1"
+    );
+
+    // Nada rodou: não há conta, então não há automação nem contato.
+    expect(await contatosDe(ALGUEM)).toEqual([]);
+    expect(await fila(CONTA, ALGUEM)).toEqual([]);
+
+    // Mas ficou a linha, gravada sob o id que a Meta disse — é por ele que
+    // quem for diagnosticar descobre para qual conta o evento vinha. E o id vai
+    // TAMBÉM dentro do payload, que é de onde a janela o lê.
+    const semConta = await eventos(DE_FORA, "webhook_sem_conta");
+    expect(semConta.length).toBe(1);
+    expect((semConta[0].postback as { mid?: string })?.mid).toBe("mid-sem-conta-1");
+    expect(semConta[0].entry_id).toBe(DE_FORA);
+
+    // E não foi parar em nenhuma das contas de verdade.
+    expect(await eventos(CONTA, "webhook_sem_conta")).toEqual([]);
+    expect(await eventos(VIZINHA, "webhook_sem_conta")).toEqual([]);
+
+    // A JANELA SEGURA A REPETIÇÃO. Desconectada a conta, a Meta continua
+    // entregando: sem janela, isto gravaria uma linha por DM para sempre, num
+    // canto da tabela que `lib/event-query.ts` nem mostra (o filtro é por conta
+    // selecionada, e este id não é nenhuma). O diagnóstico é um fato único —
+    // "não há conta para este `entry.id`" —, e a segunda linha não diz nada.
+    await tocarNaPergunta(
+      DE_FORA,
+      "9300000000000008",
+      "Quero saber mais",
+      payloadDaPergunta(SEGUNDA),
+      "mid-sem-conta-2"
+    );
+    expect((await eventos(DE_FORA, "webhook_sem_conta")).length).toBe(1);
+
+    // E O DISCRIMINADOR PRESERVA O QUE INTERESSA: outro `entry.id` desconhecido
+    // é outro fato, e ganha a linha dele. Sem esta contra-prova, uma janela sem
+    // discriminador passaria pelo caso acima escondendo a segunda conta.
+    const OUTRO_DE_FORA = "17800000000000998";
+    await tocarNaPergunta(
+      OUTRO_DE_FORA,
+      "9300000000000009",
+      "Quero saber mais",
+      payloadDaPergunta(SEGUNDA),
+      "mid-sem-conta-3"
+    );
+    const doOutro = await eventos(OUTRO_DE_FORA, "webhook_sem_conta");
+    expect(doOutro.length).toBe(1);
+    expect(doOutro[0].entry_id).toBe(OUTRO_DE_FORA);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  test("automação COM o gatilho abertura não gera linha de divergência", async () => {
+    // A contra-prova: sem ela, uma linha gravada em TODO toque passaria pelo
+    // caso acima e viraria ruído na tela que o dono usa para diagnosticar.
+    const QUALQUER = "9300000000000005";
+
+    await tocarNaPergunta(
+      CONTA,
+      QUALQUER,
+      "Quero saber mais",
+      payloadDaPergunta(SEGUNDA),
+      "mid-sem-divergencia-1"
+    );
+
+    expect((await fila(CONTA, QUALQUER)).map((l) => l.payload.text)).toEqual([BOAS_VINDAS]);
+    const divergencias = await eventos(CONTA, "abertura_com_gatilho_trocado");
+    // A única é a do caso anterior, e ela é de OUTRA automação.
+    expect(divergencias.every((d) => d.automation_id !== SEGUNDA)).toBe(true);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // A CAIXA DE ENTRADA — a única tela de uso diário que este ramo alcança, e a
+  // que ficou sem rede.
+  //
+  // O tipo `abertura` nasceu neste commit, e ele atravessa DUAS peças de
+  // `lib/conversations.ts` que não têm nada além de um comentário segurando:
+  //
+  //   `TIPOS_RECEBIDOS` (:92)  alimenta `e.type = any($n::text[])` na lista de
+  //     conversas E na lista de mensagens. Tirar `"abertura"` de lá não quebra
+  //     tsc, não quebra eslint e não quebra teste puro nenhum — a conversa de
+  //     quem entrou pela porta simplesmente SOME da caixa de entrada.
+  //   o segundo termo do `coalesce` (:193)  o postback não tem `message`: o
+  //     texto legível dele é o `title`. Sem esse termo a conversa nasce com uma
+  //     BOLHA VAZIA, e nada acusa.
+  //
+  // POR QUE AQUI, E NÃO NO LADO PURO. Afirmar que a constante contém
+  // `"abertura"` seria perguntar de novo à mesma linha que decide — o teste
+  // concordando consigo mesmo —, e nenhum teste puro alcança o `coalesce`, que
+  // é SQL. As duas peças só se medem pelo EFEITO: gravar o evento com o motor de
+  // verdade e depois abrir a caixa de entrada pelas mesmas funções que a tela
+  // usa. Uma asserção sobre a bolha mata as duas de uma vez — sem a lista de
+  // tipos não vem linha nenhuma; sem o `coalesce` vem linha sem texto.
+  // -------------------------------------------------------------------------
+  test("quem entra pela porta aparece na caixa de entrada, com a pergunta na bolha", async () => {
+    const NA_CAIXA = "9300000000000007";
+    const PERGUNTA = "Quero o passo a passo";
+
+    // Antes do toque a pessoa não está na caixa: sem esta linha, "ela aparece"
+    // no fim não distinguiria o efeito do toque de um resíduo de outro caso.
+    const antes = await conversas.listConversations(CONTA);
+    expect(antes.map((c) => c.ig_id)).not.toContain(NA_CAIXA);
+
+    await tocarNaPergunta(
+      CONTA,
+      NA_CAIXA,
+      PERGUNTA,
+      payloadDaPergunta(SEGUNDA),
+      "mid-caixa-de-entrada-1"
+    );
+
+    // 1) A CONVERSA EXISTE NA LISTA — é a linha que o dono clica.
+    const depois = await conversas.listConversations(CONTA);
+    const linha = depois.find((c) => c.ig_id === NA_CAIXA);
+    expect(linha, "a conversa de quem entrou pela porta sumiu da caixa de entrada").toBeTruthy();
+    // E ela chega como NÃO LIDA e SEM RESPOSTA: é uma pessoa esperando, e é
+    // esse par que faz a linha subir na tela em vez de ficar enterrada.
+    expect(linha!.nao_lidas).toBe(1);
+    expect(linha!.sem_resposta).toBe(true);
+    expect(linha!.username).toBe("quem_abriu");
+
+    // 2) A BOLHA TRAZ A PERGUNTA. É o `title`, que é o que a pessoa leu na tela
+    //    antes de tocar — e nunca o `payload`, que é identificador interno.
+    const mensagens = await conversas.conversationMessages(CONTA, NA_CAIXA);
+    const recebidas = mensagens.filter((m) => m.direction === "in");
+    expect(recebidas.length).toBe(1);
+    expect(recebidas[0].text, "a conversa começou com uma bolha vazia").toBe(PERGUNTA);
+    // E a bolha não é o identificador, seja ele qual for. Citar a forma pelo
+    // nome (`"AUTO:"`) fazia esta linha envelhecer junto com o formato: ela
+    // continuaria verde depois de a forma mudar, medindo uma string que o
+    // produto não emite mais. O que se pergunta é sobre o payload de VERDADE.
+    expect(recebidas[0].text).not.toContain(payloadDaPergunta(SEGUNDA));
+
+    // 3) E A RESPOSTA DA AUTOMAÇÃO ESTÁ LOGO ABAIXO, saindo da fila: a conversa
+    //    que o dono abre tem as duas pontas, e não só a metade que chegou.
+    expect(mensagens.map((m) => m.text)).toEqual([PERGUNTA, BOAS_VINDAS]);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // O FECHO DA FASE: a TELA monta, a META guarda, o MOTOR entende.
+  //
+  // Os outros casos deste arquivo entram pelo motor com um identificador que
+  // este arquivo mesmo montou. Este entra pela ponta de cima — a linha do
+  // formulário que a pessoa preenche — e desce por todas as decisões até a
+  // fila, sem ninguém remontar a string no meio.
+  //
+  // ELE NÃO EXISTIA PORQUE NÃO PODIA EXISTIR. Enquanto `payloadDaPergunta`
+  // emitia `AUTO:<automação>`, o passo 2 abaixo era vermelho: `conferirPerguntas`
+  // recusava antes da chamada, porque a Meta responde 200 e some com a pergunta
+  // quando o payload tem `:`. A tela dizia, na própria seção, que ligar uma
+  // pergunta a uma automação estava indisponível.
+  //
+  // AS TRÊS PEÇAS SÃO DE MÓDULOS DIFERENTES, e é isso que este caso segura:
+  // `app/setup/portas.ts` (a tela), `lib/perguntas-de-abertura.ts` (a Meta) e
+  // `lib/engine.ts` (o motor) concordam sobre UMA string. Cada um tem teste
+  // puro do seu lado; nenhum deles pode ver os outros dois errarem junto.
+  // -------------------------------------------------------------------------
+  test("o identificador que a TELA monta é o que a META guarda e o MOTOR entende", async () => {
+    const PELA_TELA = "9300000000000010";
+    const naoTratadosAntes = (await eventos(CONTA, "webhook_messaging_nao_tratado")).length;
+
+    // 1) A TELA MONTA. Uma posição do formulário como o dono a preenche: texto
+    //    escrito, automação escolhida no seletor e nenhum identificador herdado
+    //    — a posição estava livre.
+    const { perguntas, motivo } = perguntasDoFormulario([
+      { texto: "Quero saber mais", automacaoId: SEGUNDA, payload: "" },
+    ]);
+    expect(motivo).toBe(undefined);
+    expect(perguntas!.length).toBe(1);
+    const [pergunta] = perguntas!;
+
+    // 2) A META GUARDA. É a conferência que a gravação faz ANTES de gastar a
+    //    chamada, e era aqui que esta fase parava.
+    expect(identificadorSobrevive(pergunta.payload)).toBe(true);
+    const conferida = conferirPerguntas([pergunta]);
+    expect(conferida.motivo).toBe(undefined);
+    expect(conferida.perguntas).toEqual([pergunta]);
+
+    // 3) O MOTOR ENTENDE. O toque chega com EXATAMENTE a string que a tela
+    //    montou — `pergunta.payload`, e não uma remontada aqui, que seria o
+    //    teste concordando consigo mesmo sobre o formato.
+    await tocarNaPergunta(CONTA, PELA_TELA, pergunta.question, pergunta.payload, "mid-pela-tela-1");
+
+    const naFila = await fila(CONTA, PELA_TELA);
+    expect(naFila.length).toBe(1);
+    expect(naFila[0].automation_id).toBe(SEGUNDA);
+    expect(naFila[0].payload.text).toBe(BOAS_VINDAS);
+    // E não é a da outra porta da mesma conta.
+    expect(naFila.map((l) => l.payload.text)).not.toContain(A_OUTRA);
+
+    // O contato nasceu, na conta do evento, com a automação apontada.
+    const contatos = await contatosDe(PELA_TELA);
+    expect(contatos.length).toBe(1);
+    expect(contatos[0].account_id).toBe(CONTA);
+    expect(contatos[0].last_automation_id).toBe(SEGUNDA);
+
+    // 4) E NÃO CAIU NO BALDE DOS NÃO TRATADOS. É onde uma forma que o motor não
+    //    reconhece vai parar — caladamente, com a pessoa sem receber nada —, e é
+    //    onde as perguntas de teste de produção caem de propósito. A contagem é
+    //    relativa porque o segundo caso deste arquivo põe uma linha lá.
+    expect((await eventos(CONTA, "webhook_messaging_nao_tratado")).length).toBe(naoTratadosAntes);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+});

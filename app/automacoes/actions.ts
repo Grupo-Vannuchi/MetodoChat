@@ -3,7 +3,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { sql } from "@/lib/db";
 import { getSelectedAccountId } from "@/lib/account";
-import { conferirLista, ligacoesValidas, podeFicarAtiva } from "@/lib/steps";
+import {
+  conferirLista,
+  gatilhoPedePalavraChave,
+  ligacoesValidas,
+  podeFicarAtiva,
+} from "@/lib/steps";
 
 function splitList(raw: string, sep: RegExp): string[] {
   return raw
@@ -38,7 +43,15 @@ type Resultado =
   | { ok: true; pausada?: string; ativoGravado: boolean }
   | { ok: false; erro: string };
 
-const GATILHOS = ["comment", "story", "dm"];
+// ALLOW-LIST, ao contrário de `conferirLista` (lib/steps.ts), que é deny-list.
+// `abertura` já passa nas regras de lá (medido e registrado no commit que
+// acrescentou "o gatilho abertura" a tests/steps.test.ts) — mas esta lista
+// roda ANTES daquela conferência, nos dois pontos que a usam (`salvarAutomacao`
+// e `criarAutomacao`, abaixo), e sem o valor novo aqui nenhum dos dois chega a
+// perguntar a `conferirLista` coisa nenhuma: devolve "Escolha o gatilho da
+// automação." primeiro. Medido ao vivo contra schema descartável: sem esta
+// linha, `criarAutomacao` com `trigger: "abertura"` recusa exatamente assim.
+const GATILHOS = ["comment", "story", "dm", "abertura"];
 const CORRESPONDENCIAS = ["contains", "exact", "any"];
 
 // NADA AQUI É EXPORTADO ALÉM DE FUNÇÃO ASSÍNCRONA, e isso não é estilo: este
@@ -183,7 +196,13 @@ export async function salvarAutomacao(
   if (!CORRESPONDENCIAS.includes(correspondencia))
     return { ok: false, erro: "Escolha o tipo de correspondência." };
   if (!nome) return { ok: false, erro: "Dê um nome à automação." };
-  if (correspondencia !== "any" && !palavras.length)
+  // A EXIGÊNCIA É DO GATILHO, e não de toda automação — `gatilhoPedePalavraChave`
+  // (@/lib/steps) tem o porquê inteiro. `abertura` dispara pelo identificador da
+  // pergunta, não por texto, e sem esta pergunta a tela do editor não conseguia
+  // GRAVAR uma automação de abertura: o painel esconde o campo (a spec manda),
+  // o pedido chega com a lista vazia, e isto devolvia um recado sobre um campo
+  // que não está na tela.
+  if (gatilhoPedePalavraChave(gatilho) && correspondencia !== "any" && !palavras.length)
     return { ok: false, erro: "Informe as palavras-chave (ou mude para “Qualquer texto”)." };
 
   // Post e story só valem no gatilho correspondente — é a mesma regra que o
@@ -410,7 +429,9 @@ export async function criarAutomacao(
   if (!GATILHOS.includes(gatilho)) return "Escolha o gatilho da automação.";
   if (!CORRESPONDENCIAS.includes(correspondencia)) return "Escolha o tipo de correspondência.";
   if (!nome) return "Dê um nome à automação.";
-  if (correspondencia !== "any" && !palavras.length)
+  // A mesma pergunta do salvar, pelo mesmo motivo — ver `salvarAutomacao`,
+  // acima, e `gatilhoPedePalavraChave` (@/lib/steps).
+  if (gatilhoPedePalavraChave(gatilho) && correspondencia !== "any" && !palavras.length)
     return "Informe as palavras-chave (ou mude para “Qualquer texto”).";
 
   const linhas = (await sql().query(

@@ -27,7 +27,7 @@ import {
   type Passo,
 } from "@/lib/steps";
 import No, { type DadosDoNo } from "./no";
-import Gatilho, { nomeDoGatilho, resumoDasPalavras, type DadosDoGatilho } from "./gatilho";
+import Gatilho, { nomeDoGatilho, resumoDoGatilho, type DadosDoGatilho } from "./gatilho";
 import Painel, { type Configuracao } from "./painel";
 import Previa, { type ContaDaPrevia } from "./previa";
 import {
@@ -1553,7 +1553,11 @@ export default function Quadro({
               GATILHO · {nomeDoGatilho(configuracao.gatilho)}
             </div>
             <div className="mt-1 text-xs text-zinc-700 dark:text-zinc-200">
-              {resumoDasPalavras(configuracao.palavras, configuracao.correspondencia)}
+              {resumoDoGatilho(
+                configuracao.gatilho,
+                configuracao.palavras,
+                configuracao.correspondencia
+              )}
             </div>
           </li>
           {passos.map((p, i) => {

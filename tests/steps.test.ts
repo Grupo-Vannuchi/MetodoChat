@@ -18,10 +18,12 @@ import {
   cursorDesta,
   identidadeDoPasso,
   novoIdDeBloco,
+  resumoDoErroDaMeta,
   indiceDoId,
   lerPayload,
   cursorDaRetomada,
   conferirLista,
+  gatilhoPedePalavraChave,
   conferir,
   oQuePortaoFaz,
   conferirLigacao,
@@ -34,6 +36,9 @@ import {
   payloadDoBotao,
   payloadDaRespostaRapida,
   payloadDoPortao,
+  payloadDaPergunta,
+  PREFIXO_DA_PERGUNTA,
+  PAYLOAD_SEM_AUTOMACAO,
   botoesDaMensagem,
   LIMITE_DE_BOTOES,
   chaveDoQuando,
@@ -2150,6 +2155,215 @@ describe("payloadDaRespostaRapida e payloadDoPortao", () => {
   });
 });
 
+describe("o identificador de uma pergunta de abertura", () => {
+  it("aponta para a automação, e nada mais", () => {
+    // O shape aqui é o `Payload` real (`prefixo`, `passoId`, `null`), o mesmo
+    // que todo outro teste de `lerPayload` neste arquivo usa — não o
+    // `{ blocoId: undefined }` do plano, que não bate com o tipo devolvido.
+    const p = payloadDaPergunta("39ae24ec-c487-40ff-a387-c041cb3f0d23");
+    expect(lerPayload(p)).toEqual({
+      prefixo: "AUTO",
+      automationId: "39ae24ec-c487-40ff-a387-c041cb3f0d23",
+      passoId: null,
+      botaoId: null,
+    });
+  });
+
+  it("o formato de teste do experimento NAO dispara nada", () => {
+    // As perguntas configuradas em 26/08 usam este formato de proposito.
+    // Enquanto elas existirem em producao, isto tem de continuar valendo.
+    expect(lerPayload("abertura-saber-mais")).toBe(null);
+  });
+
+  // -------------------------------------------------------------------------
+  // A FORMA PRÓPRIA, e por que ela existe.
+  //
+  // MEDIDO em 28/08/2026 contra a conta de teste @saas.metodoia, controle
+  // pareado, mesmo uuid nos quatro e uma escrita só: `AUTO:436412ba-…` volta do
+  // `messenger_profile` com A PERGUNTA INTEIRA SUMIDA, depois de um 200
+  // `{"result":"success"}`. `ABERTURA_436412ba-…` volta byte a byte. Enquanto
+  // `payloadDaPergunta` emitisse a forma com dois-pontos, a pergunta subia sem
+  // identificador e o toque nela não disparava nada — sem erro em lugar nenhum.
+  // -------------------------------------------------------------------------
+  it("não tem dois-pontos, que é o caractere que a Meta come", () => {
+    // A guarda é sobre a STRING EMITIDA, e não sobre a constante: é ela que
+    // viaja para a Meta. O `|` entra junto porque ele é pior — não some, TRUNCA.
+    const p = payloadDaPergunta("436412ba-e0b8-4721-af41-a677aa3c03c8");
+    expect(p.includes(":")).toBe(false);
+    expect(p.includes("|")).toBe(false);
+    expect(p).toBe("ABERTURA_436412ba-e0b8-4721-af41-a677aa3c03c8");
+  });
+
+  it("é reconhecida por PREFIXO, e não por divisão — o uuid tem hífen", () => {
+    // Dividir por `-` daria cinco pedaços e nenhum deles é a automação. O que
+    // sobra depois do prefixo é o identificador INTEIRO, hífens e tudo.
+    const id = "436412ba-e0b8-4721-af41-a677aa3c03c8";
+    expect(id.split("-").length).toBe(5);
+    expect(lerPayload(payloadDaPergunta(id))!.automationId).toBe(id);
+  });
+
+  it("`ABERTURA_` sozinho não é automação nenhuma", () => {
+    expect(lerPayload(PREFIXO_DA_PERGUNTA)).toBe(null);
+  });
+
+  it("NÃO COLIDE com as perguntas de teste que estão no ar", () => {
+    // A diferença para `abertura-...` é DUPLA e independente — a caixa e o
+    // separador —, e as duas formas voltaram DISTINTAS da Meta na mesma
+    // escrita, com o mesmo uuid nas duas. Perder uma das diferenças não basta
+    // para colidir, e é isto que as três primeiras linhas medem.
+    const id = "436412ba-e0b8-4721-af41-a677aa3c03c8";
+    expect(lerPayload(`abertura-${id}`)).toBe(null);
+    expect(lerPayload(`ABERTURA-${id}`)).toBe(null);
+    expect(lerPayload(`abertura_${id}`)).toBe(null);
+    expect(lerPayload(payloadDaPergunta(id))).not.toBe(null);
+  });
+
+  // A PERGUNTA QUE NÃO DISPARA NADA, e a spec a nomeia: "'Quais são os valores?'
+  // pode ser só uma pergunta que o dono responde à mão — e ainda assim vale
+  // estar no menu". Toda pergunta precisa de um identificador (a Meta exige as
+  // duas metades), então "sem automação" tem de ser um identificador que existe
+  // e não significa nada.
+  it("o identificador da pergunta sem automação não é lido como automação nenhuma", () => {
+    expect(lerPayload(PAYLOAD_SEM_AUTOMACAO)).toBe(null);
+  });
+
+  // A ARMADILHA QUE ESTA LINHA FECHA: se ele começasse por `ABERTURA_`,
+  // `lerPayload` devolveria `{ automationId: "SEM_AUTOMACAO" }`, `loadAutomation`
+  // não acharia nada, o motor sairia calado — e a tela de Configuração pintaria
+  // a linha de VERMELHO ("aponta para uma automação que não existe mais nesta
+  // conta"). Um estado escolhido de propósito viraria erro.
+  it("ele não pode começar pelo prefixo da pergunta", () => {
+    expect(PAYLOAD_SEM_AUTOMACAO.startsWith(PREFIXO_DA_PERGUNTA)).toBe(false);
+  });
+
+  // E A META TEM DE GUARDÁ-LO: ela come `:` e `|`, medido em 28/08/2026. Uma
+  // pergunta inerte que a Meta engolisse sumiria do menu — o contrário do
+  // pedido.
+  it("ele sobrevive ao que a Meta come", () => {
+    expect(PAYLOAD_SEM_AUTOMACAO).not.toContain(":");
+    expect(PAYLOAD_SEM_AUTOMACAO).not.toContain("|");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AS TRÊS FORMAS ANTIGAS NÃO MUDARAM DE RESPOSTA — a prova, não a promessa.
+//
+// A quarta forma foi ACRESCENTADA, e a regra desta base é que as três de cima
+// convivem PARA SEMPRE: um botão entregue vive na conversa da pessoa
+// indefinidamente, e ela pode tocar nele meses depois. Uma mudança que
+// aposentasse qualquer um dos três ramos quebraria todo botão já enviado
+// daquela forma, de uma vez, e o sintoma seria "o botão não faz mais nada" sem
+// erro em lugar nenhum.
+//
+// A TABELA ABAIXO NÃO FOI ESCRITA À MÃO: cada par foi COLHIDO do `lerPayload`
+// de ANTES da mudança (`git show HEAD:lib/steps.ts`, rodado com o `node` deste
+// projeto) e colado aqui. Ela é o comportamento velho congelado, e não a
+// opinião de quem escreveu o teste sobre qual ele era.
+//
+// FORA DA SUÍTE, e por isso registrado aqui: um FUZZ DIFERENCIAL comparou as
+// duas versões de `lerPayload` sobre 2368 strings distintas — as três formas
+// escritas pelas escritoras de verdade, os malformados conhecidos, as seis
+// perguntas de produção e 200 mil sorteios de pedaços colados por
+// `: _ - . | / ~`, espaço e vazio — mais os sete não-strings. 146 divergiram,
+// e AS 146 COMEÇAM POR `ABERTURA_`. Nenhuma string sem o prefixo novo mudou de
+// resposta, e nenhuma divergência tirou resposta: as 146 iam de `null` a um
+// `Payload`.
+// ---------------------------------------------------------------------------
+describe("as três formas antigas, congeladas", () => {
+  const ANTES: [string, unknown][] = [
+    ["AUTO:auto-1", {"prefixo":"AUTO","automationId":"auto-1","passoId":null,"botaoId":null}],
+    ["AUTO:436412ba-e0b8-4721-af41-a677aa3c03c8", {"prefixo":"AUTO","automationId":"436412ba-e0b8-4721-af41-a677aa3c03c8","passoId":null,"botaoId":null}],
+    ["FOLLOW:auto-1", {"prefixo":"FOLLOW","automationId":"auto-1","passoId":null,"botaoId":null}],
+    ["FOLLOW:436412ba-e0b8-4721-af41-a677aa3c03c8", {"prefixo":"FOLLOW","automationId":"436412ba-e0b8-4721-af41-a677aa3c03c8","passoId":null,"botaoId":null}],
+    ["AUTO:auto-1:b_men001", {"prefixo":"AUTO","automationId":"auto-1","passoId":"b_men001","botaoId":null}],
+    ["AUTO:436412ba-e0b8-4721-af41-a677aa3c03c8:b_bem001", {"prefixo":"AUTO","automationId":"436412ba-e0b8-4721-af41-a677aa3c03c8","passoId":"b_bem001","botaoId":null}],
+    ["AUTO:auto-1:2", {"prefixo":"AUTO","automationId":"auto-1","passoId":"2","botaoId":null}],
+    ["AUTO:auto-1:0", {"prefixo":"AUTO","automationId":"auto-1","passoId":"0","botaoId":null}],
+    ["FOLLOW:auto-1:b_por002", {"prefixo":"FOLLOW","automationId":"auto-1","passoId":"b_por002","botaoId":null}],
+    ["FOLLOW:436412ba-e0b8-4721-af41-a677aa3c03c8:b_por002", {"prefixo":"FOLLOW","automationId":"436412ba-e0b8-4721-af41-a677aa3c03c8","passoId":"b_por002","botaoId":null}],
+    ["FOLLOW:auto-1:1", {"prefixo":"FOLLOW","automationId":"auto-1","passoId":"1","botaoId":null}],
+    ["AUTO:auto-1:b_men001:op_aaaaaa", {"prefixo":"AUTO","automationId":"auto-1","passoId":"b_men001","botaoId":"op_aaaaaa"}],
+    ["AUTO:436412ba-e0b8-4721-af41-a677aa3c03c8:b_men001:op_bbbbbb", {"prefixo":"AUTO","automationId":"436412ba-e0b8-4721-af41-a677aa3c03c8","passoId":"b_men001","botaoId":"op_bbbbbb"}],
+    ["AUTO:auto-1:2:op_cccccc", {"prefixo":"AUTO","automationId":"auto-1","passoId":"2","botaoId":"op_cccccc"}],
+    ["FOLLOW:auto-1:b_por002:op_aaaaaa", {"prefixo":"FOLLOW","automationId":"auto-1","passoId":"b_por002","botaoId":"op_aaaaaa"}],
+    ["", null],
+    ["AUTO", null],
+    ["FOLLOW", null],
+    ["AUTO:", null],
+    ["FOLLOW:", null],
+    ["AUTO::", null],
+    ["AUTO:auto-1:", null],
+    ["FOLLOW:auto-1:", null],
+    ["AUTO:auto-1::op_aaaaaa", null],
+    ["FOLLOW:auto-1::op_aaaaaa", null],
+    ["AUTO:auto-1:b_men001:", null],
+    ["AUTO:a:b:c:d", null],
+    ["AUTO:a:b:c:d:e", null],
+    ["auto:auto-1", null],
+    ["AUTOX:auto-1", null],
+    ["XAUTO:auto-1", null],
+    [" AUTO:auto-1", null],
+    ["OUTRACOISA:x", null],
+    [":", null],
+    ["::", null],
+    [":auto-1", null],
+    ["AUTO :auto-1", null],
+    ["abertura-saber-mais", null],
+    ["abertura-valores", null],
+    ["abertura-como-funciona", null],
+    ["abertura-proxima-turma", null],
+    ["abertura-conteudo", null],
+    ["abertura-inscricao", null],
+    ["ABERTURA", null],
+    ["abertura", null],
+    ["ABERTURA-auto-1", null],
+    ["abertura_auto-1", null],
+    ["ABERTURAX_auto-1", null],
+    ["XABERTURA_auto-1", null],
+    [" ABERTURA_auto-1", null],
+    ["AUTO_auto-1", null],
+    ["AUTO-auto-1", null],
+  ];
+
+  it("cada entrada devolve HOJE o que devolvia ANTES da quarta forma", () => {
+    for (const [entrada, esperado] of ANTES) {
+      // A entrada viaja junto na comparação para que a linha vermelha diga
+      // QUAL string mudou, e não só que alguma mudou.
+      expect({ entrada, saida: lerPayload(entrada) }).toEqual({ entrada, saida: esperado });
+    }
+    // A contagem entra para que apagar linhas da tabela seja uma mudança
+    // visível, e não uma tabela que encolhe sem ninguém notar.
+    expect(ANTES.length).toBe(52);
+  });
+
+  it("nenhuma das três formas antigas começa pelo prefixo da quarta", () => {
+    // É isto que torna as duas gramáticas DISJUNTAS: o ramo novo sai antes do
+    // `split(":")`, então se alguma forma antiga começasse por `ABERTURA_` ela
+    // seria roubada por ele. Não começa — e quem prova são as escritoras de
+    // verdade, não strings montadas à mão aqui.
+    const id = "436412ba-e0b8-4721-af41-a677aa3c03c8";
+    for (const p of [
+      payloadDaRespostaRapida(id, "b_men001"),
+      payloadDoPortao(id, "b_por002"),
+      payloadDoBotao(id, "b_men001", "op_aaaaaa"),
+      `AUTO:${id}`,
+      `FOLLOW:${id}`,
+    ]) {
+      expect(p.startsWith(PREFIXO_DA_PERGUNTA)).toBe(false);
+      expect(lerPayload(p)).not.toBe(null);
+    }
+  });
+
+  it("e a quarta não é lida pelo caminho das três — não tem dois-pontos", () => {
+    // O outro lado da disjunção: o payload da pergunta nunca chega ao
+    // `split(":")`, e se chegasse morreria lá — uma parte só, e o prefixo
+    // inteiro não é "AUTO" nem "FOLLOW".
+    const p = payloadDaPergunta("436412ba-e0b8-4721-af41-a677aa3c03c8");
+    expect(p.split(":").length).toBe(1);
+    expect(["AUTO", "FOLLOW"]).not.toContain(p.split(":")[0]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // O PAREAMENTO E O CORTE, pelo mesmo motivo: eles moravam em `processItem`
 // (lib/queue-drain.ts), `server-only` que nenhum teste executa. A revisão
@@ -2977,6 +3191,55 @@ describe("conferirLista", () => {
     expect(r).toHaveLength(2);
     expect(r[0].mensagem).toBe(r[1].mensagem);
     expect(r[0].mensagem).toMatch(/identidade inválida/i);
+  });
+});
+
+describe("o gatilho abertura", () => {
+  // `abertura` é gatilho novo (Tarefa 2 da fase "portas de entrada"), e as
+  // regras acima já são deny-list: negam gatilho específico em vez de listar
+  // os permitidos. Estes três casos medem que `abertura` cai nas mesmas regras
+  // sem precisar de uma linha nova em `conferirLista`.
+  //
+  // O id usado aqui é `b_abert01`, e não o `b_1` do plano original: `b_1` não
+  // casa com `FORMA_DO_ID` (`/^b_[0-9a-z]{6,}$/`, lib/steps.ts:1050) e acende
+  // "identidade inválida" — um erro de FORMA do fixture, não de lógica do
+  // gatilho. É a mesma classe de correção que trocou `texto` por `textos`.
+  it("recusa resposta pública, que só existe em comentário", () => {
+    // `resposta_publica` carrega `textos` (LISTA), e não `texto` — lib/steps.ts:48.
+    const passos = [{ id: "b_abert01", tipo: "resposta_publica", textos: ["oi"] }];
+    const erros = conferirLista(passos, "abertura", []);
+    expect(erros.filter((p) => p.nivel === "erro").length).toBeGreaterThan(0);
+  });
+
+  it("recusa reagir à story, que precisa do id da mensagem", () => {
+    const passos = [{ id: "b_abert01", tipo: "reagir_story", emoji: "❤️" }];
+    const erros = conferirLista(passos, "abertura", []);
+    expect(erros.filter((p) => p.nivel === "erro").length).toBeGreaterThan(0);
+  });
+
+  it("aceita uma DM comum", () => {
+    const passos = [{ id: "b_abert01", tipo: "dm", texto: "Que bom te ver por aqui!" }];
+    expect(conferirLista(passos, "abertura", [])).toEqual([]);
+  });
+
+  it("não pede palavra-chave, e os três antigos continuam pedindo", () => {
+    // A regra que as duas portas de escrita (`salvarAutomacao` e
+    // `criarAutomacao`, app/automacoes/actions.ts) passaram a consultar antes de
+    // exigir a lista de palavras. Sem ela a tela do editor não conseguia GRAVAR
+    // uma automação de abertura: o painel esconde o campo, o pedido chega com a
+    // lista vazia, e o servidor devolvia "Informe as palavras-chave" — um recado
+    // sobre um campo que não está na tela, num gatilho que não casa por texto.
+    expect(gatilhoPedePalavraChave("abertura")).toBe(false);
+    expect(gatilhoPedePalavraChave("dm")).toBe(true);
+    expect(gatilhoPedePalavraChave("comment")).toBe(true);
+    expect(gatilhoPedePalavraChave("story")).toBe(true);
+  });
+
+  it("gatilho desconhecido pede palavra-chave, e é o lado seguro", () => {
+    // A coluna `triggers` é texto livre. Errar para "não pede" deixaria passar
+    // uma automação sem palavra nenhuma num gatilho que casa por texto — ela
+    // nunca dispararia, e nada na tela diria por quê.
+    expect(gatilhoPedePalavraChave("coisa_nova")).toBe(true);
   });
 });
 
@@ -5098,5 +5361,154 @@ describe("partirLigacao — soltar um bloco em cima de uma seta", () => {
     expect(seguinteDe(depois, a)).toBe(meio);
     expect(seguinteDe(depois, meio)).toBe(b);
     expect(haCaminho(depois, a, b)).toBe(true);
+  });
+});
+
+// ============================================================
+// A LEITURA DO ERRO DA META
+//
+// O caso real que obrigou esta função está no comentário de `lib/steps.ts`: um
+// `catch` que engolia o erro fez o registro dizer só "não deu", e o palpite que
+// nasceu desse silêncio (190) errou o número real (230). Cada caso abaixo é uma
+// forma que a Meta OU a rede já mandaram neste produto.
+// ============================================================
+describe("resumoDoErroDaMeta", () => {
+  // Medido em 28/08/2026 contra a conta @thiagovannuchi, com controle pareado.
+  it("lê o erro que estava escondido: 230, consentimento", () => {
+    const erro = {
+      status: 500,
+      body: JSON.stringify({
+        error: {
+          message: "User consent is required to access user profile",
+          type: "IGApiException",
+          code: 230,
+          fbtrace_id: "AS0h-P4w",
+        },
+      }),
+    };
+    expect(resumoDoErroDaMeta(erro)).toEqual({
+      http: 500,
+      codigo: 230,
+      subcodigo: null,
+      mensagem: "User consent is required to access user profile",
+    });
+  });
+
+  // O número que o monitoramento chutou, e que existe de verdade noutro lugar
+  // (o par app_id|app_secret errado). A função tem de distinguir os dois.
+  it("lê o 190 de token inválido, que é OUTRO erro", () => {
+    const r = resumoDoErroDaMeta({
+      status: 400,
+      body: '{"error":{"message":"Error validating application.","type":"OAuthException","code":190}}',
+    });
+    expect(r.codigo).toBe(190);
+    expect(r.http).toBe(400);
+  });
+
+  it("lê o subcódigo, que é quem separa a janela de 24h do resto", () => {
+    const r = resumoDoErroDaMeta({
+      status: 403,
+      body: '{"error":{"message":"Essa mensagem foi enviada fora do período permitido.","code":10,"error_subcode":2534022}}',
+    });
+    expect(r.codigo).toBe(10);
+    expect(r.subcodigo).toBe(2534022);
+    expect(r.mensagem).toBe("Essa mensagem foi enviada fora do período permitido.");
+  });
+
+  // ESTE É O CASO QUE JUSTIFICA O APAGAMENTO. O endereço do follow leva o token
+  // na query; um erro de rede que carregue a URL viraria linha em Atividade.
+  it("apaga o token quando ele vem junto no texto", () => {
+    const r = resumoDoErroDaMeta(
+      new Error(
+        "fetch failed: https://graph.instagram.com/v25.0/123?fields=is_user_follow_business&access_token=IGAAxyzSEGREDO"
+      )
+    );
+    expect(r.mensagem).toContain("access_token=OCULTO");
+    expect(r.mensagem).not.toContain("IGAAxyzSEGREDO");
+  });
+
+  it("apaga também a chave secreta e a prova de app", () => {
+    const r = resumoDoErroDaMeta({
+      status: 400,
+      body: "erro em ?client_secret=abc123&appsecret_proof=def456&outro=fica",
+    });
+    expect(r.mensagem).toBe(
+      "erro em ?client_secret=OCULTO&appsecret_proof=OCULTO&outro=fica"
+    );
+  });
+
+  it("o segredo além do limite some junto com o resto", () => {
+    const enchimento = "x".repeat(400);
+    const r = resumoDoErroDaMeta({
+      status: 500,
+      body: `${enchimento}&access_token=SEGREDOLONGO`,
+    });
+    expect(r.mensagem).not.toContain("SEGREDOLONGO");
+    expect(r.mensagem!.length).toBeLessThanOrEqual(300);
+  });
+
+  // ESTE CASO EXISTE PORQUE O ANTERIOR NÃO BASTAVA, e isso foi medido: trocando
+  // a ordem de apagar e cortar em `lib/steps.ts`, os 355 testes seguiam verdes.
+  // O caso de cima prova que o segredo some — mas ele some pelo corte também, e
+  // por isso não distingue as duas ordens.
+  //
+  // A diferença real é a explicação DEPOIS do segredo. Apagando antes, o segredo
+  // ocupa seis caracteres e o resto cabe; cortando antes, ele come o limite
+  // inteiro e a explicação some. Uma mensagem de erro sem a explicação é o
+  // silêncio que esta função inteira existe para acabar.
+  it("a explicação depois do segredo sobrevive ao corte", () => {
+    // 300 e não 250: com 250 o texto inteiro tem 290 caracteres, cabe no limite,
+    // o corte não corta nada e o caso não distingue ordem nenhuma. Medido — a
+    // primeira versão deste teste ficou verde com as duas ordens.
+    const segredo = "S".repeat(300);
+    const r = resumoDoErroDaMeta({
+      status: 500,
+      body: `access_token=${segredo}&depois=ESTA_E_A_EXPLICACAO`,
+    });
+    expect(`access_token=${segredo}&depois=ESTA_E_A_EXPLICACAO`.length).toBeGreaterThan(300);
+    expect(r.mensagem).toContain("access_token=OCULTO");
+    expect(r.mensagem).not.toContain(segredo);
+    expect(r.mensagem).toContain("depois=ESTA_E_A_EXPLICACAO");
+  });
+
+  it("corpo que não é JSON sobrevive como texto cru", () => {
+    const r = resumoDoErroDaMeta({ status: 502, body: "<html>Bad Gateway</html>" });
+    expect(r).toEqual({
+      http: 502,
+      codigo: null,
+      subcodigo: null,
+      mensagem: "<html>Bad Gateway</html>",
+    });
+  });
+
+  it("JSON sem a forma da Meta não inventa código nenhum", () => {
+    const r = resumoDoErroDaMeta({ status: 400, body: '{"outra":"coisa"}' });
+    expect(r.codigo).toBeNull();
+    expect(r.subcodigo).toBeNull();
+    expect(r.mensagem).toBe('{"outra":"coisa"}');
+  });
+
+  it("aceita o número que a Meta mandou como texto", () => {
+    const r = resumoDoErroDaMeta({ body: '{"error":{"code":"230","error_subcode":"7"}}' });
+    expect(r.codigo).toBe(230);
+    expect(r.subcodigo).toBe(7);
+  });
+
+  it("nada dentro devolve tudo nulo, sem estourar", () => {
+    const vazio = { http: null, codigo: null, subcodigo: null, mensagem: null };
+    expect(resumoDoErroDaMeta(null)).toEqual(vazio);
+    expect(resumoDoErroDaMeta(undefined)).toEqual(vazio);
+    expect(resumoDoErroDaMeta({})).toEqual(vazio);
+    expect(resumoDoErroDaMeta(123)).toEqual(vazio);
+    expect(resumoDoErroDaMeta({ status: 500, body: "   " })).toEqual({
+      http: 500,
+      codigo: null,
+      subcodigo: null,
+      mensagem: null,
+    });
+  });
+
+  it("texto solto também é lido", () => {
+    expect(resumoDoErroDaMeta("caiu a rede").mensagem).toBe("caiu a rede");
   });
 });
