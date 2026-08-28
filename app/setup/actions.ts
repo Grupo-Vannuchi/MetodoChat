@@ -6,7 +6,13 @@ import { updateConfig, listAccounts, getConfig, getAccount } from "@/lib/db";
 import { subscribeToWebhooks, configureAppWebhook, CAMPOS_DE_WEBHOOK } from "@/lib/ig";
 import { canonicalAppUrl, isEphemeralUrl } from "@/lib/app-url";
 import { perguntasQueNaoFicaram, sincronizarPerguntas } from "@/lib/perguntas-de-abertura";
-import { contaDoFormulario, linhasDoFormulario, perguntasDoFormulario } from "./portas";
+import {
+  contaDoFormulario,
+  escreverRascunho,
+  linhasDoFormulario,
+  perguntasDoFormulario,
+  type LinhaDoFormulario,
+} from "./portas";
 
 // Reassina `CAMPOS_DE_WEBHOOK` (lib/ig.ts) em todas as contas conectadas. A
 // assinatura já acontece sozinha no OAuth, mas se falhar naquele momento nada
@@ -217,6 +223,21 @@ export async function saveMetaCredentials(formData: FormData): Promise<void> {
 // limite de quatro e `acaoDaEscrita` escolhe entre POST e DELETE — as três com
 // teste puro. Aqui só se lê `FormData`, se chama, e se conta o que aconteceu.
 // ============================================================
+// A RECUSA LEVA O QUE O DONO TINHA ESCRITO DE VOLTA COM ELA.
+//
+// Sem isto, o dono que reescreve as quatro perguntas e erra uma delas perde as
+// outras três: a resposta é um `redirect` e a tela recarrega DA META, sem as
+// edições. O rascunho vai na URL e `linhasComRascunho` (./portas.ts) redesenha a
+// tela com ele — a conferência de conta, a validação do que vem da URL e o
+// recálculo de cada identificador moram lá, com teste.
+function recusar(motivo: string, conta: string, linhas: LinhaDoFormulario[]): never {
+  const rascunho = escreverRascunho(conta, linhas);
+  redirect(
+    `/setup?erro=${encodeURIComponent(motivo)}` +
+      (rascunho ? `&rascunho=${encodeURIComponent(rascunho)}` : "")
+  );
+}
+
 export async function salvarPerguntasDeAbertura(formData: FormData): Promise<void> {
   const igUserId = contaDoFormulario(formData);
   const conta = await getAccount(igUserId);
@@ -238,12 +259,12 @@ export async function salvarPerguntasDeAbertura(formData: FormData): Promise<voi
 
   const { perguntas, motivo } = perguntasDoFormulario(linhas);
   if (!perguntas) {
-    redirect(`/setup?erro=${encodeURIComponent(motivo ?? "Não deu para ler o formulário.")}`);
+    recusar(motivo ?? "Não deu para ler o formulário.", igUserId, linhas);
   }
 
   const r = await sincronizarPerguntas(conta.ig_user_id, conta.access_token, perguntas);
   if (!r.efeito) {
-    redirect(`/setup?erro=${encodeURIComponent(r.motivo ?? "Não deu para gravar as perguntas.")}`);
+    recusar(r.motivo ?? "Não deu para gravar as perguntas.", igUserId, linhas);
   }
   const efeito = r.efeito;
   if (efeito.status !== 200) {
@@ -252,10 +273,10 @@ export async function salvarPerguntasDeAbertura(formData: FormData): Promise<voi
     // lê "não deu certo" e não tem por onde seguir. O token não aparece em
     // resposta de erro da Meta: o que volta é `message`, `type`, `code` e
     // `fbtrace_id`.
-    redirect(
-      `/setup?erro=${encodeURIComponent(
-        `A Meta recusou as perguntas de @${conta.username ?? conta.ig_user_id} (HTTP ${efeito.status}): ${efeito.corpo.slice(0, 300)}`
-      )}`
+    recusar(
+      `A Meta recusou as perguntas de @${conta.username ?? conta.ig_user_id} (HTTP ${efeito.status}): ${efeito.corpo.slice(0, 300)}`,
+      igUserId,
+      linhas
     );
   }
 
@@ -267,12 +288,12 @@ export async function salvarPerguntasDeAbertura(formData: FormData): Promise<voi
   // aparece para toda pessoa que abre a conversa e não dispara nada.
   const sumiram = perguntasQueNaoFicaram(perguntas, efeito.leitura.perguntas);
   if (sumiram.length) {
-    redirect(
-      `/setup?erro=${encodeURIComponent(
-        `A Meta aceitou a chamada (HTTP 200) mas não guardou como foi mandado: ${sumiram
-          .map((p) => `“${p.question}”`)
-          .join(", ")}. Confira as perguntas desta conta antes de contar com elas.`
-      )}`
+    recusar(
+      `A Meta aceitou a chamada (HTTP 200) mas não guardou como foi mandado: ${sumiram
+        .map((p) => `“${p.question}”`)
+        .join(", ")}. Confira as perguntas desta conta antes de contar com elas.`,
+      igUserId,
+      linhas
     );
   }
 

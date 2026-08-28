@@ -3,7 +3,10 @@ import {
   GATILHO_DE_ABERTURA,
   TETO_DE_POSICOES,
   contaDoFormulario,
+  escreverRascunho,
   formularioDasPortas,
+  lerRascunho,
+  linhasComRascunho,
   linhasDasPortas,
   linhasDoFormulario,
   opcoesDeAutomacao,
@@ -14,7 +17,7 @@ import {
   type Linha,
 } from "@/app/setup/portas";
 import { MAXIMO_DE_PERGUNTAS, identificadorSobrevive } from "@/lib/perguntas-de-abertura";
-import { payloadDaPergunta } from "@/lib/steps";
+import { PAYLOAD_SEM_AUTOMACAO, lerPayload, payloadDaPergunta } from "@/lib/steps";
 
 // O QUE ESTE ARQUIVO PROTEGE é a tela das quatro portas de entrada.
 //
@@ -229,10 +232,82 @@ describe("do formulário para a Meta", () => {
     ]);
   });
 
-  it("texto sem identificador nenhum é recusado, e o recado nomeia a pergunta", () => {
-    const { perguntas, motivo } = perguntasDoFormulario([linha("Pergunta solta")]);
-    expect(perguntas).toBeUndefined();
-    expect(motivo).toContain("Pergunta solta");
+  // O CASO QUE A SPEC NOMEIA COM TODAS AS LETRAS: "uma pergunta que não dispara
+  // automação nenhuma. 'Quais são os valores?' pode ser só uma pergunta que o
+  // dono responde à mão — e ainda assim vale estar no menu."
+  //
+  // Ele era EXIBÍVEL e não CRIÁVEL: o seletor oferece "Nenhuma automação" e a
+  // coluna imprime "Não dispara nada" para as perguntas que já existem, mas
+  // salvar recusava com "precisa apontar para uma automação". A tela oferecendo
+  // o que o salvar nega é a mesma doença que esta branch fechou na paleta.
+  it("pergunta sem automação nenhuma é CRIÁVEL — a spec a nomeia", () => {
+    const { perguntas, motivo } = perguntasDoFormulario([linha("Quais são os valores?")]);
+    expect(motivo).toBeUndefined();
+    expect(perguntas).toEqual([
+      { question: "Quais são os valores?", payload: PAYLOAD_SEM_AUTOMACAO },
+    ]);
+  });
+
+  // AS TRÊS COISAS QUE O IDENTIFICADOR INERTE TEM DE SER, e nenhuma delas é
+  // opinião: sem elas a pergunta ou não fica na Meta, ou dispara alguma coisa,
+  // ou aparece na tela pintada de vermelho.
+  it("o identificador inerte sobrevive à Meta, não dispara nada e não é erro", () => {
+    const [p] = perguntasDoFormulario([linha("Quais são os valores?")]).perguntas!;
+    // 1. A Meta guarda: sem `:` e sem `|`.
+    expect(identificadorSobrevive(p.payload)).toBe(true);
+    // 2. O MOTOR não vê automação nenhuma nele — é `lerPayload` quem decide, e
+    //    é a mesma função que `handleMessagingEvent` chama.
+    expect(lerPayload(p.payload)).toBeNull();
+    // 3. E a TELA o reconhece como escolha, e não como pergunta estranha: sem
+    //    aviso nenhum. Se ele começasse por `ABERTURA_`, esta linha seria o
+    //    vermelho "aponta para uma automação que não existe mais nesta conta".
+    const [l] = linhasDasPortas([p], TODAS);
+    expect(l.dispara).toBe("Não dispara nada");
+    expect(l.aviso).toBeNull();
+    expect(l.automacaoId).toBeNull();
+  });
+
+  it("a pergunta inerte sobrevive a um Salvar que não a tocou", () => {
+    const { perguntas } = perguntasDoFormulario([
+      linha("Quais são os valores?", "", PAYLOAD_SEM_AUTOMACAO),
+      linha("Nova", OK.id),
+    ]);
+    expect(perguntas?.[0].payload).toBe(PAYLOAD_SEM_AUTOMACAO);
+  });
+
+  // A OUTRA METADE DA MESMA HONESTIDADE: pôr o seletor em "Nenhuma automação"
+  // numa pergunta que este painel ligou tem de DESLIGAR. Quem separa este caso
+  // da herança é o formulário — `formularioDasPortas` não manda o identificador
+  // herdado das linhas que o seletor sabe representar —, e é por isso que o
+  // caso está medido a partir do formulário, e não desta função sozinha.
+  it("tirar a automação de uma pergunta ligada desliga mesmo", () => {
+    const ligada = [{ question: "Quero saber mais", payload: payloadDaPergunta(OK.id) }];
+    const form = formularioDasPortas("conta", linhasDasPortas(ligada, TODAS));
+    // O seletor representa a linha, então o payload herdado NÃO vai no
+    // formulário: mandá-lo faria a herança vencer a escolha do dono.
+    expect(form.linhas[0].automacao.valor).toBe(OK.id);
+    expect(form.linhas[0].payload.valor).toBe("");
+
+    // O dono põe o seletor em "Nenhuma automação".
+    const { perguntas } = perguntasDoFormulario([
+      { texto: "Quero saber mais", automacaoId: "", payload: form.linhas[0].payload.valor },
+    ]);
+    expect(perguntas).toEqual([
+      { question: "Quero saber mais", payload: PAYLOAD_SEM_AUTOMACAO },
+    ]);
+  });
+
+  // E A REGRA 3 CONTINUA DE PÉ, que é a linha que protege produção: três contas
+  // têm perguntas `abertura-...` no ar, o painel não as entende, o seletor não
+  // as representa — então o identificador delas VAI no formulário e é herdado.
+  it("o identificador que o painel não entende continua sendo herdado", () => {
+    const antiga = [{ question: "Quais são os valores?", payload: "abertura-valores" }];
+    const form = formularioDasPortas("conta", linhasDasPortas(antiga, TODAS));
+    expect(form.linhas[0].payload.valor).toBe("abertura-valores");
+    const { perguntas } = perguntasDoFormulario([
+      { texto: "Quais são os valores?", automacaoId: "", payload: form.linhas[0].payload.valor },
+    ]);
+    expect(perguntas?.[0].payload).toBe("abertura-valores");
   });
 
   it("automação escolhida sem texto é recusada, e o recado diz a posição", () => {
@@ -315,12 +390,13 @@ describe("o que a TELA escreve é o que a AÇÃO lê", () => {
     // certo" de "leu o campo de outra linha": a do meio não aponta para
     // automação nenhuma deste painel.
     expect(linhas!.map((l) => l.automacaoId)).toEqual([OK.id, "", PAUSADA.id, ""]);
-    expect(linhas!.map((l) => l.payload)).toEqual([
-      payloadDaPergunta(OK.id),
-      "abertura-valores",
-      payloadDaPergunta(PAUSADA.id),
-      "",
-    ]);
+    // O IDENTIFICADOR HERDADO SÓ ATRAVESSA O FORMULÁRIO QUANDO O SELETOR NÃO
+    // SABE DIZÊ-LO. As posições 1 e 3 o seletor representa (a automação está na
+    // lista da conta, pausada inclusive), e o "Salvar" reconstrói o
+    // identificador delas a partir da escolha; a 2 ele não representa, e é
+    // justamente essa que precisa herdar para não ser reescrita. Ver a regra 4
+    // de `perguntasDoFormulario`.
+    expect(linhas!.map((l) => l.payload)).toEqual(["", "abertura-valores", "", ""]);
   });
 
   // O CASO QUE CUSTA A CONTA INTEIRA. Salvar sem mexer em nada tem de devolver à
@@ -391,6 +467,109 @@ describe("o que a TELA escreve é o que a AÇÃO lê", () => {
     f.set("conta", CONTA);
     f.set("posicoes", "5000");
     expect(linhasDoFormulario(f).linhas).toHaveLength(TETO_DE_POSICOES);
+  });
+});
+
+// ===========================================================================
+// A RECUSA NÃO PODE CUSTAR O RESTO DO FORMULÁRIO.
+//
+// A ação responde a toda recusa com `redirect("/setup?erro=…")`, e a tela
+// recarrega DA META. O dono que reescreve as quatro perguntas e erra uma delas
+// perdia as outras três — e lia o motivo do erro numa tela que já tinha voltado
+// ao que estava antes.
+// ===========================================================================
+describe("o rascunho: o que o dono escreveu volta com a recusa", () => {
+  const CONTA = "17800000000000222";
+  const OUTRA = "17800000000000111";
+
+  const escritas = [
+    { texto: "Quero saber mais", automacaoId: OK.id, payload: "" },
+    { texto: "Quais são os valores?", automacaoId: "", payload: "" },
+    { texto: "", automacaoId: OUTRO_GATILHO.id, payload: "" }, // a que causa a recusa
+    { texto: "", automacaoId: "", payload: "" },
+  ];
+
+  function comORascunho(conta: string, linhas: typeof escritas) {
+    return linhasComRascunho(
+      linhasDasPortas([], TODAS),
+      TODAS,
+      lerRascunho(escreverRascunho(conta, linhas)),
+      CONTA
+    );
+  }
+
+  it("as três posições que o dono escreveu voltam na tela", () => {
+    const linhas = comORascunho(CONTA, escritas);
+    expect(linhas.map((l) => l.texto)).toEqual(["Quero saber mais", "Quais são os valores?", "", ""]);
+    // E a posição que causou a recusa volta COM a automação escolhida, para o
+    // recado ("escreva a pergunta ou tire a automação") ter do que falar.
+    expect(linhas[2].automacaoId).toBe(OUTRO_GATILHO.id);
+    expect(linhas[0].automacaoId).toBe(OK.id);
+  });
+
+  // O QUE A TELA REDESENHA TEM DE SER O QUE O SALVAR SEGUINTE VAI ESCREVER:
+  // as duas pontas passam por `payloadDaLinha`. Redesenhar com outra regra faria
+  // a tela mostrar um destino e a gravação escrever outro.
+  it("o destino redesenhado é o mesmo que a gravação escreveria", () => {
+    const linhas = comORascunho(CONTA, escritas);
+    expect(linhas[0].payload).toBe(payloadDaPergunta(OK.id));
+    expect(linhas[0].dispara).toBe(OK.name);
+    // A pergunta sem automação volta como o que ela é: inerte, e sem aviso.
+    expect(linhas[1].payload).toBe(PAYLOAD_SEM_AUTOMACAO);
+    expect(linhas[1].aviso).toBeNull();
+  });
+
+  // O RASCUNHO É DE UMA CONTA SÓ, e a tela desenha todas as conectadas. Sem
+  // isto, o "Salvar" recusado de uma conta reescreveria a tela da outra com as
+  // perguntas da primeira.
+  it("o rascunho de outra conta não encosta nesta", () => {
+    const daMeta = linhasDasPortas([{ question: "A que está no ar", payload: "abertura-x" }], TODAS);
+    const linhas = linhasComRascunho(
+      daMeta,
+      TODAS,
+      lerRascunho(escreverRascunho(OUTRA, escritas)),
+      CONTA
+    );
+    expect(linhas).toEqual(daMeta);
+  });
+
+  // O QUE CHEGA É TEXTO DE URL, e portanto não é confiável. Tudo que não for
+  // exatamente o esperado tem de virar `null` — e `null` faz a tela desenhar o
+  // que a Meta diz, que é o comportamento de sempre.
+  it("qualquer coisa torta na URL vira nada, e a tela volta a ser a da Meta", () => {
+    const tortos: unknown[] = [
+      undefined,
+      "",
+      "{",
+      "null",
+      '"texto"',
+      "[]",
+      JSON.stringify({ linhas: [] }),
+      JSON.stringify({ conta: CONTA }),
+      JSON.stringify({ conta: 7, linhas: [] }),
+      JSON.stringify({ conta: CONTA, linhas: [{ texto: 1, automacaoId: "", payload: "" }] }),
+      JSON.stringify({ conta: CONTA, linhas: [{ texto: "a", payload: "" }] }),
+      JSON.stringify({ conta: CONTA, linhas: Array(50).fill({ texto: "a", automacaoId: "", payload: "" }) }),
+      JSON.stringify({ conta: CONTA, linhas: [{ texto: "a".repeat(5000), automacaoId: "", payload: "" }] }),
+    ];
+    for (const t of tortos) {
+      expect(lerRascunho(t), `${String(t).slice(0, 40)} passou`).toBeNull();
+    }
+    const daMeta = linhasDasPortas([], TODAS);
+    expect(linhasComRascunho(daMeta, TODAS, lerRascunho("{"), CONTA)).toEqual(daMeta);
+  });
+
+  // Um `Location` de cabeçalho não é lugar para carga arbitrária: rascunho que
+  // não cabe é perdido de propósito, e o dono vê o motivo da recusa em vez de um
+  // erro de infraestrutura.
+  it("rascunho grande demais não vai para a URL", () => {
+    const enorme = Array.from({ length: 8 }, () => ({
+      texto: "x".repeat(900),
+      automacaoId: "",
+      payload: "",
+    }));
+    expect(escreverRascunho(CONTA, enorme)).toBeNull();
+    expect(escreverRascunho(CONTA, escritas)).toBeTruthy();
   });
 });
 

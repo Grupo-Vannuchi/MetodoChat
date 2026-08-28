@@ -4,6 +4,8 @@ import {
   AVISO_DA_LIGACAO,
   LIGAR_FUNCIONA,
   formularioDasPortas,
+  lerRascunho,
+  linhasComRascunho,
   linhasDasPortas,
   opcoesDeAutomacao,
   resumoDoLimite,
@@ -45,9 +47,14 @@ import {
 // o dono pode ter mexido pelo painel dela — o banco não saberia. A Meta é a
 // verdade, e é o que esta tela mostra; o banco entra só para dar NOME às
 // automações que os identificadores apontam.
-export default async function PortasDeEntrada() {
+export default async function PortasDeEntrada({ rascunho }: { rascunho?: string }) {
   const accounts = await listAccounts();
   if (!accounts.length) return null;
+
+  // O QUE O DONO TINHA ESCRITO QUANDO A GRAVAÇÃO RECUSOU. Chega como texto de
+  // URL e é tratado como não confiável — quem decide se ele vale, de qual conta
+  // é e como cada linha fica na tela é `./portas.ts`, com teste.
+  const doRascunho = lerRascunho(rascunho);
 
   const contas = await Promise.all(
     accounts.map(async (a) => ({
@@ -86,7 +93,12 @@ export default async function PortasDeEntrada() {
       {!LIGAR_FUNCIONA && <div className={alertError}>{AVISO_DA_LIGACAO}</div>}
 
       {contas.map((c) => {
-        const linhas = linhasDasPortas(c.leitura.perguntas, c.automacoes);
+        const linhas = linhasComRascunho(
+          linhasDasPortas(c.leitura.perguntas, c.automacoes),
+          c.automacoes,
+          doRascunho,
+          c.igUserId
+        );
         const form = formularioDasPortas(c.igUserId, linhas);
         const resumo = resumoDoLimite(c.leitura.perguntas.length);
         const opcoes = opcoesDeAutomacao(c.automacoes);

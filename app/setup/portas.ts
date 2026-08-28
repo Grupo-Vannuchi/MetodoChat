@@ -14,7 +14,7 @@
 // O QUE ESTE ARQUIVO NÃO DECIDE: a regra da META (o `locale`, os corpos, o
 // limite) mora em `lib/perguntas-de-abertura.ts`, e o formato do identificador
 // mora em `lib/steps.ts`. Aqui só se responde o que a TELA pergunta.
-import { lerPayload, payloadDaPergunta } from "@/lib/steps";
+import { PAYLOAD_SEM_AUTOMACAO, lerPayload, payloadDaPergunta } from "@/lib/steps";
 import {
   MAXIMO_DE_PERGUNTAS,
   identificadorSobrevive,
@@ -143,6 +143,15 @@ function destinoDe(
   payload: string,
   porId: Map<string, AutomacaoConhecida>
 ): Pick<Linha, "automacaoId" | "dispara" | "aviso"> {
+  // 0. A PERGUNTA QUE O DONO ESCOLHEU NÃO LIGAR A NADA. Ela é o caso que a spec
+  // nomeia ("uma pergunta que o dono responde à mão — e ainda assim vale estar
+  // no menu"), e por isso ela sai ANTES do ramo 1: os dois têm `lerPayload`
+  // nulo, mas este é uma ESCOLHA e aquele é uma pergunta que o painel não
+  // reconhece. Marcá-la com o aviso do ramo 1 seria a tela repreendendo o dono
+  // por ter feito o que a tela ofereceu.
+  if (payload === PAYLOAD_SEM_AUTOMACAO) {
+    return { automacaoId: null, dispara: SEM_AUTOMACAO, aviso: null };
+  }
   const p = lerPayload(payload);
   // 1. IDENTIFICADOR DE OUTRO FORMATO — e este caso ESTÁ NO AR HOJE. As
   // perguntas de teste em produção (@vannuchi.eng, @n8xmarketing,
@@ -298,9 +307,12 @@ export type CamposDaLinha = {
   posicao: number;
   texto: { nome: string; valor: string };
   automacao: { nome: string; valor: string };
-  // O identificador que veio da Meta, intacto, escondido no formulário. É ele
-  // que faz uma pergunta que este painel não entende sobreviver a um "Salvar"
-  // que não a tocou (`perguntasDoFormulario`).
+  // O identificador que veio da Meta, escondido no formulário — E SÓ QUANDO O
+  // SELETOR NÃO SABE DIZÊ-LO. Ele existe para uma pergunta que este painel não
+  // entende sobreviver a um "Salvar" que não a tocou; para as que ele entende, o
+  // seletor reconstrói o identificador sozinho, e mandar os dois faria a herança
+  // vencer a escolha do dono — "Nenhuma automação" viraria um clique que não
+  // desliga nada. Ver a regra 4 de `perguntasDoFormulario`.
   payload: { nome: string; valor: string };
   dispara: string;
   aviso: Aviso | null;
@@ -325,7 +337,7 @@ export function formularioDasPortas(igUserId: string, linhas: Linha[]): Formular
       posicao: l.posicao,
       texto: { nome: campoTexto(l.posicao), valor: l.texto },
       automacao: { nome: campoAutomacao(l.posicao), valor: l.automacaoId ?? "" },
-      payload: { nome: campoPayload(l.posicao), valor: l.payload },
+      payload: { nome: campoPayload(l.posicao), valor: l.automacaoId ? "" : l.payload },
       dispara: l.dispara,
       aviso: l.aviso,
     })),
@@ -388,6 +400,118 @@ export function linhasDoFormulario(dados: LeitorDeCampos): {
   return { linhas };
 }
 
+// ============================================================
+// O RASCUNHO: O QUE O DONO TINHA ESCRITO QUANDO A GRAVAÇÃO RECUSOU.
+//
+// A ação responde a toda recusa com `redirect("/setup?erro=…")`, e a tela recarrega
+// DA META. Sem isto, o dono que reescreve as quatro perguntas e erra uma delas
+// perde as outras três: ele lê o motivo do erro numa tela que já voltou ao que
+// estava antes, e nem sempre percebe que perdeu.
+//
+// AS PORTAS PELAS QUAIS ISSO ACONTECE NÃO SÃO HIPOTÉTICAS: a posição com
+// automação escolhida e texto apagado; a conta multi-idioma, que tem mais de
+// quatro perguntas e é recusada por `conferirPerguntas`; e toda recusa da META
+// — HTTP diferente de 200, ou pergunta que não ficou como foi mandada.
+//
+// POR QUE PELA URL, e não por estado de formulário: esta tela é um Server
+// Component dentro de um `<Suspense>` que espera a Meta responder. Transformá-la
+// em componente de cliente com `useActionState` para carregar o rascunho traria
+// de volta ao JSX exatamente o tipo de decisão que este arquivo existe para
+// tirar de lá.
+//
+// O QUE CHEGA AQUI É TEXTO DE URL, e portanto NÃO É CONFIÁVEL: `lerRascunho`
+// trata tudo como suspeito — JSON quebrado, formato errado, campo que não é
+// string, lista gigante — e devolve `null` para qualquer coisa que não seja
+// exatamente o esperado. `null` faz a tela desenhar o que a Meta diz, que é o
+// comportamento de sempre.
+// ============================================================
+export type Rascunho = { conta: string; linhas: LinhaDoFormulario[] };
+
+// O TETO DA URL. Um `Location` de cabeçalho não é lugar para carga arbitrária, e
+// um rascunho que não cabe é melhor perdido do que virando um redirecionamento
+// que o servidor da frente recusa — o dono veria um erro de infraestrutura no
+// lugar do motivo da recusa.
+const LIMITE_DO_RASCUNHO = 4000;
+const LIMITE_DO_CAMPO = 1000;
+
+export function escreverRascunho(conta: string, linhas: LinhaDoFormulario[]): string | null {
+  const texto = JSON.stringify({ conta, linhas } satisfies Rascunho);
+  return texto.length > LIMITE_DO_RASCUNHO ? null : texto;
+}
+
+function campoDoRascunho(valor: unknown): string | null {
+  if (typeof valor !== "string" || valor.length > LIMITE_DO_CAMPO) return null;
+  return valor;
+}
+
+export function lerRascunho(bruto: unknown): Rascunho | null {
+  if (typeof bruto !== "string" || !bruto) return null;
+  let json: unknown;
+  try {
+    json = JSON.parse(bruto);
+  } catch {
+    return null;
+  }
+  const r = (json ?? {}) as { conta?: unknown; linhas?: unknown };
+  const conta = campoDoRascunho(r.conta);
+  if (!conta || !Array.isArray(r.linhas) || r.linhas.length > TETO_DE_POSICOES) return null;
+  const linhas: LinhaDoFormulario[] = [];
+  for (const item of r.linhas) {
+    const l = (item ?? {}) as Partial<LinhaDoFormulario>;
+    const texto = campoDoRascunho(l.texto);
+    const automacaoId = campoDoRascunho(l.automacaoId);
+    const payload = campoDoRascunho(l.payload);
+    if (texto === null || automacaoId === null || payload === null) return null;
+    linhas.push({ texto, automacaoId, payload });
+  }
+  return { conta, linhas };
+}
+
+// AS LINHAS QUE A TELA DESENHA DEPOIS DE UMA RECUSA.
+//
+// O rascunho é de UMA conta, e a tela desenha todas as conectadas: sem a
+// conferência de `conta`, o "Salvar" recusado de `@vannuchi.eng` reescreveria a
+// tela de `@thiagovannuchi` com as perguntas da primeira.
+//
+// O IDENTIFICADOR DE CADA LINHA É RECALCULADO POR `payloadDaLinha`, a MESMA
+// função que a gravação usa. Redesenhar com outra regra faria a tela mostrar um
+// destino e o "Salvar" seguinte escrever outro — que é a doença que este achado
+// fechou.
+export function linhasComRascunho(
+  linhasDaMeta: Linha[],
+  automacoes: AutomacaoConhecida[],
+  rascunho: Rascunho | null,
+  igUserId: string
+): Linha[] {
+  if (!rascunho || rascunho.conta !== igUserId) return linhasDaMeta;
+  const porId = new Map(automacoes.map((a) => [a.id, a]));
+  const total = Math.max(rascunho.linhas.length, MAXIMO_DE_PERGUNTAS);
+  const linhas: Linha[] = [];
+  for (let i = 0; i < total; i++) {
+    const l = rascunho.linhas[i];
+    const texto = l?.texto ?? "";
+    const automacaoId = l?.automacaoId ?? "";
+    const herdado = l?.payload ?? "";
+    // Posição que o dono deixou em branco por completo: livre, como a Meta a
+    // desenharia. Não vira "pergunta sem automação" — ela não é pergunta
+    // nenhuma, e `perguntasDoFormulario` a descarta pelo mesmo motivo.
+    if (!texto.trim() && !automacaoId) {
+      linhas.push({
+        posicao: i + 1,
+        texto,
+        payload: herdado,
+        automacaoId: null,
+        dispara: VAZIA,
+        aviso: null,
+      });
+      continue;
+    }
+    const payload = payloadDaLinha(automacaoId, herdado);
+    linhas.push({ posicao: i + 1, texto, payload, ...destinoDe(payload, porId) });
+  }
+  return linhas;
+}
+
 // Uma linha como o formulário a devolve. `automacaoId` vazio é "nenhuma"
 // escolhida no seletor; `payload` é o que veio da Meta, intacto.
 export type LinhaDoFormulario = { texto: string; automacaoId: string; payload: string };
@@ -406,16 +530,30 @@ export type LinhaDoFormulario = { texto: string; automacaoId: string; payload: s
 //    (`payloadDaPergunta`, lib/steps.ts). É esta linha que liga a pergunta à
 //    automação, e é a única escritora deste formato na tela.
 //
-// 3. QUEM NÃO ESCOLHEU FICA COM O IDENTIFICADOR QUE JÁ ESTAVA LÁ. É o que
-//    protege as perguntas antigas de produção: elas usam `abertura-...`, este
-//    painel não as entende, e um "Salvar" feito para mexer em OUTRA posição não
-//    pode reescrevê-las nem apagá-las por tabela. Sem esta linha, salvar a tela
-//    apagaria três perguntas que estão no ar em três contas.
+// 3. QUEM NÃO ESCOLHEU FICA COM O IDENTIFICADOR QUE JÁ ESTAVA LÁ, quando esse
+//    identificador NÃO É DESTE PAINEL. É o que protege as perguntas antigas de
+//    produção: elas usam `abertura-...`, este painel não as entende, e um
+//    "Salvar" feito para mexer em OUTRA posição não pode reescrevê-las nem
+//    apagá-las por tabela. Sem esta linha, salvar a tela apagaria três
+//    perguntas que estão no ar em três contas.
 //
-// E O QUE ELA RECUSA: texto sem identificador nenhum — nem escolhido nem
-// herdado. Aceitar seria pôr no ar uma pergunta que não responde ao toque, que
-// é o defeito mais caro desta tela, porque ele só aparece na conversa de quem
-// tocou.
+// 4. E "NENHUMA AUTOMAÇÃO" NUMA PERGUNTA QUE O SELETOR REPRESENTA DESLIGA
+//    MESMO. Quem separa este caso da regra 3 não é uma condição aqui: é o
+//    FORMULÁRIO. `formularioDasPortas` só manda o identificador herdado das
+//    linhas que o seletor NÃO consegue representar — as outras o seletor
+//    reconstrói sozinho, e mandar as duas coisas faria a herança vencer a
+//    escolha. Sem isso, o dono põe o seletor em "Nenhuma automação", salva, e a
+//    pergunta continua ligada: a tela oferecendo o que o salvar desfaz calado.
+//
+// O QUE ELA NÃO RECUSA MAIS: a pergunta que não dispara automação nenhuma. A
+// spec a nomeia — "'Quais são os valores?' pode ser só uma pergunta que o dono
+// responde à mão, e ainda assim vale estar no menu" —, o seletor OFERECE
+// "Nenhuma automação" e a coluna imprime "Não dispara nada" para as que já
+// existem. Recusar era a tela oferecer o que o salvar nega, que é a mesma
+// doença que esta branch fechou na paleta (`salvarRecusaOBloco`). Ela passa a
+// ganhar `PAYLOAD_SEM_AUTOMACAO` (lib/steps.ts): um identificador que existe —
+// a Meta exige um —, sobrevive ao `messenger_profile` e não é lido como nada
+// pelo motor.
 export function perguntasDoFormulario(linhas: LinhaDoFormulario[]): {
   perguntas?: Pergunta[];
   motivo?: string;
@@ -437,15 +575,17 @@ export function perguntasDoFormulario(linhas: LinhaDoFormulario[]): {
       }
       continue;
     }
-    const payload = automacaoId ? payloadDaPergunta(automacaoId) : herdado;
-    if (!payload) {
-      return {
-        motivo: `A pergunta “${texto}” precisa apontar para uma automação — sem isso, quem tocar nela não recebe nada.`,
-      };
-    }
-    perguntas.push({ question: texto, payload });
+    perguntas.push({ question: texto, payload: payloadDaLinha(automacaoId, herdado) });
   }
   return { perguntas };
+}
+
+// As regras 2, 3 e 4 acima, numa decisão só — e ela é a mesma que
+// `linhasComRascunho` usa para redesenhar a tela depois de uma recusa, para que
+// o dono não veja uma coisa e o salvar faça outra.
+export function payloadDaLinha(automacaoId: string, herdado: string): string {
+  if (automacaoId) return payloadDaPergunta(automacaoId);
+  return herdado || PAYLOAD_SEM_AUTOMACAO;
 }
 
 // AS AUTOMAÇÕES QUE O SELETOR OFERECE, e por que ele oferece TODAS.

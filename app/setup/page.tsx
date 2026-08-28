@@ -73,7 +73,7 @@ function Step({
 export default async function SetupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ erro?: string; salvo?: string }>;
+  searchParams: Promise<{ erro?: string; salvo?: string; rascunho?: string }>;
 }) {
   const sp = await searchParams;
   const config = await getConfig();
@@ -547,7 +547,10 @@ export default async function SetupPage({
             painel: se você mexeu por lá, é isto que a pessoa está vendo.
           </p>
           <Suspense fallback={<PortasDeEntradaSkeleton />}>
-            <PortasDeEntrada />
+            {/* O RASCUNHO da última recusa, se houve uma: o que o dono tinha
+                escrito quando a gravação foi negada. Daqui ele passa como texto
+                cru de URL; quem o lê e o valida é `lerRascunho` (./portas.ts). */}
+            <PortasDeEntrada rascunho={sp.rascunho} />
           </Suspense>
         </section>
       )}

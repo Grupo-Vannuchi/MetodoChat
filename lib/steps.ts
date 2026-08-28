@@ -2061,6 +2061,35 @@ export function payloadDaPergunta(automationId: string): string {
   return `${PREFIXO_DA_PERGUNTA}${automationId}`;
 }
 
+// A PERGUNTA QUE NÃO DISPARA NADA, E ELA É PEDIDA PELA SPEC.
+//
+// A spec decide, com todas as letras: o menu de abertura "resolve um caso que o
+// campo-por-automação não resolveria: uma pergunta que não dispara automação
+// nenhuma. 'Quais são os valores?' pode ser só uma pergunta que o dono responde
+// à mão — e ainda assim vale estar no menu."
+//
+// TODA PERGUNTA PRECISA DE UM IDENTIFICADOR: sem ele a Meta recusa (`question` e
+// `payload` são as duas metades obrigatórias, ver `conferirPerguntas`), então
+// "sem automação" não pode ser "sem payload". Precisa ser um payload que exista
+// e que não signifique nada — e é este.
+//
+// AS TRÊS COISAS QUE ELE TEM DE SER, e as três estão medidas:
+//
+//   1. LIDO COMO NADA. `lerPayload` devolve `null` para ele, e o motor então o
+//      trata como qualquer forma que não é nossa: registra
+//      `webhook_messaging_nao_tratado` e não entrega nada. É o mesmo desfecho
+//      das perguntas de teste que estão no ar em produção (`abertura-...`), e
+//      ele é o desfecho DESEJADO aqui, não um acidente.
+//   2. SOBREVIVENTE DA META. Sem `:` e sem `|` — os dois únicos caracteres que o
+//      `messenger_profile` come (ver `identificadorSobrevive`). Uma pergunta
+//      inerte que a Meta engolisse sumiria do menu, que é o contrário do pedido.
+//   3. LONGE DE `ABERTURA_`. Ele NÃO PODE começar pelo prefixo da pergunta: se
+//      começasse, `lerPayload` devolveria `{ automationId: "SEM_AUTOMACAO" }`,
+//      `loadAutomation` não acharia nada, o motor sairia calado — e a TELA
+//      pintaria a linha de VERMELHO dizendo "aponta para uma automação que não
+//      existe mais nesta conta". Um estado escolhido de propósito viraria erro.
+export const PAYLOAD_SEM_AUTOMACAO = "SEM_AUTOMACAO";
+
 // O limite da Meta para respostas rápidas numa única mensagem.
 //
 // 13, lido no guia oficial ao implementar a Tarefa 4 (developers.facebook.com/

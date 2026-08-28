@@ -37,6 +37,7 @@ import {
   payloadDoPortao,
   payloadDaPergunta,
   PREFIXO_DA_PERGUNTA,
+  PAYLOAD_SEM_AUTOMACAO,
   botoesDaMensagem,
   LIMITE_DE_BOTOES,
   chaveDoQuando,
@@ -2214,6 +2215,32 @@ describe("o identificador de uma pergunta de abertura", () => {
     expect(lerPayload(`ABERTURA-${id}`)).toBe(null);
     expect(lerPayload(`abertura_${id}`)).toBe(null);
     expect(lerPayload(payloadDaPergunta(id))).not.toBe(null);
+  });
+
+  // A PERGUNTA QUE NÃO DISPARA NADA, e a spec a nomeia: "'Quais são os valores?'
+  // pode ser só uma pergunta que o dono responde à mão — e ainda assim vale
+  // estar no menu". Toda pergunta precisa de um identificador (a Meta exige as
+  // duas metades), então "sem automação" tem de ser um identificador que existe
+  // e não significa nada.
+  it("o identificador da pergunta sem automação não é lido como automação nenhuma", () => {
+    expect(lerPayload(PAYLOAD_SEM_AUTOMACAO)).toBe(null);
+  });
+
+  // A ARMADILHA QUE ESTA LINHA FECHA: se ele começasse por `ABERTURA_`,
+  // `lerPayload` devolveria `{ automationId: "SEM_AUTOMACAO" }`, `loadAutomation`
+  // não acharia nada, o motor sairia calado — e a tela de Configuração pintaria
+  // a linha de VERMELHO ("aponta para uma automação que não existe mais nesta
+  // conta"). Um estado escolhido de propósito viraria erro.
+  it("ele não pode começar pelo prefixo da pergunta", () => {
+    expect(PAYLOAD_SEM_AUTOMACAO.startsWith(PREFIXO_DA_PERGUNTA)).toBe(false);
+  });
+
+  // E A META TEM DE GUARDÁ-LO: ela come `:` e `|`, medido em 28/08/2026. Uma
+  // pergunta inerte que a Meta engolisse sumiria do menu — o contrário do
+  // pedido.
+  it("ele sobrevive ao que a Meta come", () => {
+    expect(PAYLOAD_SEM_AUTOMACAO).not.toContain(":");
+    expect(PAYLOAD_SEM_AUTOMACAO).not.toContain("|");
   });
 });
 
