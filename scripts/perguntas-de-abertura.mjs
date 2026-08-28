@@ -1,14 +1,26 @@
 // Perguntas de abertura (ice breakers) de uma conta conectada: ler, escrever, apagar.
 //
-// POR QUE ISTO É UM SCRIPT, E NÃO UMA TELA.
+// A REGRA DA META NÃO MORA MAIS AQUI. Ela saiu para `lib/perguntas-de-abertura.ts`
+// quando a tela de Configuração passou a precisar das mesmas três chamadas — o
+// `locale` obrigatório, o corpo do DELETE, a leitura de volta e o limite de
+// quatro estão lá, com teste puro, e este script os IMPORTA. Duas cópias da
+// mesma regra é a doença que esta base passou semanas curando.
 //
-// As perguntas de abertura são uma configuração GLOBAL da conta do Instagram —
-// no máximo 4 para a conta inteira, e elas aparecem para toda pessoa que abrir
-// a conversa. Não é objeto do produto, não pertence a automação nenhuma, e
-// desenhar tela para isso agora seria decidir um produto que ainda não foi
-// desenhado. Enquanto elas existirem só para o experimento de primeiro contato,
-// o lugar certo é aqui: explícito, com o nome da conta na linha de comando, e
-// desfazível numa linha.
+// O `.mjs` importa um `.ts` e isso funciona sem passo de build: o `node` deste
+// projeto (v24) apaga os tipos sozinho. É também o motivo de aquele módulo não
+// ter NENHUM import — o `node` não resolve o atalho `@/` nem carrega
+// `server-only`.
+//
+// O `node` avisa "MODULE_TYPELESS_PACKAGE_JSON" ao carregar aquele `.ts`, porque
+// o package.json deste projeto não declara `type`. É só aviso, vai para o
+// stderr, e a saída do script continua a mesma — pôr `"type": "module"` no
+// package.json para calá-lo mudaria a resolução de TODO o projeto por causa de
+// uma linha de log.
+//
+// POR QUE ESTE SCRIPT CONTINUA EXISTINDO, agora que há tela. Ele é o caminho
+// que não depende de sessão aberta no painel, e é o único que APAGA o campo
+// inteiro numa linha — o desfazer de emergência. A tela é para o dono; isto é
+// para quem está consertando.
 //
 // ELAS APARECEM PARA TODO MUNDO. Escrever numa conta com automação real no ar
 // muda o que os clientes dela veem ao abrir a conversa. Por isso o nome da
@@ -23,8 +35,11 @@
 // impresso, em nenhum caminho.
 import postgres from "postgres";
 import { readFileSync } from "node:fs";
-
-const GRAPH = "https://graph.instagram.com/v25.0";
+import {
+  lerPerguntas,
+  sincronizarPerguntas,
+  MAXIMO_DE_PERGUNTAS,
+} from "../lib/perguntas-de-abertura.ts";
 
 // Cada fornecedor inventa o seu parâmetro de URL. Espelha o limparUrl de lib/db.ts.
 function limparUrl(url) {
@@ -49,50 +64,41 @@ if (!conta) {
   await sql.end();
   process.exit(1);
 }
-const token = encodeURIComponent(conta.access_token);
 
-// A leitura de volta é o fim de TODO caminho, inclusive o de escrita: um 200 do
-// POST diz que a Meta aceitou a chamada, não que a conta ficou como se queria.
-async function ler() {
-  const r = await fetch(`${GRAPH}/${conta.ig_user_id}/messenger_profile?fields=ice_breakers&access_token=${token}`);
-  console.log(`GET @${conta.username} ->`, r.status, await r.text());
+// A leitura de volta é o fim de TODO caminho, inclusive o de escrita, e quem
+// garante isso agora é o módulo: os dois efeitos devolvem `leitura` junto.
+function mostrarLeitura(l) {
+  console.log(`GET @${conta.username} ->`, l.status, l.corpo);
 }
 
 if (acao === "--ler") {
-  await ler();
-} else if (acao === "--apagar") {
-  const r = await fetch(`${GRAPH}/${conta.ig_user_id}/messenger_profile?access_token=${token}`, {
-    method: "DELETE",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ fields: ["ice_breakers"] }),
-  });
-  console.log(`DELETE @${conta.username} ->`, r.status, await r.text());
-  await ler();
+  mostrarLeitura(await lerPerguntas(conta.ig_user_id, conta.access_token));
 } else {
-  // Cada argumento é "Pergunta|payload". No máximo 4, e o limite é da Meta.
-  const call_to_actions = resto.map((p) => {
-    const [question, payload] = p.split("|");
-    if (!question || !payload) throw new Error(`argumento fora do formato "Pergunta|payload": ${p}`);
-    return { question, payload };
-  });
-  if (!call_to_actions.length || call_to_actions.length > 4) {
-    throw new Error("são de 1 a 4 perguntas — o limite de 4 é da conta inteira, e é da Meta");
+  // No `--apagar` a lista é vazia de propósito: `acaoDaEscrita` (no módulo)
+  // traduz lista vazia em DELETE, que é a única forma de a conta ficar sem
+  // pergunta nenhuma — a Meta recusa POST com `call_to_actions` vazio.
+  //
+  // Cada argumento do `--escrever` é "Pergunta|payload". Este pedaço é formato
+  // de LINHA DE COMANDO, não regra da Meta, e por isso continua aqui.
+  const perguntas =
+    acao === "--apagar"
+      ? []
+      : resto.map((p) => {
+          const [question, payload] = p.split("|");
+          if (!question || !payload) throw new Error(`argumento fora do formato "Pergunta|payload": ${p}`);
+          return { question, payload };
+        });
+  if (acao === "--escrever" && !perguntas.length) {
+    throw new Error(`são de 1 a ${MAXIMO_DE_PERGUNTAS} perguntas — para zerar, use --apagar`);
   }
-  // O `locale` é OBRIGATÓRIO, e isso foi medido contra a API, não lido.
-  // Sem ele a Meta responde 400, subcode 2534058: "os conjuntos de chaves dos
-  // parâmetros de quebra-gelo devem ter o formato (question, payload) ou
-  // (call_to_actions, locale)". A forma sem `locale`, que é a que a
-  // documentação mostra, NÃO é aceita neste endpoint.
-  const r = await fetch(`${GRAPH}/${conta.ig_user_id}/messenger_profile?access_token=${token}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      platform: "instagram",
-      ice_breakers: [{ locale: "default", call_to_actions }],
-    }),
-  });
-  console.log(`POST @${conta.username} ->`, r.status, await r.text());
-  await ler();
+  const { efeito, motivo } = await sincronizarPerguntas(conta.ig_user_id, conta.access_token, perguntas);
+  if (motivo) {
+    console.error(motivo);
+    await sql.end();
+    process.exit(1);
+  }
+  console.log(`${acao === "--apagar" ? "DELETE" : "POST"} @${conta.username} ->`, efeito.status, efeito.corpo);
+  mostrarLeitura(efeito.leitura);
 }
 
 await sql.end();
