@@ -11,6 +11,10 @@ import {
   perguntasQueNaoFicaram,
   CARACTERES_QUE_A_META_NAO_GUARDA,
 } from "@/lib/perguntas-de-abertura";
+// A ESCRITORA DA FORMA vem do MOTOR, e de proposito: a guarda deste modulo diz
+// o que a Meta guarda, e o formato do identificador nao mora aqui. Importar a
+// funcao e o que faz este teste medir a string de verdade em vez de uma copia.
+import { payloadDaPergunta } from "@/lib/steps";
 
 // O QUE ESTE ARQUIVO PROTEGE é a regra da Meta para as perguntas de abertura.
 //
@@ -239,9 +243,41 @@ describe("o identificador que a Meta engole", () => {
   });
 
   it("o que foi medido sobrevivendo continua passando", () => {
-    for (const p of ["ab", "AUTO_x", "AUTO%3Ax", "AUTO-436412ba", "abertura-saber-mais"]) {
+    // A segunda rodada (28/08, quatro perguntas numa escrita só, mesmo uuid nos
+    // quatro payloads) acrescentou `.`, `/` e `~` a esta lista, e a forma nova
+    // da pergunta de abertura. A Meta só come `:` e `|`.
+    for (const p of [
+      "ab",
+      "AUTO_x",
+      "AUTO%3Ax",
+      "AUTO-436412ba",
+      "abertura-saber-mais",
+      "AUTO.436412ba-e0b8-4721-af41-a677aa3c03c8",
+      "AUTO/436412ba-e0b8-4721-af41-a677aa3c03c8",
+      "AUTO~436412ba-e0b8-4721-af41-a677aa3c03c8",
+      "ABERTURA_436412ba-e0b8-4721-af41-a677aa3c03c8",
+    ]) {
       expect(identificadorSobrevive(p), p).toBe(true);
     }
+  });
+
+  it("A FORMA QUE O PRODUTO EMITE HOJE PASSA NESTA GUARDA", () => {
+    // É a linha que estava impossível, e ela é o fecho entre os dois módulos:
+    // `payloadDaPergunta` (lib/steps.ts) decide a FORMA, e esta função decide o
+    // que a META guarda. Enquanto a forma tinha dois-pontos, a gravação recusava
+    // aqui e ligar pergunta a automação não saía da tela.
+    //
+    // A conferência é feita sobre a string EMITIDA, e não sobre uma escrita à
+    // mão: montar `"ABERTURA_..."` aqui seria o teste concordando consigo mesmo
+    // sobre o formato, e é justamente a forma que precisa ser medida.
+    const emitido = payloadDaPergunta("436412ba-e0b8-4721-af41-a677aa3c03c8");
+    expect(identificadorSobrevive(emitido)).toBe(true);
+
+    const { perguntas, motivo } = conferirPerguntas([
+      { question: "Quero saber mais", payload: emitido },
+    ]);
+    expect(motivo).toBe(undefined);
+    expect(perguntas).toEqual([{ question: "Quero saber mais", payload: emitido }]);
   });
 
   it("a conferência recusa antes da chamada, e o recado diz o que aconteceria", () => {

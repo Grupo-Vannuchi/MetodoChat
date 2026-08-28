@@ -82,32 +82,56 @@ export function acaoDaEscrita(perguntas: Pergunta[]): "apagar" | "escrever" {
 // O QUE A META COME DO IDENTIFICADOR, E ISTO FOI MEDIDO EM 28/08/2026, NÃO LIDO.
 //
 // O endpoint `messenger_profile` responde `{"result":"success"}` e HTTP 200, e
-// mesmo assim GUARDA A PERGUNTA SEM O `payload` quando ele tem certos
-// caracteres. O toque naquela pergunta chega ao webhook sem identificador
-// nenhum, e nada dispara — sem erro, sem log, sem nada em lugar algum.
+// mesmo assim NÃO GUARDA a pergunta como ela foi mandada quando o `payload` tem
+// certos caracteres. O toque naquela pergunta chega ao webhook sem
+// identificador nenhum — ou a pergunta nem chega a existir —, e nada dispara:
+// sem erro, sem log, sem nada em lugar algum.
 //
-// CONTROLE PAREADO, na conta de teste @saas.metodoia, mesma string trocando um
-// caractere só:
+// PRIMEIRA MEDIÇÃO, controle pareado na conta de teste @saas.metodoia, uma
+// pergunta só na conta e a mesma string trocando UM caractere:
 //
 //   payload "AUTO:436412ba-…"  ->  200 success  ->  a leitura de volta traz
 //                                  {"question":"Controle"} — SEM payload
 //   payload "AUTO-436412ba-…"  ->  200 success  ->  a leitura de volta traz
 //                                  {"question":"Controle","payload":"AUTO-436412ba-…"}
 //
-// E o `|` é pior ainda, porque não some: ele TRUNCA. `AUTO|x` volta como
-// `AUTO`, um identificador diferente do que se mandou.
+// SEGUNDA MEDIÇÃO, na mesma conta, quatro perguntas numa escrita só, mesmo uuid
+// nos quatro payloads — e ela é PIOR que a primeira:
 //
-// Outros medidos, e todos sobrevivem: `ab`, `AUTO_x`, `AUTO%3Ax` (o `%3A` fica
-// literal, não vira dois-pontos), `abertura-saber-mais` — que é a forma das
-// perguntas que estão em produção hoje.
+//   "AUTO:436412ba-…"      ->  a pergunta NÃO VOLTA. Não é "volta sem payload":
+//                              ela some da lista inteira, e a conta fica com
+//                              três das quatro posições que se mandou.
+//   "AUTO-436412ba-…"      ->  volta byte a byte
+//   "ABERTURA_436412ba-…"  ->  volta byte a byte
+//   "abertura-436412ba-…"  ->  volta byte a byte
 //
-// A CONSEQUÊNCIA É GRANDE E NÃO É DESTE MÓDULO RESOLVER: `payloadDaPergunta`
-// (lib/steps.ts) emite `AUTO:<automação>`, e `lerPayload` exige o dois-pontos
-// para reconhecê-lo. Enquanto essa forma for a forma, uma pergunta de abertura
-// NÃO CONSEGUE apontar para automação nenhuma por este endpoint. O que este
-// módulo faz é recusar antes: pôr no ar uma pergunta que não responde ao toque
-// é pior que não pôr, porque ela aparece para TODA pessoa que abrir a conversa
-// e o defeito só existe do lado de quem tocou.
+// As duas últimas voltaram DISTINTAS uma da outra com o mesmo uuid: a Meta
+// preserva a CAIXA e preserva `_` e `-` como caracteres diferentes. É o que
+// separa a forma nova (`ABERTURA_…`) das perguntas de teste que estão no ar
+// (`abertura-…`) — duas diferenças independentes, e as duas medidas.
+//
+// E o `|` é pior ainda que o dois-pontos, porque não some: ele TRUNCA. `AUTO|x`
+// volta como `AUTO`, um identificador DIFERENTE do que se mandou.
+//
+// O QUE SOBREVIVE, e a lista importa porque ela é o que a medição NÃO decide:
+// `ab`, `AUTO_x`, `AUTO-x`, `AUTO.x`, `AUTO/x`, `AUTO~x`, `AUTO%3Ax` (o `%3A`
+// fica literal, não vira dois-pontos), `abertura-saber-mais`, `ABERTURA_<uuid>`.
+// Quer dizer: a Meta só come `:` e `|`. Todo o resto passa, e a escolha entre os
+// sobreviventes é do lado do MOTOR — quem a fez, e com que critério, está em
+// `lerPayload` (lib/steps.ts).
+//
+// A CONSEQUÊNCIA JÁ FOI RESOLVIDA, E FORA DAQUI: `payloadDaPergunta`
+// (lib/steps.ts) emitia `AUTO:<automação>` e passou a emitir
+// `ABERTURA_<automação>` — uma QUARTA forma, ACRESCENTADA ao lado das três com
+// dois-pontos, que continuam lidas exatamente como eram. Este módulo não mudou
+// por causa disso, e é o sinal de que a separação está no lugar certo: a regra
+// da Meta é a mesma de ontem, e quem se ajustou a ela foi o formato.
+//
+// A GUARDA CONTINUA, e não é redundante agora que a forma passa: ela vale para
+// TODO identificador que chegar aqui, inclusive o que alguém digitar na tela ou
+// passar pela linha de comando. Pôr no ar uma pergunta que não responde ao
+// toque é pior que não pôr, porque ela aparece para TODA pessoa que abrir a
+// conversa e o defeito só existe do lado de quem tocou.
 export const CARACTERES_QUE_A_META_NAO_GUARDA = [":", "|"];
 
 export function identificadorSobrevive(payload: string): boolean {
