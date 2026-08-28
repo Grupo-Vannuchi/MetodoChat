@@ -5457,11 +5457,15 @@ describe("resumoDoErroDaMeta", () => {
   // inteiro e a explicação some. Uma mensagem de erro sem a explicação é o
   // silêncio que esta função inteira existe para acabar.
   it("a explicação depois do segredo sobrevive ao corte", () => {
-    const segredo = "S".repeat(250);
+    // 300 e não 250: com 250 o texto inteiro tem 290 caracteres, cabe no limite,
+    // o corte não corta nada e o caso não distingue ordem nenhuma. Medido — a
+    // primeira versão deste teste ficou verde com as duas ordens.
+    const segredo = "S".repeat(300);
     const r = resumoDoErroDaMeta({
       status: 500,
       body: `access_token=${segredo}&depois=ESTA_E_A_EXPLICACAO`,
     });
+    expect(`access_token=${segredo}&depois=ESTA_E_A_EXPLICACAO`.length).toBeGreaterThan(300);
     expect(r.mensagem).toContain("access_token=OCULTO");
     expect(r.mensagem).not.toContain(segredo);
     expect(r.mensagem).toContain("depois=ESTA_E_A_EXPLICACAO");
