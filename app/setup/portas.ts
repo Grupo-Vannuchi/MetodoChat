@@ -35,21 +35,28 @@ export type AutomacaoConhecida = {
 // perguntam por ele.
 export const GATILHO_DE_ABERTURA = "abertura";
 
-// LIGAR PERGUNTA A AUTOMAÇÃO FUNCIONA HOJE?
+// LIGAR PERGUNTA A AUTOMAÇÃO FUNCIONA HOJE? HOJE, SIM — E ESTA LINHA NÃO FOI
+// EDITADA PARA ISSO.
 //
 // A resposta é CALCULADA a partir das duas regras que já existem, e não escrita
-// à mão — é isso que faz este aviso sumir sozinho no dia em que a forma do
-// identificador mudar, em vez de virar um recado velho na tela.
+// à mão. Era `false` quando esta tela nasceu, e virou `true` sozinha quando
+// `payloadDaPergunta` (lib/steps.ts) trocou de forma — nenhuma linha deste
+// arquivo nem do JSX mudou, e o aviso da tela sumiu junto. É exatamente para
+// isso que ela é derivada, e o teste que afirma a derivação
+// (`tests/setup-portas.test.ts`) é o mesmo de antes.
 //
-//   `payloadDaPergunta` (lib/steps.ts) emite `AUTO:<automação>`
+//   `payloadDaPergunta` (lib/steps.ts) emite `ABERTURA_<automação>` — a QUARTA
+//     forma, acrescentada ao lado das três com dois-pontos, que continuam
+//     lidas exatamente como eram
 //   `identificadorSobrevive` (lib/perguntas-de-abertura.ts) diz que a Meta NÃO
-//     guarda identificador com dois-pontos — medido em 28/08/2026, com controle
-//     pareado
+//     guarda identificador com `:` nem com `|` — medido em 28/08/2026, com
+//     controle pareado, e a forma nova sobrevive
 //
-// Enquanto as duas disserem isso, escolher uma automação aqui produziria uma
-// pergunta que aparece para toda pessoa que abre a conversa e não dispara nada.
-// A gravação recusa (`conferirPerguntas`), e esta constante é o que faz a tela
-// DIZER ANTES em vez de deixar o dono descobrir no clique.
+// E ELA CONTINUA AQUI DEPOIS DE VIRAR VERDADE, o que não é sobra. O caminho de
+// volta é real: alguém pode mudar a forma outra vez, ou a Meta pode passar a
+// comer outro caractere, e nesse dia a recusa e o aviso voltam sozinhos pelo
+// mesmo mecanismo que os tirou. Apagar isto agora seria trocar uma regra
+// derivada por uma suposição de que o problema não volta.
 const EXEMPLO_DE_IDENTIFICADOR = payloadDaPergunta("00000000-0000-0000-0000-000000000000");
 
 export const LIGAR_FUNCIONA = identificadorSobrevive(EXEMPLO_DE_IDENTIFICADOR);

@@ -75,9 +75,13 @@ export default async function PortasDeEntrada() {
         nunca mais vê as perguntas. Para testar, use um perfil que nunca falou com esta conta.
       </div>
 
-      {/* O TERCEIRO AVISO, e ele some sozinho quando deixar de ser verdade:
+      {/* O TERCEIRO AVISO, E ELE JÁ SUMIU — sozinho, sem esta linha mudar.
           `LIGAR_FUNCIONA` é CALCULADO das duas regras (o formato do
-          identificador e o que a Meta guarda), não escrito à mão. */}
+          identificador e o que a Meta guarda), não escrito à mão, e virou
+          verdadeiro quando o formato deixou de ter dois-pontos. O aviso fica
+          aqui porque o caminho de volta é real: se a forma mudar outra vez, ou
+          a Meta passar a comer outro caractere, ele reaparece pelo mesmo
+          mecanismo que o tirou. */}
       {!LIGAR_FUNCIONA && <div className={alertError}>{AVISO_DA_LIGACAO}</div>}
 
       {contas.map((c) => {
