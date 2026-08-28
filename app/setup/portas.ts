@@ -223,6 +223,19 @@ function destinoDe(
   return { automacaoId: a.id, dispara: a.name, aviso: null };
 }
 
+// O RODAPÉ DO FORMULÁRIO, e o número dele é o das posições DESENHADAS.
+//
+// Ele dizia `MAXIMO_DE_PERGUNTAS` — quatro — mesmo na conta em que a tela acabava
+// de desenhar seis, e aí a frase mentia duas vezes: apagar quatro não deixaria a
+// conta sem pergunta nenhuma, e o dono contaria as posições da tela sem entender
+// de onde saiu o quatro.
+export function textoDeApagar(posicoes: number): string {
+  return (
+    `Apagar o texto de uma posição tira aquela pergunta do ar. ` +
+    `Apagar as ${posicoes} deixa a conta sem pergunta nenhuma.`
+  );
+}
+
 export type Resumo = {
   usadas: number;
   maximo: number;

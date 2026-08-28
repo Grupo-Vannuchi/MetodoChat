@@ -1,5 +1,5 @@
 import { listAccounts, sql } from "@/lib/db";
-import { lerPerguntas, MAXIMO_DE_PERGUNTAS } from "@/lib/perguntas-de-abertura";
+import { lerPerguntas, leituraDeuCerto } from "@/lib/perguntas-de-abertura";
 import {
   AVISO_DA_LIGACAO,
   LIGAR_FUNCIONA,
@@ -9,6 +9,7 @@ import {
   linhasDasPortas,
   opcoesDeAutomacao,
   resumoDoLimite,
+  textoDeApagar,
   type AutomacaoConhecida,
 } from "./portas";
 import { salvarPerguntasDeAbertura } from "./actions";
@@ -102,7 +103,11 @@ export default async function PortasDeEntrada({ rascunho }: { rascunho?: string 
         const form = formularioDasPortas(c.igUserId, linhas);
         const resumo = resumoDoLimite(c.leitura.perguntas.length);
         const opcoes = opcoesDeAutomacao(c.automacoes);
-        const falhou = c.leitura.status !== 200;
+        // A MESMA pergunta que `lerPerguntas` faz para decidir se lê a lista.
+        // Escrita aqui à mão, ela era mais estrita que a de lá — e um 204 faria
+        // este bloco dizer "não deu para consultar" sobre perguntas que já
+        // tinham sido lidas.
+        const falhou = !leituraDeuCerto(c.leitura.status);
         return (
           <div key={c.igUserId} className={`p-4 ${subtle}`}>
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -180,10 +185,7 @@ export default async function PortasDeEntrada({ rascunho }: { rascunho?: string 
                 >
                   Salvar as perguntas de @{c.username}
                 </SubmitButton>
-                <p className={`text-xs ${muted}`}>
-                  Apagar o texto de uma posição tira aquela pergunta do ar. Apagar as{" "}
-                  {MAXIMO_DE_PERGUNTAS} deixa a conta sem pergunta nenhuma.
-                </p>
+                <p className={`text-xs ${muted}`}>{textoDeApagar(form.linhas.length)}</p>
               </form>
             )}
           </div>

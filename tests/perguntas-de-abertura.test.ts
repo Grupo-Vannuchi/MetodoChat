@@ -8,6 +8,7 @@ import {
   corpoDeEscrita,
   perguntasDaResposta,
   identificadorSobrevive,
+  leituraDeuCerto,
   perguntasQueNaoFicaram,
   CARACTERES_QUE_A_META_NAO_GUARDA,
 } from "@/lib/perguntas-de-abertura";
@@ -23,6 +24,23 @@ import { payloadDaPergunta } from "@/lib/steps";
 // — porque a tela de Configuração precisa das mesmas três chamadas — o que é
 // PURO nela ganhou rede: os corpos das chamadas, o limite e a leitura da
 // resposta. O `fetch` continua sem teste, e continua sendo a única parte sem.
+
+// A PERGUNTA "A LEITURA DEU CERTO?" É UMA SÓ, e ela vale para os dois que
+// precisam dela: `lerPerguntas`, para decidir se lê a lista, e a TELA, para
+// decidir se mostra o formulário ou o recado de falha. Escrita duas vezes, ela
+// divergiu na hora — a tela perguntava `status !== 200` — e a divergência
+// esconderia perguntas já lidas atrás de "não deu para consultar".
+describe("leituraDeuCerto é o `ok` da resposta, e não o 200 exato", () => {
+  it("aceita a faixa inteira de sucesso", () => {
+    for (const s of [200, 201, 204, 299]) expect(leituraDeuCerto(s)).toBe(true);
+  });
+
+  it("recusa o resto, inclusive redirecionamento", () => {
+    for (const s of [0, 100, 300, 301, 400, 401, 403, 404, 500]) {
+      expect(leituraDeuCerto(s), `${s} passou`).toBe(false);
+    }
+  });
+});
 
 describe("o corpo do POST carrega o locale", () => {
   // O ACHADO INTEIRO DO EXPERIMENTO, e o único que a documentação da Meta OMITE.
@@ -46,6 +64,22 @@ describe("o corpo do POST carrega o locale", () => {
 
   it("o locale é 'default', que é o valor que a Meta aceitou", () => {
     expect(LOCALE).toBe("default");
+  });
+
+  // A METADE DE ESCRITA DO CASO MULTI-IDIOMA, que estava sem teste enquanto a de
+  // LEITURA (`perguntasDaResposta` não filtra por `locale`) tinha o dela.
+  //
+  // Uma gravação manda UM bloco só, e o `messenger_profile` grava o campo
+  // `ice_breakers` como um todo — não há como acrescentar um idioma sem
+  // reescrever o campo. Salvar numa conta traduzida deixa a conta com os
+  // `default` que a tela mandou, E SÓ ELES. Nenhuma conta em produção tem outro
+  // idioma hoje; esta linha existe para que o dia em que alguém quiser mandar
+  // vários blocos comece por descobrir que a escrita é destrutiva, e não por
+  // perguntas sumidas de um idioma que ninguém do escritório fala.
+  it("manda UM bloco de locale, e por isso a gravação substitui os outros idiomas", () => {
+    const corpo = JSON.parse(corpoDeEscrita([{ question: "Oi", payload: "abertura-oi" }]));
+    expect(corpo.ice_breakers).toHaveLength(1);
+    expect(corpo.ice_breakers.map((b: { locale: string }) => b.locale)).toEqual([LOCALE]);
   });
 
   // A ORDEM É O PRODUTO: as posições aparecem na conversa na ordem do array, e

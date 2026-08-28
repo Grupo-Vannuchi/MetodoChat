@@ -367,11 +367,23 @@ export function eventMedia(payload: unknown): { id: string; kind: string } | nul
 //
 // METADE VAZIA SOME SOZINHA, e é o `filter` que faz isso: um `dm` ainda sem
 // palavra nenhuma não deixa " · " sobrando na ponta.
+//
+// SEM GATILHO NENHUM É DITO, e não deixado em branco. As duas metades perguntam
+// por `triggers`, então uma lista VAZIA esvazia as duas e a coluna sumia — o
+// JSX que esta função substituiu sempre imprimia alguma coisa. Isto não é a
+// mesma coisa que o gatilho desconhecido logo abaixo: lá a função não SABE o que
+// aquele gatilho dispara e calar é honesto; aqui ela sabe, e o que ela sabe é
+// que não há gatilho. As duas portas de escrita garantem um gatilho hoje, então
+// é defesa ausente e não regressão — mas uma linha em branco na lista é uma
+// linha que não diz nada a ninguém.
+const SEM_GATILHO = "sem gatilho definido";
+
 export function oQueDispara(a: {
   triggers: string[];
   keywords: string[];
   match_type: string;
 }): string {
+  if (a.triggers.length === 0) return SEM_GATILHO;
   const semPalavra = a.triggers.some((t) => !gatilhoPedePalavraChave(t));
   const comPalavra = a.triggers.some((t) => gatilhoPedePalavraChave(t));
   return [

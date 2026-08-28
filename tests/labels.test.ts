@@ -139,7 +139,20 @@ describe("oQueDispara — a coluna da lista de automações", () => {
     expect(
       oQueDispara({ triggers: ["dm", "abertura"], keywords: [], match_type: "contains" })
     ).toBe("pergunta de abertura");
-    expect(oQueDispara({ triggers: [], keywords: ["promo"], match_type: "contains" })).toBe("");
+  });
+
+  // SEM GATILHO NENHUM A COLUNA DIZ ISSO, e não fica em branco. As duas metades
+  // perguntam por `triggers`, então a lista vazia esvaziava as duas — e o JSX
+  // que esta função substituiu sempre imprimia alguma coisa. Não é o caso do
+  // gatilho desconhecido logo abaixo: lá a função não sabe o que aquele gatilho
+  // dispara, e calar é honesto; aqui ela sabe que não há gatilho.
+  it("sem gatilho nenhum, a linha diz que não há gatilho", () => {
+    expect(oQueDispara({ triggers: [], keywords: ["promo"], match_type: "contains" })).toBe(
+      "sem gatilho definido"
+    );
+    expect(oQueDispara({ triggers: [], keywords: [], match_type: "any" })).toBe(
+      "sem gatilho definido"
+    );
   });
 
   it("gatilho desconhecido cai na metade das palavras — é `abertura` que é a exceção", () => {

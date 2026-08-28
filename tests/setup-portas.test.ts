@@ -12,6 +12,7 @@ import {
   opcoesDeAutomacao,
   perguntasDoFormulario,
   resumoDoLimite,
+  textoDeApagar,
   LIGAR_FUNCIONA,
   type AutomacaoConhecida,
   type Linha,
@@ -185,6 +186,26 @@ describe("o limite de quatro é da CONTA, e a tela diz isso antes do erro da Met
 
   it("o número sai da constante, e não digitado no texto", () => {
     expect(resumoDoLimite(0).maximo).toBe(MAXIMO_DE_PERGUNTAS);
+  });
+
+  // O RODAPÉ CONTA AS POSIÇÕES DESENHADAS, e não o limite da Meta. Ele dizia
+  // "apagar as 4" mesmo na conta em que a tela acabava de desenhar seis — e aí
+  // apagar quatro não deixaria a conta sem pergunta nenhuma.
+  it("o rodapé fala do número de posições que a tela desenhou", () => {
+    expect(textoDeApagar(MAXIMO_DE_PERGUNTAS)).toContain(`as ${MAXIMO_DE_PERGUNTAS} deixa`);
+    expect(textoDeApagar(6)).toContain("as 6 deixa");
+    expect(textoDeApagar(6)).not.toContain(`as ${MAXIMO_DE_PERGUNTAS} deixa`);
+  });
+
+  // E ELE ANDA COM A TELA: o número do rodapé é o das linhas que o formulário
+  // manda, e as duas coisas saem da mesma lista.
+  it("na conta multi-idioma o rodapé acompanha as linhas desenhadas", () => {
+    const seis = Array.from({ length: 6 }, (_, i) => ({
+      question: `p${i}`,
+      payload: payloadDaPergunta(OK.id),
+    }));
+    const form = formularioDasPortas("conta", linhasDasPortas(seis, TODAS));
+    expect(textoDeApagar(form.linhas.length)).toContain("as 6 deixa");
   });
 });
 

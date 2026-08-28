@@ -56,6 +56,27 @@ function urlDoPerfil(igUserId: string, token: string, campos?: string): string {
 
 // O corpo do POST. `platform: "instagram"` e o `locale` acima são o que separa
 // esta chamada da que a documentação mostra.
+//
+// UMA GRAVAÇÃO SUBSTITUI O CAMPO INTEIRO, E ISSO ALCANÇA OS OUTROS IDIOMAS.
+//
+// A metade de LEITURA deste caso está escrita e tem teste: `perguntasDaResposta`
+// NÃO filtra por `locale` de propósito, e `linhasDasPortas` + `resumoDoLimite`
+// desenham a conta que tem quatro perguntas POR IDIOMA. Esta é a metade de
+// ESCRITA, e ela estava faltando.
+//
+// O corpo abaixo manda UM bloco, com UM `locale`, e o `messenger_profile` grava
+// o campo `ice_breakers` como um todo — não há como acrescentar um idioma sem
+// reescrever o campo, do mesmo jeito que não há como apagar uma pergunta só
+// (ver `corpoDeApagar`). Então salvar por esta tela numa conta traduzida deixa a
+// conta com os `default` que a tela mandou, E SÓ ELES: os outros idiomas saem
+// junto, sem aviso.
+//
+// POR QUE ISSO NÃO É BLOQUEIO HOJE: as quatro contas em produção só têm
+// `default` (medido). E por que continua escrito aqui: no dia em que uma conta
+// tiver outro idioma, o caminho é este arquivo — a tela precisaria mandar os
+// blocos que leu, e não um só. Quem for fazer isso tem de saber que a escrita é
+// destrutiva; descobrir por perguntas sumidas de um idioma seria caríssimo,
+// porque ninguém que fala aquele idioma reclama para o dono.
 export function corpoDeEscrita(perguntas: Pergunta[]): string {
   return JSON.stringify({
     platform: "instagram",
@@ -232,6 +253,20 @@ export function perguntasDaResposta(json: unknown): Pergunta[] {
 export type Leitura = { status: number; corpo: string; perguntas: Pergunta[] };
 export type Efeito = { status: number; corpo: string; leitura: Leitura };
 
+// A LEITURA DEU CERTO? UMA PERGUNTA SÓ, PARA OS DOIS QUE PRECISAM DELA.
+//
+// `lerPerguntas` usa esta resposta para decidir se lê a lista, e a TELA usa a
+// mesma para decidir se mostra o formulário ou o recado de falha. Escrita duas
+// vezes, ela divergiu na hora: a tela perguntava `status !== 200`, mais estrito
+// que o `r.ok` daqui, e um 204 faria a tela dizer "não deu para consultar" sobre
+// uma leitura que este módulo tinha aceitado — e cujas perguntas, portanto,
+// estariam prontas e escondidas.
+//
+// É `Response.ok` — 200 a 299 —, e não uma regra nova.
+export function leituraDeuCerto(status: number): boolean {
+  return status >= 200 && status <= 299;
+}
+
 // A LEITURA DE VOLTA É O FIM DE TODO CAMINHO, inclusive o de escrita: um 200 do
 // POST diz que a Meta aceitou a chamada, não que a conta ficou como se queria.
 export async function lerPerguntas(igUserId: string, token: string): Promise<Leitura> {
@@ -245,7 +280,11 @@ export async function lerPerguntas(igUserId: string, token: string): Promise<Lei
     // O `status` e o `corpo` seguem para quem chamou dizer o que aconteceu.
     json = null;
   }
-  return { status: r.status, corpo, perguntas: r.ok ? perguntasDaResposta(json) : [] };
+  return {
+    status: r.status,
+    corpo,
+    perguntas: leituraDeuCerto(r.status) ? perguntasDaResposta(json) : [],
+  };
 }
 
 export async function escreverPerguntas(
