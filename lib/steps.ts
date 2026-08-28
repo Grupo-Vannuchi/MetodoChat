@@ -1837,14 +1837,63 @@ export type Payload = {
   botaoId: string | null;
 };
 
+// O PREFIXO DA QUARTA FORMA, a das PERGUNTAS DE ABERTURA. Ele mora aqui, ao
+// lado da leitora e da escritora, porque as duas precisam da MESMA string — e
+// porque a escolha dele foi MEDIDA, não arbitrada. O porquê inteiro está no
+// bloco de `lerPayload`, logo abaixo.
+export const PREFIXO_DA_PERGUNTA = "ABERTURA_";
+
 // Lê o payload de um botão de resposta rápida.
 //
-// TRÊS FORMAS, e as três são finais — CONVIVEM PARA SEMPRE, não é dívida a
+// QUATRO FORMAS, e as quatro são finais — CONVIVEM PARA SEMPRE, não é dívida a
 // limpar:
 //
 //   `AUTO:<automação>`                    entregue antes da Fase 1b
 //   `AUTO:<automação>:<bloco>`            entregue a partir dela
 //   `AUTO:<automação>:<bloco>:<botão>`    entregue a partir da Tarefa 3
+//   `ABERTURA_<automação>`                pergunta de abertura, a partir daqui
+//
+// A QUARTA CHEGOU POR MEDIÇÃO, E ACRESCENTADA — NÃO TROCADA. Ela não substitui
+// a forma de duas partes: as três de cima continuam sendo lidas exatamente como
+// eram, e há tabela e fuzz afirmando isso caractere a caractere.
+//
+// O QUE A META FAZ COM O DOIS-PONTOS, medido em 28/08/2026 contra a conta de
+// teste @saas.metodoia, com controle pareado — mesma automação, quatro
+// prefixos, uma escrita só:
+//
+//   `AUTO:436412ba-…`      -> POST 200 {"result":"success"} -> a leitura de
+//                             volta NÃO TRAZ A PERGUNTA. Ela some inteira.
+//   `AUTO-436412ba-…`      -> 200 -> volta byte a byte
+//   `ABERTURA_436412ba-…`  -> 200 -> volta byte a byte
+//   `abertura-436412ba-…`  -> 200 -> volta byte a byte
+//
+// O `|` é pior que sumir, porque não some: `AUTO|x` volta como `AUTO`, um
+// identificador DIFERENTE do que se mandou. A Meta responde sucesso nos três
+// casos — ela mente por omissão, e é por isso que a forma antiga NÃO PODE ser a
+// da pergunta de abertura: a pergunta ficaria no ar, visível para toda pessoa
+// que abre a conversa, sem disparar nada.
+//
+// POR QUE `ABERTURA_` E NÃO `AUTO_`, `AUTO.`, `AUTO/` OU `AUTO~`. Os quatro
+// foram medidos na mesma conta, e OS QUATRO SOBREVIVEM — a Meta só come `:` e
+// `|`. Quer dizer: a medição não escolhe entre eles, ela só elimina os dois
+// separadores proibidos. Quem escolhe é a regra que este arquivo já pratica em
+// `payloadDaRespostaRapida` × `payloadDoPortao`: prefixo que difere por UM
+// caractere é troca silenciosa esperando acontecer. `AUTO_${id}` escrito onde
+// se queria `AUTO:${id}` compila, passa no lint e muda o significado do toque.
+// `ABERTURA_` difere por uma PALAVRA, e a troca vira erro de leitura óbvio.
+//
+// E ELE NÃO COLIDE COM AS PERGUNTAS DE TESTE QUE ESTÃO NO AR. Elas usam
+// `abertura-saber-mais`, `abertura-valores`, `abertura-como-funciona` — e a
+// diferença para `ABERTURA_` é DUPLA e independente: a caixa e o separador.
+// As duas sobrevivem à Meta separadamente e voltaram DISTINTAS na mesma
+// escrita, com o mesmo uuid nas duas (é o que as linhas C3 e C4 acima medem).
+// Perder uma das duas diferenças não basta para colidir.
+//
+// RECONHECE POR PREFIXO, E NUNCA POR DIVISÃO. O id da automação é um uuid, e
+// uuid TEM HÍFEN: `ABERTURA_436412ba-e0b8-…`.split("-") daria seis pedaços e
+// nenhum deles é a automação. O que sobra depois do prefixo é o identificador
+// INTEIRO, sem separar mais nada — não há mais nada para separar, porque a
+// pergunta de abertura não tem bloco nem botão a apontar.
 //
 // Um botão entregue vive na conversa da pessoa indefinidamente, e ela pode
 // tocar nele meses ou anos depois — apagar qualquer um destes ramos quebraria
@@ -1873,6 +1922,25 @@ export type Payload = {
 // o que a Meta manda, e a Meta manda o que o cliente digitou.
 export function lerPayload(payload: unknown): Payload | null {
   if (typeof payload !== "string") return null;
+  // A QUARTA FORMA, E ELA SAI ANTES DE QUALQUER `split`. Não é otimização: é o
+  // que torna as duas gramáticas DISJUNTAS por construção. Nenhuma string
+  // começa por `ABERTURA_` e por `AUTO:`/`FOLLOW:` ao mesmo tempo, então este
+  // ramo nunca rouba um payload das três formas antigas — e elas nunca roubam
+  // um dele, porque `ABERTURA_<uuid>` não tem dois-pontos e morreria no
+  // `prefixo !== "AUTO"` logo abaixo.
+  //
+  // O DESFECHO É O MESMO DA FORMA DE DUAS PARTES de propósito: `passoId: null`
+  // é "comece esta automação do início" (`steps[0]`, ver `cursorDaRetomada`), e
+  // `prefixo: "AUTO"` é o ramo que `handleMessagingEvent` já executa para o
+  // toque numa pergunta. O motor não ganha ramo novo — ele nem fica sabendo
+  // que a forma mudou, e é essa a prova de que acrescentar não é mexer.
+  if (payload.startsWith(PREFIXO_DA_PERGUNTA)) {
+    const automationId = payload.slice(PREFIXO_DA_PERGUNTA.length);
+    // `ABERTURA_` sozinho é payload sem automação nenhuma. Mesma guarda, mesma
+    // razão e mesmo desfecho do `!automationId` do caminho de baixo.
+    if (!automationId) return null;
+    return { prefixo: "AUTO", automationId, passoId: null, botaoId: null };
+  }
   const partes = payload.split(":");
   // Só o limite de cima é conferido aqui. O de baixo ("AUTO" sozinho, uma
   // parte) não precisa de guarda própria: `automationId` sai `undefined`
@@ -1951,13 +2019,14 @@ export function payloadDoBotao(automacaoId: string, blocoId: string, botaoId: st
 // no portão viraria retomada comum, sem reconsultar a Meta: exatamente a classe
 // de troca silenciosa que esta separação existe para impedir.
 //
-// A FORMA DE DUAS PARTES (`AUTO:<automação>`, sem bloco) FICOU SEM ESCRITORA
-// ATÉ AQUI de propósito: `lerPayload` a LÊ para sempre — botão entregue antes
-// da Fase 1b vive na conversa da pessoa —, mas nada emitia ela de novo, e uma
-// escritora sem motivo seria um convite a voltar a emiti-la à toa. A pergunta
-// de abertura (`payloadDaPergunta`, mais abaixo) é o motivo que faltava: ela
-// não tem bloco para apontar, então a forma de duas partes É a forma certa
-// para ela — não uma reversão da decisão, um uso novo dela.
+// A FORMA DE DUAS PARTES (`AUTO:<automação>`, sem bloco) CONTINUA SEM
+// ESCRITORA, e agora para sempre: `lerPayload` a LÊ eternamente — botão
+// entregue antes da Fase 1b vive na conversa da pessoa —, mas nada a emite de
+// novo. Ela chegou a ter uma candidata, a pergunta de abertura, e a MEDIÇÃO
+// contra a Meta a tirou de lá: o endpoint `messenger_profile` não guarda
+// identificador com dois-pontos, então aquela forma nunca chegava sequer a
+// ficar gravada. A pergunta de abertura tem forma própria hoje
+// (`payloadDaPergunta`, mais abaixo, com o prefixo `ABERTURA_`).
 export function payloadDaRespostaRapida(automacaoId: string, blocoId: string): string {
   return `AUTO:${automacaoId}:${blocoId}`;
 }
@@ -1966,24 +2035,30 @@ export function payloadDoPortao(automacaoId: string, blocoId: string): string {
   return `FOLLOW:${automacaoId}:${blocoId}`;
 }
 
-// A QUARTA ESCRITORA, e a única que reaproveita a forma de duas partes
-// (`AUTO:<automação>`, sem bloco). O comentário acima dizia que essa forma
-// "NÃO GANHA ESCRITORA" — mas aquela decisão era sobre o caso antigo: nenhuma
-// automação com bloco tinha motivo para reemitir a forma que a Fase 1b
-// aposentou. A pergunta de abertura é um caso NOVO e DIFERENTE: ela não tem
-// bloco nenhum para apontar, porque ela é sempre a primeira coisa que
-// acontece na conversa — "comece esta automação do início" é exatamente o
-// que a forma de duas partes já significa, sem precisar de campo a mais.
-// `lerPayload` devolve `passoId: null`, e `steps[0]` é a entrada do fluxo
-// (ver `cursorDaRetomada`) — o caminho já existe, ponta a ponta, e não
-// precisou de formato novo.
+// A QUARTA ESCRITORA, e a ÚNICA que escreve a forma sem dois-pontos.
 //
-// MEDIDO, não presumido: as perguntas de teste em produção usam payload
-// como `abertura-saber-mais` — sem dois-pontos —, então `partes.length` fica
-// 1, o prefixo vira a string inteira, `prefixo !== "AUTO"` mata o caso, e
-// `lerPayload` devolve null. Elas nunca colidem com esta forma.
+// ELA JÁ EMITIU `AUTO:<automação>`, e a troca é o achado desta parte: a Meta
+// NÃO GUARDA identificador com dois-pontos no endpoint `messenger_profile`.
+// Responde 200 `{"result":"success"}` e some com a pergunta inteira na leitura
+// de volta — medido com controle pareado, quatro prefixos numa escrita só (a
+// tabela está no bloco de `lerPayload`). Enquanto esta função emitisse aquela
+// forma, ligar pergunta a automação era impossível por este endpoint: a
+// pergunta subia sem identificador e não disparava nada.
+//
+// O QUE MUDOU AQUI, E SÓ AQUI: as três formas antigas continuam escritas e
+// lidas exatamente como eram. `payloadDoBotao`, `payloadDaRespostaRapida` e
+// `payloadDoPortao` não foram tocadas, e não podiam ser — um botão entregue
+// vive na conversa da pessoa indefinidamente, e trocar o separador delas faria
+// um botão entregue ontem deixar de ser entendido hoje. Nenhuma pergunta de
+// abertura foi entregue com a forma antiga (ela nunca chegou a ficar gravada
+// na Meta), e é por isso que ESTA escritora pôde mudar e as outras três não.
+//
+// NÃO TEM BLOCO, e não é omissão: a pergunta de abertura é sempre a primeira
+// coisa que acontece na conversa. "Comece esta automação do início" é tudo o
+// que ela precisa dizer, e é o que `lerPayload` devolve — `passoId: null`,
+// `steps[0]`.
 export function payloadDaPergunta(automationId: string): string {
-  return `AUTO:${automationId}`;
+  return `${PREFIXO_DA_PERGUNTA}${automationId}`;
 }
 
 // O limite da Meta para respostas rápidas numa única mensagem.

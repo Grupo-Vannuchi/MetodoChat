@@ -262,27 +262,63 @@ describe("o seletor oferece todas as automações, e marca as que divergem", () 
   });
 });
 
-describe("a tela diz ANTES que ligar não funciona hoje", () => {
-  // MEDIDO EM 28/08/2026: a Meta não guarda identificador com dois-pontos, e
-  // `payloadDaPergunta` emite `AUTO:<automação>`. Enquanto as duas regras
-  // disserem isso, escolher uma automação aqui poria no ar uma pergunta que
-  // aparece para toda pessoa que abre a conversa e não dispara nada.
+describe("a tela DEIXOU de recusar, e não foi editada para isso", () => {
+  // A HISTÓRIA INTEIRA, porque ela é a razão de este bloco existir.
+  //
+  // Até 28/08/2026 `payloadDaPergunta` emitia `AUTO:<automação>`, e a Meta come
+  // o dois-pontos: o `messenger_profile` responde 200 `{"result":"success"}` e
+  // some com a pergunta. A tela recusava ANTES da chamada, com o motivo
+  // escrito, e dizia na abertura da seção que ligar estava indisponível.
+  //
+  // A forma mudou (`ABERTURA_<automação>`, lib/steps.ts, medida contra a Meta
+  // com controle pareado) e A RECUSA SAIU SOZINHA. Nenhuma linha de
+  // `app/setup/portas.ts` nem de `portas-de-entrada.tsx` foi editada para isso
+  // — `LIGAR_FUNCIONA` é derivado das duas regras, e era exatamente esta a
+  // promessa. O que mudou aqui foi só o que este arquivo AFIRMAVA sobre o dia
+  // de ontem.
   it("a resposta é CALCULADA das duas regras, e não escrita à mão", () => {
-    // É isto que faz o aviso sumir sozinho no dia em que a forma mudar. Se
-    // alguém trocar `payloadDaPergunta` por uma forma que a Meta guarda, esta
-    // linha vira `true` sem ninguém editar a tela.
+    // A linha que não mudou, e é a que segura a promessa nos dois sentidos: se
+    // alguém devolver `payloadDaPergunta` a uma forma que a Meta não guarda, a
+    // recusa volta sozinha do mesmo jeito que saiu.
     expect(LIGAR_FUNCIONA).toBe(identificadorSobrevive(payloadDaPergunta("qualquer-id")));
   });
 
-  it("hoje ela é falsa, e é por causa do dois-pontos", () => {
-    expect(payloadDaPergunta("x")).toContain(":");
-    expect(LIGAR_FUNCIONA).toBe(false);
+  it("hoje ela é VERDADEIRA, e é porque a forma perdeu o dois-pontos", () => {
+    // Os dois caracteres, e não só o dois-pontos: o `|` é pior, porque TRUNCA
+    // em vez de sumir — `AUTO|x` volta como `AUTO`, um identificador diferente
+    // do que se mandou.
+    expect(payloadDaPergunta("x")).not.toContain(":");
+    expect(payloadDaPergunta("x")).not.toContain("|");
+    expect(LIGAR_FUNCIONA).toBe(true);
   });
 
-  // Mandar "escolha uma automação" enquanto a ligação está bloqueada é fazer o
-  // dono descobrir no clique — o mesmo defeito que o limite de quatro evita.
-  it("o conselho de escolher automação só aparece se ele funcionar", () => {
+  it("o conselho de escolher automação aparece, agora que ele funciona", () => {
+    // Mandar "escolha uma automação" enquanto a ligação estava bloqueada era
+    // fazer o dono descobrir no clique — o mesmo defeito que o limite de quatro
+    // evita. O conselho continua amarrado a `LIGAR_FUNCIONA`, e a segunda linha
+    // é a que registra que ele agora APARECE de verdade.
     const [l] = linhasDasPortas([{ question: "Antiga", payload: "abertura-valores" }], TODAS);
     expect(l.aviso?.texto.includes("Escolha uma automação")).toBe(LIGAR_FUNCIONA);
+    expect(l.aviso?.texto).toContain("Escolha uma automação");
+  });
+
+  it("uma pergunta ligada pela tela passa a apontar para a automação", () => {
+    // PONTA A PONTA DO LADO PURO, e é o que estava impossível: a tela monta o
+    // identificador (`perguntasDoFormulario`), e `linhasDasPortas` — que lê pelo
+    // motor, `lerPayload` — o reconhece de volta como aquela automação, sem
+    // aviso nenhum. Antes desta parte, este caso não existia: a gravação
+    // recusava antes de chegar aqui.
+    const { perguntas, motivo } = perguntasDoFormulario([
+      { texto: "Quero saber mais", automacaoId: OK.id, payload: "" },
+    ]);
+    expect(motivo).toBe(undefined);
+    expect(perguntas!.length).toBe(1);
+    // E ele SOBREVIVE À META, que é a conferência que a gravação faz antes de
+    // gastar a chamada. Era aqui que a tela parava.
+    expect(identificadorSobrevive(perguntas![0].payload)).toBe(true);
+    const [l] = linhasDasPortas(perguntas!, TODAS);
+    expect(l.automacaoId).toBe(OK.id);
+    expect(l.dispara).toBe(OK.name);
+    expect(l.aviso).toBe(null);
   });
 });
