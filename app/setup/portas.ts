@@ -246,6 +246,148 @@ export function resumoDoLimite(usadas: number): Resumo {
   return { usadas, maximo, livres, cheio: livres === 0 && !acima, acima, texto };
 }
 
+// ============================================================
+// A COSTURA DE NOMES ENTRE A TELA E A AÇÃO, E POR QUE ELA MORA AQUI.
+//
+// Um formulário HTML liga as duas pontas por STRING: o JSX escreve
+// `name="texto-3"` e a ação do servidor pede `formData.get("texto-3")`. As duas
+// pontas moram em arquivos diferentes, ninguém as confere, e um `s` a mais de um
+// lado não é erro de tipo nem de lint — é um campo que volta VAZIO.
+//
+// O QUE ISSO CUSTA, e é medido: com os quatro nomes de texto desencontrados,
+// toda linha lida volta em branco, `perguntasDoFormulario` devolve `[]`,
+// `acaoDaEscrita` traduz lista vazia em DELETE (é o pedido legítimo de "quero
+// ficar sem pergunta nenhuma"), e a Meta apaga o campo `ice_breakers` INTEIRO da
+// conta. A tela então redireciona dizendo "ficou sem pergunta de abertura
+// nenhuma ✓". As quatro portas somem do perfil público e o painel comemora.
+//
+// CINCO DESENCONTROS DESTES FORAM PLANTADOS e passaram por `tsc`, por `eslint`,
+// pelos 805 puros e pelos 56 de integração — todos verdes, os cinco. Não era
+// defeito presente: era rede ZERO sobre a única peça nova da branch que ainda
+// tinha decisão de fiação dentro do JSX.
+//
+// A SAÍDA É A MESMA DAS OUTRAS QUATRO VEZES DESTA FASE: a decisão sai do JSX.
+// Aqui a "decisão" é a lista de campos que o formulário tem — quantos são, como
+// se chamam e o que vai em cada um —, e ela passa a ser um VALOR
+// (`formularioDasPortas`) que o JSX só desenha. Do outro lado,
+// `linhasDoFormulario` lê pelos MESMOS construtores de nome. As duas pontas
+// deixam de combinar por coincidência e passam a combinar por construção, e o
+// que sobra — o desencontro assimétrico, alguém escrevendo o nome à mão de um
+// lado só — cai no teste de ida e volta de `tests/setup-portas.test.ts`.
+// ============================================================
+
+export const CAMPO_CONTA = "conta";
+export const CAMPO_POSICOES = "posicoes";
+
+// OS TRÊS CONSTRUTORES DE NOME, e eles são a costura inteira. Trocar um deles
+// troca as DUAS pontas ao mesmo tempo, que é justamente o que faz a troca ser
+// inofensiva; o que quebra é escrever o nome à mão de um lado só.
+export function campoTexto(posicao: number): string {
+  return `texto-${posicao}`;
+}
+export function campoAutomacao(posicao: number): string {
+  return `automacao-${posicao}`;
+}
+export function campoPayload(posicao: number): string {
+  return `payload-${posicao}`;
+}
+
+// Uma posição do formulário, já com nome e valor de cada campo. O JSX lê daqui e
+// não monta nome nenhum.
+export type CamposDaLinha = {
+  posicao: number;
+  texto: { nome: string; valor: string };
+  automacao: { nome: string; valor: string };
+  // O identificador que veio da Meta, intacto, escondido no formulário. É ele
+  // que faz uma pergunta que este painel não entende sobreviver a um "Salvar"
+  // que não a tocou (`perguntasDoFormulario`).
+  payload: { nome: string; valor: string };
+  dispara: string;
+  aviso: Aviso | null;
+};
+
+export type Formulario = {
+  conta: { nome: string; valor: string };
+  // QUANTAS POSIÇÕES ESTE FORMULÁRIO MANDOU, e ele é o que diz ao outro lado até
+  // onde contar. Normalmente quatro; pode ser mais numa conta com perguntas em
+  // vários idiomas, e aí a tela mostra todas em vez de esconder o que está no
+  // ar. Fixá-lo em `MAXIMO_DE_PERGUNTAS` faria o "Salvar" dessa conta apagar
+  // calado tudo que passasse da quarta.
+  posicoes: { nome: string; valor: string };
+  linhas: CamposDaLinha[];
+};
+
+export function formularioDasPortas(igUserId: string, linhas: Linha[]): Formulario {
+  return {
+    conta: { nome: CAMPO_CONTA, valor: igUserId },
+    posicoes: { nome: CAMPO_POSICOES, valor: String(linhas.length) },
+    linhas: linhas.map((l) => ({
+      posicao: l.posicao,
+      texto: { nome: campoTexto(l.posicao), valor: l.texto },
+      automacao: { nome: campoAutomacao(l.posicao), valor: l.automacaoId ?? "" },
+      payload: { nome: campoPayload(l.posicao), valor: l.payload },
+      dispara: l.dispara,
+      aviso: l.aviso,
+    })),
+  };
+}
+
+// O TETO DO LAÇO DE LEITURA. Ele existe para o servidor não repetir um número
+// que veio do navegador: quatro é o limite da Meta, e o dobro cobre a conta
+// multi-idioma, que é o caso em que a tela desenha mais de quatro posições.
+export const TETO_DE_POSICOES = 2 * MAXIMO_DE_PERGUNTAS;
+
+// O que `linhasDoFormulario` precisa de um `FormData`, e nada além disso. O tipo
+// estreito é o que permite testar a leitura com um `FormData` de verdade sem
+// arrastar `next/server` para dentro de um teste puro.
+export type LeitorDeCampos = { get(nome: string): unknown };
+
+function textoDoCampo(valor: unknown): string {
+  return typeof valor === "string" ? valor : "";
+}
+
+export function contaDoFormulario(dados: LeitorDeCampos): string {
+  return textoDoCampo(dados.get(CAMPO_CONTA)).trim();
+}
+
+// DO `FormData` PARA AS LINHAS, e a recusa que este caminho precisa ter.
+//
+// FORMULÁRIO SEM `posicoes` LEGÍVEL É RECUSADO, E NÃO VIRA "ZERO POSIÇÕES".
+// Medido: `Number("abc")` é `NaN`, e `Math.min(Math.max(0, NaN), 8)` também é
+// `NaN` — o laço rodava zero vezes, a lista saía vazia, e o "Salvar" virava o
+// DELETE do campo inteiro anunciado com ✓. Zero posições NUNCA é um formulário
+// desta tela: `linhasDasPortas` devolve pelo menos `MAXIMO_DE_PERGUNTAS` linhas,
+// sempre. Um formulário que não diz quantas posições tem é um formulário que
+// não entendemos, e a resposta certa para o que não se entende não pode ser
+// apagar as quatro portas da conta.
+//
+// (Só é alcançável por formulário adulterado — a ação está atrás da sessão do
+// painel. A guarda existe precisamente para não confiar no navegador.)
+export function linhasDoFormulario(dados: LeitorDeCampos): {
+  linhas?: LinhaDoFormulario[];
+  motivo?: string;
+} {
+  const bruto = textoDoCampo(dados.get(CAMPO_POSICOES)).trim();
+  const n = Number(bruto);
+  if (!bruto || !Number.isInteger(n) || n < 1) {
+    return {
+      motivo:
+        "Não deu para ler o formulário: ele não disse quantas posições mandou. " +
+        "Recarregue a Configuração e tente de novo — nada foi alterado.",
+    };
+  }
+  const posicoes = Math.min(n, TETO_DE_POSICOES);
+  const linhas: LinhaDoFormulario[] = [];
+  for (let p = 1; p <= posicoes; p++) {
+    linhas.push({
+      texto: textoDoCampo(dados.get(campoTexto(p))),
+      automacaoId: textoDoCampo(dados.get(campoAutomacao(p))),
+      payload: textoDoCampo(dados.get(campoPayload(p))),
+    });
+  }
+  return { linhas };
+}
+
 // Uma linha como o formulário a devolve. `automacaoId` vazio é "nenhuma"
 // escolhida no seletor; `payload` é o que veio da Meta, intacto.
 export type LinhaDoFormulario = { texto: string; automacaoId: string; payload: string };

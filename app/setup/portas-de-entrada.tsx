@@ -3,6 +3,7 @@ import { lerPerguntas, MAXIMO_DE_PERGUNTAS } from "@/lib/perguntas-de-abertura";
 import {
   AVISO_DA_LIGACAO,
   LIGAR_FUNCIONA,
+  formularioDasPortas,
   linhasDasPortas,
   opcoesDeAutomacao,
   resumoDoLimite,
@@ -86,6 +87,7 @@ export default async function PortasDeEntrada() {
 
       {contas.map((c) => {
         const linhas = linhasDasPortas(c.leitura.perguntas, c.automacoes);
+        const form = formularioDasPortas(c.igUserId, linhas);
         const resumo = resumoDoLimite(c.leitura.perguntas.length);
         const opcoes = opcoesDeAutomacao(c.automacoes);
         const falhou = c.leitura.status !== 200;
@@ -108,12 +110,15 @@ export default async function PortasDeEntrada() {
               </p>
             ) : (
               <form action={salvarPerguntasDeAbertura} className="space-y-3">
-                <input type="hidden" name="conta" value={c.igUserId} />
-                {/* Quantas posições este formulário mandou. Normalmente quatro;
-                    pode ser mais numa conta com perguntas em vários idiomas, e
-                    aí a tela mostra todas em vez de esconder o que está no ar. */}
-                <input type="hidden" name="posicoes" value={linhas.length} />
-                {linhas.map((l) => (
+                {/* NENHUM NOME DE CAMPO É ESCRITO AQUI. Quais campos este
+                    formulário tem, como cada um se chama e o que vai em cada um
+                    é `formularioDasPortas` (./portas.ts) quem diz, e é pelos
+                    MESMOS construtores de nome que a ação lê do outro lado.
+                    Escrever `name="texto-3"` aqui à mão é o desencontro que
+                    passou por tsc, eslint, 805 puros e 56 de integração. */}
+                <input type="hidden" name={form.conta.nome} value={form.conta.valor} />
+                <input type="hidden" name={form.posicoes.nome} value={form.posicoes.valor} />
+                {form.linhas.map((l) => (
                   <div key={l.posicao} className="flex flex-col gap-2 sm:flex-row sm:items-start">
                     <span
                       className={`mt-2.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-bold text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200`}
@@ -122,8 +127,8 @@ export default async function PortasDeEntrada() {
                     </span>
                     <div className="min-w-0 flex-1 space-y-1.5">
                       <input
-                        name={`texto-${l.posicao}`}
-                        defaultValue={l.texto}
+                        name={l.texto.nome}
+                        defaultValue={l.texto.valor}
                         placeholder="Pergunta que a pessoa vê ao abrir a conversa"
                         className={input}
                       />
@@ -141,8 +146,8 @@ export default async function PortasDeEntrada() {
                     </div>
                     <div className="w-full space-y-1.5 sm:w-64">
                       <select
-                        name={`automacao-${l.posicao}`}
-                        defaultValue={l.automacaoId ?? ""}
+                        name={l.automacao.nome}
+                        defaultValue={l.automacao.valor}
                         className={input}
                       >
                         <option value="">Nenhuma automação</option>
@@ -154,10 +159,7 @@ export default async function PortasDeEntrada() {
                       </select>
                       <p className={`text-xs ${muted}`}>Dispara: {l.dispara}</p>
                     </div>
-                    {/* O identificador que veio da Meta, intacto. É ele que faz
-                        uma pergunta que este painel não entende sobreviver a um
-                        "Salvar" que não a tocou (`perguntasDoFormulario`). */}
-                    <input type="hidden" name={`payload-${l.posicao}`} value={l.payload} />
+                    <input type="hidden" name={l.payload.nome} value={l.payload.valor} />
                   </div>
                 ))}
                 <SubmitButton

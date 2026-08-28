@@ -5,12 +5,8 @@ import { redirect } from "next/navigation";
 import { updateConfig, listAccounts, getConfig, getAccount } from "@/lib/db";
 import { subscribeToWebhooks, configureAppWebhook, CAMPOS_DE_WEBHOOK } from "@/lib/ig";
 import { canonicalAppUrl, isEphemeralUrl } from "@/lib/app-url";
-import {
-  MAXIMO_DE_PERGUNTAS,
-  perguntasQueNaoFicaram,
-  sincronizarPerguntas,
-} from "@/lib/perguntas-de-abertura";
-import { perguntasDoFormulario } from "./portas";
+import { perguntasQueNaoFicaram, sincronizarPerguntas } from "@/lib/perguntas-de-abertura";
+import { contaDoFormulario, linhasDoFormulario, perguntasDoFormulario } from "./portas";
 
 // Reassina `CAMPOS_DE_WEBHOOK` (lib/ig.ts) em todas as contas conectadas. A
 // assinatura já acontece sozinha no OAuth, mas se falhar naquele momento nada
@@ -222,7 +218,7 @@ export async function saveMetaCredentials(formData: FormData): Promise<void> {
 // teste puro. Aqui só se lê `FormData`, se chama, e se conta o que aconteceu.
 // ============================================================
 export async function salvarPerguntasDeAbertura(formData: FormData): Promise<void> {
-  const igUserId = String(formData.get("conta") ?? "").trim();
+  const igUserId = contaDoFormulario(formData);
   const conta = await getAccount(igUserId);
   // A CONTA VEM DO FORMULÁRIO, então ela é conferida contra as conectadas. Sem
   // isto, um id qualquer viraria uma chamada à Meta com o token de outra conta.
@@ -230,17 +226,14 @@ export async function salvarPerguntasDeAbertura(formData: FormData): Promise<voi
     redirect(`/setup?erro=${encodeURIComponent("Esta conta não está conectada neste painel.")}`);
   }
 
-  // O teto existe para o laço não depender de um número que veio do navegador.
-  // Quatro é o limite da Meta; o dobro cobre a conta com perguntas em vários
-  // idiomas, que é o caso em que a tela mostra mais de quatro posições.
-  const posicoes = Math.min(Math.max(0, Number(formData.get("posicoes") ?? 0)), 2 * MAXIMO_DE_PERGUNTAS);
-  const linhas = [];
-  for (let i = 1; i <= posicoes; i++) {
-    linhas.push({
-      texto: String(formData.get(`texto-${i}`) ?? ""),
-      automacaoId: String(formData.get(`automacao-${i}`) ?? ""),
-      payload: String(formData.get(`payload-${i}`) ?? ""),
-    });
+  // O `FormData` VIRA LINHAS FORA DAQUI, pelos mesmos construtores de nome que o
+  // JSX usa para escrever os campos (`./portas.ts`). Montar os nomes aqui à mão
+  // era a costura sem rede: cinco desencontros plantados passaram por tsc,
+  // eslint, 805 puros e 56 de integração, e o pior deles apagava o campo
+  // `ice_breakers` inteiro da conta anunciando sucesso.
+  const { linhas, motivo: motivoDaLeitura } = linhasDoFormulario(formData);
+  if (!linhas) {
+    redirect(`/setup?erro=${encodeURIComponent(motivoDaLeitura ?? "Não deu para ler o formulário.")}`);
   }
 
   const { perguntas, motivo } = perguntasDoFormulario(linhas);

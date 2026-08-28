@@ -1,12 +1,17 @@
 import { describe, it, expect } from "vitest";
 import {
   GATILHO_DE_ABERTURA,
+  TETO_DE_POSICOES,
+  contaDoFormulario,
+  formularioDasPortas,
   linhasDasPortas,
+  linhasDoFormulario,
   opcoesDeAutomacao,
   perguntasDoFormulario,
   resumoDoLimite,
   LIGAR_FUNCIONA,
   type AutomacaoConhecida,
+  type Linha,
 } from "@/app/setup/portas";
 import { MAXIMO_DE_PERGUNTAS, identificadorSobrevive } from "@/lib/perguntas-de-abertura";
 import { payloadDaPergunta } from "@/lib/steps";
@@ -242,6 +247,150 @@ describe("do formulário para a Meta", () => {
 
   it("tudo em branco devolve lista vazia — que é o pedido de apagar", () => {
     expect(perguntasDoFormulario([linha(""), linha(""), linha(""), linha("")]).perguntas).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// A COSTURA DE NOMES ENTRE A TELA E A AÇÃO.
+//
+// POR QUE ESTE BLOCO EXISTE, e a razão é medida: cinco desencontros entre o
+// `name=` que o JSX escreve e o `formData.get()` que a ação pede foram plantados
+// e passaram por `tsc`, por `eslint`, pelos 805 puros e pelos 56 de integração —
+// os cinco verdes. O pior deles fazia toda linha voltar em branco, a lista sair
+// vazia, `acaoDaEscrita` traduzir isso em DELETE, e a conta perder o campo
+// `ice_breakers` inteiro com a tela dizendo "ficou sem pergunta de abertura
+// nenhuma ✓".
+//
+// O CASO DE INTEGRAÇÃO NÃO ALCANÇAVA ISSO, e não por descuido: ele começa em
+// `perguntasDoFormulario(...)`, que é função pura, e nunca atravessa o
+// `FormData`. A travessia é o que está medido aqui, com um `FormData` DE
+// VERDADE, montado a partir do descritor que o JSX desenha — o que a tela manda,
+// campo por campo, e não uma lista remontada por este arquivo.
+// ===========================================================================
+describe("o que a TELA escreve é o que a AÇÃO lê", () => {
+  const CONTA = "17800000000000222";
+
+  /**
+   * O formulário como o navegador o manda: um `FormData` montado a partir de
+   * `formularioDasPortas`, que é exatamente o que o JSX desenha. Nenhum nome de
+   * campo é digitado aqui — digitá-los seria este arquivo concordando consigo
+   * mesmo sobre a costura que ele existe para medir.
+   */
+  function comoOFormularioManda(linhas: Linha[]): FormData {
+    const f = new FormData();
+    const form = formularioDasPortas(CONTA, linhas);
+    f.set(form.conta.nome, form.conta.valor);
+    f.set(form.posicoes.nome, form.posicoes.valor);
+    for (const l of form.linhas) {
+      f.set(l.texto.nome, l.texto.valor);
+      f.set(l.automacao.nome, l.automacao.valor);
+      f.set(l.payload.nome, l.payload.valor);
+    }
+    return f;
+  }
+
+  const NO_AR = [
+    { question: "Quero saber mais", payload: payloadDaPergunta(OK.id) },
+    { question: "Quais são os valores?", payload: "abertura-valores" },
+    { question: "Como funciona?", payload: payloadDaPergunta(PAUSADA.id) },
+  ];
+
+  it("a conta atravessa o formulário", () => {
+    expect(contaDoFormulario(comoOFormularioManda(linhasDasPortas([], TODAS)))).toBe(CONTA);
+  });
+
+  it("cada posição volta com o texto, a automação e o payload dela", () => {
+    const { linhas, motivo } = linhasDoFormulario(
+      comoOFormularioManda(linhasDasPortas(NO_AR, TODAS))
+    );
+    expect(motivo).toBeUndefined();
+    expect(linhas).toHaveLength(MAXIMO_DE_PERGUNTAS);
+    expect(linhas!.map((l) => l.texto)).toEqual([
+      "Quero saber mais",
+      "Quais são os valores?",
+      "Como funciona?",
+      "",
+    ]);
+    // O SELETOR DE CADA POSIÇÃO, e a segunda é a que distingue "leu o campo
+    // certo" de "leu o campo de outra linha": a do meio não aponta para
+    // automação nenhuma deste painel.
+    expect(linhas!.map((l) => l.automacaoId)).toEqual([OK.id, "", PAUSADA.id, ""]);
+    expect(linhas!.map((l) => l.payload)).toEqual([
+      payloadDaPergunta(OK.id),
+      "abertura-valores",
+      payloadDaPergunta(PAUSADA.id),
+      "",
+    ]);
+  });
+
+  // O CASO QUE CUSTA A CONTA INTEIRA. Salvar sem mexer em nada tem de devolver à
+  // Meta exatamente o que estava lá. Qualquer desencontro de nome faz esta lista
+  // sair VAZIA — e lista vazia é o pedido legítimo de apagar tudo.
+  it("salvar sem mexer em nada devolve as MESMAS perguntas, e nunca a lista vazia", () => {
+    const { linhas } = linhasDoFormulario(comoOFormularioManda(linhasDasPortas(NO_AR, TODAS)));
+    const { perguntas, motivo } = perguntasDoFormulario(linhas!);
+    expect(motivo).toBeUndefined();
+    expect(perguntas).toEqual(NO_AR);
+    expect(perguntas).not.toEqual([]);
+  });
+
+  // A CONTA MULTI-IDIOMA: a Meta devolve quatro perguntas POR IDIOMA, a tela
+  // desenha as seis, e o formulário tem de dizer SEIS. Fixar este número em
+  // `MAXIMO_DE_PERGUNTAS` faria o "Salvar" apagar calado tudo da quinta em
+  // diante — e o dono veria "2 perguntas no ar ✓" depois de perder quatro.
+  it("conta com mais perguntas que o limite manda TODAS as posições", () => {
+    const seis = Array.from({ length: 6 }, (_, i) => ({
+      question: `p${i}`,
+      payload: payloadDaPergunta(OK.id),
+    }));
+    const { linhas } = linhasDoFormulario(comoOFormularioManda(linhasDasPortas(seis, TODAS)));
+    expect(linhas).toHaveLength(6);
+    expect(perguntasDoFormulario(linhas!).perguntas).toHaveLength(6);
+  });
+
+  it("o dono editando UMA posição não mexe nas outras", () => {
+    const f = comoOFormularioManda(linhasDasPortas(NO_AR, TODAS));
+    // A posição 4 estava livre; o dono escreve nela e escolhe uma automação.
+    const form = formularioDasPortas(CONTA, linhasDasPortas(NO_AR, TODAS));
+    f.set(form.linhas[3].texto.nome, "Tem desconto?");
+    f.set(form.linhas[3].automacao.nome, OUTRO_GATILHO.id);
+
+    const { linhas } = linhasDoFormulario(f);
+    const { perguntas } = perguntasDoFormulario(linhas!);
+    expect(perguntas).toEqual([
+      ...NO_AR,
+      { question: "Tem desconto?", payload: payloadDaPergunta(OUTRO_GATILHO.id) },
+    ]);
+  });
+
+  // FORMULÁRIO QUE NÃO DIZ QUANTAS POSIÇÕES MANDOU É RECUSADO, e não vira "zero
+  // posições". Medido: `Number("abc")` é `NaN`, e o `Math.min(Math.max(0, NaN))`
+  // que estava aqui também é `NaN` — o laço rodava zero vezes e o "Salvar"
+  // virava o DELETE do campo inteiro anunciado com ✓.
+  it("formulário sem posições legíveis é recusado, e não vira apagar tudo", () => {
+    for (const valor of ["abc", "", "  ", "2.5", "-1", "0", "1e3x"]) {
+      const f = new FormData();
+      f.set("conta", CONTA);
+      f.set("posicoes", valor);
+      const { linhas, motivo } = linhasDoFormulario(f);
+      expect(linhas, `posicoes=${JSON.stringify(valor)} devolveu lista`).toBeUndefined();
+      expect(motivo).toBeTruthy();
+    }
+  });
+
+  it("o campo `posicoes` que falta inteiro também é recusado", () => {
+    const f = new FormData();
+    f.set("conta", CONTA);
+    expect(linhasDoFormulario(f).linhas).toBeUndefined();
+  });
+
+  // O TETO É DO SERVIDOR. Um formulário adulterado dizendo 5000 posições não
+  // pode fazer o servidor montar 5000 linhas.
+  it("o número que veio do navegador é cortado pelo teto do servidor", () => {
+    const f = new FormData();
+    f.set("conta", CONTA);
+    f.set("posicoes", "5000");
+    expect(linhasDoFormulario(f).linhas).toHaveLength(TETO_DE_POSICOES);
   });
 });
 
