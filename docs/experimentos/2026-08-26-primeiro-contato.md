@@ -377,3 +377,38 @@ ela é sinal, não ruído: a confirmação de leitura parou de aparecer ali.
 contas listam hoje `["comments","messages","messaging_postbacks","messaging_referral"]`
 em `/{ig_user_id}/subscribed_apps`, lido em 26/08. Se nada chegar, o que sobra é
 o **nível de APP**, no painel da Meta — *Webhooks → Instagram → Gerenciar*.
+
+## 28/08 — as perguntas de teste deste experimento, depois que o formato mudou
+
+O formato de verdade virou `ABERTURA_<automação>`, reconhecido por prefixo
+(`lib/steps.ts`). As perguntas configuradas acima em 26/08 continuam no ar, com
+o formato antigo `abertura-...`, escolhido de propósito para não disparar nada.
+Lido de volta da Meta nesta data:
+
+- `@vannuchi.eng`: "Quando começa a próxima turma?" (`abertura-proxima-turma`),
+  "O que o curso cobre?" (`abertura-conteudo`), "Quais são os valores?"
+  (`abertura-valores`), "Como faço a inscrição?" (`abertura-inscricao`).
+- `@n8xmarketing`: "Quero saber mais" (`abertura-saber-mais`), "Quais sao os
+  valores?" (`abertura-valores`), "Como funciona?" (`abertura-como-funciona`).
+- `@saas.metodoia`: mesmas três de `@n8xmarketing`, mesmos payloads.
+- `@thiagovannuchi`: nenhuma (`{"data":[]}`).
+
+**Continuam inertes.** `PREFIXO_DA_PERGUNTA` é `"ABERTURA_"` — maiúsculo, com
+underscore — e `lerPayload` testa esse prefixo ANTES de qualquer `split(":")`.
+`abertura-saber-mais` erra os dois pontos em que poderia colidir (caixa e
+separador) e cai no `split(":")` de uma parte só, que não é `AUTO` nem
+`FOLLOW`: `null`. `tests/steps.test.ts` (describe "o identificador de uma
+pergunta de abertura" e "as três formas antigas, congeladas") testa
+literalmente as seis strings acima, campo a campo, e passa: 805/805 puros
+verdes com o formato novo já no lugar. Fora da suíte, um fuzz diferencial
+comparou 2368 strings entre as duas versões de `lerPayload`; as 146 que
+divergiram começam todas por `ABERTURA_` — nenhuma das formas antigas mudou de
+resposta.
+
+**Recomendação: não é caso de segurança, é caso de limpeza.** Tecnicamente
+inofensivas — comprovado, não presumido. A razão para mexer é outra: são textos
+de experimento ("Quero saber mais", "Quais sao os valores?") aparecendo para
+qualquer visitante real de três contas reais do dono, e a tela `/setup` já
+rotula as quatro como "não dispara nada" — o que um visitante não vê, mas o
+dono vê toda vez que abre a tela. Ficam até o dono decidir; **nada foi
+apagado** nesta passagem.
