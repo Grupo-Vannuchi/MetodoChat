@@ -82,6 +82,14 @@ const meta = {
   // O que a Meta responde sobre "essa pessoa segue?".
   //   false -> não segue     true -> segue     null -> a Meta não informou
   segue: false as Segue,
+  // A TERCEIRA FORMA, e ela é diferente das outras três: a chamada FALHA.
+  //
+  // `segue: null` é a Meta respondendo 200 sem o campo. Isto aqui é a Meta
+  // respondendo ERRO — que foi o que aconteceu em produção no dia 26/08/2026 e
+  // que ninguém conseguiu diagnosticar, porque `checkFollowsAccount` engolia o
+  // erro com `catch { return null }`. As duas terminam em "não deu para saber",
+  // e é exatamente por isso que o registro precisa distingui-las.
+  falha: null as { status: number; corpo: unknown } | null,
   pedidos: [] as { caminho: string; campos: string; token: string | null }[],
 };
 
@@ -106,6 +114,11 @@ beforeAll(async () => {
     // responde 200 sem o campo quando a permissão não está concedida, e é isso
     // que faz `checkFollowsAccount` devolver null.
     if (campos.includes("is_user_follow_business")) {
+      if (meta.falha) {
+        res.writeHead(meta.falha.status, { "content-type": "application/json" });
+        res.end(JSON.stringify(meta.falha.corpo));
+        return;
+      }
       return responder(meta.segue === null ? {} : { is_user_follow_business: meta.segue });
     }
     // O perfil de quem mandou a DM (`getUserProfile`), chamado na primeira
@@ -232,6 +245,23 @@ async function eventos(tipo: string, igId: string) {
       [CONTA, tipo, igId]
     )) as { n: number }[];
   return linhas[0].n;
+}
+
+// O CORPO do registro, e não a contagem dele. `eventos` acima responde "quantos"
+// — e "quantos" foi durante seis meses tudo o que este produto sabia dizer sobre
+// uma conferência de seguidor que não deu. O caso lá embaixo pergunta POR QUÊ, e
+// precisa do corpo para isso.
+async function payloadDoEvento(tipo: string, igId: string) {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(
+      `select payload from events
+        where account_id = $1 and type = $2 and payload->>'contact_ig_id' = $3
+        order by created_at desc, id desc limit 1`,
+      [CONTA, tipo, igId]
+    )) as { payload: Record<string, unknown> }[];
+  return linhas[0]?.payload ?? null;
 }
 
 // Uma mensagem de texto chegando pelo webhook, como a Meta a entrega.
@@ -365,6 +395,73 @@ describe("portão → link", () => {
     // NADA saiu desta máquina: todo pedido do caminho chegou na Meta falsa, e
     // nenhum deles caiu no 404 de caminho desconhecido.
     expect(meta.pedidos.every((p) => p.campos !== "")).toBe(true);
+  });
+
+  // ==========================================================================
+  // A CAUSA CHEGA AO REGISTRO — a fiação, que é onde o defeito sobrevive.
+  //
+  // Este caso existe porque a rede que ele traz não existia, e isso foi MEDIDO:
+  // apagar a linha que manda a causa para `logEvent` (lib/engine.ts) passa por
+  // `tsc` limpo, pelos 849 testes puros e pelos 57 de integração. Sobra um
+  // AVISO de eslint sobre variável não usada — e aviso não reprova nada.
+  //
+  // Os testes puros prendem a LEITURA do erro (`resumoDoErroDaMeta`) e a LINHA
+  // da tela (`eventText`). Nenhum dos dois toca no fio entre elas. É o mesmo
+  // achado que esta fase encontrou oito vezes: o defeito sobrevive na costura.
+  // ==========================================================================
+  test("A CAUSA DA FALHA chega ao registro, com número e frase", async () => {
+    // MESMA junção do primeiro caso, de propósito: o portão alcança o link pelo
+    // outro braço, e é essa forma que já está provada aqui. O que muda é só a
+    // resposta da Meta.
+    await semear(
+      "D · a Meta falhou",
+      "quero-d",
+      [BOAS_VINDAS, PORTAO, { id: "b_linkddd", tipo: "dm", texto: "Aqui está:", url: LINK_C }],
+      [
+        { de: "b_boasvindas", quando: { tipo: "sempre" }, para: "b_linkddd" },
+        { de: "b_portao", quando: { tipo: "sempre" }, para: "b_linkddd" },
+      ]
+    );
+    const EU = "9000000000000009";
+
+    // O erro REAL, copiado da resposta que a Meta deu em 28/08/2026 quando
+    // perguntamos por um contato de produção que havia falhado no dia 26.
+    meta.falha = {
+      status: 500,
+      corpo: {
+        error: {
+          message: "User consent is required to access user profile",
+          type: "IGApiException",
+          code: 230,
+          fbtrace_id: "AS0h-P4w-7I9n1k069WDV9G",
+        },
+      },
+    };
+    try {
+      await mensagem(EU, "quero-d", "m-d-1");
+      await mensagem(EU, "manda aí", "m-d-2");
+
+      // O COMPORTAMENTO NÃO MUDOU, e não podia mudar: falha na conferência
+      // LIBERA a pessoa. Barrar prenderia a base inteira quando a Meta tossisse.
+      expect(urlNaFila(await fila(EU), LINK_C)).toBe(true);
+      expect(await eventos("follow_check_unavailable", EU)).toBe(1);
+
+      // E ESTA É A PARTE NOVA: o registro diz POR QUÊ.
+      const p = await payloadDoEvento("follow_check_unavailable", EU);
+      const erro = p?.erro as Record<string, unknown> | undefined;
+      expect(erro, "o registro tem de carregar a causa").toBeTruthy();
+      expect(erro!.codigo).toBe(230);
+      expect(erro!.http).toBe(500);
+      expect(erro!.mensagem).toBe("User consent is required to access user profile");
+
+      // O TOKEN NÃO ESTÁ NO REGISTRO. Não é zelo decorativo: o endereço desta
+      // chamada leva o `access_token` na query, e este registro vai para uma
+      // tela que o dono abre. O servidor falso confirma que o token CHEGOU nele.
+      expect(JSON.stringify(p)).not.toContain(TOKEN);
+      expect(meta.pedidos.some((x) => x.token === TOKEN)).toBe(true);
+    } finally {
+      meta.falha = null;
+    }
   });
 
   test("E-MAIL JÁ CONHECIDO não pula o portão", async () => {
