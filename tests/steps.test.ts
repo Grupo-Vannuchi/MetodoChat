@@ -5437,9 +5437,7 @@ describe("resumoDoErroDaMeta", () => {
     );
   });
 
-  // A ordem entre apagar e cortar é a diferença entre um segredo apagado e um
-  // segredo partido ao meio que a expressão não reconhece mais.
-  it("apaga antes de cortar, mesmo quando o segredo está além do limite", () => {
+  it("o segredo além do limite some junto com o resto", () => {
     const enchimento = "x".repeat(400);
     const r = resumoDoErroDaMeta({
       status: 500,
@@ -5447,6 +5445,26 @@ describe("resumoDoErroDaMeta", () => {
     });
     expect(r.mensagem).not.toContain("SEGREDOLONGO");
     expect(r.mensagem!.length).toBeLessThanOrEqual(300);
+  });
+
+  // ESTE CASO EXISTE PORQUE O ANTERIOR NÃO BASTAVA, e isso foi medido: trocando
+  // a ordem de apagar e cortar em `lib/steps.ts`, os 355 testes seguiam verdes.
+  // O caso de cima prova que o segredo some — mas ele some pelo corte também, e
+  // por isso não distingue as duas ordens.
+  //
+  // A diferença real é a explicação DEPOIS do segredo. Apagando antes, o segredo
+  // ocupa seis caracteres e o resto cabe; cortando antes, ele come o limite
+  // inteiro e a explicação some. Uma mensagem de erro sem a explicação é o
+  // silêncio que esta função inteira existe para acabar.
+  it("a explicação depois do segredo sobrevive ao corte", () => {
+    const segredo = "S".repeat(250);
+    const r = resumoDoErroDaMeta({
+      status: 500,
+      body: `access_token=${segredo}&depois=ESTA_E_A_EXPLICACAO`,
+    });
+    expect(r.mensagem).toContain("access_token=OCULTO");
+    expect(r.mensagem).not.toContain(segredo);
+    expect(r.mensagem).toContain("depois=ESTA_E_A_EXPLICACAO");
   });
 
   it("corpo que não é JSON sobrevive como texto cru", () => {

@@ -4501,8 +4501,19 @@ export function resumoDoErroDaMeta(erro: unknown): ResumoDoErroDaMeta {
   }
 
   if (mensagem !== null) {
-    // A ORDEM IMPORTA: apagar ANTES de cortar. Cortar primeiro poderia deixar um
-    // `access_token=` partido ao meio, que a expressão não reconheceria mais.
+    // A ORDEM É APAGAR E DEPOIS CORTAR, E O MOTIVO NÃO É SEGURANÇA — foi medido.
+    //
+    // A frase que estava aqui dizia que cortar primeiro deixaria um segredo
+    // partido ao meio, "que a expressão não reconheceria mais". É FALSA:
+    // trocando as duas linhas de lugar, os 355 testes continuaram verdes, porque
+    // `semSegredo` rodando sobre o texto já cortado apaga igual o que sobrou
+    // dele. Cortar primeiro não vaza nada.
+    //
+    // O que a ordem muda é QUANTO TEXTO ÚTIL sobra. Um segredo de 250 caracteres
+    // come 250 dos 300 do limite antes de virar `OCULTO`, e o que vinha depois
+    // dele — que é a parte que explica o erro — não cabe mais. Apagando antes, o
+    // segredo ocupa seis caracteres e a explicação sobrevive. O caso
+    // "a explicação depois do segredo sobrevive ao corte" prende exatamente isso.
     const limpo = semSegredo(mensagem).trim();
     mensagem = limpo ? limpo.slice(0, LIMITE_DA_MENSAGEM) : null;
   }
