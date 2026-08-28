@@ -293,6 +293,9 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
 
   let PRIMEIRA = "";
   let SEGUNDA = "";
+  // A automação da conta VIZINHA, e ela é o alvo do caso de travessia entre
+  // contas: um identificador dela chegando por um postback DESTA conta.
+  let DA_VIZINHA_ID = "";
 
   beforeAll(async () => {
     // DUAS automações de abertura na MESMA conta, e o toque é sempre na SEGUNDA.
@@ -306,7 +309,7 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
     ]);
     // E uma na VIZINHA, para que "a conta errada" tenha automação ativa e o erro
     // de escopo tenha para onde ir em vez de morrer por falta de candidata.
-    await semearAbertura(VIZINHA, "C · porta da vizinha", [
+    DA_VIZINHA_ID = await semearAbertura(VIZINHA, "C · porta da vizinha", [
       { id: "b_vizinh1", tipo: "dm", texto: DA_VIZINHA },
     ]);
     expect(PRIMEIRA).not.toBe(SEGUNDA);
@@ -446,6 +449,62 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
     // E a fila é da conta do evento, não da vizinha.
     expect((await fila(CONTA, OS_DOIS)).map((l) => l.payload.text)).toEqual([BOAS_VINDAS]);
     expect(await fila(VIZINHA, OS_DOIS)).toEqual([]);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // A OUTRA METADE DO ESCOPO: a conta da AUTOMAÇÃO, e não a do contato.
+  //
+  // O caso acima tranca `upsertContact` — o contato nasce na conta do evento. Ele
+  // NÃO tranca `loadAutomation`: neutralizar o `and account_id = $2` do `select`
+  // dela deixa os dois casos verdes, e deixou também `tsc`, `eslint`, os 805
+  // puros e os 56 de integração. É o mesmo escopo, medido do outro lado.
+  //
+  // COMO ISSO ACONTECE NA VIDA REAL, e nenhuma das três formas precisa de má-fé:
+  // o dono digitou o id errado ao montar a pergunta pela linha de comando,
+  // duplicou uma pergunta entre duas contas suas, ou a Meta reentregou um evento
+  // antigo. Com quatro contas conectadas no mesmo painel, o identificador de uma
+  // é uma string perfeitamente válida chegando pelo webhook da outra.
+  //
+  // O QUE CUSTA SEM O ESCOPO: a visitante de `@vannuchi.eng` recebe o fluxo de
+  // `@thiagovannuchi` — mensagem de outro negócio, escrita para outra gente — e o
+  // contato dela nasce sob a conta A com `last_automation_id` da conta B. É a
+  // mesma classe que esta base recusou duas vezes por segurança.
+  //
+  // O QUE ESTE CASO MEDE é o desfecho 2 que a própria tela de Configuração
+  // desenha: "aponta para uma automação que não existe mais NESTA conta" — o
+  // motor sai calado, sem fila, sem contato, e o toque continua visível em
+  // Atividade como `abertura`.
+  // -------------------------------------------------------------------------
+  test("postback com automação de OUTRA conta não roda, e não cria contato", async () => {
+    const DA_OUTRA_PORTA = "9300000000000011";
+    const aberturasAntes = (await eventos(CONTA, "abertura")).length;
+
+    // A automação existe, está ativa e tem o gatilho `abertura` — só que ela é da
+    // VIZINHA. A única coisa errada aqui é a conta, e é só ela que pode recusar.
+    await tocarNaPergunta(
+      CONTA,
+      DA_OUTRA_PORTA,
+      "Quero saber mais",
+      payloadDaPergunta(DA_VIZINHA_ID),
+      "mid-conta-errada-1"
+    );
+
+    // NADA FOI ENTREGUE, em conta nenhuma. Sem o escopo, a fila de CONTA sai com
+    // a mensagem da vizinha — a frase que este arquivo guarda em `DA_VIZINHA`.
+    expect(await fila(CONTA, DA_OUTRA_PORTA)).toEqual([]);
+    expect(await fila(VIZINHA, DA_OUTRA_PORTA)).toEqual([]);
+
+    // E NINGUÉM NASCEU. O motor para em `if (!auto) return`, que é ANTES de
+    // `upsertContact` — sem o escopo, esta pessoa vira contato de `CONTA` com a
+    // `last_automation_id` de uma automação que não é desta conta.
+    expect(await contatosDe(DA_OUTRA_PORTA)).toEqual([]);
+
+    // MAS O TOQUE NÃO EVAPOROU: ele é gravado como `abertura` ANTES de a
+    // automação ser procurada, e é por essa linha que o dono vê em /eventos que
+    // alguém tocou numa pergunta que não leva a lugar nenhum.
+    expect((await eventos(CONTA, "abertura")).length).toBe(aberturasAntes + 1);
 
     expect(meta.desconhecidos).toEqual([]);
   });
