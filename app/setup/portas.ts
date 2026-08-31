@@ -659,3 +659,22 @@ export function resumoDaInstalacao(etapas: boolean[]): ResumoDaInstalacao {
         : `${total} de ${total} concluídas`;
   return { concluidas, total, aberto, texto };
 }
+
+/**
+ * O SUBTÍTULO DA TELA, que muda com a fase em que o dono está.
+ *
+ * Achado na prova visual de 31/08/2026, e não por raciocínio: com a instalação
+ * recolhida, o subtítulo continuava dizendo "Siga as etapas na ordem" sobre um
+ * bloco de uma linha no fim da página, enquanto o que estava na frente da
+ * pessoa eram as perguntas de abertura.
+ *
+ * É a mesma classe de defeito que a revisão da fase anterior nomeou como I1: o
+ * painel afirmava que a tela de configuração "ainda não está em Configuração"
+ * no dia seguinte ao de ela existir. Uma frase que a mudança tornou falsa custa
+ * mais que nenhuma frase — é onde o leitor para de olhar.
+ */
+export function subtituloDaConfiguracao(instalacaoAberta: boolean): string {
+  return instalacaoAberta
+    ? "Siga as etapas na ordem. Cada uma diz o que fazer, onde fazer e como conferir se deu certo antes de seguir para a próxima."
+    : "As perguntas de abertura e o diagnóstico das contas ficam aqui em cima. A instalação já está concluída e fica recolhida no fim — abra se precisar rever algum passo.";
+}

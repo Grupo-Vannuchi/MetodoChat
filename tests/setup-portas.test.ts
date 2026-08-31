@@ -12,6 +12,7 @@ import {
   opcoesDeAutomacao,
   perguntasDoFormulario,
   resumoDaInstalacao,
+  subtituloDaConfiguracao,
   resumoDoLimite,
   textoDeApagar,
   LIGAR_FUNCIONA,
@@ -728,5 +729,30 @@ describe("resumoDaInstalacao", () => {
         expect(r.aberto, `${feitas} de ${total}`).toBe(r.concluidas < r.total);
       }
     }
+  });
+});
+
+// O SUBTÍTULO TEM DE DESCREVER A TELA QUE ESTÁ NA FRENTE DA PESSOA.
+//
+// Achado na prova visual de 31/08, e não por raciocínio: com a instalação
+// recolhida, o subtítulo continuava dizendo "Siga as etapas na ordem" sobre um
+// bloco de uma linha no fim da página. É a mesma classe do painel que afirmava
+// que a tela de configuração "ainda não existe" enquanto ela existia — texto
+// que uma mudança tornou falso e ninguém voltou para corrigir.
+describe("subtituloDaConfiguracao", () => {
+  it("instalando, ele guia pelas etapas", () => {
+    expect(subtituloDaConfiguracao(true)).toContain("Siga as etapas na ordem");
+  });
+
+  it("instalado, ele descreve a tela que está na frente", () => {
+    const t = subtituloDaConfiguracao(false);
+    expect(t).not.toContain("Siga as etapas");
+    expect(t).toContain("recolhida");
+  });
+
+  it("os dois textos são diferentes, e nenhum é vazio", () => {
+    expect(subtituloDaConfiguracao(true)).not.toBe(subtituloDaConfiguracao(false));
+    expect(subtituloDaConfiguracao(true).trim().length).toBeGreaterThan(20);
+    expect(subtituloDaConfiguracao(false).trim().length).toBeGreaterThan(20);
   });
 });
