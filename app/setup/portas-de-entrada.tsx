@@ -117,7 +117,7 @@ export default async function PortasDeEntrada({ rascunho }: { rascunho?: string 
           <details
             key={c.igUserId}
             open={c.igUserId === selecionada}
-            className={`p-4 ${subtle}`}
+            className={`group p-4 ${subtle}`}
           >
             {/* UMA CONTA ABERTA POR VEZ. Medido em 31/08/2026: com as quatro
                 abertas este bloco tinha 2426 px — 3,9 telas sozinho — e o dono
@@ -129,7 +129,12 @@ export default async function PortasDeEntrada({ rascunho }: { rascunho?: string 
                 esta linha. Quem decide o texto é `contagemDaConta`, com teste. */}
             <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2">
               <span className="font-medium">@{c.username}</span>
-              <span className={`text-xs ${muted}`}>
+              {/* A CONTAGEM SÓ VALE FECHADA. Aberta, o `resumo.texto` logo abaixo
+                  já diz a mesma coisa por extenso — e dizer duas vezes é a
+                  poluição que esta mudança veio tirar. `group-open:hidden` é
+                  CSS puro: nenhum estado, nenhuma condição em JSX, e a linha
+                  não pisca ao abrir porque quem some é só o pedaço repetido. */}
+              <span className={`text-xs group-open:hidden ${muted}`}>
                 {contagemDaConta(c.leitura.perguntas.length)}
               </span>
             </summary>
