@@ -117,6 +117,21 @@ const MARCA_DAGUA = {
       de: "005-contatos-chave-composta.sql",
       porque: "troca as colunas da CHAVE PRIMÁRIA, que já existe",
     },
+    {
+      de: "006-colunas-mortas.sql",
+      // A PRIMEIRA QUE REMOVE, e a primeira cuja invisibilidade aqui é por
+      // DIREÇÃO e não por forma: esta conferência pergunta "o que FALTA no
+      // banco", e uma coluna a mais nunca falta. Um banco que não recebeu a
+      // `006` continua com `flow_step_index` e `follow_attempts_dia`, e nada
+      // no motor as lê desde 31/08 — sobra é peso, não defeito.
+      //
+      // O outro lado, que importa: coluna que devia ter sumido e não sumiu é
+      // conferida por `REMOVIDAS_ESPERADAS` em `scripts/migrar.mjs`, DEPOIS de
+      // aplicar, e lá ela sai 1 e derruba o build. As duas metades existem —
+      // esta fica cega de propósito, e a outra é quem enxerga.
+      porque:
+        "REMOVE duas colunas; esta conferência pergunta o que FALTA, e coluna a mais nunca falta",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",

@@ -554,6 +554,34 @@ const ESPERADAS = [
   },
 ];
 
+// ============================================================
+// O QUE TEM DE **NÃO** EXISTIR — a conferência simétrica.
+//
+// `ESPERADAS` acima afirma presença, e por três anos foi só disso que este
+// projeto precisou: toda migração ACRESCENTAVA. A `006` é a primeira que
+// DESTRÓI, e para ela a lista de presença não serve — pior, ela é MUDA: uma
+// remoção que não fez efeito nenhum passaria por aqui sem uma linha, e o script
+// sairia 0 dizendo "CONFERIDO" sobre outras duas colunas.
+//
+// É a mesma classe de defeito que a Tarefa 9 encontrou (a lista velha conferindo
+// só a coluna de `001`), pela terceira porta. A conferência já aprendeu forma de
+// coluna e chave estrangeira; agora aprende ausência.
+//
+// QUEM ACRESCENTAR MIGRAÇÃO QUE REMOVE ACRESCENTA AQUI.
+// ============================================================
+const REMOVIDAS_ESPERADAS = [
+  {
+    tabela: "contacts",
+    coluna: "flow_step_index",
+    de: "006-colunas-mortas.sql",
+  },
+  {
+    tabela: "contacts",
+    coluna: "follow_attempts_dia",
+    de: "006-colunas-mortas.sql",
+  },
+];
+
 // A SEGUNDA LISTA, E ELA NASCE DO DIA QUE O PARÁGRAFO ACIMA PREVIU.
 //
 // Lá em cima está escrito, desde a Tarefa 9, que um extrator que só entende
@@ -725,6 +753,38 @@ for (const { tabela, coluna, de, tipo, padrao, naoNulo } of ESPERADAS) {
     `CONFERIDO no banco: ${tabela}.${coluna} existe e confere (${achado.tipo}, ` +
       `not null ${achado.naoNulo}, default ${achado.padrao})`
   );
+}
+
+// A CONFERÊNCIA DA AUSÊNCIA — espelho exata da de presença, com a polaridade
+// invertida em UM ponto e não em dois: no ensaio a seco, a coluna AINDA ESTAR lá
+// é o esperado (nada foi gravado); depois de aplicar, ela ainda estar lá é
+// falha. É a mesma frase do bloco de cima, ao contrário.
+for (const { tabela, coluna, de } of REMOVIDAS_ESPERADAS) {
+  // A MESMA pergunta ao `pg_catalog` do bloco acima, e pelo mesmo motivo:
+  // `to_regclass` resolve o nome pelo `search_path`, exatamente como o
+  // `alter table` o resolveu. E `not a.attisdropped` importa AQUI mais que lá —
+  // o Postgres não apaga a linha de `pg_attribute` ao derrubar uma coluna, ele
+  // a marca. Sem esse filtro, a coluna removida continuaria "existindo" e esta
+  // conferência falharia para sempre depois de funcionar.
+  const achadas = await sql`
+    select 1 from pg_attribute a
+     where a.attrelid = to_regclass(${tabela})
+       and a.attname = ${coluna}
+       and a.attnum > 0
+       and not a.attisdropped`;
+
+  if (achadas.length) {
+    console.log(
+      `CONFERIDO no banco: ${tabela}.${coluna} AINDA EXISTE (${de})` +
+        (aplicar
+          ? " — A REMOÇÃO NÃO FEZ EFEITO, pare e investigue."
+          : " (esperado no ensaio a seco)")
+    );
+    if (aplicar) falhas++;
+    continue;
+  }
+
+  console.log(`CONFERIDO no banco: ${tabela}.${coluna} não existe mais (${de})`);
 }
 
 const NOME_DA_REGRA = { a: "no action", r: "restrict", c: "cascade", n: "set null", d: "set default" };

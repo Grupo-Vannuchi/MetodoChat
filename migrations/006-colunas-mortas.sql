@@ -1,0 +1,57 @@
+-- AS DUAS COLUNAS MORTAS DE `contacts` SAEM DO BANCO.
+--
+-- Esta é a PRIMEIRA migração deste projeto que DESTRÓI, e não acrescenta. Ela
+-- só pôde existir depois de 31/08/2026, quando nasceu `schema_migrations`: até
+-- então toda migração rodava em todo deploy, e o contrato escrito no cabeçalho
+-- de `scripts/migrar.mjs` era que TODA migração fosse idempotente. Um `drop
+-- column if exists` é idempotente, mas rodar destruição a cada deploy é uma
+-- porta que não se deixa aberta. Com o registro, ela roda uma vez.
+--
+-- ============================================================
+-- `flow_step_index` — o cursor por POSIÇÃO, aposentado
+-- ============================================================
+--
+-- O cursor deste produto já foi um inteiro (a posição do passo na lista) e
+-- passou a ser a identidade do bloco (`flow_step_id`). A troca é da Fase 1b;
+-- `scripts/converter-cursores.mjs` traduziu os cursores que dava traduzir, e a
+-- leitura de reserva em `lib/engine.ts` cobria o resto.
+--
+-- MEDIDO NO BANCO DE PRODUÇÃO EM 31/08/2026, antes de qualquer remoção:
+--
+--     contatos                                        125
+--     com `flow_step_index` preenchido                  0
+--     só com índice, sem `flow_step_id`                 0
+--     com `follow_attempts_dia` preenchido              0
+--     índices ou views citando as duas                  0
+--
+-- E o zero não era um retrato que pudesse mudar no dia seguinte: NENHUM caminho
+-- do código jamais escreveu valor nessa coluna — `gravarCursor` e `limparCursor`
+-- só a zeravam. Linha nova não tinha como nascer preenchida. Ela estava morta
+-- POR CONSTRUÇÃO, e não por sorte.
+--
+-- ============================================================
+-- `follow_attempts_dia` — órfã de verdade, e é ela que prova a distinção
+-- ============================================================
+--
+-- Zero ocorrências em TODO o repositório: `.ts`, `.tsx`, `.mjs`, `.sql`. Ela
+-- nem sequer nasce de `migrations/` — veio de antes, junto do esquema herdado.
+--
+-- O PAR DAS DUAS É O ARGUMENTO, e está escrito no plano de 17/08: o mesmo plano
+-- afirmava que `flow_step_index` estava órfã, e a medição mostrou que NÃO — o
+-- `engine.ts` a lia. `follow_attempts_dia` parecia igual e era o oposto.
+-- Parecer órfã e ser órfã não são a mesma coisa, e só a medição separa as duas.
+--
+-- ============================================================
+-- POR QUE ISTO NÃO VEIO NO MESMO DEPLOY QUE PAROU DE LER
+-- ============================================================
+--
+-- O `build` é `node scripts/migrar.mjs --aplicar && next build`: a migração roda
+-- ANTES de o código novo entrar no ar. Com as duas coisas no mesmo deploy, o
+-- código ANTIGO — que ainda faz `select flow_step_id, flow_step_index, ...` —
+-- serviria contra o banco já alterado e quebraria com 42703 nessa janela.
+--
+-- Por isso são dois deploys, e este é o segundo. O primeiro (8486bd3) tirou a
+-- leitura e está no ar.
+
+alter table contacts drop column if exists flow_step_index;
+alter table contacts drop column if exists follow_attempts_dia;
