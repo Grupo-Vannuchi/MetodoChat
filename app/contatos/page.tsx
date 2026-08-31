@@ -1,8 +1,11 @@
+import Link from "next/link";
 import { sql, Contact } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
-import { fmtDate, hoursAgo } from "@/lib/format";
+import { fmtDate } from "@/lib/format";
+import { windowState } from "@/lib/inbox-window";
+import { normalizarCategoria, resumoDasCategorias } from "@/lib/categorias";
 import { atualizarPerfis } from "./actions";
-import { card, btnGhost, muted, tableWrap, thead, rowDivide } from "../ui";
+import { card, btnGhost, muted, tableWrap, thead, rowDivide, badgeOk, badgeNeutral } from "../ui";
 import { IconMail, IconUsers } from "../icons";
 import Avatar from "../avatar";
 
@@ -32,8 +35,12 @@ function Pessoa({ c }: { c: Row }) {
 }
 
 function Janela({ c }: { c: Row }) {
-  const h = hoursAgo(c.last_reply_at);
-  const aberta = h !== null && h < 24;
+  // A MESMA função que o motor de envio usa para recusar (`lib/queue-drain.ts`).
+  // Aqui havia `hoursAgo(...) < 24`, uma segunda regra — e ela é QUASE igual:
+  // `windowState` fecha 5 minutos antes, e nessa faixa a lista dizia "aberta"
+  // sobre alguém que o envio recusaria. Cerca de 7 travessias por dia, de 5
+  // minutos cada, medido em 31/08/2026.
+  const aberta = windowState(c.last_reply_at).open;
   return (
     <span
       className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
@@ -56,6 +63,7 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
         <thead className={thead}>
           <tr>
             <th className="px-4 py-3">Pessoa</th>
+            <th className="px-4 py-3">Categoria</th>
             {comEmail && <th className="px-4 py-3">E-mail</th>}
             <th className="px-4 py-3">Primeiro contato</th>
             <th className="px-4 py-3">Última resposta</th>
@@ -69,6 +77,7 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
               <td className="px-4 py-2.5">
                 <Pessoa c={c} />
               </td>
+              <td className={`px-4 py-2.5 ${muted}`}>{c.categoria ?? "—"}</td>
               {comEmail && (
                 <td className="px-4 py-2.5 text-zinc-700 dark:text-zinc-300">{c.email}</td>
               )}
@@ -86,7 +95,13 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
   );
 }
 
-export default async function ContatosPage() {
+export default async function ContatosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ categoria?: string }>;
+}) {
+  const sp = await searchParams;
+  const filtro = normalizarCategoria(sp.categoria);
   const account = await getSelectedAccount();
   const rows = account
     ? ((await sql().query(
@@ -100,8 +115,16 @@ export default async function ContatosPage() {
       )) as Row[])
     : [];
 
-  const comEmail = rows.filter((c) => c.email);
-  const semEmail = rows.filter((c) => !c.email);
+  // As fichas contam o conjunto INTEIRO da conta — não o filtrado —, para os
+  // números não mudarem quando alguém clica num filtro. O filtro em si é
+  // aplicado em memória sobre o resultado; ver a nota no plano da tarefa 3
+  // sobre por que não é uma segunda consulta.
+  const fichas = resumoDasCategorias(rows);
+  const visiveis =
+    sp.categoria === undefined ? rows : rows.filter((r) => (r.categoria ?? null) === filtro);
+
+  const comEmail = visiveis.filter((c) => c.email);
+  const semEmail = visiveis.filter((c) => !c.email);
   const semNome = rows.filter((c) => !c.username).length;
 
   return (
@@ -129,6 +152,21 @@ export default async function ContatosPage() {
         </div>
       ) : (
         <div className="space-y-10">
+          <div className="flex flex-wrap gap-2">
+            <Link href="/contatos" className={sp.categoria === undefined ? badgeOk : badgeNeutral}>
+              todos ({rows.length})
+            </Link>
+            {fichas.map((f) => (
+              <Link
+                key={f.nome ?? "__sem__"}
+                href={`/contatos?categoria=${encodeURIComponent(f.nome ?? "")}`}
+                className={filtro === f.nome && sp.categoria !== undefined ? badgeOk : badgeNeutral}
+              >
+                {f.nome ?? "sem categoria"} · {f.total} · {f.alcancaveis} alcançáveis
+              </Link>
+            ))}
+          </div>
+
           <section>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>

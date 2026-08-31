@@ -273,6 +273,7 @@ export type Contact = {
   last_reply_at: Date | null;
   last_automation_id: string | null;
   flow_step_id: string | null;
+  categoria: string | null;
 };
 
 export type QueueItem = {
