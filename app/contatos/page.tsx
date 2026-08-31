@@ -137,10 +137,20 @@ export default async function ContatosPage({
   // exatamente o link que a própria ficha "sem categoria" gera, logo abaixo
   // (`?categoria=${encodeURIComponent(f.nome ?? "")}`, com `f.nome` null ali).
   // Por isso a checagem é contra `sp.categoria` (a PRESENÇA do parâmetro), e
-  // não contra `filtro` (o VALOR normalizado) — comparar contra
-  // `filtro === null` misturaria os dois pedidos e quebraria `/contatos`
-  // (mostraria só quem não tem categoria). Quem editar a URL à mão e esperar
-  // "tudo" ao deixar `categoria=` vazio cai nessa pegadinha.
+  // não contra `filtro` (o VALOR normalizado).
+  //
+  // O QUE QUEBRARIA, medido em 31/08/2026 rodando as duas variantes: comparar
+  // contra `filtro === null` deixa `/contatos` funcionando (mostra tudo, porque
+  // um `filtro` nulo sem parâmetro cai no mesmo ramo) e quebra
+  // `/contatos?categoria=` — que passaria a mostrar TUDO em vez de filtrar por
+  // "sem categoria", justamente o link que a ficha gera aqui embaixo.
+  //
+  // A primeira versão desta nota dizia o contrário, e foi pega na revisão.
+  // Fica registrado porque comentário que aponta para a URL errada custa mais
+  // que comentário nenhum: ele manda o próximo leitor conferir o lugar errado.
+  //
+  // Quem editar a URL à mão e esperar "tudo" ao deixar `categoria=` vazio cai
+  // na mesma pegadinha, pelo outro lado.
   const visiveis =
     sp.categoria === undefined ? rows : rows.filter((r) => (r.categoria ?? null) === filtro);
 
