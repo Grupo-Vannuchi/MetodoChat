@@ -5,6 +5,7 @@ import { enqueueManualReply } from "@/lib/engine";
 import { drainQueue } from "@/lib/queue-drain";
 import { windowState } from "@/lib/inbox-window";
 import { sql } from "@/lib/db";
+import { normalizarCategoria } from "@/lib/categorias";
 
 export async function sendReply(
   _prev: { error?: string } | undefined,
@@ -62,4 +63,32 @@ export async function sendReply(
 
   revalidatePath(`/conversas/${contactIgId}`);
   return {};
+}
+
+/**
+ * Marca (ou desmarca) a categoria de um contato.
+ *
+ * QUEM DECIDE O NOME É `normalizarCategoria`, e não esta função: `Aluno` e
+ * `aluno ` têm de gravar a MESMA coisa, senão o filtro da lista passa a mentir.
+ * Campo em branco grava `null` — é o pedido legítimo de "tirar a categoria".
+ *
+ * O `account_id` no `where` é o que impede marcar contato de outra conta: o
+ * identificador vem do formulário, e formulário é do navegador.
+ */
+export async function definirCategoria(formData: FormData): Promise<void> {
+  const account = await getSelectedAccount();
+  if (!account) return;
+
+  const contactIgId = String(formData.get("contato") ?? "");
+  if (!contactIgId) return;
+
+  const categoria = normalizarCategoria(formData.get("categoria"));
+
+  await sql().query(
+    `update contacts set categoria = $3 where account_id = $1 and ig_id = $2`,
+    [account.ig_user_id, contactIgId, categoria]
+  );
+
+  revalidatePath(`/conversas/${contactIgId}`);
+  revalidatePath("/contatos");
 }

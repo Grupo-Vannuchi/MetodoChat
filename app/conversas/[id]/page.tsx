@@ -10,12 +10,14 @@ import {
 } from "@/lib/conversations";
 import { windowState, formatWindowLeft } from "@/lib/inbox-window";
 import { fmtDate } from "@/lib/format";
-import { muted, badgeOk, badgeNeutral } from "../../ui";
+import { muted, badgeOk, badgeNeutral, input, btnGhost } from "../../ui";
 import Avatar from "../../avatar";
 import ReplyForm from "./reply-form";
 import AreaMensagens from "./area-mensagens";
 import AnexoImagem from "./anexo-imagem";
 import Visto from "./visto";
+import { definirCategoria } from "./actions";
+import { LIMITE_DA_CATEGORIA } from "@/lib/categorias";
 
 export const dynamic = "force-dynamic";
 
@@ -89,12 +91,22 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
   // o padrão do resto do projeto — converter a Promise confunde o TypeScript.
   const [linhasContato, mensagens] = await Promise.all([
     sql().query(
-      `select username, name, profile_pic, last_reply_at
+      `select username, name, profile_pic, last_reply_at, categoria
        from contacts where account_id = $1 and ig_id = $2`,
       [account.ig_user_id, id]
     ),
     conversationMessages(account.ig_user_id, id),
   ]);
+
+  // AS CATEGORIAS JÁ EM USO, para o campo oferecer em vez de exigir memória.
+  // Sai daqui e não de uma tabela de categorias porque não há tabela: a lista
+  // É o conjunto de valores distintos, por decisão de desenho.
+  const emUso = (await sql().query(
+    `select distinct categoria from contacts
+      where account_id = $1 and categoria is not null
+      order by categoria`,
+    [account.ig_user_id]
+  )) as { categoria: string }[];
 
   const contato = (
     linhasContato as {
@@ -102,6 +114,7 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
       name: string | null;
       profile_pic: string | null;
       last_reply_at: Date | null;
+      categoria: string | null;
     }[]
   )[0];
   const janela = windowState(contato?.last_reply_at ?? null);
@@ -135,6 +148,33 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
           <p className="truncate text-sm font-semibold">{quem}</p>
           {subtitulo && <p className={`truncate text-xs ${muted}`}>{subtitulo}</p>}
         </div>
+        {/* A CATEGORIA MARCA-SE AQUI, e não na tabela de contatos: marcar na
+            lista exigiria um formulário por linha, 126 deles no mesmo
+            documento. E aqui você marca com contexto — acabou de ler o que a
+            pessoa disse.
+
+            `<datalist>` é HTML nativo: oferece o que já existe e continua
+            aceitando um nome novo digitado. Nenhum componente de cliente,
+            nenhum estado. */}
+        <form action={definirCategoria} className="flex items-center gap-1">
+          <input type="hidden" name="contato" value={id} />
+          <input
+            name="categoria"
+            list="categorias-em-uso"
+            defaultValue={contato?.categoria ?? ""}
+            placeholder="sem categoria"
+            maxLength={LIMITE_DA_CATEGORIA}
+            className={`w-36 rounded-lg px-2 py-1 text-xs ${input}`}
+          />
+          <datalist id="categorias-em-uso">
+            {emUso.map((c) => (
+              <option key={c.categoria} value={c.categoria} />
+            ))}
+          </datalist>
+          <button type="submit" className={`${btnGhost} text-xs`}>
+            salvar
+          </button>
+        </form>
         <span className={janela.open ? badgeOk : badgeNeutral}>
           {janela.open ? `responde por ${formatWindowLeft(janela.msLeft)}` : "só leitura"}
         </span>
