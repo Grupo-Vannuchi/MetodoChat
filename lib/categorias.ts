@@ -19,16 +19,35 @@ export const LIMITE_DA_CATEGORIA = 40;
  * DUAS formas — o balde do nulo e o balde do vazio —, e as contagens da tela
  * deixariam de somar o total.
  *
+ * Invisíveis também não sobram: marcadores de largura zero (zero-width
+ * space, word joiner, soft hyphen — categoria Unicode Cf) que texto colado
+ * do Instagram e de teclado de celular carrega nas pontas são tratados como
+ * ruído, não como conteúdo — senão a ficha "sem categoria" ganharia uma
+ * TERCEIRA forma, invisível, e duas categorias visualmente idênticas
+ * virariam duas categorias diferentes.
+ *
  * O ACENTO FICA. Isto é nome que gente lê ("não respondeu"), e não
  * identificador — tirar acento tornaria a categoria mais feia sem tornar nada
  * mais seguro.
  */
 export function normalizarCategoria(bruto: unknown): string | null {
   if (typeof bruto !== "string") return null;
-  const limpo = bruto.replace(/\s+/g, " ").trim().toLowerCase();
+  // \s não cobre os invisíveis de largura zero (Cf); por isso saem num passo
+  // à parte, ANTES de colapsar espaço — senão um Cf encaixado entre dois
+  // espaços vira espaço duplo que sobra depois de removido.
+  const limpo = bruto
+    .replace(/\p{Cf}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
   if (!limpo) return null;
-  // Aparar DEPOIS de cortar: o corte pode cair no meio de um espaço e deixar a
-  // ponta suja.
-  const cortado = limpo.slice(0, LIMITE_DA_CATEGORIA).trim();
+  // Cortar em pontos de código (Array.from), não em unidades UTF-16 (slice):
+  // um caractere fora do plano básico (um emoji, por exemplo) ocupa duas
+  // unidades UTF-16, e cortar no meio deixa um surrogate solto — que não é
+  // espaço, então .trim() não o limpa, e vira "�" ao ser serializado.
+  //
+  // Aparar DEPOIS de cortar: o corte pode cair no meio de um espaço e deixar
+  // a ponta suja.
+  const cortado = Array.from(limpo).slice(0, LIMITE_DA_CATEGORIA).join("").trim();
   return cortado || null;
 }
