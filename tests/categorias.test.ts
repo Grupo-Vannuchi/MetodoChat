@@ -97,7 +97,9 @@ describe("resumoDasCategorias", () => {
   const HORAS = (h: number) => new Date(AGORA - h * 3_600_000);
 
   it("conta por categoria, e conta quantos estão alcançáveis", () => {
-    const fichas = resumoDasCategorias(
+    // O tipo aqui, explícito, é o que prende a ficha exportada — mudar a forma
+    // de `FichaDeCategoria` sem mudar este teste já quebra no typecheck.
+    const fichas: FichaDeCategoria[] = resumoDasCategorias(
       [
         { categoria: "aluno", last_reply_at: HORAS(1) },
         { categoria: "aluno", last_reply_at: HORAS(30) },
