@@ -198,12 +198,24 @@ export type CasoDaListaDeEmail = "filtro_vazio" | "sem_email_geral" | "sem_email
  * tem e-mail ainda.
  *
  * O CASO PIOR é filtro sem ninguém (`visiveis === 0`): uma categoria que
- * deixou de existir, por exemplo. Sem tratar isto antes de olhar `comEmail`,
- * zero-de-zero passaria pela checagem de "sem e-mail" como se fosse o caso
- * comum, a seção "Sem e-mail" sumiria inteira (só renderiza com gente), e a
- * tela nunca diria que o filtro não achou NINGUÉM — só a frase de "Com
- * e-mail", verdadeira por acidente e enganosa por omissão. Por isso
- * `filtro_vazio` é a PRIMEIRA checagem, não a última.
+ * deixou de existir, por exemplo. Sem uma checagem PRÓPRIA para ele,
+ * zero-de-zero cairia na de "sem e-mail" como se fosse o caso comum, a seção
+ * "Sem e-mail" sumiria inteira (só renderiza com gente), e a tela nunca diria
+ * que o filtro não achou NINGUÉM — só a frase de "Com e-mail", verdadeira por
+ * acidente e enganosa por omissão. É a EXISTÊNCIA de `filtro_vazio` que paga
+ * isso, e é ela que o caso em `tests/categorias.test.ts` prende.
+ *
+ * A ORDEM ENTRE AS DUAS PRIMEIRAS CHECAGENS É INERTE, e isto fica escrito
+ * porque a versão anterior deste comentário afirmava o contrário — que
+ * `filtro_vazio` vir PRIMEIRO importava. O único par que distinguiria as duas
+ * ordens é `visiveis === 0` com `comEmail > 0`, e ele não existe: `comEmail` é
+ * subconjunto de `visiveis` (a lista o deriva filtrando `visiveis`, e é o que o
+ * parâmetro abaixo declara). Trocar as duas linhas de lugar não muda resposta
+ * nenhuma que um chamador consiga pedir.
+ *
+ * POR ISSO NENHUM TESTE PRENDE A ORDEM, e nenhum deveria: prendê-la exigiria
+ * passar um par que contradiz o contrato do próprio parâmetro, e um caso assim
+ * defende contra o que não pode acontecer enquanto finge que pode.
  */
 export function casoDaListaDeEmail(args: {
   /** `visiveis.length` — contagem já filtrada por categoria. */

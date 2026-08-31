@@ -200,10 +200,15 @@ describe("casoDaListaDeEmail", () => {
   });
 
   // O CASO PIOR: um filtro que não casa ninguém (categoria que deixou de
-  // existir, por exemplo). `visiveis === 0` tem que vencer ANTES de olhar
-  // `comEmail` — senão zero-de-zero passa pela checagem de "sem e-mail" e a
-  // tela nunca diz que o filtro não achou NINGUÉM.
-  it("filtro sem ninguém vem antes de qualquer outra checagem", () => {
+  // existir, por exemplo). Sem um caso PRÓPRIO para ele, zero-de-zero cai na
+  // checagem de "sem e-mail" e a tela nunca diz que o filtro não achou NINGUÉM.
+  //
+  // ISTO PRENDE A EXISTÊNCIA DA CHECAGEM, e não a POSIÇÃO dela: as duas
+  // asserções passam `comEmail: 0`, e não poderiam passar outra coisa —
+  // `comEmail` é subconjunto de `visiveis`, então `visiveis: 0` com
+  // `comEmail > 0` é um par que chamador nenhum produz. A ordem entre as duas
+  // primeiras checagens de `casoDaListaDeEmail` é inerte, e está escrito lá.
+  it("filtro sem ninguém tem caso próprio, e não cai no de sem e-mail", () => {
     expect(casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: true })).toBe("filtro_vazio");
     expect(casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: false })).toBe(
       "filtro_vazio"
