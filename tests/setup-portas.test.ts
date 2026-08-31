@@ -11,6 +11,7 @@ import {
   linhasDoFormulario,
   opcoesDeAutomacao,
   perguntasDoFormulario,
+  resumoDaInstalacao,
   resumoDoLimite,
   textoDeApagar,
   LIGAR_FUNCIONA,
@@ -669,5 +670,63 @@ describe("a tela DEIXOU de recusar, e não foi editada para isso", () => {
     expect(l.automacaoId).toBe(OK.id);
     expect(l.dispara).toBe(OK.name);
     expect(l.aviso).toBe(null);
+  });
+});
+
+// ============================================================
+// A INSTALAÇÃO QUE JÁ TERMINOU NÃO PRECISA OCUPAR A TELA.
+//
+// Medido em 31/08/2026 na tela de produção, com os dados do dono: 6341 px de
+// página para uma janela de 623 (10,2 telas), sendo 3181 px — 5,1 telas — das
+// oito etapas de instalação, todas concluídas. O bloco que ele usa toda semana
+// só começa no pixel 3721.
+// ============================================================
+describe("resumoDaInstalacao", () => {
+  it("com tudo concluído, nasce FECHADO", () => {
+    const r = resumoDaInstalacao([true, true, true, true, true, true, true, true]);
+    expect(r.concluidas).toBe(8);
+    expect(r.total).toBe(8);
+    expect(r.aberto).toBe(false);
+    expect(r.texto).toBe("8 de 8 concluídas");
+  });
+
+  // Quem está instalando pela primeira vez vê a tela de hoje, aberta.
+  it("faltando uma etapa, nasce ABERTO", () => {
+    const r = resumoDaInstalacao([true, true, true, false, true, true, true, false]);
+    expect(r.concluidas).toBe(6);
+    expect(r.aberto).toBe(true);
+    expect(r.texto).toBe("6 de 8 concluídas — falta terminar");
+  });
+
+  it("instalação zerada nasce aberta", () => {
+    const r = resumoDaInstalacao([false, false, false]);
+    expect(r.concluidas).toBe(0);
+    expect(r.aberto).toBe(true);
+    expect(r.texto).toBe("0 de 3 concluídas — falta terminar");
+  });
+
+  // Lista vazia é "nada a instalar", e nada a instalar não pede atenção.
+  it("lista vazia não abre nada e não estoura", () => {
+    expect(resumoDaInstalacao([])).toEqual({
+      concluidas: 0,
+      total: 0,
+      aberto: false,
+      texto: "Nenhuma etapa de instalação.",
+    });
+  });
+
+  // O CASO QUE PRENDE A REGRA, e ele existe porque escrever `aberto` ao lado da
+  // contagem já produziu defeito nesta base: `LIGAR_FUNCIONA`, neste mesmo
+  // arquivo, nasceu escrito à mão e mentiu até virar cálculo. Um booleano
+  // escrito à parte continua dizendo "fechado" no dia em que alguém acrescenta
+  // uma nona etapa que falta.
+  it("`aberto` é derivado da contagem, e não escrito à parte", () => {
+    for (let total = 0; total <= 6; total++) {
+      for (let feitas = 0; feitas <= total; feitas++) {
+        const etapas = Array.from({ length: total }, (_, i) => i < feitas);
+        const r = resumoDaInstalacao(etapas);
+        expect(r.aberto, `${feitas} de ${total}`).toBe(r.concluidas < r.total);
+      }
+    }
   });
 });

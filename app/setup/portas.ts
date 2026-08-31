@@ -620,3 +620,42 @@ export function opcoesDeAutomacao(automacoes: AutomacaoConhecida[]): OpcaoDeAuto
       (a.triggers.includes(GATILHO_DE_ABERTURA) ? "" : " (sem o gatilho de abertura)"),
   }));
 }
+
+// ============================================================
+// A INSTALAÇÃO NASCE FECHADA QUANDO TERMINOU — e a medição que obrigou isso.
+//
+// Medido em 31/08/2026 na tela de produção, com os dados do dono: a página tem
+// 6341 px para uma janela de 623 (10,2 telas). As oito etapas de instalação
+// ocupam 3181 px — 5,1 telas — e as OITO estão concluídas. No topo, a barra diz
+// "Configuração concluída, 100%"; logo abaixo, a tela ensina em quatro passos
+// numerados como criar o app na Meta do zero.
+//
+// O bloco que o dono usa toda semana ("Perguntas de abertura") só começa no
+// pixel 3721 — a sexta tela — e tem 2426 px sozinho.
+//
+// `aberto` É DERIVADO, e isto não é preferência: `LIGAR_FUNCIONA`, neste mesmo
+// arquivo, nasceu escrito à mão e mentiu até virar cálculo. Um booleano escrito
+// ao lado da contagem continua dizendo "fechado" no dia em que alguém
+// acrescenta uma nona etapa que falta.
+// ============================================================
+
+export type ResumoDaInstalacao = {
+  concluidas: number;
+  total: number;
+  /** DERIVADO: `concluidas < total`. Nunca escrever este valor à mão. */
+  aberto: boolean;
+  texto: string;
+};
+
+export function resumoDaInstalacao(etapas: boolean[]): ResumoDaInstalacao {
+  const total = etapas.length;
+  const concluidas = etapas.filter(Boolean).length;
+  const aberto = concluidas < total;
+  const texto =
+    total === 0
+      ? "Nenhuma etapa de instalação."
+      : aberto
+        ? `${concluidas} de ${total} concluídas — falta terminar`
+        : `${total} de ${total} concluídas`;
+  return { concluidas, total, aberto, texto };
+}
