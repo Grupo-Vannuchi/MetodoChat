@@ -120,14 +120,44 @@ export default async function ContatosPage({
   const sp = await searchParams;
   const filtro = filtroDaUrl(sp.categoria);
   const account = await getSelectedAccount();
+  // SEM `limit`, E ISSO É A CORREÇÃO DE UM DEFEITO, não uma folga.
+  //
+  // A consulta tinha `limit 200`, e as fichas — inclusive o número de
+  // alcançáveis, que é o que justifica esta funcionalidade inteira — eram
+  // contadas sobre no máximo 200 linhas. Nada na tela dizia que houve corte:
+  // uma conta com 250 contatos mostraria "todos (200)".
+  //
+  // O CORTE ERA POR `first_contact_at desc`, E ALCANCE NÃO TEM NADA A VER COM
+  // ISSO. Medido em 31/08/2026 na conta maior (106 contatos): os alcançáveis
+  // estão nas posições 1, 2, 3, 45, 97, 100 e 103 dessa ordem — quatro dos sete
+  // na metade de baixo. Quem tem primeiro contato antigo e respondeu há uma hora
+  // é alcançável de verdade, o motor enviaria, e sairia da contagem em silêncio.
+  // A tela deixaria de casar com o motor, que é o defeito que esta branch existe
+  // para impedir.
+  //
+  // HOJE O CORTE NÃO CORTA NADA (126 contatos ao todo, a maior conta com 106),
+  // e é por isso que ele passou despercebido. Mas os 126 entraram TODOS nas
+  // últimas 6 semanas, e ~21 por semana, dos quais a conta maior fica com uns
+  // 84%: ela precisa de 94 contatos para chegar aos 200, ou cerca de CINCO
+  // SEMANAS no ritmo de hoje. É prazo de mês, e não de ano.
+  //
+  // POR QUE NÃO CONTAR NO SQL e deixar o `limit` na tabela: contar alcançáveis
+  // em SQL exigiria uma janela de 24h cravada na consulta — uma SEGUNDA fonte
+  // para a janela, que é exatamente o que esta branch removeu (`windowState`,
+  // lib/inbox-window.ts, é a mesma que `lib/queue-drain.ts` usa para recusar, e
+  // ela só roda em JS sobre linha carregada). Então as linhas TÊM de ser a conta
+  // inteira.
+  //
+  // QUANDO ISTO PESAR, o caminho é uma paginação que diz o próprio tamanho, e
+  // não um corte calado com outro número. Enquanto a maior conta couber numa
+  // tabela, contar errado é pior que carregar tudo.
   const rows = account
     ? ((await sql().query(
         `select c.*, a.name as automation_name
          from contacts c
          left join automations a on a.id = c.last_automation_id
          where c.account_id = $1
-         order by c.first_contact_at desc
-         limit 200`,
+         order by c.first_contact_at desc`,
         [account.ig_user_id]
       )) as Row[])
     : [];
