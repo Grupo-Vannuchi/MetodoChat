@@ -328,9 +328,11 @@ E, depois dessa consulta, ler as categorias já em uso para oferecer no campo:
   )) as { categoria: string }[];
 ```
 
-**Conferir antes de escrever:** este arquivo já tem uma conta em mãos para fazer
-a consulta do contato. Usar a MESMA variável — não chamar `getSelectedAccount()`
-de novo.
+**A variável já existe, conferida:** `const account = await getSelectedAccount();`
+está em `app/conversas/[id]/page.tsx:85`, e a consulta do contato logo abaixo já
+usa `account.ig_user_id`. Usar a MESMA — não chamar `getSelectedAccount()` de
+novo, que abriria a porta para as duas leituras discordarem se alguém trocar de
+conta no meio.
 
 - [ ] **Passo 4: O campo, no cabeçalho**
 
