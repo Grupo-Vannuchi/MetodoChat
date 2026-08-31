@@ -83,6 +83,7 @@
 import postgres from "postgres";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { comandosDoArquivo, somaDoTexto, decidirMigracoes } from "./migracoes.mjs";
 
 // Espelha `limparUrl` de lib/db.ts: cada fornecedor inventa o seu parâmetro de
 // URL (channel_binding no Neon, pgbouncer no Prisma), o postgres.js não conhece
@@ -342,41 +343,159 @@ const sql = postgres(limparUrl(urlDoBanco()), { prepare: false, ssl: "require", 
 
 console.log(aplicar ? "MODO: APLICANDO (grava no banco)\n" : "MODO: ENSAIO A SECO (nada é gravado)\n");
 
+// ============================================================
+// O REGISTRO DO QUE JÁ RODOU — e a medição que o obrigou.
+//
+// Em 28/08/2026 dois builds de produção morreram aos 120 segundos, os dois no
+// PRIMEIRO arquivo, com `canceling statement due to statement timeout` (57014).
+// Nenhuma das seis migrações tinha o que fazer: todas já estavam aplicadas.
+//
+// `alter table ... if not exists` pega a trava EXCLUSIVA da tabela ANTES de
+// descobrir que não há nada a fazer. Um leitor parado numa transação aberta
+// (medido: um `npm run dev` apontando para este mesmo banco) segura a tabela e
+// derruba o deploy — inclusive o deploy que não muda uma vírgula do esquema.
+//
+// A defesa é não executar o que já foi executado. A DECISÃO mora em
+// `scripts/migracoes.mjs`, pura e com caso para cada saída; aqui fica só a
+// conversa com o banco.
+//
+// ESTA TABELA É CRIADA PELO PRÓPRIO SCRIPT, e não por um arquivo em
+// `migrations/`. Não é descuido: um `006-registro.sql` seria circular —
+// precisaríamos do registro para saber se o registro já foi aplicado.
+// ============================================================
+const TABELA_DO_REGISTRO = "schema_migrations";
+
+if (aplicar) {
+  // A única DDL que roda SEMPRE. É segura porque nada mais neste produto lê ou
+  // escreve nesta tabela: não há leitor para disputar a trava com ela.
+  await sql.unsafe(
+    `create table if not exists ${TABELA_DO_REGISTRO} (
+       name text primary key,
+       checksum text not null,
+       applied_at timestamptz not null default now()
+     )`
+  );
+}
+
+let registro = [];
+try {
+  registro = await sql.unsafe(`select name, checksum from ${TABELA_DO_REGISTRO}`);
+} catch (erro) {
+  // 42P01 = relação não existe. Acontece no ensaio a seco antes da primeira
+  // aplicação, e a resposta certa é "nada foi registrado ainda" — não estourar.
+  if (erro?.code !== "42P01") throw erro;
+  console.log(
+    `  (o registro ${TABELA_DO_REGISTRO} ainda não existe; nasce na primeira aplicação)\n`
+  );
+}
+
 // Ordem por nome, e é por isso que os arquivos são numerados. Ordem alfabética
 // de `001-`, `002-` … coincide com a ordem cronológica até 999 arquivos, o que
 // é folga suficiente para este projeto.
-const arquivos = readdirSync("migrations").filter((f) => f.endsWith(".sql")).sort();
+const nomes = readdirSync("migrations").filter((f) => f.endsWith(".sql")).sort();
 
-if (!arquivos.length) {
+if (!nomes.length) {
   console.log("Nenhuma migração em `migrations/`.");
   await sql.end();
   process.exit(0);
 }
 
-for (const nome of arquivos) {
-  const conteudo = readFileSync(join("migrations", nome), "utf8");
+const arquivos = nomes.map((nome) => {
+  const comandos = comandosDoArquivo(readFileSync(join("migrations", nome), "utf8"));
+  return { nome, comandos, soma: somaDoTexto(comandos) };
+});
 
-  // Só as linhas de comando, para o ensaio mostrar o que roda em vez de despejar
-  // o comentário inteiro — que nestes arquivos costuma ser a maior parte.
-  const comandos = conteudo
-    .split("\n")
-    .filter((l) => !l.trim().startsWith("--") && l.trim())
-    .join("\n")
-    .trim();
+const decisao = decidirMigracoes(arquivos, registro);
 
-  if (!comandos) {
-    console.log(`  ok   ${nome} — só comentário, nada a rodar`);
-    continue;
+for (const nome of decisao.jaAplicadas) {
+  console.log(`  ·    ${nome} — já aplicada, nada a fazer`);
+}
+
+// ARQUIVO EDITADO DEPOIS DE APLICADO: o SQL que este banco recebeu não é mais o
+// que está no arquivo, e ninguém consegue dizer qual dos dois vale. PARA ANTES
+// DE APLICAR QUALQUER COISA — inclusive as migrações sem conflito, porque a
+// pergunta "este banco está no estado que a pasta descreve?" ficou sem resposta,
+// e aplicar mais coisas por cima só afunda o descompasso.
+if (decisao.conflitos.length) {
+  console.log("\nPAROU: migração já aplicada foi EDITADA depois.\n");
+  for (const c of decisao.conflitos) {
+    console.log(`  ✗    ${c.nome}`);
+    console.log(`         assinatura registrada: ${c.registrada}`);
+    console.log(`         assinatura do arquivo: ${c.atual}`);
   }
+  console.log(
+    "\nMigração aplicada é imutável: o banco já recebeu a versão antiga, e rodar\n" +
+      "a nova por cima produz um estado que ninguém consegue prever lendo isto.\n" +
+      "Se a mudança é de propósito, ela é um arquivo NOVO em `migrations/`.\n" +
+      "Se foi sem querer, devolva o arquivo ao que estava."
+  );
+  await sql.end();
+  process.exit(1);
+}
+
+// Registro apontando para arquivo que não existe mais. O SQL dele JÁ RODOU neste
+// banco, então não há o que refazer — mas o descompasso é notícia, e some se
+// ninguém contar. Não é motivo para parar.
+for (const orfa of decisao.orfas) {
+  console.log(`  !    ${orfa} — está no registro e NÃO está em migrations/`);
+}
+
+if (aplicar && !decisao.aplicar.length) {
+  console.log(
+    `\nNada a aplicar: as ${decisao.jaAplicadas.length} migrações já constam no registro.\n` +
+      "NENHUMA DDL de esquema foi executada, então nenhuma trava foi pedida."
+  );
+}
+
+for (const nome of decisao.aplicar) {
+  const arq = arquivos.find((a) => a.nome === nome);
 
   if (!aplicar) {
     console.log(`  ►    ${nome}`);
-    for (const l of comandos.split("\n")) console.log(`         ${l}`);
+    for (const l of arq.comandos.split("\n")) if (l) console.log(`         ${l}`);
     continue;
   }
 
-  await sql.unsafe(comandos);
-  console.log(`  ✓    ${nome} — aplicada`);
+  try {
+    // OS COMANDOS E O REGISTRO NA MESMA TRANSAÇÃO. Separados, um erro entre os
+    // dois deixaria o banco migrado e o registro dizendo que não — e o deploy
+    // seguinte rodaria tudo de novo, de volta à estaca zero deste conserto.
+    await sql.begin(async (tx) => {
+      // `set local` vale só nesta transação. Sem ele a espera é o
+      // `statement_timeout` do banco (120s, medido), tempo suficiente para o
+      // build morrer sem dizer o que estava esperando.
+      await tx.unsafe("set local lock_timeout = '15s'");
+      if (arq.comandos) await tx.unsafe(arq.comandos);
+      await tx.unsafe(
+        `insert into ${TABELA_DO_REGISTRO} (name, checksum) values ($1, $2)
+         on conflict (name) do update set checksum = excluded.checksum, applied_at = now()`,
+        [nome, arq.soma]
+      );
+    });
+    console.log(
+      arq.comandos
+        ? `  ✓    ${nome} — aplicada e registrada`
+        : `  ✓    ${nome} — só comentário, registrada sem rodar nada`
+    );
+  } catch (erro) {
+    // 55P03 = lock_not_available (bateu no `lock_timeout` acima).
+    // 57014 = query_canceled (bateu no `statement_timeout` do banco).
+    if (erro?.code !== "55P03" && erro?.code !== "57014") throw erro;
+    console.log(`\n  ✗    ${nome} — NÃO consegui a trava.\n`);
+    console.log(
+      "Alguém está com uma transação aberta numa tabela desta migração.\n" +
+        "Isto NÃO é problema do SQL: DDL idempotente pede a trava exclusiva ANTES\n" +
+        "de descobrir que não tem o que fazer.\n\n" +
+        "Para ver quem segura:\n" +
+        "  select pid, state, now()-xact_start as ha, left(query,80)\n" +
+        "    from pg_stat_activity\n" +
+        "   where xact_start is not null order by xact_start;\n\n" +
+        "Causa já medida neste projeto: um `npm run dev` apontando para este\n" +
+        "mesmo banco, com uma aba do painel aberta."
+    );
+    await sql.end();
+    process.exit(1);
+  }
 }
 
 // A CONFERÊNCIA VALE MAIS QUE O "aplicada" ACIMA, porque `if not exists` tem

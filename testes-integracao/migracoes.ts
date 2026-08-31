@@ -8,18 +8,29 @@
 // qualquer outro lugar, porque o que estes testes provam é justamente que o que
 // `migrar.mjs` aplica produz o banco certo.
 //
-// O ESPELHO DE `scripts/migrar.mjs` É DECLARADO, e não escondido: a ordem é por
-// NOME (é por isso que os arquivos são numerados) e as linhas que são só
-// comentário saem antes de o arquivo ser executado. O script continua não
-// importando daqui — ele é `.mjs`, roda sem TypeScript e precisa continuar
-// rodando de um `node` puro dentro do build. O que este arquivo elimina é a
-// terceira e a quarta cópias, não a segunda.
+// O ESPELHO DE `scripts/migrar.mjs` DEIXOU DE SER DECLARADO E PASSOU A SER O
+// MESMO CÓDIGO — e isso mudou em 31/08/2026, por uma divergência real.
+//
+// Aqui havia uma CÓPIA da leitura: split, filtra comentário, junta, apara. A
+// frase antiga dizia que o espelho era "declarado, e não escondido", e que o
+// script não podia importar daqui por ser `.mjs` sem TypeScript. A primeira
+// metade virou mentira no dia em que a leitura do script passou a NORMALIZAR
+// `\r\n` para `\n` e esta não: as duas liam o mesmo arquivo e produziam textos
+// diferentes byte a byte, numa máquina Windows.
+//
+// A segunda metade tinha conserto óbvio, e ele é o inverso do que estava
+// escrito: quem importa é ESTE arquivo, que roda sob o vitest e importa `.mjs`
+// sem cerimônia. `scripts/migracoes.mjs` continua sendo puro `node`, sem
+// TypeScript, importável de dentro do build — e agora é a ÚNICA leitura.
 //
 // ELE É A FONTE DA ESTRUTURA DOS TESTES DE INTEGRAÇÃO: o schema descartável de
-// toda rodada nasce daqui, e não mais de `ensureSchema()`.
+// toda rodada nasce daqui, e não mais de `ensureSchema()`. Que ele leia
+// exatamente o que o script aplica é o que dá sentido a esses testes — sem
+// isso, eles provariam coisas sobre um texto que nunca chega ao banco.
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
+import { comandosDoArquivo } from "../scripts/migracoes.mjs";
 
 const PASTA = fileURLToPath(new URL("../migrations", import.meta.url));
 
@@ -32,11 +43,7 @@ export function migracoesEmOrdem(): Migracao[] {
     .sort()
     .map((nome) => ({
       nome,
-      comandos: readFileSync(join(PASTA, nome), "utf8")
-        .split("\n")
-        .filter((l) => !l.trim().startsWith("--") && l.trim())
-        .join("\n")
-        .trim(),
+      comandos: comandosDoArquivo(readFileSync(join(PASTA, nome), "utf8")),
     }));
 }
 
