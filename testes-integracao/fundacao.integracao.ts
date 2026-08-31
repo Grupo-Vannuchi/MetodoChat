@@ -28,7 +28,8 @@ import {
 
 const banco = bancoDescartavel();
 
-const TABELAS_ESPERADAS = [
+// AS OITO QUE NASCEM DE `migrations/` — e só elas.
+const TABELAS_DAS_MIGRACOES = [
   "accounts",
   "automations",
   "config",
@@ -38,6 +39,21 @@ const TABELAS_ESPERADAS = [
   "login_attempts",
   "queue",
 ];
+
+// O `public` DE PRODUÇÃO TEM UMA A MAIS, e a diferença entre as duas listas É O
+// FATO: `schema_migrations` entrou em 31/08/2026 e é a única tabela deste banco
+// que NÃO nasce de um arquivo em `migrations/` — ela é criada pelo próprio
+// `scripts/migrar.mjs`, porque um `006-registro.sql` seria circular
+// (precisaríamos do registro para saber se o registro já foi aplicado).
+//
+// Logo, um schema montado só a partir da pasta não a tem, e não deve ter. Uma
+// lista só para os dois lados apagaria essa distinção e mentiria sobre um deles.
+//
+// E ELA CHEGOU AQUI PELO CAMINHO CERTO: a lista ficou vermelha sozinha na
+// primeira rodada depois de a tabela nascer em produção, acusando uma mudança
+// no `public` que ninguém tinha avisado. É o serviço que ela existe para
+// prestar, e desta vez o avisado fui eu.
+const TABELAS_DO_PUBLIC = [...TABELAS_DAS_MIGRACOES, "schema_migrations"];
 
 describe("a fundação do banco descartável", () => {
   test("recusa todo nome de schema que não seja teste_tmp_*", () => {
@@ -80,7 +96,7 @@ describe("a fundação do banco descartável", () => {
         where table_schema = $1 and table_type = 'BASE TABLE' order by table_name`,
       [nome]
     )) as { table_name: string }[];
-    expect(tabelas.map((r) => r.table_name)).toEqual(TABELAS_ESPERADAS);
+    expect(tabelas.map((r) => r.table_name)).toEqual(TABELAS_DAS_MIGRACOES);
 
     const indices = (await sql.query(
       `select count(*)::int as n from pg_indexes where schemaname = $1`,
@@ -146,9 +162,9 @@ describe("a fundação do banco descartável", () => {
     //
     // O que ele afirma é que nenhuma linha anterior ao corte foi APAGADA nem
     // virou OUTRA linha, que nenhuma tabela ou coluna nasceu ou sumiu de
-    // `public`, e que isso vale para as oito tabelas — não só para as que este
-    // teste tocou. Quem prova que a verificação ainda acusa cada uma dessas
+    // `public`, e que isso vale para as NOVE tabelas de lá — não só para as que
+    // este teste tocou. Quem prova que a verificação ainda acusa cada uma dessas
     // perdas é `digital.integracao.ts`, dentro de um schema descartável.
-    expect(depois.tabelas).toEqual(TABELAS_ESPERADAS);
+    expect(depois.tabelas).toEqual(TABELAS_DO_PUBLIC);
   });
 });
