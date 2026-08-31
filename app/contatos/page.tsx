@@ -231,7 +231,14 @@ export default async function ContatosPage({
                     </p>
                   </div>
                   {comEmail.length > 0 && (
-                    <a href="/api/contatos/csv" className={btnGhost} download>
+                    // O ENDEREÇO CARREGA O FILTRO, e o mesmo `urlComFiltro` das
+                    // fichas o monta: este botão fica embaixo da frase que conta
+                    // o filtro, e baixava a conta inteira.
+                    <a
+                      href={urlComFiltro("/api/contatos/csv", filtro)}
+                      className={btnGhost}
+                      download
+                    >
                       Exportar CSV
                     </a>
                   )}
