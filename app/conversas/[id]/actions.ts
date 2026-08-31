@@ -80,7 +80,11 @@ export async function definirCategoria(formData: FormData): Promise<void> {
   if (!account) return;
 
   const contactIgId = String(formData.get("contato") ?? "");
-  if (!contactIgId) return;
+  // Mesmo formato que `sendReply`, acima, já exige para este campo. Não é
+  // brecha — o `and account_id = $1` do update abaixo fecha o escopo mesmo
+  // sem isto —, mas sem validar, um id malformado gasta um update de zero
+  // linhas e um revalidatePath num caminho que não existe.
+  if (!/^\d{1,32}$/.test(contactIgId)) return;
 
   const categoria = normalizarCategoria(formData.get("categoria"));
 

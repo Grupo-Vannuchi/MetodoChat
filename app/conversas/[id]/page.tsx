@@ -156,7 +156,31 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
             `<datalist>` é HTML nativo: oferece o que já existe e continua
             aceitando um nome novo digitado. Nenhum componente de cliente,
             nenhum estado. */}
-        <form action={definirCategoria} className="flex items-center gap-1">
+        {/* KEY NO FORM, e não só no <input>: o layout não desmonta ao trocar de
+            conversa (app/conversas/layout.tsx) — só esta coluna muda —, então sem
+            key o React reaproveita o MESMO nó de DOM do <input> entre um contato
+            e outro.
+
+            O campo é não controlado (defaultValue). Conferido direto em
+            node_modules/react-dom/cjs/react-dom-client.development.js: ao
+            atualizar um <input> já montado (updateInput), o React só empurra o
+            novo `defaultValue` para o atributo `value` (setDefaultValue) — quem
+            decide se isso aparece na TELA é a "dirty value flag" do próprio HTML
+            (WHATWG), que o navegador vira true no primeiro toque do usuário no
+            campo. Depois disso, mudar o atributo não muda mais o que está escrito.
+            Reproduzido com o React real deste projeto: abre a conversa A, digita
+            uma categoria, NÃO salva, clica em B na lista — o campo continua
+            mostrando o texto de A; se o atendente clicar em salvar, grava a
+            categoria de A no contato B (o <input type="hidden" name="contato"> É
+            controlado e já está com o id de B — só a categoria fica presa).
+
+            A key vai no FORM e não só no <input>, pelo mesmo motivo de
+            `<AreaMensagens key={id}>` logo abaixo: marca a raiz do bloco que
+            pertence a ESTE contato, não o campo que por acaso é o único com o
+            defeito hoje. Um <input key={id}> sozinho já resolveria o bug atual,
+            mas deixaria um segundo campo não controlado, se algum dia entrar
+            neste form, livre para reintroduzir o mesmo problema sem aviso. */}
+        <form key={id} action={definirCategoria} className="flex items-center gap-1">
           <input type="hidden" name="contato" value={id} />
           <input
             name="categoria"
@@ -164,7 +188,21 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
             defaultValue={contato?.categoria ?? ""}
             placeholder="sem categoria"
             maxLength={LIMITE_DA_CATEGORIA}
-            className={`w-36 rounded-lg px-2 py-1 text-xs ${input}`}
+            // Os `!` (modificador "importante" do Tailwind v4) em w-36/rounded-lg/
+            // px-2/py-1/text-xs não são estilo, são a correção: a ordem dentro do
+            // className não decide nada, quem decide é a ordem na FOLHA gerada
+            // pelo Tailwind. Compilando o Tailwind 4.3.3 deste projeto (postcss +
+            // @tailwindcss/postcss sobre app/globals.css) a camada @layer
+            // utilities sai com w-36 ANTES de w-full, rounded-lg ANTES de
+            // rounded-xl, px-2 ANTES de px-3.5, py-1 ANTES de py-2.5 — mesma
+            // especificidade, mesma layer, e quem vem DEPOIS na folha vence, não
+            // quem vem depois na string. Sem o `!`, `input` (app/ui.ts) apagava os
+            // quatro; só text-xs escapava, por coincidência alfabética (sm < xs
+            // manda text-sm para antes de text-xs na mesma folha). `!important`
+            // resolve por IMPORTÂNCIA, um estágio da cascata anterior à ordem de
+            // declaração — por isso o resultado para de depender de como o
+            // Tailwind ordena a folha.
+            className={`w-36! rounded-lg! px-2! py-1! text-xs! ${input}`}
           />
           <datalist id="categorias-em-uso">
             {emUso.map((c) => (
