@@ -96,6 +96,7 @@ const MARCA_DAGUA = {
   colunas: [
     { tabela: "automations", coluna: "ligacoes", de: "001-ligacoes.sql" },
     { tabela: "automations", coluna: "entrega_sem_portao", de: "002-entrega-sem-portao.sql" },
+    { tabela: "contacts", coluna: "categoria", de: "007-categoria-do-contato.sql" },
   ],
   // AS MIGRAÇÕES QUE ESTA CONFERÊNCIA NÃO CONSEGUE VER, com o motivo. Elas não
   // criam tabela nem coluna: mudam a DEFINIÇÃO de uma restrição que já existe, e
