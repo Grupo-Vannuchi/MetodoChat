@@ -40,6 +40,28 @@ export const label = "mb-1.5 block text-sm font-medium text-zinc-800 dark:text-z
 
 export const hint = "mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-500";
 
+// AVISO MEDIDO NESTA BRANCH (categoria-do-contato): compor `className` com
+// `${input}` empilhando a MESMA família de classe que `input` já define
+// (`w-*`, `px-*`, `py-*`, `rounded-*`, `text-*`) NÃO FUNCIONA por ordem no
+// className — quem desempata é a ordem na FOLHA que o Tailwind gera, não a
+// ordem das classes na string. Foi assim que o campo de categoria em
+// `app/conversas/[id]/page.tsx` saiu em largura cheia quando devia ser
+// compacto: `w-36 rounded-lg px-2 py-1 text-xs ${input}` perdia
+// w-36/rounded-lg/px-2/py-1 para w-full/rounded-xl/px-3.5/py-2.5 (só text-xs
+// escapava, por coincidência alfabética — "sm" vem antes de "xs"). Resolvido
+// ali com o modificador `!` (`w-36! rounded-lg! px-2! py-1! text-xs!`), que
+// desempata por IMPORTÂNCIA em vez de depender da ordem da folha — ver o
+// comentário completo naquele arquivo, junto do className.
+//
+// Os outros dois usos do projeto escapam por sorte, não por método:
+// `flex-1 ${input}` (app/conversas/[id]/reply-form.tsx) não compartilha
+// família nenhuma com `input`; `${input} pl-9` (app/automacoes/list-client.tsx)
+// funciona porque o Tailwind ordena o lado único (`pl-*`) DEPOIS do atalho
+// (`px-*`) na folha — não porque `pl-9` vem depois na string.
+//
+// Não há teste nem lint que avise disto. Ao empilhar sobre `input` uma classe
+// da MESMA família, use o modificador `!` na classe nova; caso contrário o
+// resultado depende de uma ordem de folha que ninguém aqui controla.
 export const input =
   "w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 text-sm text-zinc-900 outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-100 dark:placeholder:text-zinc-600 dark:focus:ring-indigo-500/15";
 

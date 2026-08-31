@@ -115,3 +115,41 @@ export function resumoDasCategorias(
     return b.total - a.total || a.nome.localeCompare(b.nome, "pt-BR");
   });
 }
+
+export type CasoDaListaDeEmail = "filtro_vazio" | "sem_email_geral" | "sem_email_no_filtro" | "tem_email";
+
+/**
+ * Qual texto a seção "Com e-mail" mostra — e se "Sem e-mail" ainda faz
+ * sentido na tela —, agora que as duas tabelas nascem de `visiveis` (o
+ * filtrado por categoria) em vez de `rows` (a conta inteira).
+ *
+ * A MUDANÇA DE FONTE TROCOU O SIGNIFICADO DA FRASE, sem que a frase mudasse
+ * uma vírgula. "Ninguém informou o e-mail ainda" era verdade sobre a CONTA
+ * quando `rows` alimentava a tela; virou uma alegação sobre o FILTRO. Cenário
+ * que prende o defeito: o dono filtra por "aluno" — ninguém em "aluno" deu
+ * e-mail, mas 40 pessoas em "interessado" deram. A frase antiga diz
+ * "ninguém" e manda ligar uma automação que já está ligada — por isso
+ * `sem_email_no_filtro` larga o "ligue": com filtro ativo esta função não
+ * sabe se a automação está ligada ou não, só sabe que ESTA categoria não
+ * tem e-mail ainda.
+ *
+ * O CASO PIOR é filtro sem ninguém (`visiveis === 0`): uma categoria que
+ * deixou de existir, por exemplo. Sem tratar isto antes de olhar `comEmail`,
+ * zero-de-zero passaria pela checagem de "sem e-mail" como se fosse o caso
+ * comum, a seção "Sem e-mail" sumiria inteira (só renderiza com gente), e a
+ * tela nunca diria que o filtro não achou NINGUÉM — só a frase de "Com
+ * e-mail", verdadeira por acidente e enganosa por omissão. Por isso
+ * `filtro_vazio` é a PRIMEIRA checagem, não a última.
+ */
+export function casoDaListaDeEmail(args: {
+  /** `visiveis.length` — contagem já filtrada por categoria. */
+  visiveis: number;
+  /** `comEmail.length` — subconjunto de `visiveis` que tem e-mail. */
+  comEmail: number;
+  /** Se há filtro de categoria ativo (`searchParams.categoria !== undefined`). */
+  filtrado: boolean;
+}): CasoDaListaDeEmail {
+  if (args.visiveis === 0) return "filtro_vazio";
+  if (args.comEmail > 0) return "tem_email";
+  return args.filtrado ? "sem_email_no_filtro" : "sem_email_geral";
+}

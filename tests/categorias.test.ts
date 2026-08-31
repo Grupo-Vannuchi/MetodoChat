@@ -3,6 +3,7 @@ import {
   LIMITE_DA_CATEGORIA,
   normalizarCategoria,
   resumoDasCategorias,
+  casoDaListaDeEmail,
   type FichaDeCategoria,
 } from "@/lib/categorias";
 
@@ -168,5 +169,44 @@ describe("resumoDasCategorias", () => {
 
   it("lista vazia devolve lista vazia, e não estoura", () => {
     expect(resumoDasCategorias([], AGORA)).toEqual([]);
+  });
+});
+
+// ============================================================
+// O TEXTO DA SEÇÃO "COM E-MAIL", DEPOIS QUE A FONTE VIROU `visiveis`.
+//
+// A lista passou a derivar as duas tabelas de `visiveis` (o filtrado por
+// categoria) em vez de `rows` (a conta inteira) — mas a frase "Ninguém
+// informou o e-mail ainda" não mudou uma vírgula. Ela era verdade sobre a
+// CONTA; virou, calada, uma alegação sobre o FILTRO.
+// ============================================================
+describe("casoDaListaDeEmail", () => {
+  // O CASO QUE PRENDE O DEFEITO: o dono filtra por "aluno" — ninguém em
+  // "aluno" deu e-mail, mas 40 pessoas em "interessado" deram. Sem separar
+  // `filtrado`, a tela diria "ninguém informou e-mail" (só verdade da conta
+  // inteira) e mandaria ligar uma automação que já está ligada.
+  it("sem e-mail COM filtro ativo não é a mesma frase que sem e-mail geral", () => {
+    expect(casoDaListaDeEmail({ visiveis: 5, comEmail: 0, filtrado: true })).toBe(
+      "sem_email_no_filtro"
+    );
+    expect(casoDaListaDeEmail({ visiveis: 5, comEmail: 0, filtrado: false })).toBe(
+      "sem_email_geral"
+    );
+  });
+
+  // O CASO PIOR: um filtro que não casa ninguém (categoria que deixou de
+  // existir, por exemplo). `visiveis === 0` tem que vencer ANTES de olhar
+  // `comEmail` — senão zero-de-zero passa pela checagem de "sem e-mail" e a
+  // tela nunca diz que o filtro não achou NINGUÉM.
+  it("filtro sem ninguém vem antes de qualquer outra checagem", () => {
+    expect(casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: true })).toBe("filtro_vazio");
+    expect(casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: false })).toBe(
+      "filtro_vazio"
+    );
+  });
+
+  it("quem tem e-mail manda no resultado, com ou sem filtro", () => {
+    expect(casoDaListaDeEmail({ visiveis: 5, comEmail: 2, filtrado: true })).toBe("tem_email");
+    expect(casoDaListaDeEmail({ visiveis: 5, comEmail: 5, filtrado: false })).toBe("tem_email");
   });
 });

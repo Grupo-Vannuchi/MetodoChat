@@ -3,9 +3,19 @@ import { sql, Contact } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
 import { windowState } from "@/lib/inbox-window";
-import { normalizarCategoria, resumoDasCategorias } from "@/lib/categorias";
+import { normalizarCategoria, resumoDasCategorias, casoDaListaDeEmail } from "@/lib/categorias";
 import { atualizarPerfis } from "./actions";
-import { card, btnGhost, muted, tableWrap, thead, rowDivide, badgeOk, badgeNeutral } from "../ui";
+import {
+  card,
+  btnGhost,
+  muted,
+  tableWrap,
+  thead,
+  rowDivide,
+  badgeOk,
+  badgeNeutral,
+  emptyWrap,
+} from "../ui";
 import { IconMail, IconUsers } from "../icons";
 import Avatar from "../avatar";
 
@@ -120,12 +130,33 @@ export default async function ContatosPage({
   // aplicado em memória sobre o resultado; ver a nota no plano da tarefa 3
   // sobre por que não é uma segunda consulta.
   const fichas = resumoDasCategorias(rows);
+  // `sp.categoria === undefined` (parâmetro AUSENTE, `/contatos`) é "tudo";
+  // `sp.categoria === ""` (parâmetro PRESENTE e vazio, `/contatos?categoria=`)
+  // é "filtrar por sem categoria" — os dois normalizam para o MESMO `filtro`
+  // (null), mas não são o mesmo pedido. É intencional: `?categoria=` vazio é
+  // exatamente o link que a própria ficha "sem categoria" gera, logo abaixo
+  // (`?categoria=${encodeURIComponent(f.nome ?? "")}`, com `f.nome` null ali).
+  // Por isso a checagem é contra `sp.categoria` (a PRESENÇA do parâmetro), e
+  // não contra `filtro` (o VALOR normalizado) — comparar contra
+  // `filtro === null` misturaria os dois pedidos e quebraria `/contatos`
+  // (mostraria só quem não tem categoria). Quem editar a URL à mão e esperar
+  // "tudo" ao deixar `categoria=` vazio cai nessa pegadinha.
   const visiveis =
     sp.categoria === undefined ? rows : rows.filter((r) => (r.categoria ?? null) === filtro);
 
   const comEmail = visiveis.filter((c) => c.email);
   const semEmail = visiveis.filter((c) => !c.email);
   const semNome = rows.filter((c) => !c.username).length;
+
+  // A decisão de qual texto a seção "Com e-mail" mostra — e se "Sem e-mail"
+  // ainda faz sentido na tela — é de `casoDaListaDeEmail` (lib/categorias.ts),
+  // não do JSX abaixo: ver o comentário lá para o porquê.
+  const filtrado = sp.categoria !== undefined;
+  const caso = casoDaListaDeEmail({
+    visiveis: visiveis.length,
+    comEmail: comEmail.length,
+    filtrado,
+  });
 
   return (
     <div className="space-y-6">
@@ -167,42 +198,64 @@ export default async function ContatosPage({
             ))}
           </div>
 
-          <section>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="flex items-center gap-2 text-lg font-bold">
-                  <IconMail className="h-4 w-4 text-indigo-500" />
-                  Com e-mail
-                </h2>
-                <p className={`text-sm ${muted}`}>
-                  {comEmail.length === 0
-                    ? "Ninguém informou o e-mail ainda. Ligue “Pedir o e-mail antes do link” numa automação."
-                    : `${comEmail.length} ${comEmail.length === 1 ? "pessoa" : "pessoas"} — prontas para sua lista`}
-                </p>
-              </div>
-              {comEmail.length > 0 && (
-                <a href="/api/contatos/csv" className={btnGhost} download>
-                  Exportar CSV
-                </a>
-              )}
+          {caso === "filtro_vazio" ? (
+            // O caso pior do Achado 1: um filtro que não casa ninguém (uma
+            // categoria que deixou de existir, por exemplo). Antes, a seção
+            // "Sem e-mail" sumia inteira (só renderiza com gente) e sobrava
+            // só a frase de "Com e-mail" dizendo "ninguém informou e-mail" —
+            // verdade por acidente, mentira por omissão: a tela nunca dizia
+            // que o filtro não achou NINGUÉM.
+            <div className={emptyWrap}>
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Nenhum contato nesta categoria
+              </p>
+              <p className={`max-w-sm text-xs ${muted}`}>
+                O filtro não encontrou ninguém. Use “todos”, ali em cima, para ver a conta
+                inteira.
+              </p>
             </div>
-            {comEmail.length > 0 && <Tabela rows={comEmail} comEmail />}
-          </section>
+          ) : (
+            <>
+              <section>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="flex items-center gap-2 text-lg font-bold">
+                      <IconMail className="h-4 w-4 text-indigo-500" />
+                      Com e-mail
+                    </h2>
+                    <p className={`text-sm ${muted}`}>
+                      {caso === "tem_email"
+                        ? `${comEmail.length} ${comEmail.length === 1 ? "pessoa" : "pessoas"} — prontas para sua lista`
+                        : caso === "sem_email_no_filtro"
+                          ? "Ninguém nesta categoria informou e-mail ainda."
+                          : "Ninguém informou o e-mail ainda. Ligue “Pedir o e-mail antes do link” numa automação."}
+                    </p>
+                  </div>
+                  {comEmail.length > 0 && (
+                    <a href="/api/contatos/csv" className={btnGhost} download>
+                      Exportar CSV
+                    </a>
+                  )}
+                </div>
+                {comEmail.length > 0 && <Tabela rows={comEmail} comEmail />}
+              </section>
 
-          {semEmail.length > 0 && (
-            <section>
-              <div className="mb-4">
-                <h2 className="flex items-center gap-2 text-lg font-bold">
-                  <IconUsers className="h-4 w-4 text-zinc-400" />
-                  Sem e-mail
-                </h2>
-                <p className={`text-sm ${muted}`}>
-                  {semEmail.length} {semEmail.length === 1 ? "pessoa" : "pessoas"} que
-                  interagiram mas não informaram e-mail
-                </p>
-              </div>
-              <Tabela rows={semEmail} comEmail={false} />
-            </section>
+              {semEmail.length > 0 && (
+                <section>
+                  <div className="mb-4">
+                    <h2 className="flex items-center gap-2 text-lg font-bold">
+                      <IconUsers className="h-4 w-4 text-zinc-400" />
+                      Sem e-mail
+                    </h2>
+                    <p className={`text-sm ${muted}`}>
+                      {semEmail.length} {semEmail.length === 1 ? "pessoa" : "pessoas"} que
+                      interagiram mas não informaram e-mail
+                    </p>
+                  </div>
+                  <Tabela rows={semEmail} comEmail={false} />
+                </section>
+              )}
+            </>
           )}
         </div>
       )}
