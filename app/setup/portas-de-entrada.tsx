@@ -1,8 +1,10 @@
 import { listAccounts, sql } from "@/lib/db";
+import { getSelectedAccountId } from "@/lib/account";
 import { lerPerguntas, leituraDeuCerto } from "@/lib/perguntas-de-abertura";
 import {
   AVISO_DA_LIGACAO,
   LIGAR_FUNCIONA,
+  contagemDaConta,
   formularioDasPortas,
   lerRascunho,
   linhasComRascunho,
@@ -20,7 +22,6 @@ import {
   muted,
   subtle,
   alertWarn,
-  alertInfo,
   alertError,
   badgeWarn,
   badgeErr,
@@ -52,6 +53,13 @@ export default async function PortasDeEntrada({ rascunho }: { rascunho?: string 
   const accounts = await listAccounts();
   if (!accounts.length) return null;
 
+  // QUAL CONTA ABRE. O menu lateral já é o único lugar que troca de conta no
+  // painel inteiro (`lib/account.ts`), e ele cai na primeira conta quando não há
+  // cookie — então esta linha nunca fica sem resposta. Esta tela NÃO ganha um
+  // seletor próprio: dois lugares trocando a mesma coisa é como se cria a tela
+  // que discorda de si mesma.
+  const selecionada = await getSelectedAccountId();
+
   // O QUE O DONO TINHA ESCRITO QUANDO A GRAVAÇÃO RECUSOU. Chega como texto de
   // URL e é tratado como não confiável — quem decide se ele vale, de qual conta
   // é e como cada linha fica na tela é `./portas.ts`, com teste.
@@ -76,12 +84,9 @@ export default async function PortasDeEntrada({ rascunho }: { rascunho?: string 
           acabou de salvar "não apareceu", e é a dúvida que ele teria em
           seguida. Sem eles, o caminho para descobrir é achar que quebrou. */}
       <div className={alertWarn}>
-        <b>Estas perguntas só aparecem no aplicativo do celular.</b> No Instagram do computador
-        elas não são exibidas — se você for conferir por lá, não vai vê-las.
-      </div>
-      <div className={alertInfo}>
-        <b>E só aparecem em conversa nova.</b> Quem já trocou mensagem com a conta alguma vez
-        nunca mais vê as perguntas. Para testar, use um perfil que nunca falou com esta conta.
+        <b>Só aparecem no aplicativo do celular, e só em conversa nova.</b> No Instagram do
+        computador elas não são exibidas, e quem já trocou mensagem com a conta nunca mais as
+        vê — para testar, use um perfil que nunca falou com esta conta.
       </div>
 
       {/* O TERCEIRO AVISO, E ELE JÁ SUMIU — sozinho, sem esta linha mudar.
@@ -109,9 +114,31 @@ export default async function PortasDeEntrada({ rascunho }: { rascunho?: string 
         // tinham sido lidas.
         const falhou = !leituraDeuCerto(c.leitura.status);
         return (
-          <div key={c.igUserId} className={`p-4 ${subtle}`}>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
+          <details
+            key={c.igUserId}
+            open={c.igUserId === selecionada}
+            className={`group p-4 ${subtle}`}
+          >
+            {/* UMA CONTA ABERTA POR VEZ. Medido em 31/08/2026: com as quatro
+                abertas este bloco tinha 2426 px — 3,9 telas sozinho — e o dono
+                precisava rolar até a sexta tela para chegar nele.
+
+                A CONTAGEM FICA NA LINHA FECHADA de propósito. Sem ela, fechar
+                vira esconder: naquele mesmo dia três contas exibiam perguntas
+                escritas num experimento, e a única coisa que as denunciaria é
+                esta linha. Quem decide o texto é `contagemDaConta`, com teste. */}
+            <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2">
               <span className="font-medium">@{c.username}</span>
+              {/* A CONTAGEM SÓ VALE FECHADA. Aberta, o `resumo.texto` logo abaixo
+                  já diz a mesma coisa por extenso — e dizer duas vezes é a
+                  poluição que esta mudança veio tirar. `group-open:hidden` é
+                  CSS puro: nenhum estado, nenhuma condição em JSX, e a linha
+                  não pisca ao abrir porque quem some é só o pedaço repetido. */}
+              <span className={`text-xs group-open:hidden ${muted}`}>
+                {contagemDaConta(c.leitura.perguntas.length)}
+              </span>
+            </summary>
+            <div className="mt-3 mb-3 flex flex-wrap items-center gap-2">
               {/* O LIMITE É DA CONTA, e ele fica escrito ao lado do nome dela —
                   não numa nota de rodapé, e não no erro da Meta depois de
                   tentar a quinta. */}
@@ -188,7 +215,7 @@ export default async function PortasDeEntrada({ rascunho }: { rascunho?: string 
                 <p className={`text-xs ${muted}`}>{textoDeApagar(form.linhas.length)}</p>
               </form>
             )}
-          </div>
+          </details>
         );
       })}
     </div>

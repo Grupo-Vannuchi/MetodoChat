@@ -620,3 +620,79 @@ export function opcoesDeAutomacao(automacoes: AutomacaoConhecida[]): OpcaoDeAuto
       (a.triggers.includes(GATILHO_DE_ABERTURA) ? "" : " (sem o gatilho de abertura)"),
   }));
 }
+
+// ============================================================
+// A INSTALAÇÃO NASCE FECHADA QUANDO TERMINOU — e a medição que obrigou isso.
+//
+// Medido em 31/08/2026 na tela de produção, com os dados do dono: a página tem
+// 6341 px para uma janela de 623 (10,2 telas). As oito etapas de instalação
+// ocupam 3181 px — 5,1 telas — e as OITO estão concluídas. No topo, a barra diz
+// "Configuração concluída, 100%"; logo abaixo, a tela ensina em quatro passos
+// numerados como criar o app na Meta do zero.
+//
+// O bloco que o dono usa toda semana ("Perguntas de abertura") só começa no
+// pixel 3721 — a sexta tela — e tem 2426 px sozinho.
+//
+// `aberto` É DERIVADO, e isto não é preferência: `LIGAR_FUNCIONA`, neste mesmo
+// arquivo, nasceu escrito à mão e mentiu até virar cálculo. Um booleano escrito
+// ao lado da contagem continua dizendo "fechado" no dia em que alguém
+// acrescenta uma nona etapa que falta.
+// ============================================================
+
+export type ResumoDaInstalacao = {
+  concluidas: number;
+  total: number;
+  /** DERIVADO: `concluidas < total`. Nunca escrever este valor à mão. */
+  aberto: boolean;
+  texto: string;
+};
+
+export function resumoDaInstalacao(etapas: boolean[]): ResumoDaInstalacao {
+  const total = etapas.length;
+  const concluidas = etapas.filter(Boolean).length;
+  const aberto = concluidas < total;
+  const texto =
+    total === 0
+      ? "Nenhuma etapa de instalação."
+      : aberto
+        ? `${concluidas} de ${total} concluídas — falta terminar`
+        : `${total} de ${total} concluídas`;
+  return { concluidas, total, aberto, texto };
+}
+
+/**
+ * O SUBTÍTULO DA TELA, que muda com a fase em que o dono está.
+ *
+ * Achado na prova visual de 31/08/2026, e não por raciocínio: com a instalação
+ * recolhida, o subtítulo continuava dizendo "Siga as etapas na ordem" sobre um
+ * bloco de uma linha no fim da página, enquanto o que estava na frente da
+ * pessoa eram as perguntas de abertura.
+ *
+ * É a mesma classe de defeito que a revisão da fase anterior nomeou como I1: o
+ * painel afirmava que a tela de configuração "ainda não está em Configuração"
+ * no dia seguinte ao de ela existir. Uma frase que a mudança tornou falsa custa
+ * mais que nenhuma frase — é onde o leitor para de olhar.
+ */
+export function subtituloDaConfiguracao(instalacaoAberta: boolean): string {
+  return instalacaoAberta
+    ? "Siga as etapas na ordem. Cada uma diz o que fazer, onde fazer e como conferir se deu certo antes de seguir para a próxima."
+    : "As perguntas de abertura e o diagnóstico das contas ficam aqui em cima. A instalação já está concluída e fica recolhida no fim — abra se precisar rever algum passo.";
+}
+
+/**
+ * A contagem que aparece na linha de uma conta FECHADA.
+ *
+ * Ela existe para que fechar não vire esconder. Medido em 31/08/2026: o bloco
+ * abria as quatro contas de uma vez — 16 seletores, 2426 px, 3,9 telas —, e
+ * fechar as não selecionadas devolve três telas. O risco que isso cria é a
+ * conta fechada sumir da vista, e ele não é hipotético: naquele mesmo dia, três
+ * contas exibiam perguntas escritas durante um experimento e ninguém tinha
+ * motivo para abri-las.
+ *
+ * O texto é curto de propósito — `resumoDoLimite` já dá a frase completa para a
+ * conta ABERTA, e repeti-la aqui encheria a linha sem dizer mais nada.
+ */
+export function contagemDaConta(usadas: number): string {
+  if (!Number.isFinite(usadas) || usadas <= 0) return "nenhuma pergunta";
+  return usadas === 1 ? "1 pergunta" : `${usadas} perguntas`;
+}

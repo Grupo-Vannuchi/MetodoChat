@@ -3,6 +3,7 @@ import {
   GATILHO_DE_ABERTURA,
   TETO_DE_POSICOES,
   contaDoFormulario,
+  contagemDaConta,
   escreverRascunho,
   formularioDasPortas,
   lerRascunho,
@@ -11,6 +12,8 @@ import {
   linhasDoFormulario,
   opcoesDeAutomacao,
   perguntasDoFormulario,
+  resumoDaInstalacao,
+  subtituloDaConfiguracao,
   resumoDoLimite,
   textoDeApagar,
   LIGAR_FUNCIONA,
@@ -669,5 +672,120 @@ describe("a tela DEIXOU de recusar, e não foi editada para isso", () => {
     expect(l.automacaoId).toBe(OK.id);
     expect(l.dispara).toBe(OK.name);
     expect(l.aviso).toBe(null);
+  });
+});
+
+// ============================================================
+// A INSTALAÇÃO QUE JÁ TERMINOU NÃO PRECISA OCUPAR A TELA.
+//
+// Medido em 31/08/2026 na tela de produção, com os dados do dono: 6341 px de
+// página para uma janela de 623 (10,2 telas), sendo 3181 px — 5,1 telas — das
+// oito etapas de instalação, todas concluídas. O bloco que ele usa toda semana
+// só começa no pixel 3721.
+// ============================================================
+describe("resumoDaInstalacao", () => {
+  it("com tudo concluído, nasce FECHADO", () => {
+    const r = resumoDaInstalacao([true, true, true, true, true, true, true, true]);
+    expect(r.concluidas).toBe(8);
+    expect(r.total).toBe(8);
+    expect(r.aberto).toBe(false);
+    expect(r.texto).toBe("8 de 8 concluídas");
+  });
+
+  // Quem está instalando pela primeira vez vê a tela de hoje, aberta.
+  it("faltando uma etapa, nasce ABERTO", () => {
+    const r = resumoDaInstalacao([true, true, true, false, true, true, true, false]);
+    expect(r.concluidas).toBe(6);
+    expect(r.aberto).toBe(true);
+    expect(r.texto).toBe("6 de 8 concluídas — falta terminar");
+  });
+
+  it("instalação zerada nasce aberta", () => {
+    const r = resumoDaInstalacao([false, false, false]);
+    expect(r.concluidas).toBe(0);
+    expect(r.aberto).toBe(true);
+    expect(r.texto).toBe("0 de 3 concluídas — falta terminar");
+  });
+
+  // Lista vazia é "nada a instalar", e nada a instalar não pede atenção.
+  it("lista vazia não abre nada e não estoura", () => {
+    expect(resumoDaInstalacao([])).toEqual({
+      concluidas: 0,
+      total: 0,
+      aberto: false,
+      texto: "Nenhuma etapa de instalação.",
+    });
+  });
+
+  // O CASO QUE PRENDE A REGRA, e ele existe porque escrever `aberto` ao lado da
+  // contagem já produziu defeito nesta base: `LIGAR_FUNCIONA`, neste mesmo
+  // arquivo, nasceu escrito à mão e mentiu até virar cálculo. Um booleano
+  // escrito à parte continua dizendo "fechado" no dia em que alguém acrescenta
+  // uma nona etapa que falta.
+  it("`aberto` é derivado da contagem, e não escrito à parte", () => {
+    for (let total = 0; total <= 6; total++) {
+      for (let feitas = 0; feitas <= total; feitas++) {
+        const etapas = Array.from({ length: total }, (_, i) => i < feitas);
+        const r = resumoDaInstalacao(etapas);
+        expect(r.aberto, `${feitas} de ${total}`).toBe(r.concluidas < r.total);
+      }
+    }
+  });
+});
+
+// O SUBTÍTULO TEM DE DESCREVER A TELA QUE ESTÁ NA FRENTE DA PESSOA.
+//
+// Achado na prova visual de 31/08, e não por raciocínio: com a instalação
+// recolhida, o subtítulo continuava dizendo "Siga as etapas na ordem" sobre um
+// bloco de uma linha no fim da página. É a mesma classe do painel que afirmava
+// que a tela de configuração "ainda não existe" enquanto ela existia — texto
+// que uma mudança tornou falso e ninguém voltou para corrigir.
+describe("subtituloDaConfiguracao", () => {
+  it("instalando, ele guia pelas etapas", () => {
+    expect(subtituloDaConfiguracao(true)).toContain("Siga as etapas na ordem");
+  });
+
+  it("instalado, ele descreve a tela que está na frente", () => {
+    const t = subtituloDaConfiguracao(false);
+    expect(t).not.toContain("Siga as etapas");
+    expect(t).toContain("recolhida");
+  });
+
+  it("os dois textos são diferentes, e nenhum é vazio", () => {
+    expect(subtituloDaConfiguracao(true)).not.toBe(subtituloDaConfiguracao(false));
+    expect(subtituloDaConfiguracao(true).trim().length).toBeGreaterThan(20);
+    expect(subtituloDaConfiguracao(false).trim().length).toBeGreaterThan(20);
+  });
+});
+
+// ============================================================
+// A CONTA FECHADA CONTINUA DIZENDO O QUE TEM DENTRO.
+//
+// Medido em 31/08/2026: o bloco "Perguntas de abertura" renderizava AS QUATRO
+// contas expandidas — 16 seletores, 2426 px, 3,9 telas sozinho. Abrir só a
+// conta selecionada devolve três telas, mas cria um risco novo: uma conta
+// fechada some da vista.
+//
+// E isso não é hipotético hoje: três contas exibiam perguntas escritas durante
+// o experimento de 26/08, e ninguém tinha motivo para abri-las. A contagem na
+// linha fechada é o único lugar onde isso continua aparecendo.
+// ============================================================
+describe("contagemDaConta", () => {
+  it("diz quantas perguntas a conta tem", () => {
+    expect(contagemDaConta(4)).toBe("4 perguntas");
+    expect(contagemDaConta(2)).toBe("2 perguntas");
+  });
+
+  it("o singular é singular", () => {
+    expect(contagemDaConta(1)).toBe("1 pergunta");
+  });
+
+  it("conta sem pergunta diz isso, e não fica em branco", () => {
+    expect(contagemDaConta(0)).toBe("nenhuma pergunta");
+  });
+
+  it("número inválido cai no caso vazio em vez de imprimir lixo", () => {
+    expect(contagemDaConta(-1)).toBe("nenhuma pergunta");
+    expect(contagemDaConta(Number.NaN)).toBe("nenhuma pergunta");
   });
 });
