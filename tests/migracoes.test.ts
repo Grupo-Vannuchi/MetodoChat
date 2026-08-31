@@ -95,6 +95,19 @@ describe("somaDoTexto", () => {
     expect(somaDoTexto("qualquer coisa")).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  // ESTE CASO EXISTE PORQUE OS OUTROS NÃO BASTAVAM, e isso foi medido: trocando
+  // `somaDoTexto` para apagar as quebras de linha antes de assinar, os 17 casos
+  // seguiam verdes. A comparação "abc" contra "abd" prova pouco — ela nem
+  // encosta na estrutura do texto.
+  //
+  // E a estrutura importa: o que esta assinatura promete não mudar é O SQL QUE O
+  // BANCO RECEBEU, e onde as linhas quebram faz parte dele. Uma assinatura cega
+  // para isso aceitaria calada um arquivo remontado.
+  it("a quebra de linha faz parte da assinatura", () => {
+    expect(somaDoTexto("select 1;\nselect 2;")).not.toBe(somaDoTexto("select 1;select 2;"));
+    expect(somaDoTexto("a\nb")).not.toBe(somaDoTexto("ab"));
+  });
+
   it("texto vazio tem soma, e ela é estável", () => {
     expect(somaDoTexto("")).toBe(somaDoTexto(""));
     expect(somaDoTexto("")).toMatch(/^[0-9a-f]{64}$/);
