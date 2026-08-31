@@ -11,7 +11,24 @@ import { windowState } from "./inbox-window";
 // lista — que é exatamente o custo que a governança evitaria, pago de outro
 // jeito. A função abaixo é o que compra a simplicidade da coluna única.
 
-/** O tamanho máximo, para a coluna da tabela não virar um parágrafo. */
+/**
+ * O tamanho máximo, para a coluna da tabela não virar um parágrafo.
+ *
+ * ELE É CONTADO EM PONTOS DE CÓDIGO AQUI (`Array.from(...).slice`, logo abaixo),
+ * E EM UNIDADES UTF-16 NO NAVEGADOR — o `maxLength` do campo em
+ * `app/conversas/[id]/page.tsx` usa esta mesma constante, e `maxlength` é
+ * definido pelo HTML em unidades UTF-16. Para texto comum os dois coincidem
+ * (40 letras = 40 unidades = 40 pontos); para caractere fora do plano básico,
+ * não: um emoji ocupa DUAS unidades, então o navegador para em 20 emojis
+ * enquanto esta função aceitaria 40. Medido em 31/08/2026.
+ *
+ * FICA ASSIM, e a diferença fica escrita em vez de corrigida: o HTML não tem
+ * atributo que conte ponto de código, e acertar exigiria um componente de
+ * cliente — estado novo no cabeçalho de uma página que não tem nenhum, para um
+ * caso que é "categoria escrita só com emojis". O navegador ser o mais restrito
+ * dos dois é o lado seguro: nada inválido chega ao servidor, e o servidor nunca
+ * precisa cortar o que o navegador deixou passar.
+ */
 export const LIMITE_DA_CATEGORIA = 40;
 
 /**

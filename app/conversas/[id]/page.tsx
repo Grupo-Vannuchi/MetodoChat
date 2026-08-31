@@ -187,6 +187,11 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
             list="categorias-em-uso"
             defaultValue={contato?.categoria ?? ""}
             placeholder="sem categoria"
+            // 40 no navegador é 40 UNIDADES UTF-16, e `normalizarCategoria`
+            // corta em 40 PONTOS DE CÓDIGO: para texto comum é o mesmo limite,
+            // para emoji o campo é o dobro de restrito (para em 20). A diferença
+            // está escrita em LIMITE_DA_CATEGORIA (lib/categorias.ts), com o
+            // porquê de não ser corrigida.
             maxLength={LIMITE_DA_CATEGORIA}
             // Os `!` (modificador "importante" do Tailwind v4) em w-36/rounded-lg/
             // px-2/py-1/text-xs não são estilo, são a correção: a ordem dentro do
