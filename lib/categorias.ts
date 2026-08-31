@@ -35,12 +35,31 @@ export function normalizarCategoria(bruto: unknown): string | null {
   // \s não cobre os invisíveis de largura zero (Cf); por isso saem num passo
   // à parte, ANTES de colapsar espaço — senão um Cf encaixado entre dois
   // espaços vira espaço duplo que sobra depois de removido.
+  //
+  // O QUE ISTO CUSTA, E POR QUE O CUSTO FOI ESCOLHIDO: `Cf` inclui o
+  // `U+200D` (zero-width joiner), que é o que cola emojis em sequência. Uma
+  // categoria escrita como "👨‍👩‍👧‍👦" vira "👨👩👧👦" — quatro figuras soltas.
+  // Medido na revisão de 31/08/2026, e é sempre, não só na fronteira do corte.
+  //
+  // Poupar o `U+200D` REABRIRIA o defeito que este passo existe para fechar:
+  // "al‍uno" voltaria a ser uma categoria diferente de "aluno", visualmente
+  // idêntica a ela. Categoria invisível duplicada é a doença; emoji composto em
+  // NOME DE CATEGORIA ("aluno", "interessado", "turma de setembro") é quase
+  // impossível. A troca é deliberada, e fica escrita para não ser descoberta
+  // como surpresa.
   const limpo = bruto
     .replace(/\p{Cf}/gu, "")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
   if (!limpo) return null;
+  // O CORTE É POR PONTO DE CÓDIGO, E NÃO POR GRAFEMA, e isso também é escolha:
+  // uma bandeira (dois indicadores regionais), um tom de pele (base + modificador)
+  // ou um acento combinante cortados exatamente no limite deixam a metade órfã —
+  // código VÁLIDO, aparência estranha. Resolver exigiria `Intl.Segmenter`, e o
+  // ganho seria cosmético numa fronteira de 40 caracteres que nome de categoria
+  // não alcança. Medido na revisão de 31/08/2026.
+  //
   // Cortar em pontos de código (Array.from), não em unidades UTF-16 (slice):
   // um caractere fora do plano básico (um emoji, por exemplo) ocupa duas
   // unidades UTF-16, e cortar no meio deixa um surrogate solto — que não é
