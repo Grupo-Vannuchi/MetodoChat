@@ -3,6 +3,7 @@ import {
   GATILHO_DE_ABERTURA,
   TETO_DE_POSICOES,
   contaDoFormulario,
+  contagemDaConta,
   escreverRascunho,
   formularioDasPortas,
   lerRascunho,
@@ -754,5 +755,37 @@ describe("subtituloDaConfiguracao", () => {
     expect(subtituloDaConfiguracao(true)).not.toBe(subtituloDaConfiguracao(false));
     expect(subtituloDaConfiguracao(true).trim().length).toBeGreaterThan(20);
     expect(subtituloDaConfiguracao(false).trim().length).toBeGreaterThan(20);
+  });
+});
+
+// ============================================================
+// A CONTA FECHADA CONTINUA DIZENDO O QUE TEM DENTRO.
+//
+// Medido em 31/08/2026: o bloco "Perguntas de abertura" renderizava AS QUATRO
+// contas expandidas — 16 seletores, 2426 px, 3,9 telas sozinho. Abrir só a
+// conta selecionada devolve três telas, mas cria um risco novo: uma conta
+// fechada some da vista.
+//
+// E isso não é hipotético hoje: três contas exibiam perguntas escritas durante
+// o experimento de 26/08, e ninguém tinha motivo para abri-las. A contagem na
+// linha fechada é o único lugar onde isso continua aparecendo.
+// ============================================================
+describe("contagemDaConta", () => {
+  it("diz quantas perguntas a conta tem", () => {
+    expect(contagemDaConta(4)).toBe("4 perguntas");
+    expect(contagemDaConta(2)).toBe("2 perguntas");
+  });
+
+  it("o singular é singular", () => {
+    expect(contagemDaConta(1)).toBe("1 pergunta");
+  });
+
+  it("conta sem pergunta diz isso, e não fica em branco", () => {
+    expect(contagemDaConta(0)).toBe("nenhuma pergunta");
+  });
+
+  it("número inválido cai no caso vazio em vez de imprimir lixo", () => {
+    expect(contagemDaConta(-1)).toBe("nenhuma pergunta");
+    expect(contagemDaConta(Number.NaN)).toBe("nenhuma pergunta");
   });
 });

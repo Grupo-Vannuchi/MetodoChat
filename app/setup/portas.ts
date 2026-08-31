@@ -678,3 +678,21 @@ export function subtituloDaConfiguracao(instalacaoAberta: boolean): string {
     ? "Siga as etapas na ordem. Cada uma diz o que fazer, onde fazer e como conferir se deu certo antes de seguir para a próxima."
     : "As perguntas de abertura e o diagnóstico das contas ficam aqui em cima. A instalação já está concluída e fica recolhida no fim — abra se precisar rever algum passo.";
 }
+
+/**
+ * A contagem que aparece na linha de uma conta FECHADA.
+ *
+ * Ela existe para que fechar não vire esconder. Medido em 31/08/2026: o bloco
+ * abria as quatro contas de uma vez — 16 seletores, 2426 px, 3,9 telas —, e
+ * fechar as não selecionadas devolve três telas. O risco que isso cria é a
+ * conta fechada sumir da vista, e ele não é hipotético: naquele mesmo dia, três
+ * contas exibiam perguntas escritas durante um experimento e ninguém tinha
+ * motivo para abri-las.
+ *
+ * O texto é curto de propósito — `resumoDoLimite` já dá a frase completa para a
+ * conta ABERTA, e repeti-la aqui encheria a linha sem dizer mais nada.
+ */
+export function contagemDaConta(usadas: number): string {
+  if (!Number.isFinite(usadas) || usadas <= 0) return "nenhuma pergunta";
+  return usadas === 1 ? "1 pergunta" : `${usadas} perguntas`;
+}
