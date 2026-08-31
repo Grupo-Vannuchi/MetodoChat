@@ -73,6 +73,70 @@ export function normalizarCategoria(bruto: unknown): string | null {
   return cortado || null;
 }
 
+/**
+ * O QUE A URL PEDE: a conta inteira, ou uma categoria.
+ *
+ * `?categoria=` AUSENTE (`/contatos`) e `?categoria=` PRESENTE E VAZIO
+ * (`/contatos?categoria=`) normalizam para o MESMO nome — `null` — e NÃO são o
+ * mesmo pedido. O primeiro é "tudo"; o segundo é "filtrar por sem categoria", e
+ * é exatamente o link que a ficha "sem categoria" da lista gera (o `nome` dela
+ * é null, e `urlComFiltro` o escreve como parâmetro vazio).
+ *
+ * POR ISSO QUEM DECIDE É A PRESENÇA DO PARÂMETRO (`bruto === undefined`), e
+ * nunca o VALOR normalizado. Esta distinção morava INLINE no JSX de
+ * `app/contatos/page.tsx`, defendida por um comentário de vinte linhas — e,
+ * medido em 31/08/2026, trocá-la por `filtro === null` quebrava
+ * `/contatos?categoria=` (a lista passava a mostrar a conta inteira) com lint,
+ * typecheck, 897 testes puros e 61 de integração TODOS verdes. Ela mora aqui,
+ * com caso em `tests/categorias.test.ts`, porque comentário não é rede.
+ *
+ * Quem editar a URL à mão e esperar "tudo" ao deixar `categoria=` vazio cai na
+ * pegadinha pelo outro lado — e é o preço de a ficha "sem categoria" ser um
+ * balde de verdade, com link próprio, em vez de um buraco.
+ */
+export type FiltroDeCategoria = { tipo: "tudo" } | { tipo: "uma"; nome: string | null };
+
+export function filtroDaUrl(bruto: string | undefined): FiltroDeCategoria {
+  if (bruto === undefined) return { tipo: "tudo" };
+  return { tipo: "uma", nome: normalizarCategoria(bruto) };
+}
+
+/**
+ * As linhas que o filtro deixa passar.
+ *
+ * Genérica na linha porque a decisão é sobre a categoria e mais nada: serve ao
+ * `Row` da lista de contatos e a qualquer outra coisa que tenha a coluna.
+ */
+export function contatosDoFiltro<T extends { categoria: string | null }>(
+  contatos: T[],
+  filtro: FiltroDeCategoria
+): T[] {
+  if (filtro.tipo === "tudo") return contatos;
+  // `?? null` porque uma linha vinda de um `select` que não trouxe a coluna
+  // chega com `undefined`, e `undefined === null` é falso: sem isto ela sairia
+  // da ficha "sem categoria" sem sair da contagem.
+  return contatos.filter((c) => (c.categoria ?? null) === filtro.nome);
+}
+
+/** Se a ficha de `nome` é a que está marcada agora. */
+export function fichaSelecionada(filtro: FiltroDeCategoria, nome: string | null): boolean {
+  return filtro.tipo === "uma" && filtro.nome === nome;
+}
+
+/**
+ * O endereço que carrega ESTE filtro — o link de cada ficha, e o do CSV.
+ *
+ * Uma função só para os dois: enquanto cada um montava o seu, um podia passar a
+ * respeitar o filtro e o outro não, que é exatamente o que aconteceu com o
+ * botão de exportar. E o nome vai codificado porque categoria é texto que gente
+ * escreve — "turma de setembro" tem espaço, e um "&" digitado partiria a URL em
+ * dois parâmetros.
+ */
+export function urlComFiltro(base: string, filtro: FiltroDeCategoria): string {
+  if (filtro.tipo === "tudo") return base;
+  return `${base}?categoria=${encodeURIComponent(filtro.nome ?? "")}`;
+}
+
 export type FichaDeCategoria = {
   /** `null` é a ficha "sem categoria" — um balde de verdade, não um buraco. */
   nome: string | null;
@@ -146,7 +210,7 @@ export function casoDaListaDeEmail(args: {
   visiveis: number;
   /** `comEmail.length` — subconjunto de `visiveis` que tem e-mail. */
   comEmail: number;
-  /** Se há filtro de categoria ativo (`searchParams.categoria !== undefined`). */
+  /** Se há filtro de categoria ativo (`filtroDaUrl(...).tipo === "uma"`). */
   filtrado: boolean;
 }): CasoDaListaDeEmail {
   if (args.visiveis === 0) return "filtro_vazio";

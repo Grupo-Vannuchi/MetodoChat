@@ -3,7 +3,14 @@ import { sql, Contact } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
 import { windowState } from "@/lib/inbox-window";
-import { normalizarCategoria, resumoDasCategorias, casoDaListaDeEmail } from "@/lib/categorias";
+import {
+  filtroDaUrl,
+  contatosDoFiltro,
+  fichaSelecionada,
+  urlComFiltro,
+  resumoDasCategorias,
+  casoDaListaDeEmail,
+} from "@/lib/categorias";
 import { atualizarPerfis } from "./actions";
 import {
   card,
@@ -111,7 +118,7 @@ export default async function ContatosPage({
   searchParams: Promise<{ categoria?: string }>;
 }) {
   const sp = await searchParams;
-  const filtro = normalizarCategoria(sp.categoria);
+  const filtro = filtroDaUrl(sp.categoria);
   const account = await getSelectedAccount();
   const rows = account
     ? ((await sql().query(
@@ -130,29 +137,11 @@ export default async function ContatosPage({
   // aplicado em memória sobre o resultado; ver a nota no plano da tarefa 3
   // sobre por que não é uma segunda consulta.
   const fichas = resumoDasCategorias(rows);
-  // `sp.categoria === undefined` (parâmetro AUSENTE, `/contatos`) é "tudo";
-  // `sp.categoria === ""` (parâmetro PRESENTE e vazio, `/contatos?categoria=`)
-  // é "filtrar por sem categoria" — os dois normalizam para o MESMO `filtro`
-  // (null), mas não são o mesmo pedido. É intencional: `?categoria=` vazio é
-  // exatamente o link que a própria ficha "sem categoria" gera, logo abaixo
-  // (`?categoria=${encodeURIComponent(f.nome ?? "")}`, com `f.nome` null ali).
-  // Por isso a checagem é contra `sp.categoria` (a PRESENÇA do parâmetro), e
-  // não contra `filtro` (o VALOR normalizado).
-  //
-  // O QUE QUEBRARIA, medido em 31/08/2026 rodando as duas variantes: comparar
-  // contra `filtro === null` deixa `/contatos` funcionando (mostra tudo, porque
-  // um `filtro` nulo sem parâmetro cai no mesmo ramo) e quebra
-  // `/contatos?categoria=` — que passaria a mostrar TUDO em vez de filtrar por
-  // "sem categoria", justamente o link que a ficha gera aqui embaixo.
-  //
-  // A primeira versão desta nota dizia o contrário, e foi pega na revisão.
-  // Fica registrado porque comentário que aponta para a URL errada custa mais
-  // que comentário nenhum: ele manda o próximo leitor conferir o lugar errado.
-  //
-  // Quem editar a URL à mão e esperar "tudo" ao deixar `categoria=` vazio cai
-  // na mesma pegadinha, pelo outro lado.
-  const visiveis =
-    sp.categoria === undefined ? rows : rows.filter((r) => (r.categoria ?? null) === filtro);
+  // QUEM DECIDE O FILTRO É `lib/categorias.ts`, e não este arquivo: `?categoria=`
+  // ausente e `?categoria=` vazio normalizam para o mesmo nome e NÃO são o mesmo
+  // pedido, e essa linha vivia aqui defendida só por um comentário. Agora ela
+  // tem caso em `tests/categorias.test.ts`, que fica vermelho quando ela muda.
+  const visiveis = contatosDoFiltro(rows, filtro);
 
   const comEmail = visiveis.filter((c) => c.email);
   const semEmail = visiveis.filter((c) => !c.email);
@@ -161,7 +150,7 @@ export default async function ContatosPage({
   // A decisão de qual texto a seção "Com e-mail" mostra — e se "Sem e-mail"
   // ainda faz sentido na tela — é de `casoDaListaDeEmail` (lib/categorias.ts),
   // não do JSX abaixo: ver o comentário lá para o porquê.
-  const filtrado = sp.categoria !== undefined;
+  const filtrado = filtro.tipo === "uma";
   const caso = casoDaListaDeEmail({
     visiveis: visiveis.length,
     comEmail: comEmail.length,
@@ -194,14 +183,14 @@ export default async function ContatosPage({
       ) : (
         <div className="space-y-10">
           <div className="flex flex-wrap gap-2">
-            <Link href="/contatos" className={sp.categoria === undefined ? badgeOk : badgeNeutral}>
+            <Link href="/contatos" className={filtro.tipo === "tudo" ? badgeOk : badgeNeutral}>
               todos ({rows.length})
             </Link>
             {fichas.map((f) => (
               <Link
                 key={f.nome ?? "__sem__"}
-                href={`/contatos?categoria=${encodeURIComponent(f.nome ?? "")}`}
-                className={filtro === f.nome && sp.categoria !== undefined ? badgeOk : badgeNeutral}
+                href={urlComFiltro("/contatos", { tipo: "uma", nome: f.nome })}
+                className={fichaSelecionada(filtro, f.nome) ? badgeOk : badgeNeutral}
               >
                 {f.nome ?? "sem categoria"} · {f.total} · {f.alcancaveis} alcançáveis
               </Link>

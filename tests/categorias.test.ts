@@ -2,9 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   LIMITE_DA_CATEGORIA,
   normalizarCategoria,
+  filtroDaUrl,
+  contatosDoFiltro,
+  fichaSelecionada,
+  urlComFiltro,
   resumoDasCategorias,
   casoDaListaDeEmail,
   type FichaDeCategoria,
+  type FiltroDeCategoria,
 } from "@/lib/categorias";
 
 // ============================================================
@@ -208,5 +213,110 @@ describe("casoDaListaDeEmail", () => {
   it("quem tem e-mail manda no resultado, com ou sem filtro", () => {
     expect(casoDaListaDeEmail({ visiveis: 5, comEmail: 2, filtrado: true })).toBe("tem_email");
     expect(casoDaListaDeEmail({ visiveis: 5, comEmail: 5, filtrado: false })).toBe("tem_email");
+  });
+});
+// ============================================================
+// O QUE A URL PEDE, E QUAIS LINHAS ISSO DEIXA PASSAR.
+//
+// `?categoria=` AUSENTE (`/contatos`) e `?categoria=` PRESENTE E VAZIO
+// (`/contatos?categoria=`) normalizam para o MESMO nome — `null` — e NÃO são o
+// mesmo pedido: o primeiro é "tudo", o segundo é "filtrar por sem categoria", e
+// é exatamente o link que a ficha "sem categoria" gera na lista.
+//
+// ISTO VIVIA INLINE NO JSX, defendido por um comentário de vinte linhas. Medido
+// em 31/08/2026: trocar a checagem da PRESENÇA do parâmetro pela do VALOR
+// normalizado (`filtro === null`) quebra `/contatos?categoria=` — que passa a
+// mostrar a conta inteira — com lint, typecheck, 897 testes puros e 61 de
+// integração TODOS verdes. Comentário não é rede; os casos abaixo são.
+// ============================================================
+describe("filtroDaUrl", () => {
+  it("parâmetro AUSENTE é a conta inteira", () => {
+    expect(filtroDaUrl(undefined)).toEqual({ tipo: "tudo" });
+  });
+
+  // O CASO QUE PRENDE A LINHA: vazio é PEDIDO, e não ausência de pedido.
+  it("parâmetro PRESENTE e vazio é o filtro `sem categoria`, e não `tudo`", () => {
+    expect(filtroDaUrl("")).toEqual({ tipo: "uma", nome: null });
+    // Só-espaço normaliza para o mesmo nome, e continua sendo um pedido.
+    expect(filtroDaUrl("   ")).toEqual({ tipo: "uma", nome: null });
+  });
+
+  it("o nome chega normalizado, para casar com o que foi gravado", () => {
+    expect(filtroDaUrl("  Aluno ")).toEqual({ tipo: "uma", nome: "aluno" });
+  });
+});
+
+describe("contatosDoFiltro", () => {
+  const contatos = [
+    { categoria: "aluno" },
+    { categoria: "interessado" },
+    { categoria: null },
+    { categoria: null },
+  ];
+
+  it("sem parâmetro, passa a conta inteira", () => {
+    expect(contatosDoFiltro(contatos, filtroDaUrl(undefined))).toHaveLength(4);
+  });
+
+  // O MESMO caso pelo outro lado: com `filtro === null` no lugar da presença do
+  // parâmetro, esta asserção devolve os 4 — a conta inteira — em vez dos 2.
+  it("com `?categoria=` vazio, passa só quem NÃO tem categoria", () => {
+    expect(contatosDoFiltro(contatos, filtroDaUrl(""))).toEqual([
+      { categoria: null },
+      { categoria: null },
+    ]);
+  });
+
+  it("com nome, passa só quem casa, e casa pelo nome normalizado", () => {
+    expect(contatosDoFiltro(contatos, filtroDaUrl("ALUNO "))).toEqual([{ categoria: "aluno" }]);
+  });
+
+  it("filtro que não casa ninguém devolve lista vazia, e não a conta inteira", () => {
+    expect(contatosDoFiltro(contatos, filtroDaUrl("ex-aluno"))).toEqual([]);
+  });
+});
+
+describe("fichaSelecionada", () => {
+  it("sem parâmetro, ficha nenhuma está marcada — nem a `sem categoria`", () => {
+    expect(fichaSelecionada(filtroDaUrl(undefined), null)).toBe(false);
+    expect(fichaSelecionada(filtroDaUrl(undefined), "aluno")).toBe(false);
+  });
+
+  // A ficha "sem categoria" é a que gera o link vazio; se ela deixar de se
+  // marcar, o dono clica e a tela não muda de aparência nenhuma.
+  it("com `?categoria=` vazio, a ficha marcada é a `sem categoria`", () => {
+    expect(fichaSelecionada(filtroDaUrl(""), null)).toBe(true);
+    expect(fichaSelecionada(filtroDaUrl(""), "aluno")).toBe(false);
+  });
+
+  it("com nome, a ficha marcada é a daquele nome", () => {
+    expect(fichaSelecionada(filtroDaUrl("aluno"), "aluno")).toBe(true);
+    expect(fichaSelecionada(filtroDaUrl("aluno"), null)).toBe(false);
+  });
+});
+
+describe("urlComFiltro", () => {
+  const paramDe = (u: string) => new URL(u, "http://x").searchParams.get("categoria") ?? undefined;
+
+  it("`tudo` não leva parâmetro nenhum", () => {
+    expect(urlComFiltro("/contatos", { tipo: "tudo" })).toBe("/contatos");
+    expect(paramDe(urlComFiltro("/contatos", { tipo: "tudo" }))).toBe(undefined);
+  });
+
+  // A VOLTA É O QUE IMPORTA: o link que a ficha gera tem de ser lido de volta
+  // como o MESMO filtro. É esta ida-e-volta que amarra o link da ficha à
+  // leitura da página — e é ela que a troca por `filtro === null` quebra, no
+  // caso do nome nulo.
+  it("o que a ficha gera, a página lê de volta igual", () => {
+    for (const nome of [null, "aluno", "turma de setembro", "não respondeu", "a&b=c"]) {
+      const filtro: FiltroDeCategoria = { tipo: "uma", nome };
+      expect(filtroDaUrl(paramDe(urlComFiltro("/contatos", filtro)))).toEqual(filtro);
+    }
+  });
+
+  it("o mesmo filtro serve a qualquer base — a lista e o CSV não divergem", () => {
+    const filtro: FiltroDeCategoria = { tipo: "uma", nome: "aluno" };
+    expect(urlComFiltro("/contatos", filtro)).toBe("/contatos?categoria=aluno");
+    expect(urlComFiltro("/api/contatos/csv", filtro)).toBe("/api/contatos/csv?categoria=aluno");
   });
 });
