@@ -1,3 +1,5 @@
+import { windowState } from "./inbox-window";
+
 // A CATEGORIA DO CONTATO, e as decisões dela fora do JSX.
 //
 // Este produto não tem tela para criar e renomear categorias, por decisão de
@@ -69,4 +71,47 @@ export function normalizarCategoria(bruto: unknown): string | null {
   // a ponta suja.
   const cortado = Array.from(limpo).slice(0, LIMITE_DA_CATEGORIA).join("").trim();
   return cortado || null;
+}
+
+export type FichaDeCategoria = {
+  /** `null` é a ficha "sem categoria" — um balde de verdade, não um buraco. */
+  nome: string | null;
+  total: number;
+  alcancaveis: number;
+};
+
+/**
+ * As fichas da lista de contatos: cada categoria, quantos tem, e quantos estão
+ * ALCANÇÁVEIS agora.
+ *
+ * O ALCANCE VEM DE `windowState`, E ISSO NÃO É ESTILO. Essa é a mesma função que
+ * `lib/queue-drain.ts` usa para RECUSAR um envio, e ela fecha a janela 5 minutos
+ * antes das 24h (`WINDOW_MARGIN_MS`). Uma contagem escrita aqui como "menos de
+ * 24 horas" seria QUASE sempre igual — medido em 31/08/2026, as duas davam 9 —
+ * e erraria enquanto alguém estivesse naquela faixa de cinco minutos: cerca de
+ * 7 vezes por dia, cinco minutos cada. A tela prometeria uma pessoa alcançável,
+ * o envio a recusaria, e ao conferir já teria passado.
+ *
+ * `agora` é parâmetro para o teste poder fixar o relógio; em produção ninguém o
+ * passa.
+ */
+export function resumoDasCategorias(
+  contatos: { categoria: string | null; last_reply_at: Date | string | null }[],
+  agora: number = Date.now()
+): FichaDeCategoria[] {
+  const baldes = new Map<string | null, FichaDeCategoria>();
+  for (const c of contatos) {
+    const nome = c.categoria ?? null;
+    const ficha = baldes.get(nome) ?? { nome, total: 0, alcancaveis: 0 };
+    ficha.total += 1;
+    if (windowState(c.last_reply_at, agora).open) ficha.alcancaveis += 1;
+    baldes.set(nome, ficha);
+  }
+  return [...baldes.values()].sort((a, b) => {
+    // "Sem categoria" fica sempre no fim: ela não é uma categoria que alguém
+    // escolheu, e disputar posição com as escolhidas a faria parecer uma.
+    if (a.nome === null) return 1;
+    if (b.nome === null) return -1;
+    return b.total - a.total || a.nome.localeCompare(b.nome, "pt-BR");
+  });
 }
