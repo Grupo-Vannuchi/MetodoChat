@@ -940,7 +940,7 @@ async function gravarCursor(
   passoId: string
 ) {
   await sql().query(
-    `update contacts set flow_step_id = $3, flow_step_index = null, last_automation_id = $4
+    `update contacts set flow_step_id = $3, last_automation_id = $4
      where account_id = $1 and ig_id = $2`,
     [accountId, contactIgId, passoId, automationId]
   );
@@ -948,7 +948,7 @@ async function gravarCursor(
 
 async function limparCursor(accountId: string, contactIgId: string) {
   await sql().query(
-    `update contacts set flow_step_id = null, flow_step_index = null
+    `update contacts set flow_step_id = null
      where account_id = $1 and ig_id = $2`,
     [accountId, contactIgId]
   );
@@ -995,43 +995,43 @@ async function limparCursor(accountId: string, contactIgId: string) {
 // correção de leitura.
 async function lerCursor(accountId: string, contactIgId: string): Promise<Cursor> {
   const rows = (await sql().query(
-    `select flow_step_id, flow_step_index, last_automation_id from contacts
+    `select flow_step_id, last_automation_id from contacts
      where account_id = $1 and ig_id = $2`,
     [accountId, contactIgId]
   )) as {
     flow_step_id: string | null;
-    flow_step_index: number | null;
     last_automation_id: string | null;
   }[];
   const r = rows[0];
-  // A CONCLUSÃO PRIMEIRO, porque o resto do comentário já saiu daqui com a
-  // informação invertida: o `String()` abaixo NÃO faz o cursor velho voltar a
-  // funcionar. Depois da migração (`scripts/dar-ids-aos-passos.mjs`), todo
-  // bloco de toda automação gravada tem id, e `identidadeDoPasso` (lib/steps.ts)
-  // só devolve o índice para bloco SEM id. Então `indiceDoId` não acha "2" em
-  // lista nenhuma e o cursor velho resolve para NULL. Na prática esta reserva
-  // vale só para automação que a migração não alcançou.
+  // A LEITURA DE RESERVA SAIU DAQUI EM 31/08/2026, e o que ela era fica escrito
+  // porque a coluna sai do banco no deploy seguinte.
   //
-  // O `String()` está certo mesmo assim, e é só isso que ele é: a forma. Quem
-  // foi gravado antes desta fase tem só `flow_step_index`, e a identidade de um
-  // bloco sem id é justamente o índice em texto — o valor antigo já está na
-  // forma da coluna nova, não precisa de conversão nenhuma além dessa.
-  // `gravarCursor` zera a coluna velha ao escrever a nova, para as duas nunca
-  // discordarem. "Forma certa" não é "resolve", e é a segunda que falta.
+  // O cursor deste produto já foi POSIÇÃO (`flow_step_index`, um inteiro) e
+  // passou a ser BLOCO (`flow_step_id`, a identidade). Enquanto houvesse contato
+  // gravado no formato velho, esta função devolvia o índice em texto — a
+  // identidade de um bloco sem id é justamente o índice em texto, então a forma
+  // já servia. `scripts/converter-cursores.mjs` traduziu os que dava traduzir.
   //
-  // É aceitável, e o motivo é a DIREÇÃO da falha, não a raridade dela: cursor
-  // que não resolve nunca pula passo. `retomadaDoBotao` volta ao zero (a lista
-  // reinicia e para na primeira parada dura, com a `passoKey` segurando o dia),
-  // `retomadaDoFollow` cai no portão, e o ramo de texto limpa o cursor e deixa
-  // o evento seguir. Nenhum dos três atravessa o portão de follow — o estrago
-  // possível é mensagem repetida, não link para quem não segue.
+  // MEDIDO EM 31/08/2026, no banco de produção, antes de tirar:
   //
-  // Converter os cursores velhos para id seria o conserto de verdade, e ele NÃO
-  // cabe aqui: exige ler a lista de cada automação para traduzir índice em id,
-  // ou seja escrita no banco. O script existe — `scripts/converter-cursores.mjs`
-  // —, e rodá-lo é passo de DEPLOY, não de código.
+  //     contatos                                        125
+  //     com `flow_step_index` preenchido                  0
+  //     só com índice, sem `flow_step_id`                 0   <- quem a reserva servia
+  //     com `follow_attempts_dia` preenchido              0
+  //
+  // E ela estava morta POR CONSTRUÇÃO, não por sorte: nenhum caminho deste
+  // código jamais escreveu valor naquela coluna — `gravarCursor` e
+  // `limparCursor` só a zeravam. Uma linha nova nunca poderia nascer com ela
+  // preenchida, então o zero não é um retrato que pode mudar amanhã.
+  //
+  // A REMOÇÃO É EM DOIS DEPLOYS, e o motivo é o `build`: ele roda
+  // `migrar.mjs --aplicar && next build`, ou seja a migração acontece ANTES de o
+  // código novo entrar no ar. Derrubar a coluna no mesmo deploy que a para de
+  // ler deixaria o código ANTIGO servindo contra o banco já alterado, e o
+  // `select` dele quebraria com 42703 nessa janela. Primeiro sai a leitura;
+  // depois, noutro deploy, sai a coluna.
   return {
-    passoId: r?.flow_step_id ?? (r?.flow_step_index != null ? String(r.flow_step_index) : null),
+    passoId: r?.flow_step_id ?? null,
     automationId: r?.last_automation_id ?? null,
   };
 }
@@ -1894,9 +1894,11 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
   // Esta pessoa está parada em algum passo?
   //
   // Pela FUNÇÃO, e não por consulta solta como era aqui: a consulta duplicava
-  // `lerCursor` e agora divergiria dela — ela lia só `flow_step_index`, que
-  // `gravarCursor` deixou de escrever, e este ramo ficaria cego para todo cursor
-  // gravado a partir desta fase.
+  // `lerCursor` e teria divergido dela — ela lia só `flow_step_index` (a coluna
+  // do cursor por POSIÇÃO, que saiu do código em 31/08/2026 e do banco logo
+  // depois), e este ramo teria ficado cego para todo cursor gravado a partir
+  // daquela fase. É o caso vivo da regra: leitura duplicada é leitura que um dia
+  // discorda.
   const cursor = await lerCursor(account.ig_user_id, senderId);
   const idParado = cursor.passoId;
   if (idParado !== null) {
@@ -2034,8 +2036,8 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
   //
   // O motivo de não reler é UM só, e é economia: entre aquele `lerCursor` e
   // aqui não há escrita em `last_automation_id` — `limparCursor` zera
-  // `flow_step_id` e `flow_step_index`, e não toca nesta coluna —, então a
-  // segunda leitura devolveria exatamente o mesmo valor. Seria uma ida ao banco
+  // `flow_step_id` e não toca nesta coluna —, então a segunda leitura
+  // devolveria exatamente o mesmo valor. Seria uma ida ao banco
   // a mais sem nada a mostrar por ela.
   //
   // Ou seja: reler não mudaria o comportamento. Quem escrever aqui uma escrita
