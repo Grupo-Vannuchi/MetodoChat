@@ -140,3 +140,54 @@ export function avisoDaUrl(bruto: string | undefined, tomBruto: string | undefin
   const tom: TomDoAviso = tomBruto === "ok" ? "ok" : "erro";
   return { tom, texto: bruto };
 }
+
+/**
+ * A URL de volta com o aviso INTEIRO — texto e tom.
+ *
+ * `urlComAviso` carrega so o texto, e `avisoDaUrl` le DOIS parametros: sem o
+ * `tom` na URL, todo aviso volta como "erro" (a omissao cai em vermelho de
+ * proposito, porque o parametro e digitavel e um tom desconhecido nao pode
+ * virar classe de CSS). Um sucesso mandado so por `urlComAviso` chegaria na
+ * tela pintado de falha — e por isso o par nao pode ser costurado a mao dentro
+ * da acao, que e onde a costura ficaria sem teste.
+ *
+ * Construida SOBRE `urlComAviso`, que por sua vez e construida sobre
+ * `urlComFiltro`: a distincao entre `?categoria=` ausente e presente-e-vazio
+ * continua decidida num lugar so.
+ */
+export function urlDoAviso(base: string, filtro: FiltroDeCategoria, aviso: Aviso): string {
+  // O separador aqui e sempre "&": `urlComAviso` acabou de escrever "aviso=",
+  // entao a interrogacao ja existe. Nao ha ramo a escolher — e nao ha ramo a
+  // errar.
+  return `${urlComAviso(base, filtro, aviso.texto)}&tom=${aviso.tom}`;
+}
+
+/**
+ * O aviso do botao "Buscar nomes" — quantos perfis a Meta devolveu.
+ *
+ * O TOM E DECISAO, E NAO ENFEITE. A acao roda ate 30 buscas na Meta e engole
+ * cada falha individualmente (conta privada, apagada, ou quem so comentou num
+ * post nunca da perfil). Terminar com ZERO e o desfecho mais comum quando algo
+ * esta errado — token vencido, permissao revogada —, e pintar isso de verde
+ * seria trocar o silencio por uma mentira mais bonita.
+ *
+ * `tentados === 0` e outra coisa: nao ha ninguem sem nome para buscar. A acao
+ * terminou certo, e o numero zero nem aparece na frase.
+ */
+export function avisoDosPerfis(atualizados: number, tentados: number): Aviso {
+  if (tentados === 0) {
+    return { tom: "ok", texto: "Todo mundo já tem nome — nada a buscar." };
+  }
+  if (atualizados === 0) {
+    return {
+      tom: "erro",
+      texto:
+        `Nenhum dos ${tentados} perfis veio da Meta. ` +
+        "Contas privadas ou apagadas não devolvem perfil; se for todo mundo, confira a conexão da conta.",
+    };
+  }
+  return {
+    tom: "ok",
+    texto: `${atualizados} ${atualizados === 1 ? "perfil atualizado" : "perfis atualizados"}.`,
+  };
+}

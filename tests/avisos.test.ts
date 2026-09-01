@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   motivoDoLoteVazio, textoDaRecusaDoLote, textoDoLoteEnviado,
-  urlComAviso, avisoDaUrl,
+  urlComAviso, urlDoAviso, avisoDaUrl, avisoDosPerfis,
 } from "../lib/avisos";
 
 describe("motivoDoLoteVazio", () => {
@@ -82,5 +82,65 @@ describe("avisoDaUrl", () => {
   // "erro", e nunca virar classe de CSS montada com texto de fora.
   it("tom desconhecido cai em erro, e nao vira classe solta", () => {
     expect(avisoDaUrl("qualquer coisa", "roxo")?.tom).toBe("erro");
+  });
+});
+
+// A URL do redirect precisa carregar DUAS coisas, e `urlComAviso` só carrega
+// uma. `avisoDaUrl` lê `aviso` e `tom`, e um tom ausente cai em "erro" de
+// propósito (tom desconhecido não pode virar classe de CSS montada com texto de
+// fora) — então um aviso de SUCESSO enviado só com `urlComAviso` voltaria
+// vermelho. É por isso que `urlDoAviso` existe, e é por isso que a ação não
+// pode montar esse "&tom=" à mão.
+describe("urlDoAviso", () => {
+  it("o tom viaja junto com o texto", () => {
+    expect(urlDoAviso("/contatos", { tipo: "tudo" }, { tom: "ok", texto: "3 receberam" })).toBe(
+      "/contatos?aviso=3%20receberam&tom=ok"
+    );
+  });
+  // O CRÍTICO DE 01/09 PELA TERCEIRA PORTA: `?categoria=` presente-e-vazio é a
+  // ficha "sem categoria", e perdê-lo no redirect faz a tela voltar mostrando a
+  // conta INTEIRA logo depois de um envio.
+  it("nao perde o filtro presente-e-vazio", () => {
+    expect(urlDoAviso("/contatos", { tipo: "uma", nome: null }, { tom: "erro", texto: "x" })).toBe(
+      "/contatos?categoria=&aviso=x&tom=erro"
+    );
+  });
+  it("o aviso volta inteiro de `avisoDaUrl`, e o filtro tambem", () => {
+    const aviso = { tom: "ok", texto: "3 pessoas receberam agora · 0 guardadas" } as const;
+    const u = new URL(urlDoAviso("/contatos", { tipo: "uma", nome: "aluno" }, aviso), "https://x");
+    expect(
+      avisoDaUrl(u.searchParams.get("aviso") ?? undefined, u.searchParams.get("tom") ?? undefined)
+    ).toEqual(aviso);
+    expect(u.searchParams.get("categoria")).toBe("aluno");
+  });
+  it("sem o tom, o sucesso voltaria vermelho — e e por isso que urlDoAviso existe", () => {
+    const u = new URL(urlComAviso("/contatos", { tipo: "tudo" }, "deu certo"), "https://x");
+    expect(
+      avisoDaUrl(u.searchParams.get("aviso") ?? undefined, u.searchParams.get("tom") ?? undefined)
+        ?.tom
+    ).toBe("erro");
+  });
+});
+
+describe("avisoDosPerfis", () => {
+  it("perfil que veio e sucesso, e diz quantos", () => {
+    const a = avisoDosPerfis(4, 10);
+    expect(a.tom).toBe("ok");
+    expect(a.texto).toContain("4");
+  });
+  // NENHUM PERFIL VEIO NÃO É SUCESSO. O botão roda 30 buscas na Meta e engole
+  // cada falha; verde sobre zero seria a mesma mentira do silêncio, pintada.
+  it("nenhum perfil veio NAO e sucesso", () => {
+    expect(avisoDosPerfis(0, 10).tom).toBe("erro");
+  });
+  it("o singular nao sai errado", () => {
+    expect(avisoDosPerfis(1, 1).texto).not.toContain("1 perfis");
+  });
+  // Nada a buscar é a ação terminando certo, e não uma falha: ninguém está sem
+  // nome. (Acontece com dois cliques seguidos no botão.)
+  it("nada para buscar nao e erro", () => {
+    const a = avisoDosPerfis(0, 0);
+    expect(a.tom).toBe("ok");
+    expect(a.texto).not.toContain("0");
   });
 });
