@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { drainQueue } from "@/lib/queue-drain";
+import { cancelarLotesVencidos, drainQueue } from "@/lib/queue-drain";
 import { refreshLongLivedToken, getUserProfile, getProfile } from "@/lib/ig";
 import { listAccounts, updateAccountToken, sql } from "@/lib/db";
 import { safeEqualSecret } from "@/lib/crypto";
@@ -10,6 +10,7 @@ export const maxDuration = 60;
 // conectada:
 // 1) renova o token longo do Instagram quando ele tem mais de 7 dias
 // 2) atualiza nome/foto dos contatos recentes (as URLs de foto expiram)
+// 3) encerra os lotes guardados cujo prazo venceu
 // e no fim drena a fila como rede de segurança.
 export async function GET(req: NextRequest) {
   // se CRON_SECRET existir, a Vercel manda "Authorization: Bearer <segredo>"
@@ -95,12 +96,19 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // A VARREDURA DOS LOTES VENCIDOS mora aqui porque é o único relógio do
+  // produto: um item `guardado` espera uma PESSOA, e quem nunca mais fala nunca
+  // faz nada acontecer. Uma vez por dia basta — o prazo é um dia inteiro
+  // (`validadeDoDia`, lib/lote.ts) — e ela não toca em `pending`, então não
+  // devolve nada à disputa da fila.
+  const { vencidos } = await cancelarLotesVencidos();
   const drained = await drainQueue();
   return NextResponse.json({
     accounts: accounts.length,
     refreshed,
     ownProfiles,
     profiles,
+    vencidos,
     ...drained,
   });
 }

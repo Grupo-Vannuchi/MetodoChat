@@ -217,6 +217,11 @@ const KIND: Record<string, string> = {
   // mesma fila das automáticas (lib/engine.ts, enqueueManualReply) e por isso
   // aparece nesta lista junto com o que o robô mandou.
   dm_manual: "Resposta sua",
+  // O ENVIO EM LOTE (lib/engine.ts, enqueueLote). Entra na mesma fila do
+  // resto pelo mesmo motivo do `dm_manual` logo acima — e por isso corre o
+  // mesmo risco: sem entrada aqui, cairia em "Outro envio", a MESMA falha que
+  // o `dm_manual` já teve, registrada no comentário do topo deste dicionário.
+  dm_lote: "Envio em lote",
 };
 
 // Kind sem rótulo devolve algo legível, e nunca o nome interno — como
@@ -268,6 +273,14 @@ const STATUS: Record<string, Badge> = {
     label: "Não enviada",
     className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
   },
+  // O envio em lote que espera a pessoa voltar a falar
+  // (`migrations/009-fila-estado-guardado.sql`). Cor própria, e não a de
+  // `pending`: as duas são "ainda não saiu", mas só uma delas sai sozinha — e
+  // era essa confusão que fazia o dono ler "Na fila" e concluir que travou.
+  guardado: {
+    label: "Guardada",
+    className: "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-400",
+  },
 };
 
 export function statusBadge(status: string): Badge {
@@ -283,6 +296,38 @@ export function friendlyError(raw: string | null): string | null {
     return "A pessoa não respondeu dentro de 24h. A Meta só deixa enviar nesse intervalo.";
   if (raw.includes("conta não conectada"))
     return "Esta conta do Instagram não está mais conectada ao painel.";
+  // AS TRÊS SAÍDAS PRÓPRIAS DO LOTE (lib/engine.ts e lib/queue-drain.ts). As
+  // três caíam no texto genérico do fim desta função, que promete reenvio
+  // automático — falso nas duas primeiras, que são decisão e não falha, e sem
+  // sentido na terceira, que ainda está tentando.
+  //
+  // Um lote mais novo tomou o lugar deste antes de ele sair: foi o dono quem
+  // decidiu, ao confirmar de novo para a mesma pessoa, e não vai haver nova
+  // tentativa deste aqui.
+  if (raw.includes("substituido por um lote mais novo"))
+    return "Você confirmou um envio mais novo para esta pessoa antes deste sair. Foi decisão sua, e não há nova tentativa.";
+  // A pessoa está fora da janela de 24h e a mensagem CONTINUA na fila
+  // (`pending`, não `skipped` nem `failed`): ela sai sozinha assim que a
+  // pessoa voltar a falar. É a linha que impede o dono de ler "Na fila" com
+  // este texto embaixo e concluir que o envio travou.
+  if (raw.includes("guardado ate a pessoa voltar a falar"))
+    return "A pessoa está fora da janela de 24h. A mensagem fica guardada e sai assim que ela voltar a falar com você.";
+  // O prazo da mensagem (validoAte) venceu antes de ela sair.
+  //
+  // CASA POR "o lote venceu", E NÃO PELA FRASE INTEIRA, de propósito: até
+  // 01/09/2026 o dreno gravava "o lote venceu antes de a pessoa voltar", porque
+  // a validade só era conferida no ramo da janela FECHADA — e essas linhas
+  // continuam na fila, que é o histórico do produto. O texto novo é mais curto
+  // porque a validade passou a ser conferida ANTES de enviar, nos dois
+  // caminhos, e "a pessoa não voltou" deixou de ser a única forma de vencer:
+  // um lote grande estoura o teto horário e vence com a janela ABERTA.
+  if (raw.includes("o lote venceu"))
+    return "O prazo desta mensagem acabou antes de ela sair, e por isso ela não foi enviada.";
+  // O `payload` do item de lote não tem a forma de lote (`lerPayloadDoLote`
+  // devolveu null). A coluna é `jsonb` e editável por fora do painel, então
+  // isto não é impossível — só não é culpa de quem está lendo a tela.
+  if (raw.includes("payload deste item de lote"))
+    return "Esta mensagem estava gravada numa forma que o sistema não sabe enviar, e por isso não foi enviada. Refaça o envio.";
   if (/Instagram API 4\d\d/.test(raw))
     return "O Instagram recusou este envio. Confira em Configuração se a conta segue conectada.";
   if (/Instagram API 5\d\d/.test(raw))

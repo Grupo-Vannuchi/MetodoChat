@@ -683,12 +683,24 @@ const ESPERADAS_RESTRICOES = [
   {
     tabela: "queue",
     nome: "queue_kind_check",
-    de: "004-fila-tipos-novos.sql",
+    de: "008-fila-tipo-lote.sql",
     definicao:
       "CHECK ((kind = ANY (ARRAY['private_reply'::text, 'comment_reply'::text, " +
       "'dm_welcome'::text, 'dm_link'::text, 'dm_reminder'::text, " +
       "'dm_follow_gate'::text, 'dm_email_ask'::text, 'story_reaction'::text, " +
-      "'dm_manual'::text])))",
+      "'dm_manual'::text, 'dm_lote'::text])))",
+  },
+  {
+    // A GÊMEA DA LINHA ACIMA, na coluna vizinha da mesma tabela. Ela está aqui
+    // pela mesma razão: um `queue_status_check` com CINCO estados existe, tem o
+    // nome certo, e recusa o `update` que guarda o item de lote — o dreno
+    // falharia por linha, e a conferência de presença não veria nada.
+    tabela: "queue",
+    nome: "queue_status_check",
+    de: "009-fila-estado-guardado.sql",
+    definicao:
+      "CHECK ((status = ANY (ARRAY['pending'::text, 'sending'::text, " +
+      "'sent'::text, 'failed'::text, 'skipped'::text, 'guardado'::text])))",
   },
 ];
 

@@ -10,6 +10,7 @@ import {
 import { matches, pickRandom, extractEmail } from "./match";
 import { getUserProfile, checkFollowsAccount } from "./ig";
 import { scheduleTick } from "./qstash";
+import { payloadDoLote } from "./lote";
 // `retomadaDoFallback`, `interrompeOFluxo`, `retomadaDoBotao` e
 // `retomadaDoFollow` moraram aqui e agora vêm de lib/steps.ts: as quatro são
 // decisão pura, e dentro de um arquivo `server-only` nenhum teste as alcançava.
@@ -82,6 +83,7 @@ import {
   emailAnswerKey,
   storyReactionKey,
   manualReplyKey,
+  loteKey,
   diaDaChave,
 } from "./dedupe";
 
@@ -334,6 +336,46 @@ async function upsertContact(
       fields.last_automation_id ?? null,
     ]
   );
+
+  // O DESPERTAR DO LOTE, e ele mora aqui porque este é o ÚNICO ponto do produto
+  // por onde uma janela abre: os dois caminhos de mensagem recebida chamam esta
+  // função com `last_reply_at`, e nenhum outro chamador o faz.
+  //
+  // Um item de lote que perdeu a janela sai da fila e vai para o estado
+  // `guardado` (lib/queue-drain.ts, e `migrations/009-fila-estado-guardado.sql`
+  // para os cinco defeitos que isso fecha). Esta linha é a única porta de volta:
+  // ela o devolve para `pending` no instante em que a pessoa fala — e o dreno
+  // roda logo depois, no mesmo webhook (`after()` de app/api/webhook/route.ts),
+  // já com a janela aberta.
+  //
+  // O `where` PEDE `guardado`, E ISSO É O CONSERTO DE UM DEFEITO REAL. Enquanto
+  // ele pedia `pending`, casava com todo `dm_lote` pendente da pessoa —
+  // inclusive com o que o `catch` do dreno tinha acabado de marcar `pending,
+  // retryInSeconds: 120` depois de um 500 da Meta. O despertar ZERAVA o backoff
+  // de erro: a pessoa falar fazia o item que a Meta acabara de recusar voltar
+  // na hora, gastando mais uma tentativa. Os dois estados eram a mesma palavra;
+  // agora não são.
+  //
+  // `not_before = now()` CONTINUA, e não é sobra: um item guardado nunca teve
+  // `not_before` no futuro, mas um que tenha voltado por aqui e falhado depois
+  // pode ter — e o dreno só pega `pending` com `not_before <= now()`. Sem esta
+  // metade, o item voltaria para a fila e ficaria lá até o backoff passar.
+  //
+  // O RELOGIO É O DO BANCO (`now()`), e não o da aplicação, pelo mesmo motivo
+  // escrito em `enqueue`: quem busca o item compara com `now()`.
+  //
+  // A CONDIÇÃO É `last_reply_at`, e não "sempre": `upsertContact` também é
+  // chamada para gravar nome, foto e última automação, e nesses casos nenhuma
+  // janela abriu. Acordar ali gastaria uma escrita e devolveria o item à
+  // disputa por nada.
+  if (fields.last_reply_at) {
+    await sql().query(
+      `update queue set status = 'pending', not_before = now()
+        where account_id = $1 and contact_ig_id = $2
+          and kind = 'dm_lote' and status = 'guardado'`,
+      [accountId, igId]
+    );
+  }
 }
 
 // O webhook de mensagens só traz o IGSID (um número). Busca o perfil na
@@ -1696,7 +1738,49 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     // Automação apagada ou pausada com a pergunta ainda no ar: nada a começar.
     // Calado como o vizinho `quick_reply`, e pelo mesmo motivo — não é montagem
     // errada, é o dono tendo pausado o que ele mesmo publicou.
-    if (!auto) return;
+    //
+    // MAS A JANELA ABRIU NA META DE QUALQUER JEITO, e é por isso que este ramo
+    // deixou de ser um `return` seco. Tocar na pergunta de abertura é a pessoa
+    // mandando mensagem: as 24h começam a contar do lado da Meta, com ou sem
+    // automação para responder. Sem gravar `last_reply_at`, o produto continua
+    // achando que ela está fora da janela — e um envio em lote `guardado` para
+    // ela NÃO ACORDA (o despertar mora em `upsertContact`, logo ali em cima),
+    // enquanto a única janela que ela teria em dias passa em branco.
+    //
+    // SÓ PARA QUEM JÁ É CONTATO, E A GUARDA É O QUE MANTÉM A DECISÃO ANTIGA DE
+    // PÉ. Este `if` cobre DUAS coisas: automação apagada ou pausada NESTA conta,
+    // e automação de OUTRA conta (`loadAutomation` filtra por `account_id`). O
+    // segundo caso é medido, com nome, em
+    // `testes-integracao/porta-de-entrada.integracao.ts` ("postback com
+    // automação de OUTRA conta não roda, e não cria contato"): ninguém pode
+    // NASCER contato de uma conta por causa de um identificador que é de outra.
+    // Abrir a janela de quem JÁ ESTÁ na tabela não toca nisso — a pessoa já é
+    // contato desta conta por outro caminho, e só a hora muda.
+    //
+    // E É EXATAMENTE QUEM O LOTE ALCANÇA: `enqueueLote` (abaixo) enfileira para
+    // contatos de uma categoria, e categoria é coluna de `contacts`. Um item
+    // guardado só existe para quem já está na tabela, então a guarda não deixa
+    // de fora nenhum caso que o despertar precisasse alcançar.
+    //
+    // SEM `fetchProfileFields`, de propósito: buscar o perfil na Meta é uma ida
+    // de rede, e o que este ramo precisa é só da hora. O nome e a foto chegam
+    // na primeira mensagem de texto dela, pelo caminho que já os busca.
+    //
+    // E `upsertContact`, E NÃO UM `update` ESCRITO AQUI: o despertar do lote
+    // mora DENTRO dela, e uma segunda cópia da mesma regra é uma cópia que
+    // envelhece sozinha — o cabeçalho de `lote.integracao.ts` diz por que isso
+    // importa. O `on conflict` dela nunca INSERE aqui, porque a guarda acima já
+    // provou que a linha existe.
+    if (!auto) {
+      const conhecido = (await sql().query(
+        `select 1 from contacts where account_id = $1 and ig_id = $2`,
+        [account.ig_user_id, senderId]
+      )) as unknown[];
+      if (conhecido.length) {
+        await upsertContact(account.ig_user_id, senderId, { last_reply_at: new Date() });
+      }
+      return;
+    }
     // A MONTAGEM DIVERGIU, E ISSO VIRA LINHA — a terceira saída entre executar
     // calado e recusar.
     //
@@ -2074,4 +2158,75 @@ export async function enqueueManualReply(
     payload: { text },
     dedupe_key: manualReplyKey(contactIgId, Date.now()),
   });
+}
+
+// O ENVIO EM LOTE.
+//
+// Entra na MESMA fila do resto, pelo mesmo motivo escrito em
+// `enqueueManualReply`: herda a trava atômica, o teto de ~190 envios/hora por
+// conta, as novas tentativas e a checagem de janela. Um caminho paralelo teria
+// de reimplementar tudo isso, e erraria em algum ponto.
+//
+// SÓ O MAIS RECENTE ESPERA. Antes de enfileirar, os itens de lote que estavam
+// GUARDADOS para cada um destes contatos são cancelados. Sem isso, a pessoa que
+// some por uma semana e volta recebe três mensagens seguidas de uma conta que
+// ficou muda — o comportamento que faz gente bloquear perfil.
+//
+// O cancelamento é `skipped` e não `failed`: não houve erro, houve decisão.
+//
+// O CANCELAMENTO EXCLUI AS CHAVES DESTE PRÓPRIO PEDIDO, e isso não é sobra: o
+// pedido do dono é cancelar o que ficou de um lote ANTERIOR, nunca o que ele
+// acabou de confirmar. Sem a exclusão, um duplo clique em confirmar (rede
+// lenta, o mesmo loteId chegando duas vezes) cancelava o item que a PRIMEIRA
+// chamada tinha acabado de inserir — e o `insert` da segunda esbarrava no
+// `dedupe_key` já ocupado por essa linha, agora `skipped`: `on conflict do
+// nothing` não reescrevia nada, e o contato ficava sem mensagem nenhuma, nem a
+// original nem a repetida. Caso vermelho antes deste conserto em
+// `testes-integracao/lote.integracao.ts` ("duplo clique em confirmar, com o
+// MESMO loteId, nao apaga a mensagem").
+export async function enqueueLote(
+  accountId: string,
+  loteId: string,
+  contatos: string[],
+  base: { text: string; url?: string; buttonLabel?: string; validoAte: string | null }
+): Promise<number> {
+  if (!contatos.length) return 0;
+
+  // `loteKey` leva o accountId: duas contas conectadas podem falar com a
+  // MESMA pessoa (mesmo ig_id — migrations/005-contatos-chave-composta.sql), e
+  // sem a conta na chave um loteId repetido entre contas colidiria no
+  // `dedupe_key`, que é `unique` na tabela inteira. Ver o comentário de
+  // `loteKey` em lib/dedupe.ts.
+  const chavesDestePedido = contatos.map((contato) => loteKey(accountId, loteId, contato));
+
+  // OS DOIS ESTADOS, E NÃO SÓ `pending`: o item de lote que perdeu a janela vive
+  // em `guardado` (`migrations/009-fila-estado-guardado.sql`), e ele é
+  // justamente o que mais precisa ser substituído — é o que está esperando há
+  // dias. Listar só `pending` aqui deixaria a pessoa com DOIS itens vivos, o
+  // velho e o novo, e ela receberia os dois quando voltasse a falar.
+  await sql().query(
+    `update queue set status = 'skipped', error = 'substituido por um lote mais novo'
+      where account_id = $1 and kind = 'dm_lote' and status in ('pending','guardado')
+        and contact_ig_id = any($2::text[])
+        and dedupe_key <> all($3::text[])`,
+    [accountId, contatos, chavesDestePedido]
+  );
+
+  let enfileirados = 0;
+  for (let i = 0; i < contatos.length; i++) {
+    const contato = contatos[i];
+    const entrou = await enqueue({
+      account_id: accountId,
+      kind: "dm_lote",
+      contact_ig_id: contato,
+      payload: payloadDoLote({ loteId, ...base }),
+      // O identificador do lote entra na chave: dois lotes diferentes para a
+      // mesma pessoa são dois itens, e o mesmo lote duas vezes (clique duplo em
+      // confirmar) é um só — o `update` acima é quem garante que "um só" é o
+      // item de verdade, e não um buraco.
+      dedupe_key: chavesDestePedido[i],
+    });
+    if (entrou) enfileirados++;
+  }
+  return enfileirados;
 }

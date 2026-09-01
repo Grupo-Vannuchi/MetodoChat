@@ -11,6 +11,7 @@ import {
   OutgoingMessage,
 } from "./ig";
 import { renderVariables, type VariableContext } from "./variables";
+import { lerPayloadDoLote, loteExpirou } from "./lote";
 // Só para registrar em Atividade o que este arquivo tira da mensagem — o corte
 // além do limite da Meta e o botão sem rótulo (ver `botoesDaMensagem`, abaixo).
 // Não há import na direção oposta — lib/engine.ts não importa deste arquivo —
@@ -339,8 +340,95 @@ async function processItem(
   return { outcome: "sent", messageId: enviada.message_id, sentText: texto };
 }
 
-export async function drainQueue(): Promise<{ sent: number; skipped: number; failed: number }> {
-  const result = { sent: 0, skipped: 0, failed: 0 };
+// O QUARTO CONTADOR, E ELE FECHA UMA DRENAGEM QUE NÃO SOMAVA NADA.
+//
+// Até 01/09/2026 o item de lote guardado não incrementava contador nenhum: uma
+// drenagem inteira gasta adormecendo quarenta itens devolvia `{sent: 0,
+// skipped: 0, failed: 0}` — indistinguível, para quem lê a resposta da rota, de
+// uma drenagem que não achou nada para fazer. O sintoma que a fome de fila
+// produzia era exatamente esse zero triplo, e ele era invisível.
+//
+// OS TRÊS PRIMEIROS SÃO INGLÊS E O QUARTO NÃO, e é de propósito: ele conta itens
+// que foram para o estado `guardado`, e o nome do estado é `guardado` — o
+// porquê inteiro está em `migrations/009-fila-estado-guardado.sql`. Duas
+// palavras para a mesma coisa seria pior do que um plural fora do idioma.
+//
+// A resposta das rotas `/api/queue/tick` e `/api/cron/daily` é este objeto
+// espalhado em JSON, então o campo novo aparece na monitoração sem mais nada.
+export type ResumoDaDrenagem = {
+  sent: number;
+  skipped: number;
+  failed: number;
+  guardados: number;
+};
+
+/**
+ * O LOTE VENCIDO DE QUEM NUNCA MAIS FALA.
+ *
+ * `drainQueue` é o único lugar que avaliava `loteExpirou`, e ele só enxerga item
+ * `pending`. Item `guardado` só volta a ser `pending` quando a PESSOA escreve
+ * (`upsertContact`, lib/engine.ts) — e 40% dos contatos deste produto falaram
+ * uma vez e nunca mais (medição da especificação). Para esses, o item ficava
+ * `guardado` PARA SEMPRE, e a tela de Envios seguia dizendo "sai assim que ela
+ * voltar a falar" semanas depois de o prazo ter acabado. A especificação
+ * promete o contrário: "Ele é encerrado com o motivo escrito, e aparece assim
+ * na tela de envios."
+ *
+ * UMA VARREDURA POR DIA, NO CRON QUE JÁ EXISTE, E ELA NÃO TOCA EM `pending`.
+ * Essa metade é a que importa: devolver item guardado à fila viva — mesmo para
+ * matá-lo — reabriria a fome de fila que `migrations/009-fila-estado-guardado.sql`
+ * fechou, porque um item com `not_before` no passado é sempre elegível e é o
+ * mais antigo. Aqui ele vai de `guardado` direto para `skipped`, sem passar pela
+ * disputa.
+ *
+ * QUEM DECIDE SE VENCEU É `loteExpirou`, A MESMA FUNÇÃO DO DRENO, e não um
+ * `where` em SQL. Duas regras de validade em dois lugares é o defeito que esta
+ * branch inteira existe para não repetir — e a diferença apareceria justo no
+ * caso mudo: `loteExpirou` trata data inválida como "sem prazo" DE PROPÓSITO
+ * (cancelar em silêncio é pior), e um `(payload->>'valido_ate')::timestamptz`
+ * ou trataria lixo como vencido ou estouraria no meio do cron diário.
+ *
+ * O RELÓGIO É O DO BANCO, pelo mesmo motivo escrito no dreno.
+ *
+ * O `status = 'guardado'` NO `update` NÃO É SOBRA: entre a leitura e a escrita a
+ * pessoa pode ter voltado a falar, e o despertar de `upsertContact` já teria
+ * posto o item em `pending`. Cancelá-lo dali seria escrever por cima de uma
+ * decisão mais nova; deixado em `pending`, o dreno confere a validade de novo,
+ * antes de enviar, e grava o desfecho dele.
+ */
+export async function cancelarLotesVencidos(): Promise<{ vencidos: number }> {
+  const linhas = (await sql()`
+    select id, payload, now() as agora_do_banco from queue
+    where kind = 'dm_lote' and status = 'guardado'
+  `) as { id: string; payload: unknown; agora_do_banco: Date }[];
+  if (!linhas.length) return { vencidos: 0 };
+
+  const marcado = linhas[0].agora_do_banco;
+  const agoraNoBanco = marcado instanceof Date ? marcado.getTime() : Date.now();
+
+  const vencidos = linhas
+    .filter((l) => {
+      const doLote = lerPayloadDoLote(l.payload);
+      // Payload que não é de lote NÃO é problema desta função: o dreno já o
+      // encerra com o motivo escrito, e ele nunca chega a ficar guardado.
+      return doLote !== null && loteExpirou(doLote.validoAte, agoraNoBanco);
+    })
+    .map((l) => l.id);
+  if (!vencidos.length) return { vencidos: 0 };
+
+  // O texto CASA COM `friendlyError` (app/labels.ts) por "o lote venceu", que é
+  // o pedaço que ela procura — o mesmo desfecho que o dreno já escreve, com o
+  // motivo desta rota.
+  await sql().query(
+    `update queue set status = 'skipped', error = $2
+      where id = any($1::uuid[]) and status = 'guardado'`,
+    [vencidos, "o lote venceu enquanto esperava a pessoa voltar a falar"]
+  );
+  return { vencidos: vencidos.length };
+}
+
+export async function drainQueue(): Promise<ResumoDaDrenagem> {
+  const result = { sent: 0, skipped: 0, failed: 0, guardados: 0 };
   const accounts = await listAccounts();
   if (!accounts.length) return result;
   const byId = new Map(accounts.map((a) => [a.ig_user_id, a]));
@@ -408,9 +496,31 @@ export async function drainQueue(): Promise<{ sent: number; skipped: number; fai
        )
        returning q.*
      )
-     select * from lote order by created_at, id`,
+     select *, now() as agora_do_banco from lote order by created_at, id`,
     [BATCH_SIZE, blocked]
-  )) as QueueItem[];
+  )) as (QueueItem & { agora_do_banco: Date })[];
+
+  // O RELOGIO QUE JULGA A VALIDADE É O DO BANCO, E NÃO O DA APLICAÇÃO.
+  //
+  // `loteExpirou` (lib/lote.ts) cai em `Date.now()` quando ninguém lhe diz que
+  // horas são, e todo o resto desta fila conta pelo `now()` do Postgres: o
+  // `not_before` do enqueue, a seleção lá em cima, o backoff do `finish`.
+  // Misturar os dois é o defeito que `enqueue` (lib/engine.ts) já documenta com
+  // medição própria: 53,9 segundos de diferença NESTA máquina, milissegundos
+  // na Vercel. Cinquenta e quatro segundos decidem o caso de um prazo que
+  // acabou de vencer — e um lote grande passa horas saindo por causa do
+  // `HOURLY_CAP`, então esse caso acontece.
+  //
+  // NÃO CUSTA IDA NOVA: é uma coluna a mais na consulta que já reivindicou o
+  // lote. Ela é lida UMA VEZ por drenagem, e não por item, e isso basta: uma
+  // drenagem é no máximo `BATCH_SIZE` itens com `GAP_MS` entre eles, ou seja
+  // ~9 segundos de ponta a ponta.
+  //
+  // O `?? Date.now()` é para a lista vazia (nenhum item, o laço nem roda) e
+  // para o dia em que o driver devolver outra coisa que não `Date`. Cair no
+  // relógio da aplicação é exatamente o que se fazia antes; nunca é pior.
+  const marcado = items[0]?.agora_do_banco;
+  const agoraNoBanco = marcado instanceof Date ? marcado.getTime() : Date.now();
 
   for (const item of items) {
     const account = item.account_id ? byId.get(item.account_id) : undefined;
@@ -420,6 +530,62 @@ export async function drainQueue(): Promise<{ sent: number; skipped: number; fai
       result.skipped++;
       continue;
     }
+
+    // A VALIDADE É CONFERIDA ANTES DE ENVIAR, E É POR ISSO QUE ELA MORA AQUI.
+    //
+    // Ela morava LÁ EMBAIXO, dentro do ramo em que a janela está FECHADA — o
+    // único lugar em que era consultada. No caminho de envio ninguém a olhava:
+    // `processItem` via a janela aberta e mandava.
+    //
+    // O CENÁRIO, medido em `testes-integracao/lote.integracao.ts` ("lote
+    // VENCIDO com a janela ABERTA"): sexta o dono manda "a turma abre segunda,
+    // vagas até domingo" para 111 pessoas fora da janela. Terça uma delas volta
+    // a falar. O item acorda, a janela está aberta, e ela recebia a oferta que
+    // venceu há dois dias.
+    //
+    // E O SEGUNDO CENÁRIO NÃO PRECISA DE NINGUÉM VOLTANDO A FALAR: `HOURLY_CAP`
+    // é 190 POR CONTA, então um lote de 800 com a janela aberta leva ~4h20 para
+    // sair inteiro — tudo o que fica depois do teto saía DEPOIS do prazo, sem
+    // nunca ter passado por uma janela fechada. Conferir aqui, uma vez, cobre
+    // os dois caminhos porque este é o ponto por onde todo item passa.
+    if (item.kind === "dm_lote") {
+      const doLote = lerPayloadDoLote(item.payload);
+
+      // ITEM DE LOTE COM PAYLOAD QUE NÃO É DE LOTE NÃO ESPERA PARA SEMPRE.
+      //
+      // `lerPayloadDoLote` devolve `null` quando falta `lote_id` ou `text`, e
+      // `null` era lido aqui como "sem prazo" — a mesma resposta que um lote
+      // deliberadamente eterno dá. O item ficava guardado indefinidamente, sem
+      // texto para enviar e sem uma linha dizendo por quê.
+      //
+      // A COLUNA É `jsonb` E EDITÁVEL POR FORA do painel — é o mesmo motivo
+      // pelo qual `botoesDaMensagem` defende no dreno e não só no editor (ver o
+      // cabeçalho deste arquivo). Aqui a defesa é recusar: `skipped` é um
+      // desfecho, e um desfecho errado aparece na tela de Envios; "guardado
+      // para sempre" não aparece em lugar nenhum.
+      if (!doLote) {
+        await logEventThrottled(
+          account.ig_user_id,
+          "lote_com_payload_invalido",
+          { queue_id: item.id, contact_ig_id: item.contact_ig_id },
+          10,
+          { campo: "contact_ig_id", valor: item.contact_ig_id ?? "" }
+        );
+        await finish(item.id, {
+          status: "skipped",
+          error: "o payload deste item de lote nao e de lote",
+        });
+        result.skipped++;
+        continue;
+      }
+
+      if (loteExpirou(doLote.validoAte, agoraNoBanco)) {
+        await finish(item.id, { status: "skipped", error: "o lote venceu antes de sair" });
+        result.skipped++;
+        continue;
+      }
+    }
+
     try {
       const { outcome, messageId, sentText } = await processItem(
         item,
@@ -430,6 +596,75 @@ export async function drainQueue(): Promise<{ sent: number; skipped: number; fai
         await finish(item.id, { status: "sent", sent_at: new Date(), message_id: messageId, sentText });
         result.sent++;
         await sleep(GAP_MS);
+      } else if (item.kind === "dm_lote") {
+        // O ITEM DE LOTE ESPERA, e é só isto que este projeto muda no motor.
+        //
+        // Todo outro tipo continua sendo DESCARTADO ao perder a janela, e isso
+        // é deliberado: medido em 01/09/2026, a janela descartou 6 itens na
+        // vida inteira do produto, quase sempre porque a automação disparou
+        // para alguém cuja conversa já tinha esfriado. Fazer esses esperarem
+        // entregaria uma boas-vindas dias depois, fora de contexto.
+        //
+        // ELE ESPERA NUM ESTADO PRÓPRIO, E NÃO NO `pending` DAS MENSAGENS
+        // VIVAS — e esta linha é o redesenho inteiro.
+        //
+        // Ele já morou em `pending` com `not_before` um dia à frente, e o dia
+        // não era enfeite: a seleção do dreno é `status = 'pending' and
+        // not_before <= now()`, `order by created_at`, `limit 15`, e um item
+        // guardado com `not_before` no passado é SEMPRE elegível e é o MAIS
+        // VELHO. Com quarenta esperando, três drenagens inteiras não deixavam
+        // sair uma mensagem de verdade. Dormir um dia ADIAVA a fome; não a
+        // tirava — passado o dia, os quarenta voltavam, e o ciclo se repetia
+        // TODO DIA. É o que o caso "quarenta itens guardados... hoje nem amanhã"
+        // (testes-integracao/lote.integracao.ts) mede, e era a segunda metade
+        // dele que ficava vermelha.
+        //
+        // OS CINCO DEFEITOS QUE ESTE ESTADO FECHA DE UMA VEZ estão listados em
+        // `migrations/009-fila-estado-guardado.sql`, que é onde ele nasce. Os
+        // quatro que se resolvem AQUI, sem mais nenhuma linha, resolvem-se por
+        // SUBTRAÇÃO — a seleção do dreno, a reivindicação, o rodapé do QStash
+        // e a consulta do despertar perguntam todos por `pending`, e o item
+        // guardado deixou de responder a essa pergunta:
+        //
+        //   FOME DE FILA — a seleção não o vê mais, hoje nem amanhã.
+        //   `attempts` — quem faz `attempts + 1` é a reivindicação, e ela só
+        //     alcança `pending`. O item deixou de gastar uma tentativa por dia
+        //     dormindo; guardado quatro dias ele chegava com `attempts >= 3` e
+        //     `giveUp` o matava em `failed` no primeiro 500 da Meta. Agora ele
+        //     chega ao primeiro erro com o contador que de fato ganhou.
+        //   O TIQUE ETERNO DO QSTASH — o rodapé lá embaixo agenda o próximo
+        //     por `min(not_before)` sobre `pending`. Item guardado não entra
+        //     mais nesse mínimo, e o dreno para de publicar um tique por
+        //     webhook, indefinidamente.
+        //   O DESPERTAR — `upsertContact` (lib/engine.ts) casava com todo
+        //     `dm_lote` `pending`, inclusive o que o `catch` logo abaixo tinha
+        //     acabado de marcar `pending, retryInSeconds: 120` depois de um 500
+        //     da Meta: o despertar zerava o backoff de erro. Agora ele pede
+        //     `guardado`, e os dois deixaram de ser a mesma linha.
+        //
+        // SEM `retryInSeconds`, E A AUSÊNCIA É INTENCIONAL: `not_before` deixou
+        // de ser o que segura o item, então mexê-lo aqui só escreveria uma data
+        // que ninguém lê.
+        //
+        // A MÁQUINA DE ACORDAR NÃO MUDOU: `drainQueue` roda DENTRO do webhook
+        // (`app/api/webhook/route.ts`, no `after()`), e o `last_reply_at` do
+        // contato é gravado ANTES disso, por `upsertContact` — que na mesma ida
+        // devolve o item para `pending`. Quando a pessoa escreve, a janela dela
+        // abre e o dreno roda em seguida: o item encontra a janela aberta sem
+        // precisar de tarefa agendada.
+        //
+        // O QUE SE PERDEU COM O DIA, dito em voz alta: ele era a rede de
+        // segurança para o caso de o despertar falhar, e não há mais rede. É
+        // troca consciente — a rede custava a fome de fila TODO DIA, e o
+        // despertar é a única porta por onde uma janela abre (o comentário dele
+        // em lib/engine.ts diz por quê). Um item cujo despertar falhe fica
+        // guardado, visível na tela de Envios com esse nome, em vez de sair fora
+        // de hora.
+        await finish(item.id, {
+          status: "guardado",
+          error: "guardado ate a pessoa voltar a falar",
+        });
+        result.guardados++;
       } else {
         await finish(item.id, { status: "skipped", error: "janela de 24h fechada" });
         result.skipped++;
@@ -448,6 +683,13 @@ export async function drainQueue(): Promise<{ sent: number; skipped: number; fai
 
   // sobrou item pendente? agenda o próximo despertar
   // (item já vencido — ex.: lote cheio — volta em ~20s)
+  //
+  // `status = 'pending'` NÃO ALCANÇA O ITEM GUARDADO, e isso é o conserto de um
+  // crescimento sem fim: enquanto ele morava em `pending`, sempre havia um
+  // `min(not_before)` para devolver, então TODO webhook publicava um tique no
+  // QStash — indefinidamente, mesmo com a fila viva vazia. Agendar por um item
+  // que espera uma PESSOA é agendar para nada: quem o acorda não é relógio.
+  // Ver `migrations/009-fila-estado-guardado.sql`.
   const nextRows = (await sql()`
     select extract(epoch from (min(not_before) - now()))::float8 as secs
     from queue where status = 'pending'

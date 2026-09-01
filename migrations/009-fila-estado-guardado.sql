@@ -1,0 +1,78 @@
+-- O ESTADO `guardado` ENTRA NA FILA.
+--
+-- A `008` é o precedente exato: mesma tabela, mesma mecânica (derruba a
+-- restrição e recria alargada), e o comentário dela explica que `add constraint`
+-- VALIDA as linhas existentes — num banco com `status` fora da lista, isto falha
+-- alto em vez de passar calado. Ela alargou `kind` de nove tipos para dez; esta
+-- alarga `status` de cinco estados para seis.
+--
+-- ALARGAR É SEGURO EM UM DEPLOY SÓ, e o motivo é a direção, o mesmo da `008`: o
+-- código ANTIGO nunca escreve `guardado`, então ele continua funcionando contra
+-- a restrição nova. Estreitar seria o caso perigoso — e foi por isso que a
+-- remoção das colunas mortas (006) precisou de dois deploys.
+--
+-- -----------------------------------------------------------------------------
+-- POR QUE UM ESTADO, E NÃO UM `pending` QUE DORME
+--
+-- O item de lote que espera a pessoa voltar a falar vivia em `pending`, o mesmo
+-- balde das mensagens vivas, com `not_before` um dia à frente para não sufocar a
+-- fila. Cinco defeitos saíam dessa única escolha, e todos os cinco eram o balde
+-- compartilhado dizendo coisas que não valiam para ele:
+--
+--   1. FOME DE FILA. A seleção do dreno é `status = 'pending' and not_before <=
+--      now()`, `order by created_at`, `limit 15`. Um item guardado é o MAIS
+--      VELHO da fila; passado o dia, quarenta deles custam três drenagens em que
+--      nenhuma mensagem viva sai — e o ciclo se repetia todo dia.
+--   2. `attempts` GASTO PELAS SONECAS. A reivindicação faz `attempts =
+--      attempts + 1`. Guardado por quatro dias, o item chegava com `attempts >=
+--      3`, e `giveUp` o matava em `failed` no primeiro 500 da Meta.
+--   3. O DESPERTAR ZERAVA O BACKOFF DE ERRO. `upsertContact` adiantava
+--      `not_before` de todo `dm_lote` `pending` — inclusive o que o `catch`
+--      acabara de marcar `pending, retryInSeconds: 120`.
+--   4. O QSTASH CRESCIA PARA SEMPRE. O rodapé do dreno agenda o próximo tique
+--      por `min(not_before)` sobre `pending`. Com item guardado sempre presente,
+--      cada webhook publicava um tique, indefinidamente.
+--   5. A CONSULTA DO DESPERTAR precisava distinguir o item guardado do vivo, e a
+--      única coisa que os distinguia era um `not_before` no futuro — que não é
+--      índice, não é intenção e não é legível.
+--
+-- Nenhum dos cinco se conserta sem separar as duas coisas, porque os cinco são a
+-- mesma frase: o item guardado NÃO está na fila, ele está esperando. Um estado
+-- próprio é o que faz a seleção do dreno deixar de vê-lo sem que ninguém precise
+-- inventar um `not_before` que o esconda.
+--
+-- -----------------------------------------------------------------------------
+-- POR QUE O NOME É `guardado`, EM PORTUGUÊS, AO LADO DE CINCO NOMES EM INGLÊS
+--
+-- A consistência de idioma é argumento de verdade, e é o único do outro lado.
+-- Ela perdeu para três, e nenhum deles é estético:
+--
+--   É A PALAVRA QUE O PRODUTO JÁ USA para esta coisa, escrita antes de o estado
+--   existir e em três lugares: o erro que o dreno grava ("guardado ate a pessoa
+--   voltar a falar", lib/queue-drain.ts), a frase que o dono lê ("A mensagem
+--   fica guardada e sai assim que ela voltar a falar", `friendlyError` em
+--   app/labels.ts) e o comentário do próprio dreno. Batizar o estado de
+--   `waiting` ou `held` criaria uma SEXTA palavra para o que já tem nome, e a
+--   tradução entre as duas viveria na cabeça de quem lesse.
+--
+--   A CHAVE VAZA PARA A URL. O status é a chave do filtro da tela de Envios
+--   (`SITUACOES`, lib/envio-filters.ts), e ela vira `envios_situacao=guardado`
+--   na barra de endereço — onde os três parâmetros vizinhos já são português
+--   (`envios_periodo`, `envios_origem`, `envios_situacao`).
+--
+--   A DIFERENÇA DE IDIOMA É LEGÍVEL NUMA LISTA ESCRITA DE MEMÓRIA. Existem no
+--   código listas de status digitadas à mão — `status in ('pending','sending',
+--   'sent')` em lib/engine.ts é uma delas. Isto não impede ninguém de esquecer o
+--   estado novo; o que ele muda é que a falta de uma palavra em português salta
+--   aos olhos numa fileira de palavras em inglês, enquanto um sexto termo em
+--   inglês some no meio dos outros cinco.
+--
+-- E NÃO É `skipped` COM OUTRO ERRO: `skipped` é terminal, e o item guardado é o
+-- oposto disso — ele existe para voltar. Quem o traz de volta para `pending` é
+-- `upsertContact` (lib/engine.ts), no instante em que a pessoa fala.
+
+alter table queue drop constraint if exists queue_status_check;
+
+alter table queue add constraint queue_status_check check (status in (
+  'pending','sending','sent','failed','skipped','guardado'
+));

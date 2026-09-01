@@ -4,10 +4,10 @@
 // garante que ninguém receba a mesma mensagem duas vezes. Ou seja, o formato
 // destas strings é uma regra de negócio — não detalhe de implementação.
 //
-// Começaram como oito literais espalhados pelo motor. Hoje são DEZ funções
+// Começaram como oito literais espalhados pelo motor. Hoje são ONZE funções
 // neste arquivo: as oito de origem, mais `passoKey` (que nasceu com o fluxo por
-// passos) e `manualReplyKey`. Juntas aqui por dois motivos: dá para ver de
-// relance o que torna cada envio único, e dá para testar. Mudar qualquer
+// passos), `manualReplyKey` e `loteKey`. Juntas aqui por dois motivos: dá para
+// ver de relance o que torna cada envio único, e dá para testar. Mudar qualquer
 // formato abaixo faz itens já enfileirados deixarem de casar com os novos — na
 // prática, autoriza envio em dobro. Os testes em tests/dedupe.test.ts (e
 // tests/manual-reply-key.test.ts) existem para essa mudança nunca passar
@@ -122,3 +122,24 @@ export const storyReactionKey = (mid: string) => `rx:${mid}`;
 // chave e cada envio é único.
 export const manualReplyKey = (contactIgId: string, agora: number) =>
   `mr:${contactIgId}:${agora}`;
+
+// O envio em lote (`enqueueLote`, lib/engine.ts).
+//
+// LEVA O accountId, e as outras chaves deste arquivo não levam — a diferença
+// não é descuido. `migrations/005-contatos-chave-composta.sql` registra que a
+// MESMA pessoa pode falar com DUAS contas de Instagram conectadas com o mesmo
+// ig_id: é por isso que a chave primária de `contacts` é composta
+// (account_id, ig_id), e não só ig_id. A `dedupe_key` da fila, em contraste, é
+// `unique` na TABELA INTEIRA (migrations/000-esquema-base.sql) — sem coluna de
+// conta na restrição. Se duas contas gerassem o mesmo loteId para a mesma
+// pessoa, a chave sem accountId colidiria entre contas, e o `on conflict do
+// nothing` engoliria o segundo envio em silêncio, sem nenhum aviso na tela de
+// Envios.
+//
+// `manualReplyKey`, o precedente mais próximo, tem o mesmo formato sem
+// accountId e se protege com o relógio em milissegundos — dois cliques quase
+// nunca caem no mesmo instante. O lote não tem esse amortecedor: `loteId` é
+// dado de fora, sem garantia de ser único entre contas. Por isso aqui a defesa
+// é estrutural, e não probabilística: o accountId entra na chave.
+export const loteKey = (accountId: string, loteId: string, contactIgId: string) =>
+  `lote:${accountId}:${loteId}:${contactIgId}`;

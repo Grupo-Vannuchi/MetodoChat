@@ -76,7 +76,19 @@ export default async function Home({
              (select count(*)::int from contacts where account_id = $1) as contacts,
              (select count(*)::int from contacts where account_id = $1
                 and first_contact_at > now() - interval '7 days') as contacts7,
-             (select count(*)::int from queue where account_id = $1 and status = 'pending') as pending,
+             -- OS DOIS ESTADOS, para o numero desta tela nao mudar de
+             -- sentido sem ninguem decidir: o item de lote que espera saiu de
+             -- pending e foi para guardado (migrations/009-fila-estado-
+             -- guardado.sql), e lista-lo aqui e o que mantem "Na fila" contando
+             -- o mesmo que contava ontem: tudo o que ainda nao saiu. QUAL dos
+             -- dois e cada um se responde na tela de Envios, que ganhou o
+             -- filtro "guardadas" (lib/envio-filters.ts); este cartao e um
+             -- numero so.
+             -- (sem crases neste comentario: ele mora DENTRO de um template
+             --  literal, e uma crase o fecharia no meio. Mesmo aviso que esta
+             --  em migrations/000-esquema-base.sql.)
+             (select count(*)::int from queue where account_id = $1
+                and status in ('pending','guardado')) as pending,
              (select count(*)::int from queue where account_id = $1 and status = 'sent'
                 and sent_at > now() - interval '7 days') as sent7,
              (select count(*)::int from queue where account_id = $1 and status = 'sent'

@@ -14,11 +14,18 @@ import { sql } from "./db";
 
 // Em que pé está o envio, do ponto de vista de quem olha a conversa.
 //
-// Traduz os cinco status da fila para os três que interessam na tela. O
+// Traduz os seis status da fila para os quatro que interessam na tela. O
 // atendente não precisa saber a diferença entre 'pending' e 'sending', nem entre
 // 'failed' e 'skipped' — precisa saber se saiu, se está saindo ou se não vai
 // sair.
-export type MessageDelivery = "sent" | "sending" | "failed";
+//
+// `guardado` É O QUARTO, E ELE NÃO CABIA EM NENHUM DOS TRÊS. É o item de lote
+// que espera a pessoa voltar a falar (`migrations/009-fila-estado-guardado.sql`):
+// não saiu, não está saindo, e não é que não vá sair. Enquanto ele caía no
+// `else` do `case` abaixo, a mensagem aparecia como "enviando…" PARA SEMPRE no
+// balão — e o balão é o lugar onde essa mentira dura mais tempo, porque pode
+// levar semanas até a pessoa voltar.
+export type MessageDelivery = "sent" | "sending" | "failed" | "guardado";
 
 // Anexo recebido. A v1 não ENVIA mídia, mas recebe o tempo todo — gente
 // compartilha reel na DM o tempo inteiro. O payload já traz tipo e link; sem
@@ -235,6 +242,9 @@ export async function conversationMessages(
                 when 'sent' then 'sent'
                 when 'failed' then 'failed'
                 when 'skipped' then 'failed'
+                -- O item de lote fora da janela. Sem este braço ele caía no
+                -- 'sending' do else e o balão dizia "enviando…" por semanas.
+                when 'guardado' then 'guardado'
                 else 'sending'
               end as delivery,
               -- A v1 não envia mídia, então o que sai nunca tem anexo.
@@ -261,9 +271,18 @@ export async function conversationMessages(
          -- log, sem teste vermelho. A lista é positiva de propósito — o defeito
          -- que motivou este filtro nasceu justamente de deixar entrar por
          -- omissão, e sumir é mais fácil de perceber do que poluir.
+         --
+         -- dm_lote ENTROU AQUI EM 01/09/2026, e o aviso acima tinha previsto o
+         -- proprio defeito: o kind nasceu em migrations/008-fila-tipo-lote.sql e
+         -- ninguem o acrescentou nesta lista, entao a mensagem do lote sumia da
+         -- conversa em silencio. Ela importa mais do que uma mensagem automatica
+         -- qualquer: o valor inteiro do lote e a pessoa RESPONDER, e o dono abria
+         -- a conversa para ver "quanto custa?" pendurado no vazio, sem a mensagem
+         -- que provocou a pergunta.
+         -- (sem crases aqui: este comentario mora DENTRO de um template literal.)
          and q.kind in (
            'private_reply','dm_welcome','dm_link','dm_reminder',
-           'dm_follow_gate','dm_email_ask','dm_manual'
+           'dm_follow_gate','dm_email_ask','dm_manual','dm_lote'
          )
        order by coalesce(q.sent_at, q.created_at) desc
        limit $3`,
