@@ -11,11 +11,15 @@ import {
   resumoDasCategorias,
   casoDaListaDeEmail,
 } from "@/lib/categorias";
-import { atualizarPerfis } from "./actions";
+import { destinoDoLote } from "@/lib/lote";
+import { atualizarPerfis, enviarLote } from "./actions";
 import {
   card,
   btnGhost,
+  btnPrimary,
   muted,
+  subtle,
+  input,
   tableWrap,
   thead,
   rowDivide,
@@ -28,7 +32,7 @@ import Avatar from "../avatar";
 
 export const dynamic = "force-dynamic";
 
-type Row = Contact & { automation_name: string | null };
+type Row = Contact & { automation_name: string | null; recebidas: number };
 
 function Pessoa({ c }: { c: Row }) {
   return (
@@ -153,7 +157,16 @@ export default async function ContatosPage({
   // tabela, contar errado é pior que carregar tudo.
   const rows = account
     ? ((await sql().query(
-        `select c.*, a.name as automation_name
+        // `recebidas` é a MESMA subconsulta de `enviarLote` (app/contatos/actions.ts):
+        // conta quantas vezes o contato já recebeu mensagem (evento de tipo
+        // message/story_reply/abertura/quick_reply). É o que `destinoDoLote`
+        // usa para o palpite de "provavelmente nunca" — duas conta iguais em
+        // lugares diferentes é o mesmo risco que a tela e o CSV já correram.
+        `select c.*, a.name as automation_name,
+                (select count(*)::int from events e
+                  where e.account_id = c.account_id
+                    and e.payload->'sender'->>'id' = c.ig_id
+                    and e.type in ('message','story_reply','abertura','quick_reply')) as recebidas
          from contacts c
          left join automations a on a.id = c.last_automation_id
          where c.account_id = $1
@@ -172,6 +185,14 @@ export default async function ContatosPage({
   // pedido, e essa linha vivia aqui defendida só por um comentário. Agora ela
   // tem caso em `tests/categorias.test.ts`, que fica vermelho quando ela muda.
   const visiveis = contatosDoFiltro(rows, filtro);
+
+  const destino = destinoDoLote(
+    visiveis.map((c) => ({
+      ig_id: c.ig_id,
+      last_reply_at: c.last_reply_at,
+      recebidas: c.recebidas ?? 0,
+    }))
+  );
 
   const comEmail = visiveis.filter((c) => c.email);
   const semEmail = visiveis.filter((c) => !c.email);
@@ -245,6 +266,37 @@ export default async function ContatosPage({
             </div>
           ) : (
             <>
+              {/* MANDAR PARA ESTE RECORTE.
+                  Os dois primeiros números são fato; o terceiro é palpite, e a
+                  palavra "provavelmente" fica na tela por isso. Ele NÃO é subtraído
+                  dos outros dois: quem é improvável continua dentro de "esperam". */}
+              <form action={enviarLote} className={`space-y-3 p-4 ${subtle}`}>
+                <input type="hidden" name="categoria" value={sp.categoria ?? ""} />
+                <p className="text-sm font-medium">
+                  Mandar mensagem para {visiveis.length}{" "}
+                  {visiveis.length === 1 ? "pessoa" : "pessoas"}
+                </p>
+                <ul className={`text-xs ${muted}`}>
+                  <li>{destino.agora.length} recebem agora</li>
+                  <li>{destino.esperam.length} quando voltarem a falar</li>
+                  <li>{destino.improvaveis} provavelmente nunca — falaram uma única vez</li>
+                </ul>
+                <textarea name="texto" required rows={3} className={`w-full ${input}`}
+                  placeholder="O que você quer dizer" />
+                <input name="url" className={`w-full ${input}`} placeholder="Link (opcional)" />
+                <input name="rotulo" className={`w-full ${input}`}
+                  placeholder="Texto do botão (só com link)" />
+                <label className={`block text-xs ${muted}`}>
+                  Vale até (vazio = sem prazo)
+                  <input type="date" name="valido_ate" className={`mt-1 w-full ${input}`} />
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input type="checkbox" name="confirmado" value="1" required />
+                  Confirmo que quero mandar para estas {visiveis.length} pessoas
+                </label>
+                <button type="submit" className={btnPrimary}>Enviar</button>
+              </form>
+
               <section>
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
