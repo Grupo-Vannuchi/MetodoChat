@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { eventBadge, eventText, oQueDispara } from "@/app/labels";
+import { eventBadge, eventText, oQueDispara, friendlyError, kindLabel } from "@/app/labels";
 import { EVENT_TYPES } from "@/lib/event-filters";
 
 // O QUE ESTE ARQUIVO PROTEGE é a tela de Atividade dizendo o que aconteceu.
@@ -245,5 +245,44 @@ describe("eventText de follow_check_unavailable", () => {
     };
     const linha = eventText(payload, "follow_check_unavailable");
     expect(linha).toContain("access_token=OCULTO");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A TELA DE ENVIOS, e as três saídas próprias do lote que ela precisa saber
+// nomear — o achado que este bloco fecha. As três caíam no texto genérico de
+// `friendlyError` ("o sistema tenta de novo automaticamente"), que é falso
+// nas duas que são decisão e não falha, e o kind `dm_lote` caía em "Outro
+// envio" no lugar de dizer que é um envio em lote.
+// ---------------------------------------------------------------------------
+describe("a tela de Envios não mente sobre o lote", () => {
+  it("lote substituído por um mais novo diz que foi decisão, não promete reenvio", () => {
+    const texto = friendlyError("substituido por um lote mais novo");
+    expect(texto).not.toBe(null);
+    expect(texto).not.toContain("tenta de novo automaticamente");
+  });
+
+  it("item guardado até a pessoa voltar a falar diz isso, e não que algo falhou", () => {
+    const texto = friendlyError("guardado ate a pessoa voltar a falar");
+    expect(texto).not.toBe(null);
+    expect(texto).not.toContain("tenta de novo automaticamente");
+  });
+
+  it("lote vencido antes de a pessoa voltar diz que o prazo acabou", () => {
+    const texto = friendlyError("o lote venceu antes de a pessoa voltar");
+    expect(texto).not.toBe(null);
+    expect(texto).not.toContain("tenta de novo automaticamente");
+  });
+
+  it("as três saídas do lote têm textos diferentes entre si", () => {
+    const a = friendlyError("substituido por um lote mais novo");
+    const b = friendlyError("guardado ate a pessoa voltar a falar");
+    const c = friendlyError("o lote venceu antes de a pessoa voltar");
+    expect(new Set([a, b, c]).size).toBe(3);
+  });
+
+  it("dm_lote tem rótulo próprio, e não cai em Outro envio", () => {
+    expect(kindLabel("dm_lote")).not.toBe("Outro envio");
+    expect(kindLabel("dm_lote")).toBe("Envio em lote");
   });
 });

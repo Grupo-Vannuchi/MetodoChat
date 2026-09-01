@@ -217,6 +217,11 @@ const KIND: Record<string, string> = {
   // mesma fila das automáticas (lib/engine.ts, enqueueManualReply) e por isso
   // aparece nesta lista junto com o que o robô mandou.
   dm_manual: "Resposta sua",
+  // O ENVIO EM LOTE (lib/engine.ts, enqueueLote). Entra na mesma fila do
+  // resto pelo mesmo motivo do `dm_manual` logo acima — e por isso corre o
+  // mesmo risco: sem entrada aqui, cairia em "Outro envio", a MESMA falha que
+  // o `dm_manual` já teve, registrada no comentário do topo deste dicionário.
+  dm_lote: "Envio em lote",
 };
 
 // Kind sem rótulo devolve algo legível, e nunca o nome interno — como
@@ -283,6 +288,25 @@ export function friendlyError(raw: string | null): string | null {
     return "A pessoa não respondeu dentro de 24h. A Meta só deixa enviar nesse intervalo.";
   if (raw.includes("conta não conectada"))
     return "Esta conta do Instagram não está mais conectada ao painel.";
+  // AS TRÊS SAÍDAS PRÓPRIAS DO LOTE (lib/engine.ts e lib/queue-drain.ts). As
+  // três caíam no texto genérico do fim desta função, que promete reenvio
+  // automático — falso nas duas primeiras, que são decisão e não falha, e sem
+  // sentido na terceira, que ainda está tentando.
+  //
+  // Um lote mais novo tomou o lugar deste antes de ele sair: foi o dono quem
+  // decidiu, ao confirmar de novo para a mesma pessoa, e não vai haver nova
+  // tentativa deste aqui.
+  if (raw.includes("substituido por um lote mais novo"))
+    return "Você confirmou um envio mais novo para esta pessoa antes deste sair. Foi decisão sua, e não há nova tentativa.";
+  // A pessoa está fora da janela de 24h e a mensagem CONTINUA na fila
+  // (`pending`, não `skipped` nem `failed`): ela sai sozinha assim que a
+  // pessoa voltar a falar. É a linha que impede o dono de ler "Na fila" com
+  // este texto embaixo e concluir que o envio travou.
+  if (raw.includes("guardado ate a pessoa voltar a falar"))
+    return "A pessoa está fora da janela de 24h. A mensagem fica guardada e sai assim que ela voltar a falar com você.";
+  // O prazo da mensagem (validoAte) venceu antes de a pessoa voltar a falar.
+  if (raw.includes("o lote venceu antes de a pessoa voltar"))
+    return "A pessoa não voltou a falar antes do prazo desta mensagem acabar, e por isso ela não foi enviada.";
   if (/Instagram API 4\d\d/.test(raw))
     return "O Instagram recusou este envio. Confira em Configuração se a conta segue conectada.";
   if (/Instagram API 5\d\d/.test(raw))
