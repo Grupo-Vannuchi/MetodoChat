@@ -24,6 +24,12 @@ export type PayloadDoLote = {
  * `url` em branco NÃO vira chave: `lib/queue-drain.ts` decide o formato da
  * mensagem por `p.url` — com url monta botão, sem url manda texto puro. Uma
  * url vazia faria toda mensagem de lote virar um botão para lugar nenhum.
+ *
+ * `button_label` SÓ vira chave quando também há `url`. Um rótulo sem link some
+ * calado, e isso é escolha, não descuido: para item `dm_lote`,
+ * `lib/queue-drain.ts` só lê `p.button_label` dentro do ramo que exige
+ * `p.url` — um rótulo sem link nunca teria efeito no texto enviado. Gravá-lo
+ * mesmo assim só guardaria lixo no payload.
  */
 export function payloadDoLote(dados: {
   loteId: string;
@@ -74,10 +80,14 @@ export type DestinoDoLote = {
   /**
    * Quantos dos que ESPERAM provavelmente nunca receberão.
    *
-   * É PALPITE, e a tela tem de dizer isso. Conta quem tem uma única mensagem
-   * recebida em todo o histórico — medido em 01/09/2026: 48 de 120 pessoas.
-   * Eles continuam dentro de `esperam`, porque podem voltar amanhã; este número
-   * é informação, não um terceiro balde, e não se subtrai dos outros dois.
+   * É PALPITE, e a tela tem de dizer isso. Conta quem tem NO MÁXIMO uma
+   * mensagem recebida em todo o histórico — zero OU uma, não só uma. Contato
+   * com `recebidas: 0` nunca escreveu; ele chegou por ter comentado num post,
+   * nunca teve janela aberta, e por isso é o caso MAIS forte de "provavelmente
+   * nunca", não um caso à parte. Medido em 01/09/2026: 53 de 111 pessoas que
+   * esperam (47 falaram uma única vez, 6 nunca falaram). Eles continuam dentro
+   * de `esperam`, porque podem voltar amanhã; este número é informação, não um
+   * terceiro balde, e não se subtrai dos outros dois.
    */
   improvaveis: number;
 };

@@ -61,6 +61,20 @@ describe("destinoDoLote", () => {
     expect(d.agora.length + d.esperam.length).toBe(2);
   });
 
+  // ZERO ENTRA NO MESMO BALDE DE UMA, e não por acaso: quem tem `recebidas: 0`
+  // nunca escreveu (chegou por comentar num post), nunca teve janela aberta, e
+  // por isso é o caso MAIS forte de "provavelmente nunca" — não um caso à
+  // parte que o teste de cima, com `c: recebidas 0`, deixava passar sem
+  // afirmar nada sobre `improvaveis`.
+  it("quem nunca mandou mensagem (recebidas: 0) também conta como improvável", () => {
+    const d = destinoDoLote(
+      [{ ig_id: "c", last_reply_at: null, recebidas: 0 }],
+      AGORA
+    );
+    expect(d.esperam).toEqual(["c"]);
+    expect(d.improvaveis).toBe(1);
+  });
+
   it("quem recebe agora nunca conta como improvável, mesmo tendo falado uma vez", () => {
     const d = destinoDoLote([{ ig_id: "a", last_reply_at: HORAS(1), recebidas: 1 }], AGORA);
     expect(d.agora).toEqual(["a"]);
@@ -135,6 +149,16 @@ describe("payloadDoLote e lerPayloadDoLote", () => {
   it("url em branco não vira chave `url` no payload", () => {
     const p = payloadDoLote({ loteId: "L3", text: "oi", url: "   ", validoAte: null });
     expect("url" in p).toBe(false);
+  });
+
+  // A DECISÃO, NÃO O DESCUIDO: rótulo sem link some do payload calado. É
+  // seguro porque `lib/queue-drain.ts`, para item `dm_lote`, só lê
+  // `p.button_label` dentro do ramo que exige `p.url` — sem url, o rótulo
+  // nunca teria efeito no texto enviado mesmo se fosse gravado.
+  it("rótulo sem url some do payload, e a leitura de volta não inventa um", () => {
+    const p = payloadDoLote({ loteId: "L4", text: "oi", buttonLabel: "Quero entrar", validoAte: null });
+    expect("button_label" in p).toBe(false);
+    expect(lerPayloadDoLote(p)?.buttonLabel).toBeUndefined();
   });
 
   it("payload que não é do lote devolve null em vez de meia informação", () => {
