@@ -11,6 +11,7 @@ import {
   OutgoingMessage,
 } from "./ig";
 import { renderVariables, type VariableContext } from "./variables";
+import { lerPayloadDoLote, loteExpirou } from "./lote";
 // Só para registrar em Atividade o que este arquivo tira da mensagem — o corte
 // além do limite da Meta e o botão sem rótulo (ver `botoesDaMensagem`, abaixo).
 // Não há import na direção oposta — lib/engine.ts não importa deste arquivo —
@@ -430,6 +431,47 @@ export async function drainQueue(): Promise<{ sent: number; skipped: number; fai
         await finish(item.id, { status: "sent", sent_at: new Date(), message_id: messageId, sentText });
         result.sent++;
         await sleep(GAP_MS);
+      } else if (item.kind === "dm_lote") {
+        // O ITEM DE LOTE ESPERA, e é só isto que este projeto muda no motor.
+        //
+        // Todo outro tipo continua sendo DESCARTADO ao perder a janela, e isso
+        // é deliberado: medido em 01/09/2026, a janela descartou 6 itens na
+        // vida inteira do produto, quase sempre porque a automação disparou
+        // para alguém cuja conversa já tinha esfriado. Fazer esses esperarem
+        // entregaria uma boas-vindas dias depois, fora de contexto.
+        //
+        // A MÁQUINA DE ESPERAR JÁ EXISTE: é o mesmo `pending` que o `catch`
+        // logo abaixo usa para tentar de novo. E quem acorda o item não é
+        // relógio nenhum — `drainQueue` roda DENTRO do webhook
+        // (`app/api/webhook/route.ts`, no `after()`), e o `last_reply_at` do
+        // contato é gravado ANTES disso. Quando a pessoa escreve, a janela dela
+        // abre e o dreno roda em seguida: o item guardado encontra a janela
+        // aberta sem precisar de tarefa agendada.
+        const doLote = lerPayloadDoLote(item.payload);
+        if (loteExpirou(doLote?.validoAte ?? null)) {
+          await finish(item.id, { status: "skipped", error: "o lote venceu antes de a pessoa voltar" });
+          result.skipped++;
+        } else {
+          // O ITEM DORME UM DIA, E NAO ate ja — e este numero e o conserto de um
+          // defeito que a primeira versao deste plano tinha.
+          //
+          // A selecao do dreno e `status = 'pending' and not_before <= now()`,
+          // `order by created_at`, `limit 15`. Um item guardado com `not_before`
+          // no passado e SEMPRE elegivel e e o MAIS ANTIGO: com quarenta
+          // esperando, todo dreno pegaria os quinze mais velhos, veria a janela
+          // fechada, os devolveria para a fila — e NUNCA chegaria nas mensagens
+          // de verdade. Fome de fila, e o produto inteiro pararia de responder.
+          //
+          // Dormir um dia tira o item da disputa. Quem o acorda no instante
+          // certo nao e este numero: e `upsertContact` (lib/engine.ts), que
+          // adianta o `not_before` dos itens de lote da pessoa quando ela fala.
+          // O dia e so a rede de seguranca, para o caso de o despertar falhar.
+          await finish(item.id, {
+            status: "pending",
+            retryInSeconds: 86400,
+            error: "guardado ate a pessoa voltar a falar",
+          });
+        }
       } else {
         await finish(item.id, { status: "skipped", error: "janela de 24h fechada" });
         result.skipped++;

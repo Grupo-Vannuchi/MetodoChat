@@ -335,6 +335,28 @@ async function upsertContact(
       fields.last_automation_id ?? null,
     ]
   );
+
+  // O DESPERTAR DO LOTE, e ele mora aqui porque este é o ÚNICO ponto do produto
+  // por onde uma janela abre: os dois caminhos de mensagem recebida chamam esta
+  // função com `last_reply_at`, e nenhum outro chamador o faz.
+  //
+  // Um item de lote guardado dorme um dia (lib/queue-drain.ts) para não sufocar
+  // a fila. Esta linha o adianta no instante em que a pessoa fala — e o dreno
+  // roda logo depois, no mesmo webhook (`after()` de app/api/webhook/route.ts),
+  // já com a janela aberta.
+  //
+  // A CONDIÇÃO É `last_reply_at`, e não "sempre": `upsertContact` também é
+  // chamada para gravar nome, foto e última automação, e nesses casos nenhuma
+  // janela abriu. Acordar ali gastaria uma escrita e devolveria o item à
+  // disputa por nada.
+  if (fields.last_reply_at) {
+    await sql().query(
+      `update queue set not_before = now()
+        where account_id = $1 and contact_ig_id = $2
+          and kind = 'dm_lote' and status = 'pending'`,
+      [accountId, igId]
+    );
+  }
 }
 
 // O webhook de mensagens só traz o IGSID (um número). Busca o perfil na
