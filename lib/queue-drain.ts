@@ -421,6 +421,33 @@ export async function drainQueue(): Promise<{ sent: number; skipped: number; fai
       result.skipped++;
       continue;
     }
+
+    // A VALIDADE É CONFERIDA ANTES DE ENVIAR, E É POR ISSO QUE ELA MORA AQUI.
+    //
+    // Ela morava LÁ EMBAIXO, dentro do ramo em que a janela está FECHADA — o
+    // único lugar em que era consultada. No caminho de envio ninguém a olhava:
+    // `processItem` via a janela aberta e mandava.
+    //
+    // O CENÁRIO, medido em `testes-integracao/lote.integracao.ts` ("lote
+    // VENCIDO com a janela ABERTA"): sexta o dono manda "a turma abre segunda,
+    // vagas até domingo" para 111 pessoas fora da janela. Terça uma delas volta
+    // a falar. O item acorda, a janela está aberta, e ela recebia a oferta que
+    // venceu há dois dias.
+    //
+    // E O SEGUNDO CENÁRIO NÃO PRECISA DE NINGUÉM VOLTANDO A FALAR: `HOURLY_CAP`
+    // é 190 POR CONTA, então um lote de 800 com a janela aberta leva ~4h20 para
+    // sair inteiro — tudo o que fica depois do teto saía DEPOIS do prazo, sem
+    // nunca ter passado por uma janela fechada. Conferir aqui, uma vez, cobre
+    // os dois caminhos porque este é o ponto por onde todo item passa.
+    if (item.kind === "dm_lote") {
+      const doLote = lerPayloadDoLote(item.payload);
+      if (loteExpirou(doLote?.validoAte ?? null)) {
+        await finish(item.id, { status: "skipped", error: "o lote venceu antes de sair" });
+        result.skipped++;
+        continue;
+      }
+    }
+
     try {
       const { outcome, messageId, sentText } = await processItem(
         item,
@@ -447,31 +474,26 @@ export async function drainQueue(): Promise<{ sent: number; skipped: number; fai
         // contato é gravado ANTES disso. Quando a pessoa escreve, a janela dela
         // abre e o dreno roda em seguida: o item guardado encontra a janela
         // aberta sem precisar de tarefa agendada.
-        const doLote = lerPayloadDoLote(item.payload);
-        if (loteExpirou(doLote?.validoAte ?? null)) {
-          await finish(item.id, { status: "skipped", error: "o lote venceu antes de a pessoa voltar" });
-          result.skipped++;
-        } else {
-          // O ITEM DORME UM DIA, E NAO ate ja — e este numero e o conserto de um
-          // defeito que a primeira versao deste plano tinha.
-          //
-          // A selecao do dreno e `status = 'pending' and not_before <= now()`,
-          // `order by created_at`, `limit 15`. Um item guardado com `not_before`
-          // no passado e SEMPRE elegivel e e o MAIS ANTIGO: com quarenta
-          // esperando, todo dreno pegaria os quinze mais velhos, veria a janela
-          // fechada, os devolveria para a fila — e NUNCA chegaria nas mensagens
-          // de verdade. Fome de fila, e o produto inteiro pararia de responder.
-          //
-          // Dormir um dia tira o item da disputa. Quem o acorda no instante
-          // certo nao e este numero: e `upsertContact` (lib/engine.ts), que
-          // adianta o `not_before` dos itens de lote da pessoa quando ela fala.
-          // O dia e so a rede de seguranca, para o caso de o despertar falhar.
-          await finish(item.id, {
-            status: "pending",
-            retryInSeconds: 86400,
-            error: "guardado ate a pessoa voltar a falar",
-          });
-        }
+        //
+        // O ITEM DORME UM DIA, E NAO ate ja — e este numero e o conserto de um
+        // defeito que a primeira versao deste plano tinha.
+        //
+        // A selecao do dreno e `status = 'pending' and not_before <= now()`,
+        // `order by created_at`, `limit 15`. Um item guardado com `not_before`
+        // no passado e SEMPRE elegivel e e o MAIS ANTIGO: com quarenta
+        // esperando, todo dreno pegaria os quinze mais velhos, veria a janela
+        // fechada, os devolveria para a fila — e NUNCA chegaria nas mensagens
+        // de verdade. Fome de fila, e o produto inteiro pararia de responder.
+        //
+        // Dormir um dia tira o item da disputa. Quem o acorda no instante
+        // certo nao e este numero: e `upsertContact` (lib/engine.ts), que
+        // adianta o `not_before` dos itens de lote da pessoa quando ela fala.
+        // O dia e so a rede de seguranca, para o caso de o despertar falhar.
+        await finish(item.id, {
+          status: "pending",
+          retryInSeconds: 86400,
+          error: "guardado ate a pessoa voltar a falar",
+        });
       } else {
         await finish(item.id, { status: "skipped", error: "janela de 24h fechada" });
         result.skipped++;

@@ -289,6 +289,36 @@ describe("o item de lote espera a janela em vez de ser descartado", () => {
     expect(await enviadasPara(CONTATO)).toBe(0);
   });
 
+  // O CASO QUE FALTAVA, E ELE É O IRMÃO DO DE CIMA PELO OUTRO LADO DA JANELA.
+  //
+  // O caso anterior mede o lote vencido com a janela FECHADA, e ele passava
+  // desde sempre — `loteExpirou` era consultada UMA ÚNICA VEZ, dentro do ramo
+  // em que a janela está fechada. No caminho de ENVIO ninguém olhava a
+  // validade: `processItem` via a janela aberta e mandava.
+  //
+  // O CENÁRIO, com nome e data: sexta o dono manda "a turma abre segunda, vagas
+  // até domingo" para 111 pessoas fora da janela. Terça uma delas volta a
+  // falar. O item acorda, a janela agora está ABERTA — e ela recebia a oferta
+  // que venceu há dois dias.
+  //
+  // E ELE NÃO PRECISA DE NINGUÉM VOLTANDO A FALAR PARA ACONTECER: `HOURLY_CAP`
+  // é 190 por conta, então um lote de 800 com a janela aberta leva ~4h20 para
+  // sair inteiro, e tudo o que fica depois do teto sai DEPOIS do prazo.
+  test("lote VENCIDO com a janela ABERTA nao e enviado", async () => {
+    const CONTATO = "9000000000000107";
+    await semearContato(CONTATO, { horasDesdeAResposta: 0 });
+    await engine.enqueueLote(CONTA, "L7", [CONTATO], {
+      text: "vagas ate domingo",
+      validoAte: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+    });
+
+    await drenar();
+    const item = await lerItem(CONTATO);
+    expect(item.status).toBe("skipped");
+    expect(item.error).toContain("venceu");
+    expect(await enviadasPara(CONTATO)).toBe(0);
+  });
+
   // O CASO QUE A PRIMEIRA VERSÃO DESTE PLANO NÃO TINHA, e ele existe porque o
   // defeito era meu: itens guardados NÃO PODEM sufocar a fila. Sem o
   // `retryInSeconds` de um dia, itens de lote esperando ocupariam os lugares de

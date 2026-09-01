@@ -304,9 +304,17 @@ export function friendlyError(raw: string | null): string | null {
   // este texto embaixo e concluir que o envio travou.
   if (raw.includes("guardado ate a pessoa voltar a falar"))
     return "A pessoa está fora da janela de 24h. A mensagem fica guardada e sai assim que ela voltar a falar com você.";
-  // O prazo da mensagem (validoAte) venceu antes de a pessoa voltar a falar.
-  if (raw.includes("o lote venceu antes de a pessoa voltar"))
-    return "A pessoa não voltou a falar antes do prazo desta mensagem acabar, e por isso ela não foi enviada.";
+  // O prazo da mensagem (validoAte) venceu antes de ela sair.
+  //
+  // CASA POR "o lote venceu", E NÃO PELA FRASE INTEIRA, de propósito: até
+  // 01/09/2026 o dreno gravava "o lote venceu antes de a pessoa voltar", porque
+  // a validade só era conferida no ramo da janela FECHADA — e essas linhas
+  // continuam na fila, que é o histórico do produto. O texto novo é mais curto
+  // porque a validade passou a ser conferida ANTES de enviar, nos dois
+  // caminhos, e "a pessoa não voltou" deixou de ser a única forma de vencer:
+  // um lote grande estoura o teto horário e vence com a janela ABERTA.
+  if (raw.includes("o lote venceu"))
+    return "O prazo desta mensagem acabou antes de ela sair, e por isso ela não foi enviada.";
   if (/Instagram API 4\d\d/.test(raw))
     return "O Instagram recusou este envio. Confira em Configuração se a conta segue conectada.";
   if (/Instagram API 5\d\d/.test(raw))
