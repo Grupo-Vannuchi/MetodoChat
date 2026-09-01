@@ -327,4 +327,26 @@ describe("o item de lote espera a janela em vez de ser descartado", () => {
     const cancelado = itens.find((i) => i.status === "skipped")!;
     expect(cancelado.error).toContain("substituido");
   });
+
+  // O DUPLO CLIQUE: rede lenta, o dono confirma e o clique dispara duas vezes
+  // com o MESMO loteId. O comentário de `enqueueLote` promete "o mesmo lote
+  // duas vezes é um só" — este caso mede se a promessa é verdade.
+  //
+  // O `update` que cancela lote antigo não distinguia o loteId: ele marcava
+  // `skipped` até o item que a PRÓPRIA chamada tinha acabado de inserir (mesmo
+  // loteId), e o `insert` seguinte esbarrava no `dedupe_key` já ocupado por
+  // essa linha agora `skipped` — `on conflict do nothing` não reescrevia nada.
+  // Resultado: o contato ficava sem item NENHUM, nem o original nem o
+  // substituto.
+  test("duplo clique em confirmar, com o MESMO loteId, nao apaga a mensagem", async () => {
+    const CONTATO = "9000000000000106";
+    await semearContato(CONTATO, { horasDesdeAResposta: 48 });
+
+    await engine.enqueueLote(CONTA, "L6", [CONTATO], { text: "oferta unica", validoAte: null });
+    await engine.enqueueLote(CONTA, "L6", [CONTATO], { text: "oferta unica", validoAte: null });
+
+    const itens = await todosOsItens(CONTATO);
+    expect(itens).toHaveLength(1);
+    expect(itens[0].status).toBe("pending");
+  });
 });

@@ -2112,6 +2112,17 @@ export async function enqueueManualReply(
 // ficou muda — o comportamento que faz gente bloquear perfil.
 //
 // O cancelamento é `skipped` e não `failed`: não houve erro, houve decisão.
+//
+// O CANCELAMENTO EXCLUI AS CHAVES DESTE PRÓPRIO PEDIDO, e isso não é sobra: o
+// pedido do dono é cancelar o que ficou de um lote ANTERIOR, nunca o que ele
+// acabou de confirmar. Sem a exclusão, um duplo clique em confirmar (rede
+// lenta, o mesmo loteId chegando duas vezes) cancelava o item que a PRIMEIRA
+// chamada tinha acabado de inserir — e o `insert` da segunda esbarrava no
+// `dedupe_key` já ocupado por essa linha, agora `skipped`: `on conflict do
+// nothing` não reescrevia nada, e o contato ficava sem mensagem nenhuma, nem a
+// original nem a repetida. Caso vermelho antes deste conserto em
+// `testes-integracao/lote.integracao.ts` ("duplo clique em confirmar, com o
+// MESMO loteId, nao apaga a mensagem").
 export async function enqueueLote(
   accountId: string,
   loteId: string,
@@ -2120,15 +2131,19 @@ export async function enqueueLote(
 ): Promise<number> {
   if (!contatos.length) return 0;
 
+  const chavesDestePedido = contatos.map((contato) => `lote:${loteId}:${contato}`);
+
   await sql().query(
     `update queue set status = 'skipped', error = 'substituido por um lote mais novo'
       where account_id = $1 and kind = 'dm_lote' and status = 'pending'
-        and contact_ig_id = any($2::text[])`,
-    [accountId, contatos]
+        and contact_ig_id = any($2::text[])
+        and dedupe_key <> all($3::text[])`,
+    [accountId, contatos, chavesDestePedido]
   );
 
   let enfileirados = 0;
-  for (const contato of contatos) {
+  for (let i = 0; i < contatos.length; i++) {
+    const contato = contatos[i];
     const entrou = await enqueue({
       account_id: accountId,
       kind: "dm_lote",
@@ -2136,8 +2151,9 @@ export async function enqueueLote(
       payload: payloadDoLote({ loteId, ...base }),
       // O identificador do lote entra na chave: dois lotes diferentes para a
       // mesma pessoa são dois itens, e o mesmo lote duas vezes (clique duplo em
-      // confirmar) é um só.
-      dedupe_key: `lote:${loteId}:${contato}`,
+      // confirmar) é um só — o `update` acima é quem garante que "um só" é o
+      // item de verdade, e não um buraco.
+      dedupe_key: chavesDestePedido[i],
     });
     if (entrou) enfileirados++;
   }
