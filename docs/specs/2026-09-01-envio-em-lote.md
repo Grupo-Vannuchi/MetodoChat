@@ -182,9 +182,11 @@ Três consequências para o plano:
    quarenta pessoas.
 2. **O que decide QUEM recebe é a peça mais perigosa**, e vai para função pura
    com teste — a categoria certa, a conta certa, a janela certa.
-3. **Nada de disparo real em teste.** A suíte de integração exercita o dreno
-   contra o servidor local que já existe (`testes-integracao/portao-link`), e
-   nenhuma requisição sai da máquina.
+3. **Nada de disparo real em cliente.** Instrução do dono, 01/09/2026: o teste
+   com envio de verdade usa as contas conectadas mandando mensagem entre si, e
+   nunca um contato de cliente. A suíte de integração exercita o dreno contra o
+   servidor local que já existe (`testes-integracao/portao-link`), e nenhuma
+   requisição sai da máquina.
 
 ---
 
@@ -203,9 +205,45 @@ mesma situação continua sendo descartado.
 `skipped` de novo, o lote alcançando contato de outra conta, a validade nunca
 expirando, e o "só o mais recente" deixando dois guardados.
 
-**A prova na tela** é a contagem antes de confirmar bater com o que de fato
-acontece — e essa é a única que precisa do dono, porque envolve mandar mensagem
-de verdade para alguém de verdade.
+### A PROVA COM ENVIO REAL NÃO TOCA EM CLIENTE — instrução do dono, 01/09/2026
+
+**Nenhum disparo de teste vai para contato de cliente.** O teste usa as contas
+conectadas mandando mensagem entre si.
+
+**A base existe, e foi medida em 01/09:** as quatro contas já se falaram, e há
+**oito registros de contato entre elas** — `@thiagovannuchi` tem as outras três
+como contato, e vice-versa em quase todas as direções. Mais `@imzetti` e
+`@alicistica`, que são os perfis de teste autorizados.
+
+| par | última resposta |
+|---|---|
+| `@n8xmarketing` ← `@alicistica` | **15,4 h — JANELA ABERTA** |
+| `@vannuchi.eng` ← `@thiagovannuchi` | 55,2 h |
+| `@thiagovannuchi` ← `@n8xmarketing` | 116,9 h |
+| `@thiagovannuchi` ← `@saas.metodoia` | 138,6 h |
+| `@thiagovannuchi` ← `@vannuchi.eng` | 143,2 h |
+
+**A limitação que isso revela, e ela é do produto, não do teste:** para abrir uma
+janela, a mensagem tem de vir **de fora** — o painel só responde DENTRO de uma
+janela aberta (`queue-drain` recusa o resto), então ele não consegue abrir a
+própria janela. Abrir exige alguém mandando mensagem pelo aplicativo do
+Instagram.
+
+Consequência para o plano, e ela decide o esforço:
+
+- **O mecanismo inteiro é provado na suíte de integração**, sem mandar nada:
+  ela controla o banco e a Meta falsa (`testes-integracao/portao-link` é o
+  precedente). Enfileirar com janela fechada, conferir que fica `pending`;
+  mexer no `last_reply_at`; drenar; conferir que saiu. **Isto não precisa do
+  dono e cobre a lógica toda.**
+- **A entrega de verdade é provada com UM envio**, de uma conta para outra, e
+  precisa do dono só se a janela estiver fechada na hora. Enquanto
+  `@n8xmarketing` ← `@alicistica` estiver aberta, dá para provar o caminho
+  "recebe agora" sem pedir nada a ninguém.
+- **O caminho "espera e sai depois"** precisa de uma mensagem chegando pelo
+  aplicativo. É o mesmo tipo de prova que o toque na pergunta de abertura exigiu
+  em 28/08, e ela vale o pedido: é a única que mostra o recurso funcionando como
+  a pessoa do outro lado o veria.
 
 ---
 
