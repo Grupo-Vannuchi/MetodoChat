@@ -1738,7 +1738,49 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
     // Automação apagada ou pausada com a pergunta ainda no ar: nada a começar.
     // Calado como o vizinho `quick_reply`, e pelo mesmo motivo — não é montagem
     // errada, é o dono tendo pausado o que ele mesmo publicou.
-    if (!auto) return;
+    //
+    // MAS A JANELA ABRIU NA META DE QUALQUER JEITO, e é por isso que este ramo
+    // deixou de ser um `return` seco. Tocar na pergunta de abertura é a pessoa
+    // mandando mensagem: as 24h começam a contar do lado da Meta, com ou sem
+    // automação para responder. Sem gravar `last_reply_at`, o produto continua
+    // achando que ela está fora da janela — e um envio em lote `guardado` para
+    // ela NÃO ACORDA (o despertar mora em `upsertContact`, logo ali em cima),
+    // enquanto a única janela que ela teria em dias passa em branco.
+    //
+    // SÓ PARA QUEM JÁ É CONTATO, E A GUARDA É O QUE MANTÉM A DECISÃO ANTIGA DE
+    // PÉ. Este `if` cobre DUAS coisas: automação apagada ou pausada NESTA conta,
+    // e automação de OUTRA conta (`loadAutomation` filtra por `account_id`). O
+    // segundo caso é medido, com nome, em
+    // `testes-integracao/porta-de-entrada.integracao.ts` ("postback com
+    // automação de OUTRA conta não roda, e não cria contato"): ninguém pode
+    // NASCER contato de uma conta por causa de um identificador que é de outra.
+    // Abrir a janela de quem JÁ ESTÁ na tabela não toca nisso — a pessoa já é
+    // contato desta conta por outro caminho, e só a hora muda.
+    //
+    // E É EXATAMENTE QUEM O LOTE ALCANÇA: `enqueueLote` (abaixo) enfileira para
+    // contatos de uma categoria, e categoria é coluna de `contacts`. Um item
+    // guardado só existe para quem já está na tabela, então a guarda não deixa
+    // de fora nenhum caso que o despertar precisasse alcançar.
+    //
+    // SEM `fetchProfileFields`, de propósito: buscar o perfil na Meta é uma ida
+    // de rede, e o que este ramo precisa é só da hora. O nome e a foto chegam
+    // na primeira mensagem de texto dela, pelo caminho que já os busca.
+    //
+    // E `upsertContact`, E NÃO UM `update` ESCRITO AQUI: o despertar do lote
+    // mora DENTRO dela, e uma segunda cópia da mesma regra é uma cópia que
+    // envelhece sozinha — o cabeçalho de `lote.integracao.ts` diz por que isso
+    // importa. O `on conflict` dela nunca INSERE aqui, porque a guarda acima já
+    // provou que a linha existe.
+    if (!auto) {
+      const conhecido = (await sql().query(
+        `select 1 from contacts where account_id = $1 and ig_id = $2`,
+        [account.ig_user_id, senderId]
+      )) as unknown[];
+      if (conhecido.length) {
+        await upsertContact(account.ig_user_id, senderId, { last_reply_at: new Date() });
+      }
+      return;
+    }
     // A MONTAGEM DIVERGIU, E ISSO VIRA LINHA — a terceira saída entre executar
     // calado e recusar.
     //

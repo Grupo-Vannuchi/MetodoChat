@@ -496,9 +496,15 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
     expect(await fila(CONTA, DA_OUTRA_PORTA)).toEqual([]);
     expect(await fila(VIZINHA, DA_OUTRA_PORTA)).toEqual([]);
 
-    // E NINGUÉM NASCEU. O motor para em `if (!auto) return`, que é ANTES de
-    // `upsertContact` — sem o escopo, esta pessoa vira contato de `CONTA` com a
-    // `last_automation_id` de uma automação que não é desta conta.
+    // E NINGUÉM NASCEU. Sem o escopo por conta, esta pessoa viraria contato de
+    // `CONTA` com a `last_automation_id` de uma automação que não é desta conta.
+    //
+    // O RAMO `if (!auto)` DEIXOU DE SER UM `return` SECO em 01/09/2026, e esta
+    // asserção continua sendo a mesma de propósito: ele passou a abrir a janela
+    // de 24h (`last_reply_at`) porque tocar numa pergunta é a pessoa mandando
+    // mensagem, e um envio em lote guardado para ela precisa acordar. Mas só
+    // para QUEM JÁ É CONTATO — há uma guarda de existência antes do
+    // `upsertContact`, e é esta linha que a segura. Sem ela, NASCE contato aqui.
     expect(await contatosDe(DA_OUTRA_PORTA)).toEqual([]);
 
     // MAS O TOQUE NÃO EVAPOROU: ele é gravado como `abertura` ANTES de a
