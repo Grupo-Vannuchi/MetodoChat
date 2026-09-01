@@ -232,6 +232,9 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
         {mensagens.map((m, i) => {
           const falhou = m.delivery === "failed";
           const saindo = m.delivery === "sending";
+          // O item de lote que espera a pessoa voltar a falar. Ele NÃO é
+          // "enviando…" — pode levar semanas —, e também não é "não enviada".
+          const guardada = m.delivery === "guardado";
           return (
             <div
               key={`${m.mid ?? "sem-id"}-${i}`}
@@ -240,7 +243,7 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
                   ? "self-start bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-100"
                   : falhou
                     ? "self-end border border-red-300 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/60 dark:text-red-200"
-                    : `self-end bg-indigo-500 text-white ${saindo ? "opacity-60" : ""}`
+                    : `self-end bg-indigo-500 text-white ${saindo || guardada ? "opacity-60" : ""}`
               }`}
             >
               {m.attachment && <CartaoAnexo anexo={m.attachment} />}
@@ -254,7 +257,13 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
               >
                 {/* Enquanto não saiu, a hora ainda é a de criação e não diz nada
                     útil — o que importa é que está a caminho. */}
-                {saindo ? "enviando…" : falhou ? "não enviada" : fmtDate(m.at)}
+                {saindo
+                  ? "enviando…"
+                  : guardada
+                    ? "guardada até ela voltar a falar"
+                    : falhou
+                      ? "não enviada"
+                      : fmtDate(m.at)}
               </span>
             </div>
           );

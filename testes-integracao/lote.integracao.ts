@@ -68,6 +68,7 @@ import { bancoDescartavel } from "./harness";
 type ModuloEngine = typeof import("@/lib/engine");
 type ModuloIg = typeof import("@/lib/ig");
 type ModuloDreno = typeof import("@/lib/queue-drain");
+type ModuloConversas = typeof import("@/lib/conversations");
 
 const banco = bancoDescartavel();
 
@@ -100,6 +101,7 @@ let servidor: Server;
 let engine: ModuloEngine;
 let ig: ModuloIg;
 let dreno: ModuloDreno;
+let conversas: ModuloConversas;
 
 beforeAll(async () => {
   servidor = createServer((req, res) => {
@@ -153,6 +155,7 @@ beforeAll(async () => {
   engine = await import("@/lib/engine");
   ig = await import("@/lib/ig");
   dreno = await import("@/lib/queue-drain");
+  conversas = await import("@/lib/conversations");
 
   // FALHA ANTES DE QUALQUER REQUISIÇÃO, e não depois — a mesma guarda de
   // `portao-link.integracao.ts`, pela mesma razão.
@@ -605,6 +608,50 @@ describe("o item de lote espera a janela em vez de ser descartado", () => {
     expect(vencidos, "a varredura levou quem nao devia").toBe(0);
     expect(await estadoDoItem(SEM_PRAZO), "o lote sem prazo nunca vence").toBe("guardado");
     expect(await estadoDoItem(NA_FILA), "a varredura mexeu num item pending").toBe("pending");
+  });
+
+  // A MENSAGEM DO LOTE NA CONVERSA — e o motivo de ela importar mais do que
+  // uma mensagem automática qualquer.
+  //
+  // `conversationMessages` (lib/conversations.ts) tem uma lista BRANCA de kinds,
+  // e o comentário dela avisa, em maiúsculas, que "KIND NOVO DE DM PRECISA
+  // ENTRAR AQUI" e que esquecer "faz a mensagem sumir da conversa em silêncio".
+  // O arquivo previu o próprio defeito: `dm_lote` nasceu em
+  // migrations/008 e ninguém o acrescentou.
+  //
+  // O valor inteiro do lote é a pessoa RESPONDER. Quando ela responde, o dono
+  // abre a conversa e via "quanto custa?" pendurado no vazio, sem a mensagem que
+  // provocou a pergunta.
+  //
+  // A REDE É DE INTEGRAÇÃO porque a lista alimenta SQL: afirmar num teste puro
+  // que a constante contém a palavra seria perguntar de novo à linha que decide.
+  // É a mesma escolha, pelo mesmo motivo, do caso de "abertura" em
+  // porta-de-entrada.integracao.ts.
+  test("a mensagem do lote aparece na conversa, entregue e guardada", async () => {
+    const RECEBE = "9000000000000113";
+    const GUARDA = "9000000000000114";
+    await semearContato(RECEBE, { horasDesdeAResposta: 0 });
+    await semearContato(GUARDA, { horasDesdeAResposta: 48 });
+
+    await engine.enqueueLote(CONTA, "L13", [RECEBE, GUARDA], {
+      text: "a turma abre segunda",
+      validoAte: null,
+    });
+    await drenar();
+
+    const entregue = await conversas.conversationMessages(CONTA, RECEBE);
+    const doLote = entregue.find((m) => m.text === "a turma abre segunda");
+    expect(doLote, "a mensagem do lote sumiu da conversa").toBeDefined();
+    expect(doLote?.direction).toBe("out");
+    expect(doLote?.delivery).toBe("sent");
+
+    // E A GUARDADA TAMBÉM APARECE — com o nome do que ela é. Sem um braço para
+    // `guardado` no `case` de status, ela dizia "enviando…" no balão, e podia
+    // dizer isso por semanas.
+    const esperando = await conversas.conversationMessages(CONTA, GUARDA);
+    const guardada = esperando.find((m) => m.text === "a turma abre segunda");
+    expect(guardada, "a mensagem guardada sumiu da conversa").toBeDefined();
+    expect(guardada?.delivery, "guardada aparecendo como outra coisa").toBe("guardado");
   });
 
   test("duplo clique em confirmar, com o MESMO loteId, nao apaga a mensagem", async () => {
