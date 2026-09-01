@@ -683,12 +683,12 @@ const ESPERADAS_RESTRICOES = [
   {
     tabela: "queue",
     nome: "queue_kind_check",
-    de: "004-fila-tipos-novos.sql",
+    de: "008-fila-tipo-lote.sql",
     definicao:
       "CHECK ((kind = ANY (ARRAY['private_reply'::text, 'comment_reply'::text, " +
       "'dm_welcome'::text, 'dm_link'::text, 'dm_reminder'::text, " +
       "'dm_follow_gate'::text, 'dm_email_ask'::text, 'story_reaction'::text, " +
-      "'dm_manual'::text])))",
+      "'dm_manual'::text, 'dm_lote'::text])))",
   },
 ];
 

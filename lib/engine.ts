@@ -10,6 +10,7 @@ import {
 import { matches, pickRandom, extractEmail } from "./match";
 import { getUserProfile, checkFollowsAccount } from "./ig";
 import { scheduleTick } from "./qstash";
+import { payloadDoLote } from "./lote";
 // `retomadaDoFallback`, `interrompeOFluxo`, `retomadaDoBotao` e
 // `retomadaDoFollow` moraram aqui e agora vêm de lib/steps.ts: as quatro são
 // decisão pura, e dentro de um arquivo `server-only` nenhum teste as alcançava.
@@ -2074,4 +2075,49 @@ export async function enqueueManualReply(
     payload: { text },
     dedupe_key: manualReplyKey(contactIgId, Date.now()),
   });
+}
+
+// O ENVIO EM LOTE.
+//
+// Entra na MESMA fila do resto, pelo mesmo motivo escrito em
+// `enqueueManualReply`: herda a trava atômica, o teto de ~190 envios/hora por
+// conta, as novas tentativas e a checagem de janela. Um caminho paralelo teria
+// de reimplementar tudo isso, e erraria em algum ponto.
+//
+// SÓ O MAIS RECENTE ESPERA. Antes de enfileirar, os itens de lote que estavam
+// GUARDADOS para cada um destes contatos são cancelados. Sem isso, a pessoa que
+// some por uma semana e volta recebe três mensagens seguidas de uma conta que
+// ficou muda — o comportamento que faz gente bloquear perfil.
+//
+// O cancelamento é `skipped` e não `failed`: não houve erro, houve decisão.
+export async function enqueueLote(
+  accountId: string,
+  loteId: string,
+  contatos: string[],
+  base: { text: string; url?: string; buttonLabel?: string; validoAte: string | null }
+): Promise<number> {
+  if (!contatos.length) return 0;
+
+  await sql().query(
+    `update queue set status = 'skipped', error = 'substituido por um lote mais novo'
+      where account_id = $1 and kind = 'dm_lote' and status = 'pending'
+        and contact_ig_id = any($2::text[])`,
+    [accountId, contatos]
+  );
+
+  let enfileirados = 0;
+  for (const contato of contatos) {
+    const entrou = await enqueue({
+      account_id: accountId,
+      kind: "dm_lote",
+      contact_ig_id: contato,
+      payload: payloadDoLote({ loteId, ...base }),
+      // O identificador do lote entra na chave: dois lotes diferentes para a
+      // mesma pessoa são dois itens, e o mesmo lote duas vezes (clique duplo em
+      // confirmar) é um só.
+      dedupe_key: `lote:${loteId}:${contato}`,
+    });
+    if (entrou) enfileirados++;
+  }
+  return enfileirados;
 }

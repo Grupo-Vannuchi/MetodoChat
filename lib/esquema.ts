@@ -133,6 +133,10 @@ const MARCA_DAGUA = {
       porque:
         "REMOVE duas colunas; esta conferência pergunta o que FALTA, e coluna a mais nunca falta",
     },
+    {
+      de: "008-fila-tipo-lote.sql",
+      porque: "reescreve a definição de um `check` que já existe (9 tipos -> 10)",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",

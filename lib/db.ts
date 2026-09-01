@@ -288,7 +288,8 @@ export type QueueItem = {
     | "dm_follow_gate"
     | "dm_email_ask"
     | "story_reaction"
-    | "dm_manual";
+    | "dm_manual"
+    | "dm_lote";
   contact_ig_id: string | null;
   automation_id: string | null;
   comment_id: string | null;
