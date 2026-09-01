@@ -4,6 +4,7 @@ import {
   lerPayloadDoLote,
   loteExpirou,
   payloadDoLote,
+  urlDeLoteValida,
 } from "@/lib/lote";
 
 // ============================================================
@@ -166,5 +167,32 @@ describe("payloadDoLote e lerPayloadDoLote", () => {
     expect(lerPayloadDoLote({})).toBe(null);
     expect(lerPayloadDoLote({ text: "sem lote_id" })).toBe(null);
     expect(lerPayloadDoLote("texto")).toBe(null);
+  });
+});
+
+// ============================================================
+// A URL DO BOTÃO, e o que acontece quando ela está errada.
+//
+// `payloadDoLote` só apara espaço — ela não valida formato. Uma url digitada
+// errada ("htps://...", ou texto solto sem protocolo) viraria um botão
+// apontando para lugar nenhum, e sairia para dezenas de pessoas de uma vez.
+// ============================================================
+describe("urlDeLoteValida", () => {
+  it("aceita http e https bem formados", () => {
+    expect(urlDeLoteValida("https://exemplo.invalid/turma")).toBe(true);
+    expect(urlDeLoteValida("http://exemplo.invalid")).toBe(true);
+  });
+
+  it("recusa protocolo escrito errado", () => {
+    expect(urlDeLoteValida("htps://exemplo.invalid")).toBe(false);
+  });
+
+  it("recusa texto sem protocolo nenhum", () => {
+    expect(urlDeLoteValida("quero entrar")).toBe(false);
+    expect(urlDeLoteValida("exemplo.invalid/turma")).toBe(false);
+  });
+
+  it("recusa protocolo que não é http nem https", () => {
+    expect(urlDeLoteValida("javascript:alert(1)")).toBe(false);
   });
 });

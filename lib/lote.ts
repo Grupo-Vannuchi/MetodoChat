@@ -49,6 +49,33 @@ export function payloadDoLote(dados: {
   };
 }
 
+/**
+ * Se `url` é um endereço bem formado, com protocolo `http` ou `https`.
+ *
+ * `payloadDoLote` SÓ APARA ESPAÇO — ela não valida formato, porque quem decide
+ * "tem link ou não" é a presença de texto, não a forma dele. Mas o botão que
+ * `lib/queue-drain.ts` monta não checa a url que recebe; ele confia em quem
+ * enfileirou. Sem uma barreira ANTES do enfileiramento, uma url digitada
+ * errada ("htps://…", ou "quero entrar" sem protocolo nenhum) vira um botão
+ * apontando para lugar nenhum — e isso sai para cada pessoa do lote, não para
+ * uma só.
+ *
+ * SÓ HTTP(S): é o único protocolo que o botão do Instagram abre. Um
+ * `javascript:` ou um `data:` nunca deveriam sair como link de mensagem.
+ *
+ * Esta função não decide "tem link" — só "o link que tem é válido". Chamador
+ * decide o que fazer com string vazia (aqui ela é inválida, mas quem chama
+ * trata "sem url" como um caso à parte, antes de chegar aqui).
+ */
+export function urlDeLoteValida(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** Lê o payload de volta. `null` quando não é um item de lote. */
 export function lerPayloadDoLote(bruto: unknown): {
   loteId: string;
