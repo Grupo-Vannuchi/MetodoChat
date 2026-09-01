@@ -480,12 +480,16 @@ describe("o item de lote espera a janela em vez de ser descartado", () => {
 
     await engine.enqueueLote(CONTA, "L4", [CONTATO], { text: "segundo", validoAte: null });
 
+    // UM ITEM VIVO, E A CONTA E SOBRE OS DOIS ESTADOS. O velho estava
+    // `guardado` (a janela dele fechou), o novo nasce `pending`: contar so
+    // `pending` diria "um" mesmo se o velho tivesse sobrado inteiro, e a pessoa
+    // receberia os DOIS quando voltasse a falar.
     const itens = await todosOsItens(CONTATO);
-    expect(itens.filter((i) => i.status === "pending")).toHaveLength(1);
-    const guardado = itens.find((i) => i.status === "pending")!;
-    expect((guardado.payload as { text: string }).text).toBe("segundo");
-    const cancelado = itens.find((i) => i.status === "skipped")!;
-    expect(cancelado.error).toContain("substituido");
+    const vivos = itens.filter((i) => i.status === "pending" || i.status === "guardado");
+    expect(vivos, "a pessoa ficou com mais de um envio de lote vivo").toHaveLength(1);
+    expect((vivos[0].payload as { text: string }).text).toBe("segundo");
+    const cancelado = itens.find((i) => i.status === "skipped");
+    expect(cancelado?.error, "o lote velho nao foi cancelado").toContain("substituido");
   });
 
   // O DUPLO CLIQUE: rede lenta, o dono confirma e o clique dispara duas vezes
