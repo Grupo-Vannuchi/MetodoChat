@@ -435,6 +435,37 @@ describe("o item de lote espera a janela em vez de ser descartado", () => {
     expect(await estadoDoItem(VIVO_AMANHA), "a mensagem viva de AMANHA").toBe("sent");
   });
 
+  // O ITEM DE LOTE COM PAYLOAD QUE NÃO É DE LOTE.
+  //
+  // `lerPayloadDoLote` (lib/lote.ts) devolve `null` quando falta `lote_id` ou
+  // `text`, e o dreno lia `null` como "sem prazo" — a MESMA resposta que um
+  // lote deliberadamente eterno dá. O item ficava guardado para sempre, sem
+  // texto para enviar e sem uma linha dizendo por quê.
+  //
+  // O `update` à MÃO AQUI É O CENÁRIO, e não um atalho: `payload` é `jsonb` e
+  // editável por fora do painel — é a mesma premissa pela qual o dreno defende
+  // os botões em vez de confiar no editor (cabeçalho de lib/queue-drain.ts).
+  // Nenhum caminho do produto grava um payload assim; a coluna, sim.
+  test("item de lote com payload que nao e de lote nao espera para sempre", async () => {
+    const CONTATO = "9000000000000109";
+    await semearContato(CONTATO, { horasDesdeAResposta: 48 });
+    await engine.enqueueLote(CONTA, "L9", [CONTATO], { text: "texto bom", validoAte: null });
+
+    await banco
+      .db()
+      .sql()
+      .query(
+        `update queue set payload = '{"nada":"a ver"}'::jsonb
+          where account_id = $1 and contact_ig_id = $2 and kind = 'dm_lote'`,
+        [CONTA, CONTATO]
+      );
+
+    await drenar();
+    const item = await lerItem(CONTATO);
+    expect(item.status, "ficou guardado para sempre").toBe("skipped");
+    expect(item.error).toContain("payload");
+  });
+
   // O DESPERTAR NÃO PODE ZERAR O BACKOFF DE ERRO.
   //
   // O `update` de `upsertContact` (lib/engine.ts) casava com todo `dm_lote`

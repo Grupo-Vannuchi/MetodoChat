@@ -323,6 +323,11 @@ export function friendlyError(raw: string | null): string | null {
   // um lote grande estoura o teto horário e vence com a janela ABERTA.
   if (raw.includes("o lote venceu"))
     return "O prazo desta mensagem acabou antes de ela sair, e por isso ela não foi enviada.";
+  // O `payload` do item de lote não tem a forma de lote (`lerPayloadDoLote`
+  // devolveu null). A coluna é `jsonb` e editável por fora do painel, então
+  // isto não é impossível — só não é culpa de quem está lendo a tela.
+  if (raw.includes("payload deste item de lote"))
+    return "Esta mensagem estava gravada numa forma que o sistema não sabe enviar, e por isso não foi enviada. Refaça o envio.";
   if (/Instagram API 4\d\d/.test(raw))
     return "O Instagram recusou este envio. Confira em Configuração se a conta segue conectada.";
   if (/Instagram API 5\d\d/.test(raw))

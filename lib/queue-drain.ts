@@ -340,21 +340,21 @@ async function processItem(
   return { outcome: "sent", messageId: enviada.message_id, sentText: texto };
 }
 
-// O QUARTO CONTADOR, E ELE FECHA UMA DRENAGEM QUE NAO SOMAVA NADA.
+// O QUARTO CONTADOR, E ELE FECHA UMA DRENAGEM QUE NÃO SOMAVA NADA.
 //
-// Ate 01/09/2026 o item de lote guardado nao incrementava contador nenhum: uma
+// Até 01/09/2026 o item de lote guardado não incrementava contador nenhum: uma
 // drenagem inteira gasta adormecendo quarenta itens devolvia `{sent: 0,
-// skipped: 0, failed: 0}` - indistinguivel, para quem le a resposta da rota, de
-// uma drenagem que nao achou nada para fazer. O sintoma que a fome de fila
-// produzia era exatamente esse zero triplo, e ele era invisivel.
+// skipped: 0, failed: 0}` — indistinguível, para quem lê a resposta da rota, de
+// uma drenagem que não achou nada para fazer. O sintoma que a fome de fila
+// produzia era exatamente esse zero triplo, e ele era invisível.
 //
-// OS TRES PRIMEIROS SAO INGLES E O QUARTO NAO, e e de proposito: ele conta
-// itens que foram para o estado `guardado`, e o nome do estado e `guardado` -
-// o porque inteiro esta em `migrations/009-fila-estado-guardado.sql`. Duas
+// OS TRÊS PRIMEIROS SÃO INGLÊS E O QUARTO NÃO, e é de propósito: ele conta itens
+// que foram para o estado `guardado`, e o nome do estado é `guardado` — o
+// porquê inteiro está em `migrations/009-fila-estado-guardado.sql`. Duas
 // palavras para a mesma coisa seria pior do que um plural fora do idioma.
 //
-// A resposta das rotas `/api/queue/tick` e `/api/cron/daily` e este objeto
-// espalhado em JSON, entao o campo novo aparece na monitoracao sem mais nada.
+// A resposta das rotas `/api/queue/tick` e `/api/cron/daily` é este objeto
+// espalhado em JSON, então o campo novo aparece na monitoração sem mais nada.
 export type ResumoDaDrenagem = {
   sent: number;
   skipped: number;
@@ -431,9 +431,31 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
        )
        returning q.*
      )
-     select * from lote order by created_at, id`,
+     select *, now() as agora_do_banco from lote order by created_at, id`,
     [BATCH_SIZE, blocked]
-  )) as QueueItem[];
+  )) as (QueueItem & { agora_do_banco: Date })[];
+
+  // O RELOGIO QUE JULGA A VALIDADE É O DO BANCO, E NÃO O DA APLICAÇÃO.
+  //
+  // `loteExpirou` (lib/lote.ts) cai em `Date.now()` quando ninguém lhe diz que
+  // horas são, e todo o resto desta fila conta pelo `now()` do Postgres: o
+  // `not_before` do enqueue, a seleção lá em cima, o backoff do `finish`.
+  // Misturar os dois é o defeito que `enqueue` (lib/engine.ts) já documenta com
+  // medição própria: 53,9 segundos de diferença NESTA máquina, milissegundos
+  // na Vercel. Cinquenta e quatro segundos decidem o caso de um prazo que
+  // acabou de vencer — e um lote grande passa horas saindo por causa do
+  // `HOURLY_CAP`, então esse caso acontece.
+  //
+  // NÃO CUSTA IDA NOVA: é uma coluna a mais na consulta que já reivindicou o
+  // lote. Ela é lida UMA VEZ por drenagem, e não por item, e isso basta: uma
+  // drenagem é no máximo `BATCH_SIZE` itens com `GAP_MS` entre eles, ou seja
+  // ~9 segundos de ponta a ponta.
+  //
+  // O `?? Date.now()` é para a lista vazia (nenhum item, o laço nem roda) e
+  // para o dia em que o driver devolver outra coisa que não `Date`. Cair no
+  // relógio da aplicação é exatamente o que se fazia antes; nunca é pior.
+  const marcado = items[0]?.agora_do_banco;
+  const agoraNoBanco = marcado instanceof Date ? marcado.getTime() : Date.now();
 
   for (const item of items) {
     const account = item.account_id ? byId.get(item.account_id) : undefined;
@@ -463,7 +485,36 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
     // os dois caminhos porque este é o ponto por onde todo item passa.
     if (item.kind === "dm_lote") {
       const doLote = lerPayloadDoLote(item.payload);
-      if (loteExpirou(doLote?.validoAte ?? null)) {
+
+      // ITEM DE LOTE COM PAYLOAD QUE NÃO É DE LOTE NÃO ESPERA PARA SEMPRE.
+      //
+      // `lerPayloadDoLote` devolve `null` quando falta `lote_id` ou `text`, e
+      // `null` era lido aqui como "sem prazo" — a mesma resposta que um lote
+      // deliberadamente eterno dá. O item ficava guardado indefinidamente, sem
+      // texto para enviar e sem uma linha dizendo por quê.
+      //
+      // A COLUNA É `jsonb` E EDITÁVEL POR FORA do painel — é o mesmo motivo
+      // pelo qual `botoesDaMensagem` defende no dreno e não só no editor (ver o
+      // cabeçalho deste arquivo). Aqui a defesa é recusar: `skipped` é um
+      // desfecho, e um desfecho errado aparece na tela de Envios; "guardado
+      // para sempre" não aparece em lugar nenhum.
+      if (!doLote) {
+        await logEventThrottled(
+          account.ig_user_id,
+          "lote_com_payload_invalido",
+          { queue_id: item.id, contact_ig_id: item.contact_ig_id },
+          10,
+          { campo: "contact_ig_id", valor: item.contact_ig_id ?? "" }
+        );
+        await finish(item.id, {
+          status: "skipped",
+          error: "o payload deste item de lote nao e de lote",
+        });
+        result.skipped++;
+        continue;
+      }
+
+      if (loteExpirou(doLote.validoAte, agoraNoBanco)) {
         await finish(item.id, { status: "skipped", error: "o lote venceu antes de sair" });
         result.skipped++;
         continue;
@@ -499,7 +550,7 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
         // VELHO. Com quarenta esperando, três drenagens inteiras não deixavam
         // sair uma mensagem de verdade. Dormir um dia ADIAVA a fome; não a
         // tirava — passado o dia, os quarenta voltavam, e o ciclo se repetia
-        // TODO DIA. É o que o caso "quarenta itens guardados... hoje nem amanha"
+        // TODO DIA. É o que o caso "quarenta itens guardados... hoje nem amanhã"
         // (testes-integracao/lote.integracao.ts) mede, e era a segunda metade
         // dele que ficava vermelha.
         //
