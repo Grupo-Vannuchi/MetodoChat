@@ -210,24 +210,25 @@ expirando, e o "só o mais recente" deixando dois guardados.
 **Nenhum disparo de teste vai para contato de cliente.** O teste usa as contas
 conectadas mandando mensagem entre si.
 
-**A base existe, e foi medida em 01/09:** as quatro contas já se falaram, e há
-**oito registros de contato entre elas** — `@thiagovannuchi` tem as outras três
-como contato, e vice-versa em quase todas as direções. Mais `@imzetti` e
-`@alicistica`, que são os perfis de teste autorizados.
+**A base existe, e o dono a preparou:** em 01/09 ele mandou mensagem entre as
+quatro contas de propósito, para deixá-las ativas. Medido logo depois:
 
-| par | última resposta |
+| medida | valor |
 |---|---|
-| `@n8xmarketing` ← `@alicistica` | **15,4 h — JANELA ABERTA** |
-| `@vannuchi.eng` ← `@thiagovannuchi` | 55,2 h |
-| `@thiagovannuchi` ← `@n8xmarketing` | 116,9 h |
-| `@thiagovannuchi` ← `@saas.metodoia` | 138,6 h |
-| `@thiagovannuchi` ← `@vannuchi.eng` | 143,2 h |
+| pares de contas com registro de contato | **12** — malha completa: cada conta tem as outras três |
+| janelas abertas | **12 de 12** (última resposta há 0,0 a 0,1 h) |
+| perfis de teste com janela aberta | `@alicistica` em `@n8xmarketing` (15,6 h) |
 
-**A limitação que isso revela, e ela é do produto, não do teste:** para abrir uma
-janela, a mensagem tem de vir **de fora** — o painel só responde DENTRO de uma
-janela aberta (`queue-drain` recusa o resto), então ele não consegue abrir a
-própria janela. Abrir exige alguém mandando mensagem pelo aplicativo do
-Instagram.
+**Isso dá as duas metades do teste, em momentos diferentes, e de graça:** com as
+janelas abertas prova-se o caminho "recebe agora"; **passadas 24 horas elas
+fecham sozinhas**, e aí prova-se o caminho "espera". O dono reabre quando
+precisar, mandando mensagem de novo.
+
+**A limitação que continua valendo:** para abrir uma janela, a mensagem tem de
+vir **de fora** — o painel só responde DENTRO de uma janela aberta
+(`queue-drain` recusa o resto), então ele não consegue abrir a própria janela.
+Abrir exige o aplicativo do Instagram, ou seja, o dono. Foi assim que estas doze
+foram abertas.
 
 Consequência para o plano, e ela decide o esforço:
 
