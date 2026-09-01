@@ -293,7 +293,17 @@ export default async function ContatosPage({
                 <ul className={`text-xs ${muted}`}>
                   <li>{destino.agora.length} recebem agora</li>
                   <li>{destino.esperam.length} quando voltarem a falar</li>
-                  <li>{destino.improvaveis} provavelmente nunca — falaram uma única vez</li>
+                  {/* O TEXTO CONTA O QUE `destinoDoLote` CONTA, e não outra
+                      coisa: ela soma `recebidas <= 1` — zero OU uma —, e quem
+                      tem zero nunca escreveu (chegou por comentar num post),
+                      que é o caso MAIS forte de "provavelmente nunca". A frase
+                      dizia "falaram uma única vez" e deixava esses de fora do
+                      que o número já incluía. O comentário de `lib/lote.ts` foi
+                      corrigido antes; a tela é a outra metade. */}
+                  <li>
+                    {destino.improvaveis} provavelmente nunca — nunca falaram, ou falaram uma
+                    única vez
+                  </li>
                 </ul>
                 <textarea name="texto" required rows={3} className={`w-full ${input}`}
                   placeholder="O que você quer dizer" />
