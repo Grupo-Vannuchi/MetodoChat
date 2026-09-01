@@ -362,6 +362,71 @@ export type ResumoDaDrenagem = {
   guardados: number;
 };
 
+/**
+ * O LOTE VENCIDO DE QUEM NUNCA MAIS FALA.
+ *
+ * `drainQueue` é o único lugar que avaliava `loteExpirou`, e ele só enxerga item
+ * `pending`. Item `guardado` só volta a ser `pending` quando a PESSOA escreve
+ * (`upsertContact`, lib/engine.ts) — e 40% dos contatos deste produto falaram
+ * uma vez e nunca mais (medição da especificação). Para esses, o item ficava
+ * `guardado` PARA SEMPRE, e a tela de Envios seguia dizendo "sai assim que ela
+ * voltar a falar" semanas depois de o prazo ter acabado. A especificação
+ * promete o contrário: "Ele é encerrado com o motivo escrito, e aparece assim
+ * na tela de envios."
+ *
+ * UMA VARREDURA POR DIA, NO CRON QUE JÁ EXISTE, E ELA NÃO TOCA EM `pending`.
+ * Essa metade é a que importa: devolver item guardado à fila viva — mesmo para
+ * matá-lo — reabriria a fome de fila que `migrations/009-fila-estado-guardado.sql`
+ * fechou, porque um item com `not_before` no passado é sempre elegível e é o
+ * mais antigo. Aqui ele vai de `guardado` direto para `skipped`, sem passar pela
+ * disputa.
+ *
+ * QUEM DECIDE SE VENCEU É `loteExpirou`, A MESMA FUNÇÃO DO DRENO, e não um
+ * `where` em SQL. Duas regras de validade em dois lugares é o defeito que esta
+ * branch inteira existe para não repetir — e a diferença apareceria justo no
+ * caso mudo: `loteExpirou` trata data inválida como "sem prazo" DE PROPÓSITO
+ * (cancelar em silêncio é pior), e um `(payload->>'valido_ate')::timestamptz`
+ * ou trataria lixo como vencido ou estouraria no meio do cron diário.
+ *
+ * O RELÓGIO É O DO BANCO, pelo mesmo motivo escrito no dreno.
+ *
+ * O `status = 'guardado'` NO `update` NÃO É SOBRA: entre a leitura e a escrita a
+ * pessoa pode ter voltado a falar, e o despertar de `upsertContact` já teria
+ * posto o item em `pending`. Cancelá-lo dali seria escrever por cima de uma
+ * decisão mais nova; deixado em `pending`, o dreno confere a validade de novo,
+ * antes de enviar, e grava o desfecho dele.
+ */
+export async function cancelarLotesVencidos(): Promise<{ vencidos: number }> {
+  const linhas = (await sql()`
+    select id, payload, now() as agora_do_banco from queue
+    where kind = 'dm_lote' and status = 'guardado'
+  `) as { id: string; payload: unknown; agora_do_banco: Date }[];
+  if (!linhas.length) return { vencidos: 0 };
+
+  const marcado = linhas[0].agora_do_banco;
+  const agoraNoBanco = marcado instanceof Date ? marcado.getTime() : Date.now();
+
+  const vencidos = linhas
+    .filter((l) => {
+      const doLote = lerPayloadDoLote(l.payload);
+      // Payload que não é de lote NÃO é problema desta função: o dreno já o
+      // encerra com o motivo escrito, e ele nunca chega a ficar guardado.
+      return doLote !== null && loteExpirou(doLote.validoAte, agoraNoBanco);
+    })
+    .map((l) => l.id);
+  if (!vencidos.length) return { vencidos: 0 };
+
+  // O texto CASA COM `friendlyError` (app/labels.ts) por "o lote venceu", que é
+  // o pedaço que ela procura — o mesmo desfecho que o dreno já escreve, com o
+  // motivo desta rota.
+  await sql().query(
+    `update queue set status = 'skipped', error = $2
+      where id = any($1::uuid[]) and status = 'guardado'`,
+    [vencidos, "o lote venceu enquanto esperava a pessoa voltar a falar"]
+  );
+  return { vencidos: vencidos.length };
+}
+
 export async function drainQueue(): Promise<ResumoDaDrenagem> {
   const result = { sent: 0, skipped: 0, failed: 0, guardados: 0 };
   const accounts = await listAccounts();

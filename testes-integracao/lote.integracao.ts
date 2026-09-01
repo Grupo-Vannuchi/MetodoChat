@@ -533,6 +533,80 @@ describe("o item de lote espera a janela em vez de ser descartado", () => {
   // essa linha agora `skipped` — `on conflict do nothing` não reescrevia nada.
   // Resultado: o contato ficava sem item NENHUM, nem o original nem o
   // substituto.
+  // O LOTE VENCIDO DE QUEM NUNCA MAIS FALA.
+  //
+  // `drainQueue` é o único lugar que avalia `loteExpirou`, e ele só roda sobre
+  // item `pending`. Item `guardado` só vira `pending` quando a PESSOA escreve —
+  // e 40% dos contatos deste produto falaram uma vez e nunca mais. Para esses, o
+  // item ficava guardado PARA SEMPRE e a tela de Envios seguia prometendo "sai
+  // assim que ela voltar a falar" semanas depois do prazo.
+  //
+  // O `update` DO PAYLOAD É O RELÓGIO, e não um atalho: o prazo tem de estar no
+  // FUTURO na hora do primeiro dreno (senão o item morre ali mesmo, sem nunca
+  // ficar guardado), e no PASSADO na hora da varredura. É a única forma de o
+  // tempo passar dentro de um teste de vinte segundos — a mesma escolha, pelo
+  // mesmo motivo, de `passarUmDia` lá em cima.
+  test("o lote guardado que venceu e encerrado com o motivo escrito", async () => {
+    const CONTATO = "9000000000000110";
+    await semearContato(CONTATO, { horasDesdeAResposta: 48 });
+    await engine.enqueueLote(CONTA, "L10", [CONTATO], {
+      text: "a turma abre segunda",
+      validoAte: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+
+    await drenar();
+    expect(await estadoDoItem(CONTATO), "precisa estar guardado para o caso medir algo").toBe(
+      "guardado"
+    );
+
+    // O prazo acaba enquanto ela não volta.
+    await banco
+      .db()
+      .sql()
+      .query(
+        `update queue set payload = jsonb_set(payload, '{valido_ate}', to_jsonb($3::text))
+          where account_id = $1 and contact_ig_id = $2 and kind = 'dm_lote'`,
+        [CONTA, CONTATO, new Date(Date.now() - 3_600_000).toISOString()]
+      );
+
+    // Ninguém falou, ninguém drenou: é a varredura do cron diário que decide.
+    const { vencidos } = await dreno.cancelarLotesVencidos();
+    expect(vencidos).toBe(1);
+
+    const item = await lerItem(CONTATO);
+    expect(item.status, "continuou guardado depois do prazo").toBe("skipped");
+    // O pedaço que `friendlyError` (app/labels.ts) procura para escrever o
+    // motivo em português na tela de Envios.
+    expect(item.error).toContain("o lote venceu");
+  });
+
+  // O CONTROLE QUE IMPEDE A VARREDURA DE VIRAR UMA VASSOURA. Ela apaga item
+  // vencido, e NADA MAIS: o lote sem prazo ("segue o material") espera para
+  // sempre de propósito, e o `pending` não é assunto dela — devolver item
+  // guardado à fila viva, ou matar o que ainda vai sair, era o que
+  // `migrations/009-fila-estado-guardado.sql` fechou.
+  test("a varredura nao encosta no lote sem prazo nem no que ainda esta na fila", async () => {
+    const SEM_PRAZO = "9000000000000111";
+    const NA_FILA = "9000000000000112";
+    await semearContato(SEM_PRAZO, { horasDesdeAResposta: 48 });
+    // Janela ABERTA: este nasce `pending` e continua lá até alguém drenar.
+    await semearContato(NA_FILA, { horasDesdeAResposta: 0 });
+
+    await engine.enqueueLote(CONTA, "L11", [SEM_PRAZO], { text: "segue o material", validoAte: null });
+    await drenar();
+    expect(await estadoDoItem(SEM_PRAZO)).toBe("guardado");
+
+    await engine.enqueueLote(CONTA, "L12", [NA_FILA], {
+      text: "ainda vai sair",
+      validoAte: new Date(Date.now() - 3_600_000).toISOString(),
+    });
+
+    const { vencidos } = await dreno.cancelarLotesVencidos();
+    expect(vencidos, "a varredura levou quem nao devia").toBe(0);
+    expect(await estadoDoItem(SEM_PRAZO), "o lote sem prazo nunca vence").toBe("guardado");
+    expect(await estadoDoItem(NA_FILA), "a varredura mexeu num item pending").toBe("pending");
+  });
+
   test("duplo clique em confirmar, com o MESMO loteId, nao apaga a mensagem", async () => {
     const CONTATO = "9000000000000106";
     await semearContato(CONTATO, { horasDesdeAResposta: 48 });
