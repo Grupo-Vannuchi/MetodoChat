@@ -1,8 +1,28 @@
+import Link from "next/link";
 import { sql, Contact } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
-import { fmtDate, hoursAgo } from "@/lib/format";
+import { fmtDate } from "@/lib/format";
+import { windowState } from "@/lib/inbox-window";
+import {
+  filtroDaUrl,
+  contatosDoFiltro,
+  fichaSelecionada,
+  urlComFiltro,
+  resumoDasCategorias,
+  casoDaListaDeEmail,
+} from "@/lib/categorias";
 import { atualizarPerfis } from "./actions";
-import { card, btnGhost, muted, tableWrap, thead, rowDivide } from "../ui";
+import {
+  card,
+  btnGhost,
+  muted,
+  tableWrap,
+  thead,
+  rowDivide,
+  badgeOk,
+  badgeNeutral,
+  emptyWrap,
+} from "../ui";
 import { IconMail, IconUsers } from "../icons";
 import Avatar from "../avatar";
 
@@ -32,8 +52,12 @@ function Pessoa({ c }: { c: Row }) {
 }
 
 function Janela({ c }: { c: Row }) {
-  const h = hoursAgo(c.last_reply_at);
-  const aberta = h !== null && h < 24;
+  // A MESMA função que o motor de envio usa para recusar (`lib/queue-drain.ts`).
+  // Aqui havia `hoursAgo(...) < 24`, uma segunda regra — e ela é QUASE igual:
+  // `windowState` fecha 5 minutos antes, e nessa faixa a lista dizia "aberta"
+  // sobre alguém que o envio recusaria. Cerca de 7 travessias por dia, de 5
+  // minutos cada, medido em 31/08/2026.
+  const aberta = windowState(c.last_reply_at).open;
   return (
     <span
       className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
@@ -56,6 +80,7 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
         <thead className={thead}>
           <tr>
             <th className="px-4 py-3">Pessoa</th>
+            <th className="px-4 py-3">Categoria</th>
             {comEmail && <th className="px-4 py-3">E-mail</th>}
             <th className="px-4 py-3">Primeiro contato</th>
             <th className="px-4 py-3">Última resposta</th>
@@ -69,6 +94,7 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
               <td className="px-4 py-2.5">
                 <Pessoa c={c} />
               </td>
+              <td className={`px-4 py-2.5 ${muted}`}>{c.categoria ?? "—"}</td>
               {comEmail && (
                 <td className="px-4 py-2.5 text-zinc-700 dark:text-zinc-300">{c.email}</td>
               )}
@@ -86,23 +112,80 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
   );
 }
 
-export default async function ContatosPage() {
+export default async function ContatosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ categoria?: string }>;
+}) {
+  const sp = await searchParams;
+  const filtro = filtroDaUrl(sp.categoria);
   const account = await getSelectedAccount();
+  // SEM `limit`, E ISSO É A CORREÇÃO DE UM DEFEITO, não uma folga.
+  //
+  // A consulta tinha `limit 200`, e as fichas — inclusive o número de
+  // alcançáveis, que é o que justifica esta funcionalidade inteira — eram
+  // contadas sobre no máximo 200 linhas. Nada na tela dizia que houve corte:
+  // uma conta com 250 contatos mostraria "todos (200)".
+  //
+  // O CORTE ERA POR `first_contact_at desc`, E ALCANCE NÃO TEM NADA A VER COM
+  // ISSO. Medido em 31/08/2026 na conta maior (106 contatos): os alcançáveis
+  // estão nas posições 1, 2, 3, 45, 97, 100 e 103 dessa ordem — quatro dos sete
+  // na metade de baixo. Quem tem primeiro contato antigo e respondeu há uma hora
+  // é alcançável de verdade, o motor enviaria, e sairia da contagem em silêncio.
+  // A tela deixaria de casar com o motor, que é o defeito que esta branch existe
+  // para impedir.
+  //
+  // HOJE O CORTE NÃO CORTA NADA (126 contatos ao todo, a maior conta com 106),
+  // e é por isso que ele passou despercebido. Mas os 126 entraram TODOS nas
+  // últimas 6 semanas, e ~21 por semana, dos quais a conta maior fica com uns
+  // 84%: ela precisa de 94 contatos para chegar aos 200, ou cerca de CINCO
+  // SEMANAS no ritmo de hoje. É prazo de mês, e não de ano.
+  //
+  // POR QUE NÃO CONTAR NO SQL e deixar o `limit` na tabela: contar alcançáveis
+  // em SQL exigiria uma janela de 24h cravada na consulta — uma SEGUNDA fonte
+  // para a janela, que é exatamente o que esta branch removeu (`windowState`,
+  // lib/inbox-window.ts, é a mesma que `lib/queue-drain.ts` usa para recusar, e
+  // ela só roda em JS sobre linha carregada). Então as linhas TÊM de ser a conta
+  // inteira.
+  //
+  // QUANDO ISTO PESAR, o caminho é uma paginação que diz o próprio tamanho, e
+  // não um corte calado com outro número. Enquanto a maior conta couber numa
+  // tabela, contar errado é pior que carregar tudo.
   const rows = account
     ? ((await sql().query(
         `select c.*, a.name as automation_name
          from contacts c
          left join automations a on a.id = c.last_automation_id
          where c.account_id = $1
-         order by c.first_contact_at desc
-         limit 200`,
+         order by c.first_contact_at desc`,
         [account.ig_user_id]
       )) as Row[])
     : [];
 
-  const comEmail = rows.filter((c) => c.email);
-  const semEmail = rows.filter((c) => !c.email);
+  // As fichas contam o conjunto INTEIRO da conta — não o filtrado —, para os
+  // números não mudarem quando alguém clica num filtro. O filtro em si é
+  // aplicado em memória sobre o resultado; ver a nota no plano da tarefa 3
+  // sobre por que não é uma segunda consulta.
+  const fichas = resumoDasCategorias(rows);
+  // QUEM DECIDE O FILTRO É `lib/categorias.ts`, e não este arquivo: `?categoria=`
+  // ausente e `?categoria=` vazio normalizam para o mesmo nome e NÃO são o mesmo
+  // pedido, e essa linha vivia aqui defendida só por um comentário. Agora ela
+  // tem caso em `tests/categorias.test.ts`, que fica vermelho quando ela muda.
+  const visiveis = contatosDoFiltro(rows, filtro);
+
+  const comEmail = visiveis.filter((c) => c.email);
+  const semEmail = visiveis.filter((c) => !c.email);
   const semNome = rows.filter((c) => !c.username).length;
+
+  // A decisão de qual texto a seção "Com e-mail" mostra — e se "Sem e-mail"
+  // ainda faz sentido na tela — é de `casoDaListaDeEmail` (lib/categorias.ts),
+  // não do JSX abaixo: ver o comentário lá para o porquê.
+  const filtrado = filtro.tipo === "uma";
+  const caso = casoDaListaDeEmail({
+    visiveis: visiveis.length,
+    comEmail: comEmail.length,
+    filtrado,
+  });
 
   return (
     <div className="space-y-6">
@@ -129,42 +212,86 @@ export default async function ContatosPage() {
         </div>
       ) : (
         <div className="space-y-10">
-          <section>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="flex items-center gap-2 text-lg font-bold">
-                  <IconMail className="h-4 w-4 text-indigo-500" />
-                  Com e-mail
-                </h2>
-                <p className={`text-sm ${muted}`}>
-                  {comEmail.length === 0
-                    ? "Ninguém informou o e-mail ainda. Ligue “Pedir o e-mail antes do link” numa automação."
-                    : `${comEmail.length} ${comEmail.length === 1 ? "pessoa" : "pessoas"} — prontas para sua lista`}
-                </p>
-              </div>
-              {comEmail.length > 0 && (
-                <a href="/api/contatos/csv" className={btnGhost} download>
-                  Exportar CSV
-                </a>
-              )}
-            </div>
-            {comEmail.length > 0 && <Tabela rows={comEmail} comEmail />}
-          </section>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/contatos" className={filtro.tipo === "tudo" ? badgeOk : badgeNeutral}>
+              todos ({rows.length})
+            </Link>
+            {fichas.map((f) => (
+              <Link
+                key={f.nome ?? "__sem__"}
+                href={urlComFiltro("/contatos", { tipo: "uma", nome: f.nome })}
+                className={fichaSelecionada(filtro, f.nome) ? badgeOk : badgeNeutral}
+              >
+                {f.nome ?? "sem categoria"} · {f.total} · {f.alcancaveis} alcançáveis
+              </Link>
+            ))}
+          </div>
 
-          {semEmail.length > 0 && (
-            <section>
-              <div className="mb-4">
-                <h2 className="flex items-center gap-2 text-lg font-bold">
-                  <IconUsers className="h-4 w-4 text-zinc-400" />
-                  Sem e-mail
-                </h2>
-                <p className={`text-sm ${muted}`}>
-                  {semEmail.length} {semEmail.length === 1 ? "pessoa" : "pessoas"} que
-                  interagiram mas não informaram e-mail
-                </p>
-              </div>
-              <Tabela rows={semEmail} comEmail={false} />
-            </section>
+          {caso === "filtro_vazio" ? (
+            // O caso pior do Achado 1: um filtro que não casa ninguém (uma
+            // categoria que deixou de existir, por exemplo). Antes, a seção
+            // "Sem e-mail" sumia inteira (só renderiza com gente) e sobrava
+            // só a frase de "Com e-mail" dizendo "ninguém informou e-mail" —
+            // verdade por acidente, mentira por omissão: a tela nunca dizia
+            // que o filtro não achou NINGUÉM.
+            <div className={emptyWrap}>
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Nenhum contato nesta categoria
+              </p>
+              <p className={`max-w-sm text-xs ${muted}`}>
+                O filtro não encontrou ninguém. Use “todos”, ali em cima, para ver a conta
+                inteira.
+              </p>
+            </div>
+          ) : (
+            <>
+              <section>
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="flex items-center gap-2 text-lg font-bold">
+                      <IconMail className="h-4 w-4 text-indigo-500" />
+                      Com e-mail
+                    </h2>
+                    <p className={`text-sm ${muted}`}>
+                      {caso === "tem_email"
+                        ? `${comEmail.length} ${comEmail.length === 1 ? "pessoa" : "pessoas"} — prontas para sua lista`
+                        : caso === "sem_email_no_filtro"
+                          ? "Ninguém nesta categoria informou e-mail ainda."
+                          : "Ninguém informou o e-mail ainda. Ligue “Pedir o e-mail antes do link” numa automação."}
+                    </p>
+                  </div>
+                  {comEmail.length > 0 && (
+                    // O ENDEREÇO CARREGA O FILTRO, e o mesmo `urlComFiltro` das
+                    // fichas o monta: este botão fica embaixo da frase que conta
+                    // o filtro, e baixava a conta inteira.
+                    <a
+                      href={urlComFiltro("/api/contatos/csv", filtro)}
+                      className={btnGhost}
+                      download
+                    >
+                      Exportar CSV
+                    </a>
+                  )}
+                </div>
+                {comEmail.length > 0 && <Tabela rows={comEmail} comEmail />}
+              </section>
+
+              {semEmail.length > 0 && (
+                <section>
+                  <div className="mb-4">
+                    <h2 className="flex items-center gap-2 text-lg font-bold">
+                      <IconUsers className="h-4 w-4 text-zinc-400" />
+                      Sem e-mail
+                    </h2>
+                    <p className={`text-sm ${muted}`}>
+                      {semEmail.length} {semEmail.length === 1 ? "pessoa" : "pessoas"} que
+                      interagiram mas não informaram e-mail
+                    </p>
+                  </div>
+                  <Tabela rows={semEmail} comEmail={false} />
+                </section>
+              )}
+            </>
           )}
         </div>
       )}

@@ -552,6 +552,14 @@ const ESPERADAS = [
     padrao: "false",
     naoNulo: true,
   },
+  {
+    tabela: "contacts",
+    coluna: "categoria",
+    de: "007-categoria-do-contato.sql",
+    tipo: "text",
+    padrao: null,
+    naoNulo: false,
+  },
 ];
 
 // ============================================================

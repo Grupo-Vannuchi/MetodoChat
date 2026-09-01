@@ -23,7 +23,19 @@ export function fmtRelative(value: string | Date | null | undefined): string {
   return d === 1 ? "ontem" : `há ${d} dias`;
 }
 
-export function hoursAgo(value: string | Date | null | undefined): number | null {
+// NÃO EXPORTADA, DE PROPÓSITO: só `fmtRelative`, aqui em cima, a usa.
+//
+// Foi ela que produziu a SEGUNDA regra de janela do produto — a lista de
+// contatos tinha `hoursAgo(...) < 24`, que dizia "aberta" sobre quem o motor de
+// envio recusaria, nos cinco minutos de margem de `windowState`
+// (lib/inbox-window.ts, a mesma que `lib/queue-drain.ts` usa). Exportada, ela
+// continua sendo o atalho mais fácil para alguém escrever a terceira; fechada,
+// é o compilador que defende a garantia de UMA fonte, e não a lembrança de
+// quem revisa.
+//
+// Ela é útil e não some: para "há 5 min" está logo ali. O que não pode é virar
+// medida de janela em lugar nenhum.
+function hoursAgo(value: string | Date | null | undefined): number | null {
   if (!value) return null;
   const d = value instanceof Date ? value.getTime() : new Date(value).getTime();
   if (Number.isNaN(d)) return null;

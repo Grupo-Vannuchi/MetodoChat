@@ -10,12 +10,14 @@ import {
 } from "@/lib/conversations";
 import { windowState, formatWindowLeft } from "@/lib/inbox-window";
 import { fmtDate } from "@/lib/format";
-import { muted, badgeOk, badgeNeutral } from "../../ui";
+import { muted, badgeOk, badgeNeutral, input, btnGhost } from "../../ui";
 import Avatar from "../../avatar";
 import ReplyForm from "./reply-form";
 import AreaMensagens from "./area-mensagens";
 import AnexoImagem from "./anexo-imagem";
 import Visto from "./visto";
+import { definirCategoria } from "./actions";
+import { LIMITE_DA_CATEGORIA } from "@/lib/categorias";
 
 export const dynamic = "force-dynamic";
 
@@ -89,12 +91,22 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
   // o padrão do resto do projeto — converter a Promise confunde o TypeScript.
   const [linhasContato, mensagens] = await Promise.all([
     sql().query(
-      `select username, name, profile_pic, last_reply_at
+      `select username, name, profile_pic, last_reply_at, categoria
        from contacts where account_id = $1 and ig_id = $2`,
       [account.ig_user_id, id]
     ),
     conversationMessages(account.ig_user_id, id),
   ]);
+
+  // AS CATEGORIAS JÁ EM USO, para o campo oferecer em vez de exigir memória.
+  // Sai daqui e não de uma tabela de categorias porque não há tabela: a lista
+  // É o conjunto de valores distintos, por decisão de desenho.
+  const emUso = (await sql().query(
+    `select distinct categoria from contacts
+      where account_id = $1 and categoria is not null
+      order by categoria`,
+    [account.ig_user_id]
+  )) as { categoria: string }[];
 
   const contato = (
     linhasContato as {
@@ -102,6 +114,7 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
       name: string | null;
       profile_pic: string | null;
       last_reply_at: Date | null;
+      categoria: string | null;
     }[]
   )[0];
   const janela = windowState(contato?.last_reply_at ?? null);
@@ -135,6 +148,76 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
           <p className="truncate text-sm font-semibold">{quem}</p>
           {subtitulo && <p className={`truncate text-xs ${muted}`}>{subtitulo}</p>}
         </div>
+        {/* A CATEGORIA MARCA-SE AQUI, e não na tabela de contatos: marcar na
+            lista exigiria um formulário por linha, 126 deles no mesmo
+            documento. E aqui você marca com contexto — acabou de ler o que a
+            pessoa disse.
+
+            `<datalist>` é HTML nativo: oferece o que já existe e continua
+            aceitando um nome novo digitado. Nenhum componente de cliente,
+            nenhum estado. */}
+        {/* KEY NO FORM, e não só no <input>: o layout não desmonta ao trocar de
+            conversa (app/conversas/layout.tsx) — só esta coluna muda —, então sem
+            key o React reaproveita o MESMO nó de DOM do <input> entre um contato
+            e outro.
+
+            O campo é não controlado (defaultValue). Conferido direto em
+            node_modules/react-dom/cjs/react-dom-client.development.js: ao
+            atualizar um <input> já montado (updateInput), o React só empurra o
+            novo `defaultValue` para o atributo `value` (setDefaultValue) — quem
+            decide se isso aparece na TELA é a "dirty value flag" do próprio HTML
+            (WHATWG), que o navegador vira true no primeiro toque do usuário no
+            campo. Depois disso, mudar o atributo não muda mais o que está escrito.
+            Reproduzido com o React real deste projeto: abre a conversa A, digita
+            uma categoria, NÃO salva, clica em B na lista — o campo continua
+            mostrando o texto de A; se o atendente clicar em salvar, grava a
+            categoria de A no contato B (o <input type="hidden" name="contato"> É
+            controlado e já está com o id de B — só a categoria fica presa).
+
+            A key vai no FORM e não só no <input>, pelo mesmo motivo de
+            `<AreaMensagens key={id}>` logo abaixo: marca a raiz do bloco que
+            pertence a ESTE contato, não o campo que por acaso é o único com o
+            defeito hoje. Um <input key={id}> sozinho já resolveria o bug atual,
+            mas deixaria um segundo campo não controlado, se algum dia entrar
+            neste form, livre para reintroduzir o mesmo problema sem aviso. */}
+        <form key={id} action={definirCategoria} className="flex items-center gap-1">
+          <input type="hidden" name="contato" value={id} />
+          <input
+            name="categoria"
+            list="categorias-em-uso"
+            defaultValue={contato?.categoria ?? ""}
+            placeholder="sem categoria"
+            // 40 no navegador é 40 UNIDADES UTF-16, e `normalizarCategoria`
+            // corta em 40 PONTOS DE CÓDIGO: para texto comum é o mesmo limite,
+            // para emoji o campo é o dobro de restrito (para em 20). A diferença
+            // está escrita em LIMITE_DA_CATEGORIA (lib/categorias.ts), com o
+            // porquê de não ser corrigida.
+            maxLength={LIMITE_DA_CATEGORIA}
+            // Os `!` (modificador "importante" do Tailwind v4) em w-36/rounded-lg/
+            // px-2/py-1/text-xs não são estilo, são a correção: a ordem dentro do
+            // className não decide nada, quem decide é a ordem na FOLHA gerada
+            // pelo Tailwind. Compilando o Tailwind 4.3.3 deste projeto (postcss +
+            // @tailwindcss/postcss sobre app/globals.css) a camada @layer
+            // utilities sai com w-36 ANTES de w-full, rounded-lg ANTES de
+            // rounded-xl, px-2 ANTES de px-3.5, py-1 ANTES de py-2.5 — mesma
+            // especificidade, mesma layer, e quem vem DEPOIS na folha vence, não
+            // quem vem depois na string. Sem o `!`, `input` (app/ui.ts) apagava os
+            // quatro; só text-xs escapava, por coincidência alfabética (sm < xs
+            // manda text-sm para antes de text-xs na mesma folha). `!important`
+            // resolve por IMPORTÂNCIA, um estágio da cascata anterior à ordem de
+            // declaração — por isso o resultado para de depender de como o
+            // Tailwind ordena a folha.
+            className={`w-36! rounded-lg! px-2! py-1! text-xs! ${input}`}
+          />
+          <datalist id="categorias-em-uso">
+            {emUso.map((c) => (
+              <option key={c.categoria} value={c.categoria} />
+            ))}
+          </datalist>
+          <button type="submit" className={`${btnGhost} text-xs`}>
+            salvar
+          </button>
+        </form>
         <span className={janela.open ? badgeOk : badgeNeutral}>
           {janela.open ? `responde por ${formatWindowLeft(janela.msLeft)}` : "só leitura"}
         </span>
