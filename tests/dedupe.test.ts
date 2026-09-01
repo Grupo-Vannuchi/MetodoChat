@@ -9,6 +9,7 @@ import {
   welcomeMessageKey,
   storyReactionKey,
   passoKey,
+  loteKey,
   diaDaChave,
 } from "@/lib/dedupe";
 // A afirmação "o id sobrevive à reordenação" é sobre a COMPOSIÇÃO das duas
@@ -216,8 +217,32 @@ describe("os prefixos não se repetem entre tipos", () => {
       welcomeMessageKey("m", "s", 1),
       storyReactionKey("m"),
       passoKey("a", "c", "0", "d"),
+      loteKey("acc-1", "L1", "c"),
     ].map((k) => k.split(":")[0]);
 
     expect(new Set(prefixos).size).toBe(prefixos.length);
+  });
+});
+
+describe("loteKey", () => {
+  it("mantém o formato: lote, conta, lote e contato", () => {
+    expect(loteKey("acc-1", "L1", "user-9")).toBe("lote:acc-1:L1:user-9");
+  });
+
+  // O ACHADO: a mesma pessoa (mesmo ig_id) pode falar com duas contas
+  // conectadas — migrations/005-contatos-chave-composta.sql é a prova de que
+  // isso acontece de verdade. Sem o accountId na chave, um loteId igual nas
+  // duas contas colidiria no dedupe_key (unique na tabela inteira) e o
+  // segundo envio desapareceria no `on conflict do nothing`.
+  it("o mesmo loteId para a mesma pessoa NÃO colide entre contas diferentes", () => {
+    expect(loteKey("conta-a", "L1", "user-9")).not.toBe(loteKey("conta-b", "L1", "user-9"));
+  });
+
+  it("loteId diferente para a mesma pessoa na mesma conta continua distinto", () => {
+    expect(loteKey("acc-1", "L1", "user-9")).not.toBe(loteKey("acc-1", "L2", "user-9"));
+  });
+
+  it("mesmo lote, pessoas diferentes, não colidem", () => {
+    expect(loteKey("acc-1", "L1", "user-1")).not.toBe(loteKey("acc-1", "L1", "user-2"));
   });
 });

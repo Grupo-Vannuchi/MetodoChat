@@ -83,6 +83,7 @@ import {
   emailAnswerKey,
   storyReactionKey,
   manualReplyKey,
+  loteKey,
   diaDaChave,
 } from "./dedupe";
 
@@ -2131,7 +2132,12 @@ export async function enqueueLote(
 ): Promise<number> {
   if (!contatos.length) return 0;
 
-  const chavesDestePedido = contatos.map((contato) => `lote:${loteId}:${contato}`);
+  // `loteKey` leva o accountId: duas contas conectadas podem falar com a
+  // MESMA pessoa (mesmo ig_id — migrations/005-contatos-chave-composta.sql), e
+  // sem a conta na chave um loteId repetido entre contas colidiria no
+  // `dedupe_key`, que é `unique` na tabela inteira. Ver o comentário de
+  // `loteKey` em lib/dedupe.ts.
+  const chavesDestePedido = contatos.map((contato) => loteKey(accountId, loteId, contato));
 
   await sql().query(
     `update queue set status = 'skipped', error = 'substituido por um lote mais novo'
