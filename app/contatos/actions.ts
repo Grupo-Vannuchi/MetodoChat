@@ -4,7 +4,7 @@ import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { getUserProfile } from "@/lib/ig";
 import { enqueueLote } from "@/lib/engine";
-import { alvoDoLote, filtroDoCampo, urlDeLoteValida } from "@/lib/lote";
+import { alvoDoLote, filtroDoCampo, urlDeLoteValida, validadeDoDia } from "@/lib/lote";
 
 // Preenche nome/@ dos contatos que ficaram salvos só com o número (IGSID),
 // criados antes de o app buscar o perfil na hora do webhook.
@@ -100,8 +100,11 @@ export async function enviarLote(formData: FormData): Promise<void> {
     text: texto,
     url: url || undefined,
     buttonLabel: rotulo || undefined,
-    // Data vazia é "sem prazo", e não data inválida.
-    validoAte: prazo ? new Date(prazo).toISOString() : null,
+    // O DIA ESCOLHIDO VALE INTEIRO, e quem sabe disso é `validadeDoDia`
+    // (lib/lote.ts): `new Date("2026-09-07")` é meia-noite UTC, ou seja 06/09 às
+    // 21:00 em Brasília — o prazo vencia 27 horas antes do que o dono pediu.
+    // Data vazia (e data impossível) continua sendo "sem prazo".
+    validoAte: validadeDoDia(prazo),
   });
 
   revalidatePath("/contatos");

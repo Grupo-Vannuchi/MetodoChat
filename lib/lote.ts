@@ -258,3 +258,85 @@ export function alvoDoLote<T extends { account_id: string; categoria: string | n
   const daConta = linhas.filter((l) => l.account_id === pedido.conta);
   return contatosDoFiltro(daConta, pedido.filtro);
 }
+
+// O FUSO DO PRAZO. Brasília, e pelo mesmo motivo de `diaDaChave` (lib/dedupe.ts):
+// aqui o fuso não é exibição, é COMPORTAMENTO — ele decide quando um envio é
+// cancelado.
+const FUSO_DO_PRAZO = "America/Sao_Paulo";
+
+/**
+ * Quanto o relógio de Brasília está à frente do UTC NESTE instante, em ms.
+ *
+ * Lido do `Intl`, e não cravado em `-3h`, pela mesma razão que `diaDaChave` usa
+ * o `Intl`: o Brasil já teve horário de verão e a discussão volta de tempos em
+ * tempos. Uma constante aqui seria uma hora de erro na próxima vez, num número
+ * que cancela envio.
+ */
+function adiantoDeBrasilia(instante: number): number {
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: FUSO_DO_PRAZO,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(instante));
+  const p: Record<string, string> = {};
+  for (const parte of partes) p[parte.type] = parte.value;
+  // `hour12: false` devolve "24" para meia-noite em algumas versões do ICU, e
+  // `Date.UTC(..., 24, ...)` viraria o dia seguinte.
+  const comoSeFosseUtc = Date.UTC(
+    Number(p.year),
+    Number(p.month) - 1,
+    Number(p.day),
+    Number(p.hour) % 24,
+    Number(p.minute),
+    Number(p.second)
+  );
+  return comoSeFosseUtc - instante;
+}
+
+/**
+ * O instante em que um lote "válido até o dia X" para de valer — ou `null`.
+ *
+ * O DIA ESCOLHIDO VALE INTEIRO. `<input type="date">` entrega `"2026-09-07"`, e
+ * `new Date("2026-09-07")` lê isso como meia-noite UTC — 06/09 às 21:00 em São
+ * Paulo. O dono escolhia "vale até domingo dia 7" e a mensagem parava de valer
+ * no sábado às 9 da noite: VINTE E SETE HORAS antes do que ele pediu, e sem
+ * nada na tela dizendo isso. O valor devolvido aqui é a meia-noite do dia
+ * SEGUINTE em Brasília, que é o primeiro instante em que "o dia 7" acabou.
+ *
+ * `null` PARA VAZIO E PARA LIXO, e os dois querem dizer a mesma coisa a
+ * `loteExpirou`: sem prazo, nunca vence. Vazio é o pedido legítimo do conteúdo
+ * que não envelhece; lixo só chega por pedido montado à mão, e a alternativa
+ * seria pior de duas formas — `new Date("domingo").toISOString()` LANÇA
+ * (RangeError) e derrubava a ação inteira, e tratar lixo como "vencido"
+ * cancelaria o envio em silêncio, que é a falha muda que este produto passou
+ * semanas fechando.
+ */
+export function validadeDoDia(dia: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dia.trim());
+  if (!m) return null;
+  const [ano, mes, diaDoMes] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  // `Date.UTC` não recusa dia 30 de fevereiro: ele TRANSBORDA para 2 de março.
+  // Sem esta conferência, uma data que não existe viraria um prazo de verdade,
+  // alguns dias depois do que quem a escreveu imaginava.
+  const meiaNoiteUtc = Date.UTC(ano, mes - 1, diaDoMes);
+  const conferencia = new Date(meiaNoiteUtc);
+  if (
+    conferencia.getUTCFullYear() !== ano ||
+    conferencia.getUTCMonth() !== mes - 1 ||
+    conferencia.getUTCDate() !== diaDoMes
+  ) {
+    return null;
+  }
+  // A meia-noite do dia SEGUINTE. `Date.UTC` acerta a virada de mês e de ano
+  // sozinho (dia 31 de setembro é 1º de outubro).
+  const meiaNoiteDoDiaSeguinte = Date.UTC(ano, mes - 1, diaDoMes + 1);
+  // O adianto é medido no palpite e aplicado a ele: as duas leituras caem no
+  // mesmo lado de qualquer transição de fuso, porque estão a menos de um dia
+  // uma da outra e nenhuma transição acontece perto da meia-noite.
+  return new Date(meiaNoiteDoDiaSeguinte - adiantoDeBrasilia(meiaNoiteDoDiaSeguinte)).toISOString();
+}

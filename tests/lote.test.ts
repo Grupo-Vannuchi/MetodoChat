@@ -8,6 +8,7 @@ import {
   alvoDoLote,
   campoDoFiltro,
   filtroDoCampo,
+  validadeDoDia,
 } from "@/lib/lote";
 
 // ============================================================
@@ -324,5 +325,63 @@ describe("alvoDoLote", () => {
         confirmado: true,
       })
     ).toEqual([]);
+  });
+});
+
+// ============================================================
+// O PRAZO QUE O DONO ESCOLHE, e o fuso que ele não escolhe.
+//
+// `<input type="date">` entrega "2026-09-07", e `new Date("2026-09-07")` lê isso
+// como MEIA-NOITE UTC — que é 06/09 às 21:00 em São Paulo. O dono escolhia "vale
+// até domingo dia 7" e a mensagem parava de valer no SÁBADO às 9 da noite: 27
+// horas antes do que ele pediu.
+//
+// É o mesmo fuso que `diaDaChave` (lib/dedupe.ts) já resolve, pela mesma razão:
+// aqui o fuso não é exibição, é COMPORTAMENTO — ele decide quando um envio é
+// cancelado.
+// ============================================================
+describe("validadeDoDia", () => {
+  it("o dia escolhido vale INTEIRO, até a meia-noite de Brasília", () => {
+    // 00:00 do dia 8 em São Paulo = 03:00Z do dia 8.
+    expect(validadeDoDia("2026-09-07")).toBe("2026-09-08T03:00:00.000Z");
+  });
+
+  // O DEFEITO INTEIRO, em um caso: no sábado às 21h01 (Brasília), um lote que
+  // vale "até domingo dia 7" TEM de continuar valendo. Com `new Date(prazo)`
+  // ele já estava vencido.
+  it("no sábado à noite, o prazo de domingo ainda não venceu", () => {
+    const sabadoDe21h01 = Date.parse("2026-09-06T21:01:00-03:00");
+    expect(loteExpirou(validadeDoDia("2026-09-07"), sabadoDe21h01)).toBe(false);
+    // A prova de que o caso mede alguma coisa: o valor ANTIGO já tinha vencido
+    // nesse mesmo instante.
+    expect(loteExpirou(new Date("2026-09-07").toISOString(), sabadoDe21h01)).toBe(true);
+  });
+
+  it("no último minuto do dia escolhido ainda vale; no dia seguinte, não", () => {
+    expect(loteExpirou(validadeDoDia("2026-09-07"), Date.parse("2026-09-07T23:59:00-03:00"))).toBe(
+      false
+    );
+    expect(loteExpirou(validadeDoDia("2026-09-07"), Date.parse("2026-09-08T00:01:00-03:00"))).toBe(
+      true
+    );
+  });
+
+  it("a virada do mês e a do ano não estouram", () => {
+    expect(validadeDoDia("2026-09-30")).toBe("2026-10-01T03:00:00.000Z");
+    expect(validadeDoDia("2026-12-31")).toBe("2027-01-01T03:00:00.000Z");
+  });
+
+  // CAMPO VAZIO É "SEM PRAZO", E LIXO TAMBÉM. `new Date("lixo").toISOString()`
+  // LANÇA (RangeError), e um POST montado à mão derrubava a ação inteira.
+  // `null` desce para `loteExpirou`, que já trata "sem prazo" como o que nunca
+  // vence — a mesma escolha, pelo mesmo motivo: cancelar envio em silêncio é a
+  // falha muda que este produto passou semanas fechando.
+  it("vazio, lixo e data que não existe viram “sem prazo”, e não estouram", () => {
+    expect(validadeDoDia("")).toBe(null);
+    expect(validadeDoDia("   ")).toBe(null);
+    expect(validadeDoDia("domingo")).toBe(null);
+    expect(validadeDoDia("07/09/2026")).toBe(null);
+    expect(validadeDoDia("2026-13-01")).toBe(null);
+    expect(validadeDoDia("2026-02-30")).toBe(null);
   });
 });
