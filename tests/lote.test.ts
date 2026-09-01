@@ -5,6 +5,9 @@ import {
   loteExpirou,
   payloadDoLote,
   urlDeLoteValida,
+  alvoDoLote,
+  campoDoFiltro,
+  filtroDoCampo,
 } from "@/lib/lote";
 
 // ============================================================
@@ -194,5 +197,132 @@ describe("urlDeLoteValida", () => {
 
   it("recusa protocolo que não é http nem https", () => {
     expect(urlDeLoteValida("javascript:alert(1)")).toBe(false);
+  });
+});
+
+// ============================================================
+// QUEM O PEDIDO ALCANÇA — a função que decide, agora fora da ação.
+//
+// As três coisas que a ação de `app/contatos/actions.ts` decidia sozinha
+// viraram uma função só, e cada uma delas passava por lint, typecheck, 938
+// testes puros e 70 de integração sem deixar uma linha vermelha:
+//
+//   1. O RECORTE. `?categoria=` ausente ("tudo") e `?categoria=` vazio ("sem
+//      categoria") chegavam ao formulário pelo mesmo `<input type="hidden">`, e
+//      um campo escondido SEMPRE existe no DOM: as duas viravam `""`, e a ação
+//      as reconstruía como "tudo". A tela prometia 16 pessoas e a ação
+//      enfileirava para 126.
+//   2. A CONFIRMAÇÃO. Apagá-la da ação não deixava nada vermelho — sobrava só o
+//      `required` do navegador, que um POST direto ignora.
+//   3. A CONTA. Tirar o `account_id` do `where` não deixava nada vermelho.
+//
+// Elas moram juntas porque a resposta é uma só ("estas pessoas, ou ninguém") e
+// porque a lista que sai daqui é a que vira mensagem para gente de verdade.
+// ============================================================
+describe("filtroDoCampo e campoDoFiltro", () => {
+  it("o que a tela escreve, a ação lê de volta igual", () => {
+    for (const filtro of [
+      { tipo: "tudo" } as const,
+      { tipo: "uma", nome: null } as const,
+      { tipo: "uma", nome: "aluno" } as const,
+    ]) {
+      expect(filtroDoCampo(campoDoFiltro(filtro))).toEqual(filtro);
+    }
+  });
+
+  // O DEFEITO INTEIRO, num caso: "tudo" e "sem categoria" TÊM de sair deste
+  // par com formas diferentes. Enquanto os dois viajavam como `""`, a ficha
+  // "sem categoria" mandava para a conta inteira.
+  it("“tudo” e “sem categoria” não têm a mesma forma no campo", () => {
+    expect(campoDoFiltro({ tipo: "tudo" })).not.toBe(
+      campoDoFiltro({ tipo: "uma", nome: null })
+    );
+  });
+
+  it("o nome da categoria chega normalizado, como na URL", () => {
+    expect(filtroDoCampo("uma:  Aluno ")).toEqual({ tipo: "uma", nome: "aluno" });
+  });
+
+  // CAMPO QUE NÃO SE RECONHECE É RECUSA, E NÃO PALPITE. Um POST montado à mão,
+  // ou um campo que alguém renomeou, não pode cair em "tudo" — é o balde de
+  // maior alcance do produto.
+  it("campo ausente, vazio ou estranho não vira filtro nenhum", () => {
+    expect(filtroDoCampo(null)).toBe(null);
+    expect(filtroDoCampo(undefined)).toBe(null);
+    expect(filtroDoCampo("")).toBe(null);
+    expect(filtroDoCampo("tudo:")).toBe(null);
+    expect(filtroDoCampo("aluno")).toBe(null);
+    expect(filtroDoCampo(7)).toBe(null);
+  });
+});
+
+describe("alvoDoLote", () => {
+  const LINHAS = [
+    { ig_id: "1", account_id: "C1", categoria: "aluno" },
+    { ig_id: "2", account_id: "C1", categoria: "interessado" },
+    { ig_id: "3", account_id: "C1", categoria: null },
+  ];
+
+  it("sem filtro de categoria, alcança a conta inteira", () => {
+    const alvo = alvoDoLote(LINHAS, {
+      conta: "C1",
+      filtro: { tipo: "tudo" },
+      confirmado: true,
+    });
+    expect(alvo.map((c) => c.ig_id)).toEqual(["1", "2", "3"]);
+  });
+
+  // O CASO DO ACHADO CRÍTICO, com os números medidos: a ficha "sem categoria"
+  // alcança QUEM NÃO TEM CATEGORIA, e não a conta inteira.
+  it("a ficha “sem categoria” alcança só quem não tem categoria", () => {
+    const alvo = alvoDoLote(LINHAS, {
+      conta: "C1",
+      filtro: { tipo: "uma", nome: null },
+      confirmado: true,
+    });
+    expect(alvo.map((c) => c.ig_id)).toEqual(["3"]);
+  });
+
+  it("uma categoria alcança só ela", () => {
+    const alvo = alvoDoLote(LINHAS, {
+      conta: "C1",
+      filtro: { tipo: "uma", nome: "aluno" },
+      confirmado: true,
+    });
+    expect(alvo.map((c) => c.ig_id)).toEqual(["1"]);
+  });
+
+  // A ÚLTIMA COISA ENTRE UM ENGANO E QUARENTA PESSOAS. O `required` do
+  // navegador não é defesa: um POST direto não passa por ele.
+  it("sem a confirmação marcada, não alcança NINGUÉM", () => {
+    expect(
+      alvoDoLote(LINHAS, { conta: "C1", filtro: { tipo: "tudo" }, confirmado: false })
+    ).toEqual([]);
+  });
+
+  // A CONTA VEM DO COOKIE, e a linha do banco tem de casar com ela. Se a
+  // consulta parar de filtrar por conta, esta função ainda para o envio.
+  it("linha de outra conta não entra no alvo", () => {
+    const alvo = alvoDoLote(
+      [...LINHAS, { ig_id: "9", account_id: "C2", categoria: "aluno" }],
+      { conta: "C1", filtro: { tipo: "tudo" }, confirmado: true }
+    );
+    expect(alvo.map((c) => c.ig_id)).toEqual(["1", "2", "3"]);
+  });
+
+  it("filtro que não se reconheceu não alcança ninguém", () => {
+    expect(
+      alvoDoLote(LINHAS, { conta: "C1", filtro: null, confirmado: true })
+    ).toEqual([]);
+  });
+
+  it("filtro que não casa ninguém devolve vazio em vez da conta inteira", () => {
+    expect(
+      alvoDoLote(LINHAS, {
+        conta: "C1",
+        filtro: { tipo: "uma", nome: "turma de setembro" },
+        confirmado: true,
+      })
+    ).toEqual([]);
   });
 });

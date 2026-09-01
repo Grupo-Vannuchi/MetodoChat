@@ -4,8 +4,7 @@ import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { getUserProfile } from "@/lib/ig";
 import { enqueueLote } from "@/lib/engine";
-import { contatosDoFiltro, filtroDaUrl } from "@/lib/categorias";
-import { urlDeLoteValida } from "@/lib/lote";
+import { alvoDoLote, filtroDoCampo, urlDeLoteValida } from "@/lib/lote";
 
 // Preenche nome/@ dos contatos que ficaram salvos só com o número (IGSID),
 // criados antes de o app buscar o perfil na hora do webhook.
@@ -41,17 +40,20 @@ export async function atualizarPerfis(): Promise<void> {
 /**
  * Enfileira um lote para os contatos do filtro atual.
  *
- * A CONFIRMAÇÃO É A ÚLTIMA COISA entre um engano e quarenta pessoas, e por isso
- * ela é um campo do formulário e não um `confirm()` do navegador: sem o campo
- * marcado, esta função não faz nada.
+ * QUEM DECIDE QUEM RECEBE É `alvoDoLote` (lib/lote.ts), E NÃO ESTA FUNÇÃO. As
+ * três perguntas que ela responde — o recorte, a confirmação e a conta — moravam
+ * aqui soltas, e as três eram invisíveis para os portões: apagar cada uma
+ * passava por lint, typecheck, 938 testes puros e 70 de integração sem uma linha
+ * vermelha. Uma delas mandava a ficha "sem categoria" para a conta INTEIRA.
+ * Agora elas têm caso em `tests/lote.test.ts`.
  *
- * O `account_id` no `where` vem do cookie, nunca do formulário — o mesmo
- * cuidado de `definirCategoria`.
+ * O `account_id` do `where` continua vindo do cookie, nunca do formulário — o
+ * mesmo cuidado de `definirCategoria` —, e `alvoDoLote` o confere DE NOVO sobre
+ * a linha que voltou.
  */
 export async function enviarLote(formData: FormData): Promise<void> {
   const account = await getSelectedAccount();
   if (!account) return;
-  if (formData.get("confirmado") !== "1") return;
 
   const texto = String(formData.get("texto") ?? "").trim();
   if (!texto) return;
@@ -65,19 +67,33 @@ export async function enviarLote(formData: FormData): Promise<void> {
 
   const rotulo = String(formData.get("rotulo") ?? "").trim();
   const prazo = String(formData.get("valido_ate") ?? "").trim();
-  const filtro = filtroDaUrl(String(formData.get("categoria") ?? "") || undefined);
+  // O CAMPO NÃO CARREGA MAIS O VALOR CRU DA URL: `?categoria=` ausente e
+  // `?categoria=` vazio são pedidos DIFERENTES, e um `<input type="hidden">`
+  // sempre existe no DOM — os dois chegavam aqui como `""`. Ver `campoDoFiltro`
+  // (lib/lote.ts) para a medição.
+  const filtro = filtroDoCampo(formData.get("categoria"));
 
   const linhas = (await sql().query(
-    `select c.ig_id, c.categoria, c.last_reply_at,
+    `select c.ig_id, c.account_id, c.categoria, c.last_reply_at,
             (select count(*)::int from events e
               where e.account_id = c.account_id
                 and e.payload->'sender'->>'id' = c.ig_id
                 and e.type in ('message','story_reply','abertura','quick_reply')) as recebidas
        from contacts c where c.account_id = $1`,
     [account.ig_user_id]
-  )) as { ig_id: string; categoria: string | null; last_reply_at: Date | null; recebidas: number }[];
+  )) as {
+    ig_id: string;
+    account_id: string;
+    categoria: string | null;
+    last_reply_at: Date | null;
+    recebidas: number;
+  }[];
 
-  const alvo = contatosDoFiltro(linhas, filtro);
+  const alvo = alvoDoLote(linhas, {
+    conta: account.ig_user_id,
+    filtro,
+    confirmado: formData.get("confirmado") === "1",
+  });
   if (!alvo.length) return;
 
   await enqueueLote(account.ig_user_id, crypto.randomUUID(), alvo.map((c) => c.ig_id), {

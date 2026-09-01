@@ -1,3 +1,4 @@
+import { contatosDoFiltro, normalizarCategoria, type FiltroDeCategoria } from "./categorias";
 import { windowState } from "./inbox-window";
 
 // O ENVIO EM LOTE, e as decisões dele fora do JSX e fora do motor.
@@ -158,4 +159,102 @@ export function loteExpirou(validoAte: string | null, agora: number = Date.now()
   const t = new Date(validoAte).getTime();
   if (!Number.isFinite(t)) return false;
   return agora > t;
+}
+
+// ============================================================
+// QUEM O PEDIDO ALCANÇA.
+//
+// As três decisões abaixo viviam soltas em `app/contatos/actions.ts`, e as três
+// eram invisíveis para os portões: apagar cada uma delas passava por lint, por
+// typecheck, pelos 938 testes puros e pelos 70 de integração sem uma linha
+// vermelha. Elas são a última coisa entre um engano e dezenas de mensagens
+// saindo do perfil de verdade, então moram aqui, juntas, com caso para cada
+// saída em `tests/lote.test.ts`.
+// ============================================================
+
+/**
+ * O RECORTE, ATRAVESSANDO O FORMULÁRIO.
+ *
+ * `filtroDaUrl` (lib/categorias.ts) distingue `?categoria=` AUSENTE ("tudo") de
+ * `?categoria=` PRESENTE E VAZIO ("sem categoria") PELA PRESENÇA do parâmetro —
+ * e essa distinção não sobrevive a um `<input type="hidden">`, porque campo
+ * escondido SEMPRE existe no DOM: `FormData.get` nunca devolve `null`, e os dois
+ * pedidos chegavam à ação como `""`.
+ *
+ * MEDIDO NA REVISÃO FINAL (01/09/2026), com as funções de verdade:
+ *
+ *     /contatos?categoria=   (a ficha "sem categoria")
+ *       tela promete [3]   |   acao enfileira [1,2,3]
+ *
+ * O dono clicava na ficha "sem categoria" — um clique, ela está sempre na tela
+ * —, lia "Mandar mensagem para 16 pessoas", marcava "Confirmo que quero mandar
+ * para estas 16" e confirmava. A ação enfileirava para as 126, "aluno" e
+ * "interessado" inclusive.
+ *
+ * POR ISSO O CAMPO NÃO CARREGA MAIS O VALOR CRU: ele carrega uma forma que
+ * distingue os dois pedidos POR SI, sem depender de o campo existir ou não. É a
+ * mesma decisão de `filtroDaUrl`, tomada de novo no único lugar em que a URL não
+ * pode ser a fonte.
+ */
+export function campoDoFiltro(filtro: FiltroDeCategoria): string {
+  return filtro.tipo === "tudo" ? "tudo" : `uma:${filtro.nome ?? ""}`;
+}
+
+/**
+ * O caminho de volta — e `null` quando o campo não se reconhece.
+ *
+ * CAMPO ESTRANHO É RECUSA, E NUNCA PALPITE. Um POST montado à mão, um campo
+ * renomeado, um formulário de uma versão antiga: nada disso pode cair em
+ * "tudo", que é o balde de maior alcance do produto. `null` desce até
+ * `alvoDoLote` e vira "ninguém".
+ *
+ * O nome passa por `normalizarCategoria` pela mesma razão de `filtroDaUrl`:
+ * `Aluno` e `aluno ` são a mesma categoria, e o filtro tem de casar a coluna já
+ * normalizada.
+ */
+export function filtroDoCampo(bruto: unknown): FiltroDeCategoria | null {
+  if (typeof bruto !== "string") return null;
+  if (bruto === "tudo") return { tipo: "tudo" };
+  if (bruto.startsWith("uma:")) {
+    return { tipo: "uma", nome: normalizarCategoria(bruto.slice(4)) };
+  }
+  return null;
+}
+
+/** O que a ação de envio pergunta: por conta de quem, que recorte, confirmado. */
+export type PedidoDoLote = {
+  /** O `ig_user_id` da conta selecionada — do COOKIE, nunca do formulário. */
+  conta: string;
+  /** `null` é "não deu para entender o recorte", e alcança ninguém. */
+  filtro: FiltroDeCategoria | null;
+  confirmado: boolean;
+};
+
+/**
+ * As linhas que vão receber — ou nenhuma.
+ *
+ * A ASSINATURA TEM TRÊS PERGUNTAS E NÃO UMA, e isso é deliberado: as três eram
+ * defeitos plantados que atravessavam todos os portões, e cada uma sozinha
+ * significa mandar mensagem para gente que não devia recebê-la. Juntas, elas
+ * respondem uma coisa só — "estas pessoas, ou ninguém" —, e o chamador não tem
+ * como responder metade.
+ *
+ * A CONTA É CONFERIDA AQUI TAMBÉM, e não só no `where` da consulta. O `where`
+ * continua onde está, porque carregar a conta inteira de outra pessoa para
+ * descartá-la depois seria trabalho à toa; mas ele sozinho não deixava nada
+ * vermelho ao ser apagado. Duas linhas da mesma pessoa em duas contas
+ * conectadas é caso REAL neste produto — é por isso que a chave de `contacts` é
+ * composta (`migrations/005-contatos-chave-composta.sql`).
+ *
+ * Genérica na linha pelo mesmo motivo de `contatosDoFiltro`: a decisão é sobre
+ * conta e categoria, e mais nada.
+ */
+export function alvoDoLote<T extends { account_id: string; categoria: string | null }>(
+  linhas: T[],
+  pedido: PedidoDoLote
+): T[] {
+  if (!pedido.confirmado) return [];
+  if (!pedido.filtro) return [];
+  const daConta = linhas.filter((l) => l.account_id === pedido.conta);
+  return contatosDoFiltro(daConta, pedido.filtro);
 }

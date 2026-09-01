@@ -11,7 +11,7 @@ import {
   resumoDasCategorias,
   casoDaListaDeEmail,
 } from "@/lib/categorias";
-import { destinoDoLote } from "@/lib/lote";
+import { campoDoFiltro, destinoDoLote } from "@/lib/lote";
 import { atualizarPerfis, enviarLote } from "./actions";
 import {
   card,
@@ -271,7 +271,15 @@ export default async function ContatosPage({
                   palavra "provavelmente" fica na tela por isso. Ele NÃO é subtraído
                   dos outros dois: quem é improvável continua dentro de "esperam". */}
               <form action={enviarLote} className={`space-y-3 p-4 ${subtle}`}>
-                <input type="hidden" name="categoria" value={sp.categoria ?? ""} />
+                {/* O CAMPO CARREGA A FORMA DO FILTRO, E NÃO O VALOR CRU DA URL.
+                    Com `sp.categoria ?? ""`, a ficha "sem categoria"
+                    (`?categoria=` vazio) e "todos" (`?categoria=` ausente)
+                    chegavam à ação como a MESMA string vazia — campo escondido
+                    sempre existe no DOM, então a presença do parâmetro, que é
+                    quem distingue os dois pedidos, se perdia aqui. A tela
+                    prometia 16 e a ação enfileirava para 126. Ver `campoDoFiltro`
+                    (lib/lote.ts). */}
+                <input type="hidden" name="categoria" value={campoDoFiltro(filtro)} />
                 <p className="text-sm font-medium">
                   Mandar mensagem para {visiveis.length}{" "}
                   {visiveis.length === 1 ? "pessoa" : "pessoas"}
