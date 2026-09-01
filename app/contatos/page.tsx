@@ -31,6 +31,12 @@ import { IconMail, IconUsers } from "../icons";
 import Avatar from "../avatar";
 
 export const dynamic = "force-dynamic";
+// O TETO VALE PARA AS AÇÕES DESTA PÁGINA, e `enviarLote` drena a fila antes de
+// responder: uma drenagem é até 15 envios com 600 ms entre eles, ~9 segundos.
+// O padrão da plataforma é curto demais para isso, e um corte no meio deixaria
+// o dono sem saber quantos saíram. Mesmo teto das rotas que já drenam
+// (app/api/queue/tick, app/api/cron/daily).
+export const maxDuration = 60;
 
 type Row = Contact & { automation_name: string | null; recebidas: number };
 

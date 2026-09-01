@@ -4,6 +4,7 @@ import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { getUserProfile } from "@/lib/ig";
 import { enqueueLote } from "@/lib/engine";
+import { drainQueue } from "@/lib/queue-drain";
 import { alvoDoLote, filtroDoCampo, urlDeLoteValida, validadeDoDia } from "@/lib/lote";
 
 // Preenche nome/@ dos contatos que ficaram salvos só com o número (IGSID),
@@ -106,6 +107,31 @@ export async function enviarLote(formData: FormData): Promise<void> {
     // Data vazia (e data impossível) continua sendo "sem prazo".
     validoAte: validadeDoDia(prazo),
   });
+
+  // ENFILEIRAR NÃO ENVIA, e sem esta linha o lote não saía AGORA de jeito
+  // nenhum. Os cinco chamadores de `drainQueue` eram o webhook, o tique do
+  // QStash, o cron das 09:00 e `sendReply` — o lote não estava entre eles —, e
+  // `enqueue` (lib/engine.ts) só pede um tique ao QStash quando o atraso passa
+  // de 15 segundos: o item de lote nasce com atraso ZERO e nunca agendava nada.
+  //
+  // A tela prometia "3 recebem agora" e eles recebiam quando chegasse um
+  // webhook de fora, ou às 09:00 do dia seguinte. Se a janela de 24h fechasse
+  // nesse meio-tempo, os três viravam `guardado` sem ninguém ter decidido isso.
+  //
+  // ANTES DO `revalidatePath`, E NÃO DEPOIS — é o que o comentário de
+  // `sendReply` (app/conversas/[id]/actions.ts) explica com dois casos de
+  // produção: revalidar antes de o envio terminar faz a tela voltar dizendo
+  // "enviando…", verdade naquele instante e mentira dois segundos depois.
+  //
+  // UMA DRENAGEM É NO MÁXIMO `BATCH_SIZE` (15) ITENS, ~9 segundos de ponta a
+  // ponta; o resto do lote sai pelo tique que a própria drenagem agenda. Quem
+  // clicou espera pelo primeiro punhado, e não pelos 126.
+  try {
+    await drainQueue();
+  } catch {
+    // A trava atômica garante que o próximo dreno recupera. Os itens ficam
+    // 'pending' e a tela de Envios mostra isso — que aqui é verdade.
+  }
 
   revalidatePath("/contatos");
   revalidatePath("/eventos");
