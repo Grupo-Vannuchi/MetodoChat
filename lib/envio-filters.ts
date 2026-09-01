@@ -34,7 +34,8 @@ export function origemDoKind(kind: string): OrigemKey {
 // alta: o que deu certo primeiro, o que precisa de atenção por último.
 //
 // A lista tem que cobrir exatamente o `check (status in (...))` da tabela queue
-// (lib/db.ts). Os rótulos de selo NÃO moram aqui — vêm de statusBadge(), para não
+// (`migrations/000-esquema-base.sql`, alargado por
+// `migrations/009-fila-estado-guardado.sql`). Os rótulos de selo NÃO moram aqui — vêm de statusBadge(), para não
 // existirem dois lugares dizendo a mesma coisa. O que mora aqui são as palavras
 // que entram numa frase contada ("3 na fila", "1 não saiu"), que são de outro
 // registro e não servem como selo.
@@ -42,6 +43,16 @@ export const SITUACOES = [
   { key: "sent", um: "entregue", muitos: "entregues" },
   { key: "sending", um: "saindo", muitos: "saindo" },
   { key: "pending", um: "na fila", muitos: "na fila" },
+  // O ESTADO DO ENVIO EM LOTE QUE ESPERA A PESSOA VOLTAR A FALAR
+  // (`migrations/009-fila-estado-guardado.sql`). Ele entra ENTRE "na fila" e
+  // "não enviada" porque é onde ele está na história: ainda vai sair, mas não
+  // por conta do relógio — depende de a pessoa falar.
+  //
+  // ELE PRECISA ESTAR AQUI, E NÃO É enfeite: sem esta linha, um lote de 111
+  // guardados cairia em "111 em outra situação" no resumo, e o filtro não teria
+  // como recortá-lo — `parseEnvioFilters` recusa o que não está nesta lista, e
+  // `envios_situacao=guardado` na URL viraria "sem filtro" calado.
+  { key: "guardado", um: "guardada", muitos: "guardadas" },
   { key: "skipped", um: "não enviada", muitos: "não enviadas" },
   { key: "failed", um: "não saiu", muitos: "não saíram" },
 ] as const;

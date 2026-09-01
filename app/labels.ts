@@ -273,6 +273,14 @@ const STATUS: Record<string, Badge> = {
     label: "Não enviada",
     className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
   },
+  // O envio em lote que espera a pessoa voltar a falar
+  // (`migrations/009-fila-estado-guardado.sql`). Cor própria, e não a de
+  // `pending`: as duas são "ainda não saiu", mas só uma delas sai sozinha — e
+  // era essa confusão que fazia o dono ler "Na fila" e concluir que travou.
+  guardado: {
+    label: "Guardada",
+    className: "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-400",
+  },
 };
 
 export function statusBadge(status: string): Badge {

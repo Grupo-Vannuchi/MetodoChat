@@ -12,8 +12,20 @@
 // elegível e é o mais antigo. Com muita gente esperando, todo dreno pegaria os
 // mais velhos, veria a janela fechada, os devolveria à fila — e nunca chegaria
 // nas mensagens de verdade. O produto pararia de responder, e a causa estaria
-// escondida atrás de um recurso novo. O caso "vinte itens guardados" mede
-// exatamente isto: mede que não é assim, e vermelho se voltar a ser.
+// escondida atrás de um recurso novo.
+//
+// A SEGUNDA VERSÃO PÔS O ITEM PARA DORMIR UM DIA, e o caso que media isso tinha
+// VINTE itens — que é menos do que ele precisava ter. `BATCH_SIZE` é 15: com
+// vinte, sobram cinco depois da primeira drenagem, o item vivo entra junto com
+// eles e sai. O caso passava contra qualquer desenho. E dormir um dia só ADIAVA
+// a fome: passado o dia, os quarenta voltavam para a mesma fila, e o ciclo se
+// repetia todo dia.
+//
+// A VERSÃO DE HOJE TIRA O ITEM DA FILA DE VERDADE: ele vai para um estado
+// próprio, `guardado` (`migrations/009-fila-estado-guardado.sql`), que a
+// seleção do dreno não enxerga — hoje nem amanhã. O caso "quarenta itens
+// guardados... hoje nem amanhã" mede as duas metades, e a segunda é a que
+// distingue os dois desenhos.
 //
 // -----------------------------------------------------------------------------
 // A FORMA É A DE `portao-link.integracao.ts` — leia aquele cabeçalho primeiro
@@ -37,7 +49,7 @@
 //
 // `abrirJanela` chama `engine.handleMessagingEvent` com uma mensagem de texto —
 // o mesmo caminho que a Meta aciona de verdade. Isso importa porque o
-// DESPERTAR do item de lote (o `update queue set not_before = now()`) mora
+// DESPERTAR do item de lote (o `update queue set status = 'pending'`) mora
 // DENTRO de `upsertContact` (lib/engine.ts), uma função que este arquivo não
 // importa e não pode chamar direto. Se `abrirJanela` reescrevesse a lógica do
 // despertar aqui — em vez de provocá-la —, o Plantio 3 (apagar aquele `update`
@@ -76,6 +88,12 @@ const TOKEN = "token-de-teste-que-nao-vale-nada";
 const meta = {
   enviadas: [] as { destinatario: string; texto: string; caminho: string }[],
   desconhecidos: [] as string[],
+  // QUEM A META FALSA RECUSA COM 500, e por que ela precisa saber recusar: o
+  // caso do backoff de erro só existe se houver erro. 500 e não 4xx de
+  // propósito — `drainQueue` trata 4xx como permanente e mata o item em
+  // `failed`, e o que este arquivo mede é justamente o item que CONTINUA
+  // tentando.
+  falharCom500: new Set<string>(),
 };
 
 let servidor: Server;
@@ -99,8 +117,14 @@ beforeAll(async () => {
           recipient: { id?: string };
           message: { text?: string };
         };
+        const destinatario = corpo.recipient.id ?? "";
+        if (meta.falharCom500.has(destinatario)) {
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: { message: "a Meta ficou instavel" } }));
+          return;
+        }
         meta.enviadas.push({
-          destinatario: corpo.recipient.id ?? "",
+          destinatario,
           texto: corpo.message.text ?? "",
           caminho: u.pathname,
         });
@@ -187,6 +211,30 @@ async function drenar() {
   return dreno.drainQueue();
 }
 
+// O DIA SEGUINTE CHEGA.
+//
+// É o único pedaço deste arquivo que mexe no banco à mão, e ele existe porque é
+// a única parte da fome de fila que o relógio não deixa medir de verdade: o
+// item guardado dormia 24h e ACORDAVA, e é a REPETIÇÃO — "e o ciclo se repete
+// todo dia" — que separa "guardar tira o item da disputa por um dia" de
+// "guardar tira o item da disputa". Sem isto, os dois desenhos ficam
+// indistinguíveis num teste que roda em vinte segundos.
+//
+// ELE NÃO MUDA STATUS NENHUM, de propósito: só adianta `not_before` de quem
+// está dormindo. Contra o desenho de hoje isso acorda os quarenta; contra o
+// desenho novo ele casa ZERO linhas, porque item guardado não dorme — ele está
+// noutro estado, e `not_before` deixou de ser o que o segura.
+async function passarUmDia() {
+  await banco
+    .db()
+    .sql()
+    .query(
+      `update queue set not_before = now() - interval '1 minute'
+        where account_id = $1 and kind = 'dm_lote' and not_before > now()`,
+      [CONTA]
+    );
+}
+
 async function estadoDoItem(igId: string): Promise<string> {
   const linhas = (await banco
     .db()
@@ -224,6 +272,21 @@ async function todosOsItens(
     )) as { status: string; payload: Record<string, unknown>; error: string | null }[];
 }
 
+// O item está esperando o backoff passar? É a pergunta que o dreno faz
+// (`status = 'pending' and not_before <= now()`), escrita do lado de fora.
+async function esperandoOBackoff(igId: string): Promise<boolean> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(
+      `select (not_before > now()) as no_futuro from queue
+        where account_id = $1 and contact_ig_id = $2
+        order by created_at desc, id desc limit 1`,
+      [CONTA, igId]
+    )) as { no_futuro: boolean }[];
+  return linhas[0].no_futuro;
+}
+
 async function enviadasPara(igId: string): Promise<number> {
   const linhas = (await banco
     .db()
@@ -248,9 +311,11 @@ describe("o item de lote espera a janela em vez de ser descartado", () => {
       validoAte: null,
     });
 
-    // Primeiro dreno: a janela está fechada.
+    // Primeiro dreno: a janela está fechada. O item sai da fila e vai para o
+    // estado próprio — `guardado`, e não `pending`
+    // (`migrations/009-fila-estado-guardado.sql`).
     await drenar();
-    expect(await estadoDoItem(CONTATO)).toBe("pending");
+    expect(await estadoDoItem(CONTATO)).toBe("guardado");
     expect(await enviadasPara(CONTATO)).toBe(0);
 
     // A pessoa volta a falar — é isto que o webhook faz antes de drenar.
@@ -319,25 +384,90 @@ describe("o item de lote espera a janela em vez de ser descartado", () => {
     expect(await enviadasPara(CONTATO)).toBe(0);
   });
 
-  // O CASO QUE A PRIMEIRA VERSÃO DESTE PLANO NÃO TINHA, e ele existe porque o
-  // defeito era meu: itens guardados NÃO PODEM sufocar a fila. Sem o
-  // `retryInSeconds` de um dia, itens de lote esperando ocupariam os lugares de
-  // todo dreno, e a resposta de verdade nunca sairia.
-  test("vinte itens guardados nao impedem uma mensagem de verdade de sair", async () => {
+  // A FOME DE FILA, E O NÚMERO AGORA É QUARENTA. Os dois números têm porquê.
+  //
+  // ELE ERA VINTE, E VINTE NÃO MEDIA. `BATCH_SIZE` é 15: com vinte, a primeira
+  // drenagem tira quinze de circulação e sobram CINCO — o item vivo entra na
+  // segunda drenagem junto com esses cinco e sai. O caso passava contra
+  // qualquer desenho, inclusive contra o que ele existe para reprovar. A
+  // fronteira exata é TRINTA: com trinta, sobram quinze depois da primeira
+  // drenagem, os quinze são mais velhos que o item vivo, e ele fica de fora.
+  // Quarenta é trinta com folga, e é o número do achado.
+  //
+  // E O CASO GANHOU A METADE QUE FALTAVA — o dia seguinte. Guardar quarenta
+  // custa três drenagens (15 + 15 + 10), e ISSO O REDESENHO NÃO MUDA: os itens
+  // nascem `pending` e alguém tem de olhá-los uma vez. O que ele muda é que
+  // essas três são as ÚNICAS. No desenho antigo o item guardado dormia um dia e
+  // voltava para a mesma fila, e amanhã as três drenagens aconteciam de novo, e
+  // depois de amanhã também — a fome de fila não era um susto de estreia, era
+  // uma assinatura mensal. Por isso a segunda metade do caso é uma mensagem
+  // viva DEPOIS de o dia virar.
+  test("quarenta itens guardados nao impedem uma mensagem de verdade de sair, hoje nem amanha", async () => {
     const ESPERANDO = Array.from(
-      { length: 20 },
+      { length: 40 },
       (_, i) => `90000000000002${String(i).padStart(2, "0")}`
     );
     for (const c of ESPERANDO) await semearContato(c, { horasDesdeAResposta: 48 });
     await engine.enqueueLote(CONTA, "L5", ESPERANDO, { text: "guardado", validoAte: null });
-    await drenar(); // todos ficam pending e dormem
+
+    // As três drenagens que guardam os quarenta. Escritas uma a uma, e não num
+    // laço "até esvaziar": o número é o que o `BATCH_SIZE` promete, e um laço
+    // esconderia uma quarta drenagem se ela passasse a ser necessária.
+    await drenar();
+    await drenar();
+    await drenar();
 
     const VIVO = "9000000000000299";
     await semearContato(VIVO, { horasDesdeAResposta: 0 });
     await engine.enqueueManualReply(CONTA, VIVO, "esta tem de sair agora");
 
     await drenar();
-    expect(await estadoDoItem(VIVO)).toBe("sent");
+    expect(await estadoDoItem(VIVO), "a mensagem viva de HOJE").toBe("sent");
+
+    // O DIA SEGUINTE, que é onde o desenho antigo reprova.
+    await passarUmDia();
+
+    const VIVO_AMANHA = "9000000000000298";
+    await semearContato(VIVO_AMANHA, { horasDesdeAResposta: 0 });
+    await engine.enqueueManualReply(CONTA, VIVO_AMANHA, "esta tem de sair amanha");
+
+    await drenar();
+    expect(await estadoDoItem(VIVO_AMANHA), "a mensagem viva de AMANHA").toBe("sent");
+  });
+
+  // O DESPERTAR NÃO PODE ZERAR O BACKOFF DE ERRO.
+  //
+  // O `update` de `upsertContact` (lib/engine.ts) casava com todo `dm_lote`
+  // `pending` da pessoa — e o item que a Meta acabou de recusar com 500 está
+  // exatamente nesse estado: o `catch` do dreno o devolve como `pending,
+  // retryInSeconds: 120`. A pessoa mandar uma mensagem qualquer nesses dois
+  // minutos trazia o item de volta NA HORA, contra a Meta que acabara de dizer
+  // que não estava bem, gastando mais uma tentativa das três.
+  //
+  // Com o estado próprio, "guardado" e "esperando o backoff" deixaram de ser a
+  // mesma palavra: o despertar pede `guardado`, e este item está `pending`.
+  test("a pessoa falar NAO adianta o item que a Meta acabou de recusar", async () => {
+    const CONTATO = "9000000000000108";
+    // JANELA ABERTA, para o item chegar até a Meta e tomar o 500. Com a janela
+    // fechada ele nem sairia, e o caso mediria outra coisa.
+    await semearContato(CONTATO, { horasDesdeAResposta: 0 });
+    meta.falharCom500.add(CONTATO);
+    await engine.enqueueLote(CONTA, "L8", [CONTATO], { text: "vai falhar", validoAte: null });
+
+    await drenar();
+    const depoisDoErro = await lerItem(CONTATO);
+    expect(depoisDoErro.status, "500 e transitorio: continua tentando").toBe("pending");
+    expect(await esperandoOBackoff(CONTATO), "o backoff de 120s foi gravado").toBe(true);
+
+    // A pessoa fala. Isto NAO pode mexer no item que está de castigo.
+    await abrirJanela(CONTATO);
+
+    expect(
+      await esperandoOBackoff(CONTATO),
+      "o despertar do lote zerou o backoff de erro"
+    ).toBe(true);
+
+    meta.falharCom500.delete(CONTATO);
   });
 
   test("um lote novo cancela o que estava guardado para a mesma pessoa", async () => {
@@ -346,7 +476,7 @@ describe("o item de lote espera a janela em vez de ser descartado", () => {
 
     await engine.enqueueLote(CONTA, "L3", [CONTATO], { text: "primeiro", validoAte: null });
     await drenar();
-    expect(await estadoDoItem(CONTATO)).toBe("pending");
+    expect(await estadoDoItem(CONTATO)).toBe("guardado");
 
     await engine.enqueueLote(CONTA, "L4", [CONTATO], { text: "segundo", validoAte: null });
 

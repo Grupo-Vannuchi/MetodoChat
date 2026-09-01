@@ -341,10 +341,28 @@ async function upsertContact(
   // por onde uma janela abre: os dois caminhos de mensagem recebida chamam esta
   // função com `last_reply_at`, e nenhum outro chamador o faz.
   //
-  // Um item de lote guardado dorme um dia (lib/queue-drain.ts) para não sufocar
-  // a fila. Esta linha o adianta no instante em que a pessoa fala — e o dreno
+  // Um item de lote que perdeu a janela sai da fila e vai para o estado
+  // `guardado` (lib/queue-drain.ts, e `migrations/009-fila-estado-guardado.sql`
+  // para os cinco defeitos que isso fecha). Esta linha é a única porta de volta:
+  // ela o devolve para `pending` no instante em que a pessoa fala — e o dreno
   // roda logo depois, no mesmo webhook (`after()` de app/api/webhook/route.ts),
   // já com a janela aberta.
+  //
+  // O `where` PEDE `guardado`, E ISSO É O CONSERTO DE UM DEFEITO REAL. Enquanto
+  // ele pedia `pending`, casava com todo `dm_lote` pendente da pessoa —
+  // inclusive com o que o `catch` do dreno tinha acabado de marcar `pending,
+  // retryInSeconds: 120` depois de um 500 da Meta. O despertar ZERAVA o backoff
+  // de erro: a pessoa falar fazia o item que a Meta acabara de recusar voltar
+  // na hora, gastando mais uma tentativa. Os dois estados eram a mesma palavra;
+  // agora não são.
+  //
+  // `not_before = now()` CONTINUA, e não é sobra: um item guardado nunca teve
+  // `not_before` no futuro, mas um que tenha voltado por aqui e falhado depois
+  // pode ter — e o dreno só pega `pending` com `not_before <= now()`. Sem esta
+  // metade, o item voltaria para a fila e ficaria lá até o backoff passar.
+  //
+  // O RELOGIO É O DO BANCO (`now()`), e não o da aplicação, pelo mesmo motivo
+  // escrito em `enqueue`: quem busca o item compara com `now()`.
   //
   // A CONDIÇÃO É `last_reply_at`, e não "sempre": `upsertContact` também é
   // chamada para gravar nome, foto e última automação, e nesses casos nenhuma
@@ -352,9 +370,9 @@ async function upsertContact(
   // disputa por nada.
   if (fields.last_reply_at) {
     await sql().query(
-      `update queue set not_before = now()
+      `update queue set status = 'pending', not_before = now()
         where account_id = $1 and contact_ig_id = $2
-          and kind = 'dm_lote' and status = 'pending'`,
+          and kind = 'dm_lote' and status = 'guardado'`,
       [accountId, igId]
     );
   }
@@ -2139,9 +2157,14 @@ export async function enqueueLote(
   // `loteKey` em lib/dedupe.ts.
   const chavesDestePedido = contatos.map((contato) => loteKey(accountId, loteId, contato));
 
+  // OS DOIS ESTADOS, E NÃO SÓ `pending`: o item de lote que perdeu a janela vive
+  // em `guardado` (`migrations/009-fila-estado-guardado.sql`), e ele é
+  // justamente o que mais precisa ser substituído — é o que está esperando há
+  // dias. Listar só `pending` aqui deixaria a pessoa com DOIS itens vivos, o
+  // velho e o novo, e ela receberia os dois quando voltasse a falar.
   await sql().query(
     `update queue set status = 'skipped', error = 'substituido por um lote mais novo'
-      where account_id = $1 and kind = 'dm_lote' and status = 'pending'
+      where account_id = $1 and kind = 'dm_lote' and status in ('pending','guardado')
         and contact_ig_id = any($2::text[])
         and dedupe_key <> all($3::text[])`,
     [accountId, contatos, chavesDestePedido]

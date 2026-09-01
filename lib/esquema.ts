@@ -137,6 +137,15 @@ const MARCA_DAGUA = {
       de: "008-fila-tipo-lote.sql",
       porque: "reescreve a definição de um `check` que já existe (9 tipos -> 10)",
     },
+    {
+      de: "009-fila-estado-guardado.sql",
+      // A GÊMEA DA `008`, na mesma tabela e na coluna vizinha: aquela alargou o
+      // `check` de `kind`, esta alarga o de `status`. Fica cega aqui pelo mesmo
+      // motivo, e é aceitável pelo mesmo motivo — está do lado ALTO da tabela
+      // deste arquivo: um banco sem a `009` RECUSA o `update` que grava
+      // `guardado`, e o item de lote falha em vez de virar dado inválido.
+      porque: "reescreve a definição de um `check` que já existe (5 estados -> 6)",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",

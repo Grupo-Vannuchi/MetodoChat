@@ -340,8 +340,30 @@ async function processItem(
   return { outcome: "sent", messageId: enviada.message_id, sentText: texto };
 }
 
-export async function drainQueue(): Promise<{ sent: number; skipped: number; failed: number }> {
-  const result = { sent: 0, skipped: 0, failed: 0 };
+// O QUARTO CONTADOR, E ELE FECHA UMA DRENAGEM QUE NAO SOMAVA NADA.
+//
+// Ate 01/09/2026 o item de lote guardado nao incrementava contador nenhum: uma
+// drenagem inteira gasta adormecendo quarenta itens devolvia `{sent: 0,
+// skipped: 0, failed: 0}` - indistinguivel, para quem le a resposta da rota, de
+// uma drenagem que nao achou nada para fazer. O sintoma que a fome de fila
+// produzia era exatamente esse zero triplo, e ele era invisivel.
+//
+// OS TRES PRIMEIROS SAO INGLES E O QUARTO NAO, e e de proposito: ele conta
+// itens que foram para o estado `guardado`, e o nome do estado e `guardado` -
+// o porque inteiro esta em `migrations/009-fila-estado-guardado.sql`. Duas
+// palavras para a mesma coisa seria pior do que um plural fora do idioma.
+//
+// A resposta das rotas `/api/queue/tick` e `/api/cron/daily` e este objeto
+// espalhado em JSON, entao o campo novo aparece na monitoracao sem mais nada.
+export type ResumoDaDrenagem = {
+  sent: number;
+  skipped: number;
+  failed: number;
+  guardados: number;
+};
+
+export async function drainQueue(): Promise<ResumoDaDrenagem> {
+  const result = { sent: 0, skipped: 0, failed: 0, guardados: 0 };
   const accounts = await listAccounts();
   if (!accounts.length) return result;
   const byId = new Map(accounts.map((a) => [a.ig_user_id, a]));
@@ -467,33 +489,66 @@ export async function drainQueue(): Promise<{ sent: number; skipped: number; fai
         // para alguém cuja conversa já tinha esfriado. Fazer esses esperarem
         // entregaria uma boas-vindas dias depois, fora de contexto.
         //
-        // A MÁQUINA DE ESPERAR JÁ EXISTE: é o mesmo `pending` que o `catch`
-        // logo abaixo usa para tentar de novo. E quem acorda o item não é
-        // relógio nenhum — `drainQueue` roda DENTRO do webhook
+        // ELE ESPERA NUM ESTADO PRÓPRIO, E NÃO NO `pending` DAS MENSAGENS
+        // VIVAS — e esta linha é o redesenho inteiro.
+        //
+        // Ele já morou em `pending` com `not_before` um dia à frente, e o dia
+        // não era enfeite: a seleção do dreno é `status = 'pending' and
+        // not_before <= now()`, `order by created_at`, `limit 15`, e um item
+        // guardado com `not_before` no passado é SEMPRE elegível e é o MAIS
+        // VELHO. Com quarenta esperando, três drenagens inteiras não deixavam
+        // sair uma mensagem de verdade. Dormir um dia ADIAVA a fome; não a
+        // tirava — passado o dia, os quarenta voltavam, e o ciclo se repetia
+        // TODO DIA. É o que o caso "quarenta itens guardados... hoje nem amanha"
+        // (testes-integracao/lote.integracao.ts) mede, e era a segunda metade
+        // dele que ficava vermelha.
+        //
+        // OS CINCO DEFEITOS QUE ESTE ESTADO FECHA DE UMA VEZ estão listados em
+        // `migrations/009-fila-estado-guardado.sql`, que é onde ele nasce. Os
+        // quatro que se resolvem AQUI, sem mais nenhuma linha, resolvem-se por
+        // SUBTRAÇÃO — a seleção do dreno, a reivindicação, o rodapé do QStash
+        // e a consulta do despertar perguntam todos por `pending`, e o item
+        // guardado deixou de responder a essa pergunta:
+        //
+        //   FOME DE FILA — a seleção não o vê mais, hoje nem amanhã.
+        //   `attempts` — quem faz `attempts + 1` é a reivindicação, e ela só
+        //     alcança `pending`. O item deixou de gastar uma tentativa por dia
+        //     dormindo; guardado quatro dias ele chegava com `attempts >= 3` e
+        //     `giveUp` o matava em `failed` no primeiro 500 da Meta. Agora ele
+        //     chega ao primeiro erro com o contador que de fato ganhou.
+        //   O TIQUE ETERNO DO QSTASH — o rodapé lá embaixo agenda o próximo
+        //     por `min(not_before)` sobre `pending`. Item guardado não entra
+        //     mais nesse mínimo, e o dreno para de publicar um tique por
+        //     webhook, indefinidamente.
+        //   O DESPERTAR — `upsertContact` (lib/engine.ts) casava com todo
+        //     `dm_lote` `pending`, inclusive o que o `catch` logo abaixo tinha
+        //     acabado de marcar `pending, retryInSeconds: 120` depois de um 500
+        //     da Meta: o despertar zerava o backoff de erro. Agora ele pede
+        //     `guardado`, e os dois deixaram de ser a mesma linha.
+        //
+        // SEM `retryInSeconds`, E A AUSÊNCIA É INTENCIONAL: `not_before` deixou
+        // de ser o que segura o item, então mexê-lo aqui só escreveria uma data
+        // que ninguém lê.
+        //
+        // A MÁQUINA DE ACORDAR NÃO MUDOU: `drainQueue` roda DENTRO do webhook
         // (`app/api/webhook/route.ts`, no `after()`), e o `last_reply_at` do
-        // contato é gravado ANTES disso. Quando a pessoa escreve, a janela dela
-        // abre e o dreno roda em seguida: o item guardado encontra a janela
-        // aberta sem precisar de tarefa agendada.
+        // contato é gravado ANTES disso, por `upsertContact` — que na mesma ida
+        // devolve o item para `pending`. Quando a pessoa escreve, a janela dela
+        // abre e o dreno roda em seguida: o item encontra a janela aberta sem
+        // precisar de tarefa agendada.
         //
-        // O ITEM DORME UM DIA, E NAO ate ja — e este numero e o conserto de um
-        // defeito que a primeira versao deste plano tinha.
-        //
-        // A selecao do dreno e `status = 'pending' and not_before <= now()`,
-        // `order by created_at`, `limit 15`. Um item guardado com `not_before`
-        // no passado e SEMPRE elegivel e e o MAIS ANTIGO: com quarenta
-        // esperando, todo dreno pegaria os quinze mais velhos, veria a janela
-        // fechada, os devolveria para a fila — e NUNCA chegaria nas mensagens
-        // de verdade. Fome de fila, e o produto inteiro pararia de responder.
-        //
-        // Dormir um dia tira o item da disputa. Quem o acorda no instante
-        // certo nao e este numero: e `upsertContact` (lib/engine.ts), que
-        // adianta o `not_before` dos itens de lote da pessoa quando ela fala.
-        // O dia e so a rede de seguranca, para o caso de o despertar falhar.
+        // O QUE SE PERDEU COM O DIA, dito em voz alta: ele era a rede de
+        // segurança para o caso de o despertar falhar, e não há mais rede. É
+        // troca consciente — a rede custava a fome de fila TODO DIA, e o
+        // despertar é a única porta por onde uma janela abre (o comentário dele
+        // em lib/engine.ts diz por quê). Um item cujo despertar falhe fica
+        // guardado, visível na tela de Envios com esse nome, em vez de sair fora
+        // de hora.
         await finish(item.id, {
-          status: "pending",
-          retryInSeconds: 86400,
+          status: "guardado",
           error: "guardado ate a pessoa voltar a falar",
         });
+        result.guardados++;
       } else {
         await finish(item.id, { status: "skipped", error: "janela de 24h fechada" });
         result.skipped++;
@@ -512,6 +567,13 @@ export async function drainQueue(): Promise<{ sent: number; skipped: number; fai
 
   // sobrou item pendente? agenda o próximo despertar
   // (item já vencido — ex.: lote cheio — volta em ~20s)
+  //
+  // `status = 'pending'` NÃO ALCANÇA O ITEM GUARDADO, e isso é o conserto de um
+  // crescimento sem fim: enquanto ele morava em `pending`, sempre havia um
+  // `min(not_before)` para devolver, então TODO webhook publicava um tique no
+  // QStash — indefinidamente, mesmo com a fila viva vazia. Agendar por um item
+  // que espera uma PESSOA é agendar para nada: quem o acorda não é relógio.
+  // Ver `migrations/009-fila-estado-guardado.sql`.
   const nextRows = (await sql()`
     select extract(epoch from (min(not_before) - now()))::float8 as secs
     from queue where status = 'pending'
