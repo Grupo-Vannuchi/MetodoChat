@@ -11,11 +11,24 @@ describe("motivoDoLoteVazio", () => {
   it("sem confirmacao vence, mesmo com o filtro vazio", () => {
     expect(motivoDoLoteVazio(false, true, 0)).toBe("sem_confirmacao");
   });
+  // OS TRES VAZIOS SAO TRES CONSELHOS DIFERENTES. A primeira versao devolvia
+  // "ninguem_no_filtro" para os tres, e o nome deste caso ja denunciava a
+  // contradicao: ele afirma a distincao e media a ausencia dela.
   it("filtro que nao foi entendido nao e confundido com filtro vazio", () => {
-    expect(motivoDoLoteVazio(true, false, 10)).toBe("ninguem_no_filtro");
+    expect(motivoDoLoteVazio(true, false, 10)).toBe("filtro_ilegivel");
+  });
+  it("conta sem contato nenhum nao manda procurar outra categoria", () => {
+    expect(motivoDoLoteVazio(true, true, 0)).toBe("conta_sem_contatos");
   });
   it("confirmado e com gente na conta, mas ninguem no recorte", () => {
     expect(motivoDoLoteVazio(true, true, 10)).toBe("ninguem_no_filtro");
+  });
+  // AS TRES FRASES TEM DE SER DIFERENTES DE FATO: motivos distintos que
+  // devolvessem o mesmo texto seriam a mesma confusao, um andar acima.
+  it("as tres frases de vazio sao distintas entre si", () => {
+    const frases = (["filtro_ilegivel", "conta_sem_contatos", "ninguem_no_filtro"] as const)
+      .map(textoDaRecusaDoLote);
+    expect(new Set(frases).size).toBe(3);
   });
 });
 

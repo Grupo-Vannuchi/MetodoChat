@@ -25,7 +25,7 @@ export type Aviso = { tom: TomDoAviso; texto: string };
  */
 export type RecusaDoLote =
   | "sem_conta" | "sem_texto" | "url_invalida"
-  | "sem_confirmacao" | "ninguem_no_filtro";
+  | "sem_confirmacao" | "filtro_ilegivel" | "conta_sem_contatos" | "ninguem_no_filtro";
 
 /**
  * O motivo do lote vazio, quando `alvo.length === 0`.
@@ -37,14 +37,20 @@ export type RecusaDoLote =
  * categoria" descreve um filtro que, sem a confirmacao, nem chegou a ser
  * avaliado de verdade — por isso sem_confirmacao vem primeiro.
  *
- * `filtroEntendido` e `quantosNaConta` entram na assinatura porque sao os
- * dois fatos que `alvoDoLote` (lib/lote.ts) ja tem no momento de decidir, e
- * que o motivo unico "ninguem_no_filtro" hoje nao separa: filtro que bateu em
- * zero pessoas e filtro que nao foi entendido (`filtroDoCampo` devolveu
- * `null`) recebem a MESMA frase de proposito — as duas dizem "nada foi
- * enfileirado", e nenhuma delas e culpa de quem clicou. Um motivo a mais so
- * se justificaria se a frase precisasse mudar; ela nao precisa, entao os dois
- * parametros ficam aqui documentados, prontos para o dia em que precisar.
+ * OS TRES VAZIOS SEGUINTES SAO TRES CONSELHOS DIFERENTES, e por isso os tres
+ * parametros existem. A primeira versao desta funcao devolvia
+ * "ninguem_no_filtro" para todos, e o proprio nome do caso de teste ("filtro
+ * que nao foi entendido nao e confundido com filtro vazio") ja denunciava a
+ * contradicao — ele afirmava a distincao e media a ausencia dela.
+ *
+ * - `filtroEntendido === false`: `filtroDoCampo` (lib/lote.ts) devolveu `null`,
+ *   ou seja o campo do formulario nao era um recorte reconhecivel. Isso NAO e
+ *   "a categoria esta vazia": e um pedido quebrado, e o que resolve e recarregar
+ *   a pagina — nunca escolher outra categoria.
+ * - `quantosNaConta === 0`: a conta nao tem contato nenhum. Mandar o dono
+ *   procurar outra categoria seria conselho inutil; nao ha nenhuma.
+ * - o resto: ha gente na conta, mas ninguem neste recorte. Aqui, sim, trocar o
+ *   filtro e a saida.
  */
 export function motivoDoLoteVazio(
   confirmado: boolean,
@@ -52,6 +58,8 @@ export function motivoDoLoteVazio(
   quantosNaConta: number
 ): RecusaDoLote {
   if (!confirmado) return "sem_confirmacao";
+  if (!filtroEntendido) return "filtro_ilegivel";
+  if (quantosNaConta === 0) return "conta_sem_contatos";
   return "ninguem_no_filtro";
 }
 
@@ -66,6 +74,10 @@ export function textoDaRecusaDoLote(motivo: RecusaDoLote): string {
       return "O endereço do botão não é uma URL válida — confira e mande de novo.";
     case "ninguem_no_filtro":
       return "Ninguém nesta categoria; nada foi enfileirado.";
+    case "conta_sem_contatos":
+      return "Esta conta ainda não tem contatos — ninguém foi enfileirado.";
+    case "filtro_ilegivel":
+      return "Não entendi o recorte — recarregue a página e tente de novo.";
     case "sem_confirmacao":
       return "Marque a confirmação antes de mandar.";
   }
