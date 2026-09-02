@@ -6,6 +6,7 @@ import { fmtRelative } from "@/lib/format";
 import { muted, badgeOk } from "../ui";
 import Avatar from "../avatar";
 import { badgeDaConversa } from "@/lib/inbox-badge";
+import { semCategoria } from "@/lib/categorias";
 
 // A coluna da esquerda do inbox.
 //
@@ -21,6 +22,7 @@ export type ConversaResumo = {
   name: string | null;
   profile_pic: string | null;
   last_reply_at: Date | string | null;
+  categoria: string | null;
   nao_lidas: number;
   sem_resposta: boolean;
 };
@@ -97,6 +99,12 @@ export default function Lista({
                   <span className="shrink-0">
                     {c.total} {c.total === 1 ? "msg" : "msgs"}
                   </span>
+                  {semCategoria(c.categoria) && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span className="shrink-0">sem categoria</span>
+                    </>
+                  )}
                   {/* A direita da SEGUNDA linha, sob o contador da janela que
                       ocupa a primeira — é como aplicativo de mensagem organiza,
                       e evita que as duas marcas disputem o mesmo canto. */}

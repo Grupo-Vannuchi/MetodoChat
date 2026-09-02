@@ -144,7 +144,7 @@ export async function listConversations(accountId: string, limite = 50) {
      select t.cid as ig_id,
             max(t.at) as last_at,
             count(*)::int as total,
-            c.username, c.name, c.profile_pic, c.last_reply_at,
+            c.username, c.name, c.profile_pic, c.last_reply_at, c.categoria,
             -- Sem last_seen_at (nunca aberta), tudo que chegou conta.
             (select count(*)::int from recebidas r
               where r.cid = t.cid
@@ -162,7 +162,7 @@ export async function listConversations(accountId: string, limite = 50) {
      from trocas t
      left join contacts c on c.account_id = $1 and c.ig_id = t.cid
      where t.cid is not null
-     group by t.cid, c.username, c.name, c.profile_pic, c.last_reply_at, c.last_seen_at
+     group by t.cid, c.username, c.name, c.profile_pic, c.last_reply_at, c.last_seen_at, c.categoria
      order by last_at desc
      limit $3`,
     [accountId, TIPOS_RECEBIDOS, limite]
@@ -174,6 +174,7 @@ export async function listConversations(accountId: string, limite = 50) {
     name: string | null;
     profile_pic: string | null;
     last_reply_at: Date | null;
+    categoria: string | null;
     nao_lidas: number;
     sem_resposta: boolean;
   }[];
