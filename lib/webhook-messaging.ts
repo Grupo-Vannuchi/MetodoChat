@@ -155,6 +155,108 @@ export function ehConhecidoEIgnorado(item: unknown): boolean {
  */
 export const FORMAS_DO_MOTOR = ["message", "postback"] as const;
 
+// ============================================================
+// O AVISO DE APAGAMENTO — a forma que TEM `message` E NÃO É MENSAGEM.
+//
+// A MEDIÇÃO QUE O OBRIGOU, lida no banco de produção em 02/09/2026.
+//
+// Dois envios manuais para @eng.luishreis, da conta @thiagovannuchi, tomaram
+// 403 (code 10, subcode 2534022 — "enviada fora do período permitido") em
+// 28/08/2026, com o painel marcando 17,6h de janela ABERTA. A Meta estava
+// certa: a última mensagem de verdade dela foi 26/08 às 18:28. O que o painel
+// tinha lido como resposta, em 27/08 às 19:39, era isto:
+//
+//   {"sender":{"id":"985206161205789"},
+//    "message":{"mid":"aWdfZAG1faXRlbTo...","is_deleted":true},
+//    "recipient":{"id":"17841403483234337"},"timestamp":1787859579053}
+//
+// `is_deleted: true` — não é mensagem. É o aviso de que ela APAGOU uma mensagem
+// antiga. O item tem `message` verdadeiro, então `destinoDoMessaging` o mandava
+// para o motor, o motor o gravava como `message` e chamava `upsertContact` com
+// `last_reply_at: new Date()`. A janela de 24h passou a contar de um instante em
+// que ninguém falou.
+//
+// O ESCOPO, medido no mesmo dia:
+//   12   avisos de apagamento no banco inteiro (7464 eventos, 28/07 a 02/09)
+//    8   deles gravados como `message` — 8 de 1054 —, de 6 pessoas diferentes
+//    4   gravados como `message_sent`, com `is_echo: true` (a conta apagando)
+//    2   contatos com `last_reply_at` vindo de apagamento (@eng.luishreis e
+//        @sarp.oddin786), e a hora do contato bate com a do evento em 15ms
+//    0   deles com janela falsamente ABERTA hoje — o defeito está DORMINDO,
+//        e é por isso que ele precisa de teste e não de conserto de dado
+//
+// POR QUE ISTO É MAIOR QUE OS DOIS 403: `last_reply_at` é a fonte ÚNICA da
+// janela de 24h. O mesmo apagamento faz o ENVIO EM LOTE contar a pessoa em
+// "recebem agora" (`lib/lote.ts`) e faz um item de lote `guardado` ACORDAR
+// direto para uma janela fechada (`upsertContact`, lib/engine.ts:371) — o
+// despertar mora justamente na chamada com `last_reply_at`.
+//
+// POR QUE NÃO ENTROU EM `FORMAS_CONHECIDAS_E_IGNORADAS`: não funcionaria. O ramo
+// do motor vem PRIMEIRO, de propósito, e uma forma que o motor trata nunca cai
+// na lista do silêncio — está escrito lá em cima, e é a regra certa. O conserto
+// é o ramo do motor DEIXAR DE ACEITAR o que não é mensagem.
+//
+// -----------------------------------------------------------------------------
+// REGISTRAR, E NÃO IGNORAR — a decisão, e o que a decidiu.
+//
+// Os dois argumentos deste arquivo puxavam para lados opostos: o de `read`
+// ("conhecido, esperado, e não há nada a fazer com ele") para ignorar, e o de
+// `num_edit > 0` ("ignorar a forma inteira seria trocar ruído por cegueira")
+// para registrar. O que desempata é o que o aviso CARREGA, e isso foi medido,
+// não suposto.
+//
+// Um apagamento traz três chaves e só três: `mid`, `is_deleted` e, no eco,
+// `is_echo`. Nenhum texto — 0 dos 12 têm `text`. Parecia a referência inútil que
+// justificaria ignorar. NÃO É: o `mid` do aviso casa com uma mensagem que ESTE
+// banco já gravou em 12 DE 12 CASOS, e o par nunca é outro apagamento — é a
+// mensagem original, com o texto dela. Amostras: "Você opina demais", apagada 30
+// segundos depois; e, no caso do 403, um telefone ("11970829503"), apagado 25
+// horas depois. Ou seja, o aviso é ACIONÁVEL: cruzado com o `mid`, ele diz qual
+// mensagem sumiu — inclusive uma que a automação pode já ter respondido. É
+// exatamente o caso do `num_edit > 0`, e ignorá-lo seria a mesma cegueira.
+//
+// O volume confirma o mesmo lado. `read` acompanha TODA mensagem lida e
+// `message_edit` deu 6 linhas em 6 horas — esses são ruído que ensina o dono a
+// ignorar a tela de diagnóstico. Apagamento deu 12 EM CINCO SEMANAS. Doze linhas
+// que explicam por que um envio foi recusado não são ruído; são a única pista
+// que sobra, já que os dois `last_reply_at` envenenados continuam no banco.
+//
+// E O ECO SAI TAMBÉM, pelo mesmo motivo e com um a mais: gravar um apagamento da
+// própria conta como `message_sent` AFIRMA um envio que não houve. O texto
+// original já está gravado no evento de verdade, então nada de conversa se perde
+// — o argumento de "não existe importar histórico" vale para o texto, e o texto
+// está a salvo.
+//
+// SÓ O BOOLEANO `true`, e isto é a doutrina deste arquivo aplicada ao detalhe:
+// `jsonb_typeof` dos 12 é `boolean` nos 12, e o banco NUNCA viu `is_deleted:
+// false`. Uma mensagem normal não traz a chave; uma que trouxesse com `false`
+// seria mensagem de verdade e tem de continuar indo ao motor. Uma string
+// `"true"` seria forma NOVA — e este arquivo não trata o que não observou.
+// ============================================================
+
+/**
+ * `true` quando o item de `messaging` é SÓ o aviso de que uma mensagem foi
+ * apagada — e que, por isso, NÃO é resposta da pessoa e não pode mover a janela
+ * de 24h.
+ *
+ * "SÓ" está no nome e é metade da função: um item com `postback` continua sendo
+ * do motor mesmo trazendo uma `message` apagada junto, porque tem postback para
+ * o motor ler. O toque em PERGUNTA DE ABERTURA — a porta de entrada — chega sem
+ * `message` nenhuma, e não pode morrer por causa deste conserto.
+ */
+export function ehSoApagamento(item: unknown): boolean {
+  // A mesma guarda das duas funções acima, pela mesma razão: o que chega aqui é
+  // JSON da Meta, e a única garantia é a assinatura do corpo — não o formato.
+  if (typeof item !== "object" || item === null || Array.isArray(item)) return false;
+  const registro = item as Record<string, unknown>;
+  // Presença COM VALOR, e é o mesmo teste do ramo do motor logo abaixo: um
+  // `{"postback": null}` não tem postback nenhum, e não segura o item aqui.
+  if (registro.postback) return false;
+  const mensagem = registro.message;
+  if (typeof mensagem !== "object" || mensagem === null || Array.isArray(mensagem)) return false;
+  return (mensagem as { is_deleted?: unknown }).is_deleted === true;
+}
+
 /**
  * Para onde vai um item de `entry.messaging[]`:
  *
@@ -181,7 +283,14 @@ export function destinoDoMessaging(item: unknown): DestinoDoMessaging {
   // Presença COM VALOR, e não `in`: era o teste que a rota fazia
   // (`messaging.message || messaging.postback`), e ele é o certo — um
   // `{"postback": null}` não tem postback nenhum para o motor ler.
-  if (FORMAS_DO_MOTOR.some((chave) => Boolean(registro[chave]))) return "motor";
+  // O AVISO DE APAGAMENTO TEM `message` VERDADEIRO E NÃO É MENSAGEM, e é por
+  // isso que ele está DENTRO da condição do motor em vez de num ramo próprio
+  // acima: o conserto não é dar um destino novo ao apagamento, é o ramo do motor
+  // deixar de aceitar o que não é mensagem. O destino dele sai do PADRÃO, logo
+  // abaixo — que é o padrão porque o silêncio é que precisa ser justificado.
+  // O porquê inteiro, com a medição, está no cabeçalho de `ehSoApagamento`.
+  if (!ehSoApagamento(registro) && FORMAS_DO_MOTOR.some((chave) => Boolean(registro[chave])))
+    return "motor";
   if (ehConhecidoEIgnorado(registro)) return "ignorar";
   return "registrar";
 }
