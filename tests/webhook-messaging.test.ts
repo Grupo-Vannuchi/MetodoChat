@@ -331,3 +331,26 @@ describe("mensagem de verdade continua indo ao motor", () => {
     expect(ehSoApagamento({ read: { mid: "m" } })).toBe(false);
   });
 });
+
+// O SOBREVIVENTE DA REVISAO DE 02/09/2026, e a linha que o mata.
+//
+// Trocar `Boolean(registro[chave])` por `chave in registro` atravessava os
+// QUATRO portoes — 1023 puros, integracao, lint e typecheck — e devolvia
+// `{postback: null, message:{is_deleted:true}}` ao motor, ou seja, o defeito da
+// janela de volta. O arquivo declara a doutrina "presenca COM VALOR" em
+// comentario, mas nenhum caso a prendia JUNTO com apagamento.
+//
+// Alcancabilidade real medida: 0 de 2019 itens do banco tem `postback` nulo.
+// E lacuna de teste, nao defeito vivo — e por isso mesmo custa uma linha.
+describe("ehSoApagamento na fronteira de presenca-por-valor", () => {
+  it("postback NULO nao resgata o apagamento", () => {
+    expect(ehSoApagamento({ postback: null, message: { mid: "m", is_deleted: true } })).toBe(true);
+  });
+  // O OUTRO LADO DA MESMA MOEDA: postback COM VALOR resgata, e tem de resgatar —
+  // o toque em pergunta de abertura nao pode morrer por causa deste conserto.
+  it("postback COM VALOR tira o item da regra do apagamento", () => {
+    expect(
+      ehSoApagamento({ postback: { payload: "ABERTURA_x" }, message: { mid: "m", is_deleted: true } })
+    ).toBe(false);
+  });
+});

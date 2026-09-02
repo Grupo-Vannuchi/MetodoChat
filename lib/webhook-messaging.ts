@@ -249,9 +249,20 @@ export function ehSoApagamento(item: unknown): boolean {
   // JSON da Meta, e a única garantia é a assinatura do corpo — não o formato.
   if (typeof item !== "object" || item === null || Array.isArray(item)) return false;
   const registro = item as Record<string, unknown>;
+  // DERIVADO DE `FORMAS_DO_MOTOR`, e não com `postback` escrito à mão — a lista
+  // é que cresce, e a mão é que esquece. Medido pela revisão de 02/09/2026:
+  // com `postback` cravado aqui, acrescentar `"reaction"` à lista lá em cima
+  // faria `{reaction, message:{is_deleted:true}}` ser engolido em SILÊNCIO, que
+  // é a doença que este arquivo inteiro existe para fechar. Assim, toda forma
+  // nova do motor nasce protegida.
+  //
+  // `message` sai da conta de propósito: é justamente a chave que o aviso de
+  // apagamento traz, e é sobre ela que a pergunta está sendo feita.
+  //
   // Presença COM VALOR, e é o mesmo teste do ramo do motor logo abaixo: um
   // `{"postback": null}` não tem postback nenhum, e não segura o item aqui.
-  if (registro.postback) return false;
+  if (FORMAS_DO_MOTOR.some((chave) => chave !== "message" && Boolean(registro[chave])))
+    return false;
   const mensagem = registro.message;
   if (typeof mensagem !== "object" || mensagem === null || Array.isArray(mensagem)) return false;
   return (mensagem as { is_deleted?: unknown }).is_deleted === true;
