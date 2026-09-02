@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   motivoDoLoteVazio, textoDaRecusaDoLote, textoDoLoteEnviado,
-  urlComAviso, urlDoAviso, avisoDaUrl, avisoDosPerfis,
+  urlComAviso, urlDoAviso, avisoDaUrl, avisoDosPerfis, avisoDoLoteEnviado,
 } from "../lib/avisos";
 
 describe("motivoDoLoteVazio", () => {
@@ -71,6 +71,57 @@ describe("textoDoLoteEnviado", () => {
     const t = textoDoLoteEnviado(0, 5);
     expect(t).toContain("5");
     expect(t.toLowerCase()).not.toMatch(/0 receber/);
+  });
+});
+
+// O DEFEITO ACHADO DEPOIS DO PLANO: `enviarLote` (app/contatos/actions.ts) tem
+// `try { await drainQueue(); } catch {}` — e quando o dreno LANÇA (o motivo do
+// catch existir), nenhum item do lote chega a virar 'sent' nem 'guardado'; os
+// dois ficam 0 e os itens ficam 'pending'. `textoDoLoteEnviado(0, 0)` sozinha
+// não sabe a diferença entre "ninguém confirmou" (impossível aqui — `alvoDoLote`
+// já garantiu pelo menos um alvo antes desta contagem rodar) e "o dreno não deu
+// tempo": as duas leem "0, 0". `avisoDoLoteEnviado` é quem resolve essa
+// ambiguidade, com a terceira contagem — os itens 'pending' do PRÓPRIO lote —
+// que já está a uma coluna de distância na consulta que soma `agora` e
+// `guardadas`.
+describe("avisoDoLoteEnviado", () => {
+  // O CASO CENTRAL: zero confirmados, zero guardados, mas ALGUÉM pendente — só
+  // acontece quando o dreno não terminou a tempo, porque `enviarLote` só chega
+  // a esta contagem depois de `alvoDoLote` já ter recusado lote vazio. Antes
+  // deste conserto, isto virava a MESMA frase e o MESMO tom "ok" de um envio
+  // concluído — uma mentira tranquilizadora, pior que o silêncio que esta
+  // branch fechou.
+  it("ninguem confirmado e ninguem guardado, mas gente pendente, NAO e tom ok", () => {
+    const a = avisoDoLoteEnviado(0, 0, 4);
+    expect(a.tom).not.toBe("ok");
+  });
+  it("a frase do pendente diz que as mensagens entraram na fila, e quantas", () => {
+    const a = avisoDoLoteEnviado(0, 0, 4);
+    expect(a.texto).toContain("4");
+    // NÃO PODE REPETIR "0 guardadas": entrou na fila é diferente de guardado
+    // (que é um estado deliberado, à espera da pessoa voltar a falar) e
+    // diferente de recebido agora — a frase antiga confundia os três.
+    expect(a.texto.toLowerCase()).not.toMatch(/0 guardad/);
+    expect(a.texto.toLowerCase()).not.toMatch(/0 receb/);
+  });
+  // SEM PENDENTE NENHUM, (0, 0) SEGUE SENDO O CASO GENUÍNO — e ele continua
+  // "ok", com a MESMA frase de `textoDoLoteEnviado`: `avisoDoLoteEnviado` não
+  // reescreve o caso que já estava certo, só resolve a ambiguidade nova.
+  it("sem pendente, (0, 0) continua ok — e e a mesma frase de sempre", () => {
+    const a = avisoDoLoteEnviado(0, 0, 0);
+    expect(a.tom).toBe("ok");
+    expect(a.texto).toBe(textoDoLoteEnviado(0, 0));
+  });
+  // PENDENTE JUNTO DE GENTE JÁ CONFIRMADA NÃO É O CASO DESTE DEFEITO: é o lote
+  // grande normal, em que o resto sai pelo próximo tique (comentário de
+  // `enviarLote` sobre o teto de `BATCH_SIZE`). Continua "ok".
+  it("pendente com gente ja confirmada nao dispara o alarme — e o lote grande normal", () => {
+    const a = avisoDoLoteEnviado(3, 0, 5);
+    expect(a.tom).toBe("ok");
+    expect(a.texto).toBe(textoDoLoteEnviado(3, 0));
+  });
+  it("o singular do pendente nao sai errado", () => {
+    expect(avisoDoLoteEnviado(0, 0, 1).texto).not.toContain("1 mensagens");
   });
 });
 

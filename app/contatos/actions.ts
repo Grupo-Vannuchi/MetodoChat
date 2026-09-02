@@ -10,7 +10,7 @@ import { alvoDoLote, filtroDoCampo, urlDeLoteValida, validadeDoDia } from "@/lib
 import {
   motivoDoLoteVazio,
   textoDaRecusaDoLote,
-  textoDoLoteEnviado,
+  avisoDoLoteEnviado,
   urlDoAviso,
   avisoDosPerfis,
 } from "@/lib/avisos";
@@ -216,21 +216,31 @@ export async function enviarLote(formData: FormData): Promise<void> {
   // `payloadDoLote` (lib/lote.ts) grava em cada item deste envio. Saiu agora =
   // `status = 'sent'`; ficou esperando a pessoa voltar a falar = `status =
   // 'guardado'` (migrations/009-fila-estado-guardado.sql).
+  //
+  // `pendentes` ENTROU JUNTO, e é o que desfaz a mentira tranquilizadora do
+  // caso (0, 0): se o `catch` silencioso do dreno, acima, engoliu uma falha
+  // ANTES de tocar qualquer item deste lote, `agora` e `guardadas` saem os
+  // dois zerados — mas os itens não sumiram, ficaram `pending`. Sem esta
+  // coluna, `avisoDoLoteEnviado` (lib/avisos.ts) não teria como distinguir
+  // esse caso do vazio genuíno, que `alvoDoLote` já recusou bem mais acima.
   const contagem = (await sql().query(
     `select
        count(*) filter (where status = 'sent')::int as agora,
-       count(*) filter (where status = 'guardado')::int as guardadas
+       count(*) filter (where status = 'guardado')::int as guardadas,
+       count(*) filter (where status = 'pending')::int as pendentes
      from queue
      where account_id = $1 and kind = 'dm_lote' and payload->>'lote_id' = $2`,
     [account.ig_user_id, loteId]
-  )) as { agora: number; guardadas: number }[];
+  )) as { agora: number; guardadas: number; pendentes: number }[];
   const agora = contagem[0]?.agora ?? 0;
   const guardadas = contagem[0]?.guardadas ?? 0;
+  const pendentes = contagem[0]?.pendentes ?? 0;
 
   redirect(
-    urlDoAviso("/contatos", filtro ?? { tipo: "tudo" }, {
-      tom: "ok",
-      texto: textoDoLoteEnviado(agora, guardadas),
-    })
+    urlDoAviso(
+      "/contatos",
+      filtro ?? { tipo: "tudo" },
+      avisoDoLoteEnviado(agora, guardadas, pendentes)
+    )
   );
 }

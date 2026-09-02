@@ -108,6 +108,55 @@ export function textoDoLoteEnviado(agora: number, guardadas: number): string {
 }
 
 /**
+ * O aviso do lote inteiro — texto E tom —, resolvendo a ambiguidade que
+ * `textoDoLoteEnviado(0, 0)` sozinha não sabe resolver.
+ *
+ * `enviarLote` (app/contatos/actions.ts) tem `try { await drainQueue(); }
+ * catch {}`. Quando o dreno LANÇA — que é o motivo de o `catch` existir —,
+ * nenhum item deste lote chega a virar `sent` nem `guardado`: os dois ficam
+ * ZERO, e os itens ficam `pending` (nem enviados, nem guardados — só ainda não
+ * tentados). `textoDoLoteEnviado(0, 0)` devolve "ninguém recebeu agora · 0
+ * guardadas", e a ação mandava isso com tom "ok" — faixa VERDE logo depois de
+ * um envio de verdade. É MENTIRA TRANQUILIZADORA: as mensagens ENTRARAM na
+ * fila e vão sair (a trava atômica garante que o próximo dreno recupera), não
+ * sumiram — mas isto não é um envio CONCLUÍDO, e fingir que é apaga a
+ * diferença entre "terminou" e "está a caminho".
+ *
+ * A TERCEIRA CONTAGEM DESFAZ A AMBIGUIDADE. `agora === 0 && guardadas === 0`
+ * sozinho não distingue "o dreno não deu tempo" de "ninguém confirmou" — mas
+ * este segundo caso é IMPOSSÍVEL aqui: `alvoDoLote` (lib/lote.ts) já recusou
+ * lote vazio antes de `enviarLote` chegar a montar esta contagem, então
+ * `pendentes > 0` é o sinal de que existe gente no lote que nem `sent` nem
+ * `guardado` ficou — a mesma pergunta que `motivoDoLoteVazio` resolve para o
+ * vazio, resolvida aqui para o cheio que não terminou.
+ *
+ * NÃO DISPARA COM LOTE GRANDE NORMAL. Uma drenagem processa no máximo
+ * `BATCH_SIZE` itens (comentário de `enviarLote`); um lote de 20 confirmados
+ * deixa 5 `pending` de propósito, e os 15 já viraram `sent` ou `guardado` —
+ * `agora` ou `guardadas` (ou os dois) já são maiores que zero, então o ramo de
+ * baixo (o normal) é quem responde, com a MESMA frase de sempre.
+ *
+ * O TOM NÃO PODE SER "ok" NO RAMO DE CIMA, e como `TomDoAviso` só tem "ok" e
+ * "erro" — e `avisoDaUrl` já colapsa qualquer tom que não seja exatamente "ok"
+ * em "erro" —, a escolha possível é "erro". Não é a palavra perfeita (nada
+ * FALHOU do ponto de vista de quem clicou; o pedido foi aceito), mas é a única
+ * que a faixa vermelha já sabe desenhar sem tocar `app/contatos/page.tsx` — e
+ * a frase deste ramo é escrita para não soar como um erro do dono, e sim como
+ * "ainda não, mas já está a caminho".
+ */
+export function avisoDoLoteEnviado(agora: number, guardadas: number, pendentes: number): Aviso {
+  if (agora === 0 && guardadas === 0 && pendentes > 0) {
+    return {
+      tom: "erro",
+      texto:
+        `${pendentes} ${pendentes === 1 ? "mensagem entrou" : "mensagens entraram"} na fila, ` +
+        "mas o envio não terminou a tempo de confirmar — elas saem sozinhas em instantes.",
+    };
+  }
+  return { tom: "ok", texto: textoDoLoteEnviado(agora, guardadas) };
+}
+
+/**
  * A URL de volta, com o aviso pendurado nela.
  *
  * TEM de ser construida sobre `urlComFiltro` (`lib/categorias.ts`), nunca
