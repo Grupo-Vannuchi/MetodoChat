@@ -54,11 +54,20 @@ export default function AutomationsList({ automations }: { automations: Automati
   const [pendente, startTransition] = useTransition();
   // qual linha está em ação, para o retorno visual ficar na linha certa
   const [agindo, setAgindo] = useState<string | null>(null);
-  // A RECUSA DE ATIVAR, e ela é por LINHA. `toggleAutomation` (./actions) confere
-  // a lista antes de ligar a automação, e uma recusa sem lugar na tela é o botão
-  // não fazendo nada — o modo de falhar que esta correção existe para tirar.
+  // A RECUSA DE UMA AÇÃO DE LINHA — ativar, excluir ou duplicar —, por LINHA.
+  // As três ações do arquivo `./actions` (`toggleAutomation`, `deleteAutomation`,
+  // `duplicateAutomation`) podem recusar, e uma recusa sem lugar na tela é o
+  // botão não fazendo nada — o modo de falhar que esta correção existe para
+  // tirar. `acao` decide o texto e se o link para o editor aparece: abrir o
+  // editor só faz sentido quando o motivo é um desenho que se conserta lá
+  // (o caso de `ativar`); "Nenhuma conta conectada" ou "Automação não
+  // encontrada" — os motivos de excluir e duplicar — não se resolvem nele.
   // Uma só de cada vez: a ação é um clique, e a seguinte apaga a anterior.
-  const [recusa, setRecusa] = useState<{ id: string; mensagem: string } | null>(null);
+  const [recusa, setRecusa] = useState<{
+    id: string;
+    acao: "ativar" | "excluir" | "duplicar";
+    mensagem: string;
+  } | null>(null);
 
   const contagem = useMemo(
     () => ({
@@ -84,12 +93,22 @@ export default function AutomationsList({ automations }: { automations: Automati
     });
   }, [automations, busca, filtro]);
 
-  function executar(id: string, fn: () => Promise<void>) {
+  // `deleteAutomation` e `duplicateAutomation` (./actions) agora devolvem
+  // `Resultado`, o mesmo tipo de `toggleAutomation` — e a recusa das duas
+  // aparece na MESMA faixa vermelha por linha que `alternar`, abaixo, já
+  // desenha. `acao` viaja junto para a faixa saber que frase e que link
+  // mostrar (ver o comentário do `useState` de `recusa`, acima).
+  function executar(
+    id: string,
+    acao: "excluir" | "duplicar",
+    fn: () => Promise<{ ok: boolean; erro?: string }>
+  ) {
     setAgindo(id);
     setRecusa(null);
     startTransition(async () => {
-      await fn();
+      const r = await fn();
       setAgindo(null);
+      if (!r.ok) setRecusa({ id, acao, mensagem: r.erro ?? "Não deu certo." });
     });
   }
 
@@ -103,7 +122,7 @@ export default function AutomationsList({ automations }: { automations: Automati
     startTransition(async () => {
       const r = await toggleAutomation(id, !ativa);
       setAgindo(null);
-      if (!r.ok) setRecusa({ id, mensagem: r.erro });
+      if (!r.ok) setRecusa({ id, acao: "ativar", mensagem: r.erro });
     });
   }
 
@@ -286,7 +305,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                     <button
                       type="button"
                       disabled={ocupado}
-                      onClick={() => executar(a.id, () => duplicateAutomation(a.id))}
+                      onClick={() => executar(a.id, "duplicar", () => duplicateAutomation(a.id))}
                       title="Criar uma cópia (nasce pausada)"
                       className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
                     >
@@ -298,7 +317,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                       onClick={() => {
                         // exclusão é irreversível: confirma antes
                         if (confirm(`Excluir “${a.name}”? Esta ação não pode ser desfeita.`)) {
-                          executar(a.id, () => deleteAutomation(a.id));
+                          executar(a.id, "excluir", () => deleteAutomation(a.id));
                         }
                       }}
                       title="Excluir automação"
@@ -309,17 +328,27 @@ export default function AutomationsList({ automations }: { automations: Automati
                   </div>
                 </div>
 
-                {/* A RECUSA DE ATIVAR, na própria linha e com o motivo. O botão
-                    fica onde estava — "Ativar" continua clicável, porque
-                    consertar a automação é em outra tela e voltar a tentar
-                    depois é o gesto natural. O link para o editor vem junto:
-                    quem lê o motivo já sabe o que fazer, e é lá que se faz. */}
+                {/* A RECUSA DA AÇÃO — ativar, excluir ou duplicar —, na própria
+                    linha e com o motivo. O botão fica onde estava, porque
+                    tentar de novo é o gesto natural. O link para o editor só
+                    aparece para a recusa de ATIVAR: é a única cujo motivo se
+                    conserta lá dentro (um bloco sem destino, um botão sem
+                    texto); "Nenhuma conta conectada" ou "Automação não
+                    encontrada" não têm o que fazer no quadro. */}
                 {recusa?.id === a.id && (
                   <p className="mt-3 rounded-lg border-l-4 border-red-500 bg-red-50 p-2 text-xs leading-relaxed text-red-900 dark:bg-red-950/40 dark:text-red-100">
-                    Não deu para ativar: {recusa.mensagem}{" "}
-                    <Link href={`/automacoes/${a.id}`} className="font-semibold underline">
-                      Abrir o editor
-                    </Link>
+                    Não deu para{" "}
+                    {recusa.acao === "ativar"
+                      ? "ativar"
+                      : recusa.acao === "excluir"
+                        ? "excluir"
+                        : "duplicar"}
+                    : {recusa.mensagem}{" "}
+                    {recusa.acao === "ativar" && (
+                      <Link href={`/automacoes/${a.id}`} className="font-semibold underline">
+                        Abrir o editor
+                      </Link>
+                    )}
                   </p>
                 )}
               </li>
