@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   LIMITE_DA_CATEGORIA,
   normalizarCategoria,
+  semCategoria,
+  quantasSemCategoria,
   filtroDaUrl,
   contatosDoFiltro,
   fichaSelecionada,
@@ -87,6 +89,47 @@ describe("normalizarCategoria", () => {
 
   it("acento é preservado: é nome de gente, não identificador", () => {
     expect(normalizarCategoria("Não respondeu")).toBe("não respondeu");
+  });
+});
+
+describe("semCategoria", () => {
+  it("null e sem categoria", () => {
+    expect(semCategoria(null)).toBe(true);
+  });
+  it("texto de verdade tem categoria", () => {
+    expect(semCategoria("aluno")).toBe(false);
+  });
+  // O CASO QUE JUSTIFICA A FUNCAO EXISTIR. Uma categoria de espacos em branco
+  // marcaria a conversa como resolvida sem ninguem ter decidido nada, e ela
+  // deixaria de pedir marcacao PARA SEMPRE — numa tela cheia, nenhum olho pega.
+  it("so espacos conta como SEM categoria", () => {
+    expect(semCategoria("   ")).toBe(true);
+    expect(semCategoria("")).toBe(true);
+  });
+  // `normalizarCategoria` remove os invisiveis de largura zero ANTES de
+  // colapsar espaco. Uma categoria feita so deles tem de cair no mesmo balde.
+  it("so invisiveis conta como SEM categoria", () => {
+    expect(semCategoria("‍​")).toBe(true);
+  });
+  it("o que nao e string conta como SEM categoria", () => {
+    expect(semCategoria(42)).toBe(true);
+    expect(semCategoria(undefined)).toBe(true);
+  });
+});
+
+describe("quantasSemCategoria", () => {
+  it("conta so as que faltam, e a mesma regra da marca", () => {
+    expect(
+      quantasSemCategoria([
+        { categoria: "aluno" },
+        { categoria: null },
+        { categoria: "   " },
+        { categoria: "interessado" },
+      ])
+    ).toBe(2);
+  });
+  it("lista vazia e zero", () => {
+    expect(quantasSemCategoria([])).toBe(0);
   });
 });
 

@@ -91,6 +91,27 @@ export function normalizarCategoria(bruto: unknown): string | null {
 }
 
 /**
+ * Se `bruto` conta como "sem categoria" — para a marca na lista de conversas
+ * e para o contador do cabeçalho.
+ *
+ * CONSTRUÍDA SOBRE `normalizarCategoria`, E NÃO REESCRITA: ela já decide que
+ * `null`, texto vazio, só espaço e só invisíveis de largura zero (Cf) caem no
+ * mesmo balde do nulo — é a mesma regra que a gravação usa para decidir o que
+ * vai para a coluna. Copiar a regra aqui em vez de reusar a função abriria
+ * espaço para as duas divergirem com o tempo; construir sobre ela fecha essa
+ * possibilidade por construção: leitura e escrita não podem discordar porque
+ * são a mesma linha de código.
+ */
+export function semCategoria(bruto: unknown): boolean {
+  return normalizarCategoria(bruto) === null;
+}
+
+/** Quantas linhas da lista estão sem categoria — a mesma regra de `semCategoria`. */
+export function quantasSemCategoria(lista: { categoria: string | null }[]): number {
+  return lista.filter((c) => semCategoria(c.categoria)).length;
+}
+
+/**
  * O QUE A URL PEDE: a conta inteira, ou uma categoria.
  *
  * `?categoria=` AUSENTE (`/contatos`) e `?categoria=` PRESENTE E VAZIO
