@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   motivoDoLoteVazio, textoDaRecusaDoLote, textoDoLoteEnviado,
   urlComAviso, urlDoAviso, avisoDaUrl, avisoDosPerfis, avisoDoLoteEnviado,
+  urlDaConversaComAviso, avisoDaCategoriaSalva,
 } from "../lib/avisos";
 
 describe("motivoDoLoteVazio", () => {
@@ -170,6 +171,54 @@ describe("urlDoAviso", () => {
       avisoDaUrl(u.searchParams.get("aviso") ?? undefined, u.searchParams.get("tom") ?? undefined)
         ?.tom
     ).toBe("erro");
+  });
+});
+
+describe("urlDaConversaComAviso", () => {
+  it("monta o caminho da conversa com aviso e tom", () => {
+    expect(urlDaConversaComAviso("123", { tom: "ok", texto: "Categoria salva" })).toBe(
+      "/conversas/123?aviso=Categoria%20salva&tom=ok"
+    );
+  });
+  // NÃO É `/contatos`, E NÃO TEM `?categoria=`: esta tela não tem filtro de
+  // categoria — o "recorte" dela é um id de conversa só, sempre presente.
+  it("nao carrega categoria nenhuma — nao e a mesma URL de /contatos", () => {
+    const u = urlDaConversaComAviso("123", { tom: "erro", texto: "x" });
+    expect(u.startsWith("/conversas/123?")).toBe(true);
+    expect(u).not.toContain("categoria");
+  });
+  // O ID NÃO VALIDADO (caminho de recusa por formato) NÃO PODE QUEBRAR O
+  // CAMINHO DA URL: uma barra a mais inseriria um segmento de rota estranho
+  // em vez de simplesmente cair no notFound() que a página já faz.
+  it("um id com caracteres de URL nao quebra o caminho", () => {
+    const u = urlDaConversaComAviso("abc/def?g=h", { tom: "erro", texto: "Conversa inválida." });
+    expect(u).toBe(
+      "/conversas/abc%2Fdef%3Fg%3Dh?aviso=Conversa%20inv%C3%A1lida.&tom=erro"
+    );
+  });
+  it("o aviso volta inteiro de avisoDaUrl", () => {
+    const aviso = { tom: "ok", texto: "Categoria removida." } as const;
+    const u = new URL(urlDaConversaComAviso("123", aviso), "https://x");
+    expect(
+      avisoDaUrl(u.searchParams.get("aviso") ?? undefined, u.searchParams.get("tom") ?? undefined)
+    ).toEqual(aviso);
+  });
+});
+
+describe("avisoDaCategoriaSalva", () => {
+  it("categoria definida diz o nome dela", () => {
+    const a = avisoDaCategoriaSalva("aluno");
+    expect(a.tom).toBe("ok");
+    expect(a.texto).toContain("aluno");
+  });
+  // TIRAR A CATEGORIA É PEDIDO LEGÍTIMO (campo em branco normaliza para
+  // `null`, lib/categorias.ts), e a frase não pode confundir isso com "gravei
+  // o nome vazio" — as duas são comemorações diferentes.
+  it("categoria nula (campo em branco) diz REMOVIDA, e nao repete um nome vazio", () => {
+    const a = avisoDaCategoriaSalva(null);
+    expect(a.tom).toBe("ok");
+    expect(a.texto.toLowerCase()).toContain("removid");
+    expect(a.texto).not.toContain('""');
   });
 });
 

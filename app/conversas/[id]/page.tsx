@@ -10,7 +10,8 @@ import {
 } from "@/lib/conversations";
 import { windowState, formatWindowLeft } from "@/lib/inbox-window";
 import { fmtDate } from "@/lib/format";
-import { muted, badgeOk, badgeNeutral, input, btnGhost } from "../../ui";
+import { avisoDaUrl } from "@/lib/avisos";
+import { muted, badgeOk, badgeNeutral, input, btnGhost, alertOk, alertError } from "../../ui";
 import Avatar from "../../avatar";
 import ReplyForm from "./reply-form";
 import AreaMensagens from "./area-mensagens";
@@ -80,9 +81,21 @@ function CartaoAnexo({ anexo }: { anexo: InboxAttachment }) {
   );
 }
 
-export default async function ConversaPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ConversaPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  // `aviso` e `tom` chegam do `redirect` de `definirCategoria` (./actions.ts).
+  // São texto de URL, digitável por qualquer um — quem os lê e os valida é
+  // `avisoDaUrl` (lib/avisos.ts), e não este componente.
+  searchParams: Promise<{ aviso?: string; tom?: string }>;
+}) {
   const { id } = await params;
   if (!/^\d{1,32}$/.test(id)) notFound();
+
+  const sp = await searchParams;
+  const aviso = avisoDaUrl(sp.aviso, sp.tom);
 
   const account = await getSelectedAccount();
   if (!account) notFound();
@@ -222,6 +235,14 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
           {janela.open ? `responde por ${formatWindowLeft(janela.msLeft)}` : "só leitura"}
         </span>
       </div>
+
+      {/* A FAIXA DO QUE ACABOU DE ACONTECER — no molde de app/contatos/page.tsx.
+          Só o que `definirCategoria` (./actions.ts) manda pelo redirect. */}
+      {aviso && (
+        <div className={`mx-4 mt-3 ${aviso.tom === "ok" ? alertOk : alertError}`}>
+          {aviso.texto}
+        </div>
+      )}
 
       {/* Só as mensagens rolam. A key remonta ao trocar de conversa, o que zera
           rolagem e aviso de mensagem nova junto. */}

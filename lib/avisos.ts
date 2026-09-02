@@ -212,6 +212,51 @@ export function urlDoAviso(base: string, filtro: FiltroDeCategoria, aviso: Aviso
 }
 
 /**
+ * A URL de volta da tela de CONVERSA, com o aviso pendurado nela.
+ *
+ * NÃO É CONSTRUÍDA SOBRE `urlDoAviso`, e essa não-escolha é a decisão desta
+ * função. `urlDoAviso` existe para `/contatos`, uma tela com FILTRO DE
+ * CATEGORIA — e é por isso que ela pede um `FiltroDeCategoria` e o preserva
+ * pelo redirect. `/conversas/[id]` não tem esse conceito: o "recorte" dela é
+ * um id de conversa só, sempre presente, nunca ambíguo entre ausente e
+ * presente-e-vazio — a armadilha que `urlComFiltro`/`urlComAviso` existem para
+ * evitar simplesmente não existe aqui. Forçar `urlDoAviso` exigiria inventar
+ * um `FiltroDeCategoria` que não representa nada desta tela, só para chegar
+ * a uma URL que aquela função nunca foi desenhada para produzir
+ * (`/conversas/[id]?...`, e não `/contatos?...`).
+ *
+ * `contactIgId` VAI CODIFICADO NO CAMINHO (`encodeURIComponent`), e não colado
+ * cru — mesmo já validado por quem chama nos dois caminhos de sucesso. No
+ * caminho de recusa por formato (`definirCategoria`, quando o id não bate
+ * `/^\d{1,32}$/`), o valor ainda não foi validado quando este redirect é
+ * montado: ele vem direto do FormData, que é o navegador de alguém, e pode
+ * conter qualquer coisa — inclusive `/` ou `?`. Sem codificar, esse texto
+ * quebraria o caminho da URL (uma barra a mais insere um segmento de rota que
+ * não existe) em vez de simplesmente cair no `notFound()` que a página já
+ * faz para um id que não bate o formato.
+ */
+export function urlDaConversaComAviso(contactIgId: string, aviso: Aviso): string {
+  return `/conversas/${encodeURIComponent(contactIgId)}?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;
+}
+
+/**
+ * O aviso de sucesso ao salvar a categoria de um contato (`definirCategoria`,
+ * app/conversas/[id]/actions.ts).
+ *
+ * A FRASE MUDA ENTRE GRAVAR E TIRAR, porque são dois pedidos diferentes na
+ * cabeça de quem clicou: `normalizarCategoria` (lib/categorias.ts) devolve
+ * `null` para campo em branco, e isso é o pedido LEGÍTIMO de "tirar a
+ * categoria" — dizer "categoria salva" sobre um campo que ficou vazio seria
+ * confuso, e a comemoração errada.
+ */
+export function avisoDaCategoriaSalva(categoria: string | null): Aviso {
+  if (categoria === null) {
+    return { tom: "ok", texto: "Categoria removida." };
+  }
+  return { tom: "ok", texto: `Categoria definida como "${categoria}".` };
+}
+
+/**
  * O aviso do botao "Buscar nomes" — quantos perfis a Meta devolveu.
  *
  * O TOM E DECISAO, E NAO ENFEITE. A acao roda ate 30 buscas na Meta e engole

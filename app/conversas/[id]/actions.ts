@@ -1,11 +1,13 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { getSelectedAccount } from "@/lib/account";
 import { enqueueManualReply } from "@/lib/engine";
 import { drainQueue } from "@/lib/queue-drain";
 import { windowState } from "@/lib/inbox-window";
 import { sql } from "@/lib/db";
 import { normalizarCategoria } from "@/lib/categorias";
+import { urlDaConversaComAviso, avisoDaCategoriaSalva } from "@/lib/avisos";
 
 export async function sendReply(
   _prev: { error?: string } | undefined,
@@ -74,17 +76,49 @@ export async function sendReply(
  *
  * O `account_id` no `where` é o que impede marcar contato de outra conta: o
  * identificador vem do formulário, e formulário é do navegador.
+ *
+ * OS TRÊS `return;` MUDOS VIRARAM `redirect` COM AVISO, no molde de
+ * `enviarLote` (app/contatos/actions.ts) — inclusive o de sucesso, que antes
+ * não existia nenhum: a tela recarregava igual estivesse a gravação certa,
+ * errada ou nem tentada.
+ *
+ * A URL DE VOLTA NÃO É `/contatos`, e não tem `?categoria=` — é a própria
+ * conversa (`urlDaConversaComAviso`, lib/avisos.ts). Esta tela não tem filtro
+ * de categoria: forçar `urlDoAviso` aqui exigiria inventar um
+ * `FiltroDeCategoria` que não representa nada desta tela, só para chegar a
+ * uma URL (`/conversas/[id]?...`) que aquela função nunca foi desenhada para
+ * produzir — por isso a função nova, com teste próprio.
+ *
+ * `contactIgId` É LIDO ANTES DE QUALQUER RECUSA, e não só depois de conferir a
+ * conta como antes: os três caminhos de saída — sem conta, formato inválido,
+ * sucesso — precisam dele para montar a URL de volta.
  */
 export async function definirCategoria(formData: FormData): Promise<void> {
-  const account = await getSelectedAccount();
-  if (!account) return;
-
   const contactIgId = String(formData.get("contato") ?? "");
+
+  const account = await getSelectedAccount();
+  if (!account) {
+    redirect(
+      urlDaConversaComAviso(contactIgId, {
+        tom: "erro",
+        texto: "Conecte uma conta do Instagram primeiro.",
+      })
+    );
+  }
+
   // Mesmo formato que `sendReply`, acima, já exige para este campo. Não é
   // brecha — o `and account_id = $1` do update abaixo fecha o escopo mesmo
   // sem isto —, mas sem validar, um id malformado gasta um update de zero
-  // linhas e um revalidatePath num caminho que não existe.
-  if (!/^\d{1,32}$/.test(contactIgId)) return;
+  // linhas e um revalidatePath num caminho que não existe. Mesma frase que
+  // `sendReply` já usa para o mesmo defeito de formato.
+  if (!/^\d{1,32}$/.test(contactIgId)) {
+    redirect(
+      urlDaConversaComAviso(contactIgId, {
+        tom: "erro",
+        texto: "Conversa inválida.",
+      })
+    );
+  }
 
   const categoria = normalizarCategoria(formData.get("categoria"));
 
@@ -95,4 +129,6 @@ export async function definirCategoria(formData: FormData): Promise<void> {
 
   revalidatePath(`/conversas/${contactIgId}`);
   revalidatePath("/contatos");
+
+  redirect(urlDaConversaComAviso(contactIgId, avisoDaCategoriaSalva(categoria)));
 }
