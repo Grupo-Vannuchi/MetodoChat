@@ -31,7 +31,12 @@ isso — em um dia, 1 contato marcado de 120.
 ### 1 · A marca fica na segunda linha, no fluxo
 
 `app/conversas/lista.tsx`, segunda linha da conversa, logo depois de
-`há 2 h · 5 msgs`. Texto curto e apagado.
+`há 2 h · 5 msgs`, separado pelo mesmo `·` que já separa os outros dois campos.
+
+**O texto é "sem categoria"**, na mesma classe apagada da linha (`muted`), sem
+cor de alerta e sem fundo. "Discreto mas não invisível" — pedido do dono, e o
+contorno dele é este: legível ao varrer a lista, e nunca competindo com o canto
+direito, que continua sendo da contagem de não lidas.
 
 **E ISTO É UMA CORREÇÃO DE MEIO DE DESENHO, registrada porque a primeira
 versão estava errada.** A proposta inicial punha a categoria como terceiro
@@ -56,8 +61,13 @@ não pode divergir da escrita.
 
 ### 3 · O contador do topo usa a MESMA função
 
-A lista ganha uma linha dizendo quantas conversas ainda não têm categoria — o
-número que hoje é 120 e não aparece em lugar nenhum.
+O contador vai no cabeçalho de `app/conversas/layout.tsx`, junto do subtítulo
+que já explica a regra das 24h — e não dentro da coluna que rola, senão ele
+sairia da tela ao descer a lista.
+
+Diz quantas conversas ainda não têm categoria: o número que hoje é 120 e não
+aparece em lugar nenhum. **Zero não vira linha:** quando não falta nenhuma, o
+contador some em vez de anunciar que não há nada a fazer.
 
 **Mesma função da marca, aplicada à lista inteira.** É o que impede o contador
 de dizer 120 enquanto as linhas mostram 119 marcas.
