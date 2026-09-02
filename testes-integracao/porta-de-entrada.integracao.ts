@@ -251,6 +251,22 @@ async function contatosDe(igId: string): Promise<LinhaDeContato[]> {
     )) as LinhaDeContato[];
 }
 
+/**
+ * A CATEGORIA DO CONTATO, gravada como a tela grava: `update` cru na coluna.
+ * Nenhuma funcao de decisao deste projeto participa — um teste que semeia com
+ * as mesmas funcoes que mede concorda consigo mesmo.
+ */
+async function marcarCategoria(contaId: string, igId: string, categoria: string) {
+  await banco
+    .db()
+    .sql()
+    .query(`update contacts set categoria = $3 where account_id = $1 and ig_id = $2`, [
+      contaId,
+      igId,
+      categoria,
+    ]);
+}
+
 async function eventos(contaId: string, tipo: string): Promise<Record<string, unknown>[]> {
   const linhas = (await banco
     .db()
@@ -682,7 +698,7 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
   // usa. Uma asserção sobre a bolha mata as duas de uma vez — sem a lista de
   // tipos não vem linha nenhuma; sem o `coalesce` vem linha sem texto.
   // -------------------------------------------------------------------------
-  test("quem entra pela porta aparece na caixa de entrada, com a pergunta na bolha", async () => {
+  test("quem entra pela porta aparece na caixa de entrada, com a bolha e a categoria da conta", async () => {
     const NA_CAIXA = "9300000000000007";
     const PERGUNTA = "Quero o passo a passo";
 
@@ -724,6 +740,52 @@ describe("a porta de entrada: o toque numa pergunta de abertura", () => {
     // 3) E A RESPOSTA DA AUTOMAÇÃO ESTÁ LOGO ABAIXO, saindo da fila: a conversa
     //    que o dono abre tem as duas pontas, e não só a metade que chegou.
     expect(mensagens.map((m) => m.text)).toEqual([PERGUNTA, BOAS_VINDAS]);
+
+    // 4) A CATEGORIA VEM, E VEM DESTA CONTA.
+    //
+    // Duas coisas atravessavam esta consulta sem NADA segurando, e as duas
+    // foram medidas passando pelos quatro portoes na revisao de 02/09/2026:
+    //
+    //   o VALOR    trocar `c.categoria` por `null::text as categoria` no
+    //     `select` deixa toda conversa marcada "sem categoria" para sempre e
+    //     trava o contador do cabecalho no total. O `group by` tem rede (o 42803
+    //     fica vermelho aqui mesmo), mas ele protege a SINTAXE, nao o valor.
+    //   o ESCOPO   tirar `c.account_id = $1` do `on` da juncao com `contacts`.
+    //
+    // POR QUE A MESMA PESSOA EM DUAS CONTAS. Uma assercao sobre uma conta so
+    // prende o valor e nao prende o escopo: com uma unica linha em `contacts`
+    // por pessoa, juncao COM conta e juncao SEM conta devolvem o mesmo. Quem as
+    // separa e a pessoa que fala com DUAS contas conectadas — caso real neste
+    // produto, e a razao de a chave de `contacts` ser composta (migrations/005).
+    // Sem a conta no `on`, a juncao casa as duas linhas e a MESMA conversa
+    // aparece DUPLICADA, cada copia com a categoria de uma conta. Por isso o
+    // tamanho da lista filtrada e afirmado antes do valor.
+    const CATEGORIA_AQUI = "aluno";
+    const CATEGORIA_NA_VIZINHA = "curioso";
+
+    // A mesma pessoa entra tambem pela porta da conta VIZINHA: e o toque que
+    // faz nascer a segunda linha de `contacts`, pelo motor de verdade.
+    await tocarNaPergunta(
+      VIZINHA,
+      NA_CAIXA,
+      PERGUNTA,
+      payloadDaPergunta(DA_VIZINHA_ID),
+      "mid-caixa-de-entrada-2"
+    );
+    await marcarCategoria(CONTA, NA_CAIXA, CATEGORIA_AQUI);
+    await marcarCategoria(VIZINHA, NA_CAIXA, CATEGORIA_NA_VIZINHA);
+
+    const aqui = (await conversas.listConversations(CONTA)).filter((c) => c.ig_id === NA_CAIXA);
+    expect(aqui.length, "a conversa apareceu duplicada na caixa desta conta").toBe(1);
+    expect(aqui[0].categoria, "a categoria nao chegou na linha da lista").toBe(CATEGORIA_AQUI);
+
+    const naVizinha = (await conversas.listConversations(VIZINHA)).filter(
+      (c) => c.ig_id === NA_CAIXA
+    );
+    expect(naVizinha.length, "a conversa apareceu duplicada na caixa da vizinha").toBe(1);
+    expect(naVizinha[0].categoria, "a vizinha viu a categoria da outra conta").toBe(
+      CATEGORIA_NA_VIZINHA
+    );
 
     expect(meta.desconhecidos).toEqual([]);
   });
