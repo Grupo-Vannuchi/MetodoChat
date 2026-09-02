@@ -566,26 +566,46 @@ export async function toggleAutomation(id: string, active: boolean): Promise<Res
   return { ok: true, ativoGravado: active };
 }
 
-export async function deleteAutomation(id: string): Promise<void> {
+// EXCLUIR TAMBÉM DEVOLVE `Resultado`, no molde de `toggleAutomation`, acima —
+// e não `Promise<void>`, que fazia estas duas ações recusarem em silêncio: sem
+// conta conectada, ou id que não existe (ou é de outra conta), a lista
+// recarregava igual estivesse a exclusão funcionado.
+//
+// `returning id` É O MESMO TRUQUE DE `salvarAutomacao`, ali em cima: zero
+// linhas é automação que não existe OU que é de outra conta, e as duas dão a
+// mesma resposta pelo mesmo motivo — distingui-las contaria a quem tentou que
+// aquele id existe.
+export async function deleteAutomation(id: string): Promise<Resultado> {
   const accountId = await getSelectedAccountId();
-  if (!accountId) return;
-  await sql().query(`delete from automations where id = $1 and account_id = $2`, [id, accountId]);
+  if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
+  const linhas = (await sql().query(
+    `delete from automations where id = $1 and account_id = $2 returning id`,
+    [id, accountId]
+  )) as { id: string }[];
+  if (!linhas[0]) return { ok: false, erro: NAO_ENCONTRADA };
   revalidatePath("/automacoes");
+  // `ativoGravado: false` E NÃO UM PALPITE: a automação excluída não existe
+  // mais, então não há "estado ativo" para relatar. `false` é o valor inerte,
+  // e a tela de lista (list-client.tsx) não olha este campo para exclusão —
+  // só `ok`, para saber se mostra a recusa.
+  return { ok: true, ativoGravado: false };
 }
 
 // Duplica a automação inteira, inclusive os follow-ups. As colunas são copiadas
 // por nome (em vez de listadas uma a uma) para a cópia continuar completa
 // quando colunas novas forem adicionadas no futuro.
-export async function duplicateAutomation(id: string): Promise<void> {
+//
+// TAMBÉM DEVOLVE `Resultado`, pelo mesmo motivo de `deleteAutomation`, acima.
+export async function duplicateAutomation(id: string): Promise<Resultado> {
   const accountId = await getSelectedAccountId();
-  if (!accountId) return;
+  if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
 
   const rows = (await sql().query(
     `select * from automations where id = $1 and account_id = $2`,
     [id, accountId]
   )) as Record<string, unknown>[];
   const original = rows[0];
-  if (!original) return;
+  if (!original) return { ok: false, erro: NAO_ENCONTRADA };
 
   // colunas geradas pelo banco não entram na cópia
   const ignorar = new Set(["id", "created_at", "updated_at"]);
@@ -615,4 +635,8 @@ export async function duplicateAutomation(id: string): Promise<void> {
     );
   }
   revalidatePath("/automacoes");
+  // `ativoGravado: false` PORQUE A CÓPIA SEMPRE NASCE PAUSADA — não é um
+  // palpite, é literalmente o que o `valores.map` acima grava para a coluna
+  // `active`, duas dezenas de linhas atrás.
+  return { ok: true, ativoGravado: false };
 }

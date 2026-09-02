@@ -1,11 +1,13 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { getSelectedAccount } from "@/lib/account";
 import { enqueueManualReply } from "@/lib/engine";
 import { drainQueue } from "@/lib/queue-drain";
 import { windowState } from "@/lib/inbox-window";
 import { sql } from "@/lib/db";
 import { normalizarCategoria } from "@/lib/categorias";
+import { urlDaConversaComAviso, avisoDaCategoriaSalva } from "@/lib/avisos";
 
 export async function sendReply(
   _prev: { error?: string } | undefined,
@@ -74,17 +76,71 @@ export async function sendReply(
  *
  * O `account_id` no `where` é o que impede marcar contato de outra conta: o
  * identificador vem do formulário, e formulário é do navegador.
+ *
+ * DOIS DOS TRÊS `return;` MUDOS VIRARAM `redirect` COM AVISO, no molde de
+ * `enviarLote` (app/contatos/actions.ts) — inclusive o de sucesso, que antes
+ * não existia nenhum: a tela recarregava igual estivesse a gravação certa,
+ * errada ou nem tentada. O TERCEIRO CONTINUA MUDO, e o porquê está escrito em
+ * cima dele: a frase que ele mandaria é inalcançável por construção, porque a
+ * página `notFound()` com o mesmo regex.
+ *
+ * A URL DE VOLTA NÃO É `/contatos`, e não tem `?categoria=` — é a própria
+ * conversa (`urlDaConversaComAviso`, lib/avisos.ts). Esta tela não tem filtro
+ * de categoria: forçar `urlDoAviso` aqui exigiria inventar um
+ * `FiltroDeCategoria` que não representa nada desta tela, só para chegar a
+ * uma URL (`/conversas/[id]?...`) que aquela função nunca foi desenhada para
+ * produzir — por isso a função nova, com teste próprio.
+ *
+ * `contactIgId` É LIDO ANTES DE QUALQUER RECUSA, e não só depois de conferir a
+ * conta: os dois caminhos que FALAM — sem conta e sucesso — precisam dele para
+ * montar a URL de volta, e o de sem conta vem antes da conferência de formato.
  */
 export async function definirCategoria(formData: FormData): Promise<void> {
-  const account = await getSelectedAccount();
-  if (!account) return;
-
   const contactIgId = String(formData.get("contato") ?? "");
-  // Mesmo formato que `sendReply`, acima, já exige para este campo. Não é
-  // brecha — o `and account_id = $1` do update abaixo fecha o escopo mesmo
-  // sem isto —, mas sem validar, um id malformado gasta um update de zero
-  // linhas e um revalidatePath num caminho que não existe.
-  if (!/^\d{1,32}$/.test(contactIgId)) return;
+
+  const account = await getSelectedAccount();
+  if (!account) {
+    redirect(
+      urlDaConversaComAviso(contactIgId, {
+        tom: "erro",
+        texto: "Conecte uma conta do Instagram primeiro.",
+      })
+    );
+  }
+
+  // ESTA RECUSA É MUDA DE PROPÓSITO, E ISSO É UM RECUO ESCRITO — não um
+  // esquecimento.
+  //
+  // Aqui havia um `redirect` com a frase "Conversa inválida.", posto por esta
+  // mesma branch. MEDIDO EM 02/09/2026: ele era 100% INALCANÇÁVEL, sempre, POR
+  // CONSTRUÇÃO. Ele só dispara quando o id NÃO bate `/^\d{1,32}$/`, e
+  // `./page.tsx` faz `notFound()` com EXATAMENTE o mesmo regex, antes de
+  // desenhar coisa alguma. As três formas de id ruim iam todas para o mesmo
+  // lugar:
+  //
+  //   id com letra   -> /conversas/nao-e-numero?aviso=… -> notFound() na página
+  //   id com barra   -> /conversas/12%2F34?aviso=…      -> notFound() na página
+  //   campo ausente  -> /conversas/?aviso=…             -> a LISTA, que não lê `aviso`
+  //
+  // Uma frase que ninguém pode ver é pior que um silêncio explicado: ela parece
+  // defesa, e a próxima pessoa a lê como prova de que este caminho já fala.
+  // Então o silêncio fica, com o motivo escrito — a mesma escolha de
+  // `selectAccount` (app/account-actions.ts) e `marcarVisto`.
+  //
+  // E ELE NÃO É PERDA DE AVISO PARA NINGUÉM: o formulário desta tela manda
+  // `contato` num `<input type="hidden" value={id}>` (./page.tsx), e aquele
+  // `id` já passou pelo `notFound()` da página. Um id fora do formato só chega
+  // aqui por POST montado à mão — e para esse, `console.warn` é o registro
+  // adequado, exatamente como em `marcarVisto`.
+  //
+  // A CONFERÊNCIA CONTINUA, porque ela não era só cosmética: sem ela, um id
+  // malformado gasta um update de zero linhas e um `revalidatePath` num caminho
+  // que não existe. O `and account_id = $1` do update abaixo é quem fecha o
+  // escopo de verdade, e ele não depende disto.
+  if (!/^\d{1,32}$/.test(contactIgId)) {
+    console.warn("definirCategoria: contato fora do formato, ignorado");
+    return;
+  }
 
   const categoria = normalizarCategoria(formData.get("categoria"));
 
@@ -95,4 +151,6 @@ export async function definirCategoria(formData: FormData): Promise<void> {
 
   revalidatePath(`/conversas/${contactIgId}`);
   revalidatePath("/contatos");
+
+  redirect(urlDaConversaComAviso(contactIgId, avisoDaCategoriaSalva(categoria)));
 }

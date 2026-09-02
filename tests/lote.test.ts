@@ -9,6 +9,7 @@ import {
   campoDoFiltro,
   filtroDoCampo,
   validadeDoDia,
+  hojeNoFusoDoPrazo,
 } from "@/lib/lote";
 
 // ============================================================
@@ -383,5 +384,46 @@ describe("validadeDoDia", () => {
     expect(validadeDoDia("07/09/2026")).toBe(null);
     expect(validadeDoDia("2026-13-01")).toBe(null);
     expect(validadeDoDia("2026-02-30")).toBe(null);
+  });
+});
+
+// ============================================================
+// O PISO DO CAMPO DE PRAZO — o `min` do `<input type="date">` de
+// `app/contatos/page.tsx`.
+//
+// Ele existe porque o dia no passado era o caminho mais curto para um lote em
+// que NADA sai: `validadeDoDia` devolve um instante vencido, `loteExpirou` da
+// verdadeiro na primeira drenagem e todo item vira `skipped`.
+// ============================================================
+describe("hojeNoFusoDoPrazo", () => {
+  // O CASO QUE PRENDE O FUSO, e ele e o unico que distingue os dois desenhos:
+  // 01:00Z do dia 3 ainda e o dia 2 em Brasilia. `toISOString().slice(0,10)`
+  // diria "2026-09-03" e o campo passaria a RECUSAR o dia de hoje, entre 21:00
+  // e a meia-noite — o horario de pico.
+  it("depois das 21h de Brasilia, o dia ainda e o de ca, e nao o de UTC", () => {
+    const madrugadaUtc = Date.parse("2026-09-03T01:00:00Z");
+    expect(hojeNoFusoDoPrazo(madrugadaUtc)).toBe("2026-09-02");
+    expect(new Date(madrugadaUtc).toISOString().slice(0, 10)).toBe("2026-09-03");
+  });
+
+  it("o formato e o que o campo de data exige, e nada mais", () => {
+    expect(hojeNoFusoDoPrazo(Date.parse("2026-12-31T15:00:00Z"))).toBe("2026-12-31");
+    expect(hojeNoFusoDoPrazo(Date.parse("2026-01-05T15:00:00Z"))).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  // O PISO TEM DE DEIXAR O DIA DE HOJE PASSAR, e nao so o de amanha: um lote
+  // "vale ate hoje" e um pedido legitimo — `validadeDoDia` o faz valer ate a
+  // meia-noite de Brasilia, ou seja o dia inteiro que ainda resta.
+  it("o dia de hoje ainda vale — o prazo dele so acaba a meia-noite", () => {
+    const agora = Date.parse("2026-09-02T18:00:00Z");
+    const hoje = hojeNoFusoDoPrazo(agora);
+    expect(loteExpirou(validadeDoDia(hoje), agora)).toBe(false);
+  });
+
+  // E O DIA ANTERIOR AO PISO E EXATAMENTE O DEFEITO: escolhido, ele nasce
+  // vencido. E este par de linhas que explica por que o `min` e conserto.
+  it("o dia anterior ao piso nasce vencido — e por isso ele fica de fora", () => {
+    const agora = Date.parse("2026-09-02T18:00:00Z");
+    expect(loteExpirou(validadeDoDia("2026-09-01"), agora)).toBe(true);
   });
 });

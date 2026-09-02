@@ -11,7 +11,8 @@ import {
   resumoDasCategorias,
   casoDaListaDeEmail,
 } from "@/lib/categorias";
-import { campoDoFiltro, destinoDoLote } from "@/lib/lote";
+import { campoDoFiltro, destinoDoLote, hojeNoFusoDoPrazo } from "@/lib/lote";
+import { avisoDaUrl } from "@/lib/avisos";
 import { atualizarPerfis, enviarLote } from "./actions";
 import {
   card,
@@ -26,6 +27,8 @@ import {
   badgeOk,
   badgeNeutral,
   emptyWrap,
+  alertOk,
+  alertError,
 } from "../ui";
 import { IconMail, IconUsers } from "../icons";
 import Avatar from "../avatar";
@@ -125,10 +128,17 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
 export default async function ContatosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ categoria?: string }>;
+  // `aviso` e `tom` chegam do `redirect` das duas ações desta tela
+  // (./actions.ts). São texto de URL, digitável por qualquer um — quem os lê
+  // e os valida é `avisoDaUrl` (lib/avisos.ts), e não este componente.
+  searchParams: Promise<{ categoria?: string; aviso?: string; tom?: string }>;
 }) {
   const sp = await searchParams;
   const filtro = filtroDaUrl(sp.categoria);
+  // O QUE A AÇÃO ANTERIOR FEZ, se houve uma. A decisão do tom é de
+  // `avisoDaUrl`: um tom desconhecido cai em "erro", e nunca vira classe de
+  // CSS montada com texto vindo de fora.
+  const aviso = avisoDaUrl(sp.aviso, sp.tom);
   const account = await getSelectedAccount();
   // SEM `limit`, E ISSO É A CORREÇÃO DE UM DEFEITO, não uma folga.
   //
@@ -204,6 +214,13 @@ export default async function ContatosPage({
   const semEmail = visiveis.filter((c) => !c.email);
   const semNome = rows.filter((c) => !c.username).length;
 
+  // O PISO DO CAMPO DE PRAZO, calculado aqui e não no JSX. Um dia já passado
+  // naquele campo é o caminho mais curto para um lote que não sai: todo item
+  // vira `skipped` na primeira drenagem, antes de qualquer envio. O fuso é o do
+  // PRAZO, e vem da mesma constante de `validadeDoDia` — ver `hojeNoFusoDoPrazo`
+  // (lib/lote.ts) para o porquê de não ser `toISOString()` nem `-3h`.
+  const hoje = hojeNoFusoDoPrazo();
+
   // A decisão de qual texto a seção "Com e-mail" mostra — e se "Sem e-mail"
   // ainda faz sentido na tela — é de `casoDaListaDeEmail` (lib/categorias.ts),
   // não do JSX abaixo: ver o comentário lá para o porquê.
@@ -228,10 +245,25 @@ export default async function ContatosPage({
         </div>
         {semNome > 0 && (
           <form action={atualizarPerfis}>
+            {/* O RECORTE VAI JUNTO, pelo mesmo campo do formulário de envio:
+                sem ele, o aviso de volta levaria quem estava filtrando por
+                uma categoria de volta para a conta inteira. `campoDoFiltro`
+                (lib/lote.ts) é quem distingue "todos" de "sem categoria".
+
+                E `atualizarPerfis` (./actions.ts) LÊ este campo — até 02/09 não
+                lia, a assinatura dela nem recebia `FormData`, e este comentário
+                afirmava o contrário do de lá. A BUSCA continua sendo sobre a
+                conta inteira; o que o recorte decide é só o caminho de volta. */}
+            <input type="hidden" name="categoria" value={campoDoFiltro(filtro)} />
             <button className={btnGhost}>Buscar nomes ({semNome} sem nome)</button>
           </form>
         )}
       </div>
+
+      {/* A FAIXA DO QUE ACABOU DE ACONTECER — no molde de app/setup/page.tsx.
+          Fica ANTES do ramo de lista vazia de propósito: a recusa "esta conta
+          ainda não tem contatos" chega justamente numa tela sem ninguém. */}
+      {aviso && <div className={aviso.tom === "ok" ? alertOk : alertError}>{aviso.texto}</div>}
 
       {rows.length === 0 ? (
         <div className={`p-8 text-center text-sm ${card} ${muted}`}>
@@ -312,7 +344,19 @@ export default async function ContatosPage({
                   placeholder="Texto do botão (só com link)" />
                 <label className={`block text-xs ${muted}`}>
                   Vale até (vazio = sem prazo)
-                  <input type="date" name="valido_ate" className={`mt-1 w-full ${input}`} />
+                  {/* `min` É CONSERTO, E NÃO POLIMENTO: sem ele, um dia no
+                      passado escolhido por engano faz TODO item do lote virar
+                      `skipped` na primeira drenagem — nada sai, nada vai sair.
+                      `hojeNoFusoDoPrazo` (lib/lote.ts) é a mesma fonte de fuso
+                      de `validadeDoDia`, que é quem lê este campo do outro lado.
+                      O navegador é conveniência; quem fecha o outro lado é a
+                      contagem dos cinco status em `enviarLote`. */}
+                  <input
+                    type="date"
+                    name="valido_ate"
+                    min={hoje}
+                    className={`mt-1 w-full ${input}`}
+                  />
                 </label>
                 <label className="flex items-center gap-2 text-xs">
                   <input type="checkbox" name="confirmado" value="1" required />

@@ -299,6 +299,42 @@ function adiantoDeBrasilia(instante: number): number {
 }
 
 /**
+ * QUE DIA É HOJE PARA O PRAZO, em Brasília, no formato `YYYY-MM-DD`.
+ *
+ * É o `min` do `<input type="date">` de `app/contatos/page.tsx`, e ele não é
+ * enfeite: um dia JÁ PASSADO ali é o caminho mais curto que existe para um lote
+ * que não sai. `validadeDoDia` devolve um instante no passado, `loteExpirou`
+ * (acima) é verdadeiro na primeira drenagem e TODO item vira `skipped` antes de
+ * `processItem` (lib/queue-drain.ts) — nada saiu e nada vai sair, por um clique
+ * errado no calendário.
+ *
+ * MESMO FUSO DE `validadeDoDia`, PELA MESMA CONSTANTE, e é essa a razão de esta
+ * função morar aqui e não na tela. Um `-3h` cravado, ou um `toISOString()` (que
+ * é UTC), poria o piso no dia errado entre 21:00 e a meia-noite de Brasília —
+ * justamente o horário de pico — e o campo passaria a recusar o dia de hoje, ou
+ * a aceitar o de ontem, exatamente onde o prazo decide se um envio é cancelado.
+ *
+ * NÃO É `diaDaChave` (lib/dedupe.ts), embora a conta seja a mesma: lá o fuso é o
+ * do BALDE de deduplicação, aqui é o do PRAZO. São dois significados que hoje
+ * caem no mesmo fuso, e amarrar um ao outro faria uma mudança em qualquer um dos
+ * dois mexer calado no outro.
+ *
+ * O `min` do HTML é conveniência do navegador, e não barreira: quem monta o POST
+ * à mão continua podendo mandar o que quiser. Quem fecha o outro lado é o aviso
+ * de `enviarLote`, que passou a contar os cinco status da fila.
+ */
+export function hojeNoFusoDoPrazo(agora: number = Date.now()): string {
+  // `en-CA` é o locale que formata como `YYYY-MM-DD`, que é o formato que o
+  // `<input type="date">` exige em `min` — a mesma escolha de `diaDaChave`.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: FUSO_DO_PRAZO,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(agora));
+}
+
+/**
  * O instante em que um lote "válido até o dia X" para de valer — ou `null`.
  *
  * O DIA ESCOLHIDO VALE INTEIRO. `<input type="date">` entrega `"2026-09-07"`, e

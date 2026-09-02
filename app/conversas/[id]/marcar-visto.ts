@@ -18,6 +18,28 @@ import { sql } from "@/lib/db";
 // virou a regra: `ensureSchema` foi apagado, e NENHUM caminho da aplicação
 // carrega DDL. A estrutura é responsabilidade de `migrations/`, e quem confere
 // que ela chegou é `exigirEsquema()` (lib/esquema.ts), uma vez por instância.
+// OS DOIS `return;` ABAIXO FICAM MUDOS DE PROPÓSITO, e a razão é uma só para
+// os dois: esta ação dispara SOZINHA, sem clique nenhum — a cada conversa
+// aberta (chamada por `visto.tsx`) e, pelo `Atualizador` de
+// `app/conversas/layout.tsx`, A CADA 30 SEGUNDOS enquanto a aba de Conversas
+// está visível, para toda conversa da lista.
+//
+// UM AVISO AQUI TOCARIA SOZINHO O DIA INTEIRO. `contactIgId` fora do formato
+// ou conta ausente não são erros do dono — são o mesmo tipo de guarda de
+// entrada malformada de `selectAccount` (app/account-actions.ts) —, mas ao
+// contrário daquela ação, esta roda em loop: uma faixa de erro que reaparece a
+// cada 30 segundos treina o dono a ignorá-la, o mesmo problema que o registro
+// em Atividade de `handleMessagingEvent` (lib/engine.ts) já teve e corrigiu
+// (ver o comentário de "botão sem caminho" lá) — e esta ação não tem para onde
+// redirecionar: ela é chamada de dentro de um componente de cliente, sem
+// formulário, sem navegação, então não há tela para carregar um `?aviso=`.
+//
+// O `console.warn` mais abaixo, no caso de zero linhas afetadas, continua
+// existindo: ele é a saída para quem lê o LOG do servidor, não para a tela —
+// que é exatamente o registro certo para algo que dispara sozinho.
+//
+// Este comentário existe para a próxima varredura não tratar estes dois
+// `return;` como esquecimento.
 export async function marcarVisto(contactIgId: string): Promise<void> {
   if (!/^\d{1,32}$/.test(contactIgId)) return;
   const account = await getSelectedAccount();

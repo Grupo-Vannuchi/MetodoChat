@@ -10,7 +10,8 @@ import {
 } from "@/lib/conversations";
 import { windowState, formatWindowLeft } from "@/lib/inbox-window";
 import { fmtDate } from "@/lib/format";
-import { muted, badgeOk, badgeNeutral, input, btnGhost } from "../../ui";
+import { avisoDaUrl } from "@/lib/avisos";
+import { muted, badgeOk, badgeNeutral, input, btnGhost, alertOk, alertError } from "../../ui";
 import Avatar from "../../avatar";
 import ReplyForm from "./reply-form";
 import AreaMensagens from "./area-mensagens";
@@ -80,12 +81,52 @@ function CartaoAnexo({ anexo }: { anexo: InboxAttachment }) {
   );
 }
 
-export default async function ConversaPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ConversaPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  // `aviso` e `tom` chegam do `redirect` de `definirCategoria` (./actions.ts).
+  // São texto de URL, digitável por qualquer um — quem os lê e os valida é
+  // `avisoDaUrl` (lib/avisos.ts), e não este componente.
+  searchParams: Promise<{ aviso?: string; tom?: string }>;
+}) {
   const { id } = await params;
   if (!/^\d{1,32}$/.test(id)) notFound();
 
+  const sp = await searchParams;
+  const aviso = avisoDaUrl(sp.aviso, sp.tom);
+
   const account = await getSelectedAccount();
-  if (!account) notFound();
+  // SEM CONTA, ESTA TELA AINDA TEM DE FALAR — e aqui havia `notFound()`.
+  //
+  // MEDIDO EM 02/09/2026: das 6 saídas de `definirCategoria` (./actions.ts), 4
+  // sumiam, e as 4 eram as RECUSAS. O aviso é lido logo acima, e este
+  // `notFound()` vinha DEPOIS: a ação pendurava a frase na URL e a página a
+  // jogava fora. A recusa "Conecte uma conta do Instagram primeiro" é
+  // alcançável de verdade — conta desconectada, ou cookie expirado, com a aba
+  // aberta —, e o dono clicava em "salvar" na categoria e recebia uma PÁGINA
+  // 404 no lugar da frase. O commit que dizia "definirCategoria passa a falar"
+  // tinha feito a ação falar só no sucesso.
+  //
+  // O DESENHO É O DE `app/contatos/page.tsx`: a faixa vem ANTES do corpo vazio,
+  // pelo mesmo motivo escrito lá — a recusa que diz "conecte uma conta" chega
+  // justamente numa tela que não tem conta para desenhar. O `notFound()` de
+  // cima (o do formato do id) FICA: um id que não é conversa não é uma conversa
+  // vazia, é outra página.
+  if (!account) {
+    return (
+      <div className="p-4">
+        <Link href="/conversas" className={`text-sm ${muted}`}>
+          ← Voltar para a lista
+        </Link>
+        {aviso && (
+          <div className={`mt-3 ${aviso.tom === "ok" ? alertOk : alertError}`}>{aviso.texto}</div>
+        )}
+        <p className={`mt-3 text-sm ${muted}`}>Conecte uma conta do Instagram primeiro.</p>
+      </div>
+    );
+  }
 
   // As duas consultas em paralelo. O `as` vai no resultado já resolvido, que é
   // o padrão do resto do projeto — converter a Promise confunde o TypeScript.
@@ -222,6 +263,14 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
           {janela.open ? `responde por ${formatWindowLeft(janela.msLeft)}` : "só leitura"}
         </span>
       </div>
+
+      {/* A FAIXA DO QUE ACABOU DE ACONTECER — no molde de app/contatos/page.tsx.
+          Só o que `definirCategoria` (./actions.ts) manda pelo redirect. */}
+      {aviso && (
+        <div className={`mx-4 mt-3 ${aviso.tom === "ok" ? alertOk : alertError}`}>
+          {aviso.texto}
+        </div>
+      )}
 
       {/* Só as mensagens rolam. A key remonta ao trocar de conversa, o que zera
           rolagem e aviso de mensagem nova junto. */}
