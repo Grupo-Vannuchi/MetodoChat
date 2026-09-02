@@ -16,16 +16,42 @@ import {
   type ContagemDoLote,
 } from "@/lib/avisos";
 
-// Preenche nome/@ dos contatos que ficaram salvos só com o número (IGSID),
-// criados antes de o app buscar o perfil na hora do webhook.
-export async function atualizarPerfis(): Promise<void> {
+/**
+ * Preenche nome/@ dos contatos que ficaram salvos só com o número (IGSID),
+ * criados antes de o app buscar o perfil na hora do webhook.
+ *
+ * O QUE ELA FAZ É SOBRE A CONTA INTEIRA, E A VOLTA É PARA O RECORTE — e as
+ * duas coisas são diferentes, o que aqui já foi confundido por escrito.
+ *
+ * Esta função não recebia `FormData`: a assinatura era `(): Promise<void>` e os
+ * dois `redirect` cravavam `{ tipo: "tudo" }`, enquanto `page.tsx` mandava um
+ * `<input type="hidden" name="categoria">` no formulário com um comentário
+ * dizendo "O RECORTE VAI JUNTO". Havia DOIS comentários afirmando coisas
+ * opostas, e o campo era código morto. A consequência era medida: quem estava
+ * em `/contatos?categoria=` (a ficha "sem categoria") e clicava em "Buscar
+ * nomes" voltava para `/contatos` — ou seja, o pedido PRESENTE-E-VAZIO era
+ * remontado como AUSENTE, que é o Crítico de 01/09 por uma terceira porta.
+ *
+ * A TELA É QUEM DECIDE ISSO: o botão aparece dentro da tela já filtrada, e
+ * devolver o dono para a conta inteira é uma surpresa gratuita. Então o campo
+ * passa a ser lido, do jeito que `enviarLote` já lê — `filtroDoCampo`
+ * (lib/lote.ts) é quem distingue "tudo" de "sem categoria", e `null` (campo
+ * ilegível) cai em "tudo", que aqui é o recorte certo porque a AÇÃO é sobre a
+ * conta inteira mesmo.
+ *
+ * O QUE NÃO MUDOU: a busca continua varrendo a conta INTEIRA (`where
+ * account_id = $1 and username is null`), e não o recorte. O filtro aqui é o
+ * caminho de VOLTA, e nada além disso.
+ */
+export async function atualizarPerfis(formData: FormData): Promise<void> {
+  // Antes de qualquer recusa, como em `enviarLote`: as duas saídas desta função
+  // devolvem o dono para a mesma ficha em que ele estava.
+  const filtro = filtroDoCampo(formData.get("categoria"));
+
   const account = await getSelectedAccount();
   if (!account) {
-    // Este botão não tem filtro por categoria na tela — ele age sobre a conta
-    // inteira —, então não há recorte a preservar no redirect: {tipo:"tudo"}
-    // não é omissão, é o único filtro que esta ação conhece.
     redirect(
-      urlDoAviso("/contatos", { tipo: "tudo" }, {
+      urlDoAviso("/contatos", filtro ?? { tipo: "tudo" }, {
         tom: "erro",
         texto: textoDaRecusaDoLote("sem_conta"),
       })
@@ -62,7 +88,9 @@ export async function atualizarPerfis(): Promise<void> {
     }
   }
   revalidatePath("/contatos");
-  redirect(urlDoAviso("/contatos", { tipo: "tudo" }, avisoDosPerfis(atualizados, rows.length)));
+  redirect(
+    urlDoAviso("/contatos", filtro ?? { tipo: "tudo" }, avisoDosPerfis(atualizados, rows.length))
+  );
 }
 
 /**

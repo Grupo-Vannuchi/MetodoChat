@@ -522,6 +522,40 @@ describe("enviarLote termina falando, e o que ela diz é contado do lote certo",
     expect(campos[0].min).toBe(hojeNoFusoDoPrazo());
   });
 
+  // -------------------------------------------------------------------------
+  // I2 — O CAMPO ESCONDIDO QUE NÃO IA A LUGAR NENHUM.
+  //
+  // `page.tsx` mandava `categoria` no formulário de "Buscar nomes", com um
+  // comentário dizendo "O RECORTE VAI JUNTO"; `atualizarPerfis` não recebia
+  // `FormData` e cravava `{ tipo: "tudo" }` nos dois `redirect`. Quem estava na
+  // ficha "sem categoria" voltava para a conta inteira — o `?categoria=`
+  // PRESENTE-E-VAZIO remontado como AUSENTE, que é o Crítico de 01/09 por uma
+  // terceira porta.
+  //
+  // Nenhum contato deste schema está sem `username`, então a ação não busca
+  // perfil nenhum na Meta: o que se mede aqui é o caminho de VOLTA.
+  // -------------------------------------------------------------------------
+  test("Buscar nomes devolve o dono para a ficha sem categoria, e não para a conta inteira", async () => {
+    const form = new FormData();
+    form.set("categoria", "uma:");
+
+    const d = await desfechoDe("/contatos", () => acoes.atualizarPerfis(form));
+
+    expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+    expect(d.url ?? "").toMatch(/^\/contatos\?categoria=&/);
+    expect(avisoDaUrlDeVolta(d.url).tom).toBe("ok");
+  });
+
+  test("Buscar nomes com o recorte 'tudo' NÃO inventa um ?categoria= vazio", async () => {
+    // O OUTRO LADO DA MESMA DISTINÇÃO: ausente e presente-e-vazio são pedidos
+    // diferentes, e preservar um não pode custar o outro.
+    const form = new FormData();
+    form.set("categoria", "tudo");
+
+    const d = await desfechoDe("/contatos", () => acoes.atualizarPerfis(form));
+    expect(d.url ?? "").toMatch(/^\/contatos\?aviso=/);
+  });
+
   test("o lote sem a confirmação marcada não enfileira nada, e diz o que fazer", async () => {
     const CONTATO = "9100000000000202";
     await semearContato(CONTATO, { horasDesdeAResposta: 0, categoria: "sem confirmar" });

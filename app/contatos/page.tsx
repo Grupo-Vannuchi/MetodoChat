@@ -248,7 +248,12 @@ export default async function ContatosPage({
             {/* O RECORTE VAI JUNTO, pelo mesmo campo do formulário de envio:
                 sem ele, o aviso de volta levaria quem estava filtrando por
                 uma categoria de volta para a conta inteira. `campoDoFiltro`
-                (lib/lote.ts) é quem distingue "todos" de "sem categoria". */}
+                (lib/lote.ts) é quem distingue "todos" de "sem categoria".
+
+                E `atualizarPerfis` (./actions.ts) LÊ este campo — até 02/09 não
+                lia, a assinatura dela nem recebia `FormData`, e este comentário
+                afirmava o contrário do de lá. A BUSCA continua sendo sobre a
+                conta inteira; o que o recorte decide é só o caminho de volta. */}
             <input type="hidden" name="categoria" value={campoDoFiltro(filtro)} />
             <button className={btnGhost}>Buscar nomes ({semNome} sem nome)</button>
           </form>
