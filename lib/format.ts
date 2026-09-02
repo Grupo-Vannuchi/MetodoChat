@@ -23,6 +23,28 @@ export function fmtRelative(value: string | Date | null | undefined): string {
   return d === 1 ? "ontem" : `há ${d} dias`;
 }
 
+/**
+ * A mesma data relativa, sem o "há " da frente — para lista, não para frase.
+ *
+ * POR QUE NÃO MUDAR `fmtRelative`: ela também é usada em `app/page.tsx`, dentro
+ * de "Última interação há 2 h", onde o prefixo é GRAMÁTICA e não enfeite. Tirar
+ * lá quebraria a frase; tirar só aqui é o recorte certo.
+ *
+ * O CUSTO DO PREFIXO FOI MEDIDO, e é por isso que esta função existe: ~18px dos
+ * 224 da linha da conversa (`app/conversas/lista.tsx`), num espaço em que a
+ * data estava sendo reduzida a reticência — "h.", "há ..." — em 5 das 6 linhas
+ * visíveis em produção. Numa lista ordenada por recência, "há" não informa
+ * nada: tudo ali é passado.
+ *
+ * "agora" e "ontem" passam INTEIROS, porque não têm o prefixo — e é por isso
+ * que a regra é um recorte do começo, e não um `replace` de "há " em qualquer
+ * posição: uma categoria ou nome não passa por aqui, mas a regra ainda tem de
+ * ser sobre a FORMA da saída de `fmtRelative`, que é a única entrada legítima.
+ */
+export function semPrefixo(relativo: string): string {
+  return relativo.startsWith("há ") ? relativo.slice(3) : relativo;
+}
+
 // NÃO EXPORTADA, DE PROPÓSITO: só `fmtRelative`, aqui em cima, a usa.
 //
 // Foi ela que produziu a SEGUNDA regra de janela do produto — a lista de

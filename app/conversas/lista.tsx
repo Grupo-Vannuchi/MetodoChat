@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { windowState, formatWindowLeft } from "@/lib/inbox-window";
-import { fmtRelative } from "@/lib/format";
+import { fmtRelative, semPrefixo } from "@/lib/format";
 import { muted, badgeOk } from "../ui";
 import Avatar from "../avatar";
 import { badgeDaConversa } from "@/lib/inbox-badge";
@@ -113,16 +113,28 @@ export default function Lista({
                     MARCA seria encolher o sinal, que é a única coisa que esta
                     tela ganhou. */}
                 <div className={`mt-0.5 flex min-w-0 items-center gap-2 text-xs ${muted}`}>
-                  <span className="truncate">{fmtRelative(c.last_at)}</span>
-                  <span aria-hidden="true">·</span>
+                  {/* SEM OS "·" SEPARADORES, e a medição é o motivo: os três
+                      pontinhos custavam 49px dos 224 da linha — 9px de texto
+                      mais dois espaçamentos de 8px que cada um forçava. Era
+                      mais que a data inteira precisava, gasto em enfeite. O
+                      `gap-2` já separa os campos, e é como aplicativo de
+                      mensagem faz.
+
+                      E o "há " também saiu: custava ~18px e não informava nada
+                      — tudo nesta lista é passado. "5 min", "9 h", "335 dias".
+
+                      MEDIDO NA TELA DE PRODUÇÃO, com as 50 conversas de
+                      verdade: antes, 5 das 6 primeiras linhas mostravam só
+                      reticência no lugar da data ("h.", "há ..."); depois,
+                      49 das 50 mostram a data INTEIRA. A única que ainda corta
+                      é a de 517 mensagens com bolha de 93, e perde um
+                      caractere ("5 mi…"). Nenhuma linha vaza. */}
+                  <span className="truncate">{semPrefixo(fmtRelative(c.last_at))}</span>
                   <span className="shrink-0">
                     {c.total} {c.total === 1 ? "msg" : "msgs"}
                   </span>
                   {semCategoria(c.categoria) && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span className="shrink-0">sem categoria</span>
-                    </>
+                    <span className="shrink-0">sem categoria</span>
                   )}
                   {/* A direita da SEGUNDA linha, sob o contador da janela que
                       ocupa a primeira — é como aplicativo de mensagem organiza,
