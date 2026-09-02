@@ -1,17 +1,35 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { getUserProfile } from "@/lib/ig";
 import { enqueueLote } from "@/lib/engine";
 import { drainQueue } from "@/lib/queue-drain";
 import { alvoDoLote, filtroDoCampo, urlDeLoteValida, validadeDoDia } from "@/lib/lote";
+import {
+  motivoDoLoteVazio,
+  textoDaRecusaDoLote,
+  textoDoLoteEnviado,
+  urlDoAviso,
+  avisoDosPerfis,
+} from "@/lib/avisos";
 
 // Preenche nome/@ dos contatos que ficaram salvos só com o número (IGSID),
 // criados antes de o app buscar o perfil na hora do webhook.
 export async function atualizarPerfis(): Promise<void> {
   const account = await getSelectedAccount();
-  if (!account) return;
+  if (!account) {
+    // Este botão não tem filtro por categoria na tela — ele age sobre a conta
+    // inteira —, então não há recorte a preservar no redirect: {tipo:"tudo"}
+    // não é omissão, é o único filtro que esta ação conhece.
+    redirect(
+      urlDoAviso("/contatos", { tipo: "tudo" }, {
+        tom: "erro",
+        texto: textoDaRecusaDoLote("sem_conta"),
+      })
+    );
+  }
 
   const rows = (await sql().query(
     `select ig_id from contacts
@@ -20,6 +38,7 @@ export async function atualizarPerfis(): Promise<void> {
     [account.ig_user_id]
   )) as { ig_id: string }[];
 
+  let atualizados = 0;
   for (const r of rows) {
     try {
       const p = await getUserProfile(r.ig_id, account.access_token);
@@ -31,11 +50,18 @@ export async function atualizarPerfis(): Promise<void> {
          where account_id = $1 and ig_id = $2`,
         [account.ig_user_id, r.ig_id, p.username ?? null, p.name ?? null, p.profile_pic ?? null]
       );
+      // SÓ CONTA QUANDO A ATUALIZAÇÃO ACONTECE DE VERDADE. Antes disto o
+      // `try/catch` do laço engolia toda falha e a função nunca soube quantos
+      // perfis vieram da Meta de fato — `avisoDosPerfis` (lib/avisos.ts)
+      // precisa dos dois números para distinguir "nenhum veio" (token vencido,
+      // permissão revogada) de "todo mundo já tinha nome".
+      atualizados++;
     } catch {
       // perfil indisponível (conta privada/apagada ou só comentou): pula
     }
   }
   revalidatePath("/contatos");
+  redirect(urlDoAviso("/contatos", { tipo: "tudo" }, avisoDosPerfis(atualizados, rows.length)));
 }
 
 /**
@@ -53,26 +79,53 @@ export async function atualizarPerfis(): Promise<void> {
  * a linha que voltou.
  */
 export async function enviarLote(formData: FormData): Promise<void> {
+  // O FILTRO VEM PRIMEIRO DE TUDO, antes de qualquer recusa: cada `redirect`
+  // abaixo devolve o dono para a MESMA categoria que ele estava olhando, e não
+  // para "tudo" — ele só perde o recorte quando o próprio campo não é legível
+  // (comentário mais abaixo, junto de `motivoDoLoteVazio`).
+  const filtro = filtroDoCampo(formData.get("categoria"));
+
   const account = await getSelectedAccount();
-  if (!account) return;
+  if (!account) {
+    redirect(
+      urlDoAviso("/contatos", filtro ?? { tipo: "tudo" }, {
+        tom: "erro",
+        texto: textoDaRecusaDoLote("sem_conta"),
+      })
+    );
+  }
 
   const texto = String(formData.get("texto") ?? "").trim();
-  if (!texto) return;
+  if (!texto) {
+    redirect(
+      urlDoAviso("/contatos", filtro ?? { tipo: "tudo" }, {
+        tom: "erro",
+        texto: textoDaRecusaDoLote("sem_texto"),
+      })
+    );
+  }
 
   const url = String(formData.get("url") ?? "").trim();
   // A URL ERRADA BARRA O PEDIDO INTEIRO, e não vira mensagem sem link: quem
   // digitou um endereço esperava um botão de verdade, e mandar o texto calado
   // sem avisar seria trocar o pedido do dono por outro que ele não fez. Ver o
   // porquê em `urlDeLoteValida` (lib/lote.ts).
-  if (url && !urlDeLoteValida(url)) return;
+  if (url && !urlDeLoteValida(url)) {
+    redirect(
+      urlDoAviso("/contatos", filtro ?? { tipo: "tudo" }, {
+        tom: "erro",
+        texto: textoDaRecusaDoLote("url_invalida"),
+      })
+    );
+  }
 
   const rotulo = String(formData.get("rotulo") ?? "").trim();
   const prazo = String(formData.get("valido_ate") ?? "").trim();
   // O CAMPO NÃO CARREGA MAIS O VALOR CRU DA URL: `?categoria=` ausente e
   // `?categoria=` vazio são pedidos DIFERENTES, e um `<input type="hidden">`
   // sempre existe no DOM — os dois chegavam aqui como `""`. Ver `campoDoFiltro`
-  // (lib/lote.ts) para a medição.
-  const filtro = filtroDoCampo(formData.get("categoria"));
+  // (lib/lote.ts) para a medição. `filtro` já foi lido lá em cima, antes das
+  // primeiras recusas.
 
   const linhas = (await sql().query(
     `select c.ig_id, c.account_id, c.categoria, c.last_reply_at,
@@ -90,14 +143,33 @@ export async function enviarLote(formData: FormData): Promise<void> {
     recebidas: number;
   }[];
 
+  const confirmado = formData.get("confirmado") === "1";
   const alvo = alvoDoLote(linhas, {
     conta: account.ig_user_id,
     filtro,
-    confirmado: formData.get("confirmado") === "1",
+    confirmado,
   });
-  if (!alvo.length) return;
+  if (!alvo.length) {
+    // OS TRÊS VAZIOS SÃO TRÊS CONSELHOS DIFERENTES, e `motivoDoLoteVazio`
+    // (lib/avisos.ts) é quem os distingue: sem confirmação, filtro ilegível ou
+    // ninguém no recorte. `linhas` JÁ veio filtrada pelo `where c.account_id =
+    // $1` acima, então `linhas.length` é exatamente "quantos contatos esta
+    // conta tem" — o terceiro parâmetro que a função pede.
+    const motivo = motivoDoLoteVazio(confirmado, filtro !== null, linhas.length);
+    redirect(
+      urlDoAviso("/contatos", filtro ?? { tipo: "tudo" }, {
+        tom: "erro",
+        texto: textoDaRecusaDoLote(motivo),
+      })
+    );
+  }
 
-  await enqueueLote(account.ig_user_id, crypto.randomUUID(), alvo.map((c) => c.ig_id), {
+  // GUARDADO EM VARIÁVEL, e não descartado: é por ele que a contagem do
+  // sucesso, mais abaixo, consulta a fila DEPOIS do dreno — e não pelo
+  // retorno de `drainQueue`, que drena a fila inteira e contaria itens de
+  // outros envios que saíram no mesmo dreno.
+  const loteId = crypto.randomUUID();
+  await enqueueLote(account.ig_user_id, loteId, alvo.map((c) => c.ig_id), {
     text: texto,
     url: url || undefined,
     buttonLabel: rotulo || undefined,
@@ -121,7 +193,10 @@ export async function enviarLote(formData: FormData): Promise<void> {
   // ANTES DO `revalidatePath`, E NÃO DEPOIS — é o que o comentário de
   // `sendReply` (app/conversas/[id]/actions.ts) explica com dois casos de
   // produção: revalidar antes de o envio terminar faz a tela voltar dizendo
-  // "enviando…", verdade naquele instante e mentira dois segundos depois.
+  // "enviando…", verdade naquele instante e mentira dois segundos depois. Pelo
+  // mesmo motivo o `redirect` de sucesso, mais abaixo, vem depois dos DOIS —
+  // um `redirect` dentro deste `try` seria engolido pelo `catch` e a ação
+  // voltaria muda, o defeito exato que esta tarefa fecha.
   //
   // UMA DRENAGEM É NO MÁXIMO `BATCH_SIZE` (15) ITENS, ~9 segundos de ponta a
   // ponta; o resto do lote sai pelo tique que a própria drenagem agenda. Quem
@@ -135,4 +210,27 @@ export async function enviarLote(formData: FormData): Promise<void> {
 
   revalidatePath("/contatos");
   revalidatePath("/eventos");
+
+  // A CONTAGEM NÃO VEM DO RETORNO DE `drainQueue` — ver o comentário acima do
+  // `loteId`. Conta-se pelos itens do PRÓPRIO lote, achados pelo `lote_id` que
+  // `payloadDoLote` (lib/lote.ts) grava em cada item deste envio. Saiu agora =
+  // `status = 'sent'`; ficou esperando a pessoa voltar a falar = `status =
+  // 'guardado'` (migrations/009-fila-estado-guardado.sql).
+  const contagem = (await sql().query(
+    `select
+       count(*) filter (where status = 'sent')::int as agora,
+       count(*) filter (where status = 'guardado')::int as guardadas
+     from queue
+     where account_id = $1 and kind = 'dm_lote' and payload->>'lote_id' = $2`,
+    [account.ig_user_id, loteId]
+  )) as { agora: number; guardadas: number }[];
+  const agora = contagem[0]?.agora ?? 0;
+  const guardadas = contagem[0]?.guardadas ?? 0;
+
+  redirect(
+    urlDoAviso("/contatos", filtro ?? { tipo: "tudo" }, {
+      tom: "ok",
+      texto: textoDoLoteEnviado(agora, guardadas),
+    })
+  );
 }
