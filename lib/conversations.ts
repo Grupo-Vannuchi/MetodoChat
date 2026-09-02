@@ -124,9 +124,18 @@ const TIPOS_RECEBIDOS = ["message", "story_reply", "quick_reply", "abertura"];
 // Que a janela precise entrar em algum lugar é medido, não estético: sem ela, 32
 // das 34 conversas ficam marcadas, porque fora da janela a Meta recusa o envio e
 // ninguém nunca respondeu. Com ela, sobram 8 — as que dá para atender.
-export async function listConversations(accountId: string, limite = 50) {
-  return (await sql().query(
-    `with recebidas as (
+// QUEM FALOU COM A CONTA, E QUANDO — a materia-prima das duas consultas
+// abaixo, escrita UMA vez.
+//
+// Ela e um texto compartilhado, e nao duas copias, porque a lista da tela e o
+// contador do cabecalho tem de falar da MESMA populacao de conversas. Duas
+// copias comecariam identicas e divergiriam na primeira vez que alguem mexesse
+// em uma so — e o contador passaria a contar um conjunto que a lista nao mostra,
+// que e o defeito central que este sinal existe para nao ter.
+//
+// Sempre $1 = a conta e $2 = os tipos recebidos. Quem usar este texto tem de
+// passar os dois nessas posicoes.
+const TROCAS_DA_CONTA = `with recebidas as (
        select e.payload->'sender'->>'id' as cid, e.created_at as at
        from events e
        where e.account_id = $1 and e.type = any($2::text[])
@@ -140,11 +149,15 @@ export async function listConversations(accountId: string, limite = 50) {
        select cid, at from recebidas
        union all
        select cid, at from enviadas
-     )
+     )`;
+
+export async function listConversations(accountId: string, limite = 50) {
+  return (await sql().query(
+    `${TROCAS_DA_CONTA}
      select t.cid as ig_id,
             max(t.at) as last_at,
             count(*)::int as total,
-            c.username, c.name, c.profile_pic, c.last_reply_at,
+            c.username, c.name, c.profile_pic, c.last_reply_at, c.categoria,
             -- Sem last_seen_at (nunca aberta), tudo que chegou conta.
             (select count(*)::int from recebidas r
               where r.cid = t.cid
@@ -162,7 +175,7 @@ export async function listConversations(accountId: string, limite = 50) {
      from trocas t
      left join contacts c on c.account_id = $1 and c.ig_id = t.cid
      where t.cid is not null
-     group by t.cid, c.username, c.name, c.profile_pic, c.last_reply_at, c.last_seen_at
+     group by t.cid, c.username, c.name, c.profile_pic, c.last_reply_at, c.last_seen_at, c.categoria
      order by last_at desc
      limit $3`,
     [accountId, TIPOS_RECEBIDOS, limite]
@@ -174,9 +187,49 @@ export async function listConversations(accountId: string, limite = 50) {
     name: string | null;
     profile_pic: string | null;
     last_reply_at: Date | null;
+    categoria: string | null;
     nao_lidas: number;
     sem_resposta: boolean;
   }[];
+}
+
+/**
+ * A CATEGORIA DE CADA CONVERSA DA CONTA — uma linha por pessoa, e nada mais.
+ *
+ * ELA EXISTE POR CAUSA DO `limit`. O contador do cabeçalho nasceu aplicando
+ * `quantasSemCategoria` sobre o resultado de `listConversations`, e aquele
+ * resultado é uma PÁGINA: as 50 conversas mais recentes. Medido em produção em
+ * 02/09/2026, na conta principal: 46 sem categoria dentro das 50, 114 na conta
+ * inteira. O cabeçalho prometia o número da conta e dizia o da página.
+ *
+ * E O NÚMERO ERRADO ERA O MENOR DOS DOIS PROBLEMAS. Marcar acontece de cima
+ * para baixo, das conversas mais recentes: assim que as 50 do topo ficam
+ * marcadas, o contador da página vai a ZERO, o cabeçalho SOME — "não há nada a
+ * marcar" — e tudo que está abaixo do corte fica lá para sempre. O sinal se
+ * apagava exatamente à medida que funcionava.
+ *
+ * POR QUE SÓ A COLUNA, E SEM `limit`: a pergunta do contador é sobre a CONTA
+ * inteira, e para respondê-la só a categoria é necessária. Trazer as 114 linhas
+ * inteiras (com contagem de não lidas e sem resposta, duas subconsultas por
+ * linha) para descartar tudo menos uma coluna seria pagar a lista duas vezes.
+ *
+ * E A REGRA CONTINUA EM UM LUGAR SÓ, EM TYPESCRIPT. Quem decide o que conta
+ * como "sem categoria" é `semCategoria` (lib/categorias.ts), aplicada sobre o
+ * que esta função devolve. Reescrever aqui, em SQL, o teste de texto em branco
+ * e de invisíveis de largura zero faria a marca da linha e o contador do topo
+ * saírem de DUAS regras diferentes — e a tela diria um número que as marcas
+ * visíveis não confirmam.
+ */
+export async function categoriasDasConversas(accountId: string) {
+  return (await sql().query(
+    `${TROCAS_DA_CONTA}
+     select c.categoria
+     from trocas t
+     left join contacts c on c.account_id = $1 and c.ig_id = t.cid
+     where t.cid is not null
+     group by t.cid, c.categoria`,
+    [accountId, TIPOS_RECEBIDOS]
+  )) as { categoria: string | null }[];
 }
 
 // Mensagens de UMA conversa, já fundidas e em ordem.

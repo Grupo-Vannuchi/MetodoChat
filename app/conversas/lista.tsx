@@ -6,6 +6,7 @@ import { fmtRelative } from "@/lib/format";
 import { muted, badgeOk } from "../ui";
 import Avatar from "../avatar";
 import { badgeDaConversa } from "@/lib/inbox-badge";
+import { semCategoria } from "@/lib/categorias";
 
 // A coluna da esquerda do inbox.
 //
@@ -21,6 +22,7 @@ export type ConversaResumo = {
   name: string | null;
   profile_pic: string | null;
   last_reply_at: Date | string | null;
+  categoria: string | null;
   nao_lidas: number;
   sem_resposta: boolean;
 };
@@ -91,12 +93,37 @@ export default function Lista({
                     </span>
                   )}
                 </div>
-                <div className={`mt-0.5 flex items-center gap-2 text-xs ${muted}`}>
-                  <span className="shrink-0">{fmtRelative(c.last_at)}</span>
+                {/* `min-w-0` AQUI E `truncate` NA DATA, e a escolha de QUEM cede é
+                    a decisão desta linha — medida antes, não estimada.
+
+                    A coluna tem 224px úteis (320 menos borda, padding, avatar e
+                    gap, com a barra de rolagem vertical). Sem a marca de
+                    categoria a linha ocupa 169px e sobra folga; com ela, o pior
+                    caso real — "há 335 dias · 12 msgs · sem categoria" mais a
+                    bolha de não lidas — vai a 275px. Como tudo aqui era
+                    `shrink-0` e nada truncava, o excesso não ficava contido:
+                    `ColunaLista` é `overflow-y-auto`, então o `overflow-x`
+                    computa para `auto` e a coluna inteira ganhava barra
+                    horizontal.
+
+                    CEDE A DATA, e não a marca: a data relativa é o único
+                    elemento de tamanho variável (de "há 2 h" a "há 335 dias") e
+                    o menos informativo dos três — a lista já vem ordenada por
+                    recência, e a data exata está dentro da conversa. Encolher a
+                    MARCA seria encolher o sinal, que é a única coisa que esta
+                    tela ganhou. */}
+                <div className={`mt-0.5 flex min-w-0 items-center gap-2 text-xs ${muted}`}>
+                  <span className="truncate">{fmtRelative(c.last_at)}</span>
                   <span aria-hidden="true">·</span>
                   <span className="shrink-0">
                     {c.total} {c.total === 1 ? "msg" : "msgs"}
                   </span>
+                  {semCategoria(c.categoria) && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span className="shrink-0">sem categoria</span>
+                    </>
+                  )}
                   {/* A direita da SEGUNDA linha, sob o contador da janela que
                       ocupa a primeira — é como aplicativo de mensagem organiza,
                       e evita que as duas marcas disputem o mesmo canto. */}

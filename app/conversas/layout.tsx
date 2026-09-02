@@ -1,5 +1,6 @@
 import { getSelectedAccount } from "@/lib/account";
-import { listConversations } from "@/lib/conversations";
+import { categoriasDasConversas, listConversations } from "@/lib/conversations";
+import { frasePendentes, quantasSemCategoria } from "@/lib/categorias";
 import { card, muted, pageTitle } from "../ui";
 import Lista from "./lista";
 import { ColunaLista, ColunaConversa } from "./painel";
@@ -20,7 +21,20 @@ export const dynamic = "force-dynamic";
 // desenha a lista. As duas coisas juntas é que fazem o badge sumir sem F5.
 export default async function ConversasLayout({ children }: { children: React.ReactNode }) {
   const account = await getSelectedAccount();
-  const conversas = account ? await listConversations(account.ig_user_id) : [];
+  // DUAS consultas, e nao uma: a lista e uma PAGINA (as 50 mais recentes) e o
+  // contador e sobre a CONTA INTEIRA. Contar sobre a pagina fazia o cabecalho
+  // sumir assim que o topo ficasse marcado, com o resto por marcar abaixo do
+  // corte — o porque inteiro esta em `categoriasDasConversas`.
+  //
+  // As duas saem juntas porque uma nao depende da outra: em serie, a segunda
+  // esperaria a primeira sem motivo.
+  const [conversas, categorias] = account
+    ? await Promise.all([
+        listConversations(account.ig_user_id),
+        categoriasDasConversas(account.ig_user_id),
+      ])
+    : [[], []];
+  const pendentes = frasePendentes(quantasSemCategoria(categorias));
 
   return (
     <div className="space-y-4">
@@ -31,6 +45,9 @@ export default async function ConversasLayout({ children }: { children: React.Re
         <p className={`mt-1 text-sm ${muted}`}>
           Responder só é possível dentro de 24h desde a última mensagem da pessoa — regra da Meta.
         </p>
+        {/* Quem decide se há linha, e o que ela diz, é `frasePendentes`
+            (lib/categorias.ts), com caso. Aqui não sobra decisão nenhuma. */}
+        {pendentes && <p className={`mt-1 text-sm ${muted}`}>{pendentes}</p>}
       </header>
 
       {/* Altura fixa para cada coluna rolar por conta própria, em vez de a
