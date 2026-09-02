@@ -327,6 +327,50 @@ describe("as recusas de quem ainda não conectou conta nenhuma", () => {
     expect(aviso.texto).toBe("Conecte uma conta do Instagram primeiro.");
     expect(aviso.tom).toBe("erro");
   });
+
+  // -------------------------------------------------------------------------
+  // I1 — A AÇÃO "PASSOU A FALAR" E A TELA DAVA 404 NA FRASE.
+  //
+  // `definirCategoria` (app/conversas/[id]/actions.ts) recusa com "Conecte uma
+  // conta do Instagram primeiro." e redireciona para a própria conversa. Só que
+  // a página lia o aviso na linha 98, ENTRE dois `notFound()` — e o de baixo
+  // (`if (!account) notFound()`) jogava fora justamente a faixa que a ação
+  // acabara de pendurar na URL. O dono clicava em "salvar" com a conta
+  // desconectada e recebia uma PÁGINA 404 no lugar da frase.
+  //
+  // Este caso mede a tela no estado em que o defeito acontece: sem conta,
+  // com o aviso na URL. Ele não renderiza HTML (ver `propsDaArvore`) — o que
+  // ele prende é que a página VOLTA uma árvore com a frase dentro, em vez de
+  // lançar o 404.
+  // -------------------------------------------------------------------------
+  test("a conversa sem conta DESENHA a faixa da recusa, em vez de dar 404", async () => {
+    const FRASE = "Conecte uma conta do Instagram primeiro.";
+    const ID = "17841400000000999";
+
+    const { valor } = await comoNumaRequisicao(`/conversas/${ID}`, async () => {
+      const tela = await import("@/app/conversas/[id]/page");
+      try {
+        const arvore = await tela.default({
+          params: Promise.resolve({ id: ID }),
+          searchParams: Promise.resolve({ aviso: FRASE, tom: "erro" }),
+        });
+        return {
+          digest: null as string | null,
+          faixas: propsDaArvore(arvore, (p) => p.children === FRASE).length,
+        };
+      } catch (e) {
+        const digest = (e as { digest?: unknown }).digest;
+        if (typeof digest !== "string") throw e;
+        return { digest, faixas: 0 };
+      }
+    });
+
+    // O 404 do Next também viaja num `digest` — e é ele que precisa NÃO estar
+    // aqui. Afirmar o valor, e não só "não lançou", é o que faz este caso
+    // continuar dizendo a verdade se o Next trocar a marca.
+    expect(valor.digest).toBe(null);
+    expect(valor.faixas).toBeGreaterThan(0);
+  });
 });
 
 // ===========================================================================

@@ -307,14 +307,14 @@ export function urlDoAviso(base: string, filtro: FiltroDeCategoria, aviso: Aviso
  * (`/conversas/[id]?...`, e não `/contatos?...`).
  *
  * `contactIgId` VAI CODIFICADO NO CAMINHO (`encodeURIComponent`), e não colado
- * cru — mesmo já validado por quem chama nos dois caminhos de sucesso. No
- * caminho de recusa por formato (`definirCategoria`, quando o id não bate
- * `/^\d{1,32}$/`), o valor ainda não foi validado quando este redirect é
- * montado: ele vem direto do FormData, que é o navegador de alguém, e pode
- * conter qualquer coisa — inclusive `/` ou `?`. Sem codificar, esse texto
- * quebraria o caminho da URL (uma barra a mais insere um segmento de rota que
- * não existe) em vez de simplesmente cair no `notFound()` que a página já
- * faz para um id que não bate o formato.
+ * cru — mesmo já validado por quem chama no caminho de sucesso. Na recusa
+ * "sem conta" de `definirCategoria` ele AINDA NÃO FOI validado quando este
+ * redirect é montado: a conferência de formato vem depois, e o valor chega
+ * direto do FormData, que é o navegador de alguém — pode conter qualquer
+ * coisa, inclusive `/` ou `?`. Sem codificar, esse texto quebraria o caminho da
+ * URL (uma barra a mais insere um segmento de rota que não existe) em vez de
+ * simplesmente cair no `notFound()` que a página já faz para um id que não
+ * bate o formato.
  */
 export function urlDaConversaComAviso(contactIgId: string, aviso: Aviso): string {
   return `/conversas/${encodeURIComponent(contactIgId)}?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;
