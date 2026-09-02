@@ -11,10 +11,16 @@ export async function selectAccount(formData: FormData): Promise<void> {
   // verdade juntas:
   //
   //   1. É GUARDA DE FORMULÁRIO MALFORMADO, não recusa de pedido legítimo. O
-  //      seletor de conta é um `<select>` cujas opções são as próprias contas
-  //      conectadas — não há caminho na UI para submeter isto vazio. Só chega
-  //      aqui vazio por um POST montado à mão, e nesse caso não há "conta que
-  //      o dono queria" para relatar: nenhuma escolha foi feita.
+  //      seletor de conta é um MENU DE BOTÕES (`app/account-switcher.tsx`),
+  //      montado por `accounts.map`: cada botão chama `selectAccount` com um
+  //      `FormData` cujo `account_id` sai de `a.ig_user_id`, nunca de campo
+  //      livre — não há caminho na UI para submeter isto vazio. Só chega aqui
+  //      vazio por um POST montado à mão, e nesse caso não há "conta que o
+  //      dono queria" para relatar: nenhuma escolha foi feita.
+  //
+  //      (Aqui se lia "um `<select>` cujas opções são as próprias contas". O
+  //      argumento estava certo e o widget, errado — e uma varredura futura
+  //      procuraria um `<select>` que não existe.)
   //   2. QUANDO A CONTA TROCA DE VERDADE, O RESULTADO JÁ É VISÍVEL — a conta
   //      muda na tela (o `revalidatePath` abaixo cuida disso). Um aviso aqui
   //      só teria trabalho a fazer no caminho vazio, que é justamente o

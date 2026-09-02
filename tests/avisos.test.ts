@@ -7,9 +7,25 @@ import {
 } from "../lib/avisos";
 
 describe("motivoDoLoteVazio", () => {
-  // A ORDEM DOS MOTIVOS IMPORTA, e este caso é o que a segura: sem confirmação
-  // E sem ninguém no filtro é possível ao mesmo tempo, e a frase útil é a que
-  // diz o que FAZER — marcar a caixa —, não a que descreve o filtro.
+  // A ORDEM DOS MOTIVOS IMPORTA, e ESTE PAR é o único que a segura.
+  //
+  // O caso ao lado ("sem confirmacao vence sobre a conta vazia") passa
+  // `filtroEntendido = true`, então o SEGUNDO ramo — `filtro_ilegivel` — nunca
+  // chega a ser exercitado, e trocar as duas primeiras linhas de
+  // `motivoDoLoteVazio` de lugar continuava verde. Medido em 02/09/2026: o
+  // plantio que inverte a ordem passava nos quatro portões. É o mesmo modo de
+  // falhar que o comentário daquele arquivo denuncia na versão anterior da
+  // função: um nome que afirma a distinção e uma medição que não a mede.
+  //
+  // `(false, false, *)` é o ÚNICO par em que os dois primeiros ramos
+  // respondem coisas diferentes — e por isso é o único que prende a ordem.
+  it("sem confirmacao vence sobre o filtro ILEGIVEL — o unico par que prende a ordem", () => {
+    expect(motivoDoLoteVazio(false, false, 10)).toBe("sem_confirmacao");
+    expect(motivoDoLoteVazio(false, false, 0)).toBe("sem_confirmacao");
+  });
+  // E este é o outro lado do mesmo par: com a confirmação marcada, o segundo
+  // ramo responde. Sem ele, o caso de cima passaria com o primeiro ramo
+  // devolvendo qualquer coisa.
   it("sem confirmacao vence, mesmo com o filtro vazio", () => {
     expect(motivoDoLoteVazio(false, true, 0)).toBe("sem_confirmacao");
   });
