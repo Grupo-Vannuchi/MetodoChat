@@ -4,6 +4,7 @@ import {
   normalizarCategoria,
   semCategoria,
   quantasSemCategoria,
+  frasePendentes,
   filtroDaUrl,
   contatosDoFiltro,
   fichaSelecionada,
@@ -130,6 +131,23 @@ describe("quantasSemCategoria", () => {
   });
   it("lista vazia e zero", () => {
     expect(quantasSemCategoria([])).toBe(0);
+  });
+});
+
+describe("frasePendentes", () => {
+  it("zero nao vira linha", () => {
+    // A regra da spec §3, e a que morava inline no JSX: com tudo marcado o
+    // cabecalho SOME. `>= 0` no lugar de `> 0` passava pelos quatro portoes.
+    expect(frasePendentes(0)).toBe(null);
+  });
+  it("negativo tambem nao vira linha", () => {
+    expect(frasePendentes(-1)).toBe(null);
+  });
+  it("uma so fala no singular", () => {
+    expect(frasePendentes(1)).toBe("1 conversa sem categoria.");
+  });
+  it("mais de uma fala no plural", () => {
+    expect(frasePendentes(114)).toBe("114 conversas sem categoria.");
   });
 });
 

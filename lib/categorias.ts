@@ -112,6 +112,27 @@ export function quantasSemCategoria(lista: { categoria: string | null }[]): numb
 }
 
 /**
+ * A FRASE DO CABEÇALHO DE CONVERSAS, ou `null` quando não falta nenhuma.
+ *
+ * ZERO NÃO VIRA LINHA (spec §3): com tudo marcado, o contador some em vez de
+ * anunciar que não há nada a fazer — uma linha permanente dizendo "0 conversas
+ * sem categoria" é ruído em toda tela, todo dia, para não informar nada.
+ *
+ * ELA MORA AQUI, E NÃO NO JSX, porque é uma decisão e não um desenho. Medido em
+ * 02/09/2026: com a regra escrita inline no layout, trocar `> 0` por `>= 0`
+ * passava por lint, typecheck, 1005 testes puros e 84 de integração sem UM
+ * aviso — e o cabeçalho passava a anunciar zero pendências para sempre. Frase
+ * derivada de um número é função pura, e função pura tem caso.
+ *
+ * O PLURAL VEM JUNTO pela mesma razão: ele é parte da mesma decisão, e separá-lo
+ * deixaria metade da frase sem rede.
+ */
+export function frasePendentes(n: number): string | null {
+  if (n <= 0) return null;
+  return `${n} ${n === 1 ? "conversa" : "conversas"} sem categoria.`;
+}
+
+/**
  * O QUE A URL PEDE: a conta inteira, ou uma categoria.
  *
  * `?categoria=` AUSENTE (`/contatos`) e `?categoria=` PRESENTE E VAZIO

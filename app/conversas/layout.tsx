@@ -1,6 +1,6 @@
 import { getSelectedAccount } from "@/lib/account";
 import { categoriasDasConversas, listConversations } from "@/lib/conversations";
-import { quantasSemCategoria } from "@/lib/categorias";
+import { frasePendentes, quantasSemCategoria } from "@/lib/categorias";
 import { card, muted, pageTitle } from "../ui";
 import Lista from "./lista";
 import { ColunaLista, ColunaConversa } from "./painel";
@@ -34,7 +34,7 @@ export default async function ConversasLayout({ children }: { children: React.Re
         categoriasDasConversas(account.ig_user_id),
       ])
     : [[], []];
-  const semCategoriaCount = quantasSemCategoria(categorias);
+  const pendentes = frasePendentes(quantasSemCategoria(categorias));
 
   return (
     <div className="space-y-4">
@@ -45,13 +45,9 @@ export default async function ConversasLayout({ children }: { children: React.Re
         <p className={`mt-1 text-sm ${muted}`}>
           Responder só é possível dentro de 24h desde a última mensagem da pessoa — regra da Meta.
         </p>
-        {/* Zero não vira linha: quando não falta nenhuma marcação, o contador
-            some em vez de anunciar que não há nada a fazer. */}
-        {semCategoriaCount > 0 && (
-          <p className={`mt-1 text-sm ${muted}`}>
-            {semCategoriaCount} {semCategoriaCount === 1 ? "conversa" : "conversas"} sem categoria.
-          </p>
-        )}
+        {/* Quem decide se há linha, e o que ela diz, é `frasePendentes`
+            (lib/categorias.ts), com caso. Aqui não sobra decisão nenhuma. */}
+        {pendentes && <p className={`mt-1 text-sm ${muted}`}>{pendentes}</p>}
       </header>
 
       {/* Altura fixa para cada coluna rolar por conta própria, em vez de a
