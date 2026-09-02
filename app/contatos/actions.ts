@@ -13,6 +13,7 @@ import {
   avisoDoLoteEnviado,
   urlDoAviso,
   avisoDosPerfis,
+  type ContagemDoLote,
 } from "@/lib/avisos";
 
 // Preenche nome/@ dos contatos que ficaram salvos só com o número (IGSID),
@@ -223,24 +224,37 @@ export async function enviarLote(formData: FormData): Promise<void> {
   // dois zerados — mas os itens não sumiram, ficaram `pending`. Sem esta
   // coluna, `avisoDoLoteEnviado` (lib/avisos.ts) não teria como distinguir
   // esse caso do vazio genuíno, que `alvoDoLote` já recusou bem mais acima.
+  //
+  // OS CINCO STATUS, E NÃO TRÊS (conserto de 02/09/2026). Esta consulta
+  // perguntava por `sent`, `guardado` e `pending`, e o dreno grava CINCO para
+  // `dm_lote`: faltavam `skipped` ("o lote venceu antes de sair", "janela de
+  // 24h fechada") e `failed` (a Meta recusou de vez) — ou seja, os dois
+  // desfechos RUINS eram os dois que ninguém contava, e o aviso saía verde
+  // sobre um envio em que nada saiu. O porquê inteiro está em
+  // `avisoDoLoteEnviado`.
+  //
+  // `sending` VAI COM OS PENDENTES: é item reivindicado por uma drenagem
+  // concorrente, "a caminho", e não um desfecho. `total` é `count(*)` sem
+  // filtro, e é ele que impede a próxima lista de status escrita à mão de
+  // envelhecer calada — um status novo faz a soma não fechar, e o aviso acusa.
   const contagem = (await sql().query(
     `select
        count(*) filter (where status = 'sent')::int as agora,
        count(*) filter (where status = 'guardado')::int as guardadas,
-       count(*) filter (where status = 'pending')::int as pendentes
+       count(*) filter (where status in ('pending','sending'))::int as pendentes,
+       count(*) filter (where status in ('failed','skipped'))::int as paradas,
+       count(*)::int as total
      from queue
      where account_id = $1 and kind = 'dm_lote' and payload->>'lote_id' = $2`,
     [account.ig_user_id, loteId]
-  )) as { agora: number; guardadas: number; pendentes: number }[];
-  const agora = contagem[0]?.agora ?? 0;
-  const guardadas = contagem[0]?.guardadas ?? 0;
-  const pendentes = contagem[0]?.pendentes ?? 0;
+  )) as ContagemDoLote[];
+  const contado: ContagemDoLote = contagem[0] ?? {
+    agora: 0,
+    guardadas: 0,
+    pendentes: 0,
+    paradas: 0,
+    total: 0,
+  };
 
-  redirect(
-    urlDoAviso(
-      "/contatos",
-      filtro ?? { tipo: "tudo" },
-      avisoDoLoteEnviado(agora, guardadas, pendentes)
-    )
-  );
+  redirect(urlDoAviso("/contatos", filtro ?? { tipo: "tudo" }, avisoDoLoteEnviado(contado)));
 }

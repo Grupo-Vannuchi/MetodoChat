@@ -65,6 +65,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
 import { comoNumaRequisicao } from "./semear-requisicao";
+import { hojeNoFusoDoPrazo } from "@/lib/lote";
 
 type ModuloAcoes = typeof import("@/app/contatos/actions");
 type ModuloIg = typeof import("@/lib/ig");
@@ -195,6 +196,48 @@ async function desfechoDe(rota: string, acao: () => Promise<unknown>): Promise<D
   return { digest: valor, url: urlDoDigest(valor) };
 }
 
+// ---------------------------------------------------------------------------
+// A TELA, LIDA COMO ÁRVORE — e o limite honesto disto.
+//
+// Uma página do App Router é uma função `async` que devolve elementos. Chamá-la
+// aqui, dentro do mesmo contexto de requisição, exercita o CORPO dela: as
+// consultas, as guardas e os valores que ela calcula antes do JSX. O que NÃO se
+// exercita é a renderização do React — nenhum componente filho é resolvido,
+// nenhum HTML é gerado, e nada disto substitui abrir a tela.
+//
+// Serve para uma pergunta só, e é a pergunta que os plantios deste dia
+// mostraram estar sem rede: um valor decidido FORA do JSX chegou ao atributo
+// que o navegador vai ler?
+// ---------------------------------------------------------------------------
+
+/**
+ * Os `props` de todo elemento da árvore que casam com `casa`.
+ *
+ * Anda só pelos FILHOS, e guarda o que já viu: a árvore do React tem
+ * referências circulares (`_owner`), e um caminhar ingênuo entra em laço.
+ */
+function propsDaArvore(
+  raiz: unknown,
+  casa: (props: Record<string, unknown>) => boolean
+): Record<string, unknown>[] {
+  const achados: Record<string, unknown>[] = [];
+  const visto = new Set<unknown>();
+  const andar = (no: unknown): void => {
+    if (Array.isArray(no)) {
+      no.forEach(andar);
+      return;
+    }
+    if (typeof no !== "object" || no === null || visto.has(no)) return;
+    visto.add(no);
+    const props = (no as { props?: Record<string, unknown> }).props;
+    if (!props) return;
+    if (casa(props)) achados.push(props);
+    andar(props.children);
+  };
+  andar(raiz);
+  return achados;
+}
+
 /** O aviso que viajou na URL, já decodificado — texto e tom, como a tela os lê. */
 function avisoDaUrlDeVolta(url: string | null): { texto: string | null; tom: string | null } {
   if (url === null) return { texto: null, tom: null };
@@ -322,11 +365,17 @@ describe("enviarLote termina falando, e o que ela diz é contado do lote certo",
   // à contagem um `sent` para achar; sem ele, P4 seria indistinguível do certo.
   // -------------------------------------------------------------------------
   test("o sucesso volta pelo redirect, e a frase conta quem recebeu AGORA", async () => {
+    // CADA LOTE DESTE ARQUIVO ANDA POR UMA CATEGORIA PROPRIA, e nao por
+    // "tudo": o recorte "tudo" alcanca os contatos semeados por TODOS os casos,
+    // e entao o numero da frase passaria a depender da ordem em que os casos
+    // rodam. Um numero que muda de valor por causa do vizinho nao prende nada.
     const CONTATO = "9100000000000201";
-    await semearContato(CONTATO, { horasDesdeAResposta: 0 });
+    await semearContato(CONTATO, { horasDesdeAResposta: 0, categoria: "recebe agora" });
 
     const d = await desfechoDe("/contatos", () =>
-      acoes.enviarLote(pedidoDeLote({ categoria: "tudo", texto: "A turma abre segunda" }))
+      acoes.enviarLote(
+        pedidoDeLote({ categoria: "uma:recebe agora", texto: "A turma abre segunda" })
+      )
     );
 
     // A AÇÃO LANÇOU. Sem esta linha, P8 e P9 continuariam verdes: uma ação que
@@ -363,13 +412,79 @@ describe("enviarLote termina falando, e o que ela diz é contado do lote certo",
     expect(avisoDaUrlDeVolta(d.url).texto).toContain("não é uma URL válida");
   });
 
-  test("o lote sem a confirmação marcada não enfileira nada, e diz o que fazer", async () => {
-    const CONTATO = "9100000000000202";
-    await semearContato(CONTATO, { horasDesdeAResposta: 0 });
+  // -------------------------------------------------------------------------
+  // O CRÍTICO DE 02/09 — a faixa VERDE logo depois de um envio em que nada saiu.
+  //
+  // A contagem do sucesso perguntava por TRÊS status e o dreno grava CINCO.
+  // Este caso percorre o caminho inteiro do defeito, e ele é um CLIQUE ERRADO:
+  // um dia já passado no campo de prazo. `validadeDoDia` devolve um instante
+  // vencido, `loteExpirou` dá verdadeiro na primeira drenagem e o item vira
+  // `skipped` ANTES de `processItem` — `agora`, `guardadas` e `pendentes` os
+  // três zerados. Antes do conserto isto saía `tom=ok`, "ninguém recebeu agora
+  // · 0 guardadas": nada saiu, nada ia sair, e o painel não dizia palavra.
+  //
+  // O `min` do campo de data (app/contatos/page.tsx) fecha a porta no
+  // navegador; este caso mede o outro lado, que é o que vale quando o pedido
+  // não vem do navegador.
+  // -------------------------------------------------------------------------
+  test("o lote que venceu antes de sair NÃO volta pintado de verde", async () => {
+    const CONTATO = "9100000000000203";
+    await semearContato(CONTATO, { horasDesdeAResposta: 0, categoria: "vencidos" });
 
     const d = await desfechoDe("/contatos", () =>
       acoes.enviarLote(
-        pedidoDeLote({ categoria: "tudo", texto: "sem confirmar", confirmado: false })
+        pedidoDeLote({
+          categoria: "uma:vencidos",
+          texto: "isto nunca vai sair",
+          // Um dia do passado, que é o que o calendário aceitava sem `min`.
+          validoAte: "2020-01-01",
+        })
+      )
+    );
+
+    expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+    const aviso = avisoDaUrlDeVolta(d.url);
+    // A LINHA DO CRÍTICO. Sem o conserto, isto vinha "ok".
+    expect(aviso.tom).toBe("erro");
+    expect(aviso.texto ?? "").toContain("1 não saiu e não vai sair");
+    // E A FRASE NÃO PODE SER A DO ENVIO CONCLUÍDO: "ninguém recebeu agora · 0
+    // guardadas" era literalmente verdade e mentira ao mesmo tempo.
+    expect(aviso.texto ?? "").not.toContain("0 guardadas");
+
+    // O QUE O BANCO DIZ, que é a razão de o aviso ter de dizer o mesmo.
+    expect(await statusDosItens(CONTATO)).toEqual(["skipped"]);
+    expect(meta.enviadas.map((e) => e.destinatario)).not.toContain(CONTATO);
+  });
+
+  // -------------------------------------------------------------------------
+  // A OUTRA PONTA DO MESMO CRÍTICO: o campo que deixava escolher o dia vencido.
+  //
+  // `hojeNoFusoDoPrazo` (lib/lote.ts) tem caso puro; o que NÃO tinha rede era a
+  // costura — o valor chegar ao atributo `min` do campo certo. Era por ali que
+  // o clique errado entrava.
+  // -------------------------------------------------------------------------
+  test("o campo de prazo não deixa escolher um dia que já passou", async () => {
+    const { valor } = await comoNumaRequisicao("/contatos", async () => {
+      const tela = await import("@/app/contatos/page");
+      return tela.default({ searchParams: Promise.resolve({}) });
+    });
+
+    const campos = propsDaArvore(valor, (p) => p.name === "valido_ate");
+    expect(campos.length).toBe(1);
+    expect(campos[0].type).toBe("date");
+    // O PISO É HOJE, no fuso do PRAZO — a mesma fonte que `validadeDoDia` usa
+    // do outro lado. Um `toISOString()` aqui erraria o dia entre 21:00 e a
+    // meia-noite de Brasília.
+    expect(campos[0].min).toBe(hojeNoFusoDoPrazo());
+  });
+
+  test("o lote sem a confirmação marcada não enfileira nada, e diz o que fazer", async () => {
+    const CONTATO = "9100000000000202";
+    await semearContato(CONTATO, { horasDesdeAResposta: 0, categoria: "sem confirmar" });
+
+    const d = await desfechoDe("/contatos", () =>
+      acoes.enviarLote(
+        pedidoDeLote({ categoria: "uma:sem confirmar", texto: "sem confirmar", confirmado: false })
       )
     );
     expect(avisoDaUrlDeVolta(d.url).texto).toBe("Marque a confirmação antes de mandar.");

@@ -3,6 +3,7 @@ import {
   motivoDoLoteVazio, textoDaRecusaDoLote, textoDoLoteEnviado,
   urlComAviso, urlDoAviso, avisoDaUrl, avisoDosPerfis, avisoDoLoteEnviado,
   urlDaConversaComAviso, avisoDaCategoriaSalva,
+  type ContagemDoLote,
 } from "../lib/avisos";
 
 describe("motivoDoLoteVazio", () => {
@@ -86,6 +87,20 @@ describe("textoDoLoteEnviado", () => {
 // que já está a uma coluna de distância na consulta que soma `agora` e
 // `guardadas`.
 describe("avisoDoLoteEnviado", () => {
+  // A CONTAGEM CHEGA COMO OBJETO, e os casos abaixo escrevem os cinco campos —
+  // nunca um `...base` que esconda qual balde o caso mexeu. Cada linha diz onde
+  // os itens deste lote pararam.
+  const lote = (c: Partial<ContagemDoLote>): ContagemDoLote => {
+    const agora = c.agora ?? 0;
+    const guardadas = c.guardadas ?? 0;
+    const pendentes = c.pendentes ?? 0;
+    const paradas = c.paradas ?? 0;
+    // O `total` PADRAO E A SOMA, para nenhum caso disparar o ramo do buraco sem
+    // querer. Quem quer medir o buraco passa `total` na mao — e o caso proprio,
+    // mais abaixo, faz exatamente isso.
+    return { agora, guardadas, pendentes, paradas, total: c.total ?? agora + guardadas + pendentes + paradas };
+  };
+
   // O CASO CENTRAL: zero confirmados, zero guardados, mas ALGUÉM pendente — só
   // acontece quando o dreno não terminou a tempo, porque `enviarLote` só chega
   // a esta contagem depois de `alvoDoLote` já ter recusado lote vazio. Antes
@@ -93,11 +108,10 @@ describe("avisoDoLoteEnviado", () => {
   // concluído — uma mentira tranquilizadora, pior que o silêncio que esta
   // branch fechou.
   it("ninguem confirmado e ninguem guardado, mas gente pendente, NAO e tom ok", () => {
-    const a = avisoDoLoteEnviado(0, 0, 4);
-    expect(a.tom).not.toBe("ok");
+    expect(avisoDoLoteEnviado(lote({ pendentes: 4 })).tom).not.toBe("ok");
   });
   it("a frase do pendente diz que as mensagens entraram na fila, e quantas", () => {
-    const a = avisoDoLoteEnviado(0, 0, 4);
+    const a = avisoDoLoteEnviado(lote({ pendentes: 4 }));
     expect(a.texto).toContain("4");
     // NÃO PODE REPETIR "0 guardadas": entrou na fila é diferente de guardado
     // (que é um estado deliberado, à espera da pessoa voltar a falar) e
@@ -105,24 +119,80 @@ describe("avisoDoLoteEnviado", () => {
     expect(a.texto.toLowerCase()).not.toMatch(/0 guardad/);
     expect(a.texto.toLowerCase()).not.toMatch(/0 receb/);
   });
-  // SEM PENDENTE NENHUM, (0, 0) SEGUE SENDO O CASO GENUÍNO — e ele continua
-  // "ok", com a MESMA frase de `textoDoLoteEnviado`: `avisoDoLoteEnviado` não
-  // reescreve o caso que já estava certo, só resolve a ambiguidade nova.
-  it("sem pendente, (0, 0) continua ok — e e a mesma frase de sempre", () => {
-    const a = avisoDoLoteEnviado(0, 0, 0);
-    expect(a.tom).toBe("ok");
-    expect(a.texto).toBe(textoDoLoteEnviado(0, 0));
-  });
   // PENDENTE JUNTO DE GENTE JÁ CONFIRMADA NÃO É O CASO DESTE DEFEITO: é o lote
   // grande normal, em que o resto sai pelo próximo tique (comentário de
   // `enviarLote` sobre o teto de `BATCH_SIZE`). Continua "ok".
   it("pendente com gente ja confirmada nao dispara o alarme — e o lote grande normal", () => {
-    const a = avisoDoLoteEnviado(3, 0, 5);
+    const a = avisoDoLoteEnviado(lote({ agora: 3, pendentes: 5 }));
     expect(a.tom).toBe("ok");
     expect(a.texto).toBe(textoDoLoteEnviado(3, 0));
   });
   it("o singular do pendente nao sai errado", () => {
-    expect(avisoDoLoteEnviado(0, 0, 1).texto).not.toContain("1 mensagens");
+    expect(avisoDoLoteEnviado(lote({ pendentes: 1 })).texto).not.toContain("1 mensagens");
+  });
+
+  // ==========================================================================
+  // A SEGUNDA PORTA DA MENTIRA TRANQUILIZADORA — o Critico de 02/09/2026.
+  //
+  // A consulta contava TRES status e o dreno grava CINCO. Um dia escolhido no
+  // passado (o campo de data nao tinha `min`) fazia `loteExpirou` valer na
+  // primeira drenagem e TODO item virar `skipped` antes de `processItem`: os
+  // tres contadores zeravam, `pendentes > 0` nao disparava, e a faixa saia
+  // VERDE. Cada caso abaixo e um status que nao era contado.
+  // ==========================================================================
+  it("o lote inteiro vencido antes de sair NAO e tom ok", () => {
+    // (0, 0, 0) nos tres contadores antigos: era exatamente este o verde.
+    expect(avisoDoLoteEnviado(lote({ paradas: 15 })).tom).toBe("erro");
+  });
+  it("a frase do lote parado diz QUANTAS nao sairam e onde ver o motivo", () => {
+    const a = avisoDoLoteEnviado(lote({ paradas: 15 }));
+    expect(a.texto).toContain("15");
+    expect(a.texto).toMatch(/não vão sair/);
+    expect(a.texto).toContain("Envios");
+    // E NAO PODE DIZER "ninguem recebeu agora · 0 guardadas": e a frase do
+    // envio concluido, e nada aqui foi concluido.
+    expect(a.texto).not.toContain(textoDoLoteEnviado(0, 0));
+  });
+  it("o singular do lote parado nao sai errado", () => {
+    const a = avisoDoLoteEnviado(lote({ paradas: 1 }));
+    expect(a.texto).toContain("1 não saiu");
+    expect(a.texto).not.toContain("não saíram");
+  });
+  // O QUE NAO SAIU VENCE O QUE SAIU. Metade entregue e metade morta por token
+  // revogado nao e um envio concluido — mas a frase tem de dizer as DUAS
+  // metades, senao ela apaga as pessoas que receberam de verdade.
+  it("com gente entregue E gente parada, o tom e erro e a frase diz os dois numeros", () => {
+    const a = avisoDoLoteEnviado(lote({ agora: 8, paradas: 7 }));
+    expect(a.tom).toBe("erro");
+    expect(a.texto).toContain("8 pessoas receberam agora");
+    expect(a.texto).toContain("7");
+  });
+
+  // ==========================================================================
+  // O BURACO: `total` e `count(*)` sem filtro, e e ele que impede a proxima
+  // lista de status escrita a mao de envelhecer calada.
+  // ==========================================================================
+  it("nenhum item encontrado NAO e sucesso — a consulta nao achou o lote", () => {
+    // `alvoDoLote` ja provou que havia gente, e `enqueueLote` acabou de gravar:
+    // zero itens aqui e a chave do payload errada, nao um envio vazio. E o
+    // desfecho do plantio que troca `lote_id` por `loteId`.
+    const a = avisoDoLoteEnviado(lote({ total: 0 }));
+    expect(a.tom).toBe("erro");
+    expect(a.texto).toContain("Envios");
+  });
+  it("um status novo, que nenhum balde conta, e ACUSADO em vez de sumir no verde", () => {
+    // Sete itens no lote, seis em baldes conhecidos: o setimo esta num estado
+    // que este aviso nao sabe ler. Sem esta pergunta, ele viraria "6 receberam"
+    // e o setimo desapareceria — que e o modo de falhar deste Critico, um
+    // status adiante.
+    const a = avisoDoLoteEnviado(lote({ agora: 6, total: 7 }));
+    expect(a.tom).toBe("erro");
+    expect(a.texto).toContain("1 de 7");
+  });
+  it("a soma fechando com os quatro baldes continua sendo o caminho normal", () => {
+    const a = avisoDoLoteEnviado(lote({ agora: 6, guardadas: 3, pendentes: 2, total: 11 }));
+    expect(a.tom).toBe("ok");
+    expect(a.texto).toBe(textoDoLoteEnviado(6, 3));
   });
 });
 

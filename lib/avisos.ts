@@ -143,17 +143,98 @@ export function textoDoLoteEnviado(agora: number, guardadas: number): string {
  * que a faixa vermelha já sabe desenhar sem tocar `app/contatos/page.tsx` — e
  * a frase deste ramo é escrita para não soar como um erro do dono, e sim como
  * "ainda não, mas já está a caminho".
+ *
+ * -----------------------------------------------------------------------------
+ * A SEGUNDA PORTA DA MESMA DOENÇA, fechada em 02/09/2026.
+ *
+ * O texto acima descreve a MENTIRA TRANQUILIZADORA e fecha UMA das duas portas
+ * dela (`pendentes > 0`). A outra ficou aberta por um ano de comentário: a
+ * consulta perguntava por TRÊS status — `sent`, `guardado`, `pending` — e o
+ * dreno grava CINCO para `dm_lote`. Os dois que faltavam são justamente os
+ * desfechos ruins:
+ *
+ *   `skipped` — "o lote venceu antes de sair" e "janela de 24h fechada"
+ *   `failed`  — a Meta recusou de vez (IgError 4xx, token vencido)
+ *
+ * E o caminho até lá era um CLIQUE ERRADO, não um caso de laboratório: o campo
+ * de data não tinha `min`, o dono escolhia um dia no passado, `loteExpirou`
+ * dava verdadeiro na primeira drenagem e os até 15 itens do primeiro punhado
+ * viravam `skipped` ANTES de `processItem`. Os três contadores zeravam,
+ * `pendentes > 0` não disparava, e a faixa saía VERDE dizendo "ninguém recebeu
+ * agora · 0 guardadas". Nada saiu, nada ia sair, e o painel não dizia palavra.
+ *
+ * POR QUE A ASSINATURA VIROU UM OBJETO COM `total`, e isto é o coração do
+ * conserto: os quatro baldes são listas de status ESCRITAS À MÃO, e a lição do
+ * defeito é que uma lista dessas envelhece calada. `total` é `count(*)` sem
+ * filtro nenhum — então um SEXTO status (ou um sétimo, amanhã) não some: ele
+ * faz a soma dos baldes ficar MENOR que o total, e o ramo do meio ACUSA isso
+ * em vez de pintar de verde o que não sabe ler. É a diferença entre um aviso
+ * que erra e um aviso que mente.
  */
-export function avisoDoLoteEnviado(agora: number, guardadas: number, pendentes: number): Aviso {
-  if (agora === 0 && guardadas === 0 && pendentes > 0) {
+export type ContagemDoLote = {
+  /** `status = 'sent'`: saiu agora. */
+  agora: number;
+  /** `status = 'guardado'`: espera a pessoa voltar a falar. */
+  guardadas: number;
+  /** `status in ('pending','sending')`: ainda a caminho, sai sozinha. */
+  pendentes: number;
+  /** `status in ('failed','skipped')`: NÃO saiu e NÃO vai sair. */
+  paradas: number;
+  /** `count(*)` sem filtro: quantos itens deste lote existem na fila. */
+  total: number;
+};
+
+export function avisoDoLoteEnviado(c: ContagemDoLote): Aviso {
+  // NENHUM ITEM ENCONTRADO não é "envio vazio": `alvoDoLote` (lib/lote.ts) já
+  // recusou o lote sem gente muito antes daqui, e `enqueueLote` acabou de
+  // gravar. Zero itens é a CONSULTA não achando o lote — a chave do payload
+  // errada, o `kind` errado, a conta errada —, e nesse caso o aviso não tem
+  // como afirmar coisa nenhuma sobre o envio.
+  if (c.total === 0) {
     return {
       tom: "erro",
       texto:
-        `${pendentes} ${pendentes === 1 ? "mensagem entrou" : "mensagens entraram"} na fila, ` +
+        "O pedido foi aceito, mas não achei nenhuma mensagem deste envio na fila — " +
+        "não dá para confirmar que saiu. Confira a tela de Envios antes de mandar de novo.",
+    };
+  }
+
+  // A SOMA TEM DE FECHAR. Ver o comentário acima: é este ramo que impede um
+  // status novo de sumir dentro do "ok".
+  const somados = c.agora + c.guardadas + c.pendentes + c.paradas;
+  if (somados !== c.total) {
+    return {
+      tom: "erro",
+      texto:
+        `${c.total - somados} de ${c.total} mensagens deste envio estão num estado que ` +
+        "este aviso não sabe ler — confira a tela de Envios.",
+    };
+  }
+
+  // O QUE NÃO SAIU VENCE O QUE SAIU, e por isso este ramo vem antes do normal:
+  // um envio em que metade morreu por prazo vencido ou token revogado não é um
+  // envio concluído, mesmo com a outra metade entregue. A frase diz os dois
+  // números quando há os dois, e manda ver o motivo de cada uma em Envios —
+  // que é onde `queue.error` já está escrito, item por item.
+  if (c.paradas > 0) {
+    const partes: string[] = [];
+    if (c.agora > 0 || c.guardadas > 0) partes.push(textoDoLoteEnviado(c.agora, c.guardadas));
+    partes.push(
+      `${c.paradas} ${c.paradas === 1 ? "não saiu e não vai" : "não saíram e não vão"} sair ` +
+        "— prazo vencido, ou o Instagram recusou. O motivo de cada uma está em Envios."
+    );
+    return { tom: "erro", texto: partes.join(" · ") };
+  }
+
+  if (c.agora === 0 && c.guardadas === 0 && c.pendentes > 0) {
+    return {
+      tom: "erro",
+      texto:
+        `${c.pendentes} ${c.pendentes === 1 ? "mensagem entrou" : "mensagens entraram"} na fila, ` +
         "mas o envio não terminou a tempo de confirmar — elas saem sozinhas em instantes.",
     };
   }
-  return { tom: "ok", texto: textoDoLoteEnviado(agora, guardadas) };
+  return { tom: "ok", texto: textoDoLoteEnviado(c.agora, c.guardadas) };
 }
 
 /**

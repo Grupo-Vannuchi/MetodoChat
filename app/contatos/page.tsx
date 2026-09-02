@@ -11,7 +11,7 @@ import {
   resumoDasCategorias,
   casoDaListaDeEmail,
 } from "@/lib/categorias";
-import { campoDoFiltro, destinoDoLote } from "@/lib/lote";
+import { campoDoFiltro, destinoDoLote, hojeNoFusoDoPrazo } from "@/lib/lote";
 import { avisoDaUrl } from "@/lib/avisos";
 import { atualizarPerfis, enviarLote } from "./actions";
 import {
@@ -214,6 +214,13 @@ export default async function ContatosPage({
   const semEmail = visiveis.filter((c) => !c.email);
   const semNome = rows.filter((c) => !c.username).length;
 
+  // O PISO DO CAMPO DE PRAZO, calculado aqui e não no JSX. Um dia já passado
+  // naquele campo é o caminho mais curto para um lote que não sai: todo item
+  // vira `skipped` na primeira drenagem, antes de qualquer envio. O fuso é o do
+  // PRAZO, e vem da mesma constante de `validadeDoDia` — ver `hojeNoFusoDoPrazo`
+  // (lib/lote.ts) para o porquê de não ser `toISOString()` nem `-3h`.
+  const hoje = hojeNoFusoDoPrazo();
+
   // A decisão de qual texto a seção "Com e-mail" mostra — e se "Sem e-mail"
   // ainda faz sentido na tela — é de `casoDaListaDeEmail` (lib/categorias.ts),
   // não do JSX abaixo: ver o comentário lá para o porquê.
@@ -332,7 +339,19 @@ export default async function ContatosPage({
                   placeholder="Texto do botão (só com link)" />
                 <label className={`block text-xs ${muted}`}>
                   Vale até (vazio = sem prazo)
-                  <input type="date" name="valido_ate" className={`mt-1 w-full ${input}`} />
+                  {/* `min` É CONSERTO, E NÃO POLIMENTO: sem ele, um dia no
+                      passado escolhido por engano faz TODO item do lote virar
+                      `skipped` na primeira drenagem — nada sai, nada vai sair.
+                      `hojeNoFusoDoPrazo` (lib/lote.ts) é a mesma fonte de fuso
+                      de `validadeDoDia`, que é quem lê este campo do outro lado.
+                      O navegador é conveniência; quem fecha o outro lado é a
+                      contagem dos cinco status em `enviarLote`. */}
+                  <input
+                    type="date"
+                    name="valido_ate"
+                    min={hoje}
+                    className={`mt-1 w-full ${input}`}
+                  />
                 </label>
                 <label className="flex items-center gap-2 text-xs">
                   <input type="checkbox" name="confirmado" value="1" required />
