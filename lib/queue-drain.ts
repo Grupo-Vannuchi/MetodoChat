@@ -213,11 +213,24 @@ async function finish(
 // O `||` DO POSTGRES É MERGE RASO, e é exatamente o que se quer: as chaves
 // novas entram, as antigas ficam. `jsonb_set` (que o `finish` usa) escreve UMA
 // chave por chamada, e aqui às vezes são duas.
+//
+// O OBJETO VAI CRU, E NÃO `JSON.stringify` — é o MESMO aviso que está escrito no
+// `enqueue` (lib/engine.ts) sobre o payload, e esta função o desobedeceu por
+// uma versão. MEDIDO contra o banco, com uma sonda descartável:
+//
+//   com `JSON.stringify({c: 3})`  ->  [{"a":1,"b":2},"{\"c\":3}"]
+//   com o objeto `{c: 3}`         ->  {"a":1,"b":2,"c":3}
+//
+// O driver JÁ serializa o valor para a coluna `jsonb`. Mandando a string
+// pronta, ele a serializa DE NOVO: o parâmetro chega ao Postgres como um
+// jsonb ESCALAR de texto, e `objeto || texto` no jsonb não é merge — é
+// concatenação em LISTA. O payload virava um array de dois elementos, o item
+// deixava de ser lido como publicação na passada seguinte, e o desfecho era um
+// `failed` dizendo "o payload deste item nao e de publicacao" para um post
+// perfeitamente válido. Nenhum teste puro alcança isto; quem acusou foi o
+// caminho de integração, no primeiro caso em que ele rodou.
 async function guardarNoPayload(id: string, campos: Record<string, unknown>): Promise<void> {
-  await sql().query(`update queue set payload = payload || $2::jsonb where id = $1`, [
-    id,
-    JSON.stringify(campos),
-  ]);
+  await sql().query(`update queue set payload = payload || $2::jsonb where id = $1`, [id, campos]);
 }
 
 /**
