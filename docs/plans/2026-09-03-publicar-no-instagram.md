@@ -627,6 +627,25 @@ Cada um: VERMELHO esperado na integração. O que ficar verde, **diga**.
 
 ---
 
+> **ABERTO DEPOIS DA TAREFA 4 — a varredura de órfãos do bucket não existe.**
+>
+> A Tarefa 2 decidiu sem tabela, e a decisão continua certa: o órfão que mais
+> aparece — upload terminado e enfileiramento que nunca houve — não teria linha
+> em tabela nenhuma. Mas a varredura que ela pressupõe **não foi escrita**, e
+> `lib/bucket.ts` não sabe listar.
+>
+> Duas restrições já medidas para quem a fizer: a **URL pública não serve de
+> prova** (depois de um `DELETE` bem-sucedido ela seguiu devolvendo 200 com o
+> conteúdo antigo, por cache de CDN — use a listagem autenticada), e
+> `apagarObjeto` de caminho inexistente **lança**.
+>
+> Órfão de item `failed` fica de propósito: quem for tentar de novo precisa do
+> arquivo. Órfão de upload abandonado (a pessoa escolhe o arquivo, ele sobe, e
+> ela fecha a aba sem enfileirar) **fica sem ninguém para recolher**. Hoje custa
+> pouco; com reels de 50 MB, cresce sozinho.
+>
+> Fica para a Tarefa 6 ou para projeto próprio, e a decisão é do dono.
+
 ### Tarefa 5: a tela de compor, e o modal de progresso
 
 **Consome:** Tarefas 2, 3 e 4.
