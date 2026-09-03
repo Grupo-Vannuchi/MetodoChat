@@ -102,6 +102,7 @@ export function authorizeUrl(appId: string, redirectUri: string, state: string):
       "instagram_business_basic",
       "instagram_business_manage_messages",
       "instagram_business_manage_comments",
+      "instagram_business_content_publish",
     ].join(","),
     state,
   });
