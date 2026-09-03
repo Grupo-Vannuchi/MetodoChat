@@ -6,6 +6,7 @@
 // MESMA pergunta que o salvar e o painel fazem sobre palavra-chave, e reescrevê-
 // la aqui criaria a segunda resposta que esta fase inteira vem apagando.
 import { gatilhoPedePalavraChave } from "@/lib/steps";
+import type { QueueItem } from "@/lib/db";
 
 type Badge = { label: string; className: string };
 
@@ -204,7 +205,20 @@ export function eventBadge(type: string): Badge {
 // estar aqui. Faltando um, ele ia CRU para a tela — foi o que aconteceu com
 // `dm_manual`, que é o rótulo mais frequente da lista e aparecia como
 // identificador técnico.
-const KIND: Record<string, string> = {
+// `Record<QueueItem["kind"], ...>` E NAO `Record<string, ...>`, e esta linha e o
+// conserto de uma falha que este arquivo ja registrou DUAS VEZES nos proprios
+// comentarios: `dm_manual` apareceu cru na tela, e `dm_lote` entrou depois so
+// para nao repetir. As duas foram pegas por alguem olhando, nunca por um portao.
+//
+// Medido em 03/09/2026: apagar uma entrada deste dicionario passava por lint,
+// typecheck e os 1069 testes puros. Agora nao passa — o `tsc` recusa, nomeando
+// o `kind` que falta.
+//
+// O IMPORT E DE TIPO, e por isso nao contradiz o comentario do topo deste
+// arquivo: `import type` e apagado na compilacao, entao o `server-only` de
+// `lib/db.ts` nao entra no pacote do navegador. A regra de "um import so" existe
+// para impedir codigo de servidor de vazar para o cliente; tipo nao vaza.
+const KIND: Record<QueueItem["kind"], string> = {
   private_reply: "Boas-vindas no privado",
   comment_reply: "Resposta no comentário",
   dm_welcome: "Boas-vindas na DM",
@@ -243,7 +257,14 @@ const KIND: Record<string, string> = {
 // "Outro envio" não vaza jargão e não mente; de quebra, deixa perceber que
 // apareceu algo que este dicionário ainda não conhece.
 export function kindLabel(kind: string): string {
-  return KIND[kind] ?? "Outro envio";
+  // A LEITURA ACEITA QUALQUER TEXTO, e a ESCRITA e que e fechada — os dois lados
+  // estao certos e sao diferentes. O dicionario acima e completo por construcao
+  // (o `tsc` recusa se faltar um `kind`), mas o valor que chega aqui vem do
+  // BANCO, e o banco pode estar a frente do codigo: uma migracao aplicada no
+  // build roda ANTES de o codigo novo entrar no ar, entao existe uma janela em
+  // que a fila tem um `kind` que este arquivo ainda nao conhece. E para essa
+  // janela que a reserva existe.
+  return (KIND as Record<string, string>)[kind] ?? "Outro envio";
 }
 
 // ---------- Quem mandou ----------
