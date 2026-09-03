@@ -9,7 +9,7 @@ import {
 } from "./db";
 import { matches, pickRandom, extractEmail } from "./match";
 import { getUserProfile, checkFollowsAccount } from "./ig";
-import { scheduleTick } from "./qstash";
+import { scheduleTick, HORIZONTE_DO_TIQUE_EM_SEGUNDOS } from "./qstash";
 import { payloadDoLote } from "./lote";
 // `retomadaDoFallback`, `interrompeOFluxo`, `retomadaDoBotao` e
 // `retomadaDoFollow` moraram aqui e agora vêm de lib/steps.ts: as quatro são
@@ -84,8 +84,14 @@ import {
   storyReactionKey,
   manualReplyKey,
   loteKey,
+  publicacaoKey,
   diaDaChave,
 } from "./dedupe";
+// A PUBLICAÇÃO É A ÚNICA COISA QUE ESTE MOTOR ENFILEIRA E QUE NÃO É MENSAGEM.
+// `payloadDaPublicacao` monta o que vai no `jsonb`, e `FormaDePublicacao` é a
+// união das quatro formas — as duas de `lib/publicacao.ts`, que não tem import
+// nenhum e roda também no navegador.
+import { payloadDaPublicacao, type FormaDePublicacao } from "./publicacao";
 
 // ============================================================
 // Recepção: transforma eventos do webhook em itens na fila
@@ -275,6 +281,19 @@ async function enqueue(item: {
   payload: Record<string, unknown>;
   dedupe_key: string;
   delaySeconds?: number;
+  // O TIQUE DO QSTASH É OPCIONAL, E SÓ A PUBLICAÇÃO DESLIGA.
+  //
+  // Todo item de MENSAGEM continua armando o seu, como sempre: o padrão é
+  // ligado, e nenhum chamador antigo mudou de comportamento. A publicação é o
+  // primeiro tipo que se agenda para semanas à frente, e um atraso de 30 dias
+  // entregue ao QStash depende de um horizonte que NÃO foi verificado — se ele
+  // recusar, `scheduleTick` engole o erro (e está certo em engolir) e o post
+  // não sai, calado.
+  //
+  // Quem arma o tique dela é `armarTiquesDoDia` (lib/queue-drain.ts), no cron
+  // diário, quando a hora chega a menos de um dia de distância. Ver
+  // `HORIZONTE_DO_TIQUE_EM_SEGUNDOS` (lib/qstash.ts) para o desenho inteiro.
+  agendarTique?: boolean;
 }): Promise<boolean> {
   const atraso = Math.max(0, Math.round(item.delaySeconds ?? 0));
   const rows = (await sql().query(
@@ -299,7 +318,7 @@ async function enqueue(item: {
   const inserted = rows.length > 0;
 
   // item com atraso: pede pro QStash acordar o app na hora certa
-  if (inserted && atraso > 15) {
+  if (inserted && atraso > 15 && item.agendarTique !== false) {
     const config = await getConfig();
     await scheduleTick(config.app_url ?? "", atraso + 5);
   }
@@ -2229,4 +2248,87 @@ export async function enqueueLote(
     if (entrou) enfileirados++;
   }
   return enfileirados;
+}
+
+// ============================================================
+// A PUBLICAÇÃO NO INSTAGRAM ENTRA NA FILA
+// ============================================================
+//
+// UM INVÓLUCRO, PELO MESMO MOTIVO DE `enqueueLote` E `enqueueManualReply`: a
+// `enqueue` logo acima é interna, e é assim de propósito — quem enfileira tem
+// de passar por uma função que sabe montar a chave de dedupe daquele tipo. Uma
+// chave errada não dá erro: ela colide no `on conflict do nothing` e o item
+// desaparece em silêncio.
+//
+// =============================================================================
+// O CONTÊINER DA META **NÃO** NASCE AQUI, E ESTE É O PONTO MAIS IMPORTANTE DO
+// PROJETO INTEIRO.
+//
+// Criar o contêiner no enfileiramento parece a coisa óbvia: o pedido está na
+// mão, a URL está pronta, e a hora de publicar só precisaria do
+// `media_publish`. É EXATAMENTE O DESENHO QUE QUEBRA TUDO.
+//
+// O contêiner da Meta VENCE EM 24 HORAS. Um post agendado para daqui a três
+// dias chegaria na hora com um contêiner podre, e a Meta responderia `EXPIRED`
+// — que não é "falhou ao publicar", é "o que você mandou publicar não existe
+// mais". O item iria para `failed` com um motivo que não aponta para a causa, e
+// o dono veria "não publicou" sem nada que explicasse por quê. Todo agendamento
+// além de 24 horas falharia CALADO, e o de menos de 24 horas continuaria
+// funcionando — que é a pior combinação possível, porque o teste manual de
+// quem escreveu o recurso é sempre o de "publicar agora".
+//
+// Por isso `criarContainer` (lib/ig.ts) é chamada no DRENO, na passada em que o
+// post vai sair, e o contêiner criado é guardado no payload para a passada
+// seguinte não recriar outro. O caminho de integração mede exatamente isto
+// (`testes-integracao/publicacao.integracao.ts`, primeiro caso).
+//
+// =============================================================================
+// `contact_ig_id` FICA NULO, e a coluna já é opcional: publicação não tem
+// contato. É a primeira coisa desta fila que não sai para uma pessoa — ela sai
+// para o perfil. Todo lugar que lê a fila por contato (o despertar do lote em
+// `upsertContact`, a janela de 24 h, as variáveis de `{{first_name}}`) deixa de
+// alcançar este item por consequência disso, e não por uma exceção escrita em
+// cada um.
+export async function enqueuePublicacao(
+  accountId: string,
+  pedido: {
+    forma: FormaDePublicacao;
+    caminhos: string[];
+    legenda?: string;
+    compartilharNoFeed?: boolean;
+    nomeDoAudio?: string;
+  },
+  quando: Date | null
+): Promise<boolean> {
+  // SEM ARQUIVO NÃO HÁ POST. `lerPayloadDaPublicacao` recusaria a lista vazia
+  // depois, no dreno, e o item viraria um `failed` com motivo escrito — mas
+  // gastando uma linha de fila e uma passada para dizer o que dá para dizer
+  // aqui, antes de gravar nada.
+  if (!pedido.caminhos.length) return false;
+
+  // O ATRASO VEM EM SEGUNDOS, e a conta de "agora" quem faz é o BANCO — é o
+  // contrato de `enqueue`, e o comentário dela tem a medição que o justifica
+  // (53,9 segundos de diferença entre os dois relógios NESTA máquina). O que
+  // sai daqui é uma DURAÇÃO, e duração não depende de qual relógio a mediu.
+  //
+  // `quando: null` é agora. Data no passado também é agora, e não um atraso
+  // negativo: quem agendou para as 14h e confirmou às 14h01 quer publicar, não
+  // quer um erro.
+  const atraso = quando ? Math.max(0, Math.round((quando.getTime() - Date.now()) / 1000)) : 0;
+
+  return enqueue({
+    account_id: accountId,
+    kind: "publicacao",
+    // A CHAVE LEVA A CONTA, pelo mesmo motivo que a de `enqueueLote` leva:
+    // `dedupe_key` é `unique` na tabela inteira. O resto dela é o caminho do
+    // primeiro objeto no bucket, que é único por upload — ver `publicacaoKey`
+    // (lib/dedupe.ts).
+    dedupe_key: publicacaoKey(accountId, pedido.caminhos[0]),
+    payload: payloadDaPublicacao(pedido),
+    delaySeconds: atraso,
+    // O TIQUE SÓ SAI DAQUI QUANDO A HORA CABE NO HORIZONTE QUE CONFERIMOS. Ver
+    // `HORIZONTE_DO_TIQUE_EM_SEGUNDOS` (lib/qstash.ts): além de um dia, quem
+    // arma é o cron diário, e não uma promessa do QStash que ninguém verificou.
+    agendarTique: atraso <= HORIZONTE_DO_TIQUE_EM_SEGUNDOS,
+  });
 }

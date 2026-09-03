@@ -143,3 +143,27 @@ export const manualReplyKey = (contactIgId: string, agora: number) =>
 // é estrutural, e não probabilística: o accountId entra na chave.
 export const loteKey = (accountId: string, loteId: string, contactIgId: string) =>
   `lote:${accountId}:${loteId}:${contactIgId}`;
+
+// A PUBLICAÇÃO NO INSTAGRAM (`enqueuePublicacao`, lib/engine.ts).
+//
+// O QUE TORNA UM POST ÚNICO É O CAMINHO DO OBJETO NO BUCKET, e não um
+// identificador inventado na tela. `caminhoDoObjeto` (lib/bucket.ts) sorteia um
+// `randomUUID` por upload, então dois posts jamais compartilham caminho — e o
+// MESMO post pedido duas vezes (clique duplo em "publicar", a aba recarregada
+// com o formulário preenchido) chega com o mesmo caminho e vira um item só.
+//
+// É a mesma escolha de `privateReplyKey`, que usa o id do comentário: quando o
+// mundo já produziu um identificador único e permanente para a coisa, inventar
+// outro é criar uma segunda verdade.
+//
+// A CONTA ENTRA PELO MESMO MOTIVO DE `loteKey`: `dedupe_key` é `unique` na
+// TABELA INTEIRA (migrations/000-esquema-base.sql). O caminho do objeto já
+// começa pela conta hoje (`caminhoDoObjeto` põe o ig_id no primeiro segmento),
+// mas ele chega aqui vindo do payload — dado de fora —, e a defesa é
+// estrutural em vez de confiar em como outro arquivo monta a string.
+//
+// PARA O CARROSSEL (Tarefa 6) VAI O PRIMEIRO CAMINHO: dez arquivos fazem UM
+// post, e o post é um item de fila só. Repetir os dez aqui deixaria a chave
+// gigante sem tornar nada mais único.
+export const publicacaoKey = (accountId: string, primeiroCaminho: string) =>
+  `pub:${accountId}:${primeiroCaminho}`;

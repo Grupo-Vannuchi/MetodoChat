@@ -10,6 +10,7 @@ import {
   storyReactionKey,
   passoKey,
   loteKey,
+  publicacaoKey,
   diaDaChave,
 } from "@/lib/dedupe";
 // A afirmação "o id sobrevive à reordenação" é sobre a COMPOSIÇÃO das duas
@@ -218,9 +219,45 @@ describe("os prefixos não se repetem entre tipos", () => {
       storyReactionKey("m"),
       passoKey("a", "c", "0", "d"),
       loteKey("acc-1", "L1", "c"),
+      publicacaoKey("acc-1", "acc-1/abc.jpg"),
     ].map((k) => k.split(":")[0]);
 
     expect(new Set(prefixos).size).toBe(prefixos.length);
+  });
+});
+
+describe("publicacaoKey", () => {
+  it("mantém o formato: pub, conta e caminho do objeto", () => {
+    expect(publicacaoKey("acc-1", "acc-1/abc.jpg")).toBe("pub:acc-1:acc-1/abc.jpg");
+  });
+
+  // O CAMINHO DO OBJETO É O QUE TORNA O POST ÚNICO, e não um identificador
+  // inventado na tela. `caminhoDoObjeto` (lib/bucket.ts) sorteia um `randomUUID`
+  // por upload, então dois posts nunca compartilham caminho — e o MESMO post
+  // pedido duas vezes (clique duplo em "publicar", ou a aba recarregada com o
+  // formulário preenchido) traz o mesmo caminho e vira um item só.
+  it("dois uploads diferentes são dois posts", () => {
+    expect(publicacaoKey("acc-1", "acc-1/um.jpg")).not.toBe(
+      publicacaoKey("acc-1", "acc-1/dois.jpg")
+    );
+  });
+
+  // A CONTA ENTRA PELO MESMO MOTIVO DE `loteKey`: `dedupe_key` é `unique` na
+  // TABELA INTEIRA (migrations/000-esquema-base.sql), sem coluna de conta na
+  // restrição. O caminho do objeto já começa pela conta hoje, mas ele vem do
+  // payload — dado de fora — e a defesa aqui é estrutural, e não a confiança
+  // em como outro arquivo monta a string.
+  it("o mesmo caminho em duas contas não colide", () => {
+    expect(publicacaoKey("conta-a", "objeto.jpg")).not.toBe(
+      publicacaoKey("conta-b", "objeto.jpg")
+    );
+  });
+
+  // O PRIMEIRO CAMINHO É A IDENTIDADE DO CARROSSEL (Tarefa 6): dez arquivos
+  // fazem um post, e o post é um item de fila só. Repetir os dez na chave
+  // deixaria a chave gigante sem tornar nada mais único.
+  it("o carrossel é identificado pelo primeiro arquivo", () => {
+    expect(publicacaoKey("acc-1", "acc-1/primeiro.jpg")).toBe("pub:acc-1:acc-1/primeiro.jpg");
   });
 });
 
