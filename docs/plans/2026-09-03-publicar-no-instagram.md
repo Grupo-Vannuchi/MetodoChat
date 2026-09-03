@@ -317,8 +317,40 @@ describe("problemaDaLegenda", () => {
 
 - [ ] **Passo 3: escrever `lib/publicacao.ts`**
 
-Sem import de nada que puxe `server-only`. Os limites viram constantes
-nomeadas, uma por forma, com o número da referência da Meta no comentário.
+Sem import de nada que puxe `server-only`. Os limites da META viram constantes
+nomeadas, uma por forma, com o número da referência no comentário.
+
+**MAS O TETO DO BUCKET NÃO É CONSTANTE, e isto é decisão medida em 03/09.**
+
+O projeto do Supabase está hoje em 50 MB — não por escolha, mas porque o
+pagamento do plano atrasou. Medido por busca binária contra a API: 50 MB passa,
+51 é recusado. O plano pago vai a 500 GB, e o teto vai subir sozinho quando o
+pagamento entrar.
+
+Cravar 50 MB aqui criaria uma dívida que ninguém lembra de pagar: no dia em que
+o plano voltasse, vídeo continuaria recusado por uma constante esquecida, e o
+sintoma seria "não sei por que não sobe".
+
+Então `problemaDoArquivo` recebe o teto **como parâmetro**:
+
+```ts
+export function problemaDoArquivo(
+  forma: FormaDePublicacao,
+  arq: { mime: string; bytes: number; segundos?: number; largura?: number; altura?: number },
+  tetoDoBucketEmBytes: number
+): ProblemaDoArquivo | null;
+```
+
+O menor entre o teto da Meta e o do bucket é que vale, e o problema devolvido
+distingue os dois: `grande_demais` quando a Meta recusaria de qualquer jeito, e
+`grande_para_o_bucket` quando **nós** é que somos o gargalo — porque a frase que
+ajuda é diferente ("exporte menor" contra "a Meta aceitaria, nosso plano não").
+
+Acrescente `"grande_para_o_bucket"` a `ProblemaDoArquivo` e um caso para cada
+lado: um vídeo de 80 MB é `grande_para_o_bucket` com teto de 50 MB, e o MESMO
+vídeo passa com teto de 500 GB. É esse par que prende a distinção.
+
+Quem lê o teto de verdade é a Tarefa 3, contra o bucket, e ele chega à tela.
 
 - [ ] **Passo 4: escrever `migrations/010-fila-publicacao.sql`**
 
@@ -379,7 +411,19 @@ export async function urlAssinadaDeUpload(caminho: string): Promise<{ url: strin
 export function urlPublicaDoObjeto(caminho: string): string;
 export function caminhoDoObjeto(contaIgId: string, nomeOriginal: string): string;
 export async function apagarObjeto(caminho: string): Promise<void>;
+/** O teto REAL do bucket, perguntado ao Supabase — nunca cravado. Ver Tarefa 2. */
+export async function tetoDoBucket(): Promise<number>;
 ```
+
+`tetoDoBucket` lê `GET /storage/v1/bucket/{nome}` e devolve `file_size_limit`.
+Quando ele vier `null`, o bucket não tem teto próprio e vale o global do
+projeto — nesse caso devolva um número conservador e **diga no comentário** que
+ele é o piso de segurança, não uma medição. Hoje o bucket TEM teto próprio
+(50 MB, ajustado em 03/09), então esse ramo não deve ser exercitado em produção.
+
+O bucket se chama **`MetodoChat`** — com maiúsculas, escolha do dono, e o nome
+não pode ser alterado depois de criado. Ele vem de `SUPABASE_BUCKET` no
+ambiente, nunca escrito no código.
 
 - [ ] **Passo 1: escrever o teste do que é puro**
 
