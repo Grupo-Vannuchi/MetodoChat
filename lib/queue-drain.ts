@@ -1,7 +1,7 @@
 import "server-only";
-import { sql, listAccounts, getConfig, QueueItem } from "./db";
+import { sql, listAccounts, getConfig, Account, QueueItem } from "./db";
 import { windowState } from "./inbox-window";
-import { scheduleTick } from "./qstash";
+import { scheduleTick, HORIZONTE_DO_TIQUE_EM_SEGUNDOS } from "./qstash";
 import {
   sendMessage,
   replyToComment,
@@ -9,9 +9,26 @@ import {
   sendReaction,
   IgError,
   OutgoingMessage,
+  // AS QUATRO CHAMADAS QUE ESCREVEM NO PERFIL. Elas não decidem nada — quem
+  // decide são as funções puras logo abaixo. Ver o cabeçalho da seção de
+  // publicação em lib/ig.ts.
+  criarContainer,
+  estadoDoContainerNaMeta,
+  publicarContainer,
+  limiteDePublicacao,
 } from "./ig";
 import { renderVariables, type VariableContext } from "./variables";
 import { lerPayloadDoLote, loteExpirou } from "./lote";
+import {
+  leituraDoContainer,
+  lerPayloadDaPublicacao,
+  parametrosDoContainer,
+  cotaDePublicacao,
+  cotaEstourada,
+} from "./publicacao";
+// O BUCKET, e só duas funções dele: montar a URL pública que a Meta vai buscar,
+// e apagar o objeto DEPOIS de a publicação ter saído. Ver `limparOBucket`.
+import { apagarObjeto, urlPublicaDoObjeto } from "./bucket";
 // Só para registrar em Atividade o que este arquivo tira da mensagem — o corte
 // além do limite da Meta e o botão sem rótulo (ver `botoesDaMensagem`, abaixo).
 // Não há import na direção oposta — lib/engine.ts não importa deste arquivo —
@@ -34,6 +51,79 @@ import { botoesDaMensagem, LIMITE_DE_BOTOES } from "./steps";
 const HOURLY_CAP = 190; // margem sobre o limite prático de ~200/h, POR CONTA
 const BATCH_SIZE = 15;
 const GAP_MS = 600; // ~1,6 envios/segundo
+
+// =============================================================================
+// OS DOIS DE CIMA SÃO FREIOS DE **MENSAGEM**, E A PUBLICAÇÃO NÃO OS GASTA.
+//
+// `HOURLY_CAP` e `GAP_MS` existem por causa do limite de MENSAGEM da Meta: ~200
+// DMs por hora por conta, e um ritmo que não pareça robô. Um post não é uma
+// mensagem — ele não vai para uma pessoa, vai para o perfil — e o limite dele
+// na Meta é OUTRO, mora em outro endpoint e se pergunta de outro jeito
+// (`limiteDePublicacao`, lib/ig.ts: 100 publicações por 24 h, MEDIDO em 03/09,
+// mais 400 contêineres por dia).
+//
+// O QUE ACONTECE SE ELES FOREM MISTURADOS, e é por isso que a separação está
+// escrita e não só implícita:
+//
+//   1. GASTANDO O TETO. A contagem do teto horário é `status = 'sent'` na
+//      última hora — ela conta LINHA DE FILA, não mensagem. Sem o `kind <>
+//      'publicacao'` da consulta lá embaixo, publicar trinta posts numa manhã
+//      comeria trinta das 190 DMs daquela hora, e as respostas automáticas do
+//      painel — que são o produto — passariam a engasgar por causa de um
+//      recurso que nada tem a ver com elas. O sintoma seria "o robô parou de
+//      responder", e a causa estaria num lugar onde ninguém procuraria.
+//
+//   2. SENDO BLOQUEADO PELO TETO. A conta que estourou as 190 mensagens sai
+//      INTEIRA do lote do dreno. Sem a exceção na seleção lá embaixo, um lote
+//      grande de DMs — que leva horas para sair, é a medição do próprio
+//      arquivo — deixaria todo post agendado daquela conta parado atrás dele,
+//      inclusive o agendado para uma hora exata.
+//
+//   3. ESPERANDO O `GAP_MS`. O ramo da publicação sai do laço pelo `continue`,
+//      antes do `sleep`. São 600 ms por item que não fazem sentido nenhum aqui:
+//      o freio existe para o ritmo de conversa, e o pescoço de garrafa de um
+//      post são os 32 segundos que a Meta leva processando o vídeo.
+//
+// A CONTA DA PUBLICAÇÃO É PERGUNTADA À META, uma vez, ANTES do `media_publish`
+// (ver `publicarDaFila`). É a única que vale — uma constante não sabe quanto da
+// cota do dia já foi gasto, e reels de TESTE consome cota (medido em 03/09: a
+// leitura logo depois deu 0 e enganou; minutos depois virou 1).
+// =============================================================================
+
+/** Quanto o item espera antes de perguntar de novo se o contêiner ficou pronto.
+ *
+ *  NÃO É CHUTE. MEDIDO em 03/09/2026 contra a Meta de verdade: contêiner de
+ *  imagem `FINISHED` em 10 s, de reels em 32 s. Sessenta segundos dão 9x de
+ *  folga sobre o pior caso, com o teto de cinco passadas abaixo — cinco
+ *  minutos de paciência para uma coisa que leva meio minuto. Mudar este número
+ *  pede medir de novo, e não estimar. */
+const PUBLICACAO_RETRY_EM_SEGUNDOS = 60;
+
+/** Quantas vezes o dreno pergunta o `status_code` antes de desistir.
+ *
+ *  É A RECOMENDAÇÃO DA META — uma consulta por minuto, no máximo cinco — e é
+ *  também o que impede o item de girar para sempre. Sem teto, um contêiner que
+ *  nunca sai de `IN_PROGRESS` seria reivindicado a cada minuto até alguém
+ *  perceber, gastando `attempts` e uma ida de rede por passada, e nunca
+ *  terminando. Item que não termina não aparece na tela de Envios com desfecho
+ *  nenhum — é a mesma falha muda que o estado `guardado` (migração 009) fechou
+ *  do outro lado. */
+const PUBLICACAO_CONSULTAS_MAX = 5;
+
+/** Quanto o post espera quando a COTA da Meta acabou.
+ *
+ *  UMA HORA, E NÃO A JANELA INTEIRA (86400 s). A cota é uma janela DESLIZANTE
+ *  de 24 h: a Meta diz quanto já foi gasto, mas não diz quando a publicação
+ *  mais antiga sai da janela e libera uma vaga. Esperar o dia inteiro seria
+ *  correto e lento demais; perguntar de minuto em minuto seria 1.440 idas por
+ *  dia para uma resposta que muda devagar.
+ *
+ *  E ELE TEM UM TETO NATURAL, que é o que torna esta espera segura: o contêiner
+ *  já criado vence em 24 h, então na pior das hipóteses a leitura de estado da
+ *  passada seguinte devolve `EXPIRED` e o item termina em `failed` com o motivo
+ *  escrito. A espera de cota não gira para sempre porque a própria Meta lhe põe
+ *  fim. */
+const PUBLICACAO_ESPERA_DE_COTA_EM_SEGUNDOS = 60 * 60;
 
 // O LIMITE DA META (13) E O CORTE SAÍRAM DAQUI, e viraram `LIMITE_DE_BOTOES` e
 // `botoesDaMensagem` em lib/steps.ts. O motivo é o achado principal da revisão
@@ -107,6 +197,245 @@ async function finish(
       fields.sentText ?? null,
     ]
   );
+}
+
+// ============================================================
+// A PUBLICAÇÃO NO INSTAGRAM
+// ============================================================
+//
+// Acrescenta campos ao `payload` do item, sem apagar o que já está lá.
+//
+// POR QUE NÃO CABE NO `finish`: ele encerra o item, e a publicação precisa
+// gravar ANTES de encerrar — o id do contêiner tem de sobreviver mesmo quando o
+// desfecho é "volte daqui a um minuto". Se ele fosse gravado só no fim, a
+// passada seguinte não o encontraria e criaria outro contêiner.
+//
+// O `||` DO POSTGRES É MERGE RASO, e é exatamente o que se quer: as chaves
+// novas entram, as antigas ficam. `jsonb_set` (que o `finish` usa) escreve UMA
+// chave por chamada, e aqui às vezes são duas.
+async function guardarNoPayload(id: string, campos: Record<string, unknown>): Promise<void> {
+  await sql().query(`update queue set payload = payload || $2::jsonb where id = $1`, [
+    id,
+    JSON.stringify(campos),
+  ]);
+}
+
+/**
+ * O ARQUIVO SAI DO BUCKET DEPOIS DE O POST TER SAÍDO, E NUNCA ANTES.
+ *
+ * A Meta BAIXA a mídia do nosso endereço público no momento do `media_publish`
+ * — não no `POST /media`, e não quando o contêiner fica pronto. Apagar antes
+ * quebraria a publicação, e quebraria de um jeito difícil de ler: a Meta
+ * responderia erro de mídia inacessível para um arquivo que existia quando o
+ * contêiner nasceu.
+ *
+ * E ELA NÃO PODE DERRUBAR O ITEM. O post já saiu; está no perfil; a pessoa já
+ * pode vê-lo. Deixar uma falha de apagamento virar `failed` faria o dono ler
+ * "não publicou" olhando para um post publicado — e, pior, faria o próximo
+ * dreno tentar publicar de novo. É o mesmo molde do `catch` que envolve o
+ * `drainQueue` em `enviarLote`, e pelo mesmo motivo: o trabalho que importa já
+ * terminou.
+ *
+ * O `try/catch` É OBRIGAÇÃO, E NÃO PRECAUÇÃO — foi medido na Tarefa 3:
+ * `apagarObjeto` LANÇA quando o caminho não existe (`NoSuchKey`), e caminho que
+ * não existe é o caso NORMAL de uma segunda tentativa de limpeza.
+ *
+ * ITEM `failed` MANTÉM O ARQUIVO, e é por isso que esta função só é chamada no
+ * ramo de sucesso: quem for tentar publicar de novo precisa da mídia. Objeto de
+ * item falhado não é órfão.
+ */
+async function limparOBucket(
+  item: QueueItem,
+  caminhos: string[],
+  igUserId: string
+): Promise<void> {
+  for (const caminho of caminhos) {
+    try {
+      await apagarObjeto(caminho);
+    } catch (err) {
+      // A LINHA EXISTE PARA A FALHA NÃO SER MUDA. Um arquivo que fica no bucket
+      // não incomoda ninguém hoje e vira a conta do Supabase em três meses — um
+      // reels são 200 MB. A janela é larga (60 min) porque o caso que produz
+      // muitas linhas é o mesmo motivo repetido (chave errada, bucket fora do
+      // ar), e cem linhas iguais não dizem mais do que uma.
+      await logEventThrottled(
+        igUserId,
+        "midia_nao_apagada",
+        {
+          queue_id: item.id,
+          caminho,
+          motivo: err instanceof Error ? err.message.slice(0, 300) : String(err),
+        },
+        60,
+        { campo: "queue_id", valor: item.id }
+      );
+    }
+  }
+}
+
+/** O que aconteceu com um item de publicação nesta passada. */
+type DesfechoDaPublicacao = "publicado" | "aguardando" | "falhou";
+
+/**
+ * PUBLICA UM ITEM DA FILA. É o ramo que não é mensagem.
+ *
+ * =============================================================================
+ * A ORDEM É A REGRA INTEIRA, e cada degrau existe por um motivo medido:
+ *
+ *   1. LER O PAYLOAD, e recusar o que não é de publicação. A coluna é `jsonb` e
+ *      editável por fora do painel — mesma defesa de `lerPayloadDoLote`.
+ *   2. CRIAR O CONTÊINER **AQUI**, e não no enfileiramento. Ele vence em 24 h;
+ *      criá-lo no `enqueuePublicacao` faria todo agendamento além de um dia
+ *      falhar calado com `EXPIRED`. O comentário inteiro está lá.
+ *   3. GUARDAR O CONTÊINER NO PAYLOAD antes de qualquer outra coisa. A segunda
+ *      passada é o caso NORMAL (reels leva 32 s), e sem isto ela criaria outro.
+ *   4. PERGUNTAR O ESTADO **UMA VEZ** por passada. Laço de espera aqui dentro
+ *      prenderia o webhook, que é onde o dreno roda.
+ *   5. PERGUNTAR A COTA À META antes do `media_publish`, e não a uma constante.
+ *   6. PUBLICAR, encerrar como `sent`, e só então limpar o bucket.
+ *
+ * NADA AQUI DECIDE POR CONTA PRÓPRIA: `leituraDoContainer`, `cotaDePublicacao`,
+ * `cotaEstourada`, `lerPayloadDaPublicacao` e `parametrosDoContainer` são
+ * funções puras de lib/publicacao.ts, com um caso de teste para cada saída.
+ * Este arquivo é `server-only` e nenhum teste da suíte pura o executa — o que
+ * ficar decidido aqui fica sem rede, e o cabeçalho conta as duas vezes em que
+ * isso já custou caro.
+ */
+async function publicarDaFila(item: QueueItem, account: Account): Promise<DesfechoDaPublicacao> {
+  const pub = lerPayloadDaPublicacao(item.payload);
+  if (!pub) {
+    // MESMO DESFECHO DO LOTE COM PAYLOAD INVÁLIDO, e pela mesma razão: um item
+    // encerrado com motivo escrito aparece na tela de Envios, e um item que
+    // espera para sempre não aparece em lugar nenhum.
+    await logEventThrottled(
+      account.ig_user_id,
+      "publicacao_com_payload_invalido",
+      { queue_id: item.id },
+      10,
+      { campo: "queue_id", valor: item.id }
+    );
+    await finish(item.id, {
+      status: "failed",
+      error: "o payload deste item de publicacao nao e de publicacao",
+    });
+    return "falhou";
+  }
+
+  // O CARROSSEL É DA TAREFA 6, e até lá ele é recusado ALTO em vez de montado
+  // errado. `parametrosDoContainer` já lança para a forma `carrossel` (o pai
+  // precisa da lista de filhos, que ela não recebe); o que este ramo acrescenta
+  // é um motivo em português na tela, em vez de uma exceção que vira texto de
+  // programador. Nenhuma tela enfileira carrossel hoje.
+  if (pub.forma === "carrossel") {
+    await finish(item.id, {
+      status: "failed",
+      error: "o carrossel ainda nao publica por aqui",
+    });
+    return "falhou";
+  }
+
+  let containerId = pub.containerId;
+  if (!containerId) {
+    // A URL PÚBLICA É MONTADA A PARTIR DO CAMINHO, e o caminho é o que está no
+    // payload. Guardar a URL pronta seria guardar o endereço do projeto do
+    // Supabase dentro de cada item — e no dia em que ele mudasse, todo post
+    // agendado apontaria para um lugar que não existe mais.
+    const params = parametrosDoContainer({
+      forma: pub.forma,
+      url: urlPublicaDoObjeto(pub.caminhos[0]),
+      legenda: pub.legenda,
+      compartilharNoFeed: pub.compartilharNoFeed,
+      nomeDoAudio: pub.nomeDoAudio,
+    });
+    containerId = await criarContainer(account.ig_user_id, account.access_token, params);
+    // GRAVADO ANTES DE QUALQUER OUTRA COISA. Se a consulta de estado logo
+    // abaixo estourar, o `catch` de `drainQueue` devolve o item à fila — e a
+    // passada seguinte tem de encontrar ESTE contêiner, e não criar o segundo.
+    await guardarNoPayload(item.id, { container_id: containerId });
+  }
+
+  const leitura = leituraDoContainer(
+    await estadoDoContainerNaMeta(containerId, account.access_token)
+  );
+
+  if (leitura.estado === "esperando") {
+    const consultas = pub.consultas + 1;
+    await guardarNoPayload(item.id, { consultas });
+    if (consultas >= PUBLICACAO_CONSULTAS_MAX) {
+      await finish(item.id, {
+        status: "failed",
+        error: `a Meta nao terminou de processar a midia em ${consultas} consultas`,
+      });
+      return "falhou";
+    }
+    // `pending` COM `not_before` NO FUTURO, e não um estado próprio como o
+    // `guardado` do lote: a diferença entre os dois é o RELÓGIO. O lote espera
+    // uma PESSOA voltar a falar — dias, às vezes nunca — e por isso sufocava a
+    // fila. Este espera a META terminar de processar, medido em 10 s (imagem) e
+    // 32 s (reels), com teto de cinco minutos. Item com `not_before` à frente
+    // não é elegível, então ele não disputa nada nesse meio-tempo.
+    await finish(item.id, {
+      status: "pending",
+      retryInSeconds: PUBLICACAO_RETRY_EM_SEGUNDOS,
+      error: "a Meta ainda esta processando a midia",
+    });
+    return "aguardando";
+  }
+
+  if (leitura.estado === "erro" || leitura.estado === "vencido") {
+    // A FRASE DA META ENTRA NO MOTIVO quando ela vem: é ela que diz se o vídeo
+    // tem codec errado ou se a URL não abriu. Sem ela, o dono lê "a Meta
+    // recusou" e não tem o que fazer com isso.
+    const oQue =
+      leitura.estado === "vencido"
+        ? "o container venceu antes de o post sair"
+        : "a Meta recusou a midia";
+    await finish(item.id, {
+      status: "failed",
+      error: leitura.detalhe ? `${oQue}: ${leitura.detalhe}` : oQue,
+    });
+    return "falhou";
+  }
+
+  // `pronto` publica; `publicado` NÃO republica.
+  //
+  // O SEGUNDO CASO É UMA DEFESA CONTRA POST EM DOBRO, e ele é alcançável: o
+  // `media_publish` pode ter chegado à Meta e a resposta ter se perdido no
+  // caminho, com o item voltando à fila pelo `catch`. Na passada seguinte, o
+  // contêiner responde `PUBLISHED` — e publicar de novo poria DOIS posts iguais
+  // no perfil. Um post duplicado não se desfaz por aqui: `DELETE
+  // /{ig-media-id}` não existe no Login do Instagram (medido em 03/09), e a
+  // remoção é manual, no aplicativo.
+  if (leitura.estado === "pronto") {
+    const cota = cotaDePublicacao(await limiteDePublicacao(account.ig_user_id, account.access_token));
+    if (cotaEstourada(cota)) {
+      // `pending`, E NÃO `failed`. A publicação não deu errado — ela ainda não
+      // pode acontecer. `failed` diria ao dono que o post não saiu por culpa
+      // dele ou da mídia, e o certo é que a conta já publicou o que a Meta
+      // deixa publicar hoje.
+      await finish(item.id, {
+        status: "pending",
+        retryInSeconds: PUBLICACAO_ESPERA_DE_COTA_EM_SEGUNDOS,
+        error: `a cota de publicacoes da conta acabou (${cota?.usadas} de ${cota?.total} em 24h); o post sai assim que ela virar`,
+      });
+      return "aguardando";
+    }
+    const resposta = await publicarContainer(
+      account.ig_user_id,
+      account.access_token,
+      containerId
+    );
+    // O ID DO POST VAI PARA O PAYLOAD, e não para a coluna `message_id`: aquela
+    // coluna é o id de uma MENSAGEM, e um post não é mensagem. Duas coisas
+    // diferentes na mesma coluna é a confusão que se descobre tarde.
+    const mediaId = typeof resposta.id === "string" ? resposta.id : null;
+    if (mediaId) await guardarNoPayload(item.id, { media_id: mediaId });
+  }
+
+  await finish(item.id, { status: "sent", sent_at: new Date() });
+  // DEPOIS DO `finish`, e nunca antes: ver o cabeçalho de `limparOBucket`.
+  await limparOBucket(item, pub.caminhos, account.ig_user_id);
+  return "publicado";
 }
 
 // Dados de quem vai receber a mensagem, para resolver as variáveis
@@ -360,6 +689,18 @@ export type ResumoDaDrenagem = {
   skipped: number;
   failed: number;
   guardados: number;
+  // O QUINTO CONTADOR, PELO MESMO ARGUMENTO DO QUARTO, uma linha acima.
+  //
+  // Uma drenagem que só encontrou posts com o contêiner ainda em processamento
+  // não envia, não pula, não falha e não guarda: sem este campo ela devolveria
+  // `{sent: 0, skipped: 0, failed: 0, guardados: 0}` — indistinguível de uma
+  // drenagem que não achou nada para fazer. E esse é o caso NORMAL do primeiro
+  // minuto de todo reels, e não uma exceção: 32 segundos de processamento
+  // medidos contra 60 de espera.
+  //
+  // Em português pela mesma razão que `guardados`: o estado que ele conta é o
+  // da publicação esperando a Meta, e o produto chama isso de aguardar.
+  aguardando: number;
 };
 
 /**
@@ -428,16 +769,25 @@ export async function cancelarLotesVencidos(): Promise<{ vencidos: number }> {
 }
 
 export async function drainQueue(): Promise<ResumoDaDrenagem> {
-  const result = { sent: 0, skipped: 0, failed: 0, guardados: 0 };
+  const result = { sent: 0, skipped: 0, failed: 0, guardados: 0, aguardando: 0 };
   const accounts = await listAccounts();
   if (!accounts.length) return result;
   const byId = new Map(accounts.map((a) => [a.ig_user_id, a]));
 
   // O limite horário da Meta é POR CONTA: contas no teto ficam de fora do
   // lote (em vez de serem reivindicadas e devolvidas, o que inflaria attempts).
+  //
+  // O `kind <> 'publicacao'` É O QUE IMPEDE UM POST DE COMER A COTA DE DM.
+  // Esta contagem é sobre LINHA DE FILA `sent`, e não sobre mensagem: sem o
+  // filtro, trinta posts publicados numa manhã tirariam trinta das 190
+  // mensagens daquela hora, e as respostas automáticas do painel — que são o
+  // produto — engasgariam por causa de um recurso que nada tem a ver com elas.
+  // Publicação tem limite próprio na Meta, perguntado a ela em
+  // `publicarDaFila`. Ver o bloco `HOURLY_CAP`, no topo do arquivo.
   const capRows = (await sql()`
     select account_id, count(*)::int as n from queue
     where status = 'sent' and sent_at > now() - interval '1 hour'
+      and kind <> 'publicacao'
     group by account_id
   `) as { account_id: string | null; n: number }[];
   const blocked = capRows
@@ -489,7 +839,15 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
          select id from queue
          where ((status = 'pending' and not_before <= now())
             or (status = 'sending' and claimed_at < now() - interval '3 minutes'))
-           and (account_id is null or not (account_id = any($2::text[])))
+           -- A PUBLICACAO NAO E BLOQUEADA PELO TETO DE MENSAGEM. A conta que
+           -- estourou as 190 DMs da hora sai INTEIRA do lote, e sem esta
+           -- excecao um lote grande de mensagens -- que leva horas para sair --
+           -- deixaria todo post agendado daquela conta parado atras dele,
+           -- inclusive o marcado para uma hora exata. O limite de publicacao e
+           -- outro, e quem o pergunta a Meta e publicarDaFila.
+           and (kind = 'publicacao'
+                or account_id is null
+                or not (account_id = any($2::text[])))
          order by created_at
          limit $1
          for update skip locked
@@ -587,6 +945,24 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
     }
 
     try {
+      // O RAMO QUE NÃO É MENSAGEM, e ele sai por aqui antes de tudo o que é de
+      // conversa: `processItem` resolve variáveis do contato, confere a janela
+      // de 24 h e escolhe o destinatário — três coisas que um post não tem. E
+      // sai antes do `sleep(GAP_MS)` lá embaixo, que é ritmo de DM.
+      //
+      // DENTRO DO MESMO `try`, de propósito: um erro da Meta no meio da
+      // publicação recebe o mesmo tratamento que o de uma mensagem — 4xx é
+      // permanente e mata o item, 5xx volta para a fila. Uma segunda política
+      // de retentativa escrita só para este ramo seria uma segunda coisa para
+      // manter, e o `catch` de baixo já está certo.
+      if (item.kind === "publicacao") {
+        const desfecho = await publicarDaFila(item, account);
+        if (desfecho === "publicado") result.sent++;
+        else if (desfecho === "aguardando") result.aguardando++;
+        else result.failed++;
+        continue;
+      }
+
       const { outcome, messageId, sentText } = await processItem(
         item,
         account.ig_user_id,
@@ -697,8 +1073,82 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
   const secs = nextRows[0]?.secs;
   if (secs !== null && secs !== undefined) {
     const config = await getConfig();
-    await scheduleTick(config.app_url ?? "", Math.max(secs + 5, 20));
+    // O TETO DE UM DIA É NOVO, e ele entrou com a publicação. Antes desta
+    // tarefa, o item mais distante da fila era um lembrete de algumas horas;
+    // agora um post pode estar agendado para o mês que vem, e este `min` seria
+    // um atraso de 30 dias entregue ao QStash — horizonte que NUNCA foi
+    // verificado, e que `scheduleTick` engoliria caladamente se fosse recusado.
+    //
+    // O QUE SE PAGA: enquanto houver item pendente além de um dia, esta linha
+    // publica um tique por drenagem em vez de um só, lá na frente. É barato e
+    // limitado — uma drenagem publica no máximo um —, e o tique não é
+    // desperdício: ele roda o dreno, que é o que se quer.
+    //
+    // O QUE SE COMPRA: nenhum agendamento depende de o QStash aceitar um atraso
+    // que ninguém mediu. Ver `HORIZONTE_DO_TIQUE_EM_SEGUNDOS` (lib/qstash.ts).
+    const atraso = Math.min(Math.max(secs + 5, 20), HORIZONTE_DO_TIQUE_EM_SEGUNDOS);
+    await scheduleTick(config.app_url ?? "", atraso);
   }
 
   return result;
+}
+
+/**
+ * O CRON DIÁRIO ARMA OS TIQUES DO DIA.
+ *
+ * =============================================================================
+ * O PROBLEMA: um post agendado para o mês que vem não pode depender de o QStash
+ * aceitar 30 dias de atraso. O horizonte dele não foi verificado, e o
+ * levantamento registrou isso como pergunta aberta — `scheduleTick` engole o
+ * erro (e está certo em engolir: o cron e os webhooks drenam a fila de
+ * qualquer jeito), então uma recusa viraria um post que simplesmente não sai.
+ *
+ * O DESENHO QUE NÃO DEPENDE DA RESPOSTA: `enqueuePublicacao` (lib/engine.ts)
+ * não arma tique nenhum além de um dia, e esta varredura arma os que entraram
+ * na janela. Horizonte infinito do nosso lado; o QStash só recebe atrasos que
+ * ele já cumpre hoje, todo dia, em produção.
+ *
+ * E ELA NÃO TEM BURACO, o que é o ponto de a janela ser de 24 h e o cron rodar
+ * a cada 24 h: um post que vence na hora T tem, obrigatoriamente, uma passagem
+ * do cron nas 24 h anteriores a T — e nessa passagem T está dentro da janela.
+ *
+ * =============================================================================
+ * A FORMA É A DA VARREDURA DE LOTES VENCIDOS, logo acima, e as duas dividem o
+ * mesmo cuidado: ELA NÃO TOCA EM `pending` DE MENSAGEM. O filtro por
+ * `kind = 'publicacao'` é o que garante isso — devolver mensagem à disputa da
+ * fila é a fome que a migração 009 fechou, e nada aqui pode reabri-la.
+ *
+ * SÓ O QUE AINDA NÃO VENCEU (`not_before > now()`): o que já está na hora sai
+ * na drenagem que este mesmo cron faz em seguida, e armar tique para o passado
+ * seria pedir ao QStash uma corrida contra a linha logo abaixo. Isto também é
+ * o que impede um lote de 800 mensagens — todas com `not_before` no passado —
+ * de virar 800 tiques, se um dia esta varredura deixar de filtrar por tipo.
+ *
+ * INSTANTES DISTINTOS, E NÃO ITENS: dez posts marcados para a mesma hora
+ * precisam de UM tique, porque um tique acorda o dreno inteiro. O `limit` é a
+ * trava de sanidade contra um dia com centenas de horários diferentes; ele não
+ * perde nada, porque o cron do dia seguinte alcança o que sobrou.
+ */
+export async function armarTiquesDoDia(): Promise<{ armados: number }> {
+  const linhas = (await sql().query(
+    `select distinct ceil(extract(epoch from (not_before - now())))::int as secs
+       from queue
+      where kind = 'publicacao' and status = 'pending'
+        and not_before > now()
+        and not_before <= now() + make_interval(secs => $1::int)
+      order by secs
+      limit 200`,
+    [HORIZONTE_DO_TIQUE_EM_SEGUNDOS]
+  )) as { secs: number }[];
+  if (!linhas.length) return { armados: 0 };
+
+  const config = await getConfig();
+  for (const linha of linhas) {
+    // OS CINCO SEGUNDOS DE FOLGA são os mesmos do rodapé do dreno: o tique tem
+    // de chegar DEPOIS de o item ficar elegível, e não no instante exato — a
+    // seleção pede `not_before <= now()`, e um tique adiantado por um
+    // milissegundo é uma drenagem que não acha nada.
+    await scheduleTick(config.app_url ?? "", Math.max(linha.secs + 5, 20));
+  }
+  return { armados: linhas.length };
 }

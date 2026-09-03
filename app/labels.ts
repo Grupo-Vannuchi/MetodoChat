@@ -126,6 +126,23 @@ const EVENT: Record<string, Badge> = {
     label: "Menu saiu sem botão nenhum",
     className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
   },
+  // O POST SAIU E O ARQUIVO FICOU NO BUCKET (`limparOBucket`,
+  // lib/queue-drain.ts). Âmbar, e não vermelho, pelo critério deste dicionário:
+  // ninguém deixou de receber nada, e a publicação está no perfil. O que sobra é
+  // custo — um reels são 200 MB, e o que ninguém vê hoje vira a conta do
+  // Supabase em três meses.
+  midia_nao_apagada: {
+    label: "Arquivo publicado ficou no armazenamento",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+  },
+  // O ITEM DE PUBLICAÇÃO CHEGOU AO DRENO COM UM PAYLOAD QUE NÃO É DE
+  // PUBLICAÇÃO. A coluna é `jsonb` e editável por fora do painel — o par disto
+  // no lote é `lote_com_payload_invalido`. Vermelho porque o post NÃO saiu, e o
+  // dono acha que agendou.
+  publicacao_com_payload_invalido: {
+    label: "Publicação com dados inválidos",
+    className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
+  },
   // A PERGUNTA DE ABERTURA APONTA PARA UMA AUTOMAÇÃO QUE NÃO TEM O GATILHO
   // `abertura` (lib/engine.ts). A pergunta mora no perfil da conta na Meta, fora
   // do banco, e continua disparando — recusar aqui faria a pergunta que está no

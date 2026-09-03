@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cancelarLotesVencidos, drainQueue } from "@/lib/queue-drain";
+import { armarTiquesDoDia, cancelarLotesVencidos, drainQueue } from "@/lib/queue-drain";
 import { refreshLongLivedToken, getUserProfile, getProfile } from "@/lib/ig";
 import { listAccounts, updateAccountToken, sql } from "@/lib/db";
 import { safeEqualSecret } from "@/lib/crypto";
@@ -102,6 +102,21 @@ export async function GET(req: NextRequest) {
   // (`validadeDoDia`, lib/lote.ts) — e ela não toca em `pending`, então não
   // devolve nada à disputa da fila.
   const { vencidos } = await cancelarLotesVencidos();
+
+  // OS TIQUES DO DIA, e eles moram aqui pelo mesmo motivo que a varredura de
+  // lotes vencidos mora: este é o único relógio garantido do produto.
+  //
+  // O QUE ELA RESOLVE: um post agendado para o mês que vem não pode depender de
+  // o QStash aceitar 30 dias de atraso — horizonte que nunca foi verificado, e
+  // cuja recusa some dentro do `catch` de `scheduleTick`. `enqueuePublicacao`
+  // não arma nada além de um dia, e esta linha arma o que entrou na janela das
+  // próximas 24 h. Como ela roda a cada 24 h, todo post tem uma passagem do
+  // cron dentro do dia anterior à sua hora — não há buraco.
+  //
+  // ANTES DA DRENAGEM, de propósito: ela olha `not_before > now()`, e o que já
+  // está na hora sai na linha seguinte, sem precisar de tique nenhum.
+  const { armados } = await armarTiquesDoDia();
+
   const drained = await drainQueue();
   return NextResponse.json({
     accounts: accounts.length,
@@ -109,6 +124,7 @@ export async function GET(req: NextRequest) {
     ownProfiles,
     profiles,
     vencidos,
+    armados,
     ...drained,
   });
 }
