@@ -471,3 +471,218 @@ export function problemaDaLegenda(
 function contar(texto: string, padrao: RegExp): number {
   return texto.match(padrao)?.length ?? 0;
 }
+
+// =============================================================================
+// O QUE O DRENO PRECISA DECIDIR, DECIDIDO AQUI
+//
+// `lib/queue-drain.ts` é `server-only`, roda dentro do webhook e NENHUM teste
+// da suíte pura o executa. O cabeçalho dele conta os dois defeitos que essa
+// cegueira já produziu — os dois com a suíte inteira verde, `tsc` e `eslint`
+// limpos, e nenhum botão do produto funcionando em produção.
+//
+// O ramo da publicação chega com três leituras novas: a resposta do contêiner,
+// a resposta da cota e o payload de volta. As três são DECISÃO, e por isso
+// moram aqui, com um caso para cada saída. O que sobra lá é ida de rede e
+// escrita no banco — fiação, sem nada para plantar.
+// =============================================================================
+
+/** Um número que veio da Meta, aceitando também o que veio como texto.
+ *
+ *  A META MANDA NÚMERO COMO TEXTO, e este produto já tropeçou nisso uma vez:
+ *  `numeroOuNulo` (lib/steps.ts) nasceu porque o `code` de um erro veio
+ *  `"230"`, entre aspas. `numeroOuNada`, logo acima, é mais estrita de
+ *  propósito — ela lê o corpo do NOSSO navegador, onde número é número. */
+function numeroDaMeta(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() && Number.isFinite(Number(v))) return Number(v);
+  return null;
+}
+
+/** O que a Meta respondeu sobre o contêiner, traduzido. */
+export type LeituraDoContainer = {
+  estado: EstadoDoContainer;
+  /** A frase da Meta, quando ela explica um estado ruim. `null` no resto. */
+  detalhe: string | null;
+};
+
+/**
+ * Lê a resposta de `GET /{container-id}?fields=status_code,status`.
+ *
+ * O ESTADO SAI DE `estadoDoContainer`, e não de um `switch` novo: as cinco
+ * palavras da Meta já têm um tradutor com caso de teste para cada saída, e o
+ * caso mais importante dele — desconhecido é `erro`, e nunca `esperando` — não
+ * pode existir em duas versões que envelheçam separado.
+ *
+ * O `detalhe` SÓ ACOMPANHA O ESTADO RUIM. A Meta manda `status` em todo estado
+ * ("Finished", "In progress"), e repetir isso no motivo de um post que deu
+ * certo seria ruído numa coluna que só se lê quando algo deu errado. No `erro`
+ * é o contrário: é a frase que diz se o vídeo tem codec errado ou se a URL não
+ * abriu, e sem ela o dono lê "a Meta recusou" e não tem o que fazer com isso.
+ *
+ * RESPOSTA QUE NÃO É OBJETO É `erro`, pelo mesmo motivo que a palavra
+ * desconhecida é: a Meta ficando estranha é notícia, não é espera. Um item que
+ * espera para sempre não aparece em tela nenhuma.
+ */
+export function leituraDoContainer(bruto: unknown): LeituraDoContainer {
+  if (typeof bruto !== "object" || bruto === null) {
+    return { estado: "erro", detalhe: null };
+  }
+  const r = bruto as Record<string, unknown>;
+  const estado = estadoDoContainer(r.status_code);
+  const frase = typeof r.status === "string" && r.status.trim() ? r.status.trim() : null;
+  return {
+    estado,
+    detalhe: estado === "erro" || estado === "vencido" ? frase : null,
+  };
+}
+
+/** A cota de publicação desta conta, como a Meta a informou. */
+export type CotaDePublicacao = {
+  usadas: number;
+  total: number;
+  janelaEmSegundos: number;
+};
+
+/**
+ * Lê a resposta de `GET /{ig-user-id}/content_publishing_limit`.
+ *
+ * A FORMA É A MEDIDA em 03/09/2026, e não a da documentação:
+ * `{"config":{"quota_total":100,"quota_duration":86400},"quota_usage":N}`.
+ *
+ * `null` É "NÃO DEU PARA SABER", E NÃO "PODE PUBLICAR" — a distinção é a mesma
+ * de `checkFollowsAccount` (lib/ig.ts), que devolve `segue: null` em vez de
+ * `false` justamente para ninguém confundir ignorância com resposta. Quem
+ * chama trata as duas diferente: sem saber a cota, o dreno segue e deixa a
+ * Meta recusar; o que ele não pode é inventar que a cota está livre e depois
+ * usar o palpite como se fosse medição.
+ *
+ * SEM `quota_duration` A JANELA É A MEDIDA (86400), e não zero: dos três
+ * números, ele é o único com valor conhecido e estável em toda medição — e um
+ * zero aqui viraria um adiamento de zero segundo, que é o item girando na fila.
+ */
+export function cotaDePublicacao(bruto: unknown): CotaDePublicacao | null {
+  if (typeof bruto !== "object" || bruto === null) return null;
+  const r = bruto as Record<string, unknown>;
+  const config =
+    typeof r.config === "object" && r.config !== null
+      ? (r.config as Record<string, unknown>)
+      : null;
+  if (!config) return null;
+  const total = numeroDaMeta(config.quota_total);
+  const usadas = numeroDaMeta(r.quota_usage);
+  if (total === null || usadas === null) return null;
+  const janela = numeroDaMeta(config.quota_duration);
+  return {
+    usadas,
+    total,
+    janelaEmSegundos: janela !== null && janela > 0 ? janela : JANELA_DA_COTA_EM_SEGUNDOS,
+  };
+}
+
+/**
+ * A cota acabou?
+ *
+ * A BORDA ENTRA: com `quota_total: 100`, a centésima publicação já gastou tudo,
+ * e a de número 101 é a que a Meta recusa. Um `>` no lugar de `>=` faria o
+ * produto tentar sempre uma a mais e colher um erro que ele podia ter evitado.
+ *
+ * COTA DESCONHECIDA NÃO É COTA ESTOURADA (ver `cotaDePublicacao`): recusar
+ * publicar porque a leitura falhou transformaria uma indisponibilidade da Meta
+ * num post que não sai.
+ */
+export function cotaEstourada(cota: CotaDePublicacao | null): boolean {
+  if (!cota) return false;
+  return cota.usadas >= cota.total;
+}
+
+/** O que o item de fila de publicação carrega. As chaves são as do `jsonb`. */
+export type PayloadDaPublicacao = {
+  forma: FormaDePublicacao;
+  /** Os caminhos NO BUCKET, e não as URLs: a URL pública se monta a partir
+   *  deles (`urlPublicaDoObjeto`, lib/bucket.ts), e guardar o caminho é o que
+   *  permite APAGAR o objeto depois de publicar. */
+  caminhos: string[];
+  legenda?: string;
+  compartilhar_no_feed?: boolean;
+  nome_do_audio?: string;
+  /** O contêiner que já nasceu, gravado pelo dreno. Ver `lerPayloadDaPublicacao`. */
+  container_id?: string;
+  /** Quantas vezes o dreno já perguntou o `status_code`. Ver o teto de cinco. */
+  consultas?: number;
+};
+
+/** Monta o payload do item. No molde de `payloadDoLote` (lib/lote.ts). */
+export function payloadDaPublicacao(pedido: {
+  forma: FormaDePublicacao;
+  caminhos: string[];
+  legenda?: string;
+  compartilharNoFeed?: boolean;
+  nomeDoAudio?: string;
+}): PayloadDaPublicacao {
+  const legenda = (pedido.legenda ?? "").trim();
+  const audio = (pedido.nomeDoAudio ?? "").trim();
+  // O QUE É VAZIO NÃO VIRA CHAVE, e não é economia de bytes: uma `legenda: ""`
+  // no payload é indistinguível de uma legenda que a pessoa apagou de
+  // propósito, e `parametrosDoContainer` já trata as duas igual. Chave ausente
+  // é a forma que não mente.
+  return {
+    forma: pedido.forma,
+    caminhos: pedido.caminhos,
+    ...(legenda ? { legenda } : {}),
+    ...(pedido.compartilharNoFeed ? { compartilhar_no_feed: true } : {}),
+    ...(audio ? { nome_do_audio: audio } : {}),
+  };
+}
+
+/**
+ * Lê o payload de volta. `null` quando não é um item de publicação.
+ *
+ * ELE RECUSA EM VEZ DE CONFIAR, e o motivo é o mesmo de `lerPayloadDoLote`
+ * (lib/lote.ts): a coluna é `jsonb` e pode ser editada por fora do painel. Um
+ * payload sem `caminhos` que atravessasse daqui viraria um `POST /media` com
+ * `undefined` dentro, e o erro apareceria três passos depois da causa. Com
+ * `null`, o dreno encerra o item com motivo escrito — e um desfecho errado
+ * aparece na tela de Envios, enquanto "esperando para sempre" não aparece em
+ * lugar nenhum.
+ *
+ * `containerId` É O QUE IMPEDE A SEGUNDA PASSADA DE CRIAR OUTRO CONTÊINER. Um
+ * reels leva 32 segundos para ficar pronto (medido em 03/09), então a segunda
+ * passada é o caso NORMAL, e não a exceção: sem esta chave, cada passada
+ * criaria um contêiner novo, a Meta baixaria o vídeo de novo, e o teto de 400
+ * contêineres por dia seria gasto por engano.
+ *
+ * `consultas` QUE NÃO É NÚMERO CONTA COMO ZERO, e isso é deliberado: o teto de
+ * cinco passadas existe para o item não girar para sempre, e um valor
+ * inventado no `jsonb` não pode nem travar o item (contando alto demais) nem
+ * derrubar a leitura inteira. Zero é o valor que faz o teto voltar a contar do
+ * começo — no pior caso, cinco passadas a mais.
+ */
+export function lerPayloadDaPublicacao(bruto: unknown): {
+  forma: FormaDePublicacao;
+  caminhos: string[];
+  legenda?: string;
+  compartilharNoFeed?: boolean;
+  nomeDoAudio?: string;
+  containerId: string | null;
+  consultas: number;
+} | null {
+  if (typeof bruto !== "object" || bruto === null) return null;
+  const p = bruto as Record<string, unknown>;
+  const forma = p.forma as FormaDePublicacao;
+  if (!FORMAS.includes(forma)) return null;
+  if (!Array.isArray(p.caminhos) || !p.caminhos.length) return null;
+  if (!p.caminhos.every((c) => typeof c === "string" && c)) return null;
+  const consultas = numeroDaMeta(p.consultas);
+  return {
+    forma,
+    caminhos: p.caminhos as string[],
+    ...(typeof p.legenda === "string" && p.legenda ? { legenda: p.legenda } : {}),
+    ...(p.compartilhar_no_feed === true ? { compartilharNoFeed: true } : {}),
+    ...(typeof p.nome_do_audio === "string" && p.nome_do_audio
+      ? { nomeDoAudio: p.nome_do_audio }
+      : {}),
+    containerId:
+      typeof p.container_id === "string" && p.container_id ? p.container_id : null,
+    consultas: consultas !== null && consultas >= 0 ? Math.floor(consultas) : 0,
+  };
+}

@@ -8,6 +8,11 @@ import {
   decisaoDeAssinatura,
   PUBLICACOES_POR_DIA,
   JANELA_DA_COTA_EM_SEGUNDOS,
+  leituraDoContainer,
+  cotaDePublicacao,
+  cotaEstourada,
+  payloadDaPublicacao,
+  lerPayloadDaPublicacao,
 } from "../lib/publicacao";
 
 const MB = 1024 * 1024;
@@ -611,5 +616,194 @@ describe("decisaoDeAssinatura", () => {
       const aceito = decisaoDeAssinatura(corpo, TETO_PAGO);
       expect(aceito.ok).toBe(true);
     });
+  });
+});
+
+// =============================================================================
+// AS TRÊS DECISÕES QUE A TAREFA 4 TIROU DO DRENO
+//
+// `lib/queue-drain.ts` é `server-only` e NENHUM teste da suíte pura o executa —
+// é o achado que está escrito no cabeçalho dele, e que já custou dois defeitos
+// (o pareamento de rótulo com payload e o mapeamento uma linha abaixo, os dois
+// com a suíte inteira verde). O ramo da publicação é novo, e a regra vale
+// igual: o que ele DECIDE mora aqui, e o que sobra lá é fiação.
+//
+// As três: ler a resposta do contêiner, ler a cota, e ler o payload de volta.
+// =============================================================================
+
+describe("leituraDoContainer", () => {
+  it("a resposta comum da Meta vira estado e detalhe", () => {
+    expect(leituraDoContainer({ id: "17900", status_code: "FINISHED" })).toEqual({
+      estado: "pronto",
+      detalhe: null,
+    });
+  });
+
+  // A FRASE DO `status` É O QUE VAI PARA A TELA DE ENVIOS quando a Meta recusa
+  // o conteúdo. Sem ela, o dono lê "a Meta recusou" e não tem o que fazer com
+  // isso; com ela, lê que o vídeo tem codec errado. Ela só acompanha o ERRO —
+  // a Meta manda `status` em todo estado, e repetir "Finished" no motivo de um
+  // post que deu certo seria ruído.
+  it("no erro, a frase da Meta acompanha o estado", () => {
+    expect(
+      leituraDoContainer({
+        status_code: "ERROR",
+        status: "Error: The video format is not supported",
+      })
+    ).toEqual({ estado: "erro", detalhe: "Error: The video format is not supported" });
+  });
+
+  it("o vencido também carrega a frase, quando ela vem", () => {
+    expect(leituraDoContainer({ status_code: "EXPIRED", status: "Expired" })).toEqual({
+      estado: "vencido",
+      detalhe: "Expired",
+    });
+  });
+
+  it("processando é espera, e sem detalhe", () => {
+    expect(leituraDoContainer({ status_code: "IN_PROGRESS", status: "In progress" })).toEqual({
+      estado: "esperando",
+      detalhe: null,
+    });
+  });
+
+  // O MESMO PRINCÍPIO DE `estadoDoContainer`: o que não se conhece é ERRO, e
+  // nunca espera. Uma resposta que não é objeto, um corpo vazio, um `null` — a
+  // Meta ficando estranha é notícia, não é "ainda processando". Girar na fila
+  // para sempre é a fome de fila voltando por outra porta.
+  it("resposta que não é objeto vira erro, e nunca espera", () => {
+    expect(leituraDoContainer(null).estado).toBe("erro");
+    expect(leituraDoContainer(undefined).estado).toBe("erro");
+    expect(leituraDoContainer("FINISHED").estado).toBe("erro");
+    expect(leituraDoContainer({}).estado).toBe("erro");
+    expect(leituraDoContainer({ status_code: "VAI_SABER" }).estado).toBe("erro");
+  });
+
+  it("detalhe que não é texto não vira detalhe", () => {
+    expect(leituraDoContainer({ status_code: "ERROR", status: { m: 1 } }).detalhe).toBeNull();
+  });
+});
+
+describe("cotaDePublicacao", () => {
+  // A FORMA MEDIDA em 03/09/2026 contra a conta do dono, e não a da documentação.
+  it("a resposta medida da Meta é lida inteira", () => {
+    expect(
+      cotaDePublicacao({
+        config: { quota_total: 100, quota_duration: 86400 },
+        quota_usage: 7,
+      })
+    ).toEqual({ usadas: 7, total: 100, janelaEmSegundos: 86400 });
+  });
+
+  // A META MANDA NÚMERO COMO TEXTO em vários endpoints, e este produto já
+  // tropeçou nisso uma vez (`numeroOuNulo`, lib/steps.ts, nasceu por causa do
+  // `code: "230"`). Um "100" lido como não-número faria a cota virar
+  // desconhecida e o post esperar por nada.
+  it("número que veio como texto continua sendo número", () => {
+    expect(
+      cotaDePublicacao({
+        config: { quota_total: "100", quota_duration: "86400" },
+        quota_usage: "0",
+      })
+    ).toEqual({ usadas: 0, total: 100, janelaEmSegundos: 86400 });
+  });
+
+  // `null` É "NÃO DEU PARA SABER", E NÃO "PODE PUBLICAR". Quem chama trata as
+  // duas coisas diferente: sem saber a cota, o dreno segue e deixa a Meta
+  // recusar — o que não pode é INVENTAR que a cota está livre e depois usar
+  // esse palpite como se fosse medição.
+  it("resposta que não dá para ler vira null", () => {
+    expect(cotaDePublicacao(null)).toBeNull();
+    expect(cotaDePublicacao({})).toBeNull();
+    expect(cotaDePublicacao({ config: {}, quota_usage: 3 })).toBeNull();
+    expect(cotaDePublicacao({ config: { quota_total: 100 } })).toBeNull();
+    expect(cotaDePublicacao("100")).toBeNull();
+  });
+
+  // QUOTA SEM JANELA CAI NA JANELA MEDIDA, e não em zero: `quota_duration` é o
+  // único dos três que tem valor conhecido e estável (86400 em toda medição).
+  it("sem quota_duration, a janela é a medida", () => {
+    expect(cotaDePublicacao({ config: { quota_total: 100 }, quota_usage: 2 })).toEqual({
+      usadas: 2,
+      total: 100,
+      janelaEmSegundos: JANELA_DA_COTA_EM_SEGUNDOS,
+    });
+  });
+
+  it("a cota estourada é a que já usou tudo, e a borda entra", () => {
+    expect(cotaEstourada({ usadas: 99, total: 100, janelaEmSegundos: 86400 })).toBe(false);
+    expect(cotaEstourada({ usadas: 100, total: 100, janelaEmSegundos: 86400 })).toBe(true);
+    expect(cotaEstourada({ usadas: 101, total: 100, janelaEmSegundos: 86400 })).toBe(true);
+  });
+
+  // NÃO SABER NÃO É ESTAR ESTOURADA. Recusar publicar porque a leitura da cota
+  // falhou seria transformar uma indisponibilidade da Meta em post que não sai.
+  it("cota desconhecida não é cota estourada", () => {
+    expect(cotaEstourada(null)).toBe(false);
+  });
+});
+
+describe("payloadDaPublicacao e lerPayloadDaPublicacao", () => {
+  it("o que se grava é o que se lê de volta", () => {
+    const p = payloadDaPublicacao({
+      forma: "reels",
+      caminhos: ["1780/abc.mp4"],
+      legenda: "  oi  ",
+      compartilharNoFeed: true,
+      nomeDoAudio: "trilha",
+    });
+    expect(lerPayloadDaPublicacao(p)).toEqual({
+      forma: "reels",
+      caminhos: ["1780/abc.mp4"],
+      legenda: "oi",
+      compartilharNoFeed: true,
+      nomeDoAudio: "trilha",
+      containerId: null,
+      consultas: 0,
+    });
+  });
+
+  it("o que é vazio não vira chave no payload", () => {
+    const p = payloadDaPublicacao({ forma: "imagem", caminhos: ["1780/a.jpg"] });
+    expect(p.legenda).toBeUndefined();
+    expect(p.compartilhar_no_feed).toBeUndefined();
+    expect(p.nome_do_audio).toBeUndefined();
+    expect(lerPayloadDaPublicacao(p)?.legenda).toBeUndefined();
+  });
+
+  // O CONTÊINER GUARDADO É O QUE IMPEDE A SEGUNDA PASSADA DE CRIAR OUTRO.
+  // Sem ele, um reels que demora 32 segundos nasceria de novo a cada passada:
+  // cinco contêineres para um post, cinco vezes o vídeo baixado pela Meta, e o
+  // teto de 400 contêineres por dia gasto por engano.
+  it("o contêiner e as consultas voltam do payload", () => {
+    const lido = lerPayloadDaPublicacao({
+      forma: "imagem",
+      caminhos: ["1780/a.jpg"],
+      container_id: "17900",
+      consultas: 3,
+    });
+    expect(lido?.containerId).toBe("17900");
+    expect(lido?.consultas).toBe(3);
+  });
+
+  // A COLUNA É `jsonb` E EDITÁVEL POR FORA DO PAINEL — o mesmo motivo pelo qual
+  // `lerPayloadDoLote` (lib/lote.ts) recusa, e pelo qual o dreno defende em vez
+  // de confiar em quem enfileirou. `null` aqui vira um item `failed` com motivo
+  // escrito, que é um desfecho VISÍVEL; confiar viraria um `POST /media` com
+  // `undefined` dentro.
+  it("payload que não é de publicação vira null", () => {
+    expect(lerPayloadDaPublicacao(null)).toBeNull();
+    expect(lerPayloadDaPublicacao({ text: "oi" })).toBeNull();
+    expect(lerPayloadDaPublicacao({ forma: "novela", caminhos: ["a"] })).toBeNull();
+    expect(lerPayloadDaPublicacao({ forma: "imagem", caminhos: [] })).toBeNull();
+    expect(lerPayloadDaPublicacao({ forma: "imagem", caminhos: "1780/a.jpg" })).toBeNull();
+    expect(lerPayloadDaPublicacao({ forma: "imagem", caminhos: [1, 2] })).toBeNull();
+  });
+
+  it("consultas que não é número conta como zero, e não trava o teto", () => {
+    expect(
+      lerPayloadDaPublicacao({ forma: "imagem", caminhos: ["a.jpg"], consultas: "muitas" })
+        ?.consultas
+    ).toBe(0);
   });
 });
