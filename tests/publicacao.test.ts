@@ -13,6 +13,16 @@ import {
   cotaEstourada,
   payloadDaPublicacao,
   lerPayloadDaPublicacao,
+  planoDaConversao,
+  nomeDepoisDaConversao,
+  QUALIDADE_DO_JPEG,
+  porcentagemDoEnvio,
+  fraseDoEnvio,
+  resumoDoProgresso,
+  formaQueATelaPublica,
+  camposDaDataHora,
+  momentoDaPublicacao,
+  textoDoProblemaDaLegenda,
 } from "../lib/publicacao";
 
 const MB = 1024 * 1024;
@@ -805,5 +815,367 @@ describe("payloadDaPublicacao e lerPayloadDaPublicacao", () => {
       lerPayloadDaPublicacao({ forma: "imagem", caminhos: ["a.jpg"], consultas: "muitas" })
         ?.consultas
     ).toBe(0);
+  });
+});
+
+// =============================================================================
+// AS DECISÕES DA TELA DE COMPOR (Tarefa 5)
+//
+// A tela de publicar é a EXCEÇÃO declarada na especificação (§3): ela tem
+// componente de cliente, porque o progresso do upload só existe se o navegador
+// for quem envia o arquivo — e ele é, porque a Vercel recusa corpo acima de
+// 4,5 MB e um reels vai a 300 MB.
+//
+// ESTES CASOS SÃO A MITIGAÇÃO INTEIRA DESSA EXCEÇÃO. A suíte não testa
+// componente: o que ficar decidido dentro do JSX fica sem rede. Então a
+// conversão, a frase de cada estado do envio, a hora do agendamento e a forma
+// escolhida decidem-se AQUI, e o componente só desenha o que sai destas
+// funções.
+// =============================================================================
+
+describe("planoDaConversao", () => {
+  // PNG É O FORMATO MAIS COMUM DE QUEM MONTA ARTE, e a Meta só aceita JPEG.
+  // Sem conversão, esta é a recusa nº 1 da tela — e ela é evitável no
+  // navegador, de graça, antes de qualquer upload.
+  it("PNG sempre converte", () => {
+    expect(planoDaConversao({ mime: "image/png", largura: 1080, altura: 1080 })).toEqual({
+      converter: true,
+      largura: 1080,
+      altura: 1080,
+      qualidade: QUALIDADE_DO_JPEG,
+    });
+  });
+
+  // JPEG DENTRO DA FAIXA NÃO PASSA PELO CANVAS, e isto é decisão: o `canvas`
+  // RE-COMPRIME, e re-comprimir um JPEG que já serve é perda de qualidade sem
+  // ganho nenhum. Converter "por via das dúvidas" degradaria toda arte que já
+  // chegou certa.
+  it("JPEG dentro de 1440px não converte", () => {
+    expect(planoDaConversao({ mime: "image/jpeg", largura: 1440, altura: 1440 })).toEqual({
+      converter: false,
+    });
+  });
+
+  // ACIMA DE 1440px CONVERTE ATÉ JPEG, porque aí a conversão não é de formato,
+  // é de TAMANHO: são bytes que não precisam subir.
+  it("JPEG largo demais é reduzido para 1440, na proporção", () => {
+    expect(planoDaConversao({ mime: "image/jpeg", largura: 3000, altura: 2000 })).toEqual({
+      converter: true,
+      largura: 1440,
+      altura: 960,
+      qualidade: QUALIDADE_DO_JPEG,
+    });
+  });
+
+  // VÍDEO NÃO PASSA PELO CANVAS NUNCA. O `canvas` desenha quadro, não vídeo —
+  // e um reels de 200 MB "convertido" no navegador seria a aba travada.
+  it("vídeo nunca converte", () => {
+    expect(planoDaConversao({ mime: "video/mp4" })).toEqual({ converter: false });
+    expect(planoDaConversao({ mime: "video/quicktime", largura: 1080, altura: 1920 })).toEqual({
+      converter: false,
+    });
+  });
+
+  // O QUE O CANVAS NÃO SABE DESENHAR NÃO É CONVERTIDO — e `problemaDoArquivo`
+  // é quem recusa depois, com a frase que nomeia o formato. Um GIF "convertido"
+  // viraria um quadro parado sem ninguém ter pedido isso.
+  it("formato que não sabemos converter passa direto para a recusa", () => {
+    expect(planoDaConversao({ mime: "image/gif", largura: 800, altura: 800 })).toEqual({
+      converter: false,
+    });
+    expect(planoDaConversao({ mime: "image/svg+xml", largura: 800, altura: 800 })).toEqual({
+      converter: false,
+    });
+  });
+
+  // SEM MEDIDA NÃO HÁ REDIMENSIONAMENTO, mas ainda há conversão de formato: o
+  // navegador entrega `naturalWidth: 0` enquanto a imagem não carregou, e
+  // cravar zero no `canvas` daria um arquivo de zero pixel.
+  it("PNG sem medidas converte sem redimensionar", () => {
+    expect(planoDaConversao({ mime: "image/png" })).toEqual({
+      converter: true,
+      largura: 0,
+      altura: 0,
+      qualidade: QUALIDADE_DO_JPEG,
+    });
+  });
+
+  // A ALTURA ACOMPANHA, ARREDONDADA — meio pixel não existe no `canvas`, e um
+  // `height` fracionário vira medida truncada com faixa transparente na borda.
+  it("a altura é inteira", () => {
+    const p = planoDaConversao({ mime: "image/png", largura: 1921, altura: 1000 });
+    expect(p).toEqual({ converter: true, largura: 1440, altura: 750, qualidade: QUALIDADE_DO_JPEG });
+  });
+});
+
+describe("nomeDepoisDaConversao", () => {
+  // O NOME VIAJA ATÉ O CAMINHO NO BUCKET: `caminhoDoObjeto` (lib/bucket.ts) lê
+  // a EXTENSÃO dele para nomear o objeto, e o que não está na lista vira
+  // ".bin". Um PNG convertido que chegasse lá chamando-se "arte.png" viraria um
+  // objeto ".bin" — e a URL que a META vai buscar terminaria em ".bin".
+  it("a extensão vira jpg", () => {
+    expect(nomeDepoisDaConversao("arte final.png")).toBe("arte final.jpg");
+    expect(nomeDepoisDaConversao("foto.WEBP")).toBe("foto.jpg");
+  });
+  it("nome sem extensão ganha uma", () => {
+    expect(nomeDepoisDaConversao("arte")).toBe("arte.jpg");
+  });
+  it("nome vazio não vira só um ponto", () => {
+    expect(nomeDepoisDaConversao("")).toBe("imagem.jpg");
+    expect(nomeDepoisDaConversao("   ")).toBe("imagem.jpg");
+  });
+});
+
+describe("porcentagemDoEnvio", () => {
+  it("a metade dos bytes é metade da barra", () => {
+    expect(porcentagemDoEnvio({ nome: "a.jpg", estado: "enviando", enviados: 50, total: 100 })).toBe(
+      50
+    );
+  });
+  // TOTAL ZERO NÃO É NaN. `XMLHttpRequest` dispara `progress` com
+  // `lengthComputable: false` — e `0/0` numa largura de CSS é uma barra que
+  // some da tela sem ninguém entender por quê.
+  it("total zero é zero, e nunca NaN", () => {
+    expect(porcentagemDoEnvio({ nome: "a.jpg", estado: "enviando", enviados: 0, total: 0 })).toBe(0);
+  });
+  // O ESTADO MANDA MAIS QUE OS BYTES: o último `progress` costuma chegar antes
+  // do `load`, e uma barra que para em 99% depois de o arquivo estar no bucket
+  // é a tela mentindo por arredondamento.
+  it("pronto é 100 mesmo com os bytes atrasados", () => {
+    expect(porcentagemDoEnvio({ nome: "a.jpg", estado: "pronto", enviados: 99, total: 100 })).toBe(
+      100
+    );
+  });
+  // FALHA NÃO ENCHE A BARRA. Ela para onde parou — a barra cheia de um envio
+  // que não foi seria a comemoração errada, que é a doença que o conserto de
+  // 02/09 curou nas ações.
+  it("falha não completa a barra", () => {
+    expect(porcentagemDoEnvio({ nome: "a.jpg", estado: "falhou", enviados: 40, total: 100 })).toBe(
+      40
+    );
+  });
+  it("mais bytes que o total ainda é 100", () => {
+    expect(porcentagemDoEnvio({ nome: "a.jpg", estado: "enviando", enviados: 120, total: 100 })).toBe(
+      100
+    );
+  });
+});
+
+describe("fraseDoEnvio", () => {
+  it("cada estado tem a sua frase, e nenhuma é vazia", () => {
+    const estados = [
+      "escolhido",
+      "convertendo",
+      "assinando",
+      "enviando",
+      "pronto",
+      "recusado",
+      "falhou",
+    ] as const;
+    for (const estado of estados) {
+      expect(fraseDoEnvio({ nome: "arte.jpg", estado, enviados: 0, total: 0 }).length).toBeGreaterThan(
+        0
+      );
+    }
+  });
+  // O MOTIVO ENTRA NA FRASE quando ele existe. "Falhou" sozinho não diz o que
+  // fazer, e o motivo é justamente o que `textoDoProblema` já sabe escrever.
+  it("o motivo da recusa entra na frase", () => {
+    const frase = fraseDoEnvio({
+      nome: "arte.png",
+      estado: "recusado",
+      enviados: 0,
+      total: 0,
+      detalhe: textoDoProblema("grande_demais"),
+    });
+    expect(frase).toContain(textoDoProblema("grande_demais"));
+  });
+  // O NOME DO ARQUIVO APARECE, porque com dois envios em andamento a frase sem
+  // nome não diz de qual arquivo ela fala.
+  it("a frase nomeia o arquivo", () => {
+    expect(fraseDoEnvio({ nome: "reels.mp4", estado: "enviando", enviados: 1, total: 2 })).toContain(
+      "reels.mp4"
+    );
+  });
+});
+
+describe("resumoDoProgresso", () => {
+  // SEM ENVIO NÃO HÁ MODAL. `null` é o que faz a janelinha do canto não existir
+  // na tela de quem não está enviando nada — inclusive nas outras telas, já que
+  // ela mora no `app-shell`.
+  it("sem envio nenhum não há resumo", () => {
+    expect(resumoDoProgresso([])).toBeNull();
+  });
+
+  it("um envio em andamento mostra a porcentagem dele", () => {
+    const r = resumoDoProgresso([{ nome: "a.jpg", estado: "enviando", enviados: 25, total: 100 }]);
+    expect(r?.porcentagem).toBe(25);
+    expect(r?.encerrado).toBe(false);
+    expect(r?.houveFalha).toBe(false);
+  });
+
+  // A PORCENTAGEM DO CONJUNTO É PESADA POR BYTES, e não a média das barras: um
+  // reels de 200 MB ao lado de uma capa de 200 KB andaria "50%" assim que a
+  // capa terminasse, e ficaria lá por minutos.
+  it("a porcentagem do conjunto é pesada pelo tamanho", () => {
+    const r = resumoDoProgresso([
+      { nome: "capa.jpg", estado: "pronto", enviados: 100, total: 100 },
+      { nome: "reels.mp4", estado: "enviando", enviados: 0, total: 900 },
+    ]);
+    expect(r?.porcentagem).toBe(10);
+  });
+
+  it("todos prontos é encerrado, sem falha", () => {
+    const r = resumoDoProgresso([{ nome: "a.jpg", estado: "pronto", enviados: 100, total: 100 }]);
+    expect(r?.encerrado).toBe(true);
+    expect(r?.houveFalha).toBe(false);
+    expect(r?.porcentagem).toBe(100);
+  });
+
+  // UM ENVIO QUE NÃO FOI NÃO PODE SUMIR DA JANELINHA COMO SE TIVESSE IDO. É a
+  // mesma regra de `avisoDoLoteEnviado` (lib/avisos.ts): o desfecho ruim é o
+  // que mais precisa aparecer.
+  it("falha aparece no resumo, e o conjunto não se diz concluído", () => {
+    const r = resumoDoProgresso([
+      { nome: "a.jpg", estado: "pronto", enviados: 100, total: 100 },
+      { nome: "b.mp4", estado: "falhou", enviados: 10, total: 100, detalhe: "a rede caiu" },
+    ]);
+    expect(r?.encerrado).toBe(true);
+    expect(r?.houveFalha).toBe(true);
+    expect(r?.titulo).not.toContain("concluído");
+  });
+
+  // ENQUANTO UM ANDA, O CONJUNTO NÃO ESTÁ ENCERRADO — nem que o outro já tenha
+  // falhado. Encerrar cedo fecharia a janelinha em cima de um upload vivo.
+  it("um envio ainda andando segura o encerramento", () => {
+    const r = resumoDoProgresso([
+      { nome: "a.jpg", estado: "falhou", enviados: 0, total: 100 },
+      { nome: "b.mp4", estado: "enviando", enviados: 50, total: 100 },
+    ]);
+    expect(r?.encerrado).toBe(false);
+    expect(r?.houveFalha).toBe(true);
+  });
+});
+
+describe("formaQueATelaPublica", () => {
+  it("as três formas que já publicam passam", () => {
+    expect(formaQueATelaPublica("imagem")).toBe("imagem");
+    expect(formaQueATelaPublica("reels")).toBe("reels");
+    expect(formaQueATelaPublica("story")).toBe("story");
+  });
+  // CARROSSEL É DA TAREFA 6, E A TELA NÃO O OFERECE. Aceitá-lo aqui gravaria
+  // um item de fila que o dreno já recusa ("o carrossel ainda nao publica por
+  // aqui", lib/queue-drain.ts) — ou seja, um post que nasce morto, depois de o
+  // arquivo ter subido. A recusa é ALTA, antes de gravar nada.
+  it("carrossel ainda não passa por aqui", () => {
+    expect(formaQueATelaPublica("carrossel")).toBeNull();
+  });
+  it("qualquer outra coisa é null", () => {
+    expect(formaQueATelaPublica("")).toBeNull();
+    expect(formaQueATelaPublica(null)).toBeNull();
+    expect(formaQueATelaPublica(42)).toBeNull();
+    expect(formaQueATelaPublica("IMAGEM")).toBeNull();
+  });
+});
+
+describe("camposDaDataHora", () => {
+  it("o que o campo datetime-local manda é lido", () => {
+    expect(camposDaDataHora("2026-09-10T14:30")).toEqual({
+      ano: 2026,
+      mes: 9,
+      dia: 10,
+      hora: 14,
+      minuto: 30,
+    });
+  });
+  // ALGUNS NAVEGADORES MANDAM OS SEGUNDOS. Recusar por causa deles seria um
+  // agendamento que não sai, por um formato que o próprio HTML permite.
+  it("os segundos, quando vêm, não atrapalham", () => {
+    expect(camposDaDataHora("2026-09-10T14:30:00")?.minuto).toBe(30);
+  });
+  // DIA QUE NÃO EXISTE NÃO VIRA DATA. `Date.UTC(2026, 1, 30)` TRANSBORDA para
+  // 2 de março — o mesmo cuidado que `validadeDoDia` (lib/lote.ts) documenta,
+  // e aqui ele decide a HORA em que um post aparece no perfil.
+  it("data impossível é recusada, e não transborda", () => {
+    expect(camposDaDataHora("2026-02-30T10:00")).toBeNull();
+    expect(camposDaDataHora("2026-13-01T10:00")).toBeNull();
+    expect(camposDaDataHora("2026-09-10T25:00")).toBeNull();
+    expect(camposDaDataHora("2026-09-10T10:61")).toBeNull();
+  });
+  it("o que não é data é null", () => {
+    expect(camposDaDataHora("")).toBeNull();
+    expect(camposDaDataHora("amanha cedo")).toBeNull();
+    expect(camposDaDataHora(null)).toBeNull();
+    expect(camposDaDataHora(undefined)).toBeNull();
+    expect(camposDaDataHora(20260910)).toBeNull();
+  });
+});
+
+describe("momentoDaPublicacao", () => {
+  const AGORA = Date.parse("2026-09-03T12:00:00Z");
+
+  it("agora é agora, e não leva data", () => {
+    expect(momentoDaPublicacao("agora", null, AGORA)).toEqual({ ok: true, quando: null });
+  });
+
+  it("depois leva o instante escolhido", () => {
+    const daqui = AGORA + 3600_000;
+    expect(momentoDaPublicacao("depois", daqui, AGORA)).toEqual({
+      ok: true,
+      quando: new Date(daqui),
+    });
+  });
+
+  // O CAMPO ILEGÍVEL NÃO CAI EM "AGORA", E ESTE É O CASO MAIS IMPORTANTE DESTA
+  // FUNÇÃO. Publicar AGORA quando a pessoa pediu para agendar é irreversível:
+  // `DELETE /{ig-media-id}` NÃO existe no Login do Instagram (medido em 03/09),
+  // então o post fica no perfil de 2.933 publicações até alguém apagá-lo pelo
+  // celular. Um pedido que não se entende é recusado, nunca adivinhado.
+  it("campo que não se entende é recusado, e nunca vira agora", () => {
+    expect(momentoDaPublicacao("", null, AGORA)).toEqual({ ok: false, motivo: "quando_ilegivel" });
+    expect(momentoDaPublicacao(null, null, AGORA)).toEqual({ ok: false, motivo: "quando_ilegivel" });
+    expect(momentoDaPublicacao("talvez", null, AGORA)).toEqual({
+      ok: false,
+      motivo: "quando_ilegivel",
+    });
+  });
+
+  it("depois sem data legível é recusado", () => {
+    expect(momentoDaPublicacao("depois", null, AGORA)).toEqual({
+      ok: false,
+      motivo: "data_invalida",
+    });
+  });
+
+  // DIA PASSADO NÃO É ADIANTAMENTO. `enqueuePublicacao` (lib/engine.ts) trata
+  // atraso negativo como zero — ou seja, o post sairia NA HORA. Quem escolheu
+  // ontem por engano publicaria agora, no perfil público, sem desfazer.
+  it("hora no passado é recusada", () => {
+    expect(momentoDaPublicacao("depois", AGORA - 3600_000, AGORA)).toEqual({
+      ok: false,
+      motivo: "data_no_passado",
+    });
+  });
+
+  // A TOLERÂNCIA DE UM MINUTO É O CAMPO, E NÃO GENEROSIDADE: o `datetime-local`
+  // tem resolução de MINUTO, então quem escolhe "12:00" e confirma às 12:00:30
+  // manda um instante 30 segundos no passado. Sem a tolerância, a tela
+  // recusaria o pedido mais comum que existe — "publicar neste minuto".
+  it("o minuto corrente ainda vale", () => {
+    expect(momentoDaPublicacao("depois", AGORA - 30_000, AGORA)).toEqual({
+      ok: true,
+      quando: new Date(AGORA - 30_000),
+    });
+  });
+});
+
+describe("textoDoProblemaDaLegenda", () => {
+  // A TELA E A AÇÃO DIZEM A MESMA COISA. Duas redações do mesmo "não" fazem
+  // quem lê achar que são dois problemas — o mesmo motivo pelo qual
+  // `decisaoDeAssinatura` usa `textoDoProblema` em vez de escrever a própria.
+  it("cada problema tem frase, e ela diz o número", () => {
+    expect(textoDoProblemaDaLegenda("longa")).toContain("2.200");
+    expect(textoDoProblemaDaLegenda("hashtags_demais")).toContain("30");
+    expect(textoDoProblemaDaLegenda("mencoes_demais")).toContain("20");
   });
 });
