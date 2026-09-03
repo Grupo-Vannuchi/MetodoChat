@@ -5,6 +5,7 @@ import {
   parametrosDoContainer,
   estadoDoContainer,
   problemaDaLegenda,
+  decisaoDeAssinatura,
   PUBLICACOES_POR_DIA,
   JANELA_DA_COTA_EM_SEGUNDOS,
 } from "../lib/publicacao";
@@ -411,5 +412,204 @@ describe("os limites medidos", () => {
   it("a cota medida e 100 publicacoes por 24 horas", () => {
     expect(PUBLICACOES_POR_DIA).toBe(100);
     expect(JANELA_DA_COTA_EM_SEGUNDOS).toBe(86400);
+  });
+});
+
+// ============================================================
+// decisaoDeAssinatura — A DECISAO INTEIRA QUE SAIU DA ROTA
+// `app/api/midia/assinar/route.ts`, medida no plantio de 03/09/2026: apagar a
+// VALIDACAO inteira de dentro da rota passava por lint, typecheck, os 1.081
+// testes puros, os 88 de integracao e a varredura, todos verdes — a rota nao
+// tinha rede nenhuma. Esta suite e essa rede: dado um corpo de JSON
+// desconhecido e o teto do bucket, o que a rota deve responder.
+//
+// A rota nao pode ganhar teste de integracao (exige cookie de sessao, e forjar
+// cookie e proibido — ver o cabecalho de `testes-integracao/semear-requisicao.ts`),
+// entao a unica rede possivel e esta: a decisao virou funcao pura, com caso
+// para cada saida, do mesmo jeito que `lib/webhook-messaging.ts` fez para a
+// porta do webhook.
+// ============================================================
+describe("decisaoDeAssinatura", () => {
+  // `null` DERRUBAVA a rota antiga: `corpo.forma` em cima de `null` estoura
+  // TypeError antes de qualquer checagem. Lista, string e numero NUNCA
+  // derrubavam — ler `.forma` de qualquer um deles ja devolve `undefined`, sem
+  // estourar — e por isso os quatro caem na MESMA frase que "forma ausente"
+  // usa: para quem chama a rota, nenhum deles tem uma forma valida para ler.
+  describe("corpo que nao e objeto", () => {
+    it.each([
+      ["null", null],
+      ["lista", ["imagem"]],
+      ["string", "imagem"],
+      ["numero", 42],
+    ])("%s e recusado como forma desconhecida, sem estourar", (_nome, corpo) => {
+      const d = decisaoDeAssinatura(corpo, TETO_PAGO);
+      expect(d).toEqual({ ok: false, erro: "Forma de publicacao desconhecida", status: 400 });
+    });
+  });
+
+  describe("forma", () => {
+    it("ausente e recusada", () => {
+      const d = decisaoDeAssinatura({ mime: "image/jpeg", bytes: MB }, TETO_PAGO);
+      expect(d).toEqual({ ok: false, erro: "Forma de publicacao desconhecida", status: 400 });
+    });
+    it.each(["video", "REELS", ""])("%s desconhecida e recusada", (forma) => {
+      const d = decisaoDeAssinatura({ forma, mime: "image/jpeg", bytes: MB }, TETO_PAGO);
+      expect(d).toEqual({ ok: false, erro: "Forma de publicacao desconhecida", status: 400 });
+    });
+  });
+
+  describe("mime e bytes ausentes", () => {
+    it("mime ausente e recusado", () => {
+      const d = decisaoDeAssinatura({ forma: "imagem", bytes: MB }, TETO_PAGO);
+      expect(d).toEqual({ ok: false, erro: "Informe o tipo e o tamanho do arquivo", status: 400 });
+    });
+    it("mime vazio e recusado", () => {
+      const d = decisaoDeAssinatura({ forma: "imagem", mime: "", bytes: MB }, TETO_PAGO);
+      expect(d).toEqual({ ok: false, erro: "Informe o tipo e o tamanho do arquivo", status: 400 });
+    });
+    it("bytes ausente e recusado", () => {
+      const d = decisaoDeAssinatura({ forma: "imagem", mime: "image/jpeg" }, TETO_PAGO);
+      expect(d).toEqual({ ok: false, erro: "Informe o tipo e o tamanho do arquivo", status: 400 });
+    });
+  });
+
+  // CADA UM E UM ERRO DIFERENTE DE QUEM CHAMA — string que devia ser numero,
+  // numero que nao termina (NaN, Infinity) e numero negativo sao tres jeitos
+  // distintos de um corpo mal formado, e cada um precisa do seu caso: um `+`
+  // trocado por outro operador na leitura poderia acertar um e errar os
+  // outros sem que teste nenhum percebesse.
+  describe("bytes que nao e numero valido", () => {
+    it.each([
+      ["string numerica", "1024"],
+      ["NaN", NaN],
+      ["Infinity", Infinity],
+      ["negativo", -100],
+    ])("bytes %s e recusado", (_nome, bytes) => {
+      const d = decisaoDeAssinatura({ forma: "imagem", mime: "image/jpeg", bytes }, TETO_PAGO);
+      expect(d).toEqual({ ok: false, erro: "Informe o tipo e o tamanho do arquivo", status: 400 });
+    });
+  });
+
+  // BYTES 0 NAO E "AUSENTE" — `numeroOuNada` (lib/publicacao.ts) preserva essa
+  // distincao de proposito, e o comentario dela sempre disse isso. O que a
+  // rota ANTIGA nunca fazia era usar a distincao: um corpo com `bytes: 0`
+  // tinha um NUMERO valido, passava pelo `bytes === undefined` ileso, e
+  // `problemaDoArquivo` nao tem piso minimo — o arquivo de tamanho zero
+  // seguia para a assinatura. Estes dois casos prendem os dois lados: o valor
+  // ausente e recusado por FALTAR numero, o valor zero e recusado por SER
+  // zero, e sao dois `if` diferentes, nao um so.
+  describe("arquivo de tamanho zero", () => {
+    it("bytes ausente e recusado (falta o numero)", () => {
+      const d = decisaoDeAssinatura({ forma: "imagem", mime: "image/jpeg" }, TETO_PAGO);
+      expect(d.ok).toBe(false);
+    });
+    it("bytes: 0 e recusado (o numero diz zero)", () => {
+      const d = decisaoDeAssinatura({ forma: "imagem", mime: "image/jpeg", bytes: 0 }, TETO_PAGO);
+      expect(d).toEqual({ ok: false, erro: "Informe o tipo e o tamanho do arquivo", status: 400 });
+    });
+  });
+
+  // CADA SAIDA DE `problemaDoArquivo` CHEGA COMO RECUSA, com a MESMA frase de
+  // `textoDoProblema` (a tela e a rota nao podem discordar sobre o que e um
+  // "nao") e o `problema` junto, para a tela decidir o que fazer sem parsear
+  // string.
+  describe("cada problema do arquivo vira recusa com a frase e o problema", () => {
+    const casos: Array<[ReturnType<typeof problemaDoArquivo> & string, Record<string, unknown>]> = [
+      ["tipo_nao_suportado", { forma: "imagem", mime: "image/png", bytes: MB, largura: 1080, altura: 1080 }],
+      ["grande_demais", { forma: "imagem", mime: "image/jpeg", bytes: 9 * MB, largura: 1080, altura: 1080 }],
+      ["grande_para_o_bucket", { forma: "reels", mime: "video/mp4", bytes: 80 * MB, segundos: 30 }],
+      ["curto_demais", { forma: "reels", mime: "video/mp4", bytes: MB, segundos: 2 }],
+      ["longo_demais", { forma: "reels", mime: "video/mp4", bytes: MB, segundos: 16 * 60 }],
+      ["proporcao_fora", { forma: "imagem", mime: "image/jpeg", bytes: MB, largura: 700, altura: 1000 }],
+      ["estreito_demais", { forma: "imagem", mime: "image/jpeg", bytes: MB, largura: 300, altura: 300 }],
+    ];
+    it.each(casos)("%s", (problema, corpo) => {
+      // grande_para_o_bucket precisa do teto de hoje; os outros usam o do
+      // plano pago para nao serem confundidos com o teto do bucket.
+      const teto = problema === "grande_para_o_bucket" ? TETO_HOJE : TETO_PAGO;
+      const d = decisaoDeAssinatura(corpo, teto);
+      expect(d).toEqual({
+        ok: false,
+        erro: textoDoProblema(problema),
+        status: 400,
+        problema,
+      });
+    });
+  });
+
+  // O CAMINHO FELIZ DAS QUATRO FORMAS — a decisao devolve o suficiente para a
+  // rota assinar: a forma (para o registro), o nome (para o caminho do
+  // objeto) e o arquivo declarado (que a rota nao usa mais depois daqui, mas
+  // que fecha o tipo com o que `problemaDoArquivo` recebeu).
+  describe("caminho feliz", () => {
+    it("imagem", () => {
+      const d = decisaoDeAssinatura(
+        { forma: "imagem", nome: "foto.jpg", mime: "image/jpeg", bytes: 2 * MB, largura: 1080, altura: 1080 },
+        TETO_PAGO
+      );
+      expect(d).toEqual({
+        ok: true,
+        forma: "imagem",
+        nome: "foto.jpg",
+        arquivo: { mime: "image/jpeg", bytes: 2 * MB, segundos: undefined, largura: 1080, altura: 1080 },
+      });
+    });
+    it("reels", () => {
+      const d = decisaoDeAssinatura(
+        { forma: "reels", nome: "video.mp4", mime: "video/mp4", bytes: 10 * MB, segundos: 30 },
+        TETO_PAGO
+      );
+      expect(d).toEqual({
+        ok: true,
+        forma: "reels",
+        nome: "video.mp4",
+        arquivo: { mime: "video/mp4", bytes: 10 * MB, segundos: 30, largura: undefined, altura: undefined },
+      });
+    });
+    it("story", () => {
+      const d = decisaoDeAssinatura(
+        { forma: "story", nome: "story.mp4", mime: "video/mp4", bytes: 10 * MB, segundos: 10 },
+        TETO_PAGO
+      );
+      expect(d).toEqual({
+        ok: true,
+        forma: "story",
+        nome: "story.mp4",
+        arquivo: { mime: "video/mp4", bytes: 10 * MB, segundos: 10, largura: undefined, altura: undefined },
+      });
+    });
+    it("carrossel", () => {
+      const d = decisaoDeAssinatura(
+        { forma: "carrossel", nome: "item1.jpg", mime: "image/jpeg", bytes: 2 * MB, largura: 1080, altura: 1080 },
+        TETO_PAGO
+      );
+      expect(d).toEqual({
+        ok: true,
+        forma: "carrossel",
+        nome: "item1.jpg",
+        arquivo: { mime: "image/jpeg", bytes: 2 * MB, segundos: undefined, largura: 1080, altura: 1080 },
+      });
+    });
+  });
+
+  // O TETO DO BUCKET MUDANDO O RESULTADO — o mesmo arquivo, o mesmo corpo, e
+  // so o teto muda. Isto e o que prende a razao de `decisaoDeAssinatura`
+  // receber o teto como PARAMETRO em vez de ler uma constante: sem isto, o dia
+  // em que o plano pago entrar e o teto do bucket subir sozinho (ver
+  // `lib/bucket.ts`) nao teria caso nenhum provando que a mudanca chega ate a
+  // decisao.
+  describe("o teto do bucket muda o resultado", () => {
+    it("80 MB e recusado no teto de hoje e aceito no teto do plano pago", () => {
+      const corpo = { forma: "reels", nome: "video.mp4", mime: "video/mp4", bytes: 80 * MB, segundos: 30 };
+      const recusado = decisaoDeAssinatura(corpo, TETO_HOJE);
+      expect(recusado).toEqual({
+        ok: false,
+        erro: textoDoProblema("grande_para_o_bucket"),
+        status: 400,
+        problema: "grande_para_o_bucket",
+      });
+      const aceito = decisaoDeAssinatura(corpo, TETO_PAGO);
+      expect(aceito.ok).toBe(true);
+    });
   });
 });

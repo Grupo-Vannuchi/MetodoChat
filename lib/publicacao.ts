@@ -304,6 +304,104 @@ export function parametrosDoContainer(pedido: PedidoDeContainer): Record<string,
   return p;
 }
 
+// ============================================================
+// decisaoDeAssinatura — A DECISÃO INTEIRA DO CORPO QUE CHEGA EM
+// `app/api/midia/assinar/route.ts`, movida para cá.
+//
+// A MEDIÇÃO QUE OBRIGOU, no plantio de 03/09/2026: apagar a validação inteira
+// de dentro da rota (a chamada a `problemaDoArquivo` e as checagens ao redor)
+// passava por lint, typecheck, os 1.081 testes puros, os 88 de integração e a
+// varredura — TODOS VERDES. A rota não tinha rede nenhuma, e não podia ganhar
+// uma: ela exige cookie de sessão, e forjar cookie é proibido nesta base (ver
+// o cabeçalho de `testes-integracao/semear-requisicao.ts`). A porta do
+// webhook resolveu o mesmo problema do mesmo jeito — ver `lib/webhook-messaging.ts`
+// do começo — e é o exemplo que este arquivo segue: a decisão sai da fiação e
+// vira função pura, com caso para cada saída.
+//
+// `FORMAS` e `numeroOuNada` vieram junto: elas são parte da decisão sobre o
+// corpo, não da fiação que assina. A rota, depois deste corte, só faz sessão,
+// conta pelo cookie, `req.json()`, chamar esta função e assinar.
+// ============================================================
+
+/** As quatro formas, escritas UMA vez, para a checagem de corpo vindo de fora
+ *  (JSON desconhecido, e não a união de tipos do TypeScript, que não existe em
+ *  tempo de execução). */
+const FORMAS: readonly FormaDePublicacao[] = ["imagem", "reels", "story", "carrossel"];
+
+/** Um número que veio de JSON e pode ser qualquer coisa. `undefined` quando
+ *  não veio ou não é número — e não zero, que seria um arquivo de tamanho
+ *  zero. A distinção é deliberada: `decisaoDeAssinatura` recusa os dois
+ *  valores, mas por `if` diferentes, porque um significa "faltou dizer" e o
+ *  outro significa "o número diz que não há arquivo". */
+function numeroOuNada(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+}
+
+/** O que `app/api/midia/assinar` deve responder para um corpo de requisição.
+ *  `problema` só vem preenchido na recusa que passou por `problemaDoArquivo` —
+ *  é o que permite a rota decidir se ecoa o `teto` junto, sem repetir a
+ *  pergunta "qual foi o motivo?" na fiação. */
+export type DecisaoDeAssinatura =
+  | { ok: false; erro: string; status: 400; problema?: ProblemaDoArquivo }
+  | { ok: true; forma: FormaDePublicacao; nome: string; arquivo: ArquivoDeclarado };
+
+/**
+ * A decisão inteira sobre o CORPO que chegou a `app/api/midia/assinar`: dado
+ * um JSON desconhecido e o teto do bucket, o que a rota deve fazer.
+ *
+ * O TETO CONTINUA PARÂMETRO, pela mesma razão de `problemaDoArquivo` (ver o
+ * cabeçalho dela): quem pergunta ao Supabase é `tetoDoBucket` (lib/bucket.ts),
+ * que faz rede, e esta função continua pura.
+ */
+export function decisaoDeAssinatura(corpo: unknown, teto: number): DecisaoDeAssinatura {
+  // O QUE CHEGA AQUI É `JSON.parse` DE UM CORPO EXTERNO: a única garantia é
+  // que é JSON válido, não que é um objeto. `null`, lista, string e número são
+  // JSON válidos, e SÓ `null` derrubava a rota antiga — `corpo.forma` em cima
+  // de `null` estoura `TypeError` antes de qualquer checagem. `corpo ?? {}`
+  // troca só `null`/`undefined` por um registro vazio; lista, string e número
+  // passam batido, porque ler uma chave ausente deles já devolve `undefined`,
+  // sem estourar — o MESMO efeito de um registro vazio. Por isso o
+  // comportamento não muda para esses três, e só o de `null` deixa de
+  // derrubar a rota.
+  const registro = (corpo ?? {}) as Record<string, unknown>;
+
+  const forma = registro.forma as FormaDePublicacao;
+  if (!FORMAS.includes(forma)) {
+    return { ok: false, erro: "Forma de publicacao desconhecida", status: 400 };
+  }
+
+  const nome = typeof registro.nome === "string" ? registro.nome : "";
+  const mime = typeof registro.mime === "string" ? registro.mime : "";
+  const bytes = numeroOuNada(registro.bytes);
+  // ZERO NÃO É "AUSENTE" — `numeroOuNada` preserva essa distinção de
+  // propósito (ver o comentário dela). Este `if` é quem de fato USA a
+  // distinção: um arquivo declarado com `bytes: 0` TEM um número, e o número
+  // diz que não há arquivo nenhum para subir. As duas causas caem na mesma
+  // frase porque, para quem vê a tela, "não veio tamanho" e "veio tamanho
+  // zero" pedem a mesma ação — declarar um arquivo de verdade.
+  if (!mime || bytes === undefined || bytes === 0) {
+    return { ok: false, erro: "Informe o tipo e o tamanho do arquivo", status: 400 };
+  }
+
+  const arquivo: ArquivoDeclarado = {
+    mime,
+    bytes,
+    segundos: numeroOuNada(registro.segundos),
+    largura: numeroOuNada(registro.largura),
+    altura: numeroOuNada(registro.altura),
+  };
+
+  const problema = problemaDoArquivo(forma, arquivo, teto);
+  if (problema) {
+    // A FRASE VEM DE `textoDoProblema`, e não é escrita aqui: ela é a mesma
+    // que a tela mostra antes do upload, e duas redações do mesmo "não"
+    // fariam a pessoa achar que são dois problemas.
+    return { ok: false, erro: textoDoProblema(problema), status: 400, problema };
+  }
+
+  return { ok: true, forma, nome, arquivo };
+}
+
 /** O ÚLTIMO RECURSO para decidir imagem contra vídeo, quando o `mime` não veio.
  *  Extensão é palpite, e por isso ela é o degrau de baixo: quem tem o arquivo
  *  na mão tem o `mime`, e quem só tem a URL guardada no payload tem isto. */
