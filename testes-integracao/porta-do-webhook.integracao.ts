@@ -205,6 +205,17 @@ async function contatosDe(igId: string) {
     )) as { account_id: string; last_automation_id: string | null; username: string | null }[];
 }
 
+async function janelaDe(igId: string): Promise<Date | null> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(`select last_reply_at from contacts where account_id = $1 and ig_id = $2`, [
+      CONTA,
+      igId,
+    ])) as { last_reply_at: Date | null }[];
+  return linhas[0]?.last_reply_at ?? null;
+}
+
 async function eventos(tipo: string): Promise<Record<string, unknown>[]> {
   const linhas = (await banco
     .db()
@@ -351,6 +362,76 @@ describe("a rota do webhook, do corpo assinado até a DM no fio", () => {
 
     expect(status).toBe(200);
     expect((await eventos("webhook_messaging_nao_tratado")).length).toBe(antes);
+
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  test("APAGAMENTO ATRAVESSA A ROTA E NÃO MOVE A JANELA — o defeito dos 403", async () => {
+    // O caso que prende a FIAÇÃO deste conserto. Os casos puros de
+    // `tests/webhook-messaging.test.ts` afirmam o destino; este afirma a
+    // CONSEQUÊNCIA, que é a única coisa que a produção sentiu: `last_reply_at`
+    // é a fonte única da janela de 24h, e um aviso de apagamento a empurrava
+    // para a hora do apagamento. Medido em produção: @eng.luishreis com a
+    // janela marcando 17,6h ABERTA e a Meta recusando com 403, code 10,
+    // subcode 2534022 — porque a última mensagem de verdade dela tinha 43h.
+    const QUEM_APAGOU = "985206161205789";
+
+    // 1) A PESSOA FALA DE VERDADE, e é isto que abre a janela. Sem esta metade,
+    //    o caso não distingue "não moveu" de "nunca existiu".
+    const antesDeFalar = await postarNoWebhook([
+      {
+        sender: { id: QUEM_APAGOU },
+        recipient: { id: CONTA },
+        timestamp: Date.now(),
+        message: { mid: "mid-mensagem-de-verdade", text: "oi, tudo bem?" },
+      },
+    ]);
+    expect(antesDeFalar.status).toBe(200);
+    const janelaReal = await janelaDe(QUEM_APAGOU);
+    expect(janelaReal, "a mensagem de verdade não abriu a janela").not.toBeNull();
+    expect((await eventos("message")).length).toBe(1);
+
+    // Um instante depois, para que qualquer escrita nova tenha hora diferente.
+    await new Promise((pronto) => setTimeout(pronto, 25));
+
+    // 2) O AVISO DE APAGAMENTO, com o payload CRU lido no banco de produção em
+    //    27/08/2026 às 19:39 — um dos dois que envenenaram o contato.
+    const { status } = await postarNoWebhook([
+      {
+        sender: { id: QUEM_APAGOU },
+        recipient: { id: CONTA },
+        timestamp: 1787859579053,
+        message: {
+          mid: "aWdfZAG1faXRlbToxOklHTWVzc2FnZAUlEOjE3ODQxNDAzNDgzMjM0MzM3OjM0MDI4MjM2Njg0MTcxMDMwMTI0NDI2MDIwMjk5MzEzODI1NTA3MDozMjk3ODUxNTg0NzYyODc0MzEwOTUzODA1NjI2ODQxNDk3NgZDZD",
+          is_deleted: true,
+        },
+      },
+    ]);
+    expect(status).toBe(200);
+
+    // 3) A JANELA NÃO ANDOU. Este é o `expect` inteiro deste arquivo: com o
+    //    apagamento indo ao motor, `upsertContact` grava `last_reply_at:
+    //    new Date()` e esta linha fica vermelha.
+    const janelaDepois = await janelaDe(QUEM_APAGOU);
+    expect(
+      janelaDepois?.getTime(),
+      "o aviso de apagamento moveu `last_reply_at` — a janela de 24h está mentindo"
+    ).toBe(janelaReal?.getTime());
+
+    // 4) E NÃO VIROU MENSAGEM: nenhum evento `message` novo. É a outra metade —
+    //    a janela poderia não andar por acidente (uma escrita no mesmo
+    //    milissegundo), e isto afirma que o item não chegou ao motor.
+    expect((await eventos("message")).length, "o apagamento foi gravado como mensagem").toBe(1);
+    expect(await eventos("message_sent")).toEqual([]);
+
+    // 5) ELE REGISTRA, e não some calado — a decisão está escrita em
+    //    `lib/webhook-messaging.ts`: o `mid` do aviso casa com a mensagem
+    //    original em 12 de 12 casos do banco, então há o que ver na linha.
+    const registrados = await eventos("webhook_messaging_nao_tratado");
+    const apagamentos = registrados.filter(
+      (r) => (r.message as { is_deleted?: unknown } | undefined)?.is_deleted === true
+    );
+    expect(apagamentos.length, "o apagamento não virou linha em Atividade").toBe(1);
 
     expect(meta.desconhecidos).toEqual([]);
   });
