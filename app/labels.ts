@@ -222,6 +222,15 @@ const KIND: Record<string, string> = {
   // mesmo risco: sem entrada aqui, cairia em "Outro envio", a MESMA falha que
   // o `dm_manual` já teve, registrada no comentário do topo deste dicionário.
   dm_lote: "Envio em lote",
+  // A PUBLICAÇÃO NO INSTAGRAM (migrations/010-fila-publicacao.sql). Terceira
+  // entrada pelo mesmo motivo das duas de cima, e a única que NÃO é mensagem:
+  // ela não sai para uma pessoa, sai para o perfil.
+  //
+  // E é justamente por não ser mensagem que ela mais precisava estar aqui. A
+  // reserva do `kindLabel` é "Outro envio", que já não mente para uma DM — mas
+  // para um post ela erraria duas vezes: sugere destinatário onde não há um, e
+  // esconde a única coisa da fila que fica pública para sempre.
+  publicacao: "Publicação no Instagram",
 };
 
 // Kind sem rótulo devolve algo legível, e nunca o nome interno — como
