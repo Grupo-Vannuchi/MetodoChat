@@ -623,6 +623,59 @@ describe("a publicacao nao gasta a cota de MENSAGEM da conta", () => {
   });
 });
 
+describe("o cron diario arma os tiques do dia", () => {
+  // O QUE ESTA VARREDURA RESOLVE: um post agendado para o mês que vem não pode
+  // depender de o QStash aceitar 30 dias de atraso — horizonte que ninguém
+  // verificou, e cuja recusa some dentro do `catch` de `scheduleTick`.
+  //
+  // O QUE ESTES CASOS MEDEM É A JANELA, e não o QStash: sem `QSTASH_TOKEN`
+  // nada sai desta máquina (é a segunda fronteira, herdada de
+  // `gatilho-entrega`), então o que se conta é quantos tiques a varredura
+  // DECIDIU armar. É a decisão que erra, não o envio.
+  test("arma o que vence dentro de um dia, e ignora o que esta longe", async () => {
+    await engine.enqueuePublicacao(
+      CONTA_A,
+      { forma: "imagem", caminhos: [`${CONTA_A}/daqui-a-duas-horas.jpg`] },
+      new Date(Date.now() + 2 * 60 * 60 * 1000)
+    );
+    await engine.enqueuePublicacao(
+      CONTA_A,
+      { forma: "imagem", caminhos: [`${CONTA_A}/daqui-a-um-mes.jpg`] },
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    );
+
+    expect(await dreno.armarTiquesDoDia()).toEqual({ armados: 1 });
+  });
+
+  test("nao arma o que ja esta na hora: quem cuida disso e a drenagem logo abaixo", async () => {
+    await engine.enqueuePublicacao(
+      CONTA_A,
+      { forma: "imagem", caminhos: [`${CONTA_A}/agora.jpg`] },
+      null
+    );
+    expect(await dreno.armarTiquesDoDia()).toEqual({ armados: 0 });
+  });
+
+  // A METADE QUE MAIS IMPORTA: ela NÃO toca em mensagem. Devolver item de
+  // mensagem à disputa da fila é a fome que a migração 009 fechou, e um filtro
+  // por tipo esquecido aqui a reabriria pela porta do cron — com um lote de
+  // 800 pessoas virando 800 tiques de uma vez.
+  test("nao arma tique nenhum para mensagem", async () => {
+    const CONTATO = "9000000000000801";
+    await semearContato(CONTA_A, CONTATO);
+    await engine.enqueueLote(CONTA_A, "L-tique", [CONTATO], {
+      text: "isto e mensagem, e nao post",
+      validoAte: null,
+    });
+    await banco
+      .db()
+      .sql()
+      .query(`update queue set not_before = now() + interval '2 hours' where kind = 'dm_lote'`);
+
+    expect(await dreno.armarTiquesDoDia()).toEqual({ armados: 0 });
+  });
+});
+
 describe("o arquivo sai do bucket depois do post, e nunca antes", () => {
   test("o apagamento que FALHA nao derruba o post", async () => {
     const caminho = `${CONTA_A}/o-bucket-vai-recusar.jpg`;
