@@ -5,6 +5,7 @@ import { card, muted, tableWrap, thead, rowDivide } from "../ui";
 import {
   eventBadge,
   kindLabel,
+  paraQuemLabel,
   statusBadge,
   friendlyError,
   eventText,
@@ -206,21 +207,22 @@ export default async function EventosPage({
                       // completo. O selo só aparece na linha que FOGE do normal —
                       // que é a única em que ele informava alguma coisa.
                       const normal = q.status === "sent";
+                      // A PUBLICAÇÃO NÃO TEM CONTATO, e por isso a reserva
+                      // "Visitante" mentia aqui. A decisão é de `paraQuemLabel`
+                      // (app/labels.ts), com caso por saída; o avatar usa a
+                      // MESMA palavra para não haver duas respostas na linha.
+                      const paraQuem = paraQuemLabel(q);
                       return (
                         <tr key={q.id}>
                           <td className="px-3 py-1.5">
                             <div className="flex items-center gap-2">
                               <Avatar
                                 src={q.person_pic}
-                                name={q.person_name ?? q.person_username ?? "?"}
+                                name={paraQuem}
                                 className="h-6 w-6"
                                 textClassName="text-[10px]"
                               />
-                              <span className="truncate font-medium">
-                                {q.person_username
-                                  ? `@${q.person_username}`
-                                  : q.person_name ?? "Visitante"}
-                              </span>
+                              <span className="truncate font-medium">{paraQuem}</span>
                             </div>
                           </td>
                           <td className="px-3 py-1.5">

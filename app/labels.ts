@@ -284,6 +284,45 @@ export function kindLabel(kind: string): string {
   return (KIND as Record<string, string>)[kind] ?? "Outro envio";
 }
 
+// ---------- Para quem foi ----------
+
+/**
+ * A COLUNA "Para quem" DA TELA DE ATIVIDADE, decidida aqui e não no JSX.
+ *
+ * O DEFEITO QUE ELA FECHA: a publicação entra na fila com `contact_ig_id` NULO
+ * de propósito — "ela não sai para uma pessoa, sai para o perfil"
+ * (`enqueuePublicacao`, lib/engine.ts). O `left join` com `contacts` não acha
+ * ninguém, então `person_username` e `person_name` vêm nulos, e a reserva
+ * escrita na tela era a palavra "Visitante". A tela AFIRMAVA um destinatário
+ * que não existe, e afirmava justamente na ÚNICA tela onde um post que falhou
+ * aparece (a especificação §5 recusou aviso fora dela, e
+ * `avisoDaPublicacaoEnfileirada` aponta para cá por escrito).
+ *
+ * A PALAVRA É "Seu perfil", e a escolha tem motivo: a coluna pergunta PARA QUEM,
+ * e a resposta honesta de um post é o perfil de quem publicou. "Ninguém" seria
+ * verdade e não ajuda; "Você" leria como se o post tivesse ido para a caixa de
+ * entrada do dono. E ela não vaza jargão nem o nome interno do `kind` — mesma
+ * disciplina da reserva de `kindLabel`.
+ *
+ * "VISITANTE" CONTINUA EXISTINDO, e continua certo onde sempre esteve: um envio
+ * COM contato cujo perfil o painel ainda não conhece pelo nome. O que mudou é
+ * que ele deixou de ser a resposta para "não há contato nenhum".
+ *
+ * POR QUE AQUI E NÃO EM `lib/envio-filters.ts`: aquele arquivo diz, escrito no
+ * comentário de `SITUACOES`, que rótulo não mora lá — as listas de valores
+ * válidos são dele, as PALAVRAS são deste arquivo. Duas casas para a mesma
+ * frase é o que ele existe para evitar.
+ */
+export function paraQuemLabel(envio: {
+  contact_ig_id: string | null;
+  person_username: string | null;
+  person_name: string | null;
+}): string {
+  if (envio.contact_ig_id === null) return "Seu perfil";
+  if (envio.person_username) return `@${envio.person_username}`;
+  return envio.person_name ?? "Visitante";
+}
+
 // ---------- Quem mandou ----------
 
 // As chaves vivem em lib/envio-filters.ts, junto da regra que decide a origem a
