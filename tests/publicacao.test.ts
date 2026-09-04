@@ -39,6 +39,13 @@ import {
   desfechoDaMudanca,
   textoDoDesfecho,
   dataDaLinhaDeEnvio,
+  identificadorDaFila,
+  desfechoDaRecusaDaData,
+  rotuloDaForma,
+  resumoDaLegenda,
+  LEGENDA_NA_LISTA,
+  confirmouOCancelamento,
+  TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO,
 } from "../lib/publicacao";
 
 const MB = 1024 * 1024;
@@ -1851,5 +1858,147 @@ describe("dataDaLinhaDeEnvio", () => {
     );
     expect(r.quando).toEqual(criado);
     expect(Number.isNaN(r.quando.getTime())).toBe(false);
+  });
+});
+
+describe("identificadorDaFila", () => {
+  // O CAMPO E UM `<input type=\"hidden\">`, ou seja e do usuario. Sem esta
+  // conferencia, o texto ia cru para `where id = $1` numa coluna `uuid` e o
+  // POSTGRES e quem recusaria — com "invalid input syntax for type uuid", que
+  // sobe como excecao e vira tela de erro, e nao a frase de "nao achei".
+  it("um uuid passa inteiro", () => {
+    const id = "436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a13";
+    expect(identificadorDaFila(id)).toBe(id);
+  });
+  it("espaco em volta nao invalida", () => {
+    expect(identificadorDaFila("  436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a13  ")).toBe(
+      "436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a13"
+    );
+  });
+  it("maiuscula passa, porque o Postgres a aceita", () => {
+    expect(identificadorDaFila("436412BA-E0B8-4D3E-9C2A-1F5B7D9E0A13")).toBe(
+      "436412BA-E0B8-4D3E-9C2A-1F5B7D9E0A13"
+    );
+  });
+  it("o que nao e uuid nao passa", () => {
+    for (const cru of [
+      "",
+      "   ",
+      "1",
+      "nao-sou-uuid",
+      "436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a1",
+      "436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a133",
+      "436412bae0b84d3e9c2a1f5b7d9e0a13",
+      // A INJECAO NAO E O RISCO AQUI (o valor entra como $1, sempre), mas um
+      // campo assim atravessando ate o banco continua sendo um pedido que
+      // ninguem escreveu de boa-fe.
+      "436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a13'; drop table queue; --",
+    ]) {
+      expect(identificadorDaFila(cru)).toBe(null);
+    }
+  });
+  it("o que nem e texto nao passa", () => {
+    for (const cru of [null, undefined, 42, {}, [], new File([], "x.jpg")]) {
+      expect(identificadorDaFila(cru)).toBe(null);
+    }
+  });
+});
+
+describe("desfechoDaRecusaDaData", () => {
+  it("as duas recusas de data atravessam com o proprio nome", () => {
+    expect(desfechoDaRecusaDaData("data_invalida")).toBe("data_invalida");
+    expect(desfechoDaRecusaDaData("data_no_passado")).toBe("data_no_passado");
+  });
+  // `quando_ilegivel` NAO ALCANCA O REMARCAR: aquele motivo existe por causa do
+  // par de radios da tela de compor, e remarcar e sempre "depois". O ramo esta
+  // aqui porque o compilador cobra a uniao inteira — e a resposta e a que nao
+  // inventa nada: para quem clicou, o campo nao deu uma data.
+  it("quando ilegivel cai em data invalida, e nunca em feito", () => {
+    expect(desfechoDaRecusaDaData("quando_ilegivel")).toBe("data_invalida");
+  });
+  it("nenhum motivo do momento vira sucesso", () => {
+    for (const m of ["quando_ilegivel", "data_invalida", "data_no_passado"] as const) {
+      expect(desfechoDaRecusaDaData(m)).not.toBe("feito");
+    }
+  });
+});
+
+describe("rotuloDaForma", () => {
+  // AS QUATRO PALAVRAS SAO AS DO `<select>` de `app/publicar/enviador.tsx`, e
+  // agora sao as MESMAS quatro: elas moravam so no JSX daquele componente, que
+  // a suite nao testa, e a tela de agendados precisava delas de novo. Uma
+  // segunda escrita e o jeito de as duas telas passarem a discordar sobre o
+  // nome da mesma coisa.
+  it("cada forma tem a palavra da tela de compor", () => {
+    expect(rotuloDaForma("imagem")).toBe("Imagem no feed");
+    expect(rotuloDaForma("carrossel")).toBe("Carrossel");
+    expect(rotuloDaForma("reels")).toBe("Reels");
+    expect(rotuloDaForma("story")).toBe("Story");
+  });
+  it("as quatro sao distintas, e nenhuma sai vazia", () => {
+    const todas = (["imagem", "carrossel", "reels", "story"] as const).map(rotuloDaForma);
+    expect(new Set(todas).size).toBe(4);
+    for (const r of todas) expect(r.trim().length).toBeGreaterThan(0);
+  });
+});
+
+describe("resumoDaLegenda", () => {
+  it("legenda curta passa inteira, sem reticencia", () => {
+    expect(resumoDaLegenda("Promocao de setembro", 40)).toBe("Promocao de setembro");
+  });
+  it("legenda longa e cortada com reticencia", () => {
+    const r = resumoDaLegenda("x".repeat(100), 10);
+    expect(r).toBe(`${"x".repeat(10)}…`);
+  });
+  // A QUEBRA DE LINHA VIRA ESPACO. A legenda de um post tem paragrafo e lista;
+  // jogada crua numa celula de tabela, ela empurraria a linha para cinco
+  // alturas e a lista deixaria de ser lista.
+  it("quebra de linha vira espaco, e o espaco nao se repete", () => {
+    expect(resumoDaLegenda("Primeira\n\nSegunda\n  terceira", 80)).toBe(
+      "Primeira Segunda terceira"
+    );
+  });
+  // SEM LEGENDA E UM FATO, e nao uma celula vazia: um post pode nao ter
+  // legenda de proposito, e a diferenca entre "nao tem" e "a tela nao soube
+  // ler" precisa aparecer.
+  it("legenda ausente ou so espaco diz que nao ha legenda", () => {
+    for (const cru of [undefined, "", "   ", "\n\n"]) {
+      expect(resumoDaLegenda(cru, 40)).toBe("Sem legenda");
+    }
+  });
+  // O TETO DA LISTA E CONSTANTE NOMEADA, e nao um numero solto no JSX: a tela
+  // de agendados e a de Envios cortam pelo MESMO tamanho.
+  it("o teto da lista corta uma legenda de tamanho real", () => {
+    expect(LEGENDA_NA_LISTA).toBeGreaterThan(0);
+    expect(resumoDaLegenda("y".repeat(LEGENDA_NA_LISTA + 1), LEGENDA_NA_LISTA).endsWith("…")).toBe(
+      true
+    );
+    expect(resumoDaLegenda("y".repeat(LEGENDA_NA_LISTA), LEGENDA_NA_LISTA)).toBe(
+      "y".repeat(LEGENDA_NA_LISTA)
+    );
+  });
+});
+
+describe("confirmouOCancelamento", () => {
+  // A CAIXA `required` E DO NAVEGADOR, E SO DELE. Um `required` no HTML nao
+  // chega ao servidor: quem manda o formulario por fora da pagina — ou de um
+  // navegador que o ignore — cancelaria sem confirmar. E a mesma licao de
+  // `enviarLote`, que confere `sem_confirmacao` no servidor em vez de confiar
+  // no atributo.
+  it("a caixa marcada confirma", () => {
+    expect(confirmouOCancelamento("1")).toBe(true);
+  });
+  it("caixa ausente, vazia ou com outro valor NAO confirma", () => {
+    for (const cru of [null, undefined, "", "0", "on", "true", "sim", 1, {}]) {
+      expect(confirmouOCancelamento(cru)).toBe(false);
+    }
+  });
+  // O `value="1"` DA CAIXA E O UNICO VALOR ACEITO, e a rigidez e deliberada:
+  // "on" e o que um `<input type=checkbox>` sem `value` manda, e aceitar os
+  // dois faria a conferencia passar por acidente no dia em que alguem tirasse o
+  // `value` do JSX.
+  it("a frase da recusa diz o que fazer, e que nada foi cancelado", () => {
+    expect(TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO.toLowerCase()).toContain("confirma");
+    expect(TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO.toLowerCase()).toContain("nada foi cancelado");
   });
 });

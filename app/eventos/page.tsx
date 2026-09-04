@@ -18,6 +18,7 @@ import Realce from "./realce";
 import Filtros, { type OpcaoPost } from "./filtros";
 import FiltrosEnvios from "./filtros-envios";
 import DonoDosFiltros, { Carregando, LimparSecao } from "./filtros-dono";
+import { dataDaLinhaDeEnvio } from "@/lib/publicacao";
 import { resolvePosts, type PostRef } from "@/lib/media-lookup";
 import { EVENTS_LIMIT, parseFilters, hasFilters } from "@/lib/event-filters";
 import { EVENTS_FROM, buildWhere, postsComEventos } from "@/lib/event-query";
@@ -212,6 +213,14 @@ export default async function EventosPage({
                       // (app/labels.ts), com caso por saída; o avatar usa a
                       // MESMA palavra para não haver duas respostas na linha.
                       const paraQuem = paraQuemLabel(q);
+                      // A DATA DA LINHA DEIXOU DE SER `sent_at ?? created_at`,
+                      // e o defeito que isso conserta foi medido em 04/09: um
+                      // post marcado para o dia 20, criado hoje, aparecia nesta
+                      // coluna com a DATA DE HOJE — a data em que foi agendado,
+                      // e nao a em que sai. Vale para qualquer tipo, e nao so
+                      // para publicacao: o lote guardado tinha o mesmo
+                      // problema. Ver `dataDaLinhaDeEnvio` (lib/publicacao.ts).
+                      const quando = dataDaLinhaDeEnvio(q);
                       return (
                         <tr key={q.id}>
                           <td className="px-3 py-1.5">
@@ -233,7 +242,12 @@ export default async function EventosPage({
                             {erro && <p className="max-w-md text-xs text-zinc-500">{erro}</p>}
                           </td>
                           <td className={`whitespace-nowrap px-3 py-1.5 text-xs ${muted}`}>
-                            {fmtDate(q.sent_at ?? q.created_at)}
+                            {/* "sai em" MARCA A PREVISAO. Esta e a tela do
+                                PASSADO, e a coluna dela significa "quando
+                                aconteceu": uma data de futuro sem aviso seria a
+                                mesma coluna querendo dizer duas coisas. */}
+                            {quando.futuro ? "sai em " : ""}
+                            {fmtDate(quando.quando)}
                           </td>
                         </tr>
                       );

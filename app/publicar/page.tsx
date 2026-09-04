@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getSelectedAccount } from "@/lib/account";
 import { tetoDoBucket } from "@/lib/bucket";
 import { avisoDaUrl } from "@/lib/avisos";
@@ -18,6 +19,7 @@ import {
   alertError,
   alertWarn,
   emptyWrap,
+  link,
 } from "../ui";
 
 // A TELA DE COMPOR — componente de SERVIDOR.
@@ -66,6 +68,17 @@ export default async function Publicar({
           {conta
             ? `no perfil de @${conta.username ?? conta.ig_user_id}`
             : "Nenhuma conta selecionada."}
+        </p>
+        {/* O LINK PARA OS AGENDADOS, e ele e obrigatorio: uma tela sem link nao
+            existe para quem usa, e este produto ja pagou por isso. Ele fica
+            fora do `!conta`, junto do titulo, porque quem chega aqui para
+            agendar precisa saber que da para VOLTAR e cancelar — a API do
+            Instagram nao apaga midia, entao a janela de conserto e antes de o
+            post sair. */}
+        <p className="mt-2 text-sm">
+          <Link href="/publicar/agendados" className={link}>
+            Ver os posts agendados
+          </Link>
         </p>
       </div>
 

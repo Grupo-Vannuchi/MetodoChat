@@ -1749,3 +1749,126 @@ export function dataDaLinhaDeEnvio(
     marcado instanceof Date && !Number.isNaN(marcado.getTime()) ? marcado : item.created_at;
   return { quando, futuro: quando.getTime() > agora };
 }
+
+/**
+ * O identificador de um item de fila, vindo do formulário.
+ *
+ * ESTE CAMPO É UM `<input type="hidden">`, E ELE É DO USUÁRIO — a mesma
+ * desconfiança de `caminhosDoCampo`, por outra porta. O `id` de `queue` é uma
+ * coluna `uuid`, e um texto qualquer não vira "zero linhas afetadas": ele faz o
+ * POSTGRES estourar com "invalid input syntax for type uuid", exceção que sobe
+ * pela ação e vira tela de erro em vez da frase de "não achei este post".
+ *
+ * A SAÍDA `null` VIRA `nao_encontrado`, e é a resposta certa: um identificador
+ * que não tem forma de identificador não aponta para item nenhum.
+ *
+ * NÃO É DEFESA CONTRA INJEÇÃO — o valor entra como `$1`, sempre, como todo
+ * valor deste projeto. É defesa contra o erro de TIPO, que é o que de fato
+ * acontece.
+ */
+export function identificadorDaFila(bruto: unknown): string | null {
+  if (typeof bruto !== "string") return null;
+  const limpo = bruto.trim();
+  return FORMA_DO_IDENTIFICADOR.test(limpo) ? limpo : null;
+}
+
+/** O `uuid` como o Postgres o escreve, e como ele o aceita de volta —
+ *  maiúscula inclusive. */
+const FORMA_DO_IDENTIFICADOR =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * O motivo de `momentoDaPublicacao`, lido como desfecho de um remarcar.
+ *
+ * `quando_ilegivel` NÃO ALCANÇA O REMARCAR, e a tradução existe só porque o
+ * compilador cobra a união inteira: aquele motivo nasce do par de rádios
+ * "agora"/"em outra hora" da tela de compor, e remarcar é sempre "depois" — a
+ * ação passa a palavra fixa. Se um dia ele chegar aqui, o que aconteceu é que o
+ * campo não deu uma data, e é isso que a frase diz.
+ *
+ * ELA EXISTE PARA O `if` NÃO MORAR NA AÇÃO. Um `motivo === "quando_ilegivel" ? …`
+ * escrito lá dentro seria uma decisão sem teste — a lição medida em
+ * `enviarLote`, onde as três perguntas soltas no corpo da ação eram invisíveis
+ * para os quatro portões.
+ */
+export function desfechoDaRecusaDaData(motivo: MotivoDoMomento): DesfechoDaMudanca {
+  return motivo === "quando_ilegivel" ? "data_invalida" : motivo;
+}
+
+/**
+ * O nome de cada forma na linguagem do painel.
+ *
+ * AS QUATRO PALAVRAS MORAVAM NO JSX de `app/publicar/enviador.tsx` — dentro do
+ * `<select>`, num componente de cliente, que é justamente onde a suíte não
+ * chega. A tela de agendados precisa das mesmas quatro, e uma segunda escrita é
+ * o jeito conhecido de duas telas passarem a chamar a mesma coisa por nomes
+ * diferentes. É a mesma mudança que `tiposQueOCampoAceita` e
+ * `campoAceitaVariosArquivos` já fizeram, pelo mesmo motivo.
+ *
+ * O `switch` SEM `default` é o cobrador: uma forma nova na união obriga uma
+ * palavra aqui, e o erro aparece no `tsc` — a mesma disciplina de `KIND`
+ * (app/labels.ts), que é digitado por `QueueItem["kind"]`.
+ */
+export function rotuloDaForma(forma: FormaDePublicacao): string {
+  switch (forma) {
+    case "imagem":
+      return "Imagem no feed";
+    case "carrossel":
+      return "Carrossel";
+    case "reels":
+      return "Reels";
+    case "story":
+      return "Story";
+  }
+}
+
+/** Quantos caracteres de legenda cabem numa linha de lista. Constante nomeada
+ *  para a tela de agendados e a de Envios cortarem pelo MESMO tamanho — um
+ *  número solto no JSX vira dois números diferentes na segunda tela. */
+export const LEGENDA_NA_LISTA = 80;
+
+/**
+ * O começo da legenda, como uma linha de lista o mostra.
+ *
+ * A QUEBRA DE LINHA VIRA ESPAÇO, e isto não é enfeite: a legenda de um post tem
+ * parágrafo e lista, e jogada crua numa célula ela empurraria a linha para
+ * cinco alturas — a lista deixaria de ser lista justamente na tela feita para
+ * dar uma olhada rápida no que vai sair.
+ *
+ * "SEM LEGENDA" É UM FATO, e não uma célula vazia. Um post pode não ter legenda
+ * de propósito (`payloadDaPublicacao` nem grava a chave nesse caso), e a
+ * diferença entre "não tem" e "a tela não soube ler" precisa aparecer para quem
+ * está conferindo um post que ainda dá para cancelar.
+ *
+ * O CORTE É DURO, e não por palavra: a reticência já avisa que há mais, e um
+ * corte "inteligente" que perdesse a última palavra faria a pessoa procurar na
+ * lista uma legenda que ela lembra ter escrito.
+ */
+export function resumoDaLegenda(legenda: unknown, teto: number): string {
+  const texto = typeof legenda === "string" ? legenda.replace(/\s+/g, " ").trim() : "";
+  if (!texto) return "Sem legenda";
+  return texto.length > teto ? `${texto.slice(0, teto)}…` : texto;
+}
+
+/**
+ * A confirmação do cancelamento veio marcada?
+ *
+ * O `required` DA CAIXA É DO NAVEGADOR, E SÓ DELE — ele não chega ao servidor.
+ * Quem mandar o formulário por fora da página, ou de um navegador que ignore o
+ * atributo, cancelaria sem confirmar. É a mesma lição que `enviarLote`
+ * (app/contatos/actions.ts) já paga com `sem_confirmacao`: a confirmação que
+ * mora só no HTML é enfeite.
+ *
+ * SÓ `"1"` CONFIRMA, e a rigidez é deliberada: `"on"` é o que um
+ * `<input type="checkbox">` SEM `value` manda, e aceitar os dois faria esta
+ * conferência continuar passando por acidente no dia em que alguém tirasse o
+ * `value="1"` do JSX.
+ */
+export function confirmouOCancelamento(bruto: unknown): boolean {
+  return bruto === "1";
+}
+
+/** A frase de quem clicou em cancelar sem marcar a caixa. Ela DIZ QUE NADA
+ *  ACONTECEU, porque o pior desfecho aqui é a pessoa achar que cancelou. */
+export const TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO =
+  "Marque a confirmação antes de cancelar. Nada foi cancelado, e o post continua agendado.";

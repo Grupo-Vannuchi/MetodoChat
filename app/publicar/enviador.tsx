@@ -15,6 +15,7 @@ import {
   rotuloDoEnvio,
   moverNaOrdem,
   recusaDaQuantidade,
+  rotuloDaForma,
   textoDaRecusaDaPublicacao,
   CARROSSEL_ITENS_MAX,
   type FormaDePublicacao,
@@ -202,10 +203,15 @@ export default function Enviador({ teto }: { teto: number | null }) {
           value={forma}
           onChange={(e) => trocarForma(e.target.value as FormaDePublicacao)}
         >
-          <option value="imagem">Imagem no feed</option>
-          <option value="carrossel">Carrossel</option>
-          <option value="reels">Reels</option>
-          <option value="story">Story</option>
+          {/* AS PALAVRAS VEM DE `rotuloDaForma` (lib/publicacao.ts), e nao
+              deste JSX: a tela de agendados (04/09) precisou das MESMAS quatro,
+              e duas escritas sao o jeito de duas telas passarem a chamar a
+              mesma forma por nomes diferentes. A ORDEM continua sendo desta
+              tela — ela e de composicao, e nao a da uniao. */}
+          <option value="imagem">{rotuloDaForma("imagem")}</option>
+          <option value="carrossel">{rotuloDaForma("carrossel")}</option>
+          <option value="reels">{rotuloDaForma("reels")}</option>
+          <option value="story">{rotuloDaForma("story")}</option>
         </select>
         {/* AS DUAS REGRAS DO CARROSSEL APARECEM ANTES DE ESCOLHER OS ARQUIVOS, e
             a especificação (§6) manda que seja assim: a ordem importa, e
