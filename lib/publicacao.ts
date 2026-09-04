@@ -257,12 +257,15 @@ export type PedidoDeContainer = {
  * não recebe.
  */
 export function parametrosDoContainer(pedido: PedidoDeContainer): Record<string, string> {
-  if (pedido.forma === "carrossel") {
+  if (pedido.forma === "carrossel" && !pedido.filho) {
+    // SEM `filho: true`, PEDIR "carrossel" É PEDIR O PAI — e o pai precisa da
+    // lista de `children`, que esta função não recebe. Quem o monta é
+    // `parametrosDoContainerPai`.
     throw new Error(
       "O container pai do carrossel nao nasce aqui: ele precisa da lista de filhos (children)."
     );
   }
-  if (pedido.filho && pedido.forma !== "imagem") {
+  if (pedido.filho && pedido.forma !== "imagem" && pedido.forma !== "carrossel") {
     // REELS NÃO ENTRA EM CARROSSEL — regra da Meta: vídeo em carrossel é vídeo
     // comum, sem `share_to_feed`, sem `audio_name` e sem capa. E story não é
     // item de feed nenhum.
@@ -301,6 +304,80 @@ export function parametrosDoContainer(pedido: PedidoDeContainer): Record<string,
     if (audio) p.audio_name = audio;
   }
 
+  return p;
+}
+
+// -----------------------------------------------------------------------------
+// O CONTÊINER PAI DO CARROSSEL (Tarefa 6)
+//
+// AS REGRAS DA META, lidas na referência do endpoint em 03/09/2026:
+//
+//   `media_type=CAROUSEL` no pai, e `children` é a lista de até 10
+//   identificadores de contêiner; os filhos levam `is_carousel_item=true` e NÃO
+//   levam legenda, que mora no pai; reels não entra; todos os itens são
+//   cortados pela proporção do PRIMEIRO; não há marcação de localização; e o
+//   carrossel conta como UMA publicação no limite de 100 por 24 h (medido na
+//   Tarefa 1).
+// -----------------------------------------------------------------------------
+
+/** Até 10 itens por carrossel — o teto da Meta. */
+export const CARROSSEL_ITENS_MAX = 10;
+/**
+ * Menos de dois não é carrossel.
+ *
+ * ZERO É O CASO QUE A TAREFA 2 NOMEOU ao declarar que o pai precisa de função
+ * própria: um `children` vazio é um pedido que não descreve post nenhum.
+ *
+ * UM É DECISÃO DE PRODUTO, e vai dita: a Meta pode até aceitá-lo — não foi
+ * medido —, mas um carrossel de um item é um post comum com uma seta de
+ * deslizar que não desliza. Quem tem uma peça só escolhe "Imagem no feed", e a
+ * tela diz isso com a frase de `textoDaRecusaDaPublicacao`.
+ */
+export const CARROSSEL_ITENS_MIN = 2;
+
+/**
+ * Os parâmetros do `POST /media` do contêiner PAI.
+ *
+ * ELA EXISTE PORQUE `parametrosDoContainer` NÃO SERVE PARA O PAI — achado da
+ * Tarefa 2, e a assinatura é a prova: o pai precisa de `children`, que aquela
+ * função não recebe, e ela não tem como montar um carrossel de zero itens.
+ *
+ * A ORDEM DA LISTA É CONTEÚDO, e não arrumação: todos os itens são cortados
+ * pela proporção do PRIMEIRO. Uma lista reordenada no caminho até aqui publica
+ * um post enquadrado por outro arquivo — por isso a tela deixa a ordem
+ * editável, e por isso esta função não a toca.
+ *
+ * A LISTA VAI SEPARADA POR VÍRGULA porque é assim que a referência do endpoint
+ * a escreve no corpo `application/x-www-form-urlencoded`.
+ */
+export function parametrosDoContainerPai(pedido: {
+  filhos: string[];
+  legenda?: string;
+}): Record<string, string> {
+  if (pedido.filhos.length < CARROSSEL_ITENS_MIN) {
+    throw new Error(
+      `Um carrossel precisa de pelo menos ${CARROSSEL_ITENS_MIN} itens, e este tem ${pedido.filhos.length}.`
+    );
+  }
+  if (pedido.filhos.length > CARROSSEL_ITENS_MAX) {
+    // RECUSAR ALTO, e não mandar para a Meta recusar: chegar aqui com onze quer
+    // dizer que onze arquivos já subiram ao bucket e onze contêineres já
+    // nasceram. Quem paga a recusa tardia é quem esperou o upload.
+    throw new Error(
+      `Um carrossel leva no maximo ${CARROSSEL_ITENS_MAX} itens, e este tem ${pedido.filhos.length}.`
+    );
+  }
+
+  const p: Record<string, string> = {
+    media_type: "CAROUSEL",
+    children: pedido.filhos.join(","),
+  };
+  // A LEGENDA MORA NO PAI, e é a única coisa que ele carrega além dos filhos.
+  // Nada de `share_to_feed` nem `audio_name` (são de reels, e reels não entra
+  // em carrossel), nada de localização (o carrossel não aceita), nada de URL de
+  // mídia (a mídia está nos filhos).
+  const legenda = (pedido.legenda ?? "").trim();
+  if (legenda) p.caption = legenda;
   return p;
 }
 
@@ -603,8 +680,12 @@ export type PayloadDaPublicacao = {
   legenda?: string;
   compartilhar_no_feed?: boolean;
   nome_do_audio?: string;
-  /** O contêiner que já nasceu, gravado pelo dreno. Ver `lerPayloadDaPublicacao`. */
+  /** O contêiner que já nasceu, gravado pelo dreno. Ver `lerPayloadDaPublicacao`.
+   *  No carrossel, ele é o PAI. */
   container_id?: string;
+  /** Os contêineres FILHOS do carrossel que já nasceram, na ordem dos
+   *  `caminhos`. Ver `lerPayloadDaPublicacao`. */
+  filhos?: string[];
   /** Quantas vezes o dreno já perguntou o `status_code`. Ver o teto de cinco. */
   consultas?: number;
 };
@@ -654,6 +735,25 @@ export function payloadDaPublicacao(pedido: {
  * inventado no `jsonb` não pode nem travar o item (contando alto demais) nem
  * derrubar a leitura inteira. Zero é o valor que faz o teto voltar a contar do
  * começo — no pior caso, cinco passadas a mais.
+ *
+ * =============================================================================
+ * `filhos` É O `containerId` DO CARROSSEL, E A MEDIÇÃO QUE O OBRIGA É ESTA
+ *
+ * Um filho que falha por 5xx devolve o item à fila (o `catch` de `drainQueue`,
+ * `retryInSeconds: 120`), e o contêiner da Meta VENCE EM 24 HORAS. Entre a
+ * falha e a passada seguinte passam dois minutos: os filhos que já nasceram
+ * continuam valendo com folga de três ordens de grandeza. Recriá-los seria
+ * fazer a Meta baixar a mídia de novo e gastar o teto de 400 contêineres por
+ * dia — num carrossel de dez, quatro passadas custariam 40 contêineres para um
+ * post só.
+ *
+ * A LISTA É POSICIONAL: `filhos[i]` é o contêiner de `caminhos[i]`, e é isso
+ * que permite retomar do ponto em que parou. Por isso ela é aceita INTEIRA ou
+ * NÃO É ACEITA: um buraco no meio (um número, um nulo, um texto vazio vindos
+ * de uma edição do `jsonb`) desalinharia os filhos dos caminhos, e o carrossel
+ * sairia com a peça errada na posição errada. Recomeçar do zero custa
+ * contêineres; publicar embaralhado custa o perfil público, onde não há
+ * `DELETE` que desfaça.
  */
 export function lerPayloadDaPublicacao(bruto: unknown): {
   forma: FormaDePublicacao;
@@ -662,6 +762,7 @@ export function lerPayloadDaPublicacao(bruto: unknown): {
   compartilharNoFeed?: boolean;
   nomeDoAudio?: string;
   containerId: string | null;
+  filhos: string[];
   consultas: number;
 } | null {
   if (typeof bruto !== "object" || bruto === null) return null;
@@ -681,6 +782,10 @@ export function lerPayloadDaPublicacao(bruto: unknown): {
       : {}),
     containerId:
       typeof p.container_id === "string" && p.container_id ? p.container_id : null,
+    filhos:
+      Array.isArray(p.filhos) && p.filhos.every((f) => typeof f === "string" && f)
+        ? (p.filhos as string[])
+        : [],
     consultas: consultas !== null && consultas >= 0 ? Math.floor(consultas) : 0,
   };
 }
@@ -1012,19 +1117,93 @@ function tituloDoProgresso(encerrado: boolean, falharam: number, quantos: number
 /**
  * A forma que ESTA TELA sabe publicar, lida de um campo de formulário.
  *
- * CARROSSEL É DA TAREFA 6, E A TELA NÃO O OFERECE — mas o campo é do usuário, e
- * um `<select>` alterado no navegador manda o que quiser. Aceitá-lo aqui
- * gravaria um item de fila que o dreno já recusa ("o carrossel ainda nao
- * publica por aqui", lib/queue-drain.ts): um post que nasce morto, DEPOIS de o
- * arquivo ter subido e ocupado o bucket. A recusa é alta, antes de gravar nada.
+ * AS QUATRO PASSAM, DESDE A TAREFA 6. Enquanto o carrossel não publicava, ele
+ * era recusado aqui para não gravar um item de fila que o dreno recusaria
+ * depois — um post que nasce morto, DEPOIS de o arquivo ter subido e ocupado o
+ * bucket. Agora o dreno sabe montá-lo, e a recusa que sobra é a de QUANTIDADE
+ * (`recusaDaQuantidade`), que é outra pergunta e tem outra frase.
+ *
+ * ELA CONTINUA EXISTINDO porque o campo é do usuário: um `<select>` alterado no
+ * navegador manda o que quiser, e o que não é uma das quatro formas não vira
+ * item de fila.
  *
  * A COMPARAÇÃO NÃO É FROUXA ("IMAGEM" não passa) pelo mesmo motivo de
  * `estadoDoContainer`: aceitar variação que ninguém prometeu é inventar
  * contrato — e o `<select>` da tela manda minúsculas.
  */
 export function formaQueATelaPublica(bruto: unknown): FormaDePublicacao | null {
-  if (bruto !== "imagem" && bruto !== "reels" && bruto !== "story") return null;
-  return bruto;
+  return typeof bruto === "string" && (FORMAS as readonly string[]).includes(bruto)
+    ? (bruto as FormaDePublicacao)
+    : null;
+}
+
+/**
+ * A QUANTIDADE DE ARQUIVOS QUE ESTA FORMA PUBLICA. `null` quando serve.
+ *
+ * =============================================================================
+ * OS DOIS LADOS QUE ESTA FUNÇÃO FECHA, e os dois são silenciosos sem ela
+ *
+ * DOIS ARQUIVOS NUMA FORMA DE UM SÓ: o dreno publica `caminhos[0]` e descarta o
+ * resto sem dizer nada. O segundo arquivo subiu, ocupa o bucket, e a pessoa
+ * acredita que ele foi publicado — é a mesma família da saída muda que o
+ * conserto de 02/09 fechou nas cinco ações.
+ *
+ * ONZE ITENS NUM CARROSSEL: `parametrosDoContainerPai` lança, mas ele só é
+ * chamado DEPOIS de os onze filhos nascerem na Meta. Recusar aqui é recusar
+ * antes de gastar contêiner nenhum.
+ *
+ * ELA NÃO É A PRIMEIRA BARREIRA, e sim a que decide: a tela também conta, para
+ * avisar cedo, mas quem recusa é a ação de servidor — porque o formulário é do
+ * usuário.
+ */
+export function recusaDaQuantidade(
+  forma: FormaDePublicacao,
+  quantos: number
+): RecusaDaPublicacao | null {
+  if (quantos < 1) return "sem_arquivo";
+  if (forma !== "carrossel") return quantos > 1 ? "um_arquivo_so" : null;
+  if (quantos < CARROSSEL_ITENS_MIN) return "carrossel_curto_demais";
+  if (quantos > CARROSSEL_ITENS_MAX) return "carrossel_longo_demais";
+  return null;
+}
+
+/**
+ * Move um item de lugar, sem mexer na lista original.
+ *
+ * ELA É A ORDEM DO CARROSSEL, e a ordem é conteúdo: todos os itens são cortados
+ * pela proporção do PRIMEIRO. Trocar o primeiro de lugar reenquadra o post
+ * inteiro — por isso isto é decisão com teste, e não um `splice` escrito dentro
+ * do componente, onde a suíte não alcança.
+ *
+ * FORA DA FAIXA DEVOLVE A MESMA LISTA, e a mesma POR IDENTIDADE: quem desenha
+ * compara por identidade, e uma cópia nova a cada clique no botão de subir do
+ * primeiro item seria um render por clique que não muda nada.
+ */
+export function moverNaOrdem<T>(lista: T[], de: number, para: number): T[] {
+  if (de === para) return lista;
+  if (de < 0 || de >= lista.length) return lista;
+  if (para < 0 || para >= lista.length) return lista;
+  const proxima = [...lista];
+  const [item] = proxima.splice(de, 1);
+  proxima.splice(para, 0, item);
+  return proxima;
+}
+
+/**
+ * O rótulo de um arquivo na janelinha de progresso.
+ *
+ * A POSIÇÃO ENTRA QUANDO HÁ MAIS DE UM ARQUIVO, e ela não é enfeite: no
+ * carrossel a ordem decide o enquadramento de todos, e a janelinha é o único
+ * lugar em que os arquivos aparecem enquanto sobem.
+ *
+ * E ELA É TAMBÉM O QUE OS SEPARA. O depósito de envios identifica cada arquivo
+ * pelo rótulo (`atualizarEnvio`, app/publicar/envios.ts), e duas fotos
+ * exportadas como "arte.jpg" da mesma pasta são um caso comum de quem monta
+ * carrossel — sem a posição, as duas seriam a mesma linha e as duas barras
+ * andariam juntas.
+ */
+export function rotuloDoEnvio(nome: string, posicao: number, total: number): string {
+  return total > 1 ? `${posicao + 1}/${total} ${nome}` : nome;
 }
 
 /** Os cinco números de uma data e hora escolhidas na tela. */
@@ -1183,7 +1362,11 @@ export type RecusaDaPublicacao =
   | "sem_conta"
   | "sem_arquivo"
   | "forma_desconhecida"
-  | "ja_enfileirado";
+  | "ja_enfileirado"
+  // As três da QUANTIDADE, que `recusaDaQuantidade` decide.
+  | "um_arquivo_so"
+  | "carrossel_curto_demais"
+  | "carrossel_longo_demais";
 
 /** A frase de cada recusa da ação. No molde de `textoDaRecusaDoLote`
  *  (lib/avisos.ts): um caso por motivo, e o `switch` sem `default` faz o
@@ -1198,7 +1381,17 @@ export function textoDaRecusaDaPublicacao(motivo: RecusaDaPublicacao): string {
     case "sem_arquivo":
       return "Escolha um arquivo e espere o envio terminar antes de publicar.";
     case "forma_desconhecida":
-      return "Escolha entre imagem, reels e story. O carrossel ainda não publica por aqui.";
+      return "Escolha entre imagem, carrossel, reels e story.";
+    // AS TRÊS FRASES DA QUANTIDADE DIZEM O QUE FAZER, e cada uma diz outra
+    // coisa: sobrar arquivo, faltar item e passar do teto são três enganos
+    // diferentes, e uma frase só para os três mandaria a pessoa procurar o
+    // problema errado.
+    case "um_arquivo_so":
+      return "Esta forma publica um arquivo só. Para várias peças no mesmo post, escolha Carrossel.";
+    case "carrossel_curto_demais":
+      return `Um carrossel precisa de pelo menos ${CARROSSEL_ITENS_MIN} itens. Com uma peça só, escolha Imagem no feed.`;
+    case "carrossel_longo_demais":
+      return `O Instagram aceita no máximo ${CARROSSEL_ITENS_MAX} itens por carrossel. Tire os que passam disso.`;
     case "quando_ilegivel":
       return "Diga se a publicação sai agora ou em outra hora. O pedido não foi entendido, e nada foi publicado.";
     case "data_invalida":

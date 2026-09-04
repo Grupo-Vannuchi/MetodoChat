@@ -12,6 +12,7 @@ import {
   instanteDoAgendamento,
   momentoDaPublicacao,
   caminhosDoCampo,
+  recusaDaQuantidade,
   problemaDaLegenda,
   textoDoProblemaDaLegenda,
   textoDaRecusaDaPublicacao,
@@ -26,8 +27,8 @@ import { urlDePublicarComAviso, avisoDaPublicacaoEnfileirada } from "@/lib/aviso
  * desta base, e este arquivo nasce depois dele.
  *
  * Uma ação de servidor que recusa em silêncio é INDISTINGUÍVEL de uma que deu
- * certo: a tela recarrega igual nos dois casos. Aqui cada saída — as sete
- * recusas e o sucesso — sai por `redirect` com aviso, e o TEXTO e o TOM de cada
+ * certo: a tela recarrega igual nos dois casos. Aqui cada saída — toda recusa e
+ * o sucesso — sai por `redirect` com aviso, e o TEXTO e o TOM de cada
  * uma vêm de função pura (`textoDaRecusaDaPublicacao`,
  * `textoDoProblemaDaLegenda`, `avisoDaPublicacaoEnfileirada`), nunca de string
  * escrita aqui. `urlDePublicarComAviso` carrega o par inteiro, porque `aviso`
@@ -63,9 +64,9 @@ export async function publicar(formData: FormData): Promise<void> {
 
   const forma = formaQueATelaPublica(formData.get("forma"));
   if (!forma) {
-    // CARROSSEL CAI AQUI, e cair aqui é o ponto: o dreno já o recusa
-    // ("o carrossel ainda nao publica por aqui", lib/queue-drain.ts), e deixar
-    // passar gravaria um item que nasce morto DEPOIS de o arquivo ter subido.
+    // O QUE NÃO É UMA DAS QUATRO FORMAS NÃO VIRA ITEM DE FILA. O `<select>` é
+    // do usuário e manda o que quiser; deixar passar gravaria um item que nasce
+    // morto DEPOIS de o arquivo ter subido e ocupado o bucket.
     redirect(
       urlDePublicarComAviso({
         tom: "erro",
@@ -75,9 +76,14 @@ export async function publicar(formData: FormData): Promise<void> {
   }
 
   const caminhos = caminhosDoCampo(formData.get("caminhos"), pastaDaConta(conta.ig_user_id));
-  if (!caminhos.length) {
+  // A QUANTIDADE É PERGUNTA DA FORMA, e não um `if (!caminhos.length)`: um
+  // carrossel de um item não é carrossel, onze passam do teto da Meta, e dois
+  // arquivos numa forma de um só publicariam o primeiro e descartariam o
+  // segundo em silêncio — depois de ele ter subido. Ver `recusaDaQuantidade`.
+  const quantidade = recusaDaQuantidade(forma, caminhos.length);
+  if (quantidade) {
     redirect(
-      urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaDaPublicacao("sem_arquivo") })
+      urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaDaPublicacao(quantidade) })
     );
   }
 

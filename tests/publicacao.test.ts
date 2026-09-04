@@ -779,6 +779,10 @@ describe("payloadDaPublicacao e lerPayloadDaPublicacao", () => {
       compartilharNoFeed: true,
       nomeDoAudio: "trilha",
       containerId: null,
+      // NENHUM FILHO, e a lista vazia é a resposta certa para uma forma que não
+      // é carrossel: `filhos` é sempre uma lista, nunca `undefined`, para o
+      // dreno não precisar decidir entre "não tem" e "não é carrossel".
+      filhos: [],
       consultas: 0,
     });
   });

@@ -420,14 +420,49 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     expect(item?.no_futuro).toBe(true);
   });
 
-  test("forma desconhecida (inclusive carrossel) recusa antes de gravar", async () => {
+  test("forma desconhecida recusa antes de gravar", async () => {
+    // "video" É A PALAVRA QUE O PRODUTO NÃO TEM, e ela é o caso real: a
+    // especificação mediu que `VIDEO` não existe como `media_type` na Meta —
+    // vídeo no feed é reels com `share_to_feed`. Quem editar o `<select>` à mão
+    // com a palavra que parece óbvia cai aqui.
     const d = await desfechoDe(
-      pedidoDePublicar({ forma: "carrossel", caminhos: `${CONTA_A}/nao-importa.jpg` })
+      pedidoDePublicar({ forma: "video", caminhos: `${CONTA_A}/nao-importa.mp4` })
     );
     expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
     const aviso = avisoDaUrlDeVolta(d.url);
     expect(aviso.tom).toBe("erro");
-    expect(aviso.texto).toBe("Escolha entre imagem, reels e story. O carrossel ainda não publica por aqui.");
+    expect(aviso.texto).toBe("Escolha entre imagem, carrossel, reels e story.");
+  });
+
+  // A QUANTIDADE RECUSA ANTES DE GRAVAR, e as três frases são diferentes
+  // porque os três enganos são diferentes. Ver `recusaDaQuantidade`.
+  test("carrossel de um item so recusa antes de gravar", async () => {
+    const d = await desfechoDe(
+      pedidoDePublicar({ forma: "carrossel", caminhos: `${CONTA_A}/uma-peca-so.jpg` })
+    );
+    expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+    expect(avisoDaUrlDeVolta(d.url).texto).toContain("pelo menos 2 itens");
+  });
+
+  test("carrossel de onze itens recusa antes de gravar", async () => {
+    const onze = Array.from({ length: 11 }, (_, i) => `${CONTA_A}/item-${i}.jpg`).join("\n");
+    const d = await desfechoDe(pedidoDePublicar({ forma: "carrossel", caminhos: onze }));
+    expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+    expect(avisoDaUrlDeVolta(d.url).texto).toContain("no máximo 10 itens");
+  });
+
+  // DOIS ARQUIVOS NUMA FORMA DE UM SÓ era a recusa que NÃO existia: o dreno
+  // publicaria `caminhos[0]` e descartaria o segundo em silêncio, depois de ele
+  // ter subido ao bucket.
+  test("dois arquivos numa forma de um so recusa antes de gravar", async () => {
+    const d = await desfechoDe(
+      pedidoDePublicar({
+        forma: "imagem",
+        caminhos: `${CONTA_A}/uma.jpg\n${CONTA_A}/outra.jpg`,
+      })
+    );
+    expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+    expect(avisoDaUrlDeVolta(d.url).texto).toContain("publica um arquivo só");
   });
 
   test("sem arquivo (campo vazio) recusa com o que fazer", async () => {
