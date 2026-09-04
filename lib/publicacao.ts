@@ -459,9 +459,7 @@ export function estadoDoContainer(bruto: unknown): EstadoDoContainer {
  * enquanto se digita: dizer "hashtags demais" para um texto de 3.000
  * caracteres esconderia o problema que a pessoa está vendo crescer.
  */
-export function problemaDaLegenda(
-  texto: string
-): "longa" | "hashtags_demais" | "mencoes_demais" | null {
+export function problemaDaLegenda(texto: string): ProblemaDaLegenda | null {
   if (texto.length > LEGENDA_CARACTERES_MAX) return "longa";
   if (contar(texto, /#[^\s#@]+/g) > LEGENDA_HASHTAGS_MAX) return "hashtags_demais";
   if (contar(texto, /@[^\s#@]+/g) > LEGENDA_MENCOES_MAX) return "mencoes_demais";
@@ -685,4 +683,486 @@ export function lerPayloadDaPublicacao(bruto: unknown): {
       typeof p.container_id === "string" && p.container_id ? p.container_id : null,
     consultas: consultas !== null && consultas >= 0 ? Math.floor(consultas) : 0,
   };
+}
+
+// =============================================================================
+// AS DECISÕES DA TELA DE COMPOR (Tarefa 5)
+//
+// A tela de publicar é a EXCEÇÃO declarada na especificação (§3): ela tem
+// componente de cliente, porque o progresso do upload só existe se o navegador
+// for quem envia o arquivo — e ele é, porque a Vercel recusa corpo acima de
+// 4,5 MB (medido) e um reels vai a 300 MB. Não há versão em servidor deste
+// recurso.
+//
+// ESTAS FUNÇÕES SÃO A MITIGAÇÃO INTEIRA DESSA EXCEÇÃO. A suíte não testa
+// componente: o que ficar decidido dentro do JSX fica sem rede nenhuma — foi o
+// que o plantio da rota de assinar mediu em 03/09 (ver `decisaoDeAssinatura`),
+// e o que o plantio do Passo 6 desta tarefa mede de novo. Então a conversão, a
+// frase de cada estado do envio, a hora do agendamento e a forma escolhida
+// decidem-se AQUI, e o componente só desenha o que sai daqui.
+//
+// A regra prática, para quem mexer depois: um `if` sobre regra de negócio
+// dentro do JSX está no lugar errado. O lugar é este arquivo.
+// =============================================================================
+
+/**
+ * A qualidade com que o `canvas` grava o JPEG convertido.
+ *
+ * 0,9 É ESCOLHA, E O PORQUÊ VAI ESCRITO porque o `canvas` RE-COMPRIME: o
+ * arquivo que sai daqui não é o que a pessoa exportou, e a perda é
+ * irreversível — ela chega ao perfil público assim.
+ *
+ * O que entra aqui é ARTE, e não fotografia: peça montada em ferramenta de
+ * design, com fundo chapado, texto e borda reta. É justamente o conteúdo em
+ * que o JPEG erra mais cedo — a 0,8 aparece faixa ao redor de letra sobre cor
+ * lisa, e quem montou a arte vê. A 0,9 isso some, e o custo é aceitável: uma
+ * peça de 1440px a 0,9 fica na casa de 300–600 KB, muito abaixo dos 8 MB da
+ * Meta e do teto do bucket.
+ *
+ * Acima de 0,9 o arquivo cresce rápido sem diferença que se enxergue — é pagar
+ * banda por nada, e a banda aqui é a da pessoa que está enviando.
+ */
+export const QUALIDADE_DO_JPEG = 0.9;
+
+/** A maior largura que vale a pena subir. Acima de 1440 a Meta REDUZ sozinha
+ *  (ver `IMAGEM_LARGURA_MIN`, lá em cima): os pixels a mais são bytes que
+ *  sobem, atravessam o bucket e são jogados fora do outro lado. */
+const CONVERSAO_LARGURA_MAX = 1440;
+
+/** O que o `canvas` sabe redesenhar SEM inventar. GIF e SVG ficam de fora de
+ *  propósito: um GIF "convertido" viraria um quadro parado sem ninguém ter
+ *  pedido isso, e SVG não tem pixel — os dois seguem direto para a recusa de
+ *  `problemaDoArquivo`, que nomeia o formato. */
+const MIMES_QUE_O_CANVAS_CONVERTE = ["image/png", "image/jpeg", "image/webp"];
+
+/** O que o enviador faz com o arquivo antes de subir. `converter: false` é o
+ *  arquivo indo cru, byte por byte, como a pessoa o exportou. */
+export type PlanoDaConversao =
+  | { converter: false }
+  | { converter: true; largura: number; altura: number; qualidade: number };
+
+/**
+ * O que fazer com este arquivo antes de enviá-lo.
+ *
+ * =============================================================================
+ * JPEG QUE JÁ SERVE NÃO PASSA PELO CANVAS, E ISSO É DECISÃO
+ *
+ * O `canvas` re-comprime sempre — não existe "redesenhar sem perder". Passar
+ * por ele um JPEG que já está dentro das regras é perda de qualidade sem ganho
+ * nenhum, em cima de toda arte que chegou certa. Converter "por via das
+ * dúvidas" degradaria justamente o caso bom.
+ *
+ * Acima de 1440px converte até JPEG, porque aí a conversão não é de FORMATO, é
+ * de TAMANHO: são bytes que não precisam subir.
+ *
+ * =============================================================================
+ * E O CANVAS DESCARTA A TRANSPARÊNCIA — quem converte tem de pintar antes
+ *
+ * PNG com fundo transparente desenhado num `canvas` recém-criado vira JPEG com
+ * fundo PRETO, porque o JPEG não tem canal alfa e o `canvas` começa
+ * transparente. Quem consome este plano (`app/publicar/enviador.tsx`) preenche
+ * o retângulo de branco ANTES do `drawImage` — está escrito lá, com este mesmo
+ * aviso. É a armadilha nº 1 desta conversão, e ela não aparece em teste
+ * nenhum: o sintoma é um post com moldura preta no perfil público.
+ *
+ * SEM MEDIDA NÃO HÁ REDIMENSIONAMENTO, MAS AINDA HÁ CONVERSÃO DE FORMATO: o
+ * navegador entrega `naturalWidth: 0` enquanto a imagem não carregou, e cravar
+ * zero no `canvas` daria um arquivo de zero pixel. Quem chama usa o tamanho
+ * natural da imagem quando estes vierem zerados.
+ */
+export function planoDaConversao(arq: {
+  mime: string;
+  largura?: number;
+  altura?: number;
+}): PlanoDaConversao {
+  if (!MIMES_QUE_O_CANVAS_CONVERTE.includes(arq.mime)) return { converter: false };
+
+  const largura = arq.largura ?? 0;
+  const altura = arq.altura ?? 0;
+  const grandeDemais = largura > CONVERSAO_LARGURA_MAX;
+
+  // O JPEG SÓ ENTRA NO CANVAS PARA ENCOLHER. Formato ele já tem.
+  if (arq.mime === "image/jpeg" && !grandeDemais) return { converter: false };
+
+  if (largura <= 0 || altura <= 0) {
+    return { converter: true, largura: 0, altura: 0, qualidade: QUALIDADE_DO_JPEG };
+  }
+
+  if (!grandeDemais) {
+    return { converter: true, largura, altura, qualidade: QUALIDADE_DO_JPEG };
+  }
+
+  // A ALTURA ACOMPANHA, ARREDONDADA: meio pixel não existe no `canvas`, e um
+  // `height` fracionário vira medida truncada com faixa transparente na borda
+  // — que, depois do JPEG, é faixa preta.
+  return {
+    converter: true,
+    largura: CONVERSAO_LARGURA_MAX,
+    altura: Math.round((altura * CONVERSAO_LARGURA_MAX) / largura),
+    qualidade: QUALIDADE_DO_JPEG,
+  };
+}
+
+/**
+ * O nome do arquivo depois de convertido.
+ *
+ * O NOME VIAJA ATÉ O CAMINHO NO BUCKET: `caminhoDoObjeto` (lib/bucket.ts) lê a
+ * EXTENSÃO dele para nomear o objeto, e o que não está na lista dela vira
+ * ".bin". Um PNG convertido que chegasse lá ainda chamando-se "arte.png"
+ * viraria um objeto ".bin", e a URL que a META vai buscar terminaria em ".bin"
+ * — conteúdo certo, nome errado, que é o tipo de defeito que só aparece do
+ * outro lado.
+ *
+ * NOME VAZIO NÃO VIRA SÓ UM PONTO: trocar a extensão de `""` daria `".jpg"`,
+ * um objeto sem nome no bucket.
+ */
+export function nomeDepoisDaConversao(nome: string): string {
+  const limpo = nome.trim();
+  if (!limpo) return "imagem.jpg";
+  const ponto = limpo.lastIndexOf(".");
+  // `ponto > 0`, e não `>= 0`: um nome que COMEÇA com ponto não tem extensão,
+  // ele tem um nome que começa com ponto.
+  const base = ponto > 0 ? limpo.slice(0, ponto) : limpo;
+  return `${base}.jpg`;
+}
+
+// -----------------------------------------------------------------------------
+// O ENVIO DE UM ARQUIVO, E AS FRASES DELE
+// -----------------------------------------------------------------------------
+
+/** Onde um arquivo está no caminho até o bucket. Os três últimos são
+ *  terminais: depois deles nada mais acontece com aquele arquivo. */
+export type EstadoDoEnvio =
+  | "escolhido"
+  | "convertendo"
+  | "assinando"
+  | "enviando"
+  | "pronto"
+  | "recusado"
+  | "falhou";
+
+/** Um arquivo a caminho do bucket, como o enviador o conhece. `detalhe` é o
+ *  motivo, quando existe — e ele vem de `textoDoProblema`, e não de string
+ *  escrita no componente. */
+export type EnvioEmAndamento = {
+  nome: string;
+  estado: EstadoDoEnvio;
+  /** Bytes já aceitos pelo servidor. Vem de `upload.onprogress`. */
+  enviados: number;
+  /** Bytes do arquivo. ZERO quando o `progress` veio com
+   *  `lengthComputable: false` — ver `porcentagemDoEnvio`. */
+  total: number;
+  detalhe?: string;
+};
+
+/** Os estados em que aquele arquivo já não anda mais. */
+const ESTADOS_TERMINAIS: readonly EstadoDoEnvio[] = ["pronto", "recusado", "falhou"];
+/** Os estados em que o arquivo não chegou ao bucket, e não vai chegar. */
+const ESTADOS_DE_FALHA: readonly EstadoDoEnvio[] = ["recusado", "falhou"];
+
+/**
+ * A largura da barra deste arquivo, de 0 a 100.
+ *
+ * O ESTADO MANDA MAIS QUE OS BYTES, nos dois sentidos, e cada um tem motivo:
+ *
+ * `pronto` é 100 mesmo com os bytes atrasados. O último `progress` do
+ * `XMLHttpRequest` costuma chegar antes do `load`, e uma barra parada em 99%
+ * depois de o arquivo estar no bucket é a tela mentindo por arredondamento.
+ *
+ * `falhou` NÃO enche a barra: ela para onde parou. Barra cheia num envio que
+ * não foi é a comemoração errada — a mesma doença que o conserto de 02/09
+ * curou nas cinco ações que recusavam em silêncio.
+ *
+ * TOTAL ZERO É ZERO, E NUNCA NaN. `XMLHttpRequest` dispara `progress` com
+ * `lengthComputable: false` quando não sabe o tamanho, e `0/0` numa largura de
+ * CSS é uma barra que some da tela sem ninguém entender por quê.
+ *
+ * O ARREDONDAMENTO É PARA BAIXO, de propósito: 99,6% viraria "100" com
+ * `Math.round`, e a barra diria "acabou" antes de acabar. Cheia, só por
+ * `pronto`.
+ */
+export function porcentagemDoEnvio(envio: EnvioEmAndamento): number {
+  if (envio.estado === "pronto") return 100;
+  if (!(envio.total > 0)) return 0;
+  const bruta = Math.floor((envio.enviados / envio.total) * 100);
+  return Math.min(100, Math.max(0, bruta));
+}
+
+/**
+ * A frase deste arquivo, na janelinha de progresso.
+ *
+ * NENHUMA DESTAS STRINGS MORA NO COMPONENTE, e é o ponto inteiro deste bloco:
+ * a suíte não testa componente, então texto escrito lá é texto sem rede. Aqui
+ * há um caso para cada um dos sete estados, e o teste prende que nenhum é
+ * vazio — um estado novo acrescentado sem frase acusa.
+ *
+ * O NOME DO ARQUIVO APARECE SEMPRE: com dois envios em andamento, a frase sem
+ * nome não diz de qual arquivo ela fala.
+ *
+ * O MOTIVO ENTRA QUANDO EXISTE. "Falhou" sozinho não diz o que fazer, e o
+ * motivo é justamente o que `textoDoProblema` já sabe escrever — quem chama
+ * passa a frase de lá em `detalhe`, em vez de redigir a própria.
+ */
+export function fraseDoEnvio(envio: EnvioEmAndamento): string {
+  const detalhe = (envio.detalhe ?? "").trim();
+  const fim = detalhe ? ` ${detalhe}` : "";
+  switch (envio.estado) {
+    case "escolhido":
+      return `${envio.nome}: na fila para enviar.${fim}`;
+    case "convertendo":
+      return `${envio.nome}: preparando a imagem para o formato do Instagram…${fim}`;
+    case "assinando":
+      return `${envio.nome}: pedindo a permissão de envio…${fim}`;
+    case "enviando":
+      return `${envio.nome}: enviando, ${porcentagemDoEnvio(envio)}%…${fim}`;
+    case "pronto":
+      return `${envio.nome}: enviado.${fim}`;
+    case "recusado":
+      return `${envio.nome}: este arquivo não serve.${fim}`;
+    case "falhou":
+      return `${envio.nome}: o envio não foi.${fim}`;
+  }
+}
+
+/** O que a janelinha do canto mostra. `linhas` é uma frase por arquivo, na
+ *  ordem em que eles foram escolhidos. */
+export type ResumoDoProgresso = {
+  titulo: string;
+  porcentagem: number;
+  /** Nenhum arquivo anda mais. NÃO quer dizer que deu certo — ver `houveFalha`. */
+  encerrado: boolean;
+  houveFalha: boolean;
+  linhas: string[];
+};
+
+/**
+ * O conjunto dos envios, resumido para a janelinha do canto.
+ *
+ * SEM ENVIO NÃO HÁ MODAL: `null` é o que faz a janelinha não existir na tela de
+ * quem não está enviando nada — inclusive nas outras telas, já que ela mora no
+ * `app-shell` para sobreviver à navegação.
+ *
+ * =============================================================================
+ * A PORCENTAGEM DO CONJUNTO É PESADA POR BYTES, e não a média das barras
+ *
+ * Um reels de 200 MB ao lado de uma capa de 200 KB: pela média das barras, a
+ * janelinha saltaria para "50%" assim que a capa terminasse — em dois segundos
+ * — e ficaria lá parada por minutos. Pesada por bytes, ela anda junto com o que
+ * de fato está subindo.
+ *
+ * =============================================================================
+ * FALHA NÃO SOME, E ENCERRADO NÃO É SUCESSO
+ *
+ * Um envio que não foi não pode desaparecer da janelinha como se tivesse ido —
+ * é a mesma regra de `avisoDoLoteEnviado` (lib/avisos.ts): o desfecho ruim é o
+ * que mais precisa aparecer. Por isso `encerrado` e `houveFalha` são DOIS
+ * campos: o primeiro diz que ninguém mais anda, o segundo diz se valeu.
+ *
+ * E ENQUANTO UM ANDA, O CONJUNTO NÃO ESTÁ ENCERRADO — nem que outro já tenha
+ * falhado. Encerrar cedo fecharia a janelinha em cima de um upload vivo.
+ */
+export function resumoDoProgresso(envios: EnvioEmAndamento[]): ResumoDoProgresso | null {
+  if (!envios.length) return null;
+
+  const total = envios.reduce((soma, e) => soma + Math.max(0, e.total), 0);
+  const feitos = envios.reduce(
+    (soma, e) => soma + (porcentagemDoEnvio(e) / 100) * Math.max(0, e.total),
+    0
+  );
+  // TOTAL ZERO É ZERO AQUI TAMBÉM, pelo mesmo motivo de `porcentagemDoEnvio`:
+  // ninguém declarou tamanho ainda, e uma barra NaN some da tela.
+  const porcentagem = total > 0 ? Math.min(100, Math.floor((feitos / total) * 100)) : 0;
+
+  const encerrado = envios.every((e) => ESTADOS_TERMINAIS.includes(e.estado));
+  const falharam = envios.filter((e) => ESTADOS_DE_FALHA.includes(e.estado)).length;
+
+  return {
+    titulo: tituloDoProgresso(encerrado, falharam, envios.length),
+    porcentagem,
+    encerrado,
+    houveFalha: falharam > 0,
+    linhas: envios.map(fraseDoEnvio),
+  };
+}
+
+/** O título da janelinha. A PALAVRA "CONCLUÍDO" SÓ APARECE QUANDO TUDO SUBIU —
+ *  um conjunto que encerrou com falha se anuncia pela falha, e não pelo fim. */
+function tituloDoProgresso(encerrado: boolean, falharam: number, quantos: number): string {
+  if (!encerrado) {
+    return quantos === 1 ? "Enviando o arquivo…" : `Enviando ${quantos} arquivos…`;
+  }
+  if (falharam > 0) {
+    if (falharam === quantos) {
+      return quantos === 1 ? "O arquivo não subiu." : "Nenhum arquivo subiu.";
+    }
+    return `${falharam} de ${quantos} não ${falharam === 1 ? "subiu" : "subiram"}.`;
+  }
+  return quantos === 1 ? "Envio concluído." : "Envios concluídos.";
+}
+
+// -----------------------------------------------------------------------------
+// O QUE A TELA MANDA, LIDO COM DESCONFIANÇA
+//
+// O que chega à ação de servidor vem de `FormData`, ou seja de um formulário
+// que é do usuário. As funções abaixo leem esses campos do mesmo jeito que
+// `decisaoDeAssinatura` lê o corpo da rota: recusando o que não se entende, e
+// nunca adivinhando.
+// -----------------------------------------------------------------------------
+
+/**
+ * A forma que ESTA TELA sabe publicar, lida de um campo de formulário.
+ *
+ * CARROSSEL É DA TAREFA 6, E A TELA NÃO O OFERECE — mas o campo é do usuário, e
+ * um `<select>` alterado no navegador manda o que quiser. Aceitá-lo aqui
+ * gravaria um item de fila que o dreno já recusa ("o carrossel ainda nao
+ * publica por aqui", lib/queue-drain.ts): um post que nasce morto, DEPOIS de o
+ * arquivo ter subido e ocupado o bucket. A recusa é alta, antes de gravar nada.
+ *
+ * A COMPARAÇÃO NÃO É FROUXA ("IMAGEM" não passa) pelo mesmo motivo de
+ * `estadoDoContainer`: aceitar variação que ninguém prometeu é inventar
+ * contrato — e o `<select>` da tela manda minúsculas.
+ */
+export function formaQueATelaPublica(bruto: unknown): FormaDePublicacao | null {
+  if (bruto !== "imagem" && bruto !== "reels" && bruto !== "story") return null;
+  return bruto;
+}
+
+/** Os cinco números de uma data e hora escolhidas na tela. */
+export type CamposDaDataHora = {
+  ano: number;
+  mes: number;
+  dia: number;
+  hora: number;
+  minuto: number;
+};
+
+/** O que o `<input type="datetime-local">` manda: `2026-09-10T14:30`, com os
+ *  segundos opcionais porque alguns navegadores os incluem. */
+const DATA_HORA = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2})?$/;
+
+/**
+ * Lê o campo de data e hora. `null` quando não dá para entender.
+ *
+ * =============================================================================
+ * DIA QUE NÃO EXISTE NÃO VIRA DATA, E É POR ISSO QUE ESTA FUNÇÃO EXISTE
+ *
+ * `Date.UTC(2026, 1, 30)` não estoura: ele TRANSBORDA, calado, para 2 de março.
+ * É o mesmo cuidado que `validadeDoDia` (lib/lote.ts) documenta — só que lá o
+ * transbordo movia um PRAZO, e aqui ele move a HORA em que um post aparece no
+ * perfil público. Quem digitasse 30 de fevereiro por engano veria o post sair
+ * num dia que não escolheu.
+ *
+ * A conferência é a volta pelo `Date`: monta-se a data e pergunta-se se o ano,
+ * o mês e o dia continuam os mesmos. Se transbordou, não continuam.
+ *
+ * OS SEGUNDOS, QUANDO VÊM, NÃO ATRAPALHAM, e são descartados: o campo tem
+ * resolução de minuto, e recusar por causa de um `:00` que o próprio HTML
+ * permite seria um agendamento que não sai por detalhe de navegador.
+ */
+export function camposDaDataHora(bruto: unknown): CamposDaDataHora | null {
+  if (typeof bruto !== "string") return null;
+  const m = DATA_HORA.exec(bruto.trim());
+  if (!m) return null;
+
+  const ano = Number(m[1]);
+  const mes = Number(m[2]);
+  const dia = Number(m[3]);
+  const hora = Number(m[4]);
+  const minuto = Number(m[5]);
+
+  if (mes < 1 || mes > 12) return null;
+  if (dia < 1 || dia > 31) return null;
+  if (hora > 23) return null;
+  if (minuto > 59) return null;
+
+  // O TRANSBORDO SÓ APARECE NA VOLTA. Ver o cabeçalho.
+  const d = new Date(Date.UTC(ano, mes - 1, dia));
+  if (d.getUTCFullYear() !== ano || d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) {
+    return null;
+  }
+
+  return { ano, mes, dia, hora, minuto };
+}
+
+/** Por que um pedido de publicação não tem hora. */
+export type MotivoDoMomento = "quando_ilegivel" | "data_invalida" | "data_no_passado";
+
+/** Quando publicar: `null` é agora. */
+export type MomentoDaPublicacao =
+  | { ok: true; quando: Date | null }
+  | { ok: false; motivo: MotivoDoMomento };
+
+/**
+ * A TOLERÂNCIA DE UM MINUTO É O CAMPO, e não generosidade.
+ *
+ * O `datetime-local` tem resolução de MINUTO: quem escolhe "12:00" e confirma
+ * às 12:00:30 manda um instante 30 segundos no passado. Sem esta folga, a tela
+ * recusaria o pedido mais comum que existe — "publicar neste minuto".
+ */
+const TOLERANCIA_DO_MINUTO_EM_MS = 60_000;
+
+/**
+ * Quando este post deve sair.
+ *
+ * =============================================================================
+ * O CAMPO ILEGÍVEL NÃO CAI EM "AGORA", E ESTE É O CASO MAIS IMPORTANTE DAQUI
+ *
+ * Publicar AGORA quando a pessoa pediu para agendar é IRREVERSÍVEL:
+ * `DELETE /{ig-media-id}` NÃO existe no Login do Instagram (medido em 03/09 —
+ * é exclusivo da API via Login do Facebook), então o post fica no perfil de
+ * 2.933 publicações até alguém apagá-lo à mão pelo celular. Some do feed, não
+ * some da memória de quem viu.
+ *
+ * Um pedido que não se entende é RECUSADO, nunca adivinhado. É a mesma regra do
+ * "presente-e-vazio contra ausente" que o Crítico de 01/09 deixou nesta base: o
+ * padrão silencioso é o que morde.
+ *
+ * =============================================================================
+ * DIA PASSADO NÃO É ADIANTAMENTO
+ *
+ * `enqueuePublicacao` (lib/engine.ts) trata atraso negativo como zero — ou
+ * seja, o post agendado para ontem sairia NA HORA. Quem escolheu a data errada
+ * publicaria agora, no perfil público, sem desfazer. Recusar aqui é o que
+ * transforma um engano de digitação num aviso, em vez de num post.
+ */
+export function momentoDaPublicacao(
+  quando: unknown,
+  instante: number | null | undefined,
+  agora: number
+): MomentoDaPublicacao {
+  if (quando === "agora") return { ok: true, quando: null };
+  if (quando !== "depois") return { ok: false, motivo: "quando_ilegivel" };
+
+  if (typeof instante !== "number" || !Number.isFinite(instante)) {
+    return { ok: false, motivo: "data_invalida" };
+  }
+  if (instante < agora - TOLERANCIA_DO_MINUTO_EM_MS) {
+    return { ok: false, motivo: "data_no_passado" };
+  }
+  return { ok: true, quando: new Date(instante) };
+}
+
+/** O que impede uma legenda de sair, nomeado. */
+export type ProblemaDaLegenda = "longa" | "hashtags_demais" | "mencoes_demais";
+
+/**
+ * A frase de um problema de legenda.
+ *
+ * A TELA E A AÇÃO DIZEM A MESMA COISA, e é para isso que ela existe: duas
+ * redações do mesmo "não" fazem quem lê achar que são dois problemas
+ * diferentes. É o mesmo motivo pelo qual `decisaoDeAssinatura` usa
+ * `textoDoProblema` em vez de escrever a própria frase.
+ *
+ * CADA FRASE DIZ O NÚMERO. "Hashtags demais" sem o limite não diz quantas
+ * tirar, e quem está com 34 fica adivinhando.
+ */
+export function textoDoProblemaDaLegenda(p: ProblemaDaLegenda): string {
+  switch (p) {
+    case "longa":
+      return "A legenda passa de 2.200 caracteres, que é o limite do Instagram. Encurte o texto.";
+    case "hashtags_demais":
+      return "A legenda tem mais de 30 hashtags, e o Instagram não aceita além disso. Tire as que sobram.";
+    case "mencoes_demais":
+      return "A legenda tem mais de 20 menções, e o Instagram não aceita além disso. Tire as que sobram.";
+  }
 }
