@@ -58,10 +58,12 @@ import {
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
+import { comoNumaRequisicao } from "./semear-requisicao";
 
 type ModuloEngine = typeof import("@/lib/engine");
 type ModuloIg = typeof import("@/lib/ig");
 type ModuloDreno = typeof import("@/lib/queue-drain");
+type ModuloCron = typeof import("@/app/api/cron/daily/route");
 
 const banco = bancoDescartavel();
 
@@ -127,6 +129,7 @@ let servidorBucket: Server;
 let engine: ModuloEngine;
 let ig: ModuloIg;
 let dreno: ModuloDreno;
+let cron: ModuloCron;
 
 function responderJson(res: ServerResponse, corpo: unknown) {
   res.writeHead(200, { "content-type": "application/json" });
@@ -254,10 +257,15 @@ beforeAll(async () => {
   // A SEGUNDA FRONTEIRA, herdada de `gatilho-entrega`: sem token, `scheduleTick`
   // não sai da máquina. Este arquivo deixa item pendente de propósito.
   delete process.env.QSTASH_TOKEN;
+  // E O CRON SÓ EXIGE SEGREDO QUANDO ELE EXISTE (app/api/cron/daily/route.ts).
+  // Apagado aqui, o caso que chama a ROTA entra pela mesma porta que a Vercel
+  // usa quando ninguém configurou `CRON_SECRET` — sem forjar autorização nenhuma.
+  delete process.env.CRON_SECRET;
 
   engine = await import("@/lib/engine");
   ig = await import("@/lib/ig");
   dreno = await import("@/lib/queue-drain");
+  cron = await import("@/app/api/cron/daily/route");
 
   // AS DUAS GUARDAS, ANTES DE QUALQUER REQUISIÇÃO — e não depois.
   if (ig.baseDoGraph() !== process.env.IG_GRAPH_BASE) {
@@ -698,6 +706,50 @@ describe("o cron diario arma os tiques do dia", () => {
       .query(`update queue set not_before = now() + interval '2 hours' where kind = 'dm_lote'`);
 
     expect(await dreno.armarTiquesDoDia()).toEqual({ armados: 0 });
+  });
+
+  // OS TRÊS CASOS ACIMA CHAMAM `armarTiquesDoDia()` DIRETO, E ERA ESSE O BURACO.
+  //
+  // PLANTIO MEDIDO: trocar a chamada do cron por `const armados = 0;` — ou seja,
+  // apagar o mecanismo inteiro que faz agendamento além de 24 h existir —
+  // deixava lint, typecheck, os 1218 puros e os de integração VERDES. A função
+  // tinha rede por saída; a FIAÇÃO dela, que é o único chamador de verdade, não
+  // tinha nenhuma. É a costura de sempre desta base: a peça pura é medida e o
+  // lugar que a chama, não.
+  //
+  // E ISTO PASSOU A IMPORTAR MAIS DEPOIS DO TETO DO RODAPÉ DO DRENO. Quem armava
+  // o tique de um post distante, na prática, era aquele rodapé, a cada drenagem —
+  // e por isso apagar esta linha do cron não quebrava nada. Fechado o teto
+  // (`tique-do-rodape.integracao.ts`), este cron é o ÚNICO caminho do
+  // agendamento além de um dia, e um agendamento longo passaria a falhar calado.
+  //
+  // POR ISSO O CASO ENTRA PELA ROTA, e não pela função: o que ele mede é a
+  // ligação, e ligação não se prova chamando a ponta.
+  test("a ROTA do cron chama a varredura, e nao so a funcao existe", async () => {
+    await engine.enqueuePublicacao(
+      CONTA_A,
+      { forma: "imagem", caminhos: [`${CONTA_A}/quem-arma-este-e-o-cron.jpg`] },
+      new Date(Date.now() + 3 * 60 * 60 * 1000)
+    );
+
+    const { valor } = await comoNumaRequisicao("/api/cron/daily", async () => {
+      const { NextRequest } = await import("next/server");
+      const resposta = await cron.GET(
+        new NextRequest("https://exemplo.invalid/api/cron/daily", { method: "GET" })
+      );
+      return {
+        status: resposta.status,
+        corpo: (await resposta.json()) as { armados?: number },
+      };
+    });
+
+    expect(valor.status).toBe(200);
+    // UM, e não "maior que zero": a fila desta rodada tem um post só, e um
+    // número exato é o que distingue "a varredura rodou" de "alguma coisa
+    // rodou". O post continua `pending` — o cron arma o tique, quem publica é a
+    // drenagem do dia dele.
+    expect(valor.corpo.armados).toBe(1);
+    expect((await itemDaFila()).status).toBe("pending");
   });
 });
 
