@@ -23,6 +23,10 @@ import {
   leituraDoContainer,
   lerPayloadDaPublicacao,
   parametrosDoContainer,
+  parametrosDoContainerPai,
+  recusaDaQuantidade,
+  CARROSSEL_ITENS_MIN,
+  CARROSSEL_ITENS_MAX,
   cotaDePublicacao,
   cotaEstourada,
 } from "./publicacao";
@@ -286,6 +290,83 @@ async function limparOBucket(
   }
 }
 
+/**
+ * O CONTÊINER PAI DO CARROSSEL: os N filhos primeiro, e só então o pai.
+ *
+ * =============================================================================
+ * SE UM FILHO FALHAR, O PAI NÃO NASCE — e é a decisão mais delicada da Tarefa 6
+ *
+ * Esta função NÃO tem `try/catch` em volta da criação dos filhos, e a ausência é
+ * o desenho: o erro sobe, o `catch` de `drainQueue` decide (4xx mata o item,
+ * 5xx o devolve à fila), e nenhum pai é montado com a lista incompleta.
+ *
+ * Publicar o pai com os filhos que deram certo poria no perfil público um
+ * carrossel com peça faltando, sem que ninguém tivesse pedido isso — e
+ * `DELETE /{ig-media-id}` NÃO existe no nosso caminho (medido em 03/09: é
+ * exclusivo da API via Login do Facebook), então a remoção seria manual, no
+ * aplicativo.
+ *
+ * O QUE SE PAGA, e vai escrito: os filhos que já nasceram ficam órfãos e
+ * VENCEM SOZINHOS EM 24 H. O plano aceitou esse custo de propósito. Eles não
+ * aparecem no perfil (contêiner não é post), não custam cota de publicação
+ * (só o `media_publish` conta) e custam, no pior caso, alguns dos 400
+ * contêineres do dia.
+ *
+ * =============================================================================
+ * OS FILHOS QUE JÁ NASCERAM NÃO NASCEM DE NOVO, E ISSO FOI MEDIDO
+ *
+ * A pergunta que o plano não respondia: quando um filho falha, o item volta à
+ * fila — na passada seguinte, os que já nasceram ainda valem?
+ *
+ * VALEM. O contêiner da Meta vence em 24 h; o item volta em 2 minutos
+ * (`retryInSeconds: 120`, no `catch` de `drainQueue`), e mesmo o caminho mais
+ * lento desta fila — a espera de cota, de 1 h — cabe folgado nas 24 h. A folga
+ * é de três ordens de grandeza.
+ *
+ * Então recriá-los seria desperdício com preço: a Meta baixaria a mídia de
+ * novo, e um carrossel de dez itens gastaria 10 contêineres por passada — 40
+ * até o `giveUp` — do teto de 400 por dia.
+ *
+ * A LISTA É GRAVADA A CADA FILHO, e não no fim: o erro que interrompe é
+ * justamente o que precisa deixar rastro do que já existe. Ela é POSICIONAL
+ * (`filhos[i]` é o contêiner de `caminhos[i]`), e é isso que faz a retomada
+ * continuar do ponto certo sem embaralhar a ordem — que no carrossel é
+ * conteúdo, porque todos os itens são cortados pela proporção do primeiro.
+ *
+ * O `mime` NÃO ESTÁ NO PAYLOAD, e não precisa: `parametrosDoContainer` decide
+ * entre `image_url` e `video_url` pela extensão do caminho, que
+ * `caminhoDoObjeto` (lib/bucket.ts) preserva.
+ */
+async function containerPaiDoCarrossel(
+  item: QueueItem,
+  account: Account,
+  pub: { caminhos: string[]; legenda?: string; filhos: string[] }
+): Promise<string> {
+  const filhos = [...pub.filhos];
+  for (let i = filhos.length; i < pub.caminhos.length; i++) {
+    const filho = await criarContainer(
+      account.ig_user_id,
+      account.access_token,
+      parametrosDoContainer({
+        forma: "carrossel",
+        url: urlPublicaDoObjeto(pub.caminhos[i]),
+        filho: true,
+      })
+    );
+    filhos.push(filho);
+    await guardarNoPayload(item.id, { filhos });
+  }
+
+  // O PAI POR ÚLTIMO, com a lista inteira e a legenda. `parametrosDoContainerPai`
+  // é quem recusa zero, um e mais de dez — e ele nunca chega aqui com essas
+  // contagens, porque a quantidade já foi conferida duas vezes antes.
+  return criarContainer(
+    account.ig_user_id,
+    account.access_token,
+    parametrosDoContainerPai({ filhos, legenda: pub.legenda })
+  );
+}
+
 /** O que aconteceu com um item de publicação nesta passada. */
 type DesfechoDaPublicacao = "publicado" | "aguardando" | "falhou";
 
@@ -299,7 +380,8 @@ type DesfechoDaPublicacao = "publicado" | "aguardando" | "falhou";
  *      editável por fora do painel — mesma defesa de `lerPayloadDoLote`.
  *   2. CRIAR O CONTÊINER **AQUI**, e não no enfileiramento. Ele vence em 24 h;
  *      criá-lo no `enqueuePublicacao` faria todo agendamento além de um dia
- *      falhar calado com `EXPIRED`. O comentário inteiro está lá.
+ *      falhar calado com `EXPIRED`. O comentário inteiro está lá. No carrossel
+ *      são os N filhos e depois o pai — ver `containerPaiDoCarrossel`.
  *   3. GUARDAR O CONTÊINER NO PAYLOAD antes de qualquer outra coisa. A segunda
  *      passada é o caso NORMAL (reels leva 32 s), e sem isto ela criaria outro.
  *   4. PERGUNTAR O ESTADO **UMA VEZ** por passada. Laço de espera aqui dentro
@@ -334,33 +416,44 @@ async function publicarDaFila(item: QueueItem, account: Account): Promise<Desfec
     return "falhou";
   }
 
-  // O CARROSSEL É DA TAREFA 6, e até lá ele é recusado ALTO em vez de montado
-  // errado. `parametrosDoContainer` já lança para a forma `carrossel` (o pai
-  // precisa da lista de filhos, que ela não recebe); o que este ramo acrescenta
-  // é um motivo em português na tela, em vez de uma exceção que vira texto de
-  // programador. Nenhuma tela enfileira carrossel hoje.
-  if (pub.forma === "carrossel") {
+  // A SEGUNDA BARREIRA DA QUANTIDADE, e ela não é repetição da ação: a coluna é
+  // `jsonb` e editável por fora do painel. Sem ela, um payload com onze
+  // caminhos só seria recusado por `parametrosDoContainerPai` DEPOIS de os onze
+  // filhos nascerem na Meta — onze contêineres por passada, e o item ainda
+  // voltando à fila. Aqui a recusa custa zero contêiner.
+  const quantidade = recusaDaQuantidade(pub.forma, pub.caminhos.length);
+  if (quantidade) {
     await finish(item.id, {
       status: "failed",
-      error: "o carrossel ainda nao publica por aqui",
+      error:
+        pub.forma === "carrossel"
+          ? `um carrossel vai de ${CARROSSEL_ITENS_MIN} a ${CARROSSEL_ITENS_MAX} itens, e este tem ${pub.caminhos.length}`
+          : `a forma ${pub.forma} publica um arquivo so, e este item tem ${pub.caminhos.length}`,
     });
     return "falhou";
   }
 
   let containerId = pub.containerId;
   if (!containerId) {
-    // A URL PÚBLICA É MONTADA A PARTIR DO CAMINHO, e o caminho é o que está no
-    // payload. Guardar a URL pronta seria guardar o endereço do projeto do
-    // Supabase dentro de cada item — e no dia em que ele mudasse, todo post
-    // agendado apontaria para um lugar que não existe mais.
-    const params = parametrosDoContainer({
-      forma: pub.forma,
-      url: urlPublicaDoObjeto(pub.caminhos[0]),
-      legenda: pub.legenda,
-      compartilharNoFeed: pub.compartilharNoFeed,
-      nomeDoAudio: pub.nomeDoAudio,
-    });
-    containerId = await criarContainer(account.ig_user_id, account.access_token, params);
+    containerId =
+      pub.forma === "carrossel"
+        ? await containerPaiDoCarrossel(item, account, pub)
+        : await criarContainer(
+            account.ig_user_id,
+            account.access_token,
+            // A URL PÚBLICA É MONTADA A PARTIR DO CAMINHO, e o caminho é o que
+            // está no payload. Guardar a URL pronta seria guardar o endereço do
+            // projeto do Supabase dentro de cada item — e no dia em que ele
+            // mudasse, todo post agendado apontaria para um lugar que não
+            // existe mais.
+            parametrosDoContainer({
+              forma: pub.forma,
+              url: urlPublicaDoObjeto(pub.caminhos[0]),
+              legenda: pub.legenda,
+              compartilharNoFeed: pub.compartilharNoFeed,
+              nomeDoAudio: pub.nomeDoAudio,
+            })
+          );
     // GRAVADO ANTES DE QUALQUER OUTRA COISA. Se a consulta de estado logo
     // abaixo estourar, o `catch` de `drainQueue` devolve o item à fila — e a
     // passada seguinte tem de encontrar ESTE contêiner, e não criar o segundo.

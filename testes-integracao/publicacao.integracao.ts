@@ -99,6 +99,19 @@ const meta = {
   proximoStatusTexto: null as string | null,
   /** A cota que `content_publishing_limit` devolve. */
   cota: { quota_total: 100, quota_duration: 86400, quota_usage: 0 },
+  /**
+   * O `POST /media` cuja URL contiver `trecho` é recusado com `status`.
+   *
+   * ELE EXISTE PARA O CARROSSEL, e para a decisão mais delicada dele: se um
+   * filho falhar, o PAI NÃO NASCE. Sem uma recusa dirigida a UM dos filhos, o
+   * caso não se monta — recusar todos não distingue "parou no meio" de "não
+   * começou", e é justamente o meio que importa.
+   *
+   * O `status` É PARTE DO CASO, e não detalhe: 4xx é permanente e mata o item;
+   * 5xx o devolve à fila, e é aí que se mede se os filhos que já nasceram são
+   * reaproveitados na passada seguinte.
+   */
+  recusarContainer: null as { trecho: string; status: number } | null,
 };
 
 const bucketFalso = {
@@ -143,6 +156,17 @@ beforeAll(async () => {
 
     if (req.method === "POST" && ultimo === "media") {
       const params = Object.fromEntries(new URLSearchParams(await corpoDe(req)));
+      const midia = `${params.image_url ?? ""}${params.video_url ?? ""}`;
+      if (meta.recusarContainer && midia.includes(meta.recusarContainer.trecho)) {
+        // O CONTÊINER NÃO ENTRA EM `meta.containers`, de propósito: aquela lista
+        // é a dos que NASCERAM, e é ela que o caso do filho falhado lê para
+        // dizer quantos existem de verdade.
+        linhaDoTempo.push("a-meta-recusou");
+        res.writeHead(meta.recusarContainer.status, { "content-type": "application/json" });
+        return res.end(
+          JSON.stringify({ error: { message: "a Meta falsa recusou esta midia de proposito" } })
+        );
+      }
       meta.containers.push({ igUserId: penultimo, token, params });
       linhaDoTempo.push("criou-container");
       return responderJson(res, { id: `container-${meta.containers.length}` });
@@ -288,6 +312,7 @@ beforeEach(async () => {
   meta.proximoStatus = "FINISHED";
   meta.proximoStatusTexto = null;
   meta.cota = { quota_total: 100, quota_duration: 86400, quota_usage: 0 };
+  meta.recusarContainer = null;
   bucketFalso.apagados = [];
   bucketFalso.recusar = new Set();
 });
@@ -703,5 +728,186 @@ describe("o arquivo sai do bucket depois do post, e nunca antes", () => {
       .sql()
       .query(`select type from events where type = 'midia_nao_apagada'`)) as { type: string }[];
     expect(eventos.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O CARROSSEL (Tarefa 6)
+//
+// A DECISÃO MAIS DELICADA DESTA TAREFA, e é ordem: N filhos, depois o pai, e
+// **se um filho falhar, o pai não nasce**. Os filhos que já nasceram vencem
+// sozinhos em 24 h, e isso é aceito de propósito — o plano o escreveu, e o
+// motivo é que a alternativa (publicar o pai com os filhos que deram certo)
+// entregaria ao perfil público um carrossel com peça faltando, sem que ninguém
+// tivesse pedido isso.
+//
+// ORDEM NÃO É FUNÇÃO PURA, e é por isso que estes casos moram aqui: as decisões
+// (o que vai no pai, o que vai no filho, quantos itens cabem) são de
+// `lib/publicacao.ts`, com caso por saída. O que sobra — quantas chamadas, em
+// que ordem, e o que fica gravado entre elas — só este arquivo alcança.
+// ---------------------------------------------------------------------------
+
+describe("o carrossel: os filhos primeiro, o pai depois, e um post so", () => {
+  const TRES = [
+    `${CONTA_A}/carrossel-1.jpg`,
+    `${CONTA_A}/carrossel-2.jpg`,
+    `${CONTA_A}/carrossel-3.jpg`,
+  ];
+
+  test("tres filhos, um pai, um media_publish, e os tres arquivos apagados", async () => {
+    expect(
+      await engine.enqueuePublicacao(
+        CONTA_A,
+        { forma: "carrossel", caminhos: TRES, legenda: "a legenda mora no pai" },
+        null
+      )
+    ).toBe(true);
+
+    await drenar();
+
+    // A SEQUÊNCIA INTEIRA. Os três filhos nascem ANTES do pai, o estado é
+    // perguntado UMA vez (do pai), a cota UMA vez, e o `media_publish` UMA vez:
+    // um carrossel é UMA publicação no limite de 100/24h, e não três.
+    expect(linhaDoTempo).toEqual([
+      "criou-container",
+      "criou-container",
+      "criou-container",
+      "criou-container",
+      "perguntou-o-estado",
+      "perguntou-a-cota",
+      "publicou",
+      "apagou-o-arquivo",
+      "apagou-o-arquivo",
+      "apagou-o-arquivo",
+    ]);
+
+    // OS TRÊS FILHOS: `is_carousel_item`, nenhuma legenda, e a URL de cada um na
+    // ORDEM ESCOLHIDA — todos os itens são cortados pela proporção do primeiro,
+    // então a ordem é conteúdo.
+    const filhos = meta.containers.slice(0, 3);
+    for (const filho of filhos) {
+      expect(filho.params.is_carousel_item).toBe("true");
+      expect(filho.params.caption).toBeUndefined();
+      expect(filho.params.media_type).toBeUndefined();
+    }
+    expect(filhos.map((f) => f.params.image_url?.endsWith("carrossel-1.jpg"))).toEqual([
+      true,
+      false,
+      false,
+    ]);
+
+    // O PAI: CAROUSEL, a lista dos três, e a legenda.
+    const pai = meta.containers[3];
+    expect(pai.params.media_type).toBe("CAROUSEL");
+    expect(pai.params.children).toBe("container-1,container-2,container-3");
+    expect(pai.params.caption).toBe("a legenda mora no pai");
+    expect(pai.params.image_url).toBeUndefined();
+
+    // E O QUE SE PUBLICA É O PAI, e não um dos filhos.
+    expect(meta.publicacoes).toEqual([
+      { igUserId: CONTA_A, token: TOKEN_A, creationId: "container-4" },
+    ]);
+
+    const item = await itemDaFila();
+    expect(item.status).toBe("sent");
+    expect(item.payload.filhos).toEqual(["container-1", "container-2", "container-3"]);
+    expect(item.payload.container_id).toBe("container-4");
+    expect(bucketFalso.apagados.sort()).toEqual([...TRES].sort());
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
+  test("o filho que a Meta RECUSA impede o pai de nascer, e nada e publicado", async () => {
+    // O PLANTIO DESTA TAREFA, medido do lado de fora. Publicar o pai com os
+    // filhos que deram certo poria no perfil um carrossel com peça faltando —
+    // e `DELETE /{ig-media-id}` não existe no nosso caminho (medido em 03/09).
+    meta.recusarContainer = { trecho: "carrossel-2.jpg", status: 400 };
+    await engine.enqueuePublicacao(
+      CONTA_A,
+      { forma: "carrossel", caminhos: TRES, legenda: "nao pode sair" },
+      null
+    );
+
+    await drenar();
+
+    // O PAI NÃO NASCEU e NADA foi publicado. O terceiro filho também não nasce:
+    // parar no primeiro erro é o que impede um carrossel morto de gastar mais
+    // contêineres do que já gastou.
+    expect(linhaDoTempo).toEqual(["criou-container", "a-meta-recusou"]);
+    expect(meta.containers.length).toBe(1);
+    expect(meta.publicacoes).toEqual([]);
+
+    const item = await itemDaFila();
+    expect(item.status).toBe("failed");
+    // O FILHO QUE NASCEU FICA GRAVADO mesmo no desfecho ruim: ele existe na
+    // Meta, e o payload é o único lugar em que isso está escrito.
+    expect(item.payload.filhos).toEqual(["container-1"]);
+    expect(item.payload.container_id).toBeUndefined();
+    // OS ARQUIVOS FICAM. Item `failed` mantém a mídia — quem for tentar de novo
+    // precisa dela.
+    expect(bucketFalso.apagados).toEqual([]);
+  });
+
+  test("filho que falha por 5xx volta a fila, e a passada seguinte NAO recria os que ja nasceram", async () => {
+    // A PERGUNTA QUE ESTA TAREFA TEVE DE RESPONDER MEDINDO, e esta é a medida:
+    // o contêiner da Meta vence em 24 HORAS, e o item volta à fila em 2 minutos
+    // (`retryInSeconds: 120`, o `catch` de `drainQueue`). Os filhos que já
+    // nasceram continuam valendo com folga de três ordens de grandeza — então
+    // recriá-los seria fazer a Meta baixar a mídia de novo e gastar o teto de
+    // 400 contêineres por dia por engano.
+    meta.recusarContainer = { trecho: "carrossel-3.jpg", status: 500 };
+    await engine.enqueuePublicacao(CONTA_A, { forma: "carrossel", caminhos: TRES }, null);
+
+    await drenar();
+
+    expect(meta.containers.length).toBe(2);
+    const esperando = await itemDaFila();
+    expect(esperando.status).toBe("pending");
+    expect(esperando.payload.filhos).toEqual(["container-1", "container-2"]);
+    expect(meta.publicacoes).toEqual([]);
+
+    // A PASSADA SEGUINTE COMEÇA DO TERCEIRO. Se ela recriasse os dois
+    // primeiros, `meta.containers` terminaria com SEIS contêineres para um post
+    // de três peças, e os dois primeiros ficariam órfãos vencendo sozinhos.
+    meta.recusarContainer = null;
+    await passarOTempo();
+    await drenar();
+
+    expect(meta.containers.length).toBe(4);
+    expect(meta.containers[2].params.image_url).toContain("carrossel-3.jpg");
+    expect(meta.containers[3].params.media_type).toBe("CAROUSEL");
+    // A LISTA DO PAI É A ORDEM DOS ARQUIVOS, e não a ordem em que os
+    // contêineres nasceram — as duas coincidem aqui, e é isso que se prende:
+    // um retomar que anexasse o filho novo no fim publicaria a terceira peça
+    // primeiro numa retomada de outro ponto.
+    expect(meta.containers[3].params.children).toBe(
+      "container-1,container-2,container-3"
+    );
+    expect((await itemDaFila()).status).toBe("sent");
+    expect(meta.publicacoes.length).toBe(1);
+  });
+
+  test("payload com mais de dez itens termina em failed SEM criar container nenhum", async () => {
+    // A COLUNA É `jsonb` E EDITÁVEL POR FORA DO PAINEL. A ação já recusa onze
+    // itens antes de gravar; esta é a segunda barreira, e ela existe porque a
+    // primeira não é a única porta. Sem ela, `parametrosDoContainerPai` só
+    // lançaria DEPOIS de os onze filhos nascerem na Meta — onze contêineres por
+    // passada, quatro passadas até o `giveUp`.
+    const onze = Array.from({ length: 11 }, (_, i) => `${CONTA_A}/demais-${i}.jpg`);
+    await banco
+      .db()
+      .sql()
+      .query(
+        `insert into queue (account_id, kind, payload, dedupe_key, status, not_before)
+         values ($1, 'publicacao', $2::jsonb, $3, 'pending', now())`,
+        [CONTA_A, { forma: "carrossel", caminhos: onze }, `pub-onze-${Date.now()}`]
+      );
+
+    await drenar();
+
+    const item = await itemDaFila();
+    expect(item.status).toBe("failed");
+    expect(item.error).toContain("10");
+    expect(meta.containers).toEqual([]);
+    expect(meta.publicacoes).toEqual([]);
   });
 });
