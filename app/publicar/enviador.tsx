@@ -9,6 +9,11 @@ import {
   textoDoProblemaDaLegenda,
   tiposQueOCampoAceita,
   resumoDoProgresso,
+  rotuloDoEnvio,
+  moverNaOrdem,
+  recusaDaQuantidade,
+  textoDaRecusaDaPublicacao,
+  CARROSSEL_ITENS_MAX,
   type FormaDePublicacao,
 } from "@/lib/publicacao";
 import {
@@ -52,10 +57,15 @@ import { card, input, label, hint, fieldError, muted } from "../ui";
 // com a rota que assina e empurrar bytes. Um `if` sobre regra de negócio neste
 // arquivo está no lugar errado — o lugar é `lib/publicacao.ts`, com teste.
 
+/** Um arquivo que já está no bucket, na ordem em que vai ser publicado. O
+ *  `rotulo` é o mesmo que a janelinha mostra (ver `rotuloDoEnvio`), para as
+ *  duas listas nomearem o arquivo do mesmo jeito. */
+type ItemEnviado = { caminho: string; rotulo: string };
+
 export default function Enviador({ teto }: { teto: number | null }) {
   const [forma, setForma] = useState<FormaDePublicacao>("imagem");
   const [legenda, setLegenda] = useState("");
-  const [caminhos, setCaminhos] = useState<string[]>([]);
+  const [itens, setItens] = useState<ItemEnviado[]>([]);
   const campoDeArquivo = useRef<HTMLInputElement>(null);
   const campoDeFuso = useRef<HTMLInputElement>(null);
 
@@ -94,6 +104,10 @@ export default function Enviador({ teto }: { teto: number | null }) {
   }, []);
 
   const problemaDaLegendaAtual = problemaDaLegenda(legenda);
+  // A CONTAGEM AVISA, E NÃO RECUSA — quem recusa é a ação de servidor, com a
+  // MESMA função e a MESMA frase. Aqui ela existe para a pessoa descobrir que
+  // faltou uma peça antes de clicar, e não depois.
+  const problemaDaQuantidade = itens.length ? recusaDaQuantidade(forma, itens.length) : null;
 
   function trocarForma(nova: FormaDePublicacao) {
     setForma(nova);
@@ -102,28 +116,53 @@ export default function Enviador({ teto }: { teto: number | null }) {
     // enviado sob a regra antiga viraria um post que a Meta recusa depois de
     // tudo pronto. O objeto fica no bucket como órfão de upload abandonado —
     // que é o caso já registrado como aberto no plano, depois da Tarefa 4.
-    setCaminhos([]);
+    setItens([]);
     limparEnvios();
     if (campoDeArquivo.current) campoDeArquivo.current.value = "";
   }
 
   async function aoEscolherArquivo(ev: React.ChangeEvent<HTMLInputElement>) {
-    const escolhido = ev.target.files?.[0];
-    if (!escolhido) return;
+    const escolhidos = Array.from(ev.target.files ?? []);
+    if (!escolhidos.length) return;
 
-    setCaminhos([]);
-    definirEnvios([
-      { nome: escolhido.name, estado: "escolhido", enviados: 0, total: escolhido.size },
-    ]);
+    setItens([]);
+    // O RÓTULO NASCE ANTES DO PRIMEIRO BYTE, e ele é a IDENTIDADE do arquivo no
+    // depósito de envios (`atualizarEnvio` acha a linha pelo nome). No carrossel
+    // ele leva a posição — ver `rotuloDoEnvio`: duas fotos exportadas como
+    // "arte.jpg" da mesma pasta são um caso comum, e sem a posição as duas
+    // seriam a mesma linha, com as duas barras andando juntas.
+    const rotulos = escolhidos.map((a, i) => rotuloDoEnvio(a.name, i, escolhidos.length));
+    definirEnvios(
+      escolhidos.map((a, i) => ({
+        nome: rotulos[i],
+        estado: "escolhido" as const,
+        enviados: 0,
+        total: a.size,
+      }))
+    );
 
-    try {
-      const caminho = await prepararEEnviar(escolhido, forma, teto);
-      if (caminho) setCaminhos([caminho]);
-    } catch (erro) {
-      // O ENVIO QUE NÃO FOI NÃO PODE SUMIR CALADO. É a doença que o conserto de
-      // 02/09 curou nas cinco ações, e ela entraria aqui por uma promessa
-      // rejeitada sem `catch`.
-      atualizarEnvio(escolhido.name, { estado: "falhou", detalhe: mensagemDoErro(erro) });
+    // UM DE CADA VEZ, E NA ORDEM ESCOLHIDA. Não é economia de rede: a ordem do
+    // carrossel é conteúdo (todos os itens são cortados pela proporção do
+    // primeiro), e dez uploads em paralelo terminariam em ordem de tamanho, não
+    // na ordem que a pessoa escolheu. Sequencial, a lista sai como ela montou —
+    // e ainda dá para mudá-la nos botões abaixo.
+    for (let i = 0; i < escolhidos.length; i++) {
+      try {
+        const caminho = await prepararEEnviar(escolhidos[i], rotulos[i], forma, teto);
+        // CADA ARQUIVO ENTRA NA LISTA ASSIM QUE SOBE, e não todos no fim: um
+        // carrossel de dez leva minutos, e uma lista que só aparece no fim
+        // deixa quem está olhando sem saber o que já foi.
+        if (caminho) setItens((atuais) => [...atuais, { caminho, rotulo: rotulos[i] }]);
+      } catch (erro) {
+        // O ENVIO QUE NÃO FOI NÃO PODE SUMIR CALADO. É a doença que o conserto
+        // de 02/09 curou nas cinco ações, e ela entraria aqui por uma promessa
+        // rejeitada sem `catch`.
+        //
+        // E O LAÇO NÃO PARA: um arquivo recusado no meio de dez não é motivo
+        // para descartar os outros nove. Quem decide se o conjunto serve é a
+        // contagem logo acima, e a ação de servidor depois dela.
+        atualizarEnvio(rotulos[i], { estado: "falhou", detalhe: mensagemDoErro(erro) });
+      }
     }
   }
 
@@ -141,25 +180,32 @@ export default function Enviador({ teto }: { teto: number | null }) {
           onChange={(e) => trocarForma(e.target.value as FormaDePublicacao)}
         >
           <option value="imagem">Imagem no feed</option>
+          <option value="carrossel">Carrossel</option>
           <option value="reels">Reels</option>
           <option value="story">Story</option>
         </select>
-        {/* O CARROSSEL NÃO ESTÁ NA LISTA, e as duas regras dele estão escritas
-            aqui de propósito: a especificação (§6) manda dizê-las ANTES de
-            escolher arquivos, e quem lê "carrossel" numa lista já monta a peça
-            na cabeça. `formaQueATelaPublica` recusa a palavra do mesmo jeito, do
-            lado do servidor, para um `<select>` alterado à mão não gravar um
-            item que o dreno já recusa. */}
+        {/* AS DUAS REGRAS DO CARROSSEL APARECEM ANTES DE ESCOLHER OS ARQUIVOS, e
+            a especificação (§6) manda que seja assim: a ordem importa, e
+            descobri-la pelo resultado publicado é tarde — no perfil público não
+            há `DELETE` que desfaça (medido em 03/09).
+
+            Elas ficam visíveis SEMPRE, e não só com o carrossel escolhido: quem
+            está decidindo entre reels e carrossel precisa saber que os dois não
+            são a mesma coisa ANTES de escolher, e é justamente aí que a lista
+            ainda está fechada. */}
         <p className={hint}>
-          O carrossel ainda não publica por aqui. Quando publicar, valem duas
-          regras da Meta: reels não entra em carrossel, e todos os itens são
-          cortados pela proporção do primeiro.
+          No carrossel valem duas regras da Meta: reels não entra (vídeo em
+          carrossel é vídeo comum, sem áudio nomeado e sem aparecer no feed como
+          reels), e todos os itens são cortados pela proporção do PRIMEIRO — por
+          isso a ordem importa, e dá para mudá-la depois de enviar. São de 2 a{" "}
+          {CARROSSEL_ITENS_MAX} itens, e o post inteiro conta como uma só
+          publicação.
         </p>
       </div>
 
       <div>
         <label className={label} htmlFor="arquivo">
-          Arquivo
+          {forma === "carrossel" ? "Arquivos" : "Arquivo"}
         </label>
         <input
           id="arquivo"
@@ -169,6 +215,11 @@ export default function Enviador({ teto }: { teto: number | null }) {
           // vai no formulário. Ele já subiu direto ao bucket, e o que a ação
           // recebe é o caminho dele — ver o cabeçalho deste arquivo.
           accept={tiposQueOCampoAceita(forma)}
+          // `multiple` SÓ NO CARROSSEL, e é a única forma que publica mais de um
+          // arquivo. Nas outras, escolher dois publicaria o primeiro e
+          // descartaria o segundo — recusa que `recusaDaQuantidade` passou a
+          // fazer no servidor, e que este atributo evita ANTES.
+          multiple={forma === "carrossel"}
           onChange={aoEscolherArquivo}
           className="block w-full text-sm text-zinc-600 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-zinc-700 hover:file:bg-zinc-200 dark:text-zinc-400 dark:file:bg-zinc-800 dark:file:text-zinc-200"
         />
@@ -181,6 +232,57 @@ export default function Enviador({ teto }: { teto: number | null }) {
             : `Até ${Math.floor(teto / (1024 * 1024))} MB por arquivo no nosso armazenamento, além dos limites do próprio Instagram.`}
         </p>
       </div>
+
+      {/* A ORDEM DO CARROSSEL, EDITÁVEL — e ela é a razão desta lista existir.
+          Todos os itens são cortados pela proporção do PRIMEIRO, então trocar
+          quem está em primeiro reenquadra o post inteiro. Quem decide a lista
+          nova é `moverNaOrdem` (lib/publicacao.ts), que é pura e tem teste; o
+          que mora aqui é o botão. */}
+      {itens.length > 0 && (
+        <div className={`${card} space-y-2 p-4`}>
+          <p className={`text-xs font-medium ${muted}`}>
+            {itens.length === 1
+              ? "1 arquivo pronto para publicar."
+              : `${itens.length} arquivos prontos, nesta ordem. O primeiro decide o enquadramento de todos.`}
+          </p>
+          <ol className="space-y-1">
+            {itens.map((item, i) => (
+              <li key={item.caminho} className="flex items-center gap-2 text-xs">
+                <span className="tabular-nums text-zinc-500">{i + 1}.</span>
+                <span className="min-w-0 flex-1 truncate text-zinc-700 dark:text-zinc-300">
+                  {item.rotulo}
+                </span>
+                {/* `type="button"` NÃO É DETALHE: sem ele, o padrão do HTML é
+                    `submit`, e reordenar o carrossel PUBLICARIA o post. */}
+                <button
+                  type="button"
+                  aria-label={`Subir ${item.rotulo}`}
+                  disabled={i === 0}
+                  onClick={() => setItens(moverNaOrdem(itens, i, i - 1))}
+                  className="rounded px-2 py-0.5 text-zinc-600 enabled:hover:bg-zinc-100 disabled:opacity-30 dark:text-zinc-300 dark:enabled:hover:bg-zinc-800"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Descer ${item.rotulo}`}
+                  disabled={i === itens.length - 1}
+                  onClick={() => setItens(moverNaOrdem(itens, i, i + 1))}
+                  className="rounded px-2 py-0.5 text-zinc-600 enabled:hover:bg-zinc-100 disabled:opacity-30 dark:text-zinc-300 dark:enabled:hover:bg-zinc-800"
+                >
+                  ↓
+                </button>
+              </li>
+            ))}
+          </ol>
+          {/* A MESMA FRASE QUE A AÇÃO USARIA AO RECUSAR, e pelo mesmo motivo da
+              legenda: duas redações do mesmo "não" fazem quem lê achar que são
+              dois problemas. Ela AVISA — quem recusa é o servidor. */}
+          {problemaDaQuantidade && (
+            <p className={fieldError}>{textoDaRecusaDaPublicacao(problemaDaQuantidade)}</p>
+          )}
+        </div>
+      )}
 
       <div>
         <label className={label} htmlFor="legenda">
@@ -219,7 +321,11 @@ export default function Enviador({ teto }: { teto: number | null }) {
           navegador, ou seja do usuário. Quem confere que ele está dentro da
           pasta da conta do cookie é `caminhosDoCampo` (lib/publicacao.ts), no
           servidor. */}
-      <input type="hidden" name="caminhos" value={caminhos.join("\n")} />
+      <input
+        type="hidden"
+        name="caminhos"
+        value={itens.map((i) => i.caminho).join("\n")}
+      />
       <input ref={campoDeFuso} type="hidden" name="fuso" defaultValue="" />
 
       {/* A LISTA DENTRO DA TELA, além da janelinha do canto: quem está olhando
@@ -249,17 +355,22 @@ export default function Enviador({ teto }: { teto: number | null }) {
  * Do arquivo escolhido ao caminho no bucket. Devolve o caminho, ou `null`
  * quando o arquivo foi recusado (e o motivo já foi escrito no depósito).
  *
- * O NOME QUE APARECE NA TELA É O ORIGINAL, do começo ao fim, mesmo quando o
- * arquivo é convertido: quem escolheu "arte.png" não sabe o que é
+ * O RÓTULO É A IDENTIDADE NA TELA, e vem de fora porque quem sabe quantos
+ * arquivos há é quem chama: no carrossel ele leva a posição
+ * (`rotuloDoEnvio`), que é o que separa dois "arte.jpg" e o que mostra a ordem
+ * enquanto tudo sobe.
+ *
+ * E ELE CARREGA O NOME ORIGINAL do começo ao fim, mesmo quando o arquivo é
+ * convertido: quem escolheu "arte.png" não sabe o que é
  * `nomeDepoisDaConversao`, e ver "arte.jpg" no meio do envio pareceria outro
  * arquivo. O nome novo vai só para o bucket, que é onde ele importa.
  */
 async function prepararEEnviar(
   escolhido: File,
+  nome: string,
   forma: FormaDePublicacao,
   teto: number | null
 ): Promise<string | null> {
-  const nome = escolhido.name;
   let medidas = await medir(escolhido);
 
   const plano = planoDaConversao({

@@ -1503,6 +1503,9 @@ export function tiposQueOCampoAceita(forma: FormaDePublicacao): string {
     // arte, num caso em que o produto sabe resolver sozinho.
     return [...MIMES_DE_IMAGEM, "image/png", "image/webp"].join(",");
   }
-  // Story aceita as duas mídias, e a conversão vale para a imagem dele igual.
+  // STORY E CARROSSEL ACEITAM AS DUAS MÍDIAS, e a conversão vale para a imagem
+  // deles igual. No carrossel, vídeo é vídeo COMUM — sem `share_to_feed`, sem
+  // `audio_name`, sem capa —, e é por isso que ele não é a mesma coisa que
+  // reels, que a Meta não deixa entrar em carrossel.
   return [...MIMES_DE_IMAGEM, "image/png", "image/webp", ...MIMES_DE_VIDEO].join(",");
 }
