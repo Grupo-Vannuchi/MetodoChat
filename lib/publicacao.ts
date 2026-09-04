@@ -201,7 +201,23 @@ export function problemaDoArquivo(
   return null;
 }
 
-/** O teto de bytes que a META impõe para esta forma e esta mídia. */
+/**
+ * O teto de bytes que a META impõe para esta forma e esta mídia.
+ *
+ * ABERTO E DECLARADO: VÍDEO DE CARROSSEL CAI NO RAMO DO REELS, aqui (300 MB) e
+ * no bloco de duração acima (3 s a 15 min). Vídeo em carrossel é vídeo COMUM —
+ * é a própria regra que `parametrosDoContainer` aplica ao recusar `share_to_feed`
+ * e `audio_name` no filho —, e os limites DELE não foram medidos em lugar nenhum
+ * desta branch.
+ *
+ * NÃO FOI CONSERTADO PORQUE O CONSERTO PEDE NÚMERO, e número aqui só vale
+ * medido: os desta função vieram todos da referência da Meta lida em 03/09/2026
+ * (ver o bloco no topo do arquivo), e inventar um teto mais apertado recusaria
+ * arquivo bom sem que ninguém saiba por quê. Enquanto isso, metade do risco está
+ * mascarada pelo teto do PRÓPRIO bucket, que é de 50 MB e vem antes.
+ *
+ * MESMA FAMÍLIA DO ITEM ABERTO Nº 1 do plano.
+ */
 function tetoDaMeta(forma: FormaDePublicacao, ehVideo: boolean): number {
   if (!ehVideo) return IMAGEM_BYTES_MAX;
   if (forma === "story") return STORY_BYTES_MAX;

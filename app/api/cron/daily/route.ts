@@ -115,6 +115,20 @@ export async function GET(req: NextRequest) {
   //
   // ANTES DA DRENAGEM, de propósito: ela olha `not_before > now()`, e o que já
   // está na hora sai na linha seguinte, sem precisar de tique nenhum.
+  //
+  // ABERTO E DECLARADO — O ORÇAMENTO DE 60 SEGUNDOS. `maxDuration` é 60 (topo
+  // deste arquivo) e esta varredura faz até 200 publicações SEQUENCIAIS no
+  // QStash, uma ida de rede cada; a ~200 ms por ida são ~40 s, em cima do laço
+  // das contas que já rodou. Estourado o teto, a drenagem da linha de baixo não
+  // acontece naquele dia.
+  //
+  // NÃO FOI MEXIDO PORQUE AS DUAS SAÍDAS TROCAM UM PERDEDOR POR OUTRO, e não
+  // tenho medição para escolher: inverter a ordem (drenar primeiro) salva a
+  // drenagem e passa a arriscar o armamento — e aí um post de daqui a 12 h só
+  // sairia no webhook seguinte, porque a passagem seguinte do cron é 24 h
+  // depois, já passada a hora dele. Baixar o `limit` corta horários do dia.
+  // Nada se PERDE em nenhum dos dois: a fila continua drenando por webhook.
+  // Medir quanto uma passagem do cron custa hoje, em produção, é o que decide.
   const { armados } = await armarTiquesDoDia();
 
   const drained = await drainQueue();

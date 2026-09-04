@@ -119,6 +119,26 @@ export default function Enviador({ teto }: { teto: number | null }) {
     // enviado sob a regra antiga viraria um post que a Meta recusa depois de
     // tudo pronto. O objeto fica no bucket como órfão de upload abandonado —
     // que é o caso já registrado como aberto no plano, depois da Tarefa 4.
+    //
+    // E ESTE É O CAMINHO MAIS BARATO DO ÓRFÃO, medido na revisão final: trocar
+    // de forma depois de subir dez arquivos de carrossel deixa DEZ órfãos, e é
+    // um clique — mais barato de provocar do que fechar a aba, que era o caso
+    // que o plano tinha em mente.
+    //
+    // FICA ABERTO DE PROPÓSITO, e o motivo é que nenhuma das duas saídas cabia
+    // nesta onda:
+    //
+    //   APAGAR DAQUI exigiria uma ação de servidor nova que APAGA objeto — uma
+    //   superfície de escrita nova entrando na véspera da produção —, e ela não
+    //   poderia ter saída muda (é regra do dono), o que lhe daria tela que ela
+    //   não merece. E não cobriria a aba fechada, que orfana igual.
+    //
+    //   A VARREDURA DE ÓRFÃOS, que é a saída certa, não existe: `lib/bucket.ts`
+    //   não sabe LISTAR (só `sign`, `public`, `delete` e `teto`), então nem há
+    //   como perguntar o que sobrou. Ela é recurso novo, e não conserto.
+    //
+    // O custo hoje é armazenamento parado num bucket de 50 MB, e nada mais: o
+    // caminho é da pasta da conta, nunca vira post, e ninguém o alcança.
     setItens([]);
     limparEnvios();
     if (campoDeArquivo.current) campoDeArquivo.current.value = "";
