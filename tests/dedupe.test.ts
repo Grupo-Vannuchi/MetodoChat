@@ -219,7 +219,7 @@ describe("os prefixos não se repetem entre tipos", () => {
       storyReactionKey("m"),
       passoKey("a", "c", "0", "d"),
       loteKey("acc-1", "L1", "c"),
-      publicacaoKey("acc-1", "acc-1/abc.jpg"),
+      publicacaoKey("acc-1", "imagem", ["acc-1/abc.jpg"]),
     ].map((k) => k.split(":")[0]);
 
     expect(new Set(prefixos).size).toBe(prefixos.length);
@@ -227,8 +227,10 @@ describe("os prefixos não se repetem entre tipos", () => {
 });
 
 describe("publicacaoKey", () => {
-  it("mantém o formato: pub, conta e caminho do objeto", () => {
-    expect(publicacaoKey("acc-1", "acc-1/abc.jpg")).toBe("pub:acc-1:acc-1/abc.jpg");
+  it("mantém o formato: pub, conta, forma e caminhos do objeto", () => {
+    expect(publicacaoKey("acc-1", "imagem", ["acc-1/abc.jpg"])).toBe(
+      "pub:acc-1:imagem:acc-1/abc.jpg"
+    );
   });
 
   // O CAMINHO DO OBJETO É O QUE TORNA O POST ÚNICO, e não um identificador
@@ -237,8 +239,15 @@ describe("publicacaoKey", () => {
   // pedido duas vezes (clique duplo em "publicar", ou a aba recarregada com o
   // formulário preenchido) traz o mesmo caminho e vira um item só.
   it("dois uploads diferentes são dois posts", () => {
-    expect(publicacaoKey("acc-1", "acc-1/um.jpg")).not.toBe(
-      publicacaoKey("acc-1", "acc-1/dois.jpg")
+    expect(publicacaoKey("acc-1", "imagem", ["acc-1/um.jpg"])).not.toBe(
+      publicacaoKey("acc-1", "imagem", ["acc-1/dois.jpg"])
+    );
+  });
+
+  it("o mesmo pedido, duas vezes, é uma chave só", () => {
+    const caminhos = ["acc-1/um.jpg", "acc-1/dois.jpg"];
+    expect(publicacaoKey("acc-1", "carrossel", caminhos)).toBe(
+      publicacaoKey("acc-1", "carrossel", [...caminhos])
     );
   });
 
@@ -248,16 +257,50 @@ describe("publicacaoKey", () => {
   // payload — dado de fora — e a defesa aqui é estrutural, e não a confiança
   // em como outro arquivo monta a string.
   it("o mesmo caminho em duas contas não colide", () => {
-    expect(publicacaoKey("conta-a", "objeto.jpg")).not.toBe(
-      publicacaoKey("conta-b", "objeto.jpg")
+    expect(publicacaoKey("conta-a", "imagem", ["objeto.jpg"])).not.toBe(
+      publicacaoKey("conta-b", "imagem", ["objeto.jpg"])
     );
   });
 
-  // O PRIMEIRO CAMINHO É A IDENTIDADE DO CARROSSEL (Tarefa 6): dez arquivos
-  // fazem um post, e o post é um item de fila só. Repetir os dez na chave
-  // deixaria a chave gigante sem tornar nada mais único.
-  it("o carrossel é identificado pelo primeiro arquivo", () => {
-    expect(publicacaoKey("acc-1", "acc-1/primeiro.jpg")).toBe("pub:acc-1:acc-1/primeiro.jpg");
+  // A SEGUNDA FACE, MEDIDA NA REVISÃO: o mesmo arquivo como "imagem" e depois
+  // como "story" batia na MESMA chave, e o segundo pedido era recusado com "já
+  // está na fila" — frase que não descreve o que aconteceu. Publicar a mesma
+  // peça no feed e no story é pedido legítimo, e comum.
+  it("o mesmo arquivo em duas formas são dois posts", () => {
+    expect(publicacaoKey("acc-1", "imagem", ["acc-1/arte.jpg"])).not.toBe(
+      publicacaoKey("acc-1", "story", ["acc-1/arte.jpg"])
+    );
+  });
+
+  // A ORDEM DO CARROSSEL É CONTEÚDO: todos os itens são cortados pela proporção
+  // do PRIMEIRO, e a tela deixa a ordem editável por causa disso. Com só o
+  // primeiro caminho na chave, reordenar mantendo o primeiro item fazia um post
+  // DIFERENTE ser engolido em silêncio.
+  it("o carrossel reordenado é outro post, mesmo com o primeiro item no lugar", () => {
+    const a = publicacaoKey("acc-1", "carrossel", ["p/um.jpg", "p/dois.jpg", "p/tres.jpg"]);
+    const b = publicacaoKey("acc-1", "carrossel", ["p/um.jpg", "p/tres.jpg", "p/dois.jpg"]);
+    expect(a).not.toBe(b);
+  });
+
+  // E O OUTRO LADO DO MESMO ENGANO: reordenar TROCANDO o primeiro item dava
+  // chave nova, e o mesmo post entrava duas vezes. Hoje as duas perguntas têm a
+  // mesma resposta, porque a chave leva a lista inteira.
+  it("o carrossel com os mesmos itens em outra ordem nunca casa por acidente", () => {
+    const a = publicacaoKey("acc-1", "carrossel", ["p/um.jpg", "p/dois.jpg"]);
+    const b = publicacaoKey("acc-1", "carrossel", ["p/dois.jpg", "p/um.jpg"]);
+    expect(a).not.toBe(b);
+  });
+
+  // O TAMANHO NO PIOR CASO: dez itens de carrossel (`CARROSSEL_ITENS_MAX`),
+  // cada caminho no formato `<conta>/<uuid>.<ext>`. O índice único do Postgres
+  // aguarda muito mais que isto, e o caso existe para que crescer a chave de
+  // novo seja uma decisão, e não um descuido.
+  it("dez itens de carrossel cabem folgado na chave", () => {
+    const caminhos = Array.from(
+      { length: 10 },
+      (_, i) => `17841400000000001/00000000-0000-4000-8000-00000000000${i}.jpg`
+    );
+    expect(publicacaoKey("17841400000000001", "carrossel", caminhos).length).toBeLessThan(1000);
   });
 });
 

@@ -162,8 +162,33 @@ export const loteKey = (accountId: string, loteId: string, contactIgId: string) 
 // mas ele chega aqui vindo do payload — dado de fora —, e a defesa é
 // estrutural em vez de confiar em como outro arquivo monta a string.
 //
-// PARA O CARROSSEL (Tarefa 6) VAI O PRIMEIRO CAMINHO: dez arquivos fazem UM
-// post, e o post é um item de fila só. Repetir os dez aqui deixaria a chave
-// gigante sem tornar nada mais único.
-export const publicacaoKey = (accountId: string, primeiroCaminho: string) =>
-  `pub:${accountId}:${primeiroCaminho}`;
+// A FORMA ENTRA NA CHAVE, e ela é a segunda face do mesmo defeito. MEDIDO na
+// revisão: o mesmo arquivo pedido como "imagem" e depois como "story" batia na
+// MESMA chave, e o segundo pedido era recusado com "já está na fila" — uma
+// frase que não descreve o que aconteceu, sobre dois posts que são diferentes.
+// Publicar a mesma peça no feed e no story é pedido legítimo, e comum.
+//
+// A LISTA INTEIRA ENTRA, EM ORDEM, e não só o primeiro caminho. A versão
+// anterior levava `caminhos[0]`, e ela errava dos DOIS lados:
+//
+//   reordenar trocando o primeiro item  ->  chave nova, e o MESMO post entrava
+//                                           duas vezes na fila
+//   reordenar mantendo o primeiro item  ->  chave igual, e um post DIFERENTE
+//                                           era engolido em silêncio
+//
+// Os dois são o mesmo engano: a ordem do carrossel é CONTEÚDO — todos os itens
+// são cortados pela proporção do PRIMEIRO, e é por isso que a tela deixa a
+// ordem editável (`moverNaOrdem`, lib/publicacao.ts). Com a lista inteira, a
+// pergunta que a chave faz passa a ser a certa: "é este mesmo post, com estas
+// mesmas peças, nesta mesma ordem?".
+//
+// A CHAVE NÃO FICA GIGANTE: são no máximo dez caminhos (`CARROSSEL_ITENS_MAX`),
+// cada um do tamanho de `<conta>/<uuid>.<ext>` — cerca de 600 caracteres no
+// pior caso, muito abaixo do que o índice único aguenta.
+//
+// MUDAR ESTE FORMATO NÃO AUTORIZA ENVIO EM DOBRO AQUI, e é o aviso do topo
+// deste arquivo respondido: a fila não tem nenhum item `publicacao` antigo para
+// deixar de casar — a migração que criou o tipo (`010`) entra junto com este
+// código.
+export const publicacaoKey = (accountId: string, forma: string, caminhos: string[]) =>
+  `pub:${accountId}:${forma}:${caminhos.join(",")}`;

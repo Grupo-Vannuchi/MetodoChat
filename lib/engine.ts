@@ -2320,10 +2320,11 @@ export async function enqueuePublicacao(
     account_id: accountId,
     kind: "publicacao",
     // A CHAVE LEVA A CONTA, pelo mesmo motivo que a de `enqueueLote` leva:
-    // `dedupe_key` é `unique` na tabela inteira. O resto dela é o caminho do
-    // primeiro objeto no bucket, que é único por upload — ver `publicacaoKey`
-    // (lib/dedupe.ts).
-    dedupe_key: publicacaoKey(accountId, pedido.caminhos[0]),
+    // `dedupe_key` é `unique` na tabela inteira. O resto dela é a FORMA e a
+    // lista INTEIRA de caminhos, em ordem — cada caminho é único por upload, e
+    // a ordem do carrossel é conteúdo. Ver `publicacaoKey` (lib/dedupe.ts), que
+    // tem as duas medições que obrigaram as duas partes.
+    dedupe_key: publicacaoKey(accountId, pedido.forma, pedido.caminhos),
     payload: payloadDaPublicacao(pedido),
     delaySeconds: atraso,
     // O TIQUE SÓ SAI DAQUI QUANDO A HORA CABE NO HORIZONTE QUE CONFERIMOS. Ver
