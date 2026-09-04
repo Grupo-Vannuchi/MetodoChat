@@ -1265,7 +1265,19 @@ export async function armarTiquesDoDia(): Promise<{ armados: number }> {
     // de chegar DEPOIS de o item ficar elegível, e não no instante exato — a
     // seleção pede `not_before <= now()`, e um tique adiantado por um
     // milissegundo é uma drenagem que não acha nada.
-    await scheduleTick(config.app_url ?? "", Math.max(linha.secs + 5, 20));
+    //
+    // E O TETO É O MESMO DO RODAPÉ, pelo mesmo motivo. A janela desta consulta
+    // é `<= now() + 86400`, então `linha.secs` chega a 86400 — e os cinco
+    // segundos de folga o empurram para 86405, CINCO SEGUNDOS ALÉM do horizonte
+    // que este projeto declarou nunca ultrapassar. Um atraso além do horizonte
+    // é justamente o que `scheduleTick` engoliria calado se o QStash o
+    // recusasse, e é a coisa que `HORIZONTE_DO_TIQUE_EM_SEGUNDOS` existe para
+    // impedir. Os cinco segundos não se perdem: um tique cinco segundos cedo
+    // acorda uma drenagem que não acha nada, e a seguinte acha.
+    await scheduleTick(
+      config.app_url ?? "",
+      Math.min(Math.max(linha.secs + 5, 20), HORIZONTE_DO_TIQUE_EM_SEGUNDOS)
+    );
   }
   return { armados: linhas.length };
 }

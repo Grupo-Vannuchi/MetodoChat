@@ -254,3 +254,51 @@ describe("o rodape do dreno e quantos tiques ele publica", () => {
     expect(publicados).toEqual([]);
   });
 });
+
+describe("a varredura do cron e o horizonte que ela nunca pode passar", () => {
+  // O RODAPÉ DO DRENO TEM O `Math.min` DESDE SEMPRE; esta varredura não tinha.
+  // A janela da consulta dela é `<= now() + 86400`, então o item mais distante
+  // devolve ~86400 s — e os cinco segundos de folga o empurravam para 86405,
+  // CINCO SEGUNDOS além do horizonte que este projeto declarou nunca
+  // ultrapassar. Um atraso além do horizonte é exatamente o que `scheduleTick`
+  // engoliria calado se o QStash o recusasse.
+  test("o item na BORDA da janela nao entrega atraso alem de um dia", async () => {
+    await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/na-borda-da-janela.jpg`] },
+      // EXATAMENTE UM DIA, que é a borda da janela desta varredura
+      // (`not_before <= now() + 86400`). O item entra, e `secs` volta 86400 —
+      // os cinco segundos de folga o levariam a 86405. Uma folga de 30 s abaixo
+      // da borda NÃO serve de caso: ela deixa o plantio sobreviver, e isso foi
+      // medido antes de este número virar o que é.
+      new Date(Date.now() + UM_DIA_EM_SEGUNDOS * 1000)
+    );
+    publicados = [];
+
+    expect(await dreno.armarTiquesDoDia()).toEqual({ armados: 1 });
+
+    expect(publicados.length).toBe(1);
+    const segundos = Number((publicados[0].atraso ?? "").replace(/s$/, ""));
+    expect(Number.isFinite(segundos)).toBe(true);
+    expect(segundos).toBeLessThanOrEqual(UM_DIA_EM_SEGUNDOS);
+  });
+
+  // A METADE QUE IMPEDE O TETO DE VIRAR UM `Math.min(..., 20)`: o que está
+  // longe da borda continua sendo armado para a hora dele, e não para daqui a
+  // pouco.
+  test("longe da borda, o atraso continua sendo o do item", async () => {
+    await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/daqui-a-duas-horas.jpg`] },
+      new Date(Date.now() + 2 * 60 * 60 * 1000)
+    );
+    publicados = [];
+
+    expect(await dreno.armarTiquesDoDia()).toEqual({ armados: 1 });
+
+    expect(publicados.length).toBe(1);
+    const segundos = Number((publicados[0].atraso ?? "").replace(/s$/, ""));
+    expect(segundos).toBeGreaterThan(2 * 60 * 60 - 60);
+    expect(segundos).toBeLessThanOrEqual(2 * 60 * 60 + 10);
+  });
+});
