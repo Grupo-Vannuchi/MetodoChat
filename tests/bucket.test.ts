@@ -28,7 +28,7 @@ process.env.SUPABASE_URL = "https://exemplo.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "chave-de-teste-que-nao-e-usada-aqui";
 process.env.SUPABASE_BUCKET = "MetodoChat";
 
-const { caminhoDoObjeto, urlPublicaDoObjeto } = await import("@/lib/bucket");
+const { caminhoDoObjeto, urlPublicaDoObjeto, pastaDaConta } = await import("@/lib/bucket");
 
 const CONTA_A = "17841400000000001";
 const CONTA_B = "17841400000000002";
@@ -70,6 +70,51 @@ describe("caminhoDoObjeto", () => {
 
   it("sem identificador dado, dois pedidos seguidos nao colidem", () => {
     expect(caminhoDoObjeto(CONTA_A, "foto.jpg")).not.toBe(caminhoDoObjeto(CONTA_A, "foto.jpg"));
+  });
+});
+
+// MEDIDO NO PLANTIO DE 04/09/2026, e por isso este bloco existe: apagar a
+// higienizacao da CONTA (`contaIgId.replace(...)`) passava por lint, typecheck e
+// pelos 1.191 testes puros sem uma linha vermelha. Os casos acima cobrem o NOME
+// do arquivo, que e texto de gente — mas nenhum cobria a CONTA, que e o
+// primeiro segmento do caminho, e o unico que separa um dono do outro.
+//
+// A conta e numerica hoje, e por isso o buraco nao tinha sintoma. O dia em que
+// ela deixar de ser nao pode ser o dia em que alguem escreve fora da propria
+// pasta — e agora esse dia fica vermelho aqui, e nao em producao.
+//
+// A funcao e exportada porque ha DOIS lados do mesmo caminho: `caminhoDoObjeto`
+// a usa para ESCREVER, e a acao de publicar (app/publicar/actions.ts) a usa
+// para CONFERIR que o caminho vindo do formulario esta dentro da pasta da conta
+// do cookie. Duas versoes desta higienizacao seriam duas regras para manter
+// iguais, e elas divergem.
+describe("pastaDaConta", () => {
+  it("a conta comum atravessa inteira", () => {
+    expect(pastaDaConta(CONTA_A)).toBe(CONTA_A);
+  });
+
+  // O SALTO DE DIRETORIO PELA CONTA e o mesmo defeito que o caso do NOME ja
+  // prendia, pela outra metade do caminho.
+  it("barra e ponto-ponto na conta nao viram pasta", () => {
+    expect(pastaDaConta("../outra")).toBe("outra");
+    // O PONTO TAMBEM SOME: ele nao esta em [A-Za-z0-9_-]. Medido — a primeira
+    // versao deste caso esperava "conta..etc", e a funcao e mais estrita do que
+    // isso.
+    expect(pastaDaConta("conta/../../etc")).toBe("contaetc");
+    expect(pastaDaConta("a/b")).toBe("ab");
+  });
+
+  it("o que precisaria ser escapado numa URL some", () => {
+    expect(pastaDaConta("conta com espaco")).toBe("contacomespaco");
+    expect(pastaDaConta("conta?x=1#y")).toBe("contax1y");
+    expect(pastaDaConta("cont@")).toBe("cont");
+  });
+
+  // `caminhoDoObjeto` USA ESTA FUNCAO, e nao a propria copia. O caso prende os
+  // dois lados juntos: se alguem reescrever a higienizacao dentro de
+  // `caminhoDoObjeto`, as duas deixam de concordar e isto fica vermelho.
+  it("e a mesma pasta que caminhoDoObjeto escreve", () => {
+    expect(caminhoDoObjeto("../outra", "foto.jpg", "x")).toBe(`${pastaDaConta("../outra")}/x.jpg`);
   });
 });
 
