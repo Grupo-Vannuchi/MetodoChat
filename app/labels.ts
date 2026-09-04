@@ -6,6 +6,7 @@
 // MESMA pergunta que o salvar e o painel fazem sobre palavra-chave, e reescrevê-
 // la aqui criaria a segunda resposta que esta fase inteira vem apagando.
 import { gatilhoPedePalavraChave } from "@/lib/steps";
+import type { QueueItem } from "@/lib/db";
 
 type Badge = { label: string; className: string };
 
@@ -125,6 +126,23 @@ const EVENT: Record<string, Badge> = {
     label: "Menu saiu sem botão nenhum",
     className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
   },
+  // O POST SAIU E O ARQUIVO FICOU NO BUCKET (`limparOBucket`,
+  // lib/queue-drain.ts). Âmbar, e não vermelho, pelo critério deste dicionário:
+  // ninguém deixou de receber nada, e a publicação está no perfil. O que sobra é
+  // custo — um reels são 200 MB, e o que ninguém vê hoje vira a conta do
+  // Supabase em três meses.
+  midia_nao_apagada: {
+    label: "Arquivo publicado ficou no armazenamento",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+  },
+  // O ITEM DE PUBLICAÇÃO CHEGOU AO DRENO COM UM PAYLOAD QUE NÃO É DE
+  // PUBLICAÇÃO. A coluna é `jsonb` e editável por fora do painel — o par disto
+  // no lote é `lote_com_payload_invalido`. Vermelho porque o post NÃO saiu, e o
+  // dono acha que agendou.
+  publicacao_com_payload_invalido: {
+    label: "Publicação com dados inválidos",
+    className: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
+  },
   // A PERGUNTA DE ABERTURA APONTA PARA UMA AUTOMAÇÃO QUE NÃO TEM O GATILHO
   // `abertura` (lib/engine.ts). A pergunta mora no perfil da conta na Meta, fora
   // do banco, e continua disparando — recusar aqui faria a pergunta que está no
@@ -204,7 +222,20 @@ export function eventBadge(type: string): Badge {
 // estar aqui. Faltando um, ele ia CRU para a tela — foi o que aconteceu com
 // `dm_manual`, que é o rótulo mais frequente da lista e aparecia como
 // identificador técnico.
-const KIND: Record<string, string> = {
+// `Record<QueueItem["kind"], ...>` E NAO `Record<string, ...>`, e esta linha e o
+// conserto de uma falha que este arquivo ja registrou DUAS VEZES nos proprios
+// comentarios: `dm_manual` apareceu cru na tela, e `dm_lote` entrou depois so
+// para nao repetir. As duas foram pegas por alguem olhando, nunca por um portao.
+//
+// Medido em 03/09/2026: apagar uma entrada deste dicionario passava por lint,
+// typecheck e os 1069 testes puros. Agora nao passa — o `tsc` recusa, nomeando
+// o `kind` que falta.
+//
+// O IMPORT E DE TIPO, e por isso nao contradiz o comentario do topo deste
+// arquivo: `import type` e apagado na compilacao, entao o `server-only` de
+// `lib/db.ts` nao entra no pacote do navegador. A regra de "um import so" existe
+// para impedir codigo de servidor de vazar para o cliente; tipo nao vaza.
+const KIND: Record<QueueItem["kind"], string> = {
   private_reply: "Boas-vindas no privado",
   comment_reply: "Resposta no comentário",
   dm_welcome: "Boas-vindas na DM",
@@ -222,6 +253,15 @@ const KIND: Record<string, string> = {
   // mesmo risco: sem entrada aqui, cairia em "Outro envio", a MESMA falha que
   // o `dm_manual` já teve, registrada no comentário do topo deste dicionário.
   dm_lote: "Envio em lote",
+  // A PUBLICAÇÃO NO INSTAGRAM (migrations/010-fila-publicacao.sql). Terceira
+  // entrada pelo mesmo motivo das duas de cima, e a única que NÃO é mensagem:
+  // ela não sai para uma pessoa, sai para o perfil.
+  //
+  // E é justamente por não ser mensagem que ela mais precisava estar aqui. A
+  // reserva do `kindLabel` é "Outro envio", que já não mente para uma DM — mas
+  // para um post ela erraria duas vezes: sugere destinatário onde não há um, e
+  // esconde a única coisa da fila que fica pública para sempre.
+  publicacao: "Publicação no Instagram",
 };
 
 // Kind sem rótulo devolve algo legível, e nunca o nome interno — como
@@ -234,7 +274,53 @@ const KIND: Record<string, string> = {
 // "Outro envio" não vaza jargão e não mente; de quebra, deixa perceber que
 // apareceu algo que este dicionário ainda não conhece.
 export function kindLabel(kind: string): string {
-  return KIND[kind] ?? "Outro envio";
+  // A LEITURA ACEITA QUALQUER TEXTO, e a ESCRITA e que e fechada — os dois lados
+  // estao certos e sao diferentes. O dicionario acima e completo por construcao
+  // (o `tsc` recusa se faltar um `kind`), mas o valor que chega aqui vem do
+  // BANCO, e o banco pode estar a frente do codigo: uma migracao aplicada no
+  // build roda ANTES de o codigo novo entrar no ar, entao existe uma janela em
+  // que a fila tem um `kind` que este arquivo ainda nao conhece. E para essa
+  // janela que a reserva existe.
+  return (KIND as Record<string, string>)[kind] ?? "Outro envio";
+}
+
+// ---------- Para quem foi ----------
+
+/**
+ * A COLUNA "Para quem" DA TELA DE ATIVIDADE, decidida aqui e não no JSX.
+ *
+ * O DEFEITO QUE ELA FECHA: a publicação entra na fila com `contact_ig_id` NULO
+ * de propósito — "ela não sai para uma pessoa, sai para o perfil"
+ * (`enqueuePublicacao`, lib/engine.ts). O `left join` com `contacts` não acha
+ * ninguém, então `person_username` e `person_name` vêm nulos, e a reserva
+ * escrita na tela era a palavra "Visitante". A tela AFIRMAVA um destinatário
+ * que não existe, e afirmava justamente na ÚNICA tela onde um post que falhou
+ * aparece (a especificação §5 recusou aviso fora dela, e
+ * `avisoDaPublicacaoEnfileirada` aponta para cá por escrito).
+ *
+ * A PALAVRA É "Seu perfil", e a escolha tem motivo: a coluna pergunta PARA QUEM,
+ * e a resposta honesta de um post é o perfil de quem publicou. "Ninguém" seria
+ * verdade e não ajuda; "Você" leria como se o post tivesse ido para a caixa de
+ * entrada do dono. E ela não vaza jargão nem o nome interno do `kind` — mesma
+ * disciplina da reserva de `kindLabel`.
+ *
+ * "VISITANTE" CONTINUA EXISTINDO, e continua certo onde sempre esteve: um envio
+ * COM contato cujo perfil o painel ainda não conhece pelo nome. O que mudou é
+ * que ele deixou de ser a resposta para "não há contato nenhum".
+ *
+ * POR QUE AQUI E NÃO EM `lib/envio-filters.ts`: aquele arquivo diz, escrito no
+ * comentário de `SITUACOES`, que rótulo não mora lá — as listas de valores
+ * válidos são dele, as PALAVRAS são deste arquivo. Duas casas para a mesma
+ * frase é o que ele existe para evitar.
+ */
+export function paraQuemLabel(envio: {
+  contact_ig_id: string | null;
+  person_username: string | null;
+  person_name: string | null;
+}): string {
+  if (envio.contact_ig_id === null) return "Seu perfil";
+  if (envio.person_username) return `@${envio.person_username}`;
+  return envio.person_name ?? "Visitante";
 }
 
 // ---------- Quem mandou ----------

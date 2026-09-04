@@ -51,6 +51,35 @@ Instagram API com Login do Instagram (`graph.instagram.com`, v25.0).
 
 ### Tarefa 1: O PORTÃO — a prova de que a Meta publica
 
+> **RESULTADO, medido em 03/09/2026 contra a conta @vannuchi.eng — PASSOU.**
+>
+> | etapa | resultado |
+> |---|---|
+> | upload no bucket `MetodoChat` | HTTP 200 |
+> | URL pública alcançável **sem autenticação** | HTTP 200 — a Meta baixa do nosso bucket |
+> | `POST /media` (imagem) | 200; `FINISHED` em **10 s** |
+> | `POST /media` (reels, `trial_params` MANUAL) | 200; `FINISHED` em **32 s** |
+> | `POST /media_publish` | 200 — ponta a ponta em **40 s** |
+> | PPA | **não bloqueou** |
+> | limite real | **`quota_total: 100`, `quota_duration: 86400`** |
+> | as quatro contas | permissão concedida, conferida pelo endpoint |
+>
+> **O `retryInSeconds: 60` da Tarefa 4 deixou de ser chute:** 9x de folga sobre
+> o pior caso medido (32 s), com teto de 5 passadas.
+>
+> **Reels de teste CONSOME cota.** A leitura logo após publicar deu
+> `quota_usage: 0` e enganou; minutos depois virou `1`. Não use "não conta" como
+> premissa em lugar nenhum.
+>
+> **`DELETE /{ig-media-id}` NÃO existe no nosso caminho** — é exclusivo da API
+> via Login do Facebook. Consequência para todo teste futuro: publicação de
+> teste só com `trial_params`, e a remoção é manual no aplicativo. Foi por isso
+> que a prova da imagem parou no contêiner, sem publicar.
+>
+> **Achado lateral, para depois:** `accounts.connected_at` NÃO é atualizado na
+> reconexão — segue marcando 17/08 e 28/07 depois de as quatro reconectarem
+> hoje. Não quebra nada; a tela mostra data errada.
+
 **Nada mais se constrói antes desta tarefa passar.** Ela responde duas coisas
 que não se resolvem lendo: PPA e o limite real.
 
@@ -597,6 +626,25 @@ Cada um: VERMELHO esperado na integração. O que ficar verde, **diga**.
 - [ ] **Passo 9: commitar**
 
 ---
+
+> **ABERTO DEPOIS DA TAREFA 4 — a varredura de órfãos do bucket não existe.**
+>
+> A Tarefa 2 decidiu sem tabela, e a decisão continua certa: o órfão que mais
+> aparece — upload terminado e enfileiramento que nunca houve — não teria linha
+> em tabela nenhuma. Mas a varredura que ela pressupõe **não foi escrita**, e
+> `lib/bucket.ts` não sabe listar.
+>
+> Duas restrições já medidas para quem a fizer: a **URL pública não serve de
+> prova** (depois de um `DELETE` bem-sucedido ela seguiu devolvendo 200 com o
+> conteúdo antigo, por cache de CDN — use a listagem autenticada), e
+> `apagarObjeto` de caminho inexistente **lança**.
+>
+> Órfão de item `failed` fica de propósito: quem for tentar de novo precisa do
+> arquivo. Órfão de upload abandonado (a pessoa escolhe o arquivo, ele sobe, e
+> ela fecha a aba sem enfileirar) **fica sem ninguém para recolher**. Hoje custa
+> pouco; com reels de 50 MB, cresce sozinho.
+>
+> Fica para a Tarefa 6 ou para projeto próprio, e a decisão é do dono.
 
 ### Tarefa 5: a tela de compor, e o modal de progresso
 

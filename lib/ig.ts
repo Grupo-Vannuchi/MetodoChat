@@ -461,3 +461,131 @@ export function linkMessage(text: string, buttonLabel: string, url: string): Out
     },
   };
 }
+
+// ---------- Publicação no perfil ----------
+//
+// AS QUATRO CHAMADAS QUE ESCREVEM NO PERFIL PÚBLICO, e elas são as únicas deste
+// arquivo que não falam com uma pessoa. Tudo o mais aqui é conversa privada:
+// erra e uma pessoa recebe a mensagem errada. Estas escrevem num perfil de
+// 2.933 publicações, visível para todos os seguidores.
+//
+// AS TRÊS PRIMEIRAS FORAM MEDIDAS CONTRA A META DE VERDADE em 03/09/2026, na
+// conta @vannuchi.eng, e os números não são estimativa:
+//
+//   POST /{ig-user-id}/media          (imagem)                200; FINISHED em 10 s
+//   POST /{ig-user-id}/media          (reels, trial_params)   200; FINISHED em 32 s
+//   POST /{ig-user-id}/media_publish                          200; 40 s ponta a ponta
+//   GET  /{ig-user-id}/content_publishing_limit               quota_total 100, 86400 s
+//
+// É desses 32 segundos que sai o `retryInSeconds: 60` do dreno, com teto de
+// cinco passadas: 9x de folga sobre o pior caso medido.
+//
+// NENHUMA DELAS DECIDE NADA. Elas fazem a ida de rede e devolvem o que a Meta
+// respondeu, cru. Quem traduz `status_code` em estado, quem lê a cota e quem
+// monta os parâmetros são funções puras de `lib/publicacao.ts`, com um caso de
+// teste para cada saída — a mesma divisão que `botoesDaMensagem` impôs ao
+// dreno, e pelo mesmo motivo: este arquivo é `server-only` e nenhum teste da
+// suíte pura o executa.
+//
+// O TOKEN VAI NA QUERY, como em `getMedia` e `replyToComment`. Erro que carregue
+// a URL passa por `resumoDoErroDaMeta` (lib/steps.ts) antes de virar texto na
+// tela, e é ela que troca o valor por `OCULTO` — não escreva tradução de erro
+// nova aqui.
+//
+// E `DELETE /{ig-media-id}` NÃO EXISTE NESTE CAMINHO: ele é exclusivo da API via
+// Login do Facebook, e nós usamos o Login do Instagram. Medido em 03/09. Por
+// isso não há função de apagar post, e por isso toda publicação de teste tem de
+// nascer com `trial_params` — a remoção é manual, no aplicativo.
+
+/**
+ * Cria o contêiner de mídia e devolve o id dele.
+ *
+ * O CONTÊINER VENCE EM 24 HORAS, e é essa a razão de esta chamada morar no
+ * DRENO e não no enfileiramento (`enqueuePublicacao`, lib/engine.ts). Um post
+ * agendado para daqui a três dias que nascesse com contêiner criado hoje
+ * chegaria na hora de publicar com `EXPIRED` — e falharia CALADO, porque o erro
+ * não é da publicação, é de um contêiner que apodreceu esperando.
+ *
+ * `params` vem pronto de `parametrosDoContainer` (lib/publicacao.ts): é lá que
+ * se decide `image_url` contra `video_url`, `media_type`, `share_to_feed` e
+ * `is_carousel_item`. Aqui não se acrescenta nem se tira chave nenhuma.
+ */
+export async function criarContainer(
+  igUserId: string,
+  token: string,
+  params: Record<string, string>
+): Promise<string> {
+  const json = await graphFetch(
+    `/${igUserId}/media?access_token=${encodeURIComponent(token)}`,
+    { method: "POST", body: new URLSearchParams(params) }
+  );
+  const id = texto(json.id);
+  if (!id) {
+    // 200 SEM `id` é resposta que não serve para nada, e seguir daqui com
+    // `undefined` faria a consulta de estado bater em `/undefined` e o erro
+    // aparecer três passos depois da causa. 502 porque o defeito é da outra
+    // ponta, e `drainQueue` trata 5xx como transitório — ela tenta de novo.
+    throw new IgError(502, `container sem id: ${JSON.stringify(json).slice(0, 200)}`);
+  }
+  return id;
+}
+
+/**
+ * O que a Meta diz sobre o contêiner. A resposta INTEIRA, sem decisão nenhuma.
+ *
+ * `status_code` é uma das cinco palavras (`FINISHED`, `IN_PROGRESS`, `ERROR`,
+ * `EXPIRED`, `PUBLISHED`) e `status` é a frase que explica o `ERROR` — é ela
+ * que diz se o vídeo tem codec errado ou se a URL não abriu. As duas voltam
+ * juntas porque quem lê é `leituraDoContainer` (lib/publicacao.ts): o estado
+ * decide o que o dreno faz, e a frase vira o motivo escrito na tela de Envios.
+ *
+ * QUEM PERGUNTA UMA VEZ POR PASSADA É O DRENO, e não esta função: laço de
+ * espera dentro de uma chamada de rede prenderia o webhook (o dreno roda dentro
+ * dele) pelos 32 segundos do pior caso medido.
+ */
+export async function estadoDoContainerNaMeta(
+  containerId: string,
+  token: string
+): Promise<unknown> {
+  return graphFetch(
+    `/${containerId}?fields=status_code,status&access_token=${encodeURIComponent(token)}`
+  );
+}
+
+/**
+ * Publica o contêiner pronto. É a chamada que torna o post visível.
+ *
+ * SÓ DEPOIS DE `FINISHED`. Publicar um contêiner ainda em `IN_PROGRESS` é o
+ * segundo plantio da Tarefa 4, e a Meta responde erro — mas o estrago do
+ * desenho não é o erro: é que o item vai para `failed` com um motivo que não
+ * explica nada, quando bastava esperar mais 22 segundos.
+ */
+export async function publicarContainer(
+  igUserId: string,
+  token: string,
+  containerId: string
+): Promise<Json> {
+  return graphFetch(`/${igUserId}/media_publish?access_token=${encodeURIComponent(token)}`, {
+    method: "POST",
+    body: new URLSearchParams({ creation_id: containerId }),
+  });
+}
+
+/**
+ * Quanto da cota de publicação desta conta já foi gasto nas últimas 24h.
+ *
+ * MEDIDO em 03/09: devolve `{"config":{"quota_total":100,"quota_duration":86400},
+ * "quota_usage":N}`. O número resolve a contradição da documentação, que diz 50
+ * num lugar e 100 noutro — e é por isso que ele é PERGUNTADO, e não cravado:
+ * `PUBLICACOES_POR_DIA` (lib/publicacao.ts) existe para a tela avisar, mas quem
+ * decide se cabe publicar agora é esta resposta, que sabe quanto já foi gasto.
+ *
+ * E A CONTA É REAL: reels de TESTE consome cota. A leitura logo depois de
+ * publicar deu `quota_usage: 0` e enganou; minutos depois virou 1. "Não conta"
+ * não é premissa que se possa usar em lugar nenhum deste produto.
+ */
+export async function limiteDePublicacao(igUserId: string, token: string): Promise<Json> {
+  return graphFetch(
+    `/${igUserId}/content_publishing_limit?fields=config,quota_usage&access_token=${encodeURIComponent(token)}`
+  );
+}

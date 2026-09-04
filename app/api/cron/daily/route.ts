@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cancelarLotesVencidos, drainQueue } from "@/lib/queue-drain";
+import { armarTiquesDoDia, cancelarLotesVencidos, drainQueue } from "@/lib/queue-drain";
 import { refreshLongLivedToken, getUserProfile, getProfile } from "@/lib/ig";
 import { listAccounts, updateAccountToken, sql } from "@/lib/db";
 import { safeEqualSecret } from "@/lib/crypto";
@@ -102,6 +102,35 @@ export async function GET(req: NextRequest) {
   // (`validadeDoDia`, lib/lote.ts) — e ela não toca em `pending`, então não
   // devolve nada à disputa da fila.
   const { vencidos } = await cancelarLotesVencidos();
+
+  // OS TIQUES DO DIA, e eles moram aqui pelo mesmo motivo que a varredura de
+  // lotes vencidos mora: este é o único relógio garantido do produto.
+  //
+  // O QUE ELA RESOLVE: um post agendado para o mês que vem não pode depender de
+  // o QStash aceitar 30 dias de atraso — horizonte que nunca foi verificado, e
+  // cuja recusa some dentro do `catch` de `scheduleTick`. `enqueuePublicacao`
+  // não arma nada além de um dia, e esta linha arma o que entrou na janela das
+  // próximas 24 h. Como ela roda a cada 24 h, todo post tem uma passagem do
+  // cron dentro do dia anterior à sua hora — não há buraco.
+  //
+  // ANTES DA DRENAGEM, de propósito: ela olha `not_before > now()`, e o que já
+  // está na hora sai na linha seguinte, sem precisar de tique nenhum.
+  //
+  // ABERTO E DECLARADO — O ORÇAMENTO DE 60 SEGUNDOS. `maxDuration` é 60 (topo
+  // deste arquivo) e esta varredura faz até 200 publicações SEQUENCIAIS no
+  // QStash, uma ida de rede cada; a ~200 ms por ida são ~40 s, em cima do laço
+  // das contas que já rodou. Estourado o teto, a drenagem da linha de baixo não
+  // acontece naquele dia.
+  //
+  // NÃO FOI MEXIDO PORQUE AS DUAS SAÍDAS TROCAM UM PERDEDOR POR OUTRO, e não
+  // tenho medição para escolher: inverter a ordem (drenar primeiro) salva a
+  // drenagem e passa a arriscar o armamento — e aí um post de daqui a 12 h só
+  // sairia no webhook seguinte, porque a passagem seguinte do cron é 24 h
+  // depois, já passada a hora dele. Baixar o `limit` corta horários do dia.
+  // Nada se PERDE em nenhum dos dois: a fila continua drenando por webhook.
+  // Medir quanto uma passagem do cron custa hoje, em produção, é o que decide.
+  const { armados } = await armarTiquesDoDia();
+
   const drained = await drainQueue();
   return NextResponse.json({
     accounts: accounts.length,
@@ -109,6 +138,7 @@ export async function GET(req: NextRequest) {
     ownProfiles,
     profiles,
     vencidos,
+    armados,
     ...drained,
   });
 }

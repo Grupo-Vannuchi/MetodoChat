@@ -3,6 +3,7 @@ import {
   motivoDoLoteVazio, textoDaRecusaDoLote, textoDoLoteEnviado,
   urlComAviso, urlDoAviso, avisoDaUrl, avisoDosPerfis, avisoDoLoteEnviado,
   urlDaConversaComAviso, avisoDaCategoriaSalva,
+  urlDePublicarComAviso, avisoDaPublicacaoEnfileirada,
   type ContagemDoLote,
 } from "../lib/avisos";
 
@@ -328,5 +329,65 @@ describe("avisoDosPerfis", () => {
     const a = avisoDosPerfis(0, 0);
     expect(a.tom).toBe("ok");
     expect(a.texto).not.toContain("0");
+  });
+});
+
+describe("urlDePublicarComAviso", () => {
+  // O TOM VAI JUNTO DO TEXTO, e e por isso que a funcao existe em vez de a
+  // acao costurar a string. `avisoDaUrl` le DOIS parametros, e a omissao do
+  // `tom` cai em "erro" de proposito — um sucesso mandado sem ele chegaria na
+  // tela pintado de falha. Foi o defeito que o conserto de 02/09 fechou em
+  // `/contatos`, e ele nao pode voltar por uma tela nova.
+  it("o tom atravessa o redirect", () => {
+    const url = urlDePublicarComAviso({ tom: "ok", texto: "Publicacao na fila." });
+    expect(url).toContain("tom=ok");
+    expect(avisoDaUrl(...comoAUrlChega(url))).toEqual({ tom: "ok", texto: "Publicacao na fila." });
+  });
+
+  // TEXTO E TEXTO DE GENTE: acento, "&", "?" e "#" nele quebrariam a URL, e o
+  // que chegaria na tela seria meio aviso.
+  it("o texto e codificado", () => {
+    const texto = "Nao deu: a legenda & a hashtag #promo? nao cabem";
+    const url = urlDePublicarComAviso({ tom: "erro", texto });
+    expect(url).not.toContain("#promo");
+    expect(avisoDaUrl(...comoAUrlChega(url))?.texto).toBe(texto);
+  });
+});
+
+/** O que o Next entrega em `searchParams` a partir de uma URL montada — o
+ *  caminho de volta do redirect, decodificado, para o teste conferir o par
+ *  inteiro em vez de so a string. */
+function comoAUrlChega(url: string): [string | undefined, string | undefined] {
+  const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
+  return [q.get("aviso") ?? undefined, q.get("tom") ?? undefined];
+}
+
+describe("avisoDaPublicacaoEnfileirada", () => {
+  // "NA FILA" E O QUE DE FATO ACONTECEU. Enfileirar nao e publicar: a Meta leva
+  // de 10 a 32 segundos (medido em 03/09), o item sai pela fila e a tela nao
+  // espera. Um "publicado!" aqui seria a comemoracao antes do desfecho.
+  it("agora diz que esta na fila, e nao que publicou", () => {
+    const a = avisoDaPublicacaoEnfileirada(null);
+    expect(a.tom).toBe("ok");
+    expect(a.texto).toContain("fila");
+    expect(a.texto).not.toContain("publicad");
+  });
+
+  // AS DUAS FRASES SAO DIFERENTES, e confundi-las e caro nos dois sentidos:
+  // quem agendou e le "sai agora" corre para desfazer o que nao aconteceu, e
+  // quem publicou agora e le "agendado" espera um post que ja esta no ar — e o
+  // post no ar so sai a mao pelo celular, porque DELETE nao existe no nosso
+  // caminho.
+  it("agendado diz a hora escolhida, com zero a esquerda", () => {
+    const a = avisoDaPublicacaoEnfileirada({ dia: 3, mes: 9, hora: 8, minuto: 5 });
+    expect(a.tom).toBe("ok");
+    expect(a.texto).toContain("03/09");
+    expect(a.texto).toContain("08:05");
+  });
+
+  it("as duas frases nao sao a mesma", () => {
+    expect(avisoDaPublicacaoEnfileirada(null).texto).not.toBe(
+      avisoDaPublicacaoEnfileirada({ dia: 10, mes: 9, hora: 14, minuto: 30 }).texto
+    );
   });
 });

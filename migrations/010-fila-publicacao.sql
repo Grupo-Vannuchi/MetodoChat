@@ -1,0 +1,122 @@
+-- O TIPO `publicacao` ENTRA NA FILA.
+--
+-- A `008` é o precedente exato: mesma tabela, mesma coluna, mesma mecânica
+-- (derruba a restrição e recria alargada). O comentário dela explica que
+-- `add constraint` VALIDA as linhas existentes — num banco com `kind` fora da
+-- lista, isto falha alto em vez de passar calado. Ela alargou de nove tipos
+-- para dez; esta alarga de dez para onze.
+--
+-- ALARGAR É SEGURO EM UM DEPLOY SÓ, e o motivo é a direção, o mesmo da `008` e
+-- da `009`: o código ANTIGO nunca escreve `publicacao`, então ele continua
+-- funcionando contra a restrição nova. Estreitar seria o caso perigoso — e foi
+-- por isso que a remoção das colunas mortas (`006`) precisou de dois deploys.
+--
+-- =============================================================================
+-- POR QUE O NOME É `publicacao`, EM PORTUGUÊS
+--
+-- Mesmo argumento da `009`, que batizou o estado `guardado` ao lado de cinco
+-- nomes em inglês: é a PALAVRA QUE O PRODUTO JÁ USA para esta coisa. A tela se
+-- chama "Publicar" (`app/publicar/`), a função do motor se chama
+-- `enqueuePublicacao`, e o dono pediu "publicar no Instagram pelo painel".
+-- Batizar o tipo de `ig_post` criaria uma segunda palavra para o que já tem
+-- nome, e a tradução entre as duas viveria na cabeça de quem lesse.
+--
+-- E NÃO LEVA SUFIXO `_ig`: os dez tipos já existentes são todos do Instagram —
+-- o sufixo não distinguiria nada de nada.
+--
+-- QUEM ACRESCENTAR O RÓTULO DA TELA: `KIND` em `app/labels.ts`. Sem entrada
+-- lá, o envio aparece como "Outro envio" — que não mente, mas não ajuda.
+--
+-- =============================================================================
+-- O QUE ESTA MIGRAÇÃO **NÃO** FAZ, E POR QUÊ (1): NENHUM ESTADO NOVO
+--
+-- O levantamento deixou em aberto se a publicação precisaria de um estado de
+-- espera próprio, como o `guardado` da `009`. A resposta é NÃO, e a diferença
+-- entre os dois casos é o RELÓGIO:
+--
+--   `guardado` espera UMA PESSOA VOLTAR A FALAR — dias, às vezes nunca. Foi
+--   isso que produziu os cinco defeitos que a `009` lista: o item mais velho da
+--   fila sufocava as mensagens vivas, gastava `attempts` dormindo e mantinha o
+--   QStash publicando tique para sempre.
+--
+--   A publicação espera A META TERMINAR DE PROCESSAR O VÍDEO — e isso foi
+--   MEDIDO em 03/09/2026, contra a conta @vannuchi.eng: contêiner de imagem
+--   pronto em 10 s, de reels em 32 s. O dreno volta com `pending` e
+--   `retryInSeconds: 60`, com teto de CINCO passadas (recomendação da Meta:
+--   uma consulta por minuto, no máximo cinco). O pior caso é cinco minutos.
+--
+-- Cinco minutos em `pending` é exatamente o que `pending` significa: vai sair,
+-- espere o relógio. Nenhum dos cinco defeitos da `009` aparece nessa escala —
+-- e inventar um sétimo estado obrigaria `SITUACOES` (lib/envio-filters.ts),
+-- `statusBadge` e a seleção do dreno a aprender uma palavra que não muda
+-- comportamento nenhum.
+--
+-- =============================================================================
+-- O QUE ESTA MIGRAÇÃO **NÃO** FAZ, E POR QUÊ (2): NENHUMA TABELA DE MÍDIA
+--
+-- Esta é a decisão que a especificação adiou para o plano, e o plano exigiu que
+-- ela viesse COM NÚMERO. O critério é o do envio em lote (01/09), que respondeu
+-- "nenhuma tabela nova" e estava certo: **o que a consulta precisa saber, e não
+-- o que parece organizado.**
+--
+-- Aqui há um argumento que o lote não tinha — CICLO DE VIDA DE ARQUIVO: o
+-- objeto existe no bucket antes do post, sobrevive ao agendamento, e alguém
+-- precisa achá-lo depois para limpar. São duas consultas, e elas se decidem
+-- separado:
+--
+--   1. PARA PUBLICAR, BASTA A URL. Ela cabe no `payload`, como o texto do lote
+--      coube. MEDIDO no banco de produção em 03/09: a fila inteira tem 241
+--      linhas depois de dois meses no ar, e ocupa 303 KB no total; o `payload`
+--      médio é de 179 bytes e o maior de 481. Um caminho de objeto acrescenta
+--      da ordem de 80 bytes. No pior caso da Meta — 100 publicações por conta
+--      por 24 h, MEDIDO (`quota_total: 100`), vezes as 4 contas conectadas —
+--      são 400 linhas por dia, ou ~32 KB de caminho por dia. Não é uma tabela
+--      que se cria por causa de 32 KB.
+--
+--   2. PARA LIMPAR O BUCKET, A TABELA NÃO SERVIRIA DE FONTE. Este é o ponto que
+--      inverteu a resposta, e ele não é de tamanho: uma tabela de mídia só
+--      conhece o que ALGUÉM CONSEGUIU REGISTRAR. O órfão que mais aparece é
+--      justamente o que ela não veria — o upload que terminou e o enfileirar
+--      que nunca aconteceu (a pessoa fechou a aba entre um e outro). Esse
+--      objeto não teria linha na tabela nova, exatamente como não tem linha na
+--      fila. A varredura de órfãos TEM de partir da lista do bucket, porque o
+--      bucket é a única autoridade sobre o que existe lá dentro.
+--
+--      E o bucket já responde "por conta e por data" sozinho: o catálogo do
+--      Storage (`storage.objects`, conferido em 03/09) traz `name`,
+--      `path_tokens`, `created_at` e `metadata`, e a API de listagem aceita
+--      `prefix` — que é a conta, porque `caminhoDoObjeto(contaIgId, nome)`
+--      (Tarefa 3) põe a conta no primeiro segmento do caminho.
+--
+--      O que sobra para o banco é a outra metade da pergunta: "este caminho
+--      ainda é de alguém?". E ela é uma consulta só, sobre a fila:
+--
+--          select payload->'caminhos' as caminhos
+--            from queue
+--           where kind = 'publicacao'
+--             and status in ('pending','sending','failed');
+--
+--      MEDIDA com `explain (analyze, buffers)` no banco de produção, 03/09: ela
+--      entra por `queue_pending_idx` (o índice `(status, not_before)` que a
+--      `000` já criou), toca 10 blocos e executa em 0,257 ms. Uma tabela nova
+--      não melhoraria 0,257 ms, e ainda acrescentaria uma junção dentro do
+--      dreno — que roda DENTRO do webhook, e é o lugar onde este projeto já
+--      recusou junção uma vez, pelo mesmo motivo.
+--
+-- O QUE SE PAGA POR NÃO TER A TABELA: o caminho do objeto fica repetido no
+-- `payload` de cada item (os ~80 bytes de cima), e um item `failed` mantém o
+-- arquivo no bucket — de propósito, porque quem for tentar de novo precisa
+-- dele. É por isso que `failed` está na lista de status da consulta acima:
+-- objeto de item falhado NÃO é órfão.
+--
+-- O QUE SE EVITA: uma terceira cópia da verdade. Bucket, fila e tabela
+-- discordando é uma discordância a mais para alguém descobrir tarde — e a
+-- tabela seria a única das três que ninguém consulta para funcionar.
+
+alter table queue drop constraint if exists queue_kind_check;
+
+alter table queue add constraint queue_kind_check check (kind in (
+  'private_reply','comment_reply','dm_welcome','dm_link','dm_reminder',
+  'dm_follow_gate','dm_email_ask','story_reaction','dm_manual','dm_lote',
+  'publicacao'
+));

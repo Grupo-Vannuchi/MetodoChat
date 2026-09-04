@@ -143,3 +143,52 @@ export const manualReplyKey = (contactIgId: string, agora: number) =>
 // é estrutural, e não probabilística: o accountId entra na chave.
 export const loteKey = (accountId: string, loteId: string, contactIgId: string) =>
   `lote:${accountId}:${loteId}:${contactIgId}`;
+
+// A PUBLICAÇÃO NO INSTAGRAM (`enqueuePublicacao`, lib/engine.ts).
+//
+// O QUE TORNA UM POST ÚNICO É O CAMINHO DO OBJETO NO BUCKET, e não um
+// identificador inventado na tela. `caminhoDoObjeto` (lib/bucket.ts) sorteia um
+// `randomUUID` por upload, então dois posts jamais compartilham caminho — e o
+// MESMO post pedido duas vezes (clique duplo em "publicar", a aba recarregada
+// com o formulário preenchido) chega com o mesmo caminho e vira um item só.
+//
+// É a mesma escolha de `privateReplyKey`, que usa o id do comentário: quando o
+// mundo já produziu um identificador único e permanente para a coisa, inventar
+// outro é criar uma segunda verdade.
+//
+// A CONTA ENTRA PELO MESMO MOTIVO DE `loteKey`: `dedupe_key` é `unique` na
+// TABELA INTEIRA (migrations/000-esquema-base.sql). O caminho do objeto já
+// começa pela conta hoje (`caminhoDoObjeto` põe o ig_id no primeiro segmento),
+// mas ele chega aqui vindo do payload — dado de fora —, e a defesa é
+// estrutural em vez de confiar em como outro arquivo monta a string.
+//
+// A FORMA ENTRA NA CHAVE, e ela é a segunda face do mesmo defeito. MEDIDO na
+// revisão: o mesmo arquivo pedido como "imagem" e depois como "story" batia na
+// MESMA chave, e o segundo pedido era recusado com "já está na fila" — uma
+// frase que não descreve o que aconteceu, sobre dois posts que são diferentes.
+// Publicar a mesma peça no feed e no story é pedido legítimo, e comum.
+//
+// A LISTA INTEIRA ENTRA, EM ORDEM, e não só o primeiro caminho. A versão
+// anterior levava `caminhos[0]`, e ela errava dos DOIS lados:
+//
+//   reordenar trocando o primeiro item  ->  chave nova, e o MESMO post entrava
+//                                           duas vezes na fila
+//   reordenar mantendo o primeiro item  ->  chave igual, e um post DIFERENTE
+//                                           era engolido em silêncio
+//
+// Os dois são o mesmo engano: a ordem do carrossel é CONTEÚDO — todos os itens
+// são cortados pela proporção do PRIMEIRO, e é por isso que a tela deixa a
+// ordem editável (`moverNaOrdem`, lib/publicacao.ts). Com a lista inteira, a
+// pergunta que a chave faz passa a ser a certa: "é este mesmo post, com estas
+// mesmas peças, nesta mesma ordem?".
+//
+// A CHAVE NÃO FICA GIGANTE: são no máximo dez caminhos (`CARROSSEL_ITENS_MAX`),
+// cada um do tamanho de `<conta>/<uuid>.<ext>` — cerca de 600 caracteres no
+// pior caso, muito abaixo do que o índice único aguenta.
+//
+// MUDAR ESTE FORMATO NÃO AUTORIZA ENVIO EM DOBRO AQUI, e é o aviso do topo
+// deste arquivo respondido: a fila não tem nenhum item `publicacao` antigo para
+// deixar de casar — a migração que criou o tipo (`010`) entra junto com este
+// código.
+export const publicacaoKey = (accountId: string, forma: string, caminhos: string[]) =>
+  `pub:${accountId}:${forma}:${caminhos.join(",")}`;

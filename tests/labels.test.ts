@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { eventBadge, eventText, oQueDispara, friendlyError, kindLabel } from "@/app/labels";
+import {
+  eventBadge,
+  eventText,
+  oQueDispara,
+  friendlyError,
+  kindLabel,
+  paraQuemLabel,
+} from "@/app/labels";
 import { EVENT_TYPES } from "@/lib/event-filters";
 
 // O QUE ESTE ARQUIVO PROTEGE é a tela de Atividade dizendo o que aconteceu.
@@ -284,5 +291,55 @@ describe("a tela de Envios não mente sobre o lote", () => {
   it("dm_lote tem rótulo próprio, e não cai em Outro envio", () => {
     expect(kindLabel("dm_lote")).not.toBe("Outro envio");
     expect(kindLabel("dm_lote")).toBe("Envio em lote");
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("a coluna \"Para quem\" da tela de Atividade", () => {
+  // O DEFEITO: a publicação entra na fila com `contact_ig_id` NULO de propósito
+  // (`enqueuePublicacao`, lib/engine.ts) — ela não sai para uma pessoa, sai para
+  // o perfil. O `left join` com `contacts` não achava ninguém, e a tela caía na
+  // reserva "Visitante": ela AFIRMAVA um destinatário que não existe, na única
+  // tela onde um post que falhou aparece.
+  it("um envio SEM contato nao e Visitante: ele foi para o perfil", () => {
+    expect(
+      paraQuemLabel({ contact_ig_id: null, person_username: null, person_name: null })
+    ).toBe("Seu perfil");
+  });
+
+  it("um envio sem contato nao vira Visitante nem com nome sobrando na linha", () => {
+    // Defesa contra a leitura errada do conserto: quem decide é o CONTATO, e não
+    // "faltou nome". Uma linha sem contato mas com nome de outra origem continua
+    // sendo o perfil.
+    expect(
+      paraQuemLabel({ contact_ig_id: null, person_username: "sobrou", person_name: "Sobrou" })
+    ).toBe("Seu perfil");
+  });
+
+  it("Visitante continua existindo, e continua certo: contato sem nome conhecido", () => {
+    expect(
+      paraQuemLabel({ contact_ig_id: "9000000000000001", person_username: null, person_name: null })
+    ).toBe("Visitante");
+  });
+
+  it("com contato, o arroba vem na frente do nome", () => {
+    expect(
+      paraQuemLabel({
+        contact_ig_id: "9000000000000001",
+        person_username: "imzetti",
+        person_name: "Zetti",
+      })
+    ).toBe("@imzetti");
+  });
+
+  it("sem arroba, o nome do contato", () => {
+    expect(
+      paraQuemLabel({
+        contact_ig_id: "9000000000000001",
+        person_username: null,
+        person_name: "Zetti",
+      })
+    ).toBe("Zetti");
   });
 });

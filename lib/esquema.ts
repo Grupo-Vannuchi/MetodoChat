@@ -146,6 +146,20 @@ const MARCA_DAGUA = {
       // `guardado`, e o item de lote falha em vez de virar dado inválido.
       porque: "reescreve a definição de um `check` que já existe (5 estados -> 6)",
     },
+    {
+      de: "010-fila-publicacao.sql",
+      // A TERCEIRA DA MESMA FAMÍLIA, e ela entrou aqui porque o caso de
+      // integração a cobrou: o plano da publicação mandava acrescentar a
+      // conferência da `010` em `scripts/migrar.mjs` e não sabia desta segunda
+      // lista. É exatamente o que "a lista não pode envelhecer em silêncio", lá
+      // em cima, promete fazer — e desta vez funcionou.
+      //
+      // Aceitável pelo mesmo motivo das outras: está do lado ALTO da tabela
+      // deste arquivo. Um banco sem a `010` RECUSA o `insert` do item de
+      // publicação, e o post não sai em vez de sair errado — que, para o
+      // primeiro recurso que escreve no perfil público, é a falha certa.
+      porque: "reescreve a definição de um `check` que já existe (10 tipos -> 11)",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",

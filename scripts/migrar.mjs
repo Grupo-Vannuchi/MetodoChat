@@ -681,14 +681,20 @@ const ESPERADAS_RESTRICOES = [
     definicao: "PRIMARY KEY (account_id, ig_id)",
   },
   {
+    // ESTA LINHA É REESCRITA A CADA MIGRAÇÃO QUE ALARGA A RESTRIÇÃO, e não
+    // duplicada: `queue_kind_check` é UMA restrição, e o banco só tem a versão
+    // mais nova dela. Uma segunda entrada com o mesmo nome faria uma das duas
+    // acusar divergência para sempre, e a acusação seria mentira. Foi assim que
+    // a `008` substituiu a `004` aqui, e é assim que a `010` substitui a `008`:
+    // o `de` aponta para quem escreveu o texto que está no banco AGORA.
     tabela: "queue",
     nome: "queue_kind_check",
-    de: "008-fila-tipo-lote.sql",
+    de: "010-fila-publicacao.sql",
     definicao:
       "CHECK ((kind = ANY (ARRAY['private_reply'::text, 'comment_reply'::text, " +
       "'dm_welcome'::text, 'dm_link'::text, 'dm_reminder'::text, " +
       "'dm_follow_gate'::text, 'dm_email_ask'::text, 'story_reaction'::text, " +
-      "'dm_manual'::text, 'dm_lote'::text])))",
+      "'dm_manual'::text, 'dm_lote'::text, 'publicacao'::text])))",
   },
   {
     // A GÊMEA DA LINHA ACIMA, na coluna vizinha da mesma tabela. Ela está aqui

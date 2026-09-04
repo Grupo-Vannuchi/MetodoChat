@@ -289,7 +289,15 @@ export type QueueItem = {
     | "dm_email_ask"
     | "story_reaction"
     | "dm_manual"
-    | "dm_lote";
+    | "dm_lote"
+    // A PUBLICACAO NO INSTAGRAM (migrations/010-fila-publicacao.sql). Ela
+    // faltava aqui depois da 010, e quem a achou foi o `tsc`: o dicionario de
+    // `app/labels.ts` passou a ser digitado por esta uniao em 03/09, e o
+    // rotulo novo virou erro de compilacao ate esta linha existir.
+    //
+    // A licao vale para o proximo: o `check` do banco e esta uniao sao DUAS
+    // listas da mesma coisa, e so uma delas o compilador enxerga.
+    | "publicacao";
   contact_ig_id: string | null;
   automation_id: string | null;
   comment_id: string | null;
