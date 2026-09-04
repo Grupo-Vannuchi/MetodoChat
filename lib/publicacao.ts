@@ -922,6 +922,31 @@ export function planoDaConversao(arq: {
 }
 
 /**
+ * AS MEDIDAS QUE O `canvas` USA, a partir do plano e do tamanho real da imagem.
+ *
+ * ELA EXISTE PORQUE ERA A ÚNICA PARTE DO PLANO DE CONVERSÃO SEM CASO. A reserva
+ * "plano sem medida usa a da imagem" estava escrita dentro de
+ * `converterParaJpeg` (app/publicar/enviador.tsx), onde a suíte não alcança —
+ * `planoDaConversao` DELEGAVA ao componente a metade que ela mesma não sabia
+ * responder, e delegar para onde não há teste é a forma de decisão que esta base
+ * mais deixou sobreviver.
+ *
+ * O ZERO É O CASO DE VERDADE, e não um cuidado teórico: `planoDaConversao`
+ * devolve `0/0` quando o navegador ainda não sabia o tamanho (`naturalWidth: 0`
+ * enquanto a imagem não carregou), e cravar zero no `canvas` grava um arquivo de
+ * ZERO PIXEL. O `bitmap` de `createImageBitmap`, esse, sempre sabe.
+ */
+export function medidasDaConversao(
+  plano: { largura: number; altura: number },
+  bitmap: { width: number; height: number }
+): { largura: number; altura: number } {
+  return {
+    largura: plano.largura > 0 ? plano.largura : bitmap.width,
+    altura: plano.altura > 0 ? plano.altura : bitmap.height,
+  };
+}
+
+/**
  * O nome do arquivo depois de convertido.
  *
  * O NOME VIAJA ATÉ O CAMINHO NO BUCKET: `caminhoDoObjeto` (lib/bucket.ts) lê a
@@ -1492,6 +1517,41 @@ export function instanteDoAgendamento(campos: CamposDaDataHora, fusoEmMinutos: n
     Date.UTC(campos.ano, campos.mes - 1, campos.dia, campos.hora, campos.minuto) +
     fusoEmMinutos * 60_000
   );
+}
+
+/**
+ * O `<input type="file">` aceita mais de um arquivo nesta forma?
+ *
+ * É A MESMA REGRA DE `recusaDaQuantidade`, e é dela que ela sai: carrossel é a
+ * única forma que publica mais de um arquivo. Nas outras, escolher dois
+ * publicaria o primeiro e descartaria o segundo — silenciosamente, do lado do
+ * dreno.
+ *
+ * ESTÁ AQUI, E NÃO NO JSX, porque uma segunda escrita da mesma regra dentro do
+ * componente é a que envelhece calada: no dia em que a Meta aceitasse duas
+ * mídias noutra forma, `recusaDaQuantidade` mudaria e o atributo do campo não.
+ * Ela pergunta à própria `recusaDaQuantidade` em vez de repetir a condição, para
+ * as duas não terem como discordar.
+ */
+export function campoAceitaVariosArquivos(forma: FormaDePublicacao): boolean {
+  return recusaDaQuantidade(forma, 2) === null;
+}
+
+/**
+ * O TETO QUE A CONFERÊNCIA DA TELA USA quando o do bucket não pôde ser lido.
+ *
+ * "TETO DESCONHECIDO É TETO NENHUM" É DECISÃO, e ela morava dentro do
+ * componente. A alternativa — tratar desconhecido como zero — recusaria TODO
+ * arquivo na tela por causa de uma leitura que falhou, e a pessoa leria "grande
+ * demais" sobre um arquivo de 2 MB.
+ *
+ * O QUE SOBRA NÃO É NADA: sem o nosso teto, continua valendo o da Meta, que
+ * `problemaDoArquivo` confere de qualquer jeito. E quem diz "não" com certeza é
+ * o servidor, que pergunta ao bucket antes de assinar — esta conferência é a
+ * primeira barreira, a que dá mensagem boa e poupa o upload, nunca a última.
+ */
+export function tetoParaAConferenciaDaTela(tetoDoBucket: number | null): number {
+  return tetoDoBucket ?? Number.POSITIVE_INFINITY;
 }
 
 /**

@@ -2,12 +2,15 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   planoDaConversao,
+  medidasDaConversao,
   nomeDepoisDaConversao,
   problemaDoArquivo,
   textoDoProblema,
   problemaDaLegenda,
   textoDoProblemaDaLegenda,
   tiposQueOCampoAceita,
+  campoAceitaVariosArquivos,
+  tetoParaAConferenciaDaTela,
   resumoDoProgresso,
   rotuloDoEnvio,
   moverNaOrdem,
@@ -217,9 +220,11 @@ export default function Enviador({ teto }: { teto: number | null }) {
           accept={tiposQueOCampoAceita(forma)}
           // `multiple` SÓ NO CARROSSEL, e é a única forma que publica mais de um
           // arquivo. Nas outras, escolher dois publicaria o primeiro e
-          // descartaria o segundo — recusa que `recusaDaQuantidade` passou a
-          // fazer no servidor, e que este atributo evita ANTES.
-          multiple={forma === "carrossel"}
+          // descartaria o segundo — recusa que `recusaDaQuantidade` faz no
+          // servidor, e que este atributo evita ANTES. A CONDIÇÃO SAIU DAQUI:
+          // ela é a mesma regra, e quem a responde é `campoAceitaVariosArquivos`,
+          // perguntando à própria `recusaDaQuantidade`.
+          multiple={campoAceitaVariosArquivos(forma)}
           onChange={aoEscolherArquivo}
           className="block w-full text-sm text-zinc-600 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-zinc-700 hover:file:bg-zinc-200 dark:text-zinc-400 dark:file:bg-zinc-800 dark:file:text-zinc-200"
         />
@@ -403,10 +408,9 @@ async function prepararEEnviar(
   const problema = problemaDoArquivo(
     forma,
     declarado,
-    // TETO DESCONHECIDO NÃO É TETO ZERO nem um número inventado: sem saber o
-    // nosso limite, o que resta é o da Meta — e quem diz "não" com certeza é o
-    // servidor, que pergunta ao bucket antes de assinar.
-    teto ?? Number.POSITIVE_INFINITY
+    // TETO DESCONHECIDO NÃO É TETO ZERO nem um número inventado, e essa decisão
+    // saiu daqui: ela é `tetoParaAConferenciaDaTela`, com caso.
+    tetoParaAConferenciaDaTela(teto)
   );
   if (problema) {
     atualizarEnvio(nome, { estado: "recusado", detalhe: textoDoProblema(problema) });
@@ -524,9 +528,10 @@ async function converterParaJpeg(
   try {
     // PLANO SEM MEDIDA USA A DA IMAGEM. `planoDaConversao` devolve 0/0 quando o
     // navegador ainda não sabia o tamanho, e cravar zero aqui gravaria um
-    // arquivo de zero pixel — está escrito no cabeçalho dela.
-    const largura = plano.largura > 0 ? plano.largura : bitmap.width;
-    const altura = plano.altura > 0 ? plano.altura : bitmap.height;
+    // arquivo de zero pixel. ERA A ÚNICA PARTE DO PLANO DE CONVERSÃO SEM CASO,
+    // porque `planoDaConversao` a delegava a este componente; agora ela é
+    // `medidasDaConversao`, ao lado dela.
+    const { largura, altura } = medidasDaConversao(plano, bitmap);
 
     const tela = document.createElement("canvas");
     tela.width = largura;

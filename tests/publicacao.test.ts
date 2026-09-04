@@ -14,6 +14,7 @@ import {
   payloadDaPublicacao,
   lerPayloadDaPublicacao,
   planoDaConversao,
+  medidasDaConversao,
   nomeDepoisDaConversao,
   QUALIDADE_DO_JPEG,
   porcentagemDoEnvio,
@@ -29,6 +30,8 @@ import {
   instanteDoAgendamento,
   textoDaRecusaDaPublicacao,
   tiposQueOCampoAceita,
+  campoAceitaVariosArquivos,
+  tetoParaAConferenciaDaTela,
   parametrosDoContainerPai,
   recusaDaQuantidade,
   moverNaOrdem,
@@ -1600,5 +1603,88 @@ describe("payloadDaPublicacao — os filhos que ja nasceram", () => {
           ?.filhos
       ).toEqual([]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AS TRES DECISOES QUE MORAVAM DENTRO DE `app/publicar/enviador.tsx`.
+//
+// A especificacao (§3) diz que nenhuma decisao mora no componente, e a razao e
+// medida: a suite pura nao executa componente, entao o que fica la passa por
+// todos os portoes qualquer que seja o valor. Um plantio da revisao mostrou o
+// tamanho do buraco -- fazer o `canvas` gravar PNG em vez de JPEG passava pelos
+// cinco portoes.
+// ---------------------------------------------------------------------------
+
+describe("campoAceitaVariosArquivos", () => {
+  it("so o carrossel aceita mais de um arquivo", () => {
+    expect(campoAceitaVariosArquivos("carrossel")).toBe(true);
+    expect(campoAceitaVariosArquivos("imagem")).toBe(false);
+    expect(campoAceitaVariosArquivos("reels")).toBe(false);
+    expect(campoAceitaVariosArquivos("story")).toBe(false);
+  });
+
+  // A AMARRA QUE IMPEDE AS DUAS REGRAS DE DIVERGIREM: o atributo do campo e a
+  // recusa do servidor tem de responder a mesma pergunta. Sem este caso, mudar
+  // uma das duas deixaria a outra para tras em silencio.
+  it("concorda com recusaDaQuantidade em toda forma", () => {
+    for (const forma of ["imagem", "reels", "story", "carrossel"] as const) {
+      expect(campoAceitaVariosArquivos(forma)).toBe(recusaDaQuantidade(forma, 2) === null);
+    }
+  });
+});
+
+describe("tetoParaAConferenciaDaTela", () => {
+  it("teto conhecido passa inteiro", () => {
+    expect(tetoParaAConferenciaDaTela(50 * MB)).toBe(50 * MB);
+  });
+
+  // TETO DESCONHECIDO E TETO NENHUM, e nao teto zero. Com zero, a tela recusaria
+  // TODO arquivo por causa de uma leitura que falhou -- e diria "grande demais"
+  // sobre um arquivo de 2 MB.
+  it("teto desconhecido nao vira zero: vira teto nenhum", () => {
+    expect(tetoParaAConferenciaDaTela(null)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("com teto desconhecido, o limite da Meta continua valendo", () => {
+    const teto = tetoParaAConferenciaDaTela(null);
+    // Um arquivo de 2 MB passa...
+    expect(
+      problemaDoArquivo("imagem", { mime: "image/jpeg", bytes: 2 * MB, largura: 1080, altura: 1080 }, teto)
+    ).toBe(null);
+    // ...e um de 9 MB continua sendo recusado pela META, e nao por nos.
+    expect(
+      problemaDoArquivo("imagem", { mime: "image/jpeg", bytes: 9 * MB, largura: 1080, altura: 1080 }, teto)
+    ).toBe("grande_demais");
+  });
+});
+
+describe("medidasDaConversao", () => {
+  it("plano com medida manda: e o redimensionamento pedido", () => {
+    expect(medidasDaConversao({ largura: 1440, altura: 960 }, { width: 3000, height: 2000 })).toEqual({
+      largura: 1440,
+      altura: 960,
+    });
+  });
+
+  // O ZERO E O CASO DE VERDADE: `planoDaConversao` devolve 0/0 quando o
+  // navegador ainda nao sabia o tamanho, e cravar zero no `canvas` gravaria um
+  // arquivo de ZERO PIXEL.
+  it("plano sem medida usa a da imagem, e nao grava zero pixel", () => {
+    expect(medidasDaConversao({ largura: 0, altura: 0 }, { width: 1080, height: 1350 })).toEqual({
+      largura: 1080,
+      altura: 1350,
+    });
+  });
+
+  it("o mesmo plano que planoDaConversao devolve sem medida nunca sai zerado", () => {
+    const plano = planoDaConversao({ mime: "image/png" });
+    expect(plano).toEqual({ converter: true, largura: 0, altura: 0, qualidade: QUALIDADE_DO_JPEG });
+    const medidas = medidasDaConversao(plano as { largura: number; altura: number }, {
+      width: 800,
+      height: 600,
+    });
+    expect(medidas.largura).toBeGreaterThan(0);
+    expect(medidas.altura).toBeGreaterThan(0);
   });
 });
