@@ -242,10 +242,6 @@ export type PedidoDeContainer = {
   compartilharNoFeed?: boolean;
   nomeDoAudio?: string;
   filho?: boolean;
-  /** O tipo da mídia, quando se sabe. Story aceita imagem E vídeo, e a Meta
-   *  pede CHAVES DIFERENTES para cada um; sem isto, só a extensão da URL
-   *  sobra para decidir. */
-  mime?: string;
 };
 
 /**
@@ -277,8 +273,7 @@ export function parametrosDoContainer(pedido: PedidoDeContainer): Record<string,
   // A CHAVE DA URL DEPENDE DA MÍDIA, e não da forma: story de imagem quer
   // `image_url`, story de vídeo quer `video_url`. Mandar a chave errada faz o
   // contêiner nascer errado.
-  const ehVideo =
-    pedido.forma === "reels" ? true : pedido.mime ? pedido.mime.startsWith("video/") : pareceVideo(pedido.url);
+  const ehVideo = pedido.forma === "reels" ? true : pareceVideo(pedido.url);
   p[ehVideo ? "video_url" : "image_url"] = pedido.url;
 
   // IMAGEM DE FEED NÃO MANDA `media_type` — a Meta o toma como IMAGE por
@@ -479,9 +474,27 @@ export function decisaoDeAssinatura(corpo: unknown, teto: number): DecisaoDeAssi
   return { ok: true, forma, nome, arquivo };
 }
 
-/** O ÚLTIMO RECURSO para decidir imagem contra vídeo, quando o `mime` não veio.
- *  Extensão é palpite, e por isso ela é o degrau de baixo: quem tem o arquivo
- *  na mão tem o `mime`, e quem só tem a URL guardada no payload tem isto. */
+/**
+ * IMAGEM CONTRA VÍDEO, pela extensão do objeto no bucket.
+ *
+ * ELA DEIXOU DE SER PALPITE, e o conserto foi do outro lado: `caminhoDoObjeto`
+ * (lib/bucket.ts) grava a extensão a partir do `mime` DECLARADO, que
+ * `decisaoDeAssinatura` acabou de validar. O que sobe por este produto ganha
+ * `.jpg`, `.mp4` ou `.mov`, e esta função lê exatamente o que aquela escreveu.
+ *
+ * POR QUE NÃO UM `mime` NO PEDIDO. `PedidoDeContainer` teve um campo `mime`
+ * opcional, criado para este caso e que NENHUM chamador jamais passou — as duas
+ * chamadas do dreno o omitiam, e a única rede dele eram testes de uma saída que
+ * a produção não alcançava. Passá-lo de verdade exigiria guardar um mime POR
+ * CAMINHO no payload da publicação, porque um carrossel mistura imagem e vídeo
+ * na mesma lista — mudança de forma de payload em fila viva, que não cabia
+ * nesta onda. O campo saiu, e o buraco que ele descrevia foi fechado onde dava
+ * para fechar: no nome do objeto.
+ *
+ * O QUE ELA AINDA NÃO SABE: objeto gravado ANTES desse conserto, cujo caminho
+ * ficou `.bin` porque o nome do arquivo não tinha extensão conhecida. Esse
+ * continua sendo lido como imagem, e a Meta continua recusando alto.
+ */
 function pareceVideo(url: string): boolean {
   const semQuery = url.split(/[?#]/)[0].toLowerCase();
   return [".mp4", ".mov", ".m4v", ".webm"].some((ext) => semQuery.endsWith(ext));

@@ -338,20 +338,19 @@ describe("parametrosDoContainer", () => {
 
   // STORY ACEITA IMAGEM E VIDEO, e a Meta pede CHAVES DIFERENTES para cada um
   // (`image_url` contra `video_url`). Mandar a chave errada faz o container
-  // nascer errado — por isso o `mime` decide, e a extensao da URL e so o
-  // recurso de ultimo caso.
+  // nascer errado.
+  //
+  // QUEM DECIDE E A EXTENSAO DO OBJETO, e ela deixou de ser palpite: quem a
+  // grava e `caminhoDoObjeto` (lib/bucket.ts), a partir do `mime` validado. O
+  // campo `mime` de `PedidoDeContainer` existiu para este caso e nenhum chamador
+  // jamais o passou — estes casos mediam uma saida que a producao nao alcancava.
   it("story de imagem manda image_url; story de video manda video_url", () => {
-    expect(
-      parametrosDoContainer({ forma: "story", url: "https://x/a.jpg", mime: "image/jpeg" }).image_url
-    ).toBe("https://x/a.jpg");
-    expect(
-      parametrosDoContainer({ forma: "story", url: "https://x/a.mp4", mime: "video/mp4" }).video_url
-    ).toBe("https://x/a.mp4");
-  });
-  it("sem mime, a extensao da URL decide o story", () => {
-    const p = parametrosDoContainer({ forma: "story", url: "https://x/a.mp4" });
-    expect(p.video_url).toBe("https://x/a.mp4");
-    expect(p.image_url).toBeUndefined();
+    const imagem = parametrosDoContainer({ forma: "story", url: "https://x/a.jpg" });
+    expect(imagem.image_url).toBe("https://x/a.jpg");
+    expect(imagem.video_url).toBeUndefined();
+    const video = parametrosDoContainer({ forma: "story", url: "https://x/a.mp4" });
+    expect(video.video_url).toBe("https://x/a.mp4");
+    expect(video.image_url).toBeUndefined();
   });
 
   // O CONTAINER PAI DO CARROSSEL NAO NASCE AQUI — ele precisa da lista de
@@ -1450,7 +1449,6 @@ describe("parametrosDoContainer — os filhos do carrossel", () => {
       url: "https://x/a.jpg",
       legenda: "esta legenda e do pai",
       filho: true,
-      mime: "image/jpeg",
     });
     expect(p.image_url).toBe("https://x/a.jpg");
     expect(p.is_carousel_item).toBe("true");
@@ -1466,7 +1464,6 @@ describe("parametrosDoContainer — os filhos do carrossel", () => {
       forma: "carrossel",
       url: "https://x/a.mp4",
       filho: true,
-      mime: "video/mp4",
       compartilharNoFeed: true,
       nomeDoAudio: "trilha",
     });
@@ -1476,10 +1473,10 @@ describe("parametrosDoContainer — os filhos do carrossel", () => {
     expect(p.audio_name).toBeUndefined();
   });
 
-  // SEM `mime`, A EXTENSAO DECIDE — e ela e o caso NORMAL do carrossel, e nao o
-  // recurso de ultimo caso: o dreno monta o filho a partir do CAMINHO no
-  // bucket, e o payload nao guarda o tipo do arquivo.
-  it("sem mime, a extensao do caminho decide a chave", () => {
+  // A EXTENSAO DECIDE, e ela e o UNICO caminho: o dreno monta o filho a partir
+  // do CAMINHO no bucket, e o payload nao guarda o tipo do arquivo. E por isso
+  // que a extensao gravada tem de ser verdadeira — ver `caminhoDoObjeto`.
+  it("a extensao do caminho decide a chave", () => {
     expect(
       parametrosDoContainer({ forma: "carrossel", url: "https://x/a.mp4", filho: true }).video_url
     ).toBe("https://x/a.mp4");

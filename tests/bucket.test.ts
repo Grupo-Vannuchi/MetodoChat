@@ -20,9 +20,16 @@ import { describe, it, expect } from "vitest";
 //
 // A EXTENSÃO SOBREVIVE, e isso é decisão e não descuido: a Tarefa 4 monta o
 // pedido da Meta a partir da URL guardada no payload, e `pareceVideo`
-// (lib/publicacao.ts) usa a extensão como último recurso para escolher entre
-// `image_url` e `video_url`. Um caminho sem extensão faria todo vídeo virar
-// imagem no dia em que o `mime` não chegasse junto.
+// (lib/publicacao.ts) escolhe entre `image_url` e `video_url` por ela. Um
+// caminho sem extensão faria todo vídeo virar imagem.
+//
+//   3. E POR ISSO A EXTENSÃO SAI DO `mime`, e não do nome do arquivo. Foi
+//      MEDIDO que um MP4 chamado "clipe" (ou "clipe.mpeg") passa inteiro por
+//      `problemaDoArquivo` — ela olha o `mime`, nunca o nome — e virava `.bin`
+//      no bucket, e daí um story de vídeo saía com `image_url` para a Meta
+//      recusar depois do upload inteiro. O `mime` já vem validado por
+//      `decisaoDeAssinatura`, e é a única coisa neste caminho que sabe o que o
+//      arquivo é.
 
 process.env.SUPABASE_URL = "https://exemplo.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "chave-de-teste-que-nao-e-usada-aqui";
@@ -70,6 +77,55 @@ describe("caminhoDoObjeto", () => {
 
   it("sem identificador dado, dois pedidos seguidos nao colidem", () => {
     expect(caminhoDoObjeto(CONTA_A, "foto.jpg")).not.toBe(caminhoDoObjeto(CONTA_A, "foto.jpg"));
+  });
+
+  // O DEFEITO MEDIDO, e o que o conserto fecha. `problemaDoArquivo` olha o
+  // `mime` e NUNCA o nome, entao um MP4 chamado "clipe" passa pela porta
+  // inteira; sem esta regra ele virava `<conta>/<id>.bin`, e o story dele saia
+  // com `image_url`.
+  it("o mime manda mais que o nome: video sem extensao nao vira bin", () => {
+    expect(caminhoDoObjeto(CONTA_A, "clipe", "x", "video/mp4")).toBe(`${CONTA_A}/x.mp4`);
+    expect(caminhoDoObjeto(CONTA_A, "clipe.mpeg", "x", "video/quicktime")).toBe(`${CONTA_A}/x.mov`);
+    expect(caminhoDoObjeto(CONTA_A, "arte", "x", "image/jpeg")).toBe(`${CONTA_A}/x.jpg`);
+  });
+
+  it("o mime ganha do nome quando os dois discordam", () => {
+    // Quem diz a verdade sobre o arquivo e o `mime`, e e ele que
+    // `decisaoDeAssinatura` validou. O nome e texto de gente.
+    expect(caminhoDoObjeto(CONTA_A, "arte.jpg", "x", "video/mp4")).toBe(`${CONTA_A}/x.mp4`);
+  });
+
+  it("mime que nao esta na lista deixa o nome decidir, como sempre foi", () => {
+    expect(caminhoDoObjeto(CONTA_A, "arte.jpg", "x", "image/png")).toBe(`${CONTA_A}/x.jpg`);
+    expect(caminhoDoObjeto(CONTA_A, "arquivo.svg", "x", "image/svg+xml")).toBe(`${CONTA_A}/x.bin`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+// AS DUAS PONTAS DO MESMO CAMINHO, no mesmo caso: quem ESCREVE a extensao e
+// `caminhoDoObjeto`, quem a LE e `parametrosDoContainer`. Elas moram em arquivos
+// diferentes e nada as obrigava a concordar -- e era exatamente ai que o defeito
+// vivia, porque cada uma sozinha estava "certa".
+describe("a extensao gravada e a chave que a Meta recebe", () => {
+  it("um MP4 chamado 'clipe' vira story de VIDEO, e nao de imagem", async () => {
+    const { parametrosDoContainer } = await import("@/lib/publicacao");
+    const caminho = caminhoDoObjeto(CONTA_A, "clipe", "x", "video/mp4");
+    const p = parametrosDoContainer({ forma: "story", url: `https://exemplo/${caminho}` });
+    expect(p.video_url).toBe(`https://exemplo/${caminho}`);
+    expect(p.image_url).toBeUndefined();
+  });
+
+  it("um JPEG chamado 'arte' vira filho de carrossel de IMAGEM", async () => {
+    const { parametrosDoContainer } = await import("@/lib/publicacao");
+    const caminho = caminhoDoObjeto(CONTA_A, "arte", "x", "image/jpeg");
+    const p = parametrosDoContainer({
+      forma: "carrossel",
+      filho: true,
+      url: `https://exemplo/${caminho}`,
+    });
+    expect(p.image_url).toBe(`https://exemplo/${caminho}`);
+    expect(p.video_url).toBeUndefined();
   });
 });
 

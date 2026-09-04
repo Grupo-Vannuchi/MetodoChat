@@ -91,6 +91,20 @@ async function falha(oQue: string, r: Response): Promise<Error> {
 const EXTENSOES_CONHECIDAS = ["jpg", "jpeg", "mp4", "mov", "m4v", "webm"];
 
 /**
+ * A extensão de cada `mime` que este produto aceita subir.
+ *
+ * As três chaves são exatamente as de `MIMES_DE_IMAGEM` e `MIMES_DE_VIDEO`
+ * (lib/publicacao.ts) — são elas que `decisaoDeAssinatura` deixa passar, e
+ * nenhuma outra chega a `caminhoDoObjeto`. Um `mime` fora desta lista cai no
+ * caminho de baixo, o do nome do arquivo, como sempre foi.
+ */
+const EXTENSAO_DO_MIME: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+};
+
+/**
  * O nome do objeto no bucket.
  *
  * =============================================================================
@@ -109,18 +123,47 @@ const EXTENSOES_CONHECIDAS = ["jpg", "jpeg", "mp4", "mov", "m4v", "webm"];
  * O que não está na lista vira `bin` em vez de virar caminho — um ".php" ou um
  * ".svg" no fim de uma URL pública é convite que não temos motivo para fazer.
  *
+ * O `mime` MANDA MAIS QUE O NOME, e isto é conserto de defeito MEDIDO.
+ *
+ * O nome do arquivo é texto de gente e a extensão dele é palpite: um MP4
+ * chamado "clipe", ou "clipe.mpeg", passa inteiro por `problemaDoArquivo` — ela
+ * olha o `mime`, e NUNCA o nome (medido). O caminho virava `.bin`, e aí
+ * `parametrosDoContainer` (lib/publicacao.ts), que só tem a URL guardada no
+ * payload, escolhia `image_url` para um story de VÍDEO. Medido, com as funções
+ * de verdade:
+ *
+ *   problemaDoArquivo("story", { mime: "video/mp4", … })  ->  null (passa)
+ *   caminhoDoObjeto(conta, "clipe")                       ->  <conta>/<id>.bin
+ *   parametrosDoContainer({ forma: "story", url: …bin })  ->  { image_url: … }
+ *
+ * A Meta recusa isso — alto, e não calado —, mas depois do upload inteiro.
+ *
+ * O `mime` já foi VALIDADO por `decisaoDeAssinatura` quando chega aqui, e a
+ * lista que ela aceita tem três entradas (`image/jpeg`, `video/mp4`,
+ * `video/quicktime`). Tirar a extensão dele é a única forma de o caminho
+ * gravado no bucket dizer a verdade sobre o arquivo — e é o que faz `pareceVideo`
+ * deixar de ser palpite para o que este produto sobe.
+ *
+ * SEM `mime`, O NOME AINDA DECIDE: a lista conhecida continua abaixo, e o
+ * desconhecido continua virando `bin`. Objetos gravados ANTES desta mudança não
+ * mudam de nome, e um `.bin` antigo continua sendo lido como imagem — este
+ * conserto vale para o que sobe daqui em diante.
+ *
  * `identificador` existe para o teste poder prender a forma. Em produção ele é
  * omitido e vem de `randomUUID`, e é ele que torna o caminho único: duas
  * pessoas subindo o MESMO arquivo na MESMA conta não podem colidir, e a URL
- * assinada é pedida uma por upload.
+ * assinada é pedida uma por upload. Ele fica no TERCEIRO lugar porque já estava
+ * lá; o `mime` entra depois dele para não mexer em chamador nenhum.
  */
 export function caminhoDoObjeto(
   contaIgId: string,
   nomeOriginal: string,
-  identificador: string = crypto.randomUUID()
+  identificador: string = crypto.randomUUID(),
+  mimeDeclarado?: string
 ): string {
+  const doMime = EXTENSAO_DO_MIME[mimeDeclarado ?? ""];
   const ext = (nomeOriginal.split(".").pop() ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const extensao = EXTENSOES_CONHECIDAS.includes(ext) ? ext : "bin";
+  const extensao = doMime ?? (EXTENSOES_CONHECIDAS.includes(ext) ? ext : "bin");
   return `${pastaDaConta(contaIgId)}/${identificador}.${extensao}`;
 }
 

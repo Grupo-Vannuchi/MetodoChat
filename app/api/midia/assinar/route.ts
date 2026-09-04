@@ -89,7 +89,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const caminho = caminhoDoObjeto(account.ig_user_id, decisao.nome);
+  // O `mime` VAI JUNTO, e ele manda mais que o nome do arquivo. `decisaoDeAssinatura`
+  // acabou de validá-lo, e é dele que sai a extensão do objeto — sem isto, um
+  // MP4 chamado "clipe" virava `.bin` no bucket e o story dele saía com
+  // `image_url`, para a Meta recusar depois do upload inteiro. Ver `caminhoDoObjeto`.
+  const caminho = caminhoDoObjeto(
+    account.ig_user_id,
+    decisao.nome,
+    undefined,
+    decisao.arquivo.mime
+  );
   try {
     const { url, token } = await urlAssinadaDeUpload(caminho);
     // A URL PÚBLICA VOLTA JUNTO porque é ela que a Meta vai buscar depois, e
