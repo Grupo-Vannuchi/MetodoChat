@@ -1598,3 +1598,154 @@ export function tiposQueOCampoAceita(forma: FormaDePublicacao): string {
   // reels, que a Meta não deixa entrar em carrossel.
   return [...MIMES_DE_IMAGEM, "image/png", "image/webp", ...MIMES_DE_VIDEO].join(",");
 }
+
+// =============================================================================
+// AS DECISÕES DE VER, CANCELAR E REMARCAR O AGENDADO (04/09/2026)
+//
+// A publicação subiu em 03/09 SEM NENHUMA FORMA DE OLHAR PARA O QUE FOI
+// AGENDADO — buraco de desenho, e não de código: a especificação de 03/09 disse
+// que a tela de Envios "já existe", o que é verdade, mas ela responde "o que
+// aconteceu?" e um agendamento faz a pergunta oposta, "o que vai acontecer, e
+// posso mudar?".
+//
+// É urgente porque a API do Instagram NÃO APAGA MÍDIA (medido em 03/09:
+// `DELETE /{ig-media-id}` só existe no caminho do Login do Facebook). Um post
+// agendado por engano só se corrige ANTES de sair.
+// =============================================================================
+
+/**
+ * O que aconteceu com um pedido de cancelar ou remarcar.
+ *
+ * OS DOIS ÚLTIMOS SÃO OS DE `MotivoDoMomento`, reaproveitados de propósito: o
+ * remarcar passa a data pela MESMA `momentoDaPublicacao` que a tela de compor
+ * usa, e repassa o motivo dela sem traduzir no meio do caminho. Nenhuma regra
+ * de data nova nesta entrega.
+ *
+ * `quando_ilegivel` NÃO ENTRA, e a ausência é a decisão: aquele motivo existe
+ * porque a tela de compor tem o par de rádios "agora"/"em outra hora". Remarcar
+ * não tem essa escolha — remarcar é sempre "depois", por definição —, então a
+ * ação passa a palavra fixa e aquele ramo é inalcançável daqui.
+ */
+export type DesfechoDaMudanca =
+  | "feito"
+  | "tarde_demais"
+  | "nao_encontrado"
+  | "data_invalida"
+  | "data_no_passado";
+
+/**
+ * A LEITURA DE UM `update` CONDICIONAL, E ELA É A PEÇA CENTRAL DESTA ENTREGA.
+ *
+ * O dreno reivindica o item com
+ *
+ *   update queue set status = 'sending' ...
+ *    where status = 'pending' and not_before <= now() ... for update skip locked
+ *
+ * e ele roda DENTRO DO WEBHOOK (`lib/queue-drain.ts`), ou seja a qualquer
+ * instante. Entre a tela ser desenhada e o clique em cancelar, o item pode já
+ * estar em voo. Por isso cancelar e remarcar são `update` CONDICIONAIS em
+ * `status = 'pending'`, e por isso ZERO LINHAS AFETADAS É UMA RESPOSTA, e não
+ * uma falha genérica.
+ *
+ * FINGIR SUCESSO AQUI SERIA A PIOR MENTIRA QUE ESTE PAINEL PODE CONTAR: o dono
+ * fecharia a tela achando que impediu um post que já está no ar — e não há
+ * `DELETE` que desfaça isso do lado da Meta.
+ *
+ * `existe` VEM DE UMA SEGUNDA CONSULTA, sem o filtro de status, e é o que
+ * separa dois "zero linhas" que significam coisas opostas: o item é seu e já
+ * saiu (`tarde_demais`), ou o item nunca foi seu — identificador trocado, conta
+ * errada, item já apagado (`nao_encontrado`). Duas idas ao banco só no caminho
+ * de falha, que é o raro.
+ */
+export function desfechoDaMudanca(linhasAfetadas: number, existe: boolean): DesfechoDaMudanca {
+  if (linhasAfetadas > 0) return "feito";
+  return existe ? "tarde_demais" : "nao_encontrado";
+}
+
+/**
+ * A frase de cada desfecho, por ação.
+ *
+ * A FRASE DE `tarde_demais` TEM DE DIZER QUE O POST SAIU, e não apenas que o
+ * cancelamento falhou: são fatos diferentes, e o segundo sozinho deixa o dono
+ * achando que pode tentar de novo — sobre um post que já está no perfil.
+ *
+ * CANCELAR E REMARCAR NÃO REPETEM A MESMA FRASE, mesmo no mesmo desfecho: quem
+ * clicou fez pedidos diferentes, e a confirmação tem de responder ao pedido que
+ * foi feito.
+ *
+ * AS DUAS RECUSAS DE DATA SÃO AS FRASES QUE JÁ EXISTEM (`textoDaRecusaDaPublicacao`).
+ * Uma segunda redação do mesmo "não" faria quem lê achar que apareceu um
+ * problema novo no caminho — é a mesma disciplina de `textoDoProblemaDaLegenda`.
+ */
+export function textoDoDesfecho(
+  d: DesfechoDaMudanca,
+  acao: "cancelar" | "remarcar"
+): string {
+  switch (d) {
+    case "feito":
+      return acao === "cancelar"
+        ? "Post cancelado. Ele não vai sair, e o arquivo continua no seu computador."
+        : "Post remarcado. Ele sai na hora nova.";
+    case "tarde_demais":
+      return acao === "cancelar"
+        ? "Este post já saiu ou está saindo agora, e não deu para cancelar. Se ele já estiver no perfil, só o aplicativo do Instagram apaga."
+        : "Este post já saiu ou está saindo agora, e não deu para remarcar. Não adianta escolher outra hora — confira o desfecho em Atividade.";
+    // A ÚNICA FRASE QUE NÃO MUDA COM A AÇÃO, e a igualdade é o fato: não há
+    // item para cancelar nem para remarcar, e o conselho — recarregar a lista —
+    // é o mesmo nos dois casos. Escrever duas redações da mesma verdade só para
+    // cumprir um padrão faria a diferença entre elas parecer significar algo.
+    case "nao_encontrado":
+      return "Não achei este post agendado nesta conta. Recarregue a lista: ele pode já ter sido cancelado, ou ser de outra conta.";
+    // AS DUAS DE DATA REPETEM A FRASE DA TELA DE COMPOR, palavra por palavra.
+    case "data_invalida":
+    case "data_no_passado":
+      return textoDaRecusaDaPublicacao(d);
+  }
+}
+
+/**
+ * A data que uma linha de envio deve mostrar: quando SAIU, ou quando VAI sair.
+ *
+ * =============================================================================
+ * O DEFEITO QUE ESTA FUNÇÃO CONSERTA, medido em 04/09/2026
+ *
+ * `app/eventos/page.tsx` mostrava `fmtDate(q.sent_at ?? q.created_at)`. Para um
+ * item que ainda não saiu, isso é a data em que ele foi AGENDADO: um post
+ * marcado para o dia 20, criado hoje, aparecia na lista com a data de hoje. A
+ * informação que mais importa num item agendado era justamente a que não estava
+ * na tela.
+ *
+ * ELA NÃO OLHA O `kind`, E ISSO É DELIBERADO: o lote guardado tem o mesmo
+ * problema. Ele espera a pessoa voltar a falar, então o `not_before` dele não é
+ * promessa de hora — mas ainda é mais honesto que a data em que foi criado.
+ *
+ * `futuro` NÃO É "O ITEM ESTÁ PENDENTE": um `pending` com `not_before` já
+ * vencido está ATRASADO (o dreno ainda não passou por ele), e a tela não pode
+ * prometer uma saída que já devia ter acontecido. A pergunta é sobre o RELÓGIO,
+ * e não sobre o status.
+ *
+ * O `agora` É PARÂMETRO, com `Date.now()` por omissão, por um motivo de teste e
+ * não de produção: sem ele, todo caso escrito com uma data fixa vira vermelho
+ * no dia em que aquela data passa — e um teste que apodrece sozinho é um teste
+ * que alguém apaga com raiva em vez de ler.
+ *
+ * `created_at` CONTINUA NA ASSINATURA como a rede do `not_before` ilegível (a
+ * coluna é `not null` no banco, mas um `Invalid Date` vindo do driver viraria
+ * "—" na tela ou, pior, uma comparação que é sempre falsa). O que ele deixou de
+ * ser é a PRIMEIRA resposta.
+ */
+export function dataDaLinhaDeEnvio(
+  item: { status: string; sent_at: Date | null; not_before: Date; created_at: Date },
+  agora: number = Date.now()
+): { quando: Date; futuro: boolean } {
+  // QUEM JÁ SAIU NUNCA É FUTURO, e a pergunta ao relógio nem é feita: um item
+  // com `sent_at` está no perfil público, e dizer "sai em" sobre ele seria
+  // exatamente a mentira que esta entrega existe para apagar.
+  if (item.sent_at && !Number.isNaN(item.sent_at.getTime())) {
+    return { quando: item.sent_at, futuro: false };
+  }
+  const marcado = item.not_before;
+  const quando =
+    marcado instanceof Date && !Number.isNaN(marcado.getTime()) ? marcado : item.created_at;
+  return { quando, futuro: quando.getTime() > agora };
+}

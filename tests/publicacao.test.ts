@@ -36,6 +36,9 @@ import {
   recusaDaQuantidade,
   moverNaOrdem,
   rotuloDoEnvio,
+  desfechoDaMudanca,
+  textoDoDesfecho,
+  dataDaLinhaDeEnvio,
 } from "../lib/publicacao";
 
 const MB = 1024 * 1024;
@@ -1686,5 +1689,167 @@ describe("medidasDaConversao", () => {
     });
     expect(medidas.largura).toBeGreaterThan(0);
     expect(medidas.altura).toBeGreaterThan(0);
+  });
+});
+
+// =============================================================================
+// VER, CANCELAR E REMARCAR O AGENDADO (04/09/2026)
+//
+// Publicar entrou no ar em 03/09 sem NENHUMA forma de olhar para o que foi
+// agendado. Estas três funções são as decisões dessa tela, fora do JSX e fora
+// da ação — e a primeira delas é a peça central da entrega inteira.
+// =============================================================================
+
+describe("desfechoDaMudanca", () => {
+  it("uma linha afetada e feito", () => {
+    expect(desfechoDaMudanca(1, true)).toBe("feito");
+  });
+  // ZERO LINHAS COM O ITEM EXISTINDO E A CORRIDA COM O DRENO, e este e o caso
+  // central desta entrega: o dreno roda DENTRO do webhook e pode ter
+  // reivindicado o item entre a tela ser desenhada e o clique. Responder
+  // "cancelado" aqui seria a pior mentira que este painel pode contar — o dono
+  // fecharia a tela achando que impediu um post que ja esta no ar.
+  it("zero linhas com o item existindo e tarde demais", () => {
+    expect(desfechoDaMudanca(0, true)).toBe("tarde_demais");
+  });
+  it("zero linhas sem o item e nao encontrado", () => {
+    expect(desfechoDaMudanca(0, false)).toBe("nao_encontrado");
+  });
+});
+
+describe("textoDoDesfecho", () => {
+  // A FRASE DE "tarde demais" TEM DE DIZER QUE O POST SAIU, e nao so que o
+  // cancelamento falhou: sao fatos diferentes, e o segundo sozinho deixa o dono
+  // achando que pode tentar de novo.
+  it("tarde demais diz que o post ja saiu", () => {
+    const t = textoDoDesfecho("tarde_demais", "cancelar").toLowerCase();
+    expect(t).toMatch(/saiu|saindo|publicad/);
+  });
+  it("cancelar e remarcar tem frases diferentes no mesmo desfecho", () => {
+    expect(textoDoDesfecho("feito", "cancelar")).not.toBe(textoDoDesfecho("feito", "remarcar"));
+  });
+  // A frase de "tarde demais" do REMARCAR tem o mesmo dever da do cancelar: ela
+  // nao pode dizer so "nao deu para remarcar", porque isso faria o dono tentar
+  // de novo com outra hora sobre um post que ja esta no ar.
+  it("tarde demais do remarcar tambem diz que o post ja saiu", () => {
+    const t = textoDoDesfecho("tarde_demais", "remarcar").toLowerCase();
+    expect(t).toMatch(/saiu|saindo|publicad/);
+  });
+  // AS DUAS RECUSAS DE DATA SAO AS FRASES QUE JA EXISTEM. Nenhuma regra de data
+  // nova nesta entrega, e nenhuma REDACAO nova tambem: uma segunda escrita do
+  // mesmo "nao" faz quem le achar que apareceu um problema diferente.
+  it("as recusas de data repetem a frase que a tela de publicar ja usa", () => {
+    expect(textoDoDesfecho("data_no_passado", "remarcar")).toBe(
+      textoDaRecusaDaPublicacao("data_no_passado")
+    );
+    expect(textoDoDesfecho("data_invalida", "remarcar")).toBe(
+      textoDaRecusaDaPublicacao("data_invalida")
+    );
+  });
+  // "NAO PROMETE" E SOBRE A AFIRMACAO, E NAO SOBRE A PALAVRA. A frase deste
+  // desfecho contem "pode ja ter sido cancelado" — uma HIPOTESE, e ela e
+  // justamente o que ajuda quem esta olhando uma lista velha. O que ela nao
+  // pode e AFIRMAR o cancelamento, entao o caso mede a afirmacao ("post
+  // cancelado") e a distancia da frase de sucesso.
+  it("nao encontrado nao promete que algo foi feito", () => {
+    const t = textoDoDesfecho("nao_encontrado", "cancelar").toLowerCase();
+    expect(t).not.toContain("post cancelado");
+    expect(t).not.toBe(textoDoDesfecho("feito", "cancelar").toLowerCase());
+  });
+  // NENHUM DESFECHO SAI MUDO: a acao redireciona com o texto que vier daqui, e
+  // uma string vazia seria uma faixa em branco — o silencio pelo qual esta base
+  // ja pagou em cinco acoes.
+  it("nenhuma das dez combinacoes sai vazia", () => {
+    for (const d of ["feito", "tarde_demais", "nao_encontrado", "data_invalida", "data_no_passado"] as const) {
+      for (const acao of ["cancelar", "remarcar"] as const) {
+        expect(textoDoDesfecho(d, acao).trim().length).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe("dataDaLinhaDeEnvio", () => {
+  const criado = new Date("2026-09-04T10:00:00Z");
+  const saida = new Date("2026-09-20T14:00:00Z");
+  // O DEFEITO QUE ESTA ENTREGA CONSERTA: a linha mostrava `sent_at ?? created_at`,
+  // entao um post marcado para o dia 20 aparecia com a data de hoje.
+  it("item que ainda nao saiu mostra QUANDO VAI SAIR", () => {
+    const r = dataDaLinhaDeEnvio({ status: "pending", sent_at: null, not_before: saida, created_at: criado });
+    expect(r.quando).toEqual(saida);
+    expect(r.futuro).toBe(true);
+  });
+  it("item que saiu mostra quando saiu", () => {
+    const enviado = new Date("2026-09-04T10:05:00Z");
+    const r = dataDaLinhaDeEnvio({ status: "sent", sent_at: enviado, not_before: criado, created_at: criado });
+    expect(r.quando).toEqual(enviado);
+    expect(r.futuro).toBe(false);
+  });
+  // O LOTE GUARDADO TEM O MESMO PROBLEMA, e por isso a funcao nao olha o `kind`:
+  // ele espera a pessoa voltar a falar, entao `not_before` nao e promessa de
+  // hora — mas ainda e mais honesto que a data em que foi criado.
+  it("guardado nao e passado", () => {
+    expect(dataDaLinhaDeEnvio({ status: "guardado", sent_at: null, not_before: saida, created_at: criado }).futuro).toBe(true);
+  });
+  // `not_before` no passado com status pending: o item esta ATRASADO, nao no
+  // futuro. A tela nao pode prometer uma saida que ja devia ter acontecido.
+  it("pendente com hora ja vencida nao e futuro", () => {
+    const passado = new Date("2026-09-01T10:00:00Z");
+    expect(dataDaLinhaDeEnvio({ status: "pending", sent_at: null, not_before: passado, created_at: criado }).futuro).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // OS CASOS ACIMA DEPENDEM DO RELOGIO DA MAQUINA, e os quatro de baixo nao.
+  //
+  // "2026-09-20 e futuro" e verdade ate 20/09/2026, e depois disso aquele caso
+  // ficaria VERMELHO sem nenhum defeito no codigo — o tipo de teste que se
+  // apaga com raiva em vez de se ler. Por isso a funcao aceita o instante como
+  // segundo parametro (com `Date.now()` por omissao, que e o que a tela usa), e
+  // estes quatro fixam o relogio.
+  // -------------------------------------------------------------------------
+  const AGORA = Date.parse("2026-09-04T12:00:00Z");
+
+  it("com o relogio fixo, o que vem depois de agora e futuro", () => {
+    const r = dataDaLinhaDeEnvio(
+      { status: "pending", sent_at: null, not_before: saida, created_at: criado },
+      AGORA
+    );
+    expect(r).toEqual({ quando: saida, futuro: true });
+  });
+
+  it("com o relogio fixo, o que ja venceu nao e futuro", () => {
+    const vencido = new Date("2026-09-04T11:59:00Z");
+    const r = dataDaLinhaDeEnvio(
+      { status: "pending", sent_at: null, not_before: vencido, created_at: criado },
+      AGORA
+    );
+    expect(r).toEqual({ quando: vencido, futuro: false });
+  });
+
+  // O `sent_at` MANDA MESMO QUANDO O `not_before` E FUTURO. Um item reenviado a
+  // mao, ou uma linha com as duas colunas preenchidas, nao pode dizer "sai em"
+  // sobre um post que ja esta no perfil publico.
+  it("quem tem sent_at nunca e futuro, mesmo com not_before adiante", () => {
+    const enviado = new Date("2026-09-04T10:05:00Z");
+    const r = dataDaLinhaDeEnvio(
+      { status: "sent", sent_at: enviado, not_before: saida, created_at: criado },
+      AGORA
+    );
+    expect(r).toEqual({ quando: enviado, futuro: false });
+  });
+
+  // A DATA DE CRIACAO NAO SUMIU: ela e a rede para o dia em que a coluna
+  // `not_before` vier ilegivel. O que ela deixou de ser e a PRIMEIRA resposta.
+  it("not_before ilegivel cai na data de criacao, e nao em 'Invalid Date'", () => {
+    const r = dataDaLinhaDeEnvio(
+      {
+        status: "pending",
+        sent_at: null,
+        not_before: new Date("nao e data"),
+        created_at: criado,
+      },
+      AGORA
+    );
+    expect(r.quando).toEqual(criado);
+    expect(Number.isNaN(r.quando.getTime())).toBe(false);
   });
 });
