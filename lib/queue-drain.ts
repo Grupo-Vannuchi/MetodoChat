@@ -1172,26 +1172,37 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
   // QStash — indefinidamente, mesmo com a fila viva vazia. Agendar por um item
   // que espera uma PESSOA é agendar para nada: quem o acorda não é relógio.
   // Ver `migrations/009-fila-estado-guardado.sql`.
+  //
+  // E O TETO DE UM DIA NA CONSULTA É O MESMO CONSERTO, PELO OUTRO LADO. A `009`
+  // tirou daqui o item que espera uma PESSOA; a publicação agendada trouxe um
+  // item que espera o RELÓGIO, mas por semanas — e um item que fica é um
+  // `min(not_before)` que sempre responde. Sem este `and`, toda drenagem volta a
+  // publicar um tique, cada tique entregue chama `drainQueue()` de novo
+  // (`app/api/queue/tick/route.ts`) e o número por dia cresce em linha reta:
+  // medido em 10 tiques para 10 drenagens com um post de +30 dias na fila, e
+  // projetado em ~105 mil no mês do agendamento com o tráfego real do painel.
+  //
+  // NÃO ABRE BURACO, e são dois caminhos: dentro de um dia este mesmo rodapé
+  // continua armando (é o segundo caso de `tique-do-rodape.integracao.ts`), e
+  // além de um dia quem arma é o cron diário, no dia certo — `armarTiquesDoDia`,
+  // logo abaixo, com a janela de 24 h que casa com o período dele.
+  //
+  // E O DANO QUE ISTO EVITA NÃO É NA PUBLICAÇÃO: `scheduleTick` engole todo erro
+  // (lib/qstash.ts), então estourada a cota do QStash param CALADOS os tiques de
+  // todo o produto — os lembretes com atraso à frente dos posts.
   const nextRows = (await sql()`
     select extract(epoch from (min(not_before) - now()))::float8 as secs
     from queue where status = 'pending'
+      and not_before <= now() + make_interval(secs => ${HORIZONTE_DO_TIQUE_EM_SEGUNDOS}::int)
   `) as { secs: number | null }[];
   const secs = nextRows[0]?.secs;
   if (secs !== null && secs !== undefined) {
     const config = await getConfig();
-    // O TETO DE UM DIA É NOVO, e ele entrou com a publicação. Antes desta
-    // tarefa, o item mais distante da fila era um lembrete de algumas horas;
-    // agora um post pode estar agendado para o mês que vem, e este `min` seria
-    // um atraso de 30 dias entregue ao QStash — horizonte que NUNCA foi
-    // verificado, e que `scheduleTick` engoliria caladamente se fosse recusado.
-    //
-    // O QUE SE PAGA: enquanto houver item pendente além de um dia, esta linha
-    // publica um tique por drenagem em vez de um só, lá na frente. É barato e
-    // limitado — uma drenagem publica no máximo um —, e o tique não é
-    // desperdício: ele roda o dreno, que é o que se quer.
-    //
-    // O QUE SE COMPRA: nenhum agendamento depende de o QStash aceitar um atraso
-    // que ninguém mediu. Ver `HORIZONTE_DO_TIQUE_EM_SEGUNDOS` (lib/qstash.ts).
+    // O `Math.min` CORTA O ATRASO, e a consulta acima é que corta a DECISÃO de
+    // armar. Os dois continuam aqui porque medem coisas diferentes: um item
+    // vencido há muito tempo (`secs` bem negativo) volta em 20 s pelo `max`, e
+    // nenhum atraso entregue ao QStash passa do horizonte que este projeto
+    // conferiu. Ver `HORIZONTE_DO_TIQUE_EM_SEGUNDOS` (lib/qstash.ts).
     const atraso = Math.min(Math.max(secs + 5, 20), HORIZONTE_DO_TIQUE_EM_SEGUNDOS);
     await scheduleTick(config.app_url ?? "", atraso);
   }
