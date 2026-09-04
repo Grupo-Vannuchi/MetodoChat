@@ -1166,3 +1166,150 @@ export function textoDoProblemaDaLegenda(p: ProblemaDaLegenda): string {
       return "A legenda tem mais de 20 menções, e o Instagram não aceita além disso. Tire as que sobram.";
   }
 }
+
+// -----------------------------------------------------------------------------
+// O QUE A AÇÃO DE SERVIDOR PRECISA DECIDIR (app/publicar/actions.ts)
+//
+// A ação não pode ter saída muda — o conserto de 02/09 fechou isso em cinco
+// ações e este projeto não reabre. Toda recusa dela sai por `redirect` com
+// aviso, e o texto do aviso vem daqui, nunca de string escrita na ação.
+// -----------------------------------------------------------------------------
+
+/** Por que um pedido de publicação não vira item de fila. Os três primeiros
+ *  são os de `momentoDaPublicacao`, reaproveitados de propósito: a ação repassa
+ *  o motivo dela sem traduzir no meio do caminho. */
+export type RecusaDaPublicacao =
+  | MotivoDoMomento
+  | "sem_conta"
+  | "sem_arquivo"
+  | "forma_desconhecida"
+  | "ja_enfileirado";
+
+/** A frase de cada recusa da ação. No molde de `textoDaRecusaDoLote`
+ *  (lib/avisos.ts): um caso por motivo, e o `switch` sem `default` faz o
+ *  TypeScript acusar o motivo novo que alguém acrescentar sem frase. */
+export function textoDaRecusaDaPublicacao(motivo: RecusaDaPublicacao): string {
+  switch (motivo) {
+    case "sem_conta":
+      return "Nenhuma conta do Instagram está selecionada. Conecte ou escolha uma conta antes de publicar.";
+    // O ARQUIVO É O QUE FALTA COM MAIS FREQUÊNCIA, e o motivo é a forma da
+    // tela: o envio ao bucket acontece ANTES do botão, e quem clica cedo
+    // demais chega aqui sem caminho nenhum.
+    case "sem_arquivo":
+      return "Escolha um arquivo e espere o envio terminar antes de publicar.";
+    case "forma_desconhecida":
+      return "Escolha entre imagem, reels e story. O carrossel ainda não publica por aqui.";
+    case "quando_ilegivel":
+      return "Diga se a publicação sai agora ou em outra hora. O pedido não foi entendido, e nada foi publicado.";
+    case "data_invalida":
+      return "A data e a hora escolhidas não formam um dia que existe. Confira e tente de novo.";
+    case "data_no_passado":
+      return "A hora escolhida já passou. Escolha um horário à frente — publicar agora é a outra opção, e ela é a que não dá para desfazer.";
+    case "ja_enfileirado":
+      return "Este arquivo já está na fila de publicação. Nada foi duplicado.";
+  }
+}
+
+/**
+ * Os caminhos do bucket que o formulário mandou, um por linha.
+ *
+ * =============================================================================
+ * ESTE CAMPO É DO USUÁRIO, E ELE DECIDE QUAL OBJETO VAI AO PERFIL PÚBLICO
+ *
+ * O `<input type="hidden">` é escrito pelo enviador, no navegador — e o
+ * navegador é do usuário. Quem trocar o valor à mão escolhe QUALQUER caminho do
+ * bucket para publicar, inclusive um da pasta de outra conta: é o "post da
+ * conta A saindo pela conta B" que `alvoDoLote` fecha no envio em lote, aqui
+ * pela porta do arquivo.
+ *
+ * Por isso a `pasta` é PARÂMETRO e a conferência é feita: quem chama passa a
+ * pasta da conta do COOKIE de seleção (`pastaDaConta`, lib/bucket.ts), nunca a
+ * que veio do formulário. O que não estiver dentro dela é descartado.
+ *
+ * A FORMA TAMBÉM É CONFERIDA (`pasta/identificador.extensao`, e nada de "..")
+ * porque este texto vira parte de uma URL pública que a Meta vai buscar. É a
+ * mesma desconfiança de `caminhoDoObjeto`, do outro lado do caminho.
+ */
+export function caminhosDoCampo(bruto: unknown, pasta: string): string[] {
+  if (typeof bruto !== "string" || !pasta) return [];
+  return bruto
+    .split("\n")
+    .map((c) => c.trim())
+    .filter((c) => c.startsWith(`${pasta}/`) && FORMA_DO_CAMINHO.test(c));
+}
+
+/** `pasta/identificador.extensao`, e nada além. Sem barra a mais (que
+ *  inventaria um segmento), sem ".." (que subiria de pasta), sem caractere que
+ *  precise ser escapado na URL que a Meta vai buscar. */
+const FORMA_DO_CAMINHO = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.[a-z0-9]+$/;
+
+/**
+ * O fuso do navegador, como `Date.prototype.getTimezoneOffset()` o escreve:
+ * MINUTOS A SOMAR ao horário local para chegar ao UTC. Brasília é 180.
+ *
+ * O PADRÃO É O DO PAINEL, e ele é piso e não palpite: quem usa este painel está
+ * no Brasil, e o Brasil não tem horário de verão desde 2019 — o deslocamento é
+ * -03:00 o ano inteiro. E o campo só chega vazio num navegador que não rodou
+ * JavaScript; nesse navegador o arquivo também não subiu, então a ação recusa
+ * antes por `sem_arquivo` e este valor nem é usado.
+ *
+ * O LIMITE DE 900 MINUTOS (15 horas) é mais largo que qualquer fuso real
+ * (±14h): ele não julga fuso, ele descarta número inventado que jogaria a
+ * publicação para outro dia.
+ */
+export const FUSO_DO_PAINEL_EM_MINUTOS = 180;
+
+export function fusoDoCampo(bruto: unknown): number {
+  if (typeof bruto !== "string" || !bruto.trim()) return FUSO_DO_PAINEL_EM_MINUTOS;
+  const n = Number(bruto);
+  if (!Number.isFinite(n) || Math.abs(n) > 900) return FUSO_DO_PAINEL_EM_MINUTOS;
+  return Math.trunc(n);
+}
+
+/**
+ * O instante, em milissegundos, de uma data e hora escolhidas num fuso.
+ *
+ * O CAMPO `datetime-local` NÃO TEM FUSO, e essa é a armadilha inteira: ele
+ * manda "2026-09-10T14:30" e cala sobre onde são 14:30. Lido no servidor da
+ * Vercel, que roda em UTC, esse texto viraria 14:30 UTC — 11:30 em Brasília, e
+ * o post sairia TRÊS HORAS ANTES do que a pessoa marcou.
+ *
+ * Por isso o fuso vem do navegador (ver `fusoDoCampo`) e a conta é feita aqui,
+ * uma vez, com teste — e não espalhada por um `-3h` escrito na ação, que é o
+ * jeito de o erro sobreviver a uma mudança de fuso.
+ *
+ * `camposDaDataHora` JÁ RECUSOU O DIA QUE NÃO EXISTE antes de chegar aqui, e é
+ * por isso que esta função pode usar `Date.UTC` sem medo do transbordo.
+ */
+export function instanteDoAgendamento(campos: CamposDaDataHora, fusoEmMinutos: number): number {
+  return (
+    Date.UTC(campos.ano, campos.mes - 1, campos.dia, campos.hora, campos.minuto) +
+    fusoEmMinutos * 60_000
+  );
+}
+
+/**
+ * O que o `<input type="file">` oferece no seletor do sistema, por forma.
+ *
+ * ELE NÃO É UMA BARREIRA — o `accept` é uma sugestão que qualquer um contorna
+ * escolhendo "todos os arquivos". Quem recusa de verdade é `problemaDoArquivo`,
+ * no navegador e de novo no servidor. O que ele faz é poupar a pessoa de
+ * atravessar a pasta inteira para descobrir depois que o AVI não serve.
+ *
+ * ESTÁ AQUI, E NÃO NO JSX, pelo mesmo motivo que todo o resto deste bloco: é a
+ * lista de formatos que a Meta aceita, ou seja regra de negócio, e uma segunda
+ * cópia dela dentro do componente envelheceria calada no dia em que a Meta
+ * aceitasse um formato novo.
+ */
+export function tiposQueOCampoAceita(forma: FormaDePublicacao): string {
+  if (forma === "reels") return MIMES_DE_VIDEO.join(",");
+  if (forma === "imagem") {
+    // O CAMPO DE IMAGEM ACEITA MAIS DO QUE A META, de propósito: PNG e WEBP
+    // entram porque `planoDaConversao` os CONVERTE para JPEG antes de subir.
+    // Bloqueá-los aqui recusaria justamente o formato mais comum de quem monta
+    // arte, num caso em que o produto sabe resolver sozinho.
+    return [...MIMES_DE_IMAGEM, "image/png", "image/webp"].join(",");
+  }
+  // Story aceita as duas mídias, e a conversão vale para a imagem dele igual.
+  return [...MIMES_DE_IMAGEM, "image/png", "image/webp", ...MIMES_DE_VIDEO].join(",");
+}

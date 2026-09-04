@@ -23,6 +23,12 @@ import {
   camposDaDataHora,
   momentoDaPublicacao,
   textoDoProblemaDaLegenda,
+  caminhosDoCampo,
+  fusoDoCampo,
+  FUSO_DO_PAINEL_EM_MINUTOS,
+  instanteDoAgendamento,
+  textoDaRecusaDaPublicacao,
+  tiposQueOCampoAceita,
 } from "../lib/publicacao";
 
 const MB = 1024 * 1024;
@@ -1177,5 +1183,172 @@ describe("textoDoProblemaDaLegenda", () => {
     expect(textoDoProblemaDaLegenda("longa")).toContain("2.200");
     expect(textoDoProblemaDaLegenda("hashtags_demais")).toContain("30");
     expect(textoDoProblemaDaLegenda("mencoes_demais")).toContain("20");
+  });
+});
+
+// =============================================================================
+// O QUE A AÇÃO DE SERVIDOR DECIDE (Tarefa 5, segundo commit)
+//
+// Estes casos foram acrescentados DEPOIS dos 38 acima, junto da tela — nenhum
+// dos 38 foi tocado. Eles cobrem as funções que nasceram para a ação
+// `app/publicar/actions.ts` não decidir nada por conta própria: ela lê o
+// formulário, chama estas, e o que sai delas é o que vira aviso ou item de
+// fila.
+// =============================================================================
+
+describe("caminhosDoCampo", () => {
+  const PASTA = "17841400000000000";
+
+  it("o caminho que o enviador escreveu passa", () => {
+    expect(caminhosDoCampo(`${PASTA}/abc-123.jpg`, PASTA)).toEqual([`${PASTA}/abc-123.jpg`]);
+  });
+
+  it("vários caminhos vêm um por linha, e a ordem é preservada", () => {
+    expect(caminhosDoCampo(`${PASTA}/a.jpg\n${PASTA}/b.jpg`, PASTA)).toEqual([
+      `${PASTA}/a.jpg`,
+      `${PASTA}/b.jpg`,
+    ]);
+  });
+
+  // O CAMPO É DO USUÁRIO, E ELE ESCOLHE O QUE VAI AO PERFIL PÚBLICO. Um
+  // `<input type="hidden">` trocado à mão apontaria para o objeto de OUTRA
+  // conta — é o "post da conta A saindo pela conta B" que `alvoDoLote` fecha no
+  // envio em lote, aqui pela porta do arquivo. A pasta vem do COOKIE de
+  // seleção, nunca do formulário.
+  it("caminho de outra conta é descartado", () => {
+    expect(caminhosDoCampo("99999999/roubado.jpg", PASTA)).toEqual([]);
+    // E nem o prefixo salva: "1784140000000000099" começa com a pasta como
+    // TEXTO, mas não é a pasta — a barra é o que separa.
+    expect(caminhosDoCampo(`${PASTA}99/x.jpg`, PASTA)).toEqual([]);
+  });
+
+  // ESTE TEXTO VIRA PARTE DE UMA URL PÚBLICA QUE A META VAI BUSCAR, e por isso
+  // a forma é conferida: "../" sobe de pasta, e barra a mais inventa segmento.
+  it("caminho de forma estranha é descartado", () => {
+    expect(caminhosDoCampo(`${PASTA}/../outra/x.jpg`, PASTA)).toEqual([]);
+    expect(caminhosDoCampo(`${PASTA}/pasta/x.jpg`, PASTA)).toEqual([]);
+    expect(caminhosDoCampo(`${PASTA}/sem-extensao`, PASTA)).toEqual([]);
+  });
+
+  it("o que não é texto, e a pasta vazia, dão lista vazia", () => {
+    expect(caminhosDoCampo(null, PASTA)).toEqual([]);
+    expect(caminhosDoCampo(42, PASTA)).toEqual([]);
+    expect(caminhosDoCampo("", PASTA)).toEqual([]);
+    // PASTA VAZIA NÃO LIBERA TUDO. Sem ela não há a quem conferir, e o `filter`
+    // de um prefixo "" deixaria passar caminho de qualquer conta.
+    expect(caminhosDoCampo(`${PASTA}/a.jpg`, "")).toEqual([]);
+  });
+});
+
+describe("fusoDoCampo e instanteDoAgendamento", () => {
+  it("o fuso do navegador é lido como número", () => {
+    expect(fusoDoCampo("180")).toBe(180);
+    expect(fusoDoCampo("-60")).toBe(-60);
+    expect(fusoDoCampo("0")).toBe(0);
+  });
+
+  // O CAMPO SÓ CHEGA VAZIO NUM NAVEGADOR QUE NÃO RODOU JAVASCRIPT — e nesse
+  // navegador o arquivo também não subiu, então a ação já recusou por
+  // `sem_arquivo`. O padrão é piso, e não palpite.
+  it("campo ausente ou inventado cai no fuso do painel", () => {
+    expect(fusoDoCampo(null)).toBe(FUSO_DO_PAINEL_EM_MINUTOS);
+    expect(fusoDoCampo("")).toBe(FUSO_DO_PAINEL_EM_MINUTOS);
+    expect(fusoDoCampo("amanha")).toBe(FUSO_DO_PAINEL_EM_MINUTOS);
+    expect(fusoDoCampo(180)).toBe(FUSO_DO_PAINEL_EM_MINUTOS);
+    // Número absurdo jogaria a publicação para outro dia.
+    expect(fusoDoCampo("999999")).toBe(FUSO_DO_PAINEL_EM_MINUTOS);
+  });
+
+  // A ARMADILHA INTEIRA DO `datetime-local`: ele manda "14:30" e CALA sobre
+  // onde são 14:30. Lido no servidor da Vercel, que roda em UTC, esse texto
+  // viraria 14:30 UTC — 11:30 em Brasília, TRÊS HORAS antes do que a pessoa
+  // marcou. Este par é o que prende a conta.
+  it("14:30 em Brasília é 17:30 UTC", () => {
+    const campos = camposDaDataHora("2026-09-10T14:30")!;
+    expect(instanteDoAgendamento(campos, 180)).toBe(Date.parse("2026-09-10T17:30:00Z"));
+  });
+
+  it("o mesmo horário em UTC não desloca nada", () => {
+    const campos = camposDaDataHora("2026-09-10T14:30")!;
+    expect(instanteDoAgendamento(campos, 0)).toBe(Date.parse("2026-09-10T14:30:00Z"));
+  });
+
+  // A VIRADA DO DIA É O CASO QUE UM `-3h` ESCRITO À MÃO ERRA: 23:00 do dia 10
+  // em Brasília é 02:00 do dia 11 em UTC.
+  it("a virada do dia atravessa certo", () => {
+    const campos = camposDaDataHora("2026-09-10T23:00")!;
+    expect(instanteDoAgendamento(campos, 180)).toBe(Date.parse("2026-09-11T02:00:00Z"));
+  });
+});
+
+describe("textoDaRecusaDaPublicacao", () => {
+  it("cada motivo tem frase, e nenhuma é vazia", () => {
+    const motivos = [
+      "sem_conta",
+      "sem_arquivo",
+      "forma_desconhecida",
+      "quando_ilegivel",
+      "data_invalida",
+      "data_no_passado",
+      "ja_enfileirado",
+    ] as const;
+    for (const m of motivos) {
+      expect(textoDaRecusaDaPublicacao(m).length).toBeGreaterThan(0);
+    }
+  });
+
+  // AS TRÊS RECUSAS DE HORA SÃO TRÊS CONSELHOS DIFERENTES, e é por isso que
+  // `momentoDaPublicacao` devolve três motivos em vez de um "não deu". Se as
+  // frases fossem iguais, a distinção que aquela função faz não chegaria a
+  // ninguém.
+  it("as três recusas de hora não dizem a mesma coisa", () => {
+    const frases = new Set([
+      textoDaRecusaDaPublicacao("quando_ilegivel"),
+      textoDaRecusaDaPublicacao("data_invalida"),
+      textoDaRecusaDaPublicacao("data_no_passado"),
+    ]);
+    expect(frases.size).toBe(3);
+  });
+
+  // "JÁ ENFILEIRADO" NÃO É FALHA, E A FRASE TEM DE DIZER ISSO. `enqueue`
+  // (lib/engine.ts) devolve `false` quando a `dedupe_key` já existe — o post
+  // está na fila, e não perdido. Uma frase que soasse a erro faria alguém subir
+  // o arquivo de novo e publicar duas vezes.
+  it("a recusa por duplicata diz que nada foi duplicado", () => {
+    expect(textoDaRecusaDaPublicacao("ja_enfileirado")).toContain("Nada foi duplicado");
+  });
+});
+
+describe("tiposQueOCampoAceita", () => {
+  // O CAMPO DE IMAGEM ACEITA MAIS DO QUE A META, e é de propósito: PNG e WEBP
+  // entram porque `planoDaConversao` os converte para JPEG antes de subir.
+  // Bloqueá-los no seletor recusaria o formato mais comum de quem monta arte,
+  // num caso em que o produto sabe resolver sozinho.
+  it("imagem oferece o que a conversão sabe resolver", () => {
+    const aceita = tiposQueOCampoAceita("imagem");
+    expect(aceita).toContain("image/jpeg");
+    expect(aceita).toContain("image/png");
+    expect(aceita).not.toContain("video/");
+  });
+  it("reels oferece só vídeo", () => {
+    const aceita = tiposQueOCampoAceita("reels");
+    expect(aceita).toContain("video/mp4");
+    expect(aceita).not.toContain("image/");
+  });
+  it("story oferece as duas mídias", () => {
+    const aceita = tiposQueOCampoAceita("story");
+    expect(aceita).toContain("image/jpeg");
+    expect(aceita).toContain("video/mp4");
+  });
+  // O QUE ESTA FUNÇÃO NÃO É: barreira. O `accept` é sugestão do seletor, e
+  // quem escolher "todos os arquivos" passa por cima dele — quem recusa é
+  // `problemaDoArquivo`, no navegador e de novo no servidor. Este caso existe
+  // para o nome não prometer o que a função não faz: AVI não está na lista, e
+  // isso não impede ninguém de escolher um.
+  it("o que ela oferece não é o que ela recusa", () => {
+    expect(tiposQueOCampoAceita("reels")).not.toContain("video/x-msvideo");
+    expect(problemaDoArquivo("reels", { mime: "video/x-msvideo", bytes: MB, segundos: 10 }, TETO_PAGO)).toBe(
+      "tipo_nao_suportado"
+    );
   });
 });

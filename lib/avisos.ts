@@ -366,3 +366,61 @@ export function avisoDosPerfis(atualizados: number, tentados: number): Aviso {
     texto: `${atualizados} ${atualizados === 1 ? "perfil atualizado" : "perfis atualizados"}.`,
   };
 }
+
+/**
+ * A URL de volta da tela de PUBLICAR, com o aviso pendurado nela.
+ *
+ * NAO E CONSTRUIDA SOBRE `urlDoAviso`, pelo mesmo motivo de
+ * `urlDaConversaComAviso`: `urlDoAviso` existe para `/contatos`, uma tela com
+ * FILTRO DE CATEGORIA, e por isso pede um `FiltroDeCategoria` e o preserva pelo
+ * redirect. `/publicar` nao tem recorte nenhum — forcar aquela funcao exigiria
+ * inventar um filtro que nao representa nada desta tela.
+ *
+ * O TOM VAI JUNTO DO TEXTO, e essa e a razao de a funcao existir em vez de a
+ * acao costurar a string: `avisoDaUrl` le DOIS parametros, e um sucesso mandado
+ * sem `tom` chega na tela pintado de falha.
+ */
+export function urlDePublicarComAviso(aviso: Aviso): string {
+  return `/publicar?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;
+}
+
+/**
+ * O aviso de sucesso da acao de publicar.
+ *
+ * A FRASE MUDA ENTRE AGORA E AGENDADO, e nao e enfeite: sao dois desfechos
+ * diferentes, e confundi-los e caro nos dois sentidos. Quem agendou e le "vai
+ * sair agora" corre para desfazer o que nao aconteceu; quem publicou agora e le
+ * "agendado" fica esperando um post que ja esta no ar — e, medido em 03/09,
+ * `DELETE /{ig-media-id}` NAO existe no nosso caminho, entao o post no ar so
+ * sai a mao pelo celular.
+ *
+ * A HORA VEM DOS CAMPOS ESCOLHIDOS, e nao do `Date` do agendamento, e isso e
+ * deliberado: o `Date` e um instante em UTC, e formata-lo no servidor da Vercel
+ * — que roda em UTC — mostraria uma hora tres horas adiante da que a pessoa
+ * digitou. Ecoar os campos devolve exatamente o que ela escreveu, sem conta
+ * nenhuma no meio para errar.
+ *
+ * E ELE NAO PROMETE QUE O POST SAIU. Enfileirar nao e publicar: a Meta leva de
+ * 10 a 32 segundos (medido), o item sai pela fila e a tela nao espera. "Na
+ * fila" e o que de fato aconteceu, e apontar a tela de Atividade e o que
+ * permite conferir o desfecho — inclusive o ruim, que e o unico lugar onde ele
+ * aparece (especificacao, secao 5: nao ha aviso fora da tela).
+ */
+export function avisoDaPublicacaoEnfileirada(
+  quando: { dia: number; mes: number; hora: number; minuto: number } | null
+): Aviso {
+  if (!quando) {
+    return {
+      tom: "ok",
+      texto: "Publicação na fila. Ela sai em instantes — acompanhe o desfecho em Atividade.",
+    };
+  }
+  const d = String(quando.dia).padStart(2, "0");
+  const m = String(quando.mes).padStart(2, "0");
+  const h = String(quando.hora).padStart(2, "0");
+  const min = String(quando.minuto).padStart(2, "0");
+  return {
+    tom: "ok",
+    texto: `Publicação agendada para ${d}/${m} às ${h}:${min}. Acompanhe o desfecho em Atividade.`,
+  };
+}

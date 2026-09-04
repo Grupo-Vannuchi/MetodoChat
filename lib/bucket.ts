@@ -121,11 +121,25 @@ export function caminhoDoObjeto(
 ): string {
   const ext = (nomeOriginal.split(".").pop() ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const extensao = EXTENSOES_CONHECIDAS.includes(ext) ? ext : "bin";
-  // A conta também é higienizada: ela vem do banco e é numérica hoje, mas é o
-  // primeiro segmento do caminho, e o dia em que deixar de ser numérica não
-  // pode ser o dia em que alguém escreve fora da própria pasta.
-  const pasta = contaIgId.replace(/[^A-Za-z0-9_-]/g, "");
-  return `${pasta}/${identificador}.${extensao}`;
+  return `${pastaDaConta(contaIgId)}/${identificador}.${extensao}`;
+}
+
+/**
+ * A pasta desta conta dentro do bucket, e o único lugar em que ela se escreve.
+ *
+ * A conta é higienizada: ela vem do banco e é numérica hoje, mas é o primeiro
+ * segmento do caminho, e o dia em que deixar de ser numérica não pode ser o dia
+ * em que alguém escreve fora da própria pasta.
+ *
+ * ELA É EXPORTADA PORQUE HÁ DOIS LADOS DO MESMO CAMINHO: `caminhoDoObjeto` a
+ * usa para ESCREVER, e a ação de publicar (app/publicar/actions.ts) a usa para
+ * CONFERIR que o caminho vindo do formulário está dentro da pasta da conta do
+ * cookie — o campo é do usuário, e sem a conferência ele escolheria o objeto de
+ * outra conta para publicar. Duas versões desta higienização seriam duas regras
+ * para manter iguais, e elas divergem.
+ */
+export function pastaDaConta(contaIgId: string): string {
+  return contaIgId.replace(/[^A-Za-z0-9_-]/g, "");
 }
 
 /**

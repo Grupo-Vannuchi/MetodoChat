@@ -15,7 +15,9 @@ import {
   IconMoon,
   IconMenu,
   IconX,
+  IconImage,
 } from "./icons";
+import Progresso from "./publicar/progresso";
 
 // Agrupado: "Gerenciar" é o trabalho do dia a dia, "Sistema" é o que se mexe
 // uma vez. Sem os grupos, cinco itens soltos têm todos o mesmo peso.
@@ -31,6 +33,7 @@ const NAV_GROUPS: {
     label: "Gerenciar",
     items: [
       { href: "/conversas", label: "Conversas", icon: IconSend },
+      { href: "/publicar", label: "Publicar", icon: IconImage },
       { href: "/automacoes", label: "Automações", icon: IconZap },
       { href: "/contatos", label: "Contatos", icon: IconUsers },
       { href: "/eventos", label: "Atividade", icon: IconActivity },
@@ -192,6 +195,10 @@ export default function AppShell({
   const [open, setOpen] = useState(false);
   const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
+  // A JANELINHA DE PROGRESSO NAO ENTRA NAS PAGINAS PUBLICAS (login, privacidade,
+  // exclusao de dados): quem esta nelas nao tem sessao, e nao ha envio dele para
+  // mostrar. `resumoDoProgresso` devolveria `null` de qualquer jeito, mas nao
+  // desenhar e mais honesto do que desenhar nada.
   if (isPublic) {
     return <main className="mx-auto max-w-3xl px-4 py-8">{children}</main>;
   }
@@ -200,7 +207,16 @@ export default function AppShell({
   // `<main>`. Vem ANTES do retorno com o menu porque a rota do editor também
   // passaria por ele.
   if (EDITOR_PATH.test(pathname)) {
-    return <>{children}</>;
+    // A JANELINHA VEM JUNTO ATE AQUI. O quadro do editor toma a janela inteira,
+    // mas um reels de 200 MB continua subindo em segundo plano, e a razao de a
+    // janelinha existir e justamente sobreviver a navegacao — some-la na rota
+    // que mais toma a tela seria desfazer o recurso.
+    return (
+      <>
+        {children}
+        <Progresso />
+      </>
+    );
   }
 
   return (
@@ -250,6 +266,16 @@ export default function AppShell({
       <div className="lg:pl-[248px]">
         <main className="mx-auto max-w-5xl px-4 py-8 lg:px-8">{children}</main>
       </div>
+
+      {/* A JANELINHA DE PROGRESSO MORA AQUI, E NAO NA TELA DE PUBLICAR, e e
+          essa posicao que a faz SOBREVIVER A NAVEGACAO: o `app-shell` envolve
+          `children`, entao trocar de rota troca o miolo e nao a casca. Quem
+          esta enviando um reels de 200 MB pode ir para Conversas e continuar
+          vendo o andamento.
+
+          Ela nao desenha nada quando nao ha envio — `resumoDoProgresso`
+          devolve `null`, e o componente devolve `null` junto. */}
+      <Progresso />
     </div>
   );
 }
