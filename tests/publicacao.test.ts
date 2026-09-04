@@ -29,6 +29,10 @@ import {
   instanteDoAgendamento,
   textoDaRecusaDaPublicacao,
   tiposQueOCampoAceita,
+  parametrosDoContainerPai,
+  recusaDaQuantidade,
+  moverNaOrdem,
+  rotuloDoEnvio,
 } from "../lib/publicacao";
 
 const MB = 1024 * 1024;
@@ -1069,12 +1073,13 @@ describe("formaQueATelaPublica", () => {
     expect(formaQueATelaPublica("reels")).toBe("reels");
     expect(formaQueATelaPublica("story")).toBe("story");
   });
-  // CARROSSEL É DA TAREFA 6, E A TELA NÃO O OFERECE. Aceitá-lo aqui gravaria
-  // um item de fila que o dreno já recusa ("o carrossel ainda nao publica por
-  // aqui", lib/queue-drain.ts) — ou seja, um post que nasce morto, depois de o
-  // arquivo ter subido. A recusa é ALTA, antes de gravar nada.
-  it("carrossel ainda não passa por aqui", () => {
-    expect(formaQueATelaPublica("carrossel")).toBeNull();
+  // O CARROSSEL PASSOU A PASSAR NA TAREFA 6. Enquanto ele não publicava, esta
+  // função o recusava para não gravar um item de fila que o dreno já recusaria
+  // — um post que nasce morto, depois de o arquivo ter subido. Agora o dreno
+  // sabe montá-lo, e a recusa que sobra é a de QUANTIDADE
+  // (`recusaDaQuantidade`), que é outra pergunta.
+  it("o carrossel passa, desde a Tarefa 6", () => {
+    expect(formaQueATelaPublica("carrossel")).toBe("carrossel");
   });
   it("qualquer outra coisa é null", () => {
     expect(formaQueATelaPublica("")).toBeNull();
@@ -1291,6 +1296,9 @@ describe("textoDaRecusaDaPublicacao", () => {
       "data_invalida",
       "data_no_passado",
       "ja_enfileirado",
+      "um_arquivo_so",
+      "carrossel_curto_demais",
+      "carrossel_longo_demais",
     ] as const;
     for (const m of motivos) {
       expect(textoDaRecusaDaPublicacao(m).length).toBeGreaterThan(0);
@@ -1350,5 +1358,246 @@ describe("tiposQueOCampoAceita", () => {
     expect(problemaDoArquivo("reels", { mime: "video/x-msvideo", bytes: MB, segundos: 10 }, TETO_PAGO)).toBe(
       "tipo_nao_suportado"
     );
+  });
+});
+
+// =============================================================================
+// O CARROSSEL (Tarefa 6)
+//
+// AS REGRAS DA META, lidas na referencia do endpoint em 03/09/2026:
+//
+//   - `media_type=CAROUSEL` no PAI, e `children` e a lista de ate 10
+//     identificadores de container.
+//   - os FILHOS levam `is_carousel_item=true` e NAO levam legenda: ela mora no
+//     pai.
+//   - reels NAO entra em carrossel (video em carrossel e video comum).
+//   - todos os itens sao cortados pela proporcao do PRIMEIRO — por isso a ordem
+//     importa, e por isso ela e editavel na tela.
+//   - carrossel nao aceita marcacao de localizacao.
+//   - carrossel conta como UMA publicacao no limite de 100/24h.
+// =============================================================================
+
+describe("parametrosDoContainerPai", () => {
+  const dez = Array.from({ length: 10 }, (_, i) => `container-${i + 1}`);
+
+  it("o pai leva CAROUSEL, a lista de filhos e a legenda", () => {
+    const p = parametrosDoContainerPai({ filhos: ["a", "b", "c"], legenda: "oi" });
+    expect(p.media_type).toBe("CAROUSEL");
+    expect(p.children).toBe("a,b,c");
+    // A LEGENDA MORA NO PAI. E o outro lado do caso do filho que nao a leva —
+    // sem este par, mover a legenda de lugar nao acusaria em teste nenhum.
+    expect(p.caption).toBe("oi");
+  });
+
+  // A ORDEM E CONTEUDO, E NAO ARRUMACAO: todos os itens sao cortados pela
+  // proporcao do PRIMEIRO. Uma lista reordenada no caminho publica um post
+  // enquadrado por outro arquivo.
+  it("a ordem escolhida atravessa intacta", () => {
+    expect(parametrosDoContainerPai({ filhos: ["c", "a", "b"] }).children).toBe("c,a,b");
+  });
+
+  it("dez itens entram", () => {
+    expect(parametrosDoContainerPai({ filhos: dez }).children.split(",").length).toBe(10);
+  });
+
+  // ONZE E RECUSADO ALTO, e nao mandado para a Meta recusar: chegar ate aqui
+  // com onze quer dizer que onze arquivos ja subiram ao bucket e onze
+  // containers ja nasceram. O erro tem de aparecer antes disso.
+  it("onze itens sao recusados", () => {
+    expect(() => parametrosDoContainerPai({ filhos: [...dez, "container-11"] })).toThrow();
+  });
+
+  // ZERO E UM NAO SAO CARROSSEL. Zero e o caso que a Tarefa 2 nomeou ao
+  // declarar que o pai precisa de funcao propria (`parametrosDoContainer`
+  // montaria um pedido sem `children`); um e um post comum, e publicar um
+  // carrossel de um item so entrega uma peca com seta de deslizar que nao
+  // desliza.
+  it("carrossel de zero e de um item sao recusados", () => {
+    expect(() => parametrosDoContainerPai({ filhos: [] })).toThrow();
+    expect(() => parametrosDoContainerPai({ filhos: ["a"] })).toThrow();
+  });
+
+  it("a legenda vazia nao vira caption", () => {
+    expect(parametrosDoContainerPai({ filhos: ["a", "b"], legenda: "   " }).caption).toBeUndefined();
+    expect(parametrosDoContainerPai({ filhos: ["a", "b"] }).caption).toBeUndefined();
+  });
+
+  // O QUE O PAI NAO TEM, dito como teste porque o esquecimento aqui e mudo: a
+  // Meta IGNORA parametro que nao vale para a forma, sem dizer nada, e o post
+  // sai diferente do que a tela prometeu. `share_to_feed` e `audio_name` sao de
+  // reels, e reels nao entra em carrossel; localizacao o carrossel nao aceita.
+  it("o pai nao leva nada de reels, nem localizacao, nem URL de midia", () => {
+    const p = parametrosDoContainerPai({ filhos: ["a", "b"], legenda: "oi" });
+    expect(p.share_to_feed).toBeUndefined();
+    expect(p.audio_name).toBeUndefined();
+    expect(p.location_id).toBeUndefined();
+    expect(p.image_url).toBeUndefined();
+    expect(p.video_url).toBeUndefined();
+    expect(p.is_carousel_item).toBeUndefined();
+  });
+});
+
+describe("parametrosDoContainer — os filhos do carrossel", () => {
+  // O FILHO NASCE COM `forma: "carrossel"` E `filho: true`. A forma diz de que
+  // post ele e item; a midia dele decide a CHAVE da URL, como no story.
+  it("filho de imagem leva image_url, is_carousel_item, e nenhuma legenda", () => {
+    const p = parametrosDoContainer({
+      forma: "carrossel",
+      url: "https://x/a.jpg",
+      legenda: "esta legenda e do pai",
+      filho: true,
+      mime: "image/jpeg",
+    });
+    expect(p.image_url).toBe("https://x/a.jpg");
+    expect(p.is_carousel_item).toBe("true");
+    expect(p.caption).toBeUndefined();
+    expect(p.media_type).toBeUndefined();
+  });
+
+  // VIDEO EM CARROSSEL E VIDEO COMUM: sem `share_to_feed`, sem `audio_name`,
+  // sem capa — e sem `media_type`, porque a referencia do endpoint lista
+  // CAROUSEL, REELS e STORIES e mais nada (ver a especificacao).
+  it("filho de video leva video_url e nenhum media_type", () => {
+    const p = parametrosDoContainer({
+      forma: "carrossel",
+      url: "https://x/a.mp4",
+      filho: true,
+      mime: "video/mp4",
+      compartilharNoFeed: true,
+      nomeDoAudio: "trilha",
+    });
+    expect(p.video_url).toBe("https://x/a.mp4");
+    expect(p.media_type).toBeUndefined();
+    expect(p.share_to_feed).toBeUndefined();
+    expect(p.audio_name).toBeUndefined();
+  });
+
+  // SEM `mime`, A EXTENSAO DECIDE — e ela e o caso NORMAL do carrossel, e nao o
+  // recurso de ultimo caso: o dreno monta o filho a partir do CAMINHO no
+  // bucket, e o payload nao guarda o tipo do arquivo.
+  it("sem mime, a extensao do caminho decide a chave", () => {
+    expect(
+      parametrosDoContainer({ forma: "carrossel", url: "https://x/a.mp4", filho: true }).video_url
+    ).toBe("https://x/a.mp4");
+    expect(
+      parametrosDoContainer({ forma: "carrossel", url: "https://x/a.jpg", filho: true }).image_url
+    ).toBe("https://x/a.jpg");
+  });
+
+  // O PAI CONTINUA RECUSADO NESTA FUNCAO, e o caso da Tarefa 2 segue de pe: sem
+  // `filho: true`, `forma: "carrossel"` e um pedido de PAI, e o pai precisa da
+  // lista de filhos que esta funcao nao recebe.
+  it("carrossel sem filho continua sendo recusado aqui", () => {
+    expect(() => parametrosDoContainer({ forma: "carrossel", url: "https://x/a.jpg" })).toThrow();
+  });
+});
+
+describe("recusaDaQuantidade", () => {
+  it("nenhum arquivo e sempre sem_arquivo", () => {
+    expect(recusaDaQuantidade("imagem", 0)).toBe("sem_arquivo");
+    expect(recusaDaQuantidade("carrossel", 0)).toBe("sem_arquivo");
+  });
+
+  it("as tres formas de um arquivo so publicam um arquivo so", () => {
+    expect(recusaDaQuantidade("imagem", 1)).toBeNull();
+    expect(recusaDaQuantidade("reels", 1)).toBeNull();
+    expect(recusaDaQuantidade("story", 1)).toBeNull();
+    // O DRENO PUBLICA `caminhos[0]` E DESCARTA O RESTO, calado. Dois arquivos
+    // numa forma de um so nao e um detalhe de tela: e um arquivo que subiu, que
+    // fica no bucket, e que a pessoa acha que publicou.
+    expect(recusaDaQuantidade("imagem", 2)).toBe("um_arquivo_so");
+  });
+
+  it("o carrossel vai de dois a dez", () => {
+    expect(recusaDaQuantidade("carrossel", 1)).toBe("carrossel_curto_demais");
+    expect(recusaDaQuantidade("carrossel", 2)).toBeNull();
+    expect(recusaDaQuantidade("carrossel", 10)).toBeNull();
+    expect(recusaDaQuantidade("carrossel", 11)).toBe("carrossel_longo_demais");
+  });
+
+  it("cada recusa de quantidade tem a sua frase, e elas nao se repetem", () => {
+    const frases = new Set([
+      textoDaRecusaDaPublicacao("um_arquivo_so"),
+      textoDaRecusaDaPublicacao("carrossel_curto_demais"),
+      textoDaRecusaDaPublicacao("carrossel_longo_demais"),
+    ]);
+    expect(frases.size).toBe(3);
+    for (const f of frases) expect(f.length).toBeGreaterThan(10);
+  });
+});
+
+describe("moverNaOrdem", () => {
+  it("para cima e para baixo", () => {
+    expect(moverNaOrdem(["a", "b", "c"], 2, 0)).toEqual(["c", "a", "b"]);
+    expect(moverNaOrdem(["a", "b", "c"], 0, 1)).toEqual(["b", "a", "c"]);
+  });
+
+  // FORA DA FAIXA DEVOLVE A MESMA LISTA, e a MESMA por identidade: quem desenha
+  // a lista compara por identidade, e uma copia devolvida a cada clique no
+  // botao de subir do PRIMEIRO item seria um render por clique que nao muda
+  // nada.
+  it("fora da faixa devolve a mesma lista, sem copia", () => {
+    const lista = ["a", "b", "c"];
+    expect(moverNaOrdem(lista, 0, -1)).toBe(lista);
+    expect(moverNaOrdem(lista, 2, 3)).toBe(lista);
+    expect(moverNaOrdem(lista, -1, 0)).toBe(lista);
+    expect(moverNaOrdem(lista, 9, 0)).toBe(lista);
+    expect(moverNaOrdem(lista, 1, 1)).toBe(lista);
+  });
+
+  it("nao mexe na lista original", () => {
+    const lista = ["a", "b", "c"];
+    moverNaOrdem(lista, 0, 2);
+    expect(lista).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("rotuloDoEnvio", () => {
+  // A POSICAO ENTRA NO ROTULO QUANDO HA MAIS DE UM ARQUIVO, e ela nao e
+  // enfeite: no carrossel a ordem decide o enquadramento de todos, e a
+  // janelinha e o unico lugar onde os arquivos aparecem enquanto sobem. Ela
+  // tambem e o que separa dois arquivos de MESMO NOME, que a janelinha
+  // identifica pelo rotulo.
+  it("um arquivo so nao ganha posicao", () => {
+    expect(rotuloDoEnvio("arte.jpg", 0, 1)).toBe("arte.jpg");
+  });
+  it("com mais de um, o rotulo diz a posicao", () => {
+    expect(rotuloDoEnvio("arte.jpg", 0, 3)).toBe("1/3 arte.jpg");
+    expect(rotuloDoEnvio("arte.jpg", 2, 3)).toBe("3/3 arte.jpg");
+  });
+});
+
+describe("payloadDaPublicacao — os filhos que ja nasceram", () => {
+  // A MEDICAO QUE OBRIGOU ESTA CHAVE (Tarefa 6, medida no codigo da Tarefa 4):
+  // um filho que falha por 5xx devolve o item a fila (`retryInSeconds: 120`,
+  // lib/queue-drain.ts), e o container da Meta VENCE EM 24 HORAS. Entre a falha
+  // e a passada seguinte passam dois minutos — os filhos que ja nasceram
+  // continuam validos por muito tempo. Recria-los seria baixar a midia de novo
+  // e gastar o teto de 400 containers por dia por engano.
+  it("os filhos voltam do payload, na ordem", () => {
+    const lido = lerPayloadDaPublicacao({
+      forma: "carrossel",
+      caminhos: ["a/1.jpg", "a/2.jpg", "a/3.jpg"],
+      filhos: ["c1", "c2"],
+    });
+    expect(lido?.filhos).toEqual(["c1", "c2"]);
+  });
+
+  it("payload sem filhos devolve lista vazia, e nunca undefined", () => {
+    const lido = lerPayloadDaPublicacao({ forma: "carrossel", caminhos: ["a/1.jpg", "a/2.jpg"] });
+    expect(lido?.filhos).toEqual([]);
+  });
+
+  // FILHO QUE NAO E TEXTO CONTA COMO NENHUM. A coluna e `jsonb` e editavel por
+  // fora do painel: uma lista com um buraco no meio desalinharia os filhos dos
+  // caminhos, e o carrossel sairia com a peca errada na posicao errada.
+  // Recomecar do zero custa containers; publicar embaralhado custa o perfil.
+  it("lista com qualquer coisa que nao seja texto conta como nenhum filho", () => {
+    for (const filhos of [["c1", 2], "c1", [null], [""], {}]) {
+      expect(
+        lerPayloadDaPublicacao({ forma: "carrossel", caminhos: ["a/1.jpg", "a/2.jpg"], filhos })
+          ?.filhos
+      ).toEqual([]);
+    }
   });
 });
