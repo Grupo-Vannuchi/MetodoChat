@@ -38,10 +38,18 @@
 // bloco confere essa precondição antes de qualquer medida.
 //
 // -----------------------------------------------------------------------------
-// O PAINEL EXIGE UMA AUTOMAÇÃO ATIVA para chegar a falar de falha, e isso não é
-// detalhe de montagem: `saude` (app/page.tsx) responde "Nenhuma automação ativa"
-// ANTES de olhar para as falhas. Sem a automação semeada aqui, todo caso do
-// aviso ficaria verde sem nunca ter passado pelo ramo que interessa.
+// A AUTOMAÇÃO ATIVA SEMEADA AQUI É CENÁRIO, E NÃO PRÉ-REQUISITO — desde
+// 09/09/2026. Até essa data `saude` (app/page.tsx) respondia "Nenhuma automação
+// ativa" ANTES de olhar para as falhas, e a automação viva do `beforeAll` era o
+// que fazia todo caso do aviso chegar ao ramo vermelho. Isso era uma cegueira
+// deste arquivo, e não uma montagem: PUBLICAR NÃO DEPENDE DE AUTOMAÇÃO NENHUMA,
+// e a conta sem automação ficava sem aviso nenhum sobre o post que não saiu.
+//
+// A ORDEM DOS RAMOS FOI TROCADA, e os dois casos de `active = false` mais abaixo
+// são o que a prende — um exige o vermelho com a automação desligada, o outro
+// exige que o convite continue aparecendo quando não há falha. A automação viva
+// continua no `beforeAll` porque ela é o estado NORMAL de uma conta em uso, e é
+// nele que os demais casos devem medir.
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
 import { comoNumaRequisicao } from "./semear-requisicao";
@@ -94,8 +102,9 @@ beforeAll(async () => {
     });
   }
 
-  // A AUTOMAÇÃO ATIVA das DUAS contas — sem ela o painel para no primeiro ramo
-  // de `saude` e nunca chega a falar de falha nenhuma.
+  // A AUTOMAÇÃO ATIVA das DUAS contas — o estado normal de uma conta em uso.
+  // Ver o cabeçalho: ela é CENÁRIO, e os dois casos de `active = false` medem o
+  // lado de fora dela.
   for (const id of [CONTA_A, CONTA_B]) {
     await banco
       .db()
@@ -186,6 +195,22 @@ async function limparAFila() {
     .db()
     .sql()
     .query(`delete from queue where account_id = any($1::text[])`, [[CONTA_A, CONTA_B]]);
+}
+
+/**
+ * Liga ou desliga a automação de uma conta.
+ *
+ * É O ÚNICO JEITO HONESTO DE MEDIR O CASO DA CONTA SEM AUTOMAÇÃO. A conta desta
+ * suíte é a PRIMEIRA do schema (o tombo declarado de `getSelectedAccount`, com a
+ * jarra de cookies vazia), então não dá para trazer uma terceira conta e
+ * selecioná-la — isso exigiria forjar cookie, que é regra do dono. O que dá é
+ * apagar a automação da própria CONTA_A pela duração de um caso.
+ */
+async function automacaoAtiva(conta: string, ativa: boolean) {
+  await banco
+    .db()
+    .sql()
+    .query(`update automations set active = $2 where account_id = $1`, [conta, ativa]);
 }
 
 async function notBeforeDe(id: string): Promise<Date> {
@@ -494,6 +519,63 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     expect(painel).toContain("publicação não saiu");
     expect(painel).not.toContain("mensagem não saiu");
     expect(painel).toContain("/publicar/agendados");
+  });
+
+  // =========================================================================
+  // A CONTA SEM AUTOMAÇÃO ATIVA — e este é o caso que faltava, o que passava
+  // por cima do portão sem ninguém querer.
+  //
+  // Até 09/09/2026 `saude` (app/page.tsx) respondia `!counts.autos` ANTES de
+  // olhar para `falhas`, e PUBLICAR NÃO DEPENDE DE AUTOMAÇÃO NENHUMA: a equipe
+  // de marketing que só agenda post tinha o post falhado na tela de agendados e
+  // o painel calado sobre ele. Medido: avisa=false, atencao=false.
+  //
+  // O PRÓPRIO `beforeAll` DESTE ARQUIVO ESCONDIA ISSO. Ele semeia automação
+  // viva nas duas contas — para os outros casos chegarem ao ramo vermelho — e
+  // com isso nenhum caso jamais entrava pelo lado de fora. Este entra: desliga
+  // a automação da conta pela duração da medida, e a religa no `finally`, para
+  // não derrubar por tabela todo caso que vier depois.
+  // =========================================================================
+  test("a conta SEM automação ativa também é avisada da publicação que não saiu", async () => {
+    await limparAFila();
+    await automacaoAtiva(CONTA_A, false);
+    try {
+      await semear({
+        conta: CONTA_A,
+        status: "failed",
+        emSegundos: -3600,
+        reivindicadoEm: -3600,
+        error: "o post que nao saiu numa conta sem automacao",
+      });
+
+      const painel = await arvoreDoPainel();
+
+      expect(painel).toContain("publicação não saiu");
+      expect(painel).toContain("Precisa de atenção");
+      expect(painel).toContain("/publicar/agendados");
+      // E O CARTÃO NÃO É O DO CONVITE: era ele que engolia o aviso. Sem esta
+      // linha o caso passaria com os dois cartões ao mesmo tempo, que é
+      // impossível — mas quem lê o teste não saberia qual dos dois ganhou.
+      expect(painel).not.toContain("Nenhuma automação ativa");
+    } finally {
+      await automacaoAtiva(CONTA_A, true);
+    }
+  });
+
+  // O OUTRO LADO, e ele é o que impede a troca de ordem de virar "o convite
+  // sumiu": sem falha nenhuma, a conta sem automação continua recebendo o
+  // convite de sempre.
+  test("sem falha nenhuma, a conta sem automação continua vendo o convite", async () => {
+    await limparAFila();
+    await automacaoAtiva(CONTA_A, false);
+    try {
+      const painel = await arvoreDoPainel();
+
+      expect(painel).toContain("Nenhuma automação ativa");
+      expect(painel).not.toContain("Precisa de atenção");
+    } finally {
+      await automacaoAtiva(CONTA_A, true);
+    }
   });
 
   test("só mensagem continua dizendo mensagem, e mandando para eventos", async () => {

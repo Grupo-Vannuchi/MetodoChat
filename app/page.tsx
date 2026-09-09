@@ -192,19 +192,36 @@ export default async function Home({
 
   // Diagnóstico em uma frase: a primeira pergunta de quem abre o painel
   // é "está funcionando?" — e ela merece resposta antes dos números.
-  const saude = !counts.autos
+  //
+  // A FALHA VEM ANTES DA AUSÊNCIA DE AUTOMAÇÃO, e a ordem é o conserto de
+  // 09/09/2026. Até aqui `!counts.autos` respondia PRIMEIRO, e o efeito era o
+  // silêncio exato que esta entrega existe para acabar: PUBLICAR NÃO DEPENDE DE
+  // AUTOMAÇÃO NENHUMA. Uma equipe de marketing que só agenda post — conta sem
+  // automação ligada — tinha o post falhado aparecendo na tela de agendados e o
+  // painel calado sobre ele, porque o cartão parava no primeiro ramo e nunca
+  // chegava a olhar para `falhas`.
+  //
+  // MEDIDO (09/09/2026, conta com `active = false` e uma publicação `failed` de
+  // uma hora): avisa=false, atencao=false, semauto=true — com o post visível em
+  // `/publicar/agendados`. A tela salvava o caso; o painel não.
+  //
+  // E A TROCA NÃO ESCONDE NADA QUE IMPORTE MAIS: "crie uma automação" é convite,
+  // e um post que não saiu é fato consumado no perfil público. Quem tem os dois
+  // precisa ler o segundo primeiro; o convite continua ali na rodada seguinte,
+  // quando a falha sair da janela de 7 dias.
+  const saude = falhas
     ? {
-        cor: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
-        titulo: "Nenhuma automação ativa",
-        texto: "Crie uma automação para o robô começar a responder por você.",
-        acao: { href: "/automacoes/nova", label: "Criar automação" },
+        cor: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
+        titulo: "Precisa de atenção",
+        texto: falhas.texto,
+        acao: { href: falhas.href, label: "Ver o que houve" },
       }
-    : falhas
+    : !counts.autos
       ? {
-          cor: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
-          titulo: "Precisa de atenção",
-          texto: falhas.texto,
-          acao: { href: falhas.href, label: "Ver o que houve" },
+          cor: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400",
+          titulo: "Nenhuma automação ativa",
+          texto: "Crie uma automação para o robô começar a responder por você.",
+          acao: { href: "/automacoes/nova", label: "Criar automação" },
         }
       : !counts.last_event
         ? {
