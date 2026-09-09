@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { sql, getConfig, isMetaConfigured } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
+import {
+  avisoDeFalhas,
+  DIAS_DE_AVISO_DA_PUBLICACAO,
+  HORAS_DE_AVISO_DA_MENSAGEM,
+} from "@/lib/publicacao";
 import { fmtDate, fmtRelative } from "@/lib/format";
 import { card, btnPrimary, btnGhost, muted, link, alertError, alertOk, rowDivide } from "./ui";
 import { eventBadge } from "./labels";
@@ -20,7 +25,11 @@ type Counts = {
   pending: number;
   sent7: number;
   sent_prev7: number;
-  failed24: number;
+  // AS DUAS CONTAGENS QUE ERAM UMA SÓ (09/09/2026). Até esta data havia um
+  // `failed24` só, e a frase escrita sobre ele dizia "mensagem não saiu" —
+  // inclusive quando o item era uma PUBLICAÇÃO. Ver `avisoDeFalhas`.
+  falhas_publicacao: number;
+  falhas_mensagem: number;
   last_event: Date | null;
 };
 
@@ -31,7 +40,8 @@ const ZERO: Counts = {
   pending: 0,
   sent7: 0,
   sent_prev7: 0,
-  failed24: 0,
+  falhas_publicacao: 0,
+  falhas_mensagem: 0,
   last_event: null,
 };
 
@@ -94,10 +104,40 @@ export default async function Home({
              (select count(*)::int from queue where account_id = $1 and status = 'sent'
                 and sent_at > now() - interval '14 days'
                 and sent_at <= now() - interval '7 days') as sent_prev7,
+             -- AS DUAS FALHAS, CONTADAS SEPARADO E COM JANELAS DIFERENTES.
+             --
+             -- Publicacao vai a 7 dias porque o modo de falha declarado e
+             -- "falha na sexta a noite, ninguem ve ate segunda": 24 horas nao
+             -- cobrem um fim de semana. Mensagem FICA nas 24 horas de sempre --
+             -- o comportamento dela nao muda nesta entrega.
+             --
+             -- OS DOIS NUMEROS SAO PARAMETRO, e vem das constantes que a FRASE
+             -- tambem le (lib/publicacao.ts): um 7 escrito aqui e outro escrito
+             -- na frase seriam duas fontes para o mesmo prazo.
+             --
+             -- E A COLUNA DA PUBLICACAO E claimed_at, E NAO created_at.
+             -- Medido em 09/09/2026: o dreno grava claimed_at = now() a cada
+             -- reivindicacao e nunca a limpa, entao num item failed ela e o
+             -- instante da tentativa que falhou. created_at e o instante em
+             -- que o post foi AGENDADO -- e um lancamento marcado com tres
+             -- semanas de antecedencia teria created_at fora de qualquer
+             -- janela no dia em que falhasse. Contar por ela devolveria
+             -- exatamente o modo de falha que esta entrega existe para fechar.
+             -- (sem crases neste comentario: ele mora DENTRO de um template
+             --  literal, e uma crase o fecharia no meio.)
+             -- O coalesce e a rede do item que nunca foi reivindicado.
+             --
+             -- MENSAGEM CONTINUA EM created_at, byte por byte como estava.
              (select count(*)::int from queue where account_id = $1 and status = 'failed'
-                and created_at > now() - interval '24 hours') as failed24,
+                and kind = 'publicacao'
+                and coalesce(claimed_at, not_before)
+                    > now() - make_interval(days => $2::int)) as falhas_publicacao,
+             (select count(*)::int from queue where account_id = $1 and status = 'failed'
+                and kind <> 'publicacao'
+                and created_at > now() - make_interval(hours => $3::int))
+                as falhas_mensagem,
              (select max(created_at) from events where account_id = $1) as last_event`,
-          [account.ig_user_id]
+          [account.ig_user_id, DIAS_DE_AVISO_DA_PUBLICACAO, HORAS_DE_AVISO_DA_MENSAGEM]
         )) as Counts[]
       )[0] ?? ZERO)
         : ZERO)(),
@@ -145,6 +185,11 @@ export default async function Home({
   ]);
   const dias = montarSerie(new Map(serie.map((r) => [r.dia, r.n])));
 
+  // A FRASE E O DESTINO DO AVISO DE FALHA, decididos fora daqui. Publicacao e
+  // mensagem sao fatos diferentes que se resolvem em TELAS diferentes, e o
+  // aviso que aponta para a tela errada gasta a atencao de quem o leu.
+  const falhas = avisoDeFalhas(counts.falhas_publicacao, counts.falhas_mensagem);
+
   // Diagnóstico em uma frase: a primeira pergunta de quem abre o painel
   // é "está funcionando?" — e ela merece resposta antes dos números.
   const saude = !counts.autos
@@ -154,12 +199,12 @@ export default async function Home({
         texto: "Crie uma automação para o robô começar a responder por você.",
         acao: { href: "/automacoes/nova", label: "Criar automação" },
       }
-    : counts.failed24
+    : falhas
       ? {
           cor: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-400",
           titulo: "Precisa de atenção",
-          texto: `${counts.failed24} ${counts.failed24 === 1 ? "mensagem não saiu" : "mensagens não saíram"} nas últimas 24h.`,
-          acao: { href: "/eventos", label: "Ver o que houve" },
+          texto: falhas.texto,
+          acao: { href: falhas.href, label: "Ver o que houve" },
         }
       : !counts.last_event
         ? {

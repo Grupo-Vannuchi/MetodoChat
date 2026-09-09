@@ -9,6 +9,7 @@ import {
   dataDaLinhaDeEnvio,
   fraseDaDataDaLinha,
   lerPayloadDaPublicacao,
+  linhaDaFalha,
   resumoDaLegenda,
   rotuloDaFormaDoItem,
   LEGENDA_NA_LISTA,
@@ -75,6 +76,29 @@ export const dynamic = "force-dynamic";
  *  um mês inteiro de uma vez. */
 const AGENDADOS_NA_TELA = 50;
 
+/** Quantas falhas cabem na segunda seção.
+ *
+ *  ELA NÃO TEM RECORTE DE TEMPO, e o teto é o que a substitui: esta é a tela
+ *  para onde se vai PROCURAR um post que sumiu, e uma falha antiga desaparecendo
+ *  daqui seria o mesmo defeito por outro caminho (o prazo de 7 dias é só do
+ *  AVISO do painel, `DIAS_DE_AVISO_DA_PUBLICACAO`). Elas são raras — duas em
+ *  dois meses de produção —, então a lista não cresce; o teto existe pelo mesmo
+ *  motivo que o de cima, para a tela não virar parede num dia ruim. */
+const FALHADAS_NA_TELA = 50;
+
+/** O que vem antes da data de um post que não saiu.
+ *
+ *  OS DOIS FATOS SÃO FIXOS AQUI, e não uma pergunta ao relógio: um item
+ *  `failed` NÃO é futuro (a hora dele passou, e ele não vai mais sair) e NÃO
+ *  saiu (não tem `sent_at`). Por isso `dataDaLinhaDeEnvio` não serve nesta
+ *  seção — ela responderia "Sai em" para um `not_before` que ainda estivesse à
+ *  frente, prometendo uma saída que já foi recusada.
+ *
+ *  E A FRASE VEM DE `fraseDaDataDaLinha` mesmo assim: escrevê-la à mão aqui
+ *  seria a TERCEIRA cópia da mesma palavra, a um centímetro da segunda seção
+ *  que a lê da função. */
+const FRASE_DA_FALHA = fraseDaDataDaLinha({ futuro: false, saiu: false });
+
 export default async function Agendados({
   searchParams,
 }: {
@@ -89,15 +113,43 @@ export default async function Agendados({
   // amanhã depois de um marcado para o mês que vem, só porque foi agendado
   // antes. O `, id` desempata dois marcados para o mesmo instante — a mesma
   // estabilidade que `drainQueue` já garante na ordem de saída.
-  const itens = conta
-    ? ((await sql().query(
-        `select * from queue
-          where account_id = $1 and kind = 'publicacao' and status = 'pending'
-          order by not_before, id
-          limit $2`,
-        [conta.ig_user_id, AGENDADOS_NA_TELA]
-      )) as QueueItem[])
-    : [];
+  //
+  // A SEGUNDA CONSULTA É A DESTA ENTREGA, e ela é o conserto inteiro do lado da
+  // tela: até 09/09/2026 havia SÓ a de cima, filtrando `pending`, e um post que
+  // falhava não virava linha vermelha — ele DEIXAVA DE EXISTIR na única lista
+  // onde alguém iria procurá-lo.
+  //
+  // AS DUAS FICAM SEPARADAS DE PROPÓSITO. Agendado e falhado são estados com
+  // AÇÕES diferentes: um se cancela ou se remarca, o outro não tem o que
+  // cancelar. Juntá-los numa lista só faria a mesma lista significar duas coisas
+  // — o mesmo defeito que a coluna de data de Envios cometia, e que a entrega de
+  // ontem consertou.
+  //
+  // ORDENADA POR `not_before desc`: a pergunta desta seção é o oposto da de
+  // cima. Lá é "o que sai primeiro?"; aqui é "o que acabou de falhar?", e a
+  // falha mais recente é a que ainda dá tempo de republicar.
+  //
+  // EM PARALELO, e não em série: são independentes, e uma atrás da outra somaria
+  // uma ida completa ao banco no tempo desta tela — a mesma conta que
+  // `app/page.tsx` já faz.
+  const [itens, falhadas] = conta
+    ? ((await Promise.all([
+        sql().query(
+          `select * from queue
+            where account_id = $1 and kind = 'publicacao' and status = 'pending'
+            order by not_before, id
+            limit $2`,
+          [conta.ig_user_id, AGENDADOS_NA_TELA]
+        ),
+        sql().query(
+          `select * from queue
+            where account_id = $1 and kind = 'publicacao' and status = 'failed'
+            order by not_before desc, id
+            limit $2`,
+          [conta.ig_user_id, FALHADAS_NA_TELA]
+        ),
+      ])) as [QueueItem[], QueueItem[]])
+    : ([[], []] as [QueueItem[], QueueItem[]]);
 
   return (
     <div className="space-y-6">
@@ -225,6 +277,59 @@ export default async function Agendados({
             );
           })}
         </ul>
+      )}
+
+      {/* ================================================================
+          "NÃO SAÍRAM" — a seção que faz o post falhado parar de sumir.
+
+          ELA SÓ APARECE QUANDO HÁ ALGUMA. Um cabeçalho vermelho permanente
+          escrito "nenhuma falha" é ruído numa tela de diagnóstico, e ruído
+          numa tela de diagnóstico ensina a ignorá-la.
+
+          NÃO HÁ BOTÃO NENHUM, e isso é a decisão e não um esquecimento: não há
+          o que cancelar num post que já falhou, e "tentar de novo" seria ação
+          de ESCRITA nova — com todas as regras de saída muda — para um evento
+          que aconteceu duas vezes em dois meses. Fica registrado na
+          especificação como possível.
+
+          AS TRÊS COISAS DA LINHA SAEM DE `linhaDaFalha`: a hora em que o post
+          deveria ter saído, a forma, o começo da legenda e o motivo escrito
+          pelo dreno. Nenhuma delas se decide aqui. */}
+      {falhadas.length > 0 && (
+        <section className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold">Não saíram</h2>
+            <p className={`text-sm ${muted}`}>
+              Estes posts falharam e não estão mais na fila. O arquivo continua no
+              armazenamento — para publicar de novo, agende outro post.
+            </p>
+          </div>
+          <ul className="space-y-4">
+            {falhadas.map((item) => {
+              const falha = linhaDaFalha(item);
+              return (
+                <li
+                  key={item.id}
+                  className={`${card} space-y-2 border-red-300 p-5 dark:border-red-900`}
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="font-semibold">
+                      {FRASE_DA_FALHA}
+                      {fmtDate(falha.quando)}
+                    </p>
+                    <span className={`text-xs ${muted}`}>{falha.forma}</span>
+                  </div>
+                  <p className="text-sm">{falha.legenda}</p>
+                  {/* O MOTIVO CHEGA INTEIRO, e sem tradução: é a resposta da
+                      Meta, e é a única pista de por que o post não saiu.
+                      `friendlyError` reescreve os erros de MENSAGEM que se
+                      repetem, e nenhum deles é de publicação. */}
+                  <p className={`text-xs ${muted}`}>{falha.motivo}</p>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
 
       {/* O FUSO DE TODOS OS FORMULÁRIOS DE REMARCAR, escrito uma vez.
