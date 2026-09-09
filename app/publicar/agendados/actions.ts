@@ -78,23 +78,30 @@ const ALVO_DA_MUDANCA =
   `where id = $1 and account_id = $2 and kind = 'publicacao' and status = 'pending'`;
 
 /**
- * O item existe, ignorando o STATUS?
+ * O STATUS do item, ignorando o filtro de status — ou `null` se ele não existe.
  *
  * É a segunda ida ao banco, e ela só acontece no caminho de falha — que é o
  * raro. Sem ela, "zero linhas" seria uma resposta só para dois fatos opostos: o
  * post é seu e já saiu (`tarde_demais`), ou ele nunca foi seu (`nao_encontrado`).
  *
+ * ELA DEVOLVE O STATUS, E NÃO UM `boolean`, e a diferença foi um defeito medido
+ * em 09/09/2026: com `boolean`, todo "zero linhas com o item existindo" virava
+ * `tarde_demais`, e um item `skipped` (que o próprio dono cancelou na outra
+ * aba) ou `failed` (que a Meta recusou) recebia a frase "este post já saiu... só
+ * o aplicativo do Instagram apaga". Ver `desfechoDaMudanca` (lib/publicacao.ts),
+ * que é quem decide — aqui só se lê a coluna.
+ *
  * `account_id` E `kind` CONTINUAM NO `where`, e só `status` sai: a pergunta é
- * "existe um post agendado SEU com este identificador?". Um item de outra conta
- * responderia "existe" e faria a tela dizer que o post de outra pessoa já saiu —
+ * "qual é o status do post SEU com este identificador?". Um item de outra conta
+ * responderia um status e faria a tela dizer que o post de outra pessoa já saiu —
  * que é contar sobre a fila alheia.
  */
-async function existeNaConta(id: string, contaId: string): Promise<boolean> {
-  const linhas = await sql().query(
-    `select 1 from queue where id = $1 and account_id = $2 and kind = 'publicacao'`,
+async function statusNaConta(id: string, contaId: string): Promise<string | null> {
+  const linhas = (await sql().query(
+    `select status from queue where id = $1 and account_id = $2 and kind = 'publicacao'`,
     [id, contaId]
-  );
-  return linhas.length > 0;
+  )) as { status: string }[];
+  return linhas[0]?.status ?? null;
 }
 
 /** As duas telas que uma mudança desatualiza: a lista de agendados (um item a
@@ -138,9 +145,12 @@ export async function cancelarPublicacao(formData: FormData): Promise<void> {
     [id, conta.ig_user_id]
   );
 
+  // A SEGUNDA CONSULTA SÓ NO CAMINHO DE FALHA, e é o `?` que garante isso: com
+  // linha afetada não há pergunta a fazer, e o `null` que entra é lido como
+  // "não interessa" por `desfechoDaMudanca`, que já respondeu "feito" antes.
   const desfecho = desfechoDaMudanca(
     afetadas.length,
-    afetadas.length > 0 || (await existeNaConta(id, conta.ig_user_id))
+    afetadas.length > 0 ? null : await statusNaConta(id, conta.ig_user_id)
   );
 
   revalidarAsDuasTelas();
@@ -195,7 +205,7 @@ export async function remarcarPublicacao(formData: FormData): Promise<void> {
 
   const desfecho = desfechoDaMudanca(
     afetadas.length,
-    afetadas.length > 0 || (await existeNaConta(id, conta.ig_user_id))
+    afetadas.length > 0 ? null : await statusNaConta(id, conta.ig_user_id)
   );
 
   // NENHUM TIQUE NOVO É ARMADO, e a ausência é herdada e não esquecimento:

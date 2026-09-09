@@ -1651,15 +1651,49 @@ export type DesfechoDaMudanca =
  * fecharia a tela achando que impediu um post que já está no ar — e não há
  * `DELETE` que desfaça isso do lado da Meta.
  *
- * `existe` VEM DE UMA SEGUNDA CONSULTA, sem o filtro de status, e é o que
- * separa dois "zero linhas" que significam coisas opostas: o item é seu e já
+ * `statusExistente` VEM DE UMA SEGUNDA CONSULTA, sem o filtro de status, e é o
+ * que separa dois "zero linhas" que significam coisas opostas: o item é seu e já
  * saiu (`tarde_demais`), ou o item nunca foi seu — identificador trocado, conta
  * errada, item já apagado (`nao_encontrado`). Duas idas ao banco só no caminho
  * de falha, que é o raro.
+ *
+ * =============================================================================
+ * ELA PERGUNTA O STATUS, E NÃO "EXISTE?" — E A DIFERENÇA É UMA MENTIRA INTEIRA
+ *
+ * A primeira versão desta função recebia um `boolean`. `status <> 'pending'` tem
+ * CINCO valores, e só dois deles são "o post saiu": `sent` e `sending`. Os
+ * outros três — `skipped` (o próprio dono cancelou, talvez na outra aba),
+ * `failed` (a Meta recusou), e qualquer status que nasça amanhã — recebiam a
+ * frase de `tarde_demais`, que diz palavra por palavra:
+ *
+ *   "Este post já saiu... Se ele já estiver no perfil, só o aplicativo do
+ *    Instagram apaga."
+ *
+ * Medido em 09/09/2026: cancelar duas vezes o MESMO post (duas abas, ou o botão
+ * de voltar do navegador) fazia o painel afirmar que o post estava no perfil
+ * público — sobre um post que o próprio dono acabara de cancelar, e que não
+ * existe em perfil nenhum. No `failed` é pior: o dono vai ao aplicativo
+ * procurar à mão um post que a Meta recusou.
+ *
+ * É A MESMA CLASSE DE MENTIRA QUE ESTA ENTREGA EXISTE PARA APAGAR, ESPELHADA.
+ *
+ * A LISTA É DE QUEM SAIU, E NÃO DE QUEM NÃO SAIU, e a direção é a decisão: um
+ * status novo (um `cancelando` de amanhã) cai em `nao_encontrado`, cuja frase
+ * manda RECARREGAR A LISTA. Errar para "recarregue" custa um clique; errar para
+ * "já está no seu perfil" manda a pessoa procurar no celular um post que não
+ * existe.
  */
-export function desfechoDaMudanca(linhasAfetadas: number, existe: boolean): DesfechoDaMudanca {
+const STATUS_QUE_JA_SAIU = ["sent", "sending"];
+
+export function desfechoDaMudanca(
+  linhasAfetadas: number,
+  statusExistente: string | null
+): DesfechoDaMudanca {
   if (linhasAfetadas > 0) return "feito";
-  return existe ? "tarde_demais" : "nao_encontrado";
+  if (statusExistente !== null && STATUS_QUE_JA_SAIU.includes(statusExistente)) {
+    return "tarde_demais";
+  }
+  return "nao_encontrado";
 }
 
 /**

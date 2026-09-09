@@ -1709,18 +1709,53 @@ describe("medidasDaConversao", () => {
 
 describe("desfechoDaMudanca", () => {
   it("uma linha afetada e feito", () => {
-    expect(desfechoDaMudanca(1, true)).toBe("feito");
+    expect(desfechoDaMudanca(1, null)).toBe("feito");
   });
-  // ZERO LINHAS COM O ITEM EXISTINDO E A CORRIDA COM O DRENO, e este e o caso
+  // ZERO LINHAS COM O ITEM EM VOO E A CORRIDA COM O DRENO, e este e o caso
   // central desta entrega: o dreno roda DENTRO do webhook e pode ter
   // reivindicado o item entre a tela ser desenhada e o clique. Responder
   // "cancelado" aqui seria a pior mentira que este painel pode contar — o dono
   // fecharia a tela achando que impediu um post que ja esta no ar.
-  it("zero linhas com o item existindo e tarde demais", () => {
-    expect(desfechoDaMudanca(0, true)).toBe("tarde_demais");
+  it("zero linhas com o item em voo (sending) e tarde demais", () => {
+    expect(desfechoDaMudanca(0, "sending")).toBe("tarde_demais");
+  });
+  it("zero linhas com o item ja enviado (sent) e tarde demais", () => {
+    expect(desfechoDaMudanca(0, "sent")).toBe("tarde_demais");
   });
   it("zero linhas sem o item e nao encontrado", () => {
-    expect(desfechoDaMudanca(0, false)).toBe("nao_encontrado");
+    expect(desfechoDaMudanca(0, null)).toBe("nao_encontrado");
+  });
+
+  // =========================================================================
+  // A MENTIRA ESPELHADA, medida em 09/09/2026 e fechada aqui.
+  //
+  // Enquanto o segundo parametro era um `boolean`, TODO "zero linhas com o item
+  // existindo" virava `tarde_demais` — e a frase de `tarde_demais` afirma que o
+  // post esta no perfil publico e que so o aplicativo do Instagram apaga.
+  //
+  // `skipped` e o proprio cancelamento: o dono cancelou na outra aba, clicou de
+  // novo nesta, e o painel dizia que o post dele estava no ar. `failed` e pior:
+  // a Meta recusou, nao ha post nenhum, e o painel mandava procurar no celular.
+  // =========================================================================
+  it("item CANCELADO (skipped) nao e 'tarde demais' — ele nunca saiu", () => {
+    expect(desfechoDaMudanca(0, "skipped")).toBe("nao_encontrado");
+  });
+  it("item que FALHOU (failed) nao e 'tarde demais' — a Meta recusou", () => {
+    expect(desfechoDaMudanca(0, "failed")).toBe("nao_encontrado");
+  });
+  // A DIRECAO DO ERRO E A DECISAO, e este caso a prende: um status que nasca
+  // amanha cai em "recarregue a lista", que custa um clique — e nunca em "ja
+  // esta no seu perfil", que manda procurar a mao um post que pode nao existir.
+  it("um status desconhecido cai em nao encontrado, e nunca em 'ja saiu'", () => {
+    expect(desfechoDaMudanca(0, "cancelando")).toBe("nao_encontrado");
+    expect(desfechoDaMudanca(0, "guardado")).toBe("nao_encontrado");
+  });
+  // E AS DUAS FRASES SAO AS QUE CHEGAM NA TELA. Sem esta linha, a distincao
+  // acima poderia existir no tipo e nao existir no texto que a pessoa le.
+  it("a frase do item cancelado NAO diz que ele saiu", () => {
+    const frase = textoDoDesfecho(desfechoDaMudanca(0, "skipped"), "cancelar");
+    expect(frase).toContain("Não achei este post agendado nesta conta");
+    expect(frase.toLowerCase()).not.toMatch(/saiu|saindo/);
   });
 });
 

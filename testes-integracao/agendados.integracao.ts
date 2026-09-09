@@ -450,6 +450,61 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     expect(depois.error).toBe(null);
   });
 
+  // =========================================================================
+  // A MENTIRA ESPELHADA, e ela passava pelos CINCO portões até 09/09/2026.
+  //
+  // `existeNaConta` perguntava só "existe?", então TODO "zero linhas com o item
+  // existindo" virava `tarde_demais` — e a frase de `tarde_demais` afirma que o
+  // post está no perfil público e que só o aplicativo do Instagram apaga.
+  //
+  // O CAMINHO É UM CLIQUE, e não um caso de laboratório: o dono deixa a lista
+  // aberta em duas abas (ou volta com o botão do navegador), cancela na aba 1 e
+  // clica em cancelar na aba 2. O painel respondia que o post dele estava no
+  // ar — sobre um post que ele mesmo acabara de cancelar.
+  //
+  // Estes quatro casos (dois status × duas ações) exigem o oposto: a frase NÃO
+  // pode conter "saiu" nem "saindo".
+  // =========================================================================
+  for (const [statusSemeado, comoChegouAli] of [
+    ["skipped", "o proprio dono cancelou, talvez na outra aba"],
+    ["failed", "a Meta recusou o post"],
+  ] as const) {
+    test(`cancelar de novo um item ${statusSemeado} (${comoChegouAli}) NAO diz que ele saiu`, async () => {
+      const id = await semear({ conta: CONTA_A, status: statusSemeado, emSegundos: -30 });
+
+      const d = await desfechoDe(acoes.cancelarPublicacao, pedidoDeCancelar(id));
+
+      expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+      const aviso = avisoDaUrlDeVolta(d.url);
+      expect(aviso.tom).toBe("erro");
+      // A FRASE NÃO PODE AFIRMAR O PERFIL PÚBLICO. Este item nunca saiu.
+      expect((aviso.texto ?? "").toLowerCase()).not.toMatch(/saiu|saindo/);
+      expect(aviso.texto).toContain("Não achei este post agendado nesta conta");
+
+      // E O ITEM CONTINUA COMO ESTAVA — nenhuma ação o tocou.
+      expect((await lerItem(id)).status).toBe(statusSemeado);
+    });
+
+    test(`remarcar um item ${statusSemeado} NAO diz que ele saiu`, async () => {
+      const id = await semear({ conta: CONTA_A, status: statusSemeado, emSegundos: -30 });
+      const antes = await lerItem(id);
+      const alvo = Math.floor((Date.now() + 4 * 24 * 3600 * 1000) / 60000) * 60000;
+
+      const d = await desfechoDe(
+        acoes.remarcarPublicacao,
+        pedidoDeRemarcar(id, campoDeDataHora(alvo))
+      );
+
+      expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+      const aviso = avisoDaUrlDeVolta(d.url);
+      expect(aviso.tom).toBe("erro");
+      expect((aviso.texto ?? "").toLowerCase()).not.toMatch(/saiu|saindo/);
+      expect(aviso.texto).toContain("Não achei este post agendado nesta conta");
+
+      expect((await lerItem(id)).not_before.getTime()).toBe(antes.not_before.getTime());
+    });
+  }
+
   test("cancelar sem marcar a confirmação não cancela nada", async () => {
     const id = await semear({ conta: CONTA_A, emSegundos: 3600 });
 
