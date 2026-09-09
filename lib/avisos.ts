@@ -1,4 +1,5 @@
 import { urlComFiltro, type FiltroDeCategoria } from "./categorias";
+import { textoDoDesfecho, type DesfechoDaMudanca } from "./publicacao";
 
 // AS FRASES E AS DECISOES DE AVISO, fora do JSX.
 //
@@ -423,4 +424,45 @@ export function avisoDaPublicacaoEnfileirada(
     tom: "ok",
     texto: `Publicação agendada para ${d}/${m} às ${h}:${min}. Acompanhe o desfecho em Atividade.`,
   };
+}
+
+/**
+ * A URL de volta da LISTA DE AGENDADOS, com o aviso pendurado nela.
+ *
+ * A VOLTA E PARA A LISTA, e essa e a decisao: quem clicou em cancelar estava
+ * olhando os agendados, e mandar a pessoa para `/publicar` depois de cancelar
+ * esconderia a unica prova de que o post sumiu — a propria lista, um item mais
+ * curta.
+ *
+ * NAO E CONSTRUIDA SOBRE `urlDoAviso`, pelo mesmo motivo de
+ * `urlDePublicarComAviso` e `urlDaConversaComAviso`: aquela funcao existe para
+ * `/contatos`, que tem FILTRO DE CATEGORIA, e forcar seu uso aqui exigiria
+ * inventar um filtro que nao representa nada desta tela.
+ *
+ * O TOM VAI JUNTO DO TEXTO: `avisoDaUrl` le DOIS parametros, e um sucesso
+ * mandado sem `tom` chega na tela pintado de falha.
+ */
+export function urlDeAgendadosComAviso(aviso: Aviso): string {
+  return `/publicar/agendados?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;
+}
+
+/**
+ * O aviso inteiro — texto E tom — de um cancelar ou remarcar.
+ *
+ * O TOM E A METADE QUE MENTE MAIS RAPIDO. A faixa e verde ou vermelha antes de
+ * qualquer palavra ser lida, e um `tarde_demais` pintado de verde contaria a
+ * mentira central desta entrega so pela cor — o dono fecharia a tela achando
+ * que impediu um post que ja esta no ar.
+ *
+ * SO `feito` E VERDE. Os outros quatro sao pedidos que NAO aconteceram, e nao
+ * ha meio-termo a pintar: ou o `update` afetou a linha, ou nao afetou.
+ *
+ * O TEXTO VEM DE `textoDoDesfecho`, nunca escrito aqui — a mesma disciplina que
+ * faz a acao de publicar nao escrever string nenhuma.
+ */
+export function avisoDoDesfecho(
+  d: DesfechoDaMudanca,
+  acao: "cancelar" | "remarcar"
+): Aviso {
+  return { tom: d === "feito" ? "ok" : "erro", texto: textoDoDesfecho(d, acao) };
 }

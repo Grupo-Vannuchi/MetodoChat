@@ -4,8 +4,10 @@ import {
   urlComAviso, urlDoAviso, avisoDaUrl, avisoDosPerfis, avisoDoLoteEnviado,
   urlDaConversaComAviso, avisoDaCategoriaSalva,
   urlDePublicarComAviso, avisoDaPublicacaoEnfileirada,
+  urlDeAgendadosComAviso, avisoDoDesfecho,
   type ContagemDoLote,
 } from "../lib/avisos";
+import { textoDoDesfecho } from "../lib/publicacao";
 
 describe("motivoDoLoteVazio", () => {
   // A ORDEM DOS MOTIVOS IMPORTA, e ESTE PAR é o único que a segura.
@@ -389,5 +391,56 @@ describe("avisoDaPublicacaoEnfileirada", () => {
     expect(avisoDaPublicacaoEnfileirada(null).texto).not.toBe(
       avisoDaPublicacaoEnfileirada({ dia: 10, mes: 9, hora: 14, minuto: 30 }).texto
     );
+  });
+});
+
+describe("urlDeAgendadosComAviso", () => {
+  // A VOLTA E PARA A LISTA, E NAO PARA `/publicar`. Quem clicou em cancelar
+  // estava olhando os agendados, e cair na tela de compor depois de cancelar
+  // faria a lista — a unica prova de que o post sumiu — nao ser vista.
+  it("volta para a lista de agendados", () => {
+    const url = urlDeAgendadosComAviso({ tom: "ok", texto: "Post cancelado." });
+    expect(url.startsWith("/publicar/agendados?")).toBe(true);
+  });
+
+  it("o tom atravessa o redirect", () => {
+    const url = urlDeAgendadosComAviso({ tom: "ok", texto: "Post cancelado." });
+    expect(avisoDaUrl(...comoAUrlChega(url))).toEqual({ tom: "ok", texto: "Post cancelado." });
+  });
+
+  it("o texto e codificado", () => {
+    const texto = "Ja saiu: o post & a legenda #promo? nao voltam";
+    const url = urlDeAgendadosComAviso({ tom: "erro", texto });
+    expect(url).not.toContain("#promo");
+    expect(avisoDaUrl(...comoAUrlChega(url))?.texto).toBe(texto);
+  });
+});
+
+describe("avisoDoDesfecho", () => {
+  // O TOM E A METADE DO AVISO QUE MENTE MAIS RAPIDO: a faixa e verde ou
+  // vermelha antes de alguem ler a frase. Um "tarde demais" pintado de verde
+  // seria a mentira central desta entrega contada so pela cor.
+  it("so o feito e verde", () => {
+    expect(avisoDoDesfecho("feito", "cancelar").tom).toBe("ok");
+    expect(avisoDoDesfecho("feito", "remarcar").tom).toBe("ok");
+    for (const d of ["tarde_demais", "nao_encontrado", "data_invalida", "data_no_passado"] as const) {
+      for (const acao of ["cancelar", "remarcar"] as const) {
+        expect(avisoDoDesfecho(d, acao).tom).toBe("erro");
+      }
+    }
+  });
+
+  // A FRASE E A DE `textoDoDesfecho`, e nao uma segunda redacao: e a mesma
+  // disciplina que faz a acao de publicar nunca escrever string.
+  it("o texto vem da funcao pura, sem redacao nova", () => {
+    expect(avisoDoDesfecho("tarde_demais", "cancelar").texto).toBe(
+      textoDoDesfecho("tarde_demais", "cancelar")
+    );
+  });
+
+  it("tarde demais chega na tela dizendo que o post saiu", () => {
+    const a = avisoDoDesfecho("tarde_demais", "cancelar");
+    expect(a.tom).toBe("erro");
+    expect(a.texto.toLowerCase()).toMatch(/saiu|saindo|publicad/);
   });
 });

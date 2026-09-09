@@ -36,6 +36,20 @@ import {
   recusaDaQuantidade,
   moverNaOrdem,
   rotuloDoEnvio,
+  atrasoDoTiqueDoRemarcar,
+  avisoDoAtrasoNaLista,
+  fraseDaDataDaLinha,
+  rotuloDaFormaDoItem,
+  desfechoDaMudanca,
+  textoDoDesfecho,
+  dataDaLinhaDeEnvio,
+  identificadorDaFila,
+  desfechoDaRecusaDaData,
+  rotuloDaForma,
+  resumoDaLegenda,
+  LEGENDA_NA_LISTA,
+  confirmouOCancelamento,
+  TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO,
 } from "../lib/publicacao";
 
 const MB = 1024 * 1024;
@@ -1686,5 +1700,469 @@ describe("medidasDaConversao", () => {
     });
     expect(medidas.largura).toBeGreaterThan(0);
     expect(medidas.altura).toBeGreaterThan(0);
+  });
+});
+
+// =============================================================================
+// VER, CANCELAR E REMARCAR O AGENDADO (04/09/2026)
+//
+// Publicar entrou no ar em 03/09 sem NENHUMA forma de olhar para o que foi
+// agendado. Estas três funções são as decisões dessa tela, fora do JSX e fora
+// da ação — e a primeira delas é a peça central da entrega inteira.
+// =============================================================================
+
+describe("desfechoDaMudanca", () => {
+  it("uma linha afetada e feito", () => {
+    expect(desfechoDaMudanca(1, null)).toBe("feito");
+  });
+  // ZERO LINHAS COM O ITEM EM VOO E A CORRIDA COM O DRENO, e este e o caso
+  // central desta entrega: o dreno roda DENTRO do webhook e pode ter
+  // reivindicado o item entre a tela ser desenhada e o clique. Responder
+  // "cancelado" aqui seria a pior mentira que este painel pode contar — o dono
+  // fecharia a tela achando que impediu um post que ja esta no ar.
+  it("zero linhas com o item em voo (sending) e tarde demais", () => {
+    expect(desfechoDaMudanca(0, "sending")).toBe("tarde_demais");
+  });
+  it("zero linhas com o item ja enviado (sent) e tarde demais", () => {
+    expect(desfechoDaMudanca(0, "sent")).toBe("tarde_demais");
+  });
+  it("zero linhas sem o item e nao encontrado", () => {
+    expect(desfechoDaMudanca(0, null)).toBe("nao_encontrado");
+  });
+
+  // =========================================================================
+  // A MENTIRA ESPELHADA, medida em 09/09/2026 e fechada aqui.
+  //
+  // Enquanto o segundo parametro era um `boolean`, TODO "zero linhas com o item
+  // existindo" virava `tarde_demais` — e a frase de `tarde_demais` afirma que o
+  // post esta no perfil publico e que so o aplicativo do Instagram apaga.
+  //
+  // `skipped` e o proprio cancelamento: o dono cancelou na outra aba, clicou de
+  // novo nesta, e o painel dizia que o post dele estava no ar. `failed` e pior:
+  // a Meta recusou, nao ha post nenhum, e o painel mandava procurar no celular.
+  // =========================================================================
+  it("item CANCELADO (skipped) nao e 'tarde demais' — ele nunca saiu", () => {
+    expect(desfechoDaMudanca(0, "skipped")).toBe("nao_encontrado");
+  });
+  it("item que FALHOU (failed) nao e 'tarde demais' — a Meta recusou", () => {
+    expect(desfechoDaMudanca(0, "failed")).toBe("nao_encontrado");
+  });
+  // A DIRECAO DO ERRO E A DECISAO, e este caso a prende: um status que nasca
+  // amanha cai em "recarregue a lista", que custa um clique — e nunca em "ja
+  // esta no seu perfil", que manda procurar a mao um post que pode nao existir.
+  it("um status desconhecido cai em nao encontrado, e nunca em 'ja saiu'", () => {
+    expect(desfechoDaMudanca(0, "cancelando")).toBe("nao_encontrado");
+    expect(desfechoDaMudanca(0, "guardado")).toBe("nao_encontrado");
+  });
+  // E AS DUAS FRASES SAO AS QUE CHEGAM NA TELA. Sem esta linha, a distincao
+  // acima poderia existir no tipo e nao existir no texto que a pessoa le.
+  it("a frase do item cancelado NAO diz que ele saiu", () => {
+    const frase = textoDoDesfecho(desfechoDaMudanca(0, "skipped"), "cancelar");
+    expect(frase).toContain("Não achei este post agendado nesta conta");
+    expect(frase.toLowerCase()).not.toMatch(/saiu|saindo/);
+  });
+});
+
+// =============================================================================
+// O TIQUE DA HORA NOVA (09/09/2026)
+//
+// Remarcar nao armava tique nenhum, e o comentario que justificava a ausencia
+// lia errado o codigo que citava: `enqueuePublicacao` passa
+// `agendarTique: atraso <= HORIZONTE`, e nao `false`. Medido com um QStash
+// falso: compor para +2h gerava 1 tique, remarcar gerava 0 — e o cron diario
+// nao cobria o buraco, porque remarcar move o `not_before` para dentro de uma
+// janela JA VARRIDA. O post podia sair ~23h depois, calado.
+// =============================================================================
+const UM_DIA = 24 * 60 * 60;
+
+describe("atrasoDoTiqueDoRemarcar", () => {
+  const agora = Date.UTC(2026, 8, 9, 12, 0, 0);
+
+  it("duas horas a frente arma o tique, com os cinco segundos de folga", () => {
+    const daqui2h = new Date(agora + 2 * 60 * 60 * 1000);
+    expect(atrasoDoTiqueDoRemarcar(daqui2h, agora, UM_DIA)).toBe(7205);
+  });
+
+  // A METADE QUE IMPEDE O CONSERTO DE VIRAR "arma sempre". Um mes de atraso
+  // entregue ao QStash depende de um horizonte que NUNCA foi verificado, e se
+  // ele recusasse `scheduleTick` engoliria o erro — o post nao sairia, calado.
+  it("alem do horizonte NAO arma: quem arma e o cron diario", () => {
+    const daqui30d = new Date(agora + 30 * UM_DIA * 1000);
+    expect(atrasoDoTiqueDoRemarcar(daqui30d, agora, UM_DIA)).toBe(null);
+  });
+
+  // A BORDA EXATA, e o teto e aplicado DEPOIS da folga: sem o `Math.min`, a
+  // hora na borda entregaria 86405 s, cinco segundos alem do horizonte que este
+  // projeto declarou nunca ultrapassar. E a mesma licao de `armarTiquesDoDia`.
+  it("na borda do horizonte o atraso NAO passa de um dia", () => {
+    const naBorda = new Date(agora + UM_DIA * 1000);
+    expect(atrasoDoTiqueDoRemarcar(naBorda, agora, UM_DIA)).toBe(UM_DIA);
+  });
+
+  // O `atraso > 15` de `enqueue`, com o mesmo numero: um tique para daqui a
+  // nada e uma volta ao app sem serventia — o item sai na drenagem a caminho.
+  it("perto demais NAO arma", () => {
+    expect(atrasoDoTiqueDoRemarcar(new Date(agora + 10_000), agora, UM_DIA)).toBe(null);
+    expect(atrasoDoTiqueDoRemarcar(new Date(agora + 15_000), agora, UM_DIA)).toBe(null);
+    expect(atrasoDoTiqueDoRemarcar(new Date(agora + 16_000), agora, UM_DIA)).toBe(21);
+  });
+
+  // O PASSADO NAO ARMA. `momentoDaPublicacao` ja recusa antes de chegar aqui,
+  // mas um atraso negativo entregue ao QStash e a coisa que ele recusaria — e a
+  // recusa dele e muda.
+  it("hora no passado NAO arma", () => {
+    expect(atrasoDoTiqueDoRemarcar(new Date(agora - 60_000), agora, UM_DIA)).toBe(null);
+  });
+
+  it("data ilegivel NAO arma, e nao vira NaN entregue ao QStash", () => {
+    expect(atrasoDoTiqueDoRemarcar(new Date("nao sou data"), agora, UM_DIA)).toBe(null);
+  });
+});
+
+describe("textoDoDesfecho", () => {
+  // A FRASE DE "tarde demais" TEM DE DIZER QUE O POST SAIU, e nao so que o
+  // cancelamento falhou: sao fatos diferentes, e o segundo sozinho deixa o dono
+  // achando que pode tentar de novo.
+  it("tarde demais diz que o post ja saiu", () => {
+    const t = textoDoDesfecho("tarde_demais", "cancelar").toLowerCase();
+    expect(t).toMatch(/saiu|saindo|publicad/);
+  });
+  it("cancelar e remarcar tem frases diferentes no mesmo desfecho", () => {
+    expect(textoDoDesfecho("feito", "cancelar")).not.toBe(textoDoDesfecho("feito", "remarcar"));
+  });
+  // A frase de "tarde demais" do REMARCAR tem o mesmo dever da do cancelar: ela
+  // nao pode dizer so "nao deu para remarcar", porque isso faria o dono tentar
+  // de novo com outra hora sobre um post que ja esta no ar.
+  it("tarde demais do remarcar tambem diz que o post ja saiu", () => {
+    const t = textoDoDesfecho("tarde_demais", "remarcar").toLowerCase();
+    expect(t).toMatch(/saiu|saindo|publicad/);
+  });
+  // AS DUAS RECUSAS DE DATA SAO AS FRASES QUE JA EXISTEM. Nenhuma regra de data
+  // nova nesta entrega, e nenhuma REDACAO nova tambem: uma segunda escrita do
+  // mesmo "nao" faz quem le achar que apareceu um problema diferente.
+  it("as recusas de data repetem a frase que a tela de publicar ja usa", () => {
+    expect(textoDoDesfecho("data_no_passado", "remarcar")).toBe(
+      textoDaRecusaDaPublicacao("data_no_passado")
+    );
+    expect(textoDoDesfecho("data_invalida", "remarcar")).toBe(
+      textoDaRecusaDaPublicacao("data_invalida")
+    );
+  });
+  // "NAO PROMETE" E SOBRE A AFIRMACAO, E NAO SOBRE A PALAVRA. A frase deste
+  // desfecho contem "pode ja ter sido cancelado" — uma HIPOTESE, e ela e
+  // justamente o que ajuda quem esta olhando uma lista velha. O que ela nao
+  // pode e AFIRMAR o cancelamento, entao o caso mede a afirmacao ("post
+  // cancelado") e a distancia da frase de sucesso.
+  it("nao encontrado nao promete que algo foi feito", () => {
+    const t = textoDoDesfecho("nao_encontrado", "cancelar").toLowerCase();
+    expect(t).not.toContain("post cancelado");
+    expect(t).not.toBe(textoDoDesfecho("feito", "cancelar").toLowerCase());
+  });
+  // NENHUM DESFECHO SAI MUDO: a acao redireciona com o texto que vier daqui, e
+  // uma string vazia seria uma faixa em branco — o silencio pelo qual esta base
+  // ja pagou em cinco acoes.
+  it("nenhuma das dez combinacoes sai vazia", () => {
+    for (const d of ["feito", "tarde_demais", "nao_encontrado", "data_invalida", "data_no_passado"] as const) {
+      for (const acao of ["cancelar", "remarcar"] as const) {
+        expect(textoDoDesfecho(d, acao).trim().length).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe("dataDaLinhaDeEnvio", () => {
+  const criado = new Date("2026-09-04T10:00:00Z");
+  const saida = new Date("2026-09-20T14:00:00Z");
+  // O DEFEITO QUE ESTA ENTREGA CONSERTA: a linha mostrava `sent_at ?? created_at`,
+  // entao um post marcado para o dia 20 aparecia com a data de hoje.
+  it("item que ainda nao saiu mostra QUANDO VAI SAIR", () => {
+    const r = dataDaLinhaDeEnvio({ status: "pending", sent_at: null, not_before: saida, created_at: criado });
+    expect(r.quando).toEqual(saida);
+    expect(r.futuro).toBe(true);
+  });
+  it("item que saiu mostra quando saiu", () => {
+    const enviado = new Date("2026-09-04T10:05:00Z");
+    const r = dataDaLinhaDeEnvio({ status: "sent", sent_at: enviado, not_before: criado, created_at: criado });
+    expect(r.quando).toEqual(enviado);
+    expect(r.futuro).toBe(false);
+  });
+  // O LOTE GUARDADO TEM O MESMO PROBLEMA, e por isso a funcao nao olha o `kind`:
+  // ele espera a pessoa voltar a falar, entao `not_before` nao e promessa de
+  // hora — mas ainda e mais honesto que a data em que foi criado.
+  it("guardado nao e passado", () => {
+    expect(dataDaLinhaDeEnvio({ status: "guardado", sent_at: null, not_before: saida, created_at: criado }).futuro).toBe(true);
+  });
+  // `not_before` no passado com status pending: o item esta ATRASADO, nao no
+  // futuro. A tela nao pode prometer uma saida que ja devia ter acontecido.
+  it("pendente com hora ja vencida nao e futuro", () => {
+    const passado = new Date("2026-09-01T10:00:00Z");
+    expect(dataDaLinhaDeEnvio({ status: "pending", sent_at: null, not_before: passado, created_at: criado }).futuro).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // OS CASOS ACIMA DEPENDEM DO RELOGIO DA MAQUINA, e os quatro de baixo nao.
+  //
+  // "2026-09-20 e futuro" e verdade ate 20/09/2026, e depois disso aquele caso
+  // ficaria VERMELHO sem nenhum defeito no codigo — o tipo de teste que se
+  // apaga com raiva em vez de se ler. Por isso a funcao aceita o instante como
+  // segundo parametro (com `Date.now()` por omissao, que e o que a tela usa), e
+  // estes quatro fixam o relogio.
+  // -------------------------------------------------------------------------
+  const AGORA = Date.parse("2026-09-04T12:00:00Z");
+
+  it("com o relogio fixo, o que vem depois de agora e futuro", () => {
+    const r = dataDaLinhaDeEnvio(
+      { status: "pending", sent_at: null, not_before: saida, created_at: criado },
+      AGORA
+    );
+    expect(r).toEqual({ quando: saida, futuro: true, saiu: false });
+  });
+
+  it("com o relogio fixo, o que ja venceu nao e futuro", () => {
+    const vencido = new Date("2026-09-04T11:59:00Z");
+    const r = dataDaLinhaDeEnvio(
+      { status: "pending", sent_at: null, not_before: vencido, created_at: criado },
+      AGORA
+    );
+    // ATRASADO, E NAO "JA SAIU": `saiu` e falso, e e essa distincao que
+    // `fraseDaDataDaLinha` le para nao dizer a mesma coisa sobre os dois.
+    expect(r).toEqual({ quando: vencido, futuro: false, saiu: false });
+  });
+
+  // O `sent_at` MANDA MESMO QUANDO O `not_before` E FUTURO. Um item reenviado a
+  // mao, ou uma linha com as duas colunas preenchidas, nao pode dizer "sai em"
+  // sobre um post que ja esta no perfil publico.
+  it("quem tem sent_at nunca e futuro, mesmo com not_before adiante", () => {
+    const enviado = new Date("2026-09-04T10:05:00Z");
+    const r = dataDaLinhaDeEnvio(
+      { status: "sent", sent_at: enviado, not_before: saida, created_at: criado },
+      AGORA
+    );
+    expect(r).toEqual({ quando: enviado, futuro: false, saiu: true });
+  });
+
+  // A DATA DE CRIACAO NAO SUMIU: ela e a rede para o dia em que a coluna
+  // `not_before` vier ilegivel. O que ela deixou de ser e a PRIMEIRA resposta.
+  it("not_before ilegivel cai na data de criacao, e nao em 'Invalid Date'", () => {
+    const r = dataDaLinhaDeEnvio(
+      {
+        status: "pending",
+        sent_at: null,
+        not_before: new Date("nao e data"),
+        created_at: criado,
+      },
+      AGORA
+    );
+    expect(r.quando).toEqual(criado);
+    expect(Number.isNaN(r.quando.getTime())).toBe(false);
+  });
+});
+
+describe("identificadorDaFila", () => {
+  // O CAMPO E UM `<input type=\"hidden\">`, ou seja e do usuario. Sem esta
+  // conferencia, o texto ia cru para `where id = $1` numa coluna `uuid` e o
+  // POSTGRES e quem recusaria — com "invalid input syntax for type uuid", que
+  // sobe como excecao e vira tela de erro, e nao a frase de "nao achei".
+  it("um uuid passa inteiro", () => {
+    const id = "436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a13";
+    expect(identificadorDaFila(id)).toBe(id);
+  });
+  it("espaco em volta nao invalida", () => {
+    expect(identificadorDaFila("  436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a13  ")).toBe(
+      "436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a13"
+    );
+  });
+  it("maiuscula passa, porque o Postgres a aceita", () => {
+    expect(identificadorDaFila("436412BA-E0B8-4D3E-9C2A-1F5B7D9E0A13")).toBe(
+      "436412BA-E0B8-4D3E-9C2A-1F5B7D9E0A13"
+    );
+  });
+  it("o que nao e uuid nao passa", () => {
+    for (const cru of [
+      "",
+      "   ",
+      "1",
+      "nao-sou-uuid",
+      "436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a1",
+      "436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a133",
+      "436412bae0b84d3e9c2a1f5b7d9e0a13",
+      // A INJECAO NAO E O RISCO AQUI (o valor entra como $1, sempre), mas um
+      // campo assim atravessando ate o banco continua sendo um pedido que
+      // ninguem escreveu de boa-fe.
+      "436412ba-e0b8-4d3e-9c2a-1f5b7d9e0a13'; drop table queue; --",
+    ]) {
+      expect(identificadorDaFila(cru)).toBe(null);
+    }
+  });
+  it("o que nem e texto nao passa", () => {
+    for (const cru of [null, undefined, 42, {}, [], new File([], "x.jpg")]) {
+      expect(identificadorDaFila(cru)).toBe(null);
+    }
+  });
+});
+
+describe("desfechoDaRecusaDaData", () => {
+  it("as duas recusas de data atravessam com o proprio nome", () => {
+    expect(desfechoDaRecusaDaData("data_invalida")).toBe("data_invalida");
+    expect(desfechoDaRecusaDaData("data_no_passado")).toBe("data_no_passado");
+  });
+  // `quando_ilegivel` NAO ALCANCA O REMARCAR: aquele motivo existe por causa do
+  // par de radios da tela de compor, e remarcar e sempre "depois". O ramo esta
+  // aqui porque o compilador cobra a uniao inteira — e a resposta e a que nao
+  // inventa nada: para quem clicou, o campo nao deu uma data.
+  it("quando ilegivel cai em data invalida, e nunca em feito", () => {
+    expect(desfechoDaRecusaDaData("quando_ilegivel")).toBe("data_invalida");
+  });
+  it("nenhum motivo do momento vira sucesso", () => {
+    for (const m of ["quando_ilegivel", "data_invalida", "data_no_passado"] as const) {
+      expect(desfechoDaRecusaDaData(m)).not.toBe("feito");
+    }
+  });
+});
+
+// =============================================================================
+// AS QUATRO DECISOES QUE MORAVAM DENTRO DO JSX (09/09/2026)
+//
+// A restricao do plano e explicita: "decisao em JSX ou em rota e defeito". Quatro
+// ficaram, e DUAS DELAS DISCORDAVAM ENTRE TELAS sobre o mesmo fato:
+//
+//   agendados: `quando.futuro ? "Sai em " : "Estava marcado para "`
+//   Envios:    `quando.futuro ? "sai em " : ""`
+//
+// A suite pura nao testa componente, entao nada disso tinha rede. Agora as duas
+// telas leem a MESMA funcao, e ela e medida aqui.
+// =============================================================================
+describe("fraseDaDataDaLinha", () => {
+  it("o que vai sair ganha a promessa", () => {
+    expect(fraseDaDataDaLinha({ futuro: true, saiu: false })).toBe("Sai em ");
+  });
+  // O TERCEIRO FATO, e o que a tela de Envios nao distinguia: a hora venceu e o
+  // item AINDA ESTA NA FILA. Prometer "sai em" seria prometer uma saida que ja
+  // devia ter acontecido; dizer so a data faz a mesma coluna significar duas
+  // coisas na mesma tela.
+  it("o atrasado nao ganha promessa nenhuma, e nao se confunde com quem saiu", () => {
+    expect(fraseDaDataDaLinha({ futuro: false, saiu: false })).toBe("Estava marcado para ");
+  });
+  it("quem ja saiu nao precisa de prefixo: a data e a de quando saiu", () => {
+    expect(fraseDaDataDaLinha({ futuro: false, saiu: true })).toBe("");
+  });
+  // AS TRES SAO DIFERENTES ENTRE SI. Sem esta linha, duas delas poderiam
+  // colapsar numa so — que e exatamente o estado de que esta funcao veio.
+  it("as tres respostas sao tres respostas", () => {
+    const todas = [
+      fraseDaDataDaLinha({ futuro: true, saiu: false }),
+      fraseDaDataDaLinha({ futuro: false, saiu: false }),
+      fraseDaDataDaLinha({ futuro: false, saiu: true }),
+    ];
+    expect(new Set(todas).size).toBe(3);
+  });
+});
+
+describe("avisoDoAtrasoNaLista", () => {
+  it("o que vai sair na hora nao ganha aviso nenhum", () => {
+    expect(avisoDoAtrasoNaLista({ futuro: true })).toBe(null);
+  });
+  // O AVISO E SOBRE O BOTAO DE CANCELAR, e nao sobre a data: passada a hora, o
+  // item sai na proxima drenagem e `status = 'pending'` deixa de valer — o botao
+  // ao lado perde a corrida. Quem esta olhando a lista precisa saber disso ANTES
+  // de contar com ele.
+  it("o atrasado avisa que o cancelamento tem prazo", () => {
+    const t = avisoDoAtrasoNaLista({ futuro: false });
+    expect(t).not.toBe(null);
+    expect((t ?? "").toLowerCase()).toContain("cancelar");
+  });
+});
+
+describe("rotuloDaFormaDoItem", () => {
+  it("com payload lido, e o nome da forma", () => {
+    expect(rotuloDaFormaDoItem({ forma: "reels" })).toBe(rotuloDaForma("reels"));
+  });
+  // PAYLOAD ILEGIVEL NAO APAGA A LINHA. `lerPayloadDaPublicacao` devolve `null`
+  // para um `jsonb` que nao e item de publicacao, e a linha continua existindo —
+  // porque e dela que sai o botao de cancelar, que e justamente o que se quer ter
+  // a mao num item que ninguem entende.
+  it("sem payload, diz que nao reconheceu — e nao fica em branco", () => {
+    expect(rotuloDaFormaDoItem(null)).toBe("Forma não reconhecida");
+    expect(rotuloDaFormaDoItem(null).trim().length).toBeGreaterThan(0);
+  });
+});
+
+describe("rotuloDaForma", () => {
+  // AS QUATRO PALAVRAS SAO AS DO `<select>` de `app/publicar/enviador.tsx`, e
+  // agora sao as MESMAS quatro: elas moravam so no JSX daquele componente, que
+  // a suite nao testa, e a tela de agendados precisava delas de novo. Uma
+  // segunda escrita e o jeito de as duas telas passarem a discordar sobre o
+  // nome da mesma coisa.
+  it("cada forma tem a palavra da tela de compor", () => {
+    expect(rotuloDaForma("imagem")).toBe("Imagem no feed");
+    expect(rotuloDaForma("carrossel")).toBe("Carrossel");
+    expect(rotuloDaForma("reels")).toBe("Reels");
+    expect(rotuloDaForma("story")).toBe("Story");
+  });
+  it("as quatro sao distintas, e nenhuma sai vazia", () => {
+    const todas = (["imagem", "carrossel", "reels", "story"] as const).map(rotuloDaForma);
+    expect(new Set(todas).size).toBe(4);
+    for (const r of todas) expect(r.trim().length).toBeGreaterThan(0);
+  });
+});
+
+describe("resumoDaLegenda", () => {
+  it("legenda curta passa inteira, sem reticencia", () => {
+    expect(resumoDaLegenda("Promocao de setembro", 40)).toBe("Promocao de setembro");
+  });
+  it("legenda longa e cortada com reticencia", () => {
+    const r = resumoDaLegenda("x".repeat(100), 10);
+    expect(r).toBe(`${"x".repeat(10)}…`);
+  });
+  // A QUEBRA DE LINHA VIRA ESPACO. A legenda de um post tem paragrafo e lista;
+  // jogada crua numa celula de tabela, ela empurraria a linha para cinco
+  // alturas e a lista deixaria de ser lista.
+  it("quebra de linha vira espaco, e o espaco nao se repete", () => {
+    expect(resumoDaLegenda("Primeira\n\nSegunda\n  terceira", 80)).toBe(
+      "Primeira Segunda terceira"
+    );
+  });
+  // SEM LEGENDA E UM FATO, e nao uma celula vazia: um post pode nao ter
+  // legenda de proposito, e a diferenca entre "nao tem" e "a tela nao soube
+  // ler" precisa aparecer.
+  it("legenda ausente ou so espaco diz que nao ha legenda", () => {
+    for (const cru of [undefined, "", "   ", "\n\n"]) {
+      expect(resumoDaLegenda(cru, 40)).toBe("Sem legenda");
+    }
+  });
+  // O TETO DA LISTA E CONSTANTE NOMEADA, e nao um numero solto no JSX: a tela
+  // de agendados e a de Envios cortam pelo MESMO tamanho.
+  it("o teto da lista corta uma legenda de tamanho real", () => {
+    expect(LEGENDA_NA_LISTA).toBeGreaterThan(0);
+    expect(resumoDaLegenda("y".repeat(LEGENDA_NA_LISTA + 1), LEGENDA_NA_LISTA).endsWith("…")).toBe(
+      true
+    );
+    expect(resumoDaLegenda("y".repeat(LEGENDA_NA_LISTA), LEGENDA_NA_LISTA)).toBe(
+      "y".repeat(LEGENDA_NA_LISTA)
+    );
+  });
+});
+
+describe("confirmouOCancelamento", () => {
+  // A CAIXA `required` E DO NAVEGADOR, E SO DELE. Um `required` no HTML nao
+  // chega ao servidor: quem manda o formulario por fora da pagina — ou de um
+  // navegador que o ignore — cancelaria sem confirmar. E a mesma licao de
+  // `enviarLote`, que confere `sem_confirmacao` no servidor em vez de confiar
+  // no atributo.
+  it("a caixa marcada confirma", () => {
+    expect(confirmouOCancelamento("1")).toBe(true);
+  });
+  it("caixa ausente, vazia ou com outro valor NAO confirma", () => {
+    for (const cru of [null, undefined, "", "0", "on", "true", "sim", 1, {}]) {
+      expect(confirmouOCancelamento(cru)).toBe(false);
+    }
+  });
+  // O `value="1"` DA CAIXA E O UNICO VALOR ACEITO, e a rigidez e deliberada:
+  // "on" e o que um `<input type=checkbox>` sem `value` manda, e aceitar os
+  // dois faria a conferencia passar por acidente no dia em que alguem tirasse o
+  // `value` do JSX.
+  it("a frase da recusa diz o que fazer, e que nada foi cancelado", () => {
+    expect(TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO.toLowerCase()).toContain("confirma");
+    expect(TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO.toLowerCase()).toContain("nada foi cancelado");
   });
 });

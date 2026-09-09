@@ -257,12 +257,25 @@ async function guardarNoPayload(id: string, campos: Record<string, unknown>): Pr
  * `apagarObjeto` LANÇA quando o caminho não existe (`NoSuchKey`), e caminho que
  * não existe é o caso NORMAL de uma segunda tentativa de limpeza.
  *
- * ITEM `failed` MANTÉM O ARQUIVO, e é por isso que esta função só é chamada no
- * ramo de sucesso: quem for tentar publicar de novo precisa da mídia. Objeto de
- * item falhado não é órfão.
+ * ITEM `failed` MANTÉM O ARQUIVO, e é por isso que o dreno só a chama no ramo de
+ * sucesso: quem for tentar publicar de novo precisa da mídia. Objeto de item
+ * falhado não é órfão.
+ *
+ * =============================================================================
+ * O SEGUNDO CHAMADOR É O CANCELAMENTO (09/09/2026), e ele é o outro caso em que
+ * o arquivo é ÓRFÃO DE VERDADE
+ *
+ * `cancelarPublicacao` (app/publicar/agendados/actions.ts) marca `skipped`, e um
+ * item cancelado NÃO vai ser tentado de novo — ao contrário do `failed`. Sem
+ * esta chamada o arquivo ficava no bucket para sempre: um reels são 200 MB, e a
+ * conta do Supabase é em três meses.
+ *
+ * O `item` VIROU `{ id: string }` para isso, e a folga é só a que a função já
+ * usava: o único campo lido aqui é o `id`, e ele serve de discriminador do
+ * registro. O dreno continua passando o `QueueItem` inteiro, sem mudar nada.
  */
-async function limparOBucket(
-  item: QueueItem,
+export async function limparOBucket(
+  item: { id: string },
   caminhos: string[],
   igUserId: string
 ): Promise<void> {

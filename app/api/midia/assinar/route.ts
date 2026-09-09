@@ -74,7 +74,28 @@ export async function POST(req: NextRequest) {
   // O TETO É PERGUNTADO AO BUCKET, e nunca é constante. Ele está em 50 MB hoje
   // só porque o pagamento do plano atrasou, e vai subir sozinho quando entrar —
   // o porquê inteiro está em `tetoDoBucket` (lib/bucket.ts).
-  const teto = await tetoDoBucket();
+  //
+  // O `try` NÃO É PRECAUÇÃO — é o conserto de uma saída MUDA que aconteceu em
+  // produção em 09/09/2026. As três variáveis do Supabase tinham ficado só no
+  // `.env.local` e nunca foram para a Vercel; `tetoDoBucket` lançava aqui, FORA
+  // de qualquer `try`, e o Next respondia **500 com corpo vazio**. A tela do
+  // navegador não tinha o que mostrar, e quem tentasse publicar veria um erro
+  // sem texto — a doença que esta base passou uma semana fechando em cinco
+  // ações (02/09), reaberta numa rota.
+  //
+  // O que se ganha não é o upload funcionando — sem as variáveis ele não
+  // funciona mesmo. É a rota DIZENDO por que não funciona, em vez de calar.
+  // A mensagem de `lib/bucket.ts` nomeia a variável que falta e nunca imprime
+  // valor nenhum, então ela pode ir para a tela.
+  let teto: number;
+  try {
+    teto = await tetoDoBucket();
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Nao consegui falar com o armazenamento." },
+      { status: 502 }
+    );
+  }
 
   const decisao = decisaoDeAssinatura(corpo, teto);
   if (!decisao.ok) {

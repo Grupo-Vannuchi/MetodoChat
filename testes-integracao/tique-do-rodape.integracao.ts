@@ -66,10 +66,12 @@ import {
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
+import { comoNumaRequisicao } from "./semear-requisicao";
 
 type ModuloEngine = typeof import("@/lib/engine");
 type ModuloDreno = typeof import("@/lib/queue-drain");
 type ModuloQstash = typeof import("@/lib/qstash");
+type ModuloAcoes = typeof import("@/app/publicar/agendados/actions");
 
 const banco = bancoDescartavel();
 
@@ -89,6 +91,7 @@ let servidorMeta: Server;
 let engine: ModuloEngine;
 let dreno: ModuloDreno;
 let qstash: ModuloQstash;
+let acoes: ModuloAcoes;
 
 function responderJson(res: ServerResponse, corpo: unknown) {
   res.writeHead(200, { "content-type": "application/json" });
@@ -137,6 +140,7 @@ beforeAll(async () => {
   engine = await import("@/lib/engine");
   dreno = await import("@/lib/queue-drain");
   qstash = await import("@/lib/qstash");
+  acoes = (await import("@/app/publicar/agendados/actions")) as ModuloAcoes;
 
   // --- TRAVA 1: para onde o cliente do QStash resolveu, ANTES de enviar ------
   const { Client } = await import("@upstash/qstash");
@@ -219,6 +223,164 @@ async function agendarPostDaqui(segundos: number) {
   publicados = [];
 }
 
+// ---------------------------------------------------------------------------
+// O DESFECHO DE UM SERVER ACTION — a mesma leitura do `digest` de
+// `agendados.integracao.ts` e de `publicar-fala.integracao.ts`, copiada e nao
+// importada pelo mesmo motivo de la: `redirect()` funciona LANCANDO, e e isso
+// que torna a saida assertavel. Uma acao que VOLTA (sem lancar) vira
+// `digest: null`, e nao um teste que morre com a mensagem de outra pessoa.
+// ---------------------------------------------------------------------------
+function urlDoDigest(digest: string | null): string | null {
+  if (digest === null || !digest.startsWith("NEXT_REDIRECT;")) return null;
+  return digest.split(";").slice(2, -2).join(";");
+}
+
+async function avisoDe(
+  acao: (form: FormData) => Promise<void>,
+  form: FormData
+): Promise<{ texto: string | null; tom: string | null }> {
+  const { valor } = await comoNumaRequisicao("/publicar/agendados", async () => {
+    try {
+      await acao(form);
+      return null as string | null;
+    } catch (e) {
+      const digest = (e as { digest?: unknown }).digest;
+      if (typeof digest === "string") return digest;
+      throw e;
+    }
+  });
+  const url = urlDoDigest(valor);
+  if (url === null) return { texto: null, tom: null };
+  const sp = new URL(url, "http://127.0.0.1").searchParams;
+  return { texto: sp.get("aviso"), tom: sp.get("tom") };
+}
+
+/** O formulario de remarcar. `fuso` "0" e UTC, para o instante escrito no campo
+ *  ser o mesmo que o banco guarda — sem conta nenhuma no meio para errar. */
+function pedidoDeRemarcar(id: string, instante: number): FormData {
+  const form = new FormData();
+  form.set("id", id);
+  form.set("data_hora", new Date(instante).toISOString().slice(0, 16));
+  form.set("fuso", "0");
+  return form;
+}
+
+/** O unico item da fila. O `beforeEach` a esvazia, entao ha exatamente um. */
+async function idDoUnicoItem(): Promise<string> {
+  const linhas = (await banco.db().sql().query(`select id from queue`)) as { id: string }[];
+  expect(linhas.length).toBe(1);
+  return linhas[0].id;
+}
+
+/** Um instante daqui a N horas, truncado ao minuto — que e o que o
+ *  `<input type="datetime-local">` manda. */
+function daquiAHoras(horas: number): number {
+  return Math.floor((Date.now() + horas * 60 * 60 * 1000) / 60000) * 60000;
+}
+
+// =============================================================================
+// O PAR DE CONTROLE DO REMARCAR — compor contra remarcar, o mesmo post e a
+// mesma distancia.
+//
+// Ate 09/09/2026 remarcar nao armava tique NENHUM, e o comentario que
+// justificava a ausencia lia errado o codigo que citava: ele dizia que
+// `enqueuePublicacao` passa `agendarTique: false` de proposito. Ela passa
+// `agendarTique: atraso <= HORIZONTE` (lib/engine.ts).
+//
+// E O CRON DIARIO NAO COBRIA O BURACO. `armarTiquesDoDia` so e honesta para
+// `not_before` escrito ANTES da passagem dela — e remarcar move a hora para
+// dentro de uma janela JA VARRIDA. O cron e diario (`vercel.json`: `0 9 * * *`),
+// entao um post remarcado para daqui a duas horas podia sair ~23 h depois,
+// CALADO, depois de a tela ter dito "Ele sai na hora nova".
+//
+// NENHUM PORTAO VIA ISSO: a suite pura nao chama a acao, e nenhum outro arquivo
+// de integracao deixa `scheduleTick` chegar a publicar (todos apagam a
+// QSTASH_TOKEN). So aqui o numero existe.
+// =============================================================================
+describe("o tique da hora nova, e o par de controle que o mede", () => {
+  test("compor para +2h arma 1 tique, e remarcar para +2h arma 1 tambem", async () => {
+    // O CONTROLE. Sem ele, "remarcar arma 1" nao distingue o conserto de um
+    // instrumento que conta qualquer coisa.
+    await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/compor-daqui-a-duas-horas.jpg`] },
+      new Date(Date.now() + 2 * 60 * 60 * 1000)
+    );
+    expect(publicados.length).toBe(1);
+
+    // O MEDIDO. O post nasce marcado para o mes que vem — alem do horizonte,
+    // entao compor NAO arma nada por ele — e e remarcado para a MESMA distancia
+    // de duas horas do controle acima.
+    await banco.db().sql().query(`delete from queue`);
+    publicados = [];
+    await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/remarcado-de-um-mes-para-duas-horas.jpg`] },
+      new Date(Date.now() + 30 * UM_DIA_EM_SEGUNDOS * 1000)
+    );
+    expect(publicados.length).toBe(0);
+    const id = await idDoUnicoItem();
+    publicados = [];
+
+    const aviso = await avisoDe(acoes.remarcarPublicacao, pedidoDeRemarcar(id, daquiAHoras(2)));
+    expect(aviso.tom).toBe("ok");
+    expect(aviso.texto).toContain("Post remarcado");
+
+    // O NUMERO QUE FALTAVA. Antes do conserto: 0.
+    expect(publicados.length).toBe(1);
+    expect(publicados[0].destino).toContain("/api/queue/tick");
+    // A FAIXA, e nao a igualdade: o campo `datetime-local` e truncado ao minuto,
+    // entao a distancia real fica entre 7140 e 7200 s, mais os cinco de folga.
+    const segundos = Number((publicados[0].atraso ?? "").replace(/s$/, ""));
+    expect(Number.isFinite(segundos)).toBe(true);
+    expect(segundos).toBeGreaterThan(7100);
+    expect(segundos).toBeLessThanOrEqual(7205);
+  });
+
+  // A METADE QUE IMPEDE O CONSERTO DE VIRAR "arma sempre". Um mes de atraso
+  // entregue ao QStash depende de um horizonte que NUNCA foi verificado, e se
+  // ele recusasse, `scheduleTick` engoliria o erro e o post nao sairia, calado.
+  // Alem de um dia quem arma e `armarTiquesDoDia`, no dia certo.
+  test("remarcar para alem do horizonte NAO arma tique — quem arma e o cron", async () => {
+    await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/remarcado-para-o-mes-que-vem.jpg`] },
+      new Date(Date.now() + 2 * 60 * 60 * 1000)
+    );
+    const id = await idDoUnicoItem();
+    publicados = [];
+
+    const aviso = await avisoDe(
+      acoes.remarcarPublicacao,
+      pedidoDeRemarcar(id, daquiAHoras(30 * 24))
+    );
+    expect(aviso.tom).toBe("ok");
+    expect(aviso.texto).toContain("Post remarcado");
+
+    expect(publicados).toEqual([]);
+  });
+
+  // E UM REMARCAR RECUSADO NAO ARMA NADA. Sem esta linha, o tique poderia ter
+  // sido posto fora do `if (desfecho === "feito")` e ninguem veria: um tique
+  // para uma hora que nao foi gravada acorda o app para nada.
+  test("remarcar RECUSADO (item de outro tipo) nao arma tique nenhum", async () => {
+    await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/nao-vai-ser-remarcado.jpg`] },
+      new Date(Date.now() + 2 * 60 * 60 * 1000)
+    );
+    await banco.db().sql().query(`update queue set kind = 'dm_manual'`);
+    const id = await idDoUnicoItem();
+    publicados = [];
+
+    const aviso = await avisoDe(acoes.remarcarPublicacao, pedidoDeRemarcar(id, daquiAHoras(2)));
+    expect(aviso.tom).toBe("erro");
+    expect(aviso.texto).toContain("Não achei este post agendado nesta conta");
+
+    expect(publicados).toEqual([]);
+  });
+});
+
 describe("o rodape do dreno e quantos tiques ele publica", () => {
   test("post agendado para +30 dias NAO faz o rodape armar um tique por drenagem", async () => {
     await agendarPostDaqui(30 * UM_DIA_EM_SEGUNDOS);
@@ -246,7 +408,22 @@ describe("o rodape do dreno e quantos tiques ele publica", () => {
     expect(publicados[0].destino).toContain("/api/queue/tick");
     // O `Math.min` do rodapé corta o ATRASO em um dia; o que este arquivo mede é
     // a decisão de ARMAR, que é a que estava sem teto.
-    expect(publicados[0].atraso).toBe("7205s");
+    //
+    // A FAIXA, E NÃO A IGUALDADE, e a troca é de 09/09/2026. O número comparado é
+    // `min(not_before) - now()` medido DEPOIS de o dreno inteiro rodar: ele
+    // conta o tempo gasto entre semear e drenar. Sozinho o arquivo dava 7205;
+    // sob a suíte completa (banco remoto, ~9 min de rodada) dava 7203, e o
+    // portão de integração ficava vermelho por DOIS SEGUNDOS DE RELÓGIO.
+    //
+    // Um teste que falha por relógio ensina a ignorar vermelho, e isso custa
+    // mais do que o que ele protege. A faixa continua matando os dois plantios
+    // que este caso existe para matar: armar ZERO morre na linha de cima
+    // (`publicados.length`), e armar COM O TETO daria 86400 s — quatro ordens de
+    // grandeza acima do limite de cima, e não dois segundos.
+    const segundos = Number((publicados[0].atraso ?? "").replace(/s$/, ""));
+    expect(Number.isFinite(segundos)).toBe(true);
+    expect(segundos).toBeGreaterThan(7100);
+    expect(segundos).toBeLessThanOrEqual(7205);
   });
 
   test("fila vazia nao arma tique nenhum", async () => {
