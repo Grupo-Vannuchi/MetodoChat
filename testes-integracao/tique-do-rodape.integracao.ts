@@ -246,7 +246,22 @@ describe("o rodape do dreno e quantos tiques ele publica", () => {
     expect(publicados[0].destino).toContain("/api/queue/tick");
     // O `Math.min` do rodapé corta o ATRASO em um dia; o que este arquivo mede é
     // a decisão de ARMAR, que é a que estava sem teto.
-    expect(publicados[0].atraso).toBe("7205s");
+    //
+    // A FAIXA, E NÃO A IGUALDADE, e a troca é de 09/09/2026. O número comparado é
+    // `min(not_before) - now()` medido DEPOIS de o dreno inteiro rodar: ele
+    // conta o tempo gasto entre semear e drenar. Sozinho o arquivo dava 7205;
+    // sob a suíte completa (banco remoto, ~9 min de rodada) dava 7203, e o
+    // portão de integração ficava vermelho por DOIS SEGUNDOS DE RELÓGIO.
+    //
+    // Um teste que falha por relógio ensina a ignorar vermelho, e isso custa
+    // mais do que o que ele protege. A faixa continua matando os dois plantios
+    // que este caso existe para matar: armar ZERO morre na linha de cima
+    // (`publicados.length`), e armar COM O TETO daria 86400 s — quatro ordens de
+    // grandeza acima do limite de cima, e não dois segundos.
+    const segundos = Number((publicados[0].atraso ?? "").replace(/s$/, ""));
+    expect(Number.isFinite(segundos)).toBe(true);
+    expect(segundos).toBeGreaterThan(7100);
+    expect(segundos).toBeLessThanOrEqual(7205);
   });
 
   test("fila vazia nao arma tique nenhum", async () => {
