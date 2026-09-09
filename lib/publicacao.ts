@@ -2067,3 +2067,150 @@ export function confirmouOCancelamento(bruto: unknown): boolean {
  *  ACONTECEU, porque o pior desfecho aqui é a pessoa achar que cancelou. */
 export const TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO =
   "Marque a confirmação antes de cancelar. Nada foi cancelado, e o post continua agendado.";
+
+// =============================================================================
+// O QUE NÃO SAIU, E QUEM PRECISA SABER (09/09/2026)
+//
+// -----------------------------------------------------------------------------
+// A MEDIÇÃO QUE OBRIGOU ESTAS DUAS FUNÇÕES
+//
+// O painel contava UM número de falhas — `failed24` — e escrevia sobre ele
+// "mensagem não saiu", inclusive quando o item era uma PUBLICAÇÃO. E a tela de
+// agendados filtra `status = 'pending'`: um post que falha não vira linha
+// vermelha, ele DEIXA DE EXISTIR na única lista onde alguém iria procurá-lo.
+//
+// Enquanto era só o dono usando, uma DM que não saía era uma pessoa sem
+// resposta, e ele estava olhando. Com o marketing agendando conteúdo real, um
+// post que falha na sexta à noite é um lançamento que não aconteceu — e ninguém
+// está de plantão.
+//
+// -----------------------------------------------------------------------------
+// POR QUE ELAS MORAM AQUI, e não dentro das duas telas
+//
+// São as mesmas duas decisões de sempre: QUANDO avisar e O QUE dizer. Escritas
+// no JSX, ficariam sem rede — a suíte não testa componente, e foi exatamente
+// assim que "mensagem não saiu" passou meses valendo para post sem nenhum
+// portão reclamar.
+// =============================================================================
+
+/**
+ * Quantos dias uma publicação falhada continua valendo AVISO no painel.
+ *
+ * SETE, E O NÚMERO TEM MOTIVO. O modo de falha declarado pelo dono é "falha na
+ * sexta à noite, ninguém vê até segunda": vinte e quatro horas não cobrem um
+ * fim de semana, e sete dias cobrem com folga.
+ *
+ * "PARA SEMPRE" FOI RECUSADO. Um aviso vermelho por um post que falhou há três
+ * meses e já foi republicado à mão é ruído — e ruído numa tela de diagnóstico é
+ * pior do que nada, porque ensina a ignorá-la. É o argumento escrito em
+ * `lib/webhook-messaging.ts` a propósito da confirmação de leitura, aplicado
+ * aqui.
+ *
+ * O PRAZO É SÓ DO AVISO. A tela de agendados mostra a falha SEM RECORTE DE
+ * TEMPO (`app/publicar/agendados/page.tsx`): é para lá que se vai procurar, e
+ * uma falha antiga sumindo de lá seria o mesmo defeito por outro caminho.
+ *
+ * A CONSTANTE ENTRA NA CONSULTA COMO PARÂMETRO, e não é enfeite: um 7 escrito
+ * no SQL e outro escrito na frase são duas fontes para o mesmo prazo, e a
+ * segunda a mudar vira uma tela que conta sete dias e diz outra coisa.
+ */
+export const DIAS_DE_AVISO_DA_PUBLICACAO = 7;
+
+/**
+ * As horas em que uma MENSAGEM falhada vale aviso — as mesmas de sempre.
+ *
+ * ELA NÃO MUDA NESTA ENTREGA, e a constante existe pelo mesmo motivo que a de
+ * cima: o número que a consulta usa e o número que a frase escreve têm de ser
+ * um só.
+ */
+export const HORAS_DE_AVISO_DA_MENSAGEM = 24;
+
+/** O aviso do painel: a frase e a tela onde a coisa se resolve. */
+export type AvisoDeFalhas = { texto: string; href: string };
+
+/**
+ * O AVISO DE "PRECISA DE ATENÇÃO" DO PAINEL, ou `null` quando não há o que
+ * avisar.
+ *
+ * SÃO DOIS FATOS, E NÃO UM. Uma publicação que não saiu é um post que o perfil
+ * público não recebeu; uma mensagem que não saiu é uma pessoa sem resposta.
+ * Chamar os dois de "mensagem" — o que esta tela fazia — não é só palavra
+ * errada: MANDA PARA A TELA ERRADA. A publicação se resolve em
+ * `/publicar/agendados`, a mensagem em `/eventos`, e um aviso que aponta para o
+ * lugar onde o problema não está é um aviso que gasta a atenção de quem o leu.
+ *
+ * COM AS DUAS AO MESMO TEMPO, A FRASE DIZ AS DUAS e o destino é a PUBLICAÇÃO:
+ * ela é a que ficou faltando no perfil público, e é a única das duas cuja tela
+ * ainda não existia. Esconder metade seria repetir o defeito com o outro sinal.
+ */
+export function avisoDeFalhas(publicacoes: number, mensagens: number): AvisoDeFalhas | null {
+  if (publicacoes <= 0 && mensagens <= 0) return null;
+  const partes: string[] = [];
+  if (publicacoes > 0) partes.push(fraseDasPublicacoes(publicacoes));
+  if (mensagens > 0) partes.push(fraseDasMensagens(mensagens));
+  return {
+    texto: `${partes.join(", e ")}.`,
+    href: publicacoes > 0 ? "/publicar/agendados" : "/eventos",
+  };
+}
+
+/** "1 publicação não saiu nos últimos 7 dias" — e o plural inteiro, verbo
+ *  incluído. Escrever `publicação(ões)` numa tela de diagnóstico é dizer a quem
+ *  lê que ninguém olhou para o caso dele. */
+function fraseDasPublicacoes(n: number): string {
+  const quantas = n === 1 ? "1 publicação não saiu" : `${n} publicações não saíram`;
+  return `${quantas} nos últimos ${DIAS_DE_AVISO_DA_PUBLICACAO} dias`;
+}
+
+/** A frase da mensagem, com as MESMAS palavras e as MESMAS 24 horas que esta
+ *  tela já dizia — o comportamento de mensagem não muda nesta entrega. */
+function fraseDasMensagens(n: number): string {
+  const quantas = n === 1 ? "1 mensagem não saiu" : `${n} mensagens não saíram`;
+  return `${quantas} nas últimas ${HORAS_DE_AVISO_DA_MENSAGEM}h`;
+}
+
+/** O que a seção "Não saíram" mostra para um item falhado. */
+export type LinhaDaFalha = { quando: Date; motivo: string; forma: string; legenda: string };
+
+/**
+ * A LINHA DE UM POST QUE NÃO SAIU, na seção "Não saíram" dos agendados.
+ *
+ * A DATA É O `not_before`, e não o `created_at` nem o `sent_at`: é a hora em que
+ * o post DEVERIA ter saído — a informação que responde "o que eu perdi?". Um
+ * item falhado não tem `sent_at`, então `dataDaLinhaDeEnvio` não serve aqui: ela
+ * responderia `futuro`/`saiu` sobre um item que não é nem um nem outro.
+ *
+ * A FORMA E A LEGENDA SAEM DAS MESMAS FUNÇÕES DA LISTA DE CIMA
+ * (`rotuloDaFormaDoItem`, `resumoDaLegenda`). As duas seções moram na MESMA
+ * tela: duas leituras diferentes do mesmo `jsonb`, lado a lado, chamariam a
+ * mesma coisa por nomes diferentes a um centímetro de distância.
+ *
+ * O MOTIVO CHEGA INTEIRO, e sem tradução. `friendlyError` (app/labels.ts)
+ * reescreve os erros de MENSAGEM que se repetem — a janela de 24h, a conta
+ * desconectada — e nenhum deles é de publicação. O que o dreno grava aqui é a
+ * resposta da Meta, que é a única pista de por que o post não saiu; trocá-la por
+ * uma frase genérica seria apagar o diagnóstico para deixar a tela bonita.
+ *
+ * SEM MOTIVO ESCRITO A TELA AINDA DIZ ALGUMA COISA. A coluna `error` é opcional,
+ * e um item `failed` sem ela é possível. Célula em branco parece defeito DA
+ * TELA, e quem a vê procura o erro no lugar errado.
+ */
+export function linhaDaFalha(item: {
+  not_before: Date;
+  error: string | null;
+  payload: Record<string, unknown>;
+}): LinhaDaFalha {
+  const p = lerPayloadDaPublicacao(item.payload);
+  const motivo = typeof item.error === "string" ? item.error.trim() : "";
+  return {
+    quando: item.not_before,
+    motivo: motivo || MOTIVO_NAO_REGISTRADO,
+    forma: rotuloDaFormaDoItem(p),
+    legenda: resumoDaLegenda(p?.legenda, LEGENDA_NA_LISTA),
+  };
+}
+
+/** A frase do item falhado que não trouxe motivo. Ela diz que o motivo é que
+ *  falta — e não o post —, para ninguém procurar o defeito na tela. */
+export const MOTIVO_NAO_REGISTRADO =
+  "A fila não guardou o motivo desta falha. O post não saiu, e o arquivo continua no armazenamento.";

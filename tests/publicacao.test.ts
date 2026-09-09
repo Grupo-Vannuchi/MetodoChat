@@ -50,6 +50,10 @@ import {
   LEGENDA_NA_LISTA,
   confirmouOCancelamento,
   TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO,
+  avisoDeFalhas,
+  linhaDaFalha,
+  DIAS_DE_AVISO_DA_PUBLICACAO,
+  HORAS_DE_AVISO_DA_MENSAGEM,
 } from "../lib/publicacao";
 
 const MB = 1024 * 1024;
@@ -2164,5 +2168,97 @@ describe("confirmouOCancelamento", () => {
   it("a frase da recusa diz o que fazer, e que nada foi cancelado", () => {
     expect(TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO.toLowerCase()).toContain("confirma");
     expect(TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO.toLowerCase()).toContain("nada foi cancelado");
+  });
+});
+
+// =============================================================================
+// O AVISO DO PAINEL E A LINHA DA FALHA (09/09/2026)
+//
+// O painel contava UM numero — `failed24` — e escrevia "mensagem nao saiu" para
+// ele, inclusive quando o item era uma PUBLICACAO. E a tela de agendados filtra
+// `status = 'pending'`, entao o post falhado sumia da unica lista onde alguem
+// iria procura-lo.
+// =============================================================================
+
+describe("avisoDeFalhas", () => {
+  it("sem falha nenhuma nao ha aviso", () => {
+    expect(avisoDeFalhas(0, 0)).toBeNull();
+  });
+  // PUBLICACAO E MENSAGEM SAO FATOS DIFERENTES, e o painel os chamava do mesmo
+  // nome — "mensagem nao saiu", inclusive para post. Cada um se resolve em tela
+  // diferente, entao a frase E o destino tem de mudar junto.
+  it("so publicacao aponta para a tela de agendados", () => {
+    const a = avisoDeFalhas(1, 0)!;
+    expect(a.texto).toContain("publicação");
+    expect(a.texto).not.toContain("mensagem");
+    expect(a.href).toBe("/publicar/agendados");
+  });
+  it("so mensagem continua apontando para eventos", () => {
+    const a = avisoDeFalhas(0, 2)!;
+    expect(a.texto).toContain("mensagens");
+    expect(a.href).toBe("/eventos");
+  });
+  // AS DUAS AO MESMO TEMPO: a frase diz as duas coisas, e o destino nao pode
+  // esconder metade. Publicacao vem primeiro porque e a que fica publica.
+  it("as duas juntas dizem as duas, e mandam para a publicacao", () => {
+    const a = avisoDeFalhas(1, 3)!;
+    expect(a.texto).toContain("publicação");
+    expect(a.texto).toContain("mensagens");
+    expect(a.href).toBe("/publicar/agendados");
+  });
+  it("o singular e o plural nao saem errados", () => {
+    expect(avisoDeFalhas(1, 0)!.texto).not.toContain("publicações");
+    expect(avisoDeFalhas(2, 0)!.texto).toContain("publicações");
+  });
+  // AS DUAS JANELAS SAO DIFERENTES DE PROPOSITO, e o numero de cada uma e
+  // constante nomeada porque a consulta do painel le a MESMA constante. Um 7
+  // escrito no SQL e outro na frase seriam duas fontes para o mesmo prazo.
+  it("as janelas sao as duas constantes, e a frase diz cada uma", () => {
+    expect(DIAS_DE_AVISO_DA_PUBLICACAO).toBe(7);
+    expect(HORAS_DE_AVISO_DA_MENSAGEM).toBe(24);
+    expect(avisoDeFalhas(1, 0)!.texto).toContain(String(DIAS_DE_AVISO_DA_PUBLICACAO));
+    expect(avisoDeFalhas(0, 1)!.texto).toContain(String(HORAS_DE_AVISO_DA_MENSAGEM));
+  });
+});
+
+describe("linhaDaFalha", () => {
+  const base = {
+    not_before: new Date("2026-09-11T12:59:00Z"),
+    payload: { forma: "reels", legenda: "oi" },
+  };
+  it("o motivo escrito pelo dreno chega inteiro", () => {
+    expect(
+      linhaDaFalha({ ...base, error: "Instagram API 400: media nao encontrada" }).motivo
+    ).toContain("media nao encontrada");
+  });
+  // ITEM `failed` SEM MOTIVO E POSSIVEL — o `error` e opcional na tabela. A
+  // tela nao pode ficar em branco, porque branco parece defeito da tela e nao
+  // do envio.
+  it("falha sem motivo escrito ainda diz alguma coisa", () => {
+    const m = linhaDaFalha({ ...base, error: null }).motivo;
+    expect(m.length).toBeGreaterThan(0);
+    expect(m.toLowerCase()).not.toBe("null");
+  });
+  it("a data e a que ele DEVERIA ter saido", () => {
+    expect(linhaDaFalha({ ...base, error: null }).quando).toEqual(base.not_before);
+  });
+  // PAYLOAD ADULTERADO NAO PODE DERRUBAR A TELA: a coluna e jsonb e editavel
+  // por fora do painel. O par disto no dreno e `publicacao_com_payload_invalido`.
+  it("payload sem forma nem legenda nao quebra", () => {
+    const r = linhaDaFalha({ not_before: base.not_before, error: "x", payload: {} });
+    expect(typeof r.forma).toBe("string");
+    expect(typeof r.legenda).toBe("string");
+  });
+  // A FORMA E A LEGENDA VEM DAS MESMAS FUNCOES DA LISTA DOS AGENDADOS, e nao de
+  // uma segunda leitura escrita aqui: as duas secoes moram na mesma tela, e
+  // duas fontes para a mesma palavra e o defeito que esta base vem apagando.
+  it("o payload inteiro devolve a palavra da tela de compor e o comeco da legenda", () => {
+    const r = linhaDaFalha({
+      not_before: base.not_before,
+      error: null,
+      payload: { forma: "reels", caminhos: ["conta/a.mp4"], legenda: "Promocao de setembro" },
+    });
+    expect(r.forma).toBe(rotuloDaForma("reels"));
+    expect(r.legenda).toBe(resumoDaLegenda("Promocao de setembro", LEGENDA_NA_LISTA));
   });
 });
