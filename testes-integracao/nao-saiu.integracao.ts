@@ -408,6 +408,37 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
   });
 
   // =========================================================================
+  // O OUTRO LADO DOS 8 DIAS, e ele foi acrescentado DEPOIS DE MEDIR.
+  //
+  // O plano prometia que o plantio "janela de 7 dias virando 24h" ficaria
+  // vermelho no caso dos 8 dias. MEDIDO: fica VERDE, e não podia ser diferente
+  // — aquele caso exige que o painel NÃO avise, e encolher a janela só faz o
+  // painel avisar MENOS. Um par de casos em que os dois lados exigem silêncio
+  // não prende janela nenhuma; ele passaria igual com a janela em zero.
+  //
+  // ESTE É O LADO QUE FALTAVA: três dias estão dentro dos sete e fora das
+  // vinte e quatro horas, então ele é o único caso do arquivo que a janela
+  // encolhida derruba de verdade — e não pela margem de segundos com que o caso
+  // de "ontem" bate no limite das 24h.
+  // =========================================================================
+  test("uma falha de 3 dias AINDA avisa — e e ela que prende os 7 dias", async () => {
+    await limparAFila();
+    await semear({
+      conta: CONTA_A,
+      status: "failed",
+      emSegundos: -3 * DIA,
+      reivindicadoEm: -3 * DIA,
+      criadoEm: -3 * DIA,
+      error: "falhou ha tres dias",
+    });
+
+    const painel = await arvoreDoPainel();
+
+    expect(painel).toContain("publicação não saiu");
+    expect(painel).toContain("/publicar/agendados");
+  });
+
+  // =========================================================================
   // A MEDIÇÃO QUE MUDOU A COLUNA DA CONSULTA (09/09/2026).
   //
   // O plano pedia a janela sobre `created_at`. Medido no dreno: `created_at` é
