@@ -79,6 +79,10 @@ const meta = {
   desconhecidos: [] as string[],
 };
 
+/** O que foi APAGADO do bucket falso, na ordem. O caminho do objeto, sem o
+ *  prefixo da API — que é o que `apagarObjeto` (lib/bucket.ts) monta. */
+const bucket = { apagados: [] as string[] };
+
 let servidorMeta: Server;
 let servidorBucket: Server;
 let acoes: ModuloAcoes;
@@ -137,6 +141,7 @@ beforeAll(async () => {
     const u = new URL(req.url ?? "/", "http://127.0.0.1");
     const prefixo = `/storage/v1/object/${BUCKET}/`;
     if (req.method === "DELETE" && u.pathname.startsWith(prefixo)) {
+      bucket.apagados.push(decodeURIComponent(u.pathname.slice(prefixo.length)));
       return responderJson(res, { message: "ok" });
     }
     res.writeHead(404, { "content-type": "application/json" });
@@ -247,6 +252,11 @@ function avisoDaUrlDeVolta(url: string | null): { texto: string | null; tom: str
 
 let semente = 0;
 
+/** O caminho do objeto que `semear` grava no payload de uma publicação. */
+function caminhoSemeado(conta: string, n: number): string {
+  return `${conta}/agendado-${n}.jpg`;
+}
+
 /** Um item de fila, gravado direto. O `not_before` e o `status` são
  *  PARÂMETRO porque é justamente sobre eles que as três defesas decidem. */
 async function semear(item: {
@@ -260,7 +270,7 @@ async function semear(item: {
   const kind = item.kind ?? "publicacao";
   const payload =
     kind === "publicacao"
-      ? { forma: "imagem", caminhos: [`${item.conta}/agendado-${semente}.jpg`] }
+      ? { forma: "imagem", caminhos: [caminhoSemeado(item.conta, semente)] }
       : { text: "uma mensagem qualquer" };
   const linhas = (await banco
     .db()
@@ -281,6 +291,11 @@ async function semear(item: {
       ]
     )) as { id: string }[];
   return linhas[0].id;
+}
+
+/** O caminho do objeto do último item semeado. */
+function ultimoCaminhoSemeado(conta: string): string {
+  return caminhoSemeado(conta, semente);
 }
 
 type LinhaDaFila = { id: string; status: string; error: string | null; not_before: Date };
@@ -704,6 +719,65 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     expect(aviso.tom).toBe("erro");
     expect((aviso.texto ?? "").toLowerCase()).toMatch(/saiu|saindo|publicad/);
     expect((await lerItem(id)).not_before.getTime()).toBe(antes.not_before.getTime());
+  });
+
+  // =========================================================================
+  // A MIDIA DO POST CANCELADO SAI DO BUCKET.
+  //
+  // `limparOBucket` (lib/queue-drain.ts) so era chamada no ramo de sucesso da
+  // publicacao, e o comentario dela explica por que: item `failed` mantem o
+  // arquivo, porque quem for tentar de novo precisa da midia. ITEM CANCELADO NAO
+  // VAI SER TENTADO DE NOVO — o arquivo ficava no bucket para sempre. O proprio
+  // codigo precificava isso: "um reels sao 200 MB", e a conta do Supabase e em
+  // tres meses.
+  //
+  // OS DOIS CONTROLES NEGATIVOS SAO O QUE IMPORTA AQUI, e nao o positivo:
+  // apagar a midia de um post que a Meta esta BAIXANDO neste instante quebraria
+  // a publicacao, do jeito dificil de ler que aquele cabecalho descreve.
+  // =========================================================================
+  test("cancelar apaga a mídia do bucket: item cancelado não vai ser tentado de novo", async () => {
+    const id = await semear({ conta: CONTA_A, emSegundos: 3600 });
+    const caminho = ultimoCaminhoSemeado(CONTA_A);
+    bucket.apagados = [];
+
+    const d = await desfechoDe(acoes.cancelarPublicacao, pedidoDeCancelar(id));
+
+    expect(avisoDaUrlDeVolta(d.url).texto).toContain("Post cancelado");
+    expect(bucket.apagados).toEqual([caminho]);
+  });
+
+  test("cancelar um item JÁ EM VOO não apaga mídia nenhuma", async () => {
+    // A META ESTÁ BAIXANDO O ARQUIVO NESTE INSTANTE. Apagar aqui quebraria a
+    // publicação, e quebraria de um jeito difícil de ler: a Meta responderia
+    // erro de mídia inacessível para um arquivo que existia quando o contêiner
+    // nasceu. O `update` afeta zero linhas, e é essa a defesa.
+    const id = await semear({ conta: CONTA_A, status: "sending", emSegundos: -30 });
+    bucket.apagados = [];
+
+    await desfechoDe(acoes.cancelarPublicacao, pedidoDeCancelar(id));
+
+    expect(bucket.apagados).toEqual([]);
+    expect((await lerItem(id)).status).toBe("sending");
+  });
+
+  test("cancelar o post de OUTRA conta não apaga arquivo nenhum", async () => {
+    const id = await semear({ conta: CONTA_B, emSegundos: 3600 });
+    bucket.apagados = [];
+
+    await desfechoDe(acoes.cancelarPublicacao, pedidoDeCancelar(id));
+
+    expect(bucket.apagados).toEqual([]);
+  });
+
+  test("remarcar NÃO apaga mídia: o post ainda vai sair", async () => {
+    const id = await semear({ conta: CONTA_A, emSegundos: 3600 });
+    bucket.apagados = [];
+    const alvo = Math.floor((Date.now() + 6 * 24 * 3600 * 1000) / 60000) * 60000;
+
+    const d = await desfechoDe(acoes.remarcarPublicacao, pedidoDeRemarcar(id, campoDeDataHora(alvo)));
+
+    expect(avisoDaUrlDeVolta(d.url).texto).toContain("Post remarcado");
+    expect(bucket.apagados).toEqual([]);
   });
 
   // =========================================================================

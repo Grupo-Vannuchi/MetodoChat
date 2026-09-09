@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getSelectedAccount } from "@/lib/account";
 import { getConfig, sql } from "@/lib/db";
 import { HORIZONTE_DO_TIQUE_EM_SEGUNDOS, scheduleTick } from "@/lib/qstash";
+import { limparOBucket } from "@/lib/queue-drain";
 import {
   atrasoDoTiqueDoRemarcar,
   camposDaDataHora,
@@ -13,6 +14,7 @@ import {
   fusoDoCampo,
   identificadorDaFila,
   instanteDoAgendamento,
+  lerPayloadDaPublicacao,
   momentoDaPublicacao,
   textoDaRecusaDaPublicacao,
   TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO,
@@ -140,12 +142,16 @@ export async function cancelarPublicacao(formData: FormData): Promise<void> {
   // `skipped` E NÃO `failed`, e a distinção é a que a tela de Envios já lê: o
   // post não falhou, ele foi retirado de propósito. O `error` guarda o motivo,
   // que é o que aparece na linha.
-  const afetadas = await sql().query(
+  // O `payload` VOLTA JUNTO porque é dele que sai o caminho do arquivo a apagar
+  // — ver o bloco logo abaixo. Ele é lido da MESMA linha que o `update` acabou
+  // de mudar, e não de uma segunda consulta: uma segunda ida ao banco poderia
+  // ler outra coisa, e aqui o que se apaga é arquivo do perfil de alguém.
+  const afetadas = (await sql().query(
     `update queue set status = 'skipped', error = 'cancelado por voce'
      ${ALVO_DA_MUDANCA}
-     returning id`,
+     returning id, payload`,
     [id, conta.ig_user_id]
-  );
+  )) as { id: string; payload: unknown }[];
 
   // A SEGUNDA CONSULTA SÓ NO CAMINHO DE FALHA, e é o `?` que garante isso: com
   // linha afetada não há pergunta a fazer, e o `null` que entra é lido como
@@ -154,6 +160,36 @@ export async function cancelarPublicacao(formData: FormData): Promise<void> {
     afetadas.length,
     afetadas.length > 0 ? null : await statusNaConta(id, conta.ig_user_id)
   );
+
+  // A MÍDIA DO POST CANCELADO SAI DO BUCKET, e o cancelamento é o outro caso em
+  // que o arquivo é ÓRFÃO DE VERDADE.
+  //
+  // `limparOBucket` (lib/queue-drain.ts) só era chamada no ramo de sucesso da
+  // publicação, e o comentário dela explica por quê: item `failed` mantém o
+  // arquivo, porque quem for tentar de novo precisa da mídia. ITEM CANCELADO
+  // NÃO VAI SER TENTADO DE NOVO — o arquivo ficava no bucket para sempre. O
+  // próprio código já precificava isso: "um arquivo que fica no bucket não
+  // incomoda ninguém hoje e vira a conta do Supabase em três meses — um reels
+  // são 200 MB".
+  //
+  // SÓ QUANDO O `update` AFETOU LINHA, e a condição é a defesa inteira: com zero
+  // linhas o item não é nosso, ou está em voo (`sending`) — e apagar a mídia de
+  // um post que a Meta está BAIXANDO neste instante quebraria a publicação, do
+  // jeito difícil de ler que o cabeçalho daquela função descreve.
+  //
+  // PAYLOAD ILEGÍVEL NÃO APAGA NADA: `lerPayloadDaPublicacao` recusa em vez de
+  // confiar num `jsonb` que pode ter sido editado por fora, e um caminho vindo
+  // de um payload que ninguém entende é a última coisa que se quer entregar a um
+  // `DELETE`.
+  //
+  // E ELA NÃO DERRUBA A AÇÃO: `limparOBucket` já tem o `try/catch` por caminho —
+  // `apagarObjeto` LANÇA quando o objeto não existe, que é o caso NORMAL de uma
+  // segunda tentativa —, e o que ela faz na falha é registrar em Atividade. O
+  // `redirect` de baixo continua sendo a única saída desta ação.
+  if (afetadas.length > 0) {
+    const pub = lerPayloadDaPublicacao(afetadas[0].payload);
+    if (pub) await limparOBucket(afetadas[0], pub.caminhos, conta.ig_user_id);
+  }
 
   revalidarAsDuasTelas();
   redirect(urlDeAgendadosComAviso(avisoDoDesfecho(desfecho, "cancelar")));
