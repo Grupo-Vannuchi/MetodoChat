@@ -5,10 +5,12 @@ import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
 import { avisoDaUrl } from "@/lib/avisos";
 import {
+  avisoDoAtrasoNaLista,
   dataDaLinhaDeEnvio,
+  fraseDaDataDaLinha,
   lerPayloadDaPublicacao,
   resumoDaLegenda,
-  rotuloDaForma,
+  rotuloDaFormaDoItem,
   LEGENDA_NA_LISTA,
 } from "@/lib/publicacao";
 import {
@@ -46,11 +48,17 @@ import { cancelarPublicacao, remarcarPublicacao } from "./actions";
 // =============================================================================
 // NENHUMA DECISÃO NO JSX, e a lista aqui é curta de propósito
 //
-// O aviso vem de `avisoDaUrl`; a data de `dataDaLinhaDeEnvio`; o nome da forma
-// de `rotuloDaForma`; o começo da legenda de `resumoDaLegenda`; o payload de
+// O aviso vem de `avisoDaUrl`; a data de `dataDaLinhaDeEnvio`; a FRASE que vem
+// antes dela de `fraseDaDataDaLinha` (a mesma que a linha de Envios lê); o nome
+// da forma de `rotuloDaFormaDoItem`; a linha do item atrasado de
+// `avisoDoAtrasoNaLista`; o começo da legenda de `resumoDaLegenda`; o payload de
 // `lerPayloadDaPublicacao`, que RECUSA em vez de confiar num `jsonb` que pode
-// ter sido editado por fora. A suíte não testa componente — o que ficar
-// decidido aqui fica sem rede nenhuma.
+// ter sido editado por fora.
+//
+// QUATRO DECISÕES AINDA MORAVAM AQUI ATÉ 09/09/2026, e uma delas discordava da
+// tela de Envios sobre o mesmo fato. A suíte pura não testa componente, mas
+// `agendados.integracao.ts` agora CHAMA esta função e lê a árvore que ela
+// devolve — que é o que finalmente prende a consulta abaixo.
 //
 // =============================================================================
 // A CONTA VEM DO COOKIE, e o formulário só carrega o identificador
@@ -127,32 +135,34 @@ export default async function Agendados({
             // ter à mão num item que ninguém entende.
             const p = lerPayloadDaPublicacao(item.payload);
             const quando = dataDaLinhaDeEnvio(item);
+            // AS TRÊS FRASES DESTA LINHA SAEM DE FUNÇÃO PURA, e nenhuma delas é
+            // escolhida aqui. Até 09/09/2026 as três moravam no JSX, e uma
+            // delas discordava da tela de Envios sobre o mesmo fato.
+            const atrasado = avisoDoAtrasoNaLista(quando);
             return (
               <li key={item.id} className={`${card} space-y-4 p-5`}>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="font-semibold">
-                    {/* "Sai em" É A FRASE DO FUTURO. Uma data solta na tela de
-                        um agendamento é ambígua entre "foi marcado" e "vai
-                        sair", e é a mesma ambiguidade que esta entrega apagou
-                        da linha de Envios. */}
-                    {quando.futuro ? "Sai em " : "Estava marcado para "}
+                    {/* "Sai em" É A FRASE DO FUTURO, e ela vem de
+                        `fraseDaDataDaLinha` — a MESMA que a linha de Envios lê.
+                        Uma data solta é ambígua entre "foi marcado" e "vai
+                        sair", e duas telas escolhendo palavras diferentes para
+                        o mesmo fato é o defeito que aquela função fechou. */}
+                    {fraseDaDataDaLinha(quando)}
                     {fmtDate(quando.quando)}
                   </p>
-                  <span className={`text-xs ${muted}`}>
-                    {p ? rotuloDaForma(p.forma) : "Forma não reconhecida"}
-                  </span>
+                  <span className={`text-xs ${muted}`}>{rotuloDaFormaDoItem(p)}</span>
                 </div>
 
-                {!quando.futuro && (
+                {atrasado && (
                   // A HORA JÁ VENCEU E O ITEM AINDA ESTÁ `pending`: ele está
                   // ATRASADO, esperando a próxima drenagem — não é futuro, e a
                   // tela não pode prometer uma saída que já devia ter
                   // acontecido. Dizê-lo aqui é o que evita que alguém conte com
-                  // um cancelamento que a corrida com o dreno já perdeu.
-                  <p className={`text-xs ${muted}`}>
-                    A hora já passou e o post ainda não saiu: ele sai na próxima
-                    drenagem, e a partir daí não dá mais para cancelar.
-                  </p>
+                  // um cancelamento que a corrida com o dreno já perdeu. A
+                  // decisão (quando avisar, e o que dizer) é de
+                  // `avisoDoAtrasoNaLista`; aqui só se desenha o que ela deu.
+                  <p className={`text-xs ${muted}`}>{atrasado}</p>
                 )}
 
                 <p className="text-sm">{resumoDaLegenda(p?.legenda, LEGENDA_NA_LISTA)}</p>

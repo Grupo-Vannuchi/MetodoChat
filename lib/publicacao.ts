@@ -1848,17 +1848,84 @@ export function textoDoDesfecho(
 export function dataDaLinhaDeEnvio(
   item: { status: string; sent_at: Date | null; not_before: Date; created_at: Date },
   agora: number = Date.now()
-): { quando: Date; futuro: boolean } {
+): DataDaLinha {
   // QUEM JÁ SAIU NUNCA É FUTURO, e a pergunta ao relógio nem é feita: um item
   // com `sent_at` está no perfil público, e dizer "sai em" sobre ele seria
   // exatamente a mentira que esta entrega existe para apagar.
   if (item.sent_at && !Number.isNaN(item.sent_at.getTime())) {
-    return { quando: item.sent_at, futuro: false };
+    return { quando: item.sent_at, futuro: false, saiu: true };
   }
   const marcado = item.not_before;
   const quando =
     marcado instanceof Date && !Number.isNaN(marcado.getTime()) ? marcado : item.created_at;
-  return { quando, futuro: quando.getTime() > agora };
+  return { quando, futuro: quando.getTime() > agora, saiu: false };
+}
+
+/**
+ * A data de uma linha, e as duas perguntas que decidem a FRASE dela.
+ *
+ * `saiu` NÃO É `!futuro`, e é por isso que ele existe: "não é futuro" junta dois
+ * fatos opostos — o post SAIU (e a data é a de quando saiu) e o post está
+ * ATRASADO (a hora venceu e ele ainda está na fila). Ver `fraseDaDataDaLinha`.
+ */
+export type DataDaLinha = { quando: Date; futuro: boolean; saiu: boolean };
+
+/**
+ * O QUE VEM ANTES DA DATA NUMA LINHA — e as duas telas leem esta função.
+ *
+ * =============================================================================
+ * POR QUE ELA EXISTE, medido em 09/09/2026
+ *
+ * A mesma pergunta estava respondida DUAS VEZES, dentro de dois JSX, com
+ * palavras diferentes:
+ *
+ *   `app/publicar/agendados/page.tsx`: `quando.futuro ? "Sai em " : "Estava marcado para "`
+ *   `app/eventos/page.tsx`:            `quando.futuro ? "sai em " : ""`
+ *
+ * DUAS TELAS ESCOLHENDO PALAVRAS DIFERENTES PARA O MESMO FATO é exatamente o
+ * motivo pelo qual `rotuloDaForma` e `dataDaLinhaDeEnvio` foram extraídas nesta
+ * mesma entrega — e a restrição do plano é explícita: "decisão em JSX ou em rota
+ * é defeito". A suíte não testa componente, então o que fica decidido lá fica
+ * sem rede nenhuma.
+ *
+ * =============================================================================
+ * SÃO TRÊS FATOS, E NÃO DOIS, e é aqui que a segunda tela estava mais pobre
+ *
+ *   VAI SAIR      — a hora está à frente. "Sai em" é uma promessa, e é o único
+ *                   caso em que ela pode ser feita.
+ *   ATRASADO      — a hora venceu e o item ainda está na fila. Prometer "sai em"
+ *                   aqui seria prometer uma saída que já devia ter acontecido; e
+ *                   dizer só a data (o que Envios fazia) faz a mesma coluna
+ *                   significar duas coisas na mesma tela.
+ *   JÁ ACONTECEU  — o item tem `sent_at`. A data é a de quando saiu, e ela não
+ *                   precisa de prefixo nenhum: é o que a coluna "Quando" da tela
+ *                   do passado sempre quis dizer.
+ */
+export function fraseDaDataDaLinha(d: { futuro: boolean; saiu: boolean }): string {
+  if (d.futuro) return "Sai em ";
+  if (d.saiu) return "";
+  return "Estava marcado para ";
+}
+
+/**
+ * A LINHA DE AVISO DO ITEM ATRASADO na lista de agendados — ou `null` quando não
+ * há aviso a dar.
+ *
+ * ELA MORAVA DENTRO DO JSX (`{!quando.futuro && <p>…</p>}`), e as duas metades
+ * da decisão moravam com ela: QUANDO avisar e O QUE dizer. Nenhum portão via
+ * nenhuma das duas.
+ *
+ * O AVISO É SOBRE O CANCELAMENTO, e não sobre a data: um item cuja hora já
+ * venceu sai na próxima drenagem, e a partir daí `status = 'pending'` deixa de
+ * valer e o botão de cancelar ao lado perde a corrida (ver `desfechoDaMudanca`).
+ * Quem está olhando a lista precisa saber disso ANTES de contar com o botão.
+ */
+export function avisoDoAtrasoNaLista(d: { futuro: boolean }): string | null {
+  if (d.futuro) return null;
+  return (
+    "A hora já passou e o post ainda não saiu: ele sai na próxima drenagem, " +
+    "e a partir daí não dá mais para cancelar."
+  );
 }
 
 /**
@@ -1936,6 +2003,23 @@ export function rotuloDaForma(forma: FormaDePublicacao): string {
 /** Quantos caracteres de legenda cabem numa linha de lista. Constante nomeada
  *  para a tela de agendados e a de Envios cortarem pelo MESMO tamanho — um
  *  número solto no JSX vira dois números diferentes na segunda tela. */
+/**
+ * O NOME DA FORMA DE UM ITEM cujo payload pode não ter sido lido.
+ *
+ * `lerPayloadDaPublicacao` devolve `null` para um `jsonb` que não é item de
+ * publicação — editado por fora, ou de uma versão que não existe mais —, e a
+ * linha CONTINUA existindo, porque é dela que sai o botão de cancelar, que é
+ * justamente o que se quer ter à mão num item que ninguém entende.
+ *
+ * A escolha entre o nome e a desculpa morava dentro do JSX
+ * (`p ? rotuloDaForma(p.forma) : "Forma não reconhecida"`), fora do alcance de
+ * qualquer portão. Ela é a mesma decisão de `rotuloDaForma`, com um caso a mais,
+ * e mora do lado dela.
+ */
+export function rotuloDaFormaDoItem(p: { forma: FormaDePublicacao } | null): string {
+  return p ? rotuloDaForma(p.forma) : "Forma não reconhecida";
+}
+
 export const LEGENDA_NA_LISTA = 80;
 
 /**

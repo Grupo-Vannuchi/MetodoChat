@@ -37,6 +37,9 @@ import {
   moverNaOrdem,
   rotuloDoEnvio,
   atrasoDoTiqueDoRemarcar,
+  avisoDoAtrasoNaLista,
+  fraseDaDataDaLinha,
+  rotuloDaFormaDoItem,
   desfechoDaMudanca,
   textoDoDesfecho,
   dataDaLinhaDeEnvio,
@@ -1912,7 +1915,7 @@ describe("dataDaLinhaDeEnvio", () => {
       { status: "pending", sent_at: null, not_before: saida, created_at: criado },
       AGORA
     );
-    expect(r).toEqual({ quando: saida, futuro: true });
+    expect(r).toEqual({ quando: saida, futuro: true, saiu: false });
   });
 
   it("com o relogio fixo, o que ja venceu nao e futuro", () => {
@@ -1921,7 +1924,9 @@ describe("dataDaLinhaDeEnvio", () => {
       { status: "pending", sent_at: null, not_before: vencido, created_at: criado },
       AGORA
     );
-    expect(r).toEqual({ quando: vencido, futuro: false });
+    // ATRASADO, E NAO "JA SAIU": `saiu` e falso, e e essa distincao que
+    // `fraseDaDataDaLinha` le para nao dizer a mesma coisa sobre os dois.
+    expect(r).toEqual({ quando: vencido, futuro: false, saiu: false });
   });
 
   // O `sent_at` MANDA MESMO QUANDO O `not_before` E FUTURO. Um item reenviado a
@@ -1933,7 +1938,7 @@ describe("dataDaLinhaDeEnvio", () => {
       { status: "sent", sent_at: enviado, not_before: saida, created_at: criado },
       AGORA
     );
-    expect(r).toEqual({ quando: enviado, futuro: false });
+    expect(r).toEqual({ quando: enviado, futuro: false, saiu: true });
   });
 
   // A DATA DE CRIACAO NAO SUMIU: ela e a rede para o dia em que a coluna
@@ -2012,6 +2017,73 @@ describe("desfechoDaRecusaDaData", () => {
     for (const m of ["quando_ilegivel", "data_invalida", "data_no_passado"] as const) {
       expect(desfechoDaRecusaDaData(m)).not.toBe("feito");
     }
+  });
+});
+
+// =============================================================================
+// AS QUATRO DECISOES QUE MORAVAM DENTRO DO JSX (09/09/2026)
+//
+// A restricao do plano e explicita: "decisao em JSX ou em rota e defeito". Quatro
+// ficaram, e DUAS DELAS DISCORDAVAM ENTRE TELAS sobre o mesmo fato:
+//
+//   agendados: `quando.futuro ? "Sai em " : "Estava marcado para "`
+//   Envios:    `quando.futuro ? "sai em " : ""`
+//
+// A suite pura nao testa componente, entao nada disso tinha rede. Agora as duas
+// telas leem a MESMA funcao, e ela e medida aqui.
+// =============================================================================
+describe("fraseDaDataDaLinha", () => {
+  it("o que vai sair ganha a promessa", () => {
+    expect(fraseDaDataDaLinha({ futuro: true, saiu: false })).toBe("Sai em ");
+  });
+  // O TERCEIRO FATO, e o que a tela de Envios nao distinguia: a hora venceu e o
+  // item AINDA ESTA NA FILA. Prometer "sai em" seria prometer uma saida que ja
+  // devia ter acontecido; dizer so a data faz a mesma coluna significar duas
+  // coisas na mesma tela.
+  it("o atrasado nao ganha promessa nenhuma, e nao se confunde com quem saiu", () => {
+    expect(fraseDaDataDaLinha({ futuro: false, saiu: false })).toBe("Estava marcado para ");
+  });
+  it("quem ja saiu nao precisa de prefixo: a data e a de quando saiu", () => {
+    expect(fraseDaDataDaLinha({ futuro: false, saiu: true })).toBe("");
+  });
+  // AS TRES SAO DIFERENTES ENTRE SI. Sem esta linha, duas delas poderiam
+  // colapsar numa so — que e exatamente o estado de que esta funcao veio.
+  it("as tres respostas sao tres respostas", () => {
+    const todas = [
+      fraseDaDataDaLinha({ futuro: true, saiu: false }),
+      fraseDaDataDaLinha({ futuro: false, saiu: false }),
+      fraseDaDataDaLinha({ futuro: false, saiu: true }),
+    ];
+    expect(new Set(todas).size).toBe(3);
+  });
+});
+
+describe("avisoDoAtrasoNaLista", () => {
+  it("o que vai sair na hora nao ganha aviso nenhum", () => {
+    expect(avisoDoAtrasoNaLista({ futuro: true })).toBe(null);
+  });
+  // O AVISO E SOBRE O BOTAO DE CANCELAR, e nao sobre a data: passada a hora, o
+  // item sai na proxima drenagem e `status = 'pending'` deixa de valer — o botao
+  // ao lado perde a corrida. Quem esta olhando a lista precisa saber disso ANTES
+  // de contar com ele.
+  it("o atrasado avisa que o cancelamento tem prazo", () => {
+    const t = avisoDoAtrasoNaLista({ futuro: false });
+    expect(t).not.toBe(null);
+    expect((t ?? "").toLowerCase()).toContain("cancelar");
+  });
+});
+
+describe("rotuloDaFormaDoItem", () => {
+  it("com payload lido, e o nome da forma", () => {
+    expect(rotuloDaFormaDoItem({ forma: "reels" })).toBe(rotuloDaForma("reels"));
+  });
+  // PAYLOAD ILEGIVEL NAO APAGA A LINHA. `lerPayloadDaPublicacao` devolve `null`
+  // para um `jsonb` que nao e item de publicacao, e a linha continua existindo —
+  // porque e dela que sai o botao de cancelar, que e justamente o que se quer ter
+  // a mao num item que ninguem entende.
+  it("sem payload, diz que nao reconheceu — e nao fica em branco", () => {
+    expect(rotuloDaFormaDoItem(null)).toBe("Forma não reconhecida");
+    expect(rotuloDaFormaDoItem(null).trim().length).toBeGreaterThan(0);
   });
 });
 

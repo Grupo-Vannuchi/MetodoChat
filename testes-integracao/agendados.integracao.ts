@@ -59,6 +59,9 @@ type ModuloAcoes = typeof import("@/app/publicar/agendados/actions");
 type ModuloDreno = typeof import("@/lib/queue-drain");
 type ModuloIg = typeof import("@/lib/ig");
 type ModuloConta = typeof import("@/lib/account");
+type ModuloTelaDosAgendados = typeof import("@/app/publicar/agendados/page");
+type ModuloTelaDeEnvios = typeof import("@/app/eventos/page");
+type ModuloFormato = typeof import("@/lib/format");
 
 const banco = bancoDescartavel();
 
@@ -82,6 +85,9 @@ let acoes: ModuloAcoes;
 let dreno: ModuloDreno;
 let ig: ModuloIg;
 let conta: ModuloConta;
+let telaDosAgendados: ModuloTelaDosAgendados;
+let telaDeEnvios: ModuloTelaDeEnvios;
+let formato: ModuloFormato;
 
 function responderJson(res: ServerResponse, corpo: unknown) {
   res.writeHead(200, { "content-type": "application/json" });
@@ -152,6 +158,9 @@ beforeAll(async () => {
   dreno = (await import("@/lib/queue-drain")) as ModuloDreno;
   ig = (await import("@/lib/ig")) as ModuloIg;
   conta = (await import("@/lib/account")) as ModuloConta;
+  telaDosAgendados = (await import("@/app/publicar/agendados/page")) as ModuloTelaDosAgendados;
+  telaDeEnvios = (await import("@/app/eventos/page")) as ModuloTelaDeEnvios;
+  formato = (await import("@/lib/format")) as ModuloFormato;
 
   // AS DUAS GUARDAS, ANTES DE QUALQUER REQUISIÇÃO.
   if (ig.baseDoGraph() !== process.env.IG_GRAPH_BASE) {
@@ -695,6 +704,123 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     expect(aviso.tom).toBe("erro");
     expect((aviso.texto ?? "").toLowerCase()).toMatch(/saiu|saindo|publicad/);
     expect((await lerItem(id)).not_before.getTime()).toBe(antes.not_before.getTime());
+  });
+
+  // =========================================================================
+  // A TELA, E OS DOIS PLANTIOS QUE SOBREVIVIAM AOS CINCO PORTOES
+  //
+  // A revisao de 09/09/2026 plantou onze defeitos nesta entrega. Oito morreram.
+  // TRES SOBREVIVERAM a lint, typecheck, suite pura, integracao e varredura, e
+  // os tres eram a MESMA costura: consulta -> tela. Nenhum passa pelas acoes, que
+  // eram a unica coisa que a integracao alcancava.
+  //
+  //   plantio 7  — tirar `account_id` da consulta da LISTA (`page.tsx`): a tela
+  //                passa a mostrar o post agendado de OUTRA conta, com o botao
+  //                de cancelar do lado. A acao recusaria o cancelamento (o
+  //                `where` dela esta certo), mas a tela ja teria contado sobre a
+  //                fila alheia — que e justamente o que `statusNaConta` toma o
+  //                cuidado de nao fazer.
+  //   plantio 11 — Envios voltar a mostrar `sent_at ?? created_at` na linha.
+  //
+  // O INSTRUMENTO E O COMPONENTE DE VERDADE. Estes casos CHAMAM a funcao da
+  // pagina dentro de um contexto de requisicao e leem a arvore que ela devolve.
+  // Nao ha DOM, nao ha renderizador: `JSON.stringify` de elementos React ja
+  // carrega todo o texto e todo `value` dos campos, que e tudo o que se precisa
+  // exigir aqui. Foi assim que os plantios foram medidos.
+  // =========================================================================
+
+  /** A arvore que a tela dos agendados devolve, em texto. */
+  async function arvoreDosAgendados(): Promise<string> {
+    const { valor } = await comoNumaRequisicao("/publicar/agendados", async () =>
+      JSON.stringify(await telaDosAgendados.default({ searchParams: Promise.resolve({}) }))
+    );
+    return valor;
+  }
+
+  /** A arvore que a tela de Envios devolve, em texto. */
+  async function arvoreDeEnvios(): Promise<string> {
+    const { valor } = await comoNumaRequisicao("/eventos", async () =>
+      JSON.stringify(await telaDeEnvios.default({ searchParams: Promise.resolve({}) }))
+    );
+    return valor;
+  }
+
+  test("a lista mostra so a conta selecionada — e o item de CONTA_B nao aparece", async () => {
+    const meu = await semear({ conta: CONTA_A, emSegundos: 4 * 3600 });
+    const alheio = await semear({ conta: CONTA_B, emSegundos: 4 * 3600 });
+    // OS DOIS VIZINHOS QUE A CONSULTA TAMBEM RECUSA, e eles nao sao enfeite: o
+    // `where` tem TRES condicoes, e um caso que so mede a conta deixa as outras
+    // duas sem rede pela segunda vez.
+    const mensagem = await semear({ conta: CONTA_A, kind: "dm_manual", emSegundos: 4 * 3600 });
+    const jaEnviado = await semear({ conta: CONTA_A, status: "sent", emSegundos: -4 * 3600 });
+
+    const arvore = await arvoreDosAgendados();
+
+    expect(arvore).toContain(meu);
+    expect(arvore).not.toContain(alheio);
+    expect(arvore).not.toContain(mensagem);
+    expect(arvore).not.toContain(jaEnviado);
+  });
+
+  test("a linha do futuro promete a hora, e a do atrasado avisa do prazo do cancelamento", async () => {
+    await banco.db().sql().query(`delete from queue where account_id = $1`, [CONTA_A]);
+    const daquiAPouco = await semear({ conta: CONTA_A, emSegundos: 4 * 3600 });
+
+    const comFuturo = await arvoreDosAgendados();
+    expect(comFuturo).toContain(daquiAPouco);
+    // A FRASE VEM DE `fraseDaDataDaLinha`, e ate 09/09/2026 ela era escolhida
+    // dentro do JSX — com palavras diferentes das da tela de Envios.
+    expect(comFuturo).toContain("Sai em ");
+    expect(comFuturo).not.toContain("Estava marcado para ");
+
+    await banco.db().sql().query(`delete from queue where account_id = $1`, [CONTA_A]);
+    await semear({ conta: CONTA_A, emSegundos: -4 * 3600 });
+
+    const comAtraso = await arvoreDosAgendados();
+    expect(comAtraso).toContain("Estava marcado para ");
+    expect(comAtraso).not.toContain("Sai em ");
+    // O AVISO DO ITEM ATRASADO, que tambem morava no JSX.
+    expect(comAtraso).toContain("não dá mais para cancelar");
+  });
+
+  test("o formulário de remarcar leva o campo do fuso", async () => {
+    await banco.db().sql().query(`delete from queue where account_id = $1`, [CONTA_A]);
+    await semear({ conta: CONTA_A, emSegundos: 4 * 3600 });
+
+    const arvore = await arvoreDosAgendados();
+
+    // SEM ESTE CAMPO a tela volta a acertar a hora por acidente: `fusoDoCampo`
+    // cai no padrão de Brasília, e o painel deixa de funcionar fora do Brasil.
+    expect(arvore).toContain('"name":"fuso"');
+  });
+
+  // =========================================================================
+  // A LINHA DE ENVIOS, e o plantio 11.
+  //
+  // A tela mostrava `sent_at ?? created_at`. Para um item que ainda nao saiu,
+  // isso e a data em que ele foi AGENDADO: um post marcado para o dia 20, criado
+  // hoje, aparecia com a DATA DE HOJE — a informacao que mais importa num item
+  // agendado era justamente a que nao estava na tela.
+  // =========================================================================
+  test("a linha de Envios mostra a hora em que o post VAI sair, e nao a da criação", async () => {
+    await banco.db().sql().query(`delete from queue where account_id = $1`, [CONTA_A]);
+    const id = await semear({ conta: CONTA_A, emSegundos: 20 * 24 * 3600 });
+    const linha = (await banco
+      .db()
+      .sql()
+      .query(`select not_before, created_at from queue where id = $1`, [id])) as {
+      not_before: Date;
+      created_at: Date;
+    }[];
+
+    const arvore = await arvoreDeEnvios();
+
+    expect(arvore).toContain(formato.fmtDate(linha[0].not_before));
+    expect(arvore).not.toContain(formato.fmtDate(linha[0].created_at));
+    // E A FRASE E A MESMA DA OUTRA TELA. Ate 09/09/2026 esta dizia "sai em" e a
+    // dos agendados dizia "Sai em" — duas telas escolhendo palavras diferentes
+    // para o mesmo fato, cada uma dentro do proprio JSX.
+    expect(arvore).toContain("Sai em ");
   });
 
   test("a Meta falsa não viu nenhum caminho que este arquivo não conheça", () => {

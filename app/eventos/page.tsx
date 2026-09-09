@@ -18,7 +18,7 @@ import Realce from "./realce";
 import Filtros, { type OpcaoPost } from "./filtros";
 import FiltrosEnvios from "./filtros-envios";
 import DonoDosFiltros, { Carregando, LimparSecao } from "./filtros-dono";
-import { dataDaLinhaDeEnvio } from "@/lib/publicacao";
+import { dataDaLinhaDeEnvio, fraseDaDataDaLinha } from "@/lib/publicacao";
 import { resolvePosts, type PostRef } from "@/lib/media-lookup";
 import { EVENTS_LIMIT, parseFilters, hasFilters } from "@/lib/event-filters";
 import { EVENTS_FROM, buildWhere, postsComEventos } from "@/lib/event-query";
@@ -242,11 +242,16 @@ export default async function EventosPage({
                             {erro && <p className="max-w-md text-xs text-zinc-500">{erro}</p>}
                           </td>
                           <td className={`whitespace-nowrap px-3 py-1.5 text-xs ${muted}`}>
-                            {/* "sai em" MARCA A PREVISAO. Esta e a tela do
-                                PASSADO, e a coluna dela significa "quando
-                                aconteceu": uma data de futuro sem aviso seria a
-                                mesma coluna querendo dizer duas coisas. */}
-                            {quando.futuro ? "sai em " : ""}
+                            {/* A FRASE VEM DE `fraseDaDataDaLinha`, e ate
+                                09/09/2026 ela era decidida AQUI, com palavras
+                                diferentes das da tela de agendados para o mesmo
+                                fato. Esta e a tela do PASSADO, e a coluna dela
+                                significa "quando aconteceu": uma data de futuro
+                                sem aviso seria a mesma coluna querendo dizer
+                                duas coisas — e um item ATRASADO (a hora venceu e
+                                ele ainda esta na fila) tambem, que e o terceiro
+                                caso que esta coluna nao distinguia. */}
+                            {fraseDaDataDaLinha(quando)}
                             {fmtDate(quando.quando)}
                           </td>
                         </tr>
