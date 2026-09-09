@@ -1496,9 +1496,21 @@ const FORMA_DO_CAMINHO = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.[a-z0-9]+$/;
  *
  * O PADRÃO É O DO PAINEL, e ele é piso e não palpite: quem usa este painel está
  * no Brasil, e o Brasil não tem horário de verão desde 2019 — o deslocamento é
- * -03:00 o ano inteiro. E o campo só chega vazio num navegador que não rodou
- * JavaScript; nesse navegador o arquivo também não subiu, então a ação recusa
- * antes por `sem_arquivo` e este valor nem é usado.
+ * -03:00 o ano inteiro.
+ *
+ * O CAMPO CHEGA VAZIO QUANDO O JAVASCRIPT NÃO RODOU, e as duas telas que o
+ * mandam o preenchem por caminhos diferentes: a de compor por um `useEffect`
+ * (`app/publicar/enviador.tsx`, que é cliente), a dos agendados por um
+ * `<Script>` embutido (`app/publicar/agendados/page.tsx`, que é 100% servidor).
+ *
+ * ATÉ 09/09/2026 A TELA DOS AGENDADOS NÃO MANDAVA O CAMPO, e o comentário que
+ * estava aqui dizia que um campo vazio era impossível na prática — "nesse
+ * navegador o arquivo também não subiu, então a ação recusa antes por
+ * `sem_arquivo`". Aquilo valia para a tela de compor, e só para ela: remarcar
+ * não sobe arquivo nenhum, então o padrão era o CAMINHO NORMAL daquela tela, e
+ * ela acertava a hora por estar no Brasil. Agora o padrão voltou a ser rede, e
+ * quem não rodar JavaScript continua caindo nele — que é o comportamento que
+ * aquela tela sempre teve.
  *
  * O LIMITE DE 900 MINUTOS (15 horas) é mais largo que qualquer fuso real
  * (±14h): ele não julga fuso, ele descarta número inventado que jogaria a

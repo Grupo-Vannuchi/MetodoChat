@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Script from "next/script";
 import { sql, type QueueItem } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
@@ -164,6 +165,20 @@ export default async function Agendados({
                       mostraria uma hora três horas adiante da do dono. */}
                   <form action={remarcarPublicacao} className="flex flex-wrap items-end gap-2">
                     <input type="hidden" name="id" value={item.id} />
+                    {/* O FUSO DO NAVEGADOR, e sem ele esta tela só acertava a
+                        hora por acidente. O `<input type="datetime-local">`
+                        manda "14:30" e CALA sobre onde são 14:30; lido neste
+                        servidor, que roda em UTC, isso seria 14:30Z — TRÊS
+                        HORAS antes do que a pessoa marcou. Ver
+                        `instanteDoAgendamento` (lib/publicacao.ts).
+
+                        Ele nasce VAZIO e é preenchido pelo `<Script>` do fim
+                        desta tela — nunca calculado no render, que aqui é
+                        servidor e não sabe onde a pessoa está. Vazio,
+                        `fusoDoCampo` cai no padrão de Brasília (180), que é o
+                        comportamento que esta tela tinha antes e continua
+                        sendo a rede de quem não rodou JavaScript. */}
+                    <input type="hidden" name="fuso" defaultValue="" />
                     <div>
                       <label className={label} htmlFor={`data_hora_${item.id}`}>
                         Nova data e hora
@@ -201,6 +216,34 @@ export default async function Agendados({
           })}
         </ul>
       )}
+
+      {/* O FUSO DE TODOS OS FORMULÁRIOS DE REMARCAR, escrito uma vez.
+          =====================================================================
+          POR QUE UM `<Script>` E NÃO UM COMPONENTE DE CLIENTE
+
+          Esta tela é 100% servidor, e a única coisa que ela precisa do
+          navegador é UM NÚMERO que só existe lá: o deslocamento do fuso. Um
+          `"use client"` para isso arrastaria a lista inteira — os formulários,
+          os botões, o payload — para o pacote do cliente por causa de uma
+          linha. `next/script` com script embutido é o caminho que o próprio
+          Next documenta para isto, e já é o que `app/layout.tsx` usa para o
+          tema.
+
+          A ESTRATÉGIA É `afterInteractive` (a padrão), e não `beforeInteractive`:
+          esta última só é suportada dentro do layout raiz.
+
+          E O VALOR É ESCRITO NO DOM, e não no render: o servidor roda em UTC e
+          o navegador não, então um `value` calculado durante o render seria
+          diferente dos dois lados e o React acusaria divergência de hidratação.
+          É exatamente o que `app/publicar/enviador.tsx` já faz no `useEffect`
+          dele, pelo mesmo motivo.
+
+          SE ELE NÃO RODAR, NADA QUEBRA: o campo fica vazio, `fusoDoCampo`
+          (lib/publicacao.ts) cai no padrão de Brasília, e a tela se comporta
+          como se comportava antes desta linha existir. */}
+      <Script id="fuso-do-remarcar">
+        {`document.querySelectorAll('input[name="fuso"]').forEach(function(c){c.value=String(new Date().getTimezoneOffset())})`}
+      </Script>
     </div>
   );
 }

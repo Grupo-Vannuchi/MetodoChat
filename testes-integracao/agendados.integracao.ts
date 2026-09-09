@@ -302,6 +302,16 @@ function pedidoDeRemarcar(id: string, dataHora: string): FormData {
   return form;
 }
 
+/** O formulário de remarcar SEM o campo `fuso` — que é o que a tela manda
+ *  quando o JavaScript não rodou, e o que ela mandava SEMPRE até 09/09/2026.
+ *  Ver `fusoDoCampo` (lib/publicacao.ts): o padrão é Brasília (180). */
+function pedidoDeRemarcarSemFuso(id: string, dataHora: string): FormData {
+  const form = new FormData();
+  form.set("id", id);
+  form.set("data_hora", dataHora);
+  return form;
+}
+
 /** Um instante em UTC, escrito como o `<input type="datetime-local">` o manda. */
 function campoDeDataHora(instante: number): string {
   return new Date(instante).toISOString().slice(0, 16);
@@ -582,6 +592,49 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     await comoNumaRequisicao("/publicar/agendados", () => dreno.drainQueue());
     expect((await lerItem(id)).status).toBe("pending");
     expect(meta.containers.length).toBe(containersAntes);
+  });
+
+  // =========================================================================
+  // O FUSO, E O QUE A TELA DE VERDADE MANDA.
+  //
+  // Nenhum portão media isto até 09/09/2026: o único caso que exercitava o fuso
+  // do remarcar (`pedidoDeRemarcar`) põe `fuso: "0"`, e a tela NÃO produzia esse
+  // formulário — ela é 100% servidor e não tinha campo `fuso` nenhum. O padrão
+  // de `fusoDoCampo` (180, Brasília) é que salvava a hora, e só no Brasil.
+  //
+  // Estes dois casos prendem os DOIS lados, e é o par que importa: um que manda
+  // o campo (UTC) e um que não manda (o padrão). Ler `0` sempre quebra o
+  // segundo; ler `180` sempre quebra o primeiro.
+  // =========================================================================
+  test("remarcar SEM o campo fuso cai no padrão de Brasília, e não em UTC", async () => {
+    const id = await semear({ conta: CONTA_A, emSegundos: 30 * 24 * 3600 });
+    // UM DIA À FRENTE, às 14:00 na cabeça de quem digitou. Em Brasília isso é
+    // 17:00Z; lido como UTC seria 14:00Z — três horas antes do que ela marcou.
+    const diaSeguinte = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+
+    const d = await desfechoDe(
+      acoes.remarcarPublicacao,
+      pedidoDeRemarcarSemFuso(id, `${diaSeguinte}T14:00`)
+    );
+
+    expect(avisoDaUrlDeVolta(d.url).tom).toBe("ok");
+    expect((await lerItem(id)).not_before.toISOString()).toBe(`${diaSeguinte}T17:00:00.000Z`);
+  });
+
+  test("remarcar COM o campo fuso usa o do navegador, e não o padrão", async () => {
+    const id = await semear({ conta: CONTA_A, emSegundos: 30 * 24 * 3600 });
+    const diaSeguinte = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+    // `fuso: "0"` é UTC — o que um navegador em Londres mandaria. A hora
+    // gravada tem de ser a do campo, sem as três horas de Brasília somadas.
+    const form = new FormData();
+    form.set("id", id);
+    form.set("data_hora", `${diaSeguinte}T14:00`);
+    form.set("fuso", "0");
+
+    const d = await desfechoDe(acoes.remarcarPublicacao, form);
+
+    expect(avisoDaUrlDeVolta(d.url).tom).toBe("ok");
+    expect((await lerItem(id)).not_before.toISOString()).toBe(`${diaSeguinte}T14:00:00.000Z`);
   });
 
   test("remarcar para o passado é recusado, com a frase que já existe", async () => {
