@@ -1697,6 +1697,71 @@ export function desfechoDaMudanca(
 }
 
 /**
+ * O ATRASO, EM SEGUNDOS, DO TIQUE QUE UM REMARCAR TEM DE ARMAR — ou `null`
+ * quando não há tique a armar.
+ *
+ * =============================================================================
+ * O DEFEITO QUE ELA FECHA, medido em 09/09/2026
+ *
+ * Remarcar não armava tique nenhum, e o comentário que justificava a ausência
+ * LIA ERRADO o código que citava: ele dizia que `enqueuePublicacao` "passa
+ * `agendarTique: false` de propósito". Ela não passa —
+ * `lib/engine.ts` passa `agendarTique: atraso <= HORIZONTE_DO_TIQUE_EM_SEGUNDOS`.
+ * Ou seja, COMPOR ARMA O TIQUE sempre que a hora cabe em 24 h; só além de um dia
+ * é que o cron diário assume.
+ *
+ * Medido com um QStash falso, o mesmo post e a mesma distância de 2 h:
+ * **compor gera 1 tique, remarcar gerava 0.**
+ *
+ * E A GARANTIA DO CRON NÃO COBRIA O BURACO. `armarTiquesDoDia`
+ * (lib/queue-drain.ts) é honesta enquanto o `not_before` for escrito ANTES da
+ * passagem do cron — é isso que faz "todo post que vence em T teve uma passagem
+ * nas 24 h anteriores a T". Remarcar quebra a premissa: ele move o `not_before`
+ * para dentro de uma janela cuja passagem JÁ ACONTECEU. O cron é diário
+ * (`vercel.json`: `0 9 * * *`), então um post remarcado para daqui a duas horas
+ * podia sair ~23 h depois, CALADO — depois de a tela ter dito "Ele sai na hora
+ * nova".
+ *
+ * =============================================================================
+ * AS TRÊS REGRAS SÃO AS DE `enqueue` (lib/engine.ts), e nenhuma é nova
+ *
+ *   `<= 15 s`   não arma: o item sai na drenagem que já está a caminho, e um
+ *               tique para daqui a nada é uma volta ao app sem serventia. É o
+ *               `atraso > 15` de `enqueue`, escrito com o mesmo número.
+ *   `> horizonte` não arma: além de um dia, quem arma é o cron diário. Entregar
+ *               um mês de atraso ao QStash depende de um horizonte que NUNCA foi
+ *               verificado — e se ele recusasse, `scheduleTick` engoliria o erro
+ *               (está certo em engolir) e o post não sairia, calado. É o
+ *               `agendarTique: atraso <= HORIZONTE` de `enqueuePublicacao`.
+ *   `+ 5 s`     de folga: o tique tem de chegar DEPOIS de o item ficar elegível,
+ *               e não no instante exato — a seleção do dreno pede
+ *               `not_before <= now()`, e um tique adiantado por um milissegundo
+ *               é uma drenagem que não acha nada.
+ *
+ * O TETO É APLICADO DEPOIS DA FOLGA, e essa é a única diferença para o
+ * `enqueue` — de propósito, e pela lição já escrita em `armarTiquesDoDia` e no
+ * rodapé do dreno: com a hora nova na borda exata do horizonte, `distância + 5`
+ * entregaria 86405 s, CINCO SEGUNDOS além do horizonte que este projeto declarou
+ * nunca ultrapassar. Os cinco segundos não se perdem — um tique cinco segundos
+ * cedo acorda uma drenagem que não acha nada, e a seguinte acha.
+ *
+ * O `horizonteEmSegundos` É PARÂMETRO porque a constante mora em `lib/qstash.ts`,
+ * que é `server-only`, e este arquivo é lido pelo enviador no NAVEGADOR (ver o
+ * cabeçalho). Quem passa o número é a ação, que já é servidor.
+ */
+export function atrasoDoTiqueDoRemarcar(
+  quando: Date,
+  agora: number,
+  horizonteEmSegundos: number
+): number | null {
+  const distancia = Math.round((quando.getTime() - agora) / 1000);
+  if (!Number.isFinite(distancia)) return null;
+  if (distancia <= 15) return null;
+  if (distancia > horizonteEmSegundos) return null;
+  return Math.min(distancia + 5, horizonteEmSegundos);
+}
+
+/**
  * A frase de cada desfecho, por ação.
  *
  * A FRASE DE `tarde_demais` TEM DE DIZER QUE O POST SAIU, e não apenas que o

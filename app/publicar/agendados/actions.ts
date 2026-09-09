@@ -2,8 +2,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSelectedAccount } from "@/lib/account";
-import { sql } from "@/lib/db";
+import { getConfig, sql } from "@/lib/db";
+import { HORIZONTE_DO_TIQUE_EM_SEGUNDOS, scheduleTick } from "@/lib/qstash";
 import {
+  atrasoDoTiqueDoRemarcar,
   camposDaDataHora,
   confirmouOCancelamento,
   desfechoDaMudanca,
@@ -208,14 +210,40 @@ export async function remarcarPublicacao(formData: FormData): Promise<void> {
     afetadas.length > 0 ? null : await statusNaConta(id, conta.ig_user_id)
   );
 
-  // NENHUM TIQUE NOVO É ARMADO, e a ausência é herdada e não esquecimento:
-  // `enqueuePublicacao` (lib/engine.ts) passa `agendarTique: false` de propósito
-  // — um atraso de semanas entregue ao QStash depende de um horizonte que NÃO
-  // foi verificado, e se ele recusasse, `scheduleTick` engoliria o erro e o post
-  // não sairia, calado. Quem acorda o app para a publicação é `armarTiquesDoDia`
-  // (lib/queue-drain.ts), no cron diário, quando a hora chega a menos de um dia.
-  // A hora nova entra nessa mesma varredura, pelo `not_before` que acabou de
-  // mudar. Ver `HORIZONTE_DO_TIQUE_EM_SEGUNDOS` (lib/qstash.ts).
+  // O TIQUE DA HORA NOVA, e ele é o outro lado de "Ele sai na hora nova".
+  //
+  // ATÉ 09/09/2026 NÃO HAVIA TIQUE AQUI, e o comentário que justificava a
+  // ausência LIA ERRADO o código que citava: ele afirmava que
+  // `enqueuePublicacao` passa `agendarTique: false` de propósito. Ela não
+  // passa — `lib/engine.ts` passa `agendarTique: atraso <= HORIZONTE`. Compor
+  // arma o tique sempre que a hora cabe em 24 h; remarcar não armava nunca.
+  //
+  // E O CRON DIÁRIO NÃO COBRIA O BURACO: `armarTiquesDoDia` só é honesta para
+  // `not_before` escrito ANTES da passagem dela, e remarcar move a hora para
+  // dentro de uma janela JÁ VARRIDA. Medido: compor para +2 h gera 1 tique;
+  // remarcar para +2 h gerava 0, e o post podia sair ~23 h depois, calado.
+  //
+  // A DECISÃO É DE `atrasoDoTiqueDoRemarcar` (lib/publicacao.ts), com caso de
+  // teste, e não de um `if` escrito aqui — a mesma disciplina de todo o resto
+  // deste arquivo. Ela respeita as três regras de `enqueue`: nada abaixo de
+  // 15 s, nada além do horizonte (além de um dia quem arma é o cron), e cinco
+  // segundos de folga com o teto aplicado depois.
+  //
+  // ELE NÃO PODE DERRUBAR A AÇÃO, e não derruba: `scheduleTick` (lib/qstash.ts)
+  // engole todo erro por desenho. Sem tique o post ainda sai — pelo próximo
+  // webhook ou pelo cron —, só mais tarde; com uma exceção subindo daqui, o
+  // `redirect` de baixo nunca aconteceria e a ação voltaria muda.
+  if (desfecho === "feito") {
+    const atrasoDoTique = atrasoDoTiqueDoRemarcar(
+      momento.quando,
+      Date.now(),
+      HORIZONTE_DO_TIQUE_EM_SEGUNDOS
+    );
+    if (atrasoDoTique !== null) {
+      await scheduleTick((await getConfig()).app_url ?? "", atrasoDoTique);
+    }
+  }
+
   revalidarAsDuasTelas();
   redirect(urlDeAgendadosComAviso(avisoDoDesfecho(desfecho, "remarcar")));
 }

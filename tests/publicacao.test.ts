@@ -36,6 +36,7 @@ import {
   recusaDaQuantidade,
   moverNaOrdem,
   rotuloDoEnvio,
+  atrasoDoTiqueDoRemarcar,
   desfechoDaMudanca,
   textoDoDesfecho,
   dataDaLinhaDeEnvio,
@@ -1756,6 +1757,62 @@ describe("desfechoDaMudanca", () => {
     const frase = textoDoDesfecho(desfechoDaMudanca(0, "skipped"), "cancelar");
     expect(frase).toContain("Não achei este post agendado nesta conta");
     expect(frase.toLowerCase()).not.toMatch(/saiu|saindo/);
+  });
+});
+
+// =============================================================================
+// O TIQUE DA HORA NOVA (09/09/2026)
+//
+// Remarcar nao armava tique nenhum, e o comentario que justificava a ausencia
+// lia errado o codigo que citava: `enqueuePublicacao` passa
+// `agendarTique: atraso <= HORIZONTE`, e nao `false`. Medido com um QStash
+// falso: compor para +2h gerava 1 tique, remarcar gerava 0 — e o cron diario
+// nao cobria o buraco, porque remarcar move o `not_before` para dentro de uma
+// janela JA VARRIDA. O post podia sair ~23h depois, calado.
+// =============================================================================
+const UM_DIA = 24 * 60 * 60;
+
+describe("atrasoDoTiqueDoRemarcar", () => {
+  const agora = Date.UTC(2026, 8, 9, 12, 0, 0);
+
+  it("duas horas a frente arma o tique, com os cinco segundos de folga", () => {
+    const daqui2h = new Date(agora + 2 * 60 * 60 * 1000);
+    expect(atrasoDoTiqueDoRemarcar(daqui2h, agora, UM_DIA)).toBe(7205);
+  });
+
+  // A METADE QUE IMPEDE O CONSERTO DE VIRAR "arma sempre". Um mes de atraso
+  // entregue ao QStash depende de um horizonte que NUNCA foi verificado, e se
+  // ele recusasse `scheduleTick` engoliria o erro — o post nao sairia, calado.
+  it("alem do horizonte NAO arma: quem arma e o cron diario", () => {
+    const daqui30d = new Date(agora + 30 * UM_DIA * 1000);
+    expect(atrasoDoTiqueDoRemarcar(daqui30d, agora, UM_DIA)).toBe(null);
+  });
+
+  // A BORDA EXATA, e o teto e aplicado DEPOIS da folga: sem o `Math.min`, a
+  // hora na borda entregaria 86405 s, cinco segundos alem do horizonte que este
+  // projeto declarou nunca ultrapassar. E a mesma licao de `armarTiquesDoDia`.
+  it("na borda do horizonte o atraso NAO passa de um dia", () => {
+    const naBorda = new Date(agora + UM_DIA * 1000);
+    expect(atrasoDoTiqueDoRemarcar(naBorda, agora, UM_DIA)).toBe(UM_DIA);
+  });
+
+  // O `atraso > 15` de `enqueue`, com o mesmo numero: um tique para daqui a
+  // nada e uma volta ao app sem serventia — o item sai na drenagem a caminho.
+  it("perto demais NAO arma", () => {
+    expect(atrasoDoTiqueDoRemarcar(new Date(agora + 10_000), agora, UM_DIA)).toBe(null);
+    expect(atrasoDoTiqueDoRemarcar(new Date(agora + 15_000), agora, UM_DIA)).toBe(null);
+    expect(atrasoDoTiqueDoRemarcar(new Date(agora + 16_000), agora, UM_DIA)).toBe(21);
+  });
+
+  // O PASSADO NAO ARMA. `momentoDaPublicacao` ja recusa antes de chegar aqui,
+  // mas um atraso negativo entregue ao QStash e a coisa que ele recusaria — e a
+  // recusa dele e muda.
+  it("hora no passado NAO arma", () => {
+    expect(atrasoDoTiqueDoRemarcar(new Date(agora - 60_000), agora, UM_DIA)).toBe(null);
+  });
+
+  it("data ilegivel NAO arma, e nao vira NaN entregue ao QStash", () => {
+    expect(atrasoDoTiqueDoRemarcar(new Date("nao sou data"), agora, UM_DIA)).toBe(null);
   });
 });
 
