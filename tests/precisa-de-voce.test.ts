@@ -6,6 +6,10 @@ import {
   type FatosDoInicio,
 } from "../lib/precisa-de-voce";
 import { WINDOW_MS, WINDOW_MARGIN_MS } from "../lib/inbox-window";
+import {
+  DIAS_DE_AVISO_DA_PUBLICACAO,
+  HORAS_DE_AVISO_DA_MENSAGEM,
+} from "../lib/publicacao";
 
 // O QUE ESTE ARQUIVO FIXA: a decisão da tela inicial, que a spec da linguagem
 // visual define como a resposta a UMA pergunta — "precisa de mim?" — e que
@@ -182,6 +186,33 @@ describe("as frases, que são a tela", () => {
     const varias = oQuePrecisaDeVoce({ ...NADA, falhasPublicacao: 3, falhasMensagem: 2 });
     expect(varias[0].titulo).toContain("publicações");
     expect(varias[1].titulo).toContain("mensagens");
+  });
+
+  // A JANELA DE CADA FALHA APARECE NO TEXTO, e vem da MESMA constante que a
+  // consulta do painel usa. Ela existia na frase antiga e sumiu quando a tela
+  // foi reescrita (10/09/2026) — quem pegou foi um caso de integração, 138
+  // segundos depois. Estes dois casos passam a pegar em 4 milissegundos.
+  //
+  // E AS DUAS JANELAS SÃO DIFERENTES DE PROPÓSITO: publicação vai a 7 dias
+  // porque o modo de falha declarado é "falha na sexta à noite, ninguém vê até
+  // segunda"; mensagem fica nas 24h de sempre.
+  it("a janela da publicação aparece, e é a da constante", () => {
+    const r = oQuePrecisaDeVoce({ ...NADA, falhasPublicacao: 1 });
+    expect(r[0].detalhe).toContain(String(DIAS_DE_AVISO_DA_PUBLICACAO));
+  });
+
+  it("a janela da mensagem aparece, e é a da constante", () => {
+    const r = oQuePrecisaDeVoce({ ...NADA, falhasMensagem: 1 });
+    expect(r[0].detalhe).toContain(String(HORAS_DE_AVISO_DA_MENSAGEM));
+  });
+
+  // O VOCABULÁRIO NÃO MUDA: o selo da automação diz "Ativa" na lista de
+  // automações, e esta tela tem de dizer a mesma palavra. Trocar por "ligada"
+  // numa reescrita foi exatamente o que aconteceu, e a spec da reformulação
+  // lista "não muda vocabulário" entre o que ela NÃO faz.
+  it("o convite usa a palavra que o resto do produto usa", () => {
+    const r = oQuePrecisaDeVoce({ ...NADA, automacoesAtivas: 0 });
+    expect(r[0].titulo.toLowerCase()).toContain("ativa");
   });
 
   // CADA LINHA LEVA A ALGUM LUGAR. Uma pendência sem destino é uma reclamação.

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { windowState, formatWindowLeft, WINDOW_MS } from "@/lib/inbox-window";
+import {
+  windowState,
+  formatWindowLeft,
+  fracaoDaJanela,
+  WINDOW_MS,
+  WINDOW_MARGIN_MS,
+} from "@/lib/inbox-window";
 
 const AGORA = 1_800_000_000_000;
 
@@ -43,5 +49,31 @@ describe("formatWindowLeft", () => {
 
   it("zero é janela fechada", () => {
     expect(formatWindowLeft(0)).toBe("fechada");
+  });
+});
+
+describe("fracaoDaJanela — o preenchimento do traço", () => {
+  const UTIL = WINDOW_MS - WINDOW_MARGIN_MS;
+
+  it("quem acabou de escrever tem o traço CHEIO", () => {
+    // O denominador é a janela ÚTIL. Se fosse `WINDOW_MS`, esta conta daria
+    // 0,9965 e a linha de quem falou agora apareceria com um pedaço faltando —
+    // uma diferença que ninguém explicaria e que ninguém notaria estar errada.
+    expect(fracaoDaJanela(windowState(new Date()).msLeft)).toBeCloseTo(1, 3);
+  });
+
+  it("na metade da janela, o traço está pela metade", () => {
+    expect(fracaoDaJanela(UTIL / 2)).toBeCloseTo(0.5, 6);
+  });
+
+  it("janela fechada é traço vazio, e não traço negativo", () => {
+    expect(fracaoDaJanela(0)).toBe(0);
+    expect(fracaoDaJanela(-90_000_000)).toBe(0);
+  });
+
+  it("não transborda com relógio adiantado nem com data no futuro", () => {
+    // `last_reply_at` vem do webhook, que é a Meta: um instante no futuro
+    // produziria msLeft maior que a janela, e uma barra maior que a caixa.
+    expect(fracaoDaJanela(UTIL * 3)).toBe(1);
   });
 });

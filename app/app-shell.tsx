@@ -9,6 +9,7 @@ import {
   IconZap,
   IconUsers,
   IconActivity,
+  IconBars,
   IconSettings,
   IconStore,
   IconSun,
@@ -27,7 +28,7 @@ const NAV_GROUPS: {
 }[] = [
   {
     label: null,
-    items: [{ href: "/", label: "Painel", icon: IconHome }],
+    items: [{ href: "/", label: "Início", icon: IconHome }],
   },
   {
     label: "Gerenciar",
@@ -37,6 +38,7 @@ const NAV_GROUPS: {
       { href: "/automacoes", label: "Automações", icon: IconZap },
       { href: "/contatos", label: "Contatos", icon: IconUsers },
       { href: "/eventos", label: "Atividade", icon: IconActivity },
+      { href: "/desempenho", label: "Desempenho", icon: IconBars },
     ],
   },
   {

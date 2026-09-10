@@ -215,6 +215,19 @@ export function IconActivity({ className }: IconProps) {
   );
 }
 
+// O icone de Desempenho: tres barras, que e literalmente o que a tela mostra.
+// Nao e um "grafico de linha subindo" — a metrica desta tela pode cair, e um
+// icone que so sabe subir prometeria uma leitura que os numeros nao garantem.
+export function IconBars({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <line x1="6" y1="20" x2="6" y2="13" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="18" y1="20" x2="18" y2="9" />
+    </Svg>
+  );
+}
+
 export function IconSettings({ className }: IconProps) {
   return (
     <Svg className={className}>

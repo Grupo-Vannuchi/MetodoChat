@@ -1,4 +1,8 @@
 import { formatWindowLeft } from "./inbox-window";
+import {
+  DIAS_DE_AVISO_DA_PUBLICACAO,
+  HORAS_DE_AVISO_DA_MENSAGEM,
+} from "./publicacao";
 
 // O QUE A TELA INICIAL MOSTRA — e por que ela quer ficar vazia.
 //
@@ -125,7 +129,12 @@ export function oQuePrecisaDeVoce(f: FatosDoInicio): ItemDoInicio[] {
       chave: "falha-publicacao",
       tipo: "aviso",
       titulo: n === 1 ? "1 publicação não saiu" : n + " publicações não saíram",
-      detalhe: "o perfil está sem esse post",
+      // A JANELA VAI NO TEXTO, e vem da MESMA constante que a consulta usa
+      // (app/page.tsx). Ela estava na frase antiga e some com facilidade numa
+      // reescrita — foi o que aconteceu aqui, e um caso de integração pegou.
+      // Sem ela, o dia em que alguém mudar 7 para 3 a tela continuará dizendo a
+      // mesma coisa sobre um recorte diferente.
+      detalhe: "nos últimos " + DIAS_DE_AVISO_DA_PUBLICACAO + " dias",
       href: "/publicar/agendados",
       urgencia: "parou",
     });
@@ -137,7 +146,7 @@ export function oQuePrecisaDeVoce(f: FatosDoInicio): ItemDoInicio[] {
       chave: "falha-mensagem",
       tipo: "aviso",
       titulo: n === 1 ? "1 mensagem não saiu" : n + " mensagens não saíram",
-      detalhe: "ninguém recebeu, e ninguém foi avisado",
+      detalhe: "nas últimas " + HORAS_DE_AVISO_DA_MENSAGEM + "h",
       href: "/eventos",
       urgencia: "parou",
     });
@@ -169,7 +178,7 @@ export function oQuePrecisaDeVoce(f: FatosDoInicio): ItemDoInicio[] {
     itens.push({
       chave: "sem-automacao",
       tipo: "aviso",
-      titulo: "Nenhuma automação ligada",
+      titulo: "Nenhuma automação ativa",
       detalhe: "ninguém está sendo respondido sozinho",
       href: "/automacoes/nova",
       urgencia: "quieto",
