@@ -11,6 +11,8 @@ import {
   badgeNeutral,
   input,
   btnPrimary,
+  btnLinha,
+  btnLinhaDanger,
   emptyWrap,
 } from "../ui";
 import { IconZap, IconComment, IconStory, IconSend, IconPorta } from "../icons";
@@ -292,14 +294,11 @@ export default function AutomationsList({ automations }: { automations: Automati
                       disabled={ocupado}
                       onClick={() => alternar(a.id, a.active)}
                       title={a.active ? "Pausar automação" : "Ativar automação"}
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                      className={btnLinha}
                     >
                       {a.active ? "Pausar" : "Ativar"}
                     </button>
-                    <Link
-                      href={`/automacoes/${a.id}`}
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                    >
+                    <Link href={`/automacoes/${a.id}`} className={btnLinha}>
                       Editar
                     </Link>
                     <button
@@ -307,10 +306,20 @@ export default function AutomationsList({ automations }: { automations: Automati
                       disabled={ocupado}
                       onClick={() => executar(a.id, "duplicar", () => duplicateAutomation(a.id))}
                       title="Criar uma cópia (nasce pausada)"
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                      className={btnLinha}
                     >
                       Duplicar
                     </button>
+                    {/* O TOM VERMELHO EM REPOUSO (`btnLinhaDanger`) é o
+                        conserto, e o `confirm` abaixo continua sendo a
+                        barreira. São duas coisas diferentes, e a auditoria
+                        juntou as duas num achado só: a barreira contra o
+                        clique acidental JÁ EXISTIA, e o vermelho já existia no
+                        hover. O que faltava era o AVISO antes do hover — em
+                        repouso nada na linha dizia qual das quatro ações era
+                        irreversível, e a irreversível era a MAIS APAGADA das
+                        quatro (`zinc-500` contra `zinc-600`/`zinc-400`). A
+                        medição dos tons está junto do token, em `../ui`. */}
                     <button
                       type="button"
                       disabled={ocupado}
@@ -321,7 +330,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                         }
                       }}
                       title="Excluir automação"
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:text-zinc-500 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                      className={btnLinhaDanger}
                     >
                       Excluir
                     </button>

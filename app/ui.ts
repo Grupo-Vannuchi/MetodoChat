@@ -85,6 +85,43 @@ export const btnGhost =
 export const btnDanger =
   "inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-500/15 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40";
 
+// AÇÃO DE TEXTO DENTRO DE LINHA DE LISTA — três ou quatro no fim da mesma
+// linha, sem borda, e por isso NÃO é `btnDanger`.
+//
+// POR QUE `btnDanger` NÃO SERVE AQUI, medido no lugar em que ele é usado hoje
+// (`app/publicar/agendados`, um botão solto dentro de um cartão): ele carrega
+// `border border-red-300` e `px-3`. Numa linha em que "Pausar", "Editar" e
+// "Duplicar" são texto puro com `px-2.5`, "Excluir" viraria a ÚNICA caixa
+// desenhada da linha — o elemento mais chamativo, e não o mais claro —, e a
+// lista de 18 automações viraria uma coluna de caixas vermelhas. O pedido era
+// o contrário: distinguir sem gritar. O que `btnDanger` traria de útil (o
+// `hover:bg-red-50 dark:hover:bg-red-950/40`) a linha já tinha.
+//
+// AS DUAS COMPARTILHAM A GEOMETRIA — mesmo raio, mesmo padding, mesmo tamanho
+// e mesmo peso. A diferença entre elas é SÓ o tom, e é de propósito: é o que
+// impede a ação destrutiva de virar o elemento mais pesado da linha.
+export const btnLinha =
+  "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800";
+
+// A DESTRUTIVA. O defeito que ela conserta: em repouso "Excluir" era
+// `zinc-500` nos DOIS temas enquanto as irmãs eram `zinc-600`/`zinc-400` — a
+// ação que apaga era a MENOS legível da linha, e no escuro ficava em 3,91:1,
+// abaixo do mínimo de 4,5:1.
+//
+// O PAR `red-700`/`red-400` não é inventado: é o mesmo de `badgeErr`, logo
+// abaixo. E ele foi escolhido MEDIDO, contra o fundo real de cada tema (claro:
+// `bg-white`; escuro: `bg-zinc-900/70` sobre preto, = rgb(17,17,19)):
+//
+//   claro  red-700  6,42:1 em repouso, 5,87:1 sobre o `bg-red-50` do hover
+//   escuro red-400  6,53:1 em repouso, 6,34:1 sobre o `bg-red-950/40` do hover
+//
+// `red-600` no claro foi RECUSADO por medição, e não por gosto: 4,77:1 em
+// repouso (quase o 4,83:1 do `zinc-500` que estava lá, ou seja, não consertava
+// nada) e 4,36:1 sobre o vermelho do hover — abaixo do mínimo justamente no
+// estado em que a pessoa está prestes a clicar.
+export const btnLinhaDanger =
+  "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40";
+
 export const link =
   "font-medium text-indigo-600 underline decoration-indigo-300 underline-offset-2 transition-colors hover:decoration-indigo-500 dark:text-indigo-400 dark:decoration-indigo-700";
 
