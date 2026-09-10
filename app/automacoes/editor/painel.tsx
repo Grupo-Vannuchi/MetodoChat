@@ -695,7 +695,7 @@ export default function Painel({
                       key={o.valor}
                       className={`cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
                         configuracao.gatilho === o.valor
-                          ? "border-tinta bg-tinta/10 text-tinta dark:border-tinta-escuro dark:bg-tinta-escuro/10 dark:text-tinta-escuro"
+                          ? "border-acao bg-acao/10 text-tinta dark:border-acao-escuro dark:bg-acao-escuro/15 dark:text-tinta-escuro"
                           : "border-zinc-300 text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-300"
                       }`}
                     >

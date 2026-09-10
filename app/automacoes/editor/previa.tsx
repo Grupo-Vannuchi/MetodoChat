@@ -472,7 +472,7 @@ function CenaNaConversa({ cena, aceso, conta }: { cena: Cena; aceso: boolean; co
   return (
     <div
       className={`flex flex-col gap-1.5 ${
-        aceso ? "-mx-1.5 rounded-lg bg-tinta/10 px-1.5 py-1 ring-1 ring-tinta/40 dark:bg-tinta-escuro/10 dark:ring-tinta-escuro/40" : ""
+        aceso ? "-mx-1.5 rounded-lg bg-acao/10 px-1.5 py-1 ring-1 ring-acao/40 dark:bg-acao-escuro/15 dark:ring-acao-escuro/40" : ""
       }`}
     >
       {cena.itens.map((b, i) => (

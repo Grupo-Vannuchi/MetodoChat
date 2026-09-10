@@ -19,7 +19,7 @@ import { subtle } from "../ui";
 // não sabe que existe outra seção na página.
 
 const controle =
-  "inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-zinc-400 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/15 dark:focus-visible:ring-tinta-escuro/20 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300 dark:hover:border-zinc-600";
+  "inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-zinc-400 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:focus-visible:ring-acao-escuro/20 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300 dark:hover:border-zinc-600";
 
 const ativo = "border-tinta text-tinta dark:border-tinta-escuro dark:text-tinta-escuro";
 
@@ -43,9 +43,9 @@ export default function FiltrosEnvios() {
               type="button"
               onClick={() => mudar({ period: p.key })}
               aria-pressed={marcado}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/20 dark:focus-visible:ring-tinta-escuro/25 ${
+              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:focus-visible:ring-acao-escuro/25 ${
                 marcado
-                  ? "bg-tinta text-papel dark:bg-tinta-escuro dark:text-papel-escuro"
+                  ? "bg-acao text-papel dark:bg-acao-escuro dark:text-papel-escuro"
                   : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
               }`}
             >

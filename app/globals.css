@@ -4,7 +4,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ==========================================================================
-   A PALETA NOMEADA — sete papéis, e cada um com o par do tema escuro.
+   A PALETA NOMEADA — oito papéis, e cada um com o par do tema escuro.
    ==========================================================================
 
    POR QUE NOMEADA, e não `zinc-500`: o nome é metade do conserto. `zinc-500`
@@ -39,6 +39,12 @@
 
    VERDE, ÂMBAR E VERMELHO FICAM COM O SIGNIFICADO QUE TÊM. `aberto`, `fecha` e
    `parou` são os nomes deles, e não cores novas.
+
+   O OITAVO PAPEL É `acao`, e ele entrou DEPOIS — ver o comentário dele. Ele é
+   o único que pinta SUPERFÍCIE e ainda assim declara pior caso de texto: passa
+   os 4,5:1 contra os quinze fundos, então serve de tinta onde a ação for texto
+   (ícone, chip ativo, contorno de foco) sem virar uma segunda cor para o mesmo
+   papel.
    -------------------------------------------------------------------------- */
 
 @theme {
@@ -51,13 +57,44 @@
      nunca dependeu desse número: depende da borda. */
   --color-papel-escuro: #0b0a0e; /* fundo */
 
-  /* --- a tinta: texto normal E ação -------------------------------------- */
-  /* O ÍNDIGO SAI DAQUI. Ação passa a usar a própria tinta, porque numa
-     interface de operação a cor tem de querer dizer estado — e "botão" não é
-     estado. Pior caso claro: 16,38:1 (sobre `bg-zinc-100`). */
+  /* --- a tinta: o texto normal ------------------------------------------- */
+  /* O ÍNDIGO SAIU DAQUI, e por uma versão a AÇÃO também morou nesta cor. Ela
+     não mora mais: `acao` (abaixo) é o preenchimento do botão, e a tinta voltou
+     a ser só o que sempre foi — o texto que se lê.
+     Pior caso claro: 16,38:1 (sobre `bg-zinc-100`). */
   --color-tinta: #17161a; /* pior 16,38 */
   /* Pior caso escuro: 13,32:1 (sobre `bg-zinc-800`). */
   --color-tinta-escuro: #f4f2ee; /* pior 13,32 */
+
+  /* --- a ação: o preenchimento do botão que faz alguma coisa -------------- */
+  /* O PETRÓLEO, E POR QUE ELE EXISTE DEPOIS DE A PARTE 1 TER DITO QUE A AÇÃO
+     ERA A PRÓPRIA TINTA. A tinta funcionou como conserto do índigo e falhou
+     como escolha: no tema escuro o botão vira uma pastilha BRANCA, e branco é
+     tão genérico quanto o índigo que saiu — só que sem a culpa de ser marca.
+     O dono viu isso na prévia e disse, com estas palavras: "acho que o branco
+     é uma cor meio genérica também; alguma cor mista seria melhor".
+
+     MISTA É LITERAL: 194° é azul puxado para o verde, e nenhum dos dois puro.
+     Não é o azul de painel (217° é a ardósia de todo SaaS) nem o índigo que a
+     varredura mantém fora (286°). O que decidiu foi distância de matiz e
+     contraste medido, não gosto.
+
+     POR QUE ELE NÃO COLIDE COM `aberto`, que também é frio: 52° de matiz de
+     distância — e as duas nunca têm a mesma FORMA. `aberto` é pílula pequena
+     com ponto; `acao` é preenchimento de botão com rótulo. A regra da spec
+     continua de pé e agora está dita inteira: a cor SINALIZA estado e não
+     pinta superfície, e a superfície da ação é a única exceção, declarada.
+
+     A INVERSÃO ENTRE OS TEMAS É A MESMA DA TINTA: no claro o preenchimento é
+     escuro com rótulo `papel` (10,75:1); no escuro é claro com rótulo
+     `papel-escuro` (9,12:1). É o que mantém o botão sendo o elemento de maior
+     contraste da tela nos dois temas — o que a pastilha branca acertava, e a
+     única coisa que ela acertava.
+
+     Pior caso claro: 10,20:1 (sobre `bg-zinc-100`). */
+  --color-acao: #14404e; /* pior 10,20 */
+  /* Pior caso escuro: 6,88:1 (sobre `bg-zinc-800`). */
+  --color-acao-escuro: #78bacd; /* pior 6,88 */
 
   /* --- o traço: fio, borda, divisor -------------------------------------- */
   /* NÃO É TEXTO, então o mínimo de 4,5:1 não se aplica; o que se mede aqui é

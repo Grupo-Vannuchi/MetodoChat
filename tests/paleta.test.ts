@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 import { btnPrimary, link } from "../app/ui";
 import {
   tom,
+  luminancia,
   contraste,
   piorCaso,
   MINIMO,
@@ -29,6 +30,23 @@ import {
 // pôde rodar `next build` nem `npm run dev`, então o número DEPOIS é calculado,
 // e não medido no navegador.
 
+const luminanciaDe = (nome: string) => luminancia(tom(nome));
+
+/** A distância de matiz entre duas cores, em graus, pelo caminho mais curto. */
+function distanciaDeMatiz(a: string, b: string): number {
+  const matiz = ([r, g, b2]: readonly [number, number, number]) => {
+    const alto = Math.max(r, g, b2);
+    const baixo = Math.min(r, g, b2);
+    const d = alto - baixo;
+    if (d === 0) return 0;
+    const h =
+      alto === r ? ((g - b2) / d) % 6 : alto === g ? (b2 - r) / d + 2 : (r - g) / d + 4;
+    return (h * 60 + 360) % 360;
+  };
+  const bruta = Math.abs(matiz(tom(a)) - matiz(tom(b)));
+  return bruta > 180 ? 360 - bruta : bruta;
+}
+
 const CSS = readFileSync(
   fileURLToPath(new URL("../app/globals.css", import.meta.url)),
   "utf8"
@@ -36,7 +54,16 @@ const CSS = readFileSync(
 
 /* ---------- os sete papéis, e o par escuro de cada um ---------- */
 
-const PAPEIS = ["papel", "tinta", "traco", "quieto", "aberto", "fecha", "parou"] as const;
+const PAPEIS = [
+  "papel",
+  "tinta",
+  "acao",
+  "traco",
+  "quieto",
+  "aberto",
+  "fecha",
+  "parou",
+] as const;
 
 // As duas que pintam SUPERFÍCIE e FIO, e por isso não respondem ao mínimo de
 // texto: o 4,5:1 da WCAG é para texto. O que se cobra delas é serem declaradas
@@ -49,9 +76,10 @@ describe("a paleta nomeada", () => {
       expect(CORES_NOMEADAS, nome).toContain(nome);
       expect(CORES_NOMEADAS, `${nome}-escuro`).toContain(`${nome}-escuro`);
     }
-    // catorze e nada mais: cor sem papel declarado é a porta por onde a paleta
-    // volta a se acumular, que foi o diagnóstico da auditoria ("a identidade
-    // não foi decidida, foi acumulada").
+    // dezesseis e nada mais: cor sem papel declarado é a porta por onde a
+    // paleta volta a se acumular, que foi o diagnóstico da auditoria ("a
+    // identidade não foi decidida, foi acumulada"). `acao` entrou por este
+    // caminho — nomeada, medida e com o motivo escrito ao lado.
     expect(CORES_NOMEADAS.length).toBe(PAPEIS.length * 2);
   });
 
@@ -141,7 +169,7 @@ describe("toda cor de texto passa o mínimo sobre TODOS os fundos reais", () => 
     // O fundo claro mais ESCURO e o fundo escuro mais CLARO são a mesma tela
     // (`app/conversas/[id]`, o balão recebido), e são eles que mandam nas duas
     // escolhas. Quem for propor uma cor nova mede contra estes dois primeiro.
-    for (const nome of ["tinta", "quieto", "aberto", "fecha", "parou"]) {
+    for (const nome of ["tinta", "acao", "quieto", "aberto", "fecha", "parou"]) {
       expect(
         contraste(tom(nome), FUNDOS["claro: balao recebido (bg-zinc-100)"]),
         nome
@@ -151,6 +179,40 @@ describe("toda cor de texto passa o mínimo sobre TODOS os fundos reais", () => 
         `${nome}-escuro`
       ).toBeCloseTo(piorCaso(`${nome}-escuro`, FUNDOS_ESCUROS), 2);
     }
+  });
+});
+
+/* ---------- a ação é a única cor que preenche, e por isso mede duas ---------- */
+
+describe("o rótulo sobre o preenchimento da ação", () => {
+  // AS SETE OUTRAS CORES SÃO MEDIDAS CONTRA OS FUNDOS DO PRODUTO. `acao` tem um
+  // segundo número que nenhuma delas tem: ela É um fundo, e o que se lê em cima
+  // dela é o rótulo do botão. Sem este caso, alguém pode escurecer o petróleo
+  // do tema escuro achando que ganha "presença" e apagar o texto do botão — e
+  // o portão de cima passaria, porque lá `acao` só é medida como tinta.
+  it("no tema claro o rótulo é `papel`, e ele se lê", () => {
+    expect(contraste(tom("papel"), tom("acao"))).toBeGreaterThanOrEqual(MINIMO);
+  });
+
+  it("no tema escuro o rótulo é `papel-escuro`, e ele se lê", () => {
+    expect(contraste(tom("papel-escuro"), tom("acao-escuro"))).toBeGreaterThanOrEqual(
+      MINIMO
+    );
+  });
+
+  it("a inversão entre os temas existe: o preenchimento troca de lado", () => {
+    // No claro o botão é ESCURO sobre página clara; no escuro é CLARO sobre
+    // página escura. É isso que mantém a ação sendo o maior contraste da tela
+    // nos dois temas, que era a única coisa que a pastilha branca acertava.
+    expect(luminanciaDe("acao")).toBeLessThan(luminanciaDe("papel"));
+    expect(luminanciaDe("acao-escuro")).toBeGreaterThan(luminanciaDe("papel-escuro"));
+  });
+
+  it("não é o verde de `aberto` com outro nome", () => {
+    // O risco real desta cor: petróleo e "janela aberta" são os dois frios da
+    // paleta. O que os separa é matiz, e o número é medido — não lembrado.
+    expect(distanciaDeMatiz("acao", "aberto")).toBeGreaterThan(30);
+    expect(distanciaDeMatiz("acao-escuro", "aberto-escuro")).toBeGreaterThan(30);
   });
 });
 
@@ -265,11 +327,15 @@ describe("a varredura do índigo", () => {
     for (const g of GRADIENTES_DO_INSTAGRAM) expect(fonte, g).toContain(g);
   });
 
-  it("a ação usa a tinta: os tokens de `app/ui.ts` não têm cor de marca", () => {
-    // `btnPrimary` e `link` eram os dois lugares em que o índigo mais se via.
-    expect(btnPrimary).toContain("bg-tinta");
-    expect(btnPrimary).toContain("dark:bg-tinta-escuro");
+  it("a ação usa o petróleo, e o link continua sendo tinta sublinhada", () => {
+    // `btnPrimary` e `link` eram os dois lugares em que o índigo mais se via, e
+    // são os dois que separam SUPERFÍCIE de TEXTO: o botão é preenchido com
+    // `acao`, e o link é tinta com sublinhado — nunca cor, porque um link
+    // colorido no meio de um parágrafo volta a ser acento de marca.
+    expect(btnPrimary).toContain("bg-acao");
+    expect(btnPrimary).toContain("dark:bg-acao-escuro");
     expect(link).toContain("text-tinta");
     expect(link).toContain("underline");
+    expect(link).not.toContain("acao");
   });
 });

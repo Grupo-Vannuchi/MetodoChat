@@ -3,14 +3,25 @@
 //
 // Princípios desta versão:
 // - Superfícies calmas: borda sutil + sombra baixa, sem "caixa dentro de caixa".
-// - A COR É ESTADO, E MAIS NADA. O índigo saiu — como cor de marca e como cor
-//   de ação —, e a ação passa a usar a própria tinta. Verde, âmbar e vermelho
-//   ficam com o significado que já têm.
+// - A COR SINALIZA ESTADO; SÓ UMA SUPERFÍCIE É PINTADA, E É A DA AÇÃO. O
+//   índigo saiu como cor de marca. Por uma versão a ação usou a própria tinta,
+//   e no tema escuro isso virava uma pastilha BRANCA — genérica pelo mesmo
+//   motivo que o índigo era. Entrou `acao`, o petróleo (194°, azul puxado para
+//   o verde). Verde, âmbar e vermelho ficam com o significado que já têm, e
+//   continuam sendo SINAL: pílula, texto, ponto — nunca preenchimento grande.
+// - ONDE `acao` VAI, E ONDE NÃO VAI: vai no que se aperta (botão primário,
+//   botão de entrar, botão de passo), no que marca a escolha ativa (chip de
+//   filtro, cartão de gatilho, item da barra lateral) e em TODO contorno de
+//   foco, porque foco é a mesma promessa do botão. NÃO vai no que é dado nem
+//   no que é identidade: avatar, contador de não lidas, balão enviado, barra
+//   do gráfico, realce da busca e logotipo continuam tinta. Pintar dado com a
+//   cor da ação é a forma mais rápida de a cor deixar de querer dizer algo.
 // - Foco sempre visível (ring), porque contorno de foco é acessibilidade.
 // - Escala de espaçamento e raio consistentes para a interface parecer única.
 //
-// AS CORES SÃO NOMEADAS (`papel`, `tinta`, `traco`, `quieto`, `aberto`,
-// `fecha`, `parou`), e a definição de cada uma — com o contraste medido ao lado
+// AS CORES SÃO NOMEADAS (`papel`, `tinta`, `acao`, `traco`, `quieto`,
+// `aberto`, `fecha`, `parou`), e a definição de cada uma — com o contraste
+// medido ao lado
 // — está em `app/globals.css`. O portão é `tests/paleta.test.ts`.
 
 /* ---------- superfícies ---------- */
@@ -147,7 +158,7 @@ export const hint = `mt-1.5 text-xs leading-relaxed ${tomQuieto}`;
 // da MESMA família, use o modificador `!` na classe nova; caso contrário o
 // resultado depende de uma ordem de folha que ninguém aqui controla.
 export const input =
-  "w-full rounded-xl border border-traco bg-white px-3.5 py-2.5 text-sm text-tinta outline-none transition-[border-color,box-shadow] placeholder:text-quieto/70 focus:border-tinta focus:ring-4 focus:ring-tinta/10 dark:border-traco-escuro dark:bg-papel-escuro/60 dark:text-tinta-escuro dark:placeholder:text-quieto-escuro/60 dark:focus:border-tinta-escuro dark:focus:ring-tinta-escuro/15";
+  "w-full rounded-xl border border-traco bg-white px-3.5 py-2.5 text-sm text-tinta outline-none transition-[border-color,box-shadow] placeholder:text-quieto/70 focus:border-acao focus:ring-4 focus:ring-acao/15 dark:border-traco-escuro dark:bg-papel-escuro/60 dark:text-tinta-escuro dark:placeholder:text-quieto-escuro/60 dark:focus:border-acao-escuro dark:focus:ring-acao-escuro/20";
 
 // Campo com erro: a borda vermelha aparece junto da mensagem no próprio campo.
 export const inputError =
@@ -157,18 +168,20 @@ export const fieldError = "mt-1.5 text-xs font-medium text-parou dark:text-parou
 
 /* ---------- botões ---------- */
 
-// A AÇÃO USA A PRÓPRIA TINTA, e é aqui que o índigo mais se via. Medido:
-// `papel` sobre `tinta` dá 17,26:1 no claro, e `papel-escuro` sobre
-// `tinta-escuro` dá 16,83:1 no escuro — o botão continua sendo o elemento mais
-// contrastado da tela, que é o que ele tem de ser.
+// A AÇÃO É O PETRÓLEO, e é aqui que o índigo mais se via — e, depois dele, o
+// branco. Medido: `papel` sobre `acao` dá 10,75:1 no claro, e `papel-escuro`
+// sobre `acao-escuro` dá 9,12:1 no escuro. O preenchimento troca de lado entre
+// os temas (escuro no claro, claro no escuro), que é o que mantém o botão sendo
+// o maior contraste da tela nos dois — a única coisa que a pastilha branca
+// acertava. O portão dos dois números é `tests/paleta.test.ts`.
 export const btnPrimary =
-  "inline-flex items-center justify-center gap-2 rounded-xl bg-tinta px-4 py-2.5 text-sm font-semibold text-papel shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-[background-color,transform,box-shadow] hover:bg-tinta/90 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/25 active:scale-[0.985] disabled:pointer-events-none disabled:opacity-50 dark:bg-tinta-escuro dark:text-papel-escuro dark:hover:bg-tinta-escuro/90 dark:focus-visible:ring-tinta-escuro/30";
+  "inline-flex items-center justify-center gap-2 rounded-xl bg-acao px-4 py-2.5 text-sm font-semibold text-papel shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-[background-color,transform,box-shadow] hover:bg-acao/90 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/30 active:scale-[0.985] disabled:pointer-events-none disabled:opacity-50 dark:bg-acao-escuro dark:text-papel-escuro dark:hover:bg-acao-escuro/90 dark:focus-visible:ring-acao-escuro/30";
 
 export const btnSecondary =
-  "inline-flex items-center justify-center gap-2 rounded-xl border border-traco bg-white px-4 py-2.5 text-sm font-semibold text-tinta transition-colors hover:bg-papel focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/15 active:scale-[0.985] dark:border-traco-escuro dark:bg-transparent dark:text-tinta-escuro dark:hover:bg-traco-escuro/60";
+  "inline-flex items-center justify-center gap-2 rounded-xl border border-traco bg-white px-4 py-2.5 text-sm font-semibold text-tinta transition-colors hover:bg-papel focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 active:scale-[0.985] dark:border-traco-escuro dark:bg-transparent dark:text-tinta-escuro dark:hover:bg-traco-escuro/60";
 
 export const btnGhost =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg border border-traco px-3 py-1.5 text-xs font-medium text-tinta transition-colors hover:bg-traco/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/15 dark:border-traco-escuro dark:text-tinta-escuro dark:hover:bg-traco-escuro/70";
+  "inline-flex items-center justify-center gap-1.5 rounded-lg border border-traco px-3 py-1.5 text-xs font-medium text-tinta transition-colors hover:bg-traco/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:border-traco-escuro dark:text-tinta-escuro dark:hover:bg-traco-escuro/70";
 
 export const btnDanger =
   "inline-flex items-center justify-center gap-1.5 rounded-lg border border-parou/35 px-3 py-1.5 text-xs font-medium text-parou transition-colors hover:bg-parou/8 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-parou/15 dark:border-parou-escuro/35 dark:text-parou-escuro dark:hover:bg-parou-escuro/10";

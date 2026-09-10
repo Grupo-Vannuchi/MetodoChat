@@ -120,7 +120,7 @@ export default function FormNovaAutomacao() {
                 key={o.valor}
                 className={`cursor-pointer rounded-xl border p-3 transition-colors ${
                   escolhido
-                    ? "border-tinta bg-tinta/10 ring-1 ring-tinta dark:border-tinta-escuro dark:bg-tinta-escuro/10 dark:ring-tinta-escuro"
+                    ? "border-acao bg-acao/10 ring-1 ring-acao dark:border-acao-escuro dark:bg-acao-escuro/15 dark:ring-acao-escuro"
                     : "border-zinc-300 bg-white hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:border-zinc-500"
                 }`}
               >

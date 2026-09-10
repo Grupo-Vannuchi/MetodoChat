@@ -98,7 +98,7 @@ export default function AreaMensagens({
         <button
           type="button"
           onClick={() => irAoFim(true)}
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-tinta px-3.5 py-1.5 text-xs font-semibold text-papel shadow-lg transition-colors hover:bg-tinta/90 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/30 dark:bg-tinta-escuro dark:text-papel-escuro dark:hover:bg-tinta-escuro/90 dark:focus-visible:ring-tinta-escuro/30"
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-acao px-3.5 py-1.5 text-xs font-semibold text-papel shadow-lg transition-colors hover:bg-acao/90 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/30 dark:bg-acao-escuro dark:text-papel-escuro dark:hover:bg-acao-escuro/90 dark:focus-visible:ring-acao-escuro/30"
         >
           {novas === 1 ? "1 mensagem nova" : `${novas} mensagens novas`} ↓
         </button>

@@ -29,7 +29,7 @@ export default function EntrarPage() {
           {state?.error && <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>}
           <button
             disabled={pending}
-            className="w-full rounded-lg bg-tinta px-3 py-2 text-sm font-semibold text-papel transition-colors hover:bg-tinta/90 disabled:opacity-50 dark:bg-tinta-escuro dark:text-papel-escuro dark:hover:bg-tinta-escuro/90"
+            className="w-full rounded-lg bg-acao px-3 py-2 text-sm font-semibold text-papel transition-colors hover:bg-acao/90 disabled:opacity-50 dark:bg-acao-escuro dark:text-papel-escuro dark:hover:bg-acao-escuro/90"
           >
             {pending ? "Entrando..." : "Entrar"}
           </button>

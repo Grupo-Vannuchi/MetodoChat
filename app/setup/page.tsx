@@ -483,7 +483,7 @@ export default async function SetupPage({
             href="/api/oauth/login"
             className={`inline-block rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
               metaOk
-                ? "bg-tinta text-papel hover:bg-tinta/90 dark:bg-tinta-escuro dark:text-papel-escuro dark:hover:bg-tinta-escuro/90"
+                ? "bg-acao text-papel hover:bg-acao/90 dark:bg-acao-escuro dark:text-papel-escuro dark:hover:bg-acao-escuro/90"
                 : "pointer-events-none bg-zinc-300 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"
             }`}
           >
