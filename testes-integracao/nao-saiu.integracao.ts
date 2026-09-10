@@ -53,6 +53,7 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
 import { comoNumaRequisicao } from "./semear-requisicao";
+import { textoDaArvore } from "./texto-da-arvore";
 
 type ModuloConta = typeof import("@/lib/account");
 type ModuloTelaDosAgendados = typeof import("@/app/publicar/agendados/page");
@@ -236,64 +237,24 @@ async function claimedAtDe(id: string): Promise<Date> {
 // React já carrega todo o texto, todo `href` e todo `value`, que é tudo o que
 // estes casos precisam exigir.
 //
-// -----------------------------------------------------------------------------
-// POR QUE NÃO `JSON.stringify`, QUE É O QUE `agendados.integracao.ts` USA
-//
-// Medido em 09/09/2026: ele ESTOURA nestas duas telas, com
-// "Converting circular structure to JSON --- property 'default' closes the
-// circle". A causa é `next/link`. Fora do empacotador do Next, o módulo dele
-// resolve para um objeto CommonJS cujo `default` aponta para o próprio módulo, e
-// esse objeto vira o `type` do elemento `<Link>` — que `JSON.stringify` visita.
-//
-// O ARQUIVO IRMÃO NÃO TROPEÇA NISSO POR SORTE, e não por desenho: todos os
-// casos dele semeiam um item PENDENTE, então a tela nunca cai no estado vazio —
-// que é o único lugar onde ela desenha um `<Link>`. O painel desenha vários
-// sempre.
-//
-// ENTÃO A LEITURA DESCE PELA ÁRVORE, e não pelo objeto: ela junta o texto, a
-// `key` e os `props` de valor simples, e NÃO visita o `type` de elemento nenhum.
-// Além de não estourar, ela não arrasta as entranhas do Next para dentro do
-// texto onde os `toContain` procuram.
+// A LEITURA MORA EM `./texto-da-arvore.ts` desde 10/09/2026, e o cabeçalho dela
+// diz por que ela não é `JSON.stringify`: aquele estoura nestas duas telas, por
+// causa do `<Link>` de `next/link`. Ela nasceu aqui e saiu daqui porque o
+// arquivo irmão (`agendados.integracao.ts`) escapava do mesmo estouro POR
+// SORTE — todo caso dele semeia um pendente, e o único `<Link>` daquela tela
+// mora no estado vazio.
 // ---------------------------------------------------------------------------
-
-/** O texto, as `key` e os `props` simples de uma árvore de elementos React. */
-function textoDaArvore(no: unknown, saida: string[] = []): string[] {
-  if (no === null || no === undefined || typeof no === "boolean") return saida;
-  if (typeof no === "string" || typeof no === "number") {
-    saida.push(String(no));
-    return saida;
-  }
-  if (Array.isArray(no)) {
-    for (const filho of no) textoDaArvore(filho, saida);
-    return saida;
-  }
-  if (typeof no !== "object") return saida;
-  const elemento = no as { key?: unknown; props?: unknown };
-  // A `key` é onde o identificador da linha aparece — é por ela que os casos
-  // perguntam se um item entrou ou não na lista.
-  if (typeof elemento.key === "string") saida.push(elemento.key);
-  const props = elemento.props;
-  if (props && typeof props === "object") {
-    for (const [chave, valor] of Object.entries(props as Record<string, unknown>)) {
-      if (chave === "children") textoDaArvore(valor, saida);
-      else if (typeof valor === "string" || typeof valor === "number") {
-        saida.push(`${chave}=${valor}`);
-      }
-    }
-  }
-  return saida;
-}
 
 async function arvoreDosAgendados(): Promise<string> {
   const { valor } = await comoNumaRequisicao("/publicar/agendados", async () =>
-    textoDaArvore(await telaDosAgendados.default({ searchParams: Promise.resolve({}) })).join("\n")
+    textoDaArvore(await telaDosAgendados.default({ searchParams: Promise.resolve({}) }))
   );
   return valor;
 }
 
 async function arvoreDoPainel(): Promise<string> {
   const { valor } = await comoNumaRequisicao("/", async () =>
-    textoDaArvore(await telaDoPainel.default({ searchParams: Promise.resolve({}) })).join("\n")
+    textoDaArvore(await telaDoPainel.default({ searchParams: Promise.resolve({}) }))
   );
   return valor;
 }
