@@ -26,6 +26,10 @@ const TOM: Record<Urgencia, string> = {
   quieto: "bg-quieto/60 dark:bg-quieto-escuro/60",
 };
 
+// A TRILHA VAZIA TEM DE SER VISÍVEL, senão só o COMPRIMENTO se lê e a razão
+// "quanto falta do total" se perde — que é a leitura inteira deste traço. No
+// tema escuro, `traco-escuro` sobre o cartão dá 1,35:1 e some; o `quieto` a 30%
+// sobe para perto de 1,6:1 sem virar uma segunda barra ao lado da primeira.
 export function TracoDaJanela({
   msLeft,
   urgencia,
@@ -37,7 +41,7 @@ export function TracoDaJanela({
   return (
     <span
       aria-hidden
-      className="block h-1 w-11 shrink-0 overflow-hidden rounded-full bg-traco dark:bg-traco-escuro"
+      className="block h-1.5 w-11 shrink-0 overflow-hidden rounded-full bg-traco dark:bg-quieto-escuro/30"
     >
       <span
         className={`block h-full rounded-full ${TOM[urgencia]}`}
@@ -60,7 +64,7 @@ export function TracoDaJanela({
  */
 export function PontoDaLinha({ urgencia }: { urgencia: Urgencia }) {
   return (
-    <span aria-hidden className="flex h-1 w-11 shrink-0 items-center justify-center">
+    <span aria-hidden className="flex h-1.5 w-11 shrink-0 items-center justify-center">
       <span className={`block h-1.5 w-1.5 rounded-full ${TOM[urgencia]}`} />
     </span>
   );

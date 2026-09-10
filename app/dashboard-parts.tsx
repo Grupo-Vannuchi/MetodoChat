@@ -112,10 +112,21 @@ export function SentChart({ dias }: { dias: Dia[] }) {
                       {/* O VALOR SÓ NO PICO, e não em todas as barras: catorze
                           números de 11px sobre catorze barras estreitas viram
                           uma faixa de ruído. O pico ancora a leitura, e o eixo
-                          à esquerda dá o resto. */}
+                          à esquerda dá o resto.
+                          
+                          E ELE VAI DENTRO DA BARRA, não acima. Acima ele batia
+                          na linha do topo do eixo e saía cortado pela borda do
+                          cartão — a barra do pico tem 100% de altura por
+                          definição, então não há espaço em cima dela. Dentro
+                          sempre cabe, pelo mesmo motivo.
+                          
+                          A COR INVERTE COM O TEMA, como a do botão: a barra é
+                          escura sobre página clara e clara sobre página escura,
+                          então o número que fica em cima dela é o `papel` de um
+                          tema e o do outro. */}
                       {d.n === max && (
                         <span
-                          className={`absolute -top-4 left-1/2 -translate-x-1/2 text-[11px] font-semibold ${numero}`}
+                          className={`absolute inset-x-0 top-1 text-center text-[11px] font-semibold text-papel dark:text-papel-escuro ${numero}`}
                         >
                           {d.n}
                         </span>
