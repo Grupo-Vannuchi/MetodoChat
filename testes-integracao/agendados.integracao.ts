@@ -54,6 +54,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
 import { comoNumaRequisicao } from "./semear-requisicao";
+import { textoDaArvore } from "./texto-da-arvore";
 
 type ModuloAcoes = typeof import("@/app/publicar/agendados/actions");
 type ModuloDreno = typeof import("@/lib/queue-drain");
@@ -798,15 +799,24 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
   //
   // O INSTRUMENTO E O COMPONENTE DE VERDADE. Estes casos CHAMAM a funcao da
   // pagina dentro de um contexto de requisicao e leem a arvore que ela devolve.
-  // Nao ha DOM, nao ha renderizador: `JSON.stringify` de elementos React ja
-  // carrega todo o texto e todo `value` dos campos, que e tudo o que se precisa
-  // exigir aqui. Foi assim que os plantios foram medidos.
+  // Nao ha DOM, nao ha renderizador: uma arvore de elementos React ja carrega
+  // todo o texto e todo `value` dos campos, que e tudo o que se precisa exigir
+  // aqui. Foi assim que os plantios foram medidos.
+  //
+  // A LEITURA E `textoDaArvore` (./texto-da-arvore.ts), E NAO `JSON.stringify` —
+  // desde 10/09/2026. Ate essa data era `JSON.stringify`, e ele PASSAVA AQUI POR
+  // SORTE: ele estoura com "Converting circular structure to JSON" em qualquer
+  // tela que desenhe um `<Link>` de `next/link`, e o unico `<Link>` desta tela
+  // mora no ESTADO VAZIO — que nenhum caso deste arquivo alcanca, porque todos
+  // semeiam um item pendente. O primeiro caso de estado vazio escrito aqui
+  // receberia um rastro de pilha sobre `next/link` no lugar de um vermelho sobre
+  // o proprio teste. Ver o cabecalho daquele arquivo para a medicao.
   // =========================================================================
 
   /** A arvore que a tela dos agendados devolve, em texto. */
   async function arvoreDosAgendados(): Promise<string> {
     const { valor } = await comoNumaRequisicao("/publicar/agendados", async () =>
-      JSON.stringify(await telaDosAgendados.default({ searchParams: Promise.resolve({}) }))
+      textoDaArvore(await telaDosAgendados.default({ searchParams: Promise.resolve({}) }))
     );
     return valor;
   }
@@ -814,7 +824,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
   /** A arvore que a tela de Envios devolve, em texto. */
   async function arvoreDeEnvios(): Promise<string> {
     const { valor } = await comoNumaRequisicao("/eventos", async () =>
-      JSON.stringify(await telaDeEnvios.default({ searchParams: Promise.resolve({}) }))
+      textoDaArvore(await telaDeEnvios.default({ searchParams: Promise.resolve({}) }))
     );
     return valor;
   }
@@ -865,7 +875,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
 
     // SEM ESTE CAMPO a tela volta a acertar a hora por acidente: `fusoDoCampo`
     // cai no padrão de Brasília, e o painel deixa de funcionar fora do Brasil.
-    expect(arvore).toContain('"name":"fuso"');
+    expect(arvore).toContain("name=fuso");
   });
 
   // =========================================================================

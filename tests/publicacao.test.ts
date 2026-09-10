@@ -50,6 +50,11 @@ import {
   LEGENDA_NA_LISTA,
   confirmouOCancelamento,
   TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO,
+  avisoDeFalhas,
+  linhaDaFalha,
+  FRASE_DA_FALHA,
+  DIAS_DE_AVISO_DA_PUBLICACAO,
+  HORAS_DE_AVISO_DA_MENSAGEM,
 } from "../lib/publicacao";
 
 const MB = 1024 * 1024;
@@ -2164,5 +2169,135 @@ describe("confirmouOCancelamento", () => {
   it("a frase da recusa diz o que fazer, e que nada foi cancelado", () => {
     expect(TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO.toLowerCase()).toContain("confirma");
     expect(TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO.toLowerCase()).toContain("nada foi cancelado");
+  });
+});
+
+// =============================================================================
+// O AVISO DO PAINEL E A LINHA DA FALHA (09/09/2026)
+//
+// O painel contava UM numero — `failed24` — e escrevia "mensagem nao saiu" para
+// ele, inclusive quando o item era uma PUBLICACAO. E a tela de agendados filtra
+// `status = 'pending'`, entao o post falhado sumia da unica lista onde alguem
+// iria procura-lo.
+// =============================================================================
+
+describe("avisoDeFalhas", () => {
+  it("sem falha nenhuma nao ha aviso", () => {
+    expect(avisoDeFalhas(0, 0)).toBeNull();
+  });
+  // PUBLICACAO E MENSAGEM SAO FATOS DIFERENTES, e o painel os chamava do mesmo
+  // nome — "mensagem nao saiu", inclusive para post. Cada um se resolve em tela
+  // diferente, entao a frase E o destino tem de mudar junto.
+  it("so publicacao aponta para a tela de agendados", () => {
+    const a = avisoDeFalhas(1, 0)!;
+    expect(a.texto).toContain("publicação");
+    expect(a.texto).not.toContain("mensagem");
+    expect(a.href).toBe("/publicar/agendados");
+  });
+  it("so mensagem continua apontando para eventos", () => {
+    const a = avisoDeFalhas(0, 2)!;
+    expect(a.texto).toContain("mensagens");
+    expect(a.href).toBe("/eventos");
+  });
+  // AS DUAS AO MESMO TEMPO: a frase diz as duas coisas, e o destino nao pode
+  // esconder metade. Publicacao vem primeiro porque e a que fica publica.
+  it("as duas juntas dizem as duas, e mandam para a publicacao", () => {
+    const a = avisoDeFalhas(1, 3)!;
+    expect(a.texto).toContain("publicação");
+    expect(a.texto).toContain("mensagens");
+    expect(a.href).toBe("/publicar/agendados");
+  });
+  it("o singular e o plural nao saem errados", () => {
+    expect(avisoDeFalhas(1, 0)!.texto).not.toContain("publicações");
+    expect(avisoDeFalhas(2, 0)!.texto).toContain("publicações");
+  });
+  // AS DUAS JANELAS SAO DIFERENTES DE PROPOSITO, e o numero de cada uma e
+  // constante nomeada porque a consulta do painel le a MESMA constante. Um 7
+  // escrito no SQL e outro na frase seriam duas fontes para o mesmo prazo.
+  it("as janelas sao as duas constantes, e a frase diz cada uma", () => {
+    expect(DIAS_DE_AVISO_DA_PUBLICACAO).toBe(7);
+    expect(HORAS_DE_AVISO_DA_MENSAGEM).toBe(24);
+    expect(avisoDeFalhas(1, 0)!.texto).toContain(String(DIAS_DE_AVISO_DA_PUBLICACAO));
+    expect(avisoDeFalhas(0, 1)!.texto).toContain(String(HORAS_DE_AVISO_DA_MENSAGEM));
+  });
+});
+
+describe("linhaDaFalha", () => {
+  const base = {
+    not_before: new Date("2026-09-11T12:59:00Z"),
+    claimed_at: new Date("2026-09-11T12:57:00Z"),
+    payload: { forma: "reels", legenda: "oi" },
+  };
+  it("o motivo escrito pelo dreno chega inteiro", () => {
+    expect(
+      linhaDaFalha({ ...base, error: "Instagram API 400: media nao encontrada" }).motivo
+    ).toContain("media nao encontrada");
+  });
+  // ITEM `failed` SEM MOTIVO E POSSIVEL — o `error` e opcional na tabela. A
+  // tela nao pode ficar em branco, porque branco parece defeito da tela e nao
+  // do envio.
+  it("falha sem motivo escrito ainda diz alguma coisa", () => {
+    const m = linhaDaFalha({ ...base, error: null }).motivo;
+    expect(m.length).toBeGreaterThan(0);
+    expect(m.toLowerCase()).not.toBe("null");
+  });
+  // A DATA E A DA TENTATIVA QUE FALHOU, e nao a do `not_before` (10/09/2026).
+  // `finish` (lib/queue-drain.ts) reescreve `not_before` com `now() +
+  // retryInSeconds` SEM olhar o status, e o `catch` generico do dreno o chama
+  // com 120 segundos tambem no ramo `failed`: num item falhado aquela coluna e
+  // uma hora NO FUTURO, de uma retentativa que nunca vai acontecer.
+  it("a data e a da tentativa que falhou, e nao a do not_before reescrito", () => {
+    expect(linhaDaFalha({ ...base, error: null }).quando).toEqual(base.claimed_at);
+  });
+  // O CASO QUE O DRENO FABRICA DE VERDADE: `not_before` no futuro num item que
+  // ja falhou. Sem esta linha, `claimed_at ?? not_before` e `not_before`
+  // sozinho respondem igual em todo caso deste arquivo.
+  it("um not_before no FUTURO nao vira a hora da falha", () => {
+    const futuro = new Date("2026-09-11T13:01:00Z");
+    const r = linhaDaFalha({ ...base, not_before: futuro, error: null });
+    expect(r.quando).toEqual(base.claimed_at);
+    expect(r.quando).not.toEqual(futuro);
+  });
+  // A REDE DO ITEM QUE NUNCA FOI REIVINDICADO — o mesmo `coalesce` da consulta
+  // do painel. Sem `claimed_at` nao ha instante de falha, e o `not_before` e o
+  // que resta de mais proximo; celula em branco pareceria defeito da tela.
+  it("sem claimed_at a data cai no not_before", () => {
+    expect(linhaDaFalha({ ...base, claimed_at: null, error: null }).quando).toEqual(
+      base.not_before
+    );
+  });
+  // PAYLOAD ADULTERADO NAO PODE DERRUBAR A TELA: a coluna e jsonb e editavel
+  // por fora do painel. O par disto no dreno e `publicacao_com_payload_invalido`.
+  it("payload sem forma nem legenda nao quebra", () => {
+    const r = linhaDaFalha({
+      not_before: base.not_before,
+      claimed_at: base.claimed_at,
+      error: "x",
+      payload: {},
+    });
+    expect(typeof r.forma).toBe("string");
+    expect(typeof r.legenda).toBe("string");
+  });
+  // A FORMA E A LEGENDA VEM DAS MESMAS FUNCOES DA LISTA DOS AGENDADOS, e nao de
+  // uma segunda leitura escrita aqui: as duas secoes moram na mesma tela, e
+  // duas fontes para a mesma palavra e o defeito que esta base vem apagando.
+  it("o payload inteiro devolve a palavra da tela de compor e o comeco da legenda", () => {
+    const r = linhaDaFalha({
+      not_before: base.not_before,
+      claimed_at: base.claimed_at,
+      error: null,
+      payload: { forma: "reels", caminhos: ["conta/a.mp4"], legenda: "Promocao de setembro" },
+    });
+    expect(r.forma).toBe(rotuloDaForma("reels"));
+    expect(r.legenda).toBe(resumoDaLegenda("Promocao de setembro", LEGENDA_NA_LISTA));
+  });
+  // A FRASE E A TERCEIRA PECA DA MESMA DECISAO. A data ao lado dela e o
+  // `claimed_at`, o instante em que o post falhou — e nenhuma das duas metades
+  // de `fraseDaDataDaLinha` cabe nisso: as duas falam de uma saida que ainda
+  // pode acontecer, e esta ja foi recusada.
+  it("a frase da falha nao promete saida nenhuma, e nao e a do item atrasado", () => {
+    expect(FRASE_DA_FALHA).toBe("Falhou em ");
+    expect(FRASE_DA_FALHA).not.toBe(fraseDaDataDaLinha({ futuro: false, saiu: false }));
+    expect(FRASE_DA_FALHA).not.toBe(fraseDaDataDaLinha({ futuro: true, saiu: false }));
   });
 });
