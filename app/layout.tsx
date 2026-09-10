@@ -91,9 +91,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
 
   return (
-    <html lang="pt-BR" suppressHydrationWarning>
+    // AS CLASSES DAS FONTES VAO NO <html>, E NAO NO <body> — medido no preview em
+    // 10/09/2026, e a diferenca e a entrega inteira da tipografia.
+    //
+    // `next/font` declara `--fonte-texto`, `--fonte-titulo` e `--fonte-mono` no
+    // ELEMENTO que recebe a classe. O `@theme` do Tailwind v4 emite as suas
+    // variaveis no `:root` — e la ele escreve `--font-sans: var(--fonte-texto)`.
+    // Com a classe no <body>, essa referencia aponta para uma variavel que ainda
+    // nao existe naquele escopo: `--font-sans` sai VAZIA e `font-sans` cai no
+    // stack do sistema.
+    //
+    // O sintoma era mudo, e por isso vale escrito: as tres fontes BAIXAVAM (o
+    // `document.fonts` as tinha, status `loaded`) e nenhuma era aplicada. Pagava-
+    // se o custo de rede e a tela continuava em -apple-system.
+    <html lang="pt-BR" className={fontes} suppressHydrationWarning>
       <body
-        className={`${fontes} font-sans min-h-screen bg-papel text-tinta antialiased dark:bg-papel-escuro dark:text-tinta-escuro`}
+        className={`font-sans min-h-screen bg-papel text-tinta antialiased dark:bg-papel-escuro dark:text-tinta-escuro`}
       >
         <Script id="theme-init" strategy="beforeInteractive">
           {themeScript}
