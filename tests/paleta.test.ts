@@ -332,8 +332,17 @@ describe("a varredura do índigo", () => {
     // são os dois que separam SUPERFÍCIE de TEXTO: o botão é preenchido com
     // `acao`, e o link é tinta com sublinhado — nunca cor, porque um link
     // colorido no meio de um parágrafo volta a ser acento de marca.
-    expect(btnPrimary).toContain("bg-acao");
-    expect(btnPrimary).toContain("dark:bg-acao-escuro");
+    // A CLASSE INTEIRA, E NÃO UMA SUBSTRING. `toContain("bg-acao")` passava com
+    // o botão do tema claro trocado de volta para `bg-tinta`, porque
+    // `dark:bg-acao-escuro` CONTÉM "bg-acao" — o caso ficava verde medindo a
+    // outra metade. Foi um plante que revelou isso, e não uma leitura.
+    const temClasse = (tokens: string, classe: string) =>
+      tokens.split(/\s+/).includes(classe);
+    expect(temClasse(btnPrimary, "bg-acao"), "o preenchimento do tema claro").toBe(true);
+    expect(temClasse(btnPrimary, "dark:bg-acao-escuro"), "o do tema escuro").toBe(true);
+    expect(temClasse(btnPrimary, "bg-tinta"), "a tinta não volta pela porta dos fundos").toBe(
+      false
+    );
     expect(link).toContain("text-tinta");
     expect(link).toContain("underline");
     expect(link).not.toContain("acao");
