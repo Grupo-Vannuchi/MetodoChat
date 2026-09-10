@@ -309,6 +309,15 @@ export const badge =
   "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold";
 
 export const badgeNeutral = `${badge} bg-traco/50 text-quieto dark:bg-traco-escuro dark:text-quieto-escuro`;
+
+// O SELO DA ESCOLHA ATIVA, e ele existe para consertar um uso errado de cor de
+// estado: `/contatos` marcava o filtro selecionado com `badgeOk`, ou seja, com
+// o VERDE que quer dizer "janela aberta, deu certo". Um filtro selecionado não
+// é um estado do produto — é uma escolha de quem está olhando —, e gastar a cor
+// do sinal com ela desgasta o sinal. Preenchido, como o segmento marcado de
+// `/eventos` e `/automacoes`, porque é o mesmo gesto e agora tem a mesma cara.
+// Medido: rótulo em 7,39:1 no claro e 9,12:1 no escuro.
+export const badgeAcao = `${badge} bg-acao text-papel dark:bg-acao-escuro dark:text-papel-escuro`;
 // OS TRÊS SELOS DE ESTADO FICAM COMO ESTÃO, E A RECUSA É MEDIDA — não é
 // esquecimento. A tentação era escrever `bg-aberto/12 text-aberto` e deixar a
 // classe dizer o nome do estado. Medido contra o fundo que essa conta produz,

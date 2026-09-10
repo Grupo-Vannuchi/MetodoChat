@@ -24,7 +24,7 @@ import {
   tableWrap,
   thead,
   rowDivide,
-  badgeOk,
+  badgeAcao,
   badgeNeutral,
   emptyWrap,
   alertOk,
@@ -272,14 +272,14 @@ export default async function ContatosPage({
       ) : (
         <div className="space-y-10">
           <div className="flex flex-wrap gap-2">
-            <Link href="/contatos" className={filtro.tipo === "tudo" ? badgeOk : badgeNeutral}>
+            <Link href="/contatos" className={filtro.tipo === "tudo" ? badgeAcao : badgeNeutral}>
               todos ({rows.length})
             </Link>
             {fichas.map((f) => (
               <Link
                 key={f.nome ?? "__sem__"}
                 href={urlComFiltro("/contatos", { tipo: "uma", nome: f.nome })}
-                className={fichaSelecionada(filtro, f.nome) ? badgeOk : badgeNeutral}
+                className={fichaSelecionada(filtro, f.nome) ? badgeAcao : badgeNeutral}
               >
                 {f.nome ?? "sem categoria"} · {f.total} · {f.alcancaveis} alcançáveis
               </Link>
