@@ -91,8 +91,15 @@
      contraste da tela nos dois temas — o que a pastilha branca acertava, e a
      única coisa que ela acertava.
 
-     Pior caso claro: 10,20:1 (sobre `bg-zinc-100`). */
-  --color-acao: #14404e; /* pior 10,20 */
+     O TOM CLARO FOI CORRIGIDO DEPOIS DE VER A TELA. A primeira escolha
+     (#14404E) media bem e LIA como preto: contra a tinta ela ficava em 1,61:1,
+     ou seja, indistinguível do texto ao lado. Cor que não se vê não responde ao
+     pedido que a criou. Este tom tem o MESMO croma do par escuro (0,32 contra
+     0,33), então a cor tem a mesma intensidade nos dois temas — o que o par
+     anterior não tinha —, e fica em 2,34:1 da tinta.
+
+     Pior caso claro: 7,02:1 (sobre `bg-zinc-100`). */
+  --color-acao: #1a5a6c; /* pior 7,02 */
   /* Pior caso escuro: 6,88:1 (sobre `bg-zinc-800`). */
   --color-acao-escuro: #78bacd; /* pior 6,88 */
 

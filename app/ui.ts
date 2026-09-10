@@ -169,7 +169,7 @@ export const fieldError = "mt-1.5 text-xs font-medium text-parou dark:text-parou
 /* ---------- botões ---------- */
 
 // A AÇÃO É O PETRÓLEO, e é aqui que o índigo mais se via — e, depois dele, o
-// branco. Medido: `papel` sobre `acao` dá 10,75:1 no claro, e `papel-escuro`
+// branco. Medido: `papel` sobre `acao` dá 7,39:1 no claro, e `papel-escuro`
 // sobre `acao-escuro` dá 9,12:1 no escuro. O preenchimento troca de lado entre
 // os temas (escuro no claro, claro no escuro), que é o que mantém o botão sendo
 // o maior contraste da tela nos dois — a única coisa que a pastilha branca

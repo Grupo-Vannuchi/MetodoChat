@@ -175,14 +175,30 @@ export default function AutomationsList({ automations }: { automations: Automati
                 aria-selected={ativo}
                 type="button"
                 onClick={() => setFiltro(f.id)}
+                /* O SEGMENTO ESCOLHIDO É PINTADO COM `acao`, e não erguido em
+                   branco. Ele e o de `/eventos` são o MESMO controle aos olhos
+                   de quem usa — grupo com borda, um segmento marcado —, e
+                   estavam com aparências diferentes: lá preenchido, aqui
+                   levantado. A cor da ação entrou nos dois pelo mesmo motivo,
+                   que é escolha ativa. */
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                   ativo
-                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white"
+                    ? "bg-acao text-papel dark:bg-acao-escuro dark:text-papel-escuro"
                     : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                 }`}
               >
                 {f.label}
-                <span className="ml-1.5 text-[11px] text-zinc-600 dark:text-zinc-400">{contagem[f.id]}</span>
+                {/* A contagem acompanha o rótulo: sobre o petróleo ela é o
+                    próprio papel a 75%, e fora dele continua quieta. */}
+                <span
+                  className={`ml-1.5 text-[11px] ${
+                    ativo
+                      ? "text-papel/75 dark:text-papel-escuro/75"
+                      : "text-zinc-600 dark:text-zinc-400"
+                  }`}
+                >
+                  {contagem[f.id]}
+                </span>
               </button>
             );
           })}

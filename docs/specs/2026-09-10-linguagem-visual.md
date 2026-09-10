@@ -60,7 +60,7 @@ ação.**
 ```
 --papel    #FBFAF8   fundo, branco morno — NÃO creme
 --tinta    #17161A   texto
---acao     #14404E   o preenchimento do botão — petróleo
+--acao     #1A5A6C   o preenchimento do botão — petróleo
 --traco    #E3E0DA   fio, borda, divisor
 --quieto   #6B6862   texto secundário
 --aberto   #15803D   janela aberta, deu certo
@@ -86,7 +86,11 @@ azul de todo painel de SaaS, e ameixa (286°) é o índigo com outro nome.
 O preenchimento **troca de lado entre os temas**, como a tinta já fazia: escuro
 sobre página clara, claro sobre página escura. É o que mantém o botão sendo o
 maior contraste da tela nos dois — a única coisa que a pastilha branca
-acertava. Rótulo em 10,75:1 e 9,12:1.
+acertava. Rótulo em 7,39:1 e 9,12:1.
+
+O tom claro foi corrigido **depois de ver a tela**: a primeira escolha (#14404E)
+media bem e lia como preto — 1,61:1 contra a tinta ao lado. O tom que ficou tem
+o mesmo croma do par escuro, então a cor tem a mesma intensidade nos dois temas.
 
 **Onde ela vai:** no que se aperta, no que marca a escolha ativa e em todo
 contorno de foco. **Onde não vai:** avatar, contador de não lidas, balão
