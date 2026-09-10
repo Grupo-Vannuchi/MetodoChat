@@ -592,6 +592,62 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
   });
 
   // =========================================================================
+  // O ITEM FALHADO QUE NUNCA FOI REIVINDICADO — o braço do `coalesce`.
+  //
+  // POR QUE ELE É SEMEADO, E NÃO APAGADO. O `coalesce(claimed_at, not_before)`
+  // aparece em TRÊS lugares que precisam concordar: a contagem da janela de 7
+  // dias (app/page.tsx), a ordem da seção das falhadas e a data da linha
+  // (`linhaDaFalha`). Hoje o braço da direita é inalcançável — `failed` só é
+  // escrito por `finish`, que só roda depois da reivindicação, e nada nunca
+  // limpa `claimed_at` —, e por isso ele sobreviveu a todos os cinco portões.
+  //
+  // Havia duas saídas defensáveis: tirar o `coalesce` ou semear o caso. Tirar
+  // exigiria tirá-lo dos TRÊS, e deixaria a tela de diagnóstico imprimindo "—"
+  // na hora e a linha subindo para o topo da seção (em `desc`, o Postgres põe
+  // NULO primeiro) no dia em que uma linha adulterada à mão aparecesse — que é
+  // o dia em que alguém está justamente olhando para esta tela. Semear custa um
+  // caso e prende os três de uma vez.
+  //
+  // A COLUNA É `jsonb` E A TABELA É EDITÁVEL POR FORA DO PAINEL, e este arquivo
+  // já mede o payload adulterado pelo mesmo motivo. A diferença é que aqui a
+  // rede é de UMA linha de SQL, e sem este caso ela era código que nada media.
+  // =========================================================================
+  test("uma falha sem claimed_at cai no not_before — no aviso, na ordem e na linha", async () => {
+    await limparAFila();
+    const semReivindicacao = await semear({
+      conta: CONTA_A,
+      status: "failed",
+      emSegundos: -2 * 3600,
+      // NUNCA FOI REIVINDICADO. É o braço da direita do `coalesce`.
+      reivindicadoEm: null,
+      criadoEm: -2 * 3600,
+      error: "a falha sem hora de reivindicacao",
+    });
+    // A VIZINHA COM `claimed_at`, e ela é o que mede a ORDEM: sem o `coalesce`
+    // no `order by`, o `desc` do Postgres põe o NULO em primeiro.
+    const recente = await semear({
+      conta: CONTA_A,
+      status: "failed",
+      emSegundos: -600,
+      reivindicadoEm: -600,
+      error: "a que acabou de falhar",
+    });
+
+    // 1. A CONTAGEM DA JANELA. Sem o `coalesce`, a linha sem `claimed_at` não
+    //    entra em janela nenhuma — e some do aviso.
+    const painel = await arvoreDoPainel();
+    expect(painel).toContain("publicações não saíram");
+
+    const agendados = await arvoreDosAgendados();
+    expect(agendados).toContain(semReivindicacao);
+    // 2. A DATA DA LINHA. Sem o `??` de `linhaDaFalha`, `fmtDate` imprime "—" —
+    //    e célula em branco numa tela de diagnóstico parece defeito DA TELA.
+    expect(agendados).toContain(formato.fmtDate(await notBeforeDe(semReivindicacao)));
+    // 3. A ORDEM. A que acabou de falhar continua em primeiro.
+    expect(agendados.indexOf(recente)).toBeLessThan(agendados.indexOf(semReivindicacao));
+  });
+
+  // =========================================================================
   // A PALAVRA E O DESTINO. Até 09/09/2026 o painel escrevia "mensagem não saiu"
   // sobre QUALQUER falha, e mandava para `/eventos` — a tela onde uma
   // publicação não se resolve.

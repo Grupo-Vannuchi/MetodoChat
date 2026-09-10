@@ -125,7 +125,15 @@ export default async function Home({
              -- exatamente o modo de falha que esta entrega existe para fechar.
              -- (sem crases neste comentario: ele mora DENTRO de um template
              --  literal, e uma crase o fecharia no meio.)
-             -- O coalesce e a rede do item que nunca foi reivindicado.
+             -- O coalesce e a rede do item que nunca foi reivindicado, e ela
+             -- e MEDIDA desde 10/09/2026: "uma falha sem claimed_at cai no
+             -- not_before" (testes-integracao/nao-saiu.integracao.ts) semeia
+             -- esse item e exige o aviso, a ordem e a data. Ate essa data o
+             -- braco da direita era inalcancavel e nenhum caso o tocava --
+             -- tirar o coalesce passava pelos cinco portoes. O mesmo coalesce
+             -- mora em mais dois lugares que precisam concordar com este: a
+             -- ordem da secao das falhadas e a data da linha (linhaDaFalha),
+             -- e o caso prende os tres de uma vez.
              --
              -- MENSAGEM CONTINUA EM created_at, byte por byte como estava.
              (select count(*)::int from queue where account_id = $1 and status = 'failed'
