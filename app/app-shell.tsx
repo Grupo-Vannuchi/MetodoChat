@@ -77,7 +77,7 @@ function ThemeToggle() {
     <button
       type="button"
       onClick={toggle}
-      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-100/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-100"
+      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-100"
     >
       <IconSun className="hidden h-[17px] w-[17px] text-zinc-400 dark:block dark:text-zinc-500" />
       <IconMoon className="h-[17px] w-[17px] text-zinc-400 dark:hidden" />
@@ -94,7 +94,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
       {NAV_GROUPS.map((group, gi) => (
         <div key={group.label ?? gi} className="flex flex-col gap-0.5">
           {group.label && (
-            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-600 dark:text-zinc-400">
+            <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-600 dark:text-zinc-400">
               {group.label}
             </p>
           )}
@@ -108,7 +108,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                 href={item.href}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
-                className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors ${
+                className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                   active
                     ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800/70 dark:text-white"
                     : "text-zinc-600 hover:bg-zinc-100/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-100"
@@ -140,7 +140,7 @@ function Brand() {
   return (
     <Link
       href="/"
-      className="flex items-center px-3 text-[17px] font-semibold tracking-[-0.02em] text-zinc-900 transition-opacity hover:opacity-70 dark:text-zinc-50"
+      className="flex items-center px-3 text-base font-semibold tracking-[-0.02em] text-zinc-900 transition-opacity hover:opacity-70 dark:text-zinc-50"
     >
       MetodoChat<span className="text-indigo-500">.</span>
     </Link>
@@ -173,7 +173,7 @@ function SidebarBody({
           href="https://n8xmarketing.com.br"
           target="_blank"
           rel="noreferrer noopener"
-          className="block px-3 pt-2 text-[10px] leading-relaxed text-zinc-600 dark:text-zinc-400 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
+          className="block px-3 pt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
         >
           Criado por N8X Marketing
         </a>

@@ -29,7 +29,7 @@ export default function PostLine({ kind, post }: { kind: string; post: PostRef |
         </span>
       )}
       <span className="flex min-w-0 flex-col">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.04em] text-zinc-600 dark:text-zinc-400">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.04em] text-zinc-600 dark:text-zinc-400">
           {kind}
         </span>
         <span className="max-w-[22rem] truncate text-xs text-zinc-600 dark:text-zinc-300">

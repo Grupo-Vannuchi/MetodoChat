@@ -175,7 +175,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                 aria-selected={ativo}
                 type="button"
                 onClick={() => setFiltro(f.id)}
-                className={`rounded-[10px] px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                className={`rounded-[10px] px-3 py-1.5 text-sm font-medium transition-colors ${
                   ativo
                     ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white"
                     : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
@@ -241,7 +241,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
                         href={`/automacoes/${a.id}`}
-                        className="truncate text-[15px] font-semibold text-zinc-900 hover:text-indigo-600 dark:text-zinc-100 dark:hover:text-indigo-400"
+                        className="truncate text-base font-semibold text-zinc-900 hover:text-indigo-600 dark:text-zinc-100 dark:hover:text-indigo-400"
                       >
                         {a.name}
                       </Link>

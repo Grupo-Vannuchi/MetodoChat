@@ -94,7 +94,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
               <img src={escolhido.thumb} alt="" className="h-4 w-4 flex-none rounded object-cover" />
             )}
             <span className="max-w-[10rem] truncate">{rotuloPost}</span>
-            <span aria-hidden="true" className="text-[10px] text-zinc-600 dark:text-zinc-400">
+            <span aria-hidden="true" className="text-[11px] text-zinc-600 dark:text-zinc-400">
               {abrirPosts ? "▴" : "▾"}
             </span>
           </button>
@@ -186,7 +186,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
                     </span>
                   )}
                 </span>
-                <span className="text-center text-[9px] tabular-nums text-zinc-600 dark:text-zinc-400">{p.total}</span>
+                <span className="text-center text-[11px] tabular-nums text-zinc-600 dark:text-zinc-400">{p.total}</span>
               </button>
             ))}
           </div>

@@ -295,7 +295,7 @@ export default async function Home({
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="font-semibold">@{account.username}</p>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${saude.cor}`}>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${saude.cor}`}>
                   {saude.titulo}
                 </span>
               </div>

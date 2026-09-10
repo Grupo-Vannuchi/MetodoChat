@@ -51,11 +51,11 @@ function Step({
         </span>
         <span className="min-w-0">{title}</span>
         {done ? (
-          <span className="ml-auto shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+          <span className="ml-auto shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
             concluído
           </span>
         ) : obrigatorio ? (
-          <span className="ml-auto shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+          <span className="ml-auto shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
             obrigatório
           </span>
         ) : null}
@@ -558,7 +558,7 @@ export default async function SetupPage({
             ].map((item) => (
               <li key={item.label} className="flex items-start gap-2 text-sm">
                 <span
-                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${
+                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${
                     item.ok ? "bg-emerald-500" : "bg-zinc-400 dark:bg-zinc-600"
                   }`}
                 >

@@ -73,7 +73,7 @@ function Janela({ c }: { c: Row }) {
   const aberta = windowState(c.last_reply_at).open;
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
         aberta
           ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400"
           : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"

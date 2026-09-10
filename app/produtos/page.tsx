@@ -25,13 +25,13 @@ function CardProduto({ p }: { p: Produto }) {
     <div className={`${card} ${cardHover} flex h-full flex-col p-5`}>
       <div className="flex items-center gap-3.5">
         <Marca nome={p.nome} />
-        <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-zinc-900 dark:text-zinc-50">
+        <h2 className="text-base font-semibold tracking-[-0.01em] text-zinc-900 dark:text-zinc-50">
           {p.nome}
         </h2>
       </div>
 
       {p.descricao && (
-        <p className={`mt-4 text-[13px] leading-relaxed ${muted}`}>{p.descricao}</p>
+        <p className={`mt-4 text-sm leading-relaxed ${muted}`}>{p.descricao}</p>
       )}
 
       {/* o botão fica colado na base, para os cards alinharem mesmo quando as

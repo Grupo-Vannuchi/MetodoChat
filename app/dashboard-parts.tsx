@@ -76,7 +76,7 @@ export function SentChart({ dias }: { dias: Dia[] }) {
             {dias.map((d, i) => (
               <span
                 key={d.chave}
-                className={`flex-1 text-center text-[9px] tabular-nums ${muted}`}
+                className={`flex-1 text-center text-[11px] tabular-nums ${muted}`}
               >
                 {i % 2 === 0 ? d.rotulo : ""}
               </span>

@@ -20,7 +20,7 @@ import type { QueueItem } from "@/lib/db";
 
 type Badge = { label: string; className: string };
 
-const BADGE_BASE = "rounded-full px-2 py-0.5 text-[10px] font-medium";
+const BADGE_BASE = "rounded-full px-2 py-0.5 text-[11px] font-medium";
 
 // ---------- O que a pessoa fez no seu Instagram ----------
 

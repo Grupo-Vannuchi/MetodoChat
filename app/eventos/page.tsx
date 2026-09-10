@@ -235,7 +235,7 @@ export default async function EventosPage({
                                 src={q.person_pic}
                                 name={paraQuem}
                                 className="h-6 w-6"
-                                textClassName="text-[10px]"
+                                textClassName="text-[11px]"
                               />
                               <span className="truncate font-medium">{paraQuem}</span>
                             </div>
@@ -329,7 +329,7 @@ export default async function EventosPage({
                               src={e.person_pic}
                               name={quem}
                               className="h-5 w-5"
-                              textClassName="text-[9px]"
+                              textClassName="text-[11px]"
                             />
                             @{quem}
                           </span>

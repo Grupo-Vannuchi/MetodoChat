@@ -54,8 +54,14 @@ export const divider = "border-t border-zinc-200/80 dark:border-zinc-800";
 // ser quieto, e o achado pedia legibilidade, não hierarquia invertida.
 export const tomQuieto = "text-zinc-600 dark:text-zinc-400";
 
+// `text-[22px]` saiu: 22px era um degrau só dele, e a rampa 20->24 (`text-xl`
+// no celular, `text-2xl` a partir de 640px) usa dois degraus que a escala já
+// tem. No celular o título fica 2px MENOR do que era, e o sentido da mudança
+// é de propósito: a auditoria elogiou "nenhuma página rola na horizontal em
+// 390px", e não há como conferir isso sem renderizar — então a troca que
+// sobrou é a que não pode piorar aquilo.
 export const pageTitle =
-  "text-[22px] font-bold tracking-[-0.01em] text-zinc-900 sm:text-2xl dark:text-zinc-50";
+  "text-xl font-bold tracking-[-0.01em] text-zinc-900 sm:text-2xl dark:text-zinc-50";
 
 export const pageSubtitle = `mt-1 text-sm ${tomQuieto}`;
 
@@ -202,7 +208,7 @@ export const link =
 /* ---------- selos ---------- */
 
 export const badge =
-  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold";
+  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold";
 
 export const badgeNeutral = `${badge} bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400`;
 export const badgeOk = `${badge} bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400`;

@@ -79,7 +79,7 @@ export default function AccountSwitcher({
                     src={a.profile_picture_url}
                     name={a.username ?? "?"}
                     className="h-6 w-6"
-                    textClassName="text-[10px]"
+                    textClassName="text-[11px]"
                   />
                   <span className="min-w-0 flex-1 truncate">@{a.username ?? a.ig_user_id}</span>
                   {a.ig_user_id === current.ig_user_id && (
@@ -115,7 +115,7 @@ export default function AccountSwitcher({
           <p className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
             @{current.username ?? current.ig_user_id}
           </p>
-          <p className="text-[10px] text-zinc-600 dark:text-zinc-400">
+          <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
             {pending ? "trocando…" : accounts.length > 1 ? "trocar conta" : "conectado"}
           </p>
         </div>
