@@ -151,6 +151,51 @@ export const btnLinha =
 export const btnLinhaDanger =
   "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40";
 
+// O CONTEINER DAS ACOES DE UMA LINHA DE LISTA. Ele não tem opacidade, e a
+// ausência é o conserto do achado D11 — por isso ele é um token e não quatro
+// classes soltas no JSX.
+//
+// O DEFEITO: o contêiner carregava `sm:opacity-60`, o padrão de "revelar no
+// hover". A cor DECLARADA das quatro ações passava; a cor VISTA não, porque
+// `opacity` multiplica o galho inteiro. Medido em produção, a ≥640px, em
+// repouso: as quatro ações de todas as 18 linhas em 2,90:1 (e "Excluir", antes
+// da Onda 2, em 2,31:1). O mínimo é 4,5:1.
+//
+// POR QUE O PADRÃO INTEIRO CAIU, E NÃO SÓ O NÚMERO. A pergunta certa era qual
+// opacidade ainda aprova as quatro; a resposta, medida contra o tom de cada
+// tema (`zinc-600`/`zinc-400` e `red-700`/`red-400`) e o fundo de cada tema:
+//
+//   opacidade 0,60   2,90 | 3,32 | 3,45 | 3,03   reprova as quatro
+//   opacidade 0,75   4,07 | 4,53 | 4,66 | 4,12   reprova duas
+//   opacidade 0,80   4,59 | 5,00 | 5,07 | 4,54   passa, e a mais fraca fica
+//                                                em 4,50 — margem zero
+//
+// Ou seja: o único valor que aprova é 0,80, e 0,80 não se vê. O efeito só
+// existe enquanto for ilegível. Um recurso que precisa estar quebrado para
+// funcionar não é um recurso — é o defeito com outro nome.
+//
+// E ELE JÁ CUSTAVA MAIS DO QUE ENTREGAVA: em repouso, quem não passa o mouse —
+// tela de toque a partir de 640px, e quem navega por teclado antes de o foco
+// entrar na linha — não via as quatro ações da lista inteira.
+//
+// O QUE FICA NO LUGAR, e já estava lá: `cardHover` levanta a linha no hover
+// (borda e sombra), e `btnLinha` acende o fundo da ação sob o cursor. A
+// hierarquia entre o nome da automação e as ações continua sendo feita pelo
+// TOM (`zinc-900` contra `zinc-600`), que é onde ela sempre coube.
+export const acoesDaLinha = "flex shrink-0 items-center gap-1";
+
+// A LINHA ENQUANTO A AÇÃO CORRE. Aqui a opacidade fica, porque ela diz uma
+// coisa que nada mais na linha diz — "esta linha está trabalhando" —, mas
+// no valor MEDIDO, e não no que estava lá.
+//
+// Era `opacity-60`, o mesmo 2,90:1 do D11 aplicado à linha inteira durante a
+// ida ao servidor. Em `opacity-80` o texto quieto da linha fica em 4,59:1 no
+// claro e 5,00:1 no escuro — acima do mínimo nos dois. Os botões continuam
+// `disabled` (e `disabled:opacity-50` por cima), que é o estado em que a WCAG
+// não cobra contraste; o que esta troca protege é o resto da linha, que
+// continua sendo texto que a pessoa lê enquanto espera.
+export const linhaOcupada = "opacity-80";
+
 export const link =
   "font-medium text-indigo-600 underline decoration-indigo-300 underline-offset-2 transition-colors hover:decoration-indigo-500 dark:text-indigo-400 dark:decoration-indigo-700";
 

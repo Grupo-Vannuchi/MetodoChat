@@ -85,6 +85,32 @@ E vale registrar por que a auditoria não pegou: **meu medidor não acumulava a
 opacidade dos ancestrais**, então mediu a cor declarada e não a cor vista. É a
 terceira limitação da ferramenta, junto das cinco do fim deste documento.
 
+### D12 — MÉDIO — o balão de saída já nasce abaixo do mínimo, e a opacidade o afunda
+
+**Achado em 10/09, DURANTE a execução da Onda 3**, com o auditor consertado, e
+registrado sem conserto: mexer nele é decisão de produto, não de disciplina.
+
+**Onde:** `app/conversas/[id]/page.tsx:290-305`, a mensagem que o dono envia.
+
+O balão é `bg-indigo-500` com `text-white`, e a hora embaixo é
+`text-indigo-100`. Medido, sobre o fundo da conversa:
+
+| estado | texto | hora |
+|---|---|---|
+| em repouso (`opacity` 1) | **4,58:1** | **3,71:1** |
+| "enviando…" / "guardada" (`opacity-60`) | **2,36:1** (claro) · 3,31:1 (escuro) | **2,08:1** · 2,76:1 |
+
+Duas coisas distintas, e a segunda é o mecanismo do D11:
+
+1. **Branco sobre `indigo-500` dá 4,58:1** — passa por 0,08, e a hora em
+   `indigo-100` já reprova antes de qualquer opacidade.
+2. **`opacity-60` marca "está saindo"** e derruba o balão inteiro, porque a
+   opacidade compõe o texto E o fundo dele contra a página.
+
+**Por que não foi consertado aqui:** o indigo do balão é a cor de ação do
+sistema inteiro (`app/ui.ts`), e trocá-la na conversa é um desenho, não um
+ajuste de token. O sinal de "enviando" também precisa continuar existindo.
+
 ### D3 — MÉDIO — três tokens de texto quieto abaixo do contraste mínimo
 
 | token | onde | claro | escuro |

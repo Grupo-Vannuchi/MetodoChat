@@ -13,6 +13,8 @@ import {
   btnPrimary,
   btnLinha,
   btnLinhaDanger,
+  acoesDaLinha,
+  linhaOcupada,
   emptyWrap,
 } from "../ui";
 import { IconZap, IconComment, IconStory, IconSend, IconPorta } from "../icons";
@@ -215,8 +217,8 @@ export default function AutomationsList({ automations }: { automations: Automati
             return (
               <li
                 key={a.id}
-                className={`${card} ${cardHover} group p-4 transition-opacity ${
-                  ocupado ? "opacity-60" : ""
+                className={`${card} ${cardHover} p-4 transition-opacity ${
+                  ocupado ? linhaOcupada : ""
                 }`}
               >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -288,7 +290,12 @@ export default function AutomationsList({ automations }: { automations: Automati
                   </div>
 
                   {/* ações */}
-                  <div className="flex shrink-0 items-center gap-1 sm:opacity-60 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                  {/* SEM `sm:opacity-60` — ver `acoesDaLinha` em `../ui`. O
+                      "revelar no hover" que estava aqui deixava as quatro
+                      ações de todas as 18 linhas em 2,90:1 em repouso, e a
+                      medição mostrou que nenhuma opacidade visível aprova as
+                      quatro. */}
+                  <div className={acoesDaLinha}>
                     <button
                       type="button"
                       disabled={ocupado}

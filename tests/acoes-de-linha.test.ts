@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { btnLinha, btnLinhaDanger, btnDanger } from "../app/ui";
+import {
+  btnLinha,
+  btnLinhaDanger,
+  btnDanger,
+  acoesDaLinha,
+  linhaOcupada,
+} from "../app/ui";
 
 // O QUE ESTE ARQUIVO FIXA: a ação que APAGA nunca volta a ser a mais apagada
 // da linha.
@@ -33,6 +39,7 @@ import {
   BRANCO,
   PRETO,
   MINIMO,
+  type Rgb,
 } from "./medidor";
 
 // OS FUNDOS REAIS DA LINHA, e não um branco/preto de conveniência:
@@ -115,5 +122,77 @@ describe("os dois tratamentos de ação de linha", () => {
     expect(btnDanger).toMatch(/(^|\s)border(\s|$)/);
     expect(btnLinhaDanger).not.toMatch(/(^|\s)border(\s|$)/);
     expect(btnLinha).not.toMatch(/(^|\s)border(\s|$)/);
+  });
+});
+
+/* ---------- D11: a opacidade, que derrubava a linha inteira ---------- */
+
+// O ACHADO, medido em produção a >=640px com o auditor CONSERTADO (o antigo não
+// acumulava a opacidade dos ancestrais, e foi por isso que a auditoria original
+// não pegou): o contêiner das quatro ações tinha `sm:opacity-60`. A cor
+// declarada passava; a cor VISTA não.
+//
+// `opacity` multiplica o galho inteiro, então o que chega ao olho é o tom
+// misturado com o fundo. É essa mistura que se mede aqui.
+const comOpacidade = (tomNome: string, fundo: Rgb, alfa: number) =>
+  contraste(misturar(tom(tomNome), fundo, alfa), fundo);
+
+// As QUATRO ações da linha, cada uma no seu tema e no seu fundo.
+const AS_QUATRO: [string, string, Rgb][] = [
+  ["Pausar/Editar/Duplicar, claro", "zinc-600", FUNDO_CLARO],
+  ["Pausar/Editar/Duplicar, escuro", "zinc-400", FUNDO_ESCURO],
+  ["Excluir, claro", "red-700", FUNDO_CLARO],
+  ["Excluir, escuro", "red-400", FUNDO_ESCURO],
+];
+
+const piorDasQuatro = (alfa: number) =>
+  Math.min(...AS_QUATRO.map(([, t, f]) => comOpacidade(t, f, alfa)));
+
+describe("a opacidade que revelava as ações no hover", () => {
+  it("reproduz o 2,90:1 que a auditoria mediu no navegador", () => {
+    // É a prova de que esta conta mede o mesmo que o Chrome mediu na tela.
+    expect(comOpacidade("zinc-600", FUNDO_CLARO, 0.6)).toBeCloseTo(2.9, 1);
+  });
+
+  it("em 0,60 reprova as QUATRO, e não só a destrutiva", () => {
+    for (const [nome, t, f] of AS_QUATRO) {
+      expect(comOpacidade(t, f, 0.6), nome).toBeLessThan(MINIMO);
+    }
+  });
+
+  it("NENHUMA opacidade que se veja aprova as quatro — é por isso que ela caiu", () => {
+    // 0,80 é o menor valor que aprova, e nele a mais fraca fica em 4,50: o
+    // mínimo cravado, margem zero. Abaixo disso reprova; nele, não se vê. Um
+    // efeito que só funciona enquanto for ilegível não é um efeito.
+    expect(piorDasQuatro(0.75)).toBeLessThan(MINIMO);
+    expect(piorDasQuatro(0.8)).toBeGreaterThanOrEqual(MINIMO);
+    expect(piorDasQuatro(0.8)).toBeLessThan(MINIMO + 0.05);
+  });
+
+  it("o contêiner das ações não declara opacidade nenhuma", () => {
+    expect(acoesDaLinha).not.toMatch(/opacity-/);
+    // e nem por um atalho de tamanho de tela, que era a forma exata do defeito
+    expect(acoesDaLinha).not.toMatch(/(sm|md|lg):/);
+  });
+
+  it("as ações continuam sem opacidade própria, fora do estado desativado", () => {
+    // `disabled:opacity-50` fica: controle desativado é o caso em que a WCAG
+    // não cobra contraste, e é o único `opacity-` que sobra na linha.
+    for (const classe of [btnLinha, btnLinhaDanger]) {
+      const opacidades = classe.match(/[a-z:-]*opacity-\d+/g) ?? [];
+      expect(opacidades).toEqual(["disabled:opacity-50"]);
+    }
+  });
+});
+
+describe("a linha enquanto a ação corre", () => {
+  it("dim de 80%, e não de 60%: o texto quieto continua legível esperando", () => {
+    const alfa = Number(linhaOcupada.match(/opacity-(\d+)/)![1]) / 100;
+    expect(alfa).toBe(0.8);
+    // o tom quieto da linha (metadados, data, "o que dispara") sob esse dim
+    expect(comOpacidade("zinc-600", FUNDO_CLARO, alfa)).toBeGreaterThan(MINIMO);
+    expect(comOpacidade("zinc-400", FUNDO_ESCURO, alfa)).toBeGreaterThan(MINIMO);
+    // e o que estava lá, para o número do defeito não se perder
+    expect(comOpacidade("zinc-600", FUNDO_CLARO, 0.6)).toBeLessThan(MINIMO);
   });
 });
