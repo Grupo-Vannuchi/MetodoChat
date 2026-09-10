@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { tom, contraste, MINIMO, FUNDOS, FUNDOS_CLAROS, FUNDOS_ESCUROS } from "./medidor";
+import {
+  tom,
+  contraste,
+  MINIMO,
+  FUNDOS,
+  FUNDOS_CLAROS,
+  FUNDOS_ESCUROS,
+  FUNDOS_DA_ONDA3,
+  FUNDOS_CLAROS_DA_ONDA3,
+  FUNDOS_ESCUROS_DA_ONDA3,
+} from "./medidor";
 import { tomQuieto, muted, hint, thead, eyebrow, pageSubtitle } from "../app/ui";
 
 // O QUE ESTE ARQUIVO FIXA (achado D3): texto quieto NUNCA volta a usar o mesmo
@@ -36,12 +46,18 @@ describe("o medidor de contraste bate com o navegador", () => {
   });
 
   it("reproduz os três números do achado D3", () => {
+    // ELES SE MEDEM CONTRA `FUNDOS_DA_ONDA3`, E NÃO CONTRA `FUNDOS`, e a
+    // diferença não é detalhe: a Parte 1 da linguagem visual trocou o `body` de
+    // `bg-zinc-100`/`bg-black` para `bg-papel`/`bg-papel-escuro`. Um número
+    // medido em 10/09/2026 no navegador é um fato sobre a tela DAQUELE dia;
+    // apontá-lo para o fundo de hoje o transformaria em ficção, e o primeiro
+    // que quebrasse seria apagado junto com o motivo da decisão.
     // barra lateral clara = `bg-zinc-50/50` sobre o corpo `bg-zinc-100`
-    expect(contraste(tom("zinc-400"), FUNDOS["claro: barra lateral (bg-zinc-50/50)"])).toBeCloseTo(2.45, 1);
+    expect(contraste(tom("zinc-400"), FUNDOS_DA_ONDA3["claro: barra lateral (bg-zinc-50/50)"])).toBeCloseTo(2.45, 1);
     // `hint` no escuro, sobre o cartão
-    expect(contraste(tom("zinc-500"), FUNDOS["escuro: cartao (bg-zinc-900/70)"])).toBeCloseTo(3.91, 1);
+    expect(contraste(tom("zinc-500"), FUNDOS_DA_ONDA3["escuro: cartao (bg-zinc-900/70)"])).toBeCloseTo(3.91, 1);
     // `thead` no escuro, sobre o próprio fundo do cabeçalho
-    expect(contraste(tom("zinc-500"), FUNDOS["escuro: cabecalho de tabela (bg-zinc-950/50)"])).toBeCloseTo(4.02, 1);
+    expect(contraste(tom("zinc-500"), FUNDOS_DA_ONDA3["escuro: cabecalho de tabela (bg-zinc-950/50)"])).toBeCloseTo(4.02, 1);
   });
 });
 
@@ -87,17 +103,21 @@ describe("o tom do texto quieto", () => {
   });
 
   it("as três alternativas mais baratas REPROVAM, e é por isso que caíram", () => {
+    // TAMBÉM MEDIDO CONTRA OS FUNDOS DA ONDA 3, pelo mesmo motivo do caso lá em
+    // cima — e aqui há um número que mostra por quê: sobre `bg-papel` (o corpo
+    // de hoje) o `zinc-500` dá 4,63:1, ou seja PASSA. A recusa continua certa
+    // sobre o fundo em que ela foi tomada, e é esse fundo que ela mede.
     // `zinc-500` nos dois temas — o que estava lá.
-    const falhasDoAntigo = [...FUNDOS_CLAROS, ...FUNDOS_ESCUROS].filter(
+    const falhasDoAntigo = [...FUNDOS_CLAROS_DA_ONDA3, ...FUNDOS_ESCUROS_DA_ONDA3].filter(
       ([, f]) => contraste(tom("zinc-500"), f) < MINIMO
     );
     expect(falhasDoAntigo.length).toBe(9);
 
     // mexer SÓ no escuro (`zinc-500`/`zinc-400`): o corpo claro continua abaixo.
-    expect(contraste(tom("zinc-500"), FUNDOS["claro: corpo (bg-zinc-100)"])).toBeLessThan(MINIMO);
+    expect(contraste(tom("zinc-500"), FUNDOS_DA_ONDA3["claro: corpo (bg-zinc-100)"])).toBeLessThan(MINIMO);
 
     // mexer SÓ no claro (`zinc-600`/`zinc-500`): os oito fundos escuros continuam abaixo.
-    for (const [nome, fundo] of FUNDOS_ESCUROS) {
+    for (const [nome, fundo] of FUNDOS_ESCUROS_DA_ONDA3) {
       expect(contraste(tom("zinc-500"), fundo), nome).toBeLessThan(MINIMO);
     }
   });
