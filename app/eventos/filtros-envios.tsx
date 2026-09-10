@@ -43,7 +43,7 @@ export default function FiltrosEnvios() {
               type="button"
               onClick={() => mudar({ period: p.key })}
               aria-pressed={marcado}
-              className={`rounded-[9px] px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/20 ${
+              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/20 ${
                 marcado
                   ? "bg-indigo-500 text-white"
                   : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/60"

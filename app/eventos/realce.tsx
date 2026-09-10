@@ -16,7 +16,7 @@ export default function Realce({ texto, termo }: { texto: string; termo: string 
     partes.push(
       <mark
         key={achou}
-        className="rounded-sm bg-indigo-500/30 px-0.5 text-inherit dark:bg-indigo-500/35"
+        className="rounded-lg bg-indigo-500/30 px-0.5 text-inherit dark:bg-indigo-500/35"
       >
         {texto.slice(achou, achou + alvo.length)}
       </mark>

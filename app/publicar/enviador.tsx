@@ -290,7 +290,7 @@ export default function Enviador({ teto }: { teto: number | null }) {
                   aria-label={`Subir ${item.rotulo}`}
                   disabled={i === 0}
                   onClick={() => setItens(moverNaOrdem(itens, i, i - 1))}
-                  className="rounded px-2 py-0.5 text-zinc-600 enabled:hover:bg-zinc-100 disabled:opacity-30 dark:text-zinc-300 dark:enabled:hover:bg-zinc-800"
+                  className="rounded-lg px-2 py-0.5 text-zinc-600 enabled:hover:bg-zinc-100 disabled:opacity-30 dark:text-zinc-300 dark:enabled:hover:bg-zinc-800"
                 >
                   ↑
                 </button>
@@ -299,7 +299,7 @@ export default function Enviador({ teto }: { teto: number | null }) {
                   aria-label={`Descer ${item.rotulo}`}
                   disabled={i === itens.length - 1}
                   onClick={() => setItens(moverNaOrdem(itens, i, i + 1))}
-                  className="rounded px-2 py-0.5 text-zinc-600 enabled:hover:bg-zinc-100 disabled:opacity-30 dark:text-zinc-300 dark:enabled:hover:bg-zinc-800"
+                  className="rounded-lg px-2 py-0.5 text-zinc-600 enabled:hover:bg-zinc-100 disabled:opacity-30 dark:text-zinc-300 dark:enabled:hover:bg-zinc-800"
                 >
                   ↓
                 </button>

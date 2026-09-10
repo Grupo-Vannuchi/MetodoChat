@@ -68,7 +68,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
               type="button"
               onClick={() => mudar({ period: p.key })}
               aria-pressed={marcado}
-              className={`rounded-[9px] px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/20 ${
+              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/20 ${
                 marcado
                   ? "bg-indigo-500 text-white"
                   : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
@@ -91,7 +91,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
           >
             {escolhido?.thumb && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={escolhido.thumb} alt="" className="h-4 w-4 flex-none rounded object-cover" />
+              <img src={escolhido.thumb} alt="" className="h-4 w-4 flex-none rounded-lg object-cover" />
             )}
             <span className="max-w-[10rem] truncate">{rotuloPost}</span>
             <span aria-hidden="true" className="text-[11px] text-zinc-600 dark:text-zinc-400">

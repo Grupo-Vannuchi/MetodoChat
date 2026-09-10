@@ -2,11 +2,17 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, relative } from "node:path";
-import { TAMANHOS_PX, CLASSE_POR_TAMANHO, desviosDeEscala } from "../app/escala";
+import {
+  TAMANHOS_PX,
+  CLASSE_POR_TAMANHO,
+  RAIOS_PX,
+  CLASSE_POR_RAIO,
+  desviosDeEscala,
+} from "../app/escala";
 import * as ui from "../app/ui";
 
-// O QUE ESTE ARQUIVO FIXA (achado M1): a escala tipográfica não volta a se
-// fragmentar.
+// O QUE ESTE ARQUIVO FIXA (achados M1 e M2): a escala do sistema — tamanhos de
+// texto e raios de borda — não volta a se fragmentar.
 //
 // O DEFEITO, medido na tela com o auditor, nas nove rotas e nos dois temas:
 // **26 combinações de tamanho e peso, em 13 tamanhos** — 9, 10, 11, 12, 13, 14,
@@ -81,13 +87,19 @@ describe("a varredura", () => {
   });
 
   it("acusa quando há o que acusar — se não acusa nada, não mede nada", () => {
-    // A contraprova do verificador: os cinco tamanhos que morreram nesta onda,
-    // e um que nunca existiu.
+    // A contraprova do verificador: os tamanhos e os raios que morreram nesta
+    // onda, e um de cada que nunca existiu.
     expect(desviosDeEscala("text-[9px] font-medium")).toHaveLength(1);
     expect(desviosDeEscala("mt-1 text-[10px] uppercase")).toHaveLength(1);
     expect(desviosDeEscala("text-[13px] sm:text-[22px]")).toHaveLength(2);
     expect(desviosDeEscala("text-[15px] text-[17px]")).toHaveLength(2);
     expect(desviosDeEscala("text-[7px]")).toHaveLength(1);
+    // os três raios que a auditoria apontou fora do ritmo
+    expect(desviosDeEscala("rounded-[9px] px-2.5")).toHaveLength(1);
+    expect(desviosDeEscala("rounded-[10px] px-3")).toHaveLength(1);
+    expect(desviosDeEscala("flex-1 rounded-t")).toHaveLength(1); // 4px 4px 0 0
+    expect(desviosDeEscala("rounded rounded-sm rounded-md")).toHaveLength(3);
+    expect(desviosDeEscala("rounded-bl-md")).toHaveLength(1);
   });
 
   it("não acusa o que é a escala", () => {
@@ -96,6 +108,9 @@ describe("a varredura", () => {
     expect(desviosDeEscala("sm:text-[11px] lg:text-2xl")).toEqual([]);
     // `text-zinc-500` tem "text-" e não é tamanho; `max-w-[22rem]` tem `[22`.
     expect(desviosDeEscala("text-zinc-600 max-w-[22rem] gap-[10px]")).toEqual([]);
+    // os três degraus, o círculo, e o raio parcial escrito com degrau
+    expect(desviosDeEscala("rounded-lg rounded-xl rounded-2xl rounded-full")).toEqual([]);
+    expect(desviosDeEscala("rounded-t-lg sm:rounded-2xl")).toEqual([]);
   });
 });
 
@@ -128,8 +143,27 @@ describe("a escala tipográfica", () => {
   });
 });
 
+describe("a escala de raios", () => {
+  it("tem três degraus, e o círculo não é um deles", () => {
+    expect([...RAIOS_PX]).toEqual([8, 12, 16]);
+    for (const px of RAIOS_PX) expect(CLASSE_POR_RAIO[px]).toBeTruthy();
+    // os avulsos que a auditoria mediu na tela
+    for (const morto of [4, 9, 10]) {
+      expect(RAIOS_PX as readonly number[]).not.toContain(morto);
+    }
+  });
+
+  it("o raio concêntrico das abas foi RECUSADO, e não esquecido", () => {
+    // 9px e 10px vinham de uma conta certa (caixa de 12px com `p-0.5` pede
+    // miolo de 10px). O que caiu foi a conta, não a atenção: dois valores a
+    // mais no ritmo custam mais do que 2px de raio num botão de 28px.
+    expect(desviosDeEscala("rounded-[10px]")).toHaveLength(1);
+    expect(desviosDeEscala("rounded-[9px]")).toHaveLength(1);
+  });
+});
+
 describe("nenhum arquivo de tela fura a escala", () => {
-  it("fora do editor, não sobrou um tamanho arbitrário fora da lista", () => {
+  it("fora do editor, não sobrou tamanho nem raio fora da lista", () => {
     const furos: string[] = [];
     for (const caminho of ARQUIVOS) {
       const conteudo = semComentarios(readFileSync(caminho, "utf8"));
