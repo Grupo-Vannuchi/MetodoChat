@@ -54,11 +54,13 @@ valor** — dá para ver a forma, não a grandeza.
 o painel parecer modelo, e o gradiente índigo→violeta de `/produtos` era o pico.
 **147 ocorrências** de `indigo`/`violet`/`purple` em mais de 20 arquivos.
 
-No lugar: **a única cor da interface é estado.** Ação usa a própria tinta.
+No lugar: **a cor sinaliza estado, e uma única superfície é pintada — a da
+ação.**
 
 ```
 --papel    #FBFAF8   fundo, branco morno — NÃO creme
---tinta    #17161A   texto e ação
+--tinta    #17161A   texto
+--acao     #14404E   o preenchimento do botão — petróleo
 --traco    #E3E0DA   fio, borda, divisor
 --quieto   #6B6862   texto secundário
 --aberto   #15803D   janela aberta, deu certo
@@ -66,12 +68,40 @@ No lugar: **a única cor da interface é estado.** Ação usa a própria tinta.
 --parou    #B91C1C   falhou
 ```
 
+### A correção da Parte 1, e ela é do dono
+
+A primeira versão disto dizia "ação usa a própria tinta". Ela foi ao ar na
+prévia, e o dono viu o que a leitura não pega: **no tema escuro a tinta resolve
+para uma pastilha branca.** Nas palavras dele, *"acho que o branco é uma cor
+meio genérica também; alguma cor mista seria melhor"*.
+
+Ele está certo, e o erro não era de gosto — era de raciocínio. Tirar a cor de
+marca não é o mesmo que fazer uma escolha; ausência de cor é o padrão de que a
+auditoria estava fugindo, não a fuga dele.
+
+**`acao` é petróleo: 194°, azul puxado para o verde — mista no sentido
+literal.** As duas alternativas óbvias caíram por medição: ardósia (217°) é o
+azul de todo painel de SaaS, e ameixa (286°) é o índigo com outro nome.
+
+O preenchimento **troca de lado entre os temas**, como a tinta já fazia: escuro
+sobre página clara, claro sobre página escura. É o que mantém o botão sendo o
+maior contraste da tela nos dois — a única coisa que a pastilha branca
+acertava. Rótulo em 10,75:1 e 9,12:1.
+
+**Onde ela vai:** no que se aperta, no que marca a escolha ativa e em todo
+contorno de foco. **Onde não vai:** avatar, contador de não lidas, balão
+enviado, barra do gráfico, realce da busca e logotipo — dado e identidade
+continuam tinta. Pintar dado com a cor da ação é a forma mais rápida de a cor
+deixar de querer dizer alguma coisa.
+
 Entram como cores **nomeadas** no `@theme` do Tailwind v4, então a classe diz o
 que é (`text-quieto`, `bg-papel`) em vez de `zinc-500`. O nome é metade do
 conserto: `zinc-500` não avisa ninguém de que reprova em 4,5:1 no escuro.
 
 **Verde, âmbar e vermelho ficam** com o significado que já têm. O time aprendeu,
-e eles estão certos. Trocá-los seria mudança por mudança.
+e eles estão certos. Trocá-los seria mudança por mudança. Eles continuam sendo
+**sinal** — pílula, texto, ponto — e nunca preenchimento grande, que é o que os
+separa de `acao` mesmo quando o matiz se aproxima.
 
 **A regra do tom quieto, da Onda 3, continua valendo e agora vale para a paleta
 inteira:** nenhuma cor de texto usa o mesmo valor nos dois temas.
@@ -129,16 +159,22 @@ Conferi a direção contra as três aparências padrão que ela nomeia:
 - **Creme + serifada + terracota** — não. O fundo é branco morno (#FBFAF8), não
   creme (#F4F1EA); não há serifada; **terracota foi recusada de propósito**, e
   por isso "atenção" é âmbar herdado e não laranja queimado.
-- **Quase preto + acento vibrante** — é o que existe hoje. A proposta é o
-  oposto: claro, e **sem acento**.
+- **Quase preto + acento vibrante** — é o que existia. A proposta é o oposto:
+  claro, e com **uma** superfície colorida em vez de um acento espalhado. O
+  petróleo não é vibrante (croma 0,33 num tom de 194°) e aparece num lugar só:
+  o botão. Acento vibrante é cor usada para chamar atenção; esta é cor usada
+  para dizer "aqui se aperta".
 - **Jornal com fio e raio zero** — é o risco real desta direção, porque "fio
   fino e alta legibilidade" caminha para lá. **Defesa:** mantém raio de canto e
   densidade de aplicativo, não de página impressa, e o traço da janela é
   **preenchimento com significado**, não filete decorativo.
 
-**O risco assumido:** interface sem cor de marca é incomum. Justificativa: aqui,
-cor tem de querer dizer alguma coisa, e um painel que gasta cor com identidade
-gasta a atenção que devia sobrar para o que precisa do dono.
+**O risco assumido:** o petróleo e o verde de "janela aberta" são os dois frios
+da paleta, e a 52° de distância. O que os separa não é só matiz — é forma:
+`aberto` é sempre pílula pequena com ponto, `acao` é sempre preenchimento com
+rótulo. `tests/paleta.test.ts` mede a distância de matiz e reprova se alguém a
+encurtar; a distância de forma é a disciplina de quem escreve a tela, e está
+declarada no cabeçalho de `app/ui.ts`.
 
 ---
 
