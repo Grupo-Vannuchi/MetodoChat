@@ -63,12 +63,19 @@ describe("o medidor de contraste bate com o navegador", () => {
 
 /* ---------- a medição que escolheu o tom ---------- */
 
-// Lê o tom de uma string de token: o claro é `text-zinc-N`, o escuro é
-// `dark:text-zinc-N`. Sem o `dark:`, o token usa o MESMO tom nos dois — que é
+// Lê o tom de uma string de token: o claro é `text-<tom>`, o escuro é
+// `dark:text-<tom>`. Sem o `dark:`, o token usa o MESMO tom nos dois — que é
 // exatamente o defeito.
+//
+// ELE PASSOU A ENXERGAR AS CORES NOMEADAS, e não só a rampa `zinc-N`: a Parte 1
+// da linguagem visual trocou `text-zinc-600 dark:text-zinc-400` por
+// `text-quieto dark:text-quieto-escuro`. O padrão aceita as duas formas de
+// propósito — o portão tem de continuar reprovando um token que volte a
+// escrever `zinc-500` nos dois temas, e não só um que escreva `quieto` nos dois.
 function tonsDe(classe: string): { claro: string | null; escuro: string | null } {
-  const claro = classe.match(/(?:^|\s)text-(zinc-\d{2,3})(?:\s|$)/);
-  const escuro = classe.match(/(?:^|\s)dark:text-(zinc-\d{2,3})(?:\s|$)/);
+  const TOM = "(zinc-\\d{2,3}|[a-z]+(?:-escuro)?)";
+  const claro = classe.match(new RegExp(`(?:^|\\s)text-${TOM}(?:\\s|$)`));
+  const escuro = classe.match(new RegExp(`(?:^|\\s)dark:text-${TOM}(?:\\s|$)`));
   return { claro: claro?.[1] ?? null, escuro: escuro?.[1] ?? null };
 }
 
@@ -84,8 +91,8 @@ const TOKENS_QUIETOS: [string, string][] = [
 describe("o tom do texto quieto", () => {
   it("passa o mínimo sobre TODOS os fundos reais do produto", () => {
     const { claro, escuro } = tonsDe(tomQuieto);
-    expect(claro).toBe("zinc-600");
-    expect(escuro).toBe("zinc-400");
+    expect(claro).toBe("quieto");
+    expect(escuro).toBe("quieto-escuro");
     for (const [nome, fundo] of FUNDOS_CLAROS) {
       expect(contraste(tom(claro!), fundo), nome).toBeGreaterThanOrEqual(MINIMO);
     }
@@ -96,10 +103,31 @@ describe("o tom do texto quieto", () => {
 
   it("o pior caso de cada tema é o que o comentário do token declara", () => {
     // Se estes dois números mudarem, o comentário em `app/ui.ts` virou mentira.
-    const piorClaro = Math.min(...FUNDOS_CLAROS.map(([, f]) => contraste(tom("zinc-600"), f)));
-    const piorEscuro = Math.min(...FUNDOS_ESCUROS.map(([, f]) => contraste(tom("zinc-400"), f)));
-    expect(piorClaro).toBeCloseTo(7.02, 1); // sobre `bg-zinc-100`, o corpo
-    expect(piorEscuro).toBeCloseTo(5.68, 1); // sobre `bg-zinc-800`, o balão recebido
+    const piorClaro = Math.min(...FUNDOS_CLAROS.map(([, f]) => contraste(tom("quieto"), f)));
+    const piorEscuro = Math.min(
+      ...FUNDOS_ESCUROS.map(([, f]) => contraste(tom("quieto-escuro"), f))
+    );
+    expect(piorClaro).toBeCloseTo(5.05, 1); // sobre `bg-zinc-100`, o balão recebido
+    expect(piorEscuro).toBeCloseTo(5.71, 1); // sobre `bg-zinc-800`, o balão recebido
+  });
+
+  it("no escuro a troca de tom não custou nada, e no claro custou margem", () => {
+    // O NÚMERO QUE O COMENTÁRIO DE `tomQuieto` DECLARA, e o que ele custa. No
+    // escuro o tom nomeado empata com o `zinc-400` que substituiu; no claro ele
+    // desce de 7,02:1 para 5,05:1. Continua acima do mínimo, e a folga que
+    // sobra passa a ser um número escrito e não uma suposição.
+    const piorEscuroAntes = contraste(
+      tom("zinc-400"),
+      FUNDOS["escuro: balao recebido (bg-zinc-800)"]
+    );
+    const piorEscuroAgora = Math.min(
+      ...FUNDOS_ESCUROS.map(([, f]) => contraste(tom("quieto-escuro"), f))
+    );
+    expect(piorEscuroAgora).toBeGreaterThanOrEqual(piorEscuroAntes);
+
+    const piorClaroAgora = Math.min(...FUNDOS_CLAROS.map(([, f]) => contraste(tom("quieto"), f)));
+    expect(piorClaroAgora).toBeGreaterThan(MINIMO);
+    expect(piorClaroAgora - MINIMO).toBeCloseTo(0.55, 1);
   });
 
   it("as três alternativas mais baratas REPROVAM, e é por isso que caíram", () => {
@@ -123,10 +151,10 @@ describe("o tom do texto quieto", () => {
   });
 
   it("não vira o contraste do texto NORMAL: quieto que grita deixa de ser quieto", () => {
-    // O limite de cima também é medido. O texto normal desta interface é
-    // `zinc-900`/`zinc-100`; o quieto tem de ficar claramente abaixo dele.
-    const normalClaro = contraste(tom("zinc-900"), FUNDOS["claro: cartao (bg-white)"]);
-    const quietoClaro = contraste(tom("zinc-600"), FUNDOS["claro: cartao (bg-white)"]);
+    // O limite de cima também é medido. O texto normal desta interface é a
+    // `tinta`; o quieto tem de ficar claramente abaixo dela.
+    const normalClaro = contraste(tom("tinta"), FUNDOS["claro: cartao (bg-white)"]);
+    const quietoClaro = contraste(tom("quieto"), FUNDOS["claro: cartao (bg-white)"]);
     expect(quietoClaro).toBeLessThan(normalClaro - 3);
   });
 });
@@ -152,6 +180,14 @@ describe("todo token de texto quieto", () => {
   it("nenhum deles usa `zinc-500`, que é a raiz do D3", () => {
     for (const [nome, classe] of TOKENS_QUIETOS) {
       expect(classe, nome).not.toMatch(/text-zinc-500/);
+    }
+  });
+
+  it("nenhum deles voltou para a rampa `zinc`: o tom quieto agora tem nome", () => {
+    // `zinc-600` não avisa ninguém de que é o tom quieto do sistema, e foi por
+    // essa porta que seis tokens parecidos entraram. `quieto` avisa.
+    for (const [nome, classe] of TOKENS_QUIETOS) {
+      expect(classe, nome).not.toMatch(/(^|\s)(dark:)?text-zinc-/);
     }
   });
 });

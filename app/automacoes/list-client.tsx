@@ -217,7 +217,10 @@ export default function AutomationsList({ automations }: { automations: Automati
             return (
               <li
                 key={a.id}
-                className={`${card} ${cardHover} p-4 transition-opacity ${
+                // `transition-colors` e não `transition-opacity`: o sinal de
+                // "esta linha está trabalhando" deixou de ser opacidade e passou
+                // a ser o fundo — ver `linhaOcupada`, em app/ui.ts.
+                className={`${card} ${cardHover} p-4 transition-colors ${
                   ocupado ? linhaOcupada : ""
                 }`}
               >

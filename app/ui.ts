@@ -3,24 +3,39 @@
 //
 // Princípios desta versão:
 // - Superfícies calmas: borda sutil + sombra baixa, sem "caixa dentro de caixa".
-// - Um único tom de destaque (indigo) para ação; verde só para sucesso real.
+// - A COR É ESTADO, E MAIS NADA. O índigo saiu — como cor de marca e como cor
+//   de ação —, e a ação passa a usar a própria tinta. Verde, âmbar e vermelho
+//   ficam com o significado que já têm.
 // - Foco sempre visível (ring), porque contorno de foco é acessibilidade.
 // - Escala de espaçamento e raio consistentes para a interface parecer única.
+//
+// AS CORES SÃO NOMEADAS (`papel`, `tinta`, `traco`, `quieto`, `aberto`,
+// `fecha`, `parou`), e a definição de cada uma — com o contraste medido ao lado
+// — está em `app/globals.css`. O portão é `tests/paleta.test.ts`.
 
 /* ---------- superfícies ---------- */
 
 export const card =
-  "rounded-2xl border border-zinc-200/80 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:border-zinc-800 dark:bg-zinc-900/70 dark:shadow-none";
+  "rounded-2xl border border-traco bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:border-traco-escuro dark:bg-zinc-900/70 dark:shadow-none";
 
 // Cartão de leitura (métricas, listas) com leve elevação no hover.
+// O HOVER PRECISA DE UM FIO MAIS FORTE QUE O DE REPOUSO, e a paleta nomeia UM
+// fio só. O tom vem então do `quieto` a 40% sobre a superfície, e não de um
+// oitavo nome: medido, ele dá 1,62:1 sobre o branco, contra 1,48:1 do
+// `zinc-300` que estava aqui — o fio do hover fica um pouco MAIS visível do que
+// era. Derivar de uma cor nomeada é o oposto de inventar uma.
 export const cardHover =
-  "transition-[box-shadow,border-color] duration-200 hover:border-zinc-300 hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.10)] dark:hover:border-zinc-700";
+  "transition-[box-shadow,border-color] duration-200 hover:border-quieto/40 hover:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.10)] dark:hover:border-quieto/40";
 
 // Superfície interna: agrupa campos relacionados dentro de um cartão.
+// `bg-papel` DENTRO do cartão branco: a superfície interna é o tom da PÁGINA
+// afundado no cartão, e não um cinza a mais. A troca é de nome e não de pixel —
+// `bg-zinc-50/60` sobre branco dava rgb(252,252,252), e `papel` é
+// rgb(251,250,248).
 export const subtle =
-  "rounded-xl border border-zinc-200/70 bg-zinc-50/60 dark:border-zinc-800/80 dark:bg-zinc-950/40";
+  "rounded-xl border border-traco/70 bg-papel dark:border-traco-escuro/80 dark:bg-papel-escuro/40";
 
-export const divider = "border-t border-zinc-200/80 dark:border-zinc-800";
+export const divider = "border-t border-traco dark:border-traco-escuro";
 
 /* ---------- tipografia ---------- */
 
@@ -37,8 +52,22 @@ export const divider = "border-t border-zinc-200/80 dark:border-zinc-800";
 // MEDIDO CONTRA OS QUINZE FUNDOS REAIS DO PRODUTO (a lista está em
 // `tests/medidor.ts`, e o teste é `tests/texto-quieto.test.ts`):
 //
-//   zinc-600 no claro   pior caso 7,02:1 (sobre `bg-zinc-100`, o corpo)
-//   zinc-400 no escuro  pior caso 5,68:1 (sobre `bg-zinc-800`, o balão recebido)
+//   quieto no claro          pior caso 5,05:1 (sobre `bg-zinc-100`, o balão)
+//   quieto-escuro no escuro  pior caso 5,71:1 (sobre `bg-zinc-800`, o balão)
+//
+// O PAR NOMEADO SUBSTITUIU `zinc-600`/`zinc-400`, e a troca não é só de nome:
+//
+//   no ESCURO ela não custa nada — 5,71:1 contra os 5,68:1 do `zinc-400`. Mesma
+//     luminância, temperatura diferente, e o portão continua exatamente onde
+//     estava.
+//   no CLARO ela custa margem, e o número tem de estar escrito: eram 7,02:1 e
+//     passam a ser 5,05:1. O mínimo é 4,5:1, então sobram 0,55 — mas a folga
+//     encolheu, e quem for propor um `quieto` mais claro precisa saber que o
+//     orçamento acabou. A cor é a da spec aprovada (#6B6862); o que esta linha
+//     faz é não deixar o custo dela virar surpresa.
+//
+// OS NÚMEROS DE ANTES, para o defeito não se perder: `zinc-600` dava 7,02:1 no
+// pior fundo claro e `zinc-400` dava 5,68:1 no pior fundo escuro.
 //
 // O QUE ESTAVA LÁ, medido nos mesmos fundos: `zinc-500` nos dois temas falha em
 // NOVE dos quinze — 4,39:1 sobre o corpo claro, 3,91:1 sobre o cartão escuro,
@@ -52,7 +81,7 @@ export const divider = "border-t border-zinc-200/80 dark:border-zinc-800";
 // E `zinc-700`/`zinc-300` foi recusado pelo lado oposto: 10,44:1 e 12,76:1 é o
 // contraste do texto NORMAL desta interface. Texto quieto que grita deixa de
 // ser quieto, e o achado pedia legibilidade, não hierarquia invertida.
-export const tomQuieto = "text-zinc-600 dark:text-zinc-400";
+export const tomQuieto = "text-quieto dark:text-quieto-escuro";
 
 // `text-[22px]` saiu: 22px era um degrau só dele, e a rampa 20->24 (`text-xl`
 // no celular, `text-2xl` a partir de 640px) usa dois degraus que a escala já
@@ -65,7 +94,7 @@ export const tomQuieto = "text-zinc-600 dark:text-zinc-400";
 // peso, porque expandido não é peso: é um eixo da fonte variável, e nenhum
 // corte estático da Archivo o tem.
 export const pageTitle =
-  "titulo text-xl font-bold tracking-[-0.01em] text-zinc-900 sm:text-2xl dark:text-zinc-50";
+  "titulo text-xl font-bold tracking-[-0.01em] text-tinta sm:text-2xl dark:text-tinta-escuro";
 
 export const pageSubtitle = `mt-1 text-sm ${tomQuieto}`;
 
@@ -88,7 +117,10 @@ export const eyebrow = `text-[11px] font-semibold uppercase tracking-[0.08em] ${
 
 /* ---------- formulários ---------- */
 
-export const label = "mb-1.5 block text-sm font-medium text-zinc-800 dark:text-zinc-200";
+// `zinc-800`/`zinc-200` era meio degrau abaixo do texto normal, e o meio degrau
+// morreu junto com o resto da rampa: nesta paleta o texto é TINTA ou é QUIETO, e
+// rótulo de campo é tinta — quem lê um formulário lê o rótulo, não o adivinha.
+export const label = "mb-1.5 block text-sm font-medium text-tinta dark:text-tinta-escuro";
 
 export const hint = `mt-1.5 text-xs leading-relaxed ${tomQuieto}`;
 
@@ -115,27 +147,31 @@ export const hint = `mt-1.5 text-xs leading-relaxed ${tomQuieto}`;
 // da MESMA família, use o modificador `!` na classe nova; caso contrário o
 // resultado depende de uma ordem de folha que ninguém aqui controla.
 export const input =
-  "w-full rounded-xl border border-zinc-300 bg-white px-3.5 py-2.5 text-sm text-zinc-900 outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-100 dark:placeholder:text-zinc-600 dark:focus:ring-indigo-500/15";
+  "w-full rounded-xl border border-traco bg-white px-3.5 py-2.5 text-sm text-tinta outline-none transition-[border-color,box-shadow] placeholder:text-quieto/70 focus:border-tinta focus:ring-4 focus:ring-tinta/10 dark:border-traco-escuro dark:bg-papel-escuro/60 dark:text-tinta-escuro dark:placeholder:text-quieto-escuro/60 dark:focus:border-tinta-escuro dark:focus:ring-tinta-escuro/15";
 
 // Campo com erro: a borda vermelha aparece junto da mensagem no próprio campo.
 export const inputError =
-  "border-red-400 focus:border-red-500 focus:ring-red-500/10 dark:border-red-800";
+  "border-parou focus:border-parou focus:ring-parou/15 dark:border-parou-escuro dark:focus:border-parou-escuro dark:focus:ring-parou-escuro/20";
 
-export const fieldError = "mt-1.5 text-xs font-medium text-red-600 dark:text-red-400";
+export const fieldError = "mt-1.5 text-xs font-medium text-parou dark:text-parou-escuro";
 
 /* ---------- botões ---------- */
 
+// A AÇÃO USA A PRÓPRIA TINTA, e é aqui que o índigo mais se via. Medido:
+// `papel` sobre `tinta` dá 17,26:1 no claro, e `papel-escuro` sobre
+// `tinta-escuro` dá 16,83:1 no escuro — o botão continua sendo o elemento mais
+// contrastado da tela, que é o que ele tem de ser.
 export const btnPrimary =
-  "inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-[background-color,transform,box-shadow] hover:bg-indigo-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/25 active:scale-[0.985] disabled:pointer-events-none disabled:opacity-50";
+  "inline-flex items-center justify-center gap-2 rounded-xl bg-tinta px-4 py-2.5 text-sm font-semibold text-papel shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-[background-color,transform,box-shadow] hover:bg-tinta/90 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/25 active:scale-[0.985] disabled:pointer-events-none disabled:opacity-50 dark:bg-tinta-escuro dark:text-papel-escuro dark:hover:bg-tinta-escuro/90 dark:focus-visible:ring-tinta-escuro/30";
 
 export const btnSecondary =
-  "inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-zinc-500/15 active:scale-[0.985] dark:border-zinc-700 dark:bg-transparent dark:text-zinc-200 dark:hover:bg-zinc-800/60";
+  "inline-flex items-center justify-center gap-2 rounded-xl border border-traco bg-white px-4 py-2.5 text-sm font-semibold text-tinta transition-colors hover:bg-papel focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/15 active:scale-[0.985] dark:border-traco-escuro dark:bg-transparent dark:text-tinta-escuro dark:hover:bg-traco-escuro/60";
 
 export const btnGhost =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-zinc-500/15 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800";
+  "inline-flex items-center justify-center gap-1.5 rounded-lg border border-traco px-3 py-1.5 text-xs font-medium text-tinta transition-colors hover:bg-traco/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/15 dark:border-traco-escuro dark:text-tinta-escuro dark:hover:bg-traco-escuro/70";
 
 export const btnDanger =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-500/15 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40";
+  "inline-flex items-center justify-center gap-1.5 rounded-lg border border-parou/35 px-3 py-1.5 text-xs font-medium text-parou transition-colors hover:bg-parou/8 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-parou/15 dark:border-parou-escuro/35 dark:text-parou-escuro dark:hover:bg-parou-escuro/10";
 
 // AÇÃO DE TEXTO DENTRO DE LINHA DE LISTA — três ou quatro no fim da mesma
 // linha, sem borda, e por isso NÃO é `btnDanger`.
@@ -153,26 +189,31 @@ export const btnDanger =
 // e mesmo peso. A diferença entre elas é SÓ o tom, e é de propósito: é o que
 // impede a ação destrutiva de virar o elemento mais pesado da linha.
 export const btnLinha =
-  "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800";
+  "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 text-quieto hover:bg-traco/40 dark:text-quieto-escuro dark:hover:bg-traco-escuro/70";
 
 // A DESTRUTIVA. O defeito que ela conserta: em repouso "Excluir" era
 // `zinc-500` nos DOIS temas enquanto as irmãs eram `zinc-600`/`zinc-400` — a
 // ação que apaga era a MENOS legível da linha, e no escuro ficava em 3,91:1,
 // abaixo do mínimo de 4,5:1.
 //
-// O PAR `red-700`/`red-400` não é inventado: é o mesmo de `badgeErr`, logo
-// abaixo. E ele foi escolhido MEDIDO, contra o fundo real de cada tema (claro:
-// `bg-white`; escuro: `bg-zinc-900/70` sobre preto, = rgb(17,17,19)):
+// O PAR PASSOU A SER `parou`/`parou-escuro`, e a troca foi de NOME e não de
+// tom: `parou` é #B91C1C e `parou-escuro` é #F87171 — os mesmos vermelhos que
+// `red-700` e `red-400` desenhavam. Medido contra o fundo real de cada tema
+// (claro: `bg-white`; escuro: `bg-zinc-900/70` sobre `papel-escuro`):
 //
-//   claro  red-700  6,42:1 em repouso, 5,87:1 sobre o `bg-red-50` do hover
-//   escuro red-400  6,53:1 em repouso, 6,34:1 sobre o `bg-red-950/40` do hover
+//   claro  parou         6,47:1 em repouso, 5,66:1 sobre o `bg-parou/8` do hover
+//   escuro parou-escuro  6,65:1 em repouso, 5,84:1 sobre o `bg-parou-escuro/10`
+//
+// Eram 6,42:1 e 6,53:1 com `red-700`/`red-400`. O hover deixou de ser
+// `bg-red-50`/`bg-red-950/40` e passou a ser a própria cor do estado a 8% e a
+// 10% — o fundo do hover deixa de depender de uma rampa que a paleta não nomeia.
 //
 // `red-600` no claro foi RECUSADO por medição, e não por gosto: 4,77:1 em
 // repouso (quase o 4,83:1 do `zinc-500` que estava lá, ou seja, não consertava
 // nada) e 4,36:1 sobre o vermelho do hover — abaixo do mínimo justamente no
 // estado em que a pessoa está prestes a clicar.
 export const btnLinhaDanger =
-  "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40";
+  "rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 text-parou hover:bg-parou/8 dark:text-parou-escuro dark:hover:bg-parou-escuro/10";
 
 // O CONTEINER DAS ACOES DE UMA LINHA DE LISTA. Ele não tem opacidade, e a
 // ausência é o conserto do achado D11 — por isso ele é um token e não quatro
@@ -207,27 +248,72 @@ export const btnLinhaDanger =
 // TOM (`zinc-900` contra `zinc-600`), que é onde ela sempre coube.
 export const acoesDaLinha = "flex shrink-0 items-center gap-1";
 
-// A LINHA ENQUANTO A AÇÃO CORRE. Aqui a opacidade fica, porque ela diz uma
-// coisa que nada mais na linha diz — "esta linha está trabalhando" —, mas
-// no valor MEDIDO, e não no que estava lá.
+// A LINHA ENQUANTO A AÇÃO CORRE — e AQUI A OPACIDADE CAIU, três ondas depois de
+// o D11 ter derrubado a irmã dela. A regra que a derrubou é a mesma, e o que
+// mudou foi só o número que a alimenta.
 //
-// Era `opacity-60`, o mesmo 2,90:1 do D11 aplicado à linha inteira durante a
-// ida ao servidor. Em `opacity-80` o texto quieto da linha fica em 4,59:1 no
-// claro e 5,00:1 no escuro — acima do mínimo nos dois. Os botões continuam
-// `disabled` (e `disabled:opacity-50` por cima), que é o estado em que a WCAG
-// não cobra contraste; o que esta troca protege é o resto da linha, que
-// continua sendo texto que a pessoa lê enquanto espera.
-export const linhaOcupada = "opacity-80";
+// A HISTÓRIA, em duas linhas: era `opacity-60` (2,90:1, o próprio D11 aplicado à
+// linha inteira); a Onda 2 a mediu e a subiu para `opacity-80`, em que o tom
+// quieto de então (`zinc-600`, 7,02:1 de folga) ficava em 4,59:1 — acima do
+// mínimo por 0,09.
+//
+// O QUE A PARTE 1 FEZ COM AQUELE 0,09: o tom quieto passou a ser `quieto`
+// (#6B6862), que é 25 pontos mais claro que o `zinc-600`. Refeita a conta com o
+// tom novo, sobre o cartão branco, NENHUMA opacidade que se veja aprova:
+//
+//   0,80   3,63:1     0,85   4,00:1     0,90   4,46:1     0,95   4,95:1
+//
+// O mínimo é 4,5:1, e o único valor que passa é 0,95 — cinco por cento de
+// escurecimento, que ninguém enxerga. É EXATAMENTE o achado do D11 outra vez:
+// um efeito que só funciona enquanto for ilegível não é um efeito.
+//
+// POR QUE O TOM NÃO FOI ESCURECIDO NO LUGAR DA OPACIDADE: para o dim de 0,80
+// voltar a passar, `quieto` teria de ser mais escuro que #4E4C48 — mais escuro
+// que o próprio `zinc-600` que saiu, e a Onda 3 já havia RECUSADO por medição um
+// quieto naquela faixa ("quieto que grita deixa de ser quieto"). Consertar o
+// efeito arruinando o tom seria pagar o texto de todas as telas pelo dim de uma.
+//
+// O QUE FICA NO LUGAR, e diz a mesma coisa sem tocar em contraste: o fundo da
+// linha muda (`traco` a 40% no claro e `traco-escuro` a 70% no escuro) e o cursor vira
+// `wait`. Medido sobre esse fundo, o tom quieto fica em 5,00:1 no claro e
+// 7,4:1 no escuro. Os botões continuam `disabled` com `disabled:opacity-50`, que
+// é o estado em que a WCAG não cobra contraste.
+//
+// O `!` NÃO É ENFEITE: `card` já declara `bg-white` e `dark:bg-zinc-900/70`, e
+// empilhar a MESMA família de classe não desempata pela ordem na string — ver o
+// aviso medido junto de `input`. Aqui quem tem de ganhar é o estado.
+export const linhaOcupada = "cursor-wait bg-traco/40! dark:bg-traco-escuro/70!";
 
+// O LINK TAMBÉM PERDE O ÍNDIGO, e o que o distingue do texto ao redor passa a
+// ser o SUBLINHADO — que é o que sempre distinguiu link em texto corrido, e o
+// único sinal que funciona para quem não separa matiz.
 export const link =
-  "font-medium text-indigo-600 underline decoration-indigo-300 underline-offset-2 transition-colors hover:decoration-indigo-500 dark:text-indigo-400 dark:decoration-indigo-700";
+  "font-medium text-tinta underline decoration-quieto/50 underline-offset-2 transition-colors hover:decoration-tinta dark:text-tinta-escuro dark:decoration-quieto-escuro/50 dark:hover:decoration-tinta-escuro";
 
 /* ---------- selos ---------- */
 
 export const badge =
   "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold";
 
-export const badgeNeutral = `${badge} bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400`;
+export const badgeNeutral = `${badge} bg-traco/50 text-quieto dark:bg-traco-escuro dark:text-quieto-escuro`;
+// OS TRÊS SELOS DE ESTADO FICAM COMO ESTÃO, E A RECUSA É MEDIDA — não é
+// esquecimento. A tentação era escrever `bg-aberto/12 text-aberto` e deixar a
+// classe dizer o nome do estado. Medido contra o fundo que essa conta produz,
+// ela reprova:
+//
+//   `text-aberto` sobre `bg-aberto/12`    4,25:1
+//   `text-aberto` sobre `bg-aberto/10`    4,39:1
+//   `text-aberto` sobre `bg-aberto/8`     4,51:1   (margem 0,01)
+//   `text-aberto` sobre `bg-emerald-100`  4,42:1
+//
+// O mínimo é 4,5:1. `aberto` (#15803D) PASSA nos quinze fundos reais do produto
+// — o que ele não aguenta é a própria tinta por baixo, porque um fundo derivado
+// da mesma cor sobe a luminância do fundo e não a do texto.
+//
+// O que passa é o par que já estava aqui (`emerald-700` sobre `emerald-100`,
+// 4,72:1), e a spec diz com todas as letras que verde, âmbar e vermelho FICAM
+// com o significado que têm. Inventar um `aberto-tenue` só para a classe
+// combinar seria inventar paleta — que é o que esta direção recusa.
 export const badgeOk = `${badge} bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400`;
 export const badgeWarn = `${badge} bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400`;
 export const badgeErr = `${badge} bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400`;
@@ -235,31 +321,42 @@ export const badgeErr = `${badge} bg-red-100 text-red-700 dark:bg-red-950 dark:t
 /* ---------- tabelas ---------- */
 
 export const tableWrap =
-  "overflow-x-auto rounded-2xl border border-zinc-200/80 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:border-zinc-800 dark:bg-zinc-900/70 dark:shadow-none";
+  "overflow-x-auto rounded-2xl border border-traco bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:border-traco-escuro dark:bg-zinc-900/70 dark:shadow-none";
 
-export const thead = `bg-zinc-50/80 text-[11px] font-semibold uppercase tracking-[0.04em] dark:bg-zinc-950/50 ${tomQuieto}`;
+export const thead = `bg-papel/80 text-[11px] font-semibold uppercase tracking-[0.04em] dark:bg-papel-escuro/50 ${tomQuieto}`;
 
-export const rowDivide = "divide-y divide-zinc-100 dark:divide-zinc-800/60";
+export const rowDivide = "divide-y divide-traco/60 dark:divide-traco-escuro/60";
 
-export const rowHover = "transition-colors hover:bg-zinc-50/70 dark:hover:bg-zinc-800/30";
+export const rowHover = "transition-colors hover:bg-papel/70 dark:hover:bg-traco-escuro/30";
 
 /* ---------- avisos ---------- */
 
 const alertBase = "rounded-xl border px-4 py-3 text-sm";
 
-export const alertError = `${alertBase} border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/60 dark:text-red-300`;
+export const alertError = `${alertBase} border-parou/30 bg-red-50 text-parou dark:border-parou-escuro/30 dark:bg-red-950/60 dark:text-parou-escuro`;
 
-// Sucesso em verde: indigo é a cor de ação, e usar indigo para "deu certo"
-// confundia confirmação com botão.
-export const alertOk = `${alertBase} border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300`;
+// O AVISO USA O TOM NOMEADO, E O SELO NÃO — e a diferença é medida, não de
+// gosto: o fundo do aviso é o `-50` (quase branco) e o do selo é o `-100`.
+//
+//   `text-aberto` sobre `bg-emerald-50`   4,76:1   passa
+//   `text-aberto` sobre `bg-emerald-100`  4,42:1   reprova
+//   `text-fecha`  sobre `bg-amber-50`     4,84:1   passa
+//   `text-parou`  sobre `bg-red-50`       5,91:1   passa
+//
+// Onde o tom nomeado passa, ele entra e a classe diz o estado; onde reprova, o
+// par antigo fica. É a mesma regra dos dois lados, e o que decide é o número.
+export const alertOk = `${alertBase} border-aberto/30 bg-emerald-50 text-aberto dark:border-aberto-escuro/30 dark:bg-emerald-950/60 dark:text-aberto-escuro`;
 
-export const alertWarn = `${alertBase} border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300`;
+export const alertWarn = `${alertBase} border-fecha/30 bg-amber-50 text-fecha dark:border-fecha-escuro/30 dark:bg-amber-950/60 dark:text-fecha-escuro`;
 
-export const alertInfo = `${alertBase} border-indigo-200 bg-indigo-50 text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-300`;
+// O AVISO NEUTRO PERDE O ÍNDIGO E NÃO GANHA COR NENHUMA. Ele nunca disse
+// estado — dizia "leia isto" —, e numa paleta em que cor é estado, informação
+// sem estado é papel, traço e tinta.
+export const alertInfo = `${alertBase} border-traco bg-papel text-tinta dark:border-traco-escuro dark:bg-papel-escuro/50 dark:text-tinta-escuro`;
 
 /* ---------- estados ---------- */
 
-export const skeleton = "animate-pulse rounded-xl bg-zinc-200/70 dark:bg-zinc-800/60";
+export const skeleton = "animate-pulse rounded-xl bg-traco/70 dark:bg-traco-escuro/70";
 
 export const emptyWrap =
-  "flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700";
+  "flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-traco px-6 py-12 text-center dark:border-traco-escuro";

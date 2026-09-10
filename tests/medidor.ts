@@ -164,8 +164,11 @@ export const FUNDOS: Record<string, Rgb> = {
   "claro: corpo (bg-papel)": tom("papel"),
   "claro: cartao (bg-white)": BRANCO,
   "claro: barra lateral (bg-zinc-50/50)": misturar(tom("zinc-50"), tom("papel"), 0.5),
-  "claro: cabecalho de tabela (bg-zinc-50/80)": misturar(tom("zinc-50"), BRANCO, 0.8),
-  "claro: superficie interna (bg-zinc-50/60)": misturar(tom("zinc-50"), BRANCO, 0.6),
+  // As duas trocaram `zinc-50` por `papel` (app/ui.ts, `thead` e `subtle`), e a
+  // troca é de NOME: `bg-zinc-50/60` sobre branco dava rgb(252,252,252) e
+  // `papel` é rgb(251,250,248).
+  "claro: cabecalho de tabela (bg-papel/80)": misturar(tom("papel"), BRANCO, 0.8),
+  "claro: superficie interna (bg-papel)": tom("papel"),
   "claro: grupo de filtros (bg-zinc-100/70)": misturar(tom("zinc-100"), BRANCO, 0.7),
   // O MAIS ESCURO DOS FUNDOS CLAROS, e por isso o que manda na escolha do tema
   // claro (app/conversas/[id], balão recebido).
@@ -174,8 +177,16 @@ export const FUNDOS: Record<string, Rgb> = {
   "escuro: corpo (bg-papel-escuro)": tom("papel-escuro"),
   "escuro: cartao (bg-zinc-900/70)": CARTAO_ESCURO,
   "escuro: barra lateral (bg-zinc-950)": tom("zinc-950"),
-  "escuro: cabecalho de tabela (bg-zinc-950/50)": misturar(tom("zinc-950"), CARTAO_ESCURO, 0.5),
-  "escuro: superficie interna (bg-zinc-950/40)": misturar(tom("zinc-950"), CARTAO_ESCURO, 0.4),
+  "escuro: cabecalho de tabela (bg-papel-escuro/50)": misturar(
+    tom("papel-escuro"),
+    CARTAO_ESCURO,
+    0.5
+  ),
+  "escuro: superficie interna (bg-papel-escuro/40)": misturar(
+    tom("papel-escuro"),
+    CARTAO_ESCURO,
+    0.4
+  ),
   "escuro: painel de posts (bg-zinc-950/60)": misturar(tom("zinc-950"), CARTAO_ESCURO, 0.6),
   // O MAIS CLARO DOS FUNDOS ESCUROS, e por isso o que manda na escolha: é ele
   // que decide o piso do tema escuro (app/conversas/[id], balão recebido).

@@ -37,16 +37,21 @@ import {
   misturar,
   contraste,
   BRANCO,
-  PRETO,
   MINIMO,
   type Rgb,
 } from "./medidor";
 
 // OS FUNDOS REAIS DA LINHA, e não um branco/preto de conveniência:
-// claro  — `body` é `bg-zinc-100`, o cartão da linha é `bg-white`.
-// escuro — `body` é `dark:bg-black`, o cartão é `dark:bg-zinc-900/70`.
+// claro  — `body` é `bg-papel`, o cartão da linha é `bg-white`.
+// escuro — `body` é `dark:bg-papel-escuro`, o cartão é `dark:bg-zinc-900/70`.
 const FUNDO_CLARO = BRANCO;
-const FUNDO_ESCURO = misturar(tom("zinc-900"), PRETO, 0.7);
+const FUNDO_ESCURO = misturar(tom("zinc-900"), tom("papel-escuro"), 0.7);
+
+// O FUNDO DA LINHA OCUPADA, que na Parte 1 deixou de ser opacidade e passou a
+// ser cor: `bg-traco/40!` no claro e `dark:bg-traco-escuro/40!` no escuro. O `!`
+// substitui o fundo do cartão, então o que está ATRÁS é a página.
+const OCUPADO_CLARO = misturar(tom("traco"), tom("papel"), 0.4);
+const OCUPADO_ESCURO = misturar(tom("traco-escuro"), tom("papel-escuro"), 0.7);
 
 
 /* ---------- o que o medidor precisa provar antes de medir ---------- */
@@ -62,8 +67,8 @@ describe("o medidor de contraste bate com o navegador", () => {
 
 describe("a ação destrutiva da linha de automação", () => {
   it("é MAIS legível que as irmãs no claro, em repouso", () => {
-    const destrutiva = contraste(tom("red-700"), FUNDO_CLARO);
-    const irma = contraste(tom("zinc-600"), FUNDO_CLARO);
+    const destrutiva = contraste(tom("parou"), FUNDO_CLARO);
+    const irma = contraste(tom("quieto"), FUNDO_CLARO);
     // Números medidos: 6,42:1 contra 7,72:1. A destrutiva fica ABAIXO da irmã
     // em luminância de propósito — passar por cima dela faria o vermelho virar
     // o elemento mais pesado da linha, e a lista de 18 automações gritaria. O
@@ -75,7 +80,7 @@ describe("a ação destrutiva da linha de automação", () => {
   });
 
   it("passa o mínimo no ESCURO, que é onde ela falhava", () => {
-    const destrutiva = contraste(tom("red-400"), FUNDO_ESCURO);
+    const destrutiva = contraste(tom("parou-escuro"), FUNDO_ESCURO);
     const antes = contraste(tom("zinc-500"), FUNDO_ESCURO);
     expect(antes).toBeLessThan(MINIMO); // 3,91:1 — o defeito
     expect(destrutiva).toBeGreaterThan(MINIMO); // 6,53:1 — o conserto
@@ -85,18 +90,30 @@ describe("a ação destrutiva da linha de automação", () => {
     // É o estado em que a pessoa está prestes a clicar em apagar; ele não pode
     // ser o mais fraco dos dois. Foi por aqui que `red-600` caiu no claro:
     // sobre `bg-red-50` ele dá 4,36:1, abaixo do mínimo.
-    expect(contraste(tom("red-700"), tom("red-50"))).toBeGreaterThan(MINIMO);
-    const hoverEscuro = misturar(tom("red-950"), FUNDO_ESCURO, 0.4);
-    expect(contraste(tom("red-400"), hoverEscuro)).toBeGreaterThan(MINIMO);
+    // O FUNDO DO HOVER TAMBÉM TROCOU DE NOME: era `bg-red-50` / `bg-red-950/40`,
+    // e passou a ser a própria cor do estado a 8% e a 10%. É a mesma ideia com
+    // menos dependência: o hover deixa de depender de uma rampa que a paleta não
+    // nomeia. Medido, ele fica em 5,66:1 no claro e 5,84:1 no escuro.
+    const hoverClaro = misturar(tom("parou"), FUNDO_CLARO, 0.08);
+    expect(contraste(tom("parou"), hoverClaro)).toBeGreaterThan(MINIMO);
+    const hoverEscuro = misturar(tom("parou-escuro"), FUNDO_ESCURO, 0.1);
+    expect(contraste(tom("parou-escuro"), hoverEscuro)).toBeGreaterThan(MINIMO);
   });
 });
 
 /* ---------- a forma, que é a metade "sem gritar" ---------- */
 
+// AS CLASSES DE COR SAEM, E SÓ ELAS. O filtro passou a conhecer os nomes da
+// paleta (`text-quieto`, `text-parou`, e o par `-escuro` de cada um) além da
+// rampa `zinc`/`red` que ele já conhecia — sem isso ele deixaria `text-quieto`
+// passar por geometria e o caso abaixo compararia tom com tom.
+const CLASSE_DE_COR =
+  /(^|:)(text-(zinc|red)-|text-(quieto|parou)(-escuro)?(\/|$)|bg-|border-)/;
+
 const geometria = (classe: string) =>
   classe
     .split(/\s+/)
-    .filter((c) => !/(^|:)(text-(zinc|red)-|bg-|border-)/.test(c))
+    .filter((c) => !CLASSE_DE_COR.test(c))
     .sort();
 
 describe("os dois tratamentos de ação de linha", () => {
@@ -106,13 +123,16 @@ describe("os dois tratamentos de ação de linha", () => {
 
   it("a destrutiva não usa o tom quieto das irmãs", () => {
     expect(btnLinhaDanger).not.toMatch(/(^|\s)(dark:)?text-zinc-/);
+    expect(btnLinhaDanger).not.toMatch(/(^|\s)(dark:)?text-quieto/);
   });
 
   it("a destrutiva declara tom nos DOIS temas", () => {
     // O defeito original era exatamente uma cor só para os dois temas
     // (`text-zinc-500 dark:text-zinc-500`), que é a raiz do achado D3.
-    expect(btnLinhaDanger).toMatch(/(^|\s)text-red-\d{3}(\s|$)/);
-    expect(btnLinhaDanger).toMatch(/(^|\s)dark:text-red-\d{3}(\s|$)/);
+    // O par deixou de ser `red-700`/`red-400` e passou a ser
+    // `parou`/`parou-escuro` — os MESMOS vermelhos, agora com o nome do estado.
+    expect(btnLinhaDanger).toMatch(/(^|\s)text-parou(\s|$)/);
+    expect(btnLinhaDanger).toMatch(/(^|\s)dark:text-parou-escuro(\s|$)/);
   });
 
   it("não vira `btnDanger`: ação de texto em linha não desenha caixa", () => {
@@ -139,10 +159,10 @@ const comOpacidade = (tomNome: string, fundo: Rgb, alfa: number) =>
 
 // As QUATRO ações da linha, cada uma no seu tema e no seu fundo.
 const AS_QUATRO: [string, string, Rgb][] = [
-  ["Pausar/Editar/Duplicar, claro", "zinc-600", FUNDO_CLARO],
-  ["Pausar/Editar/Duplicar, escuro", "zinc-400", FUNDO_ESCURO],
-  ["Excluir, claro", "red-700", FUNDO_CLARO],
-  ["Excluir, escuro", "red-400", FUNDO_ESCURO],
+  ["Pausar/Editar/Duplicar, claro", "quieto", FUNDO_CLARO],
+  ["Pausar/Editar/Duplicar, escuro", "quieto-escuro", FUNDO_ESCURO],
+  ["Excluir, claro", "parou", FUNDO_CLARO],
+  ["Excluir, escuro", "parou-escuro", FUNDO_ESCURO],
 ];
 
 const piorDasQuatro = (alfa: number) =>
@@ -161,12 +181,14 @@ describe("a opacidade que revelava as ações no hover", () => {
   });
 
   it("NENHUMA opacidade que se veja aprova as quatro — é por isso que ela caiu", () => {
-    // 0,80 é o menor valor que aprova, e nele a mais fraca fica em 4,50: o
-    // mínimo cravado, margem zero. Abaixo disso reprova; nele, não se vê. Um
-    // efeito que só funciona enquanto for ilegível não é um efeito.
+    // COM O TOM NOMEADO A CONTA FICOU AINDA MAIS DURA, e é isso que o número
+    // mostra: com `zinc-600` o menor valor que aprovava era 0,80, cravado em
+    // 4,50. Com `quieto` (#6B6862, 25 pontos mais claro), nem 0,90 aprova —
+    // 4,46:1 —, e o primeiro que passa é 0,95, que ninguém enxerga.
     expect(piorDasQuatro(0.75)).toBeLessThan(MINIMO);
-    expect(piorDasQuatro(0.8)).toBeGreaterThanOrEqual(MINIMO);
-    expect(piorDasQuatro(0.8)).toBeLessThan(MINIMO + 0.05);
+    expect(piorDasQuatro(0.8)).toBeLessThan(MINIMO);
+    expect(piorDasQuatro(0.9)).toBeLessThan(MINIMO);
+    expect(piorDasQuatro(0.95)).toBeGreaterThanOrEqual(MINIMO);
   });
 
   it("o contêiner das ações não declara opacidade nenhuma", () => {
@@ -186,13 +208,42 @@ describe("a opacidade que revelava as ações no hover", () => {
 });
 
 describe("a linha enquanto a ação corre", () => {
-  it("dim de 80%, e não de 60%: o texto quieto continua legível esperando", () => {
-    const alfa = Number(linhaOcupada.match(/opacity-(\d+)/)![1]) / 100;
-    expect(alfa).toBe(0.8);
-    // o tom quieto da linha (metadados, data, "o que dispara") sob esse dim
-    expect(comOpacidade("zinc-600", FUNDO_CLARO, alfa)).toBeGreaterThan(MINIMO);
-    expect(comOpacidade("zinc-400", FUNDO_ESCURO, alfa)).toBeGreaterThan(MINIMO);
-    // e o que estava lá, para o número do defeito não se perder
+  // A OPACIDADE CAIU AQUI TAMBÉM, três ondas depois de o D11 ter derrubado a
+  // irmã dela, e pela MESMA regra: o único valor que aprovava (0,80, com
+  // `zinc-600`, em 4,50 cravado) deixou de aprovar quando o tom quieto passou a
+  // ser `quieto`. O sinal de "esta linha está trabalhando" passou a ser o FUNDO.
+  it("não dim nenhum: o sinal deixou de ser opacidade", () => {
+    expect(linhaOcupada).not.toMatch(/opacity-/);
+    expect(linhaOcupada).toMatch(/(^|\s)bg-/);
+    expect(linhaOcupada).toMatch(/(^|\s)dark:bg-/);
+  });
+
+  it("o `!` está lá, porque `card` já declara `bg-*` e a ordem na string não decide", () => {
+    // Sem ele, quem desempata é a ordem na FOLHA que o Tailwind gera — que é
+    // exatamente o defeito medido no aviso de `input`, em app/ui.ts.
+    for (const classe of linhaOcupada.split(/\s+/).filter((c) => /(^|:)bg-/.test(c))) {
+      expect(classe, classe).toMatch(/!$/);
+    }
+  });
+
+  it("as quatro ações continuam legíveis sobre o fundo da linha ocupada", () => {
+    // É o que a opacidade não conseguia entregar: o fundo muda, o texto não, e
+    // as quatro continuam acima do mínimo.
+    expect(contraste(tom("quieto"), OCUPADO_CLARO)).toBeGreaterThan(MINIMO);
+    expect(contraste(tom("parou"), OCUPADO_CLARO)).toBeGreaterThan(MINIMO);
+    expect(contraste(tom("quieto-escuro"), OCUPADO_ESCURO)).toBeGreaterThan(MINIMO);
+    expect(contraste(tom("parou-escuro"), OCUPADO_ESCURO)).toBeGreaterThan(MINIMO);
+  });
+
+  it("e o fundo novo SE VÊ, que é o que a opacidade legível não conseguia", () => {
+    // Um sinal de estado que não se distingue do repouso não é sinal. O cartão
+    // claro é branco; a linha ocupada tem de sair dele.
+    expect(contraste(OCUPADO_CLARO, FUNDO_CLARO)).toBeGreaterThan(1.05);
+    expect(contraste(OCUPADO_ESCURO, FUNDO_ESCURO)).toBeGreaterThan(1.05);
+  });
+
+  it("o número do defeito não se perde: 0,60 dava 2,90:1 com o tom de então", () => {
     expect(comOpacidade("zinc-600", FUNDO_CLARO, 0.6)).toBeLessThan(MINIMO);
+    expect(comOpacidade("zinc-600", FUNDO_CLARO, 0.6)).toBeCloseTo(2.9, 1);
   });
 });
