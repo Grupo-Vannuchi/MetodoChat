@@ -33,26 +33,6 @@ convida a refazer o que já funciona.
 
 ---
 
-### D11 — ALTO — a opacidade derruba a linha inteira de ações abaixo do mínimo
-
-**Achado em 10/09, DURANTE a execução da Onda 2, e não pela auditoria original.**
-
-`app/automacoes/list-client.tsx`: o contêiner das quatro ações tem
-`sm:opacity-60` — o padrão de "revelar no hover". Medido em produção, a ≥640px,
-em repouso:
-
-| ação | contraste do texto | contraste REAL, com a opacidade |
-|---|---|---|
-| Pausar / Editar / Duplicar | 7,72:1 | **2,90:1** |
-| Excluir | 4,83:1 | **2,31:1** |
-
-**As quatro ações de todas as 18 linhas ficam abaixo de 4,5:1 em repouso.** Não
-é o "Excluir" que está apagado — é a linha inteira.
-
-E vale registrar por que a auditoria não pegou: **meu medidor não acumulava a
-opacidade dos ancestrais**, então mediu a cor declarada e não a cor vista. É a
-terceira limitação da ferramenta, junto das cinco do fim deste documento.
-
 ## DEFEITOS
 
 ### D1 — ALTO — a tela mente sobre um post que o dono cancelou
@@ -84,6 +64,26 @@ Medido: **"Excluir" é `zinc-500` (113,113,123)**; "Pausar", "Editar" e
 **mais apagada** que a que a duplica, no mesmo tamanho (12px) e peso (500).
 
 O token `btnDanger` existe em `app/ui.ts:85` e não é usado aqui.
+
+### D11 — ALTO — a opacidade derruba a linha inteira de ações abaixo do mínimo
+
+**Achado em 10/09, DURANTE a execução da Onda 2, e não pela auditoria original.**
+
+`app/automacoes/list-client.tsx`: o contêiner das quatro ações tem
+`sm:opacity-60` — o padrão de "revelar no hover". Medido em produção, a ≥640px,
+em repouso:
+
+| ação | contraste do texto | contraste REAL, com a opacidade |
+|---|---|---|
+| Pausar / Editar / Duplicar | 7,72:1 | **2,90:1** |
+| Excluir | 4,83:1 | **2,31:1** |
+
+**As quatro ações de todas as 18 linhas ficam abaixo de 4,5:1 em repouso.** Não
+é o "Excluir" que está apagado — é a linha inteira.
+
+E vale registrar por que a auditoria não pegou: **meu medidor não acumulava a
+opacidade dos ancestrais**, então mediu a cor declarada e não a cor vista. É a
+terceira limitação da ferramenta, junto das cinco do fim deste documento.
 
 ### D3 — MÉDIO — três tokens de texto quieto abaixo do contraste mínimo
 
