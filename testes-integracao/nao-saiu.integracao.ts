@@ -695,17 +695,35 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
   // A JANELA DA MENSAGEM FICA ONDE ESTAVA, e este caso é o que impede a
   // generosidade dos 7 dias de escorregar para o lado dela. O comportamento de
   // mensagem não muda nesta entrega.
+  //
+  // VINTE E CINCO HORAS, E NÃO TRÊS DIAS — desde 10/09/2026, e a hora saiu de
+  // uma medição, não de um gosto.
+  //
+  // Até essa data o caso semeava em -3 dias, e nessa distância ele não prendia
+  // janela nenhuma no meio: com a janela plantada em 48 h o caso continuava
+  // VERDE, porque -72 h está fora dos 48 h também. Ele só acusava a partir de
+  // ~72 h, e ainda assim pela margem de milissegundos entre a transação que
+  // semeia e a que lê — as duas contam do `now()` do banco, e a segunda é
+  // sempre a mais tarde, então -72 h cai FORA de uma janela de exatamente 72 h.
+  //
+  // -2 DIAS TAMBÉM NÃO SERVE, e foi medido: -48 h contra uma janela de 48 h é a
+  // MESMA margem exata, e o plantio de 48 h sobrevive.
+  //
+  // A distância certa é a que fica FORA das 24 h por folga e DENTRO de qualquer
+  // janela maior. Medido em -25 h: a janela de 26 h fica vermelha, a de 48 h
+  // fica vermelha, e as 24 h de verdade continuam verdes com uma hora inteira
+  // de folga — e não com os milissegundos de que a margem exata dependia.
   // =========================================================================
-  test("uma mensagem falhada ha 3 dias NAO avisa — as 24h dela ficam como estavam", async () => {
+  test("uma mensagem falhada ha 25 horas NAO avisa — as 24h dela ficam como estavam", async () => {
     await limparAFila();
     await semear({
       conta: CONTA_A,
       kind: "dm_manual",
       status: "failed",
-      emSegundos: -3 * DIA,
-      reivindicadoEm: -3 * DIA,
-      criadoEm: -3 * DIA,
-      error: "mensagem falhada ha tres dias",
+      emSegundos: -25 * 3600,
+      reivindicadoEm: -25 * 3600,
+      criadoEm: -25 * 3600,
+      error: "mensagem falhada ha vinte e cinco horas",
     });
 
     const painel = await arvoreDoPainel();
