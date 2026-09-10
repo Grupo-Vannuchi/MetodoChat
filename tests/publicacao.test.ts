@@ -1478,10 +1478,37 @@ describe("parametrosDoContainer — os filhos do carrossel", () => {
     expect(p.media_type).toBeUndefined();
   });
 
+  // O PAR QUE PRENDE A REGRA, e os dois lados sao MEDIDOS (10/09/2026, contra
+  // @vannuchi.eng, criando conteineres sem publicar):
+  //
+  //   filho imagem, sem `media_type`              -> FINISHED
+  //   filho video, sem `media_type`               -> HTTP 400, code=100,
+  //                                                  "The parameter image_url
+  //                                                  is required"
+  //   filho video, `media_type=VIDEO`             -> FINISHED
+  //
+  // UM CASO SO NAO PRENDE NADA. Sem o lado da IMAGEM, quem "consertar" o 400
+  // mandando `media_type` em TODO filho passa neste arquivo — e o filho de
+  // imagem volta a mandar um parametro que a Meta nao pede. Sem o lado do
+  // VIDEO, o carrossel com video continua morrendo em producao depois do
+  // upload inteiro. Os dois juntos e que fecham.
+  it("filho de IMAGEM nao leva media_type", () => {
+    const p = parametrosDoContainer({
+      forma: "carrossel",
+      url: "https://x/a.jpg",
+      filho: true,
+    });
+    expect(p.image_url).toBe("https://x/a.jpg");
+    expect(p.media_type).toBeUndefined();
+  });
+
   // VIDEO EM CARROSSEL E VIDEO COMUM: sem `share_to_feed`, sem `audio_name`,
-  // sem capa — e sem `media_type`, porque a referencia do endpoint lista
-  // CAROUSEL, REELS e STORIES e mais nada (ver a especificacao).
-  it("filho de video leva video_url e nenhum media_type", () => {
+  // sem capa. Mas ele PRECISA de `media_type`, e o valor e `VIDEO` e nao
+  // `REELS`: os dois foram medidos FINISHED, e `REELS` seria mentira
+  // semantica — video em carrossel e video comum, que e a mesma regra que esta
+  // funcao aplica logo acima ao recusar `share_to_feed` e `audio_name` no
+  // filho.
+  it("filho de VIDEO leva media_type VIDEO", () => {
     const p = parametrosDoContainer({
       forma: "carrossel",
       url: "https://x/a.mp4",
@@ -1490,9 +1517,21 @@ describe("parametrosDoContainer — os filhos do carrossel", () => {
       nomeDoAudio: "trilha",
     });
     expect(p.video_url).toBe("https://x/a.mp4");
-    expect(p.media_type).toBeUndefined();
+    expect(p.media_type).toBe("VIDEO");
     expect(p.share_to_feed).toBeUndefined();
     expect(p.audio_name).toBeUndefined();
+    // A LEGENDA CONTINUA MORANDO NO PAI. A metade certa do comentario antigo.
+    expect(p.caption).toBeUndefined();
+    expect(p.is_carousel_item).toBe("true");
+  });
+
+  // `REELS` TAMBEM FOI MEDIDO FINISHED, e por isso o caso existe: a Meta nao
+  // nos obriga a escolher, quem obriga e a regra do produto. Se este caso
+  // ficar verde com `REELS` no lugar de `VIDEO`, a distincao nao esta presa.
+  it("o valor e VIDEO, e nao REELS", () => {
+    const p = parametrosDoContainer({ forma: "carrossel", url: "https://x/a.mp4", filho: true });
+    expect(p.media_type).toBe("VIDEO");
+    expect(p.media_type).not.toBe("REELS");
   });
 
   // A EXTENSAO DECIDE, e ela e o UNICO caminho: o dreno monta o filho a partir

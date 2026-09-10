@@ -868,6 +868,69 @@ describe("o carrossel: os filhos primeiro, o pai depois, e um post so", () => {
     expect(meta.desconhecidos).toEqual([]);
   });
 
+  // ===========================================================================
+  // O CARROSSEL COM VIDEO, que e o caso que quebrava em PRODUCAO ate 10/09/2026.
+  //
+  // O DEFEITO NAO APARECIA AQUI porque nenhum caso desta suite jamais pos um
+  // video dentro de um carrossel: os tres filhos acima sao `.jpg`, e a regra
+  // "filho nao leva media_type" foi generalizada a partir desse unico caso.
+  //
+  // MEDIDO contra a Meta de verdade (@vannuchi.eng, conteineres sem publicar):
+  // filho de video SEM `media_type` devolve HTTP 400, code=100, "The parameter
+  // image_url is required" — a Meta o trata como IMAGEM e exige `image_url`,
+  // enquanto nos mandamos `video_url`. Com `media_type=VIDEO`, FINISHED.
+  //
+  // ESTE CASO E O QUE PROVA QUE O CONSERTO CHEGA NA PRODUCAO, e nao so na
+  // funcao pura: o dreno monta o filho a partir do CAMINHO no bucket, e o
+  // payload nao guarda o tipo do arquivo. Se a extensao gravada nao viajasse
+  // inteira do payload ate `parametrosDoContainer`, o `media_type` nao sairia —
+  // e o teste puro continuaria verde com a producao quebrada. E exatamente a
+  // cegueira que o cabecalho de `lib/queue-drain.ts` descreve.
+  // ===========================================================================
+  test("filho de VIDEO leva media_type VIDEO, e o de imagem no mesmo pai nao leva", async () => {
+    const MISTO = [`${CONTA_A}/carrossel-foto.jpg`, `${CONTA_A}/carrossel-clipe.mp4`];
+    expect(
+      await engine.enqueuePublicacao(
+        CONTA_A,
+        { forma: "carrossel", caminhos: MISTO, legenda: "foto e clipe" },
+        null
+      )
+    ).toBe(true);
+
+    await drenar();
+
+    // O PAR, NO MESMO PAI. E o par que importa: um so nao prende a regra, e
+    // quem "consertar" mandando `media_type` em todo filho quebra o outro lado.
+    const foto = meta.containers[0];
+    expect(foto.params.image_url).toContain("carrossel-foto.jpg");
+    expect(foto.params.video_url).toBeUndefined();
+    expect(foto.params.media_type).toBeUndefined();
+    expect(foto.params.is_carousel_item).toBe("true");
+
+    const clipe = meta.containers[1];
+    expect(clipe.params.video_url).toContain("carrossel-clipe.mp4");
+    expect(clipe.params.image_url).toBeUndefined();
+    expect(clipe.params.media_type).toBe("VIDEO");
+    expect(clipe.params.is_carousel_item).toBe("true");
+    // VIDEO EM CARROSSEL E VIDEO COMUM: nada de reels no filho.
+    expect(clipe.params.share_to_feed).toBeUndefined();
+    expect(clipe.params.audio_name).toBeUndefined();
+    expect(clipe.params.caption).toBeUndefined();
+
+    // E O PAI CONTINUA SENDO O PAI: a legenda e dele, e o post e UM so.
+    const pai = meta.containers[2];
+    expect(pai.params.media_type).toBe("CAROUSEL");
+    expect(pai.params.children).toBe("container-1,container-2");
+    expect(pai.params.caption).toBe("foto e clipe");
+
+    expect(meta.publicacoes).toEqual([
+      { igUserId: CONTA_A, token: TOKEN_A, creationId: "container-3" },
+    ]);
+    const item = await itemDaFila();
+    expect(item.status).toBe("sent");
+    expect(meta.desconhecidos).toEqual([]);
+  });
+
   test("o filho que a Meta RECUSA impede o pai de nascer, e nada e publicado", async () => {
     // O PLANTIO DESTA TAREFA, medido do lado de fora. Publicar o pai com os
     // filhos que deram certo poria no perfil um carrossel com peça faltando —
