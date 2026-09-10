@@ -205,7 +205,7 @@ export default function AutomationsList({ automations }: { automations: Automati
               setBusca("");
               setFiltro("todas");
             }}
-            className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+            className="text-xs font-medium text-tinta underline decoration-quieto/50 underline-offset-2 hover:decoration-tinta dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
           >
             Limpar filtros
           </button>
@@ -244,7 +244,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
                         href={`/automacoes/${a.id}`}
-                        className="truncate text-base font-semibold text-zinc-900 hover:text-indigo-600 dark:text-zinc-100 dark:hover:text-indigo-400"
+                        className="truncate text-base font-semibold text-tinta hover:underline dark:text-tinta-escuro"
                       >
                         {a.name}
                       </Link>

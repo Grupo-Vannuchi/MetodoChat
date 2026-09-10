@@ -7,7 +7,7 @@ export default function CopyField({ label, value }: { label: string; value: stri
     <div>
       <p className="mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">{label}</p>
       <div className="flex items-center gap-2">
-        <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-indigo-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-indigo-300">
+        <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-lg border border-traco bg-papel px-3 py-2 text-xs text-tinta dark:border-traco-escuro dark:bg-papel-escuro dark:text-tinta-escuro">
           {value}
         </code>
         <button

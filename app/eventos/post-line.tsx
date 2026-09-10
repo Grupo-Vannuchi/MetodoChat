@@ -53,7 +53,7 @@ export default function PostLine({ kind, post }: { kind: string; post: PostRef |
       href={post.permalink}
       target="_blank"
       rel="noopener noreferrer"
-      className={`${wrap} transition-colors hover:border-indigo-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/20 dark:hover:border-indigo-500`}
+      className={`${wrap} transition-colors hover:border-tinta focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/20 dark:hover:border-tinta-escuro dark:focus-visible:ring-tinta-escuro/25`}
     >
       {conteudo}
     </a>

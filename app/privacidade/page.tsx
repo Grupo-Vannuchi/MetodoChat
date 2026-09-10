@@ -41,7 +41,7 @@ export default async function PrivacidadePage() {
       <h2 className="titulo text-lg font-semibold text-zinc-900 dark:text-zinc-100">Exclusão de dados</h2>
       <p>
         Você pode solicitar a exclusão dos seus dados a qualquer momento. Veja as instruções em{" "}
-        <a href="/exclusao-de-dados" className="text-indigo-400 underline">
+        <a href="/exclusao-de-dados" className="text-tinta underline dark:text-tinta-escuro">
           /exclusao-de-dados
         </a>
         .

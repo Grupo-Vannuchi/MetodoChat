@@ -179,7 +179,7 @@ export default async function EventosPage({
                     {/* Limpa só os filtros DESTA seção: os da de baixo seguem. */}
                     <LimparSecao
                       secao="envios"
-                      className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+                      className="font-semibold text-tinta underline decoration-quieto/50 underline-offset-2 hover:decoration-tinta dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
                     />
                   </>
                 ) : (
@@ -302,7 +302,7 @@ export default async function EventosPage({
                     {/* Limpa só os filtros DESTA seção: os da de cima seguem. */}
                     <LimparSecao
                       secao="eventos"
-                      className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+                      className="font-semibold text-tinta underline decoration-quieto/50 underline-offset-2 hover:decoration-tinta dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
                     />
                   </>
                 ) : (

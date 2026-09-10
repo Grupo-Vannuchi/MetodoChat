@@ -455,14 +455,24 @@ function Item({ bolha, conta }: { bolha: Bolha; conta: ContaDaPrevia }) {
 // Tudo o que um bloco desenha, junto — e é o agrupamento que permite acender o
 // bloco que está aberto no painel.
 //
-// O DESTAQUE É INDIGO porque indigo é a cor da seleção no quadro (`no.tsx`), e
-// a prévia só liga o que a pessoa está digitando ao que ela vê se as duas
-// telas usarem a mesma cor para "este é o bloco aberto".
+// O DESTAQUE USA A TINTA porque a tinta é a cor da seleção no quadro
+// (`no.tsx`), e a prévia só liga o que a pessoa está digitando ao que ela vê se
+// as duas telas usarem a mesma cor para "este é o bloco aberto". Era índigo nas
+// duas, e as duas trocaram juntas.
+//
+// OS DOIS GRADIENTES DESTE ARQUIVO FICAM, E A EXCEÇÃO É DECLARADA: o anel do
+// story (`from-amber-400 via-pink-500 to-purple-600`) e o avatar do perfil
+// (`from-purple-600 to-orange-400`) não são a identidade DESTE produto — são o
+// desenho do Instagram dentro de um telefone de 300px de largura, e a semelhança
+// com o Instagram é a função inteira desta tela. Trocá-los pela paleta do painel
+// faria a prévia deixar de parecer o lugar onde a mensagem vai chegar. É a mesma
+// exceção que `tests/escala.test.ts` já declara para o editor, e pelo mesmo
+// motivo: aqui a maquete é de outro produto.
 function CenaNaConversa({ cena, aceso, conta }: { cena: Cena; aceso: boolean; conta: ContaDaPrevia }) {
   return (
     <div
       className={`flex flex-col gap-1.5 ${
-        aceso ? "-mx-1.5 rounded-lg bg-indigo-500/10 px-1.5 py-1 ring-1 ring-indigo-400/70" : ""
+        aceso ? "-mx-1.5 rounded-lg bg-tinta/10 px-1.5 py-1 ring-1 ring-tinta/40 dark:bg-tinta-escuro/10 dark:ring-tinta-escuro/40" : ""
       }`}
     >
       {cena.itens.map((b, i) => (

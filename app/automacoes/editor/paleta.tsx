@@ -203,7 +203,7 @@ export default function Paleta({
               }}
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
                 serve
-                  ? "cursor-grab border-zinc-300 bg-white text-zinc-700 hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-indigo-500 dark:hover:text-indigo-400"
+                  ? "cursor-grab border-traco bg-white text-tinta hover:border-tinta dark:border-traco-escuro dark:bg-zinc-900 dark:text-tinta-escuro dark:hover:border-tinta-escuro"
                   : "cursor-not-allowed border-dashed border-zinc-300 text-zinc-300 dark:border-zinc-800 dark:text-zinc-700"
               }`}
               title={titulo}

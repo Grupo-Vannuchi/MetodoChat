@@ -117,13 +117,13 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                 {/* marcador do item ativo: barra fina à esquerda */}
                 <span
                   aria-hidden
-                  className={`absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-indigo-500 transition-opacity ${
+                  className={`absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-tinta transition-opacity dark:bg-tinta-escuro ${
                     active ? "opacity-100" : "opacity-0"
                   }`}
                 />
                 <Icon
                   className={`h-[17px] w-[17px] shrink-0 transition-colors ${
-                    active ? "text-indigo-500" : "text-zinc-400 group-hover:text-zinc-500 dark:text-zinc-500"
+                    active ? "text-tinta dark:text-tinta-escuro" : "text-quieto/70 group-hover:text-quieto dark:text-quieto-escuro/70 dark:group-hover:text-quieto-escuro"
                   }`}
                 />
                 {item.label}
@@ -142,7 +142,7 @@ function Brand() {
       href="/"
       className="flex items-center px-3 text-base font-semibold tracking-[-0.02em] text-zinc-900 transition-opacity hover:opacity-70 dark:text-zinc-50"
     >
-      MetodoChat<span className="text-indigo-500">.</span>
+      MetodoChat<span className="text-quieto dark:text-quieto-escuro">.</span>
     </Link>
   );
 }

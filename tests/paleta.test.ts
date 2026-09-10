@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { join, relative } from "node:path";
+import { btnPrimary, link } from "../app/ui";
 import {
   tom,
   contraste,
@@ -175,5 +177,99 @@ describe("a hierarquia entre normal e quieto", () => {
     expect(piorCaso("quieto-escuro", FUNDOS_ESCUROS)).toBeGreaterThanOrEqual(
       contraste(tom("zinc-400"), FUNDOS["escuro: balao recebido (bg-zinc-800)"])
     );
+  });
+});
+
+/* ---------- o índigo saiu, e a varredura é o que o mantém fora ---------- */
+
+// ERAM 147 OCORRÊNCIAS DE `indigo`/`violet`/`purple` EM MAIS DE 20 ARQUIVOS —
+// cor de marca e cor de ação ao mesmo tempo, e o que mais fazia o painel parecer
+// modelo. Comentário não impede a 148ª; uma varredura que reprova impede.
+//
+// ELA VARRE ARQUIVO, e não DOM, pelo mesmo motivo de `tests/escala.test.ts`:
+// esta entrega não pôde rodar `next build` nem `npm run dev`, então o que dá
+// para provar é o que está escrito na árvore — que é de onde o renderizado sai.
+
+const RAIZ = fileURLToPath(new URL("..", import.meta.url));
+
+// A ÚNICA EXCEÇÃO, E ELA É DECLARADA — exceção não declarada é amostra que se
+// chama de varredura.
+//
+// `app/automacoes/editor/previa.tsx` desenha o INSTAGRAM dentro de um telefone
+// de 300px de largura: o anel do story e o avatar do perfil. Aqueles dois
+// gradientes são a marca do Instagram, e não a deste produto; trocá-los pela
+// paleta do painel faria a prévia deixar de parecer o lugar onde a mensagem vai
+// chegar, que é a função inteira daquela tela. `tests/escala.test.ts` já declara
+// uma exceção para o mesmo diretório e pelo mesmo motivo: ali a maquete é de
+// outro produto.
+//
+// A EXCEÇÃO É PELA FORMA EXATA DO GRADIENTE, e não pelo arquivo: qualquer outro
+// `indigo`/`violet`/`purple` dentro de `previa.tsx` continua reprovando — foi
+// assim que o `bg-indigo-500/10` do destaque de bloco, que ficava no MESMO
+// arquivo, foi pego e trocado pela tinta.
+const GRADIENTES_DO_INSTAGRAM = [
+  "bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600",
+  "bg-gradient-to-br from-purple-600 to-orange-400",
+];
+
+const ARQUIVO_DA_MAQUETE = "app/automacoes/editor/previa.tsx";
+
+function arquivosDeTela(dir: string, achados: string[] = []): string[] {
+  for (const nome of readdirSync(dir)) {
+    const caminho = join(dir, nome);
+    if (statSync(caminho).isDirectory()) arquivosDeTela(caminho, achados);
+    else if (/\.tsx?$/.test(nome)) achados.push(caminho);
+  }
+  return achados;
+}
+
+// COMENTÁRIO NÃO É CLASSE, e este é o mesmo cuidado de `tests/escala.test.ts`:
+// vários arquivos EXPLICAM, em comentário, o índigo que saiu. Um portão que
+// reprova a documentação do próprio conserto não sobrevive a uma semana — alguém
+// apaga a explicação para o teste passar, e o motivo vai junto.
+function semComentarios(fonte: string): string {
+  return fonte.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+describe("a varredura do índigo", () => {
+  const arquivos = arquivosDeTela(join(RAIZ, "app"));
+
+  it("enxerga a árvore que diz enxergar", () => {
+    // Uma varredura vazia passa por vacuidade. Este caso é o que impede isso.
+    expect(arquivos.length).toBeGreaterThan(30);
+    const rel = arquivos.map((a) => relative(RAIZ, a).replace(/\\/g, "/"));
+    expect(rel).toContain("app/ui.ts");
+    expect(rel).toContain("app/layout.tsx");
+    expect(rel).toContain(ARQUIVO_DA_MAQUETE);
+  });
+
+  it("não sobrou nenhum `indigo`, `violet` ou `purple` na árvore", () => {
+    const sobras: string[] = [];
+    for (const caminho of arquivos) {
+      const rel = relative(RAIZ, caminho).replace(/\\/g, "/");
+      let conteudo = semComentarios(readFileSync(caminho, "utf8"));
+      if (rel === ARQUIVO_DA_MAQUETE) {
+        for (const g of GRADIENTES_DO_INSTAGRAM) conteudo = conteudo.split(g).join(" ");
+      }
+      for (const m of conteudo.matchAll(/[\w/-]*(?:indigo|violet|purple)[\w/-]*/gi)) {
+        sobras.push(`${rel}: ${m[0]}`);
+      }
+    }
+    expect(sobras).toEqual([]);
+  });
+
+  it("a exceção da maquete existe DE VERDADE — senão ela não está isentando nada", () => {
+    // Uma isenção que não corresponde a nenhuma linha do arquivo é uma isenção
+    // esquecida, e ela iria isentar o próximo índigo que caísse ali.
+    const fonte = readFileSync(join(RAIZ, ARQUIVO_DA_MAQUETE), "utf8");
+    for (const g of GRADIENTES_DO_INSTAGRAM) expect(fonte, g).toContain(g);
+  });
+
+  it("a ação usa a tinta: os tokens de `app/ui.ts` não têm cor de marca", () => {
+    // `btnPrimary` e `link` eram os dois lugares em que o índigo mais se via.
+    expect(btnPrimary).toContain("bg-tinta");
+    expect(btnPrimary).toContain("dark:bg-tinta-escuro");
+    expect(link).toContain("text-tinta");
+    expect(link).toContain("underline");
   });
 });

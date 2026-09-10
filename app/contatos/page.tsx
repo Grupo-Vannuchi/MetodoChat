@@ -75,7 +75,7 @@ function Janela({ c }: { c: Row }) {
     <span
       className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
         aberta
-          ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400"
+          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
           : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
       }`}
     >
@@ -369,7 +369,7 @@ export default async function ContatosPage({
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h2 className="titulo flex items-center gap-2 text-lg font-bold">
-                      <IconMail className="h-4 w-4 text-indigo-500" />
+                      <IconMail className="h-4 w-4 text-quieto dark:text-quieto-escuro" />
                       Com e-mail
                     </h2>
                     <p className={`text-sm ${muted}`}>

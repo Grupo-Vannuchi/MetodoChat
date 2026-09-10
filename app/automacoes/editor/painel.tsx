@@ -314,7 +314,7 @@ function Botoes({
         className={`mt-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-xs font-medium transition-colors ${
           noTeto
             ? "cursor-not-allowed border-zinc-300 text-zinc-300 dark:border-zinc-800 dark:text-zinc-700"
-            : "border-zinc-300 text-zinc-600 hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-indigo-500 dark:hover:text-indigo-400"
+            : "border-traco text-quieto hover:border-tinta hover:text-tinta dark:border-traco-escuro dark:text-quieto-escuro dark:hover:border-tinta-escuro dark:hover:text-tinta-escuro"
         }`}
       >
         + Adicionar botão
@@ -680,7 +680,7 @@ export default function Painel({
                   onChange={(e) =>
                     aoMudarConfiguracao({ ...configuracao, ativo: e.target.checked })
                   }
-                  className="h-4 w-4 accent-indigo-500"
+                  className="h-4 w-4 accent-tinta dark:accent-tinta-escuro"
                 />
                 Ativa
               </label>
@@ -695,7 +695,7 @@ export default function Painel({
                       key={o.valor}
                       className={`cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
                         configuracao.gatilho === o.valor
-                          ? "border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+                          ? "border-tinta bg-tinta/10 text-tinta dark:border-tinta-escuro dark:bg-tinta-escuro/10 dark:text-tinta-escuro"
                           : "border-zinc-300 text-zinc-700 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-300"
                       }`}
                     >
@@ -847,7 +847,7 @@ export default function Painel({
                     automação fica em{" "}
                     <Link
                       href="/setup"
-                      className="font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-500 dark:text-indigo-400"
+                      className="font-medium text-tinta underline underline-offset-2 dark:text-tinta-escuro"
                     >
                       Configuração
                     </Link>
@@ -927,7 +927,7 @@ export default function Painel({
                         entregaSemPortao: e.target.checked,
                       })
                     }
-                    className="mt-0.5 h-4 w-4 shrink-0 accent-indigo-500"
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-tinta dark:accent-tinta-escuro"
                   />
                   Entregar o link sem exigir que a pessoa siga
                 </label>

@@ -65,7 +65,7 @@ export function SentChart({ dias }: { dias: Dia[] }) {
                   key={d.chave}
                   title={`${d.n} ${d.n === 1 ? "mensagem" : "mensagens"} em ${d.chave.slice(8)}/${d.chave.slice(5, 7)}`}
                   className={`flex-1 rounded-t-lg transition-colors ${
-                    d.n > 0 ? "bg-indigo-500 hover:bg-indigo-400" : "bg-zinc-200 dark:bg-zinc-800"
+                    d.n > 0 ? "bg-tinta hover:bg-tinta/70 dark:bg-tinta-escuro dark:hover:bg-tinta-escuro/70" : "bg-traco dark:bg-traco-escuro"
                   }`}
                   style={{ height: `${altura}%` }}
                 />

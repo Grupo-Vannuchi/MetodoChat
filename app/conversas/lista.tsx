@@ -64,7 +64,7 @@ export default function Lista({
               aria-current={aberta ? "page" : undefined}
               className={`flex items-center gap-3 px-4 py-3 transition-colors ${
                 aberta
-                  ? "bg-indigo-50 dark:bg-indigo-950/40"
+                  ? "bg-traco/40 dark:bg-traco-escuro/60"
                   : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
               }`}
             >
@@ -142,7 +142,7 @@ export default function Lista({
                   {marca === "contagem" && (
                     <span
                       role="img"
-                      className={`ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-indigo-500 px-1.5 text-[11px] font-semibold text-white ${numero}`}
+                      className={`ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-tinta px-1.5 text-[11px] font-semibold text-papel dark:bg-tinta-escuro dark:text-papel-escuro ${numero}`}
                       aria-label={`${c.nao_lidas} ${c.nao_lidas === 1 ? "mensagem não lida" : "mensagens não lidas"}`}
                     >
                       {c.nao_lidas > 99 ? "99+" : c.nao_lidas}
@@ -151,7 +151,7 @@ export default function Lista({
                   {marca === "ponto" && (
                     <span
                       role="img"
-                      className="ml-auto h-2 w-2 shrink-0 rounded-full bg-indigo-400/70"
+                      className="ml-auto h-2 w-2 shrink-0 rounded-full bg-tinta/70 dark:bg-tinta-escuro/70"
                       aria-label="Ainda sem resposta"
                     />
                   )}

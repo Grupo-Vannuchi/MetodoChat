@@ -348,7 +348,7 @@ export default async function Home({
                 <h2 className="titulo text-sm font-semibold">Últimas interações</h2>
                 <Link
                   href="/eventos"
-                  className="text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+                  className="text-xs text-tinta underline decoration-quieto/50 underline-offset-2 hover:decoration-tinta dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
                 >
                   ver todas
                 </Link>

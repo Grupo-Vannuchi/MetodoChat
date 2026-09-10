@@ -31,7 +31,17 @@ const EVENT: Record<string, Badge> = {
   },
   message: {
     label: "Mandou mensagem",
-    className: "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-400",
+    // NEUTRO, e não mais violeta. O violeta e o índigo desta lista saíram junto
+    // com o índigo do resto do painel; o que os substitui é o selo neutro que
+    // esta mesma lista já usa, e não um matiz novo.
+    //
+    // A DÍVIDA FICA DECLARADA: as cinco portas de entrada (`comment`,
+    // `message`, `story_reply`, `quick_reply`, `abertura`) são um arco-íris de
+    // CATEGORIA, e categoria não é estado — `story_reply` chega a usar o âmbar
+    // que no resto do produto quer dizer "atenção". Consertar isso é redesenhar
+    // a lista inteira, e não trocar dois tons; a Parte 1 tira o que lhe cabe
+    // tirar e deixa o resto medido e escrito.
+    className: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400",
   },
   story_reply: {
     label: "Respondeu seu story",
@@ -39,7 +49,7 @@ const EVENT: Record<string, Badge> = {
   },
   quick_reply: {
     label: "Tocou no botão",
-    className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400",
+    className: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400",
   },
   // A PORTA DE ENTRADA: a pessoa abriu a conversa e tocou numa das perguntas de
   // abertura da conta (o gatilho `abertura`, lib/engine.ts).
@@ -359,7 +369,10 @@ const STATUS: Record<string, Badge> = {
   },
   sent: {
     label: "Entregue",
-    className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400",
+    // VERDE, e a troca não é estética: "Entregue" é o único estado desta lista
+    // que quer dizer DEU CERTO, e estava em índigo — a cor que o painel usava
+    // para ação. Verde é o que o produto inteiro usa para isso.
+    className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400",
   },
   failed: {
     label: "Não saiu",

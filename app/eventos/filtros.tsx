@@ -24,9 +24,9 @@ export type OpcaoPost = { id: string; total: number; thumb: string | null; capti
 // mostra o valor novo no clique, e quem espera é a lista.
 
 const controle =
-  "inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-zinc-400 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/15 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300 dark:hover:border-zinc-600";
+  "inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-zinc-400 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/15 dark:focus-visible:ring-tinta-escuro/20 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300 dark:hover:border-zinc-600";
 
-const ativo = "border-indigo-500 text-zinc-900 dark:border-indigo-500 dark:text-zinc-100";
+const ativo = "border-tinta text-tinta dark:border-tinta-escuro dark:text-tinta-escuro";
 
 export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
   const { filtros: daPagina, atualizar } = useFiltros();
@@ -68,9 +68,9 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
               type="button"
               onClick={() => mudar({ period: p.key })}
               aria-pressed={marcado}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/20 ${
+              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-tinta/20 dark:focus-visible:ring-tinta-escuro/25 ${
                 marcado
-                  ? "bg-indigo-500 text-white"
+                  ? "bg-tinta text-papel dark:bg-tinta-escuro dark:text-papel-escuro"
                   : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
               }`}
             >
@@ -149,7 +149,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
         <button
           type="button"
           onClick={() => mudar(NO_FILTERS)}
-          className="ml-auto rounded-lg px-2 py-1 text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+          className="ml-auto rounded-lg px-2 py-1 text-xs font-semibold text-tinta underline decoration-quieto/50 underline-offset-2 hover:decoration-tinta dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
         >
           Limpar filtros
         </button>
@@ -173,7 +173,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
                 <span
                   className={`block aspect-square overflow-hidden rounded-lg border ${
                     filtros.post === p.id
-                      ? "border-indigo-500 ring-2 ring-indigo-500/30"
+                      ? "border-tinta ring-2 ring-tinta/30 dark:border-tinta-escuro dark:ring-tinta-escuro/30"
                       : "border-zinc-200 dark:border-zinc-700"
                   }`}
                 >

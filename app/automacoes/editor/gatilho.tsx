@@ -10,7 +10,7 @@ import { gatilhoPedePalavraChave } from "@/lib/steps";
 // uma coisa só — a configuração da automação mora onde ela é lida.
 //
 // A COR É SKY, e a escolha é por distância das outras quatro que o quadro já
-// usa (ver `no.tsx`): vermelho de erro, indigo de selecionado, âmbar do portão
+// usa (ver `no.tsx`): vermelho de erro, TINTA de selecionado, âmbar do portão
 // de follow e teal do pedido de e-mail. O gatilho não é bloco, e não pode ser
 // confundido com nenhum deles.
 export type DadosDoGatilho = {
@@ -107,7 +107,7 @@ export default function Gatilho({ data }: { data: DadosDoGatilho }) {
     <div
       className={`w-[190px] rounded-lg border-2 bg-white px-3 py-2 shadow-sm dark:bg-zinc-900 ${
         data.selecionado
-          ? "border-indigo-500 dark:border-indigo-400"
+          ? "border-tinta dark:border-tinta-escuro"
           : "border-sky-500/70 dark:border-sky-400/70"
       }`}
     >

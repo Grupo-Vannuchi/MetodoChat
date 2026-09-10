@@ -65,7 +65,7 @@ export default function Progresso() {
       <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
         <div
           className={`h-full rounded-full transition-[width] duration-200 ${
-            resumo.houveFalha ? "bg-red-500" : "bg-indigo-500"
+            resumo.houveFalha ? "bg-parou dark:bg-parou-escuro" : "bg-aberto dark:bg-aberto-escuro"
           }`}
           style={{ width: `${resumo.porcentagem}%` }}
         />

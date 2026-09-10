@@ -13,7 +13,7 @@ function Marca({ nome }: { nome: string }) {
   return (
     <span
       aria-hidden="true"
-      className="flex h-12 w-12 flex-none items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-base font-bold tracking-tight text-white"
+      className="flex h-12 w-12 flex-none items-center justify-center rounded-2xl bg-tinta text-base font-bold tracking-tight text-papel dark:bg-tinta-escuro dark:text-papel-escuro"
     >
       {iniciais}
     </span>
@@ -71,7 +71,7 @@ export default function LojaPage() {
           href="https://instagram.com/n8xmarketing"
           target="_blank"
           rel="noreferrer noopener"
-          className="font-medium text-indigo-600 underline underline-offset-2 dark:text-indigo-400"
+          className="font-medium text-tinta underline decoration-quieto/50 underline-offset-2 dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
         >
           @n8xmarketing
         </a>

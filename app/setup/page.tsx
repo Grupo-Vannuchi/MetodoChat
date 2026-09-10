@@ -243,7 +243,7 @@ export default async function SetupPage({
                 href="https://developers.facebook.com/apps/creation/"
                 target="_blank"
                 rel="noreferrer"
-                className="text-indigo-600 underline dark:text-indigo-400"
+                className="text-tinta underline decoration-quieto/50 underline-offset-2 dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
               >
                 developers.facebook.com/apps/creation
               </a>{" "}
@@ -483,7 +483,7 @@ export default async function SetupPage({
             href="/api/oauth/login"
             className={`inline-block rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
               metaOk
-                ? "bg-indigo-500 text-white hover:bg-indigo-600"
+                ? "bg-tinta text-papel hover:bg-tinta/90 dark:bg-tinta-escuro dark:text-papel-escuro dark:hover:bg-tinta-escuro/90"
                 : "pointer-events-none bg-zinc-300 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"
             }`}
           >

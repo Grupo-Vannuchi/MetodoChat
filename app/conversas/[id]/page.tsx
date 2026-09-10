@@ -292,7 +292,7 @@ export default async function ConversaPage({
                   ? "self-start bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-100"
                   : falhou
                     ? "self-end border border-red-300 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/60 dark:text-red-200"
-                    : `self-end bg-indigo-500 text-white ${saindo || guardada ? "opacity-60" : ""}`
+                    : `self-end bg-tinta text-papel dark:bg-tinta-escuro dark:text-papel-escuro ${saindo || guardada ? "opacity-60" : ""}`
               }`}
             >
               {m.attachment && <CartaoAnexo anexo={m.attachment} />}
@@ -301,7 +301,7 @@ export default async function ConversaPage({
               {m.text || (!m.attachment && <span className="italic opacity-70">(sem texto)</span>)}
               <span
                 className={`mt-1 block text-[11px] ${
-                  m.direction === "in" || falhou ? "text-zinc-600 dark:text-zinc-400" : "text-indigo-100"
+                  m.direction === "in" || falhou ? "text-quieto dark:text-quieto-escuro" : "text-papel/70 dark:text-papel-escuro/70"
                 }`}
               >
                 {/* Enquanto não saiu, a hora ainda é a de criação e não diz nada
