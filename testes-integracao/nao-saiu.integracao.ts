@@ -221,6 +221,14 @@ async function notBeforeDe(id: string): Promise<Date> {
   return linhas[0].not_before;
 }
 
+async function claimedAtDe(id: string): Promise<Date> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(`select claimed_at from queue where id = $1`, [id])) as { claimed_at: Date }[];
+  return linhas[0].claimed_at;
+}
+
 // ---------------------------------------------------------------------------
 // O INSTRUMENTO É O COMPONENTE DE VERDADE. Estes casos CHAMAM a função de cada
 // página dentro de um contexto de requisição e leem a árvore que ela devolve.
@@ -320,10 +328,11 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     // O MOTIVO CHEGA INTEIRO. Sem ele a seção diria só que algo falhou, que é a
     // metade da informação que não ajuda ninguém.
     expect(arvore).toContain("media nao encontrada");
-    // A HORA É A QUE ELE DEVERIA TER SAÍDO, e a frase que vem antes dela é a
-    // mesma das outras duas telas (`fraseDaDataDaLinha`).
-    expect(arvore).toContain(formato.fmtDate(await notBeforeDe(id)));
-    expect(arvore).toContain("Estava marcado para ");
+    // A HORA É A EM QUE ELE FALHOU (`claimed_at`), e a frase é a da falha. O
+    // caso que separa essa coluna do `not_before` é o próximo — aqui os dois
+    // instantes são o mesmo, de propósito: este é o caso do post comum.
+    expect(arvore).toContain(formato.fmtDate(await claimedAtDe(id)));
+    expect(arvore).toContain(publicacao.FRASE_DA_FALHA);
     // A FORMA E O COMEÇO DA LEGENDA, pelas mesmas funções da lista de cima.
     expect(arvore).toContain(publicacao.rotuloDaForma("reels"));
     expect(arvore).toContain("Lancamento de setembro");
@@ -331,6 +340,89 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     // falhou. Se o item falhado tivesse ganhado formulário, o `value` dele
     // apareceria na árvore ao lado do identificador.
     expect(arvore).not.toContain(`value=${id}`);
+  });
+
+  // =========================================================================
+  // O `not_before` NO FUTURO NUM POST QUE JÁ FALHOU — e este é o caso que a
+  // entrega não tinha, o que fazia a tela prometer uma saída já recusada.
+  //
+  // Ele NÃO é um estado inventado: é o que o dreno fabrica. `finish`
+  // (lib/queue-drain.ts) grava `not_before = now() + retryInSeconds` SEM olhar
+  // o status, e o `catch` genérico do dreno o chama com `retryInSeconds: 120`
+  // também no ramo `failed`. Todo post que falha por exceção — um 400 da Meta
+  // ao criar o contêiner, um 500 repetido — nasce `failed` com `not_before`
+  // dois minutos no futuro, e o laço de espera empurra mais.
+  //
+  // MEDIDO antes do conserto: a linha imprimia "Estava marcado para 16:10"
+  // quando eram 16:09. Hora no futuro, num post que já não vai sair.
+  //
+  // OS DOIS INSTANTES ESTÃO A HORAS DE DISTÂNCIA AQUI de propósito: `fmtDate`
+  // arredonda para o minuto, e um par de segundos de diferença deixaria as duas
+  // colunas imprimindo a MESMA string — o caso passaria com qualquer uma das
+  // duas.
+  // =========================================================================
+  test("um post falhado com not_before no FUTURO diz a hora em que FALHOU", async () => {
+    await limparAFila();
+    const id = await semear({
+      conta: CONTA_A,
+      status: "failed",
+      // O QUE O DRENO ESCREVE: dois minutos à frente, no ramo `failed`.
+      emSegundos: 120,
+      reivindicadoEm: -3 * 3600,
+      error: "Instagram API 400: o conteiner nao subiu",
+    });
+
+    const arvore = await arvoreDosAgendados();
+
+    expect(arvore).toContain(id);
+    expect(arvore).toContain(publicacao.FRASE_DA_FALHA);
+    expect(arvore).toContain(formato.fmtDate(await claimedAtDe(id)));
+    // E A HORA DA RETENTATIVA QUE NUNCA VAI ACONTECER NÃO APARECE. Sem esta
+    // linha o caso passaria imprimindo as duas.
+    expect(arvore).not.toContain(formato.fmtDate(await notBeforeDe(id)));
+    // NEM A FRASE QUE PROMETE SAÍDA: as duas metades de `fraseDaDataDaLinha`
+    // falam de um item que ainda está na fila, e este não está.
+    expect(arvore).not.toContain("Estava marcado para ");
+    expect(arvore).not.toContain("Sai em ");
+  });
+
+  // =========================================================================
+  // A ORDEM DA SEÇÃO, e ela repousa na MESMA coluna da linha.
+  //
+  // A pergunta desta seção é "o que acabou de falhar?", porque a falha mais
+  // recente é a que ainda dá tempo de republicar. Ordenar por `not_before`
+  // responde outra pergunta: põe na frente o post cuja máquina de retentativa
+  // empurrou MAIS longe — que é quase o contrário.
+  //
+  // Este caso mata os dois plantios de uma vez: a coluna trocada (o `desc` em
+  // `not_before` põe o antigo na frente) e o sentido trocado (`asc` em
+  // `coalesce` também).
+  // =========================================================================
+  test("as falhadas vêm da mais recente para a mais antiga, pela hora em que falharam", async () => {
+    await limparAFila();
+    // FALHOU HÁ UMA HORA, e o dreno empurrou o `not_before` para duas horas à
+    // frente — a linha que uma ordem por `not_before` poria em primeiro.
+    const antiga = await semear({
+      conta: CONTA_A,
+      status: "failed",
+      emSegundos: 2 * 3600,
+      reivindicadoEm: -3600,
+      error: "a que falhou primeiro",
+    });
+    // FALHOU HÁ DEZ MINUTOS. É esta que a pessoa está procurando.
+    const recente = await semear({
+      conta: CONTA_A,
+      status: "failed",
+      emSegundos: -600,
+      reivindicadoEm: -600,
+      error: "a que acabou de falhar",
+    });
+
+    const arvore = await arvoreDosAgendados();
+
+    expect(arvore).toContain(antiga);
+    expect(arvore).toContain(recente);
+    expect(arvore.indexOf(recente)).toBeLessThan(arvore.indexOf(antiga));
   });
 
   // =========================================================================

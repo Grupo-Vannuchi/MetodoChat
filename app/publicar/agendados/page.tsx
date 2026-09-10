@@ -12,6 +12,7 @@ import {
   linhaDaFalha,
   resumoDaLegenda,
   rotuloDaFormaDoItem,
+  FRASE_DA_FALHA,
   LEGENDA_NA_LISTA,
 } from "@/lib/publicacao";
 import {
@@ -86,19 +87,6 @@ const AGENDADOS_NA_TELA = 50;
  *  motivo que o de cima, para a tela não virar parede num dia ruim. */
 const FALHADAS_NA_TELA = 50;
 
-/** O que vem antes da data de um post que não saiu.
- *
- *  OS DOIS FATOS SÃO FIXOS AQUI, e não uma pergunta ao relógio: um item
- *  `failed` NÃO é futuro (a hora dele passou, e ele não vai mais sair) e NÃO
- *  saiu (não tem `sent_at`). Por isso `dataDaLinhaDeEnvio` não serve nesta
- *  seção — ela responderia "Sai em" para um `not_before` que ainda estivesse à
- *  frente, prometendo uma saída que já foi recusada.
- *
- *  E A FRASE VEM DE `fraseDaDataDaLinha` mesmo assim: escrevê-la à mão aqui
- *  seria a TERCEIRA cópia da mesma palavra, a um centímetro da segunda seção
- *  que a lê da função. */
-const FRASE_DA_FALHA = fraseDaDataDaLinha({ futuro: false, saiu: false });
-
 export default async function Agendados({
   searchParams,
 }: {
@@ -125,9 +113,20 @@ export default async function Agendados({
   // — o mesmo defeito que a coluna de data de Envios cometia, e que a entrega de
   // ontem consertou.
   //
-  // ORDENADA POR `not_before desc`: a pergunta desta seção é o oposto da de
-  // cima. Lá é "o que sai primeiro?"; aqui é "o que acabou de falhar?", e a
-  // falha mais recente é a que ainda dá tempo de republicar.
+  // ORDENADA POR `coalesce(claimed_at, not_before) desc`: a pergunta desta
+  // seção é o oposto da de cima. Lá é "o que sai primeiro?"; aqui é "o que
+  // acabou de falhar?", e a falha mais recente é a que ainda dá tempo de
+  // republicar.
+  //
+  // E A COLUNA NÃO É `not_before`, desde 10/09/2026. `finish`
+  // (lib/queue-drain.ts) grava `not_before = now() + retryInSeconds` sem olhar
+  // o status, e o `catch` genérico do dreno o chama com 120 segundos também no
+  // ramo `failed`: num item falhado essa coluna é a hora de uma retentativa que
+  // nunca vai acontecer, e ordenar por ela põe na frente o post cuja máquina de
+  // retentativa empurrou mais — e não o que acabou de falhar. `claimed_at` é o
+  // instante da tentativa que falhou, a MESMA coluna que o painel escolheu para
+  // a janela de 7 dias, e a MESMA que `linhaDaFalha` imprime na linha. O
+  // `coalesce` é a rede do item que nunca foi reivindicado.
   //
   // EM PARALELO, e não em série: são independentes, e uma atrás da outra somaria
   // uma ida completa ao banco no tempo desta tela — a mesma conta que
@@ -144,7 +143,7 @@ export default async function Agendados({
         sql().query(
           `select * from queue
             where account_id = $1 and kind = 'publicacao' and status = 'failed'
-            order by not_before desc, id
+            order by coalesce(claimed_at, not_before) desc, id
             limit $2`,
           [conta.ig_user_id, FALHADAS_NA_TELA]
         ),
@@ -293,8 +292,10 @@ export default async function Agendados({
           especificação como possível.
 
           AS TRÊS COISAS DA LINHA SAEM DE `linhaDaFalha`: a hora em que o post
-          deveria ter saído, a forma, o começo da legenda e o motivo escrito
-          pelo dreno. Nenhuma delas se decide aqui. */}
+          FALHOU (`claimed_at`, e não `not_before` — a máquina de retentativa
+          reescreve o segundo, e o comentário daquela função mede o caso), a
+          forma, o começo da legenda e o motivo escrito pelo dreno. Nenhuma
+          delas se decide aqui. */}
       {falhadas.length > 0 && (
         <section className="space-y-4">
           <div>

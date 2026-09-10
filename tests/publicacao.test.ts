@@ -52,6 +52,7 @@ import {
   TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO,
   avisoDeFalhas,
   linhaDaFalha,
+  FRASE_DA_FALHA,
   DIAS_DE_AVISO_DA_PUBLICACAO,
   HORAS_DE_AVISO_DA_MENSAGEM,
 } from "../lib/publicacao";
@@ -2224,6 +2225,7 @@ describe("avisoDeFalhas", () => {
 describe("linhaDaFalha", () => {
   const base = {
     not_before: new Date("2026-09-11T12:59:00Z"),
+    claimed_at: new Date("2026-09-11T12:57:00Z"),
     payload: { forma: "reels", legenda: "oi" },
   };
   it("o motivo escrito pelo dreno chega inteiro", () => {
@@ -2239,13 +2241,40 @@ describe("linhaDaFalha", () => {
     expect(m.length).toBeGreaterThan(0);
     expect(m.toLowerCase()).not.toBe("null");
   });
-  it("a data e a que ele DEVERIA ter saido", () => {
-    expect(linhaDaFalha({ ...base, error: null }).quando).toEqual(base.not_before);
+  // A DATA E A DA TENTATIVA QUE FALHOU, e nao a do `not_before` (10/09/2026).
+  // `finish` (lib/queue-drain.ts) reescreve `not_before` com `now() +
+  // retryInSeconds` SEM olhar o status, e o `catch` generico do dreno o chama
+  // com 120 segundos tambem no ramo `failed`: num item falhado aquela coluna e
+  // uma hora NO FUTURO, de uma retentativa que nunca vai acontecer.
+  it("a data e a da tentativa que falhou, e nao a do not_before reescrito", () => {
+    expect(linhaDaFalha({ ...base, error: null }).quando).toEqual(base.claimed_at);
+  });
+  // O CASO QUE O DRENO FABRICA DE VERDADE: `not_before` no futuro num item que
+  // ja falhou. Sem esta linha, `claimed_at ?? not_before` e `not_before`
+  // sozinho respondem igual em todo caso deste arquivo.
+  it("um not_before no FUTURO nao vira a hora da falha", () => {
+    const futuro = new Date("2026-09-11T13:01:00Z");
+    const r = linhaDaFalha({ ...base, not_before: futuro, error: null });
+    expect(r.quando).toEqual(base.claimed_at);
+    expect(r.quando).not.toEqual(futuro);
+  });
+  // A REDE DO ITEM QUE NUNCA FOI REIVINDICADO — o mesmo `coalesce` da consulta
+  // do painel. Sem `claimed_at` nao ha instante de falha, e o `not_before` e o
+  // que resta de mais proximo; celula em branco pareceria defeito da tela.
+  it("sem claimed_at a data cai no not_before", () => {
+    expect(linhaDaFalha({ ...base, claimed_at: null, error: null }).quando).toEqual(
+      base.not_before
+    );
   });
   // PAYLOAD ADULTERADO NAO PODE DERRUBAR A TELA: a coluna e jsonb e editavel
   // por fora do painel. O par disto no dreno e `publicacao_com_payload_invalido`.
   it("payload sem forma nem legenda nao quebra", () => {
-    const r = linhaDaFalha({ not_before: base.not_before, error: "x", payload: {} });
+    const r = linhaDaFalha({
+      not_before: base.not_before,
+      claimed_at: base.claimed_at,
+      error: "x",
+      payload: {},
+    });
     expect(typeof r.forma).toBe("string");
     expect(typeof r.legenda).toBe("string");
   });
@@ -2255,10 +2284,20 @@ describe("linhaDaFalha", () => {
   it("o payload inteiro devolve a palavra da tela de compor e o comeco da legenda", () => {
     const r = linhaDaFalha({
       not_before: base.not_before,
+      claimed_at: base.claimed_at,
       error: null,
       payload: { forma: "reels", caminhos: ["conta/a.mp4"], legenda: "Promocao de setembro" },
     });
     expect(r.forma).toBe(rotuloDaForma("reels"));
     expect(r.legenda).toBe(resumoDaLegenda("Promocao de setembro", LEGENDA_NA_LISTA));
+  });
+  // A FRASE E A TERCEIRA PECA DA MESMA DECISAO. A data ao lado dela e o
+  // `claimed_at`, o instante em que o post falhou — e nenhuma das duas metades
+  // de `fraseDaDataDaLinha` cabe nisso: as duas falam de uma saida que ainda
+  // pode acontecer, e esta ja foi recusada.
+  it("a frase da falha nao promete saida nenhuma, e nao e a do item atrasado", () => {
+    expect(FRASE_DA_FALHA).toBe("Falhou em ");
+    expect(FRASE_DA_FALHA).not.toBe(fraseDaDataDaLinha({ futuro: false, saiu: false }));
+    expect(FRASE_DA_FALHA).not.toBe(fraseDaDataDaLinha({ futuro: true, saiu: false }));
   });
 });

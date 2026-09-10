@@ -2175,9 +2175,26 @@ export type LinhaDaFalha = { quando: Date; motivo: string; forma: string; legend
 /**
  * A LINHA DE UM POST QUE NÃO SAIU, na seção "Não saíram" dos agendados.
  *
- * A DATA É O `not_before`, e não o `created_at` nem o `sent_at`: é a hora em que
- * o post DEVERIA ter saído — a informação que responde "o que eu perdi?". Um
- * item falhado não tem `sent_at`, então `dataDaLinhaDeEnvio` não serve aqui: ela
+ * A DATA É O `claimed_at`, e não o `not_before` — desde 10/09/2026, e a troca
+ * saiu de uma medição.
+ *
+ * `finish` (lib/queue-drain.ts) grava `not_before = now() + retryInSeconds` SEM
+ * olhar o status, e o `catch` genérico do dreno o chama com 120 segundos também
+ * no ramo `failed`. Então todo post que falha por exceção nasce `failed` com o
+ * `not_before` DOIS MINUTOS NO FUTURO, e o laço de espera empurra mais. Medido:
+ * a linha imprimia "Estava marcado para 16:10" às 16:09, num post que já tinha
+ * falhado — uma tela de diagnóstico prometendo uma saída que já foi recusada.
+ *
+ * `claimed_at` é o instante da tentativa que falhou: o dreno o grava a cada
+ * reivindicação e `finish` nunca o limpa. É a MESMA coluna que o painel
+ * (app/page.tsx) já escolheu para a janela de 7 dias, e pelo mesmo motivo — a
+ * máquina de retentativa não a reescreve.
+ *
+ * O `??` É A REDE DO ITEM QUE NUNCA FOI REIVINDICADO, o mesmo `coalesce` da
+ * consulta do painel: sem `claimed_at` não há instante de falha, e o
+ * `not_before` é o que resta de mais próximo.
+ *
+ * `dataDaLinhaDeEnvio` não serve aqui: um item falhado não tem `sent_at`, e ela
  * responderia `futuro`/`saiu` sobre um item que não é nem um nem outro.
  *
  * A FORMA E A LEGENDA SAEM DAS MESMAS FUNÇÕES DA LISTA DE CIMA
@@ -2197,18 +2214,31 @@ export type LinhaDaFalha = { quando: Date; motivo: string; forma: string; legend
  */
 export function linhaDaFalha(item: {
   not_before: Date;
+  claimed_at: Date | null;
   error: string | null;
   payload: Record<string, unknown>;
 }): LinhaDaFalha {
   const p = lerPayloadDaPublicacao(item.payload);
   const motivo = typeof item.error === "string" ? item.error.trim() : "";
   return {
-    quando: item.not_before,
+    quando: item.claimed_at ?? item.not_before,
     motivo: motivo || MOTIVO_NAO_REGISTRADO,
     forma: rotuloDaFormaDoItem(p),
     legenda: resumoDaLegenda(p?.legenda, LEGENDA_NA_LISTA),
   };
 }
+
+/**
+ * O que vem antes da data de um post que não saiu.
+ *
+ * ELA NÃO SAI DE `fraseDaDataDaLinha`, e desde 10/09/2026 isso é a decisão.
+ * Aquela função responde "Sai em" / "Estava marcado para" sobre um item que
+ * AINDA ESTÁ NA FILA, e as duas metades falam de uma saída que ainda pode
+ * acontecer. Aqui não há saída nenhuma para prometer: o post falhou, e a data
+ * ao lado é o `claimed_at`, o instante em que ele falhou. "Estava marcado para"
+ * dito de um `claimed_at` seria a terceira coisa errada na mesma linha.
+ */
+export const FRASE_DA_FALHA = "Falhou em ";
 
 /** A frase do item falhado que não trouxe motivo. Ela diz que o motivo é que
  *  falta — e não o post —, para ninguém procurar o defeito na tela. */
