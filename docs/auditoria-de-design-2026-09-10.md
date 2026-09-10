@@ -177,6 +177,19 @@ alarmaria sobre algo que não quebrou. **O problema é que o cinza escolhido é 
 mesmo `zinc-500` do texto ao lado**, então "↓ 31" e "vs. 7 dias antes" viram
 uma frase só e o número perde estatuto de número.
 
+**MEDIDO NA ONDA 3, e registrado aqui porque é o outro braço do mesmo
+ternário:** a subida — `text-emerald-600 dark:text-emerald-400` — dá
+**3,65:1** no claro, abaixo do mínimo de 4,5:1. `emerald-700` daria 5,42:1
+sobre `bg-white`. Não foi consertado na Onda 3: `emerald-600` é o verde de
+sucesso do sistema inteiro (`alertOk`, `badgeOk`), e trocá-lo num lugar só
+criaria o segundo verde que esta seção existe para evitar. Vai junto com D7,
+na rodada de acabamento.
+
+**A queda continua como estava para a cor**, mas passou pelo D3 junto com o
+resto: era `zinc-500` cru (3,67:1 no escuro) e agora é o token `muted`
+(7,19:1). A crítica do D7 — os dois textos com a mesma cor — segue de pé, e é
+de hierarquia, não de contraste.
+
 ### D8 — BAIXO — duas linguagens de foco, e a fraca está no que mais se usa
 
 Medido em `/contatos`: 23 focáveis visíveis, **6 com anel desenhado, 17 sem**.
