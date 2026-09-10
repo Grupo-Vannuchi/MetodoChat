@@ -55,7 +55,7 @@ export default function Progresso() {
             type="button"
             onClick={limparEnvios}
             aria-label="Fechar o andamento dos envios"
-            className="-mr-1 -mt-1 rounded-lg px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="-mr-1 -mt-1 rounded-lg px-2 py-1 text-xs text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
             Fechar
           </button>

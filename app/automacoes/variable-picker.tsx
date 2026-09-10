@@ -94,7 +94,7 @@ export default function MessageField({
                 className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-[11px] font-medium text-zinc-700 transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-500"
               >
                 {v.label}
-                <span className="ml-1 font-mono text-[10px] text-zinc-400">
+                <span className="ml-1 font-mono text-[10px] text-zinc-600 dark:text-zinc-400">
                   {`{{${v.key}}}`}
                 </span>
               </button>

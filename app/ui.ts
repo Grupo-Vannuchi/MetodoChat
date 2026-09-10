@@ -24,21 +24,50 @@ export const divider = "border-t border-zinc-200/80 dark:border-zinc-800";
 
 /* ---------- tipografia ---------- */
 
+// O TOM DO TEXTO QUIETO — legenda, explicação de campo, cabeçalho de tabela,
+// rótulo de seção. É UM SÓ, e ter um só é o conserto do achado D3.
+//
+// O DEFEITO ERA A REGRA, E NÃO O TOM: `hint`, `thead` e `eyebrow` escreviam
+// `text-zinc-500 dark:text-zinc-500` — a MESMA cor nos dois temas —, e o
+// rótulo de seção da barra lateral escrevia `text-zinc-400 dark:text-zinc-600`,
+// que é a mesma ideia ao contrário. Só `muted` trocava de tom por tema, e por
+// isso só ele passava. Texto quieto que não troca de tema erra num dos dois
+// SEMPRE: o fundo mudou e ele não.
+//
+// MEDIDO CONTRA OS QUINZE FUNDOS REAIS DO PRODUTO (a lista está em
+// `tests/medidor.ts`, e o teste é `tests/texto-quieto.test.ts`):
+//
+//   zinc-600 no claro   pior caso 7,02:1 (sobre `bg-zinc-100`, o corpo)
+//   zinc-400 no escuro  pior caso 5,68:1 (sobre `bg-zinc-800`, o balão recebido)
+//
+// O QUE ESTAVA LÁ, medido nos mesmos fundos: `zinc-500` nos dois temas falha em
+// NOVE dos quinze — 4,39:1 sobre o corpo claro, 3,91:1 sobre o cartão escuro,
+// 3,09:1 sobre o balão recebido. O mínimo é 4,5:1.
+//
+// DUAS SAÍDAS MAIS BARATAS FORAM RECUSADAS POR MEDIÇÃO, e não por gosto:
+//   `zinc-500`/`zinc-400` (mexer só no escuro) — continua em 4,39:1 sobre o
+//     corpo claro, que é o fundo de metade das telas.
+//   `zinc-600`/`zinc-500` (mexer só no claro) — continua reprovando nos oito
+//     fundos escuros, de 4,12:1 a 3,09:1.
+// E `zinc-700`/`zinc-300` foi recusado pelo lado oposto: 10,44:1 e 12,76:1 é o
+// contraste do texto NORMAL desta interface. Texto quieto que grita deixa de
+// ser quieto, e o achado pedia legibilidade, não hierarquia invertida.
+export const tomQuieto = "text-zinc-600 dark:text-zinc-400";
+
 export const pageTitle =
   "text-[22px] font-bold tracking-[-0.01em] text-zinc-900 sm:text-2xl dark:text-zinc-50";
 
-export const pageSubtitle = "mt-1 text-sm text-zinc-600 dark:text-zinc-400";
+export const pageSubtitle = `mt-1 text-sm ${tomQuieto}`;
 
-export const muted = "text-zinc-600 dark:text-zinc-400";
+export const muted = tomQuieto;
 
-export const eyebrow =
-  "text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500 dark:text-zinc-500";
+export const eyebrow = `text-[11px] font-semibold uppercase tracking-[0.08em] ${tomQuieto}`;
 
 /* ---------- formulários ---------- */
 
 export const label = "mb-1.5 block text-sm font-medium text-zinc-800 dark:text-zinc-200";
 
-export const hint = "mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-500";
+export const hint = `mt-1.5 text-xs leading-relaxed ${tomQuieto}`;
 
 // AVISO MEDIDO NESTA BRANCH (categoria-do-contato): compor `className` com
 // `${input}` empilhando a MESMA família de classe que `input` já define
@@ -140,8 +169,7 @@ export const badgeErr = `${badge} bg-red-100 text-red-700 dark:bg-red-950 dark:t
 export const tableWrap =
   "overflow-x-auto rounded-2xl border border-zinc-200/80 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:border-zinc-800 dark:bg-zinc-900/70 dark:shadow-none";
 
-export const thead =
-  "bg-zinc-50/80 text-[11px] font-semibold uppercase tracking-[0.04em] text-zinc-500 dark:bg-zinc-950/50 dark:text-zinc-500";
+export const thead = `bg-zinc-50/80 text-[11px] font-semibold uppercase tracking-[0.04em] dark:bg-zinc-950/50 ${tomQuieto}`;
 
 export const rowDivide = "divide-y divide-zinc-100 dark:divide-zinc-800/60";
 

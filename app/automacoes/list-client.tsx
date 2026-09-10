@@ -176,11 +176,11 @@ export default function AutomationsList({ automations }: { automations: Automati
                 className={`rounded-[10px] px-3 py-1.5 text-[13px] font-medium transition-colors ${
                   ativo
                     ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white"
-                    : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                    : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                 }`}
               >
                 {f.label}
-                <span className="ml-1.5 text-[11px] text-zinc-400">{contagem[f.id]}</span>
+                <span className="ml-1.5 text-[11px] text-zinc-600 dark:text-zinc-400">{contagem[f.id]}</span>
               </button>
             );
           })}
@@ -264,7 +264,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                             <span
                               key={t}
                               title={meta.label}
-                              className="flex items-center gap-1 text-zinc-500 dark:text-zinc-400"
+                              className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"
                             >
                               <Icon className="h-3.5 w-3.5" />
                               {meta.label}
@@ -281,7 +281,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                           está escrito junto da função, com teste. */}
                       <span className={`truncate ${muted}`}>{oQueDispara(a)}</span>
                       <span className="text-zinc-300 dark:text-zinc-700">·</span>
-                      <span className="text-zinc-400 dark:text-zinc-500">
+                      <span className="text-zinc-600 dark:text-zinc-400">
                         {formatarData(a.created_at)}
                       </span>
                     </div>

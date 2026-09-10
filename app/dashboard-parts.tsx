@@ -29,13 +29,13 @@ export function StatCard({
             className={
               trend > 0
                 ? "font-medium text-emerald-600 dark:text-emerald-400"
-                : "font-medium text-zinc-500"
+                : `font-medium ${muted}`
             }
           >
             {trend > 0 ? "↑" : "↓"} {Math.abs(trend)}
           </span>
         )}
-        {hint && <span className="truncate text-zinc-500">{hint}</span>}
+        {hint && <span className={`truncate ${muted}`}>{hint}</span>}
       </div>
     </div>
   );
@@ -52,7 +52,7 @@ export function SentChart({ dias }: { dias: Dia[] }) {
         <span className={`text-xs ${muted}`}>últimos {dias.length} dias</span>
       </div>
       {max === 0 ? (
-        <p className="py-10 text-center text-sm text-zinc-500">
+        <p className={`py-10 text-center text-sm ${muted}`}>
           Nenhuma mensagem enviada ainda nesse período.
         </p>
       ) : (
@@ -76,7 +76,7 @@ export function SentChart({ dias }: { dias: Dia[] }) {
             {dias.map((d, i) => (
               <span
                 key={d.chave}
-                className="flex-1 text-center text-[9px] tabular-nums text-zinc-400"
+                className={`flex-1 text-center text-[9px] tabular-nums ${muted}`}
               >
                 {i % 2 === 0 ? d.rotulo : ""}
               </span>

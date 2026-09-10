@@ -94,7 +94,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
               <img src={escolhido.thumb} alt="" className="h-4 w-4 flex-none rounded object-cover" />
             )}
             <span className="max-w-[10rem] truncate">{rotuloPost}</span>
-            <span aria-hidden="true" className="text-[10px] text-zinc-500">
+            <span aria-hidden="true" className="text-[10px] text-zinc-600 dark:text-zinc-400">
               {abrirPosts ? "▴" : "▾"}
             </span>
           </button>
@@ -103,7 +103,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
               type="button"
               onClick={() => mudar({ post: null })}
               aria-label="Remover filtro de post"
-              className="ml-1 rounded-lg px-1.5 py-1 text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              className="ml-1 rounded-lg px-1.5 py-1 text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
             >
               ×
             </button>
@@ -158,7 +158,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
       {/* grade de posts */}
       {abrirPosts && (
         <div className="w-full rounded-xl border border-zinc-300 bg-white p-2.5 dark:border-zinc-700 dark:bg-zinc-950/60">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-zinc-500">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-zinc-600 dark:text-zinc-400">
             Posts com interação
           </p>
           <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
@@ -181,12 +181,12 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={p.thumb} alt="" className="h-full w-full object-cover" />
                   ) : (
-                    <span className="flex h-full w-full items-center justify-center text-xs text-zinc-400">
+                    <span className="flex h-full w-full items-center justify-center text-xs text-zinc-600 dark:text-zinc-400">
                       ?
                     </span>
                   )}
                 </span>
-                <span className="text-center text-[9px] tabular-nums text-zinc-500">{p.total}</span>
+                <span className="text-center text-[9px] tabular-nums text-zinc-600 dark:text-zinc-400">{p.total}</span>
               </button>
             ))}
           </div>

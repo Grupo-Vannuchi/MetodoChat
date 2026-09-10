@@ -301,7 +301,7 @@ export default async function ConversaPage({
               {m.text || (!m.attachment && <span className="italic opacity-70">(sem texto)</span>)}
               <span
                 className={`mt-1 block text-[10px] ${
-                  m.direction === "in" || falhou ? "text-zinc-500" : "text-indigo-100"
+                  m.direction === "in" || falhou ? "text-zinc-600 dark:text-zinc-400" : "text-indigo-100"
                 }`}
               >
                 {/* Enquanto não saiu, a hora ainda é a de criação e não diz nada

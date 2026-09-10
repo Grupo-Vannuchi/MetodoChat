@@ -62,7 +62,7 @@ function Step({
       </h2>
       {subtitle && <p className={`ml-8 mt-1 text-xs ${muted}`}>{subtitle}</p>}
       {ondeFica && (
-        <p className="ml-8 mt-1 text-xs text-zinc-500">
+        <p className={`ml-8 mt-1 text-xs ${muted}`}>
           <b>Onde:</b> {ondeFica}
         </p>
       )}
@@ -275,7 +275,7 @@ export default async function SetupPage({
         >
           <form action={saveMetaCredentials} className="space-y-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-zinc-400">
+              <label className={`mb-1 block text-xs font-medium ${muted}`}>
                 ID do app do Instagram
               </label>
               <input
@@ -287,7 +287,7 @@ export default async function SetupPage({
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-zinc-400">
+              <label className={`mb-1 block text-xs font-medium ${muted}`}>
                 Chave secreta do app do Instagram
               </label>
               <input
@@ -359,7 +359,7 @@ export default async function SetupPage({
             </p>
           </div>
           <details className="mt-2">
-            <summary className="cursor-pointer text-sm text-zinc-500">Depois de salvar na Meta</summary>
+            <summary className={`cursor-pointer text-sm ${muted}`}>Depois de salvar na Meta</summary>
             <div className="mt-2 space-y-2">
               <p>
                 Depois de salvar o webhook, clique em <b>Gerenciar</b> e assine os campos{" "}
@@ -459,13 +459,13 @@ export default async function SetupPage({
                       <p className="truncate text-sm font-semibold">
                         @{a.username ?? a.ig_user_id}
                       </p>
-                      <p className="truncate text-xs text-zinc-500">
+                      <p className={`truncate text-xs ${muted}`}>
                         ID:{" "}
                         <code className="select-all font-mono text-zinc-600 dark:text-zinc-300">
                           {a.ig_user_id}
                         </code>
                       </p>
-                      <p className="text-xs text-zinc-500">
+                      <p className={`text-xs ${muted}`}>
                         Token válido até {fmtDate(a.token_expires_at)}
                       </p>
                     </div>
@@ -489,7 +489,7 @@ export default async function SetupPage({
           >
             {connected ? "Conectar outra conta" : "Conectar Instagram"}
           </a>
-          {!metaOk && <p className="text-xs text-zinc-500">Complete os passos 1 e 2 antes.</p>}
+          {!metaOk && <p className={`text-xs ${muted}`}>Complete os passos 1 e 2 antes.</p>}
           {connected && (
             <p className={`text-xs ${muted}`}>
               Cada conta extra precisa ser adicionada como <b>Testador do Instagram</b> no seu app
@@ -573,7 +573,7 @@ export default async function SetupPage({
           </ul>
 
           <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            <p className={`mb-1 text-xs font-semibold uppercase tracking-wide ${muted}`}>
               Permissões usadas por este app
             </p>
             <ul className={`list-disc space-y-0.5 pl-5 text-xs ${muted}`}>

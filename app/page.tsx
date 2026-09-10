@@ -365,7 +365,7 @@ export default async function Home({
                             @{e.person}
                           </span>
                         )}
-                        <span className="ml-auto shrink-0 text-xs text-zinc-500">
+                        <span className={`ml-auto shrink-0 text-xs ${muted}`}>
                           {fmtRelative(e.created_at)}
                         </span>
                       </li>
@@ -373,7 +373,7 @@ export default async function Home({
                   })}
                 </ul>
               ) : (
-                <p className="px-5 py-10 text-center text-sm text-zinc-500">
+                <p className={`px-5 py-10 text-center text-sm ${muted}`}>
                   Nada ainda. Quando alguém comentar ou mandar mensagem, aparece aqui.
                 </p>
               )}

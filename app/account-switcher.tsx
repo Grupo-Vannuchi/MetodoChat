@@ -115,7 +115,7 @@ export default function AccountSwitcher({
           <p className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
             @{current.username ?? current.ig_user_id}
           </p>
-          <p className="text-[10px] text-zinc-500">
+          <p className="text-[10px] text-zinc-600 dark:text-zinc-400">
             {pending ? "trocando…" : accounts.length > 1 ? "trocar conta" : "conectado"}
           </p>
         </div>

@@ -279,7 +279,7 @@ export default function Enviador({ teto }: { teto: number | null }) {
           <ol className="space-y-1">
             {itens.map((item, i) => (
               <li key={item.caminho} className="flex items-center gap-2 text-xs">
-                <span className="tabular-nums text-zinc-500">{i + 1}.</span>
+                <span className={`tabular-nums ${muted}`}>{i + 1}.</span>
                 <span className="min-w-0 flex-1 truncate text-zinc-700 dark:text-zinc-300">
                   {item.rotulo}
                 </span>

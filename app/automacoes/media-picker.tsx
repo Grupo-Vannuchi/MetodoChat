@@ -98,7 +98,7 @@ export default function MediaPicker({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={thumb} alt="" className="aspect-square w-full object-cover" />
                   ) : (
-                    <span className="flex aspect-square items-center justify-center text-[10px] text-zinc-500">
+                    <span className="flex aspect-square items-center justify-center text-[10px] text-zinc-600 dark:text-zinc-400">
                       {m.media_type}
                     </span>
                   )}

@@ -245,7 +245,7 @@ export default async function EventosPage({
                               {kindLabel(q.kind)}
                               {!normal && <span className={badge.className}>{badge.label}</span>}
                             </span>
-                            {erro && <p className="max-w-md text-xs text-zinc-500">{erro}</p>}
+                            {erro && <p className={`max-w-md text-xs ${muted}`}>{erro}</p>}
                           </td>
                           <td className={`whitespace-nowrap px-3 py-1.5 text-xs ${muted}`}>
                             {/* A FRASE VEM DE `fraseDaDataDaLinha`, e ate
@@ -334,7 +334,7 @@ export default async function EventosPage({
                             @{quem}
                           </span>
                         )}
-                        <span className="ml-auto text-xs text-zinc-500">
+                        <span className={`ml-auto text-xs ${muted}`}>
                           {fmtDate(e.created_at)}
                         </span>
                       </div>
@@ -348,7 +348,7 @@ export default async function EventosPage({
                       {media && <PostLine kind={media.kind} post={posts.get(media.id) ?? null} />}
 
                       <details className="mt-2">
-                        <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
+                        <summary className={`cursor-pointer text-xs ${muted} hover:text-zinc-900 dark:hover:text-zinc-100`}>
                           Ver detalhes técnicos
                         </summary>
                         <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-100 p-3 text-xs text-zinc-700 dark:bg-zinc-950 dark:text-zinc-400">

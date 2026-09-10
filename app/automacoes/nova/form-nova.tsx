@@ -148,7 +148,7 @@ export default function FormNovaAutomacao() {
                 >
                   {o.titulo}
                 </p>
-                <p className="mt-1 text-xs text-zinc-500">{o.descricao}</p>
+                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{o.descricao}</p>
               </label>
             );
           })}

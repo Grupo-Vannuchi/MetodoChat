@@ -56,7 +56,7 @@ function Pessoa({ c }: { c: Row }) {
         <p className="truncate font-medium">
           {c.username ? `@${c.username}` : c.name ?? "Sem nome"}
         </p>
-        <p className="truncate text-xs text-zinc-500">
+        <p className="truncate text-xs text-zinc-600 dark:text-zinc-400">
           {c.username && c.name ? c.name : `id ${c.ig_id}`}
         </p>
       </div>
@@ -76,7 +76,7 @@ function Janela({ c }: { c: Row }) {
       className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
         aberta
           ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400"
-          : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-500"
+          : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
       }`}
     >
       {aberta ? "aberta" : "fechada"}

@@ -85,7 +85,7 @@ export default function SubmitButton({
       {/* aviso de paciência: só aparece quando já está esperando */}
       {pending && (
         <span
-          className="text-[11px] text-zinc-500 dark:text-zinc-500"
+          className="text-[11px] text-zinc-600 dark:text-zinc-400"
           role="status"
           aria-live="polite"
         >

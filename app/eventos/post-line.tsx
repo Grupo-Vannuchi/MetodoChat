@@ -22,14 +22,14 @@ export default function PostLine({ kind, post }: { kind: string; post: PostRef |
         />
       ) : (
         <span
-          className={`${thumbBox} flex items-center justify-center border border-dashed border-zinc-300 text-xs text-zinc-400 dark:border-zinc-700 dark:text-zinc-600`}
+          className={`${thumbBox} flex items-center justify-center border border-dashed border-zinc-300 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400`}
           aria-hidden="true"
         >
           ?
         </span>
       )}
       <span className="flex min-w-0 flex-col">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.04em] text-zinc-500 dark:text-zinc-500">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.04em] text-zinc-600 dark:text-zinc-400">
           {kind}
         </span>
         <span className="max-w-[22rem] truncate text-xs text-zinc-600 dark:text-zinc-300">
@@ -37,7 +37,7 @@ export default function PostLine({ kind, post }: { kind: string; post: PostRef |
         </span>
       </span>
       {post?.permalink && (
-        <span className="flex-none text-[11px] text-zinc-500 dark:text-zinc-500" aria-hidden="true">
+        <span className="flex-none text-[11px] text-zinc-600 dark:text-zinc-400" aria-hidden="true">
           ↗
         </span>
       )}

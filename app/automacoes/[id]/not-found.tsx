@@ -42,7 +42,7 @@ export default function AutomacaoNaoEncontrada() {
         </Link>
         <Link
           href="/"
-          className="text-sm font-medium text-zinc-500 transition-colors hover:text-indigo-600 dark:text-zinc-400 dark:hover:text-indigo-400"
+          className="text-sm font-medium text-zinc-600 transition-colors hover:text-indigo-600 dark:text-zinc-400 dark:hover:text-indigo-400"
         >
           Ir para o painel
         </Link>
