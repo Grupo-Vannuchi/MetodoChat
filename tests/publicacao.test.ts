@@ -55,6 +55,7 @@ import {
   FRASE_DA_FALHA,
   DIAS_DE_AVISO_DA_PUBLICACAO,
   HORAS_DE_AVISO_DA_MENSAGEM,
+  MOTIVO_CANCELADO_PELO_DONO,
 } from "../lib/publicacao";
 
 const MB = 1024 * 1024;
@@ -1999,6 +2000,91 @@ describe("dataDaLinhaDeEnvio", () => {
     );
     expect(r.quando).toEqual(criado);
     expect(Number.isNaN(r.quando.getTime())).toBe(false);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// D1 — A LINHA NAO PROMETE SAIDA SOBRE ESTADO TERMINAL (auditoria de 10/09/2026)
+//
+// O DEFEITO, MEDIDO EM PRODUCAO: um post cancelado pelo dono
+// (`status='skipped'`, `error='cancelado por voce'`) aparecia em /eventos com
+// "Sai em 12/09/2026, 16:10" — porque `not_before` ficou com a hora AGENDADA no
+// instante do cancelamento, e esta funcao so tratava `sent_at` como "nao e
+// futuro". A pergunta ao relogio estava certa; o que faltava era perguntar
+// antes se ainda existe saida para prometer.
+//
+// `skipped` E `failed` SAO TERMINAIS: nenhum dos dois volta para o dreno. O
+// `pending` e o `guardado` NAO SAO, e os dois casos de baixo sao a trava que
+// impede este conserto de ir longe demais.
+// ---------------------------------------------------------------------------
+describe("dataDaLinhaDeEnvio nao diz 'sai em' sobre estado terminal", () => {
+  const criado = new Date("2026-09-09T10:00:00Z");
+  const AGORA = Date.parse("2026-09-10T12:00:00Z");
+  const adiante = new Date("2026-09-12T19:10:00Z");
+
+  it("cancelado pelo dono nao e futuro, mesmo com not_before adiante", () => {
+    const r = dataDaLinhaDeEnvio(
+      { status: "skipped", sent_at: null, not_before: adiante, created_at: criado },
+      AGORA
+    );
+    expect(r.futuro).toBe(false);
+    // E NAO E "JA SAIU" TAMBEM: o post nao esta no perfil de ninguem.
+    expect(r.saiu).toBe(false);
+    expect(fraseDaDataDaLinha(r)).not.toContain("Sai em");
+  });
+
+  it("failed com not_before no futuro nao diz 'sai em'", () => {
+    // `finish` (lib/queue-drain.ts) grava `not_before = now() + retryInSeconds`
+    // sem olhar o status: todo item que falha por excecao nasce `failed` com a
+    // hora DOIS MINUTOS a frente. Era a segunda linha da tela prometendo saida.
+    const r = dataDaLinhaDeEnvio(
+      { status: "failed", sent_at: null, not_before: adiante, created_at: criado },
+      AGORA
+    );
+    expect(r.futuro).toBe(false);
+    expect(r.saiu).toBe(false);
+    expect(fraseDaDataDaLinha(r)).not.toContain("Sai em");
+  });
+
+  // A TRAVA DO CONSERTO, e ela e a razao de este bloco existir com quatro casos
+  // e nao com dois: um `pending` marcado para depois de agora CONTINUA dizendo
+  // "Sai em". Apagar isso seria trocar uma mentira por outra.
+  it("pending com not_before no futuro CONTINUA dizendo 'sai em'", () => {
+    const r = dataDaLinhaDeEnvio(
+      { status: "pending", sent_at: null, not_before: adiante, created_at: criado },
+      AGORA
+    );
+    expect(r.futuro).toBe(true);
+    expect(fraseDaDataDaLinha(r)).toContain("Sai em");
+  });
+
+  it("guardado com not_before no futuro CONTINUA dizendo 'sai em'", () => {
+    const r = dataDaLinhaDeEnvio(
+      { status: "guardado", sent_at: null, not_before: adiante, created_at: criado },
+      AGORA
+    );
+    expect(r.futuro).toBe(true);
+  });
+
+  // O `sent_at` MANDA SOBRE O ESTADO TERMINAL: um item marcado `skipped` que
+  // ainda assim tem hora de saida gravada esta no perfil publico, e a data dele
+  // e a de quando saiu — nao a hora que estava agendada.
+  it("estado terminal com sent_at continua mostrando quando saiu", () => {
+    const enviado = new Date("2026-09-09T16:10:00Z");
+    const r = dataDaLinhaDeEnvio(
+      { status: "skipped", sent_at: enviado, not_before: adiante, created_at: criado },
+      AGORA
+    );
+    expect(r).toEqual({ quando: enviado, futuro: false, saiu: true });
+  });
+
+  // A CONSTANTE COMPARTILHADA: o texto e escrito pela acao de cancelar
+  // (app/publicar/agendados/actions.ts) e lido pelo rotulo (app/labels.ts).
+  // Se ela mudar de um lado sem mudar do outro, a tela volta a mentir — e este
+  // caso e o unico lugar em que o valor literal esta escrito.
+  it("o motivo do cancelamento e o texto que a acao grava", () => {
+    expect(MOTIVO_CANCELADO_PELO_DONO).toBe("cancelado por voce");
   });
 });
 

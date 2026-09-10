@@ -1849,6 +1849,29 @@ export function textoDoDesfecho(
 }
 
 /**
+ * OS DOIS STATUS DA FILA DE QUEM NÃO VOLTA PARA O DRENO.
+ *
+ * O NOME DIZ "DA FILA" PORQUE JÁ EXISTE `ESTADOS_TERMINAIS` NESTE ARQUIVO, e as
+ * duas falam de coisas diferentes: aquele é sobre o `EstadoDoEnvio` do envio em
+ * lote (`pronto`, `recusado`, `falhou`), este é sobre a coluna `status` da
+ * tabela `queue`. Dois nomes iguais para dois vocabulários seria a confusão que
+ * este arquivo inteiro vem evitando.
+ *
+ * `skipped` e `failed` são o fim da linha de um item da fila: o dreno reivindica
+ * com `where status = 'pending'`, e nenhum dos dois volta para lá sozinho.
+ *
+ * `pending` E `guardado` FICAM DE FORA, e a exclusão é a metade importante desta
+ * constante. O `guardado` parece terminal e não é — ele sai assim que a pessoa
+ * voltar a falar (`upsertContact` o devolve a `pending`) —, e o `pending` com
+ * hora à frente é o único caso em que "Sai em" é uma promessa que o sistema
+ * pode cumprir. Um conserto que os alcançasse trocaria uma mentira por outra.
+ *
+ * `sending` TAMBÉM FICA DE FORA: ele está EM VOO, e o desfecho dele ainda vai
+ * ser gravado.
+ */
+const STATUS_TERMINAIS_DA_FILA = new Set(["skipped", "failed"]);
+
+/**
  * A data que uma linha de envio deve mostrar: quando SAIU, ou quando VAI sair.
  *
  * =============================================================================
@@ -1866,8 +1889,23 @@ export function textoDoDesfecho(
  *
  * `futuro` NÃO É "O ITEM ESTÁ PENDENTE": um `pending` com `not_before` já
  * vencido está ATRASADO (o dreno ainda não passou por ele), e a tela não pode
- * prometer uma saída que já devia ter acontecido. A pergunta é sobre o RELÓGIO,
- * e não sobre o status.
+ * prometer uma saída que já devia ter acontecido. A pergunta é sobre o RELÓGIO —
+ * e o status entra ANTES dela, não no lugar dela: ver o parágrafo seguinte.
+ *
+ * =============================================================================
+ * O SEGUNDO DEFEITO QUE ELA CONSERTA, medido em produção em 10/09/2026
+ *
+ * Um post cancelado pelo dono (`status='skipped'`, `error='cancelado por voce'`)
+ * aparecia em Envios dizendo **"Sai em 12/09/2026, 16:10"**. O `not_before` dele
+ * ficou com a hora que estava agendada, porque cancelar encerra o item sem
+ * limpar a coluna — e um `failed` é pior ainda, porque `finish`
+ * (lib/queue-drain.ts) EMPURRA `not_before` para `now() + retryInSeconds` sem
+ * olhar o status, então todo item que falha por exceção nasce com a hora dois
+ * minutos à frente.
+ *
+ * A pergunta ao relógio estava certa. O que faltava era perguntar antes se ainda
+ * existe saída para prometer: `sent_at` respondia "já saiu", e nada respondia
+ * "não vai sair". Ver `STATUS_TERMINAIS_DA_FILA`, logo acima.
  *
  * O `agora` É PARÂMETRO, com `Date.now()` por omissão, por um motivo de teste e
  * não de produção: sem ele, todo caso escrito com uma data fixa vira vermelho
@@ -1892,6 +1930,15 @@ export function dataDaLinhaDeEnvio(
   const marcado = item.not_before;
   const quando =
     marcado instanceof Date && !Number.isNaN(marcado.getTime()) ? marcado : item.created_at;
+  // QUEM NÃO VAI SAIR NUNCA É FUTURO, e esta linha é a extensão do raciocínio
+  // da de cima: lá a pergunta ao relógio não é feita porque o item JÁ SAIU;
+  // aqui não é feita porque ele NÃO VAI SAIR. Nos dois casos "sai em" prometeria
+  // um futuro que não existe — e a hora gravada em `not_before` continua ali,
+  // parecendo promessa, justamente porque ninguém a limpa ao encerrar o item.
+  // Ver `STATUS_TERMINAIS_DA_FILA`.
+  if (STATUS_TERMINAIS_DA_FILA.has(item.status)) {
+    return { quando, futuro: false, saiu: false };
+  }
   return { quando, futuro: quando.getTime() > agora, saiu: false };
 }
 
@@ -2101,6 +2148,37 @@ export function confirmouOCancelamento(bruto: unknown): boolean {
  *  ACONTECEU, porque o pior desfecho aqui é a pessoa achar que cancelou. */
 export const TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO =
   "Marque a confirmação antes de cancelar. Nada foi cancelado, e o post continua agendado.";
+
+/**
+ * O MOTIVO QUE A AÇÃO DE CANCELAR GRAVA NA COLUNA `error`.
+ *
+ * =============================================================================
+ * POR QUE ELE É CONSTANTE, e por que isso bastou no lugar de um estado novo
+ * (auditoria de design de 10/09/2026, achado D1)
+ *
+ * `skipped` responde por DUAS coisas diferentes na fila: o sistema pulou (a
+ * janela de 24h fechou, o lote venceu, um lote mais novo tomou o lugar) e o
+ * DONO CANCELOU. O primeiro é um problema que aconteceu com ele; o segundo é
+ * uma decisão que ele tomou. A tela chamava os dois de "Não enviada" e oferecia
+ * aos dois a frase que promete nova tentativa.
+ *
+ * ESTE TEXTO É ESCRITO PELO NOSSO CÓDIGO, NUNCA PELO USUÁRIO, e é essa
+ * propriedade que faz a constante bastar: `cancelarPublicacao`
+ * (app/publicar/agendados/actions.ts) é o ÚNICO caminho do repositório que o
+ * grava — medido, e os outros dois `update ... status = 'skipped'`
+ * (lib/engine.ts, lib/queue-drain.ts) escrevem motivos próprios e diferentes.
+ * Uma coluna que só o servidor preenche é tão confiável quanto um estado, e não
+ * cobra migração, deploy em dois passos nem entrada nova em `app/labels.ts`.
+ *
+ * SEM ACENTO, e não por descuido: é o texto que já está gravado nas linhas de
+ * produção. Mudá-lo aqui não reescreveria o histórico — faria as linhas antigas
+ * voltarem a cair no rótulo de falha, que é exatamente o defeito.
+ *
+ * ELA MORA AQUI porque é aqui que moram as outras decisões puras do cancelar
+ * (`confirmouOCancelamento`, `desfechoDaMudanca`, `textoDoDesfecho`), e porque
+ * este arquivo NÃO TEM IMPORT: `app/labels.ts` pode lê-lo sem puxar servidor.
+ */
+export const MOTIVO_CANCELADO_PELO_DONO = "cancelado por voce";
 
 // =============================================================================
 // O QUE NÃO SAIU, E QUEM PRECISA SABER (09/09/2026)

@@ -17,6 +17,7 @@ import {
   lerPayloadDaPublicacao,
   momentoDaPublicacao,
   textoDaRecusaDaPublicacao,
+  MOTIVO_CANCELADO_PELO_DONO,
   TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO,
 } from "@/lib/publicacao";
 import { avisoDoDesfecho, urlDeAgendadosComAviso } from "@/lib/avisos";
@@ -142,15 +143,24 @@ export async function cancelarPublicacao(formData: FormData): Promise<void> {
   // `skipped` E NÃO `failed`, e a distinção é a que a tela de Envios já lê: o
   // post não falhou, ele foi retirado de propósito. O `error` guarda o motivo,
   // que é o que aparece na linha.
+  //
+  // O MOTIVO É CONSTANTE COMPARTILHADA desde 10/09/2026, e não mais um literal
+  // aqui. `skipped` é o mesmo status que o sistema usa quando ELE pula um item
+  // (janela de 24h fechada, lote vencido), e era por isso que a tela chamava o
+  // post cancelado de "Não enviada" e lhe prometia nova tentativa. Quem separa
+  // os dois é este texto: escrito aqui, lido por `statusBadge` e `friendlyError`
+  // (app/labels.ts). Ver `MOTIVO_CANCELADO_PELO_DONO` (lib/publicacao.ts), que
+  // explica por que o par bastou no lugar de um estado novo na fila.
+  //
   // O `payload` VOLTA JUNTO porque é dele que sai o caminho do arquivo a apagar
   // — ver o bloco logo abaixo. Ele é lido da MESMA linha que o `update` acabou
   // de mudar, e não de uma segunda consulta: uma segunda ida ao banco poderia
   // ler outra coisa, e aqui o que se apaga é arquivo do perfil de alguém.
   const afetadas = (await sql().query(
-    `update queue set status = 'skipped', error = 'cancelado por voce'
+    `update queue set status = 'skipped', error = $3
      ${ALVO_DA_MUDANCA}
      returning id, payload`,
-    [id, conta.ig_user_id]
+    [id, conta.ig_user_id, MOTIVO_CANCELADO_PELO_DONO]
   )) as { id: string; payload: unknown }[];
 
   // A SEGUNDA CONSULTA SÓ NO CAMINHO DE FALHA, e é o `?` que garante isso: com

@@ -201,7 +201,13 @@ export default async function EventosPage({
                   </thead>
                   <tbody className={rowDivide}>
                     {queue.map((q) => {
-                      const badge = statusBadge(q.status);
+                      // O MOTIVO VAI JUNTO DO STATUS, e é ele que separa os
+                      // dois fatos que `skipped` guarda: o SISTEMA pulou (janela
+                      // de 24h fechada, lote vencido) e o DONO cancelou. Até
+                      // 10/09/2026 a linha do post cancelado dizia "Não
+                      // enviada", que lê como falha sobre uma decisão de quem
+                      // está lendo a tela. Ver `statusBadge` (app/labels.ts).
+                      const badge = statusBadge(q.status, q.error);
                       const erro = friendlyError(q.error);
                       // A coluna "Situação" saiu: 28 de 28 linhas diziam "Entregue".
                       // Ela virou filtro, e a contagem lá em cima diz o placar

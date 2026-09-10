@@ -1,11 +1,21 @@
 // Tradução dos nomes internos do sistema para a linguagem de quem usa o painel.
 // Ninguém deveria precisar saber o que é "dm_link" ou "story_reply".
 //
-// O ÚNICO IMPORT deste arquivo é `lib/steps.ts`, e ele entrou com `oQueDispara`
-// (lá embaixo): a coluna "o que dispara" da lista de automações precisa fazer a
-// MESMA pergunta que o salvar e o painel fazem sobre palavra-chave, e reescrevê-
-// la aqui criaria a segunda resposta que esta fase inteira vem apagando.
+// OS DOIS IMPORTS DESTE ARQUIVO SÃO ARQUIVOS PUROS, e os dois entraram pelo
+// mesmo motivo — não reescrever aqui uma resposta que já existe em outro lugar.
+//
+// `lib/steps.ts` entrou com `oQueDispara` (lá embaixo): a coluna "o que dispara"
+// da lista de automações precisa fazer a MESMA pergunta que o salvar e o painel
+// fazem sobre palavra-chave.
+//
+// `lib/publicacao.ts` entrou em 10/09/2026 com `MOTIVO_CANCELADO_PELO_DONO`: o
+// texto que a ação de cancelar grava em `error` é o que distingue, aqui, o post
+// que o DONO retirou daquele que o SISTEMA pulou. Escrevê-lo à mão nesta ponta
+// faria as duas metades combinarem por coincidência, e a tela voltaria a mentir
+// no dia em que uma delas mudasse. Aquele arquivo não tem import nenhum, então
+// nada de servidor entra aqui por essa porta.
 import { gatilhoPedePalavraChave } from "@/lib/steps";
+import { MOTIVO_CANCELADO_PELO_DONO } from "@/lib/publicacao";
 import type { QueueItem } from "@/lib/db";
 
 type Badge = { label: string; className: string };
@@ -369,8 +379,47 @@ const STATUS: Record<string, Badge> = {
   },
 };
 
-export function statusBadge(status: string): Badge {
-  const b = STATUS[status] ?? UNKNOWN;
+/**
+ * O SELO DE `skipped` QUE O DONO CANCELOU — e por que ele não está em `STATUS`.
+ *
+ * `STATUS` é indexado por status, e `skipped` é UM status para DOIS fatos: o
+ * sistema pulou e o dono cancelou. Uma segunda entrada com a mesma chave é
+ * impossível, e uma chave inventada (`"cancelado"`) seria pior: `KIND` e
+ * `STATUS` existem para casar com o que o banco grava, e uma chave que nenhum
+ * `update` escreve vira um valor a manter que ninguém alcança.
+ *
+ * A PALAVRA É "Cancelada por você", e ela responde a pergunta que a linha faz:
+ * quem retirou este post. "Cancelada" sozinha deixaria o dono procurando o
+ * sistema que cancelou por ele.
+ *
+ * A COR É NEUTRA, e não o âmbar de `skipped` nem o vermelho de `failed`: nada
+ * deu errado aqui. É a mesma dupla de `pending` porque as duas dizem a mesma
+ * coisa sobre gravidade — nenhuma — e porque um tom próprio inventado para uma
+ * linha só seria a nona cor de uma paleta que a auditoria já achou larga demais.
+ */
+const CANCELADO_PELO_DONO: Badge = {
+  label: "Cancelada por você",
+  className: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400",
+};
+
+/**
+ * O selo de uma situação da fila.
+ *
+ * O `motivo` É OPCIONAL, E A OMISSÃO É UM CASO DE VERDADE, não descuido de quem
+ * chama: a barra de filtros (`app/eventos/filtros-envios.tsx`) monta as opções a
+ * partir de `SITUACOES` e só tem a CHAVE da situação — não existe linha, e
+ * portanto não existe motivo. Sem motivo, `skipped` continua sendo "Não
+ * enviada", que é o que ele sempre disse.
+ *
+ * O MOTIVO ENTRA SÓ ONDE HÁ LINHA, e por enquanto ele separa um caso só: o post
+ * retirado pelo dono. Ver `MOTIVO_CANCELADO_PELO_DONO` (lib/publicacao.ts), que
+ * explica por que uma coluna de texto basta aqui no lugar de um estado novo.
+ */
+export function statusBadge(status: string, motivo?: string | null): Badge {
+  const b =
+    status === "skipped" && motivo?.trim() === MOTIVO_CANCELADO_PELO_DONO
+      ? CANCELADO_PELO_DONO
+      : (STATUS[status] ?? UNKNOWN);
   return { ...b, className: `${BADGE_BASE} ${b.className}` };
 }
 
@@ -392,6 +441,17 @@ export function friendlyError(raw: string | null): string | null {
   // tentativa deste aqui.
   if (raw.includes("substituido por um lote mais novo"))
     return "Você confirmou um envio mais novo para esta pessoa antes deste sair. Foi decisão sua, e não há nova tentativa.";
+  // O DONO CANCELOU O POST, e esta é a linha que faz o motivo já gravado no
+  // banco chegar à tela. Sem ela o texto caía no genérico do fim desta função —
+  // "não conseguimos enviar" (falso: ninguém tentou) e "o sistema tenta de novo
+  // automaticamente" (falso: `skipped` é terminal).
+  //
+  // CASA POR IGUALDADE, e não por `includes` como as vizinhas: as outras
+  // procuram um pedaço de frases que o dreno montou com dados de fora, e esta
+  // compara com a constante inteira que a ação grava. Um `includes` aqui
+  // aceitaria por acidente qualquer motivo futuro que contivesse este texto.
+  if (raw.trim() === MOTIVO_CANCELADO_PELO_DONO)
+    return "Você cancelou este post, e por isso ele não saiu. Foi decisão sua, e não há nova tentativa.";
   // A pessoa está fora da janela de 24h e a mensagem CONTINUA na fila
   // (`pending`, não `skipped` nem `failed`): ela sai sozinha assim que a
   // pessoa voltar a falar. É a linha que impede o dono de ler "Na fila" com

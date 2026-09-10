@@ -6,8 +6,10 @@ import {
   friendlyError,
   kindLabel,
   paraQuemLabel,
+  statusBadge,
 } from "@/app/labels";
 import { EVENT_TYPES } from "@/lib/event-filters";
+import { MOTIVO_CANCELADO_PELO_DONO } from "@/lib/publicacao";
 
 // O QUE ESTE ARQUIVO PROTEGE é a tela de Atividade dizendo o que aconteceu.
 //
@@ -341,5 +343,72 @@ describe("a coluna \"Para quem\" da tela de Atividade", () => {
         person_name: "Zetti",
       })
     ).toBe("Zetti");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// D1 — A TELA PARA DE MENTIR SOBRE O POST QUE O DONO CANCELOU
+// (auditoria de design de 10/09/2026, medida em producao)
+//
+// A linha dizia TRES coisas falsas de uma vez:
+//
+//   "Nao enviada" — o selo de `skipped`, que le como falha
+//   "Nao conseguimos enviar desta vez. O sistema tenta de novo automaticamente."
+//   "Sai em 12/09/2026, 16:10"
+//
+// A raiz e que `skipped` serve para DUAS coisas diferentes: o sistema pulou
+// (janela de 24h fechada, lote vencido) e o dono cancelou. Sao fatos opostos —
+// um e problema, o outro e decisao — e mereciam palavras diferentes.
+//
+// A DISTINCAO NAO CUSTOU ESTADO NOVO NO BANCO: a acao de cancelar ja gravava o
+// motivo em `error`, e esse texto e escrito pelo NOSSO codigo, nunca pelo
+// usuario. Virou constante compartilhada, escrita pela acao e lida aqui.
+// ---------------------------------------------------------------------------
+describe("a tela nao chama de falha o post que o dono cancelou", () => {
+  it("cancelado pelo dono nao le como 'Nao enviada'", () => {
+    const b = statusBadge("skipped", MOTIVO_CANCELADO_PELO_DONO);
+    expect(b.label).not.toBe("Nao enviada");
+    expect(b.label).not.toBe("Não enviada");
+    expect(b.label.toLowerCase()).toContain("cancel");
+  });
+
+  it("a frase do cancelado NAO promete nova tentativa", () => {
+    const texto = friendlyError(MOTIVO_CANCELADO_PELO_DONO);
+    expect(texto).not.toBe(null);
+    // `skipped` e TERMINAL: nao ha reenvio nenhum a prometer.
+    expect(texto).not.toContain("tenta de novo automaticamente");
+  });
+
+  it("a frase do cancelado diz que foi decisao de quem le", () => {
+    // O MOTIVO GRAVADO EM `error` E A INFORMACAO MAIS UTIL DA LINHA, e ele
+    // estava no banco sem chegar a tela: a frase generica o apagava.
+    const texto = friendlyError(MOTIVO_CANCELADO_PELO_DONO) ?? "";
+    expect(texto.toLowerCase()).toContain("cancel");
+  });
+
+  // ------------------------------------------------------------------
+  // AS TRAVAS DO CONSERTO — o que ele NAO pode ter levado junto.
+  // ------------------------------------------------------------------
+  it("pulado pelo sistema continua sendo 'Nao enviada'", () => {
+    // A janela de 24h fechada e o lote vencido continuam `skipped` sem este
+    // motivo, e a palavra deles nao mudou.
+    expect(statusBadge("skipped").label).toBe("Não enviada");
+    expect(statusBadge("skipped", "janela de 24h fechada").label).toBe("Não enviada");
+    expect(statusBadge("skipped", "o lote venceu").label).toBe("Não enviada");
+  });
+
+  it("o filtro de situacoes continua lendo o selo com um argumento so", () => {
+    // `app/eventos/filtros-envios.tsx` monta as opcoes com `statusBadge(s.key)`:
+    // ele so tem a chave da situacao, nunca o motivo de uma linha.
+    expect(statusBadge("sent").label).toBe("Entregue");
+    expect(statusBadge("pending").label).toBe("Na fila");
+    expect(statusBadge("failed").label).toBe("Não saiu");
+  });
+
+  it("o cancelado e o pulado nao dizem a mesma frase", () => {
+    expect(friendlyError(MOTIVO_CANCELADO_PELO_DONO)).not.toBe(
+      friendlyError("janela de 24h")
+    );
   });
 });
