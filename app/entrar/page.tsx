@@ -13,7 +13,7 @@ export default function EntrarPage() {
             M
           </span>
           <div>
-            <h1 className="text-lg font-bold leading-tight">Entrar no painel</h1>
+            <h1 className="titulo text-lg font-bold leading-tight">Entrar no painel</h1>
             <p className={`text-xs ${muted}`}>Use a senha do administrador.</p>
           </div>
         </div>

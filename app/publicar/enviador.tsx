@@ -28,7 +28,7 @@ import {
   atualizarEnvio,
   limparEnvios,
 } from "./envios";
-import { card, input, label, hint, fieldError, muted } from "../ui";
+import { card, input, label, hint, fieldError, muted, numero } from "../ui";
 
 // O ENVIADOR — a exceção declarada na especificação (§3), e a única razão de
 // haver `"use client"` neste projeto fora do que já existia.
@@ -279,7 +279,7 @@ export default function Enviador({ teto }: { teto: number | null }) {
           <ol className="space-y-1">
             {itens.map((item, i) => (
               <li key={item.caminho} className="flex items-center gap-2 text-xs">
-                <span className={`tabular-nums ${muted}`}>{i + 1}.</span>
+                <span className={`${numero} ${muted}`}>{i + 1}.</span>
                 <span className="min-w-0 flex-1 truncate text-zinc-700 dark:text-zinc-300">
                   {item.rotulo}
                 </span>
@@ -342,7 +342,7 @@ export default function Enviador({ teto }: { teto: number | null }) {
               ? textoDoProblemaDaLegenda(problemaDaLegendaAtual)
               : "Hashtags e menções contam: 30 e 20 são os limites do Instagram."}
           </p>
-          <p className={`shrink-0 text-xs tabular-nums ${muted}`}>{legenda.length}/2200</p>
+          <p className={`shrink-0 text-xs ${numero} ${muted}`}>{legenda.length}/2200</p>
         </div>
       </div>
 

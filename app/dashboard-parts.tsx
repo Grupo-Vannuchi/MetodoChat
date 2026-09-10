@@ -1,4 +1,4 @@
-import { card, muted } from "./ui";
+import { card, muted, numero } from "./ui";
 
 // Peças visuais do painel, separadas da busca de dados: recebem tudo por
 // props, o que deixa cada uma fácil de conferir isoladamente.
@@ -22,7 +22,7 @@ export function StatCard({
         <p className={`text-xs font-medium ${muted}`}>{label}</p>
         <Icon className="h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-600" />
       </div>
-      <p className="mt-2 text-3xl font-bold tabular-nums leading-none">{value}</p>
+      <p className={`mt-2 text-3xl font-bold leading-none ${numero}`}>{value}</p>
       <div className="mt-1.5 flex items-center gap-1.5 text-xs">
         {trend !== undefined && trend !== 0 && (
           <span
@@ -48,7 +48,7 @@ export function SentChart({ dias }: { dias: Dia[] }) {
   return (
     <section className={`p-5 ${card}`}>
       <div className="mb-4 flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold">Mensagens por dia</h2>
+        <h2 className="titulo text-sm font-semibold">Mensagens por dia</h2>
         <span className={`text-xs ${muted}`}>últimos {dias.length} dias</span>
       </div>
       {max === 0 ? (
@@ -76,7 +76,7 @@ export function SentChart({ dias }: { dias: Dia[] }) {
             {dias.map((d, i) => (
               <span
                 key={d.chave}
-                className={`flex-1 text-center text-[11px] tabular-nums ${muted}`}
+                className={`flex-1 text-center text-[11px] ${numero} ${muted}`}
               >
                 {i % 2 === 0 ? d.rotulo : ""}
               </span>

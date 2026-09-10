@@ -9,7 +9,7 @@ export default async function ExclusaoDeDadosPage() {
 
   return (
     <article className="mx-auto max-w-2xl space-y-4 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Exclusão de Dados</h1>
+      <h1 className="titulo text-2xl font-bold text-zinc-900 dark:text-zinc-100">Exclusão de Dados</h1>
       <p>
         Este aplicativo armazena apenas o identificador público do Instagram, o nome de usuário e o
         texto de comentários/mensagens de quem interage com a conta conectada.

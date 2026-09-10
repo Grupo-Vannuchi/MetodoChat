@@ -39,7 +39,7 @@ function Step({
 }) {
   return (
     <section className={`p-5 ${card}`}>
-      <h2 className="flex items-center gap-2 text-base font-semibold">
+      <h2 className="titulo flex items-center gap-2 text-base font-semibold">
         <span
           className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
             done
@@ -121,7 +121,7 @@ export default async function SetupPage({
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <div>
-        <h1 className="text-2xl font-bold">Configuração</h1>
+        <h1 className="titulo text-2xl font-bold">Configuração</h1>
         <p className={`mt-1 text-sm ${muted}`}>{subtituloDaConfiguracao(instalacao.aberto)}</p>
         {/* Barra de progresso: mostra o quanto falta e evita a sensação de
             processo interminável, que é o que gera abandono. */}

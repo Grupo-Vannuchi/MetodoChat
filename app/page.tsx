@@ -256,7 +256,7 @@ export default async function Home({
 
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Painel</h1>
+          <h1 className="titulo text-2xl font-bold">Painel</h1>
           <p className={`mt-0.5 text-sm ${muted}`}>
             {account
               ? `Visão geral de @${account.username ?? account.ig_user_id}`
@@ -345,7 +345,7 @@ export default async function Home({
             {/* Últimas interações */}
             <section className={card}>
               <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
-                <h2 className="text-sm font-semibold">Últimas interações</h2>
+                <h2 className="titulo text-sm font-semibold">Últimas interações</h2>
                 <Link
                   href="/eventos"
                   className="text-xs text-indigo-600 hover:underline dark:text-indigo-400"

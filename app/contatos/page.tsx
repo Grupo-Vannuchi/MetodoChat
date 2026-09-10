@@ -235,7 +235,7 @@ export default async function ContatosPage({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Contatos</h1>
+          <h1 className="titulo text-2xl font-bold">Contatos</h1>
           {account && (
             <p className={`text-sm ${muted}`}>
               de @{account.username ?? account.ig_user_id} · {rows.length}{" "}
@@ -368,7 +368,7 @@ export default async function ContatosPage({
               <section>
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h2 className="flex items-center gap-2 text-lg font-bold">
+                    <h2 className="titulo flex items-center gap-2 text-lg font-bold">
                       <IconMail className="h-4 w-4 text-indigo-500" />
                       Com e-mail
                     </h2>
@@ -399,7 +399,7 @@ export default async function ContatosPage({
               {semEmail.length > 0 && (
                 <section>
                   <div className="mb-4">
-                    <h2 className="flex items-center gap-2 text-lg font-bold">
+                    <h2 className="titulo flex items-center gap-2 text-lg font-bold">
                       <IconUsers className="h-4 w-4 text-zinc-400" />
                       Sem e-mail
                     </h2>

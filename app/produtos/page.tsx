@@ -25,7 +25,7 @@ function CardProduto({ p }: { p: Produto }) {
     <div className={`${card} ${cardHover} flex h-full flex-col p-5`}>
       <div className="flex items-center gap-3.5">
         <Marca nome={p.nome} />
-        <h2 className="text-base font-semibold tracking-[-0.01em] text-zinc-900 dark:text-zinc-50">
+        <h2 className="titulo text-base font-semibold tracking-[-0.01em] text-zinc-900 dark:text-zinc-50">
           {p.nome}
         </h2>
       </div>

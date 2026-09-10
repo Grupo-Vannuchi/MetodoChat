@@ -60,12 +60,29 @@ export const tomQuieto = "text-zinc-600 dark:text-zinc-400";
 // é de propósito: a auditoria elogiou "nenhuma página rola na horizontal em
 // 390px", e não há como conferir isso sem renderizar — então a troca que
 // sobrou é a que não pode piorar aquilo.
+// `titulo` é a utilidade que aplica a Archivo no corte EXPANDIDO — o eixo
+// `wdth`, definido em `app/globals.css`. Ela entra aqui, e não numa classe de
+// peso, porque expandido não é peso: é um eixo da fonte variável, e nenhum
+// corte estático da Archivo o tem.
 export const pageTitle =
-  "text-xl font-bold tracking-[-0.01em] text-zinc-900 sm:text-2xl dark:text-zinc-50";
+  "titulo text-xl font-bold tracking-[-0.01em] text-zinc-900 sm:text-2xl dark:text-zinc-50";
 
 export const pageSubtitle = `mt-1 text-sm ${tomQuieto}`;
 
 export const muted = tomQuieto;
+
+// TEMPO, NÚMERO E IDENTIFICADOR — a IBM Plex Mono, com os dígitos tabulares.
+//
+// POR QUE É UM TOKEN, e não `font-mono tabular-nums` solto no JSX: as duas
+// classes andam SEMPRE juntas neste produto, e separá-las é o começo de "aqui
+// eu esqueci o tabular". Contagem que muda de largura enquanto atualiza é
+// exatamente o defeito que dígito tabular existe para evitar.
+//
+// ELE VEM DEPOIS DE `${muted}` NAS COMPOSIÇÕES, e isso não é estilo: `muted`
+// não declara família nem `font-variant-numeric`, então as duas famílias de
+// classe não se cruzam e a ordem na folha não decide nada aqui (ver o aviso
+// medido junto de `input`, mais abaixo).
+export const numero = "font-mono tabular-nums";
 
 export const eyebrow = `text-[11px] font-semibold uppercase tracking-[0.08em] ${tomQuieto}`;
 

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { windowState, formatWindowLeft } from "@/lib/inbox-window";
 import { fmtRelative, semPrefixo } from "@/lib/format";
-import { muted, badgeOk } from "../ui";
+import { muted, badgeOk, numero } from "../ui";
 import Avatar from "../avatar";
 import { badgeDaConversa } from "@/lib/inbox-badge";
 import { semCategoria } from "@/lib/categorias";
@@ -142,7 +142,7 @@ export default function Lista({
                   {marca === "contagem" && (
                     <span
                       role="img"
-                      className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-indigo-500 px-1.5 text-[11px] font-semibold tabular-nums text-white"
+                      className={`ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-indigo-500 px-1.5 text-[11px] font-semibold text-white ${numero}`}
                       aria-label={`${c.nao_lidas} ${c.nao_lidas === 1 ? "mensagem não lida" : "mensagens não lidas"}`}
                     >
                       {c.nao_lidas > 99 ? "99+" : c.nao_lidas}

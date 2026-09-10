@@ -147,7 +147,7 @@ export default async function EventosPage({
             {/* O título antigo dizia "Tudo que o robô mandou por você", e 20 das
                 28 linhas eram resposta digitada pelo dono na caixa de entrada. A
                 lista é das DUAS origens, e agora diz isso. */}
-            <h1 className="text-2xl font-bold">Tudo que saiu da sua conta</h1>
+            <h1 className="titulo text-2xl font-bold">Tudo que saiu da sua conta</h1>
             <p className={`mt-1 text-sm ${muted}`}>
               O que o robô enviou por você e o que você mesmo respondeu — e o que ainda está a
               caminho.
@@ -272,7 +272,7 @@ export default async function EventosPage({
 
         <section className="space-y-4">
           <div>
-            <h2 className="text-xl font-bold">O que aconteceu no seu Instagram</h2>
+            <h2 className="titulo text-xl font-bold">O que aconteceu no seu Instagram</h2>
             <p className={`mt-1 text-sm ${muted}`}>
               Cada comentário, story respondido e mensagem que chegou até você.
             </p>

@@ -12,7 +12,7 @@ import {
 } from "@/lib/event-filters";
 import { useFiltros } from "./filtros-dono";
 import { eventBadge } from "../labels";
-import { subtle } from "../ui";
+import { subtle, numero } from "../ui";
 
 export type OpcaoPost = { id: string; total: number; thumb: string | null; caption: string | null };
 
@@ -186,7 +186,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
                     </span>
                   )}
                 </span>
-                <span className="text-center text-[11px] tabular-nums text-zinc-600 dark:text-zinc-400">{p.total}</span>
+                <span className={`text-center text-[11px] text-zinc-600 dark:text-zinc-400 ${numero}`}>{p.total}</span>
               </button>
             ))}
           </div>

@@ -299,7 +299,7 @@ export default async function Agendados({
       {falhadas.length > 0 && (
         <section className="space-y-4">
           <div>
-            <h2 className="text-lg font-semibold">Não saíram</h2>
+            <h2 className="titulo text-lg font-semibold">Não saíram</h2>
             <p className={`text-sm ${muted}`}>
               Estes posts falharam e não estão mais na fila. O arquivo continua no
               armazenamento — para publicar de novo, agende outro post.
