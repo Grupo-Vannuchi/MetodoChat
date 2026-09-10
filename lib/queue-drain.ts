@@ -347,8 +347,20 @@ export async function limparOBucket(
  * conteúdo, porque todos os itens são cortados pela proporção do primeiro.
  *
  * O `mime` NÃO ESTÁ NO PAYLOAD, e não precisa: `parametrosDoContainer` decide
- * entre `image_url` e `video_url` pela extensão do caminho, que
- * `caminhoDoObjeto` (lib/bucket.ts) preserva.
+ * pela extensão do caminho, que `caminhoDoObjeto` (lib/bucket.ts) grava a partir
+ * do `mime` DECLARADO e validado — não do nome do arquivo, que é palpite.
+ *
+ * E ISSO VALE PARA AS DUAS DECISÕES, não só para uma: a mesma extensão escolhe
+ * a chave da URL (`image_url` contra `video_url`) E o `media_type: VIDEO` que o
+ * filho de vídeo passou a levar (medido em 10/09/2026; sem ele a Meta trata o
+ * filho como imagem e recusa com 400 pedindo `image_url`). As duas saem do MESMO
+ * `ehVideo` lá dentro, de propósito — era o desacordo entre elas que quebrava o
+ * carrossel com vídeo, e amarradas na mesma variável não têm como discordar.
+ *
+ * POR ISSO O DRENO NÃO GANHOU UM CAMPO `mime`: passá-lo pediria um mime POR
+ * CAMINHO no `jsonb` de uma fila viva (um carrossel mistura imagem e vídeo na
+ * mesma lista), e o campo morto que fingia resolver isso já foi removido uma vez
+ * — nenhum chamador o passava. O caminho no bucket já diz a verdade.
  */
 async function containerPaiDoCarrossel(
   item: QueueItem,

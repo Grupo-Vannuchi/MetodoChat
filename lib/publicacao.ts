@@ -298,8 +298,42 @@ export function parametrosDoContainer(pedido: PedidoDeContainer): Record<string,
   if (pedido.forma === "story") p.media_type = "STORIES";
 
   if (pedido.filho) {
-    // FILHO DE CARROSSEL NÃO LEVA LEGENDA NEM `media_type`. A legenda mora no
-    // PAI, e repeti-la no filho é o erro natural de quem reaproveita a função.
+    // ===========================================================================
+    // FILHO DE CARROSSEL NÃO LEVA LEGENDA — ela mora no PAI, e repeti-la aqui é
+    // o erro natural de quem reaproveita a função. ESSA METADE ESTÁ CERTA.
+    //
+    // A OUTRA METADE — "filho não leva `media_type`" — ERA UMA REGRA GERAL QUE
+    // NÃO É GERAL, e ela derrubava todo carrossel com vídeo em produção. Ela foi
+    // generalizada a partir do único caso que alguém tinha testado: o de imagem.
+    //
+    // MEDIDO EM 10/09/2026 contra @vannuchi.eng, criando contêineres sem
+    // publicar:
+    //
+    //   filho imagem, sem `media_type`      FINISHED
+    //   filho vídeo, sem `media_type`       HTTP 400, code=100,
+    //                                       "The parameter image_url is required"
+    //   filho vídeo, `media_type=VIDEO`     FINISHED
+    //   filho vídeo, `media_type=REELS`     FINISHED
+    //   pai CAROUSEL, imagem + vídeo        FINISHED
+    //
+    // SEM `media_type`, A META TRATA O FILHO COMO IMAGEM e exige `image_url` —
+    // e nós mandamos `video_url`. O custo do defeito era o pior que existe: o
+    // 400 só chegava DEPOIS do upload inteiro, na cara de quem tentou.
+    //
+    // `VIDEO`, E NÃO `REELS`, embora os dois tenham sido medidos FINISHED: vídeo
+    // em carrossel é vídeo COMUM — é a mesma regra que esta função já aplica
+    // acima ao recusar `share_to_feed` e `audio_name` no filho, e que o
+    // cabeçalho de `tetoDaMeta` registra. `REELS` seria semanticamente errado
+    // mesmo funcionando hoje, e o dia em que a Meta apertar a distinção não
+    // avisa antes.
+    //
+    // QUEM DECIDE SE É VÍDEO É O MESMO `ehVideo` QUE ESCOLHEU A CHAVE DA URL,
+    // logo acima, e isso é deliberado: era o desacordo entre os dois que
+    // quebrava. Amarrados na mesma variável, `video_url` e `media_type: VIDEO`
+    // não têm como discordar de novo — quem mandar `video_url` manda o
+    // `media_type` junto, sempre.
+    // ===========================================================================
+    if (ehVideo) p.media_type = "VIDEO";
     p.is_carousel_item = "true";
     return p;
   }
