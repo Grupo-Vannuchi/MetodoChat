@@ -450,7 +450,12 @@ describe("as linhas do alcance — o achado D5, que era de LAYOUT", () => {
   });
 
   it("`improvaveis` é RECORTE de `esperam`, e nunca o ultrapassa", () => {
-    const contatos = [...gente(9, 5, true), ...gente(60, 5, false), ...gente(56, 1, false)];
+    // OS 9 DE JANELA ABERTA TÊM `recebidas: 1`, E ISSO É O CASO. Com eles em
+    // `recebidas: 5` o caso passava por vacuidade: contar `improvaveis` sobre
+    // TODOS os contatos, em vez de só sobre os que esperam, dava o mesmo 56 e
+    // a asserção não distinguia nada. Foi um plante que revelou isso — quem o
+    // pegou foi um caso antigo, não este. Agora, contado sobre todos, daria 65.
+    const contatos = [...gente(9, 1, true), ...gente(60, 5, false), ...gente(56, 1, false)];
     const d = destinoDoLote(contatos);
     expect(d.improvaveis).toBe(56);
     expect(d.improvaveis).toBeLessThanOrEqual(d.esperam.length);
