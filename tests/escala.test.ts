@@ -7,6 +7,8 @@ import {
   CLASSE_POR_TAMANHO,
   RAIOS_PX,
   CLASSE_POR_RAIO,
+  ESPACAMENTOS_PX,
+  DEGRAU_POR_ESPACAMENTO,
   desviosDeEscala,
 } from "../app/escala";
 import * as ui from "../app/ui";
@@ -100,6 +102,13 @@ describe("a varredura", () => {
     expect(desviosDeEscala("flex-1 rounded-t")).toHaveLength(1); // 4px 4px 0 0
     expect(desviosDeEscala("rounded rounded-sm rounded-md")).toHaveLength(3);
     expect(desviosDeEscala("rounded-bl-md")).toHaveLength(1);
+    // os três espaçamentos avulsos que saíram nesta onda, e um que nunca existiu
+    expect(desviosDeEscala("mt-20")).toHaveLength(1);
+    expect(desviosDeEscala("px-6 py-14 text-center")).toHaveLength(1);
+    expect(desviosDeEscala("mt-7 flex flex-wrap")).toHaveLength(1);
+    expect(desviosDeEscala("gap-11")).toHaveLength(1);
+    // e a margem negativa não escapa por ser negativa
+    expect(desviosDeEscala("-ml-7")).toHaveLength(1);
   });
 
   it("não acusa o que é a escala", () => {
@@ -111,6 +120,15 @@ describe("a varredura", () => {
     // os três degraus, o círculo, e o raio parcial escrito com degrau
     expect(desviosDeEscala("rounded-lg rounded-xl rounded-2xl rounded-full")).toEqual([]);
     expect(desviosDeEscala("rounded-t-lg sm:rounded-2xl")).toEqual([]);
+    // os degraus de espaçamento, inclusive os dois derivados e o negativo
+    expect(desviosDeEscala("mt-1 gap-1.5 px-2.5 py-3.5 pl-9 space-y-10")).toEqual([]);
+    expect(desviosDeEscala("-ml-1 -mt-1 sm:px-6 lg:px-8 file:mr-3")).toEqual([]);
+    // `0` é a ausência de espaço, e não um degrau que falta
+    expect(desviosDeEscala("gap-0 mt-0 p-0.5")).toEqual([]);
+    // `scroll-mt-24` é âncora, não espaço — o segundo verde falso da varredura
+    expect(desviosDeEscala("flex scroll-mt-24 justify-center pt-1")).toEqual([]);
+    // famílias que têm número e não têm espaçamento
+    expect(desviosDeEscala("h-7 w-7 top-7 grid-cols-7 flex-1 z-30")).toEqual([]);
   });
 });
 
@@ -162,8 +180,38 @@ describe("a escala de raios", () => {
   });
 });
 
+describe("a escala de espaçamento", () => {
+  it("tem quinze degraus, e três avulsos saíram", () => {
+    expect([...ESPACAMENTOS_PX]).toEqual([2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 32, 36, 40, 48, 64]);
+    // 28, 56 e 80 eram uma ocorrência cada, em layout folgado
+    for (const morto of [28, 56, 80]) {
+      expect(ESPACAMENTOS_PX as readonly number[]).not.toContain(morto);
+    }
+  });
+
+  it("36 e 14 FICAM, porque não foram escolhidos: um vem do ícone, o outro do campo", () => {
+    // `pl-9` sai de `left-3` (12) + 16 de ícone + 8 de folga. Ele obedece ao
+    // ícone, e trocar por 32 poria o texto em cima dele.
+    expect(ESPACAMENTOS_PX as readonly number[]).toContain(36);
+    // `px-3.5` é o padding HORIZONTAL do token `input` — ritmo vertical não
+    // passa por ali.
+    expect(ESPACAMENTOS_PX as readonly number[]).toContain(14);
+    expect(ui.input.split(/\s+/)).toContain("px-3.5");
+  });
+
+  it("cada degrau tem um número do Tailwind, e nenhum se repete", () => {
+    const degraus = ESPACAMENTOS_PX.map((px) => DEGRAU_POR_ESPACAMENTO[px]);
+    expect(degraus.every(Boolean)).toBe(true);
+    expect(new Set(degraus).size).toBe(degraus.length);
+    // a tabela não tem degrau sobrando: ela e a lista dizem a mesma coisa
+    expect(Object.keys(DEGRAU_POR_ESPACAMENTO).map(Number).sort((a, b) => a - b)).toEqual([
+      ...ESPACAMENTOS_PX,
+    ]);
+  });
+});
+
 describe("nenhum arquivo de tela fura a escala", () => {
-  it("fora do editor, não sobrou tamanho nem raio fora da lista", () => {
+  it("fora do editor, não sobrou tamanho, raio nem espaçamento fora da lista", () => {
     const furos: string[] = [];
     for (const caminho of ARQUIVOS) {
       const conteudo = semComentarios(readFileSync(caminho, "utf8"));

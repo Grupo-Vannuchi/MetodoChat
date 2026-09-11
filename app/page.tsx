@@ -188,7 +188,7 @@ export default async function Home({
         // …/>` apareceria no texto como `autos=1 sent7=0` e nenhuma das frases
         // dele — e os casos que medem o silêncio do painel ficariam medindo
         // uma tela que não conseguem ler. Foi o que aconteceu em 10/09/2026.
-        <section className={`px-6 py-14 text-center ${card}`}>
+        <section className={`px-6 py-16 text-center ${card}`}>
           <p className="titulo text-2xl font-bold sm:text-3xl">Nada precisa de você agora.</p>
           <p className={`mx-auto mt-3 max-w-lg text-sm ${muted}`}>
             {[
@@ -197,7 +197,7 @@ export default async function Home({
               ...(sinais.last_event ? [`última interação ${fmtRelative(sinais.last_event)}`] : []),
             ].join(" · ")}
           </p>
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
             <Link href="/desempenho" className={link}>
               Ver o desempenho
             </Link>

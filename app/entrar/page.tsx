@@ -6,7 +6,7 @@ import { card, input, muted } from "../ui";
 export default function EntrarPage() {
   const [state, action, pending] = useActionState(login, undefined);
   return (
-    <div className="mx-auto mt-20 max-w-sm">
+    <div className="mx-auto mt-16 max-w-sm">
       <div className={`p-6 ${card}`}>
         <div className="mb-6 flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-tinta text-base font-bold text-papel dark:bg-tinta-escuro dark:text-papel-escuro">

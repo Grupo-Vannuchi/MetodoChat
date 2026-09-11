@@ -84,13 +84,76 @@ export const CLASSE_POR_RAIO: Record<number, string> = {
 // círculo não é um degrau da escala, é a ausência de canto.
 const RAIOS_ACEITOS = new Set(["rounded-lg", "rounded-xl", "rounded-2xl", "rounded-full"]);
 
+/* ---------- espaçamento ---------- */
+
+/**
+ * OS DEGRAUS DE ESPAÇAMENTO, em px — o achado M3, que mudou de forma quando foi
+ * medido.
+ *
+ * A AUDITORIA ESCREVEU "dez espaçamentos distintos, passo de 2px, mais fino do
+ * que qualquer ritmo perceptível". Contados na árvore em 11/09/2026 eram 703
+ * ocorrências em DEZOITO valores não-nulos — e a conclusão é outra, porque dois
+ * deles não são escolha:
+ *
+ * `pl-9` (36px) É DERIVADO E NÃO ARBITRÁRIO: é o recuo do campo que tem ícone à
+ * esquerda, e sai da posição do ícone — `left-3` (12px) + 16px de ícone + 8 de
+ * folga. Encostá-lo em 32px poria o texto em cima do ícone; em 40 abriria um
+ * buraco. O número obedece ao ícone, não a um ritmo, e por isso 36 fica.
+ *
+ * `px-3.5` (14px) É PADDING HORIZONTAL DE CAMPO, e ritmo vertical não passa por
+ * ali. É a medida do token `input`; mudá-la mudaria a espessura de todo campo do
+ * produto para resolver um problema que aquele eixo não tem.
+ *
+ * O QUE SAIU foram três, todos de UMA ocorrência, todos em layout folgado:
+ *   80 -> 64   (`mt-20`, o topo da tela de entrar)
+ *   56 -> 64   (`py-14`, o cartão do estado calmo do Início)
+ *   28 -> 32   (`mt-7`, a fileira de links desse mesmo cartão)
+ *
+ * E UM QUARTO NEM EXISTIA: a primeira contagem acusou `mt-24` em `/eventos`, e
+ * era `scroll-mt-24` — deslocamento de âncora, que não é espaço entre nada. A
+ * borda `(?<![\w-])` da varredura existe por causa dele.
+ *
+ * O QUE ESTA LISTA NÃO FAZ, e é escolha declarada: ela não normaliza 6, 10 e 14
+ * para uma escala de dobra. São 110 ocorrências, várias em layouts MEDIDOS à
+ * mão — a coluna de conversas tem 224px úteis, e o comentário dela conta pixel
+ * a pixel onde cada um foi parar. Trocar `gap-1.5` por `gap-2` ali desfaz uma
+ * medição para ganhar simetria num arquivo que ninguém lê.
+ *
+ * O QUE ELA FAZ É O QUE AS OUTRAS DUAS JÁ FAZEM: fechar a lista. A queixa era
+ * "decisão caso a caso", e caso a caso é justamente o que um portão impede
+ * daqui para frente.
+ */
+export const ESPACAMENTOS_PX = [2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 32, 36, 40, 48, 64] as const;
+
+/** O degrau do Tailwind de cada um: 4px é `-1`, 6px é `-1.5`. Aqui o valor não
+ *  é a classe inteira, como nas outras duas escalas, porque a mesma medida se
+ *  escreve de vinte jeitos (`gap-`, `mt-`, `px-`…). O que a escala fixa é o
+ *  NÚMERO; a família é assunto do layout. */
+export const DEGRAU_POR_ESPACAMENTO: Record<number, string> = {
+  2: "0.5",
+  4: "1",
+  6: "1.5",
+  8: "2",
+  10: "2.5",
+  12: "3",
+  14: "3.5",
+  16: "4",
+  20: "5",
+  24: "6",
+  32: "8",
+  36: "9",
+  40: "10",
+  48: "12",
+  64: "16",
+};
+
 /* ---------- o verificador ---------- */
 
 /**
  * Um desvio encontrado numa string de classes.
  * `familia` diz qual das escalas foi furada; `classe` é o que estava lá.
  */
-export type Desvio = { familia: "tamanho" | "raio"; classe: string };
+export type Desvio = { familia: "tamanho" | "raio" | "espacamento"; classe: string };
 
 // `text-[13px]`, `sm:text-[22px]`, `text-[9px]`
 const TAMANHO_ARBITRARIO = /(?:^|[\s"'`{])(?:[a-z]+:)*text-\[(\d+)px\]/g;
@@ -105,6 +168,18 @@ const TAMANHO_ARBITRARIO = /(?:^|[\s"'`{])(?:[a-z]+:)*text-\[(\d+)px\]/g;
 // degrau, que é o que ele é.
 const RAIO =
   /(?:^|[\s"'`{])(?:[a-z]+:)*(rounded(?:-(?:tl|tr|bl|br|ss|se|es|ee|t|b|l|r|s|e))?(?:-(?:xs|sm|md|lg|xl|2xl|3xl|4xl|none|full|\[[^\]]+\]))?)(?![-\w])/g;
+
+// AS VINTE FAMÍLIAS QUE CARREGAM ESPAÇAMENTO. `space-x`/`space-y` entram porque
+// são a mesma medida com outro nome, e a margem negativa entra com o `-?` —
+// `-ml-1` é o mesmo degrau lido ao contrário, e não um valor novo.
+//
+// A BORDA DA ESQUERDA É `(?<![\w-])`, E NÃO ``, e ela custou o segundo verde
+// falso desta varredura: com ``, `scroll-mt-24` casa como `mt-24` e a escala
+// "ganha" um degrau de 96px que nenhum layout tem. `scroll-mt` é deslocamento
+// de âncora; espaço entre coisas não é. A borda da direita recusa o ponto para
+// `px-2.5` não ser lido como `px-2` seguido de sujeira.
+const ESPACAMENTO =
+  /(?<![\w-])-?(?:[a-z]+:)*(?:gap-x|gap-y|gap|space-x|space-y|px|py|pt|pb|pl|pr|p|mx|my|mt|mb|ml|mr|m)-(\d+(?:\.5)?)(?![\w.])/g;
 
 /**
  * Os desvios de escala de uma string de classes do Tailwind. Função pura, sem
@@ -143,6 +218,16 @@ export function desviosDeEscala(classes: string): Desvio[] {
     const degrau = comLado ? (comLado[1] ? `rounded-${comLado[1]}` : null) : m[1];
     if (degrau === null || !RAIOS_ACEITOS.has(degrau)) {
       achados.push({ familia: "raio", classe: m[0].trim() });
+    }
+  }
+
+  // `0` NÃO É DEGRAU, é a AUSÊNCIA de espaço: `gap-0` e `mt-0` são a forma de
+  // DESFAZER um espaçamento herdado, e cobrá-los da régua seria pedir que
+  // "nada" fosse um dos degraus.
+  const degraus = new Set<string>(Object.values(DEGRAU_POR_ESPACAMENTO));
+  for (const m of classes.matchAll(ESPACAMENTO)) {
+    if (m[1] !== "0" && !degraus.has(m[1])) {
+      achados.push({ familia: "espacamento", classe: m[0].trim() });
     }
   }
 
