@@ -275,6 +275,17 @@ quais, porque um relatório com achado falso contamina os verdadeiros:
 5. **"Zero anéis de foco"** — a medição rodava num contexto obsoleto do
    navegador (`scrollHeight` devolvia 623px numa página de 8777px). Refeita com
    aba nova.
+
+   **A CAUSA EXATA, achada em 11/09 ao reproduzir o erro por acidente:** a aba
+   estava em SEGUNDO PLANO. `document.visibilityState` devolvia `"hidden"`, e o
+   Chrome não calcula layout de aba oculta — `scrollHeight` volta ao tamanho da
+   janela (os mesmos 623px) e toda `getBoundingClientRect()` devolve zero. Não
+   era contexto "obsoleto", era aba invisível, e o sintoma é reconhecível: toda
+   altura zero e a página inteira com a altura do viewport.
+
+   **Como evitar:** `cdp("Page.bringToFront")` antes de medir, e conferir
+   `document.visibilityState` no mesmo `js(...)` que colhe os números. Esperar
+   mais tempo NÃO resolve — a aba oculta não vai pintar sozinha.
 6. **"Nenhuma página tem marco `<main>`"** (metade do D9, achado em 11/09 ao
    executar o próprio achado) — `<main>` sempre existiu, e em três lugares
    diferentes: `app/app-shell.tsx:205` nas páginas públicas, `:269` nas páginas
