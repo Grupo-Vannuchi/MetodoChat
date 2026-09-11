@@ -1,4 +1,5 @@
 import { card, muted, numero, tendenciaSobe, tendenciaCai } from "./ui";
+import { indiceDoPico } from "@/lib/calendario";
 
 // Peças visuais do painel, separadas da busca de dados: recebem tudo por
 // props, o que deixa cada uma fácil de conferir isoladamente.
@@ -20,7 +21,13 @@ export function StatCard({
     <div className={`p-4 ${card}`}>
       <div className="flex items-start justify-between gap-2">
         <p className={`text-xs font-medium ${muted}`}>{label}</p>
-        <Icon className="h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-600" />
+        {/* O ÍCONE USA O TOKEN NOMEADO, e não `zinc` cru. Medido por revisão em
+            11/09/2026: `text-zinc-400`/`dark:text-zinc-600` dava 2,62:1 no
+            cartão claro e 2,38:1 no escuro — abaixo dos 3:1 que a WCAG pede
+            para elemento gráfico. Ele escapava dos três portões porque
+            `texto-quieto` só varre os tokens de `app/ui.ts`, `paleta` só bane
+            índigo e `escala` só olha tamanho e raio. */}
+        <Icon className="h-4 w-4 shrink-0 text-quieto dark:text-quieto-escuro" />
       </div>
       <p className={`mt-2 text-3xl font-bold leading-none ${numero}`}>{value}</p>
       {/* O ACHADO D7, E ELE ERA DOIS DEFEITOS NUMA LINHA.
@@ -58,6 +65,10 @@ export type Dia = { chave: string; rotulo: string; n: number };
 export function SentChart({ dias }: { dias: Dia[] }) {
   const max = Math.max(...dias.map((d) => d.n), 0);
   const total = dias.reduce((soma, d) => soma + d.n, 0);
+  // QUAL BARRA LEVA O NÚMERO — decisão pura, com teste. Era `d.n === max`
+  // escrito no JSX, e numa série chata isso rótula quase tudo: medido, 12 de 14
+  // barras numa série de doze dias com uma mensagem cada.
+  const pico = indiceDoPico(dias.map((d) => d.n));
 
   return (
     <section className={`p-5 ${card}`}>
@@ -104,7 +115,7 @@ export function SentChart({ dias }: { dias: Dia[] }) {
                 className="absolute inset-x-0 bottom-0 border-t border-traco dark:border-traco-escuro"
               />
               <div className="absolute inset-0 flex items-end gap-1.5">
-                {dias.map((d) => {
+                {dias.map((d, i) => {
                   // O PISO DE 8% É PARA A BARRA DE 1 EXISTIR. Num dia de pico
                   // alto, 1/max some abaixo de um pixel — e "nenhuma" e "uma"
                   // passariam a parecer a mesma coisa. O dia zerado fica com
@@ -136,7 +147,7 @@ export function SentChart({ dias }: { dias: Dia[] }) {
                           escura sobre página clara e clara sobre página escura,
                           então o número que fica em cima dela é o `papel` de um
                           tema e o do outro. */}
-                      {d.n === max && (
+                      {i === pico && (
                         <span
                           className={`absolute inset-x-0 top-1 text-center text-[11px] font-semibold text-papel dark:text-papel-escuro ${numero}`}
                         >

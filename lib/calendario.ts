@@ -274,3 +274,33 @@ export function recorteDoDia<T>(
     escondidos: Math.max(0, itens.length - teto),
   };
 }
+
+/**
+ * QUAL BARRA DO GRÁFICO LEVA O NÚMERO — o índice, ou `-1` quando nenhuma.
+ *
+ * O DEFEITO QUE ISTO CONSERTA, achado por revisão em 11/09/2026: a regra era
+ * `d.n === max` escrita no JSX, e numa série CHATA ela rótula quase tudo.
+ * Medido com a série típica desta conta (doze dias com uma mensagem cada):
+ * **12 de 14 barras ganhavam o número** — exatamente a "faixa de ruído" que o
+ * comentário do próprio componente afirmava estar evitando. Comentário
+ * prometendo garantia que o código não tinha.
+ *
+ * A REGRA NOVA É "A PRIMEIRA QUE ATINGE O MÁXIMO", E UMA SÓ. O rótulo existe
+ * para ancorar a escala — dizer de que tamanho é o maior —, e para isso um
+ * número basta. Empate não multiplica rótulo: quem quer o valor dos outros dias
+ * tem o eixo à esquerda.
+ *
+ * Série toda zerada devolve `-1`: não há pico a anunciar, e "0" em cima de um
+ * fio de 3px é rótulo sobre nada.
+ */
+export function indiceDoPico(valores: number[]): number {
+  let pico = -1;
+  let maior = 0;
+  valores.forEach((n, i) => {
+    if (n > maior) {
+      maior = n;
+      pico = i;
+    }
+  });
+  return pico;
+}

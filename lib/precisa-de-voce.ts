@@ -121,7 +121,8 @@ export function oQuePrecisaDeVoce(f: FatosDoInicio): ItemDoInicio[] {
   // antes deixaria de fora justamente quem fecha primeiro, que é a única pessoa
   // que esta tela não pode perder.
   const mostradas = abertas.slice(0, MAX_CONVERSAS_NO_INICIO);
-  const escondidas = abertas.length - mostradas.length;
+  const naoMostradas = abertas.slice(MAX_CONVERSAS_NO_INICIO);
+  const escondidas = naoMostradas.length;
 
   const linhaDaConversa = (c: ConversaEsperando): ItemDoInicio => ({
     chave: "conversa:" + c.igId,
@@ -186,7 +187,13 @@ export function oQuePrecisaDeVoce(f: FatosDoInicio): ItemDoInicio[] {
           : "mais " + escondidas + " pessoas esperando",
       detalhe: "com a janela ainda aberta",
       href: "/conversas",
-      urgencia: "aberto",
+      // A URGÊNCIA VEM DE QUEM ELA ESCONDE, e não de um literal. Achado por
+      // revisão em 11/09/2026: a linha cravava "aberto" (verde de calma) mesmo
+      // quando TODAS as escondidas estavam abaixo do corte de urgência — ou
+      // seja, anunciava em verde que quatro pessoas cujas janelas fecham em
+      // minutos "ainda têm a janela aberta". Tecnicamente verdade, e a cor
+      // dizia o contrário do que importava.
+      urgencia: naoMostradas.some((c) => c.msLeft < MS_DO_CORTE) ? "fecha" : "aberto",
     });
   }
 

@@ -4,9 +4,10 @@ import {
   HORAS_QUE_TORNAM_URGENTE,
   MAX_CONVERSAS_NO_INICIO,
   urgenciaDaJanela,
+  legendaDoPrazo,
   type FatosDoInicio,
 } from "../lib/precisa-de-voce";
-import { WINDOW_MS, WINDOW_MARGIN_MS } from "../lib/inbox-window";
+import { WINDOW_MS, WINDOW_MARGIN_MS, formatWindowLeft } from "../lib/inbox-window";
 import {
   DIAS_DE_AVISO_DA_PUBLICACAO,
   HORAS_DE_AVISO_DA_MENSAGEM,
@@ -126,7 +127,6 @@ describe("a janela fechada não é pendência", () => {
 describe("a urgência de cada linha", () => {
   it("abaixo do corte a conversa é `fecha`", () => {
     const r = oQuePrecisaDeVoce({ ...NADA, esperando: [quem("x", 22)] });
-    expect(HORAS_QUE_TORNAM_URGENTE).toBeGreaterThan(0);
     expect(r[0].urgencia).toBe("fecha");
   });
 
@@ -236,7 +236,10 @@ describe("as frases, que são a tela", () => {
   // lista "não muda vocabulário" entre o que ela NÃO faz.
   it("o convite usa a palavra que o resto do produto usa", () => {
     const r = oQuePrecisaDeVoce({ ...NADA, automacoesAtivas: 0 });
-    expect(r[0].titulo.toLowerCase()).toContain("ativa");
+    // A PALAVRA INTEIRA, e não a substring: `toContain("ativa")` era satisfeito
+    // por "inativa", "desativada" e "ativação" — o caso aceitaria o CONTRÁRIO
+    // do que se chama a medir. Achado por revisão em 11/09/2026.
+    expect(r[0].titulo.toLowerCase().split(/\s+/)).toContain("ativa");
   });
 
   // CADA LINHA LEVA A ALGUM LUGAR. Uma pendência sem destino é uma reclamação.
@@ -275,5 +278,74 @@ describe("as frases, que são a tela", () => {
     expect(r).toHaveLength(1);
     expect(r[0].titulo.toLowerCase()).not.toContain("null");
     expect(r[0].titulo.length).toBeGreaterThan(0);
+  });
+});
+
+describe("legendaDoPrazo — a frase que a tela inicial mostra", () => {
+  // ELA ERA A ÚNICA FUNÇÃO EXPORTADA DOS MÓDULOS NOVOS SEM UM ÚNICO CASO, e um
+  // plante de revisão mostrou o custo: trocar o corpo por `return resta;` fazia
+  // a tela inicial dizer "2h10" pelado, sem dizer que é prazo, e nada reprovava.
+  const H = 3_600_000;
+
+  it("diz que é PRAZO, e não só um tempo solto", () => {
+    expect(legendaDoPrazo(2 * H + 10 * 60_000)).toBe("fecha em 2h10");
+  });
+
+  it("fechada não vira `fecha em fechada`", () => {
+    expect(legendaDoPrazo(0)).toBe("fechada");
+    expect(legendaDoPrazo(-1)).toBe("fechada");
+  });
+
+  it("os minutos passam inteiros", () => {
+    expect(legendaDoPrazo(55 * 60_000)).toBe("fecha em 55 min");
+  });
+
+  it("é construída SOBRE `formatWindowLeft`, e não ao lado dela", () => {
+    // A restrição da spec: a janela de 24h tem UMA fonte. Se alguém escrever
+    // uma segunda formatação aqui, este caso divergirá.
+    for (const ms of [0, 60_000, 3 * H, 23 * H]) {
+      const resta = formatWindowLeft(ms);
+      expect(legendaDoPrazo(ms)).toBe(resta === "fechada" ? "fechada" : "fecha em " + resta);
+    }
+  });
+});
+
+describe("a linha do resto herda a urgência de quem ela esconde", () => {
+  // ACHADO POR REVISÃO: a linha cravava `urgencia: "aberto"` mesmo quando TODAS
+  // as escondidas estavam abaixo do corte — anunciava em VERDE DE CALMA que
+  // quatro pessoas cujas janelas fecham em minutos "ainda têm a janela aberta".
+  const muitas = (horas: number[]) =>
+    horas.map((h, i) => ({ igId: "p" + i, quem: "p" + i, msLeft: restam(h) }));
+
+  it("com escondidas apertadas, a linha é `fecha`", () => {
+    const r = oQuePrecisaDeVoce({ ...NADA, esperando: muitas([23, 23, 23, 23, 23, 22.9, 22.8]) });
+    expect(r.find((i) => i.chave === "mais-conversas")!.urgencia).toBe("fecha");
+  });
+
+  it("com escondidas folgadas, continua `aberto`", () => {
+    const r = oQuePrecisaDeVoce({ ...NADA, esperando: muitas([23, 23, 23, 23, 23, 2, 1]) });
+    expect(r.find((i) => i.chave === "mais-conversas")!.urgencia).toBe("aberto");
+  });
+});
+
+describe("as frases das linhas, que são o que se lê na tela", () => {
+  // QUATRO PLANTES SOBREVIVIAM AQUI: apagar cada `detalhe` e tirar o "@" do
+  // título passava nos 26 casos. `detalhe` é renderizado em `app/page.tsx`.
+  it("a conversa diz o @ e o que ela espera", () => {
+    const r = oQuePrecisaDeVoce({ ...NADA, esperando: [quem("marcio", 23)] });
+    expect(r[0].titulo).toBe("@marcio");
+    expect(r[0].detalhe).toBe("esperando resposta");
+  });
+
+  it("a linha do resto e o convite dizem alguma coisa", () => {
+    const r = oQuePrecisaDeVoce({
+      ...NADA,
+      esperando: Array.from({ length: 7 }, (_, i) => quem("p" + i, 23)),
+      automacoesAtivas: 0,
+    });
+    for (const chave of ["mais-conversas", "sem-automacao"]) {
+      const linha = r.find((i) => i.chave === chave)!;
+      expect(linha.detalhe.length, chave).toBeGreaterThan(8);
+    }
   });
 });

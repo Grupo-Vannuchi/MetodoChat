@@ -269,9 +269,17 @@ describe("o achado D7: a subida estava abaixo do mínimo", () => {
     // projeto ESCOLHEU e MEDIU — selo e faixa pintam verde sobre fundo VERDE, e
     // `app/ui.ts` registra por que trocá-los reprovaria. O defeito do D7 é
     // outro: verde cru sobre fundo NEUTRO. O que se prende é o token.
-    expect(tendenciaSobe).toContain("text-aberto");
-    expect(tendenciaSobe).toContain("dark:text-aberto-escuro");
+    // CLASSE INTEIRA, E NÃO SUBSTRING — o mesmo conserto do caso de `btnPrimary`
+    // logo abaixo, que este bloco tinha esquecido de aplicar. Dois plantes de
+    // revisão mostraram o custo: pôr `text-parou` na SUBIDA (seta verde virando
+    // vermelho de falha no tema claro) e `text-aberto` na QUEDA passavam nos 23
+    // casos, porque `toContain("text-aberto")` é satisfeito por
+    // `dark:text-aberto-escuro`.
+    const classes = (t: string) => t.split(/\s+/);
+    expect(classes(tendenciaSobe)).toContain("text-aberto");
+    expect(classes(tendenciaSobe)).toContain("dark:text-aberto-escuro");
     expect(tendenciaSobe).not.toContain("emerald");
+    expect(classes(tendenciaSobe)).not.toContain("text-parou");
   });
 
   it("a queda não tem a cor do texto que a explica", () => {
@@ -279,8 +287,13 @@ describe("o achado D7: a subida estava abaixo do mínimo", () => {
     // tinham a mesma cor, então liam como uma frase só e o número perdia
     // estatuto de número. A assimetria de COR continua de propósito — queda não
     // é falha —, mas os dois não podem ser o mesmo tom.
-    expect(tendenciaCai).not.toContain("text-quieto");
-    expect(tendenciaCai).toContain("text-tinta");
+    const classesCai = tendenciaCai.split(/\s+/);
+    expect(classesCai).not.toContain("text-quieto");
+    expect(classesCai).toContain("text-tinta");
+    expect(classesCai).toContain("dark:text-tinta-escuro");
+    // A QUEDA NÃO PODE FICAR VERDE: ela não é sucesso, e pintá-la de `aberto`
+    // diria o contrário do número ao lado.
+    expect(classesCai).not.toContain("text-aberto");
   });
 });
 

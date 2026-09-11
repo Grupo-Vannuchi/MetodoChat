@@ -491,8 +491,29 @@ describe("as linhas do alcance — o achado D5, que era de LAYOUT", () => {
   });
 
   it("os números das linhas são os do destino, sem recontagem", () => {
-    const d = destinoDoLote([...gente(4, 5, true), ...gente(7, 1, false)]);
+    // OS TRÊS NÚMEROS TÊM DE SER DIFERENTES ENTRE SI, e a primeira versão deste
+    // caso escolheu dados em que `esperam === improvaveis === 7` — a igualdade
+    // apagava justamente a distinção que o nome promete. Um plante de revisão
+    // mostrou: trocar `n: destino.improvaveis` por `n: destino.esperam.length`
+    // passava nos 45 casos, e a linha "destas, provavelmente nunca voltam a
+    // falar" passaria a mostrar o total de quem espera. Na tela de confirmação
+    // de disparo em lote, que é a mais perigosa do produto.
+    const d = destinoDoLote([
+      ...gente(4, 5, true), // 4 recebem agora
+      ...gente(7, 9, false), // 7 esperam e JÁ falaram bastante
+      ...gente(3, 1, false), // 3 esperam e provavelmente nunca voltam
+    ]);
     const porChave = Object.fromEntries(linhasDoDestino(d).map((l) => [l.chave, l.n]));
-    expect(porChave).toEqual({ agora: 4, esperam: 7, improvaveis: 7 });
+    expect(porChave).toEqual({ agora: 4, esperam: 10, improvaveis: 3 });
+  });
+
+  it("as três frases estão na linha certa", () => {
+    // Dois plantes sobreviviam: apagar "recebem agora" e "quando voltarem a
+    // falar". Só a aninhada estava presa, por `toContain("destas")`.
+    const d = destinoDoLote([...gente(2, 5, true), ...gente(3, 1, false)]);
+    const porChave = Object.fromEntries(linhasDoDestino(d).map((l) => [l.chave, l.texto]));
+    expect(porChave.agora).toContain("agora");
+    expect(porChave.esperam).toContain("voltarem");
+    expect(porChave.improvaveis).toContain("destas");
   });
 });

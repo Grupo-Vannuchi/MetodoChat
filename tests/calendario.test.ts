@@ -11,6 +11,7 @@ import {
   ancoraDaUrl,
   agruparPorDia,
   recorteDoDia,
+  indiceDoPico,
   MAX_POR_DIA_NO_MES,
 } from "@/lib/calendario";
 
@@ -237,6 +238,55 @@ describe("recorteDoDia — quem corta tem de contar", () => {
     for (const n of [0, 1, 3, 4, 20]) {
       const r = recorteDoDia(Array.from({ length: n }, (_, i) => i));
       expect(r.mostrados.length + r.escondidos, `com ${n}`).toBe(n);
+    }
+  });
+});
+
+describe("indiceDoPico — um rótulo, e não uma faixa de ruído", () => {
+  // O DEFEITO: a regra era `d.n === max` escrita no JSX. Medido com a série
+  // típica desta conta (doze dias com uma mensagem cada), 12 de 14 barras
+  // ganhavam o número — a "faixa de ruído" que o comentário do componente
+  // afirmava estar evitando.
+  it("na série CHATA, só uma barra leva o número", () => {
+    const chata = [1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1];
+    expect(chata.filter((n) => n === Math.max(...chata))).toHaveLength(12);
+    expect(indiceDoPico(chata)).toBe(0);
+  });
+
+  it("acha o maior de verdade quando há um", () => {
+    expect(indiceDoPico([1, 3, 10, 2])).toBe(2);
+  });
+
+  it("empate no topo leva o rótulo UMA vez, no primeiro", () => {
+    // Quem quer o valor dos outros dias tem o eixo à esquerda.
+    expect(indiceDoPico([5, 2, 5])).toBe(0);
+  });
+
+  it("série toda zerada não tem pico: `-1`", () => {
+    // "0" em cima de um fio de 3px é rótulo sobre nada.
+    expect(indiceDoPico([0, 0, 0])).toBe(-1);
+    expect(indiceDoPico([])).toBe(-1);
+  });
+});
+
+describe("recorteDoDia com limite absurdo", () => {
+  // O CASO GÊMEO EXISTIA EM `busca-de-contatos` E FALTAVA AQUI, e um plante de
+  // revisão mostrou: tirar a trava `Math.max(1, ...)` passava nos 35 casos.
+  it("limite zero não produz quadrado vazio com contagem cheia", () => {
+    const r = recorteDoDia([1, 2, 3], 0);
+    expect(r.mostrados.length).toBeGreaterThan(0);
+    expect(r.mostrados.length + r.escondidos).toBe(3);
+  });
+});
+
+describe("as colunas da grade", () => {
+  // Um plante trocando `colunas` por `[]` passava: o cabeçalho dom/seg/ter
+  // podia sumir inteiro sem reprovar nada.
+  it("são sete, e começam no domingo, nas duas visões", () => {
+    for (const g of [gradeDoMes("2026-09", "2026-09-11"), gradeDaSemana("2026-09-11", "2026-09-11")]) {
+      expect(g.colunas).toHaveLength(7);
+      expect(g.colunas[0]).toBe("dom");
+      expect(g.colunas[6]).toBe("sáb");
     }
   });
 });
