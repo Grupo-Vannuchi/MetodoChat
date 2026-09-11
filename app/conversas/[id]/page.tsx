@@ -9,6 +9,8 @@ import {
   type InboxAttachment,
 } from "@/lib/conversations";
 import { windowState, formatWindowLeft } from "@/lib/inbox-window";
+import { urgenciaDaJanela } from "@/lib/precisa-de-voce";
+import { TracoDaJanela } from "../../traco-da-janela";
 import { fmtDate } from "@/lib/format";
 import { avisoDaUrl } from "@/lib/avisos";
 import { muted, badgeOk, badgeNeutral, input, btnGhost, alertOk, alertError } from "../../ui";
@@ -259,8 +261,26 @@ export default async function ConversaPage({
             salvar
           </button>
         </form>
-        <span className={janela.open ? badgeOk : badgeNeutral}>
-          {janela.open ? `responde por ${formatWindowLeft(janela.msLeft)}` : "só leitura"}
+        {/* O TRAÇO DA JANELA, DEITADO — aqui ele fica ao lado do número em vez
+            de substituí-lo, e a diferença com a lista é de tarefa. Na lista se
+            ESCOLHE quem abrir, e o que importa é a comparação entre as linhas,
+            que o traço dá melhor que cinco números. Aqui já se escolheu, e a
+            pergunta passa a ser "dá tempo de escrever isto?" — que só o número
+            responde.
+
+            O traço não aparece com a janela fechada: "só leitura" é um estado,
+            não um prazo, e uma barra vazia ao lado dessa frase sugeriria uma
+            contagem que não existe mais. */}
+        <span className="inline-flex items-center gap-2">
+          {janela.open && (
+            <TracoDaJanela
+              msLeft={janela.msLeft}
+              urgencia={urgenciaDaJanela(janela.msLeft)}
+            />
+          )}
+          <span className={janela.open ? badgeOk : badgeNeutral}>
+            {janela.open ? `responde por ${formatWindowLeft(janela.msLeft)}` : "só leitura"}
+          </span>
         </span>
       </div>
 
