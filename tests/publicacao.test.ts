@@ -2190,16 +2190,58 @@ describe("fraseDaDataDaLinha", () => {
 
 describe("avisoDoAtrasoNaLista", () => {
   it("o que vai sair na hora nao ganha aviso nenhum", () => {
-    expect(avisoDoAtrasoNaLista({ futuro: true })).toBe(null);
+    expect(avisoDoAtrasoNaLista({ futuro: true, saiu: false })).toBe(null);
   });
   // O AVISO E SOBRE O BOTAO DE CANCELAR, e nao sobre a data: passada a hora, o
   // item sai na proxima drenagem e `status = 'pending'` deixa de valer — o botao
   // ao lado perde a corrida. Quem esta olhando a lista precisa saber disso ANTES
   // de contar com ele.
   it("o atrasado avisa que o cancelamento tem prazo", () => {
-    const t = avisoDoAtrasoNaLista({ futuro: false });
+    const t = avisoDoAtrasoNaLista({ futuro: false, saiu: false });
     expect(t).not.toBe(null);
     expect((t ?? "").toLowerCase()).toContain("cancelar");
+  });
+
+  // =========================================================================
+  // O QUE JA SAIU NAO ESTA ATRASADO, e este caso nasceu de um defeito VISTO NA
+  // TELA em 11/09/2026.
+  //
+  // Ate aqui a funcao olhava so `futuro`, e isso era seguro POR ACIDENTE: a
+  // unica tela que a chamava filtrava `status = 'pending'` na consulta, entao
+  // `saiu` era sempre falso. A garantia morava no WHERE de quem chamava, e nada
+  // dizia isso — nem o nome, nem o tipo do parametro, nem um caso.
+  //
+  // O calendario passou a chamar a mesma funcao para item PUBLICADO, e a tela
+  // anunciou "a hora ja passou e o post ainda nao saiu" sobre um post que
+  // estava no perfil havia dois dias. A frase mais errada possivel: ela promete
+  // que ainda da para cancelar o que ja e publico.
+  //
+  // O CONSERTO E NA DECISAO, E NAO NO JSX. Guardar isso no ramo que desenha
+  // poria metade da decisao de volta no componente — exatamente o que a
+  // extracao desta funcao existiu para desfazer.
+  // =========================================================================
+  it("post que JA SAIU nao recebe aviso de atraso", () => {
+    expect(avisoDoAtrasoNaLista({ futuro: false, saiu: true })).toBe(null);
+  });
+
+  it("`saiu` vence `futuro`: nenhuma combinacao com `saiu` avisa", () => {
+    // `futuro: true, saiu: true` nao acontece em `dataDaLinhaDeEnvio` — quem
+    // saiu nunca e futuro —, e por isso mesmo esta linha existe: se um dia
+    // acontecer, o desfecho tem de ser silencio e nao uma frase impossivel.
+    expect(avisoDoAtrasoNaLista({ futuro: true, saiu: true })).toBe(null);
+  });
+
+  it("o que sai de `dataDaLinhaDeEnvio` entra aqui sem adaptacao", () => {
+    // As duas funcoes tem de casar: se `DataDaLinha` mudar de forma, este caso
+    // quebra antes de a tela mentir.
+    const publicado = dataDaLinhaDeEnvio({
+      status: "sent",
+      sent_at: new Date("2026-09-09T18:11:22Z"),
+      not_before: new Date("2026-09-09T18:11:15Z"),
+      created_at: new Date("2026-09-09T17:00:00Z"),
+    });
+    expect(publicado.saiu).toBe(true);
+    expect(avisoDoAtrasoNaLista(publicado)).toBe(null);
   });
 });
 

@@ -2001,7 +2001,18 @@ export function fraseDaDataDaLinha(d: { futuro: boolean; saiu: boolean }): strin
  * valer e o botão de cancelar ao lado perde a corrida (ver `desfechoDaMudanca`).
  * Quem está olhando a lista precisa saber disso ANTES de contar com o botão.
  */
-export function avisoDoAtrasoNaLista(d: { futuro: boolean }): string | null {
+export function avisoDoAtrasoNaLista(d: { futuro: boolean; saiu: boolean }): string | null {
+  // O QUE JA SAIU NAO ESTA ATRASADO, e esta linha nasceu de um defeito visto na
+  // tela em 11/09/2026. Ate ali a funcao olhava so `futuro`, e isso era seguro
+  // POR ACIDENTE: a unica tela que a chamava filtrava `status = 'pending'` na
+  // consulta, entao `saiu` era sempre falso. A garantia morava no WHERE de quem
+  // chamava, e nada aqui dizia isso.
+  //
+  // O calendario passou a chamar a mesma funcao para item PUBLICADO, e a tela
+  // anunciou "a hora ja passou e o post ainda nao saiu" sobre um post que
+  // estava no perfil havia dois dias — prometendo que ainda dava para cancelar
+  // o que ja era publico.
+  if (d.saiu) return null;
   if (d.futuro) return null;
   return (
     "A hora já passou e o post ainda não saiu: ele sai na próxima drenagem, " +

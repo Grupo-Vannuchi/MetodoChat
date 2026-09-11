@@ -6,7 +6,6 @@ import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
 import { avisoDaUrl } from "@/lib/avisos";
 import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
-import { horaDoDia } from "@/lib/calendario";
 import {
   avisoDoAtrasoNaLista,
   dataDaLinhaDeEnvio,
@@ -110,8 +109,10 @@ export default async function DetalheDaPublicacao({
         </Link>
         <h1 className={`${pageTitle} mt-2`}>{rotuloDaFormaDoItem(p)}</h1>
         <p className={pageSubtitle}>
+          {/* `fmtDate` JA TRAZ A HORA. A primeira versao desta linha somava
+              `horaDoDia` ao lado e a tela dizia "09/09/2026, 15:11 · 15:11". */}
           {fraseDaDataDaLinha(quando)}
-          {fmtDate(quando.quando)} · <span className={numero}>{horaDoDia(quando.quando)}</span>
+          <span className={numero}>{fmtDate(quando.quando)}</span>
         </p>
       </div>
 
