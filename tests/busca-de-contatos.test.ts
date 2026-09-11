@@ -4,6 +4,8 @@ import {
   casaComBusca,
   recorteDaTabela,
   LIMITE_DA_TABELA,
+  MAX_DA_TABELA,
+  quantasLinhas,
   BUSCA_MAX,
 } from "@/lib/busca-de-contatos";
 
@@ -119,5 +121,62 @@ describe("recorteDaTabela — quem corta tem de contar", () => {
     const r = recorteDaTabela(lista(50), 0);
     expect(r.mostradas.length).toBeGreaterThan(0);
     expect(r.mostradas.length + r.escondidas).toBe(50);
+  });
+});
+
+
+describe("quantasLinhas — o corte precisa de uma saída", () => {
+  // O DEFEITO, achado por revisão em 11/09/2026: a tabela cortava em 25 e o
+  // rodapé mandava "use a busca acima" — mas NÃO HAVIA segunda página. Quem
+  // buscava e achava 40 via 25, e lia o conselho de usar a busca que acabara de
+  // usar. Os contatos 26 a 40 daquela busca deixaram de ser alcançáveis pela
+  // tela; antes, com `limit 200` na consulta, todos estavam lá.
+  it("sem parâmetro, mostra a primeira página", () => {
+    expect(quantasLinhas(undefined)).toBe(LIMITE_DA_TABELA);
+  });
+
+  it("um pedido legítimo passa inteiro", () => {
+    expect(quantasLinhas("50")).toBe(50);
+    expect(quantasLinhas("75")).toBe(75);
+  });
+
+  it("abaixo da primeira página cai nela — nunca devolve tabela vazia", () => {
+    expect(quantasLinhas("0")).toBe(LIMITE_DA_TABELA);
+    expect(quantasLinhas("-10")).toBe(LIMITE_DA_TABELA);
+  });
+
+  it("acima do teto cai no teto: a barra de endereço é digitável", () => {
+    expect(quantasLinhas("99999")).toBe(MAX_DA_TABELA);
+  });
+
+  it("lixo cai na primeira página", () => {
+    expect(quantasLinhas("abacaxi")).toBe(LIMITE_DA_TABELA);
+    expect(quantasLinhas("")).toBe(LIMITE_DA_TABELA);
+  });
+
+  it("sempre inteiro", () => {
+    expect(Number.isInteger(quantasLinhas("25.7"))).toBe(true);
+  });
+
+  it("e o corte com o limite crescido REALMENTE mostra mais", () => {
+    // A invariante que amarra as duas funções: sem ela, `quantasLinhas` poderia
+    // devolver o número certo e a tabela continuar cortando em 25.
+    const cem = Array.from({ length: 100 }, (_, i) => i);
+    const primeira = recorteDaTabela(cem, quantasLinhas(undefined));
+    const segunda = recorteDaTabela(cem, quantasLinhas("50"));
+    expect(primeira.mostradas).toHaveLength(25);
+    expect(segunda.mostradas).toHaveLength(50);
+    expect(segunda.escondidas).toBeLessThan(primeira.escondidas);
+  });
+
+  it("com páginas suficientes, ninguém fica escondido", () => {
+    // O que prova que a saída LEVA a algum lugar: repetindo o "ver mais",
+    // `escondidas` chega a zero.
+    const cem = Array.from({ length: 100 }, (_, i) => i);
+    let limite = quantasLinhas(undefined);
+    for (let i = 0; i < 10 && recorteDaTabela(cem, limite).escondidas > 0; i++) {
+      limite = quantasLinhas(String(limite + LIMITE_DA_TABELA));
+    }
+    expect(recorteDaTabela(cem, limite).escondidas).toBe(0);
   });
 });

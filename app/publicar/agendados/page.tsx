@@ -145,7 +145,7 @@ export default async function Agendados({
   // EM PARALELO, e não em série: são independentes, e uma atrás da outra somaria
   // uma ida completa ao banco no tempo desta tela — a mesma conta que
   // `app/page.tsx` já faz.
-  const [itens, falhadas] = conta
+  const [itens, falhadas, resumoFora] = conta
     ? ((await Promise.all([
         // O QUE O CALENDARIO DESENHA: o que ainda vai sair E o que ja saiu.
         //
@@ -180,8 +180,34 @@ export default async function Agendados({
             limit $2`,
           [conta.ig_user_id, FALHADAS_NA_TELA]
         ),
-      ])) as [QueueItem[], QueueItem[]])
-    : ([[], []] as [QueueItem[], QueueItem[]]);
+        // O QUE ESTA AGENDADO FORA DESTA GRADE — e esta consulta existe por um
+        // defeito que a revisao achou em 11/09/2026.
+        //
+        // A lista antiga trazia os 50 proximos ordenados por `not_before`, SEM
+        // recorte de tempo: ela respondia "o que esta na fila?". O calendario
+        // so pergunta pela janela da grade, e com isso o produto ficou SEM
+        // NENHUMA tela que responda aquilo. A equipe marca um lancamento para
+        // 12/11, abre a tela em setembro, ve o mes vazio depois do dia 20 e
+        // conclui que nao ha nada agendado — e so descobre o contrario se ja
+        // souber a data e clicar "›" duas vezes.
+        //
+        // NAO E UMA SEGUNDA LISTA: e uma CONTAGEM e a data do proximo, para a
+        // tela poder dizer "ha 3 posts fora deste periodo, o proximo em 12 de
+        // novembro" com um link que leva ate la. A resposta volta a existir sem
+        // desfazer o calendario.
+        sql().query(
+          `select count(*)::int as fora, min(not_before) as proximo
+             from queue
+            where account_id = $1 and kind = 'publicacao' and status = 'pending'
+              and (not_before < $2::timestamptz or not_before >= $3::timestamptz)`,
+          [conta.ig_user_id, inicioDaJanela, fimDaJanela]
+        ),
+      ])) as [QueueItem[], QueueItem[], { fora: number; proximo: Date | null }[]])
+    : ([[], [], [{ fora: 0, proximo: null }]] as [
+        QueueItem[],
+        QueueItem[],
+        { fora: number; proximo: Date | null }[],
+      ]);
 
   // O AGRUPAMENTO USA `dataDaLinhaDeEnvio`, e nao uma coluna escolhida aqui:
   // ela ja e a fonte unica de "qual data esta linha tem" -- `sent_at` em quem
@@ -189,6 +215,7 @@ export default async function Agendados({
   // segunda fonte para a mesma pergunta, e as duas divergiriam no dia em que um
   // status novo aparecesse.
   const porDia = agruparPorDia(itens, (i) => dataDaLinhaDeEnvio(i).quando);
+  const fora = resumoFora[0] ?? { fora: 0, proximo: null };
 
   return (
     <div className="space-y-6">
@@ -388,6 +415,28 @@ export default async function Agendados({
               </div>
             </div>
           </div>
+
+          {/* O QUE ESTA MARCADO FORA DESTE PERIODO. Sem esta linha, o
+              calendario responde "nao ha nada" quando a pergunta era "nao ha
+              nada NESTE MES" — e as duas frases levam a decisoes opostas. O
+              link leva ao mes do proximo, entao a resposta nao exige adivinhar
+              a data. */}
+          {fora.fora > 0 && fora.proximo && (
+            <p
+              className={`border-t border-traco px-4 py-2.5 text-center text-xs dark:border-traco-escuro ${muted}`}
+            >
+              <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+                {fora.fora}
+              </span>{" "}
+              {fora.fora === 1 ? "post agendado" : "posts agendados"} fora deste período.{" "}
+              <Link
+                href={`/publicar/agendados?v=mes&em=${chaveDoDia(fora.proximo).slice(0, 7)}`}
+                className={link}
+              >
+                O próximo sai em {fmtDate(fora.proximo)}
+              </Link>
+            </p>
+          )}
 
           {/* O VAZIO DIZ O QUE FAZER. Um calendário sem nenhum post no período
               não é erro — é um mês em que ninguém marcou nada, e a frase tem de

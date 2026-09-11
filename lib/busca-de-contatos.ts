@@ -93,3 +93,32 @@ export function recorteDaTabela<T>(
     escondidas: Math.max(0, linhas.length - teto),
   };
 }
+
+/**
+ * QUANTAS LINHAS A TABELA MOSTRA, lido da barra de endereço.
+ *
+ * O DEFEITO QUE ISTO CONSERTA, achado por revisão em 11/09/2026: a tabela
+ * cortava em 25 e o rodapé mandava *"use a busca acima, ou uma categoria, para
+ * achar quem você procura"* — mas **não havia segunda página**. Quem buscava
+ * "jiujitsu" e achava 40 pessoas via 25, e lia o conselho de usar a busca que
+ * acabara de usar. **Os contatos 26 a 40 daquela busca deixaram de ser
+ * alcançáveis pela tela.** Antes, com `limit 200` na consulta, todos estavam
+ * na página.
+ *
+ * Encurtar a tela removendo o acesso ao conteúdo é exatamente o que o cabeçalho
+ * deste arquivo diz estar evitando. O corte só é honesto com uma saída.
+ *
+ * É O MESMO DESENHO DE `quantosEventos` (lib/event-filters.ts): a página cresce
+ * sob pedido, com teto, e o parâmetro vive FORA do estado do filtro — então
+ * trocar de categoria ou de busca o descarta e a tabela volta ao começo, que é
+ * o certo quando o recorte muda.
+ */
+export function quantasLinhas(bruto: string | string[] | undefined): number {
+  const texto = Array.isArray(bruto) ? bruto[0] : bruto;
+  const n = Number(texto);
+  if (!Number.isFinite(n)) return LIMITE_DA_TABELA;
+  return Math.min(MAX_DA_TABELA, Math.max(LIMITE_DA_TABELA, Math.floor(n)));
+}
+
+/** O teto: a barra de endereço é digitável, e `?linhas=99999` devolveria tudo. */
+export const MAX_DA_TABELA = 500;

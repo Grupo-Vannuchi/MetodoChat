@@ -22,6 +22,8 @@ import {
   normalizarBusca,
   casaComBusca,
   recorteDaTabela,
+  quantasLinhas,
+  LIMITE_DA_TABELA,
   BUSCA_MAX,
 } from "@/lib/busca-de-contatos";
 import { avisoDaUrl } from "@/lib/avisos";
@@ -113,8 +115,18 @@ function Janela({ c }: { c: Row }) {
 // "todos (200)" numa conta de 250 era mentira. O mesmo comentário escreve o
 // caminho — *"uma paginação que diz o próprio tamanho, e não um corte calado
 // com outro número"* —, e é o que `recorteDaTabela` serve.
-function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
-  const { mostradas, escondidas } = recorteDaTabela(rows);
+function Tabela({
+  rows,
+  comEmail,
+  limite,
+  maisHref,
+}: {
+  rows: Row[];
+  comEmail: boolean;
+  limite: number;
+  maisHref: string;
+}) {
+  const { mostradas, escondidas } = recorteDaTabela(rows, limite);
   return (
     <div className={tableWrap}>
       <table className="w-full text-left text-sm">
@@ -150,17 +162,27 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
         </tbody>
       </table>
       {escondidas > 0 && (
-        <p className={`border-t border-traco px-4 py-2.5 text-xs dark:border-traco-escuro ${muted}`}>
-          Mostrando{" "}
-          <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
-            {mostradas.length}
-          </span>{" "}
-          de{" "}
-          <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
-            {rows.length}
-          </span>{" "}
-          — use a busca acima, ou uma categoria, para achar quem você procura.
-        </p>
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 border-t border-traco px-4 py-2.5 text-xs dark:border-traco-escuro ${muted}`}
+        >
+          <p>
+            Mostrando{" "}
+            <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+              {mostradas.length}
+            </span>{" "}
+            de{" "}
+            <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+              {rows.length}
+            </span>
+            .
+          </p>
+          {/* A SAÍDA, sem a qual o corte esconde. Ela leva a tabela para
+              `mostradas + LIMITE`, e não para "tudo": o objetivo continua sendo
+              a página curta. */}
+          <Link href={maisHref} className={`font-medium ${link}`}>
+            Ver mais {Math.min(escondidas, LIMITE_DA_TABELA)}
+          </Link>
+        </div>
       )}
     </div>
   );
@@ -172,7 +194,13 @@ export default async function ContatosPage({
   // `aviso` e `tom` chegam do `redirect` das duas ações desta tela
   // (./actions.ts). São texto de URL, digitável por qualquer um — quem os lê
   // e os valida é `avisoDaUrl` (lib/avisos.ts), e não este componente.
-  searchParams: Promise<{ categoria?: string; aviso?: string; tom?: string; q?: string }>;
+  searchParams: Promise<{
+    categoria?: string;
+    aviso?: string;
+    tom?: string;
+    q?: string;
+    linhas?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const filtro = filtroDaUrl(sp.categoria);
@@ -264,6 +292,10 @@ export default async function ContatosPage({
   // diferentes. `visiveis` continua sendo o conjunto do ENVIO; `achados` é o
   // conjunto da LEITURA.
   const busca = normalizarBusca(sp.q);
+  // QUANTAS LINHAS A TABELA MOSTRA. Cresce sob pedido, com teto — ver
+  // `quantasLinhas`, e o defeito que ela conserta: sem saída, o corte em 25
+  // tornava inalcançáveis os contatos 26 em diante de qualquer busca.
+  const linhas = quantasLinhas(sp.linhas);
   const achados = busca ? visiveis.filter((c) => casaComBusca(c, busca)) : visiveis;
 
   const comEmail = achados.filter((c) => c.email);
@@ -276,6 +308,21 @@ export default async function ContatosPage({
   // PRAZO, e vem da mesma constante de `validadeDoDia` — ver `hojeNoFusoDoPrazo`
   // (lib/lote.ts) para o porquê de não ser `toISOString()` nem `-3h`.
   const hoje = hojeNoFusoDoPrazo();
+
+  // O ENDEREÇO DE "VER MAIS" É MONTADO SOBRE `urlComFiltro`, e nunca concatenando
+  // `?categoria=` à mão: a distinção entre o parâmetro AUSENTE ("todos") e
+  // PRESENTE-E-VAZIO ("sem categoria") foi o Crítico de 01/09, e recair nele por
+  // uma porta nova é o que este cuidado existe para impedir. Mesma disciplina de
+  // `urlComAviso` (lib/avisos.ts).
+  const base = urlComFiltro("/contatos", filtro);
+  const separador = base.includes("?") ? "&" : "?";
+  const maisLinhas =
+    base +
+    separador +
+    new URLSearchParams({
+      ...(busca ? { q: busca } : {}),
+      linhas: String(linhas + LIMITE_DA_TABELA),
+    }).toString();
 
   // A decisão de qual texto a seção "Com e-mail" mostra — e se "Sem e-mail"
   // ainda faz sentido na tela — é de `casoDaListaDeEmail` (lib/categorias.ts),
@@ -514,7 +561,14 @@ export default async function ContatosPage({
                     </a>
                   )}
                 </div>
-                {comEmail.length > 0 && <Tabela rows={comEmail} comEmail />}
+                {comEmail.length > 0 && (
+                  <Tabela
+                    rows={comEmail}
+                    comEmail
+                    limite={linhas}
+                    maisHref={maisLinhas}
+                  />
+                )}
               </section>
 
               {semEmail.length > 0 && (
@@ -529,7 +583,12 @@ export default async function ContatosPage({
                       interagiram mas não informaram e-mail
                     </p>
                   </div>
-                  <Tabela rows={semEmail} comEmail={false} />
+                  <Tabela
+                    rows={semEmail}
+                    comEmail={false}
+                    limite={linhas}
+                    maisHref={maisLinhas}
+                  />
                 </section>
               )}
             </>
