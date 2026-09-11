@@ -193,11 +193,17 @@ export default async function Publicar({
                 <label className={label} htmlFor="data_hora">
                   Data e hora
                 </label>
+                {/* A LARGURA É A DO QUE ELE CARREGA. `input` é `w-full`, e um
+                    campo de data esticado na linha inteira para caber
+                    "31/12/2026 23:59" lê como um campo de texto que alguém
+                    esqueceu de ajustar — e joga o ícone do calendário para um
+                    canto longe do valor. No celular ele volta a ocupar tudo,
+                    porque lá a linha inteira É a medida certa. */}
                 <input
                   id="data_hora"
                   name="data_hora"
                   type="datetime-local"
-                  className={input}
+                  className={`${input} sm:w-auto!`}
                 />
                 {/* SEM `min`, E DE PROPÓSITO: o piso do campo teria de ser
                     calculado no servidor, que roda em UTC, e mostraria uma hora

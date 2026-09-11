@@ -153,6 +153,50 @@
   --font-titulo: var(--fonte-titulo), ui-sans-serif, system-ui, sans-serif;
 }
 
+/* O NAVEGADOR PRECISA SABER EM QUE TEMA ESTÁ, e nunca soube até 11/09/2026.
+   ==========================================================================
+   `color-scheme` é a propriedade que diz ao navegador de que cor é o chão. Sem
+   ela ele assume CLARO e desenha as ENTRANHAS dos controles nativos para uma
+   página clara — as partes que nenhum CSS nosso alcança.
+
+   O SINTOMA QUE O DONO VIU: o ícone de calendário do `<input
+   type="datetime-local">` é um glifo escuro, e sobre o campo escuro ele ficava
+   praticamente invisível. Nenhuma classe do Tailwind pega aquilo, porque ele não
+   é um elemento nosso.
+
+   E ELE NÃO ERA O ÚNICO. A mesma ausência fazia, no tema escuro:
+     · o CALENDÁRIO que abre ao clicar vir branco, estourando na tela
+     · a lista suspensa do `<select>` vir branca — metade do achado D6
+     · as barras de rolagem virem claras
+
+   Consertar o ícone com `filter: invert(1)` resolveria UM dos quatro e deixaria
+   os outros três, que é a diferença entre tratar o sintoma e dizer ao navegador
+   a verdade. */
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+/* O ÍCONE DO CALENDÁRIO VIRA UM BOTÃO, porque é um. Com `color-scheme` ele já
+   nasce com a cor certa; o que faltava era ele PARECER clicável — o navegador
+   não lhe dá cursor de mão, e quem não sabe que o campo abre um calendário não
+   descobre. A opacidade em repouso o mantém quieto ao lado do valor, que é o
+   que se lê primeiro. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.65;
+  transition: opacity 150ms;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
 /* A CAIXA E O RÁDIO DO SISTEMA OPERACIONAL PARAM DE SER AZUIS.
    ==========================================================================
    `accent-color` é a única propriedade que recolore um `<input type=checkbox>`
