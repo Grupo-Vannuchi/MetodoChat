@@ -200,6 +200,34 @@ export function urlPublicaDoObjeto(caminho: string): string {
 }
 
 /**
+ * A MESMA URL, OU `null` QUANDO O AMBIENTE NÃO DEIXA MONTÁ-LA.
+ *
+ * ELA EXISTE POR CAUSA DE UM DEFEITO MEDIDO EM 11/09/2026, ao pôr miniaturas no
+ * calendário de publicações: `urlPublicaDoObjeto` LANÇA quando falta
+ * `SUPABASE_URL` ou `SUPABASE_BUCKET` (é o que `precisa` faz, e faz certo), e
+ * uma tela que a chama durante o render morre inteira. O calendário deixou de
+ * renderizar — não a miniatura: a TELA — num ambiente sem aquelas variáveis.
+ *
+ * E ISSO É A DOENÇA DE 09/09 POR OUTRA PORTA. Naquele dia as três variáveis do
+ * Supabase tinham ficado só no `.env.local` e nunca foram para a Vercel, e a
+ * rota de assinar devolvia 500 com corpo VAZIO porque `tetoDoBucket()` era
+ * chamado FORA do `try`. Publicar ficou quebrado por dias sem ninguém saber.
+ *
+ * A REGRA QUE SAI DISSO: prévia não vale uma tela. Quem PRECISA da URL — o
+ * `media_publish`, que a Meta vai baixar — continua usando a versão que lança,
+ * porque ali a ausência da variável é um erro de verdade e tem de parar o
+ * envio. Quem só quer MOSTRAR uma imagem usa esta, e desenha o lugar dela vazio
+ * quando não dá.
+ */
+export function urlPublicaSeDerParaMontar(caminho: string): string | null {
+  try {
+    return urlPublicaDoObjeto(caminho);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * A URL para o NAVEGADOR subir o arquivo, sem nunca ver a nossa chave.
  *
  * MEDIDO: o `PUT` nessa URL funciona SEM cabeçalho `Authorization` — o token do

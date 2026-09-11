@@ -399,9 +399,12 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     const arvore = await arvoreDosAgendados();
 
     expect(arvore).toContain(agendado);
-    // O ITEM PENDENTE CONTINUA COM OS BOTÕES: é o `value` do `<input hidden>`
-    // dos formulários de cancelar e remarcar.
-    expect(arvore).toContain(`value=${agendado}`);
+    // O ITEM PENDENTE CONTINUA ALCANCAVEL, e o que mudou em 11/09/2026 foi o
+    // ENDERECO disso: a lista virou calendario, e os formularios de cancelar e
+    // remarcar sairam do quadrado do dia para a tela de detalhe. O que se mede
+    // aqui passa a ser o LINK que leva ate eles — sem ele, os formularios
+    // existiriam numa tela que ninguem alcanca a partir daqui.
+    expect(arvore).toContain(`/publicar/agendados/${agendado}`);
     // E A SEÇÃO DAS FALHADAS NEM APARECE: ela só existe quando há alguma.
     expect(arvore).not.toContain("Não saíram");
   });

@@ -24,14 +24,27 @@ import {
   muted,
   link,
   btnGhost,
+  btnPrimary,
   btnDanger,
+  numero,
   pageTitle,
   pageSubtitle,
   alertOk,
   alertError,
   emptyWrap,
 } from "../../ui";
-import { cancelarPublicacao, remarcarPublicacao } from "./actions";
+import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
+import {
+  chaveDoDia,
+  horaDoDia,
+  gradeDoMes,
+  gradeDaSemana,
+  visaoDaUrl,
+  ancoraDaUrl,
+  agruparPorDia,
+  recorteDoDia,
+  diaSomado,
+} from "@/lib/calendario";
 
 // A TELA DOS AGENDADOS — componente de SERVIDOR, sem uma linha de cliente.
 //
@@ -90,11 +103,22 @@ const FALHADAS_NA_TELA = 50;
 export default async function Agendados({
   searchParams,
 }: {
-  searchParams: Promise<{ aviso?: string; tom?: string }>;
+  searchParams: Promise<{ aviso?: string; tom?: string; v?: string; em?: string }>;
 }) {
   const params = await searchParams;
   const aviso = avisoDaUrl(params.aviso, params.tom);
   const conta = await getSelectedAccount();
+
+  // A GRADE VEM ANTES DA CONSULTA, porque e ela que diz qual janela buscar.
+  const hoje = chaveDoDia(new Date());
+  const visao = visaoDaUrl(params.v);
+  const ancora = ancoraDaUrl(params.em, visao, hoje);
+  const grade = visao === "mes" ? gradeDoMes(ancora, hoje) : gradeDaSemana(ancora, hoje);
+  // A FOLGA DE UM DIA DE CADA LADO e o que impede o post das 21h do primeiro
+  // quadrado de sumir: as colunas sao dias de Brasilia e as colunas do banco
+  // sao UTC, entao as bordas nao coincidem.
+  const inicioDaJanela = diaSomado(grade.casas[0].chave, -1);
+  const fimDaJanela = diaSomado(grade.casas[grade.casas.length - 1].chave, 2);
 
   // ORDENADO POR `not_before`, e não por `created_at`: a pergunta desta tela é
   // "o que sai primeiro?". Ordenar pela criação misturaria um post marcado para
@@ -133,12 +157,31 @@ export default async function Agendados({
   // `app/page.tsx` já faz.
   const [itens, falhadas] = conta
     ? ((await Promise.all([
+        // O QUE O CALENDARIO DESENHA: o que ainda vai sair E o que ja saiu.
+        //
+        // MOSTRAR O PUBLICADO FOI DECISAO DO DONO (11/09/2026), e ela e o que
+        // torna o calendario legivel: uma grade que so mostra o futuro fica
+        // quase toda vazia, e quadrado vazio le como defeito da tela em vez de
+        // "nao ha post marcado". Com o que ja saiu junto, a grade mostra o
+        // RITMO do perfil, que e a pergunta de quem abre um planner.
+        //
+        // A JANELA E A DA GRADE, com folga de um dia de cada lado: `not_before`
+        // e `sent_at` sao UTC, e a grade e de Brasilia — o primeiro e o ultimo
+        // quadrado atravessam a virada. Cortar sem folga esconderia o post das
+        // 21h do primeiro dia. Ver `lib/calendario.ts`.
+        //
+        // FALHADO NAO ENTRA AQUI: ele tem secao propria logo abaixo, com uma
+        // ordem propria ("o que acabou de falhar?") e sem acao nenhuma. Junta-lo
+        // faria a mesma lista significar duas coisas.
         sql().query(
           `select * from queue
-            where account_id = $1 and kind = 'publicacao' and status = 'pending'
-            order by not_before, id
-            limit $2`,
-          [conta.ig_user_id, AGENDADOS_NA_TELA]
+            where account_id = $1 and kind = 'publicacao'
+              and status in ('pending', 'sent')
+              and coalesce(sent_at, not_before) >= $2::timestamptz
+              and coalesce(sent_at, not_before) < $3::timestamptz
+            order by coalesce(sent_at, not_before), id
+            limit $4`,
+          [conta.ig_user_id, inicioDaJanela, fimDaJanela, AGENDADOS_NA_TELA]
         ),
         sql().query(
           `select * from queue
@@ -150,15 +193,30 @@ export default async function Agendados({
       ])) as [QueueItem[], QueueItem[]])
     : ([[], []] as [QueueItem[], QueueItem[]]);
 
+  // O AGRUPAMENTO USA `dataDaLinhaDeEnvio`, e nao uma coluna escolhida aqui:
+  // ela ja e a fonte unica de "qual data esta linha tem" -- `sent_at` em quem
+  // saiu, `not_before` em quem espera. Reimplementar essa escolha seria a
+  // segunda fonte para a mesma pergunta, e as duas divergiriam no dia em que um
+  // status novo aparecesse.
+  const porDia = agruparPorDia(itens, (i) => dataDaLinhaDeEnvio(i).quando);
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className={pageTitle}>Posts agendados</h1>
-        <p className={pageSubtitle}>
-          {conta
-            ? `o que ainda vai sair no perfil de @${conta.username ?? conta.ig_user_id}`
-            : "Nenhuma conta selecionada."}
-        </p>
+      {/* O CABEÇALHO DO PLANNER — título, ação e as duas barras de controle,
+          no molde do planner do Meta Business que o dono trouxe como
+          referência. */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className={pageTitle}>Calendário</h1>
+          <p className={pageSubtitle}>
+            {conta
+              ? `o que sai e o que já saiu no perfil de @${conta.username ?? conta.ig_user_id}`
+              : "Nenhuma conta selecionada."}
+          </p>
+        </div>
+        <Link href="/publicar" className={btnPrimary}>
+          Criar post
+        </Link>
       </div>
 
       {aviso && <div className={aviso.tom === "ok" ? alertOk : alertError}>{aviso.texto}</div>}
@@ -169,113 +227,190 @@ export default async function Agendados({
             Conecte uma conta do Instagram em Configuração para ver o que está agendado.
           </p>
         </div>
-      ) : !itens.length ? (
-        <div className={emptyWrap}>
-          <p className={muted}>Nada agendado nesta conta.</p>
-          <Link href="/publicar" className={link}>
-            Agendar um post
-          </Link>
-        </div>
       ) : (
-        <ul className="space-y-4">
-          {itens.map((item) => {
-            // O PAYLOAD PODE ESTAR QUEBRADO, e a tela não pode sumir por causa
-            // disso: `lerPayloadDaPublicacao` devolve `null` para um `jsonb` que
-            // não é item de publicação, e a linha continua existindo — porque é
-            // dela que sai o botão de CANCELAR, que é justamente o que se quer
-            // ter à mão num item que ninguém entende.
-            const p = lerPayloadDaPublicacao(item.payload);
-            const quando = dataDaLinhaDeEnvio(item);
-            // AS TRÊS FRASES DESTA LINHA SAEM DE FUNÇÃO PURA, e nenhuma delas é
-            // escolhida aqui. Até 09/09/2026 as três moravam no JSX, e uma
-            // delas discordava da tela de Envios sobre o mesmo fato.
-            const atrasado = avisoDoAtrasoNaLista(quando);
-            return (
-              <li key={item.id} className={`${card} space-y-4 p-5`}>
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="font-semibold">
-                    {/* "Sai em" É A FRASE DO FUTURO, e ela vem de
-                        `fraseDaDataDaLinha` — a MESMA que a linha de Envios lê.
-                        Uma data solta é ambígua entre "foi marcado" e "vai
-                        sair", e duas telas escolhendo palavras diferentes para
-                        o mesmo fato é o defeito que aquela função fechou. */}
-                    {fraseDaDataDaLinha(quando)}
-                    {fmtDate(quando.quando)}
-                  </p>
-                  <span className={`text-xs ${muted}`}>{rotuloDaFormaDoItem(p)}</span>
-                </div>
+        <section className={card}>
+          {/* A BARRA DE CONTROLE. Tudo aqui é `<Link>`: a visão e a âncora vivem
+              na barra de endereço, então esta tela continua 100% servidor — e a
+              semana que alguém está olhando é um endereço que se copia e se
+              manda para outra pessoa. */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-traco px-4 py-3 dark:border-traco-escuro">
+            <div className="inline-flex gap-0.5 rounded-xl border border-traco p-0.5 dark:border-traco-escuro">
+              {(
+                [
+                  ["semana", "Semana", `?v=semana&em=${hoje}`],
+                  ["mes", "Mês", `?v=mes&em=${hoje.slice(0, 7)}`],
+                ] as const
+              ).map(([chave, rotulo, href]) => (
+                <Link
+                  key={chave}
+                  href={`/publicar/agendados${href}`}
+                  aria-current={visao === chave ? "page" : undefined}
+                  className={`rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
+                    visao === chave
+                      ? "bg-acao text-papel dark:bg-acao-escuro dark:text-papel-escuro"
+                      : "text-quieto hover:text-tinta dark:text-quieto-escuro dark:hover:text-tinta-escuro"
+                  }`}
+                >
+                  {rotulo}
+                </Link>
+              ))}
+            </div>
 
-                {atrasado && (
-                  // A HORA JÁ VENCEU E O ITEM AINDA ESTÁ `pending`: ele está
-                  // ATRASADO, esperando a próxima drenagem — não é futuro, e a
-                  // tela não pode prometer uma saída que já devia ter
-                  // acontecido. Dizê-lo aqui é o que evita que alguém conte com
-                  // um cancelamento que a corrida com o dreno já perdeu. A
-                  // decisão (quando avisar, e o que dizer) é de
-                  // `avisoDoAtrasoNaLista`; aqui só se desenha o que ela deu.
-                  <p className={`text-xs ${muted}`}>{atrasado}</p>
-                )}
+            <div className="flex items-center gap-1">
+              <Link
+                href={`/publicar/agendados?v=${visao}&em=${grade.anterior}`}
+                aria-label="Período anterior"
+                className={`${btnGhost} px-2`}
+              >
+                &lsaquo;
+              </Link>
+              <Link
+                href={`/publicar/agendados?v=${visao}&em=${visao === "mes" ? hoje.slice(0, 7) : hoje}`}
+                className={`${btnGhost} px-3`}
+              >
+                Hoje
+              </Link>
+              <Link
+                href={`/publicar/agendados?v=${visao}&em=${grade.seguinte}`}
+                aria-label="Próximo período"
+                className={`${btnGhost} px-2`}
+              >
+                &rsaquo;
+              </Link>
+            </div>
 
-                <p className="text-sm">{resumoDaLegenda(p?.legenda, LEGENDA_NA_LISTA)}</p>
+            <p className="titulo order-first w-full text-center text-base font-bold sm:order-none sm:w-auto">
+              {grade.titulo}
+            </p>
+          </div>
 
-                <div className="flex flex-wrap items-end gap-6">
-                  {/* REMARCAR — a data passa por `momentoDaPublicacao` no
-                      servidor, que é quem recusa o passado, com a MESMA frase da
-                      tela de compor. Sem `min` aqui, e de propósito: o piso teria
-                      de ser calculado neste servidor, que roda em UTC, e
-                      mostraria uma hora três horas adiante da do dono. */}
-                  <form action={remarcarPublicacao} className="flex flex-wrap items-end gap-2">
-                    <input type="hidden" name="id" value={item.id} />
-                    {/* O FUSO DO NAVEGADOR, e sem ele esta tela só acertava a
-                        hora por acidente. O `<input type="datetime-local">`
-                        manda "14:30" e CALA sobre onde são 14:30; lido neste
-                        servidor, que roda em UTC, isso seria 14:30Z — TRÊS
-                        HORAS antes do que a pessoa marcou. Ver
-                        `instanteDoAgendamento` (lib/publicacao.ts).
+          {/* A GRADE. `overflow-x-auto` porque sete colunas não cabem em 390px
+              sem espremer o conteúdo até ele deixar de ser legível — e a regra
+              desta base é que conteúdo largo rola DENTRO do próprio recipiente,
+              nunca fazendo a página inteira rolar de lado. */}
+          <div className="overflow-x-auto">
+            <div className="min-w-[640px]">
+              <div className="grid grid-cols-7 border-b border-traco dark:border-traco-escuro">
+                {grade.colunas.map((c) => (
+                  <div
+                    key={c}
+                    className={`px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.04em] ${muted}`}
+                  >
+                    {c}
+                  </div>
+                ))}
+              </div>
 
-                        Ele nasce VAZIO e é preenchido pelo `<Script>` do fim
-                        desta tela — nunca calculado no render, que aqui é
-                        servidor e não sabe onde a pessoa está. Vazio,
-                        `fusoDoCampo` cai no padrão de Brasília (180), que é o
-                        comportamento que esta tela tinha antes e continua
-                        sendo a rede de quem não rodou JavaScript. */}
-                    <input type="hidden" name="fuso" defaultValue="" />
-                    <div>
-                      <label className={label} htmlFor={`data_hora_${item.id}`}>
-                        Nova data e hora
-                      </label>
-                      <input
-                        id={`data_hora_${item.id}`}
-                        name="data_hora"
-                        type="datetime-local"
-                        className={`${input} w-auto!`}
-                      />
+              <div className="grid grid-cols-7">
+                {grade.casas.map((casa) => {
+                  const doDia = porDia.get(casa.chave) ?? [];
+                  const { mostrados, escondidos } = recorteDoDia(
+                    doDia,
+                    visao === "mes" ? undefined : 20
+                  );
+                  return (
+                    <div
+                      key={casa.chave}
+                      className={`space-y-1 border-b border-r border-traco p-1.5 dark:border-traco-escuro ${
+                        visao === "semana" ? "min-h-[320px]" : "min-h-[104px]"
+                      } ${casa.doMes ? "" : "bg-papel/60 dark:bg-papel-escuro/40"}`}
+                    >
+                      <p className="px-0.5 text-right">
+                        <span
+                          className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] ${numero} ${
+                            casa.hoje
+                              ? "bg-acao font-bold text-papel dark:bg-acao-escuro dark:text-papel-escuro"
+                              : casa.doMes
+                                ? muted
+                                : "text-quieto/50 dark:text-quieto-escuro/50"
+                          }`}
+                        >
+                          {casa.dia}
+                        </span>
+                      </p>
+
+                      {mostrados.map((item) => {
+                        const p = lerPayloadDaPublicacao(item.payload);
+                        const quando = dataDaLinhaDeEnvio(item);
+                        const saiu = quando.saiu;
+                        // A MINIATURA SÓ EXISTE ENQUANTO O POST NÃO SAIU: o
+                        // dreno apaga a mídia do bucket depois de publicar
+                        // (`limparOBucket`). Num post publicado a prévia seria
+                        // uma imagem quebrada, então nem se tenta.
+                        const primeira = !saiu ? p?.caminhos?.[0] : undefined;
+                        // `null` QUANDO O AMBIENTE NÃO DEIXA MONTAR A URL, e
+                        // aí a célula desenha o símbolo em vez de uma imagem
+                        // quebrada. Prévia não vale uma tela — ver
+                        // `urlPublicaSeDerParaMontar` (lib/bucket.ts) para o
+                        // defeito que ensinou isso.
+                        const capa = primeira ? urlPublicaSeDerParaMontar(primeira) : null;
+                        return (
+                          <Link
+                            key={item.id}
+                            href={`/publicar/agendados/${item.id}${visao === "semana" ? "?volta=semana" : ""}`}
+                            className={`flex items-center gap-1.5 rounded-lg border p-1 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:focus-visible:ring-acao-escuro/25 ${
+                              saiu
+                                ? "border-traco bg-papel hover:border-quieto/40 dark:border-traco-escuro dark:bg-papel-escuro/50"
+                                : "border-aberto/30 bg-aberto/8 hover:border-aberto/60 dark:border-aberto-escuro/30 dark:bg-aberto-escuro/10"
+                            }`}
+                          >
+                            {capa ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={capa}
+                                alt=""
+                                className="h-8 w-8 shrink-0 rounded-lg object-cover"
+                              />
+                            ) : (
+                              <span
+                                aria-hidden
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-traco text-[11px] dark:bg-traco-escuro"
+                              >
+                                {saiu ? "✓" : "•"}
+                              </span>
+                            )}
+                            <span className="min-w-0 flex-1">
+                              <span className={`block text-[11px] font-semibold ${numero}`}>
+                                {horaDoDia(quando.quando)}
+                              </span>
+                              <span className={`block truncate text-[11px] ${muted}`}>
+                                {rotuloDaFormaDoItem(p)}
+                              </span>
+                            </span>
+                          </Link>
+                        );
+                      })}
+
+                      {/* QUEM CORTA TEM DE CONTAR — a mesma disciplina da tabela
+                          de contatos e do feed de Atividade. O "+N" leva à
+                          SEMANA daquele dia, que é onde todos cabem. */}
+                      {escondidos > 0 && (
+                        <Link
+                          href={`/publicar/agendados?v=semana&em=${casa.chave}`}
+                          className={`block px-1 text-[11px] font-medium ${link}`}
+                        >
+                          +{escondidos}
+                        </Link>
+                      )}
                     </div>
-                    <button className={btnGhost}>Remarcar</button>
-                  </form>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
 
-                  {/* CANCELAR PEDE CONFIRMAÇÃO, e a confirmação é um campo do
-                      formulário — não um `confirm()` do navegador, que exigiria
-                      `"use client"` numa tela que não precisa de nenhum. A caixa
-                      é a mesma disciplina do envio em lote. */}
-                  <form action={cancelarPublicacao} className={`${subtle} space-y-2 p-3`}>
-                    <input type="hidden" name="id" value={item.id} />
-                    <label className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" name="confirmo" value="1" required />
-                      Confirmo o cancelamento
-                    </label>
-                    <button className={btnDanger}>Cancelar este post</button>
-                  </form>
-                </div>
-
-                <p className={hint}>
-                  Cancelar tira o post da fila e ele não sai. Se ele já tiver saído, só o
-                  aplicativo do Instagram apaga — a API não apaga mídia.
-                </p>
-              </li>
-            );
-          })}
-        </ul>
+          {/* O VAZIO DIZ O QUE FAZER. Um calendário sem nenhum post no período
+              não é erro — é um mês em que ninguém marcou nada, e a frase tem de
+              ser um convite e não um silêncio. */}
+          {itens.length === 0 && (
+            <p className={`px-4 py-6 text-center text-sm ${muted}`}>
+              Nada marcado neste período.{" "}
+              <Link href="/publicar" className={link}>
+                Agendar um post
+              </Link>
+            </p>
+          )}
+        </section>
       )}
 
       {/* ================================================================
