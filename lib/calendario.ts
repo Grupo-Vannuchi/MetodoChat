@@ -58,16 +58,28 @@ export function horaDoDia(instante: Date | string | number): string {
 }
 
 /**
- * A chave de um dia, somando `passo` dias — e ela NÃO usa `Date`.
+ * A chave de um dia, somando `passo` dias — e a conta inteira acontece em UTC.
  *
- * SOMAR DIAS COM `setDate` É ONDE CALENDÁRIO COSTUMA QUEBRAR: o objeto `Date`
- * vive num fuso, e somar 24 horas atravessa horário de verão errado. O Brasil
- * não tem horário de verão desde 2019, mas escrever a conta certa custa o mesmo
- * e não depende de uma lei continuar como está.
+ * POR QUE UTC, E A RAZÃO CERTA (a primeira que eu escrevi aqui era falsa).
  *
- * Aqui a chave é tratada como o que ela é — três números —, convertida para
- * UTC ao meio-dia (longe de qualquer borda de fuso), somada, e formatada de
- * volta em UTC. Nenhuma etapa passa pelo fuso local da máquina.
+ * Eu tinha escrito que `setDate` "atravessa horário de verão errado". NÃO
+ * ATRAVESSA: `setDate` é aritmética de CALENDÁRIO, e o JavaScript normaliza a
+ * data corretamente através de uma virada de horário de verão. Medido em
+ * 11/09/2026 com `TZ=America/New_York` e a virada de 08/03: as duas
+ * implementações dão o mesmo dia. O padrão que de fato quebra é outro — somar
+ * `86_400_000` a um `Date` e ler o resultado em hora LOCAL.
+ *
+ * A razão verdadeira é mais simples e é estrutural: esta função não pode
+ * depender do fuso da máquina, e o servidor roda em UTC enquanto os testes
+ * rodam onde quer que a pessoa esteja. Fazendo a conta em UTC — meio-dia, longe
+ * de qualquer borda —, a independência é uma propriedade do código, e não uma
+ * consequência de o JavaScript normalizar direito. Uma versão com `setDate`
+ * também funciona; ela só exige que quem lê saiba disso.
+ *
+ * E A SUÍTE NÃO SEPARA AS DUAS, o que está declarado de propósito: um plante
+ * trocando esta implementação por `setDate` passa nos 35 casos, porque as duas
+ * estão certas. O que os casos prendem é o RESULTADO — virada de mês, de ano,
+ * fevereiro bissexto — e não o caminho.
  */
 export function diaSomado(chave: string, passo: number): string {
   const [a, m, d] = chave.split("-").map(Number);
