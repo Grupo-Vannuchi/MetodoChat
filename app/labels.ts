@@ -16,6 +16,8 @@
 // nada de servidor entra aqui por essa porta.
 import { gatilhoPedePalavraChave } from "@/lib/steps";
 import { MOTIVO_CANCELADO_PELO_DONO } from "@/lib/publicacao";
+import { urgenciaDaJanela } from "@/lib/precisa-de-voce";
+import { badgeOk, badgeWarn, badgeNeutral } from "./ui";
 import type { QueueItem } from "@/lib/db";
 
 type Badge = { label: string; className: string };
@@ -434,6 +436,33 @@ export function statusBadge(status: string, motivo?: string | null): Badge {
       ? CANCELADO_PELO_DONO
       : (STATUS[status] ?? UNKNOWN);
   return { ...b, className: `${BADGE_BASE} ${b.className}` };
+}
+
+/**
+ * O SELO DA JANELA DE 24H — e ele existe para o selo e o traço não discordarem.
+ *
+ * O DEFEITO QUE ELE CONSERTA foi visto na tela em 11/09/2026, e não numa
+ * leitura: o cabeçalho da conversa mostrava "responde por 1h06" em VERDE
+ * (`badgeOk`, fixo) ao lado do traço da janela, que estava ÂMBAR — porque 1h06
+ * está abaixo do corte de urgência. Duas cores para o mesmo fato, a oito pixels
+ * uma da outra. O selo não sabia da urgência: ele só sabia "aberta ou fechada".
+ *
+ * A FONTE DA URGÊNCIA É `urgenciaDaJanela` (lib/precisa-de-voce.ts), a mesma
+ * que o traço e a tela inicial usam. Esta função só traduz o tom em classe —
+ * ela não decide nada sobre tempo, e isso é de propósito: a régua da janela é
+ * uma só no produto inteiro.
+ */
+export function seloDaJanela(msLeft: number): string {
+  switch (urgenciaDaJanela(msLeft)) {
+    case "fecha":
+      return badgeWarn;
+    case "aberto":
+      return badgeOk;
+    // Fechada e qualquer outro tom caem no neutro: "só leitura" não é alerta,
+    // é a situação da maioria das conversas antigas.
+    default:
+      return badgeNeutral;
+  }
 }
 
 // ---------- Erros em português de gente ----------

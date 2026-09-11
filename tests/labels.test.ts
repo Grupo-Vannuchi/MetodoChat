@@ -7,7 +7,10 @@ import {
   kindLabel,
   paraQuemLabel,
   statusBadge,
+  seloDaJanela,
 } from "@/app/labels";
+import { urgenciaDaJanela, HORAS_QUE_TORNAM_URGENTE } from "@/lib/precisa-de-voce";
+import { badgeOk, badgeWarn, badgeNeutral } from "@/app/ui";
 import { EVENT_TYPES } from "@/lib/event-filters";
 import { MOTIVO_CANCELADO_PELO_DONO } from "@/lib/publicacao";
 
@@ -410,5 +413,50 @@ describe("a tela nao chama de falha o post que o dono cancelou", () => {
     expect(friendlyError(MOTIVO_CANCELADO_PELO_DONO)).not.toBe(
       friendlyError("janela de 24h")
     );
+  });
+});
+
+
+describe("seloDaJanela — o selo e o traço não podem discordar", () => {
+  const H = 3_600_000;
+  const CORTE = HORAS_QUE_TORNAM_URGENTE * H;
+
+  // O DEFEITO QUE ESTE BLOCO PRENDE foi visto na tela em 11/09/2026, e não numa
+  // leitura: o cabeçalho da conversa mostrava "responde por 1h06" em VERDE ao
+  // lado do traço da janela, que estava ÂMBAR. Duas cores para o mesmo fato, a
+  // oito pixels uma da outra — porque o selo era `badgeOk` fixo e só sabia
+  // "aberta ou fechada", enquanto o traço já sabia da urgência.
+  it("com o prazo curto, o selo é o de atenção — não o verde", () => {
+    expect(seloDaJanela(1.1 * H)).toBe(badgeWarn);
+  });
+
+  it("com o dia pela frente, o selo é o verde", () => {
+    expect(seloDaJanela(20 * H)).toBe(badgeOk);
+  });
+
+  it("fechada não é alerta: cai no neutro", () => {
+    expect(seloDaJanela(0)).toBe(badgeNeutral);
+    expect(seloDaJanela(-1)).toBe(badgeNeutral);
+  });
+
+  it("o corte é o MESMO do traço, e não um segundo número", () => {
+    // Sem este caso, mover o corte num dos dois lados deixaria a suíte verde
+    // com o selo e o traço discordando de novo — que é o defeito original.
+    expect(seloDaJanela(CORTE - 1)).toBe(badgeWarn);
+    expect(seloDaJanela(CORTE)).toBe(badgeOk);
+  });
+
+  it("todo tom de `urgenciaDaJanela` tem selo, e nenhum sobra", () => {
+    // A varredura: se alguém acrescentar um tom novo à urgência, este caso
+    // acusa que o selo não sabe pintá-lo em vez de o produto cair no `default`
+    // silenciosamente.
+    const tons = new Set([
+      urgenciaDaJanela(-1),
+      urgenciaDaJanela(0),
+      urgenciaDaJanela(CORTE - 1),
+      urgenciaDaJanela(CORTE),
+      urgenciaDaJanela(23 * H),
+    ]);
+    expect([...tons].sort()).toEqual(["aberto", "fecha", "quieto"]);
   });
 });

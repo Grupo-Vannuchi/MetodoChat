@@ -13,7 +13,8 @@ import { urgenciaDaJanela } from "@/lib/precisa-de-voce";
 import { TracoDaJanela } from "../../traco-da-janela";
 import { fmtDate } from "@/lib/format";
 import { avisoDaUrl } from "@/lib/avisos";
-import { muted, badgeOk, badgeNeutral, input, btnGhost, alertOk, alertError } from "../../ui";
+import { muted, badgeNeutral, input, btnGhost, alertOk, alertError } from "../../ui";
+import { seloDaJanela } from "../../labels";
 import Avatar from "../../avatar";
 import ReplyForm from "./reply-form";
 import AreaMensagens from "./area-mensagens";
@@ -278,7 +279,10 @@ export default async function ConversaPage({
               urgencia={urgenciaDaJanela(janela.msLeft)}
             />
           )}
-          <span className={janela.open ? badgeOk : badgeNeutral}>
+          {/* O SELO SEGUE A MESMA URGÊNCIA DO TRAÇO (`seloDaJanela`). Antes ele
+              era verde fixo enquanto a janela estivesse aberta, e ficava verde
+              ao lado de um traço âmbar dizendo o contrário sobre o mesmo fato. */}
+          <span className={janela.open ? seloDaJanela(janela.msLeft) : badgeNeutral}>
             {janela.open ? `responde por ${formatWindowLeft(janela.msLeft)}` : "só leitura"}
           </span>
         </span>
