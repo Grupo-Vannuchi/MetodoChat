@@ -109,6 +109,13 @@ describe("a varredura", () => {
     expect(desviosDeEscala("gap-11")).toHaveLength(1);
     // e a margem negativa não escapa por ser negativa
     expect(desviosDeEscala("-ml-7")).toHaveLength(1);
+    // O MEIO DEGRAU TAMBÉM NÃO ESCAPA, e este caso nasceu de um defeito
+    // plantado que SOBREVIVEU: com a borda da direita escrita `(?![\w])` em vez
+    // de `(?![\w.])`, `mt-4.5` era lido como `mt-4` — um degrau que existe — e
+    // o meio degrau passava calado. Todo `X.5` cujo inteiro está na régua
+    // entraria por essa porta: 18px, 22px, 26px, 34px.
+    expect(desviosDeEscala("mt-4.5")).toHaveLength(1);
+    expect(desviosDeEscala("gap-6.5 py-8.5")).toHaveLength(2);
   });
 
   it("não acusa o que é a escala", () => {
