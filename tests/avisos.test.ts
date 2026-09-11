@@ -398,9 +398,17 @@ describe("urlDeAgendadosComAviso", () => {
   // A VOLTA E PARA A LISTA, E NAO PARA `/publicar`. Quem clicou em cancelar
   // estava olhando os agendados, e cair na tela de compor depois de cancelar
   // faria a lista — a unica prova de que o post sumiu — nao ser vista.
-  it("volta para a lista de agendados", () => {
+  it("volta para a tela das publicacoes, que e onde a lista esta", () => {
+    // A VOLTA E PARA A LISTA, e essa continua sendo a decisao: quem cancelou
+    // estava olhando os agendados, e mandar para o compositor esconderia a
+    // unica prova de que o post sumiu — a propria grade, um item mais curta.
+    // O ENDERECO dela mudou em 11/09/2026, de `/publicar/agendados` para
+    // `/publicar`; a decisao nao.
     const url = urlDeAgendadosComAviso({ tom: "ok", texto: "Post cancelado." });
-    expect(url.startsWith("/publicar/agendados?")).toBe(true);
+    expect(url.startsWith("/publicar?")).toBe(true);
+    // E NAO PARA O COMPOSITOR, que e a confusao possivel agora que ele mora
+    // logo ao lado.
+    expect(url.startsWith("/publicar/novo")).toBe(false);
   });
 
   it("o tom atravessa o redirect", () => {

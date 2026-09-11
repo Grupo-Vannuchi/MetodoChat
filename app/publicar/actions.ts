@@ -158,6 +158,7 @@ export async function publicar(formData: FormData): Promise<void> {
     }
   }
 
+  revalidatePath("/publicar/novo");
   revalidatePath("/publicar");
   revalidatePath("/eventos");
 

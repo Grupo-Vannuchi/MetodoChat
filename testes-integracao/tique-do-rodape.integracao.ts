@@ -71,7 +71,7 @@ import { comoNumaRequisicao } from "./semear-requisicao";
 type ModuloEngine = typeof import("@/lib/engine");
 type ModuloDreno = typeof import("@/lib/queue-drain");
 type ModuloQstash = typeof import("@/lib/qstash");
-type ModuloAcoes = typeof import("@/app/publicar/agendados/actions");
+type ModuloAcoes = typeof import("@/app/publicar/post/actions");
 
 const banco = bancoDescartavel();
 
@@ -140,7 +140,7 @@ beforeAll(async () => {
   engine = await import("@/lib/engine");
   dreno = await import("@/lib/queue-drain");
   qstash = await import("@/lib/qstash");
-  acoes = (await import("@/app/publicar/agendados/actions")) as ModuloAcoes;
+  acoes = (await import("@/app/publicar/post/actions")) as ModuloAcoes;
 
   // --- TRAVA 1: para onde o cliente do QStash resolveu, ANTES de enviar ------
   const { Client } = await import("@upstash/qstash");
@@ -239,7 +239,7 @@ async function avisoDe(
   acao: (form: FormData) => Promise<void>,
   form: FormData
 ): Promise<{ texto: string | null; tom: string | null }> {
-  const { valor } = await comoNumaRequisicao("/publicar/agendados", async () => {
+  const { valor } = await comoNumaRequisicao("/publicar", async () => {
     try {
       await acao(form);
       return null as string | null;

@@ -252,7 +252,11 @@ describe("as frases, que são a tela", () => {
     });
     const destinos = Object.fromEntries(r.map((i) => [i.chave, i.href]));
     expect(destinos["conversa:ig_marcio"]).toBe("/conversas/ig_marcio");
-    expect(destinos["falha-publicacao"]).toBe("/publicar/agendados");
+    // O ENDERECO MUDOU EM 11/09/2026 (o calendario virou a cara da secao e o
+    // compositor desceu para /publicar/novo); a GARANTIA e a mesma: falha de
+    // publicacao manda para as Publicacoes, e nunca para Atividade.
+    expect(destinos["falha-publicacao"]).toBe("/publicar");
+    expect(destinos["falha-publicacao"]).not.toBe(destinos["falha-mensagem"]);
     expect(destinos["falha-mensagem"]).toBe("/eventos");
     expect(destinos["sem-automacao"]).toBe("/automacoes/nova");
   });

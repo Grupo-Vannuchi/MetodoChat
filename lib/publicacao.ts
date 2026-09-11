@@ -2302,7 +2302,7 @@ export function avisoDeFalhas(publicacoes: number, mensagens: number): AvisoDeFa
   if (mensagens > 0) partes.push(fraseDasMensagens(mensagens));
   return {
     texto: `${partes.join(", e ")}.`,
-    href: publicacoes > 0 ? "/publicar/agendados" : "/eventos",
+    href: publicacoes > 0 ? "/publicar" : "/eventos",
   };
 }
 

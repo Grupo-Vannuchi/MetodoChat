@@ -112,7 +112,7 @@ async function statusNaConta(id: string, contaId: string): Promise<string | null
 /** As duas telas que uma mudança desatualiza: a lista de agendados (um item a
  *  menos, ou com outra hora) e Envios, onde o mesmo item aparece. */
 function revalidarAsDuasTelas(): void {
-  revalidatePath("/publicar/agendados");
+  revalidatePath("/publicar");
   revalidatePath("/eventos");
 }
 

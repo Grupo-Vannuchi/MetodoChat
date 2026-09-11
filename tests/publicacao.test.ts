@@ -2412,7 +2412,7 @@ describe("avisoDeFalhas", () => {
     const a = avisoDeFalhas(1, 0)!;
     expect(a.texto).toContain("publicação");
     expect(a.texto).not.toContain("mensagem");
-    expect(a.href).toBe("/publicar/agendados");
+    expect(a.href).toBe("/publicar");
   });
   it("so mensagem continua apontando para eventos", () => {
     const a = avisoDeFalhas(0, 2)!;
@@ -2425,7 +2425,7 @@ describe("avisoDeFalhas", () => {
     const a = avisoDeFalhas(1, 3)!;
     expect(a.texto).toContain("publicação");
     expect(a.texto).toContain("mensagens");
-    expect(a.href).toBe("/publicar/agendados");
+    expect(a.href).toBe("/publicar");
   });
   it("o singular e o plural nao saem errados", () => {
     expect(avisoDeFalhas(1, 0)!.texto).not.toContain("publicações");
