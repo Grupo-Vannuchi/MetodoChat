@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   destinoDoLote,
+  linhasDoDestino,
   lerPayloadDoLote,
   loteExpirou,
   payloadDoLote,
@@ -425,5 +426,68 @@ describe("hojeNoFusoDoPrazo", () => {
   it("o dia anterior ao piso nasce vencido — e por isso ele fica de fora", () => {
     const agora = Date.parse("2026-09-02T18:00:00Z");
     expect(loteExpirou(validadeDoDia("2026-09-01"), agora)).toBe(true);
+  });
+});
+
+
+describe("as linhas do alcance — o achado D5, que era de LAYOUT", () => {
+  // OS TRÊS NÚMEROS APARECIAM COMO TRÊS IRMÃOS e somavam 181 de 125 pessoas. O
+  // texto já dizia "provavelmente" e o comentário já dizia "não se subtrai"; o
+  // LAYOUT contradizia os dois, porque três itens iguais leem como três partes
+  // de um todo. Estes casos prendem a forma, para a tela não voltar a decidir
+  // sozinha quem contém quem.
+  const gente = (quantos: number, recebidas: number, janelaAberta: boolean) =>
+    Array.from({ length: quantos }, (_, i) => ({
+      ig_id: `ig${recebidas}_${janelaAberta}_${i}`,
+      last_reply_at: janelaAberta ? new Date() : new Date("2020-01-01"),
+      recebidas,
+    }));
+
+  it("`agora` e `esperam` somam o total — todo contato cai num dos dois", () => {
+    const contatos = [...gente(9, 5, true), ...gente(116, 5, false)];
+    const d = destinoDoLote(contatos);
+    expect(d.agora.length + d.esperam.length).toBe(contatos.length);
+  });
+
+  it("`improvaveis` é RECORTE de `esperam`, e nunca o ultrapassa", () => {
+    const contatos = [...gente(9, 5, true), ...gente(60, 5, false), ...gente(56, 1, false)];
+    const d = destinoDoLote(contatos);
+    expect(d.improvaveis).toBe(56);
+    expect(d.improvaveis).toBeLessThanOrEqual(d.esperam.length);
+    // E A SOMA DAS DUAS PRIMEIRAS CONTINUA FECHANDO: o palpite não tira
+    // ninguém de lugar nenhum.
+    expect(d.agora.length + d.esperam.length).toBe(contatos.length);
+  });
+
+  it("só a linha do palpite é aninhada; as outras duas são irmãs", () => {
+    const d = destinoDoLote([...gente(2, 5, true), ...gente(3, 1, false)]);
+    const linhas = linhasDoDestino(d);
+    expect(linhas.map((l) => [l.chave, l.aninhada])).toEqual([
+      ["agora", false],
+      ["esperam", false],
+      ["improvaveis", true],
+    ]);
+  });
+
+  it("a frase da linha aninhada carrega a contenção em PALAVRA, não só em recuo", () => {
+    // Fora do recuo — leitor de tela, texto copiado, um `toContain` de teste —
+    // a linha ainda tem de dizer de quem ela é recorte.
+    const d = destinoDoLote(gente(3, 1, false));
+    const palpite = linhasDoDestino(d).find((l) => l.chave === "improvaveis")!;
+    expect(palpite.texto).toContain("destas");
+  });
+
+  it("sem improváveis, a linha do palpite não existe", () => {
+    // "0 provavelmente nunca" é uma frase sobre ninguém ocupando o lugar de
+    // uma informação.
+    const d = destinoDoLote([...gente(2, 5, true), ...gente(3, 9, false)]);
+    expect(d.improvaveis).toBe(0);
+    expect(linhasDoDestino(d).map((l) => l.chave)).toEqual(["agora", "esperam"]);
+  });
+
+  it("os números das linhas são os do destino, sem recontagem", () => {
+    const d = destinoDoLote([...gente(4, 5, true), ...gente(7, 1, false)]);
+    const porChave = Object.fromEntries(linhasDoDestino(d).map((l) => [l.chave, l.n]));
+    expect(porChave).toEqual({ agora: 4, esperam: 7, improvaveis: 7 });
   });
 });

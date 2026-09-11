@@ -376,3 +376,68 @@ export function validadeDoDia(dia: string): string | null {
   // uma da outra e nenhuma transição acontece perto da meia-noite.
   return new Date(meiaNoiteDoDiaSeguinte - adiantoDeBrasilia(meiaNoiteDoDiaSeguinte)).toISOString();
 }
+
+/**
+ * AS LINHAS DO ALCANCE DO LOTE — e o que elas existem para consertar é LAYOUT.
+ *
+ * O ACHADO D5 DA AUDITORIA: os três números apareciam como três itens de lista,
+ * mesmo tamanho, mesmo peso, mesma cor, empilhados —
+ *
+ *     9 recebem agora
+ *     116 quando voltarem a falar
+ *     56 provavelmente nunca — nunca falaram, ou falaram uma única vez
+ *
+ * — e somavam 181 de 125 pessoas. O TEXTO já dizia "provavelmente", e o
+ * comentário de `DestinoDoLote` já dizia "não se subtrai dos outros dois". O
+ * layout contradizia os dois: três irmãos leem como três partes de um todo.
+ *
+ * A VERDADE ARITMÉTICA, que está no código logo acima e não numa lembrança:
+ * `improvaveis` só é incrementado DENTRO do ramo de `esperam`. Ou seja,
+ *
+ *     agora + esperam = total          (todo contato cai num dos dois)
+ *     improvaveis ⊆ esperam            (é recorte do segundo, não um terceiro)
+ *
+ * Esta função devolve essa forma — dois irmãos e uma linha marcada como
+ * ANINHADA —, e os casos de `tests/lote.test.ts` prendem as duas igualdades. A
+ * tela só recua a linha aninhada; ela não decide mais quem contém quem, que é o
+ * que a fazia contradizer o texto.
+ */
+export type LinhaDoDestino = {
+  chave: "agora" | "esperam" | "improvaveis";
+  n: number;
+  texto: string;
+  /** `true` na linha que é RECORTE da anterior, e não um balde ao lado dela. */
+  aninhada: boolean;
+};
+
+export function linhasDoDestino(destino: DestinoDoLote): LinhaDoDestino[] {
+  const linhas: LinhaDoDestino[] = [
+    {
+      chave: "agora",
+      n: destino.agora.length,
+      texto: "recebem agora",
+      aninhada: false,
+    },
+    {
+      chave: "esperam",
+      n: destino.esperam.length,
+      texto: "quando voltarem a falar",
+      aninhada: false,
+    },
+  ];
+  // A LINHA DO PALPITE SÓ APARECE QUANDO HÁ PALPITE. Com zero improváveis ela
+  // dizia "0 provavelmente nunca", que é uma frase sobre ninguém ocupando o
+  // lugar de uma informação.
+  if (destino.improvaveis > 0) {
+    linhas.push({
+      chave: "improvaveis",
+      n: destino.improvaveis,
+      // "DESTAS" É A PALAVRA QUE CARREGA A CONTENÇÃO, e ela existe para o caso
+      // de alguém ler a linha fora do recuo — leitor de tela, cópia do texto,
+      // um `toContain` de teste. O layout e a frase dizem a mesma coisa.
+      texto: "destas, provavelmente nunca voltam a falar",
+      aninhada: true,
+    });
+  }
+  return linhas;
+}

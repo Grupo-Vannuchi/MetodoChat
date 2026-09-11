@@ -11,7 +11,12 @@ import {
   resumoDasCategorias,
   casoDaListaDeEmail,
 } from "@/lib/categorias";
-import { campoDoFiltro, destinoDoLote, hojeNoFusoDoPrazo } from "@/lib/lote";
+import {
+  campoDoFiltro,
+  destinoDoLote,
+  linhasDoDestino,
+  hojeNoFusoDoPrazo,
+} from "@/lib/lote";
 import { avisoDaUrl } from "@/lib/avisos";
 import { atualizarPerfis, enviarLote } from "./actions";
 import {
@@ -29,6 +34,7 @@ import {
   emptyWrap,
   alertOk,
   alertError,
+  numero,
 } from "../ui";
 import { IconMail, IconUsers } from "../icons";
 import Avatar from "../avatar";
@@ -304,11 +310,33 @@ export default async function ContatosPage({
             </div>
           ) : (
             <>
-              {/* MANDAR PARA ESTE RECORTE.
-                  Os dois primeiros números são fato; o terceiro é palpite, e a
-                  palavra "provavelmente" fica na tela por isso. Ele NÃO é subtraído
-                  dos outros dois: quem é improvável continua dentro de "esperam". */}
-              <form action={enviarLote} className={`space-y-3 p-4 ${subtle}`}>
+              {/* MANDAR PARA ESTE RECORTE — E ELE FICA FECHADO ATÉ ALGUÉM PEDIR.
+                  
+                  ACHADO D4 DA AUDITORIA: este formulário era a PRIMEIRA coisa da
+                  página, montado, com "todos (125)" pré-selecionado e o botão
+                  "Enviar" visível sem rolar. Quem abria Contatos para OLHAR
+                  contatos encontrava um disparo para 125 pessoas armado, a um
+                  clique da única barreira que existia (a confirmação).
+
+                  `<details>` e não um botão de cliente: ele é um controle de
+                  divulgação de verdade — teclado e leitor de tela já o
+                  entendem —, não custa nenhum `"use client"` novo e não mexe em
+                  uma linha da ação de servidor. A confirmação obrigatória
+                  continua onde estava; o que muda é que agora são DOIS gestos
+                  deliberados até o envio, e nenhum deles acontece por rolagem.
+
+                  E ele encolhe a página, que é metade do achado M6: `/contatos`
+                  media 8777px, e este bloco é a maior peça fixa dela. */}
+              <details className={`group ${subtle}`}>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 text-sm font-medium">
+                  <span>
+                    Mandar mensagem para {visiveis.length}{" "}
+                    {visiveis.length === 1 ? "pessoa" : "pessoas"}
+                  </span>
+                  <span className={`text-xs ${muted} group-open:hidden`}>abrir</span>
+                  <span className={`hidden text-xs ${muted} group-open:inline`}>fechar</span>
+                </summary>
+              <form action={enviarLote} className="space-y-3 border-t border-traco p-4 dark:border-traco-escuro">
                 {/* O CAMPO CARREGA A FORMA DO FILTRO, E NÃO O VALOR CRU DA URL.
                     Com `sp.categoria ?? ""`, a ficha "sem categoria"
                     (`?categoria=` vazio) e "todos" (`?categoria=` ausente)
@@ -318,24 +346,28 @@ export default async function ContatosPage({
                     prometia 16 e a ação enfileirava para 126. Ver `campoDoFiltro`
                     (lib/lote.ts). */}
                 <input type="hidden" name="categoria" value={campoDoFiltro(filtro)} />
-                <p className="text-sm font-medium">
-                  Mandar mensagem para {visiveis.length}{" "}
-                  {visiveis.length === 1 ? "pessoa" : "pessoas"}
-                </p>
-                <ul className={`text-xs ${muted}`}>
-                  <li>{destino.agora.length} recebem agora</li>
-                  <li>{destino.esperam.length} quando voltarem a falar</li>
-                  {/* O TEXTO CONTA O QUE `destinoDoLote` CONTA, e não outra
-                      coisa: ela soma `recebidas <= 1` — zero OU uma —, e quem
-                      tem zero nunca escreveu (chegou por comentar num post),
-                      que é o caso MAIS forte de "provavelmente nunca". A frase
-                      dizia "falaram uma única vez" e deixava esses de fora do
-                      que o número já incluía. O comentário de `lib/lote.ts` foi
-                      corrigido antes; a tela é a outra metade. */}
-                  <li>
-                    {destino.improvaveis} provavelmente nunca — nunca falaram, ou falaram uma
-                    única vez
-                  </li>
+                {/* O ALCANCE, EM DOIS IRMÃOS E UMA ANOTAÇÃO — achado D5.
+                    Antes eram três itens iguais empilhados, somando 181 de 125
+                    pessoas: `improvaveis` é RECORTE de `esperam` (ver
+                    `destinoDoLote`, que só o incrementa dentro daquele ramo), e
+                    três irmãos leem como três partes de um todo.
+
+                    A forma vem de `linhasDoDestino` (lib/lote.ts) e os casos de
+                    `tests/lote.test.ts` prendem as duas igualdades. Esta tela
+                    não decide mais quem contém quem — ela só RECUA o que a
+                    função marcou como aninhado. */}
+                <ul className={`space-y-0.5 text-xs ${muted}`}>
+                  {linhasDoDestino(destino).map((l) => (
+                    <li
+                      key={l.chave}
+                      className={l.aninhada ? "ml-4 border-l border-traco pl-2.5 dark:border-traco-escuro" : ""}
+                    >
+                      <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+                        {l.n}
+                      </span>{" "}
+                      {l.texto}
+                    </li>
+                  ))}
                 </ul>
                 <textarea name="texto" required rows={3} className={`w-full ${input}`}
                   placeholder="O que você quer dizer" />
@@ -364,6 +396,7 @@ export default async function ContatosPage({
                 </label>
                 <button type="submit" className={btnPrimary}>Enviar</button>
               </form>
+              </details>
 
               <section>
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
