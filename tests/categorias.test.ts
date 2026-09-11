@@ -9,6 +9,7 @@ import {
   contatosDoFiltro,
   fichaSelecionada,
   urlComFiltro,
+  campoUrlDoFiltro,
   resumoDasCategorias,
   casoDaListaDeEmail,
   type FichaDeCategoria,
@@ -384,5 +385,52 @@ describe("urlComFiltro", () => {
     const filtro: FiltroDeCategoria = { tipo: "uma", nome: "aluno" };
     expect(urlComFiltro("/contatos", filtro)).toBe("/contatos?categoria=aluno");
     expect(urlComFiltro("/api/contatos/csv", filtro)).toBe("/api/contatos/csv?categoria=aluno");
+  });
+});
+
+
+describe("campoUrlDoFiltro — o formulário GET tem de pousar onde a ficha pousa", () => {
+  const TODOS: FiltroDeCategoria[] = [
+    { tipo: "tudo" },
+    { tipo: "uma", nome: "aluno" },
+    { tipo: "uma", nome: null },
+    { tipo: "uma", nome: "equipe de marketing" },
+  ];
+
+  // A INVARIANTE QUE IMPEDE O CRÍTICO DE 01/09 DE VOLTAR POR OUTRA PORTA.
+  //
+  // Naquele defeito, a tela prometia 16 pessoas e a ação enfileirava para 126,
+  // porque um `<input type="hidden">` sempre existe no DOM e apagava a
+  // diferença entre `?categoria=` AUSENTE ("tudo") e PRESENTE-E-VAZIO ("sem
+  // categoria"). `campoDoFiltro` (lib/lote.ts) resolveu aquilo para o
+  // formulário de AÇÃO, codificando a forma.
+  //
+  // Um formulário GET não pode usar aquela codificação: o campo dele vira
+  // PARÂMETRO, e `?categoria=tudo` é a categoria literalmente chamada "tudo".
+  // Este caso amarra a codificação certa à URL que a ficha produz — se as duas
+  // divergirem, buscar dentro de uma categoria levaria a outra.
+  it("montar a URL a partir do campo dá exatamente `urlComFiltro`", () => {
+    for (const filtro of TODOS) {
+      const campo = campoUrlDoFiltro(filtro);
+      const montada =
+        campo === null ? "/contatos" : `/contatos?categoria=${encodeURIComponent(campo)}`;
+      expect(montada, JSON.stringify(filtro)).toBe(urlComFiltro("/contatos", filtro));
+    }
+  });
+
+  it("ida e volta: o campo volta a ser o MESMO filtro", () => {
+    for (const filtro of TODOS) {
+      const campo = campoUrlDoFiltro(filtro);
+      // `undefined` é o parâmetro ausente, que é o que o campo `null` produz.
+      expect(filtroDaUrl(campo ?? undefined), JSON.stringify(filtro)).toEqual(filtro);
+    }
+  });
+
+  it("`tudo` manda NÃO renderizar o campo — é a presença que significa", () => {
+    expect(campoUrlDoFiltro({ tipo: "tudo" })).toBeNull();
+  });
+
+  it("`sem categoria` renderiza o campo VAZIO, e isso é um pedido de verdade", () => {
+    expect(campoUrlDoFiltro({ tipo: "uma", nome: null })).toBe("");
   });
 });

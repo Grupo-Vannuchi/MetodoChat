@@ -196,6 +196,32 @@ export function urlComFiltro(base: string, filtro: FiltroDeCategoria): string {
   return `${base}?categoria=${encodeURIComponent(filtro.nome ?? "")}`;
 }
 
+/**
+ * O CAMPO ESCONDIDO DE UM FORMULÁRIO **GET**, e `null` quando ele não deve
+ * sequer existir.
+ *
+ * ELE NÃO É `campoDoFiltro` (lib/lote.ts), e a diferença é a armadilha inteira.
+ * Aquele serve a um formulário de AÇÃO, cujo campo vira `FormData`, e por isso
+ * codifica a forma (`"tudo"` / `"uma:<nome>"`) — um campo escondido sempre
+ * existe no DOM, então a presença do parâmetro não pode carregar significado
+ * ali. Este serve a um formulário GET, cujo campo vira PARÂMETRO DE URL, onde
+ * quem lê do outro lado é `filtroDaUrl` — e lá a presença é justamente o que
+ * distingue "tudo" (ausente) de "sem categoria" (presente e vazio).
+ *
+ * Usar `campoDoFiltro` num GET produziria `?categoria=tudo`, que `filtroDaUrl`
+ * entende como a categoria LITERALMENTE chamada "tudo". Usar o valor cru
+ * produziria `?categoria=` para "tudo", que ela entende como "sem categoria" —
+ * que é o Crítico de 01/09 por outra porta.
+ *
+ * `null` é a instrução de NÃO RENDERIZAR o campo. É a mesma decisão de
+ * `urlComFiltro`, que para "tudo" devolve a base sem parâmetro nenhum, e
+ * `tests/categorias.test.ts` amarra as duas: o formulário tem de pousar na
+ * MESMA URL que a ficha produziria.
+ */
+export function campoUrlDoFiltro(filtro: FiltroDeCategoria): string | null {
+  return filtro.tipo === "tudo" ? null : filtro.nome ?? "";
+}
+
 export type FichaDeCategoria = {
   /** `null` é a ficha "sem categoria" — um balde de verdade, não um buraco. */
   nome: string | null;

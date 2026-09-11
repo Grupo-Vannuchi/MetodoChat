@@ -8,6 +8,7 @@ import {
   contatosDoFiltro,
   fichaSelecionada,
   urlComFiltro,
+  campoUrlDoFiltro,
   resumoDasCategorias,
   casoDaListaDeEmail,
 } from "@/lib/categorias";
@@ -17,6 +18,12 @@ import {
   linhasDoDestino,
   hojeNoFusoDoPrazo,
 } from "@/lib/lote";
+import {
+  normalizarBusca,
+  casaComBusca,
+  recorteDaTabela,
+  BUSCA_MAX,
+} from "@/lib/busca-de-contatos";
 import { avisoDaUrl } from "@/lib/avisos";
 import { atualizarPerfis, enviarLote } from "./actions";
 import {
@@ -35,6 +42,7 @@ import {
   alertOk,
   alertError,
   numero,
+  link,
 } from "../ui";
 import { IconMail, IconUsers } from "../icons";
 import Avatar from "../avatar";
@@ -92,7 +100,21 @@ function Janela({ c }: { c: Row }) {
 
 // A coluna de e-mail só aparece na lista de quem tem e-mail — na outra ela
 // seria uma coluna inteira de travessões.
+// A TABELA CORTA, E DIZ QUANTO CORTOU — achado M6.
+//
+// MEDIDO EM 11/09/2026: `/contatos` tinha 8477px, catorze telas de rolagem, e
+// 7887 deles eram 127 linhas a 61px. O volume não era enfeite; era uma linha
+// por contato. Compactar a linha levaria a página a ~6300px, ainda dez telas —
+// o que resolve é mostrar menos, e dar um jeito de achar quem se procura (a
+// busca, logo acima).
+//
+// O NÚMERO DE ESCONDIDAS NÃO É DECORAÇÃO. O comentário da consulta desta página
+// explica por que o `limit 200` anterior era um DEFEITO: ele cortava calado, e
+// "todos (200)" numa conta de 250 era mentira. O mesmo comentário escreve o
+// caminho — *"uma paginação que diz o próprio tamanho, e não um corte calado
+// com outro número"* —, e é o que `recorteDaTabela` serve.
 function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
+  const { mostradas, escondidas } = recorteDaTabela(rows);
   return (
     <div className={tableWrap}>
       <table className="w-full text-left text-sm">
@@ -108,7 +130,7 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
           </tr>
         </thead>
         <tbody className={rowDivide}>
-          {rows.map((c) => (
+          {mostradas.map((c) => (
             <tr key={c.ig_id}>
               <td className="px-4 py-2.5">
                 <Pessoa c={c} />
@@ -127,6 +149,19 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
           ))}
         </tbody>
       </table>
+      {escondidas > 0 && (
+        <p className={`border-t border-traco px-4 py-2.5 text-xs dark:border-traco-escuro ${muted}`}>
+          Mostrando{" "}
+          <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+            {mostradas.length}
+          </span>{" "}
+          de{" "}
+          <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+            {rows.length}
+          </span>{" "}
+          — use a busca acima, ou uma categoria, para achar quem você procura.
+        </p>
+      )}
     </div>
   );
 }
@@ -137,7 +172,7 @@ export default async function ContatosPage({
   // `aviso` e `tom` chegam do `redirect` das duas ações desta tela
   // (./actions.ts). São texto de URL, digitável por qualquer um — quem os lê
   // e os valida é `avisoDaUrl` (lib/avisos.ts), e não este componente.
-  searchParams: Promise<{ categoria?: string; aviso?: string; tom?: string }>;
+  searchParams: Promise<{ categoria?: string; aviso?: string; tom?: string; q?: string }>;
 }) {
   const sp = await searchParams;
   const filtro = filtroDaUrl(sp.categoria);
@@ -216,8 +251,23 @@ export default async function ContatosPage({
     }))
   );
 
-  const comEmail = visiveis.filter((c) => c.email);
-  const semEmail = visiveis.filter((c) => !c.email);
+  // A BUSCA VEM DEPOIS DO FILTRO DE CATEGORIA E ANTES DAS DUAS LISTAS.
+  //
+  // A ORDEM É A DECISÃO: as FICHAS continuam contando a conta inteira (o
+  // comentário acima diz por quê), o ALCANCE do lote continua contando o
+  // recorte de categoria — quem clica em "todos (127)" e confirma manda para
+  // 127, busque ou não busque —, e a BUSCA só afeta o que a TABELA mostra.
+  //
+  // Se a busca entrasse antes de `destinoDoLote`, o formulário passaria a
+  // prometer um número e a ação a enfileirar outro. É a mesma família do
+  // Crítico de 01/09, por um caminho novo: tela e ação contando conjuntos
+  // diferentes. `visiveis` continua sendo o conjunto do ENVIO; `achados` é o
+  // conjunto da LEITURA.
+  const busca = normalizarBusca(sp.q);
+  const achados = busca ? visiveis.filter((c) => casaComBusca(c, busca)) : visiveis;
+
+  const comEmail = achados.filter((c) => c.email);
+  const semEmail = achados.filter((c) => !c.email);
   const semNome = rows.filter((c) => !c.username).length;
 
   // O PISO DO CAMPO DE PRAZO, calculado aqui e não no JSX. Um dia já passado
@@ -232,7 +282,7 @@ export default async function ContatosPage({
   // não do JSX abaixo: ver o comentário lá para o porquê.
   const filtrado = filtro.tipo === "uma";
   const caso = casoDaListaDeEmail({
-    visiveis: visiveis.length,
+    visiveis: achados.length,
     comEmail: comEmail.length,
     filtrado,
   });
@@ -291,6 +341,44 @@ export default async function ContatosPage({
               </Link>
             ))}
           </div>
+
+          {/* A BUSCA — achado M6, e é ela que torna o corte da tabela honesto.
+              Sem um jeito de achar alguém, mostrar 25 de 127 seria esconder;
+              com ela, 25 é o que cabe na tela e o resto está a uma palavra.
+
+              FORMULÁRIO GET, SEM JAVASCRIPT: submete no Enter, funciona com o
+              botão de voltar, e o resultado é um endereço que se copia.
+
+              O CAMPO ESCONDIDO DA CATEGORIA SÓ EXISTE QUANDO DEVE EXISTIR, e
+              esse `null` é a defesa contra o Crítico de 01/09 por uma porta
+              nova. Um `<input type="hidden">` sempre presente apagaria a
+              diferença entre `?categoria=` AUSENTE ("todos") e PRESENTE-E-VAZIO
+              ("sem categoria") — e buscar dentro de "todos" cairia em "sem
+              categoria". `campoUrlDoFiltro` (lib/categorias.ts) devolve `null`
+              justamente para mandar NÃO renderizar, e um caso de
+              `tests/categorias.test.ts` amarra a URL do formulário à mesma que
+              a ficha produz. */}
+          <form method="get" action="/contatos" className="flex flex-wrap items-center gap-2">
+            {campoUrlDoFiltro(filtro) !== null && (
+              <input type="hidden" name="categoria" value={campoUrlDoFiltro(filtro)!} />
+            )}
+            <input
+              type="search"
+              name="q"
+              defaultValue={busca ?? ""}
+              maxLength={BUSCA_MAX}
+              placeholder="Buscar por @, nome ou e-mail…"
+              className={`${input} max-w-xs flex-1`}
+            />
+            <button type="submit" className={btnGhost}>
+              Buscar
+            </button>
+            {busca && (
+              <Link href={urlComFiltro("/contatos", filtro)} className={`text-xs ${link}`}>
+                limpar
+              </Link>
+            )}
+          </form>
 
           {caso === "filtro_vazio" ? (
             // O caso pior do Achado 1: um filtro que não casa ninguém (uma
