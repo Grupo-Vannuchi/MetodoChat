@@ -76,10 +76,19 @@ import {
 
 export const dynamic = "force-dynamic";
 
-/** A lista é curta por natureza — são os posts que uma pessoa agendou à mão —,
- *  mas o teto existe para a tela não virar parede no dia em que alguém agendar
- *  um mês inteiro de uma vez. */
-const AGENDADOS_NA_TELA = 50;
+/** Quantos posts a grade desenha num período.
+ *
+ *  MEDIDO EM 11/09/2026, na conta de produção: 3 publicações ao todo e pico de
+ *  2 por mês. O teto é folga para anos, não um corte que morde — mas ele
+ *  MORDE CALADO se um dia chegar lá, e a revisão pegou isso: a consulta passou
+ *  de `status='pending'` (lista curta por natureza) para `pending + sent` numa
+ *  janela de 42 dias, ordenada por data ASCENDENTE. O corte derruba o FIM do
+ *  período, então as últimas semanas do mês apareceriam vazias e alguém
+ *  agendaria em cima de post existente.
+ *
+ *  A resposta é a mesma disciplina do resto desta entrega — quem corta tem de
+ *  contar —, e ela está logo abaixo da grade. */
+const AGENDADOS_NA_TELA = 200;
 
 /** Quantas falhas cabem na segunda seção.
  *
@@ -449,6 +458,23 @@ export default async function Agendados({
               </div>
             </div>
           </div>
+
+          {/* O CORTE DA GRADE, DECLARADO. Ele não morde hoje (medido: pico de 2
+              posts por mês contra um teto de 200), e é justamente por isso que
+              ele morderia CALADO no dia em que mordesse. A ordem da consulta é
+              ascendente, então o que cai fora é o FIM do período — as últimas
+              semanas apareceriam vazias. */}
+          {itens.length >= AGENDADOS_NA_TELA && (
+            <p
+              className={`border-t border-traco px-4 py-2.5 text-center text-xs dark:border-traco-escuro ${muted}`}
+            >
+              Este período tem mais de{" "}
+              <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+                {AGENDADOS_NA_TELA}
+              </span>{" "}
+              posts, e o fim dele pode não estar aparecendo. Use a semana para ver por partes.
+            </p>
+          )}
 
           {/* O QUE ESTA MARCADO FORA DESTE PERIODO. Sem esta linha, o
               calendario responde "nao ha nada" quando a pergunta era "nao ha
