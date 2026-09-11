@@ -9,6 +9,7 @@ import {
   IconZap,
   IconUsers,
   IconActivity,
+  IconBars,
   IconSettings,
   IconStore,
   IconSun,
@@ -27,7 +28,7 @@ const NAV_GROUPS: {
 }[] = [
   {
     label: null,
-    items: [{ href: "/", label: "Painel", icon: IconHome }],
+    items: [{ href: "/", label: "Início", icon: IconHome }],
   },
   {
     label: "Gerenciar",
@@ -37,6 +38,7 @@ const NAV_GROUPS: {
       { href: "/automacoes", label: "Automações", icon: IconZap },
       { href: "/contatos", label: "Contatos", icon: IconUsers },
       { href: "/eventos", label: "Atividade", icon: IconActivity },
+      { href: "/desempenho", label: "Desempenho", icon: IconBars },
     ],
   },
   {
@@ -77,7 +79,7 @@ function ThemeToggle() {
     <button
       type="button"
       onClick={toggle}
-      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium text-zinc-500 transition-colors hover:bg-zinc-100/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-100"
+      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-100"
     >
       <IconSun className="hidden h-[17px] w-[17px] text-zinc-400 dark:block dark:text-zinc-500" />
       <IconMoon className="h-[17px] w-[17px] text-zinc-400 dark:hidden" />
@@ -94,7 +96,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
       {NAV_GROUPS.map((group, gi) => (
         <div key={group.label ?? gi} className="flex flex-col gap-0.5">
           {group.label && (
-            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-400 dark:text-zinc-600">
+            <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-600 dark:text-zinc-400">
               {group.label}
             </p>
           )}
@@ -108,22 +110,30 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
                 href={item.href}
                 onClick={onNavigate}
                 aria-current={active ? "page" : undefined}
-                className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors ${
+                /* O ACHADO D8: medido em `/contatos`, 23 focáveis visíveis, 6
+                   com anel desenhado e 17 sem — e os 17 eram a navegação
+                   inteira. Nela valia o anel padrão do navegador, `outline:
+                   auto 1px rgb(113,113,123)`: um fio no mesmo cinza de baixo
+                   contraste que o achado D3 tirou do resto do produto. Quem
+                   navega por teclado atravessa esta lista em TODA página, então
+                   era justamente o caminho mais percorrido que tinha o sinal
+                   mais fraco. Agora é o mesmo anel de `acao` dos botões. */
+                className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:focus-visible:ring-acao-escuro/25 ${
                   active
                     ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800/70 dark:text-white"
-                    : "text-zinc-500 hover:bg-zinc-100/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-100"
+                    : "text-zinc-600 hover:bg-zinc-100/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-100"
                 }`}
               >
                 {/* marcador do item ativo: barra fina à esquerda */}
                 <span
                   aria-hidden
-                  className={`absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-indigo-500 transition-opacity ${
+                  className={`absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-acao transition-opacity dark:bg-acao-escuro ${
                     active ? "opacity-100" : "opacity-0"
                   }`}
                 />
                 <Icon
                   className={`h-[17px] w-[17px] shrink-0 transition-colors ${
-                    active ? "text-indigo-500" : "text-zinc-400 group-hover:text-zinc-500 dark:text-zinc-500"
+                    active ? "text-tinta dark:text-tinta-escuro" : "text-quieto/70 group-hover:text-quieto dark:text-quieto-escuro/70 dark:group-hover:text-quieto-escuro"
                   }`}
                 />
                 {item.label}
@@ -140,9 +150,9 @@ function Brand() {
   return (
     <Link
       href="/"
-      className="flex items-center px-3 text-[17px] font-semibold tracking-[-0.02em] text-zinc-900 transition-opacity hover:opacity-70 dark:text-zinc-50"
+      className="flex items-center px-3 text-base font-semibold tracking-[-0.02em] text-zinc-900 transition-opacity hover:opacity-70 dark:text-zinc-50"
     >
-      MetodoChat<span className="text-indigo-500">.</span>
+      MetodoChat<span className="text-quieto dark:text-quieto-escuro">.</span>
     </Link>
   );
 }
@@ -173,7 +183,7 @@ function SidebarBody({
           href="https://n8xmarketing.com.br"
           target="_blank"
           rel="noreferrer noopener"
-          className="block px-3 pt-2 text-[10px] leading-relaxed text-zinc-400 transition-colors hover:text-zinc-600 dark:text-zinc-600 dark:hover:text-zinc-400"
+          className="block px-3 pt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
         >
           Criado por N8X Marketing
         </a>
@@ -221,6 +231,31 @@ export default function AppShell({
 
   return (
     <div>
+      {/* O ATALHO PARA O CONTEÚDO — a metade VERDADEIRA do achado D9.
+      
+          Quem navega por teclado atravessa os onze itens da barra lateral em
+          TODA página antes de chegar ao que veio ler. Este link é o primeiro
+          foco do documento e salta direto para o `<main>`.
+
+          ELE FICA INVISÍVEL ATÉ RECEBER FOCO, que é como este controle existe
+          em todo lugar: `sr-only` o tira do desenho sem o tirar da ordem de
+          tabulação, e `focus:not-sr-only` o traz de volta no instante em que
+          alguém chega nele pelo teclado. Quem usa o mouse nunca o vê.
+
+          O `tabIndex={-1}` no `<main>` é o que faz o salto de fato mover o
+          foco: sem ele o navegador rola até a âncora e deixa o foco onde
+          estava, e a tabulação seguinte volta para a barra lateral.
+
+          A OUTRA METADE DO D9 ERA FALSA, e está corrigida no registro da
+          auditoria: `<main>` sempre existiu — aqui, nas páginas públicas e no
+          quadro do editor, que desenha o próprio. */}
+      <a
+        href="#conteudo"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-acao focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-papel dark:focus:bg-acao-escuro dark:focus:text-papel-escuro"
+      >
+        Pular para o conteúdo
+      </a>
+
       {/* Sidebar fixa (desktop) */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] border-r border-zinc-200/80 bg-zinc-50/50 lg:block dark:border-zinc-800/80 dark:bg-zinc-950">
         <SidebarBody accounts={accounts} selectedId={selectedId} />
@@ -264,7 +299,9 @@ export default function AppShell({
       )}
 
       <div className="lg:pl-[248px]">
-        <main className="mx-auto max-w-5xl px-4 py-8 lg:px-8">{children}</main>
+        <main id="conteudo" tabIndex={-1} className="mx-auto max-w-5xl px-4 py-8 lg:px-8">
+          {children}
+        </main>
       </div>
 
       {/* A JANELINHA DE PROGRESSO MORA AQUI, E NAO NA TELA DE PUBLICAR, e e

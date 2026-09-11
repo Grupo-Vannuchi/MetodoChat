@@ -65,6 +65,52 @@ Medido: **"Excluir" é `zinc-500` (113,113,123)**; "Pausar", "Editar" e
 
 O token `btnDanger` existe em `app/ui.ts:85` e não é usado aqui.
 
+### D11 — ALTO — a opacidade derruba a linha inteira de ações abaixo do mínimo
+
+**Achado em 10/09, DURANTE a execução da Onda 2, e não pela auditoria original.**
+
+`app/automacoes/list-client.tsx`: o contêiner das quatro ações tem
+`sm:opacity-60` — o padrão de "revelar no hover". Medido em produção, a ≥640px,
+em repouso:
+
+| ação | contraste do texto | contraste REAL, com a opacidade |
+|---|---|---|
+| Pausar / Editar / Duplicar | 7,72:1 | **2,90:1** |
+| Excluir | 4,83:1 | **2,31:1** |
+
+**As quatro ações de todas as 18 linhas ficam abaixo de 4,5:1 em repouso.** Não
+é o "Excluir" que está apagado — é a linha inteira.
+
+E vale registrar por que a auditoria não pegou: **meu medidor não acumulava a
+opacidade dos ancestrais**, então mediu a cor declarada e não a cor vista. É a
+terceira limitação da ferramenta, junto das cinco do fim deste documento.
+
+### D12 — MÉDIO — o balão de saída já nasce abaixo do mínimo, e a opacidade o afunda
+
+**Achado em 10/09, DURANTE a execução da Onda 3**, com o auditor consertado, e
+registrado sem conserto: mexer nele é decisão de produto, não de disciplina.
+
+**Onde:** `app/conversas/[id]/page.tsx:290-305`, a mensagem que o dono envia.
+
+O balão é `bg-indigo-500` com `text-white`, e a hora embaixo é
+`text-indigo-100`. Medido, sobre o fundo da conversa:
+
+| estado | texto | hora |
+|---|---|---|
+| em repouso (`opacity` 1) | **4,58:1** | **3,71:1** |
+| "enviando…" / "guardada" (`opacity-60`) | **2,36:1** (claro) · 3,31:1 (escuro) | **2,08:1** · 2,76:1 |
+
+Duas coisas distintas, e a segunda é o mecanismo do D11:
+
+1. **Branco sobre `indigo-500` dá 4,58:1** — passa por 0,08, e a hora em
+   `indigo-100` já reprova antes de qualquer opacidade.
+2. **`opacity-60` marca "está saindo"** e derruba o balão inteiro, porque a
+   opacidade compõe o texto E o fundo dele contra a página.
+
+**Por que não foi consertado aqui:** o indigo do balão é a cor de ação do
+sistema inteiro (`app/ui.ts`), e trocá-la na conversa é um desenho, não um
+ajuste de token. O sinal de "enviando" também precisa continuar existindo.
+
 ### D3 — MÉDIO — três tokens de texto quieto abaixo do contraste mínimo
 
 | token | onde | claro | escuro |
@@ -130,6 +176,19 @@ A assimetria é defensável — menos mensagens recebidas não é falha, e verme
 alarmaria sobre algo que não quebrou. **O problema é que o cinza escolhido é o
 mesmo `zinc-500` do texto ao lado**, então "↓ 31" e "vs. 7 dias antes" viram
 uma frase só e o número perde estatuto de número.
+
+**MEDIDO NA ONDA 3, e registrado aqui porque é o outro braço do mesmo
+ternário:** a subida — `text-emerald-600 dark:text-emerald-400` — dá
+**3,65:1** no claro, abaixo do mínimo de 4,5:1. `emerald-700` daria 5,42:1
+sobre `bg-white`. Não foi consertado na Onda 3: `emerald-600` é o verde de
+sucesso do sistema inteiro (`alertOk`, `badgeOk`), e trocá-lo num lugar só
+criaria o segundo verde que esta seção existe para evitar. Vai junto com D7,
+na rodada de acabamento.
+
+**A queda continua como estava para a cor**, mas passou pelo D3 junto com o
+resto: era `zinc-500` cru (3,67:1 no escuro) e agora é o token `muted`
+(7,19:1). A crítica do D7 — os dois textos com a mesma cor — segue de pé, e é
+de hierarquia, não de contraste.
 
 ### D8 — BAIXO — duas linguagens de foco, e a fraca está no que mais se usa
 
@@ -200,7 +259,7 @@ o problema tem solução conhecida nesta base.
 
 ## Erros da própria auditoria, registrados para não se repetirem
 
-Cinco achados foram **descartados por medição errada minha**, e vale saber
+Seis achados foram **descartados por medição errada minha**, e vale saber
 quais, porque um relatório com achado falso contamina os verdadeiros:
 
 1. **126 falhas de contraste** — meu extrator lia `lab()` do Tailwind v4 com
@@ -216,3 +275,27 @@ quais, porque um relatório com achado falso contamina os verdadeiros:
 5. **"Zero anéis de foco"** — a medição rodava num contexto obsoleto do
    navegador (`scrollHeight` devolvia 623px numa página de 8777px). Refeita com
    aba nova.
+
+   **A CAUSA EXATA, achada em 11/09 ao reproduzir o erro por acidente:** a aba
+   estava em SEGUNDO PLANO. `document.visibilityState` devolvia `"hidden"`, e o
+   Chrome não calcula layout de aba oculta — `scrollHeight` volta ao tamanho da
+   janela (os mesmos 623px) e toda `getBoundingClientRect()` devolve zero. Não
+   era contexto "obsoleto", era aba invisível, e o sintoma é reconhecível: toda
+   altura zero e a página inteira com a altura do viewport.
+
+   **Como evitar:** `cdp("Page.bringToFront")` antes de medir, e conferir
+   `document.visibilityState` no mesmo `js(...)` que colhe os números. Esperar
+   mais tempo NÃO resolve — a aba oculta não vai pintar sozinha.
+6. **"Nenhuma página tem marco `<main>`"** (metade do D9, achado em 11/09 ao
+   executar o próprio achado) — `<main>` sempre existiu, e em três lugares
+   diferentes: `app/app-shell.tsx:205` nas páginas públicas, `:269` nas páginas
+   com menu, e `app/automacoes/editor/quadro.tsx:1372` no quadro, que toma a
+   janela inteira e por isso desenha o seu. A base é *cuidadosa* com esse marco
+   a ponto de `app/automacoes/[id]/not-found.tsx` explicar, em comentário, por
+   que ele é `<div>` — para não aninhar dois `<main>`. O
+   `document.querySelector('main')` que devolveu nulo tem a mesma causa do erro
+   5: contexto obsoleto do navegador.
+
+   **A outra metade do achado era verdadeira** e foi executada: não havia link
+   "pular para o conteúdo", e quem navega por teclado atravessava os onze itens
+   da barra lateral em toda página.

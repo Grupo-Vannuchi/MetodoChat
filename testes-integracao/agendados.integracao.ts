@@ -61,6 +61,7 @@ type ModuloDreno = typeof import("@/lib/queue-drain");
 type ModuloIg = typeof import("@/lib/ig");
 type ModuloConta = typeof import("@/lib/account");
 type ModuloTelaDosAgendados = typeof import("@/app/publicar/agendados/page");
+type ModuloTelaDoDetalhe = typeof import("@/app/publicar/agendados/[id]/page");
 type ModuloTelaDeEnvios = typeof import("@/app/eventos/page");
 type ModuloFormato = typeof import("@/lib/format");
 
@@ -91,6 +92,7 @@ let dreno: ModuloDreno;
 let ig: ModuloIg;
 let conta: ModuloConta;
 let telaDosAgendados: ModuloTelaDosAgendados;
+let telaDoDetalhe: ModuloTelaDoDetalhe;
 let telaDeEnvios: ModuloTelaDeEnvios;
 let formato: ModuloFormato;
 
@@ -165,6 +167,7 @@ beforeAll(async () => {
   ig = (await import("@/lib/ig")) as ModuloIg;
   conta = (await import("@/lib/account")) as ModuloConta;
   telaDosAgendados = (await import("@/app/publicar/agendados/page")) as ModuloTelaDosAgendados;
+  telaDoDetalhe = (await import("@/app/publicar/agendados/[id]/page")) as ModuloTelaDoDetalhe;
   telaDeEnvios = (await import("@/app/eventos/page")) as ModuloTelaDeEnvios;
   formato = (await import("@/lib/format")) as ModuloFormato;
 
@@ -821,6 +824,31 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     return valor;
   }
 
+  /**
+   * A arvore da tela de DETALHE de uma publicacao.
+   *
+   * ELA EXISTE DESDE 11/09/2026, quando a lista de agendados virou CALENDARIO a
+   * pedido do dono. Num quadrado de dia nao cabe um formulario de remarcar com
+   * campo de data mais a caixa de confirmacao do cancelamento, entao as acoes
+   * mudaram de endereco: o clique no post leva para ca.
+   *
+   * O QUE NAO MUDOU sao as ACOES (`cancelarPublicacao`, `remarcarPublicacao`):
+   * nenhuma linha delas foi tocada, e os casos que medem recusa de item alheio,
+   * de item em voo e de item que nao e publicacao continuam passando por
+   * `comoNumaRequisicao` direto na acao, sem tela nenhuma no meio.
+   */
+  async function arvoreDoDetalhe(id: string): Promise<string> {
+    const { valor } = await comoNumaRequisicao(`/publicar/agendados/${id}`, async () =>
+      textoDaArvore(
+        await telaDoDetalhe.default({
+          params: Promise.resolve({ id }),
+          searchParams: Promise.resolve({}),
+        })
+      )
+    );
+    return valor;
+  }
+
   /** A arvore que a tela de Envios devolve, em texto. */
   async function arvoreDeEnvios(): Promise<string> {
     const { valor } = await comoNumaRequisicao("/eventos", async () =>
@@ -830,6 +858,16 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
   }
 
   test("a lista mostra so a conta selecionada — e o item de CONTA_B nao aparece", async () => {
+    // A LIMPEZA PASSOU A SER NECESSARIA EM 11/09/2026, e o motivo e o
+    // calendario. Enquanto isto era uma LISTA, os restos dos casos anteriores
+    // apenas apareciam junto e nao atrapalhavam nada. Na GRADE, cada quadrado
+    // mostra no maximo `MAX_POR_DIA_NO_MES` e o resto vira "+N" — e os restos
+    // empilhados no quadrado de hoje escondiam justamente o item que este caso
+    // mede. O corte estava CERTO (ele ate declara quantos escondeu); o que
+    // estava errado era o caso contar com uma fila que ele nao controlava.
+    await banco.db().sql().query(`delete from queue where account_id = any($1)`, [
+      [CONTA_A, CONTA_B],
+    ]);
     const meu = await semear({ conta: CONTA_A, emSegundos: 4 * 3600 });
     const alheio = await semear({ conta: CONTA_B, emSegundos: 4 * 3600 });
     // OS DOIS VIZINHOS QUE A CONSULTA TAMBEM RECUSA, e eles nao sao enfeite: o
@@ -843,24 +881,42 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     expect(arvore).toContain(meu);
     expect(arvore).not.toContain(alheio);
     expect(arvore).not.toContain(mensagem);
-    expect(arvore).not.toContain(jaEnviado);
+    // O POST JA ENVIADO PASSOU A APARECER, e isso e MUDANCA DE INTENCAO e nao
+    // regressao. Ate 11/09/2026 esta tela era uma lista do que ainda vai sair, e
+    // um item `sent` nela seria promessa de futuro sobre coisa que ja esta no
+    // perfil. Ela virou CALENDARIO, e o dono decidiu que a grade mostra o
+    // agendado E o publicado: uma grade so com futuro fica quase toda vazia, e
+    // quadrado vazio le como defeito da tela em vez de "nao ha post marcado".
+    //
+    // O QUE CONTINUA VALENDO — e e o que este caso sempre existiu para medir —
+    // e o RECORTE DA CONTA e o do TIPO: item de outra conta e item que nao e
+    // publicacao continuam fora, e as duas ausencias acima nao se afrouxaram.
+    expect(arvore).toContain(jaEnviado);
   });
 
-  test("a linha do futuro promete a hora, e a do atrasado avisa do prazo do cancelamento", async () => {
+  // AS FRASES MUDARAM DE TELA, E NAO DE DONO. Ate 11/09/2026 elas apareciam na
+  // linha da lista; com o calendario, o quadrado do dia mostra hora e forma, e a
+  // frase inteira ("Sai em" / "Estava marcado para") mora no DETALHE, que e para
+  // onde o clique leva. A garantia medida continua a mesma: a frase vem de
+  // `fraseDaDataDaLinha` e nao de um `if` escrito no JSX, e as duas nunca
+  // aparecem juntas.
+  test("o detalhe promete a hora no futuro, e avisa do prazo no atrasado", async () => {
     await banco.db().sql().query(`delete from queue where account_id = $1`, [CONTA_A]);
     const daquiAPouco = await semear({ conta: CONTA_A, emSegundos: 4 * 3600 });
 
-    const comFuturo = await arvoreDosAgendados();
-    expect(comFuturo).toContain(daquiAPouco);
-    // A FRASE VEM DE `fraseDaDataDaLinha`, e ate 09/09/2026 ela era escolhida
-    // dentro do JSX — com palavras diferentes das da tela de Envios.
+    // O CALENDARIO CONTINUA SENDO A PORTA: sem o link para o detalhe, a frase
+    // estaria certa numa tela que ninguem alcanca.
+    const calendario = await arvoreDosAgendados();
+    expect(calendario).toContain(`/publicar/agendados/${daquiAPouco}`);
+
+    const comFuturo = await arvoreDoDetalhe(daquiAPouco);
     expect(comFuturo).toContain("Sai em ");
     expect(comFuturo).not.toContain("Estava marcado para ");
 
     await banco.db().sql().query(`delete from queue where account_id = $1`, [CONTA_A]);
-    await semear({ conta: CONTA_A, emSegundos: -4 * 3600 });
+    const atrasado = await semear({ conta: CONTA_A, emSegundos: -4 * 3600 });
 
-    const comAtraso = await arvoreDosAgendados();
+    const comAtraso = await arvoreDoDetalhe(atrasado);
     expect(comAtraso).toContain("Estava marcado para ");
     expect(comAtraso).not.toContain("Sai em ");
     // O AVISO DO ITEM ATRASADO, que tambem morava no JSX.
@@ -869,13 +925,20 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
 
   test("o formulário de remarcar leva o campo do fuso", async () => {
     await banco.db().sql().query(`delete from queue where account_id = $1`, [CONTA_A]);
-    await semear({ conta: CONTA_A, emSegundos: 4 * 3600 });
+    const id = await semear({ conta: CONTA_A, emSegundos: 4 * 3600 });
 
-    const arvore = await arvoreDosAgendados();
+    // O FORMULARIO MUDOU DE TELA em 11/09/2026 (a lista virou calendario), e
+    // este caso o seguiu. A garantia e a mesma: SEM ESTE CAMPO a tela volta a
+    // acertar a hora por acidente — `fusoDoCampo` cai no padrao de Brasilia, e
+    // o painel deixa de funcionar fora do Brasil.
+    const arvore = await arvoreDoDetalhe(id);
 
-    // SEM ESTE CAMPO a tela volta a acertar a hora por acidente: `fusoDoCampo`
-    // cai no padrão de Brasília, e o painel deixa de funcionar fora do Brasil.
     expect(arvore).toContain("name=fuso");
+    // E OS DOIS FORMULARIOS INTEIROS CHEGARAM JUNTO, e nao so o campo: e o
+    // `value` do `<input hidden>` de cada um que prende o item a acao.
+    expect(arvore).toContain(`value=${id}`);
+    expect(arvore).toContain("name=data_hora");
+    expect(arvore).toContain("name=confirmo");
   });
 
   // =========================================================================

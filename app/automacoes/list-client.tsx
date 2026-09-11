@@ -11,6 +11,10 @@ import {
   badgeNeutral,
   input,
   btnPrimary,
+  btnLinha,
+  btnLinhaDanger,
+  acoesDaLinha,
+  linhaOcupada,
   emptyWrap,
 } from "../ui";
 import { IconZap, IconComment, IconStory, IconSend, IconPorta } from "../icons";
@@ -171,14 +175,30 @@ export default function AutomationsList({ automations }: { automations: Automati
                 aria-selected={ativo}
                 type="button"
                 onClick={() => setFiltro(f.id)}
-                className={`rounded-[10px] px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                /* O SEGMENTO ESCOLHIDO É PINTADO COM `acao`, e não erguido em
+                   branco. Ele e o de `/eventos` são o MESMO controle aos olhos
+                   de quem usa — grupo com borda, um segmento marcado —, e
+                   estavam com aparências diferentes: lá preenchido, aqui
+                   levantado. A cor da ação entrou nos dois pelo mesmo motivo,
+                   que é escolha ativa. */
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                   ativo
-                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white"
-                    : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                    ? "bg-acao text-papel dark:bg-acao-escuro dark:text-papel-escuro"
+                    : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
                 }`}
               >
                 {f.label}
-                <span className="ml-1.5 text-[11px] text-zinc-400">{contagem[f.id]}</span>
+                {/* A contagem acompanha o rótulo: sobre o petróleo ela é o
+                    próprio papel a 75%, e fora dele continua quieta. */}
+                <span
+                  className={`ml-1.5 text-[11px] ${
+                    ativo
+                      ? "text-papel/75 dark:text-papel-escuro/75"
+                      : "text-zinc-600 dark:text-zinc-400"
+                  }`}
+                >
+                  {contagem[f.id]}
+                </span>
               </button>
             );
           })}
@@ -201,7 +221,7 @@ export default function AutomationsList({ automations }: { automations: Automati
               setBusca("");
               setFiltro("todas");
             }}
-            className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+            className="text-xs font-medium text-tinta underline decoration-quieto/50 underline-offset-2 hover:decoration-tinta dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
           >
             Limpar filtros
           </button>
@@ -213,8 +233,11 @@ export default function AutomationsList({ automations }: { automations: Automati
             return (
               <li
                 key={a.id}
-                className={`${card} ${cardHover} group p-4 transition-opacity ${
-                  ocupado ? "opacity-60" : ""
+                // `transition-colors` e não `transition-opacity`: o sinal de
+                // "esta linha está trabalhando" deixou de ser opacidade e passou
+                // a ser o fundo — ver `linhaOcupada`, em app/ui.ts.
+                className={`${card} ${cardHover} p-4 transition-colors ${
+                  ocupado ? linhaOcupada : ""
                 }`}
               >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -237,7 +260,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
                         href={`/automacoes/${a.id}`}
-                        className="truncate text-[15px] font-semibold text-zinc-900 hover:text-indigo-600 dark:text-zinc-100 dark:hover:text-indigo-400"
+                        className="truncate text-base font-semibold text-tinta hover:underline dark:text-tinta-escuro"
                       >
                         {a.name}
                       </Link>
@@ -262,7 +285,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                             <span
                               key={t}
                               title={meta.label}
-                              className="flex items-center gap-1 text-zinc-500 dark:text-zinc-400"
+                              className="flex items-center gap-1 text-zinc-600 dark:text-zinc-400"
                             >
                               <Icon className="h-3.5 w-3.5" />
                               {meta.label}
@@ -279,27 +302,29 @@ export default function AutomationsList({ automations }: { automations: Automati
                           está escrito junto da função, com teste. */}
                       <span className={`truncate ${muted}`}>{oQueDispara(a)}</span>
                       <span className="text-zinc-300 dark:text-zinc-700">·</span>
-                      <span className="text-zinc-400 dark:text-zinc-500">
+                      <span className="text-zinc-600 dark:text-zinc-400">
                         {formatarData(a.created_at)}
                       </span>
                     </div>
                   </div>
 
                   {/* ações */}
-                  <div className="flex shrink-0 items-center gap-1 sm:opacity-60 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                  {/* SEM `sm:opacity-60` — ver `acoesDaLinha` em `../ui`. O
+                      "revelar no hover" que estava aqui deixava as quatro
+                      ações de todas as 18 linhas em 2,90:1 em repouso, e a
+                      medição mostrou que nenhuma opacidade visível aprova as
+                      quatro. */}
+                  <div className={acoesDaLinha}>
                     <button
                       type="button"
                       disabled={ocupado}
                       onClick={() => alternar(a.id, a.active)}
                       title={a.active ? "Pausar automação" : "Ativar automação"}
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                      className={btnLinha}
                     >
                       {a.active ? "Pausar" : "Ativar"}
                     </button>
-                    <Link
-                      href={`/automacoes/${a.id}`}
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                    >
+                    <Link href={`/automacoes/${a.id}`} className={btnLinha}>
                       Editar
                     </Link>
                     <button
@@ -307,10 +332,20 @@ export default function AutomationsList({ automations }: { automations: Automati
                       disabled={ocupado}
                       onClick={() => executar(a.id, "duplicar", () => duplicateAutomation(a.id))}
                       title="Criar uma cópia (nasce pausada)"
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                      className={btnLinha}
                     >
                       Duplicar
                     </button>
+                    {/* O TOM VERMELHO EM REPOUSO (`btnLinhaDanger`) é o
+                        conserto, e o `confirm` abaixo continua sendo a
+                        barreira. São duas coisas diferentes, e a auditoria
+                        juntou as duas num achado só: a barreira contra o
+                        clique acidental JÁ EXISTIA, e o vermelho já existia no
+                        hover. O que faltava era o AVISO antes do hover — em
+                        repouso nada na linha dizia qual das quatro ações era
+                        irreversível, e a irreversível era a MAIS APAGADA das
+                        quatro (`zinc-500` contra `zinc-600`/`zinc-400`). A
+                        medição dos tons está junto do token, em `../ui`. */}
                     <button
                       type="button"
                       disabled={ocupado}
@@ -321,7 +356,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                         }
                       }}
                       title="Excluir automação"
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:text-zinc-500 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                      className={btnLinhaDanger}
                     >
                       Excluir
                     </button>

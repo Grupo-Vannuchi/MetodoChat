@@ -55,7 +55,7 @@ export default function Progresso() {
             type="button"
             onClick={limparEnvios}
             aria-label="Fechar o andamento dos envios"
-            className="-mr-1 -mt-1 rounded-lg px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="-mr-1 -mt-1 rounded-lg px-2 py-1 text-xs text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
             Fechar
           </button>
@@ -65,7 +65,7 @@ export default function Progresso() {
       <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
         <div
           className={`h-full rounded-full transition-[width] duration-200 ${
-            resumo.houveFalha ? "bg-red-500" : "bg-indigo-500"
+            resumo.houveFalha ? "bg-parou dark:bg-parou-escuro" : "bg-aberto dark:bg-aberto-escuro"
           }`}
           style={{ width: `${resumo.porcentagem}%` }}
         />

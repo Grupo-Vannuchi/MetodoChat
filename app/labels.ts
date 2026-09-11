@@ -1,16 +1,28 @@
 // Tradução dos nomes internos do sistema para a linguagem de quem usa o painel.
 // Ninguém deveria precisar saber o que é "dm_link" ou "story_reply".
 //
-// O ÚNICO IMPORT deste arquivo é `lib/steps.ts`, e ele entrou com `oQueDispara`
-// (lá embaixo): a coluna "o que dispara" da lista de automações precisa fazer a
-// MESMA pergunta que o salvar e o painel fazem sobre palavra-chave, e reescrevê-
-// la aqui criaria a segunda resposta que esta fase inteira vem apagando.
+// OS QUATRO IMPORTS DESTE ARQUIVO
+// mesmo motivo — não reescrever aqui uma resposta que já existe em outro lugar.
+//
+// `lib/steps.ts` entrou com `oQueDispara` (lá embaixo): a coluna "o que dispara"
+// da lista de automações precisa fazer a MESMA pergunta que o salvar e o painel
+// fazem sobre palavra-chave.
+//
+// `lib/publicacao.ts` entrou em 10/09/2026 com `MOTIVO_CANCELADO_PELO_DONO`: o
+// texto que a ação de cancelar grava em `error` é o que distingue, aqui, o post
+// que o DONO retirou daquele que o SISTEMA pulou. Escrevê-lo à mão nesta ponta
+// faria as duas metades combinarem por coincidência, e a tela voltaria a mentir
+// no dia em que uma delas mudasse. Aquele arquivo não tem import nenhum, então
+// nada de servidor entra aqui por essa porta.
 import { gatilhoPedePalavraChave } from "@/lib/steps";
+import { MOTIVO_CANCELADO_PELO_DONO } from "@/lib/publicacao";
+import { urgenciaDaJanela } from "@/lib/precisa-de-voce";
+import { badgeOk, badgeWarn, badgeNeutral } from "./ui";
 import type { QueueItem } from "@/lib/db";
 
 type Badge = { label: string; className: string };
 
-const BADGE_BASE = "rounded-full px-2 py-0.5 text-[10px] font-medium";
+const BADGE_BASE = "rounded-full px-2 py-0.5 text-[11px] font-medium";
 
 // ---------- O que a pessoa fez no seu Instagram ----------
 
@@ -21,7 +33,17 @@ const EVENT: Record<string, Badge> = {
   },
   message: {
     label: "Mandou mensagem",
-    className: "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-400",
+    // NEUTRO, e não mais violeta. O violeta e o índigo desta lista saíram junto
+    // com o índigo do resto do painel; o que os substitui é o selo neutro que
+    // esta mesma lista já usa, e não um matiz novo.
+    //
+    // A DÍVIDA FICA DECLARADA: as cinco portas de entrada (`comment`,
+    // `message`, `story_reply`, `quick_reply`, `abertura`) são um arco-íris de
+    // CATEGORIA, e categoria não é estado — `story_reply` chega a usar o âmbar
+    // que no resto do produto quer dizer "atenção". Consertar isso é redesenhar
+    // a lista inteira, e não trocar dois tons; a Parte 1 tira o que lhe cabe
+    // tirar e deixa o resto medido e escrito.
+    className: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400",
   },
   story_reply: {
     label: "Respondeu seu story",
@@ -29,7 +51,7 @@ const EVENT: Record<string, Badge> = {
   },
   quick_reply: {
     label: "Tocou no botão",
-    className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400",
+    className: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400",
   },
   // A PORTA DE ENTRADA: a pessoa abriu a conversa e tocou numa das perguntas de
   // abertura da conta (o gatilho `abertura`, lib/engine.ts).
@@ -349,7 +371,10 @@ const STATUS: Record<string, Badge> = {
   },
   sent: {
     label: "Entregue",
-    className: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400",
+    // VERDE, e a troca não é estética: "Entregue" é o único estado desta lista
+    // que quer dizer DEU CERTO, e estava em índigo — a cor que o painel usava
+    // para ação. Verde é o que o produto inteiro usa para isso.
+    className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400",
   },
   failed: {
     label: "Não saiu",
@@ -369,9 +394,75 @@ const STATUS: Record<string, Badge> = {
   },
 };
 
-export function statusBadge(status: string): Badge {
-  const b = STATUS[status] ?? UNKNOWN;
+/**
+ * O SELO DE `skipped` QUE O DONO CANCELOU — e por que ele não está em `STATUS`.
+ *
+ * `STATUS` é indexado por status, e `skipped` é UM status para DOIS fatos: o
+ * sistema pulou e o dono cancelou. Uma segunda entrada com a mesma chave é
+ * impossível, e uma chave inventada (`"cancelado"`) seria pior: `KIND` e
+ * `STATUS` existem para casar com o que o banco grava, e uma chave que nenhum
+ * `update` escreve vira um valor a manter que ninguém alcança.
+ *
+ * A PALAVRA É "Cancelada por você", e ela responde a pergunta que a linha faz:
+ * quem retirou este post. "Cancelada" sozinha deixaria o dono procurando o
+ * sistema que cancelou por ele.
+ *
+ * A COR É NEUTRA, e não o âmbar de `skipped` nem o vermelho de `failed`: nada
+ * deu errado aqui. É a mesma dupla de `pending` porque as duas dizem a mesma
+ * coisa sobre gravidade — nenhuma — e porque um tom próprio inventado para uma
+ * linha só seria a nona cor de uma paleta que a auditoria já achou larga demais.
+ */
+const CANCELADO_PELO_DONO: Badge = {
+  label: "Cancelada por você",
+  className: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400",
+};
+
+/**
+ * O selo de uma situação da fila.
+ *
+ * O `motivo` É OPCIONAL, E A OMISSÃO É UM CASO DE VERDADE, não descuido de quem
+ * chama: a barra de filtros (`app/eventos/filtros-envios.tsx`) monta as opções a
+ * partir de `SITUACOES` e só tem a CHAVE da situação — não existe linha, e
+ * portanto não existe motivo. Sem motivo, `skipped` continua sendo "Não
+ * enviada", que é o que ele sempre disse.
+ *
+ * O MOTIVO ENTRA SÓ ONDE HÁ LINHA, e por enquanto ele separa um caso só: o post
+ * retirado pelo dono. Ver `MOTIVO_CANCELADO_PELO_DONO` (lib/publicacao.ts), que
+ * explica por que uma coluna de texto basta aqui no lugar de um estado novo.
+ */
+export function statusBadge(status: string, motivo?: string | null): Badge {
+  const b =
+    status === "skipped" && motivo?.trim() === MOTIVO_CANCELADO_PELO_DONO
+      ? CANCELADO_PELO_DONO
+      : (STATUS[status] ?? UNKNOWN);
   return { ...b, className: `${BADGE_BASE} ${b.className}` };
+}
+
+/**
+ * O SELO DA JANELA DE 24H — e ele existe para o selo e o traço não discordarem.
+ *
+ * O DEFEITO QUE ELE CONSERTA foi visto na tela em 11/09/2026, e não numa
+ * leitura: o cabeçalho da conversa mostrava "responde por 1h06" em VERDE
+ * (`badgeOk`, fixo) ao lado do traço da janela, que estava ÂMBAR — porque 1h06
+ * está abaixo do corte de urgência. Duas cores para o mesmo fato, a oito pixels
+ * uma da outra. O selo não sabia da urgência: ele só sabia "aberta ou fechada".
+ *
+ * A FONTE DA URGÊNCIA É `urgenciaDaJanela` (lib/precisa-de-voce.ts), a mesma
+ * que o traço e a tela inicial usam. Esta função só traduz o tom em classe —
+ * ela não decide nada sobre tempo, e isso é de propósito: a régua da janela é
+ * uma só no produto inteiro.
+ */
+export function seloDaJanela(msLeft: number): string {
+  switch (urgenciaDaJanela(msLeft)) {
+    case "fecha":
+      return badgeWarn;
+    case "aberto":
+      return badgeOk;
+    // Fechada e qualquer outro tom caem no neutro: "só leitura" não é alerta,
+    // é a situação da maioria das conversas antigas.
+    default:
+      return badgeNeutral;
+  }
 }
 
 // ---------- Erros em português de gente ----------
@@ -392,6 +483,17 @@ export function friendlyError(raw: string | null): string | null {
   // tentativa deste aqui.
   if (raw.includes("substituido por um lote mais novo"))
     return "Você confirmou um envio mais novo para esta pessoa antes deste sair. Foi decisão sua, e não há nova tentativa.";
+  // O DONO CANCELOU O POST, e esta é a linha que faz o motivo já gravado no
+  // banco chegar à tela. Sem ela o texto caía no genérico do fim desta função —
+  // "não conseguimos enviar" (falso: ninguém tentou) e "o sistema tenta de novo
+  // automaticamente" (falso: `skipped` é terminal).
+  //
+  // CASA POR IGUALDADE, e não por `includes` como as vizinhas: as outras
+  // procuram um pedaço de frases que o dreno montou com dados de fora, e esta
+  // compara com a constante inteira que a ação grava. Um `includes` aqui
+  // aceitaria por acidente qualquer motivo futuro que contivesse este texto.
+  if (raw.trim() === MOTIVO_CANCELADO_PELO_DONO)
+    return "Você cancelou este post, e por isso ele não saiu. Foi decisão sua, e não há nova tentativa.";
   // A pessoa está fora da janela de 24h e a mensagem CONTINUA na fila
   // (`pending`, não `skipped` nem `failed`): ela sai sozinha assim que a
   // pessoa voltar a falar. É a linha que impede o dono de ler "Na fila" com

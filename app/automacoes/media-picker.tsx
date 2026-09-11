@@ -91,14 +91,14 @@ export default function MediaPicker({
                   onClick={() =>
                     onSelect({ id: m.id, thumb, caption: (m.caption ?? "").slice(0, 120) })
                   }
-                  className="overflow-hidden rounded-lg border border-zinc-200 transition-colors hover:border-indigo-500 dark:border-zinc-800"
+                  className="overflow-hidden rounded-lg border border-traco transition-colors hover:border-tinta dark:border-traco-escuro dark:hover:border-tinta-escuro"
                   title={m.caption ?? m.id}
                 >
                   {thumb ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={thumb} alt="" className="aspect-square w-full object-cover" />
                   ) : (
-                    <span className="flex aspect-square items-center justify-center text-[10px] text-zinc-500">
+                    <span className="flex aspect-square items-center justify-center text-[11px] text-zinc-600 dark:text-zinc-400">
                       {m.media_type}
                     </span>
                   )}

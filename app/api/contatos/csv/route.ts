@@ -4,6 +4,7 @@ import { getSelectedAccount } from "@/lib/account";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
 import { diaDaChave } from "@/lib/dedupe";
 import { filtroDaUrl, contatosDoFiltro } from "@/lib/categorias";
+import { normalizarBusca, casaComBusca } from "@/lib/busca-de-contatos";
 
 // Exporta os contatos da conta selecionada. Separador ";" e BOM de UTF-8
 // porque é assim que o Excel em português abre o arquivo com acento certo,
@@ -60,16 +61,36 @@ export async function GET(req: NextRequest) {
   // `/contatos` sem filtro) o comportamento é o mesmo de sempre: a conta
   // inteira.
   const filtro = filtroDaUrl(req.nextUrl.searchParams.get("categoria") ?? undefined);
+  // E A BUSCA TAMBEM, pelo MESMO argumento escrito acima sobre a categoria: o
+  // botao esta embaixo do numero filtrado, e e ali que ele e lido.
+  //
+  // O DEFEITO, achado por revisao em 11/09/2026: com `categoria=aluno` (40 com
+  // e-mail) e busca "maria", a tela dizia "1 pessoa — pronta para sua lista" e o
+  // botao logo abaixo baixava os 40 e-mails. Frase e botao discordando sobre o
+  // mesmo clique e a assinatura do Critico de 01/09, aqui sem enfileirar nada.
+  const busca = normalizarBusca(req.nextUrl.searchParams.get("q") ?? undefined);
 
   // Só quem tem e-mail: o arquivo existe para ser importado numa ferramenta
   // de e-mail, e linha sem e-mail lá não serve para nada.
   const comEmail = (await sql().query(
-    `select coalesce(nullif(c.name, ''), c.username) as nome, c.email, c.categoria
+    // `username` E `name` VEM SEPARADOS, e nao so o `nome` colapsado: e o que
+    // permite `casaComBusca` procurar pelos MESMOS tres campos que a tabela
+    // procura. Com o coalesce sozinho, buscar pelo @ de alguem que TEM nome
+    // falharia aqui e funcionaria na tela — duas buscas com o mesmo nome
+    // devolvendo conjuntos diferentes.
+    `select coalesce(nullif(c.name, ''), c.username) as nome,
+            c.username, c.name, c.email, c.categoria
      from contacts c
      where c.account_id = $1 and c.email is not null
      order by c.first_contact_at desc`,
     [account.ig_user_id]
-  )) as { nome: string | null; email: string; categoria: string | null }[];
+  )) as {
+    nome: string | null;
+    username: string | null;
+    name: string | null;
+    email: string;
+    categoria: string | null;
+  }[];
 
   // O MESMO `contatosDoFiltro` que a lista usa, e não um `where` equivalente:
   // duas regras iguais escritas em lugares diferentes são duas regras para
@@ -81,7 +102,14 @@ export async function GET(req: NextRequest) {
   // (`isValidSession`, na primeira linha do handler), e sessão não se forja. O
   // que dava para prender puro está preso: `contatosDoFiltro` e o link que este
   // botão carrega (`urlComFiltro`) têm caso em tests/categorias.test.ts.
-  const rows = contatosDoFiltro(comEmail, filtro);
+  // AS DUAS PENEIRAS, NA MESMA ORDEM DA TELA: categoria primeiro, busca depois.
+  // `casaComBusca` é a MESMA função que a tabela usa (lib/busca-de-contatos.ts),
+  // e não um `ilike` equivalente em SQL — duas regras iguais escritas em lugares
+  // diferentes são duas regras para manter iguais, que é o argumento escrito
+  // logo acima sobre `contatosDoFiltro`. Ela também tira acento dos dois lados,
+  // e um `ilike` não tiraria.
+  const naCategoria = contatosDoFiltro(comEmail, filtro);
+  const rows = busca ? naCategoria.filter((c) => casaComBusca(c, busca)) : naCategoria;
 
   const linhas = [
     ["Nome", "E-mail"],

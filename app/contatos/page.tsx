@@ -8,10 +8,24 @@ import {
   contatosDoFiltro,
   fichaSelecionada,
   urlComFiltro,
+  campoUrlDoFiltro,
   resumoDasCategorias,
   casoDaListaDeEmail,
 } from "@/lib/categorias";
-import { campoDoFiltro, destinoDoLote, hojeNoFusoDoPrazo } from "@/lib/lote";
+import {
+  campoDoFiltro,
+  destinoDoLote,
+  linhasDoDestino,
+  hojeNoFusoDoPrazo,
+} from "@/lib/lote";
+import {
+  normalizarBusca,
+  casaComBusca,
+  recorteDaTabela,
+  quantasLinhas,
+  LIMITE_DA_TABELA,
+  BUSCA_MAX,
+} from "@/lib/busca-de-contatos";
 import { avisoDaUrl } from "@/lib/avisos";
 import { atualizarPerfis, enviarLote } from "./actions";
 import {
@@ -24,11 +38,13 @@ import {
   tableWrap,
   thead,
   rowDivide,
-  badgeOk,
+  badgeAcao,
   badgeNeutral,
   emptyWrap,
   alertOk,
   alertError,
+  numero,
+  link,
 } from "../ui";
 import { IconMail, IconUsers } from "../icons";
 import Avatar from "../avatar";
@@ -56,7 +72,7 @@ function Pessoa({ c }: { c: Row }) {
         <p className="truncate font-medium">
           {c.username ? `@${c.username}` : c.name ?? "Sem nome"}
         </p>
-        <p className="truncate text-xs text-zinc-500">
+        <p className="truncate text-xs text-zinc-600 dark:text-zinc-400">
           {c.username && c.name ? c.name : `id ${c.ig_id}`}
         </p>
       </div>
@@ -73,10 +89,10 @@ function Janela({ c }: { c: Row }) {
   const aberta = windowState(c.last_reply_at).open;
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
         aberta
-          ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400"
-          : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-500"
+          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+          : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
       }`}
     >
       {aberta ? "aberta" : "fechada"}
@@ -86,7 +102,31 @@ function Janela({ c }: { c: Row }) {
 
 // A coluna de e-mail só aparece na lista de quem tem e-mail — na outra ela
 // seria uma coluna inteira de travessões.
-function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
+// A TABELA CORTA, E DIZ QUANTO CORTOU — achado M6.
+//
+// MEDIDO EM 11/09/2026: `/contatos` tinha 8477px, catorze telas de rolagem, e
+// 7887 deles eram 127 linhas a 61px. O volume não era enfeite; era uma linha
+// por contato. Compactar a linha levaria a página a ~6300px, ainda dez telas —
+// o que resolve é mostrar menos, e dar um jeito de achar quem se procura (a
+// busca, logo acima).
+//
+// O NÚMERO DE ESCONDIDAS NÃO É DECORAÇÃO. O comentário da consulta desta página
+// explica por que o `limit 200` anterior era um DEFEITO: ele cortava calado, e
+// "todos (200)" numa conta de 250 era mentira. O mesmo comentário escreve o
+// caminho — *"uma paginação que diz o próprio tamanho, e não um corte calado
+// com outro número"* —, e é o que `recorteDaTabela` serve.
+function Tabela({
+  rows,
+  comEmail,
+  limite,
+  maisHref,
+}: {
+  rows: Row[];
+  comEmail: boolean;
+  limite: number;
+  maisHref: string;
+}) {
+  const { mostradas, escondidas } = recorteDaTabela(rows, limite);
   return (
     <div className={tableWrap}>
       <table className="w-full text-left text-sm">
@@ -102,7 +142,7 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
           </tr>
         </thead>
         <tbody className={rowDivide}>
-          {rows.map((c) => (
+          {mostradas.map((c) => (
             <tr key={c.ig_id}>
               <td className="px-4 py-2.5">
                 <Pessoa c={c} />
@@ -121,6 +161,29 @@ function Tabela({ rows, comEmail }: { rows: Row[]; comEmail: boolean }) {
           ))}
         </tbody>
       </table>
+      {escondidas > 0 && (
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 border-t border-traco px-4 py-2.5 text-xs dark:border-traco-escuro ${muted}`}
+        >
+          <p>
+            Mostrando{" "}
+            <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+              {mostradas.length}
+            </span>{" "}
+            de{" "}
+            <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+              {rows.length}
+            </span>
+            .
+          </p>
+          {/* A SAÍDA, sem a qual o corte esconde. Ela leva a tabela para
+              `mostradas + LIMITE`, e não para "tudo": o objetivo continua sendo
+              a página curta. */}
+          <Link href={maisHref} className={`font-medium ${link}`}>
+            Ver mais {Math.min(escondidas, LIMITE_DA_TABELA)}
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
@@ -131,7 +194,13 @@ export default async function ContatosPage({
   // `aviso` e `tom` chegam do `redirect` das duas ações desta tela
   // (./actions.ts). São texto de URL, digitável por qualquer um — quem os lê
   // e os valida é `avisoDaUrl` (lib/avisos.ts), e não este componente.
-  searchParams: Promise<{ categoria?: string; aviso?: string; tom?: string }>;
+  searchParams: Promise<{
+    categoria?: string;
+    aviso?: string;
+    tom?: string;
+    q?: string;
+    linhas?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const filtro = filtroDaUrl(sp.categoria);
@@ -210,8 +279,27 @@ export default async function ContatosPage({
     }))
   );
 
-  const comEmail = visiveis.filter((c) => c.email);
-  const semEmail = visiveis.filter((c) => !c.email);
+  // A BUSCA VEM DEPOIS DO FILTRO DE CATEGORIA E ANTES DAS DUAS LISTAS.
+  //
+  // A ORDEM É A DECISÃO: as FICHAS continuam contando a conta inteira (o
+  // comentário acima diz por quê), o ALCANCE do lote continua contando o
+  // recorte de categoria — quem clica em "todos (127)" e confirma manda para
+  // 127, busque ou não busque —, e a BUSCA só afeta o que a TABELA mostra.
+  //
+  // Se a busca entrasse antes de `destinoDoLote`, o formulário passaria a
+  // prometer um número e a ação a enfileirar outro. É a mesma família do
+  // Crítico de 01/09, por um caminho novo: tela e ação contando conjuntos
+  // diferentes. `visiveis` continua sendo o conjunto do ENVIO; `achados` é o
+  // conjunto da LEITURA.
+  const busca = normalizarBusca(sp.q);
+  // QUANTAS LINHAS A TABELA MOSTRA. Cresce sob pedido, com teto — ver
+  // `quantasLinhas`, e o defeito que ela conserta: sem saída, o corte em 25
+  // tornava inalcançáveis os contatos 26 em diante de qualquer busca.
+  const linhas = quantasLinhas(sp.linhas);
+  const achados = busca ? visiveis.filter((c) => casaComBusca(c, busca)) : visiveis;
+
+  const comEmail = achados.filter((c) => c.email);
+  const semEmail = achados.filter((c) => !c.email);
   const semNome = rows.filter((c) => !c.username).length;
 
   // O PISO DO CAMPO DE PRAZO, calculado aqui e não no JSX. Um dia já passado
@@ -221,12 +309,28 @@ export default async function ContatosPage({
   // (lib/lote.ts) para o porquê de não ser `toISOString()` nem `-3h`.
   const hoje = hojeNoFusoDoPrazo();
 
+  // O ENDEREÇO DE "VER MAIS" É MONTADO SOBRE `urlComFiltro`, e nunca concatenando
+  // `?categoria=` à mão: a distinção entre o parâmetro AUSENTE ("todos") e
+  // PRESENTE-E-VAZIO ("sem categoria") foi o Crítico de 01/09, e recair nele por
+  // uma porta nova é o que este cuidado existe para impedir. Mesma disciplina de
+  // `urlComAviso` (lib/avisos.ts).
+  const base = urlComFiltro("/contatos", filtro);
+  const separador = base.includes("?") ? "&" : "?";
+  const maisLinhas =
+    base +
+    separador +
+    new URLSearchParams({
+      ...(busca ? { q: busca } : {}),
+      linhas: String(linhas + LIMITE_DA_TABELA),
+    }).toString();
+
   // A decisão de qual texto a seção "Com e-mail" mostra — e se "Sem e-mail"
   // ainda faz sentido na tela — é de `casoDaListaDeEmail` (lib/categorias.ts),
   // não do JSX abaixo: ver o comentário lá para o porquê.
   const filtrado = filtro.tipo === "uma";
   const caso = casoDaListaDeEmail({
-    visiveis: visiveis.length,
+    buscando: busca !== null,
+    visiveis: achados.length,
     comEmail: comEmail.length,
     filtrado,
   });
@@ -235,7 +339,7 @@ export default async function ContatosPage({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Contatos</h1>
+          <h1 className="titulo text-2xl font-bold">Contatos</h1>
           {account && (
             <p className={`text-sm ${muted}`}>
               de @{account.username ?? account.ig_user_id} · {rows.length}{" "}
@@ -272,21 +376,78 @@ export default async function ContatosPage({
       ) : (
         <div className="space-y-10">
           <div className="flex flex-wrap gap-2">
-            <Link href="/contatos" className={filtro.tipo === "tudo" ? badgeOk : badgeNeutral}>
+            <Link href="/contatos" className={filtro.tipo === "tudo" ? badgeAcao : badgeNeutral}>
               todos ({rows.length})
             </Link>
             {fichas.map((f) => (
               <Link
                 key={f.nome ?? "__sem__"}
                 href={urlComFiltro("/contatos", { tipo: "uma", nome: f.nome })}
-                className={fichaSelecionada(filtro, f.nome) ? badgeOk : badgeNeutral}
+                className={fichaSelecionada(filtro, f.nome) ? badgeAcao : badgeNeutral}
               >
                 {f.nome ?? "sem categoria"} · {f.total} · {f.alcancaveis} alcançáveis
               </Link>
             ))}
           </div>
 
-          {caso === "filtro_vazio" ? (
+          {/* A BUSCA — achado M6, e é ela que torna o corte da tabela honesto.
+              Sem um jeito de achar alguém, mostrar 25 de 127 seria esconder;
+              com ela, 25 é o que cabe na tela e o resto está a uma palavra.
+
+              FORMULÁRIO GET, SEM JAVASCRIPT: submete no Enter, funciona com o
+              botão de voltar, e o resultado é um endereço que se copia.
+
+              O CAMPO ESCONDIDO DA CATEGORIA SÓ EXISTE QUANDO DEVE EXISTIR, e
+              esse `null` é a defesa contra o Crítico de 01/09 por uma porta
+              nova. Um `<input type="hidden">` sempre presente apagaria a
+              diferença entre `?categoria=` AUSENTE ("todos") e PRESENTE-E-VAZIO
+              ("sem categoria") — e buscar dentro de "todos" cairia em "sem
+              categoria". `campoUrlDoFiltro` (lib/categorias.ts) devolve `null`
+              justamente para mandar NÃO renderizar, e um caso de
+              `tests/categorias.test.ts` amarra a URL do formulário à mesma que
+              a ficha produz. */}
+          <form method="get" action="/contatos" className="flex flex-wrap items-center gap-2">
+            {campoUrlDoFiltro(filtro) !== null && (
+              <input type="hidden" name="categoria" value={campoUrlDoFiltro(filtro)!} />
+            )}
+            <input
+              type="search"
+              name="q"
+              defaultValue={busca ?? ""}
+              maxLength={BUSCA_MAX}
+              placeholder="Buscar por @, nome ou e-mail…"
+              className={`${input} max-w-xs flex-1`}
+            />
+            <button type="submit" className={btnGhost}>
+              Buscar
+            </button>
+            {busca && (
+              <Link href={urlComFiltro("/contatos", filtro)} className={`text-xs ${link}`}>
+                limpar
+              </Link>
+            )}
+          </form>
+
+          {caso === "busca_vazia" ? (
+            /* O VAZIO DA BUSCA NOMEIA A BUSCA, e isso conserta um defeito achado
+               por revisão em 11/09/2026: quem digitava "joao" com "todos"
+               selecionado recebia *"Nenhum contato nesta categoria — use
+               'todos', ali em cima"*, com "todos" já clicado. O estado vazio do
+               recurso novo acusava a causa errada e mandava fazer o que já
+               estava feito. */
+            <div className={emptyWrap}>
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Ninguém encontrado para “{busca}”
+              </p>
+              <p className={`max-w-sm text-xs ${muted}`}>
+                A busca procura no @, no nome e no e-mail.{" "}
+                <Link href={urlComFiltro("/contatos", filtro)} className={link}>
+                  Limpar a busca
+                </Link>{" "}
+                para ver {filtro.tipo === "tudo" ? "a conta inteira" : "a categoria inteira"}.
+              </p>
+            </div>
+          ) : caso === "filtro_vazio" ? (
             // O caso pior do Achado 1: um filtro que não casa ninguém (uma
             // categoria que deixou de existir, por exemplo). Antes, a seção
             // "Sem e-mail" sumia inteira (só renderiza com gente) e sobrava
@@ -304,11 +465,38 @@ export default async function ContatosPage({
             </div>
           ) : (
             <>
-              {/* MANDAR PARA ESTE RECORTE.
-                  Os dois primeiros números são fato; o terceiro é palpite, e a
-                  palavra "provavelmente" fica na tela por isso. Ele NÃO é subtraído
-                  dos outros dois: quem é improvável continua dentro de "esperam". */}
-              <form action={enviarLote} className={`space-y-3 p-4 ${subtle}`}>
+              {/* MANDAR PARA ESTE RECORTE — E ELE FICA FECHADO ATÉ ALGUÉM PEDIR.
+                  
+                  ACHADO D4 DA AUDITORIA: este formulário era a PRIMEIRA coisa da
+                  página, montado, com "todos (125)" pré-selecionado e o botão
+                  "Enviar" visível sem rolar. Quem abria Contatos para OLHAR
+                  contatos encontrava um disparo para 125 pessoas armado, a um
+                  clique da única barreira que existia (a confirmação).
+
+                  `<details>` e não um botão de cliente: ele é um controle de
+                  divulgação de verdade — teclado e leitor de tela já o
+                  entendem —, não custa nenhum `"use client"` novo e não mexe em
+                  uma linha da ação de servidor. A confirmação obrigatória
+                  continua onde estava; o que muda é que agora são DOIS gestos
+                  deliberados até o envio, e nenhum deles acontece por rolagem.
+
+                  E ele encolhe a página, que é metade do achado M6: `/contatos`
+                  media 8777px, e este bloco é a maior peça fixa dela. */}
+              <details className={`group ${subtle}`}>
+                {/* O ANEL DE FOCO É O MESMO DOS BOTÕES. `list-none` tira o
+                    triângulo e, sem isto, sobrava o `outline auto 1px` do
+                    navegador — o mesmo fio de baixo contraste que o achado D8
+                    tirou da barra lateral. E ele ficou justamente no controle
+                    que abre o disparo em massa. */}
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl p-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:focus-visible:ring-acao-escuro/25">
+                  <span>
+                    Mandar mensagem para {visiveis.length}{" "}
+                    {visiveis.length === 1 ? "pessoa" : "pessoas"}
+                  </span>
+                  <span className={`text-xs ${muted} group-open:hidden`}>abrir</span>
+                  <span className={`hidden text-xs ${muted} group-open:inline`}>fechar</span>
+                </summary>
+              <form action={enviarLote} className="space-y-3 border-t border-traco p-4 dark:border-traco-escuro">
                 {/* O CAMPO CARREGA A FORMA DO FILTRO, E NÃO O VALOR CRU DA URL.
                     Com `sp.categoria ?? ""`, a ficha "sem categoria"
                     (`?categoria=` vazio) e "todos" (`?categoria=` ausente)
@@ -318,24 +506,28 @@ export default async function ContatosPage({
                     prometia 16 e a ação enfileirava para 126. Ver `campoDoFiltro`
                     (lib/lote.ts). */}
                 <input type="hidden" name="categoria" value={campoDoFiltro(filtro)} />
-                <p className="text-sm font-medium">
-                  Mandar mensagem para {visiveis.length}{" "}
-                  {visiveis.length === 1 ? "pessoa" : "pessoas"}
-                </p>
-                <ul className={`text-xs ${muted}`}>
-                  <li>{destino.agora.length} recebem agora</li>
-                  <li>{destino.esperam.length} quando voltarem a falar</li>
-                  {/* O TEXTO CONTA O QUE `destinoDoLote` CONTA, e não outra
-                      coisa: ela soma `recebidas <= 1` — zero OU uma —, e quem
-                      tem zero nunca escreveu (chegou por comentar num post),
-                      que é o caso MAIS forte de "provavelmente nunca". A frase
-                      dizia "falaram uma única vez" e deixava esses de fora do
-                      que o número já incluía. O comentário de `lib/lote.ts` foi
-                      corrigido antes; a tela é a outra metade. */}
-                  <li>
-                    {destino.improvaveis} provavelmente nunca — nunca falaram, ou falaram uma
-                    única vez
-                  </li>
+                {/* O ALCANCE, EM DOIS IRMÃOS E UMA ANOTAÇÃO — achado D5.
+                    Antes eram três itens iguais empilhados, somando 181 de 125
+                    pessoas: `improvaveis` é RECORTE de `esperam` (ver
+                    `destinoDoLote`, que só o incrementa dentro daquele ramo), e
+                    três irmãos leem como três partes de um todo.
+
+                    A forma vem de `linhasDoDestino` (lib/lote.ts) e os casos de
+                    `tests/lote.test.ts` prendem as duas igualdades. Esta tela
+                    não decide mais quem contém quem — ela só RECUA o que a
+                    função marcou como aninhado. */}
+                <ul className={`space-y-0.5 text-xs ${muted}`}>
+                  {linhasDoDestino(destino).map((l) => (
+                    <li
+                      key={l.chave}
+                      className={l.aninhada ? "ml-4 border-l border-traco pl-2.5 dark:border-traco-escuro" : ""}
+                    >
+                      <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+                        {l.n}
+                      </span>{" "}
+                      {l.texto}
+                    </li>
+                  ))}
                 </ul>
                 <textarea name="texto" required rows={3} className={`w-full ${input}`}
                   placeholder="O que você quer dizer" />
@@ -364,12 +556,13 @@ export default async function ContatosPage({
                 </label>
                 <button type="submit" className={btnPrimary}>Enviar</button>
               </form>
+              </details>
 
               <section>
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h2 className="flex items-center gap-2 text-lg font-bold">
-                      <IconMail className="h-4 w-4 text-indigo-500" />
+                    <h2 className="titulo flex items-center gap-2 text-lg font-bold">
+                      <IconMail className="h-4 w-4 text-quieto dark:text-quieto-escuro" />
                       Com e-mail
                     </h2>
                     <p className={`text-sm ${muted}`}>
@@ -385,7 +578,19 @@ export default async function ContatosPage({
                     // fichas o monta: este botão fica embaixo da frase que conta
                     // o filtro, e baixava a conta inteira.
                     <a
-                      href={urlComFiltro("/api/contatos/csv", filtro)}
+                      /* O ENDEREÇO CARREGA A BUSCA TAMBÉM, e não só a
+                         categoria. Sem isso a tela dizia "1 pessoa — pronta
+                         para sua lista" e o botão logo abaixo baixava os 40 da
+                         categoria: frase e botão discordando sobre o mesmo
+                         clique. A rota aplica as duas peneiras na mesma ordem,
+                         com as MESMAS funções. */
+                      href={
+                        busca
+                          ? `${urlComFiltro("/api/contatos/csv", filtro)}${
+                              urlComFiltro("/api/contatos/csv", filtro).includes("?") ? "&" : "?"
+                            }q=${encodeURIComponent(busca)}`
+                          : urlComFiltro("/api/contatos/csv", filtro)
+                      }
                       className={btnGhost}
                       download
                     >
@@ -393,13 +598,20 @@ export default async function ContatosPage({
                     </a>
                   )}
                 </div>
-                {comEmail.length > 0 && <Tabela rows={comEmail} comEmail />}
+                {comEmail.length > 0 && (
+                  <Tabela
+                    rows={comEmail}
+                    comEmail
+                    limite={linhas}
+                    maisHref={maisLinhas}
+                  />
+                )}
               </section>
 
               {semEmail.length > 0 && (
                 <section>
                   <div className="mb-4">
-                    <h2 className="flex items-center gap-2 text-lg font-bold">
+                    <h2 className="titulo flex items-center gap-2 text-lg font-bold">
                       <IconUsers className="h-4 w-4 text-zinc-400" />
                       Sem e-mail
                     </h2>
@@ -408,7 +620,12 @@ export default async function ContatosPage({
                       interagiram mas não informaram e-mail
                     </p>
                   </div>
-                  <Tabela rows={semEmail} comEmail={false} />
+                  <Tabela
+                    rows={semEmail}
+                    comEmail={false}
+                    limite={linhas}
+                    maisHref={maisLinhas}
+                  />
                 </section>
               )}
             </>

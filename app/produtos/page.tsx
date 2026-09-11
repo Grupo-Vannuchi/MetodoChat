@@ -13,7 +13,7 @@ function Marca({ nome }: { nome: string }) {
   return (
     <span
       aria-hidden="true"
-      className="flex h-12 w-12 flex-none items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-base font-bold tracking-tight text-white"
+      className="flex h-12 w-12 flex-none items-center justify-center rounded-2xl bg-tinta text-base font-bold tracking-tight text-papel dark:bg-tinta-escuro dark:text-papel-escuro"
     >
       {iniciais}
     </span>
@@ -25,13 +25,13 @@ function CardProduto({ p }: { p: Produto }) {
     <div className={`${card} ${cardHover} flex h-full flex-col p-5`}>
       <div className="flex items-center gap-3.5">
         <Marca nome={p.nome} />
-        <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-zinc-900 dark:text-zinc-50">
+        <h2 className="titulo text-base font-semibold tracking-[-0.01em] text-zinc-900 dark:text-zinc-50">
           {p.nome}
         </h2>
       </div>
 
       {p.descricao && (
-        <p className={`mt-4 text-[13px] leading-relaxed ${muted}`}>{p.descricao}</p>
+        <p className={`mt-4 text-sm leading-relaxed ${muted}`}>{p.descricao}</p>
       )}
 
       {/* o botão fica colado na base, para os cards alinharem mesmo quando as
@@ -71,7 +71,7 @@ export default function LojaPage() {
           href="https://instagram.com/n8xmarketing"
           target="_blank"
           rel="noreferrer noopener"
-          className="font-medium text-indigo-600 underline underline-offset-2 dark:text-indigo-400"
+          className="font-medium text-tinta underline decoration-quieto/50 underline-offset-2 dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
         >
           @n8xmarketing
         </a>

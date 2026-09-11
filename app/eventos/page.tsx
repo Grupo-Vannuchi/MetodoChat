@@ -1,7 +1,7 @@
 import { sql, QueueItem } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
-import { card, muted, tableWrap, thead, rowDivide } from "../ui";
+import { card, muted, tableWrap, thead, rowDivide, btnGhost } from "../ui";
 import {
   eventBadge,
   kindLabel,
@@ -20,7 +20,13 @@ import FiltrosEnvios from "./filtros-envios";
 import DonoDosFiltros, { Carregando, LimparSecao } from "./filtros-dono";
 import { dataDaLinhaDeEnvio, fraseDaDataDaLinha } from "@/lib/publicacao";
 import { resolvePosts, type PostRef } from "@/lib/media-lookup";
-import { EVENTS_LIMIT, parseFilters, hasFilters } from "@/lib/event-filters";
+import {
+  PASSO_DO_FEED,
+  MAX_DO_FEED,
+  quantosEventos,
+  parseFilters,
+  hasFilters,
+} from "@/lib/event-filters";
 import { EVENTS_FROM, buildWhere, postsComEventos } from "@/lib/event-query";
 import {
   ENVIOS_LIMIT,
@@ -61,6 +67,12 @@ export default async function EventosPage({
   const account = await getSelectedAccount();
   const params = await searchParams;
   const filtros = parseFilters(params);
+  // QUANTOS EVENTOS ESTA PÁGINA TRAZ. Ele vem da barra de endereço e NÃO de
+  // `FiltrosDaPagina` — ver `quantosEventos` (lib/event-filters.ts) para o
+  // porquê: fora do estado dos filtros, mudar qualquer filtro o descarta
+  // sozinho e o feed volta à primeira página, que é o certo quando o recorte
+  // muda.
+  const quantos = quantosEventos(params.ver);
   const envios = parseEnvioFilters(params);
   const where = account ? buildWhere(account.ig_user_id, filtros) : null;
   const whereEnvios = account ? buildEnviosWhere(account.ig_user_id, envios) : null;
@@ -79,7 +91,7 @@ export default async function EventosPage({
                     coalesce(cf.profile_pic, cs.profile_pic) as person_pic
              ${EVENTS_FROM}
              where ${where.sql}
-             order by e.created_at desc limit ${EVENTS_LIMIT}`,
+             order by e.created_at desc limit ${quantos}`,
             where.params
           ),
           // Ordena pela MESMA data que a linha mostra, e não por created_at:
@@ -147,7 +159,7 @@ export default async function EventosPage({
             {/* O título antigo dizia "Tudo que o robô mandou por você", e 20 das
                 28 linhas eram resposta digitada pelo dono na caixa de entrada. A
                 lista é das DUAS origens, e agora diz isso. */}
-            <h1 className="text-2xl font-bold">Tudo que saiu da sua conta</h1>
+            <h1 className="titulo text-2xl font-bold">Tudo que saiu da sua conta</h1>
             <p className={`mt-1 text-sm ${muted}`}>
               O que o robô enviou por você e o que você mesmo respondeu — e o que ainda está a
               caminho.
@@ -179,7 +191,7 @@ export default async function EventosPage({
                     {/* Limpa só os filtros DESTA seção: os da de baixo seguem. */}
                     <LimparSecao
                       secao="envios"
-                      className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+                      className="font-semibold text-tinta underline decoration-quieto/50 underline-offset-2 hover:decoration-tinta dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
                     />
                   </>
                 ) : (
@@ -201,7 +213,13 @@ export default async function EventosPage({
                   </thead>
                   <tbody className={rowDivide}>
                     {queue.map((q) => {
-                      const badge = statusBadge(q.status);
+                      // O MOTIVO VAI JUNTO DO STATUS, e é ele que separa os
+                      // dois fatos que `skipped` guarda: o SISTEMA pulou (janela
+                      // de 24h fechada, lote vencido) e o DONO cancelou. Até
+                      // 10/09/2026 a linha do post cancelado dizia "Não
+                      // enviada", que lê como falha sobre uma decisão de quem
+                      // está lendo a tela. Ver `statusBadge` (app/labels.ts).
+                      const badge = statusBadge(q.status, q.error);
                       const erro = friendlyError(q.error);
                       // A coluna "Situação" saiu: 28 de 28 linhas diziam "Entregue".
                       // Ela virou filtro, e a contagem lá em cima diz o placar
@@ -229,7 +247,7 @@ export default async function EventosPage({
                                 src={q.person_pic}
                                 name={paraQuem}
                                 className="h-6 w-6"
-                                textClassName="text-[10px]"
+                                textClassName="text-[11px]"
                               />
                               <span className="truncate font-medium">{paraQuem}</span>
                             </div>
@@ -239,7 +257,7 @@ export default async function EventosPage({
                               {kindLabel(q.kind)}
                               {!normal && <span className={badge.className}>{badge.label}</span>}
                             </span>
-                            {erro && <p className="max-w-md text-xs text-zinc-500">{erro}</p>}
+                            {erro && <p className={`max-w-md text-xs ${muted}`}>{erro}</p>}
                           </td>
                           <td className={`whitespace-nowrap px-3 py-1.5 text-xs ${muted}`}>
                             {/* A FRASE VEM DE `fraseDaDataDaLinha`, e ate
@@ -266,7 +284,7 @@ export default async function EventosPage({
 
         <section className="space-y-4">
           <div>
-            <h2 className="text-xl font-bold">O que aconteceu no seu Instagram</h2>
+            <h2 className="titulo text-xl font-bold">O que aconteceu no seu Instagram</h2>
             <p className={`mt-1 text-sm ${muted}`}>
               Cada comentário, story respondido e mensagem que chegou até você.
             </p>
@@ -277,7 +295,7 @@ export default async function EventosPage({
                   <b className="font-semibold">{total}</b>{" "}
                   {total === 1 ? "interação" : "interações"}
                   {filtrando && " neste recorte"}
-                  {total > EVENTS_LIMIT && ` · mostrando as ${EVENTS_LIMIT} mais recentes`}
+                  {total > quantos && ` · mostrando as ${quantos} mais recentes`}
                 </p>
               </Carregando>
             )}
@@ -296,7 +314,7 @@ export default async function EventosPage({
                     {/* Limpa só os filtros DESTA seção: os da de cima seguem. */}
                     <LimparSecao
                       secao="eventos"
-                      className="font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+                      className="font-semibold text-tinta underline decoration-quieto/50 underline-offset-2 hover:decoration-tinta dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
                     />
                   </>
                 ) : (
@@ -323,12 +341,12 @@ export default async function EventosPage({
                               src={e.person_pic}
                               name={quem}
                               className="h-5 w-5"
-                              textClassName="text-[9px]"
+                              textClassName="text-[11px]"
                             />
                             @{quem}
                           </span>
                         )}
-                        <span className="ml-auto text-xs text-zinc-500">
+                        <span className={`ml-auto text-xs ${muted}`}>
                           {fmtDate(e.created_at)}
                         </span>
                       </div>
@@ -342,7 +360,7 @@ export default async function EventosPage({
                       {media && <PostLine kind={media.kind} post={posts.get(media.id) ?? null} />}
 
                       <details className="mt-2">
-                        <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
+                        <summary className={`cursor-pointer text-xs ${muted} hover:text-zinc-900 dark:hover:text-zinc-100`}>
                           Ver detalhes técnicos
                         </summary>
                         <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-100 p-3 text-xs text-zinc-700 dark:bg-zinc-950 dark:text-zinc-400">
@@ -355,6 +373,52 @@ export default async function EventosPage({
               </ul>
             )}
           </Carregando>
+
+          {/* CARREGAR MAIS — achado M6, e o link é deliberadamente um `<Link>`
+              comum e não um botão do dono dos filtros.
+
+              `lib/eventos-url.ts` avisa que esta página já teve DOIS escritores
+              para a mesma URL, e que o conserto foi centralizar tudo em
+              `DonoDosFiltros`. Este link não reabre aquela porta porque `ver`
+              NÃO é um campo daquele estado: o dono nunca o escreve e nunca o
+              lê, então não há o que um sobrescrever do outro. O que acontece —
+              e é o comportamento certo — é que trocar um filtro reconstrói a
+              URL por `queryDaPagina`, que não conhece `ver`, e o feed volta à
+              primeira página.
+
+              O `href` carrega os filtros do render do servidor. Clicar aqui
+              durante uma navegação de filtro em voo é a mesma corrida de
+              clicar qualquer link no meio de uma navegação, e o desfecho é
+              benigno: uma das duas vence inteira. */}
+          {/* O BOTÃO SOME QUANDO NÃO HÁ MAIS O QUE CARREGAR, e isso é conserto
+              de um defeito achado por revisão em 11/09/2026: a condição era só
+              `events.length >= quantos`, e `quantosEventos` corta em
+              MAX_DO_FEED. Numa conta com 300 eventos a pessoa clicava sete
+              vezes até `ver=200`, o botão continuava desenhado, e a oitava
+              recarregava a página inteira para devolver exatamente os mesmos
+              200. Nada na tela dizia que tinha acabado. */}
+          {account && events.length >= quantos && quantos < MAX_DO_FEED && (
+            /* A ÂNCORA É AQUI, E NÃO `#conteudo`. A primeira versão apontava
+               para o `<main id="conteudo">`, que é o começo do documento: a
+               pessoa rolava 25 eventos, clicava, e o navegador a depositava no
+               `<h1>` — para ver os 25 novos ela rolava de novo os 25 que já
+               tinha lido, a cada clique. */
+            <div id="mais-interacoes" className="flex scroll-mt-24 justify-center pt-1">
+              <a
+                href={`/eventos?${new URLSearchParams({
+                  ...Object.fromEntries(
+                    Object.entries(params).flatMap(([k, v]) =>
+                      k === "ver" || v === undefined ? [] : [[k, Array.isArray(v) ? v[0] : v]]
+                    )
+                  ),
+                  ver: String(quantos + PASSO_DO_FEED),
+                }).toString()}#mais-interacoes`}
+                className={btnGhost}
+              >
+                Carregar mais {PASSO_DO_FEED}
+              </a>
+            </div>
+          )}
         </section>
       </div>
     </DonoDosFiltros>

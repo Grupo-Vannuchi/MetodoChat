@@ -91,10 +91,10 @@ export default function MessageField({
                 type="button"
                 onClick={() => inserir(v.key)}
                 title={v.description}
-                className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-[11px] font-medium text-zinc-700 transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-500"
+                className="rounded-lg border border-traco bg-white px-2 py-1 text-[11px] font-medium text-tinta transition-colors hover:border-tinta dark:border-traco-escuro dark:bg-zinc-900 dark:text-tinta-escuro dark:hover:border-tinta-escuro"
               >
                 {v.label}
-                <span className="ml-1 font-mono text-[10px] text-zinc-400">
+                <span className="ml-1 font-mono text-[11px] text-zinc-600 dark:text-zinc-400">
                   {`{{${v.key}}}`}
                 </span>
               </button>
@@ -104,7 +104,7 @@ export default function MessageField({
       )}
 
       {temVariavel && (
-        <p className="mt-1.5 rounded-lg bg-indigo-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
+        <p className="mt-1.5 rounded-lg bg-traco/40 px-2.5 py-1.5 text-[11px] leading-relaxed text-tinta dark:bg-traco-escuro/60 dark:text-tinta-escuro">
           <span className="font-semibold">Vai chegar assim: </span>
           {previewVariables(value) || "—"}
         </p>

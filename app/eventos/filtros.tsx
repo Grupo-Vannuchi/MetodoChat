@@ -12,7 +12,7 @@ import {
 } from "@/lib/event-filters";
 import { useFiltros } from "./filtros-dono";
 import { eventBadge } from "../labels";
-import { subtle } from "../ui";
+import { subtle, numero } from "../ui";
 
 export type OpcaoPost = { id: string; total: number; thumb: string | null; caption: string | null };
 
@@ -24,9 +24,9 @@ export type OpcaoPost = { id: string; total: number; thumb: string | null; capti
 // mostra o valor novo no clique, e quem espera é a lista.
 
 const controle =
-  "inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-zinc-400 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/15 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300 dark:hover:border-zinc-600";
+  "inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:border-zinc-400 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:focus-visible:ring-acao-escuro/20 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300 dark:hover:border-zinc-600";
 
-const ativo = "border-indigo-500 text-zinc-900 dark:border-indigo-500 dark:text-zinc-100";
+const ativo = "border-acao text-acao dark:border-acao-escuro dark:text-acao-escuro";
 
 export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
   const { filtros: daPagina, atualizar } = useFiltros();
@@ -68,9 +68,9 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
               type="button"
               onClick={() => mudar({ period: p.key })}
               aria-pressed={marcado}
-              className={`rounded-[9px] px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/20 ${
+              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:focus-visible:ring-acao-escuro/25 ${
                 marcado
-                  ? "bg-indigo-500 text-white"
+                  ? "bg-acao text-papel dark:bg-acao-escuro dark:text-papel-escuro"
                   : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
               }`}
             >
@@ -91,10 +91,10 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
           >
             {escolhido?.thumb && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={escolhido.thumb} alt="" className="h-4 w-4 flex-none rounded object-cover" />
+              <img src={escolhido.thumb} alt="" className="h-4 w-4 flex-none rounded-lg object-cover" />
             )}
             <span className="max-w-[10rem] truncate">{rotuloPost}</span>
-            <span aria-hidden="true" className="text-[10px] text-zinc-500">
+            <span aria-hidden="true" className="text-[11px] text-zinc-600 dark:text-zinc-400">
               {abrirPosts ? "▴" : "▾"}
             </span>
           </button>
@@ -103,7 +103,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
               type="button"
               onClick={() => mudar({ post: null })}
               aria-label="Remover filtro de post"
-              className="ml-1 rounded-lg px-1.5 py-1 text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              className="ml-1 rounded-lg px-1.5 py-1 text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
             >
               ×
             </button>
@@ -149,7 +149,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
         <button
           type="button"
           onClick={() => mudar(NO_FILTERS)}
-          className="ml-auto rounded-lg px-2 py-1 text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+          className="ml-auto rounded-lg px-2 py-1 text-xs font-semibold text-tinta underline decoration-quieto/50 underline-offset-2 hover:decoration-tinta dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
         >
           Limpar filtros
         </button>
@@ -158,7 +158,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
       {/* grade de posts */}
       {abrirPosts && (
         <div className="w-full rounded-xl border border-zinc-300 bg-white p-2.5 dark:border-zinc-700 dark:bg-zinc-950/60">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-zinc-500">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-zinc-600 dark:text-zinc-400">
             Posts com interação
           </p>
           <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
@@ -173,7 +173,7 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
                 <span
                   className={`block aspect-square overflow-hidden rounded-lg border ${
                     filtros.post === p.id
-                      ? "border-indigo-500 ring-2 ring-indigo-500/30"
+                      ? "border-acao ring-2 ring-acao/30 dark:border-acao-escuro dark:ring-acao-escuro/30"
                       : "border-zinc-200 dark:border-zinc-700"
                   }`}
                 >
@@ -181,12 +181,12 @@ export default function Filtros({ posts }: { posts: OpcaoPost[] }) {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={p.thumb} alt="" className="h-full w-full object-cover" />
                   ) : (
-                    <span className="flex h-full w-full items-center justify-center text-xs text-zinc-400">
+                    <span className="flex h-full w-full items-center justify-center text-xs text-zinc-600 dark:text-zinc-400">
                       ?
                     </span>
                   )}
                 </span>
-                <span className="text-center text-[9px] tabular-nums text-zinc-500">{p.total}</span>
+                <span className={`text-center text-[11px] text-zinc-600 dark:text-zinc-400 ${numero}`}>{p.total}</span>
               </button>
             ))}
           </div>

@@ -19,7 +19,7 @@ export default function NovaAutomacaoPage() {
     <div className="space-y-6">
       <header>
         <nav className={`mb-2 text-xs ${muted}`}>
-          <Link href="/automacoes" className="transition-colors hover:text-indigo-600">
+          <Link href="/automacoes" className="transition-colors hover:text-tinta dark:hover:text-tinta-escuro">
             Automações
           </Link>
           <span className="mx-1.5">/</span>

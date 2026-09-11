@@ -40,18 +40,18 @@ export default async function SubscriptionStatus() {
             >
               <span className="font-medium">@{s.username ?? s.ig_user_id}</span>
               {s.fields === null ? (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-400">
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-400">
                   não deu para consultar
                 </span>
               ) : ok ? (
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400">
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400">
                   recebendo eventos ✓
                 </span>
               ) : (
                 // DIZ O QUE FALTA, e não só que falta: sem os nomes, o dono lê
                 // "assinatura incompleta" e o único caminho é adivinhar. Com
                 // eles, ele sabe se apertar "Reassinar webhooks" resolve.
-                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-800 dark:bg-red-950 dark:text-red-400">
+                <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-800 dark:bg-red-950 dark:text-red-400">
                   falta assinar: {ausentes.join(", ")}
                 </span>
               )}

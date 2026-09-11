@@ -32,6 +32,27 @@
 // tarde procurando o defeito no lugar errado.
 //
 // -----------------------------------------------------------------------------
+// A SEGUNDA ARMADILHA, IRMÃ DA PRIMEIRA — medida em 10/09/2026.
+//
+// ESTA LEITURA NÃO CHAMA COMPONENTE NENHUM. Ela anda pela árvore que a página
+// DEVOLVEU, e a árvore de um componente filho ainda não foi produzida: o que
+// está ali é o elemento, com a função no `type` (que a leitura não visita, de
+// propósito) e os `props`. Então um `<Calmo autos={1} sent7={0} />` aparece no
+// texto como `autos=1 sent7=0`, e NENHUMA palavra que ele escreveria.
+//
+// O EFEITO É O MESMO DA PRIMEIRA ARMADILHA, e igualmente silencioso: o caso não
+// estoura, ele passa a medir uma tela que não consegue ler. Um `toContain` de
+// uma frase que mora dentro do filho fica vermelho para sempre; um
+// `not.toContain` fica VERDE para sempre — que é o pior dos dois, porque parece
+// uma garantia.
+//
+// A REGRA PRÁTICA: o que um caso de integração precisa LER tem de ser escrito
+// no corpo da página, e não num componente filho. Foi por isso que o estado
+// calmo do Início (app/page.tsx) é escrito inline, e há um comentário lá
+// dizendo exatamente isso. `StatCard` e `SentChart` (app/dashboard-parts.tsx)
+// têm a mesma propriedade — nenhum número deles é legível daqui.
+//
+// -----------------------------------------------------------------------------
 // ENTÃO A LEITURA DESCE PELA ÁRVORE, e não pelo objeto.
 //
 // Ela junta o texto, a `key` e os `props` de valor simples, e NÃO VISITA O

@@ -2,3 +2,164 @@
 
 /* Tema claro/escuro por classe: .dark no <html> (persistida em localStorage) */
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* ==========================================================================
+   A PALETA NOMEADA — oito papéis, e cada um com o par do tema escuro.
+   ==========================================================================
+
+   POR QUE NOMEADA, e não `zinc-500`: o nome é metade do conserto. `zinc-500`
+   não avisa ninguém de que reprova em 4,5:1 sobre metade dos fundos deste
+   produto — foi exatamente assim que o achado D3 entrou. `text-quieto` diz o
+   que é, e quem for mexer nele vê, ao lado, o número que ele tem de manter.
+
+   POR QUE CADA COR TEM UM PAR `-escuro`, E O SUFIXO NOMEIA O TEMA E NÃO O
+   TOM: a regra do `tomQuieto` (Onda 3) diz que nenhuma cor de texto usa o
+   MESMO valor nos dois temas — texto que não troca de tema erra num dos dois
+   SEMPRE, porque o fundo mudou e ele não. `tinta-escuro` é a tinta DO TEMA
+   ESCURO, e por isso é CLARA (#F4F2EE); `papel-escuro` é o papel do tema
+   escuro, e por isso é quase preto. O par existe para os sete, e não só para
+   os que hoje pintam texto: `traco` e `papel` ganham o seu porque uma paleta
+   com regra pela metade é uma paleta sem regra.
+
+   OS NÚMEROS AO LADO DE CADA COR SÃO MEDIDOS, e o portão é
+   `tests/paleta.test.ts`: ele recalcula cada um contra os fundos REAIS do
+   produto (`FUNDOS`, em `tests/medidor.ts`) e reprova se algum comentário
+   daqui virar mentira. O "pior" é o menor contraste entre TODOS os fundos do
+   tema — no claro quase sempre `bg-zinc-100` (o balão recebido, o fundo claro
+   mais escuro); no escuro sempre `bg-zinc-800` (o balão recebido, o fundo
+   escuro mais claro).
+
+   O QUE ESTA PALETA NÃO FAZ: inventar tom de superfície. `papel` é o fundo da
+   PÁGINA; o cartão continua branco e as superfícies internas continuam na
+   rampa `zinc` que já estava lá. Trocar as quinze superfícies do produto sem
+   poder renderizar nenhuma delas seria mudança sem prova — e `papel`
+   (#FBFAF8) e `zinc-50` (#FAFAFA) diferem em 2/255 num canal, então a mistura
+   não produz choque de temperatura. Quando houver como ver a tela, a rampa de
+   superfície entra.
+
+   VERDE, ÂMBAR E VERMELHO FICAM COM O SIGNIFICADO QUE TÊM. `aberto`, `fecha` e
+   `parou` são os nomes deles, e não cores novas.
+
+   O OITAVO PAPEL É `acao`, e ele entrou DEPOIS — ver o comentário dele. Ele é
+   o único que pinta SUPERFÍCIE e ainda assim declara pior caso de texto: passa
+   os 4,5:1 contra os quinze fundos, então serve de tinta onde a ação for texto
+   (ícone, chip ativo, contorno de foco) sem virar uma segunda cor para o mesmo
+   papel.
+   -------------------------------------------------------------------------- */
+
+@theme {
+  /* --- o papel: fundo da página ------------------------------------------ */
+  /* branco morno, e NÃO creme (#F4F1EA seria creme; este é 2 pontos de azul
+     abaixo do branco). Contraste da `tinta` sobre ele: 17,26:1. */
+  --color-papel: #fbfaf8; /* fundo */
+  /* quase preto morno, e não preto puro. O cartão (`bg-zinc-900/70`) sobre ele
+     fica em 1,07:1 — era 1,11:1 sobre `bg-black`, e a separação do cartão
+     nunca dependeu desse número: depende da borda. */
+  --color-papel-escuro: #0b0a0e; /* fundo */
+
+  /* --- a tinta: o texto normal ------------------------------------------- */
+  /* O ÍNDIGO SAIU DAQUI, e por uma versão a AÇÃO também morou nesta cor. Ela
+     não mora mais: `acao` (abaixo) é o preenchimento do botão, e a tinta voltou
+     a ser só o que sempre foi — o texto que se lê.
+     Pior caso claro: 16,38:1 (sobre `bg-zinc-100`). */
+  --color-tinta: #17161a; /* pior 16,38 */
+  /* Pior caso escuro: 13,32:1 (sobre `bg-zinc-800`). */
+  --color-tinta-escuro: #f4f2ee; /* pior 13,32 */
+
+  /* --- a ação: o preenchimento do botão que faz alguma coisa -------------- */
+  /* O PETRÓLEO, E POR QUE ELE EXISTE DEPOIS DE A PARTE 1 TER DITO QUE A AÇÃO
+     ERA A PRÓPRIA TINTA. A tinta funcionou como conserto do índigo e falhou
+     como escolha: no tema escuro o botão vira uma pastilha BRANCA, e branco é
+     tão genérico quanto o índigo que saiu — só que sem a culpa de ser marca.
+     O dono viu isso na prévia e disse, com estas palavras: "acho que o branco
+     é uma cor meio genérica também; alguma cor mista seria melhor".
+
+     MISTA É LITERAL: 194° é azul puxado para o verde, e nenhum dos dois puro.
+     Não é o azul de painel (217° é a ardósia de todo SaaS) nem o índigo que a
+     varredura mantém fora (286°). O que decidiu foi distância de matiz e
+     contraste medido, não gosto.
+
+     POR QUE ELE NÃO COLIDE COM `aberto`, que também é frio: 52° de matiz de
+     distância — e as duas nunca têm a mesma FORMA. `aberto` é pílula pequena
+     com ponto; `acao` é preenchimento de botão com rótulo. A regra da spec
+     continua de pé e agora está dita inteira: a cor SINALIZA estado e não
+     pinta superfície, e a superfície da ação é a única exceção, declarada.
+
+     A INVERSÃO ENTRE OS TEMAS É A MESMA DA TINTA: no claro o preenchimento é
+     escuro com rótulo `papel` (10,75:1); no escuro é claro com rótulo
+     `papel-escuro` (9,12:1). É o que mantém o botão sendo o elemento de maior
+     contraste da tela nos dois temas — o que a pastilha branca acertava, e a
+     única coisa que ela acertava.
+
+     O TOM CLARO FOI CORRIGIDO DEPOIS DE VER A TELA. A primeira escolha
+     (#14404E) media bem e LIA como preto: contra a tinta ela ficava em 1,61:1,
+     ou seja, indistinguível do texto ao lado. Cor que não se vê não responde ao
+     pedido que a criou. Este tom tem o MESMO croma do par escuro (0,32 contra
+     0,33), então a cor tem a mesma intensidade nos dois temas — o que o par
+     anterior não tinha —, e fica em 2,34:1 da tinta.
+
+     Pior caso claro: 7,02:1 (sobre `bg-zinc-100`). */
+  --color-acao: #1a5a6c; /* pior 7,02 */
+  /* Pior caso escuro: 6,88:1 (sobre `bg-zinc-800`). */
+  --color-acao-escuro: #78bacd; /* pior 6,88 */
+
+  /* --- o traço: fio, borda, divisor -------------------------------------- */
+  /* NÃO É TEXTO, então o mínimo de 4,5:1 não se aplica; o que se mede aqui é
+     visibilidade de fio. `traco` sobre branco dá 1,32:1, contra 1,27:1 do
+     `zinc-200` que ele substitui nos cartões — o fio fica um pouco MAIS
+     visível. Sobre os controles de formulário ele troca `zinc-300` (1,48:1)
+     por 1,32:1, e essa é a única perda medida desta paleta: está declarada no
+     relatório, junto da proposta de um `traco-forte` para a Parte 2. Nenhum
+     dos dois alcança os 3:1 que a WCAG 1.4.11 pede para contorno de controle,
+     e isso é dívida herdada, não introduzida aqui. */
+  --color-traco: #e3e0da; /* fio */
+  /* 1,35:1 sobre o cartão escuro, contra 1,21:1 do `zinc-800` de antes. */
+  --color-traco-escuro: #302e33; /* fio */
+
+  /* --- o quieto: legenda, dica, cabeçalho de tabela, rótulo -------------- */
+  /* O TOM DO TEXTO QUIETO, que é o conserto do achado D3 e continua sendo UM
+     SÓ. Pior caso claro: 5,05:1 (sobre `bg-zinc-100`). Era 7,02:1 com
+     `zinc-600`; o mínimo é 4,5:1, e a margem que sobra é 0,55. */
+  --color-quieto: #6b6862; /* pior 5,05 */
+  /* Pior caso escuro: 5,71:1 (sobre `bg-zinc-800`). O `zinc-400` que ele
+     substitui dava 5,68:1 — mesma luminância, temperatura diferente. */
+  --color-quieto-escuro: #a3a09a; /* pior 5,71 */
+
+  /* --- os três estados --------------------------------------------------- */
+  /* janela aberta, deu certo. Pior caso claro 4,56:1; escuro 8,55:1. */
+  --color-aberto: #15803d; /* pior 4,56 */
+  --color-aberto-escuro: #4ade80; /* pior 8,55 */
+  /* prazo curto, atenção. Pior caso claro 4,57:1; escuro 8,92:1. */
+  --color-fecha: #b45309; /* pior 4,57 */
+  --color-fecha-escuro: #fbbf24; /* pior 8,92 */
+  /* falhou. Pior caso claro 5,89:1; escuro 5,38:1. */
+  --color-parou: #b91c1c; /* pior 5,89 */
+  --color-parou-escuro: #f87171; /* pior 5,38 */
+
+  /* ========================================================================
+     AS TRÊS FAMÍLIAS. A Sora saiu: é agradável, e é a fonte que aparece em
+     todo modelo de SaaS — ela era metade do "ar de modelo" que a auditoria
+     mediu. As variáveis `--fonte-*` são declaradas por `next/font/google` em
+     `app/layout.tsx`, e é de lá que vêm os arquivos (auto-hospedados, sem
+     pedido ao Google no navegador).
+
+     `--font-sans` e `--font-mono` são as chaves que o próprio Tailwind usa
+     como padrão do documento (`--default-font-family`), então sobrescrevê-las
+     aqui troca a fonte do produto inteiro sem passar por nenhuma classe.
+     ------------------------------------------------------------------------ */
+  --font-sans: var(--fonte-texto), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  --font-mono: var(--fonte-mono), ui-monospace, "SFMono-Regular", "Consolas", monospace;
+  --font-titulo: var(--fonte-titulo), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* O CORTE EXPANDIDO DA ARCHIVO, que é o motivo inteiro de ela ter sido
+   escolhida: "cara de placa, de quadro de operação". Expandido é um EIXO
+   (`wdth`, de 62 a 125), e não um peso — nenhum corte estático da Archivo o
+   tem. Por isso ela entra como fonte variável com o eixo pedido, e por isso o
+   ajuste vive numa utilidade e não numa classe de peso.
+   112 é expandido o bastante para o título mudar de cara sem virar cartaz. */
+@utility titulo {
+  font-family: var(--font-titulo);
+  font-variation-settings: "wdth" 112;
+}

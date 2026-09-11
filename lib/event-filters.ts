@@ -3,7 +3,42 @@
 // mesmas listas, senão navegador e servidor discordariam do que é válido.
 // A tradução para SQL fica em lib/event-query.ts, que não sai do servidor.
 
-export const EVENTS_LIMIT = 50;
+// O TAMANHO DO FEED, QUE PASSOU A CRESCER SOB PEDIDO — achado M6.
+//
+// MEDIDO EM 11/09/2026, na conta de produção: `/eventos` tinha 7518px, e 6580
+// deles eram a lista de 50 eventos. Cada cartão mede 132px em média porque ele
+// carrega o que interessa — selo, quem, quando, O TEXTO DO COMENTÁRIO, onde, e
+// o JSON recolhido. Encurtar o cartão custaria justamente o texto, então o que
+// sobra é mostrar menos de uma vez.
+//
+// `EVENTS_LIMIT` VIROU O PASSO, e não o teto: a primeira página traz 25 e o
+// link "carregar mais" pede 25 a mais. O teto existe para a barra de endereço
+// não virar entrada de número arbitrário — `?ver=99999` devolveria a consulta
+// inteira para quem digitasse.
+export const PASSO_DO_FEED = 25;
+export const MAX_DO_FEED = 200;
+
+/**
+ * Quantos eventos a página traz, lido da barra de endereço.
+ *
+ * ELE NÃO MORA EM `EventFilters`, e isso é decisão. `lib/eventos-url.ts`
+ * documenta que esta página já teve DOIS ESCRITORES para a mesma URL e que o
+ * conserto foi centralizar tudo em `DonoDosFiltros`. Pôr o tamanho do feed lá
+ * dentro faria toda troca de filtro ter de decidir o que fazer com ele; deixá-lo
+ * FORA faz o certo sozinho — `queryDaPagina` não o conhece, então mudar
+ * qualquer filtro o descarta e o feed volta à primeira página, que é o que tem
+ * de acontecer quando o recorte muda.
+ *
+ * Valor ilegível, ausente ou menor que o passo cai no passo. Acima do teto, no
+ * teto. Não arredonda para múltiplo do passo de propósito: um `?ver=30` digitado
+ * à mão é um pedido legítimo de 30.
+ */
+export function quantosEventos(bruto: string | string[] | undefined): number {
+  const texto = Array.isArray(bruto) ? bruto[0] : bruto;
+  const n = Number(texto);
+  if (!Number.isFinite(n)) return PASSO_DO_FEED;
+  return Math.min(MAX_DO_FEED, Math.max(PASSO_DO_FEED, Math.floor(n)));
+}
 export const SEARCH_MAX_LENGTH = 80;
 
 export const PERIODS = [

@@ -105,10 +105,10 @@ export default function No({ id, data, isConnectable }: NodeProps & { data: Dado
   // = ninguém passa sem cumprir; verde-azulado = pede uma informação e para até
   // recebê-la, mas quem chegar do outro lado por outro caminho passa.
   //
-  // A cor do e-mail é TEAL e não violeta, e a escolha é por distância do
-  // indigo da seleção: o bloco selecionado já é indigo, e um violeta ao lado
+  // A cor do e-mail é TEAL, e a escolha é por distância da cor da seleção: o
+  // bloco selecionado é desenhado com a TINTA, e um tom vizinho ao lado
   // dele viraria "qual destes está selecionado?". Teal não colide com nenhuma
-  // das outras quatro — vermelho (erro), indigo (selecionado), âmbar (portão),
+  // das outras quatro — vermelho (erro), tinta (selecionado), âmbar (portão),
   // cinza (o resto) — nem com o sky que o nó de gatilho vai usar na Tarefa 7.
   //
   // `pedir_email` PARA o fluxo do mesmo jeito (`esperaResposta` diz sim aos
@@ -120,7 +120,7 @@ export default function No({ id, data, isConnectable }: NodeProps & { data: Dado
   const borda = data.temErro
     ? "border-red-500 dark:border-red-400"
     : data.selecionado
-      ? "border-indigo-500 dark:border-indigo-400"
+      ? "border-tinta dark:border-tinta-escuro"
       : barraDeVerdade
         ? "border-amber-500/70 dark:border-amber-400/70"
         : pedeInformacao

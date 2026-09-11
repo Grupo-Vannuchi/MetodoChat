@@ -1,9 +1,11 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { windowState, formatWindowLeft } from "@/lib/inbox-window";
+import { windowState } from "@/lib/inbox-window";
+import { urgenciaDaJanela, legendaDoPrazo } from "@/lib/precisa-de-voce";
+import { TracoDaJanela } from "../traco-da-janela";
 import { fmtRelative, semPrefixo } from "@/lib/format";
-import { muted, badgeOk } from "../ui";
+import { muted, numero } from "../ui";
 import Avatar from "../avatar";
 import { badgeDaConversa } from "@/lib/inbox-badge";
 import { semCategoria } from "@/lib/categorias";
@@ -62,12 +64,41 @@ export default function Lista({
             <Link
               href={`/conversas/${c.ig_id}`}
               aria-current={aberta ? "page" : undefined}
-              className={`flex items-center gap-3 px-4 py-3 transition-colors ${
+              className={`relative flex items-center gap-3 px-4 py-3 transition-colors ${
                 aberta
-                  ? "bg-indigo-50 dark:bg-indigo-950/40"
+                  ? "bg-traco/40 dark:bg-traco-escuro/60"
                   : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
               }`}
             >
+              {/* O TRAÇO DA JANELA, EM PÉ — a assinatura desta reformulação, e
+                  aqui ela SUBSTITUI a pílula verde que ficava ao lado do nome.
+                  A pílula tratava a lei do produto como enfeite e custava ~45px
+                  da linha mais disputada do painel (ver a medição logo abaixo,
+                  dos 224px úteis). O traço aparece em TODAS as linhas — vazio
+                  quando a janela fechou — e por isso forma uma coluna que se lê
+                  de cima a baixo de uma vez.
+
+                  ELE É ABSOLUTO, E ISSO FOI MEDIDO. Na primeira versão ele era
+                  um item do flex, e custava 3px mais os 12 do `gap` — de AMBAS
+                  as linhas. A de cima ganhou os ~45px da pílula e sobrou; a de
+                  BAIXO só perdeu, e as datas voltaram a truncar: 2 das 50, onde
+                  a medição registrada logo abaixo dizia 1. Fora do fluxo ele
+                  custa ZERO largura, então a linha de baixo fica byte por byte
+                  como estava e a de cima fica com a folga da pílula. */}
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-y-2.5 left-0 flex w-[3px]"
+              >
+                {/* O RÓTULO É OBRIGATÓRIO AQUI, e é a diferença desta tela: em
+                    nenhum outro lugar desta linha a janela é dita em texto. Ver
+                    o cabeçalho de `traco-da-janela.tsx`. */}
+                <TracoDaJanela
+                  msLeft={janela.msLeft}
+                  urgencia={urgenciaDaJanela(janela.msLeft)}
+                  orientacao="em-pe"
+                  rotulo={legendaDoPrazo(janela.msLeft)}
+                />
+              </span>
               <Avatar
                 src={c.profile_pic}
                 name={c.name ?? c.username ?? "?"}
@@ -85,13 +116,6 @@ export default function Lista({
                   <p className="min-w-0 flex-1 truncate text-sm font-medium">
                     {c.name?.trim() || (c.username ? `@${c.username}` : "Visitante")}
                   </p>
-                  {/* Só destaca o que exige ação. "Só leitura" é o estado da
-                      maioria das conversas antigas e viraria ruído em todas. */}
-                  {janela.open && (
-                    <span className={`${badgeOk} shrink-0`}>
-                      {formatWindowLeft(janela.msLeft)}
-                    </span>
-                  )}
                 </div>
                 {/* `min-w-0` AQUI E `truncate` NA DATA, e a escolha de QUEM cede é
                     a decisão desta linha — medida antes, não estimada.
@@ -142,7 +166,7 @@ export default function Lista({
                   {marca === "contagem" && (
                     <span
                       role="img"
-                      className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-indigo-500 px-1.5 text-[11px] font-semibold tabular-nums text-white"
+                      className={`ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-tinta px-1.5 text-[11px] font-semibold text-papel dark:bg-tinta-escuro dark:text-papel-escuro ${numero}`}
                       aria-label={`${c.nao_lidas} ${c.nao_lidas === 1 ? "mensagem não lida" : "mensagens não lidas"}`}
                     >
                       {c.nao_lidas > 99 ? "99+" : c.nao_lidas}
@@ -151,7 +175,7 @@ export default function Lista({
                   {marca === "ponto" && (
                     <span
                       role="img"
-                      className="ml-auto h-2 w-2 shrink-0 rounded-full bg-indigo-400/70"
+                      className="ml-auto h-2 w-2 shrink-0 rounded-full bg-tinta/70 dark:bg-tinta-escuro/70"
                       aria-label="Ainda sem resposta"
                     />
                   )}

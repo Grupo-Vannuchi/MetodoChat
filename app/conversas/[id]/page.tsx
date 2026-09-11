@@ -9,9 +9,12 @@ import {
   type InboxAttachment,
 } from "@/lib/conversations";
 import { windowState, formatWindowLeft } from "@/lib/inbox-window";
+import { urgenciaDaJanela } from "@/lib/precisa-de-voce";
+import { TracoDaJanela } from "../../traco-da-janela";
 import { fmtDate } from "@/lib/format";
 import { avisoDaUrl } from "@/lib/avisos";
-import { muted, badgeOk, badgeNeutral, input, btnGhost, alertOk, alertError } from "../../ui";
+import { muted, badgeNeutral, input, btnGhost, alertOk, alertError } from "../../ui";
+import { seloDaJanela } from "../../labels";
 import Avatar from "../../avatar";
 import ReplyForm from "./reply-form";
 import AreaMensagens from "./area-mensagens";
@@ -259,8 +262,29 @@ export default async function ConversaPage({
             salvar
           </button>
         </form>
-        <span className={janela.open ? badgeOk : badgeNeutral}>
-          {janela.open ? `responde por ${formatWindowLeft(janela.msLeft)}` : "só leitura"}
+        {/* O TRAÇO DA JANELA, DEITADO — aqui ele fica ao lado do número em vez
+            de substituí-lo, e a diferença com a lista é de tarefa. Na lista se
+            ESCOLHE quem abrir, e o que importa é a comparação entre as linhas,
+            que o traço dá melhor que cinco números. Aqui já se escolheu, e a
+            pergunta passa a ser "dá tempo de escrever isto?" — que só o número
+            responde.
+
+            O traço não aparece com a janela fechada: "só leitura" é um estado,
+            não um prazo, e uma barra vazia ao lado dessa frase sugeriria uma
+            contagem que não existe mais. */}
+        <span className="inline-flex items-center gap-2">
+          {janela.open && (
+            <TracoDaJanela
+              msLeft={janela.msLeft}
+              urgencia={urgenciaDaJanela(janela.msLeft)}
+            />
+          )}
+          {/* O SELO SEGUE A MESMA URGÊNCIA DO TRAÇO (`seloDaJanela`). Antes ele
+              era verde fixo enquanto a janela estivesse aberta, e ficava verde
+              ao lado de um traço âmbar dizendo o contrário sobre o mesmo fato. */}
+          <span className={janela.open ? seloDaJanela(janela.msLeft) : badgeNeutral}>
+            {janela.open ? `responde por ${formatWindowLeft(janela.msLeft)}` : "só leitura"}
+          </span>
         </span>
       </div>
 
@@ -292,7 +316,7 @@ export default async function ConversaPage({
                   ? "self-start bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-100"
                   : falhou
                     ? "self-end border border-red-300 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/60 dark:text-red-200"
-                    : `self-end bg-indigo-500 text-white ${saindo || guardada ? "opacity-60" : ""}`
+                    : `self-end bg-tinta text-papel dark:bg-tinta-escuro dark:text-papel-escuro ${saindo || guardada ? "opacity-60" : ""}`
               }`}
             >
               {m.attachment && <CartaoAnexo anexo={m.attachment} />}
@@ -300,8 +324,25 @@ export default async function ConversaPage({
                   que mostrar. Com anexo, o rótulo acima já diz o que chegou. */}
               {m.text || (!m.attachment && <span className="italic opacity-70">(sem texto)</span>)}
               <span
-                className={`mt-1 block text-[10px] ${
-                  m.direction === "in" || falhou ? "text-zinc-500" : "text-indigo-100"
+                /* A HORA NÃO ESCURECE DE NOVO NO BALÃO QUE ESTÁ SAINDO.
+
+                   MEDIDO EM 11/09/2026, a partir de um achado de revisão: o
+                   `opacity-60` do balão compõe o elemento INTEIRO contra a
+                   página, e a hora já vinha a 70%. Os dois juntos davam
+                   **3,15:1 no claro e 4,10:1 no escuro** — abaixo de 4,5:1 nos
+                   dois temas. O texto do balão passava (4,60 e 6,76); só a hora
+                   reprovava, que é exatamente o que o achado D12 apontava.
+
+                   Com a hora em `papel` cheio, ela passa a medir o mesmo que o
+                   texto ao lado — 4,60:1 e 6,76:1 —, e o sinal de "está saindo"
+                   continua sendo a opacidade do balão, que é quem tem de
+                   carregá-lo. */
+                className={`mt-1 block text-[11px] ${
+                  m.direction === "in" || falhou
+                    ? "text-quieto dark:text-quieto-escuro"
+                    : saindo || guardada
+                      ? "text-papel dark:text-papel-escuro"
+                      : "text-papel/70 dark:text-papel-escuro/70"
                 }`}
               >
                 {/* Enquanto não saiu, a hora ainda é a de criação e não diz nada

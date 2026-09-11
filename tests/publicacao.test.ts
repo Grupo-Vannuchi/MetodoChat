@@ -38,6 +38,7 @@ import {
   rotuloDoEnvio,
   atrasoDoTiqueDoRemarcar,
   avisoDoAtrasoNaLista,
+  fraseSobreAMidia,
   fraseDaDataDaLinha,
   rotuloDaFormaDoItem,
   desfechoDaMudanca,
@@ -55,6 +56,7 @@ import {
   FRASE_DA_FALHA,
   DIAS_DE_AVISO_DA_PUBLICACAO,
   HORAS_DE_AVISO_DA_MENSAGEM,
+  MOTIVO_CANCELADO_PELO_DONO,
 } from "../lib/publicacao";
 
 const MB = 1024 * 1024;
@@ -1959,7 +1961,7 @@ describe("dataDaLinhaDeEnvio", () => {
       { status: "pending", sent_at: null, not_before: saida, created_at: criado },
       AGORA
     );
-    expect(r).toEqual({ quando: saida, futuro: true, saiu: false });
+    expect(r).toEqual({ quando: saida, futuro: true, saiu: false, encerrado: false });
   });
 
   it("com o relogio fixo, o que ja venceu nao e futuro", () => {
@@ -1970,7 +1972,7 @@ describe("dataDaLinhaDeEnvio", () => {
     );
     // ATRASADO, E NAO "JA SAIU": `saiu` e falso, e e essa distincao que
     // `fraseDaDataDaLinha` le para nao dizer a mesma coisa sobre os dois.
-    expect(r).toEqual({ quando: vencido, futuro: false, saiu: false });
+    expect(r).toEqual({ quando: vencido, futuro: false, saiu: false, encerrado: false });
   });
 
   // O `sent_at` MANDA MESMO QUANDO O `not_before` E FUTURO. Um item reenviado a
@@ -1982,7 +1984,7 @@ describe("dataDaLinhaDeEnvio", () => {
       { status: "sent", sent_at: enviado, not_before: saida, created_at: criado },
       AGORA
     );
-    expect(r).toEqual({ quando: enviado, futuro: false, saiu: true });
+    expect(r).toEqual({ quando: enviado, futuro: false, saiu: true, encerrado: false });
   });
 
   // A DATA DE CRIACAO NAO SUMIU: ela e a rede para o dia em que a coluna
@@ -1999,6 +2001,91 @@ describe("dataDaLinhaDeEnvio", () => {
     );
     expect(r.quando).toEqual(criado);
     expect(Number.isNaN(r.quando.getTime())).toBe(false);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// D1 — A LINHA NAO PROMETE SAIDA SOBRE ESTADO TERMINAL (auditoria de 10/09/2026)
+//
+// O DEFEITO, MEDIDO EM PRODUCAO: um post cancelado pelo dono
+// (`status='skipped'`, `error='cancelado por voce'`) aparecia em /eventos com
+// "Sai em 12/09/2026, 16:10" — porque `not_before` ficou com a hora AGENDADA no
+// instante do cancelamento, e esta funcao so tratava `sent_at` como "nao e
+// futuro". A pergunta ao relogio estava certa; o que faltava era perguntar
+// antes se ainda existe saida para prometer.
+//
+// `skipped` E `failed` SAO TERMINAIS: nenhum dos dois volta para o dreno. O
+// `pending` e o `guardado` NAO SAO, e os dois casos de baixo sao a trava que
+// impede este conserto de ir longe demais.
+// ---------------------------------------------------------------------------
+describe("dataDaLinhaDeEnvio nao diz 'sai em' sobre estado terminal", () => {
+  const criado = new Date("2026-09-09T10:00:00Z");
+  const AGORA = Date.parse("2026-09-10T12:00:00Z");
+  const adiante = new Date("2026-09-12T19:10:00Z");
+
+  it("cancelado pelo dono nao e futuro, mesmo com not_before adiante", () => {
+    const r = dataDaLinhaDeEnvio(
+      { status: "skipped", sent_at: null, not_before: adiante, created_at: criado },
+      AGORA
+    );
+    expect(r.futuro).toBe(false);
+    // E NAO E "JA SAIU" TAMBEM: o post nao esta no perfil de ninguem.
+    expect(r.saiu).toBe(false);
+    expect(fraseDaDataDaLinha(r)).not.toContain("Sai em");
+  });
+
+  it("failed com not_before no futuro nao diz 'sai em'", () => {
+    // `finish` (lib/queue-drain.ts) grava `not_before = now() + retryInSeconds`
+    // sem olhar o status: todo item que falha por excecao nasce `failed` com a
+    // hora DOIS MINUTOS a frente. Era a segunda linha da tela prometendo saida.
+    const r = dataDaLinhaDeEnvio(
+      { status: "failed", sent_at: null, not_before: adiante, created_at: criado },
+      AGORA
+    );
+    expect(r.futuro).toBe(false);
+    expect(r.saiu).toBe(false);
+    expect(fraseDaDataDaLinha(r)).not.toContain("Sai em");
+  });
+
+  // A TRAVA DO CONSERTO, e ela e a razao de este bloco existir com quatro casos
+  // e nao com dois: um `pending` marcado para depois de agora CONTINUA dizendo
+  // "Sai em". Apagar isso seria trocar uma mentira por outra.
+  it("pending com not_before no futuro CONTINUA dizendo 'sai em'", () => {
+    const r = dataDaLinhaDeEnvio(
+      { status: "pending", sent_at: null, not_before: adiante, created_at: criado },
+      AGORA
+    );
+    expect(r.futuro).toBe(true);
+    expect(fraseDaDataDaLinha(r)).toContain("Sai em");
+  });
+
+  it("guardado com not_before no futuro CONTINUA dizendo 'sai em'", () => {
+    const r = dataDaLinhaDeEnvio(
+      { status: "guardado", sent_at: null, not_before: adiante, created_at: criado },
+      AGORA
+    );
+    expect(r.futuro).toBe(true);
+  });
+
+  // O `sent_at` MANDA SOBRE O ESTADO TERMINAL: um item marcado `skipped` que
+  // ainda assim tem hora de saida gravada esta no perfil publico, e a data dele
+  // e a de quando saiu — nao a hora que estava agendada.
+  it("estado terminal com sent_at continua mostrando quando saiu", () => {
+    const enviado = new Date("2026-09-09T16:10:00Z");
+    const r = dataDaLinhaDeEnvio(
+      { status: "skipped", sent_at: enviado, not_before: adiante, created_at: criado },
+      AGORA
+    );
+    expect(r).toEqual({ quando: enviado, futuro: false, saiu: true, encerrado: false });
+  });
+
+  // A CONSTANTE COMPARTILHADA: o texto e escrito pela acao de cancelar
+  // (app/publicar/agendados/actions.ts) e lido pelo rotulo (app/labels.ts).
+  // Se ela mudar de um lado sem mudar do outro, a tela volta a mentir — e este
+  // caso e o unico lugar em que o valor literal esta escrito.
+  it("o motivo do cancelamento e o texto que a acao grava", () => {
+    expect(MOTIVO_CANCELADO_PELO_DONO).toBe("cancelado por voce");
   });
 });
 
@@ -2104,16 +2191,110 @@ describe("fraseDaDataDaLinha", () => {
 
 describe("avisoDoAtrasoNaLista", () => {
   it("o que vai sair na hora nao ganha aviso nenhum", () => {
-    expect(avisoDoAtrasoNaLista({ futuro: true })).toBe(null);
+    expect(avisoDoAtrasoNaLista({ futuro: true, saiu: false, encerrado: false })).toBe(null);
   });
   // O AVISO E SOBRE O BOTAO DE CANCELAR, e nao sobre a data: passada a hora, o
   // item sai na proxima drenagem e `status = 'pending'` deixa de valer — o botao
   // ao lado perde a corrida. Quem esta olhando a lista precisa saber disso ANTES
   // de contar com ele.
   it("o atrasado avisa que o cancelamento tem prazo", () => {
-    const t = avisoDoAtrasoNaLista({ futuro: false });
+    const t = avisoDoAtrasoNaLista({ futuro: false, saiu: false, encerrado: false });
     expect(t).not.toBe(null);
     expect((t ?? "").toLowerCase()).toContain("cancelar");
+  });
+
+  // =========================================================================
+  // O QUE JA SAIU NAO ESTA ATRASADO, e este caso nasceu de um defeito VISTO NA
+  // TELA em 11/09/2026.
+  //
+  // Ate aqui a funcao olhava so `futuro`, e isso era seguro POR ACIDENTE: a
+  // unica tela que a chamava filtrava `status = 'pending'` na consulta, entao
+  // `saiu` era sempre falso. A garantia morava no WHERE de quem chamava, e nada
+  // dizia isso — nem o nome, nem o tipo do parametro, nem um caso.
+  //
+  // O calendario passou a chamar a mesma funcao para item PUBLICADO, e a tela
+  // anunciou "a hora ja passou e o post ainda nao saiu" sobre um post que
+  // estava no perfil havia dois dias. A frase mais errada possivel: ela promete
+  // que ainda da para cancelar o que ja e publico.
+  //
+  // O CONSERTO E NA DECISAO, E NAO NO JSX. Guardar isso no ramo que desenha
+  // poria metade da decisao de volta no componente — exatamente o que a
+  // extracao desta funcao existiu para desfazer.
+  // =========================================================================
+  it("post que JA SAIU nao recebe aviso de atraso", () => {
+    expect(avisoDoAtrasoNaLista({ futuro: false, saiu: true, encerrado: false })).toBe(null);
+  });
+
+  it("`saiu` vence `futuro`: nenhuma combinacao com `saiu` avisa", () => {
+    // `futuro: true, saiu: true` nao acontece em `dataDaLinhaDeEnvio` — quem
+    // saiu nunca e futuro —, e por isso mesmo esta linha existe: se um dia
+    // acontecer, o desfecho tem de ser silencio e nao uma frase impossivel.
+    expect(avisoDoAtrasoNaLista({ futuro: true, saiu: true, encerrado: false })).toBe(null);
+  });
+
+  // =========================================================================
+  // A SEGUNDA PORTA DO MESMO DEFEITO, achada por revisao em 11/09/2026.
+  //
+  // `saiu` fechou a porta do post PUBLICADO. Faltava a do post que NAO VAI SAIR
+  // MAIS: cancelado pelo dono (`skipped`) ou recusado pela Meta (`failed`).
+  // `dataDaLinhaDeEnvio` devolve `{futuro: false, saiu: false}` para os dois —
+  // exatamente a forma que disparava o aviso.
+  //
+  // Medido com as funcoes de verdade, num post marcado para daqui a OITO DIAS:
+  //
+  //   skipped  futuro: false  saiu: false  ->  AVISA "sai na proxima drenagem"
+  //   failed   futuro: false  saiu: false  ->  AVISA "sai na proxima drenagem"
+  //
+  // Sobre um post que o dono acabou de cancelar, cuja hora nem chegou. E, no
+  // falhado, prometendo uma saida que nunca vai acontecer: o dono le "ele sai
+  // na proxima drenagem", nao reagenda, e o post nunca sai.
+  // =========================================================================
+  it("post CANCELADO nao recebe aviso de atraso", () => {
+    const cancelado = dataDaLinhaDeEnvio({
+      status: "skipped",
+      sent_at: null,
+      not_before: new Date(Date.now() + 8 * 86_400_000),
+      created_at: new Date(),
+    });
+    expect(cancelado.encerrado).toBe(true);
+    expect(avisoDoAtrasoNaLista(cancelado)).toBe(null);
+  });
+
+  it("post FALHADO nao recebe aviso de atraso", () => {
+    const falhado = dataDaLinhaDeEnvio({
+      status: "failed",
+      sent_at: null,
+      not_before: new Date(Date.now() - 3600_000),
+      created_at: new Date(),
+    });
+    expect(falhado.encerrado).toBe(true);
+    expect(avisoDoAtrasoNaLista(falhado)).toBe(null);
+  });
+
+  it("o ATRASADO DE VERDADE continua avisando — e e o unico que avisa", () => {
+    // O caso positivo, sem o qual os dois de cima poderiam ser satisfeitos por
+    // uma funcao que nunca avisa nada.
+    const atrasado = dataDaLinhaDeEnvio({
+      status: "pending",
+      sent_at: null,
+      not_before: new Date(Date.now() - 3600_000),
+      created_at: new Date(),
+    });
+    expect(atrasado).toMatchObject({ futuro: false, saiu: false, encerrado: false });
+    expect(avisoDoAtrasoNaLista(atrasado)).not.toBe(null);
+  });
+
+  it("o que sai de `dataDaLinhaDeEnvio` entra aqui sem adaptacao", () => {
+    // As duas funcoes tem de casar: se `DataDaLinha` mudar de forma, este caso
+    // quebra antes de a tela mentir.
+    const publicado = dataDaLinhaDeEnvio({
+      status: "sent",
+      sent_at: new Date("2026-09-09T18:11:22Z"),
+      not_before: new Date("2026-09-09T18:11:15Z"),
+      created_at: new Date("2026-09-09T17:00:00Z"),
+    });
+    expect(publicado.saiu).toBe(true);
+    expect(avisoDoAtrasoNaLista(publicado)).toBe(null);
   });
 });
 
@@ -2338,5 +2519,54 @@ describe("linhaDaFalha", () => {
     expect(FRASE_DA_FALHA).toBe("Falhou em ");
     expect(FRASE_DA_FALHA).not.toBe(fraseDaDataDaLinha({ futuro: false, saiu: false }));
     expect(FRASE_DA_FALHA).not.toBe(fraseDaDataDaLinha({ futuro: true, saiu: false }));
+  });
+});
+
+
+describe("fraseSobreAMidia — a tela irma nao pode dizer o contrario", () => {
+  // O DEFEITO: a tela de detalhe decidia com `status === "pending"`, e TUDO que
+  // caia no `else` recebia "Este post ja saiu. A midia foi apagada". Para um
+  // post FALHADO isso e falso duas vezes — ele nao saiu, e o arquivo continua
+  // no bucket. A secao "Nao sairam", na tela irma, afirma o contrario: "O
+  // arquivo continua no armazenamento". Duas telas do mesmo produto dizendo
+  // coisas opostas sobre o mesmo arquivo.
+  const daFila = (status: string, sent: Date | null) =>
+    dataDaLinhaDeEnvio({
+      status,
+      sent_at: sent,
+      not_before: new Date(Date.now() + 8 * 86_400_000),
+      created_at: new Date(),
+    });
+
+  it("publicado: a midia foi apagada, e a frase diz por que", () => {
+    const t = fraseSobreAMidia(daFila("sent", new Date()))!;
+    expect(t).toContain("já saiu");
+    expect(t).toContain("apagada");
+  });
+
+  it("falhado: NAO saiu, e o arquivo CONTINUA la", () => {
+    const t = fraseSobreAMidia(daFila("failed", null))!;
+    expect(t).not.toContain("já saiu");
+    expect(t).toContain("continua no armazenamento");
+  });
+
+  it("cancelado: a mesma frase do falhado — os dois nao vao sair", () => {
+    const t = fraseSobreAMidia(daFila("skipped", null))!;
+    expect(t).not.toContain("já saiu");
+    expect(t).toContain("continua no armazenamento");
+  });
+
+  it("agendado: nao ha nada a explicar, e a midia esta ali do lado", () => {
+    expect(fraseSobreAMidia(daFila("pending", null))).toBe(null);
+  });
+
+  it("A PERGUNTA E `saiu`, e nunca 'nao e pending'", () => {
+    // A invariante que impede o defeito de voltar: dos quatro estados, so UM
+    // recebe a frase de "ja saiu".
+    const dizemQueSaiu = ["sent", "failed", "skipped", "pending"].filter((st) => {
+      const t = fraseSobreAMidia(daFila(st, st === "sent" ? new Date() : null));
+      return t !== null && t.includes("já saiu");
+    });
+    expect(dizemQueSaiu).toEqual(["sent"]);
   });
 });

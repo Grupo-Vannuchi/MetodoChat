@@ -9,6 +9,7 @@ import {
   contatosDoFiltro,
   fichaSelecionada,
   urlComFiltro,
+  campoUrlDoFiltro,
   resumoDasCategorias,
   casoDaListaDeEmail,
   type FichaDeCategoria,
@@ -384,5 +385,94 @@ describe("urlComFiltro", () => {
     const filtro: FiltroDeCategoria = { tipo: "uma", nome: "aluno" };
     expect(urlComFiltro("/contatos", filtro)).toBe("/contatos?categoria=aluno");
     expect(urlComFiltro("/api/contatos/csv", filtro)).toBe("/api/contatos/csv?categoria=aluno");
+  });
+});
+
+
+describe("campoUrlDoFiltro — o formulário GET tem de pousar onde a ficha pousa", () => {
+  const TODOS: FiltroDeCategoria[] = [
+    { tipo: "tudo" },
+    { tipo: "uma", nome: "aluno" },
+    { tipo: "uma", nome: null },
+    { tipo: "uma", nome: "equipe de marketing" },
+  ];
+
+  // A INVARIANTE QUE IMPEDE O CRÍTICO DE 01/09 DE VOLTAR POR OUTRA PORTA.
+  //
+  // Naquele defeito, a tela prometia 16 pessoas e a ação enfileirava para 126,
+  // porque um `<input type="hidden">` sempre existe no DOM e apagava a
+  // diferença entre `?categoria=` AUSENTE ("tudo") e PRESENTE-E-VAZIO ("sem
+  // categoria"). `campoDoFiltro` (lib/lote.ts) resolveu aquilo para o
+  // formulário de AÇÃO, codificando a forma.
+  //
+  // Um formulário GET não pode usar aquela codificação: o campo dele vira
+  // PARÂMETRO, e `?categoria=tudo` é a categoria literalmente chamada "tudo".
+  // Este caso amarra a codificação certa à URL que a ficha produz — se as duas
+  // divergirem, buscar dentro de uma categoria levaria a outra.
+  it("montar a URL a partir do campo dá exatamente `urlComFiltro`", () => {
+    for (const filtro of TODOS) {
+      const campo = campoUrlDoFiltro(filtro);
+      const montada =
+        campo === null ? "/contatos" : `/contatos?categoria=${encodeURIComponent(campo)}`;
+      expect(montada, JSON.stringify(filtro)).toBe(urlComFiltro("/contatos", filtro));
+    }
+  });
+
+  it("ida e volta: o campo volta a ser o MESMO filtro", () => {
+    for (const filtro of TODOS) {
+      const campo = campoUrlDoFiltro(filtro);
+      // `undefined` é o parâmetro ausente, que é o que o campo `null` produz.
+      expect(filtroDaUrl(campo ?? undefined), JSON.stringify(filtro)).toEqual(filtro);
+    }
+  });
+
+  it("`tudo` manda NÃO renderizar o campo — é a presença que significa", () => {
+    expect(campoUrlDoFiltro({ tipo: "tudo" })).toBeNull();
+  });
+
+  it("`sem categoria` renderiza o campo VAZIO, e isso é um pedido de verdade", () => {
+    expect(campoUrlDoFiltro({ tipo: "uma", nome: null })).toBe("");
+  });
+});
+
+
+describe("busca vazia não é categoria vazia", () => {
+  // O DEFEITO, achado por revisão em 11/09/2026: quem digitava "joao" na busca
+  // com "todos" selecionado recebia "Nenhum contato nesta categoria — use
+  // 'todos', ali em cima, para ver a conta inteira", com "todos" JÁ clicado. O
+  // estado vazio do recurso novo acusava a causa errada e mandava fazer o que
+  // já estava feito.
+  it("com busca ativa e nada achado, o caso é da BUSCA", () => {
+    expect(
+      casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: false, buscando: true })
+    ).toBe("busca_vazia");
+  });
+
+  it("sem busca, continua sendo o caso do filtro — nada mudou para ele", () => {
+    expect(
+      casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: true, buscando: false })
+    ).toBe("filtro_vazio");
+    // E sem o parâmetro nenhum, que é como os chamadores antigos chamam.
+    expect(casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: true })).toBe(
+      "filtro_vazio"
+    );
+  });
+
+  // A ORDEM IMPORTA: com categoria E busca ativas e nada encontrado, o que
+  // desfaz o vazio é limpar a BUSCA — o gesto mais recente de quem está
+  // olhando —, e é o que a frase tem de dizer.
+  it("com as duas ativas, a busca vence", () => {
+    expect(
+      casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: true, buscando: true })
+    ).toBe("busca_vazia");
+  });
+
+  it("com gente encontrada, a busca não muda nada", () => {
+    expect(
+      casoDaListaDeEmail({ visiveis: 5, comEmail: 3, filtrado: false, buscando: true })
+    ).toBe("tem_email");
+    expect(
+      casoDaListaDeEmail({ visiveis: 5, comEmail: 0, filtrado: true, buscando: true })
+    ).toBe("sem_email_no_filtro");
   });
 });

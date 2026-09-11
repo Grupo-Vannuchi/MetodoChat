@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Script from "next/script";
 import { sql, type QueueItem } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
@@ -7,31 +6,36 @@ import { avisoDaUrl } from "@/lib/avisos";
 import {
   avisoDoAtrasoNaLista,
   dataDaLinhaDeEnvio,
-  fraseDaDataDaLinha,
   lerPayloadDaPublicacao,
   linhaDaFalha,
-  resumoDaLegenda,
   rotuloDaFormaDoItem,
   FRASE_DA_FALHA,
-  LEGENDA_NA_LISTA,
 } from "@/lib/publicacao";
 import {
   card,
-  subtle,
-  input,
-  label,
-  hint,
   muted,
   link,
   btnGhost,
-  btnDanger,
+  btnPrimary,
+  numero,
   pageTitle,
   pageSubtitle,
   alertOk,
   alertError,
   emptyWrap,
 } from "../../ui";
-import { cancelarPublicacao, remarcarPublicacao } from "./actions";
+import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
+import {
+  chaveDoDia,
+  horaDoDia,
+  gradeDoMes,
+  gradeDaSemana,
+  visaoDaUrl,
+  ancoraDaUrl,
+  agruparPorDia,
+  recorteDoDia,
+  diaSomado,
+} from "@/lib/calendario";
 
 // A TELA DOS AGENDADOS — componente de SERVIDOR, sem uma linha de cliente.
 //
@@ -72,10 +76,19 @@ import { cancelarPublicacao, remarcarPublicacao } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-/** A lista é curta por natureza — são os posts que uma pessoa agendou à mão —,
- *  mas o teto existe para a tela não virar parede no dia em que alguém agendar
- *  um mês inteiro de uma vez. */
-const AGENDADOS_NA_TELA = 50;
+/** Quantos posts a grade desenha num período.
+ *
+ *  MEDIDO EM 11/09/2026, na conta de produção: 3 publicações ao todo e pico de
+ *  2 por mês. O teto é folga para anos, não um corte que morde — mas ele
+ *  MORDE CALADO se um dia chegar lá, e a revisão pegou isso: a consulta passou
+ *  de `status='pending'` (lista curta por natureza) para `pending + sent` numa
+ *  janela de 42 dias, ordenada por data ASCENDENTE. O corte derruba o FIM do
+ *  período, então as últimas semanas do mês apareceriam vazias e alguém
+ *  agendaria em cima de post existente.
+ *
+ *  A resposta é a mesma disciplina do resto desta entrega — quem corta tem de
+ *  contar —, e ela está logo abaixo da grade. */
+const AGENDADOS_NA_TELA = 200;
 
 /** Quantas falhas cabem na segunda seção.
  *
@@ -90,11 +103,22 @@ const FALHADAS_NA_TELA = 50;
 export default async function Agendados({
   searchParams,
 }: {
-  searchParams: Promise<{ aviso?: string; tom?: string }>;
+  searchParams: Promise<{ aviso?: string; tom?: string; v?: string; em?: string }>;
 }) {
   const params = await searchParams;
   const aviso = avisoDaUrl(params.aviso, params.tom);
   const conta = await getSelectedAccount();
+
+  // A GRADE VEM ANTES DA CONSULTA, porque e ela que diz qual janela buscar.
+  const hoje = chaveDoDia(new Date());
+  const visao = visaoDaUrl(params.v);
+  const ancora = ancoraDaUrl(params.em, visao, hoje);
+  const grade = visao === "mes" ? gradeDoMes(ancora, hoje) : gradeDaSemana(ancora, hoje);
+  // A FOLGA DE UM DIA DE CADA LADO e o que impede o post das 21h do primeiro
+  // quadrado de sumir: as colunas sao dias de Brasilia e as colunas do banco
+  // sao UTC, entao as bordas nao coincidem.
+  const inicioDaJanela = diaSomado(grade.casas[0].chave, -1);
+  const fimDaJanela = diaSomado(grade.casas[grade.casas.length - 1].chave, 2);
 
   // ORDENADO POR `not_before`, e não por `created_at`: a pergunta desta tela é
   // "o que sai primeiro?". Ordenar pela criação misturaria um post marcado para
@@ -131,14 +155,33 @@ export default async function Agendados({
   // EM PARALELO, e não em série: são independentes, e uma atrás da outra somaria
   // uma ida completa ao banco no tempo desta tela — a mesma conta que
   // `app/page.tsx` já faz.
-  const [itens, falhadas] = conta
+  const [itens, falhadas, resumoFora] = conta
     ? ((await Promise.all([
+        // O QUE O CALENDARIO DESENHA: o que ainda vai sair E o que ja saiu.
+        //
+        // MOSTRAR O PUBLICADO FOI DECISAO DO DONO (11/09/2026), e ela e o que
+        // torna o calendario legivel: uma grade que so mostra o futuro fica
+        // quase toda vazia, e quadrado vazio le como defeito da tela em vez de
+        // "nao ha post marcado". Com o que ja saiu junto, a grade mostra o
+        // RITMO do perfil, que e a pergunta de quem abre um planner.
+        //
+        // A JANELA E A DA GRADE, com folga de um dia de cada lado: `not_before`
+        // e `sent_at` sao UTC, e a grade e de Brasilia — o primeiro e o ultimo
+        // quadrado atravessam a virada. Cortar sem folga esconderia o post das
+        // 21h do primeiro dia. Ver `lib/calendario.ts`.
+        //
+        // FALHADO NAO ENTRA AQUI: ele tem secao propria logo abaixo, com uma
+        // ordem propria ("o que acabou de falhar?") e sem acao nenhuma. Junta-lo
+        // faria a mesma lista significar duas coisas.
         sql().query(
           `select * from queue
-            where account_id = $1 and kind = 'publicacao' and status = 'pending'
-            order by not_before, id
-            limit $2`,
-          [conta.ig_user_id, AGENDADOS_NA_TELA]
+            where account_id = $1 and kind = 'publicacao'
+              and status in ('pending', 'sent')
+              and coalesce(sent_at, not_before) >= $2::timestamptz
+              and coalesce(sent_at, not_before) < $3::timestamptz
+            order by coalesce(sent_at, not_before), id
+            limit $4`,
+          [conta.ig_user_id, inicioDaJanela, fimDaJanela, AGENDADOS_NA_TELA]
         ),
         sql().query(
           `select * from queue
@@ -147,18 +190,60 @@ export default async function Agendados({
             limit $2`,
           [conta.ig_user_id, FALHADAS_NA_TELA]
         ),
-      ])) as [QueueItem[], QueueItem[]])
-    : ([[], []] as [QueueItem[], QueueItem[]]);
+        // O QUE ESTA AGENDADO FORA DESTA GRADE — e esta consulta existe por um
+        // defeito que a revisao achou em 11/09/2026.
+        //
+        // A lista antiga trazia os 50 proximos ordenados por `not_before`, SEM
+        // recorte de tempo: ela respondia "o que esta na fila?". O calendario
+        // so pergunta pela janela da grade, e com isso o produto ficou SEM
+        // NENHUMA tela que responda aquilo. A equipe marca um lancamento para
+        // 12/11, abre a tela em setembro, ve o mes vazio depois do dia 20 e
+        // conclui que nao ha nada agendado — e so descobre o contrario se ja
+        // souber a data e clicar "›" duas vezes.
+        //
+        // NAO E UMA SEGUNDA LISTA: e uma CONTAGEM e a data do proximo, para a
+        // tela poder dizer "ha 3 posts fora deste periodo, o proximo em 12 de
+        // novembro" com um link que leva ate la. A resposta volta a existir sem
+        // desfazer o calendario.
+        sql().query(
+          `select count(*)::int as fora, min(not_before) as proximo
+             from queue
+            where account_id = $1 and kind = 'publicacao' and status = 'pending'
+              and (not_before < $2::timestamptz or not_before >= $3::timestamptz)`,
+          [conta.ig_user_id, inicioDaJanela, fimDaJanela]
+        ),
+      ])) as [QueueItem[], QueueItem[], { fora: number; proximo: Date | null }[]])
+    : ([[], [], [{ fora: 0, proximo: null }]] as [
+        QueueItem[],
+        QueueItem[],
+        { fora: number; proximo: Date | null }[],
+      ]);
+
+  // O AGRUPAMENTO USA `dataDaLinhaDeEnvio`, e nao uma coluna escolhida aqui:
+  // ela ja e a fonte unica de "qual data esta linha tem" -- `sent_at` em quem
+  // saiu, `not_before` em quem espera. Reimplementar essa escolha seria a
+  // segunda fonte para a mesma pergunta, e as duas divergiriam no dia em que um
+  // status novo aparecesse.
+  const porDia = agruparPorDia(itens, (i) => dataDaLinhaDeEnvio(i).quando);
+  const fora = resumoFora[0] ?? { fora: 0, proximo: null };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className={pageTitle}>Posts agendados</h1>
-        <p className={pageSubtitle}>
-          {conta
-            ? `o que ainda vai sair no perfil de @${conta.username ?? conta.ig_user_id}`
-            : "Nenhuma conta selecionada."}
-        </p>
+      {/* O CABEÇALHO DO PLANNER — título, ação e as duas barras de controle,
+          no molde do planner do Meta Business que o dono trouxe como
+          referência. */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className={pageTitle}>Calendário</h1>
+          <p className={pageSubtitle}>
+            {conta
+              ? `o que sai e o que já saiu no perfil de @${conta.username ?? conta.ig_user_id}`
+              : "Nenhuma conta selecionada."}
+          </p>
+        </div>
+        <Link href="/publicar" className={btnPrimary}>
+          Criar post
+        </Link>
       </div>
 
       {aviso && <div className={aviso.tom === "ok" ? alertOk : alertError}>{aviso.texto}</div>}
@@ -169,113 +254,265 @@ export default async function Agendados({
             Conecte uma conta do Instagram em Configuração para ver o que está agendado.
           </p>
         </div>
-      ) : !itens.length ? (
-        <div className={emptyWrap}>
-          <p className={muted}>Nada agendado nesta conta.</p>
-          <Link href="/publicar" className={link}>
-            Agendar um post
-          </Link>
-        </div>
       ) : (
-        <ul className="space-y-4">
-          {itens.map((item) => {
-            // O PAYLOAD PODE ESTAR QUEBRADO, e a tela não pode sumir por causa
-            // disso: `lerPayloadDaPublicacao` devolve `null` para um `jsonb` que
-            // não é item de publicação, e a linha continua existindo — porque é
-            // dela que sai o botão de CANCELAR, que é justamente o que se quer
-            // ter à mão num item que ninguém entende.
-            const p = lerPayloadDaPublicacao(item.payload);
-            const quando = dataDaLinhaDeEnvio(item);
-            // AS TRÊS FRASES DESTA LINHA SAEM DE FUNÇÃO PURA, e nenhuma delas é
-            // escolhida aqui. Até 09/09/2026 as três moravam no JSX, e uma
-            // delas discordava da tela de Envios sobre o mesmo fato.
-            const atrasado = avisoDoAtrasoNaLista(quando);
-            return (
-              <li key={item.id} className={`${card} space-y-4 p-5`}>
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="font-semibold">
-                    {/* "Sai em" É A FRASE DO FUTURO, e ela vem de
-                        `fraseDaDataDaLinha` — a MESMA que a linha de Envios lê.
-                        Uma data solta é ambígua entre "foi marcado" e "vai
-                        sair", e duas telas escolhendo palavras diferentes para
-                        o mesmo fato é o defeito que aquela função fechou. */}
-                    {fraseDaDataDaLinha(quando)}
-                    {fmtDate(quando.quando)}
-                  </p>
-                  <span className={`text-xs ${muted}`}>{rotuloDaFormaDoItem(p)}</span>
-                </div>
+        <section className={card}>
+          {/* A BARRA DE CONTROLE. Tudo aqui é `<Link>`: a visão e a âncora vivem
+              na barra de endereço, então esta tela continua 100% servidor — e a
+              semana que alguém está olhando é um endereço que se copia e se
+              manda para outra pessoa. */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-traco px-4 py-3 dark:border-traco-escuro">
+            <div className="inline-flex gap-0.5 rounded-xl border border-traco p-0.5 dark:border-traco-escuro">
+              {(
+                [
+                  ["semana", "Semana", `?v=semana&em=${hoje}`],
+                  ["mes", "Mês", `?v=mes&em=${hoje.slice(0, 7)}`],
+                ] as const
+              ).map(([chave, rotulo, href]) => (
+                <Link
+                  key={chave}
+                  href={`/publicar/agendados${href}`}
+                  aria-current={visao === chave ? "page" : undefined}
+                  className={`rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
+                    visao === chave
+                      ? "bg-acao text-papel dark:bg-acao-escuro dark:text-papel-escuro"
+                      : "text-quieto hover:text-tinta dark:text-quieto-escuro dark:hover:text-tinta-escuro"
+                  }`}
+                >
+                  {rotulo}
+                </Link>
+              ))}
+            </div>
 
-                {atrasado && (
-                  // A HORA JÁ VENCEU E O ITEM AINDA ESTÁ `pending`: ele está
-                  // ATRASADO, esperando a próxima drenagem — não é futuro, e a
-                  // tela não pode prometer uma saída que já devia ter
-                  // acontecido. Dizê-lo aqui é o que evita que alguém conte com
-                  // um cancelamento que a corrida com o dreno já perdeu. A
-                  // decisão (quando avisar, e o que dizer) é de
-                  // `avisoDoAtrasoNaLista`; aqui só se desenha o que ela deu.
-                  <p className={`text-xs ${muted}`}>{atrasado}</p>
-                )}
+            <div className="flex items-center gap-1">
+              <Link
+                href={`/publicar/agendados?v=${visao}&em=${grade.anterior}`}
+                aria-label="Período anterior"
+                className={`${btnGhost} px-2`}
+              >
+                &lsaquo;
+              </Link>
+              <Link
+                href={`/publicar/agendados?v=${visao}&em=${visao === "mes" ? hoje.slice(0, 7) : hoje}`}
+                className={`${btnGhost} px-3`}
+              >
+                Hoje
+              </Link>
+              <Link
+                href={`/publicar/agendados?v=${visao}&em=${grade.seguinte}`}
+                aria-label="Próximo período"
+                className={`${btnGhost} px-2`}
+              >
+                &rsaquo;
+              </Link>
+            </div>
 
-                <p className="text-sm">{resumoDaLegenda(p?.legenda, LEGENDA_NA_LISTA)}</p>
+            <p className="titulo order-first w-full text-center text-base font-bold sm:order-none sm:w-auto">
+              {grade.titulo}
+            </p>
+          </div>
 
-                <div className="flex flex-wrap items-end gap-6">
-                  {/* REMARCAR — a data passa por `momentoDaPublicacao` no
-                      servidor, que é quem recusa o passado, com a MESMA frase da
-                      tela de compor. Sem `min` aqui, e de propósito: o piso teria
-                      de ser calculado neste servidor, que roda em UTC, e
-                      mostraria uma hora três horas adiante da do dono. */}
-                  <form action={remarcarPublicacao} className="flex flex-wrap items-end gap-2">
-                    <input type="hidden" name="id" value={item.id} />
-                    {/* O FUSO DO NAVEGADOR, e sem ele esta tela só acertava a
-                        hora por acidente. O `<input type="datetime-local">`
-                        manda "14:30" e CALA sobre onde são 14:30; lido neste
-                        servidor, que roda em UTC, isso seria 14:30Z — TRÊS
-                        HORAS antes do que a pessoa marcou. Ver
-                        `instanteDoAgendamento` (lib/publicacao.ts).
+          {/* A GRADE. `overflow-x-auto` porque sete colunas não cabem em 390px
+              sem espremer o conteúdo até ele deixar de ser legível — e a regra
+              desta base é que conteúdo largo rola DENTRO do próprio recipiente,
+              nunca fazendo a página inteira rolar de lado. */}
+          <div className="overflow-x-auto">
+            <div className="min-w-[640px]">
+              <div className="grid grid-cols-7 border-b border-traco dark:border-traco-escuro">
+                {grade.colunas.map((c) => (
+                  <div
+                    key={c}
+                    className={`px-2 py-1.5 text-center text-[11px] font-semibold uppercase tracking-[0.04em] ${muted}`}
+                  >
+                    {c}
+                  </div>
+                ))}
+              </div>
 
-                        Ele nasce VAZIO e é preenchido pelo `<Script>` do fim
-                        desta tela — nunca calculado no render, que aqui é
-                        servidor e não sabe onde a pessoa está. Vazio,
-                        `fusoDoCampo` cai no padrão de Brasília (180), que é o
-                        comportamento que esta tela tinha antes e continua
-                        sendo a rede de quem não rodou JavaScript. */}
-                    <input type="hidden" name="fuso" defaultValue="" />
-                    <div>
-                      <label className={label} htmlFor={`data_hora_${item.id}`}>
-                        Nova data e hora
-                      </label>
-                      <input
-                        id={`data_hora_${item.id}`}
-                        name="data_hora"
-                        type="datetime-local"
-                        className={`${input} w-auto!`}
-                      />
+              <div className="grid grid-cols-7">
+                {grade.casas.map((casa) => {
+                  const doDia = porDia.get(casa.chave) ?? [];
+                  const { mostrados, escondidos } = recorteDoDia(
+                    doDia,
+                    visao === "mes" ? undefined : 20
+                  );
+                  return (
+                    <div
+                      key={casa.chave}
+                      className={`space-y-1 border-b border-r border-traco p-1.5 dark:border-traco-escuro ${
+                        visao === "semana" ? "min-h-[320px]" : "min-h-[104px]"
+                      } ${casa.doMes ? "" : "bg-papel/60 dark:bg-papel-escuro/40"}`}
+                    >
+                      <p className="px-0.5 text-right">
+                        <span
+                          className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] ${numero} ${
+                            casa.hoje
+                              ? "bg-acao font-bold text-papel dark:bg-acao-escuro dark:text-papel-escuro"
+                              : casa.doMes
+                                ? muted
+                                : "text-quieto/50 dark:text-quieto-escuro/50"
+                          }`}
+                        >
+                          {casa.dia}
+                        </span>
+                      </p>
+
+                      {mostrados.map((item) => {
+                        const p = lerPayloadDaPublicacao(item.payload);
+                        const quando = dataDaLinhaDeEnvio(item);
+                        const saiu = quando.saiu;
+                        // A MINIATURA SÓ EXISTE ENQUANTO O POST NÃO SAIU: o
+                        // dreno apaga a mídia do bucket depois de publicar
+                        // (`limparOBucket`). Num post publicado a prévia seria
+                        // uma imagem quebrada, então nem se tenta.
+                        const primeira = !saiu ? p?.caminhos?.[0] : undefined;
+                        // `null` QUANDO O AMBIENTE NÃO DEIXA MONTAR A URL, e
+                        // aí a célula desenha o símbolo em vez de uma imagem
+                        // quebrada. Prévia não vale uma tela — ver
+                        // `urlPublicaSeDerParaMontar` (lib/bucket.ts) para o
+                        // defeito que ensinou isso.
+                        const capa = primeira ? urlPublicaSeDerParaMontar(primeira) : null;
+                        // ATRASADO: a hora passou e ele ainda esta na fila. A
+                        // decisao e de `avisoDoAtrasoNaLista`, a mesma da tela
+                        // de detalhe — aqui so se pergunta SE ha aviso, porque
+                        // no quadrado nao cabe a frase.
+                        const atrasado = avisoDoAtrasoNaLista(quando) !== null;
+                        return (
+                          <Link
+                            key={item.id}
+                            /* A VOLTA CARREGA A ÂNCORA, e não só a visão: sem
+                               `em`, quem estava olhando dezembro e clicava em
+                               "← Calendário" caía no mês de hoje. */
+                            href={`/publicar/agendados/${item.id}?v=${visao}&em=${grade.ancora}`}
+                            /* O CHIP NÃO PINTA ESTADO, e isso é conserto de um
+                               defeito que a revisão achou em 11/09/2026.
+
+                               A primeira versão dava `bg-aberto/8` ao post que
+                               AINDA NÃO SAIU e cinza ao que JÁ SAIU — e em toda
+                               outra tela deste painel verde quer dizer "deu
+                               certo". Quem varria o calendário procurando
+                               problema via os verdes como sucesso, quando eram
+                               justamente os pendentes, um deles atrasado num dia
+                               que já passou.
+
+                               E a spec proíbe isso em uma linha: os três estados
+                               "continuam sendo SINAL — pílula, texto, ponto — e
+                               nunca preenchimento grande". A superfície volta a
+                               ser neutra; quem carrega o estado é o símbolo à
+                               esquerda, que é do tamanho de um sinal. */
+                            className="flex items-center gap-1.5 rounded-lg border border-traco bg-papel p-1 transition-colors hover:border-quieto/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:border-traco-escuro dark:bg-papel-escuro/50 dark:focus-visible:ring-acao-escuro/25"
+                          >
+                            {capa ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={capa}
+                                alt=""
+                                className="h-8 w-8 shrink-0 rounded-lg object-cover"
+                              />
+                            ) : (
+                              <span
+                                aria-hidden
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-traco text-[11px] dark:bg-traco-escuro"
+                              >
+                                {saiu ? "✓" : "•"}
+                              </span>
+                            )}
+                            {/* O PONTO DE ESTADO — do tamanho de um sinal, que é
+                                o que a spec permite para as três cores. Verde é
+                                o que SAIU (o mesmo sentido de todas as outras
+                                telas), âmbar é o que está ATRASADO e ainda na
+                                fila, e nada aparece no que vai sair na hora —
+                                porque aí não há sinal a dar. */}
+                            {(saiu || atrasado) && (
+                              <span
+                                aria-hidden
+                                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                                  saiu
+                                    ? "bg-aberto dark:bg-aberto-escuro"
+                                    : "bg-fecha dark:bg-fecha-escuro"
+                                }`}
+                              />
+                            )}
+                            <span className="min-w-0 flex-1">
+                              <span className={`block text-[11px] font-semibold ${numero}`}>
+                                {horaDoDia(quando.quando)}
+                              </span>
+                              <span className={`block truncate text-[11px] ${muted}`}>
+                                {rotuloDaFormaDoItem(p)}
+                              </span>
+                            </span>
+                          </Link>
+                        );
+                      })}
+
+                      {/* QUEM CORTA TEM DE CONTAR — a mesma disciplina da tabela
+                          de contatos e do feed de Atividade. O "+N" leva à
+                          SEMANA daquele dia, que é onde todos cabem. */}
+                      {escondidos > 0 && (
+                        <Link
+                          href={`/publicar/agendados?v=semana&em=${casa.chave}`}
+                          className={`block px-1 text-[11px] font-medium ${link}`}
+                        >
+                          +{escondidos}
+                        </Link>
+                      )}
                     </div>
-                    <button className={btnGhost}>Remarcar</button>
-                  </form>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
 
-                  {/* CANCELAR PEDE CONFIRMAÇÃO, e a confirmação é um campo do
-                      formulário — não um `confirm()` do navegador, que exigiria
-                      `"use client"` numa tela que não precisa de nenhum. A caixa
-                      é a mesma disciplina do envio em lote. */}
-                  <form action={cancelarPublicacao} className={`${subtle} space-y-2 p-3`}>
-                    <input type="hidden" name="id" value={item.id} />
-                    <label className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" name="confirmo" value="1" required />
-                      Confirmo o cancelamento
-                    </label>
-                    <button className={btnDanger}>Cancelar este post</button>
-                  </form>
-                </div>
+          {/* O CORTE DA GRADE, DECLARADO. Ele não morde hoje (medido: pico de 2
+              posts por mês contra um teto de 200), e é justamente por isso que
+              ele morderia CALADO no dia em que mordesse. A ordem da consulta é
+              ascendente, então o que cai fora é o FIM do período — as últimas
+              semanas apareceriam vazias. */}
+          {itens.length >= AGENDADOS_NA_TELA && (
+            <p
+              className={`border-t border-traco px-4 py-2.5 text-center text-xs dark:border-traco-escuro ${muted}`}
+            >
+              Este período tem mais de{" "}
+              <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+                {AGENDADOS_NA_TELA}
+              </span>{" "}
+              posts, e o fim dele pode não estar aparecendo. Use a semana para ver por partes.
+            </p>
+          )}
 
-                <p className={hint}>
-                  Cancelar tira o post da fila e ele não sai. Se ele já tiver saído, só o
-                  aplicativo do Instagram apaga — a API não apaga mídia.
-                </p>
-              </li>
-            );
-          })}
-        </ul>
+          {/* O QUE ESTA MARCADO FORA DESTE PERIODO. Sem esta linha, o
+              calendario responde "nao ha nada" quando a pergunta era "nao ha
+              nada NESTE MES" — e as duas frases levam a decisoes opostas. O
+              link leva ao mes do proximo, entao a resposta nao exige adivinhar
+              a data. */}
+          {fora.fora > 0 && fora.proximo && (
+            <p
+              className={`border-t border-traco px-4 py-2.5 text-center text-xs dark:border-traco-escuro ${muted}`}
+            >
+              <span className={`font-semibold ${numero} text-tinta dark:text-tinta-escuro`}>
+                {fora.fora}
+              </span>{" "}
+              {fora.fora === 1 ? "post agendado" : "posts agendados"} fora deste período.{" "}
+              <Link
+                href={`/publicar/agendados?v=mes&em=${chaveDoDia(fora.proximo).slice(0, 7)}`}
+                className={link}
+              >
+                O próximo sai em {fmtDate(fora.proximo)}
+              </Link>
+            </p>
+          )}
+
+          {/* O VAZIO DIZ O QUE FAZER. Um calendário sem nenhum post no período
+              não é erro — é um mês em que ninguém marcou nada, e a frase tem de
+              ser um convite e não um silêncio. */}
+          {itens.length === 0 && (
+            <p className={`px-4 py-6 text-center text-sm ${muted}`}>
+              Nada marcado neste período.{" "}
+              <Link href="/publicar" className={link}>
+                Agendar um post
+              </Link>
+            </p>
+          )}
+        </section>
       )}
 
       {/* ================================================================
@@ -299,7 +536,7 @@ export default async function Agendados({
       {falhadas.length > 0 && (
         <section className="space-y-4">
           <div>
-            <h2 className="text-lg font-semibold">Não saíram</h2>
+            <h2 className="titulo text-lg font-semibold">Não saíram</h2>
             <p className={`text-sm ${muted}`}>
               Estes posts falharam e não estão mais na fila. O arquivo continua no
               armazenamento — para publicar de novo, agende outro post.
@@ -333,33 +570,6 @@ export default async function Agendados({
         </section>
       )}
 
-      {/* O FUSO DE TODOS OS FORMULÁRIOS DE REMARCAR, escrito uma vez.
-          =====================================================================
-          POR QUE UM `<Script>` E NÃO UM COMPONENTE DE CLIENTE
-
-          Esta tela é 100% servidor, e a única coisa que ela precisa do
-          navegador é UM NÚMERO que só existe lá: o deslocamento do fuso. Um
-          `"use client"` para isso arrastaria a lista inteira — os formulários,
-          os botões, o payload — para o pacote do cliente por causa de uma
-          linha. `next/script` com script embutido é o caminho que o próprio
-          Next documenta para isto, e já é o que `app/layout.tsx` usa para o
-          tema.
-
-          A ESTRATÉGIA É `afterInteractive` (a padrão), e não `beforeInteractive`:
-          esta última só é suportada dentro do layout raiz.
-
-          E O VALOR É ESCRITO NO DOM, e não no render: o servidor roda em UTC e
-          o navegador não, então um `value` calculado durante o render seria
-          diferente dos dois lados e o React acusaria divergência de hidratação.
-          É exatamente o que `app/publicar/enviador.tsx` já faz no `useEffect`
-          dele, pelo mesmo motivo.
-
-          SE ELE NÃO RODAR, NADA QUEBRA: o campo fica vazio, `fusoDoCampo`
-          (lib/publicacao.ts) cai no padrão de Brasília, e a tela se comporta
-          como se comportava antes desta linha existir. */}
-      <Script id="fuso-do-remarcar">
-        {`document.querySelectorAll('input[name="fuso"]').forEach(function(c){c.value=String(new Date().getTimezoneOffset())})`}
-      </Script>
     </div>
   );
 }

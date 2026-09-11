@@ -71,7 +71,7 @@ export default function AccountSwitcher({
                   onClick={() => trocar(a.ig_user_id)}
                   className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/60 ${
                     a.ig_user_id === current.ig_user_id
-                      ? "font-semibold text-indigo-600 dark:text-indigo-400"
+                      ? "font-semibold text-tinta dark:text-tinta-escuro"
                       : "text-zinc-700 dark:text-zinc-300"
                   }`}
                 >
@@ -79,11 +79,11 @@ export default function AccountSwitcher({
                     src={a.profile_picture_url}
                     name={a.username ?? "?"}
                     className="h-6 w-6"
-                    textClassName="text-[10px]"
+                    textClassName="text-[11px]"
                   />
                   <span className="min-w-0 flex-1 truncate">@{a.username ?? a.ig_user_id}</span>
                   {a.ig_user_id === current.ig_user_id && (
-                    <span className="text-indigo-500">✓</span>
+                    <span className="text-tinta dark:text-tinta-escuro">✓</span>
                   )}
                 </button>
               </li>
@@ -92,7 +92,7 @@ export default function AccountSwitcher({
           <div className="border-t border-zinc-200 dark:border-zinc-800">
             <a
               href="/api/oauth/login"
-              className="block px-3 py-2 text-sm text-indigo-600 transition-colors hover:bg-zinc-100 dark:text-indigo-400 dark:hover:bg-zinc-800/60"
+              className="block px-3 py-2 text-sm text-tinta transition-colors hover:bg-traco/40 dark:text-tinta-escuro dark:hover:bg-traco-escuro/60"
             >
               + Conectar outra conta
             </a>
@@ -115,7 +115,7 @@ export default function AccountSwitcher({
           <p className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
             @{current.username ?? current.ig_user_id}
           </p>
-          <p className="text-[10px] text-zinc-500">
+          <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
             {pending ? "trocando…" : accounts.length > 1 ? "trocar conta" : "conectado"}
           </p>
         </div>

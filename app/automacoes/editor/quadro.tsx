@@ -1391,7 +1391,7 @@ export default function Quadro({
       <header className="flex shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950">
         <Link
           href="/automacoes"
-          className="shrink-0 text-sm text-zinc-500 transition-colors hover:text-indigo-600 dark:text-zinc-400 dark:hover:text-indigo-400"
+          className="shrink-0 text-sm text-quieto transition-colors hover:text-tinta dark:text-quieto-escuro dark:hover:text-tinta-escuro"
         >
           ← Automações
         </Link>

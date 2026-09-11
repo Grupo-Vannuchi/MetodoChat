@@ -29,7 +29,7 @@ export default function Avatar({
   }
   return (
     <span
-      className={`${className} flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 font-bold text-white ${textClassName}`}
+      className={`${className} flex shrink-0 items-center justify-center rounded-full bg-tinta font-bold text-papel dark:bg-tinta-escuro dark:text-papel-escuro ${textClassName}`}
     >
       {initial(name)}
     </span>

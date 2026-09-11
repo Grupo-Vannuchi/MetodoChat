@@ -29,3 +29,26 @@ export function formatWindowLeft(msLeft: number): string {
   if (minutos < 60) return `${minutos} min`;
   return `${Math.floor(minutos / 60)}h${String(minutos % 60).padStart(2, "0")}`;
 }
+
+/**
+ * QUANTO DA JANELA AINDA EXISTE, de 0 a 1 — o preenchimento do traço.
+ *
+ * É a assinatura visual desta reformulação (spec §3): a janela de 24h deixa de
+ * ser uma pílula no canto e vira um traço no começo de toda linha que tem
+ * prazo, cujo preenchimento é o tempo restante. Cheio é o dia inteiro pela
+ * frente; vazio é fechada.
+ *
+ * O DENOMINADOR É A JANELA ÚTIL, e não as 24h cheias: `windowState` já desconta
+ * a margem de 5 minutos que o motor sempre respeitou, então o traço tem de
+ * medir contra o mesmo total — senão ele nunca chegaria a cheio, e a linha de
+ * quem acabou de escrever apareceria com um pedacinho faltando sem motivo.
+ *
+ * SATURA NAS DUAS PONTAS. Acima de 1 aconteceria com relógio adiantado do
+ * servidor ou `last_reply_at` no futuro (o webhook grava o que a Meta manda);
+ * abaixo de 0, com a janela vencida. Nenhum dos dois pode virar uma barra que
+ * transborda a caixa ou que desenha para trás.
+ */
+export function fracaoDaJanela(msLeft: number): number {
+  const util = WINDOW_MS - WINDOW_MARGIN_MS;
+  return Math.min(1, Math.max(0, msLeft / util));
+}

@@ -120,7 +120,7 @@ export default function FormNovaAutomacao() {
                 key={o.valor}
                 className={`cursor-pointer rounded-xl border p-3 transition-colors ${
                   escolhido
-                    ? "border-indigo-500 bg-indigo-500/10 ring-1 ring-indigo-500"
+                    ? "border-acao bg-acao/10 ring-1 ring-acao dark:border-acao-escuro dark:bg-acao-escuro/15 dark:ring-acao-escuro"
                     : "border-zinc-300 bg-white hover:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:border-zinc-500"
                 }`}
               >
@@ -135,20 +135,20 @@ export default function FormNovaAutomacao() {
                 <Icone
                   className={`h-5 w-5 ${
                     escolhido
-                      ? "text-indigo-600 dark:text-indigo-400"
+                      ? "text-tinta dark:text-tinta-escuro"
                       : "text-zinc-500 dark:text-zinc-400"
                   }`}
                 />
                 <p
                   className={`mt-2 text-sm font-semibold ${
                     escolhido
-                      ? "text-indigo-600 dark:text-indigo-400"
+                      ? "text-tinta dark:text-tinta-escuro"
                       : "text-zinc-800 dark:text-zinc-200"
                   }`}
                 >
                   {o.titulo}
                 </p>
-                <p className="mt-1 text-xs text-zinc-500">{o.descricao}</p>
+                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{o.descricao}</p>
               </label>
             );
           })}

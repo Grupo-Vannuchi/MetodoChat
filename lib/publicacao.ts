@@ -1849,6 +1849,29 @@ export function textoDoDesfecho(
 }
 
 /**
+ * OS DOIS STATUS DA FILA DE QUEM NÃO VOLTA PARA O DRENO.
+ *
+ * O NOME DIZ "DA FILA" PORQUE JÁ EXISTE `ESTADOS_TERMINAIS` NESTE ARQUIVO, e as
+ * duas falam de coisas diferentes: aquele é sobre o `EstadoDoEnvio` do envio em
+ * lote (`pronto`, `recusado`, `falhou`), este é sobre a coluna `status` da
+ * tabela `queue`. Dois nomes iguais para dois vocabulários seria a confusão que
+ * este arquivo inteiro vem evitando.
+ *
+ * `skipped` e `failed` são o fim da linha de um item da fila: o dreno reivindica
+ * com `where status = 'pending'`, e nenhum dos dois volta para lá sozinho.
+ *
+ * `pending` E `guardado` FICAM DE FORA, e a exclusão é a metade importante desta
+ * constante. O `guardado` parece terminal e não é — ele sai assim que a pessoa
+ * voltar a falar (`upsertContact` o devolve a `pending`) —, e o `pending` com
+ * hora à frente é o único caso em que "Sai em" é uma promessa que o sistema
+ * pode cumprir. Um conserto que os alcançasse trocaria uma mentira por outra.
+ *
+ * `sending` TAMBÉM FICA DE FORA: ele está EM VOO, e o desfecho dele ainda vai
+ * ser gravado.
+ */
+const STATUS_TERMINAIS_DA_FILA = new Set(["skipped", "failed"]);
+
+/**
  * A data que uma linha de envio deve mostrar: quando SAIU, ou quando VAI sair.
  *
  * =============================================================================
@@ -1866,8 +1889,23 @@ export function textoDoDesfecho(
  *
  * `futuro` NÃO É "O ITEM ESTÁ PENDENTE": um `pending` com `not_before` já
  * vencido está ATRASADO (o dreno ainda não passou por ele), e a tela não pode
- * prometer uma saída que já devia ter acontecido. A pergunta é sobre o RELÓGIO,
- * e não sobre o status.
+ * prometer uma saída que já devia ter acontecido. A pergunta é sobre o RELÓGIO —
+ * e o status entra ANTES dela, não no lugar dela: ver o parágrafo seguinte.
+ *
+ * =============================================================================
+ * O SEGUNDO DEFEITO QUE ELA CONSERTA, medido em produção em 10/09/2026
+ *
+ * Um post cancelado pelo dono (`status='skipped'`, `error='cancelado por voce'`)
+ * aparecia em Envios dizendo **"Sai em 12/09/2026, 16:10"**. O `not_before` dele
+ * ficou com a hora que estava agendada, porque cancelar encerra o item sem
+ * limpar a coluna — e um `failed` é pior ainda, porque `finish`
+ * (lib/queue-drain.ts) EMPURRA `not_before` para `now() + retryInSeconds` sem
+ * olhar o status, então todo item que falha por exceção nasce com a hora dois
+ * minutos à frente.
+ *
+ * A pergunta ao relógio estava certa. O que faltava era perguntar antes se ainda
+ * existe saída para prometer: `sent_at` respondia "já saiu", e nada respondia
+ * "não vai sair". Ver `STATUS_TERMINAIS_DA_FILA`, logo acima.
  *
  * O `agora` É PARÂMETRO, com `Date.now()` por omissão, por um motivo de teste e
  * não de produção: sem ele, todo caso escrito com uma data fixa vira vermelho
@@ -1887,12 +1925,21 @@ export function dataDaLinhaDeEnvio(
   // com `sent_at` está no perfil público, e dizer "sai em" sobre ele seria
   // exatamente a mentira que esta entrega existe para apagar.
   if (item.sent_at && !Number.isNaN(item.sent_at.getTime())) {
-    return { quando: item.sent_at, futuro: false, saiu: true };
+    return { quando: item.sent_at, futuro: false, saiu: true, encerrado: false };
   }
   const marcado = item.not_before;
   const quando =
     marcado instanceof Date && !Number.isNaN(marcado.getTime()) ? marcado : item.created_at;
-  return { quando, futuro: quando.getTime() > agora, saiu: false };
+  // QUEM NÃO VAI SAIR NUNCA É FUTURO, e esta linha é a extensão do raciocínio
+  // da de cima: lá a pergunta ao relógio não é feita porque o item JÁ SAIU;
+  // aqui não é feita porque ele NÃO VAI SAIR. Nos dois casos "sai em" prometeria
+  // um futuro que não existe — e a hora gravada em `not_before` continua ali,
+  // parecendo promessa, justamente porque ninguém a limpa ao encerrar o item.
+  // Ver `STATUS_TERMINAIS_DA_FILA`.
+  if (STATUS_TERMINAIS_DA_FILA.has(item.status)) {
+    return { quando, futuro: false, saiu: false, encerrado: true };
+  }
+  return { quando, futuro: quando.getTime() > agora, saiu: false, encerrado: false };
 }
 
 /**
@@ -1902,7 +1949,25 @@ export function dataDaLinhaDeEnvio(
  * fatos opostos — o post SAIU (e a data é a de quando saiu) e o post está
  * ATRASADO (a hora venceu e ele ainda está na fila). Ver `fraseDaDataDaLinha`.
  */
-export type DataDaLinha = { quando: Date; futuro: boolean; saiu: boolean };
+export type DataDaLinha = {
+  quando: Date;
+  futuro: boolean;
+  saiu: boolean;
+  /**
+   * NÃO VAI SAIR MAIS: o dono cancelou (`skipped`) ou a Meta recusou
+   * (`failed`). É o TERCEIRO fato, e ele existe pelo mesmo motivo que `saiu`
+   * não é `!futuro`: "não é futuro" junta três situações diferentes — já
+   * saiu, ainda vai sair mas está atrasado, e nunca vai sair.
+   *
+   * SEM ELE, UMA TELA MENTIU. Medido em 11/09/2026, por revisão: o detalhe de
+   * um post CANCELADO para daqui a oito dias anunciava "A hora já passou e o
+   * post ainda não saiu: ele sai na próxima drenagem, e a partir daí não dá
+   * mais para cancelar" — sobre um post que o dono tinha acabado de cancelar,
+   * cuja hora nem chegou. A mesma frase aparecia num post FALHADO, dizendo que
+   * ele ainda sairia; o dono não reagendaria, e ele nunca sairia.
+   */
+  encerrado: boolean;
+};
 
 /**
  * O QUE VEM ANTES DA DATA NUMA LINHA — e as duas telas leem esta função.
@@ -1954,7 +2019,29 @@ export function fraseDaDataDaLinha(d: { futuro: boolean; saiu: boolean }): strin
  * valer e o botão de cancelar ao lado perde a corrida (ver `desfechoDaMudanca`).
  * Quem está olhando a lista precisa saber disso ANTES de contar com o botão.
  */
-export function avisoDoAtrasoNaLista(d: { futuro: boolean }): string | null {
+export function avisoDoAtrasoNaLista(d: {
+  futuro: boolean;
+  saiu: boolean;
+  encerrado: boolean;
+}): string | null {
+  // O QUE NÃO VAI SAIR MAIS NÃO ESTÁ ATRASADO, e esta linha é a irmã da de
+  // baixo. Elas fecham as duas portas do mesmo defeito: em 11/09/2026 esta
+  // função olhava só `futuro`, e isso era seguro POR ACIDENTE porque a única
+  // tela que a chamava filtrava `status = 'pending'`. O calendário passou a
+  // chamá-la para QUALQUER status, e a garantia — que morava no `WHERE` de quem
+  // chamava — caiu. `saiu` fechou a primeira porta; esta fecha a segunda.
+  if (d.encerrado) return null;
+  // O QUE JA SAIU NAO ESTA ATRASADO, e esta linha nasceu de um defeito visto na
+  // tela em 11/09/2026. Ate ali a funcao olhava so `futuro`, e isso era seguro
+  // POR ACIDENTE: a unica tela que a chamava filtrava `status = 'pending'` na
+  // consulta, entao `saiu` era sempre falso. A garantia morava no WHERE de quem
+  // chamava, e nada aqui dizia isso.
+  //
+  // O calendario passou a chamar a mesma funcao para item PUBLICADO, e a tela
+  // anunciou "a hora ja passou e o post ainda nao saiu" sobre um post que
+  // estava no perfil havia dois dias — prometendo que ainda dava para cancelar
+  // o que ja era publico.
+  if (d.saiu) return null;
   if (d.futuro) return null;
   return (
     "A hora já passou e o post ainda não saiu: ele sai na próxima drenagem, " +
@@ -2101,6 +2188,37 @@ export function confirmouOCancelamento(bruto: unknown): boolean {
  *  ACONTECEU, porque o pior desfecho aqui é a pessoa achar que cancelou. */
 export const TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO =
   "Marque a confirmação antes de cancelar. Nada foi cancelado, e o post continua agendado.";
+
+/**
+ * O MOTIVO QUE A AÇÃO DE CANCELAR GRAVA NA COLUNA `error`.
+ *
+ * =============================================================================
+ * POR QUE ELE É CONSTANTE, e por que isso bastou no lugar de um estado novo
+ * (auditoria de design de 10/09/2026, achado D1)
+ *
+ * `skipped` responde por DUAS coisas diferentes na fila: o sistema pulou (a
+ * janela de 24h fechou, o lote venceu, um lote mais novo tomou o lugar) e o
+ * DONO CANCELOU. O primeiro é um problema que aconteceu com ele; o segundo é
+ * uma decisão que ele tomou. A tela chamava os dois de "Não enviada" e oferecia
+ * aos dois a frase que promete nova tentativa.
+ *
+ * ESTE TEXTO É ESCRITO PELO NOSSO CÓDIGO, NUNCA PELO USUÁRIO, e é essa
+ * propriedade que faz a constante bastar: `cancelarPublicacao`
+ * (app/publicar/agendados/actions.ts) é o ÚNICO caminho do repositório que o
+ * grava — medido, e os outros dois `update ... status = 'skipped'`
+ * (lib/engine.ts, lib/queue-drain.ts) escrevem motivos próprios e diferentes.
+ * Uma coluna que só o servidor preenche é tão confiável quanto um estado, e não
+ * cobra migração, deploy em dois passos nem entrada nova em `app/labels.ts`.
+ *
+ * SEM ACENTO, e não por descuido: é o texto que já está gravado nas linhas de
+ * produção. Mudá-lo aqui não reescreveria o histórico — faria as linhas antigas
+ * voltarem a cair no rótulo de falha, que é exatamente o defeito.
+ *
+ * ELA MORA AQUI porque é aqui que moram as outras decisões puras do cancelar
+ * (`confirmouOCancelamento`, `desfechoDaMudanca`, `textoDoDesfecho`), e porque
+ * este arquivo NÃO TEM IMPORT: `app/labels.ts` pode lê-lo sem puxar servidor.
+ */
+export const MOTIVO_CANCELADO_PELO_DONO = "cancelado por voce";
 
 // =============================================================================
 // O QUE NÃO SAIU, E QUEM PRECISA SABER (09/09/2026)
@@ -2278,3 +2396,39 @@ export const FRASE_DA_FALHA = "Falhou em ";
  *  falta — e não o post —, para ninguém procurar o defeito na tela. */
 export const MOTIVO_NAO_REGISTRADO =
   "A fila não guardou o motivo desta falha. O post não saiu, e o arquivo continua no armazenamento.";
+
+/**
+ * O QUE DIZER SOBRE A MÍDIA DE UMA PUBLICAÇÃO, por estado — ou `null`.
+ *
+ * O DEFEITO QUE ISTO CONSERTA, achado por revisão em 11/09/2026: a tela de
+ * detalhe decidia com `podeMexer = status === "pending"`, e tudo que caísse no
+ * `else` recebia a frase *"Este post já saiu. A mídia foi apagada do
+ * armazenamento depois da publicação"*.
+ *
+ * Para um post FALHADO ela é falsa duas vezes — ele não saiu, e o arquivo
+ * continua no bucket. A própria seção "Não saíram", na tela irmã, afirma o
+ * contrário: *"O arquivo continua no armazenamento"*. Duas telas do mesmo
+ * produto dizendo coisas opostas sobre o mesmo arquivo.
+ *
+ * A MÍDIA SÓ É APAGADA DEPOIS DE PUBLICAR (`limparOBucket`, lib/queue-drain.ts),
+ * e por isso a pergunta certa é `saiu`, e nunca "não é pending".
+ */
+export function fraseSobreAMidia(d: {
+  saiu: boolean;
+  encerrado: boolean;
+}): string | null {
+  if (d.saiu) {
+    return (
+      "Este post já saiu. A mídia foi apagada do armazenamento depois da " +
+      "publicação — é por isso que ela não aparece aqui."
+    );
+  }
+  if (d.encerrado) {
+    // NÃO SAIU E NÃO VAI SAIR: cancelado ou recusado. O arquivo CONTINUA lá, e
+    // dizer isso é o que permite ao dono agendar de novo sem subir tudo outra
+    // vez. É a mesma frase da seção "Não saíram".
+    return "Este post não saiu e não vai sair. O arquivo continua no armazenamento.";
+  }
+  // Ainda vai sair: não há nada a explicar sobre a mídia, e ela está ali do lado.
+  return null;
+}

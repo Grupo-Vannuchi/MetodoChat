@@ -399,9 +399,12 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     const arvore = await arvoreDosAgendados();
 
     expect(arvore).toContain(agendado);
-    // O ITEM PENDENTE CONTINUA COM OS BOTÕES: é o `value` do `<input hidden>`
-    // dos formulários de cancelar e remarcar.
-    expect(arvore).toContain(`value=${agendado}`);
+    // O ITEM PENDENTE CONTINUA ALCANCAVEL, e o que mudou em 11/09/2026 foi o
+    // ENDERECO disso: a lista virou calendario, e os formularios de cancelar e
+    // remarcar sairam do quadrado do dia para a tela de detalhe. O que se mede
+    // aqui passa a ser o LINK que leva ate eles — sem ele, os formularios
+    // existiriam numa tela que ninguem alcanca a partir daqui.
+    expect(arvore).toContain(`/publicar/agendados/${agendado}`);
     // E A SEÇÃO DAS FALHADAS NEM APARECE: ela só existe quando há alguma.
     expect(arvore).not.toContain("Não saíram");
   });
@@ -480,9 +483,16 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     const painel = await arvoreDoPainel();
     expect(painel).not.toContain("publicação não saiu");
     expect(painel).not.toContain("publicações não saíram");
-    // E O PAINEL NÃO FICA MUDO POR ACIDENTE: o cartão de saúde saiu do ramo
-    // vermelho, que é o que "sai do aviso" quer dizer.
-    expect(painel).not.toContain("Precisa de atenção");
+    // E O PAINEL NÃO FICA MUDO POR ACIDENTE: ele diz, com todas as letras, que
+    // não há nada a fazer — que é o que "sai do aviso" quer dizer.
+    //
+    // ISTO ERA `not.toContain("Precisa de atenção")` ATÉ 10/09/2026, e virou
+    // asserção VAZIA no dia em que a tela inicial foi reescrita: aquela frase
+    // deixou de existir na árvore, então a linha passava sem medir nada. Uma
+    // asserção que não pode mais falhar é pior que nenhuma — ela ocupa o lugar
+    // de uma garantia. A versão nova mede a PRESENÇA do estado calmo, que só
+    // aparece quando `oQuePrecisaDeVoce` devolve lista vazia.
+    expect(painel).toContain("Nada precisa de você agora");
   });
 
   // =========================================================================
@@ -660,12 +670,26 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
       const painel = await arvoreDoPainel();
 
       expect(painel).toContain("publicação não saiu");
-      expect(painel).toContain("Precisa de atenção");
+      expect(painel).toContain("Precisa de você");
       expect(painel).toContain("/publicar/agendados");
-      // E O CARTÃO NÃO É O DO CONVITE: era ele que engolia o aviso. Sem esta
-      // linha o caso passaria com os dois cartões ao mesmo tempo, que é
-      // impossível — mas quem lê o teste não saberia qual dos dois ganhou.
-      expect(painel).not.toContain("Nenhuma automação ativa");
+      // O QUE MUDOU EM 10/09/2026, E POR QUE A ASSERÇÃO FICOU MAIS FORTE.
+      //
+      // Até aqui o painel tinha UM cartão de saúde, e ou ele era o aviso ou era
+      // o convite — por isso o caso media AUSÊNCIA do convite: era assim que se
+      // sabia qual dos dois tinha ganhado o cartão único. A tela inicial virou
+      // uma LISTA ordenada (lib/precisa-de-voce.ts), e nela os dois aparecem
+      // juntos: a falha em cima, o convite embaixo. Nada é engolido.
+      //
+      // Medir ausência agora estaria medindo a tela errada. O que continua
+      // valendo — e é o motivo original deste caso — é que a falha vem PRIMEIRO,
+      // e é isso que passa a ser medido. É uma garantia mais forte do que a
+      // anterior: antes, o convite não podia aparecer; agora ele aparece e não
+      // pode passar na frente.
+      expect(painel).toContain("Nenhuma automação ativa");
+      expect(
+        painel.indexOf("publicação não saiu"),
+        "a falha tem de vir ANTES do convite"
+      ).toBeLessThan(painel.indexOf("Nenhuma automação ativa"));
     } finally {
       await automacaoAtiva(CONTA_A, true);
     }
@@ -681,7 +705,11 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
       const painel = await arvoreDoPainel();
 
       expect(painel).toContain("Nenhuma automação ativa");
-      expect(painel).not.toContain("Precisa de atenção");
+      // E NENHUMA FALHA APARECE JUNTO. O título da seção ("Precisa de você") é
+      // o mesmo nos dois casos agora — ele não distingue mais nada —, então o
+      // que se mede é a ausência das duas frases de falha.
+      expect(painel).not.toContain("não saiu");
+      expect(painel).not.toContain("não saíram");
     } finally {
       await automacaoAtiva(CONTA_A, true);
     }
@@ -747,7 +775,9 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
 
     expect(painel).not.toContain("mensagem não saiu");
     expect(painel).not.toContain("mensagens não saíram");
-    expect(painel).not.toContain("Precisa de atenção");
+    // Mesma troca do caso dos 8 dias: presença do estado calmo, e não ausência
+    // de uma frase que não existe mais.
+    expect(painel).toContain("Nada precisa de você agora");
   });
 
   // =========================================================================

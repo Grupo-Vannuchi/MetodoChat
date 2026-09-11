@@ -39,7 +39,7 @@ function Step({
 }) {
   return (
     <section className={`p-5 ${card}`}>
-      <h2 className="flex items-center gap-2 text-base font-semibold">
+      <h2 className="titulo flex items-center gap-2 text-base font-semibold">
         <span
           className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
             done
@@ -51,18 +51,18 @@ function Step({
         </span>
         <span className="min-w-0">{title}</span>
         {done ? (
-          <span className="ml-auto shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+          <span className="ml-auto shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
             concluído
           </span>
         ) : obrigatorio ? (
-          <span className="ml-auto shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+          <span className="ml-auto shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
             obrigatório
           </span>
         ) : null}
       </h2>
       {subtitle && <p className={`ml-8 mt-1 text-xs ${muted}`}>{subtitle}</p>}
       {ondeFica && (
-        <p className="ml-8 mt-1 text-xs text-zinc-500">
+        <p className={`ml-8 mt-1 text-xs ${muted}`}>
           <b>Onde:</b> {ondeFica}
         </p>
       )}
@@ -121,7 +121,7 @@ export default async function SetupPage({
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <div>
-        <h1 className="text-2xl font-bold">Configuração</h1>
+        <h1 className="titulo text-2xl font-bold">Configuração</h1>
         <p className={`mt-1 text-sm ${muted}`}>{subtituloDaConfiguracao(instalacao.aberto)}</p>
         {/* Barra de progresso: mostra o quanto falta e evita a sensação de
             processo interminável, que é o que gera abandono. */}
@@ -243,7 +243,7 @@ export default async function SetupPage({
                 href="https://developers.facebook.com/apps/creation/"
                 target="_blank"
                 rel="noreferrer"
-                className="text-indigo-600 underline dark:text-indigo-400"
+                className="text-tinta underline decoration-quieto/50 underline-offset-2 dark:text-tinta-escuro dark:decoration-quieto-escuro/50"
               >
                 developers.facebook.com/apps/creation
               </a>{" "}
@@ -275,7 +275,7 @@ export default async function SetupPage({
         >
           <form action={saveMetaCredentials} className="space-y-3">
             <div>
-              <label className="mb-1 block text-xs font-medium text-zinc-400">
+              <label className={`mb-1 block text-xs font-medium ${muted}`}>
                 ID do app do Instagram
               </label>
               <input
@@ -287,7 +287,7 @@ export default async function SetupPage({
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-zinc-400">
+              <label className={`mb-1 block text-xs font-medium ${muted}`}>
                 Chave secreta do app do Instagram
               </label>
               <input
@@ -359,7 +359,7 @@ export default async function SetupPage({
             </p>
           </div>
           <details className="mt-2">
-            <summary className="cursor-pointer text-sm text-zinc-500">Depois de salvar na Meta</summary>
+            <summary className={`cursor-pointer text-sm ${muted}`}>Depois de salvar na Meta</summary>
             <div className="mt-2 space-y-2">
               <p>
                 Depois de salvar o webhook, clique em <b>Gerenciar</b> e assine os campos{" "}
@@ -459,13 +459,13 @@ export default async function SetupPage({
                       <p className="truncate text-sm font-semibold">
                         @{a.username ?? a.ig_user_id}
                       </p>
-                      <p className="truncate text-xs text-zinc-500">
+                      <p className={`truncate text-xs ${muted}`}>
                         ID:{" "}
                         <code className="select-all font-mono text-zinc-600 dark:text-zinc-300">
                           {a.ig_user_id}
                         </code>
                       </p>
-                      <p className="text-xs text-zinc-500">
+                      <p className={`text-xs ${muted}`}>
                         Token válido até {fmtDate(a.token_expires_at)}
                       </p>
                     </div>
@@ -483,13 +483,13 @@ export default async function SetupPage({
             href="/api/oauth/login"
             className={`inline-block rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
               metaOk
-                ? "bg-indigo-500 text-white hover:bg-indigo-600"
+                ? "bg-acao text-papel hover:bg-acao/90 dark:bg-acao-escuro dark:text-papel-escuro dark:hover:bg-acao-escuro/90"
                 : "pointer-events-none bg-zinc-300 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"
             }`}
           >
             {connected ? "Conectar outra conta" : "Conectar Instagram"}
           </a>
-          {!metaOk && <p className="text-xs text-zinc-500">Complete os passos 1 e 2 antes.</p>}
+          {!metaOk && <p className={`text-xs ${muted}`}>Complete os passos 1 e 2 antes.</p>}
           {connected && (
             <p className={`text-xs ${muted}`}>
               Cada conta extra precisa ser adicionada como <b>Testador do Instagram</b> no seu app
@@ -558,7 +558,7 @@ export default async function SetupPage({
             ].map((item) => (
               <li key={item.label} className="flex items-start gap-2 text-sm">
                 <span
-                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ${
+                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white ${
                     item.ok ? "bg-emerald-500" : "bg-zinc-400 dark:bg-zinc-600"
                   }`}
                 >
@@ -573,7 +573,7 @@ export default async function SetupPage({
           </ul>
 
           <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            <p className={`mb-1 text-xs font-semibold uppercase tracking-wide ${muted}`}>
               Permissões usadas por este app
             </p>
             <ul className={`list-disc space-y-0.5 pl-5 text-xs ${muted}`}>
