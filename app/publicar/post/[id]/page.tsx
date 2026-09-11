@@ -112,13 +112,13 @@ export default async function DetalheDaPublicacao({
   // e sem elas um `?em=banana` vindo de um link colado viraria endereço quebrado.
   const visaoDeVolta = visaoDaUrl(sp.v);
   const ancoraDeVolta = ancoraDaUrl(sp.em, visaoDeVolta, chaveDoDia(new Date()));
-  const voltarPara = `/publicar/agendados?v=${visaoDeVolta}&em=${ancoraDeVolta}`;
+  const voltarPara = `/publicar?v=${visaoDeVolta}&em=${ancoraDeVolta}`;
 
   return (
     <div className="space-y-6">
       <div>
         <Link href={voltarPara} className={`text-sm ${link}`}>
-          ← Calendário
+          ← Publicações
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <h1 className={pageTitle}>{rotuloDaFormaDoItem(p)}</h1>

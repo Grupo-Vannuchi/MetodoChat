@@ -34,7 +34,13 @@ const NAV_GROUPS: {
     label: "Gerenciar",
     items: [
       { href: "/conversas", label: "Conversas", icon: IconSend },
-      { href: "/publicar", label: "Publicar", icon: IconImage },
+      // "PUBLICAÇÕES" E NÃO "PUBLICAR", e a troca é de CATEGORIA e não de
+      // gosto: todos os outros oito itens desta barra nomeiam um LUGAR, e este
+      // era o único que nomeava uma AÇÃO. Item de navegação diz onde você está;
+      // botão diz o que acontece. O destino também mudou: era o formulário de
+      // compor, e passou a ser o calendário — ver o cabeçalho de
+      // `app/publicar/page.tsx`.
+      { href: "/publicar", label: "Publicações", icon: IconImage },
       { href: "/automacoes", label: "Automações", icon: IconZap },
       { href: "/contatos", label: "Contatos", icon: IconUsers },
       { href: "/eventos", label: "Atividade", icon: IconActivity },

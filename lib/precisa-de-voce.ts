@@ -155,7 +155,7 @@ export function oQuePrecisaDeVoce(f: FatosDoInicio): ItemDoInicio[] {
       // Sem ela, o dia em que alguém mudar 7 para 3 a tela continuará dizendo a
       // mesma coisa sobre um recorte diferente.
       detalhe: "nos últimos " + DIAS_DE_AVISO_DA_PUBLICACAO + " dias",
-      href: "/publicar/agendados",
+      href: "/publicar",
       urgencia: "parou",
     });
   }

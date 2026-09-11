@@ -1,4 +1,4 @@
-// O CAMINHO DE VER, CANCELAR E REMARCAR O AGENDADO — `app/publicar/agendados/actions.ts`.
+// O CAMINHO DE VER, CANCELAR E REMARCAR O AGENDADO — `app/publicar/post/actions.ts`.
 //
 // -----------------------------------------------------------------------------
 // POR QUE ELE EXISTE, E POR QUE É AQUI QUE O DEFEITO MORA
@@ -56,12 +56,12 @@ import { bancoDescartavel } from "./harness";
 import { comoNumaRequisicao } from "./semear-requisicao";
 import { textoDaArvore } from "./texto-da-arvore";
 
-type ModuloAcoes = typeof import("@/app/publicar/agendados/actions");
+type ModuloAcoes = typeof import("@/app/publicar/post/actions");
 type ModuloDreno = typeof import("@/lib/queue-drain");
 type ModuloIg = typeof import("@/lib/ig");
 type ModuloConta = typeof import("@/lib/account");
-type ModuloTelaDosAgendados = typeof import("@/app/publicar/agendados/page");
-type ModuloTelaDoDetalhe = typeof import("@/app/publicar/agendados/[id]/page");
+type ModuloTelaDosAgendados = typeof import("@/app/publicar/page");
+type ModuloTelaDoDetalhe = typeof import("@/app/publicar/post/[id]/page");
 type ModuloTelaDeEnvios = typeof import("@/app/eventos/page");
 type ModuloFormato = typeof import("@/lib/format");
 
@@ -162,12 +162,12 @@ beforeAll(async () => {
   // `scheduleTick` não sai da máquina.
   delete process.env.QSTASH_TOKEN;
 
-  acoes = (await import("@/app/publicar/agendados/actions")) as ModuloAcoes;
+  acoes = (await import("@/app/publicar/post/actions")) as ModuloAcoes;
   dreno = (await import("@/lib/queue-drain")) as ModuloDreno;
   ig = (await import("@/lib/ig")) as ModuloIg;
   conta = (await import("@/lib/account")) as ModuloConta;
-  telaDosAgendados = (await import("@/app/publicar/agendados/page")) as ModuloTelaDosAgendados;
-  telaDoDetalhe = (await import("@/app/publicar/agendados/[id]/page")) as ModuloTelaDoDetalhe;
+  telaDosAgendados = (await import("@/app/publicar/page")) as ModuloTelaDosAgendados;
+  telaDoDetalhe = (await import("@/app/publicar/post/[id]/page")) as ModuloTelaDoDetalhe;
   telaDeEnvios = (await import("@/app/eventos/page")) as ModuloTelaDeEnvios;
   formato = (await import("@/lib/format")) as ModuloFormato;
 
@@ -230,7 +230,7 @@ async function desfechoDe(
   acao: (form: FormData) => Promise<void>,
   form: FormData
 ): Promise<Desfecho> {
-  const { valor } = await comoNumaRequisicao("/publicar/agendados", async () => {
+  const { valor } = await comoNumaRequisicao("/publicar", async () => {
     try {
       await acao(form);
       return null as string | null;
@@ -347,7 +347,7 @@ function campoDeDataHora(instante: number): string {
 
 describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", () => {
   test("a condição deste bloco é CONTA_A vir sem cookie nenhum — e ele confere isso antes de medir", async () => {
-    const { valor } = await comoNumaRequisicao("/publicar/agendados", () =>
+    const { valor } = await comoNumaRequisicao("/publicar", () =>
       conta.getSelectedAccountId()
     );
     expect(valor).toBe(CONTA_A);
@@ -370,7 +370,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
   test("o controle positivo: um item pendente e vencido SAI no dreno", async () => {
     const id = await semear({ conta: CONTA_A, emSegundos: -30 });
 
-    await comoNumaRequisicao("/publicar/agendados", () => dreno.drainQueue());
+    await comoNumaRequisicao("/publicar", () => dreno.drainQueue());
 
     expect((await lerItem(id)).status).toBe("sent");
     expect(meta.publicacoes.at(-1)).toEqual({ igUserId: CONTA_A, token: TOKEN_A });
@@ -402,7 +402,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
 
     // E O DRENO SEGUINTE NÃO O PUBLICA. É aqui que "cancelado" deixa de ser uma
     // palavra na tela e vira um fato.
-    await comoNumaRequisicao("/publicar/agendados", () => dreno.drainQueue());
+    await comoNumaRequisicao("/publicar", () => dreno.drainQueue());
     expect((await lerItem(id)).status).toBe("skipped");
     expect(meta.containers.length).toBe(containersAntes);
   });
@@ -617,7 +617,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
 
     // E O DRENO NÃO O PUBLICA ANTES DELA. O item continua na fila, e nenhum
     // contêiner nasceu deste pedido.
-    await comoNumaRequisicao("/publicar/agendados", () => dreno.drainQueue());
+    await comoNumaRequisicao("/publicar", () => dreno.drainQueue());
     expect((await lerItem(id)).status).toBe("pending");
     expect(meta.containers.length).toBe(containersAntes);
   });
@@ -818,7 +818,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
 
   /** A arvore que a tela dos agendados devolve, em texto. */
   async function arvoreDosAgendados(): Promise<string> {
-    const { valor } = await comoNumaRequisicao("/publicar/agendados", async () =>
+    const { valor } = await comoNumaRequisicao("/publicar", async () =>
       textoDaArvore(await telaDosAgendados.default({ searchParams: Promise.resolve({}) }))
     );
     return valor;
@@ -838,7 +838,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
    * `comoNumaRequisicao` direto na acao, sem tela nenhuma no meio.
    */
   async function arvoreDoDetalhe(id: string): Promise<string> {
-    const { valor } = await comoNumaRequisicao(`/publicar/agendados/${id}`, async () =>
+    const { valor } = await comoNumaRequisicao(`/publicar/post/${id}`, async () =>
       textoDaArvore(
         await telaDoDetalhe.default({
           params: Promise.resolve({ id }),
@@ -907,7 +907,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     // O CALENDARIO CONTINUA SENDO A PORTA: sem o link para o detalhe, a frase
     // estaria certa numa tela que ninguem alcanca.
     const calendario = await arvoreDosAgendados();
-    expect(calendario).toContain(`/publicar/agendados/${daquiAPouco}`);
+    expect(calendario).toContain(`/publicar/post/${daquiAPouco}`);
 
     const comFuturo = await arvoreDoDetalhe(daquiAPouco);
     expect(comFuturo).toContain("Sai em ");

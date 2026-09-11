@@ -382,7 +382,7 @@ export function avisoDosPerfis(atualizados: number, tentados: number): Aviso {
  * sem `tom` chega na tela pintado de falha.
  */
 export function urlDePublicarComAviso(aviso: Aviso): string {
-  return `/publicar?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;
+  return `/publicar/novo?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;
 }
 
 /**
@@ -443,7 +443,7 @@ export function avisoDaPublicacaoEnfileirada(
  * mandado sem `tom` chega na tela pintado de falha.
  */
 export function urlDeAgendadosComAviso(aviso: Aviso): string {
-  return `/publicar/agendados?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;
+  return `/publicar?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;
 }
 
 /**

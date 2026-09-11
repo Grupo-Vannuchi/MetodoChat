@@ -9,7 +9,7 @@
 // existir: o que decide o que aparece na tela são as condições do `where` de
 // cada consulta, e NENHUMA delas é visível para os quatro portões.
 //
-//   `app/publicar/agendados/page.tsx`, seção nova:
+//   `app/publicar/page.tsx`, seção nova:
 //     `account_id`          impede contar sobre a fila alheia
 //     `kind = 'publicacao'` impede uma MENSAGEM falhada virar linha de post
 //     `status = 'failed'`   é a seção inteira — lendo `pending`, ela vira a
@@ -56,7 +56,7 @@ import { comoNumaRequisicao } from "./semear-requisicao";
 import { textoDaArvore } from "./texto-da-arvore";
 
 type ModuloConta = typeof import("@/lib/account");
-type ModuloTelaDosAgendados = typeof import("@/app/publicar/agendados/page");
+type ModuloTelaDosAgendados = typeof import("@/app/publicar/page");
 type ModuloTelaDoPainel = typeof import("@/app/page");
 type ModuloPublicacao = typeof import("@/lib/publicacao");
 type ModuloFormato = typeof import("@/lib/format");
@@ -83,7 +83,7 @@ beforeAll(async () => {
   delete process.env.QSTASH_TOKEN;
 
   conta = (await import("@/lib/account")) as ModuloConta;
-  telaDosAgendados = (await import("@/app/publicar/agendados/page")) as ModuloTelaDosAgendados;
+  telaDosAgendados = (await import("@/app/publicar/page")) as ModuloTelaDosAgendados;
   telaDoPainel = (await import("@/app/page")) as ModuloTelaDoPainel;
   publicacao = (await import("@/lib/publicacao")) as ModuloPublicacao;
   formato = (await import("@/lib/format")) as ModuloFormato;
@@ -246,7 +246,7 @@ async function claimedAtDe(id: string): Promise<Date> {
 // ---------------------------------------------------------------------------
 
 async function arvoreDosAgendados(): Promise<string> {
-  const { valor } = await comoNumaRequisicao("/publicar/agendados", async () =>
+  const { valor } = await comoNumaRequisicao("/publicar", async () =>
     textoDaArvore(await telaDosAgendados.default({ searchParams: Promise.resolve({}) }))
   );
   return valor;
@@ -261,7 +261,7 @@ async function arvoreDoPainel(): Promise<string> {
 
 describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", () => {
   test("a condição deste bloco é CONTA_A vir sem cookie nenhum — e ele confere isso antes de medir", async () => {
-    const { valor } = await comoNumaRequisicao("/publicar/agendados", () =>
+    const { valor } = await comoNumaRequisicao("/publicar", () =>
       conta.getSelectedAccountId()
     );
     expect(valor).toBe(CONTA_A);
@@ -404,7 +404,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     // remarcar sairam do quadrado do dia para a tela de detalhe. O que se mede
     // aqui passa a ser o LINK que leva ate eles — sem ele, os formularios
     // existiriam numa tela que ninguem alcanca a partir daqui.
-    expect(arvore).toContain(`/publicar/agendados/${agendado}`);
+    expect(arvore).toContain(`/publicar/post/${agendado}`);
     // E A SEÇÃO DAS FALHADAS NEM APARECE: ela só existe quando há alguma.
     expect(arvore).not.toContain("Não saíram");
   });
@@ -523,7 +523,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     const painel = await arvoreDoPainel();
 
     expect(painel).toContain("publicação não saiu");
-    expect(painel).toContain("/publicar/agendados");
+    expect(painel.split("\n")).toContain("href=/publicar");
   });
 
   // =========================================================================
@@ -559,7 +559,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     const painel = await arvoreDoPainel();
 
     expect(painel).toContain("publicação não saiu");
-    expect(painel).toContain("/publicar/agendados");
+    expect(painel.split("\n")).toContain("href=/publicar");
   });
 
   // =========================================================================
@@ -637,7 +637,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
 
     expect(painel).toContain("publicação não saiu");
     expect(painel).not.toContain("mensagem não saiu");
-    expect(painel).toContain("/publicar/agendados");
+    expect(painel.split("\n")).toContain("href=/publicar");
   });
 
   // =========================================================================
@@ -671,7 +671,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
 
       expect(painel).toContain("publicação não saiu");
       expect(painel).toContain("Precisa de você");
-      expect(painel).toContain("/publicar/agendados");
+      expect(painel.split("\n")).toContain("href=/publicar");
       // O QUE MUDOU EM 10/09/2026, E POR QUE A ASSERÇÃO FICOU MAIS FORTE.
       //
       // Até aqui o painel tinha UM cartão de saúde, e ou ele era o aviso ou era
@@ -810,6 +810,6 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
 
     expect(painel).toContain("publicação não saiu");
     expect(painel).toContain("mensagens não saíram");
-    expect(painel).toContain("/publicar/agendados");
+    expect(painel.split("\n")).toContain("href=/publicar");
   });
 });
