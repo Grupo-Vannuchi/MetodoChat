@@ -5,7 +5,13 @@ temas, desktop (1366px) e celular (390px). Medição no DOM para o que o olho n�
 faz — contraste, escala tipográfica, raios, espaçamentos, foco, alvos de toque —
 e leitura visual página a página.
 
-**Nada foi consertado.** Este documento é o registro para executarmos de uma vez.
+**Nada foi consertado** quando este documento foi escrito. Ele era o registro
+para executarmos de uma vez.
+
+> **FECHADA EM 11/09/2026, 16:39.** Os doze defeitos e os seis pontos de
+> melhoria foram executados e estão em produção (`2e84f7e`). O rodapé deste
+> arquivo — *"O que a execução corrigiu no próprio relatório"* — registra os
+> três achados cuja DESCRIÇÃO não sobreviveu à medição na hora de consertar.
 
 ---
 
@@ -299,3 +305,46 @@ quais, porque um relatório com achado falso contamina os verdadeiros:
    **A outra metade do achado era verdadeira** e foi executada: não havia link
    "pular para o conteúdo", e quem navega por teclado atravessava os onze itens
    da barra lateral em toda página.
+
+---
+
+## O que a execução corrigiu no próprio relatório
+
+Os seis erros acima foram descobertos DURANTE a auditoria. Estes três só
+apareceram na hora de consertar, e são de outra natureza: o defeito existia,
+mas a descrição dele estava errada — e consertar pela descrição teria produzido
+a mudança errada.
+
+**D10 — "três padrões de navegação".** Eram dois, e não os que o texto nomeava.
+`/automacoes/[id]` e `/conversas/[id]` JÁ tinham link de volta quando o achado
+foi escrito. Os verdadeiros fora do padrão eram a trilha de `/automacoes/nova`
+(a única do painel) e o `"← Voltar para a lista"` de `/conversas/[id]`, que
+não nomeia o destino — um problema de CÓPIA, e não de estrutura.
+
+**M3 — "dez espaçamentos, passo de 2px".** Contados na árvore: 703 ocorrências
+em dezoito valores. E dois deles não são escolha, o que muda o que "arbitrário"
+quer dizer aqui:
+
+- `pl-9` (36px) é **derivado** da posição do ícone do campo — `left-3` (12px)
+  mais 16px de ícone mais 8 de folga. Encostá-lo em 32px poria o texto em cima
+  do ícone; em 40 abriria um buraco. O número obedece ao ícone, não a um ritmo.
+- `px-3.5` (14px) é padding **horizontal** de campo, e ritmo vertical não passa
+  por ali. É a medida do token `input`.
+
+Saíram três, todos de uma ocorrência, todos em layout folgado: `mt-20`, `py-14`
+e `mt-7`. E um quarto **nem existia**: a primeira contagem acusou `mt-24` em
+`/eventos` e era `scroll-mt-24` — deslocamento de âncora, que não é espaço
+entre nada. A régua está em `app/escala.ts`, na mesma forma das de tipografia e
+raio, com o portador em `tests/escala.test.ts`.
+
+**A régua NÃO normaliza 6, 10 e 14, e isso é decisão e não omissão.** Seriam
+110 alterações, várias em layouts medidos à mão — a coluna de conversas tem
+224px úteis, e o comentário dela conta pixel a pixel onde cada um foi parar.
+
+### A lição de método, que é a mesma dos seis erros
+
+Uma varredura mente na BORDA. `` fez `scroll-mt-24` virar um degrau de 96px
+que nenhum layout tem; `(?![\w])` fez `mt-4.5` ser lido como `mt-4`, e todo
+meio degrau fora da régua passava calado. O segundo só apareceu porque um
+defeito plantado **sobreviveu** — a contraprova achou o que a contagem não
+teria achado nunca.
