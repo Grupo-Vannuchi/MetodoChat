@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { windowState } from "@/lib/inbox-window";
-import { urgenciaDaJanela } from "@/lib/precisa-de-voce";
+import { urgenciaDaJanela, legendaDoPrazo } from "@/lib/precisa-de-voce";
 import { TracoDaJanela } from "../traco-da-janela";
 import { fmtRelative, semPrefixo } from "@/lib/format";
 import { muted, numero } from "../ui";
@@ -89,10 +89,14 @@ export default function Lista({
                 aria-hidden
                 className="pointer-events-none absolute inset-y-2.5 left-0 flex w-[3px]"
               >
+                {/* O RÓTULO É OBRIGATÓRIO AQUI, e é a diferença desta tela: em
+                    nenhum outro lugar desta linha a janela é dita em texto. Ver
+                    o cabeçalho de `traco-da-janela.tsx`. */}
                 <TracoDaJanela
                   msLeft={janela.msLeft}
                   urgencia={urgenciaDaJanela(janela.msLeft)}
                   orientacao="em-pe"
+                  rotulo={legendaDoPrazo(janela.msLeft)}
                 />
               </span>
               <Avatar

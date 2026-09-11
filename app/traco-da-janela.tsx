@@ -13,9 +13,25 @@ import type { Urgencia } from "@/lib/precisa-de-voce";
 // que o motor usa para recusar envio. Nenhuma segunda régua de tempo entra
 // neste produto — é restrição declarada na spec.
 //
-// ELE NÃO É LIDO EM VOZ ALTA: `aria-hidden`. A linha já diz "fecha em 2h10" em
-// texto, e um leitor de tela que anunciasse a barra leria a mesma informação
-// duas vezes, a segunda sem unidade nenhuma.
+// ELE É LIDO EM VOZ ALTA QUANDO FOR A ÚNICA VOZ, e só então — é o que `rotulo`
+// decide.
+//
+// A PRIMEIRA VERSÃO ERA `aria-hidden` SEMPRE, com esta justificativa: "a linha
+// já diz 'fecha em 2h10' em texto, e um leitor de tela que anunciasse a barra
+// leria a mesma informação duas vezes". Verdade na tela inicial e no cabeçalho
+// da conversa. FALSA na lista de conversas — e falsa por causa do MESMO commit
+// que pôs o traço lá, que apagou a pílula verde com `formatWindowLeft` e não
+// pôs texto nenhum no lugar.
+//
+// O efeito: quem usa leitor de tela abria `/conversas`, tabulava por cinquenta
+// linhas e não recebia NADA sobre a janela de 24h — a lei do produto, a coisa
+// que decide se ainda dá para responder. Antes ouvia "3h20". A informação não
+// ficou pior; ficou exclusivamente visual, que é como ela desaparece por
+// inteiro para uma parte das pessoas.
+//
+// `rotulo` custa zero pixel, que é o motivo de o traço ter ido para aquela
+// coluna. Onde o texto existe ao lado, ele continua ausente e o traço continua
+// mudo.
 
 /** A cor do preenchimento, por urgência — o mesmo vocabulário do resto. */
 const TOM: Record<Urgencia, string> = {
@@ -50,18 +66,25 @@ export function TracoDaJanela({
   msLeft,
   urgencia,
   orientacao = "deitado",
+  rotulo,
 }: {
   msLeft: number;
   urgencia: Urgencia;
   orientacao?: "deitado" | "em-pe";
+  /** O que o leitor de tela anuncia. Sem ele, o traço é mudo — ver o cabeçalho. */
+  rotulo?: string;
 }) {
   const fracao = fracaoDaJanela(msLeft);
   const porcento = `${(fracao * 100).toFixed(1)}%`;
+  // `role="img"` com nome é o que faz um desenho ser anunciado como UMA coisa,
+  // com o nome que se deu a ela — em vez de um `<span>` vazio, que não é
+  // anunciado de jeito nenhum.
+  const voz = rotulo ? ({ role: "img", "aria-label": rotulo } as const) : ({ "aria-hidden": true } as const);
 
   if (orientacao === "em-pe") {
     return (
       <span
-        aria-hidden
+        {...voz}
         className="flex w-[3px] shrink-0 flex-col justify-end self-stretch overflow-hidden rounded-full bg-traco dark:bg-quieto-escuro/30"
       >
         <span className={`block w-full rounded-full ${TOM[urgencia]}`} style={{ height: porcento }} />
@@ -71,7 +94,7 @@ export function TracoDaJanela({
 
   return (
     <span
-      aria-hidden
+      {...voz}
       className="block h-1.5 w-11 shrink-0 overflow-hidden rounded-full bg-traco dark:bg-quieto-escuro/30"
     >
       <span
