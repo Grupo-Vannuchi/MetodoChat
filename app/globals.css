@@ -153,6 +153,42 @@
   --font-titulo: var(--fonte-titulo), ui-sans-serif, system-ui, sans-serif;
 }
 
+/* O `<select>` PASSA A FALAR A LÍNGUA DO PRODUTO — o achado D6.
+   ==========================================================================
+   O achado, medido em `/setup`: o campo de texto usa o token do produto (borda,
+   raio e foco desenhados por nós) e o `<select>` ao lado é nativo, com a moldura
+   e a seta do sistema operacional. Lado a lado, na mesma linha, duas linguagens
+   de formulário.
+
+   `appearance: none` TIRA A MOLDURA E A SETA, e a partir daí o `<select>` aceita
+   as mesmas classes do campo de texto — que é o que os cinco dos sete já
+   passavam para ele sem efeito nenhum na moldura.
+
+   A SETA VOLTA DESENHADA POR NÓS, no mesmo traço dos ícones deste painel
+   (`app/icons.tsx`: 24×24, sem preenchimento, traço de 2, pontas redondas). Ela
+   é `background-image` e não um `<svg>` ao lado porque assim nenhuma das sete
+   marcações muda — e sete marcações mudadas à mão é como se acertam seis.
+
+   POR QUE DUAS CÓPIAS DA MESMA SETA: `background-image` não entende
+   `currentColor`, então a cor vai assada dentro do SVG. São os mesmos dois tons
+   de `quieto` da paleta — o da seta de um `<select>` não é uma nona cor.
+
+   O ESPAÇO À DIREITA É `padding-right`, e ele vale para os sete: o token
+   compacto dos filtros de Atividade tem `px-3`, e sem isto a seta ficaria em
+   cima do texto da opção mais longa. */
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b6862' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 1rem 1rem;
+  padding-right: 2.25rem;
+}
+
+.dark select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a3a09a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
 /* O NAVEGADOR PRECISA SABER EM QUE TEMA ESTÁ, e nunca soube até 11/09/2026.
    ==========================================================================
    `color-scheme` é a propriedade que diz ao navegador de que cor é o chão. Sem
