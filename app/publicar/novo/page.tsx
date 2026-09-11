@@ -113,29 +113,83 @@ export default async function Publicar({
           <form action={publicar} className={`${card} space-y-6 p-5`}>
             <Enviador teto={teto} />
 
-            <fieldset className={`${subtle} space-y-4 p-4`}>
-              <legend className="px-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                Quando
-              </legend>
+            {/* QUANDO — refeito em 11/09/2026 porque o dono disse que estava
+                feio, e ele estava. Três coisas erradas, e a primeira não era
+                estética:
 
-              {/* OS DOIS CAMPOS APARECEM SEMPRE, e o de data não se esconde
-                  quando "agora" está marcado: esconder pediria estado no
-                  navegador para uma tela que não precisa dele, e esta base só
-                  paga esse preço onde não há alternativa (o envio do arquivo).
-                  Quem decide o que a combinação significa é
-                  `momentoDaPublicacao` (lib/publicacao.ts), no servidor. */}
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="radio" name="quando" value="agora" defaultChecked />
-                  Publicar agora
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="radio" name="quando" value="depois" />
-                  Publicar em outra hora
-                </label>
+                1. O CAMPO DE DATA FICAVA VISÍVEL COM "agora" MARCADO, que é o
+                   padrão — ou seja, a tela abria com um campo morto e uma
+                   frase inteira explicando que ele não se aplicava. A
+                   explicação existia POR CAUSA do layout.
+
+                   O comentário antigo justificava isso dizendo que esconder
+                   "pediria estado no navegador". NÃO PEDE MAIS: `:has()` faz
+                   pelo CSS, e esta tela continua sendo servidor puro.
+
+                2. OS BOTÕES DE RÁDIO ERAM OS DO SISTEMA OPERACIONAL, num azul
+                   que é o único deste painel — a mesma família do achado D6.
+                   Viraram cartões de escolha, a MESMA forma dos cartões de
+                   gatilho de `/automacoes/nova`, que a auditoria pôs na lista
+                   do que está bom e não se mexe. Lá o estado vem do React;
+                   aqui vem de `has-checked:`, e o rádio de verdade continua
+                   embaixo (`sr-only`), então teclado e leitor de tela não
+                   perdem nada.
+
+                3. O AVISO DE IRREVERSIBILIDADE ESTAVA NA FRASE ERRADA. Ele
+                   morava no rodapé do campo de data — ou seja, pendurado na
+                   opção que NÃO é irreversível. Agora cada cartão diz a sua
+                   consequência, e a de agendar ("dá para cancelar ou remarcar")
+                   nunca tinha sido dita em lugar nenhum. */}
+            <fieldset className={`${subtle} group space-y-3 p-4`}>
+              <legend className="sr-only">Quando publicar</legend>
+              <p className="titulo text-sm font-semibold">Quando</p>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  {
+                    valor: "agora",
+                    titulo: "Publicar agora",
+                    consequencia: "sai em instantes, e não dá para desfazer",
+                    padrao: true,
+                  },
+                  {
+                    valor: "depois",
+                    titulo: "Publicar em outra hora",
+                    consequencia: "dá para cancelar ou remarcar até a hora chegar",
+                    padrao: false,
+                  },
+                ].map((o) => (
+                  <label
+                    key={o.valor}
+                    className="cursor-pointer rounded-xl border border-traco bg-white p-3 transition-colors hover:border-quieto/50 has-checked:border-acao has-checked:bg-acao/10 has-checked:ring-1 has-checked:ring-acao has-focus-visible:ring-4 has-focus-visible:ring-acao/25 dark:border-traco-escuro dark:bg-papel-escuro/60 dark:hover:border-quieto-escuro/50 dark:has-checked:border-acao-escuro dark:has-checked:bg-acao-escuro/15 dark:has-checked:ring-acao-escuro dark:has-focus-visible:ring-acao-escuro/25"
+                  >
+                    {/* O RÁDIO DE VERDADE, só invisível: `sr-only` o tira do
+                        desenho sem o tirar do formulário nem da ordem de
+                        tabulação. O nome e os valores são os mesmos de antes —
+                        `momentoDaPublicacao` (lib/publicacao.ts) continua
+                        recebendo exatamente o que recebia. */}
+                    <input
+                      type="radio"
+                      name="quando"
+                      value={o.valor}
+                      defaultChecked={o.padrao}
+                      className="sr-only"
+                    />
+                    <span className="block text-sm font-semibold">{o.titulo}</span>
+                    <span className={`mt-0.5 block text-xs ${muted}`}>{o.consequencia}</span>
+                  </label>
+                ))}
               </div>
 
-              <div>
+              {/* O CAMPO SÓ APARECE QUANDO SERVE.
+
+                  O SENTIDO DA REGRA É DELIBERADO: o padrão é VISÍVEL, e o que a
+                  variante faz é ESCONDER quando "agora" está marcado. Se
+                  `group-has-*` não compilar num navegador antigo, o campo fica
+                  visível — que é exatamente o comportamento de hoje. Escrito ao
+                  contrário, uma falha de CSS esconderia o campo e quebraria o
+                  agendamento CALADO. */}
+              <div className="group-has-[input[value=agora]:checked]:hidden">
                 <label className={label} htmlFor="data_hora">
                   Data e hora
                 </label>
@@ -150,18 +204,18 @@ export default async function Publicar({
                     três horas adiante da do dono. Quem recusa o passado é a
                     ação, com a frase que diz por quê — e ela sabe o fuso,
                     porque o enviador o manda. */}
-                <p className={hint}>
-                  Só é usada quando &quot;publicar em outra hora&quot; está marcado. Uma hora que
-                  já passou é recusada — publicar agora é a outra opção, e é a que não dá para
-                  desfazer.
-                </p>
+                <p className={hint}>Uma hora que já passou é recusada.</p>
               </div>
             </fieldset>
 
             <fieldset className={`${subtle} space-y-3 p-4`}>
-              <legend className="px-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                Só para reels
-              </legend>
+              {/* MESMO TRATAMENTO DO "Quando", e por isso: `<legend>` fica em
+                  cima da borda por padrão do navegador, e era o único
+                  cabeçalho do painel desenhado assim. Ele continua existindo
+                  para o leitor de tela (`sr-only`), e o título visível usa a
+                  mesma classe dos outros cabeçalhos de seção. */}
+              <legend className="sr-only">Opções de reels</legend>
+              <p className="titulo text-sm font-semibold">Só para reels</p>
               {/* ESTES DOIS SÓ VALEM EM REELS, e `parametrosDoContainer`
                   (lib/publicacao.ts) já os DESCARTA nas outras formas — a Meta
                   os ignoraria calada, e calado é o que esta base não aceita.
