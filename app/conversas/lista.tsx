@@ -64,7 +64,7 @@ export default function Lista({
             <Link
               href={`/conversas/${c.ig_id}`}
               aria-current={aberta ? "page" : undefined}
-              className={`flex items-stretch gap-3 px-4 py-3 transition-colors ${
+              className={`relative flex items-center gap-3 px-4 py-3 transition-colors ${
                 aberta
                   ? "bg-traco/40 dark:bg-traco-escuro/60"
                   : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
@@ -74,17 +74,27 @@ export default function Lista({
                   aqui ela SUBSTITUI a pílula verde que ficava ao lado do nome.
                   A pílula tratava a lei do produto como enfeite e custava ~45px
                   da linha mais disputada do painel (ver a medição logo abaixo,
-                  dos 224px úteis). O traço custa 3px, aparece em TODAS as
-                  linhas — vazio quando a janela fechou — e por isso forma uma
-                  coluna que se lê de cima a baixo de uma vez.
+                  dos 224px úteis). O traço aparece em TODAS as linhas — vazio
+                  quando a janela fechou — e por isso forma uma coluna que se lê
+                  de cima a baixo de uma vez.
 
-                  `items-stretch` no lugar de `items-center` é o que lhe dá a
-                  altura da linha inteira; sem isso ele não tem o que preencher. */}
-              <TracoDaJanela
-                msLeft={janela.msLeft}
-                urgencia={urgenciaDaJanela(janela.msLeft)}
-                orientacao="em-pe"
-              />
+                  ELE É ABSOLUTO, E ISSO FOI MEDIDO. Na primeira versão ele era
+                  um item do flex, e custava 3px mais os 12 do `gap` — de AMBAS
+                  as linhas. A de cima ganhou os ~45px da pílula e sobrou; a de
+                  BAIXO só perdeu, e as datas voltaram a truncar: 2 das 50, onde
+                  a medição registrada logo abaixo dizia 1. Fora do fluxo ele
+                  custa ZERO largura, então a linha de baixo fica byte por byte
+                  como estava e a de cima fica com a folga da pílula. */}
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-y-2.5 left-0 flex w-[3px]"
+              >
+                <TracoDaJanela
+                  msLeft={janela.msLeft}
+                  urgencia={urgenciaDaJanela(janela.msLeft)}
+                  orientacao="em-pe"
+                />
+              </span>
               <Avatar
                 src={c.profile_pic}
                 name={c.name ?? c.username ?? "?"}
