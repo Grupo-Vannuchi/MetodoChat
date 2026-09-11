@@ -13,7 +13,7 @@ import { urgenciaDaJanela } from "@/lib/precisa-de-voce";
 import { TracoDaJanela } from "../../traco-da-janela";
 import { fmtDate } from "@/lib/format";
 import { avisoDaUrl } from "@/lib/avisos";
-import { muted, badgeNeutral, input, btnGhost, alertOk, alertError } from "../../ui";
+import { muted, link, badgeNeutral, input, btnGhost, alertOk, alertError } from "../../ui";
 import { seloDaJanela } from "../../labels";
 import Avatar from "../../avatar";
 import ReplyForm from "./reply-form";
@@ -120,8 +120,11 @@ export default async function ConversaPage({
   if (!account) {
     return (
       <div className="p-4">
-        <Link href="/conversas" className={`text-sm ${muted}`}>
-          ← Voltar para a lista
+        {/* NOMEIA O DESTINO, como as outras quatro telas aninhadas: "a lista"
+            exige que quem lê saiba de qual lista se trata, e o nome está a um
+            palmo dali, na barra lateral. Achado D10. */}
+        <Link href="/conversas" className={`text-sm ${link}`}>
+          ← Conversas
         </Link>
         {aviso && (
           <div className={`mt-3 ${aviso.tom === "ok" ? alertOk : alertError}`}>{aviso.texto}</div>
@@ -177,7 +180,7 @@ export default async function ConversaPage({
         {/* No desktop a lista está do lado; este atalho só serve no celular. */}
         <Link
           href="/conversas"
-          aria-label="Voltar para a lista"
+          aria-label="Voltar para Conversas"
           className={`-ml-1 rounded-lg px-2 py-1 text-sm lg:hidden ${muted}`}
         >
           ←

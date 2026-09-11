@@ -1,6 +1,6 @@
 import Link from "next/link";
 import FormNovaAutomacao from "./form-nova";
-import { pageTitle, pageSubtitle, muted } from "../../ui";
+import { pageTitle, pageSubtitle, link } from "../../ui";
 
 export const dynamic = "force-dynamic";
 
@@ -18,13 +18,24 @@ export default function NovaAutomacaoPage() {
   return (
     <div className="space-y-6">
       <header>
-        <nav className={`mb-2 text-xs ${muted}`}>
-          <Link href="/automacoes" className="transition-colors hover:text-tinta dark:hover:text-tinta-escuro">
-            Automações
-          </Link>
-          <span className="mx-1.5">/</span>
-          <span className="text-zinc-700 dark:text-zinc-300">Nova</span>
-        </nav>
+        {/* "← Automações", E NÃO UMA TRILHA — o achado D10.
+
+            Esta tela era a ÚNICA do painel com trilha de navegação
+            ("Automações / Nova"), e as outras quatro telas aninhadas usam link
+            de volta: `/automacoes/[id]` já dizia "← Automações", e
+            `/publicar/novo` e `/publicar/post/[id]` dizem "← Publicações".
+
+            O LINK DE VOLTA VENCE A TRILHA AQUI porque o painel tem DOIS níveis,
+            nunca três. Uma trilha de dois itens gasta o segundo repetindo o
+            título que está logo abaixo dela — "Nova" em cima de "Nova
+            automação" —, e o primeiro item é a única parte clicável. Ou seja: é
+            um link de volta com uma palavra a mais e um separador. */}
+        <Link
+          href="/automacoes"
+          className={`mb-2 inline-block text-sm ${link}`}
+        >
+          ← Automações
+        </Link>
         <h1 className={pageTitle}>Nova automação</h1>
         <p className={pageSubtitle}>
           Comece pelo que dispara a automação. Em seguida você monta o fluxo no quadro, arrastando
