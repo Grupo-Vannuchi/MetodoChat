@@ -5,6 +5,7 @@ import { sql, type QueueItem } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
 import { avisoDaUrl } from "@/lib/avisos";
+import { statusBadge } from "../../../labels";
 import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
 import {
   avisoDoAtrasoNaLista,
@@ -12,6 +13,7 @@ import {
   fraseDaDataDaLinha,
   lerPayloadDaPublicacao,
   rotuloDaFormaDoItem,
+  fraseSobreAMidia,
 } from "@/lib/publicacao";
 import {
   card,
@@ -92,7 +94,12 @@ export default async function DetalheDaPublicacao({
   const p = lerPayloadDaPublicacao(item.payload);
   const quando = dataDaLinhaDeEnvio(item);
   const atrasado = avisoDoAtrasoNaLista(quando);
+  // `podeMexer` é sobre a AÇÃO (só `pending` se cancela ou se remarca), e a
+  // frase sobre a MÍDIA é outra pergunta — ela depende de o post ter SAÍDO. As
+  // duas moravam nesta mesma variável, e por isso um post falhado recebia
+  // "este post já saiu". Ver `fraseSobreAMidia`.
   const podeMexer = item.status === "pending";
+  const sobreAMidia = fraseSobreAMidia(quando);
   // A MÍDIA SÓ EXISTE ENQUANTO O POST NÃO SAIU. Ver o cabeçalho.
   // AS URLS SÃO MONTADAS AQUI, e as que não derem saem da lista: `null` vira
   // imagem quebrada se chegar num `src`. Ver `urlPublicaSeDerParaMontar`.
@@ -107,7 +114,19 @@ export default async function DetalheDaPublicacao({
         <Link href={voltarPara} className={`text-sm ${link}`}>
           ← Calendário
         </Link>
-        <h1 className={`${pageTitle} mt-2`}>{rotuloDaFormaDoItem(p)}</h1>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <h1 className={pageTitle}>{rotuloDaFormaDoItem(p)}</h1>
+          {/* O SELO DIZ O ESTADO, e ele vem de `statusBadge` — a mesma função
+              da tela de Atividade, que distingue o post que o DONO cancelou
+              daquele que o SISTEMA pulou. Sem ele, esta tela não tinha como
+              dizer o que o post é: um cancelado parecia um agendado sem
+              formulário. */}
+          {!podeMexer && (
+            <span className={statusBadge(item.status, item.error).className}>
+              {statusBadge(item.status, item.error).label}
+            </span>
+          )}
+        </div>
         <p className={pageSubtitle}>
           {/* `fmtDate` JA TRAZ A HORA. A primeira versao desta linha somava
               `horaDoDia` ao lado e a tela dizia "09/09/2026, 15:11 · 15:11". */}
@@ -158,12 +177,7 @@ export default async function DetalheDaPublicacao({
           </div>
         )}
 
-        {!podeMexer && (
-          <p className={`text-xs ${muted}`}>
-            Este post já saiu. A mídia foi apagada do armazenamento depois da publicação —
-            é por isso que ela não aparece aqui.
-          </p>
-        )}
+        {sobreAMidia && <p className={`text-xs ${muted}`}>{sobreAMidia}</p>}
       </section>
 
       {podeMexer && (
