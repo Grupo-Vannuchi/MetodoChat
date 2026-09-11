@@ -259,7 +259,7 @@ o problema tem solução conhecida nesta base.
 
 ## Erros da própria auditoria, registrados para não se repetirem
 
-Cinco achados foram **descartados por medição errada minha**, e vale saber
+Seis achados foram **descartados por medição errada minha**, e vale saber
 quais, porque um relatório com achado falso contamina os verdadeiros:
 
 1. **126 falhas de contraste** — meu extrator lia `lab()` do Tailwind v4 com
@@ -275,3 +275,16 @@ quais, porque um relatório com achado falso contamina os verdadeiros:
 5. **"Zero anéis de foco"** — a medição rodava num contexto obsoleto do
    navegador (`scrollHeight` devolvia 623px numa página de 8777px). Refeita com
    aba nova.
+6. **"Nenhuma página tem marco `<main>`"** (metade do D9, achado em 11/09 ao
+   executar o próprio achado) — `<main>` sempre existiu, e em três lugares
+   diferentes: `app/app-shell.tsx:205` nas páginas públicas, `:269` nas páginas
+   com menu, e `app/automacoes/editor/quadro.tsx:1372` no quadro, que toma a
+   janela inteira e por isso desenha o seu. A base é *cuidadosa* com esse marco
+   a ponto de `app/automacoes/[id]/not-found.tsx` explicar, em comentário, por
+   que ele é `<div>` — para não aninhar dois `<main>`. O
+   `document.querySelector('main')` que devolveu nulo tem a mesma causa do erro
+   5: contexto obsoleto do navegador.
+
+   **A outra metade do achado era verdadeira** e foi executada: não havia link
+   "pular para o conteúdo", e quem navega por teclado atravessava os onze itens
+   da barra lateral em toda página.

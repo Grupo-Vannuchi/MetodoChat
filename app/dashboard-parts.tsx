@@ -1,4 +1,4 @@
-import { card, muted, numero } from "./ui";
+import { card, muted, numero, tendenciaSobe, tendenciaCai } from "./ui";
 
 // Peças visuais do painel, separadas da busca de dados: recebem tudo por
 // props, o que deixa cada uma fácil de conferir isoladamente.
@@ -23,14 +23,26 @@ export function StatCard({
         <Icon className="h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-600" />
       </div>
       <p className={`mt-2 text-3xl font-bold leading-none ${numero}`}>{value}</p>
+      {/* O ACHADO D7, E ELE ERA DOIS DEFEITOS NUMA LINHA.
+      
+          O PRIMEIRO, DE CONTRASTE: a subida usava `emerald-600`, que dá 3,65:1
+          sobre o cartão branco — abaixo do mínimo de 4,5:1. A auditoria não o
+          consertou na Onda 3 e escreveu por quê: `emerald-600` era o verde de
+          sucesso do sistema inteiro, e trocá-lo num lugar só criaria um SEGUNDO
+          verde. Agora existe `aberto` (#15803D), que É o verde do sistema e
+          mede 4,56:1 — usar o token não inventa cor nenhuma, e passa.
+
+          O SEGUNDO, DE HIERARQUIA: a queda tinha exatamente a cor do texto ao
+          lado (os dois em `muted`), então "↓ 23" e "vs. 7 dias antes" liam como
+          uma frase só e o número perdia estatuto de número. A assimetria de COR
+          continua de propósito — queda não é falha, e vermelho alarmaria sobre
+          algo que não quebrou —, mas o número passa a usar `numero` (a tabular)
+          e a tinta normal, e a legenda continua quieta. O que separa os dois
+          agora é peso e família, não matiz. */}
       <div className="mt-1.5 flex items-center gap-1.5 text-xs">
         {trend !== undefined && trend !== 0 && (
           <span
-            className={
-              trend > 0
-                ? "font-medium text-emerald-600 dark:text-emerald-400"
-                : `font-medium ${muted}`
-            }
+            className={trend > 0 ? tendenciaSobe : tendenciaCai}
           >
             {trend > 0 ? "↑" : "↓"} {Math.abs(trend)}
           </span>

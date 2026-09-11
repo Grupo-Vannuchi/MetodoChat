@@ -303,6 +303,28 @@ export const linhaOcupada = "cursor-wait bg-traco/40! dark:bg-traco-escuro/70!";
 export const link =
   "font-medium text-tinta underline decoration-quieto/50 underline-offset-2 transition-colors hover:decoration-tinta dark:text-tinta-escuro dark:decoration-quieto-escuro/50 dark:hover:decoration-tinta-escuro";
 
+/* ---------- tendência ---------- */
+
+// O ACHADO D7, E ELE ERA DOIS DEFEITOS NA MESMA LINHA.
+//
+// DE CONTRASTE: a subida usava `emerald-600`, medido em 3,65:1 sobre o cartão
+// branco — abaixo dos 4,5:1. A auditoria NÃO o consertou na Onda 3, e escreveu
+// o motivo: `emerald-600` era o verde de sucesso do sistema inteiro, e trocá-lo
+// num lugar só criaria um SEGUNDO verde. A paleta nomeada desfez o impasse —
+// `aberto` (#15803D) É o verde do sistema e mede 4,56:1.
+//
+// DE HIERARQUIA: a queda tinha exatamente a cor do texto ao lado (os dois em
+// `muted`), então "↓ 23" e "vs. 7 dias antes" liam como uma frase só e o número
+// perdia estatuto de número. A assimetria de COR fica de propósito — queda não
+// é falha, e vermelho alarmaria sobre algo que não quebrou —, mas o que separa
+// os dois passa a ser peso e família, não matiz.
+//
+// ELES SÃO TOKEN E NÃO CLASSE SOLTA porque é assim que `tests/paleta.test.ts`
+// os alcança: a suíte não testa componente, e uma string exportada é o que dá
+// para prender.
+export const tendenciaSobe = `font-semibold ${numero} text-aberto dark:text-aberto-escuro`;
+export const tendenciaCai = `font-semibold ${numero} text-tinta dark:text-tinta-escuro`;
+
 /* ---------- selos ---------- */
 
 export const badge =

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, relative } from "node:path";
-import { btnPrimary, link } from "../app/ui";
+import { btnPrimary, link, tendenciaSobe, tendenciaCai } from "../app/ui";
 import {
   tom,
   luminancia,
@@ -239,6 +239,48 @@ describe("a hierarquia entre normal e quieto", () => {
     expect(piorCaso("quieto-escuro", FUNDOS_ESCUROS)).toBeGreaterThanOrEqual(
       contraste(tom("zinc-400"), FUNDOS["escuro: balao recebido (bg-zinc-800)"])
     );
+  });
+});
+
+/* ---------- o verde cru sai das telas, e o token entra ---------- */
+
+describe("o achado D7: a subida estava abaixo do mínimo", () => {
+  // A AUDITORIA MEDIU `emerald-600` EM 3,65:1 sobre o cartão branco e NÃO o
+  // consertou, com o motivo escrito: ele era o verde de sucesso do sistema
+  // inteiro, e trocá-lo num lugar só criaria um segundo verde. A paleta nomeada
+  // desfez esse impasse — `aberto` É o verde do sistema, e passa.
+  it("`emerald-600` continua reprovando, e é por isso que ele saiu", () => {
+    // O número da auditoria, recalculado: se um dia ele passar a passar, este
+    // caso avisa que o motivo da troca mudou.
+    expect(contraste(tom("emerald-600"), FUNDOS["claro: cartao (bg-white)"])).toBeLessThan(
+      MINIMO
+    );
+  });
+
+  it("`aberto` passa onde `emerald-600` reprovava", () => {
+    expect(
+      contraste(tom("aberto"), FUNDOS["claro: cartao (bg-white)"])
+    ).toBeGreaterThanOrEqual(MINIMO);
+  });
+
+  it("a tendência de subida usa o TOKEN, e não o verde cru", () => {
+    // A VARREDURA LARGA SERIA ERRADA AQUI, e a primeira versão deste caso era
+    // ela: banir `text-emerald-*` na árvore reprova 18 ocorrências que este
+    // projeto ESCOLHEU e MEDIU — selo e faixa pintam verde sobre fundo VERDE, e
+    // `app/ui.ts` registra por que trocá-los reprovaria. O defeito do D7 é
+    // outro: verde cru sobre fundo NEUTRO. O que se prende é o token.
+    expect(tendenciaSobe).toContain("text-aberto");
+    expect(tendenciaSobe).toContain("dark:text-aberto-escuro");
+    expect(tendenciaSobe).not.toContain("emerald");
+  });
+
+  it("a queda não tem a cor do texto que a explica", () => {
+    // O outro braço do D7, e é de HIERARQUIA: "↓ 23" e "vs. 7 dias antes"
+    // tinham a mesma cor, então liam como uma frase só e o número perdia
+    // estatuto de número. A assimetria de COR continua de propósito — queda não
+    // é falha —, mas os dois não podem ser o mesmo tom.
+    expect(tendenciaCai).not.toContain("text-quieto");
+    expect(tendenciaCai).toContain("text-tinta");
   });
 });
 
