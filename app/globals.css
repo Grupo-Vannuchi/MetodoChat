@@ -153,6 +153,39 @@
   --font-titulo: var(--fonte-titulo), ui-sans-serif, system-ui, sans-serif;
 }
 
+/* A CAIXA E O RÁDIO DO SISTEMA OPERACIONAL PARAM DE SER AZUIS.
+   ==========================================================================
+   `accent-color` é a única propriedade que recolore um `<input type=checkbox>`
+   ou `type=radio` NATIVO sem trocá-lo por um desenho — e trocá-los é o que
+   custa caro, porque um controle desenhado precisa refazer foco, estado
+   indeterminado e leitura de tela, tudo o que o nativo já traz pronto.
+
+   POR QUE ISTO É UM CONSERTO E NÃO ENFEITE: o azul do sistema era a ÚNICA cor
+   azul-de-outro-lugar do painel inteiro, e ele aparecia em oito controles —
+   entre eles as duas confirmações mais perigosas do produto ("Confirmo que
+   quero mandar para estas N pessoas" e "Confirmo o cancelamento"). É a mesma
+   família do achado D6, que fala dos `<select>` nativos e continua aberto.
+
+   Ficou visível em 11/09/2026, quando os rádios do "Quando" viraram cartões de
+   escolha em petróleo: a caixa azul logo abaixo deles passou a gritar. Consertar
+   um controle e deixar o vizinho é como a incoerência entra.
+
+   UMA REGRA, TODOS OS CONTROLES. Espalhar `accent-acao` por oito arquivos é
+   como se acerta sete e se esquece o oitavo. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-acao);
+}
+
+/* O TEMA DESTE APP É POR CLASSE, e não por `prefers-color-scheme`: o seletor
+   `.dark` no `<html>` é o mesmo que `@custom-variant dark` declara lá em cima,
+   e é ele que o botão da barra lateral liga e desliga. Escrever aqui uma
+   consulta de mídia seria inventar um segundo sistema de tema. */
+.dark input[type="checkbox"],
+.dark input[type="radio"] {
+  accent-color: var(--color-acao-escuro);
+}
+
 /* O CORTE EXPANDIDO DA ARCHIVO, que é o motivo inteiro de ela ter sido
    escolhida: "cara de placa, de quadro de operação". Expandido é um EIXO
    (`wdth`, de 62 a 125), e não um peso — nenhum corte estático da Archivo o
