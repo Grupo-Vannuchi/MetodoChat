@@ -67,6 +67,25 @@ export type ItemDoInicio = {
 };
 
 /**
+ * O TOM DE UMA JANELA, pelo que resta dela.
+ *
+ * Ela existe SEPARADA da lista porque duas telas a usam — a tela inicial e a
+ * lista de conversas — e as duas têm de pintar a mesma janela com a mesma cor.
+ * Enquanto a regra morava dentro de `oQuePrecisaDeVoce`, a lista de conversas
+ * não tinha como concordar com ela a não ser copiando o `3` — e é assim que
+ * duas telas passam a discordar sobre o mesmo fato.
+ *
+ * FECHADA É `quieto`, E NÃO `fecha`. `fecha` quer dizer "corre, está acabando";
+ * depois que acabou não há o que correr. O traço dessa linha fica vazio de
+ * qualquer jeito, mas a cor do ponto e de qualquer outro uso não pode dizer
+ * urgência sobre uma coisa que já passou.
+ */
+export function urgenciaDaJanela(msLeft: number): Urgencia {
+  if (msLeft <= 0) return "quieto";
+  return msLeft < MS_DO_CORTE ? "fecha" : "aberto";
+}
+
+/**
  * A LISTA DO QUE PRECISA DE VOCÊ, NA ORDEM EM QUE PRECISA.
  *
  * A REGRA DA ORDEM, e ela não é por gravidade: **vem primeiro o que desaparece
@@ -114,7 +133,7 @@ export function oQuePrecisaDeVoce(f: FatosDoInicio): ItemDoInicio[] {
     // O id vem do banco e vira caminho de URL. Um id com barra inventaria um
     // segmento de rota — o mesmo cuidado de `urlDaConversaComAviso`.
     href: "/conversas/" + encodeURIComponent(c.igId),
-    urgencia: c.msLeft < MS_DO_CORTE ? "fecha" : "aberto",
+    urgencia: urgenciaDaJanela(c.msLeft),
     msLeft: c.msLeft,
   });
 

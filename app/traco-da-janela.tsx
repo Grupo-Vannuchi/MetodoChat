@@ -30,14 +30,45 @@ const TOM: Record<Urgencia, string> = {
 // "quanto falta do total" se perde — que é a leitura inteira deste traço. No
 // tema escuro, `traco-escuro` sobre o cartão dá 1,35:1 e some; o `quieto` a 30%
 // sobe para perto de 1,6:1 sem virar uma segunda barra ao lado da primeira.
+//
+// DUAS ORIENTAÇÕES, E A REGRA NÃO É ESTÉTICA — É LARGURA MEDIDA.
+//
+// `deitado` é a forma normal, e é a da spec: um traço de 44px no começo da
+// linha, em tela larga. `em pe` existe porque a lista de conversas é uma coluna
+// de 320px com 224px ÚTEIS, e esse número não é estimativa — está medido no
+// comentário de `app/conversas/lista.tsx`, que documenta a linha inteira sendo
+// disputada pixel a pixel (os separadores "·" saíram de lá por custarem 49px).
+// Um traço deitado ali custaria 44px mais o espaçamento, ou seja, um quarto da
+// linha; em pé custa 3px e ainda DEVOLVE os ~45px da pílula verde que ele
+// substitui.
+//
+// O SENTIDO DO PREENCHIMENTO É O MESMO NOS DOIS: cheio é o dia inteiro pela
+// frente, vazio é fechada. Em pé ele enche de BAIXO para cima, que é como se lê
+// nível — o de um tanque, o de uma bateria —, e é a única leitura de barra
+// vertical que não precisa ser aprendida.
 export function TracoDaJanela({
   msLeft,
   urgencia,
+  orientacao = "deitado",
 }: {
   msLeft: number;
   urgencia: Urgencia;
+  orientacao?: "deitado" | "em-pe";
 }) {
   const fracao = fracaoDaJanela(msLeft);
+  const porcento = `${(fracao * 100).toFixed(1)}%`;
+
+  if (orientacao === "em-pe") {
+    return (
+      <span
+        aria-hidden
+        className="flex w-[3px] shrink-0 flex-col justify-end self-stretch overflow-hidden rounded-full bg-traco dark:bg-quieto-escuro/30"
+      >
+        <span className={`block w-full rounded-full ${TOM[urgencia]}`} style={{ height: porcento }} />
+      </span>
+    );
+  }
+
   return (
     <span
       aria-hidden
@@ -48,7 +79,7 @@ export function TracoDaJanela({
         // A largura é um número contínuo e não cabe numa classe do Tailwind:
         // `w-[37%]` teria de existir para cada porcentagem possível, e o
         // compilador só gera as classes que encontra escritas na árvore.
-        style={{ width: `${(fracao * 100).toFixed(1)}%` }}
+        style={{ width: porcento }}
       />
     </span>
   );

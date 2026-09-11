@@ -1,9 +1,11 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { windowState, formatWindowLeft } from "@/lib/inbox-window";
+import { windowState } from "@/lib/inbox-window";
+import { urgenciaDaJanela } from "@/lib/precisa-de-voce";
+import { TracoDaJanela } from "../traco-da-janela";
 import { fmtRelative, semPrefixo } from "@/lib/format";
-import { muted, badgeOk, numero } from "../ui";
+import { muted, numero } from "../ui";
 import Avatar from "../avatar";
 import { badgeDaConversa } from "@/lib/inbox-badge";
 import { semCategoria } from "@/lib/categorias";
@@ -62,12 +64,27 @@ export default function Lista({
             <Link
               href={`/conversas/${c.ig_id}`}
               aria-current={aberta ? "page" : undefined}
-              className={`flex items-center gap-3 px-4 py-3 transition-colors ${
+              className={`flex items-stretch gap-3 px-4 py-3 transition-colors ${
                 aberta
                   ? "bg-traco/40 dark:bg-traco-escuro/60"
                   : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
               }`}
             >
+              {/* O TRAÇO DA JANELA, EM PÉ — a assinatura desta reformulação, e
+                  aqui ela SUBSTITUI a pílula verde que ficava ao lado do nome.
+                  A pílula tratava a lei do produto como enfeite e custava ~45px
+                  da linha mais disputada do painel (ver a medição logo abaixo,
+                  dos 224px úteis). O traço custa 3px, aparece em TODAS as
+                  linhas — vazio quando a janela fechou — e por isso forma uma
+                  coluna que se lê de cima a baixo de uma vez.
+
+                  `items-stretch` no lugar de `items-center` é o que lhe dá a
+                  altura da linha inteira; sem isso ele não tem o que preencher. */}
+              <TracoDaJanela
+                msLeft={janela.msLeft}
+                urgencia={urgenciaDaJanela(janela.msLeft)}
+                orientacao="em-pe"
+              />
               <Avatar
                 src={c.profile_pic}
                 name={c.name ?? c.username ?? "?"}
@@ -85,13 +102,6 @@ export default function Lista({
                   <p className="min-w-0 flex-1 truncate text-sm font-medium">
                     {c.name?.trim() || (c.username ? `@${c.username}` : "Visitante")}
                   </p>
-                  {/* Só destaca o que exige ação. "Só leitura" é o estado da
-                      maioria das conversas antigas e viraria ruído em todas. */}
-                  {janela.open && (
-                    <span className={`${badgeOk} shrink-0`}>
-                      {formatWindowLeft(janela.msLeft)}
-                    </span>
-                  )}
                 </div>
                 {/* `min-w-0` AQUI E `truncate` NA DATA, e a escolha de QUEM cede é
                     a decisão desta linha — medida antes, não estimada.

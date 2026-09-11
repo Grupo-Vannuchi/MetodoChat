@@ -3,6 +3,7 @@ import {
   oQuePrecisaDeVoce,
   HORAS_QUE_TORNAM_URGENTE,
   MAX_CONVERSAS_NO_INICIO,
+  urgenciaDaJanela,
   type FatosDoInicio,
 } from "../lib/precisa-de-voce";
 import { WINDOW_MS, WINDOW_MARGIN_MS } from "../lib/inbox-window";
@@ -137,6 +138,29 @@ describe("a urgência de cada linha", () => {
   it("falha é sempre `parou`, nos dois tipos", () => {
     const r = oQuePrecisaDeVoce({ ...NADA, falhasPublicacao: 1, falhasMensagem: 1 });
     expect(r.map((i) => i.urgencia)).toEqual(["parou", "parou"]);
+  });
+});
+
+describe("urgenciaDaJanela, que as duas telas compartilham", () => {
+  // ELA EXISTE PARA A LISTA DE CONVERSAS CONCORDAR COM A TELA INICIAL. Enquanto
+  // a regra morava dentro da lista, a outra tela só podia concordar copiando o
+  // número — e é assim que duas telas passam a discordar sobre o mesmo fato.
+  it("fechada é `quieto`: depois que acabou não há o que correr", () => {
+    expect(urgenciaDaJanela(0)).toBe("quieto");
+    expect(urgenciaDaJanela(-1)).toBe("quieto");
+  });
+
+  it("o corte separa `fecha` de `aberto`, e é o mesmo da tela inicial", () => {
+    const corte = HORAS_QUE_TORNAM_URGENTE * 3_600_000;
+    expect(urgenciaDaJanela(corte - 1)).toBe("fecha");
+    expect(urgenciaDaJanela(corte)).toBe("aberto");
+  });
+
+  it("é a MESMA regra que a linha de conversa do Início usa", () => {
+    // Sem este caso, alguém pode mudar uma das duas e a suíte fica verde com as
+    // telas discordando — que é exatamente o defeito que a extração evita.
+    const r = oQuePrecisaDeVoce({ ...NADA, esperando: [quem("x", 22)] });
+    expect(r[0].urgencia).toBe(urgenciaDaJanela(r[0].msLeft!));
   });
 });
 
