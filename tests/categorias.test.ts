@@ -434,3 +434,45 @@ describe("campoUrlDoFiltro — o formulário GET tem de pousar onde a ficha pous
     expect(campoUrlDoFiltro({ tipo: "uma", nome: null })).toBe("");
   });
 });
+
+
+describe("busca vazia não é categoria vazia", () => {
+  // O DEFEITO, achado por revisão em 11/09/2026: quem digitava "joao" na busca
+  // com "todos" selecionado recebia "Nenhum contato nesta categoria — use
+  // 'todos', ali em cima, para ver a conta inteira", com "todos" JÁ clicado. O
+  // estado vazio do recurso novo acusava a causa errada e mandava fazer o que
+  // já estava feito.
+  it("com busca ativa e nada achado, o caso é da BUSCA", () => {
+    expect(
+      casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: false, buscando: true })
+    ).toBe("busca_vazia");
+  });
+
+  it("sem busca, continua sendo o caso do filtro — nada mudou para ele", () => {
+    expect(
+      casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: true, buscando: false })
+    ).toBe("filtro_vazio");
+    // E sem o parâmetro nenhum, que é como os chamadores antigos chamam.
+    expect(casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: true })).toBe(
+      "filtro_vazio"
+    );
+  });
+
+  // A ORDEM IMPORTA: com categoria E busca ativas e nada encontrado, o que
+  // desfaz o vazio é limpar a BUSCA — o gesto mais recente de quem está
+  // olhando —, e é o que a frase tem de dizer.
+  it("com as duas ativas, a busca vence", () => {
+    expect(
+      casoDaListaDeEmail({ visiveis: 0, comEmail: 0, filtrado: true, buscando: true })
+    ).toBe("busca_vazia");
+  });
+
+  it("com gente encontrada, a busca não muda nada", () => {
+    expect(
+      casoDaListaDeEmail({ visiveis: 5, comEmail: 3, filtrado: false, buscando: true })
+    ).toBe("tem_email");
+    expect(
+      casoDaListaDeEmail({ visiveis: 5, comEmail: 0, filtrado: true, buscando: true })
+    ).toBe("sem_email_no_filtro");
+  });
+});

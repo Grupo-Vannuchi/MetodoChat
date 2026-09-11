@@ -22,6 +22,7 @@ import { dataDaLinhaDeEnvio, fraseDaDataDaLinha } from "@/lib/publicacao";
 import { resolvePosts, type PostRef } from "@/lib/media-lookup";
 import {
   PASSO_DO_FEED,
+  MAX_DO_FEED,
   quantosEventos,
   parseFilters,
   hasFilters,
@@ -389,8 +390,20 @@ export default async function EventosPage({
               durante uma navegação de filtro em voo é a mesma corrida de
               clicar qualquer link no meio de uma navegação, e o desfecho é
               benigno: uma das duas vence inteira. */}
-          {account && events.length >= quantos && (
-            <div className="flex justify-center pt-1">
+          {/* O BOTÃO SOME QUANDO NÃO HÁ MAIS O QUE CARREGAR, e isso é conserto
+              de um defeito achado por revisão em 11/09/2026: a condição era só
+              `events.length >= quantos`, e `quantosEventos` corta em
+              MAX_DO_FEED. Numa conta com 300 eventos a pessoa clicava sete
+              vezes até `ver=200`, o botão continuava desenhado, e a oitava
+              recarregava a página inteira para devolver exatamente os mesmos
+              200. Nada na tela dizia que tinha acabado. */}
+          {account && events.length >= quantos && quantos < MAX_DO_FEED && (
+            /* A ÂNCORA É AQUI, E NÃO `#conteudo`. A primeira versão apontava
+               para o `<main id="conteudo">`, que é o começo do documento: a
+               pessoa rolava 25 eventos, clicava, e o navegador a depositava no
+               `<h1>` — para ver os 25 novos ela rolava de novo os 25 que já
+               tinha lido, a cada clique. */
+            <div id="mais-interacoes" className="flex scroll-mt-24 justify-center pt-1">
               <a
                 href={`/eventos?${new URLSearchParams({
                   ...Object.fromEntries(
@@ -399,7 +412,7 @@ export default async function EventosPage({
                     )
                   ),
                   ver: String(quantos + PASSO_DO_FEED),
-                }).toString()}#conteudo`}
+                }).toString()}#mais-interacoes`}
                 className={btnGhost}
               >
                 Carregar mais {PASSO_DO_FEED}

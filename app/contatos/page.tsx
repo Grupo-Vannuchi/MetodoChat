@@ -329,6 +329,7 @@ export default async function ContatosPage({
   // não do JSX abaixo: ver o comentário lá para o porquê.
   const filtrado = filtro.tipo === "uma";
   const caso = casoDaListaDeEmail({
+    buscando: busca !== null,
     visiveis: achados.length,
     comEmail: comEmail.length,
     filtrado,
@@ -427,7 +428,26 @@ export default async function ContatosPage({
             )}
           </form>
 
-          {caso === "filtro_vazio" ? (
+          {caso === "busca_vazia" ? (
+            /* O VAZIO DA BUSCA NOMEIA A BUSCA, e isso conserta um defeito achado
+               por revisão em 11/09/2026: quem digitava "joao" com "todos"
+               selecionado recebia *"Nenhum contato nesta categoria — use
+               'todos', ali em cima"*, com "todos" já clicado. O estado vazio do
+               recurso novo acusava a causa errada e mandava fazer o que já
+               estava feito. */
+            <div className={emptyWrap}>
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Ninguém encontrado para “{busca}”
+              </p>
+              <p className={`max-w-sm text-xs ${muted}`}>
+                A busca procura no @, no nome e no e-mail.{" "}
+                <Link href={urlComFiltro("/contatos", filtro)} className={link}>
+                  Limpar a busca
+                </Link>{" "}
+                para ver {filtro.tipo === "tudo" ? "a conta inteira" : "a categoria inteira"}.
+              </p>
+            </div>
+          ) : caso === "filtro_vazio" ? (
             // O caso pior do Achado 1: um filtro que não casa ninguém (uma
             // categoria que deixou de existir, por exemplo). Antes, a seção
             // "Sem e-mail" sumia inteira (só renderiza com gente) e sobrava
@@ -553,7 +573,19 @@ export default async function ContatosPage({
                     // fichas o monta: este botão fica embaixo da frase que conta
                     // o filtro, e baixava a conta inteira.
                     <a
-                      href={urlComFiltro("/api/contatos/csv", filtro)}
+                      /* O ENDEREÇO CARREGA A BUSCA TAMBÉM, e não só a
+                         categoria. Sem isso a tela dizia "1 pessoa — pronta
+                         para sua lista" e o botão logo abaixo baixava os 40 da
+                         categoria: frase e botão discordando sobre o mesmo
+                         clique. A rota aplica as duas peneiras na mesma ordem,
+                         com as MESMAS funções. */
+                      href={
+                        busca
+                          ? `${urlComFiltro("/api/contatos/csv", filtro)}${
+                              urlComFiltro("/api/contatos/csv", filtro).includes("?") ? "&" : "?"
+                            }q=${encodeURIComponent(busca)}`
+                          : urlComFiltro("/api/contatos/csv", filtro)
+                      }
                       className={btnGhost}
                       download
                     >

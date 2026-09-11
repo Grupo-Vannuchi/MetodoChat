@@ -4,6 +4,7 @@ import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
 import { avisoDaUrl } from "@/lib/avisos";
 import {
+  avisoDoAtrasoNaLista,
   dataDaLinhaDeEnvio,
   lerPayloadDaPublicacao,
   linhaDaFalha,
@@ -361,15 +362,32 @@ export default async function Agendados({
                         // `urlPublicaSeDerParaMontar` (lib/bucket.ts) para o
                         // defeito que ensinou isso.
                         const capa = primeira ? urlPublicaSeDerParaMontar(primeira) : null;
+                        // ATRASADO: a hora passou e ele ainda esta na fila. A
+                        // decisao e de `avisoDoAtrasoNaLista`, a mesma da tela
+                        // de detalhe — aqui so se pergunta SE ha aviso, porque
+                        // no quadrado nao cabe a frase.
+                        const atrasado = avisoDoAtrasoNaLista(quando) !== null;
                         return (
                           <Link
                             key={item.id}
                             href={`/publicar/agendados/${item.id}${visao === "semana" ? "?volta=semana" : ""}`}
-                            className={`flex items-center gap-1.5 rounded-lg border p-1 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:focus-visible:ring-acao-escuro/25 ${
-                              saiu
-                                ? "border-traco bg-papel hover:border-quieto/40 dark:border-traco-escuro dark:bg-papel-escuro/50"
-                                : "border-aberto/30 bg-aberto/8 hover:border-aberto/60 dark:border-aberto-escuro/30 dark:bg-aberto-escuro/10"
-                            }`}
+                            /* O CHIP NÃO PINTA ESTADO, e isso é conserto de um
+                               defeito que a revisão achou em 11/09/2026.
+
+                               A primeira versão dava `bg-aberto/8` ao post que
+                               AINDA NÃO SAIU e cinza ao que JÁ SAIU — e em toda
+                               outra tela deste painel verde quer dizer "deu
+                               certo". Quem varria o calendário procurando
+                               problema via os verdes como sucesso, quando eram
+                               justamente os pendentes, um deles atrasado num dia
+                               que já passou.
+
+                               E a spec proíbe isso em uma linha: os três estados
+                               "continuam sendo SINAL — pílula, texto, ponto — e
+                               nunca preenchimento grande". A superfície volta a
+                               ser neutra; quem carrega o estado é o símbolo à
+                               esquerda, que é do tamanho de um sinal. */
+                            className="flex items-center gap-1.5 rounded-lg border border-traco bg-papel p-1 transition-colors hover:border-quieto/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:border-traco-escuro dark:bg-papel-escuro/50 dark:focus-visible:ring-acao-escuro/25"
                           >
                             {capa ? (
                               // eslint-disable-next-line @next/next/no-img-element
@@ -385,6 +403,22 @@ export default async function Agendados({
                               >
                                 {saiu ? "✓" : "•"}
                               </span>
+                            )}
+                            {/* O PONTO DE ESTADO — do tamanho de um sinal, que é
+                                o que a spec permite para as três cores. Verde é
+                                o que SAIU (o mesmo sentido de todas as outras
+                                telas), âmbar é o que está ATRASADO e ainda na
+                                fila, e nada aparece no que vai sair na hora —
+                                porque aí não há sinal a dar. */}
+                            {(saiu || atrasado) && (
+                              <span
+                                aria-hidden
+                                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                                  saiu
+                                    ? "bg-aberto dark:bg-aberto-escuro"
+                                    : "bg-fecha dark:bg-fecha-escuro"
+                                }`}
+                              />
                             )}
                             <span className="min-w-0 flex-1">
                               <span className={`block text-[11px] font-semibold ${numero}`}>

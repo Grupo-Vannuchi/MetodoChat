@@ -265,7 +265,12 @@ export function resumoDasCategorias(
   });
 }
 
-export type CasoDaListaDeEmail = "filtro_vazio" | "sem_email_geral" | "sem_email_no_filtro" | "tem_email";
+export type CasoDaListaDeEmail =
+  | "busca_vazia"
+  | "filtro_vazio"
+  | "sem_email_geral"
+  | "sem_email_no_filtro"
+  | "tem_email";
 
 /**
  * Qual texto a seção "Com e-mail" mostra — e se "Sem e-mail" ainda faz
@@ -309,7 +314,19 @@ export function casoDaListaDeEmail(args: {
   comEmail: number;
   /** Se há filtro de categoria ativo (`filtroDaUrl(...).tipo === "uma"`). */
   filtrado: boolean;
+  /** Se há BUSCA ativa. Ver o caso `busca_vazia`. */
+  buscando?: boolean;
 }): CasoDaListaDeEmail {
+  // BUSCA VAZIA NÃO É CATEGORIA VAZIA, e confundir as duas foi um defeito
+  // achado por revisão em 11/09/2026: quem digitava "joao" na busca, com
+  // "todos" selecionado, recebia *"Nenhum contato nesta categoria — use
+  // 'todos', ali em cima, para ver a conta inteira"*. A tela nomeava a causa
+  // errada e mandava fazer o que já estava feito.
+  //
+  // A ORDEM IMPORTA: a busca vem primeiro porque ela é o gesto MAIS RECENTE de
+  // quem está olhando. Com categoria E busca ativas e nada encontrado, o que
+  // desfaz o vazio é limpar a busca — e é o que a frase tem de dizer.
+  if (args.visiveis === 0 && args.buscando) return "busca_vazia";
   if (args.visiveis === 0) return "filtro_vazio";
   if (args.comEmail > 0) return "tem_email";
   return args.filtrado ? "sem_email_no_filtro" : "sem_email_geral";
