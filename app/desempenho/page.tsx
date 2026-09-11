@@ -2,6 +2,13 @@ import Link from "next/link";
 import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
+// A CHAVE DO DIA E O FUSO VÊM DE `lib/calendario.ts`, e não de uma cópia local.
+// Esta tela nasceu com a quarta cópia byte a byte da mesma função — mesmo
+// `America/Sao_Paulo`, mesmo `en-CA`, mesmas opções —, e a revisão pegou. O
+// cabeçalho daquele arquivo argumenta por que TRÊS cópias valem a pena (cada uma
+// responde a uma pergunta diferente); esta quarta ninguém argumentou, e ela
+// vivia dentro do componente, sem teste.
+import { chaveDoDia, FUSO } from "@/lib/calendario";
 import { card, muted, link } from "../ui";
 import { StatCard, SentChart } from "../dashboard-parts";
 import { IconUsers, IconSend, IconZap, IconClock } from "../icons";
@@ -21,7 +28,6 @@ export const dynamic = "force-dynamic";
 // significado: a mesma consulta, os mesmos nomes de coluna, os mesmos rótulos.
 // Esta entrega move a pergunta de lugar; ela não redefine nenhuma resposta.
 
-const TZ = "America/Sao_Paulo";
 const DIAS_GRAFICO = 14;
 
 type Counts = {
@@ -41,16 +47,6 @@ const ZERO: Counts = {
   sent7: 0,
   sent_prev7: 0,
 };
-
-// chave YYYY-MM-DD no fuso de Brasília (bate com o to_char da consulta)
-function chaveDoDia(d: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
-}
 
 // Monta os últimos N dias já com a contagem de cada um. Fica fora do
 // componente porque lê o relógio — o compilador do React exige render puro.
@@ -103,7 +99,7 @@ export default async function Desempenho() {
              where account_id = $1 and status = 'sent'
                and sent_at > now() - interval '14 days'
              group by 1`,
-            [account.ig_user_id, TZ]
+            [account.ig_user_id, FUSO]
           )) as { dia: string; n: number }[])
         : [])(),
   ]);

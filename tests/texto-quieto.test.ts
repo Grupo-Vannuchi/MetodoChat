@@ -172,7 +172,15 @@ describe("todo token de texto quieto", () => {
   });
 
   it("sai do MESMO tom: um só, e não seis parecidos", () => {
-    for (const [nome, classe] of TOKENS_QUIETOS) {
+    // `tomQuieto` SAI DESTA ITERAÇÃO, e a razão é que ele é a própria régua:
+    // `expect(tomQuieto).toContain(tomQuieto)` é `x.toContain(x)`, e uma das
+    // seis voltas não media nada. Achado por revisão em 11/09/2026.
+    //
+    // ELE CONTINUA NA LISTA porque nos outros dois casos deste bloco — ter os
+    // dois temas, e não usar `zinc-500` — a pergunta vale para ele também.
+    const derivados = TOKENS_QUIETOS.filter(([nome]) => nome !== "tomQuieto");
+    expect(derivados.length, "a lista não pode ficar só com a régua").toBeGreaterThan(3);
+    for (const [nome, classe] of derivados) {
       expect(classe, nome).toContain(tomQuieto);
     }
   });

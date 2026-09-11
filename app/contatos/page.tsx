@@ -483,7 +483,12 @@ export default async function ContatosPage({
                   E ele encolhe a página, que é metade do achado M6: `/contatos`
                   media 8777px, e este bloco é a maior peça fixa dela. */}
               <details className={`group ${subtle}`}>
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 text-sm font-medium">
+                {/* O ANEL DE FOCO É O MESMO DOS BOTÕES. `list-none` tira o
+                    triângulo e, sem isto, sobrava o `outline auto 1px` do
+                    navegador — o mesmo fio de baixo contraste que o achado D8
+                    tirou da barra lateral. E ele ficou justamente no controle
+                    que abre o disparo em massa. */}
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl p-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:focus-visible:ring-acao-escuro/25">
                   <span>
                     Mandar mensagem para {visiveis.length}{" "}
                     {visiveis.length === 1 ? "pessoa" : "pessoas"}

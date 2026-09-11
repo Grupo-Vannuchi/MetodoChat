@@ -379,7 +379,10 @@ export default async function Agendados({
                         return (
                           <Link
                             key={item.id}
-                            href={`/publicar/agendados/${item.id}${visao === "semana" ? "?volta=semana" : ""}`}
+                            /* A VOLTA CARREGA A ÂNCORA, e não só a visão: sem
+                               `em`, quem estava olhando dezembro e clicava em
+                               "← Calendário" caía no mês de hoje. */
+                            href={`/publicar/agendados/${item.id}?v=${visao}&em=${grade.ancora}`}
                             /* O CHIP NÃO PINTA ESTADO, e isso é conserto de um
                                defeito que a revisão achou em 11/09/2026.
 

@@ -1,7 +1,7 @@
 // Tradução dos nomes internos do sistema para a linguagem de quem usa o painel.
 // Ninguém deveria precisar saber o que é "dm_link" ou "story_reply".
 //
-// OS DOIS IMPORTS DESTE ARQUIVO SÃO ARQUIVOS PUROS, e os dois entraram pelo
+// OS QUATRO IMPORTS DESTE ARQUIVO
 // mesmo motivo — não reescrever aqui uma resposta que já existe em outro lugar.
 //
 // `lib/steps.ts` entrou com `oQueDispara` (lá embaixo): a coluna "o que dispara"

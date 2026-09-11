@@ -324,8 +324,25 @@ export default async function ConversaPage({
                   que mostrar. Com anexo, o rótulo acima já diz o que chegou. */}
               {m.text || (!m.attachment && <span className="italic opacity-70">(sem texto)</span>)}
               <span
+                /* A HORA NÃO ESCURECE DE NOVO NO BALÃO QUE ESTÁ SAINDO.
+
+                   MEDIDO EM 11/09/2026, a partir de um achado de revisão: o
+                   `opacity-60` do balão compõe o elemento INTEIRO contra a
+                   página, e a hora já vinha a 70%. Os dois juntos davam
+                   **3,15:1 no claro e 4,10:1 no escuro** — abaixo de 4,5:1 nos
+                   dois temas. O texto do balão passava (4,60 e 6,76); só a hora
+                   reprovava, que é exatamente o que o achado D12 apontava.
+
+                   Com a hora em `papel` cheio, ela passa a medir o mesmo que o
+                   texto ao lado — 4,60:1 e 6,76:1 —, e o sinal de "está saindo"
+                   continua sendo a opacidade do balão, que é quem tem de
+                   carregá-lo. */
                 className={`mt-1 block text-[11px] ${
-                  m.direction === "in" || falhou ? "text-quieto dark:text-quieto-escuro" : "text-papel/70 dark:text-papel-escuro/70"
+                  m.direction === "in" || falhou
+                    ? "text-quieto dark:text-quieto-escuro"
+                    : saindo || guardada
+                      ? "text-papel dark:text-papel-escuro"
+                      : "text-papel/70 dark:text-papel-escuro/70"
                 }`}
               >
                 {/* Enquanto não saiu, a hora ainda é a de criação e não diz nada

@@ -7,6 +7,7 @@ import { fmtDate } from "@/lib/format";
 import { avisoDaUrl } from "@/lib/avisos";
 import { statusBadge } from "../../../labels";
 import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
+import { chaveDoDia, visaoDaUrl, ancoraDaUrl } from "@/lib/calendario";
 import {
   avisoDoAtrasoNaLista,
   dataDaLinhaDeEnvio,
@@ -61,7 +62,7 @@ export default async function DetalheDaPublicacao({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ aviso?: string; tom?: string; volta?: string }>;
+  searchParams: Promise<{ aviso?: string; tom?: string; v?: string; em?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
@@ -106,7 +107,12 @@ export default async function DetalheDaPublicacao({
   const midia = (podeMexer ? (p?.caminhos ?? []) : [])
     .map((caminho) => ({ caminho, url: urlPublicaSeDerParaMontar(caminho) }))
     .filter((m): m is { caminho: string; url: string } => m.url !== null);
-  const voltarPara = sp.volta === "semana" ? "/publicar/agendados?v=semana" : "/publicar/agendados";
+  // A VOLTA RECONSTRÓI O PERÍODO QUE A PESSOA ESTAVA OLHANDO, e passa pelas
+  // mesmas funções que a grade usa — `visaoDaUrl` e `ancoraDaUrl` recusam lixo,
+  // e sem elas um `?em=banana` vindo de um link colado viraria endereço quebrado.
+  const visaoDeVolta = visaoDaUrl(sp.v);
+  const ancoraDeVolta = ancoraDaUrl(sp.em, visaoDeVolta, chaveDoDia(new Date()));
+  const voltarPara = `/publicar/agendados?v=${visaoDeVolta}&em=${ancoraDeVolta}`;
 
   return (
     <div className="space-y-6">
