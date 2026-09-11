@@ -1,7 +1,7 @@
 import { sql, QueueItem } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { fmtDate } from "@/lib/format";
-import { card, muted, tableWrap, thead, rowDivide } from "../ui";
+import { card, muted, tableWrap, thead, rowDivide, btnGhost } from "../ui";
 import {
   eventBadge,
   kindLabel,
@@ -20,7 +20,12 @@ import FiltrosEnvios from "./filtros-envios";
 import DonoDosFiltros, { Carregando, LimparSecao } from "./filtros-dono";
 import { dataDaLinhaDeEnvio, fraseDaDataDaLinha } from "@/lib/publicacao";
 import { resolvePosts, type PostRef } from "@/lib/media-lookup";
-import { EVENTS_LIMIT, parseFilters, hasFilters } from "@/lib/event-filters";
+import {
+  PASSO_DO_FEED,
+  quantosEventos,
+  parseFilters,
+  hasFilters,
+} from "@/lib/event-filters";
 import { EVENTS_FROM, buildWhere, postsComEventos } from "@/lib/event-query";
 import {
   ENVIOS_LIMIT,
@@ -61,6 +66,12 @@ export default async function EventosPage({
   const account = await getSelectedAccount();
   const params = await searchParams;
   const filtros = parseFilters(params);
+  // QUANTOS EVENTOS ESTA PÁGINA TRAZ. Ele vem da barra de endereço e NÃO de
+  // `FiltrosDaPagina` — ver `quantosEventos` (lib/event-filters.ts) para o
+  // porquê: fora do estado dos filtros, mudar qualquer filtro o descarta
+  // sozinho e o feed volta à primeira página, que é o certo quando o recorte
+  // muda.
+  const quantos = quantosEventos(params.ver);
   const envios = parseEnvioFilters(params);
   const where = account ? buildWhere(account.ig_user_id, filtros) : null;
   const whereEnvios = account ? buildEnviosWhere(account.ig_user_id, envios) : null;
@@ -79,7 +90,7 @@ export default async function EventosPage({
                     coalesce(cf.profile_pic, cs.profile_pic) as person_pic
              ${EVENTS_FROM}
              where ${where.sql}
-             order by e.created_at desc limit ${EVENTS_LIMIT}`,
+             order by e.created_at desc limit ${quantos}`,
             where.params
           ),
           // Ordena pela MESMA data que a linha mostra, e não por created_at:
@@ -283,7 +294,7 @@ export default async function EventosPage({
                   <b className="font-semibold">{total}</b>{" "}
                   {total === 1 ? "interação" : "interações"}
                   {filtrando && " neste recorte"}
-                  {total > EVENTS_LIMIT && ` · mostrando as ${EVENTS_LIMIT} mais recentes`}
+                  {total > quantos && ` · mostrando as ${quantos} mais recentes`}
                 </p>
               </Carregando>
             )}
@@ -361,6 +372,40 @@ export default async function EventosPage({
               </ul>
             )}
           </Carregando>
+
+          {/* CARREGAR MAIS — achado M6, e o link é deliberadamente um `<Link>`
+              comum e não um botão do dono dos filtros.
+
+              `lib/eventos-url.ts` avisa que esta página já teve DOIS escritores
+              para a mesma URL, e que o conserto foi centralizar tudo em
+              `DonoDosFiltros`. Este link não reabre aquela porta porque `ver`
+              NÃO é um campo daquele estado: o dono nunca o escreve e nunca o
+              lê, então não há o que um sobrescrever do outro. O que acontece —
+              e é o comportamento certo — é que trocar um filtro reconstrói a
+              URL por `queryDaPagina`, que não conhece `ver`, e o feed volta à
+              primeira página.
+
+              O `href` carrega os filtros do render do servidor. Clicar aqui
+              durante uma navegação de filtro em voo é a mesma corrida de
+              clicar qualquer link no meio de uma navegação, e o desfecho é
+              benigno: uma das duas vence inteira. */}
+          {account && events.length >= quantos && (
+            <div className="flex justify-center pt-1">
+              <a
+                href={`/eventos?${new URLSearchParams({
+                  ...Object.fromEntries(
+                    Object.entries(params).flatMap(([k, v]) =>
+                      k === "ver" || v === undefined ? [] : [[k, Array.isArray(v) ? v[0] : v]]
+                    )
+                  ),
+                  ver: String(quantos + PASSO_DO_FEED),
+                }).toString()}#conteudo`}
+                className={btnGhost}
+              >
+                Carregar mais {PASSO_DO_FEED}
+              </a>
+            </div>
+          )}
         </section>
       </div>
     </DonoDosFiltros>

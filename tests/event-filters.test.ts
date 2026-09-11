@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { parseFilters, toQueryString, hasFilters, NO_FILTERS, SEARCH_MAX_LENGTH } from "@/lib/event-filters";
+import {
+  parseFilters,
+  toQueryString,
+  hasFilters,
+  NO_FILTERS,
+  SEARCH_MAX_LENGTH,
+  quantosEventos,
+  PASSO_DO_FEED,
+  MAX_DO_FEED,
+} from "@/lib/event-filters";
 
 // parseFilters é a fronteira entre a URL, que qualquer um edita, e a consulta
 // ao banco. O que passar daqui vira SQL.
@@ -118,5 +127,54 @@ describe("hasFilters", () => {
     expect(hasFilters({ ...NO_FILTERS, type: "comment" })).toBe(true);
     expect(hasFilters({ ...NO_FILTERS, post: "1" })).toBe(true);
     expect(hasFilters({ ...NO_FILTERS, q: "x" })).toBe(true);
+  });
+});
+
+
+describe("quantosEventos — o feed que cresce sob pedido (M6)", () => {
+  // ELE LÊ A BARRA DE ENDEREÇO, que qualquer um edita. Vale aqui a mesma
+  // disciplina de `parseFilters`: o que passa daqui vira `limit` de SQL.
+  it("sem parâmetro, traz o passo", () => {
+    expect(quantosEventos(undefined)).toBe(PASSO_DO_FEED);
+  });
+
+  it("um pedido legítimo passa inteiro, mesmo não sendo múltiplo do passo", () => {
+    // `?ver=30` digitado à mão é um pedido de 30, e arredondar seria decidir
+    // por quem pediu.
+    expect(quantosEventos("30")).toBe(30);
+    expect(quantosEventos("50")).toBe(50);
+  });
+
+  it("abaixo do passo cai no passo — nunca devolve página vazia", () => {
+    expect(quantosEventos("0")).toBe(PASSO_DO_FEED);
+    expect(quantosEventos("-40")).toBe(PASSO_DO_FEED);
+  });
+
+  it("acima do teto cai no teto: a URL não é entrada de número arbitrário", () => {
+    // Sem isto, `?ver=99999` devolve a consulta inteira para quem digitar.
+    expect(quantosEventos("99999")).toBe(MAX_DO_FEED);
+  });
+
+  it("texto, vazio e lixo caem no passo", () => {
+    expect(quantosEventos("abacaxi")).toBe(PASSO_DO_FEED);
+    expect(quantosEventos("")).toBe(PASSO_DO_FEED);
+    expect(quantosEventos("12abc")).toBe(PASSO_DO_FEED);
+  });
+
+  it("sempre devolve inteiro — `limit 25.7` não é SQL válido", () => {
+    const n = quantosEventos("25.7");
+    expect(Number.isInteger(n)).toBe(true);
+  });
+
+  it("parâmetro repetido (`?ver=30&ver=90`) lê o primeiro, e não quebra", () => {
+    // O Next entrega array quando o parâmetro aparece duas vezes.
+    expect(quantosEventos(["30", "90"])).toBe(30);
+  });
+
+  it("NÃO entra em `EventFilters`, e é por isso que trocar filtro o descarta", () => {
+    // A garantia que faz o feed voltar à primeira página quando o recorte muda:
+    // `queryDaPagina` serializa só os filtros, e `ver` não é um deles.
+    expect(Object.keys(NO_FILTERS)).not.toContain("ver");
+    expect(toQueryString({ ...NO_FILTERS, period: "7d" })).not.toContain("ver");
   });
 });
