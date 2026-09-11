@@ -47,3 +47,4 @@ entrega/
 # Estado interno de ferramenta de agente — nao e codigo do projeto
 # (tambem cobre o rascunho de execucao de planos do superpowers)
 /.superpowers/
+*.tmp.mjs
