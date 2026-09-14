@@ -123,6 +123,7 @@ export default async function Home({
     falhasPublicacao: sinais.falhas_publicacao,
     falhasMensagem: sinais.falhas_mensagem,
     automacoesAtivas: sinais.autos,
+    oportunidades: [],
   };
 
   const itens = account ? oQuePrecisaDeVoce(fatos) : [];

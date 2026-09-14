@@ -3,6 +3,7 @@ import {
   DIAS_DE_AVISO_DA_PUBLICACAO,
   HORAS_DE_AVISO_DA_MENSAGEM,
 } from "./publicacao";
+import { fmtRelative } from "./format";
 
 // O QUE A TELA INICIAL MOSTRA — e por que ela quer ficar vazia.
 //
@@ -31,6 +32,46 @@ export const MAX_CONVERSAS_NO_INICIO = 5;
 const MS_DO_CORTE = HORAS_QUE_TORNAM_URGENTE * 3_600_000;
 
 /**
+ * UM POST QUE ESTÁ RECEBENDO COMENTÁRIO E NÃO TEM AUTOMAÇÃO ESCUTANDO.
+ *
+ * A terceira forma de "precisa de mim", e a de maior volume: medido em
+ * 14/09/2026, 331 dos 332 comentários da semana caíram em post sem automação
+ * ativa, e o maior deles juntou CEM pessoas sem resposta.
+ *
+ * NÃO É DEFEITO DO MOTOR, e por isso não é `parou`: ele não responde porque não
+ * há nada configurado para aquele post. É trabalho de configuração — do
+ * marketing, não nosso —, e o que cabe ao painel é DIZER.
+ */
+export type Oportunidade = {
+  /** o id do post no Instagram, que vira parâmetro de URL */
+  mediaId: string;
+  comentarios: number;
+  /** quando chegou o último comentário; `null` quando não se sabe */
+  ultimo: Date | string | null;
+  /**
+   * A legenda do post, quando a página conseguiu buscar na Meta.
+   *
+   * OPCIONAL DE PROPÓSITO, e é a fronteira de camada: esta função é pura e não
+   * sabe que existe uma API do outro lado. Quem preenche é `app/page.tsx`, e
+   * quando a chamada falha ou demora o campo simplesmente não vem — a linha
+   * renderiza inteira sem ele.
+   */
+  nome?: string | null;
+};
+
+/** Quantas oportunidades cabem na tela antes de ela virar uma lista de posts. */
+export const MAX_OPORTUNIDADES = 3;
+
+/**
+ * Quantos comentários um post precisa juntar para virar linha.
+ *
+ * SEM PISO A TELA DE CHAMADOS VIRA RUÍDO: medido na conta em 14/09, com piso 1
+ * seriam DOZE linhas — a cauda é feita de posts antigos com 4, 5 e 6
+ * comentários perdidos. Com piso 5, três linhas, e as três valem o clique.
+ */
+export const MIN_COMENTARIOS_DA_OPORTUNIDADE = 5;
+
+/**
  * O tom da linha, e ele é o MESMO vocabulário de cor do resto do produto
  * (`app/globals.css`): `aberto` é a janela que ainda tem tempo, `fecha` é o
  * prazo curto, `parou` é o que falhou. `quieto` é o convite — não é estado de
@@ -51,6 +92,8 @@ export type FatosDoInicio = {
   falhasPublicacao: number;
   falhasMensagem: number;
   automacoesAtivas: number;
+  /** posts recebendo comentário sem automação — ver `Oportunidade` */
+  oportunidades: Oportunidade[];
 };
 
 export type ItemDoInicio = {
@@ -83,6 +126,24 @@ export type ItemDoInicio = {
 export function urgenciaDaJanela(msLeft: number): Urgencia {
   if (msLeft <= 0) return "quieto";
   return msLeft < MS_DO_CORTE ? "fecha" : "aberto";
+}
+
+/**
+ * As oportunidades que merecem linha, das maiores para as menores.
+ *
+ * ORDENA ANTES DE CORTAR, pelo mesmo motivo que `oQuePrecisaDeVoce` ordena as
+ * conversas antes: cortar cru deixaria de fora justamente o post com mais gente
+ * esperando, que é o único que esta tela não pode perder.
+ *
+ * O DESEMPATE PELO ID não é capricho — sem ele, dois posts com a mesma contagem
+ * trocariam de lugar entre um render e outro, e a tela mudaria de ordem sozinha
+ * a cada F5.
+ */
+export function recorteDasOportunidades(lista: Oportunidade[]): Oportunidade[] {
+  return lista
+    .filter((o) => o.comentarios >= MIN_COMENTARIOS_DA_OPORTUNIDADE)
+    .sort((a, b) => b.comentarios - a.comentarios || a.mediaId.localeCompare(b.mediaId))
+    .slice(0, MAX_OPORTUNIDADES);
 }
 
 /**
@@ -142,6 +203,35 @@ export function oQuePrecisaDeVoce(f: FatosDoInicio): ItemDoInicio[] {
   const calmas = mostradas.filter((c) => c.msLeft >= MS_DO_CORTE).map(linhaDaConversa);
 
   const itens: ItemDoInicio[] = [...urgentes];
+
+  // A OPORTUNIDADE ENTRA AQUI, E O LUGAR É A DECISÃO.
+  //
+  // Abaixo da conversa apertada: aquela expira por relógio, em minutos, e some.
+  // Acima das falhas: a publicação que falhou às 3h continuará falhada às 9h —
+  // é mais grave e é menos urgente —, enquanto o post sem automação junta mais
+  // gente a cada hora que passa.
+  for (const o of recorteDasOportunidades(f.oportunidades)) {
+    itens.push({
+      chave: "oportunidade:" + o.mediaId,
+      tipo: "aviso",
+      titulo:
+        o.comentarios === 1
+          ? "1 comentário sem automação"
+          : o.comentarios + " comentários sem automação",
+      // O NOME DO POST QUANDO ELE VEIO, e a frase inteira quando não veio. Quem
+      // lê "100 comentários em 'Carrossel ChatGPT'" sabe o que vai fazer; quem
+      // lê um número sozinho, não.
+      detalhe: [o.nome, o.ultimo ? "último " + fmtRelative(o.ultimo) : null]
+        .filter(Boolean)
+        .join(" · ") || "nenhuma automação escuta este post",
+      // O id vem do banco e vira parâmetro de URL — o mesmo cuidado que
+      // `linhaDaConversa` toma com o `igId`.
+      href: "/automacoes/nova?post=" + encodeURIComponent(o.mediaId),
+      // `fecha` e não `parou`: nada quebrou, e nada está vermelho. Mas também
+      // não é `aberto` — o volume cresce enquanto ninguém age.
+      urgencia: "fecha",
+    });
+  }
 
   if (f.falhasPublicacao > 0) {
     const n = f.falhasPublicacao;

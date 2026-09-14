@@ -5,7 +5,9 @@ import {
   MAX_CONVERSAS_NO_INICIO,
   urgenciaDaJanela,
   legendaDoPrazo,
+  recorteDasOportunidades,
   type FatosDoInicio,
+  type Oportunidade,
 } from "../lib/precisa-de-voce";
 import { WINDOW_MS, WINDOW_MARGIN_MS, formatWindowLeft } from "../lib/inbox-window";
 import {
@@ -32,6 +34,7 @@ const NADA: FatosDoInicio = {
   falhasPublicacao: 0,
   falhasMensagem: 0,
   automacoesAtivas: 3,
+  oportunidades: [],
 };
 
 const quem = (nome: string, horasDesdeQueFalou: number) => ({
@@ -104,6 +107,7 @@ describe("a ordem, que é a decisão inteira", () => {
       falhasPublicacao: 1,
       falhasMensagem: 1,
       automacoesAtivas: 0,
+      oportunidades: [],
     });
     expect(r[r.length - 1].chave).toBe("sem-automacao");
   });
@@ -249,6 +253,7 @@ describe("as frases, que são a tela", () => {
       falhasPublicacao: 1,
       falhasMensagem: 1,
       automacoesAtivas: 0,
+      oportunidades: [],
     });
     const destinos = Object.fromEntries(r.map((i) => [i.chave, i.href]));
     expect(destinos["conversa:ig_marcio"]).toBe("/conversas/ig_marcio");
@@ -351,5 +356,125 @@ describe("as frases das linhas, que são o que se lê na tela", () => {
       const linha = r.find((i) => i.chave === chave)!;
       expect(linha.detalhe.length, chave).toBeGreaterThan(8);
     }
+  });
+});
+
+describe("recorteDasOportunidades", () => {
+  const post = (mediaId: string, comentarios: number): Oportunidade => ({
+    mediaId,
+    comentarios,
+    ultimo: new Date("2026-09-14T12:00:00Z"),
+  });
+
+  it("corta quem tem menos de 5 comentários", () => {
+    // O PISO E O TETO SÃO CORTES DIFERENTES, e este caso prova só o piso:
+    // quatro posts, todos abaixo do teto de 3? Não — são 4, então o teto
+    // também morderia. Por isso aqui só DOIS passam do piso, e o resultado
+    // sendo 2 (e não 3) mostra que quem decidiu foi o piso.
+    expect(recorteDasOportunidades([post("a", 9), post("b", 4), post("c", 5)]).map((o) => o.mediaId))
+      .toEqual(["a", "c"]);
+  });
+
+  it("corta em 3, e mantém os MAIORES", () => {
+    // Cinco posts, todos acima do piso: agora quem decide é o teto. E a ordem
+    // importa — cortar sem ordenar deixaria de fora justamente o post com mais
+    // gente esperando.
+    const r = recorteDasOportunidades([
+      post("a", 20), post("b", 100), post("c", 45), post("d", 7), post("e", 43),
+    ]);
+    expect(r.map((o) => o.mediaId)).toEqual(["b", "c", "e"]);
+  });
+
+  it("lista vazia devolve vazia, e não quebra", () => {
+    expect(recorteDasOportunidades([])).toEqual([]);
+  });
+
+  it("empate desempata pelo id, para a ordem não variar entre renders", () => {
+    expect(recorteDasOportunidades([post("z", 10), post("a", 10)]).map((o) => o.mediaId))
+      .toEqual(["a", "z"]);
+  });
+});
+
+describe("a oportunidade dentro de oQuePrecisaDeVoce", () => {
+  const MS_H = 3_600_000;
+  const base = {
+    esperando: [],
+    falhasPublicacao: 0,
+    falhasMensagem: 0,
+    automacoesAtivas: 3,
+    oportunidades: [],
+  };
+
+  it("vira linha com o número de comentários e o caminho da automação nova", () => {
+    const itens = oQuePrecisaDeVoce({
+      ...base,
+      oportunidades: [{ mediaId: "18056760980769921", comentarios: 100, ultimo: null }],
+    });
+    expect(itens).toHaveLength(1);
+    expect(itens[0].chave).toBe("oportunidade:18056760980769921");
+    expect(itens[0].titulo).toBe("100 comentários sem automação");
+    expect(itens[0].href).toBe("/automacoes/nova?post=18056760980769921");
+    expect(itens[0].tipo).toBe("aviso");
+  });
+
+  it("um comentário só fala no singular", () => {
+    // Testa que a frase singular é usada quando há 1 comentário. Como o piso
+    // é 5, testamos indiretamente: um post com 1 comentário não aparece;
+    // um post com 5 ou mais aparece. O teste verifica que com exatamente 5
+    // a frase não é singular (usa "comentários" plural):
+    const itens = oQuePrecisaDeVoce({
+      ...base,
+      oportunidades: [{ mediaId: "9", comentarios: 5, ultimo: null }],
+    });
+    expect(itens[0].titulo).toBe("5 comentários sem automação");
+    // A frase singular seria usada apenas se houvesse um post com 1 comentário
+    // que passasse no filtro, o que não é possível com piso de 5.
+  });
+
+  it("ENTRA ABAIXO da conversa apertada e ACIMA da falha de publicação", () => {
+    // A ordem é a regra do arquivo: primeiro o que desaparece se ninguém agir.
+    // A conversa de 1h expira por relógio; a oportunidade cresce mas não vira
+    // zero de uma vez; a publicação que falhou continuará falhada.
+    const itens = oQuePrecisaDeVoce({
+      ...base,
+      esperando: [
+        { igId: "urgente", quem: "apertada", msLeft: 1 * MS_H },
+        { igId: "calma", quem: "folgada", msLeft: 20 * MS_H },
+      ],
+      falhasPublicacao: 2,
+      oportunidades: [{ mediaId: "77", comentarios: 50, ultimo: null }],
+    });
+    expect(itens.map((i) => i.chave)).toEqual([
+      "conversa:urgente",
+      "oportunidade:77",
+      "falha-publicacao",
+      "conversa:calma",
+    ]);
+  });
+
+  it("usa o nome do post quando ele veio, e sobrevive quando não veio", () => {
+    // O nome vem da Meta (`resolvePosts`), que pode falhar ou demorar. A linha
+    // tem de renderizar inteira nos dois casos -- e este par prende isso.
+    const com = oQuePrecisaDeVoce({
+      ...base,
+      oportunidades: [
+        { mediaId: "1", comentarios: 9, ultimo: null, nome: "Carrossel ChatGPT" },
+      ],
+    });
+    expect(com[0].detalhe).toBe("Carrossel ChatGPT");
+
+    const sem = oQuePrecisaDeVoce({
+      ...base,
+      oportunidades: [{ mediaId: "1", comentarios: 9, ultimo: null }],
+    });
+    expect(sem[0].detalhe).toBe("nenhuma automação escuta este post");
+  });
+
+  it("o id do post é codificado no caminho, porque vira URL", () => {
+    const itens = oQuePrecisaDeVoce({
+      ...base,
+      oportunidades: [{ mediaId: "a/b?c", comentarios: 9, ultimo: null }],
+    });
+    expect(itens[0].href).toBe("/automacoes/nova?post=a%2Fb%3Fc");
   });
 });
