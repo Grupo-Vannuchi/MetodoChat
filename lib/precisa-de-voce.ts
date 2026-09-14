@@ -147,6 +147,27 @@ export function recorteDasOportunidades(lista: Oportunidade[]): Oportunidade[] {
 }
 
 /**
+ * O TÍTULO DA LINHA DE OPORTUNIDADE — e ele mora fora de `oQuePrecisaDeVoce`
+ * por um motivo que uma revisão achou em 14/09/2026.
+ *
+ * Enquanto o singular e o plural eram um ternário DENTRO do laço, o ramo do
+ * singular era INALCANÇÁVEL: `recorteDasOportunidades` corta tudo abaixo de
+ * `MIN_COMENTARIOS_DA_OPORTUNIDADE` (5) antes de o laço rodar, então nenhum
+ * chamador conseguia pedir "1 comentário". O caso que tentava prendê-lo teve de
+ * trocar o 1 por 5 para passar, e passou a afirmar plural sob um nome que
+ * prometia singular — um teste que mente é pior que um teste que falta.
+ *
+ * Aqui o singular tem porta de entrada, tem caso, e continua valendo no dia em
+ * que o piso mudar. Frase derivada de um número é função pura, e função pura
+ * tem caso.
+ */
+export function tituloDaOportunidade(comentarios: number): string {
+  return comentarios === 1
+    ? "1 comentário sem automação"
+    : `${comentarios} comentários sem automação`;
+}
+
+/**
  * A LISTA DO QUE PRECISA DE VOCÊ, NA ORDEM EM QUE PRECISA.
  *
  * A REGRA DA ORDEM, e ela não é por gravidade: **vem primeiro o que desaparece
@@ -214,14 +235,16 @@ export function oQuePrecisaDeVoce(f: FatosDoInicio): ItemDoInicio[] {
     itens.push({
       chave: "oportunidade:" + o.mediaId,
       tipo: "aviso",
-      titulo:
-        o.comentarios === 1
-          ? "1 comentário sem automação"
-          : o.comentarios + " comentários sem automação",
+      titulo: tituloDaOportunidade(o.comentarios),
       // O NOME DO POST QUANDO ELE VEIO, e a frase inteira quando não veio. Quem
       // lê "100 comentários em 'Carrossel ChatGPT'" sabe o que vai fazer; quem
       // lê um número sozinho, não.
-      detalhe: [o.nome, o.ultimo ? "último " + fmtRelative(o.ultimo) : null]
+      //
+      // `nome` PASSA POR `trim()` AQUI, e não antes: uma legenda vinda da Meta
+      // só de espaços é "sem nome" na prática, mas sobrevivia ao
+      // `.filter(Boolean)` (string não vazia é truthy) e virava um " · " colado
+      // em nada — o separador aparecendo sem o texto que ele deveria separar.
+      detalhe: [o.nome?.trim() || null, o.ultimo ? "último " + fmtRelative(o.ultimo) : null]
         .filter(Boolean)
         .join(" · ") || "nenhuma automação escuta este post",
       // O id vem do banco e vira parâmetro de URL — o mesmo cuidado que

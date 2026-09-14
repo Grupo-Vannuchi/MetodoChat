@@ -6,6 +6,7 @@ import {
   urgenciaDaJanela,
   legendaDoPrazo,
   recorteDasOportunidades,
+  tituloDaOportunidade,
   type FatosDoInicio,
   type Oportunidade,
 } from "../lib/precisa-de-voce";
@@ -395,6 +396,29 @@ describe("recorteDasOportunidades", () => {
   });
 });
 
+describe("tituloDaOportunidade — o singular tem porta própria agora", () => {
+  // ANTES, ESTE RAMO ERA INALCANÇÁVEL POR `oQuePrecisaDeVoce`: o piso de
+  // `recorteDasOportunidades` (5) corta tudo abaixo dele antes do laço rodar,
+  // então nenhum caso conseguia pedir "1 comentário" por ali. Extraída, a
+  // função não sabe nada sobre piso — só sobre a frase — e o singular finalmente
+  // tem um caso que o exercita de verdade.
+  it("singular em 1", () => {
+    expect(tituloDaOportunidade(1)).toBe("1 comentário sem automação");
+  });
+
+  it("plural em 0", () => {
+    expect(tituloDaOportunidade(0)).toBe("0 comentários sem automação");
+  });
+
+  it("plural em 2", () => {
+    expect(tituloDaOportunidade(2)).toBe("2 comentários sem automação");
+  });
+
+  it("plural em 100", () => {
+    expect(tituloDaOportunidade(100)).toBe("100 comentários sem automação");
+  });
+});
+
 describe("a oportunidade dentro de oQuePrecisaDeVoce", () => {
   const MS_H = 3_600_000;
   const base = {
@@ -417,18 +441,18 @@ describe("a oportunidade dentro de oQuePrecisaDeVoce", () => {
     expect(itens[0].tipo).toBe("aviso");
   });
 
-  it("um comentário só fala no singular", () => {
-    // Testa que a frase singular é usada quando há 1 comentário. Como o piso
-    // é 5, testamos indiretamente: um post com 1 comentário não aparece;
-    // um post com 5 ou mais aparece. O teste verifica que com exatamente 5
-    // a frase não é singular (usa "comentários" plural):
+  it("no piso, exatamente 5 comentários, a frase sai no plural", () => {
+    // ESTE CASO JÁ PROMETEU SINGULAR, E MENTIA: chamava-se "um comentário só
+    // fala no singular" mas cravava `comentarios: 5` — porque o piso
+    // (`MIN_COMENTARIOS_DA_OPORTUNIDADE`, 5) corta tudo abaixo dele antes deste
+    // laço rodar, e um post com 1 comentário nunca chega aqui. O singular agora
+    // tem porta própria em `tituloDaOportunidade`, logo abaixo; este caso volta
+    // a provar só o que ele consegue provar: no piso, o plural é o que sai.
     const itens = oQuePrecisaDeVoce({
       ...base,
       oportunidades: [{ mediaId: "9", comentarios: 5, ultimo: null }],
     });
     expect(itens[0].titulo).toBe("5 comentários sem automação");
-    // A frase singular seria usada apenas se houvesse um post com 1 comentário
-    // que passasse no filtro, o que não é possível com piso de 5.
   });
 
   it("ENTRA ABAIXO da conversa apertada e ACIMA da falha de publicação", () => {
@@ -476,5 +500,38 @@ describe("a oportunidade dentro de oQuePrecisaDeVoce", () => {
       oportunidades: [{ mediaId: "a/b?c", comentarios: 9, ultimo: null }],
     });
     expect(itens[0].href).toBe("/automacoes/nova?post=a%2Fb%3Fc");
+  });
+
+  // ATÉ AQUI, TODO CASO USAVA `ultimo: null` — o ramo que chama `fmtRelative`
+  // nunca era exercitado. `fmtRelative` lê `Date.now()` por dentro, então o
+  // caso não crava uma data fixa (uma data fixa envelhece e o texto muda sob o
+  // caso, sem que o código tenha mudado); ele crava uma distância — "2 horas
+  // atrás, a partir de agora" — que é o que `fmtRelative` de fato mede.
+  it("com `ultimo` preenchido, o detalhe leva o tempo relativo", () => {
+    const itens = oQuePrecisaDeVoce({
+      ...base,
+      oportunidades: [
+        {
+          mediaId: "1",
+          comentarios: 9,
+          ultimo: new Date(Date.now() - 2 * 3_600_000),
+        },
+      ],
+    });
+    expect(itens[0].detalhe).toBe("último há 2 h");
+  });
+
+  // `nome` PASSA POR `trim()` NA LINHA, e este caso é a prova: uma legenda só
+  // de espaços não é "sem nome" nenhum, e sem o `trim()` o `.filter(Boolean)`
+  // deixaria passar uma string não vazia — o detalhe ganharia um " · " colado
+  // em nada, um separador anunciando um texto que não existe.
+  it("nome só com espaços não entra no detalhe, nem o separador dele", () => {
+    const itens = oQuePrecisaDeVoce({
+      ...base,
+      oportunidades: [
+        { mediaId: "1", comentarios: 9, ultimo: null, nome: "   " },
+      ],
+    });
+    expect(itens[0].detalhe).toBe("nenhuma automação escuta este post");
   });
 });
