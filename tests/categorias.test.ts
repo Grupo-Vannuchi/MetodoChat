@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   LIMITE_DA_CATEGORIA,
+  CATEGORIAS_SUGERIDAS,
   normalizarCategoria,
+  idsSelecionados,
   semCategoria,
   quantasSemCategoria,
   frasePendentes,
@@ -474,5 +476,54 @@ describe("busca vazia não é categoria vazia", () => {
     expect(
       casoDaListaDeEmail({ visiveis: 5, comEmail: 0, filtrado: true, buscando: true })
     ).toBe("sem_email_no_filtro");
+  });
+});
+
+describe("CATEGORIAS_SUGERIDAS", () => {
+  it("são as quatro que o dono nomeou, nesta ordem", () => {
+    expect([...CATEGORIAS_SUGERIDAS]).toEqual(["clientes", "equipe", "amigos", "alunos"]);
+  });
+
+  it("cada uma sobrevive à normalização sem mudar", () => {
+    // Um nome que `normalizarCategoria` alterasse viraria um botão que grava
+    // COISA DIFERENTE do que está escrito nele. É o caso que prende isso.
+    for (const nome of CATEGORIAS_SUGERIDAS) {
+      expect(normalizarCategoria(nome)).toBe(nome);
+    }
+  });
+
+  it("não inclui `teste`, que existe no banco e é arrumação da casa", () => {
+    expect(CATEGORIAS_SUGERIDAS as readonly string[]).not.toContain("teste");
+  });
+});
+
+describe("idsSelecionados", () => {
+  const comIds = (...ids: string[]) => {
+    const f = new FormData();
+    for (const id of ids) f.append("ig_id", id);
+    return f;
+  };
+
+  it("devolve os ids marcados", () => {
+    expect(idsSelecionados(comIds("123", "456"))).toEqual(["123", "456"]);
+  });
+
+  it("campo ausente é lista vazia, e não erro", () => {
+    expect(idsSelecionados(new FormData())).toEqual([]);
+  });
+
+  it("repetido entra uma vez só", () => {
+    // O mesmo id duas vezes no POST não pode virar duas linhas na contagem.
+    expect(idsSelecionados(comIds("123", "123", "456"))).toEqual(["123", "456"]);
+  });
+
+  it("id fora do formato de ig_id é RECUSADO, não saneado", () => {
+    // Mesmo guarda de `definirCategoria` (app/conversas/[id]/actions.ts): id do
+    // Instagram é dígito. Um "123; drop" ou um vazio não chegam ao `any($2)`.
+    expect(idsSelecionados(comIds("123", "", "  ", "abc", "1'2", "456"))).toEqual(["123", "456"]);
+  });
+
+  it("id absurdamente longo não passa", () => {
+    expect(idsSelecionados(comIds("9".repeat(33)))).toEqual([]);
   });
 });

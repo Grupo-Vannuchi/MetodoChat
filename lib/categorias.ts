@@ -331,3 +331,45 @@ export function casoDaListaDeEmail(args: {
   if (args.comEmail > 0) return "tem_email";
   return args.filtrado ? "sem_email_no_filtro" : "sem_email_geral";
 }
+
+/**
+ * AS QUATRO CATEGORIAS QUE VIRAM BOTÃO, nomeadas pelo dono em 14/09/2026.
+ *
+ * DECLARADA, E NÃO DERIVADA DOS VALORES EM USO — que é o contrário do resto
+ * deste arquivo, e por isso precisa de justificativa. A lista de categorias
+ * DISPONÍVEIS continua sendo o conjunto em uso; esta é a lista das que ganham
+ * BOTÃO na marcação em lote. `teste` está em uso (12 contatos, todos contas
+ * internas da casa) e não é segmento de marketing: derivar daria a ele um botão
+ * do mesmo tamanho dos outros quatro.
+ *
+ * MINÚSCULAS PORQUE `normalizarCategoria` BAIXA A CAIXA. Um nome escrito aqui
+ * com maiúscula viraria botão que grava outra coisa — e é por isso que
+ * `tests/categorias.test.ts` passa cada um por ela e exige que não mude.
+ */
+export const CATEGORIAS_SUGERIDAS = ["clientes", "equipe", "amigos", "alunos"] as const;
+
+/** O formato de um `ig_id`: o mesmo guarda de `definirCategoria`. */
+const IG_ID = /^\d{1,32}$/;
+
+/**
+ * Os contatos marcados no formulário de lote, sem repetido e sem lixo.
+ *
+ * RECUSA EM VEZ DE SANEAR. Um `ig_id` que não é dígito não é um id "sujo" que
+ * dê para limpar — é um campo que não veio da nossa tela. Deixá-lo passar para
+ * `ig_id = any($2)` seria confiar num valor forjado para decidir sobre QUAIS
+ * linhas escrever; recusá-lo custa nada, porque nenhuma linha nossa o produz.
+ *
+ * O ESCOPO POR CONTA NÃO MORA AQUI, e não pode: esta função é pura e não sabe
+ * qual conta está selecionada. Ela reduz a superfície; quem fecha a porta é o
+ * `account_id` no `where` da consulta (app/contatos/actions.ts). As duas
+ * coisas, e não uma delas.
+ */
+export function idsSelecionados(formData: FormData): string[] {
+  const vistos = new Set<string>();
+  for (const bruto of formData.getAll("ig_id")) {
+    if (typeof bruto !== "string") continue;
+    const limpo = bruto.trim();
+    if (IG_ID.test(limpo)) vistos.add(limpo);
+  }
+  return [...vistos];
+}
