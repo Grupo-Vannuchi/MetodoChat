@@ -521,9 +521,12 @@ describe("urlDoAvisoNaTabela", () => {
       linhas: "50",
     });
     // `?categoria=` presente e VAZIO e "sem categoria" — o Critico de 01/09.
-    expect(u).toContain("?categoria=&");
-    expect(u).toContain("&q=ana");
-    expect(u).toContain("&linhas=50");
+    // A URL INTEIRA, e nao tres `toContain` independentes: um separador
+    // duplicado (`&&q=`) passaria pelos tres. Valor descoberto rodando a
+    // propria funcao.
+    expect(u).toBe(
+      "/contatos?categoria=&aviso=2%20contatos%20marcados%20como%20alunos.&tom=ok&q=ana&linhas=50"
+    );
   });
 
   it("busca vazia nao vira `&q=`", () => {

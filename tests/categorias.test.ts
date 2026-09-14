@@ -526,4 +526,17 @@ describe("idsSelecionados", () => {
   it("id absurdamente longo não passa", () => {
     expect(idsSelecionados(comIds("9".repeat(33)))).toEqual([]);
   });
+
+  // A FRONTEIRA DO OUTRO LADO: sem este caso, um mutante que trocasse o
+  // limite por `{1,31}` continuava verde — o caso de 33 dígitos acima não o
+  // pega, porque ele reprova nos dois limites.
+  it("id de exatamente 32 dígitos é aceito", () => {
+    expect(idsSelecionados(comIds("9".repeat(32)))).toEqual(["9".repeat(32)]);
+  });
+
+  // "0" é aceito de proposito: a consulta (marcarCategoriaEmLote) tem
+  // `account_id` no `where`, e ele nao casa com linha nenhuma.
+  it("id '0' passa pelo formato, e a consulta é quem recusa", () => {
+    expect(idsSelecionados(comIds("0"))).toEqual(["0"]);
+  });
 });

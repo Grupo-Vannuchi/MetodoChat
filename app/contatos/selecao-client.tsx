@@ -26,19 +26,34 @@ function caixas(alvo: string): HTMLInputElement[] {
 /** Quantas caixas há e quantas estão marcadas, recontadas a cada `change`. */
 function useSelecao(alvo: string): { n: number; total: number } {
   const [estado, setEstado] = useState({ n: 0, total: 0 });
+  // Acessível aos dois efeitos abaixo sem recriar o ouvinte a cada render: o
+  // efeito de `[alvo]` só registra o `change` uma vez (ou quando `alvo` muda) e
+  // fecha sobre esta função; o efeito sem dependências só a CHAMA de novo a
+  // cada render, sem mexer no ouvinte.
+  const recontar = () => {
+    const cs = caixas(alvo);
+    const n = cs.filter((c) => c.checked).length;
+    const total = cs.length;
+    // O bail-out: devolver `p` quando nada mudou é o que impede o laço do
+    // `useEffect` sem dependências logo abaixo.
+    setEstado((p) => (p.n === n && p.total === total ? p : { n, total }));
+  };
   useEffect(() => {
     const form = document.getElementById(alvo);
     if (!form) return;
-    const recontar = () => {
-      const cs = caixas(alvo);
-      setEstado({ n: cs.filter((c) => c.checked).length, total: cs.length });
-    };
     recontar();
     // `change` BORBULHA de `<input>` até o `<form>`, então um ouvinte no
     // formulário cobre as 25 caixas sem pendurar 25 ouvintes.
     form.addEventListener("change", recontar);
     return () => form.removeEventListener("change", recontar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alvo]);
+  // A cada render o DOM é a verdade, e o estado tem de obedecer: depois do
+  // redirect da ação (e de "Ver mais", e de trocar filtro) as linhas voltam do
+  // servidor DESMARCADAS, mas este componente é o mesmo fiber — sem isto o
+  // cabeçalho fica marcado sobre linhas vazias e o primeiro clique DESMARCA.
+  // O bail-out (devolver `p` quando nada mudou) é o que impede o laço.
+  useEffect(() => { recontar(); });
   return estado;
 }
 
@@ -65,7 +80,7 @@ export function MarcarTodas({ alvo }: { alvo: string }) {
         // ele vive de eventos. Um evento à mão no formulário acorda os dois.
         e.target.form?.dispatchEvent(new Event("change", { bubbles: true }));
       }}
-      className="h-4 w-4 cursor-pointer rounded-lg border-traco dark:border-traco-escuro"
+      className="h-4 w-4 cursor-pointer"
     />
   );
 }

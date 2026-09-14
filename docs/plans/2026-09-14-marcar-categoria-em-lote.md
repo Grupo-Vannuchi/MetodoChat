@@ -853,6 +853,12 @@ function Tabela({
           O seletor diz `input[name=ig_id]` e não `input` porque a caixa de
           "selecionar todas" (Tarefa 5) também vive dentro deste `group` — e
           marcá-la sozinha, sem linha nenhuma, não é seleção. */}
+      {/* NOTA POSTERIOR: este seletor NÃO COMPILA. O Tailwind troca `_` por
+          espaço dentro de valor arbitrário, então `input[name=ig_id]` virava
+          `input[name=ig id]` — seletor inválido, que o compilador engolia
+          calado como `:is()` vazio em vez de acusar erro. A versão que foi
+          implementada usa `data-contato` em vez de `name=ig_id`; ver
+          app/contatos/page.tsx. */}
       <div className="hidden flex-wrap items-center gap-2 border-t border-traco px-4 py-2.5 group-has-[input[name=ig_id]:checked]:flex dark:border-traco-escuro">
         <span className={`text-xs ${muted}`}>Marcar como</span>
         {CATEGORIAS_SUGERIDAS.map((cat) => (
@@ -979,6 +985,8 @@ varios blocos.
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 MSG
 ```
+
+**NOTA POSTERIOR sobre a mensagem de commit acima**: `group-has-[input[name=ig_id]:checked]` NÃO COMPILA — é o mesmo defeito da nota no Passo 1. O commit de verdade usa `data-contato`, não `name=ig_id`.
 
 ---
 

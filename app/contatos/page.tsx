@@ -149,6 +149,12 @@ function Tabela({
       <input type="hidden" name="filtro" value={campoFiltro} />
       {q && <input type="hidden" name="q" value={q} />}
       <input type="hidden" name="linhas" value={String(linhas)} />
+      {/* SUMIDOURO DA SUBMISSÃO IMPLÍCITA: Enter numa caixa clica o PRIMEIRO
+          botão de submit do formulário, MESMO escondido — e o primeiro era
+          `clientes`. Sem `name`, este não manda `categoria`, e a ação cai na
+          recusa que já existe e já tem caso de integração. `disabled` não serve:
+          o navegador pula para o próximo botão. */}
+      <button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />
       <div className={tableWrap}>
       <table className="w-full text-left text-sm">
         <thead className={thead}>
@@ -181,14 +187,16 @@ function Tabela({
                     testes, no `tsc` ou no `next build` percebia. Com o nome
                     do campo servindo só o servidor e o atributo servindo só o
                     CSS, essa colisão deixa de poder acontecer. */}
-                <input
-                  type="checkbox"
-                  name="ig_id"
-                  data-contato=""
-                  value={c.ig_id}
-                  aria-label={`Selecionar @${c.username ?? c.ig_id}`}
-                  className="h-4 w-4 cursor-pointer rounded-lg border-traco dark:border-traco-escuro"
-                />
+                <label className="-m-2 flex cursor-pointer items-center p-2">
+                  <input
+                    type="checkbox"
+                    name="ig_id"
+                    data-contato=""
+                    value={c.ig_id}
+                    aria-label={`Selecionar ${c.username ? `@${c.username}` : c.name ?? `id ${c.ig_id}`}`}
+                    className="h-4 w-4 cursor-pointer"
+                  />
+                </label>
               </td>
               <td className="px-4 py-2.5">
                 <Pessoa c={c} />
@@ -256,8 +264,17 @@ function Tabela({
           compilava, só nunca casava com nada, e a barra nunca aparecia — sem
           acusar em `tsc`, na suíte ou no `next build`. Separar o nome do
           campo do gancho do CSS tira do Tailwind qualquer chance de quebrar a
-          tela por causa de como o servidor nomeia o campo. */}
-      <div className="hidden flex-wrap items-center gap-2 border-t border-traco px-4 py-2.5 group-has-[input[data-contato]:checked]:flex dark:border-traco-escuro">
+          tela por causa de como o servidor nomeia o campo.
+
+          `sticky bottom-0`: a barra é o último filho do `<form>`, e com 25
+          linhas a tabela passa de 1500px — sem `sticky` a barra acendia
+          ~700px abaixo da dobra, fora da vista de quem acabou de marcar a
+          primeira linha. E ela mora DENTRO do cartão (`rounded-b-2xl` +
+          `border`, fundo `bg-white`/`dark:bg-zinc-900`) e não mais fora de
+          `tableWrap`: por fora, o `border-t` dela encostava no `border`
+          inferior do cartão — linha dupla, cantos quadrados contra o
+          `rounded-2xl` do cartão, e fundo transparente por trás. */}
+      <div className="sticky bottom-0 z-10 hidden flex-wrap items-center gap-2 rounded-b-2xl border border-traco bg-white px-4 py-2.5 group-has-[input[data-contato]:checked]:flex dark:border-traco-escuro dark:bg-zinc-900">
         <ContadorDaSelecao alvo={idDoForm} />
         <span className={`text-xs ${muted}`}>marcar como</span>
         {CATEGORIAS_SUGERIDAS.map((cat) => (
