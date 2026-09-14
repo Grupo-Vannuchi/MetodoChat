@@ -60,12 +60,25 @@ async function categoriaDe(contaId: string, igId: string): Promise<string | null
   return r[0]?.categoria ?? null;
 }
 
-/** O formulário que a barra de lote manda — os mesmos nomes que a ação lê. */
-function formularioDeLote(campos: { categoria: string; ids: string[] }): FormData {
+/**
+ * O formulário que a barra de lote manda — os mesmos nomes que a ação lê.
+ *
+ * `q` e `linhas` são OPCIONAIS: a maioria dos casos não mede o lugar, só a
+ * marcação — e um formulário que sempre mandasse os dois escondia, por
+ * omissão, que a ação lê `formData.get("linhas")` como string OU AUSENTE.
+ */
+function formularioDeLote(campos: {
+  categoria: string;
+  ids: string[];
+  q?: string;
+  linhas?: string;
+}): FormData {
   const form = new FormData();
   form.set("filtro", "tudo");
   form.set("categoria", campos.categoria);
   for (const id of campos.ids) form.append("ig_id", id);
+  if (campos.q !== undefined) form.set("q", campos.q);
+  if (campos.linhas !== undefined) form.set("linhas", campos.linhas);
   return form;
 }
 
@@ -103,6 +116,18 @@ function avisoDaUrlDeVolta(url: string | null): { texto: string | null; tom: str
   if (url === null) return { texto: null, tom: null };
   const sp = new URL(url, "http://127.0.0.1").searchParams;
   return { texto: sp.get("aviso"), tom: sp.get("tom") };
+}
+
+/**
+ * O LUGAR que viajou na URL de volta — busca e contagem de linhas, já
+ * decodificados pelo `URL`. É a razão de `urlDoAvisoNaTabela` (lib/avisos.ts)
+ * existir por cima de `urlDoAviso`: sem isto, nenhum caso deste arquivo
+ * distingue a função que preserva `q`/`linhas` de uma que os descarta.
+ */
+function lugarDaUrlDeVolta(url: string | null): { q: string | null; linhas: string | null } {
+  if (url === null) return { q: null, linhas: null };
+  const sp = new URL(url, "http://127.0.0.1").searchParams;
+  return { q: sp.get("q"), linhas: sp.get("linhas") };
 }
 
 beforeAll(async () => {
@@ -192,5 +217,62 @@ describe("marcar categoria em lote", () => {
     expect(aviso.texto).toBe(
       "Nenhum contato foi marcado — os selecionados não pertencem a esta conta."
     );
+  });
+
+  test("nenhum id marcado no formulário recusa antes de tocar o banco", async () => {
+    await semearContato(CONTA, "9401", null);
+
+    // `formularioDeLote` sem `ids` — nenhum campo `ig_id` no POST.
+    const d = await marcar(formularioDeLote({ categoria: "amigos", ids: [] }));
+
+    const aviso = avisoDaUrlDeVolta(d.url);
+    expect(aviso.tom).toBe("erro");
+    expect(aviso.texto).toBe("Nenhum contato selecionado.");
+    expect(await categoriaDe(CONTA, "9401")).toBeNull();
+  });
+
+  // ACHADO 1 (auditoria de 14/09): a restrição mais citada da spec — "um
+  // `value` forjado no POST não pode inventar categoria nova em 25 contatos
+  // de uma vez" — não tinha caso nenhum. Trocar o `||` da ação por `&&`, ou
+  // apagar a checagem contra `CATEGORIAS_SUGERIDAS`, passava pela suíte
+  // inteira sem acusar nada.
+  test("categoria fora da lista recusa, e o contato semeado não é tocado", async () => {
+    await semearContato(CONTA, "9501", null);
+
+    // "interessado" não é uma das quatro (`clientes`, `equipe`, `amigos`,
+    // `alunos`) — é o `value` forjado que a checagem tem de barrar.
+    const d = await marcar(formularioDeLote({ categoria: "interessado", ids: ["9501"] }));
+
+    const aviso = avisoDaUrlDeVolta(d.url);
+    expect(aviso.tom).toBe("erro");
+    expect(aviso.texto).toBe("Categoria desconhecida.");
+
+    // A METADE QUE PROVA A ORDEM: a recusa aconteceu ANTES da escrita, e não
+    // depois. Sem esta linha o caso mede só a frase — um `redirect` colocado
+    // DEPOIS do `UPDATE` teria passado por ele do mesmo jeito.
+    expect(await categoriaDe(CONTA, "9501")).toBeNull();
+  });
+
+  // ACHADO 2 (auditoria de 14/09): `volta()` existe para preservar o filtro,
+  // a busca (`q`) e `linhas` no redirect — e nenhum caso tocava `q`/`linhas`.
+  // Esquecer `formData.get("linhas")` na ação não derrubava nada.
+  test("q e linhas voltam na URL de sucesso, decodificados", async () => {
+    await semearContato(CONTA, "9601", null);
+
+    // "maria & joão" carrega um `&` de propósito: se `urlDoAvisoNaTabela`
+    // colasse `q` cru na query, o `&` quebraria o parâmetro ao meio, e
+    // `URLSearchParams` devolveria só "maria ". Provado num caminho de
+    // SUCESSO — não numa recusa — para garantir que o lugar sobrevive à
+    // operação que interessa, e não só ao atalho de sair cedo.
+    const d = await marcar(
+      formularioDeLote({ categoria: "amigos", ids: ["9601"], q: "maria & joão", linhas: "75" })
+    );
+
+    const aviso = avisoDaUrlDeVolta(d.url);
+    expect(aviso.tom).toBe("ok");
+
+    const lugar = lugarDaUrlDeVolta(d.url);
+    expect(lugar.q).toBe("maria & joão");
+    expect(lugar.linhas).toBe("75");
   });
 });
