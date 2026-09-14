@@ -11,6 +11,7 @@ import {
   campoUrlDoFiltro,
   resumoDasCategorias,
   casoDaListaDeEmail,
+  CATEGORIAS_SUGERIDAS,
 } from "@/lib/categorias";
 import {
   campoDoFiltro,
@@ -27,7 +28,7 @@ import {
   BUSCA_MAX,
 } from "@/lib/busca-de-contatos";
 import { avisoDaUrl } from "@/lib/avisos";
-import { atualizarPerfis, enviarLote } from "./actions";
+import { atualizarPerfis, enviarLote, marcarCategoriaEmLote } from "./actions";
 import {
   card,
   btnGhost,
@@ -120,18 +121,40 @@ function Tabela({
   comEmail,
   limite,
   maisHref,
+  idDoForm,
+  campoFiltro,
+  q,
+  linhas,
 }: {
   rows: Row[];
   comEmail: boolean;
   limite: number;
   maisHref: string;
+  /** Identidade do formulário: a Tarefa 5 alcança as caixas por ele. */
+  idDoForm: string;
+  campoFiltro: string;
+  q: string | null;
+  linhas: number;
 }) {
   const { mostradas, escondidas } = recorteDaTabela(rows, limite);
   return (
-    <div className={tableWrap}>
+    /* A TABELA INTEIRA É UM FORMULÁRIO, e o `group` é o que deixa a barra
+       aparecer por CSS (veja o rodapé). `action` é Server Action: a página
+       continua sem uma linha de cliente por causa disto. */
+    <form action={marcarCategoriaEmLote} id={idDoForm} className="group">
+      {/* O LUGAR DE ONDE A PESSOA VEIO, para o redirect devolvê-la aqui.
+          Sem estes três, limpar 143 contatos em blocos perderia o filtro, a
+          busca e o `Ver mais` a cada clique. */}
+      <input type="hidden" name="filtro" value={campoFiltro} />
+      {q && <input type="hidden" name="q" value={q} />}
+      <input type="hidden" name="linhas" value={String(linhas)} />
+      <div className={tableWrap}>
       <table className="w-full text-left text-sm">
         <thead className={thead}>
           <tr>
+            <th className="w-10 px-4 py-3">
+              <span className="sr-only">Selecionar</span>
+            </th>
             <th className="px-4 py-3">Pessoa</th>
             <th className="px-4 py-3">Categoria</th>
             {comEmail && <th className="px-4 py-3">E-mail</th>}
@@ -144,6 +167,18 @@ function Tabela({
         <tbody className={rowDivide}>
           {mostradas.map((c) => (
             <tr key={c.ig_id}>
+              <td className="px-4 py-2.5">
+                {/* `name="ig_id"` É O CONTRATO com `idsSelecionados` e com o
+                    CSS da barra. Trocar este nome quebra os dois, e só um
+                    deles acusa. */}
+                <input
+                  type="checkbox"
+                  name="ig_id"
+                  value={c.ig_id}
+                  aria-label={`Selecionar @${c.username ?? c.ig_id}`}
+                  className="h-4 w-4 cursor-pointer rounded-lg border-traco dark:border-traco-escuro"
+                />
+              </td>
               <td className="px-4 py-2.5">
                 <Pessoa c={c} />
               </td>
@@ -161,6 +196,7 @@ function Tabela({
           ))}
         </tbody>
       </table>
+
       {escondidas > 0 && (
         <div
           className={`flex flex-wrap items-center justify-between gap-2 border-t border-traco px-4 py-2.5 text-xs dark:border-traco-escuro ${muted}`}
@@ -184,7 +220,29 @@ function Tabela({
           </Link>
         </div>
       )}
-    </div>
+      </div>
+
+      {/* A BARRA SÓ APARECE COM ALGUÉM MARCADO.
+
+          O SENTIDO DA REGRA É DELIBERADO, e é o mesmo do campo de data em
+          `/publicar/novo`: o padrão é ESCONDIDO e a variante MOSTRA. Se
+          `group-has-[...]` não compilar num navegador antigo, a barra fica
+          invisível e ninguém marca nada — falha para o lado seguro. Escrita ao
+          contrário, uma falha de CSS deixaria quatro botões de ESCRITA sempre
+          visíveis numa tela de leitura, que é o achado D4 por outra porta.
+
+          O seletor diz `input[name=ig_id]` e não `input` porque a caixa de
+          "selecionar todas" (Tarefa 5) também vive dentro deste `group` — e
+          marcá-la sozinha, sem linha nenhuma, não é seleção. */}
+      <div className="hidden flex-wrap items-center gap-2 border-t border-traco px-4 py-2.5 group-has-[input[name=ig_id]:checked]:flex dark:border-traco-escuro">
+        <span className={`text-xs ${muted}`}>Marcar como</span>
+        {CATEGORIAS_SUGERIDAS.map((cat) => (
+          <button key={cat} type="submit" name="categoria" value={cat} className={btnGhost}>
+            {cat}
+          </button>
+        ))}
+      </div>
+    </form>
   );
 }
 
@@ -604,6 +662,10 @@ export default async function ContatosPage({
                     comEmail
                     limite={linhas}
                     maisHref={maisLinhas}
+                    idDoForm="lote-com-email"
+                    campoFiltro={campoDoFiltro(filtro)}
+                    q={busca}
+                    linhas={linhas}
                   />
                 )}
               </section>
@@ -625,6 +687,10 @@ export default async function ContatosPage({
                     comEmail={false}
                     limite={linhas}
                     maisHref={maisLinhas}
+                    idDoForm="lote-sem-email"
+                    campoFiltro={campoDoFiltro(filtro)}
+                    q={busca}
+                    linhas={linhas}
                   />
                 </section>
               )}
