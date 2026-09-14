@@ -13,8 +13,16 @@ import {
   avisoDoLoteEnviado,
   urlDoAviso,
   avisoDosPerfis,
+  avisoDaMarcacaoEmLote,
+  urlDoAvisoNaTabela,
   type ContagemDoLote,
+  type Aviso,
 } from "@/lib/avisos";
+import {
+  CATEGORIAS_SUGERIDAS,
+  idsSelecionados,
+  normalizarCategoria,
+} from "@/lib/categorias";
 
 /**
  * Preenche nome/@ dos contatos que ficaram salvos só com o número (IGSID),
@@ -285,4 +293,77 @@ export async function enviarLote(formData: FormData): Promise<void> {
   };
 
   redirect(urlDoAviso("/contatos", filtro ?? { tipo: "tudo" }, avisoDoLoteEnviado(contado)));
+}
+
+/**
+ * MARCA A CATEGORIA DE VÁRIOS CONTATOS DE UMA VEZ.
+ *
+ * Nasceu em 14/09/2026 de uma medição que derrubou uma decisão: o sinal de "sem
+ * categoria" (02/09) foi para produção e produziu ZERO marcações em doze dias,
+ * enquanto o acúmulo subia de 120 para 143.
+ *
+ * TUDO QUE SAI DAQUI VOLTA PELA MESMA PORTA (`volta`), e isso não é estilo: são
+ * quatro recusas e um sucesso, e cada `redirect` montado à mão seria uma chance
+ * a mais de perder o filtro, a busca ou o `linhas` no caminho. Uma função, cinco
+ * usos.
+ */
+export async function marcarCategoriaEmLote(formData: FormData): Promise<void> {
+  const filtro = filtroDoCampo(formData.get("filtro"));
+  // Cru de propósito: `urlDoAvisoNaTabela` só repassa, e `normalizarBusca` é da
+  // LEITURA da página. Normalizar aqui faria a URL de volta discordar da que a
+  // pessoa estava vendo.
+  const q = typeof formData.get("q") === "string" ? (formData.get("q") as string) : null;
+  const linhas =
+    typeof formData.get("linhas") === "string" ? (formData.get("linhas") as string) : null;
+
+  const volta = (aviso: Aviso) =>
+    urlDoAvisoNaTabela("/contatos", filtro ?? { tipo: "tudo" }, aviso, { q, linhas });
+
+  const account = await getSelectedAccount();
+  if (!account) {
+    redirect(volta({ tom: "erro", texto: "Nenhuma conta conectada." }));
+  }
+
+  // A CATEGORIA TEM DE SER UMA DAS NOSSAS. `normalizarCategoria` primeiro (a
+  // mesma regra da gravação individual), e a lista depois: um `value` forjado
+  // no POST não pode inventar categoria nova em 25 contatos de uma vez. Marcar
+  // com nome fora da lista continua existindo — dentro da conversa, uma a uma.
+  const categoria = normalizarCategoria(formData.get("categoria"));
+  if (!categoria || !(CATEGORIAS_SUGERIDAS as readonly string[]).includes(categoria)) {
+    redirect(volta({ tom: "erro", texto: "Categoria desconhecida." }));
+  }
+
+  const ids = idsSelecionados(formData);
+  if (ids.length === 0) {
+    redirect(volta({ tom: "erro", texto: "Nenhum contato selecionado." }));
+  }
+
+  // UMA CONSULTA SÓ, E POR QUÊ: contar antes e escrever depois, em dois
+  // comandos, deixa uma fresta em que alguém marca pela conversa entre os dois
+  // — e a frase passa a contar um estado que já não existe. As duas CTEs
+  // enxergam o MESMO retrato, então "quantos trocaram" é sobre exatamente as
+  // linhas que a escrita mexeu. Não é otimização: é a contagem não poder
+  // divergir da escrita.
+  //
+  // `account_id` no `where` das DUAS: os ids vêm do formulário.
+  const r = (await sql().query(
+    `with antes as (
+       select ig_id, categoria from contacts
+        where account_id = $1 and ig_id = any($2)
+     ), escrita as (
+       update contacts set categoria = $3
+        where account_id = $1 and ig_id = any($2)
+       returning ig_id
+     )
+     select (select count(*)::int from escrita) as marcados,
+            (select count(*)::int from antes
+              where categoria is not null and categoria <> $3) as trocaram`,
+    [account.ig_user_id, ids, categoria]
+  )) as { marcados: number; trocaram: number }[];
+  const { marcados, trocaram } = r[0];
+
+  revalidatePath("/contatos");
+  revalidatePath("/conversas");
+
+  redirect(volta(avisoDaMarcacaoEmLote({ marcados, trocaram, categoria })));
 }
