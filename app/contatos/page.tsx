@@ -169,12 +169,22 @@ function Tabela({
           {mostradas.map((c) => (
             <tr key={c.ig_id}>
               <td className="px-4 py-2.5">
-                {/* `name="ig_id"` É O CONTRATO com `idsSelecionados` e com o
-                    CSS da barra. Trocar este nome quebra os dois, e só um
-                    deles acusa. */}
+                {/* `name="ig_id"` É O CONTRATO com o SERVIDOR
+                    (`formData.getAll("ig_id")` em `marcarCategoriaEmLote`) e
+                    não pode mudar. `data-contato` é o gancho do CSS da barra,
+                    separado de propósito: enquanto os dois eram a mesma
+                    string, a regra do Tailwind que troca `_` por espaço
+                    dentro de valor arbitrário transformava
+                    `input[name=ig_id]` em `input[name=ig id]` — seletor
+                    inválido, que o compilador engolia como `:is()` vazio em
+                    vez de acusar erro. A barra nunca aparecia, e nada nos
+                    testes, no `tsc` ou no `next build` percebia. Com o nome
+                    do campo servindo só o servidor e o atributo servindo só o
+                    CSS, essa colisão deixa de poder acontecer. */}
                 <input
                   type="checkbox"
                   name="ig_id"
+                  data-contato=""
                   value={c.ig_id}
                   aria-label={`Selecionar @${c.username ?? c.ig_id}`}
                   className="h-4 w-4 cursor-pointer rounded-lg border-traco dark:border-traco-escuro"
@@ -232,10 +242,22 @@ function Tabela({
           contrário, uma falha de CSS deixaria quatro botões de ESCRITA sempre
           visíveis numa tela de leitura, que é o achado D4 por outra porta.
 
-          O seletor diz `input[name=ig_id]` e não `input` porque a caixa de
-          "selecionar todas" (Tarefa 5) também vive dentro deste `group` — e
-          marcá-la sozinha, sem linha nenhuma, não é seleção. */}
-      <div className="hidden flex-wrap items-center gap-2 border-t border-traco px-4 py-2.5 group-has-[input[name=ig_id]:checked]:flex dark:border-traco-escuro">
+          O seletor diz `input[data-contato]` e não `input` porque a caixa de
+          "selecionar todas" (Tarefa 5) também vive dentro deste `group` — ela
+          não tem `data-contato` nem `name`, então marcá-la sozinha, sem linha
+          nenhuma, não é seleção.
+
+          O seletor NÃO usa `input[name=ig_id]`. `name="ig_id"` é o contrato
+          com o servidor; `data-contato` é o gancho do CSS — propositalmente
+          duas strings diferentes. Quando eram a mesma, a regra do Tailwind
+          que troca `_` por espaço dentro de valor arbitrário convertia
+          `input[name=ig_id]` em `input[name=ig id]`, um seletor inválido que
+          o compilador aceitava calado como `:has(:is())` vazio: o CSS
+          compilava, só nunca casava com nada, e a barra nunca aparecia — sem
+          acusar em `tsc`, na suíte ou no `next build`. Separar o nome do
+          campo do gancho do CSS tira do Tailwind qualquer chance de quebrar a
+          tela por causa de como o servidor nomeia o campo. */}
+      <div className="hidden flex-wrap items-center gap-2 border-t border-traco px-4 py-2.5 group-has-[input[data-contato]:checked]:flex dark:border-traco-escuro">
         <ContadorDaSelecao alvo={idDoForm} />
         <span className={`text-xs ${muted}`}>marcar como</span>
         {CATEGORIAS_SUGERIDAS.map((cat) => (
