@@ -5,7 +5,8 @@ import {
   urlDaConversaComAviso, avisoDaCategoriaSalva,
   urlDePublicarComAviso, avisoDaPublicacaoEnfileirada,
   urlDeAgendadosComAviso, avisoDoDesfecho,
-  type ContagemDoLote,
+  avisoDaMarcacaoEmLote, urlDoAvisoNaTabela,
+  type ContagemDoLote, type Aviso,
 } from "../lib/avisos";
 import { textoDoDesfecho } from "../lib/publicacao";
 
@@ -450,5 +451,85 @@ describe("avisoDoDesfecho", () => {
     const a = avisoDoDesfecho("tarde_demais", "cancelar");
     expect(a.tom).toBe("erro");
     expect(a.texto.toLowerCase()).toMatch(/saiu|saindo|publicad/);
+  });
+});
+
+describe("avisoDaMarcacaoEmLote", () => {
+  it("conta no plural", () => {
+    expect(avisoDaMarcacaoEmLote({ marcados: 25, trocaram: 0, categoria: "alunos" })).toEqual({
+      tom: "ok",
+      texto: "25 contatos marcados como alunos.",
+    });
+  });
+
+  it("conta no singular", () => {
+    expect(avisoDaMarcacaoEmLote({ marcados: 1, trocaram: 0, categoria: "clientes" })).toEqual({
+      tom: "ok",
+      texto: "1 contato marcado como clientes.",
+    });
+  });
+
+  it("diz quantos TROCARAM, porque sobrescrever calado nao e correcao", () => {
+    expect(avisoDaMarcacaoEmLote({ marcados: 25, trocaram: 3, categoria: "alunos" })).toEqual({
+      tom: "ok",
+      texto: "25 contatos marcados como alunos · 3 trocaram de categoria.",
+    });
+  });
+
+  it("a troca tambem tem singular", () => {
+    expect(
+      avisoDaMarcacaoEmLote({ marcados: 4, trocaram: 1, categoria: "amigos" }).texto
+    ).toBe("4 contatos marcados como amigos · 1 trocou de categoria.");
+  });
+
+  it("ZERO MARCADOS e ERRO, e nao um sucesso de zero", () => {
+    // Acontece quando todo id mandado pertence a OUTRA conta: o `where` recusa
+    // e o `update` mexe em nada. Dizer "0 contatos marcados" com tom de sucesso
+    // esconderia a unica pista de que alguem mandou id que nao era seu.
+    expect(avisoDaMarcacaoEmLote({ marcados: 0, trocaram: 0, categoria: "alunos" })).toEqual({
+      tom: "erro",
+      texto: "Nenhum contato foi marcado — os selecionados não pertencem a esta conta.",
+    });
+  });
+});
+
+describe("urlDoAvisoNaTabela", () => {
+  const ok: Aviso = { tom: "ok", texto: "2 contatos marcados como alunos." };
+
+  it("sem busca e sem linhas, e a URL de sempre", () => {
+    expect(urlDoAvisoNaTabela("/contatos", { tipo: "tudo" }, ok, { q: null, linhas: null })).toBe(
+      urlDoAviso("/contatos", { tipo: "tudo" }, ok)
+    );
+  });
+
+  it("guarda a busca, e ela vai codificada", () => {
+    const u = urlDoAvisoNaTabela("/contatos", { tipo: "tudo" }, ok, {
+      q: "maria & joão",
+      linhas: null,
+    });
+    expect(u).toContain("&q=maria%20%26%20jo%C3%A3o");
+  });
+
+  it("guarda o `linhas`, senao quem clicou `Ver mais` perde o lugar", () => {
+    const u = urlDoAvisoNaTabela("/contatos", { tipo: "tudo" }, ok, { q: null, linhas: "75" });
+    expect(u).toContain("&linhas=75");
+  });
+
+  it("guarda o filtro de categoria junto com os dois", () => {
+    const u = urlDoAvisoNaTabela("/contatos", { tipo: "uma", nome: null }, ok, {
+      q: "ana",
+      linhas: "50",
+    });
+    // `?categoria=` presente e VAZIO e "sem categoria" — o Critico de 01/09.
+    expect(u).toContain("?categoria=&");
+    expect(u).toContain("&q=ana");
+    expect(u).toContain("&linhas=50");
+  });
+
+  it("busca vazia nao vira `&q=`", () => {
+    // `?q=` vazio e um pedido de busca por nada, e nao a ausencia de busca.
+    const u = urlDoAvisoNaTabela("/contatos", { tipo: "tudo" }, ok, { q: "", linhas: "" });
+    expect(u).not.toContain("q=");
+    expect(u).not.toContain("linhas=");
   });
 });

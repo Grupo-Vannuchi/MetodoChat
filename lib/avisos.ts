@@ -466,3 +466,70 @@ export function avisoDoDesfecho(
 ): Aviso {
   return { tom: d === "feito" ? "ok" : "erro", texto: textoDoDesfecho(d, acao) };
 }
+
+/**
+ * A FRASE DO DESFECHO DA MARCAÇÃO EM LOTE.
+ *
+ * `marcados` É QUANTAS LINHAS O `update` MEXEU, e nunca quantos ids o
+ * formulário mandou. Os dois divergem quando um id não pertence à conta — e é
+ * exatamente aí que a frase não pode mentir: "25 marcados" com 24 mudados
+ * esconderia a única pista de que veio id de fora.
+ *
+ * `trocaram` SAI NA FRASE porque sobrescrever categoria é legítimo (é correção)
+ * e fazer isso CALADO não é. Quem seleciona 25 linhas sem reparar que 3 já eram
+ * `clientes` tem de sair da ação sabendo. O lugar de contar é aqui, depois, e
+ * não num aviso prévio que treinaria todo mundo a clicar "ok".
+ *
+ * O SINGULAR E O PLURAL VÊM JUNTO, na mesma função, pela razão de sempre nesta
+ * casa: são a mesma decisão, e separá-los deixaria metade da frase sem rede.
+ */
+export function avisoDaMarcacaoEmLote(c: {
+  marcados: number;
+  trocaram: number;
+  categoria: string;
+}): Aviso {
+  if (c.marcados <= 0) {
+    return {
+      tom: "erro",
+      texto: "Nenhum contato foi marcado — os selecionados não pertencem a esta conta.",
+    };
+  }
+  const quantos = `${c.marcados} ${c.marcados === 1 ? "contato marcado" : "contatos marcados"}`;
+  const base = `${quantos} como ${c.categoria}`;
+  if (c.trocaram <= 0) return { tom: "ok", texto: `${base}.` };
+  const trocas = `${c.trocaram} ${c.trocaram === 1 ? "trocou" : "trocaram"} de categoria`;
+  return { tom: "ok", texto: `${base} · ${trocas}.` };
+}
+
+/**
+ * A URL DE VOLTA DA TABELA DE CONTATOS — filtro, aviso, E O LUGAR.
+ *
+ * `urlDoAviso` guarda o filtro de categoria e mais nada. Serve às duas ações
+ * antigas (`atualizarPerfis`, `enviarLote`), que acontecem uma vez e devolvem a
+ * pessoa ao topo. **Marcar em lote é diferente: é repetitivo por desenho.**
+ * Limpar 143 contatos são vários blocos, e voltar para `/contatos` puro a cada
+ * bloco jogaria fora a busca e o `Ver mais` — obrigando a refazer o caminho
+ * todas as vezes, que é como uma ferramenta de limpeza deixa de ser usada.
+ *
+ * CONSTRUÍDA SOBRE `urlDoAviso`, e não ao lado: a distinção entre `?categoria=`
+ * AUSENTE ("tudo") e PRESENTE-E-VAZIO ("sem categoria") foi o Crítico de 01/09,
+ * e remontar a query aqui seria recair nele por uma porta nova.
+ *
+ * O SEPARADOR É SEMPRE `&`, sem ramo a escolher: `urlDoAviso` sempre escreve
+ * `aviso=` e `tom=`, então a interrogação já existe quando chegamos aqui.
+ *
+ * VAZIO NÃO VIRA PARÂMETRO. `?q=` vazio é um pedido de busca por nada, e não a
+ * ausência de busca — são coisas diferentes para `normalizarBusca`, e a de
+ * volta tem de ser a ausência.
+ */
+export function urlDoAvisoNaTabela(
+  base: string,
+  filtro: FiltroDeCategoria,
+  aviso: Aviso,
+  lugar: { q: string | null; linhas: string | null }
+): string {
+  let url = urlDoAviso(base, filtro, aviso);
+  if (lugar.q) url += `&q=${encodeURIComponent(lugar.q)}`;
+  if (lugar.linhas) url += `&linhas=${encodeURIComponent(lugar.linhas)}`;
+  return url;
+}
