@@ -137,15 +137,38 @@ comentários nos últimos **7 dias**. Sem piso, um comentário perdido num post
 antigo vira linha e a tela de chamados vira ruído — medido: com piso 1 seriam 12
 linhas; com piso 5, três.
 
-**COMO A LINHA NOMEIA O POST, e por que não pelo nome:** o payload do webhook traz
-só `media.id`; legenda e miniatura exigiriam chamar a API do Instagram durante o
-render. **Isso está recusado**: é a tela de maior frequência do painel, e uma
-chamada externa no caminho dela é a doença de 09/09 por outra porta — API lenta ou
-fora do ar derruba o Início inteiro. A linha diz o que sabe sem sair de casa:
+**COMO A LINHA NOMEIA O POST — e esta seção foi REESCRITA, porque a primeira
+versão recusava por um motivo que o código desmente.**
 
-> **100 comentários sem automação** · último há 2h
+O payload do webhook traz só `media.id`. Eu havia escrito que legenda e miniatura
+"exigiriam chamar a API do Instagram durante o render" e recusado por isso. Ao
+abrir o repositório para o plano, achei **`lib/media-lookup.ts`**, que já faz
+exatamente isso, já está em produção em `/eventos`, e foi desenhado para esta
+preocupação:
 
-Qual post é, quem vai ver é a tela seguinte.
+- `resolvePosts(igUserId, token, mediaIds)` devolve `Map<id, PostRef>` com
+  permalink, miniatura e legenda
+- **teto declarado**: uma listagem dos 40 recentes mais no máximo 8 buscas
+  avulsas — e as no máximo 3 oportunidades da tela cabem na listagem, que é UMA
+  chamada
+- **degrada sozinho**: `try/catch` interno, devolve mapa parcial ou vazio, e
+  `/eventos` já renderiza sem miniatura quando ele volta vazio
+
+Então a decisão correta não é "não dá", é **"dá, e o custo é latência numa tela
+de alta frequência"** — pago porque nomear o post é o que transforma a linha de
+aviso em ação. Quem lê *"100 comentários em 'Carrossel ChatGPT'"* sabe o que vai
+fazer; quem lê um número sozinho, não.
+
+A chamada entra no mesmo `Promise.all` das consultas e **nunca no caminho
+crítico**: se ela falhar ou demorar, a linha renderiza com o que sabe sem sair de
+casa. Os dois desfechos:
+
+> **100 comentários sem automação** · Carrossel ChatGPT · último há 2h
+> **100 comentários sem automação** · último há 2h   ← quando o nome não veio
+
+**A CAMADA PURA NÃO APRENDE SOBRE A META:** `Oportunidade` ganha um
+`nome: string | null` e mais nada. Quem preenche é a página;
+`lib/precisa-de-voce.ts` continua sem saber que existe uma API do outro lado.
 
 ### 3 · O post atravessa para a automação nova
 
@@ -223,7 +246,10 @@ até 10/11/2026").
   para a conversa. Caixa de entrada é outra tela e outro desenho.
 - **O gráfico de volta.** Ele respondeu "está funcionando?" e tem casa em
   `/desempenho`. O pulso responde "está rodando AGORA?", que é outra pergunta.
-- **Chamar a API do Instagram no render.** §2, com o motivo.
+- ~~Chamar a API do Instagram no render.~~ **Recusa REVOGADA** — ver §2: o
+  `lib/media-lookup.ts` já existe, já roda em `/eventos` e degrada sozinho. O que
+  fica recusado é pôr a chamada no caminho CRÍTICO: a linha tem de renderizar
+  inteira sem ela.
 - **Consertar as 21 automações presas a carrosséis mortos.** O painel passa a
   DIZER que os comentários estão caindo fora; o que fazer com isso é decisão do
   marketing, não do software.
@@ -259,8 +285,8 @@ quatro têm de matar um caso.
 
 ## Risco declarado
 
-Esta tela passa de 1 consulta a 4 (oportunidades, adiante, 24h, pulso), e é a de
-maior frequência do painel. **Nenhuma delas pode derrubar o resto**: cada bloco
+Esta tela passa de 1 consulta a 4 (oportunidades, adiante, 24h, pulso) mais UMA
+chamada à Meta (`resolvePosts`, §2), e é a de maior frequência do painel. **Nenhuma delas pode derrubar o resto**: cada bloco
 falha sozinho e some, como `urlPublicaSeDerParaMontar` já faz em
 `/publicar` — a tela que perde uma coluna continua servindo, a que devolve 500 com
 corpo vazio não.
