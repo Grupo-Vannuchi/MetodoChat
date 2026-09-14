@@ -29,6 +29,7 @@ import {
 } from "@/lib/busca-de-contatos";
 import { avisoDaUrl } from "@/lib/avisos";
 import { atualizarPerfis, enviarLote, marcarCategoriaEmLote } from "./actions";
+import { MarcarTodas, ContadorDaSelecao } from "./selecao-client";
 import {
   card,
   btnGhost,
@@ -153,7 +154,7 @@ function Tabela({
         <thead className={thead}>
           <tr>
             <th className="w-10 px-4 py-3">
-              <span className="sr-only">Selecionar</span>
+              <MarcarTodas alvo={idDoForm} />
             </th>
             <th className="px-4 py-3">Pessoa</th>
             <th className="px-4 py-3">Categoria</th>
@@ -235,7 +236,8 @@ function Tabela({
           "selecionar todas" (Tarefa 5) também vive dentro deste `group` — e
           marcá-la sozinha, sem linha nenhuma, não é seleção. */}
       <div className="hidden flex-wrap items-center gap-2 border-t border-traco px-4 py-2.5 group-has-[input[name=ig_id]:checked]:flex dark:border-traco-escuro">
-        <span className={`text-xs ${muted}`}>Marcar como</span>
+        <ContadorDaSelecao alvo={idDoForm} />
+        <span className={`text-xs ${muted}`}>marcar como</span>
         {CATEGORIAS_SUGERIDAS.map((cat) => (
           <button key={cat} type="submit" name="categoria" value={cat} className={btnGhost}>
             {cat}
