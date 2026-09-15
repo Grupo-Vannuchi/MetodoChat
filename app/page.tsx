@@ -6,14 +6,19 @@ import { windowState } from "@/lib/inbox-window";
 import {
   oQuePrecisaDeVoce,
   legendaDoPrazo,
+  recorteDasOportunidades,
   type FatosDoInicio,
+  type Oportunidade,
 } from "@/lib/precisa-de-voce";
 import {
   DIAS_DE_AVISO_DA_PUBLICACAO,
   HORAS_DE_AVISO_DA_MENSAGEM,
 } from "@/lib/publicacao";
+import { oportunidadesDaConta } from "@/lib/oportunidades";
+import { fraseDoPulso, fraseDas24h } from "@/lib/pulso";
+import { resolvePosts, type PostRef } from "@/lib/media-lookup";
 import { fmtRelative } from "@/lib/format";
-import { card, btnPrimary, btnGhost, muted, link, alertError, alertOk, rowDivide } from "./ui";
+import { card, btnPrimary, btnGhost, muted, link, alertError, alertOk, rowDivide, pageSubtitle } from "./ui";
 import { TracoDaJanela, PontoDaLinha } from "./traco-da-janela";
 import Avatar from "./avatar";
 
@@ -43,6 +48,12 @@ type Sinais = {
   falhas_publicacao: number;
   falhas_mensagem: number;
   last_event: Date | null;
+  entregues_hoje: number;
+  ultima_entrega: Date | null;
+  na_fila: number;
+  com24: number;
+  msg24: number;
+  env24: number;
 };
 
 const ZERO: Sinais = {
@@ -51,6 +62,12 @@ const ZERO: Sinais = {
   falhas_publicacao: 0,
   falhas_mensagem: 0,
   last_event: null,
+  entregues_hoje: 0,
+  ultima_entrega: null,
+  na_fila: 0,
+  com24: 0,
+  msg24: 0,
+  env24: 0,
 };
 
 export default async function Home({
@@ -61,7 +78,7 @@ export default async function Home({
   const sp = await searchParams; // Next 16: searchParams é assíncrono
   const [config, account] = await Promise.all([getConfig(), getSelectedAccount()]);
 
-  const [sinais, conversas] = await Promise.all([
+  const [sinais, conversas, oportunidadesCruas] = await Promise.all([
     (async () =>
       account
         ? ((
@@ -92,6 +109,34 @@ export default async function Home({
                     and kind <> 'publicacao'
                     and created_at > now() - make_interval(hours => $3::int))
                     as falhas_mensagem,
+                 -- O PULSO. "hoje" e o dia de SAO PAULO, e nao de UTC: o
+                 -- servidor roda em UTC, e as 21h de Brasilia ja sao o dia
+                 -- seguinte la. Sem o at time zone, toda entrega do fim da
+                 -- tarde apareceria como "de amanha" e o painel diria "nada
+                 -- entregue hoje" com tres envios no relogio do dono.
+                 -- (sem crases neste comentario, pelo mesmo motivo do de cima:
+                 --  o comentario mora dentro do template literal da consulta.)
+                 (select count(*)::int from queue
+                   where account_id = $1 and status = 'sent'
+                     and (sent_at at time zone 'America/Sao_Paulo')::date
+                         = (now() at time zone 'America/Sao_Paulo')::date) as entregues_hoje,
+                 (select max(sent_at) from queue
+                   where account_id = $1 and status = 'sent') as ultima_entrega,
+                 (select count(*)::int from queue
+                   where account_id = $1 and status = 'pending') as na_fila,
+                 -- AS 24H CONTAM EVENTOS, e o pulso conta a FILA. Ver o
+                 -- comentario de fraseDas24h (lib/pulso.ts): os dois numeros
+                 -- divergem de proposito, porque message_sent inclui a
+                 -- resposta que alguem digitou na tela de conversa.
+                 (select count(*)::int from events
+                   where account_id = $1 and type = 'comment'
+                     and created_at > now() - interval '24 hours') as com24,
+                 (select count(*)::int from events
+                   where account_id = $1 and type = 'message'
+                     and created_at > now() - interval '24 hours') as msg24,
+                 (select count(*)::int from events
+                   where account_id = $1 and type = 'message_sent'
+                     and created_at > now() - interval '24 hours') as env24,
                  (select max(created_at) from events where account_id = $1) as last_event`,
               [account.ig_user_id, DIAS_DE_AVISO_DA_PUBLICACAO, HORAS_DE_AVISO_DA_MENSAGEM]
             )) as Sinais[]
@@ -107,7 +152,54 @@ export default async function Home({
     // com janela aberta ficar de fora, seria preciso ter havido mais de 50
     // conversas distintas em 24 horas nesta conta.
     (async () => (account ? await listConversations(account.ig_user_id, 50) : []))(),
+
+    // CADA BLOCO FALHA SOZINHO. Uma consulta que estoura nao pode levar a tela
+    // junto: o Inicio e a pagina de maior frequencia do painel, e uma falha
+    // aqui e a doenca de 09/09 (500 com corpo vazio) por outra porta. Sem as
+    // oportunidades a tela serve; sem a tela, nada serve.
+    (async () => {
+      if (!account) return [] as Oportunidade[];
+      try {
+        return await oportunidadesDaConta(account.ig_user_id);
+      } catch (e) {
+        console.error("inicio: oportunidades falharam", e);
+        return [] as Oportunidade[];
+      }
+    })(),
   ]);
+
+  // O NOME DO POST, E ELE É OPCIONAL POR CONSTRUÇÃO.
+  //
+  // `resolvePosts` (lib/media-lookup.ts) fala com a Meta: uma listagem dos 40
+  // recentes mais até 8 buscas avulsas, com `try/catch` interno que devolve
+  // mapa parcial ou vazio. Já está em produção em `/eventos`.
+  //
+  // SÓ AS QUE VÃO APARECER SÃO PROCURADAS: `recorteDasOportunidades` corta em
+  // três ANTES, então o pior caso desta tela são três ids — que cabem na
+  // listagem dos recentes, porque post que está recebendo comentário agora é
+  // post recente. Uma chamada, e nenhuma busca avulsa no caso comum.
+  //
+  // E ELA NÃO ESTÁ NO CAMINHO CRÍTICO: sem o nome, a linha renderiza inteira
+  // ("100 comentários sem automação · último há 2 h"). O `catch` aqui é a
+  // segunda rede, para o caso de `resolvePosts` lançar por algo que o
+  // `try/catch` de dentro dele não cobre.
+  const escolhidas = recorteDasOportunidades(oportunidadesCruas);
+  let nomes = new Map<string, PostRef>();
+  if (account && escolhidas.length) {
+    try {
+      nomes = await resolvePosts(
+        account.ig_user_id,
+        account.access_token,
+        escolhidas.map((o) => o.mediaId)
+      );
+    } catch (e) {
+      console.error("inicio: nomes dos posts falharam", e);
+    }
+  }
+  const oportunidades = escolhidas.map((o) => ({
+    ...o,
+    nome: nomes.get(o.mediaId)?.caption ?? null,
+  }));
 
   const agora = Date.now();
   const fatos: FatosDoInicio = {
@@ -123,8 +215,19 @@ export default async function Home({
     falhasPublicacao: sinais.falhas_publicacao,
     falhasMensagem: sinais.falhas_mensagem,
     automacoesAtivas: sinais.autos,
-    oportunidades: [],
+    oportunidades,
   };
+
+  const pulso = fraseDoPulso({
+    entreguesHoje: sinais.entregues_hoje,
+    ultimaEntrega: sinais.ultima_entrega,
+    naFila: sinais.na_fila,
+  });
+  const vinte4h = fraseDas24h({
+    comentarios: sinais.com24,
+    mensagens: sinais.msg24,
+    enviadas: sinais.env24,
+  });
 
   const itens = account ? oQuePrecisaDeVoce(fatos) : [];
 
@@ -166,6 +269,18 @@ export default async function Home({
           </Link>
         )}
       </header>
+
+      {/*
+        LUGAR PROVISÓRIO. `pulso` e `vinte4h` (lib/pulso.ts) ainda não têm
+        layout — a Tarefa 5 dá a elas o lugar definitivo, abaixo da lista de
+        "precisa de você". Aqui elas só existem para o `tsc` não reclamar de
+        variável calculada e não usada nesta tarefa.
+      */}
+      {account && (
+        <p className={pageSubtitle}>
+          {pulso} · {vinte4h}
+        </p>
+      )}
 
       {!account ? (
         <div className={`p-6 text-sm ${card} ${muted}`}>
