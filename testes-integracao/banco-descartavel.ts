@@ -96,15 +96,66 @@ export function novoNomeDeSchema(): string {
 
 // Do `.env.local` sai UMA linha e nada mais. A ADMIN_PASSWORD nunca é lida,
 // impressa nem usada — e não é lida porque não é procurada.
+//
+// -----------------------------------------------------------------------------
+// A SUÍTE PREFERE UM BANCO SÓ DELA, e a preferência nasceu de uma medição.
+//
+// Até 15/09/2026 ela criava o schema descartável DENTRO do banco de produção.
+// Funcionava, e as travas deste arquivo existem justamente para isso: prefixo
+// obrigatório no nome do schema, inventário do `public` antes e depois, e o
+// schema derrubado no fim.
+//
+// O QUE PAROU DE FUNCIONAR foi a ARITMÉTICA DE CONEXÕES, e ela não tem conserto
+// no nosso lado: a instância `micro` aceita 60 conexões com 3 reservadas, e o
+// Supavisor — o pooler que atende a produção — é um pool ELÁSTICO que cresce
+// sob carga. Medido com a suíte parada: 51 das 57 vagas já tomadas, todas
+// ociosas. A rodada passou a morrer com **53300 - remaining connection slots
+// are reserved for roles with the SUPERUSER attribute**, SEM uma única falha de
+// asserção: 194, 195 e 188 casos verdes em três rodadas, e 1, 1 e 2 arquivos
+// mortos por falta de vaga.
+//
+// NÃO ERA VAZAMENTO NOSSO — embora houvesse um, e ele foi consertado no mesmo
+// dia (`fecharPool`, em lib/db.ts). Era a suíte disputando vaga com quem está
+// servindo gente de verdade.
+//
+// POR ISSO A ORDEM: `DATABASE_URL_TESTES` primeiro. Quando ela existe, a suíte
+// roda num banco que não atende ninguém, e as travas deste arquivo deixam de
+// ser a última linha de defesa para virar cinto de segurança.
+//
+// O RECUO PARA `DATABASE_URL` CONTINUA, e é BARULHENTO de propósito: sem o
+// aviso, um dia alguém clonaria o repositório, rodaria a suíte e criaria schema
+// no banco da produção sem nunca saber. Silenciar este aviso é desfazer a
+// decisão.
+// -----------------------------------------------------------------------------
 export function urlDoBanco(): string {
-  const doAmbiente = process.env.DATABASE_URL;
+  const deTeste = leia("DATABASE_URL_TESTES");
+  if (deTeste) return deTeste;
+
+  const daProducao = leia("DATABASE_URL");
+  if (!daProducao) {
+    throw new Error(
+      "Nem DATABASE_URL_TESTES nem DATABASE_URL foram encontradas — nem no ambiente, nem no .env.local."
+    );
+  }
+  console.warn(
+    "[integracao] DATABASE_URL_TESTES não definida: a suíte vai criar schema " +
+      "descartável no MESMO banco da DATABASE_URL. Funciona, e disputa vaga de " +
+      "conexão com quem estiver usando o painel."
+  );
+  return daProducao;
+}
+
+/** Uma variável, do ambiente ou do `.env.local`, sem nunca ser impressa. */
+function leia(nome: string): string | null {
+  const doAmbiente = process.env[nome];
   if (doAmbiente) return doAmbiente;
   const texto = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
-  const achado = texto.match(/^DATABASE_URL=(.+)$/m);
-  if (!achado) {
-    throw new Error("DATABASE_URL não encontrada: nem no ambiente, nem no .env.local.");
-  }
-  return achado[1].trim().replace(/^["']|["']$/g, "");
+  // O `=` NO PADRÃO É O QUE SEPARA AS DUAS VARIÁVEIS, e não a âncora: a linha
+  // `DATABASE_URL_TESTES=…` começa com `DATABASE_URL` e a âncora sozinha
+  // casaria nela. Quem a recusa é exigir `=` logo depois do nome. O `^` com
+  // `m` serve a outra coisa: impedir que o nome case no MEIO de uma linha.
+  const achado = texto.match(new RegExp("^" + nome + "=(.+)$", "m"));
+  return achado ? achado[1].trim().replace(/^["']|["']$/g, "") : null;
 }
 
 // A conexão administrativa NÃO leva `search_path`: ela vive no `public` para
