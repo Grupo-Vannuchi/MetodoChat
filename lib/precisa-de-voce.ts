@@ -107,6 +107,16 @@ export type ItemDoInicio = {
   urgencia: Urgencia;
   /** só nas linhas com prazo: quanto resta, para o traço e para a legenda */
   msLeft?: number;
+  /**
+   * O SELO DA LINHA ("Criar automação"), quando ela tem um.
+   *
+   * A TELA NÃO PODE DECIDIR ISSO OLHANDO O FORMATO DE `chave`
+   * (`chave.startsWith("oportunidade:")`): `chave` é identidade de lista — o
+   * que o React usa para não trocar de linha entre renders —, e não um
+   * contrato de desenho. Quem decide se a linha ganha selo é esta função, que
+   * já sabe o tipo de cada linha; o JSX só lê o campo.
+   */
+  selo?: string;
 };
 
 /**
@@ -253,6 +263,9 @@ export function oQuePrecisaDeVoce(f: FatosDoInicio): ItemDoInicio[] {
       // `fecha` e não `parou`: nada quebrou, e nada está vermelho. Mas também
       // não é `aberto` — o volume cresce enquanto ninguém age.
       urgencia: "fecha",
+      // O SELO É A AFFORDANCE que diz "isto vira automação" — só a linha de
+      // oportunidade tem convite de ação; conversa e falha não têm.
+      selo: "Criar automação",
     });
   }
 

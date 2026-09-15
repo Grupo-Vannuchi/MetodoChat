@@ -16,6 +16,11 @@ import {
 } from "@/lib/publicacao";
 import { oportunidadesDaConta } from "@/lib/oportunidades";
 import { fraseDoPulso, fraseDas24h } from "@/lib/pulso";
+// KINDS_MANUAIS É A LISTA DE VERDADE DE "QUEM DIGITOU ISSO FOI UMA PESSOA":
+// o pulso não pode escrever `'dm_manual'` de próprio punho, porque essa string
+// já mora em lib/envio-filters.ts (espelhada pelo SQL de Envios) — uma segunda
+// definição de "manual" neste repositório é a próxima divergência.
+import { KINDS_MANUAIS } from "@/lib/envio-filters";
 import { resolvePosts, type PostRef } from "@/lib/media-lookup";
 import { fmtRelative } from "@/lib/format";
 import { card, btnPrimary, btnGhost, muted, link, alertError, alertOk, rowDivide, badgeAcao } from "./ui";
@@ -54,6 +59,14 @@ type Sinais = {
   com24: number;
   msg24: number;
   env24: number;
+  // MEDIDO DIZ SE ESTE OBJETO VEIO DO BANCO. A consulta de sinais não tem rede
+  // própria (item 4 da revisão de 15/09/2026): um erro nela não pode derrubar
+  // o Início inteiro, então ela ganha `try/catch` — mas devolver ZERO calado
+  // no catch reabriria o MESMO silêncio-que-parece-saúde que o pulso existe
+  // para fechar ("nada entregue hoje · nenhuma entrega ainda · fila vazia" é
+  // exatamente a frase de uma conta saudável e ociosa). `medido: false` é o
+  // que distingue "não aconteceu nada" de "não consegui medir".
+  medido: boolean;
 };
 
 const ZERO: Sinais = {
@@ -68,6 +81,7 @@ const ZERO: Sinais = {
   com24: 0,
   msg24: 0,
   env24: 0,
+  medido: false,
 };
 
 export default async function Home({
@@ -79,11 +93,18 @@ export default async function Home({
   const [config, account] = await Promise.all([getConfig(), getSelectedAccount()]);
 
   const [sinais, conversas, oportunidadesCruas] = await Promise.all([
-    (async () =>
-      account
-        ? ((
-            (await sql().query(
-              `select
+    // CADA BLOCO FALHA SOZINHO (mesma restrição das oportunidades, abaixo): um
+    // erro nesta consulta não pode derrubar o Início inteiro. O `try/catch`
+    // devolve ZERO com `medido: false` — e é o `medido` que evita o outro
+    // silêncio-que-parece-saúde: ZERO cru renderizaria "nada entregue hoje ·
+    // nenhuma entrega ainda · fila vazia", a MESMA frase de uma conta saudável
+    // e ociosa. `medido: false` deixa a tela dizer "não consegui medir",
+    // que é a verdade.
+    (async () => {
+      if (!account) return ZERO;
+      try {
+        const linhas = (await sql().query(
+          `select
                  (select count(*)::int from automations where account_id = $1 and active = true) as autos,
                  (select count(*)::int from queue where account_id = $1 and status = 'sent'
                     and sent_at > now() - interval '7 days') as sent7,
@@ -116,14 +137,32 @@ export default async function Home({
                  -- entregue hoje" com tres envios no relogio do dono.
                  -- (sem crases neste comentario, pelo mesmo motivo do de cima:
                  --  o comentario mora dentro do template literal da consulta.)
+                 --
+                 -- O PULSO CONTA O QUE O MOTOR ENTREGOU SOZINHO, e por isso as
+                 -- duas subconsultas abaixo excluem os kinds MANUAIS ($4, a
+                 -- MESMA lista que lib/envio-filters.ts usa para a tela de
+                 -- Envios) e excluem 'publicacao': "dm_manual" e a resposta
+                 -- que uma PESSOA digitou na tela de conversa, e "publicacao" e
+                 -- post, nao mensagem. Sem este filtro, alguem respondendo a
+                 -- mao com o motor morto faria o pulso dizer "3 entregues hoje"
+                 -- - o silencio-que-parece-saude que este arquivo existe para
+                 -- fechar.
                  (select count(*)::int from queue
                    where account_id = $1 and status = 'sent'
                      and (sent_at at time zone 'America/Sao_Paulo')::date
-                         = (now() at time zone 'America/Sao_Paulo')::date) as entregues_hoje,
+                         = (now() at time zone 'America/Sao_Paulo')::date
+                     and not (kind = any($4::text[]))
+                     and kind <> 'publicacao') as entregues_hoje,
                  (select max(sent_at) from queue
-                   where account_id = $1 and status = 'sent') as ultima_entrega,
+                   where account_id = $1 and status = 'sent'
+                     and not (kind = any($4::text[]))
+                     and kind <> 'publicacao') as ultima_entrega,
+                 -- "GUARDADO" E FILA VIVA (migrations/009-fila-estado-guardado.sql):
+                 -- um lote inteiro pode estar esperando a pessoa voltar a
+                 -- falar, e isso nao e "fila vazia". app/desempenho/page.tsx
+                 -- ja soma os dois estados pelo mesmo motivo.
                  (select count(*)::int from queue
-                   where account_id = $1 and status = 'pending') as na_fila,
+                   where account_id = $1 and status in ('pending', 'guardado')) as na_fila,
                  -- AS 24H CONTAM EVENTOS, e o pulso conta a FILA. Ver o
                  -- comentario de fraseDas24h (lib/pulso.ts): os dois numeros
                  -- divergem de proposito, porque message_sent inclui a
@@ -131,17 +170,32 @@ export default async function Home({
                  (select count(*)::int from events
                    where account_id = $1 and type = 'comment'
                      and created_at > now() - interval '24 hours') as com24,
+                 -- QUATRO TIPOS SAO "mensagem recebida", e nao um: o motor
+                 -- grava 'message', 'story_reply', 'quick_reply' e 'abertura'
+                 -- (lib/engine.ts). A mesma lista ja vive em
+                 -- app/contatos/actions.ts e app/contatos/page.tsx — usada
+                 -- aqui pela terceira vez, e nao reinventada.
                  (select count(*)::int from events
-                   where account_id = $1 and type = 'message'
+                   where account_id = $1
+                     and type in ('message', 'story_reply', 'abertura', 'quick_reply')
                      and created_at > now() - interval '24 hours') as msg24,
                  (select count(*)::int from events
                    where account_id = $1 and type = 'message_sent'
                      and created_at > now() - interval '24 hours') as env24,
                  (select max(created_at) from events where account_id = $1) as last_event`,
-              [account.ig_user_id, DIAS_DE_AVISO_DA_PUBLICACAO, HORAS_DE_AVISO_DA_MENSAGEM]
-            )) as Sinais[]
-          )[0] ?? ZERO)
-        : ZERO)(),
+          [
+            account.ig_user_id,
+            DIAS_DE_AVISO_DA_PUBLICACAO,
+            HORAS_DE_AVISO_DA_MENSAGEM,
+            Array.from(KINDS_MANUAIS),
+          ]
+        )) as Omit<Sinais, "medido">[];
+        return linhas[0] ? { ...linhas[0], medido: true } : ZERO;
+      } catch (e) {
+        console.error("inicio: os sinais falharam", e);
+        return ZERO;
+      }
+    })(),
 
     // QUEM ESTA ESPERANDO. A mesma consulta da lista de conversas, e não uma
     // segunda: `sem_resposta` (a última palavra foi dela) e `last_reply_at` (o
@@ -234,11 +288,18 @@ export default async function Home({
     oportunidades,
   };
 
-  const pulso = fraseDoPulso({
-    entreguesHoje: sinais.entregues_hoje,
-    ultimaEntrega: sinais.ultima_entrega,
-    naFila: sinais.na_fila,
-  });
+  // QUANDO A CONSULTA NAO RODOU (`medido: false`), NAO CHAMAMOS `fraseDoPulso`
+  // COM ZEROS: ela diria "nada entregue hoje · nenhuma entrega ainda · fila
+  // vazia", que é a mesma frase de uma conta saudável e ociosa — o
+  // silêncio-que-parece-saúde por outra porta. "não consegui medir" é a frase
+  // honesta para esse caso.
+  const pulso = sinais.medido
+    ? fraseDoPulso({
+        entreguesHoje: sinais.entregues_hoje,
+        ultimaEntrega: sinais.ultima_entrega,
+        naFila: sinais.na_fila,
+      })
+    : "não consegui medir o pulso agora";
   const vinte4h = fraseDas24h({
     comentarios: sinais.com24,
     mensagens: sinais.msg24,
@@ -380,10 +441,11 @@ export default async function Home({
                   )}
                   {/* A LINHA DA OPORTUNIDADE SE DISTINGUE DA CONVERSA: o selo é
                       a affordance, e a linha inteira já é o link para
-                      `/automacoes/nova?post=…` (Tarefa 1). */}
-                  {i.chave.startsWith("oportunidade:") && (
-                    <span className={`${badgeAcao} shrink-0`}>Criar automação</span>
-                  )}
+                      `/automacoes/nova?post=…` (Tarefa 1). O selo vem do
+                      próprio item (`ItemDoInicio.selo`), e não de checar o
+                      formato de `chave` — a chave é identidade de lista, não
+                      contrato de desenho. */}
+                  {i.selo && <span className={`${badgeAcao} shrink-0`}>{i.selo}</span>}
                 </Link>
               </li>
             ))}

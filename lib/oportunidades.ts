@@ -73,6 +73,14 @@ export async function oportunidadesDaConta(accountId: string): Promise<Oportunid
         )
       group by 1
       order by comentarios desc
+      -- TETO TÉCNICO, E NÃO DECISÃO DE PRODUTO: é só um limite de LINHAS
+      -- trazidas do banco, para a consulta nunca devolver uma lista sem fim.
+      -- O order by comentarios desc garante que os 3 do recorte
+      -- (recorteDasOportunidades, MAX_OPORTUNIDADES) sempre cabem dentro
+      -- destes 20 — ele não contradiz o "SEM PISO E SEM TETO AQUI" do
+      -- docblock acima, porque aquele teto é o de PRODUTO.
+      -- (sem crases neste comentario: ele mora DENTRO de um template
+      --  literal, e uma crase o fecharia no meio.)
       limit 20`,
     [accountId, DIAS_DA_OPORTUNIDADE]
   )) as Oportunidade[];

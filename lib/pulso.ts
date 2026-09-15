@@ -41,11 +41,20 @@ export function fraseDoPulso(p: {
  * "22 comentários · 13 mensagens · 3 respostas enviadas"
  *
  * ESTA FRASE E A DO PULSO FALAM DE COISAS DIFERENTES, e a spec escreve isso para
- * ninguém "consertar" a duplicação: o pulso conta a FILA (a máquina), esta conta
- * os EVENTOS (o movimento da conta, incluindo a resposta que alguém do marketing
- * digitou na tela de conversa). Em 14/09 a fila entregou zero e houve três
- * respostas — os dois números divergem de propósito, e juntos dizem a verdade:
- * ninguém foi respondido pela automação, e três pessoas foram respondidas à mão.
+ * ninguém "consertar" a duplicação: o pulso conta só o que o MOTOR entregou
+ * SOZINHO (a fila, menos os kinds manuais — `dm_manual` — e menos `publicacao`);
+ * esta conta o MOVIMENTO DA CONTA inteiro, incluindo o que foi feito à mão.
+ *
+ * A RESPOSTA DIGITADA NA TELA NÃO "ESTÁ SÓ NOS EVENTOS" — ela passa pela MESMA
+ * fila que o motor usa (`enqueueManualReply`, lib/engine.ts), com
+ * `kind: 'dm_manual'`. O que separa as duas frases não é DE ONDE o dado vem,
+ * é O QUE cada uma escolhe contar dali: o pulso filtra o manual para fora
+ * porque quer responder "a máquina está viva?", e um envio manual não prova
+ * isso; as 24h não filtram nada, porque querem responder "o que aconteceu com
+ * a conta?", e uma resposta manual também é o que aconteceu. Em 14/09 a fila
+ * do motor entregou zero e houve três respostas manuais — os dois números
+ * divergem de propósito, e juntos dizem a verdade: ninguém foi respondido pela
+ * automação, e três pessoas foram respondidas à mão.
  */
 export function fraseDas24h(p: {
   comentarios: number;

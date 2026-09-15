@@ -105,6 +105,11 @@ describe("oportunidades do Início", () => {
     );
     expect(achado?.comentarios).toBe(8);
     expect(achado?.ultimo).toBeInstanceOf(Date);
+    // PRENDE O VALOR SEM PRENDER O RELÓGIO: os comentários deste caso nasceram
+    // "2 horas atrás" (`comentario(CONTA, "POST_ORFAO", 2)`, acima) — uma janela
+    // de 3 horas prova que `ultimo` é de fato recente, sem cravar um instante
+    // exato que o próximo run em outro fuso ou outra hora derrubaria.
+    expect((achado!.ultimo as Date).getTime()).toBeGreaterThan(Date.now() - 3 * 3600_000);
   });
 
   // ACHADO 1: `findMatch` (lib/engine.ts) trata `media_id` NULO como "vale

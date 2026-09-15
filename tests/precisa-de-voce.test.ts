@@ -534,4 +534,20 @@ describe("a oportunidade dentro de oQuePrecisaDeVoce", () => {
     });
     expect(itens[0].detalhe).toBe("nenhuma automação escuta este post");
   });
+
+  // O SELO NÃO PODE DEPENDER DO FORMATO DE `chave`: a tela lia
+  // `chave.startsWith("oportunidade:")` para decidir mostrar "Criar
+  // automação", o que acoplava o desenho a uma string decidida aqui. Agora
+  // quem decide o selo é esta função, e o JSX só lê `item.selo`.
+  it("a linha de oportunidade traz o selo, e a linha de conversa não", () => {
+    const itens = oQuePrecisaDeVoce({
+      ...base,
+      esperando: [quem("marcio", 23)],
+      oportunidades: [{ mediaId: "1", comentarios: 9, ultimo: null }],
+    });
+    const oportunidade = itens.find((i) => i.chave === "oportunidade:1")!;
+    const conversa = itens.find((i) => i.chave === "conversa:ig_marcio")!;
+    expect(oportunidade.selo).toBe("Criar automação");
+    expect(conversa.selo).toBeUndefined();
+  });
 });
