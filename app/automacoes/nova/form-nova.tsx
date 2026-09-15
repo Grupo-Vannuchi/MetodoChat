@@ -83,7 +83,7 @@ const DICA_DA_PALAVRA: Record<TriggerKind, string> = {
   abertura: "",
 };
 
-export default function FormNovaAutomacao() {
+export default function FormNovaAutomacao({ post }: { post: string | null }) {
   // O ERRO VOLTA DO SERVIDOR E A TELA FICA COMO ESTAVA. O formulário antigo
   // redirecionava para `/automacoes?erro=…` e quem errou uma palavra-chave
   // perdia tudo o que tinha digitado.
@@ -98,6 +98,12 @@ export default function FormNovaAutomacao() {
   return (
     <form action={acao} className={`${card} max-w-2xl space-y-5 p-5`}>
       {erro && <div className={alertError}>{erro}</div>}
+
+      {/* O POST VEIO DO INÍCIO. Campo escondido porque não é uma pergunta: quem
+          clicou na linha "100 comentários sem automação" já escolheu o post, e
+          repetir a escolha aqui seria desfazer o atalho. `criarAutomacao`
+          recusa o que não for id, então um valor torto na URL não vira nada. */}
+      {post && <input type="hidden" name="post" value={post} />}
 
       <div>
         <label className={labelCls}>Nome da automação</label>

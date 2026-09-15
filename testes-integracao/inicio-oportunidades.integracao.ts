@@ -9,6 +9,7 @@
 // certo a lista errada. O que só se mede pelo EFEITO é QUAIS posts chegam nela.
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
+import { comoNumaRequisicao } from "./semear-requisicao";
 
 const banco = bancoDescartavel();
 
@@ -129,5 +130,60 @@ describe("oportunidades do Início", () => {
 
     const ids = (await mod.oportunidadesDaConta(CONTA)).map((o) => o.mediaId);
     expect(ids).toContain("POST_SO_DM");
+  });
+});
+
+describe("o post atravessa para a automação nova", () => {
+  test("`post` válido vira `media_id` na automação criada", async () => {
+    const acoes = await import("@/app/automacoes/actions");
+    const form = new FormData();
+    form.set("name", "nascida do Início");
+    form.set("trigger", "comment");
+    form.set("match_type", "any");
+    form.set("post", "18056760980769921");
+
+    // `criarAutomacao` termina em `redirect`, que LANÇA. O digest é o desfecho.
+    await comoNumaRequisicao("/automacoes/nova", async () => {
+      try {
+        await acoes.criarAutomacao(null, form);
+      } catch {
+        /* o redirect do Next */
+      }
+      return null;
+    });
+
+    const linhas = (await banco.db().sql().query(
+      `select media_id from automations where account_id = $1 and name = 'nascida do Início'`,
+      [CONTA]
+    )) as { media_id: string | null }[];
+    expect(linhas[0]?.media_id).toBe("18056760980769921");
+  });
+
+  test("`post` fora do formato é IGNORADO, e a automação nasce sem post", async () => {
+    // O valor vem da URL, e URL é digitável. Recusar o campo é diferente de
+    // recusar a automação: quem clicou quer criar automação, e o post é um
+    // atalho — perdê-lo não pode custar a criação.
+    const acoes = await import("@/app/automacoes/actions");
+    const form = new FormData();
+    form.set("name", "com post torto");
+    form.set("trigger", "comment");
+    form.set("match_type", "any");
+    form.set("post", "nao-e-um-id");
+
+    await comoNumaRequisicao("/automacoes/nova", async () => {
+      try {
+        await acoes.criarAutomacao(null, form);
+      } catch {
+        /* o redirect do Next */
+      }
+      return null;
+    });
+
+    const linhas = (await banco.db().sql().query(
+      `select media_id from automations where account_id = $1 and name = 'com post torto'`,
+      [CONTA]
+    )) as { media_id: string | null }[];
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0].media_id).toBeNull();
   });
 });

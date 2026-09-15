@@ -14,7 +14,12 @@ export const dynamic = "force-dynamic";
 // saiu junto com ele. A prévia nova (`editor/previa.tsx`) desenha a moldura sem
 // a conta, e quem recusa a criação sem conta conectada é o próprio
 // `criarAutomacao`, no servidor — que é onde a recusa vale.
-export default function NovaAutomacaoPage() {
+export default async function NovaAutomacaoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ post?: string }>;
+}) {
+  const sp = await searchParams;
   return (
     <div className="space-y-6">
       <header>
@@ -42,7 +47,7 @@ export default function NovaAutomacaoPage() {
           os blocos na ordem em que eles devem acontecer.
         </p>
       </header>
-      <FormNovaAutomacao />
+      <FormNovaAutomacao post={sp.post ?? null} />
     </div>
   );
 }

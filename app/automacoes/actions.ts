@@ -426,6 +426,19 @@ export async function criarAutomacao(
   const correspondencia = String(formData.get("match_type") ?? "contains");
   const palavras = splitList(String(formData.get("keywords") ?? ""), /,/);
 
+  // O POST VEM DO INÍCIO, e é um atalho — não um requisito.
+  //
+  // Quem clica em "100 comentários sem automação" quer criar a automação DAQUELE
+  // post; sem isto ela cairia num formulário que não sabe de qual post se trata,
+  // e a linha do Início perderia a ação e viraria aviso.
+  //
+  // FORA DO FORMATO É IGNORADO, e não recusado: o valor vem da URL, que é
+  // digitável, mas perder o atalho não pode custar a criação da automação. Quem
+  // veio pelo caminho normal (`/automacoes/nova`, sem `?post=`) cai neste mesmo
+  // ramo, e é o comportamento de sempre.
+  const postBruto = String(formData.get("post") ?? "");
+  const mediaId = /^\d{1,32}$/.test(postBruto) ? postBruto : null;
+
   if (!GATILHOS.includes(gatilho)) return "Escolha o gatilho da automação.";
   if (!CORRESPONDENCIAS.includes(correspondencia)) return "Escolha o tipo de correspondência.";
   if (!nome) return "Dê um nome à automação.";
@@ -435,10 +448,10 @@ export async function criarAutomacao(
     return "Informe as palavras-chave (ou mude para “Qualquer texto”).";
 
   const linhas = (await sql().query(
-    `insert into automations (account_id, name, active, triggers, keywords, match_type, steps)
-     values ($1, $2, false, $3, $4, $5, '[]'::jsonb)
+    `insert into automations (account_id, name, active, triggers, keywords, match_type, steps, media_id)
+     values ($1, $2, false, $3, $4, $5, '[]'::jsonb, $6)
      returning id`,
-    [accountId, nome, [gatilho], palavras, correspondencia]
+    [accountId, nome, [gatilho], palavras, correspondencia, mediaId]
   )) as { id: string }[];
 
   revalidatePath("/automacoes");
