@@ -230,6 +230,14 @@ e gravada; as 26 linhas com valor podre continuam lá. Apagar exigiria migraçã
 para resolver um dado que ninguém mais olha — e migração é o tipo de mudança
 que este plano não precisa ter.
 
-**`/automacoes` passa a fazer uma chamada à Meta por carregamento.** Mesmo
-custo, mesma proteção e mesma dívida declarada do Início: sem timeout em
-`graphFetch`, o teto é o `try/catch`. Consertar na raiz continua na lista.
+**`/automacoes` NÃO passa a fazer uma chamada à Meta por carregamento** — essa
+frase, escrita aqui antes de medir, é falsa. `resolvePosts`
+(lib/media-lookup.ts) faz `getMedia(limit=40)` MAIS até
+`MAX_INDIVIDUAL_LOOKUPS = 8` buscas avulsas para o que não estiver nos 40
+recentes: até **9 chamadas por carregamento**, e isso se repete a cada
+`revalidatePath("/automacoes")` (salvar, ativar, pausar, duplicar, excluir).
+A consequência: automação apontando para post fora dos 40 recentes só resolve
+capa nas 8 primeiras dessa sobra — a tela não vira "22 capas certas", vira
+"recentes + 8". Mesma proteção e mesma dívida declarada do Início de qualquer
+forma: sem timeout em `graphFetch`, o teto é o `try/catch`. Consertar na raiz
+continua na lista.

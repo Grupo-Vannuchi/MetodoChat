@@ -111,16 +111,22 @@ export default async function EditarAutomacaoPage({
   let doPost: PostRef | undefined;
   if (a.media_id) {
     const TETO_DO_POST_MS = 2500;
+    // `idDoTimer` cancela o `setTimeout` quando `resolvePosts` ganha a
+    // corrida primeiro — o caso comum. Sem o `clearTimeout`, um timer de
+    // 2,5s sobrevive a cada requisição que abre esta página, pendurado à toa.
+    let idDoTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       const capas = await Promise.race([
         resolvePosts(selected.ig_user_id, selected.access_token, [a.media_id]),
-        new Promise<Map<string, PostRef>>((resolve) =>
-          setTimeout(() => resolve(new Map()), TETO_DO_POST_MS)
-        ),
+        new Promise<Map<string, PostRef>>((resolve) => {
+          idDoTimer = setTimeout(() => resolve(new Map()), TETO_DO_POST_MS);
+        }),
       ]);
       doPost = capas.get(a.media_id);
     } catch (e) {
       console.error("editor da automação: a capa do post falhou", e);
+    } finally {
+      clearTimeout(idDoTimer);
     }
   }
 
@@ -137,16 +143,28 @@ export default async function EditarAutomacaoPage({
     // A LEGENDA GANHA UM RECUO: o que a Meta devolveu agora, o guardado
     // depois. `media_caption` não expira, e é o nome que a pessoa reconhece
     // quando a busca falha e a capa não chega.
+    //
+    // O CORTE EM 120 TEM UM DONO SÓ: é o mesmo corte que `media-picker.tsx`
+    // já aplica na legenda que vem da grade de posts (`.slice(0, 120)`, linha
+    // 92). Sem ele aqui, `doPost?.caption` (a legenda INTEIRA que a Meta
+    // devolve — até 2200 caracteres) ia direto para `salvarAutomacao`, que a
+    // grava sem cortar: a automação nascia com um texto vinte vezes maior do
+    // que o seletor de post jamais deixaria escolher.
     post: a.media_id
       ? {
           id: a.media_id,
           thumb: doPost?.thumb ?? "",
-          caption: doPost?.caption ?? a.media_caption ?? "",
+          caption: (doPost?.caption ?? a.media_caption ?? "").slice(0, 120),
         }
       : null,
-    story: a.story_id
-      ? { id: a.story_id, thumb: a.story_thumbnail_url ?? "", caption: "" }
-      : null,
+    // A CAPA DO STORY NÃO É RESOLVIDA NA HORA — story está fora do escopo
+    // desta branch (zero automações usam story, medido). Mas `a.story_thumbnail_url`
+    // é a MESMA classe de URL assinada que apodrece em ~2 semanas, e
+    // `previa.tsx` a transforma em `<img src={story.thumb}>` sem conferir
+    // validade. Sem busca fresca para substituí-la, o único jeito honesto de
+    // não entregar imagem quebrada é não entregar capa nenhuma: `thumb: ""`
+    // cai no ícone de câmera do lugar do `<img>`.
+    story: a.story_id ? { id: a.story_id, thumb: "", caption: "" } : null,
     // O `Boolean` NÃO É ENFEITE, E EM 26/08 ELE GANHOU RAZÃO DE EXECUÇÃO AQUI
     // TAMBÉM. Até então, um `await ensureSchema()` rodava algumas linhas acima,
     // ANTES do `select *`, carregando a mesma DDL `if not exists` de

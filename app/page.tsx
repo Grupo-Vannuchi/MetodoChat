@@ -276,6 +276,10 @@ export default async function Home({
   const escolhidas = recorteDasOportunidades(oportunidadesCruas);
   let nomes = new Map<string, PostRef>();
   if (account && escolhidas.length) {
+    // `idDoTimer` cancela o `setTimeout` quando `resolvePosts` ganha a
+    // corrida primeiro — o caso comum. Sem o `clearTimeout`, um timer de
+    // 2,5s sobrevive a cada carregamento do Início, pendurado à toa.
+    let idDoTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       nomes = await Promise.race([
         resolvePosts(
@@ -283,12 +287,14 @@ export default async function Home({
           account.access_token,
           escolhidas.map((o) => o.mediaId)
         ),
-        new Promise<Map<string, PostRef>>((resolve) =>
-          setTimeout(() => resolve(new Map()), TETO_DO_NOME_DO_POST_MS)
-        ),
+        new Promise<Map<string, PostRef>>((resolve) => {
+          idDoTimer = setTimeout(() => resolve(new Map()), TETO_DO_NOME_DO_POST_MS);
+        }),
       ]);
     } catch (e) {
       console.error("inicio: nomes dos posts falharam", e);
+    } finally {
+      clearTimeout(idDoTimer);
     }
   }
   const oportunidades = escolhidas.map((o) => ({

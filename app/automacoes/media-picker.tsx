@@ -52,7 +52,14 @@ export default function MediaPicker({
           />
         )}
         <p className="max-w-xs truncate text-xs text-zinc-600 dark:text-zinc-400">
-          {selected.caption || selected.id}
+          {/* O RECUO NÃO CAI NO ID. Ele só é alcançado quando as DUAS fontes de
+              nome falharam — a Meta não respondeu (ou não achou o post) E
+              `media_caption` está vazio, que é exatamente a automação criada
+              pelo Início (`/automacoes/nova?post=…`) antes de a Meta responder.
+              Mostrar `17900000000000001` faz a pessoa achar que o SISTEMA está
+              quebrado — um número cru não é nome de nada —, quando na verdade
+              o post está certo e só falta o nome dele chegar. */}
+          {selected.caption || "Post selecionado"}
         </p>
         <button type="button" onClick={() => onSelect(null)} className={btnGhost}>
           Remover

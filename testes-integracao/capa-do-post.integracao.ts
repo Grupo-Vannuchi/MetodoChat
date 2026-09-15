@@ -55,10 +55,13 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { bancoDescartavel } from "./harness";
 import { comoNumaRequisicao } from "./semear-requisicao";
 import type { AutomationRow } from "@/app/automacoes/list-client";
 import type { Configuracao } from "@/app/automacoes/editor/painel";
+import MediaPicker from "@/app/automacoes/media-picker";
 
 const banco = bancoDescartavel();
 
@@ -423,5 +426,52 @@ describe("a automação criada só com media_id (Início) não mostra o id cru",
     expect(pedidos.some((p) => p.endsWith(`/${CONTA}/media`))).toBe(true);
     expect(configuracao.post?.caption).toBe(LEGENDA_DE_VERDADE);
     expect(configuracao.post?.caption).not.toBe(ID_DO_POST_DO_INICIO);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// O CAMINHO DEGRADADO DO MESMO SEGUNDO DEFEITO — a Meta responde no describe
+// acima; aqui ela NÃO responde, que é o estado PADRÃO deste arquivo (nenhum
+// servidor desviando `graphFetch`, TOKEN inventado). É exatamente a automação
+// do Início antes de a Meta responder: `media_id` sozinho, `media_caption`
+// NULO — não vazio, NULO, a mesma forma que `criarAutomacao` grava.
+//
+// `doPost` fica `undefined` (a busca falha) e `a.media_caption` é `null`, então
+// `configuracaoInicial.post.caption` chega `""` — IGUAL com o defeito e sem
+// ele; ver o comentário grande antes do describe anterior sobre por que esse
+// ramo não distingue os dois casos. A revisão de 15/09/2026 apontou que quem
+// decide o que aparece NESSE ramo não é a página do editor: é `MediaPicker`
+// (app/automacoes/media-picker.tsx), client component que os achadores acima
+// (`acharConfiguracao`, `arvoreDoEditor`) NUNCA executam — a mesma armadilha
+// documentada no topo do arquivo, por outra porta.
+//
+// A SAÍDA É RENDERIZAR `MediaPicker` DE VERDADE, com `react-dom/server`: não é
+// mock nem reimplementação da regra — é o componente publicado, a receber
+// exatamente o `post` que a página do editor produziria neste caminho
+// degradado, e a devolver o HTML que a pessoa veria.
+describe("o SELETOR (MediaPicker) não mostra o id cru quando a Meta está fora", () => {
+  test("media_caption NULO + Meta fora → o HTML não contém o id, e diz 'Post selecionado'", async () => {
+    const ID_SEM_META = "17900000000000779";
+    const idDaAutomacao = await semearAutomacao({
+      mediaId: ID_SEM_META,
+      thumb: null,
+      caption: null,
+    });
+
+    // Nenhum `IG_GRAPH_BASE` setado neste describe: `graphFetch` (lib/ig.ts)
+    // sai para a Graph API de verdade com o TOKEN inventado do topo do
+    // arquivo, e falha — o mesmo `resolvePosts` que devolve mapa vazio no
+    // describe "a URL guardada não chega na tela", acima.
+    const { post } = await configuracaoDoEditor(idDaAutomacao);
+    expect(post?.id).toBe(ID_SEM_META);
+    // As DUAS fontes de nome falharam: é a precondição exata do defeito.
+    expect(post?.caption).toBe("");
+
+    const html = renderToStaticMarkup(
+      createElement(MediaPicker, { kind: "posts", selected: post, onSelect: () => {} })
+    );
+
+    expect(html).not.toContain(ID_SEM_META);
+    expect(html).toContain("Post selecionado");
   });
 });
