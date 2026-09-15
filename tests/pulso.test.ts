@@ -75,4 +75,18 @@ describe("fraseDas24h", () => {
       "22 comentários · nenhuma mensagem · nenhuma resposta enviada"
     );
   });
+
+  it("zero nos COMENTÁRIOS não apaga o resto — o ramo que faltava", () => {
+    // Este caso nasceu de uma mutação que SOBREVIVEU: trocar o literal "nenhum
+    // comentário" por lixo deixava os nove casos verdes. O caso vizinho ("zero
+    // em UM dos três") zera `mensagens` e `enviadas` e cobre os dois ramos
+    // deles — e deixava o de `comentarios` sem rede nenhuma.
+    //
+    // A CONCORDÂNCIA É O QUE ELE GUARDA: "nenhum comentário" é masculino e
+    // "nenhuma mensagem" é feminino. Um copiar-e-colar entre os dois ramos
+    // passaria por tipo, por lint e pela suite inteira.
+    expect(fraseDas24h({ comentarios: 0, mensagens: 5, enviadas: 2 })).toBe(
+      "nenhum comentário · 5 mensagens · 2 respostas enviadas"
+    );
+  });
 });
