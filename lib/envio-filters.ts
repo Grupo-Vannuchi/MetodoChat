@@ -30,6 +30,50 @@ export function origemDoKind(kind: string): OrigemKey {
   return (KINDS_MANUAIS as readonly string[]).includes(kind) ? "voce" : "robo";
 }
 
+/**
+ * O `kind` da PUBLICAÇÃO, e ele merece nome porque é a exceção mais repetida
+ * deste produto: publicação usa a mesma fila das mensagens e não é mensagem.
+ *
+ * O dreno já o separa, com o motivo escrito (`lib/queue-drain.ts`): um post não
+ * pode comer a cota de DM. As telas precisam da mesma separação por outro
+ * motivo — "mensagens entregues" com post dentro é um número que mente sobre a
+ * saúde do motor.
+ */
+export const KIND_PUBLICACAO = "publicacao";
+
+/**
+ * OS KINDS QUE NÃO CONTAM COMO "O MOTOR ENTREGOU".
+ *
+ * Duas exclusões, por dois motivos diferentes:
+ *
+ * `dm_manual` é o que UMA PESSOA digitou na tela de conversa
+ * (`enqueueManualReply`), e ele passa pela MESMA fila — de propósito, para
+ * herdar a trava, o teto por hora e a checagem de janela. Contá-lo como entrega
+ * do motor faz a tela dizer que está tudo rodando quando quem está rodando é
+ * gente. Medido em 15/09: era exatamente esse o risco no pulso do Início.
+ *
+ * `publicacao` é post, não mensagem — ver `KIND_PUBLICACAO`. Medido no mesmo
+ * dia: `/desempenho` dizia "Mensagens entregues: 5" com 3 entregues.
+ *
+ * DERIVADA DE `KINDS_MANUAIS`, e não reescrita: um kind manual novo entra aqui
+ * sozinho no dia em que nascer.
+ */
+export const KINDS_FORA_DA_ENTREGA_DO_MOTOR = [
+  ...KINDS_MANUAIS,
+  KIND_PUBLICACAO,
+] as const;
+
+/**
+ * OS STATUS EM QUE UM ITEM AINDA VAI SAIR — a "fila viva".
+ *
+ * `guardado` é o envio em lote que espera a pessoa voltar a falar
+ * (`migrations/009-fila-estado-guardado.sql`). Ele ainda vai sair; só não por
+ * conta do relógio. Uma contagem de fila que o ignore faz a tela anunciar "fila
+ * vazia" com itens esperando — e foi o que o Início fez até 15/09/2026,
+ * enquanto `/desempenho`, na mesma base, já contava os dois.
+ */
+export const STATUS_DE_FILA_VIVA = ["pending", "guardado"] as const;
+
 // As situações possíveis de um envio, na ordem em que fazem sentido lidas em voz
 // alta: o que deu certo primeiro, o que precisa de atenção por último.
 //

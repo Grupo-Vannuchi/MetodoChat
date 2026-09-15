@@ -9,6 +9,8 @@ import {
   NO_ENVIO_FILTERS,
   SITUACOES,
   KINDS_MANUAIS,
+  KINDS_FORA_DA_ENTREGA_DO_MOTOR,
+  STATUS_DE_FILA_VIVA,
 } from "@/lib/envio-filters";
 import { PERIODS } from "@/lib/event-filters";
 
@@ -224,5 +226,35 @@ describe("totalDeEnvios", () => {
     ];
     const numeros = (resumoSituacoes(c) ?? "").match(/\d+/g)?.map(Number) ?? [];
     expect(numeros.reduce((a, b) => a + b, 0)).toBe(totalDeEnvios(c));
+  });
+});
+
+describe("o vocabulário que o SQL consome", () => {
+  it("publicação está FORA da conta de entrega do motor, junto com os manuais", () => {
+    // O defeito que este vocabulário fecha: /desempenho dizia "Mensagens
+    // entregues: 5" com 3 entregues pelo motor — os outros dois eram POSTS.
+    expect([...KINDS_FORA_DA_ENTREGA_DO_MOTOR]).toEqual(["dm_manual", "publicacao"]);
+  });
+
+  it("a lista DERIVA de KINDS_MANUAIS, e não o repete", () => {
+    // Se alguém acrescentar um kind manual novo, ele tem de entrar aqui
+    // sozinho. Duas listas escritas à mão são duas listas que vão divergir.
+    for (const k of KINDS_MANUAIS) {
+      expect(KINDS_FORA_DA_ENTREGA_DO_MOTOR).toContain(k);
+    }
+  });
+
+  it("fila viva é `pending` E `guardado`", () => {
+    // `guardado` é o lote que espera a pessoa voltar a falar
+    // (migrations/009). Contar só `pending` faz a tela dizer "fila vazia" com
+    // 111 itens esperando — foi o defeito do Início em 14/09.
+    expect([...STATUS_DE_FILA_VIVA]).toEqual(["pending", "guardado"]);
+  });
+
+  it("todo status de fila viva é um status que a tabela aceita", () => {
+    // A rede contra escrever um status que o `check` da tabela recusaria: a
+    // lista de SITUACOES já cobre exatamente o `check (status in (...))`.
+    const conhecidos = SITUACOES.map((s) => s.key);
+    for (const s of STATUS_DE_FILA_VIVA) expect(conhecidos).toContain(s);
   });
 });

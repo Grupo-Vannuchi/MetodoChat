@@ -65,6 +65,29 @@ export const EVENT_TYPES = [
 ] as const;
 export type EventTypeKey = (typeof EVENT_TYPES)[number];
 
+/**
+ * OS TIPOS DE EVENTO QUE SIGNIFICAM "ALGUÉM FALOU COM A CONTA".
+ *
+ * São QUATRO, e o motor grava os quatro: `message` é a DM comum, `story_reply`
+ * é a resposta a um story, `quick_reply` é o toque num botão, e `abertura` é a
+ * resposta a uma pergunta de abertura (`lib/engine.ts`).
+ *
+ * ESTA LISTA EXISTIA EM TRÊS LUGARES até 15/09/2026 — `app/contatos/page.tsx`,
+ * `app/contatos/actions.ts` e `app/page.tsx` —, e o terceiro nasceu errado, com
+ * `type = 'message'` só. Medido: 14 `story_reply` numa semana. Num dia calmo
+ * com só uma, a tela escrevia "nada aconteceu nas últimas 24h" — e "nada
+ * aconteceu" é a frase que faz a pessoa decidir não olhar.
+ *
+ * `comment` fica de fora porque comentário tem contagem própria em toda tela
+ * que os separa; `error` fica de fora porque não é coisa que alguém falou.
+ */
+export const TIPOS_DE_MENSAGEM_RECEBIDA = [
+  "message",
+  "story_reply",
+  "quick_reply",
+  "abertura",
+] as const;
+
 export type EventFilters = {
   post: string | null;
   type: EventTypeKey | null;

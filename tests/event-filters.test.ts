@@ -8,6 +8,8 @@ import {
   quantosEventos,
   PASSO_DO_FEED,
   MAX_DO_FEED,
+  EVENT_TYPES,
+  TIPOS_DE_MENSAGEM_RECEBIDA,
 } from "@/lib/event-filters";
 
 // parseFilters é a fronteira entre a URL, que qualquer um edita, e a consulta
@@ -176,5 +178,31 @@ describe("quantosEventos — o feed que cresce sob pedido (M6)", () => {
     // `queryDaPagina` serializa só os filtros, e `ver` não é um deles.
     expect(Object.keys(NO_FILTERS)).not.toContain("ver");
     expect(toQueryString({ ...NO_FILTERS, period: "7d" })).not.toContain("ver");
+  });
+});
+
+describe("TIPOS_DE_MENSAGEM_RECEBIDA", () => {
+  it("são os quatro que o motor grava quando alguém fala", () => {
+    expect([...TIPOS_DE_MENSAGEM_RECEBIDA]).toEqual([
+      "message",
+      "story_reply",
+      "quick_reply",
+      "abertura",
+    ]);
+  });
+
+  it("não inclui `comment` nem `error`", () => {
+    // Comentário não é mensagem — ele tem contagem própria na tela. `error` não
+    // é coisa que alguém falou.
+    expect(TIPOS_DE_MENSAGEM_RECEBIDA as readonly string[]).not.toContain("comment");
+    expect(TIPOS_DE_MENSAGEM_RECEBIDA as readonly string[]).not.toContain("error");
+  });
+
+  it("todo tipo daqui é um tipo consultável", () => {
+    // Um tipo que não estivesse em EVENT_TYPES seria um `where type = ...` que
+    // nunca casa com nada — e nenhuma tela acusaria.
+    for (const t of TIPOS_DE_MENSAGEM_RECEBIDA) {
+      expect(EVENT_TYPES as readonly string[]).toContain(t);
+    }
   });
 });
