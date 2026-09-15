@@ -183,15 +183,31 @@ export default async function Home({
   // ("100 comentários sem automação · último há 2 h"). O `catch` aqui é a
   // segunda rede, para o caso de `resolvePosts` lançar por algo que o
   // `try/catch` de dentro dele não cobre.
+  //
+  // MAS `try/catch` SÓ COBRE REJEIÇÃO, E NÃO SILÊNCIO. `graphFetch` (lib/ig.ts)
+  // não usa `AbortController`, `signal` nem timeout — se a Graph API aceitar a
+  // conexão e nunca responder, o `await` trava aqui, e junto com ele o render
+  // inteiro do Início, que é a tela de maior frequência do painel. Por isso a
+  // corrida abaixo: um teto de tempo NO CALL SITE, e não dentro de
+  // `graphFetch`. `graphFetch` está no caminho de ENVIO em produção, e mexer
+  // nele nesta branch amplia a superfície de risco sem necessidade — o
+  // conserto amplo (timeout dentro de `graphFetch`, que resolveria `/eventos`
+  // também) fica como DÍVIDA DECLARADA, não esquecida.
+  const TETO_DO_NOME_DO_POST_MS = 2500;
   const escolhidas = recorteDasOportunidades(oportunidadesCruas);
   let nomes = new Map<string, PostRef>();
   if (account && escolhidas.length) {
     try {
-      nomes = await resolvePosts(
-        account.ig_user_id,
-        account.access_token,
-        escolhidas.map((o) => o.mediaId)
-      );
+      nomes = await Promise.race([
+        resolvePosts(
+          account.ig_user_id,
+          account.access_token,
+          escolhidas.map((o) => o.mediaId)
+        ),
+        new Promise<Map<string, PostRef>>((resolve) =>
+          setTimeout(() => resolve(new Map()), TETO_DO_NOME_DO_POST_MS)
+        ),
+      ]);
     } catch (e) {
       console.error("inicio: nomes dos posts falharam", e);
     }

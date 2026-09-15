@@ -14,6 +14,10 @@ const banco = bancoDescartavel();
 
 const CONTA = "17800000000000901";
 const VIZINHA = "17800000000000902";
+// CONTA À PARTE para a automação GLOBAL: ela vale para QUALQUER post da
+// conta (media_id nulo), então rodá-la em cima de CONTA contaminaria os
+// posts que os outros casos deste arquivo ainda esperam ver como órfãos.
+const CONTA_GLOBAL = "17800000000000903";
 
 // A consulta REAL do Início, copiada aqui? NÃO — ela é importada da página no
 // Passo 3. Este arquivo a exercita, para que mudá-la lá quebre aqui.
@@ -29,17 +33,22 @@ async function comentario(conta: string, mediaId: string, quandoHorasAtras: numb
   );
 }
 
-async function automacao(conta: string, mediaId: string, ativa: boolean) {
+async function automacao(
+  conta: string,
+  mediaId: string | null,
+  ativa: boolean,
+  triggers: string[] = ["comment"]
+) {
   await banco.db().sql().query(
     `insert into automations (account_id, name, active, triggers, keywords, match_type, steps, media_id)
-     values ($1, 'de teste', $2, array['comment'], array[]::text[], 'contains', '[]'::jsonb, $3)`,
-    [conta, ativa, mediaId]
+     values ($1, 'de teste', $2, $4::text[], array[]::text[], 'contains', '[]'::jsonb, $3)`,
+    [conta, ativa, mediaId, triggers]
   );
 }
 
 beforeAll(async () => {
   mod = (await import("@/lib/oportunidades")) as ModuloInicio;
-  for (const c of [CONTA, VIZINHA]) {
+  for (const c of [CONTA, VIZINHA, CONTA_GLOBAL]) {
     await banco.db().upsertAccount({
       ig_user_id: c,
       username: "conta_" + c.slice(-3),
@@ -95,5 +104,30 @@ describe("oportunidades do Início", () => {
     );
     expect(achado?.comentarios).toBe(8);
     expect(achado?.ultimo).toBeInstanceOf(Date);
+  });
+
+  // ACHADO 1: `findMatch` (lib/engine.ts) trata `media_id` NULO como "vale
+  // para QUALQUER post" — é o que a tela do editor promete ("Sem post
+  // escolhido, vale para todos os posts"). `NULL = x` nunca é verdadeiro em
+  // SQL, então sem o `or a.media_id is null` a consulta não reconheceria essa
+  // automação, e o post cairia como órfão por baixo de uma cobertura real.
+  test("automação GLOBAL (media_id nulo) protege o post", async () => {
+    for (let i = 0; i < 8; i++) await comentario(CONTA_GLOBAL, "POST_GLOBAL", 2);
+    await automacao(CONTA_GLOBAL, null, true, ["comment"]);
+
+    const ids = (await mod.oportunidadesDaConta(CONTA_GLOBAL)).map((o) => o.mediaId);
+    expect(ids).not.toContain("POST_GLOBAL");
+  });
+
+  // ACHADO 2: `findMatch` exige `a.triggers.includes("comment")` antes de
+  // qualquer outra checagem. Uma automação ativa presa ao post mas que só
+  // dispara por DM não responde comentário nenhum — sem o
+  // `'comment' = any(a.triggers)` ela "protegeria" o post do mesmo jeito.
+  test("automação que não dispara por comentário NÃO protege", async () => {
+    for (let i = 0; i < 6; i++) await comentario(CONTA, "POST_SO_DM", 2);
+    await automacao(CONTA, "POST_SO_DM", true, ["dm"]);
+
+    const ids = (await mod.oportunidadesDaConta(CONTA)).map((o) => o.mediaId);
+    expect(ids).toContain("POST_SO_DM");
   });
 });

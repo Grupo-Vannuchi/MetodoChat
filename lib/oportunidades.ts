@@ -6,7 +6,7 @@ import type { Oportunidade } from "./precisa-de-voce";
 export const DIAS_DA_OPORTUNIDADE = 7;
 
 /**
- * OS POSTS QUE ESTÃO RECEBENDO COMENTÁRIO E NÃO TÊM AUTOMAÇÃO ATIVA.
+ * OS POSTS QUE ESTÃO RECEBENDO COMENTÁRIO E NÃO TÊM AUTOMAÇÃO QUE OS ALCANCE.
  *
  * O `media_id` VEM ANINHADO no payload do webhook (`payload->'media'->>'id'`), e
  * não como `payload->>'media_id'` — descoberto medindo em 14/09/2026, depois de
@@ -16,6 +16,39 @@ export const DIAS_DA_OPORTUNIDADE = 7;
  * responde ninguém, então o post continua órfão. Uma automação desligada que
  * "protegesse" o post esconderia exatamente o caso que esta tela existe para
  * mostrar.
+ *
+ * "ALCANÇAR" TEM DE BATER COM `findMatch` (lib/engine.ts:251-256), que é quem
+ * decide de verdade se uma automação responde um comentário. Dois pontos da
+ * consulta existem só para não divergir dele:
+ *
+ *   1. `media_id` NULO é GLOBAL, não "não bate com nada". `findMatch` só
+ *      recusa quando `a.media_id && a.media_id !== mediaId` — ou seja, uma
+ *      automação sem post escolhido vale para QUALQUER post (é o que
+ *      `app/automacoes/editor/painel.tsx` já diz na tela: "Sem post
+ *      escolhido, vale para todos os posts"). `NULL = x` nunca é verdadeiro em
+ *      SQL, então sem o `or a.media_id is null` toda automação global vira
+ *      invisível para esta consulta, e todo post da conta apareceria como
+ *      órfão por baixo de uma automação que na verdade os cobre. Medido em
+ *      produção em 15/09/2026: nenhuma automação global está ativa hoje (as
+ *      25 ativas estão presas a um post), então o defeito era latente — mas
+ *      arma sozinho no dia em que alguém criar uma.
+ *
+ *   2. `triggers` PRECISA conter `'comment'`. `findMatch` exige
+ *      `a.triggers.includes(trigger)` antes de qualquer outra checagem — uma
+ *      automação ativa presa a este post mas que só dispara por DM não
+ *      responde comentário nenhum, e sem este filtro ela "protegeria" o post
+ *      do mesmo jeito.
+ *
+ * O QUE ESTA CONSULTA DELIBERADAMENTE NÃO OLHA: PALAVRA-CHAVE. `findMatch`
+ * também roda `matches(text, a.keywords, a.match_type)`, e esta consulta não
+ * reproduz essa checagem — de propósito. A pergunta desta tela é "alguém
+ * configurou alguma coisa para escutar este post?", não "este comentário
+ * específico bateu com as palavras?". Um post com automação cujas palavras não
+ * casaram com um comentário específico não é um post órfão: é um post
+ * configurado, cujas palavras podem bater no próximo comentário. Tratar
+ * "palavra não bateu" como "órfão" faria a tela piscar consoante o texto de
+ * cada comentário, e não consoante o que a conta configurou. NÃO "conserte"
+ * essa divergência — ela é o contrato desta função, não um descuido.
  *
  * SEM PISO E SEM TETO AQUI, de propósito: os dois são decisão de PRODUTO e moram
  * em `recorteDasOportunidades` (lib/precisa-de-voce.ts), com casos puros. A
@@ -34,7 +67,8 @@ export async function oportunidadesDaConta(accountId: string): Promise<Oportunid
         and not exists (
           select 1 from automations a
            where a.account_id = e.account_id
-             and a.media_id = e.payload->'media'->>'id'
+             and (a.media_id is null or a.media_id = e.payload->'media'->>'id')
+             and 'comment' = any(a.triggers)
              and a.active
         )
       group by 1
