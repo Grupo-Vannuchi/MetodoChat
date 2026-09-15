@@ -101,13 +101,14 @@ export default async function EditarAutomacaoPage({
   // outra automação.
   //
   // TETO DE TEMPO NO CALL SITE — o mesmo padrão de app/page.tsx e
-  // app/automacoes/page.tsx: `graphFetch` (lib/ig.ts) não tem
-  // `AbortController` nem timeout próprio, e uma Graph API que aceita a
-  // conexão e nunca responde travaria o editor inteiro sem esta corrida.
-  // `resolvePosts` já tem `try/catch` interno e devolve mapa vazio quando a
-  // Meta falhar — o `try/catch` aqui é a segunda rede, para o que ele não
-  // cobre. Sem a capa, o editor abre igual: `media_caption` guardado é o
-  // recuo.
+  // app/automacoes/page.tsx. `graphFetch` (lib/ig.ts) já tem o TETO DA
+  // LEITURA (8s): a chamada por baixo não fica mais pendurada para sempre.
+  // Esta corrida é o teto da TELA por cima disso, mais apertado (2,5s) —
+  // perde a corrida, o editor abre sem a capa; a requisição por baixo segue e
+  // termina em no máximo 8s. `resolvePosts` já tem `try/catch` interno e
+  // devolve mapa vazio quando a Meta falhar — o `try/catch` aqui é a segunda
+  // rede, para o que ele não cobre. Sem a capa, o editor abre igual:
+  // `media_caption` guardado é o recuo.
   let doPost: PostRef | undefined;
   if (a.media_id) {
     const TETO_DO_POST_MS = 2500;

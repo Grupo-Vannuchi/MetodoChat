@@ -84,9 +84,79 @@ export class IgError extends Error {
   }
 }
 
+// O erro do TETO DA LEITURA, no mesmo espírito de `IgError` acima: carrega o
+// que aconteceu (`path`, `timeoutMs`), não só um `fetch failed` genérico que
+// não ajuda ninguém às 3h da manhã a distinguir "a Meta demorou" de "a Meta
+// respondeu errado" de "a rede caiu".
+export class IgTimeoutError extends Error {
+  path: string;
+  timeoutMs: number;
+  constructor(path: string, timeoutMs: number) {
+    super(
+      `Instagram API: leitura em ${path} não respondeu em ${timeoutMs}ms — abortada pelo teto da leitura (graphFetch)`
+    );
+    this.name = "IgTimeoutError";
+    this.path = path;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
+ * O TETO DE TEMPO DE UMA LEITURA na API do Instagram.
+ *
+ * Generoso de propósito: ele não existe para dar resposta rápida — para isso as
+ * telas têm o teto delas — e sim para que uma chamada pendurada TERMINE algum
+ * dia, em vez de segurar socket e memória até o processo morrer.
+ */
+export const TETO_DA_LEITURA_MS = 8000;
+
+// POR QUE O TETO SÓ VALE PARA LEITURA, E NÃO PARA TUDO.
+//
+// `graphFetch` é o caminho de ENVIO em produção, não só de leitura: serve
+// `sendMessage`, `replyToComment`, `sendReaction`, `criarContainer`,
+// `publicarContainer` e `subscribeToWebhooks`, tanto quanto serve `getMedia`,
+// `getProfile`, `getMediaById`, `getUserProfile`, `checkFollowsAccount` e
+// `getStories`.
+//
+// Abortar um POST que a Meta JÁ ACEITOU é pior do que esperar: o `AbortController`
+// derruba a conexão daqui, mas não desfaz o que já aconteceu do outro lado — a
+// mensagem pode já estar a caminho da pessoa. O dreno trataria o abort como
+// falha e tentaria de novo, e uma pessoa real receberia a mesma mensagem duas
+// vezes. Este produto já teve incidente de envio duplicado; um teto aplicado
+// cegamente a todo `graphFetch` reabriria exatamente essa porta.
+//
+// POR ISSO O CRITÉRIO É O MÉTODO, e não o nome da função: sem `init.method`, ou
+// `method` igual a `GET`, é leitura — o `fetch` nativo já trata a ausência de
+// `method` como GET, e é essa a mesma regra que `ehLeitura` segue abaixo.
+// Qualquer outro método (POST, DELETE) segue SEM teto, exatamente como hoje.
+//
+// Quem vier depois e achar isto "inconsistente" — por que só GET tem rede de
+// segurança? — deve reler o parágrafo acima antes de simplificar: a
+// inconsistência é a decisão, não um descuido.
+function ehLeitura(init: RequestInit | undefined): boolean {
+  return !init?.method || init.method.toUpperCase() === "GET";
+}
+
 async function graphFetch(path: string, init?: RequestInit): Promise<Json> {
-  const res = await fetch(`${baseDoGraph()}/${API_VERSION}${path}`, init);
-  const text = await res.text();
+  // Não atropela um `signal` que o chamador já tenha passado: hoje nenhuma
+  // chamada deste arquivo passa `signal` em `init`, mas sobrescrever calado é
+  // como se perde controle depois — quem passar o próprio `signal` continua
+  // dono dele, teto de leitura ou não.
+  const signal = init?.signal ?? (ehLeitura(init) ? AbortSignal.timeout(TETO_DA_LEITURA_MS) : undefined);
+  let res: Response;
+  let text: string;
+  try {
+    res = await fetch(`${baseDoGraph()}/${API_VERSION}${path}`, { ...init, signal });
+    text = await res.text();
+  } catch (e) {
+    // `AbortSignal.timeout(...)` rejeita com `TimeoutError` (não `AbortError`),
+    // e é essa distinção que deixa o teto identificável no log em vez de se
+    // perder num `fetch failed` que não diz se foi a rede, o DNS ou o teto.
+    if (!init?.signal && e instanceof Error && e.name === "TimeoutError") {
+      throw new IgTimeoutError(path, TETO_DA_LEITURA_MS);
+    }
+    throw e;
+  }
   if (!res.ok) throw new IgError(res.status, text);
   return text ? (JSON.parse(text) as Json) : {};
 }

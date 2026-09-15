@@ -51,13 +51,15 @@ export default async function AutomacoesPage({
   ];
   let capas = new Map<string, PostRef>();
   if (account && idsDosPosts.length) {
-    // TETO DE TEMPO NO CALL SITE, o mesmo padrão de app/page.tsx: `graphFetch`
-    // (lib/ig.ts) não tem `AbortController` nem timeout próprio, então uma
-    // Graph API que aceita a conexão e nunca responde travaria esta tela
-    // inteira sem esta corrida. `resolvePosts` já tem `try/catch` interno e
-    // devolve mapa parcial ou vazio quando a Meta falhar — o `try/catch` aqui
-    // é a segunda rede, para o que ele não cobre. Sem capa a lista renderiza
-    // igual; sem a tela, nada renderiza.
+    // TETO DE TEMPO NO CALL SITE, o mesmo padrão de app/page.tsx. `graphFetch`
+    // (lib/ig.ts) já tem o TETO DA LEITURA (8s): a chamada por baixo não fica
+    // mais pendurada para sempre. Esta corrida é o teto da TELA por cima
+    // disso, mais apertado (2,5s) — perde a corrida, a tela renderiza sem
+    // capa; a requisição por baixo segue e termina em no máximo 8s.
+    // `resolvePosts` já tem `try/catch` interno e devolve mapa parcial ou
+    // vazio quando a Meta falhar — o `try/catch` aqui é a segunda rede, para
+    // o que ele não cobre. Sem capa a lista renderiza igual; sem a tela, nada
+    // renderiza.
     const TETO_DA_CAPA_MS = 2500;
     // `idDoTimer` SAI DA CORRIDA porque `resolvePosts` normalmente ganha
     // antes do teto — e um `setTimeout` que ninguém cancela sobrevive ao

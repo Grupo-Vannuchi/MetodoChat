@@ -263,15 +263,15 @@ export default async function Home({
   // segunda rede, para o caso de `resolvePosts` lançar por algo que o
   // `try/catch` de dentro dele não cobre.
   //
-  // MAS `try/catch` SÓ COBRE REJEIÇÃO, E NÃO SILÊNCIO. `graphFetch` (lib/ig.ts)
-  // não usa `AbortController`, `signal` nem timeout — se a Graph API aceitar a
-  // conexão e nunca responder, o `await` trava aqui, e junto com ele o render
-  // inteiro do Início, que é a tela de maior frequência do painel. Por isso a
-  // corrida abaixo: um teto de tempo NO CALL SITE, e não dentro de
-  // `graphFetch`. `graphFetch` está no caminho de ENVIO em produção, e mexer
-  // nele nesta branch amplia a superfície de risco sem necessidade — o
-  // conserto amplo (timeout dentro de `graphFetch`, que resolveria `/eventos`
-  // também) fica como DÍVIDA DECLARADA, não esquecida.
+  // MAS `try/catch` SÓ COBRE REJEIÇÃO, E NÃO SILÊNCIO — POR ISSO A CORRIDA
+  // ABAIXO CONTINUA. `graphFetch` (lib/ig.ts) já tem o TETO DA LEITURA
+  // (`TETO_DA_LEITURA_MS`, 8s): uma chamada de leitura pendurada termina
+  // sozinha, em vez de travar para sempre. Mas 8s ainda é mais devagar do que
+  // esta tela — a de maior frequência do painel — deveria esperar, então a
+  // corrida abaixo continua valendo por outro motivo: ela é o teto da TELA,
+  // mais apertado (2,5s) que o teto da rede. Perde a corrida, a tela renderiza
+  // sem os nomes; a requisição por baixo segue e termina em no máximo 8s —
+  // não pendurada para sempre, como antes.
   const TETO_DO_NOME_DO_POST_MS = 2500;
   const escolhidas = recorteDasOportunidades(oportunidadesCruas);
   let nomes = new Map<string, PostRef>();
