@@ -28,6 +28,10 @@ export type AutomationRow = {
   match_type: string;
   created_at: string;
   thumb: string | null;
+  // A legenda do post, com recuo: o que a Meta devolveu agora, o que ficou
+  // guardado depois. Ela não expira — por isso continua identificando a linha
+  // quando a capa falha em resolver (ver app/automacoes/page.tsx).
+  postCaption: string | null;
 };
 
 const TRIGGER_META: Record<
@@ -246,11 +250,20 @@ export default function AutomationsList({ automations }: { automations: Automati
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={a.thumb}
-                      alt=""
+                      alt={a.postCaption ?? ""}
+                      title={a.postCaption ?? undefined}
                       className="h-11 w-11 shrink-0 rounded-xl border border-zinc-200 object-cover dark:border-zinc-700"
                     />
                   ) : (
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900">
+                    // SEM CAPA NÃO É IMAGEM QUEBRADA: quando a busca na Meta
+                    // não resolve a miniatura (capa expirada, post apagado,
+                    // rede fora), a linha cai aqui — ícone, e a legenda (que
+                    // não expira) como `title`, em vez de um `<img>` apontando
+                    // para uma URL que o navegador não vai conseguir carregar.
+                    <span
+                      title={a.postCaption ?? undefined}
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
+                    >
                       <IconZap className="h-5 w-5" />
                     </span>
                   )}
