@@ -43,6 +43,7 @@ import {
   urlDoBanco,
 } from "./banco-descartavel";
 import { migracoesEmOrdem } from "./migracoes";
+import { sslDaUrl } from "@/lib/conexao";
 
 const rodar = promisify(execFile);
 const RAIZ = fileURLToPath(new URL("..", import.meta.url));
@@ -56,7 +57,7 @@ beforeAll(async () => {
   schema = novoNomeDeSchema();
   await criarSchema(schema);
   urlDoTeste = urlComSchema(URL_ORIGINAL, schema);
-  leitor = postgres(urlDoTeste, { prepare: false, ssl: "require", max: 1 });
+  leitor = postgres(urlDoTeste, { prepare: false, ssl: sslDaUrl(urlDoTeste), max: 1 });
   // A trava de `banco-descartavel`: confere NO BANCO que o caminho é o schema
   // temporário sozinho. Se esta linha passar, nada abaixo alcança `public`.
   await conferirCaminho((texto) => leitor!.unsafe(texto), schema);

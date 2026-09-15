@@ -42,14 +42,47 @@ import {
   urlComSchema,
   urlDoBanco,
 } from "./banco-descartavel";
+import { alvoEBancoDeTeste } from "./banco-descartavel";
 import { aplicarMigracoes, exigirPastaInteira } from "./migracoes";
+import { sslDaUrl } from "@/lib/conexao";
 import {
+
+
   compararEstruturas,
   consultarPor,
   retratoEstrutural,
   tamanhoDoRetrato,
   type RetratoEstrutural,
 } from "./retrato-estrutural";
+
+// ESTE ARQUIVO SÓ RODA CONTRA A PRODUÇÃO, e pula em voz alta quando não é ela.
+//
+// O assunto dele é o `public` de PRODUÇÃO: se ele já recebeu tudo que a pasta de
+// migrações produz, e se as nove tabelas continuam lá. Contra o container local
+// (`docker-compose.yml`) a pergunta não se aplica — `public` nasce vazio a cada
+// rodada, e reprovar por isso seria ruído.
+//
+// PULAR CALADO SERIA PIOR. Quem rodar só contra o container precisa saber que
+// estas provas NÃO rodaram: elas continuam sendo condição para o merge.
+const SO_CONTRA_PRODUCAO = alvoEBancoDeTeste();
+
+// UM CASO QUE SÓ EXISTE QUANDO OS OUTROS PULAM, e o nome dele é o recado.
+//
+// QUEM ANUNCIA DE VERDADE É O `rede-global.ts`, e isso foi medido: o vitest
+// ENGOLE `console` da avaliação de módulo E de dentro de caso que passa — duas
+// tentativas antes desta. O `globalSetup` é o único canal desta suíte cujo texto
+// aparece sempre.
+//
+// ESTE CASO FICA MESMO ASSIM, por outro motivo: sem ele o arquivo iria a ZERO
+// casos quando pulasse, e um arquivo sem caso nenhum é indistinguível de um
+// arquivo que ninguém escreveu. E ele asserta de verdade: se `alvoEBancoDeTeste`
+// mentisse, reprovaria em vez de anunciar um pulo que não está acontecendo.
+it.runIf(SO_CONTRA_PRODUCAO)(
+  "PULADO: as provas deste arquivo são sobre o `public` de PRODUÇÃO",
+  () => {
+    expect(alvoEBancoDeTeste()).toBe(true);
+  }
+);
 
 // A URL é lida na avaliação do módulo, e sem `search_path`: este arquivo NÃO usa
 // a fundação do harness — ele cria e conduz o próprio schema, porque o que ele
@@ -68,7 +101,7 @@ beforeAll(async () => {
   semCaminho.searchParams.delete("search_path");
   leitor = postgres(semCaminho.toString(), {
     prepare: false,
-    ssl: "require",
+    ssl: sslDaUrl(semCaminho.toString()),
     max: 1,
     idle_timeout: 5,
     connect_timeout: 10,
@@ -82,7 +115,7 @@ beforeAll(async () => {
   try {
     escritor = postgres(urlComSchema(URL_ORIGINAL, nome), {
       prepare: false,
-      ssl: "require",
+      ssl: sslDaUrl(URL_ORIGINAL),
       max: 1,
       idle_timeout: 5,
       connect_timeout: 10,
@@ -126,7 +159,7 @@ async function retratoDoPublic(): Promise<RetratoEstrutural> {
   return retratoEstrutural(consultarPor(leitor!), "public");
 }
 
-it("o esquema que nasce da pasta tem substância — retrato vazio não passa por aqui", async () => {
+it.skipIf(SO_CONTRA_PRODUCAO)("o esquema que nasce da pasta tem substância — retrato vazio não passa por aqui", async () => {
   const t = tamanhoDoRetrato(await retratoDaPasta());
 
   // Os pisos são medidos, e não redondos: o esquema de hoje tem 8 tabelas, 99
@@ -139,7 +172,7 @@ it("o esquema que nasce da pasta tem substância — retrato vazio não passa po
   expect(t.restricoes, "restrições").toBeGreaterThanOrEqual(14);
 });
 
-it("o `public` de PRODUÇÃO não ficou para trás da pasta de migrações", async () => {
+it.skipIf(SO_CONTRA_PRODUCAO)("o `public` de PRODUÇÃO não ficou para trás da pasta de migrações", async () => {
   const daPasta = await retratoDaPasta();
   const doPublic = await retratoDoPublic();
 
@@ -178,7 +211,7 @@ it("o `public` de PRODUÇÃO não ficou para trás da pasta de migrações", asy
   ).toEqual([]);
 });
 
-it("a semente de config nasce das migrações, e rodar de novo NÃO troca o token", async () => {
+it.skipIf(SO_CONTRA_PRODUCAO)("a semente de config nasce das migrações, e rodar de novo NÃO troca o token", async () => {
   const antesDaSegunda = await retratoDaPasta();
   const antes = (await escritor!.unsafe(
     `select webhook_verify_token as t from config where id = 1`
@@ -212,7 +245,7 @@ it("a semente de config nasce das migrações, e rodar de novo NÃO troca o toke
   expect(divergencias, divergencias.join("\n")).toEqual([]);
 });
 
-it("o retrato DISCRIMINA: quebrar o schema de três jeitos fica vermelho, e desfazer fica verde", async () => {
+it.skipIf(SO_CONTRA_PRODUCAO)("o retrato DISCRIMINA: quebrar o schema de três jeitos fica vermelho, e desfazer fica verde", async () => {
   const bom = await retratoDaPasta();
   const b = soMigracoes!;
 

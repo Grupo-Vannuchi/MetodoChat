@@ -1,5 +1,6 @@
 import "server-only";
 import postgres from "postgres";
+import { sslDaUrl } from "./conexao";
 
 // Banco Postgres. Acesso só no servidor — a única credencial é a DATABASE_URL,
 // que nunca chega ao navegador.
@@ -118,7 +119,7 @@ export function sql(): Sql {
     }
     const cliente = postgres(limparUrl(url), {
       prepare: false,
-      ssl: "require",
+      ssl: sslDaUrl(url),
       // Com o DDL fora da aplicação, os dois códigos de ruído que a
       // idempotência produzia (42P07 "relation already exists" e 42701 "column
       // already exists") não têm mais como acontecer daqui. O filtro que os

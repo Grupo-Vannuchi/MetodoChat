@@ -1,0 +1,72 @@
+# O BANCO DA SUÍTE DE INTEGRAÇÃO — local, descartável, e de ninguém.
+#
+# POR QUE ELE EXISTE, medido em 15/09/2026: a suíte criava o schema temporário
+# DENTRO do banco de produção, e passou a morrer por falta de vaga de conexão.
+# A instância `micro` aceita 60 conexões com 3 reservadas, e o Supavisor — o
+# pooler que serve o painel — é um pool elástico que sozinho segurava 51. Três
+# rodadas seguidas morreram com "53300 - remaining connection slots are reserved
+# for roles with the SUPERUSER attribute", SEM uma única falha de asserção.
+#
+# Aqui a aritmética deixa de existir, e a suíte para de escrever no banco que
+# atende cliente.
+#
+# COMO USAR:
+#   npm run banco:teste          sobe e espera ficar pronto
+#   npm run test:integracao      roda a suíte (usa este banco se a variável
+#                                DATABASE_URL_TESTES apontar para ele)
+#   npm run banco:teste:parar    derruba e apaga tudo
+#
+# NADA AQUI É SEGREDO: usuário e senha são `postgres`, o banco vive em memória e
+# some quando o container para. Ele nunca é exposto para fora da máquina.
+
+services:
+  banco-de-teste:
+    # A MESMA VERSÃO MAIOR DA PRODUÇÃO, que roda `supabase-postgres-17.6.1.155`.
+    # Cravada de propósito: uma suíte que passa num Postgres diferente do de
+    # produção é uma suíte que pode ficar verde enquanto a produção quebra.
+    image: postgres:17.6-alpine
+    container_name: metodochat-banco-de-teste
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: metodochat_testes
+    ports:
+      # 5434, E A ESCOLHA FOI MEDIDA. Nesta máquina a 5432 já escuta (Postgres
+      # instalado) e a 5433 é do container `n8x-marketing-db`, que atende OUTRO
+      # produto da casa e estava de pé. Escolher porta "que parece livre" foi
+      # como este arquivo nasceu errado na primeira tentativa.
+      #
+      # O `127.0.0.1:` na frente não é enfeite: sem ele o Docker publica em
+      # 0.0.0.0 e o banco de teste passa a aceitar conexão de qualquer máquina
+      # da rede — com usuário e senha `postgres`.
+      - "127.0.0.1:5434:5432"
+    # OS DADOS VIVEM EM RAM. Some tudo quando o container para, que é
+    # exatamente o que se quer de um banco de teste — e tira o disco do
+    # caminho, que é onde o tempo de uma suíte de integração costuma ir.
+    tmpfs:
+      - /var/lib/postgresql/data
+    command:
+      - postgres
+      # O TETO DE CONEXÕES É O PROBLEMA QUE ISTO VEIO RESOLVER. 200 dá folga
+      # para a suíte inteira sem nenhuma aritmética.
+      - -c
+      - max_connections=200
+      # AS TRÊS LINHAS ABAIXO SERIAM IMPRUDENTES EM PRODUÇÃO e são corretas
+      # aqui: elas desligam as garantias de durabilidade contra queda de
+      # energia. Um banco cujos dados moram em RAM e são apagados de propósito
+      # não tem o que durar — e sem elas cada `insert` da suíte paga uma espera
+      # que não protege nada.
+      - -c
+      - fsync=off
+      - -c
+      - synchronous_commit=off
+      - -c
+      - full_page_writes=off
+    healthcheck:
+      # `--wait` do compose espera ISTO, e não o container "existir": o
+      # Postgres aceita conexão alguns segundos depois de o processo subir, e
+      # sem healthcheck a suíte tentaria conectar antes da hora.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d metodochat_testes"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

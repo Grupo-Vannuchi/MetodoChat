@@ -65,6 +65,7 @@
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import postgres from "postgres";
+import { sslDaUrl } from "@/lib/conexao";
 
 // ---------- Trava 1: o nome ----------
 
@@ -127,6 +128,22 @@ export function novoNomeDeSchema(): string {
 // no banco da produção sem nunca saber. Silenciar este aviso é desfazer a
 // decisão.
 // -----------------------------------------------------------------------------
+/**
+ * SE O ALVO É UM BANCO SÓ DA SUÍTE, e não o que atende gente.
+ *
+ * DOIS ARQUIVOS PRECISAM SABER DISSO, e não é detalhe de execução: o assunto
+ * deles é LITERALMENTE o `public` da produção — um confere se ele já recebeu
+ * todas as migrações da pasta, o outro se ele tem as nove tabelas. Contra um
+ * container recém-criado essas perguntas não têm resposta certa: não é que
+ * falhem, é que não se aplicam.
+ *
+ * ENTÃO ELES PULAM, E DIZEM QUE PULARAM. Uma suíte que ficasse verde escondendo
+ * que duas provas não rodaram seria pior do que uma que reprova.
+ */
+export function alvoEBancoDeTeste(): boolean {
+  return leia("DATABASE_URL_TESTES") !== null;
+}
+
 export function urlDoBanco(): string {
   const deTeste = leia("DATABASE_URL_TESTES");
   if (deTeste) return deTeste;
@@ -180,9 +197,10 @@ let _admin: postgres.Sql | null = null;
 
 function admin(): postgres.Sql {
   if (!_admin) {
-    _admin = postgres(urlSemSchema(urlDoBanco()), {
+    const url = urlSemSchema(urlDoBanco());
+    _admin = postgres(url, {
       prepare: false,
-      ssl: "require",
+      ssl: sslDaUrl(url),
       max: 1,
       idle_timeout: 5,
       connect_timeout: 10,

@@ -84,6 +84,7 @@ import postgres from "postgres";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { comandosDoArquivo, somaDoTexto, decidirMigracoes } from "./migracoes.mjs";
+import { sslDaUrl } from "../lib/conexao.ts";
 
 // Espelha `limparUrl` de lib/db.ts: cada fornecedor inventa o seu parâmetro de
 // URL (channel_binding no Neon, pgbouncer no Prisma), o postgres.js não conhece
@@ -339,7 +340,11 @@ function urlDoBanco() {
   return achado[1].trim().replace(/^["']|["']$/g, "");
 }
 
-const sql = postgres(limparUrl(urlDoBanco()), { prepare: false, ssl: "require", max: 1, onnotice: () => {} });
+// O `ssl` DEPENDE DO ALVO, e nao e mais cravado: a suite de integracao pode
+// rodar contra um Postgres local (docker-compose.yml), e a imagem oficial nao
+// serve TLS. A regra tem um dono so -- `sslDaUrl` (lib/conexao.ts).
+const urlDoAlvo = limparUrl(urlDoBanco());
+const sql = postgres(urlDoAlvo, { prepare: false, ssl: sslDaUrl(urlDoAlvo), max: 1, onnotice: () => {} });
 
 console.log(aplicar ? "MODO: APLICANDO (grava no banco)\n" : "MODO: ENSAIO A SECO (nada é gravado)\n");
 

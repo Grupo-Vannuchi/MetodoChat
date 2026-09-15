@@ -25,6 +25,37 @@ import {
   inventarioDoPublic,
   urlComSchema,
 } from "./banco-descartavel";
+import { alvoEBancoDeTeste } from "./banco-descartavel";
+
+// ESTE ARQUIVO SÓ RODA CONTRA A PRODUÇÃO, e pula em voz alta quando não é ela.
+//
+// O assunto dele é o `public` de PRODUÇÃO: se ele já recebeu tudo que a pasta de
+// migrações produz, e se as nove tabelas continuam lá. Contra o container local
+// (`docker-compose.yml`) a pergunta não se aplica — `public` nasce vazio a cada
+// rodada, e reprovar por isso seria ruído.
+//
+// PULAR CALADO SERIA PIOR. Quem rodar só contra o container precisa saber que
+// estas provas NÃO rodaram: elas continuam sendo condição para o merge.
+const SO_CONTRA_PRODUCAO = alvoEBancoDeTeste();
+
+// UM CASO QUE SÓ EXISTE QUANDO OS OUTROS PULAM, e o nome dele é o recado.
+//
+// QUEM ANUNCIA DE VERDADE É O `rede-global.ts`, e isso foi medido: o vitest
+// ENGOLE `console` da avaliação de módulo E de dentro de caso que passa — duas
+// tentativas antes desta. O `globalSetup` é o único canal desta suíte cujo texto
+// aparece sempre.
+//
+// ESTE CASO FICA MESMO ASSIM, por outro motivo: sem ele o arquivo iria a ZERO
+// casos quando pulasse, e um arquivo sem caso nenhum é indistinguível de um
+// arquivo que ninguém escreveu. E ele asserta de verdade: se `alvoEBancoDeTeste`
+// mentisse, reprovaria em vez de anunciar um pulo que não está acontecendo.
+test.runIf(SO_CONTRA_PRODUCAO)(
+  "PULADO: as provas deste arquivo são sobre o `public` de PRODUÇÃO",
+  () => {
+    expect(alvoEBancoDeTeste()).toBe(true);
+  }
+);
+
 
 const banco = bancoDescartavel();
 
@@ -55,7 +86,7 @@ const TABELAS_DAS_MIGRACOES = [
 // prestar, e desta vez o avisado fui eu.
 const TABELAS_DO_PUBLIC = [...TABELAS_DAS_MIGRACOES, "schema_migrations"];
 
-describe("a fundação do banco descartável", () => {
+describe.skipIf(SO_CONTRA_PRODUCAO)("a fundação do banco descartável", () => {
   test("recusa todo nome de schema que não seja teste_tmp_*", () => {
     const proibidos = [
       "public",

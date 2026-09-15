@@ -14,10 +14,39 @@
 // schema cujo nome case `teste_tmp_[a-z0-9_]{1,40}`.
 import {
   PREFIXO_OBRIGATORIO,
+  alvoEBancoDeTeste,
   destruirSchema,
   fecharAdmin,
   schemasTemporariosRestantes,
 } from "./banco-descartavel";
+
+/**
+ * O ALVO DA RODADA, dito em voz alta antes de qualquer caso.
+ *
+ * ELE MORA AQUI POR UMA RAZÃO MEDIDA em 15/09/2026, e não por gosto: o vitest
+ * ENGOLE `console` da avaliação de módulo E de dentro de caso que passa. Foram
+ * duas tentativas antes desta. O `globalSetup` é o único canal desta suíte cujo
+ * texto aparece sempre — as linhas "[rede-global] antes da rodada" provam isso
+ * em toda execução.
+ *
+ * E PRECISA APARECER: contra o banco de teste, DOIS arquivos pulam — os que
+ * provam o estado do `public` de PRODUÇÃO. Uma rodada verde escondendo que
+ * essas duas provas não rodaram é pior do que uma rodada vermelha.
+ */
+function anunciarOAlvo(): void {
+  if (alvoEBancoDeTeste()) {
+    console.log(
+      "[rede-global] ALVO: banco de TESTE (DATABASE_URL_TESTES). Os arquivos " +
+        "`fundacao` e `esquema-base` PULAM — eles provam o `public` de PRODUÇÃO. " +
+        "Rode sem DATABASE_URL_TESTES antes do merge."
+    );
+    return;
+  }
+  console.log(
+    "[rede-global] ALVO: o banco da DATABASE_URL — o MESMO que atende o painel. " +
+      "Todos os arquivos rodam, e a suíte disputa vaga de conexão com quem estiver usando."
+  );
+}
 
 async function recolher(quando: string): Promise<void> {
   const restantes = await schemasTemporariosRestantes();
@@ -34,6 +63,7 @@ async function recolher(quando: string): Promise<void> {
 }
 
 export async function setup(): Promise<void> {
+  anunciarOAlvo();
   // Antes: se sobrou coisa de uma rodada anterior, é melhor saber agora.
   try {
     await recolher("antes da rodada");
