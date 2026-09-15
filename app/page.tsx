@@ -18,7 +18,7 @@ import { oportunidadesDaConta } from "@/lib/oportunidades";
 import { fraseDoPulso, fraseDas24h } from "@/lib/pulso";
 import { resolvePosts, type PostRef } from "@/lib/media-lookup";
 import { fmtRelative } from "@/lib/format";
-import { card, btnPrimary, btnGhost, muted, link, alertError, alertOk, rowDivide, pageSubtitle } from "./ui";
+import { card, btnPrimary, btnGhost, muted, link, alertError, alertOk, rowDivide, badgeAcao } from "./ui";
 import { TracoDaJanela, PontoDaLinha } from "./traco-da-janela";
 import Avatar from "./avatar";
 
@@ -268,17 +268,37 @@ export default async function Home({
           )}
           <div>
             <h1 className="titulo text-2xl font-bold">Início</h1>
-            <p className={`mt-0.5 text-sm ${muted}`}>
-              {account
-                ? `@${account.username ?? account.ig_user_id}`
-                : "Comece conectando sua conta do Instagram"}
+            {/*
+              O "Reconectar" perde o lugar de honra: era renderizado SEMPRE
+              que existe conta — não é condicional a problema nenhum — e era
+              o único botão da tela, anunciando avaria numa conta saudável.
+              Ele vira link de texto discreto, ao lado do @usuário.
+            */}
+            <p className={`mt-0.5 flex flex-wrap items-center gap-2 text-sm ${muted}`}>
+              {account ? (
+                <>
+                  <span>@{account.username ?? account.ig_user_id}</span>
+                  <a href="/api/oauth/login" className={`text-xs ${link}`}>
+                    Reconectar
+                  </a>
+                </>
+              ) : (
+                "Comece conectando sua conta do Instagram"
+              )}
             </p>
           </div>
         </div>
         {account ? (
-          <a href="/api/oauth/login" className={btnGhost}>
-            Reconectar
-          </a>
+          // O QUE ENTRA NO LUGAR DO "RECONECTAR": as duas ações que esta tela
+          // realmente convida — publicar e automatizar.
+          <div className="flex items-center gap-2">
+            <Link href="/publicar/novo" className={btnPrimary}>
+              Criar post
+            </Link>
+            <Link href="/automacoes/nova" className={btnGhost}>
+              Nova automação
+            </Link>
+          </div>
         ) : (
           <Link href="/setup" className={btnPrimary}>
             {isMetaConfigured(config) ? "Continuar configuração" : "Começar configuração"}
@@ -286,17 +306,11 @@ export default async function Home({
         )}
       </header>
 
-      {/*
-        LUGAR PROVISÓRIO. `pulso` e `vinte4h` (lib/pulso.ts) ainda não têm
-        layout — a Tarefa 5 dá a elas o lugar definitivo, abaixo da lista de
-        "precisa de você". Aqui elas só existem para o `tsc` não reclamar de
-        variável calculada e não usada nesta tarefa.
-      */}
-      {account && (
-        <p className={pageSubtitle}>
-          {pulso} · {vinte4h}
-        </p>
-      )}
+      {/* O PULSO. Uma linha, sempre visível, inclusive quando está tudo bem:
+          silêncio não responde "está rodando?", porque silêncio é também o que
+          aparece quando a medição quebrou. Ela é discreta de propósito — não
+          compete com quem está esperando, que é o assunto principal da tela. */}
+      {account && <p className={`text-xs ${muted}`}>{pulso}</p>}
 
       {!account ? (
         <div className={`p-6 text-sm ${card} ${muted}`}>
@@ -364,11 +378,48 @@ export default async function Home({
                       {legendaDoPrazo(i.msLeft)}
                     </span>
                   )}
+                  {/* A LINHA DA OPORTUNIDADE SE DISTINGUE DA CONVERSA: o selo é
+                      a affordance, e a linha inteira já é o link para
+                      `/automacoes/nova?post=…` (Tarefa 1). */}
+                  {i.chave.startsWith("oportunidade:") && (
+                    <span className={`${badgeAcao} shrink-0`}>Criar automação</span>
+                  )}
                 </Link>
               </li>
             ))}
           </ul>
         </section>
+      )}
+
+      {/* AS DUAS COLUNAS, abaixo da lista de "Precisa de você" — o corpo que
+          faltava na tela: o que vem a seguir, e o que já aconteceu. */}
+      {account && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <section className={`p-4 ${card}`}>
+            <h2 className="titulo text-sm font-semibold">Adiante</h2>
+            {/* O "ADIANTE" NASCE SÓ COMO CONVITE, E É DÍVIDA DECLARADA: medido
+                em 14/09, a fila não tem NENHUM item pendente, de nenhum tipo.
+                Escrever a lista agora seria escrever código que nunca
+                renderizou uma linha — quando houver agendamento de verdade,
+                esta seção passa a listar até três, e a consulta entra na
+                Tarefa 3. */}
+            <p className={`mt-2 text-sm ${muted}`}>Nada agendado.</p>
+            <p className="mt-3 text-sm">
+              <Link href="/publicar/novo" className={link}>
+                Criar post →
+              </Link>
+            </p>
+          </section>
+          <section className={`p-4 ${card}`}>
+            <h2 className="titulo text-sm font-semibold">Nas últimas 24h</h2>
+            <p className={`mt-2 text-sm ${muted}`}>{vinte4h}</p>
+            <p className="mt-3 text-sm">
+              <Link href="/eventos" className={link}>
+                Ver a atividade →
+              </Link>
+            </p>
+          </section>
+        </div>
       )}
     </div>
   );
