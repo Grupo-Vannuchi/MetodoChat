@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { sql, Automation } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { ligacoesValidas, type Passo } from "@/lib/steps";
+import { resolvePosts, type PostRef } from "@/lib/media-lookup";
 import Quadro from "../editor/quadro";
 import type { Configuracao } from "../editor/painel";
 
@@ -81,6 +82,48 @@ export default async function EditarAutomacaoPage({
   const a = rows[0];
   if (!a) notFound();
 
+  // A CAPA DO POST NÃO VEM MAIS DO BANCO — a mesma regra de
+  // `app/automacoes/page.tsx` (a lista) e de `app/page.tsx` (o Início), e o
+  // motivo é o mesmo dos dois: `media_thumbnail_url` é uma URL assinada do CDN
+  // do Instagram que expira em ~2 semanas, e uma coluna que guarda algo com
+  // prazo de validade é uma coluna que mente com o tempo — parecer preenchida
+  // é o que esconde o problema. `lib/media-lookup.ts` já resolve isso na hora
+  // de exibir; o editor passa a seguir a mesma regra em vez de reler a coluna
+  // que apodrece.
+  //
+  // E ISTO FECHA UM SEGUNDO DEFEITO DE GRAÇA: uma automação criada a partir do
+  // Início (`/automacoes/nova?post=…`) grava só `media_id`
+  // (`criarAutomacao`, ../actions.ts) — `media_caption` e
+  // `media_thumbnail_url` nascem NULOS. Sem esta busca, o editor abria com o
+  // id numérico cru no lugar do nome (`MediaPicker`,
+  // `selected.caption || selected.id`, ../media-picker.tsx), porque lia
+  // colunas vazias. Buscando na hora, ela mostra a legenda como qualquer
+  // outra automação.
+  //
+  // TETO DE TEMPO NO CALL SITE — o mesmo padrão de app/page.tsx e
+  // app/automacoes/page.tsx: `graphFetch` (lib/ig.ts) não tem
+  // `AbortController` nem timeout próprio, e uma Graph API que aceita a
+  // conexão e nunca responde travaria o editor inteiro sem esta corrida.
+  // `resolvePosts` já tem `try/catch` interno e devolve mapa vazio quando a
+  // Meta falhar — o `try/catch` aqui é a segunda rede, para o que ele não
+  // cobre. Sem a capa, o editor abre igual: `media_caption` guardado é o
+  // recuo.
+  let doPost: PostRef | undefined;
+  if (a.media_id) {
+    const TETO_DO_POST_MS = 2500;
+    try {
+      const capas = await Promise.race([
+        resolvePosts(selected.ig_user_id, selected.access_token, [a.media_id]),
+        new Promise<Map<string, PostRef>>((resolve) =>
+          setTimeout(() => resolve(new Map()), TETO_DO_POST_MS)
+        ),
+      ]);
+      doPost = capas.get(a.media_id);
+    } catch (e) {
+      console.error("editor da automação: a capa do post falhou", e);
+    }
+  }
+
   // O GATILHO É O PRIMEIRO DE `triggers`, e o padrão é `dm`. A coluna é um
   // array por herança — automação antiga chegou a ter vários —, mas o editor
   // trabalha com um só, como o formulário também fazia. É o mesmo gatilho que
@@ -91,8 +134,15 @@ export default async function EditarAutomacaoPage({
     gatilho: a.triggers[0] ?? "dm",
     palavras: a.keywords,
     correspondencia: a.match_type,
+    // A LEGENDA GANHA UM RECUO: o que a Meta devolveu agora, o guardado
+    // depois. `media_caption` não expira, e é o nome que a pessoa reconhece
+    // quando a busca falha e a capa não chega.
     post: a.media_id
-      ? { id: a.media_id, thumb: a.media_thumbnail_url ?? "", caption: a.media_caption ?? "" }
+      ? {
+          id: a.media_id,
+          thumb: doPost?.thumb ?? "",
+          caption: doPost?.caption ?? a.media_caption ?? "",
+        }
       : null,
     story: a.story_id
       ? { id: a.story_id, thumb: a.story_thumbnail_url ?? "", caption: "" }

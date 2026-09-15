@@ -52,10 +52,13 @@
 // O array em si não tem elemento React dentro (é dado de linha: id, thumb,
 // legenda, string e boolean puros), então inspecioná-lo direto é seguro — o
 // mesmo motivo que `textoDaArvore` já invoca para não estourar.
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { bancoDescartavel } from "./harness";
 import { comoNumaRequisicao } from "./semear-requisicao";
 import type { AutomationRow } from "@/app/automacoes/list-client";
+import type { Configuracao } from "@/app/automacoes/editor/painel";
 
 const banco = bancoDescartavel();
 
@@ -63,11 +66,21 @@ const CONTA = "17900000000000901";
 // Inventado, não vale nada — a mesma disciplina de `nao-saiu.integracao.ts`.
 const TOKEN = "token-da-capa-que-nao-apodrece-que-nao-vale-nada";
 
+// Movida para o topo do arquivo (era local ao primeiro `describe`) porque a
+// Tarefa 2 a reusa no `describe` do editor, logo abaixo.
+const PODRE = "https://scontent.cdninstagram.com/v/expirada-ha-semanas.jpg";
+
 type ModuloTelaDeAutomacoes = typeof import("@/app/automacoes/page");
+type ModuloEditorDaAutomacao = typeof import("@/app/automacoes/[id]/page");
+type ModuloAcoes = typeof import("@/app/automacoes/actions");
 let telaDeAutomacoes: ModuloTelaDeAutomacoes;
+let editorDaAutomacao: ModuloEditorDaAutomacao;
+let acoes: ModuloAcoes;
 
 beforeAll(async () => {
   telaDeAutomacoes = (await import("@/app/automacoes/page")) as ModuloTelaDeAutomacoes;
+  editorDaAutomacao = (await import("@/app/automacoes/[id]/page")) as ModuloEditorDaAutomacao;
+  acoes = (await import("@/app/automacoes/actions")) as ModuloAcoes;
 
   await banco.db().upsertAccount({
     ig_user_id: CONTA,
@@ -89,7 +102,12 @@ let semente = 0;
 async function semearAutomacao(item: {
   mediaId: string;
   thumb: string | null;
-  caption: string;
+  // ACEITA `null` A PARTIR DA TAREFA 2: uma automação criada pelo Início
+  // (`/automacoes/nova?post=…`) grava só `media_id` — `media_caption` nasce
+  // NULO, não vazio. O caso que prova o segundo defeito ("id cru no lugar do
+  // nome") precisa semear exatamente essa forma, e não uma string vazia
+  // parecida com ela.
+  caption: string | null;
 }): Promise<string> {
   semente++;
   const linhas = (await banco
@@ -148,9 +166,122 @@ async function linhasDasAutomacoes(): Promise<AutomationRow[]> {
   return linhas;
 }
 
-describe("a capa de /automacoes não apodrece", () => {
-  const PODRE = "https://scontent.cdninstagram.com/v/expirada-ha-semanas.jpg";
+// -----------------------------------------------------------------------------
+// A TAREFA 2: O EDITOR (/automacoes/[id]) — E A MESMA ARMADILHA, OUTRO NOME.
+//
+// `Quadro` (app/automacoes/editor/quadro.tsx) é `"use client"`, e a página o
+// invoca UMA VEZ com a configuração inteira num prop só:
+// `<Quadro configuracaoInicial={configuracaoInicial} … />`. Pela mesma razão
+// que `acharLinhas` existe acima (ver o cabeçalho do arquivo): `textoDaArvore`
+// nunca executa `Quadro`, e um objeto não é string nem number, então
+// `configuracaoInicial` "some" do texto tanto com o defeito quanto sem ele —
+// um `not.toContain(PODRE)` ingênuo passaria SEMPRE, vazando ou não.
+//
+// A SAÍDA é a mesma: um achador que anda pela MESMA árvore, sem tocar `type`
+// de elemento nenhum, procurando o prop pelo NOME (`configuracaoInicial`) e
+// devolvendo-o inteiro. É seguro inspecionar direto — é dado puro (nome,
+// gatilho, post, story, …), sem elemento React dentro — e ele LANÇA quando não
+// acha, para a vacuidade virar erro e não verde falso.
+function acharConfiguracao(no: unknown): Configuracao | null {
+  if (no === null || no === undefined || typeof no !== "object") return null;
+  if (Array.isArray(no)) {
+    for (const filho of no) {
+      const achado = acharConfiguracao(filho);
+      if (achado) return achado;
+    }
+    return null;
+  }
+  const props = (no as { props?: Record<string, unknown> }).props;
+  if (!props || typeof props !== "object") return null;
+  if (props.configuracaoInicial && typeof props.configuracaoInicial === "object") {
+    return props.configuracaoInicial as Configuracao;
+  }
+  for (const valor of Object.values(props)) {
+    const achado = acharConfiguracao(valor);
+    if (achado) return achado;
+  }
+  return null;
+}
 
+/** A configuração que a página do editor passou para `Quadro`, para o id
+ * dado. Lança quando `acharConfiguracao` não a acha — mesmo motivo do `throw`
+ * em `linhasDasAutomacoes`, acima. */
+async function configuracaoDoEditor(id: string): Promise<Configuracao> {
+  const { valor } = await comoNumaRequisicao(`/automacoes/${id}`, () =>
+    editorDaAutomacao.default({ params: Promise.resolve({ id }) })
+  );
+  const configuracao = acharConfiguracao(valor);
+  if (!configuracao) {
+    throw new Error(
+      "`acharConfiguracao` não achou o prop `configuracaoInicial` na árvore do editor — " +
+        "a estrutura de app/automacoes/[id]/page.tsx (ou de Quadro) mudou, e este achador " +
+        "precisa acompanhar."
+    );
+  }
+  return configuracao;
+}
+
+/** O post da configuração do editor, em texto — no formato `chave=valor` de
+ * `textoDaArvore` (./texto-da-arvore.ts), para os casos poderem escrever
+ * `.toContain`/`.not.toContain` do mesmo jeito que fariam contra aquela
+ * leitura. */
+async function arvoreDoEditor(id: string): Promise<string> {
+  const { post } = await configuracaoDoEditor(id);
+  return [`post.id=${post?.id ?? ""}`, `post.thumb=${post?.thumb ?? ""}`, `post.caption=${post?.caption ?? ""}`].join(
+    "\n"
+  );
+}
+
+/** Chama `salvarAutomacao` (app/automacoes/actions.ts) com o mínimo de
+ * configuração válida para o post ser considerado — gatilho `"comment"` e
+ * correspondência `"any"`, para não exigir palavra-chave —, dentro do
+ * contexto de requisição que o Server Action precisa
+ * (`comoNumaRequisicao`, ./semear-requisicao.ts). Lança se a ação recusar,
+ * porque um caso que espera salvar com sucesso não tem o que fazer com uma
+ * recusa silenciosa. */
+async function salvarPelaAcao(args: {
+  id: string;
+  post: { id: string; thumb: string; caption: string };
+}): Promise<void> {
+  // Um bloco só, sem ligação nenhuma — o mínimo que `conferirLista`
+  // (lib/steps.ts) aceita no nível "salvar": lista vazia é recusada
+  // ("Sem nenhum bloco, a automação não envia nada."), e este arquivo não
+  // está medindo o motor, então o conteúdo do bloco não importa.
+  const PASSO_MINIMO = [{ id: "b_capa0001", tipo: "dm", texto: "Valeu por comentar!" }];
+  const { valor } = await comoNumaRequisicao(`/automacoes/${args.id}`, () =>
+    acoes.salvarAutomacao(args.id, PASSO_MINIMO, [], {
+      nome: "automação da capa que não apodrece (editor)",
+      ativo: false,
+      gatilho: "comment",
+      correspondencia: "any",
+      palavras: [],
+      entregaSemPortao: false,
+      post: args.post,
+    })
+  );
+  if (!valor.ok) {
+    throw new Error(`salvarPelaAcao falhou: ${(valor as { erro: string }).erro}`);
+  }
+}
+
+/** As três colunas que este arquivo inteiro mede: o id, a URL que apodrece e
+ * a legenda que não apodrece — lidas do banco, e não do que a ação devolveu. */
+async function lerAutomacao(id: string): Promise<{
+  media_id: string | null;
+  media_thumbnail_url: string | null;
+  media_caption: string | null;
+}> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(
+      `select media_id, media_thumbnail_url, media_caption from automations where id = $1`,
+      [id]
+    )) as { media_id: string | null; media_thumbnail_url: string | null; media_caption: string | null }[];
+  return linhas[0];
+}
+
+describe("a capa de /automacoes não apodrece", () => {
   test("a URL guardada no banco NÃO chega na tela", async () => {
     // A prova do defeito de 15/09/2026: 19 de 22 imagens quebradas em
     // /automacoes, porque a tela lia uma URL assinada que expira em ~2 semanas.
@@ -171,5 +302,126 @@ describe("a capa de /automacoes não apodrece", () => {
     // falhou, mas `media_caption` é o recuo guardado, e ele não tem prazo de
     // validade.
     expect(linhas.some((l) => l.postCaption === "Carrossel de teste")).toBe(true);
+  });
+});
+
+describe("a capa do EDITOR (/automacoes/[id]) não apodrece", () => {
+  test("o editor não usa a URL guardada, e mostra a legenda", async () => {
+    const idDaAutomacao = await semearAutomacao({
+      mediaId: "17900000000000002",
+      thumb: PODRE,
+      caption: "Carrossel Renner",
+    });
+
+    const arvore = await arvoreDoEditor(idDaAutomacao);
+
+    expect(arvore).not.toContain(PODRE);
+    expect(arvore).toContain("Carrossel Renner");
+  });
+
+  test("salvar NÃO grava mais a miniatura, e CONTINUA gravando a legenda", async () => {
+    // A legenda fica porque não expira e é o nome que a pessoa reconhece. A
+    // miniatura sai porque uma coluna que guarda coisa com prazo de validade
+    // mente com o tempo -- e parecer preenchida é o que esconde o problema.
+    const idDaAutomacao = await semearAutomacao({
+      mediaId: "17900000000000002",
+      thumb: null,
+      caption: null,
+    });
+
+    await salvarPelaAcao({
+      id: idDaAutomacao,
+      post: { id: "17900000000000002", thumb: PODRE, caption: "Renner" },
+    });
+
+    const linha = await lerAutomacao(idDaAutomacao);
+    expect(linha.media_thumbnail_url).toBeNull();
+    expect(linha.media_caption).toBe("Renner");
+    expect(linha.media_id).toBe("17900000000000002");
+  });
+});
+
+// -----------------------------------------------------------------------------
+// O SEGUNDO DEFEITO QUE A TAREFA 2 FECHA DE GRAÇA — E O ÚNICO BLOCO DESTE
+// ARQUIVO EM QUE A META RESPONDE DE VERDADE.
+//
+// O resto do arquivo mede o que acontece quando a Meta FALHA (ver o cabeçalho
+// no topo) — essa é a pergunta certa para a URL podre. Para este defeito a
+// pergunta é a OPOSTA: quando a Meta RESPONDE com a legenda de verdade, o
+// editor a usa em vez do id numérico cru que o Início
+// (`app/automacoes/nova?post=…` → `criarAutomacao`, ../actions.ts) grava
+// sozinho — aquela porta só grava `media_id`; `media_caption` e
+// `media_thumbnail_url` nascem NULOS.
+//
+// SEM A META RESPONDER NÃO HÁ COMO PROVAR ISTO. `MediaPicker`
+// (`selected.caption || selected.id`, ../media-picker.tsx) só cairia no id se
+// a legenda chegasse vazia — e ela chega vazia TANTO COM o defeito QUANTO SEM
+// ele quando a busca falha, porque `doPost?.caption ?? a.media_caption ?? ""`
+// dá `""` nos dois casos quando `doPost` é `undefined`. Os dois ficam
+// indistinguíveis nesse ramo — por isso o caso de cima ("a URL guardada")
+// não serve para este defeito, e por isso este bloco precisa da OUTRA
+// metade da promessa de `resolvePosts`: a que devolve dado de verdade.
+//
+// O MECANISMO é o mesmo de `testes-integracao/portao-link.integracao.ts`:
+// `IG_GRAPH_BASE` (lib/ig.ts) desvia `graphFetch` para um servidor HTTP desta
+// própria máquina, sob as duas travas descritas lá (`VITEST === "true"` e
+// loopback). NÃO é mock: o `fetch` é o do Node, de verdade — só a outra ponta
+// do fio muda, e só dentro deste `describe` (o `afterAll` a desfaz antes do
+// arquivo terminar).
+describe("a automação criada só com media_id (Início) não mostra o id cru", () => {
+  const ID_DO_POST_DO_INICIO = "17900000000000777";
+  const LEGENDA_DE_VERDADE = "Lançamento da coleção de verão";
+  let servidor: Server;
+  let pedidos: string[];
+
+  beforeAll(async () => {
+    pedidos = [];
+    servidor = createServer((req, res) => {
+      const u = new URL(req.url ?? "/", "http://127.0.0.1");
+      pedidos.push(u.pathname);
+      res.writeHead(200, { "content-type": "application/json" });
+      // `getMedia` (lib/ig.ts), a listagem que `resolvePosts` tenta primeiro.
+      if (u.pathname.endsWith(`/${CONTA}/media`)) {
+        res.end(
+          JSON.stringify({
+            data: [
+              {
+                id: ID_DO_POST_DO_INICIO,
+                media_type: "IMAGE",
+                media_url: "https://exemplo-do-teste.invalid/foto.jpg",
+                caption: LEGENDA_DE_VERDADE,
+                permalink: "https://instagram.com/p/exemplo-do-teste",
+              },
+            ],
+          })
+        );
+        return;
+      }
+      res.end(JSON.stringify({ data: [] }));
+    });
+    await new Promise<void>((pronto) => servidor.listen(0, "127.0.0.1", pronto));
+    const porta = (servidor.address() as AddressInfo).port;
+    process.env.IG_GRAPH_BASE = `http://127.0.0.1:${porta}`;
+  });
+
+  afterAll(async () => {
+    delete process.env.IG_GRAPH_BASE;
+    await new Promise<void>((pronto) => servidor.close(() => pronto()));
+  });
+
+  test("a legenda de verdade substitui o id cru quando a Meta responde", async () => {
+    const idDaAutomacao = await semearAutomacao({
+      mediaId: ID_DO_POST_DO_INICIO,
+      thumb: null,
+      caption: null,
+    });
+
+    const configuracao = await configuracaoDoEditor(idDaAutomacao);
+
+    // A prova de que a busca de fato aconteceu, e não que o valor "por acaso"
+    // já viria certo de outro jeito.
+    expect(pedidos.some((p) => p.endsWith(`/${CONTA}/media`))).toBe(true);
+    expect(configuracao.post?.caption).toBe(LEGENDA_DE_VERDADE);
+    expect(configuracao.post?.caption).not.toBe(ID_DO_POST_DO_INICIO);
   });
 });

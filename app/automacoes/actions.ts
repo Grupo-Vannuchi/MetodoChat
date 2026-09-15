@@ -341,7 +341,20 @@ export async function salvarAutomacao(
           palavras,
           correspondencia,
           post?.id ?? null,
-          post?.thumb ?? null,
+          // A MINIATURA PARA DE SER GRAVADA — `null` fixo, e não `post?.thumb`.
+          // `media_thumbnail_url` é uma URL assinada do CDN do Instagram que
+          // expira em ~2 semanas: uma coluna que guarda algo com prazo de
+          // validade é uma coluna que mente com o tempo, e parecer preenchida
+          // é o que esconde o problema (medido em produção, 15/09/2026: 19 de
+          // 22 miniaturas de /automacoes quebradas por isso). Quem mostra a
+          // capa agora é o editor, NA HORA de exibir
+          // (`app/automacoes/[id]/page.tsx`, via `lib/media-lookup.ts`), e não
+          // mais o banco. A COLUNA CONTINUA EXISTINDO — sem migração — só
+          // deixa de ser lida e de ser gravada.
+          null,
+          // `media_caption` CONTINUA sendo gravada: legenda não expira, e é o
+          // nome que a pessoa reconhece — o recuo para quando a busca na Meta
+          // não alcançar o post.
           post?.caption ?? null,
           story?.id ?? null,
           story?.thumb ?? null,
