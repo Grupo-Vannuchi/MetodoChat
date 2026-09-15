@@ -40,6 +40,14 @@ type Sql = {
 
 let _sql: Sql | null = null;
 
+// O CLIENTE CRU, guardado ao lado do invólucro, e SÓ para poder fechá-lo.
+//
+// `sql()` devolve um `Object.assign` com `query` e `begin` — de propósito, para
+// que os pontos de chamada não conheçam driver nenhum. O efeito colateral é que
+// não havia COMO fechar o pool pela superfície pública, e quem pagava por isso
+// era a suíte de integração. Ver `fecharPool`.
+let _cliente: postgres.Sql | null = null;
+
 // Cada fornecedor inventa o seu parâmetro de URL: o Neon manda channel_binding,
 // o Prisma manda pgbouncer. O postgres.js não conhece nenhum dos dois e os
 // repassa ao servidor como opção de conexão, que os recusa.
@@ -148,8 +156,35 @@ export function sql(): Sql {
           ) as Promise<T>,
       }
     );
+    _cliente = cliente;
   }
   return _sql;
+}
+
+/**
+ * FECHA O POOL. Serve à SUÍTE DE INTEGRAÇÃO, e nasceu de uma medição.
+ *
+ * O `afterAll` do harness derrubava o schema temporário e fechava a conexão de
+ * ADMINISTRAÇÃO — e não o pool que o próprio arquivo de teste abriu ao importar
+ * este módulo. Não por descuido: não havia como. O invólucro de `sql()` expõe
+ * `query` e `begin`, e nenhum `.end()`.
+ *
+ * O CUSTO, medido em 15/09/2026: `max` é 3, e a suíte tem 23 arquivos — até 69
+ * conexões acumuladas ao fim de uma rodada. O Postgres desta instância aceita
+ * 60, com 3 reservadas, e o Supavisor já segura ~51 para servir a produção. A
+ * rodada começou a morrer com **53300 — remaining connection slots are reserved
+ * for roles with the SUPERUSER attribute**, sem uma única falha de asserção.
+ *
+ * ELE NÃO É CHAMADO EM PRODUÇÃO, e não deve ser: lá a instância vive pouco e o
+ * `idle_timeout` de 20s já devolve a vaga. Fechar o pool no meio de uma
+ * requisição serverless só criaria reconexão.
+ */
+export async function fecharPool(): Promise<void> {
+  if (!_cliente) return;
+  const c = _cliente;
+  _cliente = null;
+  _sql = null;
+  await c.end({ timeout: 5 });
 }
 
 // ---------- Tipos ----------

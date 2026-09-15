@@ -115,6 +115,26 @@ export function bancoDescartavel(): BancoDescartavel {
     try {
       if (nome) await destruirSchema(nome);
     } finally {
+      // FECHA OS DOIS POOLS, e o segundo faltava.
+      //
+      // `fecharAdmin` sempre fechou a conexão de ADMINISTRAÇÃO (a que cria e
+      // derruba o schema). O pool do `lib/db` — o que o próprio arquivo de
+      // teste abre ao importá-lo — ficava aberto até o fim do processo.
+      //
+      // MEDIDO EM 15/09/2026: `max` é 3 e a suíte tem 23 arquivos, então uma
+      // rodada terminava com até 69 conexões vivas. A instância aceita 60, com
+      // 3 reservadas, e o Supavisor já segura ~51 para servir a produção. A
+      // suíte passou a morrer com "53300 - remaining connection slots are
+      // reserved for roles with the SUPERUSER attribute" — sem UMA falha de
+      // asserção. Era acumulo, e nao paralelismo: `fileParallelism` ja e false.
+      //
+      // O `try/catch` em volta é deliberado: um pool que não fecha não pode
+      // derrubar a rodada INTEIRA depois de todos os casos já terem passado.
+      try {
+        if (db) await db.fecharPool();
+      } catch (e) {
+        console.warn("[harness] o pool do lib/db não fechou:", e);
+      }
       await fecharAdmin();
     }
   });
