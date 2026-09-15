@@ -16,11 +16,18 @@ import {
 } from "@/lib/publicacao";
 import { oportunidadesDaConta } from "@/lib/oportunidades";
 import { fraseDoPulso, fraseDas24h } from "@/lib/pulso";
-// KINDS_MANUAIS É A LISTA DE VERDADE DE "QUEM DIGITOU ISSO FOI UMA PESSOA":
-// o pulso não pode escrever `'dm_manual'` de próprio punho, porque essa string
-// já mora em lib/envio-filters.ts (espelhada pelo SQL de Envios) — uma segunda
-// definição de "manual" neste repositório é a próxima divergência.
-import { KINDS_MANUAIS } from "@/lib/envio-filters";
+// KINDS_FORA_DA_ENTREGA_DO_MOTOR É A LISTA DE VERDADE DE "ISSO NÃO É O MOTOR
+// ENTREGANDO": o pulso não pode escrever `'dm_manual'` nem `'publicacao'` de
+// próprio punho, porque as duas strings já moram em lib/envio-filters.ts
+// (espelhadas pelo SQL de Envios) — uma segunda definição aqui é a próxima
+// divergência. STATUS_DE_FILA_VIVA é a mesma ideia para "o que ainda vai
+// sair" (mora ao lado, no mesmo arquivo).
+import { KINDS_FORA_DA_ENTREGA_DO_MOTOR, STATUS_DE_FILA_VIVA } from "@/lib/envio-filters";
+// TIPOS_DE_MENSAGEM_RECEBIDA É A MESMA LISTA QUE app/contatos/page.tsx e
+// app/contatos/actions.ts usam: os quatro `type` de evento que significam
+// "alguém falou com a conta". Escrevê-la à mão aqui foi o defeito medido em
+// 15/09/2026 — ver o comentário no próprio arquivo.
+import { TIPOS_DE_MENSAGEM_RECEBIDA } from "@/lib/event-filters";
 import { resolvePosts, type PostRef } from "@/lib/media-lookup";
 import { fmtRelative } from "@/lib/format";
 import { card, btnPrimary, btnGhost, muted, link, alertError, alertOk, rowDivide, badgeAcao } from "./ui";
@@ -106,8 +113,20 @@ export default async function Home({
         const linhas = (await sql().query(
           `select
                  (select count(*)::int from automations where account_id = $1 and active = true) as autos,
+                 -- "MENSAGENS ENTREGUES" NÃO CONTA POST PUBLICADO.
+                 --
+                 -- O DEFEITO, medido em producao em 15/09/2026: a tela de
+                 -- Desempenho dizia "Mensagens entregues: 5" e o motor tinha
+                 -- entregue 3 — os outros dois eram POSTS. Esta subconsulta
+                 -- nao tinha NENHUM filtro de kind, e e a mesma que alimenta o
+                 -- estado calmo do Inicio ("N mensagens entregues em 7 dias").
+                 -- A exclusao e a MESMA lista ($4) que o pulso ja usa logo
+                 -- abaixo, e nao uma segunda.
+                 -- (sem crases neste comentario: ele mora DENTRO de um template
+                 --  literal, e uma crase o fecharia no meio.)
                  (select count(*)::int from queue where account_id = $1 and status = 'sent'
-                    and sent_at > now() - interval '7 days') as sent7,
+                    and sent_at > now() - interval '7 days'
+                    and not (kind = any($4::text[]))) as sent7,
                  -- AS DUAS JANELAS SAO DIFERENTES DE PROPOSITO, e as duas sao
                  -- parametro: publicacao vai a 7 dias porque o modo de falha
                  -- declarado e "falha na sexta a noite, ninguem ve ate segunda";
@@ -139,30 +158,32 @@ export default async function Home({
                  --  o comentario mora dentro do template literal da consulta.)
                  --
                  -- O PULSO CONTA O QUE O MOTOR ENTREGOU SOZINHO, e por isso as
-                 -- duas subconsultas abaixo excluem os kinds MANUAIS ($4, a
-                 -- MESMA lista que lib/envio-filters.ts usa para a tela de
-                 -- Envios) e excluem 'publicacao': "dm_manual" e a resposta
-                 -- que uma PESSOA digitou na tela de conversa, e "publicacao" e
-                 -- post, nao mensagem. Sem este filtro, alguem respondendo a
-                 -- mao com o motor morto faria o pulso dizer "3 entregues hoje"
-                 -- - o silencio-que-parece-saude que este arquivo existe para
-                 -- fechar.
+                 -- duas subconsultas abaixo excluem UMA lista so ($4,
+                 -- KINDS_FORA_DA_ENTREGA_DO_MOTOR de lib/envio-filters.ts):
+                 -- "dm_manual" e a resposta que uma PESSOA digitou na tela de
+                 -- conversa, e "publicacao" e post, nao mensagem. Ate
+                 -- 15/09/2026 o "kind <> 'publicacao'" vinha escrito a mao ao
+                 -- lado do parametro — a MESMA divergencia que inflou
+                 -- "Mensagens entregues" em /desempenho. Sem este filtro,
+                 -- alguem respondendo a mao com o motor morto faria o pulso
+                 -- dizer "3 entregues hoje" - o silencio-que-parece-saude que
+                 -- este arquivo existe para fechar.
                  (select count(*)::int from queue
                    where account_id = $1 and status = 'sent'
                      and (sent_at at time zone 'America/Sao_Paulo')::date
                          = (now() at time zone 'America/Sao_Paulo')::date
-                     and not (kind = any($4::text[]))
-                     and kind <> 'publicacao') as entregues_hoje,
+                     and not (kind = any($4::text[]))) as entregues_hoje,
                  (select max(sent_at) from queue
                    where account_id = $1 and status = 'sent'
-                     and not (kind = any($4::text[]))
-                     and kind <> 'publicacao') as ultima_entrega,
+                     and not (kind = any($4::text[]))) as ultima_entrega,
                  -- "GUARDADO" E FILA VIVA (migrations/009-fila-estado-guardado.sql):
                  -- um lote inteiro pode estar esperando a pessoa voltar a
                  -- falar, e isso nao e "fila vazia". app/desempenho/page.tsx
-                 -- ja soma os dois estados pelo mesmo motivo.
+                 -- ja soma os dois estados pelo mesmo motivo, e os dois agora
+                 -- leem STATUS_DE_FILA_VIVA ($5, lib/envio-filters.ts) por
+                 -- parametro, e nao uma lista escrita a mao aqui.
                  (select count(*)::int from queue
-                   where account_id = $1 and status in ('pending', 'guardado')) as na_fila,
+                   where account_id = $1 and status = any($5::text[])) as na_fila,
                  -- AS 24H CONTAM EVENTOS, e o pulso conta a FILA. Ver o
                  -- comentario de fraseDas24h (lib/pulso.ts): os dois numeros
                  -- divergem de proposito, porque message_sent inclui a
@@ -173,11 +194,13 @@ export default async function Home({
                  -- QUATRO TIPOS SAO "mensagem recebida", e nao um: o motor
                  -- grava 'message', 'story_reply', 'quick_reply' e 'abertura'
                  -- (lib/engine.ts). A mesma lista ja vive em
-                 -- app/contatos/actions.ts e app/contatos/page.tsx — usada
-                 -- aqui pela terceira vez, e nao reinventada.
+                 -- app/contatos/actions.ts e app/contatos/page.tsx, e agora as
+                 -- tres leem TIPOS_DE_MENSAGEM_RECEBIDA ($6,
+                 -- lib/event-filters.ts) por parametro, em vez de cada uma
+                 -- escrever os quatro tipos a mao.
                  (select count(*)::int from events
                    where account_id = $1
-                     and type in ('message', 'story_reply', 'abertura', 'quick_reply')
+                     and type = any($6::text[])
                      and created_at > now() - interval '24 hours') as msg24,
                  (select count(*)::int from events
                    where account_id = $1 and type = 'message_sent'
@@ -187,7 +210,9 @@ export default async function Home({
             account.ig_user_id,
             DIAS_DE_AVISO_DA_PUBLICACAO,
             HORAS_DE_AVISO_DA_MENSAGEM,
-            Array.from(KINDS_MANUAIS),
+            Array.from(KINDS_FORA_DA_ENTREGA_DO_MOTOR),
+            Array.from(STATUS_DE_FILA_VIVA),
+            Array.from(TIPOS_DE_MENSAGEM_RECEBIDA),
           ]
         )) as Omit<Sinais, "medido">[];
         return linhas[0] ? { ...linhas[0], medido: true } : ZERO;

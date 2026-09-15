@@ -9,6 +9,12 @@ import { fmtDate } from "@/lib/format";
 // responde a uma pergunta diferente); esta quarta ninguém argumentou, e ela
 // vivia dentro do componente, sem teste.
 import { chaveDoDia, FUSO } from "@/lib/calendario";
+// AS MESMAS DUAS LISTAS QUE app/page.tsx JÁ LÊ POR PARÂMETRO, e não uma
+// segunda cópia: "Mensagens entregues" é o número que a tela pesou ERRADO em
+// produção (medido 15/09/2026, publicação contada como mensagem), e "Na fila"
+// tinha a mesma exclusão de KINDS_FORA_DA_ENTREGA_DO_MOTOR de um lado
+// (`sent7`) e nenhuma do outro — a mesma raiz, duas colunas desta tela.
+import { KINDS_FORA_DA_ENTREGA_DO_MOTOR, STATUS_DE_FILA_VIVA } from "@/lib/envio-filters";
 import { card, muted, link } from "../ui";
 import { StatCard, SentChart } from "../dashboard-parts";
 import { IconUsers, IconSend, IconZap, IconClock } from "../icons";
@@ -77,16 +83,29 @@ export default async function Desempenho() {
                  -- aqui e o que mantem "Na fila" contando o mesmo que contava
                  -- ontem: tudo o que ainda nao saiu. QUAL dos dois e cada um se
                  -- responde na tela de Envios, que tem o filtro "guardadas".
+                 -- A lista vem por parametro ($2, STATUS_DE_FILA_VIVA de
+                 -- lib/envio-filters.ts), e nao escrita a mao aqui.
                  -- (sem crases neste comentario: ele mora DENTRO de um template
                  --  literal, e uma crase o fecharia no meio.)
                  (select count(*)::int from queue where account_id = $1
-                    and status in ('pending','guardado')) as pending,
+                    and status = any($2::text[])) as pending,
+                 -- "MENSAGENS ENTREGUES" NAO CONTA POST PUBLICADO.
+                 --
+                 -- O DEFEITO, medido em producao em 15/09/2026: esta tela dizia
+                 -- "Mensagens entregues: 5" e o motor tinha entregue 3 — os
+                 -- outros dois eram POSTS. As duas subconsultas abaixo nao
+                 -- tinham NENHUM filtro de kind. A exclusao e a MESMA lista
+                 -- ($3, KINDS_FORA_DA_ENTREGA_DO_MOTOR de lib/envio-filters.ts)
+                 -- que app/page.tsx usa para o pulso do Inicio — a mesma
+                 -- subconsulta alimenta as duas telas.
                  (select count(*)::int from queue where account_id = $1 and status = 'sent'
-                    and sent_at > now() - interval '7 days') as sent7,
+                    and sent_at > now() - interval '7 days'
+                    and not (kind = any($3::text[]))) as sent7,
                  (select count(*)::int from queue where account_id = $1 and status = 'sent'
                     and sent_at > now() - interval '14 days'
-                    and sent_at <= now() - interval '7 days') as sent_prev7`,
-              [account.ig_user_id]
+                    and sent_at <= now() - interval '7 days'
+                    and not (kind = any($3::text[]))) as sent_prev7`,
+              [account.ig_user_id, Array.from(STATUS_DE_FILA_VIVA), Array.from(KINDS_FORA_DA_ENTREGA_DO_MOTOR)]
             )) as Counts[]
           )[0] ?? ZERO)
         : ZERO)(),

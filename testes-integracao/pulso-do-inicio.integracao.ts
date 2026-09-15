@@ -113,6 +113,20 @@ beforeAll(async () => {
     access_token: TOKEN,
     token_expires_at: null,
   });
+
+  // UMA AUTOMAÇÃO ATIVA, SEMEADA UMA VEZ SÓ — não é sobre o que o pulso mede,
+  // é sobre alcançar o ESTADO CALMO de verdade. `oQuePrecisaDeVoce`
+  // (lib/precisa-de-voce.ts) empurra "Nenhuma automação ativa" para a lista
+  // sempre que `automacoesAtivas === 0`, e com essa linha presente a tela
+  // NUNCA cai no ramo "Nada precisa de você agora" — o ramo que o Caso 6 lê.
+  // Sem esta automação, os cinco casos de cima continuam verdes (nenhum olha
+  // para `itens`), e o Caso 6 ficaria preso lendo a lista de avisos em vez do
+  // estado calmo.
+  await banco.db().sql().query(
+    `insert into automations (account_id, name, active, triggers, keywords, match_type, steps, media_id)
+     values ($1, 'automação do pulso', true, array['comment']::text[], array[]::text[], 'contains', '[]'::jsonb, null)`,
+    [CONTA]
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -308,5 +322,32 @@ describe("o pulso do Início (app/page.tsx) — a linha que substituiu contagem 
     // consulta do pulso nunca olha para essa ordem, só para as duas datas de
     // calendário.
     expect(painel).toContain("1 entregue hoje");
+  });
+
+  // =========================================================================
+  // CASO 6 — "N MENSAGENS ENTREGUES" NÃO CONTA POST PUBLICADO.
+  //
+  // O DEFEITO, medido em produção em 15/09/2026: `/desempenho` dizia "Mensagens
+  // entregues: 5" e o motor tinha entregue 3 — os outros dois eram POSTS. A
+  // MESMA subconsulta (`sent7`) alimenta o estado calmo do Início, que é onde
+  // este caso a lê, porque o Início é a tela que esta suíte já sabe renderizar.
+  //
+  // O ESTADO CALMO É A PORTA: a frase "N mensagens entregues em 7 dias" só
+  // aparece quando nada precisa do dono — por isso este caso limpa a fila
+  // antes e não semeia conversa esperando.
+  // =========================================================================
+  test("`N mensagens entregues` conta o motor, e não o post publicado", async () => {
+    await limparAFila();
+    await semear({ kind: "dm_link", status: "sent" });
+    await semear({ kind: "publicacao", status: "sent" });
+
+    const painel = await arvoreDoPainel();
+
+    // UM, e não dois: o post entregue não é uma mensagem entregue.
+    expect(painel).toContain("1 mensagem entregue");
+    // A ASSERÇÃO NEGATIVA NÃO É ENFEITE: sem ela, uma frase que dissesse "2
+    // mensagens entregues" e por acaso contivesse o texto acima passaria. Ela
+    // é o que separa "contou certo" de "contou errado e a substring casou".
+    expect(painel).not.toContain("2 mensagens entregues");
   });
 });

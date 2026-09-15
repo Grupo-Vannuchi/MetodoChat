@@ -28,6 +28,11 @@ import {
   BUSCA_MAX,
 } from "@/lib/busca-de-contatos";
 import { avisoDaUrl } from "@/lib/avisos";
+// OS QUATRO TIPOS DE "MENSAGEM RECEBIDA", DA MESMA FONTE que app/page.tsx e
+// ./actions.ts: esta lista morava em TRÊS lugares até 15/09/2026, e o
+// terceiro (app/page.tsx) nasceu com só um tipo — ver lib/event-filters.ts
+// para a medição completa.
+import { TIPOS_DE_MENSAGEM_RECEBIDA } from "@/lib/event-filters";
 import { atualizarPerfis, enviarLote, marcarCategoriaEmLote } from "./actions";
 import { MarcarTodas, ContadorDaSelecao } from "./selecao-client";
 import {
@@ -350,12 +355,12 @@ export default async function ContatosPage({
                 (select count(*)::int from events e
                   where e.account_id = c.account_id
                     and e.payload->'sender'->>'id' = c.ig_id
-                    and e.type in ('message','story_reply','abertura','quick_reply')) as recebidas
+                    and e.type = any($2::text[])) as recebidas
          from contacts c
          left join automations a on a.id = c.last_automation_id
          where c.account_id = $1
          order by c.first_contact_at desc`,
-        [account.ig_user_id]
+        [account.ig_user_id, Array.from(TIPOS_DE_MENSAGEM_RECEBIDA)]
       )) as Row[])
     : [];
 

@@ -23,6 +23,10 @@ import {
   idsSelecionados,
   normalizarCategoria,
 } from "@/lib/categorias";
+// OS QUATRO TIPOS DE "MENSAGEM RECEBIDA", DA MESMA FONTE que app/page.tsx e
+// ./page.tsx: ver lib/event-filters.ts para a medição de por que esta lista
+// não pode voltar a ser reescrita à mão.
+import { TIPOS_DE_MENSAGEM_RECEBIDA } from "@/lib/event-filters";
 
 /**
  * Preenche nome/@ dos contatos que ficaram salvos só com o número (IGSID),
@@ -169,9 +173,9 @@ export async function enviarLote(formData: FormData): Promise<void> {
             (select count(*)::int from events e
               where e.account_id = c.account_id
                 and e.payload->'sender'->>'id' = c.ig_id
-                and e.type in ('message','story_reply','abertura','quick_reply')) as recebidas
+                and e.type = any($2::text[])) as recebidas
        from contacts c where c.account_id = $1`,
-    [account.ig_user_id]
+    [account.ig_user_id, Array.from(TIPOS_DE_MENSAGEM_RECEBIDA)]
   )) as {
     ig_id: string;
     account_id: string;
