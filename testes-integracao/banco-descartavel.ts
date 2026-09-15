@@ -166,7 +166,21 @@ export function urlDoBanco(): string {
 function leia(nome: string): string | null {
   const doAmbiente = process.env[nome];
   if (doAmbiente) return doAmbiente;
-  const texto = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
+  // SEM `.env.local` NÃO É ERRO — é um ambiente legítimo: CI, container, uma
+  // máquina nova. Até aqui só `alvoEBancoDeTeste()` chamava `leia`, e ela
+  // chama de dentro de `urlDoBanco()`, que já tinha o caminho de
+  // `DATABASE_URL` no ambiente resolvendo ANTES de tocar o arquivo. Hoje
+  // `alvoEBancoDeTeste()` roda sozinha, no `globalSetup` e no topo de dois
+  // arquivos, sempre chamando `leia` — e com a URL só no ambiente (sem
+  // `.env.local`), um ENOENT aqui derrubava a suíte inteira, justamente no
+  // caminho que esta branch existe para destravar. O `catch` devolve `null`,
+  // do mesmo jeito que uma variável ausente do arquivo devolveria.
+  let texto: string;
+  try {
+    texto = readFileSync(new URL("../.env.local", import.meta.url), "utf8");
+  } catch {
+    return null;
+  }
   // O `=` NO PADRÃO É O QUE SEPARA AS DUAS VARIÁVEIS, e não a âncora: a linha
   // `DATABASE_URL_TESTES=…` começa com `DATABASE_URL` e a âncora sozinha
   // casaria nela. Quem a recusa é exigir `=` logo depois do nome. O `^` com

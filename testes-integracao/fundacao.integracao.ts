@@ -20,12 +20,12 @@
 import { describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
 import {
+  alvoEBancoDeTeste,
   compararInventarios,
   exigirPrefixo,
   inventarioDoPublic,
   urlComSchema,
 } from "./banco-descartavel";
-import { alvoEBancoDeTeste } from "./banco-descartavel";
 
 // ESTE ARQUIVO SÓ RODA CONTRA A PRODUÇÃO, e pula em voz alta quando não é ela.
 //
@@ -36,7 +36,7 @@ import { alvoEBancoDeTeste } from "./banco-descartavel";
 //
 // PULAR CALADO SERIA PIOR. Quem rodar só contra o container precisa saber que
 // estas provas NÃO rodaram: elas continuam sendo condição para o merge.
-const SO_CONTRA_PRODUCAO = alvoEBancoDeTeste();
+const ALVO_E_CONTAINER = alvoEBancoDeTeste();
 
 // UM CASO QUE SÓ EXISTE QUANDO OS OUTROS PULAM, e o nome dele é o recado.
 //
@@ -49,7 +49,7 @@ const SO_CONTRA_PRODUCAO = alvoEBancoDeTeste();
 // casos quando pulasse, e um arquivo sem caso nenhum é indistinguível de um
 // arquivo que ninguém escreveu. E ele asserta de verdade: se `alvoEBancoDeTeste`
 // mentisse, reprovaria em vez de anunciar um pulo que não está acontecendo.
-test.runIf(SO_CONTRA_PRODUCAO)(
+test.runIf(ALVO_E_CONTAINER)(
   "PULADO: as provas deste arquivo são sobre o `public` de PRODUÇÃO",
   () => {
     expect(alvoEBancoDeTeste()).toBe(true);
@@ -86,7 +86,7 @@ const TABELAS_DAS_MIGRACOES = [
 // prestar, e desta vez o avisado fui eu.
 const TABELAS_DO_PUBLIC = [...TABELAS_DAS_MIGRACOES, "schema_migrations"];
 
-describe.skipIf(SO_CONTRA_PRODUCAO)("a fundação do banco descartável", () => {
+describe.skipIf(ALVO_E_CONTAINER)("a fundação do banco descartável", () => {
   test("recusa todo nome de schema que não seja teste_tmp_*", () => {
     const proibidos = [
       "public",

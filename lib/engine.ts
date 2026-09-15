@@ -92,6 +92,10 @@ import {
 // união das quatro formas — as duas de `lib/publicacao.ts`, que não tem import
 // nenhum e roda também no navegador.
 import { payloadDaPublicacao, type FormaDePublicacao } from "./publicacao";
+// A DEFINIÇÃO DE "FILA VIVA" TEM UM DONO SÓ, e não é escrita à mão de novo
+// aqui: ver o comentário em `enqueueLote`, onde ela substitui
+// `status in ('pending','guardado')`.
+import { STATUS_DE_FILA_VIVA } from "./envio-filters";
 
 // ============================================================
 // Recepção: transforma eventos do webhook em itens na fila
@@ -2223,12 +2227,17 @@ export async function enqueueLote(
   // justamente o que mais precisa ser substituído — é o que está esperando há
   // dias. Listar só `pending` aqui deixaria a pessoa com DOIS itens vivos, o
   // velho e o novo, e ela receberia os dois quando voltasse a falar.
+  //
+  // A LISTA VEM POR PARÂMETRO ($4, STATUS_DE_FILA_VIVA de lib/envio-filters.ts),
+  // e não escrita à mão: era exatamente esta linha — `status in
+  // ('pending','guardado')` — que a revisão final achou como a quinta cópia da
+  // mesma definição, a única que morava em `lib/` em vez de numa tela.
   await sql().query(
     `update queue set status = 'skipped', error = 'substituido por um lote mais novo'
-      where account_id = $1 and kind = 'dm_lote' and status in ('pending','guardado')
+      where account_id = $1 and kind = 'dm_lote' and status = any($4::text[])
         and contact_ig_id = any($2::text[])
         and dedupe_key <> all($3::text[])`,
-    [accountId, contatos, chavesDestePedido]
+    [accountId, contatos, chavesDestePedido, Array.from(STATUS_DE_FILA_VIVA)]
   );
 
   let enfileirados = 0;

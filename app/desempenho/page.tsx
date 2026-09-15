@@ -113,12 +113,20 @@ export default async function Desempenho() {
     (async () =>
       account
         ? ((await sql().query(
+            // O MESMO DEFEITO DE `sent7`, ACHADO NA MESMA REVISÃO: esta consulta
+            // alimenta <SentChart>, que soma as barras exibidas embaixo do cartão
+            // "Mensagens entregues". Sem o filtro, o cartão (consertado acima)
+            // dizia "3" e o gráfico, na MESMA tela, somava "5" — post publicado
+            // contado como mensagem, só que embaixo em vez de em cima. A exclusão
+            // é a MESMA lista ($3, KINDS_FORA_DA_ENTREGA_DO_MOTOR), pelo mesmo
+            // motivo.
             `select to_char(sent_at at time zone $2, 'YYYY-MM-DD') as dia, count(*)::int as n
              from queue
              where account_id = $1 and status = 'sent'
                and sent_at > now() - interval '14 days'
+               and not (kind = any($3::text[]))
              group by 1`,
-            [account.ig_user_id, FUSO]
+            [account.ig_user_id, FUSO, Array.from(KINDS_FORA_DA_ENTREGA_DO_MOTOR)]
           )) as { dia: string; n: number }[])
         : [])(),
   ]);

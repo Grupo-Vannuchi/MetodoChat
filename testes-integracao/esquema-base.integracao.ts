@@ -35,6 +35,7 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
 import postgres from "postgres";
 import {
+  alvoEBancoDeTeste,
   conferirCaminho,
   criarSchema,
   destruirSchema,
@@ -42,12 +43,9 @@ import {
   urlComSchema,
   urlDoBanco,
 } from "./banco-descartavel";
-import { alvoEBancoDeTeste } from "./banco-descartavel";
 import { aplicarMigracoes, exigirPastaInteira } from "./migracoes";
 import { sslDaUrl } from "@/lib/conexao";
 import {
-
-
   compararEstruturas,
   consultarPor,
   retratoEstrutural,
@@ -64,7 +62,7 @@ import {
 //
 // PULAR CALADO SERIA PIOR. Quem rodar só contra o container precisa saber que
 // estas provas NÃO rodaram: elas continuam sendo condição para o merge.
-const SO_CONTRA_PRODUCAO = alvoEBancoDeTeste();
+const ALVO_E_CONTAINER = alvoEBancoDeTeste();
 
 // UM CASO QUE SÓ EXISTE QUANDO OS OUTROS PULAM, e o nome dele é o recado.
 //
@@ -77,7 +75,7 @@ const SO_CONTRA_PRODUCAO = alvoEBancoDeTeste();
 // casos quando pulasse, e um arquivo sem caso nenhum é indistinguível de um
 // arquivo que ninguém escreveu. E ele asserta de verdade: se `alvoEBancoDeTeste`
 // mentisse, reprovaria em vez de anunciar um pulo que não está acontecendo.
-it.runIf(SO_CONTRA_PRODUCAO)(
+it.runIf(ALVO_E_CONTAINER)(
   "PULADO: as provas deste arquivo são sobre o `public` de PRODUÇÃO",
   () => {
     expect(alvoEBancoDeTeste()).toBe(true);
@@ -113,9 +111,16 @@ beforeAll(async () => {
   soMigracoes = nome;
 
   try {
-    escritor = postgres(urlComSchema(URL_ORIGINAL, nome), {
+    // A URL PASSADA A `sslDaUrl` É A MESMA QUE CONECTA, e não `URL_ORIGINAL`
+    // solta: mesmo host, então na prática o `ssl` sai igual hoje — mas as
+    // outras três chamadas deste arquivo (`leitor` acima, e as duas de
+    // `banco-descartavel.ts`) já seguem essa regra, e destoar aqui era um
+    // descompasso à espera de um dia em que a URL COM schema e a URL crua
+    // decidissem `ssl` de jeitos diferentes.
+    const urlDoEscritor = urlComSchema(URL_ORIGINAL, nome);
+    escritor = postgres(urlDoEscritor, {
       prepare: false,
-      ssl: sslDaUrl(URL_ORIGINAL),
+      ssl: sslDaUrl(urlDoEscritor),
       max: 1,
       idle_timeout: 5,
       connect_timeout: 10,
@@ -159,7 +164,7 @@ async function retratoDoPublic(): Promise<RetratoEstrutural> {
   return retratoEstrutural(consultarPor(leitor!), "public");
 }
 
-it.skipIf(SO_CONTRA_PRODUCAO)("o esquema que nasce da pasta tem substância — retrato vazio não passa por aqui", async () => {
+it.skipIf(ALVO_E_CONTAINER)("o esquema que nasce da pasta tem substância — retrato vazio não passa por aqui", async () => {
   const t = tamanhoDoRetrato(await retratoDaPasta());
 
   // Os pisos são medidos, e não redondos: o esquema de hoje tem 8 tabelas, 99
@@ -172,7 +177,7 @@ it.skipIf(SO_CONTRA_PRODUCAO)("o esquema que nasce da pasta tem substância — 
   expect(t.restricoes, "restrições").toBeGreaterThanOrEqual(14);
 });
 
-it.skipIf(SO_CONTRA_PRODUCAO)("o `public` de PRODUÇÃO não ficou para trás da pasta de migrações", async () => {
+it.skipIf(ALVO_E_CONTAINER)("o `public` de PRODUÇÃO não ficou para trás da pasta de migrações", async () => {
   const daPasta = await retratoDaPasta();
   const doPublic = await retratoDoPublic();
 
@@ -211,7 +216,7 @@ it.skipIf(SO_CONTRA_PRODUCAO)("o `public` de PRODUÇÃO não ficou para trás da
   ).toEqual([]);
 });
 
-it.skipIf(SO_CONTRA_PRODUCAO)("a semente de config nasce das migrações, e rodar de novo NÃO troca o token", async () => {
+it.skipIf(ALVO_E_CONTAINER)("a semente de config nasce das migrações, e rodar de novo NÃO troca o token", async () => {
   const antesDaSegunda = await retratoDaPasta();
   const antes = (await escritor!.unsafe(
     `select webhook_verify_token as t from config where id = 1`
@@ -245,7 +250,7 @@ it.skipIf(SO_CONTRA_PRODUCAO)("a semente de config nasce das migrações, e roda
   expect(divergencias, divergencias.join("\n")).toEqual([]);
 });
 
-it.skipIf(SO_CONTRA_PRODUCAO)("o retrato DISCRIMINA: quebrar o schema de três jeitos fica vermelho, e desfazer fica verde", async () => {
+it.skipIf(ALVO_E_CONTAINER)("o retrato DISCRIMINA: quebrar o schema de três jeitos fica vermelho, e desfazer fica verde", async () => {
   const bom = await retratoDaPasta();
   const b = soMigracoes!;
 
