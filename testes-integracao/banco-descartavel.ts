@@ -166,6 +166,22 @@ export function urlDoBanco(): string {
 function leia(nome: string): string | null {
   const doAmbiente = process.env[nome];
   if (doAmbiente) return doAmbiente;
+
+  // VAZIO NO AMBIENTE É UM PEDIDO, E NÃO UMA AUSÊNCIA — e isto nasceu de um beco
+  // sem saída medido em 15/09/2026.
+  //
+  // A suíte anuncia, em toda rodada contra o container, "rode sem
+  // DATABASE_URL_TESTES antes do merge", porque dois arquivos pulam ali. Só que
+  // depois de a linha entrar no `.env.local` isso deixou de ser POSSÍVEL: um
+  // `DATABASE_URL_TESTES= npm run test:integracao` dá string vazia, que é
+  // falsa, e a leitura caía no arquivo e achava a linha de novo. O instrumento
+  // mandava fazer o que ele mesmo impedia, e a única saída era comentar a linha
+  // à mão antes de todo merge.
+  //
+  // Com isto, `VARIAVEL= comando` significa "esqueça o arquivo, para esta
+  // rodada" — que é o que qualquer um espera de uma variável de ambiente posta
+  // vazia de propósito.
+  if (nome in process.env) return null;
   // SEM `.env.local` NÃO É ERRO — é um ambiente legítimo: CI, container, uma
   // máquina nova. Até aqui só `alvoEBancoDeTeste()` chamava `leia`, e ela
   // chama de dentro de `urlDoBanco()`, que já tinha o caminho de
