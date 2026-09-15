@@ -92,11 +92,18 @@ export class IgTimeoutError extends Error {
   path: string;
   timeoutMs: number;
   constructor(path: string, timeoutMs: number) {
+    // O `access_token` VIAJA NA QUERY de quase toda leitura deste arquivo, e esta
+    // mensagem cai em três lugares que NÃO passam por `semSegredo`: a coluna
+    // `error` da fila (lib/queue-drain.ts, que a tela de Envios mostra), o
+    // `fail()` do callback do OAuth (que devolve o texto na query de
+    // /setup?erro=) e o `console.error` das telas. Cortar aqui vale para os três;
+    // cortar em cada um deles seria lembrar de três vezes, para sempre.
+    const semQuery = path.split("?")[0];
     super(
-      `Instagram API: leitura em ${path} não respondeu em ${timeoutMs}ms — abortada pelo teto da leitura (graphFetch)`
+      `Instagram API: leitura em ${semQuery} não respondeu em ${timeoutMs}ms — abortada pelo teto da leitura (graphFetch)`
     );
     this.name = "IgTimeoutError";
-    this.path = path;
+    this.path = semQuery;
     this.timeoutMs = timeoutMs;
   }
 }
@@ -107,6 +114,16 @@ export class IgTimeoutError extends Error {
  * Generoso de propósito: ele não existe para dar resposta rápida — para isso as
  * telas têm o teto delas — e sim para que uma chamada pendurada TERMINE algum
  * dia, em vez de segurar socket e memória até o processo morrer.
+ *
+ * LACUNA DECLARADA: `exchangeForLongLivedToken` e `refreshLongLivedToken` (logo
+ * abaixo) são GET sem teto nenhum — a segunda roda no cron diário
+ * (`app/api/cron/daily/route.ts`), fora do try/catch de leitura que este
+ * arquivo protege. Não passam por `graphFetch` de propósito: elas chamam
+ * `/access_token` e `/refresh_access_token` na RAIZ de `baseDoGraph()`, sem o
+ * `/${API_VERSION}` que `graphFetch` sempre insere entre a base e o caminho —
+ * encaixar as duas ali mudaria a URL de verdade (`/access_token` viraria
+ * `/v25.0/access_token`), e é exatamente o tipo de troca que não se testa só
+ * lendo o código.
  */
 export const TETO_DA_LEITURA_MS = 8000;
 

@@ -265,13 +265,16 @@ export default async function Home({
   //
   // MAS `try/catch` SÓ COBRE REJEIÇÃO, E NÃO SILÊNCIO — POR ISSO A CORRIDA
   // ABAIXO CONTINUA. `graphFetch` (lib/ig.ts) já tem o TETO DA LEITURA
-  // (`TETO_DA_LEITURA_MS`, 8s): uma chamada de leitura pendurada termina
-  // sozinha, em vez de travar para sempre. Mas 8s ainda é mais devagar do que
-  // esta tela — a de maior frequência do painel — deveria esperar, então a
-  // corrida abaixo continua valendo por outro motivo: ela é o teto da TELA,
-  // mais apertado (2,5s) que o teto da rede. Perde a corrida, a tela renderiza
-  // sem os nomes; a requisição por baixo segue e termina em no máximo 8s —
-  // não pendurada para sempre, como antes.
+  // (`TETO_DA_LEITURA_MS`, 8s por requisição): uma chamada de leitura
+  // pendurada termina sozinha, em vez de travar para sempre. Mas 8s por
+  // requisição ainda é mais devagar do que esta tela — a de maior frequência
+  // do painel — deveria esperar, então a corrida abaixo continua valendo por
+  // outro motivo: ela é o teto da TELA, mais apertado (2,5s) que o teto da
+  // rede. Perde a corrida, a tela renderiza sem os nomes; a requisição por
+  // baixo segue — `resolvePosts` (lib/media-lookup.ts) encadeia duas etapas
+  // sequenciais (`getMedia`, depois um `Promise.allSettled` de até 8
+  // `getMediaById`), então o pior caso por baixo é ~16s, não 8 — não pendurada
+  // para sempre, como antes.
   const TETO_DO_NOME_DO_POST_MS = 2500;
   const escolhidas = recorteDasOportunidades(oportunidadesCruas);
   let nomes = new Map<string, PostRef>();

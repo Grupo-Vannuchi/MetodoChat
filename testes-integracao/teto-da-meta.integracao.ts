@@ -7,9 +7,13 @@
 // `graphFetch` (lib/ig.ts) fazia `await fetch(...)` sem `AbortController`, sem
 // `signal`, sem timeout nenhum. Se a Meta aceitasse a conexão e não
 // respondesse, a chamada ficava pendurada para sempre — segurando socket e
-// memória até o processo morrer. `/eventos`, `/` e `/automacoes` já cercavam
-// isso com um `Promise.race` de 2500ms NO CALL SITE, mas aquilo fazia a TELA
-// responder sem abortar a requisição de verdade, que seguia viva atrás dela.
+// memória até o processo morrer. `/` e `/automacoes` já cercavam isso com um
+// `Promise.race` de 2500ms NO CALL SITE, mas aquilo fazia a TELA responder sem
+// abortar a requisição de verdade, que seguia viva atrás dela. `/eventos`
+// NUNCA teve essa corrida — chama `resolvePosts` cru — e era a dívida
+// declarada no comentário antigo de `app/page.tsx` ("conserto amplo, que
+// resolveria /eventos também, fica como dívida declarada"). É essa dívida que
+// o teto em `graphFetch` paga agora, para as quatro chamadas ao mesmo tempo.
 //
 // -----------------------------------------------------------------------------
 // POR QUE O TETO SÓ VALE PARA LEITURA — E É ISSO QUE ESTE ARQUIVO PROVA
@@ -66,11 +70,21 @@ const FOLGA_MS = 3000;
 let servidor: Server;
 const socketsAbertos = new Set<Socket>();
 
+// QUANTOS PEDIDOS O SERVIDOR RECEBEU DE VERDADE. Sem isto, o caso do envio só
+// provava que `sendMessage` não retornou dentro da janela — um `sendMessage`
+// que travasse ANTES de sequer conectar (erro de DNS, `fetch` que nunca sai da
+// fila de eventos, …) passaria pelo mesmo jeito, sem provar que o POST chegou
+// a este servidor. Contado no evento `request` (dispara só quando o Node
+// termina de receber a requisição inteira), e zerado no início de cada caso
+// que o usa — este servidor é compartilhado pelos dois testes do arquivo.
+let pedidos = 0;
+
 beforeAll(async () => {
   servidor = createServer((_req, _res) => {
     // De propósito: nada aqui. Nem `res.writeHead`, nem `res.write`, nem
     // `res.end`. A conexão fica aberta e muda.
   });
+  servidor.on("request", () => pedidos++);
   servidor.on("connection", (socket) => {
     socketsAbertos.add(socket);
     socket.on("close", () => socketsAbertos.delete(socket));
@@ -115,6 +129,13 @@ describe("o teto de tempo de uma leitura na API do Instagram", () => {
     expect(mensagem).toContain("não respondeu");
     expect(mensagem).toContain(String(TETO_DA_LEITURA_MS));
     expect(mensagem).toContain("17900000000000001");
+    // O ACHADO DE SEGURANÇA: `getMediaById` põe `access_token` na query
+    // (`?...&access_token=${TOKEN}`), e `IgTimeoutError` cortava o `path`
+    // inteiro para dentro da mensagem — que cai em lugares que NÃO apagam
+    // segredo (a coluna `error` da fila, o `fail()` do callback do OAuth, o
+    // `console.error` das telas). Devolver o `path` inteiro aqui, sem cortar a
+    // query, deixa este caso VERMELHO.
+    expect(mensagem).not.toContain(TOKEN);
   }, TETO_DA_LEITURA_MS + FOLGA_MS + 5000);
 
   test("um ENVIO não desiste — continua pendurado depois do teto de leitura", async () => {
@@ -124,6 +145,11 @@ describe("o teto de tempo de uma leitura na API do Instagram", () => {
     // janela, o teto estaria vazando para o envio, e é exatamente esse
     // vazamento que duplicaria mensagem para uma pessoa real.
     const JANELA_MS = TETO_DA_LEITURA_MS + FOLGA_MS;
+    // Zerado aqui, e não só declarado lá em cima: o caso da leitura, que roda
+    // antes, já fez um pedido contra o mesmo servidor. Sem zerar, a asserção
+    // de `pedidos` no fim deste caso passaria mesmo que `sendMessage` nunca
+    // saísse do processo.
+    pedidos = 0;
     let idDoTimer: ReturnType<typeof setTimeout> | undefined;
     const timerVenceu = new Promise<"timer">((resolve) => {
       idDoTimer = setTimeout(() => resolve("timer"), JANELA_MS);
@@ -142,5 +168,11 @@ describe("o teto de tempo de uma leitura na API do Instagram", () => {
     clearTimeout(idDoTimer);
 
     expect(vencedor).toBe("timer");
+    // A PROVA QUE FALTAVA: sem isto, um `sendMessage` que travasse ANTES de
+    // conectar (por exemplo, um erro na montagem da requisição) venceria a
+    // mesma corrida do mesmo jeito — "continuar pendurado" não é a mesma coisa
+    // que "o POST chegou". `pedidos` conta o evento `request` do servidor
+    // mudo, que só dispara quando o Node recebeu a requisição inteira.
+    expect(pedidos).toBeGreaterThan(0);
   }, TETO_DA_LEITURA_MS + FOLGA_MS + 5000);
 });
