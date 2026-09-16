@@ -55,8 +55,15 @@ type QueueRow = QueueItem & {
   person_pic: string | null;
 };
 
-// Quantos posts o seletor oferece. Mais que isso vira parede de miniaturas e
-// estoura o teto de buscas avulsas do resolvePosts().
+// Quantos posts o seletor oferece. Mais que isso vira parede de miniaturas —
+// e esse é o motivo inteiro, hoje.
+//
+// A METADE QUE SAIU DAQUI ("estoura o teto de buscas avulsas do resolvePosts()")
+// era FALSA antes desta branch e ficou mais falsa agora: o teto nunca foi 12,
+// era 8 — 12 já o estourava quando a frase foi escrita — e hoje
+// `MAX_INDIVIDUAL_LOOKUPS` (lib/media-lookup.ts) é 32. Um comentário que
+// explica um número com uma restrição que não existe convida a mexer no número
+// pelo motivo errado.
 const POSTS_NO_SELETOR = 12;
 
 export default async function EventosPage({
