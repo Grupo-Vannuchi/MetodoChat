@@ -179,7 +179,22 @@ async function finish(
        sent_at = coalesce($3, sent_at),
        not_before = case when $4::int is null then not_before
                           else now() + make_interval(secs => $4::int) end,
-       error = coalesce($5, error),
+       -- SUCESSO APAGA O ERRO DA TENTATIVA ANTERIOR, e o coalesce sozinho nao
+       -- fazia isso. Um item que falha guarda o motivo na coluna error; quando
+       -- o dreno tenta de novo e DA CERTO, finish e chamado sem error, e o
+       -- coalesce(null, error) PRESERVAVA o motivo antigo. A linha ficava
+       -- 'sent' com uma queixa colada, e as telas que mostram error passavam a
+       -- acusar falha num envio que deu certo.
+       --
+       -- MEDIDO em producao em 16/09/2026: 1 linha 'sent' de 245 carregava
+       -- "a Meta ainda esta processando a midia" com attempts = 2 -- uma
+       -- publicacao que o dreno republicou com sucesso e que a tela continuava
+       -- chamando de problema.
+       --
+       -- SO 'sent' limpa. 'skipped' e 'failed' gravam o motivo de proposito, e
+       -- 'pending' PRECISA guardar o erro da ultima tentativa: e o que a tela
+       -- mostra enquanto o item espera a proxima.
+       error = case when $2 = 'sent' then null else coalesce($5, error) end,
        message_id = coalesce($6, message_id),
        -- Guarda o texto entregue AO LADO do template, sem substituí-lo. A fila é
        -- a única memória do que saiu: a Meta não devolve eco de mensagem enviada

@@ -4520,3 +4520,47 @@ export function resumoDoErroDaMeta(erro: unknown): ResumoDoErroDaMeta {
 
   return { http, codigo, subcodigo, mensagem };
 }
+
+// QUAL ALVO O GATILHO GUARDA — e por que gravar o outro não é "dado morto".
+//
+// `media_id` só significa alguma coisa para o gatilho `comment`, e `story_id`
+// só para `story`. Quem manda é `findMatch` (lib/engine.ts:257-258): o recorte
+// por post só acontece quando `trigger === "comment"`, e o por story quando
+// `trigger === "story"`.
+//
+// ISSO NÃO É SÓ SUJEIRA NO BANCO. Três linhas abaixo do recorte, `findMatch`
+// (lib/engine.ts:263) desempata assim:
+//
+//     candidates.find((a) => (trigger === "story" ? a.story_id : a.media_id))
+//
+// Para o gatilho `dm`, esse `a.media_id` continua sendo consultado — e um
+// `media_id` sobrando faz a automação GANHAR o desempate de uma DM por causa de
+// um post que não tem nada a ver com aquela conversa. O sintoma seria "a
+// automação errada respondeu", e a causa estaria numa coluna que a tela de DM
+// nem mostra.
+//
+// POR QUE ISTO VIROU FUNÇÃO COM NOME, e a história importa: a regra JÁ EXISTIA
+// escrita em linha dentro de `salvarAutomacao` (app/automacoes/actions.ts), com
+// um comentário explicando este mesmo motivo — e o caminho de CRIAR
+// (`criarAutomacao`, mesmo arquivo) não a tinha. O post chega ali pela URL
+// (`/automacoes/nova?post=…`, o atalho do Início) e era gravado seja qual for o
+// gatilho. Uma regra sem nome, aplicada num lugar e esquecida no outro, é
+// exatamente como `/automacoes` ficou com 19 miniaturas quebradas de 22 em
+// 15/09/2026 enquanto `/eventos`, com a mesma regra, estava certa.
+//
+// MEDIDO EM PRODUÇÃO em 16/09/2026: 27 automações têm `media_id` e TODAS têm o
+// gatilho `comment`; NENHUMA automação usa o gatilho `dm`. O defeito é
+// inteiramente LATENTE — o conserto vale para quando a primeira automação de DM
+// nascer, que é justamente quando ninguém estaria procurando por isto.
+//
+// O CONSERTO FICA NA GRAVAÇÃO, e não em `findMatch`: mexer no desempate mudaria
+// qual automação responde HOJE para `comment` e `story`, onde o comportamento
+// está certo. Não gravando o alvo que não pertence ao gatilho, o desempate
+// deixa de ter com o que errar.
+export function gatilhoGuardaPost(gatilho: string): boolean {
+  return gatilho === "comment";
+}
+
+export function gatilhoGuardaStory(gatilho: string): boolean {
+  return gatilho === "story";
+}

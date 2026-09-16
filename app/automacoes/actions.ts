@@ -5,6 +5,8 @@ import { sql } from "@/lib/db";
 import { getSelectedAccountId } from "@/lib/account";
 import {
   conferirLista,
+  gatilhoGuardaPost,
+  gatilhoGuardaStory,
   gatilhoPedePalavraChave,
   ligacoesValidas,
   podeFicarAtiva,
@@ -210,8 +212,8 @@ export async function salvarAutomacao(
   // Sem ela, um post escolhido continuaria preso a uma automação que passou a
   // ser disparada por story, e `findMatch` (lib/engine.ts) usa essas colunas
   // para decidir qual automação ganha.
-  const post = gatilho === "comment" ? midiaEscolhida(c.post) : null;
-  const story = gatilho === "story" ? midiaEscolhida(c.story) : null;
+  const post = gatilhoGuardaPost(gatilho) ? midiaEscolhida(c.post) : null;
+  const story = gatilhoGuardaStory(gatilho) ? midiaEscolhida(c.story) : null;
 
   // AS SETAS CHEGAM POR ARGUMENTO, e é a Tarefa 6 que as põe aqui.
   //
@@ -449,8 +451,16 @@ export async function criarAutomacao(
   // digitável, mas perder o atalho não pode custar a criação da automação. Quem
   // veio pelo caminho normal (`/automacoes/nova`, sem `?post=`) cai neste mesmo
   // ramo, e é o comportamento de sempre.
+  // E O ATALHO SÓ VALE PARA O GATILHO QUE USA POST. Esta guarda faltava aqui —
+  // `salvarAutomacao` (acima) já recusava post fora do gatilho `comment` desde
+  // sempre, e este caminho não. Quem abrisse `/automacoes/nova?post=123` e
+  // escolhesse `dm` gravava um `media_id` numa automação de DM, e `findMatch`
+  // (lib/engine.ts:263) consulta essa coluna no desempate da DM. A regra agora
+  // tem nome e dono em `gatilhoGuardaPost` (@/lib/steps), lido pelos DOIS
+  // caminhos.
   const postBruto = String(formData.get("post") ?? "");
-  const mediaId = /^\d{1,32}$/.test(postBruto) ? postBruto : null;
+  const mediaId =
+    gatilhoGuardaPost(gatilho) && /^\d{1,32}$/.test(postBruto) ? postBruto : null;
 
   if (!GATILHOS.includes(gatilho)) return "Escolha o gatilho da automação.";
   if (!CORRESPONDENCIAS.includes(correspondencia)) return "Escolha o tipo de correspondência.";
