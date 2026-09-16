@@ -585,10 +585,10 @@ describe("o teto de buscas avulsas para de ser 'recentes + 8'", () => {
 // -----------------------------------------------------------------------------
 // O PRAZO PASSA A SER DO `resolvePosts` — E O QUE JÁ VEIO DE GRAÇA FICA.
 //
-// O DEFEITO, DE 16/09/2026: o `Promise.race` de `app/automacoes/page.tsx:63`
+// O DEFEITO, DE 16/09/2026: o `Promise.race` de `app/automacoes/page.tsx:114`
 // devolve `new Map()` quando o prazo vence — jogando fora as capas que a
 // listagem dos 40 recentes JÁ tinha resolvido, sem custo nenhum a mais. E
-// `app/eventos/page.tsx:138` não tem corrida alguma: chama `resolvePosts` cru.
+// `app/eventos/page.tsx:145` não tem corrida alguma: chama `resolvePosts` cru.
 //
 // POR QUE ISSO PIOROU AGORA: a Tarefa 2 subiu `MAX_INDIVIDUAL_LOOKUPS` de 8
 // para 32, e as medições de 16/09/2026 contra a Meta de verdade (com o token da
@@ -679,7 +679,7 @@ describe("o prazo é do resolvePosts, e a capa de graça não é jogada fora", (
 
   test("vencido o prazo, o que veio da listagem NAO e jogado fora", async () => {
     // O DEFEITO, medido em 16/09/2026: o `Promise.race` de
-    // app/automacoes/page.tsx:63 devolve `new Map()` quando o prazo vence --
+    // app/automacoes/page.tsx:114 devolve `new Map()` quando o prazo vence --
     // jogando fora as capas que a listagem ja tinha resolvido de graca. Com o
     // teto de avulsas em 32 (721ms medidos, contra 497ms de 8), vencer o prazo
     // ficou mais provavel, e o desfecho era tela SEM CAPA NENHUMA.
