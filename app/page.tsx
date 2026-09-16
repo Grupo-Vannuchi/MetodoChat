@@ -250,8 +250,9 @@ export default async function Home({
   // O NOME DO POST, E ELE É OPCIONAL POR CONSTRUÇÃO.
   //
   // `resolvePosts` (lib/media-lookup.ts) fala com a Meta: uma listagem dos 40
-  // recentes mais até 8 buscas avulsas, com `try/catch` interno que devolve
-  // mapa parcial ou vazio. Já está em produção em `/eventos`.
+  // recentes mais até `MAX_INDIVIDUAL_LOOKUPS` buscas avulsas — hoje 32, e
+  // este parágrafo já disse 8 — com `try/catch` interno que devolve o mapa
+  // PARCIAL, com o que já tinha chegado. Já está em produção em `/eventos`.
   //
   // SÓ AS QUE VÃO APARECER SÃO PROCURADAS: `recorteDasOportunidades` corta em
   // três ANTES, então o pior caso desta tela são três ids — que cabem na
@@ -271,10 +272,19 @@ export default async function Home({
   // do painel — deveria esperar, então a corrida abaixo continua valendo por
   // outro motivo: ela é o teto da TELA, mais apertado (2,5s) que o teto da
   // rede. Perde a corrida, a tela renderiza sem os nomes; a requisição por
-  // baixo segue — `resolvePosts` (lib/media-lookup.ts) encadeia duas etapas
-  // sequenciais (`getMedia`, depois um `Promise.allSettled` de até 8
-  // `getMediaById`), então o pior caso por baixo é ~16s, não 8 — não pendurada
-  // para sempre, como antes.
+  // baixo segue.
+  //
+  // MAS O PIOR CASO POR BAIXO NÃO É MAIS A SOMA DOS TETOS DE REDE.
+  // `resolvePosts` (lib/media-lookup.ts) tem orçamento PRÓPRIO desde
+  // 16/09/2026 — `TETO_DA_RESOLUCAO_MS` = 2000 ms, TOTAL para as duas etapas
+  // sequenciais (`getMedia`, depois um `Promise.allSettled` de até
+  // `MAX_INDIVIDUAL_LOOKUPS` `getMediaById`). Este parágrafo já disse "até 8"
+  // e "~16s": o teto virou 32 e o pior caso virou ~2 s, e as duas frases
+  // ficaram falsas no mesmo dia. Como os 2,5 s abaixo ficam ACIMA dos 2 s de
+  // dentro, esta corrida quase nunca vence — e é bom que não vença, porque
+  // quando ela vence ela ainda entrega `new Map()`, o descarte tudo-ou-nada
+  // que o teto de dentro existe para evitar: lá, vencido o prazo, o que a
+  // listagem já resolveu de graça FICA.
   const TETO_DO_NOME_DO_POST_MS = 2500;
   const escolhidas = recorteDasOportunidades(oportunidadesCruas);
   let nomes = new Map<string, PostRef>();

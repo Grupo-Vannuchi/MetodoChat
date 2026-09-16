@@ -100,15 +100,25 @@ export default async function EditarAutomacaoPage({
   // colunas vazias. Buscando na hora, ela mostra a legenda como qualquer
   // outra automação.
   //
-  // TETO DE TEMPO NO CALL SITE — o mesmo padrão de app/page.tsx e
-  // app/automacoes/page.tsx. `graphFetch` (lib/ig.ts) já tem o TETO DA
-  // LEITURA (8s por requisição): a chamada por baixo não fica mais pendurada
-  // para sempre. Esta corrida é o teto da TELA por cima disso, mais apertado
-  // (2,5s) — perde a corrida, o editor abre sem a capa; a requisição por
-  // baixo segue — `resolvePosts` encadeia duas etapas, até ~16s.
-  // `resolvePosts` já tem `try/catch` interno e devolve mapa vazio quando a
-  // Meta falhar — o `try/catch` aqui é a segunda rede, para o que ele não
-  // cobre. Sem a capa, o editor abre igual: `media_caption` guardado é o
+  // TETO DE TEMPO NO CALL SITE — HOJE ELE É REDE DE FORA, E NÃO O TETO.
+  //
+  // Quem decide o prazo é `TETO_DA_RESOLUCAO_MS` = 2000 ms, DENTRO de
+  // `resolvePosts` (lib/media-lookup.ts): orçamento TOTAL das duas etapas.
+  // Este parágrafo já disse "até ~16s" — duas etapas encadeadas, cada uma até
+  // o `TETO_DA_LEITURA_MS` de 8 s do `graphFetch` (lib/ig.ts) — e a frase
+  // morreu no dia em que o prazo entrou na função. O pior caso de espera aqui
+  // é ~2 s, e é contra ELE que o `TETO_DO_POST_MS` abaixo se dimensiona: como
+  // 2,5 s ficam ACIMA de 2 s, esta corrida quase nunca vence.
+  //
+  // E `resolvePosts` NÃO devolve mais mapa vazio quando algo dá errado:
+  // devolve o mapa PARCIAL, com o que já tinha chegado. Esta tela pede UM id,
+  // então "parcial" aqui só pode ser veio ou não veio — a entrega parcial
+  // rende para as telas que pedem lista. O que muda para o editor é o número,
+  // e quem for mexer no teto abaixo precisa do número certo.
+  //
+  // A corrida e o `try/catch` FICAM como segunda rede, para o que o teto de
+  // dentro não cobre (a função travar antes de marcar o próprio início, por
+  // exemplo). Sem a capa, o editor abre igual: `media_caption` guardado é o
   // recuo.
   let doPost: PostRef | undefined;
   if (a.media_id) {
