@@ -112,11 +112,30 @@ export default async function AutomacoesPage({
     // processo do Node segue rodando de qualquer jeito, mas um timer solto
     // por requisição não é o padrão a copiar). `clearTimeout` depois da
     // corrida é inofensivo mesmo quando é o próprio timer que venceu.
+    // FALSO POSITIVO DE ALCANCE DA REGRA, e por isso o silêncio vem com motivo.
+    //
+    // `react-hooks/immutability` ("Cannot reassign variable after render
+    // completes") é uma das regras novas do React Compiler em
+    // `eslint-plugin-react-hooks` 7.1.1, e ela fala sobre PUREZA DE RENDER no
+    // cliente, onde um render pode ser repetido. Este arquivo é um Server
+    // Component `async` (`export default async function AutomacoesPage`, sem
+    // `"use client"`), que roda UMA vez por requisição no servidor e pode dar
+    // `await` — a versão 7.1.1 do plugin não distingue os dois casos e trata
+    // todo arquivo como cliente.
+    //
+    // A reatribuição aqui é a forma normal de guardar o id de um `setTimeout`
+    // criado dentro do executor de uma `Promise`, e ela existe justamente para o
+    // `clearTimeout` do `finally` poder cancelar o timer quando `resolvePosts`
+    // ganha a corrida — sem ela, um timer solto sobrevive a cada carregamento.
+    //
+    // O SILÊNCIO FICA NA ATRIBUIÇÃO, e não na declaração: a regra acusa o
+    // `idDoTimer = ...` lá dentro do executor, não o `let` daqui.
     let idDoTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       capas = await Promise.race([
         resolvePosts(account.ig_user_id, account.access_token, idsDosPosts),
         new Promise<Map<string, PostRef>>((resolve) => {
+          // eslint-disable-next-line react-hooks/immutability
           idDoTimer = setTimeout(() => resolve(new Map()), TETO_DA_CAPA_NA_TELA_MS);
         }),
       ]);

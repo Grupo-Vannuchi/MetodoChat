@@ -104,9 +104,12 @@ function textoDaChamada(conteudo: string): string[] {
     /[A-Za-z_$][\w$]*\s*\.\s*unsafe\s*\(/g,
   ];
   for (const re of gatilhosDeParenteses) {
-    let m: RegExpExecArray | null;
     re.lastIndex = 0;
-    while ((m = re.exec(conteudo))) {
+    // O RESULTADO DO `exec` NÃO É USADO — o que importa é o efeito colateral,
+    // que é `lastIndex` avançar até logo depois do `(` que o gatilho consumiu.
+    // A versão anterior guardava o resultado numa variável só para o `while`
+    // ter o que testar, e ela ficava sem leitor nenhum.
+    while (re.exec(conteudo) !== null) {
       const inicio = re.lastIndex; // logo depois do "(" que o gatilho consumiu
       const fim = fecharParenteses(conteudo, inicio);
       if (fim !== -1) blocos.push(conteudo.slice(inicio, fim));
@@ -116,9 +119,9 @@ function textoDaChamada(conteudo: string): string[] {
   // A quarta forma: `sql()` chamado como TAGGED TEMPLATE, sem `.query`
   // nenhum — o `` ` `` abre o argumento, e não um `(`.
   const gatilhoDeCrase = /sql\(\)\s*`/g;
-  let m2: RegExpExecArray | null;
   gatilhoDeCrase.lastIndex = 0;
-  while ((m2 = gatilhoDeCrase.exec(conteudo))) {
+  // Idem: o que se quer do `exec` é `lastIndex`, e não o casamento.
+  while (gatilhoDeCrase.exec(conteudo) !== null) {
     const inicio = gatilhoDeCrase.lastIndex; // logo depois da crase de abertura
     const fim = fecharCrase(conteudo, inicio);
     blocos.push(conteudo.slice(inicio, fim));

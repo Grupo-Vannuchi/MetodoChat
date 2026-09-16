@@ -319,6 +319,18 @@ export default async function Home({
     nome: nomes.get(o.mediaId)?.caption ?? null,
   }));
 
+  // FALSO POSITIVO DE ALCANCE DA REGRA, e por isso o silêncio vem com motivo.
+  //
+  // `react-hooks/purity` ("Cannot call impure function during render") é uma das
+  // regras novas do React Compiler em `eslint-plugin-react-hooks` 7.1.1, e ela
+  // fala sobre PUREZA DE RENDER no cliente, onde um render pode ser repetido e
+  // `Date.now()` daria respostas diferentes. Este arquivo é um Server Component
+  // `async` (`export default async function Home`, sem `"use client"`) e a rota
+  // é `force-dynamic`: ele roda UMA vez por requisição, no servidor, e ler o
+  // relógio ali é exatamente o comportamento pedido — o Início inteiro fala em
+  // "há 2 h", "fecha em 5h50". A versão 7.1.1 do plugin não distingue Server
+  // Component de componente de cliente e trata todo arquivo como cliente.
+  // eslint-disable-next-line react-hooks/purity
   const agora = Date.now();
   const fatos: FatosDoInicio = {
     esperando: conversas
