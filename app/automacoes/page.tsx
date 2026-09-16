@@ -40,9 +40,34 @@ export default async function AutomacoesPage({
   // `MAX_INDIVIDUAL_LOOKUPS` buscas avulsas para o que não estiver nos 40
   // recentes. O que mudou é que essas chamadas agora são CACHEADAS na camada
   // semântica — lista dos recentes por 120 s, post pelo id por 6 h —, então
-  // elas deixaram de sair a cada carregamento e a cada
-  // `revalidatePath("/automacoes")` (salvar, ativar, pausar, duplicar,
-  // excluir). O `revalidatePath` derruba o cache DA PÁGINA, não o da Meta.
+  // elas deixaram de sair a CADA CARREGAMENTO.
+  //
+  // MAS SAEM A CADA MUTAÇÃO, E ISSO NÃO É UM DETALHE: `revalidatePath`
+  // DERRUBA TAMBÉM O CACHE DA META, e não só o da página. Lido na fonte do
+  // Next 16.2.10 instalado:
+  // node_modules/next/dist/server/lib/incremental-cache/file-system-cache.js:229-246
+  // monta `combinedTags = [...ctx.tags, ...ctx.softTags]` e devolve `null` —
+  // MISS INTEIRO, não stale — quando alguma delas está expirada; e as
+  // `softTags` são as tags IMPLÍCITAS do render corrente, que `unstable_cache`
+  // passa na leitura (unstable-cache.js:148-152). A implícita deste caminho é
+  // `_N_T_/automacoes`, que é exatamente a que `revalidatePath("/automacoes")`
+  // grava.
+  //
+  // CONSEQUÊNCIA: cada salvar, ativar, pausar, duplicar e excluir
+  // (`actions.ts:383,470,587,612,663`) devolve esta tela ao CAMINHO FRIO
+  // INTEIRO — 1 listagem + até `MAX_INDIVIDUAL_LOOKUPS` avulsas, os ~1,2 s
+  // medidos em 16/09/2026. E não para por aqui: `selectAccount`
+  // (`app/account-actions.ts:39`) faz `revalidatePath("/", "layout")`, cuja
+  // tag `_N_T_/layout` é implícita em TODO render — trocar de conta zera a
+  // capa das QUATRO telas de uma vez.
+  //
+  // E A MEDIÇÃO DE ACEITAÇÃO DO PLANO NÃO PEGA ISSO. Ela manda recarregar
+  // `/automacoes` três vezes seguidas, SEM mutação no meio: mede o caminho
+  // comum, onde o ganho é real, e nunca dispara `revalidatePath`. Depois de
+  // uma mutação o caminho é frio de novo, então aqueles três cronômetros não
+  // têm como acusar o custo do fluxo de trabalho desta tela. Medir esse fluxo
+  // é outra medição — salvar uma automação, recarregar, cronometrar — e ela
+  // não foi feita.
   //
   // Este comentário já disse "MAX_INDIVIDUAL_LOOKUPS = 8", "até 9 chamadas por
   // carregamento" e "a tela vira recentes + 8". As três frases ficaram falsas
