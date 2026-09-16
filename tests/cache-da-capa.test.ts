@@ -37,20 +37,25 @@ describe("o fato do Next em que este cache se apoia", () => {
   });
 });
 
-const TOKEN = "IGQVJXtoken-que-nao-pode-vazar-para-lugar-nenhum";
-
+// ONDE MORA A PROVA DE QUE O TOKEN NÃO ENTRA NA CHAVE: no PORTÃO DO SEGREDO,
+// lá embaixo — e NÃO aqui.
+//
+// Estes dois casos já afirmaram `expect(chaveDaLista(...).join("|"))
+// .not.toContain(TOKEN)`. Era placebo: `chaveDaLista(igUserId)` e
+// `chaveDoPost(mediaId)` NUNCA RECEBEM o token, então a asserção é verdadeira
+// para qualquer implementação possível dessas funções — não havia o que ela
+// pudesse acusar. Pior: a regressão realista (alguém "consertando" a chave ao
+// pôr o token nos `keyParts` do `unstable_cache`) deixava os dois VERDES.
+//
+// O que sobra aqui é o que ainda mede alguma coisa: a chave CARREGA o
+// identificador certo, e duas contas não colidem.
 describe("a chave do cache", () => {
-  test("a lista e por conta, e o token NAO entra", () => {
-    const k = chaveDaLista("17900000000000901");
-    expect(k).toContain("17900000000000901");
-    expect(k.join("|")).not.toContain(TOKEN);
-    expect(k.join("|")).not.toContain("token");
+  test("a lista e por conta", () => {
+    expect(chaveDaLista("17900000000000901")).toContain("17900000000000901");
   });
 
-  test("o post e por id, e o token NAO entra", () => {
-    const k = chaveDoPost("17900000000000002");
-    expect(k).toContain("17900000000000002");
-    expect(k.join("|")).not.toContain(TOKEN);
+  test("o post e por id", () => {
+    expect(chaveDoPost("17900000000000002")).toContain("17900000000000002");
   });
 
   test("duas contas nunca compartilham chave", () => {
@@ -317,5 +322,253 @@ describe("o portão da fiação do cache", () => {
 
   test("a fiação de lib/media-lookup.ts está de pé", () => {
     expect(furosDaFiacao(fonte)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O PORTÃO DO SEGREDO NA CHAVE — o perigo é TEXTUAL, e mora em media-lookup.ts
+// ---------------------------------------------------------------------------
+//
+// O QUE ESTE BLOCO FECHA, e por que ele não podia ficar em cima de
+// `chaveDaLista`/`chaveDoPost`: aquelas funções não recebem o token, então
+// afirmar que ele não está no retorno delas é afirmar o impossível — um caso
+// que não pode ficar vermelho não mede nada. A chave de verdade é montada pelo
+// `unstable_cache`: `fixedKey = cb.toString() + '-' + keyParts.join(',')`
+// (node_modules/next/dist/server/web/spec-extension/unstable-cache.js). O
+// `cb.toString()` carrega só o IDENTIFICADOR `token`, porque o valor vive no
+// fechamento e fechamento não é serializado; o que serializa é o resto.
+//
+// LOGO, A REGRA QUE DÁ PARA PRENDER: dentro de `lib/media-lookup.ts`, o token
+// só pode aparecer no PRIMEIRO argumento do `unstable_cache` (o fechamento).
+// Nos `keyParts`, nas `tags` ou na assinatura das funções de chave, ele é
+// defeito. É a mesma forma do portão da fiação acima e de
+// `tests/vocabulario-da-fila.test.ts`: varredura textual sobre o código-fonte,
+// que tira comentário antes de olhar e PROVA que acusa quando há o que acusar.
+//
+// O PLANTIO QUE ESTE BLOCO TEM DE MATAR é o conserto de boa-fé: mover o
+// `token` para dentro dos `keyParts` de `listaRecenteCacheada`, achando que a
+// chave "tinha de" depender dele.
+
+// Os argumentos de uma chamada, do `(` que a abre ao `)` que a fecha, quebrados
+// nas vírgulas de profundidade ZERO. Pular string com `fecharString` é o que
+// impede uma vírgula dentro de uma crase de virar separador, e contar `([{` é o
+// que mantém `getMedia(a, t, 40)` como UM argumento só. Devolve `null` quando
+// os parênteses não fecham — quem chama trata isso como FURO.
+function argumentosDe(texto: string, abre: number): string[] | null {
+  const args: string[] = [];
+  let profundidade = 0;
+  let inicio = abre + 1;
+  let i = inicio;
+  while (i < texto.length) {
+    const c = texto[i];
+    if (c === "'" || c === '"' || c === "`") {
+      i = fecharString(texto, i, c);
+    } else if (c === "(" || c === "[" || c === "{") {
+      profundidade++;
+      i++;
+    } else if (c === ")" && profundidade === 0) {
+      args.push(texto.slice(inicio, i));
+      return args;
+    } else if (c === ")" || c === "]" || c === "}") {
+      profundidade--;
+      i++;
+    } else if (c === "," && profundidade === 0) {
+      args.push(texto.slice(inicio, i));
+      i++;
+      inicio = i;
+    } else {
+      i++;
+    }
+  }
+  return null;
+}
+
+// `\btoken\b` e não a substring "token": pega `token`, `access_token` e
+// `opts.token` sem casar com uma palavra que apenas contenha as letras.
+const NOME_DO_SEGREDO = /\btoken\b|\baccess_token\b/;
+
+// A CONSEQUÊNCIA VAI DENTRO DA MENSAGEM, na disciplina do portão acima: quem
+// quebrar isto tem de ler o que acontece NO PRODUTO.
+const PERIGO =
+  "A chave do unstable_cache é escrita no Data Cache, que PERSISTE ENTRE " +
+  "IMPLANTAÇÕES e aparece no log de revalidação do Next — é segredo guardado " +
+  "num lugar duradouro. E o token da Meta é renovado a cada ~60 dias: na " +
+  "chave, cada renovação joga o cache inteiro fora sem que nada tenha mudado, " +
+  "e as quatro telas voltam a comprar a capa do zero. O token entra por " +
+  "FECHAMENTO, e é só lá que ele pode estar.";
+
+function furosDoSegredoNaChave(fonte: string): string[] {
+  const furos: string[] = [];
+  const limpa = semComentarios(fonte);
+
+  for (const { embrulho } of EMBRULHOS) {
+    const corpo = corpoDaFuncao(limpa, embrulho);
+    if (corpo === null) {
+      furos.push(
+        `EMBRULHO AUSENTE: não achei \`function ${embrulho}(\` em ` +
+          `lib/media-lookup.ts — este portão parou de saber onde olhar, e com ` +
+          `isso parou de vigiar o token. NÃO apague o caso: conserte o nome.`
+      );
+      continue;
+    }
+    const chamada = corpo.indexOf("unstable_cache");
+    const abre = chamada === -1 ? -1 : corpo.indexOf("(", chamada);
+    const args = abre === -1 ? null : argumentosDe(corpo, abre);
+    if (!args || args.length < 2) {
+      furos.push(
+        `NÃO ACHEI A CHAMADA A unstable_cache EM ${embrulho}: sem ela não dá ` +
+          `para separar o fechamento (onde o token pode estar) dos keyParts e ` +
+          `das tags (onde ele não pode). Ou o embrulho mudou de forma, ou este ` +
+          `portão ficou cego — nos dois casos ele parou de medir.`
+      );
+      continue;
+    }
+    // O PRIMEIRO argumento fica DE FORA de propósito: é o fechamento, e é lá
+    // que `() => getMedia(igUserId, token, ...)` cita o token. Citar ali é o
+    // desenho, não o defeito.
+    const chaveEOpcoes = args.slice(1).join(",");
+    if (NOME_DO_SEGREDO.test(chaveEOpcoes)) {
+      furos.push(
+        `SEGREDO NA CHAVE: o token aparece nos keyParts ou nas tags de ` +
+          `\`${embrulho}\` — fora do fechamento, que é o único lugar onde ele ` +
+          `pode estar. ${PERIGO}`
+      );
+    }
+  }
+
+  for (const chave of ["chaveDaLista", "chaveDoPost"]) {
+    const decl = new RegExp(`function\\s+${chave}\\s*\\(([^)]*)\\)`).exec(limpa);
+    if (!decl) {
+      furos.push(
+        `FUNÇÃO DE CHAVE AUSENTE: não achei \`function ${chave}(\` em ` +
+          `lib/media-lookup.ts. É ela que decide o que entra na chave; sem ela ` +
+          `este portão não vigia mais esse caminho.`
+      );
+      continue;
+    }
+    const corpo = corpoDaFuncao(limpa, chave);
+    if (NOME_DO_SEGREDO.test(decl[1]) || (corpo !== null && NOME_DO_SEGREDO.test(corpo))) {
+      furos.push(
+        `SEGREDO NA CHAVE: \`${chave}\` passou a receber ou a usar o token. ` +
+          `Ela devolve os keyParts do unstable_cache, então o token entraria na ` +
+          `chave por essa porta. ${PERIGO}`
+      );
+    }
+  }
+
+  return furos;
+}
+
+describe("o portão do segredo na chave", () => {
+  const fonte = readFileSync(FONTE_DA_CAPA, "utf8");
+
+  test("acusa o token nos keyParts — O PLANTIO, que é o conserto de boa-fé", () => {
+    // Exatamente a mudança que alguém faria achando que CONSERTA a chave. Com
+    // os casos antigos (`chaveDaLista(...).join("|")`), isto ficava VERDE.
+    const nosKeyParts = `
+      function listaRecenteCacheada(igUserId: string, token: string) {
+        return unstable_cache(
+          () => getMedia(igUserId, token, 40),
+          [...chaveDaLista(igUserId), token],
+          { revalidate: 120, tags: ["ig:lista:" + igUserId] }
+        )();
+      }
+      function postCacheado(mediaId: string, token: string) {
+        return unstable_cache(
+          () => getMediaById(mediaId, token),
+          chaveDoPost(mediaId),
+          { revalidate: 21600 }
+        )();
+      }
+      export function chaveDaLista(igUserId: string): string[] {
+        return ["ig", "lista-recente", igUserId];
+      }
+      export function chaveDoPost(mediaId: string): string[] {
+        return ["ig", "post", mediaId];
+      }`;
+    const acusado = furosDoSegredoNaChave(nosKeyParts).join("\n");
+    expect(acusado).toContain("SEGREDO NA CHAVE");
+    // A mensagem NOMEIA o perigo, em vez de dizer "um teste chato quebrou".
+    expect(acusado).toContain("PERSISTE ENTRE IMPLANTAÇÕES");
+    expect(acusado).toContain("~60 dias");
+    // E acusa o embrulho CERTO: só a lista foi mexida.
+    expect(acusado).toContain("listaRecenteCacheada");
+    expect(acusado).not.toContain("`postCacheado`");
+  });
+
+  test("acusa o token nas tags, que é a outra metade da entrada gravada", () => {
+    const nasTags = `
+      function listaRecenteCacheada(igUserId: string, token: string) {
+        return unstable_cache(
+          () => getMedia(igUserId, token, 40),
+          chaveDaLista(igUserId),
+          { revalidate: 120, tags: ["ig:lista:" + igUserId + ":" + token] }
+        )();
+      }
+      function postCacheado(mediaId: string, token: string) {
+        return unstable_cache(
+          () => getMediaById(mediaId, token),
+          chaveDoPost(mediaId),
+          { revalidate: 21600 }
+        )();
+      }
+      export function chaveDaLista(igUserId: string): string[] {
+        return ["ig", "lista-recente", igUserId];
+      }
+      export function chaveDoPost(mediaId: string): string[] {
+        return ["ig", "post", mediaId];
+      }`;
+    expect(furosDoSegredoNaChave(nasTags).join("\n")).toContain("SEGREDO NA CHAVE");
+  });
+
+  test("acusa o token pela porta da função de chave", () => {
+    const naFuncaoDeChave = `
+      function listaRecenteCacheada(igUserId: string, token: string) {
+        return unstable_cache(
+          () => getMedia(igUserId, token, 40),
+          chaveDaLista(igUserId),
+          { revalidate: 120 }
+        )();
+      }
+      function postCacheado(mediaId: string, token: string) {
+        return unstable_cache(
+          () => getMediaById(mediaId, token),
+          chaveDoPost(mediaId),
+          { revalidate: 21600 }
+        )();
+      }
+      export function chaveDaLista(igUserId: string, token: string): string[] {
+        return ["ig", "lista-recente", igUserId, token];
+      }
+      export function chaveDoPost(mediaId: string): string[] {
+        return ["ig", "post", mediaId];
+      }`;
+    const acusado = furosDoSegredoNaChave(naFuncaoDeChave).join("\n");
+    expect(acusado).toContain("SEGREDO NA CHAVE");
+    expect(acusado).toContain("chaveDaLista");
+  });
+
+  test("NÃO acusa o token no FECHAMENTO — é lá que ele TEM de estar", () => {
+    // Um portão que reprovasse o desenho certo seria desligado no dia seguinte.
+    // Este é o arquivo de verdade, com o token citado no primeiro argumento.
+    expect(furosDoSegredoNaChave(fonte)).toEqual([]);
+  });
+
+  test("enxerga o que diz enxergar — o recorte separa fechamento de keyParts", () => {
+    // Sem este caso, um `argumentosDe` que devolvesse a lista errada faria os
+    // quatro acima passarem por vacuidade.
+    const chamada = "unstable_cache(() => getMedia(a, t, 40), chaveDaLista(a), { revalidate: 120 })";
+    const args = argumentosDe(chamada, chamada.indexOf("("));
+    expect(args).not.toBeNull();
+    expect(args).toHaveLength(3);
+    expect(args?.[0]).toContain("getMedia(a, t, 40)"); // o fechamento, inteiro
+    expect(args?.[1]?.trim()).toBe("chaveDaLista(a)");
+    expect(args?.[2]).toContain("revalidate");
+    // A vírgula DENTRO de uma crase não pode quebrar o argumento em dois — é o
+    // formato exato das `tags` dos dois embrulhos.
+    const comCrase = "unstable_cache(cb, chave, { tags: [`ig:lista:${a},${b}`] })";
+    expect(argumentosDe(comCrase, comCrase.indexOf("("))).toHaveLength(3);
+    // Parêntese que não fecha vira `null`, e quem chama trata como furo.
+    expect(argumentosDe("unstable_cache(cb, chave", 14)).toBeNull();
   });
 });
