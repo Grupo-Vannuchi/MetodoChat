@@ -143,11 +143,48 @@ function Tabela({
   linhas: number;
 }) {
   const { mostradas, escondidas } = recorteDaTabela(rows, limite);
+  // A IDENTIDADE DA LISTA — o que responde "estas são as mesmas linhas de
+  // antes?". Filtro e busca definem QUEM aparece; `limite`/`linhas` define
+  // QUANTOS, e por isso fica de fora (ver a chave do `<form>`, abaixo).
+  //
+  // Concatenação e não template: o portão de `tests/selecao-nao-encolhe.test.ts`
+  // lê este arquivo com os template literals removidos, e uma chave escrita com
+  // crase ficaria invisível para ele.
+  const identidadeDaLista = campoFiltro + "|" + (q ?? "");
   return (
     /* A TABELA INTEIRA É UM FORMULÁRIO, e o `group` é o que deixa a barra
        aparecer por CSS (veja o rodapé). `action` é Server Action: a página
        continua sem uma linha de cliente por causa disto. */
-    <form action={marcarCategoriaEmLote} id={idDoForm} className="group">
+    <form
+      action={marcarCategoriaEmLote}
+      id={idDoForm}
+      className="group"
+      // A CHAVE É A IDENTIDADE DA LISTA, e ela existe para a seleção não
+      // encolher sozinha.
+      //
+      // MEDIDO EM PRODUÇÃO em 16/09/2026: marquei três pessoas nas posições 4, 5
+      // e 6, troquei o filtro, e sobrou UMA marcada. Ninguém errado foi marcado —
+      // o conjunto só encolhe — e o contador diz a verdade, então a tela não
+      // mente; mas duas seleções somem sem explicação, e quem aplicar a
+      // categoria aplica a uma pessoa achando que aplicou a três.
+      //
+      // A CAUSA NÃO É O CONTADOR: as caixas são `<input>` NÃO-CONTROLADO, e o
+      // React reconcilia por POSIÇÃO. Trocando o filtro, a lista é SUBSTITUÍDA e
+      // sobrevive marcado só o que calha de cair no mesmo índice.
+      //
+      // `linhas` FICA DE FORA DA CHAVE DE PROPÓSITO. "Ver mais"
+      // (`/contatos?linhas=50`) só ACRESCENTA linhas — as posições de cima não
+      // se mexem —, e ali a seleção sobrevive INTEIRA hoje (medido: 3 de 3, com a
+      // lista indo de 33 para 58). Pôr `linhas` aqui quebraria esse caminho para
+      // consertar o outro.
+      //
+      // POR QUE NÃO PRESERVAR POR IDENTIDADE, que seria mais gentil: a seleção
+      // teria de virar estado do React, e é exatamente isso que
+      // `app/contatos/selecao-client.tsx` evita — as 143 linhas ficam do lado do
+      // servidor, e nenhuma atravessa a fronteira de serialização. Lista nova,
+      // seleção nova é previsível; meio preservada não é nem uma coisa nem outra.
+      key={identidadeDaLista}
+    >
       {/* O LUGAR DE ONDE A PESSOA VEIO, para o redirect devolvê-la aqui.
           Sem estes três, limpar 143 contatos em blocos perderia o filtro, a
           busca e o `Ver mais` a cada clique. */}
