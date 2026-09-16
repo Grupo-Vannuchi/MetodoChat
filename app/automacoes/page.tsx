@@ -34,18 +34,28 @@ export default async function AutomacoesPage({
   // `story_thumbnail_url` CONTINUA vindo do banco, mas PARA DE ALIMENTAR
   // `<img>` — ver o comentário na montagem de `thumb`, abaixo.
   //
-  // O NÚMERO REAL DE CHAMADAS: NÃO é "uma por carregamento", como o plano
-  // desta branch (docs/plans/2026-09-15-a-capa-que-apodrece.md) chegou a
-  // dizer — corrigido lá. `resolvePosts` (lib/media-lookup.ts) faz
-  // `getMedia(limit=40)` MAIS até `MAX_INDIVIDUAL_LOOKUPS = 8` buscas avulsas
-  // para o que não estiver nos 40 recentes — até 9 chamadas por carregamento
-  // desta tela, e isso se repete a cada `revalidatePath("/automacoes")`
-  // (salvar, ativar, pausar, duplicar, excluir).
+  // O NÚMERO REAL DE CHAMADAS, e ele MUDOU DE NATUREZA em 16/09/2026.
   //
-  // A CONSEQUÊNCIA: automação apontando para um post fora dos 40 recentes só
-  // resolve capa nas 8 primeiras dessa sobra — o resto fica sem capa. A tela
-  // não vira "22 capas certas"; vira "recentes + 8". Isso é esperado, e não
-  // um defeito novo para abrir depois.
+  // `resolvePosts` (lib/media-lookup.ts) faz `getMedia(limit=40)` MAIS até
+  // `MAX_INDIVIDUAL_LOOKUPS` buscas avulsas para o que não estiver nos 40
+  // recentes. O que mudou é que essas chamadas agora são CACHEADAS na camada
+  // semântica — lista dos recentes por 120 s, post pelo id por 6 h —, então
+  // elas deixaram de sair a cada carregamento e a cada
+  // `revalidatePath("/automacoes")` (salvar, ativar, pausar, duplicar,
+  // excluir). O `revalidatePath` derruba o cache DA PÁGINA, não o da Meta.
+  //
+  // Este comentário já disse "MAX_INDIVIDUAL_LOOKUPS = 8", "até 9 chamadas por
+  // carregamento" e "a tela vira recentes + 8". As três frases ficaram falsas
+  // no mesmo dia em que o teto subiu para 32, e o texto sobreviveu a elas —
+  // por isso está reescrito com o número vindo da constante, e não copiado.
+  //
+  // MEDIDO em 16/09/2026 contra a Meta, com o token da conta DONA de cada post
+  // (a primeira medição errou isso e cruzou conta com token, o que faz TODA
+  // busca avulsa devolver 400): listagem dos 40 = 498 ms; 8 avulsas em
+  // paralelo = 497 ms; 21 = 572 ms; 32 = 721 ms. Subir o teto custa ~200 ms no
+  // caminho frio, uma vez por janela de cache, e é o que tira esta tela de
+  // "recentes + 8": das 23 automações com post da conta do painel, 18 estavam
+  // fora dos 40 recentes e só 8 resolviam capa.
   const idsDosPosts = [
     ...new Set(automations.map((a) => a.media_id).filter((id): id is string => !!id)),
   ];
