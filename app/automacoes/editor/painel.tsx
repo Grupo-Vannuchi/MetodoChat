@@ -2,6 +2,8 @@
 import Link from "next/link";
 import {
   esperaResposta,
+  gatilhoGuardaPost,
+  gatilhoGuardaStory,
   gatilhoPedePalavraChave,
   LIMITE_DE_BOTOES,
   novoIdDeBotao,
@@ -712,8 +714,15 @@ export default function Painel({
                           aoMudarConfiguracao({
                             ...configuracao,
                             gatilho: o.valor,
-                            post: o.valor === "comment" ? configuracao.post : null,
-                            story: o.valor === "story" ? configuracao.story : null,
+                            // A REGRA TEM DONO em `gatilhoGuardaPost` /
+                            // `gatilhoGuardaStory` (@/lib/steps), e esta era a
+                            // TERCEIRA cópia dela escrita à mão. O servidor é
+                            // quem manda (`salvarAutomacao` e `criarAutomacao`,
+                            // ../actions.ts, leem o mesmo dono), então divergir
+                            // aqui não corromperia o banco — só faria a tela
+                            // mostrar um post que não vai ser gravado.
+                            post: gatilhoGuardaPost(o.valor) ? configuracao.post : null,
+                            story: gatilhoGuardaStory(o.valor) ? configuracao.story : null,
                           })
                         }
                         className="sr-only"
@@ -864,7 +873,7 @@ export default function Painel({
               {/* O SELETOR DE MÍDIA OCUPA A LINHA INTEIRA (`basis-full`): aberto
                   ele é uma grade de posts com rolagem própria, e espremê-lo numa
                   coluna de 240px o tornaria inútil. */}
-              {configuracao.gatilho === "comment" && (
+              {gatilhoGuardaPost(configuracao.gatilho) && (
                 <div className="min-w-0 basis-full">
                   <span className={labelCls}>Post específico (opcional)</span>
                   <MediaPicker
@@ -876,7 +885,7 @@ export default function Painel({
                 </div>
               )}
 
-              {configuracao.gatilho === "story" && (
+              {gatilhoGuardaStory(configuracao.gatilho) && (
                 <div className="min-w-0 basis-full">
                   <span className={labelCls}>Story específico (opcional)</span>
                   <MediaPicker

@@ -191,4 +191,49 @@ describe("o post atravessa para a automação nova", () => {
     expect(linhas).toHaveLength(1);
     expect(linhas[0].media_id).toBeNull();
   });
+  test("`post` com gatilho que NAO usa post e ignorado, e a automacao nasce sem media_id", async () => {
+    // O DEFEITO, achado em 16/09/2026 por um plantio que SOBREVIVEU.
+    //
+    // `salvarAutomacao` (app/automacoes/actions.ts) recusa post fora do gatilho
+    // `comment` desde sempre, com um comentario explicando o motivo. Este
+    // caminho — o atalho do Inicio, `/automacoes/nova?post=…` — NAO tinha a
+    // mesma guarda: o `media_id` da URL entrava seja qual for o gatilho.
+    //
+    // E NAO E DADO MORTO. `findMatch` (lib/engine.ts:263) desempata com
+    // `candidates.find((a) => trigger === "story" ? a.story_id : a.media_id)`,
+    // e para o gatilho `dm` esse `a.media_id` continua sendo consultado: a
+    // automacao com media_id sobrando GANHA o desempate de uma DM por causa de
+    // um post que nao tem nada a ver com a conversa. O sintoma seria "a
+    // automacao errada respondeu".
+    //
+    // MEDIDO em producao antes do conserto: 27 automacoes com media_id, todas
+    // com gatilho `comment`, e NENHUMA automacao de `dm`. Latente — e e por isso
+    // que precisa de portao: quando a primeira automacao de DM nascer, ninguem
+    // vai estar procurando por isto.
+    const acoes = await import("@/app/automacoes/actions");
+    const form = new FormData();
+    form.set("name", "dm que veio com post na URL");
+    form.set("trigger", "dm");
+    form.set("match_type", "any");
+    form.set("post", "18056760980769922");
+
+    await comoNumaRequisicao("/automacoes/nova", async () => {
+      try {
+        await acoes.criarAutomacao(null, form);
+      } catch {
+        /* o redirect do Next */
+      }
+      return null;
+    });
+
+    const linhas = (await banco.db().sql().query(
+      `select media_id, triggers from automations
+        where account_id = $1 and name = 'dm que veio com post na URL'`,
+      [CONTA]
+    )) as { media_id: string | null; triggers: string[] }[];
+    // A automacao NASCEU — a guarda recusa o atalho, nunca a criacao.
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0].triggers).toEqual(["dm"]);
+    expect(linhas[0].media_id).toBeNull();
+  });
 });

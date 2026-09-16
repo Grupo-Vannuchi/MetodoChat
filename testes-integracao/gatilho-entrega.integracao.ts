@@ -270,6 +270,26 @@ async function semear(
   return linhas[0].id;
 }
 
+// O `error` e o `status` de uma linha da fila, pelo id. Duas leitoras separadas
+// porque os dois casos que as usam perguntam coisas diferentes, e juntá-las num
+// objeto faria a asserção falhar dizendo "objeto diferente" em vez de nomear a
+// coluna que mentiu.
+async function erroDaLinha(id: string): Promise<string | null> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(`select error from queue where id = $1`, [id])) as { error: string | null }[];
+  return linhas[0]?.error ?? null;
+}
+
+async function statusDaLinha(id: string): Promise<string | undefined> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(`select status from queue where id = $1`, [id])) as { status: string }[];
+  return linhas[0]?.status;
+}
+
 type LinhaDaFila = {
   id: string;
   kind: string;
@@ -602,5 +622,45 @@ describe("o gatilho dispara, e o que sai é o que o mapa de caminhos manda", () 
     expect(lerPayload(daAula.botoes[1].payload)?.botaoId).toBe("op_mod002");
 
     expect(meta.desconhecidos).toEqual([]);
+  });
+  test("sucesso APAGA o erro da tentativa anterior", async () => {
+    // O DEFEITO, medido em produção em 16/09/2026: 1 linha `sent` de 245 estava
+    // com "a Meta ainda esta processando a midia" e `attempts = 2` — uma
+    // publicação que o dreno REPUBLICOU COM SUCESSO e que as telas continuavam
+    // chamando de problema.
+    //
+    // A causa era uma linha só de SQL em `finish` (lib/queue-drain.ts):
+    // `error = coalesce($5, error)`. Quem falha grava o motivo; quem dá certo
+    // chama `finish` SEM `error`, e o `coalesce(null, error)` preservava o
+    // motivo antigo. O erro sobrevivia ao próprio conserto.
+    //
+    // AQUI O ERRO ANTERIOR É ESCRITO À MÃO NA FILA, de propósito: reproduzir uma
+    // falha de verdade da Meta e depois um sucesso exigiria um servidor que
+    // muda de resposta no meio, e o que este caso mede não é a falha — é o que
+    // `finish` faz com a coluna quando o item finalmente sai.
+    await semear("quem-tropecou", "dm", "tropecei", [
+      { id: "b_entrada", tipo: "dm", texto: "saiu na segunda tentativa" },
+    ], []);
+    const EU = "9300000000000077";
+    await mensagem(EU, "tropecei", "m-tropecei-1");
+
+    const antes = await fila(EU);
+    expect(antes.length).toBe(1);
+    await banco
+      .db()
+      .sql()
+      .query(`update queue set error = $2, attempts = 1 where id = $1`, [
+        antes[0].id,
+        "a Meta ainda esta processando a midia",
+      ]);
+
+    // A prova de que o caso NÃO passa por vacuidade: o erro está lá antes.
+    expect(await erroDaLinha(antes[0].id)).toBe("a Meta ainda esta processando a midia");
+
+    await dreno.drainQueue();
+
+    expect(textosNoFio(EU)).toEqual(["saiu na segunda tentativa"]);
+    expect(await statusDaLinha(antes[0].id)).toBe("sent");
+    expect(await erroDaLinha(antes[0].id)).toBeNull();
   });
 });

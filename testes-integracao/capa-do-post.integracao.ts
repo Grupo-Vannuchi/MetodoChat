@@ -268,6 +268,45 @@ async function salvarPelaAcao(args: {
   }
 }
 
+/** Igual a `salvarPelaAcao`, mas escolhendo o GATILHO — é o que o caso do alvo
+ * mede. `correspondencia: "any"` de novo, para nenhum gatilho exigir palavra. */
+async function salvarComGatilho(args: {
+  id: string;
+  gatilho: string;
+  post: { id: string; thumb: string; caption: string };
+  story?: { id: string; thumb: string };
+}): Promise<void> {
+  const PASSO_MINIMO = [{ id: "b_alvo0001", tipo: "dm", texto: "Oi!" }];
+  const { valor } = await comoNumaRequisicao(`/automacoes/${args.id}`, () =>
+    acoes.salvarAutomacao(args.id, PASSO_MINIMO, [], {
+      nome: `automação de gatilho ${args.gatilho}`,
+      ativo: false,
+      gatilho: args.gatilho,
+      correspondencia: "any",
+      palavras: [],
+      entregaSemPortao: false,
+      post: args.post,
+      story: args.story ?? null,
+    })
+  );
+  if (!valor.ok) {
+    throw new Error(`salvarComGatilho falhou: ${(valor as { erro: string }).erro}`);
+  }
+}
+
+/** O alvo guardado, as duas colunas juntas: é o par que `findMatch`
+ * (lib/engine.ts) consulta. */
+async function alvoGravado(id: string): Promise<{ media_id: string | null; story_id: string | null }> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(`select media_id, story_id from automations where id = $1`, [id])) as {
+    media_id: string | null;
+    story_id: string | null;
+  }[];
+  return linhas[0];
+}
+
 /** As três colunas que este arquivo inteiro mede: o id, a URL que apodrece e
  * a legenda que não apodrece — lidas do banco, e não do que a ação devolveu. */
 async function lerAutomacao(id: string): Promise<{
@@ -711,5 +750,41 @@ describe("o prazo é do resolvePosts, e a capa de graça não é jogada fora", (
     // passaria verde tambem se `resolvePosts` desistisse NA HORA, sem esperar
     // nada -- e ai o teto nao estaria sendo medido, so a ausencia de espera.
     expect(gasto).toBeGreaterThanOrEqual(TETO_DA_RESOLUCAO_MS - 300);
+  });
+  test("o gatilho decide o alvo: dm não guarda media_id, e story não guarda post", async () => {
+    // O DEFEITO QUE ISTO PRENDE, e ele NÃO é "dado morto": três linhas depois do
+    // recorte por post, `findMatch` (lib/engine.ts:263) desempata com
+    // `candidates.find((a) => trigger === "story" ? a.story_id : a.media_id)`.
+    // Para o gatilho `dm` esse `a.media_id` continua sendo consultado, então um
+    // media_id sobrando faz a automação GANHAR o desempate de uma DM por causa
+    // de um post que não tem nada a ver com a conversa. O sintoma seria "a
+    // automação errada respondeu", e a causa moraria numa coluna que a tela de
+    // DM nem mostra.
+    //
+    // MEDIDO em produção em 16/09/2026: 27 automações têm media_id e TODAS têm
+    // o gatilho `comment`; NENHUMA usa `dm`. Latente hoje — e é justamente por
+    // isso que precisa de portão: quando a primeira automação de DM nascer,
+    // ninguém vai estar procurando por isto.
+    //
+    // ESTE CASO ATRAVESSA A AÇÃO DE VERDADE, e não a função pura, e a história
+    // é a razão de ele existir: o teste puro da regra
+    // (tests/alvo-do-gatilho.test.ts, hoje sobre `gatilhoGuardaPost`) SOBREVIVEU
+    // ao plantio que devolve `post?.id` direto no `salvarAutomacao`. A regra
+    // tinha dono e teste, e ninguém provava que a GRAVAÇÃO o usava.
+    const POST = { id: "17900000000000501", thumb: "", caption: "post do alvo" };
+    const STORY = { id: "17900000000000502", thumb: "" };
+
+    const id = await semearAutomacao({ mediaId: "17900000000000500", thumb: null, caption: null });
+
+    await salvarComGatilho({ id, gatilho: "comment", post: POST, story: STORY });
+    expect(await alvoGravado(id)).toEqual({ media_id: POST.id, story_id: null });
+
+    await salvarComGatilho({ id, gatilho: "story", post: POST, story: STORY });
+    expect(await alvoGravado(id)).toEqual({ media_id: null, story_id: STORY.id });
+
+    // O QUE IMPORTA: mesmo com a tela mandando post E story, o gatilho `dm` não
+    // guarda nenhum dos dois.
+    await salvarComGatilho({ id, gatilho: "dm", post: POST, story: STORY });
+    expect(await alvoGravado(id)).toEqual({ media_id: null, story_id: null });
   });
 });
