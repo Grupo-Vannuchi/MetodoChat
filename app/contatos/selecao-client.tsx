@@ -43,6 +43,12 @@ function lerSelecao(alvo: string): Selecao {
   const cs = caixas(alvo);
   const n = cs.filter((c) => c.checked).length;
   const total = cs.length;
+  // VAZIO É A MESMA CONSTANTE QUE O RETRATO DO SERVIDOR devolve, e devolvê-la
+  // aqui faz os dois caminhos concordarem POR IDENTIDADE. Sem esta linha, a
+  // primeira leitura de um formulário de fato vazio construía um objeto novo
+  // com os mesmos zeros, e o React re-renderizava uma vez à toa — saída
+  // idêntica, trabalho inútil.
+  if (n === 0 && total === 0) return VAZIO;
   const anterior = ULTIMO.get(alvo);
   if (anterior && anterior.n === n && anterior.total === total) return anterior;
   const agora = { n, total };
