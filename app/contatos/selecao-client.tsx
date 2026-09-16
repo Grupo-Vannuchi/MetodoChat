@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 // A ÚNICA PEÇA DE CLIENTE DE `/contatos`, e ela é pequena de propósito.
 //
@@ -23,38 +23,70 @@ function caixas(alvo: string): HTMLInputElement[] {
   return Array.from(form.querySelectorAll<HTMLInputElement>('input[name="ig_id"]'));
 }
 
-/** Quantas caixas há e quantas estão marcadas, recontadas a cada `change`. */
-function useSelecao(alvo: string): { n: number; total: number } {
-  const [estado, setEstado] = useState({ n: 0, total: 0 });
-  // Acessível aos dois efeitos abaixo sem recriar o ouvinte a cada render: o
-  // efeito de `[alvo]` só registra o `change` uma vez (ou quando `alvo` muda) e
-  // fecha sobre esta função; o efeito sem dependências só a CHAMA de novo a
-  // cada render, sem mexer no ouvinte.
-  const recontar = () => {
-    const cs = caixas(alvo);
-    const n = cs.filter((c) => c.checked).length;
-    const total = cs.length;
-    // O bail-out: devolver `p` quando nada mudou é o que impede o laço do
-    // `useEffect` sem dependências logo abaixo.
-    setEstado((p) => (p.n === n && p.total === total ? p : { n, total }));
-  };
-  useEffect(() => {
-    const form = document.getElementById(alvo);
-    if (!form) return;
-    recontar();
-    // `change` BORBULHA de `<input>` até o `<form>`, então um ouvinte no
-    // formulário cobre as 25 caixas sem pendurar 25 ouvintes.
-    form.addEventListener("change", recontar);
-    return () => form.removeEventListener("change", recontar);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [alvo]);
-  // A cada render o DOM é a verdade, e o estado tem de obedecer: depois do
-  // redirect da ação (e de "Ver mais", e de trocar filtro) as linhas voltam do
-  // servidor DESMARCADAS, mas este componente é o mesmo fiber — sem isto o
-  // cabeçalho fica marcado sobre linhas vazias e o primeiro clique DESMARCA.
-  // O bail-out (devolver `p` quando nada mudou) é o que impede o laço.
-  useEffect(() => { recontar(); });
-  return estado;
+type Selecao = { n: number; total: number };
+
+// A LEITURA FORA DA ÁRVORE DO REACT, com o retrato guardado.
+//
+// `useSyncExternalStore` EXIGE que o retrato seja o MESMO OBJETO enquanto nada
+// muda: ele compara por identidade, e um objeto novo a cada leitura vira laço
+// infinito ("The result of getSnapshot should be cached"). Este mapa é essa
+// exigência, e é o mesmo bail-out que a versão anterior fazia à mão dentro do
+// `setEstado` — só que agora ele é obrigação da API, e não disciplina de quem
+// escreve.
+//
+// O mapa é por `alvo` (o id do formulário) e nunca é limpo: são dois
+// formulários nesta tela, e a chave é uma string curta. Não há o que crescer.
+const ULTIMO = new Map<string, Selecao>();
+const VAZIO: Selecao = { n: 0, total: 0 };
+
+function lerSelecao(alvo: string): Selecao {
+  const cs = caixas(alvo);
+  const n = cs.filter((c) => c.checked).length;
+  const total = cs.length;
+  const anterior = ULTIMO.get(alvo);
+  if (anterior && anterior.n === n && anterior.total === total) return anterior;
+  const agora = { n, total };
+  ULTIMO.set(alvo, agora);
+  return agora;
+}
+
+/** Quantas caixas há e quantas estão marcadas, lidas do DOM.
+ *
+ * POR QUE `useSyncExternalStore` E NÃO `useState` + `useEffect`, e isto mudou em
+ * 16/09/2026: a versão anterior tinha DOIS efeitos que chamavam `setState`
+ * síncrono, e `eslint-plugin-react-hooks` 7.1.1 os acusa com
+ * `react-hooks/set-state-in-effect` ("Calling setState synchronously within an
+ * effect can trigger cascading renders"). Eram os dois únicos erros de lint da
+ * base que NÃO eram falso positivo de Server Component — e a regra estava certa:
+ * o padrão renderizava, lia o DOM e renderizava de novo, toda vez.
+ *
+ * `useSyncExternalStore` é exatamente a API para isto — "uma fonte de verdade
+ * fora do React, com assinatura e retrato" —, e ela entrega de graça as duas
+ * coisas que os comentários antigos explicavam com cuidado: reler a cada render
+ * (era o efeito sem dependências, para o caso das linhas voltarem DESMARCADAS do
+ * servidor depois do redirect) e não entrar em laço (era o bail-out à mão).
+ *
+ * O TERCEIRO ARGUMENTO É O RETRATO DO SERVIDOR, e ele tem de ser `VAZIO`: no
+ * servidor não há DOM para contar, e é o mesmo zero com que a versão anterior
+ * inicializava o `useState`. Sem ele, a hidratação estoura.
+ */
+function useSelecao(alvo: string): Selecao {
+  const assinar = useCallback(
+    (avisar: () => void) => {
+      const form = document.getElementById(alvo);
+      if (!form) return () => {};
+      // `change` BORBULHA de `<input>` até o `<form>`, então um ouvinte no
+      // formulário cobre as 25 caixas sem pendurar 25 ouvintes.
+      form.addEventListener("change", avisar);
+      return () => form.removeEventListener("change", avisar);
+    },
+    [alvo]
+  );
+  return useSyncExternalStore(
+    assinar,
+    () => lerSelecao(alvo),
+    () => VAZIO
+  );
 }
 
 export function MarcarTodas({ alvo }: { alvo: string }) {
