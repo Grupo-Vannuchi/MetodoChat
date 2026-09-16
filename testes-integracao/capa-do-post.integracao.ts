@@ -54,7 +54,7 @@
 // mesmo motivo que `textoDaArvore` já invoca para não estourar.
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { bancoDescartavel } from "./harness";
@@ -62,6 +62,7 @@ import { comoNumaRequisicao } from "./semear-requisicao";
 import type { AutomationRow } from "@/app/automacoes/list-client";
 import type { Configuracao } from "@/app/automacoes/editor/painel";
 import MediaPicker from "@/app/automacoes/media-picker";
+import { MAX_INDIVIDUAL_LOOKUPS, TETO_DA_RESOLUCAO_MS, resolvePosts } from "@/lib/media-lookup";
 
 const banco = bancoDescartavel();
 
@@ -473,5 +474,242 @@ describe("o SELETOR (MediaPicker) não mostra o id cru quando a Meta está fora"
 
     expect(html).not.toContain(ID_SEM_META);
     expect(html).toContain("Post selecionado");
+  });
+});
+
+// -----------------------------------------------------------------------------
+// O TETO DE BUSCAS AVULSAS — "recentes + 8" era um teto de CUSTO, e o custo
+// mudou.
+//
+// O DEFEITO, MEDIDO EM 15/09/2026: 21 das 27 automações desta conta apontam
+// para post FORA dos 40 recentes, e `MAX_INDIVIDUAL_LOOKUPS = 8` atendia oito
+// delas. As outras 13 ficavam SEM CAPA para sempre — não "lentas", não
+// "quebradas": sem capa, carregamento após carregamento, porque o corte é por
+// `.slice` e a mesma lista chega na mesma ordem toda vez. O teto de 8 existia
+// porque cada busca avulsa custava rede a cada render (8 em paralelo = 509 ms).
+// Com o cache da Tarefa 1 essa repetição saiu do caminho, e o teto passou a ser
+// só o que ele ainda precisa ser: um limite contra lista patológica.
+//
+// O QUE ESTE BLOCO MEDE: a FORMA das chamadas — uma listagem mais N avulsas —,
+// e NÃO o cache do Next, que sob o vitest não guarda nada (medido em
+// 15/09/2026, dentro e fora de `comoNumaRequisicao`: o `IncrementalCache` desta
+// fundação nasce com `maxMemoryCacheSize: 0` e sem manipulador de disco). É por
+// isso que o contador aqui enxerga TODAS as chamadas — o que é bom para esta
+// pergunta — e é por isso que NENHUMA asserção deste bloco fala sobre o cache
+// guardar: ela passaria verde medindo o nada.
+//
+// POR QUE DENTRO DE `comoNumaRequisicao`: `unstable_cache`
+// (next/dist/server/web/spec-extension/unstable-cache.js:60) LANÇA
+// "Invariant: incrementalCache missing" quando não acha `workStore`. Fora do
+// contexto de requisição, os dois embrulhos de `lib/media-lookup.ts` estourariam
+// — e `resolvePosts` engole os dois (try/catch na listagem, `allSettled` nas
+// avulsas). O contador veria ZERO pedidos e o caso ficaria vermelho falando de
+// teto, quando o assunto seria outro.
+//
+// O MECANISMO é o de `testes-integracao/teto-da-meta.integracao.ts` (leia o
+// cabeçalho dele: as duas travas de `baseDoGraph`, lib/ig.ts, e por que este
+// caminho não usa mock). Lá o servidor local serve para PENDURAR; aqui ele
+// serve para CONTAR, por rota.
+describe("o teto de buscas avulsas para de ser 'recentes + 8'", () => {
+  let servidorContador: Server;
+  let listagens = 0;
+  let avulsas = 0;
+
+  beforeAll(async () => {
+    servidorContador = createServer((req, res) => {
+      const u = new URL(req.url ?? "/", "http://127.0.0.1");
+      res.writeHead(200, { "content-type": "application/json" });
+      // A LISTAGEM: `getMedia` (lib/ig.ts) bate em `/{versão}/{conta}/media`.
+      // Devolve lista VAZIA de propósito — nenhum id procurado está nos
+      // recentes, que é a situação das 21 automações de 15/09.
+      if (u.pathname.endsWith(`/${CONTA}/media`)) {
+        listagens++;
+        res.end(JSON.stringify({ data: [] }));
+        return;
+      }
+      // A AVULSA: `getMediaById` bate em `/{versão}/{id}`. Só estas duas rotas
+      // existem no caminho de `resolvePosts`, então tudo que não é a listagem é
+      // uma busca avulsa.
+      avulsas++;
+      res.end(JSON.stringify({ id: u.pathname.split("/").pop() ?? "" }));
+    });
+    await new Promise<void>((pronto) => servidorContador.listen(0, "127.0.0.1", pronto));
+    const porta = (servidorContador.address() as AddressInfo).port;
+    process.env.IG_GRAPH_BASE = `http://127.0.0.1:${porta}`;
+  });
+
+  afterAll(async () => {
+    delete process.env.IG_GRAPH_BASE;
+    await new Promise<void>((pronto) => servidorContador.close(() => pronto()));
+  });
+
+  /** Ids que NÃO estão nos recentes (a listagem deste servidor é vazia) e não
+   * colidem com nenhum outro id semeado neste arquivo. */
+  function idsDeTeste(quantos: number): string[] {
+    return Array.from({ length: quantos }, (_, i) => `1890000000000${String(i).padStart(4, "0")}`);
+  }
+
+  /** Quantos pedidos de cada rota o corpo provocou. Zera os contadores antes,
+   * porque o servidor é compartilhado pelos casos deste bloco. */
+  async function contarPedidos(
+    corpo: () => Promise<void>
+  ): Promise<{ listagens: number; avulsas: number }> {
+    listagens = 0;
+    avulsas = 0;
+    await comoNumaRequisicao("/automacoes", corpo);
+    return { listagens, avulsas };
+  }
+
+  test("resolvePosts busca alem dos 8 antigos, e respeita o teto novo", async () => {
+    const pedidos = await contarPedidos(async () => {
+      await resolvePosts(CONTA, TOKEN, idsDeTeste(20)); // nenhum nos "recentes"
+    });
+    // UMA listagem: a primeira tentativa continua sendo a lista dos recentes,
+    // e ela não se multiplica por id procurado.
+    expect(pedidos.listagens).toBe(1);
+    // E as VINTE avulsas: com o teto antigo isto parava em 8, e as 12 restantes
+    // ficavam sem capa para sempre.
+    expect(pedidos.avulsas).toBe(20);
+  });
+
+  test("o teto ainda existe, contra lista patologica", async () => {
+    const pedidos = await contarPedidos(async () => {
+      await resolvePosts(CONTA, TOKEN, idsDeTeste(100));
+    });
+    // O teto não sumiu, só mudou de motivo: não é mais custo por chamada, é
+    // proteção contra uma lista absurda virar enxurrada de chamadas.
+    expect(pedidos.avulsas).toBe(MAX_INDIVIDUAL_LOOKUPS);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// O PRAZO PASSA A SER DO `resolvePosts` — E O QUE JÁ VEIO DE GRAÇA FICA.
+//
+// O DEFEITO, DE 16/09/2026: o `Promise.race` de `app/automacoes/page.tsx:114`
+// devolve `new Map()` quando o prazo vence — jogando fora as capas que a
+// listagem dos 40 recentes JÁ tinha resolvido, sem custo nenhum a mais. E
+// `app/eventos/page.tsx:145` não tem corrida alguma: chama `resolvePosts` cru.
+//
+// POR QUE ISSO PIOROU AGORA: a Tarefa 2 subiu `MAX_INDIVIDUAL_LOOKUPS` de 8
+// para 32, e as medições de 16/09/2026 contra a Meta de verdade (com o token da
+// conta DONA de cada post) dizem o preço: listagem dos 40 = 498 ms; 8 avulsas
+// em paralelo = 497 ms; 21 = 572 ms; 32 = 721 ms. O caminho frio saiu de ~1,0 s
+// para ~1,2 s, e a folga sobre os 2500 ms do call site caiu de ~3x para ~1,5x.
+// Vencer o prazo ficou mais provável, e o desfecho era tela SEM CAPA NENHUMA.
+//
+// O MECANISMO: o mesmo servidor local dos blocos acima, agora com as DUAS
+// metades juntas — a rota da LISTAGEM responde na hora (como a listagem de
+// verdade, que é rápida), e a rota da BUSCA AVULSA aceita a conexão e NUNCA
+// responde. Essa segunda metade é o servidor mudo de
+// `testes-integracao/teto-da-meta.integracao.ts` (leia o cabeçalho dele: por
+// que não é mock, e por que `afterAll` precisa destruir os sockets à força —
+// uma conexão que nunca responde também nunca fecha sozinha, e sem isso o
+// vitest não sai deste arquivo).
+//
+// POR QUE DENTRO DE `comoNumaRequisicao`: o mesmo motivo do bloco do teto,
+// acima — `unstable_cache` lança "Invariant: incrementalCache missing" sem
+// `workStore`, e `resolvePosts` engoliria os dois estouros, medindo outra coisa.
+describe("o prazo é do resolvePosts, e a capa de graça não é jogada fora", () => {
+  // Fora das faixas usadas pelos outros blocos deste arquivo, para nenhum id
+  // colidir com automação semeada ou com `idsDeTeste`.
+  const ID_NA_LISTAGEM = "17900000000000881";
+  const ID_FORA_DA_LISTAGEM = "17900000000000882";
+  const CAPA_DA_LISTAGEM = "https://exemplo-do-teste.invalid/capa-de-graca.jpg";
+
+  let servidor: Server;
+  const socketsAbertos = new Set<Socket>();
+  // QUANTAS AVULSAS CHEGARAM DE VERDADE. Sem este contador, o caso abaixo
+  // passaria vazio: `mapa.get(ID_FORA_DA_LISTAGEM)` também é `undefined`
+  // quando a busca avulsa nem sai do processo. É a mesma prova que `pedidos`
+  // faz em `testes-integracao/teto-da-meta.integracao.ts`.
+  let avulsasPresas = 0;
+
+  beforeAll(async () => {
+    servidor = createServer((req, res) => {
+      const u = new URL(req.url ?? "/", "http://127.0.0.1");
+      // A LISTAGEM (`getMedia`, lib/ig.ts) responde NA HORA, com o post que a
+      // tela vai querer: é a capa que sai de graça e que o descarte jogava fora.
+      if (u.pathname.endsWith(`/${CONTA}/media`)) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            data: [
+              {
+                id: ID_NA_LISTAGEM,
+                media_type: "IMAGE",
+                media_url: CAPA_DA_LISTAGEM,
+                caption: "veio da listagem, de graça",
+                permalink: "https://instagram.com/p/capa-de-graca",
+              },
+            ],
+          })
+        );
+        return;
+      }
+      // A AVULSA (`getMediaById`) FICA PRESA: nem `writeHead`, nem `write`, nem
+      // `end`. Do lado do cliente é indistinguível de "a Meta aceitou e não
+      // respondeu" — que é o caminho caro de 721 ms virando caminho infinito.
+      avulsasPresas++;
+    });
+    servidor.on("connection", (socket) => {
+      socketsAbertos.add(socket);
+      socket.on("close", () => socketsAbertos.delete(socket));
+    });
+    await new Promise<void>((pronto) => servidor.listen(0, "127.0.0.1", pronto));
+    const porta = (servidor.address() as AddressInfo).port;
+    process.env.IG_GRAPH_BASE = `http://127.0.0.1:${porta}`;
+  });
+
+  afterAll(async () => {
+    delete process.env.IG_GRAPH_BASE;
+    // As conexões das avulsas presas nunca fecham sozinhas — ver o `afterAll`
+    // de `testes-integracao/teto-da-meta.integracao.ts` para o porquê inteiro.
+    servidor.closeAllConnections?.();
+    for (const socket of socketsAbertos) socket.destroy();
+    await new Promise<void>((pronto) => servidor.close(() => pronto()));
+  });
+
+  /** A listagem responde na hora; as avulsas ficam presas. Zera o contador
+   * antes, porque o servidor é compartilhado pelos casos deste bloco. */
+  async function comListagemRapidaEAvulsasPresas<T>(corpo: () => Promise<T>): Promise<T> {
+    avulsasPresas = 0;
+    const { valor } = await comoNumaRequisicao("/automacoes", corpo);
+    return valor;
+  }
+
+  test("vencido o prazo, o que veio da listagem NAO e jogado fora", async () => {
+    // O DEFEITO, medido em 16/09/2026: o `Promise.race` de
+    // app/automacoes/page.tsx:114 devolve `new Map()` quando o prazo vence --
+    // jogando fora as capas que a listagem ja tinha resolvido de graca. Com o
+    // teto de avulsas em 32 (721ms medidos, contra 497ms de 8), vencer o prazo
+    // ficou mais provavel, e o desfecho era tela SEM CAPA NENHUMA.
+    //
+    // Aqui a listagem responde na hora e as avulsas nunca respondem. O certo e
+    // devolver o que a listagem deu.
+    const mapa = await comListagemRapidaEAvulsasPresas(async () =>
+      resolvePosts(CONTA, TOKEN, [ID_NA_LISTAGEM, ID_FORA_DA_LISTAGEM])
+    );
+    expect(mapa.get(ID_NA_LISTAGEM)).toBeTruthy();   // veio de graca, tem de ficar
+    expect(mapa.get(ID_FORA_DA_LISTAGEM)).toBeUndefined(); // nao deu tempo, e tudo bem
+    // E a avulsa SAIU MESMO: sem isto, um `resolvePosts` que nem tentasse a
+    // segunda etapa passaria neste caso do mesmo jeito.
+    expect(avulsasPresas).toBeGreaterThan(0);
+  });
+
+  test("resolvePosts desiste dentro do teto, e nao fica pendurado", async () => {
+    const t0 = Date.now();
+    await comListagemRapidaEAvulsasPresas(async () =>
+      resolvePosts(CONTA, TOKEN, [ID_NA_LISTAGEM, ID_FORA_DA_LISTAGEM])
+    );
+    const gasto = Date.now() - t0;
+    expect(gasto).toBeLessThan(TETO_DA_RESOLUCAO_MS + 700);
+    // E o teto REAL, e nao uma copia encurtada para o teste: um teto que so
+    // existe no teste e uma segunda verdade. Mesma disciplina do cabecalho de
+    // testes-integracao/teto-da-meta.integracao.ts.
+    //
+    // O PISO, pelo mesmo motivo que aquele arquivo da um: sem ele este caso
+    // passaria verde tambem se `resolvePosts` desistisse NA HORA, sem esperar
+    // nada -- e ai o teto nao estaria sendo medido, so a ausencia de espera.
+    expect(gasto).toBeGreaterThanOrEqual(TETO_DA_RESOLUCAO_MS - 300);
   });
 });

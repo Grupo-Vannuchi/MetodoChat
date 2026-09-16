@@ -34,32 +34,74 @@ export default async function AutomacoesPage({
   // `story_thumbnail_url` CONTINUA vindo do banco, mas PARA DE ALIMENTAR
   // `<img>` — ver o comentário na montagem de `thumb`, abaixo.
   //
-  // O NÚMERO REAL DE CHAMADAS: NÃO é "uma por carregamento", como o plano
-  // desta branch (docs/plans/2026-09-15-a-capa-que-apodrece.md) chegou a
-  // dizer — corrigido lá. `resolvePosts` (lib/media-lookup.ts) faz
-  // `getMedia(limit=40)` MAIS até `MAX_INDIVIDUAL_LOOKUPS = 8` buscas avulsas
-  // para o que não estiver nos 40 recentes — até 9 chamadas por carregamento
-  // desta tela, e isso se repete a cada `revalidatePath("/automacoes")`
-  // (salvar, ativar, pausar, duplicar, excluir).
+  // O NÚMERO REAL DE CHAMADAS, e ele MUDOU DE NATUREZA em 16/09/2026.
   //
-  // A CONSEQUÊNCIA: automação apontando para um post fora dos 40 recentes só
-  // resolve capa nas 8 primeiras dessa sobra — o resto fica sem capa. A tela
-  // não vira "22 capas certas"; vira "recentes + 8". Isso é esperado, e não
-  // um defeito novo para abrir depois.
+  // `resolvePosts` (lib/media-lookup.ts) faz `getMedia(limit=40)` MAIS até
+  // `MAX_INDIVIDUAL_LOOKUPS` buscas avulsas para o que não estiver nos 40
+  // recentes. O que mudou é que essas chamadas agora são CACHEADAS na camada
+  // semântica — lista dos recentes por 120 s, post pelo id por 6 h —, então
+  // elas deixaram de sair a CADA CARREGAMENTO.
+  //
+  // MAS SAEM A CADA MUTAÇÃO, E ISSO NÃO É UM DETALHE: `revalidatePath`
+  // DERRUBA TAMBÉM O CACHE DA META, e não só o da página. Lido na fonte do
+  // Next 16.2.10 instalado:
+  // node_modules/next/dist/server/lib/incremental-cache/file-system-cache.js:229-246
+  // monta `combinedTags = [...ctx.tags, ...ctx.softTags]` e devolve `null` —
+  // MISS INTEIRO, não stale — quando alguma delas está expirada; e as
+  // `softTags` são as tags IMPLÍCITAS do render corrente, que `unstable_cache`
+  // passa na leitura (unstable-cache.js:148-152). A implícita deste caminho é
+  // `_N_T_/automacoes`, que é exatamente a que `revalidatePath("/automacoes")`
+  // grava.
+  //
+  // CONSEQUÊNCIA: cada salvar, ativar, pausar, duplicar e excluir
+  // (`actions.ts:383,470,587,612,663`) devolve esta tela ao CAMINHO FRIO
+  // INTEIRO — 1 listagem + até `MAX_INDIVIDUAL_LOOKUPS` avulsas, os ~1,2 s
+  // medidos em 16/09/2026. E não para por aqui: `selectAccount`
+  // (`app/account-actions.ts:39`) faz `revalidatePath("/", "layout")`, cuja
+  // tag `_N_T_/layout` é implícita em TODO render — trocar de conta zera a
+  // capa das QUATRO telas de uma vez.
+  //
+  // E A MEDIÇÃO DE ACEITAÇÃO DO PLANO NÃO PEGA ISSO. Ela manda recarregar
+  // `/automacoes` três vezes seguidas, SEM mutação no meio: mede o caminho
+  // comum, onde o ganho é real, e nunca dispara `revalidatePath`. Depois de
+  // uma mutação o caminho é frio de novo, então aqueles três cronômetros não
+  // têm como acusar o custo do fluxo de trabalho desta tela. Medir esse fluxo
+  // é outra medição — salvar uma automação, recarregar, cronometrar — e ela
+  // não foi feita.
+  //
+  // Este comentário já disse "MAX_INDIVIDUAL_LOOKUPS = 8", "até 9 chamadas por
+  // carregamento" e "a tela vira recentes + 8". As três frases ficaram falsas
+  // no mesmo dia em que o teto subiu para 32, e o texto sobreviveu a elas —
+  // por isso está reescrito com o número vindo da constante, e não copiado.
+  //
+  // MEDIDO em 16/09/2026 contra a Meta, com o token da conta DONA de cada post
+  // (a primeira medição errou isso e cruzou conta com token, o que faz TODA
+  // busca avulsa devolver 400): listagem dos 40 = 498 ms; 8 avulsas em
+  // paralelo = 497 ms; 21 = 572 ms; 32 = 721 ms. Subir o teto custa ~200 ms no
+  // caminho frio, uma vez por janela de cache, e é o que tira esta tela de
+  // "recentes + 8": das 23 automações com post da conta do painel, 18 estavam
+  // fora dos 40 recentes e só 8 resolviam capa.
   const idsDosPosts = [
     ...new Set(automations.map((a) => a.media_id).filter((id): id is string => !!id)),
   ];
   let capas = new Map<string, PostRef>();
   if (account && idsDosPosts.length) {
-    // TETO DE TEMPO NO CALL SITE, o mesmo padrão de app/page.tsx. `graphFetch`
-    // (lib/ig.ts) já tem o TETO DA LEITURA (8s por requisição): a chamada por
-    // baixo não fica mais pendurada para sempre. Esta corrida é o teto da
-    // TELA por cima disso, mais apertado (2,5s) — perde a corrida, a tela
-    // renderiza sem capa; a requisição por baixo segue — `resolvePosts`
-    // encadeia duas etapas, até ~16s. `resolvePosts` já tem `try/catch`
-    // interno e devolve mapa parcial ou vazio quando a Meta falhar — o
-    // `try/catch` aqui é a segunda rede, para o que ele não cobre. Sem capa a
-    // lista renderiza igual; sem a tela, nada renderiza.
+    // TETO DE TEMPO NO CALL SITE — HOJE ELE É A REDE DE FORA, E NÃO A ÚNICA.
+    //
+    // O teto de verdade passou para dentro de `resolvePosts`:
+    // `TETO_DA_RESOLUCAO_MS` = 2000 ms (lib/media-lookup.ts), orçamento TOTAL
+    // das duas etapas. Antes, o número certo aqui era "~16s" — duas etapas
+    // encadeadas, cada uma até o `TETO_DA_LEITURA_MS` de 8 s do `graphFetch`
+    // (lib/ig.ts) — e esta corrida era a ÚNICA proteção da tela. Não é mais:
+    // ela agora vence depois do teto de dentro, e por isso quase nunca vence.
+    //
+    // E POR QUE ELA FICA. O de dentro devolve MAPA PARCIAL quando vence — as
+    // capas que a listagem dos 40 já tinha resolvido de graça ficam. Esta
+    // corrida, quando vencia, devolvia `new Map()`: descarte tudo ou nada, tela
+    // sem capa nenhuma. Ela sobra só para o que o teto de dentro não cobre (a
+    // função travar antes de marcar o próprio início, por exemplo), junto com o
+    // `try/catch` abaixo. Sem capa a lista renderiza igual; sem a tela, nada
+    // renderiza.
     const TETO_DA_CAPA_MS = 2500;
     // `idDoTimer` SAI DA CORRIDA porque `resolvePosts` normalmente ganha
     // antes do teto — e um `setTimeout` que ninguém cancela sobrevive ao
