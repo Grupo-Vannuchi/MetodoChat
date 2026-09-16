@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useImagemQuebrada } from "../../usar-imagem-quebrada";
 
 // A imagem do anexo, com plano B.
 //
@@ -11,7 +11,12 @@ import { useState } from "react";
 // carregamento falha, e a bolha não pode ficar com o ícone de imagem quebrada:
 // o onError esconde a imagem e quem chama mostra só o rótulo.
 export default function AnexoImagem({ url, alt }: { url: string; alt: string }) {
-  const [quebrou, setQuebrou] = useState(false);
+  // AS DUAS REDES VÊM DE `app/usar-imagem-quebrada.ts`. O `onError` sozinho só
+  // pega a falha que acontece com a página já viva; a que acontece ANTES de o
+  // React hidratar se perde, e a bolha fica com o ícone de imagem quebrada —
+  // exatamente o que o comentário acima promete evitar. Medido na produção em
+  // 16/09/2026, no mesmo defeito de `app/avatar.tsx`.
+  const { quebrou, aoMontar, aoErro } = useImagemQuebrada(url);
   if (quebrou) return null;
   return (
     // eslint-disable-next-line @next/next/no-img-element
@@ -20,7 +25,8 @@ export default function AnexoImagem({ url, alt }: { url: string; alt: string }) 
       alt={alt}
       loading="lazy"
       decoding="async"
-      onError={() => setQuebrou(true)}
+      ref={aoMontar}
+      onError={aoErro}
       className="mb-1.5 max-h-56 w-full rounded-lg object-cover"
     />
   );
