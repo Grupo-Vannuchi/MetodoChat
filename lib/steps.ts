@@ -4537,7 +4537,9 @@ export function resumoDoErroDaMeta(erro: unknown): ResumoDoErroDaMeta {
 // `media_id` sobrando faz a automação GANHAR o desempate de uma DM por causa de
 // um post que não tem nada a ver com aquela conversa. O sintoma seria "a
 // automação errada respondeu", e a causa estaria numa coluna que a tela de DM
-// nem mostra.
+// nem mostra — enquanto `/automacoes` (app/automacoes/page.tsx) resolveria a
+// capa daquele post para QUALQUER automação com `media_id`, sem olhar gatilho,
+// mostrando uma automação de DM ilustrada por um post que ela nunca usa.
 //
 // POR QUE ISTO VIROU FUNÇÃO COM NOME, e a história importa: a regra JÁ EXISTIA
 // escrita em linha dentro de `salvarAutomacao` (app/automacoes/actions.ts), com

@@ -456,8 +456,11 @@ export async function criarAutomacao(
   // sempre, e este caminho não. Quem abrisse `/automacoes/nova?post=123` e
   // escolhesse `dm` gravava um `media_id` numa automação de DM, e `findMatch`
   // (lib/engine.ts:263) consulta essa coluna no desempate da DM. A regra agora
-  // tem nome e dono em `gatilhoGuardaPost` (@/lib/steps), lido pelos DOIS
-  // caminhos.
+  // tem nome e dono em `gatilhoGuardaPost` (@/lib/steps), lido pelos dois
+  // caminhos de gravação E pelo painel do editor
+  // (`app/automacoes/editor/painel.tsx`), que era a terceira cópia escrita à
+  // mão. O servidor continua sendo o autoritativo: o painel só decide o que
+  // MOSTRAR.
   const postBruto = String(formData.get("post") ?? "");
   const mediaId =
     gatilhoGuardaPost(gatilho) && /^\d{1,32}$/.test(postBruto) ? postBruto : null;

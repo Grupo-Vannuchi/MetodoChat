@@ -766,10 +766,11 @@ describe("o prazo é do resolvePosts, e a capa de graça não é jogada fora", (
     // isso que precisa de portão: quando a primeira automação de DM nascer,
     // ninguém vai estar procurando por isto.
     //
-    // ESTE CASO ATRAVESSA A AÇÃO DE VERDADE, e não a função pura. O teste puro
-    // de `alvoDoGatilho` (tests/alvo-do-gatilho.test.ts) SOBREVIVEU ao plantio
-    // que devolve `post?.id` direto no `salvarAutomacao` — a regra tinha dono e
-    // ninguém provava que a gravação o usava.
+    // ESTE CASO ATRAVESSA A AÇÃO DE VERDADE, e não a função pura, e a história
+    // é a razão de ele existir: o teste puro da regra
+    // (tests/alvo-do-gatilho.test.ts, hoje sobre `gatilhoGuardaPost`) SOBREVIVEU
+    // ao plantio que devolve `post?.id` direto no `salvarAutomacao`. A regra
+    // tinha dono e teste, e ninguém provava que a GRAVAÇÃO o usava.
     const POST = { id: "17900000000000501", thumb: "", caption: "post do alvo" };
     const STORY = { id: "17900000000000502", thumb: "" };
 

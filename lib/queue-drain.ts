@@ -191,9 +191,15 @@ async function finish(
        -- publicacao que o dreno republicou com sucesso e que a tela continuava
        -- chamando de problema.
        --
-       -- SO 'sent' limpa. 'skipped' e 'failed' gravam o motivo de proposito, e
-       -- 'pending' PRECISA guardar o erro da ultima tentativa: e o que a tela
-       -- mostra enquanto o item espera a proxima.
+       -- SO 'sent' limpa. 'skipped', 'failed' e 'guardado' gravam o motivo de
+       -- proposito, e 'pending' PRECISA guardar o erro da ultima tentativa: e o
+       -- que a tela mostra enquanto o item espera a proxima.
+       --
+       -- A TROCA ACEITA, escrita para nao parecer descuido: uma linha 'sent' que
+       -- precisou de duas tentativas perde o MOTIVO da primeira -- sobra so a
+       -- contagem em attempts. Guardar o motivo de uma tentativa que deu certo
+       -- depois custaria uma coluna nova; e o que se ganha e uma tela que para
+       -- de chamar de problema um envio que funcionou.
        error = case when $2 = 'sent' then null else coalesce($5, error) end,
        message_id = coalesce($6, message_id),
        -- Guarda o texto entregue AO LADO do template, sem substituí-lo. A fila é
