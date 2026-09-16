@@ -2,7 +2,11 @@ import { notFound } from "next/navigation";
 import { sql, Automation } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { ligacoesValidas, type Passo } from "@/lib/steps";
-import { resolvePosts, type PostRef } from "@/lib/media-lookup";
+import {
+  resolvePosts,
+  TETO_DA_CAPA_NA_TELA_MS,
+  type PostRef,
+} from "@/lib/media-lookup";
 import Quadro from "../editor/quadro";
 import type { Configuracao } from "../editor/painel";
 
@@ -107,7 +111,7 @@ export default async function EditarAutomacaoPage({
   // Este parágrafo já disse "até ~16s" — duas etapas encadeadas, cada uma até
   // o `TETO_DA_LEITURA_MS` de 8 s do `graphFetch` (lib/ig.ts) — e a frase
   // morreu no dia em que o prazo entrou na função. O pior caso de espera aqui
-  // é ~2 s, e é contra ELE que o `TETO_DO_POST_MS` abaixo se dimensiona: como
+  // é ~2 s, e é contra ELE que o `TETO_DA_CAPA_NA_TELA_MS` abaixo se dimensiona: como
   // 2,5 s ficam ACIMA de 2 s, esta corrida quase nunca vence.
   //
   // E `resolvePosts` NÃO devolve mais mapa vazio quando algo dá errado:
@@ -122,16 +126,16 @@ export default async function EditarAutomacaoPage({
   // recuo.
   let doPost: PostRef | undefined;
   if (a.media_id) {
-    const TETO_DO_POST_MS = 2500;
     // `idDoTimer` cancela o `setTimeout` quando `resolvePosts` ganha a
-    // corrida primeiro — o caso comum. Sem o `clearTimeout`, um timer de
-    // 2,5s sobrevive a cada requisição que abre esta página, pendurado à toa.
+    // corrida primeiro — o caso comum. Sem o `clearTimeout`, um timer do
+    // tamanho do teto sobrevive a cada requisição que abre esta página,
+    // pendurado à toa.
     let idDoTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       const capas = await Promise.race([
         resolvePosts(selected.ig_user_id, selected.access_token, [a.media_id]),
         new Promise<Map<string, PostRef>>((resolve) => {
-          idDoTimer = setTimeout(() => resolve(new Map()), TETO_DO_POST_MS);
+          idDoTimer = setTimeout(() => resolve(new Map()), TETO_DA_CAPA_NA_TELA_MS);
         }),
       ]);
       doPost = capas.get(a.media_id);

@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { sql, Automation } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
-import { resolvePosts, type PostRef } from "@/lib/media-lookup";
+import {
+  resolvePosts,
+  TETO_DA_CAPA_NA_TELA_MS,
+  type PostRef,
+} from "@/lib/media-lookup";
 import AutomationsList, { ListaVazia, AutomationRow } from "./list-client";
 import { card, btnPrimary, muted, alertError, link, pageTitle, pageSubtitle } from "../ui";
 
@@ -102,10 +106,9 @@ export default async function AutomacoesPage({
     // função travar antes de marcar o próprio início, por exemplo), junto com o
     // `try/catch` abaixo. Sem capa a lista renderiza igual; sem a tela, nada
     // renderiza.
-    const TETO_DA_CAPA_MS = 2500;
     // `idDoTimer` SAI DA CORRIDA porque `resolvePosts` normalmente ganha
     // antes do teto — e um `setTimeout` que ninguém cancela sobrevive ao
-    // `await`, pendurado por 2,5s a cada carregamento desta tela (nit: o
+    // `await`, pendurado por todo o teto a cada carregamento desta tela (nit: o
     // processo do Node segue rodando de qualquer jeito, mas um timer solto
     // por requisição não é o padrão a copiar). `clearTimeout` depois da
     // corrida é inofensivo mesmo quando é o próprio timer que venceu.
@@ -114,7 +117,7 @@ export default async function AutomacoesPage({
       capas = await Promise.race([
         resolvePosts(account.ig_user_id, account.access_token, idsDosPosts),
         new Promise<Map<string, PostRef>>((resolve) => {
-          idDoTimer = setTimeout(() => resolve(new Map()), TETO_DA_CAPA_MS);
+          idDoTimer = setTimeout(() => resolve(new Map()), TETO_DA_CAPA_NA_TELA_MS);
         }),
       ]);
     } catch (e) {
