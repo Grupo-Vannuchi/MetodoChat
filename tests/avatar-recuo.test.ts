@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { semComentariosNemTexto } from "./sem-comentarios";
 import { imagemJaFalhou } from "@/lib/imagem-quebrada";
 
 // O RECUO DA IMAGEM QUEBRADA — a decisão pura, e o portão que prende a fiação
@@ -64,17 +65,6 @@ describe("imagemJaFalhou", () => {
 //      `<span>` do recuo — elemento errado — com tudo verde;
 //   3. ler a fonte só sem COMENTÁRIO deixava uma string qualquer servir de
 //      álibi. Agora caem comentário E literal de texto.
-function semComentariosNemTexto(fonte: string): string {
-  // `semComentarios` é de `tests/escala.test.ts`, com crédito. O `//` só cai
-  // quando NÃO vem depois de `:`, para `https://` continuar inteiro.
-  const semComentarios = fonte
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
-  // E os literais de texto, para menção em string não pagar a conta.
-  return semComentarios
-    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
-    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''");
-}
 
 /** O trecho da tag `<img ...>`, que é onde as redes precisam estar penduradas. */
 function tagDaImagem(fonte: string): string {

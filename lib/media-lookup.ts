@@ -190,8 +190,9 @@ function postCacheado(mediaId: string, token: string) {
 // conta DONA de cada post: a listagem dos 40 custa 498 ms; 8 buscas avulsas em
 // paralelo, 497 ms; 21, 572 ms; 32, 721 ms. O caminho frio de hoje
 // (`MAX_INDIVIDUAL_LOOKUPS = 32`) é ~1,2 s, então 2000 ms dá folga real e ainda
-// fica abaixo dos 2500 ms do `Promise.race` de `app/automacoes/page.tsx` — que
-// FICA onde está, como rede externa, e deixa de ser a única.
+// fica abaixo de `TETO_DA_CAPA_NA_TELA_MS` (logo abaixo neste arquivo), o teto
+// do `Promise.race` das telas — que FICA onde está, como rede externa, e deixa
+// de ser a única.
 //
 // O ORÇAMENTO É TOTAL, E NÃO POR ETAPA: a etapa das avulsas recebe o que SOBROU.
 // Se a listagem gastou 1,5 s, as avulsas têm 500 ms — senão "2000 ms" viraria
@@ -203,6 +204,33 @@ function postCacheado(mediaId: string, token: string) {
 // requisição; abortar de novo daqui só duplicaria a regra em dois lugares. A
 // requisição atrasada segue e morre lá, sem prender nada desta função.
 export const TETO_DA_RESOLUCAO_MS = 2000;
+
+// O TETO DE FORA, o das TELAS — e ele é DERIVADO, não escrito à mão.
+//
+// TRÊS das quatro telas que chamam `resolvePosts` cercam a chamada com um
+// `Promise.race` próprio — o Início, `/automacoes` e o editor. `/eventos`
+// (app/eventos/page.tsx) chama cru, e depende só do teto de dentro; era o caso
+// que não tinha proteção nenhuma antes de 16/09/2026. Esse teto tem de ficar ACIMA de
+// `TETO_DA_RESOLUCAO_MS`, e o motivo é o desfecho de cada um quando vence:
+//
+//   - o de DENTRO devolve o mapa PARCIAL — as capas que a listagem dos 40 já
+//     resolveu de graça ficam na tela;
+//   - o de FORA devolve `new Map()` — descarte tudo ou nada, tela sem capa
+//     nenhuma, inclusive as que não custaram nada.
+//
+// Ou seja: o de fora vencer é sempre pior. Ele existe só para o que o de dentro
+// não cobre (a função travar antes de marcar o próprio início, por exemplo), e
+// precisa perder a corrida no caso normal.
+//
+// POR QUE DERIVADO. Até 16/09/2026 este número era um literal `2500` escrito
+// três vezes, com três nomes locais diferentes (`TETO_DA_CAPA_MS`,
+// `TETO_DO_POST_MS`, `TETO_DO_NOME_DO_POST_MS`), e a relação "o de fora fica
+// acima do de dentro" estava afirmada EM PROSA nos três comentários e garantida
+// em lugar nenhum. Baixar qualquer um deles para 1500 devolveria aquela tela ao
+// descarte tudo-ou-nada com a suíte inteira verde. Somando a folga, a relação
+// passa a ser verdadeira POR CONSTRUÇÃO — não por alguém lembrar.
+export const FOLGA_DA_TELA_MS = 500;
+export const TETO_DA_CAPA_NA_TELA_MS = TETO_DA_RESOLUCAO_MS + FOLGA_DA_TELA_MS;
 
 /**
  * Corre `etapa` contra `ms` do orçamento. Devolve `true` quando a etapa terminou

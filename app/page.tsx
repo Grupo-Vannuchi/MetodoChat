@@ -28,7 +28,11 @@ import { KINDS_FORA_DA_ENTREGA_DO_MOTOR, STATUS_DE_FILA_VIVA } from "@/lib/envio
 // "alguém falou com a conta". Escrevê-la à mão aqui foi o defeito medido em
 // 15/09/2026 — ver o comentário no próprio arquivo.
 import { TIPOS_DE_MENSAGEM_RECEBIDA } from "@/lib/event-filters";
-import { resolvePosts, type PostRef } from "@/lib/media-lookup";
+import {
+  resolvePosts,
+  TETO_DA_CAPA_NA_TELA_MS,
+  type PostRef,
+} from "@/lib/media-lookup";
 import { fmtRelative } from "@/lib/format";
 import { card, btnPrimary, btnGhost, muted, link, alertError, alertOk, rowDivide, badgeAcao } from "./ui";
 import { TracoDaJanela, PontoDaLinha } from "./traco-da-janela";
@@ -270,8 +274,8 @@ export default async function Home({
   // pendurada termina sozinha, em vez de travar para sempre. Mas 8s por
   // requisição ainda é mais devagar do que esta tela — a de maior frequência
   // do painel — deveria esperar, então a corrida abaixo continua valendo por
-  // outro motivo: ela é o teto da TELA, mais apertado (2,5s) que o teto da
-  // rede. Perde a corrida, a tela renderiza sem os nomes; a requisição por
+  // outro motivo: ela é o teto da TELA, mais apertado que o teto da rede
+  // (`TETO_DA_LEITURA_MS`, lib/ig.ts). Perde a corrida, a tela renderiza sem os nomes; a requisição por
   // baixo segue.
   //
   // MAS O PIOR CASO POR BAIXO NÃO É MAIS A SOMA DOS TETOS DE REDE.
@@ -280,18 +284,18 @@ export default async function Home({
   // sequenciais (`getMedia`, depois um `Promise.allSettled` de até
   // `MAX_INDIVIDUAL_LOOKUPS` `getMediaById`). Este parágrafo já disse "até 8"
   // e "~16s": o teto virou 32 e o pior caso virou ~2 s, e as duas frases
-  // ficaram falsas no mesmo dia. Como os 2,5 s abaixo ficam ACIMA dos 2 s de
-  // dentro, esta corrida quase nunca vence — e é bom que não vença, porque
+  // ficaram falsas no mesmo dia. Como `TETO_DA_CAPA_NA_TELA_MS` é DERIVADO de
+  // `TETO_DA_RESOLUCAO_MS` mais uma folga (lib/media-lookup.ts), ele fica
+  // sempre ACIMA do teto de dentro e esta corrida quase nunca vence — e é bom que não vença, porque
   // quando ela vence ela ainda entrega `new Map()`, o descarte tudo-ou-nada
   // que o teto de dentro existe para evitar: lá, vencido o prazo, o que a
   // listagem já resolveu de graça FICA.
-  const TETO_DO_NOME_DO_POST_MS = 2500;
   const escolhidas = recorteDasOportunidades(oportunidadesCruas);
   let nomes = new Map<string, PostRef>();
   if (account && escolhidas.length) {
     // `idDoTimer` cancela o `setTimeout` quando `resolvePosts` ganha a
-    // corrida primeiro — o caso comum. Sem o `clearTimeout`, um timer de
-    // 2,5s sobrevive a cada carregamento do Início, pendurado à toa.
+    // corrida primeiro — o caso comum. Sem o `clearTimeout`, um timer do
+    // tamanho do teto sobrevive a cada carregamento do Início, pendurado à toa.
     let idDoTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       nomes = await Promise.race([
@@ -301,7 +305,7 @@ export default async function Home({
           escolhidas.map((o) => o.mediaId)
         ),
         new Promise<Map<string, PostRef>>((resolve) => {
-          idDoTimer = setTimeout(() => resolve(new Map()), TETO_DO_NOME_DO_POST_MS);
+          idDoTimer = setTimeout(() => resolve(new Map()), TETO_DA_CAPA_NA_TELA_MS);
         }),
       ]);
     } catch (e) {
