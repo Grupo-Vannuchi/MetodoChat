@@ -10,7 +10,29 @@ import { getMedia, getMediaById } from "./ig";
 // comentário. O resto (post antigo) vira busca avulsa, com teto para uma lista
 // cheia de posts diferentes não virar uma enxurrada de chamadas.
 const RECENT_MEDIA_LIMIT = 40;
-const MAX_INDIVIDUAL_LOOKUPS = 8;
+
+// O TETO DAS BUSCAS AVULSAS — hoje ele é OUTRA COISA do que era.
+//
+// ELE ERA UM TETO DE CUSTO POR CHAMADA. Cada busca avulsa saía à rede a cada
+// carregamento das quatro telas, e 8 delas em paralelo custavam 509 ms (medido
+// em 15/09/2026). Oito era o que cabia no orçamento de um render.
+//
+// O QUE ESSE PREÇO COMPRAVA: na mesma medição, 21 das 27 automações desta conta
+// apontavam para post FORA dos 40 recentes. O teto de 8 atendia oito delas e
+// deixava as outras 13 SEM CAPA PARA SEMPRE — não intermitente, não lenta: sem
+// capa em todo carregamento, porque o corte é por `.slice` sobre uma lista que
+// chega na mesma ordem toda vez. As mesmas 13 sempre.
+//
+// O QUE MUDOU: com os embrulhos cacheados abaixo, a REPETIÇÃO ficou de graça —
+// 32 buscas em paralelo uma vez a cada 6 h é um perfil de rede menor que 8 a
+// cada carregamento, e não maior. O custo que justificava o 8 saiu do caminho.
+//
+// O QUE O TETO É AGORA: proteção contra LISTA PATOLÓGICA — uma tela que peça
+// centenas de posts distintos não pode virar centenas de chamadas de uma vez.
+// 32 cobre as 27 de hoje com folga; não é orçamento de tempo, é limite de
+// enxurrada. Exportado porque `testes-integracao/capa-do-post.integracao.ts`
+// conta requisições contra ele, em vez de repetir o número na mão.
+export const MAX_INDIVIDUAL_LOOKUPS = 32;
 
 export type PostRef = {
   id: string;

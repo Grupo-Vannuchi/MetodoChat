@@ -62,6 +62,7 @@ import { comoNumaRequisicao } from "./semear-requisicao";
 import type { AutomationRow } from "@/app/automacoes/list-client";
 import type { Configuracao } from "@/app/automacoes/editor/painel";
 import MediaPicker from "@/app/automacoes/media-picker";
+import { MAX_INDIVIDUAL_LOOKUPS, resolvePosts } from "@/lib/media-lookup";
 
 const banco = bancoDescartavel();
 
@@ -473,5 +474,110 @@ describe("o SELETOR (MediaPicker) não mostra o id cru quando a Meta está fora"
 
     expect(html).not.toContain(ID_SEM_META);
     expect(html).toContain("Post selecionado");
+  });
+});
+
+// -----------------------------------------------------------------------------
+// O TETO DE BUSCAS AVULSAS — "recentes + 8" era um teto de CUSTO, e o custo
+// mudou.
+//
+// O DEFEITO, MEDIDO EM 15/09/2026: 21 das 27 automações desta conta apontam
+// para post FORA dos 40 recentes, e `MAX_INDIVIDUAL_LOOKUPS = 8` atendia oito
+// delas. As outras 13 ficavam SEM CAPA para sempre — não "lentas", não
+// "quebradas": sem capa, carregamento após carregamento, porque o corte é por
+// `.slice` e a mesma lista chega na mesma ordem toda vez. O teto de 8 existia
+// porque cada busca avulsa custava rede a cada render (8 em paralelo = 509 ms).
+// Com o cache da Tarefa 1 essa repetição saiu do caminho, e o teto passou a ser
+// só o que ele ainda precisa ser: um limite contra lista patológica.
+//
+// O QUE ESTE BLOCO MEDE: a FORMA das chamadas — uma listagem mais N avulsas —,
+// e NÃO o cache do Next, que sob o vitest não guarda nada (medido em
+// 15/09/2026, dentro e fora de `comoNumaRequisicao`: o `IncrementalCache` desta
+// fundação nasce com `maxMemoryCacheSize: 0` e sem manipulador de disco). É por
+// isso que o contador aqui enxerga TODAS as chamadas — o que é bom para esta
+// pergunta — e é por isso que NENHUMA asserção deste bloco fala sobre o cache
+// guardar: ela passaria verde medindo o nada.
+//
+// POR QUE DENTRO DE `comoNumaRequisicao`: `unstable_cache`
+// (next/dist/server/web/spec-extension/unstable-cache.js:60) LANÇA
+// "Invariant: incrementalCache missing" quando não acha `workStore`. Fora do
+// contexto de requisição, os dois embrulhos de `lib/media-lookup.ts` estourariam
+// — e `resolvePosts` engole os dois (try/catch na listagem, `allSettled` nas
+// avulsas). O contador veria ZERO pedidos e o caso ficaria vermelho falando de
+// teto, quando o assunto seria outro.
+//
+// O MECANISMO é o de `testes-integracao/teto-da-meta.integracao.ts` (leia o
+// cabeçalho dele: as duas travas de `baseDoGraph`, lib/ig.ts, e por que este
+// caminho não usa mock). Lá o servidor local serve para PENDURAR; aqui ele
+// serve para CONTAR, por rota.
+describe("o teto de buscas avulsas para de ser 'recentes + 8'", () => {
+  let servidorContador: Server;
+  let listagens = 0;
+  let avulsas = 0;
+
+  beforeAll(async () => {
+    servidorContador = createServer((req, res) => {
+      const u = new URL(req.url ?? "/", "http://127.0.0.1");
+      res.writeHead(200, { "content-type": "application/json" });
+      // A LISTAGEM: `getMedia` (lib/ig.ts) bate em `/{versão}/{conta}/media`.
+      // Devolve lista VAZIA de propósito — nenhum id procurado está nos
+      // recentes, que é a situação das 21 automações de 15/09.
+      if (u.pathname.endsWith(`/${CONTA}/media`)) {
+        listagens++;
+        res.end(JSON.stringify({ data: [] }));
+        return;
+      }
+      // A AVULSA: `getMediaById` bate em `/{versão}/{id}`. Só estas duas rotas
+      // existem no caminho de `resolvePosts`, então tudo que não é a listagem é
+      // uma busca avulsa.
+      avulsas++;
+      res.end(JSON.stringify({ id: u.pathname.split("/").pop() ?? "" }));
+    });
+    await new Promise<void>((pronto) => servidorContador.listen(0, "127.0.0.1", pronto));
+    const porta = (servidorContador.address() as AddressInfo).port;
+    process.env.IG_GRAPH_BASE = `http://127.0.0.1:${porta}`;
+  });
+
+  afterAll(async () => {
+    delete process.env.IG_GRAPH_BASE;
+    await new Promise<void>((pronto) => servidorContador.close(() => pronto()));
+  });
+
+  /** Ids que NÃO estão nos recentes (a listagem deste servidor é vazia) e não
+   * colidem com nenhum outro id semeado neste arquivo. */
+  function idsDeTeste(quantos: number): string[] {
+    return Array.from({ length: quantos }, (_, i) => `1890000000000${String(i).padStart(4, "0")}`);
+  }
+
+  /** Quantos pedidos de cada rota o corpo provocou. Zera os contadores antes,
+   * porque o servidor é compartilhado pelos casos deste bloco. */
+  async function contarPedidos(
+    corpo: () => Promise<void>
+  ): Promise<{ listagens: number; avulsas: number }> {
+    listagens = 0;
+    avulsas = 0;
+    await comoNumaRequisicao("/automacoes", corpo);
+    return { listagens, avulsas };
+  }
+
+  test("resolvePosts busca alem dos 8 antigos, e respeita o teto novo", async () => {
+    const pedidos = await contarPedidos(async () => {
+      await resolvePosts(CONTA, TOKEN, idsDeTeste(20)); // nenhum nos "recentes"
+    });
+    // UMA listagem: a primeira tentativa continua sendo a lista dos recentes,
+    // e ela não se multiplica por id procurado.
+    expect(pedidos.listagens).toBe(1);
+    // E as VINTE avulsas: com o teto antigo isto parava em 8, e as 12 restantes
+    // ficavam sem capa para sempre.
+    expect(pedidos.avulsas).toBe(20);
+  });
+
+  test("o teto ainda existe, contra lista patologica", async () => {
+    const pedidos = await contarPedidos(async () => {
+      await resolvePosts(CONTA, TOKEN, idsDeTeste(100));
+    });
+    // O teto não sumiu, só mudou de motivo: não é mais custo por chamada, é
+    // proteção contra uma lista absurda virar enxurrada de chamadas.
+    expect(pedidos.avulsas).toBe(MAX_INDIVIDUAL_LOOKUPS);
   });
 });
