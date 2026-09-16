@@ -148,9 +148,72 @@ function postCacheado(mediaId: string, token: string) {
   )();
 }
 
+// ---------------------------------------------------------------------------
+// O TETO DE TEMPO DA RESOLUÇÃO INTEIRA — por que ele mora AQUI, e não no call
+// site.
+//
+// O PRAZO ERA DE QUEM CHAMA, E ISSO TINHA DOIS BURACOS. `app/automacoes/page.tsx`
+// cercava esta função com um `Promise.race` de 2500 ms que, vencido, entregava
+// `new Map()` — DESCARTE TUDO OU NADA. A essa altura a listagem dos 40 recentes
+// já tinha resolvido, de graça, boa parte das capas: a tela jogava fora o que já
+// estava pago e não mostrava capa NENHUMA. E `app/eventos/page.tsx:138` chama
+// `resolvePosts` cru, sem corrida alguma — a tela que menos podia esperar era a
+// única sem teto.
+//
+// POR QUE 2000 ms. Medido em 16/09/2026 contra a Meta de verdade, com o token da
+// conta DONA de cada post: a listagem dos 40 custa 498 ms; 8 buscas avulsas em
+// paralelo, 497 ms; 21, 572 ms; 32, 721 ms. O caminho frio de hoje
+// (`MAX_INDIVIDUAL_LOOKUPS = 32`) é ~1,2 s, então 2000 ms dá folga real e ainda
+// fica abaixo dos 2500 ms do `Promise.race` de `app/automacoes/page.tsx` — que
+// FICA onde está, como rede externa, e deixa de ser a única.
+//
+// O ORÇAMENTO É TOTAL, E NÃO POR ETAPA: a etapa das avulsas recebe o que SOBROU.
+// Se a listagem gastou 1,5 s, as avulsas têm 500 ms — senão "2000 ms" viraria
+// 4000 ms na prática, e o teto de fora voltaria a ser o que decide.
+//
+// PERDER A CORRIDA NÃO CANCELA A REQUISIÇÃO POR BAIXO, e isso é de propósito —
+// não falta um `AbortController` aqui. Quem limita a requisição é o
+// `TETO_DA_LEITURA_MS` de 8 s do `graphFetch` (lib/ig.ts), que já aborta por
+// requisição; abortar de novo daqui só duplicaria a regra em dois lugares. A
+// requisição atrasada segue e morre lá, sem prender nada desta função.
+export const TETO_DA_RESOLUCAO_MS = 2000;
+
+/**
+ * Corre `etapa` contra `ms` do orçamento. Devolve `true` quando a etapa terminou
+ * dentro do prazo e `false` quando o prazo venceu primeiro.
+ *
+ * O `setTimeout` É CANCELADO no `finally` porque a etapa normalmente GANHA a
+ * corrida, e um timer que ninguém cancela sobrevive ao `await`: seriam dois
+ * timers soltos de até 2 s por carregamento das quatro telas que chamam
+ * `resolvePosts`. É o mesmo cuidado do `idDoTimer` de `app/automacoes/page.tsx`
+ * — o comentário de lá explica o porquê inteiro. `clearTimeout` é inofensivo
+ * mesmo quando foi o próprio timer que venceu.
+ *
+ * A etapa que FALHA também "terminou": as duas etapas abaixo já engolem o erro
+ * por dentro (try/catch na listagem, `allSettled` nas avulsas), e tratar a
+ * rejeição aqui é o que impede uma falha futura de virar rejeição não tratada
+ * depois que a corrida já acabou.
+ */
+async function dentroDoPrazo(etapa: Promise<unknown>, ms: number): Promise<boolean> {
+  let idDoTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      etapa.then(
+        () => true,
+        () => true
+      ),
+      new Promise<boolean>((resolve) => {
+        idDoTimer = setTimeout(() => resolve(false), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(idDoTimer);
+  }
+}
+
 // Devolve o que conseguiu resolver. Nunca lança: se o Instagram estiver fora do
-// ar ou o token vencido, volta um mapa vazio e quem chama mostra a lista sem as
-// capas.
+// ar, o token vencido ou o prazo acima vencer, volta o mapa PARCIAL — com o que
+// já tinha chegado — e quem chama mostra a lista sem as capas que faltam.
 export async function resolvePosts(
   igUserId: string,
   token: string,
@@ -160,24 +223,39 @@ export async function resolvePosts(
   const procurados = new Set(mediaIds.filter(Boolean));
   if (!procurados.size) return mapa;
 
-  try {
-    for (const m of await listaRecenteCacheada(igUserId, token)) {
-      const ref = toPostRef(m);
-      if (ref && procurados.has(ref.id)) mapa.set(ref.id, ref);
+  const inicio = Date.now();
+  const sobra = () => TETO_DA_RESOLUCAO_MS - (Date.now() - inicio);
+
+  // AS DUAS ETAPAS ESCREVEM NO MESMO `mapa`, e é isso que faz o prazo devolver
+  // trabalho parcial em vez de nada: o que chegou antes do prazo JÁ ESTÁ no
+  // objeto que vai ser devolvido. Nenhum ramo abaixo troca esse objeto por um
+  // mapa novo — trocar é exatamente o descarte tudo-ou-nada que esta função
+  // acabou de tirar do call site.
+  const listagem = (async () => {
+    try {
+      for (const m of await listaRecenteCacheada(igUserId, token)) {
+        const ref = toPostRef(m);
+        if (ref && procurados.has(ref.id)) mapa.set(ref.id, ref);
+      }
+    } catch {
+      // segue para as buscas avulsas: elas podem dar certo mesmo assim
     }
-  } catch {
-    // segue para as buscas avulsas: elas podem dar certo mesmo assim
-  }
+  })();
+  if (!(await dentroDoPrazo(listagem, sobra()))) return mapa;
 
   const faltando = [...procurados].filter((id) => !mapa.has(id)).slice(0, MAX_INDIVIDUAL_LOOKUPS);
-  if (faltando.length) {
-    const buscas = await Promise.allSettled(faltando.map((id) => postCacheado(id, token)));
-    for (const b of buscas) {
-      if (b.status !== "fulfilled") continue;
-      const ref = toPostRef(b.value);
+  if (!faltando.length) return mapa;
+
+  // Cada avulsa grava a SUA capa assim que chega, em vez de todas serem colhidas
+  // no fim: quando o prazo vence no meio das 32, as que já responderam ficam no
+  // mapa. Colher só depois do `allSettled` jogaria fora justamente essas.
+  const avulsas = Promise.allSettled(
+    faltando.map(async (id) => {
+      const ref = toPostRef(await postCacheado(id, token));
       if (ref) mapa.set(ref.id, ref);
-    }
-  }
+    })
+  );
+  await dentroDoPrazo(avulsas, sobra());
 
   return mapa;
 }

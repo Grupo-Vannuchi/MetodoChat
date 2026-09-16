@@ -51,15 +51,22 @@ export default async function AutomacoesPage({
   ];
   let capas = new Map<string, PostRef>();
   if (account && idsDosPosts.length) {
-    // TETO DE TEMPO NO CALL SITE, o mesmo padrão de app/page.tsx. `graphFetch`
-    // (lib/ig.ts) já tem o TETO DA LEITURA (8s por requisição): a chamada por
-    // baixo não fica mais pendurada para sempre. Esta corrida é o teto da
-    // TELA por cima disso, mais apertado (2,5s) — perde a corrida, a tela
-    // renderiza sem capa; a requisição por baixo segue — `resolvePosts`
-    // encadeia duas etapas, até ~16s. `resolvePosts` já tem `try/catch`
-    // interno e devolve mapa parcial ou vazio quando a Meta falhar — o
-    // `try/catch` aqui é a segunda rede, para o que ele não cobre. Sem capa a
-    // lista renderiza igual; sem a tela, nada renderiza.
+    // TETO DE TEMPO NO CALL SITE — HOJE ELE É A REDE DE FORA, E NÃO A ÚNICA.
+    //
+    // O teto de verdade passou para dentro de `resolvePosts`:
+    // `TETO_DA_RESOLUCAO_MS` = 2000 ms (lib/media-lookup.ts), orçamento TOTAL
+    // das duas etapas. Antes, o número certo aqui era "~16s" — duas etapas
+    // encadeadas, cada uma até o `TETO_DA_LEITURA_MS` de 8 s do `graphFetch`
+    // (lib/ig.ts) — e esta corrida era a ÚNICA proteção da tela. Não é mais:
+    // ela agora vence depois do teto de dentro, e por isso quase nunca vence.
+    //
+    // E POR QUE ELA FICA. O de dentro devolve MAPA PARCIAL quando vence — as
+    // capas que a listagem dos 40 já tinha resolvido de graça ficam. Esta
+    // corrida, quando vencia, devolvia `new Map()`: descarte tudo ou nada, tela
+    // sem capa nenhuma. Ela sobra só para o que o teto de dentro não cobre (a
+    // função travar antes de marcar o próprio início, por exemplo), junto com o
+    // `try/catch` abaixo. Sem capa a lista renderiza igual; sem a tela, nada
+    // renderiza.
     const TETO_DA_CAPA_MS = 2500;
     // `idDoTimer` SAI DA CORRIDA porque `resolvePosts` normalmente ganha
     // antes do teto — e um `setTimeout` que ninguém cancela sobrevive ao
