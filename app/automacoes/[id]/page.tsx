@@ -111,8 +111,10 @@ export default async function EditarAutomacaoPage({
   // Este parágrafo já disse "até ~16s" — duas etapas encadeadas, cada uma até
   // o `TETO_DA_LEITURA_MS` de 8 s do `graphFetch` (lib/ig.ts) — e a frase
   // morreu no dia em que o prazo entrou na função. O pior caso de espera aqui
-  // é ~2 s, e é contra ELE que o `TETO_DA_CAPA_NA_TELA_MS` abaixo se dimensiona: como
-  // 2,5 s ficam ACIMA de 2 s, esta corrida quase nunca vence.
+  // é `TETO_DA_RESOLUCAO_MS`, e é contra ELE que o `TETO_DA_CAPA_NA_TELA_MS`
+  // abaixo se dimensiona — por CONSTRUÇÃO, porque um é derivado do outro mais
+  // uma folga (lib/media-lookup.ts). Ficando sempre acima, esta corrida quase
+  // nunca vence.
   //
   // E `resolvePosts` NÃO devolve mais mapa vazio quando algo dá errado:
   // devolve o mapa PARCIAL, com o que já tinha chegado. Esta tela pede UM id,

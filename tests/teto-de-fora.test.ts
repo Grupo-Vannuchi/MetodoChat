@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { semComentariosNemTexto } from "./sem-comentarios";
 import {
   FOLGA_DA_TELA_MS,
   TETO_DA_CAPA_NA_TELA_MS,
@@ -48,26 +49,8 @@ describe("a relação entre os dois tetos", () => {
 // dá para prender é a fiação — que as telas LEEM o dono em vez de reescrever o
 // número.
 //
-// O `semComentariosNemTexto` é de `tests/avatar-recuo.test.ts`, com crédito, e
-// pela mesma razão: sem ele, o número citado numa explicação contaria como
-// ocorrência e o portão acusaria o próprio comentário que documenta a decisão.
-function semComentariosNemTexto(fonte: string): string {
-  const semComentarios = fonte
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
-  return (
-    semComentarios
-      .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
-      .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
-      // E OS TEMPLATE LITERALS TAMBÉM, com crase. Esta linha nasceu de um falso
-      // positivo REAL: o caçador de número solto acusou `2026` em
-      // `app/page.tsx`, e os dois estavam dentro de comentários de SQL (`--`)
-      // numa consulta escrita entre crases. Comentário de SQL não é código, e um
-      // portão que acusa a explicação de uma decisão treina quem mantém a apagar
-      // explicação.
-      .replace(/`(?:[^`\\]|\\.)*`/g, "``")
-  );
-}
+// O recorte vem de `./sem-comentarios`, que é o dono dele. Havia duas cópias
+// desta função com o mesmo nome e comportamentos diferentes; a história está lá.
 
 // As telas que cercam `resolvePosts` com corrida própria.
 const TELAS = [
@@ -89,13 +72,30 @@ describe.each(TELAS)("%s usa o dono do teto de fora", (tela) => {
     // Uma varredura de arquivo vazio passa por vacuidade.
     expect(fonte).toContain("resolvePosts");
     expect(fonte).toContain("Promise.race");
+    // `setTimeout` é a âncora que denuncia recorte comendo o meio do arquivo:
+    // um template literal desequilibrado já engoliu ~50 linhas num plantio.
+    expect(fonte).toContain("setTimeout");
   });
 
-  it("lê `TETO_DA_CAPA_NA_TELA_MS` em vez de escrever o número", () => {
+  it("lê `TETO_DA_CAPA_NA_TELA_MS` NA PRÓPRIA CORRIDA, e inteiro", () => {
+    // O IDENTIFICADOR NO ARQUIVO NÃO BASTA — este caso já foi assim e a revisão
+    // de 16/09/2026 o derrubou com um plantio de uma linha:
+    //
+    //     setTimeout(() => resolve(new Map()), TETO_DA_CAPA_NA_TELA_MS - 1_000)
+    //
+    // O teto de fora caía para 1500 ms (ABAIXO dos 2000 do de dentro, que é
+    // exatamente o que esta branch existe para impedir) e passava tsc, eslint,
+    // vitest, varredura e build — tudo verde. O `1_000` ainda escapava do
+    // caçador de número solto, porque o sublinhado não é dígito.
+    //
+    // Por isso a exigência é a chamada INTEIRA: o atraso do `setTimeout` tem de
+    // ser a constante e nada além dela.
+    const naCorrida = /setTimeout\([^,]*,\s*TETO_DA_CAPA_NA_TELA_MS\s*\)/.test(fonte);
     expect(
-      fonte.includes("TETO_DA_CAPA_NA_TELA_MS"),
-      `TETO SEM DONO em \`${tela}\`: a corrida precisa usar ` +
-        "`TETO_DA_CAPA_NA_TELA_MS` (lib/media-lookup.ts), que é DERIVADO de " +
+      naCorrida,
+      `TETO SEM DONO em \`${tela}\`: o \`setTimeout\` da corrida precisa ter ` +
+        "`TETO_DA_CAPA_NA_TELA_MS` como atraso, SOZINHO — sem conta em cima " +
+        "dele. A constante (lib/media-lookup.ts) é DERIVADA de " +
         "`TETO_DA_RESOLUCAO_MS` mais uma folga. Escrever o número aqui faz a " +
         "relação 'o de fora fica acima do de dentro' virar coincidência — e " +
         "quando o de fora vence, a tela perde TODAS as capas, inclusive as que a " +

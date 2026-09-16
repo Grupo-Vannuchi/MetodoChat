@@ -190,8 +190,9 @@ function postCacheado(mediaId: string, token: string) {
 // conta DONA de cada post: a listagem dos 40 custa 498 ms; 8 buscas avulsas em
 // paralelo, 497 ms; 21, 572 ms; 32, 721 ms. O caminho frio de hoje
 // (`MAX_INDIVIDUAL_LOOKUPS = 32`) é ~1,2 s, então 2000 ms dá folga real e ainda
-// fica abaixo dos 2500 ms do `Promise.race` de `app/automacoes/page.tsx` — que
-// FICA onde está, como rede externa, e deixa de ser a única.
+// fica abaixo de `TETO_DA_CAPA_NA_TELA_MS` (logo abaixo neste arquivo), o teto
+// do `Promise.race` das telas — que FICA onde está, como rede externa, e deixa
+// de ser a única.
 //
 // O ORÇAMENTO É TOTAL, E NÃO POR ETAPA: a etapa das avulsas recebe o que SOBROU.
 // Se a listagem gastou 1,5 s, as avulsas têm 500 ms — senão "2000 ms" viraria
@@ -206,8 +207,10 @@ export const TETO_DA_RESOLUCAO_MS = 2000;
 
 // O TETO DE FORA, o das TELAS — e ele é DERIVADO, não escrito à mão.
 //
-// As quatro telas que chamam `resolvePosts` cercam a chamada com um
-// `Promise.race` próprio. Esse teto tem de ficar ACIMA de
+// TRÊS das quatro telas que chamam `resolvePosts` cercam a chamada com um
+// `Promise.race` próprio — o Início, `/automacoes` e o editor. `/eventos`
+// (app/eventos/page.tsx) chama cru, e depende só do teto de dentro; era o caso
+// que não tinha proteção nenhuma antes de 16/09/2026. Esse teto tem de ficar ACIMA de
 // `TETO_DA_RESOLUCAO_MS`, e o motivo é o desfecho de cada um quando vence:
 //
 //   - o de DENTRO devolve o mapa PARCIAL — as capas que a listagem dos 40 já

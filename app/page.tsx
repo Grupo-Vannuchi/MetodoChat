@@ -274,8 +274,8 @@ export default async function Home({
   // pendurada termina sozinha, em vez de travar para sempre. Mas 8s por
   // requisição ainda é mais devagar do que esta tela — a de maior frequência
   // do painel — deveria esperar, então a corrida abaixo continua valendo por
-  // outro motivo: ela é o teto da TELA, mais apertado (2,5s) que o teto da
-  // rede. Perde a corrida, a tela renderiza sem os nomes; a requisição por
+  // outro motivo: ela é o teto da TELA, mais apertado que o teto da rede
+  // (`TETO_DA_LEITURA_MS`, lib/ig.ts). Perde a corrida, a tela renderiza sem os nomes; a requisição por
   // baixo segue.
   //
   // MAS O PIOR CASO POR BAIXO NÃO É MAIS A SOMA DOS TETOS DE REDE.
