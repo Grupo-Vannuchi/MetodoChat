@@ -1,6 +1,7 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { Ligacao, Passo } from "@/lib/steps";
+import { useImagemQuebrada } from "../../usar-imagem-quebrada";
 import type { Picked } from "../types";
 import { card } from "../../ui";
 import {
@@ -83,14 +84,20 @@ export type ContaDaPrevia = {
 // mostraria a imagem quebrada justamente no caso que o comentário acima nomeia.
 // É a mesma solução, pelo mesmo motivo, de `app/avatar.tsx`.
 function MiniAvatar({ conta, size = "h-5 w-5" }: { conta: ContaDaPrevia; size?: string }) {
-  const [falhou, setFalhou] = useState(false);
-  if (conta.foto && !falhou) {
+  // AS DUAS REDES VÊM DE `app/usar-imagem-quebrada.ts`, e não de um `useState`
+  // local: o `onError` sozinho chega TARDE quando o `<img>` vem pronto do
+  // servidor e a URL assinada já venceu — medido na produção em 16/09/2026. Era
+  // uma cópia da mesma regra, e cópia de regra é como esta base já perdeu 19
+  // miniaturas de 22 em /automacoes.
+  const { quebrou, aoMontar, aoErro } = useImagemQuebrada(conta.foto);
+  if (conta.foto && !quebrou) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={conta.foto}
         alt=""
-        onError={() => setFalhou(true)}
+        ref={aoMontar}
+        onError={aoErro}
         className={`${size} shrink-0 rounded-full object-cover`}
       />
     );
