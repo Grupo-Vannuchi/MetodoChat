@@ -14,14 +14,24 @@ const RECENT_MEDIA_LIMIT = 40;
 // O TETO DAS BUSCAS AVULSAS — hoje ele é OUTRA COISA do que era.
 //
 // ELE ERA UM TETO DE CUSTO POR CHAMADA. Cada busca avulsa saía à rede a cada
-// carregamento das quatro telas, e 8 delas em paralelo custavam 509 ms (medido
-// em 15/09/2026). Oito era o que cabia no orçamento de um render.
+// carregamento das quatro telas, e oito era o que cabia no orçamento de um
+// render.
 //
-// O QUE ESSE PREÇO COMPRAVA: na mesma medição, 21 das 27 automações desta conta
-// apontavam para post FORA dos 40 recentes. O teto de 8 atendia oito delas e
-// deixava as outras 13 SEM CAPA PARA SEMPRE — não intermitente, não lenta: sem
-// capa em todo carregamento, porque o corte é por `.slice` sobre uma lista que
-// chega na mesma ordem toda vez. As mesmas 13 sempre.
+// O QUE ESSE PREÇO COMPRAVA, pela remedição de 16/09/2026: das 23 automações
+// com post na conta do painel, 18 apontavam para post FORA dos 40 recentes. O
+// teto de 8 atendia oito delas e deixava as outras 10 SEM CAPA PARA SEMPRE —
+// não intermitente, não lenta: sem capa em todo carregamento, porque o corte é
+// por `.slice` sobre uma lista que chega na mesma ordem toda vez. As mesmas 10
+// sempre.
+//
+// A MEDIÇÃO DE 15/09/2026 ("21 das 27", 509 ms para 8 avulsas) SAIU DE CENA
+// PORQUE ESTAVA ERRADA: ela cruzou conta com token — post de uma conta buscado
+// com o token de outra —, e isso faz TODA busca avulsa devolver 400. O que ela
+// cronometrou foram erros, não capas.
+//
+// O PREÇO DE HOJE, medido em 16/09/2026 contra a Meta de verdade, com o token
+// da conta DONA de cada post: listagem dos 40 = 498 ms; 8 avulsas em paralelo
+// = 497 ms; 21 = 572 ms; 32 = 721 ms.
 //
 // O QUE MUDOU: com os embrulhos cacheados abaixo, a REPETIÇÃO ficou de graça —
 // 32 buscas em paralelo uma vez a cada 6 h é um perfil de rede menor que 8 a
@@ -29,7 +39,7 @@ const RECENT_MEDIA_LIMIT = 40;
 //
 // O QUE O TETO É AGORA: proteção contra LISTA PATOLÓGICA — uma tela que peça
 // centenas de posts distintos não pode virar centenas de chamadas de uma vez.
-// 32 cobre as 27 de hoje com folga; não é orçamento de tempo, é limite de
+// 32 cobre as 23 de hoje com folga; não é orçamento de tempo, é limite de
 // enxurrada. Exportado porque `testes-integracao/capa-do-post.integracao.ts`
 // conta requisições contra ele, em vez de repetir o número na mão.
 export const MAX_INDIVIDUAL_LOOKUPS = 32;
@@ -93,12 +103,19 @@ function toPostRef(m: Json): PostRef | null {
 //     um segredo num lugar que persiste entre implantações. Não "conserte"
 //     isto movendo o token para `keyParts`.
 //
-// (d) As duas vidas. A lista dos recentes vive 120 s porque é ela que alimenta
-//     o seletor de post: quem acabou de publicar precisa ver o post ali, e dois
-//     minutos é o máximo de mentira tolerável. O post pelo id vive 6 h porque
-//     post antigo não muda; a miniatura do CDN vale ~2 semanas (medido em
-//     15/09/2026: URL de 14/09 -> 200; de 31/08 e 24/08 -> 403), então 6 h fica
-//     muito abaixo do prazo de expiração.
+// (d) As duas vidas, e elas diferem porque os dois dados envelhecem diferente.
+//     A lista dos recentes é a única das duas que MUDA SOZINHA: publicar um
+//     post altera o resultado de "os 40 recentes da conta X" sem que nada no
+//     painel tenha acontecido. 120 s é o atraso máximo tolerável para uma tela
+//     que PASSA por este cache mostrar um post recém-publicado. O post pelo id
+//     vive 6 h porque post antigo não muda — nada o altera depois de
+//     publicado; a miniatura do CDN vale ~2 semanas (medido em 15/09/2026: URL
+//     de 14/09 -> 200; de 31/08 e 24/08 -> 403), então 6 h fica muito abaixo
+//     do prazo de expiração.
+//
+//     O SELETOR DE POST NÃO PASSA POR AQUI, para ninguém procurar o efeito dos
+//     120 s onde ele não está: o `MediaPicker` lê `app/api/media/route.ts`, que
+//     chama `getMedia` direto, fora de `resolvePosts` e fora destes embrulhos.
 //
 // (e) SOB O VITEST, `unstable_cache` NÃO GUARDA NADA — medido em 15/09/2026,
 //     inclusive entre duas chamadas dentro da mesma requisição simulada: o
@@ -132,6 +149,15 @@ export function chaveDoPost(mediaId: string): string[] {
 // Os embrulhos são criados POR CHAMADA porque o token entra por fechamento —
 // ver (c) acima. A chave não depende dele, então duas chamadas com tokens
 // diferentes da mesma conta acertam a mesma entrada, que é o que se quer.
+//
+// O QUE ELES GUARDAM SEM DISTINGUIR: `graphFetch` (lib/ig.ts:178) transforma
+// uma resposta 200 de corpo VAZIO em `{}`, e `unstable_cache` só não grava o
+// que LANÇOU — então um soluço da Meta que responda 200 sem corpo fica
+// guardado como "post sem capa" pela vida inteira da entrada (6 h no post,
+// 120 s na lista). Nada aqui separa "a Meta disse que não tem" de "a Meta não
+// disse nada", e é de propósito: nunca observamos esse soluço, e um ramo novo
+// custaria mais do que protege. Fica declarado para quem vier investigar uma
+// capa que sumiu por horas sem erro nenhum no log.
 function listaRecenteCacheada(igUserId: string, token: string) {
   return unstable_cache(
     () => getMedia(igUserId, token, RECENT_MEDIA_LIMIT),
@@ -156,7 +182,7 @@ function postCacheado(mediaId: string, token: string) {
 // cercava esta função com um `Promise.race` de 2500 ms que, vencido, entregava
 // `new Map()` — DESCARTE TUDO OU NADA. A essa altura a listagem dos 40 recentes
 // já tinha resolvido, de graça, boa parte das capas: a tela jogava fora o que já
-// estava pago e não mostrava capa NENHUMA. E `app/eventos/page.tsx:138` chama
+// estava pago e não mostrava capa NENHUMA. E `app/eventos/page.tsx:145` chama
 // `resolvePosts` cru, sem corrida alguma — a tela que menos podia esperar era a
 // única sem teto.
 //
