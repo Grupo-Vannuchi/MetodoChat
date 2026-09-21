@@ -58,6 +58,14 @@
 //   - NÃO FAZ LOGIN e não conhece senha nenhuma.
 //   - NÃO MEXE EM AUTOMAÇÃO, não envia mensagem, não escreve no banco.
 //
+// E A JANELA PRECISA ESTAR VISIVEL. Medido em 21/09/2026: com a janela
+// MINIMIZADA, `document.visibilityState` vira `hidden`, o Chrome para de dar
+// layout ao conteudo, e as 33 caixas de `/contatos` existem no DOM com
+// `getBoundingClientRect()` ZERADO. A conferencia acusava honestamente ("0
+// linhas visiveis") mas culpava a PAGINA por um problema da JANELA. Agora o
+// script traz a aba para a frente e, se ainda assim estiver oculta, RECUSA
+// dizendo qual e a causa — em vez de reprovar a tela por engano.
+//
 // E ELE FILTRA POR VISIBILIDADE EM TODA CONTAGEM. Numa aba reusada, o App Router
 // mantém no DOM as renderizações anteriores, e `document.images` conta esses
 // restos — todos com largura zero. Em 16/09 isso me fez ler "13 quebradas" antes
@@ -337,6 +345,39 @@ async function conferirSelecao(aba) {
   );
 }
 
+/** Traz a aba para a frente e RECUSA se a janela continuar oculta.
+ *
+ * POR QUE ISTO E UMA GUARDA E NAO UM DETALHE: com a janela minimizada o Chrome
+ * nao da layout, e TUDO o que este script mede passa por
+ * `getBoundingClientRect()`. As contagens viriam zeradas e as conferencias
+ * reprovariam a tela por um problema que nao e dela — o pior tipo de vermelho,
+ * o que manda procurar defeito no lugar errado. */
+async function exigirJanelaVisivel(aba) {
+  // `Page.bringToFront` resolve o caso comum (a janela existe e esta atras de
+  // outra ou minimizada) sem pedir nada a ninguem.
+  try {
+    await aba.chamar("Page.bringToFront");
+  } catch {
+    // Se o comando nao existir nesta versao, a conferencia abaixo ainda decide.
+  }
+  await dormir(500);
+  const estado = await aba.js(`document.visibilityState`);
+  if (estado !== "visible") {
+    throw new Error(
+      `A JANELA DO NAVEGADOR ESTA OCULTA (visibilityState: ${estado}).
+
+` +
+        `Com a janela minimizada o Chrome nao da layout, e todas as contagens ` +
+        `deste script passam por getBoundingClientRect(): elas viriam ZERADAS e ` +
+        `as conferencias reprovariam a tela por um problema que e da janela. ` +
+        `Medido em 21/09/2026: 33 caixas no DOM de /contatos e ZERO com ` +
+        `tamanho.
+
+Restaure a janela do perfil dedicado e rode de novo.`
+    );
+  }
+}
+
 // --- o fio principal ------------------------------------------------------
 
 const aba = await Aba.conectar(PORTA);
@@ -351,6 +392,7 @@ try {
         "mesma janela e rode de novo — este script não faz login e não conhece senha."
     );
   }
+  await exigirJanelaVisivel(aba);
   await conferirImagens(aba);
   await conferirSelecao(aba);
 } finally {
