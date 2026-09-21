@@ -38,39 +38,53 @@ export type Campo = {
 // formato que dá para exportar e discar; a máscara que a pessoa digitou
 // ("(11) 99999-9999") é enfeite, não dado.
 //
-// A REGRA É POR QUANTIDADE DE DÍGITOS, e não por lista de exceções: "1990" não
-// é telefone porque tem 4 dígitos, não porque "parece ano". Uma lista de
-// exceções (anos, CPF, CEP...) sempre esquece um caso; contar dígitos não.
 // Exportada, junto com as duas seguintes, porque a Tarefa 1 pede os
 // extratores testáveis por fora do catálogo — o teste de hoje chama por
 // `campoPorChave(...).extrair`, mas tarefas futuras (o editor, a normalização
 // de chave livre) podem precisar do extrator isolado sem montar um `Campo`.
 //
-// POR QUE OS DÍGITOS SÃO CONTADOS POR BLOCO, E NÃO NO TEXTO INTEIRO: contar
-// todo dígito da frase de uma vez faz "111.222.333-44" (CPF) somar 11 dígitos
-// e passar pela mesma contagem de um celular — a suíte desta tarefa provou
-// isso na prática (`tests/campos.test.ts`, caso "recusa... CPF"): o corte só
-// por `digitos.length` do texto inteiro FICA VERDE mesmo com CPF na entrada,
-// porque 11 dígitos é 11 dígitos, não importa de onde vieram. A correção não é
-// reconhecer CPF por forma (isso seria a mesma lista de exceções que o
-// parágrafo acima recusa) — é não juntar dígitos que a pessoa nunca escreveu
-// juntos: telefone de verdade usa espaço, parênteses, `+` e hífen como
-// separador; ponto não aparece em nenhum dos casos de telefone desta suíte, e
-// é exatamente o que separa os três grupos do CPF. Cortando o texto em blocos
-// de "cara de telefone" (dígito e essa pontuação) e testando o tamanho de CADA
-// bloco, os três pedaços do CPF (3, 3 e 5 dígitos) nunca chegam a 10.
-const BLOCO_DE_TELEFONE = /[\d\s()+-]+/g;
+// POR QUE OS DÍGITOS SÃO CONTADOS POR BLOCO, E NÃO NO TEXTO INTEIRO: é para
+// não juntar dígitos que a pessoa nunca escreveu juntos — "fixo: 1133334444"
+// não pode virar um número com o índice de "fixo" colado. O bloco aceita
+// espaço, parênteses, `+`, hífen e PONTO: "11.99999-9999" é escrita comum de
+// celular no Brasil (medido contra exemplo real, 21/09/2026), e sem aceitar
+// ponto como separador esse formato era recusado à toa.
+//
+// A REGRA-MÃE CONTINUA SENDO CONTAGEM DE DÍGITOS, e não lista de exceções:
+// "1990" não é telefone porque tem 4 dígitos, não porque "parece ano". MAS
+// contar dígito sozinho NÃO separa CPF de celular — os dois têm 11, e aceitar
+// ponto como separador (parágrafo acima) faz o CPF pontuado voltar a cair num
+// bloco só, com 11 dígitos, igual a um celular. Quem separa é o plano de
+// numeração: todo celular brasileiro de 11 dígitos tem "9" como TERCEIRO
+// dígito (DDD + 9 + oito dígitos, regra vigente desde 2016) — CPF não segue
+// essa forma. Isto NÃO é lista de exceções porque não é uma lista de valores
+// proibidos, é a forma que todo celular tem; `ehCelularDeVerdade` decide pela
+// forma do número, e não por reconhecer "isto é CPF". Fixo de 10 dígitos NÃO
+// ganha regra parecida: a faixa do primeiro dígito do número varia por
+// região, e uma regra ali recusaria fixo de verdade — dez dígitos com DDD
+// plausível basta.
+const BLOCO_DE_TELEFONE = /[\d\s()+.-]+/g;
+
+function ehCelularDeVerdade(digitos: string): boolean {
+  return digitos[2] === "9";
+}
 
 export function extrairTelefone(texto: string): string | null {
   for (const bloco of texto.match(BLOCO_DE_TELEFONE) ?? []) {
-    const digitos = (bloco.match(/\d/g) ?? []).join("");
+    const digitosBrutos = (bloco.match(/\d/g) ?? []).join("");
     // O DDI 55 só é removido quando sobra dígito demais para ser DDD+número —
     // do contrário um fixo de 10 dígitos que por acaso começa com "55"
     // perderia os dois primeiros à toa.
-    const semDdi = digitos.startsWith("55") && digitos.length > 11
-      ? digitos.slice(2)
-      : digitos;
-    if (semDdi.length === 10 || semDdi.length === 11) return semDdi;
+    const semDdi = digitosBrutos.startsWith("55") && digitosBrutos.length > 11
+      ? digitosBrutos.slice(2)
+      : digitosBrutos;
+    // "(011)" é o "0 + DDD" do prefixo de interurbano antigo — o zero é
+    // prefixo de discagem, não dado. Nenhum DDD brasileiro começa com zero;
+    // sem tirar esse zero, "(011) 3333-4444" gravaria 11 dígitos com um DDD
+    // de três dígitos que não disca nem exporta igual aos demais contatos.
+    const semZero = semDdi.startsWith("0") ? semDdi.slice(1) : semDdi;
+    if (semZero.length === 11 && ehCelularDeVerdade(semZero)) return semZero;
+    if (semZero.length === 10) return semZero;
   }
   return null;
 }

@@ -11,14 +11,42 @@ describe("extrair telefone", () => {
     expect(telefone("fixo: 1133334444")).toBe("1133334444");
   });
 
-  it("recusa o que não tem 10 ou 11 dígitos — e isso descarta ano e CPF", () => {
+  it("recusa o que não tem 10 ou 11 dígitos — e isso descarta ano", () => {
     // A REGRA É POR QUANTIDADE DE DÍGITOS, e não por lista de exceções: "1990"
-    // não é telefone porque tem 4 dígitos, e um CPF não é porque tem 11 mas
-    // vem sem DDD válido. Lista de exceções sempre esquece um caso.
+    // não é telefone porque tem 4 dígitos, não porque "parece ano". O CPF NÃO
+    // está nesta lista: ele também tem 11 dígitos, então contagem sozinha não
+    // o distingue de celular — isso é o caso seguinte.
     expect(telefone("nasci em 1990")).toBe(null);
     expect(telefone("123")).toBe(null);
-    expect(telefone("111.222.333-44")).toBe(null);
     expect(telefone("não tenho")).toBe(null);
+  });
+
+  it("recusa CPF de 11 dígitos pela forma, não pela quantidade", () => {
+    // CPF tem 11 dígitos — o mesmo tanto que celular — e por isso CONTAR
+    // dígitos não separa um do outro; o caso anterior só descarta o que tem
+    // dígito de menos (ano, índice). O que separa é o plano de numeração:
+    // todo celular brasileiro de 11 dígitos tem "9" como TERCEIRO dígito
+    // (DDD + 9 + oito dígitos, regra vigente desde 2016), e CPF não segue essa
+    // forma — não é lista de exceções, é a forma que todo celular tem. Cobre
+    // o CPF pontuado (que agora é um bloco só, já que "." virou separador de
+    // telefone — ver "aceita o ponto...") e o CPF sem pontuação nenhuma, que
+    // sem esta regra passaria pela contagem de dígitos como se fosse celular.
+    expect(telefone("111.222.333-44")).toBe(null);
+    expect(telefone("meu cpf e 11122233344")).toBe(null);
+  });
+
+  it("aceita o ponto como separador — é escrita comum de celular no Brasil", () => {
+    expect(telefone("11.99999-9999")).toBe("11999999999");
+    expect(telefone("11.99999.9999")).toBe("11999999999");
+  });
+
+  it("tira o zero de discagem antigo grudado no DDD", () => {
+    // "(011)" é o formato "0 + DDD" do prefixo de interurbano antigo — o zero
+    // é prefixo de discagem, não dado. Nenhum DDD brasileiro começa com zero;
+    // sem tirar esse zero o valor gravado teria 11 dígitos com um DDD de três
+    // dígitos, que não disca nem exporta igual aos telefones dos outros
+    // contatos.
+    expect(telefone("tel (011) 3333-4444")).toBe("1133334444");
   });
 
   it("guarda só os dígitos, sem DDI — é o que dá para exportar e discar", () => {
