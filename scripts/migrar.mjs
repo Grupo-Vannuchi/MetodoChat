@@ -565,6 +565,22 @@ const ESPERADAS = [
     padrao: null,
     naoNulo: false,
   },
+  {
+    tabela: "contacts",
+    coluna: "campos",
+    de: "011-campos-do-contato.sql",
+    tipo: "jsonb",
+    padrao: "'{}'::jsonb",
+    naoNulo: true,
+  },
+  {
+    tabela: "contacts",
+    coluna: "campo_tentativas",
+    de: "011-campos-do-contato.sql",
+    tipo: "integer",
+    padrao: "0",
+    naoNulo: true,
+  },
 ];
 
 // ============================================================

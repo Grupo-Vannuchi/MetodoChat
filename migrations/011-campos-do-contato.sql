@@ -1,0 +1,57 @@
+-- `contacts` GANHA `campos` E `campo_tentativas`.
+--
+-- ADITIVA E SEGURA EM UM DEPLOY SÓ, no mesmo espírito da `007`
+-- (categoria-do-contato): duas colunas novas, as duas com `if not exists` e
+-- `default`, e nenhum código antigo lê ou escreve nelas hoje — não há
+-- restrição para derrubar e recriar, como fazem a `008`/`009`/`010` em
+-- `queue`.
+--
+-- -----------------------------------------------------------------------------
+-- POR QUE É `jsonb` E NÃO UMA COLUNA POR CAMPO
+--
+-- A decisão foi revista durante o desenho da Fase de coleta. A tentação óbvia
+-- é `telefone text`, `nascimento text`, `nome_informado text` — uma coluna por
+-- campo do catálogo (`lib/campos.ts`), do jeito que `categoria` (`007`) já é.
+-- Ela perde para `jsonb` por um motivo que `categoria` não tinha: A RECÊNCIA.
+--
+-- `campoEstaFresco` (`lib/campos.ts`) decide se a automação pula a pergunta ou
+-- repete, e essa decisão depende de QUANDO o dado foi coletado — não só do
+-- valor. "tenho o telefone" não basta; é preciso "tenho o telefone, coletado
+-- há menos de 30 dias". Uma coluna por campo que guardasse só o valor não
+-- responderia a pergunta certa, e por isso CADA CAMPO PRECISARIA DE DUAS
+-- COLUNAS: `telefone text` + `telefone_em timestamptz`, `nascimento text` +
+-- `nascimento_em timestamptz`, e assim por diante — o catálogo hoje tem
+-- quatro campos e o editor (Tarefa 5) permite campo LIVRE, digitado pela
+-- pessoa que monta a automação, sem limite conhecido de antemão. Uma coluna
+-- por campo não dá conta de um catálogo aberto: toda automação nova, com um
+-- rótulo livre novo, exigiria uma migração de esquema.
+--
+-- `jsonb` resolve as duas pontas com UMA coluna: cada chave do objeto é a
+-- chave do campo (do catálogo, ou a chave livre normalizada por
+-- `normalizarChaveLivre`), e o valor é `{ valor, em, automacao? }` — o
+-- registro que `lerCampos` lê de volta como `Registro` (`Map<string,
+-- CampoColetado>`). Um campo livre novo não pede coluna nova, só uma chave
+-- nova dentro do mesmo `jsonb`.
+--
+-- `automacao` É OPCIONAL NO TIPO (`CampoColetado`, `lib/campos.ts`) por causa
+-- de uma tarefa FUTURA, não desta: os e-mails que já existem em
+-- `contacts.email` hoje, em produção, vão ser migrados para dentro de
+-- `campos` (Tarefa 7). Para eles não existe data de coleta nem automação de
+-- origem guardada em lugar nenhum — o dado sempre existiu como coluna solta.
+-- Quem lê o registro precisa aguentar essa ausência, e não presumir que todo
+-- campo tem as três chaves.
+--
+-- -----------------------------------------------------------------------------
+-- POR QUE `campo_tentativas` É COLUNA PRÓPRIA, E NÃO PARTE DO `jsonb`
+--
+-- `TETO_DE_TENTATIVAS` (`lib/campos.ts`) é 3, e é constante do CATÁLOGO — a
+-- mesma regra para qualquer campo que a automação esteja perguntando agora,
+-- não um contador por campo. `campo_tentativas` guarda quantas vezes a
+-- automação já reperguntou o campo ATUAL, e zera quando o campo é gravado com
+-- sucesso ou quando a automação passa a perguntar outro campo (Tarefa 4). Um
+-- inteiro solto, fora do `jsonb`, é a forma mais barata de um contador que
+-- não precisa de data nem de chave — ele é sempre sobre "o campo que está
+-- sendo perguntado agora", nunca sobre um campo específico do histórico.
+
+alter table contacts add column if not exists campos jsonb not null default '{}'::jsonb;
+alter table contacts add column if not exists campo_tentativas int not null default 0;

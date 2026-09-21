@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { campoPorChave } from "@/lib/campos";
+import {
+  campoEstaFresco,
+  campoPorChave,
+  lerCampos,
+  normalizarChaveLivre,
+  RECENCIA_EM_DIAS,
+} from "@/lib/campos";
 import { extractEmail } from "@/lib/match";
 
 const telefone = (t: string) => campoPorChave("telefone")!.extrair(t);
@@ -136,5 +142,69 @@ describe("extrair nascimento", () => {
     // conferência de volta, "30/02" viraria uma data válida e errada.
     expect(nasc("30/02/1990")).toBe(null);
     expect(nasc("01/02/2099")).toBe(null);
+  });
+});
+
+describe("campoEstaFresco", () => {
+  // O INSTANTE É PARÂMETRO, e isto não é preferência: em 21/09/2026 dois casos
+  // desta base ficaram vermelhos sozinhos por cravarem uma data que passou, num
+  // bloco cujo comentário JÁ PREVIA que isso ia acontecer. Prever não é
+  // consertar.
+  const AGORA = Date.parse("2026-09-21T12:00:00Z");
+  const diasAtras = (n: number) => new Date(AGORA - n * 86400_000).toISOString();
+
+  it("29 dias é fresco; 31 não é", () => {
+    expect(campoEstaFresco(diasAtras(29), AGORA)).toBe(true);
+    expect(campoEstaFresco(diasAtras(31), AGORA)).toBe(false);
+  });
+
+  it("a borda de 30 dias é fresca — o prazo é 'menos de 30 dias' contado a favor", () => {
+    expect(campoEstaFresco(diasAtras(30), AGORA)).toBe(true);
+  });
+
+  it("sem data, não é fresco — é o que faz o passo perguntar", () => {
+    expect(campoEstaFresco(null, AGORA)).toBe(false);
+  });
+
+  it("o prazo é o declarado na spec", () => {
+    expect(RECENCIA_EM_DIAS).toBe(30);
+  });
+});
+
+describe("normalizarChaveLivre", () => {
+  it("vira chave de variável: minúscula, sem acento, com underscore", () => {
+    expect(normalizarChaveLivre("Qual sua Cidade")).toBe("qual_sua_cidade");
+    expect(normalizarChaveLivre("  Profissão  ")).toBe("profissao");
+  });
+
+  it("recusa o que colide com campo conhecido", () => {
+    // Um campo livre chamado `email` gravaria por cima do e-mail de verdade sem
+    // extração nenhuma, e `{{email}}` passaria a devolver o que a pessoa
+    // digitou em qualquer formato.
+    expect(normalizarChaveLivre("E-mail")).toBe(null);
+    expect(normalizarChaveLivre("telefone")).toBe(null);
+  });
+
+  it("recusa o vazio e o que não tem letra", () => {
+    expect(normalizarChaveLivre("   ")).toBe(null);
+    expect(normalizarChaveLivre("🔥")).toBe(null);
+  });
+});
+
+describe("lerCampos", () => {
+  it("lê o registro do jsonb, ignorando o que não tem forma", () => {
+    const r = lerCampos({
+      telefone: { valor: "11999999999", em: "2026-09-01T00:00:00Z" },
+      lixo: "não é objeto",
+      vazio: { em: "2026-09-01T00:00:00Z" },
+    });
+    expect(r.get("telefone")).toEqual({ valor: "11999999999", em: "2026-09-01T00:00:00Z" });
+    expect(r.has("lixo")).toBe(false);
+    expect(r.has("vazio")).toBe(false);
+  });
+
+  it("jsonb nulo ou vazio vira registro vazio, e não estoura", () => {
+    expect(lerCampos(null).size).toBe(0);
+    expect(lerCampos({}).size).toBe(0);
   });
 });

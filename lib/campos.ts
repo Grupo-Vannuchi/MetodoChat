@@ -204,3 +204,104 @@ const POR_CHAVE = new Map(CAMPOS.map((c) => [c.chave, c]));
 export function campoPorChave(chave: string): Campo | undefined {
   return POR_CHAVE.get(chave);
 }
+
+// -----------------------------------------------------------------------------
+// A LEITURA DE `contacts.campos` (migrations/011-campos-do-contato.sql) — e as
+// duas funções que a acompanham: a normalização de chave livre e o teste de
+// recência. O comentário da migração diz POR QUE a coluna é `jsonb` e não uma
+// coluna por campo; aqui fica o porquê de cada função ser o que é.
+
+// Um campo coletado guarda o VALOR e o QUANDO — a recência (abaixo) depende do
+// "quando", e é esse par que uma coluna por campo não dá sem custar duas
+// colunas cada. `automacao` é OPCIONAL: os e-mails que já existem em produção
+// hoje (migração futura, que só move o que já está em `contacts.email`) nunca
+// tiveram essa informação guardada — não existe data nem origem de coleta para
+// eles — e quem lê o registro precisa aguentar a ausência, não presumir.
+export type CampoColetado = { valor: string; em: string; automacao?: string | null };
+export type Registro = Map<string, CampoColetado>;
+
+// A recência é 30 dias — declarado como constante, e não número solto, porque
+// `campoEstaFresco` e o teste que prende `RECENCIA_EM_DIAS === 30` (abaixo)
+// precisam ler o MESMO valor: um número duplicado nos dois lugares poderia
+// divergir sem que nenhum teste acusasse.
+export const RECENCIA_EM_DIAS = 30;
+const RECENCIA_EM_MS = RECENCIA_EM_DIAS * 24 * 60 * 60 * 1000;
+
+// Decide se um campo já coletado ainda vale, ou se a automação deve perguntar
+// de novo. `agora` é PARÂMETRO, com `Date.now()` só como valor padrão — não é
+// preferência de estilo: em 21/09/2026 dois testes desta base ficaram
+// vermelhos sozinhos, meses depois de escritos, por cravarem uma data que já
+// tinha passado, num bloco cujo comentário já previa que isso ia acontecer.
+// Um teste que chama `campoEstaFresco(data, AGORA_FIXO)` nunca apodrece.
+//
+// `null` e data ilegível contam como "não fresco" — o desfecho seguro é
+// perguntar de novo, e não pular a pergunta por engano; `Date.parse` devolve
+// `NaN` para lixo, e qualquer comparação com `NaN` é `false`, então a conta
+// abaixo já cai no lado seguro sem `isNaN` explícito.
+//
+// A BORDA DOS 30 DIAS CONTA A FAVOR (`<=`, não `<`): exatos 30 dias atrás
+// ainda é fresco. É a spec, prendida pelo caso "a borda de 30 dias é fresca"
+// em tests/campos.test.ts — um `<` estrito faria esse caso ficar vermelho.
+export function campoEstaFresco(em: string | null, agora: number = Date.now()): boolean {
+  if (em === null) return false;
+  const quando = Date.parse(em);
+  return agora - quando <= RECENCIA_EM_MS;
+}
+
+// Lê a coluna `jsonb` e devolve um `Registro` — um `Map`, e não o objeto cru,
+// porque todo lugar que precisa perguntar "este campo já foi coletado?" quer
+// `.get`/`.has`, e um `Map` não corre o risco de colidir com `__proto__` ou
+// outra chave herdada que um objeto literal aceitaria calado.
+//
+// IGNORA O QUE NÃO TEM FORMA, em vez de estourar: a coluna nasce com
+// `default '{}'::jsonb` (migração 011), mas nada no banco impede alguém de
+// gravar lixo ali por fora — e um valor sem `valor` (a chave `vazio` do teste)
+// ou que não é nem objeto (a chave `lixo`) precisa ser descartado, não travar
+// a leitura do registro inteiro.
+export function lerCampos(jsonb: unknown): Registro {
+  const registro: Registro = new Map();
+  if (jsonb === null || typeof jsonb !== "object") return registro;
+  for (const [chave, valor] of Object.entries(jsonb as Record<string, unknown>)) {
+    if (
+      valor !== null &&
+      typeof valor === "object" &&
+      typeof (valor as Record<string, unknown>).valor === "string" &&
+      typeof (valor as Record<string, unknown>).em === "string"
+    ) {
+      registro.set(chave, valor as CampoColetado);
+    }
+  }
+  return registro;
+}
+
+// Palavras que já são chave de campo do catálogo — usado só para a checagem de
+// colisão abaixo, e não exportado: o catálogo (`CAMPOS`) continua sendo a
+// única fonte de verdade sobre quais campos existem.
+const CHAVES_DO_CATALOGO = new Set(CAMPOS.map((c) => c.chave));
+
+// Transforma o rótulo que a pessoa digita no editor ("Qual sua Cidade") na
+// chave que vira variável de template ("qual_sua_cidade"): minúscula, sem
+// acento, espaço vira underscore.
+//
+// RECUSA O QUE COLIDE COM CAMPO CONHECIDO (devolve `null`), e a recusa é o
+// ponto inteiro da função — um campo livre chamado `email` gravaria por cima
+// do e-mail de verdade sem passar pelo extrator, e `{{email}}` passaria a
+// devolver o que a pessoa digitou em QUALQUER formato, sem validação nenhuma.
+// A checagem roda DEPOIS da normalização ("E-mail" -> "email") porque é a
+// forma normalizada que colide de fato — e é por isso que a pontuação
+// ("-", "/", etc.) É REMOVIDA e não virada underscore: só o espaço vira
+// underscore. Com o hífen sobrevivendo, "E-mail" normalizaria para "e-mail",
+// que não é igual a "email", e a colisão passaria batido.
+export function normalizarChaveLivre(texto: string): string | null {
+  const semAcento = texto
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // remove os acentos que o NFD separou
+    .toLowerCase();
+  // Tudo que não é letra, dígito ou espaço some (pontuação, emoji); espaço
+  // sobrevive para virar underscore no passo seguinte.
+  const soLetraDigitoEspaco = semAcento.replace(/[^a-z0-9\s]/g, "");
+  const chave = soLetraDigitoEspaco.trim().replace(/\s+/g, "_");
+  if (!chave) return null; // vazio, só espaço, ou só emoji/pontuação
+  if (CHAVES_DO_CATALOGO.has(chave)) return null;
+  return chave;
+}
