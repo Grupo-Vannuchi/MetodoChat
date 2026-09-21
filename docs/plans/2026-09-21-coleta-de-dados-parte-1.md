@@ -80,6 +80,8 @@ describe("extrair telefone", () => {
     expect(telefone("11999999999")).toBe("11999999999");
     expect(telefone("+55 11 99999 9999")).toBe("11999999999");
     expect(telefone("fixo: 1133334444")).toBe("1133334444");
+    expect(telefone("11.99999-9999")).toBe("11999999999");
+    expect(telefone("tel (011) 3333-4444")).toBe("1133334444");
   });
 
   it("recusa o que não tem 10 ou 11 dígitos — e isso descarta ano e CPF", () => {
@@ -89,6 +91,7 @@ describe("extrair telefone", () => {
     expect(telefone("nasci em 1990")).toBe(null);
     expect(telefone("123")).toBe(null);
     expect(telefone("111.222.333-44")).toBe(null);
+    expect(telefone("meu cpf e 11122233344")).toBe(null);  // 11 dígitos, 3º não é 9
     expect(telefone("não tenho")).toBe(null);
   });
 
@@ -178,16 +181,43 @@ export type Campo = {
 
 O telefone, com a regra por quantidade de dígitos:
 
+**ESTE CÓDIGO JÁ ESTEVE ERRADO NESTE PLANO, e a correção vale ser lida.** A
+primeira versão contava os dígitos do TEXTO INTEIRO e devolvia o número quando
+somavam 10 ou 11 — então `111.222.333-44` (um CPF) somava 11 e passava, apesar
+de o comentário afirmar que seria recusado "por vir sem DDD válido", coisa que o
+código nem olhava. Comentário e código mentiam juntos.
+
+Contar dígitos NÃO distingue CPF de celular: os dois têm 11. O que distingue é o
+plano de numeração — **todo celular brasileiro de 11 dígitos tem `9` como
+TERCEIRO dígito** (DDD + 9XXXXXXXX), desde 2016. Isso é regra, e não lista de
+valores proibidos.
+
+Para 10 dígitos (fixo) **não invente regra parecida**: a faixa de fixo varia por
+região, e uma regra aqui recusaria número de verdade.
+
 ```ts
 function extrairTelefone(texto: string): string | null {
-  // Tira o DDI 55 quando ele vier, e fica só com dígitos: é o formato que
-  // exporta e disca. A máscara da pessoa não é dado, é enfeite.
-  const digitos = (texto.match(/[\d]/g) ?? []).join("");
-  const semDdi = digitos.startsWith("55") && digitos.length > 11
-    ? digitos.slice(2)
-    : digitos;
-  return semDdi.length === 10 || semDdi.length === 11 ? semDdi : null;
+  const digitos = (texto.match(/\d/g) ?? []).join("");
+  // O DDI 55 só sai quando sobra dígito demais para ser DDD+número: sem essa
+  // condição, um fixo de 10 dígitos começando com "55" perderia dois à toa.
+  let n = digitos.startsWith("55") && digitos.length > 11 ? digitos.slice(2) : digitos;
+  // O zero do DDD é prefixo de discagem antigo, não é dado: "(011)" guardado
+  // como `011…` não disca nem exporta igual aos outros.
+  if (n.length === 12 && n.startsWith("0")) n = n.slice(1);
+  if (n.length === 11) return n[2] === "9" ? n : null;   // celular, ou CPF
+  if (n.length === 10) return n;                          // fixo
+  return null;
 }
+```
+
+**Confira você mesmo os quatro casos abaixo antes de dar por pronto** — eles são
+os que já quebraram:
+
+```
+"11.99999-9999"         -> "11999999999"   (ponto é separador comum aqui)
+"tel (011) 3333-4444"   -> "1133334444"    (o zero do DDD sai)
+"meu cpf e 11122233344" -> null            (terceiro dígito não é 9)
+"nasci em 1990"         -> null            (4 dígitos)
 ```
 
 O nome, com a recusa fraca:
