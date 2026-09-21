@@ -145,7 +145,7 @@ describe("o traço do 'algumas'", () => {
 describe("o contrato com o servidor", () => {
   it("a caixa do cabeçalho NÃO tem `name`", () => {
     // ELA COMANDA AS OUTRAS E NÃO É UM DADO. Com `name`, viraria um campo a mais
-    // no POST e `idsSelecionados` (app/contatos/actions.ts) teria de aprender a
+    // no POST e `idsSelecionados` (lib/categorias.ts) teria de aprender a
     // ignorá-la — ou marcaria uma categoria num contato que não existe.
     render(<Tela />);
     expect(cabecalho().getAttribute("name")).toBe(null);
@@ -186,5 +186,93 @@ describe("a fundação do `useSyncExternalStore`", () => {
     }
     expect(contador()).toBeNull();
     expect(cabecalho().indeterminate).toBe(false);
+  });
+});
+
+/** A TELA COM OS DOIS FORMULÁRIOS, que é a de verdade.
+ *
+ * `/contatos` monta DUAS tabelas irmãs na mesma página — `lote-com-email` e
+ * `lote-sem-email` (app/contatos/page.tsx) —, e é exatamente para isso que
+ * existem o parâmetro `alvo` e o mapa `ULTIMO` por alvo no componente.
+ *
+ * A FIXTURE DE UM FORMULÁRIO SÓ NÃO ENXERGA ISSO, e a revisão de 21/09/2026
+ * provou com plantios que sobreviveram aos 15 casos: trocar `caixas()` por um
+ * `document.querySelector("form")` global, assinar sempre o primeiro
+ * formulário, ou fazer o "marcar todas" escrever em TODA
+ * `input[name="ig_id"]` da página. O último é o que dói: marcar todas em "Com
+ * e-mail" marcaria também "Sem e-mail", e o POST gravaria categoria em contato
+ * que ninguém selecionou — escrita errada, calada, na função que o marketing
+ * usa. */
+function DuasTabelas() {
+  return (
+    <>
+      <form id="lote-a">
+        <MarcarTodas alvo="lote-a" />
+        <input type="checkbox" name="ig_id" value="a-0" aria-label="A linha 0" />
+        <input type="checkbox" name="ig_id" value="a-1" aria-label="A linha 1" />
+        <ContadorDaSelecao alvo="lote-a" />
+      </form>
+      <form id="lote-b">
+        <MarcarTodas alvo="lote-b" />
+        <input type="checkbox" name="ig_id" value="b-0" aria-label="B linha 0" />
+        <input type="checkbox" name="ig_id" value="b-1" aria-label="B linha 1" />
+        <input type="checkbox" name="ig_id" value="b-2" aria-label="B linha 2" />
+        <ContadorDaSelecao alvo="lote-b" />
+      </form>
+    </>
+  );
+}
+
+const caixaDe = (rotulo: string) => screen.getByLabelText(rotulo) as HTMLInputElement;
+const cabecalhoDe = (i: number) =>
+  screen.getAllByLabelText("Selecionar todas as linhas mostradas")[i] as HTMLInputElement;
+const contadores = () => screen.queryAllByText(/selecionado/).map((e) => e.textContent);
+
+describe("duas tabelas na mesma página não se misturam", () => {
+  it("marcar todas em A não toca em B", async () => {
+    render(<DuasTabelas />);
+    await userEvent.click(cabecalhoDe(0));
+    expect([caixaDe("A linha 0").checked, caixaDe("A linha 1").checked]).toEqual([true, true]);
+    expect(
+      [caixaDe("B linha 0").checked, caixaDe("B linha 1").checked, caixaDe("B linha 2").checked],
+      "marcar todas em uma tabela NÃO pode marcar a outra: o POST gravaria " +
+        "categoria em contato que ninguém selecionou"
+    ).toEqual([false, false, false]);
+  });
+
+  it("cada contador conta só as suas linhas", async () => {
+    render(<DuasTabelas />);
+    await userEvent.click(cabecalhoDe(0));
+    await userEvent.click(caixaDe("B linha 0"));
+    expect(contadores()).toEqual(["2 selecionados", "1 selecionado"]);
+  });
+
+  it("o traço de indeterminado é de cada tabela, e não da página", async () => {
+    render(<DuasTabelas />);
+    // A fica INTEIRA marcada; B fica com uma de três.
+    await userEvent.click(cabecalhoDe(0));
+    await userEvent.click(caixaDe("B linha 0"));
+    expect(cabecalhoDe(0).checked).toBe(true);
+    expect(cabecalhoDe(0).indeterminate).toBe(false);
+    expect(cabecalhoDe(1).checked).toBe(false);
+    expect(cabecalhoDe(1).indeterminate).toBe(true);
+  });
+});
+
+describe("a lista vazia", () => {
+  it("sem nenhuma linha, o cabeçalho NÃO nasce marcado", () => {
+    // A guarda `total > 0` do componente: sem ela, `n === total` seria `0 === 0`
+    // e a tabela vazia apareceria com o "marcar todas" ligado. Hoje `Tabela`
+    // (app/contatos/page.tsx) só monta com linhas, então isto é latente — e
+    // latente sem defesa é o que vira defeito na primeira mudança.
+    render(
+      <form id="lote-vazio">
+        <MarcarTodas alvo="lote-vazio" />
+        <ContadorDaSelecao alvo="lote-vazio" />
+      </form>
+    );
+    expect(cabecalho().checked).toBe(false);
+    expect(cabecalho().indeterminate).toBe(false);
+    expect(contador()).toBeNull();
   });
 });

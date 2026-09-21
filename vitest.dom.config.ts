@@ -1,5 +1,4 @@
 import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react";
 import base from "./vitest.config";
 
 // A TERCEIRA CATEGORIA DE TESTE, e ela nasce pelo mesmo motivo que a segunda.
@@ -36,9 +35,11 @@ import base from "./vitest.config";
 // Postgres, e um portão que só fecha com container de pé é um portão que se
 // aprende a pular.
 export default defineConfig({
-  // O plugin do React é o que compila o JSX dos componentes de `app/`. A suíte
-  // pura não precisa dele porque nunca importa componente.
-  plugins: [react()],
+  // SEM `@vitejs/plugin-react`, e isso foi MEDIDO na revisão de 21/09/2026:
+  // quem compila o JSX aqui é o esbuild do Vite lendo `jsx: "react-jsx"` do
+  // `tsconfig.json`. Eu tinha posto o plugin com um comentário afirmando que ele
+  // era o compilador — falso, e a suíte passa igual sem ele. Uma dependência a
+  // menos numa base que não usa Fast Refresh em teste.
   // Os mesmos atalhos das outras duas, importados e não copiados — três cópias
   // do alias de `server-only` acabariam divergindo, que é o defeito que esta
   // base persegue em toda parte.
@@ -50,11 +51,14 @@ export default defineConfig({
     // noutro diretório E terminam em `.dom.tsx`. Mesmo que um deles caísse
     // dentro de `tests/`, `npm test` continuaria sem enxergá-lo.
     include: ["testes-dom/**/*.dom.tsx"],
-    // `cleanup()` do Testing Library entre casos: sem isto, a árvore de um caso
-    // sobra no `document` do seguinte, e o componente deste arquivo alcança as
-    // caixas por `document.getElementById` — ele veria o formulário do caso
-    // anterior e mediria a tela errada.
-    globals: true,
+    // A LIMPEZA ENTRE CASOS É EXPLÍCITA, em `testes-dom/limpeza.ts`.
+    //
+    // O Testing Library também a liga sozinho quando `globals: true`, e a
+    // primeira versão deste arquivo tinha AS DUAS — o `globals` ligava o
+    // automático e o `setupFiles` fazia de novo, com um comentário que falava da
+    // limpeza posto em cima do `globals`, que não é quem a faz. A revisão de
+    // 21/09/2026 mediu as três combinações. Ficou a explícita: ela é a que se lê
+    // no arquivo em vez de depender de um efeito colateral de outra opção.
     setupFiles: ["testes-dom/limpeza.ts"],
   },
 });
