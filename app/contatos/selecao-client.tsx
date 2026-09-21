@@ -113,9 +113,23 @@ export function MarcarTodas({ alvo }: { alvo: string }) {
       onChange={(e) => {
         const marcar = e.target.checked;
         for (const c of caixas(alvo)) c.checked = marcar;
-        // MUDAR `.checked` POR CÓDIGO NÃO DISPARA `change`. O CSS da barra não
-        // se importa (`:checked` acompanha a propriedade), mas o contador sim —
-        // ele vive de eventos. Um evento à mão no formulário acorda os dois.
+        // MUDAR `.checked` POR CÓDIGO NÃO DISPARA `change` — isso é verdade e
+        // foi medido em jsdom cru. O que NÃO é verdade é a conclusão que estava
+        // escrita aqui: a de que sem este evento à mão o contador ficaria parado.
+        //
+        // MEDIDO EM 21/09/2026, por um plantio que SOBREVIVEU: tirando esta
+        // linha, os 15 casos de `testes-dom/marcacao-em-lote.dom.tsx` continuam
+        // verdes. O motivo é a ordem — o `onChange` do React para caixa de
+        // seleção é guiado pelo `click`, e o `change` NATIVO do próprio
+        // cabeçalho só dispara DEPOIS deste manipulador. Quando ele borbulha
+        // até o `<form>`, as linhas já estão mudadas e a recontagem vem certa.
+        //
+        // A LINHA FICA, e como DÍVIDA DECLARADA e não como convicção: o que
+        // sustenta a conclusão acima é jsdom mais um modelo do React, e não
+        // medição no navegador de verdade — `scripts/conferir-no-navegador.mjs`
+        // hoje clica linha a linha e não exercita o "marcar todas". Custo de
+        // manter: uma recontagem a mais que sai pelo bail-out do retrato. Custo
+        // de tirar por engano: o número parado em zero na tela de quem usa.
         e.target.form?.dispatchEvent(new Event("change", { bubbles: true }));
       }}
       className="h-4 w-4 cursor-pointer"
