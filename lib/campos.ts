@@ -63,6 +63,15 @@ export type Campo = {
 // ganha regra parecida: a faixa do primeiro dígito do número varia por
 // região, e uma regra ali recusaria fixo de verdade — dez dígitos com DDD
 // plausível basta.
+//
+// O LIMITE HONESTO DA HEURÍSTICA: `ehCelularDeVerdade` aceita QUALQUER
+// sequência de 11 dígitos cujo terceiro dígito calhe ser "9" — CPF incluso,
+// se o CPF de alguém tiver um "9" bem ali (ex.: "11922233344" não é celular
+// de ninguém, mas passaria). A regra reduz MUITO o falso positivo (de "todo
+// CPF de 11 dígitos passa" para "só o CPF que imita a forma de celular
+// passa"), ela não o elimina — quem for usar este retorno pra decidir algo
+// mais sensível que "gravar o telefone que a pessoa digitou" precisa saber
+// disso.
 const BLOCO_DE_TELEFONE = /[\d\s()+.-]+/g;
 
 function ehCelularDeVerdade(digitos: string): boolean {
@@ -89,11 +98,19 @@ export function extrairTelefone(texto: string): string | null {
   return null;
 }
 
-const PREFIXO_DE_NOME = /^\s*(?:meu\s+nome\s+(?:é|eh|e)\s+|me\s+chamo\s+|sou\s+o\s+|sou\s+a\s+)/i;
+// O ARTIGO É OPCIONAL, e "eu sou" entra do lado de "sou": "sou Ana" (sem
+// artigo) é tão comum quanto "sou a Ana", e as duas formas caíam fora antes
+// desta extensão — a pessoa que responde assim recebia a frase inteira de
+// volta como se fosse o nome. O "sou"/"eu sou" só pode comer o que vem depois
+// SEGUIDO DE ESPAÇO (`\s+` logo após o literal) — sem essa exigência,
+// "Sousa" (sobrenome de verdade, mesmas quatro letras + vogal) perderia
+// "sou" e viraria "sa".
+const PREFIXO_DE_NOME =
+  /^\s*(?:eu\s+sou\s+(?:o\s+|a\s+)?|sou\s+(?:o\s+|a\s+)?|meu\s+nome\s+(?:é|eh|e)\s+|me\s+chamo\s+)/i;
 const TEM_LETRA_OU_DIGITO = /[\p{L}\p{N}]/u;
 
-// Tira o prefixo de apresentação ("sou a ", "meu nome é ", ...) e devolve o
-// que sobrou como nome.
+// Tira o prefixo de apresentação ("sou a ", "eu sou ", "meu nome é ", ...) e
+// devolve o que sobrou como nome.
 //
 // O PREFIXO É REMOVIDO SEMPRE, inclusive em "sou a ana" → "ana": quem responde
 // assim está dizendo que o nome é Ana, e guardar a frase inteira faria
@@ -105,8 +122,10 @@ const TEM_LETRA_OU_DIGITO = /[\p{L}\p{N}]/u;
 // nome de verdade porque veio com emoji junto.
 export function extrairNome(texto: string): string | null {
   const limpo = texto.replace(PREFIXO_DE_NOME, "").trim();
-  if (!limpo) return null;
-  if (!TEM_LETRA_OU_DIGITO.test(limpo)) return null; // só emoji/pontuação
+  // Não checa `!limpo` antes: string vazia (ou só espaço) já falha o teste de
+  // letra/dígito abaixo — uma linha a mais aqui não muda resultado nenhum,
+  // só duplicaria a checagem sem leitor que a acuse.
+  if (!TEM_LETRA_OU_DIGITO.test(limpo)) return null; // vazio, só espaço, ou só emoji/pontuação
   if (limpo.length > 60) return null; // isto é frase, não nome
   return limpo;
 }

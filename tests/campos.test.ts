@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { campoPorChave } from "@/lib/campos";
+import { extractEmail } from "@/lib/match";
 
 const telefone = (t: string) => campoPorChave("telefone")!.extrair(t);
 
@@ -52,6 +53,29 @@ describe("extrair telefone", () => {
   it("guarda só os dígitos, sem DDI — é o que dá para exportar e discar", () => {
     expect(telefone("+5511999999999")).toBe("11999999999");
   });
+
+  it("não confunde DDD 55 (Rio Grande do Sul) com o DDI do Brasil", () => {
+    // A guarda do DDI só corta quando SOBRA dígito demais para ser DDD+número
+    // (`digitosBrutos.length > 11`). Sem essa condição, "55 3334-4444" — DDD
+    // do Rio Grande do Sul, não DDI — perderia os dois primeiros dígitos à
+    // toa, e todo contato gaúcho viraria `null` em silêncio. Este caso é o
+    // que prende essa guarda: um refactor que apague a condição precisa
+    // ficar vermelho aqui, não só sobreviver por acaso.
+    expect(telefone("55 3334-4444")).toBe("5533344444");
+    expect(telefone("55 99999-9999")).toBe("55999999999");
+  });
+});
+
+describe("extrair e-mail", () => {
+  it("é extractEmail de lib/match por IDENTIDADE, não uma regex nova", () => {
+    // Prender por identidade, e não por comportamento: comparar resultado
+    // contra alguns e-mails de exemplo deixaria passar uma regex nova que
+    // imita os casos testados e diverge numa borda que ninguém pensou. Só
+    // existe UMA função que decide o que é e-mail válido nesta base, e é
+    // esta comparação — `toBe`, não `toEqual` — que garante que o catálogo
+    // continua apontando para ELA, não para uma cópia parecida.
+    expect(campoPorChave("email")!.extrair).toBe(extractEmail);
+  });
 });
 
 const nome = (t: string) => campoPorChave("nome_informado")!.extrair(t);
@@ -66,6 +90,20 @@ describe("extrair nome informado", () => {
   it("tira o prefixo mesmo quando a pessoa escreve sem capricho", () => {
     expect(nome("sou a ana")).toBe("ana");
     expect(nome("me chamo Ana")).toBe("Ana");
+  });
+
+  it("aceita 'sou' sem artigo, e 'eu sou', sem comer nome parecido", () => {
+    // "sou Ana", sem artigo, é forma tão comum quanto "sou a Ana" — e o
+    // motivo do prefixo (não deixar `{{nome_informado}}` mandar "Oi sou a
+    // ana") vale igual aqui: sem estender, "sou Ana" escapava e devolvia a
+    // frase inteira.
+    expect(nome("sou Ana")).toBe("Ana");
+    expect(nome("eu sou a Ana")).toBe("Ana");
+    expect(nome("eu sou Ana Souza")).toBe("Ana Souza");
+    // "Sousa" começa com as mesmas quatro letras de "sou" + vogal, mas sem
+    // espaço depois de "sou" — o prefixo só pode comer "sou"/"eu sou"
+    // SEGUIDOS DE ESPAÇO, senão um sobrenome de verdade vira "sa".
+    expect(nome("Sousa")).toBe("Sousa");
   });
 
   it("aceita o desleixado que NÃO tem prefixo, em vez de recusar", () => {
