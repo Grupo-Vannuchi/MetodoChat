@@ -1919,14 +1919,39 @@ describe("textoDoDesfecho", () => {
 describe("dataDaLinhaDeEnvio", () => {
   const criado = new Date("2026-09-04T10:00:00Z");
   const saida = new Date("2026-09-20T14:00:00Z");
+
+  // -------------------------------------------------------------------------
+  // O RELOGIO E FIXO EM TODO CASO QUE DEPENDE DELE, e isto nao e preferencia.
+  //
+  // ESTE BLOCO JA AVISOU E DEIXOU ACONTECER. Ate 21/09/2026 o comentario daqui
+  // dizia, com todas as letras: *"'2026-09-20 e futuro' e verdade ate
+  // 20/09/2026, e depois disso aquele caso ficaria VERMELHO sem nenhum defeito
+  // no codigo"*. Quem escreveu isso acrescentou quatro casos com relogio fixo
+  // logo abaixo — e DEIXOU NO LUGAR os tres que apodreciam. Em 21/09/2026 dois
+  // deles ficaram vermelhos, exatamente na data prevista, e a funcao estava
+  // certa: 20/09 tinha virado passado.
+  //
+  // A LICAO E A DIFERENCA ENTRE PREVER E CONSERTAR. Um aviso escrito ao lado do
+  // defeito nao e conserto: ele so garante que quem tropecar vai ler a previsao
+  // depois de perder o tempo. `dataDaLinhaDeEnvio` aceita o instante como
+  // segundo parametro justamente para isto — a saida existia e nao foi usada.
+  // -------------------------------------------------------------------------
+  const AGORA = Date.parse("2026-09-04T12:00:00Z");
+
   // O DEFEITO QUE ESTA ENTREGA CONSERTA: a linha mostrava `sent_at ?? created_at`,
   // entao um post marcado para o dia 20 aparecia com a data de hoje.
   it("item que ainda nao saiu mostra QUANDO VAI SAIR", () => {
-    const r = dataDaLinhaDeEnvio({ status: "pending", sent_at: null, not_before: saida, created_at: criado });
+    const r = dataDaLinhaDeEnvio(
+      { status: "pending", sent_at: null, not_before: saida, created_at: criado },
+      AGORA
+    );
     expect(r.quando).toEqual(saida);
     expect(r.futuro).toBe(true);
   });
   it("item que saiu mostra quando saiu", () => {
+    // Este NAO depende do relogio: quem tem `sent_at` sai pelo primeiro `if` da
+    // funcao, antes de qualquer pergunta a hora. Fica sem `AGORA` de proposito,
+    // porque passar o instante aqui sugeriria uma dependencia que nao existe.
     const enviado = new Date("2026-09-04T10:05:00Z");
     const r = dataDaLinhaDeEnvio({ status: "sent", sent_at: enviado, not_before: criado, created_at: criado });
     expect(r.quando).toEqual(enviado);
@@ -1936,25 +1961,47 @@ describe("dataDaLinhaDeEnvio", () => {
   // ele espera a pessoa voltar a falar, entao `not_before` nao e promessa de
   // hora — mas ainda e mais honesto que a data em que foi criado.
   it("guardado nao e passado", () => {
-    expect(dataDaLinhaDeEnvio({ status: "guardado", sent_at: null, not_before: saida, created_at: criado }).futuro).toBe(true);
+    expect(
+      dataDaLinhaDeEnvio(
+        { status: "guardado", sent_at: null, not_before: saida, created_at: criado },
+        AGORA
+      ).futuro
+    ).toBe(true);
   });
   // `not_before` no passado com status pending: o item esta ATRASADO, nao no
   // futuro. A tela nao pode prometer uma saida que ja devia ter acontecido.
   it("pendente com hora ja vencida nao e futuro", () => {
     const passado = new Date("2026-09-01T10:00:00Z");
-    expect(dataDaLinhaDeEnvio({ status: "pending", sent_at: null, not_before: passado, created_at: criado }).futuro).toBe(false);
+    expect(
+      dataDaLinhaDeEnvio(
+        { status: "pending", sent_at: null, not_before: passado, created_at: criado },
+        AGORA
+      ).futuro
+    ).toBe(false);
+  });
+
+  // O CAMINHO DA OMISSAO TAMBEM PRECISA DE PROVA, e ele e o que a TELA usa.
+  //
+  // Com todos os casos passando `AGORA`, o `Date.now()` por omissao ficaria sem
+  // nenhum leitor: daria para apagar o valor padrao do parametro e a suite
+  // inteira continuaria verde. Estes dois exercitam a omissao — e nao apodrecem
+  // porque as datas sao calculadas A PARTIR DE AGORA, e nao escritas a mao.
+  it("sem instante, usa o relogio de verdade — amanha e futuro", () => {
+    const amanha = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    expect(
+      dataDaLinhaDeEnvio({ status: "pending", sent_at: null, not_before: amanha, created_at: criado }).futuro
+    ).toBe(true);
+  });
+  it("sem instante, usa o relogio de verdade — ontem nao e futuro", () => {
+    const ontem = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    expect(
+      dataDaLinhaDeEnvio({ status: "pending", sent_at: null, not_before: ontem, created_at: criado }).futuro
+    ).toBe(false);
   });
 
   // -------------------------------------------------------------------------
-  // OS CASOS ACIMA DEPENDEM DO RELOGIO DA MAQUINA, e os quatro de baixo nao.
-  //
-  // "2026-09-20 e futuro" e verdade ate 20/09/2026, e depois disso aquele caso
-  // ficaria VERMELHO sem nenhum defeito no codigo — o tipo de teste que se
-  // apaga com raiva em vez de se ler. Por isso a funcao aceita o instante como
-  // segundo parametro (com `Date.now()` por omissao, que e o que a tela usa), e
-  // estes quatro fixam o relogio.
+  // OS CASOS ABAIXO NASCERAM COM O RELOGIO FIXO, e continuam como estavam.
   // -------------------------------------------------------------------------
-  const AGORA = Date.parse("2026-09-04T12:00:00Z");
 
   it("com o relogio fixo, o que vem depois de agora e futuro", () => {
     const r = dataDaLinhaDeEnvio(
