@@ -110,11 +110,17 @@ describe("extrair nome informado", () => {
     expect(nome("  Ana  ")).toBe("Ana");
   });
 
-  it("aceita o que parece resposta, mesmo desleixada", () => {
+  it("tira o prefixo mesmo quando a pessoa escreve sem capricho", () => {
+    expect(nome("sou a ana")).toBe("ana");
+    expect(nome("me chamo Ana")).toBe("Ana");
+  });
+
+  it("aceita o desleixado que NÃO tem prefixo, em vez de recusar", () => {
     // A RECUSA É FRACA DE PROPÓSITO: uma lista de palavras proibidas sempre
-    // erra alguém. O custo de aceitar "sou a ana" é menor que o de recusar um
-    // nome de verdade.
-    expect(nome("sou a ana")).toBe("sou a ana");
+    // erra alguém. O custo de aceitar "ana 😊" é menor que o de recusar um nome
+    // de verdade porque veio com emoji junto.
+    expect(nome("ana 😊")).toBe("ana 😊");
+    expect(nome("Ana!")).toBe("Ana!");
   });
 
   it("recusa o que claramente não é nome", () => {
@@ -199,13 +205,10 @@ function extrairNome(texto: string): string | null {
 }
 ```
 
-**ATENÇÃO ao caso `"sou a ana"`:** o prefixo `sou a ` é removido, então a função
-devolveria `"ana"` e o teste espera `"sou a ana"`. **Decida e faça o teste e o
-código concordarem**: a spec diz que a recusa é fraca, não que o prefixo seja
-sempre removido. A saída correta é remover o prefixo SÓ quando o que sobra
-parece nome próprio (começa com maiúscula) — e, se você escolher outra, mude o
-CASO junto e escreva por quê. O que não pode é o teste afirmar uma coisa e o
-código fazer outra.
+**O prefixo é removido SEMPRE**, inclusive em "sou a ana" → `ana`. Quem
+responde "sou a ana" está dizendo que o nome é Ana, e guardar a frase inteira
+faria `{{nome_informado}}` mandar "Oi sou a ana". A recusa fraca da spec é sobre
+o que se ACEITA (emoji junto, sem maiúscula), não sobre deixar o prefixo.
 
 O nascimento, com a conferência de volta:
 
