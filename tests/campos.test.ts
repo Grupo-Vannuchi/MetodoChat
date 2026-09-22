@@ -244,6 +244,22 @@ describe("normalizarChaveLivre", () => {
     expect(normalizarChaveLivre("telefone")).toBe(null);
   });
 
+  it("recusa também as três variáveis do PERFIL — elas GANHAM na mensagem", () => {
+    // MEDIDO PONTA A PONTA NA REVISÃO: um campo livre chamado "Full Name"
+    // normaliza para `full_name`, o painel promete ao dono que a resposta "vai
+    // virar {{full_name}}", e `renderVariables` (lib/variables.ts) devolve o
+    // NOME DO INSTAGRAM — porque a lista fixa ganha do registro. A mensagem sai
+    // preenchida, com o valor errado, e o dono nunca descobre. É a mesma classe
+    // da colisão com `email`, e é pior que buraco: buraco se vê.
+    expect(normalizarChaveLivre("First Name")).toBe(null);
+    expect(normalizarChaveLivre("Full Name")).toBe(null);
+    expect(normalizarChaveLivre("Username")).toBe(null);
+    // E pela forma já normalizada também — é ela que chega do banco.
+    expect(normalizarChaveLivre("first_name")).toBe(null);
+    expect(normalizarChaveLivre("full_name")).toBe(null);
+    expect(normalizarChaveLivre("username")).toBe(null);
+  });
+
   it("a saída dela sobrevive a ela mesma — o underscore não some na segunda passada", () => {
     // ISTO É PRÉ-REQUISITO DE `chaveDoPedido` (lib/steps.ts), e não capricho:
     // o banco tem DUAS formas da chave e o motor tem de chegar na mesma string
@@ -396,13 +412,29 @@ describe("as frases da chave de campo livre recusada", () => {
   });
 
   it("a recusa da colisão cita os campos e dá a saída", () => {
-    const frase = fraseDaChaveQueColide();
+    const frase = fraseDaChaveQueColide("E-mail");
     for (const campo of CAMPOS) {
       expect(frase, campo.chave).toContain(campo.rotulo.toLowerCase());
     }
     // A SAÍDA FAZ PARTE DA FRASE: uma recusa que só diz "não pode" deixa o dono
     // sem saber o que fazer, e o bloco do próprio campo é o que ele quer.
     expect(frase).toMatch(/bloco do próprio campo/i);
+  });
+
+  it("a chave do PERFIL tem frase própria — a dos campos do sistema não serve para ela", () => {
+    // A FRASE DOS CAMPOS DO SISTEMA manda "usar o bloco do próprio campo", e
+    // não existe bloco de `username`: o dono leria uma saída que não existe, e
+    // uma lista de quatro nomes em que o que ele digitou não está.
+    const frase = fraseDaChaveQueColide("Username");
+    expect(frase).toMatch(/perfil do Instagram/i);
+    // ELA NOMEIA O TOKEN, porque é o token que ia ganhar em silêncio: a
+    // mensagem sairia preenchida, com o dado do Instagram no lugar da resposta.
+    expect(frase).toContain("{{username}}");
+    // E NÃO MANDA USAR BLOCO NENHUM — a saída daqui é escolher outro nome.
+    expect(frase).not.toMatch(/bloco do próprio campo/i);
+    expect(frase).not.toContain(camposDoSistemaEmProsa());
+    // A do catálogo continua sendo a do catálogo: as duas não trocam de lugar.
+    expect(fraseDaChaveQueColide("E-mail")).toMatch(/campo do sistema/i);
   });
 
   it("a outra recusa dá um exemplo do que serve, e não só do que não serve", () => {
@@ -416,7 +448,7 @@ describe("as frases da chave de campo livre recusada", () => {
 
   it("as duas recusas separam os dois motivos de `normalizarChaveLivre` devolver null", () => {
     // A função devolve `null` por DOIS motivos, e quem os distingue é
-    // `chaveColideComCatalogo`. Este caso é o que impede as duas frases de
+    // `chaveReservada`. Este caso é o que impede as duas frases de
     // trocarem de lugar numa edição futura.
     expect(normalizarChaveLivre("E-mail")).toBeNull();
     expect(normalizarChaveLivre("123")).toBeNull();

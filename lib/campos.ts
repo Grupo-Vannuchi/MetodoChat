@@ -70,7 +70,23 @@ export type Campo = {
   perguntaPadrao: string;
   reperguntar: string;
   extrair(texto: string): string | null;
-  variavel: string;
+  // O TOKEN DA MENSAGEM NÃO É CAMPO DESTE TIPO, e a ausência é decisão medida.
+  //
+  // Havia aqui um `variavel`, que era o nome escrito entre chaves numa mensagem
+  // (`{{telefone}}`), ao lado da `chave`, que é onde o motor GRAVA o dado. A
+  // razão escrita para os dois era poder renomear a variável sem migrar o
+  // banco. Ela nunca foi exercida: os quatro campos tinham `variavel` IGUAL a
+  // `chave`, o tipo inteiro tinha UM leitor (lib/variables.ts), e a revisão de
+  // 22/09/2026 mediu que trocar um pelo outro na resolução deixava a suíte
+  // inteira verde — o comentário que dizia haver rede para essa divergência
+  // estava medindo errado a si mesmo.
+  //
+  // DOIS CAMPOS QUE PRECISAM SER SEMPRE IGUAIS SÃO UMA REGRA COM DOIS DONOS, e
+  // é o defeito que esta base persegue em toda parte. O token é derivado da
+  // `chave` (lib/variables.ts), que é o único nome que o banco conhece. Quem um
+  // dia precisar de verdade renomear a variável sem migrar o banco traz o campo
+  // de volta JUNTO com o caso que monta um `Campo` com os dois diferentes — sem
+  // esse caso ele volta a ser um par que ninguém confere.
   exemplo: string;
 };
 
@@ -208,7 +224,6 @@ export const CAMPOS: Campo[] = [
     perguntaPadrao: "Me manda seu melhor e-mail que eu te envio o link 👇",
     reperguntar: "Acho que esse e-mail saiu errado 🤔 Me manda de novo, só o e-mail.",
     extrair: extractEmail,
-    variavel: "email",
     exemplo: "ana@email.com",
   },
   {
@@ -223,7 +238,6 @@ export const CAMPOS: Campo[] = [
     perguntaPadrao: "Me manda seu WhatsApp com DDD 👇",
     reperguntar: "Não consegui ler esse número 🤔 Me manda com DDD, só os números.",
     extrair: extrairTelefone,
-    variavel: "telefone",
     exemplo: "(11) 99999-9999",
   },
   {
@@ -233,7 +247,6 @@ export const CAMPOS: Campo[] = [
     perguntaPadrao: "Como você prefere que eu te chame?",
     reperguntar: "Não entendi 🤔 Me manda só o nome.",
     extrair: extrairNome,
-    variavel: "nome_informado",
     exemplo: "Ana",
   },
   {
@@ -243,7 +256,6 @@ export const CAMPOS: Campo[] = [
     perguntaPadrao: "Qual sua data de nascimento? (dia/mês/ano)",
     reperguntar: "Essa data não deu certo 🤔 Me manda como 01/02/1990.",
     extrair: extrairNascimento,
-    variavel: "nascimento",
     exemplo: "01/02/1990",
   },
 ];
@@ -383,14 +395,50 @@ export function lerCampos(jsonb: unknown): Registro {
 // única fonte de verdade sobre quais campos existem.
 const CHAVES_DO_CATALOGO = new Set(CAMPOS.map((c) => c.chave));
 
+// AS TRÊS VARIÁVEIS DO PERFIL DO INSTAGRAM, e por que elas também são chave
+// proibida para campo livre.
+//
+// Elas não são campo de catálogo nenhum: saem do que o Instagram entrega sobre
+// a pessoa (`{{first_name}}`, `{{full_name}}`, `{{username}}`), e por isso
+// ficavam de fora desta recusa. Medido ponta a ponta na revisão de 22/09/2026:
+// um campo livre chamado "Full Name" normaliza para `full_name`, o painel
+// promete ao dono que a resposta "vai virar {{full_name}}", e
+// `renderVariables` (lib/variables.ts) devolve **o nome do Instagram** — porque
+// a lista fixa ganha do registro. O lead recebe um valor ERRADO com cara de
+// certo, a mensagem sai preenchida, e ninguém descobre.
+//
+// É A MESMA CLASSE DA COLISÃO COM `email` que a Tarefa 4 fechou, e ela se fecha
+// no MESMO lugar: `normalizarChaveLivre` é a dona única da pergunta "esta chave
+// pode ser usada?", e espalhar a lista por quem pergunta é o que faz as
+// respostas divergirem.
+//
+// A LISTA É ESCRITA AQUI, E NÃO LIDA DE `VARIABLES`: lib/variables.ts importa
+// ESTE arquivo (o catálogo gera as variáveis dos campos coletados), e ler de lá
+// para cá fecharia o ciclo de import — com `CAMPOS` ainda em construção na hora
+// em que o outro módulo o pedisse. São duas listas que precisam concordar, e o
+// dono da concordância é um caso: "as três chaves recusadas do perfil são as
+// variáveis que NÃO nascem do catálogo" (tests/variables.test.ts), que é o
+// único arquivo que enxerga os dois lados. Uma quarta variável de perfil
+// escrita à mão lá sem entrar aqui deixa aquele caso vermelho.
+export const CHAVES_DO_PERFIL = new Set(["first_name", "full_name", "username"]);
+
+// O QUE O SISTEMA JÁ USA — as chaves do catálogo mais as do perfil. É este
+// conjunto que a recusa consulta, e é por ele existir num lugar só que as duas
+// perguntas (`normalizarChaveLivre` e `chaveReservada`) não podem discordar.
+const CHAVES_RESERVADAS = new Set([...CHAVES_DO_CATALOGO, ...CHAVES_DO_PERFIL]);
+
 // Transforma o rótulo que a pessoa digita no editor ("Qual sua Cidade") na
 // chave que vira variável de template ("qual_sua_cidade"): minúscula, sem
 // acento, espaço vira underscore.
 //
-// RECUSA O QUE COLIDE COM CAMPO CONHECIDO (devolve `null`), e a recusa é o
-// ponto inteiro da função — um campo livre chamado `email` gravaria por cima
-// do e-mail de verdade sem passar pelo extrator, e `{{email}}` passaria a
-// devolver o que a pessoa digitou em QUALQUER formato, sem validação nenhuma.
+// RECUSA O QUE JÁ É NOME DO SISTEMA (devolve `null`), e a recusa é o ponto
+// inteiro da função. São DOIS estragos diferentes, e os dois acabam no lead:
+// um campo livre chamado `email` gravaria por cima do e-mail de verdade sem
+// passar pelo extrator, e `{{email}}` passaria a devolver o que a pessoa
+// digitou em QUALQUER formato, sem validação nenhuma; um campo livre chamado
+// `full_name` nem chega a ser lido — a variável do PERFIL ganha, e a mensagem
+// sai com o nome do Instagram no lugar da resposta que a pessoa deu (o porquê
+// inteiro está em `CHAVES_DO_PERFIL`, acima).
 // A checagem roda DEPOIS da normalização ("E-mail" -> "email") porque é a
 // forma normalizada que colide de fato — e é por isso que a pontuação
 // ("-", "/", etc.) É REMOVIDA e não virada underscore: só o espaço vira
@@ -425,26 +473,39 @@ const CHAVES_DO_CATALOGO = new Set(CAMPOS.map((c) => c.chave));
 export function normalizarChaveLivre(texto: string): string | null {
   const chave = formaDaChave(texto);
   if (chave === null) return null;
-  if (CHAVES_DO_CATALOGO.has(chave)) return null;
+  if (CHAVES_RESERVADAS.has(chave)) return null;
   return chave;
 }
 
 // A COLISÃO, PERGUNTADA À PARTE — e pelo MESMO dono da normalização.
 //
 // `normalizarChaveLivre` devolve `null` por dois motivos diferentes ("não vira
-// variável" e "já é campo do sistema"), e quem precisa distinguir os dois é
+// variável" e "este nome já é do sistema"), e quem precisa distinguir os dois é
 // `conferirBloco` (lib/steps.ts): só a colisão vira recusa de salvar, com uma
-// frase que manda o dono usar o bloco do próprio campo. Escrever a segunda
-// pergunta com uma normalização própria lá seria a cópia que diverge — por
-// isso ela mora aqui, em cima da mesma `formaDaChave`.
-export function chaveColideComCatalogo(texto: string): boolean {
+// frase que dá ao dono a saída. Escrever a segunda pergunta com uma
+// normalização própria lá seria a cópia que diverge — por isso ela mora aqui,
+// em cima da mesma `formaDaChave`.
+//
+// O NOME DIZ "RESERVADA", E NÃO "COLIDE COM O CATÁLOGO": desde que as três
+// chaves do perfil entraram na recusa, o catálogo deixou de ser a única coisa
+// com que ela colide, e um nome que dissesse "catálogo" mentiria sobre metade
+// do que a função responde.
+export function chaveReservada(texto: string): boolean {
   const chave = formaDaChave(texto);
-  return chave !== null && CHAVES_DO_CATALOGO.has(chave);
+  return chave !== null && CHAVES_RESERVADAS.has(chave);
 }
 
 // A FORMA da chave, sem a pergunta da colisão: minúscula, sem acento, espaço
 // virado underscore. `null` quando não sobrou nome nenhum para chamar de chave.
-function formaDaChave(texto: string): string | null {
+//
+// EXPORTADA PARA lib/variables.ts, e o motivo é a outra ponta do MESMO fio: o
+// dono digita o token da mensagem À MÃO (o seletor de variáveis não oferece
+// chave livre) e pode escrever `{{Cidadã}}` onde o banco guarda `cidada`. Quem
+// reduz as duas escritas à mesma string tem de ser esta função — reescrever a
+// redução lá seria a segunda verdade sobre o que é a forma de uma chave, e ela
+// divergiria desta na primeira mudança, com o dado inalcançável e nada
+// acusando.
+export function formaDaChave(texto: string): string | null {
   const semAcento = texto
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "") // remove os acentos que o NFD separou
@@ -509,7 +570,31 @@ export function listaEmProsa(itens: string[]): string {
 // A RECUSA QUE TEM SAÍDA ESCRITA. Uma recusa que só diz "não pode" deixa o dono
 // sem saber o que fazer: o bloco do próprio campo existe, valida a resposta e
 // grava no lugar certo — é essa a saída, e ela faz parte da frase.
-export function fraseDaChaveQueColide(): string {
+//
+// SÃO DUAS FRASES, PORQUE SÃO DOIS ESTRAGOS, e a saída de uma não serve para a
+// outra. "Este nome já é um campo do sistema (e-mail, telefone, ...), use o
+// bloco do próprio campo" é verdade para `email` e é ININTELIGÍVEL para
+// `username`: não existe bloco de `username` para o dono usar, e `username` não
+// está na prosa dos campos do sistema — ele leria uma frase que lista quatro
+// nomes, nenhum deles o que ele digitou.
+//
+// ELA RECEBE O TEXTO, e não um sinalizador de qual caso é: quem chama não pode
+// ser obrigado a saber em qual dos dois conjuntos a chave caiu — essa é
+// exatamente a pergunta cuja resposta mora neste arquivo. Os três chamadores
+// (`conferirBloco` e `conferirLista`, lib/steps.ts, e `ChaveDoCampoLivre`,
+// app/automacoes/editor/painel.tsx) já têm o texto cru em mãos.
+export function fraseDaChaveQueColide(texto: string): string {
+  const chave = formaDaChave(texto);
+  if (chave !== null && CHAVES_DO_PERFIL.has(chave)) {
+    // A FRASE DIZ O QUE IA ACONTECER, e não só "não pode": o estrago aqui é
+    // silencioso (a mensagem sai preenchida, com o dado errado), então o dono
+    // precisa entender por que um nome que "funcionaria" está sendo recusado.
+    return (
+      `Este nome já é uma variável do perfil do Instagram. Numa mensagem, ` +
+      `{{${chave}}} mostra o que o Instagram diz sobre a pessoa — e não a resposta que ` +
+      "você coletou. Escolha outro nome para este campo."
+    );
+  }
   return (
     `Este nome já é um campo do sistema (${camposDoSistemaEmProsa()}). Escolha outro nome, ` +
     "ou use o bloco do próprio campo — ele valida a resposta e guarda no lugar certo."

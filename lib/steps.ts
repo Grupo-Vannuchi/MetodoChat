@@ -20,7 +20,7 @@
 // novo — e a divergência gravaria dado de pessoa real no lugar errado.
 import {
   campoPorChave,
-  chaveColideComCatalogo,
+  chaveReservada,
   fraseDaChaveQueColide,
   fraseDaChaveSemLetra,
   normalizarChaveLivre,
@@ -1156,15 +1156,15 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
       o.campo === "livre" &&
       typeof o.chave === "string" &&
       o.chave.trim() &&
-      chaveColideComCatalogo(o.chave)
+      chaveReservada(o.chave)
     ) {
       return {
-        motivo: "pedir_dado livre com chave de campo do sistema",
+        motivo: "pedir_dado livre com chave reservada pelo sistema",
         // A FRASE TEM UM DONO SÓ, `fraseDaChaveQueColide` (lib/campos.ts). Ela
         // estava escrita à mão aqui E no painel do editor, com a lista dos
         // campos digitada nas duas — e as duas já discordavam sobre como chamar
         // o bloco. O porquê inteiro está em cima da função.
-        paraODono: fraseDaChaveQueColide(),
+        paraODono: fraseDaChaveQueColide(o.chave),
       };
     }
     return { passo: p as Passo };
@@ -3899,7 +3899,7 @@ export function conferirLista(
       passo.campo === "livre" &&
       typeof passo.chave === "string" &&
       passo.chave.trim() &&
-      !chaveColideComCatalogo(passo.chave) &&
+      !chaveReservada(passo.chave) &&
       normalizarChaveLivre(passo.chave) === null
     ) {
       r.push({

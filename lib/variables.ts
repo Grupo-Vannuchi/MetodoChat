@@ -27,7 +27,7 @@
 // A forma com `.ts` (lib/steps.ts) existe por outro motivo: aquele arquivo é
 // carregado DIRETO pelo node em `scripts/varredura-portao.mjs`, e ali o
 // especificador precisa da extensão. Este não é.
-import { CAMPOS, type Registro } from "./campos";
+import { CAMPOS, formaDaChave, type Registro } from "./campos";
 
 // Dados da pessoa que interagiu. Campos opcionais porque o Instagram nem
 // sempre entrega tudo (perfis sem nome público, por exemplo).
@@ -77,16 +77,25 @@ function valorColetado(ctx: VariableContext, chave: string): string {
 // um buraco. Foi exatamente esse buraco que a Tarefa 5 prometeu na tela antes
 // desta fiação existir.
 //
-// SÃO DUAS CHAVES DO CATÁLOGO, e elas fazem coisas diferentes: `c.variavel` é o
-// TOKEN que o dono escreve na mensagem, e `c.chave` é onde o motor GRAVA o dado
-// (`chaveDoPedido`, lib/steps.ts, devolve `p.campo` para campo do catálogo).
-// Hoje as duas coincidem; separá-las é o que permitiria renomear a variável sem
-// migrar o que já está no banco. Quem prende a fiação entre elas é o caso "todo
-// campo do catálogo tem variável, e ela lê a chave em que o motor grava"
-// (tests/variables.test.ts) — sem ele, uma divergência deixaria a variável vazia
-// para sempre sem nada acusar.
+// É UMA CHAVE SÓ, E O TOKEN É DERIVADO DELA. `c.chave` é onde o motor GRAVA o
+// dado (`chaveDoPedido`, lib/steps.ts, devolve `p.campo` para campo do
+// catálogo), e é também o nome que o dono escreve entre chaves na mensagem.
+//
+// HAVIA UM `c.variavel` AQUI, para o token, com a razão escrita de permitir
+// renomear a variável sem migrar o banco — e este comentário afirmava que o
+// caso "todo campo do catálogo tem variável, e ela lê a chave em que o motor
+// grava" (tests/variables.test.ts) prendia a fiação entre os dois. A afirmação
+// era FALSA como medida, e a revisão de 22/09/2026 a mediu: com os dois campos
+// iguais nos quatro campos do catálogo, o caso não consegue distinguir qual dos
+// dois está sendo lido — trocar um pelo outro deixava a suíte inteira verde.
+// Comentário que mente sobre a própria rede é pior que comentário nenhum.
+//
+// O CAMPO SAIU DO TIPO (lib/campos.ts diz o porquê, onde ele morava): dois
+// campos que precisam ser sempre iguais são uma regra com dois donos. O caso
+// continua existindo e continua prendendo o que ele de fato prende — que TODO
+// campo do catálogo ganha variável, e que ela lê a chave da gravação.
 const VARIAVEIS_DE_CAMPO: VariableDef[] = CAMPOS.map((c) => ({
-  key: c.variavel,
+  key: c.chave,
   // O RÓTULO CHEIO ("Telefone / WhatsApp"), e não o `nomeCurto`: quem lê isto é
   // o seletor de variáveis do editor (app/automacoes/variable-picker.tsx), que
   // tem largura de botão e não as três telas apertadas para as quais o
@@ -154,8 +163,29 @@ export const VARIABLES: VariableDef[] = [
 
 const BY_KEY = new Map(VARIABLES.map((v) => [v.key, v]));
 
-// {{ chave | fallback }} — a chave aceita letras, números e _
-const TOKEN = /\{\{\s*([a-z0-9_]+)\s*(?:\|([^}]*))?\}\}/gi;
+// {{ chave | fallback }} — a chave aceita letras (COM ACENTO), números e _
+//
+// O ACENTO ENTRA NO ALFABETO, e a mudança fecha um caminho de texto CRU para o
+// lead. Medido em 22/09/2026: `renderVariables("de {{cidadã}}", ctx)` devolvia
+// `"de {{cidadã}}"` — o token não casava com `[a-z0-9_]`, então não era
+// resolvido NEM apagado, e as duas chaves saíam na mensagem de uma pessoa de
+// verdade. Somos uma operação brasileira e quem nomeia o campo é o marketing:
+// "Cidadã", "Profissão", "Endereço", "Irmão" são nomes prováveis, não exóticos.
+//
+// O CAMINHO SE FECHA NOS DOIS LADOS, e o outro lado já estava fechado: a chave
+// GRAVADA nunca tem acento, porque `formaDaChave` (lib/campos.ts) tira o acento
+// antes de qualquer outra coisa — "Cidadã" vira `cidada` no banco. O que
+// faltava era o token digitado à mão chegar na mesma string, e é por isso que a
+// resolução abaixo passa a chave capturada pela MESMA função, em vez de só
+// minusculizá-la.
+//
+// O QUE CONTINUA DE FORA, dito para ninguém prometer demais: um token com
+// ESPAÇO dentro (`{{Qual sua Cidade}}`) e um token só de emoji (`{{🔥}}`)
+// continuam não casando, e continuam saindo crus. O primeiro a tela já
+// desencoraja — o painel mostra ao dono a forma com underscore enquanto ele
+// digita —, e o segundo `formaDaChave` recusa na origem: não existe campo
+// gravado sob uma chave dessas para um token assim alcançar.
+const TOKEN = /\{\{\s*([\p{L}\p{N}_]+)\s*(?:\|([^}]*))?\}\}/gu;
 
 // Substitui as variáveis pelo valor real.
 //
@@ -167,16 +197,27 @@ const TOKEN = /\{\{\s*([a-z0-9_]+)\s*(?:\|([^}]*))?\}\}/gi;
 // mensagem com um buraco no lugar do dado que ele mesmo tinha respondido.
 //
 // A LISTA FIXA GANHA DO REGISTRO, e a ordem é a decisão do dono: `{{first_name}}`
-// vem do Instagram mesmo que exista um campo coletado com esse nome. Um campo
-// livre chamado "First Name" normaliza para `first_name` e não colide com o
-// catálogo (`normalizarChaveLivre`, lib/campos.ts, só barra os quatro campos do
-// sistema), então esse empate é montável na tela — e quem o vence é a lista.
+// vem do Instagram mesmo que exista um campo coletado com esse nome.
 //
-// A CHAVE DO TOKEN SÓ É MINUSCULIZADA, e não renormalizada por `formaDaChave`:
-// o alfabeto que `TOKEN` aceita (`[a-z0-9_]`) JÁ É o alfabeto que a
-// normalização produz — sem acento, sem espaço, sem pontuação além do
-// underscore. Chamar a normalização aqui seria pedir a mesma resposta duas
-// vezes, e a segunda chamada é onde uma divergência futura se esconderia.
+// A PORTA DA FRENTE DESSE EMPATE FOI FECHADA, e não foi por esta ordem:
+// `normalizarChaveLivre` (lib/campos.ts) passou a recusar `first_name`,
+// `full_name` e `username` junto com os campos do catálogo, porque o empate
+// levava o dono a ver na tela a promessa de `{{full_name}}` e o lead a receber
+// o nome do Instagram no lugar da resposta coletada. A ordem daqui continua
+// valendo para quem JÁ ENTROU por aquela porta: automação salva antes da
+// recusa, ou `contacts.campos` escrito por fora. É o caso "a lista fixa ganha
+// do registro mesmo com a chave `first_name` GRAVADA nele"
+// (tests/variables.test.ts) que a prende — e ele monta o registro direto, que é
+// o único jeito que sobrou de montar esse empate.
+//
+// A CHAVE DO TOKEN PASSA POR `formaDaChave` (lib/campos.ts), a MESMA função que
+// produziu a chave gravada. Antes ela era só minusculizada, e o argumento
+// escrito era que o alfabeto de `TOKEN` já era o alfabeto da normalização —
+// deixou de ser: `TOKEN` agora aceita acento de propósito (o porquê está em
+// cima dele), e é aqui que `{{Cidadã}}` e `cidada` viram a mesma string. Não é
+// pedir a mesma resposta duas vezes: é reduzir DUAS escritas diferentes (a do
+// banco, normalizada na gravação; a do dono, digitada à mão na mensagem) pela
+// mesma régua, que é a única forma de elas se encontrarem.
 //
 // SEM VALOR, O TOKEN SOME — e some em silêncio, de propósito. Quem lê a mensagem
 // é o LEAD, e um aviso no lugar do token ("[cidade não coletada]") seria lido
@@ -197,25 +238,58 @@ const TOKEN = /\{\{\s*([a-z0-9_]+)\s*(?:\|([^}]*))?\}\}/gi;
 export function renderVariables(text: string, ctx: VariableContext): string {
   if (!text || !text.includes("{{")) return text;
   return text.replace(TOKEN, (_full, rawKey: string, fallback?: string) => {
-    const chave = rawKey.toLowerCase();
+    // `formaDaChave` devolve `null` para o que não vira nome de variável
+    // ("123"): a string vazia no lugar dele não acha nada em `BY_KEY` nem no
+    // registro, e o token some com o mesmo desfecho de sempre, em vez de
+    // precisar de um ramo só para ele.
+    const chave = formaDaChave(rawKey) ?? "";
     const def = BY_KEY.get(chave);
     const valor = def ? def.resolve(ctx).trim() : valorColetado(ctx, chave);
     return valor || (fallback ?? "").trim();
   });
 }
 
+// O QUE A PRÉVIA MOSTRA NO LUGAR DE UM CAMPO LIVRE, e por que não sai do
+// catálogo: `CAMPOS.exemplo` (lib/campos.ts) é o dono dos exemplos, e campo
+// livre não tem campo no catálogo para ter um — o dono acabou de inventar a
+// pergunta, e nem esta base nem a tela sabem que resposta ela recebe.
+//
+// É UMA MARCA, E NÃO UM VALOR PLAUSÍVEL: os exemplos do catálogo são valores de
+// verdade ("Ana", "(11) 99999-9999") porque dá para saber a forma deles; aqui
+// não dá, e inventar um ("Osasco") faria a prévia afirmar algo sobre o campo do
+// dono que ninguém sabe. Os colchetes são o que diz "isto é um lugar que vai
+// ser preenchido" sem poder ser confundido com a resposta.
+//
+// O LIMITE, ESCRITO: a prévia não tem como saber se a chave é de um campo livre
+// que existe na automação ou um nome digitado torto — ela recebe só o texto da
+// mensagem. Os dois aparecem assim. E isso é honesto sobre o que o envio faz:
+// `renderVariables` procura QUALQUER chave fora da lista fixa no registro do
+// contato, então a marca quer dizer exatamente "se houver um campo coletado com
+// este nome, a resposta dele entra aqui".
+const EXEMPLO_DO_CAMPO_LIVRE = "[resposta coletada]";
+
 // Pré-visualização no editor: mostra os exemplos, para o usuário ver como a
 // mensagem fica sem precisar disparar a automação.
+//
+// A CHAVE LIVRE PREVÊ COMO AS OUTRAS, e o conserto é de uma assimetria que esta
+// fiação criou: antes dela nenhum campo coletado previa nada (todos sumiam) e o
+// dono lia isso como "a prévia não sabe de campo coletado"; depois dela seis
+// das sete variáveis passaram a prever e só a do campo livre sumia — o que
+// empurra o dono para a conclusão errada de que a CHAVE DELE está quebrada.
+//
+// E A CONFERÊNCIA É O QUE SUSTENTA O SILÊNCIO DO ENVIO. `renderVariables` apaga
+// o token do campo não coletado de propósito, porque quem lê a mensagem é o
+// lead — e isso só é seguro porque o dono tem como conferir ANTES de publicar.
+// Com a conferência torta o risco é concreto: ele tira da mensagem o token que
+// funciona, achando que está quebrado, e aí o lead recebe o buraco de verdade.
 export function previewVariables(text: string): string {
   if (!text || !text.includes("{{")) return text;
   return text.replace(TOKEN, (_full, rawKey: string, fallback?: string) => {
-    const def = BY_KEY.get(rawKey.toLowerCase());
-    return def ? def.sample : (fallback ?? "").trim();
+    const def = BY_KEY.get(formaDaChave(rawKey) ?? "");
+    if (def) return def.sample;
+    // O SUBSTITUTO DO DONO GANHA DA MARCA quando ele escreveu um: é ele que a
+    // mensagem vai mostrar de verdade se o dado não tiver sido coletado, então
+    // é ele que a prévia tem de mostrar.
+    return (fallback ?? "").trim() || EXEMPLO_DO_CAMPO_LIVRE;
   });
-}
-
-// Regex própria: TOKEN é global e .test() guarda lastIndex entre chamadas,
-// o que faria esta função alternar entre true e false para o mesmo texto.
-export function hasVariables(text: string): boolean {
-  return Boolean(text) && /\{\{\s*[a-z0-9_]+\s*(\|[^}]*)?\}\}/i.test(text);
 }

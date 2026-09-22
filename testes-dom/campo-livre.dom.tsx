@@ -126,8 +126,31 @@ describe("o nome do campo livre no editor", () => {
     // que fazer. O bloco do próprio campo existe, valida a resposta e grava no
     // lugar certo — é essa a saída, e ela faz parte da frase.
     expect(screen.getByText(/já é um campo do sistema/i).textContent).toBe(
-      fraseDaChaveQueColide()
+      fraseDaChaveQueColide("e-mail")
     );
+  });
+
+  it("chave que é variável do PERFIL é recusada com a frase que serve para ela", async () => {
+    // A FRASE DOS CAMPOS DO SISTEMA NÃO SERVE AQUI, e é por isso que este caso
+    // existe na tela e não só na suíte pura: "já é um campo do sistema (e-mail,
+    // telefone, nome informado ou data de nascimento) — use o bloco do próprio
+    // campo" manda o dono procurar um bloco de `username` que NÃO EXISTE, e
+    // lista quatro nomes, nenhum deles o que ele acabou de digitar.
+    //
+    // E O RAMO DA TELA É OUTRO: o painel escolhe entre as duas recusas com
+    // `chaveReservada` (lib/campos.ts). Antes das três chaves do perfil
+    // entrarem nela, "Username" caía no ramo do "precisa ter pelo menos uma
+    // letra" — uma frase falsa sobre um nome que tem oito.
+    abrirPainelCom(PASSO_LIVRE);
+
+    await userEvent.type(screen.getByLabelText(/nome do campo/i), "Username");
+
+    const recusa = screen.getByText(/variável do perfil/i);
+    expect(recusa.textContent).toBe(fraseDaChaveQueColide("Username"));
+    // Ela nomeia o token que ia ganhar, que é o estrago que o dono não veria:
+    // a mensagem sairia preenchida, com o nome do Instagram.
+    expect(recusa.textContent).toContain("{{username}}");
+    expect(screen.queryByText(fraseDaChaveSemLetra())).toBeNull();
   });
 
   it("chave sem nenhuma letra é recusada antes de salvar", async () => {
@@ -292,7 +315,7 @@ describe("o nome do campo livre no editor", () => {
     await userEvent.type(screen.getByLabelText(/nome do campo/i), "e-mail");
 
     const travas = travasDoSalvar(painel.ultimoGravado());
-    expect(travas.map((t) => t.mensagem)).toContain(fraseDaChaveQueColide());
+    expect(travas.map((t) => t.mensagem)).toContain(fraseDaChaveQueColide("e-mail"));
     expect(travas.map((t) => t.mensagem).join(" ")).not.toMatch(/está sem o nome do campo/i);
   });
 

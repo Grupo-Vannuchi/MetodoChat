@@ -15,13 +15,13 @@ import { comoTexto, resumoDoBloco } from "./modelos";
 // O TETO DAS TENTATIVAS vem do catálogo de campos, que é módulo puro (sem
 // `server-only`) e não fala com o banco — o mesmo motivo pelo qual lib/steps.ts
 // o importa. A tela CONTA O MESMO NÚMERO que o motor, em vez de repeti-lo.
-// `normalizarChaveLivre` e `chaveColideComCatalogo` vêm do MESMO catálogo, e é
-// isso que este painel promete: ele não tem regra própria sobre o que é uma
-// chave de campo livre válida. Quem responde é lib/campos.ts, para os dois lados
+// `normalizarChaveLivre` e `chaveReservada` vêm do MESMO catálogo, e é isso que
+// este painel promete: ele não tem regra própria sobre o que é uma chave de
+// campo livre válida. Quem responde é lib/campos.ts, para os dois lados
 // — a tela que grava e o motor que lê.
 import {
   TETO_DE_TENTATIVAS,
-  chaveColideComCatalogo,
+  chaveReservada,
   fraseDaChaveQueColide,
   fraseDaChaveSemLetra,
   normalizarChaveLivre,
@@ -469,17 +469,16 @@ function ChaveDoCampoLivre({
         <p className={hintCls}>
           A resposta <strong>vai virar</strong> <code>{`{{${chave}}}`}</code>.
         </p>
-      ) : chaveColideComCatalogo(digitado) ? (
+      ) : chaveReservada(digitado) ? (
         // OS DOIS MOTIVOS DE RECUSA SÃO SEPARADOS, e quem os separa é
-        // `chaveColideComCatalogo` (lib/campos.ts) — a mesma dona da
-        // normalização. Perguntar aqui com uma regra própria seria a cópia que
+        // `chaveReservada` (lib/campos.ts) — a mesma dona da normalização. Perguntar aqui com uma regra própria seria a cópia que
         // diverge, e as duas frases mandam fazer coisas diferentes.
         // A FRASE VEM DE lib/campos.ts, E NÃO ESCRITA AQUI. Ela estava copiada
         // neste arquivo e em `conferirBloco` (lib/steps.ts), as duas com a
         // lista dos campos digitada à mão, e as duas já discordavam. O negrito
         // saiu junto com a cópia: o realce não vale uma segunda verdade sobre
         // quais campos existem.
-        <p className={alertWarn}>{fraseDaChaveQueColide()}</p>
+        <p className={alertWarn}>{fraseDaChaveQueColide(digitado)}</p>
       ) : (
         // A DÍVIDA HERDADA: `conferir` (lib/steps.ts) recusa só a colisão, e uma
         // chave como "123" atravessa o salvar — `chaveDoPedido` devolve `null`

@@ -168,11 +168,15 @@ afterAll(async () => {
 // `$n::text::jsonb`, e nunca `$n::jsonb` sobre string — a segunda forma grava um
 // ESCALAR JSON e o motor registra `step_ignorado`. (O porquê inteiro está em
 // gatilho-entrega.integracao.ts.)
+// A CONTA É PARÂMETRO, com esta como padrão: o caso do vazamento entre contas
+// (lá embaixo) precisa de uma automação na conta VIZINHA para provar que cada
+// dreno lê o contato da conta dele. Todos os outros casos continuam sem passá-la.
 async function semear(
   nome: string,
   palavra: string,
   steps: unknown[],
-  ligacoes: unknown[]
+  ligacoes: unknown[],
+  conta: string = CONTA
 ): Promise<string> {
   const linhas = (await banco
     .db()
@@ -183,7 +187,7 @@ async function semear(
        values ($1, $2, true, string_to_array('dm', ','), string_to_array($3, ','), 'contains',
                $4::text::jsonb, $5::text::jsonb)
        returning id`,
-      [CONTA, nome, palavra, JSON.stringify(steps), JSON.stringify(ligacoes)]
+      [conta, nome, palavra, JSON.stringify(steps), JSON.stringify(ligacoes)]
     )) as { id: string }[];
   return linhas[0].id;
 }
@@ -211,8 +215,8 @@ async function semearComPedido(
 
 // Uma mensagem de texto chegando pelo webhook, como a Meta a entrega. Ela também
 // é o que ABRE A JANELA DE 24H, sem a qual `drainQueue` descartaria tudo.
-async function mensagem(igId: string, texto: string, mid: string) {
-  await engine.handleMessagingEvent(CONTA, { sender: { id: igId }, message: { mid, text: texto } });
+async function mensagem(igId: string, texto: string, mid: string, conta: string = CONTA) {
+  await engine.handleMessagingEvent(conta, { sender: { id: igId }, message: { mid, text: texto } });
 }
 
 // O que chegou no fio para ESTA pessoa. Filtrar é o que deixa os casos
@@ -850,6 +854,103 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     // E É ESTA A LINHA DA DÍVIDA: antes da fiação o fio trazia "Boa! Anotei que
     // você é de ." — a frase inteira, com o buraco no lugar da cidade.
     expect(textosNoFio(EU)).toContain("Boa! Anotei que você é de Osasco.");
+  });
+
+  test("o dreno LÊ a coluna `contacts.email` — o {{email}} de quem coletou antes desta fase", async () => {
+    // A CONSULTA DO DRENO (`variableContext`, lib/queue-drain.ts) traz
+    // `username, name, email, campos` numa vez só, e o `email` dali é a SEGUNDA
+    // FONTE do `{{email}}`: todo contato coletado antes desta fase tem a COLUNA
+    // cheia e o registro vazio. A revisão mediu que tirar a coluna da consulta
+    // deixava a integração 14/14 verde — a função pura tem caso para a queda,
+    // mas nada media que o DRENO entrega a coluna até ela.
+    //
+    // E É REQUISITO ESCRITO DO BRIEF ("`contacts.email` continua sendo LIDA"):
+    // sem este caso, a Parte 2 herdaria a remoção já feita por acidente, e o
+    // `{{email}}` que hoje funciona em produção sairia em branco para essas
+    // pessoas sem nada acusar.
+    const EU = "9300000000000142";
+    await semearEmailNaColuna(EU, "antigo@exemplo-do-teste.invalid");
+    await semear(
+      "coleta · e-mail da coluna",
+      "a-coluna-de-antes",
+      [{ id: "b_dm0", tipo: "dm", texto: "Seu e-mail: {{email}}." }],
+      []
+    );
+
+    await mensagem(EU, "a-coluna-de-antes", "m-eco0");
+    await dreno.drainQueue();
+
+    // O registro continua vazio: o valor só pode ter vindo da COLUNA.
+    expect(await campoDoContato(EU, "email")).toBeNull();
+    expect(textosNoFio(EU)).toContain("Seu e-mail: antigo@exemplo-do-teste.invalid.");
+  });
+
+  test("a consulta do dreno é POR CONTA: cada conta lê o contato DELA", async () => {
+    // `account_id` FORA DO `where` É VAZAMENTO ENTRE CONTAS, e a revisão mediu
+    // que tirá-lo deixava a integração 14/14 verde. O `ig_id` NÃO é único
+    // sozinho — a chave de `contacts` é composta
+    // (migrations/005-contatos-chave-composta.sql) —, então a mesma pessoa
+    // falando com duas contas do produto tem DUAS linhas. O que isso custaria:
+    // o e-mail que ela deu para a conta do vizinho sairia dentro de uma DM
+    // mandada pela conta daqui — dado de um cliente na mensagem de outro.
+    //
+    // AS DUAS CONTAS MANDAM, E CADA UMA TEM DE RECEBER O SEU. Esta é a forma do
+    // caso, e ela é o conserto de duas tentativas que ficaram VERDES no
+    // plantio, as duas medidas:
+    //
+    //   1. Esperar que o token SUMISSE ficava verde também quando a consulta
+    //      simplesmente falhava — `variableContext` devolve `{}` no `catch`, e
+    //      "sem e-mail" é o desfecho dos dois.
+    //   2. Esperar o e-mail DESTA conta, com o vizinho semeado ao lado, depende
+    //      de QUAL linha o `rows[0]` devolve — e isso é detalhe de plano, não
+    //      contrato: medido, a mesma consulta sem `account_id` devolveu a linha
+    //      do vizinho rodando o caso sozinho e a linha desta conta rodando o
+    //      arquivo inteiro. Caso que depende dessa moeda não prende nada.
+    //
+    // COM AS DUAS PONTAS, A ORDEM DEIXA DE IMPORTAR: sem o filtro, os dois
+    // drenos leem a MESMA linha, qualquer que seja ela — então uma das duas
+    // asserções fica vermelha sempre.
+    const EU = "9300000000000143";
+    const VIZINHA = "17800000000000778";
+    await banco.db().upsertAccount({
+      ig_user_id: VIZINHA,
+      username: "conta_vizinha",
+      name: "Conta vizinha",
+      profile_picture_url: null,
+      access_token: TOKEN,
+      token_expires_at: null,
+    });
+    await banco
+      .db()
+      .sql()
+      .query(
+        `insert into contacts (account_id, ig_id, email) values ($1, $2, $3)
+         on conflict (account_id, ig_id) do update set email = excluded.email`,
+        [VIZINHA, EU, "do-vizinho@exemplo-do-teste.invalid"]
+      );
+    await semearEmailNaColuna(EU, "daqui@exemplo-do-teste.invalid");
+
+    await semear(
+      "coleta · e-mail desta conta",
+      "a-conta-daqui",
+      [{ id: "b_dm0", tipo: "dm", texto: "Daqui: {{email}}." }],
+      []
+    );
+    await semear(
+      "coleta · e-mail da vizinha",
+      "a-conta-vizinha",
+      [{ id: "b_dm0", tipo: "dm", texto: "Vizinha: {{email}}." }],
+      [],
+      VIZINHA
+    );
+
+    await mensagem(EU, "a-conta-daqui", "m-vz0");
+    await mensagem(EU, "a-conta-vizinha", "m-vz1", VIZINHA);
+    await dreno.drainQueue();
+
+    const fio = textosNoFio(EU);
+    expect(fio).toContain("Daqui: daqui@exemplo-do-teste.invalid.");
+    expect(fio).toContain("Vizinha: do-vizinho@exemplo-do-teste.invalid.");
   });
 
   test("a variável de campo do catálogo também chega ao fio", async () => {

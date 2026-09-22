@@ -236,7 +236,7 @@ describe("interpretar", () => {
     ];
     const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
     expect(r.enfileirar.map((a) => a.indice)).toEqual([1]);
-    expect(r.ignorados[0].motivo).toBe("pedir_dado livre com chave de campo do sistema");
+    expect(r.ignorados[0].motivo).toBe("pedir_dado livre com chave reservada pelo sistema");
 
     const recusa = conferir(passos[0]);
     expect(recusa.passo).toBeUndefined();
@@ -245,11 +245,11 @@ describe("interpretar", () => {
     // A colisão é conferida DEPOIS da normalização — "E-mail", "e mail" e
     // "EMAIL" são a mesma chave, e só a forma normalizada colide de fato.
     expect(conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "EMAIL" }).motivo).toBe(
-      "pedir_dado livre com chave de campo do sistema"
+      "pedir_dado livre com chave reservada pelo sistema"
     );
     expect(
       conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "telefone" }).motivo
-    ).toBe("pedir_dado livre com chave de campo do sistema");
+    ).toBe("pedir_dado livre com chave reservada pelo sistema");
     // E a chave que NÃO colide continua passando — a recusa é da colisão, e não
     // de toda chave que `normalizarChaveLivre` recusaria: "123" atravessa aqui
     // de propósito, e quem o trata é a guarda do passo quebrado no motor.
@@ -3253,7 +3253,7 @@ describe("conferirLista", () => {
     };
     const r = erros([bem, colide]);
     expect(r).toHaveLength(1);
-    expect(r[0].mensagem).toBe(fraseDaChaveQueColide());
+    expect(r[0].mensagem).toBe(fraseDaChaveQueColide("E-mail"));
   });
 
   it("ERRO: duas reações a story — `storyReactionKey` só conhece a mensagem", () => {
