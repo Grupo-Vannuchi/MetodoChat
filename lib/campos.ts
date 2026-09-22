@@ -19,9 +19,25 @@
 
 import { extractEmail } from "./match.ts";
 
-// Quantas vezes a automação repergunta antes de desistir do campo. É
-// constante do catálogo, e não campo do editor, porque a regra é do produto
-// — não é ajuste que cada automação deva poder tornar diferente.
+// Quantas RESPOSTAS RUINS a automação tolera antes de desistir do campo.
+//
+// O NÚMERO CONTA RESPOSTAS, NÃO REPERGUNTAS, e a distinção já mentiu neste
+// comentário: ele dizia "quantas vezes repergunta", que lido ao pé da letra
+// daria uma mensagem a mais do que o motor manda. A conversa real com o teto
+// em 3 é esta:
+//
+//   pergunta → resposta ruim (1) → repergunta
+//            → resposta ruim (2) → repergunta
+//            → resposta ruim (3) → DESISTE, e o fluxo SEGUE sem o dado
+//
+// Ou seja: 3 chances para a pessoa, 2 reperguntas na tela dela. Quem for mudar
+// o número mude pensando em CHANCES; quem quiser mudar a quantidade de
+// reperguntas mexe na comparação (`tentativas < TETO`), não aqui.
+//
+// É constante do catálogo, e não campo do editor, porque a regra é do produto
+// — não é ajuste que cada automação deva poder tornar diferente. E são 3, e não
+// os 5 do `pedir_follow`: o portão de follow é condição do produto e vale
+// insistir; um campo é um favor que se pede.
 export const TETO_DE_TENTATIVAS = 3;
 
 export type Campo = {
