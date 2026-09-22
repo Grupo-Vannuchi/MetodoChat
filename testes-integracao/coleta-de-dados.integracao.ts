@@ -307,6 +307,47 @@ async function porTentativas(igId: string, quantas: number) {
     ]);
 }
 
+// O `flow_step_id` cru — onde a pessoa está parada, se é que está. É o que
+// separa "o fluxo andou" de "o fluxo ficou onde estava", e sem ele o caso da
+// seta pendurada não teria como afirmar que ninguém saiu do lugar.
+async function cursorDoContato(igId: string): Promise<string | null> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(`select flow_step_id from contacts where account_id = $1 and ig_id = $2`, [CONTA, igId])) as {
+    flow_step_id: string | null;
+  }[];
+  return linhas[0]?.flow_step_id ?? null;
+}
+
+// Um e-mail JÁ GRAVADO na coluna, como o de um contato que respondeu mês
+// passado. É o que o campo livre chamado "email" apagava.
+async function semearEmailNaColuna(igId: string, email: string) {
+  await banco
+    .db()
+    .sql()
+    .query(
+      `insert into contacts (account_id, ig_id, email) values ($1, $2, $3)
+       on conflict (account_id, ig_id) do update set email = excluded.email`,
+      [CONTA, igId, email]
+    );
+}
+
+// A ORIGEM gravada junto do valor — qual automação coletou aquele dado. É o
+// terceiro membro de `CampoColetado` (lib/campos.ts), e o que a migração dos
+// e-mails de hoje vai usar para distinguir o que foi COLETADO do que foi MOVIDO.
+async function automacaoDoCampo(igId: string, chave: string): Promise<string | null> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(
+      `select campos -> $3 ->> 'automacao' as automacao from contacts
+        where account_id = $1 and ig_id = $2`,
+      [CONTA, igId, chave]
+    )) as { automacao: string | null }[];
+  return linhas[0]?.automacao ?? null;
+}
+
 function diasAtras(n: number): string {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
 }
@@ -362,7 +403,7 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
   });
 
   test("pergunta, recusa o que não serve, e grava quando serve", async () => {
-    await semearComPedido("quero-zap-um", "telefone", "Me manda seu WhatsApp 👇");
+    const AUTO = await semearComPedido("quero-zap-um", "telefone", "Me manda seu WhatsApp 👇");
     const EU = "9300000000000101";
 
     await mensagem(EU, "quero-zap-um", "m-1");
@@ -412,6 +453,21 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     // sem o `at time zone 'utc'` num servidor fora do UTC gravaria hora local
     // com um "Z" colado, e a distância seria o fuso inteiro.
     expect(Math.abs(await distanciaNoBanco(EU, "telefone"))).toBeLessThan(60);
+
+    // A ORIGEM VAI JUNTO — qual automação coletou o dado. Sem esta linha, trocar
+    // `autoParada.id` por `null` em `gravarCampo` (lib/engine.ts) deixava a
+    // suíte inteira verde, e a Tarefa 7 herdaria um registro em que o que foi
+    // coletado por automação é indistinguível do que foi movido pela migração
+    // dos e-mails antigos (que nunca teve origem nenhuma — por isso o campo é
+    // opcional em `CampoColetado`, lib/campos.ts).
+    expect(await automacaoDoCampo(EU, "telefone")).toBe(AUTO);
+
+    // E O CONTADOR ZERA NA GRAVAÇÃO. A resposta ruim lá em cima deixou o
+    // contador em 1; gravado o campo, ele é sobre um campo que ninguém está
+    // perguntando mais. Sem esta linha, tirar o `campo_tentativas = 0` de
+    // `gravarCampo` (lib/engine.ts) não acendia nada — foi um dos plantios que
+    // sobreviveram à revisão da Tarefa 4.
+    expect(await tentativasDoContato(EU)).toBe(0);
   });
 
   test("esgotado o teto, o fluxo SEGUE sem o dado", async () => {
@@ -520,5 +576,129 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     await dreno.drainQueue();
     expect(await campoDoContato(EU, "cidade")).toBe("Sorocaba");
     expect(textosNoFio(EU)).toContain("depois da cidade");
+  });
+
+  test("campo LIVRE com a chave de um campo do sistema NÃO encosta no e-mail de verdade", async () => {
+    // O DEFEITO, medido contra o banco pela revisão da Tarefa 4: um passo
+    // `pedir_dado { campo: "livre", chave: "email" }` com a resposta "moro em
+    // Sorocaba desde 1990" gravava essa frase em `campos->'email'` E NA COLUNA
+    // `contacts.email` — o `case when $3 = 'email'` de `gravarCampo`
+    // (lib/engine.ts) dispara sobre a CHAVE. O e-mail de um contato real virava
+    // uma frase, e os seis leitores da coluna (conversas, exportação, a migração
+    // que vem) herdavam o lixo sem nada acusar.
+    //
+    // HOJE ISSO EXIGE `steps` GRAVADO POR FORA — que é exatamente o que este
+    // caso faz, com `insert` cru. Quem arma a bomba é o editor da Tarefa 5, que
+    // põe o nome do campo na mão do dono; o motor é a última barreira antes do
+    // banco, e é ela que este caso mede.
+    //
+    // AS DUAS PONTAS QUE O FECHAM: `conferir` (lib/steps.ts) recusa o bloco, e
+    // por isso a pergunta nem sai; e `chaveDoPedido` devolve `null`, e por isso
+    // nada seria gravado mesmo que o bloco tivesse passado. Cada uma tem caso
+    // próprio em tests/steps.test.ts — aqui o que se mede é o DESFECHO: o
+    // e-mail da pessoa continua o que era.
+    await semearComPedido(
+      "quero-o-campo-perigoso",
+      "livre",
+      "Qual é o seu e-mail?",
+      "depois do campo perigoso",
+      "email"
+    );
+    const EU = "9300000000000108";
+    await semearEmailNaColuna(EU, "ana@exemplo-do-teste.invalid");
+
+    await mensagem(EU, "quero-o-campo-perigoso", "m-p1");
+    await dreno.drainQueue();
+    await mensagem(EU, "moro em Sorocaba desde 1990", "m-p2");
+    await dreno.drainQueue();
+
+    // O e-mail de verdade continua de pé, nas duas fontes.
+    expect(await emailDaColuna(EU)).toBe("ana@exemplo-do-teste.invalid");
+    expect(await campoDoContato(EU, "email")).toBeNull();
+    // E o bloco recusado não sequestra ninguém: o que vem depois dele sai.
+    expect(textosNoFio(EU)).toContain("depois do campo perigoso");
+  });
+
+  test("chave que não vira variável: o fluxo SEGUE sem o dado, e nada é gravado", async () => {
+    // A GUARDA DO PASSO QUEBRADO (`chave === null || !regra`, lib/engine.ts)
+    // ganhou um caminho que a alcança, e é este. `conferir` (lib/steps.ts) só
+    // cobra que a chave EXISTA — "123" atravessa o salvar —, mas
+    // `normalizarChaveLivre` (lib/campos.ts) a recusa: `{{123}}` não é nome de
+    // variável que alguém leia depois, e gravar o dado de uma pessoa sob `123`
+    // é gravar onde ninguém lê.
+    //
+    // ANTES DESTE CONSERTO a chave saía CRUA e o valor era gravado sob "123".
+    // A guarda existia e nenhum caminho chegava nela — a revisão mediu isso
+    // apagando-a inteira sem acender luz nenhuma. Agora ela tem leitor, e o
+    // desfecho é o que a tarefa promete: nunca prende, e o fluxo segue.
+    await semearComPedido(
+      "quero-o-campo-sem-nome",
+      "livre",
+      "De qual cidade você é?",
+      "depois do campo sem nome",
+      "123"
+    );
+    const EU = "9300000000000109";
+
+    await mensagem(EU, "quero-o-campo-sem-nome", "m-s1");
+    await dreno.drainQueue();
+    expect(textosNoFio(EU)).toEqual(["De qual cidade você é?"]);
+
+    await mensagem(EU, "Sorocaba", "m-s2");
+    await dreno.drainQueue();
+
+    // Nada foi gravado — nem sob a chave crua, nem sob a normalizada.
+    expect(await campoDoContato(EU, "123")).toBeNull();
+    // E o fluxo SEGUIU: a pessoa não ficou presa num passo que não sabe gravar.
+    expect(textosNoFio(EU)).toContain("depois do campo sem nome");
+    expect(await cursorDoContato(EU)).not.toBe("b_pedido0");
+  });
+
+  test("com a seta pendurada, o teto SOLTA mesmo assim — o ciclo não rearma", async () => {
+    // O QUE A REVISÃO DA TAREFA 4 MEDIU, contra o banco: `pedir_dado` com uma
+    // `sempre` apontando para um bloco que não existe, 12 mensagens ruins
+    // depois da pergunta → 8 REPERGUNTAS, cursor ainda em `b_pedido0`,
+    // `campo_tentativas` de volta a 0. `seguirSemODado` (lib/engine.ts) zerava
+    // o contador ANTES de saber se o fluxo tinha andado; com a seta pendurada
+    // `interpretar` devolve `cursorNoFim: "manter"`, o cursor fica onde estava,
+    // e o contador zerado REARMA o ciclo. Duas reperguntas a cada três
+    // mensagens, para sempre — que é exatamente a armadilha que esta tarefa
+    // existe para fechar.
+    //
+    // A SETA PENDURADA NÃO É HIPÓTESE: `conferirLista` a trata como "bloco
+    // inalcançável", que trava o ATIVAR e não o salvar, e `desligarBloco` sobre
+    // lista sem `id` já gravou uma no banco (lib/steps.ts registra a medição).
+    //
+    // O QUE O CONSERTO PROMETE: o contador só zera quando o fluxo ANDOU. Sem
+    // andar, a pessoa fica CALADA em vez de ficar sendo cutucada — o passo não
+    // tem para onde ir, mas ninguém leva repergunta pelo resto da vida.
+    const EU = "9300000000000110";
+    await semear(
+      "coleta · seta pendurada",
+      "quero-a-seta-pendurada",
+      [{ id: "b_pedido0", tipo: "pedir_dado", campo: "telefone", texto: "Me manda seu WhatsApp 👇" }],
+      [{ de: "b_pedido0", quando: { tipo: "sempre" }, para: "b_naoexiste" }]
+    );
+
+    await mensagem(EU, "quero-a-seta-pendurada", "m-sp0");
+    await dreno.drainQueue();
+    expect(textosNoFio(EU)).toEqual(["Me manda seu WhatsApp 👇"]);
+
+    // DOZE mensagens ruins — quatro vezes o teto.
+    for (let i = 0; i < 12; i++) {
+      await mensagem(EU, "não tenho", `m-sp${i + 1}`);
+      await dreno.drainQueue();
+    }
+
+    // A conversa inteira: a pergunta e as reperguntas que o teto permite
+    // (`TETO_DE_TENTATIVAS` chances = `TETO_DE_TENTATIVAS - 1` reperguntas), e
+    // NADA depois disso. Com o defeito eram 9 mensagens; com o conserto, 3.
+    expect(textosNoFio(EU)).toHaveLength(TETO_DE_TENTATIVAS);
+
+    // O cursor não tem para onde ir, e continua onde estava — isto é o preço
+    // conhecido da seta pendurada, e não o defeito.
+    expect(await cursorDoContato(EU)).toBe("b_pedido0");
+    // O QUE NÃO PODE ACONTECER: o contador voltar a zero e rearmar o ciclo.
+    expect(await tentativasDoContato(EU)).toBeGreaterThanOrEqual(TETO_DE_TENTATIVAS);
   });
 });

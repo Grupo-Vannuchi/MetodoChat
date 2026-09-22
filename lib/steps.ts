@@ -12,7 +12,13 @@
 // `campoPorChave` só lê o catálogo — não faz I/O nenhum — então importá-lo aqui
 // não quebra a pureza acima: `lib/campos.ts` não abre banco nem chama a Meta,
 // só declara a lista de campos que a automação sabe pedir.
-import { campoPorChave } from "./campos.ts";
+//
+// `normalizarChaveLivre` entra pelo mesmo motivo, e ela é a DONA da pergunta
+// "esta chave de campo livre pode existir?": `chaveDoPedido` e `conferirBloco`
+// (os dois aqui embaixo) perguntam a ela, e o editor também. Uma segunda lista
+// de chaves proibidas escrita aqui divergiria do catálogo no primeiro campo
+// novo — e a divergência gravaria dado de pessoa real no lugar errado.
+import { campoPorChave, chaveColideComCatalogo, normalizarChaveLivre } from "./campos.ts";
 
 // O `id` é a identidade do bloco, e ele é OPCIONAL de propósito.
 //
@@ -1062,15 +1068,52 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
     // campos do catálogo não entram nesta regra porque a chave deles é o
     // próprio `campo`.
     //
-    // A RECUSA É PELA AUSÊNCIA, e NÃO por `normalizarChaveLivre` aplicada aqui:
-    // aquela função não é idempotente sobre a própria saída — ela apaga tudo
-    // que não é letra, dígito ou espaço, e o underscore que ela mesma escreve
-    // cai nessa conta ("qual_sua_cidade" voltaria "qualsuacidade"). Normalizar
-    // é trabalho de quem GRAVA, no editor; aqui a pergunta é se há chave.
+    // A RECUSA É PELA AUSÊNCIA, e NÃO por `normalizarChaveLivre` aplicada
+    // aqui: normalizar é trabalho de quem GRAVA, no editor; aqui a pergunta é
+    // se há chave. (Este comentário já afirmou que a função não era idempotente
+    // e que por isso não podia ser aplicada; ela passou a ser — o porquê está
+    // nela, em lib/campos.ts —, e o que sobrou é a divisão de trabalho.)
     if (o.campo === "livre" && (typeof o.chave !== "string" || !o.chave.trim())) {
       return {
         motivo: "pedir_dado livre sem chave",
         paraODono: "Este pedido de dado está sem o nome do campo que guarda a resposta.",
+      };
+    }
+    // A CHAVE QUE COLIDE COM CAMPO DO SISTEMA, essa sim, é recusada aqui — e é
+    // a única coisa que `normalizarChaveLivre` recusa e que o dono precisa
+    // saber ANTES de publicar.
+    //
+    // O QUE ELA IMPEDE, medido contra o banco na revisão da Tarefa 4: um passo
+    // `pedir_dado { campo: "livre", chave: "email" }` gravava a frase inteira
+    // da pessoa ("moro em Sorocaba desde 1990") em `campos->'email'` e na
+    // coluna `contacts.email`, sem passar por extrator nenhum — o e-mail de um
+    // contato real virava lixo, e os seis leitores da coluna o herdavam.
+    //
+    // POR QUE AQUI TAMBÉM, se `chaveDoPedido` (acima) já devolve `null` e o
+    // motor segue sem gravar: porque lá o dono não fica sabendo de nada. A
+    // pergunta sai, a pessoa responde, e a resposta é descartada em silêncio.
+    // Recusando aqui, o bloco acende em `conferirLista` e TRAVA O SALVAR, com
+    // uma frase que diz o que fazer. A do motor continua sendo a última
+    // barreira, para o `steps` que foi gravado por fora.
+    //
+    // POR QUE SÓ A COLISÃO, e não tudo que `normalizarChaveLivre` recusa
+    // ("123", "🔥"): essas chaves não destroem dado nenhum — elas só não viram
+    // variável —, e quem as trata é a guarda do passo quebrado em lib/engine.ts,
+    // que SEGUE o fluxo sem o dado e tem caso próprio prendendo-a. Apertar aqui
+    // deixaria aquela guarda sem um único caminho que a alcance, que é o padrão
+    // que esta funcionalidade já pagou cinco vezes.
+    if (
+      o.campo === "livre" &&
+      typeof o.chave === "string" &&
+      o.chave.trim() &&
+      chaveColideComCatalogo(o.chave)
+    ) {
+      return {
+        motivo: "pedir_dado livre com chave de campo do sistema",
+        paraODono:
+          "O nome deste campo já é um campo do sistema (e-mail, telefone, nome ou data de " +
+          "nascimento). Escolha outro nome, ou use o pedido do próprio campo — ele valida a " +
+          "resposta e guarda no lugar certo.",
       };
     }
     return { passo: p as Passo };
@@ -2618,10 +2661,15 @@ function atravessandoOPortao(
 //     capturar o dado — o pedido some em silêncio e a resposta nunca chega.
 //
 // Retomar do pedido de dado é seguro e idempotente: `executarFluxo` já pula o
-// passo sozinho quando o e-mail do contato é conhecido (o ramo `pedir_dado`
-// consulta `contacts.email` e segue para o índice seguinte), então quem já
-// respondeu não fica preso; e quem não respondeu recebe o pedido de novo,
-// deduplicado por `emailAskKey` no balde do dia.
+// passo sozinho quando o campo do contato está gravado e FRESCO — o ramo
+// `pedir_dado` consulta `contacts.campos` (e não a coluna `contacts.email`, que
+// esta frase citava antes da Tarefa 4), mede a recência com `campoEstaFresco`
+// (lib/campos.ts) e segue pela seta `sempre` (`retomadaDoCampoConhecido`, neste
+// arquivo), e não para o índice seguinte. Então quem já respondeu não fica
+// preso — com o limite que a recência impõe: PASSADOS 30 DIAS o dado deixa de
+// ser fresco e o pedido volta a ser feito, que é a spec, não defeito. Quem não
+// respondeu recebe o pedido de novo, deduplicado por `emailAskKey` no balde do
+// dia.
 //
 // Com isso os três ramos param nos mesmos portões: o de texto, o `FOLLOW:` e
 // este.
@@ -2836,9 +2884,11 @@ export function retomadaDoFollow(
 //   `pedir_follow` → retoma DELE MESMO. A mensagem de texto não é o follow, e
 //     avançar entregaria o link a quem não segue — bastaria mandar "ok".
 //   `pedir_dado` → retoma do SEGUINTE, e aqui a diferença em relação ao
-//     `AUTO:` é real: o motor acabou de EXTRAIR o e-mail desta mensagem e
-//     gravá-lo em `contacts.email`. O pedido foi atendido; repeti-lo seria pedir
-//     de novo o que a pessoa acabou de mandar.
+//     `AUTO:` é real: o motor acabou de EXTRAIR o dado desta mensagem (o
+//     extrator é o do campo, `regraDoCampo` em lib/campos.ts) e gravá-lo em
+//     `contacts.campos` — e na coluna `contacts.email` também, enquanto ela
+//     existir, quando o campo é o e-mail. O pedido foi atendido; repeti-lo
+//     seria pedir de novo o que a pessoa acabou de mandar.
 //   `dm` de resposta rápida → retoma do SEGUINTE. O texto vale como resposta,
 //     do mesmo jeito que no fallback.
 //
@@ -2992,11 +3042,33 @@ export function retomadaDoTexto(fluxo: Fluxo, indice: number): Retomada {
 // recusa o bloco sem ela antes de salvar. O `null` daqui é a sobra dessa
 // garantia — automação gravada antes desta fase, ou `steps` editado por fora —,
 // e quem chama trata como "não dá para gravar", nunca como chave vazia.
+//
+// A CHAVE LIVRE PASSA POR `normalizarChaveLivre`, E ESSA É A BARREIRA QUE
+// FALTAVA. Ela devolvia a chave CRUA, e a revisão da Tarefa 4 mediu o preço
+// contra o banco: um passo `pedir_dado { campo: "livre", chave: "email" }` com
+// a resposta "moro em Sorocaba desde 1990" gravava essa frase em
+// `campos->'email'` E na coluna `contacts.email` — o `case when $3 = 'email'`
+// de `gravarCampo` (lib/engine.ts) dispara sobre a CHAVE, não sobre o campo.
+// O e-mail de um contato real era substituído por uma frase, e os seis leitores
+// da coluna passavam a carregar lixo sem nada acusar. Hoje a paleta só monta
+// `campo: "email"`; quem arma isso é o editor da Tarefa 5, que põe o nome do
+// campo na mão do dono — e o motor é a última barreira antes do banco.
+//
+// É A MESMA FUNÇÃO QUE O EDITOR USA PARA GRAVAR A CHAVE, e é por isso que ela
+// precisa ser idempotente (o porquê inteiro está nela, lib/campos.ts): as duas
+// pontas têm de escrever a MESMA string, senão o dado cai numa chave que nem a
+// variável de template nem a coluna do CSV conhecem.
+//
+// ELA RECUSA MAIS DO QUE `conferirBloco`: além da colisão com o catálogo — que
+// o `conferir` também barra, para o dono ficar sabendo antes de publicar —, ela
+// devolve `null` para chave que não vira variável ("123", "🔥"), que o
+// `conferir` deixa passar de propósito. Esse `null` tem leitor: a guarda do
+// passo quebrado em lib/engine.ts, que SEGUE o fluxo sem o dado.
 export function chaveDoPedido(p: Passo): string | null {
   if (p.tipo !== "pedir_dado") return null;
   if (p.campo !== "livre") return p.campo || null;
   const chave = p.chave?.trim();
-  return chave ? chave : null;
+  return chave ? normalizarChaveLivre(chave) : null;
 }
 
 // De onde o fluxo continua quando o pedido de dado é RESOLVIDO SEM PERGUNTAR —
@@ -3272,12 +3344,15 @@ export type Problema = {
 //
 // `pedir_dado`: quem engole o segundo é o próprio MOTOR, antes de a chave
 // entrar em jogo. O ramo `pedir_dado` de lib/engine.ts pula o bloco quando o
-// e-mail do contato já é conhecido (`if (rows[0]?.email) return
-// executarFluxo(..., seguinteDe(...), ...)`), e depois de o primeiro pedido ser
-// respondido o endereço já está gravado — então o segundo normalmente nem chega
-// a ser enfileirado. `emailAskKey(auto, pessoa, dia)` só decide no caso restante:
-// os dois enfileirados no mesmo dia sem que o e-mail tenha sido respondido entre
-// eles. Aí sim a chave, igual para os dois, é quem engole o segundo.
+// campo já está em `contacts.campos` E AINDA ESTÁ FRESCO (`campoEstaFresco`,
+// lib/campos.ts — 30 dias), e depois de o primeiro pedido ser respondido o dado
+// está gravado — então o segundo normalmente nem chega a ser enfileirado.
+// (A frase daqui citava `if (rows[0]?.email) return executarFluxo(...)`, que a
+// Tarefa 4 apagou junto com a leitura da coluna; o que existe hoje é a leitura
+// do registro de campos com recência.)
+// `emailAskKey(auto, pessoa, dia)` só decide no caso restante: os dois
+// enfileirados no mesmo dia sem que o dado tenha sido respondido entre eles. Aí
+// sim a chave, igual para os dois, é quem engole o segundo.
 //
 // `passoKey` ganhou a identidade do bloco na Tarefa 1; estas três não. A regra
 // sai daqui no dia em que ganharem. `followGateKey` tem o mesmo buraco e não

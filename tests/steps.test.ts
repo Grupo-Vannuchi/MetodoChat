@@ -216,6 +216,48 @@ describe("interpretar", () => {
     ).toBe("pedir_dado livre sem chave");
   });
 
+  // A CHAVE LIVRE QUE COLIDE COM CAMPO DO SISTEMA É RECUSADA AQUI, e esta é a
+  // recusa que a Tarefa 5 torna alcançável: é o editor dela que põe o nome do
+  // campo na mão do dono, e "E-mail" é a primeira coisa que alguém digita.
+  //
+  // O QUE ELA IMPEDE, medido contra o banco: um `pedir_dado { campo: "livre",
+  // chave: "email" }` gravava a frase inteira da pessoa em `campos->'email'` e
+  // na coluna `contacts.email`, sem passar por extrator nenhum. O motor tem a
+  // sua própria barreira (`chaveDoPedido` devolve null), mas ali o dono não
+  // fica sabendo de nada — a pergunta sai, a pessoa responde, e a resposta é
+  // descartada em silêncio. Aqui ele fica sabendo ANTES de publicar.
+  it("pula `pedir_dado` livre com chave de campo do SISTEMA, e diz ao dono qual é o bloco certo", () => {
+    const passos = [
+      { tipo: "pedir_dado", campo: "livre", texto: "Qual o seu e-mail?", chave: "E-mail" },
+      { tipo: "dm", texto: "vale" },
+    ];
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
+    expect(r.enfileirar.map((a) => a.indice)).toEqual([1]);
+    expect(r.ignorados[0].motivo).toBe("pedir_dado livre com chave de campo do sistema");
+
+    const recusa = conferir(passos[0]);
+    expect(recusa.passo).toBeUndefined();
+    // O dono precisa entender O QUE fazer, e não só que está errado.
+    expect(recusa.paraODono).toContain("e-mail");
+    // A colisão é conferida DEPOIS da normalização — "E-mail", "e mail" e
+    // "EMAIL" são a mesma chave, e só a forma normalizada colide de fato.
+    expect(conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "EMAIL" }).motivo).toBe(
+      "pedir_dado livre com chave de campo do sistema"
+    );
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "telefone" }).motivo
+    ).toBe("pedir_dado livre com chave de campo do sistema");
+    // E a chave que NÃO colide continua passando — a recusa é da colisão, e não
+    // de toda chave que `normalizarChaveLivre` recusaria: "123" atravessa aqui
+    // de propósito, e quem o trata é a guarda do passo quebrado no motor.
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "cidade" }).motivo
+    ).toBeUndefined();
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "123" }).motivo
+    ).toBeUndefined();
+  });
+
   // `campo` É OBRIGATÓRIO NO TIPO (`Passo`), mas `conferir` é o único portão que
   // transforma jsonb em `Passo` — sem esta guarda ele afirmaria `campo: string`
   // sobre um objeto sem campo nenhum, ou com um campo que o catálogo
@@ -1125,6 +1167,41 @@ describe("chaveDoPedido", () => {
     ).toBe("cidade");
   });
 
+  it("campo LIVRE com chave de campo do CATÁLOGO é null — ninguém grava por cima do e-mail de verdade", () => {
+    // O DEFEITO QUE ISTO FECHA, medido contra o banco na revisão da Tarefa 4:
+    // um passo `pedir_dado { campo: "livre", chave: "email" }` e a resposta
+    // "moro em Sorocaba desde 1990" gravavam essa frase em `campos->'email'` E
+    // na coluna `contacts.email` — porque o `case when $3 = 'email'` de
+    // `gravarCampo` (lib/engine.ts) dispara sobre a CHAVE, e a chave saía daqui
+    // CRUA. O e-mail de um contato real virava uma frase, e os seis leitores da
+    // coluna passavam a carregar lixo sem nada acusar.
+    //
+    // Quem sabe o que colide é `normalizarChaveLivre` (lib/campos.ts) — a mesma
+    // função que o editor usa para gravar a chave, e não uma segunda lista
+    // escrita aqui, que divergiria do catálogo no primeiro campo novo.
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "email" })).toBe(
+      null
+    );
+    expect(
+      chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "E-mail" })
+    ).toBe(null);
+    expect(
+      chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "Telefone" })
+    ).toBe(null);
+  });
+
+  it("campo LIVRE: a chave sai NORMALIZADA, do mesmo jeito que o editor a grava", () => {
+    // As duas pontas têm de escrever a MESMA string, senão o dado da pessoa cai
+    // numa chave que nem a variável de template nem a coluna do CSV conhecem.
+    expect(
+      chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "Cidade Natal" })
+    ).toBe("cidade_natal");
+    // E a chave JÁ normalizada atravessa inteira — é a forma que o editor grava.
+    expect(
+      chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "cidade_natal" })
+    ).toBe("cidade_natal");
+  });
+
   it("livre sem chave utilizável é null, e não string vazia", () => {
     // `conferirBloco` já barra o bloco antes de salvar; o que sobra é automação
     // gravada antes desta fase, ou `steps` editado por fora. O motor trata o
@@ -1132,6 +1209,18 @@ describe("chaveDoPedido", () => {
     // sob `""`, que ninguém lê nunca mais.
     expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?" })).toBe(null);
     expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "   " })).toBe(
+      null
+    );
+    // E CHAVE QUE NÃO VIRA VARIÁVEL também é null, não uma chave esquisita:
+    // `conferir` (acima) só cobra que a chave EXISTA, então "123" e "🔥"
+    // atravessam o salvar e chegam vivos ao motor. Gravar o dado de alguém sob
+    // `123` seria gravar onde ninguém lê — a guarda do passo quebrado em
+    // lib/engine.ts é quem trata este null, e o caso que a prende está em
+    // testes-integracao/coleta-de-dados.integracao.ts.
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "123" })).toBe(
+      null
+    );
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "🔥" })).toBe(
       null
     );
   });

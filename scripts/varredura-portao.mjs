@@ -807,8 +807,11 @@ function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, p
     const p = acao.passo;
     if (p.tipo === "pedir_follow") return; // avaliado, e barrado
     if (p.tipo === TIPO_DO_PEDIDO) {
-      // O motor pula este bloco quando `contacts.email` já é conhecido. Os dois
-      // ramos são simulados, e o que continua é o que entrega mais.
+      // O motor pula este bloco quando o campo já está gravado e AINDA ESTÁ
+      // FRESCO (`contacts.campos` + `campoEstaFresco`, lib/campos.ts) — a
+      // Tarefa 4 trocou a leitura da coluna `contacts.email` pelo registro de
+      // campos com recência, e esta frase ficou contando a leitura de ontem. Os
+      // dois ramos são simulados, e o que continua é o que entrega mais.
       //
       // ESTE É O SEXTO PONTO, e a correção dos achados da revisão da Tarefa 4
       // está nesta linha: no modo ATUAL ele passa por `retomadaDoCampoConhecido`,
@@ -821,7 +824,7 @@ function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, p
       // A regra SE APLICA a este salto nos dois modos: o grupo é definido por
       // onde a regra DEVE fechar, e o modo ANTIGO é justamente o código em que
       // ela não fechava.
-      executar(passos, ligacoes, seguinte, true, gateado, medidas, profundidade + 1, "e-mail já conhecido (retomada interna)");
+      executar(passos, ligacoes, seguinte, true, gateado, medidas, profundidade + 1, "campo já conhecido (retomada interna)");
       return;
     }
     if (p.tipo === "dm" && p.url) medida.vazou = true;

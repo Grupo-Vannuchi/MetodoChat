@@ -201,6 +201,20 @@ describe("normalizarChaveLivre", () => {
     expect(normalizarChaveLivre("telefone")).toBe(null);
   });
 
+  it("a saída dela sobrevive a ela mesma — o underscore não some na segunda passada", () => {
+    // ISTO É PRÉ-REQUISITO DE `chaveDoPedido` (lib/steps.ts), e não capricho:
+    // quem GRAVA a chave é o editor, que normaliza o rótulo digitado; quem lê a
+    // chave de volta, a cada mensagem, é o motor — e ele normaliza DE NOVO,
+    // porque é a única forma de recusar no motor a chave que colide com campo
+    // do catálogo. Se a função comesse o próprio underscore, o editor gravaria
+    // `qual_sua_cidade` e o motor gravaria o dado da pessoa sob
+    // `qualsuacidade`: a variável `{{qual_sua_cidade}}` e a coluna do CSV
+    // ficariam eternamente vazias, sem nada acusar.
+    const uma = normalizarChaveLivre("Qual sua Cidade");
+    expect(uma).toBe("qual_sua_cidade");
+    expect(normalizarChaveLivre(uma!)).toBe(uma);
+  });
+
   it("recusa o vazio e o que não tem letra", () => {
     expect(normalizarChaveLivre("   ")).toBe(null);
     expect(normalizarChaveLivre("🔥")).toBe(null);

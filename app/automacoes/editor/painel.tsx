@@ -11,6 +11,10 @@ import {
 import type { Botao, Passo, PassoDm, Problema } from "@/lib/steps";
 import type { Picked } from "../types";
 import { comoTexto, resumoDoBloco } from "./modelos";
+// O TETO DAS TENTATIVAS vem do catálogo de campos, que é módulo puro (sem
+// `server-only`) e não fala com o banco — o mesmo motivo pelo qual lib/steps.ts
+// o importa. A tela CONTA O MESMO NÚMERO que o motor, em vez de repeti-lo.
+import { TETO_DE_TENTATIVAS } from "@/lib/campos";
 import MessageField from "../variable-picker";
 import MediaPicker from "../media-picker";
 import { input, label as labelCls, hint as hintCls, alertWarn } from "../../ui";
@@ -601,15 +605,30 @@ export default function Painel({
                 </>
               )}
 
-              {/* O AVISO AINDA FALA DE ENDEREÇO porque `pedir_dado` só nasce
-                  com `campo: "email"` (`blocoNovo`, ./modelos). O cartão que
-                  mostra a pergunta por campo — e a chave do campo livre — é
-                  trabalho da tarefa do editor; aqui o tipo só trocou de nome. */}
+              {/* O AVISO DIZ O QUE O MOTOR FAZ, e ele deixou de esperar para
+                  sempre: a Tarefa 4 pôs teto no pedido — `TETO_DE_TENTATIVAS`
+                  respostas que não servem e o fluxo SEGUE sem o dado. O texto
+                  que estava aqui ("o fluxo espera aqui até o endereço chegar")
+                  afirmava ao dono exatamente o contrário da mudança central
+                  daquela tarefa, na tela que o marketing lê.
+
+                  O NÚMERO VEM DA CONSTANTE, e não escrito à mão: é o mesmo que
+                  o motor conta (lib/campos.ts), e escrever "3" aqui faria a
+                  tela mentir no dia em que o teto mudasse. O caso que prende as
+                  duas coisas é testes-dom/aviso-do-pedido-de-dado.dom.tsx.
+
+                  E ELE FALA DE "DADO", e não de "endereço": o bloco pede
+                  telefone, nome, data de nascimento e campo livre desde a
+                  Tarefa 1 — só o rótulo do campo é que ainda não aparece no
+                  painel, e esse é o trabalho da tarefa do editor. */}
               {passo.tipo === "pedir_dado" && (
                 <Aviso tom="teal">
-                  <strong>O fluxo espera aqui até o endereço chegar</strong>, mas não há
-                  reavaliação: um bloco adiante alcançado por outro caminho sai com o e-mail nunca
-                  capturado.
+                  <strong>
+                    O fluxo para aqui esperando a resposta, mas não para sempre
+                  </strong>
+                  : depois de {TETO_DE_TENTATIVAS} respostas que não servem, ele{" "}
+                  <strong>segue sem o dado</strong>. E não há reavaliação: um bloco adiante
+                  alcançado por outro caminho sai com o dado nunca capturado.
                 </Aviso>
               )}
             </>

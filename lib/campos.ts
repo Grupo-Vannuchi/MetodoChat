@@ -363,14 +363,51 @@ const CHAVES_DO_CATALOGO = new Set(CAMPOS.map((c) => c.chave));
 // ("-", "/", etc.) É REMOVIDA e não virada underscore: só o espaço vira
 // underscore. Com o hífen sobrevivendo, "E-mail" normalizaria para "e-mail",
 // que não é igual a "email", e a colisão passaria batido.
+//
+// O UNDERSCORE É A ÚNICA PONTUAÇÃO QUE SOBREVIVE, e não é gosto: sem isso esta
+// função COME A PRÓPRIA SAÍDA ("qual_sua_cidade" voltaria "qualsuacidade"), e
+// ela precisa ser idempotente porque tem DOIS leitores em pontas opostas do
+// mesmo dado — o editor, que normaliza o rótulo digitado e GRAVA a chave, e
+// `chaveDoPedido` (lib/steps.ts), que normaliza de novo a cada mensagem para
+// recusar no motor a chave que colide com o catálogo. Não sendo idempotente,
+// os dois escreveriam chaves diferentes: o dado da pessoa cairia sob
+// `qualsuacidade` enquanto a variável `{{qual_sua_cidade}}` e a coluna do CSV
+// ficariam vazias para sempre, sem nada acusar. O caso que prende isto é "a
+// saída dela sobrevive a ela mesma", em tests/campos.test.ts.
+//
+// Aceitar o underscore NÃO afrouxa a colisão: quem colide é a forma sem
+// pontuação nenhuma ("E-mail" -> "email"), e o hífen continua sendo removido.
 export function normalizarChaveLivre(texto: string): string | null {
+  const chave = formaDaChave(texto);
+  if (chave === null) return null;
+  if (CHAVES_DO_CATALOGO.has(chave)) return null;
+  return chave;
+}
+
+// A COLISÃO, PERGUNTADA À PARTE — e pelo MESMO dono da normalização.
+//
+// `normalizarChaveLivre` devolve `null` por dois motivos diferentes ("não vira
+// variável" e "já é campo do sistema"), e quem precisa distinguir os dois é
+// `conferirBloco` (lib/steps.ts): só a colisão vira recusa de salvar, com uma
+// frase que manda o dono usar o bloco do próprio campo. Escrever a segunda
+// pergunta com uma normalização própria lá seria a cópia que diverge — por
+// isso ela mora aqui, em cima da mesma `formaDaChave`.
+export function chaveColideComCatalogo(texto: string): boolean {
+  const chave = formaDaChave(texto);
+  return chave !== null && CHAVES_DO_CATALOGO.has(chave);
+}
+
+// A FORMA da chave, sem a pergunta da colisão: minúscula, sem acento, espaço
+// virado underscore. `null` quando não sobrou nome nenhum para chamar de chave.
+function formaDaChave(texto: string): string | null {
   const semAcento = texto
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "") // remove os acentos que o NFD separou
     .toLowerCase();
-  // Tudo que não é letra, dígito ou espaço some (pontuação, emoji); espaço
-  // sobrevive para virar underscore no passo seguinte.
-  const soLetraDigitoEspaco = semAcento.replace(/[^a-z0-9\s]/g, "");
+  // Tudo que não é letra, dígito, espaço ou underscore some (pontuação,
+  // emoji); espaço sobrevive para virar underscore no passo seguinte, e o
+  // underscore que já está lá sobrevive porque é a saída desta mesma função.
+  const soLetraDigitoEspaco = semAcento.replace(/[^a-z0-9\s_]/g, "");
   const chave = soLetraDigitoEspaco.trim().replace(/\s+/g, "_");
   if (!chave) return null; // vazio, só espaço, ou só emoji/pontuação
   // EXIGE PELO MENOS UMA LETRA, e não só "não vazio": `"123"` sobreviveria ao
@@ -379,6 +416,5 @@ export function normalizarChaveLivre(texto: string): string | null {
   // numa mensagem de propósito. Dígito CONTINUA valendo junto da letra
   // (`cidade2`), porque aí ele faz parte de um nome.
   if (!/[a-z]/.test(chave)) return null;
-  if (CHAVES_DO_CATALOGO.has(chave)) return null;
   return chave;
 }
