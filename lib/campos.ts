@@ -206,6 +206,53 @@ export function campoPorChave(chave: string): Campo | undefined {
 }
 
 // -----------------------------------------------------------------------------
+// O CAMPO LIVRE — o que `campo: "livre"` significa para quem VALIDA a resposta.
+//
+// `"livre"` NÃO ENTRA EM `CAMPOS` de propósito: `conferirBloco` (lib/steps.ts)
+// aceita `campo === "livre"` OU uma chave do catálogo, e `normalizarChaveLivre`
+// (abaixo) recusa toda chave livre que colida com o catálogo. Pôr `"livre"`
+// dentro de `CAMPOS` quebraria as duas: o `conferir` passaria a ter dois
+// caminhos para a mesma resposta, e `"livre"` viraria uma chave reservada a mais
+// sem ser um campo de verdade.
+//
+// MAS O MOTOR PRECISA DE UM EXTRATOR PARA ELE, e é por isso que esta regra mora
+// aqui e não em lib/engine.ts: sem ela, `campoPorChave("livre")` devolve
+// `undefined` e o motor estouraria no meio de atender uma mensagem de verdade —
+// em um passo que a conferência deixou passar de propósito.
+//
+// O EXTRATOR DO LIVRE É O TEXTO APARADO, e a fraqueza é deliberada: quem montou
+// a automação acabou de inventar a pergunta ("De qual cidade você é?"), e não há
+// como esta base saber o que é uma resposta válida para ela. Recusar só o que é
+// vazio é o máximo que dá para afirmar sem inventar regra; validar mais faria a
+// automação reperguntar para sempre a quem respondeu certo.
+export function extrairTextoLivre(texto: string): string | null {
+  const limpo = texto.trim();
+  return limpo === "" ? null : limpo;
+}
+
+// A repergunta do livre não nomeia o dado ("me manda o e-mail", "me manda com
+// DDD") porque não há nome para nomear: o rótulo é do editor, e esta camada não
+// o conhece. Genérica é o que dá para prometer.
+export const REPERGUNTAR_LIVRE = "Não consegui ler 🤔 Me manda de novo, por favor.";
+
+// O QUE O MOTOR PERGUNTA AO CATÁLOGO, e o único jeito que ele deve perguntar:
+// dado o `campo` do passo, como se extrai a resposta e o que se diz quando ela
+// não serve. Existe para que `"livre"` e campo do catálogo tenham UMA porta só —
+// um `if (campo === "livre")` dentro de lib/engine.ts seria a segunda verdade
+// sobre o que o livre é, e ela divergiria desta na primeira mudança.
+//
+// Devolve `undefined` para campo que o catálogo não conhece. Isso não deveria
+// chegar aqui (`conferirBloco` recusa o passo antes de salvar), e quem chama
+// precisa tratar mesmo assim: automação salva ANTES desta fase pode ter um
+// `campo` que não existe mais.
+export type RegraDeCampo = { extrair(texto: string): string | null; reperguntar: string };
+
+export function regraDoCampo(campo: string): RegraDeCampo | undefined {
+  if (campo === "livre") return { extrair: extrairTextoLivre, reperguntar: REPERGUNTAR_LIVRE };
+  return campoPorChave(campo);
+}
+
+// -----------------------------------------------------------------------------
 // A LEITURA DE `contacts.campos` (migrations/011-campos-do-contato.sql) — e as
 // duas funções que a acompanham: a normalização de chave livre e o teste de
 // recência. O comentário da migração diz POR QUE a coluna é `jsonb` e não uma

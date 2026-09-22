@@ -12,7 +12,8 @@ import {
   retomadaDoBotao,
   retomadaDoFollow,
   retomadaDoTexto,
-  retomadaDoEmailConhecido,
+  retomadaDoCampoConhecido,
+  chaveDoPedido,
   interrompeOFluxo,
   indiceDoPortao,
   cursorDesta,
@@ -1103,7 +1104,45 @@ describe("retomadaDoTexto", () => {
   });
 });
 
-describe("retomadaDoEmailConhecido", () => {
+describe("chaveDoPedido", () => {
+  // Ela decide ONDE o valor de uma pessoa real vai parar dentro de
+  // `contacts.campos`. Errá-la grava o telefone na chave do e-mail — e por isso
+  // ela saiu de lib/engine.ts, onde nenhum teste a alcançava.
+
+  it("campo do catálogo: a chave é o próprio campo", () => {
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "email", texto: "?" })).toBe("email");
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "telefone", texto: "?" })).toBe("telefone");
+  });
+
+  it("campo LIVRE: a chave é a do passo, e não a palavra `livre`", () => {
+    // Sem esta linha, TODO campo livre de TODA automação gravaria na mesma
+    // chave `livre`, uma por cima da outra.
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "cidade" })).toBe(
+      "cidade"
+    );
+    expect(
+      chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "  cidade  " })
+    ).toBe("cidade");
+  });
+
+  it("livre sem chave utilizável é null, e não string vazia", () => {
+    // `conferirBloco` já barra o bloco antes de salvar; o que sobra é automação
+    // gravada antes desta fase, ou `steps` editado por fora. O motor trata o
+    // null como "não dá para gravar" e SEGUE o fluxo — uma chave vazia gravaria
+    // sob `""`, que ninguém lê nunca mais.
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?" })).toBe(null);
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "   " })).toBe(
+      null
+    );
+  });
+
+  it("passo que não é pedido de dado não tem chave", () => {
+    expect(chaveDoPedido({ tipo: "dm", texto: "oi" })).toBe(null);
+    expect(chaveDoPedido({ tipo: "pedir_follow", texto: "segue lá", botao_label: "Já sigo!" })).toBe(null);
+  });
+});
+
+describe("retomadaDoCampoConhecido", () => {
   // O QUINTO ponto de retomada, e o último a sair de lib/engine.ts. Ele foi o
   // único dos seis pontos da Tarefa 3b que perdeu a aritmética `+ 1` e MESMO
   // ASSIM continuou fora da regra do portão: `seguinteDe` devolve string, e
@@ -1130,7 +1169,7 @@ describe("retomadaDoEmailConhecido", () => {
       { de: "b_por00004", quando: { tipo: "sempre" }, para: "b_lnk00003" }, // a junção
     ];
     expect(indiceDoPortao(comJuncao)).toBe(3);
-    expect(retomadaDoEmailConhecido({ steps: comJuncao, ligacoes }, 1)).toEqual({
+    expect(retomadaDoCampoConhecido({ steps: comJuncao, ligacoes }, 1)).toEqual({
       portao: 3,
       destino: "b_lnk00003",
     });
@@ -1159,7 +1198,7 @@ describe("retomadaDoEmailConhecido", () => {
     ];
     const esperado = { portao: 3, destino: "b_lnk00003" };
     expect(retomadaDoFallback({ steps: passos, ligacoes })).toEqual(esperado);
-    expect(retomadaDoEmailConhecido({ steps: passos, ligacoes }, 1)).toEqual(esperado);
+    expect(retomadaDoCampoConhecido({ steps: passos, ligacoes }, 1)).toEqual(esperado);
   });
 
   it("sem portão no caminho, segue a seta `sempre` e não desvia ninguém", () => {
@@ -1174,7 +1213,7 @@ describe("retomadaDoEmailConhecido", () => {
     const ligacoes = [
       { de: "b_eml00002", quando: { tipo: "sempre" }, para: "b_out00003" },
     ];
-    expect(retomadaDoEmailConhecido({ steps: doisBracos, ligacoes }, 1)).toEqual({
+    expect(retomadaDoCampoConhecido({ steps: doisBracos, ligacoes }, 1)).toEqual({
       portao: null,
       destino: "b_out00003",
     });
@@ -1182,10 +1221,10 @@ describe("retomadaDoEmailConhecido", () => {
 
   it("bloco sem seta `sempre` saindo, e lista que não é lista, devolvem destino null", () => {
     const lista = [{ id: "b_eml00002", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }];
-    expect(retomadaDoEmailConhecido({ steps: lista, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
-    expect(retomadaDoEmailConhecido({ steps: null, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
+    expect(retomadaDoCampoConhecido({ steps: lista, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
+    expect(retomadaDoCampoConhecido({ steps: null, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
     // Índice fora da lista: sem identidade não há de onde sair.
-    expect(retomadaDoEmailConhecido({ steps: lista, ligacoes: [] }, 7)).toEqual({ portao: null, destino: null });
+    expect(retomadaDoCampoConhecido({ steps: lista, ligacoes: [] }, 7)).toEqual({ portao: null, destino: null });
   });
 
   it("A REGRA É A MESMA das outras quatro — o portão a montante desvia, o de outro braço não", () => {
@@ -1198,7 +1237,7 @@ describe("retomadaDoEmailConhecido", () => {
     ];
     const base = [{ de: "b_eml00001", quando: { tipo: "sempre" }, para: "b_lnk00002" }];
     // Portão sem seta nenhuma: não alcança o link, não desvia.
-    expect(retomadaDoEmailConhecido({ steps: passos, ligacoes: base }, 0)).toEqual({
+    expect(retomadaDoCampoConhecido({ steps: passos, ligacoes: base }, 0)).toEqual({
       portao: null,
       destino: "b_lnk00002",
     });
@@ -1209,7 +1248,7 @@ describe("retomadaDoEmailConhecido", () => {
       ...base,
       { de: "b_por00003", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_lnk00002" },
     ];
-    expect(retomadaDoEmailConhecido({ steps: passos, ligacoes: comBotao }, 0)).toEqual({
+    expect(retomadaDoCampoConhecido({ steps: passos, ligacoes: comBotao }, 0)).toEqual({
       portao: 2,
       destino: "b_lnk00002",
     });

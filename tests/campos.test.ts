@@ -5,6 +5,8 @@ import {
   lerCampos,
   normalizarChaveLivre,
   RECENCIA_EM_DIAS,
+  REPERGUNTAR_LIVRE,
+  regraDoCampo,
 } from "@/lib/campos";
 import { extractEmail } from "@/lib/match";
 
@@ -255,5 +257,41 @@ describe("lerCampos", () => {
     });
     expect(r.has("nulo")).toBe(false);
     expect(r.get("telefone")?.valor).toBe("11999999999");
+  });
+});
+
+describe("regraDoCampo", () => {
+  it("entrega o campo do catálogo quando a chave é de campo do catálogo", () => {
+    expect(regraDoCampo("telefone")?.extrair("meu zap é (11) 99999-9999")).toBe("11999999999");
+    expect(regraDoCampo("email")?.extrair("sou a ana@exemplo.invalid")).toBe("ana@exemplo.invalid");
+  });
+
+  it("`livre` NÃO está no catálogo e mesmo assim tem regra", () => {
+    // É o ponto inteiro desta função: `conferirBloco` (lib/steps.ts) aceita
+    // `campo: "livre"` de propósito, e sem esta entrada o motor chamaria
+    // `.extrair` sobre `undefined` no meio de atender uma mensagem de verdade.
+    expect(campoPorChave("livre")).toBeUndefined();
+    expect(regraDoCampo("livre")?.extrair("  Sorocaba  ")).toBe("Sorocaba");
+    expect(regraDoCampo("livre")?.reperguntar).toBe(REPERGUNTAR_LIVRE);
+  });
+
+  it("o livre recusa SÓ o vazio — validar mais seria inventar regra", () => {
+    // Quem montou a automação acabou de inventar a pergunta; esta camada não
+    // sabe o que é resposta válida para ela. O que dá para afirmar é que texto
+    // em branco não é resposta.
+    expect(regraDoCampo("livre")?.extrair("")).toBe(null);
+    expect(regraDoCampo("livre")?.extrair(" \t \r\n ")).toBe(null);
+    // E aceita o que o catálogo recusaria: isto não é telefone nem e-mail.
+    expect(regraDoCampo("livre")?.extrair("moro em Sorocaba desde 1990")).toBe(
+      "moro em Sorocaba desde 1990"
+    );
+  });
+
+  it("campo que o catálogo não conhece não tem regra", () => {
+    // `conferirBloco` barra o bloco antes de salvar, mas automação gravada
+    // ANTES desta fase pode carregar um campo que não existe — e quem chama
+    // precisa poder distinguir isso de "extraiu nada".
+    expect(regraDoCampo("cor_favorita")).toBeUndefined();
+    expect(regraDoCampo("")).toBeUndefined();
   });
 });

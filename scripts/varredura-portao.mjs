@@ -109,7 +109,7 @@
 //                                                             C, eixo fiel   (antes)
 //   `haCaminho` contando só setas `sempre`      A: 0            1.996.016  (2.713.648)
 //   `retomadaDoFallback` sem a regra             A: 0               91.200  (   91.200)
-//   `retomadaDoEmailConhecido` sem a regra       A: 0            1.000.852  (1.102.772)
+//   `retomadaDoCampoConhecido` sem a regra       A: 0            1.000.852  (1.102.772)
 //   a regra do portão desligada por completo     A: 73.720      12.494.128 (15.091.792)
 //
 // `retomadaDoFallback` NÃO SE MEXEU (91.200 dos dois lados), e a razão é boa: o
@@ -119,7 +119,7 @@
 //
 // E OS TRÊS PRIMEIROS ACUSAM NA DO MENU TAMBÉM, o que o cabeçalho não dizia:
 // `haCaminho` dá A 20.400 e C 2.487.070 lá, `retomadaDoFallback` C 100.800,
-// `retomadaDoEmailConhecido` C 1.050.378, e o interruptor geral A 118.700 e
+// `retomadaDoCampoConhecido` C 1.050.378, e o interruptor geral A 118.700 e
 // C 13.879.664.
 //
 // NA DO MENU E DA `senao` (os três da Tarefa 7c). ATENÇÃO: os TRÊS deixam a
@@ -685,7 +685,7 @@ function arranjosDe(papeis) {
 //   B  saltos / entregas           13.271.180 / 261.536  6.635.590 / 130.768
 //   plantio do `haCaminho`                C 2.713.648      C 1.356.824
 //   plantio do `retomadaDoFallback`       C 91.200         C 45.600
-//   plantio do `retomadaDoEmailConhecido` C 1.102.772      C 551.386
+//   plantio do `retomadaDoCampoConhecido` C 1.102.772      C 551.386
 //   plantio do interruptor geral   A 73.720 C 15.091.792   A 36.860 C 7.545.896
 //   plantio do `seguinteDe`               B 321.008        B 160.504
 //   "marcar a execução inteira"           32.040           16.020
@@ -811,13 +811,13 @@ function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, p
       // ramos são simulados, e o que continua é o que entrega mais.
       //
       // ESTE É O SEXTO PONTO, e a correção dos achados da revisão da Tarefa 4
-      // está nesta linha: no modo ATUAL ele passa por `retomadaDoEmailConhecido`,
+      // está nesta linha: no modo ATUAL ele passa por `retomadaDoCampoConhecido`,
       // que devolve uma `Retomada` COM a regra do portão. Antes ele montava
       // `{ portao: null, destino }` à mão nos dois modos — reproduzindo, no modo
       // ATUAL, o vazamento que o motor tinha.
       const seguinte = MODO_ANTIGO
         ? { portao: null, destino: acao.indice + 1 }
-        : S.retomadaDoEmailConhecido({ steps: passos, ligacoes }, acao.indice);
+        : S.retomadaDoCampoConhecido({ steps: passos, ligacoes }, acao.indice);
       // A regra SE APLICA a este salto nos dois modos: o grupo é definido por
       // onde a regra DEVE fechar, e o modo ANTIGO é justamente o código em que
       // ela não fechava.

@@ -265,14 +265,14 @@ export function esperaResposta(p: Passo): boolean {
 //     funções — cada tipo bate nessa parede pelo SEU ponto de chamada, não os
 //     três pelos mesmos três ramos. Só a `dm` de resposta rápida consulta
 //     `seguinteDe` nas três (`retomadaDoTexto`, `retomadaDoBotao`,
-//     `retomadaDoEmailConhecido`). `pedir_follow` NUNCA consulta `seguinteDe`
+//     `retomadaDoCampoConhecido`). `pedir_follow` NUNCA consulta `seguinteDe`
 //     em `retomadaDoTexto` (:2130) nem em `retomadaDoBotao` (:1989) — as duas
 //     devolvem o PRÓPRIO bloco, porque ali quem retoma é o PORTÃO, e o portão
 //     se reavalia. O `seguinteDe` que de fato destrava o portão mora em
 //     lib/engine.ts:711, no ramo `resolverFollow === "passou"`. `pedir_dado`
 //     também não consulta `seguinteDe` em `retomadaDoBotao` (:1989) — devolve
 //     o bloco —, mas consulta em `retomadaDoTexto` (:2130) e em
-//     `retomadaDoEmailConhecido` (:2195), que é o único desses cinco pontos
+//     `retomadaDoCampoConhecido` (:2195), que é o único desses cinco pontos
 //     dedicado a um tipo só. A regra continua valendo para os três: cada um
 //     vira beco sem saída quando `seguinteDe` é null, só que cada um no SEU
 //     lugar, não nos três ramos citados de uma vez.
@@ -2979,8 +2979,35 @@ export function retomadaDoTexto(fluxo: Fluxo, indice: number): Retomada {
   return atravessandoOPortao(passos, ligacoes, destino);
 }
 
-// De onde o fluxo continua quando o pedido de e-mail é RESOLVIDO SEM PERGUNTAR,
-// porque o endereço do contato já está em `contacts.email`.
+// A CHAVE SOB A QUAL O VALOR DE UM `pedir_dado` É GRAVADO — a do catálogo, ou a
+// do campo livre.
+//
+// MORA AQUI, E NÃO EM lib/engine.ts, pela regra desta base: decisão pura dentro
+// de arquivo `server-only` é decisão que nenhum teste alcança, e foram cinco as
+// que saíram daqui por terem dado defeito exatamente assim. Esta escolhe ONDE um
+// dado de pessoa real vai parar; errá-la grava o telefone na chave do e-mail.
+//
+// `campo === "livre"` é o único caso em que a chave NÃO é o próprio campo:
+// `conferirBloco` (abaixo) exige `chave` não vazia justamente nesse caso, e
+// recusa o bloco sem ela antes de salvar. O `null` daqui é a sobra dessa
+// garantia — automação gravada antes desta fase, ou `steps` editado por fora —,
+// e quem chama trata como "não dá para gravar", nunca como chave vazia.
+export function chaveDoPedido(p: Passo): string | null {
+  if (p.tipo !== "pedir_dado") return null;
+  if (p.campo !== "livre") return p.campo || null;
+  const chave = p.chave?.trim();
+  return chave ? chave : null;
+}
+
+// De onde o fluxo continua quando o pedido de dado é RESOLVIDO SEM PERGUNTAR —
+// porque o campo já está em `contacts.campos` e ainda está FRESCO
+// (`campoEstaFresco`, lib/campos.ts).
+//
+// CHAMAVA-SE `retomadaDoEmailConhecido` até a tarefa do motor, e o nome mudou
+// junto com a mudança que a usa: o ramo que a chama deixou de ler `select email`
+// e passou a ler o registro de campos, então "e-mail conhecido" virou "campo
+// conhecido". O que a função DECIDE não mudou uma linha — é o destino e o portão
+// dele —, e os casos de tests/steps.test.ts continuam os mesmos.
 //
 // O QUINTO ponto de retomada, e o último a sair de lib/engine.ts. Ele era a
 // última das seis conversões da Tarefa 3b que continuava escapando da regra do
@@ -3034,7 +3061,7 @@ export function retomadaDoTexto(fluxo: Fluxo, indice: number): Retomada {
 // `pedir_dado` — foi `interpretar` que parou nele e o motor que consultou o
 // banco. Reconferir aqui só criaria um segundo lugar onde a resposta pode
 // divergir; o que esta função decide é UMA coisa, o destino e o portão dele.
-export function retomadaDoEmailConhecido(
+export function retomadaDoCampoConhecido(
   fluxo: Fluxo,
   indice: number
 ): Retomada {
@@ -3131,7 +3158,7 @@ export function retomadaDoEmailConhecido(
 //   `retomadaDoFallback({steps, ligacoes})` ...... `{portao: null, destino: null}`
 //
 // Dois caminhos de código, a mesma pessoa digitando no mesmo menu, respostas
-// opostas — que é a forma exata da inconsistência que `retomadaDoEmailConhecido`
+// opostas — que é a forma exata da inconsistência que `retomadaDoCampoConhecido`
 // (acima) registra ter apagado. Fica anotado, não consertado aqui.
 //
 // E A DIVERGÊNCIA FOI CRIADA PELA PRÓPRIA TAREFA 7b — dito por extenso porque é
@@ -3997,7 +4024,7 @@ export function conferirLista(
       // bastando: desde a Tarefa 7b quem DIGITA retoma pela `senao`
       // (`retomadaDoTexto`), então um bloco com `senao` e sem `sempre` deixou de
       // ser beco PARA O TEXTO. Ele continua sendo para todo o resto —
-      // `retomadaDoBotao` e `retomadaDoEmailConhecido` só perguntam `seguinteDe`
+      // `retomadaDoBotao` e `retomadaDoCampoConhecido` só perguntam `seguinteDe`
       // —, e é disso que a frase fala. Nenhum tipo que ENTRA nesta regra ganha
       // alça de `senao` no editor (`alcasDeSaida` só a dá ao menu, e o menu está
       // fora daqui), então o caso exige ligação gravada por fora do painel.

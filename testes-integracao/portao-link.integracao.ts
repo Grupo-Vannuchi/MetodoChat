@@ -465,7 +465,7 @@ describe("portão → link", () => {
   });
 
   test("E-MAIL JÁ CONHECIDO não pula o portão", async () => {
-    // O grafo que vazou de verdade, e está escrito em `retomadaDoEmailConhecido`
+    // O grafo que vazou de verdade, e está escrito em `retomadaDoCampoConhecido`
     // (lib/steps.ts): quem já tem e-mail gravado resolve o passo SEM PERGUNTAR, e
     // o seguinte dele é o link — que o portão também alcança.
     await semear(
@@ -486,14 +486,23 @@ describe("portão → link", () => {
 
     // O e-mail já está gravado ANTES da primeira mensagem — é o caso que o
     // passo resolve sem perguntar.
+    //
+    // A SEMEADURA MUDOU DE COLUNA na tarefa do motor, e o que este caso mede
+    // NÃO mudou: era um `insert` em `contacts.email`, e agora é o registro de
+    // campos (`contacts.campos`, migração 011) com o QUANDO junto. O motor
+    // deixou de perguntar "a coluna tem valor?" e passou a perguntar "o campo
+    // está FRESCO?" (`campoEstaFresco`, lib/campos.ts) — uma coluna sem data
+    // não responde à segunda pergunta, e por isso a semeadura tem de trazer o
+    // `em`. Ele é contado a partir de `Date.now()`: data cravada aqui apodrece
+    // sozinha, e dois testes desta base já ficaram vermelhos assim.
     await banco
       .db()
       .sql()
-      .query(`insert into contacts (account_id, ig_id, email) values ($1, $2, $3)`, [
-        CONTA,
-        EU,
-        "pessoa@exemplo-do-teste.invalid",
-      ]);
+      .query(
+        `insert into contacts (account_id, ig_id, email, campos)
+         values ($1, $2, $3, jsonb_build_object('email', jsonb_build_object('valor', $3::text, 'em', $4::text)))`,
+        [CONTA, EU, "pessoa@exemplo-do-teste.invalid", new Date().toISOString()]
+      );
 
     await mensagem(EU, "quero-b", "m-b-1");
 
