@@ -188,7 +188,15 @@ export const CAMPOS: Campo[] = [
   },
   {
     chave: "telefone",
-    rotulo: "Telefone / WhatsApp",
+    // O RÓTULO É UM NOME SÓ, E CURTO, e os dois adjetivos são medidos. Ele era
+    // "Telefone / WhatsApp", e este campo é lido em TRÊS telas: a faixa da
+    // paleta ("Pedir telefone"), o título do nó ("PEDIR TELEFONE") e a frase do
+    // erro de campo repetido ("Só pode haver um pedido de telefone"). Com a
+    // barra, as três ficavam com "Pedir telefone / whatsapp" e "PEDIR TELEFONE
+    // / WHATSAPP" — e o editor passaria a querer um nome próprio só para o nó,
+    // que é a segunda voz sobre a mesma coisa. O WhatsApp continua dito onde
+    // ele ajuda a escolher: na descrição da paleta e na pergunta padrão aqui.
+    rotulo: "Telefone",
     perguntaPadrao: "Me manda seu WhatsApp com DDD 👇",
     reperguntar: "Não consegui ler esse número 🤔 Me manda com DDD, só os números.",
     extrair: extrairTelefone,
@@ -417,4 +425,54 @@ function formaDaChave(texto: string): string | null {
   // (`cidade2`), porque aí ele faz parte de um nome.
   if (!/[a-z]/.test(chave)) return null;
   return chave;
+}
+
+// -----------------------------------------------------------------------------
+// AS DUAS FRASES DA CHAVE RECUSADA, NUM DONO SÓ.
+//
+// Elas eram DUAS CÓPIAS, servindo dois caminhos diferentes do mesmo gesto: uma
+// em `conferirBloco` (lib/steps.ts), que o dono lê no nó depois de fechar o
+// painel, e outra em `ChaveDoCampoLivre` (app/automacoes/editor/painel.tsx),
+// que ele lê enquanto digita. E elas JÁ TINHAM DIVERGIDO: uma mandava "use o
+// bloco do próprio campo", a outra "use o pedido do próprio campo".
+//
+// PIOR QUE A DIVERGÊNCIA: as duas escreviam A LISTA DOS CAMPOS À MÃO —
+// "(e-mail, telefone, nome ou data de nascimento)" — em vez de lê-la de
+// `CAMPOS`, que é o dono dos rótulos. No dia em que entrar um quinto campo no
+// catálogo, as duas frases passam a mentir, em dois arquivos, sem nada
+// acusando. É a regra com dois donos aplicada ao TEXTO.
+//
+// MORAM NESTE ARQUIVO porque aqui está o catálogo que elas citam e a função que
+// produz a recusa (`normalizarChaveLivre`, logo acima): quem mexe no catálogo
+// mexe na frase sem precisar procurar por ela.
+
+// A lista dos campos do sistema em prosa, lida de `CAMPOS`: "e-mail, telefone,
+// nome informado ou data de nascimento". O último vem depois de "ou" — é frase
+// para pessoa ler, não enumeração de código.
+export function camposDoSistemaEmProsa(): string {
+  const rotulos = CAMPOS.map((c) => c.rotulo.toLowerCase());
+  // Com um campo só não há "ou" nenhum a escrever; sem esta linha a frase
+  // nasceria como " ou e-mail", com a vírgula pendurada no vazio.
+  if (rotulos.length === 1) return rotulos[0];
+  return `${rotulos.slice(0, -1).join(", ")} ou ${rotulos[rotulos.length - 1]}`;
+}
+
+// A RECUSA QUE TEM SAÍDA ESCRITA. Uma recusa que só diz "não pode" deixa o dono
+// sem saber o que fazer: o bloco do próprio campo existe, valida a resposta e
+// grava no lugar certo — é essa a saída, e ela faz parte da frase.
+export function fraseDaChaveQueColide(): string {
+  return (
+    `Este nome já é um campo do sistema (${camposDoSistemaEmProsa()}). Escolha outro nome, ` +
+    "ou use o bloco do próprio campo — ele valida a resposta e guarda no lugar certo."
+  );
+}
+
+// A OUTRA RECUSA: a chave existe, não colide com nada, e mesmo assim não vira
+// variável ("123", "🔥"). `formaDaChave` exige pelo menos uma letra, e o porquê
+// está nela. A frase dá um exemplo do que serve, e não só o que não serve.
+export function fraseDaChaveSemLetra(): string {
+  return (
+    "O nome deste campo precisa ter pelo menos uma letra — só números ou só emoji não viram " +
+    "variável. Tente algo como “cidade”."
+  );
 }

@@ -494,3 +494,29 @@ export function IconCoracao({ className }: IconProps) {
     </Svg>
   );
 }
+
+// -----------------------------------------------------------------------------
+// O DESENHO DE CADA CAMPO, NUM DONO SÓ — a paleta e a prévia leem daqui.
+//
+// A doutrina desta tabela está escrita nos ícones acima: cada um é o desenho da
+// COISA pedida. Ela nasceu porque a prévia contradizia a paleta na mesma tela —
+// a faixa desenhava um telefone no item "Pedir telefone" e a marca de parada da
+// prévia desenhava um ENVELOPE em cima do mesmo bloco, para os cinco campos.
+// Duas tabelas de ícone para a mesma pergunta ("que dado é este?") divergem na
+// primeira mudança, e essa já tinha divergido antes de existir a segunda.
+//
+// A CHAVE É O `campo` DO PASSO (lib/campos.ts), e não a chave do item da paleta:
+// é o `campo` que o bloco carrega no banco, é por ele que a prévia pergunta, e é
+// ele que sobrevive a um rearranjo da faixa. `"livre"` entra porque é campo
+// válido de `pedir_dado` sem estar em `CAMPOS` — o porquê está em lib/campos.ts.
+//
+// QUEM NÃO ESTÁ AQUI não ganha desenho inventado: quem lê trata a ausência
+// (`campo` de automação antiga, ou `steps` editado por fora).
+export const ICONE_DO_CAMPO: Record<string, (p: IconProps) => React.JSX.Element> = {
+  email: IconMail,
+  telefone: IconPhone,
+  nome_informado: IconPessoa,
+  nascimento: IconCalendario,
+  livre: IconCampoLivre,
+};
+

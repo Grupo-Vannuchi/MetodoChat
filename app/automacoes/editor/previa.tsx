@@ -7,11 +7,11 @@ import { card } from "../../ui";
 import {
   IconAlert,
   IconCamera,
+  ICONE_DO_CAMPO,
   IconChevronLeft,
   IconClock,
   IconComment,
   IconImage,
-  IconMail,
   IconMic,
   IconPhone,
   IconSend,
@@ -243,8 +243,15 @@ const PARADAS = {
   // (`respostaDeExemplo`, ./roteiro). Repetir o rótulo do campo aqui seria uma
   // segunda voz sobre a mesma coisa, e uma delas teria de conjugar o artigo de
   // cada rótulo ("o e-mail", "a data de nascimento") só para a frase fechar.
+  //
+  // O ÍCONE DESTA MARCA NÃO MORA MAIS AQUI. Ele era `IconMail` fixo, para os
+  // cinco campos: um ENVELOPE em cima de "Pedir telefone", contradizendo na
+  // mesma tela a faixa da paleta, que desenha um telefone naquele item. Quem
+  // desenha agora é `ICONE_DO_CAMPO` (app/icons), pelo `campo` que a marca
+  // carrega — a mesma tabela que a paleta lê. O `icone: null` diz que esta
+  // parada não tem desenho fixo; as outras duas têm.
   dado: {
-    icone: <IconMail className="h-3 w-3 shrink-0" />,
+    icone: null,
     titulo: "para aqui até a resposta chegar",
     texto: "Não é portão: quem alcançar um bloco adiante por outro caminho passa sem responder.",
     cor: "border-teal-400/60 bg-teal-400/10 text-teal-300",
@@ -252,12 +259,26 @@ const PARADAS = {
   },
 } as const;
 
-function Parada({ motivo }: { motivo: "toque" | "follow" | "dado" }) {
+function Parada({ motivo, campo }: { motivo: "toque" | "follow" | "dado"; campo?: string }) {
   const p = PARADAS[motivo];
+  // O DESENHO DO CAMPO, quando há campo — as outras duas paradas têm ícone
+  // fixo, e é por isso que `p.icone` vem primeiro.
+  //
+  // O `Desenho ? ... : null` É REDE, E ESTÁ DITO QUE É: nenhum bloco aceito
+  // chega aqui com um campo fora da tabela — `conferir` (lib/steps.ts) recusa
+  // `campo` que o catálogo não conhece, e o roteiro não desenha bloco recusado
+  // (medido em testes-dom/marca-do-pedido-de-dado.dom.tsx). O que esta linha
+  // impede é a ROTA INTEIRA CAIR no dia em que a tabela e o catálogo saírem de
+  // sincronia: `<Desenho/>` com `undefined` estoura e leva a página de edição
+  // junto, que é o estrago que o comentário da prop `conta` já registrou.
+  // QUEM GARANTE QUE ESSE DIA NÃO CHEGA é o caso puro que confere a tabela
+  // campo a campo contra `CAMPOS` (tests/paleta-e-salvar.test.ts) — este `?` é
+  // o cinto, não o dono da regra.
+  const Desenho = campo ? ICONE_DO_CAMPO[campo] : undefined;
   return (
     <div className={`my-1 self-stretch rounded border border-dashed px-2 py-1.5 ${p.cor}`}>
       <p className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide">
-        {p.icone}
+        {p.icone ?? (Desenho ? <Desenho className="h-3 w-3 shrink-0" /> : null)}
         {p.titulo}
       </p>
       <p className={`mt-0.5 text-[9px] leading-snug ${p.corDoTexto}`}>{p.texto}</p>
@@ -394,7 +415,7 @@ function Item({ bolha, conta }: { bolha: Bolha; conta: ContaDaPrevia }) {
       return <Menu botoes={bolha.botoes} />;
 
     case "parada":
-      return <Parada motivo={bolha.motivo} />;
+      return <Parada motivo={bolha.motivo} campo={bolha.campo} />;
 
     case "resposta":
       return <Enviada>{bolha.texto}</Enviada>;

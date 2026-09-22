@@ -18,7 +18,13 @@
 // (os dois aqui embaixo) perguntam a ela, e o editor também. Uma segunda lista
 // de chaves proibidas escrita aqui divergiria do catálogo no primeiro campo
 // novo — e a divergência gravaria dado de pessoa real no lugar errado.
-import { campoPorChave, chaveColideComCatalogo, normalizarChaveLivre } from "./campos.ts";
+import {
+  campoPorChave,
+  chaveColideComCatalogo,
+  fraseDaChaveQueColide,
+  fraseDaChaveSemLetra,
+  normalizarChaveLivre,
+} from "./campos.ts";
 
 // O `id` é a identidade do bloco, e ele é OPCIONAL de propósito.
 //
@@ -1061,10 +1067,17 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
         paraODono: "Este pedido de dado não diz qual informação buscar.",
       };
     }
-    // A CHAVE DO CAMPO LIVRE é o que vira `{{<chave>}}` e coluna do CSV
-    // (`normalizarChaveLivre`, lib/campos.ts:303). Sem ela o bloco pede um dado
-    // que não tem por onde ser lido depois: a pessoa responde, a resposta é
-    // guardada, e nenhuma mensagem nem exportação sabe chamá-la pelo nome. Os
+    // A CHAVE DO CAMPO LIVRE é o que vira `{{<chave>}}` numa mensagem
+    // (`normalizarChaveLivre`, lib/campos.ts — a citação daqui trazia um número
+    // de linha, e o número já apontava para outra função). Sem ela o bloco pede
+    // um dado que não tem por onde ser lido depois: a pessoa responde, a
+    // resposta é guardada, e nenhuma mensagem sabe chamá-la pelo nome.
+    //
+    // A EXPORTAÇÃO NÃO ENTRA NESTA FRASE, e a ausência é medida: o CSV de
+    // contatos (app/api/contatos/csv/route.ts) monta duas colunas fixas, não lê
+    // `contacts.campos` e ainda filtra por e-mail não nulo. Prometer coluna de
+    // exportação aqui era prometer uma coisa que nenhuma tarefa desta fase
+    // constrói. Os
     // campos do catálogo não entram nesta regra porque a chave deles é o
     // próprio `campo`.
     //
@@ -1096,12 +1109,21 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
     // uma frase que diz o que fazer. A do motor continua sendo a última
     // barreira, para o `steps` que foi gravado por fora.
     //
-    // POR QUE SÓ A COLISÃO, e não tudo que `normalizarChaveLivre` recusa
+    // POR QUE SÓ A COLISÃO AQUI, e não tudo que `normalizarChaveLivre` recusa
     // ("123", "🔥"): essas chaves não destroem dado nenhum — elas só não viram
-    // variável —, e quem as trata é a guarda do passo quebrado em lib/engine.ts,
-    // que SEGUE o fluxo sem o dado e tem caso próprio prendendo-a. Apertar aqui
-    // deixaria aquela guarda sem um único caminho que a alcance, que é o padrão
-    // que esta funcionalidade já pagou cinco vezes.
+    // variável —, e quem as trata no motor é a guarda do passo quebrado em
+    // lib/engine.ts, que SEGUE o fluxo sem o dado e tem caso próprio
+    // prendendo-a. Apertar ESTA função deixaria duas outras guardas sem um
+    // único caminho que as alcance — a do motor e a da chave nula em
+    // `soUmPorCampo` (abaixo) —, porque `conferirLista` PULA o bloco que
+    // `conferir` recusa (`if (!passo) continue`) e o interpretador o ignora.
+    //
+    // ELA TEM DONO, e o dono é `conferirLista`: a regra "chave livre que não
+    // vira variável" mora lá embaixo, ao lado da do portão sem rótulo, pelo
+    // mesmo motivo escrito naquela — travar o salvar sem fazer o bloco
+    // desaparecer da lista interpretada. É ela que impede o dono de publicar
+    // `chave: "123"`, e é por ela existir que o editor pode gravar o texto CRU
+    // que a pessoa digitou em vez de apagá-lo.
     if (
       o.campo === "livre" &&
       typeof o.chave === "string" &&
@@ -1110,10 +1132,11 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
     ) {
       return {
         motivo: "pedir_dado livre com chave de campo do sistema",
-        paraODono:
-          "O nome deste campo já é um campo do sistema (e-mail, telefone, nome ou data de " +
-          "nascimento). Escolha outro nome, ou use o pedido do próprio campo — ele valida a " +
-          "resposta e guarda no lugar certo.",
+        // A FRASE TEM UM DONO SÓ, `fraseDaChaveQueColide` (lib/campos.ts). Ela
+        // estava escrita à mão aqui E no painel do editor, com a lista dos
+        // campos digitada nas duas — e as duas já discordavam sobre como chamar
+        // o bloco. O porquê inteiro está em cima da função.
+        paraODono: fraseDaChaveQueColide(),
       };
     }
     return { passo: p as Passo };
@@ -3050,9 +3073,10 @@ export function retomadaDoTexto(fluxo: Fluxo, indice: number): Retomada {
 // `campos->'email'` E na coluna `contacts.email` — o `case when $3 = 'email'`
 // de `gravarCampo` (lib/engine.ts) dispara sobre a CHAVE, não sobre o campo.
 // O e-mail de um contato real era substituído por uma frase, e os seis leitores
-// da coluna passavam a carregar lixo sem nada acusar. Hoje a paleta só monta
-// `campo: "email"`; quem arma isso é o editor da Tarefa 5, que põe o nome do
-// campo na mão do dono — e o motor é a última barreira antes do banco.
+// da coluna passavam a carregar lixo sem nada acusar. A paleta monta os cinco
+// pedidos e o editor põe o nome do campo livre na mão do dono desde a tarefa do
+// editor — ou seja, esse cenário é montável na tela hoje, e o motor é a última
+// barreira antes do banco.
 //
 // É A MESMA FUNÇÃO QUE O EDITOR USA PARA GRAVAR A CHAVE, e é por isso que ela
 // precisa ser idempotente (o porquê inteiro está nela, lib/campos.ts): as duas
@@ -3395,7 +3419,12 @@ function soUmPorCampo(p: Passo): { identidade: string; mensagem: string } | null
   if (p.tipo !== "pedir_dado") return null;
   const identidade = chaveDoPedido(p);
   if (identidade === null) return null;
-  const rotulo = campoPorChave(p.campo)?.rotulo ?? identidade;
+  // O RÓTULO ENTRA EM MINÚSCULA porque ele cai no MEIO da frase. Entrando cru,
+  // o catálogo escrevia "Só pode haver um pedido de Nome informado." — maiúscula
+  // no meio da oração, e um terceiro jeito de chamar o mesmo bloco que a paleta
+  // chama de "Pedir nome informado" e o nó de "PEDIR NOME INFORMADO". O nome é
+  // um só e vem de `CAMPOS`; o que muda é a caixa que cada lugar precisa.
+  const rotulo = campoPorChave(p.campo)?.rotulo.toLowerCase() ?? identidade;
   return {
     identidade: `pedir_dado:${identidade}`,
     mensagem:
@@ -3807,6 +3836,41 @@ export function conferirLista(
             "Só pode haver um pedido de follow. Com dois, o botão “Já sigo!” não sabe a qual voltar.",
         });
       }
+    }
+
+    // A CHAVE DO CAMPO LIVRE QUE NÃO VIRA VARIÁVEL — "123", "🔥", "...".
+    //
+    // ELA MORA AQUI E NÃO EM `conferir`, e o motivo é o mesmo do portão sem
+    // rótulo logo acima: recusar em `conferir` faria `interpretar` IGNORAR o
+    // bloco, e faria `conferirLista` pular este passo (`if (!passo) continue`),
+    // levando junto duas guardas que dependem de o bloco chegar até aqui — a
+    // chave nula de `soUmPorCampo` e a do passo quebrado em lib/engine.ts.
+    // Travar o salvar impede que a lista nasça; ignorar o bloco esconderia o
+    // bloco inteiro de quem montou.
+    //
+    // O QUE ELA IMPEDE: `chaveDoPedido` devolve `null` para essas chaves, o
+    // motor SEGUE o fluxo sem gravar nada, e o dono nunca fica sabendo — a
+    // pergunta sai, a pessoa responde, e a resposta some. É a dívida que a
+    // Tarefa 4 registrou de propósito, e este é o lugar em que ela fecha.
+    //
+    // A AUSÊNCIA DE CHAVE E A COLISÃO CONTINUAM EM `conferir`: são recusas
+    // sobre a FORMA do bloco (não dá para ler, ou destrói dado já coletado). A
+    // daqui é sobre uma chave presente e íntegra que simplesmente não tem nome
+    // para ser chamada depois. As três frases vêm de lib/campos.ts.
+    if (
+      passo.tipo === "pedir_dado" &&
+      passo.campo === "livre" &&
+      typeof passo.chave === "string" &&
+      passo.chave.trim() &&
+      !chaveColideComCatalogo(passo.chave) &&
+      normalizarChaveLivre(passo.chave) === null
+    ) {
+      r.push({
+        nivel: "erro",
+        quando: "salvar",
+        indice: i,
+        mensagem: fraseDaChaveSemLetra(),
+      });
     }
 
     // Aponta o SEGUNDO, não o primeiro: o primeiro é o que vai ser entregue, e

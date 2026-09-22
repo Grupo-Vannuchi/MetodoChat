@@ -22,6 +22,8 @@ import { comoTexto, resumoDoBloco } from "./modelos";
 import {
   TETO_DE_TENTATIVAS,
   chaveColideComCatalogo,
+  fraseDaChaveQueColide,
+  fraseDaChaveSemLetra,
   normalizarChaveLivre,
 } from "@/lib/campos";
 import MessageField from "../variable-picker";
@@ -390,10 +392,15 @@ function ChaveDoCampoLivre({
   passo: Passo & { tipo: "pedir_dado" };
   aoMudar: (p: Passo) => void;
 }) {
-  // O VALOR INICIAL É A CHAVE JÁ GRAVADA, e isso só funciona porque
-  // `normalizarChaveLivre` é idempotente: `qual_sua_cidade` normalizado de novo
-  // continua `qual_sua_cidade`, então reabrir o bloco não muda o que está no
-  // banco (o porquê inteiro está em lib/campos.ts).
+  // O VALOR INICIAL É A CHAVE GRAVADA, e desde que o editor grava o texto CRU
+  // (ver o `onChange`) ela é literalmente o que a pessoa digitou — reabrir o
+  // painel devolve o rascunho dela, inclusive o recusado.
+  //
+  // E AS AUTOMAÇÕES JÁ SALVAS continuam abrindo certo: o que está no banco
+  // delas é a forma normalizada, e `normalizarChaveLivre` é idempotente
+  // (`qual_sua_cidade` normalizado de novo continua `qual_sua_cidade`, o porquê
+  // inteiro está em lib/campos.ts), então o campo mostra aquela chave e a frase
+  // do `{{...}}` mostra a mesma string — sem mudar nada no banco por abrir.
   const [digitado, setDigitado] = useState(() => comoTexto(passo.chave));
   const chave = normalizarChaveLivre(digitado);
   const vazio = !digitado.trim();
@@ -408,16 +415,33 @@ function ChaveDoCampoLivre({
         value={digitado}
         onChange={(e) => {
           setDigitado(e.target.value);
-          // GRAVA A FORMA NORMALIZADA, e grava `""` quando a chave é recusada.
+          // GRAVA O TEXTO CRU, e a decisão é o conserto de uma perda de dado
+          // medida na tela.
           //
-          // Não gravar o texto cru é o que TRAVA O SALVAR: `conferirLista`
-          // (lib/steps.ts) acende erro de `quando: "salvar"` em `pedir_dado`
-          // livre sem chave, e `quadro.tsx` desabilita o botão por causa dele.
-          // Sem isso, uma chave como "123" — que `conferir` deixa passar DE
-          // PROPÓSITO, para o motor não estourar no meio de uma conversa —
-          // seria salva, a automação rodaria, e o campo nunca seria coletado,
-          // sem nenhum aviso em lugar nenhum.
-          aoMudar({ ...passo, chave: normalizarChaveLivre(e.target.value) ?? "" });
+          // Esta linha gravava `normalizarChaveLivre(digitado) ?? ""`, e o
+          // preço era este: num campo livre JÁ SALVO com `chave: "cidade"`, o
+          // dono apagava e digitava "e-mail" — o `"cidade"` gravado SUMIA do
+          // rascunho, e ao reabrir o painel o campo voltava vazio. Pior: o
+          // diagnóstico preciso ("já é um campo do sistema", com a saída
+          // escrita) morria junto com o painel, e o que sobrava no nó era
+          // "Este pedido de dado está sem o nome do campo" — uma frase FALSA
+          // sobre o que ele tinha feito. Ele escolheu um nome; o sistema dizia
+          // que ele não escolheu nenhum.
+          //
+          // QUEM RECUSA É `conferirLista` (lib/steps.ts), e são três recusas
+          // com três frases: chave ausente, chave que colide com campo do
+          // sistema e chave que não vira variável. As três travam o salvar
+          // (`quando: "salvar"`, e `quadro.tsx` desabilita o botão), e as três
+          // nomeiam o que o dono fez. O texto cru chegar lá é o que as deixa
+          // dizer a verdade — e é o que torna o ramo da colisão alcançável a
+          // partir do editor, que é o único escritor de `passo.chave`.
+          //
+          // A NORMALIZAÇÃO NÃO SUMIU: ela é quem `chaveDoPedido` (lib/steps.ts)
+          // aplica do outro lado, a cada mensagem, e quem esta tela mostra na
+          // frase do `{{...}}` logo abaixo. Ela é idempotente (o porquê está em
+          // lib/campos.ts), então a chave já normalizada de um bloco salvo
+          // sobrevive intacta a uma reabertura sem nenhuma tecla digitada.
+          aoMudar({ ...passo, chave: e.target.value });
         }}
         placeholder="cidade"
         className={input}
@@ -426,9 +450,13 @@ function ChaveDoCampoLivre({
         // NÃO É ACUSAÇÃO ENQUANTO ESTÁ VAZIO: o bloco acabou de nascer, e nascer
         // acusado é o mesmo defeito que `blocoNovo` (./modelos) evita nos
         // outros. Quem trava o salvar aqui é `conferirLista`, com a frase dela.
-        <p className={hintCls}>
-          É este nome que vira a variável das mensagens e a coluna da exportação.
-        </p>
+        // A FRASE NÃO PROMETE EXPORTAÇÃO, e a metade que saiu era falsa: o CSV
+        // de contatos (app/api/contatos/csv/route.ts) monta DUAS colunas fixas,
+        // não lê `contacts.campos` e ainda filtra por e-mail não nulo — quem
+        // respondeu só um campo livre nem aparece no arquivo. Nenhuma tarefa
+        // desta fase muda isso, e o marketing estaria coletando "cidade" de
+        // centenas de leads achando que exporta.
+        <p className={hintCls}>É este nome que vira a variável das mensagens.</p>
       ) : chave ? (
         <p className={hintCls}>
           A resposta <strong>vai virar</strong> <code>{`{{${chave}}}`}</code>.
@@ -438,20 +466,21 @@ function ChaveDoCampoLivre({
         // `chaveColideComCatalogo` (lib/campos.ts) — a mesma dona da
         // normalização. Perguntar aqui com uma regra própria seria a cópia que
         // diverge, e as duas frases mandam fazer coisas diferentes.
-        <p className={alertWarn}>
-          Este nome <strong>já é um campo do sistema</strong> (e-mail, telefone, nome ou data de
-          nascimento). Escolha outro nome, ou use o bloco do próprio campo — ele valida a
-          resposta e guarda no lugar certo.
-        </p>
+        // A FRASE VEM DE lib/campos.ts, E NÃO ESCRITA AQUI. Ela estava copiada
+        // neste arquivo e em `conferirBloco` (lib/steps.ts), as duas com a
+        // lista dos campos digitada à mão, e as duas já discordavam. O negrito
+        // saiu junto com a cópia: o realce não vale uma segunda verdade sobre
+        // quais campos existem.
+        <p className={alertWarn}>{fraseDaChaveQueColide()}</p>
       ) : (
         // A DÍVIDA HERDADA: `conferir` (lib/steps.ts) recusa só a colisão, e uma
         // chave como "123" atravessa o salvar — `chaveDoPedido` devolve `null`
         // no motor e o fluxo segue CALADO sem o dado. É aqui, na cara de quem
         // digita, que essa chave tem de ser recusada.
-        <p className={alertWarn}>
-          O nome <strong>precisa ter pelo menos uma letra</strong> — só números ou só emoji não
-          viram variável. Tente algo como <code>cidade</code>.
-        </p>
+        // MESMA DONA, e agora com o mesmo texto que o nó mostra: esta recusa
+        // deixou de ser só da tela — `conferirLista` acende o mesmo erro, com
+        // esta frase, e é ele que trava o salvar.
+        <p className={alertWarn}>{fraseDaChaveSemLetra()}</p>
       )}
     </div>
   );
@@ -727,8 +756,15 @@ export default function Painel({
 
                   E ELE FALA DE "DADO", e não de "endereço": o bloco pede
                   telefone, nome, data de nascimento e campo livre desde a
-                  Tarefa 1 — só o rótulo do campo é que ainda não aparece no
-                  painel, e esse é o trabalho da tarefa do editor. */}
+                  Tarefa 1, e o aviso vale para os cinco.
+
+                  O RÓTULO DO CAMPO NÃO APARECE NESTE PAINEL, e o comentário
+                  que estava aqui prometia que a tarefa do editor o traria — ela
+                  é esta, e não trouxe. Quem nomeia o campo é o TÍTULO DO NÓ
+                  (`resumoDoBloco`, ./modelos), que lê o rótulo do catálogo e
+                  fica visível no quadro atrás da faixa enquanto o painel está
+                  aberto. Repeti-lo aqui seria uma segunda voz sobre a mesma
+                  coisa; o brief não o pediu, e a promessa é que sai. */}
               {/* O NOME DO CAMPO SÓ EXISTE NO LIVRE, e a pergunta pelo `campo`
                   é deliberada: num campo do catálogo a chave é o próprio campo
                   (`chaveDoPedido`, lib/steps.ts), e oferecer um nome editável

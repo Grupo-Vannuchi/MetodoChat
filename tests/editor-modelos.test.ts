@@ -204,6 +204,34 @@ describe("blocoNovo", () => {
     }
   });
 
+  it("o rótulo dos quatro pedidos do catálogo é o RÓTULO DO CATÁLOGO", () => {
+    // ERAM TRÊS VOZES PARA A MESMA COISA: a faixa dizia "Pedir nome", o título
+    // do nó dizia "PEDIR NOME INFORMADO" e a frase do erro de campo repetido
+    // saía "Só pode haver um pedido de Nome informado.". O nó e o erro já liam
+    // `CAMPOS` (lib/campos.ts); a faixa era a que escrevia o nome à mão.
+    //
+    // O QUE ESTE CASO PLANTA: um apelido escrito aqui, por mais razoável que
+    // seja, derruba a suíte. Rótulo comprido demais para uma das três telas se
+    // conserta no catálogo, que é o dono do nome.
+    const daPaleta: [string, string][] = [
+      ["pedir_email", "email"],
+      ["pedir_telefone", "telefone"],
+      ["pedir_nome", "nome_informado"],
+      ["pedir_nascimento", "nascimento"],
+    ];
+    for (const [chaveDoItem, campo] of daPaleta) {
+      const item = PALETA.find((i) => i.chave === chaveDoItem)!;
+      expect(item.rotulo, chaveDoItem).toBe(
+        `Pedir ${campoPorChave(campo)!.rotulo.toLowerCase()}`
+      );
+      // E O NÓ FALA DO MESMO NOME, em outra caixa: são a mesma fonte.
+      expect(
+        resumoDoBloco(doBanco({ tipo: "pedir_dado", campo, texto: "t" })).titulo,
+        chaveDoItem
+      ).toBe(item.rotulo.toUpperCase());
+    }
+  });
+
   it("o pedido de outro dado nasce LIVRE e sem chave — e por isso nasce com erro", () => {
     // É a mesma decisão de "Mensagem com link", que nasce com `url: ""`: o
     // bloco nasce acusando o campo que falta, e o erro apaga na primeira letra
@@ -214,6 +242,19 @@ describe("blocoNovo", () => {
     if (bloco.tipo !== "pedir_dado") return;
     expect(bloco.campo).toBe("livre");
     expect(bloco.chave).toBe("");
+
+    // E NASCE SEM TEXTO, e isto fecha um vazamento para cliente real: ele
+    // nascia com `texto: "O que você quer perguntar?"` — uma pergunta
+    // gramatical e plausível, não um provisório visível. O bloco salva com o
+    // nome do campo preenchido e o texto INTOCADO, e aí o lead recebe essa
+    // frase no direct. Com o texto vazio, `conferirLista` trava o salvar até o
+    // dono escrever a pergunta dele.
+    expect(bloco.texto).toBe("");
+    const travas = conferirLista([{ ...bloco, chave: "cidade" }], "dm", []).filter(
+      (p) => p.nivel === "erro" && p.quando === "salvar"
+    );
+    expect(travas).toHaveLength(1);
+    expect(travas[0].mensagem).toMatch(/sem texto/i);
   });
 
   it("o título do nó nomeia o CAMPO, e não o e-mail de sempre", () => {
@@ -225,7 +266,12 @@ describe("blocoNovo", () => {
       resumoDoBloco(doBanco({ tipo: "pedir_dado", campo, texto: "t" })).titulo;
 
     expect(doCampo("email")).toBe("PEDIR E-MAIL");
-    expect(doCampo("telefone")).toBe("PEDIR TELEFONE / WHATSAPP");
+    // "PEDIR TELEFONE", e não "PEDIR TELEFONE / WHATSAPP": o rótulo do catálogo
+    // é lido por TRÊS telas (a faixa, este título e a frase do erro de campo
+    // repetido), e a barra deixava as três compridas e desalinhadas entre si. O
+    // lugar de encurtar é `CAMPOS` (lib/campos.ts), que é o dono do nome — um
+    // apelido só para o nó seria a segunda voz que este caso existe para negar.
+    expect(doCampo("telefone")).toBe("PEDIR TELEFONE");
     expect(doCampo("nome_informado")).toBe("PEDIR NOME INFORMADO");
     expect(doCampo("nascimento")).toBe("PEDIR DATA DE NASCIMENTO");
     expect(doCampo("livre")).toBe("PEDIR OUTRO DADO");

@@ -37,6 +37,19 @@ export type ItemDaPaleta = {
   gatilhos: string[] | null;
 };
 
+// O NOME DE UM ITEM DE PEDIDO DE DADO, montado sobre o rótulo do catálogo.
+//
+// A CAIXA É A DA FRASE: o rótulo entra em minúscula porque vem depois de
+// "Pedir". É a mesma conta que o título do nó faz com `toUpperCase` e que a
+// frase do erro faz com `toLowerCase` — três lugares, uma fonte, três caixas.
+//
+// O `!` é honesto pelo mesmo motivo do `pedidoDoCatalogo` (abaixo): as chaves
+// são literais escritas ao lado de `CAMPOS`, e apagar uma delas de lá derruba
+// `tests/editor-modelos.test.ts` em vez de deixar um item sem nome na faixa.
+function rotuloDoPedido(chaveDoCampo: string): string {
+  return `Pedir ${campoPorChave(chaveDoCampo)!.rotulo.toLowerCase()}`;
+}
+
 export const PALETA: ItemDaPaleta[] = [
   { chave: "dm", rotulo: "Mensagem", descricao: "texto simples", gatilhos: null },
   { chave: "dm_botao", rotulo: "Mensagem com botão", descricao: "o fluxo espera o toque", gatilhos: null },
@@ -59,10 +72,18 @@ export const PALETA: ItemDaPaleta[] = [
   // POR QUE CINCO ITENS E NÃO UM GENÉRICO: "Pedir telefone" se acha na paleta;
   // "Pedir um dado, agora escolha qual" não se acha. Quem monta a automação
   // procura pelo dado que quer coletar, não pelo mecanismo que o coleta.
-  { chave: "pedir_email",  rotulo: "Pedir e-mail",     descricao: "espera o endereço (não é portão)", gatilhos: null },
-  { chave: "pedir_telefone", rotulo: "Pedir telefone", descricao: "espera o WhatsApp com DDD",        gatilhos: null },
-  { chave: "pedir_nome",   rotulo: "Pedir nome",       descricao: "espera o nome que a pessoa usa",   gatilhos: null },
-  { chave: "pedir_nascimento", rotulo: "Pedir nascimento", descricao: "espera a data de nascimento",  gatilhos: null },
+  //
+  // O RÓTULO VEM DO CATÁLOGO, e não escrito aqui. Eram TRÊS vozes para a mesma
+  // coisa — a faixa dizia "Pedir nome", o nó dizia "PEDIR NOME INFORMADO" e o
+  // erro de campo repetido saía "Só pode haver um pedido de Nome informado." —
+  // e quem monta a automação tinha de adivinhar que os três falavam do mesmo
+  // bloco. O nó e o erro já liam `CAMPOS` (lib/campos.ts); a faixa era a que
+  // faltava. Rótulo comprido demais para um dos três lugares se conserta em
+  // `CAMPOS`, que é o dono do nome, e não com um apelido próprio aqui.
+  { chave: "pedir_email",  rotulo: rotuloDoPedido("email"),     descricao: "espera o endereço (não é portão)", gatilhos: null },
+  { chave: "pedir_telefone", rotulo: rotuloDoPedido("telefone"), descricao: "espera o WhatsApp com DDD",       gatilhos: null },
+  { chave: "pedir_nome",   rotulo: rotuloDoPedido("nome_informado"), descricao: "espera o nome que a pessoa usa", gatilhos: null },
+  { chave: "pedir_nascimento", rotulo: rotuloDoPedido("nascimento"), descricao: "espera a data de nascimento",  gatilhos: null },
   { chave: "pedir_outro",  rotulo: "Pedir outro dado", descricao: "você escolhe a pergunta",          gatilhos: null },
   { chave: "resposta_publica", rotulo: "Resposta pública", descricao: "só no gatilho de comentário", gatilhos: ["comment"] },
   { chave: "reagir_story", rotulo: "Coraçãozinho", descricao: "só no gatilho de story", gatilhos: ["story"] },
@@ -219,8 +240,19 @@ export function blocoNovo(chave: string): Passo {
     // inventar — quem arrasta este bloco arrastou para escolher o nome —, e o
     // erro é a instrução do que fazer em seguida, e ele apaga na primeira letra
     // digitada no campo "Nome do campo" do painel.
+    //
+    // E ELE NASCE SEM TEXTO, e isto é conserto de um vazamento para cliente
+    // real. Ele nascia com `texto: "O que você quer perguntar?"` — uma pergunta
+    // gramatical e plausível, e não um provisório visível como "Escreva a
+    // mensagem aqui". O bloco não salva sem o nome do campo, mas salva com o
+    // nome preenchido e o texto INTOCADO, e aí o lead recebe "O que você quer
+    // perguntar?" no direct. Com `texto: ""` o próprio bloco acusa "Este pedido
+    // de dado está sem texto" (`conferir`, lib/steps.ts) e o salvar fica
+    // travado até o dono escrever a pergunta dele — que é o gesto pelo qual ele
+    // arrastou este bloco. Não custa fricção nova: este é o único item da
+    // paleta que JÁ nascia com o salvar travado, pela chave vazia.
     case "pedir_outro":
-      return { id, tipo: "pedir_dado", campo: "livre", chave: "", texto: "O que você quer perguntar?" };
+      return { id, tipo: "pedir_dado", campo: "livre", chave: "", texto: "" };
     case "resposta_publica":
       return { id, tipo: "resposta_publica", textos: ["Te mandei no direct! 📩"] };
     case "reagir_story":

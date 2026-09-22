@@ -241,7 +241,11 @@ describe("roteiro — os seis tipos de bloco", () => {
     const cenas = cenasDe([{ tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" }] as Passo[]);
     expect(cenas[0].itens).toEqual([
       { tipo: "balao", texto: "Seu e-mail?", botao: null, link: false },
-      { tipo: "parada", motivo: "dado" },
+      // A MARCA CARREGA O CAMPO, e não só o motivo: quem a desenha (./previa)
+      // escolhe o ícone por ele. Sem o campo aqui, a prévia voltaria a precisar
+      // de uma tabela de desenho própria — que foi como o envelope acabou em
+      // cima do pedido de telefone.
+      { tipo: "parada", motivo: "dado", campo: "email" },
       { tipo: "resposta", texto: "ana@email.com" },
     ]);
   });
@@ -1363,7 +1367,11 @@ describe("roteiro — o caminho mostrado", () => {
     const so: Ligacao[] = [{ de: "b_mail001", quando: { tipo: "senao" }, para: "b_digit01" }];
     expect(cenasCom(passos, so, null)[0].itens).toEqual([
       { tipo: "balao", texto: "Seu e-mail?", botao: null, link: false },
-      { tipo: "parada", motivo: "dado" },
+      // A MARCA CARREGA O CAMPO, e não só o motivo: quem a desenha (./previa)
+      // escolhe o ícone por ele. Sem o campo aqui, a prévia voltaria a precisar
+      // de uma tabela de desenho própria — que foi como o envelope acabou em
+      // cima do pedido de telefone.
+      { tipo: "parada", motivo: "dado", campo: "email" },
       { tipo: "resposta", texto: "ana@email.com" },
       { tipo: "retomada", via: "digitou" },
     ]);

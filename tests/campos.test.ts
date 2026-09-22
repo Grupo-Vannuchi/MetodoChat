@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  CAMPOS,
+  camposDoSistemaEmProsa,
   campoEstaFresco,
   campoPorChave,
+  fraseDaChaveQueColide,
+  fraseDaChaveSemLetra,
   lerCampos,
   normalizarChaveLivre,
   RECENCIA_EM_DIAS,
@@ -309,3 +313,58 @@ describe("regraDoCampo", () => {
     expect(regraDoCampo("")).toBeUndefined();
   });
 });
+
+// -----------------------------------------------------------------------------
+// AS FRASES DA CHAVE RECUSADA — e o que este describe planta.
+//
+// Elas eram duas cópias à mão, em dois arquivos (o nó e o painel do editor), e
+// as duas escreviam a lista dos campos do sistema digitada: "(e-mail, telefone,
+// nome ou data de nascimento)". Nesse formato, um quinto campo no catálogo faz
+// as duas mentirem sem nada acusar — e as duas JÁ tinham divergido no verbo.
+//
+// O QUE ESTES CASOS PRENDEM: a frase CITA `CAMPOS`. Acrescentar um campo ao
+// catálogo sem que a frase o mencione derruba a suíte, que é o único jeito de a
+// divergência aparecer antes de o dono ler o texto errado.
+// -----------------------------------------------------------------------------
+
+describe("as frases da chave de campo livre recusada", () => {
+  it("a lista dos campos do sistema é LIDA do catálogo, campo a campo", () => {
+    const prosa = camposDoSistemaEmProsa();
+    for (const campo of CAMPOS) {
+      expect(prosa, campo.chave).toContain(campo.rotulo.toLowerCase());
+    }
+    // É frase para pessoa ler: o último vem depois de "ou", e não de vírgula.
+    expect(prosa).toContain(` ou ${CAMPOS[CAMPOS.length - 1].rotulo.toLowerCase()}`);
+    // E nada de rótulo com caixa alta no meio da oração.
+    expect(prosa).toBe(prosa.toLowerCase());
+  });
+
+  it("a recusa da colisão cita os campos e dá a saída", () => {
+    const frase = fraseDaChaveQueColide();
+    for (const campo of CAMPOS) {
+      expect(frase, campo.chave).toContain(campo.rotulo.toLowerCase());
+    }
+    // A SAÍDA FAZ PARTE DA FRASE: uma recusa que só diz "não pode" deixa o dono
+    // sem saber o que fazer, e o bloco do próprio campo é o que ele quer.
+    expect(frase).toMatch(/bloco do próprio campo/i);
+  });
+
+  it("a outra recusa dá um exemplo do que serve, e não só do que não serve", () => {
+    const frase = fraseDaChaveSemLetra();
+    expect(frase).toMatch(/pelo menos uma letra/i);
+    expect(frase).toMatch(/cidade/);
+    // E ela não fala de colisão nenhuma: são dois motivos diferentes, com duas
+    // saídas diferentes, e juntá-los manda o dono fazer a coisa errada.
+    expect(frase).not.toMatch(/campo do sistema/i);
+  });
+
+  it("as duas recusas separam os dois motivos de `normalizarChaveLivre` devolver null", () => {
+    // A função devolve `null` por DOIS motivos, e quem os distingue é
+    // `chaveColideComCatalogo`. Este caso é o que impede as duas frases de
+    // trocarem de lugar numa edição futura.
+    expect(normalizarChaveLivre("E-mail")).toBeNull();
+    expect(normalizarChaveLivre("123")).toBeNull();
+    expect(normalizarChaveLivre("cidade")).toBe("cidade");
+  });
+});
+

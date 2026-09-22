@@ -752,4 +752,60 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     expect(await campoDoContato(EU, "telefone")).toBe("11988887777");
     expect(textosNoFio(EU)).toContain("depois dos dois");
   });
+
+  test("DOIS campos livres de chave ilegível: a segunda pergunta CHEGA assim mesmo", async () => {
+    // O QUE ESTE CASO PRENDE é o `chave ?? identidadeDoPasso(p, acao.indice)` da
+    // chave de enfileiramento (lib/engine.ts). Uma revisão trocou o `??` por uma
+    // string fixa e A INTEGRAÇÃO INTEIRA ficou verde — o comentário de três
+    // parágrafos em cima daquela linha descrevia este cenário e nada o media.
+    //
+    // O CAMINHO É REAL. `chaveDoPedido` (lib/steps.ts) devolve `null` para
+    // chave que não vira variável ("123", "🔥"), e o motor SEGUE o fluxo sem
+    // gravar — é a guarda do passo quebrado, com caso próprio logo acima. Com a
+    // chave caindo numa string fixa, DOIS blocos assim na mesma automação saem
+    // com a MESMA `dedupe_key`, e o `on conflict do nothing` de `enqueue` engole
+    // o segundo EM SILÊNCIO: sem erro, sem `step_ignorado`, sem nada em
+    // Atividade. É o mesmo defeito que a chave por campo existe para fechar,
+    // pela porta dos fundos.
+    //
+    // POR QUE UMA AUTOMAÇÃO ASSIM EXISTE NO BANCO: `conferirLista` acusa as
+    // duas chaves e TRAVA O SALVAR desde a tarefa dos consertos, então a tela
+    // não monta mais uma destas. Chega-se aqui por `steps` gravado por fora ou
+    // por automação salva antes daquela regra — que é exatamente a população
+    // que a rede do `??` existe para atender, e é por isso que este caso semeia
+    // direto no banco em vez de passar pelo editor.
+    const EU = "9300000000000130";
+    await semear(
+      "coleta · dois livres ilegíveis",
+      "coletar-dois-livres-ilegiveis",
+      [
+        { id: "b_pedido0", tipo: "pedir_dado", campo: "livre", chave: "123", texto: "Primeira?" },
+        { id: "b_pedido1", tipo: "pedir_dado", campo: "livre", chave: "456", texto: "Segunda?" },
+        { id: "b_depois0", tipo: "dm", texto: "depois das duas" },
+      ],
+      [
+        { de: "b_pedido0", quando: { tipo: "sempre" }, para: "b_pedido1" },
+        { de: "b_pedido1", quando: { tipo: "sempre" }, para: "b_depois0" },
+      ]
+    );
+
+    await mensagem(EU, "coletar-dois-livres-ilegiveis", "m-2l0");
+    await dreno.drainQueue();
+    expect(textosNoFio(EU)).toEqual(["Primeira?"]);
+
+    // A pessoa responde. A chave não vira variável, então NADA é gravado e o
+    // fluxo segue — e o segundo pedido sai NO MESMO DIA, que é a condição em
+    // que as duas chaves de envio colidiriam.
+    await mensagem(EU, "Sorocaba", "m-2l1");
+    await dreno.drainQueue();
+    expect(await campoDoContato(EU, "123")).toBeNull();
+    // ESTA É A LINHA DO DEFEITO: com a chave de envio caindo numa string fixa,
+    // o fio parava na primeira pergunta e esta segunda nunca aparecia.
+    expect(textosNoFio(EU)).toContain("Segunda?");
+
+    // E o fluxo chega ao fim, sem prender ninguém no meio.
+    await mensagem(EU, "Itu", "m-2l2");
+    await dreno.drainQueue();
+    expect(textosNoFio(EU)).toContain("depois das duas");
+  });
 });

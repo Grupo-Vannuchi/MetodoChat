@@ -112,7 +112,14 @@ export type Bolha =
   // `"email"` virou `"dado"` junto com os cinco atalhos da paleta: a marca vale
   // para os cinco campos, e o nome antigo faria a prévia do telefone se
   // anunciar como parada de e-mail.
-  | { tipo: "parada"; motivo: "toque" | "follow" | "dado" }
+  //
+  // E ELA CARREGA O `campo` quando o motivo é `"dado"`: quem desenha a marca
+  // (./previa) precisa saber QUAL dado para escolher o ícone, e a alternativa
+  // era uma segunda tabela de desenho por campo dentro da prévia — que foi
+  // exatamente como o envelope acabou em cima do pedido de telefone. O campo vem
+  // CRU do passo (`unknown` do jsonb); quem o lê trata o que não estiver no
+  // catálogo.
+  | { tipo: "parada"; motivo: "toque" | "follow" | "dado"; campo?: string }
   | { tipo: "resposta"; texto: string }
   // POR QUE A CONVERSA SEGUIU, quando ela não seguiu por um toque em botão.
   //
@@ -955,7 +962,7 @@ export function roteiro(
       case "pedir_dado":
         itens.push({ tipo: "balao", texto: passo.texto, botao: null, link: false });
         if (esperaResposta(passo)) {
-          itens.push({ tipo: "parada", motivo: "dado" });
+          itens.push({ tipo: "parada", motivo: "dado", campo: passo.campo });
           itens.push({ tipo: "resposta", texto: respostaDeExemplo(passo.campo) });
         }
         break;

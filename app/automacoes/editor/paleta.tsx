@@ -1,13 +1,9 @@
 "use client";
 import { itensDaFaixa } from "./modelos";
 import {
-  IconCalendario,
-  IconCampoLivre,
+  ICONE_DO_CAMPO,
   IconClock,
   IconCoracao,
-  IconMail,
-  IconPessoa,
-  IconPhone,
   IconMensagem,
   IconMensagemBotao,
   IconMensagemLink,
@@ -103,8 +99,7 @@ import {
 //
 // TRÊS ÍCONES SÃO REUSADOS e não novos — `IconClock` para a espera, `IconMail`
 // para o pedido de e-mail e `IconPhone` para o de telefone. Os três já existem
-// nesta base (a prévia usa os dois primeiros na legenda de tempo e na parada de
-// e-mail), e um desenho novo ali só criaria um segundo símbolo para a mesma
+// nesta base, e um desenho novo ali só criaria um segundo símbolo para a mesma
 // ideia. O motivo completo, e por que os outros precisaram nascer, está em
 // `app/icons`.
 //
@@ -123,11 +118,15 @@ export const ICONE: Record<string, (p: { className?: string }) => React.JSX.Elem
   dm_opcoes: IconMensagemOpcoes,
   esperar: IconClock,
   pedir_follow: IconPortao,
-  pedir_email: IconMail,
-  pedir_telefone: IconPhone,
-  pedir_nome: IconPessoa,
-  pedir_nascimento: IconCalendario,
-  pedir_outro: IconCampoLivre,
+  // OS CINCO PEDIDOS LEEM `ICONE_DO_CAMPO` (app/icons), que é a tabela por
+  // CAMPO — a mesma que a marca de parada da prévia usa. Escritos à mão aqui,
+  // eles já tinham divergido dela: a faixa mostrava um telefone e a prévia um
+  // envelope, no mesmo bloco, na mesma tela.
+  pedir_email: ICONE_DO_CAMPO.email,
+  pedir_telefone: ICONE_DO_CAMPO.telefone,
+  pedir_nome: ICONE_DO_CAMPO.nome_informado,
+  pedir_nascimento: ICONE_DO_CAMPO.nascimento,
+  pedir_outro: ICONE_DO_CAMPO.livre,
   resposta_publica: IconRespostaPublica,
   reagir_story: IconCoracao,
 };

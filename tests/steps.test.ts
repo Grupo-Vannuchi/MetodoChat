@@ -56,6 +56,7 @@ import {
   type Ligacao,
 } from "../lib/steps";
 import type { EnvioDaDm, Problema } from "../lib/steps";
+import { fraseDaChaveQueColide, fraseDaChaveSemLetra } from "../lib/campos";
 
 // A CORRENTE que a lista sempre teve na prática: bloco 0 → bloco 1 → bloco 2 …,
 // cada seta `{tipo:"sempre"}`. É exatamente o que `scripts/ligar-passos-existentes.mjs`
@@ -3119,6 +3120,100 @@ describe("conferirLista", () => {
     };
     expect(erros([bem, cidade, cidadeDeNovo])).toHaveLength(1);
     expect(erros([bem, cidade, profissao])).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // AS DUAS GUARDAS DE `soUmPorCampo` QUE NÃO TINHAM DONO. Uma revisão plantou
+  // um defeito em cada e as 1713 linhas da suíte ficaram verdes nas duas.
+  // ---------------------------------------------------------------------------
+
+  it("chave que não vira variável NÃO entra na regra do campo repetido", () => {
+    // A GUARDA É `if (identidade === null) return null` (`soUmPorCampo`,
+    // lib/steps.ts). Trocá-la por `?? "sem-chave"` agrupa TODO bloco de chave
+    // ilegível sob a mesma identidade, e o segundo deles recebe, na cara do
+    // dono, "Só pode haver um pedido de sem-chave" — um erro dizendo que ele
+    // repetiu um campo que ele não repetiu.
+    //
+    // "123" e "456" são CHAVES DIFERENTES para quem lê a tela, e as duas são
+    // ilegíveis para `chaveDoPedido`, que devolve `null` nas duas. Cada bloco já
+    // é acusado por conta própria (a regra da chave que não vira variável), e é
+    // essa a frase que diz o que fazer.
+    const cento = {
+      id: "b_liv041", tipo: "pedir_dado", campo: "livre", chave: "123", texto: "Quantos?",
+    };
+    const quatro = {
+      id: "b_liv042", tipo: "pedir_dado", campo: "livre", chave: "456", texto: "E agora?",
+    };
+    const r = erros([bem, cento, quatro]);
+
+    // Um erro por bloco, e nenhum deles é o de campo repetido.
+    expect(r).toHaveLength(2);
+    expect(r.map((p) => p.mensagem).join(" ")).not.toMatch(/só pode haver um pedido/i);
+    expect(r.every((p) => p.mensagem === fraseDaChaveSemLetra())).toBe(true);
+  });
+
+  it("um campo livre chamado como um tipo de bloco não colide com o bloco", () => {
+    // A GUARDA É O PREFIXO `pedir_dado:` na identidade (`soUmPorCampo`,
+    // lib/steps.ts). Sem ele, a identidade de um campo livre é a chave NUA, e
+    // ela cai no mesmo conjunto (`jaVistos`) que guarda as identidades por TIPO
+    // de `SO_UM_POR_LISTA`.
+    //
+    // O CAMINHO REAL: o dono cria um campo livre chamado "reagir story" —
+    // `normalizarChaveLivre` devolve `reagir_story` —, e na mesma automação há
+    // um coraçãozinho. Sem o prefixo, o segundo bloco é recusado por causa do
+    // primeiro, e a automação legítima não salva, com uma frase que fala de
+    // reação à story para quem repetiu coisa nenhuma.
+    const livre = {
+      id: "b_liv043", tipo: "pedir_dado", campo: "livre", chave: "reagir story", texto: "Qual?",
+    };
+    const coracao = { id: "b_rea044", tipo: "reagir_story", emoji: "❤️" };
+
+    expect(erros([bem, livre, coracao], "story")).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // A CHAVE LIVRE QUE NÃO VIRA VARIÁVEL — a dívida que a Tarefa 4 registrou.
+  // ---------------------------------------------------------------------------
+
+  it("ERRO: chave livre que não vira variável trava o salvar, e diz o que fazer", () => {
+    // ATÉ AQUI ELA ATRAVESSAVA: `conferir` cobra só que a chave EXISTA, e
+    // `chave: "123"` passava o salvar. No motor, `chaveDoPedido` devolve `null`,
+    // o fluxo SEGUE sem gravar nada, e o dono nunca fica sabendo — a pergunta
+    // sai, a pessoa responde, e a resposta some. Quem travava isso era o editor,
+    // apagando o que a pessoa digitou; o preço daquilo está nos casos de DOM.
+    const cento = {
+      id: "b_liv045", tipo: "pedir_dado", campo: "livre", chave: "123", texto: "Quantos?",
+    };
+    const r = erros([bem, cento]);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+    expect(r[0].quando).toBe("salvar");
+    expect(r[0].mensagem).toBe(fraseDaChaveSemLetra());
+
+    // E O BLOCO CONTINUA SENDO BLOCO PARA O MOTOR, que é por que a regra mora
+    // em `conferirLista` e não em `conferir`: recusar lá o faria sumir da lista
+    // interpretada e levaria junto as guardas que dependem de ele chegar aqui.
+    expect(conferir(cento).passo).toBeTruthy();
+
+    // A chave que VIRA variável não acende nada.
+    const cidade = {
+      id: "b_liv046", tipo: "pedir_dado", campo: "livre", chave: "cidade", texto: "Onde?",
+    };
+    expect(erros([bem, cidade])).toHaveLength(0);
+  });
+
+  it("a frase da colisão é a MESMA no nó e na tela, e sai do catálogo", () => {
+    // ELA ESTAVA COPIADA em `conferirBloco` (lib/steps.ts) e no painel do
+    // editor, com a lista dos campos digitada à mão nas duas — e as duas já
+    // discordavam sobre como chamar o bloco. Hoje as duas leem
+    // `fraseDaChaveQueColide` (lib/campos.ts). O caso que prende a outra ponta
+    // é testes-dom/campo-livre.dom.tsx.
+    const colide = {
+      id: "b_liv047", tipo: "pedir_dado", campo: "livre", chave: "E-mail", texto: "Qual?",
+    };
+    const r = erros([bem, colide]);
+    expect(r).toHaveLength(1);
+    expect(r[0].mensagem).toBe(fraseDaChaveQueColide());
   });
 
   it("ERRO: duas reações a story — `storyReactionKey` só conhece a mensagem", () => {

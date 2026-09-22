@@ -986,6 +986,15 @@ async function executarFluxo(
         // passo sem chave é passo que a conferência deveria ter barrado, e dois
         // deles na mesma automação colidiriam entre si — o segundo sumiria pelo
         // mesmo defeito que esta linha existe para fechar.
+        //
+        // O CASO QUE PRENDE ESTA REDE é "DOIS campos livres de chave ilegível:
+        // a segunda pergunta CHEGA assim mesmo"
+        // (testes-integracao/coleta-de-dados.integracao.ts). Ele semeia direto
+        // no banco de propósito: desde a tarefa dos consertos `conferirLista`
+        // TRAVA O SALVAR de chave livre que não vira variável, então a tela não
+        // monta mais uma automação assim — quem chega aqui é `steps` gravado por
+        // fora ou automação salva antes daquela regra, que é justamente a
+        // população que esta linha atende.
         dedupe_key: comentario
           ? privateReplyKey(comentario)
           : emailAskKey(
@@ -2239,13 +2248,21 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
             // dois motivos escritos, a guarda era inalcançável — apagá-la
             // inteira não acendia luz nenhuma.
             //
-            // O QUE A ALCANÇA HOJE é a CHAVE QUE NÃO VIRA VARIÁVEL: `conferir`
-            // só cobra que a chave do campo livre EXISTA, então `chave: "123"`
-            // ou `"🔥"` atravessa o salvar — e `chaveDoPedido` (lib/steps.ts)
-            // devolve `null` para elas, porque gravar o dado de uma pessoa sob
-            // `123` é gravar onde ninguém lê depois. A recusa que `conferir`
-            // faz é a da COLISÃO com campo do catálogo, que é a que destrói
-            // dado já coletado e que o dono precisa ver antes de publicar.
+            // O QUE A ALCANÇA é a CHAVE QUE NÃO VIRA VARIÁVEL: `conferir` só
+            // cobra que a chave do campo livre EXISTA, então `chave: "123"` ou
+            // `"🔥"` continua sendo um bloco VÁLIDO para o interpretador — e
+            // `chaveDoPedido` (lib/steps.ts) devolve `null` para elas, porque
+            // gravar o dado de uma pessoa sob `123` é gravar onde ninguém lê
+            // depois. A recusa que `conferir` faz é a da COLISÃO com campo do
+            // catálogo, que é a que destrói dado já coletado.
+            //
+            // O SALVAR, ESSE, JÁ TRAVA: a regra "chave livre que não vira
+            // variável" entrou em `conferirLista` na tarefa dos consertos, com
+            // a frase que diz o que fazer. Ela mora LÁ e não em `conferir`
+            // justamente para o bloco continuar chegando aqui — quem alcança
+            // este ramo hoje é `steps` gravado por fora ou automação salva antes
+            // daquela regra, e prender essa pessoa num passo quebrado continua
+            // sendo o pior dos desfechos.
             //
             // `!regra` continua junto e continua sem caminho próprio (é
             // `conferir` quem barra o campo desconhecido): ela custa uma
