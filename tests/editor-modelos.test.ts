@@ -53,7 +53,7 @@ describe("resumoDoBloco não derruba a página com o que está no banco", () => 
     // derruba o render do mesmo jeito que o `.join` derrubava.
     expect(resumoDoBloco(doBanco({ tipo: "dm", texto: { a: 1 } })).corpo).toBe("");
     expect(resumoDoBloco(doBanco({ tipo: "reagir_story", emoji: null })).corpo).toBe("");
-    expect(resumoDoBloco(doBanco({ tipo: "pedir_email" })).corpo).toBe("");
+    expect(resumoDoBloco(doBanco({ tipo: "pedir_dado", campo: "email" })).corpo).toBe("");
   });
 
   it("`esperar` com minutos estranho não estoura — o template é total", () => {
@@ -466,7 +466,7 @@ describe("alcasDeSaida", () => {
       { tipo: "dm", texto: "oi", botao_label: "Quero" },
       { tipo: "esperar", minutos: 5 },
       { tipo: "pedir_follow", texto: "segue", botao_label: "Já sigo" },
-      { tipo: "pedir_email", texto: "email" },
+      { tipo: "pedir_dado", campo: "email", texto: "email" },
     ]) {
       const alcas = alcasDeSaida(doBanco(p));
       expect(alcas).toHaveLength(1);
@@ -537,7 +537,7 @@ describe("podeEntrarNaSeta", () => {
     expect(podeEntrarNaSeta({ tipo: "dm", texto: "oi", botao_label: "Quero" })).toBe(true);
     expect(podeEntrarNaSeta({ tipo: "dm", texto: "oi", botao_label: "Abrir", url: "x" })).toBe(true);
     expect(podeEntrarNaSeta({ tipo: "esperar", minutos: 5 })).toBe(true);
-    expect(podeEntrarNaSeta({ tipo: "pedir_email", texto: "seu e-mail" })).toBe(true);
+    expect(podeEntrarNaSeta({ tipo: "pedir_dado", campo: "email", texto: "seu e-mail" })).toBe(true);
     expect(
       podeEntrarNaSeta({ tipo: "dm", texto: "Escolha", botoes: [{ id: "op_a", rotulo: "A" }] })
     ).toBe(false);

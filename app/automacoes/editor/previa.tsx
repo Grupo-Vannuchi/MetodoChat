@@ -211,7 +211,7 @@ function Menu({ botoes }: { botoes: { rotulo: string; escolhido: boolean }[] }) 
 //     (`no.tsx`) e a do aviso "o fluxo para aqui" do painel, que é justamente o
 //     da `dm` de resposta rápida. Os dois casos vivem aqui.
 //   TEAL — pede uma informação e para até recebê-la, MAS quem chegar do outro
-//     lado por outro caminho passa. É o `pedir_email`, e a distinção é real: a
+//     lado por outro caminho passa. É o `pedir_dado`, e a distinção é real: a
 //     regra do portão (`atravessandoOPortao`, lib/steps.ts) cobre `pedir_follow`
 //     e mais nada.
 //
@@ -300,7 +300,7 @@ function Marca({
 // contar: é a conversa seguindo.
 //
 // A FRASE DO `digitou` DIZIA "e por isso a prévia não o mostra", E ISSO ERA
-// FALSO NA MESMA CENA. Num `pedir_email` a prévia mostra `ana@email.com` uma
+// FALSO NA MESMA CENA. Num `pedir_dado` a prévia mostra `ana@email.com` uma
 // linha acima desta caixa — um EXEMPLO do que a pessoa digitou —, e a frase logo
 // abaixo negava mostrar. O que a prévia não tem é o texto REAL; dizer isso é
 // verdade nas duas cenas, e é o que ela diz agora. (A outra metade da mesma

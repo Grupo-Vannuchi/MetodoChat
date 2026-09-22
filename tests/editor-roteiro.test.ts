@@ -234,8 +234,8 @@ describe("roteiro — os seis tipos de bloco", () => {
     ]);
   });
 
-  it("`pedir_email` é balão sem botão, parada de e-mail e o endereço de exemplo", () => {
-    const cenas = cenasDe([{ tipo: "pedir_email", texto: "Seu e-mail?" }] as Passo[]);
+  it("`pedir_dado` é balão sem botão, parada de e-mail e o endereço de exemplo", () => {
+    const cenas = cenasDe([{ tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" }] as Passo[]);
     expect(cenas[0].itens).toEqual([
       { tipo: "balao", texto: "Seu e-mail?", botao: null, link: false },
       { tipo: "parada", motivo: "email" },
@@ -516,10 +516,10 @@ describe("roteiro — bloco que não é enviado", () => {
   });
 
   it("a mensagem é a do DONO, sem nome de tipo interno", () => {
-    const cenas = cenasDe([{ tipo: "pedir_email", texto: "" }] as Passo[]);
+    const cenas = cenasDe([{ tipo: "pedir_dado", campo: "email", texto: "" }] as Passo[]);
     expect(cenas[0].itens[0]).toEqual({
       tipo: "incompleto",
-      mensagem: "Este pedido de e-mail está sem texto.",
+      mensagem: "Este pedido de dado está sem texto.",
     });
   });
 
@@ -1140,7 +1140,7 @@ describe("roteiro — o caminho mostrado", () => {
     // de propósito — a ordem é do GESTO, não da gravação.
     it("num bloco que PARA, a `senao` vem antes da `sempre`", () => {
       const passos = [
-        { id: "b_mail01", tipo: "pedir_email", texto: "Seu e-mail?" },
+        { id: "b_mail01", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" },
         { id: "b_smp001", tipo: "dm", texto: "Continuação" },
         { id: "b_sen001", tipo: "dm", texto: "Quem digitou" },
       ] as Passo[];
@@ -1300,16 +1300,16 @@ describe("roteiro — o caminho mostrado", () => {
     expect(cenasCom(passos, so, null)[0].itens.some((b) => b.tipo === "resposta")).toBe(true);
   });
 
-  // O `pedir_email` MANTÉM O EXEMPLO NO CAMINHO DA `senao`, e ele NÃO é o mesmo
+  // O `pedir_dado` MANTÉM O EXEMPLO NO CAMINHO DA `senao`, e ele NÃO é o mesmo
   // caso da resposta rápida acima. A medição é do motor: `handleMessage`
   // (lib/engine.ts) só chega em `retomadaDoTexto` DEPOIS de `extractEmail(text)`
   // ter dado certo — e-mail que não parece e-mail re-pergunta e RETORNA, sem sair
-  // do bloco. Logo, a `senao` de um `pedir_email` é o caminho de quem digitou um
+  // do bloco. Logo, a `senao` de um `pedir_dado` é o caminho de quem digitou um
   // e-mail VÁLIDO, e `ana@email.com` é um EXEMPLO do que ela digitou, não um
   // gesto inventado.
-  it("o `pedir_email` mostra o e-mail de exemplo mesmo saindo pela `senao`", () => {
+  it("o `pedir_dado` mostra o e-mail de exemplo mesmo saindo pela `senao`", () => {
     const passos = [
-      { id: "b_mail001", tipo: "pedir_email", texto: "Seu e-mail?" },
+      { id: "b_mail001", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" },
       { id: "b_digit01", tipo: "dm", texto: "Depois do e-mail" },
     ] as Passo[];
     const so: Ligacao[] = [{ de: "b_mail001", quando: { tipo: "senao" }, para: "b_digit01" }];

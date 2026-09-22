@@ -472,7 +472,7 @@ describe("portão → link", () => {
       "B · e-mail já conhecido",
       "quero-b",
       [
-        { id: "b_emailll", tipo: "pedir_email", texto: "Qual é o seu e-mail?" },
+        { id: "b_emailll", tipo: "pedir_dado", campo: "email", texto: "Qual é o seu e-mail?" },
         { id: "b_linkbbb", tipo: "dm", texto: "Aqui está:", url: LINK_B },
         PORTAO,
       ],

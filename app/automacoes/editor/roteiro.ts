@@ -18,9 +18,9 @@
 //
 // E `esperaResposta` MANDA NOS TRÊS QUE PARAM, não só na `dm`. A versão
 // anterior deste arquivo consultava `esperaResposta` no ramo `dm` e escrevia a
-// parada À MÃO nos ramos `pedir_follow` e `pedir_email` — o cabeçalho prometia
+// parada À MÃO nos ramos `pedir_follow` e `pedir_dado` — o cabeçalho prometia
 // fonte única e ela valia em um terço dos casos. A revisão provou a divergência
-// mutando `esperaResposta` para o `pedir_email` deixar de esperar:
+// mutando `esperaResposta` para o `pedir_dado` deixar de esperar:
 // `tests/editor-roteiro.test.ts` continuava verde e a prévia continuava
 // desenhando a parada. Hoje os três passam pela função, e a mesma mutação
 // acende teste.
@@ -740,7 +740,7 @@ export function roteiro(
 
     // A MENSAGEM É A DO DONO, e não o `motivo` técnico, pela mesma razão de
     // `conferirLista` (lib/steps.ts): quem lê a prévia é quem está montando a
-    // automação, e "pedir_email sem texto" é nome de tipo interno.
+    // automação, e "pedir_dado sem texto" é nome de tipo interno.
     if (!passo) {
       cenas.push({ id, itens: [{ tipo: "incompleto", mensagem: paraODono! }] });
       continue;
@@ -887,7 +887,7 @@ export function roteiro(
       // que o painel escreve e que a cor do nó carrega.
       //
       // A PARADA SAI DE `esperaResposta` NOS DOIS, como no ramo `dm` acima. Ela
-      // diz sim a todo `pedir_follow` e a todo `pedir_email` hoje, então a cena
+      // diz sim a todo `pedir_follow` e a todo `pedir_dado` hoje, então a cena
       // não muda — o que muda é que a prévia deixa de ter uma cópia da regra: se
       // um dos dois deixar de esperar, a parada some daqui sozinha, em vez de
       // continuar desenhada por um `push` escrito à mão.
@@ -921,12 +921,17 @@ export function roteiro(
       //   `extractEmail(text)` ter dado certo — e-mail que não parece e-mail
       //   re-pergunta e RETORNA, sem sair do bloco.
       //
-      // Ou seja: a `senao` de um `pedir_email` é o caminho de quem digitou um
+      // Ou seja: a `senao` de um `pedir_dado` é o caminho de quem digitou um
       // e-mail VÁLIDO. A bolha da direita não está inventando um gesto — ela está
       // mostrando um EXEMPLO do que a pessoa digitou, que é a única coisa que
       // esta tela sabe sobre esse texto. Na resposta rápida é diferente: lá a
       // bolha afirma um TOQUE na pílula, e quem sai pela `senao` não tocou nela.
-      case "pedir_email":
+      // E A CENA CONTINUA SENDO A DO E-MAIL para todo `pedir_dado`, porque é o
+      // único campo que existe hoje (`blocoNovo`, ./modelos, só cria
+      // `campo: "email"`). Quem der outros campos à paleta tem de tirar daqui a
+      // marca e o exemplo pelo `campo` do passo — senão a prévia promete um
+      // endereço a quem pediu um telefone.
+      case "pedir_dado":
         itens.push({ tipo: "balao", texto: passo.texto, botao: null, link: false });
         if (esperaResposta(passo)) {
           itens.push({ tipo: "parada", motivo: "email" });

@@ -395,7 +395,7 @@ export function IconMensagemOpcoes({ className }: IconProps) {
 // PORTÃO · PEDIR FOLLOW (`pedir_follow`) — o cadeado.
 //
 // O desenho diz PORTÃO, não "seguir", e a escolha é essa de propósito: o que
-// distingue este bloco do `pedir_email` — o outro que também espera resposta —
+// distingue este bloco do `pedir_dado` — o outro que também espera resposta —
 // é ser o único que a regra do portão (`atravessandoOPortao`, lib/steps.ts)
 // reavalia. Quem chega adiante por outro caminho volta para cá. O nome sai no
 // `title` da faixa; o que o ícone precisa carregar é "ninguém passa".

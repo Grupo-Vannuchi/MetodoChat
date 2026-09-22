@@ -50,7 +50,9 @@ export type Passo = ComId &
     | { tipo: "esperar"; minutos: number }
     | { tipo: "reagir_story"; emoji: string }
     | { tipo: "pedir_follow"; texto: string; botao_label: string }
-    | { tipo: "pedir_email"; texto: string }
+    // `campo` é a chave do catálogo (lib/campos.ts). `chave` só existe quando
+    // `campo === "livre"`, e é ela que vira `{{<chave>}}` e coluna do CSV.
+    | { tipo: "pedir_dado"; campo: string; texto: string; chave?: string }
   );
 
 // A posição no quadro é gravada junto, e NÃO participa de decisão nenhuma —
@@ -238,7 +240,7 @@ export function envioDaDm(p: PassoDm): EnvioDaDm {
 // discordassem, a prévia mostraria uma conversa que o motor não executa, sem
 // nada acusar.
 export function esperaResposta(p: Passo): boolean {
-  if (p.tipo === "pedir_follow" || p.tipo === "pedir_email") return true;
+  if (p.tipo === "pedir_follow" || p.tipo === "pedir_dado") return true;
   if (p.tipo === "dm") {
     const forma = envioDaDm(p).forma;
     return forma === "resposta_rapida" || forma === "botoes";
@@ -252,7 +254,7 @@ export function esperaResposta(p: Passo): boolean {
 // volta a andar, e as duas perguntas não têm a mesma resposta: o motor tem dois
 // jeitos de retomar um bloco de espera, e cada um consulta uma seta diferente.
 //
-//   `pedir_follow`, `pedir_email` e a `dm` de RESPOSTA RÁPIDA retomam pela
+//   `pedir_follow`, `pedir_dado` e a `dm` de RESPOSTA RÁPIDA retomam pela
 //     `sempre`: sem ela o destino é null, `interpretar` sai calada e a pessoa
 //     não recebe nada. Mas isso NÃO É um mapa único de três-tipos-para-três-
 //     funções — cada tipo bate nessa parede pelo SEU ponto de chamada, não os
@@ -262,7 +264,7 @@ export function esperaResposta(p: Passo): boolean {
 //     em `retomadaDoTexto` (:2130) nem em `retomadaDoBotao` (:1989) — as duas
 //     devolvem o PRÓPRIO bloco, porque ali quem retoma é o PORTÃO, e o portão
 //     se reavalia. O `seguinteDe` que de fato destrava o portão mora em
-//     lib/engine.ts:711, no ramo `resolverFollow === "passou"`. `pedir_email`
+//     lib/engine.ts:711, no ramo `resolverFollow === "passou"`. `pedir_dado`
 //     também não consulta `seguinteDe` em `retomadaDoBotao` (:1989) — devolve
 //     o bloco —, mas consulta em `retomadaDoTexto` (:2130) e em
 //     `retomadaDoEmailConhecido` (:2195), que é o único desses cinco pontos
@@ -346,7 +348,7 @@ export type Resultado = {
   //     quebrada prende a pessoa por tempo INDETERMINADO: nenhuma outra
   //     automação a alcança, e a única fuga é `interrompeOFluxo`, que só cede a
   //     vez quando o bloco parado é `dm`. Parada num `pedir_follow` ou num
-  //     `pedir_email`, ela não sai até alguém arrumar a automação.
+  //     `pedir_dado`, ela não sai até alguém arrumar a automação.
   //
   // A escolha continua sendo "manter" porque o outro lado é perder o lugar da
   // pessoa em silêncio, e o dado quebrado tem conserto — mas ela é uma escolha,
@@ -925,8 +927,8 @@ export function partirLigacao(ligacoes: Ligacao[], indice: number, meio: string)
 //
 // `paraODono` é a mesma falha na língua de quem monta a automação, e é o que
 // `conferirLista` mostra na tela. Antes a tela mostrava o `motivo` cru, e o dono
-// do painel lia "Bloco incompleto: pedir_email sem texto." — nome de tipo
-// interno, num painel em que todo o resto fala de "pedido de e-mail".
+// do painel lia "Bloco incompleto: pedir_dado sem texto." — nome de tipo
+// interno, num painel em que todo o resto fala de "pedido de dado".
 //
 // Os dois saem do MESMO `return` de propósito. Numa tabela à parte, ligada por
 // chave, uma falha nova ganharia entrada de um lado e não do outro, e a tela
@@ -1025,11 +1027,29 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
     }
     return { passo: p as Passo };
   }
-  if (tipo === "pedir_email") {
+  if (tipo === "pedir_dado") {
     if (typeof o.texto !== "string" || !o.texto.trim()) {
       return {
-        motivo: "pedir_email sem texto",
-        paraODono: "Este pedido de e-mail está sem texto.",
+        motivo: "pedir_dado sem texto",
+        paraODono: "Este pedido de dado está sem texto.",
+      };
+    }
+    // A CHAVE DO CAMPO LIVRE é o que vira `{{<chave>}}` e coluna do CSV
+    // (`normalizarChaveLivre`, lib/campos.ts:303). Sem ela o bloco pede um dado
+    // que não tem por onde ser lido depois: a pessoa responde, a resposta é
+    // guardada, e nenhuma mensagem nem exportação sabe chamá-la pelo nome. Os
+    // campos do catálogo não entram nesta regra porque a chave deles é o
+    // próprio `campo`.
+    //
+    // A RECUSA É PELA AUSÊNCIA, e NÃO por `normalizarChaveLivre` aplicada aqui:
+    // aquela função não é idempotente sobre a própria saída — ela apaga tudo
+    // que não é letra, dígito ou espaço, e o underscore que ela mesma escreve
+    // cai nessa conta ("qual_sua_cidade" voltaria "qualsuacidade"). Normalizar
+    // é trabalho de quem GRAVA, no editor; aqui a pergunta é se há chave.
+    if (o.campo === "livre" && (typeof o.chave !== "string" || !o.chave.trim())) {
+      return {
+        motivo: "pedir_dado livre sem chave",
+        paraODono: "Este pedido de dado está sem o nome do campo que guarda a resposta.",
       };
     }
     return { passo: p as Passo };
@@ -1199,9 +1219,9 @@ export function indiceDoId(passos: unknown, id: string): number | null {
 //
 // Existe porque quem lê o cursor (lib/engine.ts) lê `steps[i]` CRU do banco, e
 // confiar no `tipo` sem passar pela mesma validação do interpretador diverge do
-// que o fluxo faz: um `pedir_email` sem texto é ignorado por `interpretar` — e
+// que o fluxo faz: um `pedir_dado` sem texto é ignorado por `interpretar` — e
 // portanto nunca foi enviado —, mas o ramo do cursor o trataria como pedido de
-// e-mail e consumiria a mensagem da pessoa como endereço.
+// dado e consumiria a mensagem da pessoa como resposta a ele.
 //
 // Devolve undefined quando o índice não existe mais, quando o passo não passa
 // na validação, ou quando ele não espera resposta nenhuma. Esse último caso é
@@ -1363,7 +1383,7 @@ export function interpretar(fluxo: Fluxo, deBloco: string | null): Resultado {
   // (acima) — o bloco de onde a pessoa saiu não tem seta `sempre` — ou de
   // `identidadeNoIndice` sobre uma posição que não existe. Era o `indice + 1` do
   // último bloco antes da Tarefa 3b, e é o mesmo fim de caminho. Isso junta três
-  // casos que o payload não separa: o último bloco era `pedir_email` e o e-mail
+  // casos que o payload não separa: o último bloco era `pedir_dado` e o dado
   // foi capturado (fim CERTO, e a forma mais comum de terminar um fluxo de
   // captura); era uma `dm` de resposta rápida cujo botão não tem destino; era um
   // `pedir_follow` e quem seguiu não recebeu nada. O primeiro gravaria linha em
@@ -1570,7 +1590,7 @@ export function interpretar(fluxo: Fluxo, deBloco: string | null): Resultado {
 // PARADA DURA, E NÃO `esperaResposta`, E ISSO É A CORREÇÃO DA TAREFA 5.
 //
 // A caminhada quebrava em `esperaResposta`, e `esperaResposta` diz sim ao
-// PORTÃO — `pedir_follow` e `pedir_email`. Só que o portão NÃO segura anel
+// PORTÃO — `pedir_follow` e `pedir_dado`. Só que o portão NÃO segura anel
 // nenhum: quem o destrava não é a pessoa, é a própria execução. Medido pela
 // revisão da Tarefa 3b, com `passos: [pedir_follow G, dm X]` e as setas
 // `G --sempre--> X --sempre--> G`: esta função devolvia FALSE e o motor deu
@@ -1578,10 +1598,10 @@ export function interpretar(fluxo: Fluxo, deBloco: string | null): Resultado {
 //
 // O MECANISMO, e ele é pior do que travar: em `executarFluxo` (lib/engine.ts) o
 // ramo `pedir_follow` faz `return executarFluxo(…)` quando `resolverFollow`
-// devolve "passou", e o ramo `pedir_email` faz o mesmo quando o endereço já é
+// devolve "passou", e o ramo `pedir_dado` faz o mesmo quando o e-mail já é
 // conhecido. Os dois estão dentro de uma `async`, então a recursão NÃO estoura a
 // pilha — ela simplesmente nunca retorna. O webhook fica pendurado, e a Meta
-// reenvia o evento por 36 horas. O comentário do ramo `pedir_email` de lá já
+// reenvia o evento por 36 horas. O comentário do ramo `pedir_dado` de lá já
 // nomeava este anel como "o único laço infinito que existe nessa vizinhança" e
 // o registrava para esta tarefa.
 //
@@ -1651,7 +1671,7 @@ export function temCicloDeSempre(passos: unknown, ligacoes: unknown): boolean {
 // AS PARADAS SÃO AS DE `esperaResposta`, E NÃO AS DE `paradaDura`, e a diferença
 // com `temCicloDeSempre` (acima) é deliberada: quem manda aqui é o que
 // `interpretar` FAZ, e `interpretar` retorna em `esperaResposta` — que inclui o
-// portão e o pedido de e-mail. Contá-los como travessia daria um comprimento que
+// portão e o pedido de dado. Contá-los como travessia daria um comprimento que
 // a entrega nunca percorre, e a conferência acusaria fluxo que anda.
 //
 // BLOCO REPETIDO INTERROMPE A CONTAGEM, e não vira acusação: isso é anel, e o
@@ -1704,9 +1724,9 @@ export function caminhadaPassaDoTeto(passos: unknown, ligacoes: unknown): boolea
 //
 // Só a `dm` que espera entra nesta conta — resposta rápida OU `botoes`, desde a
 // Tarefa 4, porque as duas passam pela mesma pergunta em `esperaResposta` — e a
-// distinção não é decorativa: `pedir_follow` e `pedir_email` são portões que a
-// própria execução reavalia (o portão reconsulta a Meta; o pedido de e-mail é
-// pulado quando o endereço já é conhecido), então o fluxo pode atravessá-los
+// distinção não é decorativa: `pedir_follow` e `pedir_dado` são portões que a
+// própria execução reavalia (o portão reconsulta a Meta; o pedido de dado é
+// pulado quando o e-mail já é conhecido), então o fluxo pode atravessá-los
 // sozinho. A `dm` que espera não: nada além do toque da pessoa a destrava.
 //
 // Passo inválido não conta, pelo mesmo motivo de `passoEsperado`: `interpretar`
@@ -1741,10 +1761,10 @@ function contarParadasDuras(passos: unknown[]): number {
 // começo, o anel teria passado no salvar do mesmo jeito — não havia quem
 // perguntasse.
 //
-// A REGRA, e o porquê do recorte em `dm`: `pedir_follow` e `pedir_email` são
+// A REGRA, e o porquê do recorte em `dm`: `pedir_follow` e `pedir_dado` são
 // portões que a PRÓPRIA EXECUÇÃO reavalia — o portão reconsulta a Meta e segue
-// sozinho quando a pessoa já segue; o pedido de e-mail é pulado quando o
-// endereço já é conhecido. A `dm` que espera não tem nada disso: nada além do
+// sozinho quando a pessoa já segue; o pedido de dado é pulado quando o
+// e-mail já é conhecido. A `dm` que espera não tem nada disso: nada além do
 // toque a destrava.
 function paradaDura(p: Passo): boolean {
   return p.tipo === "dm" && esperaResposta(p);
@@ -2547,7 +2567,7 @@ function atravessandoOPortao(
 //
 // Os ramos de PORTÃO, por isso, não são código morto nem quando a reserva ganha.
 // Um bloco `dm` editado depois da entrega do botão pode ter virado `pedir_follow`
-// ou `pedir_email`, e aí o toque cai neles com a mesma razão de sempre: o toque
+// ou `pedir_dado`, e aí o toque cai neles com a mesma razão de sempre: o toque
 // não é a resposta que um portão espera. E pelo cursor do contato eles são o
 // caminho COMUM: quem está parado num portão está parado nele.
 //
@@ -2556,7 +2576,7 @@ function atravessandoOPortao(
 //   `dm` de resposta rápida → retoma do SEGUINTE, e "o seguinte" é a seta
 //     `sempre` que sai dela. O toque É a resposta que ela esperava, exatamente
 //     como no ramo de texto de lib/engine.ts.
-//   PORTÃO — `pedir_follow` ou `pedir_email` → retoma DELE MESMO. Avançar aqui
+//   PORTÃO — `pedir_follow` ou `pedir_dado` → retoma DELE MESMO. Avançar aqui
 //     era o defeito: quem está parado no portão de A continua podendo tocar no
 //     botão antigo da boas-vindas de A, que segue tocável na mensagem já
 //     entregue. O cursor é o do portão, o `+1` o pulava. A alcançabilidade é a
@@ -2567,17 +2587,17 @@ function atravessandoOPortao(
 // Os DOIS tipos entram, e a `dm` de resposta rápida não, porque a diferença
 // está no que o toque significa em cada um. Na `dm` o toque É a resposta
 // esperada — avançar é atender a pessoa. No portão não é: o que o portão espera
-// é o follow ou o endereço, e o toque não os entrega, então avançar é dar por
+// é o follow ou o dado pedido, e o toque não os entrega, então avançar é dar por
 // respondido o que ninguém respondeu.
 //
 //   `pedir_follow`: pular entregava o link e os lembretes a quem NÃO SEGUE — a
 //     promessa central do produto. Retomando dele, `resolverFollow` reconsulta
 //     a Meta e quem não segue continua barrado.
-//   `pedir_email`: pular esvaziava a opção que o dono marcou justamente para
-//     capturar o endereço — o pedido some em silêncio e o e-mail nunca chega.
+//   `pedir_dado`: pular esvaziava o bloco que o dono pôs justamente para
+//     capturar o dado — o pedido some em silêncio e a resposta nunca chega.
 //
-// Retomar do pedido de e-mail é seguro e idempotente: `executarFluxo` já pula o
-// passo sozinho quando o e-mail do contato é conhecido (o ramo `pedir_email`
+// Retomar do pedido de dado é seguro e idempotente: `executarFluxo` já pula o
+// passo sozinho quando o e-mail do contato é conhecido (o ramo `pedir_dado`
 // consulta `contacts.email` e segue para o índice seguinte), então quem já
 // respondeu não fica preso; e quem não respondeu recebe o pedido de novo,
 // deduplicado por `emailAskKey` no balde do dia.
@@ -2673,7 +2693,7 @@ export function retomadaDoBotao(
   }
   const tipo = passoEsperado(passos, indice)?.tipo;
   const destino =
-    tipo === "pedir_follow" || tipo === "pedir_email" ? id : seguinteDe(ligacoes, id);
+    tipo === "pedir_follow" || tipo === "pedir_dado" ? id : seguinteDe(ligacoes, id);
   return atravessandoOPortao(passos, ligacoes, destino);
 }
 
@@ -2794,7 +2814,7 @@ export function retomadaDoFollow(
 //
 //   `pedir_follow` → retoma DELE MESMO. A mensagem de texto não é o follow, e
 //     avançar entregaria o link a quem não segue — bastaria mandar "ok".
-//   `pedir_email` → retoma do SEGUINTE, e aqui a diferença em relação ao
+//   `pedir_dado` → retoma do SEGUINTE, e aqui a diferença em relação ao
 //     `AUTO:` é real: o motor acabou de EXTRAIR o e-mail desta mensagem e
 //     gravá-lo em `contacts.email`. O pedido foi atendido; repeti-lo seria pedir
 //     de novo o que a pessoa acabou de mandar.
@@ -2952,7 +2972,7 @@ export function retomadaDoTexto(fluxo: Fluxo, indice: number): Retomada {
 // A MEDIÇÃO que fechou a questão, e ela não é hipotética — é o grafo mais banal
 // que se monta no quadro, uma JUNÇÃO no bloco de link:
 //
-//   blocos: [dm "oi", pedir_email, dm com url, pedir_follow]
+//   blocos: [dm "oi", pedir_dado, dm com url, pedir_follow]
 //   setas:  oi -sempre-> e-mail -sempre-> LINK ;  portão -sempre-> LINK
 //
 // Quem já tinha e-mail gravado recebia o LINK sem o portão ser avaliado uma
@@ -2990,7 +3010,7 @@ export function retomadaDoTexto(fluxo: Fluxo, indice: number): Retomada {
 // para identidade acontece aqui dentro, uma vez, e o destino sai identidade.
 //
 // NÃO CONFERE O TIPO do bloco de propósito. Quem chama já sabe que está num
-// `pedir_email` — foi `interpretar` que parou nele e o motor que consultou o
+// `pedir_dado` — foi `interpretar` que parou nele e o motor que consultou o
 // banco. Reconferir aqui só criaria um segundo lugar onde a resposta pode
 // divergir; o que esta função decide é UMA coisa, o destino e o portão dele.
 export function retomadaDoEmailConhecido(
@@ -3019,8 +3039,8 @@ export function retomadaDoEmailConhecido(
 //   `dm` de resposta rápida → retoma do SEGUINTE. O que ela esperava era o
 //     toque no botão, que não veio; o texto que a pessoa mandou vale como
 //     resposta, do mesmo jeito que no ramo do cursor.
-//   portão de follow ou pedido de e-mail → retoma DELE MESMO, para o portão
-//     reconsultar a Meta e o e-mail ser reavaliado. Pular entregaria o link a
+//   portão de follow ou pedido de dado → retoma DELE MESMO, para o portão
+//     reconsultar a Meta e o dado ser reavaliado. Pular entregaria o link a
 //     quem não segue.
 //
 // O CRITÉRIO CONSERVADOR, e por que ele existe: a dedução acima só vale
@@ -3202,8 +3222,8 @@ export type Problema = {
 // respostas ao mesmo comentário (lib/dedupe.ts), e o `on conflict do nothing`
 // do enqueue engole o segundo item sem erro nenhum.
 //
-// `pedir_email`: quem engole o segundo é o próprio MOTOR, antes de a chave
-// entrar em jogo. O ramo `pedir_email` de lib/engine.ts pula o bloco quando o
+// `pedir_dado`: quem engole o segundo é o próprio MOTOR, antes de a chave
+// entrar em jogo. O ramo `pedir_dado` de lib/engine.ts pula o bloco quando o
 // e-mail do contato já é conhecido (`if (rows[0]?.email) return
 // executarFluxo(..., seguinteDe(...), ...)`), e depois de o primeiro pedido ser
 // respondido o endereço já está gravado — então o segundo normalmente nem chega
@@ -3215,8 +3235,15 @@ export type Problema = {
 // sai daqui no dia em que ganharem. `followGateKey` tem o mesmo buraco e não
 // precisa de entrada própria: o bloqueio dos dois portões já o torna
 // inalcançável pelo editor.
+// A TABELA É POR TIPO, E HOJE `pedir_dado` SÓ TEM UM CAMPO — o e-mail, que é o
+// único que a paleta cria (app/automacoes/editor/modelos.ts) e o único que o
+// motor resolve. Enquanto for assim, "um por tipo" e "um por campo" são a mesma
+// regra, e a mensagem pode falar do e-mail. No dia em que a paleta ganhar os
+// outros quatro pedidos, a chave desta tabela precisa passar a ser o CAMPO: um
+// pedido de e-mail e um de telefone na mesma lista são dois blocos legítimos, e
+// esta regra os barraria por terem o mesmo `tipo`.
 const SO_UM_POR_LISTA: Record<string, string> = {
-  pedir_email:
+  pedir_dado:
     "Só pode haver um pedido de e-mail. O segundo nunca é entregue: quando o endereço já foi respondido, o motor pula o bloco; quando não foi, ele sai com a mesma chave de envio do primeiro.",
   reagir_story:
     "Só pode haver uma reação à story. A segunda sai com a mesma chave de envio da primeira, e por isso nunca é entregue.",
@@ -3959,7 +3986,7 @@ export function conferirLista(
       // do produto — a `dm` de resposta rápida — não era acusado por ninguém.
       // Medido, com seta e tudo: `[dm "oi", dm "Quer?" botao_label:"Quero"]` com
       // `sempre(oi → Quer?)` devolvia `[]`. A pessoa toca "Quero" e não recebe
-      // nada, nem erro nem aviso. `pedir_email` sem saída era idêntico.
+      // nada, nem erro nem aviso. `pedir_dado` sem saída era idêntico.
       //
       // QUEM ENTRA está em `retomaPelaSempre` (lá em cima), e o recorte é o do
       // MOTOR, não o desta função: o menu de `botoes` fica de fora porque a
@@ -3983,7 +4010,7 @@ export function conferirLista(
           quando: "ativar",
           indice: i,
           mensagem:
-            passo.tipo === "pedir_email"
+            passo.tipo === "pedir_dado"
               ? "Não há nenhum bloco depois deste pedido de e-mail: quem mandar o endereço não recebe mais nada."
               : envio?.forma === "resposta_rapida"
                 ? `Não há nenhum bloco depois desta mensagem: quem tocar em “${envio.rotulo}” não recebe nada.`

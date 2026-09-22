@@ -156,7 +156,7 @@ function chavesDasLinhas(lista: unknown[]): string[] {
 // Um recado sobre COMO O FLUXO SE COMPORTA naquele bloco — não um erro.
 //
 // Âmbar e teal não são decoração: são as MESMAS duas cores que `no.tsx` usa
-// para separar o portão de follow do pedido de e-mail. Quem lê o aviso aqui
+// para separar o portão de follow do pedido de dado. Quem lê o aviso aqui
 // está olhando para a borda de lá.
 function Aviso({ tom, children }: { tom: "ambar" | "teal"; children: React.ReactNode }) {
   const cor =
@@ -564,13 +564,13 @@ export default function Painel({
           {/* Os dois param o fluxo (`esperaResposta`, lib/steps.ts, diz sim aos   */}
           {/* dois). O que só o `pedir_follow` tem é a REGRA DO PORTÃO             */}
           {/* (`atravessandoOPortao`): quando uma retomada cai adiante dele, o     */}
-          {/* fluxo volta e o avalia. O `pedir_email` não tem nada disso — numa    */}
-          {/* lista [pedir_email, resposta rápida, link], quem está parado na      */}
-          {/* resposta rápida toca no botão e cai no LINK, com o e-mail nunca      */}
+          {/* fluxo volta e o avalia. O `pedir_dado` não tem nada disso — numa     */}
+          {/* lista [pedir_dado, resposta rápida, link], quem está parado na       */}
+          {/* resposta rápida toca no botão e cai no LINK, com o dado nunca        */}
           {/* capturado. É ESCOPO, não defeito: a decisão foi cobrir só o follow,  */}
           {/* porque é ele que sustenta a promessa central do produto.            */}
           {/* ------------------------------------------------------------------ */}
-          {(passo?.tipo === "pedir_follow" || passo?.tipo === "pedir_email") && (
+          {(passo?.tipo === "pedir_follow" || passo?.tipo === "pedir_dado") && (
             <>
               <div className={CAMPO_TEXTO}>
                 <MessageField
@@ -601,7 +601,11 @@ export default function Painel({
                 </>
               )}
 
-              {passo.tipo === "pedir_email" && (
+              {/* O AVISO AINDA FALA DE ENDEREÇO porque `pedir_dado` só nasce
+                  com `campo: "email"` (`blocoNovo`, ./modelos). O cartão que
+                  mostra a pergunta por campo — e a chave do campo livre — é
+                  trabalho da tarefa do editor; aqui o tipo só trocou de nome. */}
+              {passo.tipo === "pedir_dado" && (
                 <Aviso tom="teal">
                   <strong>O fluxo espera aqui até o endereço chegar</strong>, mas não há
                   reavaliação: um bloco adiante alcançado por outro caminho sai com o e-mail nunca

@@ -371,12 +371,22 @@ const montarPayload = MODO_ANTIGO ? montarAntigo : S.payloadDoBotao;
 // varredura do menu. O porquê está no cabeçalho, junto com a medição do
 // fallback que decidiu a troca.
 // ---------------------------------------------------------------------------
+// O TIPO DO BLOCO P DEPENDE DO MODO, e essa é a mesma dispensa dos outros ramos
+// `MODO_ANTIGO` deste arquivo: o pedido de e-mail chamava-se `pedir_email` até a
+// tarefa que o transformou em `pedir_dado` com um `campo`, e o arquivo que a
+// contraprova carrega é anterior a ela. Semear o nome novo nos dois modos faria
+// o `conferir` de lá RECUSAR o bloco P — ele sairia da lista sem erro nenhum, a
+// contraprova perderia justamente o ramo que ela existe para cobrir (o salto
+// interno do e-mail já conhecido) e imprimiria zero sobre um espaço que não está
+// mais sendo percorrido. É a falha da reserva silenciosa, de novo.
+const TIPO_DO_PEDIDO = MODO_ANTIGO ? "pedir_email" : "pedir_dado";
+
 const BLOCOS = {
   E: { id: "b_ee00001", tipo: "dm", texto: "escolha", botao_label: "quero" },
   G: { id: "b_gg00002", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" },
   L: { id: "b_ll00003", tipo: "dm", texto: "toma", url: "https://x.y" },
   M: { id: "b_mm00004", tipo: "dm", texto: "um bloco qualquer" },
-  P: { id: "b_pp00005", tipo: "pedir_email", texto: "seu e-mail?" },
+  P: { id: "b_pp00005", tipo: TIPO_DO_PEDIDO, campo: "email", texto: "seu e-mail?" },
   N: { id: "b_nn00006", tipo: "dm", texto: "escolha uma", botoes: [{ id: "op_dddddd", rotulo: "a" }] },
 };
 const PAPEIS = ["E", "G", "L", "M", "P"];
@@ -740,7 +750,7 @@ const TETO_RECURSAO = 10;
 //
 // Cada salto, então, registra só a entrega que aconteceu debaixo dele. `rotulo`
 // identifica QUAL salto é este — o ponto de entrada na chamada de fora, ou o
-// nome do salto interno na chamada recursiva (abaixo, no ramo `pedir_email`) —
+// nome do salto interno na chamada recursiva (abaixo, no ramo `pedir_dado`) —
 // porque um exemplo de vazamento tem que apontar o salto que vazou, não o
 // ponto de entrada que a recursão começou percorrendo.
 function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, profundidade = 0, rotulo = "entrada") {
@@ -775,7 +785,7 @@ function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, p
   for (const acao of r.enfileirar) {
     const p = acao.passo;
     if (p.tipo === "pedir_follow") return; // avaliado, e barrado
-    if (p.tipo === "pedir_email") {
+    if (p.tipo === TIPO_DO_PEDIDO) {
       // O motor pula este bloco quando `contacts.email` já é conhecido. Os dois
       // ramos são simulados, e o que continua é o que entrega mais.
       //
@@ -1060,7 +1070,7 @@ function medir(passos, ligacoes, arranjo, gateado, exemplos) {
           grupo: m.grupo,
           arranjo: arranjo.join(""),
           // O SALTO QUE VAZOU, não o ponto de entrada da recursão: nas chamadas
-          // internas (o ramo `pedir_email`, em `executar`) os dois divergem, e
+          // internas (o ramo `pedir_dado`, em `executar`) os dois divergem, e
           // imprimir o ponto de entrada aqui já produziu, na tela, "exemplo de
           // vazamento em C / ponto: gatilho" para um vazamento que na verdade
           // aconteceu no salto interno do e-mail já conhecido — contradizendo

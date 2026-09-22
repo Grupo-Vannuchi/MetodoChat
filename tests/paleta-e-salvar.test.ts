@@ -98,7 +98,7 @@ describe("a paleta e as regras de publicar", () => {
     expect(salvarRecusaOBloco("dm", "abertura")).toBe(false);
     expect(salvarRecusaOBloco("esperar", "abertura")).toBe(false);
     expect(salvarRecusaOBloco("pedir_follow", "abertura")).toBe(false);
-    expect(salvarRecusaOBloco("pedir_email", "abertura")).toBe(false);
+    expect(salvarRecusaOBloco("pedir_dado", "abertura")).toBe(false);
   });
 
   it("os níveis que `conferirLista` acende nos dois blocos, gatilho a gatilho", () => {

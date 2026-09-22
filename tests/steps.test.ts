@@ -185,6 +185,36 @@ describe("interpretar", () => {
     expect(r.ignorados[0].motivo).toBe("dm sem texto");
   });
 
+  // O CAMPO LIVRE SEM CHAVE É BLOCO QUE NÃO SE LÊ DE VOLTA. A chave é o que
+  // vira `{{<chave>}}` e coluna do CSV (`normalizarChaveLivre`, lib/campos.ts),
+  // então sem ela o pedido sai, a pessoa responde e nenhuma mensagem sabe
+  // chamar a resposta pelo nome. `conferir` o recusa, e por isso `interpretar`
+  // o ignora — o bloco nunca chega a ser enviado.
+  it("pula `pedir_dado` livre sem chave, e diz que foi a chave que faltou", () => {
+    const passos = [
+      { tipo: "pedir_dado", campo: "livre", texto: "Qual a sua cidade?" },
+      { tipo: "dm", texto: "vale" },
+    ];
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
+    expect(r.enfileirar.map((a) => a.indice)).toEqual([1]);
+    expect(r.ignorados[0].motivo).toBe("pedir_dado livre sem chave");
+  });
+
+  it("`pedir_dado` livre COM chave é passo válido, e o do catálogo não precisa de chave", () => {
+    // O outro lado do portão acima: a exigência é só do `livre`. Um campo do
+    // catálogo já tem chave — é o próprio `campo` —, e cobrá-la dele barraria
+    // todo pedido de e-mail que existe em produção.
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", texto: "Qual a sua cidade?", chave: "cidade" })
+        .motivo
+    ).toBeUndefined();
+    expect(conferir({ tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" }).motivo).toBeUndefined();
+    // Chave só de espaço é a mesma ausência escrita de outro jeito.
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "   " }).motivo
+    ).toBe("pedir_dado livre sem chave");
+  });
+
   it("lista que não é lista não estoura", () => {
     const r = interpretar({ steps: null, ligacoes: [] }, "0");
     expect(r.enfileirar).toEqual([]);
@@ -259,11 +289,11 @@ describe("passoEsperado", () => {
     const passos = [
       { tipo: "dm", texto: "oi", botao_label: "quero!" },
       { tipo: "pedir_follow", texto: "me segue", botao_label: "já sigo" },
-      { tipo: "pedir_email", texto: "seu e-mail?" },
+      { tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" },
     ];
     expect(passoEsperado(passos, 0)?.tipo).toBe("dm");
     expect(passoEsperado(passos, 1)?.tipo).toBe("pedir_follow");
-    expect(passoEsperado(passos, 2)?.tipo).toBe("pedir_email");
+    expect(passoEsperado(passos, 2)?.tipo).toBe("pedir_dado");
   });
 
   it("não devolve passo que não espera nada", () => {
@@ -277,9 +307,9 @@ describe("passoEsperado", () => {
   });
 
   it("não devolve passo que o interpretador ignoraria", () => {
-    // O ramo do cursor não pode tratar como pedido de e-mail um passo que nunca
-    // chegou a ser enviado: ele consumiria a mensagem da pessoa como endereço.
-    expect(passoEsperado([{ tipo: "pedir_email" }], 0)).toBeUndefined();
+    // O ramo do cursor não pode tratar como pedido de dado um passo que nunca
+    // chegou a ser enviado: ele consumiria a mensagem da pessoa como resposta.
+    expect(passoEsperado([{ tipo: "pedir_dado", campo: "email" }], 0)).toBeUndefined();
     expect(passoEsperado([{ tipo: "pedir_follow", botao_label: "x" }], 0)).toBeUndefined();
     expect(passoEsperado([{ tipo: "inventado" }], 0)).toBeUndefined();
   });
@@ -304,7 +334,7 @@ describe("passoEsperado", () => {
     // contra mudança de implementação, não contra dado do banco.
     const passos = [
       { tipo: "dm", texto: "oi", botao_label: "quero!" },
-      { tipo: "pedir_email", texto: "seu e-mail?" },
+      { tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" },
     ];
     expect(passoEsperado(passos, -1)).toBeUndefined();
     expect(passoEsperado(passos, -2)).toBeUndefined();
@@ -654,7 +684,7 @@ describe("retomadaDoBotao", () => {
     // `emailAskKey` no balde do dia.
     const passos = [
       { id: "b_bem001", tipo: "dm", texto: "oi", botao_label: "quero!" },
-      { id: "b_eml004", tipo: "pedir_email", texto: "seu e-mail?" },
+      { id: "b_eml004", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" },
       { id: "b_lnk003", tipo: "dm", texto: "o link", url: "https://x.y" },
     ];
     expect(
@@ -667,7 +697,7 @@ describe("retomadaDoBotao", () => {
     // texto: `interpretar` o ignora, logo ele nunca foi enviado.
     const comPedidoQuebrado = [
       { id: "b_bem001", tipo: "dm", texto: "oi", botao_label: "quero!" },
-      { id: "b_eml004", tipo: "pedir_email", texto: "   " }, // texto em branco
+      { id: "b_eml004", tipo: "pedir_dado", campo: "email", texto: "   " }, // texto em branco
     ];
     // Sem tipo, segue a seta — e não há seta saindo do último bloco, então o
     // destino é `null`: nada a entregar. Era o `+1` que caía além do fim da
@@ -780,7 +810,7 @@ describe("retomadaDoFollow", () => {
   const comEmailDepoisDoPortao = [
     { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0
     { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 1 portão
-    { id: "b_eml004", tipo: "pedir_email", texto: "seu e-mail?" }, // 2
+    { id: "b_eml004", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 2
     { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" }, // 3
   ];
 
@@ -866,7 +896,7 @@ describe("retomadaDoFollow", () => {
     // desses a alcança.
     const portaoLaAtras = [
       { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0 parada dura
-      { id: "b_eml004", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_eml004", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 1
       { id: "b_esp005", tipo: "esperar", minutos: 5 }, // 2
       { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 3 portão
       { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" }, // 4
@@ -914,7 +944,7 @@ describe("retomadaDoTexto", () => {
   const lista = [
     { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0 resposta rápida
     { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 1
-    { id: "b_eml004", tipo: "pedir_email", texto: "seu e-mail?" }, // 2
+    { id: "b_eml004", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 2
     { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" }, // 3
   ];
 
@@ -1058,7 +1088,7 @@ describe("retomadaDoEmailConhecido", () => {
     // e o link era enfileirado com o `pedir_follow` nunca avaliado.
     const comJuncao = [
       { id: "b_bem00001", tipo: "dm", texto: "oi" }, // 0 entrada
-      { id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_eml00002", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 1
       { id: "b_lnk00003", tipo: "dm", texto: "toma", url: "https://x.y" }, // 2 o link
       { id: "b_por00004", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 3
     ];
@@ -1086,7 +1116,7 @@ describe("retomadaDoEmailConhecido", () => {
     // é o link. É o que faz os dois pousarem no mesmo bloco.
     const passos = [
       { id: "b_men00001", tipo: "dm", texto: "escolha", botao_label: "quero" }, // 0
-      { id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_eml00002", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 1
       { id: "b_lnk00003", tipo: "dm", texto: "toma", url: "https://x.y" }, // 2
       { id: "b_por00004", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 3
     ];
@@ -1106,7 +1136,7 @@ describe("retomadaDoEmailConhecido", () => {
     // comparação de posição fazia.
     const doisBracos = [
       { id: "b_por00001", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 0
-      { id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_eml00002", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 1
       { id: "b_out00003", tipo: "dm", texto: "o outro braço" }, // 2
     ];
     const ligacoes = [
@@ -1119,7 +1149,7 @@ describe("retomadaDoEmailConhecido", () => {
   });
 
   it("bloco sem seta `sempre` saindo, e lista que não é lista, devolvem destino null", () => {
-    const lista = [{ id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }];
+    const lista = [{ id: "b_eml00002", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }];
     expect(retomadaDoEmailConhecido({ steps: lista, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
     expect(retomadaDoEmailConhecido({ steps: null, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
     // Índice fora da lista: sem identidade não há de onde sair.
@@ -1130,7 +1160,7 @@ describe("retomadaDoEmailConhecido", () => {
     // A prova de que este ponto não ganhou regra própria: nos dois arranjos
     // abaixo o destino é o mesmo bloco, e o que decide é só o CAMINHO.
     const passos = [
-      { id: "b_eml00001", tipo: "pedir_email", texto: "seu e-mail?" }, // 0
+      { id: "b_eml00001", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 0
       { id: "b_lnk00002", tipo: "dm", texto: "toma", url: "https://x.y" }, // 1
       { id: "b_por00003", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 2
     ];
@@ -2870,12 +2900,12 @@ describe("conferirLista", () => {
 
   it("ERRO: dois pedidos de e-mail — o segundo é pulado antes de ser enviado", () => {
     // O motivo NÃO é a chave, e a diferença importa para a mensagem: o ramo
-    // `pedir_email` de lib/engine.ts PULA o bloco quando o e-mail do contato já
+    // `pedir_dado` de lib/engine.ts PULA o bloco quando o e-mail do contato já
     // é conhecido, e depois do primeiro pedido respondido ele já está gravado.
     // `emailAskKey(auto, pessoa, dia)` — igual para os dois — só decide quando
     // os dois chegam a ser enfileirados no mesmo dia sem resposta entre eles.
-    const um = { id: "b_eml011", tipo: "pedir_email", texto: "Seu e-mail?" };
-    const dois = { id: "b_eml012", tipo: "pedir_email", texto: "E agora o e-mail?" };
+    const um = { id: "b_eml011", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" };
+    const dois = { id: "b_eml012", tipo: "pedir_dado", campo: "email", texto: "E agora o e-mail?" };
     const r = erros([bem, um, dois]);
     expect(r).toHaveLength(1);
     expect(r[0].indice).toBe(2);
@@ -2903,8 +2933,8 @@ describe("conferirLista", () => {
     // pulando o bloco no de cima. Uma mensagem só para os três esconderia isso
     // justamente de quem precisa entender o que fazer com o bloco.
     const dosEmails = erros([
-      { id: "b_eml021", tipo: "pedir_email", texto: "E-mail?" },
-      { id: "b_eml022", tipo: "pedir_email", texto: "E-mail de novo?" },
+      { id: "b_eml021", tipo: "pedir_dado", campo: "email", texto: "E-mail?" },
+      { id: "b_eml022", tipo: "pedir_dado", campo: "email", texto: "E-mail de novo?" },
     ])[0].mensagem;
     const dasStories = erros(
       [
@@ -2930,7 +2960,7 @@ describe("conferirLista", () => {
   it("um de cada um deles continua valendo", () => {
     // A regra é sobre o SEGUNDO, não sobre o tipo: um bloco de cada é o que o
     // formulário sempre emitiu, e nada nele é engolido.
-    const email = { id: "b_eml017", tipo: "pedir_email", texto: "Seu e-mail?" };
+    const email = { id: "b_eml017", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" };
     expect(erros([bem, portao, email, link])).toHaveLength(0);
   });
 
@@ -3088,7 +3118,7 @@ describe("conferirLista", () => {
 
   it("acumula vários problemas em vez de parar no primeiro", () => {
     const quebrado = { id: "b_vaz009", tipo: "dm", texto: "" };
-    const outroQuebrado = { id: "b_vaz010", tipo: "pedir_email", texto: "" };
+    const outroQuebrado = { id: "b_vaz010", tipo: "pedir_dado", campo: "email", texto: "" };
     const r = erros([quebrado, outroQuebrado]);
     expect(r).toHaveLength(2);
     // Cada um aponta o SEU bloco e diz o SEU motivo. Sem isto, dois problemas
@@ -3096,15 +3126,15 @@ describe("conferirLista", () => {
     expect(r.map((p) => p.indice)).toEqual([0, 1]);
     expect(r[0].mensagem).not.toBe(r[1].mensagem);
     // Diz de QUAL bloco fala, na língua do dono. Antes fixava o `motivo` cru
-    // (`"pedir_email"`), que é nome de tipo interno e não significa nada para
+    // (`"pedir_dado"`), que é nome de tipo interno e não significa nada para
     // quem está montando a automação na tela.
-    expect(r[1].mensagem).toMatch(/pedido de e-mail/i);
+    expect(r[1].mensagem).toMatch(/pedido de dado/i);
   });
 
   it("as mensagens de bloco inválido não vazam jargão interno", () => {
     // Todas as outras mensagens da função foram escritas na língua do dono, e
     // estas herdavam o `motivo` técnico de `conferir` — a tela chegava a
-    // mostrar "Bloco incompleto: pedir_email sem texto." e "tipo desconhecido:
+    // mostrar "Bloco incompleto: pedir_dado sem texto." e "tipo desconhecido:
     // coisa_nova". O `motivo` continua existindo, para diagnóstico, nos
     // `ignorados` de `interpretar`; o que a TELA mostra é outra coisa.
     const invalidos: unknown[] = [
@@ -3113,7 +3143,7 @@ describe("conferirLista", () => {
       { id: "b_pux032", tipo: "resposta_publica", textos: [] },
       { id: "b_rex033", tipo: "reagir_story", emoji: "" },
       { id: "b_fox034", tipo: "pedir_follow", texto: "" },
-      { id: "b_emx035", tipo: "pedir_email", texto: "" },
+      { id: "b_emx035", tipo: "pedir_dado", campo: "email", texto: "" },
       { id: "b_nvx036", tipo: "coisa_nova" },
       "nem é objeto",
     ];
@@ -3121,7 +3151,7 @@ describe("conferirLista", () => {
     expect(r).toHaveLength(invalidos.length);
     for (const p of r) {
       expect(p.mensagem).not.toMatch(
-        /pedir_email|pedir_follow|reagir_story|resposta_publica|tipo desconhecido|não é um objeto|\bdm\b/
+        /pedir_dado|pedir_follow|reagir_story|resposta_publica|tipo desconhecido|não é um objeto|\bdm\b/
       );
       // Frase inteira, na língua de quem lê a tela.
       expect(p.mensagem).toMatch(/^[A-ZÀ-Ú].*\.$/);
@@ -4394,7 +4424,7 @@ describe("conferirLista em dois níveis", () => {
   });
 
   it("ATIVAR: pedido de e-mail que é o fim do caminho — manda o endereço e não recebe nada", () => {
-    const email = { id: "b_eml091", tipo: "pedir_email", texto: "Seu e-mail?" };
+    const email = { id: "b_eml091", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" };
     const ls = [sempre("b_bem001", "b_eml091")];
     const r = ativar([bem, email], ls);
     expect(r).toHaveLength(1);

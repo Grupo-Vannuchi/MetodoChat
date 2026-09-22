@@ -634,7 +634,7 @@ async function executarFluxo(
   //
   // E LIMPAR é mais seguro do que deixar o cursor intacto, que era a alternativa
   // óbvia para preservar a posição: o destino de uma retomada adiante do portão
-  // pode ser um `pedir_email` ou um SEGUNDO `pedir_follow`, e os dois capturam
+  // pode ser um `pedir_dado` ou um SEGUNDO `pedir_follow`, e os dois capturam
   // toda mensagem pelo mesmo motivo (`interrompeOFluxo` só cede a vez quando o
   // passo parado é `dm`). Preservar a posição reabriria a captura justamente
   // para esses casos.
@@ -824,7 +824,7 @@ async function executarFluxo(
       // lê o diff
       // distingue uma dispensa deliberada de uma regra jogada fora. O motivo
       // está por escrito no ramo
-      // `pedir_email` logo abaixo, junto com o do ramo que FAZ o contrário — os
+      // `pedir_dado` logo abaixo, junto com o do ramo que FAZ o contrário — os
       // dois lados da assimetria ficam num lugar só para ninguém "consertar"
       // metade dela. Em uma linha: aqui o destino é `seguinteDe(portão)`, então
       // a regra dispararia sempre e mandaria reatravessar o portão recém-vencido, ao
@@ -869,7 +869,12 @@ async function executarFluxo(
       return;
     }
 
-    if (p.tipo === "pedir_email") {
+    // O RAMO AINDA É SÓ O DO E-MAIL, e o `campo` do passo não é lido aqui: a
+    // renomeação do tipo não mexeu no que o motor faz. Hoje isso não tem
+    // consequência porque a paleta só cria `pedir_dado` com `campo: "email"`
+    // (app/automacoes/editor/modelos.ts) — quem passa a ler o `campo`, e a
+    // decidir por extrator e por recência, é a tarefa do motor.
+    if (p.tipo === "pedir_dado") {
       const rows = (await sql().query(
         `select email from contacts where account_id = $1 and ig_id = $2`,
         [account.ig_user_id, contactIgId]
@@ -2042,7 +2047,7 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
 
         // Este ramo só pode CAPTURAR a mensagem quando ela é mesmo a resposta do
         // passo esperado. O critério, por tipo de passo:
-        //   pedir_email  → a mensagem é candidata a e-mail. Captura.
+        //   pedir_dado   → a mensagem é candidata a e-mail. Captura.
         //   pedir_follow → qualquer mensagem vale como "quero continuar". Captura.
         //   dm de resposta rápida → o que ela espera é o TOQUE no botão, não
         //     texto. Então só deixa passar o que for gatilho de OUTRA automação:
@@ -2058,7 +2063,10 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
           // cursor não precisa ser limpo aqui — `executarFluxo` da automação nova
           // o reescreve (ou o apaga, se a lista terminar).
         } else {
-          if (passo.tipo === "pedir_email") {
+          // Mesma observação do ramo de `executarFluxo`, lá em cima: o `campo`
+          // do passo ainda não é lido, e todo `pedir_dado` é tratado como o
+          // pedido de e-mail que ele hoje sempre é.
+          if (passo.tipo === "pedir_dado") {
             const email = extractEmail(text);
             if (!email) {
               // Não parecia e-mail: pede de novo, uma vez por mensagem recebida.

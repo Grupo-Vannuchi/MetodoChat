@@ -163,8 +163,13 @@ export function blocoNovo(chave: string): Passo {
       return { id, tipo: "esperar", minutos: 60 };
     case "pedir_follow":
       return { id, tipo: "pedir_follow", texto: "Antes de te mandar o link, me segue lá no perfil 🙏", botao_label: "Já sigo! ✅" };
+    // A CHAVE DA PALETA CONTINUA `pedir_email` e o TIPO passou a ser
+    // `pedir_dado`: são coisas diferentes, e já eram — as quatro chaves de
+    // mensagem também salvam um tipo só (`dm`). A chave é o atalho que a pessoa
+    // acha na faixa; o tipo é o que o motor lê. O `campo` é a chave do catálogo
+    // (lib/campos.ts), e é ele que diz QUAL dado este pedido coleta.
     case "pedir_email":
-      return { id, tipo: "pedir_email", texto: "Me manda seu melhor e-mail que eu te envio o link 👇" };
+      return { id, tipo: "pedir_dado", campo: "email", texto: "Me manda seu melhor e-mail que eu te envio o link 👇" };
     case "resposta_publica":
       return { id, tipo: "resposta_publica", textos: ["Te mandei no direct! 📩"] };
     case "reagir_story":
@@ -193,7 +198,7 @@ const TIPO_DO_ITEM: Record<string, string> = {
   dm_opcoes: "dm",
   esperar: "esperar",
   pedir_follow: "pedir_follow",
-  pedir_email: "pedir_email",
+  pedir_email: "pedir_dado",
   resposta_publica: "resposta_publica",
   reagir_story: "reagir_story",
 };
@@ -429,7 +434,11 @@ export function resumoDoBloco(p: Passo): { titulo: string; corpo: string } {
     // como qualquer parada, e o rótulo diz isso — não que ele barre.
     case "pedir_follow":
       return { titulo: "PORTÃO · PEDIR FOLLOW", corpo: comoTexto(p.texto) };
-    case "pedir_email":
+    // O TÍTULO AINDA É FIXO porque `pedir_dado` só nasce com `campo: "email"`
+    // (`blocoNovo`, acima). Quem der outros campos à paleta tem de tirar o
+    // título do catálogo (lib/campos.ts), senão o bloco de telefone se anuncia
+    // como pedido de e-mail no quadro.
+    case "pedir_dado":
       return { titulo: "PEDIR E-MAIL", corpo: comoTexto(p.texto) };
     case "resposta_publica":
       return {
