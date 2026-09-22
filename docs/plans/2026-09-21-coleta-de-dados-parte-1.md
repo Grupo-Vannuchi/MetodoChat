@@ -650,6 +650,24 @@ e nada acusaria.
 **Arquivos:** `app/automacoes/editor/modelos.ts`,
 `app/automacoes/editor/painel.tsx`; criar `testes-dom/campo-livre.dom.tsx`.
 
+- [ ] **Passo 0: a regra do "só um por lista" muda de chave — ANTES da paleta**
+
+`SO_UM_POR_LISTA` (lib/steps.ts, perto da :3245) é indexada por TIPO. Enquanto
+só existia `pedir_email`, "um por tipo" e "um por campo" eram a mesma regra. Com
+os cinco itens, deixam de ser: "Pedir e-mail" + "Pedir telefone" na mesma
+automação viram `nivel: "erro"`, `quando: "salvar"`, com a frase "Só pode haver
+um pedido de e-mail" — o dono não consegue salvar algo legítimo, e a mensagem
+nem descreve o que ele fez.
+
+São DOIS lugares, e o segundo fica 415 linhas abaixo: a tabela, e o `jaVistos`
+em `lib/steps.ts:3660-3664`, que guarda `passo.tipo` e passa a guardar o campo.
+
+O motivo original tem de sobreviver na mensagem nova: o segundo pedido do MESMO
+campo nunca é entregue — quando o dado já foi respondido o motor pula o bloco, e
+quando não foi ele sai com a mesma chave de envio do primeiro.
+
+Caso: dois campos DIFERENTES na mesma lista passam; dois do MESMO são recusados.
+
 - [ ] **Passo 1: a paleta**
 
 `modelos.ts` — o item `pedir_email` vira **cinco**, todos criando o mesmo
