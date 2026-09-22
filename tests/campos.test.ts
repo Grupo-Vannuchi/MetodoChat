@@ -238,4 +238,22 @@ describe("lerCampos", () => {
     expect(r.has("numerico")).toBe(false);
     expect(r.has("objeto")).toBe(false);
   });
+
+  it("entrada NULA é descartada, e não derruba a leitura inteira", () => {
+    // `typeof null === "object"` em JS, então sem a guarda `valor !== null` o
+    // ramo entra e `valor.valor` LANÇA — e quem chama `lerCampos` é o motor, no
+    // meio de atender uma mensagem de verdade. Um `null` aqui derrubaria a
+    // leitura dos OUTROS campos junto, que é o oposto do que esta função
+    // promete ("ignora o que não tem forma").
+    //
+    // Este caso nasceu de um plantio que SOBREVIVEU na re-revisão de 22/09/2026:
+    // a guarda existia, funcionava, e nada a prendia — a terceira vez que isso
+    // aconteceu neste arquivo.
+    const r = lerCampos({
+      nulo: null,
+      telefone: { valor: "11999999999", em: "2026-09-01T00:00:00Z" },
+    });
+    expect(r.has("nulo")).toBe(false);
+    expect(r.get("telefone")?.valor).toBe("11999999999");
+  });
 });
