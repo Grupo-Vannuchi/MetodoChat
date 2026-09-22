@@ -23,6 +23,10 @@ import {
   type Ligacao,
   type Passo,
 } from "../lib/steps";
+// O CATÁLOGO ENTRA AQUI porque é ele que este arquivo confere que a paleta LÊ:
+// a pergunta padrão de cada pedido de dado não pode estar copiada em
+// `modelos.ts` (ver o caso dos cinco atalhos, abaixo).
+import { campoPorChave } from "../lib/campos";
 
 // O QUE ESTE ARQUIVO FIXA: `resumoDoBloco` é TOTAL sobre jsonb.
 //
@@ -156,24 +160,79 @@ describe("resumoDoBloco classifica o MENU pela FORMA", () => {
 });
 
 describe("blocoNovo", () => {
-  it("os nove itens da paleta nascem desenháveis", () => {
+  it("todo item da paleta nasce desenhável", () => {
     // Se um item novo da paleta produzisse um tipo que `resumoDoBloco` não
     // conhece, ele nasceria como "BLOCO DESCONHECIDO" — visível, mas com o
     // salvar travado desde o arrasto.
-    const chaves = [
-      "dm",
-      "dm_botao",
-      "dm_link",
-      "dm_opcoes",
-      "esperar",
-      "pedir_follow",
-      "pedir_email",
-      "resposta_publica",
-      "reagir_story",
-    ];
-    for (const chave of chaves) {
-      expect(resumoDoBloco(blocoNovo(chave)).titulo).not.toBe("BLOCO DESCONHECIDO");
+    //
+    // A LISTA VEM DE `PALETA`, e não escrita à mão aqui: a cópia à mão tinha
+    // nove chaves e ficou parada quando a paleta ganhou os cinco pedidos de
+    // dado — um item novo entrava sem ninguém conferir que ele nasce desenhável,
+    // que é exatamente o que este caso existe para impedir.
+    for (const item of PALETA) {
+      expect(resumoDoBloco(blocoNovo(item.chave)).titulo, item.chave).not.toBe(
+        "BLOCO DESCONHECIDO"
+      );
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // OS CINCO PEDIDOS DE DADO, E O QUE ELES LEEM DO CATÁLOGO.
+  //
+  // São cinco atalhos sobre UM mecanismo (`tipo: "pedir_dado"`), e o que muda
+  // entre eles é o `campo`. A pergunta padrão NÃO é escrita em `modelos.ts`: ela
+  // vem de `lib/campos.ts`, que é o dono da regra de campo. Uma cópia do texto
+  // aqui divergiria do que o motor repergunta no primeiro ajuste de copy.
+  // ---------------------------------------------------------------------------
+
+  it("os quatro campos do catálogo nascem com o campo e a pergunta DE LÁ", () => {
+    const daPaleta: [string, string][] = [
+      ["pedir_email", "email"],
+      ["pedir_telefone", "telefone"],
+      ["pedir_nome", "nome_informado"],
+      ["pedir_nascimento", "nascimento"],
+    ];
+    for (const [chaveDoItem, campo] of daPaleta) {
+      const bloco = blocoNovo(chaveDoItem);
+      expect(bloco.tipo, chaveDoItem).toBe("pedir_dado");
+      if (bloco.tipo !== "pedir_dado") continue;
+      expect(bloco.campo, chaveDoItem).toBe(campo);
+      expect(bloco.texto, chaveDoItem).toBe(campoPorChave(campo)!.perguntaPadrao);
+      // Campo do catálogo não tem `chave`: a chave dele é o próprio campo
+      // (`chaveDoPedido`, lib/steps.ts).
+      expect(bloco.chave, chaveDoItem).toBeUndefined();
+    }
+  });
+
+  it("o pedido de outro dado nasce LIVRE e sem chave — e por isso nasce com erro", () => {
+    // É a mesma decisão de "Mensagem com link", que nasce com `url: ""`: o
+    // bloco nasce acusando o campo que falta, e o erro apaga na primeira letra
+    // digitada. Sem a chave `chave` presente, o dono não teria onde digitar o
+    // nome do campo no painel.
+    const bloco = blocoNovo("pedir_outro");
+    expect(bloco.tipo).toBe("pedir_dado");
+    if (bloco.tipo !== "pedir_dado") return;
+    expect(bloco.campo).toBe("livre");
+    expect(bloco.chave).toBe("");
+  });
+
+  it("o título do nó nomeia o CAMPO, e não o e-mail de sempre", () => {
+    // Enquanto `pedir_dado` só nascia com `campo: "email"`, o título fixo
+    // "PEDIR E-MAIL" estava certo. Com os cinco itens da paleta ele passaria a
+    // anunciar o bloco de telefone como pedido de e-mail no quadro — e o título
+    // é a única coisa que distingue os cinco blocos de longe.
+    const doCampo = (campo: string) =>
+      resumoDoBloco(doBanco({ tipo: "pedir_dado", campo, texto: "t" })).titulo;
+
+    expect(doCampo("email")).toBe("PEDIR E-MAIL");
+    expect(doCampo("telefone")).toBe("PEDIR TELEFONE / WHATSAPP");
+    expect(doCampo("nome_informado")).toBe("PEDIR NOME INFORMADO");
+    expect(doCampo("nascimento")).toBe("PEDIR DATA DE NASCIMENTO");
+    expect(doCampo("livre")).toBe("PEDIR OUTRO DADO");
+    // Campo que o catálogo não conhece (automação gravada antes desta fase, ou
+    // `steps` editado por fora) não vira "BLOCO DESCONHECIDO": o bloco É um
+    // pedido de dado, e `conferirLista` já o acusa por outro caminho.
+    expect(doCampo("inventado")).toBe("PEDIR DADO");
   });
 
   // A LISTA DA PALETA E O `switch` SÃO A MESMA COISA, e este teste é o que

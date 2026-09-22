@@ -298,14 +298,23 @@ export function IconAlert({ className }: IconProps) {
 /* A REGRA QUE ORGANIZA ESTE GRUPO É A SILHUETA, e não o detalhe: na faixa     */
 /* eles saem a 22px, e a essa altura o que separa dois ícones é o CONTORNO     */
 /* GERAL — uma forma, duas formas, uma forma com algo escapando dela. Detalhe  */
-/* interno some. Por isso cada um dos NOVE tem um contorno diferente, e não    */
+/* interno some. Por isso cada um dos TREZE tem um contorno diferente, e não   */
 /* só um miolo diferente.                                                      */
 /*                                                                            */
-/* DOIS DOS NOVE NÃO ESTÃO AQUI, e a ausência é reúso deliberado:              */
+/* TRÊS DOS TREZE NÃO ESTÃO AQUI, e a ausência é reúso deliberado:            */
 /*   `esperar`     → `IconClock`, logo acima. É o MESMO ícone que a prévia     */
 /*                   (`editor/previa`) usa na legenda de tempo, e desenhar um  */
 /*                   segundo relógio faria a mesma ideia ter dois desenhos.    */
 /*   `pedir_email` → `IconMail`. Idem: é o ícone da parada de e-mail da prévia.*/
+/*   `pedir_telefone` → `IconPhone`, logo acima. Mesma regra: já existe um     */
+/*                   telefone desenhado nesta base, e a ideia é a mesma.       */
+/*                                                                            */
+/* OS CINCO PEDIDOS DE DADO SÃO IRMÃOS COMO OS QUATRO DE MENSAGEM — os cinco   */
+/* salvam `tipo: "pedir_dado"` (ver `editor/modelos`) e só o `campo` muda.     */
+/* Aqui, porém, eles NÃO partem de uma forma comum: o que o dono procura na    */
+/* faixa é O DADO ("onde está o telefone?"), não o mecanismo. Cada um é o      */
+/* desenho da COISA pedida — envelope, telefone, pessoa, calendário — e o      */
+/* quinto, que não pede coisa nenhuma, é o par de chaves da variável.          */
 /*                                                                            */
 /* OS QUATRO DE MENSAGEM SÃO IRMÃOS DE PROPÓSITO — os quatro salvam            */
 /* `tipo: "dm"` (ver `editor/modelos`), e a tela é o único lugar onde a        */
@@ -425,6 +434,53 @@ export function IconRespostaPublica({ className }: IconProps) {
           ele vira megafone, que é o que a marca precisa dizer. */}
       <path d="m3 11 18-5v12L3 14v-3Z" />
       <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+    </Svg>
+  );
+}
+
+// PEDIR NOME (`pedir_dado` com `campo: "nome_informado"`) — a pessoa.
+//
+// Cabeça e ombros, e não o grupo de `IconUsers`: o bloco pergunta o nome de UMA
+// pessoa, a que está conversando. O grupo diria "contatos", que é outra tela.
+export function IconPessoa({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" />
+    </Svg>
+  );
+}
+
+// PEDIR NASCIMENTO (`pedir_dado` com `campo: "nascimento"`) — o calendário.
+//
+// NÃO É O `IconClock` da espera, e a distinção é o ponto: o relógio desta base
+// significa TEMPO QUE PASSA (a espera do bloco, a legenda da prévia), e
+// nascimento é uma DATA. Na faixa os dois ficam a poucos ícones de distância, e
+// dois relógios ali seriam dois blocos com o mesmo significado aparente.
+export function IconCalendario({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18" />
+      <path d="M8 3v4" />
+      <path d="M16 3v4" />
+    </Svg>
+  );
+}
+
+// PEDIR OUTRO DADO (`pedir_dado` com `campo: "livre"`) — as chaves da variável.
+//
+// Os outros quatro desenham a COISA pedida; este não tem coisa nenhuma para
+// desenhar, porque quem escolhe a pergunta é o dono. O que ele tem de único é
+// justamente o nome do campo que ele inventa, e que vira `{{cidade}}` numa
+// mensagem — então o desenho é o par de chaves, que é o que o dono vai ver no
+// painel embaixo do que digitar. Silhueta aberta, sem caixa: não se confunde com
+// o portão nem com nenhum dos quatro balões a 22px.
+export function IconCampoLivre({ className }: IconProps) {
+  return (
+    <Svg className={className}>
+      <path d="M8 4a3 3 0 0 0-3 3v2a3 3 0 0 1-3 3 3 3 0 0 1 3 3v2a3 3 0 0 0 3 3" />
+      <path d="M16 4a3 3 0 0 1 3 3v2a3 3 0 0 0 3 3 3 3 0 0 0-3 3v2a3 3 0 0 1-3 3" />
     </Svg>
   );
 }

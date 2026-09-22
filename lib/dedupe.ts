@@ -73,8 +73,40 @@ export const followGateKey = (
   tentativa: number
 ) => `fg:${automationId}:${contactIgId}:${dia}:${tentativa}`;
 
-export const emailAskKey = (automationId: string, contactIgId: string, dia: string) =>
-  `ea:${automationId}:${contactIgId}:${dia}`;
+// O PEDIDO DE DADO. O nome e o prefixo `ea:` são de quando este pedido só sabia
+// pedir e-mail — os dois ficam, e pelo mesmo motivo do `kind: "dm_email_ask"`
+// (lib/engine.ts): o prefixo está gravado em linhas de fila de produção, e
+// trocá-lo é migração de dado.
+//
+// O CAMPO ENTRA NA CHAVE, e é a mudança desta tarefa. Enquanto o editor montava
+// UM `pedir_dado` por automação, automação + pessoa + dia bastava. Com os cinco
+// itens da paleta (app/automacoes/editor/modelos.ts) uma automação pede e-mail E
+// telefone, e os dois pedidos do mesmo dia caíam na MESMA string: o `on conflict
+// do nothing` do enqueue engolia o segundo EM SILÊNCIO — a pessoa nunca recebia
+// a segunda pergunta e nada aparecia como erro em lugar nenhum.
+//
+// É O CAMPO, E NÃO A IDENTIDADE DO BLOCO, e a escolha é o que mantém de pé o
+// motivo da regra "só pode haver um pedido do mesmo campo" (`conferirLista`,
+// lib/steps.ts): dois blocos que pedem o MESMO dado continuam colidindo de
+// propósito, que é o segundo braço daquela frase. Com o id do bloco na chave os
+// dois passariam a sair, e a frase que o editor mostra ao dono viraria mentira.
+// Para o campo livre o valor é a chave NORMALIZADA (`chaveDoPedido`,
+// lib/steps.ts), senão dois campos livres diferentes colidiriam entre si.
+//
+// O QUE ACONTECE COM AS LINHAS VELHAS, escrito porque mudar formato aqui é
+// autorizar envio em dobro: toda linha `ea:<auto>:<pessoa>:<dia>` já gravada
+// deixa de casar com a nova forma. O alcance disso é UM pedido repetido, só no
+// dia do deploy, e só para quem tinha o pedido enfileirado hoje E AINDA NÃO
+// RESPONDEU — quem respondeu não é perguntado de novo por outro caminho: o ramo
+// `pedir_dado` de lib/engine.ts consulta `contacts.campos` antes de enfileirar e
+// PULA o bloco quando o dado está lá e fresco. O preço foi aceito contra o
+// defeito que ele fecha, que é permanente e calado.
+export const emailAskKey = (
+  automationId: string,
+  contactIgId: string,
+  campo: string,
+  dia: string
+) => `ea:${automationId}:${contactIgId}:${campo}:${dia}`;
 
 // MORTA: nenhum chamador fora dos testes. Ver a nota no topo do arquivo.
 export const followupKey = (followupId: string, contactIgId: string, dia: string) =>

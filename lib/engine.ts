@@ -975,20 +975,25 @@ async function executarFluxo(
         automation_id: auto.id,
         comment_id: comentario ?? undefined,
         payload: { text: p.texto },
-        // LIMITE CONHECIDO, e ele fica registrado aqui em vez de ser consertado
-        // às cegas: `emailAskKey` é automação + contato + DIA, sem a identidade
-        // do bloco. Uma automação com DOIS `pedir_dado` pediria o segundo campo
-        // com a MESMA chave do primeiro no mesmo dia, e o `on conflict do
-        // nothing` de `enqueue` engoliria o segundo pedido calado. Hoje isso não
-        // alcança ninguém — a paleta só monta um `pedir_dado` por automação
-        // (app/automacoes/editor/modelos.ts) —, e quem abre essa porta é o
-        // editor da Tarefa 5, que precisa trocar a chave JUNTO. A troca não foi
-        // feita aqui porque mudar o FORMATO da chave faz as linhas já gravadas
-        // hoje deixarem de casar, e quem já recebeu o pedido hoje receberia
-        // outro no deploy — mensagem repetida para pessoa real.
+        // A CHAVE LEVA O CAMPO desde a tarefa do editor, e é ela que faz uma
+        // automação conseguir pedir e-mail E telefone no mesmo dia: sem o campo,
+        // os dois pedidos saíam com a MESMA string e o `on conflict do nothing`
+        // de `enqueue` engolia o segundo calado. O porquê inteiro — inclusive o
+        // que acontece com as linhas de fila já gravadas no formato antigo —
+        // está em lib/dedupe.ts, em cima da função.
+        //
+        // `chave` NULA cai na identidade do bloco, e não numa string fixa: um
+        // passo sem chave é passo que a conferência deveria ter barrado, e dois
+        // deles na mesma automação colidiriam entre si — o segundo sumiria pelo
+        // mesmo defeito que esta linha existe para fechar.
         dedupe_key: comentario
           ? privateReplyKey(comentario)
-          : emailAskKey(auto.id, contactIgId, dayBucket()),
+          : emailAskKey(
+              auto.id,
+              contactIgId,
+              chave ?? identidadeDoPasso(p, acao.indice),
+              dayBucket()
+            ),
       });
       await gravarCursor(
         account.ig_user_id, contactIgId, auto.id,

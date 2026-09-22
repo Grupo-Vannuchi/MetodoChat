@@ -3358,21 +3358,52 @@ export type Problema = {
 // sai daqui no dia em que ganharem. `followGateKey` tem o mesmo buraco e não
 // precisa de entrada própria: o bloqueio dos dois portões já o torna
 // inalcançável pelo editor.
-// A TABELA É POR TIPO, E HOJE `pedir_dado` SÓ TEM UM CAMPO — o e-mail, que é o
-// único que a paleta cria (app/automacoes/editor/modelos.ts) e o único que o
-// motor resolve. Enquanto for assim, "um por tipo" e "um por campo" são a mesma
-// regra, e a mensagem pode falar do e-mail. No dia em que a paleta ganhar os
-// outros quatro pedidos, a chave desta tabela precisa passar a ser o CAMPO: um
-// pedido de e-mail e um de telefone na mesma lista são dois blocos legítimos, e
-// esta regra os barraria por terem o mesmo `tipo`.
 const SO_UM_POR_LISTA: Record<string, string> = {
-  pedir_dado:
-    "Só pode haver um pedido de e-mail. O segundo nunca é entregue: quando o endereço já foi respondido, o motor pula o bloco; quando não foi, ele sai com a mesma chave de envio do primeiro.",
   reagir_story:
     "Só pode haver uma reação à story. A segunda sai com a mesma chave de envio da primeira, e por isso nunca é entregue.",
   resposta_publica:
     "Só pode haver uma resposta pública. A segunda sai com a mesma chave de envio da primeira, e por isso nunca é entregue.",
 };
+
+// O `pedir_dado` NÃO ENTRA NA TABELA ACIMA, e a separação é o conserto da
+// tarefa do editor.
+//
+// A tabela é indexada por TIPO. Enquanto a paleta só montava "Pedir e-mail",
+// "um por tipo" e "um por campo" davam a MESMA resposta e a diferença não
+// aparecia. Com os cinco itens (app/automacoes/editor/modelos.ts) elas deixaram
+// de coincidir: "Pedir e-mail" + "Pedir telefone" na mesma automação são dois
+// blocos LEGÍTIMOS, e a regra por tipo os recusava — com `nivel: "erro"`,
+// travando o salvar, e com uma frase que nem descrevia o que o dono tinha feito.
+//
+// A IDENTIDADE É `chaveDoPedido`, e não `p.campo`: no campo livre os dois blocos
+// têm `campo: "livre"`, e o que os distingue é a chave normalizada. Usar o campo
+// recusaria "cidade" e "profissão" um por causa do outro. É a MESMA função que
+// monta a chave de enfileiramento (lib/dedupe.ts) e a chave de gravação — as
+// três perguntas "é o mesmo pedido?" têm uma resposta só.
+//
+// CHAVE NULA NÃO ENTRA NA REGRA: é bloco que outra linha de `conferirLista` já
+// acusa (livre sem chave, ou chave que colide com o catálogo), e agrupar todos
+// os quebrados sob a mesma identidade acenderia um segundo erro dizendo que o
+// dono repetiu um campo que ele não repetiu.
+//
+// O MOTIVO ORIGINAL CONTINUA VALENDO, e é por isso que ele sobrevive na frase: o
+// segundo pedido do MESMO campo nunca é entregue — quando o dado já foi
+// respondido o ramo `pedir_dado` de lib/engine.ts pula o bloco (`campoEstaFresco`,
+// lib/campos.ts), e quando não foi ele sai com a mesma chave de envio do
+// primeiro, porque `emailAskKey` leva o CAMPO e não o id do bloco.
+function soUmPorCampo(p: Passo): { identidade: string; mensagem: string } | null {
+  if (p.tipo !== "pedir_dado") return null;
+  const identidade = chaveDoPedido(p);
+  if (identidade === null) return null;
+  const rotulo = campoPorChave(p.campo)?.rotulo ?? identidade;
+  return {
+    identidade: `pedir_dado:${identidade}`,
+    mensagem:
+      `Só pode haver um pedido de ${rotulo}. O segundo nunca é entregue: quando o dado já ` +
+      "foi respondido, o motor pula o bloco; quando não foi, ele sai com a mesma chave de " +
+      "envio do primeiro.",
+  };
+}
 
 // Confere a lista montada no quadro.
 //
@@ -3780,11 +3811,19 @@ export function conferirLista(
 
     // Aponta o SEGUNDO, não o primeiro: o primeiro é o que vai ser entregue, e
     // é o segundo que o dono precisa apagar ou trocar de lugar.
-    const soUm = SO_UM_POR_LISTA[passo.tipo];
+    // A IDENTIDADE É O TIPO, EXCETO NO `pedir_dado`, em que é o CAMPO — o
+    // porquê está em `soUmPorCampo`, logo acima da tabela. `jaVistos` guardava
+    // `passo.tipo` para os três, e é essa a segunda metade da mudança: sem ela,
+    // a tabela por campo não teria efeito nenhum, porque o conjunto continuaria
+    // dizendo que já viu um `pedir_dado`.
+    const soUm = soUmPorCampo(passo) ??
+      (SO_UM_POR_LISTA[passo.tipo]
+        ? { identidade: passo.tipo, mensagem: SO_UM_POR_LISTA[passo.tipo] }
+        : null);
     if (soUm) {
-      if (jaVistos.has(passo.tipo))
-        r.push({ nivel: "erro", quando: "salvar", indice: i, mensagem: soUm });
-      jaVistos.add(passo.tipo);
+      if (jaVistos.has(soUm.identidade))
+        r.push({ nivel: "erro", quando: "salvar", indice: i, mensagem: soUm.mensagem });
+      jaVistos.add(soUm.identidade);
     }
 
     // "Mensagem com link" (Tarefa 5) semeia SEMPRE a chave `url`, mesmo vazia

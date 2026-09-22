@@ -233,16 +233,26 @@ const PARADAS = {
     cor: "border-amber-400/60 bg-amber-400/10 text-amber-300",
     corDoTexto: "text-amber-200/90",
   },
-  email: {
+  // A MARCA NÃO NOMEIA MAIS O E-MAIL, e isso é a prévia acompanhando a paleta:
+  // o bloco pede telefone, nome, data de nascimento e campo livre desde que o
+  // editor ganhou os cinco atalhos (`PALETA`, ./modelos). "Até o e-mail chegar"
+  // sobre um pedido de telefone é a tela dizendo o contrário do que o bloco faz.
+  //
+  // QUEM DIZ QUAL DADO É a bolha de exemplo logo abaixo desta marca — "(11)
+  // 99999-9999" não se confunde com "ana@email.com" —, e ela sai do catálogo
+  // (`respostaDeExemplo`, ./roteiro). Repetir o rótulo do campo aqui seria uma
+  // segunda voz sobre a mesma coisa, e uma delas teria de conjugar o artigo de
+  // cada rótulo ("o e-mail", "a data de nascimento") só para a frase fechar.
+  dado: {
     icone: <IconMail className="h-3 w-3 shrink-0" />,
-    titulo: "para aqui até o e-mail chegar",
+    titulo: "para aqui até a resposta chegar",
     texto: "Não é portão: quem alcançar um bloco adiante por outro caminho passa sem responder.",
     cor: "border-teal-400/60 bg-teal-400/10 text-teal-300",
     corDoTexto: "text-teal-200/90",
   },
 } as const;
 
-function Parada({ motivo }: { motivo: "toque" | "follow" | "email" }) {
+function Parada({ motivo }: { motivo: "toque" | "follow" | "dado" }) {
   const p = PARADAS[motivo];
   return (
     <div className={`my-1 self-stretch rounded border border-dashed px-2 py-1.5 ${p.cor}`}>

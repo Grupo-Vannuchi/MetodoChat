@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import Link from "next/link";
 import {
   esperaResposta,
@@ -14,7 +15,15 @@ import { comoTexto, resumoDoBloco } from "./modelos";
 // O TETO DAS TENTATIVAS vem do catálogo de campos, que é módulo puro (sem
 // `server-only`) e não fala com o banco — o mesmo motivo pelo qual lib/steps.ts
 // o importa. A tela CONTA O MESMO NÚMERO que o motor, em vez de repeti-lo.
-import { TETO_DE_TENTATIVAS } from "@/lib/campos";
+// `normalizarChaveLivre` e `chaveColideComCatalogo` vêm do MESMO catálogo, e é
+// isso que este painel promete: ele não tem regra própria sobre o que é uma
+// chave de campo livre válida. Quem responde é lib/campos.ts, para os dois lados
+// — a tela que grava e o motor que lê.
+import {
+  TETO_DE_TENTATIVAS,
+  chaveColideComCatalogo,
+  normalizarChaveLivre,
+} from "@/lib/campos";
 import MessageField from "../variable-picker";
 import MediaPicker from "../media-picker";
 import { input, label as labelCls, hint as hintCls, alertWarn } from "../../ui";
@@ -349,6 +358,105 @@ function Botoes({
   );
 }
 
+// ---------------------------------------------------------------------------
+// O NOME DO CAMPO LIVRE — o único campo desta tela em que o que se DIGITA não é
+// o que se GRAVA.
+//
+// O dono escreve "Qual sua Cidade" e o que vai para o banco é
+// `qual_sua_cidade`: é essa string que vira `{{qual_sua_cidade}}` numa mensagem
+// seguinte e a coluna do CSV. Sem mostrar a forma normalizada, ele escreveria
+// `{{Qual sua Cidade}}` na mensagem e o texto sairia cru para uma pessoa de
+// verdade.
+//
+// A NORMALIZAÇÃO NÃO É REESCRITA AQUI: `normalizarChaveLivre` (lib/campos.ts) é
+// a dona, e `chaveDoPedido` (lib/steps.ts) chama a MESMA função do outro lado,
+// a cada mensagem. Uma cópia da regra neste componente faria as duas pontas
+// gravarem strings diferentes, e o dado da pessoa cairia numa chave que nem a
+// variável nem o CSV conhecem — o defeito que a idempotência daquela função
+// existe para fechar.
+//
+// ELE É COMPONENTE PRÓPRIO POR CAUSA DO ESTADO. O que o dono digita ("e-mail")
+// e o que se grava (nada, porque colide) são coisas diferentes, então o texto
+// cru precisa viver em algum lugar — e `Painel` tem um `return null` antes de
+// qualquer hook, o que proíbe `useState` lá dentro.
+//
+// A CHAVE DE REACT É O ID DO BLOCO (ver a montagem, no painel): sem ela, trocar
+// de bloco selecionado reaproveitaria este componente e o texto cru do bloco
+// anterior ficaria na tela sobre o bloco novo.
+function ChaveDoCampoLivre({
+  passo,
+  aoMudar,
+}: {
+  passo: Passo & { tipo: "pedir_dado" };
+  aoMudar: (p: Passo) => void;
+}) {
+  // O VALOR INICIAL É A CHAVE JÁ GRAVADA, e isso só funciona porque
+  // `normalizarChaveLivre` é idempotente: `qual_sua_cidade` normalizado de novo
+  // continua `qual_sua_cidade`, então reabrir o bloco não muda o que está no
+  // banco (o porquê inteiro está em lib/campos.ts).
+  const [digitado, setDigitado] = useState(() => comoTexto(passo.chave));
+  const chave = normalizarChaveLivre(digitado);
+  const vazio = !digitado.trim();
+
+  return (
+    <div className={CAMPO_MEDIO}>
+      <label className={labelCls} htmlFor={`chave-${passo.id}`}>
+        Nome do campo
+      </label>
+      <input
+        id={`chave-${passo.id}`}
+        value={digitado}
+        onChange={(e) => {
+          setDigitado(e.target.value);
+          // GRAVA A FORMA NORMALIZADA, e grava `""` quando a chave é recusada.
+          //
+          // Não gravar o texto cru é o que TRAVA O SALVAR: `conferirLista`
+          // (lib/steps.ts) acende erro de `quando: "salvar"` em `pedir_dado`
+          // livre sem chave, e `quadro.tsx` desabilita o botão por causa dele.
+          // Sem isso, uma chave como "123" — que `conferir` deixa passar DE
+          // PROPÓSITO, para o motor não estourar no meio de uma conversa —
+          // seria salva, a automação rodaria, e o campo nunca seria coletado,
+          // sem nenhum aviso em lugar nenhum.
+          aoMudar({ ...passo, chave: normalizarChaveLivre(e.target.value) ?? "" });
+        }}
+        placeholder="cidade"
+        className={input}
+      />
+      {vazio ? (
+        // NÃO É ACUSAÇÃO ENQUANTO ESTÁ VAZIO: o bloco acabou de nascer, e nascer
+        // acusado é o mesmo defeito que `blocoNovo` (./modelos) evita nos
+        // outros. Quem trava o salvar aqui é `conferirLista`, com a frase dela.
+        <p className={hintCls}>
+          É este nome que vira a variável das mensagens e a coluna da exportação.
+        </p>
+      ) : chave ? (
+        <p className={hintCls}>
+          A resposta <strong>vai virar</strong> <code>{`{{${chave}}}`}</code>.
+        </p>
+      ) : chaveColideComCatalogo(digitado) ? (
+        // OS DOIS MOTIVOS DE RECUSA SÃO SEPARADOS, e quem os separa é
+        // `chaveColideComCatalogo` (lib/campos.ts) — a mesma dona da
+        // normalização. Perguntar aqui com uma regra própria seria a cópia que
+        // diverge, e as duas frases mandam fazer coisas diferentes.
+        <p className={alertWarn}>
+          Este nome <strong>já é um campo do sistema</strong> (e-mail, telefone, nome ou data de
+          nascimento). Escolha outro nome, ou use o bloco do próprio campo — ele valida a
+          resposta e guarda no lugar certo.
+        </p>
+      ) : (
+        // A DÍVIDA HERDADA: `conferir` (lib/steps.ts) recusa só a colisão, e uma
+        // chave como "123" atravessa o salvar — `chaveDoPedido` devolve `null`
+        // no motor e o fluxo segue CALADO sem o dado. É aqui, na cara de quem
+        // digita, que essa chave tem de ser recusada.
+        <p className={alertWarn}>
+          O nome <strong>precisa ter pelo menos uma letra</strong> — só números ou só emoji não
+          viram variável. Tente algo como <code>cidade</code>.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function Painel({
   passo,
   indice,
@@ -621,6 +729,19 @@ export default function Painel({
                   telefone, nome, data de nascimento e campo livre desde a
                   Tarefa 1 — só o rótulo do campo é que ainda não aparece no
                   painel, e esse é o trabalho da tarefa do editor. */}
+              {/* O NOME DO CAMPO SÓ EXISTE NO LIVRE, e a pergunta pelo `campo`
+                  é deliberada: num campo do catálogo a chave é o próprio campo
+                  (`chaveDoPedido`, lib/steps.ts), e oferecer um nome editável
+                  ali convidaria o dono a inventar uma chave que o motor ignora.
+
+                  A `key` é o ID DO BLOCO: este componente guarda o texto CRU
+                  digitado em estado próprio, e sem a chave o React o
+                  reaproveitaria ao trocar de bloco selecionado — o nome de um
+                  bloco apareceria sobre outro. */}
+              {passo.tipo === "pedir_dado" && passo.campo === "livre" && (
+                <ChaveDoCampoLivre key={passo.id} passo={passo} aoMudar={aoMudar} />
+              )}
+
               {passo.tipo === "pedir_dado" && (
                 <Aviso tom="teal">
                   <strong>

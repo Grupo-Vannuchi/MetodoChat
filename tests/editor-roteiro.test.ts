@@ -7,6 +7,9 @@ import {
   type Cena,
 } from "../app/automacoes/editor/roteiro";
 import { identidadeDoPasso, type Ligacao, type Passo } from "../lib/steps";
+// O catálogo entra para o caso do exemplo por campo: ele confere que a prévia
+// LÊ `CAMPOS` em vez de carregar uma cópia dos exemplos.
+import { campoPorChave } from "../lib/campos";
 
 // Os tipos das bolhas de uma cena, na ordem. É o que quase todo teste daqui
 // pergunta — "o que este bloco desenha, e nessa ordem?" — e escrever isso à mão
@@ -234,13 +237,58 @@ describe("roteiro — os seis tipos de bloco", () => {
     ]);
   });
 
-  it("`pedir_dado` é balão sem botão, parada de e-mail e o endereço de exemplo", () => {
+  it("`pedir_dado` é balão sem botão, parada de dado e o exemplo DO CAMPO", () => {
     const cenas = cenasDe([{ tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" }] as Passo[]);
     expect(cenas[0].itens).toEqual([
       { tipo: "balao", texto: "Seu e-mail?", botao: null, link: false },
-      { tipo: "parada", motivo: "email" },
+      { tipo: "parada", motivo: "dado" },
       { tipo: "resposta", texto: "ana@email.com" },
     ]);
+  });
+
+  it("cada campo mostra O EXEMPLO DELE, e o do livre é visivelmente provisório", () => {
+    // A PRÉVIA PROMETIA UM ENDEREÇO A QUEM PEDIU UM TELEFONE: a cena era a do
+    // e-mail para todo `pedir_dado`, com `ana@email.com` cravado. Enquanto a
+    // paleta só criava `campo: "email"` isso era verdade; com os cinco atalhos
+    // do editor virou mentira na coluna que fica sempre aberta ao lado do
+    // quadro.
+    //
+    // O EXEMPLO VEM DE `CAMPOS` (lib/campos.ts), onde o campo `exemplo` existia
+    // desde a Tarefa 1 SEM NENHUM LEITOR. Copiá-lo para cá seria a segunda
+    // verdade sobre o que é uma resposta plausível de cada campo.
+    const exemploDe = (campo: string, chave?: string) => {
+      const passo: Record<string, unknown> = { tipo: "pedir_dado", campo, texto: "?" };
+      if (chave !== undefined) passo.chave = chave;
+      const itens = cenasDe([passo] as Passo[])[0].itens;
+      const resposta = itens.find((i) => i.tipo === "resposta");
+      return resposta && "texto" in resposta ? resposta.texto : null;
+    };
+
+    expect(exemploDe("email")).toBe(campoPorChave("email")!.exemplo);
+    expect(exemploDe("telefone")).toBe(campoPorChave("telefone")!.exemplo);
+    expect(exemploDe("nome_informado")).toBe(campoPorChave("nome_informado")!.exemplo);
+    expect(exemploDe("nascimento")).toBe(campoPorChave("nascimento")!.exemplo);
+    // Os quatro são DIFERENTES entre si — é isso que faz a cena dizer qual dado
+    // está sendo pedido sem precisar de rótulo nenhum.
+    expect(
+      new Set([
+        exemploDe("email"),
+        exemploDe("telefone"),
+        exemploDe("nome_informado"),
+        exemploDe("nascimento"),
+      ]).size
+    ).toBe(4);
+
+    // O LIVRE NÃO TEM EXEMPLO PARA DAR: quem inventou a pergunta foi o dono, e
+    // esta tela não sabe o que é uma resposta plausível para ela. O texto é
+    // visivelmente provisório de propósito — inventar "Sorocaba" prometeria que
+    // a prévia sabe alguma coisa que ela não sabe.
+    expect(exemploDe("livre", "cidade")).toBe("a resposta dela");
+    // CAMPO QUE O CATÁLOGO NÃO CONHECE nem chega a virar cena: `conferir`
+    // (lib/steps.ts) recusa o bloco antes, e a prévia o desenha como bloco
+    // inválido. A rede de `respostaDeExemplo` continua valendo para o que vier
+    // do banco por outro caminho, mas quem a alcança não é este.
+    expect(exemploDe("inventado")).toBeNull();
   });
 
   it("`esperar` NÃO é mensagem: é marca de tempo", () => {
@@ -1307,7 +1355,7 @@ describe("roteiro — o caminho mostrado", () => {
   // do bloco. Logo, a `senao` de um `pedir_dado` é o caminho de quem digitou um
   // e-mail VÁLIDO, e `ana@email.com` é um EXEMPLO do que ela digitou, não um
   // gesto inventado.
-  it("o `pedir_dado` mostra o e-mail de exemplo mesmo saindo pela `senao`", () => {
+  it("o `pedir_dado` mostra a resposta de exemplo mesmo saindo pela `senao`", () => {
     const passos = [
       { id: "b_mail001", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" },
       { id: "b_digit01", tipo: "dm", texto: "Depois do e-mail" },
@@ -1315,7 +1363,7 @@ describe("roteiro — o caminho mostrado", () => {
     const so: Ligacao[] = [{ de: "b_mail001", quando: { tipo: "senao" }, para: "b_digit01" }];
     expect(cenasCom(passos, so, null)[0].itens).toEqual([
       { tipo: "balao", texto: "Seu e-mail?", botao: null, link: false },
-      { tipo: "parada", motivo: "email" },
+      { tipo: "parada", motivo: "dado" },
       { tipo: "resposta", texto: "ana@email.com" },
       { tipo: "retomada", via: "digitou" },
     ]);

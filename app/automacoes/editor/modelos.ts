@@ -9,8 +9,12 @@ import {
   type Passo,
   type Quando,
 } from "@/lib/steps";
+// O CATÁLOGO DE CAMPOS é quem sabe o que cada pedido de dado pergunta. Ele é
+// módulo PURO (sem `server-only`), então roda no navegador junto com este
+// arquivo — é a mesma razão pela qual lib/steps.ts e o painel o importam.
+import { campoPorChave } from "@/lib/campos";
 
-// A paleta tem NOVE itens sobre SEIS tipos, e a diferença não é maquiagem.
+// A paleta tem TREZE itens sobre SEIS tipos, e a diferença não é maquiagem.
 //
 // "Mensagem", "Mensagem com botão", "Mensagem com link" e "Mensagem com
 // opções" salvam todas `tipo: "dm"`. O que separa uma DM que PARA o fluxo de
@@ -48,7 +52,18 @@ export const PALETA: ItemDaPaleta[] = [
   // proteção que não existe — e o preço disso é o link saindo com o endereço
   // nunca capturado. A cor do bloco carrega a mesma distinção (ver `no.tsx`).
   { chave: "pedir_follow", rotulo: "Pedir follow", descricao: "portão: ninguém passa sem seguir", gatilhos: null },
-  { chave: "pedir_email", rotulo: "Pedir e-mail", descricao: "espera o endereço (não é portão)", gatilhos: null },
+  // CINCO ATALHOS SOBRE UM MECANISMO: os cinco salvam `tipo: "pedir_dado"`, e o
+  // que muda entre eles é o `campo` — a mesma relação que as quatro chaves de
+  // mensagem têm com o tipo `dm`.
+  //
+  // POR QUE CINCO ITENS E NÃO UM GENÉRICO: "Pedir telefone" se acha na paleta;
+  // "Pedir um dado, agora escolha qual" não se acha. Quem monta a automação
+  // procura pelo dado que quer coletar, não pelo mecanismo que o coleta.
+  { chave: "pedir_email",  rotulo: "Pedir e-mail",     descricao: "espera o endereço (não é portão)", gatilhos: null },
+  { chave: "pedir_telefone", rotulo: "Pedir telefone", descricao: "espera o WhatsApp com DDD",        gatilhos: null },
+  { chave: "pedir_nome",   rotulo: "Pedir nome",       descricao: "espera o nome que a pessoa usa",   gatilhos: null },
+  { chave: "pedir_nascimento", rotulo: "Pedir nascimento", descricao: "espera a data de nascimento",  gatilhos: null },
+  { chave: "pedir_outro",  rotulo: "Pedir outro dado", descricao: "você escolhe a pergunta",          gatilhos: null },
   { chave: "resposta_publica", rotulo: "Resposta pública", descricao: "só no gatilho de comentário", gatilhos: ["comment"] },
   { chave: "reagir_story", rotulo: "Coraçãozinho", descricao: "só no gatilho de story", gatilhos: ["story"] },
 ];
@@ -108,7 +123,7 @@ export const PALETA: ItemDaPaleta[] = [
 //                              teria como pôr o primeiro de volta.
 // ---------------------------------------------------------------------------
 
-// Um bloco novo. Os textos-padrão existem para que OITO dos nove itens da
+// Um bloco novo. Os textos-padrão existem para que ONZE dos treze itens da
 // paleta nasçam válidos: sem eles, um `dm` recém-arrastado teria `texto: ""` e
 // `conferirLista` (lib/steps.ts) travaria o salvar antes de a pessoa ter tido a
 // chance de digitar qualquer coisa.
@@ -125,7 +140,9 @@ export const PALETA: ItemDaPaleta[] = [
 // SÃO DOIS, e não um: um menu de um botão só não escolhe nada, e `conferirLista`
 // avisa exatamente isso. Nascer avisado é o mesmo defeito de nascer acusado.
 //
-// O NONO — "Mensagem com link" — NASCE COM ERRO, e isso é de propósito.
+// OS OUTROS DOIS — "Mensagem com link" e "Pedir outro dado" — NASCEM COM ERRO,
+// e isso é de propósito. O do pedido está no ramo dele, lá embaixo; o do link é
+// este:
 // `url: ""` casa com a regra do link sem endereço e acende ERRO no instante da
 // criação, apontando o campo que falta: o endereço. Não há padrão honesto a
 // inventar aqui — não existe url plausível para semear —, e link sem endereço é
@@ -136,6 +153,16 @@ export const PALETA: ItemDaPaleta[] = [
 // O que NÃO se pode fazer para "consertar" isso é omitir a chave `url`: sem ela
 // o bloco vira indistinguível de uma resposta rápida, o erro deixa de acender, e
 // o fluxo trava em silêncio na hora do envio (a convenção logo acima).
+// O PEDIDO DE UM CAMPO DO CATÁLOGO, montado num lugar só. Os quatro atalhos da
+// paleta passam por aqui, e o `!` é honesto: as quatro chaves são literais
+// escritas ao lado de `CAMPOS` (lib/campos.ts), e apagar uma delas de lá derruba
+// `tests/editor-modelos.test.ts`, que confere campo a campo — não é uma consulta
+// que possa falhar em produção com dado de fora.
+function pedidoDoCatalogo(id: string, chaveDoCampo: string): Passo {
+  const campo = campoPorChave(chaveDoCampo)!;
+  return { id, tipo: "pedir_dado", campo: campo.chave, texto: campo.perguntaPadrao };
+}
+
 export function blocoNovo(chave: string): Passo {
   const id = novoIdDeBloco();
   switch (chave) {
@@ -163,13 +190,37 @@ export function blocoNovo(chave: string): Passo {
       return { id, tipo: "esperar", minutos: 60 };
     case "pedir_follow":
       return { id, tipo: "pedir_follow", texto: "Antes de te mandar o link, me segue lá no perfil 🙏", botao_label: "Já sigo! ✅" };
-    // A CHAVE DA PALETA CONTINUA `pedir_email` e o TIPO passou a ser
-    // `pedir_dado`: são coisas diferentes, e já eram — as quatro chaves de
-    // mensagem também salvam um tipo só (`dm`). A chave é o atalho que a pessoa
-    // acha na faixa; o tipo é o que o motor lê. O `campo` é a chave do catálogo
-    // (lib/campos.ts), e é ele que diz QUAL dado este pedido coleta.
+    // A CHAVE DA PALETA CONTINUA `pedir_email` e o TIPO é `pedir_dado`: são
+    // coisas diferentes, e já eram — as quatro chaves de mensagem também salvam
+    // um tipo só (`dm`). A chave é o atalho que a pessoa acha na faixa; o tipo é
+    // o que o motor lê. O `campo` é a chave do catálogo (lib/campos.ts), e é ele
+    // que diz QUAL dado este pedido coleta.
+    //
+    // A PERGUNTA VEM DO CATÁLOGO, e não copiada para cá: `lib/campos.ts` é o
+    // dono da regra de campo, e quem escreve o `perguntaPadrao` escreve junto o
+    // `reperguntar` que o motor manda quando a resposta não serve. Duas cópias
+    // do mesmo texto em arquivos diferentes divergem no primeiro ajuste de
+    // copy, e a repergunta passaria a falar de um dado que a pergunta não pediu.
     case "pedir_email":
-      return { id, tipo: "pedir_dado", campo: "email", texto: "Me manda seu melhor e-mail que eu te envio o link 👇" };
+      return pedidoDoCatalogo(id, "email");
+    case "pedir_telefone":
+      return pedidoDoCatalogo(id, "telefone");
+    case "pedir_nome":
+      return pedidoDoCatalogo(id, "nome_informado");
+    case "pedir_nascimento":
+      return pedidoDoCatalogo(id, "nascimento");
+    // O LIVRE NÃO ESTÁ NO CATÁLOGO, de propósito (lib/campos.ts explica: pôr
+    // `"livre"` dentro de `CAMPOS` quebraria a conferência e a checagem de
+    // colisão), então a pergunta dele é escrita aqui — não há de onde lê-la.
+    //
+    // E ELE NASCE COM ERRO, pelo mesmo motivo de "Mensagem com link": `chave:
+    // ""` acende "pedido de dado está sem o nome do campo" em `conferirLista`
+    // no instante da criação, apontando o campo que falta. Não há nome honesto a
+    // inventar — quem arrasta este bloco arrastou para escolher o nome —, e o
+    // erro é a instrução do que fazer em seguida, e ele apaga na primeira letra
+    // digitada no campo "Nome do campo" do painel.
+    case "pedir_outro":
+      return { id, tipo: "pedir_dado", campo: "livre", chave: "", texto: "O que você quer perguntar?" };
     case "resposta_publica":
       return { id, tipo: "resposta_publica", textos: ["Te mandei no direct! 📩"] };
     case "reagir_story":
@@ -181,7 +232,8 @@ export function blocoNovo(chave: string): Passo {
 
 // O TIPO DE PASSO QUE CADA ITEM DA PALETA CRIA.
 //
-// Os NOVE itens são SEIS tipos: os quatro de mensagem salvam todos `dm`. Quem
+// Os TREZE itens são SEIS tipos: os quatro de mensagem salvam todos `dm` e os
+// cinco pedidos de dado salvam todos `pedir_dado`. Quem
 // precisa dessa resposta é a paleta (`./paleta`), para perguntar a
 // `salvarRecusaOBloco` (@/lib/steps) se o salvar recusaria aquele bloco NESTE
 // gatilho — e ela não pode chamar `blocoNovo` só para descobrir o tipo: aquela
@@ -199,6 +251,10 @@ const TIPO_DO_ITEM: Record<string, string> = {
   esperar: "esperar",
   pedir_follow: "pedir_follow",
   pedir_email: "pedir_dado",
+  pedir_telefone: "pedir_dado",
+  pedir_nome: "pedir_dado",
+  pedir_nascimento: "pedir_dado",
+  pedir_outro: "pedir_dado",
   resposta_publica: "resposta_publica",
   reagir_story: "reagir_story",
 };
@@ -434,12 +490,23 @@ export function resumoDoBloco(p: Passo): { titulo: string; corpo: string } {
     // como qualquer parada, e o rótulo diz isso — não que ele barre.
     case "pedir_follow":
       return { titulo: "PORTÃO · PEDIR FOLLOW", corpo: comoTexto(p.texto) };
-    // O TÍTULO AINDA É FIXO porque `pedir_dado` só nasce com `campo: "email"`
-    // (`blocoNovo`, acima). Quem der outros campos à paleta tem de tirar o
-    // título do catálogo (lib/campos.ts), senão o bloco de telefone se anuncia
-    // como pedido de e-mail no quadro.
-    case "pedir_dado":
-      return { titulo: "PEDIR E-MAIL", corpo: comoTexto(p.texto) };
+    // O TÍTULO NOMEIA O CAMPO, lido do catálogo (lib/campos.ts). Ele era fixo em
+    // "PEDIR E-MAIL" enquanto `blocoNovo` só criava `campo: "email"`; com os
+    // cinco atalhos da paleta um título fixo anunciaria o bloco de telefone como
+    // pedido de e-mail no quadro — e o título é a única coisa que distingue os
+    // cinco blocos sem abrir o painel de cada um.
+    //
+    // O `comoTexto` e os dois desfechos de fora do catálogo são a mesma rede de
+    // segurança do resto desta função: `campo` chega do jsonb, e pode ser número,
+    // ausente ou uma chave que não existe mais. O bloco continua se anunciando
+    // como pedido de dado — que é o que ele é —, e `conferirLista` o acusa por
+    // outro caminho ("não diz qual informação buscar").
+    case "pedir_dado": {
+      const campo = comoTexto(p.campo);
+      const rotulo =
+        campo === "livre" ? "OUTRO DADO" : campoPorChave(campo)?.rotulo.toUpperCase() ?? "DADO";
+      return { titulo: `PEDIR ${rotulo}`, corpo: comoTexto(p.texto) };
+    }
     case "resposta_publica":
       return {
         titulo: "RESPOSTA PÚBLICA",

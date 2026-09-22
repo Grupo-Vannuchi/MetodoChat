@@ -3058,17 +3058,67 @@ describe("conferirLista", () => {
     expect(r[0].indice).toBe(2);
   });
 
-  it("ERRO: dois pedidos de e-mail — o segundo é pulado antes de ser enviado", () => {
-    // O motivo NÃO é a chave, e a diferença importa para a mensagem: o ramo
-    // `pedir_dado` de lib/engine.ts PULA o bloco quando o e-mail do contato já
-    // é conhecido, e depois do primeiro pedido respondido ele já está gravado.
-    // `emailAskKey(auto, pessoa, dia)` — igual para os dois — só decide quando
-    // os dois chegam a ser enfileirados no mesmo dia sem resposta entre eles.
+  it("ERRO: dois pedidos do MESMO campo — o segundo é pulado antes de ser enviado", () => {
+    // O motivo NÃO é só a chave, e a diferença importa para a mensagem: o ramo
+    // `pedir_dado` de lib/engine.ts PULA o bloco quando o campo do contato já
+    // está gravado e fresco, e depois do primeiro pedido respondido ele está.
+    // `emailAskKey(auto, pessoa, CAMPO, dia)` — igual para os dois, porque o
+    // campo é o mesmo — só decide quando os dois chegam a ser enfileirados no
+    // mesmo dia sem resposta entre eles.
     const um = { id: "b_eml011", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" };
     const dois = { id: "b_eml012", tipo: "pedir_dado", campo: "email", texto: "E agora o e-mail?" };
     const r = erros([bem, um, dois]);
     expect(r).toHaveLength(1);
     expect(r[0].indice).toBe(2);
+  });
+
+  // ---------------------------------------------------------------------------
+  // A REGRA É POR CAMPO, E NÃO POR TIPO — e estes três casos são o que separa as
+  // duas coisas.
+  //
+  // Enquanto a paleta só montava "Pedir e-mail", "um por tipo" e "um por campo"
+  // davam a MESMA resposta, e a tabela `SO_UM_POR_LISTA` era indexada por tipo.
+  // Com os cinco itens da paleta elas deixaram de coincidir: "Pedir e-mail" e
+  // "Pedir telefone" na mesma automação são dois blocos legítimos, e a regra por
+  // tipo os recusava com uma frase que nem descrevia o que o dono tinha feito.
+  // ---------------------------------------------------------------------------
+
+  it("dois pedidos de campos DIFERENTES passam — é automação legítima", () => {
+    const email = { id: "b_eml031", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" };
+    const tel = { id: "b_tel032", tipo: "pedir_dado", campo: "telefone", texto: "Seu WhatsApp?" };
+    expect(erros([bem, email, tel])).toHaveLength(0);
+  });
+
+  it("a mensagem nomeia o campo que o dono repetiu, e não o e-mail de sempre", () => {
+    // A frase antiga dizia "Só pode haver um pedido de e-mail" para QUALQUER
+    // campo repetido. Num par de pedidos de telefone ela descrevia um bloco que
+    // não estava na lista, e o dono procuraria um pedido de e-mail que não
+    // existe.
+    const um = { id: "b_tel033", tipo: "pedir_dado", campo: "telefone", texto: "Seu WhatsApp?" };
+    const dois = { id: "b_tel034", tipo: "pedir_dado", campo: "telefone", texto: "De novo?" };
+    const r = erros([bem, um, dois]);
+    expect(r).toHaveLength(1);
+    expect(r[0].mensagem).toMatch(/telefone/i);
+    expect(r[0].mensagem).not.toMatch(/e-mail/i);
+  });
+
+  it("dois campos livres com a MESMA chave são recusados; com chaves diferentes, não", () => {
+    // O campo livre não tem `campo` próprio — os dois são `"livre"` —, então a
+    // identidade dele é a CHAVE normalizada (`chaveDoPedido`, lib/steps.ts). Sem
+    // isso, ou dois campos livres diferentes ("cidade" e "profissão") seriam
+    // recusados à toa, ou dois iguais passariam.
+    const cidade = {
+      id: "b_liv035", tipo: "pedir_dado", campo: "livre", chave: "cidade", texto: "Sua cidade?",
+    };
+    // A MESMA chave escrita de outro jeito: a normalização é quem as iguala.
+    const cidadeDeNovo = {
+      id: "b_liv036", tipo: "pedir_dado", campo: "livre", chave: "Cidade", texto: "De novo?",
+    };
+    const profissao = {
+      id: "b_liv037", tipo: "pedir_dado", campo: "livre", chave: "profissao", texto: "Trabalha com?",
+    };
+    expect(erros([bem, cidade, cidadeDeNovo])).toHaveLength(1);
+    expect(erros([bem, cidade, profissao])).toHaveLength(0);
   });
 
   it("ERRO: duas reações a story — `storyReactionKey` só conhece a mensagem", () => {

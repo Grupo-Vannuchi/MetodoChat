@@ -701,4 +701,55 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     // O QUE NÃO PODE ACONTECER: o contador voltar a zero e rearmar o ciclo.
     expect(await tentativasDoContato(EU)).toBeGreaterThanOrEqual(TETO_DE_TENTATIVAS);
   });
+  test("DOIS campos na mesma automação: a segunda pergunta CHEGA", async () => {
+    // O DEFEITO QUE ESTE CASO FECHA É A CHAVE DE ENFILEIRAMENTO, e ele é
+    // invisível de todo lado menos daqui: `emailAskKey` (lib/dedupe.ts) era
+    // automação + pessoa + DIA. Enquanto a paleta montava UM `pedir_dado` por
+    // automação isso bastava; o editor desta tarefa pôs cinco pedidos na faixa,
+    // e aí os dois pedidos do mesmo dia caíam na MESMA `dedupe_key`. O `on
+    // conflict do nothing` de `enqueue` engolia o segundo EM SILÊNCIO — sem
+    // erro, sem `step_ignorado`, sem nada em Atividade. A pessoa respondia o
+    // e-mail e simplesmente nunca era perguntada sobre o telefone.
+    //
+    // NENHUM TESTE PURO ALCANÇA ISTO: a chave é string, o formato está trancado
+    // em tests/dedupe.test.ts, e o que engole o item é o índice UNIQUE do
+    // Postgres. É preciso o banco de verdade para que o segundo pedido suma.
+    const EU = "9300000000000120";
+    // A PALAVRA NÃO PODE CONTER A DE OUTRO CASO: o gatilho é `contains`, e
+    // "quero-os-dois-campos" casava com a automação de "quero-os-dois" (o caso
+    // do campo já fresco, acima) — `findMatch` escolhia AQUELA, que só pede o
+    // e-mail, e este caso ficava vermelho acusando um defeito que não existia.
+    await semear(
+      "coleta · dois campos",
+      "coletar-dois-dados-distintos",
+      [
+        { id: "b_pedido0", tipo: "pedir_dado", campo: "email", texto: "Qual é o seu e-mail?" },
+        { id: "b_pedido1", tipo: "pedir_dado", campo: "telefone", texto: "Me manda seu WhatsApp 👇" },
+        { id: "b_depois0", tipo: "dm", texto: "depois dos dois" },
+      ],
+      [
+        { de: "b_pedido0", quando: { tipo: "sempre" }, para: "b_pedido1" },
+        { de: "b_pedido1", quando: { tipo: "sempre" }, para: "b_depois0" },
+      ]
+    );
+
+    await mensagem(EU, "coletar-dois-dados-distintos", "m-2c0");
+    await dreno.drainQueue();
+    expect(textosNoFio(EU)).toEqual(["Qual é o seu e-mail?"]);
+
+    // A resposta do primeiro campo destrava o segundo pedido — NO MESMO DIA,
+    // que é a condição em que as duas chaves colidiam.
+    await mensagem(EU, "meu email é bia@exemplo-do-teste.invalid", "m-2c1");
+    await dreno.drainQueue();
+    expect(await campoDoContato(EU, "email")).toBe("bia@exemplo-do-teste.invalid");
+    // ESTA É A LINHA DO DEFEITO: com a chave antiga o fio parava na primeira
+    // pergunta, e esta segunda nunca aparecia.
+    expect(textosNoFio(EU)).toContain("Me manda seu WhatsApp 👇");
+
+    // E o segundo campo é coletado de verdade, no lugar dele.
+    await mensagem(EU, "meu zap é (11) 98888-7777", "m-2c2");
+    await dreno.drainQueue();
+    expect(await campoDoContato(EU, "telefone")).toBe("11988887777");
+    expect(textosNoFio(EU)).toContain("depois dos dois");
+  });
 });

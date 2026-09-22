@@ -9,6 +9,7 @@ import {
   tipoDoItem,
   type ItemDaPaleta,
 } from "../app/automacoes/editor/modelos";
+import { ICONE } from "../app/automacoes/editor/paleta";
 
 // O QUE ESTE ARQUIVO FIXA: a faixa de blocos do editor nunca oferece um bloco
 // que o salvar vai recusar.
@@ -58,7 +59,7 @@ describe("a paleta e as regras de publicar", () => {
     // O ITEM SINTÉTICO É O QUE MEDE A SEGUNDA PERGUNTA — e ele não é imitação
     // de nada: é um `ItemDaPaleta` de verdade, entregue à função de verdade.
     //
-    // Nos NOVE itens de hoje as duas metades concordam por COINCIDÊNCIA de
+    // Nos TREZE itens de hoje as duas metades concordam por COINCIDÊNCIA de
     // desenho: `resposta_publica` lista `["comment"]` e `reagir_story` lista
     // `["story"]`, então a lista à mão já recusa sozinha todo par que a regra
     // recusaria. É essa coincidência que faz o caso acima passar mesmo com a
@@ -228,6 +229,25 @@ describe("a paleta e as regras de publicar", () => {
     expect(motivoDeEstarFora(publica, "gatilho_novo")).toBe(
       "Este bloco só roda no gatilho de comentário, e esta automação é disparada por gatilho_novo."
     );
+  });
+
+  it("toda chave da paleta tem ícone PRÓPRIO — a faixa não tem rótulo à vista", () => {
+    // A faixa mostra SÓ O ÍCONE (o nome vai para o `title`), e `paleta.tsx` tem
+    // um `?? IconMensagem` para a chave que não estiver na tabela. Esse `??` é
+    // rede contra a página quebrar, não plano: um item sem entrada sai
+    // desenhado igual ao bloco "Mensagem" e some no meio da faixa.
+    //
+    // MEDIDO NESTA TAREFA: a paleta ganhou quatro pedidos de dado de uma vez, e
+    // sem este caso os quatro teriam saído com o ícone de "Mensagem" — quatro
+    // botões idênticos, ao lado do "Mensagem" de verdade, numa faixa cujo único
+    // trabalho é deixar achar o bloco.
+    //
+    // REÚSO CONTINUA VALENDO, e é por isso que o caso pergunta se a chave TEM
+    // entrada, e não se o desenho é inédito: `pedir_telefone` usa o `IconPhone`
+    // que já existia, de propósito.
+    for (const item of PALETA) {
+      expect(ICONE[item.chave], item.chave).toBeTypeOf("function");
+    }
   });
 
   it("o tipo que a paleta declara é o tipo que `blocoNovo` cria", () => {
