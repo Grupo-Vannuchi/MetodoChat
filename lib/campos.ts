@@ -17,7 +17,7 @@
 // válido — o par validaria diferente do que grava, e o defeito só apareceria
 // na borda que um dos dois esquecesse.
 
-import { extractEmail } from "./match";
+import { extractEmail } from "./match.ts";
 
 // Quantas vezes a automação repergunta antes de desistir do campo. É
 // constante do catálogo, e não campo do editor, porque a regra é do produto

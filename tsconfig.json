@@ -11,6 +11,15 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // `scripts/varredura-portao.mjs` importa lib/steps.ts com `node` puro, sem
+    // bundler nenhum — é por isso que ela roda tão rápido quanto roda. O `node`
+    // moderno lê `.ts` nativamente, mas exige extensão explícita em toda
+    // importação relativa (é regra do ESM, não deste projeto). Sem esta flag, o
+    // único jeito de satisfazer o `node` seria estender a extensão em TODO
+    // import do repositório — este `.ts` é só onde a cadeia da varredura
+    // (lib/steps.ts -> lib/campos.ts -> lib/match.ts) passa; `noEmit` continua
+    // `true`, então nada disto sai no bundle do Next.
+    "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "incremental": true,
     "plugins": [

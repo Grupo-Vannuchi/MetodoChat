@@ -9,6 +9,11 @@
 // conhece a fila. É a peça mais arriscada da mudança, e assim ela é a única
 // testável sem banco — o que importa num projeto cuja suíte não abre conexão.
 
+// `campoPorChave` só lê o catálogo — não faz I/O nenhum — então importá-lo aqui
+// não quebra a pureza acima: `lib/campos.ts` não abre banco nem chama a Meta,
+// só declara a lista de campos que a automação sabe pedir.
+import { campoPorChave } from "./campos.ts";
+
 // O `id` é a identidade do bloco, e ele é OPCIONAL de propósito.
 //
 // O motivo NÃO é execução, e vale dizer porque a explicação anterior dizia que
@@ -1032,6 +1037,22 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
       return {
         motivo: "pedir_dado sem texto",
         paraODono: "Este pedido de dado está sem texto.",
+      };
+    }
+    // `campo` ENTROU OBRIGATÓRIO NA UNIÃO (`Passo`, acima), mas este é o único
+    // portão que transforma jsonb em `Passo` — sem esta guarda, `return { passo:
+    // p as Passo }` afirmaria `campo: string` sobre um objeto sem campo nenhum,
+    // ou com um número. Hoje isso não muda comportamento (o motor ainda não lê
+    // `campo`, e `blocoNovo` é o único produtor, preso pelo `tsc`), mas a Tarefa
+    // 4 vai indexar o catálogo por ele (`campoPorChave(passo.campo)`) — um
+    // `campo` ausente ou inválido viraria `undefined` lá dentro, no meio de
+    // atender uma mensagem de verdade. Um `campo` que o catálogo não conhece é
+    // tão ruim quanto ausente — por isso a recusa cobre os dois, e não só a
+    // ausência: "livre" é o único valor fora do catálogo que continua válido.
+    if (typeof o.campo !== "string" || (o.campo !== "livre" && !campoPorChave(o.campo))) {
+      return {
+        motivo: "pedir_dado sem campo válido",
+        paraODono: "Este pedido de dado não diz qual informação buscar.",
       };
     }
     // A CHAVE DO CAMPO LIVRE é o que vira `{{<chave>}}` e coluna do CSV

@@ -215,6 +215,38 @@ describe("interpretar", () => {
     ).toBe("pedir_dado livre sem chave");
   });
 
+  // `campo` É OBRIGATÓRIO NO TIPO (`Passo`), mas `conferir` é o único portão que
+  // transforma jsonb em `Passo` — sem esta guarda ele afirmaria `campo: string`
+  // sobre um objeto sem campo nenhum, ou com um campo que o catálogo
+  // (`lib/campos.ts`) não conhece. Hoje isso não muda comportamento nenhum (o
+  // motor ainda não lê `campo`), mas a Tarefa 4 vai indexar o catálogo por ele
+  // — um `campo` ausente, numérico ou desconhecido viraria `undefined` lá
+  // dentro, no meio de atender uma mensagem de verdade. Um campo que o catálogo
+  // não conhece é tão ruim quanto um campo ausente: as duas recusam aqui.
+  it("pula `pedir_dado` sem `campo`, com `campo` que não é string, ou com `campo` que o catálogo não conhece", () => {
+    const semCampo = conferir({ tipo: "pedir_dado", texto: "Seu e-mail?" });
+    expect(semCampo.motivo).toBe("pedir_dado sem campo válido");
+    expect(semCampo.passo).toBeUndefined();
+
+    const campoNumero = conferir({ tipo: "pedir_dado", campo: 123, texto: "Seu e-mail?" });
+    expect(campoNumero.motivo).toBe("pedir_dado sem campo válido");
+    expect(campoNumero.passo).toBeUndefined();
+
+    const campoDesconhecido = conferir({
+      tipo: "pedir_dado",
+      campo: "campo_que_nao_existe",
+      texto: "Seu e-mail?",
+    });
+    expect(campoDesconhecido.motivo).toBe("pedir_dado sem campo válido");
+    expect(campoDesconhecido.passo).toBeUndefined();
+
+    // "livre" continua válido mesmo sem estar no catálogo — é o valor
+    // reservado para campo de texto livre, com a chave à parte.
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", chave: "cidade", texto: "Sua cidade?" }).motivo
+    ).toBeUndefined();
+  });
+
   it("lista que não é lista não estoura", () => {
     const r = interpretar({ steps: null, ligacoes: [] }, "0");
     expect(r.enfileirar).toEqual([]);

@@ -393,6 +393,27 @@ const PAPEIS = ["E", "G", "L", "M", "P"];
 const PAPEIS_MENU = ["N", "G", "L", "M", "P"];
 const ID = Object.fromEntries(Object.keys(BLOCOS).map((p) => [p, BLOCOS[p].id]));
 
+// A GUARDA DO BLOCO P, e ela é a mesma ideia da guarda de `payloadDoBotao` lá
+// em cima: `TIPO_DO_PEDIDO` é um SEGUNDO LITERAL que tem de concordar com o
+// nome que `lib/steps.ts` reconhece — antes da Tarefa 3 havia um só. Se os dois
+// se desalinharem (um typo no literal, ou um `conferir` que deixa de aceitar
+// o tipo), `conferir` passa a RECUSAR o bloco P: ele sai da lista de blocos
+// válidos sem erro nenhum, `pontosDeEntrada` para de gerar fluxo nenhum sobre
+// ele, e a varredura mede menos espaço e ainda assim imprime "SEM VAZAMENTO"
+// — a mesma reserva silenciosa que o comentário da Tarefa 3 batizou, só que
+// fora do alcance das seis perguntas de `!MODO_ANTIGO` logo abaixo (elas
+// cobrem o MENU e a `senao`, novidades daquela tarefa; P é mais velho que
+// as duas). Roda nos dois modos, porque nos dois modos `S` é o `conferir` que
+// de fato vai medir o bloco P.
+if (!S.conferir(BLOCOS.P).passo) {
+  throw new Error(
+    "`conferir` não reconhece mais o bloco de pedido de dado (`BLOCOS.P`, tipo " +
+      `"${TIPO_DO_PEDIDO}"). A varredura desenha esse bloco em todo fluxo que percorre; sem ele ` +
+      "ser um passo válido, ela mede um espaço menor e imprime SEM VAZAMENTO em cima de casos que " +
+      "não estava mais percorrendo. Conserte `TIPO_DO_PEDIDO` acima, ou o `conferir` de lib/steps.ts."
+  );
+}
+
 // A GUARDA DA FIAÇÃO NOVA, e ela é a mesma ideia da guarda de `payloadDoBotao`
 // logo acima, aplicada ao eixo que esta varredura acabou de ganhar.
 //
