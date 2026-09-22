@@ -242,10 +242,18 @@ const RECENCIA_EM_MS = RECENCIA_EM_DIAS * 24 * 60 * 60 * 1000;
 // A BORDA DOS 30 DIAS CONTA A FAVOR (`<=`, não `<`): exatos 30 dias atrás
 // ainda é fresco. É a spec, prendida pelo caso "a borda de 30 dias é fresca"
 // em tests/campos.test.ts — um `<` estrito faria esse caso ficar vermelho.
+//
+// A DISTÂNCIA TEM PISO EM ZERO, e não é detalhe: sem a checagem `distancia >=
+// 0`, uma data no FUTURO (relógio de servidor errado, ou um `em` corrompido
+// por outra falha) produz `agora - quando` NEGATIVO, que é sempre `<=
+// RECENCIA_EM_MS` — a automação leria isso como "acabou de ser coletado" e
+// PULARIA a pergunta para sempre. O desfecho seguro do "este dado é
+// suspeito" é o mesmo do "não sei": perguntar de novo, nunca pular.
 export function campoEstaFresco(em: string | null, agora: number = Date.now()): boolean {
   if (em === null) return false;
   const quando = Date.parse(em);
-  return agora - quando <= RECENCIA_EM_MS;
+  const distancia = agora - quando;
+  return distancia >= 0 && distancia <= RECENCIA_EM_MS;
 }
 
 // Lê a coluna `jsonb` e devolve um `Registro` — um `Map`, e não o objeto cru,
@@ -302,6 +310,12 @@ export function normalizarChaveLivre(texto: string): string | null {
   const soLetraDigitoEspaco = semAcento.replace(/[^a-z0-9\s]/g, "");
   const chave = soLetraDigitoEspaco.trim().replace(/\s+/g, "_");
   if (!chave) return null; // vazio, só espaço, ou só emoji/pontuação
+  // EXIGE PELO MENOS UMA LETRA, e não só "não vazio": `"123"` sobreviveria ao
+  // teste acima e viraria a variável `{{123}}` e uma coluna `123` no CSV —
+  // nome que não diz nada sobre o que foi perguntado, e que ninguém escreve
+  // numa mensagem de propósito. Dígito CONTINUA valendo junto da letra
+  // (`cidade2`), porque aí ele faz parte de um nome.
+  if (!/[a-z]/.test(chave)) return null;
   if (CHAVES_DO_CATALOGO.has(chave)) return null;
   return chave;
 }

@@ -169,6 +169,20 @@ describe("campoEstaFresco", () => {
   it("o prazo é o declarado na spec", () => {
     expect(RECENCIA_EM_DIAS).toBe(30);
   });
+
+  it("data no FUTURO não é fresca — reperguntar é o desfecho seguro quando o dado é suspeito", () => {
+    // `agora - quando` fica NEGATIVO quando `quando` está no futuro, e um
+    // negativo é sempre `<= RECENCIA_EM_MS` — a aritmética sozinha trataria
+    // qualquer data futura como "acabou de ser coletada". Um `em` corrompido
+    // no futuro (relógio errado no servidor, defeito em quem grava a data)
+    // faria a automação PULAR a pergunta para sempre, em vez de repetir — que
+    // é exatamente a direção errada: o desfecho seguro do "não sei" é
+    // perguntar de novo, nunca pular.
+    const amanha = new Date(AGORA + 86400_000).toISOString();
+    const umAnoAFrente = new Date(AGORA + 365 * 86400_000).toISOString();
+    expect(campoEstaFresco(amanha, AGORA)).toBe(false);
+    expect(campoEstaFresco(umAnoAFrente, AGORA)).toBe(false);
+  });
 });
 
 describe("normalizarChaveLivre", () => {
@@ -188,6 +202,11 @@ describe("normalizarChaveLivre", () => {
   it("recusa o vazio e o que não tem letra", () => {
     expect(normalizarChaveLivre("   ")).toBe(null);
     expect(normalizarChaveLivre("🔥")).toBe(null);
+    // Chave só-dígito também não tem letra nenhuma — e `{{123}}` não serve
+    // como nome de variável de template para ninguém ler depois. Aceitar
+    // "123" hoje só adiaria esse problema para quando alguém tentasse usar a
+    // variável.
+    expect(normalizarChaveLivre("123")).toBe(null);
   });
 });
 
@@ -206,5 +225,17 @@ describe("lerCampos", () => {
   it("jsonb nulo ou vazio vira registro vazio, e não estoura", () => {
     expect(lerCampos(null).size).toBe(0);
     expect(lerCampos({}).size).toBe(0);
+  });
+
+  it("recusa `em` que não é string, mesmo com `valor` certo", () => {
+    // `em` alimenta `campoEstaFresco`, que faz `Date.parse` nele. Um `em`
+    // numérico ou objeto passaria pela checagem de `valor` sozinha e só
+    // quebraria (ou mentiria) lá na frente, longe de onde a leitura aconteceu.
+    const r = lerCampos({
+      numerico: { valor: "x", em: 123 },
+      objeto: { valor: "x", em: {} },
+    });
+    expect(r.has("numerico")).toBe(false);
+    expect(r.has("objeto")).toBe(false);
   });
 });
