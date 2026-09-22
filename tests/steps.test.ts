@@ -188,10 +188,12 @@ describe("interpretar", () => {
   });
 
   // O CAMPO LIVRE SEM CHAVE É BLOCO QUE NÃO SE LÊ DE VOLTA. A chave é o que
-  // vira `{{<chave>}}` e coluna do CSV (`normalizarChaveLivre`, lib/campos.ts),
+  // vira `{{<chave>}}` numa mensagem (`normalizarChaveLivre`, lib/campos.ts),
   // então sem ela o pedido sai, a pessoa responde e nenhuma mensagem sabe
-  // chamar a resposta pelo nome. `conferir` o recusa, e por isso `interpretar`
-  // o ignora — o bloco nunca chega a ser enviado.
+  // chamar a resposta pelo nome. Exportação não entra nessa conta: o CSV de
+  // contatos (app/api/contatos/csv/route.ts) tem duas colunas fixas e não lê
+  // `contacts.campos`. `conferir` recusa o bloco, e por isso `interpretar` o
+  // ignora — ele nunca chega a ser enviado.
   it("pula `pedir_dado` livre sem chave, e diz que foi a chave que faltou", () => {
     const passos = [
       { tipo: "pedir_dado", campo: "livre", texto: "Qual a sua cidade?" },
@@ -1191,13 +1193,24 @@ describe("chaveDoPedido", () => {
     ).toBe(null);
   });
 
-  it("campo LIVRE: a chave sai NORMALIZADA, do mesmo jeito que o editor a grava", () => {
-    // As duas pontas têm de escrever a MESMA string, senão o dado da pessoa cai
-    // numa chave que nem a variável de template nem a coluna do CSV conhecem.
+  it("campo LIVRE: o motor NORMALIZA a chave que o editor gravou crua", () => {
+    // QUEM NORMALIZA É ESTE LADO, e não o editor: desde o conserto do rascunho,
+    // `painel.tsx` grava em `passo.chave` o texto CRU que o dono digitou (o
+    // porquê — uma perda de dado medida na tela — está lá, no `onChange` de
+    // `ChaveDoCampoLivre`). Este caso já se chamou "do mesmo jeito que o editor
+    // a grava", e ensinava o contrato contrário ao que o mesmo commit escreveu.
+    //
+    // As asserções não mudaram porque o que elas medem continua sendo o certo:
+    // o motor tem de chegar na MESMA string em que o dado é lido de volta,
+    // venha a chave crua (bloco salvo hoje) ou já normalizada (bloco salvo
+    // antes daquele conserto). É a idempotência de `normalizarChaveLivre`
+    // (lib/campos.ts) que faz as duas formas convergirem.
     expect(
       chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "Cidade Natal" })
     ).toBe("cidade_natal");
-    // E a chave JÁ normalizada atravessa inteira — é a forma que o editor grava.
+    // E a chave JÁ normalizada atravessa inteira — é a forma que está gravada
+    // nas automações salvas ANTES daquele conserto, e abrir o painel delas não
+    // pode mudar nada no banco.
     expect(
       chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "cidade_natal" })
     ).toBe("cidade_natal");
@@ -3200,6 +3213,33 @@ describe("conferirLista", () => {
       id: "b_liv046", tipo: "pedir_dado", campo: "livre", chave: "cidade", texto: "Onde?",
     };
     expect(erros([bem, cidade])).toHaveLength(0);
+  });
+
+  it("a recusa é SÓ do campo livre: bloco do catálogo com `chave` perdida não trava o salvar", () => {
+    // A GUARDA É `passo.campo === "livre"` na condição da regra (lib/steps.ts).
+    // Sem ela, a regra passa a olhar a `chave` de QUALQUER pedido de dado — e
+    // um bloco do catálogo pode ter uma `chave` perdida no jsonb: `steps`
+    // gravado por fora do editor, ou um bloco que já foi livre e virou pedido
+    // de e-mail numa edição anterior. O `campo` dele manda; a `chave` é lixo
+    // que `chaveDoPedido` (lib/steps.ts) nem lê.
+    //
+    // O ESTRAGO MEDIDO: com a guarda fora, este bloco trava o salvar com "O
+    // nome deste campo precisa ter pelo menos uma letra" — e o painel do editor
+    // NÃO desenha o campo "Nome do campo" para bloco de catálogo
+    // (`ChaveDoCampoLivre` só aparece com `campo === "livre"`,
+    // app/automacoes/editor/painel.tsx). O dono vê o salvar travado por um nome
+    // que ele não tem onde consertar, e a frase manda ele escrever "cidade" num
+    // campo que a tela não mostra. É a pior forma de travar: sem saída.
+    const doCatalogo = {
+      id: "b_eml048", tipo: "pedir_dado", campo: "email", chave: "123", texto: "Seu e-mail?",
+    };
+    expect(erros([bem, doCatalogo])).toHaveLength(0);
+
+    // E o livre com a MESMA chave continua travando — é o outro lado da guarda.
+    const livre = {
+      id: "b_liv049", tipo: "pedir_dado", campo: "livre", chave: "123", texto: "Quantos?",
+    };
+    expect(erros([bem, livre])).toHaveLength(1);
   });
 
   it("a frase da colisão é a MESMA no nó e na tela, e sai do catálogo", () => {

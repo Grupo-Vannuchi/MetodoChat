@@ -42,7 +42,31 @@ export const TETO_DE_TENTATIVAS = 3;
 
 export type Campo = {
   chave: string;
+  // O NOME CHEIO DO CAMPO — o que ele guarda, dito para quem monta a automação.
+  // "Telefone / WhatsApp" é literal do brief da Tarefa 1, e a barra é o recado:
+  // aquele campo serve para o zap. Quem lê este nome é a prosa
+  // (`camposDoSistemaEmProsa`, abaixo), onde há espaço para explicar.
   rotulo: string;
+  // O NOME DO BLOCO NAS TRÊS TELAS ESTREITAS DO EDITOR, e por que ele existe
+  // separado do `rotulo`.
+  //
+  // Três lugares chamam o mesmo bloco pelo nome, e os três são apertados: a
+  // faixa da paleta ("Pedir telefone"), o título do nó ("PEDIR TELEFONE") e a
+  // frase do campo repetido ("Só pode haver um pedido de telefone"). Com o
+  // rótulo cheio eles saíam "Pedir telefone / whatsapp", "PEDIR TELEFONE /
+  // WHATSAPP" e "Só pode haver um pedido de telefone / whatsapp".
+  //
+  // A ONDA ANTERIOR RESOLVEU ISSO ENCURTANDO O `rotulo`, e estava errado:
+  // encurtar o DADO para caber na TELA estraga o modelo para resolver
+  // apresentação, e o "/ WhatsApp" — que é valor de brief de outra tarefa, já
+  // completa — sumiu de onde ele servia. O que a tela precisa é de um campo de
+  // apresentação, e é este. Continua um dono só (`CAMPOS`): campos diferentes
+  // para usos diferentes.
+  //
+  // OS VALORES SÃO LITERAIS DO BRIEF DA TAREFA 5 ("Pedir e-mail", "Pedir
+  // telefone", "Pedir nome", "Pedir nascimento"), e quem os prende são os casos
+  // literais de tests/campos.test.ts e tests/editor-modelos.test.ts.
+  nomeCurto: string;
   perguntaPadrao: string;
   reperguntar: string;
   extrair(texto: string): string | null;
@@ -180,6 +204,7 @@ export const CAMPOS: Campo[] = [
   {
     chave: "email",
     rotulo: "E-mail",
+    nomeCurto: "E-mail",
     perguntaPadrao: "Me manda seu melhor e-mail que eu te envio o link 👇",
     reperguntar: "Acho que esse e-mail saiu errado 🤔 Me manda de novo, só o e-mail.",
     extrair: extractEmail,
@@ -188,15 +213,13 @@ export const CAMPOS: Campo[] = [
   },
   {
     chave: "telefone",
-    // O RÓTULO É UM NOME SÓ, E CURTO, e os dois adjetivos são medidos. Ele era
-    // "Telefone / WhatsApp", e este campo é lido em TRÊS telas: a faixa da
-    // paleta ("Pedir telefone"), o título do nó ("PEDIR TELEFONE") e a frase do
-    // erro de campo repetido ("Só pode haver um pedido de telefone"). Com a
-    // barra, as três ficavam com "Pedir telefone / whatsapp" e "PEDIR TELEFONE
-    // / WHATSAPP" — e o editor passaria a querer um nome próprio só para o nó,
-    // que é a segunda voz sobre a mesma coisa. O WhatsApp continua dito onde
-    // ele ajuda a escolher: na descrição da paleta e na pergunta padrão aqui.
-    rotulo: "Telefone",
+    // O RÓTULO CHEIO VOLTOU, e a volta é decisão registrada: ele era
+    // "Telefone / WhatsApp" — literal do brief da Tarefa 1, que está COMPLETA
+    // — e foi encurtado para caber na faixa e no nó. O "/ WhatsApp" existe para
+    // dizer a quem monta a automação para que o campo serve, e some junto com a
+    // barra. Quem cabe nas telas apertadas é o `nomeCurto`, logo abaixo.
+    rotulo: "Telefone / WhatsApp",
+    nomeCurto: "Telefone",
     perguntaPadrao: "Me manda seu WhatsApp com DDD 👇",
     reperguntar: "Não consegui ler esse número 🤔 Me manda com DDD, só os números.",
     extrair: extrairTelefone,
@@ -206,6 +229,7 @@ export const CAMPOS: Campo[] = [
   {
     chave: "nome_informado",
     rotulo: "Nome informado",
+    nomeCurto: "Nome",
     perguntaPadrao: "Como você prefere que eu te chame?",
     reperguntar: "Não entendi 🤔 Me manda só o nome.",
     extrair: extrairNome,
@@ -215,6 +239,7 @@ export const CAMPOS: Campo[] = [
   {
     chave: "nascimento",
     rotulo: "Data de nascimento",
+    nomeCurto: "Nascimento",
     perguntaPadrao: "Qual sua data de nascimento? (dia/mês/ano)",
     reperguntar: "Essa data não deu certo 🤔 Me manda como 01/02/1990.",
     extrair: extrairNascimento,
@@ -374,14 +399,26 @@ const CHAVES_DO_CATALOGO = new Set(CAMPOS.map((c) => c.chave));
 //
 // O UNDERSCORE É A ÚNICA PONTUAÇÃO QUE SOBREVIVE, e não é gosto: sem isso esta
 // função COME A PRÓPRIA SAÍDA ("qual_sua_cidade" voltaria "qualsuacidade"), e
-// ela precisa ser idempotente porque tem DOIS leitores em pontas opostas do
-// mesmo dado — o editor, que normaliza o rótulo digitado e GRAVA a chave, e
-// `chaveDoPedido` (lib/steps.ts), que normaliza de novo a cada mensagem para
-// recusar no motor a chave que colide com o catálogo. Não sendo idempotente,
-// os dois escreveriam chaves diferentes: o dado da pessoa cairia sob
-// `qualsuacidade` enquanto a variável `{{qual_sua_cidade}}` e a coluna do CSV
-// ficariam vazias para sempre, sem nada acusar. O caso que prende isto é "a
+// ela precisa ser idempotente porque o que chega a ela pode já ter passado por
+// ela.
+//
+// SÃO DUAS FORMAS GRAVADAS, E UMA LEITURA SÓ. O editor grava o texto CRU que o
+// dono digitou (`ChaveDoCampoLivre`, app/automacoes/editor/painel.tsx — o
+// porquê, uma perda de dado medida na tela, está lá), mas as automações salvas
+// ANTES desse conserto têm a forma já normalizada no banco. Quem lê as duas é
+// `chaveDoPedido` (lib/steps.ts), a cada mensagem, e ele precisa chegar na
+// MESMA string nos dois casos. Comendo o próprio underscore, o bloco velho
+// (`qual_sua_cidade`) passaria a gravar o dado da pessoa sob `qualsuacidade`
+// enquanto a variável `{{qual_sua_cidade}}` da mensagem ficaria vazia para
+// sempre, sem nada acusar — e a mesma tela que mostra a forma normalizada ao
+// dono mostraria uma string que o motor não usa. O caso que prende isto é "a
 // saída dela sobrevive a ela mesma", em tests/campos.test.ts.
+//
+// A EXPORTAÇÃO NÃO ENTRA AQUI, e a ausência é medida: o CSV de contatos
+// (app/api/contatos/csv/route.ts) monta duas colunas fixas, não lê
+// `contacts.campos` e ainda filtra por e-mail não nulo. Este comentário já
+// citou "a coluna do CSV" como se ela existisse — nenhuma tarefa da Parte 1 a
+// constrói.
 //
 // Aceitar o underscore NÃO afrouxa a colisão: quem colide é a forma sem
 // pontuação nenhuma ("E-mail" -> "email"), e o hífen continua sendo removido.
@@ -419,9 +456,8 @@ function formaDaChave(texto: string): string | null {
   const chave = soLetraDigitoEspaco.trim().replace(/\s+/g, "_");
   if (!chave) return null; // vazio, só espaço, ou só emoji/pontuação
   // EXIGE PELO MENOS UMA LETRA, e não só "não vazio": `"123"` sobreviveria ao
-  // teste acima e viraria a variável `{{123}}` e uma coluna `123` no CSV —
-  // nome que não diz nada sobre o que foi perguntado, e que ninguém escreve
-  // numa mensagem de propósito. Dígito CONTINUA valendo junto da letra
+  // teste acima e viraria a variável `{{123}}` numa mensagem — nome que não diz
+  // nada sobre o que foi perguntado, e que ninguém escreve de propósito. Dígito CONTINUA valendo junto da letra
   // (`cidade2`), porque aí ele faz parte de um nome.
   if (!/[a-z]/.test(chave)) return null;
   return chave;
@@ -450,11 +486,24 @@ function formaDaChave(texto: string): string | null {
 // nome informado ou data de nascimento". O último vem depois de "ou" — é frase
 // para pessoa ler, não enumeração de código.
 export function camposDoSistemaEmProsa(): string {
-  const rotulos = CAMPOS.map((c) => c.rotulo.toLowerCase());
-  // Com um campo só não há "ou" nenhum a escrever; sem esta linha a frase
+  // O RÓTULO CHEIO, E NÃO O `nomeCurto`: aqui não é tela apertada, é a frase em
+  // que o dono descobre quais campos o sistema já tem — e "telefone / whatsapp"
+  // é justamente o que faz ele reconhecer o campo que ele queria criar à mão.
+  return listaEmProsa(CAMPOS.map((c) => c.rotulo.toLowerCase()));
+}
+
+// A CARREGADORA DA LISTA, SEPARADA DO CATÁLOGO — e a separação tem motivo, não
+// é gosto: a guarda do UM ITEM ("não há 'ou' nenhum a escrever") não tem como
+// ser exercida através de `camposDoSistemaEmProsa`, porque `CAMPOS` tem quatro
+// campos e nenhum teste pode fazê-lo ter um. Uma revisão apagou essa guarda e a
+// suíte inteira ficou verde — guarda sem ninguém que a prenda é guarda que a
+// próxima limpeza leva embora sem perceber. Exportada por isso, e o caso que a
+// prende está em tests/campos.test.ts.
+export function listaEmProsa(itens: string[]): string {
+  // Com um item só não há "ou" nenhum a escrever; sem esta linha a frase
   // nasceria como " ou e-mail", com a vírgula pendurada no vazio.
-  if (rotulos.length === 1) return rotulos[0];
-  return `${rotulos.slice(0, -1).join(", ")} ou ${rotulos[rotulos.length - 1]}`;
+  if (itens.length === 1) return itens[0];
+  return `${itens.slice(0, -1).join(", ")} ou ${itens[itens.length - 1]}`;
 }
 
 // A RECUSA QUE TEM SAÍDA ESCRITA. Uma recusa que só diz "não pode" deixa o dono

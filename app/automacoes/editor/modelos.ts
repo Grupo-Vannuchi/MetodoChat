@@ -37,17 +37,26 @@ export type ItemDaPaleta = {
   gatilhos: string[] | null;
 };
 
-// O NOME DE UM ITEM DE PEDIDO DE DADO, montado sobre o rótulo do catálogo.
+// O NOME DE UM ITEM DE PEDIDO DE DADO, montado sobre o `nomeCurto` do catálogo.
 //
-// A CAIXA É A DA FRASE: o rótulo entra em minúscula porque vem depois de
-// "Pedir". É a mesma conta que o título do nó faz com `toUpperCase` e que a
-// frase do erro faz com `toLowerCase` — três lugares, uma fonte, três caixas.
+// A CAIXA É A DA FRASE: o nome entra em minúscula porque vem depois de "Pedir".
+// É a mesma conta que o título do nó faz com `toUpperCase` e que a frase do
+// campo repetido faz com `toLowerCase` — três lugares, uma fonte, três caixas.
+//
+// É O `nomeCurto`, E NÃO O `rotulo`, e a distinção é o conserto de um estrago:
+// derivando de `rotulo`, a faixa passou a dizer "Pedir nome informado" e "Pedir
+// data de nascimento" (o brief fixa "Pedir nome" e "Pedir nascimento"), e para
+// caber aqui o `rotulo` do telefone foi encurtado de "Telefone / WhatsApp" para
+// "Telefone" — valor literal do brief da Tarefa 1, que está completa. Encurtar
+// o DADO para caber na TELA estraga o modelo para resolver apresentação; o
+// `nomeCurto` é o campo de apresentação, e o porquê inteiro está em
+// lib/campos.ts, ao lado dele.
 //
 // O `!` é honesto pelo mesmo motivo do `pedidoDoCatalogo` (abaixo): as chaves
 // são literais escritas ao lado de `CAMPOS`, e apagar uma delas de lá derruba
 // `tests/editor-modelos.test.ts` em vez de deixar um item sem nome na faixa.
 function rotuloDoPedido(chaveDoCampo: string): string {
-  return `Pedir ${campoPorChave(chaveDoCampo)!.rotulo.toLowerCase()}`;
+  return `Pedir ${campoPorChave(chaveDoCampo)!.nomeCurto.toLowerCase()}`;
 }
 
 export const PALETA: ItemDaPaleta[] = [
@@ -73,13 +82,14 @@ export const PALETA: ItemDaPaleta[] = [
   // "Pedir um dado, agora escolha qual" não se acha. Quem monta a automação
   // procura pelo dado que quer coletar, não pelo mecanismo que o coleta.
   //
-  // O RÓTULO VEM DO CATÁLOGO, e não escrito aqui. Eram TRÊS vozes para a mesma
+  // O NOME VEM DO CATÁLOGO, e não escrito aqui. Eram TRÊS vozes para a mesma
   // coisa — a faixa dizia "Pedir nome", o nó dizia "PEDIR NOME INFORMADO" e o
   // erro de campo repetido saía "Só pode haver um pedido de Nome informado." —
   // e quem monta a automação tinha de adivinhar que os três falavam do mesmo
-  // bloco. O nó e o erro já liam `CAMPOS` (lib/campos.ts); a faixa era a que
-  // faltava. Rótulo comprido demais para um dos três lugares se conserta em
-  // `CAMPOS`, que é o dono do nome, e não com um apelido próprio aqui.
+  // bloco. Hoje os três leem o `nomeCurto` de `CAMPOS` (lib/campos.ts), que é o
+  // campo criado para nome de tela apertada. Nome comprido demais para os três
+  // lugares se conserta lá, e nunca encurtando o `rotulo`, que é o nome cheio do
+  // dado e valor de brief.
   { chave: "pedir_email",  rotulo: rotuloDoPedido("email"),     descricao: "espera o endereço (não é portão)", gatilhos: null },
   { chave: "pedir_telefone", rotulo: rotuloDoPedido("telefone"), descricao: "espera o WhatsApp com DDD",       gatilhos: null },
   { chave: "pedir_nome",   rotulo: rotuloDoPedido("nome_informado"), descricao: "espera o nome que a pessoa usa", gatilhos: null },
@@ -528,6 +538,12 @@ export function resumoDoBloco(p: Passo): { titulo: string; corpo: string } {
     // pedido de e-mail no quadro — e o título é a única coisa que distingue os
     // cinco blocos sem abrir o painel de cada um.
     //
+    // É O `nomeCurto`, a mesma fonte da faixa da paleta e da frase do campo
+    // repetido: o dono tem de reconhecer, no nó, o item que ele arrastou. Com o
+    // `rotulo` cheio este título sairia "PEDIR TELEFONE / WHATSAPP" e "PEDIR
+    // DATA DE NASCIMENTO" enquanto a faixa diz "Pedir telefone" e "Pedir
+    // nascimento" — a segunda voz de novo, agora pelo caminho contrário.
+    //
     // O `comoTexto` e os dois desfechos de fora do catálogo são a mesma rede de
     // segurança do resto desta função: `campo` chega do jsonb, e pode ser número,
     // ausente ou uma chave que não existe mais. O bloco continua se anunciando
@@ -536,7 +552,7 @@ export function resumoDoBloco(p: Passo): { titulo: string; corpo: string } {
     case "pedir_dado": {
       const campo = comoTexto(p.campo);
       const rotulo =
-        campo === "livre" ? "OUTRO DADO" : campoPorChave(campo)?.rotulo.toUpperCase() ?? "DADO";
+        campo === "livre" ? "OUTRO DADO" : campoPorChave(campo)?.nomeCurto.toUpperCase() ?? "DADO";
       return { titulo: `PEDIR ${rotulo}`, corpo: comoTexto(p.texto) };
     }
     case "resposta_publica":

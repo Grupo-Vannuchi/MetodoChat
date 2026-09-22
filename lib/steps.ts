@@ -68,7 +68,9 @@ export type Passo = ComId &
     | { tipo: "reagir_story"; emoji: string }
     | { tipo: "pedir_follow"; texto: string; botao_label: string }
     // `campo` é a chave do catálogo (lib/campos.ts). `chave` só existe quando
-    // `campo === "livre"`, e é ela que vira `{{<chave>}}` e coluna do CSV.
+    // `campo === "livre"`, e é ela que vira `{{<chave>}}` numa mensagem. NÃO é
+    // coluna de exportação: o CSV de contatos (app/api/contatos/csv/route.ts)
+    // tem duas colunas fixas e não lê `contacts.campos`.
     | { tipo: "pedir_dado"; campo: string; texto: string; chave?: string }
   );
 
@@ -1045,10 +1047,35 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
     return { passo: p as Passo };
   }
   if (tipo === "pedir_dado") {
+    // AS DUAS AUSÊNCIAS SÃO PERGUNTADAS JUNTAS, e a frase diz as duas quando as
+    // duas valem. O motivo é uma ida e volta medida no editor: "Pedir outro
+    // dado" é o único item da paleta que NASCE com dois buracos (`texto: ""` e
+    // `chave: ""`, app/automacoes/editor/modelos.ts), e `paraODono` tem UM
+    // slot. Recusando pelo texto primeiro, o `if (!passo) continue` de
+    // `conferirLista` pulava o resto do laço e a recusa do nome do campo só
+    // aparecia na SEGUNDA volta — o dono consertava um problema para descobrir
+    // o outro.
+    //
+    // NÃO ERA DEFEITO DE DISPARO: nos dois estados o bloco é recusado aqui,
+    // `interpretar` o ignora e o salvar fica travado — mensagem vazia nunca
+    // chega a ninguém. Era fricção no nó, e o conserto é do tamanho dela.
+    //
+    // O `motivo` TÉCNICO NÃO MUDA (continua "pedir_dado sem texto"): quem o lê
+    // são os `ignorados` de `interpretar`, atrás de um defeito, e lá a primeira
+    // causa basta. Quem precisa das duas é quem vai consertar as duas.
+    //
+    // `semChave` É CALCULADA ANTES DA GUARDA DO `campo`, de propósito: ela só
+    // pergunta por `campo === "livre"`, que é verdade ou não independentemente
+    // de o campo ser válido, e assim a ORDEM das três recusas fica exatamente
+    // como era. Trocar a ordem trocaria o `motivo` de blocos que já são
+    // medidos por ele.
+    const semChave = o.campo === "livre" && (typeof o.chave !== "string" || !o.chave.trim());
     if (typeof o.texto !== "string" || !o.texto.trim()) {
       return {
         motivo: "pedir_dado sem texto",
-        paraODono: "Este pedido de dado está sem texto.",
+        paraODono: semChave
+          ? "Este pedido de dado está sem texto e sem o nome do campo que guarda a resposta."
+          : "Este pedido de dado está sem texto.",
       };
     }
     // `campo` ENTROU OBRIGATÓRIO NA UNIÃO (`Passo`, acima), mas este é o único
@@ -1077,8 +1104,9 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
     // contatos (app/api/contatos/csv/route.ts) monta duas colunas fixas, não lê
     // `contacts.campos` e ainda filtra por e-mail não nulo. Prometer coluna de
     // exportação aqui era prometer uma coisa que nenhuma tarefa desta fase
-    // constrói. Os
-    // campos do catálogo não entram nesta regra porque a chave deles é o
+    // constrói.
+    //
+    // OS CAMPOS DO CATÁLOGO NÃO ENTRAM NESTA REGRA porque a chave deles é o
     // próprio `campo`.
     //
     // A RECUSA É PELA AUSÊNCIA, e NÃO por `normalizarChaveLivre` aplicada
@@ -1086,7 +1114,7 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
     // se há chave. (Este comentário já afirmou que a função não era idempotente
     // e que por isso não podia ser aplicada; ela passou a ser — o porquê está
     // nela, em lib/campos.ts —, e o que sobrou é a divisão de trabalho.)
-    if (o.campo === "livre" && (typeof o.chave !== "string" || !o.chave.trim())) {
+    if (semChave) {
       return {
         motivo: "pedir_dado livre sem chave",
         paraODono: "Este pedido de dado está sem o nome do campo que guarda a resposta.",
@@ -3080,8 +3108,11 @@ export function retomadaDoTexto(fluxo: Fluxo, indice: number): Retomada {
 //
 // É A MESMA FUNÇÃO QUE O EDITOR USA PARA GRAVAR A CHAVE, e é por isso que ela
 // precisa ser idempotente (o porquê inteiro está nela, lib/campos.ts): as duas
-// pontas têm de escrever a MESMA string, senão o dado cai numa chave que nem a
-// variável de template nem a coluna do CSV conhecem.
+// pontas têm de escrever a MESMA string, senão o dado cai numa chave que a
+// variável de template da mensagem não conhece. (Este comentário citava também
+// "a coluna do CSV": ela não existe — o CSV de contatos,
+// app/api/contatos/csv/route.ts, tem duas colunas fixas e não lê
+// `contacts.campos`.)
 //
 // ELA RECUSA MAIS DO QUE `conferirBloco`: além da colisão com o catálogo — que
 // o `conferir` também barra, para o dono ficar sabendo antes de publicar —, ela
@@ -3419,12 +3450,18 @@ function soUmPorCampo(p: Passo): { identidade: string; mensagem: string } | null
   if (p.tipo !== "pedir_dado") return null;
   const identidade = chaveDoPedido(p);
   if (identidade === null) return null;
-  // O RÓTULO ENTRA EM MINÚSCULA porque ele cai no MEIO da frase. Entrando cru,
-  // o catálogo escrevia "Só pode haver um pedido de Nome informado." — maiúscula
-  // no meio da oração, e um terceiro jeito de chamar o mesmo bloco que a paleta
-  // chama de "Pedir nome informado" e o nó de "PEDIR NOME INFORMADO". O nome é
-  // um só e vem de `CAMPOS`; o que muda é a caixa que cada lugar precisa.
-  const rotulo = campoPorChave(p.campo)?.rotulo.toLowerCase() ?? identidade;
+  // O NOME ENTRA EM MINÚSCULA porque ele cai no MEIO da frase. Entrando cru, o
+  // catálogo escrevia "Só pode haver um pedido de Nome informado." — maiúscula
+  // no meio da oração, e um terceiro jeito de chamar o mesmo bloco.
+  //
+  // É O `nomeCurto`, E NÃO O `rotulo`: esta frase é uma das TRÊS telas estreitas
+  // que nomeiam o bloco (as outras duas são a faixa da paleta e o título do nó,
+  // app/automacoes/editor/modelos.ts), e as três leem o mesmo campo — quem monta
+  // a automação precisa reconhecer, nesta frase, o item que ele arrastou da
+  // faixa. Com o rótulo cheio ela sairia "Só pode haver um pedido de telefone /
+  // whatsapp". O rótulo cheio tem o lugar dele, e é a prosa dos campos do
+  // sistema (`camposDoSistemaEmProsa`, lib/campos.ts).
+  const rotulo = campoPorChave(p.campo)?.nomeCurto.toLowerCase() ?? identidade;
   return {
     identidade: `pedir_dado:${identidade}`,
     mensagem:

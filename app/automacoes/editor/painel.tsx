@@ -361,21 +361,29 @@ function Botoes({
 }
 
 // ---------------------------------------------------------------------------
-// O NOME DO CAMPO LIVRE — o único campo desta tela em que o que se DIGITA não é
-// o que se GRAVA.
+// O NOME DO CAMPO LIVRE — o único campo desta tela que MOSTRA uma segunda forma
+// do que se digita.
 //
-// O dono escreve "Qual sua Cidade" e o que vai para o banco é
-// `qual_sua_cidade`: é essa string que vira `{{qual_sua_cidade}}` numa mensagem
-// seguinte e a coluna do CSV. Sem mostrar a forma normalizada, ele escreveria
-// `{{Qual sua Cidade}}` na mensagem e o texto sairia cru para uma pessoa de
-// verdade.
+// O QUE SE DIGITA É O QUE SE GRAVA, e este cabeçalho já afirmou o contrário:
+// ele dizia que o dono escreve "Qual sua Cidade" e que o banco recebe
+// `qual_sua_cidade`. Isso deixou de ser verdade no conserto do rascunho — o
+// `onChange`, quarenta linhas abaixo, grava `e.target.value` CRU, e o porquê
+// (uma perda de dado medida na tela) está por extenso lá. Os dois comentários
+// conviveram na mesma função dizendo coisas opostas, e o errado era o que se
+// lia primeiro.
+//
+// O QUE ESTA TELA FAZ É MOSTRAR A FORMA NORMALIZADA, embaixo do campo: o dono
+// escreve "Qual sua Cidade" e lê aqui que a resposta vai virar
+// `{{qual_sua_cidade}}`. Sem essa linha ele escreveria `{{Qual sua Cidade}}` na
+// mensagem seguinte e o texto sairia cru para uma pessoa de verdade. Quem
+// normaliza DE FATO, na hora de usar, é `chaveDoPedido` (lib/steps.ts), a cada
+// mensagem.
 //
 // A NORMALIZAÇÃO NÃO É REESCRITA AQUI: `normalizarChaveLivre` (lib/campos.ts) é
-// a dona, e `chaveDoPedido` (lib/steps.ts) chama a MESMA função do outro lado,
-// a cada mensagem. Uma cópia da regra neste componente faria as duas pontas
-// gravarem strings diferentes, e o dado da pessoa cairia numa chave que nem a
-// variável nem o CSV conhecem — o defeito que a idempotência daquela função
-// existe para fechar.
+// a dona, e `chaveDoPedido` chama a MESMA função do outro lado. Uma cópia da
+// regra neste componente faria as duas pontas produzirem strings diferentes, e
+// o dado da pessoa cairia numa chave que a variável `{{...}}` da mensagem não
+// conhece — o defeito que a idempotência daquela função existe para fechar.
 //
 // ELE É COMPONENTE PRÓPRIO POR CAUSA DO ESTADO. O que o dono digita ("e-mail")
 // e o que se grava (nada, porque colide) são coisas diferentes, então o texto

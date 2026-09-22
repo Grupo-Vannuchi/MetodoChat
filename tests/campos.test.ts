@@ -7,6 +7,7 @@ import {
   fraseDaChaveQueColide,
   fraseDaChaveSemLetra,
   lerCampos,
+  listaEmProsa,
   normalizarChaveLivre,
   RECENCIA_EM_DIAS,
   REPERGUNTAR_LIVRE,
@@ -87,6 +88,44 @@ describe("extrair e-mail", () => {
     // esta comparação — `toBe`, não `toEqual` — que garante que o catálogo
     // continua apontando para ELA, não para uma cópia parecida.
     expect(campoPorChave("email")!.extrair).toBe(extractEmail);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// OS DOIS NOMES DE CADA CAMPO, E POR QUE SÃO DOIS.
+//
+// `rotulo` é o nome CHEIO do campo — o que ele guarda, dito para quem monta a
+// automação: "Telefone / WhatsApp" existe para o marketing saber que aquele
+// campo serve para o zap. Ele é valor LITERAL do brief da Tarefa 1, que está
+// completa, e este caso é o que impede a próxima tela apertada de encurtá-lo de
+// novo: já aconteceu uma vez, e a suíte inteira ficou verde.
+//
+// `nomeCurto` é o nome do BLOCO nas três telas estreitas do editor (a faixa da
+// paleta, o título do nó e a frase do campo repetido), e os valores dele saem
+// do brief da Tarefa 5. Encurtar o DADO para caber na TELA é estragar o modelo
+// para resolver apresentação — o que a tela precisa é de um campo de
+// apresentação, e é este.
+// -----------------------------------------------------------------------------
+
+describe("os nomes do catálogo", () => {
+  it("o rótulo cheio é o do brief da Tarefa 1, campo a campo", () => {
+    const cheio = Object.fromEntries(CAMPOS.map((c) => [c.chave, c.rotulo]));
+    expect(cheio).toEqual({
+      email: "E-mail",
+      telefone: "Telefone / WhatsApp",
+      nome_informado: "Nome informado",
+      nascimento: "Data de nascimento",
+    });
+  });
+
+  it("o nome curto é o do brief da Tarefa 5 — e é ele, não o rótulo, que a tela lê", () => {
+    const curto = Object.fromEntries(CAMPOS.map((c) => [c.chave, c.nomeCurto]));
+    expect(curto).toEqual({
+      email: "E-mail",
+      telefone: "Telefone",
+      nome_informado: "Nome",
+      nascimento: "Nascimento",
+    });
   });
 });
 
@@ -207,13 +246,16 @@ describe("normalizarChaveLivre", () => {
 
   it("a saída dela sobrevive a ela mesma — o underscore não some na segunda passada", () => {
     // ISTO É PRÉ-REQUISITO DE `chaveDoPedido` (lib/steps.ts), e não capricho:
-    // quem GRAVA a chave é o editor, que normaliza o rótulo digitado; quem lê a
-    // chave de volta, a cada mensagem, é o motor — e ele normaliza DE NOVO,
-    // porque é a única forma de recusar no motor a chave que colide com campo
-    // do catálogo. Se a função comesse o próprio underscore, o editor gravaria
-    // `qual_sua_cidade` e o motor gravaria o dado da pessoa sob
-    // `qualsuacidade`: a variável `{{qual_sua_cidade}}` e a coluna do CSV
-    // ficariam eternamente vazias, sem nada acusar.
+    // o banco tem DUAS formas da chave e o motor tem de chegar na mesma string
+    // a partir das duas. O editor grava o texto CRU que o dono digitou
+    // (app/automacoes/editor/painel.tsx), mas as automações salvas ANTES desse
+    // conserto guardam a forma já normalizada — e é essa que passa pela função
+    // uma SEGUNDA vez, a cada mensagem. Se ela comesse o próprio underscore, o
+    // bloco velho (`qual_sua_cidade`) passaria a gravar o dado da pessoa sob
+    // `qualsuacidade` e a variável `{{qual_sua_cidade}}` das mensagens ficaria
+    // eternamente vazia, sem nada acusar. (Coluna de CSV NÃO entra na conta: o
+    // CSV de contatos, app/api/contatos/csv/route.ts, tem duas colunas fixas e
+    // não lê `contacts.campos`.)
     const uma = normalizarChaveLivre("Qual sua Cidade");
     expect(uma).toBe("qual_sua_cidade");
     expect(normalizarChaveLivre(uma!)).toBe(uma);
@@ -328,6 +370,20 @@ describe("regraDoCampo", () => {
 // -----------------------------------------------------------------------------
 
 describe("as frases da chave de campo livre recusada", () => {
+  // A CARREGADORA DA LISTA, MEDIDA POR FORA DO CATÁLOGO — e é por isso que ela
+  // é exportada. `camposDoSistemaEmProsa` só sabe falar dos quatro campos que
+  // existem hoje, então a borda de UM elemento ("não há 'ou' nenhum a
+  // escrever") não tem como ser exercida por ela: uma revisão apagou essa
+  // guarda e as 1725 linhas da suíte ficaram verdes. Separar a formatação da
+  // lista dá um dono à guarda sem inventar um catálogo falso.
+  it("a lista em prosa cobre um, dois e três itens — e é no um que a guarda mora", () => {
+    // COM UM ITEM NÃO HÁ "OU": sem a guarda a frase nasce " ou e-mail", com a
+    // vírgula pendurada no vazio e um espaço na frente.
+    expect(listaEmProsa(["e-mail"])).toBe("e-mail");
+    expect(listaEmProsa(["e-mail", "telefone"])).toBe("e-mail ou telefone");
+    expect(listaEmProsa(["e-mail", "telefone", "nome"])).toBe("e-mail, telefone ou nome");
+  });
+
   it("a lista dos campos do sistema é LIDA do catálogo, campo a campo", () => {
     const prosa = camposDoSistemaEmProsa();
     for (const campo of CAMPOS) {

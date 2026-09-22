@@ -23,7 +23,9 @@ import { fraseDaChaveQueColide, fraseDaChaveSemLetra } from "@/lib/campos";
 // estes casos medem a TELA usando aquela função — não uma cópia dela. É a mesma
 // razão de `chaveDoPedido` (lib/steps.ts) chamá-la em vez de reescrevê-la: as
 // duas pontas têm de gravar a MESMA string, senão o dado da pessoa cai numa
-// chave que nem a variável nem o CSV conhecem.
+// chave que a variável `{{...}}` das mensagens não conhece. (O CSV NÃO está
+// nessa conta: app/api/contatos/csv/route.ts tem duas colunas fixas e não lê
+// `contacts.campos`.)
 //
 // O COMPONENTE É O `Painel`, e não um cartão próprio: quem desenha o corpo de
 // um passo neste editor é ele (o arquivo inteiro é um `switch` por

@@ -204,15 +204,41 @@ describe("blocoNovo", () => {
     }
   });
 
-  it("o rótulo dos quatro pedidos do catálogo é o RÓTULO DO CATÁLOGO", () => {
-    // ERAM TRÊS VOZES PARA A MESMA COISA: a faixa dizia "Pedir nome", o título
-    // do nó dizia "PEDIR NOME INFORMADO" e a frase do erro de campo repetido
-    // saía "Só pode haver um pedido de Nome informado.". O nó e o erro já liam
-    // `CAMPOS` (lib/campos.ts); a faixa era a que escrevia o nome à mão.
+  it("a faixa da paleta diz os CINCO nomes que o brief fixou, literalmente", () => {
+    // OS VALORES SÃO LITERAIS DO BRIEF DA TAREFA 5, e por isso estão escritos
+    // aqui à mão em vez de derivados do catálogo: um caso derivado passa a
+    // valer o que o catálogo disser, e foi exatamente assim que a faixa passou
+    // a dizer "Pedir nome informado" e "Pedir data de nascimento" sem nada
+    // acusar. Derivado, este caso mede a ligação; literal, ele mede o VALOR —
+    // e o valor é que o brief fixou.
+    const daFaixa = Object.fromEntries(
+      PALETA.filter((i) => i.chave.startsWith("pedir_") && i.chave !== "pedir_follow").map((i) => [
+        i.chave,
+        i.rotulo,
+      ])
+    );
+    expect(daFaixa).toEqual({
+      pedir_email: "Pedir e-mail",
+      pedir_telefone: "Pedir telefone",
+      pedir_nome: "Pedir nome",
+      pedir_nascimento: "Pedir nascimento",
+      pedir_outro: "Pedir outro dado",
+    });
+  });
+
+  it("a faixa NÃO escreve o nome à mão: ela lê o `nomeCurto` do catálogo", () => {
+    // O caso acima prende o VALOR; este prende a LIGAÇÃO. Eram TRÊS vozes para
+    // a mesma coisa — a faixa dizia "Pedir nome", o nó dizia "PEDIR NOME
+    // INFORMADO" e o erro de campo repetido saía "Só pode haver um pedido de
+    // Nome informado." —, e quem monta a automação tinha de adivinhar que os
+    // três falavam do mesmo bloco. Os três leem `nomeCurto` (lib/campos.ts)
+    // desde então, e é este caso que impede um apelido escrito em `modelos.ts`.
     //
-    // O QUE ESTE CASO PLANTA: um apelido escrito aqui, por mais razoável que
-    // seja, derruba a suíte. Rótulo comprido demais para uma das três telas se
-    // conserta no catálogo, que é o dono do nome.
+    // POR QUE `nomeCurto` E NÃO `rotulo`: o rótulo é o nome CHEIO do campo
+    // ("Telefone / WhatsApp"), fixado no brief da Tarefa 1 para dizer ao
+    // marketing para que o campo serve. Encurtá-LO para caber na faixa
+    // estragaria o dado para resolver apresentação; o `nomeCurto` é o campo de
+    // apresentação, e os dois têm o mesmo dono (`CAMPOS`).
     const daPaleta: [string, string][] = [
       ["pedir_email", "email"],
       ["pedir_telefone", "telefone"],
@@ -222,7 +248,7 @@ describe("blocoNovo", () => {
     for (const [chaveDoItem, campo] of daPaleta) {
       const item = PALETA.find((i) => i.chave === chaveDoItem)!;
       expect(item.rotulo, chaveDoItem).toBe(
-        `Pedir ${campoPorChave(campo)!.rotulo.toLowerCase()}`
+        `Pedir ${campoPorChave(campo)!.nomeCurto.toLowerCase()}`
       );
       // E O NÓ FALA DO MESMO NOME, em outra caixa: são a mesma fonte.
       expect(
@@ -255,6 +281,45 @@ describe("blocoNovo", () => {
     );
     expect(travas).toHaveLength(1);
     expect(travas[0].mensagem).toMatch(/sem texto/i);
+    // E COM O NOME DO CAMPO JÁ PREENCHIDO a frase NÃO o cobra: a recusa dupla
+    // do caso abaixo é condicional, e uma frase que acusa um buraco que não
+    // existe manda o dono procurar o que já está lá.
+    expect(travas[0].mensagem).not.toMatch(/nome do campo/i);
+  });
+
+  it("nascendo com DOIS buracos, o nó diz os DOIS — e não um de cada vez", () => {
+    // O DEFEITO QUE ISTO CONSERTA: este é o único item da paleta que nasce com
+    // duas coisas faltando (o texto e o nome do campo), e o nó mostrava só a
+    // primeira. `conferirBloco` (lib/steps.ts) recusa o bloco por causa do
+    // texto, e o `if (!passo) continue` de `conferirLista` pula o resto do laço
+    // — então a recusa do nome do campo só aparecia na SEGUNDA volta, depois de
+    // o dono escrever a pergunta e olhar o nó de novo. Ele consertava um
+    // problema para descobrir o outro.
+    //
+    // NÃO ERA DEFEITO DE DISPARO — mensagem vazia não vai para ninguém
+    // (`conferir` recusa o bloco e `interpretar` o ignora, e o salvar fica
+    // travado nos dois estados) —, era uma ida e volta a mais no nó.
+    //
+    // A FRASE ÚNICA É O CONSERTO, e é o menor que resolve: `paraODono` tem UM
+    // slot, então o que muda é o que cabe nele. O `motivo` técnico continua
+    // sendo "pedir_dado sem texto" — é ele que os `ignorados` de `interpretar`
+    // carregam, e mudá-lo trocaria um diagnóstico por outro sem necessidade.
+    const bloco = blocoNovo("pedir_outro");
+    const travas = conferirLista([bloco], "dm", []).filter(
+      (p) => p.nivel === "erro" && p.quando === "salvar"
+    );
+    expect(travas).toHaveLength(1);
+    expect(travas[0].mensagem).toMatch(/sem texto/i);
+    expect(travas[0].mensagem).toMatch(/nome do campo/i);
+
+    // E COM UM BURACO SÓ A FRASE NÃO INVENTA O OUTRO: escrever a pergunta deixa
+    // só a recusa do nome do campo, e ela não fala mais de texto.
+    const comTexto = conferirLista([{ ...bloco, texto: "De qual cidade você é?" }], "dm", []).filter(
+      (p) => p.nivel === "erro" && p.quando === "salvar"
+    );
+    expect(comTexto).toHaveLength(1);
+    expect(comTexto[0].mensagem).toMatch(/nome do campo/i);
+    expect(comTexto[0].mensagem).not.toMatch(/sem texto/i);
   });
 
   it("o título do nó nomeia o CAMPO, e não o e-mail de sempre", () => {
@@ -266,14 +331,16 @@ describe("blocoNovo", () => {
       resumoDoBloco(doBanco({ tipo: "pedir_dado", campo, texto: "t" })).titulo;
 
     expect(doCampo("email")).toBe("PEDIR E-MAIL");
-    // "PEDIR TELEFONE", e não "PEDIR TELEFONE / WHATSAPP": o rótulo do catálogo
-    // é lido por TRÊS telas (a faixa, este título e a frase do erro de campo
-    // repetido), e a barra deixava as três compridas e desalinhadas entre si. O
-    // lugar de encurtar é `CAMPOS` (lib/campos.ts), que é o dono do nome — um
-    // apelido só para o nó seria a segunda voz que este caso existe para negar.
+    // "PEDIR TELEFONE", e não "PEDIR TELEFONE / WHATSAPP": o título lê o
+    // `nomeCurto` do catálogo (lib/campos.ts), que é o campo de APRESENTAÇÃO —
+    // e não o `rotulo`, que é o nome cheio do dado ("Telefone / WhatsApp",
+    // literal do brief da Tarefa 1). Os dois moram no mesmo dono; encurtar o
+    // `rotulo` para caber neste título já foi tentado e estragou o dado para
+    // resolver tela. Um apelido escrito em `modelos.ts` continua proibido pelo
+    // mesmo motivo de sempre: seria a segunda voz.
     expect(doCampo("telefone")).toBe("PEDIR TELEFONE");
-    expect(doCampo("nome_informado")).toBe("PEDIR NOME INFORMADO");
-    expect(doCampo("nascimento")).toBe("PEDIR DATA DE NASCIMENTO");
+    expect(doCampo("nome_informado")).toBe("PEDIR NOME");
+    expect(doCampo("nascimento")).toBe("PEDIR NASCIMENTO");
     expect(doCampo("livre")).toBe("PEDIR OUTRO DADO");
     // Campo que o catálogo não conhece (automação gravada antes desta fase, ou
     // `steps` editado por fora) não vira "BLOCO DESCONHECIDO": o bloco É um
