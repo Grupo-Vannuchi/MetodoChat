@@ -18,6 +18,9 @@ import {
   limiteDePublicacao,
 } from "./ig";
 import { renderVariables, type VariableContext } from "./variables";
+// `lib/campos.ts` é puro (sem `server-only`) e não fala com o banco — quem lê a
+// coluna é `variableContext`, aqui embaixo; quem entende o `jsonb` é ele.
+import { lerCampos } from "./campos";
 import { lerPayloadDoLote, loteExpirou } from "./lote";
 import {
   leituraDoContainer,
@@ -593,6 +596,20 @@ async function publicarDaFila(item: QueueItem, account: Account): Promise<Desfec
 // Dados de quem vai receber a mensagem, para resolver as variáveis
 // ({{first_name}} e afins). Uma consulta só, no momento do envio — assim vale
 // para toda automação, inclusive as criadas antes deste recurso existir.
+//
+// `campos` VEM NA MESMA CONSULTA, e não numa segunda: é a coluna que carrega
+// tudo que a automação coletou (telefone, nascimento, e os campos livres que o
+// dono inventou), e ela é lida a cada mensagem que sai. Uma consulta à parte
+// dobraria a ida ao banco no caminho do envio para buscar a MESMA linha.
+//
+// A COLUNA `email` CONTINUA NA LISTA. Ela é a segunda fonte do `{{email}}`
+// (lib/variables.ts diz por quê): todo contato coletado antes desta fase tem a
+// coluna cheia e o `campos` vazio, e tirá-la daqui apagaria o e-mail das
+// mensagens dessas pessoas. A remoção é da Parte 2.
+//
+// QUEM ENTENDE O `jsonb` É `lerCampos` (lib/campos.ts), e não este arquivo: o
+// que o driver devolve é `unknown`, e é lá que mora a regra de o que conta como
+// campo gravado — inclusive o descarte do que foi escrito torto por fora.
 async function variableContext(
   accountId: string,
   contactIgId: string | null | undefined
@@ -600,10 +617,22 @@ async function variableContext(
   if (!contactIgId) return {};
   try {
     const rows = (await sql().query(
-      `select username, name, email from contacts where account_id = $1 and ig_id = $2`,
+      `select username, name, email, campos from contacts where account_id = $1 and ig_id = $2`,
       [accountId, contactIgId]
-    )) as { username: string | null; name: string | null; email: string | null }[];
-    return rows[0] ?? {};
+    )) as {
+      username: string | null;
+      name: string | null;
+      email: string | null;
+      campos: unknown;
+    }[];
+    const linha = rows[0];
+    if (!linha) return {};
+    return {
+      username: linha.username,
+      name: linha.name,
+      email: linha.email,
+      campos: lerCampos(linha.campos),
+    };
   } catch {
     // sem contato salvo: as variáveis caem no fallback (ou somem)
     return {};

@@ -808,4 +808,69 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     await dreno.drainQueue();
     expect(textosNoFio(EU)).toContain("depois das duas");
   });
+  test("a promessa da tela: o dado coletado chega DENTRO da mensagem seguinte", async () => {
+    // A DÍVIDA DA TAREFA 5, MEDIDA DA TELA ATÉ O FIO.
+    //
+    // O painel mostra ao dono, enquanto ele digita "Qual sua Cidade", que a
+    // resposta "vai virar {{qual_sua_cidade}}"
+    // (app/automacoes/editor/painel.tsx). Até a fiação das variáveis existir
+    // essa frase era FALSA: `renderVariables` (lib/variables.ts) não conhecia a
+    // chave, APAGAVA o token, e o lead recebia a mensagem com um buraco no
+    // lugar do dado que ele mesmo acabara de responder.
+    //
+    // POR QUE AQUI E NÃO SÓ NA SUÍTE PURA: o caso puro prende
+    // `renderVariables`, e ele sozinho ficaria verde com a consulta de
+    // `variableContext` (lib/queue-drain.ts) sem a coluna `campos` — o contexto
+    // chegaria sem registro nenhum e o buraco voltaria, calado. Este caso é o
+    // único que atravessa a gravação do motor, a leitura do dreno e a
+    // renderização no mesmo fio.
+    //
+    // A CHAVE SEMEADA É O TEXTO CRU, como o editor a grava desde que o rascunho
+    // do dono passou a sobreviver: quem a normaliza é `chaveDoPedido`
+    // (lib/steps.ts), do outro lado, a cada mensagem. Semear já normalizado
+    // mediria um par inventado, e não o par que a tela promete.
+    const EU = "9300000000000140";
+    await semearComPedido(
+      "quero-dizer-a-cidade",
+      "livre",
+      "De qual cidade você é?",
+      "Boa! Anotei que você é de {{qual_sua_cidade}}.",
+      "Qual sua Cidade"
+    );
+
+    await mensagem(EU, "quero-dizer-a-cidade", "m-cid0");
+    await dreno.drainQueue();
+    expect(textosNoFio(EU)).toEqual(["De qual cidade você é?"]);
+
+    await mensagem(EU, "Osasco", "m-cid1");
+    await dreno.drainQueue();
+
+    // Gravou sob a chave NORMALIZADA — é ela que a variável da mensagem lê.
+    expect(await campoDoContato(EU, "qual_sua_cidade")).toBe("Osasco");
+    // E É ESTA A LINHA DA DÍVIDA: antes da fiação o fio trazia "Boa! Anotei que
+    // você é de ." — a frase inteira, com o buraco no lugar da cidade.
+    expect(textosNoFio(EU)).toContain("Boa! Anotei que você é de Osasco.");
+  });
+
+  test("a variável de campo do catálogo também chega ao fio", async () => {
+    // O CAMINHO DO TELEFONE, e ele não é o mesmo do campo livre: a variável do
+    // livre é resolvida por chave, fora da lista fixa, e a do catálogo nasce de
+    // `CAMPOS` dentro de `VARIABLES` (lib/variables.ts). São dois ramos de
+    // `renderVariables`, e só um deles seria exercido pelo caso da cidade.
+    const EU = "9300000000000141";
+    await semearComPedido(
+      "quero-dizer-o-zap",
+      "telefone",
+      "Me manda seu WhatsApp com DDD 👇",
+      "Anotado: {{telefone}}."
+    );
+
+    await mensagem(EU, "quero-dizer-o-zap", "m-zv0");
+    await dreno.drainQueue();
+    await mensagem(EU, "meu zap é (11) 98888-7777", "m-zv1");
+    await dreno.drainQueue();
+
+    expect(await campoDoContato(EU, "telefone")).toBe("11988887777");
+    expect(textosNoFio(EU)).toContain("Anotado: 11988887777.");
+  });
 });
