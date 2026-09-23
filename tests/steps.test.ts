@@ -56,7 +56,7 @@ import {
   type Ligacao,
 } from "../lib/steps";
 import type { EnvioDaDm, Problema } from "../lib/steps";
-import { fraseDaChaveQueColide, fraseDaChaveSemLetra } from "../lib/campos";
+import { CAMPOS, fraseDaChaveQueColide, fraseDaChaveSemLetra } from "../lib/campos";
 
 // A CORRENTE que a lista sempre teve na prática: bloco 0 → bloco 1 → bloco 2 …,
 // cada seta `{tipo:"sempre"}`. É exatamente o que `scripts/ligar-passos-existentes.mjs`
@@ -416,6 +416,116 @@ describe("passoEsperado", () => {
     ];
     expect(passoEsperado(passos, -1)).toBeUndefined();
     expect(passoEsperado(passos, -2)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A JANELA DO DEPLOY, E ELA É SIMÉTRICA — o motor novo tem de servir os DOIS
+// formatos do pedido de dado, no mesmo dia.
+//
+// O QUE ABRE A JANELA: a migração `012` reescreve `tipo: "pedir_email"` para
+// `tipo: "pedir_dado", campo: "email"`. Enquanto ela rodava DENTRO do `build`
+// (`package.json`), o dado já estava migrado e o CÓDIGO VELHO — a aplicação
+// anterior, que continua atendendo o webhook até o deploy ser promovido —
+// ainda servia produção. Nessa janela, `conferir` do código velho não conhecia
+// `pedir_dado`: `interpretar` IGNORAVA o pedido e ENTREGAVA O LINK sem pedir
+// nada, e quem estava com o cursor em cima do bloco perdia o lugar na conversa
+// (`passoEsperado` → undefined → `limparCursor`, lib/engine.ts).
+//
+// A janela tem DUAS metades e as duas vazam o link, medido na varredura da
+// branch no arranjo de produção `[dm "oi", pedido, dm com o link]`:
+//
+//   VELHO/MIGRADO → ["oi!","AQUI ESTA O LINK"], motivo "tipo desconhecido: pedir_dado"
+//   NOVO/VELHO    → ["oi!","AQUI ESTA O LINK"], motivo "tipo desconhecido: pedir_email"
+//
+// O CONSERTO É BILÍNGUE, E SÓ DE UM LADO: o código NOVO aceita `pedir_email`
+// como APELIDO de `pedir_dado { campo: "email" }`, traduzindo na LEITURA
+// (`conferir`, lib/steps.ts). Com isso a `012` sai do caminho crítico — ela
+// passa a ser limpeza de formato, aplicada à mão num momento calmo —, os dois
+// formatos servem ao mesmo tempo em qualquer ordem, e REVERTER o deploy volta a
+// ser seguro. O procedimento está em `docs/deploy/2026-09-23-a-012-sai-do-build.md`.
+//
+// ESTES CASOS SÃO OS DOIS LADOS DA JANELA, e é por isso que são dois e não um:
+// um só provaria a metade que a branch inteira já assumia.
+// ---------------------------------------------------------------------------
+describe("a janela do deploy: o motor novo serve os DOIS formatos do pedido", () => {
+  // O arranjo EXATO de produção, o mesmo que a varredura mediu.
+  function arranjo(pedido: unknown) {
+    return [
+      { id: "b_oi0001", tipo: "dm", texto: "oi!" },
+      pedido,
+      { id: "b_lnk001", tipo: "dm", texto: "AQUI ESTA O LINK", url: "https://x.y" },
+    ];
+  }
+
+  const VELHO = { id: "b_ped001", tipo: "pedir_email", texto: "Qual seu e-mail?" };
+  const MIGRADO = {
+    id: "b_ped001",
+    tipo: "pedir_dado",
+    campo: "email",
+    texto: "Qual seu e-mail?",
+  };
+
+  for (const [lado, pedido] of [
+    ["passo VELHO (`pedir_email`), ainda não migrado", VELHO],
+    ["passo MIGRADO (`pedir_dado`) pela `012`", MIGRADO],
+  ] as const) {
+    it(`pede o dado e PARA esperando a resposta — ${lado}`, () => {
+      const passos = arranjo(pedido);
+      const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "b_oi0001");
+
+      // O LINK NÃO SAI. Esta é a promessa central do produto, e é ela que a
+      // janela quebrava nas duas direções.
+      expect(r.enfileirar.map((a) => a.indice)).toEqual([0, 1]);
+      expect(r.ignorados).toEqual([]);
+      // E o fluxo PARA no pedido, esperando a resposta chegar.
+      expect(r.pararEm).toBe("b_ped001");
+    });
+
+    it(`o contato com o cursor EM CIMA do bloco não perde o lugar — ${lado}`, () => {
+      const passos = arranjo(pedido);
+      // `passoEsperado` devolver undefined é o que leva o motor a `limparCursor`
+      // (lib/engine.ts): a resposta que a pessoa acabou de mandar é descartada e
+      // o lugar dela na conversa, apagado.
+      const esperado = passoEsperado(passos, 1);
+      expect(esperado).toBeDefined();
+      // E ele chega ao resto do sistema já no formato NOVO: o apelido é
+      // traduzido na leitura, e quem está a jusante continua conhecendo um
+      // formato só.
+      expect(esperado!.tipo).toBe("pedir_dado");
+      expect(chaveDoPedido(esperado!)).toBe("email");
+    });
+  }
+
+  it("o apelido é a MESMA tradução que a `012` faz, e preserva o resto do bloco", () => {
+    // `(p - 'tipo') || jsonb_build_object('tipo','pedir_dado','campo','email')`
+    // (migrations/012): o `id` fica — é ele que liga as setas e é o que o cursor
+    // de quem está no meio da conversa guarda —, o `texto` fica, a `pos` fica, e
+    // o `campo` é sobrescrito mesmo quando já havia um gravado.
+    const { passo } = conferir({
+      id: "b_ped001",
+      tipo: "pedir_email",
+      texto: "Qual seu e-mail?",
+      pos: { x: 10, y: 20 },
+      campo: "telefone",
+    });
+    expect(passo).toEqual({
+      id: "b_ped001",
+      tipo: "pedir_dado",
+      campo: "email",
+      texto: "Qual seu e-mail?",
+      pos: { x: 10, y: 20 },
+    });
+  });
+
+  it("o apelido não afrouxa a recusa: `pedir_email` SEM TEXTO continua recusado", () => {
+    // O `conferir` anterior à renomeação já exigia `texto` para `pedir_email`, e
+    // traduzir na leitura não pode inventar o que falta. O motivo sai no
+    // vocabulário NOVO porque o bloco já foi traduzido — é o mesmo bloco, com
+    // o mesmo defeito.
+    const r = conferir({ id: "b_ped001", tipo: "pedir_email" });
+    expect(r.passo).toBeUndefined();
+    expect(r.motivo).toBe("pedir_dado sem texto");
   });
 });
 
@@ -3114,6 +3224,40 @@ describe("conferirLista", () => {
     expect(r).toHaveLength(1);
     expect(r[0].mensagem).toMatch(/telefone/i);
     expect(r[0].mensagem).not.toMatch(/e-mail/i);
+  });
+
+  // A FRASE USA O `nomeCurto`, E NÃO O `rotulo` — a terceira das três telas
+  // estreitas que nomeiam o bloco, e a única que estava SEM CASO.
+  //
+  // Uma varredura plantou `rotulo` nas três (esta, a faixa da paleta e o título
+  // do nó, `app/automacoes/editor/modelos.ts`) e as outras duas acusaram na
+  // hora. Esta ficou VERDE: o caso acima cobra `/telefone/i`, e
+  // "telefone / whatsapp" também casa. O estrago que passava era uma frase de
+  // erro dizendo "Só pode haver um pedido de telefone / whatsapp" — a barra no
+  // meio da oração, num painel em que o dono precisa reconhecer o item que ele
+  // arrastou da faixa.
+  //
+  // O CASO É SOBRE A REGRA, e não sobre uma string: ele varre o catálogo e
+  // cobra o nome curto de TODO campo cujos dois nomes diferem. Um campo novo com
+  // rótulo comprido entra nesta volta sozinho.
+  it("a frase do campo repetido usa o nome CURTO do campo, e não o rótulo cheio", () => {
+    const comprido = CAMPOS.filter((c) => c.nomeCurto !== c.rotulo);
+    // Se um dia os dois nomes coincidirem em todo o catálogo, este caso deixa de
+    // distinguir as duas leituras — e aí ele tem de acusar, e não passar calado.
+    expect(comprido.length).toBeGreaterThan(0);
+
+    for (const campo of comprido) {
+      const um = { id: "b_rep051", tipo: "pedir_dado", campo: campo.chave, texto: "Me diz?" };
+      const dois = { id: "b_rep052", tipo: "pedir_dado", campo: campo.chave, texto: "De novo?" };
+      const r = erros([bem, um, dois]);
+      expect(r, campo.chave).toHaveLength(1);
+      // O ponto final é o que separa as duas leituras: com o rótulo cheio a
+      // frase seguiria em " / whatsapp." ou teria começado em "data de ".
+      expect(r[0].mensagem, campo.chave).toContain(
+        `Só pode haver um pedido de ${campo.nomeCurto.toLowerCase()}.`
+      );
+      expect(r[0].mensagem.toLowerCase(), campo.chave).not.toContain(campo.rotulo.toLowerCase());
+    }
   });
 
   it("dois campos livres com a MESMA chave são recusados; com chaves diferentes, não", () => {

@@ -264,7 +264,15 @@ const KIND: Record<QueueItem["kind"], string> = {
   dm_link: "DM com o seu link",
   dm_reminder: "Lembrete",
   dm_follow_gate: "Pedido para seguir o perfil",
-  dm_email_ask: "Pedido de e-mail",
+  // `dm_email_ask` É O NOME DE ONTEM, e o rótulo NÃO pode repeti-lo. O `kind`
+  // gravado fica como está — o valor está em linhas de fila de produção, e
+  // renomeá-lo é migração de dado (o porquê está em lib/engine.ts, ao lado do
+  // `enqueue`) —, mas `lib/engine.ts` enfileira com ele TODO `pedir_dado`:
+  // telefone, nome, nascimento e campo livre inclusive. Este texto é o que
+  // `app/eventos/page.tsx` mostra na lista de Envios, então "Pedido de e-mail"
+  // mentia para quatro dos cinco campos. "Pedido de dado" é verdade para os
+  // cinco, e a troca não mexe em dado nenhum: muda o rótulo, não a linha.
+  dm_email_ask: "Pedido de dado",
   story_reaction: "Reação no story",
   // Resposta que uma pessoa digitou na caixa de entrada do painel. Entra na
   // mesma fila das automáticas (lib/engine.ts, enqueueManualReply) e por isso

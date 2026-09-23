@@ -960,6 +960,59 @@ export function partirLigacao(ligacoes: Ligacao[], indice: number, meio: string)
 // a prévia precisa saber exatamente o que `interpretar` IGNORA, para não
 // desenhar como mensagem um bloco que nunca sai. Quem responde isso é esta
 // função, e o `paraODono` já vem na língua de quem monta a automação.
+// O APELIDO `pedir_email`, E POR QUE O MOTOR NOVO PRECISA SER BILÍNGUE.
+//
+// A JANELA DO DEPLOY É SIMÉTRICA, e foi isso que nenhuma revisão por tarefa
+// tinha como ver: cada uma olhou o código de HOJE contra o dado de HOJE, e o
+// risco mora no par CÓDIGO VELHO × DADO NOVO, que só existe durante o deploy.
+//
+// `migrations/012` reescreve `tipo: "pedir_email"` para
+// `tipo: "pedir_dado", campo: "email"`. Enquanto ela rodava dentro do `build`
+// (`package.json`), a migração gravava no COMEÇO do build e a aplicação
+// ANTERIOR continuava atendendo o webhook até o deploy ser promovido. Nessa
+// janela o banco estava à frente do código, e o código velho não conhece
+// `pedir_dado`. Medido pela varredura da branch, no arranjo de produção
+// `[dm "oi", pedido, dm com o link]`, as DUAS metades vazam o link:
+//
+//   VELHO/MIGRADO → ["oi!","AQUI ESTA O LINK"]  "tipo desconhecido: pedir_dado"
+//   NOVO/VELHO    → ["oi!","AQUI ESTA O LINK"]  "tipo desconhecido: pedir_email"
+//
+// E o contato que está NO MEIO da conversa perde o lugar: `passoEsperado`
+// devolve `undefined`, o ramo cai em `limparCursor` (lib/engine.ts), a resposta
+// que a pessoa acabou de mandar é descartada e ela fica esperando mandar uma
+// palavra-chave de novo. Se o `next build` FALHAR, a janela não fecha — a `012`
+// já gravou, o deploy não é promovido, e as automações ativas entregam o link
+// sem pedir nada por tempo indeterminado, sem erro em lugar nenhum.
+//
+// O QUE ESTA FUNÇÃO COMPRA, e é por isso que ela é o conserto e não a vigília:
+// com o apelido, o código NOVO serve dado VELHO. A `012` sai do caminho crítico
+// — ela sai do `build` e passa a ser aplicada à mão, num momento calmo
+// (`docs/deploy/2026-09-23-a-012-sai-do-build.md`) —, os dois formatos
+// funcionam ao mesmo tempo em qualquer ordem, a janela deixa de existir nas
+// DUAS direções, e REVERTER O DEPLOY volta a ser seguro. Nada na branch falava
+// de rollback até aqui.
+//
+// É A MESMA TRADUÇÃO QUE A `012` FAZ, e a igualdade é de propósito:
+// `(p - 'tipo') || jsonb_build_object('tipo','pedir_dado','campo','email')`.
+// O espalhamento preserva o resto do bloco — o `id` (que liga as setas e é o
+// que o cursor guarda), o `texto`, a `pos` —, e `tipo` e `campo` são
+// sobrescritos mesmo que já houvesse um `campo` gravado, porque no jsonb o lado
+// direito do `||` ganha. Duas traduções diferentes para o mesmo bloco seriam
+// duas verdades sobre o que a pessoa vai receber.
+//
+// ELA NÃO AFROUXA NADA: só troca o vocabulário do bloco antes das guardas. Um
+// `pedir_email` sem texto continua recusado — agora por "pedir_dado sem texto",
+// que é o mesmo defeito com o nome de hoje.
+//
+// QUANDO ELA MORRE: na Parte 2, junto com `contacts.email`, depois de a `012`
+// ter rodado e de não haver mais nenhum `pedir_email` gravado. A conferência de
+// `scripts/migrar.mjs` (`ESPERADAS_DADOS`) é quem responde essa pergunta contra
+// o banco.
+function apelidoDoPedido(o: Record<string, unknown>): Record<string, unknown> {
+  if (o.tipo !== "pedir_email") return o;
+  return { ...o, tipo: "pedir_dado", campo: "email" };
+}
+
 export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODono?: string } {
   if (!p || typeof p !== "object") {
     return {
@@ -967,14 +1020,23 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
       paraODono: "Este bloco está corrompido e não vai ser enviado.",
     };
   }
-  const o = p as Record<string, unknown>;
+  // O APELIDO É TRADUZIDO AQUI, NA LEITURA, E O RESTO DO SISTEMA NÃO FICA
+  // SABENDO — é a mesma divisão que `chaveDoPedido` já faz para a chave.
+  //
+  // Daqui para baixo, e daqui para FORA, o passo já está no formato novo: quem
+  // lê o que esta função devolve (`interpretar`, `passoEsperado`,
+  // `esperaResposta`, `soUmPorCampo`, `conferirLista`, a prévia do editor)
+  // continua se decidindo por `tipo === "pedir_dado"`, e só por ele. Um
+  // `if (tipo === "pedir_email")` espalhado pelos oito leitores é exatamente o
+  // defeito dos dois donos que esta base passou a fase inteira fechando.
+  const o = apelidoDoPedido(p as Record<string, unknown>);
   const tipo = o.tipo;
 
   if (tipo === "dm") {
     if (typeof o.texto !== "string" || !o.texto.trim()) {
       return { motivo: "dm sem texto", paraODono: "Esta mensagem está sem texto." };
     }
-    return { passo: p as Passo };
+    return { passo: o as Passo };
   }
   if (tipo === "esperar") {
     if (typeof o.minutos !== "number" || !Number.isFinite(o.minutos) || o.minutos < 0) {
@@ -983,7 +1045,7 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
         paraODono: "Esta espera está sem um tempo válido em minutos.",
       };
     }
-    return { passo: p as Passo };
+    return { passo: o as Passo };
   }
   if (tipo === "resposta_publica") {
     if (!Array.isArray(o.textos) || !o.textos.length) {
@@ -992,13 +1054,13 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
         paraODono: "Esta resposta pública não tem nenhum texto para publicar.",
       };
     }
-    return { passo: p as Passo };
+    return { passo: o as Passo };
   }
   if (tipo === "reagir_story") {
     if (typeof o.emoji !== "string" || !o.emoji) {
       return { motivo: "reagir_story sem emoji", paraODono: "Este coraçãozinho está sem emoji." };
     }
-    return { passo: p as Passo };
+    return { passo: o as Passo };
   }
   // O RÓTULO DO BOTÃO NÃO É CONFERIDO AQUI, e a ausência é DECISÃO MEDIDA — não
   // esquecimento. Quem recusa o portão sem rótulo é `conferirLista`, lá embaixo,
@@ -1044,7 +1106,7 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
         paraODono: "Este pedido de follow está sem texto.",
       };
     }
-    return { passo: p as Passo };
+    return { passo: o as Passo };
   }
   if (tipo === "pedir_dado") {
     // AS DUAS AUSÊNCIAS SÃO PERGUNTADAS JUNTAS, e a frase diz as duas quando as
@@ -1167,7 +1229,7 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
         paraODono: fraseDaChaveQueColide(o.chave),
       };
     }
-    return { passo: p as Passo };
+    return { passo: o as Passo };
   }
   return {
     motivo: `tipo desconhecido: ${String(tipo)}`,

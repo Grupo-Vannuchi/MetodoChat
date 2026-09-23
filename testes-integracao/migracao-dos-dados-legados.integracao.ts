@@ -16,15 +16,27 @@
 // -----------------------------------------------------------------------------
 // O QUE ESTÁ EM JOGO, e é produção de verdade
 //
-// `conferir` (lib/steps.ts) passou a RECUSAR o tipo `pedir_email`, e as
-// automações ATIVAS em produção têm esse tipo gravado. Enquanto a `012` não
-// rodar, publicar esta branch transforma esses blocos em "Este bloco é de um
-// tipo que o sistema não reconhece" — `interpretar` os ignora e o fluxo entrega
-// o que vem DEPOIS do pedido sem nunca ter pedido nada.
+// As automações ATIVAS em produção têm `tipo: "pedir_email"` gravado, e a `012`
+// é quem as põe no formato novo.
 //
-// Por isso o caso que mais importa aqui não é "o jsonb ficou com a cara certa":
-// é "o passo migrado PASSA no `conferir` de hoje". Olhar o jsonb e achar que
-// está bom é a forma deste defeito sobreviver ao teste.
+// O QUE ESTE PARÁGRAFO DIZIA ATÉ 23/09/2026: que `conferir` (lib/steps.ts)
+// RECUSAVA `pedir_email`, e que publicar a branch antes da migração
+// transformaria esses blocos em "Este bloco é de um tipo que o sistema não
+// reconhece" — ignorados por `interpretar`, com o fluxo entregando o link sem
+// ter pedido nada. Era verdade, e era metade da história: a outra metade é que
+// o código VELHO, servindo durante o deploy, faz a MESMA coisa com o passo já
+// migrado. A janela vazava o link nas duas direções.
+//
+// O QUE MUDOU: `conferir` passou a aceitar `pedir_email` como APELIDO de
+// `pedir_dado { campo: "email" }`, e a `012` saiu do build para ser aplicada à
+// mão depois do deploy (`docs/deploy/2026-09-23-a-012-sai-do-build.md`). Os dois
+// formatos funcionam ao mesmo tempo, em qualquer ordem.
+//
+// E O CASO QUE MAIS IMPORTA AQUI CONTINUA SENDO O MESMO: não é "o jsonb ficou
+// com a cara certa", é "o passo migrado PASSA no `conferir` de hoje". Olhar o
+// jsonb e achar que está bom é a forma deste defeito sobreviver ao teste — e o
+// apelido não cobre este caso, porque ele traduz o tipo VELHO, e aqui o que se
+// mede é o que a migração ESCREVEU.
 //
 // -----------------------------------------------------------------------------
 // O FUSO É PARÂMETRO, E ISSO É O CORAÇÃO DE METADE DOS CASOS
@@ -323,8 +335,10 @@ describe("os passos `pedir_email` das automações", () => {
   });
 
   test("o passo migrado PASSA no `conferir` de hoje — e não só tem a cara certa", async () => {
-    // ESTE É O CASO QUE JUSTIFICA A TAREFA. `conferir` recusa `pedir_email`
-    // desde a Tarefa 3, e é essa recusa que trava a publicação desta branch.
+    // ESTE É O CASO QUE JUSTIFICA A TAREFA, e ele mede o que a migração
+    // ESCREVEU — não o que o apelido de `conferir` traduz na leitura (o apelido
+    // cobre o tipo VELHO; aqui o passo já é o NOVO, e se a `012` o tivesse
+    // escrito torto nada o salvaria).
     // Olhar o jsonb e achar que está bom é como este defeito sobreviveria: o
     // objeto pode ter todas as chaves certas e ainda ser recusado (um `campo`
     // fora do catálogo, por exemplo, sai daqui com forma perfeita).

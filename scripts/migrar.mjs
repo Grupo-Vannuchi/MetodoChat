@@ -8,6 +8,16 @@
 // aplica mora aqui embaixo, em "A TRAVA DE PRODUÇÃO". O ensaio a seco não é
 // travado: ele só lê.
 //
+// DESDE 23/09 NEM TUDO ENTRA NO BUILD: migração que MEXE EM DADO é ADIADA e só
+// roda com `--a-mao` (ver `SO_A_MAO`, abaixo). O motivo é a janela do deploy —
+// o banco ficava à frente do código enquanto o deploy não era promovido, e com
+// uma migração que reescreve linhas isso fazia o fluxo entregar o link sem
+// pedir o dado. O procedimento está em
+// `docs/deploy/2026-09-23-a-012-sai-do-build.md`.
+//
+// O ENSAIO A SECO SEGUE A MESMA REGRA: sem `--a-mao` ele mostra o que o BUILD
+// faria; com `--a-mao`, o que a MÃO faria.
+//
 // CÓDIGO DE SAÍDA: 0 quando toda coluna esperada existe com o tipo e o padrão
 // esperados; 1 quando alguma confere errado — coluna ausente depois de aplicar,
 // ou coluna presente com forma divergente. É o que um roteiro de implantação lê
@@ -64,22 +74,41 @@
 // -----------------------------------------------------------------------------
 // O CONTRATO: TODA MIGRAÇÃO DESTA PASTA É IDEMPOTENTE
 //
-// Não há tabela de controle registrando o que já foi aplicado — de propósito,
-// por ora. Com `if not exists` em toda DDL, rodar duas vezes é inofensivo, e uma
-// tabela de controle seria maquinário para um problema que ainda não existe.
+// Com `if not exists` em toda DDL, rodar duas vezes é inofensivo.
 //
-// O PREÇO, escrito para não ser descoberto tarde: isto não serve para migração
-// que MOVE DADO (renomear coluna preservando conteúdo, quebrar uma tabela em
-// duas). Essas não são idempotentes por natureza e precisam de registro do que
-// já rodou. **No dia em que aparecer a primeira, a tabela de controle vira
-// obrigatória** — e este parágrafo é o aviso de que ela não existe.
+// A TABELA DE CONTROLE EXISTE, e este parágrafo afirmava o contrário até
+// 23/09/2026. Ele dizia "não há tabela de controle registrando o que já foi
+// aplicado — de propósito, por ora", e isso era FALSO desde `7ee9f9e`, anterior
+// à branch da coleta de dados: `schema_migrations` nasce aqui mesmo (ver "O
+// REGISTRO DO QUE JÁ RODOU", abaixo), `decidirMigracoes` (scripts/migracoes.mjs)
+// decide por ela, e `testes-integracao/registro-de-migracoes.integracao.ts`
+// prova que a segunda rodada não aplica nada.
 //
-// A ÚNICA LINHA DESTA PASTA QUE ESCREVE DADO é a semente de `config` em `000`, e
-// ela cabe no contrato: `on conflict (id) do nothing` não lê, não altera e não
-// apaga nada — só faz nascer a linha única quando não há nenhuma. O token dela é
-// GERADO, e é por isso que a cláusula importa: rodar de novo não pode trocar o
-// token de quem já está usando o sistema. Está medido, como asserção executada,
-// em `testes-integracao/esquema-base.integracao.ts`.
+// E O COMENTÁRIO DESATUALIZADO CUSTOU CARO, que é o motivo de esta correção vir
+// escrita e não apagada: ele continuava anunciando que a tabela de controle
+// "vira obrigatória no dia em que aparecer a primeira migração que MOVE DADO" —
+// e `docs/deploy/2026-08-26-migracao-no-build.md:72-77` mandava, nesse mesmo
+// dia, repensar a ORDEM do build "junto com a tabela de controle, que também não
+// existe ainda". Quem leu os dois em 2026 leu uma condição com duas metades e
+// concluiu que o dia estava longe. Metade dela já estava resolvida havia
+// semanas; a outra metade — a ordem — é a que ficou, e é a que a `012` cobrou.
+//
+// O PREÇO, escrito para não ser descoberto tarde: `if not exists` não serve para
+// migração que MOVE DADO (renomear coluna preservando conteúdo, quebrar uma
+// tabela em duas). Essas não são idempotentes por natureza, e é o registro que
+// as segura — por isso ele existe.
+//
+// E ELAS NÃO RODAM DENTRO DO BUILD. Ver `SO_A_MAO`, mais abaixo: o dia previsto
+// chegou com a `012`, e a resposta é que migração de dado é aplicada À MÃO,
+// depois de o código novo estar no ar. O procedimento inteiro está em
+// `docs/deploy/2026-09-23-a-012-sai-do-build.md`.
+//
+// A ÚNICA LINHA DESTA PASTA QUE ESCREVE DADO DENTRO DO BUILD é a semente de
+// `config` em `000`, e ela cabe no contrato: `on conflict (id) do nothing` não
+// lê, não altera e não apaga nada — só faz nascer a linha única quando não há
+// nenhuma. O token dela é GERADO, e é por isso que a cláusula importa: rodar de
+// novo não pode trocar o token de quem já está usando o sistema. Está medido,
+// como asserção executada, em `testes-integracao/esquema-base.integracao.ts`.
 import postgres from "postgres";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -410,6 +439,61 @@ const arquivos = nomes.map((nome) => {
   return { nome, comandos, soma: somaDoTexto(comandos) };
 });
 
+// ============================================================
+// AS MIGRAÇÕES QUE O BUILD NÃO APLICA — e a janela do deploy, que é o motivo.
+//
+// O PROBLEMA, MEDIDO. Este script roda no COMEÇO do `next build`
+// (`package.json`), e a aplicação ANTERIOR continua atendendo o webhook da Meta
+// até o build terminar e o deploy ser promovido. Nessa janela o banco está à
+// frente do código. Enquanto toda migração desta pasta foi ADITIVA, isso era
+// inofensivo — coluna nova parada não muda o que o código velho faz, e é assim
+// que `docs/deploy/2026-08-26-migracao-no-build.md` justifica a ordem (razão 3),
+// dizendo na mesma frase: "no dia da primeira migração que MOVE dado, esta
+// ordem tem de ser repensada".
+//
+// A `012` é essa migração, e ela diz isso na primeira linha. Ela reescreve
+// `tipo: "pedir_email"` para `pedir_dado`, e o código VELHO não conhece o tipo
+// novo — o `conferir` DE ENTÃO (o de hoje é bilíngue, ver a metade 1 abaixo)
+// recusa o bloco, `interpretar` o IGNORA e o fluxo ENTREGA O LINK sem nunca ter
+// pedido o dado — calado, para as automações ativas de clientes reais. Quem estava no meio da conversa perde o cursor e a
+// resposta que acabou de mandar. E se o `next build` FALHAR, a janela não fecha:
+// a migração já gravou, o deploy não é promovido, e o estado dura tempo
+// indeterminado.
+//
+// O CONSERTO TEM DUAS METADES, e esta é a segunda:
+//
+//   1. O MOTOR FICOU BILÍNGUE. `conferir` (lib/steps.ts) aceita `pedir_email`
+//      como APELIDO de `pedir_dado { campo: "email" }`, traduzindo na leitura.
+//      Com isso o código NOVO serve dado VELHO, e os dois formatos funcionam ao
+//      mesmo tempo, em qualquer ordem — a janela deixa de existir nas DUAS
+//      direções, e reverter o deploy volta a ser seguro.
+//   2. A `012` SAI DO BUILD (esta lista). Ela deixa de ser destravamento e vira
+//      limpeza de formato, aplicada à mão num momento calmo, com o código novo
+//      já no ar.
+//
+// POR QUE A TRAVA MORA AQUI, E NÃO NUMA PASTA SEPARADA: `migrations/` é a única
+// fonte da estrutura, e os testes de integração montam o schema descartável de
+// toda rodada aplicando a pasta INTEIRA (`testes-integracao/migracoes.ts`).
+// Mover o arquivo para fora tiraria a `012` de todas as provas que a cercam —
+// são cinco pontos de rede, plantados e medidos. Aqui a decisão é uma linha
+// legível, com o porquê ao lado, e o arquivo continua na pasta, na ordem, no
+// registro e sob teste. É o mesmo raciocínio de "A TRAVA DE PRODUÇÃO", acima.
+//
+// ELA NÃO DESLIGA A CONFERÊNCIA: `ESPERADAS_DADOS` (lá embaixo) continua
+// perguntando ao banco o que sobrou. O que muda é o VEREDICTO — enquanto a
+// migração não estiver no registro, sobrar é o ESPERADO e não derruba o deploy;
+// depois que ela estiver, sobrar volta a ser falha. O porquê inteiro está lá.
+//
+// QUEM ACRESCENTAR MIGRAÇÃO QUE MEXE EM DADO ACRESCENTA AQUI, e acrescenta
+// também em `ESPERADAS_DADOS`.
+const SO_A_MAO = new Set(["012-migrar-email-para-campos.sql"]);
+
+const COMO_APLICAR_A_MAO =
+  "Aplique à mão, da raiz do repositório, com o código novo já no ar:\n" +
+  "    node scripts/migrar.mjs                          ← ensaio a seco\n" +
+  "    node scripts/migrar.mjs --aplicar --a-mao        ← grava\n" +
+  "  O procedimento está em `docs/deploy/2026-09-23-a-012-sai-do-build.md`.";
+
 const decisao = decidirMigracoes(arquivos, registro);
 
 for (const nome of decisao.jaAplicadas) {
@@ -445,14 +529,49 @@ for (const orfa of decisao.orfas) {
   console.log(`  !    ${orfa} — está no registro e NÃO está em migrations/`);
 }
 
-if (aplicar && !decisao.aplicar.length) {
+// AS ADIADAS, E A SEPARAÇÃO É PELA BANDEIRA `--a-mao`, não pelo ambiente.
+//
+// `--a-mao` já significa "não estou num deploy" (ver "A TRAVA DE PRODUÇÃO",
+// acima), e as duas trancas dela garantem que ela não pode ser escrita no
+// `build` do `package.json` para destravar isto: dentro da Vercel ela é
+// RECUSADA, e sem `.env.local` também. Ou seja, migração de dado não tem como
+// voltar para dentro de um deploy sem que alguém apague `SO_A_MAO` de propósito.
+//
+// O ENSAIO A SECO SEGUE A MESMA REGRA, e é o que faz a prévia dizer a verdade:
+// `node scripts/migrar.mjs` mostra o que o BUILD faria (a `012` adiada), e
+// `node scripts/migrar.mjs --a-mao` mostra o que a MÃO faria (a `012` inclusa).
+// Um ensaio que mostrasse sempre tudo prometeria um build que não acontece.
+const adiadas = aMao ? [] : decisao.aplicar.filter((nome) => SO_A_MAO.has(nome));
+const aRodar = decisao.aplicar.filter((nome) => !adiadas.includes(nome));
+
+for (const nome of adiadas) {
+  console.log(`  |    ${nome} — ADIADA: mexe em DADO e não roda dentro do build`);
+}
+if (adiadas.length) {
+  console.log(
+    "\n  A MIGRAÇÃO ACIMA MEXE EM DADO, e por isso fica FORA do build: aplicá-la\n" +
+      "  antes de o deploy ser promovido põe o banco à FRENTE do código, e essa é\n" +
+      "  a janela em que o fluxo entrega o link sem pedir o dado. NÃO é falha, e o\n" +
+      "  deploy SEGUE — o motor serve os dois formatos do pedido (`conferir`,\n" +
+      "  lib/steps.ts).\n" +
+      `  ${COMO_APLICAR_A_MAO}\n`
+  );
+}
+
+if (aplicar && !aRodar.length) {
   console.log(
     `\nNada a aplicar: as ${decisao.jaAplicadas.length} migrações já constam no registro.\n` +
       "NENHUMA DDL de esquema foi executada, então nenhuma trava foi pedida."
   );
 }
 
-for (const nome of decisao.aplicar) {
+// O QUE O BANCO CONFIRMA TER RECEBIDO — e quem lê isto é `ESPERADAS_DADOS`,
+// lá embaixo: uma conferência de DADO só pode cobrar o resultado de uma
+// migração que RODOU. Começa no registro lido antes da decisão e cresce a
+// cada aplicação bem sucedida, dentro do laço.
+const noRegistro = new Set(decisao.jaAplicadas);
+
+for (const nome of aRodar) {
   const arq = arquivos.find((a) => a.nome === nome);
 
   if (!aplicar) {
@@ -482,6 +601,7 @@ for (const nome of decisao.aplicar) {
         ? `  ✓    ${nome} — aplicada e registrada`
         : `  ✓    ${nome} — só comentário, registrada sem rodar nada`
     );
+    noRegistro.add(nome);
   } catch (erro) {
     // 55P03 = lock_not_available (bateu no `lock_timeout` acima).
     // 57014 = query_canceled (bateu no `statement_timeout` do banco).
@@ -958,11 +1078,30 @@ for (const { tabela, nome, definicao, de } of ESPERADAS_RESTRICOES) {
 //
 // E AQUI O SILÊNCIO CUSTA MAIS QUE NAS OUTRAS. As migrações de restrição estão
 // do lado ALTO: um banco que não as recebeu RECUSA a escrita errada sozinho. A
-// `012` não tem quem recuse — um banco que não a recebeu SERVE NORMALMENTE, com
-// passos `pedir_email` que `conferir` (lib/steps.ts) recusa e que `interpretar`
-// IGNORA. O fluxo pula o pedido de e-mail e entrega o que vem depois dele, sem
-// erro em lugar nenhum. É a falha calada, e a única barreira contra ela é sair
-// 1 aqui e derrubar o build.
+// `012` não tem quem recuse — um banco que não a recebeu SERVE NORMALMENTE, e
+// nada no catálogo distingue esse banco de um migrado. Esta lista é a ÚNICA
+// coisa que enxerga esta migração.
+//
+// O QUE O PARÁGRAFO ACIMA DIZIA, E DEIXOU DE SER VERDADE EM 23/09/2026: ele
+// afirmava que os passos `pedir_email` de um banco não migrado eram recusados
+// por `conferir` e IGNORADOS por `interpretar` — o fluxo entregando o link sem
+// pedir nada —, e concluía que "a única barreira contra ela é sair 1 aqui e
+// derrubar o build". As duas metades caíram com o conserto da janela do deploy:
+//
+//   · `conferir` (lib/steps.ts) passou a aceitar `pedir_email` como APELIDO de
+//     `pedir_dado { campo: "email" }`. Um passo não migrado é SERVIDO — pede o
+//     dado e para esperando a resposta. Não há mais falha calada nesse estado;
+//   · e por isso derrubar o build deixou de ser a barreira certa. A `012` sai
+//     do build (`SO_A_MAO`, acima) e é aplicada à mão; sobrar `pedir_email`
+//     ANTES disso é o esperado, e o veredicto desta lista passou a depender de
+//     a migração estar no registro. Ver "O VEREDICTO DEPENDE DE A MIGRAÇÃO TER
+//     RODADO", no laço lá embaixo, e
+//     `docs/deploy/2026-09-23-a-012-sai-do-build.md`.
+//
+// O QUE ELA CONTINUA SENDO: a prova de que a limpeza de formato ACONTECEU. Sem
+// esta lista, o script imprimiria "CONFERIDO" cinco vezes sobre outras coisas e
+// sairia 0 com a produção ainda no formato velho, servida pelo apelido para
+// sempre — e o apelido é temporário por decisão, não por acidente.
 //
 // O QUE SE PERGUNTA É "SOBROU ALGUMA?", E NÃO "MIGROU QUANTAS?". Contar o que
 // mudou exigiria saber quantas havia antes, e depois da primeira execução essa
@@ -1018,7 +1157,7 @@ for (const { tabela, nome, definicao, de } of ESPERADAS_RESTRICOES) {
 const ESPERADAS_DADOS = [
   {
     de: "012-migrar-email-para-campos.sql",
-    oQue: "passos `pedir_email` (o tipo que `conferir` recusa desde a Tarefa 3)",
+    oQue: "passos `pedir_email` (o formato velho, que o apelido de `conferir` ainda serve)",
     // Conta ELEMENTOS, e não automações: uma automação pode ter mais de um, e o
     // número que interessa é quantos blocos continuariam sendo ignorados.
     consulta: `
@@ -1100,15 +1239,49 @@ const ESPERADAS_DADOS = [
   },
 ];
 
+// O VEREDICTO DEPENDE DE A MIGRAÇÃO TER RODADO, e esta é a metade que a saída
+// da `012` do build obrigou a escrever.
+//
+// Antes, sobrar era sempre falha, e isso estava certo enquanto a migração rodava
+// DENTRO do build: se ela acabou de rodar e ainda sobrou coisa, é porque não fez
+// efeito. Com a `012` ADIADA (ver `SO_A_MAO`, acima), sobrar passou a ter DUAS
+// causas opostas, e derrubar o deploy nas duas seria trocar uma falha calada por
+// um bloqueio permanente de deploys corretos:
+//
+//   A MIGRAÇÃO AINDA NÃO RODOU (não está no registro). Sobrar é o ESPERADO — é
+//     literalmente o estado que o deploy foi feito para atravessar em paz. E ele
+//     é seguro: o motor serve os dois formatos do pedido (`conferir`,
+//     lib/steps.ts), então nenhum lead recebe o link sem entregar o dado. Aqui a
+//     conferência DIZ o que viu e o deploy SEGUE.
+//
+//   A MIGRAÇÃO RODOU (está no registro) e ainda sobrou. Aí é o que sempre foi:
+//     ou o `update` não casou nada, ou o bloco migrou quebrado. O deploy PARA, e
+//     o `seSobrar` da entrada diz para qual lado investigar.
+//
+// A CONFERÊNCIA NÃO FOI DESLIGADA, e a diferença importa: ela continua rodando
+// as três consultas em todo deploy e continua IMPRIMINDO a conta. O que mudou é
+// só o `falhas++`. Uma conferência que só fala quando pode derrubar o build é
+// uma conferência que ninguém lê no dia em que ela teria evitado o estrago.
+//
+// O ESTADO "NÃO APLICADA" TEM PRAZO, e quem o encerra é a mão: depois de
+// `--aplicar --a-mao`, a `012` entra no registro e esta conferência volta,
+// sozinha, a ser bloqueante. Não há bandeira para lembrar de tirar.
 for (const { de, oQue, consulta, seSobrar } of ESPERADAS_DADOS) {
   const [{ sobraram }] = await sql.unsafe(consulta);
+  // `noRegistro` é o que o BANCO confirma (ver o laço de aplicação, acima), e
+  // não a pasta: um arquivo que existe em `migrations/` e nunca rodou aqui é
+  // exatamente o caso que esta linha distingue.
+  const aindaNaoRodou = !noRegistro.has(de);
 
   if (sobraram > 0) {
-    console.log(
-      `CONFERIDO no banco: SOBRARAM ${sobraram} ${oQue} (${de})` +
-        (aplicar ? ` — ${seSobrar}` : " (esperado no ensaio a seco: nada foi gravado)")
-    );
-    if (aplicar) falhas++;
+    const recado = !aplicar
+      ? " (esperado no ensaio a seco: nada foi gravado)"
+      : aindaNaoRodou
+        ? ` — ${de} AINDA NÃO FOI APLICADA, então sobrar é o esperado e o deploy SEGUE. ${COMO_APLICAR_A_MAO}`
+        : ` — ${seSobrar}`;
+
+    console.log(`CONFERIDO no banco: SOBRARAM ${sobraram} ${oQue} (${de})` + recado);
+    if (aplicar && !aindaNaoRodou) falhas++;
     continue;
   }
 

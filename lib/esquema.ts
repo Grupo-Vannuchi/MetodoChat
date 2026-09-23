@@ -174,10 +174,22 @@ const MARCA_DAGUA = {
       // E AQUI ELA NÃO ESTÁ DO LADO ALTO DA TABELA DO TOPO, que é a diferença em
       // relação às seis acima. As outras não observáveis mudam restrição, e um
       // banco que não as recebeu RECUSA a escrita errada sozinho. Esta não tem
-      // quem recuse: um banco que não a recebeu serve normalmente, com passos
-      // `pedir_email` que `conferir` (lib/steps.ts) recusa e `interpretar`
-      // IGNORA — o fluxo pula o pedido e entrega o que vem depois dele. É a
-      // falha CALADA, justamente a que esta conferência existe para pegar.
+      // quem recuse: um banco que não a recebeu serve normalmente, e nada no
+      // catálogo o distingue de um migrado.
+      //
+      // ELE SERVE DE VERDADE, E ISSO MUDOU EM 23/09/2026. Este parágrafo dizia
+      // que um banco não migrado tinha passos `pedir_email` "que `conferir`
+      // recusa e `interpretar` IGNORA — o fluxo pula o pedido e entrega o que
+      // vem depois dele", e chamava isso de falha CALADA. `conferir`
+      // (lib/steps.ts) passou a aceitar `pedir_email` como APELIDO de
+      // `pedir_dado { campo: "email" }`: o passo não migrado é SERVIDO, pede o
+      // dado e para esperando a resposta. O apelido existe para fechar a janela
+      // do deploy, e o porquê inteiro está em
+      // `docs/deploy/2026-09-23-a-012-sai-do-build.md`.
+      //
+      // O QUE CONTINUA VALENDO é a razão de esta entrada ser NÃO OBSERVÁVEL: a
+      // `012` é limpeza de FORMATO, o apelido é temporário por decisão, e quem
+      // responde "a limpeza aconteceu?" é `ESPERADAS_DADOS`, não o catálogo.
       //
       // ENTÃO POR QUE NÃO É CONFERIDA AQUI: porque a pergunta desta conferência
       // é sobre ESTRUTURA, e responder "existe passo `pedir_email` no banco?" é

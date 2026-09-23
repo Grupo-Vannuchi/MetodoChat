@@ -8,17 +8,39 @@
 -- exatamente como a segunda nasceu da `003` e a quarta da `004`/`005`. Em
 -- `lib/esquema.ts` ela entra como NÃO OBSERVÁVEL, com o motivo escrito lá.
 --
+-- E É A PRIMEIRA QUE NÃO RODA DENTRO DO BUILD, pela mesma razão de ser a
+-- primeira que mexe em dado. Ver o bloco seguinte.
+--
 -- -----------------------------------------------------------------------------
--- POR QUE ELA É BLOQUEANTE, e não cosmética
+-- ELA NÃO É MAIS BLOQUEANTE, E NÃO RODA DENTRO DO BUILD (23/09/2026)
 --
--- `conferir` (lib/steps.ts) passou a RECUSAR o tipo `pedir_email` — o tipo foi
--- renomeado para `pedir_dado` quando a coleta deixou de ser só de e-mail. As
--- automações ATIVAS em produção têm o nome antigo gravado em `steps`.
---
--- Publicar a branch sem rodar isto não deixa um bloco feio na tela: deixa um
+-- ESTE PARÁGRAFO DIZIA O CONTRÁRIO, e a correção fica escrita porque foi ela
+-- que mudou a ordem do deploy. Ele afirmava: "`conferir` (lib/steps.ts) passou
+-- a RECUSAR o tipo `pedir_email` (…) Publicar a branch sem rodar isto deixa um
 -- bloco que `interpretar` IGNORA. O fluxo passa por cima do pedido e entrega o
--- que vem DEPOIS dele — o link inclusive — sem nunca ter pedido nada, e sem
--- erro em lugar nenhum. É a falha calada de sempre, pela porta do dado velho.
+-- que vem DEPOIS dele — o link inclusive — sem nunca ter pedido nada."
+--
+-- Era verdade, e era METADE da história. A outra metade é o espelho: enquanto o
+-- deploy não é promovido, quem atende o webhook é o código ANTERIOR — e ele faz
+-- a MESMA coisa com o passo JÁ MIGRADO ("tipo desconhecido: pedir_dado"). Como
+-- esta migração roda no COMEÇO do `next build`, era exatamente esse par que
+-- ficava no ar durante todo o build, e por tempo indeterminado se o build
+-- falhasse. A janela vazava o link nas DUAS direções.
+--
+-- O CONSERTO, e é ele que tira a urgência daqui: `conferir` passou a aceitar
+-- `pedir_email` como APELIDO de `pedir_dado { campo: "email" }`, traduzindo na
+-- leitura — a MESMA tradução que o `case` lá embaixo faz. Com isso o código
+-- novo serve dado velho, os dois formatos valem ao mesmo tempo, e esta migração
+-- deixa de ser destravamento e vira LIMPEZA DE FORMATO.
+--
+-- POR ISSO ELA SAIU DO BUILD. `SO_A_MAO` (scripts/migrar.mjs) a adia em todo
+-- deploy; ela é aplicada à mão depois, com o código novo já no ar. O
+-- procedimento está em `docs/deploy/2026-09-23-a-012-sai-do-build.md`.
+--
+-- O QUE CONTINUA VERDADE: enquanto ela não rodar, o formato velho continua no
+-- banco e o apelido continua sendo necessário. Quem responde "já rodou?" é
+-- `ESPERADAS_DADOS` (scripts/migrar.mjs), e é ela que volta a derrubar o deploy
+-- se sobrar alguma coisa DEPOIS de a migração estar registrada.
 --
 -- -----------------------------------------------------------------------------
 -- POR QUE O `em` É O PRIMEIRO CONTATO, E NÃO UMA DATA RECENTE
