@@ -15,9 +15,15 @@ import {
 //
 // SÃO DOIS BOTÕES SEPARADOS, por decisão do dono: "Exportar CSV" (a rota vizinha,
 // `../csv`) continua sendo A LISTA DE E-MAIL, com duas colunas e só quem tem
-// e-mail, e o arquivo dele não muda. Este leva TODO contato do recorte, tenha
+// e-mail, e o CONTEÚDO dele não muda. Este leva TODO contato do recorte, tenha
 // e-mail ou não, com as colunas do catálogo (lib/campos.ts) e os campos livres
 // que o próprio marketing nomeou.
+//
+// O QUE OS DOIS COMPARTILHAM, ALÉM DAS PENEIRAS, é a neutralização de fórmula
+// de planilha: ela mora dentro da `cell` do módulo, então nenhum dos dois
+// arquivos pode ganhar ou perder a proteção sozinho. As colunas deste aqui são
+// as mais expostas — a resposta do campo livre é texto que o lead digitou numa
+// DM, e o arquivo é aberto com dois cliques na máquina do marketing.
 //
 // ESTA ROTA É CASCA FINA, E ISSO É A DECISÃO ESTRUTURAL DA TAREFA. O handler
 // começa em `isValidSession`, e sessão não se forja: nada que more aqui dentro

@@ -11,7 +11,7 @@ import {
   type ContatoDaListaDeEmail,
 } from "@/lib/exportacao-de-contatos";
 
-// A LISTA DE E-MAIL — e este arquivo não muda nem um byte, por decisão do dono.
+// A LISTA DE E-MAIL — e o CONTEÚDO deste arquivo não muda, por decisão do dono.
 //
 // O que ele monta continua sendo exatamente o que sempre montou: duas colunas
 // (Nome, E-mail), só quem tem e-mail, separador ";" e BOM de UTF-8. O que
@@ -19,11 +19,21 @@ import {
 // duas peneiras saíram daqui para `lib/exportacao-de-contatos.ts`, que é puro e
 // tem caso — inclusive um que compara os BYTES deste arquivo.
 //
+// A ÚNICA EXCEÇÃO À PROMESSA DE BYTE, e ela é do dono: a neutralização de
+// fórmula de planilha (`neutralizarFormula`, no módulo). O nome do perfil vem
+// de DM do Instagram, e um nome que começa com `=` é executado pelo Excel ao
+// abrir o arquivo na máquina do marketing. A restrição do dono era sobre
+// CONTEÚDO — quais contatos, quais colunas —, e ela cede aqui; os dois arquivos
+// neutralizam pela MESMA `cell`, porque tratar o mesmo dado de dois jeitos era
+// o defeito maior. Só muda a linha cujo nome começa com `=`, `+`, `-`, `@`,
+// TAB ou CR.
+//
 // A MUDANÇA É JUSTAMENTE O QUE PRENDE A PROMESSA. Este handler começa em
 // `isValidSession`, e sessão não se forja: teste de integração nenhum alcança o
 // que vem depois. Enquanto o conteúdo do arquivo era montado aqui dentro,
-// "não muda nem um byte" era uma frase sem ninguém conferindo. Agora há quem
-// confira, e o botão novo ("Exportar todos os dados",
+// "não muda nem um byte" era uma frase sem ninguém conferindo — e é por haver
+// quem confira que a exceção de segurança acima pôde ser feita de propósito, e
+// medida, em vez de acontecer calada. O botão novo ("Exportar todos os dados",
 // app/api/contatos/csv-completo/route.ts) reusa a mesma `cell` em vez de copiá-la.
 
 export async function GET(req: NextRequest) {

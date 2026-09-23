@@ -473,7 +473,9 @@ const CHAVES_RESERVADAS = new Set([...CHAVES_DO_CATALOGO, ...CHAVES_DO_PERFIL]);
 // coluna do CSV"), e era verdade até esta tarefa. O botão ANTIGO ("Exportar
 // CSV", app/api/contatos/csv/route.ts) continua sendo o que era: duas colunas
 // fixas, `email is not null`, e sem ler esta coluna — são dois botões, e o
-// velho não muda.
+// conteúdo do velho não muda. (A única mudança de byte que ele sofreu é a
+// neutralização de fórmula de planilha, compartilhada pelos dois pela mesma
+// `cell`; o porquê está em lib/exportacao-de-contatos.ts.)
 //
 // Aceitar o underscore NÃO afrouxa a colisão: quem colide é a forma sem
 // pontuação nenhuma ("E-mail" -> "email"), e o hífen continua sendo removido.

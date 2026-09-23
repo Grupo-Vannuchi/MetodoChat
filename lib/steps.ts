@@ -3180,7 +3180,7 @@ export function retomadaDoTexto(fluxo: Fluxo, indice: number): Retomada {
 // "Exportar todos os dados" (lib/exportacao-de-contatos.ts) é a chave GRAVADA.
 // (Este comentário dizia que "a coluna do CSV não existe". Existe desde esta
 // tarefa; o que continua sem ler `contacts.campos` é o botão ANTIGO,
-// app/api/contatos/csv/route.ts, que é a lista de e-mail e não muda.)
+// app/api/contatos/csv/route.ts, que é a lista de e-mail.)
 //
 // ELA RECUSA MAIS DO QUE `conferirBloco`: além da colisão com o catálogo — que
 // o `conferir` também barra, para o dono ficar sabendo antes de publicar —, ela

@@ -28,7 +28,7 @@ import { fraseDaChaveQueColide, fraseDaChaveSemLetra } from "@/lib/campos";
 // "Exportar todos os dados" (lib/exportacao-de-contatos.ts) É a chave gravada.
 // (Este comentário dizia que "o CSV não está nessa conta". Está, desde aquela
 // tarefa; quem continua fora é o botão ANTIGO, app/api/contatos/csv/route.ts,
-// que é a lista de e-mail e não mudou.)
+// que é a lista de e-mail.)
 //
 // O COMPONENTE É O `Painel`, e não um cartão próprio: quem desenha o corpo de
 // um passo neste editor é ele (o arquivo inteiro é um `switch` por

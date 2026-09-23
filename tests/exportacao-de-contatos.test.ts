@@ -3,6 +3,7 @@ import { CAMPOS, type Campo } from "@/lib/campos";
 import { type FiltroDeCategoria } from "@/lib/categorias";
 import {
   cell,
+  neutralizarFormula,
   montarCsv,
   apelidoDoRecorte,
   nomeDoArquivo,
@@ -75,6 +76,50 @@ describe("cell — o escape que o ponto e vírgula obriga", () => {
   });
 });
 
+// ------------------------------------------------------------
+// A INJEÇÃO DE FÓRMULA — o dado desta planilha vem de DM do Instagram.
+//
+// O nome do perfil, o @ e a resposta do campo livre são digitados por quem
+// mandou a mensagem, e o arquivo é aberto com dois cliques na máquina do
+// marketing. Uma célula que COMEÇA com `=`, `+`, `-`, `@`, TAB ou CR é
+// executada pelo Excel e pelo Google Sheets ao ABRIR, sem ninguém clicar em
+// nada. Os DOIS botões neutralizam, pela MESMA função.
+// ------------------------------------------------------------
+describe("neutralizarFormula — o primeiro caractere que a planilha executa", () => {
+  it("os seis começos perigosos ganham a apóstrofe", () => {
+    expect(neutralizarFormula("=1+1")).toBe("'=1+1");
+    expect(neutralizarFormula("+55 11 99999-9999")).toBe("'+55 11 99999-9999");
+    expect(neutralizarFormula("-2+3")).toBe("'-2+3");
+    expect(neutralizarFormula("@SUM(1:1)")).toBe("'@SUM(1:1)");
+    expect(neutralizarFormula("\tx")).toBe("'\tx");
+    expect(neutralizarFormula("\rz")).toBe("'\rz");
+  });
+
+  // É O COMEÇO DA CÉLULA, E SÓ ELE. Marcar o `=` do meio de um nome estragaria
+  // dado de gente de verdade sem fechar caminho nenhum.
+  it("o mesmo caractere NO MEIO não é fórmula, e o dado sai inteiro", () => {
+    expect(neutralizarFormula("Ana=Bia")).toBe("Ana=Bia");
+    expect(neutralizarFormula("ana@email.com")).toBe("ana@email.com");
+    expect(neutralizarFormula("Silva - Jr")).toBe("Silva - Jr");
+    expect(neutralizarFormula("")).toBe("");
+  });
+
+  // ASPAS NÃO RESOLVEM: o escape de CSV cita a célula por causa do `;` e da
+  // aspa, e o leitor tira as aspas ANTES de decidir o que a célula é. Quem
+  // decide é o primeiro caractere do conteúdo — e é ele que a apóstrofe muda.
+  it("a apóstrofe fica DENTRO das aspas quando o escape também age", () => {
+    expect(cell('=HYPERLINK("http://mau";"clique")')).toBe(
+      '"\'=HYPERLINK(""http://mau"";""clique"")"'
+    );
+    expect(cell("\rz")).toBe("\"'\rz\"");
+  });
+
+  it("a célula crua também é neutralizada — é a MESMA `cell` dos dois arquivos", () => {
+    expect(cell("=1+1")).toBe("'=1+1");
+    expect(cell("@sum")).toBe("'@sum");
+  });
+});
+
 describe("montarCsv — BOM, separador e fim de linha", () => {
   it("o arquivo começa com o BOM de UTF-8 e separa com ponto e vírgula", () => {
     expect(montarCsv([["a", "b"], ["1", "2"]])).toBe("﻿a;b\r\n1;2");
@@ -82,18 +127,26 @@ describe("montarCsv — BOM, separador e fim de linha", () => {
 });
 
 // ------------------------------------------------------------
-// O BOTÃO ANTIGO — O ARQUIVO DELE NÃO MUDA.
+// O BOTÃO ANTIGO — O ARQUIVO DELE NÃO MUDA, COM UMA EXCEÇÃO NOMEADA.
 //
-// Decisão do dono: "Exportar CSV" é a lista de e-mail e o arquivo dele não pode
-// mudar nem um byte. Este bloco é a única coisa nesta base capaz de acusar uma
-// mudança ali — a rota não tem, e não pode ter, teste de integração.
+// Decisão do dono: "Exportar CSV" é a lista de e-mail, e o CONTEÚDO dele —
+// quais contatos, quais colunas — não muda nem um byte. A exceção, decidida
+// pelo dono depois: a neutralização de fórmula (`neutralizarFormula`), que vale
+// para os DOIS arquivos pela mesma função, porque tratar o mesmo dado de dois
+// jeitos seria pior do que mudar estes bytes. Ela só toca a linha cujo nome
+// COMEÇA com `=`, `+`, `-`, `@`, TAB ou CR; todo o resto continua idêntico, e
+// as cinco primeiras linhas do caso abaixo são a prova disso.
+//
+// Este bloco é a única coisa nesta base capaz de acusar uma mudança ali — a
+// rota não tem, e não pode ter, teste de integração.
 // ------------------------------------------------------------
 describe("csvDaListaDeEmail — o arquivo do botão antigo, byte a byte", () => {
   // AS LINHAS SÃO ESCOLHIDAS PARA ATRAVESSAR `cell`, e não só o cabeçalho: a
   // `cell` agora é COMPARTILHADA com o botão novo, e o risco da extração é
   // justamente um ajuste feito para o arquivo novo vazar para este. Por isso
   // tem nome com espaço nas pontas (um `trim` mudaria estes bytes), nome com
-  // ponto e vírgula e aspas (o escape) e nome nulo (a célula vazia).
+  // ponto e vírgula e aspas (o escape), nome nulo (a célula vazia) e, desde a
+  // neutralização, um nome de cada começo perigoso.
   it("duas colunas, nesta ordem, com estes cabeçalhos", () => {
     const csv = csvDaListaDeEmail([
       { nome: "Ana", email: "ana@email.com" },
@@ -101,14 +154,31 @@ describe("csvDaListaDeEmail — o arquivo do botão antigo, byte a byte", () => 
       { nome: 'Silva; "Jr"', email: "jr@email.com" },
       { nome: "  Bia  ", email: "bia@email.com" },
       { nome: "Duas\nlinhas", email: "duas@email.com" },
+      { nome: "=1+1", email: "igual@email.com" },
+      { nome: '=HYPERLINK("http://mau";"clique")', email: "link@email.com" },
+      { nome: "+55 Ana", email: "mais@email.com" },
+      { nome: "-Bia", email: "menos@email.com" },
+      { nome: "@sum", email: "arroba@email.com" },
+      { nome: "\tTab", email: "tab@email.com" },
+      { nome: "\rCarro", email: "carro@email.com" },
     ]);
     expect(csv).toBe(
       "﻿Nome;E-mail\r\n" +
+        // AS CINCO PRIMEIRAS SÃO OS BYTES DE SEMPRE — é o que diz que a exceção
+        // de segurança não virou licença para mexer no resto do arquivo.
         "Ana;ana@email.com\r\n" +
         ";sem-nome@email.com\r\n" +
         '"Silva; ""Jr""";jr@email.com\r\n' +
         "  Bia  ;bia@email.com\r\n" +
-        '"Duas\nlinhas";duas@email.com'
+        '"Duas\nlinhas";duas@email.com\r\n' +
+        // E ESTAS SÃO A EXCEÇÃO, uma por começo perigoso.
+        "'=1+1;igual@email.com\r\n" +
+        '"\'=HYPERLINK(""http://mau"";""clique"")";link@email.com\r\n' +
+        "'+55 Ana;mais@email.com\r\n" +
+        "'-Bia;menos@email.com\r\n" +
+        "'@sum;arroba@email.com\r\n" +
+        "'\tTab;tab@email.com\r\n" +
+        "\"'\rCarro\";carro@email.com"
     );
   });
 
@@ -471,6 +541,29 @@ describe("csvCompletoDeContatos — o que cai em cada célula", () => {
         "Nome informado;Data de nascimento;qual_sua_cidade\r\n" +
         "Ana Souza;ana;aluno;ana@email.com;11999998888;;;Osasco"
     );
+  });
+
+  // A INJEÇÃO PELO BOTÃO NOVO, NAS QUATRO COLUNAS QUE O LEAD ESCREVE. As duas
+  // de perfil vêm do Instagram, a categoria o dono digita, e o campo livre é a
+  // resposta que o próprio lead mandou por DM — que é a coluna que esta tarefa
+  // acabou de criar, e a mais fácil de plantar de fora.
+  it("nome, @, categoria e campo livre não viram fórmula na planilha", () => {
+    const csv = csvCompletoDeContatos([
+      contato({
+        username: "=cmd|' /C calc'!A0",
+        name: '=HYPERLINK("http://mau","clique")',
+        categoria: "+aluno",
+        campos: { qual_sua_cidade: coletado("@SUM(1:1)"), obs: coletado("-2+3") },
+      }),
+    ]);
+    expect(colunaDe(csv, "Username (@)")).toEqual(["'=cmd|' /C calc'!A0"]);
+    expect(colunaDe(csv, "Categoria")).toEqual(["'+aluno"]);
+    expect(colunaDe(csv, "qual_sua_cidade")).toEqual(["'@SUM(1:1)"]);
+    expect(colunaDe(csv, "obs")).toEqual(["'-2+3"]);
+    // O nome atravessa o escape E a neutralização ao mesmo tempo: a apóstrofe
+    // tem de ficar DENTRO das aspas, senão a fórmula volta a ser a primeira
+    // coisa do conteúdo da célula.
+    expect(csv).toContain('"\'=HYPERLINK(""http://mau"",""clique"")"');
   });
 
   it("sem ninguém, sobra o cabeçalho — sem coluna livre nenhuma para descobrir", () => {
