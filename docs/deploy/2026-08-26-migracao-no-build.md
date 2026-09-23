@@ -302,7 +302,13 @@ três de hoje já estão aplicadas em produção.
 **Não apague coluna para reverter.** Continua valendo, pelo mesmo motivo de
 17/08: ela é inofensiva parada, e apagá-la obrigaria a refazer a migração.
 
-**E desde 23/09/2026 reverter o deploy é seguro também para a `012`**, porque
-ela não roda dentro dele: enquanto não tiver sido aplicada à mão, não há nada a
-desfazer. Ver
-[`2026-09-23-a-012-sai-do-build.md`](./2026-09-23-a-012-sai-do-build.md).
+**E desde 23/09/2026 reverter o deploy é seguro para a `012` ENQUANTO ELA NÃO
+TIVER SIDO APLICADA À MÃO** — só até lá. Ela não roda dentro do build, então
+antes da aplicação manual não há nada a desfazer. **Depois da aplicação, não.**
+O código anterior à branch `coleta-de-dados-parte-1` conhece um formato só de
+pedido, e com os passos já migrados ele entrega o link sem pedir o dado, além de
+apagar o lugar de quem estiver no meio da conversa — medido, e sem erro em lugar
+nenhum. A condição está em negrito porque a versão anterior desta frase a
+omitia. Ver
+[`2026-09-23-a-012-sai-do-build.md`](./2026-09-23-a-012-sai-do-build.md),
+seção "COMO VOLTAR ATRÁS".
