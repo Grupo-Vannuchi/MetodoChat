@@ -162,6 +162,34 @@ const MARCA_DAGUA = {
       // primeiro recurso que escreve no perfil público, é a falha certa.
       porque: "reescreve a definição de um `check` que já existe (10 tipos -> 11)",
     },
+    {
+      de: "012-migrar-email-para-campos.sql",
+      // A PRIMEIRA QUE MEXE EM DADO, e por isso a primeira cuja invisibilidade
+      // aqui não é por forma nem por direção: ela não emite DDL nenhuma.
+      // Reescreve linhas de `contacts` e de `automations`, e presença de coluna
+      // não tem como ver isso — as colunas que ela toca (`contacts.campos` e
+      // `automations.steps`) já estão nesta estrutura e na `000`, e continuariam
+      // presentes se a migração não tivesse feito NADA.
+      //
+      // E AQUI ELA NÃO ESTÁ DO LADO ALTO DA TABELA DO TOPO, que é a diferença em
+      // relação às seis acima. As outras não observáveis mudam restrição, e um
+      // banco que não as recebeu RECUSA a escrita errada sozinho. Esta não tem
+      // quem recuse: um banco que não a recebeu serve normalmente, com passos
+      // `pedir_email` que `conferir` (lib/steps.ts) recusa e `interpretar`
+      // IGNORA — o fluxo pula o pedido e entrega o que vem depois dele. É a
+      // falha CALADA, justamente a que esta conferência existe para pegar.
+      //
+      // ENTÃO POR QUE NÃO É CONFERIDA AQUI: porque a pergunta desta conferência
+      // é sobre ESTRUTURA, e responder "existe passo `pedir_email` no banco?" é
+      // varrer `automations.steps` de todas as contas em TODA partida de
+      // instância — uma varredura de dado no caminho quente, para uma resposta
+      // que só muda uma vez na vida. Quem a faz é `ESPERADAS_DADOS`
+      // (scripts/migrar.mjs), DEPOIS de aplicar, uma vez por deploy, e lá ela
+      // sai 1 e derruba o build. A divisão é a mesma da `006`: esta fica cega de
+      // propósito, e a outra é quem enxerga.
+      porque:
+        "migra DADO (não emite DDL); quem a confere é `ESPERADAS_DADOS` em scripts/migrar.mjs",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",

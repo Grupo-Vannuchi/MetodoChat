@@ -43,6 +43,9 @@ import {
   urlDoBanco,
 } from "./banco-descartavel";
 import { migracoesEmOrdem } from "./migracoes";
+// `somaDoTexto` é a MESMA função que o script usa para assinar: repor a linha do
+// registro com outra assinatura faria o script acusar "migração editada".
+import { somaDoTexto } from "../scripts/migracoes.mjs";
 import { sslDaUrl } from "@/lib/conexao";
 
 const rodar = promisify(execFile);
@@ -133,6 +136,56 @@ it("migração EDITADA depois de aplicada faz o script PARAR, sem aplicar nada",
   // Devolve o registro ao lugar, para não contaminar quem rodar depois.
   await leitor!`delete from schema_migrations where name = ${migracoesEmOrdem()[0].nome}`;
 }, 120_000);
+
+it("DADO velho que sobrou derruba o script, mesmo com a migração já registrada", async () => {
+  // A CONFERÊNCIA DE DADO (`ESPERADAS_DADOS`, scripts/migrar.mjs) medida pelo
+  // único caminho que a alcança de verdade.
+  //
+  // Os casos acima provam que a segunda rodada NÃO APLICA nada — e é justamente
+  // por isso que este caso existe: com a `012` já registrada, o script pula o
+  // `update` e a única coisa que ainda olha para o dado é a conferência. Se ela
+  // não estivesse lá, o script imprimiria cinco "CONFERIDO" sobre estrutura e
+  // sairia 0 com passos `pedir_email` vivos no banco — que é exatamente o
+  // estado em que `interpretar` (lib/steps.ts) IGNORA o bloco e o fluxo entrega
+  // o que vem depois do pedido sem nunca ter pedido nada.
+  //
+  // O ESTADO DE PARTIDA É REPOSTO ANTES, e isto não é zelo: o caso acima termina
+  // APAGANDO a linha de `000` do registro, então sem esta reposição o script
+  // REAPLICARIA `000` no meio deste caso — e `000` recria as duas colunas que a
+  // `006` remove (que continua registrada e não roda de novo). A conferência de
+  // ausência passaria a falhar junto, e este caso estaria medindo duas coisas,
+  // uma delas alheia. Repor a linha com a assinatura certa é o mesmo que o
+  // script faria numa aplicação normal.
+  const base = migracoesEmOrdem()[0];
+  await leitor!`
+    insert into schema_migrations (name, checksum) values (${base.nome}, ${somaDoTexto(base.comandos)})
+    on conflict (name) do update set checksum = excluded.checksum`;
+
+  // Semear À MÃO é o que imita "um banco que não recebeu a migração": o registro
+  // diz que ela rodou, e o dado diz que não.
+  await leitor!`
+    insert into automations (account_id, name, active, triggers, keywords, steps)
+    values ('17800000000000012', 'automacao que ficou para tras', true,
+            string_to_array('dm', ','), string_to_array('x', ','),
+            '[{"id":"b_velho1","tipo":"pedir_email","texto":"seu e-mail?"}]'::jsonb)`;
+
+  const r = await migrar("--aplicar", "--a-mao");
+
+  expect(r.codigo, r.saida).toBe(1);
+  // A MENSAGEM É COBRADA, e não só o código: um script que saísse 1 por outro
+  // motivo passaria neste caso sem ter olhado para o dado uma vez.
+  expect(r.saida).toContain("SOBRARAM 1");
+  expect(r.saida).toContain("pedir_email");
+  expect(r.saida).toContain("012-migrar-email-para-campos.sql");
+  // E ele NÃO aplicou nada: a migração continua registrada, e o conserto é de
+  // quem for investigar — não do script rodando de novo por cima.
+  expect(r.saida).not.toContain("aplicada e registrada");
+
+  // Limpa, para não contaminar quem rodar depois neste mesmo schema.
+  await leitor!`delete from automations where name = 'automacao que ficou para tras'`;
+  const depois = await migrar("--aplicar", "--a-mao");
+  expect(depois.codigo, depois.saida).toBe(0);
+}, 240_000);
 
 it("o registro nasce no schema descartável, e NÃO no public", async () => {
   const [r] = await leitor!`

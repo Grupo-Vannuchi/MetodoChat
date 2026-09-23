@@ -938,6 +938,95 @@ for (const { tabela, nome, definicao, de } of ESPERADAS_RESTRICOES) {
   console.log(`CONFERIDO no banco: ${tabela}.${nome} existe e confere (${de})`);
 }
 
+// ============================================================
+// A QUINTA LISTA, E ELA NASCE DA `012` — a primeira migração de DADO.
+//
+// As quatro listas acima perguntam ao CATÁLOGO: coluna existe, coluna sumiu,
+// chave aponta para onde, restrição tem qual texto, tabela existe. Nenhuma
+// delas sabe perguntar pelo CONTEÚDO das linhas, e a `012` não emite uma única
+// DDL — ela reescreve `contacts.campos` e `automations.steps`. As duas colunas
+// que ela toca já existiam antes dela, e continuariam existindo, com a forma
+// certa, se ela não tivesse feito nada. Ou seja: sem esta lista o script
+// imprimiria "CONFERIDO" cinco vezes sobre outras coisas e sairia 0 com a
+// produção ainda no formato velho.
+//
+// É a MESMA CLASSE DE DEFEITO que fez nascer a segunda lista (a `003` mudava
+// chave estrangeira e a conferência de coluna passava calada) e a quarta (a
+// `004`/`005` mudavam restrição e a de chave passava calada), pela quinta porta.
+// Cada forma nova de migração descobriu que a conferência só sabia perguntar
+// pela forma anterior.
+//
+// E AQUI O SILÊNCIO CUSTA MAIS QUE NAS OUTRAS. As migrações de restrição estão
+// do lado ALTO: um banco que não as recebeu RECUSA a escrita errada sozinho. A
+// `012` não tem quem recuse — um banco que não a recebeu SERVE NORMALMENTE, com
+// passos `pedir_email` que `conferir` (lib/steps.ts) recusa e que `interpretar`
+// IGNORA. O fluxo pula o pedido de e-mail e entrega o que vem depois dele, sem
+// erro em lugar nenhum. É a falha calada, e a única barreira contra ela é sair
+// 1 aqui e derrubar o build.
+//
+// O QUE SE PERGUNTA É "SOBROU ALGUMA?", E NÃO "MIGROU QUANTAS?". Contar o que
+// mudou exigiria saber quantas havia antes, e depois da primeira execução essa
+// resposta é zero para sempre — a conferência ficaria vermelha em todo deploy
+// seguinte. "Sobrou alguma?" responde zero nos dois casos, e continua sendo a
+// pergunta certa no deploy número cem.
+//
+// A CONSULTA NÃO LEVA `account_id`, pelo mesmo motivo escrito no topo de
+// `migrations/012`: não há conta pedindo, e filtrar por uma deixaria as outras
+// sem conferência.
+//
+// ATENÇÃO AO `jsonb_typeof`: `jsonb_array_elements` estoura em `steps` que não
+// seja array (medido: "cannot extract elements from an object"), e uma
+// conferência que derruba o script por uma linha torta seria pior que a
+// ausência dela. O `case` faz a guarda POR LINHA, dentro do argumento da função,
+// onde a avaliação é garantida — um `where jsonb_typeof(...)` ao lado não é: o
+// planejador não promete ordem entre condições do `where`.
+//
+// QUEM ACRESCENTAR MIGRAÇÃO QUE MEXE EM DADO ACRESCENTA AQUI.
+// ============================================================
+const ESPERADAS_DADOS = [
+  {
+    de: "012-migrar-email-para-campos.sql",
+    oQue: "passos `pedir_email` (o tipo que `conferir` recusa desde a Tarefa 3)",
+    // Conta ELEMENTOS, e não automações: uma automação pode ter mais de um, e o
+    // número que interessa é quantos blocos continuariam sendo ignorados.
+    consulta: `
+      select count(*)::int as sobraram
+        from automations a,
+             lateral jsonb_array_elements(
+               case when jsonb_typeof(a.steps) = 'array' then a.steps else '[]'::jsonb end
+             ) as p
+       where p->>'tipo' = 'pedir_email'`,
+  },
+  {
+    de: "012-migrar-email-para-campos.sql",
+    oQue: "contatos com e-mail na coluna e sem `campos->'email'`",
+    // A OUTRA METADE, e ela não é decorativa: um `update` que casasse zero
+    // contatos deixaria esta conferência vermelha enquanto a de cima ficaria
+    // verde. As duas metades da migração falham de jeitos diferentes.
+    consulta: `
+      select count(*)::int as sobraram
+        from contacts
+       where email is not null and btrim(email) <> '' and not (campos ? 'email')`,
+  },
+];
+
+for (const { de, oQue, consulta } of ESPERADAS_DADOS) {
+  const [{ sobraram }] = await sql.unsafe(consulta);
+
+  if (sobraram > 0) {
+    console.log(
+      `CONFERIDO no banco: SOBRARAM ${sobraram} ${oQue} (${de})` +
+        (aplicar
+          ? " — A MIGRAÇÃO DE DADO NÃO FEZ EFEITO, pare e investigue."
+          : " (esperado no ensaio a seco: nada foi gravado)")
+    );
+    if (aplicar) falhas++;
+    continue;
+  }
+
+  console.log(`CONFERIDO no banco: não sobrou nenhum — ${oQue} (${de})`);
+}
+
 if (!aplicar) console.log("\nNada foi gravado. Rode com --aplicar para valer.");
 
 // O CÓDIGO DE SAÍDA É O QUE SEPARA "SEGUIU" DE "PAROU". Este script é rodado à
