@@ -203,12 +203,24 @@ const TOKEN = /\{\{\s*([\p{L}\p{N}_]+)\s*(?:\|([^}]*))?\}\}/gu;
 // `normalizarChaveLivre` (lib/campos.ts) passou a recusar `first_name`,
 // `full_name` e `username` junto com os campos do catálogo, porque o empate
 // levava o dono a ver na tela a promessa de `{{full_name}}` e o lead a receber
-// o nome do Instagram no lugar da resposta coletada. A ordem daqui continua
-// valendo para quem JÁ ENTROU por aquela porta: automação salva antes da
-// recusa, ou `contacts.campos` escrito por fora. É o caso "a lista fixa ganha
-// do registro mesmo com a chave `first_name` GRAVADA nele"
-// (tests/variables.test.ts) que a prende — e ele monta o registro direto, que é
-// o único jeito que sobrou de montar esse empate.
+// o nome do Instagram no lugar da resposta coletada.
+//
+// E ELA FECHA NOS DOIS TEMPOS — medido em 23/09/2026, porque este comentário
+// dizia que a ordem daqui atendia "automação salva antes da recusa", e isso
+// é falso: `conferirBloco` (lib/steps.ts) TRAVA O SALVAR de um bloco com
+// essas chaves, e `chaveDoPedido` (lib/steps.ts) devolve `null` para elas —
+// a normalização acontece na LEITURA do passo, a cada mensagem, então nem uma
+// automação gravada antes da recusa volta a escrever sob `first_name`.
+//
+// O QUE SOBROU, E É POR QUEM ESTA ORDEM RESPONDE: o dado que JÁ ESTÁ em
+// `contacts.campos`, gravado enquanto a recusa não existia, e o que for
+// escrito ali por fora do produto. `lerCampos` (lib/campos.ts) NÃO filtra
+// chave reservada (medido), então um registro desses chega aqui inteiro — e
+// sem esta ordem o lead receberia a resposta antiga no lugar do nome do
+// perfil. É o caso "a lista fixa ganha do registro mesmo com a chave
+// `first_name` GRAVADA nele" (tests/variables.test.ts) que a prende, e ele
+// monta o registro direto porque é exatamente essa a forma que `lerCampos`
+// devolve.
 //
 // A CHAVE DO TOKEN PASSA POR `formaDaChave` (lib/campos.ts), a MESMA função que
 // produziu a chave gravada. Antes ela era só minusculizada, e o argumento
@@ -285,6 +297,16 @@ const EXEMPLO_DO_CAMPO_LIVRE = "[resposta coletada]";
 export function previewVariables(text: string): string {
   if (!text || !text.includes("{{")) return text;
   return text.replace(TOKEN, (_full, rawKey: string, fallback?: string) => {
+    // A CHAVE PASSA PELA MESMA RÉGUA DO ENVIO, e é isto que mantém a prévia
+    // e a mensagem falando da mesma variável: sem a normalização,
+    // `{{Telefone}}` — a maiúscula do rótulo do botão, digitada à mão — cairia
+    // na marca do campo livre AQUI e resolveria o telefone LÁ. Quem prende
+    // isso é o caso "a caixa do token não importa" (tests/variables.test.ts).
+    //
+    // MEDIDO, para não prometer demais: como nenhuma chave do catálogo tem
+    // acento, o caso prende a MINÚSCULA, não a escolha desta função sobre um
+    // `toLowerCase()` — na prévia as duas dão o mesmo desfecho hoje. Ser a
+    // MESMA função do envio é o que impede as duas de divergirem depois.
     const def = BY_KEY.get(formaDaChave(rawKey) ?? "");
     if (def) return def.sample;
     // O SUBSTITUTO DO DONO GANHA DA MARCA quando ele escreveu um: é ele que a

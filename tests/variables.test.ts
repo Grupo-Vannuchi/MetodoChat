@@ -203,9 +203,17 @@ describe("as três redes que a revisão achou sem dono", () => {
     // Só com a chave `first_name` DENTRO do registro a ordem decide algo.
     //
     // COMO UM REGISTRO ASSIM EXISTE, agora que `normalizarChaveLivre`
-    // (lib/campos.ts) recusa essas três chaves: automação salva ANTES dessa
-    // recusa, ou `contacts.campos` escrito por fora. A recusa fecha a porta
-    // nova; esta ordem é quem atende quem já entrou por ela.
+    // (lib/campos.ts) recusa essas três chaves — e a resposta NÃO é "automação
+    // salva antes da recusa", que é o que este comentário dizia antes de ser
+    // medido: `chaveDoPedido` (lib/steps.ts) normaliza na LEITURA do passo e
+    // devolve `null` para elas, então nem uma automação antiga grava sob essa
+    // chave hoje.
+    //
+    // O QUE EXISTE É O DADO JÁ GRAVADO: `contacts.campos` escrito enquanto a
+    // recusa não existia, ou escrito por fora do produto. `lerCampos`
+    // (lib/campos.ts) não filtra chave reservada, então ele chega ao envio
+    // inteiro — e é por isso que o registro aqui é montado direto: é essa a
+    // forma que `lerCampos` devolve para uma linha dessas.
     const ctx: VariableContext = {
       username: "ana.souza",
       name: "Ana Souza",
@@ -243,9 +251,11 @@ describe("as três redes que a revisão achou sem dono", () => {
 });
 
 describe("a chave do token, e o que ela aceita", () => {
-  it("a caixa do token não importa: {{First_Name}} resolve igual", () => {
-    // A LINHA QUE ISTO PRENDE normaliza a chave capturada antes de procurá-la.
-    // Sem ela `{{First_Name}}` não acha a variável do perfil e `{{Qual_Sua_
+  it("a caixa do token não importa: {{First_Name}} resolve igual, e a prévia lê a MESMA chave", () => {
+    // AS LINHAS QUE ISTO PRENDE normalizam a chave capturada antes de procurá-la,
+    // e são DUAS: a do envio (`renderVariables`) e a da prévia
+    // (`previewVariables`), as duas em lib/variables.ts.
+    // Sem a do envio, `{{First_Name}}` não acha a variável do perfil e `{{Qual_Sua_
     // Cidade}}` não acha o campo livre — os dois somem da mensagem do lead.
     const ctx: VariableContext = {
       name: "Ana Souza",
@@ -253,6 +263,24 @@ describe("a chave do token, e o que ela aceita", () => {
     };
     expect(renderVariables("Oi {{First_Name}}", ctx)).toBe("Oi Ana");
     expect(renderVariables("de {{Qual_Sua_Cidade}}", ctx)).toBe("de Osasco");
+    // E A PRÉVIA LÊ A MESMA CHAVE QUE O ENVIO — a asserção que faltava, e que
+    // a revisão não cobria: a normalização DENTRO de `previewVariables` não
+    // tinha dono (plantada, a suíte ficou verde). Sem ela a prévia procura a
+    // chave CRUA, e `{{Telefone}}` — digitado à mão com a maiúscula do rótulo
+    // do botão — aparece na tela como a MARCA DO CAMPO LIVRE enquanto o envio
+    // resolve o telefone de verdade. É a classe desta tarefa invertida: a tela
+    // diz "campo livre" sobre uma variável do catálogo, e o dono conclui que
+    // escreveu o nome errado.
+    //
+    // O LIMITE, MEDIDO, para este comentário não mentir sobre a própria rede:
+    // nenhuma chave do catálogo tem acento, então esta asserção prende a
+    // MINÚSCULA — e não a escolha de `formaDaChave` sobre um `toLowerCase()`,
+    // que na prévia são indistinguíveis hoje. O motivo de ser a mesma função
+    // do envio é não deixar as duas divergirem depois, e isso nenhum caso
+    // prende.
+    expect(previewVariables("Anotado: {{Telefone}}.")).toBe(
+      `Anotado: ${campoPorChave("telefone")!.exemplo}.`
+    );
   });
 
   it("token com ACENTO chega no mesmo campo, e nunca sai cru para o lead", () => {
