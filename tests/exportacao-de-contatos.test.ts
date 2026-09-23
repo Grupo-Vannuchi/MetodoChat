@@ -12,6 +12,7 @@ import {
   peneirar,
   csvDaListaDeEmail,
   chavesLivres,
+  contatoExportavelDaLinha,
   colunasDoCsvCompleto,
   csvCompletoDeContatos,
   type ContatoExportavel,
@@ -343,6 +344,63 @@ describe("peneirar — as duas peneiras, e nenhuma delas esquecida", () => {
 });
 
 // ------------------------------------------------------------
+// A LINHA DO BANCO — e a coluna que sumiu do `select`.
+//
+// A rota da exportação completa afirmava `as ContatoExportavel[]` sobre o que a
+// consulta devolveu. Asserção não é checagem: tirar `c.campos` do `select`
+// passava por `tsc` sem um pio, e a planilha saía com TODAS as colunas de campo
+// livre sumidas e três das quatro do catálogo em branco. É a lista de colunas
+// de um `select` — justamente a parte que as pessoas editam.
+// ------------------------------------------------------------
+describe("contatoExportavelDaLinha — a coluna que falta não sai calada", () => {
+  const linhaDoBanco = () => ({
+    username: "ana",
+    name: "Ana Souza",
+    email: "ana@email.com",
+    categoria: "aluno",
+    campos: { qual_sua_cidade: coletado("Osasco") },
+  });
+
+  it("a linha completa vira contato exportável, com o `jsonb` cru", () => {
+    const linha = linhaDoBanco();
+    expect(contatoExportavelDaLinha(linha)).toEqual({
+      username: "ana",
+      name: "Ana Souza",
+      email: "ana@email.com",
+      categoria: "aluno",
+      campos: linha.campos,
+    });
+  });
+
+  // COLUNA PRESENTE E NULA É NORMAL, e não pode ser confundida com coluna
+  // ausente: quase todo contato tem `categoria` nula, e a maioria não tem
+  // e-mail — é por isso que a checagem é `in`, e não "tem valor".
+  it("coluna nula é dado, e passa", () => {
+    expect(
+      contatoExportavelDaLinha({
+        username: null,
+        name: null,
+        email: null,
+        categoria: null,
+        campos: null,
+      }).campos
+    ).toBeNull();
+  });
+
+  it("cada uma das cinco colunas, quando falta, acusa pelo nome", () => {
+    for (const coluna of ["username", "name", "email", "categoria", "campos"]) {
+      const linha: Record<string, unknown> = linhaDoBanco();
+      delete linha[coluna];
+      expect(
+        () => contatoExportavelDaLinha(linha),
+        `sem \`${coluna}\` no \`select\`, a exportação tem de parar e dizer qual ` +
+          "coluna falta — a planilha calada com a coluna em branco é o defeito"
+      ).toThrow(new RegExp(coluna));
+    }
+  });
+});
+
+// ------------------------------------------------------------
 // AS COLUNAS LIVRES — descobertas do dado exportado, em ordem DETERMINÍSTICA.
 // ------------------------------------------------------------
 describe("chavesLivres — a ordem não pode depender de quem veio primeiro", () => {
@@ -511,6 +569,23 @@ describe("csvCompletoDeContatos — o que cai em cada célula", () => {
       contato({ username: "bia", campos: {} }),
     ]);
     expect(colunaDe(csv, "qual_sua_cidade")).toEqual(["Osasco", ""]);
+  });
+
+  // O `trim` DA CÉLULA DO CAMPO LIVRE — o mesmo de `valorColetado`
+  // (lib/variables.ts), e pela mesma razão. Valor só de espaço é ausência:
+  // gravado por fora (por uma automação antiga, por um `update` à mão), ele
+  // vira numa planilha uma célula que PARECE cheia e não tem nada — o
+  // marketing filtra por "não vazio" e leva junto quem não respondeu.
+  //
+  // O CASO NASCEU DE UM PLANTIO QUE SOBREVIVEU: tirar o `.trim()` daquela linha
+  // passava por todos os casos deste arquivo, porque nenhum deles mandava
+  // espaço.
+  it("campo livre só de espaço é ausência, e sai como célula vazia", () => {
+    const csv = csvCompletoDeContatos([
+      contato({ username: "ana", campos: { qual_sua_cidade: coletado("   ") } }),
+      contato({ username: "bia", campos: { qual_sua_cidade: coletado(" Santos ") } }),
+    ]);
+    expect(colunaDe(csv, "qual_sua_cidade")).toEqual(["", "Santos"]);
   });
 
   it("quem não tem nome público cai no @, como na tela", () => {

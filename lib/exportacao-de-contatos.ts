@@ -179,6 +179,32 @@ export function nomeDoArquivo(
 
 export type Recorte = { filtro: FiltroDeCategoria; busca: string | null };
 
+/**
+ * O recorte que a TELA montou — a montagem, do lado da tela.
+ *
+ * A TERCEIRA PONTA, e ela faltava. `recorteDaUrl` é a LEITURA (lado da rota) e
+ * `urlDaExportacao` é a ESCRITA (lado da tela); as duas têm caso de ida-e-volta
+ * logo abaixo. Quem MONTA o objeto que a escrita recebe não tinha dono nenhum:
+ * era um literal no meio de `app/contatos/page.tsx`, juntando à mão duas
+ * variáveis locais independentes — a categoria, lida por `filtroDaUrl`, e a
+ * busca, lida por `normalizarBusca`.
+ *
+ * A REVISÃO DE 23/09/2026 MEDIU O QUE ISSO CUSTAVA: `{ filtro, busca: null }`
+ * plantado naquele literal atravessou `tsc`, `eslint`, 1804 casos puros e 39 de
+ * DOM. É o defeito de 11/09/2026 na forma exata (o link sem `q`, a tela
+ * contando um conjunto e o arquivo trazendo outro) e, pior que o daquele dia,
+ * quebra OS DOIS BOTÕES de uma vez — os dois carregam este mesmo recorte,
+ * inclusive o da lista de e-mail, cujo conteúdo o dono congelou.
+ *
+ * COM UM DONO SÓ, HÁ ONDE PRENDER: quem exercita esta função é
+ * `testes-dom/faixa-da-exportacao.dom.tsx`, que monta a faixa com o recorte que
+ * ela devolve e afirma que o número da frase e o `href` do botão saem dele —
+ * deixar a busca para trás aqui deixa aqueles casos vermelhos.
+ */
+export function recorteDaTela(filtro: FiltroDeCategoria, busca: string | null): Recorte {
+  return { filtro, busca };
+}
+
 /** O recorte que a URL pede — a leitura, do lado da rota. */
 export function recorteDaUrl(params: URLSearchParams): Recorte {
   return {
@@ -251,8 +277,26 @@ export type ContatoDaListaDeEmail = { nome: string | null; email: string };
  * Este é o arquivo congelado; quem lê o catálogo é o outro.
  */
 export function csvDaListaDeEmail(contatos: ContatoDaListaDeEmail[]): string {
+  // O TIPO LITERAL É A GUARDA, e ele existe por causa de um plantio que
+  // SOBREVIVEU. Com `["Nome", "E-mail"]` escrito solto aqui, trocar o segundo
+  // por `CAMPOS[0].rotulo` — o arquivo congelado passando a LER o catálogo —
+  // atravessava `tsc` e os 1804 casos puros, porque as duas strings coincidem
+  // HOJE. Nenhum caso conseguia separar "está preso" de "coincide": o catálogo
+  // é constante de módulo, e esta função não o recebe (nem deve receber).
+  //
+  // ENTÃO QUEM SEPARA É O COMPILADOR, que olha o TIPO e não o valor: `rotulo` é
+  // `string`, e `string` não cabe em `"E-mail"`. O `satisfies` fica NA LINHA do
+  // cabeçalho, e não numa constante ao lado, para a renomeação não ter como
+  // chegar aqui por baixo dele: quem escrever `CAMPOS[0].rotulo` neste lugar
+  // tem de apagar a guarda no mesmo gesto, de propósito e à vista.
+  //
+  // É o espelho da técnica usada do outro lado, e pelo mesmo motivo invertido:
+  // em `colunasDoCsvCompleto` o catálogo é PARÂMETRO porque lá ele tem de
+  // entrar (e um `Campo` de mesma `chave` e outro `rotulo` prova que entrou);
+  // aqui ele não pode entrar de jeito nenhum, e a prova mais forte disso é ele
+  // não caber.
   return montarCsv([
-    ["Nome", "E-mail"],
+    ["Nome", "E-mail"] satisfies ["Nome", "E-mail"],
     ...contatos.map((r) => [r.nome ?? "", r.email]),
   ]);
 }
@@ -275,6 +319,59 @@ export type ContatoExportavel = {
   categoria: string | null;
   campos: unknown;
 };
+
+// AS CINCO COLUNAS QUE A CONSULTA TEM DE TRAZER — a lista que a rota promete.
+const COLUNAS_DO_CONTATO_EXPORTAVEL = [
+  "username",
+  "name",
+  "email",
+  "categoria",
+  "campos",
+] as const;
+
+/**
+ * A LINHA QUE O BANCO DEVOLVEU, LIDA COMO CONTATO EXPORTÁVEL.
+ *
+ * ELA EXISTE PORQUE `as ContatoExportavel[]` NÃO É CHECAGEM. A rota afirmava o
+ * tipo sobre o `unknown[]` do driver, e asserção é uma promessa do autor ao
+ * compilador: tirar `c.campos` do `select` — uma vírgula a menos na parte que as
+ * pessoas de fato editam — passava por `tsc` sem um pio, e o arquivo saía com
+ * TODAS as colunas de campo livre sumidas e três das quatro do catálogo em
+ * branco. Calado, na planilha que o marketing abre.
+ *
+ * ENTÃO A FALTA VIRA ERRO, E ALTO. O desfecho ruidoso é o barato aqui: a
+ * consulta é fixa, então isto só dispara depois de alguém EDITAR o `select` — e
+ * aí a escolha é entre um erro na cara de quem acabou de editar e uma planilha
+ * em branco descoberta semanas depois, do lado de fora do painel.
+ *
+ * `in`, E NÃO "TEM VALOR": coluna presente e nula é o normal desta tabela
+ * (quase todo contato tem `categoria` nula, e a maioria não tem e-mail). O que
+ * se procura é a coluna que NÃO VEIO.
+ *
+ * O TIPO DAS CÉLULAS CONTINUA AFIRMADO, e a fronteira fica escrita: o que esta
+ * função prende é a coluna AUSENTE, que era o defeito calado. Uma coluna
+ * presente com outro tipo atravessa — e atravessa sem estragar o arquivo,
+ * porque `cell` transforma o que chegar em texto e `lerCampos` descarta o que
+ * não tem forma.
+ */
+export function contatoExportavelDaLinha(linha: Record<string, unknown>): ContatoExportavel {
+  const faltando = COLUNAS_DO_CONTATO_EXPORTAVEL.filter((coluna) => !(coluna in linha));
+  if (faltando.length > 0) {
+    throw new Error(
+      `A consulta da exportação completa não trouxe: ${faltando.join(", ")}. ` +
+        "O `select` da rota tem de trazer as cinco colunas — sem `campos`, todas as " +
+        "colunas de campo livre somem do arquivo e três das quatro do catálogo saem " +
+        "em branco."
+    );
+  }
+  return {
+    username: linha.username as string | null,
+    name: linha.name as string | null,
+    email: linha.email as string | null,
+    categoria: linha.categoria as string | null,
+    campos: linha.campos,
+  };
+}
 
 /** Uma coluna do arquivo: o cabeçalho e de onde sai a célula. */
 export type ColunaDoCsv = {

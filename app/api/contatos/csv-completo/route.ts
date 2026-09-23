@@ -8,7 +8,7 @@ import {
   peneirar,
   csvCompletoDeContatos,
   nomeDoArquivo,
-  type ContatoExportavel,
+  contatoExportavelDaLinha,
 } from "@/lib/exportacao-de-contatos";
 
 // "EXPORTAR TODOS OS DADOS" — o segundo botão, e o que ele leva.
@@ -62,13 +62,24 @@ export async function GET(req: NextRequest) {
   // A ORDEM É A DA TELA (`first_contact_at desc`), a mesma das duas tabelas e a
   // mesma do outro botão: a planilha sai na ordem em que o dono acabou de ver
   // as pessoas.
-  const todos = (await sql().query(
+  //
+  // A LEITURA PASSA POR `contatoExportavelDaLinha`, E NÃO POR UM `as`. Aqui
+  // havia `as ContatoExportavel[]` sobre o `unknown[]` do driver, e a revisão de
+  // 23/09/2026 mediu o que essa asserção escondia: tirar `c.campos` desta lista
+  // não acusava em `tsc`, e a planilha saía com todas as colunas de campo livre
+  // sumidas e três das quatro do catálogo em branco, calada. A lista de colunas
+  // de um `select` é justamente a parte que as pessoas editam. Agora a coluna
+  // que não vier faz a exportação PARAR, dizendo qual é; o porquê de o desfecho
+  // ser ruidoso está escrito na função (lib/exportacao-de-contatos.ts), que é
+  // pura e tem caso.
+  const linhas = (await sql().query(
     `select c.username, c.name, c.email, c.categoria, c.campos
      from contacts c
      where c.account_id = $1
      order by c.first_contact_at desc`,
     [account.ig_user_id]
-  )) as ContatoExportavel[];
+  )) as Record<string, unknown>[];
+  const todos = linhas.map(contatoExportavelDaLinha);
 
   // AS DUAS PENEIRAS, NA MESMA ORDEM DA TELA E COM AS MESMAS FUNÇÕES —
   // `contatosDoFiltro` e `casaComBusca`, por dentro de `peneirar`. Nunca um

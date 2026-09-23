@@ -21,13 +21,13 @@ import {
 } from "@/lib/lote";
 import {
   normalizarBusca,
-  casaComBusca,
   recorteDaTabela,
   quantasLinhas,
   LIMITE_DA_TABELA,
   BUSCA_MAX,
 } from "@/lib/busca-de-contatos";
-import { urlDaExportacao, type Recorte } from "@/lib/exportacao-de-contatos";
+import { peneirar, recorteDaTela, urlDaExportacao } from "@/lib/exportacao-de-contatos";
+import { FaixaDaExportacaoCompleta } from "./faixa-da-exportacao";
 import { avisoDaUrl } from "@/lib/avisos";
 // OS QUATRO TIPOS DE "MENSAGEM RECEBIDA", DA MESMA FONTE que app/page.tsx e
 // ./actions.ts: esta lista morava em TRÊS lugares até 15/09/2026, e o
@@ -438,15 +438,26 @@ export default async function ContatosPage({
   // `quantasLinhas`, e o defeito que ela conserta: sem saída, o corte em 25
   // tornava inalcançáveis os contatos 26 em diante de qualquer busca.
   const linhas = quantasLinhas(sp.linhas);
-  const achados = busca ? visiveis.filter((c) => casaComBusca(c, busca)) : visiveis;
 
   // O RECORTE QUE OS DOIS BOTÕES DE EXPORTAR CARREGAM — as duas peneiras num
   // objeto só, do mesmo tipo que as duas rotas leem de volta (`recorteDaUrl`).
   //
-  // `achados` É O CONJUNTO DELE, e não `visiveis`: as duas peneiras, categoria e
-  // busca, exatamente como as duas tabelas abaixo. É por isso que as frases dos
-  // botões contam `achados` — a frase e o botão têm de falar do mesmo clique.
-  const recorte: Recorte = { filtro, busca };
+  // ELE NÃO É MAIS MONTADO À MÃO AQUI, e a mudança tem motivo medido: um
+  // literal `{ filtro, busca }` no meio desta função juntava duas variáveis
+  // locais independentes, e plantar `busca: null` nele atravessou `tsc`,
+  // `eslint`, 1804 casos puros e 39 de DOM na revisão de 23/09/2026 — quebrando
+  // OS DOIS botões de uma vez. `recorteDaTela` é o dono dessa montagem, e quem
+  // a exercita é `testes-dom/faixa-da-exportacao.dom.tsx`.
+  const recorte = recorteDaTela(filtro, busca);
+
+  // `achados` SAI DO RECORTE, pela MESMA `peneirar` que as duas rotas aplicam
+  // sobre o que o banco devolveu. Era `visiveis.filter(casaComBusca)` escrito
+  // aqui — o corpo de `peneirar` copiado —, e duas regras iguais em lugares
+  // diferentes são duas regras para manter iguais: foi assim que a tela e o
+  // arquivo divergiram em 11/09/2026. `visiveis` continua sendo o conjunto do
+  // ENVIO (só a categoria); `achados` é o da LEITURA, e é o mesmo conjunto que
+  // a faixa de exportar conta.
+  const achados = peneirar(rows, recorte);
 
   const comEmail = achados.filter((c) => c.email);
   const semEmail = achados.filter((c) => !c.email);
@@ -740,20 +751,17 @@ export default async function ContatosPage({
                   razão de existir: este fragmento só renderiza com
                   `achados.length > 0` (os dois vazios — busca e filtro — são
                   tratados nos ramos acima), e quem nunca deu e-mail pode ter
-                  dado telefone, cidade, ou o campo que o marketing inventou. */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className={`text-sm ${muted}`}>
-                  {achados.length} {achados.length === 1 ? "pessoa" : "pessoas"} neste
-                  recorte — com e-mail ou sem, com tudo que as automações já coletaram
-                </p>
-                <a
-                  href={urlDaExportacao("/api/contatos/csv-completo", recorte)}
-                  className={btnGhost}
-                  download
-                >
-                  Exportar todos os dados
-                </a>
-              </div>
+                  dado telefone, cidade, ou o campo que o marketing inventou.
+
+                  A FRASE E O BOTÃO SAEM DE `FaixaDaExportacaoCompleta`, e não
+                  deste JSX: enquanto moravam aqui, a regra que eles carregam (o
+                  número da frase e o `href` do botão têm de falar do mesmo
+                  clique) não tinha como ganhar caso — esta página é `async` e
+                  consulta o banco, e nada em `testes-dom/` consegue montá-la.
+                  A faixa recebe o conjunto de ANTES das peneiras e o recorte, e
+                  deriva as duas coisas dele; o número que ela mostra é o mesmo
+                  `achados.length` daqui, pela mesma `peneirar`. */}
+              <FaixaDaExportacaoCompleta contatos={rows} recorte={recorte} />
 
               <section>
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
