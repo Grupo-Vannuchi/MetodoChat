@@ -190,9 +190,11 @@ describe("interpretar", () => {
   // O CAMPO LIVRE SEM CHAVE É BLOCO QUE NÃO SE LÊ DE VOLTA. A chave é o que
   // vira `{{<chave>}}` numa mensagem (`normalizarChaveLivre`, lib/campos.ts),
   // então sem ela o pedido sai, a pessoa responde e nenhuma mensagem sabe
-  // chamar a resposta pelo nome. Exportação não entra nessa conta: o CSV de
-  // contatos (app/api/contatos/csv/route.ts) tem duas colunas fixas e não lê
-  // `contacts.campos`. `conferir` recusa o bloco, e por isso `interpretar` o
+  // chamar a resposta pelo nome — nem a planilha, que desde a exportação
+  // completa faz uma coluna por chave livre (lib/exportacao-de-contatos.ts) e
+  // sem chave não tem cabeçalho nenhum para dar a ela. (Este comentário dizia
+  // que "exportação não entra nessa conta"; entra desde aquela tarefa.)
+  // `conferir` recusa o bloco, e por isso `interpretar` o
   // ignora — ele nunca chega a ser enviado.
   it("pula `pedir_dado` livre sem chave, e diz que foi a chave que faltou", () => {
     const passos = [

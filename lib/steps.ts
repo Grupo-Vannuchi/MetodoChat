@@ -68,9 +68,11 @@ export type Passo = ComId &
     | { tipo: "reagir_story"; emoji: string }
     | { tipo: "pedir_follow"; texto: string; botao_label: string }
     // `campo` é a chave do catálogo (lib/campos.ts). `chave` só existe quando
-    // `campo === "livre"`, e é ela que vira `{{<chave>}}` numa mensagem. NÃO é
-    // coluna de exportação: o CSV de contatos (app/api/contatos/csv/route.ts)
-    // tem duas colunas fixas e não lê `contacts.campos`.
+    // `campo === "livre"`, e é ela que vira `{{<chave>}}` numa mensagem — e,
+    // desde a exportação completa, também o CABEÇALHO da coluna dela em
+    // "Exportar todos os dados" (lib/exportacao-de-contatos.ts). Este
+    // comentário dizia "NÃO é coluna de exportação", e deixou de ser verdade: a
+    // forma normalizada que vira variável é a mesma que vira coluna.
     | { tipo: "pedir_dado"; campo: string; texto: string; chave?: string }
   );
 
@@ -1162,11 +1164,13 @@ export function conferir(p: unknown): { passo?: Passo; motivo?: string; paraODon
     // um dado que não tem por onde ser lido depois: a pessoa responde, a
     // resposta é guardada, e nenhuma mensagem sabe chamá-la pelo nome.
     //
-    // A EXPORTAÇÃO NÃO ENTRA NESTA FRASE, e a ausência é medida: o CSV de
-    // contatos (app/api/contatos/csv/route.ts) monta duas colunas fixas, não lê
-    // `contacts.campos` e ainda filtra por e-mail não nulo. Prometer coluna de
-    // exportação aqui era prometer uma coisa que nenhuma tarefa desta fase
-    // constrói.
+    // A EXPORTAÇÃO CONTINUA FORA DESTA FRASE, e agora por outro motivo. Ela
+    // passou a existir ("Exportar todos os dados",
+    // app/api/contatos/csv-completo/route.ts), e a chave livre VIRA coluna lá —
+    // mas a recusa aqui é sobre a chave estar AUSENTE, e sem chave não há nem
+    // variável nem coluna. A frase fala do que falta, e não de todos os lugares
+    // onde a chave seria usada; listá-los aqui seria uma segunda descrição da
+    // exportação, num arquivo que não é dono dela.
     //
     // OS CAMPOS DO CATÁLOGO NÃO ENTRAM NESTA REGRA porque a chave deles é o
     // próprio `campo`.
@@ -3171,10 +3175,12 @@ export function retomadaDoTexto(fluxo: Fluxo, indice: number): Retomada {
 // É A MESMA FUNÇÃO QUE O EDITOR USA PARA GRAVAR A CHAVE, e é por isso que ela
 // precisa ser idempotente (o porquê inteiro está nela, lib/campos.ts): as duas
 // pontas têm de escrever a MESMA string, senão o dado cai numa chave que a
-// variável de template da mensagem não conhece. (Este comentário citava também
-// "a coluna do CSV": ela não existe — o CSV de contatos,
-// app/api/contatos/csv/route.ts, tem duas colunas fixas e não lê
-// `contacts.campos`.)
+// variável de template da mensagem não conhece — e, desde a exportação
+// completa, numa coluna que ninguém acha na planilha: o cabeçalho de
+// "Exportar todos os dados" (lib/exportacao-de-contatos.ts) é a chave GRAVADA.
+// (Este comentário dizia que "a coluna do CSV não existe". Existe desde esta
+// tarefa; o que continua sem ler `contacts.campos` é o botão ANTIGO,
+// app/api/contatos/csv/route.ts, que é a lista de e-mail e não muda.)
 //
 // ELA RECUSA MAIS DO QUE `conferirBloco`: além da colisão com o catálogo — que
 // o `conferir` também barra, para o dono ficar sabendo antes de publicar —, ela

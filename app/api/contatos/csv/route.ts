@@ -3,38 +3,28 @@ import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
 import { diaDaChave } from "@/lib/dedupe";
-import { filtroDaUrl, contatosDoFiltro } from "@/lib/categorias";
-import { normalizarBusca, casaComBusca } from "@/lib/busca-de-contatos";
+import {
+  recorteDaUrl,
+  peneirar,
+  csvDaListaDeEmail,
+  nomeDoArquivo,
+  type ContatoDaListaDeEmail,
+} from "@/lib/exportacao-de-contatos";
 
-// Exporta os contatos da conta selecionada. Separador ";" e BOM de UTF-8
-// porque é assim que o Excel em português abre o arquivo com acento certo,
-// sem passar pelo assistente de importação.
-const SEP = ";";
-
-function cell(v: unknown): string {
-  const s = v === null || v === undefined ? "" : String(v);
-  return /["\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-/**
- * O apelido do recorte no NOME do arquivo.
- *
- * Sem ele, exportar "aluno" e depois "interessado" deixa dois arquivos de nome
- * idêntico na pasta de downloads, e não há como saber qual é qual sem abrir.
- *
- * Vira ASCII, e só aqui: a categoria em si guarda o acento de propósito
- * (`normalizarCategoria`, lib/categorias.ts — "é nome que gente lê"). O que não
- * cabe é no `Content-Disposition`, cujo nome entre aspas é ASCII — e onde uma
- * aspa ou um ponto e vírgula digitados na categoria quebrariam o cabeçalho.
- */
-function apelidoDoRecorte(nome: string | null): string {
-  const limpo = (nome ?? "")
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return limpo || "sem-categoria";
-}
+// A LISTA DE E-MAIL — e este arquivo não muda nem um byte, por decisão do dono.
+//
+// O que ele monta continua sendo exatamente o que sempre montou: duas colunas
+// (Nome, E-mail), só quem tem e-mail, separador ";" e BOM de UTF-8. O que
+// mudou foi ONDE isso é decidido: a montagem, o escape, o nome do arquivo e as
+// duas peneiras saíram daqui para `lib/exportacao-de-contatos.ts`, que é puro e
+// tem caso — inclusive um que compara os BYTES deste arquivo.
+//
+// A MUDANÇA É JUSTAMENTE O QUE PRENDE A PROMESSA. Este handler começa em
+// `isValidSession`, e sessão não se forja: teste de integração nenhum alcança o
+// que vem depois. Enquanto o conteúdo do arquivo era montado aqui dentro,
+// "não muda nem um byte" era uma frase sem ninguém conferindo. Agora há quem
+// confira, e o botão novo ("Exportar todos os dados",
+// app/api/contatos/csv-completo/route.ts) reusa a mesma `cell` em vez de copiá-la.
 
 export async function GET(req: NextRequest) {
   if (!isValidSession(req.cookies.get(SESSION_COOKIE)?.value)) {
@@ -60,18 +50,23 @@ export async function GET(req: NextRequest) {
   // categoria existe. Sem parâmetro nenhum (`/api/contatos/csv`, o link de
   // `/contatos` sem filtro) o comportamento é o mesmo de sempre: a conta
   // inteira.
-  const filtro = filtroDaUrl(req.nextUrl.searchParams.get("categoria") ?? undefined);
-  // E A BUSCA TAMBEM, pelo MESMO argumento escrito acima sobre a categoria: o
-  // botao esta embaixo do numero filtrado, e e ali que ele e lido.
   //
-  // O DEFEITO, achado por revisao em 11/09/2026: com `categoria=aluno` (40 com
-  // e-mail) e busca "maria", a tela dizia "1 pessoa — pronta para sua lista" e o
-  // botao logo abaixo baixava os 40 e-mails. Frase e botao discordando sobre o
-  // mesmo clique e a assinatura do Critico de 01/09, aqui sem enfileirar nada.
-  const busca = normalizarBusca(req.nextUrl.searchParams.get("q") ?? undefined);
+  // E A BUSCA TAMBEM, pelo MESMO argumento. O DEFEITO, achado por revisao em
+  // 11/09/2026: com `categoria=aluno` (40 com e-mail) e busca "maria", a tela
+  // dizia "1 pessoa — pronta para sua lista" e o botao logo abaixo baixava os 40
+  // e-mails.
+  //
+  // AS DUAS CHEGAM JUNTAS, num tipo só (`recorteDaUrl`), e isso não é arrumação:
+  // enquanto a categoria era lida por uma função e a busca por outra linha, o
+  // botão NOVO podia nascer lendo só metade. O mesmo `Recorte` é o que a tela
+  // escreve no link (`urlDaExportacao`), e o caso de ida-e-volta em
+  // tests/exportacao-de-contatos.test.ts liga as duas pontas.
+  const recorte = recorteDaUrl(req.nextUrl.searchParams);
 
   // Só quem tem e-mail: o arquivo existe para ser importado numa ferramenta
-  // de e-mail, e linha sem e-mail lá não serve para nada.
+  // de e-mail, e linha sem e-mail lá não serve para nada. É ESTA LINHA que
+  // separa este botão do outro — "Exportar todos os dados" leva todo contato do
+  // recorte, tenha e-mail ou não.
   const comEmail = (await sql().query(
     // `username` E `name` VEM SEPARADOS, e nao so o `nome` colapsado: e o que
     // permite `casaComBusca` procurar pelos MESMOS tres campos que a tabela
@@ -84,43 +79,29 @@ export async function GET(req: NextRequest) {
      where c.account_id = $1 and c.email is not null
      order by c.first_contact_at desc`,
     [account.ig_user_id]
-  )) as {
-    nome: string | null;
+  )) as (ContatoDaListaDeEmail & {
     username: string | null;
     name: string | null;
-    email: string;
     categoria: string | null;
-  }[];
+  })[];
 
-  // O MESMO `contatosDoFiltro` que a lista usa, e não um `where` equivalente:
-  // duas regras iguais escritas em lugares diferentes são duas regras para
-  // manter iguais, e foi exatamente assim que a tela e o arquivo divergiram.
-  // Ela também é a única que trata o balde do nulo — `categoria = null` em SQL
-  // não casa NINGUÉM, e a ficha "sem categoria" sairia vazia.
-  //
-  // NÃO HÁ TESTE DE INTEGRAÇÃO DESTA ROTA porque ele exigiria uma sessão
-  // (`isValidSession`, na primeira linha do handler), e sessão não se forja. O
-  // que dava para prender puro está preso: `contatosDoFiltro` e o link que este
-  // botão carrega (`urlComFiltro`) têm caso em tests/categorias.test.ts.
-  // AS DUAS PENEIRAS, NA MESMA ORDEM DA TELA: categoria primeiro, busca depois.
-  // `casaComBusca` é a MESMA função que a tabela usa (lib/busca-de-contatos.ts),
-  // e não um `ilike` equivalente em SQL — duas regras iguais escritas em lugares
-  // diferentes são duas regras para manter iguais, que é o argumento escrito
-  // logo acima sobre `contatosDoFiltro`. Ela também tira acento dos dois lados,
-  // e um `ilike` não tiraria.
-  const naCategoria = contatosDoFiltro(comEmail, filtro);
-  const rows = busca ? naCategoria.filter((c) => casaComBusca(c, busca)) : naCategoria;
+  // AS DUAS PENEIRAS, NA MESMA ORDEM DA TELA, e com as MESMAS funções que ela
+  // usa — `contatosDoFiltro` e `casaComBusca`, por dentro de `peneirar`, e
+  // nunca um `where`/`ilike` equivalente em SQL. Duas regras iguais escritas em
+  // lugares diferentes são duas regras para manter iguais, e foi exatamente
+  // assim que a tela e o arquivo divergiram. `contatosDoFiltro` também é a
+  // única que trata o balde do nulo — `categoria = null` em SQL não casa
+  // NINGUÉM, e a ficha "sem categoria" sairia vazia.
+  const rows = peneirar(comEmail, recorte);
 
-  const linhas = [
-    ["Nome", "E-mail"],
-    ...rows.map((r) => [r.nome ?? "", r.email]),
-  ];
-
-  const csv = "﻿" + linhas.map((l) => l.map(cell).join(SEP)).join("\r\n");
+  const csv = csvDaListaDeEmail(rows);
   // Brasília, não UTC: exportar às 22h nomeava o arquivo com a data de amanhã.
-  const hoje = diaDaChave(new Date());
-  const recorte = filtro.tipo === "tudo" ? "" : `-${apelidoDoRecorte(filtro.nome)}`;
-  const nome = `emails-${account.username ?? account.ig_user_id}${recorte}-${hoje}.csv`;
+  const nome = nomeDoArquivo(
+    "emails",
+    account.username ?? account.ig_user_id,
+    recorte.filtro,
+    diaDaChave(new Date())
+  );
 
   return new NextResponse(csv, {
     headers: {

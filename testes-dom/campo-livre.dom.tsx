@@ -23,9 +23,12 @@ import { fraseDaChaveQueColide, fraseDaChaveSemLetra } from "@/lib/campos";
 // estes casos medem a TELA usando aquela função — não uma cópia dela. É a mesma
 // razão de `chaveDoPedido` (lib/steps.ts) chamá-la em vez de reescrevê-la: as
 // duas pontas têm de gravar a MESMA string, senão o dado da pessoa cai numa
-// chave que a variável `{{...}}` das mensagens não conhece. (O CSV NÃO está
-// nessa conta: app/api/contatos/csv/route.ts tem duas colunas fixas e não lê
-// `contacts.campos`.)
+// chave que a variável `{{...}}` das mensagens não conhece — e, desde a
+// exportação completa, numa coluna de planilha que ninguém acha: o cabeçalho de
+// "Exportar todos os dados" (lib/exportacao-de-contatos.ts) É a chave gravada.
+// (Este comentário dizia que "o CSV não está nessa conta". Está, desde aquela
+// tarefa; quem continua fora é o botão ANTIGO, app/api/contatos/csv/route.ts,
+// que é a lista de e-mail e não mudou.)
 //
 // O COMPONENTE É O `Painel`, e não um cartão próprio: quem desenha o corpo de
 // um passo neste editor é ele (o arquivo inteiro é um `switch` por

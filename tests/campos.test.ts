@@ -269,9 +269,11 @@ describe("normalizarChaveLivre", () => {
     // uma SEGUNDA vez, a cada mensagem. Se ela comesse o próprio underscore, o
     // bloco velho (`qual_sua_cidade`) passaria a gravar o dado da pessoa sob
     // `qualsuacidade` e a variável `{{qual_sua_cidade}}` das mensagens ficaria
-    // eternamente vazia, sem nada acusar. (Coluna de CSV NÃO entra na conta: o
-    // CSV de contatos, app/api/contatos/csv/route.ts, tem duas colunas fixas e
-    // não lê `contacts.campos`.)
+    // eternamente vazia, sem nada acusar — e a coluna de planilha ficaria
+    // igualmente órfã: o cabeçalho de "Exportar todos os dados"
+    // (lib/exportacao-de-contatos.ts) É a chave gravada. (Este comentário dizia
+    // que "coluna de CSV não entra na conta"; entra desde aquela tarefa. Quem
+    // continua fora é o botão ANTIGO, que é a lista de e-mail.)
     const uma = normalizarChaveLivre("Qual sua Cidade");
     expect(uma).toBe("qual_sua_cidade");
     expect(normalizarChaveLivre(uma!)).toBe(uma);

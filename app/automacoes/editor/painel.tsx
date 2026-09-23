@@ -458,12 +458,17 @@ function ChaveDoCampoLivre({
         // NÃO É ACUSAÇÃO ENQUANTO ESTÁ VAZIO: o bloco acabou de nascer, e nascer
         // acusado é o mesmo defeito que `blocoNovo` (./modelos) evita nos
         // outros. Quem trava o salvar aqui é `conferirLista`, com a frase dela.
-        // A FRASE NÃO PROMETE EXPORTAÇÃO, e a metade que saiu era falsa: o CSV
-        // de contatos (app/api/contatos/csv/route.ts) monta DUAS colunas fixas,
-        // não lê `contacts.campos` e ainda filtra por e-mail não nulo — quem
-        // respondeu só um campo livre nem aparece no arquivo. Nenhuma tarefa
-        // desta fase muda isso, e o marketing estaria coletando "cidade" de
-        // centenas de leads achando que exporta.
+        // A FRASE FALA DA VARIÁVEL, E SÓ DELA — e isto deixou de ser uma
+        // omissão para virar uma escolha. Quando ela foi escrita, prometer
+        // exportação seria MENTIRA: o CSV de contatos tinha duas colunas fixas
+        // e nem lia `contacts.campos`. Hoje existe "Exportar todos os dados"
+        // (app/api/contatos/csv-completo/route.ts), e a resposta VAI para a
+        // planilha, numa coluna cujo cabeçalho é exatamente a mesma string que
+        // a dica ao lado já mostra (`{{qual_sua_cidade}}` e a coluna
+        // `qual_sua_cidade`). Esta dica continua sendo sobre a variável porque
+        // é isso que o dono está decidindo aqui — o nome. Um segundo recado
+        // sobre a planilha seria uma segunda descrição da exportação numa tela
+        // que não é dona dela, e ela já mudou uma vez.
         <p className={hintCls}>É este nome que vira a variável das mensagens.</p>
       ) : chave ? (
         <p className={hintCls}>

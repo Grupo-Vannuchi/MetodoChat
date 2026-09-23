@@ -27,6 +27,7 @@ import {
   LIMITE_DA_TABELA,
   BUSCA_MAX,
 } from "@/lib/busca-de-contatos";
+import { urlDaExportacao, type Recorte } from "@/lib/exportacao-de-contatos";
 import { avisoDaUrl } from "@/lib/avisos";
 // OS QUATRO TIPOS DE "MENSAGEM RECEBIDA", DA MESMA FONTE que app/page.tsx e
 // ./actions.ts: esta lista morava em TRÊS lugares até 15/09/2026, e o
@@ -439,6 +440,14 @@ export default async function ContatosPage({
   const linhas = quantasLinhas(sp.linhas);
   const achados = busca ? visiveis.filter((c) => casaComBusca(c, busca)) : visiveis;
 
+  // O RECORTE QUE OS DOIS BOTÕES DE EXPORTAR CARREGAM — as duas peneiras num
+  // objeto só, do mesmo tipo que as duas rotas leem de volta (`recorteDaUrl`).
+  //
+  // `achados` É O CONJUNTO DELE, e não `visiveis`: as duas peneiras, categoria e
+  // busca, exatamente como as duas tabelas abaixo. É por isso que as frases dos
+  // botões contam `achados` — a frase e o botão têm de falar do mesmo clique.
+  const recorte: Recorte = { filtro, busca };
+
   const comEmail = achados.filter((c) => c.email);
   const semEmail = achados.filter((c) => !c.email);
   const semNome = rows.filter((c) => !c.username).length;
@@ -699,6 +708,53 @@ export default async function ContatosPage({
               </form>
               </details>
 
+              {/* EXPORTAR TODOS OS DADOS — o segundo botão, e POR QUE ele mora
+                  aqui, entre o bloco de envio e as duas tabelas.
+
+                  A FRASE ACIMA DE UM BOTÃO TEM DE CONTAR O QUE ELE EXPORTA.
+                  Essa é a regra que esta tela já quebrou duas vezes, e ela é o
+                  que decide a posição — não o desenho.
+
+                  DENTRO DA SEÇÃO "COM E-MAIL", ao lado do botão antigo, a frase
+                  de cima é `${comEmail.length} pessoas — prontas para sua
+                  lista`, que conta SÓ quem tem e-mail. Este botão leva todo
+                  mundo do recorte. Frase e botão discordariam sobre o mesmo
+                  clique, que é exatamente o defeito de 11/09/2026 por uma porta
+                  nova — e pôr um segundo número lá dentro faria o cabeçalho da
+                  seção "Com e-mail" contar gente que não está nela.
+
+                  ACIMA DO BLOCO DE ENVIO também não: a frase de lá é "Mandar
+                  mensagem para {visiveis.length} pessoas", e `visiveis` é só a
+                  categoria — o envio ignora a busca de propósito (o porquê está
+                  escrito na definição de `achados`). O leitor teria de
+                  atravessar um número que conta OUTRO conjunto para chegar às
+                  tabelas.
+
+                  AQUI, O NÚMERO FECHA COM O QUE ESTÁ LOGO ABAIXO:
+                  `comEmail.length + semEmail.length === achados.length`, as
+                  duas seções seguintes. O botão fica em cima das duas tabelas
+                  que ele soma, e a frase conta a soma delas — dá para conferir
+                  olhando, sem sair da tela.
+
+                  E ELE APARECE MESMO QUANDO NINGUÉM TEM E-MAIL, que é metade da
+                  razão de existir: este fragmento só renderiza com
+                  `achados.length > 0` (os dois vazios — busca e filtro — são
+                  tratados nos ramos acima), e quem nunca deu e-mail pode ter
+                  dado telefone, cidade, ou o campo que o marketing inventou. */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className={`text-sm ${muted}`}>
+                  {achados.length} {achados.length === 1 ? "pessoa" : "pessoas"} neste
+                  recorte — com e-mail ou sem, com tudo que as automações já coletaram
+                </p>
+                <a
+                  href={urlDaExportacao("/api/contatos/csv-completo", recorte)}
+                  className={btnGhost}
+                  download
+                >
+                  Exportar todos os dados
+                </a>
+              </div>
+
               <section>
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -715,23 +771,20 @@ export default async function ContatosPage({
                     </p>
                   </div>
                   {comEmail.length > 0 && (
-                    // O ENDEREÇO CARREGA O FILTRO, e o mesmo `urlComFiltro` das
-                    // fichas o monta: este botão fica embaixo da frase que conta
-                    // o filtro, e baixava a conta inteira.
+                    // O ENDEREÇO CARREGA O FILTRO **E A BUSCA**, e quem o monta
+                    // é `urlDaExportacao` (lib/exportacao-de-contatos.ts) — a
+                    // mesma função do botão novo, e a outra ponta do
+                    // `recorteDaUrl` que as duas rotas leem.
+                    //
+                    // ELE ERA MONTADO AQUI À MÃO, com `urlComFiltro` mais uma
+                    // concatenação de `q` — e era essa concatenação que faltava
+                    // em 11/09/2026: a tela dizia "1 pessoa — pronta para sua
+                    // lista" e o botão logo abaixo baixava os 40 da categoria.
+                    // Enquanto o link vivia no JSX, o botão NOVO podia nascer
+                    // com metade dele; agora há um dono só, com caso de
+                    // ida-e-volta em tests/exportacao-de-contatos.test.ts.
                     <a
-                      /* O ENDEREÇO CARREGA A BUSCA TAMBÉM, e não só a
-                         categoria. Sem isso a tela dizia "1 pessoa — pronta
-                         para sua lista" e o botão logo abaixo baixava os 40 da
-                         categoria: frase e botão discordando sobre o mesmo
-                         clique. A rota aplica as duas peneiras na mesma ordem,
-                         com as MESMAS funções. */
-                      href={
-                        busca
-                          ? `${urlComFiltro("/api/contatos/csv", filtro)}${
-                              urlComFiltro("/api/contatos/csv", filtro).includes("?") ? "&" : "?"
-                            }q=${encodeURIComponent(busca)}`
-                          : urlComFiltro("/api/contatos/csv", filtro)
-                      }
+                      href={urlDaExportacao("/api/contatos/csv", recorte)}
                       className={btnGhost}
                       download
                     >

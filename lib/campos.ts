@@ -462,11 +462,18 @@ const CHAVES_RESERVADAS = new Set([...CHAVES_DO_CATALOGO, ...CHAVES_DO_PERFIL]);
 // dono mostraria uma string que o motor não usa. O caso que prende isto é "a
 // saída dela sobrevive a ela mesma", em tests/campos.test.ts.
 //
-// A EXPORTAÇÃO NÃO ENTRA AQUI, e a ausência é medida: o CSV de contatos
-// (app/api/contatos/csv/route.ts) monta duas colunas fixas, não lê
-// `contacts.campos` e ainda filtra por e-mail não nulo. Este comentário já
-// citou "a coluna do CSV" como se ela existisse — nenhuma tarefa da Parte 1 a
-// constrói.
+// A EXPORTAÇÃO AGORA EXISTE, E É ESTA FORMA QUE VIRA CABEÇALHO DE COLUNA.
+// "Exportar todos os dados" (app/api/contatos/csv-completo/route.ts, sobre
+// lib/exportacao-de-contatos.ts) descobre as chaves livres dentro de
+// `contacts.campos` e faz uma coluna de cada uma, com a CHAVE como cabeçalho —
+// `qual_sua_cidade`, e não "Qual sua cidade?", que é o que o dono digitou e o
+// que esta função come. A perda está escrita lá, onde a coluna nasce.
+//
+// Este comentário dizia o contrário ("nenhuma tarefa da Parte 1 constrói a
+// coluna do CSV"), e era verdade até esta tarefa. O botão ANTIGO ("Exportar
+// CSV", app/api/contatos/csv/route.ts) continua sendo o que era: duas colunas
+// fixas, `email is not null`, e sem ler esta coluna — são dois botões, e o
+// velho não muda.
 //
 // Aceitar o underscore NÃO afrouxa a colisão: quem colide é a forma sem
 // pontuação nenhuma ("E-mail" -> "email"), e o hífen continua sendo removido.
