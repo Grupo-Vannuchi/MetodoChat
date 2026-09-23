@@ -970,6 +970,38 @@ for (const { tabela, nome, definicao, de } of ESPERADAS_RESTRICOES) {
 // seguinte. "Sobrou alguma?" responde zero nos dois casos, e continua sendo a
 // pergunta certa no deploy número cem.
 //
+// PERGUNTAR PELO TIPO NÃO BASTA, E ISTO CUSTOU UM ACHADO DA REVISÃO DA TAREFA 7.
+// Até ela, a metade das automações perguntava só "sobrou algum `pedir_email`?",
+// e essa pergunta é CEGA para o passo que migra e continua sendo ignorado: um
+// `pedir_email` SEM TEXTO vira `{"tipo":"pedir_dado","campo":"email"}` SEM
+// TEXTO, `conferir` (lib/steps.ts) o recusa por "pedir_dado sem texto" e
+// `interpretar` o IGNORA — exatamente a doença que a `012` existe para curar. O
+// tipo velho sumiu, então a pergunta antiga respondia "não sobrou nenhum", o
+// script saía 0 e o build passava verde.
+//
+// MEDIDO pela revisão, no arranjo de produção `[dm oi, pedido, dm link]`: o
+// passo migrado sem texto enfileira `["oi!","AQUI ESTA O LINK"]` — a MESMA saída
+// de `interpretar` que o passo não migrado. Só muda o `motivo` dentro de
+// `ignorados`, que ninguém lê em produção. O link sai sem nunca ter pedido nada.
+//
+// O ATENUANTE, E ELE É VERDADE — escrito aqui para evitar alarme falso em quem
+// ler isto depois: o `conferir` ANTERIOR à renomeação (`a23dac0^`,
+// lib/steps.ts:1028-1032) já exigia `texto` para `pedir_email`, ou seja o editor
+// nunca gravou um assim e o bloco já estaria quebrado hoje, migração ou não. A
+// `012` NÃO REGREDE NADA. O defeito é só da conferência, e é o pior tipo: ela
+// AFIRMAVA sucesso. Em 21/09/2026 produção tinha ZERO destes (medido, somente
+// leitura), então apertar a pergunta não trava deploy nenhum hoje — ela passa a
+// travar no dia em que um aparecer, que é todo o ponto.
+//
+// CADA ENTRADA DIZ O QUE FAZER QUANDO SOBRA (`seSobrar`), e não há mensagem
+// única, porque as duas doenças pedem ações OPOSTAS. Para as metades da
+// reexecução, sobrar significa "o `update` não casou nada" e o conselho é
+// investigar por que a migração não fez efeito. Para o passo sem texto, a
+// migração FEZ efeito — e rodá-la de novo não conserta, porque ela não tem como
+// inventar o texto que falta. Ali o conserto é humano, pelo editor. Mandar
+// "a migração não fez efeito" nesse caso seria mandar o plantão para o lado
+// errado, que é o mesmo defeito de sempre com outra roupa.
+//
 // A CONSULTA NÃO LEVA `account_id`, pelo mesmo motivo escrito no topo de
 // `migrations/012`: não há conta pedindo, e filtrar por uma deixaria as outras
 // sem conferência.
@@ -996,6 +1028,42 @@ const ESPERADAS_DADOS = [
                case when jsonb_typeof(a.steps) = 'array' then a.steps else '[]'::jsonb end
              ) as p
        where p->>'tipo' = 'pedir_email'`,
+    seSobrar: "A MIGRAÇÃO DE DADO NÃO FEZ EFEITO, pare e investigue.",
+  },
+  {
+    de: "012-migrar-email-para-campos.sql",
+    oQue: "passos `pedir_dado` SEM TEXTO (migraram, e `interpretar` continua os IGNORANDO)",
+    // A PERGUNTA QUE FALTAVA — o achado 1 da revisão da Tarefa 7, e o porquê
+    // inteiro está no bloco de comentário acima ("PERGUNTAR PELO TIPO NÃO
+    // BASTA"). Em resumo: a entrada de cima olha o TIPO, esta olha o que
+    // `interpretar` FAZ com o bloco. Um passo sem texto passa pela primeira e é
+    // ignorado do mesmo jeito que o não migrado.
+    //
+    // A CONDIÇÃO DE TEXTO É O QUE SEPARA O QUEBRADO DO SÃO, e sem ela esta
+    // conferência contaria todo `pedir_dado` legítimo — ou seja, ficaria
+    // vermelha em todo deploy, contra o dado que a Tarefa 5 grava de propósito.
+    // `coalesce(btrim(...), '')` cobre as três formas de "sem texto" que o jsonb
+    // admite: chave ausente, `null` e string de espaços; `->>` devolve NULL nas
+    // duas primeiras, e `btrim` sozinho propagaria esse NULL para fora da
+    // comparação. É a mesma condição da consulta C4 do relatório da revisão,
+    // palavra por palavra, para que a conferência do build e a conferência
+    // pós-deploy não possam divergir.
+    //
+    // O `case` do `jsonb_typeof` é o mesmo da entrada de cima, pelo mesmo
+    // motivo (`jsonb_array_elements` estoura fora de array) — ver "ATENÇÃO AO
+    // `jsonb_typeof`" acima. Quem mexer numa mexe na outra.
+    consulta: `
+      select count(*)::int as sobraram
+        from automations a,
+             lateral jsonb_array_elements(
+               case when jsonb_typeof(a.steps) = 'array' then a.steps else '[]'::jsonb end
+             ) as p
+       where p->>'tipo' = 'pedir_dado'
+         and coalesce(btrim(p->>'texto'), '') = ''`,
+    seSobrar:
+      "O BLOCO MIGROU E CONTINUA SENDO IGNORADO por `interpretar`. Rodar a " +
+      "migração de novo NÃO conserta — ela não tem como inventar o texto que " +
+      "falta. O conserto é pôr texto no bloco pelo editor. Pare e investigue.",
   },
   {
     de: "012-migrar-email-para-campos.sql",
@@ -1003,22 +1071,42 @@ const ESPERADAS_DADOS = [
     // A OUTRA METADE, e ela não é decorativa: um `update` que casasse zero
     // contatos deixaria esta conferência vermelha enquanto a de cima ficaria
     // verde. As duas metades da migração falham de jeitos diferentes.
+    //
+    // E AGORA ELA TEM REDE — até a revisão da Tarefa 7 esta entrada era GUARDA
+    // ÓRFÃ, e a frase acima afirmava "não é decorativa" sem dizer que nada a
+    // alcançava. Apagando SÓ esta entrada, a suíte de integração inteira ficava
+    // verde (238 passaram / 8 pulados, idêntico à linha de base): o único caso
+    // que tocava `ESPERADAS_DADOS` cobrava "SOBRARAM 1" e "pedir_email", que a
+    // entrada das automações já imprime sozinha. Quem a prende hoje é o caso
+    // "CONTATO com e-mail na coluna e sem `campos`"
+    // (testes-integracao/registro-de-migracoes.integracao.ts), que cobra a
+    // frase de CONTATOS — e não "SOBRARAM 1", que as outras metades também
+    // imprimem.
+    //
+    // POR QUE AQUI COUBE CASO E NO `order by ord` (migrations/012) NÃO COUBE, e
+    // esta é a diferença que decidiu a escolha: lá a cláusula é contrato sem
+    // comportamento observável — tirando-a, a saída do Postgres é medidamente
+    // IDÊNTICA, com 3 e com 50 elementos, e nenhum caso pode distingui-la. Um
+    // teste ali seria verde nos dois mundos, ou seja, não seria teste. Aqui não:
+    // tirando esta entrada, um banco com contato para trás sai 0 em vez de 1, e
+    // isso um caso enxerga. Quando dá para prender, prende-se; a confissão por
+    // escrito é para quando NÃO dá, e é por isso que o vizinho confessa e esta
+    // não precisa mais.
     consulta: `
       select count(*)::int as sobraram
         from contacts
        where email is not null and btrim(email) <> '' and not (campos ? 'email')`,
+    seSobrar: "A MIGRAÇÃO DE DADO NÃO FEZ EFEITO, pare e investigue.",
   },
 ];
 
-for (const { de, oQue, consulta } of ESPERADAS_DADOS) {
+for (const { de, oQue, consulta, seSobrar } of ESPERADAS_DADOS) {
   const [{ sobraram }] = await sql.unsafe(consulta);
 
   if (sobraram > 0) {
     console.log(
       `CONFERIDO no banco: SOBRARAM ${sobraram} ${oQue} (${de})` +
-        (aplicar
-          ? " — A MIGRAÇÃO DE DADO NÃO FEZ EFEITO, pare e investigue."
-          : " (esperado no ensaio a seco: nada foi gravado)")
+        (aplicar ? ` — ${seSobrar}` : " (esperado no ensaio a seco: nada foi gravado)")
     );
     if (aplicar) falhas++;
     continue;

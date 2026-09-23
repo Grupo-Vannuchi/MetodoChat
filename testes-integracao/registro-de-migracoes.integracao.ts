@@ -177,12 +177,101 @@ it("DADO velho que sobrou derruba o script, mesmo com a migração já registrad
   expect(r.saida).toContain("SOBRARAM 1");
   expect(r.saida).toContain("pedir_email");
   expect(r.saida).toContain("012-migrar-email-para-campos.sql");
+  // E O CONSELHO, que desde a revisão da Tarefa 7 é POR ENTRADA (`seSobrar`,
+  // scripts/migrar.mjs) e não mais uma frase única do laço. Para esta metade o
+  // conselho certo é este: o `update` não casou nada, e o que se investiga é a
+  // migração. Para o passo migrado SEM TEXTO o conselho é o oposto, e o caso
+  // abaixo cobra o outro — juntos, eles provam que as frases não se misturaram.
+  expect(r.saida).toContain("A MIGRAÇÃO DE DADO NÃO FEZ EFEITO");
   // E ele NÃO aplicou nada: a migração continua registrada, e o conserto é de
   // quem for investigar — não do script rodando de novo por cima.
   expect(r.saida).not.toContain("aplicada e registrada");
 
   // Limpa, para não contaminar quem rodar depois neste mesmo schema.
   await leitor!`delete from automations where name = 'automacao que ficou para tras'`;
+  const depois = await migrar("--aplicar", "--a-mao");
+  expect(depois.codigo, depois.saida).toBe(0);
+}, 240_000);
+
+it("passo que MIGROU e ficou SEM TEXTO derruba o script; o que tem texto, não", async () => {
+  // O BURACO QUE A REVISÃO DA TAREFA 7 ACHOU (achado 1), medido pelo único
+  // caminho que o alcança de verdade — o script, como processo, contra um banco.
+  //
+  // A conferência antiga perguntava só "sobrou algum `pedir_email`?". Um
+  // `pedir_email` SEM TEXTO vira `pedir_dado` SEM TEXTO, e aí a pergunta antiga
+  // responde "não sobrou nenhum": ela olha o TIPO e não o que `interpretar`
+  // (lib/steps.ts) faz com o bloco. Medido pela revisão no arranjo de produção
+  // `[dm oi, pedido, dm link]`: o passo migrado sem texto enfileira
+  // `["oi!","AQUI ESTA O LINK"]` — saída IDÊNTICA à do não migrado. O link sai
+  // sem nunca ter pedido nada, e o script saía 0 com o build verde.
+  //
+  // OS DOIS BLOCOS SÃO DE PROPÓSITO, e o segundo é metade do caso: se a consulta
+  // perdesse a condição de texto, ela contaria também o `pedir_dado` LEGÍTIMO e
+  // cobraria 2 — e uma conferência assim ficaria vermelha em todo deploy, contra
+  // o dado são que a Tarefa 5 grava. A asserção cobra 1, e não "maior que zero".
+  //
+  // PRECONDIÇÃO, a mesma dos casos acima: a `012` já está REGISTRADA, então o
+  // script pula o `update` e a única coisa que ainda olha para o dado é a
+  // conferência. É por isso que semear à mão imita "um banco que não recebeu a
+  // migração" sem que o script conserte o estado antes de medi-lo.
+  await leitor!`
+    insert into automations (account_id, name, active, triggers, keywords, steps)
+    values ('17800000000000012', 'migrado e ainda ignorado', true,
+            string_to_array('dm', ','), string_to_array('x', ','),
+            '[{"id":"b_sem_texto","tipo":"pedir_dado","campo":"email"}]'::jsonb)`;
+  await leitor!`
+    insert into automations (account_id, name, active, triggers, keywords, steps)
+    values ('17800000000000012', 'migrado e funcionando', true,
+            string_to_array('dm', ','), string_to_array('x', ','),
+            '[{"id":"b_com_texto","tipo":"pedir_dado","campo":"email","texto":"seu e-mail?"}]'::jsonb)`;
+
+  const r = await migrar("--aplicar", "--a-mao");
+
+  expect(r.codigo, r.saida).toBe(1);
+  // A CONTA É COBRADA JUNTO COM A FRASE: "SOBRARAM 2" aqui seria a consulta
+  // larga demais, varrendo o bloco são junto com o quebrado.
+  expect(r.saida).toContain("SOBRARAM 1 passos `pedir_dado` SEM TEXTO");
+  expect(r.saida).toContain("012-migrar-email-para-campos.sql");
+  // E O CONSELHO TEM DE SER O CERTO. Para este achado, "A MIGRAÇÃO DE DADO NÃO
+  // FEZ EFEITO" é conselho errado: ela FEZ efeito, e rodá-la de novo não
+  // inventa o texto que falta. Quem conserta é o editor.
+  expect(r.saida).toContain("O BLOCO MIGROU E CONTINUA SENDO IGNORADO");
+  expect(r.saida).not.toContain("A MIGRAÇÃO DE DADO NÃO FEZ EFEITO");
+  expect(r.saida).not.toContain("aplicada e registrada");
+
+  await leitor!`delete from automations where name in ('migrado e ainda ignorado', 'migrado e funcionando')`;
+  const depois = await migrar("--aplicar", "--a-mao");
+  expect(depois.codigo, depois.saida).toBe(0);
+}, 240_000);
+
+it("CONTATO com e-mail na coluna e sem `campos` derruba o script", async () => {
+  // A OUTRA METADE DE `ESPERADAS_DADOS`, e este caso existe porque até a revisão
+  // da Tarefa 7 ela era GUARDA ÓRFÃ: apagando só aquela entrada, a suíte de
+  // integração inteira ficava verde (238 passaram / 8 pulados, idêntico à linha
+  // de base). O caso acima a deixava passar porque a metade das AUTOMAÇÕES já
+  // imprimia "SOBRARAM 1" e "pedir_email" — as duas frases que ele cobra.
+  //
+  // As duas metades da migração falham de jeitos DIFERENTES: um `update` de
+  // contatos que casasse zero linhas deixaria esta conferência vermelha
+  // enquanto a das automações ficaria verde. É essa diferença que este caso
+  // prende, e é por isso que ele cobra a frase de CONTATOS, e não "SOBRARAM 1"
+  // sozinho, que a outra metade também imprime.
+  //
+  // `first_contact_at` e `campos` saem dos padrões da coluna (`now()` e `{}`) —
+  // o que importa aqui é e-mail preenchido na coluna e `campos` sem a chave.
+  await leitor!`
+    insert into contacts (account_id, ig_id, email)
+    values ('17800000000000012', 'ig_contato_que_ficou_para_tras', 'quem@ficou.para.tras')`;
+
+  const r = await migrar("--aplicar", "--a-mao");
+
+  expect(r.codigo, r.saida).toBe(1);
+  expect(r.saida).toContain("SOBRARAM 1 contatos com e-mail na coluna");
+  expect(r.saida).toContain("012-migrar-email-para-campos.sql");
+  expect(r.saida).toContain("A MIGRAÇÃO DE DADO NÃO FEZ EFEITO");
+  expect(r.saida).not.toContain("aplicada e registrada");
+
+  await leitor!`delete from contacts where ig_id = 'ig_contato_que_ficou_para_tras'`;
   const depois = await migrar("--aplicar", "--a-mao");
   expect(depois.codigo, depois.saida).toBe(0);
 }, 240_000);
