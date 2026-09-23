@@ -337,6 +337,40 @@ async function semearEmailNaColuna(igId: string, email: string) {
     );
 }
 
+// A JANELA DE 24H DE UMA CONTA, FECHADA À MÃO. A conta é PARÂMETRO porque só o
+// caso da janela por conta usa isto, e ele precisa fechar a de UMA das duas.
+//
+// Por que à mão e não pelo relógio: `mensagem` (o webhook de verdade) é quem
+// ABRE a janela, e não há como fazê-la abrir no passado — `upsertContact`
+// (lib/engine.ts) grava `now()`. Fechar é o único lado que precisa de update,
+// e ele não reescreve regra nenhuma: `windowState` (lib/inbox-window.ts) lê a
+// coluna e decide sozinha.
+async function fecharAJanela(conta: string, igId: string) {
+  await banco
+    .db()
+    .sql()
+    .query(
+      `update contacts set last_reply_at = now() - interval '48 hours'
+        where account_id = $1 and ig_id = $2`,
+      [conta, igId]
+    );
+}
+
+// O estado do último item da fila DAQUELA conta para aquele contato. A conta é
+// parâmetro pelo mesmo motivo de cima: é o que separa "o item da vizinha foi
+// recusado" de "o item da vizinha nunca existiu".
+async function estadoDoItem(conta: string, igId: string): Promise<string> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(
+      `select status from queue where account_id = $1 and contact_ig_id = $2
+        order by created_at desc, id desc limit 1`,
+      [conta, igId]
+    )) as { status: string }[];
+  return linhas[0]?.status ?? "(sem item)";
+}
+
 // A ORIGEM gravada junto do valor — qual automação coletou aquele dado. É o
 // terceiro membro de `CampoColetado` (lib/campos.ts), e o que a migração dos
 // e-mails de hoje vai usar para distinguir o que foi COLETADO do que foi MOVIDO.
@@ -951,6 +985,77 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     const fio = textosNoFio(EU);
     expect(fio).toContain("Daqui: daqui@exemplo-do-teste.invalid.");
     expect(fio).toContain("Vizinha: do-vizinho@exemplo-do-teste.invalid.");
+  });
+
+  test("a JANELA DE 24H do dreno também é POR CONTA: a vizinha não abre a porta daqui", async () => {
+    // O IRMÃO DO CASO DE CIMA, NO MESMO ARQUIVO E NO MESMO CAMINHO DE ENVIO.
+    // `variableContext` (lib/queue-drain.ts) acabou de ganhar rede para o
+    // `account_id`; `windowOpen`, dezenas de linhas acima no mesmo arquivo, não
+    // tinha nenhuma. É a MESMA classe: `contacts` tem chave COMPOSTA
+    // (migrations/005-contatos-chave-composta.sql), então a mesma pessoa
+    // falando com duas contas do produto tem DUAS linhas, e `ig_id` sozinho não
+    // escolhe nenhuma.
+    //
+    // O QUE ISSO CUSTARIA, e é pior que dado trocado: a janela de 24h da Meta
+    // passaria a ser decidida pelo `last_reply_at` do homônimo de OUTRA conta.
+    // Nos dois sentidos — a conta daqui mandando DM para quem não fala com ela
+    // há dois dias (a Meta recusa, e o item vira `failed` com a queixa dela), e
+    // a conta daqui sendo IMPEDIDA de responder alguém que acabou de escrever,
+    // porque a linha do vizinho é que estava velha.
+    //
+    // A FORMA É A DO CASO DE CIMA, PELO MESMO MOTIVO MEDIDO: com UMA ponta só,
+    // o desfecho dependeria de QUAL linha o `rows[0]` devolve — detalhe de
+    // plano, não contrato. Com as duas pontas a ordem deixa de importar: sem o
+    // filtro os dois drenos leem a MESMA linha, qualquer que seja ela, e aí ou
+    // os dois enviam (e o da vizinha, fechada, sai) ou os dois são recusados (e
+    // o daqui, aberta, não sai). Uma das duas asserções fica vermelha sempre.
+    //
+    // E O ESTADO DA FILA ENTRA JUNTO DO FIO: "não chegou mensagem" sozinho
+    // ficaria verde também se o item da vizinha nunca tivesse sido enfileirado.
+    // `skipped` é o que diz que ele existiu e foi RECUSADO pela janela.
+    const EU = "9300000000000144";
+    const VIZINHA = "17800000000000779";
+    await banco.db().upsertAccount({
+      ig_user_id: VIZINHA,
+      username: "conta_vizinha_da_janela",
+      name: "Conta vizinha da janela",
+      profile_picture_url: null,
+      access_token: TOKEN,
+      token_expires_at: null,
+    });
+
+    await semear(
+      "coleta · janela desta conta",
+      "a-janela-daqui",
+      [{ id: "b_dm0", tipo: "dm", texto: "Janela daqui." }],
+      []
+    );
+    await semear(
+      "coleta · janela da vizinha",
+      "a-janela-da-outra",
+      [{ id: "b_dm0", tipo: "dm", texto: "Janela da vizinha." }],
+      [],
+      VIZINHA
+    );
+
+    // As duas mensagens abrem as duas janelas — é o webhook de verdade que
+    // grava `last_reply_at`, uma linha por conta.
+    await mensagem(EU, "a-janela-daqui", "m-jn0");
+    await mensagem(EU, "a-janela-da-outra", "m-jn1", VIZINHA);
+    // E só a da VIZINHA fecha. A daqui continua aberta.
+    await fecharAJanela(VIZINHA, EU);
+
+    await dreno.drainQueue();
+
+    const fio = textosNoFio(EU);
+    expect(fio, "a conta com a janela ABERTA tinha de enviar").toContain("Janela daqui.");
+    expect(await estadoDoItem(CONTA, EU)).toBe("sent");
+    expect(fio, "a conta com a janela FECHADA não podia enviar").not.toContain(
+      "Janela da vizinha."
+    );
+    expect(await estadoDoItem(VIZINHA, EU), "o item da vizinha tinha de existir e ser recusado").toBe(
+      "skipped"
+    );
   });
 
   test("a variável de campo do catálogo também chega ao fio", async () => {

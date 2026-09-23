@@ -329,6 +329,40 @@ describe("a prévia do editor", () => {
       `Anotado: ${campoPorChave("telefone")!.exemplo}.`
     );
   });
+
+  it("a chave que NUNCA vira variável prevê o que o envio entrega: nada", () => {
+    // A PRÉVIA PROMETIA `[resposta coletada]` PARA UM TOKEN QUE NUNCA RESOLVE.
+    // Medido: `previewVariables("de {{123}}")` devolvia "de [resposta
+    // coletada]" enquanto `renderVariables` devolve "de ". A marca quer dizer
+    // "se houver um campo coletado com este nome, a resposta dele entra aqui"
+    // — e para esta chave NÃO PODE HAVER: `formaDaChave` (lib/campos.ts) exige
+    // pelo menos uma letra, então `normalizarChaveLivre` recusa `123` na
+    // origem e nenhum campo é gravado sob ela.
+    //
+    // POR QUE ESTE CASO É DIFERENTE DO LIMITE QUE A PRÉVIA DECLARA. O
+    // comentário de `previewVariables` diz que ela não tem como saber se
+    // `{{cidade_x}}` é um campo que existe na automação ou um nome digitado
+    // torto — e isso é verdade: ela recebe só o texto da mensagem, e as duas
+    // chaves são possíveis. Aqui não há dúvida a ter: a prévia JÁ CALCULA
+    // `formaDaChave(rawKey)` para achar a variável da lista fixa, e recebe
+    // `null`. É conhecível com o que ela já tem em mãos, e tratá-lo como
+    // desconhecível é o mesmo defeito da tarefa (a prévia e o envio falando de
+    // coisas diferentes), uma casa mais embaixo.
+    //
+    // O QUE ISSO CUSTAVA AO DONO: ele confere a mensagem antes de publicar, lê
+    // a marca, conclui que o token está fiado, e o lead recebe o buraco.
+    //
+    // AS DUAS FUNÇÕES SÃO COMPARADAS UMA COM A OUTRA *E* COM O LITERAL: a
+    // igualdade sozinha ficaria verde se as duas quebrassem juntas.
+    const semNada: VariableContext = { campos: new Map() };
+    expect(previewVariables("de {{123}}")).toBe(renderVariables("de {{123}}", semNada));
+    expect(previewVariables("de {{123}}")).toBe("de ");
+    // E O SUBSTITUTO DO DONO CONTINUA GANHANDO, nos dois lados: `{{123|a pé}}`
+    // é o que ele escreveu para aparecer quando não houver dado, e é isso que
+    // o lead vai ler.
+    expect(previewVariables("de {{123|a pé}}")).toBe("de a pé");
+    expect(renderVariables("de {{123|a pé}}", semNada)).toBe("de a pé");
+  });
 });
 
 describe("as chaves que o campo livre não pode usar", () => {

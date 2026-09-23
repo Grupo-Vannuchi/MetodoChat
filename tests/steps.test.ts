@@ -3254,6 +3254,37 @@ describe("conferirLista", () => {
     const r = erros([bem, colide]);
     expect(r).toHaveLength(1);
     expect(r[0].mensagem).toBe(fraseDaChaveQueColide("E-mail"));
+
+    // A CHAVE DO PERFIL PEGA O OUTRO RAMO, E É POR ISSO QUE ELA ESTÁ AQUI.
+    //
+    // `fraseDaChaveQueColide` escolhe entre DUAS frases a partir do texto que
+    // recebe, e a linha acima só exercita o ramo do CATÁLOGO: com o argumento
+    // trocado por um literal ("email"), ela continuaria verde. Medido na
+    // re-revisão da Tarefa 6 — plantar `fraseDaChaveQueColide("email")` dentro
+    // de `conferirBloco` (lib/steps.ts) deixava os 1749 casos puros verdes, e
+    // só o teste de DOM do painel acusava.
+    //
+    // O ESTRAGO QUE ISSO DEIXARIA PASSAR: o dono salva um campo livre chamado
+    // "Username" e lê "Este nome já é um campo do sistema (e-mail, telefone /
+    // whatsapp, nome informado ou data de nascimento)" — quatro nomes, nenhum
+    // deles o que ele digitou, mandando usar um bloco que não existe. É
+    // literalmente a ininteligibilidade que o comentário em cima da função
+    // (lib/campos.ts) diz que a divisão em duas frases existe para evitar.
+    //
+    // UMA VEZ BASTA PARA OS DOIS CHAMADORES PUROS: `conferirLista` não escreve
+    // mensagem nenhuma, ela devolve o `paraODono` que `conferir` produziu
+    // (lib/steps.ts) — então prender a linha por aqui prende os dois. Repetir a
+    // asserção com `conferir` direto seria uma cópia que nenhum plantio
+    // separaria da de cima.
+    const doPerfil = {
+      id: "b_liv048", tipo: "pedir_dado", campo: "livre", chave: "Username", texto: "Qual?",
+    };
+    const rp = erros([bem, doPerfil]);
+    expect(rp).toHaveLength(1);
+    expect(rp[0].mensagem, "a frase do nó tem de falar do PERFIL, e não do catálogo").toMatch(
+      /perfil do Instagram/i
+    );
+    expect(rp[0].mensagem).toBe(fraseDaChaveQueColide("Username"));
   });
 
   it("ERRO: duas reações a story — `storyReactionKey` só conhece a mensagem", () => {

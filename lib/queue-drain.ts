@@ -153,6 +153,23 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// A JANELA DE 24H DA META, PERGUNTADA À LINHA DA CONTA CERTA.
+//
+// O `account_id` NO `where` NÃO É ENFEITE, e ele não tinha caso nenhum até
+// 23/09/2026: `contacts` tem chave COMPOSTA
+// (migrations/005-contatos-chave-composta.sql), então a mesma pessoa falando
+// com duas contas do produto tem DUAS linhas, e `ig_id` sozinho não escolhe
+// nenhuma. Sem o filtro, a janela desta conta passaria a ser decidida pelo
+// `last_reply_at` do homônimo da conta do vizinho — nos dois sentidos: DM
+// saindo para quem não fala com esta conta há dois dias (a Meta recusa, e o
+// item vira `failed` com a queixa dela), e resposta IMPEDIDA para quem acabou
+// de escrever aqui, porque a linha do vizinho é que estava velha.
+//
+// É A MESMA CLASSE DE `variableContext`, lá embaixo neste arquivo, e o caso que
+// prende esta linha é irmão do que prende aquela: "a JANELA DE 24H do dreno
+// também é POR CONTA", em testes-integracao/coleta-de-dados.integracao.ts. Ele
+// tem DUAS pontas (uma janela aberta e uma fechada) de propósito — com uma só,
+// o desfecho dependeria de qual linha o `rows[0]` devolvesse.
 async function windowOpen(accountId: string, contactIgId: string | null): Promise<boolean> {
   if (!contactIgId) return false;
   const rows = (await sql().query(

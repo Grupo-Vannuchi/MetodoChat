@@ -278,6 +278,11 @@ export function renderVariables(text: string, ctx: VariableContext): string {
 // `renderVariables` procura QUALQUER chave fora da lista fixa no registro do
 // contato, então a marca quer dizer exatamente "se houver um campo coletado com
 // este nome, a resposta dele entra aqui".
+//
+// E O LIMITE PARA ONDE A DÚVIDA ACABA: a chave que `formaDaChave` recusa
+// (`{{123}}`, `{{🔥}}`) NÃO ganha esta marca, porque ali não há "se houver" —
+// nenhum campo pode existir sob ela. O ramo que trata disso está dentro de
+// `previewVariables`, com o porquê.
 const EXEMPLO_DO_CAMPO_LIVRE = "[resposta coletada]";
 
 // Pré-visualização no editor: mostra os exemplos, para o usuário ver como a
@@ -307,7 +312,26 @@ export function previewVariables(text: string): string {
     // acento, o caso prende a MINÚSCULA, não a escolha desta função sobre um
     // `toLowerCase()` — na prévia as duas dão o mesmo desfecho hoje. Ser a
     // MESMA função do envio é o que impede as duas de divergirem depois.
-    const def = BY_KEY.get(formaDaChave(rawKey) ?? "");
+    const chave = formaDaChave(rawKey);
+    // A CHAVE QUE NÃO VIRA NOME DE VARIÁVEL (`{{123}}`, `{{🔥}}`) PREVÊ O QUE O
+    // ENVIO ENTREGA, e isto é o oposto do limite declarado logo acima.
+    //
+    // Lá a prévia não SABE se `{{cidade_x}}` é um campo que existe ou um nome
+    // digitado torto — ela recebe só o texto da mensagem, e os dois são
+    // possíveis. Aqui não há dúvida a ter: `formaDaChave` acabou de devolver
+    // `null`, e `normalizarChaveLivre` (lib/campos.ts) recusa essa chave NA
+    // ORIGEM — nenhum campo pode estar gravado sob ela, em nenhuma automação,
+    // nem escrito por fora. A marca genérica diria "se houver um campo
+    // coletado com este nome, a resposta dele entra aqui" sobre um nome em que
+    // nunca vai haver campo nenhum.
+    //
+    // É A MESMA CLASSE DA DÍVIDA DESTA TAREFA, uma casa mais embaixo: a prévia
+    // prometendo ao dono uma coisa que o envio não entrega. `renderVariables`
+    // apaga este token (chave vazia, nada em `BY_KEY` nem no registro), e o que
+    // o dono confere tem de ser isso — com o substituto dele ganhando nos dois
+    // lados, que é o que o `fallback` abaixo faz.
+    if (chave === null) return (fallback ?? "").trim();
+    const def = BY_KEY.get(chave);
     if (def) return def.sample;
     // O SUBSTITUTO DO DONO GANHA DA MARCA quando ele escreveu um: é ele que a
     // mensagem vai mostrar de verdade se o dado não tiver sido coletado, então
