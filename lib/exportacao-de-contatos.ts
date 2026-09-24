@@ -579,9 +579,21 @@ function colunasDoCatalogo(catalogo: Campo[]): ColunaDoCsv[] {
  * depender de um dado que não é o dado exportado. O que existe é a chave, e é a
  * chave que vai — e é também a forma que o painel mostra ao dono enquanto ele
  * digita o nome do campo.
+ *
+ * ELA PEDE SÓ `campos`, E NÃO UM `ContatoExportavel` INTEIRO — e a diferença
+ * nasceu quando a ficha da conversa (lib/ficha-do-coletado.ts) precisou da MESMA
+ * pergunta: "o que está no registro e não está no catálogo, em que ordem?". A
+ * resposta já morava aqui, e a alternativa era reescrevê-la lá — a segunda
+ * verdade que esta base persegue em toda parte, com a tela e a planilha livres
+ * para listar os campos livres em ordens diferentes.
+ *
+ * O TIPO SÓ AFROUXOU PARA O QUE A FUNÇÃO SEMPRE USOU: `contato.campos`, e nada
+ * mais. Nenhum chamador de antes mudou (um `ContatoExportavel` continua servindo
+ * como `{ campos: unknown }`), e o que se ganhou foi a ficha poder perguntar com
+ * uma pessoa só em mãos, sem inventar os outros quatro campos da planilha.
  */
 export function chavesLivres(
-  contatos: ContatoExportavel[],
+  contatos: { campos: unknown }[],
   catalogo: Campo[] = CAMPOS
 ): string[] {
   const doCatalogo = new Set(catalogo.map((c) => c.chave));

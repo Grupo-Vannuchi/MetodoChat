@@ -12,11 +12,13 @@ import { windowState, formatWindowLeft } from "@/lib/inbox-window";
 import { urgenciaDaJanela } from "@/lib/precisa-de-voce";
 import { TracoDaJanela } from "../../traco-da-janela";
 import { fmtDate } from "@/lib/format";
+import { fichaDoColetado } from "@/lib/ficha-do-coletado";
 import { avisoDaUrl } from "@/lib/avisos";
 import { muted, link, badgeNeutral, input, btnGhost, alertOk, alertError } from "../../ui";
 import { seloDaJanela } from "../../labels";
 import Avatar from "../../avatar";
 import ReplyForm from "./reply-form";
+import { FichaDoColetado } from "./ficha-do-coletado";
 import AreaMensagens from "./area-mensagens";
 import AnexoImagem from "./anexo-imagem";
 import Visto from "./visto";
@@ -136,9 +138,25 @@ export default async function ConversaPage({
 
   // As duas consultas em paralelo. O `as` vai no resultado já resolvido, que é
   // o padrão do resto do projeto — converter a Promise confunde o TypeScript.
+  //
+  // `campos` E `email` ENTRARAM JUNTOS, e o par não é redundante: `campos` é o
+  // registro do que as automações coletaram (migrations/011) e `email` é a
+  // coluna antiga, que continua sendo escrita e lida em paralelo até a Parte 2.
+  // Quem decide qual dos dois vale é `lib/variables.ts`, pela mesma `resolve`
+  // que a DM enviada e a planilha usam — tirar `email` daqui faria a ficha sair
+  // sem e-mail nenhum para todo contato anterior à migração `012`, que é
+  // aplicada à mão, fora do build.
+  //
+  // `account_id` NO `where` NÃO É ENFEITE: a chave de `contacts` é COMPOSTA
+  // (migrations/005-contatos-chave-composta.sql), então a mesma pessoa falando
+  // com duas contas do produto tem DUAS linhas, e `ig_id` sozinho não escolhe
+  // nenhuma. Sem o filtro, esta tela mostraria o telefone que alguém entregou à
+  // conta do vizinho — dado de um cliente na ficha de outro. O caso que prende
+  // isso é "a ficha é POR CONTA"
+  // (testes-integracao/ficha-da-conversa.integracao.ts).
   const [linhasContato, mensagens] = await Promise.all([
     sql().query(
-      `select username, name, profile_pic, last_reply_at, categoria
+      `select username, name, profile_pic, last_reply_at, categoria, email, campos
        from contacts where account_id = $1 and ig_id = $2`,
       [account.ig_user_id, id]
     ),
@@ -162,8 +180,24 @@ export default async function ConversaPage({
       profile_pic: string | null;
       last_reply_at: Date | null;
       categoria: string | null;
+      email: string | null;
+      campos: unknown;
     }[]
   )[0];
+  // A FICHA É DERIVADA AQUI, E DESENHADA NOUTRO ARQUIVO. A regra (quais campos,
+  // em que ordem, com que rótulo, e se a data gravada é mesmo uma data de
+  // coleta) é pura e mora em `lib/ficha-do-coletado.ts`, onde a suíte padrão a
+  // alcança; o desenho mora em `./ficha-do-coletado.tsx`, onde a suíte de DOM o
+  // monta. Esta página não decide nenhum dos dois — ela entrega o que o banco
+  // devolveu, com o `jsonb` cru inclusive.
+  //
+  // O CONTATO PODE NÃO EXISTIR (um id de conversa que não é desta conta, ou de
+  // ninguém): `?? null` nos dois campos faz a ficha cair no vazio desenhado, que
+  // é o mesmo desfecho de quem existe e nunca teve nada coletado.
+  const itensDaFicha = fichaDoColetado({
+    email: contato?.email ?? null,
+    campos: contato?.campos ?? null,
+  });
   const janela = windowState(contato?.last_reply_at ?? null);
   // Nome como título e @ embaixo, como o Instagram faz. O @ só aparece quando há
   // nome — senão ele já É o título e repetiria.
@@ -290,6 +324,20 @@ export default async function ConversaPage({
           </span>
         </span>
       </div>
+
+      {/* O QUE AS AUTOMAÇÕES JÁ COLETARAM DESTA PESSOA.
+
+          POR QUE AQUI, colada no cabeçalho: ela é a segunda linha da ficha de
+          quem é a pessoa — o @ e a foto dizem quem ela é no Instagram, isto diz
+          o que ela respondeu. Dentro da área que rola ela ficaria acima da
+          primeira mensagem, e `AreaMensagens` abre no FIM da conversa: a ficha
+          nasceria fora da tela, que é o mesmo que não existir.
+
+          ANTES DO AVISO, E NÃO DEPOIS: o aviso de `definirCategoria`
+          (./actions.ts) é transitório e fala do gesto que acabou de acontecer;
+          a ficha é permanente. O transitório fica mais perto do conteúdo, que é
+          para onde os olhos voltam depois de salvar. */}
+      <FichaDoColetado itens={itensDaFicha} />
 
       {/* A FAIXA DO QUE ACABOU DE ACONTECER — no molde de app/contatos/page.tsx.
           Só o que `definirCategoria` (./actions.ts) manda pelo redirect. */}
