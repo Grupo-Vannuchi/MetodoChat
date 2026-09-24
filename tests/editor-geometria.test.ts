@@ -9,12 +9,19 @@ import {
   alvoDoArraste,
   alvoDaPaleta,
   lugarDoBlocoNovo,
+  seCobrem,
   ALCANCE_DA_SETA,
   ALTURA_SUPOSTA,
-  DESVIO_DO_EMPILHAMENTO,
   LARGURA_DO_BLOCO,
+  type Medidas,
+  type Ponto,
 } from "../app/automacoes/editor/geometria";
-import type { Ligacao, Passo } from "../lib/steps";
+// A IDENTIDADE VEM DE `lib/steps`, e não é reescrita aqui: é por ela que as
+// medidas do React Flow são achadas, e o quadro passa exatamente esta lista.
+import { identidadeDoPasso, type Ligacao, type Passo } from "../lib/steps";
+// O VÃO ENTRE DOIS BLOCOS, lido de quem o define: escrever 250 à mão aqui
+// faria o caso continuar verde no dia em que o vão mudasse.
+import { PASSO_ENTRE_BLOCOS } from "../app/automacoes/editor/modelos";
 
 // Um passo mínimo, só com a posição que a geometria lê. O `tipo`/`texto` são
 // irrelevantes aqui — a geometria só os olha para saber quantas ALÇAS o bloco
@@ -434,6 +441,65 @@ describe("setasAoAlcance — usa a medida real do bloco quando ela existe", () =
   });
 });
 
+// A RÉGUA DE "dá para ler os dois", sozinha. Ela é a peça de que a cascata
+// depende — o passo só escolhe ONDE tentar, e é `seCobrem` que diz se a
+// tentativa vale —, e por isso ela tem casos próprios: medido em 24/09/2026,
+// plantar de volta SÓ a diagonal de 24 (deixando esta régua nova no lugar)
+// mantém os seis blocos sem se cobrir, porque a cascata passa a pular os
+// candidatos ruins. Quem de fato garante a não-sobreposição é esta função.
+describe("seCobrem", () => {
+  const canto = { x: 0, y: 0 };
+
+  it("a diagonal de 24 do empilhamento É sobreposição — foi ela que o dono mediu", () => {
+    // `{x:-200,y:72}` e `{x:-176,y:96}` no banco: 24 nos dois eixos, com 190 de
+    // largura de bloco. É o caso que esta correção veio tirar da tela.
+    expect(seCobrem(canto, ALTURA_SUPOSTA, { x: 24, y: 24 }, ALTURA_SUPOSTA)).toBe(true);
+  });
+
+  it("é retângulo, e não distância entre pontos", () => {
+    // 34 de distância reta (24/24) cobre; 200 de distância reta na horizontal
+    // não cobre. Um raio não separa esses dois casos.
+    expect(Math.hypot(24, 24)).toBeLessThan(200);
+    expect(seCobrem(canto, ALTURA_SUPOSTA, { x: 200, y: 0 }, ALTURA_SUPOSTA)).toBe(false);
+  });
+
+  it("encostar não é cobrir — a borda de um na borda do outro deixa os dois legíveis", () => {
+    // É o desfecho que a saída de baixo da cascata produz quando o quadro está
+    // cheio, e por isso a régua precisa dizer que ele é aceitável.
+    expect(seCobrem(canto, ALTURA_SUPOSTA, { x: LARGURA_DO_BLOCO, y: 0 }, ALTURA_SUPOSTA)).toBe(
+      false
+    );
+    expect(seCobrem(canto, ALTURA_SUPOSTA, { x: 0, y: ALTURA_SUPOSTA }, 300)).toBe(false);
+    // E um pixel a menos já é cobrir, nos dois eixos.
+    expect(seCobrem(canto, ALTURA_SUPOSTA, { x: LARGURA_DO_BLOCO - 1, y: 0 }, ALTURA_SUPOSTA)).toBe(
+      true
+    );
+    expect(seCobrem(canto, ALTURA_SUPOSTA, { x: 0, y: ALTURA_SUPOSTA - 1 }, 300)).toBe(true);
+  });
+
+  it("a ALTURA de cada um entra separada, porque elas têm origens diferentes", () => {
+    // A de baixo vem MEDIDA pelo React Flow; a do que ainda vai nascer é
+    // `ALTURA_SUPOSTA`. Um bloco alto alcança quem está 100 abaixo dele; um
+    // baixo, não — e é só a altura que muda entre as duas chamadas.
+    expect(seCobrem({ x: 0, y: 100 }, ALTURA_SUPOSTA, canto, 220)).toBe(true);
+    expect(seCobrem({ x: 0, y: 100 }, ALTURA_SUPOSTA, canto, ALTURA_SUPOSTA)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ONDE CAI O BLOCO CRIADO POR CLIQUE NA PALETA.
+//
+// O DEFEITO MEDIDO, montando uma automação de verdade: dois blocos criados pela
+// paleta nasceram um em cima do outro. No banco, `pos` do primeiro
+// `{x:-200, y:72}` e do segundo `{x:-176, y:96}` — 24 pixels na diagonal, com o
+// bloco de cima cobrindo quase todo o de baixo. Com 3 o quadro já não se lê, e
+// com 6 o dono arrasta um por um antes de conseguir trabalhar.
+//
+// O ALVO NÃO É "os dois primeiros não se tocam": é montar SEIS pela paleta e ler
+// os seis sem arrastar nenhum. Por isso o caso central daqui SIMULA a sequência
+// de cliques — cada bloco entra na lista e o seguinte é posicionado já sabendo
+// dele, que é exatamente o que `inserirNoCentro` (quadro.tsx) faz.
+// ---------------------------------------------------------------------------
 describe("lugarDoBlocoNovo", () => {
   // O centro da area visivel usado em quase todos os casos. Com LARGURA 190 e
   // ALTURA_SUPOSTA 48, o canto esperado e (500 - 95, 300 - 24) = (405, 276).
@@ -443,105 +509,176 @@ describe("lugarDoBlocoNovo", () => {
     y: centro.y - ALTURA_SUPOSTA / 2,
   };
 
+  // A ALTURA QUE O REACT FLOW MEDE no bloco mais alto que a paleta produz — o
+  // menu (`dm_opcoes`), 82px medidos na tela (a medição está em `./geometria`).
+  // Ela entra nos casos porque é o pior caso REAL do que já está no quadro
+  // quando o próximo bloco nasce: o React Flow mede o bloco assim que ele
+  // aparece, então o segundo clique já encontra a medida do primeiro.
+  const MAIS_ALTO = 82;
+
+  /** O que o quadro passa: as medidas por identidade, e as identidades. */
+  function lugar(c: Ponto, passos: Passo[], altura?: number): Ponto {
+    const identidades = passos.map(identidadeDoPasso);
+    const medidas: Medidas = {};
+    if (altura !== undefined) {
+      for (const id of identidades) medidas[id] = { width: LARGURA_DO_BLOCO, height: altura };
+    }
+    return lugarDoBlocoNovo(c, passos, medidas, identidades);
+  }
+
+  /** Os N cliques na paleta, um depois do outro, do jeito que `inserirNoCentro` faz. */
+  function cliquesNaPaleta(n: number, c = centro, altura?: number): Passo[] {
+    const passos: Passo[] = [];
+    for (let k = 0; k < n; k++) {
+      const pos = lugar(c, passos, altura);
+      passos.push({ id: `b_novo0${k}`, tipo: "dm", texto: "x", pos });
+    }
+    return passos;
+  }
+
+  /** Os pares de blocos que se cobrem na tela, pela régua de `seCobrem`. */
+  function cobertos(passos: Passo[], altura = ALTURA_SUPOSTA): string[] {
+    const pares: string[] = [];
+    for (let i = 0; i < passos.length; i++) {
+      for (let j = i + 1; j < passos.length; j++) {
+        if (seCobrem(passos[i].pos!, altura, passos[j].pos!, altura)) pares.push(`${i} sobre ${j}`);
+      }
+    }
+    return pares;
+  }
+
   it("poe o CENTRO do bloco no ponto pedido, devolvendo o canto", () => {
-    expect(lugarDoBlocoNovo(centro, [])).toEqual({ x: 405, y: 276 });
-    expect(lugarDoBlocoNovo(centro, [])).toEqual(canto);
+    expect(lugar(centro, [])).toEqual({ x: 405, y: 276 });
+    expect(lugar(centro, [])).toEqual(canto);
   });
 
   it("arredonda, para nao repetir o `73.00000000000001` que ja apareceu no banco", () => {
     // `screenToFlowPosition` devolve fracionario, e o centro de um retangulo de
     // largura impar cai no meio de um pixel.
-    const lugar = lugarDoBlocoNovo({ x: 500.4, y: 300.7 }, []);
-    expect(Number.isInteger(lugar.x)).toBe(true);
-    expect(Number.isInteger(lugar.y)).toBe(true);
+    const l = lugar({ x: 500.4, y: 300.7 }, []);
+    expect(Number.isInteger(l.x)).toBe(true);
+    expect(Number.isInteger(l.y)).toBe(true);
   });
 
   it("nao desvia por causa de bloco que esta longe do centro", () => {
-    expect(lugarDoBlocoNovo(centro, [passoEm(0, 0), passoEm(2000, 900)])).toEqual(canto);
+    expect(lugar(centro, [passoEm(0, 0), passoEm(2000, 900)])).toEqual(canto);
   });
 
   it("nao desvia por causa de bloco sem `pos` — ele nao esta em lugar nenhum", () => {
     // Bloco sem posicao e forma valida (toda lista anterior a Fase 1b e assim),
     // e ele nao pode reivindicar o centro do quadro.
     const semPos: Passo = { tipo: "dm", texto: "x" };
-    expect(lugarDoBlocoNovo(centro, [semPos, semPos])).toEqual(canto);
+    expect(lugar(centro, [semPos, semPos])).toEqual(canto);
   });
 
-  it("desvia na diagonal quando o centro ja esta ocupado", () => {
-    const lugar = lugarDoBlocoNovo(centro, [passoEm(canto.x, canto.y)]);
-    expect(lugar).toEqual({
-      x: canto.x + DESVIO_DO_EMPILHAMENTO,
-      y: canto.y + DESVIO_DO_EMPILHAMENTO,
-    });
+  it("SEIS blocos pela paleta, e nenhum cobre nenhum", () => {
+    // O ALVO DESTA CORREÇÃO, medido do jeito que o dono o mediu: seis cliques
+    // seguidos na faixa, sem arrastar nada no meio. Antes, os seis saíam numa
+    // diagonal de 24 em 24 e mesmo o primeiro e o sexto ficavam a 120 nos dois
+    // eixos — dentro dos 190 de largura do bloco, ou seja, cobrindo-se.
+    const comMedida = cliquesNaPaleta(6, centro, MAIS_ALTO);
+    expect(cobertos(comMedida, MAIS_ALTO), "blocos sobrepostos na tela").toEqual([]);
+    // E TAMBÉM ANTES DA PRIMEIRA MEDIÇÃO: o React Flow mede depois de desenhar,
+    // e um clique rápido pode chegar antes disso. Com a altura suposta o
+    // desfecho tem de ser o mesmo.
+    expect(cobertos(cliquesNaPaleta(6)), "blocos sobrepostos sem medida").toEqual([]);
   });
 
-  it("desvia de novo quando o primeiro desvio tambem esta ocupado", () => {
-    const passos = [
-      passoEm(canto.x, canto.y),
-      passoEm(canto.x + DESVIO_DO_EMPILHAMENTO, canto.y + DESVIO_DO_EMPILHAMENTO),
-    ];
-    expect(lugarDoBlocoNovo(centro, passos)).toEqual({
-      x: canto.x + 2 * DESVIO_DO_EMPILHAMENTO,
-      y: canto.y + 2 * DESVIO_DO_EMPILHAMENTO,
-    });
-  });
-
-  it("cobrir e coisa de retangulo: desvia por CHEBYSHEV, nao por distancia reta", () => {
-    // Um bloco 20 para o lado e 20 para baixo do canto: a distancia reta e
-    // 28,3 — passaria por um raio de 24 —, mas na tela ele cobre quase todo o
-    // lugar pedido. O maior dos dois afastamentos e 20, e 20 < 24, entao desvia.
-    const vizinho = passoEm(canto.x + 20, canto.y + 20);
-    expect(Math.hypot(20, 20)).toBeGreaterThan(DESVIO_DO_EMPILHAMENTO);
-    expect(lugarDoBlocoNovo(centro, [vizinho])).not.toEqual(canto);
-  });
-
-  it("um bloco entre duas posicoes da diagonal barra as DUAS, e o laco passa por cima", () => {
-    // Um unico bloco a 12/12 do canto barra as posicoes k=0 e k=1 (afastamentos
-    // 12 e 12 dele), e a resposta e k=2 — prova que o laco pula por cima de DOIS
-    // candidatos barrados pelo mesmo obstaculo.
+  it("e os seis cabem juntos no que se esta olhando — nao marcham para fora da tela", () => {
+    // A OUTRA METADE DE "ler os seis": não basta não se cobrirem. Uma cascata em
+    // linha reta — 250 de passo, seis blocos — daria 1250 de largura, e uma
+    // coluna reta daria 480 de altura; nos dois casos os últimos nascem fora do
+    // que a pessoa está vendo, que é o MESMO sintoma do empilhamento (clicar e
+    // não ver nada acontecer).
     //
-    // O QUE ISTO NAO PROVA, medido: que o multiplicador precisa ser `2`. Com um
-    // so obstaculo, mutar o limite para `passos.length + 1` (n=1 -> limite=2)
-    // ainda passa aqui — o laco para em k=0,1 sem achar vaga, e o `return` de
-    // fora do laco reusa a mesma variavel `limite` (ja mutada) para devolver
-    // k=2, que acerta POR SORTE: aquele `return` nao sabe que k=2 esta livre, so
-    // repete o ultimo `limite` tentado. Quem prova o multiplicador de verdade e
-    // o caso seguinte, com dois obstaculos ENCADEADOS.
-    const meio = passoEm(canto.x + 12, canto.y + 12);
-    expect(lugarDoBlocoNovo(centro, [meio])).toEqual({
-      x: canto.x + 2 * DESVIO_DO_EMPILHAMENTO,
-      y: canto.y + 2 * DESVIO_DO_EMPILHAMENTO,
-    });
+    // O NÚMERO NÃO É DE NAVEGADOR, e é por isso que ele é folgado: o que o caso
+    // prende é a FORMA — o conjunto cresce nos dois eixos e volta, em vez de
+    // marchar num só. Medir o quadro de verdade é do `conferir:navegador`.
+    const passos = cliquesNaPaleta(6, centro, MAIS_ALTO);
+    const xs = passos.map((p) => p.pos!.x);
+    const ys = passos.map((p) => p.pos!.y);
+    expect(Math.max(...xs) + LARGURA_DO_BLOCO - Math.min(...xs)).toBeLessThanOrEqual(500);
+    expect(Math.max(...ys) + MAIS_ALTO - Math.min(...ys)).toBeLessThanOrEqual(300);
+  });
 
-    // DOIS obstaculos encadeados: o primeiro (12/12 do canto) barra k=0 e k=1;
-    // o segundo (60/60 do canto) barra k=2 e k=3 (afastamentos 12 e 12 dele). A
-    // primeira vaga livre e k=4.
-    //
-    // Com `passos.length + 1` (n=2 -> limite=3) o laco testa so k=0,1,2 — todos
-    // ocupados — e sai sem `return`. O `return` de fora do laco devolve
-    // `limite` (3, ja mutado): k=3, que TAMBEM esta ocupado, pelo segundo
-    // bloco. A resposta errada deixa de coincidir com a certa aqui, e e por
-    // isso que este segundo caso — e nao o de um obstaculo so, acima — e quem
-    // obriga o multiplicador a ser `2 * passos.length + 1`.
-    const passos = [passoEm(canto.x + 12, canto.y + 12), passoEm(canto.x + 60, canto.y + 60)];
-    expect(lugarDoBlocoNovo(centro, passos)).toEqual({
-      x: canto.x + 4 * DESVIO_DO_EMPILHAMENTO,
-      y: canto.y + 4 * DESVIO_DO_EMPILHAMENTO,
+  it("nao atropela o bloco que o dono ja arrastou para onde queria", () => {
+    // O bloco parado está EXATAMENTE onde o segundo clique cairia. O lugar
+    // devolvido não pode cobri-lo: arrumar o quadro é gesto de quem monta, e um
+    // bloco novo por cima desfaz esse gesto sem dizer nada.
+    const primeiro = cliquesNaPaleta(1, centro, MAIS_ALTO);
+    const segundo = lugar(centro, primeiro, MAIS_ALTO);
+    const arrastado: Passo = { id: "b_maonaa1", tipo: "dm", texto: "x", pos: segundo };
+    const terceiro = lugar(centro, [...primeiro, arrastado], MAIS_ALTO);
+    expect(seCobrem(terceiro, ALTURA_SUPOSTA, segundo, MAIS_ALTO)).toBe(false);
+    expect(seCobrem(terceiro, ALTURA_SUPOSTA, primeiro[0].pos!, MAIS_ALTO)).toBe(false);
+  });
+
+  it("desvia pela altura MEDIDA, e nao pela suposta", () => {
+    // UM BLOCO ALTO OCUPA MAIS LINHAS. `ALTURA_SUPOSTA` é 48 e um menu de muitos
+    // botões passa de 200 — com a altura suposta, o lugar devolvido cairia
+    // DENTRO dele. A medida existe para o que já está na tela (o React Flow a
+    // entrega); quem ainda vai nascer continua valendo pela suposta, e essa é a
+    // única metade que este arquivo não tem como saber.
+    const alto: Passo = { id: "b_altoo01", tipo: "dm", texto: "x", pos: canto };
+    const identidades = [identidadeDoPasso(alto, 0)];
+    const medidas: Medidas = { b_altoo01: { width: LARGURA_DO_BLOCO, height: 220 } };
+    const l = lugarDoBlocoNovo(centro, [alto], medidas, identidades);
+    expect(
+      seCobrem(l, ALTURA_SUPOSTA, canto, 220),
+      `o lugar ${JSON.stringify(l)} caiu DENTRO do bloco de 220 de altura que começa em ` +
+        `${JSON.stringify(canto)} — a medida do React Flow foi ignorada`
+    ).toBe(false);
+    // E o mesmo bloco, se fosse baixo, deixaria livre um lugar que agora não
+    // está — é isso que prova que a medida foi LIDA, e não ignorada.
+    expect(lugarDoBlocoNovo(centro, [alto], {}, identidades)).not.toEqual(l);
+  });
+
+  it("vale em qualquer rolagem e qualquer zoom — a conta e toda em coordenada do quadro", () => {
+    // O zoom e a rolagem já foram resolvidos por `screenToFlowPosition`
+    // (quadro.tsx) antes de chegar aqui: o que muda é o `centro`, e ele chega
+    // FRACIONÁRIO quando o zoom não é 1. O desfecho tem de ser o mesmo conjunto
+    // legível, em volta do novo centro.
+    const longe = { x: -1840.37, y: 2611.62 };
+    const passos = cliquesNaPaleta(6, longe, MAIS_ALTO);
+    expect(cobertos(passos, MAIS_ALTO)).toEqual([]);
+    expect(passos.every((p) => Number.isInteger(p.pos!.x) && Number.isInteger(p.pos!.y))).toBe(true);
+    // O primeiro nasce no centro de onde se está olhando, e não perto do lugar
+    // de onde a tela rolou.
+    expect(passos[0].pos).toEqual({
+      x: Math.round(longe.x - LARGURA_DO_BLOCO / 2),
+      y: Math.round(longe.y - ALTURA_SUPOSTA / 2),
     });
   });
 
-  it("sempre acha lugar livre — nenhuma pilha devolve um canto ja ocupado", () => {
-    // Vinte blocos plantados EM CIMA da diagonal, um por posicao, para provar
-    // que o laco nao esgota e nao devolve posicao ocupada.
-    const passos = Array.from({ length: 20 }, (_, k) =>
-      passoEm(canto.x + k * DESVIO_DO_EMPILHAMENTO, canto.y + k * DESVIO_DO_EMPILHAMENTO)
-    );
-    const lugar = lugarDoBlocoNovo(centro, passos);
-    const colide = passos.some(
-      (p) =>
-        Math.abs(p.pos!.x - lugar.x) < DESVIO_DO_EMPILHAMENTO &&
-        Math.abs(p.pos!.y - lugar.y) < DESVIO_DO_EMPILHAMENTO
-    );
-    expect(colide).toBe(false);
+  it("com as colunas da frente barradas, procura ADIANTE em vez de cair no fim do mundo", () => {
+    // O QUE ESTE CASO PRENDE: o `2 *` do limite do laço. Um bloco parado pode
+    // barrar DUAS colunas — as colunas distam 250 e o cruzamento em x exige
+    // menos de 190 de afastamento, então um bloco no meio do vão alcança as duas
+    // vizinhas. Com dois blocos altos, plantados um no meio de cada par, as
+    // colunas 0 a 3 ficam inteiramente barradas e a primeira vaga é a 4.
+    //
+    // COM `passos.length + 1` COLUNAS o laço olharia só 0, 1 e 2, sairia sem
+    // achar nada e cairia na saída de baixo de tudo — que é livre, mas fica
+    // longe de onde a pessoa está olhando. A resposta certa está a uma coluna
+    // dali, e é o `2 *` que a alcança.
+    const alto = (x: number, id: string): Passo => ({
+      id,
+      tipo: "dm",
+      texto: "x",
+      pos: { x, y: canto.y - 10 },
+    });
+    const passos = [alto(canto.x + 125, "b_barra01"), alto(canto.x + 625, "b_barra02")];
+    const medidas: Medidas = {
+      b_barra01: { width: LARGURA_DO_BLOCO, height: 300 },
+      b_barra02: { width: LARGURA_DO_BLOCO, height: 300 },
+    };
+    const l = lugarDoBlocoNovo(centro, passos, medidas, passos.map(identidadeDoPasso));
+    expect(l).toEqual({ x: canto.x + 4 * PASSO_ENTRE_BLOCOS.x, y: canto.y });
+  });
+
+  it("vinte cliques seguidos continuam sem cobrir nenhum", () => {
+    // O laço não esgota e não devolve lugar ocupado. Vinte é o número do caso
+    // antigo, mantido: ele passa de qualquer limite plausível.
+    expect(cobertos(cliquesNaPaleta(20, centro, MAIS_ALTO), MAIS_ALTO)).toEqual([]);
   });
 });

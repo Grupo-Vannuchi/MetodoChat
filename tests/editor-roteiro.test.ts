@@ -4,8 +4,13 @@ import {
   roteiro,
   textoDoDisparo,
   textoDoTempo,
+  type Bolha,
   type Cena,
 } from "../app/automacoes/editor/roteiro";
+// A DONA DA RESOLUÇÃO DE VARIÁVEIS, e ela entra aqui pelo mesmo motivo que o
+// catálogo entra logo abaixo: para os casos conferirem que a prévia da conversa
+// a REUSA, em vez de carregar uma cópia da régua.
+import { previewVariables } from "../lib/variables";
 import { identidadeDoPasso, type Ligacao, type Passo } from "../lib/steps";
 // O catálogo entra para o caso do exemplo por campo: ele confere que a prévia
 // LÊ `CAMPOS` em vez de carregar uma cópia dos exemplos.
@@ -1425,5 +1430,156 @@ describe("roteiro — o caminho mostrado", () => {
     const b = roteiro(passos, "comment", so, "b_pubb001");
     expect(trilha(b)).toEqual(["b_menu01", "b_pubb001"]);
     expect(b[1].itens[0]).toMatchObject({ situacao: "publicada", texto: "Do braço B" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AS VARIÁVEIS NA PRÉVIA DA CONVERSA.
+//
+// O DEFEITO MEDIDO, montando uma automação de verdade: a prévia do CAMPO
+// (`MessageField`, app/automacoes/variable-picker.tsx) escrevia "Vai chegar
+// assim: Anotei: (11) 99999-9999 - fim do teste." e a prévia da CONVERSA, na
+// mesma tela, desenhava `Anotei: {{telefone}} - fim do teste.` no balão. Duas
+// telas, a mesma mensagem, respostas diferentes.
+//
+// QUAL DELAS ESTAVA ERRADA: a da conversa. O cabeçalho dela promete por escrito
+// "Como a lista fica para quem recebe, agora — antes de salvar"
+// (`quadro.tsx`), e quem recebe lê o VALOR ou nada — `renderVariables`
+// (lib/variables.ts) nunca entrega `{{telefone}}` a ninguém.
+//
+// A RESOLUÇÃO É EMPRESTADA, E ESSE É O PONTO: quem resolve é `previewVariables`,
+// a MESMA função da prévia do campo. Reescrever a régua aqui — um `replace` com
+// os exemplos do catálogo — seria a segunda verdade sobre variável nesta base, e
+// é ela que estes casos existem para impedir.
+describe("as variáveis na prévia da conversa", () => {
+  const DO_TELEFONE = campoPorChave("telefone")!.exemplo;
+
+  it("o balão mostra o VALOR, e não o token cru", () => {
+    // O caso medido na produção, com o texto que o dono digitou.
+    const cenas = cenasDe([
+      { id: "b_dm00001", tipo: "dm", texto: "Anotei: {{telefone}} - fim do teste." },
+    ]);
+    expect(cenas[0].itens[0]).toEqual({
+      tipo: "balao",
+      texto: `Anotei: ${DO_TELEFONE} - fim do teste.`,
+      botao: null,
+      link: false,
+    });
+  });
+
+  it("diz a MESMA coisa que a prévia do campo, porque é a mesma função", () => {
+    // AS QUATRO FAMÍLIAS DE CHAVE NUM TEXTO SÓ: a do perfil, a do catálogo, a do
+    // campo livre (que vira a marca) e a que `formaDaChave` recusa (que some,
+    // como no envio). Comparar com `previewVariables` é o que prende as duas
+    // telas: um `replace` próprio aqui poderia acertar o telefone e errar
+    // qualquer uma das outras três, e é exatamente assim que as prévias
+    // divergiram.
+    const texto = "Oi {{first_name}}, zap {{telefone}}, cidade {{qual_sua_cidade}}, lixo {{123}}.";
+    const cenas = cenasDe([{ id: "b_dm00001", tipo: "dm", texto }]);
+    const balao = cenas[0].itens[0] as Extract<Bolha, { tipo: "balao" }>;
+    expect(balao.texto).toBe(previewVariables(texto));
+    expect(balao.texto).not.toContain("{{");
+  });
+
+  it("todo texto que chega escrito ao lead é resolvido — e nenhum outro campo é", () => {
+    // A LISTA DOS CAMPOS É DE `textosQueVaoParaOLead` (lib/steps.ts): texto,
+    // rótulo de botão, variações da pública e rótulos do menu. É a mesma lista
+    // que `processItem` (lib/queue-drain.ts) passa por `renderVariables`, e é
+    // por isso que ela — e não "o que o editor mostra" — decide o que a prévia
+    // resolve.
+    //
+    // O QUE ESTE CASO NÃO PRENDE, dito para ninguém prometer demais: a lista lá
+    // é privada, então este caso não a LÊ — ele percorre os tipos de bloco à
+    // mão. Um campo novo acrescentado lá continua precisando de uma linha aqui.
+    // O que ele prende é que nenhum dos campos de HOJE volte a sair cru.
+    const passos = [
+      { id: "b_dm00001", tipo: "dm", texto: "a {{telefone}}" },
+      { id: "b_link001", tipo: "dm", texto: "b {{telefone}}", botao_label: "c {{telefone}}", url: "https://x" },
+      { id: "b_rapid01", tipo: "dm", texto: "d {{telefone}}", botao_label: "e {{telefone}}" },
+      {
+        id: "b_menu001",
+        tipo: "dm",
+        texto: "f {{telefone}}",
+        botoes: [{ id: "op_aaaaaa", rotulo: "g {{telefone}}" }],
+      },
+      { id: "b_folow01", tipo: "pedir_follow", texto: "h {{telefone}}", botao_label: "i {{telefone}}" },
+      { id: "b_dado001", tipo: "pedir_dado", campo: "email", texto: "j {{telefone}}" },
+      { id: "b_pub0001", tipo: "resposta_publica", textos: ["k {{telefone}}"] },
+    ] as Passo[];
+    for (const passo of passos) {
+      const cru = JSON.stringify(roteiro([passo], "comment", [], null));
+      expect(cru, `o bloco ${passo.tipo} deixou token cru na cena: ${cru}`).not.toContain("{{");
+      expect(cru).toContain(DO_TELEFONE);
+    }
+  });
+
+  it("o emoji do coraçãozinho NÃO é resolvido — o motor também não o resolve", () => {
+    // `textosQueVaoParaOLead` (lib/steps.ts) deixa `emoji` e `url` de fora por
+    // escrito: o coraçãozinho não é texto de mensagem e a url chega crua em
+    // `linkMessage`. Resolver aqui faria a prévia afirmar que `{{...}}` é
+    // variável num campo em que ela nunca foi — a terceira régua que esta
+    // correção existe para não criar.
+    const cenas = cenasDe([{ id: "b_reac001", tipo: "reagir_story", emoji: "{{telefone}}" }], "story");
+    expect(cenas[0].itens[0]).toMatchObject({ tipo: "reacao", emoji: "{{telefone}}" });
+  });
+
+  it("o rótulo que SOME ao resolver não desenha pílula nem toque", () => {
+    // `{{123}}` é chave que `formaDaChave` (lib/campos.ts) recusa: o envio a
+    // apaga, e o rótulo fica vazio. `processItem` (lib/queue-drain.ts) resolve
+    // ANTES de exigir `quick_reply_label`, então a mensagem sai como TEXTO
+    // PURO, sem botão nenhum — e o fluxo para num bloco sem nada para tocar.
+    //
+    // É a mesma consequência que o `pedir_follow` sem rótulo já desenha, e é
+    // por isso que a resolução tem de vir ANTES da decisão de desenhar a
+    // pílula: resolvendo depois, a prévia mostraria um botão `{{123}}` que a
+    // pessoa nunca recebe.
+    const cenas = cenasDe([
+      { id: "b_rapid01", tipo: "dm", texto: "Toca aí", botao_label: "{{123}}" },
+    ] as Passo[]);
+    expect(cenas[0].itens).toEqual([
+      { tipo: "balao", texto: "Toca aí", botao: "", link: false },
+      { tipo: "parada", motivo: "toque" },
+    ]);
+  });
+
+  it("o botão de link sem rótulo APÓS resolver cai no padrão do `linkMessage`", () => {
+    // Mesma ordem, do outro lado: `processItem` resolve e só então faz
+    // `rotuloBotao || "Abrir link"`. Resolvendo depois do padrão, a prévia
+    // desenharia `{{123}}` escrito no botão.
+    const cenas = cenasDe([
+      { id: "b_link001", tipo: "dm", texto: "Olha", botao_label: "{{123}}", url: "https://x" },
+    ] as Passo[]);
+    expect(cenas[0].itens[0]).toEqual({
+      tipo: "balao",
+      texto: "Olha",
+      botao: "Abrir link",
+      link: true,
+    });
+  });
+
+  it("a resposta de exemplo continua sendo do catálogo, e NÃO da marca do campo livre", () => {
+    // AS DUAS COISAS TÊM A MESMA FONTE E NÃO PODEM TER O MESMO DONO, e este
+    // caso é o que impede a "unificação" delas.
+    //
+    // As duas leem `CAMPOS.exemplo` (lib/campos.ts) — `previewVariables` por
+    // `VariableDef.sample`, `respostaDeExemplo` direto —, mas respondem a
+    // perguntas diferentes: uma diz COMO A MENSAGEM CHEGA, a outra diz O QUE A
+    // PESSOA RESPONDE. E é no campo LIVRE que a diferença aparece: na mensagem
+    // o token vira a MARCA `[resposta coletada]`, que é um lugar a preencher;
+    // na bolha azul o lugar é de uma FALA, e uma marca entre colchetes não é
+    // fala nenhuma.
+    const cenas = cenasDe([
+      {
+        id: "b_dado001",
+        tipo: "pedir_dado",
+        campo: "livre",
+        chave: "qual_sua_cidade",
+        texto: "De onde você é?",
+      },
+    ] as Passo[]);
+    const resposta = cenas[0].itens.find((b) => b.tipo === "resposta");
+    expect(resposta).toEqual({ tipo: "resposta", texto: "a resposta dela" });
+    // E a marca da mensagem continua sendo a outra resposta, na mesma chave.
+    expect(previewVariables("{{qual_sua_cidade}}")).toBe("[resposta coletada]");
   });
 });
