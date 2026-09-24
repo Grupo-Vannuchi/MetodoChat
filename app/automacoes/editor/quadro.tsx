@@ -442,6 +442,12 @@ export default function Quadro({
   // que ninguém lhe deu um ponto — arrastar traz o ponteiro, clicar não —, e
   // essa conta é `Geo.lugarDoBlocoNovo`, pura e testada.
   //
+  // E É ELA QUE CASCATEIA, desde que o empilhamento foi medido: dois blocos
+  // criados por clique nasciam a 24 pixels um do outro, com 190 de largura, e o
+  // de cima cobria o de baixo. O porquê da forma escolhida — três linhas e
+  // depois outra coluna — está escrito lá, junto da medição; aqui não mora
+  // decisão de lugar nenhuma, e é isso que mantém a conta com teste.
+  //
   // `sobreSeta` é SEMPRE `null` aqui, e é decisão, não esquecimento: partir uma
   // ligação em duas é o significado de soltar EM CIMA de uma seta, e um clique
   // na paleta não mira coisa nenhuma. Se o centro da tela por acaso calhasse
@@ -462,10 +468,14 @@ export default function Quadro({
         x: r.left + r.width / 2,
         y: r.top + r.height / 2,
       });
-      const lugar = Geo.lugarDoBlocoNovo(centro, passos);
+      // AS MEDIDAS ENTRAM NA CONTA, e não são enfeite: é com a altura MEDIDA
+      // de cada bloco que já está na tela que a cascata sabe de onde desviar —
+      // um menu alto ocupa mais linha do que a `ALTURA_SUPOSTA` faria supor. São
+      // as MESMAS que as setas já usam, e não uma segunda leitura.
+      const lugar = Geo.lugarDoBlocoNovo(centro, passos, medidas, identidades);
       inserir(chave, lugar.x, lugar.y, null);
     },
-    [instancia, passos, inserir]
+    [instancia, passos, medidas, identidades, inserir]
   );
 
   // PÔR UM BLOCO QUE JÁ EXISTE NO MEIO DE UMA SETA é soltá-lo SOBRE ELA, nunca

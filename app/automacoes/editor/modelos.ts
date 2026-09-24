@@ -803,11 +803,24 @@ export function indiceDaAlca(alcas: Alca[], quando: Quando): number {
 // Ela acrescenta `pos` e NADA MAIS. Em particular não semeia nem apaga a chave
 // `url`: o espalhamento copia o bloco como ele veio do banco, e é isso que
 // mantém a decisão sobre o bloco legado (ver `quadro.tsx`) sendo "não mexer".
-const LARGURA = 250;
-const ALTURA = 96;
+// O PASSO QUE SEPARA DOIS BLOCOS NO QUADRO — o vão que faz os dois serem
+// legíveis ao mesmo tempo, e não um pedaço de cada um.
+//
+// OS DOIS NÚMEROS SÃO MEDIDOS, e não escolhidos: o bloco tem 190 de largura
+// (`LARGURA_DO_BLOCO`, ./geometria, fixa em `no.tsx`), então 250 deixa 60 de vão
+// entre um e o seguinte; o mais alto que a paleta produz — o menu — mede 82 na
+// tela, e 96 o passa com folga.
+//
+// E ELE É EXPORTADO desde que a paleta passou a cascatear (`lugarDoBlocoNovo`,
+// ./geometria): eram os MESMOS dois números resolvendo a mesma pergunta em dois
+// arquivos. Enquanto forem um só, afinar o vão aqui afina o da cascata — e não
+// deixa uma das duas para trás, que é o defeito que esta base persegue.
+export const PASSO_ENTRE_BLOCOS = { x: 250, y: 96 };
 
 export function arranjoAutomatico(passos: Passo[]): Passo[] {
   return passos.map((p, i) =>
-    p.pos ? p : { ...p, pos: { x: 60 + i * LARGURA, y: 60 + i * ALTURA } }
+    p.pos
+      ? p
+      : { ...p, pos: { x: 60 + i * PASSO_ENTRE_BLOCOS.x, y: 60 + i * PASSO_ENTRE_BLOCOS.y } }
   );
 }

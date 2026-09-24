@@ -51,6 +51,59 @@ import {
 // O CATÁLOGO DE CAMPOS, pelo exemplo de resposta de cada um. Módulo puro (sem
 // `server-only`), como este arquivo precisa que seja.
 import { campoPorChave } from "@/lib/campos";
+// A DONA DA RESOLUÇÃO DE VARIÁVEIS NO EDITOR. Módulo puro, como o catálogo.
+import { previewVariables } from "@/lib/variables";
+
+// ---------------------------------------------------------------------------
+// AS VARIÁVEIS, NESTE ARQUIVO.
+//
+// O DEFEITO MEDIDO, montando uma automação de verdade: o dono escrevia
+// `Anotei: {{telefone}} - fim do teste.` e as DUAS prévias da mesma tela
+// discordavam. A do CAMPO (`MessageField`, app/automacoes/variable-picker.tsx)
+// dizia "Vai chegar assim: Anotei: (11) 99999-9999 - fim do teste."; a da
+// CONVERSA desenhava o balão com `{{telefone}}` cru. E o cabeçalho da conversa
+// promete, por escrito, "Como a lista fica para quem recebe, agora — antes de
+// salvar" (`quadro.tsx`): quem recebe lê o VALOR ou nada, porque
+// `renderVariables` (lib/variables.ts) nunca entrega `{{telefone}}` a ninguém.
+// Era a SEXTA tela desta funcionalidade a afirmar o contrário do que acontece.
+//
+// A RÉGUA É EMPRESTADA, E É O PONTO: quem resolve é `previewVariables`, a MESMA
+// função da prévia do campo. Um `replace` próprio aqui — com os exemplos do
+// catálogo — seria a segunda verdade sobre variável nesta base, e a divergência
+// que ele criaria é exatamente a que estamos consertando, uma casa abaixo.
+//
+// QUAIS CAMPOS, e a lista não é "o que a tela mostra": é `textosQueVaoParaOLead`
+// (lib/steps.ts), que é a lista que `processItem` (lib/queue-drain.ts) passa por
+// `renderVariables` — texto, rótulo do botão, rótulos do menu e as variações da
+// pública. `url` e `emoji` ficam de fora nos dois lados, e resolvê-los aqui faria
+// a prévia afirmar que `{{...}}` é variável num campo em que ela nunca foi.
+//
+// A RESOLUÇÃO VEM ANTES DOS PADRÕES DESTE ARQUIVO, e essa ordem é a do motor,
+// não uma preferência: `processItem` resolve e SÓ ENTÃO faz
+// `rotuloBotao || "Abrir link"` e exige `quick_reply_label` para montar a
+// pílula. Resolvendo depois, a prévia desenharia um botão escrito `{{123}}` que
+// a pessoa nunca recebe — e é por isso que ela não pode ser uma passada só, no
+// fim do laço, por cima das bolhas prontas.
+//
+// POR QUE ISTO NÃO É A MESMA COISA QUE `respostaDeExemplo` (abaixo), que foi a
+// pergunta feita a esta tarefa: as duas leem a MESMA fonte — `CAMPOS.exemplo`
+// (lib/campos.ts), uma por `VariableDef.sample` e a outra direto —, mas
+// respondem a perguntas diferentes, e o único lugar onde a fonte é comum já tem
+// dono. `previewVariables` responde COMO A MENSAGEM CHEGA a partir de um TEXTO;
+// `respostaDeExemplo` responde O QUE A PESSOA DIGITA a partir de um CAMPO. No
+// campo LIVRE elas têm de divergir: na mensagem o token vira a marca
+// `[resposta coletada]`, que é um lugar a preencher, e na bolha azul o lugar é
+// de uma FALA — uma marca entre colchetes não é fala nenhuma. Escrever
+// `respostaDeExemplo` como `previewVariables("{{" + campo + "}}")` quebraria as
+// duas pontas: poria a marca dentro da bolha, e um `campo` que não forma chave
+// (`""`, lixo do jsonb) nem casaria com o `TOKEN`, devolvendo `{{}}` literal.
+// Coisas diferentes, com a fonte comum já unificada onde ela é comum.
+//
+// E O LIMITE DECLARADO DE `previewVariables` ATRAVESSA INTACTO: ela devolve a
+// marca do campo livre para token que não vira variável do catálogo, e devolve o
+// MESMO QUE O ENVIO quando `formaDaChave` é `null`. Este arquivo não acrescenta
+// ramo nenhum a isso — ele chama a função e desenha o que ela devolver.
+// ---------------------------------------------------------------------------
 
 // O que a prévia desenha. Cada item é uma coisa na tela, na ordem em que ela
 // aparece na conversa.
@@ -815,6 +868,9 @@ export function roteiro(
         // diz que aquilo é ERRO é `conferirLista`, no painel, logo acima da
         // prévia; o que a prévia mostra é a consequência.
         const envio = envioDaDm(passo);
+        // COMO O TEXTO CHEGA, resolvido UMA VEZ para os quatro ramos abaixo. O
+        // motivo está em "AS VARIÁVEIS, NESTE ARQUIVO", no cabeçalho.
+        const texto = previewVariables(passo.texto);
         // O MENU. Balão, os botões, a parada, e o toque no botão do braço que
         // está sendo mostrado.
         //
@@ -839,11 +895,16 @@ export function roteiro(
           // é marcada: não houve toque. Quem diz o que houve, então, é a marca
           // que fecha a cena, no fim do laço.
           const escolhido = saida?.quando.tipo === "botao" ? saida.quando.botao : null;
-          itens.push({ tipo: "balao", texto: passo.texto, botao: null, link: false });
+          itens.push({ tipo: "balao", texto, botao: null, link: false });
           itens.push({
             tipo: "botoes",
             botoes: envio.botoes.map((b) => ({
-              rotulo: typeof b?.rotulo === "string" ? b.rotulo : "",
+              // RESOLVIDO AQUI, e não na pintura: `processItem`
+              // (lib/queue-drain.ts) resolve os rótulos do menu ANTES de
+              // parear e descartar, e é o rótulo RESOLVIDO que a pessoa lê na
+              // pílula. Quem desenha o "sem rótulo" é ./previa, lendo a string
+              // vazia que sobra — o mesmo desfecho do descarte lá.
+              rotulo: typeof b?.rotulo === "string" ? previewVariables(b.rotulo) : "",
               escolhido: escolhido !== null && b?.id === escolhido,
             })),
           });
@@ -858,14 +919,28 @@ export function roteiro(
             // conversa quando o botão é tocado, e um botão sem rótulo não entrega
             // texto nenhum.
             const tocado = envio.botoes.find((b) => b?.id === escolhido)?.rotulo;
-            if (typeof tocado === "string" && tocado) {
-              itens.push({ tipo: "resposta", texto: tocado });
+            // A CONFERÊNCIA DE VAZIO É DEPOIS DE RESOLVER, e é o que o motor
+            // faz: um rótulo que some ao resolver (`{{123}}`) é DESCARTADO por
+            // `botoesDaMensagem` (lib/steps.ts), e o botão não chega a existir
+            // — logo não há toque nele para desenhar.
+            const rotuloTocado = typeof tocado === "string" ? previewVariables(tocado) : "";
+            if (rotuloTocado) {
+              itens.push({ tipo: "resposta", texto: rotuloTocado });
             }
           }
           break;
         }
         if (envio.forma === "resposta_rapida") {
-          itens.push({ tipo: "balao", texto: passo.texto, botao: envio.rotulo, link: false });
+          // O RÓTULO QUE SOME AO RESOLVER NÃO VIRA PÍLULA, e a guarda é a mesma
+          // que o `pedir_follow` já tinha, agora alcançável por este ramo:
+          // `processItem` (lib/queue-drain.ts) exige `quick_reply_label` DEPOIS
+          // de `renderVariables`, então com o rótulo vazio a mensagem sai como
+          // texto puro e o fluxo para num bloco sem nada para tocar. A prévia
+          // mostra isso em vez de desenhar um botão `{{123}}` que ninguém
+          // recebe. `envio.rotulo` é não-vazio por construção (`envioDaDm`,
+          // lib/steps.ts), então este caso só nasce DA resolução.
+          const rotulo = previewVariables(envio.rotulo);
+          itens.push({ tipo: "balao", texto, botao: rotulo, link: false });
           itens.push({ tipo: "parada", motivo: "toque" });
           // O TOQUE SÓ APARECE SE A CONVERSA SAIU POR ELE, e é a mesma guarda do
           // menu logo acima — este ramo é que tinha ficado para trás. A bolha da
@@ -880,8 +955,8 @@ export function roteiro(
           // SEM SAÍDA NENHUMA a bolha FICA, e é o certo: no último bloco do
           // caminho não há `senao` a contradizer, e o toque é o gesto que a
           // parada logo acima está pedindo.
-          if (saida?.quando.tipo !== "senao") {
-            itens.push({ tipo: "resposta", texto: envio.rotulo });
+          if (rotulo && saida?.quando.tipo !== "senao") {
+            itens.push({ tipo: "resposta", texto: rotulo });
           }
           break;
         }
@@ -894,13 +969,17 @@ export function roteiro(
         if (envio.forma === "link") {
           itens.push({
             tipo: "balao",
-            texto: passo.texto,
-            botao: envio.rotulo || LINK_PADRAO,
+            texto,
+            // O PADRÃO VEM DEPOIS DA RESOLUÇÃO, na ordem de `processItem`
+            // (lib/queue-drain.ts): ele resolve e só então faz
+            // `rotuloBotao || "Abrir link"`. Um rótulo que some ao resolver
+            // sai como "Abrir link" na mensagem, e é isso que a prévia mostra.
+            botao: previewVariables(envio.rotulo ?? "") || LINK_PADRAO,
             link: true,
           });
           break;
         }
-        itens.push({ tipo: "balao", texto: passo.texto, botao: null, link: false });
+        itens.push({ tipo: "balao", texto, botao: null, link: false });
         break;
       }
 
@@ -931,8 +1010,13 @@ export function roteiro(
         // E não há `resposta` nenhuma nesse caso: a bolha da direita é o TOQUE
         // da pessoa, e não há botão em que tocar. `conferirLista` (lib/steps.ts)
         // acusa ERRO nesse bloco, logo acima da prévia, no painel.
-        const rotulo = passo.botao_label || null;
-        itens.push({ tipo: "balao", texto: passo.texto, botao: rotulo, link: false });
+        const rotulo = previewVariables(passo.botao_label ?? "") || null;
+        itens.push({
+          tipo: "balao",
+          texto: previewVariables(passo.texto),
+          botao: rotulo,
+          link: false,
+        });
         if (esperaResposta(passo)) {
           itens.push({ tipo: "parada", motivo: "follow" });
           if (rotulo) itens.push({ tipo: "resposta", texto: rotulo });
@@ -960,7 +1044,12 @@ export function roteiro(
       // deixou de nomear o e-mail. O parágrafo que estava aqui já previa esta
       // troca, e ela veio com os cinco atalhos da paleta.
       case "pedir_dado":
-        itens.push({ tipo: "balao", texto: passo.texto, botao: null, link: false });
+        itens.push({
+          tipo: "balao",
+          texto: previewVariables(passo.texto),
+          botao: null,
+          link: false,
+        });
         if (esperaResposta(passo)) {
           itens.push({ tipo: "parada", motivo: "dado", campo: passo.campo });
           itens.push({ tipo: "resposta", texto: respostaDeExemplo(passo.campo) });
@@ -986,7 +1075,14 @@ export function roteiro(
         publicasVistas++;
         itens.push({
           tipo: "publica",
-          texto: passo.textos.find((t) => typeof t === "string" && t.trim()) ?? "",
+          // A ESCOLHA DA VARIAÇÃO É PELO TEXTO CRU e a exibição é pelo
+          // resolvido, porque são duas perguntas do motor em tempos
+          // diferentes: `enfileirarPasso` (lib/engine.ts) sorteia e desiste com
+          // `!texto?.trim()` ANTES de enfileirar — sobre o texto guardado —, e
+          // só `processItem` (lib/queue-drain.ts) resolve, depois. Contar as
+          // vazias pelo resolvido faria `{{123}}` deixar de ser variação em
+          // branco aqui e continuar sendo publicada lá.
+          texto: previewVariables(passo.textos.find((t) => typeof t === "string" && t.trim()) ?? ""),
           variacoes: passo.textos.length,
           vazias: passo.textos.filter((t) => typeof t !== "string" || !t.trim()).length,
           situacao:

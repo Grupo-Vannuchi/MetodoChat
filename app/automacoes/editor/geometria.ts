@@ -15,7 +15,15 @@
 // índice `i`. A conta em si — três trechos de `smoothstep`, a menor distância
 // aos três — é a mesma; o que ela recebe é que deixou de ser deduzido da ordem.
 import type { Ligacao, Passo } from "@/lib/steps";
-import { alcasDoQuadro, indiceDaAlca, podeEntrarNaSeta } from "./modelos";
+// `PASSO_ENTRE_BLOCOS` É O VÃO ENTRE DOIS BLOCOS, e ele mora em `./modelos`
+// junto de quem já o usava (`arranjoAutomatico`): era o mesmo par de números
+// respondendo a mesma pergunta em dois arquivos.
+import {
+  alcasDoQuadro,
+  indiceDaAlca,
+  podeEntrarNaSeta,
+  PASSO_ENTRE_BLOCOS,
+} from "./modelos";
 
 export type Ponto = { x: number; y: number };
 
@@ -291,6 +299,45 @@ export function alvoDaPaleta(
   return setaSobOPonto(ponto, passos, medidas, identidades, ligacoes, []);
 }
 
+// DOIS BLOCOS SE COBREM NA TELA? — a régua de "dá para ler os dois".
+//
+// É RETÂNGULO CONTRA RETÂNGULO, e não distância entre dois pontos: o bloco tem
+// 190 de largura (`LARGURA_DO_BLOCO`, fixa em `no.tsx`) e altura variável, então
+// dois cantos a 34 de distância reta podem estar um ENTERRADO no outro. O teste
+// é o clássico de dois retângulos: eles se cobrem quando se cruzam nos DOIS
+// eixos ao mesmo tempo.
+//
+// A ALTURA ENTRA POR PARÂMETRO porque ela tem duas origens e a função não pode
+// escolher entre elas: para o bloco que já está na tela ela vem MEDIDA pelo
+// React Flow, e para o que ainda vai nascer não existe medida nenhuma — é
+// `ALTURA_SUPOSTA`. A largura não precisa disso: ela é a mesma para todo bloco.
+//
+// ENCOSTAR NÃO É COBRIR (`<`, e não `<=`): dois blocos com a borda de um na
+// borda do outro são dois blocos legíveis, colados. É o desfecho que a cascata
+// abaixo produz de propósito quando o quadro está cheio.
+export function seCobrem(a: Ponto, alturaA: number, b: Ponto, alturaB: number): boolean {
+  return (
+    a.x < b.x + LARGURA_DO_BLOCO &&
+    b.x < a.x + LARGURA_DO_BLOCO &&
+    a.y < b.y + alturaB &&
+    b.y < a.y + alturaA
+  );
+}
+
+// QUANTAS LINHAS A CASCATA DESCE ANTES DE COMEÇAR OUTRA COLUNA.
+//
+// TRÊS, E O NÚMERO É A CONTA DE CABER NA TELA: seis blocos — o fluxo que o dono
+// montou quando mediu o defeito — ocupam duas colunas de três, ou seja 500 de
+// largura (`PASSO_ENTRE_BLOCOS.x` vezes 2) por 288 de altura a partir do canto
+// do primeiro. Uma coluna reta poria o sexto 480 abaixo do primeiro e uma
+// fileira reta o poria 1250 à direita: nos dois casos os últimos nascem fora do
+// que a pessoa está olhando, que é o MESMO sintoma do empilhamento — clicar e
+// não ver nada acontecer.
+//
+// NÃO É UM TETO: a cascata não para na terceira coluna nem na trigésima. Três é
+// só onde ela dobra.
+export const LINHAS_DA_CASCATA = 3;
+
 // ONDE CAI O BLOCO CRIADO POR CLIQUE NA PALETA — a conta que o arrasto não
 // precisa fazer, porque lá o ponteiro já diz o lugar.
 //
@@ -298,7 +345,9 @@ export function alvoDaPaleta(
 // escolher é decisão: por isso ela mora aqui, no módulo puro, e não solta dentro
 // do manipulador de clique. `quadro.tsx` entra só com o que depende do React
 // Flow — o retângulo da área visível e o `screenToFlowPosition` que traduz o
-// centro dele para coordenada do quadro. Daí para cá é aritmética.
+// centro dele para coordenada do quadro. Daí para cá é aritmética, e é por isso
+// que o ZOOM e a ROLAGEM não aparecem aqui: os dois já foram resolvidos na
+// tradução, e o que chega é um ponto do quadro como qualquer outro.
 //
 // O CENTRO É DA ÁREA VISÍVEL, e não do conteúdo: quem clica está olhando para
 // um pedaço do quadro, e o bloco tem de nascer onde os olhos já estão. Nascer no
@@ -310,61 +359,84 @@ export function alvoDaPaleta(
 // significa para o React Flow e para `pontasDaSeta` aqui em cima. Por isso a
 // metade da largura e da altura sai do centro: sem esse desconto o bloco fica
 // com o canto no meio da tela, deslocado para baixo e para a direita do lugar
-// para onde a pessoa está olhando. A altura usada é `ALTURA_SUPOSTA` e não a
-// medida — o bloco ainda não existe, então não há medida; o erro é de poucos
-// pixels e some no primeiro arrasto.
-export const DESVIO_DO_EMPILHAMENTO = 24;
-
-// O DESVIO EXISTE PORQUE O CENTRO É SEMPRE O MESMO PONTO. Dois cliques seguidos
-// põem o segundo bloco exatamente por cima do primeiro, que o esconde inteiro —
-// e a pessoa vê a mesma tela de antes do clique. Ou seja: sem o desvio, o
-// conserto reproduz o sintoma que ele existe para tirar, a partir do segundo
-// clique.
+// para onde a pessoa está olhando. A altura usada no desconto é `ALTURA_SUPOSTA`
+// e não a medida — o bloco ainda não existe, então não há medida; o erro é de
+// poucos pixels e some no primeiro arrasto.
 //
-// Empilhar em diagonal é o que faz a pilha ser LEGÍVEL como pilha: com blocos de
-// 190 de largura, 24 para o lado e 24 para baixo deixa aparecer a borda e o topo
-// de cada um dos de baixo, que é como uma pilha de papel diz quantas folhas tem.
+// ---------------------------------------------------------------------------
+// O QUE MUDOU, E POR QUÊ — o desvio de 24 na diagonal saiu daqui.
 //
-// A ocupação é conferida em CHEBYSHEV (o maior dos dois afastamentos), e não em
-// distância reta, porque quem se cobre são retângulos e não pontos: dois blocos
-// afastados 24 na diagonal têm distância reta 34 — passariam por um raio de 24 e
-// continuariam empilhados na tela.
+// ELE EMPILHAVA DE PROPÓSITO, e o comentário que estava neste lugar dizia isso
+// por extenso: "o lugar devolvido pode SOBREPOR PARCIALMENTE um bloco que já
+// estava ali, e sobrepõe mesmo", com o argumento de que o que precisa ser
+// impossível é só a superposição EXATA, a que não deixa rastro na tela.
 //
-// O QUE ISTO NÃO FAZ, dito com a medida certa: não é desvio de colisão. O bloco
-// tem 190 de largura, e o teste recusa apenas 24 — ou seja, o lugar devolvido
-// pode SOBREPOR PARCIALMENTE um bloco que já estava ali, e sobrepõe mesmo
-// (medido na tela, com o quadro de teste). Isso é de propósito. O que precisa
-// ser impossível é a superposição EXATA, que é a que não deixa rastro nenhum na
-// tela; um bloco meio por cima do outro aparece, tem borda visível e se arrasta
-// para o lado. Desviar de toda colisão exigiria a altura MEDIDA de cada bloco,
-// que não existe para o que ainda vai nascer, e escolheria posição por conta
-// própria — arrumar o quadro é gesto de quem monta, não deste arquivo.
+// O ARGUMENTO NÃO SOBREVIVEU À MEDIÇÃO, feita montando uma automação de verdade
+// na produção: dois blocos criados pela paleta gravaram `{x:-200, y:72}` e
+// `{x:-176, y:96}` — 24 na diagonal, com 190 de largura. O de cima cobre quase
+// todo o de baixo; com três o quadro deixa de se ler e com seis o dono arrasta
+// um por um antes de conseguir trabalhar. "Aparece uma borda" é rastro
+// suficiente para provar que o clique funcionou, e NÃO é o suficiente para
+// trabalhar — e é para trabalhar que o quadro existe.
 //
-// O LIMITE DO LAÇO é `2 * passos.length + 1` porque um bloco parado no meio do
-// caminho pode barrar DUAS posições consecutivas da diagonal (elas distam 24, e
-// o teste recusa até 24 para cada lado). Com o dobro de tentativas por bloco,
-// alguma posição sobra sempre; o `return` de fora do laço é a saída que o
-// TypeScript exige e que a aritmética não alcança.
-export function lugarDoBlocoNovo(centro: Ponto, passos: Passo[]): Ponto {
+// A OUTRA METADE DAQUELE ARGUMENTO ERA VERDADE E DEIXOU DE SER: "desviar de toda
+// colisão exigiria a altura MEDIDA de cada bloco, que não existe para o que
+// ainda vai nascer". Ela não existe para o que vai NASCER — continua sendo
+// `ALTURA_SUPOSTA` —, mas existe para o que já está lá: o React Flow mede cada
+// bloco assim que o desenha, e `quadro.tsx` já guardava essas medidas para as
+// setas. Elas passaram a entrar aqui, e é com elas que o desvio responde pelo
+// bloco ALTO — um menu de muitos botões passa de 200, e com a altura suposta o
+// lugar "livre" caía dentro dele.
+//
+// O QUE ISTO NÃO FAZ, dito com a medida certa: não arruma o quadro. A cascata
+// não move nada, não alinha nada e não reagrupa nada — ela só não escreve por
+// cima. Arrumar é gesto de quem monta, e o bloco que o dono arrastou para um
+// lugar é um bloco que ele decidiu; a cascata desvia dele pela mesma régua com
+// que desvia de qualquer outro (`seCobrem`, acima).
+//
+// E DOIS BLOCOS DA MESMA COLUNA FICAM ALINHADOS NA VERTICAL, o que
+// `arranjoAutomatico` (./modelos) evita de propósito para a seta curva não
+// passar por dentro do bloco de baixo. Aqui não é o mesmo caso e por isso não é
+// a mesma escolha: o bloco criado por clique nasce SOLTO, sem ligação nenhuma
+// (`inserirNoCentro` passa `sobreSeta: null`), e quando o dono o ligar depois a
+// seta sai da borda direita para a borda esquerda do de baixo — ela contorna,
+// não atravessa. Fica anotado em vez de virar premissa.
+// ---------------------------------------------------------------------------
+export function lugarDoBlocoNovo(
+  centro: Ponto,
+  passos: Passo[],
+  medidas: Medidas,
+  identidades: string[]
+): Ponto {
   const x0 = Math.round(centro.x - LARGURA_DO_BLOCO / 2);
-  // VISTO E MEDIDO, NÃO CONSERTADO: o menu (`dm_opcoes`) é o bloco mais ALTO que
-  // a paleta produz — 82px medidos na tela, contra 55 a 71 dos outros —, e
-  // `ALTURA_SUPOSTA` é 48. Quanto mais os menus crescem (um botão a mais é uma
-  // linha a mais), mais o centro sai errado e mais frequente fica a sobreposição
-  // parcial que o comentário acima aceita de propósito. Continua aceitável; quem
-  // voltar aqui para mexer nisso já sabe que o caso foi olhado.
   const y0 = Math.round(centro.y - ALTURA_SUPOSTA / 2);
-  const limite = 2 * passos.length + 1;
-  for (let k = 0; k < limite; k++) {
-    const x = x0 + k * DESVIO_DO_EMPILHAMENTO;
-    const y = y0 + k * DESVIO_DO_EMPILHAMENTO;
-    const ocupado = passos.some(
-      (p) =>
-        p.pos !== undefined &&
-        Math.abs(p.pos.x - x) < DESVIO_DO_EMPILHAMENTO &&
-        Math.abs(p.pos.y - y) < DESVIO_DO_EMPILHAMENTO
-    );
-    if (!ocupado) return { x, y };
+
+  // O QUE JÁ OCUPA LUGAR. Bloco sem `pos` fica de fora, e a ausência é o
+  // significado: toda automação anterior à Fase 1b é assim, e um bloco que não
+  // está em lugar nenhum não pode reivindicar o centro do quadro.
+  const ocupados = passos.flatMap((p, i) =>
+    p.pos ? [{ canto: p.pos, altura: medidas[identidades[i]]?.height ?? ALTURA_SUPOSTA }] : []
+  );
+
+  // O LIMITE É PROVADO, e não um palpite folgado. Cada bloco parado pode barrar
+  // no máximo DUAS colunas: as colunas distam 250 e o cruzamento em x exige
+  // menos de 190 de afastamento, então um mesmo bloco não alcança três delas
+  // (precisaria de menos de 190 para duas colunas a 500 de distância). Com
+  // `passos.length` blocos, no máximo `2 * passos.length` colunas ficam
+  // barradas — e a coluna seguinte tem as três linhas livres.
+  const colunas = 2 * passos.length + 1;
+  for (let k = 0; k < colunas * LINHAS_DA_CASCATA; k++) {
+    const x = x0 + Math.floor(k / LINHAS_DA_CASCATA) * PASSO_ENTRE_BLOCOS.x;
+    const y = y0 + (k % LINHAS_DA_CASCATA) * PASSO_ENTRE_BLOCOS.y;
+    const lugar = { x, y };
+    if (!ocupados.some((o) => seCobrem(lugar, ALTURA_SUPOSTA, o.canto, o.altura))) return lugar;
   }
-  return { x: x0 + limite * DESVIO_DO_EMPILHAMENTO, y: y0 + limite * DESVIO_DO_EMPILHAMENTO };
+
+  // A SAÍDA QUE O TYPESCRIPT EXIGE E QUE A ARITMÉTICA ACIMA NÃO ALCANÇA — e ela
+  // é LIVRE POR CONSTRUÇÃO, e não livre por sorte: abaixo do fundo do bloco mais
+  // baixo, nenhum retângulo cruza em y, seja qual for o x. A versão anterior
+  // devolvia aqui "a última posição tentada", que podia estar ocupada e acertava
+  // por coincidência — o teste daquela época media isso por extenso.
+  const fundo = ocupados.reduce((maior, o) => Math.max(maior, o.canto.y + o.altura), y0);
+  return { x: x0, y: Math.round(fundo) };
 }
