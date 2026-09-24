@@ -56,7 +56,12 @@ import {
   type Ligacao,
 } from "../lib/steps";
 import type { EnvioDaDm, Problema } from "../lib/steps";
-import { CAMPOS, fraseDaChaveQueColide, fraseDaChaveSemLetra } from "../lib/campos";
+import {
+  CAMPOS,
+  fraseDaChaveQueColide,
+  fraseDaChaveSemLetra,
+  fraseDoTokenComEspaco,
+} from "../lib/campos";
 
 // A CORRENTE que a lista sempre teve na prática: bloco 0 → bloco 1 → bloco 2 …,
 // cada seta `{tipo:"sempre"}`. É exatamente o que `scripts/ligar-passos-existentes.mjs`
@@ -6062,5 +6067,118 @@ describe("resumoDoErroDaMeta", () => {
 
   it("texto solto também é lido", () => {
     expect(resumoDoErroDaMeta("caiu a rede").mensagem).toBe("caiu a rede");
+  });
+});
+
+// -----------------------------------------------------------------------------
+// O TOKEN DIGITADO COM ESPAÇO TRAVA O SALVAR — e NÃO tira o bloco do ar.
+// -----------------------------------------------------------------------------
+//
+// O DEFEITO: `{{Qual sua Cidade}}` não casa com `TOKEN` (lib/variables.ts), e o
+// que não casa sai LITERALMENTE para o lead. O nome que o marketing digita no
+// campo é exatamente esse — com espaços e maiúsculas —, então quem escrever o
+// token à mão do jeito que nomeou o campo erra.
+//
+// A RESTRIÇÃO DE DESENHO É A LIÇÃO MAIS CARA DESTA FUNCIONALIDADE, e ela decide
+// ONDE a recusa mora: se `conferir` recusasse o bloco, `interpretar` o IGNORARIA
+// — a mensagem inteira deixaria de ser enviada, EM SILÊNCIO, e o fluxo entregaria
+// o que vem depois. Foi esse mecanismo que criou a trava de sequência desta
+// funcionalidade. Mandar um `{{...}}` cru é feio; sumir com a mensagem é muito
+// pior. Por isso a regra mora em `conferirLista`, exatamente como a da chave
+// livre sem letra, e por isso o segundo caso daqui é obrigatório.
+describe("conferirLista — o token digitado com espaço", () => {
+  const TORTO = { id: "b_tor001", tipo: "dm", texto: "De onde você fala? {{Qual sua Cidade}}" };
+  const frase = fraseDoTokenComEspaco({ bruto: "Qual sua Cidade", forma: "qual_sua_cidade" });
+
+  const travas = (ps: unknown, g = "dm") =>
+    conferirLista(ps, g, []).filter((p) => p.nivel === "erro" && p.quando === "salvar");
+  const doToken = (ps: unknown, g = "dm") =>
+    conferirLista(ps, g, []).filter((p) => p.mensagem === frase);
+
+  it("ERRO DE SALVAR, apontando o bloco e dizendo a forma certa", () => {
+    const t = travas([TORTO]);
+    expect(t).toHaveLength(1);
+    expect(t[0].indice).toBe(0);
+    expect(t[0].mensagem).toBe(frase);
+    expect(t[0].mensagem).toContain("{{qual_sua_cidade}}");
+  });
+
+  it("E O BLOCO CONTINUA SENDO ENVIADO — a recusa é do salvar, nunca do envio", () => {
+    // É A BORDA QUE IMPORTA MAIS NESTA TAREFA. `conferir` tem de continuar
+    // aceitando o bloco e `interpretar` tem de continuar o enfileirando: com a
+    // regra em `conferir`, a mensagem sumiria da conversa sem nada acusando, e
+    // o fluxo entregaria o que vem depois dela.
+    expect(conferir(TORTO).passo).toBeTruthy();
+    expect(conferir(TORTO).motivo).toBeUndefined();
+
+    const r = interpretar({ steps: [TORTO], ligacoes: [] }, TORTO.id);
+    expect(r.enfileirar).toHaveLength(1);
+    expect(r.enfileirar[0].indice).toBe(0);
+    expect(r.ignorados).toEqual([]);
+  });
+
+  it("a automação JÁ GRAVADA com o token torto continua andando", () => {
+    // O outro lado da mesma borda, com o bloco no meio do fluxo: o que vem
+    // depois dele não pode passar na frente por causa desta regra.
+    const antes = { id: "b_ant002", tipo: "dm", texto: "Oi!" };
+    const depois = { id: "b_dep003", tipo: "dm", texto: "Tchau!" };
+    const passos = [antes, TORTO, depois];
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, antes.id);
+    expect(r.enfileirar.map((e) => e.indice)).toEqual([0, 1, 2]);
+  });
+
+  it("a mensagem certa não trava nada — nem a que usa o substituto", () => {
+    // A BORDA DE BAIXO, na função que trava o salvar: o token que funciona e a
+    // sintaxe de reserva (`{{cidade|algum lugar}}`) têm de atravessar inteiros.
+    const bom = { id: "b_bom004", tipo: "dm", texto: "Oi {{first_name}}! De {{cidade|algum lugar}}?" };
+    expect(conferirLista([bom], "dm", [])).toEqual([]);
+  });
+
+  it("prosa entre chaves não trava o salvar", () => {
+    // Recusar todo `{{...}}` que não vira variável engoliria texto que o dono
+    // escreveu de propósito. A régua é estreita, e este caso é quem a prende.
+    const prosa = { id: "b_pro005", tipo: "dm", texto: "ele disse {{isto aqui, e mais aquilo}}" };
+    expect(conferirLista([prosa], "dm", [])).toEqual([]);
+  });
+
+  it("vale para TODO texto que chega ao lead, e não só para a mensagem", () => {
+    // `renderVariables` é chamada no texto, no rótulo do botão, no rótulo da
+    // resposta rápida e nos rótulos do menu (lib/queue-drain.ts). Um token
+    // torto em qualquer um deles sai cru do mesmo jeito, e cobrir só um seria a
+    // metade de conserto que esta funcionalidade já pagou caro.
+    const noRotulo = { id: "b_rot006", tipo: "dm", texto: "Oi!", botao_label: "{{Qual sua Cidade}}" };
+    expect(doToken([noRotulo])).toHaveLength(1);
+
+    const noPedido = {
+      id: "b_ped007", tipo: "pedir_dado", campo: "telefone",
+      texto: "Seu zap, {{Qual sua Cidade}}?",
+    };
+    expect(doToken([noPedido])).toHaveLength(1);
+
+    const noFollow = {
+      id: "b_fol008", tipo: "pedir_follow", texto: "Segue lá {{Qual sua Cidade}}", botao_label: "Já sigo",
+    };
+    expect(doToken([noFollow])).toHaveLength(1);
+
+    const naPublica = {
+      id: "b_pub009", tipo: "resposta_publica", textos: ["Valeu!", "Oi {{Qual sua Cidade}}"],
+    };
+    expect(doToken([naPublica], "comment")).toHaveLength(1);
+
+    const noMenu = {
+      id: "b_men010", tipo: "dm", texto: "Escolha:",
+      botoes: [{ id: "op_a1", rotulo: "{{Qual sua Cidade}}" }, { id: "op_b2", rotulo: "Outra" }],
+    };
+    expect(doToken([noMenu])).toHaveLength(1);
+  });
+
+  it("UMA frase por bloco, mesmo com dois tokens tortos", () => {
+    // Cinco linhas vermelhas sobre o mesmo nó só escondem qual é o bloco
+    // culpado — a mesma doutrina que `botoesCrus` escreve para o menu.
+    const dois = {
+      id: "b_doi011", tipo: "dm", texto: "{{Qual sua Cidade}} e {{Nome do Filho}}",
+      botao_label: "{{Mais um}}",
+    };
+    expect(travas([dois])).toHaveLength(1);
   });
 });

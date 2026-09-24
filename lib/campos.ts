@@ -633,3 +633,109 @@ export function fraseDaChaveSemLetra(): string {
     "variável. Tente algo como “cidade”."
   );
 }
+
+// -----------------------------------------------------------------------------
+// O TOKEN DIGITADO COM ESPAÇO — `{{Qual sua Cidade}}`.
+//
+// O DEFEITO, MEDIDO: `TOKEN` (lib/variables.ts) casa `{{qual_sua_cidade}}` e NÃO
+// casa `{{Qual sua Cidade}}`. O que não casa não é resolvido NEM apagado: sai
+// LITERALMENTE na mensagem que o lead recebe, chaves e tudo. E isso não é erro
+// exótico — o nome que o marketing digita no campo É "Qual sua Cidade", com
+// espaços e maiúsculas. O botão de variáveis insere a forma certa, mas quem
+// digitar à mão do jeito que nomeou o campo erra.
+//
+// ALARGAR O `TOKEN` ESTÁ DESCARTADO, e o motivo está escrito nele: um token que
+// aceitasse espaço engoliria qualquer prosa entre chaves, e trocaria "sai cru"
+// por "some em silêncio", que é pior. O conserto é recusar no momento de SALVAR,
+// dizendo qual é a forma certa — e quem faz isso é `conferirLista` (lib/steps.ts),
+// nunca `conferir`, porque `conferir` recusando faria `interpretar` IGNORAR o
+// bloco e a mensagem inteira sumiria da conversa.
+//
+// A REGRA É ESTREITA, E ESTA É ELA POR EXTENSO. Recusar todo `{{...}}` que não
+// vira variável engoliria prosa legítima entre chaves, então a mira é o que é
+// CLARAMENTE um token mal digitado. São três condições, e cada uma tem um
+// motivo próprio:
+//
+//   TEM ESPAÇO DENTRO — sem espaço o token ou já funciona (`{{cidade}}`,
+//     `{{ cidade }}`, que `TOKEN` tolera) ou é uma forma para a qual não há
+//     conserto a sugerir (`{{cidade-natal}}`, `{{🔥}}`). O espaço é a marca do
+//     nome DIGITADO como o campo foi nomeado.
+//   SÓ LETRA, DÍGITO, UNDERSCORE E ESPAÇO — pontuação dentro das chaves é
+//     escrita de gente, não nome de campo. É esta condição que deixa
+//     `{{isto aqui, e mais aquilo}}` passar, e é ela que mantém a régua estreita.
+//   VIRA MESMO UMA VARIÁVEL com os espaços trocados por underscore — ou seja,
+//     `formaDaChave` não devolve `null`. Sem ela, `{{123 456}}` seria recusado
+//     com uma frase mandando escrever `{{123_456}}`, que o sistema também não
+//     aceita: a recusa ensinaria a coisa errada.
+//
+// O QUE FICA DE FORA, DITO PARA NINGUÉM PROMETER DEMAIS: `{{🔥}}`, `{{123}}` e
+// `{{cidade-natal}}` continuam saindo crus. Não é esquecimento — para nenhum
+// deles existe uma forma certa a sugerir, e uma recusa sem saída é a recusa que
+// esta base já decidiu não escrever (o porquê está em `fraseDaChaveQueColide`).
+//
+// A PARTE DA CHAVE É SÓ O QUE VEM ANTES DO `|`, e isso não é detalhe: a sintaxe
+// de reserva `{{cidade|algum lugar}}` EXISTE, tem caso, e o substituto dela é
+// texto de gente — cheio de espaço. Olhar o conteúdo inteiro entre chaves
+// recusaria justamente a forma que o seletor de variáveis promete ao dono.
+//
+// A NORMALIZAÇÃO NÃO É REESCRITA AQUI: a forma certa sai de `formaDaChave`, a
+// MESMA função que produz a chave gravada. É por isso que esta peça mora neste
+// arquivo e não em lib/variables.ts — e mora aqui também porque lib/steps.ts, que
+// a consome, já importa este arquivo com extensão (ele é carregado direto pelo
+// node em `scripts/varredura-portao.mjs`) e não importa aquele.
+// -----------------------------------------------------------------------------
+
+export type TokenComEspaco = {
+  // O que o dono escreveu entre as chaves, como ele escreveu — é o que ele
+  // procura no texto para consertar.
+  bruto: string;
+  // A forma que funciona, pela régua da gravação.
+  forma: string;
+};
+
+// O CONTEÚDO DE CADA `{{...}}`. `[^{}]*` impede a varredura de atravessar um
+// par de chaves e juntar dois tokens num só.
+//
+// `matchAll` NÃO MEXE NO `lastIndex` desta constante (ele trabalha sobre uma
+// cópia), então a regex com `g` pode viver no módulo como as outras desta base.
+const CHAVES_NO_TEXTO = /\{\{([^{}]*)\}\}/g;
+
+// Letra (com acento), dígito, underscore e ESPAÇO — nada mais. É a segunda das
+// três condições, e a que separa nome de campo de prosa.
+const SO_NOME_E_ESPACO = /^[\p{L}\p{N}_ ]+$/u;
+
+// Devolve o PRIMEIRO token mal digitado do texto, ou `null`.
+//
+// O PRIMEIRO, E NÃO TODOS: quem chama escreve UMA frase por bloco (a mesma
+// doutrina de `botoesCrus`, lib/steps.ts), porque cinco linhas vermelhas sobre o
+// mesmo nó só escondem qual é o bloco culpado. Consertado o primeiro, o próximo
+// aparece.
+export function tokenComEspaco(texto: string): TokenComEspaco | null {
+  if (!texto || !texto.includes("{{")) return null;
+  for (const achado of texto.matchAll(CHAVES_NO_TEXTO)) {
+    const bruto = achado[1].split("|")[0].trim();
+    if (!bruto.includes(" ")) continue;
+    if (!SO_NOME_E_ESPACO.test(bruto)) continue;
+    const forma = formaDaChave(bruto);
+    if (forma === null) continue;
+    return { bruto, forma };
+  }
+  return null;
+}
+
+// A RECUSA QUE DIZ A FORMA CERTA, e não só que está errado.
+//
+// É a mesma doutrina das outras duas frases deste arquivo: uma recusa que só diz
+// "não pode" deixa o dono sem saber o que fazer. Aqui a saída é exata — ele
+// digitou "Qual sua Cidade", e o que funciona é `{{qual_sua_cidade}}` —, e ela
+// não pode ser inventada na tela: sai da mesma `formaDaChave` que grava.
+//
+// ELA DIZ TAMBÉM O QUE ACONTECE SE FICAR COMO ESTÁ, porque é isso que faz o dono
+// querer consertar: o token cru não some, ele SAI ESCRITO na mensagem da pessoa.
+export function fraseDoTokenComEspaco(t: TokenComEspaco): string {
+  return (
+    `Neste bloco, {{${t.bruto}}} não vira variável: o nome entre chaves não pode ter espaço. ` +
+    `Escreva {{${t.forma}}} — do jeito que está, essas chaves saem escritas na mensagem que a ` +
+    "pessoa recebe."
+  );
+}
