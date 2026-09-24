@@ -43,34 +43,83 @@
 -- se sobrar alguma coisa DEPOIS de a migração estar registrada.
 --
 -- -----------------------------------------------------------------------------
--- POR QUE O `em` É O PRIMEIRO CONTATO, E NÃO UMA DATA RECENTE
+-- O `em` É O INSTANTE DA MIGRAÇÃO, E ISSO É DECISÃO DO DONO (24/09/2026)
 --
--- `campoEstaFresco` (lib/campos.ts) decide se a automação PULA o pedido, e ela
--- compara o `em` com o relógio de quem lê. Não existe data de coleta guardada
--- para estes e-mails: o dado sempre viveu como coluna solta, sem quando nem
--- quem. `first_contact_at` é o que se sabe — é o limite superior honesto, o
--- e-mail não pode ter sido coletado antes de a pessoa falar a primeira vez.
+-- ESTE BLOCO DIZIA O CONTRÁRIO, E A CORREÇÃO FICA ESCRITA porque comentário que
+-- defende o oposto do código é o defeito que esta base persegue em toda parte.
 --
--- Chutar uma data recente seria pior do que não saber: faria a recência PULAR o
--- pedido justamente para quem talvez precise ATUALIZAR o e-mail. A consequência
--- aceita, por escrito, é a outra ponta — quem tem e-mail antigo vai ser
--- perguntado de novo. É o mesmo lado seguro que `campoEstaFresco` já escolhe
--- para data ilegível e para data no futuro: perguntar de novo, nunca pular.
+-- ELE AFIRMAVA: que o `em` tinha de ser `first_contact_at`, "o limite superior
+-- honesto", porque o e-mail não pode ter sido coletado antes de a pessoa falar
+-- a primeira vez; e que "chutar uma data recente seria pior do que não saber",
+-- porque faria a recência PULAR o pedido justamente para quem talvez precise
+-- ATUALIZAR o e-mail. A consequência, escrita e aceita, era a outra ponta: quem
+-- tem e-mail antigo seria perguntado DE NOVO.
 --
--- `automacao` NÃO É GRAVADO pelo mesmo motivo: não há origem guardada. A chave
--- é opcional em `CampoColetado` (lib/campos.ts) desde a `011`, e o comentário
--- daquela migração diz que a opcionalidade existe para ESTES contatos. Gravar
--- `'automacao', null` teria o mesmo efeito e diria uma coisa a mais que não se
--- sabe; a ausência da chave é a forma honesta de "não sei".
+-- O DONO MEDIU ESSA CONSEQUÊNCIA E NÃO A QUIS. São 9 contatos de 163, medido em
+-- produção: nove pessoas que já entregaram o e-mail receberiam o pedido outra
+-- vez, porque `first_contact_at` é velho e `campoEstaFresco` (lib/campos.ts)
+-- recusa coleta com mais de 30 dias. A decisão é dele, está tomada, e o que
+-- este arquivo deve fazer é executá-la e dizer o preço — não reargumentar.
+--
+-- O QUE SE PERDEU, DITO SEM ENFEITE. O raciocínio antigo não era errado, ele era
+-- a outra ponta da mesma escolha: quem tem e-mail DESATUALIZADO não vai ser
+-- perguntado agora, e a automação vai continuar mandando para um endereço que
+-- talvez não sirva mais. Não há como acertar os dois lados — não existe data de
+-- coleta guardada para estes e-mails, e nenhuma das duas escolhas a inventa.
+-- Trocou-se "incomodar nove pessoas" por "não descobrir o e-mail podre de
+-- algumas delas".
+--
+-- E O PREÇO TEM PRAZO: DAQUI A 30 DIAS A TROCA ACABA. `campoEstaFresco` compara
+-- o `em` com o relógio de quem lê, e a data gravada aqui envelhece como
+-- qualquer outra. Passados 30 dias da migração, estes mesmos 9 contatos entram
+-- na fila de pergunta exatamente como entrariam antes. A TROCA ADIA, NÃO
+-- ELIMINA — quem quiser o efeito permanente precisa mexer na recência, que é
+-- outra decisão, em outro arquivo (`RECENCIA_EM_DIAS`, lib/campos.ts).
+--
+-- -----------------------------------------------------------------------------
+-- A DATA GRAVADA AQUI É UM SUBSTITUTO, E NÃO UM FATO
+--
+-- ISTO É O RECADO PARA QUEM LER O DADO DEPOIS, e ele importa mais que o
+-- parágrafo acima. `em` num registro migrado NÃO quer dizer "o e-mail foi
+-- coletado neste dia". Quer dizer "a migração passou neste dia". Continua não
+-- existindo data de coleta para estes e-mails: o dado sempre viveu como coluna
+-- solta, sem quando nem quem, e nada aqui descobriu isso. Quem for contar
+-- "quantos e-mails entraram em setembro" lendo `em` vai contar a migração.
+--
+-- O DISCRIMINADOR JÁ EXISTE, E É A AUSÊNCIA DE `automacao`. Esta migração NÃO
+-- grava a chave; `gravarCampo` (lib/engine.ts) SEMPRE grava — com `null` quando
+-- não há automação de origem, mas grava. Então:
+--
+--   `campos->'email' ? 'automacao'` FALSO  → veio daqui. O `em` é substituto.
+--   `campos->'email' ? 'automacao'` VERDADE → veio de `gravarCampo`. O `em` é
+--                                             o instante real da coleta.
+--
+-- É assim que a revisão da Tarefa 7 separou os dois conjuntos na consulta C7, e
+-- é a única separação que existe — desde que o `em` virou o instante da
+-- migração, a DATA não distingue mais nada: um registro migrado hoje e um
+-- coletado hoje têm `em` parecidos.
+--
+-- POR ISSO A CHAVE CONTINUA FORA, E AGORA ELA TEM DOIS MOTIVOS. O primeiro é o
+-- de sempre: não há origem guardada, e a ausência da chave é a forma honesta de
+-- "não sei" (ela é opcional em `CampoColetado`, lib/campos.ts, desde a `011`, e
+-- o comentário daquela migração diz que a opcionalidade existe para ESTES
+-- contatos). O segundo nasceu com esta troca: gravar `'automacao', null` aqui
+-- apagaria o ÚNICO sinal de que a data é um substituto. Quem for "completar" o
+-- registro por simetria com `gravarCampo` está apagando a marca, não arrumando
+-- o dado — e o caso "o registro migrado NÃO tem a chave `automacao`"
+-- (testes-integracao/migracao-dos-dados-legados.integracao.ts) fica vermelho.
 --
 -- -----------------------------------------------------------------------------
 -- ESTA MIGRAÇÃO NÃO LEVA `account_id`, e é a única coisa desta fase que não leva
 --
 -- A regra "toda consulta leva `account_id`" existe para o código que ATENDE uma
 -- requisição: lá sempre há uma conta pedindo, e esquecê-la vaza dado de um
--- cliente para outro. Aqui não há conta pedindo — a migração roda dentro do
--- build, uma vez, sobre o banco inteiro, e escopá-la por conta significaria
--- deixar as outras para trás. Filtrar por conta aqui é que seria o defeito.
+-- cliente para outro. Aqui não há conta pedindo — a migração é aplicada à mão,
+-- uma vez, sobre o banco inteiro, e escopá-la por conta significaria deixar as
+-- outras para trás. Filtrar por conta aqui é que seria o defeito.
+-- (Este parágrafo dizia "roda dentro do build", e isso deixou de ser verdade em
+-- 23/09/2026 — ver `SO_A_MAO` (scripts/migrar.mjs) e o bloco do topo. O
+-- raciocínio não dependia disso: o que vale é não haver conta pedindo.)
 
 -- =============================================================================
 -- PASSO 1 — OS DADOS DOS CONTATOS
@@ -102,20 +151,36 @@
 -- dado NOVO nunca é sobrescrito pelo VELHO da coluna. O operador `?` não estoura
 -- em nenhum tipo de jsonb — medido: `null`, escalar e array devolvem false.
 --
--- `at time zone 'utc'` NÃO É ENFEITE, E FOI MEDIDO CONTRA ESTE POSTGRES.
--- `first_contact_at` é `timestamptz`, e `to_char` sem conversão imprime no fuso
--- da SESSÃO — enquanto o `"Z"` do formato é texto literal, colado no fim
--- aconteça o que acontecer. Com a sessão em `America/Sao_Paulo`, um contato de
--- `2026-06-10 12:00+00` sairia como `2026-06-10T09:00:00Z`: uma string que
--- mente três horas e que `Date.parse` (dentro de `campoEstaFresco`) acredita.
--- O formato é o mesmo que `gravarCampo` (lib/engine.ts) grava hoje, e tem de
--- ser: duas formas para o mesmo campo seriam duas verdades sobre o que o JS lê.
+-- E ELE FICOU MAIS CARO DE PERDER DEPOIS DA TROCA DO `em`. Enquanto a migração
+-- gravava `first_contact_at`, tirar esta metade do `where` REBOBINAVA a data de
+-- uma coleta de verdade para meses atrás. Com `now()`, o estrago é o espelho e é
+-- pior de enxergar: a cada reexecução o `em` PULARIA PARA A FRENTE, o campo
+-- nasceria fresco de novo, e a chave `automacao` de um registro coletado de
+-- verdade seria APAGADA — ou seja, a marca que distingue substituto de fato
+-- (ver o bloco do topo) sumiria, silenciosamente, numa migração de limpeza de
+-- formato. Uma data errada dá para desconfiar; uma data sempre fresca, não.
+--
+-- `at time zone 'utc'` NÃO É ENFEITE, E FOI MEDIDO CONTRA ESTE POSTGRES — E A
+-- TROCA DO `em` NÃO O DISPENSOU. `now()` é `timestamptz`, como
+-- `first_contact_at` era, e `to_char` sem conversão imprime no fuso da SESSÃO —
+-- enquanto o `"Z"` do formato é texto literal, colado no fim aconteça o que
+-- acontecer. Com a sessão em `America/Sao_Paulo`, o instante da migração sairia
+-- TRÊS HORAS atrás do que ele é, com o `Z` mentindo no fim: uma string que
+-- `Date.parse` (dentro de `campoEstaFresco`) acredita. O dado migrado nasceria
+-- três horas mais velho do que é — inofensivo contra uma recência de 30 dias, e
+-- o mesmo defeito continuaria ali para o dia em que a recência for menor.
+--
+-- AGORA A EXPRESSÃO É A MESMA DE `gravarCampo` (lib/engine.ts) LETRA POR LETRA:
+-- `to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`. Antes só o
+-- FORMATO coincidia (a fonte do instante era outra); hoje coincide a expressão
+-- inteira, e é assim que tem de ser — duas formas para o mesmo campo seriam
+-- duas verdades sobre o que o JS lê.
 -- =============================================================================
 
 update contacts
    set campos = campos || jsonb_build_object('email', jsonb_build_object(
          'valor', email,
-         'em', to_char(first_contact_at at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')))
+         'em', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')))
  where email is not null
    and btrim(email) <> ''
    and not (campos ? 'email');
