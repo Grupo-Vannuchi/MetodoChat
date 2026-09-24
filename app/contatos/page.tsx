@@ -10,7 +10,6 @@ import {
   urlComFiltro,
   campoUrlDoFiltro,
   resumoDasCategorias,
-  casoDaListaDeEmail,
   CATEGORIAS_SUGERIDAS,
 } from "@/lib/categorias";
 import {
@@ -26,7 +25,7 @@ import {
   LIMITE_DA_TABELA,
   BUSCA_MAX,
 } from "@/lib/busca-de-contatos";
-import { peneirar, recorteDaTela, urlDaExportacao } from "@/lib/exportacao-de-contatos";
+import { recortarTela, urlDaExportacao } from "@/lib/exportacao-de-contatos";
 import { FaixaDaExportacaoCompleta } from "./faixa-da-exportacao";
 import { avisoDaUrl } from "@/lib/avisos";
 // OS QUATRO TIPOS DE "MENSAGEM RECEBIDA", DA MESMA FONTE que app/page.tsx e
@@ -431,36 +430,52 @@ export default async function ContatosPage({
   // Se a busca entrasse antes de `destinoDoLote`, o formulário passaria a
   // prometer um número e a ação a enfileirar outro. É a mesma família do
   // Crítico de 01/09, por um caminho novo: tela e ação contando conjuntos
-  // diferentes. `visiveis` continua sendo o conjunto do ENVIO; `achados` é o
-  // conjunto da LEITURA.
+  // diferentes. `visiveis` continua sendo o conjunto do ENVIO; `tela.achados`
+  // é o conjunto da LEITURA, e é por isso que ele nasce de outra função.
   const busca = normalizarBusca(sp.q);
   // QUANTAS LINHAS A TABELA MOSTRA. Cresce sob pedido, com teto — ver
   // `quantasLinhas`, e o defeito que ela conserta: sem saída, o corte em 25
   // tornava inalcançáveis os contatos 26 em diante de qualquer busca.
   const linhas = quantasLinhas(sp.linhas);
 
-  // O RECORTE QUE OS DOIS BOTÕES DE EXPORTAR CARREGAM — as duas peneiras num
-  // objeto só, do mesmo tipo que as duas rotas leem de volta (`recorteDaUrl`).
+  // TUDO O QUE A TELA DERIVA DO RECORTE, NUMA CHAMADA SÓ: o recorte que os dois
+  // botões de exportar carregam, os conjuntos das duas tabelas e o caso da
+  // seção "Com e-mail". Quem deriva é `recortarTela`
+  // (lib/exportacao-de-contatos.ts), e ela é PURA — cada ramo disto tem caso em
+  // `tests/exportacao-de-contatos.test.ts`, o que aqui dentro é impossível:
+  // esta página é `async` e consulta o Postgres, e teste nenhum a monta.
   //
-  // ELE NÃO É MAIS MONTADO À MÃO AQUI, e a mudança tem motivo medido: um
-  // literal `{ filtro, busca }` no meio desta função juntava duas variáveis
-  // locais independentes, e plantar `busca: null` nele atravessou `tsc`,
-  // `eslint`, 1804 casos puros e 39 de DOM na revisão de 23/09/2026 — quebrando
-  // OS DOIS botões de uma vez. `recorteDaTela` é o dono dessa montagem, e quem
-  // a exercita é `testes-dom/faixa-da-exportacao.dom.tsx`.
-  const recorte = recorteDaTela(filtro, busca);
+  // ERAM QUATRO DERIVAÇÕES SEGUIDAS AQUI, DO MESMO TIPO — `rows`, `achados`,
+  // `comEmail`, `semEmail` —, E ERA A ESCOLHA ENTRE ELAS O DEFEITO. Medido em
+  // 24/09/2026: `contatos={comEmail}` no lugar de `contatos={rows}` na faixa de
+  // exportar atravessou `tsc`, `eslint`, 1808 casos puros e 47 de DOM — a frase
+  // contando só quem tem e-mail e o botão baixando todo mundo do recorte, que é
+  // o defeito de 11/09/2026 com os papéis trocados. E `comEmail` nascia DUAS
+  // LINHAS acima da faixa, alimentando a tabela logo abaixo dela. Um SEGUNDO
+  // recorte remontado à mão no JSX, com a busca de fora, passava igual.
+  //
+  // COM UM OBJETO SÓ NÃO HÁ O QUE ESCOLHER, e a faixa recebe O OBJETO: não
+  // existe conjunto solto para entregar por engano nem `Recorte` solto para
+  // remontar no JSX. Os campos são lidos como `tela.algo` de propósito — é o
+  // que deixa a procedência à vista em cada uso.
+  //
+  // O `caso` VEM JUNTO PELO MESMO MOTIVO, e não por arrumação. Quem decide qual
+  // texto a seção "Com e-mail" mostra — e se "Sem e-mail" ainda faz sentido na
+  // tela — continua sendo `casoDaListaDeEmail` (lib/categorias.ts), e o
+  // comentário de lá diz por quê; o que mudou é QUEM o chama. Ele era montado
+  // aqui com quatro números passados à mão, e um dos campos se chama `visiveis`
+  // — o nome de uma variável desta função que é OUTRO conjunto (o do ENVIO).
+  // `visiveis: visiveis.length` no lugar de `visiveis: achados.length` passava
+  // por `tsc` e pelas três suítes, e reabria em silêncio o ramo `busca_vazia`:
+  // busca sem resultado voltava a mostrar a categoria inteira, com "0 pessoas
+  // neste recorte" e um botão que baixa arquivo vazio.
+  //
+  // `visiveis` (acima) CONTINUA FORA DESTE OBJETO, e isso é decisão: ele é o
+  // conjunto do ENVIO, que ignora a busca de propósito — o porquê está escrito
+  // na nota de `destinoDoLote`. Pô-lo aqui seria devolver à vizinhança dos
+  // conjuntos da LEITURA justamente o conjunto com que eles foram confundidos.
+  const tela = recortarTela(rows, filtro, busca);
 
-  // `achados` SAI DO RECORTE, pela MESMA `peneirar` que as duas rotas aplicam
-  // sobre o que o banco devolveu. Era `visiveis.filter(casaComBusca)` escrito
-  // aqui — o corpo de `peneirar` copiado —, e duas regras iguais em lugares
-  // diferentes são duas regras para manter iguais: foi assim que a tela e o
-  // arquivo divergiram em 11/09/2026. `visiveis` continua sendo o conjunto do
-  // ENVIO (só a categoria); `achados` é o da LEITURA, e é o mesmo conjunto que
-  // a faixa de exportar conta.
-  const achados = peneirar(rows, recorte);
-
-  const comEmail = achados.filter((c) => c.email);
-  const semEmail = achados.filter((c) => !c.email);
   const semNome = rows.filter((c) => !c.username).length;
 
   // O PISO DO CAMPO DE PRAZO, calculado aqui e não no JSX. Um dia já passado
@@ -484,17 +499,6 @@ export default async function ContatosPage({
       ...(busca ? { q: busca } : {}),
       linhas: String(linhas + LIMITE_DA_TABELA),
     }).toString();
-
-  // A decisão de qual texto a seção "Com e-mail" mostra — e se "Sem e-mail"
-  // ainda faz sentido na tela — é de `casoDaListaDeEmail` (lib/categorias.ts),
-  // não do JSX abaixo: ver o comentário lá para o porquê.
-  const filtrado = filtro.tipo === "uma";
-  const caso = casoDaListaDeEmail({
-    buscando: busca !== null,
-    visiveis: achados.length,
-    comEmail: comEmail.length,
-    filtrado,
-  });
 
   return (
     <div className="space-y-6">
@@ -589,7 +593,7 @@ export default async function ContatosPage({
             )}
           </form>
 
-          {caso === "busca_vazia" ? (
+          {tela.caso === "busca_vazia" ? (
             /* O VAZIO DA BUSCA NOMEIA A BUSCA, e isso conserta um defeito achado
                por revisão em 11/09/2026: quem digitava "joao" com "todos"
                selecionado recebia *"Nenhum contato nesta categoria — use
@@ -608,7 +612,7 @@ export default async function ContatosPage({
                 para ver {filtro.tipo === "tudo" ? "a conta inteira" : "a categoria inteira"}.
               </p>
             </div>
-          ) : caso === "filtro_vazio" ? (
+          ) : tela.caso === "filtro_vazio" ? (
             // O caso pior do Achado 1: um filtro que não casa ninguém (uma
             // categoria que deixou de existir, por exemplo). Antes, a seção
             // "Sem e-mail" sumia inteira (só renderiza com gente) e sobrava
@@ -727,7 +731,7 @@ export default async function ContatosPage({
                   que decide a posição — não o desenho.
 
                   DENTRO DA SEÇÃO "COM E-MAIL", ao lado do botão antigo, a frase
-                  de cima é `${comEmail.length} pessoas — prontas para sua
+                  de cima é `${tela.comEmail.length} pessoas — prontas para sua
                   lista`, que conta SÓ quem tem e-mail. Este botão leva todo
                   mundo do recorte. Frase e botão discordariam sobre o mesmo
                   clique, que é exatamente o defeito de 11/09/2026 por uma porta
@@ -737,31 +741,37 @@ export default async function ContatosPage({
                   ACIMA DO BLOCO DE ENVIO também não: a frase de lá é "Mandar
                   mensagem para {visiveis.length} pessoas", e `visiveis` é só a
                   categoria — o envio ignora a busca de propósito (o porquê está
-                  escrito na definição de `achados`). O leitor teria de
-                  atravessar um número que conta OUTRO conjunto para chegar às
-                  tabelas.
+                  na nota de `destinoDoLote`). O leitor teria de atravessar um
+                  número que conta OUTRO conjunto para chegar às tabelas.
 
                   AQUI, O NÚMERO FECHA COM O QUE ESTÁ LOGO ABAIXO:
-                  `comEmail.length + semEmail.length === achados.length`, as
-                  duas seções seguintes. O botão fica em cima das duas tabelas
-                  que ele soma, e a frase conta a soma delas — dá para conferir
-                  olhando, sem sair da tela.
+                  `tela.comEmail` + `tela.semEmail` é exatamente `tela.achados`
+                  — as duas seções seguintes, e o caso puro que prende essa
+                  partição está em tests/exportacao-de-contatos.test.ts. O botão
+                  fica em cima das duas tabelas que ele soma, e a frase conta a
+                  soma delas — dá para conferir olhando, sem sair da tela.
 
                   E ELE APARECE MESMO QUANDO NINGUÉM TEM E-MAIL, que é metade da
                   razão de existir: este fragmento só renderiza com
-                  `achados.length > 0` (os dois vazios — busca e filtro — são
-                  tratados nos ramos acima), e quem nunca deu e-mail pode ter
-                  dado telefone, cidade, ou o campo que o marketing inventou.
+                  `tela.achados.length > 0` (os dois vazios — busca e filtro —
+                  são tratados nos ramos acima), e quem nunca deu e-mail pode
+                  ter dado telefone, cidade, ou o campo que o marketing
+                  inventou.
 
                   A FRASE E O BOTÃO SAEM DE `FaixaDaExportacaoCompleta`, e não
                   deste JSX: enquanto moravam aqui, a regra que eles carregam (o
                   número da frase e o `href` do botão têm de falar do mesmo
                   clique) não tinha como ganhar caso — esta página é `async` e
                   consulta o banco, e nada em `testes-dom/` consegue montá-la.
-                  A faixa recebe o conjunto de ANTES das peneiras e o recorte, e
-                  deriva as duas coisas dele; o número que ela mostra é o mesmo
-                  `achados.length` daqui, pela mesma `peneirar`. */}
-              <FaixaDaExportacaoCompleta contatos={rows} recorte={recorte} />
+
+                  E ELA RECEBE `tela` INTEIRA, não um conjunto solto. Enquanto
+                  recebia `contatos={rows}` mais o recorte, a página escolhia
+                  qual dos quatro conjuntos do mesmo tipo mandar, e era ESSA
+                  escolha o defeito: `contatos={comEmail}` atravessou `tsc`,
+                  `eslint`, 1808 casos puros e 47 de DOM. As duas formas que o
+                  objeto NÃO impede estão nomeadas no comentário da faixa, e as
+                  duas exigem escrever código novo de propósito. */}
+              <FaixaDaExportacaoCompleta tela={tela} />
 
               <section>
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -771,14 +781,14 @@ export default async function ContatosPage({
                       Com e-mail
                     </h2>
                     <p className={`text-sm ${muted}`}>
-                      {caso === "tem_email"
-                        ? `${comEmail.length} ${comEmail.length === 1 ? "pessoa" : "pessoas"} — prontas para sua lista`
-                        : caso === "sem_email_no_filtro"
+                      {tela.caso === "tem_email"
+                        ? `${tela.comEmail.length} ${tela.comEmail.length === 1 ? "pessoa" : "pessoas"} — prontas para sua lista`
+                        : tela.caso === "sem_email_no_filtro"
                           ? "Ninguém nesta categoria informou e-mail ainda."
                           : "Ninguém informou o e-mail ainda. Ligue “Pedir o e-mail antes do link” numa automação."}
                     </p>
                   </div>
-                  {comEmail.length > 0 && (
+                  {tela.comEmail.length > 0 && (
                     // O ENDEREÇO CARREGA O FILTRO **E A BUSCA**, e quem o monta
                     // é `urlDaExportacao` (lib/exportacao-de-contatos.ts) — a
                     // mesma função do botão novo, e a outra ponta do
@@ -792,7 +802,7 @@ export default async function ContatosPage({
                     // com metade dele; agora há um dono só, com caso de
                     // ida-e-volta em tests/exportacao-de-contatos.test.ts.
                     <a
-                      href={urlDaExportacao("/api/contatos/csv", recorte)}
+                      href={urlDaExportacao("/api/contatos/csv", tela.recorte)}
                       className={btnGhost}
                       download
                     >
@@ -800,9 +810,9 @@ export default async function ContatosPage({
                     </a>
                   )}
                 </div>
-                {comEmail.length > 0 && (
+                {tela.comEmail.length > 0 && (
                   <Tabela
-                    rows={comEmail}
+                    rows={tela.comEmail}
                     comEmail
                     limite={linhas}
                     maisHref={maisLinhas}
@@ -814,7 +824,7 @@ export default async function ContatosPage({
                 )}
               </section>
 
-              {semEmail.length > 0 && (
+              {tela.semEmail.length > 0 && (
                 <section>
                   <div className="mb-4">
                     <h2 className="titulo flex items-center gap-2 text-lg font-bold">
@@ -822,12 +832,12 @@ export default async function ContatosPage({
                       Sem e-mail
                     </h2>
                     <p className={`text-sm ${muted}`}>
-                      {semEmail.length} {semEmail.length === 1 ? "pessoa" : "pessoas"} que
+                      {tela.semEmail.length} {tela.semEmail.length === 1 ? "pessoa" : "pessoas"} que
                       interagiram mas não informaram e-mail
                     </p>
                   </div>
                   <Tabela
-                    rows={semEmail}
+                    rows={tela.semEmail}
                     comEmail={false}
                     limite={linhas}
                     maisHref={maisLinhas}

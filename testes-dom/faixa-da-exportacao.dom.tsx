@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { render, within } from "@testing-library/react";
+import { FaixaDaExportacaoCompleta } from "@/app/contatos/faixa-da-exportacao";
 import {
-  FaixaDaExportacaoCompleta,
-  type ContatoDaFaixa,
-} from "@/app/contatos/faixa-da-exportacao";
-import { peneirar, recorteDaTela, recorteDaUrl } from "@/lib/exportacao-de-contatos";
+  peneirar,
+  recortarTela,
+  recorteDaUrl,
+  type ContatoDaTela,
+} from "@/lib/exportacao-de-contatos";
 import type { FiltroDeCategoria } from "@/lib/categorias";
 
 // A FRASE E O BOTÃO NÃO PODEM DISCORDAR SOBRE O MESMO CLIQUE — do lado da TELA.
@@ -40,27 +42,32 @@ const TUDO: FiltroDeCategoria = { tipo: "tudo" };
 // arranjo do 11/09: a categoria sozinha deixa DUAS, a busca sozinha deixa
 // DUAS, e as duas juntas deixam UMA. Num conjunto em que as peneiras dessem o
 // mesmo resultado, nada distinguiria "leu as duas" de "leu só uma".
-const TODOS: ContatoDaFaixa[] = [
+const TODOS: ContatoDaTela[] = [
   { username: "maria.aluna", name: "Maria Silva", email: "maria@email.com", categoria: "aluno" },
   { username: "joao.aluno", name: "João Souza", email: null, categoria: "aluno" },
   { username: "maria.curiosa", name: "Maria Lima", email: null, categoria: "interessado" },
 ];
 
 /**
- * Monta a faixa com o MESMO `recorteDaTela` que `app/contatos/page.tsx` usa.
+ * Monta a faixa com a MESMA `recortarTela` que `app/contatos/page.tsx` chama.
  *
- * O RECORTE NÃO É UM OBJETO LITERAL ESCRITO AQUI, e isso é metade do ponto: é
- * `recorteDaTela` que junta as duas peneiras da tela num objeto só, e os DOIS
- * botões da página carregam o que ela devolve. Com um literal aqui, a montagem
- * da tela continuaria sem ninguém a exercitar — que é exatamente o buraco que
- * estes casos existem para fechar.
+ * NADA AQUI É OBJETO LITERAL, e isso é metade do ponto: é `recortarTela` que
+ * deriva o recorte E os conjuntos de uma vez, e a página inteira consome o que
+ * ela devolve. Com um literal montado neste arquivo, a derivação da tela
+ * continuaria sem ninguém a exercitar — que é exatamente o buraco que estes
+ * casos existem para fechar.
+ *
+ * A FAIXA RECEBE O OBJETO, e não um conjunto solto: é o que tirou da página a
+ * escolha de QUAL conjunto mandar. Medido em 24/09/2026, no desenho anterior:
+ * `contatos={comEmail}` no lugar de `contatos={rows}` atravessou `tsc`,
+ * `eslint`, 1808 casos puros e 47 de DOM.
  *
  * As buscas são feitas DENTRO do container deste `render`: a suíte monta a
  * faixa várias vezes no mesmo caso, e `screen` enxergaria todas de uma vez.
  */
 function montar(filtro: FiltroDeCategoria, busca: string | null) {
   const { container } = render(
-    <FaixaDaExportacaoCompleta contatos={TODOS} recorte={recorteDaTela(filtro, busca)} />
+    <FaixaDaExportacaoCompleta tela={recortarTela(TODOS, filtro, busca)} />
   );
   const tela = within(container);
   return {

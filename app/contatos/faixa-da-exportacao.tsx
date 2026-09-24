@@ -1,5 +1,8 @@
-import { peneirar, urlDaExportacao, type Recorte } from "@/lib/exportacao-de-contatos";
-import type { ContatoBuscavel } from "@/lib/busca-de-contatos";
+import {
+  urlDaExportacao,
+  type ContatoDaTela,
+  type TelaDeContatos,
+} from "@/lib/exportacao-de-contatos";
 import { btnGhost, muted } from "../ui";
 
 // A FAIXA DE "EXPORTAR TODOS OS DADOS" — a frase e o botão, num componente só.
@@ -24,50 +27,61 @@ import { btnGhost, muted } from "../ui";
 //
 // A REGRA QUE ELA CARREGA: A FRASE E O BOTÃO NÃO PODEM DISCORDAR SOBRE O MESMO
 // CLIQUE. Em 11/09/2026 discordaram — a tela dizia "1 pessoa" e o botão baixava
-// 40 —, e o que impede a volta disso é ter UM `Recorte` só aqui dentro: o
-// número da frase sai de `peneirar(contatos, recorte)` e o endereço do botão
-// sai de `urlDaExportacao(…, recorte)`. Não há um segundo número para passar
-// por engano, e não há um segundo lugar de onde o link possa sair.
+// 40 —, e o que impede a volta disso é a frase e o link saírem do MESMO objeto:
+// o número é `tela.achados`, o endereço é `urlDaExportacao(…, tela.recorte)`, e
+// os dois campos foram derivados juntos por `recortarTela`.
 //
 // O QUE ELA NÃO DECIDE: ONDE ela fica na página. Isso continua sendo de
 // `page.tsx` — o comentário de lá explica por que ela mora entre o bloco de
 // envio e as duas tabelas, e não dentro da seção "Com e-mail".
 
 /**
- * O que a faixa precisa de cada contato: exatamente o que as DUAS peneiras
- * leem. `ContatoBuscavel` é o que `casaComBusca` procura (o @, o nome e o
- * e-mail) e `categoria` é por onde `contatosDoFiltro` peneira — nada além
- * disso, para que um caso possa montar a faixa com gente de mentira sem
- * precisar de uma linha inteira do banco.
- */
-export type ContatoDaFaixa = ContatoBuscavel & { categoria: string | null };
-
-/**
- * A faixa recebe o conjunto de ANTES das duas peneiras, e as aplica ela mesma.
+ * A faixa recebe A TELA RECORTADA INTEIRA, e não um conjunto solto.
  *
- * RECEBER O NÚMERO PRONTO SERIA O DEFEITO: bastaria a página passar o conjunto
- * errado — `visiveis` no lugar de `achados`, que é literalmente o 11/09 — e a
- * frase voltaria a contar gente que o arquivo não traz, sem nada acusando. Com
- * o conjunto cru e o recorte, o número é DERIVADO do mesmo objeto que o link
- * carrega, e `testes-dom/faixa-da-exportacao.dom.tsx` afirma isso lendo o link
- * como a rota o lê.
+ * A PRIMEIRA VERSÃO RECEBIA O CONJUNTO CRU MAIS O `Recorte`, e derivava o
+ * número aqui dentro. Isso fechava a discordância entre a frase e o botão, mas
+ * TROCAVA "passar o número errado" por "passar o CONJUNTO errado" — e só o
+ * primeiro tinha rede. Medido em 24/09/2026: na página havia quatro conjuntos
+ * do mesmo tipo, e `contatos={comEmail}` no lugar de `contatos={rows}` — com
+ * `comEmail` duas linhas acima, alimentando a tabela logo abaixo desta faixa —
+ * atravessou `tsc`, `eslint`, 1808 casos puros e 47 de DOM. A frase passava a
+ * contar só quem tem e-mail, o botão continuava baixando todo mundo.
+ *
+ * COM O OBJETO NÃO HÁ O QUE ESCOLHER. `recortarTela` é quem produz um
+ * `TelaDeContatos`, e ele já traz o recorte E os conjuntos derivados dele
+ * juntos: não existe um segundo conjunto para entregar por engano, nem um
+ * `Recorte` solto para montar de novo no JSX.
+ *
+ * O QUE CONTINUA SEM REDE, escrito aqui para o comentário não prometer mais do
+ * que o código faz. DUAS formas passaram na medição de 24/09/2026, e as duas
+ * exigem escrever código novo de propósito — não são erro de distração:
+ *
+ *   1. ADULTERAR o objeto na passagem: `{...tela, achados: tela.comEmail}`.
+ *      `tsc` aceita, e marca opaca não resolveria — o espalhamento copiaria a
+ *      marca junto.
+ *   2. DERIVAR UM SEGUNDO objeto no JSX: `tela={recortarTela(rows, filtro,
+ *      null)}`. Aqui a frase e o botão continuam de acordo ENTRE SI (os dois
+ *      saem do mesmo recorte), então a regra que esta faixa carrega não é
+ *      quebrada; o que discorda é a faixa contra as duas tabelas abaixo dela.
+ *      É defeito mais fraco que o de 11/09, e nenhum caso o acusa.
+ *
+ * O desenho fecha o erro por ENGANO — entregar o conjunto vizinho —, que é a
+ * forma que esta tela já viu duas vezes.
+ *
+ * O QUE `testes-dom/faixa-da-exportacao.dom.tsx` AFIRMA: que o número da frase
+ * e as pessoas que o `href` traz são o mesmo conjunto — lendo o link como a
+ * ROTA o lê (`recorteDaUrl`) e aplicando as MESMAS peneiras (`peneirar`).
  *
  * ELA SÓ É RENDERIZADA COM GENTE NO RECORTE (`achados.length > 0`, em
  * `page.tsx`): os dois vazios — busca sem resultado e filtro sem ninguém — têm
  * tela própria, com texto que explica o que fazer, nos ramos acima dela.
  */
-export function FaixaDaExportacaoCompleta({
-  contatos,
-  recorte,
-}: {
-  contatos: ContatoDaFaixa[];
-  recorte: Recorte;
-}) {
-  const doRecorte = peneirar(contatos, recorte);
+export function FaixaDaExportacaoCompleta({ tela }: { tela: TelaDeContatos<ContatoDaTela> }) {
+  const { achados, recorte } = tela;
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className={`text-sm ${muted}`}>
-        {doRecorte.length} {doRecorte.length === 1 ? "pessoa" : "pessoas"} neste recorte — com
+        {achados.length} {achados.length === 1 ? "pessoa" : "pessoas"} neste recorte — com
         e-mail ou sem, com tudo que as automações já coletaram
       </p>
       <a

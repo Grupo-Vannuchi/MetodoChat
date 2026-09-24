@@ -10,6 +10,7 @@ import {
   recorteDaUrl,
   urlDaExportacao,
   peneirar,
+  recortarTela,
   csvDaListaDeEmail,
   chavesLivres,
   contatoExportavelDaLinha,
@@ -340,6 +341,139 @@ describe("peneirar — as duas peneiras, e nenhuma delas esquecida", () => {
     expect(
       peneirar(comEmail, { filtro: { tipo: "tudo" }, busca: "natalia" })
     ).toHaveLength(1);
+  });
+});
+
+// ------------------------------------------------------------
+// O RECORTE DA TELA INTEIRO, NUMA FUNÇÃO SÓ.
+//
+// O DEFEITO QUE ISTO FECHA NÃO É UM NÚMERO ERRADO: É A ESCOLHA DE QUAL
+// CONJUNTO ENTREGAR. Até 24/09/2026 `app/contatos/page.tsx` derivava quatro
+// conjuntos DO MESMO TIPO (`rows`, `achados`, `comEmail`, `semEmail`) e
+// escolhia à mão qual deles ia para a faixa de exportar. Medido nesta tarefa:
+// trocar `contatos={rows}` por `contatos={comEmail}` — que está DUAS LINHAS
+// acima e alimenta a tabela logo abaixo da faixa — atravessou `tsc`, `eslint`,
+// 1808 casos puros e 47 de DOM. A frase passava a contar só quem tem e-mail e
+// o botão continuava baixando todo mundo: o defeito de 11/09/2026 na forma
+// exata, e calado.
+//
+// COM UM PRODUTOR SÓ NÃO HÁ O QUE ESCOLHER: esta função devolve o recorte, os
+// três conjuntos e o caso da seção DE UMA VEZ, e a página consome o objeto.
+// `contatos={comEmail}` deixa de existir como expressão possível, e um SEGUNDO
+// recorte montado no JSX também.
+//
+// E É AQUI QUE ESSES RAMOS GANHAM CASO. A página é `async` e consulta o
+// Postgres; teste nenhum desta base a monta. Enquanto a derivação morava lá
+// dentro, cada uma destas linhas era uma guarda sem rede.
+// ------------------------------------------------------------
+describe("recortarTela — o recorte, os conjuntos e o caso, de uma vez", () => {
+  const ALUNO: FiltroDeCategoria = { tipo: "uma", nome: "aluno" };
+  const TUDO: FiltroDeCategoria = { tipo: "tudo" };
+
+  // AS TRÊS PESSOAS MORDEM AS PENEIRAS SEPARADO, que é o arranjo do 11/09: a
+  // categoria sozinha deixa duas, a busca sozinha deixa duas, e as duas juntas
+  // deixam uma. E o e-mail atravessa o recorte: quem tem e-mail está dentro E
+  // fora de "aluno", para que `comEmail` tirado da conta inteira dê um
+  // resultado DIFERENTE de `comEmail` tirado dos achados.
+  const lista = [
+    contato({ username: "maria.aluna", name: "Maria", email: "maria@email.com", categoria: "aluno" }),
+    contato({ username: "joao.aluno", name: "João", email: null, categoria: "aluno" }),
+    contato({ username: "maria.lead", name: "Maria", email: "maria@lead.com", categoria: "interessado" }),
+  ];
+  const usuarios = (l: ContatoExportavel[]) => l.map((c) => c.username);
+
+  it("o recorte leva as DUAS peneiras da tela, e é o que o link carrega", () => {
+    const tela = recortarTela(lista, ALUNO, "maria");
+    expect(tela.recorte).toEqual({ filtro: ALUNO, busca: "maria" });
+    expect(urlDaExportacao("/api/contatos/csv-completo", tela.recorte)).toBe(
+      "/api/contatos/csv-completo?categoria=aluno&q=maria"
+    );
+  });
+
+  it("`achados` é o que as duas peneiras deixam, pela mesma `peneirar` das rotas", () => {
+    expect(usuarios(recortarTela(lista, ALUNO, "maria").achados)).toEqual(["maria.aluna"]);
+    expect(usuarios(recortarTela(lista, ALUNO, null).achados)).toEqual([
+      "maria.aluna",
+      "joao.aluno",
+    ]);
+  });
+
+  // O CASO QUE DISTINGUE "TIRADO DOS ACHADOS" DE "TIRADO DA CONTA INTEIRA".
+  // `maria.lead` tem e-mail e está FORA de "aluno": um `comEmail` que saísse de
+  // `contatos` a traria junto, e a seção "Com e-mail" contaria gente que a
+  // tabela dela não mostra.
+  it("`comEmail` e `semEmail` saem de `achados`, e não da conta inteira", () => {
+    const tela = recortarTela(lista, ALUNO, null);
+    expect(
+      usuarios(tela.comEmail),
+      "`comEmail` tem de ser o pedaço de `achados` com e-mail: `maria.lead` tem " +
+        "e-mail e não está no recorte 'aluno'."
+    ).toEqual(["maria.aluna"]);
+    expect(usuarios(tela.semEmail)).toEqual(["joao.aluno"]);
+  });
+
+  // A SOMA TEM DE FECHAR, e é ela que deixa a faixa de exportar ficar em cima
+  // das duas tabelas dizendo um número só: `comEmail` + `semEmail` são as duas
+  // seções seguintes, e `achados` é o que o botão baixa.
+  it("os dois conjuntos particionam `achados`: ninguém sobra e ninguém repete", () => {
+    for (const busca of [null, "maria"]) {
+      for (const filtro of [TUDO, ALUNO]) {
+        const tela = recortarTela(lista, filtro, busca);
+        const rotulo = `filtro ${JSON.stringify(filtro)} e busca ${JSON.stringify(busca)}`;
+        expect(
+          [...usuarios(tela.comEmail), ...usuarios(tela.semEmail)].sort(),
+          `com ${rotulo}, as duas seções têm de somar exatamente os achados`
+        ).toEqual(usuarios(tela.achados).sort());
+      }
+    }
+  });
+
+  // -----------------------------------------------------------------
+  // O `caso` DA SEÇÃO "COM E-MAIL" — e a fiação que ele esconde.
+  //
+  // `casoDaListaDeEmail` recebe um campo chamado `visiveis`, e na tela existe
+  // uma variável com esse nome que é OUTRO conjunto (a categoria sem a busca,
+  // o conjunto do ENVIO). Enquanto a chamada morava na página, escrever
+  // `visiveis: visiveis.length` no lugar de `visiveis: achados.length`
+  // atravessava `tsc` e as três suítes — e reabria em silêncio o defeito que o
+  // ramo `busca_vazia` existe para impedir: busca sem resultado voltava a
+  // mostrar a categoria inteira, com "0 pessoas neste recorte" e um botão que
+  // baixa arquivo vazio. Aqui não há um segundo conjunto para passar.
+  // -----------------------------------------------------------------
+  it("busca sem resultado é `busca_vazia`, e não a categoria inteira", () => {
+    expect(
+      recortarTela(lista, ALUNO, "zzz").caso,
+      "o campo `visiveis` de `casoDaListaDeEmail` conta os ACHADOS. Alimentado " +
+        "com a categoria SEM a busca, 'aluno' teria duas pessoas, o vazio sumiria " +
+        "e a tela mostraria a categoria inteira para quem buscou e não achou " +
+        "ninguém — com um botão que baixa arquivo vazio."
+    ).toBe("busca_vazia");
+  });
+
+  it("categoria sem ninguém, e sem busca, é `filtro_vazio`", () => {
+    expect(
+      recortarTela(lista, { tipo: "uma", nome: "cliente" }, null).caso,
+      "sem busca ativa o vazio é da categoria, e a frase tem de mandar fazer " +
+        "outra coisa — confundir os dois foi o defeito de 11/09/2026."
+    ).toBe("filtro_vazio");
+  });
+
+  it("com alguém de e-mail no recorte, é `tem_email`", () => {
+    expect(recortarTela(lista, ALUNO, "maria").caso).toBe("tem_email");
+    expect(recortarTela(lista, TUDO, null).caso).toBe("tem_email");
+  });
+
+  // ESTE PRENDE O `filtrado`: a MESMA lista sem e-mail nenhum dá dois casos
+  // diferentes, e o que muda é só o tipo do filtro. As duas frases da tela são
+  // diferentes — uma manda ligar a pergunta do e-mail numa automação, a outra
+  // diz que é esta categoria que não tem.
+  it("sem e-mail nenhum, o filtro decide qual das duas frases a tela mostra", () => {
+    const ninguemTemEmail = [
+      contato({ username: "a.aluno", email: null, categoria: "aluno" }),
+      contato({ username: "b.lead", email: null, categoria: "interessado" }),
+    ];
+    expect(recortarTela(ninguemTemEmail, ALUNO, null).caso).toBe("sem_email_no_filtro");
+    expect(recortarTela(ninguemTemEmail, TUDO, null).caso).toBe("sem_email_geral");
   });
 });
 

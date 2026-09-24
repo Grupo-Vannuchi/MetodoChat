@@ -38,9 +38,11 @@
 import { CAMPOS, lerCampos, type Campo } from "./campos";
 import { VARIABLES, type VariableContext, type VariableDef } from "./variables";
 import {
+  casoDaListaDeEmail,
   contatosDoFiltro,
   filtroDaUrl,
   urlComFiltro,
+  type CasoDaListaDeEmail,
   type FiltroDeCategoria,
 } from "./categorias";
 import { casaComBusca, normalizarBusca, type ContatoBuscavel } from "./busca-de-contatos";
@@ -179,32 +181,6 @@ export function nomeDoArquivo(
 
 export type Recorte = { filtro: FiltroDeCategoria; busca: string | null };
 
-/**
- * O recorte que a TELA montou — a montagem, do lado da tela.
- *
- * A TERCEIRA PONTA, e ela faltava. `recorteDaUrl` é a LEITURA (lado da rota) e
- * `urlDaExportacao` é a ESCRITA (lado da tela); as duas têm caso de ida-e-volta
- * logo abaixo. Quem MONTA o objeto que a escrita recebe não tinha dono nenhum:
- * era um literal no meio de `app/contatos/page.tsx`, juntando à mão duas
- * variáveis locais independentes — a categoria, lida por `filtroDaUrl`, e a
- * busca, lida por `normalizarBusca`.
- *
- * A REVISÃO DE 23/09/2026 MEDIU O QUE ISSO CUSTAVA: `{ filtro, busca: null }`
- * plantado naquele literal atravessou `tsc`, `eslint`, 1804 casos puros e 39 de
- * DOM. É o defeito de 11/09/2026 na forma exata (o link sem `q`, a tela
- * contando um conjunto e o arquivo trazendo outro) e, pior que o daquele dia,
- * quebra OS DOIS BOTÕES de uma vez — os dois carregam este mesmo recorte,
- * inclusive o da lista de e-mail, cujo conteúdo o dono congelou.
- *
- * COM UM DONO SÓ, HÁ ONDE PRENDER: quem exercita esta função é
- * `testes-dom/faixa-da-exportacao.dom.tsx`, que monta a faixa com o recorte que
- * ela devolve e afirma que o número da frase e o `href` do botão saem dele —
- * deixar a busca para trás aqui deixa aqueles casos vermelhos.
- */
-export function recorteDaTela(filtro: FiltroDeCategoria, busca: string | null): Recorte {
-  return { filtro, busca };
-}
-
 /** O recorte que a URL pede — a leitura, do lado da rota. */
 export function recorteDaUrl(params: URLSearchParams): Recorte {
   return {
@@ -249,6 +225,119 @@ export function peneirar<T extends ContatoBuscavel & { categoria: string | null 
   const naCategoria = contatosDoFiltro(contatos, recorte.filtro);
   const busca = recorte.busca;
   return busca ? naCategoria.filter((c) => casaComBusca(c, busca)) : naCategoria;
+}
+
+// -----------------------------------------------------------------------------
+// A TELA INTEIRA, DERIVADA DE UMA VEZ — e por que ela não é um conjunto solto.
+//
+// O QUE ESTA FUNÇÃO TIRA DE QUEM MEXE NA PÁGINA É A ESCOLHA. Até 24/09/2026
+// `app/contatos/page.tsx` derivava, uma linha embaixo da outra, quatro
+// conjuntos DO MESMO TIPO — `rows`, `achados`, `comEmail`, `semEmail` — e
+// entregava à mão um deles para a faixa de exportar. Escolher errado passava
+// batido: `contatos={comEmail}` no lugar de `contatos={rows}` atravessou `tsc`,
+// `eslint`, 1808 casos puros e 47 de DOM, e é o defeito de 11/09/2026 com os
+// papéis trocados — a frase contando só quem tem e-mail e o botão baixando todo
+// mundo do recorte. `comEmail` e `semEmail` estavam DUAS LINHAS acima da faixa
+// e alimentam as tabelas logo abaixo dela: era o erro natural de quem mexesse
+// ali, não uma distração improvável.
+//
+// A TROCA FOI DE "PASSAR O NÚMERO ERRADO" POR "PASSAR O CONJUNTO ERRADO", e só
+// o primeiro tinha rede. O desenho anterior derivava o número DENTRO da faixa,
+// o que fechava a discordância entre a frase e o botão — mas deixava a página
+// escolhendo qual conjunto mandar, e nenhum caso alcança essa escolha (a página
+// é `async` e consulta o Postgres; nada em `testes-dom/` a monta).
+//
+// AGORA HÁ UM PRODUTOR SÓ, e a faixa recebe O OBJETO. Sem um segundo conjunto
+// para escolher, `contatos={comEmail}` deixa de existir como expressão; sem um
+// `Recorte` solto no JSX, um SEGUNDO recorte também não tem como nascer ali.
+//
+// O QUE ISTO NÃO PRENDE, e fica escrito para não prometer rede que não existe.
+// DUAS formas passaram na medição, e as duas exigem escrever código novo de
+// propósito: ADULTERAR o objeto na passagem (`{...tela, achados: tela.comEmail}`
+// — o espalhamento copia os campos, `tsc` aceita, e marca opaca não resolveria
+// porque o espalhamento copiaria a marca junto) e DERIVAR UM SEGUNDO objeto no
+// JSX (`recortarTela(rows, filtro, null)` passado direto à faixa — ali a frase e
+// o botão continuam de acordo entre si, e quem discorda é a faixa contra as
+// tabelas abaixo). O que o desenho fecha é o erro por ENGANO — entregar o
+// conjunto vizinho, que nasce duas linhas acima —, e é a forma que esta tela já
+// viu duas vezes.
+
+/** O que a tela de contatos precisa de cada linha para se recortar. */
+export type ContatoDaTela = ContatoBuscavel & { categoria: string | null };
+
+/**
+ * A tela recortada: o recorte, os três conjuntos e o caso da seção — juntos,
+ * porque separados eles são quatro coisas para manter iguais.
+ */
+export type TelaDeContatos<T extends ContatoDaTela> = {
+  /** O que os DOIS botões de exportar carregam no link. */
+  recorte: Recorte;
+  /** Quem o recorte deixa — o conjunto da LEITURA, e o que a faixa conta. */
+  achados: T[];
+  /** O pedaço de `achados` com e-mail: a seção "Com e-mail" e o botão antigo. */
+  comEmail: T[];
+  /** O outro pedaço. `comEmail` + `semEmail` é exatamente `achados`. */
+  semEmail: T[];
+  /** Qual frase a seção "Com e-mail" mostra — ver `casoDaListaDeEmail`. */
+  caso: CasoDaListaDeEmail;
+};
+
+/**
+ * TUDO O QUE A TELA DERIVA DO RECORTE, num lugar só.
+ *
+ * ELA SUBSTITUI `recorteDaTela`, que só montava o `Recorte`. A montagem
+ * continua aqui dentro (a TERCEIRA PONTA: `recorteDaUrl` é a leitura do lado da
+ * rota, `urlDaExportacao` é a escrita do lado da tela, e esta é a montagem), e
+ * junto vêm os conjuntos que saem dela — que é o ponto: quem tem o recorte tem
+ * os conjuntos, e não há como entregar um sem o outro.
+ *
+ * O `caso` VEM JUNTO PORQUE A FIAÇÃO DELE É O MESMO GÊNERO DE DEFEITO.
+ * `casoDaListaDeEmail` recebe um campo chamado `visiveis`, e na página existe
+ * uma variável com esse nome que é OUTRO conjunto — a categoria SEM a busca, o
+ * conjunto do ENVIO. Enquanto a chamada morava lá, trocar `visiveis:
+ * achados.length` por `visiveis: visiveis.length` atravessava `tsc` e as três
+ * suítes, e reabria em silêncio o ramo `busca_vazia`: busca sem resultado
+ * voltava a mostrar a categoria inteira, com "0 pessoas neste recorte" e um
+ * botão que baixa arquivo vazio. Aqui os quatro campos saem todos do mesmo
+ * recorte, e não há um segundo conjunto ao alcance.
+ *
+ * O QUE ELA NÃO DERIVA: o conjunto do ENVIO (`contatosDoFiltro(rows, filtro)`,
+ * a categoria sem a busca). Ele fica na página de propósito, e o porquê está
+ * escrito lá: o envio IGNORA a busca — quem clica em "todos (127)" e confirma
+ * manda para 127, busque ou não busque. Trazê-lo para cá o poria ao lado dos
+ * conjuntos da leitura, que é justamente a vizinhança que esta função existe
+ * para desfazer.
+ *
+ * PURA E SEM BANCO, como o resto deste módulo: é o que permite a
+ * `tests/exportacao-de-contatos.test.ts` percorrer cada ramo do `caso`, que
+ * enquanto morou na página era guarda sem rede nenhuma.
+ */
+export function recortarTela<T extends ContatoDaTela>(
+  contatos: T[],
+  filtro: FiltroDeCategoria,
+  busca: string | null
+): TelaDeContatos<T> {
+  const recorte: Recorte = { filtro, busca };
+  // PELA MESMA `peneirar` DAS DUAS ROTAS, e nunca um `filter` equivalente
+  // escrito aqui: duas regras iguais em lugares diferentes são duas regras para
+  // manter iguais, e foi assim que a tela e o arquivo divergiram em 11/09/2026.
+  const achados = peneirar(contatos, recorte);
+  // OS DOIS PEDAÇOS SAEM DE `achados`, E NÃO DE `contatos`. Tirados da conta
+  // inteira, a seção "Com e-mail" contaria gente que a tabela dela não mostra.
+  const comEmail = achados.filter((c) => c.email);
+  const semEmail = achados.filter((c) => !c.email);
+  return {
+    recorte,
+    achados,
+    comEmail,
+    semEmail,
+    caso: casoDaListaDeEmail({
+      buscando: busca !== null,
+      visiveis: achados.length,
+      comEmail: comEmail.length,
+      filtrado: filtro.tipo === "uma",
+    }),
+  };
 }
 
 // -----------------------------------------------------------------------------
