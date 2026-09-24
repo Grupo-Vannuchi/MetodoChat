@@ -95,9 +95,9 @@ export default function No({ id, data, isConnectable }: NodeProps & { data: Dado
   // Os dois pintados de âmbar era a tela prometendo uma proteção que só existe
   // para UM deles. A regra do portão (`atravessandoOPortao`, lib/steps.ts) cobre
   // `pedir_follow` e mais nada: quando uma retomada cai adiante dele, o fluxo
-  // volta e o avalia. O `pedir_email` não tem nada disso — numa lista
-  // `[pedir_email, resposta rápida, link]`, quem está parado na resposta rápida
-  // toca no botão e cai no LINK, com o e-mail nunca capturado.
+  // volta e o avalia. O `pedir_dado` não tem nada disso — numa lista
+  // `[pedir_dado, resposta rápida, link]`, quem está parado na resposta rápida
+  // toca no botão e cai no LINK, com o dado nunca capturado.
   //
   // Isso é ESCOPO, não defeito: a decisão foi cobrir só o follow, porque é o
   // follow que sustenta a promessa central do produto. Mas quem monta a
@@ -105,17 +105,17 @@ export default function No({ id, data, isConnectable }: NodeProps & { data: Dado
   // = ninguém passa sem cumprir; verde-azulado = pede uma informação e para até
   // recebê-la, mas quem chegar do outro lado por outro caminho passa.
   //
-  // A cor do e-mail é TEAL, e a escolha é por distância da cor da seleção: o
+  // A cor do pedido de dado é TEAL, e a escolha é por distância da cor da seleção: o
   // bloco selecionado é desenhado com a TINTA, e um tom vizinho ao lado
   // dele viraria "qual destes está selecionado?". Teal não colide com nenhuma
   // das outras quatro — vermelho (erro), tinta (selecionado), âmbar (portão),
   // cinza (o resto) — nem com o sky que o nó de gatilho vai usar na Tarefa 7.
   //
-  // `pedir_email` PARA o fluxo do mesmo jeito (`esperaResposta` diz sim aos
+  // `pedir_dado` PARA o fluxo do mesmo jeito (`esperaResposta` diz sim aos
   // dois), e é por isso que ele também não fica cinza como uma mensagem comum:
   // o que muda entre os dois é a proteção, não a parada.
   const barraDeVerdade = data.passo.tipo === "pedir_follow";
-  const pedeInformacao = data.passo.tipo === "pedir_email";
+  const pedeInformacao = data.passo.tipo === "pedir_dado";
 
   const borda = data.temErro
     ? "border-red-500 dark:border-red-400"

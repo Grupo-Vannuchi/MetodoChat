@@ -74,6 +74,20 @@ Três razões, e a terceira tem prazo de validade:
    reverter". **No dia da primeira migração que MOVE dado, esta ordem tem de ser
    repensada junto com a tabela de controle**, que também não existe ainda.
 
+> **ATUALIZADO EM 23/09/2026 — o dia previsto na razão 3 chegou.**
+> `migrations/012-migrar-email-para-campos.sql` MOVE dado, e a ordem foi
+> repensada: **migração que mexe em dado não roda mais dentro do build**. Ela é
+> adiada pelo script (`SO_A_MAO`, `scripts/migrar.mjs`) e aplicada à mão depois
+> do deploy. A razão 3 continua valendo **para as aditivas**, que são todas as
+> outras. O procedimento inteiro — a janela que isso fecha, como aplicar a `012`
+> e como conferir — está em
+> [`2026-09-23-a-012-sai-do-build.md`](./2026-09-23-a-012-sai-do-build.md).
+>
+> A outra metade da condição, "a tabela de controle, que também não existe
+> ainda", **já estava resolvida quando esta frase foi lida**: `schema_migrations`
+> existe desde `7ee9f9e`. Ler as duas metades juntas foi o que fez o dia parecer
+> distante.
+
 **O `next build` não lê o banco**, e isso foi conferido: toda página que consulta
 o banco é `force-dynamic`, então nada é pré-renderizado a partir dele. A ordem,
 portanto, não é sobre o build precisar do esquema — é sobre falhar cedo e sobre
@@ -98,6 +112,14 @@ script, e continua verdade.
 falha por outro motivo, as colunas novas ficam no banco sem o código novo no ar.
 Isso é inofensivo enquanto as migrações forem aditivas (ver razão 3 acima), e é o
 mesmo estado que o roteiro de 17/08 chama de "ponto de volta sem consequência".
+
+> **ATUALIZADO EM 23/09/2026.** Esta frase declarava o estado inofensivo com uma
+> condição — "enquanto as migrações forem aditivas" —, e a `012` a quebrou: com
+> ela, o banco à frente do código fazia o fluxo **entregar o link sem pedir o
+> dado**, e um `next build` que falhasse deixava esse estado de pé por tempo
+> indeterminado. Migração que mexe em dado deixou de rodar no build justamente
+> por isso; ver [`2026-09-23-a-012-sai-do-build.md`](./2026-09-23-a-012-sai-do-build.md).
+> Para as aditivas, a frase continua verdadeira como está.
 
 ---
 
@@ -218,14 +240,24 @@ produção pula em deploy de branch, de propósito, e o preview fala com o mesmo
 banco. Uma branch com migração nova, em preview, encontra o banco sem ela — e
 agora isso aparece na hora, em vez de virar "testei e funcionou".
 
-### 2 · Migração que MOVE dado não é suportada
+### 2 · ~~Migração que MOVE dado não é suportada~~ — PASSOU A SER, FORA DO BUILD (23/09/2026)
 
-O contrato da pasta `migrations/` é **idempotência**: toda DDL com
-`if not exists`, rodar duas vezes é inofensivo, e **não existe tabela de
-controle** registrando o que já rodou. Renomear coluna preservando conteúdo,
-quebrar uma tabela em duas, remover `flow_step_index` — nada disso cabe aqui
-ainda. **No dia da primeira, a tabela de controle vira obrigatória**, e a ordem
-dentro do `build` tem de ser reexaminada junto.
+Este item envelheceu em duas etapas, e as duas estão escritas para que ninguém
+releia a versão antiga como se valesse:
+
+- **a tabela de controle passou a existir** em `7ee9f9e`: `schema_migrations`,
+  criada pelo próprio `scripts/migrar.mjs`, com a decisão em
+  `scripts/migracoes.mjs` e prova em
+  `testes-integracao/registro-de-migracoes.integracao.ts`;
+- **a ordem foi repensada** em 23/09/2026, com a `012`: migração que mexe em dado
+  é **adiada pelo build** (`SO_A_MAO`, `scripts/migrar.mjs`) e aplicada à mão
+  depois do deploy, com o código novo já no ar.
+
+O contrato da pasta continua sendo **idempotência** para as aditivas — toda DDL
+com `if not exists`, rodar duas vezes é inofensivo. O que mudou é que migração
+não idempotente deixou de ser impossível: ela é possível **e não entra no
+caminho crítico do deploy**. O procedimento está em
+[`2026-09-23-a-012-sai-do-build.md`](./2026-09-23-a-012-sai-do-build.md).
 
 ### 3 · A migração de DADO continua fora da esteira
 
@@ -269,3 +301,14 @@ três de hoje já estão aplicadas em produção.
 
 **Não apague coluna para reverter.** Continua valendo, pelo mesmo motivo de
 17/08: ela é inofensiva parada, e apagá-la obrigaria a refazer a migração.
+
+**E desde 23/09/2026 reverter o deploy é seguro para a `012` ENQUANTO ELA NÃO
+TIVER SIDO APLICADA À MÃO** — só até lá. Ela não roda dentro do build, então
+antes da aplicação manual não há nada a desfazer. **Depois da aplicação, não.**
+O código anterior à branch `coleta-de-dados-parte-1` conhece um formato só de
+pedido, e com os passos já migrados ele entrega o link sem pedir o dado, além de
+apagar o lugar de quem estiver no meio da conversa — medido, e sem erro em lugar
+nenhum. A condição está em negrito porque a versão anterior desta frase a
+omitia. Ver
+[`2026-09-23-a-012-sai-do-build.md`](./2026-09-23-a-012-sai-do-build.md),
+seção "COMO VOLTAR ATRÁS".

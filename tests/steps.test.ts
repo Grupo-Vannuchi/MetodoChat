@@ -12,7 +12,8 @@ import {
   retomadaDoBotao,
   retomadaDoFollow,
   retomadaDoTexto,
-  retomadaDoEmailConhecido,
+  retomadaDoCampoConhecido,
+  chaveDoPedido,
   interrompeOFluxo,
   indiceDoPortao,
   cursorDesta,
@@ -55,6 +56,7 @@ import {
   type Ligacao,
 } from "../lib/steps";
 import type { EnvioDaDm, Problema } from "../lib/steps";
+import { CAMPOS, fraseDaChaveQueColide, fraseDaChaveSemLetra } from "../lib/campos";
 
 // A CORRENTE que a lista sempre teve na prática: bloco 0 → bloco 1 → bloco 2 …,
 // cada seta `{tipo:"sempre"}`. É exatamente o que `scripts/ligar-passos-existentes.mjs`
@@ -185,6 +187,114 @@ describe("interpretar", () => {
     expect(r.ignorados[0].motivo).toBe("dm sem texto");
   });
 
+  // O CAMPO LIVRE SEM CHAVE É BLOCO QUE NÃO SE LÊ DE VOLTA. A chave é o que
+  // vira `{{<chave>}}` numa mensagem (`normalizarChaveLivre`, lib/campos.ts),
+  // então sem ela o pedido sai, a pessoa responde e nenhuma mensagem sabe
+  // chamar a resposta pelo nome — nem a planilha, que desde a exportação
+  // completa faz uma coluna por chave livre (lib/exportacao-de-contatos.ts) e
+  // sem chave não tem cabeçalho nenhum para dar a ela. (Este comentário dizia
+  // que "exportação não entra nessa conta"; entra desde aquela tarefa.)
+  // `conferir` recusa o bloco, e por isso `interpretar` o
+  // ignora — ele nunca chega a ser enviado.
+  it("pula `pedir_dado` livre sem chave, e diz que foi a chave que faltou", () => {
+    const passos = [
+      { tipo: "pedir_dado", campo: "livre", texto: "Qual a sua cidade?" },
+      { tipo: "dm", texto: "vale" },
+    ];
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
+    expect(r.enfileirar.map((a) => a.indice)).toEqual([1]);
+    expect(r.ignorados[0].motivo).toBe("pedir_dado livre sem chave");
+  });
+
+  it("`pedir_dado` livre COM chave é passo válido, e o do catálogo não precisa de chave", () => {
+    // O outro lado do portão acima: a exigência é só do `livre`. Um campo do
+    // catálogo já tem chave — é o próprio `campo` —, e cobrá-la dele barraria
+    // todo pedido de e-mail que existe em produção.
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", texto: "Qual a sua cidade?", chave: "cidade" })
+        .motivo
+    ).toBeUndefined();
+    expect(conferir({ tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" }).motivo).toBeUndefined();
+    // Chave só de espaço é a mesma ausência escrita de outro jeito.
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "   " }).motivo
+    ).toBe("pedir_dado livre sem chave");
+  });
+
+  // A CHAVE LIVRE QUE COLIDE COM CAMPO DO SISTEMA É RECUSADA AQUI, e esta é a
+  // recusa que a Tarefa 5 torna alcançável: é o editor dela que põe o nome do
+  // campo na mão do dono, e "E-mail" é a primeira coisa que alguém digita.
+  //
+  // O QUE ELA IMPEDE, medido contra o banco: um `pedir_dado { campo: "livre",
+  // chave: "email" }` gravava a frase inteira da pessoa em `campos->'email'` e
+  // na coluna `contacts.email`, sem passar por extrator nenhum. O motor tem a
+  // sua própria barreira (`chaveDoPedido` devolve null), mas ali o dono não
+  // fica sabendo de nada — a pergunta sai, a pessoa responde, e a resposta é
+  // descartada em silêncio. Aqui ele fica sabendo ANTES de publicar.
+  it("pula `pedir_dado` livre com chave de campo do SISTEMA, e diz ao dono qual é o bloco certo", () => {
+    const passos = [
+      { tipo: "pedir_dado", campo: "livre", texto: "Qual o seu e-mail?", chave: "E-mail" },
+      { tipo: "dm", texto: "vale" },
+    ];
+    const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "0");
+    expect(r.enfileirar.map((a) => a.indice)).toEqual([1]);
+    expect(r.ignorados[0].motivo).toBe("pedir_dado livre com chave reservada pelo sistema");
+
+    const recusa = conferir(passos[0]);
+    expect(recusa.passo).toBeUndefined();
+    // O dono precisa entender O QUE fazer, e não só que está errado.
+    expect(recusa.paraODono).toContain("e-mail");
+    // A colisão é conferida DEPOIS da normalização — "E-mail", "e mail" e
+    // "EMAIL" são a mesma chave, e só a forma normalizada colide de fato.
+    expect(conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "EMAIL" }).motivo).toBe(
+      "pedir_dado livre com chave reservada pelo sistema"
+    );
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "telefone" }).motivo
+    ).toBe("pedir_dado livre com chave reservada pelo sistema");
+    // E a chave que NÃO colide continua passando — a recusa é da colisão, e não
+    // de toda chave que `normalizarChaveLivre` recusaria: "123" atravessa aqui
+    // de propósito, e quem o trata é a guarda do passo quebrado no motor.
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "cidade" }).motivo
+    ).toBeUndefined();
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "123" }).motivo
+    ).toBeUndefined();
+  });
+
+  // `campo` É OBRIGATÓRIO NO TIPO (`Passo`), mas `conferir` é o único portão que
+  // transforma jsonb em `Passo` — sem esta guarda ele afirmaria `campo: string`
+  // sobre um objeto sem campo nenhum, ou com um campo que o catálogo
+  // (`lib/campos.ts`) não conhece. Hoje isso não muda comportamento nenhum (o
+  // motor ainda não lê `campo`), mas a Tarefa 4 vai indexar o catálogo por ele
+  // — um `campo` ausente, numérico ou desconhecido viraria `undefined` lá
+  // dentro, no meio de atender uma mensagem de verdade. Um campo que o catálogo
+  // não conhece é tão ruim quanto um campo ausente: as duas recusam aqui.
+  it("pula `pedir_dado` sem `campo`, com `campo` que não é string, ou com `campo` que o catálogo não conhece", () => {
+    const semCampo = conferir({ tipo: "pedir_dado", texto: "Seu e-mail?" });
+    expect(semCampo.motivo).toBe("pedir_dado sem campo válido");
+    expect(semCampo.passo).toBeUndefined();
+
+    const campoNumero = conferir({ tipo: "pedir_dado", campo: 123, texto: "Seu e-mail?" });
+    expect(campoNumero.motivo).toBe("pedir_dado sem campo válido");
+    expect(campoNumero.passo).toBeUndefined();
+
+    const campoDesconhecido = conferir({
+      tipo: "pedir_dado",
+      campo: "campo_que_nao_existe",
+      texto: "Seu e-mail?",
+    });
+    expect(campoDesconhecido.motivo).toBe("pedir_dado sem campo válido");
+    expect(campoDesconhecido.passo).toBeUndefined();
+
+    // "livre" continua válido mesmo sem estar no catálogo — é o valor
+    // reservado para campo de texto livre, com a chave à parte.
+    expect(
+      conferir({ tipo: "pedir_dado", campo: "livre", chave: "cidade", texto: "Sua cidade?" }).motivo
+    ).toBeUndefined();
+  });
+
   it("lista que não é lista não estoura", () => {
     const r = interpretar({ steps: null, ligacoes: [] }, "0");
     expect(r.enfileirar).toEqual([]);
@@ -259,11 +369,11 @@ describe("passoEsperado", () => {
     const passos = [
       { tipo: "dm", texto: "oi", botao_label: "quero!" },
       { tipo: "pedir_follow", texto: "me segue", botao_label: "já sigo" },
-      { tipo: "pedir_email", texto: "seu e-mail?" },
+      { tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" },
     ];
     expect(passoEsperado(passos, 0)?.tipo).toBe("dm");
     expect(passoEsperado(passos, 1)?.tipo).toBe("pedir_follow");
-    expect(passoEsperado(passos, 2)?.tipo).toBe("pedir_email");
+    expect(passoEsperado(passos, 2)?.tipo).toBe("pedir_dado");
   });
 
   it("não devolve passo que não espera nada", () => {
@@ -277,9 +387,9 @@ describe("passoEsperado", () => {
   });
 
   it("não devolve passo que o interpretador ignoraria", () => {
-    // O ramo do cursor não pode tratar como pedido de e-mail um passo que nunca
-    // chegou a ser enviado: ele consumiria a mensagem da pessoa como endereço.
-    expect(passoEsperado([{ tipo: "pedir_email" }], 0)).toBeUndefined();
+    // O ramo do cursor não pode tratar como pedido de dado um passo que nunca
+    // chegou a ser enviado: ele consumiria a mensagem da pessoa como resposta.
+    expect(passoEsperado([{ tipo: "pedir_dado", campo: "email" }], 0)).toBeUndefined();
     expect(passoEsperado([{ tipo: "pedir_follow", botao_label: "x" }], 0)).toBeUndefined();
     expect(passoEsperado([{ tipo: "inventado" }], 0)).toBeUndefined();
   });
@@ -304,10 +414,120 @@ describe("passoEsperado", () => {
     // contra mudança de implementação, não contra dado do banco.
     const passos = [
       { tipo: "dm", texto: "oi", botao_label: "quero!" },
-      { tipo: "pedir_email", texto: "seu e-mail?" },
+      { tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" },
     ];
     expect(passoEsperado(passos, -1)).toBeUndefined();
     expect(passoEsperado(passos, -2)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A JANELA DO DEPLOY, E ELA É SIMÉTRICA — o motor novo tem de servir os DOIS
+// formatos do pedido de dado, no mesmo dia.
+//
+// O QUE ABRE A JANELA: a migração `012` reescreve `tipo: "pedir_email"` para
+// `tipo: "pedir_dado", campo: "email"`. Enquanto ela rodava DENTRO do `build`
+// (`package.json`), o dado já estava migrado e o CÓDIGO VELHO — a aplicação
+// anterior, que continua atendendo o webhook até o deploy ser promovido —
+// ainda servia produção. Nessa janela, `conferir` do código velho não conhecia
+// `pedir_dado`: `interpretar` IGNORAVA o pedido e ENTREGAVA O LINK sem pedir
+// nada, e quem estava com o cursor em cima do bloco perdia o lugar na conversa
+// (`passoEsperado` → undefined → `limparCursor`, lib/engine.ts).
+//
+// A janela tem DUAS metades e as duas vazam o link, medido na varredura da
+// branch no arranjo de produção `[dm "oi", pedido, dm com o link]`:
+//
+//   VELHO/MIGRADO → ["oi!","AQUI ESTA O LINK"], motivo "tipo desconhecido: pedir_dado"
+//   NOVO/VELHO    → ["oi!","AQUI ESTA O LINK"], motivo "tipo desconhecido: pedir_email"
+//
+// O CONSERTO É BILÍNGUE, E SÓ DE UM LADO: o código NOVO aceita `pedir_email`
+// como APELIDO de `pedir_dado { campo: "email" }`, traduzindo na LEITURA
+// (`conferir`, lib/steps.ts). Com isso a `012` sai do caminho crítico — ela
+// passa a ser limpeza de formato, aplicada à mão num momento calmo —, os dois
+// formatos servem ao mesmo tempo em qualquer ordem, e REVERTER o deploy volta a
+// ser seguro. O procedimento está em `docs/deploy/2026-09-23-a-012-sai-do-build.md`.
+//
+// ESTES CASOS SÃO OS DOIS LADOS DA JANELA, e é por isso que são dois e não um:
+// um só provaria a metade que a branch inteira já assumia.
+// ---------------------------------------------------------------------------
+describe("a janela do deploy: o motor novo serve os DOIS formatos do pedido", () => {
+  // O arranjo EXATO de produção, o mesmo que a varredura mediu.
+  function arranjo(pedido: unknown) {
+    return [
+      { id: "b_oi0001", tipo: "dm", texto: "oi!" },
+      pedido,
+      { id: "b_lnk001", tipo: "dm", texto: "AQUI ESTA O LINK", url: "https://x.y" },
+    ];
+  }
+
+  const VELHO = { id: "b_ped001", tipo: "pedir_email", texto: "Qual seu e-mail?" };
+  const MIGRADO = {
+    id: "b_ped001",
+    tipo: "pedir_dado",
+    campo: "email",
+    texto: "Qual seu e-mail?",
+  };
+
+  for (const [lado, pedido] of [
+    ["passo VELHO (`pedir_email`), ainda não migrado", VELHO],
+    ["passo MIGRADO (`pedir_dado`) pela `012`", MIGRADO],
+  ] as const) {
+    it(`pede o dado e PARA esperando a resposta — ${lado}`, () => {
+      const passos = arranjo(pedido);
+      const r = interpretar({ steps: passos, ligacoes: emCorrente(passos) }, "b_oi0001");
+
+      // O LINK NÃO SAI. Esta é a promessa central do produto, e é ela que a
+      // janela quebrava nas duas direções.
+      expect(r.enfileirar.map((a) => a.indice)).toEqual([0, 1]);
+      expect(r.ignorados).toEqual([]);
+      // E o fluxo PARA no pedido, esperando a resposta chegar.
+      expect(r.pararEm).toBe("b_ped001");
+    });
+
+    it(`o contato com o cursor EM CIMA do bloco não perde o lugar — ${lado}`, () => {
+      const passos = arranjo(pedido);
+      // `passoEsperado` devolver undefined é o que leva o motor a `limparCursor`
+      // (lib/engine.ts): a resposta que a pessoa acabou de mandar é descartada e
+      // o lugar dela na conversa, apagado.
+      const esperado = passoEsperado(passos, 1);
+      expect(esperado).toBeDefined();
+      // E ele chega ao resto do sistema já no formato NOVO: o apelido é
+      // traduzido na leitura, e quem está a jusante continua conhecendo um
+      // formato só.
+      expect(esperado!.tipo).toBe("pedir_dado");
+      expect(chaveDoPedido(esperado!)).toBe("email");
+    });
+  }
+
+  it("o apelido é a MESMA tradução que a `012` faz, e preserva o resto do bloco", () => {
+    // `(p - 'tipo') || jsonb_build_object('tipo','pedir_dado','campo','email')`
+    // (migrations/012): o `id` fica — é ele que liga as setas e é o que o cursor
+    // de quem está no meio da conversa guarda —, o `texto` fica, a `pos` fica, e
+    // o `campo` é sobrescrito mesmo quando já havia um gravado.
+    const { passo } = conferir({
+      id: "b_ped001",
+      tipo: "pedir_email",
+      texto: "Qual seu e-mail?",
+      pos: { x: 10, y: 20 },
+      campo: "telefone",
+    });
+    expect(passo).toEqual({
+      id: "b_ped001",
+      tipo: "pedir_dado",
+      campo: "email",
+      texto: "Qual seu e-mail?",
+      pos: { x: 10, y: 20 },
+    });
+  });
+
+  it("o apelido não afrouxa a recusa: `pedir_email` SEM TEXTO continua recusado", () => {
+    // O `conferir` anterior à renomeação já exigia `texto` para `pedir_email`, e
+    // traduzir na leitura não pode inventar o que falta. O motivo sai no
+    // vocabulário NOVO porque o bloco já foi traduzido — é o mesmo bloco, com
+    // o mesmo defeito.
+    const r = conferir({ id: "b_ped001", tipo: "pedir_email" });
+    expect(r.passo).toBeUndefined();
+    expect(r.motivo).toBe("pedir_dado sem texto");
   });
 });
 
@@ -654,7 +874,7 @@ describe("retomadaDoBotao", () => {
     // `emailAskKey` no balde do dia.
     const passos = [
       { id: "b_bem001", tipo: "dm", texto: "oi", botao_label: "quero!" },
-      { id: "b_eml004", tipo: "pedir_email", texto: "seu e-mail?" },
+      { id: "b_eml004", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" },
       { id: "b_lnk003", tipo: "dm", texto: "o link", url: "https://x.y" },
     ];
     expect(
@@ -667,7 +887,7 @@ describe("retomadaDoBotao", () => {
     // texto: `interpretar` o ignora, logo ele nunca foi enviado.
     const comPedidoQuebrado = [
       { id: "b_bem001", tipo: "dm", texto: "oi", botao_label: "quero!" },
-      { id: "b_eml004", tipo: "pedir_email", texto: "   " }, // texto em branco
+      { id: "b_eml004", tipo: "pedir_dado", campo: "email", texto: "   " }, // texto em branco
     ];
     // Sem tipo, segue a seta — e não há seta saindo do último bloco, então o
     // destino é `null`: nada a entregar. Era o `+1` que caía além do fim da
@@ -780,7 +1000,7 @@ describe("retomadaDoFollow", () => {
   const comEmailDepoisDoPortao = [
     { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0
     { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 1 portão
-    { id: "b_eml004", tipo: "pedir_email", texto: "seu e-mail?" }, // 2
+    { id: "b_eml004", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 2
     { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" }, // 3
   ];
 
@@ -866,7 +1086,7 @@ describe("retomadaDoFollow", () => {
     // desses a alcança.
     const portaoLaAtras = [
       { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0 parada dura
-      { id: "b_eml004", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_eml004", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 1
       { id: "b_esp005", tipo: "esperar", minutos: 5 }, // 2
       { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 3 portão
       { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" }, // 4
@@ -914,7 +1134,7 @@ describe("retomadaDoTexto", () => {
   const lista = [
     { id: "b_bem001", tipo: "dm", texto: "Oi!", botao_label: "Quero" }, // 0 resposta rápida
     { id: "b_por002", tipo: "pedir_follow", texto: "Me segue", botao_label: "Já sigo" }, // 1
-    { id: "b_eml004", tipo: "pedir_email", texto: "seu e-mail?" }, // 2
+    { id: "b_eml004", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 2
     { id: "b_lnk003", tipo: "dm", texto: "Link", url: "https://x.com" }, // 3
   ];
 
@@ -1041,7 +1261,103 @@ describe("retomadaDoTexto", () => {
   });
 });
 
-describe("retomadaDoEmailConhecido", () => {
+describe("chaveDoPedido", () => {
+  // Ela decide ONDE o valor de uma pessoa real vai parar dentro de
+  // `contacts.campos`. Errá-la grava o telefone na chave do e-mail — e por isso
+  // ela saiu de lib/engine.ts, onde nenhum teste a alcançava.
+
+  it("campo do catálogo: a chave é o próprio campo", () => {
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "email", texto: "?" })).toBe("email");
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "telefone", texto: "?" })).toBe("telefone");
+  });
+
+  it("campo LIVRE: a chave é a do passo, e não a palavra `livre`", () => {
+    // Sem esta linha, TODO campo livre de TODA automação gravaria na mesma
+    // chave `livre`, uma por cima da outra.
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "cidade" })).toBe(
+      "cidade"
+    );
+    expect(
+      chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "  cidade  " })
+    ).toBe("cidade");
+  });
+
+  it("campo LIVRE com chave de campo do CATÁLOGO é null — ninguém grava por cima do e-mail de verdade", () => {
+    // O DEFEITO QUE ISTO FECHA, medido contra o banco na revisão da Tarefa 4:
+    // um passo `pedir_dado { campo: "livre", chave: "email" }` e a resposta
+    // "moro em Sorocaba desde 1990" gravavam essa frase em `campos->'email'` E
+    // na coluna `contacts.email` — porque o `case when $3 = 'email'` de
+    // `gravarCampo` (lib/engine.ts) dispara sobre a CHAVE, e a chave saía daqui
+    // CRUA. O e-mail de um contato real virava uma frase, e os seis leitores da
+    // coluna passavam a carregar lixo sem nada acusar.
+    //
+    // Quem sabe o que colide é `normalizarChaveLivre` (lib/campos.ts) — a mesma
+    // função que o editor usa para gravar a chave, e não uma segunda lista
+    // escrita aqui, que divergiria do catálogo no primeiro campo novo.
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "email" })).toBe(
+      null
+    );
+    expect(
+      chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "E-mail" })
+    ).toBe(null);
+    expect(
+      chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "Telefone" })
+    ).toBe(null);
+  });
+
+  it("campo LIVRE: o motor NORMALIZA a chave que o editor gravou crua", () => {
+    // QUEM NORMALIZA É ESTE LADO, e não o editor: desde o conserto do rascunho,
+    // `painel.tsx` grava em `passo.chave` o texto CRU que o dono digitou (o
+    // porquê — uma perda de dado medida na tela — está lá, no `onChange` de
+    // `ChaveDoCampoLivre`). Este caso já se chamou "do mesmo jeito que o editor
+    // a grava", e ensinava o contrato contrário ao que o mesmo commit escreveu.
+    //
+    // As asserções não mudaram porque o que elas medem continua sendo o certo:
+    // o motor tem de chegar na MESMA string em que o dado é lido de volta,
+    // venha a chave crua (bloco salvo hoje) ou já normalizada (bloco salvo
+    // antes daquele conserto). É a idempotência de `normalizarChaveLivre`
+    // (lib/campos.ts) que faz as duas formas convergirem.
+    expect(
+      chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "Cidade Natal" })
+    ).toBe("cidade_natal");
+    // E a chave JÁ normalizada atravessa inteira — é a forma que está gravada
+    // nas automações salvas ANTES daquele conserto, e abrir o painel delas não
+    // pode mudar nada no banco.
+    expect(
+      chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "cidade_natal" })
+    ).toBe("cidade_natal");
+  });
+
+  it("livre sem chave utilizável é null, e não string vazia", () => {
+    // `conferirBloco` já barra o bloco antes de salvar; o que sobra é automação
+    // gravada antes desta fase, ou `steps` editado por fora. O motor trata o
+    // null como "não dá para gravar" e SEGUE o fluxo — uma chave vazia gravaria
+    // sob `""`, que ninguém lê nunca mais.
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?" })).toBe(null);
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "   " })).toBe(
+      null
+    );
+    // E CHAVE QUE NÃO VIRA VARIÁVEL também é null, não uma chave esquisita:
+    // `conferir` (acima) só cobra que a chave EXISTA, então "123" e "🔥"
+    // atravessam o salvar e chegam vivos ao motor. Gravar o dado de alguém sob
+    // `123` seria gravar onde ninguém lê — a guarda do passo quebrado em
+    // lib/engine.ts é quem trata este null, e o caso que a prende está em
+    // testes-integracao/coleta-de-dados.integracao.ts.
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "123" })).toBe(
+      null
+    );
+    expect(chaveDoPedido({ tipo: "pedir_dado", campo: "livre", texto: "?", chave: "🔥" })).toBe(
+      null
+    );
+  });
+
+  it("passo que não é pedido de dado não tem chave", () => {
+    expect(chaveDoPedido({ tipo: "dm", texto: "oi" })).toBe(null);
+    expect(chaveDoPedido({ tipo: "pedir_follow", texto: "segue lá", botao_label: "Já sigo!" })).toBe(null);
+  });
+});
+
+describe("retomadaDoCampoConhecido", () => {
   // O QUINTO ponto de retomada, e o último a sair de lib/engine.ts. Ele foi o
   // único dos seis pontos da Tarefa 3b que perdeu a aritmética `+ 1` e MESMO
   // ASSIM continuou fora da regra do portão: `seguinteDe` devolve string, e
@@ -1058,7 +1374,7 @@ describe("retomadaDoEmailConhecido", () => {
     // e o link era enfileirado com o `pedir_follow` nunca avaliado.
     const comJuncao = [
       { id: "b_bem00001", tipo: "dm", texto: "oi" }, // 0 entrada
-      { id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_eml00002", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 1
       { id: "b_lnk00003", tipo: "dm", texto: "toma", url: "https://x.y" }, // 2 o link
       { id: "b_por00004", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 3
     ];
@@ -1068,7 +1384,7 @@ describe("retomadaDoEmailConhecido", () => {
       { de: "b_por00004", quando: { tipo: "sempre" }, para: "b_lnk00003" }, // a junção
     ];
     expect(indiceDoPortao(comJuncao)).toBe(3);
-    expect(retomadaDoEmailConhecido({ steps: comJuncao, ligacoes }, 1)).toEqual({
+    expect(retomadaDoCampoConhecido({ steps: comJuncao, ligacoes }, 1)).toEqual({
       portao: 3,
       destino: "b_lnk00003",
     });
@@ -1086,7 +1402,7 @@ describe("retomadaDoEmailConhecido", () => {
     // é o link. É o que faz os dois pousarem no mesmo bloco.
     const passos = [
       { id: "b_men00001", tipo: "dm", texto: "escolha", botao_label: "quero" }, // 0
-      { id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_eml00002", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 1
       { id: "b_lnk00003", tipo: "dm", texto: "toma", url: "https://x.y" }, // 2
       { id: "b_por00004", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 3
     ];
@@ -1097,7 +1413,7 @@ describe("retomadaDoEmailConhecido", () => {
     ];
     const esperado = { portao: 3, destino: "b_lnk00003" };
     expect(retomadaDoFallback({ steps: passos, ligacoes })).toEqual(esperado);
-    expect(retomadaDoEmailConhecido({ steps: passos, ligacoes }, 1)).toEqual(esperado);
+    expect(retomadaDoCampoConhecido({ steps: passos, ligacoes }, 1)).toEqual(esperado);
   });
 
   it("sem portão no caminho, segue a seta `sempre` e não desvia ninguém", () => {
@@ -1106,37 +1422,37 @@ describe("retomadaDoEmailConhecido", () => {
     // comparação de posição fazia.
     const doisBracos = [
       { id: "b_por00001", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 0
-      { id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }, // 1
+      { id: "b_eml00002", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 1
       { id: "b_out00003", tipo: "dm", texto: "o outro braço" }, // 2
     ];
     const ligacoes = [
       { de: "b_eml00002", quando: { tipo: "sempre" }, para: "b_out00003" },
     ];
-    expect(retomadaDoEmailConhecido({ steps: doisBracos, ligacoes }, 1)).toEqual({
+    expect(retomadaDoCampoConhecido({ steps: doisBracos, ligacoes }, 1)).toEqual({
       portao: null,
       destino: "b_out00003",
     });
   });
 
   it("bloco sem seta `sempre` saindo, e lista que não é lista, devolvem destino null", () => {
-    const lista = [{ id: "b_eml00002", tipo: "pedir_email", texto: "seu e-mail?" }];
-    expect(retomadaDoEmailConhecido({ steps: lista, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
-    expect(retomadaDoEmailConhecido({ steps: null, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
+    const lista = [{ id: "b_eml00002", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }];
+    expect(retomadaDoCampoConhecido({ steps: lista, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
+    expect(retomadaDoCampoConhecido({ steps: null, ligacoes: [] }, 0)).toEqual({ portao: null, destino: null });
     // Índice fora da lista: sem identidade não há de onde sair.
-    expect(retomadaDoEmailConhecido({ steps: lista, ligacoes: [] }, 7)).toEqual({ portao: null, destino: null });
+    expect(retomadaDoCampoConhecido({ steps: lista, ligacoes: [] }, 7)).toEqual({ portao: null, destino: null });
   });
 
   it("A REGRA É A MESMA das outras quatro — o portão a montante desvia, o de outro braço não", () => {
     // A prova de que este ponto não ganhou regra própria: nos dois arranjos
     // abaixo o destino é o mesmo bloco, e o que decide é só o CAMINHO.
     const passos = [
-      { id: "b_eml00001", tipo: "pedir_email", texto: "seu e-mail?" }, // 0
+      { id: "b_eml00001", tipo: "pedir_dado", campo: "email", texto: "seu e-mail?" }, // 0
       { id: "b_lnk00002", tipo: "dm", texto: "toma", url: "https://x.y" }, // 1
       { id: "b_por00003", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" }, // 2
     ];
     const base = [{ de: "b_eml00001", quando: { tipo: "sempre" }, para: "b_lnk00002" }];
     // Portão sem seta nenhuma: não alcança o link, não desvia.
-    expect(retomadaDoEmailConhecido({ steps: passos, ligacoes: base }, 0)).toEqual({
+    expect(retomadaDoCampoConhecido({ steps: passos, ligacoes: base }, 0)).toEqual({
       portao: null,
       destino: "b_lnk00002",
     });
@@ -1147,7 +1463,7 @@ describe("retomadaDoEmailConhecido", () => {
       ...base,
       { de: "b_por00003", quando: { tipo: "botao", botao: "op_aaaaaa" }, para: "b_lnk00002" },
     ];
-    expect(retomadaDoEmailConhecido({ steps: passos, ligacoes: comBotao }, 0)).toEqual({
+    expect(retomadaDoCampoConhecido({ steps: passos, ligacoes: comBotao }, 0)).toEqual({
       portao: 2,
       destino: "b_lnk00002",
     });
@@ -2868,17 +3184,253 @@ describe("conferirLista", () => {
     expect(r[0].indice).toBe(2);
   });
 
-  it("ERRO: dois pedidos de e-mail — o segundo é pulado antes de ser enviado", () => {
-    // O motivo NÃO é a chave, e a diferença importa para a mensagem: o ramo
-    // `pedir_email` de lib/engine.ts PULA o bloco quando o e-mail do contato já
-    // é conhecido, e depois do primeiro pedido respondido ele já está gravado.
-    // `emailAskKey(auto, pessoa, dia)` — igual para os dois — só decide quando
-    // os dois chegam a ser enfileirados no mesmo dia sem resposta entre eles.
-    const um = { id: "b_eml011", tipo: "pedir_email", texto: "Seu e-mail?" };
-    const dois = { id: "b_eml012", tipo: "pedir_email", texto: "E agora o e-mail?" };
+  it("ERRO: dois pedidos do MESMO campo — o segundo é pulado antes de ser enviado", () => {
+    // O motivo NÃO é só a chave, e a diferença importa para a mensagem: o ramo
+    // `pedir_dado` de lib/engine.ts PULA o bloco quando o campo do contato já
+    // está gravado e fresco, e depois do primeiro pedido respondido ele está.
+    // `emailAskKey(auto, pessoa, CAMPO, dia)` — igual para os dois, porque o
+    // campo é o mesmo — só decide quando os dois chegam a ser enfileirados no
+    // mesmo dia sem resposta entre eles.
+    const um = { id: "b_eml011", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" };
+    const dois = { id: "b_eml012", tipo: "pedir_dado", campo: "email", texto: "E agora o e-mail?" };
     const r = erros([bem, um, dois]);
     expect(r).toHaveLength(1);
     expect(r[0].indice).toBe(2);
+  });
+
+  // ---------------------------------------------------------------------------
+  // A REGRA É POR CAMPO, E NÃO POR TIPO — e estes três casos são o que separa as
+  // duas coisas.
+  //
+  // Enquanto a paleta só montava "Pedir e-mail", "um por tipo" e "um por campo"
+  // davam a MESMA resposta, e a tabela `SO_UM_POR_LISTA` era indexada por tipo.
+  // Com os cinco itens da paleta elas deixaram de coincidir: "Pedir e-mail" e
+  // "Pedir telefone" na mesma automação são dois blocos legítimos, e a regra por
+  // tipo os recusava com uma frase que nem descrevia o que o dono tinha feito.
+  // ---------------------------------------------------------------------------
+
+  it("dois pedidos de campos DIFERENTES passam — é automação legítima", () => {
+    const email = { id: "b_eml031", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" };
+    const tel = { id: "b_tel032", tipo: "pedir_dado", campo: "telefone", texto: "Seu WhatsApp?" };
+    expect(erros([bem, email, tel])).toHaveLength(0);
+  });
+
+  it("a mensagem nomeia o campo que o dono repetiu, e não o e-mail de sempre", () => {
+    // A frase antiga dizia "Só pode haver um pedido de e-mail" para QUALQUER
+    // campo repetido. Num par de pedidos de telefone ela descrevia um bloco que
+    // não estava na lista, e o dono procuraria um pedido de e-mail que não
+    // existe.
+    const um = { id: "b_tel033", tipo: "pedir_dado", campo: "telefone", texto: "Seu WhatsApp?" };
+    const dois = { id: "b_tel034", tipo: "pedir_dado", campo: "telefone", texto: "De novo?" };
+    const r = erros([bem, um, dois]);
+    expect(r).toHaveLength(1);
+    expect(r[0].mensagem).toMatch(/telefone/i);
+    expect(r[0].mensagem).not.toMatch(/e-mail/i);
+  });
+
+  // A FRASE USA O `nomeCurto`, E NÃO O `rotulo` — a terceira das três telas
+  // estreitas que nomeiam o bloco, e a única que estava SEM CASO.
+  //
+  // Uma varredura plantou `rotulo` nas três (esta, a faixa da paleta e o título
+  // do nó, `app/automacoes/editor/modelos.ts`) e as outras duas acusaram na
+  // hora. Esta ficou VERDE: o caso acima cobra `/telefone/i`, e
+  // "telefone / whatsapp" também casa. O estrago que passava era uma frase de
+  // erro dizendo "Só pode haver um pedido de telefone / whatsapp" — a barra no
+  // meio da oração, num painel em que o dono precisa reconhecer o item que ele
+  // arrastou da faixa.
+  //
+  // O CASO É SOBRE A REGRA, e não sobre uma string: ele varre o catálogo e
+  // cobra o nome curto de TODO campo cujos dois nomes diferem. Um campo novo com
+  // rótulo comprido entra nesta volta sozinho.
+  it("a frase do campo repetido usa o nome CURTO do campo, e não o rótulo cheio", () => {
+    const comprido = CAMPOS.filter((c) => c.nomeCurto !== c.rotulo);
+    // Se um dia os dois nomes coincidirem em todo o catálogo, este caso deixa de
+    // distinguir as duas leituras — e aí ele tem de acusar, e não passar calado.
+    expect(comprido.length).toBeGreaterThan(0);
+
+    for (const campo of comprido) {
+      const um = { id: "b_rep051", tipo: "pedir_dado", campo: campo.chave, texto: "Me diz?" };
+      const dois = { id: "b_rep052", tipo: "pedir_dado", campo: campo.chave, texto: "De novo?" };
+      const r = erros([bem, um, dois]);
+      expect(r, campo.chave).toHaveLength(1);
+      // O ponto final é o que separa as duas leituras: com o rótulo cheio a
+      // frase seguiria em " / whatsapp." ou teria começado em "data de ".
+      expect(r[0].mensagem, campo.chave).toContain(
+        `Só pode haver um pedido de ${campo.nomeCurto.toLowerCase()}.`
+      );
+      expect(r[0].mensagem.toLowerCase(), campo.chave).not.toContain(campo.rotulo.toLowerCase());
+    }
+  });
+
+  it("dois campos livres com a MESMA chave são recusados; com chaves diferentes, não", () => {
+    // O campo livre não tem `campo` próprio — os dois são `"livre"` —, então a
+    // identidade dele é a CHAVE normalizada (`chaveDoPedido`, lib/steps.ts). Sem
+    // isso, ou dois campos livres diferentes ("cidade" e "profissão") seriam
+    // recusados à toa, ou dois iguais passariam.
+    const cidade = {
+      id: "b_liv035", tipo: "pedir_dado", campo: "livre", chave: "cidade", texto: "Sua cidade?",
+    };
+    // A MESMA chave escrita de outro jeito: a normalização é quem as iguala.
+    const cidadeDeNovo = {
+      id: "b_liv036", tipo: "pedir_dado", campo: "livre", chave: "Cidade", texto: "De novo?",
+    };
+    const profissao = {
+      id: "b_liv037", tipo: "pedir_dado", campo: "livre", chave: "profissao", texto: "Trabalha com?",
+    };
+    expect(erros([bem, cidade, cidadeDeNovo])).toHaveLength(1);
+    expect(erros([bem, cidade, profissao])).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // AS DUAS GUARDAS DE `soUmPorCampo` QUE NÃO TINHAM DONO. Uma revisão plantou
+  // um defeito em cada e as 1713 linhas da suíte ficaram verdes nas duas.
+  // ---------------------------------------------------------------------------
+
+  it("chave que não vira variável NÃO entra na regra do campo repetido", () => {
+    // A GUARDA É `if (identidade === null) return null` (`soUmPorCampo`,
+    // lib/steps.ts). Trocá-la por `?? "sem-chave"` agrupa TODO bloco de chave
+    // ilegível sob a mesma identidade, e o segundo deles recebe, na cara do
+    // dono, "Só pode haver um pedido de sem-chave" — um erro dizendo que ele
+    // repetiu um campo que ele não repetiu.
+    //
+    // "123" e "456" são CHAVES DIFERENTES para quem lê a tela, e as duas são
+    // ilegíveis para `chaveDoPedido`, que devolve `null` nas duas. Cada bloco já
+    // é acusado por conta própria (a regra da chave que não vira variável), e é
+    // essa a frase que diz o que fazer.
+    const cento = {
+      id: "b_liv041", tipo: "pedir_dado", campo: "livre", chave: "123", texto: "Quantos?",
+    };
+    const quatro = {
+      id: "b_liv042", tipo: "pedir_dado", campo: "livre", chave: "456", texto: "E agora?",
+    };
+    const r = erros([bem, cento, quatro]);
+
+    // Um erro por bloco, e nenhum deles é o de campo repetido.
+    expect(r).toHaveLength(2);
+    expect(r.map((p) => p.mensagem).join(" ")).not.toMatch(/só pode haver um pedido/i);
+    expect(r.every((p) => p.mensagem === fraseDaChaveSemLetra())).toBe(true);
+  });
+
+  it("um campo livre chamado como um tipo de bloco não colide com o bloco", () => {
+    // A GUARDA É O PREFIXO `pedir_dado:` na identidade (`soUmPorCampo`,
+    // lib/steps.ts). Sem ele, a identidade de um campo livre é a chave NUA, e
+    // ela cai no mesmo conjunto (`jaVistos`) que guarda as identidades por TIPO
+    // de `SO_UM_POR_LISTA`.
+    //
+    // O CAMINHO REAL: o dono cria um campo livre chamado "reagir story" —
+    // `normalizarChaveLivre` devolve `reagir_story` —, e na mesma automação há
+    // um coraçãozinho. Sem o prefixo, o segundo bloco é recusado por causa do
+    // primeiro, e a automação legítima não salva, com uma frase que fala de
+    // reação à story para quem repetiu coisa nenhuma.
+    const livre = {
+      id: "b_liv043", tipo: "pedir_dado", campo: "livre", chave: "reagir story", texto: "Qual?",
+    };
+    const coracao = { id: "b_rea044", tipo: "reagir_story", emoji: "❤️" };
+
+    expect(erros([bem, livre, coracao], "story")).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // A CHAVE LIVRE QUE NÃO VIRA VARIÁVEL — a dívida que a Tarefa 4 registrou.
+  // ---------------------------------------------------------------------------
+
+  it("ERRO: chave livre que não vira variável trava o salvar, e diz o que fazer", () => {
+    // ATÉ AQUI ELA ATRAVESSAVA: `conferir` cobra só que a chave EXISTA, e
+    // `chave: "123"` passava o salvar. No motor, `chaveDoPedido` devolve `null`,
+    // o fluxo SEGUE sem gravar nada, e o dono nunca fica sabendo — a pergunta
+    // sai, a pessoa responde, e a resposta some. Quem travava isso era o editor,
+    // apagando o que a pessoa digitou; o preço daquilo está nos casos de DOM.
+    const cento = {
+      id: "b_liv045", tipo: "pedir_dado", campo: "livre", chave: "123", texto: "Quantos?",
+    };
+    const r = erros([bem, cento]);
+    expect(r).toHaveLength(1);
+    expect(r[0].indice).toBe(1);
+    expect(r[0].quando).toBe("salvar");
+    expect(r[0].mensagem).toBe(fraseDaChaveSemLetra());
+
+    // E O BLOCO CONTINUA SENDO BLOCO PARA O MOTOR, que é por que a regra mora
+    // em `conferirLista` e não em `conferir`: recusar lá o faria sumir da lista
+    // interpretada e levaria junto as guardas que dependem de ele chegar aqui.
+    expect(conferir(cento).passo).toBeTruthy();
+
+    // A chave que VIRA variável não acende nada.
+    const cidade = {
+      id: "b_liv046", tipo: "pedir_dado", campo: "livre", chave: "cidade", texto: "Onde?",
+    };
+    expect(erros([bem, cidade])).toHaveLength(0);
+  });
+
+  it("a recusa é SÓ do campo livre: bloco do catálogo com `chave` perdida não trava o salvar", () => {
+    // A GUARDA É `passo.campo === "livre"` na condição da regra (lib/steps.ts).
+    // Sem ela, a regra passa a olhar a `chave` de QUALQUER pedido de dado — e
+    // um bloco do catálogo pode ter uma `chave` perdida no jsonb: `steps`
+    // gravado por fora do editor, ou um bloco que já foi livre e virou pedido
+    // de e-mail numa edição anterior. O `campo` dele manda; a `chave` é lixo
+    // que `chaveDoPedido` (lib/steps.ts) nem lê.
+    //
+    // O ESTRAGO MEDIDO: com a guarda fora, este bloco trava o salvar com "O
+    // nome deste campo precisa ter pelo menos uma letra" — e o painel do editor
+    // NÃO desenha o campo "Nome do campo" para bloco de catálogo
+    // (`ChaveDoCampoLivre` só aparece com `campo === "livre"`,
+    // app/automacoes/editor/painel.tsx). O dono vê o salvar travado por um nome
+    // que ele não tem onde consertar, e a frase manda ele escrever "cidade" num
+    // campo que a tela não mostra. É a pior forma de travar: sem saída.
+    const doCatalogo = {
+      id: "b_eml048", tipo: "pedir_dado", campo: "email", chave: "123", texto: "Seu e-mail?",
+    };
+    expect(erros([bem, doCatalogo])).toHaveLength(0);
+
+    // E o livre com a MESMA chave continua travando — é o outro lado da guarda.
+    const livre = {
+      id: "b_liv049", tipo: "pedir_dado", campo: "livre", chave: "123", texto: "Quantos?",
+    };
+    expect(erros([bem, livre])).toHaveLength(1);
+  });
+
+  it("a frase da colisão é a MESMA no nó e na tela, e sai do catálogo", () => {
+    // ELA ESTAVA COPIADA em `conferirBloco` (lib/steps.ts) e no painel do
+    // editor, com a lista dos campos digitada à mão nas duas — e as duas já
+    // discordavam sobre como chamar o bloco. Hoje as duas leem
+    // `fraseDaChaveQueColide` (lib/campos.ts). O caso que prende a outra ponta
+    // é testes-dom/campo-livre.dom.tsx.
+    const colide = {
+      id: "b_liv047", tipo: "pedir_dado", campo: "livre", chave: "E-mail", texto: "Qual?",
+    };
+    const r = erros([bem, colide]);
+    expect(r).toHaveLength(1);
+    expect(r[0].mensagem).toBe(fraseDaChaveQueColide("E-mail"));
+
+    // A CHAVE DO PERFIL PEGA O OUTRO RAMO, E É POR ISSO QUE ELA ESTÁ AQUI.
+    //
+    // `fraseDaChaveQueColide` escolhe entre DUAS frases a partir do texto que
+    // recebe, e a linha acima só exercita o ramo do CATÁLOGO: com o argumento
+    // trocado por um literal ("email"), ela continuaria verde. Medido na
+    // re-revisão da Tarefa 6 — plantar `fraseDaChaveQueColide("email")` dentro
+    // de `conferirBloco` (lib/steps.ts) deixava os 1749 casos puros verdes, e
+    // só o teste de DOM do painel acusava.
+    //
+    // O ESTRAGO QUE ISSO DEIXARIA PASSAR: o dono salva um campo livre chamado
+    // "Username" e lê "Este nome já é um campo do sistema (e-mail, telefone /
+    // whatsapp, nome informado ou data de nascimento)" — quatro nomes, nenhum
+    // deles o que ele digitou, mandando usar um bloco que não existe. É
+    // literalmente a ininteligibilidade que o comentário em cima da função
+    // (lib/campos.ts) diz que a divisão em duas frases existe para evitar.
+    //
+    // UMA VEZ BASTA PARA OS DOIS CHAMADORES PUROS: `conferirLista` não escreve
+    // mensagem nenhuma, ela devolve o `paraODono` que `conferir` produziu
+    // (lib/steps.ts) — então prender a linha por aqui prende os dois. Repetir a
+    // asserção com `conferir` direto seria uma cópia que nenhum plantio
+    // separaria da de cima.
+    const doPerfil = {
+      id: "b_liv048", tipo: "pedir_dado", campo: "livre", chave: "Username", texto: "Qual?",
+    };
+    const rp = erros([bem, doPerfil]);
+    expect(rp).toHaveLength(1);
+    expect(rp[0].mensagem, "a frase do nó tem de falar do PERFIL, e não do catálogo").toMatch(
+      /perfil do Instagram/i
+    );
+    expect(rp[0].mensagem).toBe(fraseDaChaveQueColide("Username"));
   });
 
   it("ERRO: duas reações a story — `storyReactionKey` só conhece a mensagem", () => {
@@ -2903,8 +3455,8 @@ describe("conferirLista", () => {
     // pulando o bloco no de cima. Uma mensagem só para os três esconderia isso
     // justamente de quem precisa entender o que fazer com o bloco.
     const dosEmails = erros([
-      { id: "b_eml021", tipo: "pedir_email", texto: "E-mail?" },
-      { id: "b_eml022", tipo: "pedir_email", texto: "E-mail de novo?" },
+      { id: "b_eml021", tipo: "pedir_dado", campo: "email", texto: "E-mail?" },
+      { id: "b_eml022", tipo: "pedir_dado", campo: "email", texto: "E-mail de novo?" },
     ])[0].mensagem;
     const dasStories = erros(
       [
@@ -2930,7 +3482,7 @@ describe("conferirLista", () => {
   it("um de cada um deles continua valendo", () => {
     // A regra é sobre o SEGUNDO, não sobre o tipo: um bloco de cada é o que o
     // formulário sempre emitiu, e nada nele é engolido.
-    const email = { id: "b_eml017", tipo: "pedir_email", texto: "Seu e-mail?" };
+    const email = { id: "b_eml017", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" };
     expect(erros([bem, portao, email, link])).toHaveLength(0);
   });
 
@@ -3088,7 +3640,7 @@ describe("conferirLista", () => {
 
   it("acumula vários problemas em vez de parar no primeiro", () => {
     const quebrado = { id: "b_vaz009", tipo: "dm", texto: "" };
-    const outroQuebrado = { id: "b_vaz010", tipo: "pedir_email", texto: "" };
+    const outroQuebrado = { id: "b_vaz010", tipo: "pedir_dado", campo: "email", texto: "" };
     const r = erros([quebrado, outroQuebrado]);
     expect(r).toHaveLength(2);
     // Cada um aponta o SEU bloco e diz o SEU motivo. Sem isto, dois problemas
@@ -3096,15 +3648,15 @@ describe("conferirLista", () => {
     expect(r.map((p) => p.indice)).toEqual([0, 1]);
     expect(r[0].mensagem).not.toBe(r[1].mensagem);
     // Diz de QUAL bloco fala, na língua do dono. Antes fixava o `motivo` cru
-    // (`"pedir_email"`), que é nome de tipo interno e não significa nada para
+    // (`"pedir_dado"`), que é nome de tipo interno e não significa nada para
     // quem está montando a automação na tela.
-    expect(r[1].mensagem).toMatch(/pedido de e-mail/i);
+    expect(r[1].mensagem).toMatch(/pedido de dado/i);
   });
 
   it("as mensagens de bloco inválido não vazam jargão interno", () => {
     // Todas as outras mensagens da função foram escritas na língua do dono, e
     // estas herdavam o `motivo` técnico de `conferir` — a tela chegava a
-    // mostrar "Bloco incompleto: pedir_email sem texto." e "tipo desconhecido:
+    // mostrar "Bloco incompleto: pedir_dado sem texto." e "tipo desconhecido:
     // coisa_nova". O `motivo` continua existindo, para diagnóstico, nos
     // `ignorados` de `interpretar`; o que a TELA mostra é outra coisa.
     const invalidos: unknown[] = [
@@ -3113,7 +3665,7 @@ describe("conferirLista", () => {
       { id: "b_pux032", tipo: "resposta_publica", textos: [] },
       { id: "b_rex033", tipo: "reagir_story", emoji: "" },
       { id: "b_fox034", tipo: "pedir_follow", texto: "" },
-      { id: "b_emx035", tipo: "pedir_email", texto: "" },
+      { id: "b_emx035", tipo: "pedir_dado", campo: "email", texto: "" },
       { id: "b_nvx036", tipo: "coisa_nova" },
       "nem é objeto",
     ];
@@ -3121,7 +3673,7 @@ describe("conferirLista", () => {
     expect(r).toHaveLength(invalidos.length);
     for (const p of r) {
       expect(p.mensagem).not.toMatch(
-        /pedir_email|pedir_follow|reagir_story|resposta_publica|tipo desconhecido|não é um objeto|\bdm\b/
+        /pedir_dado|pedir_follow|reagir_story|resposta_publica|tipo desconhecido|não é um objeto|\bdm\b/
       );
       // Frase inteira, na língua de quem lê a tela.
       expect(p.mensagem).toMatch(/^[A-ZÀ-Ú].*\.$/);
@@ -4394,7 +4946,7 @@ describe("conferirLista em dois níveis", () => {
   });
 
   it("ATIVAR: pedido de e-mail que é o fim do caminho — manda o endereço e não recebe nada", () => {
-    const email = { id: "b_eml091", tipo: "pedir_email", texto: "Seu e-mail?" };
+    const email = { id: "b_eml091", tipo: "pedir_dado", campo: "email", texto: "Seu e-mail?" };
     const ls = [sempre("b_bem001", "b_eml091")];
     const r = ativar([bem, email], ls);
     expect(r).toHaveLength(1);

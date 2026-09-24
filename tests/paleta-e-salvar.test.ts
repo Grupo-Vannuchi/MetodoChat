@@ -9,6 +9,9 @@ import {
   tipoDoItem,
   type ItemDaPaleta,
 } from "../app/automacoes/editor/modelos";
+import { ICONE } from "../app/automacoes/editor/paleta";
+import { ICONE_DO_CAMPO } from "../app/icons";
+import { CAMPOS } from "../lib/campos";
 
 // O QUE ESTE ARQUIVO FIXA: a faixa de blocos do editor nunca oferece um bloco
 // que o salvar vai recusar.
@@ -58,7 +61,7 @@ describe("a paleta e as regras de publicar", () => {
     // O ITEM SINTÉTICO É O QUE MEDE A SEGUNDA PERGUNTA — e ele não é imitação
     // de nada: é um `ItemDaPaleta` de verdade, entregue à função de verdade.
     //
-    // Nos NOVE itens de hoje as duas metades concordam por COINCIDÊNCIA de
+    // Nos TREZE itens de hoje as duas metades concordam por COINCIDÊNCIA de
     // desenho: `resposta_publica` lista `["comment"]` e `reagir_story` lista
     // `["story"]`, então a lista à mão já recusa sozinha todo par que a regra
     // recusaria. É essa coincidência que faz o caso acima passar mesmo com a
@@ -98,7 +101,7 @@ describe("a paleta e as regras de publicar", () => {
     expect(salvarRecusaOBloco("dm", "abertura")).toBe(false);
     expect(salvarRecusaOBloco("esperar", "abertura")).toBe(false);
     expect(salvarRecusaOBloco("pedir_follow", "abertura")).toBe(false);
-    expect(salvarRecusaOBloco("pedir_email", "abertura")).toBe(false);
+    expect(salvarRecusaOBloco("pedir_dado", "abertura")).toBe(false);
   });
 
   it("os níveis que `conferirLista` acende nos dois blocos, gatilho a gatilho", () => {
@@ -228,6 +231,69 @@ describe("a paleta e as regras de publicar", () => {
     expect(motivoDeEstarFora(publica, "gatilho_novo")).toBe(
       "Este bloco só roda no gatilho de comentário, e esta automação é disparada por gatilho_novo."
     );
+  });
+
+  it("toda chave da paleta tem ícone PRÓPRIO — a faixa não tem rótulo à vista", () => {
+    // A faixa mostra SÓ O ÍCONE (o nome vai para o `title`), e `paleta.tsx` tem
+    // um `?? IconMensagem` para a chave que não estiver na tabela. Esse `??` é
+    // rede contra a página quebrar, não plano: um item sem entrada sai
+    // desenhado igual ao bloco "Mensagem" e some no meio da faixa.
+    //
+    // MEDIDO NESTA TAREFA: a paleta ganhou quatro pedidos de dado de uma vez, e
+    // sem este caso os quatro teriam saído com o ícone de "Mensagem" — quatro
+    // botões idênticos, ao lado do "Mensagem" de verdade, numa faixa cujo único
+    // trabalho é deixar achar o bloco.
+    //
+    // REÚSO CONTINUA VALENDO, e é por isso que o caso pergunta se a chave TEM
+    // entrada, e não se o desenho é inédito: `pedir_telefone` usa o `IconPhone`
+    // que já existia, de propósito.
+    for (const item of PALETA) {
+      expect(ICONE[item.chave], item.chave).toBeTypeOf("function");
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // O DESENHO DE CADA CAMPO TEM UM DONO SÓ — `ICONE_DO_CAMPO` (app/icons).
+  //
+  // A prévia foi consertada pela metade: o título da marca de parada passou a
+  // ler o catálogo e o ÍCONE não, então um ENVELOPE ficava desenhado em cima de
+  // "Pedir telefone" — contradizendo, na mesma tela, a faixa que desenha um
+  // telefone naquele item. Duas tabelas de desenho para a mesma pergunta.
+  // ---------------------------------------------------------------------------
+
+  it("todo campo do catálogo tem desenho próprio, e o livre também", () => {
+    for (const campo of CAMPOS) {
+      expect(ICONE_DO_CAMPO[campo.chave], campo.chave).toBeTypeOf("function");
+    }
+    expect(ICONE_DO_CAMPO.livre).toBeTypeOf("function");
+  });
+
+  it("dois campos NUNCA compartilham desenho — é o envelope sobre o telefone", () => {
+    // AQUI O REÚSO NÃO VALE, e é a diferença para o caso da faixa logo acima:
+    // reusar `IconPhone` entre a faixa e a prévia é uma peça só servindo dois
+    // lugares; reusar o MESMO desenho entre dois campos é a tela dizendo que
+    // telefone e e-mail são a mesma coisa. `app/icons` escreve a doutrina: cada
+    // um é o desenho da COISA pedida.
+    const chaves = [...CAMPOS.map((c) => c.chave), "livre"];
+    const desenhos = chaves.map((c) => ICONE_DO_CAMPO[c]);
+    expect(new Set(desenhos).size).toBe(chaves.length);
+  });
+
+  it("a faixa desenha os cinco pedidos pela tabela do CAMPO, e não por uma cópia", () => {
+    // Os cinco itens da paleta estavam com o ícone escrito à mão, e foi assim
+    // que a faixa e a prévia divergiram. Item e campo são coisas diferentes (a
+    // chave `pedir_nome` cria `campo: "nome_informado"`), e é o CAMPO que o
+    // bloco carrega no banco — por isso a tabela é por campo.
+    const daPaleta: [string, string][] = [
+      ["pedir_email", "email"],
+      ["pedir_telefone", "telefone"],
+      ["pedir_nome", "nome_informado"],
+      ["pedir_nascimento", "nascimento"],
+      ["pedir_outro", "livre"],
+    ];
+    for (const [chaveDoItem, campo] of daPaleta) {
+      expect(ICONE[chaveDoItem], chaveDoItem).toBe(ICONE_DO_CAMPO[campo]);
+    }
   });
 
   it("o tipo que a paleta declara é o tipo que `blocoNovo` cria", () => {

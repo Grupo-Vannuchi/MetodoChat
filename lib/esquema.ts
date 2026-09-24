@@ -97,6 +97,8 @@ const MARCA_DAGUA = {
     { tabela: "automations", coluna: "ligacoes", de: "001-ligacoes.sql" },
     { tabela: "automations", coluna: "entrega_sem_portao", de: "002-entrega-sem-portao.sql" },
     { tabela: "contacts", coluna: "categoria", de: "007-categoria-do-contato.sql" },
+    { tabela: "contacts", coluna: "campos", de: "011-campos-do-contato.sql" },
+    { tabela: "contacts", coluna: "campo_tentativas", de: "011-campos-do-contato.sql" },
   ],
   // AS MIGRAÇÕES QUE ESTA CONFERÊNCIA NÃO CONSEGUE VER, com o motivo. Elas não
   // criam tabela nem coluna: mudam a DEFINIÇÃO de uma restrição que já existe, e
@@ -159,6 +161,46 @@ const MARCA_DAGUA = {
       // publicação, e o post não sai em vez de sair errado — que, para o
       // primeiro recurso que escreve no perfil público, é a falha certa.
       porque: "reescreve a definição de um `check` que já existe (10 tipos -> 11)",
+    },
+    {
+      de: "012-migrar-email-para-campos.sql",
+      // A PRIMEIRA QUE MEXE EM DADO, e por isso a primeira cuja invisibilidade
+      // aqui não é por forma nem por direção: ela não emite DDL nenhuma.
+      // Reescreve linhas de `contacts` e de `automations`, e presença de coluna
+      // não tem como ver isso — as colunas que ela toca (`contacts.campos` e
+      // `automations.steps`) já estão nesta estrutura e na `000`, e continuariam
+      // presentes se a migração não tivesse feito NADA.
+      //
+      // E AQUI ELA NÃO ESTÁ DO LADO ALTO DA TABELA DO TOPO, que é a diferença em
+      // relação às seis acima. As outras não observáveis mudam restrição, e um
+      // banco que não as recebeu RECUSA a escrita errada sozinho. Esta não tem
+      // quem recuse: um banco que não a recebeu serve normalmente, e nada no
+      // catálogo o distingue de um migrado.
+      //
+      // ELE SERVE DE VERDADE, E ISSO MUDOU EM 23/09/2026. Este parágrafo dizia
+      // que um banco não migrado tinha passos `pedir_email` "que `conferir`
+      // recusa e `interpretar` IGNORA — o fluxo pula o pedido e entrega o que
+      // vem depois dele", e chamava isso de falha CALADA. `conferir`
+      // (lib/steps.ts) passou a aceitar `pedir_email` como APELIDO de
+      // `pedir_dado { campo: "email" }`: o passo não migrado é SERVIDO, pede o
+      // dado e para esperando a resposta. O apelido existe para fechar a janela
+      // do deploy, e o porquê inteiro está em
+      // `docs/deploy/2026-09-23-a-012-sai-do-build.md`.
+      //
+      // O QUE CONTINUA VALENDO é a razão de esta entrada ser NÃO OBSERVÁVEL: a
+      // `012` é limpeza de FORMATO, o apelido é temporário por decisão, e quem
+      // responde "a limpeza aconteceu?" é `ESPERADAS_DADOS`, não o catálogo.
+      //
+      // ENTÃO POR QUE NÃO É CONFERIDA AQUI: porque a pergunta desta conferência
+      // é sobre ESTRUTURA, e responder "existe passo `pedir_email` no banco?" é
+      // varrer `automations.steps` de todas as contas em TODA partida de
+      // instância — uma varredura de dado no caminho quente, para uma resposta
+      // que só muda uma vez na vida. Quem a faz é `ESPERADAS_DADOS`
+      // (scripts/migrar.mjs), DEPOIS de aplicar, uma vez por deploy, e lá ela
+      // sai 1 e derruba o build. A divisão é a mesma da `006`: esta fica cega de
+      // propósito, e a outra é quem enxerga.
+      porque:
+        "migra DADO (não emite DDL); quem a confere é `ESPERADAS_DADOS` em scripts/migrar.mjs",
     },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.

@@ -7,7 +7,7 @@ import {
   Automation,
   QueueItem,
 } from "./db";
-import { matches, pickRandom, extractEmail } from "./match";
+import { matches, pickRandom } from "./match";
 import { getUserProfile, checkFollowsAccount } from "./ig";
 import { scheduleTick, HORIZONTE_DO_TIQUE_EM_SEGUNDOS } from "./qstash";
 import { payloadDoLote } from "./lote";
@@ -29,7 +29,7 @@ import { payloadDoLote } from "./lote";
 // alcançável (o porquê está escrito lá), então deixá-la aqui deixaria a regra
 // pela metade — e sem teste, como as outras estavam.
 //
-// `retomadaDoEmailConhecido` é a QUINTA, e a última, e ela é a que prova que a
+// `retomadaDoCampoConhecido` é a QUINTA, e a última, e ela é a que prova que a
 // lista não estava completa: as quatro acima saíram, a regra do portão foi
 // escrita, e este ponto CONTINUOU escapando dela por um detalhe de tipo — ele
 // devolvia uma string, e string ENTRAVA em `executarFluxo` como
@@ -47,7 +47,8 @@ import {
   retomadaDoBotao,
   retomadaDoFollow,
   retomadaDoTexto,
-  retomadaDoEmailConhecido,
+  retomadaDoCampoConhecido,
+  chaveDoPedido,
   cursorDaRetomada,
   interrompeOFluxo,
   identidadeDoPasso,
@@ -64,6 +65,17 @@ import {
   type Cursor,
   type Retomada,
 } from "./steps";
+// O CATÁLOGO DE CAMPOS (lib/campos.ts) é módulo PURO, e é ele o dono da regra de
+// campo: o que se extrai de um texto, o que se diz quando não dá, quanto tempo
+// um dado coletado continua valendo e quantas vezes se repergunta. Nada disso
+// mora mais aqui — este arquivo é `server-only`, e decisão pura dentro dele é
+// decisão que nenhum teste alcança.
+import {
+  TETO_DE_TENTATIVAS,
+  campoEstaFresco,
+  lerCampos,
+  regraDoCampo,
+} from "./campos";
 // `welcomeMessageKey` não é mais importado aqui: era a chave do enfileiramento
 // de boas-vindas por coluna, que saiu. Ela continua em lib/dedupe.ts, com teste,
 // e o motivo está escrito lá (lib/dedupe.ts, nota do topo) — não é a fila ter
@@ -543,7 +555,7 @@ function gastarRespostaPrivada(contexto: ContextoGatilho): string | null {
 //     dispensável por não se aplicar — ela se aplica SEMPRE, e por isso não é
 //     usada. O porquê inteiro está no ramo `pedir_follow` do laço, abaixo.
 //   O E-MAIL JÁ CONHECIDO deixou de ser um caso de DENTRO: ele passa
-//     `retomadaDoEmailConhecido` (lib/steps.ts), que é uma `Retomada`, e entra
+//     `retomadaDoCampoConhecido` (lib/steps.ts), que é uma `Retomada`, e entra
 //     por baixo — pela mesma porta dos pontos de FORA. É a correção do vazamento.
 //
 // ERA NÚMERO, e era aí que dois dos seis pontos da Tarefa 3b moravam: as duas
@@ -634,7 +646,7 @@ async function executarFluxo(
   //
   // E LIMPAR é mais seguro do que deixar o cursor intacto, que era a alternativa
   // óbvia para preservar a posição: o destino de uma retomada adiante do portão
-  // pode ser um `pedir_email` ou um SEGUNDO `pedir_follow`, e os dois capturam
+  // pode ser um `pedir_dado` ou um SEGUNDO `pedir_follow`, e os dois capturam
   // toda mensagem pelo mesmo motivo (`interrompeOFluxo` só cede a vez quando o
   // passo parado é `dm`). Preservar a posição reabriria a captura justamente
   // para esses casos.
@@ -824,7 +836,7 @@ async function executarFluxo(
       // lê o diff
       // distingue uma dispensa deliberada de uma regra jogada fora. O motivo
       // está por escrito no ramo
-      // `pedir_email` logo abaixo, junto com o do ramo que FAZ o contrário — os
+      // `pedir_dado` logo abaixo, junto com o do ramo que FAZ o contrário — os
       // dois lados da assimetria ficam num lugar só para ninguém "consertar"
       // metade dela. Em uma linha: aqui o destino é `seguinteDe(portão)`, então
       // a regra dispararia sempre e mandaria reatravessar o portão recém-vencido, ao
@@ -869,12 +881,32 @@ async function executarFluxo(
       return;
     }
 
-    if (p.tipo === "pedir_email") {
+    // O RAMO LÊ O `campo` DO PASSO, e deixou de ser só o do e-mail: a consulta
+    // era `select email` e a decisão de pular era "a coluna tem alguma coisa".
+    // Agora ela é o REGISTRO DE CAMPOS (`contacts.campos`, migração 011) mais a
+    // RECÊNCIA — e as duas juntas são o que generaliza o comportamento que o
+    // e-mail já tinha, sem criar uma segunda regra por campo.
+    if (p.tipo === "pedir_dado") {
+      const chave = chaveDoPedido(p);
       const rows = (await sql().query(
-        `select email from contacts where account_id = $1 and ig_id = $2`,
+        `select campos from contacts where account_id = $1 and ig_id = $2`,
         [account.ig_user_id, contactIgId]
-      )) as { email: string | null }[];
-      // Mesmo motivo do portão: o e-mail que já temos resolve este passo, e o
+      )) as { campos: unknown }[];
+      const registro = lerCampos(rows[0]?.campos ?? null);
+      // A RECÊNCIA É O QUE ENTROU, e ela não existia para o e-mail: até aqui
+      // bastava a coluna ter valor para o passo ser pulado PARA SEMPRE. Um
+      // e-mail de dois anos atrás pulava a pergunta igual a um de ontem.
+      // `campoEstaFresco` (lib/campos.ts) usa `Date.now()` por omissão de
+      // propósito — quem crava data é teste, não produção —, e trata `em` nulo,
+      // ilegível ou no FUTURO como "não fresco": o desfecho seguro de "este dado
+      // é suspeito" é perguntar de novo, nunca pular.
+      //
+      // `chave` nula é passo que a conferência deveria ter barrado (`pedir_dado`
+      // livre sem chave). Sem chave não dá para consultar o registro nem para
+      // gravar depois, então ele nunca está fresco e SEMPRE pergunta — o mesmo
+      // lado seguro de todo o resto deste ramo.
+      const jaTemos = chave !== null && campoEstaFresco(registro.get(chave)?.em ?? null);
+      // Mesmo motivo do portão: o dado que já temos resolve este passo, e o
       // que vem depois dele só é visto numa nova interpretação. E "o que vem
       // depois" é a seta `sempre` — aqui também era `acao.indice + 1`.
       //
@@ -892,7 +924,7 @@ async function executarFluxo(
       //     não era chamada NENHUMA VEZ: o link saía para quem não segue. Medido,
       //     e no mesmo grafo `retomadaDoFallback` devolvia `{ portao, destino }`
       //     para o mesmo bloco de chegada — duas respostas opostas à mesma
-      //     pergunta. A decisão inteira mora em `retomadaDoEmailConhecido`
+      //     pergunta. A decisão inteira mora em `retomadaDoCampoConhecido`
       //     (lib/steps.ts), que é pura e tem teste.
       //   LÁ EM CIMA a regra é um NO-OP CARO. O destino é `seguinteDe(portão)`,
       //     então `haCaminho(portão, destino)` é verdadeiro por CONSTRUÇÃO — a
@@ -911,27 +943,66 @@ async function executarFluxo(
       // dentro, e ele roda igual COM ou SEM a regra (medido: 500 voltas nos dois)
       // — é defeito pré-existente, registrado para a Tarefa 5, e não uma
       // consequência desta escolha.
-      if (rows[0]?.email) {
+      if (jaTemos) {
         return executarFluxo(
           account, auto, contactIgId,
-          retomadaDoEmailConhecido(auto, acao.indice),
+          retomadaDoCampoConhecido(auto, acao.indice),
           contexto
         );
       }
-      // Quando o pedido de e-mail é o primeiro envio de uma execução nascida de
+      // O CONTADOR ZERA AQUI, e é a segunda das duas zeragens que a migração 011
+      // descreve ("quando o campo é gravado com sucesso ou quando a automação
+      // passa a perguntar outro campo"). `campo_tentativas` é sempre sobre O
+      // CAMPO QUE ESTÁ SENDO PERGUNTADO AGORA — sem esta linha, quem tivesse
+      // esgotado o teto num campo começaria o campo SEGUINTE já no teto, e nunca
+      // teria a chance de responder a uma pergunta que nem tinha sido feita.
+      await sql().query(
+        `update contacts set campo_tentativas = 0 where account_id = $1 and ig_id = $2`,
+        [account.ig_user_id, contactIgId]
+      );
+      // Quando o pedido de dado é o primeiro envio de uma execução nascida de
       // comentário, ele também tem que furar a janela: como DM comum seria
       // descartado e o fluxo morreria antes de mandar qualquer coisa.
       const comentario = gastarRespostaPrivada(contexto);
       await enqueue({
         account_id: account.ig_user_id,
+        // `dm_email_ask` é o NOME DE ONTEM para o que hoje é o pedido de
+        // qualquer campo. Ele fica: o valor está gravado em linhas de fila de
+        // produção e é lido por `lib/conversations.ts` e pelo tipo de
+        // `lib/db.ts`. Renomeá-lo é migração de dado, não desta tarefa.
         kind: comentario ? "private_reply" : "dm_email_ask",
         contact_ig_id: contactIgId,
         automation_id: auto.id,
         comment_id: comentario ?? undefined,
         payload: { text: p.texto },
+        // A CHAVE LEVA O CAMPO desde a tarefa do editor, e é ela que faz uma
+        // automação conseguir pedir e-mail E telefone no mesmo dia: sem o campo,
+        // os dois pedidos saíam com a MESMA string e o `on conflict do nothing`
+        // de `enqueue` engolia o segundo calado. O porquê inteiro — inclusive o
+        // que acontece com as linhas de fila já gravadas no formato antigo —
+        // está em lib/dedupe.ts, em cima da função.
+        //
+        // `chave` NULA cai na identidade do bloco, e não numa string fixa: um
+        // passo sem chave é passo que a conferência deveria ter barrado, e dois
+        // deles na mesma automação colidiriam entre si — o segundo sumiria pelo
+        // mesmo defeito que esta linha existe para fechar.
+        //
+        // O CASO QUE PRENDE ESTA REDE é "DOIS campos livres de chave ilegível:
+        // a segunda pergunta CHEGA assim mesmo"
+        // (testes-integracao/coleta-de-dados.integracao.ts). Ele semeia direto
+        // no banco de propósito: desde a tarefa dos consertos `conferirLista`
+        // TRAVA O SALVAR de chave livre que não vira variável, então a tela não
+        // monta mais uma automação assim — quem chega aqui é `steps` gravado por
+        // fora ou automação salva antes daquela regra, que é justamente a
+        // população que esta linha atende.
         dedupe_key: comentario
           ? privateReplyKey(comentario)
-          : emailAskKey(auto.id, contactIgId, dayBucket()),
+          : emailAskKey(
+              auto.id,
+              contactIgId,
+              chave ?? identidadeDoPasso(p, acao.indice),
+              dayBucket()
+            ),
       });
       await gravarCursor(
         account.ig_user_id, contactIgId, auto.id,
@@ -1016,6 +1087,57 @@ async function limparCursor(accountId: string, contactIgId: string) {
     `update contacts set flow_step_id = null
      where account_id = $1 and ig_id = $2`,
     [accountId, contactIgId]
+  );
+}
+
+// ESCREVE NOS DOIS LUGARES DE PROPÓSITO, e é a única função que faz isso.
+//
+// A coluna `contacts.email` só sai na Parte 2, e até lá os SEIS leitores de hoje
+// continuam lendo dela. Ter UM escritor só é o que impede as duas fontes de
+// divergirem enquanto a janela está aberta — duas escritas em dois pontos
+// diferentes é como `flow_step_index` e `flow_step_id` chegaram a discordar.
+//
+// `campos || jsonb_build_object(...)` MESCLA, e não substitui. Trocar por
+// `set campos = jsonb_build_object(...)` é o plantio óbvio desta função: gravar
+// o telefone apagaria o e-mail já coletado, e o `||` é a única linha que impede
+// isso. O caso que acusa a troca é "gravar o SEGUNDO campo não apaga o primeiro"
+// (testes-integracao/coleta-de-dados.integracao.ts).
+//
+// `now()` VEM DO BANCO, e não do Node: a recência (`campoEstaFresco`,
+// lib/campos.ts) compara esta data com o relógio de quem lê, e misturar dois
+// relógios na mesma conta é o defeito que `enqueue`, neste arquivo, registra ter
+// custado 53,9 segundos de atraso nesta máquina. O `to_char(... at time zone
+// 'utc', ...'Z')` sai no formato que `Date.parse` lê de volta sem ambiguidade —
+// `now()::text` sairia com o fuso do servidor, e `Date.parse` de um "+00" sem
+// `T` não é garantido entre motores.
+//
+// `campo_tentativas = 0` junto: o campo foi gravado, e o contador é sempre sobre
+// o campo que está sendo perguntado AGORA (migrations/011-campos-do-contato.sql).
+// A revisão da Tarefa 4 mediu que tirar esta linha deixava tudo verde — o ramo
+// que PERGUNTA zera antes de qualquer contagem, então na prática ela é
+// redundante. Ela fica, e agora com leitor: o caso "pergunta, recusa o que não
+// serve, e grava quando serve" (testes-integracao/coleta-de-dados.integracao.ts)
+// responde ruim uma vez, responde bem depois, e cobra o contador em zero. A
+// redundância é barata; guarda sem ninguém lendo é que não.
+async function gravarCampo(
+  accountId: string,
+  igId: string,
+  chave: string,
+  valor: string,
+  automacaoId: string | null
+): Promise<void> {
+  await sql().query(
+    `update contacts
+        set campos = campos || jsonb_build_object($3::text, jsonb_build_object(
+              'valor', $4::text,
+              'em', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+              'automacao', $5::text)),
+            campo_tentativas = 0,
+            -- A COLUNA CONTINUA ESCRITA ENQUANTO A JANELA ESTIVER ABERTA. Ela
+            -- só sai na Parte 2, e até lá os SEIS leitores de hoje leem dela.
+            email = case when $3 = 'email' then $4 else email end
+      where account_id = $1 and ig_id = $2`,
+    [accountId, igId, chave, valor, automacaoId]
   );
 }
 
@@ -2042,7 +2164,10 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
 
         // Este ramo só pode CAPTURAR a mensagem quando ela é mesmo a resposta do
         // passo esperado. O critério, por tipo de passo:
-        //   pedir_email  → a mensagem é candidata a e-mail. Captura.
+        //   pedir_dado   → a mensagem é candidata a RESPOSTA DO CAMPO pedido,
+        //     qualquer que ele seja (a tabela dizia "candidata a e-mail", de
+        //     quando este ramo só sabia ler e-mail). Captura — e é o extrator do
+        //     campo (`regraDoCampo`, lib/campos.ts) que decide se ela serve.
         //   pedir_follow → qualquer mensagem vale como "quero continuar". Captura.
         //   dm de resposta rápida → o que ela espera é o TOQUE no botão, não
         //     texto. Então só deixa passar o que for gatilho de OUTRA automação:
@@ -2058,26 +2183,160 @@ export async function handleMessagingEvent(entryId: string | undefined, ev: Mess
           // cursor não precisa ser limpo aqui — `executarFluxo` da automação nova
           // o reescreve (ou o apaga, se a lista terminar).
         } else {
-          if (passo.tipo === "pedir_email") {
-            const email = extractEmail(text);
-            if (!email) {
-              // Não parecia e-mail: pede de novo, uma vez por mensagem recebida.
-              await enqueue({
-                account_id: account.ig_user_id,
-                kind: "dm_email_ask",
-                contact_ig_id: senderId,
-                automation_id: autoParada.id,
-                payload: {
-                  text: "Acho que esse e-mail saiu errado 🤔 Me manda de novo, só o e-mail.",
-                },
-                dedupe_key: emailAnswerKey(msg.mid, senderId, Date.now()),
-              });
+          // A CAPTURA DA RESPOSTA — e é aqui que o motor deixou de saber só
+          // ler e-mail.
+          //
+          // O extrator e a frase da repergunta vêm do CATÁLOGO
+          // (`regraDoCampo`, lib/campos.ts), e não estão mais cravados neste
+          // arquivo. Era `extractEmail(text)` com a frase do e-mail escrita na
+          // linha de baixo — e nada disso tinha teste: trocar a chamada por uma
+          // string fixa deixava as duas suítes verdes. O caso que prende isto
+          // hoje é o de CARACTERIZAÇÃO em
+          // testes-integracao/coleta-de-dados.integracao.ts.
+          if (passo.tipo === "pedir_dado") {
+            const chave = chaveDoPedido(passo);
+            const regra = regraDoCampo(passo.campo);
+
+            // O FLUXO SEGUE SEM O DADO — a saída que esta tarefa existe para
+            // criar, e que dois caminhos abaixo usam: o passo quebrado e o teto
+            // estourado.
+            //
+            // A retomada é a MESMA do campo já conhecido
+            // (`retomadaDoCampoConhecido`, lib/steps.ts), e não a de texto: o
+            // que chegou não foi resposta a nada, então não há texto por onde
+            // rotear — o fluxo continua para onde continuaria se o campo já
+            // estivesse no registro.
+            //
+            // O CONTADOR SÓ ZERA SE O FLUXO ANDOU, e a ordem é o conserto.
+            // Ele zerava ANTES de executar, e a revisão mediu o preço: com uma
+            // `sempre` pendurada (`interpretar` devolve `cursorNoFim: "manter"`,
+            // lib/steps.ts) ou com portão que não resolve
+            // (`portao_nao_avaliado`, acima neste arquivo), o cursor FICA no
+            // `pedir_dado` — e o contador zerado rearma o ciclo: 12 mensagens
+            // ruins viravam 8 reperguntas, com o cursor nunca saindo do lugar.
+            // O teto existe para nunca prender ninguém, e ali ele não valia.
+            //
+            // QUEM RESPONDE "O FLUXO ANDOU?" É O CURSOR, e não um retorno de
+            // `executarFluxo`: ele é `void` e tem nove pontos de chamada, e a
+            // pergunta que importa aqui é de ESTADO — a pessoa saiu deste
+            // passo? Cursor diferente (outro bloco, ou limpo) é ter saído.
+            //
+            // O QUE ACONTECE QUANDO NÃO ANDOU: o contador fica no teto, então a
+            // próxima mensagem ruim cai de novo aqui e NÃO repergunta. A pessoa
+            // fica calada em vez de ser cutucada para sempre — o passo sem saída
+            // continua sendo defeito da automação (e `conferirLista` trava o
+            // ATIVAR dela), mas ele para de custar mensagem a quem respondeu.
+            const seguirSemODado = async () => {
+              await executarFluxo(
+                account, autoParada, senderId,
+                retomadaDoCampoConhecido(autoParada, indiceParado)
+              );
+              const depois = await lerCursor(account.ig_user_id, senderId);
+              if (depois.passoId === idParado) return;
+              await sql().query(
+                `update contacts set campo_tentativas = 0 where account_id = $1 and ig_id = $2`,
+                [account.ig_user_id, senderId]
+              );
+            };
+
+            // PASSO DO QUAL NÃO DÁ PARA GRAVAR, e ele TEM caminho que chega
+            // aqui — o comentário anterior nomeava dois que não chegavam.
+            //
+            // O que a revisão da Tarefa 4 mediu: `campo` fora do catálogo e
+            // `livre` sem chave são recusados por `conferir` (lib/steps.ts), e
+            // quem chega aqui já passou por `passoEsperado` → `conferir`. Pelos
+            // dois motivos escritos, a guarda era inalcançável — apagá-la
+            // inteira não acendia luz nenhuma.
+            //
+            // O QUE A ALCANÇA é a CHAVE QUE NÃO VIRA VARIÁVEL: `conferir` só
+            // cobra que a chave do campo livre EXISTA, então `chave: "123"` ou
+            // `"🔥"` continua sendo um bloco VÁLIDO para o interpretador — e
+            // `chaveDoPedido` (lib/steps.ts) devolve `null` para elas, porque
+            // gravar o dado de uma pessoa sob `123` é gravar onde ninguém lê
+            // depois. A recusa que `conferir` faz é a da COLISÃO com campo do
+            // catálogo, que é a que destrói dado já coletado.
+            //
+            // O SALVAR, ESSE, JÁ TRAVA: a regra "chave livre que não vira
+            // variável" entrou em `conferirLista` na tarefa dos consertos, com
+            // a frase que diz o que fazer. Ela mora LÁ e não em `conferir`
+            // justamente para o bloco continuar chegando aqui — quem alcança
+            // este ramo hoje é `steps` gravado por fora ou automação salva antes
+            // daquela regra, e prender essa pessoa num passo quebrado continua
+            // sendo o pior dos desfechos.
+            //
+            // `!regra` continua junto e continua sem caminho próprio (é
+            // `conferir` quem barra o campo desconhecido): ela custa uma
+            // comparação e o `tsc` a usa para estreitar o tipo. O que ela NÃO
+            // faz é afirmar um caminho que não existe — este comentário é o que
+            // a revisão cobra, e o caso que prende o ramo inteiro é "chave que
+            // não vira variável: o fluxo SEGUE sem o dado"
+            // (testes-integracao/coleta-de-dados.integracao.ts).
+            //
+            // PRENDER a pessoa num passo quebrado é o pior dos desfechos: ela
+            // fica surda a toda palavra-chave de toda automação.
+            if (chave === null || !regra) {
+              await seguirSemODado();
               return;
             }
-            await sql().query(
-              `update contacts set email = $3 where account_id = $1 and ig_id = $2`,
-              [account.ig_user_id, senderId, email]
-            );
+
+            const valor = regra.extrair(text);
+            if (!valor) {
+              // O TETO É O CONSERTO CENTRAL DESTA TAREFA. Até aqui este ramo
+              // pedia de novo A CADA MENSAGEM RECEBIDA, para sempre: quem nunca
+              // mandasse um e-mail legível ficava preso no passo, surdo a toda
+              // palavra-chave de toda automação, até alguém mexer no banco. O
+              // `pedir_follow`, ao lado, tem teto desde sempre.
+              //
+              // O CONTADOR É DO BANCO, e é incrementado e lido na MESMA
+              // instrução: duas mensagens da mesma pessoa podem ser atendidas
+              // por duas instâncias ao mesmo tempo, e um `select` seguido de
+              // `update` deixaria as duas lerem o mesmo número.
+              //
+              // SEM `??` AQUI, e a ausência é conserto de achado da revisão.
+              //
+              // Havia um `?? TETO_DE_TENTATIVAS` com o motivo "contato sem
+              // linha: o desfecho seguro de não saber contar é SEGUIR". O
+              // motivo não se sustenta: `update ... returning` só devolve zero
+              // linhas se o contato não existir em `contacts`, e o cursor que
+              // trouxe este evento até aqui foi lido DESSA MESMA LINHA, neste
+              // mesmo evento (`lerCursor`, acima). A revisão mediu: trocar o
+              // valor do `??` por `0` — que inverteria o desfecho, reperguntando
+              // para sempre — não deixava um único caso vermelho, porque nada
+              // chega aqui sem linha.
+              //
+              // Guarda que nenhum caso alcança é guarda que ninguém lê, e esta
+              // funcionalidade já pagou cinco vezes por isso. Sem o `??`, a
+              // linha ausente estoura em vez de seguir com um número inventado
+              // — e a rota do webhook já trata exceção (registra e responde 200,
+              // app/api/webhook/route.ts), então o custo do impossível é uma
+              // linha em Atividade, não a Meta reenviando por 36 horas.
+              const contadas = (await sql().query(
+                `update contacts set campo_tentativas = campo_tentativas + 1
+                  where account_id = $1 and ig_id = $2
+                  returning campo_tentativas`,
+                [account.ig_user_id, senderId]
+              )) as { campo_tentativas: number }[];
+              const tentativas = contadas[0].campo_tentativas;
+
+              if (tentativas < TETO_DE_TENTATIVAS) {
+                // Ainda dá: pede de novo, uma vez por mensagem recebida, com o
+                // texto DO CAMPO.
+                await enqueue({
+                  account_id: account.ig_user_id,
+                  kind: "dm_email_ask",
+                  contact_ig_id: senderId,
+                  automation_id: autoParada.id,
+                  payload: { text: regra.reperguntar },
+                  dedupe_key: emailAnswerKey(msg.mid, senderId, Date.now()),
+                });
+                return;
+              }
+
+              // ESTOUROU: nunca prende.
+              await seguirSemODado();
+              return;
+            }
+            await gravarCampo(account.ig_user_id, senderId, chave, valor, autoParada.id);
           }
 
           // Onde a lista retoma é decisão pura, e ela mora em `retomadaDoTexto`

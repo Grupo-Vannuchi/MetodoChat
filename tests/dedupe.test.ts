@@ -43,8 +43,27 @@ describe("chaves vindas de comentário", () => {
 
 describe("chaves com balde de dia", () => {
   it("mantém o formato por automação, pessoa e dia", () => {
-    expect(emailAskKey("auto-1", "user-9", "2026-07-28")).toBe("ea:auto-1:user-9:2026-07-28");
+    expect(emailAskKey("auto-1", "user-9", "email", "2026-07-28")).toBe(
+      "ea:auto-1:user-9:email:2026-07-28"
+    );
     expect(followupKey("fup-3", "user-9", "2026-07-28")).toBe("fu:fup-3:user-9:2026-07-28");
+  });
+
+  it("o pedido de dado distingue os CAMPOS: e-mail e telefone não colidem", () => {
+    // ANTES ESTA CHAVE ERA automação + pessoa + dia, e ela bastava enquanto a
+    // paleta montava UM `pedir_dado` por automação. Com os cinco itens do editor
+    // uma automação pede e-mail E telefone, e sem o campo na chave o segundo
+    // pedido do mesmo dia caía no `on conflict do nothing` do `enqueue` e era
+    // engolido EM SILÊNCIO — a pessoa nunca recebia a segunda pergunta.
+    expect(emailAskKey("auto-1", "user-9", "email", "2026-07-28")).not.toBe(
+      emailAskKey("auto-1", "user-9", "telefone", "2026-07-28")
+    );
+    // E o MESMO campo continua colidindo de propósito: é o que faz o segundo
+    // pedido do mesmo dado não sair duas vezes, e é o motivo que a regra "só um
+    // por campo" (`conferirLista`, lib/steps.ts) escreve para o dono.
+    expect(emailAskKey("auto-1", "user-9", "email", "2026-07-28")).toBe(
+      emailAskKey("auto-1", "user-9", "email", "2026-07-28")
+    );
   });
 
   it("o portão de seguidor inclui a tentativa, para cada pedido ser um item novo", () => {
@@ -212,7 +231,7 @@ describe("os prefixos não se repetem entre tipos", () => {
       privateReplyKey("x"),
       commentReplyKey("x"),
       followGateKey("a", "c", "d", 0),
-      emailAskKey("a", "c", "d"),
+      emailAskKey("a", "c", "campo", "d"),
       followupKey("f", "c", "d"),
       emailAnswerKey("m", "s", 1),
       welcomeMessageKey("m", "s", 1),

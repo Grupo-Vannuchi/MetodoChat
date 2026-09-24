@@ -109,7 +109,7 @@
 //                                                             C, eixo fiel   (antes)
 //   `haCaminho` contando só setas `sempre`      A: 0            1.996.016  (2.713.648)
 //   `retomadaDoFallback` sem a regra             A: 0               91.200  (   91.200)
-//   `retomadaDoEmailConhecido` sem a regra       A: 0            1.000.852  (1.102.772)
+//   `retomadaDoCampoConhecido` sem a regra       A: 0            1.000.852  (1.102.772)
 //   a regra do portão desligada por completo     A: 73.720      12.494.128 (15.091.792)
 //
 // `retomadaDoFallback` NÃO SE MEXEU (91.200 dos dois lados), e a razão é boa: o
@@ -119,7 +119,7 @@
 //
 // E OS TRÊS PRIMEIROS ACUSAM NA DO MENU TAMBÉM, o que o cabeçalho não dizia:
 // `haCaminho` dá A 20.400 e C 2.487.070 lá, `retomadaDoFallback` C 100.800,
-// `retomadaDoEmailConhecido` C 1.050.378, e o interruptor geral A 118.700 e
+// `retomadaDoCampoConhecido` C 1.050.378, e o interruptor geral A 118.700 e
 // C 13.879.664.
 //
 // NA DO MENU E DA `senao` (os três da Tarefa 7c). ATENÇÃO: os TRÊS deixam a
@@ -371,17 +371,48 @@ const montarPayload = MODO_ANTIGO ? montarAntigo : S.payloadDoBotao;
 // varredura do menu. O porquê está no cabeçalho, junto com a medição do
 // fallback que decidiu a troca.
 // ---------------------------------------------------------------------------
+// O TIPO DO BLOCO P DEPENDE DO MODO, e essa é a mesma dispensa dos outros ramos
+// `MODO_ANTIGO` deste arquivo: o pedido de e-mail chamava-se `pedir_email` até a
+// tarefa que o transformou em `pedir_dado` com um `campo`, e o arquivo que a
+// contraprova carrega é anterior a ela. Semear o nome novo nos dois modos faria
+// o `conferir` de lá RECUSAR o bloco P — ele sairia da lista sem erro nenhum, a
+// contraprova perderia justamente o ramo que ela existe para cobrir (o salto
+// interno do e-mail já conhecido) e imprimiria zero sobre um espaço que não está
+// mais sendo percorrido. É a falha da reserva silenciosa, de novo.
+const TIPO_DO_PEDIDO = MODO_ANTIGO ? "pedir_email" : "pedir_dado";
+
 const BLOCOS = {
   E: { id: "b_ee00001", tipo: "dm", texto: "escolha", botao_label: "quero" },
   G: { id: "b_gg00002", tipo: "pedir_follow", texto: "me segue", botao_label: "Já sigo!" },
   L: { id: "b_ll00003", tipo: "dm", texto: "toma", url: "https://x.y" },
   M: { id: "b_mm00004", tipo: "dm", texto: "um bloco qualquer" },
-  P: { id: "b_pp00005", tipo: "pedir_email", texto: "seu e-mail?" },
+  P: { id: "b_pp00005", tipo: TIPO_DO_PEDIDO, campo: "email", texto: "seu e-mail?" },
   N: { id: "b_nn00006", tipo: "dm", texto: "escolha uma", botoes: [{ id: "op_dddddd", rotulo: "a" }] },
 };
 const PAPEIS = ["E", "G", "L", "M", "P"];
 const PAPEIS_MENU = ["N", "G", "L", "M", "P"];
 const ID = Object.fromEntries(Object.keys(BLOCOS).map((p) => [p, BLOCOS[p].id]));
+
+// A GUARDA DO BLOCO P, e ela é a mesma ideia da guarda de `payloadDoBotao` lá
+// em cima: `TIPO_DO_PEDIDO` é um SEGUNDO LITERAL que tem de concordar com o
+// nome que `lib/steps.ts` reconhece — antes da Tarefa 3 havia um só. Se os dois
+// se desalinharem (um typo no literal, ou um `conferir` que deixa de aceitar
+// o tipo), `conferir` passa a RECUSAR o bloco P: ele sai da lista de blocos
+// válidos sem erro nenhum, `pontosDeEntrada` para de gerar fluxo nenhum sobre
+// ele, e a varredura mede menos espaço e ainda assim imprime "SEM VAZAMENTO"
+// — a mesma reserva silenciosa que o comentário da Tarefa 3 batizou, só que
+// fora do alcance das seis perguntas de `!MODO_ANTIGO` logo abaixo (elas
+// cobrem o MENU e a `senao`, novidades daquela tarefa; P é mais velho que
+// as duas). Roda nos dois modos, porque nos dois modos `S` é o `conferir` que
+// de fato vai medir o bloco P.
+if (!S.conferir(BLOCOS.P).passo) {
+  throw new Error(
+    "`conferir` não reconhece mais o bloco de pedido de dado (`BLOCOS.P`, tipo " +
+      `"${TIPO_DO_PEDIDO}"). A varredura desenha esse bloco em todo fluxo que percorre; sem ele ` +
+      "ser um passo válido, ela mede um espaço menor e imprime SEM VAZAMENTO em cima de casos que " +
+      "não estava mais percorrendo. Conserte `TIPO_DO_PEDIDO` acima, ou o `conferir` de lib/steps.ts."
+  );
+}
 
 // A GUARDA DA FIAÇÃO NOVA, e ela é a mesma ideia da guarda de `payloadDoBotao`
 // logo acima, aplicada ao eixo que esta varredura acabou de ganhar.
@@ -654,7 +685,7 @@ function arranjosDe(papeis) {
 //   B  saltos / entregas           13.271.180 / 261.536  6.635.590 / 130.768
 //   plantio do `haCaminho`                C 2.713.648      C 1.356.824
 //   plantio do `retomadaDoFallback`       C 91.200         C 45.600
-//   plantio do `retomadaDoEmailConhecido` C 1.102.772      C 551.386
+//   plantio do `retomadaDoCampoConhecido` C 1.102.772      C 551.386
 //   plantio do interruptor geral   A 73.720 C 15.091.792   A 36.860 C 7.545.896
 //   plantio do `seguinteDe`               B 321.008        B 160.504
 //   "marcar a execução inteira"           32.040           16.020
@@ -740,7 +771,7 @@ const TETO_RECURSAO = 10;
 //
 // Cada salto, então, registra só a entrega que aconteceu debaixo dele. `rotulo`
 // identifica QUAL salto é este — o ponto de entrada na chamada de fora, ou o
-// nome do salto interno na chamada recursiva (abaixo, no ramo `pedir_email`) —
+// nome do salto interno na chamada recursiva (abaixo, no ramo `pedir_dado`) —
 // porque um exemplo de vazamento tem que apontar o salto que vazou, não o
 // ponto de entrada que a recursão começou percorrendo.
 function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, profundidade = 0, rotulo = "entrada") {
@@ -775,22 +806,25 @@ function executar(passos, ligacoes, retomada, regraSeAplica, gateado, medidas, p
   for (const acao of r.enfileirar) {
     const p = acao.passo;
     if (p.tipo === "pedir_follow") return; // avaliado, e barrado
-    if (p.tipo === "pedir_email") {
-      // O motor pula este bloco quando `contacts.email` já é conhecido. Os dois
-      // ramos são simulados, e o que continua é o que entrega mais.
+    if (p.tipo === TIPO_DO_PEDIDO) {
+      // O motor pula este bloco quando o campo já está gravado e AINDA ESTÁ
+      // FRESCO (`contacts.campos` + `campoEstaFresco`, lib/campos.ts) — a
+      // Tarefa 4 trocou a leitura da coluna `contacts.email` pelo registro de
+      // campos com recência, e esta frase ficou contando a leitura de ontem. Os
+      // dois ramos são simulados, e o que continua é o que entrega mais.
       //
       // ESTE É O SEXTO PONTO, e a correção dos achados da revisão da Tarefa 4
-      // está nesta linha: no modo ATUAL ele passa por `retomadaDoEmailConhecido`,
+      // está nesta linha: no modo ATUAL ele passa por `retomadaDoCampoConhecido`,
       // que devolve uma `Retomada` COM a regra do portão. Antes ele montava
       // `{ portao: null, destino }` à mão nos dois modos — reproduzindo, no modo
       // ATUAL, o vazamento que o motor tinha.
       const seguinte = MODO_ANTIGO
         ? { portao: null, destino: acao.indice + 1 }
-        : S.retomadaDoEmailConhecido({ steps: passos, ligacoes }, acao.indice);
+        : S.retomadaDoCampoConhecido({ steps: passos, ligacoes }, acao.indice);
       // A regra SE APLICA a este salto nos dois modos: o grupo é definido por
       // onde a regra DEVE fechar, e o modo ANTIGO é justamente o código em que
       // ela não fechava.
-      executar(passos, ligacoes, seguinte, true, gateado, medidas, profundidade + 1, "e-mail já conhecido (retomada interna)");
+      executar(passos, ligacoes, seguinte, true, gateado, medidas, profundidade + 1, "campo já conhecido (retomada interna)");
       return;
     }
     if (p.tipo === "dm" && p.url) medida.vazou = true;
@@ -1060,7 +1094,7 @@ function medir(passos, ligacoes, arranjo, gateado, exemplos) {
           grupo: m.grupo,
           arranjo: arranjo.join(""),
           // O SALTO QUE VAZOU, não o ponto de entrada da recursão: nas chamadas
-          // internas (o ramo `pedir_email`, em `executar`) os dois divergem, e
+          // internas (o ramo `pedir_dado`, em `executar`) os dois divergem, e
           // imprimir o ponto de entrada aqui já produziu, na tela, "exemplo de
           // vazamento em C / ponto: gatilho" para um vazamento que na verdade
           // aconteceu no salto interno do e-mail já conhecido — contradizendo

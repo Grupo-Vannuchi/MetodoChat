@@ -12,6 +12,7 @@ import {
 import { urgenciaDaJanela, HORAS_QUE_TORNAM_URGENTE } from "@/lib/precisa-de-voce";
 import { badgeOk, badgeWarn, badgeNeutral } from "@/app/ui";
 import { EVENT_TYPES } from "@/lib/event-filters";
+import { CAMPOS } from "@/lib/campos";
 import { MOTIVO_CANCELADO_PELO_DONO } from "@/lib/publicacao";
 
 // O QUE ESTE ARQUIVO PROTEGE é a tela de Atividade dizendo o que aconteceu.
@@ -296,6 +297,43 @@ describe("a tela de Envios não mente sobre o lote", () => {
   it("dm_lote tem rótulo próprio, e não cai em Outro envio", () => {
     expect(kindLabel("dm_lote")).not.toBe("Outro envio");
     expect(kindLabel("dm_lote")).toBe("Envio em lote");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A QUARTA TELA QUE MENTIA — e ela escapou de sete revisões porque este arquivo
+// não é tocado pela branch da coleta de dados: nenhum diff por tarefa passa por
+// ele.
+//
+// `lib/engine.ts` (`:973` e `:2326`) enfileira TODO `pedir_dado` com
+// `kind: "dm_email_ask"`, e o comentário ao lado explica por quê: o valor está
+// gravado em linhas de fila de PRODUÇÃO e é lido por `lib/conversations.ts` e
+// pelo tipo de `lib/db.ts`. Renomear o `kind` é migração de dado, e a decisão
+// de não renomear está certa.
+//
+// O que ninguém viu é que esse `kind` VIRA TEXTO NA TELA:
+// `app/eventos/page.tsx` renderiza `kindLabel(q.kind)` na lista de Envios.
+// Depois da coleta de dados, um pedido de TELEFONE, de NOME, de NASCIMENTO ou
+// de um campo livre ("Qual sua Cidade") aparecia para o dono, em produção, como
+// "Pedido de e-mail".
+//
+// O rótulo é o único dos dois que pode mudar sem migração — o `kind` gravado
+// continua o mesmo —, e por isso é ele que tem de dizer a verdade para os cinco.
+// ---------------------------------------------------------------------------
+describe("o pedido de dado não aparece na tela como pedido de e-mail", () => {
+  it("o rótulo do `dm_email_ask` não nomeia campo nenhum do catálogo", () => {
+    const rotulo = kindLabel("dm_email_ask");
+    // A regra, e não a string: o `kind` é UM para os cinco campos, então
+    // qualquer rótulo que nomeie um deles mente sobre os outros quatro. Um
+    // campo novo no catálogo (`lib/campos.ts`) entra nesta volta sozinho.
+    for (const campo of CAMPOS) {
+      expect(rotulo.toLowerCase(), campo.chave).not.toContain(campo.nomeCurto.toLowerCase());
+      expect(rotulo.toLowerCase(), campo.chave).not.toContain(campo.rotulo.toLowerCase());
+    }
+    expect(rotulo).toBe("Pedido de dado");
+    // E ele continua tendo rótulo próprio: cair na reserva seria trocar uma
+    // mentira por um "Outro envio" que não diz o que aconteceu.
+    expect(rotulo).not.toBe("Outro envio");
   });
 });
 

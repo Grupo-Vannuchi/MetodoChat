@@ -18,9 +18,9 @@
 //
 // E `esperaResposta` MANDA NOS TRÊS QUE PARAM, não só na `dm`. A versão
 // anterior deste arquivo consultava `esperaResposta` no ramo `dm` e escrevia a
-// parada À MÃO nos ramos `pedir_follow` e `pedir_email` — o cabeçalho prometia
+// parada À MÃO nos ramos `pedir_follow` e `pedir_dado` — o cabeçalho prometia
 // fonte única e ela valia em um terço dos casos. A revisão provou a divergência
-// mutando `esperaResposta` para o `pedir_email` deixar de esperar:
+// mutando `esperaResposta` para o `pedir_dado` deixar de esperar:
 // `tests/editor-roteiro.test.ts` continuava verde e a prévia continuava
 // desenhando a parada. Hoje os três passam pela função, e a mesma mutação
 // acende teste.
@@ -48,6 +48,9 @@ import {
   seguinteDe,
   type Quando,
 } from "@/lib/steps";
+// O CATÁLOGO DE CAMPOS, pelo exemplo de resposta de cada um. Módulo puro (sem
+// `server-only`), como este arquivo precisa que seja.
+import { campoPorChave } from "@/lib/campos";
 
 // O que a prévia desenha. Cada item é uma coisa na tela, na ordem em que ela
 // aparece na conversa.
@@ -106,7 +109,17 @@ export type Bolha =
   | { tipo: "botoes"; botoes: { rotulo: string; escolhido: boolean }[] }
   // A MARCA DA PARADA. É a informação mais valiosa da prévia: daqui não sai
   // nada até a pessoa fazer alguma coisa.
-  | { tipo: "parada"; motivo: "toque" | "follow" | "email" }
+  // `"email"` virou `"dado"` junto com os cinco atalhos da paleta: a marca vale
+  // para os cinco campos, e o nome antigo faria a prévia do telefone se
+  // anunciar como parada de e-mail.
+  //
+  // E ELA CARREGA O `campo` quando o motivo é `"dado"`: quem desenha a marca
+  // (./previa) precisa saber QUAL dado para escolher o ícone, e a alternativa
+  // era uma segunda tabela de desenho por campo dentro da prévia — que foi
+  // exatamente como o envelope acabou em cima do pedido de telefone. O campo vem
+  // CRU do passo (`unknown` do jsonb); quem o lê trata o que não estiver no
+  // catálogo.
+  | { tipo: "parada"; motivo: "toque" | "follow" | "dado"; campo?: string }
   | { tipo: "resposta"; texto: string }
   // POR QUE A CONVERSA SEGUIU, quando ela não seguiu por um toque em botão.
   //
@@ -196,10 +209,26 @@ export type Bolha =
 // identidade tira o tradutor do meio.
 export type Cena = { id: string; itens: Bolha[] };
 
-// O endereço de exemplo que a pessoa "responde" ao pedido de e-mail. Mora aqui,
-// e não no JSX, para a prévia inteira ser decidida num arquivo com teste. É o
-// mesmo exemplo que a prévia antiga usa.
-const EMAIL_DE_EXEMPLO = "ana@email.com";
+// A resposta de exemplo que a pessoa "dá" ao pedido de dado. Mora aqui, e não
+// no JSX, para a prévia inteira ser decidida num arquivo com teste.
+//
+// ELA VEM DO CATÁLOGO, campo a campo (`CAMPOS`, lib/campos.ts): era
+// `ana@email.com` cravado para TODO `pedir_dado`, o que estava certo enquanto a
+// paleta só criava `campo: "email"` e virou mentira no dia em que ela ganhou os
+// cinco atalhos — a prévia prometia um endereço a quem tinha pedido um telefone.
+// O campo `exemplo` existia em `CAMPOS` desde a Tarefa 1 sem nenhum leitor; este
+// é o leitor.
+//
+// O LIVRE NÃO TEM EXEMPLO, e o texto provisório é a resposta honesta: quem
+// inventou a pergunta foi o dono ("De qual cidade você é?"), e esta tela não tem
+// como saber o que é uma resposta plausível para ela. Inventar "Sorocaba"
+// prometeria um conhecimento que a prévia não tem — é a mesma régua do
+// "Abrir link" de `LINK_PADRAO`, que fica porque É verdade.
+const RESPOSTA_DO_LIVRE = "a resposta dela";
+
+function respostaDeExemplo(campo: unknown): string {
+  return campoPorChave(typeof campo === "string" ? campo : "")?.exemplo ?? RESPOSTA_DO_LIVRE;
+}
 
 // O rótulo do botão de link quando ele está sem nome. `conferir` (lib/steps.ts)
 // não exige `botao_label` em `dm` nenhuma, então este caso chega aqui.
@@ -740,7 +769,7 @@ export function roteiro(
 
     // A MENSAGEM É A DO DONO, e não o `motivo` técnico, pela mesma razão de
     // `conferirLista` (lib/steps.ts): quem lê a prévia é quem está montando a
-    // automação, e "pedir_email sem texto" é nome de tipo interno.
+    // automação, e "pedir_dado sem texto" é nome de tipo interno.
     if (!passo) {
       cenas.push({ id, itens: [{ tipo: "incompleto", mensagem: paraODono! }] });
       continue;
@@ -887,7 +916,7 @@ export function roteiro(
       // que o painel escreve e que a cor do nó carrega.
       //
       // A PARADA SAI DE `esperaResposta` NOS DOIS, como no ramo `dm` acima. Ela
-      // diz sim a todo `pedir_follow` e a todo `pedir_email` hoje, então a cena
+      // diz sim a todo `pedir_follow` e a todo `pedir_dado` hoje, então a cena
       // não muda — o que muda é que a prévia deixa de ter uma cópia da regra: se
       // um dos dois deixar de esperar, a parada some daqui sozinha, em vez de
       // continuar desenhada por um `push` escrito à mão.
@@ -921,16 +950,20 @@ export function roteiro(
       //   `extractEmail(text)` ter dado certo — e-mail que não parece e-mail
       //   re-pergunta e RETORNA, sem sair do bloco.
       //
-      // Ou seja: a `senao` de um `pedir_email` é o caminho de quem digitou um
+      // Ou seja: a `senao` de um `pedir_dado` é o caminho de quem digitou um
       // e-mail VÁLIDO. A bolha da direita não está inventando um gesto — ela está
       // mostrando um EXEMPLO do que a pessoa digitou, que é a única coisa que
       // esta tela sabe sobre esse texto. Na resposta rápida é diferente: lá a
       // bolha afirma um TOQUE na pílula, e quem sai pela `senao` não tocou nela.
-      case "pedir_email":
+      // E A CENA É A DO CAMPO DO PASSO, e não mais a do e-mail para todos: o
+      // exemplo sai de `CAMPOS` (ver `respostaDeExemplo`, acima) e a marca
+      // deixou de nomear o e-mail. O parágrafo que estava aqui já previa esta
+      // troca, e ela veio com os cinco atalhos da paleta.
+      case "pedir_dado":
         itens.push({ tipo: "balao", texto: passo.texto, botao: null, link: false });
         if (esperaResposta(passo)) {
-          itens.push({ tipo: "parada", motivo: "email" });
-          itens.push({ tipo: "resposta", texto: EMAIL_DE_EXEMPLO });
+          itens.push({ tipo: "parada", motivo: "dado", campo: passo.campo });
+          itens.push({ tipo: "resposta", texto: respostaDeExemplo(passo.campo) });
         }
         break;
 

@@ -43,6 +43,9 @@ import {
   urlDoBanco,
 } from "./banco-descartavel";
 import { migracoesEmOrdem } from "./migracoes";
+// `somaDoTexto` é a MESMA função que o script usa para assinar: repor a linha do
+// registro com outra assinatura faria o script acusar "migração editada".
+import { somaDoTexto } from "../scripts/migracoes.mjs";
 import { sslDaUrl } from "@/lib/conexao";
 
 const rodar = promisify(execFile);
@@ -68,15 +71,29 @@ afterAll(async () => {
   if (schema) await destruirSchema(schema);
 });
 
-/** Roda `scripts/migrar.mjs` como o build roda, contra o schema descartável. */
-async function migrar(...bandeiras: string[]) {
+/**
+ * Roda `scripts/migrar.mjs` como o build roda, contra um schema descartável.
+ *
+ * `onde` é a URL do schema (por omissão, o deste arquivo) e `vercel` é o valor
+ * de `VERCEL_ENV`. Os dois são parâmetros por causa do caso da `012`: ele
+ * precisa de um schema PRÓPRIO — os casos acima começam com a pasta inteira já
+ * aplicada, e a pergunta dele é justamente o que acontece ANTES disso — e
+ * precisa de `VERCEL_ENV=production`, que é o único valor em que o script
+ * aplica sem a bandeira `--a-mao`. É a fiação exata de um deploy de produção.
+ *
+ * ISOLAMENTO: a `DATABASE_URL` entregue ao processo é SEMPRE a de um schema
+ * temporário deste arquivo, e o script prefere o ambiente ao `.env.local` (a
+ * ordem está escrita nele). `VERCEL_ENV=production` não muda para onde ele
+ * escreve — muda só se ele aplica.
+ */
+async function migrarEm(onde: string, bandeiras: string[], vercel = "") {
   try {
     const { stdout } = await rodar("node", ["scripts/migrar.mjs", ...bandeiras], {
       cwd: RAIZ,
       // `--a-mao` é o que o script exige fora de um deploy, e ele conferiu que
       // existe `.env.local`. A URL vem do AMBIENTE, e o script prefere o
       // ambiente ao arquivo — é assim que o schema temporário entra.
-      env: { ...process.env, DATABASE_URL: urlDoTeste, VERCEL_ENV: "" },
+      env: { ...process.env, DATABASE_URL: onde, VERCEL_ENV: vercel },
       maxBuffer: 20e6,
     });
     return { saida: stdout, codigo: 0 };
@@ -86,7 +103,17 @@ async function migrar(...bandeiras: string[]) {
   }
 }
 
+/** O mesmo, contra o schema compartilhado deste arquivo. */
+async function migrar(...bandeiras: string[]) {
+  return migrarEm(urlDoTeste, bandeiras);
+}
+
 const QUANTAS = migracoesEmOrdem().length;
+
+// A MIGRAÇÃO QUE O BUILD NÃO APLICA, nomeada uma vez só. É o espelho de
+// `SO_A_MAO` (scripts/migrar.mjs): se ela sair de lá e continuar aqui, o caso da
+// `012` fica vermelho na primeira asserção, nomeando o arquivo.
+const A_MAO = "012-migrar-email-para-campos.sql";
 
 it("a PRIMEIRA rodada aplica tudo e anota, e a SEGUNDA não aplica nada", async () => {
   const primeira = await migrar("--aplicar", "--a-mao");
@@ -133,6 +160,264 @@ it("migração EDITADA depois de aplicada faz o script PARAR, sem aplicar nada",
   // Devolve o registro ao lugar, para não contaminar quem rodar depois.
   await leitor!`delete from schema_migrations where name = ${migracoesEmOrdem()[0].nome}`;
 }, 120_000);
+
+it("DADO velho que sobrou derruba o script, mesmo com a migração já registrada", async () => {
+  // A CONFERÊNCIA DE DADO (`ESPERADAS_DADOS`, scripts/migrar.mjs) medida pelo
+  // único caminho que a alcança de verdade.
+  //
+  // Os casos acima provam que a segunda rodada NÃO APLICA nada — e é justamente
+  // por isso que este caso existe: com a `012` já registrada, o script pula o
+  // `update` e a única coisa que ainda olha para o dado é a conferência. Se ela
+  // não estivesse lá, o script imprimiria cinco "CONFERIDO" sobre estrutura e
+  // sairia 0 com passos `pedir_email` vivos no banco — que é exatamente o
+  // estado em que `interpretar` (lib/steps.ts) IGNORA o bloco e o fluxo entrega
+  // o que vem depois do pedido sem nunca ter pedido nada.
+  //
+  // O ESTADO DE PARTIDA É REPOSTO ANTES, e isto não é zelo: o caso acima termina
+  // APAGANDO a linha de `000` do registro, então sem esta reposição o script
+  // REAPLICARIA `000` no meio deste caso — e `000` recria as duas colunas que a
+  // `006` remove (que continua registrada e não roda de novo). A conferência de
+  // ausência passaria a falhar junto, e este caso estaria medindo duas coisas,
+  // uma delas alheia. Repor a linha com a assinatura certa é o mesmo que o
+  // script faria numa aplicação normal.
+  const base = migracoesEmOrdem()[0];
+  await leitor!`
+    insert into schema_migrations (name, checksum) values (${base.nome}, ${somaDoTexto(base.comandos)})
+    on conflict (name) do update set checksum = excluded.checksum`;
+
+  // Semear À MÃO é o que imita "um banco que não recebeu a migração": o registro
+  // diz que ela rodou, e o dado diz que não.
+  await leitor!`
+    insert into automations (account_id, name, active, triggers, keywords, steps)
+    values ('17800000000000012', 'automacao que ficou para tras', true,
+            string_to_array('dm', ','), string_to_array('x', ','),
+            '[{"id":"b_velho1","tipo":"pedir_email","texto":"seu e-mail?"}]'::jsonb)`;
+
+  const r = await migrar("--aplicar", "--a-mao");
+
+  expect(r.codigo, r.saida).toBe(1);
+  // A MENSAGEM É COBRADA, e não só o código: um script que saísse 1 por outro
+  // motivo passaria neste caso sem ter olhado para o dado uma vez.
+  expect(r.saida).toContain("SOBRARAM 1");
+  expect(r.saida).toContain("pedir_email");
+  expect(r.saida).toContain("012-migrar-email-para-campos.sql");
+  // E O CONSELHO, que desde a revisão da Tarefa 7 é POR ENTRADA (`seSobrar`,
+  // scripts/migrar.mjs) e não mais uma frase única do laço. Para esta metade o
+  // conselho certo é este: o `update` não casou nada, e o que se investiga é a
+  // migração. Para o passo migrado SEM TEXTO o conselho é o oposto, e o caso
+  // abaixo cobra o outro — juntos, eles provam que as frases não se misturaram.
+  expect(r.saida).toContain("A MIGRAÇÃO DE DADO NÃO FEZ EFEITO");
+  // E ele NÃO aplicou nada: a migração continua registrada, e o conserto é de
+  // quem for investigar — não do script rodando de novo por cima.
+  expect(r.saida).not.toContain("aplicada e registrada");
+
+  // Limpa, para não contaminar quem rodar depois neste mesmo schema.
+  await leitor!`delete from automations where name = 'automacao que ficou para tras'`;
+  const depois = await migrar("--aplicar", "--a-mao");
+  expect(depois.codigo, depois.saida).toBe(0);
+}, 240_000);
+
+it("passo que MIGROU e ficou SEM TEXTO derruba o script; o que tem texto, não", async () => {
+  // O BURACO QUE A REVISÃO DA TAREFA 7 ACHOU (achado 1), medido pelo único
+  // caminho que o alcança de verdade — o script, como processo, contra um banco.
+  //
+  // A conferência antiga perguntava só "sobrou algum `pedir_email`?". Um
+  // `pedir_email` SEM TEXTO vira `pedir_dado` SEM TEXTO, e aí a pergunta antiga
+  // responde "não sobrou nenhum": ela olha o TIPO e não o que `interpretar`
+  // (lib/steps.ts) faz com o bloco. Medido pela revisão no arranjo de produção
+  // `[dm oi, pedido, dm link]`: o passo migrado sem texto enfileira
+  // `["oi!","AQUI ESTA O LINK"]` — saída IDÊNTICA à do não migrado. O link sai
+  // sem nunca ter pedido nada, e o script saía 0 com o build verde.
+  //
+  // OS DOIS BLOCOS SÃO DE PROPÓSITO, e o segundo é metade do caso: se a consulta
+  // perdesse a condição de texto, ela contaria também o `pedir_dado` LEGÍTIMO e
+  // cobraria 2 — e uma conferência assim ficaria vermelha em todo deploy, contra
+  // o dado são que a Tarefa 5 grava. A asserção cobra 1, e não "maior que zero".
+  //
+  // PRECONDIÇÃO, a mesma dos casos acima: a `012` já está REGISTRADA, então o
+  // script pula o `update` e a única coisa que ainda olha para o dado é a
+  // conferência. É por isso que semear à mão imita "um banco que não recebeu a
+  // migração" sem que o script conserte o estado antes de medi-lo.
+  await leitor!`
+    insert into automations (account_id, name, active, triggers, keywords, steps)
+    values ('17800000000000012', 'migrado e ainda ignorado', true,
+            string_to_array('dm', ','), string_to_array('x', ','),
+            '[{"id":"b_sem_texto","tipo":"pedir_dado","campo":"email"}]'::jsonb)`;
+  await leitor!`
+    insert into automations (account_id, name, active, triggers, keywords, steps)
+    values ('17800000000000012', 'migrado e funcionando', true,
+            string_to_array('dm', ','), string_to_array('x', ','),
+            '[{"id":"b_com_texto","tipo":"pedir_dado","campo":"email","texto":"seu e-mail?"}]'::jsonb)`;
+
+  const r = await migrar("--aplicar", "--a-mao");
+
+  expect(r.codigo, r.saida).toBe(1);
+  // A CONTA É COBRADA JUNTO COM A FRASE: "SOBRARAM 2" aqui seria a consulta
+  // larga demais, varrendo o bloco são junto com o quebrado.
+  expect(r.saida).toContain("SOBRARAM 1 passos `pedir_dado` SEM TEXTO");
+  expect(r.saida).toContain("012-migrar-email-para-campos.sql");
+  // E O CONSELHO TEM DE SER O CERTO. Para este achado, "A MIGRAÇÃO DE DADO NÃO
+  // FEZ EFEITO" é conselho errado: ela FEZ efeito, e rodá-la de novo não
+  // inventa o texto que falta. Quem conserta é o editor.
+  expect(r.saida).toContain("O BLOCO MIGROU E CONTINUA SENDO IGNORADO");
+  expect(r.saida).not.toContain("A MIGRAÇÃO DE DADO NÃO FEZ EFEITO");
+  expect(r.saida).not.toContain("aplicada e registrada");
+
+  await leitor!`delete from automations where name in ('migrado e ainda ignorado', 'migrado e funcionando')`;
+  const depois = await migrar("--aplicar", "--a-mao");
+  expect(depois.codigo, depois.saida).toBe(0);
+}, 240_000);
+
+it("CONTATO com e-mail na coluna e sem `campos` derruba o script", async () => {
+  // A OUTRA METADE DE `ESPERADAS_DADOS`, e este caso existe porque até a revisão
+  // da Tarefa 7 ela era GUARDA ÓRFÃ: apagando só aquela entrada, a suíte de
+  // integração inteira ficava verde (238 passaram / 8 pulados, idêntico à linha
+  // de base). O caso acima a deixava passar porque a metade das AUTOMAÇÕES já
+  // imprimia "SOBRARAM 1" e "pedir_email" — as duas frases que ele cobra.
+  //
+  // As duas metades da migração falham de jeitos DIFERENTES: um `update` de
+  // contatos que casasse zero linhas deixaria esta conferência vermelha
+  // enquanto a das automações ficaria verde. É essa diferença que este caso
+  // prende, e é por isso que ele cobra a frase de CONTATOS, e não "SOBRARAM 1"
+  // sozinho, que a outra metade também imprime.
+  //
+  // `first_contact_at` e `campos` saem dos padrões da coluna (`now()` e `{}`) —
+  // o que importa aqui é e-mail preenchido na coluna e `campos` sem a chave.
+  await leitor!`
+    insert into contacts (account_id, ig_id, email)
+    values ('17800000000000012', 'ig_contato_que_ficou_para_tras', 'quem@ficou.para.tras')`;
+
+  const r = await migrar("--aplicar", "--a-mao");
+
+  expect(r.codigo, r.saida).toBe(1);
+  expect(r.saida).toContain("SOBRARAM 1 contatos com e-mail na coluna");
+  expect(r.saida).toContain("012-migrar-email-para-campos.sql");
+  expect(r.saida).toContain("A MIGRAÇÃO DE DADO NÃO FEZ EFEITO");
+  expect(r.saida).not.toContain("aplicada e registrada");
+
+  await leitor!`delete from contacts where ig_id = 'ig_contato_que_ficou_para_tras'`;
+  const depois = await migrar("--aplicar", "--a-mao");
+  expect(depois.codigo, depois.saida).toBe(0);
+}, 240_000);
+
+// ===========================================================================
+// A `012` SAI DO BUILD — o conserto da janela do deploy, medido pela fiação.
+//
+// O QUE ABRIA A JANELA: `package.json` roda `migrar.mjs --aplicar` no COMEÇO do
+// `next build`, e a aplicação ANTERIOR continua atendendo o webhook até o
+// deploy ser promovido. Com uma migração ADITIVA isso é inofensivo (é a razão
+// 3 de `docs/deploy/2026-08-26-migracao-no-build.md`, e ela já dizia que "no dia
+// da primeira migração que MOVE dado, esta ordem tem de ser repensada"). A
+// `012` é essa migração: ela reescreve `tipo: "pedir_email"` para `pedir_dado`,
+// e o código velho não conhece o tipo novo — `interpretar` ignora o pedido e
+// ENTREGA O LINK sem pedir nada, para as automações ativas, durante a janela.
+// Se o `next build` falhar, a janela NÃO FECHA.
+//
+// O CONSERTO TEM DUAS METADES, e esta é a segunda: `conferir` (lib/steps.ts)
+// passou a aceitar `pedir_email` como APELIDO de `pedir_dado { campo: "email" }`
+// — com isso o código NOVO serve dado VELHO —, e a `012` sai do caminho crítico:
+// ela é ADIADA pelo build e aplicada à mão, com o código novo já no ar.
+//
+// O QUE ESTE CASO PRENDE, e por que ele precisa de schema próprio: os casos
+// acima começam com a pasta INTEIRA já aplicada, e a pergunta aqui é o que
+// acontece ANTES disso — num banco que ainda não recebeu a `012`, que é
+// exatamente o estado da produção no dia do deploy.
+//
+// E ELE COBRA AS DUAS PONTAS DA CONFERÊNCIA, que é o que separa "tirar a `012`
+// do build" de "desligar a rede":
+//   · ANTES de a `012` ser aplicada, sobrar `pedir_email` é ESPERADO e NÃO
+//     derruba o deploy — com o apelido no lugar, o motor serve esse passo;
+//   · DEPOIS de ela estar registrada, sobrar `pedir_email` volta a derrubar,
+//     porque aí é a migração que não fez efeito.
+// ===========================================================================
+it("a `012` é ADIADA pelo build, aplicada à mão, e a conferência continua servindo", async () => {
+  const proprio = novoNomeDeSchema();
+  await criarSchema(proprio);
+  const urlPropria = urlComSchema(URL_ORIGINAL, proprio);
+  const dono = postgres(urlPropria, { prepare: false, ssl: sslDaUrl(urlPropria), max: 1 });
+
+  try {
+    // A trava de `banco-descartavel`: confere NO BANCO que o caminho é o schema
+    // temporário sozinho. Se esta linha passar, nada abaixo alcança `public`.
+    await conferirCaminho((texto) => dono.unsafe(texto), proprio);
+
+    // ===== 1. O BUILD DE PRODUÇÃO — e é ele que não pode mais mexer no dado ==
+    const build = await migrarEm(urlPropria, ["--aplicar"], "production");
+    expect(build.codigo, build.saida).toBe(0);
+    expect(build.saida).toContain("ADIADA");
+    expect(build.saida).toContain(A_MAO);
+    // As outras continuam entrando: adiar a `012` não pode adiar a estrutura.
+    expect([...build.saida.matchAll(/aplicada e registrada/g)].length).toBe(QUANTAS - 1);
+    // E o REGISTRO é a prova que não se discute: a `012` não está nele.
+    const semA012 = await dono`select name from schema_migrations where name = ${A_MAO}`;
+    expect(semA012).toHaveLength(0);
+
+    // ===== 2. O DADO DE PRODUÇÃO, no formato VELHO =====
+    // É o estado real no dia do deploy: automação ativa com o tipo antigo
+    // gravado, e contato com e-mail só na coluna.
+    await dono`
+      insert into automations (account_id, name, active, triggers, keywords, steps)
+      values ('17800000000000012', 'ativa no dia do deploy', true,
+              string_to_array('dm', ','), string_to_array('x', ','),
+              '[{"id":"b_velho1","tipo":"pedir_email","texto":"seu e-mail?"}]'::jsonb)`;
+    await dono`
+      insert into contacts (account_id, ig_id, email)
+      values ('17800000000000012', 'ig_do_dia_do_deploy', 'quem@ja.tinha.email')`;
+
+    // ===== 3. O DEPLOY SEGUINTE NÃO FICA VERMELHO POR CAUSA DISSO =====
+    // Esta é a metade que separa "adiar" de "quebrar": a conferência VÊ o que
+    // sobrou e DIZ, mas não derruba um deploy que está correto — a migração
+    // ainda não foi aplicada, e sobrar é o esperado.
+    const deNovo = await migrarEm(urlPropria, ["--aplicar"], "production");
+    expect(deNovo.codigo, deNovo.saida).toBe(0);
+    expect(deNovo.saida).toContain("SOBRARAM 1");
+    expect(deNovo.saida).toContain("AINDA NÃO FOI APLICADA");
+    // E o conselho ERRADO não sai: mandar investigar a migração que ninguém
+    // rodou ainda é mandar o plantão para o lado errado.
+    expect(deNovo.saida).not.toContain("A MIGRAÇÃO DE DADO NÃO FEZ EFEITO");
+    // O dado continua INTOCADO — é isso que fecha a janela.
+    const [antes] = await dono`
+      select steps->0->>'tipo' as tipo from automations where name = 'ativa no dia do deploy'`;
+    expect(antes.tipo).toBe("pedir_email");
+
+    // ===== 4. A MÃO, num momento calmo, com o código novo já no ar =====
+    const aMao = await migrarEm(urlPropria, ["--aplicar", "--a-mao"]);
+    expect(aMao.codigo, aMao.saida).toBe(0);
+    expect(aMao.saida).toContain(A_MAO + " — aplicada e registrada");
+    const [depois] = await dono`
+      select steps->0->>'tipo' as tipo, steps->0->>'campo' as campo
+        from automations where name = 'ativa no dia do deploy'`;
+    expect(depois.tipo).toBe("pedir_dado");
+    expect(depois.campo).toBe("email");
+    const [contato] = await dono`
+      select campos->'email'->>'valor' as valor from contacts where ig_id = 'ig_do_dia_do_deploy'`;
+    expect(contato.valor).toBe("quem@ja.tinha.email");
+
+    // ===== 5. E O BUILD SEGUINTE PASSA LIMPO =====
+    const limpo = await migrarEm(urlPropria, ["--aplicar"], "production");
+    expect(limpo.codigo, limpo.saida).toBe(0);
+    expect(limpo.saida).toContain("não sobrou nenhum");
+    expect(limpo.saida).not.toContain("SOBRARAM");
+
+    // ===== 6. A REDE CONTINUA LIGADA — e esta é a outra ponta =====
+    // Com a `012` REGISTRADA, sobrar `pedir_email` volta a ser o que sempre foi:
+    // a migração não fez efeito, e o deploy PARA. Sem esta metade, tirar a `012`
+    // do build teria desligado a única conferência que enxerga esta migração.
+    await dono`
+      insert into automations (account_id, name, active, triggers, keywords, steps)
+      values ('17800000000000012', 'ficou para tras de verdade', true,
+              string_to_array('dm', ','), string_to_array('x', ','),
+              '[{"id":"b_velho2","tipo":"pedir_email","texto":"seu e-mail?"}]'::jsonb)`;
+    const vermelho = await migrarEm(urlPropria, ["--aplicar"], "production");
+    expect(vermelho.codigo, vermelho.saida).toBe(1);
+    expect(vermelho.saida).toContain("SOBRARAM 1");
+    expect(vermelho.saida).toContain("A MIGRAÇÃO DE DADO NÃO FEZ EFEITO");
+    expect(vermelho.saida).not.toContain("AINDA NÃO FOI APLICADA");
+  } finally {
+    await dono.end();
+    await destruirSchema(proprio);
+  }
+}, 240_000);
 
 it("o registro nasce no schema descartável, e NÃO no public", async () => {
   const [r] = await leitor!`

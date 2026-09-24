@@ -1,9 +1,9 @@
 "use client";
 import { itensDaFaixa } from "./modelos";
 import {
+  ICONE_DO_CAMPO,
   IconClock,
   IconCoracao,
-  IconMail,
   IconMensagem,
   IconMensagemBotao,
   IconMensagemLink,
@@ -97,19 +97,36 @@ import {
 // JSX: pôr componente lá obrigaria o arquivo a virar `.tsx` e arrastaria React
 // para dentro do único módulo do editor que hoje é só a lista dos itens.
 //
-// DOIS ÍCONES SÃO REUSADOS e não novos — `IconClock` para a espera e
-// `IconMail` para o pedido de e-mail. São os MESMOS que a prévia
-// (`./previa`) já usa para a legenda de tempo e para a parada de e-mail, e um
-// desenho novo ali só criaria um segundo símbolo para a mesma ideia. O motivo
-// completo, e por que os outros sete precisaram nascer, está em `app/icons`.
-const ICONE: Record<string, (p: { className?: string }) => React.JSX.Element> = {
+// TRÊS ÍCONES SÃO REUSADOS e não novos — `IconClock` para a espera, `IconMail`
+// para o pedido de e-mail e `IconPhone` para o de telefone. Os três já existem
+// nesta base, e um desenho novo ali só criaria um segundo símbolo para a mesma
+// ideia. O motivo completo, e por que os outros precisaram nascer, está em
+// `app/icons`.
+//
+// O `?? IconMensagem` LÁ EMBAIXO É REDE, NÃO PLANO: item da paleta sem entrada
+// aqui sai com o ícone de "Mensagem" e fica indistinguível dele na faixa — que
+// é justamente o que não pode acontecer com cinco pedidos de dado lado a lado.
+// `tests/paleta-e-salvar.test.ts` confere que toda chave da paleta tem ícone
+// próprio, para a rede nunca ser o que a tela usa.
+// EXPORTADO só para `tests/paleta-e-salvar.test.ts` alcançar a tabela sem
+// montar a faixa: o que aquele caso pergunta é se TODA chave da paleta tem
+// desenho próprio, e isso é uma propriedade da tabela, não do JSX.
+export const ICONE: Record<string, (p: { className?: string }) => React.JSX.Element> = {
   dm: IconMensagem,
   dm_botao: IconMensagemBotao,
   dm_link: IconMensagemLink,
   dm_opcoes: IconMensagemOpcoes,
   esperar: IconClock,
   pedir_follow: IconPortao,
-  pedir_email: IconMail,
+  // OS CINCO PEDIDOS LEEM `ICONE_DO_CAMPO` (app/icons), que é a tabela por
+  // CAMPO — a mesma que a marca de parada da prévia usa. Escritos à mão aqui,
+  // eles já tinham divergido dela: a faixa mostrava um telefone e a prévia um
+  // envelope, no mesmo bloco, na mesma tela.
+  pedir_email: ICONE_DO_CAMPO.email,
+  pedir_telefone: ICONE_DO_CAMPO.telefone,
+  pedir_nome: ICONE_DO_CAMPO.nome_informado,
+  pedir_nascimento: ICONE_DO_CAMPO.nascimento,
+  pedir_outro: ICONE_DO_CAMPO.livre,
   resposta_publica: IconRespostaPublica,
   reagir_story: IconCoracao,
 };

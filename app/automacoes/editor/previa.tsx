@@ -7,11 +7,11 @@ import { card } from "../../ui";
 import {
   IconAlert,
   IconCamera,
+  ICONE_DO_CAMPO,
   IconChevronLeft,
   IconClock,
   IconComment,
   IconImage,
-  IconMail,
   IconMic,
   IconPhone,
   IconSend,
@@ -211,7 +211,7 @@ function Menu({ botoes }: { botoes: { rotulo: string; escolhido: boolean }[] }) 
 //     (`no.tsx`) e a do aviso "o fluxo para aqui" do painel, que é justamente o
 //     da `dm` de resposta rápida. Os dois casos vivem aqui.
 //   TEAL — pede uma informação e para até recebê-la, MAS quem chegar do outro
-//     lado por outro caminho passa. É o `pedir_email`, e a distinção é real: a
+//     lado por outro caminho passa. É o `pedir_dado`, e a distinção é real: a
 //     regra do portão (`atravessandoOPortao`, lib/steps.ts) cobre `pedir_follow`
 //     e mais nada.
 //
@@ -233,21 +233,52 @@ const PARADAS = {
     cor: "border-amber-400/60 bg-amber-400/10 text-amber-300",
     corDoTexto: "text-amber-200/90",
   },
-  email: {
-    icone: <IconMail className="h-3 w-3 shrink-0" />,
-    titulo: "para aqui até o e-mail chegar",
+  // A MARCA NÃO NOMEIA MAIS O E-MAIL, e isso é a prévia acompanhando a paleta:
+  // o bloco pede telefone, nome, data de nascimento e campo livre desde que o
+  // editor ganhou os cinco atalhos (`PALETA`, ./modelos). "Até o e-mail chegar"
+  // sobre um pedido de telefone é a tela dizendo o contrário do que o bloco faz.
+  //
+  // QUEM DIZ QUAL DADO É a bolha de exemplo logo abaixo desta marca — "(11)
+  // 99999-9999" não se confunde com "ana@email.com" —, e ela sai do catálogo
+  // (`respostaDeExemplo`, ./roteiro). Repetir o rótulo do campo aqui seria uma
+  // segunda voz sobre a mesma coisa, e uma delas teria de conjugar o artigo de
+  // cada rótulo ("o e-mail", "a data de nascimento") só para a frase fechar.
+  //
+  // O ÍCONE DESTA MARCA NÃO MORA MAIS AQUI. Ele era `IconMail` fixo, para os
+  // cinco campos: um ENVELOPE em cima de "Pedir telefone", contradizendo na
+  // mesma tela a faixa da paleta, que desenha um telefone naquele item. Quem
+  // desenha agora é `ICONE_DO_CAMPO` (app/icons), pelo `campo` que a marca
+  // carrega — a mesma tabela que a paleta lê. O `icone: null` diz que esta
+  // parada não tem desenho fixo; as outras duas têm.
+  dado: {
+    icone: null,
+    titulo: "para aqui até a resposta chegar",
     texto: "Não é portão: quem alcançar um bloco adiante por outro caminho passa sem responder.",
     cor: "border-teal-400/60 bg-teal-400/10 text-teal-300",
     corDoTexto: "text-teal-200/90",
   },
 } as const;
 
-function Parada({ motivo }: { motivo: "toque" | "follow" | "email" }) {
+function Parada({ motivo, campo }: { motivo: "toque" | "follow" | "dado"; campo?: string }) {
   const p = PARADAS[motivo];
+  // O DESENHO DO CAMPO, quando há campo — as outras duas paradas têm ícone
+  // fixo, e é por isso que `p.icone` vem primeiro.
+  //
+  // O `Desenho ? ... : null` É REDE, E ESTÁ DITO QUE É: nenhum bloco aceito
+  // chega aqui com um campo fora da tabela — `conferir` (lib/steps.ts) recusa
+  // `campo` que o catálogo não conhece, e o roteiro não desenha bloco recusado
+  // (medido em testes-dom/marca-do-pedido-de-dado.dom.tsx). O que esta linha
+  // impede é a ROTA INTEIRA CAIR no dia em que a tabela e o catálogo saírem de
+  // sincronia: `<Desenho/>` com `undefined` estoura e leva a página de edição
+  // junto, que é o estrago que o comentário da prop `conta` já registrou.
+  // QUEM GARANTE QUE ESSE DIA NÃO CHEGA é o caso puro que confere a tabela
+  // campo a campo contra `CAMPOS` (tests/paleta-e-salvar.test.ts) — este `?` é
+  // o cinto, não o dono da regra.
+  const Desenho = campo ? ICONE_DO_CAMPO[campo] : undefined;
   return (
     <div className={`my-1 self-stretch rounded border border-dashed px-2 py-1.5 ${p.cor}`}>
       <p className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wide">
-        {p.icone}
+        {p.icone ?? (Desenho ? <Desenho className="h-3 w-3 shrink-0" /> : null)}
         {p.titulo}
       </p>
       <p className={`mt-0.5 text-[9px] leading-snug ${p.corDoTexto}`}>{p.texto}</p>
@@ -300,7 +331,7 @@ function Marca({
 // contar: é a conversa seguindo.
 //
 // A FRASE DO `digitou` DIZIA "e por isso a prévia não o mostra", E ISSO ERA
-// FALSO NA MESMA CENA. Num `pedir_email` a prévia mostra `ana@email.com` uma
+// FALSO NA MESMA CENA. Num `pedir_dado` a prévia mostra `ana@email.com` uma
 // linha acima desta caixa — um EXEMPLO do que a pessoa digitou —, e a frase logo
 // abaixo negava mostrar. O que a prévia não tem é o texto REAL; dizer isso é
 // verdade nas duas cenas, e é o que ela diz agora. (A outra metade da mesma
@@ -384,7 +415,7 @@ function Item({ bolha, conta }: { bolha: Bolha; conta: ContaDaPrevia }) {
       return <Menu botoes={bolha.botoes} />;
 
     case "parada":
-      return <Parada motivo={bolha.motivo} />;
+      return <Parada motivo={bolha.motivo} campo={bolha.campo} />;
 
     case "resposta":
       return <Enviada>{bolha.texto}</Enviada>;

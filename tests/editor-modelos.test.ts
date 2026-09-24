@@ -23,6 +23,10 @@ import {
   type Ligacao,
   type Passo,
 } from "../lib/steps";
+// O CATÁLOGO ENTRA AQUI porque é ele que este arquivo confere que a paleta LÊ:
+// a pergunta padrão de cada pedido de dado não pode estar copiada em
+// `modelos.ts` (ver o caso dos cinco atalhos, abaixo).
+import { campoPorChave } from "../lib/campos";
 
 // O QUE ESTE ARQUIVO FIXA: `resumoDoBloco` é TOTAL sobre jsonb.
 //
@@ -53,7 +57,7 @@ describe("resumoDoBloco não derruba a página com o que está no banco", () => 
     // derruba o render do mesmo jeito que o `.join` derrubava.
     expect(resumoDoBloco(doBanco({ tipo: "dm", texto: { a: 1 } })).corpo).toBe("");
     expect(resumoDoBloco(doBanco({ tipo: "reagir_story", emoji: null })).corpo).toBe("");
-    expect(resumoDoBloco(doBanco({ tipo: "pedir_email" })).corpo).toBe("");
+    expect(resumoDoBloco(doBanco({ tipo: "pedir_dado", campo: "email" })).corpo).toBe("");
   });
 
   it("`esperar` com minutos estranho não estoura — o template é total", () => {
@@ -156,24 +160,192 @@ describe("resumoDoBloco classifica o MENU pela FORMA", () => {
 });
 
 describe("blocoNovo", () => {
-  it("os nove itens da paleta nascem desenháveis", () => {
+  it("todo item da paleta nasce desenhável", () => {
     // Se um item novo da paleta produzisse um tipo que `resumoDoBloco` não
     // conhece, ele nasceria como "BLOCO DESCONHECIDO" — visível, mas com o
     // salvar travado desde o arrasto.
-    const chaves = [
-      "dm",
-      "dm_botao",
-      "dm_link",
-      "dm_opcoes",
-      "esperar",
-      "pedir_follow",
-      "pedir_email",
-      "resposta_publica",
-      "reagir_story",
-    ];
-    for (const chave of chaves) {
-      expect(resumoDoBloco(blocoNovo(chave)).titulo).not.toBe("BLOCO DESCONHECIDO");
+    //
+    // A LISTA VEM DE `PALETA`, e não escrita à mão aqui: a cópia à mão tinha
+    // nove chaves e ficou parada quando a paleta ganhou os cinco pedidos de
+    // dado — um item novo entrava sem ninguém conferir que ele nasce desenhável,
+    // que é exatamente o que este caso existe para impedir.
+    for (const item of PALETA) {
+      expect(resumoDoBloco(blocoNovo(item.chave)).titulo, item.chave).not.toBe(
+        "BLOCO DESCONHECIDO"
+      );
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // OS CINCO PEDIDOS DE DADO, E O QUE ELES LEEM DO CATÁLOGO.
+  //
+  // São cinco atalhos sobre UM mecanismo (`tipo: "pedir_dado"`), e o que muda
+  // entre eles é o `campo`. A pergunta padrão NÃO é escrita em `modelos.ts`: ela
+  // vem de `lib/campos.ts`, que é o dono da regra de campo. Uma cópia do texto
+  // aqui divergiria do que o motor repergunta no primeiro ajuste de copy.
+  // ---------------------------------------------------------------------------
+
+  it("os quatro campos do catálogo nascem com o campo e a pergunta DE LÁ", () => {
+    const daPaleta: [string, string][] = [
+      ["pedir_email", "email"],
+      ["pedir_telefone", "telefone"],
+      ["pedir_nome", "nome_informado"],
+      ["pedir_nascimento", "nascimento"],
+    ];
+    for (const [chaveDoItem, campo] of daPaleta) {
+      const bloco = blocoNovo(chaveDoItem);
+      expect(bloco.tipo, chaveDoItem).toBe("pedir_dado");
+      if (bloco.tipo !== "pedir_dado") continue;
+      expect(bloco.campo, chaveDoItem).toBe(campo);
+      expect(bloco.texto, chaveDoItem).toBe(campoPorChave(campo)!.perguntaPadrao);
+      // Campo do catálogo não tem `chave`: a chave dele é o próprio campo
+      // (`chaveDoPedido`, lib/steps.ts).
+      expect(bloco.chave, chaveDoItem).toBeUndefined();
+    }
+  });
+
+  it("a faixa da paleta diz os CINCO nomes que o brief fixou, literalmente", () => {
+    // OS VALORES SÃO LITERAIS DO BRIEF DA TAREFA 5, e por isso estão escritos
+    // aqui à mão em vez de derivados do catálogo: um caso derivado passa a
+    // valer o que o catálogo disser, e foi exatamente assim que a faixa passou
+    // a dizer "Pedir nome informado" e "Pedir data de nascimento" sem nada
+    // acusar. Derivado, este caso mede a ligação; literal, ele mede o VALOR —
+    // e o valor é que o brief fixou.
+    const daFaixa = Object.fromEntries(
+      PALETA.filter((i) => i.chave.startsWith("pedir_") && i.chave !== "pedir_follow").map((i) => [
+        i.chave,
+        i.rotulo,
+      ])
+    );
+    expect(daFaixa).toEqual({
+      pedir_email: "Pedir e-mail",
+      pedir_telefone: "Pedir telefone",
+      pedir_nome: "Pedir nome",
+      pedir_nascimento: "Pedir nascimento",
+      pedir_outro: "Pedir outro dado",
+    });
+  });
+
+  it("a faixa NÃO escreve o nome à mão: ela lê o `nomeCurto` do catálogo", () => {
+    // O caso acima prende o VALOR; este prende a LIGAÇÃO. Eram TRÊS vozes para
+    // a mesma coisa — a faixa dizia "Pedir nome", o nó dizia "PEDIR NOME
+    // INFORMADO" e o erro de campo repetido saía "Só pode haver um pedido de
+    // Nome informado." —, e quem monta a automação tinha de adivinhar que os
+    // três falavam do mesmo bloco. Os três leem `nomeCurto` (lib/campos.ts)
+    // desde então, e é este caso que impede um apelido escrito em `modelos.ts`.
+    //
+    // POR QUE `nomeCurto` E NÃO `rotulo`: o rótulo é o nome CHEIO do campo
+    // ("Telefone / WhatsApp"), fixado no brief da Tarefa 1 para dizer ao
+    // marketing para que o campo serve. Encurtá-LO para caber na faixa
+    // estragaria o dado para resolver apresentação; o `nomeCurto` é o campo de
+    // apresentação, e os dois têm o mesmo dono (`CAMPOS`).
+    const daPaleta: [string, string][] = [
+      ["pedir_email", "email"],
+      ["pedir_telefone", "telefone"],
+      ["pedir_nome", "nome_informado"],
+      ["pedir_nascimento", "nascimento"],
+    ];
+    for (const [chaveDoItem, campo] of daPaleta) {
+      const item = PALETA.find((i) => i.chave === chaveDoItem)!;
+      expect(item.rotulo, chaveDoItem).toBe(
+        `Pedir ${campoPorChave(campo)!.nomeCurto.toLowerCase()}`
+      );
+      // E O NÓ FALA DO MESMO NOME, em outra caixa: são a mesma fonte.
+      expect(
+        resumoDoBloco(doBanco({ tipo: "pedir_dado", campo, texto: "t" })).titulo,
+        chaveDoItem
+      ).toBe(item.rotulo.toUpperCase());
+    }
+  });
+
+  it("o pedido de outro dado nasce LIVRE e sem chave — e por isso nasce com erro", () => {
+    // É a mesma decisão de "Mensagem com link", que nasce com `url: ""`: o
+    // bloco nasce acusando o campo que falta, e o erro apaga na primeira letra
+    // digitada. Sem a chave `chave` presente, o dono não teria onde digitar o
+    // nome do campo no painel.
+    const bloco = blocoNovo("pedir_outro");
+    expect(bloco.tipo).toBe("pedir_dado");
+    if (bloco.tipo !== "pedir_dado") return;
+    expect(bloco.campo).toBe("livre");
+    expect(bloco.chave).toBe("");
+
+    // E NASCE SEM TEXTO, e isto fecha um vazamento para cliente real: ele
+    // nascia com `texto: "O que você quer perguntar?"` — uma pergunta
+    // gramatical e plausível, não um provisório visível. O bloco salva com o
+    // nome do campo preenchido e o texto INTOCADO, e aí o lead recebe essa
+    // frase no direct. Com o texto vazio, `conferirLista` trava o salvar até o
+    // dono escrever a pergunta dele.
+    expect(bloco.texto).toBe("");
+    const travas = conferirLista([{ ...bloco, chave: "cidade" }], "dm", []).filter(
+      (p) => p.nivel === "erro" && p.quando === "salvar"
+    );
+    expect(travas).toHaveLength(1);
+    expect(travas[0].mensagem).toMatch(/sem texto/i);
+    // E COM O NOME DO CAMPO JÁ PREENCHIDO a frase NÃO o cobra: a recusa dupla
+    // do caso abaixo é condicional, e uma frase que acusa um buraco que não
+    // existe manda o dono procurar o que já está lá.
+    expect(travas[0].mensagem).not.toMatch(/nome do campo/i);
+  });
+
+  it("nascendo com DOIS buracos, o nó diz os DOIS — e não um de cada vez", () => {
+    // O DEFEITO QUE ISTO CONSERTA: este é o único item da paleta que nasce com
+    // duas coisas faltando (o texto e o nome do campo), e o nó mostrava só a
+    // primeira. `conferirBloco` (lib/steps.ts) recusa o bloco por causa do
+    // texto, e o `if (!passo) continue` de `conferirLista` pula o resto do laço
+    // — então a recusa do nome do campo só aparecia na SEGUNDA volta, depois de
+    // o dono escrever a pergunta e olhar o nó de novo. Ele consertava um
+    // problema para descobrir o outro.
+    //
+    // NÃO ERA DEFEITO DE DISPARO — mensagem vazia não vai para ninguém
+    // (`conferir` recusa o bloco e `interpretar` o ignora, e o salvar fica
+    // travado nos dois estados) —, era uma ida e volta a mais no nó.
+    //
+    // A FRASE ÚNICA É O CONSERTO, e é o menor que resolve: `paraODono` tem UM
+    // slot, então o que muda é o que cabe nele. O `motivo` técnico continua
+    // sendo "pedir_dado sem texto" — é ele que os `ignorados` de `interpretar`
+    // carregam, e mudá-lo trocaria um diagnóstico por outro sem necessidade.
+    const bloco = blocoNovo("pedir_outro");
+    const travas = conferirLista([bloco], "dm", []).filter(
+      (p) => p.nivel === "erro" && p.quando === "salvar"
+    );
+    expect(travas).toHaveLength(1);
+    expect(travas[0].mensagem).toMatch(/sem texto/i);
+    expect(travas[0].mensagem).toMatch(/nome do campo/i);
+
+    // E COM UM BURACO SÓ A FRASE NÃO INVENTA O OUTRO: escrever a pergunta deixa
+    // só a recusa do nome do campo, e ela não fala mais de texto.
+    const comTexto = conferirLista([{ ...bloco, texto: "De qual cidade você é?" }], "dm", []).filter(
+      (p) => p.nivel === "erro" && p.quando === "salvar"
+    );
+    expect(comTexto).toHaveLength(1);
+    expect(comTexto[0].mensagem).toMatch(/nome do campo/i);
+    expect(comTexto[0].mensagem).not.toMatch(/sem texto/i);
+  });
+
+  it("o título do nó nomeia o CAMPO, e não o e-mail de sempre", () => {
+    // Enquanto `pedir_dado` só nascia com `campo: "email"`, o título fixo
+    // "PEDIR E-MAIL" estava certo. Com os cinco itens da paleta ele passaria a
+    // anunciar o bloco de telefone como pedido de e-mail no quadro — e o título
+    // é a única coisa que distingue os cinco blocos de longe.
+    const doCampo = (campo: string) =>
+      resumoDoBloco(doBanco({ tipo: "pedir_dado", campo, texto: "t" })).titulo;
+
+    expect(doCampo("email")).toBe("PEDIR E-MAIL");
+    // "PEDIR TELEFONE", e não "PEDIR TELEFONE / WHATSAPP": o título lê o
+    // `nomeCurto` do catálogo (lib/campos.ts), que é o campo de APRESENTAÇÃO —
+    // e não o `rotulo`, que é o nome cheio do dado ("Telefone / WhatsApp",
+    // literal do brief da Tarefa 1). Os dois moram no mesmo dono; encurtar o
+    // `rotulo` para caber neste título já foi tentado e estragou o dado para
+    // resolver tela. Um apelido escrito em `modelos.ts` continua proibido pelo
+    // mesmo motivo de sempre: seria a segunda voz.
+    expect(doCampo("telefone")).toBe("PEDIR TELEFONE");
+    expect(doCampo("nome_informado")).toBe("PEDIR NOME");
+    expect(doCampo("nascimento")).toBe("PEDIR NASCIMENTO");
+    expect(doCampo("livre")).toBe("PEDIR OUTRO DADO");
+    // Campo que o catálogo não conhece (automação gravada antes desta fase, ou
+    // `steps` editado por fora) não vira "BLOCO DESCONHECIDO": o bloco É um
+    // pedido de dado, e `conferirLista` já o acusa por outro caminho.
+    expect(doCampo("inventado")).toBe("PEDIR DADO");
   });
 
   // A LISTA DA PALETA E O `switch` SÃO A MESMA COISA, e este teste é o que
@@ -466,7 +638,7 @@ describe("alcasDeSaida", () => {
       { tipo: "dm", texto: "oi", botao_label: "Quero" },
       { tipo: "esperar", minutos: 5 },
       { tipo: "pedir_follow", texto: "segue", botao_label: "Já sigo" },
-      { tipo: "pedir_email", texto: "email" },
+      { tipo: "pedir_dado", campo: "email", texto: "email" },
     ]) {
       const alcas = alcasDeSaida(doBanco(p));
       expect(alcas).toHaveLength(1);
@@ -537,7 +709,7 @@ describe("podeEntrarNaSeta", () => {
     expect(podeEntrarNaSeta({ tipo: "dm", texto: "oi", botao_label: "Quero" })).toBe(true);
     expect(podeEntrarNaSeta({ tipo: "dm", texto: "oi", botao_label: "Abrir", url: "x" })).toBe(true);
     expect(podeEntrarNaSeta({ tipo: "esperar", minutos: 5 })).toBe(true);
-    expect(podeEntrarNaSeta({ tipo: "pedir_email", texto: "seu e-mail" })).toBe(true);
+    expect(podeEntrarNaSeta({ tipo: "pedir_dado", campo: "email", texto: "seu e-mail" })).toBe(true);
     expect(
       podeEntrarNaSeta({ tipo: "dm", texto: "Escolha", botoes: [{ id: "op_a", rotulo: "A" }] })
     ).toBe(false);
