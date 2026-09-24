@@ -18,12 +18,20 @@
 // (os dois aqui embaixo) perguntam a ela, e o editor também. Uma segunda lista
 // de chaves proibidas escrita aqui divergiria do catálogo no primeiro campo
 // novo — e a divergência gravaria dado de pessoa real no lugar errado.
+//
+// `tokenComEspaco` e a frase dela entram pelo mesmo motivo e com a mesma
+// doutrina: a forma certa de uma chave sai de `formaDaChave`, e reescrever aqui
+// a régua que transforma "Qual sua Cidade" em `qual_sua_cidade` seria a segunda
+// verdade sobre o que é a forma de uma chave — a tela mandaria escrever um token
+// que o envio não resolve.
 import {
   campoPorChave,
   chaveReservada,
   fraseDaChaveQueColide,
   fraseDaChaveSemLetra,
+  fraseDoTokenComEspaco,
   normalizarChaveLivre,
+  tokenComEspaco,
 } from "./campos.ts";
 
 // O `id` é a identidade do bloco, e ele é OPCIONAL de propósito.
@@ -3694,6 +3702,42 @@ export function salvarRecusaOBloco(tipo: string, gatilho: string): boolean {
   return false;
 }
 
+// OS TEXTOS DESTE BLOCO QUE CHEGAM ESCRITOS AO LEAD.
+//
+// A LISTA NÃO É "o que o editor mostra", é "o que passa por `renderVariables`",
+// e a diferença importa: `processItem` (lib/queue-drain.ts) resolve as variáveis
+// no TEXTO, no rótulo do botão de link, no rótulo da resposta rápida e nos
+// rótulos do MENU. Um token torto em qualquer um deles sai cru do mesmo jeito.
+// O botão de variáveis só é oferecido no texto (`MessageField`,
+// app/automacoes/variable-picker.tsx), mas nada impede o dono de digitar `{{`
+// num rótulo — e cobrir só o texto seria a metade de conserto que esta
+// funcionalidade já pagou caro em outras telas.
+//
+// AS PERGUNTAS SÃO POR CHAVE (`"texto" in p`) e cada valor é conferido em
+// runtime, porque `Passo` é uma AFIRMAÇÃO sobre jsonb e não uma garantia: a
+// lista chega do banco como `unknown[]`, e um `textos` que não é lista ou um
+// botão nulo chegam até aqui. É a mesma defesa de `resumoDoBloco`
+// (app/automacoes/editor/modelos.ts), pelo mesmo motivo.
+//
+// O QUE NÃO ENTRA: `url` e `emoji`. A url não passa por `renderVariables` (o
+// `linkMessage` a recebe crua), e o emoji do coraçãozinho não é texto de
+// mensagem. Incluí-los faria a regra falar de campos em que `{{...}}` nunca
+// significou variável.
+function textosQueVaoParaOLead(p: Passo): string[] {
+  const textos: string[] = [];
+  if ("texto" in p && typeof p.texto === "string") textos.push(p.texto);
+  if ("botao_label" in p && typeof p.botao_label === "string") textos.push(p.botao_label);
+  if ("textos" in p && Array.isArray(p.textos)) {
+    for (const t of p.textos) if (typeof t === "string") textos.push(t);
+  }
+  if ("botoes" in p && Array.isArray(p.botoes)) {
+    for (const b of p.botoes) {
+      if (b && typeof b === "object" && typeof b.rotulo === "string") textos.push(b.rotulo);
+    }
+  }
+  return textos;
+}
+
 export function conferirLista(
   passos: unknown,
   gatilho: string,
@@ -3976,6 +4020,48 @@ export function conferirLista(
         indice: i,
         mensagem: fraseDaChaveSemLetra(),
       });
+    }
+
+    // O TOKEN DIGITADO COM ESPAÇO — `{{Qual sua Cidade}}` no texto de uma
+    // mensagem.
+    //
+    // O QUE ELE FAZ HOJE: `TOKEN` (lib/variables.ts) não casa com ele, e o que
+    // não casa não é resolvido NEM apagado — sai LITERALMENTE para o lead,
+    // chaves e tudo. O nome que o marketing digita no campo é exatamente esse,
+    // com espaços e maiúsculas, então o erro é o caminho natural de quem escreve
+    // o token à mão do jeito que nomeou o campo. A régua exata, com as três
+    // condições e o que fica de fora, está em `tokenComEspaco` (lib/campos.ts).
+    //
+    // ELA MORA AQUI E NÃO EM `conferir`, E ISTO É A DECISÃO CENTRAL DA REGRA.
+    // Recusando em `conferir`, `interpretar` IGNORARIA o bloco: a mensagem
+    // inteira deixaria de ser enviada, EM SILÊNCIO, e o fluxo entregaria o que
+    // vem depois dela. Foi esse mecanismo que criou a trava de sequência desta
+    // funcionalidade. Mandar um `{{...}}` cru é feio; sumir com a mensagem é
+    // muito pior — e a automação JÁ GRAVADA com o token torto continua sendo
+    // entregue exatamente como antes. É o mesmo lugar, pelo mesmo motivo, da
+    // chave livre sem letra logo acima.
+    //
+    // A RECUSA É PREVENTIVA, e isso está MEDIDO: em 24/09/2026, ZERO blocos em
+    // produção contêm `{{` no texto — nenhuma automação viva usa variável em
+    // mensagem. Ela vale para o que for salvo daqui em diante, e não quebra nada
+    // que já esteja no ar. Isso NÃO afrouxa o parágrafo acima: a razão de ela não
+    // morar em `conferir` é o que aconteceria com a mensagem, não quantas
+    // automações seriam atingidas hoje.
+    //
+    // UMA FRASE POR BLOCO, e é o que o `break` faz: cinco linhas vermelhas sobre
+    // o mesmo nó só escondem qual é o bloco culpado. É a doutrina que
+    // `botoesCrus` (lá embaixo) já escreve para o menu.
+    for (const texto of textosQueVaoParaOLead(passo)) {
+      const torto = tokenComEspaco(texto);
+      if (torto) {
+        r.push({
+          nivel: "erro",
+          quando: "salvar",
+          indice: i,
+          mensagem: fraseDoTokenComEspaco(torto),
+        });
+        break;
+      }
     }
 
     // Aponta o SEGUNDO, não o primeiro: o primeiro é o que vai ser entregue, e

@@ -4,14 +4,17 @@ import {
   camposDoSistemaEmProsa,
   campoEstaFresco,
   campoPorChave,
+  formaDaChave,
   fraseDaChaveQueColide,
   fraseDaChaveSemLetra,
+  fraseDoTokenComEspaco,
   lerCampos,
   listaEmProsa,
   normalizarChaveLivre,
   RECENCIA_EM_DIAS,
   REPERGUNTAR_LIVRE,
   regraDoCampo,
+  tokenComEspaco,
 } from "@/lib/campos";
 import { extractEmail } from "@/lib/match";
 
@@ -458,3 +461,115 @@ describe("as frases da chave de campo livre recusada", () => {
   });
 });
 
+
+// -----------------------------------------------------------------------------
+// O TOKEN DIGITADO COM ESPAÇO — a recusa e a forma certa.
+// -----------------------------------------------------------------------------
+//
+// O DEFEITO MEDIDO: `TOKEN` (lib/variables.ts) casa `{{qual_sua_cidade}}` e NÃO
+// casa `{{Qual sua Cidade}}` — e o que não casa sai LITERALMENTE na mensagem que
+// o lead recebe. Importa porque o nome que o marketing digita no campo É "Qual
+// sua Cidade", com espaços e maiúsculas: o botão de variáveis insere a forma
+// certa, mas quem digitar à mão do jeito que nomeou o campo erra.
+//
+// ALARGAR O `TOKEN` ESTÁ DESCARTADO, e o motivo está escrito nele: engoliria
+// qualquer prosa entre chaves e trocaria "sai cru" por "some em silêncio", que é
+// pior. O conserto é recusar no SALVAR, dizendo qual é a forma certa.
+//
+// A REGRA É ESTREITA DE PROPÓSITO, e estes casos prendem as DUAS bordas — o que
+// tem de ser recusado e o que tem de continuar passando. Recusar todo `{{...}}`
+// que não vira variável engoliria prosa legítima entre chaves.
+describe("tokenComEspaco", () => {
+  it("acha o token mal digitado e devolve a forma certa dele", () => {
+    // O CASO QUE MOTIVA A REGRA INTEIRA: o dono nomeou o campo "Qual sua
+    // Cidade" e escreveu isso entre chaves na mensagem seguinte.
+    expect(tokenComEspaco("De onde você fala? {{Qual sua Cidade}}")).toEqual({
+      bruto: "Qual sua Cidade",
+      forma: "qual_sua_cidade",
+    });
+  });
+
+  it("a forma certa sai de `formaDaChave`, e não de uma régua própria", () => {
+    // A NORMALIZAÇÃO TEM DONA. Acento, maiúscula e espaço são reduzidos pela
+    // MESMA função que produz a chave GRAVADA — reescrever a régua aqui seria a
+    // segunda verdade sobre o que é a forma de uma chave, e ela divergiria da
+    // primeira, com o dado inalcançável e nada acusando.
+    const achado = tokenComEspaco("{{Profissão do Irmão}}")!;
+    expect(achado.forma).toBe(formaDaChave("Profissão do Irmão"));
+    expect(achado.forma).toBe("profissao_do_irmao");
+  });
+
+  it("o token que JÁ FUNCIONA não é recusado", () => {
+    // A BORDA DE CIMA. Sem espaço dentro das chaves o token casa com `TOKEN`
+    // (lib/variables.ts) e é resolvido no envio — não há nada a consertar.
+    expect(tokenComEspaco("Oi {{first_name}}!")).toBeNull();
+    expect(tokenComEspaco("Oi {{qual_sua_cidade}}!")).toBeNull();
+    // O ESPAÇO DE FORA TAMBÉM JÁ FUNCIONA: `TOKEN` tolera o espaçamento
+    // interno, então `{{ cidade }}` resolve igual. Recusá-lo travaria o salvar
+    // de uma mensagem que o motor entrega certo.
+    expect(tokenComEspaco("Oi {{ cidade }}!")).toBeNull();
+  });
+
+  it("a sintaxe de reserva continua passando — inclusive com espaço no substituto", () => {
+    // `{{cidade|algum lugar}}` EXISTE E TEM CASO: é o recurso do dono para o
+    // dado não coletado (o porquê está em `renderVariables`, lib/variables.ts).
+    // O espaço dele vive DEPOIS do `|`, e olhar o conteúdo inteiro entre chaves
+    // recusaria justamente a forma que o seletor de variáveis promete.
+    expect(tokenComEspaco("Você é de {{cidade|algum lugar}}?")).toBeNull();
+    expect(tokenComEspaco("Você é de {{ cidade | algum lugar }}?")).toBeNull();
+    // E O MAL DIGITADO COM SUBSTITUTO CONTINUA SENDO MAL DIGITADO: quem erra o
+    // nome erra com e sem reserva.
+    expect(tokenComEspaco("Você é de {{Qual sua Cidade|Osasco}}?")!.forma).toBe(
+      "qual_sua_cidade"
+    );
+  });
+
+  it("prosa entre chaves não é recusada — é onde a regra larga tinha que parar", () => {
+    // A BORDA DE BAIXO, e a razão de a regra mirar só letras, dígitos,
+    // underscore e espaço: pontuação dentro das chaves é escrita de gente, não
+    // nome de campo. Recusá-la seria a tela travando o salvar de um texto que o
+    // dono escreveu de propósito.
+    expect(tokenComEspaco("ele disse {{isto aqui, e mais aquilo}}")).toBeNull();
+    expect(tokenComEspaco("{{veja bem: não é token}}")).toBeNull();
+    expect(tokenComEspaco("{{50% de desconto hoje}}")).toBeNull();
+  });
+
+  it("o que não tem letra nenhuma fica de fora, porque não há forma certa a sugerir", () => {
+    // `formaDaChave` exige pelo menos uma letra (o porquê está nela), então
+    // `{{123 456}}` não vira variável nem com underscore no lugar do espaço — e
+    // uma recusa que dissesse "escreva {{123_456}}" mandaria o dono construir
+    // um nome que o sistema também não aceita.
+    expect(tokenComEspaco("{{123 456}}")).toBeNull();
+    // O TOKEN SÓ DE EMOJI é o outro caso sem forma certa, e ele também sai cru
+    // hoje. Fica registrado de fora: `normalizarChaveLivre` o recusa na origem,
+    // então não existe campo gravado sob uma chave dessas para ele alcançar.
+    expect(tokenComEspaco("{{🔥 🔥}}")).toBeNull();
+    expect(tokenComEspaco("{{🔥}}")).toBeNull();
+  });
+
+  it("texto sem chave nenhuma não é varrido", () => {
+    expect(tokenComEspaco("")).toBeNull();
+    expect(tokenComEspaco("Oi, tudo bem?")).toBeNull();
+    // Chave sozinha não é token: `{` avulso é caractere comum numa mensagem.
+    expect(tokenComEspaco("{Qual sua Cidade}")).toBeNull();
+  });
+
+  it("devolve o PRIMEIRO token torto, e não todos — uma frase por bloco", () => {
+    // Cinco linhas vermelhas sobre o mesmo bloco só escondem qual é o bloco
+    // culpado; é a mesma doutrina de `botoesCrus` (lib/steps.ts).
+    expect(tokenComEspaco("{{Qual sua Cidade}} e {{Nome do Filho}}")!.bruto).toBe(
+      "Qual sua Cidade"
+    );
+  });
+
+  it("a frase diz a FORMA CERTA, e não só que está errado", () => {
+    // É a diferença entre uma recusa que ensina e uma que só barra: ele digitou
+    // "Qual sua Cidade", e a saída dele é `{{qual_sua_cidade}}`.
+    const frase = fraseDoTokenComEspaco({ bruto: "Qual sua Cidade", forma: "qual_sua_cidade" });
+    expect(frase).toContain("{{Qual sua Cidade}}");
+    expect(frase).toContain("{{qual_sua_cidade}}");
+    // E DIZ O QUE ACONTECE SE FICAR COMO ESTÁ, que é o que faz o dono querer
+    // consertar: as chaves saem escritas na mensagem da pessoa.
+    expect(frase).toMatch(/sai|saem/i);
+  });
+});

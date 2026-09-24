@@ -1,6 +1,11 @@
 "use client";
 import { useMemo } from "react";
 import type { Ligacao, Passo } from "@/lib/steps";
+// O TETO DAS TENTATIVAS vem do catálogo de campos, pelo mesmo caminho e pelo
+// mesmo motivo do painel (app/automacoes/editor/painel.tsx): o catálogo é módulo
+// puro (sem `server-only`) e não fala com o banco, então a tela pode CONTAR o
+// mesmo número que o motor em vez de repeti-lo.
+import { TETO_DE_TENTATIVAS } from "@/lib/campos";
 import { useImagemQuebrada } from "../../usar-imagem-quebrada";
 import type { Picked } from "../types";
 import { card } from "../../ui";
@@ -210,10 +215,15 @@ function Menu({ botoes }: { botoes: { rotulo: string; escolhido: boolean }[] }) 
 //   ÂMBAR — ninguém passa sem cumprir. É a cor da borda do `pedir_follow`
 //     (`no.tsx`) e a do aviso "o fluxo para aqui" do painel, que é justamente o
 //     da `dm` de resposta rápida. Os dois casos vivem aqui.
-//   TEAL — pede uma informação e para até recebê-la, MAS quem chegar do outro
-//     lado por outro caminho passa. É o `pedir_dado`, e a distinção é real: a
-//     regra do portão (`atravessandoOPortao`, lib/steps.ts) cobre `pedir_follow`
-//     e mais nada.
+//   TEAL — pede uma informação e para esperando a resposta, MAS desiste depois
+//     do teto e quem chegar do outro lado por outro caminho passa. É o
+//     `pedir_dado`, e as duas distinções são reais: o motor segue sem o dado
+//     depois de `TETO_DE_TENTATIVAS` respostas que não servem (`seguirSemODado`,
+//     lib/engine.ts), e a regra do portão (`atravessandoOPortao`, lib/steps.ts)
+//     cobre `pedir_follow` e mais nada. Este comentário dizia "para até
+//     recebê-la", que é a MESMA promessa falsa que o título desta marca fazia —
+//     comentário que afirma o que o motor não faz é o defeito que esta base
+//     persegue, e ele estava a quatro linhas do texto que o repetia na tela.
 //
 // O TEXTO DE CADA UMA diz o que destrava, e não só que parou. "O fluxo para
 // aqui" sozinho não ajuda quem está montando a decidir o que fazer.
@@ -250,10 +260,36 @@ const PARADAS = {
   // desenha agora é `ICONE_DO_CAMPO` (app/icons), pelo `campo` que a marca
   // carrega — a mesma tabela que a paleta lê. O `icone: null` diz que esta
   // parada não tem desenho fixo; as outras duas têm.
+  //
+  // O TÍTULO DEIXOU DE PROMETER UMA ESPERA QUE O MOTOR NÃO FAZ. Ele dizia "para
+  // aqui até a resposta chegar", e isso é FALSO desde que a Tarefa 4 pôs teto no
+  // pedido: depois de `TETO_DE_TENTATIVAS` respostas que não servem o motor
+  // DESISTE e o fluxo segue sem o dado (`seguirSemODado`, lib/engine.ts).
+  //
+  // É A MESMA FRASE QUE JÁ FOI CONSERTADA NO PAINEL, e ela sobreviveu aqui
+  // porque a revisão daquela tarefa olhava o painel. A prévia é o pior lugar
+  // para ela ter sobrevivido: o painel só aparece quando o bloco é aberto, e
+  // esta marca fica SEMPRE à vista enquanto o fluxo é montado.
+  //
+  // O NÚMERO VEM DA CONSTANTE, e não escrito à mão, pelo mesmo motivo que o
+  // painel registra: é o número que o motor conta, e um "3" digitado aqui faria
+  // a tela mentir no dia em que o teto mudasse. Quem prende as duas telas à
+  // constante é testes-dom/teto-nas-telas.dom.tsx, que troca o teto por outro
+  // número — o caso que só compara com `TETO_DE_TENTATIVAS` não distingue a
+  // constante de um 3 à mão enquanto ela vale 3, e isso está MEDIDO.
+  //
+  // A INFORMAÇÃO VELHA DO `texto` FICA INTEIRA, e ela é o que justifica o teal:
+  // não é portão, e quem alcançar um bloco adiante por outro caminho passa sem
+  // responder. Ela é verdadeira (`atravessandoOPortao`, lib/steps.ts, cobre
+  // `pedir_follow` e mais nada) e é a única coisa na tela que separa esta marca
+  // das duas âmbar. Consertar o título deixando-a cair trocaria uma mentira por
+  // um buraco.
   dado: {
     icone: null,
-    titulo: "para aqui até a resposta chegar",
-    texto: "Não é portão: quem alcançar um bloco adiante por outro caminho passa sem responder.",
+    titulo: "para aqui, mas não para sempre",
+    texto:
+      `Depois de ${TETO_DE_TENTATIVAS} respostas que não servem, o fluxo segue sem o dado. ` +
+      "E não é portão: quem alcançar um bloco adiante por outro caminho passa sem responder.",
     cor: "border-teal-400/60 bg-teal-400/10 text-teal-300",
     corDoTexto: "text-teal-200/90",
   },
