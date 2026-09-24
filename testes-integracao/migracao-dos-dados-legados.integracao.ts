@@ -39,18 +39,45 @@
 // mede é o que a migração ESCREVEU.
 //
 // -----------------------------------------------------------------------------
-// O FUSO É PARÂMETRO, E ISSO É O CORAÇÃO DE METADE DOS CASOS
+// O `em` DOS E-MAILS MIGRADOS É O INSTANTE DA MIGRAÇÃO, E ISSO É DECISÃO DO DONO
 //
-// `first_contact_at` é `timestamptz`. `to_char` SEM `at time zone 'utc'` imprime
-// no fuso da SESSÃO e o `"Z"` do formato é literal — a string sai dizendo "UTC"
-// sobre um horário que não é UTC. Medido neste container: um contato de
-// `2026-06-10 12:00+00` sai como `2026-06-10T09:00:00Z` com a sessão em
-// `America/Sao_Paulo`. `campoEstaFresco` (lib/campos.ts) faz `Date.parse` disso
-// e acredita no `Z`.
+// ESTE BLOCO DIZIA O CONTRÁRIO, e a correção fica escrita porque foi ela que
+// inverteu dois casos deste arquivo. A `012` gravava `em = first_contact_at`, e
+// o caso de baixo cobrava a consequência: `campoEstaFresco` (lib/campos.ts)
+// recusa coleta com mais de 30 dias, então a automação PERGUNTAVA o e-mail de
+// novo a quem já o tinha — 9 contatos de 163, medido em produção.
+//
+// O DONO NÃO QUER ESSAS 9 PESSOAS PERGUNTADAS DE NOVO. A `012` passou a gravar
+// `now()`, e é isso que os casos daqui prendem: a string tem de apontar para o
+// instante em que a migração RODOU, e `campoEstaFresco` tem de dizer FRESCO
+// logo depois dela.
+//
+// O QUE SE PERDEU, e um caso daqui o mede: a data deixou de ser um FATO sobre a
+// coleta e virou um SUBSTITUTO. Quem ler `em` nesses registros não está lendo
+// "foi coletado nesse dia" — está lendo "a migração passou nesse dia". O
+// discriminador é a chave `automacao`: a `012` NÃO a grava, `gravarCampo`
+// (lib/engine.ts) SEMPRE grava. E o preço é prazo, não perdão: daqui a 30 dias
+// essa data envelhece e essas mesmas pessoas entram na fila de pergunta. A
+// troca ADIA, não elimina — e há caso para as duas pontas.
+//
+// -----------------------------------------------------------------------------
+// O FUSO CONTINUA SENDO PARÂMETRO, E ISSO É O CORAÇÃO DE METADE DOS CASOS
+//
+// `now()` é `timestamptz`, como `first_contact_at` era. `to_char` SEM `at time
+// zone 'utc'` imprime no fuso da SESSÃO e o `"Z"` do formato é literal — a
+// string sai dizendo "UTC" sobre um horário que não é UTC. Medido neste
+// container: com a sessão em `America/Sao_Paulo`, o instante sai TRÊS HORAS
+// atrás do que ele é, com o `Z` colado no fim. `campoEstaFresco` faz
+// `Date.parse` disso e acredita no `Z`.
 //
 // Os casos daqui rodam a migração com a sessão num fuso DIFERENTE de UTC de
 // propósito. Com a sessão em UTC — que é o que este container usa por omissão —
 // o defeito fica invisível, e o caso ficaria verde sobre nada.
+//
+// E A JANELA É MEDIDA CONTRA O RELÓGIO DO BANCO, e não o do Node: quem grava é
+// `now()`, lá dentro. Cravar a janela com `Date.now()` daqui faria o caso
+// depender de o relógio do container e o da máquina estarem juntos — uma
+// terceira coisa, que não é o que se quer provar.
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
 import { migracoesEmOrdem } from "./migracoes";
@@ -90,6 +117,23 @@ function textoDaMigracao(): string {
  */
 async function rodarMigracao(fuso: string = "America/Sao_Paulo"): Promise<void> {
   await banco.db().sql().query(`set time zone '${fuso}';\n${textoDaMigracao()}`);
+}
+
+/**
+ * O instante do BANCO, em milissegundos, sem passar por fuso nenhum.
+ *
+ * `extract(epoch from now())` devolve o instante ABSOLUTO: ele não muda com o
+ * `set time zone` da sessão, e por isso pode ser a régua de um caso cujo assunto
+ * é justamente o fuso. Medir a janela com `to_char(...)` seria medir a coisa com
+ * ela mesma — o defeito do `at time zone 'utc'` ausente apareceria dos dois
+ * lados e se cancelaria.
+ */
+async function epocaDoBanco(): Promise<number> {
+  const linhas = (await banco
+    .db()
+    .sql()
+    .query(`select extract(epoch from now())::float8 as agora`)) as { agora: number }[];
+  return Number(linhas[0].agora) * 1000;
 }
 
 /** Um contato do jeito que produção o tem HOJE: e-mail na coluna, `campos` vazio. */
@@ -163,41 +207,72 @@ beforeAll(() => {
 });
 
 describe("os e-mails que já estão na coluna", () => {
-  test("viram campo coletado, com a data do PRIMEIRO CONTATO escrita em UTC", async () => {
-    // O instante é cravado NO PASSADO de propósito, e sem depender de fuso: é um
-    // momento absoluto, e o que o caso cobra é que a string gravada aponte para
-    // ELE, não para a leitura dele no fuso da sessão.
+  test("viram campo coletado, com o instante da MIGRAÇÃO escrito em UTC", async () => {
+    // O `first_contact_at` é cravado NO PASSADO de propósito, e é ele que a
+    // migração gravava até esta tarefa. Ele fica aqui como o valor que o `em`
+    // NÃO pode mais ser: se alguém devolver o `first_contact_at` ao
+    // `jsonb_build_object`, a janela de baixo não o alcança e o caso acusa.
     const primeiroContato = new Date("2026-06-10T12:00:00.000Z");
     await semearContatoLegado("legado_utc", "ana@email.com", primeiroContato);
+
+    // A JANELA, PELO RELÓGIO DO BANCO. O `to_char` do formato corta o
+    // subsegundo, então o piso é o segundo INTEIRO de `antes`: um `now()` de
+    // 12:00:00.900 sai como `12:00:00Z`, que é anterior a um `antes` de
+    // 12:00:00.800 e não seria defeito nenhum.
+    const antes = await epocaDoBanco();
 
     // A sessão NÃO está em UTC: é isto que separa este caso de um que passa por
     // acidente. Ver o bloco do topo.
     await rodarMigracao("America/Sao_Paulo");
+
+    const depois = await epocaDoBanco();
 
     const registro = lerCampos((await lerContato("legado_utc")).campos);
     const email = registro.get("email");
     expect(email, "o e-mail da coluna não virou campo coletado").toBeDefined();
     expect(email!.valor).toBe("ana@email.com");
 
-    // A FORMA é a mesma que `gravarCampo` (lib/engine.ts) grava hoje. Duas
-    // formas diferentes para o mesmo campo seriam duas verdades sobre o que
-    // `Date.parse` recebe.
+    // A FORMA é a mesma que `gravarCampo` (lib/engine.ts) grava hoje — e agora
+    // a EXPRESSÃO também é, `to_char(now() at time zone 'utc', ...)`, letra por
+    // letra. Duas formas diferentes para o mesmo campo seriam duas verdades
+    // sobre o que `Date.parse` recebe.
     expect(email!.em).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
 
-    // O CASO INTEIRO ESTÁ NESTA LINHA: a string tem de apontar para o MESMO
-    // instante do `first_contact_at`. Com o `to_char` sem `at time zone 'utc'`
-    // ela aponta para 3 horas antes, e o `Z` no fim é mentira.
-    expect(Date.parse(email!.em), `o \`em\` gravado (${email!.em}) não é o instante do primeiro contato`).toBe(
+    // O CASO INTEIRO ESTÁ NESTAS DUAS LINHAS, e elas cobram DOIS defeitos de uma
+    // vez, porque os dois deslocam a mesma string para o passado:
+    //
+    //   · o `em` voltando a `first_contact_at` — aponta para junho, meses antes
+    //     da janela;
+    //   · o `at time zone 'utc'` saindo — com a sessão em `America/Sao_Paulo`,
+    //     aponta TRÊS HORAS antes da janela, com o `Z` mentindo no fim.
+    const gravado = Date.parse(email!.em);
+    const piso = Math.floor(antes / 1000) * 1000;
+    expect(
+      gravado,
+      `o \`em\` gravado (${email!.em}) é ANTERIOR ao começo da migração — ` +
+        `esperado o instante em que ela rodou, em UTC`
+    ).toBeGreaterThanOrEqual(piso);
+    expect(
+      gravado,
+      `o \`em\` gravado (${email!.em}) é POSTERIOR ao fim da migração — ` +
+        `esperado o instante em que ela rodou, em UTC`
+    ).toBeLessThanOrEqual(depois);
+
+    // E O QUE SOBRA DO `first_contact_at`: nada. A linha existe para que a
+    // mensagem de cima não seja a única a dizer de onde vinha a data velha.
+    expect(gravado, "o `em` voltou a ser o `first_contact_at`").not.toBe(
       primeiroContato.getTime()
     );
   });
 
-  test("a data é a do primeiro contato, e NÃO uma recente: o contato será perguntado de novo", async () => {
-    // A DECISÃO QUE ESTE CASO PRENDE (e que o brief da tarefa tomou por
-    // escrito): não há data de coleta guardada em lugar nenhum, e chutar uma
-    // data recente faria a regra de recência PULAR o pedido justamente para
-    // quem talvez precise atualizar o e-mail. A consequência aceita é esta —
-    // quem tem e-mail antigo vai ser perguntado de novo.
+  test("o contato NÃO é perguntado de novo logo depois da migração — e volta à fila em 30 dias", async () => {
+    // A DECISÃO QUE ESTE CASO PRENDE, E ELA É DO DONO. Este caso cobrava o
+    // CONTRÁRIO: que o `em` fosse `first_contact_at` e que `campoEstaFresco`
+    // dissesse "não é fresco", com o comentário explicando que chutar data
+    // recente faria a recência pular o pedido de quem talvez precise atualizar o
+    // e-mail. O dono trocou: ele não quer as 9 pessoas medidas em produção
+    // perguntadas de novo. Quem quiser o histórico dessa troca lê o bloco do
+    // topo deste arquivo e o de `migrations/012`.
     //
     // A distância é contada a partir de `Date.now()`, e nunca de uma data
     // escrita à mão: em 21/09/2026 dois testes desta base ficaram vermelhos
@@ -209,7 +284,54 @@ describe("os e-mails que já estão na coluna", () => {
     await rodarMigracao();
 
     const registro = lerCampos((await lerContato("legado_antigo")).campos);
-    expect(campoEstaFresco(registro.get("email")!.em, agora)).toBe(false);
+    const em = registro.get("email")!.em;
+
+    // O CONTATO TEM 200 DIAS E O CAMPO SAI FRESCO. É a decisão inteira numa
+    // linha: a idade da PESSOA deixou de decidir a idade do DADO.
+    expect(
+      campoEstaFresco(em, agora),
+      `o \`em\` gravado (${em}) não está fresco agora — a automação vai ` +
+        `perguntar o e-mail de novo, que é exatamente o que a troca evita`
+    ).toBe(true);
+
+    // O PREÇO, PRENDIDO: a troca ADIA, não elimina. Trinta dias e um minuto
+    // depois da migração, `campoEstaFresco` volta a dizer "não" e estas mesmas
+    // pessoas entram na fila de pergunta. Sem esta linha, o arquivo prometeria
+    // um perdão que ele não dá.
+    const trintaDiasEUmMinuto = 30 * 24 * 60 * 60 * 1000 + 60 * 1000;
+    expect(
+      campoEstaFresco(em, agora + trintaDiasEUmMinuto),
+      `o \`em\` gravado (${em}) continua fresco 30 dias depois — a recência ` +
+        `de \`campoEstaFresco\` deixou de valer para o dado migrado`
+    ).toBe(false);
+  });
+
+  test("o registro migrado NÃO tem a chave `automacao` — é o que o distingue de uma coleta de verdade", async () => {
+    // O DISCRIMINADOR, E ELE É A ÚNICA COISA QUE SOBROU DA HONESTIDADE DA DATA.
+    //
+    // Desde que o `em` virou o instante da migração, a data não distingue mais
+    // nada: um registro migrado e um coletado hoje têm `em` parecidos. Quem os
+    // separa é a AUSÊNCIA de `automacao` — `gravarCampo` (lib/engine.ts) SEMPRE
+    // grava a chave (com `null` quando não há automação, mas grava), e a `012`
+    // NUNCA a grava. A revisão da Tarefa 7 usou exatamente isso na consulta C7.
+    //
+    // A chave é opcional em `CampoColetado` (lib/campos.ts) desde a `011`, e o
+    // comentário daquela migração diz que a opcionalidade existe para ESTES
+    // contatos. Este caso é o que impede alguém de "completar" o registro com
+    // um `'automacao', null` bem-intencionado: seria apagar o único sinal de
+    // que a data é um substituto.
+    await semearContatoLegado("sem_automacao", "hel@email.com", new Date("2026-03-01T09:00:00.000Z"));
+
+    await rodarMigracao();
+
+    const bruto = (await lerContato("sem_automacao")).campos as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(
+      Object.keys(bruto.email).sort(),
+      "o registro migrado ganhou uma chave que o faria passar por coleta de verdade"
+    ).toEqual(["em", "valor"]);
   });
 
   test("um `campos` que já tem OUTRO campo não é apagado pela migração", async () => {
@@ -259,16 +381,27 @@ describe("os e-mails que já estão na coluna", () => {
     expect(lerCampos((await lerContato("email_vazio")).campos).has("email")).toBe(false);
   });
 
-  test("um e-mail coletado DEPOIS não é rebobinado pelo da coluna", async () => {
+  test("um e-mail coletado DEPOIS não é sobrescrito pelo da coluna", async () => {
     // O QUE `not (campos ? 'email')` PROTEGE, e não é "não duplicar": é a DATA.
+    // O ESTRAGO MUDOU DE LADO com a troca do `em`, e a correção fica escrita
+    // porque a versão anterior deste parágrafo virou mentira.
+    //
+    // ELE DIZIA: sem esta metade do `where`, a segunda execução reescreveria o
+    // `em` para `first_contact_at`, a data voltaria meses, `campoEstaFresco`
+    // diria "não é fresco" e a automação pediria o e-mail a quem acabou de
+    // mandar. Era verdade enquanto a migração gravava `first_contact_at`.
+    //
+    // HOJE ELA GRAVA `now()`, e o estrago é o ESPELHO: a data não voltaria, ela
+    // PULARIA PARA A FRENTE. Um registro coletado de verdade — com `em` real e
+    // com a chave `automacao` — seria trocado por um substituto sem `automacao`,
+    // e a cada reexecução o campo voltaria a nascer fresco. O dado continuaria
+    // certo e a única coisa que dizia "isto foi coletado, nesta data, por esta
+    // automação" teria sido apagada por uma migração de limpeza de formato.
     //
     // `gravarCampo` (lib/engine.ts) escreve nos DOIS lugares — `campos` e a
     // coluna —, então um contato que respondeu ontem tem o mesmo e-mail nos
-    // dois, com `em` de ontem no registro. Sem esta metade do `where`, uma
-    // segunda execução da migração reescreveria o `em` para `first_contact_at`:
-    // o valor continuaria certo e a DATA voltaria meses. `campoEstaFresco`
-    // (lib/campos.ts) passaria a dizer "não é fresco", e a automação pediria o
-    // e-mail de novo a quem acabou de mandar.
+    // dois, com `em` de ontem no registro. É esse `em` que esta metade do
+    // `where` preserva.
     const ontem = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 19) + "Z";
     await semearContatoLegado(
       "coletado_depois",
@@ -280,10 +413,21 @@ describe("os e-mails que já estão na coluna", () => {
     await rodarMigracao();
 
     const registro = lerCampos((await lerContato("coletado_depois")).campos);
-    expect(registro.get("email")!.em, "a migração rebobinou a data de uma coleta recente").toBe(
-      ontem
-    );
+    expect(
+      registro.get("email")!.em,
+      "a migração trocou a data de uma coleta de verdade pelo instante dela mesma"
+    ).toBe(ontem);
     expect(campoEstaFresco(registro.get("email")!.em, Date.now())).toBe(true);
+    // E a `automacao` continua lá: é ela que diz que este registro foi COLETADO,
+    // e não migrado. Uma sobrescrita a levaria junto com a data.
+    const bruto = (await lerContato("coletado_depois")).campos as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(
+      "automacao" in bruto.email,
+      "a migração apagou a chave `automacao` de uma coleta de verdade"
+    ).toBe(true);
   });
 
   test("a coluna `contacts.email` CONTINUA intacta — a remoção é da Parte 2", async () => {

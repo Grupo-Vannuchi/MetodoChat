@@ -322,9 +322,23 @@ export function regraDoCampo(campo: string): RegraDeCampo | undefined {
 // Um campo coletado guarda o VALOR e o QUANDO — a recência (abaixo) depende do
 // "quando", e é esse par que uma coluna por campo não dá sem custar duas
 // colunas cada. `automacao` é OPCIONAL: os e-mails que já existem em produção
-// hoje (migração futura, que só move o que já está em `contacts.email`) nunca
-// tiveram essa informação guardada — não existe data nem origem de coleta para
-// eles — e quem lê o registro precisa aguentar a ausência, não presumir.
+// hoje (`contacts.email`, movidos para cá por `migrations/012`, que é aplicada à
+// mão) nunca tiveram essa informação guardada — não existe data nem origem de
+// coleta para eles — e quem lê o registro precisa aguentar a ausência, não
+// presumir.
+//
+// E O `em` DESSES REGISTROS É UM SUBSTITUTO, NÃO UM FATO. A `012` grava `now()`
+// — o instante em que ELA rodou —, e não a data em que a pessoa mandou o
+// e-mail, que não existe em lugar nenhum. Isso é decisão do dono, de 24/09/2026,
+// e o porquê inteiro (mais o preço: a data envelhece em 30 dias como qualquer
+// outra) está no topo daquele arquivo. Quem contar "quantos e-mails entraram em
+// tal mês" lendo `em` vai contar a migração.
+//
+// QUEM SEPARA OS DOIS É A AUSÊNCIA DE `automacao`, e é por isso que a
+// opcionalidade deixou de ser só uma concessão e virou o discriminador: a `012`
+// NÃO grava a chave, `gravarCampo` (lib/engine.ts) SEMPRE grava — com `null`
+// quando não há automação de origem, mas grava. Sem a chave, o `em` é
+// substituto; com a chave, é o instante real da coleta.
 export type CampoColetado = { valor: string; em: string; automacao?: string | null };
 export type Registro = Map<string, CampoColetado>;
 
