@@ -45,7 +45,7 @@ const coletado = (valor: string, automacao: string | null = "a-1") => ({
 const migrado = (valor: string, em: string = "2026-09-24T09:00:00Z") => ({ valor, em });
 
 function contato(p: Partial<ContatoDaFicha> = {}): ContatoDaFicha {
-  return { email: null, campos: {}, ...p };
+  return { campos: {}, ...p };
 }
 
 /** Um catálogo de mentira, com os rótulos e a ordem escolhidos pelo caso. */
@@ -231,49 +231,36 @@ describe("a data: coletado de verdade x migrado da coluna antiga", () => {
   });
 });
 
-describe("o e-mail da coluna antiga", () => {
-  // `contacts.email` continua sendo escrita e lida em paralelo (a remoção é da
-  // Parte 2), e a queda do registro para a coluna JÁ TEM DONA: é a `resolve` da
-  // variável do e-mail, em lib/variables.ts, a mesma que a mensagem enviada e a
-  // planilha usam. A ficha a reúsa em vez de reescrevê-la — uma segunda leitura
-  // aqui divergiria da primeira na primeira mudança, e a tela passaria a dizer
-  // sobre o e-mail algo diferente do que a DM entrega.
-  it("aparece na ficha quando o registro não o tem", () => {
-    const itens = fichaDoColetado(contato({ email: "antigo@email.com" }));
+describe("o e-mail, depois que a coluna antiga saiu do caminho", () => {
+  // O PASSO 2a DA PARTE 2 NESTE BLOCO. Ele media a queda do registro para
+  // `contacts.email` — quatro casos, todos passando a coluna à ficha por
+  // `ContatoDaFicha.email`. A queda saiu de `lib/variables.ts` e o campo saiu
+  // do tipo, então a ficha não tem como olhar a coluna nem que queira; o que
+  // sobrou a medir é o desfecho de quem chega aqui SEM registro, que é
+  // exatamente o que um contato "só com a coluna" vira.
+  //
+  // POR QUE ISSO É SEGURO, e a resposta não é desta função: a migração `012` já
+  // rodou em produção e moveu os e-mails da coluna para o registro. A medição do
+  // dono em 25/09/2026 — 9 contatos com e-mail, 9 com `campos->'email'`, 0
+  // divergentes — é o que diz que não sobrou ninguém só na coluna.
+  it("o e-mail do registro é o que a ficha mostra, com a data do registro", () => {
+    const itens = fichaDoColetado(contato({ campos: { email: coletado("novo@email.com") } }));
     expect(itens.map((i) => i.chave)).toEqual(["email"]);
-    expect(itens[0].valor).toBe("antigo@email.com");
-  });
-
-  it("não promete data nenhuma: a coluna nunca guardou quando o e-mail chegou", () => {
-    expect(fichaDoColetado(contato({ email: "antigo@email.com" }))[0].em).toBe(null);
-  });
-
-  it("o registro ganha da coluna — e a data que vai junto é a do registro", () => {
-    const itens = fichaDoColetado(
-      contato({ email: "antigo@email.com", campos: { email: coletado("novo@email.com") } })
-    );
     expect(itens[0].valor).toBe("novo@email.com");
     expect(itens[0].em).toBe(EM);
   });
 
-  // A BORDA QUE JUNTA AS DUAS REGRAS: registro EM BRANCO com a coluna cheia. O
-  // valor mostrado é o da COLUNA (é o que `resolve` devolve), então a data do
-  // registro não fala sobre ele — ela é de um valor que a tela não está
-  // mostrando. Sem esta guarda, a ficha diria "coletado em <data>" ao lado de um
-  // e-mail que veio de outro lugar.
-  it("registro em branco com a coluna cheia: mostra a coluna, e sem data", () => {
-    const itens = fichaDoColetado(
-      contato({ email: "antigo@email.com", campos: { email: coletado("  ") } })
-    );
-    expect(itens[0].valor).toBe("antigo@email.com");
-    expect(itens[0].em).toBe(null);
+  // O CASO QUE ERA "registro em branco com a coluna cheia". Ele media a terceira
+  // condição de `instanteDaColeta` — valor em branco zerava a data porque quem
+  // aparecia na tela era a COLUNA, e a data do registro falava de outro valor.
+  // Sem a coluna não há outro valor: registro em branco é AUSÊNCIA, e quem não
+  // tem o campo não ganha linha. É a mesma regra que já valia para todos os
+  // outros campos do catálogo — o e-mail só era exceção por causa da queda.
+  it("registro em branco não vira linha nenhuma — não há segunda fonte para mostrar", () => {
+    expect(fichaDoColetado(contato({ campos: { email: coletado("  ") } }))).toEqual([]);
   });
 
-  // A queda é SÓ do e-mail, e isso não é escolha desta ficha: é o que
-  // `lib/variables.ts` decide, porque só o e-mail tem coluna paralela.
-  it("nenhum outro campo do catálogo cai para coluna nenhuma", () => {
-    expect(fichaDoColetado(contato({ email: "antigo@email.com" })).map((i) => i.chave)).toEqual([
-      "email",
-    ]);
+  it("sem registro, a ficha sai vazia — e não há coluna para salvar o e-mail", () => {
+    expect(fichaDoColetado(contato())).toEqual([]);
   });
 });

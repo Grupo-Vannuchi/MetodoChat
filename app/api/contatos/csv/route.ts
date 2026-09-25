@@ -38,21 +38,26 @@ import {
 // app/api/contatos/csv-completo/route.ts) reusa a mesma `cell` em vez de copiá-la.
 //
 // -----------------------------------------------------------------------------
-// A PARTE 2 / PASSO 1 MUDOU DE ONDE O E-MAIL SAI, E NÃO O QUE O ARQUIVO É.
+// A PARTE 2 MUDOU DE ONDE O E-MAIL SAI, E NÃO O QUE O ARQUIVO É.
 //
 // Duas colunas, os mesmos cabeçalhos, o mesmo separador, o mesmo BOM, a mesma
 // ordem (`first_contact_at desc`) e as mesmas duas peneiras. `csvDaListaDeEmail`
 // não mudou uma linha, e o caso que compara os BYTES dela continua exatamente
 // como estava. O que mudou é que "o e-mail desta pessoa" deixou de ser a coluna
-// `contacts.email` e passou a ser a pergunta de `emailDoContato` — registro
-// primeiro, coluna na falta dele —, a MESMA que a tela, a ficha da conversa e a
-// DM enviada já faziam.
+// `contacts.email` e passou a ser a pergunta de `emailDoContato` — o PASSO 1 fez
+// a pergunta passar por ali (registro, e na falta dele a coluna) e o PASSO 2a
+// tirou a segunda metade: hoje a resposta sai só de `contacts.campos`. É a MESMA
+// pergunta que a tela, a ficha da conversa e a DM enviada fazem.
 //
 // ONDE O CONTEÚDO PODE MUDAR, DITO SEM ENFEITE, porque "deveria dar igual" é o
-// tipo de suposição que esta base pune. Hoje coluna e registro estão em
-// sincronia (a `012` copiou o que havia; `gravarCampo` escreve nos dois), então
-// para todo contato com e-mail de verdade o arquivo sai idêntico. As linhas que
-// podem mudar são as que a coluna aceita e ninguém chamaria de e-mail:
+// tipo de suposição que esta base pune. Quando isto foi escrito, coluna e
+// registro estavam em sincronia (a `012` copiou o que havia; `gravarCampo`
+// escrevia nos dois), então para todo contato com e-mail de verdade o arquivo
+// saía idêntico. O PASSO 2a tirou a coluna do caminho — ela não é mais escrita
+// nem lida —, e o arquivo passou a sair SÓ do registro; a medição do dono em
+// 25/09/2026 (9 contatos com e-mail, 9 com registro, 0 divergentes) é o que diz
+// que ninguém sai da lista por causa disso. As linhas que mudaram no Passo 1
+// foram as que a coluna aceitava e ninguém chamaria de e-mail:
 //
 //   coluna `''` ou só de espaço  →  SAI do arquivo. Antes entrava, com a célula
 //                                   de e-mail em branco, numa lista que existe
@@ -143,11 +148,17 @@ export async function GET(req: NextRequest) {
     // devolvendo conjuntos diferentes.
     //
     // `c.campos` ENTROU COM O PASSO 1: é de lá que sai o e-mail que vale. Sem
-    // ela o arquivo inteiro volta a sair da coluna antiga, em silêncio — e o
-    // `as` NÃO pega isso, medido em 25/09/2026 (tsc verde, 1884 casos verdes).
-    // Quem pega é `linhaDaListaDeEmail`, logo abaixo, e alto.
+    // ela o arquivo inteiro sai VAZIO de e-mail, em silêncio — e o `as` NÃO pega
+    // isso, medido em 25/09/2026 (tsc verde, 1884 casos verdes). Quem pega é
+    // `linhaDaListaDeEmail`, logo abaixo, e alto.
+    //
+    // `c.email` SAIU COM O PASSO 2a. Enquanto a queda de `lib/variables.ts`
+    // existia, essa coluna era a segunda fonte e tinha de vir junto; hoje
+    // ninguém a lê, e trazê-la aqui prenderia o arquivo do marketing a uma
+    // coluna que o Passo 2b vai derrubar. A guarda de baixo deixou de exigi-la
+    // no mesmo gesto — as duas listas são uma só promessa.
     `select coalesce(nullif(c.name, ''), c.username) as nome,
-            c.username, c.name, c.email, c.campos, c.categoria
+            c.username, c.name, c.campos, c.categoria
      from contacts c
      where c.account_id = $1
      order by c.first_contact_at desc`,

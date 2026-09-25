@@ -53,11 +53,16 @@ export async function GET(req: NextRequest) {
   // outro: quem interagiu e nunca deu e-mail pode ter dado telefone, cidade ou
   // qualquer campo que a automação tenha perguntado.
   //
-  // `username`, `name` e `email` vêm separados porque `casaComBusca` procura
-  // pelos MESMOS três campos que a tabela da tela procura; `categoria` porque é
-  // por ela que `contatosDoFiltro` peneira; `campos` é o `jsonb` cru, lido por
-  // `lerCampos` dentro do módulo. `account_id` fecha a consulta na conta
-  // selecionada, como toda consulta desta base.
+  // `username` e `name` vêm separados porque `casaComBusca` procura pelos
+  // MESMOS três campos que a tabela da tela procura — o terceiro é o e-mail, e
+  // ele é RESOLVIDO de `campos` por `peneirar`, não selecionado; `categoria`
+  // porque é por ela que `contatosDoFiltro` peneira; `campos` é o `jsonb` cru,
+  // lido por `lerCampos` dentro do módulo. `account_id` fecha a consulta na
+  // conta selecionada, como toda consulta desta base.
+  //
+  // `c.email` SAIU DAQUI NO PASSO 2a DA PARTE 2. A coluna antiga era a segunda
+  // fonte do e-mail enquanto a queda de `lib/variables.ts` existia; ela não é
+  // mais escrita nem lida, e o `drop column` é o Passo 2b, à mão.
   //
   // A ORDEM É A DA TELA (`first_contact_at desc`), a mesma das duas tabelas e a
   // mesma do outro botão: a planilha sai na ordem em que o dono acabou de ver
@@ -73,7 +78,7 @@ export async function GET(req: NextRequest) {
   // ser ruidoso está escrito na função (lib/exportacao-de-contatos.ts), que é
   // pura e tem caso.
   const linhas = (await sql().query(
-    `select c.username, c.name, c.email, c.categoria, c.campos
+    `select c.username, c.name, c.categoria, c.campos
      from contacts c
      where c.account_id = $1
      order by c.first_contact_at desc`,

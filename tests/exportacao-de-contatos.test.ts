@@ -45,7 +45,6 @@ function contato(p: Partial<ContatoExportavel> = {}): ContatoExportavel {
   return {
     username: "ana",
     name: "Ana Souza",
-    email: null,
     categoria: null,
     campos: {},
     ...p,
@@ -341,7 +340,9 @@ describe("peneirar — as duas peneiras, e nenhuma delas esquecida", () => {
   });
 
   it("a busca acha pelo e-mail também — os mesmos três campos da tela", () => {
-    const comEmail = [contato({ username: "x", name: "X", email: "natalia@email.com" })];
+    const comEmail = [
+      contato({ username: "x", name: "X", campos: { email: coletado("natalia@email.com") } }),
+    ];
     expect(
       peneirar(comEmail, { filtro: { tipo: "tudo" }, busca: "natalia" })
     ).toHaveLength(1);
@@ -380,9 +381,19 @@ describe("recortarTela — o recorte, os conjuntos e o caso, de uma vez", () => 
   // fora de "aluno", para que `comEmail` tirado da conta inteira dê um
   // resultado DIFERENTE de `comEmail` tirado dos achados.
   const lista = [
-    contato({ username: "maria.aluna", name: "Maria", email: "maria@email.com", categoria: "aluno" }),
-    contato({ username: "joao.aluno", name: "João", email: null, categoria: "aluno" }),
-    contato({ username: "maria.lead", name: "Maria", email: "maria@lead.com", categoria: "interessado" }),
+    contato({
+      username: "maria.aluna",
+      name: "Maria",
+      campos: { email: coletado("maria@email.com") },
+      categoria: "aluno",
+    }),
+    contato({ username: "joao.aluno", name: "João", categoria: "aluno" }),
+    contato({
+      username: "maria.lead",
+      name: "Maria",
+      campos: { email: coletado("maria@lead.com") },
+      categoria: "interessado",
+    }),
   ];
   const usuarios = (l: ContatoExportavel[]) => l.map((c) => c.username);
 
@@ -473,8 +484,8 @@ describe("recortarTela — o recorte, os conjuntos e o caso, de uma vez", () => 
   // diz que é esta categoria que não tem.
   it("sem e-mail nenhum, o filtro decide qual das duas frases a tela mostra", () => {
     const ninguemTemEmail = [
-      contato({ username: "a.aluno", email: null, categoria: "aluno" }),
-      contato({ username: "b.lead", email: null, categoria: "interessado" }),
+      contato({ username: "a.aluno", categoria: "aluno" }),
+      contato({ username: "b.lead", categoria: "interessado" }),
     ];
     expect(recortarTela(ninguemTemEmail, ALUNO, null).caso).toBe("sem_email_no_filtro");
     expect(recortarTela(ninguemTemEmail, TUDO, null).caso).toBe("sem_email_geral");
@@ -494,7 +505,6 @@ describe("contatoExportavelDaLinha — a coluna que falta não sai calada", () =
   const linhaDoBanco = () => ({
     username: "ana",
     name: "Ana Souza",
-    email: "ana@email.com",
     categoria: "aluno",
     campos: { qual_sua_cidade: coletado("Osasco") },
   });
@@ -504,7 +514,6 @@ describe("contatoExportavelDaLinha — a coluna que falta não sai calada", () =
     expect(contatoExportavelDaLinha(linha)).toEqual({
       username: "ana",
       name: "Ana Souza",
-      email: "ana@email.com",
       categoria: "aluno",
       campos: linha.campos,
     });
@@ -518,15 +527,19 @@ describe("contatoExportavelDaLinha — a coluna que falta não sai calada", () =
       contatoExportavelDaLinha({
         username: null,
         name: null,
-        email: null,
         categoria: null,
         campos: null,
       }).campos
     ).toBeNull();
   });
 
-  it("cada uma das cinco colunas, quando falta, acusa pelo nome", () => {
-    for (const coluna of ["username", "name", "email", "categoria", "campos"]) {
+  // ERAM CINCO ATÉ O PASSO 2a. A quinta era `email`, a coluna antiga: ela saiu
+  // do `select` da rota e de `COLUNAS_DO_CONTATO_EXPORTAVEL` no mesmo gesto,
+  // porque a célula de e-mail do arquivo passou a sair de `campos`. Cobrar uma
+  // coluna que nada lê seria obrigar a consulta a manter viva a coluna que o
+  // Passo 2b vai derrubar.
+  it("cada uma das quatro colunas, quando falta, acusa pelo nome", () => {
+    for (const coluna of ["username", "name", "categoria", "campos"]) {
       const linha: Record<string, unknown> = linhaDoBanco();
       delete linha[coluna];
       expect(
@@ -681,24 +694,23 @@ describe("csvCompletoDeContatos — o que cai em cada célula", () => {
   // de ele existir. O botão antigo filtra `email is not null`; este não.
   it("contato sem e-mail entra no arquivo", () => {
     const csv = csvCompletoDeContatos([
-      contato({ username: "sem.email", name: "Zé", email: null }),
+      contato({ username: "sem.email", name: "Zé" }),
     ]);
     expect(colunaDe(csv, "Username (@)")).toEqual(["sem.email"]);
   });
 
-  // A REGRA DA CÉLULA DO E-MAIL É DE `lib/variables.ts`, e não desta camada: o
-  // valor COLETADO vale, e na falta dele a coluna `contacts.email` (a queda
-  // transitória até a Parte 2). Estes dois casos medem a regra de lá.
-  it("sem e-mail coletado, vale a coluna `contacts.email`", () => {
-    const csv = csvCompletoDeContatos([contato({ email: "antigo@email.com", campos: {} })]);
-    expect(colunaDe(csv, "E-mail")).toEqual(["antigo@email.com"]);
-  });
-
-  it("com e-mail coletado, o registro ganha da coluna", () => {
+  // A REGRA DA CÉLULA DO E-MAIL É DE `lib/variables.ts`, e não desta camada: vale
+  // o valor COLETADO, em `contacts.campos`. Eram DOIS casos até o Passo 2a —
+  // "sem e-mail coletado, vale a coluna `contacts.email`" e "com e-mail
+  // coletado, o registro ganha da coluna" —, e os dois falavam da queda que saiu
+  // de lá. O que restou a medir é que a célula do e-mail sai da MESMA porta que
+  // as outras células do catálogo, e não de uma leitura escrita nesta camada.
+  it("a célula do e-mail sai do registro, como a de qualquer campo do catálogo", () => {
     const csv = csvCompletoDeContatos([
-      contato({ email: "antigo@email.com", campos: { email: coletado("novo@email.com") } }),
+      contato({ campos: { email: coletado("novo@email.com") } }),
+      contato({ username: "bia", campos: {} }),
     ]);
-    expect(colunaDe(csv, "E-mail")).toEqual(["novo@email.com"]);
+    expect(colunaDe(csv, "E-mail")).toEqual(["novo@email.com", ""]);
   });
 
   it("o campo livre cai na coluna do próprio nome", () => {
@@ -744,9 +756,12 @@ describe("csvCompletoDeContatos — o que cai em cada célula", () => {
       contato({
         username: "ana",
         name: "Ana Souza",
-        email: "ana@email.com",
         categoria: "aluno",
-        campos: { telefone: coletado("11999998888"), qual_sua_cidade: coletado("Osasco") },
+        campos: {
+          email: coletado("ana@email.com"),
+          telefone: coletado("11999998888"),
+          qual_sua_cidade: coletado("Osasco"),
+        },
       }),
     ]);
     expect(csv).toBe(
@@ -788,89 +803,78 @@ describe("csvCompletoDeContatos — o que cai em cada célula", () => {
 });
 
 // ------------------------------------------------------------
-// A PARTE 2, PASSO 1: A TELA PARA DE LER `contacts.email` E PASSA A LER O
-// REGISTRO — pela regra que já tem dona.
+// A PARTE 2: A TELA LÊ O REGISTRO, E SÓ ELE — pela regra que já tem dona.
 //
-// A JANELA DE DIVERGÊNCIA, em uma frase: o e-mail — e só ele — é gravado nos
+// A JANELA DE DIVERGÊNCIA, em uma frase: o e-mail — e só ele — era gravado nos
 // DOIS lugares (`gravarCampo`, lib/engine.ts, é o único escritor), para a Parte
-// 1 entregar valor sem mexer em nenhuma tela. A Parte 2 fecha essa janela em
-// dois passos, e a ORDEM é o que impede a tela de quebrar: PRIMEIRO todo mundo
-// passa a ler pela regra (que lê o registro e, na falta dele, a coluna), DEPOIS
-// a coluna sai. Invertido, a tela fica sem fonte nenhuma para quem foi coletado
-// antes da migração `012` — que é aplicada À MÃO, fora do build.
+// 1 entregar valor sem mexer em nenhuma tela. A Parte 2 fechou essa janela em
+// passos, e a ORDEM é o que impediu a tela de quebrar:
 //
-// QUEM RESPONDE "QUAL VALOR VALE" É `lib/variables.ts`, e é a MESMA resposta
-// que a DM enviada, a ficha da conversa e a planilha completa já usam. O que
-// esta tarefa decide não é o VALOR: é ONDE a pergunta é feita — o corte
+//   PASSO 1   todo mundo passou a ler pela regra, que lia o registro e, na falta
+//     dele, a coluna. Invertido, a tela ficaria sem fonte nenhuma para quem foi
+//     coletado antes da migração `012` — que é aplicada À MÃO, fora do build.
+//   PASSO 2a  `gravarCampo` parou de escrever a coluna, a queda saiu da regra e
+//     a coluna saiu dos `select`. Dentro do passo: a ESCRITA primeiro, a QUEDA
+//     depois, para em nenhum instante haver e-mail entrando num lugar que
+//     ninguém lê.
+//   PASSO 2b  o `drop column`, à mão, sem tocar em código nenhum.
+//
+// DOIS DOS TRÊS ESTADOS DE DIVERGÊNCIA DEIXARAM DE EXISTIR. Os casos daqui
+// fixavam "coluna cheia, registro vazio", "registro cheio, coluna vazia" e "os
+// dois cheios e diferentes" — e divergência precisa de duas fontes. Com uma só,
+// o que resta a prender é que a fonte é ESSA: o registro responde, e quem não
+// tem registro não tem e-mail.
+//
+// QUEM RESPONDE "QUAL VALOR VALE" CONTINUA SENDO `lib/variables.ts`, e é a MESMA
+// resposta que a DM enviada, a ficha da conversa e a planilha completa usam. O
+// que estes casos prendem não é o VALOR: é ONDE a pergunta é feita — o corte
 // (`comEmail`/`semEmail`), a busca e o arquivo congelado.
-//
-// OS TRÊS ESTADOS DE DIVERGÊNCIA QUE OS CASOS ABAIXO FIXAM:
-//
-//   COLUNA CHEIA, REGISTRO VAZIO  → vale a coluna. É o estado de todo contato
-//     coletado antes da `012`, e é por ele que o Passo 1 vem antes do Passo 2.
-//   REGISTRO CHEIO, COLUNA VAZIA  → vale o registro. É o estado que o Passo 2
-//     cria para TODO MUNDO, então ele tem de funcionar antes de a coluna sair.
-//   OS DOIS CHEIOS E DIFERENTES   → vale o REGISTRO, porque é ele que guarda o
-//     QUANDO (lib/variables.ts diz por quê). Antes disto, o arquivo podia levar
-//     o valor VELHO da coluna enquanto a DM saía com o valor NOVO.
 // ------------------------------------------------------------
-describe("Parte 2 / Passo 1 — o corte e a busca leem o REGISTRO", () => {
+describe("Parte 2 — o corte e a busca leem o REGISTRO", () => {
   const TUDO: FiltroDeCategoria = { tipo: "tudo" };
 
-  // As quatro combinações de coluna x registro, numa lista só.
-  const soColuna = contato({
-    username: "antigo",
-    name: "Antes da 012",
-    email: "antigo@email.com",
-    campos: {},
-  });
-  const soRegistro = contato({
+  const coletadoAgora = contato({
     username: "novo",
     name: "Coletado agora",
-    email: null,
     campos: { email: coletado("novo@email.com") },
   });
-  const divergente = contato({
-    username: "mudou",
-    name: "Trocou de e-mail",
-    email: "velho@email.com",
-    campos: { email: coletado("atual@email.com") },
+  const migradoPela012 = contato({
+    username: "antigo",
+    name: "Antes da 012",
+    // O QUE A `012` DEIXOU: valor e `em`, SEM a chave `automacao`. É assim que
+    // o e-mail de quem foi coletado antes desta fase vive hoje — no registro, e
+    // não na coluna —, e ele tem de contar como e-mail igual ao coletado de
+    // verdade. É esta gente que a queda atendia enquanto a `012` não tinha
+    // rodado.
+    campos: { email: { valor: "antigo@email.com", em: EM } },
   });
-  const nenhum = contato({ username: "sem.email", name: "Sem e-mail", email: null, campos: {} });
+  const nenhum = contato({ username: "sem.email", name: "Sem e-mail", campos: {} });
 
-  const lista = [soColuna, soRegistro, divergente, nenhum];
+  const lista = [migradoPela012, coletadoAgora, nenhum];
   const usuarios = (l: ContatoExportavel[]) => l.map((c) => c.username);
 
   // -----------------------------------------------------------------
   // O CORTE — quem entra na seção "Com e-mail" e no arquivo do botão antigo.
   // -----------------------------------------------------------------
-  it("quem só tem o e-mail no REGISTRO entra em `comEmail`", () => {
-    // ESTE É O ESTADO QUE O PASSO 2 CRIA PARA TODO MUNDO. Enquanto o corte
-    // olhava `c.email` (a coluna), esta pessoa caía em `semEmail` com um e-mail
-    // coletado em mãos — e sumia do arquivo que o marketing baixa.
+  it("quem tem o e-mail no REGISTRO entra em `comEmail`, migrado ou coletado", () => {
     const tela = recortarTela(lista, TUDO, null);
     expect(
       usuarios(tela.comEmail),
-      "`comEmail` tem de sair da regra de lib/variables.ts (registro, e na falta " +
-        "dele a coluna), e não de `c.email`: `novo` só tem o e-mail no registro."
-    ).toEqual(["antigo", "novo", "mudou"]);
+      "`comEmail` tem de sair da regra de lib/variables.ts, que desde o Passo 2a " +
+        "lê só `contacts.campos` — e é lá que os dois e-mails vivem."
+    ).toEqual(["antigo", "novo"]);
     expect(usuarios(tela.semEmail)).toEqual(["sem.email"]);
   });
 
-  it("quem só tem a COLUNA continua entrando — a janela ainda está aberta", () => {
-    // O PASSO 1 NÃO PODE QUEBRAR QUEM VEIO ANTES DA `012`. A queda para a
-    // coluna mora em lib/variables.ts e é transitória; ela só some no Passo 2.
-    expect(usuarios(recortarTela([soColuna], TUDO, null).comEmail)).toEqual(["antigo"]);
-  });
-
-  it("coluna em branco não é e-mail — é a mesma régua do `btrim` da migração 012", () => {
-    // `email is not null` deixava passar a string VAZIA, e a `012` já tinha
-    // decidido que isso não é e-mail (`btrim(email) <> ''`, com o motivo
-    // escrito lá). A tela também já decidia assim (`filter(c => c.email)`).
-    // Quem discordava das duas era só o `where` da rota congelada.
+  it("registro em branco não é e-mail — é a mesma régua do `btrim` da migração 012", () => {
+    // A RÉGUA NÃO MUDOU COM O PASSO 2a, só de lugar: `valorColetado`
+    // (lib/variables.ts) apara antes de decidir, e valor só de espaço gravado
+    // por fora conta como AUSENTE. É a mesma decisão que a `012` escreveu
+    // (`btrim(email) <> ''`, com o motivo lá: "é o que separa TEM E-MAIL de TEM
+    // A COLUNA PREENCHIDA"), agora sobre o registro.
     const brancos = [
-      contato({ username: "vazio", email: "", campos: {} }),
-      contato({ username: "espacos", email: "   ", campos: {} }),
+      contato({ username: "vazio", campos: { email: coletado("") } }),
+      contato({ username: "espacos", campos: { email: coletado("   ") } }),
     ];
     const tela = recortarTela(brancos, TUDO, null);
     expect(usuarios(tela.comEmail)).toEqual([]);
@@ -880,28 +884,15 @@ describe("Parte 2 / Passo 1 — o corte e a busca leem o REGISTRO", () => {
   // -----------------------------------------------------------------
   // A BUSCA — o terceiro jeito de alguém ser lembrado.
   // -----------------------------------------------------------------
-  it("a busca acha pelo e-mail COLETADO, que não está na coluna", () => {
+  it("a busca acha pelo e-mail do REGISTRO", () => {
     expect(
       usuarios(peneirar(lista, { filtro: TUDO, busca: "novo@email.com" })),
-      "a busca tem de casar pelo e-mail que VALE. Lendo `c.email`, quem coletou " +
-        "o e-mail depois da Parte 1 deixa de ser achado pelo próprio e-mail."
+      "a busca tem de casar pelo e-mail que VALE, e ele está em `contacts.campos`."
     ).toEqual(["novo"]);
   });
 
-  it("a busca continua achando pelo e-mail da COLUNA antiga", () => {
+  it("a busca acha também pelo e-mail que a `012` migrou", () => {
     expect(usuarios(peneirar(lista, { filtro: TUDO, busca: "antigo@email" }))).toEqual(["antigo"]);
-  });
-
-  it("com os dois cheios e diferentes, a busca casa pelo do REGISTRO", () => {
-    // O CASO QUE SEPARA "LÊ O REGISTRO" DE "LÊ OS DOIS": procurando o valor
-    // VELHO da coluna, `mudou` NÃO pode aparecer — senão a busca acha por um
-    // e-mail que a tela não mostra e que a DM não envia.
-    expect(usuarios(peneirar(lista, { filtro: TUDO, busca: "atual@email.com" }))).toEqual(["mudou"]);
-    expect(
-      usuarios(peneirar(lista, { filtro: TUDO, busca: "velho@email.com" })),
-      "o valor VELHO da coluna não é o e-mail desta pessoa: o registro ganha, e " +
-        "a busca tem de falar do mesmo e-mail que o resto da tela."
-    ).toEqual([]);
   });
 });
 
@@ -911,62 +902,43 @@ describe("Parte 2 / Passo 1 — o corte e a busca leem o REGISTRO", () => {
 // ELA NÃO DECIDE NADA: quem decide qual valor vale é `lib/variables.ts`, e os
 // casos dela vivem em tests/variables.test.ts. O que ESTES casos prendem é que a
 // pergunta continua sendo feita àquela regra — e qual é o desfecho de cada
-// estado de divergência, que é o que as telas e o arquivo vão mostrar.
+// forma de registro, que é o que as telas e o arquivo vão mostrar.
 //
-// POR QUE OS TRÊS ESTADOS PRECISAM DE CASO, e não só o feliz: hoje a coluna e o
-// registro estão em SINCRONIA (a `012` copiou o que havia, e `gravarCampo` é o
-// único escritor, e escreve nos dois lugares), então quase tudo daria o mesmo
-// resultado lendo qualquer um dos dois. É justamente por isso que um caso só do
-// estado sincronizado não distinguiria "lê o registro" de "lê a coluna" — que é
-// a única coisa que esta tarefa mudou.
+// ERAM SETE CASOS, E TRÊS ERAM SOBRE A COLUNA `contacts.email`: os três estados
+// de divergência (só a coluna, só o registro, os dois diferentes). O Passo 2a
+// tirou a segunda fonte e o campo saiu de `ContatoComEmail`, então não há mais
+// divergência a descrever — o que sobrou é o registro e as formas de ausência
+// dele, que continuam precisando de caso porque é delas que sai o corte.
 // ------------------------------------------------------------
-describe("emailDoContato — o registro primeiro, a coluna na falta dele", () => {
-  it("COLUNA CHEIA, REGISTRO VAZIO: vale a coluna", () => {
-    // É O ESTADO DE TODO CONTATO ANTERIOR À MIGRAÇÃO `012`, que é aplicada À
-    // MÃO, fora do build. Sem esta queda, o Passo 1 apagaria da tela e do
-    // arquivo o e-mail de quem já estava no ar — um passo de limpeza quebrando
-    // o que funcionava.
-    expect(emailDoContato({ email: "antigo@email.com", campos: {} })).toBe("antigo@email.com");
-  });
-
-  it("REGISTRO CHEIO, COLUNA VAZIA: vale o registro", () => {
-    // É O ESTADO QUE O PASSO 2 CRIA PARA TODO MUNDO quando a coluna sair. Ele
-    // tem de funcionar ANTES, senão a ordem dos dois passos não salva ninguém.
-    expect(emailDoContato({ email: null, campos: { email: coletado("novo@email.com") } })).toBe(
+describe("emailDoContato — o registro, e nada além dele", () => {
+  it("REGISTRO CHEIO: vale o registro", () => {
+    // É O ESTADO QUE O PASSO 2a CRIOU PARA TODO MUNDO: a `012` moveu os e-mails
+    // antigos para cá e `gravarCampo` (lib/engine.ts) escreve só aqui.
+    expect(emailDoContato({ campos: { email: coletado("novo@email.com") } })).toBe(
       "novo@email.com"
     );
   });
 
-  it("OS DOIS CHEIOS E DIFERENTES: vale o REGISTRO", () => {
-    // O REGISTRO GUARDA O QUANDO; a coluna não tem data nem origem de coleta —
-    // o porquê está escrito em lib/variables.ts. Na prática: quem corrigiu o
-    // e-mail respondendo à automação de novo aparece com o e-mail NOVO na tela,
-    // na busca e no arquivo, e não com o que ficou na coluna.
-    expect(
-      emailDoContato({ email: "velho@email.com", campos: { email: coletado("atual@email.com") } })
-    ).toBe("atual@email.com");
-  });
-
-  it("registro em BRANCO não é resposta: cai na coluna", () => {
+  it("registro em BRANCO não é resposta: some, como em qualquer outro campo", () => {
     // `valorColetado` (lib/variables.ts) apara antes de decidir, de propósito:
-    // um valor só de espaço gravado por fora tem de contar como AUSENTE, senão
-    // a queda para a coluna não acontece e o e-mail some com cara de vazio.
-    expect(emailDoContato({ email: "vale@email.com", campos: { email: coletado("   ") } })).toBe(
-      "vale@email.com"
-    );
+    // um valor só de espaço gravado por fora tem de contar como AUSENTE. Antes
+    // do Passo 2a este caso se chamava "cai na coluna", e era a queda que
+    // pegava a pessoa; hoje não há para onde cair, e o desfecho é a ausência.
+    expect(emailDoContato({ campos: { email: coletado("   ") } })).toBe("");
   });
 
-  it("coluna em branco, ou nula, ou nada: texto vazio, e nunca `null`", () => {
+  it("registro sem a chave, vazio ou ilegível: texto vazio, e nunca `null`", () => {
     // VAZIO É A FORMA DA AUSÊNCIA, e é o que `temEmail` pergunta. `null` aqui
     // obrigaria cada chamador a lembrar de um segundo desfecho.
-    expect(emailDoContato({ email: null, campos: {} })).toBe("");
-    expect(emailDoContato({ email: "", campos: {} })).toBe("");
-    expect(emailDoContato({ email: "   ", campos: {} })).toBe("");
-    expect(emailDoContato({ email: null, campos: null })).toBe("");
+    expect(emailDoContato({ campos: {} })).toBe("");
+    expect(emailDoContato({ campos: null })).toBe("");
+    expect(emailDoContato({ campos: "isto não é registro nenhum" })).toBe("");
   });
 
-  it("a coluna sai APARADA, como a regra a entrega", () => {
-    expect(emailDoContato({ email: "  ana@email.com  ", campos: {} })).toBe("ana@email.com");
+  it("o valor sai APARADO, como a regra o entrega", () => {
+    expect(emailDoContato({ campos: { email: coletado("  ana@email.com  ") } })).toBe(
+      "ana@email.com"
+    );
   });
 
   it("`temEmail` é `emailDoContato` não vazio, e nada além disso", () => {
@@ -974,12 +946,10 @@ describe("emailDoContato — o registro primeiro, a coluna na falta dele", () =>
     // perguntarem pela mesma função, eles não têm como discordar sobre quem tem
     // e-mail — que é a discordância que o `where` da rota mantinha de pé.
     for (const c of [
-      { email: "a@b.com", campos: {} },
-      { email: null, campos: { email: coletado("a@b.com") } },
-      { email: "", campos: {} },
-      { email: "   ", campos: {} },
-      { email: null, campos: {} },
-      { email: "x@y.com", campos: { email: coletado("  ") } },
+      { campos: { email: coletado("a@b.com") } },
+      { campos: {} },
+      { campos: null },
+      { campos: { email: coletado("  ") } },
     ]) {
       expect(temEmail(c), `com ${JSON.stringify(c)}`).toBe(emailDoContato(c) !== "");
     }
@@ -1003,31 +973,29 @@ describe("listaDeEmailDaTela — quem entra no arquivo, e com que e-mail", () =>
     nome: p.nome,
   });
 
+  // AS TRÊS FORMAS QUE O REGISTRO TEM HOJE, depois do Passo 2a: o que a `012`
+  // migrou (sem a chave `automacao`), o que o motor coletou, e quem não tem
+  // nada. Eram QUATRO, e a quarta era "Trocou de e-mail" — coluna e registro
+  // cheios e diferentes, o estado que separava "lê o registro" de "lê a coluna".
+  // Sem a coluna, aquela pessoa não tem como existir.
   const lista = [
-    linha({ nome: "Antes da 012", username: "antigo", email: "antigo@email.com", campos: {} }),
+    linha({
+      nome: "Antes da 012",
+      username: "antigo",
+      campos: { email: { valor: "antigo@email.com", em: EM } },
+    }),
     linha({
       nome: "Coletado agora",
       username: "novo",
-      email: null,
       campos: { email: coletado("novo@email.com") },
     }),
-    linha({
-      nome: "Trocou de e-mail",
-      username: "mudou",
-      email: "velho@email.com",
-      campos: { email: coletado("atual@email.com") },
-    }),
-    linha({ nome: "Sem e-mail", username: "sem.email", email: null, campos: {} }),
+    linha({ nome: "Sem e-mail", username: "sem.email", campos: {} }),
   ];
 
   it("entra quem o CORTE da tela deixou, e com o e-mail que VALE", () => {
     expect(listaDeEmailDaTela(recortarTela(lista, TUDO, null))).toEqual([
       { nome: "Antes da 012", email: "antigo@email.com" },
       { nome: "Coletado agora", email: "novo@email.com" },
-      // O CASO QUE SEPARA REGISTRO DE COLUNA: lendo `c.email`, esta linha sairia
-      // com `velho@email.com` — o arquivo do marketing levando um e-mail que a
-      // tela não mostra e que a DM não envia.
-      { nome: "Trocou de e-mail", email: "atual@email.com" },
     ]);
   });
 
@@ -1035,13 +1003,13 @@ describe("listaDeEmailDaTela — quem entra no arquivo, e com que e-mail", () =>
     // SEM ISTO, "Sem e-mail" entraria com a célula de e-mail VAZIA numa lista
     // que existe para ser importada numa ferramenta de e-mail — e o arquivo
     // deixaria de ser o do botão "Com e-mail" para virar o do outro botão.
-    expect(listaDeEmailDaTela(recortarTela(lista, TUDO, null))).toHaveLength(3);
-    expect(recortarTela(lista, TUDO, null).achados).toHaveLength(4);
+    expect(listaDeEmailDaTela(recortarTela(lista, TUDO, null))).toHaveLength(2);
+    expect(recortarTela(lista, TUDO, null).achados).toHaveLength(3);
   });
 
   it("as duas peneiras da tela valem, e o arquivo as respeita", () => {
-    expect(listaDeEmailDaTela(recortarTela(lista, TUDO, "atual@email.com"))).toEqual([
-      { nome: "Trocou de e-mail", email: "atual@email.com" },
+    expect(listaDeEmailDaTela(recortarTela(lista, TUDO, "novo@email.com"))).toEqual([
+      { nome: "Coletado agora", email: "novo@email.com" },
     ]);
   });
 
@@ -1053,20 +1021,20 @@ describe("listaDeEmailDaTela — quem entra no arquivo, e com que e-mail", () =>
     expect(csvDaListaDeEmail(listaDeEmailDaTela(recortarTela(lista, TUDO, null)))).toBe(
       "﻿Nome;E-mail\r\n" +
         "Antes da 012;antigo@email.com\r\n" +
-        "Coletado agora;novo@email.com\r\n" +
-        "Trocou de e-mail;atual@email.com"
+        "Coletado agora;novo@email.com"
     );
   });
 
-  it("coluna em branco não vira linha de arquivo", () => {
+  it("registro em branco não vira linha de arquivo", () => {
     // O QUE O `where c.email is not null` DEIXAVA PASSAR, medido em 25/09/2026
     // contra o Postgres de teste: coluna `''` e coluna só de espaço passavam no
     // `where` e entravam no arquivo com a célula de e-mail em BRANCO — enquanto
     // a seção "Com e-mail" da tela contava zero. Regra com dois donos, e o lado
-    // frouxo era o arquivo que já está em produção.
+    // frouxo era o arquivo que já está em produção. A régua sobreviveu ao Passo
+    // 2a e mudou de lugar com o dado: hoje ela apara o REGISTRO.
     const brancos = [
-      linha({ nome: "Vazio", username: "vazio", email: "", campos: {} }),
-      linha({ nome: "Espacos", username: "espacos", email: "   ", campos: {} }),
+      linha({ nome: "Vazio", username: "vazio", campos: { email: coletado("") } }),
+      linha({ nome: "Espacos", username: "espacos", campos: { email: coletado("   ") } }),
     ];
     expect(listaDeEmailDaTela(recortarTela(brancos, TUDO, null))).toEqual([]);
     expect(csvDaListaDeEmail(listaDeEmailDaTela(recortarTela(brancos, TUDO, null)))).toBe(
@@ -1096,7 +1064,6 @@ describe("linhaDaListaDeEmail — a coluna que falta não sai calada", () => {
     nome: "Ana Souza",
     username: "ana",
     name: "Ana Souza",
-    email: "ana@email.com",
     campos: { email: coletado("coletado@email.com") },
     categoria: "aluno",
   });
@@ -1106,7 +1073,6 @@ describe("linhaDaListaDeEmail — a coluna que falta não sai calada", () => {
       nome: "Ana Souza",
       username: "ana",
       name: "Ana Souza",
-      email: "ana@email.com",
       campos: { email: coletado("coletado@email.com") },
       categoria: "aluno",
     });
@@ -1114,17 +1080,20 @@ describe("linhaDaListaDeEmail — a coluna que falta não sai calada", () => {
 
   it("e o que sai dela é o que o arquivo usa: o e-mail COLETADO", () => {
     // A LIGAÇÃO DAS DUAS PONTAS: a linha atravessa a leitura e chega ao arquivo
-    // com o e-mail do registro, e não com o da coluna. Sem o `campos` vindo
-    // inteiro daqui, esta expectativa diria `ana@email.com`.
+    // com o e-mail do registro. Sem o `campos` vindo inteiro daqui, esta
+    // expectativa sairia vazia — e antes do Passo 2a ela sairia com o valor da
+    // coluna `contacts.email`, que a linha também trazia.
     expect(emailDoContato(linhaDaListaDeEmail(linhaDoBanco()))).toBe("coletado@email.com");
   });
 
-  it("CADA uma das seis colunas, faltando, estoura dizendo o nome dela", () => {
-    // UMA POR UMA, e não só `campos`: as seis são usadas (o nome é a primeira
-    // coluna do arquivo, três são os campos da busca, `campos` é de onde o
-    // e-mail sai e `categoria` é a peneira do recorte), então cada uma que
-    // sumir estraga o arquivo de um jeito diferente e calado.
-    for (const coluna of ["nome", "username", "name", "email", "campos", "categoria"]) {
+  it("CADA uma das cinco colunas, faltando, estoura dizendo o nome dela", () => {
+    // UMA POR UMA, e não só `campos`: as cinco são usadas (o nome é a primeira
+    // coluna do arquivo, `username`/`name` e o e-mail resolvido são os campos da
+    // busca, `campos` é de onde o e-mail sai e `categoria` é a peneira do
+    // recorte), então cada uma que sumir estraga o arquivo de um jeito diferente
+    // e calado. Eram SEIS até o Passo 2a: a sexta era a coluna `email`, e ela
+    // saiu do `select` da rota junto com a queda que a lia.
+    for (const coluna of ["nome", "username", "name", "campos", "categoria"]) {
       const linha: Record<string, unknown> = linhaDoBanco();
       delete linha[coluna];
       expect(
@@ -1138,9 +1107,9 @@ describe("linhaDaListaDeEmail — a coluna que falta não sai calada", () => {
     // `in`, E NÃO "TEM VALOR". A maioria dos contatos não tem categoria e muitos
     // não têm e-mail — se a conferência perguntasse pelo valor, ela derrubaria o
     // botão para gente de verdade, em produção, no primeiro clique.
-    const linha = { ...linhaDoBanco(), email: null, categoria: null, nome: null, campos: null };
+    const linha = { ...linhaDoBanco(), categoria: null, nome: null, campos: null };
     expect(() => linhaDaListaDeEmail(linha)).not.toThrow();
-    expect(linhaDaListaDeEmail(linha).email).toBeNull();
+    expect(linhaDaListaDeEmail(linha).campos).toBeNull();
   });
 
   it("a mensagem diz as DUAS que faltaram, e não só a primeira", () => {

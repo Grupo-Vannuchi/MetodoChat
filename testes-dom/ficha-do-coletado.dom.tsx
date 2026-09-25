@@ -33,7 +33,7 @@ const coletado = (valor: string) => ({ valor, em: EM, automacao: "a-1" });
 const migrado = (valor: string) => ({ valor, em: "2026-09-24T09:00:00Z" });
 
 function montar(contato: Partial<ContatoDaFicha>, catalogo?: Campo[]) {
-  const itens = fichaDoColetado({ email: null, campos: {}, ...contato }, catalogo);
+  const itens = fichaDoColetado({ campos: {}, ...contato }, catalogo);
   const { container } = render(<FichaDoColetado itens={itens} />);
   return { container, tela: within(container), itens };
 }
@@ -115,8 +115,13 @@ describe("a data que não existe", () => {
     expect(bloco.quando).not.toContain("coletado em");
   });
 
-  it("o e-mail que só existe na coluna antiga também não promete data", () => {
-    const { container } = montar({ email: "antigo@email.com" });
+  // ESTE CASO ERA "o e-mail que só existe na coluna antiga também não promete
+  // data", e o PASSO 2a o trouxe para o registro. A coluna `contacts.email` saiu
+  // de `ContatoDaFicha`: e-mail migrado pela `012` chega à tela como qualquer
+  // outro campo migrado — pelo registro, e sem a chave `automacao`, que é o que
+  // diz que aquele `em` é o instante da MIGRAÇÃO e não o da coleta.
+  it("o e-mail migrado pela `012` também não promete data", () => {
+    const { container } = montar({ campos: { email: migrado("antigo@email.com") } });
     expect(blocos(container)[0].valor).toBe("antigo@email.com");
     expect(blocos(container)[0].quando).toBe("sem data de coleta");
   });

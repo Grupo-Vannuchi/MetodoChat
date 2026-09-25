@@ -484,12 +484,14 @@ const CHAVES_RESERVADAS = new Set([...CHAVES_DO_CATALOGO, ...CHAVES_DO_PERFIL]);
 // que esta função come. A perda está escrita lá, onde a coluna nasce.
 //
 // Este comentário dizia o contrário ("nenhuma tarefa da Parte 1 constrói a
-// coluna do CSV"), e era verdade até esta tarefa. O botão ANTIGO ("Exportar
-// CSV", app/api/contatos/csv/route.ts) continua sendo o que era: duas colunas
-// fixas, `email is not null`, e sem ler esta coluna — são dois botões, e o
-// conteúdo do velho não muda. (A única mudança de byte que ele sofreu é a
-// neutralização de fórmula de planilha, compartilhada pelos dois pela mesma
-// `cell`; o porquê está em lib/exportacao-de-contatos.ts.)
+// coluna do CSV"), e era verdade até a tarefa da exportação completa. O botão
+// ANTIGO ("Exportar CSV", app/api/contatos/csv/route.ts) continua com as duas
+// colunas fixas de sempre e sem ler esta coluna — são dois botões, e o conteúdo
+// do velho não muda. (Duas coisas mudaram nele desde então, e nenhuma é coluna:
+// a neutralização de fórmula de planilha, compartilhada pelos dois pela mesma
+// `cell`; e o corte, que era `email is not null` em SQL e virou `temEmail` em
+// JS no Passo 1 da Parte 2. Os dois porquês estão em
+// lib/exportacao-de-contatos.ts.)
 //
 // Aceitar o underscore NÃO afrouxa a colisão: quem colide é a forma sem
 // pontuação nenhuma ("E-mail" -> "email"), e o hífen continua sendo removido.

@@ -53,7 +53,8 @@ function semAcento(s: string): string {
  * `email` É O E-MAIL QUE VALE, JÁ RESOLVIDO — e não a coluna `contacts.email`.
  * Desde o Passo 1 da Parte 2, quem responde "qual é o e-mail desta pessoa" é
  * `emailDoContato` (lib/exportacao-de-contatos.ts), por dentro da regra de
- * lib/variables.ts: vale o valor COLETADO e, na falta dele, a coluna antiga.
+ * lib/variables.ts; desde o Passo 2a aquela regra lê o valor COLETADO em
+ * `contacts.campos` e mais nada — a queda para a coluna antiga saiu de lá.
  * Quem chama resolve ANTES — e quem chama é `peneirar`, num lugar só.
  *
  * A RESOLUÇÃO NÃO ENTROU AQUI DE PROPÓSITO, e o motivo é o cabeçalho deste

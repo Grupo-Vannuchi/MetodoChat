@@ -37,7 +37,12 @@ const CONTA = "17800000000000999";
 
 // A MESMA PROJEÇÃO DA ROTA. Ver o comentário do topo sobre o que isto mede e o
 // que não mede.
-const PROJECAO_DA_ROTA = `select c.username, c.name, c.email, c.categoria, c.campos
+// `c.email` SAIU DAQUI COM O PASSO 2a, na mesma hora em que saiu da rota: esta
+// string é uma CÓPIA da consulta de lá, e uma cópia que fica para trás mede uma
+// rota que não existe. A coluna continua no banco (o `drop column` é o Passo
+// 2b), então a divergência não estouraria — ela só passaria a afirmar que a rota
+// traz uma coluna que ela não traz mais.
+const PROJECAO_DA_ROTA = `select c.username, c.name, c.categoria, c.campos
      from contacts c
      where c.account_id = $1
      order by c.first_contact_at desc`;
@@ -59,8 +64,8 @@ beforeAll(async () => {
   // verde mais caro que existe. Semear como o motor grava é o que faz este caso
   // falar da linha de produção.
   await banco.db().sql().query(
-    `insert into contacts (account_id, ig_id, username, name, email, categoria, campos, last_reply_at)
-     values ($1, 'ig-cheia', 'ana.cheia', 'Ana Souza', 'ana@email.com', 'aluno',
+    `insert into contacts (account_id, ig_id, username, name, categoria, campos, last_reply_at)
+     values ($1, 'ig-cheia', 'ana.cheia', 'Ana Souza', 'aluno',
              jsonb_build_object($2::text, jsonb_build_object('valor', $3::text, 'em', $4::text)),
              now())`,
     [CONTA, "qual_sua_cidade", "Osasco", "2026-09-01T12:00:00.000Z"]
@@ -69,8 +74,8 @@ beforeAll(async () => {
   // (migrations/011), e é assim que nasce todo contato que nunca respondeu a um
   // pedido de dado. O registro vazio é o normal, não a exceção.
   await banco.db().sql().query(
-    `insert into contacts (account_id, ig_id, username, name, email, categoria, last_reply_at)
-     values ($1, 'ig-vazia', 'bia.vazia', null, null, null, now())`,
+    `insert into contacts (account_id, ig_id, username, name, categoria, last_reply_at)
+     values ($1, 'ig-vazia', 'bia.vazia', null, null, now())`,
     [CONTA]
   );
   linhas = (await banco.db().sql().query(PROJECAO_DA_ROTA, [CONTA])) as Record<
@@ -80,7 +85,7 @@ beforeAll(async () => {
 });
 
 describe("a linha que o driver devolve", () => {
-  test("tem as cinco colunas, e a leitura da exportação a aceita", () => {
+  test("tem as quatro colunas, e a leitura da exportação a aceita", () => {
     expect(linhas).toHaveLength(2);
     for (const linha of linhas) {
       expect(

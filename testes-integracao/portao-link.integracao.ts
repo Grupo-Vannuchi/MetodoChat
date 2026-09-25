@@ -228,10 +228,10 @@ async function contato(igId: string) {
     .db()
     .sql()
     .query(
-      `select flow_step_id, follow_attempts, email from contacts
+      `select flow_step_id, follow_attempts from contacts
         where account_id = $1 and ig_id = $2`,
       [CONTA, igId]
-    )) as { flow_step_id: string | null; follow_attempts: number; email: string | null }[];
+    )) as { flow_step_id: string | null; follow_attempts: number }[];
   return linhas[0];
 }
 
@@ -495,12 +495,17 @@ describe("portão → link", () => {
     // não responde à segunda pergunta, e por isso a semeadura tem de trazer o
     // `em`. Ele é contado a partir de `Date.now()`: data cravada aqui apodrece
     // sozinha, e dois testes desta base já ficaram vermelhos assim.
+    //
+    // A COLUNA SAIU DO `insert` COM O PASSO 2a: ela vinha junto só para o
+    // registro e a coluna não discordarem enquanto a queda existia. A queda
+    // saiu, ninguém lê a coluna, e escrevê-la aqui seria semear um estado que o
+    // produto não produz mais.
     await banco
       .db()
       .sql()
       .query(
-        `insert into contacts (account_id, ig_id, email, campos)
-         values ($1, $2, $3, jsonb_build_object('email', jsonb_build_object('valor', $3::text, 'em', $4::text)))`,
+        `insert into contacts (account_id, ig_id, campos)
+         values ($1, $2, jsonb_build_object('email', jsonb_build_object('valor', $3::text, 'em', $4::text)))`,
         [CONTA, EU, "pessoa@exemplo-do-teste.invalid", new Date().toISOString()]
       );
 

@@ -12,9 +12,11 @@
 //      dado de um cliente dentro do painel de outro. `tsc`, `eslint` e as duas
 //      suítes offline ficam verdes com o filtro fora: a consulta é uma string.
 //   2. A COLUNA QUE NÃO VEIO NO `select`. Sem `campos`, a ficha fica vazia para
-//      todo mundo; sem `email`, ela fica sem e-mail para todo contato anterior à
-//      migração `012` — que é aplicada À MÃO, fora do build, e que em produção
-//      já rodou.
+//      todo mundo — e desde o Passo 2a da Parte 2 é ela a ÚNICA coluna que a
+//      ficha precisa. O `email` também era exigido aqui, para a ficha não ficar
+//      sem e-mail para quem veio antes da migração `012`; a `012` rodou, a queda
+//      saiu de `lib/variables.ts` e a coluna saiu do `select` — o caso daquela
+//      dupla continua neste arquivo, invertido.
 //
 // É A MESMA CLASSE DOS TRÊS PLANTIOS QUE SOBREVIVERAM A TUDO EM 09/09/2026
 // (ver o bloco "A TELA, E OS DOIS PLANTIOS" em agendados.integracao.ts), e o
@@ -217,22 +219,30 @@ describe("a ficha que a tela da conversa monta", () => {
     ).toEqual([]);
   });
 
-  // O PLANTIO: tirar `email` do `select`. A queda do registro para a coluna
-  // antiga é decidida por `lib/variables.ts`, mas ela só tem o que ler se a
-  // página trouxer a coluna — e a suíte pura não alcança o `select`.
-  test("o e-mail que só existe na coluna antiga chega à ficha, e sem data", async () => {
+  // O CASO ESTÁ INVERTIDO PELO PASSO 2a, e antes ele se chamava "o e-mail que só
+  // existe na coluna antiga chega à ficha, e sem data". O plantio que ele
+  // guardava era tirar `email` do `select` da página: a queda do registro para a
+  // coluna era decidida por `lib/variables.ts`, mas só tinha o que ler se a
+  // página trouxesse a coluna — e a suíte pura não alcança o `select`.
+  //
+  // AGORA ELE GUARDA O CONTRÁRIO, e é a mesma classe de plantio ao contrário:
+  // devolver `email` ao `select` e a queda a `lib/variables.ts` faria esta
+  // pessoa voltar a aparecer com e-mail. O estado semeado aqui é o de antes da
+  // `012` — coluna cheia, registro vazio —, e em produção ele não existe mais:
+  // a `012` rodou, e a medição do dono em 25/09/2026 achou 9 contatos com
+  // e-mail e 9 com `campos->'email'`.
+  test("o e-mail que só existe na coluna antiga NÃO chega mais à ficha", async () => {
     const DE_ANTES = "9200000000000103";
     await semearContato(CONTA, DE_ANTES, { email: "antigo@exemplo-do-teste.invalid" });
 
     const itens = await fichaNaTela(DE_ANTES);
 
-    expect(itens.map((i) => i.chave)).toEqual(["email"]);
-    expect(itens[0].valor).toBe("antigo@exemplo-do-teste.invalid");
     expect(
-      itens[0].em,
-      "a coluna `contacts.email` nunca guardou quando o e-mail chegou — não há data " +
-        "a mostrar, e inventar uma é o defeito que esta tarefa existe para não repetir."
-    ).toBe(null);
+      itens,
+      "a coluna `contacts.email` saiu do `select` da página e a queda saiu de " +
+        "lib/variables.ts: a ficha não tem como olhar para ela. Se este caso " +
+        "voltar a achar o e-mail, uma das duas metades do Passo 2a foi desfeita."
+    ).toEqual([]);
   });
 
   // -------------------------------------------------------------------------

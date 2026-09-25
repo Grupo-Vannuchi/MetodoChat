@@ -1014,10 +1014,17 @@ export function partirLigacao(ligacoes: Ligacao[], indice: number, meio: string)
 // `pedir_email` sem texto continua recusado — agora por "pedir_dado sem texto",
 // que é o mesmo defeito com o nome de hoje.
 //
-// QUANDO ELA MORRE: na Parte 2, junto com `contacts.email`, depois de a `012`
-// ter rodado e de não haver mais nenhum `pedir_email` gravado. A conferência de
+// QUANDO ELA MORRE: quando não houver mais nenhum `pedir_email` gravado em
+// `automations.steps`, depois de a `012` ter rodado. A conferência de
 // `scripts/migrar.mjs` (`ESPERADAS_DADOS`) é quem responde essa pergunta contra
 // o banco.
+//
+// E NÃO É A MESMA PERGUNTA DA COLUNA `contacts.email`, embora este comentário
+// já tenha dito que sim ("morre na Parte 2, junto com `contacts.email`"). São
+// dois dados diferentes que a mesma `012` toca: os PASSOS das automações, que é
+// o que este apelido serve, e a COLUNA do contato, que o Passo 2a tirou do
+// código e o Passo 2b vai derrubar. A coluna pode cair com passos `pedir_email`
+// ainda gravados, e o contrário também.
 function apelidoDoPedido(o: Record<string, unknown>): Record<string, unknown> {
   if (o.tipo !== "pedir_email") return o;
   return { ...o, tipo: "pedir_dado", campo: "email" };

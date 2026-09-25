@@ -1090,25 +1090,32 @@ async function limparCursor(accountId: string, contactIgId: string) {
   );
 }
 
-// ESCREVE NOS DOIS LUGARES DE PROPÓSITO, e é a única função que faz isso.
+// ESCREVE NUM LUGAR SÓ — `contacts.campos` —, e a segunda escrita saiu aqui.
 //
-// A coluna `contacts.email` só sai na Parte 2 / PASSO 2, e a escrita continua
-// enquanto ela existir. O QUE MUDOU NO PASSO 1 (25/09/2026) foi quem lê: os seis
-// leitores diretos que esta frase citava não existem mais. Sobrou UM — a queda
-// de `lib/variables.ts`, que devolve a coluna quando o registro não tem o campo
-// —, e é por ela que a tela, a busca, a ficha, as duas planilhas e a DM passam.
+// O QUE ESTAVA AQUI ATÉ 25/09/2026: junto do `jsonb`, esta consulta gravava
+// `email = case when $3 = 'email' then $4 else email end`. A coluna
+// `contacts.email` era a fonte dos leitores de ontem, e a escrita dupla é o que
+// manteve as duas em sincronia durante a Parte 1 inteira.
 //
-// ENTÃO POR QUE AINDA ESCREVER OS DOIS. Porque aquele único leitor é real: todo
-// contato coletado antes da migração `012` tem a COLUNA cheia e o registro
-// vazio, e a `012` é aplicada À MÃO, fora do build. Parar de escrever aqui faria
-// o e-mail de quem for coletado a partir de agora existir só no registro — o que
-// hoje funciona — mas deixaria as duas fontes divergirem de propósito antes da
-// hora, e é a sincronia delas que torna o Passo 2 uma remoção e não uma
-// migração de dados.
+// O PASSO 2a A TIROU, E A ORDEM DENTRO DA TAREFA FOI ESTA: primeiro parou de
+// ESCREVER (aqui), depois caiu a QUEDA para a coluna (`lib/variables.ts`).
+// Quem for ler isto para o PASSO 2b (o `drop column`, aplicado à mão) precisa
+// dessa ordem:
 //
-// Ter UM escritor só é o que impede as duas fontes de divergirem enquanto a
-// janela está aberta — duas escritas em dois pontos diferentes é como
-// `flow_step_index` e `flow_step_id` chegaram a discordar.
+//   NESTA ORDEM, nunca há contato sem e-mail. Entre as duas metades a coluna
+//     para de receber dado NOVO enquanto a queda ainda responde pelos e-mails
+//     antigos — e quem for coletado no meio já grava no registro, que é a fonte
+//     que fica.
+//   INVERTIDA, nada quebra HOJE (registro e coluna estão em sincronia, medido em
+//     produção em 25/09/2026: 9 contatos com e-mail, 9 com registro, 0
+//     divergentes), mas abriria uma janela em que o motor alimenta uma coluna
+//     que ninguém lê — dado novo indo para um lugar morto.
+//
+// E POR QUE PARAR DE ESCREVER ANTES DO `drop column`: enquanto o deploy não é
+// promovido, o código VELHO continua servindo, e ele LÊ a coluna. Esta tarefa só
+// PARA de escrever e de ler; ela não derruba nada, então o velho continua
+// achando na coluna exatamente o que já estava lá. O `drop column` é que não
+// pode chegar antes deste código estar no ar.
 //
 // `campos || jsonb_build_object(...)` MESCLA, e não substitui. Trocar por
 // `set campos = jsonb_build_object(...)` é o plantio óbvio desta função: gravar
@@ -1145,13 +1152,7 @@ async function gravarCampo(
               'valor', $4::text,
               'em', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
               'automacao', $5::text)),
-            campo_tentativas = 0,
-            -- A COLUNA CONTINUA ESCRITA ENQUANTO A JANELA ESTIVER ABERTA. Ela
-            -- só sai na Parte 2 / Passo 2; desde o Passo 1 quem a lê é só a
-            -- queda de lib/variables.ts — ver o cabeçalho desta função.
-            -- (Sem crase neste bloco: ele vive dentro de um template literal,
-            -- e uma crase aqui fecharia a string da consulta.)
-            email = case when $3 = 'email' then $4 else email end
+            campo_tentativas = 0
       where account_id = $1 and ig_id = $2`,
     [accountId, igId, chave, valor, automacaoId]
   );
