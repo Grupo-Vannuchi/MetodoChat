@@ -358,14 +358,20 @@ export function peneirar<T extends ContatoDaTela>(contatos: T[], recorte: Recort
 //
 // O QUE ISTO NÃO PRENDE, e fica escrito para não prometer rede que não existe.
 // DUAS formas passaram na medição, e as duas exigem escrever código novo de
-// propósito: ADULTERAR o objeto na passagem (`{...tela, achados: tela.comEmail}`
-// — o espalhamento copia os campos, `tsc` aceita, e marca opaca não resolveria
-// porque o espalhamento copiaria a marca junto) e DERIVAR UM SEGUNDO objeto no
-// JSX (`recortarTela(rows, filtro, null)` passado direto à faixa — ali a frase e
-// o botão continuam de acordo entre si, e quem discorda é a faixa contra as
-// tabelas abaixo). O que o desenho fecha é o erro por ENGANO — entregar o
-// conjunto vizinho, que nasce duas linhas acima —, e é a forma que esta tela já
-// viu duas vezes.
+// propósito: ADULTERAR o objeto na passagem (`{...tela, achados: tela.comEmail}`)
+// e DERIVAR UM SEGUNDO objeto no JSX (`recortarTela(rows, filtro, null)` passado
+// direto à faixa). As duas foram plantadas de novo em 25/09/2026 e as duas
+// sobreviveram a `tsc`, a `eslint` e aos 64 casos de DOM. O que o desenho fecha é
+// o erro por ENGANO — entregar o conjunto vizinho, que nasce duas linhas acima —,
+// e é a forma que esta tela já viu duas vezes.
+//
+// A CONFISSÃO INTEIRA TEM UM DONO SÓ, e é `FaixaDaExportacaoCompleta`
+// (app/contatos/faixa-da-exportacao.tsx): por que a primeira É fechável (membro
+// privado de classe, medido) e mesmo assim não foi fechada, e por que fechar a
+// segunda seria voltar ao desenho cujo buraco já foi medido. ELA NÃO É REPETIDA
+// AQUI de propósito — esta nota e a de lá já foram duas cópias do mesmo
+// parágrafo, e duas cópias de uma medição são duas medições para manter iguais,
+// que é o defeito dos dois donos perseguido no arquivo inteiro.
 
 /**
  * O que a tela de contatos precisa de cada linha para se recortar.

@@ -54,16 +54,46 @@ import { btnGhost, muted } from "../ui";
  *
  * O QUE CONTINUA SEM REDE, escrito aqui para o comentário não prometer mais do
  * que o código faz. DUAS formas passaram na medição de 24/09/2026, e as duas
- * exigem escrever código novo de propósito — não são erro de distração:
+ * exigem escrever código novo de propósito — não são erro de distração. As duas
+ * foram PLANTADAS DE NOVO na página em 25/09/2026, uma de cada vez, e as duas
+ * SOBREVIVERAM a `tsc`, a `eslint` e aos 64 casos de DOM:
  *
  *   1. ADULTERAR o objeto na passagem: `{...tela, achados: tela.comEmail}`.
- *      `tsc` aceita, e marca opaca não resolveria — o espalhamento copiaria a
- *      marca junto.
  *   2. DERIVAR UM SEGUNDO objeto no JSX: `tela={recortarTela(rows, filtro,
  *      null)}`. Aqui a frase e o botão continuam de acordo ENTRE SI (os dois
  *      saem do mesmo recorte), então a regra que esta faixa carrega não é
  *      quebrada; o que discorda é a faixa contra as duas tabelas abaixo dela.
  *      É defeito mais fraco que o de 11/09, e nenhum caso o acusa.
+ *
+ * A PRIMEIRA É FECHÁVEL, E A CONFISSÃO É QUE ELA NÃO FOI FECHADA. Este
+ * comentário afirmava que "marca opaca não resolveria — o espalhamento copiaria
+ * a marca junto". Isso vale para marca em PROPRIEDADE e é FALSO para o único
+ * mecanismo nominal que o TypeScript tem: MEMBRO PRIVADO DE CLASSE. Medido em
+ * 25/09/2026, com `TelaDeContatos` virando classe com um `private readonly`
+ * nunca atribuído, o espalhamento para de compilar — "Property … is missing in
+ * type '{ achados; recorte; comEmail; semEmail; }'". A afirmação antiga estava
+ * errada, e trocá-la por outra promessa seria repetir o defeito.
+ *
+ * POR QUE NÃO SE FEZ, com o preço do lado de quem paga. `TelaDeContatos`
+ * deixaria de ser dado simples num módulo que é PURO de propósito e passaria a
+ * ser INSTÂNCIA: quem um dia quiser entregar a tela a um componente de CLIENTE
+ * deixa de poder (instância de classe não atravessa a fronteira do RSC), e hoje
+ * pode. E fecharia UMA das duas — a forma 2 continua compilando, por ser uma
+ * instância legítima. Trocar "duas formas confessadas" por "uma fechada, uma
+ * confessada e um mecanismo nominal a explicar em toda leitura" não paga o que
+ * custa contra um defeito que exige escrever a linha de propósito.
+ *
+ * FECHAR A SEGUNDA É VOLTAR AO DESENHO PIOR. O que separa `recortarTela(rows,
+ * filtro, null)` da chamada certa é a BUSCA, e tipo nenhum carrega isso; tirar a
+ * derivação do JSX exigiria a faixa receber `rows`, `filtro` e `busca` e derivar
+ * ela mesma — que é EXATAMENTE o desenho anterior, aquele cujo buraco (entregar
+ * o CONJUNTO vizinho) já foi medido atravessando `tsc`, `eslint`, 1808 casos
+ * puros e 47 de DOM. Trocar um defeito que ninguém escreveu por um que esta tela
+ * já viu duas vezes não é rede, é recaída.
+ *
+ * É O MESMO PADRÃO DO `order by ord` (migrations/012): o que não tem rede fica
+ * escrito, com a medição e o motivo, em vez de uma promessa que ninguém alcança.
+ * Uma confissão escrita vale mais que uma guarda que ninguém lê.
  *
  * O desenho fecha o erro por ENGANO — entregar o conjunto vizinho —, que é a
  * forma que esta tela já viu duas vezes.

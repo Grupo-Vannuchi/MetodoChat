@@ -239,6 +239,34 @@ describe("normalizarChaveLivre", () => {
     expect(normalizarChaveLivre("  Profissão  ")).toBe("profissao");
   });
 
+  // A LETRA ACENTUADA SOBREVIVE COMO A LETRA BASE, e quem faz isso é o
+  // `normalize("NFD")` de `formaDaChave` (lib/campos.ts) — não o filtro
+  // seguinte. Este caso existe para dizer QUAL das duas linhas é a que
+  // trabalha, porque o par lido de cima para baixo sugere o contrário.
+  it("o acento é DECOMPOSTO, e a letra de baixo fica: `Cidadã` vira `cidada`", () => {
+    // O QUE O `normalize("NFD")` COMPRA, MEDIDO em 25/09/2026 rodando as duas
+    // versões lado a lado: com ele, "ã" vira "a" + til, o til cai e sobra o
+    // "a"; sem ele, "ã" chega INTEIRA ao filtro `[^a-z0-9\s_]`, que a apaga
+    // junto com a letra — e "Cidadã" vira `cidad`, "São Paulo" vira
+    // `so_paulo`, "Ç" vira `null`. Dez dos vinte textos medidos mudaram.
+    //
+    // O ESTRAGO SERIA MUDO: a chave gravada é a que a mensagem tem de citar
+    // (`{{cidada}}`), é o cabeçalho da coluna de "Exportar todos os dados"
+    // (lib/exportacao-de-contatos.ts), e é a forma que `fraseDoTokenComEspaco`
+    // ensina ao dono. Todas as três continuariam CONCORDANDO entre si — todas
+    // saem desta mesma função —, só que sobre uma chave mutilada, e as
+    // automações já gravadas com a chave inteira ficariam órfãs.
+    expect(
+      formaDaChave("Cidadã"),
+      "sem o `normalize(\"NFD\")` a letra acentuada é apagada INTEIRA pelo filtro, e sobra `cidad`"
+    ).toBe("cidada");
+    expect(formaDaChave("São Paulo")).toBe("sao_paulo");
+    // A palavra que é SÓ letra acentuada é o caso extremo da mesma linha: sem
+    // a decomposição não sobra letra nenhuma, e `formaDaChave` devolve `null`
+    // — o campo deixa de ter nome, e o editor recusa o que aceitava.
+    expect(formaDaChave("Ç")).toBe("c");
+  });
+
   it("recusa o que colide com campo conhecido", () => {
     // Um campo livre chamado `email` gravaria por cima do e-mail de verdade sem
     // extração nenhuma, e `{{email}}` passaria a devolver o que a pessoa
@@ -403,6 +431,27 @@ describe("as frases da chave de campo livre recusada", () => {
     expect(listaEmProsa(["e-mail"])).toBe("e-mail");
     expect(listaEmProsa(["e-mail", "telefone"])).toBe("e-mail ou telefone");
     expect(listaEmProsa(["e-mail", "telefone", "nome"])).toBe("e-mail, telefone ou nome");
+  });
+
+  // A LISTA VAZIA — a borda que se abriu quando esta função virou API pública.
+  it("a lista vazia vira frase vazia, e nunca a palavra `undefined`", () => {
+    // MEDIDO RODANDO A FUNÇÃO: sem a borda tratada, `listaEmProsa([])` devolve
+    // literalmente " ou undefined" — `itens[-1]` é `undefined`, e a
+    // interpolação o escreve por extenso numa frase que o DONO lê, com um "ou"
+    // pendurado no vazio e um espaço na frente.
+    //
+    // NENHUM CHAMADOR DE HOJE A ALCANÇA, e é justamente por isso que o caso
+    // mora aqui. `camposDoSistemaEmProsa` (o único) sempre entrega os quatro
+    // campos do catálogo, e nenhum teste pode fazê-lo entregar zero — a mesma
+    // razão pela qual a guarda do UM ITEM, duas linhas acima, também precisou
+    // ser medida por fora do catálogo. A função é EXPORTADA: quem a chamar
+    // amanhã com uma lista já filtrada (um catálogo por conta, os campos que
+    // sobraram de um recorte) cai na lista vazia sem nada avisando.
+    expect(listaEmProsa([])).toBe("");
+    expect(
+      listaEmProsa([]),
+      "a palavra `undefined` não pode chegar a uma frase que o dono lê"
+    ).not.toContain("undefined");
   });
 
   it("a lista dos campos do sistema é LIDA do catálogo, campo a campo", () => {
