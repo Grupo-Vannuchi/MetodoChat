@@ -531,13 +531,33 @@ export function chaveReservada(texto: string): boolean {
 // divergiria desta na primeira mudança, com o dado inalcançável e nada
 // acusando.
 export function formaDaChave(texto: string): string | null {
-  const semAcento = texto
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "") // remove os acentos que o NFD separou
-    .toLowerCase();
-  // Tudo que não é letra, dígito, espaço ou underscore some (pontuação,
-  // emoji); espaço sobrevive para virar underscore no passo seguinte, e o
-  // underscore que já está lá sobrevive porque é a saída desta mesma função.
+  // O `normalize("NFD")` É QUEM SALVA A LETRA — não é ele quem tira o acento.
+  //
+  // AQUI HAVIA UMA SEGUNDA LINHA — um `.replace` da faixa dos sinais
+  // combinantes, U+0300 a U+036F — com o comentário "remove os acentos que o
+  // NFD separou". Era esse par que fazia a linha de baixo parecer a peça
+  // essencial. (A faixa vai escrita por extenso porque os caracteres crus,
+  // como estavam, são INVISÍVEIS no próprio comentário que fala deles.)
+  //
+  // ELA SAIU em 25/09/2026, MEDIDA: o filtro `[^a-z0-9\s_]` logo abaixo já apaga todo sinal combinante (nenhum
+  // deles é letra, dígito, espaço ou underscore), então a linha era um no-op
+  // EXATO. Plantada a remoção, as 1886 linhas da suíte ficaram VERDES, e vinte
+  // entradas medidas à mão — acentuadas, já decompostas, compostas, só-acento —
+  // deram byte por byte o mesmo resultado. Linha que nenhum caso consegue
+  // distinguir e cujo comentário reivindica o trabalho central é pior que linha
+  // nenhuma: ela convida o próximo leitor a apagar A OUTRA.
+  //
+  // O QUE O NFD FAZ, ENTÃO: ele DECOMPÕE "ã" em "a" + til. Sem ele o "ã" chega
+  // INTEIRO ao filtro, que não o reconhece como `[a-z]` e apaga A LETRA JUNTO —
+  // "Cidadã" viraria `cidad`, "São Paulo" viraria `so_paulo`, e "Ç" viraria
+  // `null` (campo sem nome nenhum). Quem APAGA o acento é o filtro; quem faz a
+  // LETRA DE BAIXO SOBREVIVER é esta linha. O caso que a prende está em
+  // tests/campos.test.ts ("o acento é DECOMPOSTO, e a letra de baixo fica").
+  const semAcento = texto.normalize("NFD").toLowerCase();
+  // Tudo que não é letra, dígito, espaço ou underscore some: pontuação, emoji E
+  // OS SINAIS DE ACENTO que o NFD acabou de separar. Espaço sobrevive para
+  // virar underscore no passo seguinte, e o underscore que já está lá sobrevive
+  // porque é a saída desta mesma função.
   const soLetraDigitoEspaco = semAcento.replace(/[^a-z0-9\s_]/g, "");
   const chave = soLetraDigitoEspaco.trim().replace(/\s+/g, "_");
   if (!chave) return null; // vazio, só espaço, ou só emoji/pontuação
@@ -586,6 +606,20 @@ export function camposDoSistemaEmProsa(): string {
 // próxima limpeza leva embora sem perceber. Exportada por isso, e o caso que a
 // prende está em tests/campos.test.ts.
 export function listaEmProsa(itens: string[]): string {
+  // SEM NENHUM ITEM NÃO HÁ FRASE, e esta linha existe porque a borda estava
+  // aberta: MEDIDO rodando a função, `listaEmProsa([])` devolvia literalmente
+  // " ou undefined" — `itens[-1]` é `undefined` e a interpolação o escreve por
+  // extenso, numa frase que o DONO lê.
+  //
+  // NENHUM CHAMADOR DE HOJE CHEGA AQUI — `camposDoSistemaEmProsa`, o único,
+  // sempre entrega os quatro campos do catálogo. A borda não é tratada por
+  // causa deles; é tratada porque esta função foi EXPORTADA, e desde então
+  // quem a chamar com uma lista já filtrada não tem como saber que o vazio
+  // devolvia a palavra `undefined`. E ela NÃO é guarda sem leitor: o caso que a
+  // prende está em tests/campos.test.ts, no mesmo lugar em que a guarda do UM
+  // ITEM ganhou o dela, e pelo mesmo motivo — as duas só são alcançáveis por
+  // fora do catálogo.
+  if (!itens.length) return "";
   // Com um item só não há "ou" nenhum a escrever; sem esta linha a frase
   // nasceria como " ou e-mail", com a vírgula pendurada no vazio.
   if (itens.length === 1) return itens[0];

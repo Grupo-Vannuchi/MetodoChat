@@ -509,13 +509,14 @@ describe("a janela do deploy: o motor novo serve os DOIS formatos do pedido", ()
     // (migrations/012): o `id` fica — é ele que liga as setas e é o que o cursor
     // de quem está no meio da conversa guarda —, o `texto` fica, a `pos` fica, e
     // o `campo` é sobrescrito mesmo quando já havia um gravado.
-    const { passo } = conferir({
+    const bruto = {
       id: "b_ped001",
       tipo: "pedir_email",
       texto: "Qual seu e-mail?",
       pos: { x: 10, y: 20 },
       campo: "telefone",
-    });
+    };
+    const { passo } = conferir(bruto);
     expect(passo).toEqual({
       id: "b_ped001",
       tipo: "pedir_dado",
@@ -523,6 +524,29 @@ describe("a janela do deploy: o motor novo serve os DOIS formatos do pedido", ()
       texto: "Qual seu e-mail?",
       pos: { x: 10, y: 20 },
     });
+
+    // E O BLOCO QUE ENTROU CONTINUA COMO ENTROU — a tradução é uma CÓPIA.
+    //
+    // `apelidoDoPedido` (lib/steps.ts) devolve `{ ...o, tipo, campo }` e não
+    // toca no objeto recebido. Isso era verdade por LEITURA e por mais nada:
+    // `conferir` PARECE leitura pura, é chamada de oito lugares, e recebe
+    // pedaços do `steps` que o chamador ainda vai usar depois — `conferirLista`
+    // percorre `passos[i]` e volta a ler `(passos[i] as { id?: unknown }).id`
+    // DEPOIS de conferir, e a prévia do editor passa a mesma lista adiante.
+    //
+    // O DIA EM QUE ALGUÉM TROCAR O ESPALHAMENTO POR `o.tipo = "pedir_dado"` —
+    // um gesto de economia, não de sabotagem —, a tradução deixa de ser leitura
+    // e passa a REESCREVER a lista do chamador no meio do laço. Nada acusava
+    // isso: o `toEqual` acima olha só o que SAI. Estas duas linhas olham o que
+    // FICA.
+    expect(
+      bruto.tipo,
+      "`conferir` traduz numa CÓPIA: o bloco que entrou não pode virar `pedir_dado`"
+    ).toBe("pedir_email");
+    expect(
+      bruto.campo,
+      "o `campo` do bloco original também não pode ser sobrescrito pela tradução"
+    ).toBe("telefone");
   });
 
   it("o apelido não afrouxa a recusa: `pedir_email` SEM TEXTO continua recusado", () => {

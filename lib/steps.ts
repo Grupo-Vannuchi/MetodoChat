@@ -1014,10 +1014,36 @@ export function partirLigacao(ligacoes: Ligacao[], indice: number, meio: string)
 // `pedir_email` sem texto continua recusado — agora por "pedir_dado sem texto",
 // que é o mesmo defeito com o nome de hoje.
 //
-// QUANDO ELA MORRE: quando não houver mais nenhum `pedir_email` gravado em
-// `automations.steps`, depois de a `012` ter rodado. A conferência de
-// `scripts/migrar.mjs` (`ESPERADAS_DADOS`) é quem responde essa pergunta contra
-// o banco.
+// A FUNÇÃO PRINCIPAL ESTÁ CUMPRIDA — REGISTRADO EM 25/09/2026, E A LINHA FICA.
+//
+// Ela existe para atravessar a JANELA DO DEPLOY descrita acima, e essa janela
+// FECHOU: a `012` foi aplicada À MÃO em produção em 24/09/2026, às 14:38:33
+// UTC, com o deploy `3b8482a` já no ar. Os 4 passos viraram `pedir_dado/email`
+// com os MESMOS ids, textos preservados, as 4 automações seguiram ativas, e as
+// três conferências de dado passaram a responder "não sobrou nenhum". Desde
+// aquele instante o apelido traduz um formato que não está mais no banco: ele
+// não é lido em nenhuma requisição de produção.
+//
+// O QUE SOBROU DELE, DITO SEM INFLAR: é rede para o DADO VELHO VOLTAR, e o
+// caminho real é uma RESTAURAÇÃO — `restore` de um backup anterior àquele
+// instante, um `steps` gravado por fora do editor no formato antigo, uma cópia
+// do banco que nunca recebeu a migração. Nesses casos o código no ar continua
+// servindo, em vez de entregar o link sem ter pedido nada.
+//
+// E NÃO É REDE DE ROLLBACK DE DEPLOY. Os dois documentos de implantação
+// chegaram a prometer isso, e a revisão final da branch mediu a promessa como
+// FALSA (ressalva R1, `.superpowers/sdd/rev-final-branch.md`): voltar para um
+// deploy ANTERIOR a esta branch põe produção em VELHO × MIGRADO, e este apelido
+// não tem como ajudar — ele mora no código NOVO, que é justamente o que saiu do
+// ar. Depois do passo 3 o caminho de volta é CORRIGIR PARA A FRENTE.
+//
+// O GATILHO PARA ELA MORRER são DUAS respostas, e só uma já é sim:
+//
+//   1. `ESPERADAS_DADOS` (scripts/migrar.mjs) responder "não sobrou nenhum"
+//      contra produção. JÁ RESPONDE, desde 24/09/2026.
+//   2. Não haver mais restauração possível para antes daquele instante — ou
+//      seja, nenhum backup vivo anterior à `012`. Essa é a metade que ainda
+//      segura a linha, e quem a responde é quem OPERA o banco, não este arquivo.
 //
 // E NÃO É A MESMA PERGUNTA DA COLUNA `contacts.email`, embora este comentário
 // já tenha dito que sim ("morre na Parte 2, junto com `contacts.email`"). São
@@ -1025,6 +1051,13 @@ export function partirLigacao(ligacoes: Ligacao[], indice: number, meio: string)
 // o que este apelido serve, e a COLUNA do contato, que o Passo 2a tirou do
 // código e o Passo 2b vai derrubar. A coluna pode cair com passos `pedir_email`
 // ainda gravados, e o contrário também.
+//
+// EM PARTICULAR, O `drop column` NÃO É O GATILHO DESTA LINHA — e ele está
+// ADIADO por decisão do dono, então amarrar uma coisa na outra adiaria também
+// o que não depende dela. Esta é a TERCEIRA vez que este par precisa ser
+// desfeito por escrito (o comentário já o afirmou, o documento de implantação
+// ainda o afirma em "QUANDO O APELIDO MORRE"); fica registrado aqui porque o
+// par é intuitivo e errado, e quem só ler o documento vai refazê-lo.
 function apelidoDoPedido(o: Record<string, unknown>): Record<string, unknown> {
   if (o.tipo !== "pedir_email") return o;
   return { ...o, tipo: "pedir_dado", campo: "email" };
@@ -4013,12 +4046,38 @@ export function conferirLista(
     // sobre a FORMA do bloco (não dá para ler, ou destrói dado já coletado). A
     // daqui é sobre uma chave presente e íntegra que simplesmente não tem nome
     // para ser chamada depois. As três frases vêm de lib/campos.ts.
+    //
+    // AQUI HAVIA UM `!chaveReservada(passo.chave)` NESTA CONDIÇÃO, E ELE SAIU
+    // em 25/09/2026, MEDIDO: a cláusula nunca chegava a ser decidida. As quatro
+    // condições acima dela são as MESMAS quatro com que `conferir` recusa a
+    // chave que colide (lá em cima, no ramo `pedir_dado`), e bloco que
+    // `conferir` recusa não chega até aqui — o laço faz `if (!passo) continue`
+    // bem antes. Quando a execução alcançava a cláusula, `chaveReservada` já
+    // era falso por construção. Plantada a remoção, as 1886 linhas da suíte
+    // ficaram VERDES: ela era um no-op exato.
+    //
+    // ELA SAIU EM VEZ DE FICAR PORQUE GUARDA QUE NINGUÉM ALCANÇA COBRA JUROS:
+    // o próximo leitor procura quem a exerce, não acha, e tem de refazer esta
+    // medição inteira para descobrir que não havia nada a achar. É a conta que
+    // o `coalesce` ausente de migrations/012 já registra, com estas palavras.
+    //
+    // E O QUE ELA DEFENDIA CONTINUA DEFENDIDO — POR CASO, E NÃO POR CLÁUSULA.
+    // O estrago que ela imaginava é real: se `conferir` deixar de recusar a
+    // colisão, a chave "E-mail" desce até aqui e ganha `fraseDaChaveSemLetra`
+    // ("precisa ter pelo menos uma letra") no lugar da frase da colisão — uma
+    // recusa que manda o dono fazer a coisa errada, sobre um campo que a tela
+    // dele nem desenha. MEDIDO plantando exatamente isso na mesma data: DOIS
+    // casos acendem, e um deles imprime a troca das frases por extenso
+    // ("expected 'O nome deste campo precisa ter pelo m…' to be 'Este nome já é
+    // um campo do sistema (e…'"). São, em tests/steps.test.ts, "a frase da
+    // colisão é a MESMA no nó e na tela, e sai do catálogo" e "pula `pedir_dado`
+    // livre com chave de campo do SISTEMA". A cláusula era uma segunda resposta
+    // à pergunta que eles já respondem; o caso sobrevive à edição, ela não.
     if (
       passo.tipo === "pedir_dado" &&
       passo.campo === "livre" &&
       typeof passo.chave === "string" &&
       passo.chave.trim() &&
-      !chaveReservada(passo.chave) &&
       normalizarChaveLivre(passo.chave) === null
     ) {
       r.push({
