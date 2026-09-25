@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  fraseDaListaDeEmail,
   LIMITE_DA_CATEGORIA,
   CATEGORIAS_SUGERIDAS,
   normalizarCategoria,
@@ -538,5 +539,29 @@ describe("idsSelecionados", () => {
   // `account_id` no `where`, e ele nao casa com linha nenhuma.
   it("id '0' passa pelo formato, e a consulta é quem recusa", () => {
     expect(idsSelecionados(comIds("0"))).toEqual(["0"]);
+  });
+});
+
+// A CONCORDÂNCIA DA FRASE DA LISTA DE E-MAIL, que a tela errava calada.
+//
+// MEDIDO EM PRODUÇÃO em 25/09/2026: com UM contato com e-mail, a seção dizia
+// "1 pessoa — prontas para sua lista". O plural de "prontas" estava cravado.
+describe("fraseDaListaDeEmail", () => {
+  it("UMA pessoa fala no singular, inteiro", () => {
+    const f = fraseDaListaDeEmail(1);
+    expect(f, `a frase ficou com plural no meio: ${JSON.stringify(f)}`).toBe(
+      "1 pessoa — pronta para sua lista"
+    );
+    expect(f).not.toContain("prontas");
+    expect(f).not.toContain("pessoas");
+  });
+
+  it("mais de uma fala no plural, inteiro", () => {
+    expect(fraseDaListaDeEmail(3)).toBe("3 pessoas — prontas para sua lista");
+  });
+
+  it("zero não vira contagem — os outros ramos do caso dizem o que fazer", () => {
+    const f = fraseDaListaDeEmail(0);
+    expect(f, `zero virou contagem: ${JSON.stringify(f)}`).not.toContain("0");
   });
 });
