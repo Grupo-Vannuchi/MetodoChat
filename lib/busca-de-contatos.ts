@@ -47,7 +47,22 @@ function semAcento(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
-/** Os campos pelos quais se procura alguém. Nulo em qualquer um é normal. */
+/**
+ * Os campos pelos quais se procura alguém. Nulo em qualquer um é normal.
+ *
+ * `email` É O E-MAIL QUE VALE, JÁ RESOLVIDO — e não a coluna `contacts.email`.
+ * Desde o Passo 1 da Parte 2, quem responde "qual é o e-mail desta pessoa" é
+ * `emailDoContato` (lib/exportacao-de-contatos.ts), por dentro da regra de
+ * lib/variables.ts: vale o valor COLETADO e, na falta dele, a coluna antiga.
+ * Quem chama resolve ANTES — e quem chama é `peneirar`, num lugar só.
+ *
+ * A RESOLUÇÃO NÃO ENTROU AQUI DE PROPÓSITO, e o motivo é o cabeçalho deste
+ * arquivo: ele é texto e aritmética, sem um import. Lendo o registro, ele
+ * passaria a saber de `jsonb`, de catálogo e de variável para responder uma
+ * pergunta que não é dele — e o e-mail teria uma SEGUNDA leitura, aqui dentro,
+ * além da que o corte e o arquivo usam. A busca continua sendo "este texto casa
+ * com estes três campos?", e é só isso que ela precisa saber.
+ */
 export type ContatoBuscavel = {
   username: string | null;
   name: string | null;

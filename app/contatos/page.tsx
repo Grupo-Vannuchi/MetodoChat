@@ -25,7 +25,7 @@ import {
   LIMITE_DA_TABELA,
   BUSCA_MAX,
 } from "@/lib/busca-de-contatos";
-import { recortarTela, urlDaExportacao } from "@/lib/exportacao-de-contatos";
+import { emailDoContato, recortarTela, urlDaExportacao } from "@/lib/exportacao-de-contatos";
 import { FaixaDaExportacaoCompleta } from "./faixa-da-exportacao";
 import { avisoDaUrl } from "@/lib/avisos";
 // OS QUATRO TIPOS DE "MENSAGEM RECEBIDA", DA MESMA FONTE que app/page.tsx e
@@ -245,7 +245,22 @@ function Tabela({
               </td>
               <td className={`px-4 py-2.5 ${muted}`}>{c.categoria ?? "—"}</td>
               {comEmail && (
-                <td className="px-4 py-2.5 text-zinc-700 dark:text-zinc-300">{c.email}</td>
+                // A CÉLULA LÊ O REGISTRO, E NÃO `c.email` — é o Passo 1 da
+                // Parte 2 nesta linha. `emailDoContato`
+                // (lib/exportacao-de-contatos.ts) faz a pergunta pela regra de
+                // lib/variables.ts: vale o valor COLETADO e, na falta dele, a
+                // coluna antiga. Com `c.email`, a tabela mostraria o e-mail
+                // VELHO de quem trocou depois da Parte 1 — enquanto a DM já sai
+                // com o novo — e sairia em BRANCO para quem só tem o registro,
+                // apesar de a pessoa estar nesta tabela justamente porque o
+                // corte (`temEmail`) achou o e-mail dela.
+                //
+                // É A MESMA FUNÇÃO DO CORTE E DA BUSCA, de propósito: a linha
+                // que a tabela mostra, o número que a seção conta e o valor que
+                // o arquivo leva têm de ser o mesmo e-mail.
+                <td className="px-4 py-2.5 text-zinc-700 dark:text-zinc-300">
+                  {emailDoContato(c)}
+                </td>
               )}
               <td className={`px-4 py-2.5 ${muted}`}>{fmtDate(c.first_contact_at)}</td>
               <td className={`px-4 py-2.5 ${muted}`}>{fmtDate(c.last_reply_at)}</td>
