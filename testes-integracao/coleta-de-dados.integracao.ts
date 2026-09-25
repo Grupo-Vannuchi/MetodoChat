@@ -242,11 +242,14 @@ async function campoDoContato(igId: string, chave: string): Promise<string | nul
   return linhas[0]?.valor ?? null;
 }
 
-// A COLUNA `contacts.email`, lida à parte do `jsonb` de propósito: ela continua
-// sendo escrita nesta Parte 1, e os seis leitores de hoje leem DELA. É este
-// leitor que prende a escrita dupla de `gravarCampo` (lib/engine.ts) — sem ele,
-// tirar a linha da coluna não acusaria em lugar nenhum, e a Parte 2 herdaria
-// uma coluna divergente.
+// A COLUNA `contacts.email`, lida à parte do `jsonb` de propósito. O papel dela
+// AQUI virou o oposto do que era: enquanto `gravarCampo` (lib/engine.ts)
+// escrevia nos dois lugares, este leitor prendia a segunda escrita; desde o
+// Passo 2a ele prende a AUSÊNCIA dela — é por ele que "o motor voltou a escrever
+// a coluna" acusa, em vez de passar batido.
+//
+// A COLUNA CONTINUA EXISTINDO NO BANCO até o `drop column` do Passo 2b (aplicado
+// à mão, fora do build), e é por isso que ainda dá para consultá-la daqui.
 async function emailDaColuna(igId: string): Promise<string | null> {
   const linhas = (await banco
     .db()
@@ -393,7 +396,25 @@ function diasAtras(n: number): string {
 // Põe um campo já coletado no contato, como se uma automação anterior o tivesse
 // gravado. `on conflict` porque o contato pode já existir (a chave é composta,
 // migrations/005-contatos-chave-composta.sql).
+//
+// A CONTA É PARÂMETRO NA VERSÃO DE BAIXO, e não neste atalho: quase todo caso
+// deste arquivo fala da conta da suíte, e repetir `CONTA` em cada chamada
+// esconderia justamente os dois casos que precisam da VIZINHA — os do
+// vazamento entre contas, onde a conta é o assunto.
 async function semearCampo(igId: string, chave: string, valor: string, em: string) {
+  await semearCampoDaConta(CONTA, igId, chave, valor, em);
+}
+
+// O mesmo, com a conta escolhida pelo caso. O `em` tem padrão porque quem passa
+// a conta está medindo vazamento, e não recência — e uma data escrita à mão ali
+// seria ruído em cima do que o caso de fato afirma.
+async function semearCampoDaConta(
+  conta: string,
+  igId: string,
+  chave: string,
+  valor: string,
+  em: string = new Date().toISOString()
+) {
   await banco
     .db()
     .sql()
@@ -402,7 +423,7 @@ async function semearCampo(igId: string, chave: string, valor: string, em: strin
        values ($1, $2, jsonb_build_object($3::text, jsonb_build_object('valor', $4::text, 'em', $5::text)))
        on conflict (account_id, ig_id) do update
          set campos = contacts.campos || excluded.campos`,
-      [CONTA, igId, chave, valor, em]
+      [conta, igId, chave, valor, em]
     );
 }
 
@@ -425,19 +446,32 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     await mensagem(EU, "não tenho", "m-e2");
     await dreno.drainQueue();
     expect(textosNoFio(EU)[1]).toContain("e-mail");
-    expect(await emailDaColuna(EU)).toBeNull();
+    expect(await campoDoContato(EU, "email")).toBeNull();
 
     // Resposta boa: grava e SEGUE.
     await mensagem(EU, "meu email é ana@exemplo-do-teste.invalid", "m-e3");
     await dreno.drainQueue();
-    expect(await emailDaColuna(EU)).toBe("ana@exemplo-do-teste.invalid");
+    expect(await campoDoContato(EU, "email")).toBe("ana@exemplo-do-teste.invalid");
     expect(textosNoFio(EU)).toContain("depois do e-mail");
 
-    // E A ESCRITA É NOS DOIS LUGARES. Esta linha é a que prende a metade da
-    // escrita que a Parte 2 vai herdar: o `jsonb` é a fonte nova, a coluna é a
-    // fonte que os seis leitores de hoje usam. Tirar qualquer uma das duas de
-    // `gravarCampo` (lib/engine.ts) deixa uma destas duas asserções vermelha.
-    expect(await campoDoContato(EU, "email")).toBe("ana@exemplo-do-teste.invalid");
+    // A ESCRITA É NUM LUGAR SÓ, E É ESTA LINHA QUE PRENDE A METADE QUE O PASSO
+    // 2a TIROU. Até aqui `gravarCampo` (lib/engine.ts) escrevia o `jsonb` E a
+    // coluna `contacts.email` na mesma consulta; a coluna era a fonte dos
+    // leitores de ontem. Hoje ela não é fonte de ninguém, e continuar a
+    // escrevê-la seria alimentar um dado que nenhuma tela lê — a divergência
+    // silenciosa que o Passo 2b (o `drop column`, aplicado à mão) vai encerrar.
+    //
+    // A ORDEM DESTA TAREFA ESTÁ AQUI: a ESCRITA saiu ANTES da QUEDA de
+    // `lib/variables.ts`. Invertida, haveria uma janela em que o motor grava uma
+    // coluna que ninguém mais lê; nesta ordem, a coluna para de receber dado
+    // novo enquanto a queda ainda funciona, e nenhum contato fica sem e-mail em
+    // momento nenhum.
+    expect(
+      await emailDaColuna(EU),
+      "`gravarCampo` não pode mais escrever `contacts.email`: a coluna está " +
+        "congelada no valor que a migração `012` deixou, esperando o `drop column` " +
+        "do Passo 2b."
+    ).toBeNull();
   });
 
   test("pergunta, recusa o que não serve, e grava quando serve", async () => {
@@ -461,10 +495,15 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     await dreno.drainQueue();
     expect(await campoDoContato(EU, "telefone")).toBe("11999999999");
 
-    // A COLUNA `email` NÃO É TOCADA por um campo que não é e-mail. É a outra
-    // metade do `case when $3 = 'email'` de `gravarCampo`: sem ela, gravar o
-    // telefone escreveria o número dentro da coluna de e-mail.
-    expect(await emailDaColuna(EU)).toBeNull();
+    // AQUI HAVIA `expect(await emailDaColuna(EU)).toBeNull()`, e ela SAIU com o
+    // Passo 2a. Ela era a outra metade do `case when $3 = 'email'` de
+    // `gravarCampo` (lib/engine.ts): com aquela expressão viva, gravar o
+    // telefone PODIA escrever o número dentro da coluna de e-mail, e esta linha
+    // era quem acusaria. Sem a expressão não há o que a coluna receba — nenhuma
+    // consulta do produto escreve nela —, então a asserção ficaria verde
+    // aconteça o que acontecer. Guarda que nada pode fazer falhar é guarda que a
+    // próxima limpeza leva embora achando que é rede; quem prende a escrita
+    // única agora é o caso do e-mail, acima.
 
     // A IDA E A VOLTA DO `em`, e ela precisa das DUAS asserções abaixo.
     //
@@ -621,9 +660,16 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     // `pedir_dado { campo: "livre", chave: "email" }` com a resposta "moro em
     // Sorocaba desde 1990" gravava essa frase em `campos->'email'` E NA COLUNA
     // `contacts.email` — o `case when $3 = 'email'` de `gravarCampo`
-    // (lib/engine.ts) dispara sobre a CHAVE. O e-mail de um contato real virava
-    // uma frase, e os seis leitores da coluna (conversas, exportação, a migração
-    // que vem) herdavam o lixo sem nada acusar.
+    // (lib/engine.ts) disparava sobre a CHAVE. O e-mail de um contato real
+    // virava uma frase, e os leitores da coluna herdavam o lixo sem nada acusar.
+    //
+    // A METADE DA COLUNA DEIXOU DE EXISTIR NO PASSO 2a, e o que sobrou é a metade
+    // QUE IMPORTA daqui para a frente: `campos->'email'` é a única fonte do
+    // e-mail, e `gravarCampo` MESCLA (`campos || jsonb_build_object(...)`) —
+    // então uma chave livre chamada "email" sobrescreveria o e-mail coletado de
+    // uma pessoa de verdade. POR ISSO A SEMEADURA MUDOU DE LUGAR: ela era um
+    // `insert` na coluna (que hoje ninguém lê, e sobre a qual este caso não
+    // mediria mais nada) e agora é o registro.
     //
     // HOJE ISSO EXIGE `steps` GRAVADO POR FORA — que é exatamente o que este
     // caso faz, com `insert` cru. Quem arma a bomba é o editor da Tarefa 5, que
@@ -643,16 +689,19 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
       "email"
     );
     const EU = "9300000000000108";
-    await semearEmailNaColuna(EU, "ana@exemplo-do-teste.invalid");
+    await semearCampo(EU, "email", "ana@exemplo-do-teste.invalid", diasAtras(2));
 
     await mensagem(EU, "quero-o-campo-perigoso", "m-p1");
     await dreno.drainQueue();
     await mensagem(EU, "moro em Sorocaba desde 1990", "m-p2");
     await dreno.drainQueue();
 
-    // O e-mail de verdade continua de pé, nas duas fontes.
-    expect(await emailDaColuna(EU)).toBe("ana@exemplo-do-teste.invalid");
-    expect(await campoDoContato(EU, "email")).toBeNull();
+    // O e-mail de verdade continua de pé, na única fonte que existe.
+    expect(
+      await campoDoContato(EU, "email"),
+      "a frase não pode ter sobrescrito o e-mail coletado: `gravarCampo` mescla " +
+        "sobre a MESMA chave, e a chave deste passo é `email`."
+    ).toBe("ana@exemplo-do-teste.invalid");
     // E o bloco recusado não sequestra ninguém: o que vem depois dele sai.
     expect(textosNoFio(EU)).toContain("depois do campo perigoso");
   });
@@ -890,18 +939,23 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     expect(textosNoFio(EU)).toContain("Boa! Anotei que você é de Osasco.");
   });
 
-  test("o dreno LÊ a coluna `contacts.email` — o {{email}} de quem coletou antes desta fase", async () => {
-    // A CONSULTA DO DRENO (`variableContext`, lib/queue-drain.ts) traz
-    // `username, name, email, campos` numa vez só, e o `email` dali é a SEGUNDA
-    // FONTE do `{{email}}`: todo contato coletado antes desta fase tem a COLUNA
-    // cheia e o registro vazio. A revisão mediu que tirar a coluna da consulta
-    // deixava a integração 14/14 verde — a função pura tem caso para a queda,
-    // mas nada media que o DRENO entrega a coluna até ela.
+  test("o dreno NÃO lê mais a coluna `contacts.email` — o {{email}} sai só do registro", async () => {
+    // O CASO ESTÁ INVERTIDO PELO PASSO 2a, e antes ele se chamava "o dreno LÊ a
+    // coluna". A consulta do dreno (`variableContext`, lib/queue-drain.ts)
+    // trazia `username, name, email, campos` numa vez só, e o `email` dali era a
+    // SEGUNDA FONTE do `{{email}}` — a queda de `lib/variables.ts`, para quem
+    // tinha a COLUNA cheia e o registro vazio.
     //
-    // E É REQUISITO ESCRITO DO BRIEF ("`contacts.email` continua sendo LIDA"):
-    // sem este caso, a Parte 2 herdaria a remoção já feita por acidente, e o
-    // `{{email}}` que hoje funciona em produção sairia em branco para essas
-    // pessoas sem nada acusar.
+    // ESSA GENTE NÃO EXISTE MAIS: a migração `012` moveu os e-mails da coluna
+    // para o registro, e a medição do dono em 25/09/2026 conferiu em produção —
+    // 9 contatos com e-mail, 9 com `campos->'email'`, 0 divergentes. O que
+    // sobrou na coluna é cópia do que já está no registro, e o `drop column` do
+    // Passo 2b vai levá-la.
+    //
+    // ESTE CASO É A ÚNICA REDE DA REMOÇÃO NO CAMINHO DO ENVIO. A função pura tem
+    // caso para a queda ter saído; o que só daqui se vê é que o DRENO parou de
+    // levar a coluna até ela — a consulta é uma string, e nenhuma suíte offline
+    // a lê.
     const EU = "9300000000000142";
     await semearEmailNaColuna(EU, "antigo@exemplo-do-teste.invalid");
     await semear(
@@ -914,9 +968,14 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
     await mensagem(EU, "a-coluna-de-antes", "m-eco0");
     await dreno.drainQueue();
 
-    // O registro continua vazio: o valor só pode ter vindo da COLUNA.
+    // O registro está vazio e a coluna está cheia: o token só teria o que
+    // mostrar se a queda ainda existisse.
     expect(await campoDoContato(EU, "email")).toBeNull();
-    expect(textosNoFio(EU)).toContain("Seu e-mail: antigo@exemplo-do-teste.invalid.");
+    expect(
+      textosNoFio(EU),
+      "com a queda viva, esta mensagem sairia com `antigo@exemplo-do-teste.invalid` " +
+        "no lugar do token — a coluna alimentando uma DM de verdade."
+    ).toContain("Seu e-mail: .");
   });
 
   test("a consulta do dreno é POR CONTA: cada conta lê o contato DELA", async () => {
@@ -954,15 +1013,12 @@ describe("a automação pergunta, recusa, grava — e nunca prende", () => {
       access_token: TOKEN,
       token_expires_at: null,
     });
-    await banco
-      .db()
-      .sql()
-      .query(
-        `insert into contacts (account_id, ig_id, email) values ($1, $2, $3)
-         on conflict (account_id, ig_id) do update set email = excluded.email`,
-        [VIZINHA, EU, "do-vizinho@exemplo-do-teste.invalid"]
-      );
-    await semearEmailNaColuna(EU, "daqui@exemplo-do-teste.invalid");
+    // A SEMEADURA É NO REGISTRO, e não na coluna: desde o Passo 2a a coluna não
+    // é lida por ninguém, e semeá-la aqui faria os dois `{{email}}` saírem em
+    // branco — o caso ficaria vermelho por semear no lugar errado, e não pelo
+    // vazamento entre contas que ele existe para medir.
+    await semearCampoDaConta(VIZINHA, EU, "email", "do-vizinho@exemplo-do-teste.invalid");
+    await semearCampoDaConta(CONTA, EU, "email", "daqui@exemplo-do-teste.invalid");
 
     await semear(
       "coleta · e-mail desta conta",

@@ -619,10 +619,16 @@ async function publicarDaFila(item: QueueItem, account: Account): Promise<Desfec
 // dono inventou), e ela é lida a cada mensagem que sai. Uma consulta à parte
 // dobraria a ida ao banco no caminho do envio para buscar a MESMA linha.
 //
-// A COLUNA `email` CONTINUA NA LISTA. Ela é a segunda fonte do `{{email}}`
-// (lib/variables.ts diz por quê): todo contato coletado antes desta fase tem a
-// coluna cheia e o `campos` vazio, e tirá-la daqui apagaria o e-mail das
-// mensagens dessas pessoas. A remoção é da Parte 2.
+// A COLUNA `email` SAIU DA LISTA NO PASSO 2a DA PARTE 2. Ela era a segunda fonte
+// do `{{email}}` — a queda de `lib/variables.ts`, para quem tinha a coluna cheia
+// e o `campos` vazio. A migração `012` moveu esses e-mails para o registro e a
+// queda saiu; trazer a coluna aqui seria carregar, em TODA mensagem que sai, uma
+// coluna que ninguém mais lê. O `drop column` é o Passo 2b, aplicado à mão.
+//
+// O QUE PRENDE ISTO é o caso "o dreno NÃO lê mais a coluna `contacts.email`"
+// (testes-integracao/coleta-de-dados.integracao.ts): ele semeia a coluna, deixa
+// o registro vazio e cobra que o token saia em BRANCO. Nenhuma suíte offline
+// alcança esta consulta — ela é uma string.
 //
 // QUEM ENTENDE O `jsonb` É `lerCampos` (lib/campos.ts), e não este arquivo: o
 // que o driver devolve é `unknown`, e é lá que mora a regra de o que conta como
@@ -634,12 +640,11 @@ async function variableContext(
   if (!contactIgId) return {};
   try {
     const rows = (await sql().query(
-      `select username, name, email, campos from contacts where account_id = $1 and ig_id = $2`,
+      `select username, name, campos from contacts where account_id = $1 and ig_id = $2`,
       [accountId, contactIgId]
     )) as {
       username: string | null;
       name: string | null;
-      email: string | null;
       campos: unknown;
     }[];
     const linha = rows[0];
@@ -647,7 +652,6 @@ async function variableContext(
     return {
       username: linha.username,
       name: linha.name,
-      email: linha.email,
       campos: lerCampos(linha.campos),
     };
   } catch {

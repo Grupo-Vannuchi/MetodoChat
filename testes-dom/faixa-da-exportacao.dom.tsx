@@ -43,25 +43,24 @@ const TUDO: FiltroDeCategoria = { tipo: "tudo" };
 // DUAS, e as duas juntas deixam UMA. Num conjunto em que as peneiras dessem o
 // mesmo resultado, nada distinguiria "leu as duas" de "leu só uma".
 // `campos` É O REGISTRO CRU DE `contacts.campos`, e ele entrou aqui com o Passo
-// 1 da Parte 2: desde ele, o corte e a busca perguntam o e-mail ao registro
-// (caindo na coluna quando ele não tem), e não mais a `c.email`. Estas três
-// pessoas continuam sendo sobre as PENEIRAS, então o registro delas é vazio e o
-// e-mail vem da coluna — o estado de quem foi coletado antes da migração `012`.
-// Os estados de divergência têm casos próprios, puros, em
+// 1 da Parte 2: desde ele, o corte e a busca perguntam o e-mail ao registro, e
+// não mais a `c.email`. O PASSO 2a tirou a coluna do tipo, então o e-mail de
+// quem TEM e-mail passou a ser semeado no registro — que é, desde a migração
+// `012`, o único lugar onde ele vive. Estas três pessoas continuam sendo sobre as
+// PENEIRAS; os estados de divergência têm casos próprios, puros, em
 // tests/exportacao-de-contatos.test.ts.
+const COLETADO_EM = "2026-09-20T10:00:00Z";
 const TODOS: ContatoDaTela[] = [
   {
     username: "maria.aluna",
     name: "Maria Silva",
-    email: "maria@email.com",
-    campos: {},
+    campos: { email: { valor: "maria@email.com", em: COLETADO_EM, automacao: "a-1" } },
     categoria: "aluno",
   },
-  { username: "joao.aluno", name: "João Souza", email: null, campos: {}, categoria: "aluno" },
+  { username: "joao.aluno", name: "João Souza", campos: {}, categoria: "aluno" },
   {
     username: "maria.curiosa",
     name: "Maria Lima",
-    email: null,
     campos: {},
     categoria: "interessado",
   },

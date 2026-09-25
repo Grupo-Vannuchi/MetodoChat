@@ -1231,6 +1231,20 @@ const ESPERADAS_DADOS = [
     // isso um caso enxerga. Quando dá para prender, prende-se; a confissão por
     // escrito é para quando NÃO dá, e é por isso que o vizinho confessa e esta
     // não precisa mais.
+    // ESTA CONSULTA É O ÚLTIMO LEITOR DE `contacts.email` NO PRODUTO, e desde o
+    // Passo 2a da Parte 2 ela é o único. O código parou de escrever a coluna
+    // (`gravarCampo`, lib/engine.ts), a queda para ela saiu de
+    // `lib/variables.ts` e ela saiu dos quatro `select` das telas e das rotas —
+    // só este `where` continua citando a coluna, e continua de propósito: quem
+    // responde "a `012` fez efeito?" precisa olhar a fonte de onde o dado veio.
+    //
+    // ENTÃO ELA SAI JUNTO COM O `drop column` DO PASSO 2b, e não depois. A
+    // ordem não é gosto: com a coluna derrubada e esta entrada de pé, o
+    // PRÓXIMO BUILD DE PRODUÇÃO quebra aqui — `column "email" does not exist` —
+    // depois de a migração já ter rodado. Quem for aplicar o Passo 2b apaga
+    // esta entrada no MESMO commit, e com ela o caso que a prende ("CONTATO com
+    // e-mail na coluna e sem `campos`",
+    // testes-integracao/registro-de-migracoes.integracao.ts).
     consulta: `
       select count(*)::int as sobraram
         from contacts

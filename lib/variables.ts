@@ -36,10 +36,22 @@ import { CAMPOS, formaDaChave, type Registro } from "./campos";
 // lib/campos.ts), e não o `jsonb` cru: quem o lê é `variableContext`
 // (lib/queue-drain.ts), num lugar só, e este arquivo não precisa saber que
 // existe banco — é o que o mantém na suíte pura junto do catálogo.
+//
+// O `email` SAIU DAQUI NO PASSO 2a DA PARTE 2, e a saída não é arrumação: ele
+// era a coluna `contacts.email`, carregada até aqui só para a queda do e-mail
+// (logo abaixo) ter o que ler. Sem a queda, um campo que ninguém lê é um campo
+// que a próxima consulta volta a trazer "porque o tipo pede".
+//
+// E TIRÁ-LO DO TIPO É O QUE FEZ O `tsc` APONTAR AS CONSULTAS. Os quatro lugares
+// que montavam este contexto (`variableContext` em lib/queue-drain.ts,
+// `contextoDoContato` em lib/exportacao-de-contatos.ts, `fichaDoColetado` em
+// lib/ficha-do-coletado.ts e a página da conversa) selecionavam a coluna para
+// preencher este campo; com o campo fora, cada um deles parou de compilar até a
+// coluna sair do `select`. Deixá-lo opcional teria deixado os quatro `select`
+// passarem calados, que é o defeito desta funcionalidade inteira.
 export type VariableContext = {
   username?: string | null;
   name?: string | null;
-  email?: string | null;
   campos?: Registro;
 };
 
@@ -113,26 +125,33 @@ const VARIAVEIS_DE_CAMPO: VariableDef[] = CAMPOS.map((c) => ({
   // valer para qualquer campo que entre no catálogo depois.
   description: `Valor coletado pela automação no campo “${c.rotulo}”, quando houver.`,
   sample: c.exemplo,
-  resolve: (ctx) =>
-    valorColetado(ctx, c.chave) ||
-    // A SEGUNDA FONTE É SÓ DO E-MAIL, e ela é transitória: `contacts.email`
-    // continua sendo escrita (`gravarCampo`, lib/engine.ts) até a Parte 2 /
-    // Passo 2, e todo contato coletado ANTES desta fase tem a COLUNA cheia e o
-    // registro vazio — a migração `012` é aplicada À MÃO, fora do build. Sem
-    // esta queda, o `{{email}}` que hoje funciona em produção passaria a sair em
-    // branco para essas pessoas — um recurso novo quebrando o que já estava no ar.
-    //
-    // ESTA LINHA É, DESDE O PASSO 1 (25/09/2026), O ÚNICO LEITOR DA COLUNA em
-    // todo o produto. As telas liam `contacts.email` direto — a célula da
-    // tabela, o corte "Com e-mail", a busca e o `where` da exportação
-    // congelada —, e o Passo 1 as trouxe todas para cá, por `emailDoContato`
-    // (lib/exportacao-de-contatos.ts). É o que torna o Passo 2 uma remoção de
-    // DUAS linhas (esta e a escrita) em vez de uma caçada por leitores.
-    //
-    // O REGISTRO TEM PRECEDÊNCIA porque é ele que guarda o QUANDO; a coluna não
-    // tem data nem origem de coleta. Quem escreve os dois lugares é UMA função
-    // (`gravarCampo`, lib/engine.ts), então eles não divergem por si.
-    (c.chave === "email" ? (ctx.email ?? "").trim() : ""),
+  // O REGISTRO É A ÚNICA FONTE, E O E-MAIL DEIXOU DE SER EXCEÇÃO. Havia aqui
+  // uma segunda fonte, escrita para uma chave só:
+  //
+  //     valorColetado(ctx, c.chave) ||
+  //       (c.chave === "email" ? (ctx.email ?? "").trim() : "")
+  //
+  // Ela existia porque todo contato coletado antes da migração `012` tinha a
+  // COLUNA `contacts.email` cheia e o registro vazio, e a `012` é aplicada À
+  // MÃO, fora do build. Enquanto ela não tivesse rodado, tirar a queda apagaria
+  // da tela e da DM o e-mail de gente que já estava no ar.
+  //
+  // A `012` RODOU, E A MEDIÇÃO É O QUE AUTORIZA ESTA LINHA — feita pelo dono em
+  // produção, 25/09/2026: 9 contatos com e-mail, 9 com `campos->'email'`, 0 com
+  // a coluna vazia, 0 com coluna e registro DIFERENTES. Não existe mais ninguém
+  // cujo e-mail viva só na coluna, que era o único caso que a queda atendia.
+  //
+  // E O RISCO DE TIRÁ-LA ESTÁ ESCRITO, porque ele é real e é silencioso: um
+  // contato que tivesse o e-mail só na coluna SOME do painel sem avisar — nada
+  // acusa, porque o desfecho de "não tem e-mail" é legítimo. O que fecha esse
+  // risco não é esta linha, é a outra metade do Passo 2a: `gravarCampo`
+  // (lib/engine.ts) parou de escrever a coluna ANTES daqui, e a varredura dos
+  // `insert`/`update` em `contacts` confirmou que nenhum outro caminho do
+  // produto escreve nela — `upsertContact` (lib/engine.ts), o cron diário e o
+  // botão de buscar perfis tocam `username`, `name` e `profile_pic`, e mais
+  // nada. Sem escritor, a coluna não tem como voltar a ter um valor que o
+  // registro não tenha.
+  resolve: (ctx) => valorColetado(ctx, c.chave),
 }));
 
 export const VARIABLES: VariableDef[] = [
@@ -180,6 +199,9 @@ const BY_KEY = new Map(VARIABLES.map((v) => [v.key, v]));
  * POR QUE ELA PRECISOU DE NOME, e a razão é do Passo 1 da Parte 2: as telas
  * pararam de ler `contacts.email` e passaram a perguntar "qual é o e-mail desta
  * pessoa?" — uma pergunta que NÃO tem token, nem substituto, nem texto em volta.
+ * (O Passo 2a mudou a RESPOSTA, e não a pergunta: a queda para a coluna saiu do
+ * `resolve` do e-mail, e hoje quem responde é só `contacts.campos`. Esta função
+ * não sabia da coluna nem antes, e continua não sabendo — é o ponto dela.)
  * As duas formas de fazê-la sem isto eram piores:
  *
  *   `VARIABLES.find((v) => v.key === "email")?.resolve(ctx) ?? ""` abre um ramo

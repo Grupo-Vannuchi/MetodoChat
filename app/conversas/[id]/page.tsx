@@ -139,13 +139,17 @@ export default async function ConversaPage({
   // As duas consultas em paralelo. O `as` vai no resultado já resolvido, que é
   // o padrão do resto do projeto — converter a Promise confunde o TypeScript.
   //
-  // `campos` E `email` ENTRARAM JUNTOS, e o par não é redundante: `campos` é o
-  // registro do que as automações coletaram (migrations/011) e `email` é a
-  // coluna antiga, que continua sendo escrita e lida em paralelo até a Parte 2.
-  // Quem decide qual dos dois vale é `lib/variables.ts`, pela mesma `resolve`
-  // que a DM enviada e a planilha usam — tirar `email` daqui faria a ficha sair
-  // sem e-mail nenhum para todo contato anterior à migração `012`, que é
-  // aplicada à mão, fora do build.
+  // `campos` E `email` ENTRARAM JUNTOS, E O `email` SAIU NO PASSO 2a DA PARTE 2.
+  // `campos` é o registro do que as automações coletaram (migrations/011); o
+  // `email` era a coluna antiga, trazida aqui só para a queda de
+  // `lib/variables.ts` ter o que ler. A migração `012` moveu aqueles e-mails
+  // para o registro, a queda saiu, e `ContatoDaFicha` (lib/ficha-do-coletado.ts)
+  // deixou de ter onde pôr a coluna — é o tipo que trouxe esta linha para cá,
+  // e não uma varredura por `select`.
+  //
+  // `campos` CONTINUA OBRIGATÓRIA, e agora é a ÚNICA fonte do que a ficha
+  // mostra: sem ela a ficha sai vazia para todo mundo, e o `as` abaixo não
+  // acusaria nada.
   //
   // `account_id` NO `where` NÃO É ENFEITE: a chave de `contacts` é COMPOSTA
   // (migrations/005-contatos-chave-composta.sql), então a mesma pessoa falando
@@ -156,7 +160,7 @@ export default async function ConversaPage({
   // (testes-integracao/ficha-da-conversa.integracao.ts).
   const [linhasContato, mensagens] = await Promise.all([
     sql().query(
-      `select username, name, profile_pic, last_reply_at, categoria, email, campos
+      `select username, name, profile_pic, last_reply_at, categoria, campos
        from contacts where account_id = $1 and ig_id = $2`,
       [account.ig_user_id, id]
     ),
@@ -180,7 +184,6 @@ export default async function ConversaPage({
       profile_pic: string | null;
       last_reply_at: Date | null;
       categoria: string | null;
-      email: string | null;
       campos: unknown;
     }[]
   )[0];
@@ -192,12 +195,10 @@ export default async function ConversaPage({
   // devolveu, com o `jsonb` cru inclusive.
   //
   // O CONTATO PODE NÃO EXISTIR (um id de conversa que não é desta conta, ou de
-  // ninguém): `?? null` nos dois campos faz a ficha cair no vazio desenhado, que
-  // é o mesmo desfecho de quem existe e nunca teve nada coletado.
-  const itensDaFicha = fichaDoColetado({
-    email: contato?.email ?? null,
-    campos: contato?.campos ?? null,
-  });
+  // ninguém): o `?? null` faz a ficha cair no vazio desenhado, que é o mesmo
+  // desfecho de quem existe e nunca teve nada coletado. Eram DOIS campos até o
+  // Passo 2a — o outro era a coluna `email`, e ela saiu com a queda.
+  const itensDaFicha = fichaDoColetado({ campos: contato?.campos ?? null });
   const janela = windowState(contato?.last_reply_at ?? null);
   // Nome como título e @ embaixo, como o Instagram faz. O @ só aparece quando há
   // nome — senão ele já É o título e repetiria.

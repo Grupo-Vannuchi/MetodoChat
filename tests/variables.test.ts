@@ -62,15 +62,45 @@ describe("as variáveis dos campos coletados", () => {
     }
   });
 
-  it("{{email}} ainda cai na coluna `contacts.email` quando o registro não tem", () => {
-    // `contacts.email` CONTINUA sendo escrita e lida nesta Parte 1 — a remoção
-    // é da Parte 2. Sem esta queda, todo contato coletado ANTES desta fase
-    // (que tem a coluna cheia e o registro vazio) perderia o `{{email}}` que
-    // hoje funciona em produção.
-    expect(renderVariables("oi {{email}}", { email: "ana@email.com" })).toBe("oi ana@email.com");
-    // E o registro tem precedência, porque é ele que guarda o QUANDO.
+  it("{{email}} sai SÓ do registro — a queda para `contacts.email` não existe mais", () => {
+    // O PASSO 2a DA PARTE 2 NESTA LINHA. Até aqui, `resolve` do campo `email`
+    // tinha uma segunda fonte: `ctx.email`, que era a coluna `contacts.email`
+    // lida pela consulta do dreno. Ela existia porque todo contato coletado
+    // antes da migração `012` tinha a COLUNA cheia e o registro vazio.
+    //
+    // A `012` JÁ RODOU EM PRODUÇÃO, e a medição do dono em 25/09/2026 é o que
+    // torna a remoção segura: 9 contatos com e-mail, 9 com `campos->'email'`,
+    // 0 com a coluna e o registro DIFERENTES. Não há mais ninguém cujo e-mail
+    // exista só na coluna — e `gravarCampo` (lib/engine.ts) parou de criar
+    // gente assim no mesmo passo, ANTES desta metade.
+    //
+    // O CONTEXTO NÃO TEM MAIS ONDE CARREGAR A COLUNA: o campo `email` saiu de
+    // `VariableContext`, e é isso que faz o `tsc` apontar cada consulta que
+    // ainda a trouxesse.
+    //
+    // MAS UM CONTEXTO SEM `email` NÃO SEPARA NADA, e isto foi MEDIDO antes de
+    // virar caso: `renderVariables("oi {{email}}", { username: "ana" })`
+    // devolve `"oi "` com a queda VIVA e com a queda morta — o registro está
+    // vazio e a coluna também, então os dois caminhos chegam em branco. Um caso
+    // escrito assim ficaria verde nos dois mundos, que é o verde que não vale
+    // nada.
+    //
+    // ENTÃO O CASO PASSA UM `email` DE CONTRABANDO, pela porta do `as`: é a
+    // única forma de perguntar "esta função LÊ algum campo `email` do contexto?"
+    // depois que o tipo deixou de ter um. Com a queda viva a resposta sai
+    // `"oi antigo@email.com"`; sem ela, o campo é ignorado aconteça o que
+    // acontecer. O `as` não está inventando um estado impossível — é exatamente
+    // a linha que o dreno entregava até ontem.
+    const deContrabando = { email: "antigo@email.com" } as unknown as VariableContext;
+    expect(
+      renderVariables("oi {{email}}", deContrabando),
+      "nenhum campo `email` do contexto pode voltar a ser lido: a única fonte do " +
+        "e-mail é `contacts.campos`."
+    ).toBe("oi ");
+    // E o substituto do dono vale, que é o recurso dele para o buraco.
+    expect(renderVariables("oi {{email|sem e-mail}}", deContrabando)).toBe("oi sem e-mail");
+    // E o registro responde, que é a fonte que ficou.
     const ctx: VariableContext = {
-      email: "velho@email.com",
       campos: new Map([["email", { valor: "novo@email.com", em: COLETADO_ONTEM }]]),
     };
     expect(renderVariables("oi {{email}}", ctx)).toBe("oi novo@email.com");
@@ -177,25 +207,19 @@ describe("o buraco: campo não coletado, e campo vencido", () => {
   });
 });
 
-describe("as três redes que a revisão achou sem dono", () => {
-  it("SÓ o {{email}} cai na coluna `contacts.email` — nenhuma outra variável", () => {
-    // A REDE DO LADO DE QUEM *PODE* CAIR. O caso do `{{email}}` (acima) mede o
-    // lado de quem cai; este mede quem NÃO pode. Sem ele, a restrição
-    // `c.chave === "email"` (lib/variables.ts) some sem nada acusar, e TODO
-    // campo do catálogo passa a cair na coluna do e-mail: um contato com a
-    // coluna cheia e sem telefone coletado faria `Anotado: {{telefone}}.` sair
-    // como `Anotado: ana@email.com.` — o e-mail dele no lugar do telefone, para
-    // um lead de verdade.
-    const ctx: VariableContext = { email: "ana@email.com" };
-    expect(renderVariables("Anotado: {{telefone}}.", ctx)).toBe("Anotado: .");
-    // E vale para os outros campos do catálogo, não só para o telefone: a queda
-    // é escrita por chave, e é o catálogo inteiro menos o e-mail que ela exclui.
-    for (const c of CAMPOS) {
-      if (c.chave === "email") continue;
-      expect(renderVariables(`x {{${c.chave}}} y`, ctx), c.chave).toBe("x  y");
-    }
-  });
-
+// ERAM TRÊS REDES, E UMA SAIU COM O PASSO 2a — não por limpeza, por perda de
+// assunto. Ela se chamava "SÓ o {{email}} cai na coluna `contacts.email` —
+// nenhuma outra variável", e prendia a restrição `c.chave === "email"` do
+// `resolve` gerado (lib/variables.ts): sem ela, TODO campo do catálogo passaria
+// a cair na coluna do e-mail, e `Anotado: {{telefone}}.` sairia com o e-mail da
+// pessoa no lugar do telefone.
+//
+// A QUEDA INTEIRA DEIXOU DE EXISTIR, então não há mais restrição a prender: sem
+// segunda fonte, nenhum campo pode cair em lugar nenhum, e o caso ficaria verde
+// com ou sem código. Ele foi REMOVIDO em vez de reescrito porque reescrevê-lo
+// seria inventar uma rede para uma regra que não existe — e é a classe de guarda
+// que esta base já achou mais de dez vezes.
+describe("as redes que a revisão achou sem dono", () => {
   it("a lista fixa ganha do registro mesmo com a chave `first_name` GRAVADA nele", () => {
     // O EMPATE DE VERDADE, e ele não é o do caso do nome informado: lá o
     // registro tem `nome_informado` e `{{first_name}}` nunca encontra chave

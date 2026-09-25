@@ -302,11 +302,18 @@ export type Contact = {
   username: string | null;
   name: string | null;
   profile_pic: string | null;
-  // A COLUNA ANTIGA DO E-MAIL, e ela sai na Parte 2 / Passo 2. Desde o Passo 1
-  // nenhuma tela a lê direto: quem responde "qual é o e-mail desta pessoa" é
+  // A COLUNA ANTIGA DO E-MAIL SAIU DESTE TIPO NO PASSO 2a DA PARTE 2, e ela
+  // continua EXISTINDO no banco — quem a derruba é o `drop column` do Passo 2b,
+  // aplicado à mão. Este tipo descreve o que o código LÊ da linha, e nada mais
+  // lê aquela coluna: quem responde "qual é o e-mail desta pessoa" é
   // `emailDoContato` (lib/exportacao-de-contatos.ts), por dentro da regra de
-  // lib/variables.ts, que lê `campos` e cai nesta coluna só na falta dele.
-  email: string | null;
+  // lib/variables.ts, e a resposta sai de `campos`.
+  //
+  // DEIXÁ-LA DECLARADA SERIA CONVITE, e não documentação: `/contatos` consulta
+  // com `select c.*`, então a coluna continua CHEGANDO em runtime, e um campo
+  // declarado aqui é um `c.email` que compila — o valor congelado de antes da
+  // `012` voltando a uma tela, calado. Quem quiser saber que a coluna ainda está
+  // lá lê `migrations/000-esquema-base.sql`, que é onde ela é criada.
   // O REGISTRO DO QUE A AUTOMAÇÃO COLETOU (`jsonb`, migração 011): nome,
   // telefone, e-mail, nascimento e os campos que o marketing inventou.
   //

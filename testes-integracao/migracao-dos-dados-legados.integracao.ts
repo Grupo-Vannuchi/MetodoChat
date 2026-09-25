@@ -430,10 +430,18 @@ describe("os e-mails que já estão na coluna", () => {
     ).toBe(true);
   });
 
-  test("a coluna `contacts.email` CONTINUA intacta — a remoção é da Parte 2", async () => {
-    // A janela está aberta de propósito: seis leitores ainda leem da coluna, e
-    // `gravarCampo` escreve nos dois lugares. Uma migração que "mudasse o dado
-    // de lugar" apagando a coluna quebraria os seis, calada.
+  test("a coluna `contacts.email` CONTINUA intacta — a remoção é do Passo 2b", async () => {
+    // A `012` COPIA, E NÃO MOVE, e isso não mudou com o Passo 2a. Quando ela foi
+    // escrita, a janela estava aberta de propósito — havia leitores da coluna, e
+    // `gravarCampo` escrevia nos dois lugares —, e uma migração que "mudasse o
+    // dado de lugar" apagando a coluna quebraria todos eles, calada.
+    //
+    // HOJE NINGUÉM LÊ A COLUNA, e a razão de a migração não a apagar é outra, e
+    // continua valendo: quem derruba a coluna é o `drop column` do Passo 2b,
+    // aplicado À MÃO pelo dono, depois de este código estar no ar. Enquanto o
+    // deploy não é promovido, o código VELHO ainda serve e ainda LÊ a coluna —
+    // uma migração que a apagasse quebraria o que está no ar, e é exatamente o
+    // que separar os dois passos existe para impedir.
     await semearContatoLegado("coluna_fica", "eva@email.com", new Date("2026-04-04T04:00:00.000Z"));
     await rodarMigracao();
     expect((await lerContato("coluna_fica")).email).toBe("eva@email.com");

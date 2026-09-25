@@ -249,12 +249,16 @@ function Tabela({
                 // A CÉLULA LÊ O REGISTRO, E NÃO `c.email` — é o Passo 1 da
                 // Parte 2 nesta linha. `emailDoContato`
                 // (lib/exportacao-de-contatos.ts) faz a pergunta pela regra de
-                // lib/variables.ts: vale o valor COLETADO e, na falta dele, a
-                // coluna antiga. Com `c.email`, a tabela mostraria o e-mail
-                // VELHO de quem trocou depois da Parte 1 — enquanto a DM já sai
-                // com o novo — e sairia em BRANCO para quem só tem o registro,
-                // apesar de a pessoa estar nesta tabela justamente porque o
-                // corte (`temEmail`) achou o e-mail dela.
+                // lib/variables.ts, e desde o Passo 2a aquela regra responde só
+                // pelo valor COLETADO em `contacts.campos`: a queda para a
+                // coluna antiga saiu de lá, junto com a escrita dela. Enquanto
+                // a coluna estava no caminho, `c.email` faria a tabela mostrar o
+                // e-mail VELHO de quem trocou depois da Parte 1 — enquanto a DM
+                // já saía com o novo — e sairia em BRANCO para quem só tinha o
+                // registro, apesar de a pessoa estar nesta tabela justamente
+                // porque o corte (`temEmail`) achou o e-mail dela. `Contact`
+                // (lib/db.ts) já nem declara aquela coluna: `c.email` não
+                // compila mais.
                 //
                 // É A MESMA FUNÇÃO DO CORTE E DA BUSCA, de propósito: a linha
                 // que a tabela mostra, o número que a seção conta e o valor que

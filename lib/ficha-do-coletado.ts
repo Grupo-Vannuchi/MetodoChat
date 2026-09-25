@@ -18,11 +18,12 @@
 // O QUE ESTE ARQUIVO NÃO DECIDE, para o dono da regra continuar sendo um só:
 //
 //   O VALOR de um campo do catálogo sai de `VARIABLES` (lib/variables.ts) — a
-//     mesma porta que a mensagem enviada e a planilha usam. É ela que decide,
-//     para o e-mail, que vale o valor COLETADO e, na falta dele, a coluna
-//     `contacts.email` (a queda transitória até a Parte 2). Uma segunda leitura
-//     escrita aqui divergiria da primeira na primeira mudança, e a ficha passaria
-//     a dizer sobre o e-mail algo diferente do que a DM entrega.
+//     mesma porta que a mensagem enviada e a planilha usam. Desde o Passo 2a da
+//     Parte 2 ela decide uma coisa só: vale o valor COLETADO, em
+//     `contacts.campos`. A queda para a coluna `contacts.email`, que o e-mail
+//     tinha e mais nenhum campo, saiu de lá. Uma segunda leitura escrita aqui
+//     divergiria da primeira na primeira mudança, e a ficha passaria a dizer
+//     sobre o e-mail algo diferente do que a DM entrega.
 //   QUAIS SÃO AS CHAVES LIVRES sai de `chavesLivres`
 //     (lib/exportacao-de-contatos.ts): "o que está no registro e não está no
 //     catálogo, em ordem alfabética". A ordem alfabética serve aqui pelo mesmo
@@ -43,10 +44,10 @@ import { VARIABLES, type VariableContext } from "./variables";
  *
  * `em` É O INSTANTE REAL DA COLETA, OU `null` — e o `null` é o assunto inteiro
  * deste módulo. Ele quer dizer "este dado está aqui e não se sabe quando
- * chegou", e não "faltou consultar": é o desfecho honesto para o e-mail que veio
- * da coluna antiga, com ou sem a migração `012` no meio. Quem desenha a tela tem
- * de dizer isso com todas as letras, e não escolher uma data qualquer para pôr
- * no lugar.
+ * chegou", e não "faltou consultar": é o desfecho honesto para o e-mail que a
+ * migração `012` moveu da coluna antiga, que nunca teve data de coleta nenhuma.
+ * Quem desenha a tela tem de dizer isso com todas as letras, e não escolher uma
+ * data qualquer para pôr no lugar.
  *
  * `rotulo` é o nome cheio do catálogo para campo do catálogo, e a CHAVE
  * NORMALIZADA para campo livre — com a perda que isso carrega, escrita em
@@ -67,13 +68,14 @@ export type ItemDaFicha = {
  * banco devolveu. Mesma escolha, mesmo motivo, de `ContatoExportavel`
  * (lib/exportacao-de-contatos.ts).
  *
- * `email` é a coluna `contacts.email`, que ainda existe em paralelo. Ela entra
- * aqui porque a queda do registro para a coluna é feita por `lib/variables.ts`,
- * e sem este campo a ficha sairia sem e-mail nenhum para todo contato anterior à
- * migração `012` — que é aplicada à mão, fora do build.
+ * O `email` SAIU DAQUI NO PASSO 2a DA PARTE 2. Ele era a coluna
+ * `contacts.email`, carregada até aqui só porque a queda do registro para a
+ * coluna (`lib/variables.ts`) precisava dela — e era por causa deste campo que o
+ * `select` da página (`app/conversas/[id]/page.tsx`) trazia a coluna. Com a
+ * queda fora, ele passou a ser um campo que a ficha recebia e não usava; agora
+ * a ficha tem UMA fonte, e é a mesma do resto do produto.
  */
 export type ContatoDaFicha = {
-  email: string | null;
   campos: unknown;
 };
 
@@ -100,14 +102,29 @@ export type ContatoDaFicha = {
 // um registro migrado hoje e um coletado hoje têm `em` parecidos. Quem tentar
 // separar os dois por idade vai acertar hoje e errar amanhã.
 //
-// O VALOR EM BRANCO TAMBÉM ZERA A DATA, e essa é a terceira condição: quando o
-// registro está em branco, quem aparece na tela é a COLUNA (é o que a `resolve`
-// de `lib/variables.ts` devolve), e a data do registro fala de um valor que a
-// ficha não está mostrando. Sem esta linha, a tela diria "coletado em <data>" ao
-// lado de um e-mail que veio de outro lugar.
+// HAVIA UMA TERCEIRA CONDIÇÃO AQUI, e ela SAIU com o Passo 2a:
+//
+//     if (registrado.valor.trim() === "") return null;
+//
+// Ela existia porque, com a queda para `contacts.email` viva, um registro EM
+// BRANCO ainda produzia linha — quem aparecia na tela era a COLUNA, e a data do
+// registro falava de um valor que a ficha não estava mostrando. Sem a queda,
+// registro em branco é AUSÊNCIA: `resolve` devolve texto vazio, e os dois
+// chamadores abaixo (o laço do catálogo e `camposLivresDa`) descartam a linha
+// ANTES de perguntar a data. A condição virou ramo que nenhuma entrada alcança —
+// e ramo assim é o que a próxima limpeza apaga achando que é rede, ou o que
+// alguém "conserta" para o lado errado. O caso que a exercitava ("registro em
+// branco com a coluna cheia") virou "registro em branco não vira linha nenhuma",
+// em tests/ficha-do-coletado.test.ts.
+//
+// O `undefined` FICA, E É EXIGÊNCIA DO TIPO, não guarda com desfecho próprio:
+// `registro.get(chave)` devolve `CampoColetado | undefined`, e nos dois
+// chamadores a chave acabou de sair DESTE registro. Está escrito para ninguém
+// procurar o caso que o exercita — ele não existe, e inventar um seria inventar
+// um estado que o código não produz. É a mesma nota que `camposLivresDa` já
+// tinha sobre o `?.` dela.
 function instanteDaColeta(registrado: CampoColetado | undefined): string | null {
   if (registrado === undefined) return null;
-  if (registrado.valor.trim() === "") return null;
   if (!("automacao" in registrado)) return null;
   return registrado.em;
 }
@@ -138,9 +155,9 @@ export function fichaDoColetado(
   // O CONTEXTO NÃO LEVA `username` NEM `name`, e a ausência é declarada: as três
   // variáveis do perfil do Instagram não são dado COLETADO — não saem de
   // `contacts.campos` — e nenhuma delas vira campo do catálogo. As `resolve` que
-  // este arquivo chama são só as do catálogo, e elas leem o registro e, no caso
-  // do e-mail, a coluna. Passar o perfil aqui sugeriria que ele entra na ficha.
-  const ctx: VariableContext = { email: contato.email, campos: registro };
+  // este arquivo chama são só as do catálogo, e desde o Passo 2a elas leem o
+  // REGISTRO e mais nada. Passar o perfil aqui sugeriria que ele entra na ficha.
+  const ctx: VariableContext = { campos: registro };
 
   return [
     ...catalogo.flatMap((campo) => {
