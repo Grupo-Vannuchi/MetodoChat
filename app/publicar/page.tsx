@@ -191,6 +191,69 @@ export default async function Agendados({
         // FALHADO NAO ENTRA AQUI: ele tem secao propria logo abaixo, com uma
         // ordem propria ("o que acabou de falhar?") e sem acao nenhuma. Junta-lo
         // faria a mesma lista significar duas coisas.
+        //
+        // =====================================================================
+        // ESTA CONSULTA NÃO TEM ÍNDICE PRÓPRIO, E É DECISÃO MEDIDA — NÃO
+        // ESQUECIMENTO. Não crie um sem reler os números abaixo.
+        //
+        // A ANOTAÇÃO DE 11/09/2026 dizia que `queue_pending_idx` — `(status,
+        // not_before)` — "não cobre a consulta do calendário", que usa
+        // `coalesce(sent_at, not_before)`. É verdade, e nenhum dos quatro
+        // índices da tabela cobre: `(id)`, `(dedupe_key)`, `(status,
+        // not_before)` e `(account_id, status)`. O que a anotação não tinha era
+        // o TAMANHO do problema.
+        //
+        // MEDIDO EM 25/09/2026, no container de teste (`npm run banco:teste`),
+        // com a MESMA tabela e os MESMOS quatro índices, e com a proporção real
+        // de produção (de cada 258 linhas, 3 são `publicacao`). Três execuções
+        // por ponto, descartando a primeira (cache frio do Postgres):
+        //
+        //   linhas na fila          sem índice        com índice dedicado
+        //   ----------------------  ----------------  -------------------
+        //      258  (hoje)           0,26 ms           0,21 ms
+        //    2.580  (10x)            0,74 ms           --
+        //   25.800  (100x)           6,1  ms           0,36 ms
+        //   50.000                  13,5  ms           --
+        //  100.000                  18,9  ms           --
+        //  258.000  (1000x)         29-34  ms          0,46 ms
+        //
+        // O índice medido foi
+        //   create index queue_calendario_idx
+        //       on queue (account_id, kind, (coalesce(sent_at, not_before)));
+        // — expressão, e não coluna, porque é a expressão que a consulta ordena.
+        //
+        // POR QUE "NÃO AGORA": a 258 linhas ele economiza 0,05 ms. Isso não é
+        // pouco — é NADA: está abaixo do ruído entre duas execuções da mesma
+        // consulta, e some inteiro ao lado do tempo de render desta tela, que
+        // ainda faz outras duas consultas e monta a grade. Criar índice para
+        // ganhar 50 microssegundos é pagar escrita e migração por um número que
+        // ninguém consegue observar.
+        //
+        // O QUE O ÍNDICE CUSTARIA, também medido: a inserção na fila passa de
+        // 22,68 ms para 25,99 ms por mil linhas (+15%), e ele ocupa 1,5 MB a
+        // 25.800 linhas e 15 MB a 258.000. A fila recebe inserção em TODO
+        // disparo de automação — o custo cai no caminho quente, e o ganho, num
+        // caminho que roda quando alguém abre o calendário.
+        //
+        // O GATILHO, PARA NÃO SE REABRIR ESTA DISCUSSÃO SEM DADO:
+        //
+        //   >>> 50.000 LINHAS NA TABELA `queue`. <<<
+        //
+        // É onde a consulta cruza ~13 ms, cinquenta vezes a de hoje, e deixa de
+        // se esconder no render. A partir daí o índice acima devolve a consulta
+        // para menos de 0,5 ms e passa a valer os 15% de escrita. Abaixo disso,
+        // o número diz para não mexer.
+        //
+        // COMO CONFERIR QUANDO CHEGAR A HORA: `select count(*) from queue`. Se
+        // vier abaixo de 50.000, a resposta continua sendo esta, e o que mudou
+        // foi só a data.
+        //
+        // A BORDA QUE ESTA MEDIÇÃO QUASE ERROU, escrita porque ela se repete: a
+        // primeira semeadura punha todas as publicações 400 dias atrás, fora da
+        // janela da grade, e a consulta voltava `rows=0`. Os tempos pareciam
+        // ótimos e não mediam nada — era o filtro descartando tudo, não o
+        // calendário. Medição de consulta que devolve vazio não é medição.
+        // =====================================================================
         sql().query(
           `select * from queue
             where account_id = $1 and kind = 'publicacao'

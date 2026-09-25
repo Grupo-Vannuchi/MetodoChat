@@ -13,6 +13,7 @@ import {
   cotaEstourada,
   payloadDaPublicacao,
   lerPayloadDaPublicacao,
+  mediaIdParaVerNoInstagram,
   planoDaConversao,
   medidasDaConversao,
   nomeDepoisDaConversao,
@@ -807,6 +808,11 @@ describe("payloadDaPublicacao e lerPayloadDaPublicacao", () => {
       // dreno não precisar decidir entre "não tem" e "não é carrossel".
       filhos: [],
       consultas: 0,
+      // SEM POST NO INSTAGRAM AINDA: `media_id` só nasce no `media_publish`, e
+      // este payload é o que se GRAVA ao agendar. `null` e não `undefined` pela
+      // mesma razão de `containerId` — a chave existe sempre, e quem lê não
+      // precisa distinguir "não tem" de "não veio".
+      mediaId: null,
     });
   });
 
@@ -847,11 +853,74 @@ describe("payloadDaPublicacao e lerPayloadDaPublicacao", () => {
     expect(lerPayloadDaPublicacao({ forma: "imagem", caminhos: [1, 2] })).toBeNull();
   });
 
+  // O `media_id` É O QUE O DRENO COLHE DO `media_publish` (lib/queue-drain.ts) e
+  // guarda com `guardarNoPayload`. Ele é a ÚNICA ponta de que a tela precisa
+  // para buscar o permalink na hora de exibir, sem coluna nova.
+  it("o media_id do post publicado volta do payload", () => {
+    const lido = lerPayloadDaPublicacao({
+      forma: "imagem",
+      caminhos: ["1780/a.jpg"],
+      media_id: "17900000000000001",
+    });
+    expect(lido?.mediaId).toBe("17900000000000001");
+  });
+
+  // A COLUNA É `jsonb` E EDITÁVEL POR FORA: um `media_id` que não é texto não
+  // pode virar um endereço. Vira `null`, e a tela simplesmente não oferece link.
+  it("media_id que não é texto não vira id", () => {
+    for (const lixo of [42, "", "   ", null, {}, []]) {
+      expect(
+        lerPayloadDaPublicacao({ forma: "imagem", caminhos: ["a.jpg"], media_id: lixo })?.mediaId
+      ).toBeNull();
+    }
+  });
+
   it("consultas que não é número conta como zero, e não trava o teto", () => {
     expect(
       lerPayloadDaPublicacao({ forma: "imagem", caminhos: ["a.jpg"], consultas: "muitas" })
         ?.consultas
     ).toBe(0);
+  });
+});
+
+// =============================================================================
+// "VER NO INSTAGRAM" — O PORTÃO DO LINK, e por que ele é uma função pura
+//
+// O PERMALINK NÃO É GUARDADO, E NÃO VAI SER. Ele é buscado na hora de exibir,
+// por `resolvePosts` (lib/media-lookup.ts), a partir do `media_id` que o dreno
+// grava no payload desde 03/09/2026 (`guardarNoPayload`, lib/queue-drain.ts).
+// O motivo de não guardar está escrito em `lib/publicacao.ts`, junto da medição.
+//
+// ESTA FUNÇÃO É SÓ O PORTÃO: ela diz SE há o que buscar, e a tela só vai à rede
+// quando ela devolve um id. Ela é pura e mora aqui porque um `if` sobre regra de
+// negócio dentro do JSX fica sem rede nenhuma — é a regra declarada no cabeçalho
+// "AS DECISÕES DA TELA DE COMPOR" deste mesmo arquivo.
+// =============================================================================
+describe("mediaIdParaVerNoInstagram", () => {
+  it("post que saiu e tem media_id é o único que oferece o link", () => {
+    expect(mediaIdParaVerNoInstagram({ saiu: true, mediaId: "17900000000000001" })).toBe(
+      "17900000000000001"
+    );
+  });
+
+  // AGENDADO NÃO TEM POST NO INSTAGRAM AINDA. Oferecer "ver no Instagram" para
+  // um post que ainda não saiu levaria a pessoa a um endereço que não existe —
+  // e o `media_id` só nasce no `media_publish`, então nem haveria o que buscar.
+  //
+  // O SINAL É `saiu`, e não o `status`: os dois são o MESMO fato em produção
+  // (`finish` grava `sent_at` junto com `status = 'sent'`), mas a tela decide a
+  // frase da mídia por `saiu`, e um segundo sinal faria as duas divergirem. Ver
+  // o cabeçalho da função — a divergência chegou a existir e foi medida.
+  it("post que ainda não saiu não oferece link", () => {
+    expect(mediaIdParaVerNoInstagram({ saiu: false, mediaId: "17900000000000001" })).toBeNull();
+  });
+
+  // O POST QUE SAIU SEM ID É CASO REAL, e não defesa teórica: quando o contêiner
+  // responde `PUBLISHED` numa segunda passada, o dreno NÃO republica (é a defesa
+  // contra post em dobro) e por isso não colhe `media_id` nenhum. A linha fica
+  // `sent` sem id, e a tela tem de calar em vez de montar um link quebrado.
+  it("post que saiu sem media_id não oferece link", () => {
+    expect(mediaIdParaVerNoInstagram({ saiu: true, mediaId: null })).toBeNull();
   });
 });
 

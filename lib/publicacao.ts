@@ -751,6 +751,11 @@ export type PayloadDaPublicacao = {
   filhos?: string[];
   /** Quantas vezes o dreno já perguntou o `status_code`. Ver o teto de cinco. */
   consultas?: number;
+  /** O id do post JÁ PUBLICADO, colhido do `media_publish` e gravado pelo dreno
+   *  (`guardarNoPayload`, lib/queue-drain.ts). É a única ponta de que a tela
+   *  precisa para buscar o permalink na hora de exibir — ver
+   *  `mediaIdParaVerNoInstagram`. Não existe enquanto o post não saiu. */
+  media_id?: string;
 };
 
 /** Monta o payload do item. No molde de `payloadDoLote` (lib/lote.ts). */
@@ -827,6 +832,7 @@ export function lerPayloadDaPublicacao(bruto: unknown): {
   containerId: string | null;
   filhos: string[];
   consultas: number;
+  mediaId: string | null;
 } | null {
   if (typeof bruto !== "object" || bruto === null) return null;
   const p = bruto as Record<string, unknown>;
@@ -850,6 +856,10 @@ export function lerPayloadDaPublicacao(bruto: unknown): {
         ? (p.filhos as string[])
         : [],
     consultas: consultas !== null && consultas >= 0 ? Math.floor(consultas) : 0,
+    // MESMA DEFESA DE `containerId`, e pelo mesmo motivo: a coluna é `jsonb` e
+    // pode ser editada por fora do painel. Um `media_id` que não é texto viraria
+    // um endereço quebrado na barra do navegador de quem clicasse.
+    mediaId: typeof p.media_id === "string" && p.media_id.trim() ? p.media_id : null,
   };
 }
 
@@ -2431,4 +2441,90 @@ export function fraseSobreAMidia(d: {
   }
   // Ainda vai sair: não há nada a explicar sobre a mídia, e ela está ali do lado.
   return null;
+}
+
+// =============================================================================
+// "VER NO INSTAGRAM" — O PORTÃO DO LINK
+//
+// A PENDÊNCIA ERA "o permalink do post não é guardado, só o `media_id`, então
+// não dá para oferecer 'ver no Instagram'" (anotada em 11/09/2026). A primeira
+// metade é verdade; a CONCLUSÃO não era, e a medição é o que a derruba.
+//
+// MEDIDO EM 25/09/2026, lendo os caminhos que já existem:
+//
+//   1. O `media_id` DO POST PUBLICADO JÁ ESTÁ GRAVADO, desde 03/09/2026
+//      (commit 5f6d55d): o dreno colhe o id da resposta do `media_publish` e o
+//      guarda no payload com `guardarNoPayload` (lib/queue-drain.ts). O
+//      comentário de lá até explica por que ele NÃO vai para a coluna
+//      `message_id`. O que faltava era `lerPayloadDaPublicacao` DEVOLVER o
+//      campo — ele era gravado e nunca lido.
+//
+//   2. O PERMALINK JÁ É BUSCADO POR ID. `getMediaById` (lib/ig.ts:392) pede
+//      `fields=id,media_type,media_url,thumbnail_url,caption,permalink`, e
+//      `toPostRef` (lib/media-lookup.ts) já o devolve em `PostRef.permalink`.
+//      Nada de novo precisa ser escrito na rede.
+//
+//   3. A TELA DE `/eventos` JÁ OFERECE O LINK com esse mesmo dado
+//      (`app/eventos/post-line.tsx`), e oferece há semanas. Ou seja: o produto
+//      já provou que o caminho funciona — quem não o usava era só o detalhe da
+//      publicação.
+//
+// O CUSTO, que é a pergunta que decide: uma ida à API POR POST, e ela é
+// CACHEADA. `resolvePosts` passa por `postCacheado` (lib/media-lookup.ts), que
+// é `unstable_cache` com vida de 6 h por `media_id` — e antes dele pela
+// listagem dos 40 recentes, cacheada por 120 s e COMPARTILHADA com as quatro
+// telas que já a aquecem (Início, /automacoes, o editor e /eventos). Um post
+// publicado pelo painel está, quase sempre, entre os 40 recentes: nesse caso a
+// resolução não custa chamada nenhuma além da listagem que outra tela já pagou.
+// Os números da rede estão medidos no cabeçalho de `lib/media-lookup.ts`
+// (listagem dos 40 = 498 ms; 8 avulsas em paralelo = 497 ms, em 16/09/2026), e
+// o teto de `TETO_DA_RESOLUCAO_MS` já limita a espera a 2 s com resultado
+// PARCIAL — se a Meta demorar, a tela sai sem o link, e não sem a página.
+//
+// POR QUE NÃO GUARDAR O PERMALINK NUMA COLUNA: seria dado duplicado que
+// envelhece, e esta base já pagou por isso uma vez. Em 15/09/2026 a
+// `media_thumbnail_url` guardada deixou /automacoes com 19 imagens quebradas de
+// 22, porque a URL do CDN do Instagram é assinada e expira. O permalink não
+// expira como a miniatura, mas ele PODE mudar de sentido: o post apagado no
+// aplicativo deixa um endereço guardado que leva a lugar nenhum, e o banco não
+// fica sabendo. Buscando na hora, o post apagado simplesmente não devolve
+// permalink e a tela cala — que é o desfecho honesto. E guardar custaria
+// migração, que é exatamente o que o cabeçalho de `lib/media-lookup.ts` manda
+// não fazer: "Capa e link do post ficam SÓ aqui, buscados na hora de exibir —
+// nunca no banco."
+//
+// ESTA FUNÇÃO É SÓ O PORTÃO, e é pura de propósito: ela diz SE há o que buscar,
+// e a tela só vai à rede quando ela devolve um id. A regra de negócio fica fora
+// do JSX pelo motivo declarado no cabeçalho "AS DECISÕES DA TELA DE COMPOR" —
+// um `if` dentro do componente fica sem rede nenhuma, porque a suíte não testa
+// componente.
+//
+// O SINAL É `saiu`, E NÃO `status === "sent"` — E ISSO FOI UM DEFEITO MEDIDO.
+//
+// A primeira versão desta função perguntava pelo `status`. Ela passava nos casos
+// puros e MENTIA na tela: `saiu` nasce de `sent_at` (`dataDaLinhaDeEnvio`), e é
+// ele que manda em `fraseSobreAMidia`. Com dois sinais para o mesmo fato, o
+// detalhe de um item `sent` sem `sent_at` dizia "A hora já passou e o post ainda
+// não saiu" e, logo abaixo, oferecia "Ver no Instagram" — a tela afirmando as
+// duas coisas ao mesmo tempo. Quem achou foi o caso de integração, que leu a
+// árvore inteira em vez de só o link.
+//
+// É O MESMO ERRO QUE ESTA TELA JÁ COMETEU UMA VEZ, e está escrito em
+// `app/publicar/post/[id]/page.tsx`: `podeMexer` e a frase da mídia moravam na
+// mesma variável, e por isso um post falhado recebia "este post já saiu". Um
+// fato, um sinal.
+//
+// SÓ QUEM SAIU OFERECE. O agendado ainda não tem post no perfil; o falhado e o
+// cancelado nunca chegaram lá — e `encerrado` já os separa. E quem saiu SEM
+// `media_id` é caso real, não defesa teórica: quando o contêiner responde
+// `PUBLISHED` numa segunda passada, o dreno NÃO republica — é a defesa contra
+// post em dobro — e por isso não colhe id nenhum. A linha sai sem id, e a tela
+// cala em vez de montar um endereço quebrado.
+// =============================================================================
+export function mediaIdParaVerNoInstagram(d: {
+  saiu: boolean;
+  mediaId: string | null;
+}): string | null {
+  if (!d.saiu) return null;
+  return d.mediaId ?? null;
 }
