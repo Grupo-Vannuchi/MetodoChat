@@ -11,6 +11,7 @@ import {
   campoUrlDoFiltro,
   resumoDasCategorias,
   CATEGORIAS_SUGERIDAS,
+  fraseDaListaDeEmail,
 } from "@/lib/categorias";
 import {
   campoDoFiltro,
@@ -797,7 +798,7 @@ export default async function ContatosPage({
                     </h2>
                     <p className={`text-sm ${muted}`}>
                       {tela.caso === "tem_email"
-                        ? `${tela.comEmail.length} ${tela.comEmail.length === 1 ? "pessoa" : "pessoas"} — prontas para sua lista`
+                        ? fraseDaListaDeEmail(tela.comEmail.length)
                         : tela.caso === "sem_email_no_filtro"
                           ? "Ninguém nesta categoria informou e-mail ainda."
                           : "Ninguém informou o e-mail ainda. Ligue “Pedir o e-mail antes do link” numa automação."}

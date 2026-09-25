@@ -373,3 +373,30 @@ export function idsSelecionados(formData: FormData): string[] {
   }
   return [...vistos];
 }
+
+/**
+ * A FRASE DA SEÇÃO "COM E-MAIL", e por que ela ganhou um dono.
+ *
+ * MEDIDO NA TELA DE PRODUÇÃO em 25/09/2026, na conta @vannuchi.eng, que tem
+ * exatamente UM contato com e-mail: a tela dizia **"1 pessoa — prontas para sua
+ * lista"**. O singular/plural estava resolvido em "pessoa/pessoas" e esquecido
+ * em "prontas", que era plural cravado no meio de um template.
+ *
+ * O CONSERTO NÃO É TROCAR A PALAVRA, e essa é a escolha que interessa: enquanto
+ * a frase vivesse dentro do JSX de `app/contatos/page.tsx`, ela não teria como
+ * ganhar caso — a página é `async` e consulta o Postgres, e nada em
+ * `testes-dom/` a monta. Foi assim que o "prontas" passou despercebido, e é
+ * assim que o próximo texto passaria. Aqui ela é função pura, e a concordância
+ * inteira responde a um caso só.
+ *
+ * O ZERO NÃO CHEGA AQUI — quem o trata são os outros dois ramos de
+ * `casoDaListaDeEmail` ("ninguém nesta categoria" e "ninguém ainda"), que dizem
+ * o que FAZER em vez de contar zero. Ele tem caso mesmo assim: um dia alguém
+ * chama esta função de outro lugar, e "0 pessoas prontas" não pode virar frase.
+ */
+export function fraseDaListaDeEmail(quantos: number): string {
+  if (quantos <= 0) return "Ninguém com e-mail neste recorte.";
+  return quantos === 1
+    ? "1 pessoa — pronta para sua lista"
+    : `${quantos} pessoas — prontas para sua lista`;
+}
