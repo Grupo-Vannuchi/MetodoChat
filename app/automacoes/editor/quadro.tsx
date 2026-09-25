@@ -79,7 +79,11 @@ function useTemaDoDocumento(): "light" | "dark" {
 // O ID DO NÓ DE GATILHO, e ele NÃO COLIDE com id de bloco por construção:
 // `identidadeDoPasso` (lib/steps.ts) devolve ou um id com prefixo `b_`, ou o
 // índice em texto. Nenhum dos dois é "gatilho".
-const ID_DO_GATILHO = "gatilho";
+//
+// ELE VEM DE `./geometria`, E NÃO É ESCRITO AQUI: a conta que desvia dos nós ao
+// criar um bloco precisa do mesmo id e da mesma posição, e enquanto eram dois
+// lugares a conta conhecia só um — o primeiro bloco nascia EM CIMA do gatilho.
+const ID_DO_GATILHO = Geo.ID_DO_GATILHO;
 
 // O TIPO DO ARRASTO da paleta. Escrito aqui e lido aqui, para o quadro não
 // reagir a arquivo, imagem ou texto arrastado de outra janela.
@@ -692,7 +696,7 @@ export default function Quadro({
     const doGatilho: Node = {
       id: ID_DO_GATILHO,
       type: "gatilho",
-      position: { x: -200, y: 60 },
+      position: Geo.POSICAO_DO_GATILHO,
       selected: selecionado === ID_DO_GATILHO,
       draggable: false,
       deletable: false,

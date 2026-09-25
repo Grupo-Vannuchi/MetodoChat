@@ -13,6 +13,8 @@ import {
   ALCANCE_DA_SETA,
   ALTURA_SUPOSTA,
   LARGURA_DO_BLOCO,
+  POSICAO_DO_GATILHO,
+  ID_DO_GATILHO,
   type Medidas,
   type Ponto,
 } from "../app/automacoes/editor/geometria";
@@ -680,5 +682,58 @@ describe("lugarDoBlocoNovo", () => {
     // O laço não esgota e não devolve lugar ocupado. Vinte é o número do caso
     // antigo, mantido: ele passa de qualquer limite plausível.
     expect(cobertos(cliquesNaPaleta(20, centro, MAIS_ALTO), MAIS_ALTO)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O NÓ DE GATILHO TAMBÉM OCUPA LUGAR, e esta é a metade que faltava.
+//
+// MEDIDO NA PRODUÇÃO em 25/09/2026, criando uma automação e jogando cinco
+// blocos da paleta, lendo as caixas pelo navegador:
+//
+//   GATILHO · DM        x=347  y=293  h=96   → ocupa até 389
+//   MENSAGEM (1º bloco) x=347  y=300  h=96   ← NASCEU EM CIMA DELE
+//   PEDIR TELEFONE      x=347  y=467              ok
+//   PEDIR NOME          x=347  y=634              ok
+//   PEDIR NASCIMENTO    x=782  y=300              ok (coluna nova)
+//
+// Do SEGUNDO bloco em diante a cascata funciona — ela desvia dos blocos. O
+// primeiro caía 7 pixels abaixo do gatilho, na mesma coluna, e o cobria quase
+// inteiro: na captura de tela sobrava uma fresta da borda, e o texto do gatilho
+// ficava invisível.
+//
+// POR QUE OS CASOS DE ONTEM NÃO PEGARAM: eles alimentam `passos`, e o gatilho
+// NÃO é um passo — ele não é gravado, e por isso nunca entrou na ocupação. O
+// caso abaixo não mede "os dois primeiros não se tocam", que era o desfecho que
+// já passava; ele mede a sobreposição com o GATILHO, com ZERO blocos na tela.
+describe("lugarDoBlocoNovo e o nó de gatilho", () => {
+  it("o PRIMEIRO bloco não nasce em cima do gatilho", () => {
+    // O centro exato do gatilho: é o pior caso, e é o que a produção fez — o
+    // centro da área visível caiu praticamente em cima dele.
+    const centro = {
+      x: POSICAO_DO_GATILHO.x + LARGURA_DO_BLOCO / 2,
+      y: POSICAO_DO_GATILHO.y + ALTURA_SUPOSTA / 2,
+    };
+    const lugar = lugarDoBlocoNovo(centro, [], {}, []);
+    expect(
+      seCobrem(lugar, ALTURA_SUPOSTA, POSICAO_DO_GATILHO, ALTURA_SUPOSTA),
+      `o bloco novo nasceu sobre o gatilho: bloco em ${JSON.stringify(lugar)}, ` +
+        `gatilho em ${JSON.stringify(POSICAO_DO_GATILHO)}`
+    ).toBe(false);
+  });
+
+  it("a ALTURA MEDIDA do gatilho entra na conta, e não a suposta", () => {
+    // Um gatilho alto (palavras-chave em várias linhas) ocupa mais que
+    // `ALTURA_SUPOSTA`. Sem ler a medida, o bloco cairia dentro dele.
+    const alto = 200;
+    const centro = {
+      x: POSICAO_DO_GATILHO.x + LARGURA_DO_BLOCO / 2,
+      y: POSICAO_DO_GATILHO.y + ALTURA_SUPOSTA / 2,
+    };
+    const lugar = lugarDoBlocoNovo(centro, [], { [ID_DO_GATILHO]: { width: LARGURA_DO_BLOCO, height: alto } }, []);
+    expect(
+      seCobrem(lugar, ALTURA_SUPOSTA, POSICAO_DO_GATILHO, alto),
+      `o bloco caiu dentro de um gatilho de ${alto} de altura: ${JSON.stringify(lugar)}`
+    ).toBe(false);
   });
 });

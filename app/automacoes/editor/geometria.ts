@@ -39,6 +39,20 @@ export type Medidas = Record<string, MedidaDoBloco | undefined>;
 export const LARGURA_DO_BLOCO = 190;
 export const ALTURA_SUPOSTA = 48;
 
+// O NÓ DE GATILHO, E POR QUE ELE MORA AQUI E NÃO SÓ NO QUADRO.
+//
+// Ele não é um passo: não é gravado, não é arrastável, e por isso ficava de
+// fora da conta de ocupação de `lugarDoBlocoNovo`. O preço foi MEDIDO na
+// produção em 25/09/2026 — o PRIMEIRO bloco criado pela paleta nascia 7 pixels
+// abaixo dele, na mesma coluna, e o cobria quase inteiro.
+//
+// A posição é FIXA e o quadro a lê daqui, em vez de escrevê-la de novo: eram
+// dois lugares dizendo onde o gatilho está, e a conta que desvia dele só
+// conhecia um. Um dono só fecha isso — e a largura é a mesma dos blocos, que é
+// o que faz `seCobrem` servir para ele sem um segundo retângulo.
+export const ID_DO_GATILHO = "gatilho";
+export const POSICAO_DO_GATILHO: Ponto = { x: -200, y: 60 };
+
 // A que distância da seta, em unidades do quadro, o ponteiro já conta como
 // "em cima dela". Folga de propósito: a seta desenhada tem 1px, e exigir o
 // pixel exato tornaria o gesto de reordenar impossível na prática.
@@ -418,13 +432,26 @@ export function lugarDoBlocoNovo(
     p.pos ? [{ canto: p.pos, altura: medidas[identidades[i]]?.height ?? ALTURA_SUPOSTA }] : []
   );
 
+  // O GATILHO ENTRA NA OCUPAÇÃO, e com a altura MEDIDA — não a suposta.
+  //
+  // Ele não vem em `passos` (não é um passo), e era essa a fresta: com o quadro
+  // vazio, `ocupados` ficava vazio, o primeiro candidato era aceito de cara, e
+  // ele é justamente o centro da tela — onde o gatilho está. Um gatilho com
+  // palavras-chave em várias linhas ocupa bem mais que `ALTURA_SUPOSTA`, e
+  // medi-lo é o que impede o bloco de cair dentro dele.
+  ocupados.push({
+    canto: POSICAO_DO_GATILHO,
+    altura: medidas[ID_DO_GATILHO]?.height ?? ALTURA_SUPOSTA,
+  });
+
   // O LIMITE É PROVADO, e não um palpite folgado. Cada bloco parado pode barrar
   // no máximo DUAS colunas: as colunas distam 250 e o cruzamento em x exige
   // menos de 190 de afastamento, então um mesmo bloco não alcança três delas
   // (precisaria de menos de 190 para duas colunas a 500 de distância). Com
   // `passos.length` blocos, no máximo `2 * passos.length` colunas ficam
   // barradas — e a coluna seguinte tem as três linhas livres.
-  const colunas = 2 * passos.length + 1;
+  // O `+ 1` do gatilho: ele também barra até duas colunas, como qualquer bloco.
+  const colunas = 2 * (passos.length + 1) + 1;
   for (let k = 0; k < colunas * LINHAS_DA_CASCATA; k++) {
     const x = x0 + Math.floor(k / LINHAS_DA_CASCATA) * PASSO_ENTRE_BLOCOS.x;
     const y = y0 + (k % LINHAS_DA_CASCATA) * PASSO_ENTRE_BLOCOS.y;
