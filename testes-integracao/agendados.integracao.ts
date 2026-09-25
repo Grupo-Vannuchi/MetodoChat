@@ -79,7 +79,16 @@ const meta = {
   containers: [] as { igUserId: string; token: string }[],
   publicacoes: [] as { igUserId: string; token: string }[],
   desconhecidos: [] as string[],
+  /** Toda LEITURA de mídia que a Meta falsa atendeu, na ordem: `"lista"` para a
+   *  listagem dos 40 recentes (`getMedia`) e o próprio id para a busca avulsa
+   *  (`getMediaById`). É com ela que o caso do permalink MEDE o custo da tela —
+   *  contando requisição, e não cronometrando. */
+  leiturasDeMidia: [] as string[],
 };
+
+/** O permalink que a Meta falsa devolve para o post publicado. Ele é o que a
+ *  tela de detalhe tem de mostrar, e é INVENTADO — nada aqui sai da máquina. */
+const PERMALINK_DO_POST = "https://www.instagram.com/p/post-publicado-pelo-painel";
 
 /** O que foi APAGADO do bucket falso, na ordem. O caminho do objeto, sem o
  *  prefixo da API — que é o que `apagarObjeto` (lib/bucket.ts) monta. */
@@ -134,6 +143,28 @@ beforeAll(async () => {
     }
     if (req.method === "GET" && (u.searchParams.get("fields") ?? "").includes("status_code")) {
       return responderJson(res, { id: ultimo, status_code: "FINISHED" });
+    }
+    // AS DUAS LEITURAS QUE `resolvePosts` (lib/media-lookup.ts) faz, nesta ordem:
+    // a listagem dos 40 recentes e, para quem não estiver nela, a busca avulsa
+    // pelo id. As duas pedem `permalink` no `fields` — é esse campo que a tela
+    // de detalhe passou a oferecer, e por isso ele vem preenchido aqui.
+    //
+    // A LISTAGEM VOLTA VAZIA DE PROPÓSITO. Assim o caso exercita o caminho CARO
+    // (listagem + avulsa), que é o teto do custo desta tela; se ela devolvesse o
+    // post, a avulsa nunca aconteceria e o número medido seria o do melhor caso.
+    if (req.method === "GET" && ultimo === "media") {
+      meta.leiturasDeMidia.push("lista");
+      return responderJson(res, { data: [] });
+    }
+    if (req.method === "GET" && (u.searchParams.get("fields") ?? "").includes("permalink")) {
+      meta.leiturasDeMidia.push(ultimo);
+      return responderJson(res, {
+        id: ultimo,
+        media_type: "IMAGE",
+        media_url: "https://exemplo-do-teste.invalid/foto.jpg",
+        caption: "a legenda que saiu",
+        permalink: PERMALINK_DO_POST,
+      });
     }
     meta.desconhecidos.push(`${req.method} ${u.pathname}`);
     res.writeHead(404, { "content-type": "application/json" });
@@ -269,20 +300,36 @@ async function semear(item: {
   status?: string;
   /** Segundos a partir de agora. Negativo é passado — o que o dreno reivindica. */
   emSegundos?: number;
+  /** O id do post JÁ PUBLICADO, como o dreno o grava depois do `media_publish`
+   *  (`guardarNoPayload`, lib/queue-drain.ts). Só faz sentido com `status`
+   *  `sent` — é o que destrava o "Ver no Instagram" da tela de detalhe. */
+  mediaId?: string;
 }): Promise<string> {
   semente++;
   const kind = item.kind ?? "publicacao";
   const payload =
     kind === "publicacao"
-      ? { forma: "imagem", caminhos: [caminhoSemeado(item.conta, semente)] }
+      ? {
+          forma: "imagem",
+          caminhos: [caminhoSemeado(item.conta, semente)],
+          ...(item.mediaId ? { media_id: item.mediaId } : {}),
+        }
       : { text: "uma mensagem qualquer" };
   const linhas = (await banco
     .db()
     .sql()
     .query(
+      // `sent_at` ACOMPANHA O `status`, e isso não é enfeite do semeador: em
+      // produção `finish` (lib/queue-drain.ts) grava os dois JUNTOS, e é de
+      // `sent_at` que nasce o `saiu` de `dataDaLinhaDeEnvio` — o sinal que a
+      // tela usa para a frase da mídia e para o "Ver no Instagram". Semear
+      // `status = 'sent'` com `sent_at` nulo fabricava uma linha que o dreno
+      // nunca produz, e foi essa linha impossível que fez um caso desta suíte
+      // ficar vermelho por um defeito que não existia no produto.
       `insert into queue (account_id, kind, contact_ig_id, payload, dedupe_key, status,
-                          not_before)
-       values ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7::int))
+                          not_before, sent_at)
+       values ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7::int),
+               case when $6 = 'sent' then now() + make_interval(secs => $7::int) end)
        returning id`,
       [
         item.conta,
@@ -968,6 +1015,86 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     // dos agendados dizia "Sai em" — duas telas escolhendo palavras diferentes
     // para o mesmo fato, cada uma dentro do proprio JSX.
     expect(arvore).toContain("Sai em ");
+  });
+
+  // =========================================================================
+  // "VER NO INSTAGRAM" — o link existe sem coluna nova, e o custo é MEDIDO AQUI.
+  //
+  // A PENDÊNCIA de 11/09/2026 dizia: "o permalink do post não é guardado, só o
+  // `media_id` — então não dá para oferecer 'ver no Instagram'". A primeira
+  // metade é verdade e continua sendo; a conclusão não era. O `media_id` já é
+  // gravado pelo dreno desde 03/09/2026, e `getMediaById` (lib/ig.ts) já pede
+  // `permalink` no `fields`. O que faltava era a tela LER as duas pontas.
+  //
+  // ESTES CASOS MEDEM O CUSTO CONTANDO REQUISIÇÃO, e não cronometrando: o
+  // relógio de uma suíte contra um servidor de loopback não diz nada sobre a
+  // Meta de verdade, mas o NÚMERO de idas à rede é o mesmo aqui e em produção.
+  // Os milissegundos estão medidos no cabeçalho de `lib/media-lookup.ts`.
+  // =========================================================================
+  test("o post que saiu oferece o link, e custa no máximo DUAS leituras", async () => {
+    await banco.db().sql().query(`delete from queue where account_id = $1`, [CONTA_A]);
+    meta.leiturasDeMidia = [];
+    const ID_NO_INSTAGRAM = "17900000000000123";
+    const id = await semear({
+      conta: CONTA_A,
+      status: "sent",
+      emSegundos: -2 * 3600,
+      mediaId: ID_NO_INSTAGRAM,
+    });
+
+    const arvore = await arvoreDoDetalhe(id);
+
+    // O LINK ESTÁ NA TELA. `textoDaArvore` imprime prop de valor simples, então
+    // o `href` da âncora aparece no texto — é por isso que esta asserção
+    // enxerga o endereço, e não só a frase do rótulo.
+    expect(arvore).toContain(PERMALINK_DO_POST);
+    expect(arvore).toContain("Ver no Instagram");
+
+    // O CUSTO, MEDIDO: a listagem dos 40 (que quatro telas já aquecem e que em
+    // produção passa por `unstable_cache` de 120 s) mais UMA busca avulsa pelo
+    // id (cacheada 6 h). Duas idas no caminho FRIO, e este caso força o frio
+    // porque a listagem falsa volta vazia.
+    //
+    // SOB O VITEST O CACHE NÃO GUARDA NADA — está medido e escrito em
+    // `lib/media-lookup.ts`. Ou seja: este número é o do caminho frio a cada
+    // render, e em produção ele é MENOR, nunca maior.
+    expect(meta.leiturasDeMidia).toEqual(["lista", ID_NO_INSTAGRAM]);
+  });
+
+  // O PORTÃO É O QUE IMPEDE A TELA MAIS ABERTA DE PAGAR PELA MAIS RARA. O
+  // detalhe de um post AGENDADO é o que se abre para remarcar ou cancelar, e ele
+  // não tem post no Instagram para ver — se a tela fosse à rede assim mesmo,
+  // toda visita a um agendado custaria duas idas à Meta por nada.
+  test("o post agendado não oferece link e NÃO vai à rede", async () => {
+    await banco.db().sql().query(`delete from queue where account_id = $1`, [CONTA_A]);
+    meta.leiturasDeMidia = [];
+    const id = await semear({ conta: CONTA_A, emSegundos: 4 * 3600 });
+
+    const arvore = await arvoreDoDetalhe(id);
+
+    expect(arvore).not.toContain("Ver no Instagram");
+    expect(arvore).not.toContain(PERMALINK_DO_POST);
+    // A PROVA DE QUE O PORTÃO É O QUE SEGURA, e não a rede ter falhado: zero
+    // requisição. Um caso que só olhasse a ausência do texto ficaria verde
+    // também se a tela tivesse ido à Meta e voltado sem nada.
+    expect(meta.leiturasDeMidia).toEqual([]);
+  });
+
+  // `sent` SEM `media_id` É CASO REAL, e não defesa teórica: quando o contêiner
+  // responde `PUBLISHED` numa segunda passada, o dreno NÃO republica — é a
+  // defesa contra post em dobro — e por isso não colhe id nenhum.
+  test("o post que saiu sem media_id cala, em vez de montar link quebrado", async () => {
+    await banco.db().sql().query(`delete from queue where account_id = $1`, [CONTA_A]);
+    meta.leiturasDeMidia = [];
+    const id = await semear({ conta: CONTA_A, status: "sent", emSegundos: -2 * 3600 });
+
+    const arvore = await arvoreDoDetalhe(id);
+
+    expect(arvore).not.toContain("Ver no Instagram");
+    expect(meta.leiturasDeMidia).toEqual([]);
+    // A TELA CONTINUA INTEIRA: sem o link, o que ela sempre disse sobre a mídia
+    // apagada segue lá. Sem isto, um "conserto" que derrubasse a seção passaria.
+    expect(arvore).toContain("Este post já saiu");
   });
 
   test("a Meta falsa não viu nenhum caminho que este arquivo não conheça", () => {

@@ -15,7 +15,9 @@ import {
   lerPayloadDaPublicacao,
   rotuloDaFormaDoItem,
   fraseSobreAMidia,
+  mediaIdParaVerNoInstagram,
 } from "@/lib/publicacao";
+import { resolvePosts } from "@/lib/media-lookup";
 import {
   card,
   subtle,
@@ -107,6 +109,37 @@ export default async function DetalheDaPublicacao({
   const midia = (podeMexer ? (p?.caminhos ?? []) : [])
     .map((caminho) => ({ caminho, url: urlPublicaSeDerParaMontar(caminho) }))
     .filter((m): m is { caminho: string; url: string } => m.url !== null);
+  // "VER NO INSTAGRAM" — O LINK É BUSCADO, E NÃO GUARDADO.
+  //
+  // O PORTÃO É PURO e mora em `lib/publicacao.ts`: é lá que está escrito quem
+  // oferece o link, por que quem saiu SEM `media_id` é caso real, e a medição
+  // inteira do custo desta chamada. Aqui fica só a ida à rede.
+  //
+  // `quando.saiu` E NÃO `item.status`: é o MESMO sinal que alimenta `sobreAMidia`
+  // logo abaixo. A frase e o link falam do mesmo fato, então têm de vir da mesma
+  // fonte — com dois sinais, esta tela chegou a dizer "o post ainda não saiu" e a
+  // oferecer o link na linha seguinte. Ver o cabeçalho da função.
+  //
+  // A REDE SÓ ACONTECE QUANDO HÁ O QUE BUSCAR: sem `media_id` no payload não há
+  // chamada nenhuma, e a tela do post agendado — que é a que mais se abre, para
+  // remarcar e cancelar — continua com zero requisição à Meta, como antes desta
+  // mudança. Há caso de integração medindo esse zero.
+  //
+  // `resolvePosts` JÁ TEM O TETO E O DESFECHO PARCIAL (`TETO_DA_RESOLUCAO_MS`,
+  // 2 s, lib/media-lookup.ts), então uma Meta lenta faz esta tela sair SEM O
+  // LINK — e não sem a página. É o mesmo desfecho honesto de
+  // `app/eventos/post-line.tsx`, que também só vira âncora quando há permalink.
+  const idNoInstagram = mediaIdParaVerNoInstagram({
+    saiu: quando.saiu,
+    mediaId: p?.mediaId ?? null,
+  });
+  const permalink =
+    conta && idNoInstagram
+      ? ((await resolvePosts(conta.ig_user_id, conta.access_token, [idNoInstagram])).get(
+          idNoInstagram
+        )?.permalink ?? null)
+      : null;
+
   // A VOLTA RECONSTRÓI O PERÍODO QUE A PESSOA ESTAVA OLHANDO, e passa pelas
   // mesmas funções que a grade usa — `visaoDaUrl` e `ancoraDaUrl` recusam lixo,
   // e sem elas um `?em=banana` vindo de um link colado viraria endereço quebrado.
@@ -184,6 +217,26 @@ export default async function DetalheDaPublicacao({
         )}
 
         {sobreAMidia && <p className={`text-xs ${muted}`}>{sobreAMidia}</p>}
+
+        {/* O LINK FICA JUNTO DA FRASE DA MÍDIA de propósito: ela é quem acabou
+            de dizer "este post já saiu, a mídia foi apagada daqui", e a pergunta
+            seguinte de quem lê isso é "então onde ele está?". A resposta vem na
+            linha de baixo.
+
+            `target="_blank"` com `rel="noopener noreferrer"`: o mesmo par de
+            `app/eventos/post-line.tsx`. Sair do painel para o Instagram na
+            MESMA aba faria a pessoa perder o período que estava olhando no
+            calendário — o `voltarPara` acima existe justamente para não perder. */}
+        {permalink && (
+          <a
+            href={permalink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`inline-block text-sm ${link}`}
+          >
+            Ver no Instagram ↗
+          </a>
+        )}
       </section>
 
       {podeMexer && (
