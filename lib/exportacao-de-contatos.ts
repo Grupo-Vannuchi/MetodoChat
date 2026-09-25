@@ -17,15 +17,21 @@
 // -----------------------------------------------------------------------------
 // SÃO DOIS BOTÕES, E O ANTIGO NÃO MUDA — decisão do dono.
 //
-//   "Exportar CSV" (seção "Com e-mail") é A LISTA DE E-MAIL: duas colunas,
-//     `where c.email is not null`, e o CONTEÚDO dele — quais contatos, quais
-//     colunas — não muda nem um byte. `csvDaListaDeEmail`, abaixo, é aquele
+//   "Exportar CSV" (seção "Com e-mail") é A LISTA DE E-MAIL: duas colunas, só
+//     quem tem e-mail, e o CONTEÚDO dele — quais contatos, quais colunas — não
+//     muda nem um byte. `csvDaListaDeEmail`, abaixo, é a MONTAGEM daquele
 //     arquivo, e o caso byte a byte de tests/exportacao-de-contatos.test.ts é a
-//     única coisa nesta base capaz de acusar uma mudança nele.
+//     única coisa nesta base capaz de acusar uma mudança nela;
+//     `listaDeEmailDaTela` é o CONTEÚDO — quem entra e com que e-mail — e tem o
+//     caso byte a byte do arquivo inteiro, do recorte ao CSV.
 //     A EXCEÇÃO, DECIDIDA PELO DONO DEPOIS, é a neutralização de fórmula
 //     (`neutralizarFormula`): ela muda os bytes da linha cujo nome COMEÇA com
 //     `=`, `+`, `-`, `@`, TAB ou CR, e vale para os dois arquivos pela MESMA
 //     função — o porquê está escrito nela.
+//     "QUEM TEM E-MAIL" DEIXOU DE SER `where c.email is not null`, e a troca é
+//     o Passo 1 da Parte 2: o corte é `temEmail`, em JS, o mesmo da seção da
+//     tela onde este botão mora — ver o que saiu da rota, com a medição, em
+//     app/api/contatos/csv/route.ts.
 //   "Exportar todos os dados" leva TODO contato do recorte, tenha e-mail ou
 //     não, com as colunas do catálogo (lib/campos.ts) e os campos livres que o
 //     próprio marketing nomeou. `csvCompletoDeContatos`.
@@ -36,7 +42,12 @@
 // arquivo divergiram em 11/09/2026.
 
 import { CAMPOS, lerCampos, type Campo } from "./campos";
-import { VARIABLES, type VariableContext, type VariableDef } from "./variables";
+import {
+  VARIABLES,
+  valorDaVariavel,
+  type VariableContext,
+  type VariableDef,
+} from "./variables";
 import {
   casoDaListaDeEmail,
   contatosDoFiltro,
@@ -192,6 +203,77 @@ export function recorteDaUrl(params: URLSearchParams): Recorte {
   };
 }
 
+// -----------------------------------------------------------------------------
+// O E-MAIL DE UMA PESSOA — a pergunta que a Parte 2 mudou de lugar.
+//
+// A JANELA DE DIVERGÊNCIA, em uma frase: o e-mail — e SÓ ele — é gravado nos
+// DOIS lugares (`contacts.campos` e a coluna antiga `contacts.email`), por
+// UM escritor só (`gravarCampo`, lib/engine.ts). Era assim que a Parte 1
+// entregava valor sem mexer em nenhuma tela. A Parte 2 fecha a janela em dois
+// passos, e a ORDEM é o que impede a tela de quebrar:
+//
+//   PASSO 1 (este): todo leitor para de olhar `contacts.email` e passa a fazer
+//     a pergunta AQUI — que responde pelo registro e, na falta dele, pela
+//     coluna, porque é isso que `lib/variables.ts` decide.
+//   PASSO 2 (depois): a coluna sai. Nesse dia muda o corpo desta função e a
+//     queda de lib/variables.ts, e mais nada — nenhuma tela, nenhuma rota.
+//
+// INVERTIDO, A TELA QUEBRA: todo contato coletado antes da migração `012` tem
+// a COLUNA cheia e o registro vazio, e a `012` é aplicada À MÃO, fora do build
+// (ela diz isso no próprio cabeçalho). Tirar a coluna antes de a leitura passar
+// por aqui deixaria essas pessoas sem e-mail nenhum na tela e no arquivo.
+
+/**
+ * O que basta para responder "qual é o e-mail desta pessoa".
+ *
+ * `campos` chega como o `jsonb` CRU, e não como o `Registro` já lido, pela mesma
+ * razão de `ContatoExportavel` e de `ContatoDaFicha` (lib/ficha-do-coletado.ts):
+ * é o que mantém a página e as rotas como cascas — elas entregam o que o banco
+ * devolveu, e quem entende o formato é `lerCampos` (lib/campos.ts), num lugar só.
+ */
+export type ContatoComEmail = { email: string | null; campos: unknown };
+
+/**
+ * O E-MAIL QUE VALE, OU TEXTO VAZIO — e a resposta não é decidida aqui.
+ *
+ * QUEM DECIDE É `lib/variables.ts`: vale o valor COLETADO e, na falta dele, a
+ * coluna. É a MESMA porta que a DM enviada (`renderVariables`, por dentro de
+ * `processItem`, lib/queue-drain.ts), a ficha da conversa
+ * (lib/ficha-do-coletado.ts) e a planilha completa (`colunasDoCatalogo`, logo
+ * abaixo) já usavam. Esta função não acrescenta regra nenhuma: ela só faz a
+ * pergunta sem token, sem substituto e sem texto em volta — que é a forma de que
+ * o corte, a busca e a célula da tabela precisam.
+ *
+ * ESCREVER `contato.email || ...` AQUI SERIA A SEGUNDA REGRA que esta base
+ * persegue em toda parte, e a mais cara possível: o lado frouxo seria
+ * justamente o arquivo que o marketing já baixa.
+ *
+ * VAZIO É AUSÊNCIA, e não `null`: `valorDaVariavel` apara os dois lados, então
+ * coluna `''`, coluna só de espaço e registro em branco chegam todos como `""`.
+ * É a MESMA régua que a migração `012` já tinha escolhido (`btrim(email) <> ''`,
+ * com o motivo escrito lá: "é o que separa TEM E-MAIL de TEM A COLUNA
+ * PREENCHIDA"), e é por isso que ela não é decidida de novo aqui.
+ */
+export function emailDoContato(contato: ContatoComEmail): string {
+  return valorDaVariavel("email", contextoDoContato(contato));
+}
+
+/**
+ * SE ESTA PESSOA TEM E-MAIL — uma pergunta, uma dona.
+ *
+ * Ela existe para o corte (`comEmail`/`semEmail`) e para o arquivo congelado
+ * responderem com a MESMA frase. Enquanto a tela perguntava `c.email` em JS e a
+ * rota perguntava `c.email is not null` em SQL, eram duas regras — e elas JÁ
+ * DISCORDAVAM, medido em 25/09/2026 contra o Postgres de teste: a coluna com
+ * string VAZIA passava no `where` (entrava no arquivo, com a célula de e-mail em
+ * branco) e caía fora do `filter` da tela (que contava zero). Arquivo e frase
+ * dizendo coisas diferentes sobre o mesmo clique é a assinatura do defeito de
+ * 11/09/2026, e ele estava de pé há semanas por uma porta que ninguém olhava.
+ */
+export function temEmail(contato: ContatoComEmail): boolean {
+  return emailDoContato(contato) !== "";
+}
+
 /** O endereço que o botão carrega — a escrita, do lado da tela. */
 export function urlDaExportacao(base: string, recorte: Recorte): string {
   // A categoria vai pelo MESMO `urlComFiltro` das fichas da lista: é ele que
@@ -217,14 +299,23 @@ export function urlDaExportacao(base: string, recorte: Recorte): string {
  * importa — é que as DUAS são aplicadas. A ordem está escrita assim porque é a
  * da tela (app/contatos/page.tsx), e ler as duas na mesma ordem nos dois lugares
  * é o que faz a comparação ser possível.
+ *
+ * O E-MAIL ENTREGUE A `casaComBusca` É RESOLVIDO AQUI, e não lido de `c.email`.
+ * `lib/busca-de-contatos.ts` é texto e aritmética, sem um import — é o que
+ * permite a ele não saber que existe banco, `jsonb` ou catálogo. Ensiná-lo a ler
+ * o registro custaria essa propriedade e poria uma SEGUNDA leitura do e-mail
+ * dentro dele; resolver na entrada deixa a busca continuar sendo "casa este
+ * texto com estes três campos?" e mantém a resposta de "qual e-mail" num lugar
+ * só. O caso que prende isto é "a busca acha pelo e-mail COLETADO, que não está
+ * na coluna" (tests/exportacao-de-contatos.test.ts).
  */
-export function peneirar<T extends ContatoBuscavel & { categoria: string | null }>(
-  contatos: T[],
-  recorte: Recorte
-): T[] {
+export function peneirar<T extends ContatoDaTela>(contatos: T[], recorte: Recorte): T[] {
   const naCategoria = contatosDoFiltro(contatos, recorte.filtro);
   const busca = recorte.busca;
-  return busca ? naCategoria.filter((c) => casaComBusca(c, busca)) : naCategoria;
+  if (!busca) return naCategoria;
+  return naCategoria.filter((c) =>
+    casaComBusca({ username: c.username, name: c.name, email: emailDoContato(c) }, busca)
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -262,8 +353,16 @@ export function peneirar<T extends ContatoBuscavel & { categoria: string | null 
 // conjunto vizinho, que nasce duas linhas acima —, e é a forma que esta tela já
 // viu duas vezes.
 
-/** O que a tela de contatos precisa de cada linha para se recortar. */
-export type ContatoDaTela = ContatoBuscavel & { categoria: string | null };
+/**
+ * O que a tela de contatos precisa de cada linha para se recortar.
+ *
+ * `campos` ENTROU NO PASSO 1 DA PARTE 2, e não é enfeite: sem o registro, nem o
+ * corte (`comEmail`/`semEmail`) nem a busca conseguem perguntar qual é o e-mail
+ * desta pessoa — os dois voltariam a olhar a coluna, que é justamente o que este
+ * passo tira do caminho. Quem a consulta esquecer de trazer `c.campos` não
+ * compila: o tipo a exige, e as duas rotas e a página já a selecionam.
+ */
+export type ContatoDaTela = ContatoBuscavel & ContatoComEmail & { categoria: string | null };
 
 /**
  * A tela recortada: o recorte, os três conjuntos e o caso da seção — juntos,
@@ -324,8 +423,15 @@ export function recortarTela<T extends ContatoDaTela>(
   const achados = peneirar(contatos, recorte);
   // OS DOIS PEDAÇOS SAEM DE `achados`, E NÃO DE `contatos`. Tirados da conta
   // inteira, a seção "Com e-mail" contaria gente que a tabela dela não mostra.
-  const comEmail = achados.filter((c) => c.email);
-  const semEmail = achados.filter((c) => !c.email);
+  //
+  // E A PERGUNTA É `temEmail`, E NÃO `c.email` — é o Passo 1 da Parte 2 nesta
+  // linha. Com a coluna, quem coletou o e-mail depois desta fase (registro
+  // cheio, coluna vazia — o estado que o Passo 2 cria para TODO MUNDO) caía em
+  // `semEmail` com o e-mail em mãos, sumia da seção que o dono lê e do arquivo
+  // que ele baixa. Os casos que prendem os dois lados estão em
+  // tests/exportacao-de-contatos.test.ts, um por estado de divergência.
+  const comEmail = achados.filter(temEmail);
+  const semEmail = achados.filter((c) => !temEmail(c));
   return {
     recorte,
     achados,
@@ -388,6 +494,104 @@ export function csvDaListaDeEmail(contatos: ContatoDaListaDeEmail[]): string {
     ["Nome", "E-mail"] satisfies ["Nome", "E-mail"],
     ...contatos.map((r) => [r.nome ?? "", r.email]),
   ]);
+}
+
+/**
+ * AS LINHAS DO ARQUIVO CONGELADO — quem entra, e com que e-mail.
+ *
+ * ELA NASCEU NO PASSO 1 DA PARTE 2, e o que ela tirou da rota foi a segunda
+ * regra sobre "quem tem e-mail". Até aqui a rota peneirava no BANCO
+ * (`where c.email is not null`) enquanto a seção "Com e-mail" da tela peneirava
+ * em JS (`filter(c => c.email)`) — duas regras para manter iguais, sobre o
+ * arquivo que fica DENTRO daquela seção, embaixo daquele número. O porquê de
+ * elas não poderem sobreviver ao Passo 1 está no `where` que saiu
+ * (app/api/contatos/csv/route.ts).
+ *
+ * ELA RECEBE A TELA INTEIRA, E NÃO UM CONJUNTO SOLTO — a mesma disciplina de
+ * `FaixaDaExportacaoCompleta` (app/contatos/faixa-da-exportacao.tsx), pelo mesmo
+ * motivo medido em 24/09/2026: com `achados`, `comEmail` e `semEmail` soltos ao
+ * alcance, entregar o vizinho é uma linha de distância e atravessa `tsc`,
+ * `eslint` e as três suítes. Aqui não há o que escolher — o arquivo é
+ * `tela.comEmail`, por construção, e é literalmente o conjunto que a frase da
+ * seção contou.
+ *
+ * E O E-MAIL DA CÉLULA É `emailDoContato`, PELA MESMA RAZÃO DO CORTE: com
+ * `c.email`, o arquivo levaria o valor VELHO da coluna para quem trocou de
+ * e-mail depois da Parte 1, enquanto a DM sai com o novo — e a célula sairia
+ * VAZIA para quem só tem o registro, apesar de a pessoa ter acabado de entrar na
+ * lista pelo corte. O caso byte a byte de `csvDaListaDeEmail` não pega isso:
+ * aquele caso mede a MONTAGEM do arquivo, e esta função mede o CONTEÚDO dele.
+ *
+ * O ARQUIVO CONTINUA SENDO O MESMO ARQUIVO: `csvDaListaDeEmail` não mudou uma
+ * linha, e o caso que compara os bytes dela segue exatamente como estava.
+ */
+export function listaDeEmailDaTela<T extends ContatoDaTela & { nome: string | null }>(
+  tela: TelaDeContatos<T>
+): ContatoDaListaDeEmail[] {
+  return tela.comEmail.map((c) => ({ nome: c.nome, email: emailDoContato(c) }));
+}
+
+/** O que a lista de e-mail precisa da consulta — as seis, e todas são usadas. */
+export type LinhaDaListaDeEmail = ContatoDaTela & { nome: string | null };
+
+const COLUNAS_DA_LISTA_DE_EMAIL = [
+  "nome",
+  "username",
+  "name",
+  "email",
+  "campos",
+  "categoria",
+] as const;
+
+/**
+ * A LINHA DO BANCO LIDA COMO LINHA DA LISTA DE E-MAIL.
+ *
+ * ELA EXISTE PELO MESMO MOTIVO DE `contatoExportavelDaLinha` (abaixo), e o
+ * buraco dela foi MEDIDO nesta tarefa, em 25/09/2026: tirando `c.campos` do
+ * `select` da rota — uma vírgula a menos na parte que as pessoas de fato editam
+ * — `tsc` passava VERDE e os 1884 casos puros passavam VERDE. A asserção `as`
+ * é uma promessa do autor ao compilador, não uma checagem: as linhas chegariam
+ * com `campos: undefined`, `lerCampos` devolveria registro VAZIO para todo
+ * mundo, e o arquivo inteiro voltaria a sair da COLUNA — ou seja, esta tarefa
+ * inteira desfeita em silêncio, com quem só tem o e-mail no registro sumindo da
+ * lista que o marketing importa.
+ *
+ * O COMENTÁRIO DA ROTA CHEGOU A AFIRMAR QUE O TIPO PEGAVA ISSO, e era falso. É
+ * por isso que a medição virou função: comentário que mente sobre a própria rede
+ * é pior que comentário nenhum.
+ *
+ * AS SEIS COLUNAS SÃO TODAS USADAS, e é o que torna honesto exigir as seis:
+ * `nome` é a primeira coluna do arquivo; `username`, `name` e o e-mail
+ * resolvido são os três campos da busca; `campos` é de onde o e-mail sai; e
+ * `categoria` é a peneira do recorte.
+ *
+ * `in`, E NÃO "TEM VALOR": coluna presente e nula é o normal desta tabela — a
+ * maioria dos contatos não tem categoria, e muitos não têm e-mail. O que se
+ * procura é a coluna que NÃO VEIO.
+ *
+ * O DESFECHO RUIDOSO É O BARATO AQUI, como lá: a consulta é fixa, então isto só
+ * dispara depois de alguém EDITAR o `select` — e a escolha é entre um erro na
+ * cara de quem acabou de editar e uma lista de e-mail silenciosamente errada,
+ * descoberta semanas depois, do lado de fora do painel.
+ */
+export function linhaDaListaDeEmail(linha: Record<string, unknown>): LinhaDaListaDeEmail {
+  const faltando = COLUNAS_DA_LISTA_DE_EMAIL.filter((coluna) => !(coluna in linha));
+  if (faltando.length > 0) {
+    throw new Error(
+      `A consulta da lista de e-mail não trouxe: ${faltando.join(", ")}. ` +
+        "Sem `campos`, o e-mail de todo mundo volta a sair da coluna antiga e quem " +
+        "só tem o e-mail coletado some do arquivo; sem as outras, a busca ou o " +
+        "recorte param de peneirar."
+    );
+  }
+  return {
+    nome: linha.nome as string | null,
+    username: linha.username as string | null,
+    name: linha.name as string | null,
+    email: linha.email as string | null,
+    campos: linha.campos,
+    categoria: linha.categoria as string | null,
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -680,10 +884,22 @@ export function csvCompletoDeContatos(
 // O contato do banco visto como o contexto que `lib/variables.ts` resolve. É a
 // mesma montagem de `variableContext` (lib/queue-drain.ts), e por isso as
 // células desta planilha valem exatamente o que a mensagem enviada valeria.
-function contextoDoContato(contato: ContatoExportavel): VariableContext {
+//
+// O PERFIL É OPCIONAL, e foi o Passo 1 da Parte 2 que o afrouxou: `emailDoContato`
+// (lá em cima) pergunta com uma linha de tabela em mãos, que tem o `jsonb` e a
+// coluna mas não precisa do `username` nem do `name`. Um SEGUNDO montador ali —
+// mais um `lerCampos` escrito à mão — seria a terceira grafia do mesmo contexto
+// nesta base, e a primeira a poder divergir das outras duas em silêncio.
+//
+// AS DUAS DO PERFIL NÃO ENTRAM NA RESPOSTA DO E-MAIL: nenhuma `resolve` de campo
+// do catálogo as lê. Elas ficam aqui porque a PLANILHA precisa delas
+// (`COLUNAS_DO_PERFIL`), e é o mesmo contexto que serve os dois usos.
+function contextoDoContato(
+  contato: ContatoComEmail & { username?: string | null; name?: string | null }
+): VariableContext {
   return {
-    username: contato.username,
-    name: contato.name,
+    username: contato.username ?? null,
+    name: contato.name ?? null,
     email: contato.email,
     campos: lerCampos(contato.campos),
   };

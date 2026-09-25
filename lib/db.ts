@@ -302,7 +302,25 @@ export type Contact = {
   username: string | null;
   name: string | null;
   profile_pic: string | null;
+  // A COLUNA ANTIGA DO E-MAIL, e ela sai na Parte 2 / Passo 2. Desde o Passo 1
+  // nenhuma tela a lê direto: quem responde "qual é o e-mail desta pessoa" é
+  // `emailDoContato` (lib/exportacao-de-contatos.ts), por dentro da regra de
+  // lib/variables.ts, que lê `campos` e cai nesta coluna só na falta dele.
   email: string | null;
+  // O REGISTRO DO QUE A AUTOMAÇÃO COLETOU (`jsonb`, migração 011): nome,
+  // telefone, e-mail, nascimento e os campos que o marketing inventou.
+  //
+  // `unknown`, E NÃO UM TIPO DE OBJETO, de propósito: nada no banco impede que
+  // alguém grave lixo aqui por fora, e declarar a forma faria o `tsc` apagar
+  // como código morto as guardas de runtime de `lerCampos` (lib/campos.ts) —
+  // que é quem entende esta coluna, num lugar só, e descarta o que não tem
+  // forma em vez de estourar.
+  //
+  // ELA ESTAVA FALTANDO NESTE TIPO enquanto `/contatos` fazia `select c.*`: a
+  // linha vinha do Postgres com o registro dentro e o tipo dizia que não vinha.
+  // Foi o Passo 1 da Parte 2 que precisou dela, e é por ela estar aqui que o
+  // compilador consegue cobrar a coluna de quem recortar a tela.
+  campos: unknown;
   awaiting: string | null;
   follow_attempts: number;
   first_contact_at: Date;

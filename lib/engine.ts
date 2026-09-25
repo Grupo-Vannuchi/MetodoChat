@@ -1092,10 +1092,23 @@ async function limparCursor(accountId: string, contactIgId: string) {
 
 // ESCREVE NOS DOIS LUGARES DE PROPÓSITO, e é a única função que faz isso.
 //
-// A coluna `contacts.email` só sai na Parte 2, e até lá os SEIS leitores de hoje
-// continuam lendo dela. Ter UM escritor só é o que impede as duas fontes de
-// divergirem enquanto a janela está aberta — duas escritas em dois pontos
-// diferentes é como `flow_step_index` e `flow_step_id` chegaram a discordar.
+// A coluna `contacts.email` só sai na Parte 2 / PASSO 2, e a escrita continua
+// enquanto ela existir. O QUE MUDOU NO PASSO 1 (25/09/2026) foi quem lê: os seis
+// leitores diretos que esta frase citava não existem mais. Sobrou UM — a queda
+// de `lib/variables.ts`, que devolve a coluna quando o registro não tem o campo
+// —, e é por ela que a tela, a busca, a ficha, as duas planilhas e a DM passam.
+//
+// ENTÃO POR QUE AINDA ESCREVER OS DOIS. Porque aquele único leitor é real: todo
+// contato coletado antes da migração `012` tem a COLUNA cheia e o registro
+// vazio, e a `012` é aplicada À MÃO, fora do build. Parar de escrever aqui faria
+// o e-mail de quem for coletado a partir de agora existir só no registro — o que
+// hoje funciona — mas deixaria as duas fontes divergirem de propósito antes da
+// hora, e é a sincronia delas que torna o Passo 2 uma remoção e não uma
+// migração de dados.
+//
+// Ter UM escritor só é o que impede as duas fontes de divergirem enquanto a
+// janela está aberta — duas escritas em dois pontos diferentes é como
+// `flow_step_index` e `flow_step_id` chegaram a discordar.
 //
 // `campos || jsonb_build_object(...)` MESCLA, e não substitui. Trocar por
 // `set campos = jsonb_build_object(...)` é o plantio óbvio desta função: gravar
@@ -1134,7 +1147,10 @@ async function gravarCampo(
               'automacao', $5::text)),
             campo_tentativas = 0,
             -- A COLUNA CONTINUA ESCRITA ENQUANTO A JANELA ESTIVER ABERTA. Ela
-            -- só sai na Parte 2, e até lá os SEIS leitores de hoje leem dela.
+            -- só sai na Parte 2 / Passo 2; desde o Passo 1 quem a lê é só a
+            -- queda de lib/variables.ts — ver o cabeçalho desta função.
+            -- (Sem crase neste bloco: ele vive dentro de um template literal,
+            -- e uma crase aqui fecharia a string da consulta.)
             email = case when $3 = 'email' then $4 else email end
       where account_id = $1 and ig_id = $2`,
     [accountId, igId, chave, valor, automacaoId]

@@ -116,11 +116,18 @@ const VARIAVEIS_DE_CAMPO: VariableDef[] = CAMPOS.map((c) => ({
   resolve: (ctx) =>
     valorColetado(ctx, c.chave) ||
     // A SEGUNDA FONTE É SÓ DO E-MAIL, e ela é transitória: `contacts.email`
-    // continua sendo escrita e lida nesta Parte 1 (a remoção é da Parte 2), e
-    // todo contato coletado ANTES desta fase tem a COLUNA cheia e o registro
-    // vazio. Sem esta queda, o `{{email}}` que hoje funciona em produção
-    // passaria a sair em branco para essas pessoas — um recurso novo quebrando
-    // o que já estava no ar.
+    // continua sendo escrita (`gravarCampo`, lib/engine.ts) até a Parte 2 /
+    // Passo 2, e todo contato coletado ANTES desta fase tem a COLUNA cheia e o
+    // registro vazio — a migração `012` é aplicada À MÃO, fora do build. Sem
+    // esta queda, o `{{email}}` que hoje funciona em produção passaria a sair em
+    // branco para essas pessoas — um recurso novo quebrando o que já estava no ar.
+    //
+    // ESTA LINHA É, DESDE O PASSO 1 (25/09/2026), O ÚNICO LEITOR DA COLUNA em
+    // todo o produto. As telas liam `contacts.email` direto — a célula da
+    // tabela, o corte "Com e-mail", a busca e o `where` da exportação
+    // congelada —, e o Passo 1 as trouxe todas para cá, por `emailDoContato`
+    // (lib/exportacao-de-contatos.ts). É o que torna o Passo 2 uma remoção de
+    // DUAS linhas (esta e a escrita) em vez de uma caçada por leitores.
     //
     // O REGISTRO TEM PRECEDÊNCIA porque é ele que guarda o QUANDO; a coluna não
     // tem data nem origem de coleta. Quem escreve os dois lugares é UMA função
@@ -162,6 +169,40 @@ export const VARIABLES: VariableDef[] = [
 ];
 
 const BY_KEY = new Map(VARIABLES.map((v) => [v.key, v]));
+
+/**
+ * O VALOR DE UMA CHAVE, para quem NÃO está renderizando uma mensagem.
+ *
+ * ELA É O CORPO DO `replace` DE `renderVariables`, EXTRAÍDO — e não uma segunda
+ * regra escrita ao lado. `renderVariables` a chama logo abaixo, então não há
+ * como as duas divergirem: é a MESMA linha, com um nome.
+ *
+ * POR QUE ELA PRECISOU DE NOME, e a razão é do Passo 1 da Parte 2: as telas
+ * pararam de ler `contacts.email` e passaram a perguntar "qual é o e-mail desta
+ * pessoa?" — uma pergunta que NÃO tem token, nem substituto, nem texto em volta.
+ * As duas formas de fazê-la sem isto eram piores:
+ *
+ *   `VARIABLES.find((v) => v.key === "email")?.resolve(ctx) ?? ""` abre um ramo
+ *     de `undefined` que caso nenhum consegue alcançar — `VARIABLES` nasce de
+ *     `CAMPOS` e o e-mail está lá. Guarda que ninguém prende é guarda que a
+ *     próxima limpeza leva embora, e esta base já achou mais de dez assim.
+ *   `renderVariables("{{email}}", ctx)` funciona, e põe a chave `email` escrita
+ *     entre chaves num arquivo que não fala de mensagem nenhuma — uma segunda
+ *     grafia da chave, longe de quem a declara.
+ *
+ * A CHAVE FORA DA LISTA FIXA CAI NO REGISTRO, igual ao envio: é o que paga a
+ * dívida do campo livre, e quem perguntar por um campo que o dono inventou
+ * recebe o que a pessoa respondeu. Não há ramo de "não existe".
+ *
+ * O `trim` FICA AQUI porque é aqui que o valor vira resposta: `resolve` de campo
+ * do catálogo já apara, mas `first_name` e as outras do perfil não passam por
+ * `valorColetado`, e um valor só de espaço tem de contar como AUSENTE para o
+ * `||` de quem chama funcionar.
+ */
+export function valorDaVariavel(chave: string, ctx: VariableContext): string {
+  const def = BY_KEY.get(chave);
+  return def ? def.resolve(ctx).trim() : valorColetado(ctx, chave);
+}
 
 // {{ chave | fallback }} — a chave aceita letras (COM ACENTO), números e _
 //
@@ -255,8 +296,10 @@ export function renderVariables(text: string, ctx: VariableContext): string {
     // registro, e o token some com o mesmo desfecho de sempre, em vez de
     // precisar de um ramo só para ele.
     const chave = formaDaChave(rawKey) ?? "";
-    const def = BY_KEY.get(chave);
-    const valor = def ? def.resolve(ctx).trim() : valorColetado(ctx, chave);
+    // PELA MESMA `valorDaVariavel` QUE AS TELAS USAM (acima), e não por uma
+    // cópia desta expressão: é o que garante que a célula da tabela, a linha da
+    // ficha e o arquivo do marketing falem do mesmo e-mail que a DM envia.
+    const valor = valorDaVariavel(chave, ctx);
     return valor || (fallback ?? "").trim();
   });
 }
