@@ -271,12 +271,16 @@ passou a dizer só o fato ("já existe um bônus com esse slug e esse título"):
 tentativa anterior é o Chat. O Chat lê as respostas novas desde a FASE 1.13, e o `duplicate` só
 vira `criado` com o `id`, o que mantém no lado seguro uma resposta do contrato antigo.
 
-**Ligar a porta**, na ordem que a sessão do Labs mediu (a produção dele, `dc7cafe`, ainda não tem
-o conserto): (1) o `ALTER TABLE "Lead"` da Etapa 45 do Labs na produção de lá; (2) o deploy
-`dev` → `main` do Labs; (3) o `BONUS_INTAKE_SECRET` novo no Labs; (4) o mesmo segredo e a
-`LABS_URL` na Vercel do Chat. Até o passo 4, o Chat nem envia: recusa por falta de configuração.
-Se alguém configurar o Chat antes do Labs, ele recebe 503 antes do passo 3 e 401 depois dele. Os
-dois já estão tratados, e nenhum grava bônus.
+**Ligar a porta**, nesta ordem (a produção do Labs, `dc7cafe`, ainda não tem o conserto): (1) o
+deploy `dev` → `main` do Labs; (2) o `BONUS_INTAKE_SECRET` novo no Labs, na Hostinger; (3) o mesmo
+segredo e a `LABS_URL` na Vercel do Chat. Até o passo 3, o Chat nem envia: recusa por falta de
+configuração. Se alguém configurar o Chat antes do Labs, ele recebe 503 antes do passo 2 e 401
+depois dele. Os dois já estão tratados, e nenhum grava bônus.
+
+O `ALTER TABLE "Lead"` da Etapa 45 do Labs chegou a estar nesta ordem e saiu, conferido na fonte
+em 29/09 (site-ia `e522754`): a coluna nova só é escrita por `registrarContatoDoBonus`, que não
+tem chamador, e os outros usos de `Lead` (um `deleteMany` e um `count`) não a pedem. O SQL passa a
+ser obrigatório quando a tela que chama essa função existir, e isso é do Labs.
 
 ### As telas
 
