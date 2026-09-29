@@ -50,10 +50,12 @@ cita só o que muda o desenho.
 | mecanismo | tabela própria + `after()` da Server Action | ver a medição da fila, acima |
 | modelo | `claude-opus-5-5` | padrão da skill `claude-api`; mais novo e mais barato que o `claude-opus-5` do Labs (US$ 4/20 contra 5/25 por MTok). A instrução foi calibrada no `opus-5`, então a primeira geração real é conferida contra a régua de lá |
 | schema da saída | `zod` + `zodOutputFormat`, como no Labs | o schema do Labs entra como está, sem uma segunda forma para manter igual |
-| `lib/esquema.ts` | **não é tocado** | registrar a tabela faria o painel inteiro, DMs incluídas, se recusar a subir sem ela. Sem o registro, a tabela ausente quebra só `/bonus` |
+| `lib/esquema.ts` | **uma entrada em `naoObservaveis`**, e a tabela **fora** de `tabelas` | registrar a tabela faria o painel inteiro, DMs incluídas, se recusar a subir sem ela. Mas `testes-integracao/esquema-de-partida.integracao.ts:62-83` exige que toda migração da pasta esteja declarada na `MARCA_DAGUA`, e roda no container. `naoObservaveis` cumpre a exigência sem que a partida passe a depender da tabela: `faltando()` só percorre `tabelas` e `colunas` (`lib/esquema.ts:220-227`) |
+| `scripts/migrar.mjs` | **não é tocado** | a lista `ESPERADAS` só confere depois de aplicar; a `013` é aplicada sem ela, e o teste de integração da feature confere as colunas da tabela |
 
 Todas as decisões são do Eduardo, tomadas em 29/09, exceto o modelo, que segue o padrão da
-skill e foi declarado a ele.
+skill e foi declarado a ele. A do `lib/esquema.ts` foi revista no mesmo dia, depois do achado do
+auditor sobre o teste de partida.
 
 ---
 
@@ -86,6 +88,7 @@ Fora dessa pasta, e nada mais:
 | arquivo | o toque |
 |---|---|
 | `app/app-shell.tsx` | uma linha no grupo "Gerenciar" e o import de `IconMensagemLink`, que já existe |
+| `lib/esquema.ts` | uma entrada em `MARCA_DAGUA.naoObservaveis`, com o motivo |
 | `migrations/013-bonus-gerados.sql` | arquivo novo |
 | `package.json`, `package-lock.json` | `@anthropic-ai/sdk` e `zod` |
 | `tests/`, `testes-integracao/`, `testes-dom/` | arquivos novos, prefixados `bonus-` |
@@ -118,14 +121,21 @@ Uma linha é um bônus, do pedido ao envio.
    caracteres, o que resolve de 20 a 1 000, palavra opcional), confere o teto (linhas das últimas
    24 h no relógio do banco, **qualquer que seja o estado**: uma geração que falhou também pode
    ter custado), confere `ANTHROPIC_API_KEY`, insere a linha em `pendente` e agenda `after()`.
+   **Contar e inserir acontecem numa transação com `pg_advisory_xact_lock`**: sem a trava, dois
+   cliques simultâneos com 4 linhas no dia passariam os dois pela contagem e fariam 6.
 2. No `after()`: `update ... set estado = 'gerando' where id = $1 and estado = 'pendente'`. **Só
    quem muda a linha chama a IA**; um segundo disparo não gasta outra chamada.
-3. A chamada: `claude-opus-5-5`, `messages.parse` com `zodOutputFormat`, instrução no `system`
-   com `cache_control`, o pedido na mensagem do usuário, `effort: "high"` explícito (o nível em
-   que a instrução foi calibrada no Labs; o padrão do `opus-5-5` seria `medium`), `max_tokens: 16000`,
-   `maxRetries: 0` e timeout do cliente abaixo do teto. Fallback de recusa do servidor ligado
-   (`fallbacks: "default"`), com a combinação com `parse` conferida na documentação da SDK na
-   hora de implementar.
+3. A chamada: `claude-opus-5-5`, `client.beta.messages.parse` com `betaZodOutputFormat`, a
+   instrução no `system`, o pedido na mensagem do usuário, `effort: "high"` explícito (o nível em
+   que a instrução foi calibrada no Labs; o padrão do `opus-5-5` seria `medium`),
+   `max_tokens: 16000`, `maxRetries: 0` e timeout do cliente abaixo do teto. Fallback de recusa do
+   servidor ligado: `betas: ["server-side-fallback-2026-07-01"]` e `fallbacks: "default"`.
+   Conferido nos tipos da SDK (0.120.0, a do Labs): `beta.messages.parse` existe,
+   `BetaFallbacksParam` aceita `'default'`, e `betaZodOutputFormat` mora em
+   `@anthropic-ai/sdk/helpers/beta/zod`.
+   **Sem `cache_control`**, por conta: a escrita no cache custa 1,25× e só se paga com duas
+   gerações em 5 minutos, o que o teto de 5 por dia torna raro. A `medicao` grava cache criado e
+   lido, então a decisão pode ser revista com número.
 4. A linha termina em `pronto` (com `gerado` e `medicao`) ou em `falhou` (com `erro` legível).
 
 **A instrução** é a `INSTRUCAO_BONUS` do Labs, mais a `REGRA_DE_PORTUGUES` que ela importa,
@@ -153,7 +163,12 @@ como "travou", sem cron.
 
 1. Confere a sessão e a configuração (`BONUS_INTAKE_SECRET` e `LABS_URL`; sem elas, recusa).
 2. Reivindica o envio: `envio_estado = 'enviando'` só se não houver outro envio iniciado há menos
-   de 30 s. Um `enviando` mais velho que isso é lido como `incerto`.
+   de 30 s. **Um `enviando` mais velho que isso é GRAVADO como incerto na mesma instrução que o
+   reivindica** (`incerto_pendente = incerto_pendente or envio_estado = 'enviando'`, com o valor
+   antigo da linha), antes de o passo 4 decidir o corpo. Ler como incerto só na tela não basta: se
+   o processo morreu entre o POST e a gravação do desfecho, ou se a gravação falhou (o pooler já
+   morreu por falta de vaga, `testes-integracao/banco-descartavel.ts:112-116`), sobraria
+   `incerto_pendente` falso e o corpo solto.
 3. Valida os campos revisados contra as regras **do contrato** (slug 3–90 `a-z 0-9 -`, título
    3–220, descrição 8–1200, prompt 20–20 000, intro ≤ 4 000), para o Labs nunca recusar por culpa
    nossa. A palavra segue uma regra **mais estreita** que a do contrato (≤ 80): o Chat a
@@ -175,8 +190,8 @@ verdadeiro: uma tentativa anterior terminou sem que o Chat soubesse o desfecho.
 | 409 `titulo_repetido` com `slugExistente` = o nosso slug | `criado`: é o nosso | `criado`: é o nosso, a tentativa incerta terminou no meio desta |
 | 409 `titulo_repetido` com outro slug | `recusado`: "o bônus X já tem esse título". Libera | igual, e libera: o mesmo título teria barrado a tentativa incerta |
 | 409 `palavra_chave_repetida` | `recusado`: "a palavra X já leva a outro bônus". Libera | **`conferir`**: pode ser a nossa tentativa incerta |
-| 422 (campos, tema, ausentes) | `recusado`: o problema de cada campo, ou a lista `temasValidos` para escolher. Libera | igual, e libera: a validação é determinística, o mesmo corpo teria sido recusado da primeira vez |
-| 413 | `recusado`: passou de 64 000 bytes. Libera | igual, e libera, pelo mesmo motivo |
+| 422 (campos, tema, ausentes) | `recusado`: o problema de cada campo, ou a lista `temasValidos` para escolher. Libera | **`conferir`**: a checagem vem antes da do slug e **não é determinística no tempo**. O catálogo muda (o `/admin` do Labs renomeia e apaga tema, `admin/temas/actions.ts:124` e `:165`), então a tentativa incerta pode ter passado e criado |
+| 413 | `recusado`: passou de 64 000 bytes. Libera | **`conferir`**, pelo mesmo motivo: vem antes do slug, e a regra é do código do Labs, que vai mudar |
 | 401 `timestamp_fora_da_janela` | `recusado`: relógio deste servidor fora de sincronia. Libera | `recusado`, e **continua congelado**: a tentativa incerta pode ter tido o relógio certo |
 | 401 outros | `recusado`: segredo diferente nos dois lados. Libera | igual, e continua congelado |
 | 429 | `esperar`: "o Labs pediu para esperar 60 s", e o botão de reenviar | igual |
@@ -204,6 +219,9 @@ dois botões, cada um uma action com conferência de sessão:
    igual que nasce no mesmo instante responde `duplicate` para um slug que **não existe**. Sem
    incerta antes, isso aparece como `colisao`: troca-se o slug, e o reenvio revela a palavra
    repetida, com o diagnóstico certo.
+4. **As checagens anteriores ao slug não são determinísticas no tempo.** O catálogo de temas
+   muda pelo `/admin` do Labs, e o teto de tamanho é regra de código que pode mudar. Uma recusa
+   dessas depois de uma tentativa incerta não prova que a incerta falhou.
 
 Sem incerta antes, `isActive` não muda nada. Com incerta antes, `isActive: true` também é ambíguo:
 alguém pode ter publicado o nosso bônus no /admin entre o timeout e o reenvio.
@@ -217,18 +235,25 @@ motivo na tela. **Liberar** significa duas coisas juntas: o corpo volta a ser ed
 próximo envio serializa de novo, e `incerto_pendente` volta a falso, porque toda resposta que
 libera prova que nenhuma tentativa desta linha criou o bônus.
 
-- um desfecho **incerto** congela e põe `incerto_pendente` em verdadeiro;
-- **liberam:** colisão sem incerta antes; 401 sem incerta antes; 409 de título com outro slug;
-  422 e 413; "Não existe" na conferência;
-- **mantêm como está:** 401 com incerta antes; 429; 503; `conferir`;
+- um desfecho **incerto** congela e põe `incerto_pendente` em verdadeiro, e um `enviando` velho
+  reivindicado também;
+- **liberam:** sem incerta antes, toda recusa (colisão, 401, 409, 413, 422); com ou sem incerta, o
+  409 de título com outro slug; e "Não existe" na conferência;
+- **mantêm congelado:** com incerta antes, 401, 413, 422, 409 de palavra e duplicate (os quatro
+  últimos em `conferir`); e 429 e 503, que não mudam nada;
 - `criado` encerra o envio.
+
+**A regra por trás da lista:** com incerta antes, só libera a resposta que vem **depois** da
+checagem de slug (184) e aponta para outro dono. Tudo o que vem antes dela não diz nada sobre a
+tentativa incerta, e aí quem decide é uma pessoa olhando o `/admin`.
 
 **O conserto no Labs, fora deste repositório.** Decidido pelo Eduardo em 29/09: uma etapa
 pequena no site-ia em que (a) a duplicata só vale quando slug **e** título coincidem (sem
 distinguir maiúscula), senão 409 `slug_ocupado`; (b) a violação de unicidade lê `meta.target`, e
 a do índice da palavra vira 409 `palavra_chave_repetida`; (c) o contrato e o `bonus:prova`
-acompanham. Com isso as fontes 1 e 3 somem, e `conferir` fica só para a corrida. Até o contrato
-novo sair, `slug_ocupado` é resposta fora do contrato, e cai em `incerto`, o lado seguro.
+acompanham. Com isso as fontes 1 e 3 somem, e `conferir` fica só para a corrida e para as
+recusas anteriores ao slug depois de uma tentativa incerta. Até o contrato novo sair,
+`slug_ocupado` é resposta fora do contrato, e cai em `incerto`, o lado seguro.
 
 ### As telas
 
@@ -295,10 +320,14 @@ proteção é retirada.
 | pura | sequência [timeout, 409 `titulo_repetido` com `slugExistente` = o nosso] termina em `criado` (proposto pelo auditor) | o 409 liberar sempre |
 | pura | sequência [timeout, 409 `palavra_chave_repetida`] termina em `conferir`, com o corpo congelado | idem |
 | pura | sequência [timeout, `duplicate` com `isActive: true`] termina em `conferir`, e não em `colisao` | `isActive` decidir sozinho |
-| pura | o congelamento: incerta → 401 continua congelado; incerta → 422 libera; "Não existe" libera | o corpo mudar depois de incerta |
+| pura | sequência [timeout, 422 `tema_fora_do_catalogo`] termina em `conferir`, com o corpo congelado (proposto pelo auditor) | alguém tratar o 422 como determinístico |
+| pura | o congelamento: incerta → 401 continua congelado; "Não existe" libera | o corpo mudar depois de incerta |
 | pura | a ordem dos relógios | alguém mexer num número só |
 | pura | linha travada com relógio forjado; o teto diário; a palavra digitada vencendo a da IA; a validação contra o contrato | — |
 | integração (**só no container**, com `DATABASE_URL_TESTES`) | a `013` cria a tabela com as restrições; o teto conta no relógio do banco; dois processamentos da mesma linha chamam a IA uma vez (dublê da IA) | — |
+| integração | pedidos simultâneos com 4 linhas no dia: só 1 entra | a trava sair da transação |
+| integração | linha em `enviando` há 31 s, `incerto_pendente` falso, corpo X; envio com o slug editado para Y e resposta `200 duplicate`: o Labs recebe X e o estado final é `conferir` (proposto pelo auditor) | a reivindicação não gravar a incerteza |
+| todas | cada arquivo novo casa com o `include` da sua suíte (`tests/**/*.test.ts`, `testes-integracao/**/*.integracao.ts`, `testes-dom/**/*.dom.tsx`). A prova é a contagem subir acima da base de 29/09: 54 arquivos / 1 891 casos puros, 9 / 64 de tela | o arquivo não rodar em suíte nenhuma |
 | integração | o envio contra um dublê HTTP em `127.0.0.1`: timeout na 1ª, e a 2ª leva o mesmo slug e o mesmo corpo | — |
 | tela | o acompanhamento para quando a geração termina e nunca sobrepõe pedidos | — |
 
