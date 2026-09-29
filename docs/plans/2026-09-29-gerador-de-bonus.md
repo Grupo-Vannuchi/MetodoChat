@@ -2718,7 +2718,7 @@ async function linhaPronta(): Promise<string> {
     .sql()
     .query(`update bonus_gerados set estado = 'pronto', gerado = $2::jsonb, gerado_em = now() where id = $1`, [
       r.id,
-      JSON.stringify(GERADO),
+      GERADO,
     ]);
   return r.id;
 }
@@ -2744,6 +2744,14 @@ describe("o teto diário", () => {
       .sql()
       .begin(async (tx) => {
         await tx.query(`select pg_advisory_xact_lock($1::bigint)`, [repo.TRAVA_DO_TETO]);
+        // CINCO LINHAS INVISÍVEIS ATÉ O COMMIT (reforço do auditor): quem conta DEPOIS
+        // de pegar a trava vê 5 e recusa; quem conta ANTES dela vê 0 e insere. Assim o
+        // caso pega a trava no lugar errado, e não só a trava ausente.
+        for (let i = 0; i < 5; i++) {
+          await tx.query(
+            `insert into bonus_gerados (tema, o_que_resolve) values ('Marketing', 'um pedido de teste com mais de vinte letras')`
+          );
+        }
         travou();
         await segurando;
       });
@@ -2758,7 +2766,7 @@ describe("o teto diário", () => {
 
     soltar();
     await transacao;
-    expect((await pedido).ok).toBe(true);
+    expect((await pedido).ok).toBe(false);
   });
 
   it("com 5 no dia, o sexto é recusado", async () => {
@@ -3010,6 +3018,12 @@ import { ENVIO_PARADO_MS } from "./tempos";
 // O SQL DO GERADOR DE BÔNUS. Toda escrita aqui é um `update` CONDICIONAL: o
 // `where` é a proteção, e testes-integracao/bonus-processo.integracao.ts é quem
 // acusa se alguém a tirar.
+//
+// OBJETO VAI CRU PARA COLUNA `jsonb`, E NUNCA `JSON.stringify`: o driver já
+// serializa, e a string pronta seria serializada DE NOVO e gravada como um texto
+// JSON escalar, e não como objeto. É o aviso do dono em lib/queue-drain.ts
+// (`guardarNoPayload`), e este arquivo o desobedeceu na primeira versão do plano:
+// quem acusou foi o caso de integração, com `gerado` voltando como texto.
 
 /**
  * A chave da trava do teto. Número fixo, e não `hashtext`, para não depender de
@@ -3059,7 +3073,7 @@ export async function gravarGerado(id: string, dados: BonusGerado, medicao: Medi
     `update bonus_gerados
         set estado = 'pronto', gerado = $2::jsonb, medicao = $3::jsonb, erro = null, gerado_em = now()
       where id = $1 and estado = 'gerando'`,
-    [id, JSON.stringify(dados), JSON.stringify(medicao)]
+    [id, dados, medicao]
   );
 }
 
@@ -3068,7 +3082,7 @@ export async function gravarFalha(id: string, erro: string, medicao: Medicao | n
     `update bonus_gerados
         set estado = 'falhou', erro = $2, medicao = $3::jsonb, gerado_em = now()
       where id = $1 and estado in ('pendente', 'gerando')`,
-    [id, erro.slice(0, 1000), medicao === null ? null : JSON.stringify(medicao)]
+    [id, erro.slice(0, 1000), medicao]
   );
 }
 
@@ -3154,7 +3168,7 @@ export async function gravarCorpo(
     `update bonus_gerados set slug = $3, corpo_enviado = $4, revisado = $5::jsonb
       where id = $1 and tentativas = $2 and envio_estado = 'enviando'
       returning id`,
-    [id, ficha, slug, corpo, JSON.stringify(revisado)]
+    [id, ficha, slug, corpo, revisado]
   )) as { id: string }[];
   return linhas.length > 0;
 }
@@ -3168,7 +3182,7 @@ export async function gravarDesfecho(id: string, ficha: number, d: Desfecho): Pr
             enviado_em = case when $3 = 'criado' then now() else enviado_em end
       where id = $1 and tentativas = $2 and envio_estado = 'enviando'
       returning id`,
-    [id, ficha, d.estado, d.incertoPendente, JSON.stringify({ motivo: d.motivo, ...d.detalhe })]
+    [id, ficha, d.estado, d.incertoPendente, { motivo: d.motivo, ...d.detalhe }]
   )) as { id: string }[];
   return linhas.length > 0;
 }
@@ -3319,14 +3333,19 @@ Esperado: todos os casos PASS, alvo no banco de teste, `typecheck` limpo.
 Um de cada vez, rodando o arquivo de integração depois de cada troca e desfazendo em seguida:
 
 1. Em `criarPedido`, apague a linha do `pg_advisory_xact_lock`. Esperado: FAIL em "o pedido
-   espera a trava do teto" (o pedido vence o relógio).
+   espera a trava do teto" (o pedido vence o relógio). E, em separado, mova a trava para
+   DEPOIS da contagem. Esperado: FAIL no mesmo caso, agora no `ok === false` do fim (o pedido
+   contou 0 antes de esperar e inseriu).
 2. Em `reivindicarGeracao`, troque `and estado = 'pendente'` por nada. Esperado: FAIL em "dois
    disparos da mesma linha chamam a IA uma vez só".
 3. Em `reivindicarEnvio`, troque `incerto_pendente or coalesce(envio_estado = 'enviando', false)`
    (a do `set incerto_pendente`) por `incerto_pendente`. Esperado: FAIL em "envio preso há 61 s é
    GRAVADO como incerto".
-4. Em `gravarDesfecho`, apague `and tentativas = $2` (mantendo o parâmetro). Esperado: FAIL em
-   "a ficha: o desfecho de quem perdeu a reserva não apaga o de quem a assumiu".
+4. Em `gravarDesfecho`, troque `tentativas = $2` por `$2::int = $2::int`, que é sempre
+   verdadeiro e mantém o parâmetro em uso. Esperado: FAIL SÓ em "a ficha: o desfecho de quem
+   perdeu a reserva não apaga o de quem a assumiu". **Não apague o trecho inteiro**: com `$2`
+   sem uso o Postgres recusa a consulta, caem quatro casos, e a falha passa a medir o erro de
+   sintaxe, e não a ficha (medido na execução).
 5. Em `reivindicarEnvio`, troque o `case` do `corpo_enviado` por `corpo_enviado = corpo_enviado`.
    Esperado: FAIL em "o corpo liberado é apagado na reserva".
 
