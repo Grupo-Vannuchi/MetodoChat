@@ -4057,6 +4057,15 @@ async function passar(ms: number) {
   });
 }
 
+/**
+ * UM INTERVALO POR VEZ, e cada um dentro do seu `act`. O próximo timer só existe depois
+ * de o React re-renderizar, e ele re-renderiza ENTRE tarefas: avançar 244 s de uma vez
+ * dispara um timer só, e o relógio nunca chega ao "desistir" (medido na execução).
+ */
+async function passarIntervalos(n: number) {
+  for (let i = 0; i < n; i++) await passar(INTERVALO_CONSULTA_MS);
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ now: INICIO });
   refresh.mockClear();
@@ -4076,18 +4085,18 @@ describe("Acompanhar", () => {
     expect(refresh).toHaveBeenCalledTimes(2);
   });
 
-  it("nunca pergunta mais de uma vez por intervalo", async () => {
+  it("pergunta uma vez por intervalo, nem mais nem menos", async () => {
     render(<Acompanhar criadoEmMs={INICIO} />);
-    await passar(INTERVALO_CONSULTA_MS * 10);
-    expect(refresh.mock.calls.length).toBeLessThanOrEqual(10);
+    await passarIntervalos(10);
+    expect(refresh).toHaveBeenCalledTimes(10);
   });
 
   it("para de perguntar depois de DESISTIR_MS, e diz isso na tela", async () => {
     render(<Acompanhar criadoEmMs={INICIO} />);
-    await passar(DESISTIR_MS + INTERVALO_CONSULTA_MS * 2);
+    await passarIntervalos(DESISTIR_MS / INTERVALO_CONSULTA_MS + 2);
     const chamadas = refresh.mock.calls.length;
     expect(screen.getByText(/parei de conferir/i)).toBeTruthy();
-    await passar(INTERVALO_CONSULTA_MS * 5);
+    await passarIntervalos(5);
     expect(refresh.mock.calls.length).toBe(chamadas);
   });
 
@@ -4095,7 +4104,7 @@ describe("Acompanhar", () => {
     const { unmount } = render(<Acompanhar criadoEmMs={INICIO} />);
     await passar(INTERVALO_CONSULTA_MS);
     unmount();
-    await passar(INTERVALO_CONSULTA_MS * 5);
+    await passarIntervalos(5);
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 });
@@ -4390,6 +4399,10 @@ export default async function Bonus({
   }
   const temas = await temasSugeridos(process.env.LABS_URL);
   const restam = restamHoje(usadas);
+  // Server Component `async` e `force-dynamic`: roda UMA vez por requisição, e ler o
+  // relógio aqui é o comportamento pedido. A regra trata todo arquivo como cliente;
+  // o dono silencia do mesmo jeito, com o motivo por extenso, em app/page.tsx:322-333.
+  // eslint-disable-next-line react-hooks/purity
   const agora = Date.now();
 
   return (
@@ -4563,6 +4576,10 @@ export default async function BonusGerado({
   }
   if (!linha) notFound();
 
+  // Server Component `async` e `force-dynamic`: roda UMA vez por requisição, e ler o
+  // relógio aqui é o comportamento pedido. A regra trata todo arquivo como cliente;
+  // o dono silencia do mesmo jeito, com o motivo por extenso, em app/page.tsx:322-333.
+  // eslint-disable-next-line react-hooks/purity
   const agora = Date.now();
   const geracao = geracaoNaTela(linha.estado, linha.criado_em, agora);
 
