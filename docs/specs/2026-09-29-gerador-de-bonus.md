@@ -401,7 +401,9 @@ ligada na produção. Se estourar, o envio vira "incerto", e o reenvio leva o me
 ## Pré-condições do merge
 
 1. **Fluid Compute ligado**, conferido pelo Eduardo na tela da Vercel. Sem ele, o
-   `maxDuration = 300` pode derrubar o build de produção da `main`.
+   `maxDuration = 300` pode derrubar o build de produção da `main`. **Cumprida em 29/09:** o
+   Eduardo viu a chave ligada em Settings → Functions, e o plano do time é **Hobby** (teto de
+   300 s por função, o mesmo número das páginas do bônus).
 2. `ANTHROPIC_API_KEY` criada na Vercel (production).
 3. `npm run verify` limpo, e a suíte de integração verde no container.
 4. `BONUS_INTAKE_SECRET` e `LABS_URL` **não** são pré-condição: sem elas o envio recusa com a
@@ -423,6 +425,8 @@ Achados de 29/09 que não são desta feature. Ficam para o dono.
   lembretes só saem quando chega webhook ou no cron diário.
 - As Server Actions do projeto conferem a sessão só pelo `proxy.ts`.
 - O README diz Neon e esquema criado pelo `lib/db.ts`; os dois mudaram.
+- O time da Vercel está no plano Hobby, que os termos da Vercel restringem a uso não comercial.
+  O painel atende um negócio. Não bloqueia esta feature, mas a decisão de plano é do dono.
 - Na prova real, com o `next dev` local apontado para a produção, apareceu
   `57014 canceling statement due to statement timeout` como `unhandledRejection`, sem requisição
   ligada, logo depois de uma recarga por edição de arquivo. O `statement_timeout` da produção é de
