@@ -19,6 +19,30 @@ describe("lerRevisado", () => {
     });
   });
 
+  // O NAVEGADOR MANDA TODO TEXTAREA COM \r\n, e o texto da IA vem com \n. Medido na
+  // prova real de 29/09: as 21 quebras do prompt chegaram ao Labs como \r\n.
+  const comCr = (s: string) => s.replace(/\n/g, "\r\n");
+
+  it("devolve a quebra de linha do formulário (\\r\\n) para \\n em todo campo", () => {
+    const r = lerRevisado({
+      ...REVISADO,
+      descricao: comCr("Primeira linha da descrição.\nSegunda linha."),
+      intro: comCr("Cole na IA.\nResponda às perguntas."),
+      prompt: comCr("Aja como um estrategista.\nMonte o cronograma.\nUm dia por linha."),
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      for (const campo of ["descricao", "intro", "prompt"] as const) expect(r.revisado[campo]).not.toContain("\r");
+      expect(r.revisado.prompt).toBe("Aja como um estrategista.\nMonte o cronograma.\nUm dia por linha.");
+    }
+  });
+
+  it("conta o prompt depois de desfazer o \\r\\n: 20 000 caracteres na tela cabem", () => {
+    // 200 linhas de 100 caracteres (99 + a quebra): 20 000 na tela, 20 200 com \r\n.
+    const prompt = ("x".repeat(99) + "\n").repeat(200);
+    expect(lerRevisado({ ...REVISADO, prompt: comCr(prompt) }).ok).toBe(true);
+  });
+
   it.each(["ab", "kit--x", "-kit", "kit-", "kit_x", "kit de", "x".repeat(91)])(
     "recusa o slug %j",
     (slug) => {

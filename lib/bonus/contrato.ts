@@ -42,8 +42,14 @@ export const CORPO_MAX_BYTES = 64_000;
 
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/**
+ * O navegador manda todo textarea com a quebra \r\n, e o texto da IA vem com \n
+ * (medido na prova real de 29/09). A quebra volta a ser \n ANTES de contar e de
+ * montar o corpo: sem isso, cada linha conta um caractere a mais que na tela, e o
+ * Labs recebe \r\n.
+ */
 function texto(v: unknown): string {
-  return typeof v === "string" ? v.trim() : "";
+  return typeof v === "string" ? v.replace(/\r\n?/g, "\n").trim() : "";
 }
 
 export function lerRevisado(
