@@ -36,6 +36,22 @@ describe("toda saída tem frase", () => {
     expect(q.texto).toMatch(/antes/i);
   });
 
+  it("o criado pela duplicata é sucesso, e também manda publicar antes", () => {
+    const q = quadroDoEnvio("criado_pela_duplicata", detalheDe({ id: 7 }), "kit");
+    expect(q.tom).toBe("ok");
+    expect(q.texto).toContain("uma vez só");
+    expect(q.texto).toMatch(/antes/i);
+  });
+
+  it("o slug ocupado manda trocar o slug, e diz que nada foi criado", () => {
+    const q = quadroDoEnvio("slug_ocupado", detalheDe(null), "kit");
+    expect(q.tom).toBe("erro");
+    expect(q.texto).toContain("kit");
+    expect(q.texto).toContain("outro título");
+    expect(q.texto).toContain("Troque o slug");
+    expect(q.texto).toContain("Nada deste bônus foi criado");
+  });
+
   it("a incerteza diz que reenviar é seguro", () => {
     for (const m of ["timeout", "rede", "resposta_grande", "erro_do_labs", "fora_do_contrato"] as const) {
       expect(quadroDoEnvio(m, detalheDe(null), "kit").texto).toContain("Enviar de novo é seguro");

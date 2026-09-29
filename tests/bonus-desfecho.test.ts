@@ -23,8 +23,15 @@ const CASOS: Caso[] = [
   ["201", http(201, { ok: true, slug: NOSSO, id: 7, isActive: false }), false, "criado", "criado", false],
   ["201 com incerta antes", http(201, { ok: true, slug: NOSSO, id: 7, isActive: false }), true, "criado", "criado", false],
   ["duplicate sem incerta é colisão", http(200, { ok: true, duplicate: true, slug: NOSSO, isActive: false }), false, "colisao", "colisao", false],
-  ["duplicate com incerta é conferir", http(200, { ok: true, duplicate: true, slug: NOSSO, isActive: false }), true, "conferir", "conferir", true],
-  ["duplicate ativo com incerta também é conferir", http(200, { ok: true, duplicate: true, slug: NOSSO, isActive: true }), true, "conferir", "conferir", true],
+  ["duplicate com id e sem incerta continua colisão: esta linha não enviou nada", http(200, { ok: true, duplicate: true, id: 7, slug: NOSSO, isActive: false }), false, "colisao", "colisao", false],
+  // Contrato de 29/09 (site-ia d582f3c): duplicate só com slug E título iguais, e com o id.
+  ["duplicate com id e com incerta é o nosso", http(200, { ok: true, duplicate: true, id: 7, slug: NOSSO, isActive: false }), true, "criado", "criado_pela_duplicata", false],
+  ["duplicate ativo com id e com incerta também é o nosso", http(200, { ok: true, duplicate: true, id: "b7", slug: NOSSO, isActive: true }), true, "criado", "criado_pela_duplicata", false],
+  // Sem id é o contrato antigo, em que o duplicate olhava só o slug: continua conferir.
+  ["duplicate sem id e com incerta é conferir (contrato antigo)", http(200, { ok: true, duplicate: true, slug: NOSSO, isActive: false }), true, "conferir", "conferir", true],
+  ["duplicate ativo sem id e com incerta também é conferir", http(200, { ok: true, duplicate: true, slug: NOSSO, isActive: true }), true, "conferir", "conferir", true],
+  ["409 slug ocupado sem incerta é colisão", http(409, { ok: false, erro: "slug_ocupado", slug: NOSSO }), false, "colisao", "slug_ocupado", false],
+  ["409 slug ocupado com incerta é conferir: o título do nosso pode ter mudado no /admin", http(409, { ok: false, erro: "slug_ocupado", slug: NOSSO }), true, "conferir", "conferir", true],
   ["409 título apontando o nosso slug é o nosso", http(409, { ok: false, erro: "titulo_repetido", slugExistente: NOSSO }), true, "criado", "criado_pelo_titulo", false],
   ["409 título de outro slug libera, mesmo com incerta", http(409, { ok: false, erro: "titulo_repetido", slugExistente: "outro" }), true, "recusado", "titulo_repetido", false],
   ["409 palavra sem incerta", http(409, { ok: false, erro: "palavra_chave_repetida", palavra: "KIT" }), false, "recusado", "palavra_repetida", false],
@@ -93,6 +100,16 @@ describe("as sequências que a revisão levantou", () => {
     expect(d.estado).toBe("conferir");
   });
 
+  it("[timeout, duplicate com id] termina em criado, e solta o corpo", () => {
+    const d = sequencia(TIMEOUT, http(200, { ok: true, duplicate: true, id: 7, slug: NOSSO, isActive: false }));
+    expect([d.estado, d.incertoPendente, d.detalhe.id]).toEqual(["criado", false, "7"]);
+  });
+
+  it("[timeout, 409 slug ocupado] termina em conferir, congelado", () => {
+    const d = sequencia(TIMEOUT, http(409, { ok: false, erro: "slug_ocupado", slug: NOSSO }));
+    expect([d.estado, d.incertoPendente]).toEqual(["conferir", true]);
+  });
+
   it("[timeout, 422 tema fora do catálogo] termina em conferir, congelado (proposto pelo auditor)", () => {
     const d = sequencia(TIMEOUT, http(422, { ok: false, erro: "tema_fora_do_catalogo", temasValidos: [] }));
     expect([d.estado, d.incertoPendente]).toEqual(["conferir", true]);
@@ -138,5 +155,13 @@ describe("detalheDe", () => {
 
   it("lê de volta o que foi gravado, com o status junto", () => {
     expect(detalheDe({ status: 409, erro: "titulo_repetido", slugExistente: "a" }).status).toBe(409);
+  });
+
+  it("guarda o id do Labs como texto, venha número ou texto, e nada além disso", () => {
+    expect(detalheDe({ id: 7 }).id).toBe("7");
+    expect(detalheDe({ id: "clx9" }).id).toBe("clx9");
+    expect(detalheDe({ id: { lixo: true } }).id).toBeNull();
+    expect(detalheDe({ id: Number.NaN }).id).toBeNull();
+    expect(detalheDe({ id: "x".repeat(500) }).id).toHaveLength(200);
   });
 });
