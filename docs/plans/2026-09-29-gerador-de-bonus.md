@@ -1165,8 +1165,15 @@ const CASOS: Caso[] = [
   ["201", http(201, { ok: true, slug: NOSSO, id: 7, isActive: false }), false, "criado", "criado", false],
   ["201 com incerta antes", http(201, { ok: true, slug: NOSSO, id: 7, isActive: false }), true, "criado", "criado", false],
   ["duplicate sem incerta é colisão", http(200, { ok: true, duplicate: true, slug: NOSSO, isActive: false }), false, "colisao", "colisao", false],
-  ["duplicate com incerta é conferir", http(200, { ok: true, duplicate: true, slug: NOSSO, isActive: false }), true, "conferir", "conferir", true],
-  ["duplicate ativo com incerta também é conferir", http(200, { ok: true, duplicate: true, slug: NOSSO, isActive: true }), true, "conferir", "conferir", true],
+  ["duplicate com id e sem incerta continua colisão: esta linha não enviou nada", http(200, { ok: true, duplicate: true, id: 7, slug: NOSSO, isActive: false }), false, "colisao", "colisao", false],
+  // Contrato de 29/09 (site-ia d582f3c): duplicate só com slug E título iguais, e com o id.
+  ["duplicate com id e com incerta é o nosso", http(200, { ok: true, duplicate: true, id: 7, slug: NOSSO, isActive: false }), true, "criado", "criado_pela_duplicata", false],
+  ["duplicate ativo com id e com incerta também é o nosso", http(200, { ok: true, duplicate: true, id: "b7", slug: NOSSO, isActive: true }), true, "criado", "criado_pela_duplicata", false],
+  // Sem id é o contrato antigo, em que o duplicate olhava só o slug: continua conferir.
+  ["duplicate sem id e com incerta é conferir (contrato antigo)", http(200, { ok: true, duplicate: true, slug: NOSSO, isActive: false }), true, "conferir", "conferir", true],
+  ["duplicate ativo sem id e com incerta também é conferir", http(200, { ok: true, duplicate: true, slug: NOSSO, isActive: true }), true, "conferir", "conferir", true],
+  ["409 slug ocupado sem incerta é colisão", http(409, { ok: false, erro: "slug_ocupado", slug: NOSSO }), false, "colisao", "slug_ocupado", false],
+  ["409 slug ocupado com incerta é conferir: o título do nosso pode ter mudado no /admin", http(409, { ok: false, erro: "slug_ocupado", slug: NOSSO }), true, "conferir", "conferir", true],
   ["409 título apontando o nosso slug é o nosso", http(409, { ok: false, erro: "titulo_repetido", slugExistente: NOSSO }), true, "criado", "criado_pelo_titulo", false],
   ["409 título de outro slug libera, mesmo com incerta", http(409, { ok: false, erro: "titulo_repetido", slugExistente: "outro" }), true, "recusado", "titulo_repetido", false],
   ["409 palavra sem incerta", http(409, { ok: false, erro: "palavra_chave_repetida", palavra: "KIT" }), false, "recusado", "palavra_repetida", false],
@@ -1235,6 +1242,16 @@ describe("as sequências que a revisão levantou", () => {
     expect(d.estado).toBe("conferir");
   });
 
+  it("[timeout, duplicate com id] termina em criado, e solta o corpo", () => {
+    const d = sequencia(TIMEOUT, http(200, { ok: true, duplicate: true, id: 7, slug: NOSSO, isActive: false }));
+    expect([d.estado, d.incertoPendente, d.detalhe.id]).toEqual(["criado", false, "7"]);
+  });
+
+  it("[timeout, 409 slug ocupado] termina em conferir, congelado", () => {
+    const d = sequencia(TIMEOUT, http(409, { ok: false, erro: "slug_ocupado", slug: NOSSO }));
+    expect([d.estado, d.incertoPendente]).toEqual(["conferir", true]);
+  });
+
   it("[timeout, 422 tema fora do catálogo] termina em conferir, congelado (proposto pelo auditor)", () => {
     const d = sequencia(TIMEOUT, http(422, { ok: false, erro: "tema_fora_do_catalogo", temasValidos: [] }));
     expect([d.estado, d.incertoPendente]).toEqual(["conferir", true]);
@@ -1280,6 +1297,14 @@ describe("detalheDe", () => {
 
   it("lê de volta o que foi gravado, com o status junto", () => {
     expect(detalheDe({ status: 409, erro: "titulo_repetido", slugExistente: "a" }).status).toBe(409);
+  });
+
+  it("guarda o id do Labs como texto, venha número ou texto, e nada além disso", () => {
+    expect(detalheDe({ id: 7 }).id).toBe("7");
+    expect(detalheDe({ id: "clx9" }).id).toBe("clx9");
+    expect(detalheDe({ id: { lixo: true } }).id).toBeNull();
+    expect(detalheDe({ id: Number.NaN }).id).toBeNull();
+    expect(detalheDe({ id: "x".repeat(500) }).id).toHaveLength(200);
   });
 });
 ```
@@ -1393,6 +1418,12 @@ Esperado: FAIL, `Failed to resolve import` em `@/lib/bonus/desfecho` e em `@/lib
 // libera a resposta que vem DEPOIS da checagem de slug e aponta para outro dono.
 // O que vem antes dela não diz nada sobre a tentativa incerta, e aí quem decide é
 // uma pessoa olhando o /admin do Labs (`conferir`).
+//
+// O CONTRATO DE 29/09 (site-ia d582f3c e 485573e): o `duplicate` só sai com slug E
+// título iguais, e traz o `id`; slug igual com outro título é `409 slug_ocupado`. A
+// rota não sabe se houve tentativa anterior: quem sabe é o Chat. Por isso o
+// `duplicate` só vira `criado` com incerta antes E com o `id`. Sem o `id` é o
+// contrato antigo, em que o `duplicate` olhava só o slug, e continua `conferir`.
 
 export type RespostaCrua =
   | { tipo: "http"; status: number; texto: string }
@@ -1410,9 +1441,11 @@ export type EstadoDoEnvio =
 export const MOTIVOS_DO_ENVIO = [
   "criado",
   "criado_pelo_titulo",
+  "criado_pela_duplicata",
   "conferido_existe",
   "conferido_nao_existe",
   "colisao",
+  "slug_ocupado",
   "conferir",
   "titulo_repetido",
   "palavra_repetida",
@@ -1437,6 +1470,8 @@ export type MotivoDoEnvio = (typeof MOTIVOS_DO_ENVIO)[number];
 export type Detalhe = {
   status: number | null;
   erro: string | null;
+  /** O id do bônus no Labs, como texto: o contrato o manda no `duplicate`. */
+  id: string | null;
   slugExistente: string | null;
   palavra: string | null;
   isActive: boolean | null;
@@ -1463,6 +1498,13 @@ function objeto(v: unknown): Record<string, unknown> | null {
 
 function textoDe(o: Record<string, unknown> | null, chave: string): string | null {
   const v = o?.[chave];
+  return typeof v === "string" ? v.slice(0, TEXTO_MAX) : null;
+}
+
+/** O id vem número ou texto, conforme o banco do Labs; guardado sempre como texto. */
+function idDe(o: Record<string, unknown> | null): string | null {
+  const v = o?.id;
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
   return typeof v === "string" ? v.slice(0, TEXTO_MAX) : null;
 }
 
@@ -1497,6 +1539,7 @@ export function detalheDe(bruto: unknown, status: number | null = null): Detalhe
   return {
     status: status ?? (typeof o?.status === "number" ? o.status : null),
     erro: textoDe(o, "erro"),
+    id: idDe(o),
     slugExistente: textoDe(o, "slugExistente"),
     palavra: textoDe(o, "palavra"),
     isActive: typeof o?.isActive === "boolean" ? o.isActive : null,
@@ -1545,10 +1588,16 @@ export function lerResposta(
       return o.ok === true ? d("criado", "criado", false) : incerto();
     case 200:
       if (o.ok === true && o.duplicate === true) {
-        return ctx.incertoAntes ? d("conferir", "conferir", true) : d("colisao", "colisao", false);
+        if (!ctx.incertoAntes) return d("colisao", "colisao", false);
+        return detalhe.id !== null ? d("criado", "criado_pela_duplicata", false) : d("conferir", "conferir", true);
       }
       return incerto();
     case 409:
+      // O slug é de outro bônus, com outro título. Com incerta antes, pode ser o nosso
+      // com o título mudado no /admin entre o timeout e o reenvio: uma pessoa confere.
+      if (erro === "slug_ocupado") {
+        return ctx.incertoAntes ? d("conferir", "conferir", true) : d("colisao", "slug_ocupado", false);
+      }
       if (erro === "titulo_repetido") {
         return detalhe.slugExistente === ctx.nossoSlug
           ? d("criado", "criado_pelo_titulo", false)
@@ -2172,10 +2221,13 @@ antes da primeira linha, acrescente:
 
 ```ts
 // TRAZIDO COMO ESTÁ do Método Labs (site-ia, src/lib/ia/, commit 01e609f), quando o
-// gerador passou a morar no Chat (decisão de 28/09). A partir daqui existem duas
-// cópias; a recomendação da spec é o Labs congelar a dele. Não edite o texto sem
-// reconferir a régua do Labs numa geração real (spec, "A prova real").
+// gerador passou a morar no Chat (decisão de 28/09). Em 29/09 o Labs removeu o gerador
+// dele (site-ia 4662222): esta é a única cópia. Não edite o texto sem reconferir a
+// régua do Labs numa geração real (spec, "A prova real").
 ```
+
+(Cabeçalho na versão da FASE 1.13. Na cópia original, as linhas 2 e 3 diziam que existiam duas
+cópias e recomendavam o Labs congelar a dele; o Labs removeu o gerador em 29/09.)
 
 Confira que a única diferença para o original é essa (o cabeçalho e o import):
 
@@ -2897,6 +2949,25 @@ describe("enviarLinha", () => {
     expect(r.tipo === "enviado" && r.desfecho.estado).toBe("criado");
   });
 
+  it("[timeout, duplicate com id]: criado, com o id do Labs gravado (contrato de 29/09)", async () => {
+    const id = await linhaPronta();
+    labs.roteiro = [{ status: 201, corpo: { ok: true }, atrasoMs: 2_000 }];
+    await processo.enviarLinha(id, REVISADO, deps());
+    labs.roteiro = [
+      { status: 200, corpo: { ok: true, duplicate: true, id: 42, slug: "kit-de-lancamento", isActive: false } },
+    ];
+    const r = await processo.enviarLinha(id, REVISADO, deps());
+    expect(r.tipo === "enviado" && r.desfecho.estado).toBe("criado");
+    const linha = await repo.lerLinha(id);
+    const resposta = linha?.envio_resposta as { motivo?: string; id?: string };
+    expect([linha?.envio_estado, linha?.incerto_pendente, resposta.motivo, resposta.id]).toEqual([
+      "criado",
+      false,
+      "criado_pela_duplicata",
+      "42",
+    ]);
+  });
+
   it("colisão sem incerteza libera: o slug editado vai no envio seguinte", async () => {
     const id = await linhaPronta();
     labs.roteiro = [{ status: 200, corpo: { ok: true, duplicate: true, slug: "kit-de-lancamento", isActive: true } }];
@@ -3474,6 +3545,22 @@ describe("toda saída tem frase", () => {
     expect(q.texto).toMatch(/antes/i);
   });
 
+  it("o criado pela duplicata é sucesso, e também manda publicar antes", () => {
+    const q = quadroDoEnvio("criado_pela_duplicata", detalheDe({ id: 7 }), "kit");
+    expect(q.tom).toBe("ok");
+    expect(q.texto).toContain("uma vez só");
+    expect(q.texto).toMatch(/antes/i);
+  });
+
+  it("o slug ocupado manda trocar o slug, e diz que nada foi criado", () => {
+    const q = quadroDoEnvio("slug_ocupado", detalheDe(null), "kit");
+    expect(q.tom).toBe("erro");
+    expect(q.texto).toContain("kit");
+    expect(q.texto).toContain("outro título");
+    expect(q.texto).toContain("Troque o slug");
+    expect(q.texto).toContain("Nada deste bônus foi criado");
+  });
+
   it("a incerteza diz que reenviar é seguro", () => {
     for (const m of ["timeout", "rede", "resposta_grande", "erro_do_labs", "fora_do_contrato"] as const) {
       expect(quadroDoEnvio(m, detalheDe(null), "kit").texto).toContain("Enviar de novo é seguro");
@@ -3764,6 +3851,12 @@ export function quadroDoEnvio(motivo: MotivoDoEnvio, d: Detalhe, slug: string | 
         titulo: "Criado no Labs, ainda oculto",
         texto: `Uma tentativa anterior chegou ao Labs sem que a resposta voltasse, e o bônus existe uma vez só. ${PASSO_SEGUINTE}`,
       };
+    case "criado_pela_duplicata":
+      return {
+        tom: "ok",
+        titulo: "Criado no Labs, ainda oculto",
+        texto: `Uma tentativa anterior chegou ao Labs sem que a resposta voltasse: o Labs achou este bônus, com o mesmo endereço e o mesmo título, e ele existe uma vez só. ${PASSO_SEGUINTE}`,
+      };
     case "conferido_existe":
       return { tom: "ok", titulo: "Marcado como criado pela sua conferência", texto: PASSO_SEGUINTE };
     case "conferido_nao_existe":
@@ -3772,11 +3865,20 @@ export function quadroDoEnvio(motivo: MotivoDoEnvio, d: Detalhe, slug: string | 
         titulo: "Você conferiu que o bônus não está no Labs",
         texto: "Os campos voltaram a ser editáveis. Ajuste o que precisar e envie de novo.",
       };
+    // O `duplicate` sem tentativa anterior: o mesmo endereço E o mesmo título já estão lá,
+    // e não saíram deste envio. Trocar só o slug publicaria um quase igual (lembrado
+    // pela sessão do Labs), então a frase manda conferir antes.
     case "colisao":
       return {
         tom: "erro",
+        titulo: "Já existe no Labs um bônus igual a este",
+        texto: `O Labs já tem um bônus com o endereço ${endereco} e este mesmo título, e ele não saiu deste envio. Confira no /admin do Labs antes de continuar: se for o mesmo conteúdo, não precisa enviar. Para publicar um bônus diferente, mude o título e o slug. Nada deste bônus foi criado.`,
+      };
+    case "slug_ocupado":
+      return {
+        tom: "erro",
         titulo: "Esse endereço já é de outro bônus no Labs",
-        texto: `O slug ${endereco} já existe lá. Troque o slug e envie de novo. Nada deste bônus foi criado.`,
+        texto: `O slug ${endereco} já pertence a um bônus com outro título. Troque o slug e envie de novo. Nada deste bônus foi criado.`,
       };
     case "conferir":
       return {
@@ -5051,6 +5153,46 @@ mais que na tela, e um texto no limite era recusado. Decisão do Eduardo, em 29/
   tela; `ANTHROPIC_API_KEY` na Vercel), os toques em arquivo dele (`app-shell.tsx` e
   `lib/esquema.ts`), os dois arquivos de integração que pulam no container, a etapa pendente no
   Labs e os achados fora do escopo (cron aberto, QStash, actions só pelo proxy). Sem rodapé de IA.
+
+Feita em 29/09: PR #1, mergeado pelo Vinícius. A `main` foi para `9710339`, e o deploy de
+produção achou as 14 migrações já registradas.
+
+---
+
+### FASE 1.13 — O contrato novo do Labs (branch `bonus-contrato-novo-do-labs`)
+
+O Labs fez a etapa dele em 29/09 (site-ia `d582f3c`, e `485573e` no contrato): o `duplicate` só
+sai com slug **e** título iguais e traz o `id`; slug igual com outro título é `409 slug_ocupado`; e
+um P2002 em índice inesperado vira `500 erro_temporario`. O contrato deixou de afirmar "sua
+tentativa anterior chegou", porque a rota não sabe disso: quem sabe é o Chat. A mesma sessão do
+Labs removeu o gerador de lá (`4662222`), por decisão do Eduardo. O ajuste do Chat foi decidido
+pelo Eduardo em 29/09.
+
+- [x] **As regras, em `lib/bonus/desfecho.ts`:**
+  - `duplicate` sem incerta continua `colisao`, porque esta linha não enviou nada.
+  - `duplicate` com incerta **e** com `id` vira `criado` (`criado_pela_duplicata`), e o `id` fica
+    gravado em `envio_resposta`. Sem `id` é o contrato antigo, que olhava só o slug, e continua
+    `conferir`: uma porta ligada por engano na versão velha do Labs fica no lado seguro.
+  - `409 slug_ocupado` sem incerta vira `colisao` (`slug_ocupado`). Com incerta, vira `conferir`:
+    o título do nosso bônus pode ter sido mudado no `/admin` entre o timeout e o reenvio.
+  - `detalheDe` guarda o `id` como texto, venha número ou texto.
+- [x] **As frases, em `lib/bonus/textos.ts`:** a `colisao` passa a dizer que já existe no Labs um
+  bônus com o mesmo endereço e o mesmo título, que não saiu deste envio, e manda conferir antes.
+  Trocar só o slug publicaria um quase igual (lembrado pela sessão do Labs).
+  `criado_pela_duplicata` e `slug_ocupado` ganham frase própria.
+- [x] **Os testes, vistos falhar antes do código** (9 casos puros vermelhos): 5 linhas novas na
+  tabela de `tests/bonus-desfecho.test.ts`, duas sequências novas ([timeout, duplicate com id] e
+  [timeout, slug ocupado]), o `id` em `detalheDe`, e duas frases em `tests/bonus-textos.test.ts`.
+  Mais um caso de integração, com o `id` gravado no banco: [timeout, duplicate com id] termina em
+  `criado`.
+- [x] **A prova por retirada** (script `mutar-1-13.mjs`, restaurando por hash): sem a guarda do
+  `id`, caem os 4 casos do contrato antigo; com o `slug_ocupado` sempre liberando, caem os 2 com
+  incerta; sem o `id` numérico, caem 3 casos puros e o de integração.
+- [x] **A verificação:** `npm run verify` limpo, com 70 / 2 076 casos puros e 10 / 69 de tela. O
+  arquivo de integração `bonus-processo` deu 17 de 17 no container.
+- [x] **A documentação:** a spec registra o contrato novo, a instrução com um dono só e a ordem
+  para ligar a porta. O cabeçalho das duas cópias trazidas do Labs deixa de falar em duas cópias.
+- [ ] **O PR**, só com o OK do Eduardo.
 
 ---
 
