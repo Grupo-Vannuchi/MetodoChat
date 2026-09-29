@@ -3,10 +3,10 @@
 **Nascido em:** 29/09/2026. O Eduardo acrescenta a este projeto a feature que o Método Labs
 decidiu, em 28/09, não construir mais em casa: *"o gerador de prompt e de carrossel [...] passa
 a ser desenvolvido pelo Eduardo dentro do Método Chat"* (site-ia, `docs/relatorios/2026-09-28.md`).
-**Estado:** Etapa 1 construída, verificada e provada de verdade em 29/09, pelas FASES 1.1 a
-1.11-bis do plano (docs/plans/2026-09-29-gerador-de-bonus.md). A `013` está aplicada na produção
-do Chat, e a tabela está vazia. A prova real passou e achou um defeito, já corrigido (ver "A prova
-real"). Falta o PR, e antes do merge as pré-condições abaixo.
+**Estado:** Etapa 1 em produção desde 29/09 (PR #1, `main` em `9710339`), construída e provada
+pelas FASES 1.1 a 1.12 do plano (docs/plans/2026-09-29-gerador-de-bonus.md). A FASE 1.13 ajusta a
+leitura das respostas ao contrato novo do Labs. A porta do Labs segue desligada até a produção
+dele ter o conserto (ver "Ligar a porta").
 **Projeto de quem:** do Vinícius Gualberto. Esta feature entra como visita: pasta própria e o
 mínimo de toque no que já existe.
 
@@ -144,9 +144,9 @@ Uma linha é um bônus, do pedido ao envio.
 
 **A instrução** é a `INSTRUCAO_BONUS` do Labs, mais a `REGRA_DE_PORTUGUES` que ela importa,
 trazidas **como estão** do site-ia, com o commit de origem anotado no arquivo. O schema é o
-`BonusGeradoSchema` do Labs. ⚠️ **A partir daqui existem duas cópias do gerador.** A
-recomendação é o Labs congelar a dele quando esta subir; a decisão é do Eduardo e continua
-aberta no ROADMAP do Labs.
+`BonusGeradoSchema` do Labs. O Labs removeu o gerador dele em 29/09, por decisão do Eduardo
+(site-ia `4662222`), e o `/admin` de lá só publica. A instrução tem um dono só, este repositório,
+e pode ser editada aqui sem combinar com o Labs.
 
 **Os relógios**, numa constante cada, com a ordem verificada por teste (molde:
 `site-ia/src/lib/ia/tempos.ts`):
@@ -194,7 +194,8 @@ verdadeiro: uma tentativa anterior terminou sem que o Chat soubesse o desfecho.
 | resposta | sem incerta antes | com incerta antes |
 |---|---|---|
 | 201 | `criado`: "Criado no Labs, oculto", o link que vai existir e o passo seguinte | `criado` |
-| 200 `duplicate` | `colisao`: "esse endereço já é de outro bônus no Labs; troque o slug". Libera | **`conferir`** |
+| 200 `duplicate` | `colisao`: "já existe no Labs um bônus com esse endereço e esse título, que não saiu deste envio; confira antes, e para um bônus diferente mude o título e o slug". Libera | com `id` (contrato de 29/09: slug e título iguais): **`criado`**, é o nosso, e o `id` fica gravado. Sem `id` (contrato antigo, que olhava só o slug): **`conferir`** |
+| 409 `slug_ocupado` | `colisao`: "o endereço é de outro bônus, com outro título; troque o slug". Libera | **`conferir`**: alguém pode ter mudado o título do nosso no `/admin` entre o timeout e o reenvio |
 | 409 `titulo_repetido` com `slugExistente` = o nosso slug | `criado`: é o nosso | `criado`: é o nosso, a tentativa incerta terminou no meio desta |
 | 409 `titulo_repetido` com outro slug | `recusado`: "o bônus X já tem esse título". Libera | igual, e libera: o mesmo título teria barrado a tentativa incerta |
 | 409 `palavra_chave_repetida` | `recusado`: "a palavra X já leva a outro bônus". Libera | **`conferir`**: pode ser a nossa tentativa incerta |
@@ -260,8 +261,20 @@ pequena no site-ia em que (a) a duplicata só vale quando slug **e** título coi
 distinguir maiúscula), senão 409 `slug_ocupado`; (b) a violação de unicidade lê `meta.target`, e
 a do índice da palavra vira 409 `palavra_chave_repetida`; (c) o contrato e o `bonus:prova`
 acompanham. Com isso as fontes 1 e 3 somem, e `conferir` fica só para a corrida e para as
-recusas anteriores ao slug depois de uma tentativa incerta. Até o contrato novo sair,
-`slug_ocupado` é resposta fora do contrato, e cai em `incerto`, o lado seguro.
+recusas anteriores ao slug depois de uma tentativa incerta.
+
+**Feito no site-ia em 29/09** (`d582f3c`, e `485573e` no contrato): o `duplicate` traz o `id`, e
+índice inesperado no P2002 vira `500 erro_temporario`, que aqui já é `incerto`. O contrato
+passou a dizer só o fato ("já existe um bônus com esse slug e esse título"): quem sabe se houve
+tentativa anterior é o Chat. O Chat lê as respostas novas desde a FASE 1.13, e o `duplicate` só
+vira `criado` com o `id`, o que mantém no lado seguro uma resposta do contrato antigo.
+
+**Ligar a porta**, na ordem que a sessão do Labs mediu (a produção dele, `dc7cafe`, ainda não tem
+o conserto): (1) o `ALTER TABLE "Lead"` da Etapa 45 do Labs na produção de lá; (2) o deploy
+`dev` → `main` do Labs; (3) o `BONUS_INTAKE_SECRET` novo no Labs; (4) o mesmo segredo e a
+`LABS_URL` na Vercel do Chat. Até o passo 4, o Chat nem envia: recusa por falta de configuração.
+Se alguém configurar o Chat antes do Labs, ele recebe 503 antes do passo 3 e 401 depois dele. Os
+dois já estão tratados, e nenhum grava bônus.
 
 ### As telas
 

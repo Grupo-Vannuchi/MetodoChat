@@ -1,7 +1,7 @@
 // TRAZIDO COMO ESTÁ do Método Labs (site-ia, src/lib/ia/, commit 01e609f), quando o
-// gerador passou a morar no Chat (decisão de 28/09). A partir daqui existem duas
-// cópias; a recomendação da spec é o Labs congelar a dele. Não edite o texto sem
-// reconferir a régua do Labs numa geração real (spec, "A prova real").
+// gerador passou a morar no Chat (decisão de 28/09). Em 29/09 o Labs removeu o gerador
+// dele (site-ia 4662222): esta é a única cópia. Não edite o texto sem reconferir a
+// régua do Labs numa geração real (spec, "A prova real").
 // A REGRA DE PORTUGUÊS — uma só, usada pelas QUATRO instruções.
 //
 // ⚠️ **POR QUE EXISTE (09/09/2026): NENHUMA DAS QUATRO MANDAVA ESCREVER COM ACENTO.**
