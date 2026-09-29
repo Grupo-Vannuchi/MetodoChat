@@ -1301,7 +1301,10 @@ describe("prepararEnvio", () => {
     const linha = { slug: "kit-de-lancamento", corpo_enviado: CORPO_X, incerto_pendente: true };
     const antes = prepararEnvio(linha, REVISADO, SEGREDO, T0);
     const agora = T0 + 6 * 60_000;
-    const depois = prepararEnvio(linha, REVISADO, SEGREDO, agora);
+    // O formulário da segunda chamada é OUTRO de propósito: com o mesmo REVISADO, o
+    // corpo refeito sairia igual ao gravado e este caso passaria sem o congelamento
+    // (medido na execução da FASE 1.4).
+    const depois = prepararEnvio(linha, { ...REVISADO, titulo: "Outro título que o operador tentou pôr" }, SEGREDO, agora);
     expect(antes.ok && depois.ok).toBe(true);
     if (!antes.ok || !depois.ok) return;
     expect(depois.corpo).toBe(antes.corpo);
