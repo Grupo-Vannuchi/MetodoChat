@@ -562,6 +562,14 @@ describe("lerPedido", () => {
       motivo: "tema_vazio",
     });
   });
+
+  it("o \\r\\n do textarea volta a ser \\n antes de contar: 1 000 caracteres na tela cabem", () => {
+    // O navegador manda o textarea com \r\n (medido na prova real de 29/09). São 10
+    // linhas de 100 caracteres (99 + a quebra): 1 000 na tela, 1 010 com \r\n.
+    const naTela = ("x".repeat(99) + "\n").repeat(10).trim();
+    const r = lerPedido({ tema: "Marketing", oQueResolve: naTela.replace(/\n/g, "\r\n"), palavra: "" });
+    expect(r).toEqual({ ok: true, pedido: { tema: "Marketing", oQueResolve: naTela, palavraDigitada: null } });
+  });
 });
 
 describe("palavraFinal", () => {
@@ -712,8 +720,13 @@ export function palavraValida(palavra: string): boolean {
   return new RegExp(`^[A-Z0-9]{${PALAVRA_MIN},${PALAVRA_MAX}}$`).test(palavra);
 }
 
+/**
+ * O navegador manda o textarea com a quebra \r\n (medido na prova real de 29/09). Ela
+ * volta a ser \n antes de contar: sem isso, cada linha conta um caractere a mais que
+ * na tela, e um texto no limite seria recusado.
+ */
 function texto(v: unknown): string {
-  return typeof v === "string" ? v.trim() : "";
+  return typeof v === "string" ? v.replace(/\r\n?/g, "\n").trim() : "";
 }
 
 export function lerPedido(bruto: { tema: unknown; oQueResolve: unknown; palavra: unknown }):
@@ -817,6 +830,30 @@ describe("lerRevisado", () => {
       ok: true,
       revisado: REVISADO,
     });
+  });
+
+  // O NAVEGADOR MANDA TODO TEXTAREA COM \r\n, e o texto da IA vem com \n. Medido na
+  // prova real de 29/09: as 21 quebras do prompt chegaram ao Labs como \r\n.
+  const comCr = (s: string) => s.replace(/\n/g, "\r\n");
+
+  it("devolve a quebra de linha do formulário (\\r\\n) para \\n em todo campo", () => {
+    const r = lerRevisado({
+      ...REVISADO,
+      descricao: comCr("Primeira linha da descrição.\nSegunda linha."),
+      intro: comCr("Cole na IA.\nResponda às perguntas."),
+      prompt: comCr("Aja como um estrategista.\nMonte o cronograma.\nUm dia por linha."),
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      for (const campo of ["descricao", "intro", "prompt"] as const) expect(r.revisado[campo]).not.toContain("\r");
+      expect(r.revisado.prompt).toBe("Aja como um estrategista.\nMonte o cronograma.\nUm dia por linha.");
+    }
+  });
+
+  it("conta o prompt depois de desfazer o \\r\\n: 20 000 caracteres na tela cabem", () => {
+    // 200 linhas de 100 caracteres (99 + a quebra): 20 000 na tela, 20 200 com \r\n.
+    const prompt = ("x".repeat(99) + "\n").repeat(200);
+    expect(lerRevisado({ ...REVISADO, prompt: comCr(prompt) }).ok).toBe(true);
   });
 
   it.each(["ab", "kit--x", "-kit", "kit-", "kit_x", "kit de", "x".repeat(91)])(
@@ -967,8 +1004,14 @@ export const CORPO_MAX_BYTES = 64_000;
 
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/**
+ * O navegador manda todo textarea com a quebra \r\n, e o texto da IA vem com \n
+ * (medido na prova real de 29/09). A quebra volta a ser \n ANTES de contar e de
+ * montar o corpo: sem isso, cada linha conta um caractere a mais que na tela, e o
+ * Labs recebe \r\n.
+ */
 function texto(v: unknown): string {
-  return typeof v === "string" ? v.trim() : "";
+  return typeof v === "string" ? v.replace(/\r\n?/g, "\n").trim() : "";
 }
 
 export function lerRevisado(
@@ -4971,6 +5014,27 @@ responde `404`.
 Escreva na spec, seção "A prova real", o que foi medido (tempo, tokens, tamanho do prompt, os
 códigos). Pergunte ao Eduardo se as linhas `LABS_URL` e `BONUS_INTAKE_SECRET` locais saem do
 `.env.local` agora. Varra, confira a branch, commite só a spec e avise o auditor.
+
+---
+
+### FASE 1.11-bis — A quebra de linha do formulário (achada na prova real)
+
+A prova real mediu o defeito: o prompt chegou ao Labs com 21 `\r\n` no lugar das 21 quebras
+`\n` que a IA escreveu (1 062 caracteres no Labs, 1 041 na tela). Quem troca é o navegador: todo
+textarea vai no formulário com `\r\n`. No Labs local, 7 dos 57 bônus já tinham `\r` (os editados
+pelo /admin), e 50 só `\n`. O efeito que importa é a contagem: cada linha contava um caractere a
+mais que na tela, e um texto no limite era recusado. Decisão do Eduardo, em 29/09: corrigir no Chat.
+
+- [x] **O conserto:** o `texto()` de `lerPedido` (lib/bonus/pedido.ts) e o de `lerRevisado`
+  (lib/bonus/contrato.ts) trocam `\r\n` e `\r` por `\n` antes do `trim`, e portanto antes de
+  contar e de montar o corpo. Os blocos das FASES 1.2 e 1.3 acima já estão na versão corrigida.
+- [x] **Os testes, vistos falhar antes do conserto:** em `tests/bonus-contrato.test.ts`, o `\r\n`
+  some da descrição, da introdução e do prompt (falhava com `\r` sobrando), e um prompt de 20 000
+  caracteres na tela, com 200 quebras, é aceito (falhava por contar 20 200). Em
+  `tests/bonus-pedido.test.ts`, um "o que resolve" de 1 000 caracteres na tela, com quebras, é
+  aceito (falhava com `o_que_resolve_longo`).
+- [x] **A verificação:** `npm run verify` limpo, com 70 arquivos / 2 066 casos puros e 10 / 69 de
+  tela. Commits `1e14c21` (contrato) e `8aa46bd` (pedido).
 
 ---
 
