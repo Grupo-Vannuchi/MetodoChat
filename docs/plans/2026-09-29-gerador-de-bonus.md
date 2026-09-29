@@ -34,8 +34,9 @@ Valem para todas as fases, sem precisar repetir em cada uma.
   o scratchpad não existir mais, recrie o script a partir do apêndice A.
 - **Pasta própria:** `app/bonus/` e `lib/bonus/`. Fora delas, só o que a tabela "Fora dessa
   pasta" da spec lista: `app/app-shell.tsx` (1 item de menu), `lib/esquema.ts` (1 entrada em
-  `naoObservaveis`), `migrations/013-bonus-gerados.sql`, `package.json` e `package-lock.json`,
-  testes novos e `docs/`. `scripts/migrar.mjs` **não** é tocado.
+  `naoObservaveis`), `testes-integracao/esquema-de-partida.integracao.ts` (o caso do schema
+  vazio, FASE 1.1-bis), `migrations/013-bonus-gerados.sql`, `package.json` e
+  `package-lock.json`, testes novos e `docs/`. `scripts/migrar.mjs` **não** é tocado.
 - **Sufixo de teste é o que decide se ele roda:** `tests/**/*.test.ts` (puro, entra no `verify`),
   `testes-integracao/**/*.integracao.ts` (banco, fora do `verify`), `testes-dom/**/*.dom.tsx`
   (tela, entra no `verify`). Linha de base em 29/09, sobre `17ca4d2`: 54 arquivos / 1 891 casos
@@ -66,6 +67,7 @@ Valem para todas as fases, sem precisar repetir em cada uma.
 |---|---|---|
 | `migrations/013-bonus-gerados.sql` | a tabela | 1.1 |
 | `lib/esquema.ts` (1 entrada) | a 013 declarada como não observável | 1.1 |
+| `testes-integracao/esquema-de-partida.integracao.ts` (1 caso) | o schema vazio esvaziado de verdade | 1.1-bis |
 | `lib/bonus/tempos.ts` | os relógios e o estado da geração na tela | 1.2 |
 | `lib/bonus/pedido.ts` | o pedido, a palavra, o teto, o id | 1.2 |
 | `lib/bonus/contrato.ts` | os campos revisados contra o contrato, e o corpo serializado uma vez | 1.3 |
@@ -108,11 +110,17 @@ Valem para todas as fases, sem precisar repetir em cada uma.
 - [ ] **Passo 1: instalar as duas dependências**
 
 ```bash
-npm install @anthropic-ai/sdk@0.129.0 zod@4.6.5
+npm install @anthropic-ai/sdk@0.129.0 zod@4.4.3
 ```
 
+**`zod` na 4.4.3, e não na mais nova**, por achado do auditor na execução (29/09): o lockfile já
+tinha o `zod` 4.4.3 como dependência de desenvolvimento do lint do dono
+(`eslint-plugin-react-hooks`, `zod-validation-error`). Instalar a 4.6.5 trocaria a versão que o
+lint dele usa. A SDK aceita `^3.25.0 || ^4.0.0`. Com a 4.4.3, nenhuma versão existente muda no
+lockfile: entram só a SDK e cinco dependências dela.
+
 Se falhar por rede, rode de novo. Esperado: `package.json` ganha `"@anthropic-ai/sdk": "^0.129.0"`
-e `"zod": "^4.6.5"` em `dependencies`, e nada mais muda nele:
+e `"zod": "^4.4.3"` em `dependencies`, e nada mais muda nele:
 
 ```bash
 git diff package.json
@@ -353,6 +361,35 @@ git commit -m "feat(bonus): a tabela do gerador de bônus e as dependências da 
 
 Avise o auditor com o hash: ele confere a migração, a entrada em `naoObservaveis` e o diff do
 `package.json`.
+
+---
+
+### FASE 1.1-bis — O teste do dono que supunha o schema só com as tabelas dele
+
+**Nasceu na execução, em 29/09**, e não estava no plano: com a `013` na pasta,
+`testes-integracao/esquema-de-partida.integracao.ts` falhava em dois casos além do esperado.
+
+**Causa, medida:** o caso "um schema VAZIO tem mensagem própria" apagava só as oito tabelas de
+`marcaDagua.tabelas` e supunha o schema vazio. A `013` deixa `bonus_gerados` de pé (ela está fora
+de `tabelas` de propósito), `conferirEsquema` via colunas e respondia "ESQUEMA DESATUALIZADO" em
+vez de "ESQUEMA AUSENTE". O caso seguinte ("`exigirEsquema` é memoizada") caía em cascata, porque
+o anterior morria antes de restaurar as tabelas. Prova: sem a `013` na pasta, o arquivo passava
+6 de 6.
+
+**Decisão do Eduardo, entre três opções:** o caso passa a apagar **todas** as tabelas do schema
+temporário, lidas de `information_schema.tables`. Com a sugestão do auditor, ele confere antes, com
+`exigirPrefixo`, que o schema corrente é o descartável: apagar tudo de `current_schema()` só é
+seguro lá.
+
+**Provas feitas:**
+1. Com o ramo "ESQUEMA AUSENTE" de `lib/esquema.ts` desligado por um instante, o caso reescrito
+   fica vermelho, então ele mede. Desfeito, e `git diff lib/esquema.ts` voltou vazio.
+2. Com `exigirPrefixo("public", …)` forçado por um instante, o caso morre com `RECUSADO` antes de
+   apagar qualquer tabela. Desfeito.
+3. `bonus-tabela` e `esquema-de-partida` juntos: 10 de 10, alvo no banco de teste.
+
+**Commit próprio**, separado do da FASE 1.1, para o dono revisar e reverter isso sozinho se quiser.
+O caso reescrito passa também sem a `013`.
 
 ---
 

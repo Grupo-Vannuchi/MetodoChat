@@ -89,6 +89,7 @@ Fora dessa pasta, e nada mais:
 |---|---|
 | `app/app-shell.tsx` | uma linha no grupo "Gerenciar" e o import de `IconMensagemLink`, que já existe |
 | `lib/esquema.ts` | uma entrada em `MARCA_DAGUA.naoObservaveis`, com o motivo |
+| `testes-integracao/esquema-de-partida.integracao.ts` | o caso "schema VAZIO" passa a apagar todas as tabelas do schema temporário, e não só as oito da marca d'água, com a trava `exigirPrefixo` antes de apagar. Sem isso, a `013` deixava `bonus_gerados` de pé e o caso falhava (FASE 1.1-bis, decidida pelo Eduardo em 29/09) |
 | `migrations/013-bonus-gerados.sql` | arquivo novo |
 | `package.json`, `package-lock.json` | `@anthropic-ai/sdk` e `zod` |
 | `tests/`, `testes-integracao/`, `testes-dom/` | arquivos novos, prefixados `bonus-` |
