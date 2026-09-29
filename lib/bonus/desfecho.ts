@@ -98,7 +98,8 @@ function textoDe(o: Record<string, unknown> | null, chave: string): string | nul
 function idDe(o: Record<string, unknown> | null): string | null {
   const v = o?.id;
   if (typeof v === "number" && Number.isFinite(v)) return String(v);
-  return typeof v === "string" ? v.slice(0, TEXTO_MAX) : null;
+  // Texto vazio não é id: a guarda do `duplicate` depende de o id existir de fato.
+  return typeof v === "string" && v.trim() ? v.slice(0, TEXTO_MAX) : null;
 }
 
 function textosDe(o: Record<string, unknown> | null, chave: string): string[] {

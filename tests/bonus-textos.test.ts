@@ -36,20 +36,31 @@ describe("toda saída tem frase", () => {
     expect(q.texto).toMatch(/antes/i);
   });
 
-  it("o criado pela duplicata é sucesso, e também manda publicar antes", () => {
+  // O `duplicate` é um fato sobre o banco do Labs, e não sobre quem chama (contrato,
+  // site-ia 485573e). Nenhuma frase pode afirmar que a nossa tentativa chegou, nem que
+  // nada nosso foi criado: um "Não existe" clicado cedo demais solta a incerteza antes
+  // de a tentativa incerta terminar de gravar (apontado pelo auditor).
+  it("o criado pela duplicata é sucesso, manda conferir o conteúdo e não afirma a chegada", () => {
     const q = quadroDoEnvio("criado_pela_duplicata", detalheDe({ id: 7 }), "kit");
     expect(q.tom).toBe("ok");
-    expect(q.texto).toContain("uma vez só");
+    expect(q.texto).toContain("quase certamente");
+    expect(q.texto).toContain("confira no /admin do Labs");
     expect(q.texto).toMatch(/antes/i);
+    expect(q.texto).not.toMatch(/chegou/i);
   });
 
-  it("o slug ocupado manda trocar o slug, e diz que nada foi criado", () => {
+  it("o slug ocupado manda trocar o slug", () => {
     const q = quadroDoEnvio("slug_ocupado", detalheDe(null), "kit");
     expect(q.tom).toBe("erro");
     expect(q.texto).toContain("kit");
     expect(q.texto).toContain("outro título");
     expect(q.texto).toContain("Troque o slug");
-    expect(q.texto).toContain("Nada deste bônus foi criado");
+  });
+
+  it("nem a colisão nem o slug ocupado afirmam que nada foi criado", () => {
+    for (const m of ["colisao", "slug_ocupado"] as const) {
+      expect(quadroDoEnvio(m, detalheDe(null), "kit").texto, m).not.toMatch(/nada deste bônus foi criado/i);
+    }
   });
 
   it("a incerteza diz que reenviar é seguro", () => {

@@ -162,6 +162,8 @@ describe("detalheDe", () => {
     expect(detalheDe({ id: "clx9" }).id).toBe("clx9");
     expect(detalheDe({ id: { lixo: true } }).id).toBeNull();
     expect(detalheDe({ id: Number.NaN }).id).toBeNull();
+    expect(detalheDe({ id: "" }).id).toBeNull();
+    expect(detalheDe({ id: "   " }).id).toBeNull();
     expect(detalheDe({ id: "x".repeat(500) }).id).toHaveLength(200);
   });
 });

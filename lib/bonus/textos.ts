@@ -135,7 +135,7 @@ export function quadroDoEnvio(motivo: MotivoDoEnvio, d: Detalhe, slug: string | 
       return {
         tom: "ok",
         titulo: "Criado no Labs, ainda oculto",
-        texto: `Uma tentativa anterior chegou ao Labs sem que a resposta voltasse: o Labs achou este bônus, com o mesmo endereço e o mesmo título, e ele existe uma vez só. ${PASSO_SEGUINTE}`,
+        texto: `O Labs já tem este bônus, com o mesmo endereço e o mesmo título. Como a tentativa anterior ficou sem resposta, ele é quase certamente o deste envio: confira no /admin do Labs que o conteúdo é o deste bônus. ${PASSO_SEGUINTE}`,
       };
     case "conferido_existe":
       return { tom: "ok", titulo: "Marcado como criado pela sua conferência", texto: PASSO_SEGUINTE };
@@ -147,18 +147,20 @@ export function quadroDoEnvio(motivo: MotivoDoEnvio, d: Detalhe, slug: string | 
       };
     // O `duplicate` sem tentativa anterior: o mesmo endereço E o mesmo título já estão lá,
     // e não saíram deste envio. Trocar só o slug publicaria um quase igual (lembrado
-    // pela sessão do Labs), então a frase manda conferir antes.
+    // pela sessão do Labs), então a frase manda conferir antes. NÃO diz que nada deste
+    // bônus foi criado: um "Não existe" clicado cedo demais solta a incerteza antes de a
+    // tentativa incerta terminar de gravar (apontado pelo auditor). Vale para as duas.
     case "colisao":
       return {
         tom: "erro",
         titulo: "Já existe no Labs um bônus igual a este",
-        texto: `O Labs já tem um bônus com o endereço ${endereco} e este mesmo título, e ele não saiu deste envio. Confira no /admin do Labs antes de continuar: se for o mesmo conteúdo, não precisa enviar. Para publicar um bônus diferente, mude o título e o slug. Nada deste bônus foi criado.`,
+        texto: `O Labs já tem um bônus com o endereço ${endereco} e este mesmo título, e ele não saiu deste envio. Confira no /admin do Labs antes de continuar: se for o mesmo conteúdo, não precisa enviar. Para publicar um bônus diferente, mude o título e o slug.`,
       };
     case "slug_ocupado":
       return {
         tom: "erro",
         titulo: "Esse endereço já é de outro bônus no Labs",
-        texto: `O slug ${endereco} já pertence a um bônus com outro título. Troque o slug e envie de novo. Nada deste bônus foi criado.`,
+        texto: `O slug ${endereco} já pertence a um bônus com outro título. Troque o slug e envie de novo.`,
       };
     case "conferir":
       return {
