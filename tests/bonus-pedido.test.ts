@@ -68,6 +68,14 @@ describe("lerPedido", () => {
       motivo: "tema_vazio",
     });
   });
+
+  it("o \\r\\n do textarea volta a ser \\n antes de contar: 1 000 caracteres na tela cabem", () => {
+    // O navegador manda o textarea com \r\n (medido na prova real de 29/09). São 10
+    // linhas de 100 caracteres (99 + a quebra): 1 000 na tela, 1 010 com \r\n.
+    const naTela = ("x".repeat(99) + "\n").repeat(10).trim();
+    const r = lerPedido({ tema: "Marketing", oQueResolve: naTela.replace(/\n/g, "\r\n"), palavra: "" });
+    expect(r).toEqual({ ok: true, pedido: { tema: "Marketing", oQueResolve: naTela, palavraDigitada: null } });
+  });
 });
 
 describe("palavraFinal", () => {

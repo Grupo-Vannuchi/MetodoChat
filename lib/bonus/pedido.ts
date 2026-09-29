@@ -43,8 +43,13 @@ export function palavraValida(palavra: string): boolean {
   return new RegExp(`^[A-Z0-9]{${PALAVRA_MIN},${PALAVRA_MAX}}$`).test(palavra);
 }
 
+/**
+ * O navegador manda o textarea com a quebra \r\n (medido na prova real de 29/09). Ela
+ * volta a ser \n antes de contar: sem isso, cada linha conta um caractere a mais que
+ * na tela, e um texto no limite seria recusado.
+ */
 function texto(v: unknown): string {
-  return typeof v === "string" ? v.trim() : "";
+  return typeof v === "string" ? v.replace(/\r\n?/g, "\n").trim() : "";
 }
 
 export function lerPedido(bruto: { tema: unknown; oQueResolve: unknown; palavra: unknown }):
