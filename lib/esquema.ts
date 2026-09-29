@@ -202,6 +202,18 @@ const MARCA_DAGUA = {
       porque:
         "migra DADO (não emite DDL); quem a confere é `ESPERADAS_DADOS` em scripts/migrar.mjs",
     },
+    {
+      de: "013-bonus-gerados.sql",
+      // A PRIMEIRA QUE É DE FEATURE, E NÃO DO PAINEL: ela cria `bonus_gerados`, a
+      // tabela do gerador de bônus (app/bonus/). Ela é observável por presença, e
+      // fica fora de `tabelas` DE PROPÓSITO: registrada lá, uma tabela que só o
+      // /bonus lê faria o painel inteiro, DMs incluídas, se recusar a subir. Sem
+      // ela, quebra só o /bonus, que diz "falta a migração 013". Quem confere as
+      // colunas é testes-integracao/bonus-tabela.integracao.ts. Decidido pelo
+      // Eduardo em 29/09/2026 (docs/specs/2026-09-29-gerador-de-bonus.md).
+      porque:
+        "tabela de FEATURE (bonus_gerados): a partida do painel não depende dela, de propósito",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",

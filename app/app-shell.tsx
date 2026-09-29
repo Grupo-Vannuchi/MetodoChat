@@ -17,6 +17,7 @@ import {
   IconMenu,
   IconX,
   IconImage,
+  IconMensagemLink,
 } from "./icons";
 import Progresso from "./publicar/progresso";
 
@@ -41,6 +42,7 @@ const NAV_GROUPS: {
       // compor, e passou a ser o calendário — ver o cabeçalho de
       // `app/publicar/page.tsx`.
       { href: "/publicar", label: "Publicações", icon: IconImage },
+      { href: "/bonus", label: "Bônus", icon: IconMensagemLink },
       { href: "/automacoes", label: "Automações", icon: IconZap },
       { href: "/contatos", label: "Contatos", icon: IconUsers },
       { href: "/eventos", label: "Atividade", icon: IconActivity },
