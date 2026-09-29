@@ -3,7 +3,10 @@
 **Nascido em:** 29/09/2026. O Eduardo acrescenta a este projeto a feature que o Método Labs
 decidiu, em 28/09, não construir mais em casa: *"o gerador de prompt e de carrossel [...] passa
 a ser desenvolvido pelo Eduardo dentro do Método Chat"* (site-ia, `docs/relatorios/2026-09-28.md`).
-**Estado:** desenho aprovado pelo Eduardo em 29/09, seção por seção. Pronto para virar plano.
+**Estado:** Etapa 1 construída e verificada em 29/09, pelas FASES 1.1 a 1.10 do plano
+(docs/plans/2026-09-29-gerador-de-bonus.md): `npm run verify` limpo, a suíte de integração inteira
+verde contra o container, e a revisão de segurança e a varredura de segredo sem achado. Falta a
+prova real (FASE 1.11). Nada foi aplicado na produção: a tabela `bonus_gerados` ainda não existe lá.
 **Projeto de quem:** do Vinícius Gualberto. Esta feature entra como visita: pasta própria e o
 mínimo de toque no que já existe.
 
