@@ -30,7 +30,9 @@ async function passarIntervalos(n: number) {
 
 beforeEach(() => {
   vi.useFakeTimers({ now: INICIO });
-  refresh.mockClear();
+  // `mockReset`, e não `mockClear`: um caso abaixo troca a IMPLEMENTAÇÃO do refresh,
+  // e `mockClear` a deixaria vazar para o caso seguinte.
+  refresh.mockReset();
 });
 
 afterEach(() => {
@@ -60,6 +62,18 @@ describe("Acompanhar", () => {
     expect(screen.getByText(/parei de conferir/i)).toBeTruthy();
     await passarIntervalos(5);
     expect(refresh.mock.calls.length).toBe(chamadas);
+  });
+
+  it("não sobrepõe: enquanto a pergunta anterior não termina, não sai outra", async () => {
+    // Um refresh que nunca termina. A transição fica pendente, e a guarda
+    // `consultando` segura a próxima pergunta (proposto pelo auditor; sem este caso,
+    // tirar a guarda passava nos outros quatro, porque o refresh falso termina na hora).
+    refresh.mockImplementation(() => new Promise(() => {}));
+    render(<Acompanhar criadoEmMs={INICIO} />);
+    await passar(INTERVALO_CONSULTA_MS);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await passarIntervalos(10);
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("para quando sai da tela", async () => {
