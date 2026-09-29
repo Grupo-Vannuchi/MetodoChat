@@ -28,6 +28,7 @@
 // defeito que esta base já levou duas vezes (a contraprova da varredura que
 // ficou muda; a guarda que perguntava `=== 0` onde devia perguntar `> 0`).
 import { beforeAll, expect, it } from "vitest";
+import { exigirPrefixo } from "./banco-descartavel";
 import { bancoDescartavel } from "./harness";
 import { aplicarMigracoes, migracoesEmOrdem } from "./migracoes";
 
@@ -141,8 +142,24 @@ it("uma TABELA que falta deixa a conferência vermelha, e a mensagem nomeia a ta
 
 it("um schema VAZIO tem mensagem própria: não é migração esquecida, é nenhuma", async () => {
   const sql = banco.db().sql();
-  for (const t of esquema.marcaDagua.tabelas) {
-    await sql.query(`drop table if exists ${t} cascade`);
+  // VAZIO É SEM TABELA NENHUMA, e não sem as oito da marca d'água. Desde a `013`
+  // o schema tem uma tabela de FEATURE (`bonus_gerados`) que a partida não
+  // conhece de propósito (ver `naoObservaveis`, lib/esquema.ts). Apagar só as
+  // oito a deixava de pé, e a conferência respondia DESATUALIZADO em vez de
+  // AUSENTE. Lidas do catálogo, todas saem, inclusive as que vierem depois.
+  //
+  // E POR ISSO O NOME DO SCHEMA É CONFERIDO AQUI, no ponto da destruição: apagar
+  // TUDO de `current_schema()` depende de ele ser o descartável. Se um dia a
+  // conexão deste caso for trocada pela administrativa, que vive no `public`, o
+  // caso morre aqui em vez de esvaziar o `public`.
+  const [{ s }] = (await sql.query(`select current_schema() as s`)) as { s: unknown }[];
+  exigirPrefixo(String(s), "o caso do schema vazio");
+  const tabelas = (await sql.query(
+    `select table_name from information_schema.tables
+      where table_schema = current_schema() and table_type = 'BASE TABLE'`
+  )) as { table_name: string }[];
+  for (const { table_name } of tabelas) {
+    await sql.query(`drop table if exists "${table_name}" cascade`);
   }
 
   await expect(esquema.conferirEsquema()).rejects.toThrow(
