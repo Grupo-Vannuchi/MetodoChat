@@ -164,9 +164,13 @@ como "travou", sem cron.
 
 1. Confere a sessão e a configuração (`BONUS_INTAKE_SECRET` e `LABS_URL`; sem elas, recusa).
 2. Reivindica o envio: `envio_estado = 'enviando'` só se não houver outro envio iniciado há menos
-   de 30 s. **Um `enviando` mais velho que isso é GRAVADO como incerto na mesma instrução que o
-   reivindica** (`incerto_pendente = incerto_pendente or envio_estado = 'enviando'`, com o valor
-   antigo da linha), antes de o passo 4 decidir o corpo. Ler como incerto só na tela não basta: se
+   de 60 s (o pior caminho vivo da action é conexão + POST + conexão, 35 s). **Um `enviando` mais
+   velho que isso é GRAVADO como incerto na mesma instrução que o reivindica**
+   (`incerto_pendente = incerto_pendente or envio_estado = 'enviando'`, com o valor antigo da
+   linha), antes de o passo 4 decidir o corpo. Na mesma instrução, **um corpo liberado é apagado**
+   (sem incerteza e sem envio em andamento, ele é só o que o operador abandonou), e `tentativas`
+   sobe e vira a **ficha** deste envio: toda escrita seguinte a exige, e a que não achar a linha
+   devolve `superado` sem gravar nada por cima do envio que assumiu. Ler como incerto só na tela não basta: se
    o processo morreu entre o POST e a gravação do desfecho, ou se a gravação falhou (o pooler já
    morreu por falta de vaga, `testes-integracao/banco-descartavel.ts:112-116`), sobraria
    `incerto_pendente` falso e o corpo solto.
@@ -274,8 +278,9 @@ recusas anteriores ao slug depois de uma tentativa incerta. Até o contrato novo
 Toda action sai por `redirect` com aviso, e o texto de cada saída vem de função pura: o padrão
 "nenhuma saída muda" do dono (`app/publicar/actions.ts`). O texto de tela passa pelo `humanizer`.
 
-**Sugestões de tema.** Os temas distintos do `GET <LABS_URL>/api/bonus`, com cache de 5 minutos.
-Se a leitura falhar, o campo fica sem sugestões e nada mais para. ⚠️ **Essa leitura não está no
+**Sugestões de tema.** Os temas distintos do `GET <LABS_URL>/api/bonus`, lidos a cada render, com
+teto de 3 s. Sem cache: as páginas são `force-dynamic`, o padrão do dono, e isso põe `no-store`
+em todo `fetch` da página. Se a leitura falhar, o campo fica sem sugestões e nada mais para. ⚠️ **Essa leitura não está no
 contrato** (está na rota); se ela mudar, só as sugestões somem.
 
 ### Configuração

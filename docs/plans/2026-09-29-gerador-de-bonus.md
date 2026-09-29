@@ -55,7 +55,12 @@ Valem para todas as fases, sem precisar repetir em cada uma.
 - **Modelo:** `claude-opus-5-5`, `effort: "high"`, `max_tokens: 16000`, `maxRetries: 0`,
   `fallbacks: "default"` com o beta `server-side-fallback-2026-07-01`, **sem** `cache_control`.
 - **Relógios:** `TIMEOUT_IA_MS` 150 000 < `TRAVADA_MS` 200 000 < `DESISTIR_MS` 240 000;
-  `maxDuration` 300 nas duas páginas; `TIMEOUT_ENVIO_MS` 15 000 < `ENVIO_PARADO_MS` 30 000.
+  `maxDuration` 300 nas duas páginas; `CONEXAO_MAX_MS` 10 000 + `TIMEOUT_ENVIO_MS` 15 000 +
+  `CONEXAO_MAX_MS` < `ENVIO_PARADO_MS` 60 000 (revisão do auditor na execução: o pior caminho da
+  action inteira, e não só do POST, tem de caber antes de o envio ser dado como preso).
+- **Ficha do envio:** `tentativas` sobe na reserva, e toda escrita do envio depois dela exige
+  `tentativas = <o valor que a reserva devolveu>`. Escrita que não acha a linha devolve
+  `superado`, e o desfecho de quem perdeu a reserva nunca sobrescreve o de quem a assumiu.
 - **Teto:** 5 gerações em 24 h, somando o painel inteiro, contadas no relógio do banco, com
   `pg_advisory_xact_lock`.
 - **Ao fechar cada fase**, avisar o auditor (sessão `metodochat-91`, via `SendMessage`) com o hash
@@ -401,7 +406,7 @@ O caso reescrito passa também sem a `013`.
 
 **Interfaces:**
 - Produz, em `tempos.ts`: `MAX_DURATION_S`, `TIMEOUT_IA_MS`, `TRAVADA_MS`, `DESISTIR_MS`,
-  `INTERVALO_CONSULTA_MS`, `TIMEOUT_ENVIO_MS`, `ENVIO_PARADO_MS` (números);
+  `INTERVALO_CONSULTA_MS`, `TIMEOUT_ENVIO_MS`, `CONEXAO_MAX_MS`, `ENVIO_PARADO_MS` (números);
   `type EstadoDaGeracao = "pendente" | "gerando" | "pronto" | "falhou"`;
   `type GeracaoNaTela = "gerando" | "travou" | "pronto" | "falhou"`;
   `geracaoNaTela(estado: EstadoDaGeracao, criadoEm: Date, agoraMs: number): GeracaoNaTela`.
@@ -418,8 +423,11 @@ O caso reescrito passa também sem a `013`.
 Crie `tests/bonus-tempos.test.ts`:
 
 ```ts
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  CONEXAO_MAX_MS,
   DESISTIR_MS,
   ENVIO_PARADO_MS,
   MAX_DURATION_S,
@@ -445,8 +453,18 @@ describe("a ordem dos relógios", () => {
     expect(TIMEOUT_IA_MS + 30_000).toBeLessThanOrEqual(MAX_DURATION_S * 1000);
   });
 
-  it("o envio só é dado como preso depois de o POST ter estourado o próprio teto", () => {
-    expect(TIMEOUT_ENVIO_MS).toBeLessThan(ENVIO_PARADO_MS);
+  it("o envio só é dado como preso depois de a action inteira poder ter terminado", () => {
+    // Conexão para gravar o corpo, o POST, conexão para gravar o desfecho. Medir só
+    // o POST deixava 35 s de pior caso contra 30 s de reserva (achado do auditor).
+    expect(CONEXAO_MAX_MS + TIMEOUT_ENVIO_MS + CONEXAO_MAX_MS).toBeLessThan(ENVIO_PARADO_MS);
+  });
+
+  it("a conexão máxima é a mesma de lib/db.ts", () => {
+    // `connect_timeout` é literal em lib/db.ts, que é do dono e não exporta nada
+    // disso; este caso lê o arquivo para os dois não divergirem calados.
+    const fonte = readFileSync(fileURLToPath(new URL("../lib/db.ts", import.meta.url)), "utf8");
+    const m = /connect_timeout:\s*(\d+)/.exec(fonte);
+    expect(Number(m?.[1]) * 1000).toBe(CONEXAO_MAX_MS);
   });
 });
 
@@ -616,8 +634,18 @@ export const INTERVALO_CONSULTA_MS = 2_000;
 /** Teto do POST ao Labs. A rota de lá responde em segundos. */
 export const TIMEOUT_ENVIO_MS = 15_000;
 
-/** Um envio iniciado há mais que isto e ainda `enviando` morreu no meio. */
-export const ENVIO_PARADO_MS = 30_000;
+/**
+ * O `connect_timeout` de lib/db.ts (10 s), em ms. Repetido aqui porque lá é literal
+ * num arquivo do dono; tests/bonus-tempos.test.ts lê o arquivo e confere.
+ */
+export const CONEXAO_MAX_MS = 10_000;
+
+/**
+ * Um envio iniciado há mais que isto e ainda `enviando` morreu no meio. Tem de ser
+ * maior que o pior caminho VIVO da action: conexão para gravar o corpo, o POST,
+ * conexão para gravar o desfecho. A ficha (`tentativas`) protege o resto.
+ */
+export const ENVIO_PARADO_MS = 60_000;
 
 export type EstadoDaGeracao = "pendente" | "gerando" | "pronto" | "falhou";
 export type GeracaoNaTela = "gerando" | "travou" | "pronto" | "falhou";
@@ -1537,11 +1565,17 @@ export type Preparo =
 
 export type FaltaNoEnvio = "sem_segredo" | "sem_url" | "url_invalida";
 
+/**
+ * `superado`: outra reserva assumiu o envio enquanto este esperava (a ficha em
+ * `tentativas` mudou). O desfecho deste envio NÃO foi gravado, de propósito: gravar
+ * por cima apagaria o do envio mais novo.
+ */
 export type ResultadoDoEnvio =
   | { tipo: "sem_config"; motivo: FaltaNoEnvio }
   | { tipo: "nao_encontrado" }
   | { tipo: "invalido"; problemas: ProblemaDoCampo[] }
   | { tipo: "ocupado" }
+  | { tipo: "superado" }
   | { tipo: "enviado"; desfecho: Desfecho; slug: string };
 
 /**
@@ -1552,7 +1586,10 @@ export type ResultadoDoEnvio =
  *
  * A exceção é incerteza SEM corpo gravado: o processo morreu entre reivindicar o
  * envio e gravar o corpo, e a gravação vem antes do POST. Nada saiu, e o corpo
- * pode nascer de novo.
+ * pode nascer de novo. Isso só é verdade porque a reserva APAGA o corpo antigo
+ * quando ele está liberado (`reivindicarEnvio`, lib/bonus/repositorio.ts): sem
+ * isso, um corpo que o operador abandonou depois de uma recusa voltaria no envio
+ * seguinte (achado do auditor na revisão do plano).
  *
  * A ASSINATURA É REFEITA A CADA CHAMADA, com `t` = agora, e nunca é guardada. O
  * `t` entra no HMAC e a janela do Labs é de ±5 minutos: um cabeçalho guardado faria
@@ -1991,6 +2028,12 @@ export function temChaveDaIA(env: Ambiente): boolean {
 // ATIVOS, sem autenticação (site-ia, route.ts:20-32). Se ele mudar, só as sugestões
 // somem: a lista completa chega na recusa `tema_fora_do_catalogo`, que está no
 // contrato. Por isso toda falha aqui vira lista vazia, e nada mais para.
+//
+// SEM CACHE, e de propósito dito: as páginas de app/bonus/ são `force-dynamic`
+// (o padrão do dono), e isso põe `no-store` em todo fetch da página
+// (node_modules/next/dist/docs/01-app/02-guides/caching-without-cache-components.md).
+// Um `revalidate` aqui seria ignorado e só fingiria cache. Cada render faz um GET,
+// com teto de 3 s.
 import { urlDaPorta } from "./labs";
 
 export function temasDoCatalogo(corpo: unknown): string[] {
@@ -2012,11 +2055,7 @@ export async function temasSugeridos(
   const porta = urlDaPorta(base);
   if (porta === null) return [];
   try {
-    const res = await fetchImpl(porta, {
-      method: "GET",
-      signal: AbortSignal.timeout(3_000),
-      next: { revalidate: 300 },
-    });
+    const res = await fetchImpl(porta, { method: "GET", signal: AbortSignal.timeout(3_000) });
     if (!res.ok) return [];
     return temasDoCatalogo(await res.json());
   } catch {
@@ -2032,9 +2071,7 @@ npx vitest run tests/bonus-labs.test.ts tests/bonus-config.test.ts tests/bonus-t
 npm run typecheck
 ```
 
-Esperado: PASS, e `typecheck` sem erro. Se o `tsc` recusar `next: { revalidate: 300 }` no
-`RequestInit`, confira que `next-env.d.ts` existe na raiz (ele traz o tipo global do Next) antes
-de mudar qualquer coisa.
+Esperado: PASS, e `typecheck` sem erro.
 
 - [ ] **Passo 7: provar que o teste do HMAC mede**
 
@@ -2291,7 +2328,7 @@ Esperado: `bonus-instrucao` PASS (a cópia já existe); os outros três FAIL por
 import { z } from "zod";
 
 // O SCHEMA DA SAÍDA DA IA, TRAZIDO COMO ESTÁ do Método Labs (site-ia,
-// src/lib/ia/schemas.ts, `BonusGeradoSchema`, commit b43ad27). As réguas vêm dos
+// src/lib/ia/schemas.ts, `BonusGeradoSchema`, commit bf6e923). As réguas vêm dos
 // 50 bônus medidos lá; o schema é rede contra saída quebrada, e quem aperta o
 // estilo é a instrução. Os nomes seguem os campos que a instrução pede.
 //
@@ -2553,10 +2590,12 @@ duas cópias do Labs.
   `gravarGerado(id, dados: BonusGerado, medicao: Medicao): Promise<void>`;
   `gravarFalha(id, erro: string, medicao: Medicao | null): Promise<void>`;
   `lerLinha(id: string): Promise<LinhaDoBonus | null>`; `listarRecentes(limite: number): Promise<LinhaDoBonus[]>`;
-  `reivindicarEnvio(id: string): Promise<LinhaDoBonus | null>`;
-  `devolverEnvio(id: string, anterior: LinhaDoBonus["envio_estado"]): Promise<void>`;
-  `gravarCorpo(id, slug, corpo, revisado: Revisado): Promise<void>`;
-  `gravarDesfecho(id, d: Desfecho): Promise<void>`; `gravarConferencia(id, existe: boolean): Promise<boolean>`.
+  `reivindicarEnvio(id: string): Promise<LinhaDoBonus | null>` (a linha devolvida traz a ficha em
+  `tentativas`); `devolverEnvio(id: string, ficha: number, anterior: LinhaDoBonus["envio_estado"]): Promise<void>`;
+  `gravarCorpo(id: string, ficha: number, slug: string, corpo: string, revisado: Revisado): Promise<boolean>`;
+  `gravarDesfecho(id: string, ficha: number, d: Desfecho): Promise<boolean>`;
+  `gravarConferencia(id, existe: boolean): Promise<boolean>`; e a constante `TRAVA_DO_TETO`, exportada
+  para o teste segurar a trava.
 - Produz, em `processo.ts`: `type Gerador = (p: Pedido) => Promise<ResultadoDaGeracao>`;
   `processarGeracao(id: string, gerar?: Gerador): Promise<void>`;
   `type DependenciasDoEnvio = { env?: Ambiente; agoraMs?: () => number; fetchImpl?: typeof fetch; timeoutMs?: number }`;
@@ -2681,11 +2720,47 @@ async function linhaPronta(): Promise<string> {
   return r.id;
 }
 
+/** Espera uma condição, conferindo a cada 10 ms, por até 3 s. */
+async function esperarAte(condicao: () => boolean): Promise<void> {
+  for (let i = 0; i < 300 && !condicao(); i++) await new Promise((f) => setTimeout(f, 10));
+  if (!condicao()) throw new Error("a condição não chegou em 3 s");
+}
+
 describe("o teto diário", () => {
-  it("pedidos simultâneos com 4 no dia: só 1 entra", async () => {
-    for (let i = 0; i < 4; i++) await repo.criarPedido(PEDIDO);
-    const r = await Promise.all([repo.criarPedido(PEDIDO), repo.criarPedido(PEDIDO), repo.criarPedido(PEDIDO)]);
-    expect(r.filter((x) => x.ok)).toHaveLength(1);
+  // DETERMINÍSTICO, e não por concorrência (achado do auditor): disparar pedidos
+  // em paralelo pode passar SEM a trava, porque o primeiro pega a conexão quente e
+  // termina antes de os outros abrirem conexão. Aqui a trava é segurada por uma
+  // transação do próprio teste, e o pedido TEM de ficar esperando por ela.
+  it("o pedido espera a trava do teto: contar e inserir não correm em paralelo", async () => {
+    let soltar!: () => void;
+    const segurando = new Promise<void>((f) => (soltar = f));
+    let travou!: () => void;
+    const travado = new Promise<void>((f) => (travou = f));
+    const transacao = banco
+      .db()
+      .sql()
+      .begin(async (tx) => {
+        await tx.query(`select pg_advisory_xact_lock($1::bigint)`, [repo.TRAVA_DO_TETO]);
+        travou();
+        await segurando;
+      });
+    await travado;
+
+    const pedido = repo.criarPedido(PEDIDO);
+    const venceu = await Promise.race([
+      pedido.then(() => "pedido"),
+      new Promise((f) => setTimeout(() => f("relogio"), 300)),
+    ]);
+    expect(venceu).toBe("relogio");
+
+    soltar();
+    await transacao;
+    expect((await pedido).ok).toBe(true);
+  });
+
+  it("com 5 no dia, o sexto é recusado", async () => {
+    for (let i = 0; i < 5; i++) await repo.criarPedido(PEDIDO);
+    expect((await repo.criarPedido(PEDIDO)).ok).toBe(false);
     expect(await repo.usadasNasUltimas24h()).toBe(5);
   });
 
@@ -2780,14 +2855,14 @@ describe("enviarLinha", () => {
     expect((await repo.lerLinha(id))?.envio_estado).toBe("criado");
   });
 
-  it("envio preso há 31 s é GRAVADO como incerto: vai o corpo X, e não o slug editado (proposto pelo auditor)", async () => {
+  it("envio preso há 61 s é GRAVADO como incerto: vai o corpo X, e não o slug editado (proposto pelo auditor)", async () => {
     const id = await linhaPronta();
     const X = contrato.montarCorpo({ ...REVISADO, slug: "x-slug" });
     await banco
       .db()
       .sql()
       .query(
-        `update bonus_gerados set envio_estado = 'enviando', envio_iniciado_em = now() - interval '31 seconds',
+        `update bonus_gerados set envio_estado = 'enviando', envio_iniciado_em = now() - interval '61 seconds',
                 incerto_pendente = false, corpo_enviado = $2, slug = 'x-slug' where id = $1`,
         [id, X]
       );
@@ -2797,7 +2872,7 @@ describe("enviarLinha", () => {
     expect(r.tipo === "enviado" && r.desfecho.estado).toBe("conferir");
   });
 
-  it("envio em andamento há menos de 30 s: ocupado, e nada sai", async () => {
+  it("envio em andamento há menos de 60 s: ocupado, e nada sai", async () => {
     const id = await linhaPronta();
     await banco
       .db()
@@ -2805,6 +2880,56 @@ describe("enviarLinha", () => {
       .query(`update bonus_gerados set envio_estado = 'enviando', envio_iniciado_em = now() where id = $1`, [id]);
     expect((await processo.enviarLinha(id, REVISADO, deps())).tipo).toBe("ocupado");
     expect(labs.recebidos).toHaveLength(0);
+  });
+
+  it("a ficha: o desfecho de quem perdeu a reserva não apaga o de quem a assumiu (proposto pelo auditor)", async () => {
+    // A posta e o Labs demora 300 ms para responder 429. Enquanto isso a reserva de
+    // A envelhece, B a assume e posta, e o Labs responde 201 a B em 600 ms. Sem a
+    // ficha, o 429 de A seria gravado por cima do `enviando` de B, e o 201 de B
+    // acharia zero linhas e sumiria: a linha terminaria em `esperar`, com o bônus
+    // criado no Labs.
+    const id = await linhaPronta();
+    labs.roteiro = [
+      { status: 429, corpo: { ok: false, erro: "muitas_requisicoes" }, atrasoMs: 300 },
+      { status: 201, corpo: { ok: true, slug: "kit-de-lancamento", id: 7, isActive: false }, atrasoMs: 600 },
+    ];
+    const lento = { ...deps(), timeoutMs: 2_000 };
+    const a = processo.enviarLinha(id, REVISADO, lento);
+    await esperarAte(() => labs.recebidos.length === 1);
+    await banco
+      .db()
+      .sql()
+      .query(`update bonus_gerados set envio_iniciado_em = now() - interval '61 seconds' where id = $1`, [id]);
+    const b = processo.enviarLinha(id, REVISADO, lento);
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(ra.tipo).toBe("superado");
+    expect(rb.tipo === "enviado" && rb.desfecho.estado).toBe("criado");
+    expect((await repo.lerLinha(id))?.envio_estado).toBe("criado");
+    expect(labs.recebidos[1].corpo).toBe(labs.recebidos[0].corpo);
+  });
+
+  it("o corpo liberado é apagado na reserva: um corpo abandonado não volta (proposto pelo auditor)", async () => {
+    // O operador teve o slug `slug-a` recusado e editou para `slug-b`. A reserva
+    // seguinte morre antes de gravar o corpo novo; a próxima a encontra presa e a
+    // grava como incerta. Sem apagar o corpo liberado, iria o `slug-a` abandonado.
+    const id = await linhaPronta();
+    const A = contrato.montarCorpo({ ...REVISADO, slug: "slug-a" });
+    await banco
+      .db()
+      .sql()
+      .query(
+        `update bonus_gerados set envio_estado = 'recusado', incerto_pendente = false,
+                corpo_enviado = $2, slug = 'slug-a', tentativas = 1 where id = $1`,
+        [id, A]
+      );
+    await repo.reivindicarEnvio(id);
+    await banco
+      .db()
+      .sql()
+      .query(`update bonus_gerados set envio_iniciado_em = now() - interval '61 seconds' where id = $1`, [id]);
+    labs.roteiro = [{ status: 201, corpo: { ok: true, slug: "slug-b", id: 9, isActive: false } }];
+    await processo.enviarLinha(id, { ...REVISADO, slug: "slug-b" }, deps());
+    expect(JSON.parse(labs.recebidos[0].corpo).slug).toBe("slug-b");
   });
 
   it("sem configuração, recusa antes de tocar o banco e a rede", async () => {
@@ -2883,8 +3008,12 @@ import { ENVIO_PARADO_MS } from "./tempos";
 // `where` é a proteção, e testes-integracao/bonus-processo.integracao.ts é quem
 // acusa se alguém a tirar.
 
-/** A chave da trava do teto. Número fixo, e não `hashtext`, para não depender de função interna do Postgres. */
-const TRAVA_DO_TETO = 2026092901;
+/**
+ * A chave da trava do teto. Número fixo, e não `hashtext`, para não depender de
+ * função interna do Postgres. Exportada para o teste de integração segurar a trava
+ * e provar que o pedido espera por ela.
+ */
+export const TRAVA_DO_TETO = 2026092901;
 
 export async function usadasNasUltimas24h(): Promise<number> {
   const [linha] = (await sql().query(
@@ -2956,10 +3085,18 @@ export async function listarRecentes(limite: number): Promise<LinhaDoBonus[]> {
  * RESERVA O ENVIO. Um `enviando` mais velho que ENVIO_PARADO_MS morreu no meio, e é
  * GRAVADO como incerto NESTA instrução, e não só lido assim na tela: se o processo
  * morreu entre o POST e a gravação do desfecho, ou se a gravação falhou, sobraria
- * `incerto_pendente` falso e o corpo solto. No `set`, `envio_estado` é o valor
- * ANTIGO da linha (regra do Postgres), e é isso que a expressão pergunta.
+ * `incerto_pendente` falso e o corpo solto. No `set`, `envio_estado` e
+ * `incerto_pendente` são os valores ANTIGOS da linha (regra do Postgres), e é
+ * isso que as expressões perguntam.
  *
- * `criado` e `conferir` não são reservados: um terminou, o outro espera uma pessoa.
+ * O CORPO LIBERADO É APAGADO AQUI: sem incerteza e sem envio em andamento, nenhuma
+ * tentativa pode ter criado o bônus, e o corpo antigo é só o que o operador
+ * abandonou. Apagá-lo é o que torna verdade o "sem corpo, nada saiu" de
+ * `prepararEnvio` (achado do auditor): o corpo novo é gravado antes do POST.
+ *
+ * `tentativas` é a FICHA: a linha devolvida traz o valor novo, e toda escrita
+ * seguinte deste envio a exige. `criado` e `conferir` não são reservados: um
+ * terminou, o outro espera uma pessoa.
  */
 export async function reivindicarEnvio(id: string): Promise<LinhaDoBonus | null> {
   const linhas = (await sql().query(
@@ -2967,7 +3104,11 @@ export async function reivindicarEnvio(id: string): Promise<LinhaDoBonus | null>
         set envio_estado = 'enviando',
             envio_iniciado_em = now(),
             tentativas = tentativas + 1,
-            incerto_pendente = incerto_pendente or coalesce(envio_estado = 'enviando', false)
+            incerto_pendente = incerto_pendente or coalesce(envio_estado = 'enviando', false),
+            corpo_enviado = case
+              when incerto_pendente or coalesce(envio_estado = 'enviando', false) then corpo_enviado
+              else null
+            end
       where id = $1 and estado = 'pronto'
         and (envio_estado is null
              or envio_estado in ('colisao', 'recusado', 'esperar', 'incerto', 'porta_desligada')
@@ -2979,34 +3120,54 @@ export async function reivindicarEnvio(id: string): Promise<LinhaDoBonus | null>
   return linhas[0] ?? null;
 }
 
+// AS TRÊS ESCRITAS DEPOIS DA RESERVA EXIGEM A FICHA (`tentativas = $2`), e não só
+// `envio_estado = 'enviando'`: o `enviando` pode ser de OUTRA reserva, que assumiu
+// esta depois de ela envelhecer. Sem a ficha, o desfecho de quem perdeu a reserva
+// era gravado por cima do de quem a assumiu (achado do auditor). As duas que
+// importam devolvem se acharam a linha; quem chama trata o falso como `superado`.
+
 /** Desfaz uma reserva que não chegou a enviar nada. */
-export async function devolverEnvio(id: string, anterior: LinhaDoBonus["envio_estado"]): Promise<void> {
+export async function devolverEnvio(
+  id: string,
+  ficha: number,
+  anterior: LinhaDoBonus["envio_estado"]
+): Promise<void> {
   await sql().query(
-    `update bonus_gerados set envio_estado = $2, tentativas = tentativas - 1
-      where id = $1 and envio_estado = 'enviando'`,
-    [id, anterior]
+    `update bonus_gerados set envio_estado = $3, tentativas = tentativas - 1
+      where id = $1 and tentativas = $2 and envio_estado = 'enviando'`,
+    [id, ficha, anterior]
   );
 }
 
 /** Grava a string exata ANTES do POST: um processo que morra depois disso deixa o corpo para o reenvio. */
-export async function gravarCorpo(id: string, slug: string, corpo: string, revisado: Revisado): Promise<void> {
-  await sql().query(
-    `update bonus_gerados set slug = $2, corpo_enviado = $3, revisado = $4::jsonb
-      where id = $1 and envio_estado = 'enviando'`,
-    [id, slug, corpo, JSON.stringify(revisado)]
-  );
+export async function gravarCorpo(
+  id: string,
+  ficha: number,
+  slug: string,
+  corpo: string,
+  revisado: Revisado
+): Promise<boolean> {
+  const linhas = (await sql().query(
+    `update bonus_gerados set slug = $3, corpo_enviado = $4, revisado = $5::jsonb
+      where id = $1 and tentativas = $2 and envio_estado = 'enviando'
+      returning id`,
+    [id, ficha, slug, corpo, JSON.stringify(revisado)]
+  )) as { id: string }[];
+  return linhas.length > 0;
 }
 
-export async function gravarDesfecho(id: string, d: Desfecho): Promise<void> {
-  await sql().query(
+export async function gravarDesfecho(id: string, ficha: number, d: Desfecho): Promise<boolean> {
+  const linhas = (await sql().query(
     `update bonus_gerados
-        set envio_estado = $2,
-            incerto_pendente = $3,
-            envio_resposta = $4::jsonb,
-            enviado_em = case when $2 = 'criado' then now() else enviado_em end
-      where id = $1 and envio_estado = 'enviando'`,
-    [id, d.estado, d.incertoPendente, JSON.stringify({ motivo: d.motivo, ...d.detalhe })]
-  );
+        set envio_estado = $3,
+            incerto_pendente = $4,
+            envio_resposta = $5::jsonb,
+            enviado_em = case when $3 = 'criado' then now() else enviado_em end
+      where id = $1 and tentativas = $2 and envio_estado = 'enviando'
+      returning id`,
+    [id, ficha, d.estado, d.incertoPendente, JSON.stringify({ motivo: d.motivo, ...d.detalhe })]
+  )) as { id: string }[];
+  return linhas.length > 0;
 }
 
 /**
@@ -3092,6 +3253,11 @@ export type DependenciasDoEnvio = {
  * A ORDEM: configuração → validação (só sem incerteza) → reserva → corpo → corpo
  * GRAVADO → POST → desfecho gravado. O corpo é gravado antes do POST para que um
  * processo que morra no meio deixe o corpo exato para o reenvio.
+ *
+ * A FICHA (`linha.tentativas`, devolvida pela reserva) vai em toda escrita. Se a
+ * gravação do corpo não achar a linha, outra reserva assumiu e NADA é postado. Se a
+ * do desfecho não achar, o desfecho deste envio fica de fora, de propósito, e a
+ * resposta é `superado`.
  */
 export async function enviarLinha(
   id: string,
@@ -3110,13 +3276,17 @@ export async function enviarLinha(
 
   const linha = await reivindicarEnvio(id);
   if (!linha) return { tipo: "ocupado" };
+  const ficha = linha.tentativas;
 
   const prep = prepararEnvio(linha, revisadoBruto, config.segredo, (deps.agoraMs ?? Date.now)());
   if (!prep.ok) {
-    await devolverEnvio(id, antes.envio_estado);
+    await devolverEnvio(id, ficha, antes.envio_estado);
     return { tipo: "invalido", problemas: prep.problemas };
   }
-  if (prep.corpoNovo && prep.revisado) await gravarCorpo(id, prep.slug, prep.corpo, prep.revisado);
+  if (prep.corpoNovo && prep.revisado) {
+    const gravou = await gravarCorpo(id, ficha, prep.slug, prep.corpo, prep.revisado);
+    if (!gravou) return { tipo: "superado" };
+  }
 
   const resposta = await postarNoLabs({
     url: config.url,
@@ -3126,7 +3296,8 @@ export async function enviarLinha(
     fetchImpl: deps.fetchImpl,
   });
   const desfecho = lerResposta(resposta, { incertoAntes: linha.incerto_pendente, nossoSlug: prep.slug });
-  await gravarDesfecho(id, desfecho);
+  const gravou = await gravarDesfecho(id, ficha, desfecho);
+  if (!gravou) return { tipo: "superado" };
   return { tipo: "enviado", desfecho, slug: prep.slug };
 }
 ```
@@ -3140,16 +3311,21 @@ npm run typecheck
 
 Esperado: todos os casos PASS, alvo no banco de teste, `typecheck` limpo.
 
-- [ ] **Passo 7: provar que os três `where` medem**
+- [ ] **Passo 7: provar que as cinco proteções medem**
 
 Um de cada vez, rodando o arquivo de integração depois de cada troca e desfazendo em seguida:
 
-1. Em `criarPedido`, apague a linha do `pg_advisory_xact_lock`. Esperado: FAIL em "pedidos
-   simultâneos com 4 no dia" (entra mais de 1).
+1. Em `criarPedido`, apague a linha do `pg_advisory_xact_lock`. Esperado: FAIL em "o pedido
+   espera a trava do teto" (o pedido vence o relógio).
 2. Em `reivindicarGeracao`, troque `and estado = 'pendente'` por nada. Esperado: FAIL em "dois
    disparos da mesma linha chamam a IA uma vez só".
 3. Em `reivindicarEnvio`, troque `incerto_pendente or coalesce(envio_estado = 'enviando', false)`
-   por `incerto_pendente`. Esperado: FAIL em "envio preso há 31 s é GRAVADO como incerto".
+   (a do `set incerto_pendente`) por `incerto_pendente`. Esperado: FAIL em "envio preso há 61 s é
+   GRAVADO como incerto".
+4. Em `gravarDesfecho`, apague `and tentativas = $2` (mantendo o parâmetro). Esperado: FAIL em
+   "a ficha: o desfecho de quem perdeu a reserva não apaga o de quem a assumiu".
+5. Em `reivindicarEnvio`, troque o `case` do `corpo_enviado` por `corpo_enviado = corpo_enviado`.
+   Esperado: FAIL em "o corpo liberado é apagado na reserva".
 
 Se algum ficar verde, **pare**: o teste não mede o que diz, e isso é mais grave que o defeito.
 
@@ -3487,6 +3663,8 @@ export function textoDoEnvioRecusado(r: Exclude<ResultadoDoEnvio, { tipo: "envia
       return `Corrija antes de enviar. ${textoDosProblemas(r.problemas)}`;
     case "ocupado":
       return "Já há um envio deste bônus em andamento, ou ele não pode mais ser enviado. Espere alguns segundos e recarregue a página.";
+    case "superado":
+      return "Outro envio deste bônus começou enquanto este esperava o Labs, e o resultado que vale é o dele. O estado atual está abaixo.";
   }
 }
 
@@ -3821,6 +3999,14 @@ describe("toda action do bônus confere a sessão antes de qualquer coisa", () =
     const achados = primeirasInstrucoes(ler("app/bonus/actions.ts"));
     expect(achados.map((a) => a.nome).sort()).toEqual(["conferirNoLabs", "enviarAoLabs", "gerarDeNovo", "pedirBonus"]);
     for (const a of achados) expect(a.primeira, a.nome).toBe("await exigirSessao();");
+  });
+
+  it("nenhum export escapa do leitor: num arquivo 'use server', todo export é action", () => {
+    // Uma quinta action escrita como `export const x = async (f) => {…}` não casa
+    // com o leitor acima, e fugiria da lista E da conferência de sessão (achado do
+    // auditor). Contar todo `export` do arquivo fecha essa porta.
+    const fonte = ler("app/bonus/actions.ts");
+    expect((fonte.match(/^export /gm) ?? []).length).toBe(primeirasInstrucoes(fonte).length);
   });
 });
 ```
