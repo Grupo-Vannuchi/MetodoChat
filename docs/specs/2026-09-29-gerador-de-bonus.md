@@ -332,7 +332,10 @@ proteção é retirada.
 | pura | linha travada com relógio forjado; o teto diário; a palavra digitada vencendo a da IA; a validação contra o contrato | — |
 | integração (**só no container**, com `DATABASE_URL_TESTES`) | a `013` cria a tabela com as restrições; o teto conta no relógio do banco; dois processamentos da mesma linha chamam a IA uma vez (dublê da IA) | — |
 | integração | pedidos simultâneos com 4 linhas no dia: só 1 entra | a trava sair da transação |
-| integração | linha em `enviando` há 31 s, `incerto_pendente` falso, corpo X; envio com o slug editado para Y e resposta `200 duplicate`: o Labs recebe X e o estado final é `conferir` (proposto pelo auditor) | a reivindicação não gravar a incerteza |
+| integração | linha em `enviando` há 61 s, `incerto_pendente` falso, corpo X; envio com o slug editado para Y e resposta `200 duplicate`: o Labs recebe X e o estado final é `conferir` (proposto pelo auditor) | a reivindicação não gravar a incerteza |
+| integração | A recebe 429 em 300 ms; a reserva de A envelhece; B assume e recebe 201 em 600 ms: o final é `criado`, e A devolve `superado` (proposto pelo auditor) | a ficha sair das escritas do envio |
+| integração | corpo A recusado, operador edita para B, uma reserva morre antes de gravar o corpo: o envio seguinte leva B (proposto pelo auditor) | a reserva não apagar o corpo liberado |
+| integração | o teste segura a trava do teto numa transação própria: o pedido perde para um relógio de 300 ms | a trava sair de `criarPedido` |
 | todas | cada arquivo novo casa com o `include` da sua suíte (`tests/**/*.test.ts`, `testes-integracao/**/*.integracao.ts`, `testes-dom/**/*.dom.tsx`). A prova é a contagem subir acima da base de 29/09: 54 arquivos / 1 891 casos puros, 9 / 64 de tela | o arquivo não rodar em suíte nenhuma |
 | integração | o envio contra um dublê HTTP em `127.0.0.1`: timeout na 1ª, e a 2ª leva o mesmo slug e o mesmo corpo | — |
 | tela | o acompanhamento para quando a geração termina e nunca sobrepõe pedidos | — |
