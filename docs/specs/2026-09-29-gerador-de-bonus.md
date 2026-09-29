@@ -3,10 +3,10 @@
 **Nascido em:** 29/09/2026. O Eduardo acrescenta a este projeto a feature que o Método Labs
 decidiu, em 28/09, não construir mais em casa: *"o gerador de prompt e de carrossel [...] passa
 a ser desenvolvido pelo Eduardo dentro do Método Chat"* (site-ia, `docs/relatorios/2026-09-28.md`).
-**Estado:** Etapa 1 construída e verificada em 29/09, pelas FASES 1.1 a 1.10 do plano
-(docs/plans/2026-09-29-gerador-de-bonus.md): `npm run verify` limpo, a suíte de integração inteira
-verde contra o container, e a revisão de segurança e a varredura de segredo sem achado. Falta a
-prova real (FASE 1.11). Nada foi aplicado na produção: a tabela `bonus_gerados` ainda não existe lá.
+**Estado:** Etapa 1 construída, verificada e provada de verdade em 29/09, pelas FASES 1.1 a
+1.11-bis do plano (docs/plans/2026-09-29-gerador-de-bonus.md). A `013` está aplicada na produção
+do Chat, e a tabela está vazia. A prova real passou e achou um defeito, já corrigido (ver "A prova
+real"). Falta o PR, e antes do merge as pré-condições abaixo.
 **Projeto de quem:** do Vinícius Gualberto. Esta feature entra como visita: pasta própria e o
 mínimo de toque no que já existe.
 
@@ -366,6 +366,36 @@ Cada passo que grava só acontece depois de avisar o Eduardo e ter o OK dele.
    "PREENCHA ANTES DE RODAR", sem atos premium. Também é medido o tempo real da geração.
 5. O envio: 201, bônus oculto no `/admin` do Labs local e `/bonus/<slug>` respondendo 404 lá.
 
+### O que a prova mediu, em 29/09
+
+Cada escrita foi feita com o OK do Eduardo.
+
+- **A tabela:** o ensaio a seco listou só a `013` (da `000` à `012`, já aplicadas, e todas as
+  conferências do dono passando). Aplicada com `--aplicar --a-mao`, e o ensaio seguinte deu
+  "`013` já aplicada".
+- **O Labs local:** site-ia na branch `dev` (`c7be639`), com banco local (`site-ia-db`). Nada foi
+  para a produção do Labs.
+- **A geração:** 27,3 s do pedido ao bônus pronto, com `claude-opus-5-5`: 3 179 tokens de
+  entrada, 2 252 de saída, sem cache. O prompt saiu com 1 041 caracteres, dentro da régua, e sem
+  "preencha". A palavra digitada, `ZZPROVA`, venceu a sugerida pela IA (`LEGENDA`).
+- **O envio:** `POST /api/bonus` 201 em 99 ms no Labs, e 0,2 s do lado do Chat, criado na
+  primeira tentativa. No Labs o bônus ficou com `isActive = false`, `/bonus/<slug>` respondeu 404
+  e ele não apareceu no `GET /api/bonus`.
+- **O defeito achado:** o prompt chegou ao Labs com 1 062 caracteres, contra 1 041 na tela: as 21
+  quebras de linha foram como `\r\n`, porque o navegador manda todo textarea assim. Corrigido no
+  Chat na FASE 1.11-bis: os dois leitores de formulário voltam a quebra para `\n` antes de contar e
+  de assinar. No Labs local, 7 dos 57 bônus já tinham `\r`, provavelmente os editados pelo
+  `/admin`; isso é do Labs.
+- **A limpeza:** a linha de prova foi apagada da produção do Chat (1 linha, por id, slug e
+  palavra), e a tabela ficou vazia. O bônus de prova do Labs local foi pedido à sessão do site-ia,
+  por slug exato. As linhas `LABS_URL` e `BONUS_INTAKE_SECRET` saíram do `.env.local`, e os dois
+  servidores locais foram desligados.
+
+**O que esta prova não mede.** O tempo do envio contra a produção do Labs: lá, o `POST` faz seis
+idas em série ao banco (informado pela sessão do site-ia), e o banco remoto responde mais devagar
+que o local. O teto de 15 s é provavelmente folgado, mas só vai ser medido quando a porta for
+ligada na produção. Se estourar, o envio vira "incerto", e o reenvio leva o mesmo corpo.
+
 ---
 
 ## Pré-condições do merge
@@ -378,6 +408,8 @@ Cada passo que grava só acontece depois de avisar o Eduardo e ter o OK dele.
    mensagem certa. Ligar a porta nos dois lados é o passo seguinte ao merge, como o contrato
    manda.
 5. PR com o porquê, revisado pelo dono. Nada é empurrado na `main`.
+6. Nenhum `next dev` apontado para a produção durante o deploy do merge. O build aplica migração,
+   e um leitor preso numa transação derruba o deploy aos 120 s (`scripts/migrar.mjs:383-390`).
 
 ---
 
@@ -391,3 +423,10 @@ Achados de 29/09 que não são desta feature. Ficam para o dono.
   lembretes só saem quando chega webhook ou no cron diário.
 - As Server Actions do projeto conferem a sessão só pelo `proxy.ts`.
 - O README diz Neon e esquema criado pelo `lib/db.ts`; os dois mudaram.
+- Na prova real, com o `next dev` local apontado para a produção, apareceu
+  `57014 canceling statement due to statement timeout` como `unhandledRejection`, sem requisição
+  ligada, logo depois de uma recarga por edição de arquivo. O `statement_timeout` da produção é de
+  2 min, e logo depois não havia nenhuma sessão ativa. A consulta não foi identificada. A hipótese,
+  não medida, é uma instrução esperando trava, da mesma família que `scripts/migrar.mjs:383-390`
+  registra. Para investigar, com o dev no ar: `pg_stat_activity` com
+  `state like 'idle in transaction%'` e `pg_locks where not granted`.
