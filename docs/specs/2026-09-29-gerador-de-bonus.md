@@ -144,9 +144,11 @@ Uma linha é um bônus, do pedido ao envio.
 
 **A instrução** é a `INSTRUCAO_BONUS` do Labs, mais a `REGRA_DE_PORTUGUES` que ela importa,
 trazidas **como estão** do site-ia, com o commit de origem anotado no arquivo. O schema é o
-`BonusGeradoSchema` do Labs. O Labs removeu o gerador dele em 29/09, por decisão do Eduardo
-(site-ia `4662222`), e o `/admin` de lá só publica. A instrução tem um dono só, este repositório,
-e pode ser editada aqui sem combinar com o Labs.
+`BonusGeradoSchema` do Labs. Em 29/09, por decisão do Eduardo, o Labs tirou o gerador da tela de
+bônus (site-ia `4662222`, só `novo-bonus-form.tsx`). A cópia de lá **continua** no repositório
+dele: `src/lib/ia/instrucao-bonus.ts` segue importada por `gerar.ts` e chamada pelo ramo padrão de
+`admin/geracao/actions.ts:185` (medido pelo auditor e conferido em 29/09). Esta cópia é a que gera
+os bônus do Chat; as duas podem divergir, e isso é assunto do Labs.
 
 **Os relógios**, numa constante cada, com a ordem verificada por teste (molde:
 `site-ia/src/lib/ia/tempos.ts`):

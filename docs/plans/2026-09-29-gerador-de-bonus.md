@@ -1304,6 +1304,8 @@ describe("detalheDe", () => {
     expect(detalheDe({ id: "clx9" }).id).toBe("clx9");
     expect(detalheDe({ id: { lixo: true } }).id).toBeNull();
     expect(detalheDe({ id: Number.NaN }).id).toBeNull();
+    expect(detalheDe({ id: "" }).id).toBeNull();
+    expect(detalheDe({ id: "   " }).id).toBeNull();
     expect(detalheDe({ id: "x".repeat(500) }).id).toHaveLength(200);
   });
 });
@@ -1505,7 +1507,8 @@ function textoDe(o: Record<string, unknown> | null, chave: string): string | nul
 function idDe(o: Record<string, unknown> | null): string | null {
   const v = o?.id;
   if (typeof v === "number" && Number.isFinite(v)) return String(v);
-  return typeof v === "string" ? v.slice(0, TEXTO_MAX) : null;
+  // Texto vazio não é id: a guarda do `duplicate` depende de o id existir de fato.
+  return typeof v === "string" && v.trim() ? v.slice(0, TEXTO_MAX) : null;
 }
 
 function textosDe(o: Record<string, unknown> | null, chave: string): string[] {
@@ -2221,13 +2224,15 @@ antes da primeira linha, acrescente:
 
 ```ts
 // TRAZIDO COMO ESTÁ do Método Labs (site-ia, src/lib/ia/, commit 01e609f), quando o
-// gerador passou a morar no Chat (decisão de 28/09). Em 29/09 o Labs removeu o gerador
-// dele (site-ia 4662222): esta é a única cópia. Não edite o texto sem reconferir a
-// régua do Labs numa geração real (spec, "A prova real").
+// gerador passou a morar no Chat (decisão de 28/09). Em 29/09 o Labs deixou de gerar
+// bônus pela tela (site-ia 4662222), mas a cópia de lá continua no repositório dele;
+// esta é a que gera os bônus do Chat. Não edite o texto sem reconferir a régua do Labs
+// numa geração real (spec, "A prova real").
 ```
 
 (Cabeçalho na versão da FASE 1.13. Na cópia original, as linhas 2 e 3 diziam que existiam duas
-cópias e recomendavam o Labs congelar a dele; o Labs removeu o gerador em 29/09.)
+cópias e recomendavam o Labs congelar a dele. O Labs tirou o gerador só da tela, e a cópia de lá
+continua no repositório dele.)
 
 Confira que a única diferença para o original é essa (o cabeçalho e o import):
 
@@ -3545,20 +3550,31 @@ describe("toda saída tem frase", () => {
     expect(q.texto).toMatch(/antes/i);
   });
 
-  it("o criado pela duplicata é sucesso, e também manda publicar antes", () => {
+  // O `duplicate` é um fato sobre o banco do Labs, e não sobre quem chama (contrato,
+  // site-ia 485573e). Nenhuma frase pode afirmar que a nossa tentativa chegou, nem que
+  // nada nosso foi criado: um "Não existe" clicado cedo demais solta a incerteza antes
+  // de a tentativa incerta terminar de gravar (apontado pelo auditor).
+  it("o criado pela duplicata é sucesso, manda conferir o conteúdo e não afirma a chegada", () => {
     const q = quadroDoEnvio("criado_pela_duplicata", detalheDe({ id: 7 }), "kit");
     expect(q.tom).toBe("ok");
-    expect(q.texto).toContain("uma vez só");
+    expect(q.texto).toContain("quase certamente");
+    expect(q.texto).toContain("confira no /admin do Labs");
     expect(q.texto).toMatch(/antes/i);
+    expect(q.texto).not.toMatch(/chegou/i);
   });
 
-  it("o slug ocupado manda trocar o slug, e diz que nada foi criado", () => {
+  it("o slug ocupado manda trocar o slug", () => {
     const q = quadroDoEnvio("slug_ocupado", detalheDe(null), "kit");
     expect(q.tom).toBe("erro");
     expect(q.texto).toContain("kit");
     expect(q.texto).toContain("outro título");
     expect(q.texto).toContain("Troque o slug");
-    expect(q.texto).toContain("Nada deste bônus foi criado");
+  });
+
+  it("nem a colisão nem o slug ocupado afirmam que nada foi criado", () => {
+    for (const m of ["colisao", "slug_ocupado"] as const) {
+      expect(quadroDoEnvio(m, detalheDe(null), "kit").texto, m).not.toMatch(/nada deste bônus foi criado/i);
+    }
   });
 
   it("a incerteza diz que reenviar é seguro", () => {
@@ -3855,7 +3871,7 @@ export function quadroDoEnvio(motivo: MotivoDoEnvio, d: Detalhe, slug: string | 
       return {
         tom: "ok",
         titulo: "Criado no Labs, ainda oculto",
-        texto: `Uma tentativa anterior chegou ao Labs sem que a resposta voltasse: o Labs achou este bônus, com o mesmo endereço e o mesmo título, e ele existe uma vez só. ${PASSO_SEGUINTE}`,
+        texto: `O Labs já tem este bônus, com o mesmo endereço e o mesmo título. Como a tentativa anterior ficou sem resposta, ele é quase certamente o deste envio: confira no /admin do Labs que o conteúdo é o deste bônus. ${PASSO_SEGUINTE}`,
       };
     case "conferido_existe":
       return { tom: "ok", titulo: "Marcado como criado pela sua conferência", texto: PASSO_SEGUINTE };
@@ -3867,18 +3883,20 @@ export function quadroDoEnvio(motivo: MotivoDoEnvio, d: Detalhe, slug: string | 
       };
     // O `duplicate` sem tentativa anterior: o mesmo endereço E o mesmo título já estão lá,
     // e não saíram deste envio. Trocar só o slug publicaria um quase igual (lembrado
-    // pela sessão do Labs), então a frase manda conferir antes.
+    // pela sessão do Labs), então a frase manda conferir antes. NÃO diz que nada deste
+    // bônus foi criado: um "Não existe" clicado cedo demais solta a incerteza antes de a
+    // tentativa incerta terminar de gravar (apontado pelo auditor). Vale para as duas.
     case "colisao":
       return {
         tom: "erro",
         titulo: "Já existe no Labs um bônus igual a este",
-        texto: `O Labs já tem um bônus com o endereço ${endereco} e este mesmo título, e ele não saiu deste envio. Confira no /admin do Labs antes de continuar: se for o mesmo conteúdo, não precisa enviar. Para publicar um bônus diferente, mude o título e o slug. Nada deste bônus foi criado.`,
+        texto: `O Labs já tem um bônus com o endereço ${endereco} e este mesmo título, e ele não saiu deste envio. Confira no /admin do Labs antes de continuar: se for o mesmo conteúdo, não precisa enviar. Para publicar um bônus diferente, mude o título e o slug.`,
       };
     case "slug_ocupado":
       return {
         tom: "erro",
         titulo: "Esse endereço já é de outro bônus no Labs",
-        texto: `O slug ${endereco} já pertence a um bônus com outro título. Troque o slug e envie de novo. Nada deste bônus foi criado.`,
+        texto: `O slug ${endereco} já pertence a um bônus com outro título. Troque o slug e envie de novo.`,
       };
     case "conferir":
       return {
@@ -5165,8 +5183,8 @@ O Labs fez a etapa dele em 29/09 (site-ia `d582f3c`, e `485573e` no contrato): o
 sai com slug **e** título iguais e traz o `id`; slug igual com outro título é `409 slug_ocupado`; e
 um P2002 em índice inesperado vira `500 erro_temporario`. O contrato deixou de afirmar "sua
 tentativa anterior chegou", porque a rota não sabe disso: quem sabe é o Chat. A mesma sessão do
-Labs removeu o gerador de lá (`4662222`), por decisão do Eduardo. O ajuste do Chat foi decidido
-pelo Eduardo em 29/09.
+Labs tirou o gerador da tela de bônus de lá (`4662222`), por decisão do Eduardo; a cópia da
+instrução continua no repositório do Labs. O ajuste do Chat foi decidido pelo Eduardo em 29/09.
 
 - [x] **As regras, em `lib/bonus/desfecho.ts`:**
   - `duplicate` sem incerta continua `colisao`, porque esta linha não enviou nada.
@@ -5188,10 +5206,25 @@ pelo Eduardo em 29/09.
 - [x] **A prova por retirada** (script `mutar-1-13.mjs`, restaurando por hash): sem a guarda do
   `id`, caem os 4 casos do contrato antigo; com o `slug_ocupado` sempre liberando, caem os 2 com
   incerta; sem o `id` numérico, caem 3 casos puros e o de integração.
-- [x] **A verificação:** `npm run verify` limpo, com 70 / 2 076 casos puros e 10 / 69 de tela. O
+- [x] **A revisão do auditor**, antes do push, com três correções:
+  - `idDe` aceitava texto vazio como id, e agora o recusa.
+  - Nem a `colisao` nem o `slug_ocupado` dizem mais "nada deste bônus foi criado". Um "Não existe"
+    clicado cedo demais solta a incerteza antes de a tentativa incerta terminar de gravar, e o
+    reenvio do mesmo corpo recebe `duplicate` sem incerta.
+  - O `criado_pela_duplicata` deixa de afirmar que a tentativa anterior chegou: o `duplicate` é um
+    fato sobre o banco do Labs, e o texto manda conferir o conteúdo no /admin.
+  - O cabeçalho das cópias e a spec diziam que a cópia do Chat era a única. É falso: o `4662222`
+    tirou o gerador só da tela, e a instrução do Labs segue em uso no ramo padrão de
+    `admin/geracao/actions.ts:185`.
+  Os casos novos (id vazio, as duas frases) foram vistos falhar antes do conserto.
+- [x] **A verificação:** `npm run verify` limpo, com 70 / 2 077 casos puros e 10 / 69 de tela. O
   arquivo de integração `bonus-processo` deu 17 de 17 no container.
-- [x] **A documentação:** a spec registra o contrato novo, a instrução com um dono só e a ordem
-  para ligar a porta. O cabeçalho das duas cópias trazidas do Labs deixa de falar em duas cópias.
+- [x] **A documentação:** a spec registra o contrato novo, a cópia da instrução que continua no
+  Labs e a ordem para ligar a porta.
+- [ ] **Para uma etapa futura** (lacuna apontada pelo auditor): na `colisao` a tela diz "se for o
+  mesmo conteúdo, não precisa enviar", mas não há ação para marcar "é este". A linha fica em
+  `colisao` sem link, e a Etapa 5 vai precisar do estado de criado. Um botão "É este bônus",
+  como o "Existe" da conferência, fecharia.
 - [ ] **O PR**, só com o OK do Eduardo.
 
 ---
