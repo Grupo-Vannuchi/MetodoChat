@@ -18,7 +18,8 @@ conferências (número de slides, a palavra e nenhuma outra) e a revisão.
 Postgres (postgres.js via `lib/db.ts`), `@anthropic-ai/sdk` com `betaZodOutputFormat`, `zod` 4,
 Vitest (três suítes), Tailwind v4 com os tokens de `app/ui.ts`.
 
-**Spec:** `docs/specs/2026-09-30-gerador-de-carrossel.md` (commits `2220779` e `85bbb99`). Leia antes
+**Spec:** `docs/specs/2026-09-30-gerador-de-carrossel.md` (commits `2220779`, `85bbb99`, `92b5db5` e
+o que registra o achado 51). Leia antes
 de começar: este plano não repete o porquê das regras, só como construí-las.
 
 **Ensaio do plano (30/09):** o código deste plano foi extraído bloco a bloco numa worktree à parte,
@@ -50,7 +51,9 @@ Valem para todas as fases, sem precisar repetir em cada uma.
   `lib/esquema.ts` (1 entrada em `naoObservaveis`), testes novos e `docs/`. Os arquivos da
   Etapa 1 que mudam: `lib/bonus/labs.ts` (1 palavra: `export` no `lerAteOTeto`),
   `lib/bonus/textos.ts` e `lib/bonus/tela.ts` (as frases do achado 43), `tests/bonus-tela.test.ts`
-  (1 expectativa) e `app/bonus/[id]/page.tsx` (o bloco do envio criado).
+  (1 expectativa), `app/bonus/[id]/page.tsx` (o bloco do envio criado) e
+  `testes-integracao/bonus-processo.integracao.ts` (o `finally` do achado 50, num commit próprio
+  feito antes da FASE 2.1).
 - **Sufixo de teste é o que decide se ele roda:** `tests/**/*.test.ts` (puro, entra no `verify`),
   `testes-integracao/**/*.integracao.ts` (banco, fora do `verify`), `testes-dom/**/*.dom.tsx`
   (tela, entra no `verify`). Linha de base em 30/09, sobre `689f93b`: 70 arquivos / 2 077 casos
@@ -3304,10 +3307,12 @@ export default async function PaginaDoCarrossel({
   const geracao = geracaoNaTela(carrossel.estado, carrossel.criado_em, agora);
   const texto = textoDaLinhaDoCarrossel(carrossel);
 
-  // A SITUAÇÃO NO LABS É LIDA A CADA VEZ, menos durante a geração: a garantia da palavra vale
-  // na hora de gerar e de salvar, e depois disso o bônus pode ser despublicado ou trocar de
-  // palavra no /admin do Labs. Durante a geração a tela pergunta ao servidor a cada 2 s, e cada
-  // pergunta leria a lista inteira do Labs de novo, sem nada a mostrar ainda.
+  // A SITUAÇÃO NO LABS É LIDA A CADA VEZ, menos durante a geração. A palavra do carrossel é a
+  // que o Labs tinha na hora de GERAR; salvar confere contra ela e não relê o Labs (achado 51,
+  // decisão do Eduardo). Depois de gerar, o bônus pode ser despublicado ou trocar de palavra no
+  // /admin do Labs, e é esta leitura, feita também logo depois de salvar, que avisa. Durante a
+  // geração a tela pergunta ao servidor a cada 2 s, e cada pergunta leria a lista inteira do
+  // Labs de novo, sem nada a mostrar ainda.
   const situacao = geracao === "gerando" ? null : await situacaoDoBonus(carrossel.bonus_id);
   const quadro = situacao ? quadroDaSituacao(situacao) : null;
   const trocada =

@@ -18,9 +18,11 @@ bônus**, posta pelo código. O operador revisa, edita e copia cada peça. A art
 publicação (Etapa 4) vão usar o texto salvo aqui.
 
 O que esta etapa garante, acima de tudo: **na hora de gerar e de salvar, a chamada pede a palavra
-do bônus e nenhuma outra**, e essa palavra é a que o Labs tinha publicada naquele momento. Depois
-disso, a página do carrossel mostra sempre a situação do bônus no Labs, e avisa quando ele deixou
-de estar publicado ou trocou de palavra. É a falha que o Labs registrou em `src/lib/ia/funil.ts`:
+do bônus e nenhuma outra**, e essa palavra é a que o Labs tinha publicada **na hora de gerar**.
+Salvar uma revisão não relê o Labs: confere contra a palavra gravada no pedido. Depois de gerar,
+e a cada vez que a página abre (inclusive logo depois de salvar), a página do carrossel mostra a
+situação do bônus no Labs, e avisa quando ele deixou de estar publicado ou trocou de palavra.
+Decisão do Eduardo, 30/09 (achado 51 do auditor). É a falha que o Labs registrou em `src/lib/ia/funil.ts`:
 dois carrosséis de exemplo pediam "Comente PROMPT" e "Comente EXCEL", nenhuma das duas palavras
 existia, e quem comentasse ficaria sem resposta, sem que nada no sistema acusasse.
 
