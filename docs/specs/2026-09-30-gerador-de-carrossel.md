@@ -3,7 +3,11 @@
 **Nascido em:** 30/09/2026, desenhado com o Eduardo parte por parte, no dia em que o primeiro
 bônus gerado pelo Chat foi publicado no Método Labs (`reativar-clientes-whatsapp`, palavra
 `SUMIDO`).
-**Estado:** desenho aprovado. Pronto para virar plano.
+**Estado:** construída e verificada em 30/09 (plano `docs/plans/2026-09-30-gerador-de-carrossel.md`,
+FASES 2.1 a 2.9, até `dde9583`): `npm run verify` limpo (80 arquivos e 2 207 casos puros, 11 e 71
+de tela, build com a rota do carrossel), integração inteira no container (36 arquivos), revisão de
+segurança e varredura de segredos sem achado. Falta a prova real (FASE 2.10), com a `014` aplicada
+na produção só com o OK do Eduardo.
 **Projeto de quem:** do Vinícius Gualberto. Como a Etapa 1, esta entra como visita: pasta própria
 e o mínimo de toque no que já existe.
 **Etapa anterior:** `docs/specs/2026-09-29-gerador-de-bonus.md`, em produção desde 29/09.
