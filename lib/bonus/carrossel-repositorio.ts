@@ -1,0 +1,100 @@
+import "server-only";
+import { sql } from "@/lib/db";
+import type { ContextoDoCarrossel } from "./carrossel-ia-parametros";
+import type { LinhaDoCarrossel } from "./carrossel-linha";
+import { TETO_CARROSSEL_DIARIO } from "./carrossel-pedido";
+import type { TextoDoCarrossel } from "./carrossel-texto";
+import type { Medicao } from "./ia-parametros";
+import { ehIdDeBonus } from "./pedido";
+
+// O SQL DO CARROSSEL. Toda escrita é um `update` CONDICIONAL: o `where` é a proteção, e
+// testes-integracao/bonus-carrossel-processo.integracao.ts é quem acusa se alguém a tirar.
+// Objeto vai CRU para coluna `jsonb`, nunca `JSON.stringify` (a lição da FASE 1.7).
+
+/**
+ * A chave da trava do teto do carrossel. Número fixo, PRÓPRIO e diferente da do bônus
+ * (`TRAVA_DO_TETO`, repositorio.ts): os dois tetos são independentes. Exportada para o teste
+ * segurar a trava e provar que o pedido espera por ela.
+ */
+export const TRAVA_DO_TETO_DO_CARROSSEL = 2026093001;
+
+export async function carrosseisNasUltimas24h(): Promise<number> {
+  const [linha] = (await sql().query(
+    `select count(*)::int as n from carrosseis_gerados where criado_em > now() - interval '24 hours'`
+  )) as { n: number }[];
+  return linha?.n ?? 0;
+}
+
+/** CONTAR E INSERIR NA MESMA TRANSAÇÃO, COM TRAVA: dois cliques com 9 no dia não fazem 11. */
+export async function criarPedidoDeCarrossel(p: {
+  bonusId: string;
+  total: number;
+  palavra: string;
+  contexto: ContextoDoCarrossel;
+}): Promise<{ ok: true; id: string } | { ok: false }> {
+  return sql().begin(async (tx) => {
+    await tx.query(`select pg_advisory_xact_lock($1::bigint)`, [TRAVA_DO_TETO_DO_CARROSSEL]);
+    const [contagem] = (await tx.query(
+      `select count(*)::int as n from carrosseis_gerados where criado_em > now() - interval '24 hours'`
+    )) as { n: number }[];
+    if ((contagem?.n ?? 0) >= TETO_CARROSSEL_DIARIO) return { ok: false as const };
+    const [criada] = (await tx.query(
+      `insert into carrosseis_gerados (bonus_id, total_slides, palavra, contexto)
+       values ($1, $2, $3, $4::jsonb) returning id`,
+      [p.bonusId, p.total, p.palavra, p.contexto]
+    )) as { id: string }[];
+    return { ok: true as const, id: criada.id };
+  });
+}
+
+/** Só quem muda a linha de `pendente` para `gerando` chama a IA. */
+export async function reivindicarCarrossel(id: string): Promise<LinhaDoCarrossel | null> {
+  const linhas = (await sql().query(
+    `update carrosseis_gerados set estado = 'gerando' where id = $1 and estado = 'pendente' returning *`,
+    [id]
+  )) as LinhaDoCarrossel[];
+  return linhas[0] ?? null;
+}
+
+export async function gravarCarrosselPronto(id: string, texto: TextoDoCarrossel, medicao: Medicao): Promise<void> {
+  await sql().query(
+    `update carrosseis_gerados
+        set estado = 'pronto', gerado = $2::jsonb, medicao = $3::jsonb, erro = null, gerado_em = now()
+      where id = $1 and estado = 'gerando'`,
+    [id, texto, medicao]
+  );
+}
+
+export async function gravarFalhaDoCarrossel(id: string, erro: string, medicao: Medicao | null): Promise<void> {
+  await sql().query(
+    `update carrosseis_gerados
+        set estado = 'falhou', erro = $2, medicao = $3::jsonb, gerado_em = now()
+      where id = $1 and estado in ('pendente', 'gerando')`,
+    [id, erro.slice(0, 1000), medicao]
+  );
+}
+
+export async function lerCarrossel(id: string): Promise<LinhaDoCarrossel | null> {
+  if (!ehIdDeBonus(id)) return null;
+  const linhas = (await sql().query(`select * from carrosseis_gerados where id = $1`, [id])) as LinhaDoCarrossel[];
+  return linhas[0] ?? null;
+}
+
+export async function listarCarrosseisDoBonus(bonusId: string): Promise<LinhaDoCarrossel[]> {
+  if (!ehIdDeBonus(bonusId)) return [];
+  return (await sql().query(
+    `select * from carrosseis_gerados where bonus_id = $1 order by criado_em desc limit 50`,
+    [bonusId]
+  )) as LinhaDoCarrossel[];
+}
+
+/** A revisão só vale para carrossel pronto. Devolve falso quando a linha não estava pronta. */
+export async function salvarRevisaoDoCarrossel(id: string, texto: TextoDoCarrossel): Promise<boolean> {
+  const linhas = (await sql().query(
+    `update carrosseis_gerados set revisado = $2::jsonb, revisado_em = now()
+      where id = $1 and estado = 'pronto'
+      returning id`,
+    [id, texto]
+  )) as { id: string }[];
+  return linhas.length > 0;
+}
