@@ -26,7 +26,8 @@ de começar: este plano não repete o porquê das regras, só como construí-las
 com as edições dos arquivos da Etapa 1 aplicadas. Typecheck e lint limpos; 80 arquivos e 2 207
 casos puros; 11 arquivos e 71 casos de tela; 36 arquivos de integração no container; e as 17
 provas de mutação deste plano derrubaram o caso esperado. O ensaio achou e corrigiu um defeito: o
-teste da trava do teto deixava a transação aberta quando caía, e a suíte parava em vez de falhar.
+teste da trava do teto deixava a transação aberta quando caía, e a rodada ficava parada por minutos
+em vez de falhar.
 
 ## Restrições globais
 
@@ -2349,9 +2350,10 @@ describe("o teto de carrosséis", () => {
         new Promise((f) => setTimeout(() => f("relogio"), 300)),
       ]);
     } finally {
-      // SOLTA A TRAVA ANTES DE QUALQUER `expect`. Se o caso caísse com ela presa, a transação
-      // ficaria aberta, e o `delete` do caso seguinte esperaria por ela para sempre: a suíte
-      // para, em vez de falhar (medido no ensaio do plano, 30/09).
+      // SOLTA A TRAVA ANTES DE QUALQUER `expect`. Medido no ensaio do plano, em 30/09: com o
+      // caso caindo e a trava presa, a transação ficava aberta, e o `delete` de cada caso
+      // seguinte esperava por ela até o limite de 120 s, um depois do outro. A rodada ficou
+      // parada mais de 11 minutos, até ser interrompida.
       soltar();
       await transacao;
     }
