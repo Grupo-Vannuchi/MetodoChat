@@ -272,15 +272,23 @@ tentativa anterior é o Chat. O Chat lê as respostas novas desde a FASE 1.13, e
 vira `criado` com o `id`, o que mantém no lado seguro uma resposta do contrato antigo.
 
 **Ligar a porta**, nesta ordem (a produção do Labs, `dc7cafe`, ainda não tem o conserto): (1) o
-deploy `dev` → `main` do Labs; (2) o `BONUS_INTAKE_SECRET` novo no Labs, na Hostinger; (3) o mesmo
-segredo e a `LABS_URL` na Vercel do Chat. Até o passo 3, o Chat nem envia: recusa por falta de
-configuração. Se alguém configurar o Chat antes do Labs, ele recebe 503 antes do passo 2 e 401
-depois dele. Os dois já estão tratados, e nenhum grava bônus.
+`ALTER TABLE "Lead"` da Etapa 45 do Labs, na produção de lá, com o índice e a consulta de
+conferência que o próprio `schema.prisma` do Labs traz; (2) o deploy `dev` → `main` do Labs; (3) o
+`BONUS_INTAKE_SECRET` novo no Labs, na Hostinger; (4) o mesmo segredo e a `LABS_URL` na Vercel do
+Chat. Até o passo 4, o Chat nem envia: recusa por falta de configuração. Se alguém configurar o
+Chat antes do Labs, ele recebe 503 antes do passo 3 e 401 depois dele. Os dois já estão tratados,
+e nenhum grava bônus. Os passos 1 a 3 são escrita no Labs: quem executa é o lado do Labs, com o
+OK do Eduardo.
 
-O `ALTER TABLE "Lead"` da Etapa 45 do Labs chegou a estar nesta ordem e saiu, conferido na fonte
-em 29/09 (site-ia `e522754`): a coluna nova só é escrita por `registrarContatoDoBonus`, que não
-tem chamador, e os outros usos de `Lead` (um `deleteMany` e um `count`) não a pedem. O SQL passa a
-ser obrigatório quando a tela que chama essa função existir, e isso é do Labs.
+**Por que o `ALTER` voltou para a ordem.** Em 29/09 ele saiu: a coluna só é escrita por
+`registrarContatoDoBonus`, que não tem chamador, e os usos de `Lead` daquele dia não a pedem. O
+Labs pôs no lugar uma trava no `scripts/verificar.cjs` (site-ia `9ed450b`), que acusa leitura de
+`Lead` sem `select`. O auditor aplicou a lógica exata dela a 6 trechos plantados, e ela pegou 1:
+deixou passar a leitura pela relação a partir de `User` (`include` ou `select` de `leads`), um
+`select` de relação que satisfaz a janela sem restringir as colunas de `Lead`, e uma transação com
+o parâmetro de outro nome. Hoje nenhum desses caminhos existe no código do Labs, mas a trava não
+serve de rede para os próximos commits. Decisão do Eduardo, em 30/09: rodar o `ALTER` antes do
+deploy.
 
 ### As telas
 
