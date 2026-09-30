@@ -11,6 +11,12 @@
 // libera a resposta que vem DEPOIS da checagem de slug e aponta para outro dono.
 // O que vem antes dela não diz nada sobre a tentativa incerta, e aí quem decide é
 // uma pessoa olhando o /admin do Labs (`conferir`).
+//
+// O CONTRATO DE 29/09 (site-ia d582f3c e 485573e): o `duplicate` só sai com slug E
+// título iguais, e traz o `id`; slug igual com outro título é `409 slug_ocupado`. A
+// rota não sabe se houve tentativa anterior: quem sabe é o Chat. Por isso o
+// `duplicate` só vira `criado` com incerta antes E com o `id`. Sem o `id` é o
+// contrato antigo, em que o `duplicate` olhava só o slug, e continua `conferir`.
 
 export type RespostaCrua =
   | { tipo: "http"; status: number; texto: string }
@@ -28,9 +34,11 @@ export type EstadoDoEnvio =
 export const MOTIVOS_DO_ENVIO = [
   "criado",
   "criado_pelo_titulo",
+  "criado_pela_duplicata",
   "conferido_existe",
   "conferido_nao_existe",
   "colisao",
+  "slug_ocupado",
   "conferir",
   "titulo_repetido",
   "palavra_repetida",
@@ -55,6 +63,8 @@ export type MotivoDoEnvio = (typeof MOTIVOS_DO_ENVIO)[number];
 export type Detalhe = {
   status: number | null;
   erro: string | null;
+  /** O id do bônus no Labs, como texto: o contrato o manda no `duplicate`. */
+  id: string | null;
   slugExistente: string | null;
   palavra: string | null;
   isActive: boolean | null;
@@ -82,6 +92,14 @@ function objeto(v: unknown): Record<string, unknown> | null {
 function textoDe(o: Record<string, unknown> | null, chave: string): string | null {
   const v = o?.[chave];
   return typeof v === "string" ? v.slice(0, TEXTO_MAX) : null;
+}
+
+/** O id vem número ou texto, conforme o banco do Labs; guardado sempre como texto. */
+function idDe(o: Record<string, unknown> | null): string | null {
+  const v = o?.id;
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  // Texto vazio não é id: a guarda do `duplicate` depende de o id existir de fato.
+  return typeof v === "string" && v.trim() ? v.slice(0, TEXTO_MAX) : null;
 }
 
 function textosDe(o: Record<string, unknown> | null, chave: string): string[] {
@@ -115,6 +133,7 @@ export function detalheDe(bruto: unknown, status: number | null = null): Detalhe
   return {
     status: status ?? (typeof o?.status === "number" ? o.status : null),
     erro: textoDe(o, "erro"),
+    id: idDe(o),
     slugExistente: textoDe(o, "slugExistente"),
     palavra: textoDe(o, "palavra"),
     isActive: typeof o?.isActive === "boolean" ? o.isActive : null,
@@ -163,10 +182,16 @@ export function lerResposta(
       return o.ok === true ? d("criado", "criado", false) : incerto();
     case 200:
       if (o.ok === true && o.duplicate === true) {
-        return ctx.incertoAntes ? d("conferir", "conferir", true) : d("colisao", "colisao", false);
+        if (!ctx.incertoAntes) return d("colisao", "colisao", false);
+        return detalhe.id !== null ? d("criado", "criado_pela_duplicata", false) : d("conferir", "conferir", true);
       }
       return incerto();
     case 409:
+      // O slug é de outro bônus, com outro título. Com incerta antes, pode ser o nosso
+      // com o título mudado no /admin entre o timeout e o reenvio: uma pessoa confere.
+      if (erro === "slug_ocupado") {
+        return ctx.incertoAntes ? d("conferir", "conferir", true) : d("colisao", "slug_ocupado", false);
+      }
       if (erro === "titulo_repetido") {
         return detalhe.slugExistente === ctx.nossoSlug
           ? d("criado", "criado_pelo_titulo", false)

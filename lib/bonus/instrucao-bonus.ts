@@ -1,7 +1,8 @@
 // TRAZIDO COMO ESTÁ do Método Labs (site-ia, src/lib/ia/, commit 01e609f), quando o
-// gerador passou a morar no Chat (decisão de 28/09). A partir daqui existem duas
-// cópias; a recomendação da spec é o Labs congelar a dele. Não edite o texto sem
-// reconferir a régua do Labs numa geração real (spec, "A prova real").
+// gerador passou a morar no Chat (decisão de 28/09). Em 29/09 o Labs deixou de gerar
+// bônus pela tela (site-ia 4662222), mas a cópia de lá continua no repositório dele;
+// esta é a que gera os bônus do Chat. Não edite o texto sem reconferir a régua do Labs
+// numa geração real (spec, "A prova real").
 // Instrução de sistema para gerar um BÔNUS — a isca GRATUITA do funil.
 //
 // O bônus é básico DE PROPÓSITO: ele precisa parecer com os 50 que já existem, porque é

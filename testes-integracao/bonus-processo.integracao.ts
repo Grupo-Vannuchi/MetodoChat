@@ -243,6 +243,25 @@ describe("enviarLinha", () => {
     expect(r.tipo === "enviado" && r.desfecho.estado).toBe("criado");
   });
 
+  it("[timeout, duplicate com id]: criado, com o id do Labs gravado (contrato de 29/09)", async () => {
+    const id = await linhaPronta();
+    labs.roteiro = [{ status: 201, corpo: { ok: true }, atrasoMs: 2_000 }];
+    await processo.enviarLinha(id, REVISADO, deps());
+    labs.roteiro = [
+      { status: 200, corpo: { ok: true, duplicate: true, id: 42, slug: "kit-de-lancamento", isActive: false } },
+    ];
+    const r = await processo.enviarLinha(id, REVISADO, deps());
+    expect(r.tipo === "enviado" && r.desfecho.estado).toBe("criado");
+    const linha = await repo.lerLinha(id);
+    const resposta = linha?.envio_resposta as { motivo?: string; id?: string };
+    expect([linha?.envio_estado, linha?.incerto_pendente, resposta.motivo, resposta.id]).toEqual([
+      "criado",
+      false,
+      "criado_pela_duplicata",
+      "42",
+    ]);
+  });
+
   it("colisão sem incerteza libera: o slug editado vai no envio seguinte", async () => {
     const id = await linhaPronta();
     labs.roteiro = [{ status: 200, corpo: { ok: true, duplicate: true, slug: "kit-de-lancamento", isActive: true } }];
