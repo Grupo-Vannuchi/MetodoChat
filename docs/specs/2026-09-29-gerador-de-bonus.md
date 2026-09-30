@@ -280,6 +280,11 @@ Chat antes do Labs, ele recebe 503 antes do passo 3 e 401 depois dele. Os dois j
 e nenhum grava bônus. Os passos 1 a 3 são escrita no Labs: quem executa é o lado do Labs, com o
 OK do Eduardo.
 
+**Antes do passo 4, a leitura do contrato novo (FASE 1.13) tem de estar em produção no Chat.**
+Sem ela, um `409 slug_ocupado` cai em `incerto` e congela o corpo, e cada reenvio leva o mesmo
+slug e recebe o mesmo `slug_ocupado`: um laço sem saída pela tela, porque os campos ficam
+travados (apontado pelo auditor em 30/09).
+
 **Por que o `ALTER` voltou para a ordem.** Em 29/09 ele saiu: a coluna só é escrita por
 `registrarContatoDoBonus`, que não tem chamador, e os usos de `Lead` daquele dia não a pedem. O
 Labs pôs no lugar uma trava no `scripts/verificar.cjs` (site-ia `9ed450b`), que acusa leitura de
