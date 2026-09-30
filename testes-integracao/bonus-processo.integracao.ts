@@ -147,14 +147,22 @@ describe("o teto diário", () => {
     await travado;
 
     const pedido = repo.criarPedido(PEDIDO);
-    const venceu = await Promise.race([
-      pedido.then(() => "pedido"),
-      new Promise((f) => setTimeout(() => f("relogio"), 300)),
-    ]);
+    let venceu: unknown;
+    try {
+      venceu = await Promise.race([
+        pedido.then(() => "pedido"),
+        new Promise((f) => setTimeout(() => f("relogio"), 300)),
+      ]);
+    } finally {
+      // SOLTA A TRAVA ANTES DE QUALQUER `expect` (achado 50 do auditor). Medido em 30/09,
+      // com a trava tirada de `criarPedido`: sem este `finally`, o caso caía com a transação
+      // aberta, a destruição do schema esperava por ela até o limite de 120 s, e o schema
+      // temporário sobrava para a rede global derrubar, com erro. Com ele, o caso cai e o
+      // arquivo termina normalmente.
+      soltar();
+      await transacao;
+    }
     expect(venceu).toBe("relogio");
-
-    soltar();
-    await transacao;
     expect((await pedido).ok).toBe(false);
   });
 
