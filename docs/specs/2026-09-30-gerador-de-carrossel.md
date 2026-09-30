@@ -171,7 +171,11 @@ atual.
    - a `chamadaParaAcao` não pede **outra** palavra: nenhuma outra palavra toda em maiúsculas, de
      3 caracteres ou mais e com pelo menos uma letra, além da palavra do bônus e das exceções que
      o Labs já usa em `funil.ts` (`PDF`, `LINK`, `BIO`, `GRATIS`, `GRÁTIS`, `AQUI`, `AGORA` e
-     `VENCE`, do bordão). "Comente SUMIDO ou GUIA" é recusada. Decisão do Eduardo, 30/09.
+     `VENCE`, do bordão). "Comente SUMIDO ou GUIA" é recusada. Decisão do Eduardo, 30/09;
+   - na `legenda`, só a presença da palavra é conferida, e não a falta de outras: o Labs também
+     só confere a chamada, e uma legenda de até 900 caracteres tem ênfases em maiúsculas que
+     recusariam gerações boas. O operador revisa a legenda antes de usar. Decisão do Eduardo,
+     30/09 (achado 49 do auditor).
 
    Qualquer uma que falhe grava `falhou` com a frase do que faltou ("vieram 7 slides de
    conteúdo, o pedido era 8; gere de novo", "a IA não pôs a palavra SUMIDO na chamada; gere de
@@ -194,7 +198,8 @@ A action de salvar confere a sessão e valida o que chega do formulário:
 Passando, grava `revisado` e `revisado_em`. A palavra não vem do formulário: vem da linha.
 
 **O que mudou no Labs depois:** a página do carrossel lê o Labs de novo a cada vez e mostra
-sempre a situação, com as cinco saídas da leitura. Se o bônus deixou de estar publicado, ou se a
+sempre a situação, com as cinco saídas da leitura. A exceção é enquanto a geração corre: a tela
+pergunta ao servidor a cada 2 s, e cada pergunta leria a lista inteira de novo. Se o bônus deixou de estar publicado, ou se a
 palavra atual for outra ("No Labs, a palavra deste bônus agora é X; este carrossel pede Y"), o
 aviso aparece acima dos campos. O carrossel não é reescrito sozinho; o operador gera outro se
 quiser.
@@ -224,8 +229,9 @@ do bônus: **mudança em qualquer uma se avisa nos dois sentidos**.
 - gerando: o mesmo acompanhamento do bônus (`acompanhar.tsx`), que pergunta ao servidor uma vez
   por intervalo e desiste depois do teto;
 - pronto: um campo por peça, em ordem (gancho, cada slide com título e texto, chamada e
-  legenda), com a contagem de caracteres e um **botão de copiar** (`CopyField`, o mesmo da
-  página do bônus). No post único: texto, chamada e legenda;
+  legenda), com a contagem de caracteres e um **botão de copiar** que leva o texto como está no
+  campo, editado ou não. É um campo próprio: o `CopyField` da página do bônus copia um valor fixo,
+  e levaria o texto da IA em vez do editado. No post único: texto, chamada e legenda;
 - a palavra aparece travada, com a situação do bônus no Labs e o aviso se ele deixou de estar
   publicado ou trocou de palavra;
 - **"Salvar revisão"**;
@@ -262,8 +268,9 @@ retirando a proteção e vendo o caso certo cair.
 | pura | a revisão: número de slides mantido, tetos depois do `\r\n`, palavra presente |
 | pura | as frases: cada estado e cada falha têm frase; as três frases do achado 43 não afirmam "oculto" sem ler o Labs |
 | pura | as instruções trazidas são as do Labs (começo do texto, a regra de português junto) |
-| integração | a tabela `014`; o teto de 10 com a trava (dois pedidos simultâneos com 9 no dia: um passa, o outro recusa); gerar, gravar `pronto` ou `falhou`; salvar revisão; as actions recusam sem sessão |
-| tela | o acompanhamento reusa o componente da Etapa 1 |
+| integração | a tabela `014`; o teto de 10 com a trava (o teste segura a trava com 10 linhas invisíveis até o commit, e o pedido tem de esperar e depois recusar, o molde da FASE 1.7); gerar, gravar `pronto` ou `falhou`; salvar revisão; as actions recusam sem sessão |
+| pura | a página do carrossel acompanha a geração com o componente da Etapa 1 |
+| tela | o campo copia o texto editado, e a contagem acompanha o que se digita |
 
 ---
 
