@@ -17,10 +17,12 @@ texto de cada slide e a legenda do post, e a chamada final pede para comentar a 
 bônus**, posta pelo código. O operador revisa, edita e copia cada peça. A arte (Etapa 3) e a
 publicação (Etapa 4) vão usar o texto salvo aqui.
 
-O que esta etapa garante, acima de tudo: **o carrossel nunca pede uma palavra que não leva a um
-bônus no ar.** É a falha que o Labs registrou em `src/lib/ia/funil.ts`: dois carrosséis de
-exemplo pediam "Comente PROMPT" e "Comente EXCEL", nenhuma das duas palavras existia, e quem
-comentasse ficaria sem resposta, sem que nada no sistema acusasse.
+O que esta etapa garante, acima de tudo: **na hora de gerar e de salvar, a chamada pede a palavra
+do bônus e nenhuma outra**, e essa palavra é a que o Labs tinha publicada naquele momento. Depois
+disso, a página do carrossel mostra sempre a situação do bônus no Labs, e avisa quando ele deixou
+de estar publicado ou trocou de palavra. É a falha que o Labs registrou em `src/lib/ia/funil.ts`:
+dois carrosséis de exemplo pediam "Comente PROMPT" e "Comente EXCEL", nenhuma das duas palavras
+existia, e quem comentasse ficaria sem resposta, sem que nada no sistema acusasse.
 
 ---
 
@@ -82,6 +84,7 @@ Nada escreve no Labs. O carrossel vive só no Chat.
 | `criado_em` | quando foi pedido; conta para o teto |
 | `total_slides` | 1 a 10, com `check` |
 | `palavra` | a palavra lida do Labs **no momento do pedido** |
+| `contexto` | o `titulo`, a `descricao` e o `tema` lidos do Labs no pedido, mais o `o_que_resolve` do bônus (`jsonb`): a geração roda no `after()` e não lê o Labs de novo |
 | `estado` | `pendente`, `gerando`, `pronto` ou `falhou`, com `check` |
 | `gerado` | o que a IA devolveu (`jsonb`, objeto cru, como na `013`) |
 | `revisado` | o que o operador salvou (`jsonb`) |
@@ -101,8 +104,14 @@ cliques simultâneos não passarem juntos pela contagem. É o molde de `criarPed
 
 ### A palavra e o "publicado"
 
-Uma função lê a lista pública do Labs (`GET {LABS_URL}/api/bonus`, sem cache, teto de 3 s) e
-procura o item cujo `codigo` é o slug do bônus. As saídas:
+Uma função lê a lista pública do Labs (`GET {LABS_URL}/api/bonus`) e procura o item cujo `codigo`
+é o slug do bônus. A leitura tem **teto próprio de tamanho, 512 KiB**: a lista de produção tinha
+20 158 bytes em 30/09 (58 bônus, uns 337 bytes cada), e o teto de 16 KiB da resposta do envio
+(`RESPOSTA_MAX_BYTES`, `lib/bonus/labs.ts`) já não a comportaria (achado 44 do auditor). 512 KiB
+cobre perto de 1 500 bônus. Além do teto: 3 s de tempo, `redirect: "manual"` e `cache: "no-store"`.
+O leitor com teto (`lerAteOTeto`) é o de `labs.ts`, que passa a ser exportado. Do lado do Labs, a
+lista tem cache de 30 minutos, invalidado por toda ação do `/admin` e pelo `POST` (medido pelo
+auditor). As saídas:
 
 - **publicado**: devolve `palavraChave`, `titulo`, `tema` e `descricao` do Labs. A palavra só é
   aceita se tiver de 3 a 30 letras ou números, a mesma regra de `palavraValida`; fora disso, a
@@ -145,13 +154,28 @@ atual.
    (o do Labs pede de 6 a 9), porque aqui o total vai de 2 a 10. No post único, a
    `chamadaParaAcao` passa a obrigatória, porque aqui o post existe para levar ao bônus. Os
    tetos de tamanho de cada campo ficam os do Labs, que vêm da arte.
+
+   **Dois conflitos com as instruções do Labs, e o que se faz com eles** (achado 47 do auditor):
+   - `instrucao-carrossel.ts:55` e `:101` dizem "de 6 a 9" slides. Com total de 2 a 7, a
+     mensagem pede outra coisa, e nada fora de 8 a 11 foi medido no Labs. A mensagem diz que o
+     total dela substitui a faixa da instrução, a conferência de `N − 2` pega a desobediência, e
+     a prova real inclui o total 2 (nenhum slide de conteúdo). O custo de errar é uma geração,
+     não um texto errado no ar;
+   - `instrucao-post.ts:88` fala num texto de "~350" caracteres, e o schema corta em 300. A
+     mensagem do post único diz o teto de 300.
 6. **As conferências do código**, antes de gravar `pronto`:
    - no carrossel, `slides` tem exatamente `N − 2` itens;
    - a `chamadaParaAcao` e a `legenda` contêm a palavra como palavra inteira, em maiúsculas.
+     "Inteira" quer dizer sem letra nem número colado, com a bandeira `u`: um `\b` do
+     JavaScript acharia `PROMO` dentro de `PROMOÇÃO` (achado 46 do auditor);
+   - a `chamadaParaAcao` não pede **outra** palavra: nenhuma outra palavra toda em maiúsculas, de
+     3 caracteres ou mais e com pelo menos uma letra, além da palavra do bônus e das exceções que
+     o Labs já usa em `funil.ts` (`PDF`, `LINK`, `BIO`, `GRATIS`, `GRÁTIS`, `AQUI`, `AGORA` e
+     `VENCE`, do bordão). "Comente SUMIDO ou GUIA" é recusada. Decisão do Eduardo, 30/09.
 
    Qualquer uma que falhe grava `falhou` com a frase do que faltou ("vieram 7 slides de
    conteúdo, o pedido era 8; gere de novo", "a IA não pôs a palavra SUMIDO na chamada; gere de
-   novo").
+   novo", "a chamada pede também GUIA; gere de novo").
 7. Modelo, parâmetros e tempos são os do bônus (`lib/bonus/ia-parametros.ts` e `tempos.ts`):
    `claude-opus-5-5`, saída estruturada pelo schema, `maxRetries: 0`, sem `cache_control`, com
    a `medicao` gravada.
@@ -164,13 +188,16 @@ A action de salvar confere a sessão e valida o que chega do formulário:
   outro carrossel);
 - os tetos de tamanho de cada campo, depois de trocar `\r\n` por `\n` (o mesmo cuidado da
   FASE 1.11-bis);
-- a palavra do carrossel na `chamadaParaAcao` e na `legenda`.
+- a palavra do carrossel na `chamadaParaAcao` e na `legenda`, e nenhuma outra palavra gritada na
+  `chamadaParaAcao`, com as mesmas regras da geração.
 
 Passando, grava `revisado` e `revisado_em`. A palavra não vem do formulário: vem da linha.
 
-**Palavra que mudou no Labs depois:** a página do carrossel lê o Labs de novo e, se a palavra
-atual for outra, avisa: "No Labs, a palavra deste bônus agora é X; este carrossel pede Y." O
-carrossel não é reescrito sozinho; o operador gera outro se quiser.
+**O que mudou no Labs depois:** a página do carrossel lê o Labs de novo a cada vez e mostra
+sempre a situação, com as cinco saídas da leitura. Se o bônus deixou de estar publicado, ou se a
+palavra atual for outra ("No Labs, a palavra deste bônus agora é X; este carrossel pede Y"), o
+aviso aparece acima dos campos. O carrossel não é reescrito sozinho; o operador gera outro se
+quiser.
 
 ### A instrução com dois donos
 
@@ -199,7 +226,8 @@ do bônus: **mudança em qualquer uma se avisa nos dois sentidos**.
 - pronto: um campo por peça, em ordem (gancho, cada slide com título e texto, chamada e
   legenda), com a contagem de caracteres e um **botão de copiar** (`CopyField`, o mesmo da
   página do bônus). No post único: texto, chamada e legenda;
-- a palavra aparece travada, com o aviso se ela mudou no Labs;
+- a palavra aparece travada, com a situação do bônus no Labs e o aviso se ele deixou de estar
+  publicado ou trocou de palavra;
 - **"Salvar revisão"**;
 - `falhou` ou travado: a frase do motivo e **"Gerar de novo"**, que conta no teto do dia.
 
@@ -230,7 +258,7 @@ retirando a proteção e vendo o caso certo cair.
 | pura | o pedido: total de 1 a 10 e id do bônus |
 | pura | a leitura da lista do Labs: acha pelo `codigo`; palavra fora do formato → "formato estranho"; sem `items` → "formato estranho"; erro de rede → "sem resposta"; só "publicado" libera |
 | pura | a mensagem para a IA: o total, a palavra e o contexto; a instrução certa para 1 e para 2 a 10 |
-| pura | as conferências: número exato de slides; palavra inteira em maiúsculas na chamada e na legenda (e não como pedaço de outra palavra) |
+| pura | as conferências: número exato de slides; palavra inteira em maiúsculas na chamada e na legenda, e não como pedaço de outra (`PROMO` dentro de `PROMOÇÃO` não conta); outra palavra gritada na chamada é recusada, e as exceções do Labs (`VENCE`, `PDF`…) e os números passam |
 | pura | a revisão: número de slides mantido, tetos depois do `\r\n`, palavra presente |
 | pura | as frases: cada estado e cada falha têm frase; as três frases do achado 43 não afirmam "oculto" sem ler o Labs |
 | pura | as instruções trazidas são as do Labs (começo do texto, a regra de português junto) |
@@ -246,13 +274,18 @@ Cada passo que grava só acontece depois de avisar o Eduardo e ter o OK dele.
 1. Ensaio a seco de `scripts/migrar.mjs --a-mao` na produção do Chat (só lê). Se aparecer
    qualquer migração além da `014`, para aqui.
 2. Com o OK, `--aplicar --a-mao`: cria `carrosseis_gerados` na produção.
-3. Com o Chat local apontado para a produção, gerar para o bônus `reativar-clientes-whatsapp`
-   (publicado, palavra `SUMIDO`) três carrosséis: de **10**, de **3** e de **1** slide. Custa
-   perto de US$ 0,18 e 3 das 10 gerações do dia. Conferir o número de slides, a palavra na
-   chamada e na legenda, e a qualidade do texto nos tamanhos pequenos, que o Labs nunca testou.
-4. Medir tempo e tokens na `medicao`.
-5. Salvar uma revisão editada e conferir que a palavra continua travada.
-6. Desligar o Chat local assim que a prova terminar (o `57014` de 29/09).
+3. Subir o Chat local apontado para a produção **com a `LABS_URL` de produção só no ambiente do
+   processo** (`LABS_URL=https://metodolabs.metodotia.com npx next dev -p 3001`) e **sem** o
+   `BONUS_INTAKE_SECRET`: assim ele lê a lista pública e não consegue escrever no Labs
+   (`configDoEnvio` recusa sem segredo). O `.env.local` não tem nenhuma das duas (achado 48 do
+   auditor).
+4. Gerar para o bônus `reativar-clientes-whatsapp` (publicado, palavra `SUMIDO`) quatro
+   carrosséis: de **10**, de **3**, de **2** e de **1** slide. Custa perto de US$ 0,24 e 4 das 10
+   gerações do dia. Conferir o número de slides, a palavra na chamada e na legenda, e a qualidade
+   do texto nos tamanhos pequenos, que o Labs nunca testou.
+5. Medir tempo e tokens na `medicao`.
+6. Salvar uma revisão editada e conferir que a palavra continua travada.
+7. Desligar o Chat local assim que a prova terminar (o `57014` de 29/09).
 
 ---
 
