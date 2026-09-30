@@ -1878,6 +1878,9 @@ Em `tests/bonus-tela.test.ts`, troque
 `expect(rotuloDaLinha(linha({ envio_estado: "criado" }), T0)).toEqual({ texto: "No Labs, oculto", tipo: "ok" });`
 por
 `expect(rotuloDaLinha(linha({ envio_estado: "criado" }), T0)).toEqual({ texto: "Criado no Labs", tipo: "ok" });`.
+No mesmo caso, troque o nome `"criado aparece como no Labs, oculto"` por
+`"criado aparece como criado no Labs, sem afirmar que segue oculto"`: o nome antigo contradiria a
+expectativa nova (visto na execução, 30/09).
 
 Crie `tests/bonus-achado-43.test.ts`:
 

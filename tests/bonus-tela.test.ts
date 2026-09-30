@@ -105,8 +105,8 @@ describe("rotuloDaLinha e tituloDaLinha", () => {
     expect(rotuloDaLinha(linha({ estado: "gerando" }), T0 + TRAVADA_MS + 1)).toEqual({ texto: "Travou", tipo: "erro" });
   });
 
-  it("criado aparece como no Labs, oculto", () => {
-    expect(rotuloDaLinha(linha({ envio_estado: "criado" }), T0)).toEqual({ texto: "No Labs, oculto", tipo: "ok" });
+  it("criado aparece como criado no Labs, sem afirmar que segue oculto", () => {
+    expect(rotuloDaLinha(linha({ envio_estado: "criado" }), T0)).toEqual({ texto: "Criado no Labs", tipo: "ok" });
   });
 
   it("o título vem do gerado, e sem ele, do tema", () => {

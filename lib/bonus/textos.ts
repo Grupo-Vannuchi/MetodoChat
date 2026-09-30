@@ -124,17 +124,17 @@ export function quadroDoEnvio(motivo: MotivoDoEnvio, d: Detalhe, slug: string | 
   const endereco = slug ?? "deste bônus";
   switch (motivo) {
     case "criado":
-      return { tom: "ok", titulo: "Criado no Labs, ainda oculto", texto: PASSO_SEGUINTE };
+      return { tom: "ok", titulo: "Criado no Labs como oculto", texto: PASSO_SEGUINTE };
     case "criado_pelo_titulo":
       return {
         tom: "ok",
-        titulo: "Criado no Labs, ainda oculto",
+        titulo: "Criado no Labs como oculto",
         texto: `Uma tentativa anterior chegou ao Labs sem que a resposta voltasse, e o bônus existe uma vez só. ${PASSO_SEGUINTE}`,
       };
     case "criado_pela_duplicata":
       return {
         tom: "ok",
-        titulo: "Criado no Labs, ainda oculto",
+        titulo: "Criado no Labs como oculto",
         texto: `O Labs já tem este bônus, com o mesmo endereço e o mesmo título. Como a tentativa anterior ficou sem resposta, ele é quase certamente o deste envio: confira no /admin do Labs que o conteúdo é o deste bônus. ${PASSO_SEGUINTE}`,
       };
     case "conferido_existe":
