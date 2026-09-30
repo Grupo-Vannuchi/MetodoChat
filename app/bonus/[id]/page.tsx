@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import CopyField from "@/app/setup/copy-field";
 import {
   alertError,
   alertOk,
@@ -12,7 +11,6 @@ import {
   input,
   label,
   link,
-  muted,
   pageSubtitle,
   pageTitle,
   skeleton,
@@ -36,6 +34,7 @@ import {
 } from "@/lib/bonus/textos";
 import { conferirNoLabs, enviarAoLabs, gerarDeNovo } from "../actions";
 import Acompanhar from "./acompanhar";
+import NoLabs from "./no-labs";
 
 // O teto de lib/bonus/tempos.ts (MAX_DURATION_S). O Next exige literal aqui, e
 // tests/bonus-paginas.test.ts confere que é o mesmo número. As actions desta
@@ -139,14 +138,7 @@ async function Pronto({ linha, agora }: { linha: LinhaDoBonus; agora: number }) 
         </div>
       )}
 
-      {envio === "criado" &&
-        (publico ? (
-          <section className={`${card} p-6`}>
-            <CopyField label="O link que vai existir depois de publicar" value={publico} />
-          </section>
-        ) : (
-          <p className={`text-sm ${muted}`}>Endereço no Labs: /bonus/{linha.slug}</p>
-        ))}
+      {envio === "criado" && <NoLabs linha={linha} publico={publico} agora={agora} />}
 
       {envio === "conferir" && (
         <section className={`${card} space-y-3 p-6`}>
