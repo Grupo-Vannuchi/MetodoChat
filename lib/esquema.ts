@@ -214,6 +214,16 @@ const MARCA_DAGUA = {
       porque:
         "tabela de FEATURE (bonus_gerados): a partida do painel não depende dela, de propósito",
     },
+    {
+      de: "014-carrosseis-gerados.sql",
+      // A SEGUNDA TABELA DE FEATURE, pelo mesmo motivo da 013: `carrosseis_gerados` é do
+      // gerador de carrossel (app/bonus/), e uma tabela que só ele lê não pode impedir o
+      // painel inteiro de subir. Quem confere as colunas é
+      // testes-integracao/bonus-carrossel-tabela.integracao.ts. Decidido pelo Eduardo em
+      // 30/09/2026 (docs/specs/2026-09-30-gerador-de-carrossel.md).
+      porque:
+        "tabela de FEATURE (carrosseis_gerados): a partida do painel não depende dela, de propósito",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",

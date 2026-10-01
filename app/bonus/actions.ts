@@ -15,7 +15,8 @@ import {
   TEXTO_NAO_DA_PARA_GERAR_DE_NOVO,
   textoDaConfig,
   textoDaRecusaDoPedido,
-  textoDoEnvioRecusado,
+  respostaDoEnvio,
+  type AvisoDoEnvio,
   textoDoTeto,
   urlDoBonusComAviso,
 } from "@/lib/bonus/textos";
@@ -72,14 +73,19 @@ export async function gerarDeNovo(form: FormData): Promise<void> {
   redirect(`/bonus/${novo}`);
 }
 
-export async function enviarAoLabs(form: FormData): Promise<void> {
+/**
+ * A recusa que não grava nada volta como ESTADO do formulário (useActionState), e não por
+ * redirect: todo redirect de Server Action recria a página no Next 16, e a edição na tela sumia
+ * (achado 54). A regra de cada resultado mora em `respostaDoEnvio` (lib/bonus/textos.ts).
+ */
+export async function enviarAoLabs(_anterior: AvisoDoEnvio | null, form: FormData): Promise<AvisoDoEnvio | null> {
   await exigirSessao();
   const id = form.get("id");
   if (!ehIdDeBonus(id)) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_BONUS_NAO_ENCONTRADO }));
   const revisadoBruto: Record<string, unknown> = Object.fromEntries(CAMPOS_REVISADOS.map((c) => [c, form.get(c)]));
-  const r = await enviarLinha(id, revisadoBruto);
-  if (r.tipo === "enviado") redirect(`/bonus/${id}`);
-  redirect(urlDoBonusComAviso(id, { tom: "erro", texto: textoDoEnvioRecusado(r) }));
+  const resposta = respostaDoEnvio(id, await enviarLinha(id, revisadoBruto));
+  if (resposta.tipo === "redirect") redirect(resposta.url);
+  return { ...resposta.aviso, em: Date.now() };
 }
 
 export async function conferirNoLabs(form: FormData): Promise<void> {

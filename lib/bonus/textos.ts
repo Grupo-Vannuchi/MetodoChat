@@ -85,6 +85,29 @@ export function textoDosProblemas(problemas: { campo: string; erro: string }[]):
   return `${problemas.map((p) => `${rotulo(p.campo)}: ${p.erro}`).join(". ")}.`;
 }
 
+/**
+ * A resposta do "Enviar ao Labs" que volta como ESTADO do formulário (useActionState). `em` muda
+ * a cada resposta, para o aviso aparecer de novo mesmo com a mesma mensagem.
+ */
+export type AvisoDoEnvio = Aviso & { em: number };
+
+export type RespostaDoEnvio = { tipo: "estado"; aviso: Aviso } | { tipo: "redirect"; url: string };
+
+/**
+ * COMO A ACTION RESPONDE A CADA RESULTADO DO ENVIO (achado 54, causa medida em 01/10 num
+ * navegador de verdade): todo redirect de Server Action recria a página no Next 16, e o que o
+ * operador tinha editado voltava ao texto com que a página abriu. As recusas que NÃO GRAVAM NADA
+ * (`invalido` e `sem_config`, processo.ts) voltam como estado, e a edição fica. Tudo o que grava,
+ * ou que mudou por outro caminho (`ocupado`, `superado`, `nao_encontrado`), segue redirecionando
+ * para a página mostrar o estado real, como antes.
+ */
+export function respostaDoEnvio(id: string, r: ResultadoDoEnvio): RespostaDoEnvio {
+  if (r.tipo === "enviado") return { tipo: "redirect", url: `/bonus/${id}` };
+  const aviso: Aviso = { tom: "erro", texto: textoDoEnvioRecusado(r) };
+  if (r.tipo === "invalido" || r.tipo === "sem_config") return { tipo: "estado", aviso };
+  return { tipo: "redirect", url: urlDoBonusComAviso(id, aviso) };
+}
+
 export function textoDoEnvioRecusado(r: Exclude<ResultadoDoEnvio, { tipo: "enviado" }>): string {
   switch (r.tipo) {
     case "sem_config":
@@ -124,17 +147,17 @@ export function quadroDoEnvio(motivo: MotivoDoEnvio, d: Detalhe, slug: string | 
   const endereco = slug ?? "deste bônus";
   switch (motivo) {
     case "criado":
-      return { tom: "ok", titulo: "Criado no Labs, ainda oculto", texto: PASSO_SEGUINTE };
+      return { tom: "ok", titulo: "Criado no Labs como oculto", texto: PASSO_SEGUINTE };
     case "criado_pelo_titulo":
       return {
         tom: "ok",
-        titulo: "Criado no Labs, ainda oculto",
+        titulo: "Criado no Labs como oculto",
         texto: `Uma tentativa anterior chegou ao Labs sem que a resposta voltasse, e o bônus existe uma vez só. ${PASSO_SEGUINTE}`,
       };
     case "criado_pela_duplicata":
       return {
         tom: "ok",
-        titulo: "Criado no Labs, ainda oculto",
+        titulo: "Criado no Labs como oculto",
         texto: `O Labs já tem este bônus, com o mesmo endereço e o mesmo título. Como a tentativa anterior ficou sem resposta, ele é quase certamente o deste envio: confira no /admin do Labs que o conteúdo é o deste bônus. ${PASSO_SEGUINTE}`,
       };
     case "conferido_existe":

@@ -1,21 +1,21 @@
-// AS QUATRO ACTIONS DO BÔNUS RECUSAM SEM SESSÃO, dentro do contexto de requisição
-// do Next (./semear-requisicao.ts), que monta a jarra de cookies VAZIA. Nenhum
-// cookie é forjado: a sessão ausente é o caso medido. O caminho com sessão é
-// medido uma camada abaixo, em bonus-processo.integracao.ts.
+// AS TRÊS ACTIONS DO CARROSSEL RECUSAM SEM SESSÃO, dentro do contexto de requisição do Next
+// (./semear-requisicao.ts), que monta a jarra de cookies VAZIA. O molde é
+// bonus-acoes.integracao.ts. O caminho com sessão é medido uma camada abaixo, em
+// bonus-carrossel-processo.integracao.ts.
 import { beforeAll, describe, expect, it } from "vitest";
 import { bancoDescartavel } from "./harness";
 import { comoNumaRequisicao } from "./semear-requisicao";
 
-type ModuloAcoes = typeof import("@/app/bonus/actions");
+type ModuloAcoes = typeof import("@/app/bonus/carrossel-actions");
 
 const banco = bancoDescartavel();
 let acoes: ModuloAcoes;
 
 beforeAll(async () => {
-  acoes = await import("@/app/bonus/actions");
+  acoes = await import("@/app/bonus/carrossel-actions");
 });
 
-/** A URL do redirect que a action lançou, lida do `digest`, como em publicar-fala.integracao.ts. */
+/** A URL do redirect que a action lançou, lida do `digest`. */
 async function destinoDe(acao: (f: FormData) => Promise<void>, form: FormData): Promise<string | null> {
   const { valor } = await comoNumaRequisicao("/bonus", async () => {
     try {
@@ -37,39 +37,38 @@ function formulario(campos: Record<string, string>): FormData {
   return f;
 }
 
-describe("sem sessão, nenhuma action do bônus age", () => {
-  it("pedirBonus vai para /entrar e não insere nada, mesmo com pedido válido e chave de IA", async () => {
+describe("sem sessão, nenhuma action do carrossel age", () => {
+  it("pedirCarrossel vai para /entrar e não insere nada, mesmo com pedido válido e chave de IA", async () => {
     const antes = process.env.ANTHROPIC_API_KEY;
     process.env.ANTHROPIC_API_KEY = "chave-inventada-para-o-teste";
     try {
       const destino = await destinoDe(
-        acoes.pedirBonus,
-        formulario({ tema: "Marketing", o_que_resolve: "Montar um cronograma de lançamento em 7 dias", palavra: "" })
+        acoes.pedirCarrossel,
+        formulario({ bonus_id: "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f", total: "10" })
       );
       expect(destino).toBe("/entrar");
     } finally {
       if (antes === undefined) delete process.env.ANTHROPIC_API_KEY;
       else process.env.ANTHROPIC_API_KEY = antes;
     }
-    const [{ n }] = (await banco.db().sql().query(`select count(*)::int as n from bonus_gerados`)) as { n: number }[];
+    const [{ n }] = (await banco.db().sql().query(`select count(*)::int as n from carrosseis_gerados`)) as {
+      n: number;
+    }[];
     expect(n).toBe(0);
   });
 
-  it.each(["gerarDeNovo", "conferirNoLabs"] as const)("%s vai para /entrar", async (nome) => {
-    const destino = await destinoDe(
-      acoes[nome],
-      formulario({ id: "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f", existe: "sim" })
-    );
+  it("gerarCarrosselDeNovo vai para /entrar", async () => {
+    const destino = await destinoDe(acoes.gerarCarrosselDeNovo, formulario({ id: "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d" }));
     expect(destino).toBe("/entrar");
   });
 
-  // O envio recebe o estado anterior do formulário (useActionState, achado 54).
-  it("enviarAoLabs vai para /entrar", async () => {
+  // O salvar da revisão recebe o estado anterior do formulário (useActionState, achado 52).
+  it("salvarRevisaoDoCarrossel vai para /entrar", async () => {
     const destino = await destinoDe(
       async (f) => {
-        await acoes.enviarAoLabs(null, f);
+        await acoes.salvarRevisaoDoCarrossel(null, f);
       },
-      formulario({ id: "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f" })
+      formulario({ id: "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d" })
     );
     expect(destino).toBe("/entrar");
   });

@@ -101,7 +101,7 @@ export function rotuloDaLinha(l: LinhaDoBonus, agoraMs: number): { texto: string
     case "enviando":
       return { texto: "Enviando", tipo: "neutro" };
     case "criado":
-      return { texto: "No Labs, oculto", tipo: "ok" };
+      return { texto: "Criado no Labs", tipo: "ok" };
     case "conferir":
       return { texto: "Conferir no Labs", tipo: "atencao" };
     case "incerto":

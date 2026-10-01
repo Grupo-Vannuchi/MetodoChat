@@ -2,12 +2,48 @@ import { describe, expect, it } from "vitest";
 import { detalheDe, MOTIVOS_DO_ENVIO } from "@/lib/bonus/desfecho";
 import {
   quadroDoEnvio,
+  respostaDoEnvio,
   textoDaConfig,
   textoDaRecusaDoPedido,
   textoDoEnvioRecusado,
   textoDoTeto,
   urlDoBonusComAviso,
 } from "@/lib/bonus/textos";
+
+// A RESPOSTA DO "ENVIAR AO LABS" (achado 54, causa medida em 01/10 num navegador de verdade):
+// todo redirect de Server Action recria a página no Next 16, e o que o operador tinha editado
+// voltava ao texto com que a página abriu. As recusas que não gravam nada voltam como estado do
+// formulário, e a edição fica. Tudo o que grava, ou muda o estado por outro caminho, segue
+// redirecionando, como antes.
+describe("respostaDoEnvio", () => {
+  const ID = "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f";
+
+  it("a recusa local, que não grava nada, volta como estado com o motivo", () => {
+    expect(respostaDoEnvio(ID, { tipo: "invalido", problemas: [{ campo: "slug", erro: "curto" }] })).toEqual({
+      tipo: "estado",
+      aviso: { tom: "erro", texto: textoDoEnvioRecusado({ tipo: "invalido", problemas: [{ campo: "slug", erro: "curto" }] }) },
+    });
+  });
+
+  it("a falta de configuração, que sai antes de tudo, também volta como estado", () => {
+    expect(respostaDoEnvio(ID, { tipo: "sem_config", motivo: "sem_segredo" }).tipo).toBe("estado");
+  });
+
+  it.each(["nao_encontrado", "ocupado", "superado"] as const)(
+    "%s redireciona para a página do bônus com o aviso, como antes",
+    (tipo) => {
+      expect(respostaDoEnvio(ID, { tipo })).toEqual({
+        tipo: "redirect",
+        url: urlDoBonusComAviso(ID, { tom: "erro", texto: textoDoEnvioRecusado({ tipo }) }),
+      });
+    }
+  );
+
+  it("enviado redireciona para a página do bônus, sem aviso, como antes", () => {
+    const enviado = { tipo: "enviado" as const, desfecho: { estado: "criado" as const } as never, slug: "kit" };
+    expect(respostaDoEnvio(ID, enviado)).toEqual({ tipo: "redirect", url: `/bonus/${ID}` });
+  });
+});
 
 describe("urlDoBonusComAviso", () => {
   it("leva texto E tom, senão todo aviso chega pintado de falha (lib/avisos.ts)", () => {

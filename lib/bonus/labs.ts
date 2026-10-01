@@ -36,7 +36,7 @@ export function urlPublicaDoBonus(base: string | undefined, slug: string): strin
   return b === null ? null : `${b}/bonus/${slug}`;
 }
 
-async function lerAteOTeto(res: Response, teto: number): Promise<string | null> {
+export async function lerAteOTeto(res: Response, teto: number): Promise<string | null> {
   if (!res.body) return "";
   const leitor = res.body.getReader();
   const partes: Uint8Array[] = [];
