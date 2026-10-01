@@ -3,7 +3,7 @@ import { useActionState } from "react";
 import { btnPrimary, card, hint } from "@/app/ui";
 import type { CampoDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import type { AvisoDaRevisao } from "@/lib/bonus/carrossel-textos";
-import AvisoDoFormulario from "./aviso-do-formulario";
+import AvisoDoFormulario from "@/app/bonus/aviso-do-formulario";
 import Campo from "./campo";
 
 // O FORMULÁRIO DA REVISÃO DO CARROSSEL.

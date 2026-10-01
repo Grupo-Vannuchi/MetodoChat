@@ -37,6 +37,25 @@ describe("o salvar da revisão responde sem recriar a página", () => {
   });
 });
 
+// O PEDIDO DE CARROSSEL TAMBÉM NÃO REDIRECIONA NA RECUSA (pelo mesmo motivo dos achados 52 e 54):
+// o redirect para a página do bônus, com o aviso na URL, recriava a página e voltava o "Quantos
+// slides?" para 10. As recusas não gravam nada e voltam como estado. Saem por redirect só o id de
+// bônus inválido, para a lista, e o pedido criado, para a página do carrossel novo.
+describe("o pedido de carrossel responde sem recriar a página na recusa", () => {
+  it("pedirCarrossel não redireciona para a página do bônus com aviso", () => {
+    const fonte = ler("app/bonus/carrossel-actions.ts");
+    const inicio = fonte.indexOf("export async function pedirCarrossel(");
+    const fim = fonte.indexOf("\nexport ", inicio + 1);
+    const corpo = fonte.slice(inicio, fim === -1 ? undefined : fim);
+    expect(inicio).toBeGreaterThan(-1);
+    expect(corpo).not.toMatch(/urlDoBonusComAviso\(bonusId,/);
+  });
+
+  it("a seção do bônus no Labs entrega pedirCarrossel ao pedido de carrossel", () => {
+    expect(ler("app/bonus/[id]/no-labs.tsx")).toContain("acao={pedirCarrossel}");
+  });
+});
+
 /** As funções exportadas de um arquivo e a primeira instrução de cada uma. */
 function primeirasInstrucoes(fonte: string): { nome: string; primeira: string }[] {
   const achados: { nome: string; primeira: string }[] = [];

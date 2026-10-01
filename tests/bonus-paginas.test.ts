@@ -56,7 +56,11 @@ describe("toda action do bônus confere a sessão antes de qualquer coisa", () =
 // `defaultValue` recolocado direto numa das páginas.
 describe("nenhum campo de revisão do bônus volta a ser não controlado", () => {
   it.each([
+    "app/bonus/page.tsx",
+    "app/bonus/formulario-do-pedido.tsx",
     "app/bonus/[id]/page.tsx",
+    "app/bonus/[id]/no-labs.tsx",
+    "app/bonus/[id]/pedido-de-carrossel.tsx",
     "app/bonus/[id]/campo-do-envio.tsx",
     "app/bonus/[id]/formulario-do-envio.tsx",
     "app/bonus/[id]/carrossel/[cid]/page.tsx",
@@ -88,5 +92,24 @@ describe("o envio ao Labs responde sem recriar a página na recusa", () => {
 
   it("a página entrega enviarAoLabs ao formulário do envio", () => {
     expect(ler("app/bonus/[id]/page.tsx")).toContain("acao={enviarAoLabs}");
+  });
+});
+
+// O PEDIDO DE BÔNUS TAMBÉM NÃO REDIRECIONA NA RECUSA (pelo mesmo motivo dos achados 52 e 54): o
+// redirect para a própria página, com o aviso na URL, recriava a página e apagava o tema, o "O que
+// o bônus resolve" e a palavra. As três recusas não gravam nada e voltam como estado. Só o pedido
+// criado sai por redirect, para a página do bônus novo.
+describe("o pedido de bônus responde sem recriar a página na recusa", () => {
+  it("pedirBonus não redireciona com aviso", () => {
+    const fonte = ler("app/bonus/actions.ts");
+    const inicio = fonte.indexOf("export async function pedirBonus(");
+    const fim = fonte.indexOf("\nexport ", inicio + 1);
+    const corpo = fonte.slice(inicio, fim === -1 ? undefined : fim);
+    expect(inicio).toBeGreaterThan(-1);
+    expect(corpo).not.toMatch(/urlDoBonusComAviso\(/);
+  });
+
+  it("a página entrega pedirBonus ao formulário do pedido", () => {
+    expect(ler("app/bonus/page.tsx")).toContain("acao={pedirBonus}");
   });
 });

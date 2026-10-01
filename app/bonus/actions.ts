@@ -17,6 +17,7 @@ import {
   textoDaRecusaDoPedido,
   respostaDoEnvio,
   type AvisoDoEnvio,
+  type AvisoDoPedido,
   textoDoTeto,
   urlDoBonusComAviso,
 } from "@/lib/bonus/textos";
@@ -27,23 +28,29 @@ import {
 // Action tem endereço próprio. tests/bonus-paginas.test.ts confere que a primeira
 // instrução de cada uma é `await exigirSessao();`.
 //
-// NENHUMA SAÍDA MUDA: toda recusa sai por redirect com aviso (texto e tom), e todo
-// sucesso leva à tela do bônus, que mostra o estado gravado.
+// NENHUMA SAÍDA MUDA: a recusa que não grava nada volta como estado do formulário
+// (pedirBonus e enviarAoLabs); as outras saem por redirect com aviso (texto e tom), e
+// todo sucesso leva à tela do bônus, que mostra o estado gravado.
 
 async function exigirSessao(): Promise<void> {
   const jarra = await cookies();
   if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) redirect("/entrar");
 }
 
-export async function pedirBonus(form: FormData): Promise<void> {
+/**
+ * A recusa volta como ESTADO do formulário (useActionState), e não por redirect, pelo mesmo motivo
+ * do envio (achados 52 e 54): todo redirect de Server Action recria a página no Next 16, e o que o
+ * operador tinha digitado sumia. As três recusas (sem a chave da IA, o pedido inválido e o teto do
+ * dia) não gravam nada. Só o pedido criado sai por redirect, para a página do bônus novo.
+ */
+export async function pedirBonus(_anterior: AvisoDoPedido | null, form: FormData): Promise<AvisoDoPedido | null> {
   await exigirSessao();
-  if (!temChaveDaIA(process.env)) {
-    redirect(urlDoBonusComAviso(null, { tom: "erro", texto: textoDaConfig("sem_chave_ia") }));
-  }
+  const recusa = (texto: string): AvisoDoPedido => ({ tom: "erro", texto, em: Date.now() });
+  if (!temChaveDaIA(process.env)) return recusa(textoDaConfig("sem_chave_ia"));
   const lido = lerPedido({ tema: form.get("tema"), oQueResolve: form.get("o_que_resolve"), palavra: form.get("palavra") });
-  if (!lido.ok) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: textoDaRecusaDoPedido(lido.motivo) }));
+  if (!lido.ok) return recusa(textoDaRecusaDoPedido(lido.motivo));
   const criado = await criarPedido(lido.pedido);
-  if (!criado.ok) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: textoDoTeto() }));
+  if (!criado.ok) return recusa(textoDoTeto());
   const id = criado.id;
   after(() => processarGeracao(id));
   redirect(`/bonus/${id}`);

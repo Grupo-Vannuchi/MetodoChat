@@ -38,12 +38,15 @@ function formulario(campos: Record<string, string>): FormData {
 }
 
 describe("sem sessão, nenhuma action do bônus age", () => {
+  // O pedido recebe o estado anterior do formulário (useActionState), como o envio.
   it("pedirBonus vai para /entrar e não insere nada, mesmo com pedido válido e chave de IA", async () => {
     const antes = process.env.ANTHROPIC_API_KEY;
     process.env.ANTHROPIC_API_KEY = "chave-inventada-para-o-teste";
     try {
       const destino = await destinoDe(
-        acoes.pedirBonus,
+        async (f) => {
+          await acoes.pedirBonus(null, f);
+        },
         formulario({ tema: "Marketing", o_que_resolve: "Montar um cronograma de lançamento em 7 dias", palavra: "" })
       );
       expect(destino).toBe("/entrar");

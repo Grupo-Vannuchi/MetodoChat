@@ -4,7 +4,7 @@ import { btnPrimary, card, hint, label } from "@/app/ui";
 import type { CampoRevisado, Revisado } from "@/lib/bonus/contrato";
 import type { AvisoDoEnvio } from "@/lib/bonus/textos";
 import CampoDoEnvio from "./campo-do-envio";
-import AvisoDoFormulario from "./carrossel/[cid]/aviso-do-formulario";
+import AvisoDoFormulario from "@/app/bonus/aviso-do-formulario";
 
 // O FORMULÁRIO DO ENVIO AO LABS (a revisão do bônus).
 //
