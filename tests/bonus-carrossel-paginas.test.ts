@@ -21,6 +21,10 @@ describe("a página do carrossel", () => {
       "palavra={c.pedePalavra ? carrossel.palavra : undefined}"
     );
   });
+
+  it("diz à chamada que ela recusa outra palavra", () => {
+    expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain("soAPalavra={c.soAPalavra}");
+  });
 });
 
 /** As funções exportadas de um arquivo e a primeira instrução de cada uma. */

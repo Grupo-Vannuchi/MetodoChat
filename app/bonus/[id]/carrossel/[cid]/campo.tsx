@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
 import { btnSecondary, fieldError, hint, input, label } from "@/app/ui";
-import { temPalavra } from "@/lib/bonus/carrossel-texto";
-import { textoDaFaltaDaPalavra } from "@/lib/bonus/carrossel-textos";
+import { outrasGritadas, temPalavra } from "@/lib/bonus/carrossel-texto";
+import { textoDaFaltaDaPalavra, textoDeOutrasPalavras } from "@/lib/bonus/carrossel-textos";
 
 // UM CAMPO DO CARROSSEL: edita, conta e copia. O botão copia o que está NO CAMPO agora, e não o
 // que abriu na página: é esse texto que o operador leva para o Canva até a Etapa 3 existir.
@@ -17,7 +17,9 @@ import { textoDaFaltaDaPalavra } from "@/lib/bonus/carrossel-textos";
 //
 // `palavra` só vem na chamada e na legenda (`pedePalavra` em carrossel-texto.ts): sem ela no
 // texto, o campo avisa NA HORA, e não só no "Salvar revisão", porque o "Copiar" leva o texto
-// como está (achado 53, decisão do Eduardo: copiar continua, com o aviso ao lado).
+// como está (achado 53, decisão do Eduardo: copiar continua, com o aviso ao lado). Com
+// `soAPalavra` (só a chamada), avisa também a palavra gritada A MAIS (decisão do Eduardo,
+// 01/10). As regras e a ordem são as de `lerRevisaoDoCarrossel`: primeiro a falta, depois a mais.
 export default function Campo({
   nome,
   rotulo,
@@ -25,6 +27,7 @@ export default function Campo({
   max,
   linhas,
   palavra,
+  soAPalavra,
 }: {
   nome: string;
   rotulo: string;
@@ -32,9 +35,18 @@ export default function Campo({
   max: number;
   linhas: number;
   palavra?: string;
+  soAPalavra?: boolean;
 }) {
   const [texto, setTexto] = useState(valorInicial);
   const [copiado, setCopiado] = useState(false);
+
+  let aviso: string | null = null;
+  if (palavra && !temPalavra(texto, palavra)) {
+    aviso = textoDaFaltaDaPalavra(palavra);
+  } else if (palavra && soAPalavra) {
+    const outras = outrasGritadas(texto, palavra);
+    if (outras.length) aviso = textoDeOutrasPalavras(outras, palavra);
+  }
 
   return (
     <div>
@@ -50,7 +62,7 @@ export default function Campo({
         onChange={(e) => setTexto(e.target.value)}
         className={input}
       />
-      {palavra && !temPalavra(texto, palavra) && <p className={fieldError}>{textoDaFaltaDaPalavra(palavra)}</p>}
+      {aviso && <p className={fieldError}>{aviso}</p>}
       <div className="mt-1 flex items-center justify-between gap-3">
         <p className={hint}>
           {texto.length} de {max} caracteres

@@ -87,6 +87,40 @@ describe("o campo do carrossel", () => {
     expect(screen.getByText(/Falta a palavra SUMIDO/)).toBeTruthy();
   });
 
+  // Decisão do Eduardo em 01/10: o aviso na hora acusa também a palavra A MAIS, só na chamada,
+  // com a mesma `outrasGritadas` da conferência (na legenda, só a presença: achado 49).
+  it("na chamada, avisa a palavra a mais, e deixa passar as exceções do Labs", () => {
+    render(
+      <Campo
+        nome="chamada"
+        rotulo="Chamada (slide 3)"
+        valorInicial="Comente SUMIDO e receba o PDF GRÁTIS."
+        max={200}
+        linhas={3}
+        palavra="SUMIDO"
+        soAPalavra
+      />
+    );
+    expect(screen.queryByText(/Pede também/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Chamada (slide 3)"), { target: { value: "Comente SUMIDO ou GUIA." } });
+    expect(screen.getByText("Pede também GUIA: deixe só a palavra SUMIDO.")).toBeTruthy();
+  });
+
+  it("na legenda, a palavra a mais não é acusada", () => {
+    render(
+      <Campo
+        nome="legenda"
+        rotulo="Legenda do post"
+        valorInicial="Comente SUMIDO ou GUIA, e eu te mando."
+        max={900}
+        linhas={8}
+        palavra="SUMIDO"
+      />
+    );
+    expect(screen.queryByText(/Pede também/)).toBeNull();
+    expect(screen.queryByText(/Falta a palavra/)).toBeNull();
+  });
+
   it("campo que não pede a palavra nunca avisa", () => {
     render(<Campo nome="gancho" rotulo="Gancho (slide 1)" valorInicial="Sem palavra nenhuma." max={120} linhas={2} />);
     expect(screen.queryByText(/Falta a palavra/)).toBeNull();

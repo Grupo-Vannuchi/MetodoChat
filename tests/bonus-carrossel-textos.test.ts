@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   avisoDePalavraTrocada,
   textoDaFaltaDaPalavra,
+  textoDeOutrasPalavras,
   quadroDaSituacao,
   textoDaConferencia,
   textoDaRecusaDoPedidoDeCarrossel,
@@ -62,6 +63,10 @@ describe("as frases do carrossel", () => {
     const t = avisoDePalavraTrocada("SUMIDO", "ZZTESTECHAT");
     expect(t).toContain("SUMIDO");
     expect(t).toContain("ZZTESTECHAT");
+  });
+
+  it("a palavra a mais na chamada diz quais são e qual deve ficar", () => {
+    expect(textoDeOutrasPalavras(["GUIA", "EBOOK"], "SUMIDO")).toBe("Pede também GUIA, EBOOK: deixe só a palavra SUMIDO.");
   });
 
   it("a falta da palavra no campo diz qual é e o que acontece sem ela (achado 53)", () => {

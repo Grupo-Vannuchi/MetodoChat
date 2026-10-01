@@ -139,6 +139,7 @@ function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
             max={c.max}
             linhas={c.linhas}
             palavra={c.pedePalavra ? carrossel.palavra : undefined}
+            soAPalavra={c.soAPalavra}
           />
         ))}
         <button type="submit" className={btnPrimary}>

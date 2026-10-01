@@ -152,6 +152,17 @@ describe("os campos do formulário", () => {
     }
   });
 
+  it("só a chamada recusa outra palavra gritada; a legenda confere só a presença (achado 49)", () => {
+    for (const total of [1, 2, 5, 10]) {
+      expect(
+        camposDoFormulario(total)
+          .filter((c) => c.soAPalavra)
+          .map((c) => c.nome),
+        String(total)
+      ).toEqual(["chamada"]);
+    }
+  });
+
   it("carrossel de 5: gancho, 3 slides com título e texto, chamada e legenda", () => {
     expect(camposDoFormulario(5).map((c) => c.nome)).toEqual([
       "gancho",

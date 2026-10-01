@@ -129,6 +129,8 @@ export function conferirGerado(total: number, palavra: string, t: TextoDoCarross
 /**
  * `pedePalavra`: o campo tem de pedir a palavra do bônus, e a tela avisa na hora quando ela some
  * (achado 53). São a chamada e a legenda, as mesmas que `lerRevisaoDoCarrossel` confere.
+ * `soAPalavra`: o campo não pode pedir OUTRA palavra gritada. Só a chamada (achado 49: na
+ * legenda, só a presença), como em `conferirGerado` e `lerRevisaoDoCarrossel`.
  */
 export type CampoDoCarrossel = {
   nome: string;
@@ -137,6 +139,7 @@ export type CampoDoCarrossel = {
   max: number;
   linhas: number;
   pedePalavra?: boolean;
+  soAPalavra?: boolean;
 };
 
 /**
@@ -147,7 +150,7 @@ export function camposDoFormulario(total: number): CampoDoCarrossel[] {
   if (total === 1) {
     return [
       { nome: "texto", rotulo: "Texto da imagem", min: 60, max: 300, linhas: 5 },
-      { nome: "chamada", rotulo: "Chamada", min: 20, max: 200, linhas: 3, pedePalavra: true },
+      { nome: "chamada", rotulo: "Chamada", min: 20, max: 200, linhas: 3, pedePalavra: true, soAPalavra: true },
       { nome: "legenda", rotulo: "Legenda do post", min: 80, max: 900, linhas: 8, pedePalavra: true },
     ];
   }
@@ -158,7 +161,7 @@ export function camposDoFormulario(total: number): CampoDoCarrossel[] {
   return [
     { nome: "gancho", rotulo: "Gancho (slide 1)", min: 15, max: 120, linhas: 2 },
     ...slides,
-    { nome: "chamada", rotulo: `Chamada (slide ${total})`, min: 20, max: 200, linhas: 3, pedePalavra: true },
+    { nome: "chamada", rotulo: `Chamada (slide ${total})`, min: 20, max: 200, linhas: 3, pedePalavra: true, soAPalavra: true },
     { nome: "legenda", rotulo: "Legenda do post", min: 80, max: 900, linhas: 8, pedePalavra: true },
   ];
 }
