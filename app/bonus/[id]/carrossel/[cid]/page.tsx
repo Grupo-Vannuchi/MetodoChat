@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { alertError, alertOk, alertWarn, btnPrimary, card, hint, link, pageSubtitle, pageTitle, skeleton } from "@/app/ui";
 import { gerarCarrosselDeNovo, salvarRevisaoDoCarrossel } from "@/app/bonus/carrossel-actions";
-import { avisoDaUrl } from "@/lib/avisos";
+import { avisoDaUrl, type Aviso } from "@/lib/avisos";
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
 import { lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
 import { descricaoDoCarrossel, textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
@@ -19,6 +19,7 @@ import { lerLinha } from "@/lib/bonus/repositorio";
 import { geracaoNaTela } from "@/lib/bonus/tempos";
 import { TEXTO_TRAVOU, type TomDoQuadro } from "@/lib/bonus/textos";
 import Acompanhar from "../../acompanhar";
+import AvisoDoFormulario from "./aviso-do-formulario";
 import Campo from "./campo";
 
 // O teto de lib/bonus/tempos.ts (MAX_DURATION_S). O Next exige literal aqui, e
@@ -108,7 +109,7 @@ export default async function PaginaDoCarrossel({
         </section>
       )}
 
-      {geracao === "pronto" && <Revisao carrossel={carrossel} />}
+      {geracao === "pronto" && <Revisao carrossel={carrossel} aviso={aviso} agora={agora} />}
     </div>
   );
 }
@@ -118,7 +119,7 @@ async function situacaoDoBonus(bonusId: string): Promise<SituacaoNoLabs> {
   return bonus?.slug ? situacaoNoLabs(process.env.LABS_URL, bonus.slug) : { tipo: "nao_publicado" };
 }
 
-function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
+function Revisao({ carrossel, aviso, agora }: { carrossel: LinhaDoCarrossel; aviso: Aviso | null; agora: number }) {
   const texto = textoDaLinhaDoCarrossel(carrossel);
   if (!texto) return <div className={alertError}>{TEXTO_CARROSSEL_SEM_TEXTO}</div>;
   const valores = valoresPorCampo(texto);
@@ -142,6 +143,7 @@ function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
             soAPalavra={c.soAPalavra}
           />
         ))}
+        {aviso && <AvisoDoFormulario key={agora} aviso={aviso} />}
         <button type="submit" className={btnPrimary}>
           Salvar revisão
         </button>

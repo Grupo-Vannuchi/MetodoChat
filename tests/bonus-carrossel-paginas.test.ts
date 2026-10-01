@@ -25,6 +25,16 @@ describe("a página do carrossel", () => {
   it("diz à chamada que ela recusa outra palavra", () => {
     expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain("soAPalavra={c.soAPalavra}");
   });
+
+  it("mostra o resultado do salvamento logo acima do botão, renovado a cada resposta do servidor", () => {
+    const pagina = ler("app/bonus/[id]/carrossel/[cid]/page.tsx");
+    // `key={agora}`: o relógio de cada desenho do servidor. Um salvamento novo com a MESMA
+    // mensagem do anterior ("Revisão salva." duas vezes) ainda remonta o aviso escondido.
+    const aviso = pagina.indexOf("<AvisoDoFormulario key={agora} aviso={aviso} />");
+    const botao = pagina.indexOf("Salvar revisão");
+    expect(aviso).toBeGreaterThan(-1);
+    expect(aviso).toBeLessThan(botao);
+  });
 });
 
 /** As funções exportadas de um arquivo e a primeira instrução de cada uma. */
