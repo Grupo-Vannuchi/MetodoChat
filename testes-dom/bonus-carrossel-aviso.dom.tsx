@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import AvisoDoFormulario from "@/app/bonus/[id]/carrossel/[cid]/aviso-do-formulario";
+import AvisoDoFormulario from "@/app/bonus/aviso-do-formulario";
 import Campo from "@/app/bonus/[id]/carrossel/[cid]/campo";
 
 // O RESULTADO DO "SALVAR REVISÃO" JUNTO DO BOTÃO (decisão do Eduardo, 01/10). Na prova real de
