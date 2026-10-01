@@ -14,10 +14,11 @@ import AvisoDoFormulario from "@/app/bonus/aviso-do-formulario";
 //
 // ⚠️ ESTE FORMULÁRIO NÃO USA `action`, E É DE PROPÓSITO. Com `<form action>`, o React 19 reinicia o
 // formulário depois que a action termina. Campo de texto controlado sobrevive, porque o React
-// mantém o `defaultValue` dele igual ao valor; o `<select>` controlado, não: volta para a primeira
-// opção, o "1", e o pedido seguinte iria com 1 slide (medido no teste de tela,
-// testes-dom/bonus-pedido-de-carrossel.dom.tsx). Pelo `onSubmit`, dentro de uma transição, a mesma
-// action roda sem o reinício.
+// mantém o `defaultValue` dele igual ao valor; o `<select>` controlado, não: volta para a opção com
+// que a página abriu, e o pedido seguinte iria com outro número de slides. Medido em 01/10 nos dois
+// lugares: no Edge, com a action real, ele voltou para o 10 que veio no HTML do servidor; no teste
+// de tela (testes-dom/bonus-pedido-de-carrossel.dom.tsx), que não tem esse HTML, para o "1". Pelo
+// `onSubmit`, dentro de uma transição, a mesma action roda sem o reinício.
 //
 // A action entra por propriedade (no-labs.tsx passa `pedirCarrossel`), para o teste de tela usar
 // uma falsa.
