@@ -203,8 +203,8 @@ A action de salvar confere a sessão e valida o que chega do formulário:
 Passando, grava `revisado` e `revisado_em`. A palavra não vem do formulário: vem da linha.
 
 **A resposta volta como estado do formulário, e nunca por redirect para a própria página**
-(achado 52, causa medida em 01/10 num navegador de verdade). Todo redirect de Server Action recria
-a página no Next 16, mesmo para o mesmo endereço, e o que o operador tinha digitado voltava ao texto
+(achado 52, causa medida em 01/10 num navegador de verdade, no Next 16.2.10 em modo de
+desenvolvimento). Todo redirect de Server Action recria a página, mesmo para o mesmo endereço, e o que o operador tinha digitado voltava ao texto
 com que a página abriu: numa recusa, a edição sumia, e o clique seguinte gravava o texto velho como
 "Revisão salva.". O formulário usa `useActionState`, e a recusa e o "Revisão salva." aparecem junto
 do botão. O mesmo defeito existia no "Enviar ao Labs" da Etapa 1 (achado 54): as recusas que não
@@ -347,7 +347,8 @@ imprimir texto.
 - **O defeito que a prova achou (achado 52):** depois de uma recusa, a edição sumia da tela, e o
   clique seguinte gravava o texto velho. Tinha duas camadas, medidas uma de cada vez: o reinício
   automático do formulário no React 19 (reproduzido no teste de tela) e, a que operava de fato, a
-  recriação da página a cada redirect de Server Action no Next 16 (medida no Edge sem janela, com um
+  recriação da página a cada redirect de Server Action (medida no Next 16.2.10, em modo de
+  desenvolvimento, no Edge sem janela, com um
   contador de montagens: 1 → 3 a cada salvamento). O conserto final (`968b550`) responde sem
   redirect; no Edge, com o formulário de verdade, o campo não foi recriado nem na recusa nem no
   sucesso. **Na produção, em 01/10:** uma edição feita antes de duas recusas chegou ao servidor e foi

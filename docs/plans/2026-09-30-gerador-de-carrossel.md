@@ -3600,7 +3600,7 @@ revisão" e "O que a prova mediu"):
 - `e21050b`: o aviso do salvamento junto do botão (`aviso-do-formulario.tsx`).
 - `968b550`: o conserto que vale para o 52. O salvar da revisão responde como estado
   (`useActionState`, `formulario-da-revisao.tsx`), sem redirect, porque todo redirect de Server
-  Action recria a página no Next 16.
+  Action recria a página (medido no Next 16.2.10, em modo de desenvolvimento).
 - `e66e199`: o mesmo para o envio da Etapa 1 (`formulario-do-envio.tsx`, `respostaDoEnvio`), o 54.
 
 Também mudam, em relação ao "Mapa dos arquivos": `app/bonus/actions.ts` (`enviarAoLabs` com estado)
