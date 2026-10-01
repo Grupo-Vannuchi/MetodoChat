@@ -8,7 +8,6 @@ import {
   btnSecondary,
   card,
   hint,
-  input,
   label,
   link,
   pageSubtitle,
@@ -34,6 +33,7 @@ import {
 } from "@/lib/bonus/textos";
 import { conferirNoLabs, enviarAoLabs, gerarDeNovo } from "../actions";
 import Acompanhar from "./acompanhar";
+import CampoDoEnvio from "./campo-do-envio";
 import NoLabs from "./no-labs";
 
 // O teto de lib/bonus/tempos.ts (MAX_DURATION_S). O Next exige literal aqui, e
@@ -201,27 +201,15 @@ function Formulario({
           <label htmlFor={c.nome} className={label}>
             {ROTULO_DO_CAMPO[c.nome]}
           </label>
-          {c.linhas ? (
-            <textarea
-              id={c.nome}
-              name={c.nome}
-              defaultValue={valores[c.nome]}
-              maxLength={c.max}
-              rows={c.linhas}
-              readOnly={congelado}
-              className={input}
-            />
-          ) : (
-            <input
-              id={c.nome}
-              name={c.nome}
-              defaultValue={valores[c.nome]}
-              maxLength={c.max}
-              readOnly={congelado}
-              list={c.nome === "tema" ? "temas-do-bonus" : undefined}
-              className={input}
-            />
-          )}
+          <CampoDoEnvio
+            key={`${c.nome}:${valores[c.nome]}`}
+            nome={c.nome}
+            valorInicial={valores[c.nome]}
+            max={c.max}
+            linhas={c.linhas}
+            travado={congelado}
+            lista={c.nome === "tema" ? "temas-do-bonus" : undefined}
+          />
           <p className={hint}>
             {valores[c.nome].length} de {c.max} caracteres ao abrir a página.
           </p>

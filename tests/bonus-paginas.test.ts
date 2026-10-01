@@ -48,3 +48,23 @@ describe("toda action do bônus confere a sessão antes de qualquer coisa", () =
     expect((fonte.match(/^export /gm) ?? []).length).toBe(primeirasInstrucoes(fonte).length);
   });
 });
+
+// OS CAMPOS DE REVISÃO SÃO CONTROLADOS (achados 52 e 54, 01/10). Depois que a action do
+// formulário termina, o React 19 reinicia o formulário, e um campo com `defaultValue` volta ao
+// texto com que a página abriu: numa recusa, a edição sumia, e o clique seguinte mandava o texto
+// velho. Os testes de tela provam os dois componentes; este pega um campo cru com
+// `defaultValue` recolocado direto numa das páginas.
+describe("nenhum campo de revisão do bônus volta a ser não controlado", () => {
+  it.each([
+    "app/bonus/[id]/page.tsx",
+    "app/bonus/[id]/campo-do-envio.tsx",
+    "app/bonus/[id]/carrossel/[cid]/page.tsx",
+    "app/bonus/[id]/carrossel/[cid]/campo.tsx",
+  ])("%s não usa defaultValue", (arquivo) => {
+    const semComentarios = ler(arquivo)
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//"))
+      .join("\n");
+    expect(semComentarios).not.toMatch(/defaultValue=/);
+  });
+});
