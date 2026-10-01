@@ -3,11 +3,10 @@
 **Nascido em:** 30/09/2026, desenhado com o Eduardo parte por parte, no dia em que o primeiro
 bônus gerado pelo Chat foi publicado no Método Labs (`reativar-clientes-whatsapp`, palavra
 `SUMIDO`).
-**Estado:** construída e verificada em 30/09 (plano `docs/plans/2026-09-30-gerador-de-carrossel.md`,
-FASES 2.1 a 2.9, até `dde9583`): `npm run verify` limpo (80 arquivos e 2 207 casos puros, 11 e 71
-de tela, build com a rota do carrossel), integração inteira no container (36 arquivos), revisão de
-segurança e varredura de segredos sem achado. Falta a prova real (FASE 2.10), com a `014` aplicada
-na produção só com o OK do Eduardo.
+**Estado:** construída em 30/09 (plano `docs/plans/2026-09-30-gerador-de-carrossel.md`, FASES 2.1
+a 2.9) e provada na produção em 30/09 e 01/10 (FASE 2.10, "O que a prova mediu", abaixo), com a
+`014` aplicada. A prova achou defeitos na revisão (achados 52 a 54 do auditor), corrigidos e
+provados de novo num navegador de verdade até `e66e199`. Falta o PR (FASE 2.11).
 **Projeto de quem:** do Vinícius Gualberto. Como a Etapa 1, esta entra como visita: pasta própria
 e o mínimo de toque no que já existe.
 **Etapa anterior:** `docs/specs/2026-09-29-gerador-de-bonus.md`, em produção desde 29/09.
@@ -203,6 +202,15 @@ A action de salvar confere a sessão e valida o que chega do formulário:
 
 Passando, grava `revisado` e `revisado_em`. A palavra não vem do formulário: vem da linha.
 
+**A resposta volta como estado do formulário, e nunca por redirect para a própria página**
+(achado 52, causa medida em 01/10 num navegador de verdade). Todo redirect de Server Action recria
+a página no Next 16, mesmo para o mesmo endereço, e o que o operador tinha digitado voltava ao texto
+com que a página abriu: numa recusa, a edição sumia, e o clique seguinte gravava o texto velho como
+"Revisão salva.". O formulário usa `useActionState`, e a recusa e o "Revisão salva." aparecem junto
+do botão. O mesmo defeito existia no "Enviar ao Labs" da Etapa 1 (achado 54): as recusas que não
+gravam nada (`invalido` e `sem_config`) passaram a voltar como estado, e tudo o que grava segue
+redirecionando, como antes (`respostaDoEnvio`, `lib/bonus/textos.ts`).
+
 **O que mudou no Labs depois:** a página do carrossel lê o Labs de novo a cada vez e mostra
 sempre a situação, com as cinco saídas da leitura. A exceção é enquanto a geração corre: a tela
 pergunta ao servidor a cada 2 s, e cada pergunta leria a lista inteira de novo. Se o bônus deixou de estar publicado, ou se a
@@ -240,7 +248,12 @@ do bônus: **mudança em qualquer uma se avisa nos dois sentidos**.
   e levaria o texto da IA em vez do editado. No post único: texto, chamada e legenda;
 - a palavra aparece travada, com a situação do bônus no Labs e o aviso se ele deixou de estar
   publicado ou trocou de palavra;
-- **"Salvar revisão"**;
+- **o aviso na hora**, embaixo da chamada e da legenda, quando a palavra some ("Falta a palavra
+  SUMIDO…"), e embaixo da chamada quando ela pede outra palavra gritada ("Pede também GUIA…"),
+  com as mesmas funções da conferência. Copiar continua possível (achado 53, decisões do Eduardo
+  de 01/10);
+- **"Salvar revisão"**, com o resultado logo acima do botão, sem recarregar a página. O aviso
+  some no primeiro caractere digitado, para um salvamento antigo não parecer novo;
 - `falhou` ou travado: a frase do motivo e **"Gerar de novo"**, que conta no teto do dia.
 
 Nenhum item novo no menu. O visual segue `app/ui.ts` e a auditoria de design de 10/09.
@@ -277,6 +290,14 @@ retirando a proteção e vendo o caso certo cair.
 | integração | a tabela `014`; o teto de 10 com a trava (o teste segura a trava com 10 linhas invisíveis até o commit, e o pedido tem de esperar e depois recusar, o molde da FASE 1.7); gerar, gravar `pronto` ou `falhou`; salvar revisão; as actions recusam sem sessão |
 | pura | a página do carrossel acompanha a geração com o componente da Etapa 1 |
 | tela | o campo copia o texto editado, e a contagem acompanha o que se digita |
+| tela | o campo avisa na hora a falta da palavra (chamada e legenda) e a palavra a mais (só chamada), ao abrir e ao editar |
+| tela | os formulários da revisão e do envio, com action falsa: numa recusa a edição fica e o motivo aparece junto do botão; o aviso some ao editar; a mesma mensagem duas vezes aparece as duas |
+| pura | `respostaDoEnvio`: cada resultado do envio, estado ou redirect |
+| pura | guardas de fonte: o salvar da revisão não redireciona para a própria página; o envio passa por `respostaDoEnvio`; nenhum campo de revisão usa `defaultValue` |
+
+Os testes de tela provam os formulários, mas **não reproduzem a recriação da página pelo Next**,
+que só aparece num navegador de verdade. Ela foi medida e provada com o Edge sem janela, numa cópia
+isolada do repositório, sem banco (ver "O que a prova mediu").
 
 ---
 
@@ -302,9 +323,49 @@ Cada passo que grava só acontece depois de avisar o Eduardo e ter o OK dele.
 
 ---
 
+## O que a prova mediu
+
+Na produção do Chat, em 30/09 e 01/10, pelo Chat local com a `LABS_URL` só no processo e sem o
+segredo do Labs, cada escrita com o OK do Eduardo. Leituras do banco em transação `read only`, sem
+imprimir texto.
+
+- **A `014`** foi aplicada em 30/09 (o ensaio seguinte diz "já aplicada"; só ela estava pendente).
+- **A geração**, toda para `reativar-clientes-whatsapp` (palavra `SUMIDO`), todas prontas na
+  primeira tentativa, com o número certo de slides e a palavra na chamada e na legenda:
+
+  | total | slides de conteúdo | geração | tokens (entrada / saída) |
+  |---|---|---|---|
+  | 1 (post) | — | 15,4 s | 3 042 / 1 198 |
+  | 2 | 0 | 14,1 s | 4 054 / 1 189 |
+  | 3 | 1 | 14,5 s | 4 045 / 1 160 |
+  | 4 | 2 | 23,6 s | 4 045 / 1 569 |
+  | 10 | 8 | 31,6 s | 4 045 / 2 735 |
+
+  O de 10 ficou longe do teto de 150 s da chamada à IA (`TIMEOUT_IA_MS`).
+- **As recusas da revisão**, vistas na tela e no log: sem `SUMIDO` na chamada; sem `SUMIDO` na
+  legenda; `GANHE` em maiúsculas na chamada (palavra a mais). Nenhuma gravou.
+- **O defeito que a prova achou (achado 52):** depois de uma recusa, a edição sumia da tela, e o
+  clique seguinte gravava o texto velho. Tinha duas camadas, medidas uma de cada vez: o reinício
+  automático do formulário no React 19 (reproduzido no teste de tela) e, a que operava de fato, a
+  recriação da página a cada redirect de Server Action no Next 16 (medida no Edge sem janela, com um
+  contador de montagens: 1 → 3 a cada salvamento). O conserto final (`968b550`) responde sem
+  redirect; no Edge, com o formulário de verdade, o campo não foi recriado nem na recusa nem no
+  sucesso. **Na produção, em 01/10:** uma edição feita antes de duas recusas chegou ao servidor e foi
+  gravada no salvamento seguinte (medido por uma linha de diagnóstico temporária, sem conteúdo, já
+  retirada).
+- **O mesmo defeito no "Enviar ao Labs" da Etapa 1 (achado 54),** em produção desde 29/09: corrigido
+  em `e66e199` e provado no Edge com o formulário de verdade. No Chat local não dá para provocar a
+  recusa local com o banco, porque sem o segredo o envio para antes, em `sem_config`.
+- **Ambiente, sem relação com o código:** depois de encerrar o `next dev` à força, o seguinte subia
+  com o cache `.next/dev` estragado e respondia 404 em todas as rotas. Apagar `.next/dev` antes de
+  subir resolve; o sinal certo é `/entrar` responder 200.
+
+---
+
 ## Pré-condições do merge
 
-1. A `014` aplicada na produção, conferida pelo ensaio a seco seguinte ("já aplicada").
+1. A `014` aplicada na produção, conferida pelo ensaio a seco seguinte ("já aplicada"). Feito em
+   30/09.
 2. `npm run verify` limpo e a suíte de integração verde no container.
 3. Nenhum `next dev` apontado para a produção durante o deploy do merge.
 4. PR com o porquê, revisado pelo dono.

@@ -3584,3 +3584,24 @@ o auditor.
   pré-condições do merge da spec. Sem rodapé de IA. Mostre o texto ao Eduardo antes de criar.
 - [ ] **Passo 4:** depois do merge, lembrar o Eduardo de recarregar a página por completo antes de
   usar (Skew Protection, achado 42).
+
+---
+
+## Depois do plano: o que a prova real mudou (01/10)
+
+A prova real (FASE 2.10) achou defeitos na revisão, e o código final de alguns arquivos não é mais o
+dos blocos acima. Os commits, em ordem, com o porquê em cada mensagem e o resumo na spec ("A
+revisão" e "O que a prova mediu"):
+
+- `8f0ae2c` e `f46ab8d`: campos controlados (`campo.tsx` e o novo `campo-do-envio.tsx`, achados 52
+  e 54). Tratavam o reinício do formulário, mas não bastavam.
+- `a721430`: o aviso na hora da falta da palavra (achado 53, `pedePalavra`).
+- `3a9a703`: o aviso na hora da palavra a mais, só na chamada (`soAPalavra`).
+- `e21050b`: o aviso do salvamento junto do botão (`aviso-do-formulario.tsx`).
+- `968b550`: o conserto que vale para o 52. O salvar da revisão responde como estado
+  (`useActionState`, `formulario-da-revisao.tsx`), sem redirect, porque todo redirect de Server
+  Action recria a página no Next 16.
+- `e66e199`: o mesmo para o envio da Etapa 1 (`formulario-do-envio.tsx`, `respostaDoEnvio`), o 54.
+
+Também mudam, em relação ao "Mapa dos arquivos": `app/bonus/actions.ts` (`enviarAoLabs` com estado)
+e `testes-integracao/bonus-acoes.integracao.ts` (a nova assinatura).
