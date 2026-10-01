@@ -339,6 +339,11 @@ async function rodarNoContexto<T>(
         else aoFechar.push(cb);
       },
       onAfterTaskError: undefined,
+      // A 16.3 lê `renderOpts.experimental.useCacheTimeout` sem `?.`
+      // (next/dist/server/async-storage/work-store.js): sem este objeto, toda
+      // requisição semeada cai com TypeError antes de o corpo rodar. Vazio, o
+      // `use cache` fica no padrão do Next, e este painel não usa `use cache`.
+      experimental: {},
     },
     isPrefetchRequest: false,
     buildId: "teste-integracao",
