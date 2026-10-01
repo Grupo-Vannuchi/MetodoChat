@@ -55,10 +55,21 @@ describe("sem sessão, nenhuma action do bônus age", () => {
     expect(n).toBe(0);
   });
 
-  it.each(["gerarDeNovo", "enviarAoLabs", "conferirNoLabs"] as const)("%s vai para /entrar", async (nome) => {
+  it.each(["gerarDeNovo", "conferirNoLabs"] as const)("%s vai para /entrar", async (nome) => {
     const destino = await destinoDe(
       acoes[nome],
       formulario({ id: "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f", existe: "sim" })
+    );
+    expect(destino).toBe("/entrar");
+  });
+
+  // O envio recebe o estado anterior do formulário (useActionState, achado 54).
+  it("enviarAoLabs vai para /entrar", async () => {
+    const destino = await destinoDe(
+      async (f) => {
+        await acoes.enviarAoLabs(null, f);
+      },
+      formulario({ id: "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f" })
     );
     expect(destino).toBe("/entrar");
   });

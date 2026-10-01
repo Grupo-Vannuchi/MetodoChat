@@ -8,14 +8,13 @@ import {
   btnSecondary,
   card,
   hint,
-  label,
   link,
   pageSubtitle,
   pageTitle,
   skeleton,
 } from "@/app/ui";
 import { avisoDaUrl } from "@/lib/avisos";
-import { LIMITES, type CampoRevisado, type Revisado } from "@/lib/bonus/contrato";
+import { LIMITES, type CampoRevisado } from "@/lib/bonus/contrato";
 import { ehTabelaAusente } from "@/lib/bonus/erros";
 import { urlPublicaDoBonus } from "@/lib/bonus/labs";
 import type { LinhaDoBonus } from "@/lib/bonus/linha";
@@ -33,7 +32,7 @@ import {
 } from "@/lib/bonus/textos";
 import { conferirNoLabs, enviarAoLabs, gerarDeNovo } from "../actions";
 import Acompanhar from "./acompanhar";
-import CampoDoEnvio from "./campo-do-envio";
+import FormularioDoEnvio from "./formulario-do-envio";
 import NoLabs from "./no-labs";
 
 // O teto de lib/bonus/tempos.ts (MAX_DURATION_S). O Next exige literal aqui, e
@@ -168,62 +167,17 @@ async function Pronto({ linha, agora }: { linha: LinhaDoBonus; agora: number }) 
         envio !== "conferir" &&
         envio !== "enviando" &&
         (valores ? (
-          <Formulario id={linha.id} valores={valores} congelado={corpoCongelado(linha)} temas={temas} />
+          <FormularioDoEnvio
+            acao={enviarAoLabs}
+            id={linha.id}
+            campos={CAMPOS.map((c) => ({ ...c, rotulo: ROTULO_DO_CAMPO[c.nome] }))}
+            valores={valores}
+            congelado={corpoCongelado(linha)}
+            temas={temas}
+          />
         ) : (
           <div className={alertError}>{TEXTO_SEM_VALORES}</div>
         ))}
     </>
-  );
-}
-
-function Formulario({
-  id,
-  valores,
-  congelado,
-  temas,
-}: {
-  id: string;
-  valores: Revisado;
-  congelado: boolean;
-  temas: string[];
-}) {
-  return (
-    <form action={enviarAoLabs} className={`${card} space-y-4 p-6`}>
-      <input type="hidden" name="id" value={id} />
-      {congelado && (
-        <p className={hint}>
-          Os campos estão travados: uma tentativa anterior pode ter chegado ao Labs, e o reenvio tem de levar o mesmo
-          conteúdo.
-        </p>
-      )}
-      {CAMPOS.map((c) => (
-        <div key={c.nome}>
-          <label htmlFor={c.nome} className={label}>
-            {ROTULO_DO_CAMPO[c.nome]}
-          </label>
-          <CampoDoEnvio
-            key={`${c.nome}:${valores[c.nome]}`}
-            nome={c.nome}
-            valorInicial={valores[c.nome]}
-            max={c.max}
-            linhas={c.linhas}
-            travado={congelado}
-            lista={c.nome === "tema" ? "temas-do-bonus" : undefined}
-          />
-          <p className={hint}>
-            {valores[c.nome].length} de {c.max} caracteres ao abrir a página.
-          </p>
-        </div>
-      ))}
-      <datalist id="temas-do-bonus">
-        {temas.map((t) => (
-          <option key={t} value={t} />
-        ))}
-      </datalist>
-      <p className={hint}>O bônus nasce oculto no Labs. O link só funciona depois que alguém o publicar no /admin de lá.</p>
-      <button type="submit" className={btnPrimary}>
-        {congelado ? "Enviar de novo, com o mesmo conteúdo" : "Enviar ao Labs"}
-      </button>
-    </form>
   );
 }

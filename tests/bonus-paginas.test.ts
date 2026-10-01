@@ -58,13 +58,35 @@ describe("nenhum campo de revisão do bônus volta a ser não controlado", () =>
   it.each([
     "app/bonus/[id]/page.tsx",
     "app/bonus/[id]/campo-do-envio.tsx",
+    "app/bonus/[id]/formulario-do-envio.tsx",
     "app/bonus/[id]/carrossel/[cid]/page.tsx",
     "app/bonus/[id]/carrossel/[cid]/campo.tsx",
+    "app/bonus/[id]/carrossel/[cid]/formulario-da-revisao.tsx",
   ])("%s não usa defaultValue", (arquivo) => {
     const semComentarios = ler(arquivo)
       .split("\n")
       .filter((l) => !l.trim().startsWith("//"))
       .join("\n");
     expect(semComentarios).not.toMatch(/defaultValue=/);
+  });
+});
+
+// O ENVIO AO LABS RESPONDE PELA REGRA DE `respostaDoEnvio` (achado 54, causa medida em 01/10 num
+// navegador de verdade): todo redirect de Server Action recria a página, e a recusa que não grava
+// nada tem de voltar como estado. Um redirect direto para a página do bônus, como era antes,
+// apagaria de novo a edição.
+describe("o envio ao Labs responde sem recriar a página na recusa", () => {
+  it("enviarAoLabs decide por respostaDoEnvio, e não redireciona direto com o aviso", () => {
+    const fonte = ler("app/bonus/actions.ts");
+    const inicio = fonte.indexOf("export async function enviarAoLabs(");
+    const fim = fonte.indexOf("\nexport ", inicio + 1);
+    const corpo = fonte.slice(inicio, fim === -1 ? undefined : fim);
+    expect(inicio).toBeGreaterThan(-1);
+    expect(corpo).toContain("respostaDoEnvio(");
+    expect(corpo).not.toMatch(/redirect\(urlDoBonusComAviso\(id,/);
+  });
+
+  it("a página entrega enviarAoLabs ao formulário do envio", () => {
+    expect(ler("app/bonus/[id]/page.tsx")).toContain("acao={enviarAoLabs}");
   });
 });
