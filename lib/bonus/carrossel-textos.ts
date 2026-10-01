@@ -78,6 +78,11 @@ export function textoDosProblemasDoCarrossel(total: number, problemas: { campo: 
   return `${problemas.map((p) => `${rotulos.get(p.campo) ?? p.campo}: ${p.erro}`).join(". ")}.`;
 }
 
+/** O aviso embaixo da chamada ou da legenda quando a palavra some (achado 53). */
+export function textoDaFaltaDaPalavra(palavra: string): string {
+  return `Falta a palavra ${palavra}: sem ela, quem comentar não recebe o bônus.`;
+}
+
 export function avisoDePalavraTrocada(noLabs: string, noCarrossel: string): string {
   return `No Labs, a palavra deste bônus agora é ${noLabs}, e este carrossel pede ${noCarrossel}. Gere outro carrossel para usar a palavra nova.`;
 }

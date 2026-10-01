@@ -141,6 +141,17 @@ describe("o texto gravado", () => {
 });
 
 describe("os campos do formulário", () => {
+  it("só a chamada e a legenda pedem a palavra, no carrossel e no post (achado 53)", () => {
+    for (const total of [1, 2, 5, 10]) {
+      expect(
+        camposDoFormulario(total)
+          .filter((c) => c.pedePalavra)
+          .map((c) => c.nome),
+        String(total)
+      ).toEqual(["chamada", "legenda"]);
+    }
+  });
+
   it("carrossel de 5: gancho, 3 slides com título e texto, chamada e legenda", () => {
     expect(camposDoFormulario(5).map((c) => c.nome)).toEqual([
       "gancho",

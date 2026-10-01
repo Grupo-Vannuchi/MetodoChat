@@ -126,7 +126,18 @@ export function conferirGerado(total: number, palavra: string, t: TextoDoCarross
   return null;
 }
 
-export type CampoDoCarrossel = { nome: string; rotulo: string; min: number; max: number; linhas: number };
+/**
+ * `pedePalavra`: o campo tem de pedir a palavra do bônus, e a tela avisa na hora quando ela some
+ * (achado 53). São a chamada e a legenda, as mesmas que `lerRevisaoDoCarrossel` confere.
+ */
+export type CampoDoCarrossel = {
+  nome: string;
+  rotulo: string;
+  min: number;
+  max: number;
+  linhas: number;
+  pedePalavra?: boolean;
+};
 
 /**
  * Os campos da tela, na ordem do post, com os tetos do formato (carrossel-schema.ts). É a fonte
@@ -136,8 +147,8 @@ export function camposDoFormulario(total: number): CampoDoCarrossel[] {
   if (total === 1) {
     return [
       { nome: "texto", rotulo: "Texto da imagem", min: 60, max: 300, linhas: 5 },
-      { nome: "chamada", rotulo: "Chamada", min: 20, max: 200, linhas: 3 },
-      { nome: "legenda", rotulo: "Legenda do post", min: 80, max: 900, linhas: 8 },
+      { nome: "chamada", rotulo: "Chamada", min: 20, max: 200, linhas: 3, pedePalavra: true },
+      { nome: "legenda", rotulo: "Legenda do post", min: 80, max: 900, linhas: 8, pedePalavra: true },
     ];
   }
   const slides = Array.from({ length: slidesDeConteudo(total) }, (_, i) => [
@@ -147,8 +158,8 @@ export function camposDoFormulario(total: number): CampoDoCarrossel[] {
   return [
     { nome: "gancho", rotulo: "Gancho (slide 1)", min: 15, max: 120, linhas: 2 },
     ...slides,
-    { nome: "chamada", rotulo: `Chamada (slide ${total})`, min: 20, max: 200, linhas: 3 },
-    { nome: "legenda", rotulo: "Legenda do post", min: 80, max: 900, linhas: 8 },
+    { nome: "chamada", rotulo: `Chamada (slide ${total})`, min: 20, max: 200, linhas: 3, pedePalavra: true },
+    { nome: "legenda", rotulo: "Legenda do post", min: 80, max: 900, linhas: 8, pedePalavra: true },
   ];
 }
 

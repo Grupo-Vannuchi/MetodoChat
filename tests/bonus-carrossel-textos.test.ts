@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   avisoDePalavraTrocada,
+  textoDaFaltaDaPalavra,
   quadroDaSituacao,
   textoDaConferencia,
   textoDaRecusaDoPedidoDeCarrossel,
@@ -61,5 +62,11 @@ describe("as frases do carrossel", () => {
     const t = avisoDePalavraTrocada("SUMIDO", "ZZTESTECHAT");
     expect(t).toContain("SUMIDO");
     expect(t).toContain("ZZTESTECHAT");
+  });
+
+  it("a falta da palavra no campo diz qual é e o que acontece sem ela (achado 53)", () => {
+    const t = textoDaFaltaDaPalavra("SUMIDO");
+    expect(t).toContain("palavra SUMIDO");
+    expect(t).toMatch(/não recebe o bônus/);
   });
 });

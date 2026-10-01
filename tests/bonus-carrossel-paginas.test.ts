@@ -15,6 +15,12 @@ describe("a página do carrossel", () => {
   it("acompanha a geração com o componente da Etapa 1, e não com um segundo", () => {
     expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain('import Acompanhar from "../../acompanhar";');
   });
+
+  it("entrega a palavra aos campos que a pedem, para o aviso na hora (achado 53)", () => {
+    expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain(
+      "palavra={c.pedePalavra ? carrossel.palavra : undefined}"
+    );
+  });
 });
 
 /** As funções exportadas de um arquivo e a primeira instrução de cada uma. */

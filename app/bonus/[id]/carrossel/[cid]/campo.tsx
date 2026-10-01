@@ -1,6 +1,8 @@
 "use client";
 import { useState } from "react";
-import { btnSecondary, hint, input, label } from "@/app/ui";
+import { btnSecondary, fieldError, hint, input, label } from "@/app/ui";
+import { temPalavra } from "@/lib/bonus/carrossel-texto";
+import { textoDaFaltaDaPalavra } from "@/lib/bonus/carrossel-textos";
 
 // UM CAMPO DO CARROSSEL: edita, conta e copia. O botão copia o que está NO CAMPO agora, e não o
 // que abriu na página: é esse texto que o operador leva para o Canva até a Etapa 3 existir.
@@ -12,18 +14,24 @@ import { btnSecondary, hint, input, label } from "@/app/ui";
 // elemento igual ao valor, e o reinício não apaga nada. O estado não vaza de um carrossel para
 // outro: o Next separa a página pelo valor do `[cid]` (e não pelos parâmetros da URL, então o
 // redirect com `?aviso=` mantém a edição).
+//
+// `palavra` só vem na chamada e na legenda (`pedePalavra` em carrossel-texto.ts): sem ela no
+// texto, o campo avisa NA HORA, e não só no "Salvar revisão", porque o "Copiar" leva o texto
+// como está (achado 53, decisão do Eduardo: copiar continua, com o aviso ao lado).
 export default function Campo({
   nome,
   rotulo,
   valorInicial,
   max,
   linhas,
+  palavra,
 }: {
   nome: string;
   rotulo: string;
   valorInicial: string;
   max: number;
   linhas: number;
+  palavra?: string;
 }) {
   const [texto, setTexto] = useState(valorInicial);
   const [copiado, setCopiado] = useState(false);
@@ -42,6 +50,7 @@ export default function Campo({
         onChange={(e) => setTexto(e.target.value)}
         className={input}
       />
+      {palavra && !temPalavra(texto, palavra) && <p className={fieldError}>{textoDaFaltaDaPalavra(palavra)}</p>}
       <div className="mt-1 flex items-center justify-between gap-3">
         <p className={hint}>
           {texto.length} de {max} caracteres

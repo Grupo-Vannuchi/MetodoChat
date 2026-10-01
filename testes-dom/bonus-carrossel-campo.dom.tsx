@@ -48,6 +48,50 @@ describe("o campo do carrossel", () => {
     expect(screen.getByText("17 de 200 caracteres")).toBeTruthy();
   });
 
+  // ACHADO 53 (01/10): o "Copiar" leva o texto como está, e a conferência da palavra só acontecia
+  // no "Salvar revisão". Decisão do Eduardo: copiar continua, mas o campo avisa NA HORA quando a
+  // palavra some da chamada ou da legenda.
+  it("avisa na hora quando a palavra some, e o copiar continua", async () => {
+    render(
+      <Campo
+        nome="chamada"
+        rotulo="Chamada (slide 3)"
+        valorInicial="Comente SUMIDO e receba."
+        max={200}
+        linhas={3}
+        palavra="SUMIDO"
+      />
+    );
+    expect(screen.queryByText(/Falta a palavra SUMIDO/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Chamada (slide 3)"), { target: { value: "Comente SUMIDOS e receba." } });
+    expect(screen.getByText(/Falta a palavra SUMIDO/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copiar" }));
+    });
+    expect(escrever).toHaveBeenCalledWith("Comente SUMIDOS e receba.");
+    fireEvent.change(screen.getByLabelText("Chamada (slide 3)"), { target: { value: "Comente SUMIDO, agora." } });
+    expect(screen.queryByText(/Falta a palavra SUMIDO/)).toBeNull();
+  });
+
+  it("abre já avisando quando o texto salvo está sem a palavra", () => {
+    render(
+      <Campo
+        nome="legenda"
+        rotulo="Legenda do post"
+        valorInicial="Uma legenda que esqueceu de pedir a palavra."
+        max={900}
+        linhas={8}
+        palavra="SUMIDO"
+      />
+    );
+    expect(screen.getByText(/Falta a palavra SUMIDO/)).toBeTruthy();
+  });
+
+  it("campo que não pede a palavra nunca avisa", () => {
+    render(<Campo nome="gancho" rotulo="Gancho (slide 1)" valorInicial="Sem palavra nenhuma." max={120} linhas={2} />);
+    expect(screen.queryByText(/Falta a palavra/)).toBeNull();
+  });
+
   it("a contagem acompanha o que se digita", () => {
     render(<Campo nome="chamada" rotulo="Chamada (slide 5)" valorInicial="" max={200} linhas={3} />);
     fireEvent.change(screen.getByLabelText("Chamada (slide 5)"), { target: { value: "abcdef" } });
