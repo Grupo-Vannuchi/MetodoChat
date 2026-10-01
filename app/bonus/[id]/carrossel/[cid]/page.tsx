@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { alertError, alertOk, alertWarn, btnPrimary, card, hint, link, pageSubtitle, pageTitle, skeleton } from "@/app/ui";
 import { gerarCarrosselDeNovo, salvarRevisaoDoCarrossel } from "@/app/bonus/carrossel-actions";
-import { avisoDaUrl, type Aviso } from "@/lib/avisos";
+import { avisoDaUrl } from "@/lib/avisos";
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
 import { lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
 import { descricaoDoCarrossel, textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
@@ -19,8 +19,7 @@ import { lerLinha } from "@/lib/bonus/repositorio";
 import { geracaoNaTela } from "@/lib/bonus/tempos";
 import { TEXTO_TRAVOU, type TomDoQuadro } from "@/lib/bonus/textos";
 import Acompanhar from "../../acompanhar";
-import AvisoDoFormulario from "./aviso-do-formulario";
-import Campo from "./campo";
+import FormularioDaRevisao from "./formulario-da-revisao";
 
 // O teto de lib/bonus/tempos.ts (MAX_DURATION_S). O Next exige literal aqui, e
 // tests/bonus-carrossel-paginas.test.ts confere que é o mesmo número. O "Gerar de novo" desta
@@ -109,7 +108,7 @@ export default async function PaginaDoCarrossel({
         </section>
       )}
 
-      {geracao === "pronto" && <Revisao carrossel={carrossel} aviso={aviso} agora={agora} />}
+      {geracao === "pronto" && <Revisao carrossel={carrossel} />}
     </div>
   );
 }
@@ -119,35 +118,17 @@ async function situacaoDoBonus(bonusId: string): Promise<SituacaoNoLabs> {
   return bonus?.slug ? situacaoNoLabs(process.env.LABS_URL, bonus.slug) : { tipo: "nao_publicado" };
 }
 
-function Revisao({ carrossel, aviso, agora }: { carrossel: LinhaDoCarrossel; aviso: Aviso | null; agora: number }) {
+function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
   const texto = textoDaLinhaDoCarrossel(carrossel);
   if (!texto) return <div className={alertError}>{TEXTO_CARROSSEL_SEM_TEXTO}</div>;
-  const valores = valoresPorCampo(texto);
 
   return (
-    <>
-      <form action={salvarRevisaoDoCarrossel} className={`${card} space-y-4 p-6`}>
-        <input type="hidden" name="id" value={carrossel.id} />
-        <p className={hint}>
-          A chamada pede a palavra <strong>{carrossel.palavra}</strong>. Ela vem do bônus e não se edita aqui.
-        </p>
-        {camposDoFormulario(carrossel.total_slides).map((c) => (
-          <Campo
-            key={c.nome}
-            nome={c.nome}
-            rotulo={c.rotulo}
-            valorInicial={valores[c.nome] ?? ""}
-            max={c.max}
-            linhas={c.linhas}
-            palavra={c.pedePalavra ? carrossel.palavra : undefined}
-            soAPalavra={c.soAPalavra}
-          />
-        ))}
-        {aviso && <AvisoDoFormulario key={agora} aviso={aviso} />}
-        <button type="submit" className={btnPrimary}>
-          Salvar revisão
-        </button>
-      </form>
-    </>
+    <FormularioDaRevisao
+      acao={salvarRevisaoDoCarrossel}
+      carrosselId={carrossel.id}
+      palavra={carrossel.palavra}
+      campos={camposDoFormulario(carrossel.total_slides)}
+      valores={valoresPorCampo(texto)}
+    />
   );
 }

@@ -6,6 +6,13 @@ import { camposDoFormulario, type FalhaDaConferencia } from "./carrossel-texto";
 import type { SituacaoNoLabs } from "./publicado";
 import type { TomDoQuadro } from "./textos";
 
+/**
+ * A resposta do "Salvar revisão", que volta como ESTADO do formulário e não por redirect (achado
+ * 52: todo redirect de Server Action recria a página no Next 16, e a edição na tela sumia).
+ * `em` muda a cada resposta, para o aviso aparecer de novo mesmo com a mesma mensagem.
+ */
+export type AvisoDaRevisao = Aviso & { em: number };
+
 /** O aviso vai pela URL com texto E tom: `avisoDaUrl` lê os dois, e sem tom tudo vira erro. */
 export function urlDoCarrosselComAviso(bonusId: string, carrosselId: string, aviso: Aviso): string {
   return `/bonus/${bonusId}/carrossel/${carrosselId}?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;

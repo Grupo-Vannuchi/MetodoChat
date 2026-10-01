@@ -20,6 +20,7 @@ import {
   textoDoTetoDoCarrossel,
   textoDosProblemasDoCarrossel,
   urlDoCarrosselComAviso,
+  type AvisoDaRevisao,
 } from "@/lib/bonus/carrossel-textos";
 import { temChaveDaIA } from "@/lib/bonus/config";
 import { ehIdDeBonus } from "@/lib/bonus/pedido";
@@ -115,34 +116,32 @@ export async function gerarCarrosselDeNovo(form: FormData): Promise<void> {
   redirect(`/bonus/${linha.bonus_id}/carrossel/${novo}`);
 }
 
-export async function salvarRevisaoDoCarrossel(form: FormData): Promise<void> {
+/**
+ * A RESPOSTA VOLTA COMO ESTADO DO FORMULÁRIO (useActionState), E NUNCA POR REDIRECT PARA A
+ * PRÓPRIA PÁGINA (achado 52, medido em 01/10 num navegador de verdade): todo redirect de Server
+ * Action recria a página no Next 16, e o que o operador tinha digitado voltava ao texto com que a
+ * página abriu. Numa recusa, a edição sumia, e o clique seguinte gravava o texto velho. Só a
+ * sessão e o carrossel inexistente saem por redirect, para outra página.
+ */
+export async function salvarRevisaoDoCarrossel(
+  _anterior: AvisoDaRevisao | null,
+  form: FormData
+): Promise<AvisoDaRevisao | null> {
   await exigirSessao();
   const id = form.get("id");
   if (!ehIdDeBonus(id)) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
   const linha = await lerCarrossel(id);
   if (!linha) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
+  const resposta = (tom: AvisoDaRevisao["tom"], texto: string): AvisoDaRevisao => ({ tom, texto, em: Date.now() });
   const atual = textoDaLinhaDoCarrossel(linha);
-  if (linha.estado !== "pronto" || !atual) {
-    redirect(urlDoCarrosselComAviso(linha.bonus_id, id, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_REVISAVEL }));
-  }
+  if (linha.estado !== "pronto" || !atual) return resposta("erro", TEXTO_CARROSSEL_NAO_REVISAVEL);
   const bruto: Record<string, unknown> = Object.fromEntries(
     camposDoFormulario(linha.total_slides).map((c) => [c.nome, form.get(c.nome)])
   );
   const lido = lerRevisaoDoCarrossel(linha.total_slides, linha.palavra, atual.titulo, bruto);
   if (!lido.ok) {
-    redirect(
-      urlDoCarrosselComAviso(linha.bonus_id, id, {
-        tom: "erro",
-        texto: `Corrija antes de salvar. ${textoDosProblemasDoCarrossel(linha.total_slides, lido.problemas)}`,
-      })
-    );
+    return resposta("erro", `Corrija antes de salvar. ${textoDosProblemasDoCarrossel(linha.total_slides, lido.problemas)}`);
   }
   const salvou = await gravarRevisao(id, lido.texto);
-  redirect(
-    urlDoCarrosselComAviso(
-      linha.bonus_id,
-      id,
-      salvou ? { tom: "ok", texto: TEXTO_REVISAO_SALVA } : { tom: "erro", texto: TEXTO_CARROSSEL_NAO_REVISAVEL }
-    )
-  );
+  return salvou ? resposta("ok", TEXTO_REVISAO_SALVA) : resposta("erro", TEXTO_CARROSSEL_NAO_REVISAVEL);
 }

@@ -16,24 +16,24 @@ describe("a página do carrossel", () => {
     expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain('import Acompanhar from "../../acompanhar";');
   });
 
-  it("entrega a palavra aos campos que a pedem, para o aviso na hora (achado 53)", () => {
-    expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain(
-      "palavra={c.pedePalavra ? carrossel.palavra : undefined}"
-    );
+  it("entrega a action de salvar ao formulário da revisão, que mostra a resposta junto do botão", () => {
+    expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain("acao={salvarRevisaoDoCarrossel}");
   });
+});
 
-  it("diz à chamada que ela recusa outra palavra", () => {
-    expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain("soAPalavra={c.soAPalavra}");
-  });
-
-  it("mostra o resultado do salvamento logo acima do botão, renovado a cada resposta do servidor", () => {
-    const pagina = ler("app/bonus/[id]/carrossel/[cid]/page.tsx");
-    // `key={agora}`: o relógio de cada desenho do servidor. Um salvamento novo com a MESMA
-    // mensagem do anterior ("Revisão salva." duas vezes) ainda remonta o aviso escondido.
-    const aviso = pagina.indexOf("<AvisoDoFormulario key={agora} aviso={aviso} />");
-    const botao = pagina.indexOf("Salvar revisão");
-    expect(aviso).toBeGreaterThan(-1);
-    expect(aviso).toBeLessThan(botao);
+// O "SALVAR REVISÃO" NÃO REDIRECIONA (achado 52, causa medida em 01/10 num navegador de verdade):
+// todo redirect de Server Action recria a página no Next 16, e o que o operador tinha digitado
+// voltava ao texto com que a página abriu. A recusa e o "Revisão salva." voltam como estado do
+// formulário. Só a sessão e o carrossel inexistente saem por redirect, para OUTRA página.
+describe("o salvar da revisão responde sem recriar a página", () => {
+  it("salvarRevisaoDoCarrossel não redireciona para a página do carrossel", () => {
+    const fonte = ler("app/bonus/carrossel-actions.ts");
+    const inicio = fonte.indexOf("export async function salvarRevisaoDoCarrossel(");
+    const fim = fonte.indexOf("\nexport ", inicio + 1);
+    const corpo = fonte.slice(inicio, fim === -1 ? undefined : fim);
+    expect(inicio).toBeGreaterThan(-1);
+    expect(corpo).not.toMatch(/urlDoCarrosselComAviso\(/);
+    expect(corpo).not.toMatch(/redirect\(`\/bonus\/\$\{/);
   });
 });
 
