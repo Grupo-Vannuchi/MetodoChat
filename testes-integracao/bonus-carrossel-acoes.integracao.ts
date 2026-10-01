@@ -38,12 +38,15 @@ function formulario(campos: Record<string, string>): FormData {
 }
 
 describe("sem sessão, nenhuma action do carrossel age", () => {
+  // O pedido recebe o estado anterior do formulário (useActionState), como o salvar da revisão.
   it("pedirCarrossel vai para /entrar e não insere nada, mesmo com pedido válido e chave de IA", async () => {
     const antes = process.env.ANTHROPIC_API_KEY;
     process.env.ANTHROPIC_API_KEY = "chave-inventada-para-o-teste";
     try {
       const destino = await destinoDe(
-        acoes.pedirCarrossel,
+        async (f) => {
+          await acoes.pedirCarrossel(null, f);
+        },
         formulario({ bonus_id: "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f", total: "10" })
       );
       expect(destino).toBe("/entrar");

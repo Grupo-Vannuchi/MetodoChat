@@ -59,6 +59,8 @@ describe("nenhum campo de revisão do bônus volta a ser não controlado", () =>
     "app/bonus/page.tsx",
     "app/bonus/formulario-do-pedido.tsx",
     "app/bonus/[id]/page.tsx",
+    "app/bonus/[id]/no-labs.tsx",
+    "app/bonus/[id]/pedido-de-carrossel.tsx",
     "app/bonus/[id]/campo-do-envio.tsx",
     "app/bonus/[id]/formulario-do-envio.tsx",
     "app/bonus/[id]/carrossel/[cid]/page.tsx",

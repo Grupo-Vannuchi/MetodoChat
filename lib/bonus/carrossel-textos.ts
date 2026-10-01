@@ -13,6 +13,9 @@ import type { TomDoQuadro } from "./textos";
  */
 export type AvisoDaRevisao = Aviso & { em: number };
 
+/** A recusa do "Gerar carrossel", que também volta como estado do formulário. */
+export type AvisoDoPedidoDeCarrossel = Aviso & { em: number };
+
 /** O aviso vai pela URL com texto E tom: `avisoDaUrl` lê os dois, e sem tom tudo vira erro. */
 export function urlDoCarrosselComAviso(bonusId: string, carrosselId: string, aviso: Aviso): string {
   return `/bonus/${bonusId}/carrossel/${carrosselId}?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;

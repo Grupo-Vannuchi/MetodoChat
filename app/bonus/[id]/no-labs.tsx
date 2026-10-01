@@ -8,24 +8,14 @@ import {
   badgeNeutral,
   badgeOk,
   badgeWarn,
-  btnPrimary,
   card,
-  hint,
-  input,
-  label,
   muted,
   rowDivide,
   rowHover,
 } from "@/app/ui";
 import { pedirCarrossel } from "@/app/bonus/carrossel-actions";
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
-import {
-  SLIDES_MAX,
-  SLIDES_MIN,
-  SLIDES_PADRAO,
-  TETO_CARROSSEL_DIARIO,
-  restamCarrosseisHoje,
-} from "@/lib/bonus/carrossel-pedido";
+import { restamCarrosseisHoje } from "@/lib/bonus/carrossel-pedido";
 import { carrosseisNasUltimas24h, listarCarrosseisDoBonus } from "@/lib/bonus/carrossel-repositorio";
 import { descricaoDoCarrossel, rotuloDoCarrossel, textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
 import { TEXTO_TABELA_CARROSSEL_AUSENTE, quadroDaSituacao } from "@/lib/bonus/carrossel-textos";
@@ -35,6 +25,7 @@ import { situacaoNoLabs, type SituacaoNoLabs } from "@/lib/bonus/publicado";
 import type { TipoDoRotulo } from "@/lib/bonus/tela";
 import type { TomDoQuadro } from "@/lib/bonus/textos";
 import { fmtDate } from "@/lib/format";
+import PedidoDeCarrossel from "./pedido-de-carrossel";
 
 // O BÔNUS DEPOIS DE CRIADO NO LABS: a situação lida de lá, o link e os carrosséis.
 //
@@ -116,27 +107,7 @@ export default async function NoLabs({
             })}
           </ul>
         )}
-        <form action={pedirCarrossel} className="space-y-3 border-t border-traco p-4 dark:border-traco-escuro">
-          <input type="hidden" name="bonus_id" value={linha.id} />
-          <div>
-            <label htmlFor="total" className={label}>
-              Quantos slides?
-            </label>
-            <select id="total" name="total" defaultValue={String(SLIDES_PADRAO)} className={input}>
-              {Array.from({ length: SLIDES_MAX - SLIDES_MIN + 1 }, (_, i) => SLIDES_MIN + i).map((n) => (
-                <option key={n} value={n}>
-                  {n === 1 ? "1 (post de imagem única)" : `${n} slides`}
-                </option>
-              ))}
-            </select>
-          </div>
-          <p className={hint}>
-            Restam {restam} de {TETO_CARROSSEL_DIARIO} gerações de carrossel nas últimas 24 horas.
-          </p>
-          <button type="submit" className={btnPrimary} disabled={!publicado || restam === 0}>
-            Gerar carrossel
-          </button>
-        </form>
+        <PedidoDeCarrossel acao={pedirCarrossel} bonusId={linha.id} publicado={publicado} restam={restam} />
       </section>
     </>
   );

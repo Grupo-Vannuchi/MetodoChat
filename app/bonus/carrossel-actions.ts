@@ -21,6 +21,7 @@ import {
   textoDosProblemasDoCarrossel,
   urlDoCarrosselComAviso,
   type AvisoDaRevisao,
+  type AvisoDoPedidoDeCarrossel,
 } from "@/lib/bonus/carrossel-textos";
 import { temChaveDaIA } from "@/lib/bonus/config";
 import { ehIdDeBonus } from "@/lib/bonus/pedido";
@@ -64,26 +65,32 @@ async function bonusParaCarrossel(
   };
 }
 
-export async function pedirCarrossel(form: FormData): Promise<void> {
+/**
+ * A recusa volta como ESTADO do formulário (useActionState), e não por redirect, pelo mesmo motivo
+ * do salvar da revisão (achado 52): todo redirect de Server Action recria a página no Next 16, e o
+ * "Quantos slides?" voltava para 10. As recusas não gravam nada. Saem por redirect só o id de bônus
+ * inválido, para a lista, e o pedido criado, para a página do carrossel novo.
+ */
+export async function pedirCarrossel(
+  _anterior: AvisoDoPedidoDeCarrossel | null,
+  form: FormData
+): Promise<AvisoDoPedidoDeCarrossel | null> {
   await exigirSessao();
   const bonusId = form.get("bonus_id");
   if (!ehIdDeBonus(bonusId)) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_BONUS_NAO_ENCONTRADO }));
+  const recusa = (texto: string): AvisoDoPedidoDeCarrossel => ({ tom: "erro", texto, em: Date.now() });
   const lido = lerPedidoDeCarrossel({ bonusId, total: form.get("total") });
-  if (!lido.ok) {
-    redirect(urlDoBonusComAviso(bonusId, { tom: "erro", texto: textoDaRecusaDoPedidoDeCarrossel(lido.motivo) }));
-  }
-  if (!temChaveDaIA(process.env)) {
-    redirect(urlDoBonusComAviso(bonusId, { tom: "erro", texto: textoDaConfig("sem_chave_ia") }));
-  }
+  if (!lido.ok) return recusa(textoDaRecusaDoPedidoDeCarrossel(lido.motivo));
+  if (!temChaveDaIA(process.env)) return recusa(textoDaConfig("sem_chave_ia"));
   const bonus = await bonusParaCarrossel(bonusId);
-  if (!bonus.ok) redirect(urlDoBonusComAviso(bonusId, { tom: "erro", texto: bonus.texto }));
+  if (!bonus.ok) return recusa(bonus.texto);
   const criado = await criarPedidoDeCarrossel({
     bonusId,
     total: lido.pedido.total,
     palavra: bonus.palavra,
     contexto: bonus.contexto,
   });
-  if (!criado.ok) redirect(urlDoBonusComAviso(bonusId, { tom: "erro", texto: textoDoTetoDoCarrossel() }));
+  if (!criado.ok) return recusa(textoDoTetoDoCarrossel());
   const id = criado.id;
   after(() => processarCarrossel(id));
   redirect(`/bonus/${bonusId}/carrossel/${id}`);
