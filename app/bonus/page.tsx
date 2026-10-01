@@ -8,12 +8,9 @@ import {
   badgeNeutral,
   badgeOk,
   badgeWarn,
-  btnPrimary,
   card,
   emptyWrap,
   hint,
-  input,
-  label,
   muted,
   pageSubtitle,
   pageTitle,
@@ -22,12 +19,13 @@ import {
 } from "@/app/ui";
 import { ehTabelaAusente } from "@/lib/bonus/erros";
 import type { LinhaDoBonus } from "@/lib/bonus/linha";
-import { O_QUE_RESOLVE_MAX, O_QUE_RESOLVE_MIN, PALAVRA_MAX, TEMA_MAX, TETO_DIARIO, restamHoje } from "@/lib/bonus/pedido";
+import { TETO_DIARIO, restamHoje } from "@/lib/bonus/pedido";
 import { listarRecentes, usadasNasUltimas24h } from "@/lib/bonus/repositorio";
 import { rotuloDaLinha, tituloDaLinha, type TipoDoRotulo } from "@/lib/bonus/tela";
 import { temasSugeridos } from "@/lib/bonus/temas";
 import { TEXTO_TABELA_AUSENTE } from "@/lib/bonus/textos";
 import { pedirBonus } from "./actions";
+import FormularioDoPedido from "./formulario-do-pedido";
 
 // O teto de lib/bonus/tempos.ts (MAX_DURATION_S). O Next exige literal aqui, e
 // tests/bonus-paginas.test.ts confere que é o mesmo número.
@@ -84,46 +82,7 @@ export default async function Bonus({
         <p className={hint}>
           Restam {restam} de {TETO_DIARIO} gerações nas últimas 24 horas.
         </p>
-        <form action={pedirBonus} className="mt-4 space-y-4">
-          <div>
-            <label htmlFor="tema" className={label}>
-              Tema
-            </label>
-            <input id="tema" name="tema" required maxLength={TEMA_MAX} list="temas-do-labs" className={input} />
-            <datalist id="temas-do-labs">
-              {temas.map((t) => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
-            <p className={hint}>Tem de existir no catálogo do Labs. As sugestões vêm de lá.</p>
-          </div>
-          <div>
-            <label htmlFor="o_que_resolve" className={label}>
-              O que o bônus resolve
-            </label>
-            <textarea
-              id="o_que_resolve"
-              name="o_que_resolve"
-              required
-              minLength={O_QUE_RESOLVE_MIN}
-              maxLength={O_QUE_RESOLVE_MAX}
-              rows={4}
-              className={input}
-            />
-          </div>
-          <div>
-            <label htmlFor="palavra" className={label}>
-              Palavra-chave (opcional)
-            </label>
-            <input id="palavra" name="palavra" maxLength={PALAVRA_MAX} className={input} />
-            <p className={hint}>
-              A que a pessoa comenta no post. Se ficar em branco, a IA sugere uma e você confere antes de enviar.
-            </p>
-          </div>
-          <button type="submit" className={btnPrimary} disabled={restam === 0}>
-            Gerar bônus
-          </button>
-        </form>
+        <FormularioDoPedido acao={pedirBonus} temas={temas} restam={restam} />
       </section>
 
       <section className={card}>

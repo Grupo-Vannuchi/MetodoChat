@@ -91,6 +91,9 @@ export function textoDosProblemas(problemas: { campo: string; erro: string }[]):
  */
 export type AvisoDoEnvio = Aviso & { em: number };
 
+/** A recusa do "Gerar bônus", que também volta como estado do formulário. */
+export type AvisoDoPedido = Aviso & { em: number };
+
 export type RespostaDoEnvio = { tipo: "estado"; aviso: Aviso } | { tipo: "redirect"; url: string };
 
 /**
