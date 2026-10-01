@@ -23,7 +23,9 @@ export default function FormularioDoPedido({
   temas: string[];
   restam: number;
 }) {
-  const [resposta, enviar] = useActionState(acao, null);
+  // `pendente` desliga o botão enquanto o pedido roda: um clique duplo criaria dois pedidos e
+  // gastaria duas gerações do dia (decisão do Eduardo, 01/10, achado 64 do auditor).
+  const [resposta, enviar, pendente] = useActionState(acao, null);
   const [tema, setTema] = useState("");
   const [oQueResolve, setOQueResolve] = useState("");
   const [palavra, setPalavra] = useState("");
@@ -84,7 +86,7 @@ export default function FormularioDoPedido({
         </p>
       </div>
       {resposta && <AvisoDoFormulario key={resposta.em} aviso={resposta} />}
-      <button type="submit" className={btnPrimary} disabled={restam === 0}>
+      <button type="submit" className={btnPrimary} disabled={restam === 0 || pendente}>
         Gerar bônus
       </button>
     </form>

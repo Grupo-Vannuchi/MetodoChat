@@ -33,7 +33,9 @@ export default function PedidoDeCarrossel({
   publicado: boolean;
   restam: number;
 }) {
-  const [resposta, enviar] = useActionState(acao, null);
+  // `pendente` desliga o botão enquanto o pedido roda: um clique duplo criaria dois carrosséis e
+  // gastaria duas gerações do dia (decisão do Eduardo, 01/10, achado 64 do auditor).
+  const [resposta, enviar, pendente] = useActionState(acao, null);
   const [, iniciar] = useTransition();
   const [total, setTotal] = useState(String(SLIDES_PADRAO));
 
@@ -63,7 +65,7 @@ export default function PedidoDeCarrossel({
         Restam {restam} de {TETO_CARROSSEL_DIARIO} gerações de carrossel nas últimas 24 horas.
       </p>
       {resposta && <AvisoDoFormulario key={resposta.em} aviso={resposta} />}
-      <button type="submit" className={btnPrimary} disabled={!publicado || restam === 0}>
+      <button type="submit" className={btnPrimary} disabled={!publicado || restam === 0 || pendente}>
         Gerar carrossel
       </button>
     </form>

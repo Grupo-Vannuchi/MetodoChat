@@ -86,4 +86,27 @@ describe("o formulário do pedido de bônus", () => {
     renderizar([], 0);
     expect((screen.getByRole("button", { name: "Gerar bônus" }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  // O CLIQUE DUPLO criaria dois pedidos e gastaria duas gerações do dia (decisão do Eduardo, 01/10,
+  // achado 64 do auditor): enquanto o pedido roda, o botão fica desligado.
+  it("enquanto o pedido roda, o botão fica desligado e um segundo clique não pede de novo", async () => {
+    const recebidos: FormData[] = [];
+    let terminar: (a: AvisoDoPedido) => void = () => {};
+    const acao = (_anterior: AvisoDoPedido | null, f: FormData) => {
+      recebidos.push(f);
+      return new Promise<AvisoDoPedido>((r) => (terminar = r));
+    };
+    render(<FormularioDoPedido acao={acao} temas={[]} restam={5} />);
+    digitar("Tema", "Vendas");
+    digitar("O que o bônus resolve", "Reativar clientes que sumiram há meses pelo WhatsApp");
+    const botao = screen.getByRole("button", { name: "Gerar bônus" }) as HTMLButtonElement;
+    await gerar();
+    expect(botao.disabled).toBe(true);
+    await gerar();
+    expect(recebidos).toHaveLength(1);
+    await act(async () => {
+      terminar({ tom: "erro", texto: "O limite de hoje acabou.", em: 1 });
+    });
+    expect(botao.disabled).toBe(false);
+  });
 });

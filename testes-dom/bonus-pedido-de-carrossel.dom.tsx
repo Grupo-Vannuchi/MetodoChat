@@ -68,4 +68,25 @@ describe("o pedido de carrossel", () => {
     renderizar([], { publicado, restam });
     expect((screen.getByRole("button", { name: "Gerar carrossel" }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  // O CLIQUE DUPLO criaria dois carrosséis e gastaria duas gerações do dia (decisão do Eduardo,
+  // 01/10, achado 64 do auditor): enquanto o pedido roda, o botão fica desligado.
+  it("enquanto o pedido roda, o botão fica desligado e um segundo clique não pede de novo", async () => {
+    const recebidos: FormData[] = [];
+    let terminar: (a: AvisoDoPedidoDeCarrossel) => void = () => {};
+    const acao = (_anterior: AvisoDoPedidoDeCarrossel | null, f: FormData) => {
+      recebidos.push(f);
+      return new Promise<AvisoDoPedidoDeCarrossel>((r) => (terminar = r));
+    };
+    render(<PedidoDeCarrossel acao={acao} bonusId={BONUS} publicado restam={10} />);
+    const botao = screen.getByRole("button", { name: "Gerar carrossel" }) as HTMLButtonElement;
+    await gerar();
+    expect(botao.disabled).toBe(true);
+    await gerar();
+    expect(recebidos).toHaveLength(1);
+    await act(async () => {
+      terminar({ tom: "erro", texto: "O limite de hoje acabou.", em: 1 });
+    });
+    expect(botao.disabled).toBe(false);
+  });
 });
