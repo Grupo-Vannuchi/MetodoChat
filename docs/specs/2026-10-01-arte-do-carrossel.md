@@ -54,6 +54,24 @@ ganha uma mensagem própria (ver "Primeiro: o achado 57").
   último slide do carrossel, o cabeçalho desce para o pé; no post de uma imagem, fica no topo.
 - A Carlito é buscada no Google Fonts na hora de desenhar, com cache de processo.
 - Os PNGs não são guardados. O download é um PNG por slide; não há "baixar todos" nem zip.
+- **Onde as regras da arte estão escritas.** A spec do Labs de 26/08
+  (`docs/superpowers/specs/2026-08-26-carrossel-instagram-design.md`) ficou para trás: 56 commits
+  tocaram `src/app/admin/carrossel/` e `src/lib/ia/` na `main` desde a última correção dela
+  (`0fc4a72`, 31/08). A fonte são os comentários do código e o `docs/ROADMAP.md`, nas Etapas 22,
+  38, 39 e 42. Quem avisou foi o DEV do Labs (site-ia-cb, 01/10), e eu conferi no repositório. O
+  manual de arte de 02/09 não é arquivo do Labs: é um documento externo do Eduardo, e as regras
+  dele foram para o código.
+- O ROADMAP lista o que **não se mexe** na arte, cada item com um defeito datado atrás. Dois deles
+  importam aqui: o layout 1080×1350 e a estrutura interna do `<figure>` (quatro defeitos já
+  consertados). Um terceiro é a medição das quebras de linha: o Satori desenha o `\n` com
+  `white-space: pre-wrap`, mas não o conta na altura do bloco, e o texto seguinte subia por cima
+  (Etapa 38.1).
+- A prévia do Labs troca de imagem por três parâmetros de versão na URL: `v` quando muda a imagem,
+  `b` quando muda o código que desenha (o commit do build, Etapa 39.3) e `f` quando muda a foto
+  (Etapa 42.0). Sem o `b`, quem estava com a tela aberta continuava vendo a arte antiga depois de
+  um deploy, com o servidor já consertado.
+- No Labs, a escolha "só texto" **não é gravada** (Etapa 22.6): lá ela é composição, revista a cada
+  montagem, e a presença da ilustração já quase sempre a responde.
 
 **No Chat:**
 
@@ -145,6 +163,10 @@ arte:
 - `soTexto`: a lista dos números de slide marcados como "só texto". Os outros saem "com espaço",
   que é o padrão, como no Labs.
 
+Gravar o "só texto" é diferente do Labs, e de propósito. No Chat ainda não há ilustração para
+responder a escolha, e a Etapa 2 ensinou que o que fica só na tela se perde quando a página é
+recriada. Gravado, o PNG baixado amanhã sai igual à prévia de hoje.
+
 Um carrossel novo nasce com `conta` igual à conta selecionada no Chat na hora do pedido. Gravar na
 primeira visita, como se pensou no desenho, seria uma escrita dentro de um GET; gravar no pedido
 aproveita a escrita que já existe. Os carrosséis que já existem têm `arte` vazia: até o operador
@@ -170,8 +192,12 @@ Cabeçalhos:
   para baixar, e `inline` para a prévia.
 
 A prévia usa um parâmetro de versão na URL, para o navegador pedir de novo quando algo mudar. Ele
-leva **tudo** o que muda a imagem: a data do texto (`revisado_em` ou `gerado_em`), a coluna `arte` e
-o nome, o @ e a foto da conta.
+leva **tudo** o que muda a imagem: a data do texto (`revisado_em` ou `gerado_em`), a coluna `arte`,
+o nome, o @ e a foto da conta, e o commit do deploy (`VERCEL_GIT_COMMIT_SHA`), que muda quando muda
+o código que desenha. A rota ignora esse parâmetro: ele existe só para mudar a chave do cache. O
+commit vem das variáveis de sistema da Vercel, que já estão expostas neste projeto (o
+`scripts/migrar.mjs` exige `VERCEL_ENV` em todo deploy). Na máquina local ele não existe, e vale um
+valor fixo.
 
 ### Os slides
 
@@ -186,6 +212,9 @@ mudança se avisa nos dois sentidos, como nas instruções da Etapa 2):
   2. "só texto" usa a geometria e os degraus do Labs para slide sem ilustração;
   3. sem tema escuro e sem selo;
   4. o cabeçalho vem da conta do carrossel.
+
+  Fora essas quatro, o desenho vem como está: a estrutura do `<figure>` e a medição das quebras de
+  linha entram sem "melhoria", porque cada uma fecha um defeito que já aconteceu no Labs.
 
 A lista de slides segue a do Labs: o carrossel vira gancho, os slides de conteúdo e a chamada no
 último (com o cabeçalho no pé). O post de uma imagem vira um slide com a chamada no fim do texto,
