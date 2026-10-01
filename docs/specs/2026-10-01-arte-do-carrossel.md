@@ -2,8 +2,8 @@
 
 **Nascido em:** 01/10/2026, desenhado com o Eduardo pela caixa de perguntas, com a sessão auditora
 levantando os riscos antes da spec.
-**Estado:** desenho aprovado ("Está certo, pode escrever"). Depende de dois PRs antes dela: o #3
-(Etapa 2, o texto do carrossel) e o da atualização do Next (abaixo).
+**Estado:** desenho aprovado ("Está certo, pode escrever"). O PR #3 (Etapa 2, o texto do
+carrossel) foi mergeado em 01/10 (`90dff55`); falta o PR da atualização do Next (abaixo).
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta
 própria e o mínimo de toque no que já existe.
 **Etapas anteriores:** `docs/specs/2026-09-29-gerador-de-bonus.md` e
@@ -20,7 +20,8 @@ quando o texto não cabe. O operador baixa os slides, um a um ou todos, e leva a
 imagens. Nenhuma imagem é guardada: cada slide é desenhado na hora, a partir do texto salvo.
 
 Antes da arte, a etapa abre com o achado 57: o bônus publicado no Labs sem palavra-chave ou sem tema
-ganha uma mensagem própria (ver "Primeiro: o achado 57").
+ganha uma mensagem própria, e o mesmo vale para a palavra fora do padrão do Chat (ver "Primeiro: os
+achados 57 e 58").
 
 ---
 
@@ -29,7 +30,7 @@ ganha uma mensagem própria (ver "Primeiro: o achado 57").
 | ordem | o quê |
 |---|---|
 | antes | atualizar o Next do Chat para 16.3.7, num PR próprio (ver "O pré-requisito") |
-| **3** | **esta spec**: primeiro o achado 57; depois a arte, a prévia, o "não cabe", e baixar |
+| **3** | **esta spec**: primeiro os achados 57 e 58; depois a arte, a prévia, o "não cabe", e baixar |
 | depois | o gerador de imagem pela API da OpenAI, que preenche o espaço reservado (etapa própria) |
 | depois | publicar o carrossel, com o "devolver" das imagens editadas no Canva |
 | depois | o carrossel avulso: sem bônus, nada ligado ao Labs |
@@ -104,6 +105,8 @@ ganha uma mensagem própria (ver "Primeiro: o achado 57").
 | O gerador de imagem pela API da OpenAI é uma etapa própria, logo depois desta | Eduardo, 01/10 |
 | Sem selo de verificado e sem tema escuro nesta etapa (o pedido é a capa branca) | Eduardo, no desenho aprovado em 01/10 |
 | O achado 57 é a primeira coisa da etapa seguinte à Etapa 2, que é esta | Eduardo, 01/10 ("Na próxima etapa") |
+| Achado 58: a palavra fora do padrão do Chat ganha aviso próprio, e o tema do Labs é aceito até 120 | Eduardo, 01/10 ("Avisar e aceitar o tema") |
+| Achado 61: conta gravada e desconectada cai na conta selecionada, com aviso na tela | Eduardo, 01/10 ("A conta selecionada") |
 
 ---
 
@@ -124,7 +127,7 @@ O que o PR prova:
 
 ---
 
-## Primeiro: o achado 57
+## Primeiro: os achados 57 e 58
 
 Hoje, um bônus que está na lista pública do Labs sem `palavraChave` ou sem `tema` cai em
 `formato_estranho` (`lib/bonus/publicado.ts`, `situacaoNaLista`), e a tela diz "O Labs respondeu
@@ -140,8 +143,23 @@ O conserto:
   - "Este bônus está publicado no Labs sem palavra-chave. Cadastre uma no /admin do Labs para gerar
     carrossel."
   - "Este bônus está publicado no Labs sem tema. Cadastre um no /admin do Labs para gerar carrossel."
-- Nada muda no que é liberado: só `publicado` gera carrossel. Uma palavra presente que o Chat não
-  aceita (`palavraValida`), e qualquer outra forma fora do contrato, seguem em `formato_estranho`.
+- Nada muda no que é liberado: só `publicado` gera carrossel.
+
+Dois valores que o Labs aceita também caíam em `formato_estranho` (achado 58, decidido pelo
+Eduardo em 01/10: "Avisar e aceitar o tema"):
+
+- **A palavra fora do padrão do Chat.** O Labs aceita palavra de até 80 caracteres, com espaço ou
+  hífen (`src/lib/bonus-escrita.ts`; a `palavraCanonica` só tira acento e põe maiúscula). O Chat
+  só aceita letras e números, de 3 a 30 (`palavraValida`), porque a conferência da chamada depende
+  disso. Uma palavra presente que o Chat recusa vira `palavra_fora_do_padrao`, com a palavra, e a
+  frase diz qual é e o que fazer: "A palavra-chave deste bônus no Labs é X, e o Chat só aceita
+  letras e números, sem espaço, de 3 a 30. Troque no /admin do Labs para gerar carrossel." A
+  palavra sai na tela como texto.
+- **O tema de 81 a 120 caracteres.** O Labs aceita até 120, e o Chat lia com o `TEMA_MAX` de 80,
+  que é o teto do pedido de bônus do Chat. Na leitura da lista, o tema passa a aceitar até 120, o
+  teto do Labs: no carrossel ele só vai como contexto na mensagem à IA.
+
+Qualquer outra forma fora do contrato segue em `formato_estranho`.
 
 ---
 
@@ -170,8 +188,13 @@ recriada. Gravado, o PNG baixado amanhã sai igual à prévia de hoje.
 Um carrossel novo nasce com `conta` igual à conta selecionada no Chat na hora do pedido. Gravar na
 primeira visita, como se pensou no desenho, seria uma escrita dentro de um GET; gravar no pedido
 aproveita a escrita que já existe. Os carrosséis que já existem têm `arte` vazia: até o operador
-escolher, a arte usa a conta selecionada no Chat no momento, e a tela diz isso. A `015` entra em `naoObservaveis` de `lib/esquema.ts`, como a
-`013` e a `014`, e é aplicada à mão, depois do ensaio a seco e com o OK do Eduardo.
+escolher, a arte usa a conta selecionada no Chat no momento, e a tela diz isso. A mesma regra vale
+quando a conta gravada é desconectada do Chat (a linha some de `accounts`): a arte usa a conta
+selecionada no momento, e a tela avisa que a conta gravada saiu (achado 61, decidido pelo Eduardo
+em 01/10).
+
+A `015` entra em `naoObservaveis` de `lib/esquema.ts`, como a `013` e a `014`, e é aplicada à mão,
+depois do ensaio a seco e com o OK do Eduardo.
 
 ### A rota da arte
 
@@ -186,18 +209,22 @@ falha responde com erro, sem desenhar.
 Cabeçalhos:
 
 - `Cache-Control: private, no-store`, sempre. Imagem autenticada nunca sai como `public`: fora do
-  desenvolvimento, o padrão do `ImageResponse` é `public, immutable, no-transform, max-age=31536000`
-  (conferido em `node_modules/next` 16.2.10; conferir de novo na 16.3.7).
+  desenvolvimento, o `ImageResponse` de `next/og` responde com `public, max-age=0, must-revalidate`
+  (`node_modules/next/dist/server/og/image-response.js`, 16.2.10), e as opções `headers` do
+  construtor sobrescrevem esse padrão. O teste da rota lê o cabeçalho que de fato sai, e a prova no
+  preview confere de novo na 16.3.7 (achado 59).
 - `Content-Disposition: attachment` com nome de arquivo (`<slug>-slide-NN.png`) quando o pedido é
   para baixar, e `inline` para a prévia.
 
 A prévia usa um parâmetro de versão na URL, para o navegador pedir de novo quando algo mudar. Ele
 leva **tudo** o que muda a imagem: a data do texto (`revisado_em` ou `gerado_em`), a coluna `arte`,
-o nome, o @ e a foto da conta, e o commit do deploy (`VERCEL_GIT_COMMIT_SHA`), que muda quando muda
-o código que desenha. A rota ignora esse parâmetro: ele existe só para mudar a chave do cache. O
-commit vem das variáveis de sistema da Vercel, que já estão expostas neste projeto (o
-`scripts/migrar.mjs` exige `VERCEL_ENV` em todo deploy). Na máquina local ele não existe, e vale um
-valor fixo.
+o nome, o @ e a foto da conta. A rota ignora esse parâmetro: ele existe só para mudar a chave do
+cache.
+
+O `b` do Labs (o commit do deploy na URL, Etapa 39.3) não entra. Lá ele resolve a arte velha numa
+tela que o servidor redesenha sem recarregar. No Chat, depois de um deploy, a aba é recarregada de
+qualquer jeito (Skew Protection), e com `no-store` a recarga pede a imagem de novo. O "Baixar" faz
+sempre um pedido novo (achado 62).
 
 ### Os slides
 
@@ -231,7 +258,9 @@ preview da Vercel prova que o arquivo entrou na função. Se não entrar, `outpu
 
 ### O cabeçalho e a foto
 
-O nome e o @ vêm de `accounts` (`name` e `username`). A foto vem de `profile_picture_url`, que a
+O nome e o @ vêm de `accounts` (`name` e `username`). A tabela guarda também o `access_token` da
+conta, então a consulta da rota seleciona só `username`, `name` e `profile_picture_url`, nunca `*`,
+e um teste lê a fonte para cobrar isso (achado 60). A foto vem de `profile_picture_url`, que a
 própria rota busca, com estas travas:
 
 - só `https`, e só os hosts do CDN do Instagram e do Facebook (a lista é medida no banco antes do
@@ -298,7 +327,7 @@ Toda resposta de action volta como estado do formulário, junto do botão, sem r
 
 | suíte | o quê |
 |---|---|
-| pura | o achado 57: chave ausente e texto vazio, de cada campo e dos dois juntos, e a frase de cada caso; a palavra recusada pelo Chat segue em `formato_estranho` |
+| pura | os achados 57 e 58: chave ausente e texto vazio, de cada campo e dos dois juntos; a palavra com espaço, com hífen e com 31 caracteres vira `palavra_fora_do_padrao` com a palavra; o tema de 120 passa e o de 121 não; a frase de cada caso |
 | pura | a geometria e os degraus trazidos do Labs, com os testes de lá; a lista de slides para os totais 1 a 10 e o post |
 | pura | a coluna `arte`: forma válida, padrão "com espaço", conta |
 | pura | a versão da URL leva tudo o que muda a imagem |
