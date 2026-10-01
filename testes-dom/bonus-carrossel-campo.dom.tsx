@@ -22,6 +22,32 @@ describe("o campo do carrossel", () => {
     expect(escrever).toHaveBeenCalledWith("O texto que a pessoa editou");
   });
 
+  // ACHADO 52 (01/10): depois que a action do formulário termina, o React 19 reinicia o
+  // formulário, e um campo não controlado volta ao texto com que a página abriu. Numa recusa,
+  // a edição sumia da tela, e o clique seguinte gravava o texto velho como "Revisão salva."
+  // (medido na prova real, com o servidor recebendo o texto original no segundo clique).
+  it("a edição continua no campo depois que a action do formulário termina", async () => {
+    const recebidos: unknown[] = [];
+    render(
+      <form
+        action={async (f: FormData) => {
+          recebidos.push(f.get("chamada"));
+        }}
+      >
+        <Campo nome="chamada" rotulo="Chamada (slide 3)" valorInicial="Comente SUMIDO e receba." max={200} linhas={3} />
+        <button type="submit">Salvar revisão</button>
+      </form>
+    );
+    const campo = screen.getByLabelText("Chamada (slide 3)") as HTMLTextAreaElement;
+    fireEvent.change(campo, { target: { value: "Comente e receba." } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Salvar revisão" }));
+    });
+    expect(recebidos).toEqual(["Comente e receba."]);
+    expect(campo.value).toBe("Comente e receba.");
+    expect(screen.getByText("17 de 200 caracteres")).toBeTruthy();
+  });
+
   it("a contagem acompanha o que se digita", () => {
     render(<Campo nome="chamada" rotulo="Chamada (slide 5)" valorInicial="" max={200} linhas={3} />);
     fireEvent.change(screen.getByLabelText("Chamada (slide 5)"), { target: { value: "abcdef" } });
