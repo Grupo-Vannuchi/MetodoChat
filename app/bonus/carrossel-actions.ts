@@ -2,11 +2,21 @@
 import { after } from "next/server";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { ACCOUNT_COOKIE } from "@/lib/account";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { resolverConta } from "@/lib/bonus/arte-conta";
+import { lerEscolhasDoFormulario } from "@/lib/bonus/arte-escolhas";
+import { TEXTO_ARTE_NAO_PRONTA, TEXTO_ARTE_SALVA, textoDaRecusaDaArte, type AvisoDaArte } from "@/lib/bonus/arte-textos";
 import type { ContextoDoCarrossel } from "@/lib/bonus/carrossel-ia-parametros";
 import { lerPedidoDeCarrossel } from "@/lib/bonus/carrossel-pedido";
 import { processarCarrossel } from "@/lib/bonus/carrossel-processo";
-import { criarPedidoDeCarrossel, lerCarrossel, salvarRevisaoDoCarrossel as gravarRevisao } from "@/lib/bonus/carrossel-repositorio";
+import {
+  contasParaArte,
+  criarPedidoDeCarrossel,
+  lerCarrossel,
+  salvarEscolhasDaArte,
+  salvarRevisaoDoCarrossel as gravarRevisao,
+} from "@/lib/bonus/carrossel-repositorio";
 import { textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
 import { camposDoFormulario, lerRevisaoDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import {
@@ -42,6 +52,15 @@ import { TEXTO_BONUS_NAO_ENCONTRADO, textoDaConfig, urlDoBonusComAviso } from "@
 async function exigirSessao(): Promise<void> {
   const jarra = await cookies();
   if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) redirect("/entrar");
+}
+
+/**
+ * A CONTA DO CABEÇALHO DA ARTE, gravada no pedido: a selecionada no Chat agora (spec da Etapa 3).
+ * Gravar na primeira visita seria uma escrita dentro de um GET; o pedido já é uma escrita.
+ */
+async function contaDoPedido(): Promise<string | null> {
+  const jarra = await cookies();
+  return resolverConta(await contasParaArte(), null, jarra.get(ACCOUNT_COOKIE)?.value).conta?.ig_user_id ?? null;
 }
 
 /** O bônus pronto para carrossel: criado no Labs e publicado lá. Qualquer outra coisa é recusa. */
@@ -89,6 +108,7 @@ export async function pedirCarrossel(
     total: lido.pedido.total,
     palavra: bonus.palavra,
     contexto: bonus.contexto,
+    conta: await contaDoPedido(),
   });
   if (!criado.ok) return recusa(textoDoTetoDoCarrossel());
   const id = criado.id;
@@ -116,6 +136,7 @@ export async function gerarCarrosselDeNovo(form: FormData): Promise<void> {
     total: linha.total_slides,
     palavra: bonus.palavra,
     contexto: bonus.contexto,
+    conta: await contaDoPedido(),
   });
   if (!criado.ok) redirect(urlDoCarrosselComAviso(linha.bonus_id, id, { tom: "erro", texto: textoDoTetoDoCarrossel() }));
   const novo = criado.id;
@@ -151,4 +172,29 @@ export async function salvarRevisaoDoCarrossel(
   }
   const salvou = await gravarRevisao(id, lido.texto);
   return salvou ? resposta("ok", TEXTO_REVISAO_SALVA) : resposta("erro", TEXTO_CARROSSEL_NAO_REVISAVEL);
+}
+
+/**
+ * AS ESCOLHAS DA ARTE: a conta do cabeçalho e os slides "só texto". A resposta volta como ESTADO
+ * (useActionState), e nunca por redirect, pelo mesmo motivo do salvar da revisão (achado 52): a
+ * seção da arte fica na página do editor, e recriar a página apagaria o que se estiver editando.
+ * A conta tem de ser uma das conectadas, e só carrossel pronto guarda escolha.
+ */
+export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form: FormData): Promise<AvisoDaArte | null> {
+  await exigirSessao();
+  const id = form.get("id");
+  if (!ehIdDeBonus(id)) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
+  const linha = await lerCarrossel(id);
+  if (!linha) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
+  const resposta = (tom: AvisoDaArte["tom"], texto: string): AvisoDaArte => ({ tom, texto, em: Date.now() });
+  if (linha.estado !== "pronto" || !textoDaLinhaDoCarrossel(linha)) return resposta("erro", TEXTO_ARTE_NAO_PRONTA);
+  const conectadas = (await contasParaArte()).map((c) => c.ig_user_id);
+  const lido = lerEscolhasDoFormulario(
+    { conta: form.get("conta"), soTexto: form.getAll("so_texto") },
+    linha.total_slides,
+    conectadas
+  );
+  if (!lido.ok) return resposta("erro", textoDaRecusaDaArte(lido.motivo));
+  const salvou = await salvarEscolhasDaArte(id, lido.escolhas);
+  return salvou ? resposta("ok", TEXTO_ARTE_SALVA) : resposta("erro", TEXTO_ARTE_NAO_PRONTA);
 }

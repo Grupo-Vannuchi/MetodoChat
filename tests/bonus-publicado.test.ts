@@ -30,15 +30,51 @@ describe("a situação de um bônus na lista pública do Labs", () => {
   });
 
   it.each([
-    ["palavra minúscula", { palavraChave: "sumido" }],
-    ["palavra com espaço", { palavraChave: "SUMI DO" }],
-    ["palavra longa demais", { palavraChave: "X".repeat(31) }],
-    ["sem palavra", { palavraChave: undefined }],
+    ["palavra que não é texto", { palavraChave: 7 }],
+    ["palavra além do teto do Labs (80)", { palavraChave: "X".repeat(81) }],
     ["sem título", { titulo: "" }],
-    ["tema longo demais", { tema: "x".repeat(81) }],
+    ["tema além do teto do Labs (120)", { tema: "x".repeat(121) }],
+    ["tema que não é texto", { tema: 7 }],
     ["descrição que não é texto", { descricao: 7 }],
   ])("%s é formato estranho, e nunca publicado", (_nome, troca) => {
     expect(situacaoNaLista({ items: [{ ...ITEM, ...troca }] }, ITEM.codigo)).toEqual({ tipo: "formato_estranho" });
+  });
+});
+
+// O LABS PUBLICA BÔNUS SEM PALAVRA OU SEM TEMA (achado 57): os dois campos são opcionais no
+// contrato e vêm como chave AUSENTE (site-ia 7971720). E aceita palavra de até 80 caracteres, com
+// espaço ou hífen, que o Chat recusa (achado 58). Quem resolve é o operador, no /admin do Labs, e
+// a tela diz isso em vez de "formato estranho". Nenhum dos três libera o carrossel.
+describe("o bônus publicado que o Chat não consegue usar", () => {
+  it.each([
+    ["chave ausente", { palavraChave: undefined }],
+    ["texto vazio", { palavraChave: "" }],
+    ["só espaço", { palavraChave: "   " }],
+    ["sem palavra E sem tema", { palavraChave: undefined, tema: undefined }],
+  ])("sem palavra-chave (%s)", (_nome, troca) => {
+    expect(situacaoNaLista({ items: [{ ...ITEM, ...troca }] }, ITEM.codigo)).toEqual({ tipo: "sem_palavra" });
+  });
+
+  it.each([
+    ["chave ausente", { tema: undefined }],
+    ["texto vazio", { tema: "" }],
+  ])("sem tema (%s)", (_nome, troca) => {
+    expect(situacaoNaLista({ items: [{ ...ITEM, ...troca }] }, ITEM.codigo)).toEqual({ tipo: "sem_tema" });
+  });
+
+  it.each(["SUMI DO", "SEM-DOR", "X".repeat(31), "sumido", "AB"])("palavra fora do padrão do Chat: %s", (palavra) => {
+    expect(situacaoNaLista({ items: [{ ...ITEM, palavraChave: palavra }] }, ITEM.codigo)).toEqual({
+      tipo: "palavra_fora_do_padrao",
+      palavra,
+    });
+  });
+
+  it("o tema de 120 caracteres, o teto do Labs, passa: no carrossel ele só vai para a mensagem à IA", () => {
+    const tema = "t".repeat(120);
+    expect(situacaoNaLista({ items: [{ ...ITEM, tema }] }, ITEM.codigo)).toEqual({
+      tipo: "publicado",
+      bonus: { palavra: "SUMIDO", titulo: ITEM.titulo, tema, descricao: ITEM.descricao },
+    });
   });
 });
 

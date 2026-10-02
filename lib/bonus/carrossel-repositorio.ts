@@ -1,5 +1,7 @@
 import "server-only";
 import { sql } from "@/lib/db";
+import type { ContaDoCabecalho } from "./arte-conta";
+import type { EscolhasDaArte } from "./arte-escolhas";
 import type { ContextoDoCarrossel } from "./carrossel-ia-parametros";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { TETO_CARROSSEL_DIARIO } from "./carrossel-pedido";
@@ -25,12 +27,17 @@ export async function carrosseisNasUltimas24h(): Promise<number> {
   return linha?.n ?? 0;
 }
 
-/** CONTAR E INSERIR NA MESMA TRANSAÇÃO, COM TRAVA: dois cliques com 9 no dia não fazem 11. */
+/**
+ * CONTAR E INSERIR NA MESMA TRANSAÇÃO, COM TRAVA: dois cliques com 9 no dia não fazem 11.
+ * `conta` é a conta do cabeçalho da arte, gravada no pedido (spec da Etapa 3): sem conta, a arte
+ * nasce `{}` e usa a selecionada no Chat.
+ */
 export async function criarPedidoDeCarrossel(p: {
   bonusId: string;
   total: number;
   palavra: string;
   contexto: ContextoDoCarrossel;
+  conta: string | null;
 }): Promise<{ ok: true; id: string } | { ok: false }> {
   return sql().begin(async (tx) => {
     await tx.query(`select pg_advisory_xact_lock($1::bigint)`, [TRAVA_DO_TETO_DO_CARROSSEL]);
@@ -39,9 +46,9 @@ export async function criarPedidoDeCarrossel(p: {
     )) as { n: number }[];
     if ((contagem?.n ?? 0) >= TETO_CARROSSEL_DIARIO) return { ok: false as const };
     const [criada] = (await tx.query(
-      `insert into carrosseis_gerados (bonus_id, total_slides, palavra, contexto)
-       values ($1, $2, $3, $4::jsonb) returning id`,
-      [p.bonusId, p.total, p.palavra, p.contexto]
+      `insert into carrosseis_gerados (bonus_id, total_slides, palavra, contexto, arte)
+       values ($1, $2, $3, $4::jsonb, $5::jsonb) returning id`,
+      [p.bonusId, p.total, p.palavra, p.contexto, p.conta ? { conta: p.conta } : {}]
     )) as { id: string }[];
     return { ok: true as const, id: criada.id };
   });
@@ -97,4 +104,25 @@ export async function salvarRevisaoDoCarrossel(id: string, texto: TextoDoCarross
     [id, texto]
   )) as { id: string }[];
   return linhas.length > 0;
+}
+
+/** As escolhas da arte só valem para carrossel pronto. Devolve falso quando a linha não estava pronta. */
+export async function salvarEscolhasDaArte(id: string, escolhas: EscolhasDaArte): Promise<boolean> {
+  const linhas = (await sql().query(
+    `update carrosseis_gerados set arte = $2::jsonb where id = $1 and estado = 'pronto' returning id`,
+    [id, escolhas]
+  )) as { id: string }[];
+  return linhas.length > 0;
+}
+
+/**
+ * AS CONTAS PARA O CABEÇALHO DA ARTE, NA ORDEM DO PAINEL (lib/account.ts cai na primeira por
+ * `created_at`). SÓ AS QUATRO COLUNAS, de propósito (achado 60): `accounts` guarda o token de
+ * acesso de cada conta, e `listAccounts` (lib/db.ts) lê `*`. tests/bonus-arte-paginas.test.ts
+ * cobra que a arte não lê a tabela por outro caminho.
+ */
+export async function contasParaArte(): Promise<ContaDoCabecalho[]> {
+  return (await sql().query(
+    `select ig_user_id, username, name, profile_picture_url from accounts order by created_at asc`
+  )) as ContaDoCabecalho[];
 }

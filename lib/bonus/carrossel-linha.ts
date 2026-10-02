@@ -16,4 +16,6 @@ export type LinhaDoCarrossel = {
   medicao: unknown;
   gerado_em: Date | null;
   revisado_em: Date | null;
+  /** As escolhas da arte (migrations/015-arte-do-carrossel.sql), lidas por `escolhasDaArte`. */
+  arte: unknown;
 };

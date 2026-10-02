@@ -56,7 +56,13 @@ beforeEach(async () => {
   bonusId = b.id;
 });
 
-const pedido = (total: number) => ({ bonusId, total, palavra: "SUMIDO", contexto: CONTEXTO });
+const pedido = (total: number, conta: string | null = null) => ({
+  bonusId,
+  total,
+  palavra: "SUMIDO",
+  contexto: CONTEXTO,
+  conta,
+});
 
 async function criado(total: number): Promise<string> {
   const r = await repo.criarPedidoDeCarrossel(pedido(total));
@@ -213,5 +219,53 @@ describe("a revisão e a lista", () => {
 
   it("id que não é uuid não chega ao banco", async () => {
     expect(await repo.lerCarrossel("nao-e-uuid")).toBeNull();
+  });
+});
+
+// A ARTE (Etapa 3): a conta do cabeçalho gravada no pedido, as escolhas gravadas só em carrossel
+// pronto, e as contas lidas SÓ pelas colunas do cabeçalho: a tabela `accounts` guarda o token de
+// acesso de cada conta, e ele nunca sai daqui (achado 60).
+describe("a arte", () => {
+  it("o pedido grava a conta do cabeçalho; sem conta, a arte nasce vazia", async () => {
+    const r = await repo.criarPedidoDeCarrossel(pedido(5, "17841400000000001"));
+    const semConta = await criado(3);
+    if (!r.ok) throw new Error("teto no meio do teste");
+    expect((await repo.lerCarrossel(r.id))?.arte).toEqual({ conta: "17841400000000001" });
+    expect((await repo.lerCarrossel(semConta))?.arte).toEqual({});
+  });
+
+  it("as escolhas só se gravam em carrossel pronto, e gravam inteiras", async () => {
+    const pronto = await criado(5);
+    await processo.processarCarrossel(pronto, devolve(TEXTO));
+    const escolhas = { conta: "17841400000000002", soTexto: [2, 4] };
+    expect(await repo.salvarEscolhasDaArte(pronto, escolhas)).toBe(true);
+    expect((await repo.lerCarrossel(pronto))?.arte).toEqual(escolhas);
+
+    const pendente = await criado(5);
+    expect(await repo.salvarEscolhasDaArte(pendente, escolhas)).toBe(false);
+    expect((await repo.lerCarrossel(pendente))?.arte).toEqual({});
+  });
+
+  it("as contas do cabeçalho vêm só com as quatro colunas, na ordem do painel, e nunca com o token", async () => {
+    await banco.db().sql().query(`delete from accounts`);
+    await banco
+      .db()
+      .sql()
+      .query(
+        `insert into accounts (ig_user_id, username, name, profile_picture_url, access_token, created_at) values
+         ('1002', 'segunda', 'Segunda Conta', null, 'token-de-teste-2', now()),
+         ('1001', 'primeira', 'Primeira Conta', 'https://scontent-gru2-1.cdninstagram.com/v/foto.jpg', 'token-de-teste-1', now() - interval '1 day')`
+      );
+    const contas = await repo.contasParaArte();
+    expect(contas).toEqual([
+      {
+        ig_user_id: "1001",
+        username: "primeira",
+        name: "Primeira Conta",
+        profile_picture_url: "https://scontent-gru2-1.cdninstagram.com/v/foto.jpg",
+      },
+      { ig_user_id: "1002", username: "segunda", name: "Segunda Conta", profile_picture_url: null },
+    ]);
+    expect(JSON.stringify(contas)).not.toContain("token-de-teste");
   });
 });

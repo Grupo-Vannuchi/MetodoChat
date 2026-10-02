@@ -28,6 +28,7 @@ function linha(troca: Partial<LinhaDoCarrossel>): LinhaDoCarrossel {
     medicao: null,
     gerado_em: new Date(T0),
     revisado_em: null,
+    arte: {},
     ...troca,
   };
 }
