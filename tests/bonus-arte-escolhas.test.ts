@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comEspaco, escolhasDaArte } from "@/lib/bonus/arte-escolhas";
+import { comEspaco, escolhasDaArte, lerEscolhasDoFormulario } from "@/lib/bonus/arte-escolhas";
 
 // AS ESCOLHAS DA ARTE lidas da coluna `arte` (migrations/015-arte-do-carrossel.sql). O que vem do
 // banco não é confiável por forma: uma linha antiga tem `{}`, e uma escrita errada não pode quebrar
@@ -27,5 +27,36 @@ describe("as escolhas da arte de um carrossel", () => {
   it("com espaço é o padrão, e só texto é o que foi marcado", () => {
     const e = escolhasDaArte({ soTexto: [2] }, 3);
     expect([1, 2, 3].map((n) => comEspaco(e, n))).toEqual([true, false, true]);
+  });
+});
+
+// O QUE O FORMULÁRIO DA ARTE MANDA não é confiável: o navegador manda o que quiser. A conta tem de
+// ser uma das conectadas, e cada slide "só texto" tem de existir no carrossel.
+describe("as escolhas mandadas pelo formulário da arte", () => {
+  const CONECTADAS = ["1001", "1002"];
+
+  it("a conta conectada e os slides marcados, em ordem e sem repetir", () => {
+    expect(lerEscolhasDoFormulario({ conta: "1002", soTexto: ["4", "2", "2"] }, 5, CONECTADAS)).toEqual({
+      ok: true,
+      escolhas: { conta: "1002", soTexto: [2, 4] },
+    });
+  });
+
+  it("nenhum slide marcado é todos com espaço", () => {
+    expect(lerEscolhasDoFormulario({ conta: "1001", soTexto: [] }, 5, CONECTADAS)).toEqual({
+      ok: true,
+      escolhas: { conta: "1001", soTexto: [] },
+    });
+  });
+
+  it.each([["9999"], [""], [null]])("conta que não está conectada é recusada: %j", (conta) => {
+    expect(lerEscolhasDoFormulario({ conta, soTexto: [] }, 5, CONECTADAS)).toEqual({ ok: false, motivo: "conta" });
+  });
+
+  it.each([["0"], ["6"], ["2.5"], ["02"], ["x"], [7]])("slide fora do carrossel é recusado: %j", (slide) => {
+    expect(lerEscolhasDoFormulario({ conta: "1001", soTexto: [slide] }, 5, CONECTADAS)).toEqual({
+      ok: false,
+      motivo: "slide",
+    });
   });
 });

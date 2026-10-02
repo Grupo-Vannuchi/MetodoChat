@@ -65,6 +65,17 @@ describe("sem sessão, nenhuma action do carrossel age", () => {
     expect(destino).toBe("/entrar");
   });
 
+  // O salvar da arte também recebe o estado anterior (useActionState).
+  it("salvarArteDoCarrossel vai para /entrar e não grava nada", async () => {
+    const destino = await destinoDe(
+      async (f) => {
+        await acoes.salvarArteDoCarrossel(null, f);
+      },
+      formulario({ id: "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d", conta: "1001" })
+    );
+    expect(destino).toBe("/entrar");
+  });
+
   // O salvar da revisão recebe o estado anterior do formulário (useActionState, achado 52).
   it("salvarRevisaoDoCarrossel vai para /entrar", async () => {
     const destino = await destinoDe(

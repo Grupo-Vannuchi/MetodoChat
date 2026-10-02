@@ -56,6 +56,21 @@ describe("o pedido de carrossel responde sem recriar a página na recusa", () =>
   });
 });
 
+// AS ESCOLHAS DA ARTE TAMBÉM NÃO REDIRECIONAM (Etapa 3): a seção da arte fica na mesma página que
+// o editor, e recriar a página apagaria o que o operador estiver editando (achado 52). A resposta
+// volta como estado, e a miniatura troca pela versão da prévia.
+describe("o salvar da arte responde sem recriar a página", () => {
+  it("salvarArteDoCarrossel não redireciona para a página do carrossel", () => {
+    const fonte = ler("app/bonus/carrossel-actions.ts");
+    const inicio = fonte.indexOf("export async function salvarArteDoCarrossel(");
+    const fim = fonte.indexOf("\nexport ", inicio + 1);
+    const corpo = fonte.slice(inicio, fim === -1 ? undefined : fim);
+    expect(inicio).toBeGreaterThan(-1);
+    expect(corpo).not.toMatch(/urlDoCarrosselComAviso\(/);
+    expect(corpo).not.toMatch(/redirect\(`\/bonus\/\$\{/);
+  });
+});
+
 /** As funções exportadas de um arquivo e a primeira instrução de cada uma. */
 function primeirasInstrucoes(fonte: string): { nome: string; primeira: string }[] {
   const achados: { nome: string; primeira: string }[] = [];
@@ -67,11 +82,12 @@ function primeirasInstrucoes(fonte: string): { nome: string; primeira: string }[
 // A SESSÃO É CONFERIDA DENTRO DE CADA ACTION, e não só no proxy.ts: Server Action tem endereço
 // próprio. O mesmo leitor de tests/bonus-paginas.test.ts, para o arquivo novo.
 describe("toda action do carrossel confere a sessão antes de qualquer coisa", () => {
-  it("as três actions começam por `await exigirSessao();`", () => {
+  it("as quatro actions começam por `await exigirSessao();`", () => {
     const achados = primeirasInstrucoes(ler("app/bonus/carrossel-actions.ts"));
     expect(achados.map((a) => a.nome).sort()).toEqual([
       "gerarCarrosselDeNovo",
       "pedirCarrossel",
+      "salvarArteDoCarrossel",
       "salvarRevisaoDoCarrossel",
     ]);
     for (const a of achados) expect(a.primeira, a.nome).toBe("await exigirSessao();");
