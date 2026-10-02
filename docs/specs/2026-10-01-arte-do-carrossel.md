@@ -206,6 +206,19 @@ Antes de desenhar, ela confere: `id` e `cid` como uuid; o carrossel existe e é 
 `pronto`; o texto (`revisado ?? gerado`) tem forma válida; `N` é inteiro de 1 ao total. Qualquer
 falha responde com erro, sem desenhar.
 
+O desenho também pode falhar, e a falha não pode sair como imagem quebrada sem frase (achado 65). O
+`ImageResponse` fixa o status 200 antes de desenhar, porque o desenho roda dentro do stream do corpo:
+uma falha no meio sairia como 200 com o corpo quebrado. Por isso o PNG é lido inteiro antes de a
+rota responder. Se o desenho falhar com a foto da conta (uma foto que passa pelos bytes iniciais e
+não é imagem), o slide é desenhado de novo com as iniciais; sem foto, a rota responde 500 com frase
+própria. A fonte que não se lê tem outra frase.
+
+Emoji no texto faz o `next/og` buscar o desenho do emoji (a twemoji) em `cdn.jsdelivr.net` no meio
+do desenho, sem opção para desligar (achado 66). Não é SSRF, porque o endereço é fixo, mas a arte
+com emoji depende dessa rede: sem ela, o slide cai na frase do desenho. A instrução do carrossel
+pede emoji "com parcimônia", e em 01/10 nenhum dos 5 carrosséis da produção tinha emoji. A prova
+real desenha um slide com emoji.
+
 Cabeçalhos:
 
 - `Cache-Control: private, no-store`, sempre. Imagem autenticada nunca sai como `public`: fora do
@@ -284,6 +297,10 @@ O editor e a prévia ficam num mesmo componente do navegador. Quando o "Salvar r
 elas são pedidas de novo. Nada disso usa redirect nem `router.refresh`: a lição dos achados 52 e 54
 é que recriar a página apaga o que estava na tela.
 
+A escolha muda na tela antes de a action responder, para a caixa responder ao clique. Numa recusa,
+a conta e o "só texto" voltam para a última escolha aceita (achado 67): a miniatura e o "Baixar"
+seguem o que está gravado, e a caixa e o "não cabe" não podem mostrar outra coisa.
+
 O "não cabe" vem de `slidesQueNaoCabem` e `tamanhoDoTexto`, as mesmas funções puras no servidor
 (junto de cada slide) e no editor (enquanto se digita). Elas são uma **estimativa** por caracteres,
 do Labs. A prova confere a imagem de verdade com textos no limite de cada degrau.
@@ -334,9 +351,10 @@ Toda resposta de action volta como estado do formulário, junto do botão, sem r
 | pura | a busca da foto: hosts aceitos e recusados, redirect, tamanho, tipo |
 | pura | a fonte: os dois `.ttf` e o `OFL.txt` existem, e os `.ttf` são TrueType |
 | pura | o "não cabe": qual campo do editor cai em qual slide e com qual geometria |
+| pura | o desenho que falha: a foto que só começa como JPEG sai com as iniciais; sem foto, a falha volta como motivo (o emoji com a rede recusada); a fonte que não se lê tem motivo próprio |
 | integração | a rota: 401 sem sessão; uuid, dono e faixa do slide; `Cache-Control` e `Content-Disposition`; PNG de 1080×1350 |
 | integração | a `015`; gravar a conta e o "só texto" |
-| tela | a escolha por slide, a conta, a versão das miniaturas depois de salvar, e o "Baixar todos" disparando um download por slide |
+| tela | a escolha por slide, a conta, a versão das miniaturas depois de salvar, a escolha recusada voltando para a aceita, e o "Baixar todos" disparando um download por slide |
 
 Como nas etapas anteriores: todo teste escrito antes do código e visto falhar, e as proteções
 provadas também retirando-as e vendo o caso cair. O que só acontece no navegador de verdade (o
@@ -356,6 +374,7 @@ Cada escrita só com o OK do Eduardo.
 4. "Baixar todos" num navegador de verdade, com os arquivos baixados contados.
 5. Uma conta sem foto (ou com a foto vencida): as iniciais.
 6. Trocar a conta e o espaço de um slide, e ver a miniatura mudar sem a página ser recriada.
+7. Um slide com emoji, desenhado pela função da Vercel (o emoji vem de `cdn.jsdelivr.net`).
 
 ---
 
