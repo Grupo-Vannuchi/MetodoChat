@@ -39,14 +39,14 @@ mão. Os números do ensaio, na ordem deste plano:
 - integração no container: 37 arquivos, 315 passaram e 8 pularam (na base, 308 e 8);
 - cada fase foi vista falhar antes do código e passar depois, na ordem deste plano, com os números
   de cada uma no passo dela;
-- as 44 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado. Duas não derrubavam
+- as 42 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado. Duas não derrubavam
   na primeira rodada, e os testes delas foram reforçados (a linha de exatamente 860px e o espaço do
   fim da palavra);
 - os 138 vetores: nos 132 exatos, a conta dá o mesmo degrau, o mesmo "cabe" e a mesma altura do
   desenho, ao pixel; nos 6 conservadores, ela erra só para o lado seguro. O Labs conferiu o arquivo
   (o sha256, o ASCII, os 138, e os 4 casos dele batem com a conta independente de lá);
 - o plano, aplicado do zero sobre `d647e51` numa cópia limpa, com os dois gerados rodando de
-  verdade, dá os 51 arquivos iguais ao fim do ensaio, byte a byte (15 criados, 47 diffs, 4 apagados
+  verdade, dá os 51 arquivos iguais ao fim do ensaio, byte a byte (15 criados, 48 diffs, 4 apagados
   e 2 gerados).
 
 O ensaio achou estas coisas, já resolvidas neste plano:
@@ -72,7 +72,12 @@ O ensaio achou estas coisas, já resolvidas neste plano:
    na ordem nova é idêntica à da ordem antiga.
 6. **`lerRevisaoDoCarrossel` fica sem uso em produção** depois da FASE 4.8, que tira o "Salvar
    revisão". Os testes dela cobrem a conferência dos campos que `juntarParte` usa, e ela fica: tirar
-   é mudança fora do necessário.
+   é mudança fora do necessário. Um comentário na função diz isso (FASE 4.8).
+
+A revisão do plano pelo auditor (02/10) trouxe o achado 73 (ANOTAR), resolvido aqui: o plano dizia 44
+provas de mutação, e o Apêndice A tem 42; e o tamanho do arquivo dos vetores era o da versão de antes
+da tolerância declarada (62 933 bytes), e o desta é 63 295. Os rótulos das mutações passaram à
+numeração das fases deste plano, e `lerRevisaoDoCarrossel` ganhou o comentário do porquê.
 
 ## Restrições globais
 
@@ -2861,7 +2866,7 @@ Confira os bytes, e não o que a tela mostra:
 node -e 'const b=require("fs").readFileSync("tests/vetores-da-arte.json"); console.log(b.length, [...b].filter((x)=>x>0x7e).length, [...b].filter((x)=>x===13).length, require("crypto").createHash("sha256").update(b).digest("hex"))'
 ```
 
-Esperado: `62933 0 0 a9e1d6a61196b45d172e9a64ab80fa1e8baee09e500356fc89ed0fcf91bd5040`.
+Esperado: `63295 0 0 a9e1d6a61196b45d172e9a64ab80fa1e8baee09e500356fc89ed0fcf91bd5040`.
 
 - [ ] **Passo 5: ver passar**
 
@@ -4928,7 +4933,8 @@ git commit -m "feat(bonus): salvar um slide, com a linha travada e a versão da 
 **Arquivos:**
 - Criar: `app/bonus/[id]/carrossel/[cid]/card-da-parte.tsx`
 - Modificar: `.../editor-do-carrossel.tsx`, `.../page.tsx`, `app/bonus/carrossel-actions.ts`,
-  `lib/bonus/carrossel-repositorio.ts`, `lib/bonus/carrossel-textos.ts`, `lib/bonus/arte-textos.ts`
+  `lib/bonus/carrossel-repositorio.ts`, `lib/bonus/carrossel-textos.ts`, `lib/bonus/arte-textos.ts`,
+  `lib/bonus/carrossel-texto.ts` (só o comentário de `lerRevisaoDoCarrossel`, que fica sem uso na tela)
 - Apagar: `.../arte-do-carrossel.tsx`, `.../formulario-da-revisao.tsx` e os testes de tela deles
 - Testar: `testes-dom/bonus-card-da-parte.dom.tsx` (novo), `testes-dom/bonus-editor-do-carrossel.dom.tsx`,
   `tests/bonus-carrossel-paginas.test.ts`, `tests/bonus-paginas.test.ts`, e a integração do carrossel
@@ -6177,6 +6183,30 @@ index c5878a5..5785a8e 100644
  export const TEXTO_CONTA_FIXADA = "Conta fixada neste carrossel.";
 ```
 
+Em `lib/bonus/carrossel-texto.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/lib/bonus/carrossel-texto.ts b/lib/bonus/carrossel-texto.ts
+index 57594ce..0ada357 100644
+--- a/lib/bonus/carrossel-texto.ts
++++ b/lib/bonus/carrossel-texto.ts
+@@ -186,8 +186,12 @@ function texto(v: unknown): string {
+ export type ProblemaDoCampo = { campo: string; erro: string };
+ 
+ /**
+- * A revisão do operador. O número de slides não muda (vem do pedido), o título interno não se
+- * edita, e a palavra vem da linha, nunca do formulário.
++ * A revisão do operador, o carrossel inteiro de uma vez. O número de slides não muda (vem do
++ * pedido), o título interno não se edita, e a palavra vem da linha, nunca do formulário.
++ *
++ * ⚠️ SEM USO NA TELA DESDE A ETAPA 4: o "Salvar revisão" saiu, e cada slide se salva sozinho
++ * (`juntarParte`, abaixo). Ela fica porque os testes dela cobrem a conferência dos campos
++ * (`conferirCampos`), que `juntarParte` usa; tirá-la era mudança fora da etapa.
+  */
+ export function lerRevisaoDoCarrossel(
+   total: number,
+```
+
 Apague `app/bonus/[id]/carrossel/[cid]/arte-do-carrossel.tsx`:
 
 ```bash
@@ -6216,9 +6246,9 @@ Esperado: `tsc` e lint limpos; 95 arquivos e 2 774 casos puros; 18 arquivos e 11
 - [ ] **Passo 6: varrer e commitar**
 
 ```bash
-node "$SCRATCH/varrer-texto.mjs" "app/bonus/[id]/carrossel/[cid]/card-da-parte.tsx" "app/bonus/[id]/carrossel/[cid]/editor-do-carrossel.tsx" "app/bonus/[id]/carrossel/[cid]/page.tsx" app/bonus/carrossel-actions.ts lib/bonus/carrossel-repositorio.ts lib/bonus/carrossel-textos.ts lib/bonus/arte-textos.ts testes-dom/bonus-card-da-parte.dom.tsx testes-dom/bonus-editor-do-carrossel.dom.tsx tests/bonus-carrossel-paginas.test.ts tests/bonus-paginas.test.ts testes-integracao/bonus-carrossel-processo.integracao.ts testes-integracao/bonus-carrossel-acoes.integracao.ts
+node "$SCRATCH/varrer-texto.mjs" "app/bonus/[id]/carrossel/[cid]/card-da-parte.tsx" "app/bonus/[id]/carrossel/[cid]/editor-do-carrossel.tsx" "app/bonus/[id]/carrossel/[cid]/page.tsx" app/bonus/carrossel-actions.ts lib/bonus/carrossel-repositorio.ts lib/bonus/carrossel-textos.ts lib/bonus/arte-textos.ts lib/bonus/carrossel-texto.ts testes-dom/bonus-card-da-parte.dom.tsx testes-dom/bonus-editor-do-carrossel.dom.tsx tests/bonus-carrossel-paginas.test.ts tests/bonus-paginas.test.ts testes-integracao/bonus-carrossel-processo.integracao.ts testes-integracao/bonus-carrossel-acoes.integracao.ts
 test "$(git branch --show-current)" = "pagina-do-carrossel"
-git add "app/bonus/[id]/carrossel/[cid]/card-da-parte.tsx" "app/bonus/[id]/carrossel/[cid]/editor-do-carrossel.tsx" "app/bonus/[id]/carrossel/[cid]/page.tsx" app/bonus/carrossel-actions.ts lib/bonus/carrossel-repositorio.ts lib/bonus/carrossel-textos.ts lib/bonus/arte-textos.ts testes-dom/bonus-card-da-parte.dom.tsx testes-dom/bonus-editor-do-carrossel.dom.tsx tests/bonus-carrossel-paginas.test.ts tests/bonus-paginas.test.ts testes-integracao/bonus-carrossel-processo.integracao.ts testes-integracao/bonus-carrossel-acoes.integracao.ts
+git add "app/bonus/[id]/carrossel/[cid]/card-da-parte.tsx" "app/bonus/[id]/carrossel/[cid]/editor-do-carrossel.tsx" "app/bonus/[id]/carrossel/[cid]/page.tsx" app/bonus/carrossel-actions.ts lib/bonus/carrossel-repositorio.ts lib/bonus/carrossel-textos.ts lib/bonus/arte-textos.ts lib/bonus/carrossel-texto.ts testes-dom/bonus-card-da-parte.dom.tsx testes-dom/bonus-editor-do-carrossel.dom.tsx tests/bonus-carrossel-paginas.test.ts tests/bonus-paginas.test.ts testes-integracao/bonus-carrossel-processo.integracao.ts testes-integracao/bonus-carrossel-acoes.integracao.ts
 git status --short
 git commit -m "feat(bonus): a página do carrossel, slide a slide, com um salvar por slide"
 ```
@@ -6264,7 +6294,7 @@ DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_te
 git status --short
 ```
 
-Esperado: 44 linhas com ✓ e nenhuma com ✗; o `git status` vazio (cada arquivo volta byte a byte).
+Esperado: 42 linhas com ✓ e nenhuma com ✗; o `git status` vazio (cada arquivo volta byte a byte).
 
 ---
 
@@ -6325,123 +6355,123 @@ const MUTACOES = [
   { nome: "4.1: a rota busca a foto sem a memória", arq: ROTA,
     de: "fotosDaInstancia.foto(conta.profile_picture_url)", para: "fotosDaInstancia.quantas() ? null : fotoDaConta(conta.profile_picture_url)",
     cmd: PURA("tests/bonus-arte-paginas.test.ts"), caso: "a foto da conta vem da memória da instância" },
-  // 4.2 as partes e a versão de cada miniatura
-  { nome: "4.2: o slide 1 leva também a chamada", arq: "lib/bonus/carrossel-texto.ts",
+  // 4.5 as partes e a versão de cada miniatura
+  { nome: "4.5: o slide 1 leva também a chamada", arq: "lib/bonus/carrossel-texto.ts",
     de: '  if (n === 1) return ["gancho"];\n', para: '  if (n === 1) return ["gancho", "chamada"];\n',
     cmd: PURA("tests/bonus-carrossel-partes.test.ts"), caso: "os slides e a legenda cobrem os campos do formulário" },
-  { nome: "4.2: a parte grava o que o formulário trouxer a mais", arq: "lib/bonus/carrossel-texto.ts",
+  { nome: "4.5: a parte grava o que o formulário trouxer a mais", arq: "lib/bonus/carrossel-texto.ts",
     de: "  for (const c of campos) junto[c] = bruto[c];\n", para: "  for (const c of Object.keys(bruto)) junto[c] = bruto[c];\n",
     cmd: PURA("tests/bonus-carrossel-partes.test.ts"), caso: "troca só os campos da parte" },
-  { nome: "4.2: o problema de outro campo impede o salvar", arq: "lib/bonus/carrossel-texto.ts",
+  { nome: "4.5: o problema de outro campo impede o salvar", arq: "lib/bonus/carrossel-texto.ts",
     de: "  if (daParte.length) return { ok: false, problemas: daParte };\n", para: "  if (problemas.length) return { ok: false, problemas };\n",
     cmd: PURA("tests/bonus-carrossel-partes.test.ts"), caso: "um problema em OUTRO campo vira aviso" },
-  { nome: "4.2: a versão do slide esquece o só texto", arq: "lib/bonus/arte-tela.ts",
+  { nome: "4.5: a versão do slide esquece o só texto", arq: "lib/bonus/arte-tela.ts",
     de: '      soTexto.includes(s.numero) ? "so_texto" : "com_espaco",\n', para: '      "com_espaco",\n',
     cmd: PURA("tests/bonus-arte-tela.test.ts"), caso: "o só texto do slide 2 muda só a versão do slide 2" },
-  { nome: "4.2: a versão esquece a foto do cabeçalho", arq: "lib/bonus/arte-tela.ts",
+  { nome: "4.5: a versão esquece a foto do cabeçalho", arq: "lib/bonus/arte-tela.ts",
     de: "      cabecalho.foto,\n", para: "",
     cmd: PURA("tests/bonus-arte-tela.test.ts"), caso: "a foto do cabeçalho muda a versão de todos" },
-  // 4.3 a conta do carrossel
-  { nome: "4.3: a conta desconectada com nome cai na logada", arq: "lib/bonus/arte-conta.ts",
+  // 4.6 a conta do carrossel
+  { nome: "4.6: a conta desconectada com nome cai na logada", arq: "lib/bonus/arte-conta.ts",
     de: "    if (guardada.nome || guardada.arroba) {", para: "    if (false) {",
     cmd: PURA("tests/bonus-arte-conta.test.ts"), caso: "desconectada, com o nome guardado" },
-  { nome: "4.3: o Gerar de novo usa a logada", arq: "app/bonus/carrossel-actions.ts",
+  { nome: "4.6: o Gerar de novo usa a logada", arq: "app/bonus/carrossel-actions.ts",
     de: "    conta: contaParaGerarDeNovo(", para: "    conta: (await contaDoPedido()) ?? contaParaGerarDeNovo(",
     cmd: PURA("tests/bonus-carrossel-paginas.test.ts"), caso: "o Gerar de novo herda a conta do original" },
-  { nome: "4.3: o Fixar troca a conta de quem já tem", arq: "lib/bonus/carrossel-repositorio.ts",
+  { nome: "4.6: o Fixar troca a conta de quem já tem", arq: "lib/bonus/carrossel-repositorio.ts",
     de: "      where id = $1 and estado = 'pronto' and not (arte ? 'conta')\n", para: "      where id = $1 and estado = 'pronto'\n",
     cmd: INTEG(PROCESSO), caso: "Fixar nesta conta grava uma vez" },
-  { nome: "4.3: o só texto troca a coluna inteira e apaga a conta", arq: "lib/bonus/carrossel-repositorio.ts",
+  { nome: "4.6: o só texto troca a coluna inteira e apaga a conta", arq: "lib/bonus/carrossel-repositorio.ts",
     de: SO_TEXTO, para: SO_TEXTO.replace("arte = arte || $2::jsonb", "arte = $2::jsonb"),
     cmd: INTEG(PROCESSO), caso: "gravar o só texto mantém a conta" },
-  { nome: "4.3: o só texto grava em carrossel que não está pronto", arq: "lib/bonus/carrossel-repositorio.ts",
+  { nome: "4.6: o só texto grava em carrossel que não está pronto", arq: "lib/bonus/carrossel-repositorio.ts",
     de: SO_TEXTO, para: SO_TEXTO.replace(" and estado = 'pronto'", ""),
     cmd: INTEG(PROCESSO), caso: "gravar o só texto mantém a conta, e só vale em carrossel pronto" },
-  // 4.4 salvar um slide
-  { nome: "4.4: salvar sem a trava da linha", arq: "lib/bonus/carrossel-repositorio.ts",
+  // 4.7 salvar um slide
+  { nome: "4.7: salvar sem a trava da linha", arq: "lib/bonus/carrossel-repositorio.ts",
     de: "`select * from carrosseis_gerados where id = $1 for update`", para: "`select * from carrosseis_gerados where id = $1`",
     cmd: INTEG(PROCESSO), caso: "dois salvamentos ao mesmo tempo" },
-  { nome: "4.4: salvar o slide troca a arte inteira", arq: "lib/bonus/carrossel-repositorio.ts",
+  { nome: "4.7: salvar o slide troca a arte inteira", arq: "lib/bonus/carrossel-repositorio.ts",
     de: "revisado_em = now(), arte = arte || $3::jsonb where id = $1`", para: "revisado_em = now(), arte = $3::jsonb where id = $1`",
     cmd: INTEG(PROCESSO), caso: "completa o nome que falta da conta, na mesma gravação" },
-  // 4.5 a tela, slide a slide
-  { nome: "4.5: salvo, a miniatura não troca", arq: CARD,
+  // 4.8 a tela, slide a slide
+  { nome: "4.8: salvo, a miniatura não troca", arq: CARD,
     de: "      if (r.versao) aoNovaVersao(r.versao);\n", para: "",
     cmd: TELA("testes-dom/bonus-card-da-parte.dom.tsx"), caso: "salvo, a miniatura troca pela versão" },
-  { nome: "4.5: o não salvo não some ao salvar", arq: CARD,
+  { nome: "4.8: o não salvo não some ao salvar", arq: CARD,
     de: '      setSalvos(Object.fromEntries(campos.map((c) => [c.nome, String(form.get(c.nome) ?? "")])));\n', para: "",
     cmd: TELA("testes-dom/bonus-card-da-parte.dom.tsx"), caso: "não salvo aparece ao editar, some ao salvar" },
-  { nome: "4.5: fechar desmonta os campos", arq: CARD,
+  { nome: "4.8: fechar desmonta os campos", arq: CARD,
     de: '<div hidden={!aberto} className="space-y-3">', para: '<div hidden={!aberto} className="space-y-3" key={String(aberto)}>',
     cmd: TELA("testes-dom/bonus-card-da-parte.dom.tsx"), caso: "fechar não apaga o que se digitou" },
-  { nome: "4.5: na recusa, o só texto não volta", arq: EDITOR,
+  { nome: "4.8: na recusa, o só texto não volta", arq: EDITOR,
     de: "        setSoTexto(aceito.current);\n", para: "",
     cmd: TELA("testes-dom/bonus-editor-do-carrossel.dom.tsx"), caso: "na recusa, o só texto volta para a última escolha aceita" },
-  { nome: "4.5: a escolha aceita não é lembrada", arq: EDITOR,
+  { nome: "4.8: a escolha aceita não é lembrada", arq: EDITOR,
     de: '        aceito.current = form.getAll("so_texto").map(Number);\n', para: "",
     cmd: TELA("testes-dom/bonus-editor-do-carrossel.dom.tsx"), caso: "na recusa, o só texto volta para a última escolha aceita" },
-  { nome: "4.5: o só texto não troca as miniaturas", arq: EDITOR,
+  { nome: "4.8: o só texto não troca as miniaturas", arq: EDITOR,
     de: "        if (r.versoes) setVersoes(r.versoes);\n", para: "",
     cmd: TELA("testes-dom/bonus-editor-do-carrossel.dom.tsx"), caso: "marcar só texto grava os slides marcados" },
-  { nome: "4.5: salvar um slide troca todas as miniaturas", arq: EDITOR,
+  { nome: "4.8: salvar um slide troca todas as miniaturas", arq: EDITOR,
     de: "(i === n - 1 ? v : x)", para: "v",
     cmd: TELA("testes-dom/bonus-editor-do-carrossel.dom.tsx"), caso: "salvar o slide 2 troca só a miniatura 2" },
-  { nome: "4.5: o Fixar não some depois de fixar", arq: EDITOR,
+  { nome: "4.8: o Fixar não some depois de fixar", arq: EDITOR,
     de: '  const fixada = respostaDaConta?.tom === "ok";\n', para: "  const fixada = false;\n",
     cmd: TELA("testes-dom/bonus-editor-do-carrossel.dom.tsx"), caso: "Fixar nesta conta: aparece com o aviso" },
-  // 4.6 a conta exata do não cabe
-  { nome: "4.6: a altura com o espaço não desconta o respiro de 48", arq: "lib/bonus/arte-geometria.ts",
+  // 4.2 a 4.4 a tabela, a conta exata do não cabe e os vetores
+  { nome: "4.3: a altura com o espaço não desconta o respiro de 48", arq: "lib/bonus/arte-geometria.ts",
     de: "ALTURA_TEXTO_SEM_ILUSTRACAO - ALTURA_ILUSTRACAO - GAP_ILUSTRACAO;", para: "ALTURA_TEXTO_SEM_ILUSTRACAO - ALTURA_ILUSTRACAO;",
     cmd: PURA("tests/bonus-arte-vetores.test.ts"), caso: "labs-4-capa-120" },
-  { nome: "4.6: a manchete sem o avanço de 77", arq: "lib/bonus/arte-geometria.ts",
+  { nome: "4.3: a manchete sem o avanço de 77", arq: "lib/bonus/arte-geometria.ts",
     de: '  if (antes === "manchete") return Math.max(0, AVANCO_MANCHETE - alturaDaLinha(fonte));\n', para: "",
     cmd: PURA("tests/bonus-arte-vetores.test.ts"), caso: "linha-860-dentro-regular" },
-  { nome: "4.6: a linha sem arredondar", arq: "lib/bonus/arte-geometria.ts",
+  { nome: "4.3: a linha sem arredondar", arq: "lib/bonus/arte-geometria.ts",
     de: "  return Math.round(fonte * ENTRELINHA);\n", para: "  return fonte * ENTRELINHA;\n",
     cmd: PURA("tests/bonus-arte-medida.test.ts"), caso: "cada linha quebrada ocupa fonte × 1,32 arredondado" },
-  { nome: "4.6: o negrito sem o espaçamento (achado 71)", arq: "lib/bonus/arte-medida.ts",
+  { nome: "4.3: o negrito sem o espaçamento (achado 71)", arq: "lib/bonus/arte-medida.ts",
     de: "      if (espacamento) grafema += (espacamento / fonte) * fonte;\n", para: "",
     cmd: PURA("tests/bonus-arte-vetores.test.ts"), caso: "negrito-decide-o-degrau" },
-  { nome: "4.6: o emoji vale zero", arq: "lib/bonus/arte-medida.ts",
+  { nome: "4.3: o emoji vale zero", arq: "lib/bonus/arte-medida.ts",
     de: "        grafema = fonte;\n", para: "        grafema = 0;\n",
     cmd: PURA("tests/bonus-arte-medida.test.ts"), caso: "o emoji (e todo caractere sem desenho na fonte) vale 1em" },
-  { nome: "4.6: o igual a 860 não cabe", arq: "lib/bonus/arte-medida.ts",
+  { nome: "4.3: o igual a 860 não cabe", arq: "lib/bonus/arte-medida.ts",
     de: "ocupado + largura > LARGURA_UTIL + (largura - semFim)", para: "ocupado + largura >= LARGURA_UTIL + (largura - semFim)",
     cmd: PURA("tests/bonus-arte-medida.test.ts"), caso: "a linha que soma exatamente a largura útil cabe" },
-  { nome: "4.6: o espaço do fim conta na linha", arq: "lib/bonus/arte-medida.ts",
+  { nome: "4.3: o espaço do fim conta na linha", arq: "lib/bonus/arte-medida.ts",
     de: "ocupado + largura > LARGURA_UTIL + (largura - semFim)", para: "ocupado + largura > LARGURA_UTIL",
     cmd: PURA("tests/bonus-arte-medida.test.ts"), caso: "o espaço do fim da última palavra da linha não conta" },
-  { nome: "4.6: quebra antes do ponto de interrogação", arq: "lib/bonus/arte-medida.ts",
+  { nome: "4.3: quebra antes do ponto de interrogação", arq: "lib/bonus/arte-medida.ts",
     de: '[..."!),./:;?]}"]', para: '[..."!),./:;]}"]',
     cmd: PURA("tests/bonus-arte-medida.test.ts"), caso: "não quebra antes de ! ) , . / : ; ? ] }" },
-  { nome: "4.6: quebra depois do parêntese que abre", arq: "lib/bonus/arte-medida.ts",
+  { nome: "4.3: quebra depois do parêntese que abre", arq: "lib/bonus/arte-medida.ts",
     de: 'const ABREM = new Set([..."([{', para: 'const ABREM = new Set([..."[{',
     cmd: PURA("tests/bonus-arte-medida.test.ts"), caso: "não quebra depois de ( [ { " },
-  { nome: "4.6: a aspa antes do parêntese quebra", arq: "lib/bonus/arte-medida.ts",
+  { nome: "4.3: a aspa antes do parêntese quebra", arq: "lib/bonus/arte-medida.ts",
     de: "  if (ASPAS.has(antes) && ABREM.has(depois)) return false;\n", para: "",
     cmd: PURA("tests/bonus-arte-medida.test.ts"), caso: "não quebra entre a aspa e o parêntese que abre" },
-  { nome: "4.6: a palavra que vaza não derruba o degrau", arq: "lib/bonus/arte-medida.ts",
+  { nome: "4.3: a palavra que vaza não derruba o degrau", arq: "lib/bonus/arte-medida.ts",
     de: "    if (semFim > LARGURA_UTIL) vaza = true;\n", para: "",
     cmd: PURA("tests/bonus-arte-vetores.test.ts"), caso: "palavra-maior-que-a-linha" },
-  { nome: "4.6: o gancho sem o degrau de 46", arq: "lib/bonus/arte-slides.ts",
+  { nome: "4.3: o gancho sem o degrau de 46", arq: "lib/bonus/arte-slides.ts",
     de: "  gancho: [86, 72, 56, 46],\n", para: "  gancho: [86, 72, 56],\n",
     cmd: PURA("tests/bonus-arte-slides.test.ts"), caso: "o gancho longo desce para o degrau de 46" },
-  { nome: "4.6: a composição sem NFC", arq: "lib/bonus/arte-composicao.ts",
+  { nome: "4.3: a composição sem NFC", arq: "lib/bonus/arte-composicao.ts",
     de: 'texto.normalize("NFC").replace(QUEBRAS', para: "texto.replace(QUEBRAS",
     cmd: PURA("tests/bonus-arte-composicao.test.ts"), caso: "o acento em NFD vira NFC" },
-  { nome: "4.6: a linha só de espaços não separa parágrafo", arq: "lib/bonus/arte-composicao.ts",
+  { nome: "4.3: a linha só de espaços não separa parágrafo", arq: "lib/bonus/arte-composicao.ts",
     de: '" ").trim();\n', para: '" ");\n',
     cmd: PURA("tests/bonus-arte-composicao.test.ts"), caso: "a linha só de espaços separa parágrafo" },
-  { nome: "4.6: U+2028 e U+2029 ficam no texto", arq: "lib/bonus/arte-composicao.ts",
+  { nome: "4.3: U+2028 e U+2029 ficam no texto", arq: "lib/bonus/arte-composicao.ts",
     de: `${B}u0085${B}u2028${B}u2029]/g;`, para: `${B}u0085]/g;`,
     cmd: PURA("tests/bonus-arte-composicao.test.ts"), caso: "as sete quebras obrigatórias" },
-  { nome: "4.6: o desenho sem o espaçamento do negrito", arq: "lib/bonus/arte-desenho.tsx",
+  { nome: "4.3: o desenho sem o espaçamento do negrito", arq: "lib/bonus/arte-desenho.tsx",
     de: "              letterSpacing: linha.espacamento,\n", para: "              letterSpacing: 0,\n",
     cmd: PURA("tests/bonus-arte-desenho.test.ts"), caso: "negrito-decide-o-degrau" },
-  { nome: "4.6: a tabela de larguras editada à mão", arq: "lib/bonus/arte-larguras.ts",
+  { nome: "4.2: a tabela de larguras editada à mão", arq: "lib/bonus/arte-larguras.ts",
     de: "  [0x20, [463, 463, ", para: "  [0x20, [464, 463, ",
     cmd: PURA("tests/bonus-arte-larguras.test.ts"), caso: "é a que o gerador tira dos .ttf de hoje" },
-  { nome: "4.6: o arquivo dos vetores mexido", arq: "tests/vetores-da-arte.json",
+  { nome: "4.4: o arquivo dos vetores mexido", arq: "tests/vetores-da-arte.json",
     de: '"nome":"labs-3-capa-109","categoria":"labs"', para: '"nome":"labs-3-capa-109","categoria":"labz"',
     cmd: PURA("tests/bonus-arte-vetores.test.ts"), caso: "é o combinado com o Labs, pelo sha256" },
 ];
