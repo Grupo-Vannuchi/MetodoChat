@@ -65,6 +65,14 @@ export function cabecalhoDaConta(c: ContaDoCabecalho, foto: string | null): Cabe
 }
 
 /**
+ * O cabeçalho que a versão das miniaturas resume: o da conta, com a URL da foto no lugar do `data:`
+ * que só a rota tem. A página e a action de salvar o usam, para as duas darem a mesma versão.
+ */
+export function cabecalhoParaVersao(conta: ContaDoCabecalho | null): CabecalhoDaArte {
+  return conta ? cabecalhoDaConta(conta, conta.profile_picture_url) : { nome: "", arroba: "", foto: null, iniciais: "IG" };
+}
+
+/**
  * A VERSÃO DA PRÉVIA: um resumo curto (FNV-1a de 32 bits) de TUDO o que muda a imagem. A `<img>` só
  * pede de novo quando a URL muda, e a rota responde `no-store`, então é esta versão que decide se a
  * miniatura troca. A rota ignora o parâmetro.

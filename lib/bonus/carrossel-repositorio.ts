@@ -4,7 +4,8 @@ import type { ContaDoCabecalho, ContaGuardada } from "./arte-conta";
 import type { ContextoDoCarrossel } from "./carrossel-ia-parametros";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { TETO_CARROSSEL_DIARIO } from "./carrossel-pedido";
-import type { TextoDoCarrossel } from "./carrossel-texto";
+import { textoDaLinhaDoCarrossel } from "./carrossel-tela";
+import { juntarParte, type ParteDoCarrossel, type ProblemaDoCampo, type TextoDoCarrossel } from "./carrossel-texto";
 import type { Medicao } from "./ia-parametros";
 import { ehIdDeBonus } from "./pedido";
 
@@ -111,6 +112,38 @@ export async function salvarRevisaoDoCarrossel(id: string, texto: TextoDoCarross
     [id, texto]
   )) as { id: string }[];
   return linhas.length > 0;
+}
+
+/**
+ * SALVAR UMA PARTE (um slide, ou a legenda) NUMA TRANSAÇÃO, COM A LINHA TRAVADA (spec da Etapa 4):
+ * lê o texto salvo (o revisado, ou o gerado) DEPOIS de travar a linha, junta a parte
+ * (`juntarParte`, puro) e grava. Dois salvamentos ao mesmo tempo, de partes diferentes, não apagam um
+ * ao outro: o segundo espera o primeiro e junta sobre o texto dele. Só carrossel pronto.
+ * `nomeQueFalta` completa o nome e o @ da conta gravada na Etapa 3 sem eles, na mesma gravação.
+ */
+export async function salvarParteDoCarrossel(
+  id: string,
+  parte: ParteDoCarrossel,
+  bruto: Record<string, unknown>,
+  nomeQueFalta: { nome: string | null; arroba: string | null } | null
+): Promise<
+  | { ok: true; texto: TextoDoCarrossel; avisos: ProblemaDoCampo[] }
+  | { ok: false; motivo: "nao_pronto" }
+  | { ok: false; motivo: "problemas"; problemas: ProblemaDoCampo[] }
+> {
+  if (!ehIdDeBonus(id)) return { ok: false, motivo: "nao_pronto" };
+  return sql().begin(async (tx) => {
+    const [linha] = (await tx.query(`select * from carrosseis_gerados where id = $1 for update`, [id])) as LinhaDoCarrossel[];
+    const atual = linha?.estado === "pronto" ? textoDaLinhaDoCarrossel(linha) : null;
+    if (!linha || !atual) return { ok: false as const, motivo: "nao_pronto" as const };
+    const r = juntarParte(linha.total_slides, linha.palavra, atual, parte, bruto);
+    if (!r.ok) return { ok: false as const, motivo: "problemas" as const, problemas: r.problemas };
+    await tx.query(
+      `update carrosseis_gerados set revisado = $2::jsonb, revisado_em = now(), arte = arte || $3::jsonb where id = $1`,
+      [id, r.texto, chavesDaConta(nomeQueFalta)]
+    );
+    return { ok: true as const, texto: r.texto, avisos: r.avisos };
+  });
 }
 
 /**

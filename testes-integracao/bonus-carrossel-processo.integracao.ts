@@ -223,6 +223,92 @@ describe("a revisão e a lista", () => {
   });
 });
 
+// SALVAR UMA PARTE (spec da Etapa 4): um slide, ou a legenda, juntado ao texto salvo numa transação
+// com a linha travada. A trava é o que impede dois salvamentos de slides diferentes de apagarem um
+// ao outro, e só um caminho que fale com o Postgres a acusa.
+describe("salvar uma parte do carrossel", () => {
+  const GANCHO = "Seu cliente sumiu? Traga ele de volta.";
+  const CHAMADA = "Comente SUMIDO e receba as mensagens agora.";
+  async function pronto(): Promise<string> {
+    const id = await criado(5);
+    await processo.processarCarrossel(id, devolve(TEXTO));
+    return id;
+  }
+
+  it("troca só a parte, junta ao texto salvo e grava quando", async () => {
+    const id = await pronto();
+    const r = await repo.salvarParteDoCarrossel(id, { tipo: "slide", numero: 1 }, { gancho: GANCHO }, null);
+    expect(r).toEqual({ ok: true, texto: { ...TEXTO, gancho: GANCHO }, avisos: [] });
+    const l = await repo.lerCarrossel(id);
+    expect(l?.revisado).toEqual({ ...TEXTO, gancho: GANCHO });
+    expect(l?.revisado_em).toBeInstanceOf(Date);
+
+    // A segunda parte junta sobre a primeira, e não sobre o gerado.
+    await repo.salvarParteDoCarrossel(id, { tipo: "slide", numero: 5 }, { chamada: CHAMADA }, null);
+    expect((await repo.lerCarrossel(id))?.revisado).toEqual({ ...TEXTO, gancho: GANCHO, chamada: CHAMADA });
+  });
+
+  it("recusa pelo problema da parte, e não grava nada", async () => {
+    const id = await pronto();
+    expect(await repo.salvarParteDoCarrossel(id, { tipo: "slide", numero: 5 }, { chamada: "Comente PROMPT agora." }, null)).toEqual({
+      ok: false,
+      motivo: "problemas",
+      problemas: [{ campo: "chamada", erro: "precisa pedir a palavra SUMIDO" }],
+    });
+    expect((await repo.lerCarrossel(id))?.revisado).toBeNull();
+  });
+
+  it("só carrossel pronto, e o que não existe também é recusado", async () => {
+    const pendente = await criado(5);
+    expect(await repo.salvarParteDoCarrossel(pendente, { tipo: "slide", numero: 1 }, { gancho: GANCHO }, null)).toEqual({
+      ok: false,
+      motivo: "nao_pronto",
+    });
+    expect(
+      await repo.salvarParteDoCarrossel("0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f", { tipo: "slide", numero: 1 }, { gancho: GANCHO }, null)
+    ).toEqual({ ok: false, motivo: "nao_pronto" });
+  });
+
+  it("completa o nome que falta da conta, na mesma gravação", async () => {
+    const id = await pronto();
+    await banco.db().sql().query(`update carrosseis_gerados set arte = '{"conta":"1001","soTexto":[2]}'::jsonb where id = $1`, [id]);
+    await repo.salvarParteDoCarrossel(id, { tipo: "slide", numero: 1 }, { gancho: GANCHO }, { nome: "Thiago Vannuchi", arroba: "thiagovannuchi" });
+    expect((await repo.lerCarrossel(id))?.arte).toEqual({ conta: "1001", nome: "Thiago Vannuchi", arroba: "thiagovannuchi", soTexto: [2] });
+  });
+
+  // A linha é travada por uma transação do próprio teste, e os dois salvamentos partem enquanto ela
+  // está presa. Com a trava (`for update`), cada um lê o texto DEPOIS de pegar a linha, e o segundo
+  // junta sobre o primeiro. Sem ela, os dois leem o texto velho antes da trava soltar, e o segundo
+  // apaga o primeiro.
+  it("dois salvamentos ao mesmo tempo, de slides diferentes, não apagam um ao outro", async () => {
+    const id = await pronto();
+    let soltar!: () => void;
+    const segurando = new Promise<void>((f) => (soltar = f));
+    let travou!: () => void;
+    const travado = new Promise<void>((f) => (travou = f));
+    const transacao = banco
+      .db()
+      .sql()
+      .begin(async (tx) => {
+        await tx.query(`select id from carrosseis_gerados where id = $1 for update`, [id]);
+        travou();
+        await segurando;
+      });
+    await travado;
+    const a = repo.salvarParteDoCarrossel(id, { tipo: "slide", numero: 1 }, { gancho: GANCHO }, null);
+    const b = repo.salvarParteDoCarrossel(id, { tipo: "slide", numero: 5 }, { chamada: CHAMADA }, null);
+    try {
+      await new Promise((f) => setTimeout(f, 300));
+    } finally {
+      // Solta a trava antes de qualquer `expect` (a lição do teste do teto, logo acima).
+      soltar();
+      await transacao;
+    }
+    await Promise.all([a, b]);
+    expect((await repo.lerCarrossel(id))?.revisado).toEqual({ ...TEXTO, gancho: GANCHO, chamada: CHAMADA });
+  });
+});
+
 // A ARTE (Etapas 3 e 4): a conta do carrossel, com o nome e o @, gravada no pedido; o "só texto"
 // gravado só em carrossel pronto e SEM apagar a conta; o "Fixar nesta conta" uma vez só; e as contas
 // lidas SÓ pelas colunas do cabeçalho: a tabela `accounts` guarda o token de acesso de cada conta, e

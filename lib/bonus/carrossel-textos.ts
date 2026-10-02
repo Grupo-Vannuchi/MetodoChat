@@ -2,7 +2,7 @@
 // é indistinguível de sucesso, e o texto de cada saída vem de função pura, com teste.
 import type { Aviso } from "@/lib/avisos";
 import { SLIDES_MAX, SLIDES_MIN, TETO_CARROSSEL_DIARIO, type RecusaDoPedidoDeCarrossel } from "./carrossel-pedido";
-import { camposDoFormulario, type FalhaDaConferencia } from "./carrossel-texto";
+import { camposDoFormulario, type FalhaDaConferencia, type ParteDoCarrossel, type ProblemaDoCampo } from "./carrossel-texto";
 import { PALAVRA_MAX, PALAVRA_MIN } from "./pedido";
 import type { SituacaoNoLabs } from "./publicado";
 import type { TomDoQuadro } from "./textos";
@@ -16,6 +16,21 @@ export type AvisoDaRevisao = Aviso & { em: number };
 
 /** A recusa do "Gerar carrossel", que também volta como estado do formulário. */
 export type AvisoDoPedidoDeCarrossel = Aviso & { em: number };
+
+/**
+ * A resposta do "Salvar slide N" e do "Salvar legenda" (spec da Etapa 4), como estado do card do
+ * slide, e nunca por redirect (achado 52). `versao` é a versão nova da miniatura do slide salvo, e só
+ * ela é pedida de novo; é null para a legenda e na recusa, quando a miniatura não muda.
+ */
+export type AvisoDoSlide = Aviso & { em: number; versao: string | null };
+
+export const TEXTO_PARTE_INVALIDA = "Essa parte não existe neste carrossel. Recarregue a página.";
+
+/** O que se salvou, e o problema que ficou em outro campo, que não impede o salvar mas não some calado. */
+export function textoDaParteSalva(parte: ParteDoCarrossel, total: number, avisos: ProblemaDoCampo[]): string {
+  const salvo = parte.tipo === "legenda" ? "Legenda salva." : `Slide ${parte.numero} salvo.`;
+  return avisos.length ? `${salvo} Atenção, em outro campo: ${textoDosProblemasDoCarrossel(total, avisos)}` : salvo;
+}
 
 /** O aviso vai pela URL com texto E tom: `avisoDaUrl` lê os dois, e sem tom tudo vira erro. */
 export function urlDoCarrosselComAviso(bonusId: string, carrosselId: string, aviso: Aviso): string {

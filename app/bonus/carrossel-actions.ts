@@ -9,9 +9,12 @@ import {
   contaParaGuardar,
   contaSelecionada,
   nomeQueFalta,
+  resolverConta,
   type ContaGuardada,
 } from "@/lib/bonus/arte-conta";
 import { escolhasDaArte, lerSoTextoDoFormulario } from "@/lib/bonus/arte-escolhas";
+import { slidesDoTexto } from "@/lib/bonus/arte-slides";
+import { cabecalhoParaVersao, versoesDosSlides } from "@/lib/bonus/arte-tela";
 import {
   TEXTO_ARTE_NAO_PRONTA,
   TEXTO_ARTE_SALVA,
@@ -27,24 +30,28 @@ import {
   criarPedidoDeCarrossel,
   fixarContaDoCarrossel as gravarContaFixada,
   lerCarrossel,
+  salvarParteDoCarrossel,
   salvarRevisaoDoCarrossel as gravarRevisao,
   salvarSoTextoDaArte,
 } from "@/lib/bonus/carrossel-repositorio";
 import { textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
-import { camposDoFormulario, lerRevisaoDoCarrossel } from "@/lib/bonus/carrossel-texto";
+import { camposDaParte, camposDoFormulario, lerParte, lerRevisaoDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import {
   TEXTO_CARROSSEL_NAO_ENCONTRADO,
   TEXTO_CARROSSEL_NAO_REVISAVEL,
   TEXTO_NAO_DA_PARA_GERAR_CARROSSEL_DE_NOVO,
+  TEXTO_PARTE_INVALIDA,
   TEXTO_REVISAO_SALVA,
   TEXTO_SO_BONUS_CRIADO,
   quadroDaSituacao,
+  textoDaParteSalva,
   textoDaRecusaDoPedidoDeCarrossel,
   textoDoTetoDoCarrossel,
   textoDosProblemasDoCarrossel,
   urlDoCarrosselComAviso,
   type AvisoDaRevisao,
   type AvisoDoPedidoDeCarrossel,
+  type AvisoDoSlide,
 } from "@/lib/bonus/carrossel-textos";
 import { temChaveDaIA } from "@/lib/bonus/config";
 import { ehIdDeBonus } from "@/lib/bonus/pedido";
@@ -196,6 +203,40 @@ export async function salvarRevisaoDoCarrossel(
   }
   const salvou = await gravarRevisao(id, lido.texto);
   return salvou ? resposta("ok", TEXTO_REVISAO_SALVA) : resposta("erro", TEXTO_CARROSSEL_NAO_REVISAVEL);
+}
+
+/**
+ * O "SALVAR SLIDE N" E O "SALVAR LEGENDA" (spec da Etapa 4): grava só a parte, juntada ao texto
+ * salvo numa transação com a linha travada (carrossel-repositorio.ts), e recusa só pelos problemas
+ * dela. A resposta volta como ESTADO do card (achado 52), com a versão nova da miniatura do slide
+ * salvo: só ela é pedida de novo. Os campos que o formulário trouxer fora da parte são ignorados.
+ */
+export async function salvarSlideDoCarrossel(_anterior: AvisoDoSlide | null, form: FormData): Promise<AvisoDoSlide | null> {
+  await exigirSessao();
+  const id = form.get("id");
+  if (!ehIdDeBonus(id)) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
+  const linha = await lerCarrossel(id);
+  if (!linha) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
+  const resposta = (tom: AvisoDoSlide["tom"], texto: string, versao: string | null = null): AvisoDoSlide => ({
+    tom,
+    texto,
+    em: Date.now(),
+    versao,
+  });
+  const total = linha.total_slides;
+  const parte = lerParte(form.get("parte"), total);
+  if (!parte) return resposta("erro", TEXTO_PARTE_INVALIDA);
+  const bruto = Object.fromEntries(camposDaParte(total, parte).map((c) => [c, form.get(c)]));
+  const contas = await contasParaArte();
+  const escolhas = escolhasDaArte(linha.arte, total);
+  const r = await salvarParteDoCarrossel(id, parte, bruto, nomeQueFalta(contas, escolhas));
+  if (!r.ok && r.motivo === "nao_pronto") return resposta("erro", TEXTO_CARROSSEL_NAO_REVISAVEL);
+  if (!r.ok) return resposta("erro", `Corrija antes de salvar. ${textoDosProblemasDoCarrossel(total, r.problemas)}`);
+  const texto = textoDaParteSalva(parte, total, r.avisos);
+  if (parte.tipo === "legenda") return resposta("ok", texto);
+  const { conta } = resolverConta(contas, escolhas, await contaDoCookie());
+  const versoes = versoesDosSlides(slidesDoTexto(r.texto), escolhas.soTexto, cabecalhoParaVersao(conta));
+  return resposta("ok", texto, versoes[parte.numero - 1] ?? null);
 }
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cabecalhoDaConta,
+  cabecalhoParaVersao,
   cabecalhosDaArte,
   conferirPedidoDaArte,
   nomeDoArquivo,
@@ -156,6 +157,14 @@ describe("a versão de cada miniatura", () => {
   it("o número e o total de cada slide entram: o mesmo texto noutra posição tem outra versão", () => {
     const com4 = versoesDosSlides(slidesDoTexto({ ...texto, slides: [texto.slides[0], texto.slides[0]] }), [], CAB);
     expect(com4[0]).not.toBe(base[0]);
+  });
+
+  // A página e a action de salvar calculam a versão do mesmo jeito: com a URL da foto no lugar do
+  // `data:` que só a rota tem.
+  it("o cabeçalho da versão é o da conta, com a URL da foto; sem conta, o vazio", () => {
+    const c = { ig_user_id: "1001", username: "thiagovannuchi", name: "Thiago Vannuchi", profile_picture_url: "https://foto" };
+    expect(cabecalhoParaVersao(c)).toEqual(CAB);
+    expect(cabecalhoParaVersao(null)).toEqual({ nome: "", arroba: "", foto: null, iniciais: "IG" });
   });
 });
 
