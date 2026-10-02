@@ -51,7 +51,8 @@ Todas do Eduardo, em 02/10, pela caixa de perguntas.
 | a conta desconectada do Chat | o carrossel continua dela, com o nome e o @ guardados ao nascer e as iniciais no lugar da foto |
 | a página | lista: um slide por linha, a miniatura à esquerda e o editor ao lado, expansível |
 | salvar | um botão por slide, que grava só aquele slide |
-| o "não cabe" | quebrar as linhas por palavra, com a largura de letra de hoje; a folga de 48px entra |
+| o "não cabe" | a largura real de cada letra, quebrando por palavra como o desenho; a folga de 48px e a manchete de 77px entram (a "quebra por palavra com a largura de hoje" foi a primeira escolha, revista com as medidas) |
+| o gancho longo | um degrau de 46px entre o 56 e o piso de 34 |
 | os carrosséis sem conta gravada | um botão "Fixar nesta conta", uma vez só |
 | a margem e a foto | a primeira coisa desta etapa (decidido no fechamento da Etapa 3) |
 
@@ -172,8 +173,10 @@ lista: a lista muda enquanto a Etapa 3 está no ar.
 ## O "não cabe" (achado 70), com o Labs
 
 Medido em 02/10, com 66 PNGs no limite de cada degrau: nenhum texto cortou na borda, mas a peça
-invadia a margem de baixo em dois casos. A causa está na conta trazida do Labs, e o Labs a conferiu
-no código de lá (Etapa 48 do ROADMAP deles, na `dev` em `ab34976`).
+invadia a margem de baixo. A conta trazida do Labs não via três espaços que o desenho gasta, e
+media as letras por uma largura média. O Labs conferiu no código de lá (Etapa 48 do ROADMAP deles,
+na `dev` em `ab34976`), achou o terceiro espaço (a manchete), e mediu os mesmos casos na arte de lá,
+com os mesmos números ao pixel.
 
 ### A folga de 48px
 
@@ -183,39 +186,85 @@ não os desconta: `ALTURA_TEXTO_COM_ILUSTRACAO` dá 382, e o desenho só tem 334
 `GAP_ILUSTRACAO` da altura com ilustração. A geometria passa a conhecer todo número que ocupa
 altura; a altura sem ilustração (955) não muda.
 
-### A quebra por palavra
-
-Em caixa alta e fonte grande, a conta previa uma linha a menos. A causa não é a largura das letras:
-a média que a conta usa (0,5538 do corpo) é exatamente a média das maiúsculas da Carlito Regular, e
-uma frase em caixa alta, com os espaços, dá 0,51 (medido nos `.ttf` em 02/10). A causa é a quebra:
-a 116px cabem uns 13 caracteres por linha, e uma palavra que não cabe vai inteira para a linha de
-baixo. A conta passa a quebrar as linhas palavra por palavra, como o desenho, com a mesma largura de
-hoje.
-
-O comentário de `alturaEstimada` que diz que ela "erra para o lado seguro" é corrigido. Em caixa alta
-grande, ela errava para o lado que deixa a peça invadir a margem.
-
-**O negrito (achado 71 da auditoria).** A manchete e o bloco final do gancho e da chamada saem em
-negrito, e a média das maiúsculas na Carlito Bold é 0,5679, 2,5% acima de 0,5538. A régua desenha
-também a manchete e o negrito em caixa alta no limite. Se ela cair, a conta usa 0,5679 nas linhas em
-negrito, combinado com o Labs antes.
-
 Os 48px de baixo, com o cabeçalho no pé, não são uma segunda causa: com a tag no topo ou no pé, o
 respiro de 48px entre a tag e o texto já está nos 175 do `CABECALHO_ESTIMADO` (127 + 48). Nos dois
 casos sobram 334px com o espaço da imagem.
 
-### O efeito
+### A manchete ocupa no mínimo 77px
 
-A conta fica mais rígida. Alguns textos que hoje "cabem" passam a ter o aviso, ou saem com a fonte
-um degrau menor, inclusive nos carrosséis que já existem. É o esperado: antes eles invadiam a margem.
+O desenho dá à manchete `marginBottom: max(0, 77 − round(fonte × 1,32))` (`AVANCO_MANCHETE`), e a
+conta a tratava como uma linha comum. A 34px, a conta via 45px e o desenho gastava 77. A conta passa
+a dar à manchete de n linhas `n × fonte × 1,32 + max(0, 77 − round(fonte × 1,32))`. Com uma linha, isso
+é perto de 77; com duas, `fonte × 1,32 + 77`. O `AVANCO_MANCHETE` vai para a geometria, como os
+intervalos.
+
+### A largura real de cada letra, quebrando como o desenho
+
+Em caixa alta e fonte grande, a conta previa uma linha a menos. A causa principal é a quebra: a 116px
+cabem uns 13 caracteres por linha, e a palavra que não cabe vai inteira para a linha de baixo. A
+conta por caractere não via isso. Mas quebrar por palavra com a largura média de hoje (0,5538 do
+corpo, a média das maiúsculas da Carlito Regular) deixava a conta conservadora demais: medida nos
+carrosséis da produção, ela encolhia peças que cabiam, como um gancho de 64 caracteres de 72 para
+56px, e não via o negrito, que é 2,5% mais largo (achado 71).
+
+A conta passa a medir cada linha com a largura de avanço de cada letra da Carlito, tirada dos `.ttf`:
+- Regular ou Bold, como o desenho: a manchete e o bloco final (quando há mais de um bloco, ou não há
+  manchete) saem em negrito, e com `letterSpacing` de −0,4px por letra;
+- quebra gulosa nos pontos em que o Satori quebra: no espaço, e depois do hífen;
+- a palavra mais longa que a linha (um @perfil, uma URL) quebra por letra;
+- o espaço tem a largura real dele;
+- um caractere sem desenho na fonte (o emoji, que vem da twemoji, ou outro alfabeto) conta 1 em.
+
+Com a tabela do negrito, o achado 71 fica resolvido por desenho. O comentário de `alturaEstimada` que
+diz que ela "erra para o lado seguro" é corrigido.
+
+**A tabela não é cópia à mão.** Um script na pasta da feature a gera a partir dos `.ttf` versionados
+(google/fonts `3dd7884402`), e um teste a recalcula dos `.ttf` e compara. Uma fonte trocada sem tabela
+nova derruba o teste. A tabela serve também ao Labs: ele busca a Carlito na hora pela API do Google
+Fonts, e as larguras de lá são iguais às dos `.ttf` do Chat em 190 de 191 caracteres do português
+(medido pela auditoria em 02/10; o que sobra não tem desenho em nenhuma das duas). Se a busca do Labs
+falhar, ele desenha com a fonte padrão, e aí nenhuma tabela vale; isso é do lado de lá.
+
+**O gancho ganha o degrau de 46px** (decisão do Eduardo). Com 334px, as 5 linhas de 56 não cabem, e
+sem o 46 o gancho longo cairia direto para o piso de 34.
+
+### O que foi medido para decidir
+
+Com uma régua descartável no ensaio (o desenho de verdade, com o espaço da imagem pintado para
+aparecer no pixel, contra a linha 1240), em 02/10:
+
+| conta | o maior texto aceito em cada degrau: peças além da margem | os 5 carrosséis da produção (40 peças): além da margem |
+|---|---|---|
+| hoje (382, por caractere) | 44 de 108, até 109px | 8 |
+| por palavra, largura de hoje | 1 de 113, 7px | 3, e 15 mudam de tamanho, algumas que cabiam |
+| só o espaço na largura real | 19 de 112, até 60px | — |
+| largura real de cada letra | 0 de 112 | 3, e só descem as que invadiam; algumas sobem onde sobrava |
+
+As 3 peças da produção que ficam além da margem não cabem nem no piso, e o aviso passa a acusar. Os 4
+casos que o Labs desenhou na arte de lá dão os mesmos números no instrumento do Chat. A capa de 109
+caracteres, que cabia com folga de 39px, fica em 56px na largura real; na quebra por palavra com a
+largura de hoje, descia para 46 sem precisar.
+
+### O efeito na produção
+
+Para o Eduardo saber antes do merge: as peças que não cabem nem no piso passam a mostrar o aviso, e o
+operador terá de encurtar ou marcar "só texto". As que mudam de tamanho saem diferentes dos PNGs
+baixados antes do deploy.
 
 ### Dois donos
 
-A conta é a do Labs, e tem de continuar igual nos dois projetos. A mudança é combinada com o DEV do
-Labs (a sessão `site-ia-83` em 02/10) antes do código: o mesmo código nos dois, com o cabeçalho de
-cada arquivo citando o commit de origem. O "sem mudar uma linha do Labs em `45bc973`" da Etapa 3
-deixa de valer, e a conferência por diff passa a ser contra o commit novo. Sem isso, repete-se o que
-aconteceu com o aviso do Labs em `1254847`, que divergiu do desenho.
+A conta veio do Labs, e tem de dar o mesmo resultado nos dois projetos. Proposta do Labs (a sessão
+`site-ia-83` em 02/10), decidida pelo Eduardo ("Mesmos casos de teste"):
+- cada projeto escreve a conta no próprio código;
+- a tabela de larguras sai de um script versionado, a partir dos `.ttf`;
+- um teste recalcula a tabela e reprova se ela divergir;
+- os dois projetos conferem o MESMO conjunto de vetores (texto, tipo, modo e manchete → degrau e
+  altura), com os limites da régua e os casos que o Labs desenhou como base.
+
+Código copiado garante igualdade no dia da cópia; vetores compartilhados garantem o mesmo resultado
+nos dias seguintes. O "sem mudar uma linha do Labs em `45bc973`" da Etapa 3 deixa de valer para a
+geometria e os slides, e o cabeçalho de cada arquivo passa a citar os vetores. Sem isso, repete-se o
+que aconteceu com o aviso do Labs em `1254847`, que divergiu do desenho.
 
 ### A régua, como teste
 
@@ -236,7 +285,8 @@ O PNG é lido por um decodificador pequeno no próprio teste (`zlib.inflateSync`
 para RGBA de 8 bits sem entrelaçamento, que é o que o desenho gera). O `sharp` não serve: ele só
 existe como dependência opcional do Next, e pô-lo no `package.json` mexeria num arquivo do Vinícius.
 O teste também confere a conta contra o próprio desenho, com acentos, hífens de lista e quebras de
-linha, e não só contra ela mesma.
+linha, e não só contra ela mesma. A régua desenha a manchete de 1 e de 2 linhas, em caixa alta, e o
+gancho nos quatro degraus (86, 72, 56 e 46).
 
 ---
 
@@ -284,7 +334,8 @@ DDL, e o deploy dela não tem passo à mão.
 | pura | qual campo é o slide N, nos totais 1, 2, 3 e 10 e no post |
 | pura | juntar uma parte ao texto salvo, e recusar só pelos problemas dela |
 | pura | a versão por slide: cada entrada do desenho muda a versão daquele slide e não a dos outros |
-| pura | a conta nova do "não cabe": a folga de 48px e a quebra por palavra, com os casos do achado 70 |
+| pura | a conta nova do "não cabe": a folga de 48px, a manchete de 1 e de 2 linhas, a largura de cada letra no regular e no negrito, a quebra no espaço e depois do hífen, a palavra maior que a linha, o caractere sem desenho, e os vetores combinados com o Labs |
+| pura | a tabela de larguras: recalculada dos `.ttf` e igual à versionada |
 | pura | a régua: o maior texto de cada degrau, desenhado, termina dentro da área útil |
 | pura | a foto em memória: uma busca para chamadas juntas, validade do sucesso e da falha, limpeza, com relógio falso |
 | integração | salvar um slide não mexe nos outros; dois salvamentos ao mesmo tempo não se apagam; só carrossel pronto |
