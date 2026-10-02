@@ -86,3 +86,51 @@ export async function fotoDaConta(url: string | null, fetchImpl: typeof fetch = 
   if (!bytes || !tipo) return null;
   return `data:image/${tipo};base64,${Buffer.from(bytes).toString("base64")}`;
 }
+
+// A FOTO EM MEMÓRIA, por instância do servidor e por URL (spec da Etapa 4). As miniaturas de um
+// carrossel chegam juntas, e cada uma buscava a foto de novo na Meta, até 3 s cada: trocar a conta,
+// na Etapa 3, pedia 10 buscas e pareceu lento no preview.
+// - Guarda a PROMESSA, e não só o resultado: as chamadas que chegam juntas, com a memória vazia,
+//   esperam a mesma busca.
+// - A foto achada vale 10 minutos; a falha (null) vale 30 s, para uma queda da Meta não grudar.
+// - As vencidas saem a cada chamada: a URL muda quando o cron renova a conta, e as chaves velhas se
+//   acumulariam.
+// As travas da busca são as de `fotoDaConta`, que continua sendo quem busca.
+
+export const FOTO_GUARDADA_MS = 10 * 60_000;
+export const FALHA_GUARDADA_MS = 30_000;
+
+export type MemoriaDasFotos = {
+  foto: (url: string | null) => Promise<string | null>;
+  /** Quantas URLs estão guardadas agora (para o teste da limpeza). */
+  quantas: () => number;
+};
+
+export function memoriaDasFotos(
+  buscar: (url: string) => Promise<string | null> = (url) => fotoDaConta(url),
+  agora: () => number = Date.now
+): MemoriaDasFotos {
+  const guardadas = new Map<string, { promessa: Promise<string | null>; vence: number }>();
+  return {
+    foto(url) {
+      if (!url) return Promise.resolve(null);
+      const t = agora();
+      for (const [chave, g] of guardadas) if (g.vence <= t) guardadas.delete(chave);
+      const achada = guardadas.get(url);
+      if (achada) return achada.promessa;
+      const guardada = { promessa: buscar(url), vence: t + FOTO_GUARDADA_MS };
+      guardadas.set(url, guardada);
+      guardada.promessa.then(
+        (foto) => {
+          if (foto === null) guardada.vence = agora() + FALHA_GUARDADA_MS;
+        },
+        () => guardadas.delete(url)
+      );
+      return guardada.promessa;
+    },
+    quantas: () => guardadas.size,
+  };
+}
+
+/** A memória desta instância do servidor, que a rota da arte usa. */
+export const fotosDaInstancia = memoriaDasFotos();

@@ -37,6 +37,14 @@ describe("a rota da arte", () => {
   it("os cabeçalhos da resposta saem de cabecalhosDaArte, que nunca diz public", () => {
     expect(ler("lib/bonus/arte-resposta.tsx")).toContain("headers: cabecalhosDaArte(baixar, nomeDoArquivo)");
   });
+
+  // A foto passa pela memória da instância (spec da Etapa 4): as miniaturas chegam juntas, e a
+  // memória faz delas uma busca só. Chamar `fotoDaConta` direto voltaria a uma busca por miniatura.
+  it("a foto da conta vem da memória da instância, e não de uma busca por miniatura", () => {
+    const rota = ler(ROTA);
+    expect(rota).toContain("fotosDaInstancia.foto(");
+    expect(rota).not.toMatch(/\bfotoDaConta\(/);
+  });
 });
 
 // O TOKEN DE ACESSO DA CONTA NÃO SAI DA TABELA (achado 60): `accounts` guarda o `access_token`, e
