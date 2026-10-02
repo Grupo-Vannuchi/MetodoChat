@@ -48,9 +48,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!conferido.ok) return erro(conferido.status, conferido.texto);
   const { linha, slides, numero } = conferido;
 
-  // A conta do cabeçalho: a gravada no carrossel; sem ela, ou desconectada, a selecionada no Chat.
+  // A conta do cabeçalho é a do carrossel (arte-conta.ts): conectada, os dados atuais; desconectada,
+  // o nome e o @ guardados, com as iniciais; sem conta gravada, a logada no Chat.
   const escolhas = escolhasDaArte(linha.arte, slides.length);
-  const { conta } = resolverConta(await contasParaArte(), escolhas.conta, jarra.get(ACCOUNT_COOKIE)?.value);
+  const { conta } = resolverConta(await contasParaArte(), escolhas, jarra.get(ACCOUNT_COOKIE)?.value);
   if (!conta) return erro(409, TEXTO_ARTE_SEM_CONTA);
   // A foto vem da memória desta instância (arte-foto.ts): as miniaturas chegam juntas, e uma busca
   // só atende todas.

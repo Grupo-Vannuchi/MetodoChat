@@ -4,18 +4,31 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ACCOUNT_COOKIE } from "@/lib/account";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
-import { resolverConta } from "@/lib/bonus/arte-conta";
-import { lerEscolhasDoFormulario } from "@/lib/bonus/arte-escolhas";
-import { TEXTO_ARTE_NAO_PRONTA, TEXTO_ARTE_SALVA, textoDaRecusaDaArte, type AvisoDaArte } from "@/lib/bonus/arte-textos";
+import {
+  contaParaGerarDeNovo,
+  contaParaGuardar,
+  contaSelecionada,
+  nomeQueFalta,
+  type ContaGuardada,
+} from "@/lib/bonus/arte-conta";
+import { escolhasDaArte, lerSoTextoDoFormulario } from "@/lib/bonus/arte-escolhas";
+import {
+  TEXTO_ARTE_NAO_PRONTA,
+  TEXTO_ARTE_SALVA,
+  TEXTO_CONTA_FIXADA,
+  textoDaRecusaDaArte,
+  type AvisoDaArte,
+} from "@/lib/bonus/arte-textos";
 import type { ContextoDoCarrossel } from "@/lib/bonus/carrossel-ia-parametros";
 import { lerPedidoDeCarrossel } from "@/lib/bonus/carrossel-pedido";
 import { processarCarrossel } from "@/lib/bonus/carrossel-processo";
 import {
   contasParaArte,
   criarPedidoDeCarrossel,
+  fixarContaDoCarrossel as gravarContaFixada,
   lerCarrossel,
-  salvarEscolhasDaArte,
   salvarRevisaoDoCarrossel as gravarRevisao,
+  salvarSoTextoDaArte,
 } from "@/lib/bonus/carrossel-repositorio";
 import { textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
 import { camposDoFormulario, lerRevisaoDoCarrossel } from "@/lib/bonus/carrossel-texto";
@@ -55,12 +68,17 @@ async function exigirSessao(): Promise<void> {
 }
 
 /**
- * A CONTA DO CABEÇALHO DA ARTE, gravada no pedido: a selecionada no Chat agora (spec da Etapa 3).
- * Gravar na primeira visita seria uma escrita dentro de um GET; o pedido já é uma escrita.
+ * A CONTA DO CARROSSEL, gravada no pedido: a logada no Chat agora, com o nome e o @ (spec da Etapa
+ * 4). O carrossel é dela, e nunca vira de outra. Gravar na primeira visita seria uma escrita dentro
+ * de um GET; o pedido já é uma escrita.
  */
-async function contaDoPedido(): Promise<string | null> {
-  const jarra = await cookies();
-  return resolverConta(await contasParaArte(), null, jarra.get(ACCOUNT_COOKIE)?.value).conta?.ig_user_id ?? null;
+async function contaDoPedido(): Promise<ContaGuardada | null> {
+  const logada = contaSelecionada(await contasParaArte(), await contaDoCookie());
+  return logada ? contaParaGuardar(logada) : null;
+}
+
+async function contaDoCookie(): Promise<string | undefined> {
+  return (await cookies()).get(ACCOUNT_COOKIE)?.value;
 }
 
 /** O bônus pronto para carrossel: criado no Labs e publicado lá. Qualquer outra coisa é recusa. */
@@ -131,12 +149,18 @@ export async function gerarCarrosselDeNovo(form: FormData): Promise<void> {
   }
   const bonus = await bonusParaCarrossel(linha.bonus_id);
   if (!bonus.ok) redirect(urlDoCarrosselComAviso(linha.bonus_id, id, { tom: "erro", texto: bonus.texto }));
+  // O novo herda a conta do original, mesmo desconectada (decisão do Eduardo em 02/10): gerar de
+  // novo um carrossel do Thiago com o Chat na N8X faz outro do Thiago.
   const criado = await criarPedidoDeCarrossel({
     bonusId: linha.bonus_id,
     total: linha.total_slides,
     palavra: bonus.palavra,
     contexto: bonus.contexto,
-    conta: await contaDoPedido(),
+    conta: contaParaGerarDeNovo(
+      await contasParaArte(),
+      escolhasDaArte(linha.arte, linha.total_slides),
+      await contaDoCookie()
+    ),
   });
   if (!criado.ok) redirect(urlDoCarrosselComAviso(linha.bonus_id, id, { tom: "erro", texto: textoDoTetoDoCarrossel() }));
   const novo = criado.id;
@@ -175,10 +199,11 @@ export async function salvarRevisaoDoCarrossel(
 }
 
 /**
- * AS ESCOLHAS DA ARTE: a conta do cabeçalho e os slides "só texto". A resposta volta como ESTADO
- * (useActionState), e nunca por redirect, pelo mesmo motivo do salvar da revisão (achado 52): a
- * seção da arte fica na página do editor, e recriar a página apagaria o que se estiver editando.
- * A conta tem de ser uma das conectadas, e só carrossel pronto guarda escolha.
+ * O "SÓ TEXTO" DA ARTE. A resposta volta como ESTADO (useActionState), e nunca por redirect, pelo
+ * mesmo motivo do salvar da revisão (achado 52): a seção da arte fica na página do editor, e recriar
+ * a página apagaria o que se estiver editando. Só carrossel pronto guarda escolha. A conta não vem do
+ * formulário (spec da Etapa 4): o carrossel é da conta em que nasceu. Gravar aqui completa o nome e
+ * o @ da conta gravada na Etapa 3 sem eles.
  */
 export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form: FormData): Promise<AvisoDaArte | null> {
   await exigirSessao();
@@ -188,13 +213,30 @@ export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form:
   if (!linha) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
   const resposta = (tom: AvisoDaArte["tom"], texto: string): AvisoDaArte => ({ tom, texto, em: Date.now() });
   if (linha.estado !== "pronto" || !textoDaLinhaDoCarrossel(linha)) return resposta("erro", TEXTO_ARTE_NAO_PRONTA);
-  const conectadas = (await contasParaArte()).map((c) => c.ig_user_id);
-  const lido = lerEscolhasDoFormulario(
-    { conta: form.get("conta"), soTexto: form.getAll("so_texto") },
-    linha.total_slides,
-    conectadas
-  );
+  const lido = lerSoTextoDoFormulario(form.getAll("so_texto"), linha.total_slides);
   if (!lido.ok) return resposta("erro", textoDaRecusaDaArte(lido.motivo));
-  const salvou = await salvarEscolhasDaArte(id, lido.escolhas);
+  const falta = nomeQueFalta(await contasParaArte(), escolhasDaArte(linha.arte, linha.total_slides));
+  const salvou = await salvarSoTextoDaArte(id, lido.soTexto, falta);
   return salvou ? resposta("ok", TEXTO_ARTE_SALVA) : resposta("erro", TEXTO_ARTE_NAO_PRONTA);
+}
+
+/**
+ * "FIXAR NESTA CONTA" (decisão do Eduardo em 02/10): o carrossel de antes da 015, sem conta gravada,
+ * passa a ser da conta logada agora, com o nome e o @, uma vez só. A resposta volta como estado,
+ * como as outras da página.
+ */
+export async function fixarContaDoCarrossel(_anterior: AvisoDaArte | null, form: FormData): Promise<AvisoDaArte | null> {
+  await exigirSessao();
+  const id = form.get("id");
+  if (!ehIdDeBonus(id)) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
+  const linha = await lerCarrossel(id);
+  if (!linha) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
+  const resposta = (tom: AvisoDaArte["tom"], texto: string): AvisoDaArte => ({ tom, texto, em: Date.now() });
+  if (linha.estado !== "pronto" || !textoDaLinhaDoCarrossel(linha)) return resposta("erro", TEXTO_ARTE_NAO_PRONTA);
+  if (escolhasDaArte(linha.arte, linha.total_slides).conta) return resposta("erro", textoDaRecusaDaArte("ja_tem_conta"));
+  const logada = contaSelecionada(await contasParaArte(), await contaDoCookie());
+  if (!logada) return resposta("erro", textoDaRecusaDaArte("sem_conta"));
+  // O `where` do repositório recusa quem já tem conta: outra aba pode ter fixado no meio.
+  const fixou = await gravarContaFixada(id, contaParaGuardar(logada));
+  return fixou ? resposta("ok", TEXTO_CONTA_FIXADA) : resposta("erro", textoDaRecusaDaArte("ja_tem_conta"));
 }

@@ -1,7 +1,6 @@
 import "server-only";
 import { sql } from "@/lib/db";
-import type { ContaDoCabecalho } from "./arte-conta";
-import type { EscolhasDaArte } from "./arte-escolhas";
+import type { ContaDoCabecalho, ContaGuardada } from "./arte-conta";
 import type { ContextoDoCarrossel } from "./carrossel-ia-parametros";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { TETO_CARROSSEL_DIARIO } from "./carrossel-pedido";
@@ -27,17 +26,25 @@ export async function carrosseisNasUltimas24h(): Promise<number> {
   return linha?.n ?? 0;
 }
 
+/** A conta como a coluna `arte` a guarda: sem as chaves vazias. */
+function chavesDaConta(c: Partial<ContaGuardada> | null): Record<string, string> {
+  return Object.fromEntries(Object.entries(c ?? {}).filter(([, v]) => typeof v === "string" && v !== "")) as Record<
+    string,
+    string
+  >;
+}
+
 /**
  * CONTAR E INSERIR NA MESMA TRANSAÇÃO, COM TRAVA: dois cliques com 9 no dia não fazem 11.
- * `conta` é a conta do cabeçalho da arte, gravada no pedido (spec da Etapa 3): sem conta, a arte
- * nasce `{}` e usa a selecionada no Chat.
+ * `conta` é a conta do carrossel, com o nome e o @, gravada no pedido (spec da Etapa 4): o
+ * carrossel é dela, e nunca vira de outra. Sem conta, a arte nasce `{}`.
  */
 export async function criarPedidoDeCarrossel(p: {
   bonusId: string;
   total: number;
   palavra: string;
   contexto: ContextoDoCarrossel;
-  conta: string | null;
+  conta: ContaGuardada | null;
 }): Promise<{ ok: true; id: string } | { ok: false }> {
   return sql().begin(async (tx) => {
     await tx.query(`select pg_advisory_xact_lock($1::bigint)`, [TRAVA_DO_TETO_DO_CARROSSEL]);
@@ -48,7 +55,7 @@ export async function criarPedidoDeCarrossel(p: {
     const [criada] = (await tx.query(
       `insert into carrosseis_gerados (bonus_id, total_slides, palavra, contexto, arte)
        values ($1, $2, $3, $4::jsonb, $5::jsonb) returning id`,
-      [p.bonusId, p.total, p.palavra, p.contexto, p.conta ? { conta: p.conta } : {}]
+      [p.bonusId, p.total, p.palavra, p.contexto, p.conta?.conta ? chavesDaConta(p.conta) : {}]
     )) as { id: string }[];
     return { ok: true as const, id: criada.id };
   });
@@ -106,11 +113,35 @@ export async function salvarRevisaoDoCarrossel(id: string, texto: TextoDoCarross
   return linhas.length > 0;
 }
 
-/** As escolhas da arte só valem para carrossel pronto. Devolve falso quando a linha não estava pronta. */
-export async function salvarEscolhasDaArte(id: string, escolhas: EscolhasDaArte): Promise<boolean> {
+/**
+ * O "SÓ TEXTO" DA ARTE, só em carrossel pronto. Grava SÓ a chave `soTexto` (`arte || …` junta as
+ * chaves), e nunca o objeto inteiro: até a Etapa 3 a escrita trocava a coluna toda, e gravar o "só
+ * texto" sem a conta a apagaria (spec da Etapa 4). `nomeQueFalta` completa o nome e o @ da conta
+ * gravada na Etapa 3 sem eles (arte-conta.ts). Devolve falso quando a linha não estava pronta.
+ */
+export async function salvarSoTextoDaArte(
+  id: string,
+  soTexto: number[],
+  nomeQueFalta: { nome: string | null; arroba: string | null } | null
+): Promise<boolean> {
   const linhas = (await sql().query(
-    `update carrosseis_gerados set arte = $2::jsonb where id = $1 and estado = 'pronto' returning id`,
-    [id, escolhas]
+    `update carrosseis_gerados set arte = arte || $2::jsonb where id = $1 and estado = 'pronto' returning id`,
+    [id, { ...chavesDaConta(nomeQueFalta), soTexto }]
+  )) as { id: string }[];
+  return linhas.length > 0;
+}
+
+/**
+ * "FIXAR NESTA CONTA": grava a conta, com o nome e o @, no carrossel que ainda não tem conta (o de
+ * antes da 015). Uma vez só: o `where` recusa o carrossel que já tem conta, e a conta de um
+ * carrossel não muda. Só em carrossel pronto. Devolve falso quando não gravou.
+ */
+export async function fixarContaDoCarrossel(id: string, conta: ContaGuardada): Promise<boolean> {
+  const linhas = (await sql().query(
+    `update carrosseis_gerados set arte = arte || $2::jsonb
+      where id = $1 and estado = 'pronto' and not (arte ? 'conta')
+      returning id`,
+    [id, chavesDaConta(conta)]
   )) as { id: string }[];
   return linhas.length > 0;
 }

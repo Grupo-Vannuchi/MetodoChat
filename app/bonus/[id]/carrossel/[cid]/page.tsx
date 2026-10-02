@@ -136,7 +136,7 @@ async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
 
   const contas = await contasParaArte();
   const escolhas = escolhasDaArte(carrossel.arte, carrossel.total_slides);
-  const { conta, origem } = resolverConta(contas, escolhas.conta, (await cookies()).get(ACCOUNT_COOKIE)?.value);
+  const { conta, origem } = resolverConta(contas, escolhas, (await cookies()).get(ACCOUNT_COOKIE)?.value);
   const versaoBase = versaoDaArte([
     (carrossel.revisado_em ?? carrossel.gerado_em)?.toISOString() ?? "",
     JSON.stringify(carrossel.arte ?? {}),

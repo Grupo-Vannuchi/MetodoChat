@@ -18,20 +18,23 @@ export const TEXTO_ARTE_SEM_DESENHO =
   "A arte deste slide não pôde ser desenhada. Se o texto tem emoji, tente de novo em instantes: o desenho do emoji vem de fora do Chat. Se continuar, avise quem cuida do Chat.";
 
 /**
- * A resposta do salvar da arte (a conta e o "só texto"), que volta como ESTADO e não por redirect:
- * a seção da arte fica na página do editor, e recriar a página apagaria a edição (achado 52). `em`
- * muda a cada resposta, e é o que troca a versão das miniaturas depois de salvar.
+ * A resposta do salvar da arte (o "só texto") e do "Fixar nesta conta", que volta como ESTADO e não
+ * por redirect: a seção da arte fica na página do editor, e recriar a página apagaria a edição
+ * (achado 52). `em` muda a cada resposta, e é o que troca a versão das miniaturas depois de salvar.
  */
 export type AvisoDaArte = Aviso & { em: number };
 
 export const TEXTO_ARTE_SALVA = "Arte salva.";
+export const TEXTO_CONTA_FIXADA = "Conta fixada neste carrossel.";
 
 export function textoDaRecusaDaArte(motivo: RecusaDaArte): string {
   switch (motivo) {
-    case "conta":
-      return "Essa conta não está conectada no Chat. Escolha uma das contas da lista.";
     case "slide":
       return "Esse slide não existe neste carrossel. Recarregue a página.";
+    case "ja_tem_conta":
+      return "Este carrossel já tem conta, e a conta de um carrossel não muda.";
+    case "sem_conta":
+      return TEXTO_ARTE_SEM_CONTA;
   }
 }
 
@@ -44,15 +47,17 @@ export function textoNaoCabeNunca(numero: number): string {
   return `O slide ${numero} não cabe nem sem o espaço da imagem. Encurte o texto.`;
 }
 
-/** De onde veio a conta do cabeçalho. A gravada não precisa de aviso. */
+/** De onde veio a conta do cabeçalho (arte-conta.ts). A do carrossel, conectada, não precisa de aviso. */
 export function textoDaOrigemDaConta(origem: OrigemDaConta, arroba: string): string | null {
   switch (origem) {
     case "gravada":
       return null;
+    case "guardada":
+      return `A conta deste carrossel (@${arroba}) foi desconectada do Chat. A arte segue com o nome dela, e as iniciais no lugar da foto.`;
     case "selecionada":
-      return `A arte usa a conta selecionada no Chat agora (@${arroba}). Escolha uma conta acima para gravar neste carrossel.`;
+      return `Este carrossel é de antes de a conta ser gravada, e a arte usa a conta logada agora (@${arroba}). Use "Fixar nesta conta" para ele ficar com ela.`;
     case "gravada_saiu":
-      return `A conta gravada neste carrossel foi desconectada do Chat. A arte usa a selecionada agora (@${arroba}).`;
+      return `A conta deste carrossel foi desconectada do Chat, e ele não guardou o nome dela. A arte usa a conta logada agora (@${arroba}).`;
   }
 }
 

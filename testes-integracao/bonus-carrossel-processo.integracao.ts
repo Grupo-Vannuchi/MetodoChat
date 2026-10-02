@@ -4,6 +4,7 @@
 // visível para tsc, lint ou a suíte pura: apagar qualquer uma passa por todos. Só um caminho que
 // fale com o Postgres acusa. A IA é sempre um gerador falso: nada sai para a Anthropic.
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { ContaGuardada } from "@/lib/bonus/arte-conta";
 import type { TextoDeCarrossel } from "@/lib/bonus/carrossel-texto";
 import { bancoDescartavel } from "./harness";
 
@@ -56,7 +57,7 @@ beforeEach(async () => {
   bonusId = b.id;
 });
 
-const pedido = (total: number, conta: string | null = null) => ({
+const pedido = (total: number, conta: ContaGuardada | null = null) => ({
   bonusId,
   total,
   palavra: "SUMIDO",
@@ -222,28 +223,57 @@ describe("a revisão e a lista", () => {
   });
 });
 
-// A ARTE (Etapa 3): a conta do cabeçalho gravada no pedido, as escolhas gravadas só em carrossel
-// pronto, e as contas lidas SÓ pelas colunas do cabeçalho: a tabela `accounts` guarda o token de
-// acesso de cada conta, e ele nunca sai daqui (achado 60).
+// A ARTE (Etapas 3 e 4): a conta do carrossel, com o nome e o @, gravada no pedido; o "só texto"
+// gravado só em carrossel pronto e SEM apagar a conta; o "Fixar nesta conta" uma vez só; e as contas
+// lidas SÓ pelas colunas do cabeçalho: a tabela `accounts` guarda o token de acesso de cada conta, e
+// ele nunca sai daqui (achado 60).
 describe("a arte", () => {
-  it("o pedido grava a conta do cabeçalho; sem conta, a arte nasce vazia", async () => {
-    const r = await repo.criarPedidoDeCarrossel(pedido(5, "17841400000000001"));
-    const semConta = await criado(3);
+  const THIAGO: ContaGuardada = { conta: "17841400000000001", nome: "Thiago Vannuchi", arroba: "thiagovannuchi" };
+  const arte = async (id: string) => (await repo.lerCarrossel(id))?.arte;
+  async function pronto(conta: ContaGuardada | null = null): Promise<string> {
+    const r = await repo.criarPedidoDeCarrossel(pedido(5, conta));
     if (!r.ok) throw new Error("teto no meio do teste");
-    expect((await repo.lerCarrossel(r.id))?.arte).toEqual({ conta: "17841400000000001" });
-    expect((await repo.lerCarrossel(semConta))?.arte).toEqual({});
+    await processo.processarCarrossel(r.id, devolve(TEXTO));
+    return r.id;
+  }
+
+  it("o pedido grava a conta com o nome e o @; sem conta, a arte nasce vazia", async () => {
+    const r = await repo.criarPedidoDeCarrossel(pedido(5, THIAGO));
+    if (!r.ok) throw new Error("teto no meio do teste");
+    expect(await arte(r.id)).toEqual(THIAGO);
+    expect(await arte(await criado(3))).toEqual({});
   });
 
-  it("as escolhas só se gravam em carrossel pronto, e gravam inteiras", async () => {
-    const pronto = await criado(5);
-    await processo.processarCarrossel(pronto, devolve(TEXTO));
-    const escolhas = { conta: "17841400000000002", soTexto: [2, 4] };
-    expect(await repo.salvarEscolhasDaArte(pronto, escolhas)).toBe(true);
-    expect((await repo.lerCarrossel(pronto))?.arte).toEqual(escolhas);
+  it("gravar o só texto mantém a conta, e só vale em carrossel pronto", async () => {
+    const id = await pronto(THIAGO);
+    expect(await repo.salvarSoTextoDaArte(id, [2, 4], null)).toBe(true);
+    expect(await arte(id)).toEqual({ ...THIAGO, soTexto: [2, 4] });
+    expect(await repo.salvarSoTextoDaArte(id, [], null)).toBe(true);
+    expect(await arte(id)).toEqual({ ...THIAGO, soTexto: [] });
 
     const pendente = await criado(5);
-    expect(await repo.salvarEscolhasDaArte(pendente, escolhas)).toBe(false);
-    expect((await repo.lerCarrossel(pendente))?.arte).toEqual({});
+    expect(await repo.salvarSoTextoDaArte(pendente, [2], null)).toBe(false);
+    expect(await arte(pendente)).toEqual({});
+  });
+
+  it("gravar o só texto completa o nome que falta da conta gravada na Etapa 3", async () => {
+    const id = await pronto();
+    await banco.db().sql().query(`update carrosseis_gerados set arte = '{"conta":"1001"}'::jsonb where id = $1`, [id]);
+    expect(await repo.salvarSoTextoDaArte(id, [3], { nome: "Thiago Vannuchi", arroba: "thiagovannuchi" })).toBe(true);
+    expect(await arte(id)).toEqual({ conta: "1001", nome: "Thiago Vannuchi", arroba: "thiagovannuchi", soTexto: [3] });
+  });
+
+  it("Fixar nesta conta grava uma vez, mantém o só texto, e recusa o carrossel que já tem conta", async () => {
+    const id = await pronto();
+    expect(await repo.salvarSoTextoDaArte(id, [2], null)).toBe(true);
+    expect(await repo.fixarContaDoCarrossel(id, THIAGO)).toBe(true);
+    expect(await arte(id)).toEqual({ ...THIAGO, soTexto: [2] });
+    expect(await repo.fixarContaDoCarrossel(id, { conta: "1002", nome: "N8X", arroba: "n8x" })).toBe(false);
+    expect(await arte(id)).toEqual({ ...THIAGO, soTexto: [2] });
+
+    const pendente = await criado(5);
+    expect(await repo.fixarContaDoCarrossel(pendente, THIAGO)).toBe(false);
+    expect(await arte(pendente)).toEqual({});
   });
 
   it("as contas do cabeçalho vêm só com as quatro colunas, na ordem do painel, e nunca com o token", async () => {
