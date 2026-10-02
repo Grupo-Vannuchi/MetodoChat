@@ -3,15 +3,16 @@ import { ImageResponse } from "next/og";
 import { desenhoDoSlide } from "./arte-desenho";
 import { fontesDaArte, FAMILIA_DA_ARTE, type FonteDaArte } from "./arte-fonte";
 import { ALTURA, LARGURA } from "./arte-geometria";
-import { tamanhoDoTexto, textoMedido, type SlideParaArte } from "./arte-slides";
+import { tamanhoDoSlide, type SlideParaArte } from "./arte-slides";
 import { cabecalhosDaArte, type CabecalhoDaArte } from "./arte-tela";
 
 // O PNG DE UM SLIDE: o desenho, a fonte e os cabeçalhos da resposta, juntos. A rota decide o que
 // desenhar; isto desenha. Separado da rota para o teste desenhar de verdade sem sessão nem banco
 // (tests/bonus-arte-resposta.test.ts).
 //
-// A FONTE DO TEXTO É ESCOLHIDA SOBRE O TEXTO MEDIDO (a manchete e o corpo), o mesmo que o aviso
-// "não cabe" mede (arte-slides.ts). `comEspaco` é o `!semIlustracao` do Labs.
+// A FONTE DO TEXTO É ESCOLHIDA SOBRE A COMPOSIÇÃO DO SLIDE (arte-composicao.ts), a mesma que o desenho
+// desenha e que o aviso "não cabe" mede (arte-slides.ts, `tamanhoDoSlide`). `comEspaco` é o
+// `!semIlustracao` do Labs.
 //
 // O PNG É LIDO INTEIRO AQUI, antes de a rota responder (achado 65). O ImageResponse fixa o status
 // 200 antes de desenhar, porque o desenho roda dentro do stream do corpo: uma falha no meio sairia
@@ -44,7 +45,7 @@ export async function respostaDaArte({
   } catch {
     return { ok: false, falha: "fonte" };
   }
-  const fonte = tamanhoDoTexto(slide.tipo, textoMedido(slide), comEspaco);
+  const { fonte } = tamanhoDoSlide(slide, comEspaco);
 
   const desenhar = async (cab: CabecalhoDaArte): Promise<Response | null> => {
     const imagem = new ImageResponse(desenhoDoSlide({ slide, fonte, comEspaco, cabecalho: cab, familia: FAMILIA_DA_ARTE }), {

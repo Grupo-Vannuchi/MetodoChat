@@ -2,19 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   slidesDoTexto,
   slidesQueNaoCabem,
-  tamanhoDoTexto,
-  textoMedido,
+  tamanhoDoSlide,
   type SlideParaArte,
   type TipoDeSlide,
 } from "@/lib/bonus/arte-slides";
-import { ALTURA_TEXTO_SEM_ILUSTRACAO, alturaDisponivel, alturaEstimada } from "@/lib/bonus/arte-geometria";
 import { CarrosselDoChatSchema, PostDoChatSchema, SlideSchema } from "@/lib/bonus/carrossel-schema";
 import type { TextoDeCarrossel, TextoDePost } from "@/lib/bonus/carrossel-texto";
 
-// OS TESTES DOS SLIDES DA ARTE, trazidos do Labs (site-ia, src/lib/ia/slides.test.ts, 45bc973) e
-// adaptados à forma do texto do Chat (carrossel-texto.ts). O que muda de lá está dito em cada
-// bloco. Os números dos degraus e da geometria são os de lá: se um caso daqui cair, a régua mudou
-// num dos dois lados, e o outro precisa saber ("Dois donos", na spec da Etapa 3).
+// OS TESTES DOS SLIDES DA ARTE, vindos do Labs (site-ia, src/lib/ia/slides.test.ts, 45bc973) e
+// adaptados à forma do texto do Chat (carrossel-texto.ts). A escolha da fonte e o "não cabe" medem a
+// composição com a conta exata (Etapa 4): os números daqui são os da conta, e os vetores combinados
+// com o Labs (tests/bonus-arte-vetores.test.ts) conferem a conta contra o desenho.
 
 const carrossel = (conteudo: number): TextoDeCarrossel => ({
   tipo: "carrossel",
@@ -78,82 +76,89 @@ describe("o post de uma imagem", () => {
   });
 });
 
-describe("tamanhoDoTexto", () => {
+// Textos de palavras de verdade: a conta quebra por palavra, e "x".repeat(200) seria uma palavra só,
+// mais larga que a linha em qualquer degrau.
+const PALAVRAS =
+  "mande uma mensagem curta para o cliente que sumiu e lembre do que ele comprou na última vez porque quem some ainda pode voltar se a conversa certa chegar".split(
+    " "
+  );
+/** As palavras em ordem, até `n` caracteres sem cortar palavra. */
+function textoDe(n: number, caixaAlta = false): string {
+  const ps: string[] = [];
+  while (`${ps.join(" ")} ${PALAVRAS[ps.length % PALAVRAS.length]}`.trim().length <= n) ps.push(PALAVRAS[ps.length % PALAVRAS.length]);
+  const t = ps.join(" ");
+  return caixaAlta ? t.toUpperCase() : t;
+}
+const slide = (tipo: TipoDeSlide, texto: string, titulo: string | null = null): SlideParaArte => ({
+  numero: 2,
+  total: 3,
+  tipo,
+  titulo,
+  texto,
+  assinaturaNoPe: tipo === "cta",
+});
+const fonte = (s: SlideParaArte, comIlustracao = true) => tamanhoDoSlide(s, comIlustracao).fonte;
+
+describe("tamanhoDoSlide", () => {
   it("nunca cresce conforme o texto cresce, e desce quando precisa", () => {
-    const tamanhos = [40, 60, 100, 150, 200, 260, 320].map((n) => tamanhoDoTexto("conteudo", "x".repeat(n)));
+    const tamanhos = [40, 100, 200, 260, 300].map((n) => fonte(slide("conteudo", textoDe(n))));
     for (let i = 1; i < tamanhos.length; i++) {
       expect(tamanhos[i], `${i}: cresceu com texto maior`).toBeLessThanOrEqual(tamanhos[i - 1]);
     }
     expect(tamanhos[tamanhos.length - 1]).toBeLessThan(tamanhos[0]);
   });
 
-  it("o gancho é sempre maior que o texto de conteúdo do mesmo tamanho", () => {
-    for (const n of [30, 70, 110]) {
-      const t = "x".repeat(n);
-      expect(tamanhoDoTexto("gancho", t)).toBeGreaterThan(tamanhoDoTexto("conteudo", t));
+  it("o gancho é sempre maior que o conteúdo do mesmo texto", () => {
+    for (const n of [20, 60, 110]) {
+      const t = textoDe(n);
+      expect(fonte(slide("gancho", t))).toBeGreaterThan(fonte(slide("conteudo", t)));
     }
   });
 
-  it("nunca desce abaixo de 34px", () => {
+  it("nunca desce abaixo de 34px, e no piso diz que não cabe", () => {
     for (const tipo of ["gancho", "conteudo", "cta"] as const) {
-      expect(tamanhoDoTexto(tipo, "x".repeat(400))).toBeGreaterThanOrEqual(34);
+      expect(tamanhoDoSlide(slide(tipo, textoDe(900)), true)).toEqual({ fonte: 34, cabe: false });
     }
   });
 
   it("cresce sem o espaço da imagem, nos três tipos, sem fração de pixel", () => {
     for (const tipo of ["gancho", "conteudo", "cta"] as const) {
-      const t = "x".repeat(50);
-      expect(tamanhoDoTexto(tipo, t, false)).toBeGreaterThan(tamanhoDoTexto(tipo, t, true));
-      expect(Number.isInteger(tamanhoDoTexto(tipo, t, false))).toBe(true);
+      const t = textoDe(50);
+      expect(fonte(slide(tipo, t), false)).toBeGreaterThan(fonte(slide(tipo, t), true));
+      expect(Number.isInteger(fonte(slide(tipo, t), false))).toBe(true);
     }
-  });
-
-  it("o padrão é COM o espaço da imagem", () => {
-    const t = "x".repeat(100);
-    expect(tamanhoDoTexto("conteudo", t)).toBe(tamanhoDoTexto("conteudo", t, true));
   });
 
   // O CONTRAPESO da descida: ela só pode ser acionada por quem NÃO CABE. Sem este caso, devolver
   // sempre o piso passaria em todos os outros.
-  it("a descida não encolhe texto que já cabia, e os degraus do cta são os decididos", () => {
-    expect(tamanhoDoTexto("gancho", "x".repeat(30))).toBe(86);
-    expect(tamanhoDoTexto("conteudo", "x".repeat(60))).toBe(46);
-    expect(tamanhoDoTexto("cta", "x".repeat(70))).toBe(60);
-    expect(tamanhoDoTexto("cta", "x".repeat(200))).toBe(46);
-    expect(tamanhoDoTexto("cta", "x".repeat(350))).toBe(34);
+  it("a descida não encolhe texto que já cabia", () => {
+    expect(fonte(slide("gancho", textoDe(20, true)))).toBe(86);
+    expect(fonte(slide("conteudo", textoDe(60)))).toBe(46);
+    expect(fonte(slide("cta", textoDe(70, true)))).toBe(60);
+  });
+
+  // As capas que o Labs desenhou na comparação de 02/10 (site-ia-83): a de 109 caracteres cabe em 56 e
+  // tem de continuar lá; a de 120 só cabe no degrau de 46, que entrou nesta etapa (sem ele, ia ao piso).
+  it("o gancho longo desce para o degrau de 46, e a capa de 109 continua em 56", () => {
+    const capa = "VOCÊ ESTÁ PERDENDO CLIENTES TODOS OS DIAS POR CAUSA DE UM ERRO QUE QUASE NINGUÉM PERCEBE NA HORA DE RESPONDER";
+    expect(tamanhoDoSlide(slide("gancho", capa), true)).toEqual({ fonte: 56, cabe: true });
+    expect(tamanhoDoSlide(slide("gancho", `${capa} O WHATSAPP`), true)).toEqual({ fonte: 46, cabe: true });
+  });
+
+  // A arte não pede `wordBreak`: a palavra mais larga que a linha vaza pela direita. O degrau em que
+  // isso acontece não cabe, mesmo que a altura caiba.
+  it("o degrau em que uma palavra vaza pela direita não cabe", () => {
+    const url = "Pegue em https://metodolabs.com.br/bonus/planilha-de-precificacao";
+    expect(tamanhoDoSlide(slide("gancho", url), true)).toEqual({ fonte: 34, cabe: true });
   });
 });
 
-// O TEXTO QUE A ARTE MEDE É O QUE ELA DESENHA: o título e o corpo (a rota do Labs mede assim, em
-// src/app/admin/carrossel/arte/route.tsx). ⚠️ DIFERENTE DO LABS, de propósito: lá o aviso de
-// `slidesQueNaoCabem` mede só o corpo, e um slide de conteúdo com título comprido podia cortar na
-// imagem com o aviso calado. Aqui o aviso e a arte medem o mesmo `textoMedido`.
-describe("o texto medido", () => {
-  const slide = (titulo: string | null, texto: string): SlideParaArte => ({
-    numero: 2,
-    total: 3,
-    tipo: "conteudo",
-    titulo,
-    texto,
-    assinaturaNoPe: false,
-  });
-
-  it("com título, é o título e o corpo em linhas separadas; sem, é só o corpo", () => {
-    expect(textoMedido(slide("Título", "Corpo"))).toBe("Título\nCorpo");
-    expect(textoMedido(slide(null, "Corpo"))).toBe("Corpo");
-  });
-
-  // O conserto do Labs (dev 1254847, 01/10) também apara a manchete: só de espaços, ela não é linha.
-  it("o título só de espaços não conta, e o com espaço nas pontas conta aparado", () => {
-    expect(textoMedido(slide("   ", "Corpo"))).toBe("Corpo");
-    expect(textoMedido(slide("  Título  ", "Corpo"))).toBe("Título\nCorpo");
-  });
-
-  // 8 linhas no piso de 34 dão 359px dos 382 com o espaço da imagem; a manchete é a 9ª, e dá 404.
-  it("o título conta: o mesmo corpo que cabe sozinho deixa de caber com um título", () => {
-    const corpo = Array(8).fill("x".repeat(20)).join("\n");
-    expect(slidesQueNaoCabem([slide(null, corpo)])).toEqual([]);
-    expect(slidesQueNaoCabem([slide("Um título de slide de conteúdo", corpo)])).toHaveLength(1);
+// A MANCHETE CONTA, e conta como o desenho a desenha: o corpo começa 77px abaixo do topo dela.
+describe("a manchete", () => {
+  it("o mesmo corpo que cabe sozinho deixa de caber com uma manchete", () => {
+    const sete = Array(7).fill("mande uma mensagem curta").join("\n");
+    expect(tamanhoDoSlide(slide("conteudo", sete), true)).toEqual({ fonte: 34, cabe: true });
+    expect(tamanhoDoSlide(slide("conteudo", sete, "O que fazer primeiro"), true)).toEqual({ fonte: 34, cabe: false });
   });
 });
 
@@ -172,71 +177,59 @@ describe("o texto cabe na peça", () => {
     }
   });
 
-  it("o gancho e a chamada cabem nos dois modos, no pior caso que o schema permite", () => {
+  it("o gancho e a chamada cabem nos dois modos no teto do schema, em caixa alta", () => {
     for (const tipo of ["gancho", "cta"] as const) {
       for (const comIlustracao of [true, false]) {
-        const t = "x".repeat(TETOS[tipo]);
-        expect(alturaEstimada(t, tamanhoDoTexto(tipo, t, comIlustracao)), `${tipo} ${comIlustracao}`).toBeLessThanOrEqual(
-          alturaDisponivel(comIlustracao)
-        );
+        expect(tamanhoDoSlide(slide(tipo, textoDe(TETOS[tipo], true)), comIlustracao).cabe, `${tipo} ${comIlustracao}`).toBe(true);
       }
     }
   });
 
-  // ⚠️ DIFERENTE DO LABS: com a manchete medida, o slide de conteúdo no PIOR caso do schema
-  // (manchete de 70 e corpo de 300, em caixa alta) não cabe em modo nenhum: sem o espaço da imagem
-  // o piso também sobe (34 × 1,6 = 54px), e dá 998px dos 955. O aviso existe para isto, e diz
-  // "corta sempre": o operador encurta. Um slide do tamanho que a instrução pede cabe com folga.
+  // Com a manchete medida, o slide de conteúdo no PIOR caso do schema (manchete de 70 e corpo de 300,
+  // em caixa alta) não cabe em modo nenhum. O aviso existe para isto, e diz "corta sempre": o operador
+  // encurta. Um slide do tamanho que a instrução pede cabe com o espaço.
   it("o conteúdo no pior caso do schema é acusado como 'corta sempre', e o tamanho comum cabe com o espaço", () => {
-    const slideDe = (titulo: string, texto: string): SlideParaArte => ({
-      numero: 2,
-      total: 3,
-      tipo: "conteudo",
-      titulo,
-      texto,
+    const pior = slide("conteudo", textoDe(TETOS.conteudo, true), textoDe(TITULO_MAX, true));
+    expect(slidesQueNaoCabem([pior])).toEqual([{ numero: 1, tipo: "conteudo", cortaSempre: true }]);
+    expect(slidesQueNaoCabem([slide("conteudo", textoDe(200), textoDe(40))])).toEqual([]);
+  });
+
+  // O post de uma imagem: texto, linha em branco e chamada. No teto do schema em caixa alta ele não
+  // cabe nem sem o espaço, e o aviso diz; em texto corrido, cabe sem o espaço.
+  it("o post no teto do schema cabe sem o espaço em texto corrido, e em caixa alta é acusado", () => {
+    const post = (caixaAlta: boolean): SlideParaArte => ({
+      numero: 1,
+      total: 1,
+      tipo: "cta",
+      titulo: null,
+      texto: `${textoDe(PostDoChatSchema.shape.texto.maxLength!, caixaAlta)}\n\n${textoDe(TETOS.cta, caixaAlta)}`,
       assinaturaNoPe: false,
     });
-    const pior = slideDe("x".repeat(TITULO_MAX), "x".repeat(TETOS.conteudo));
-    expect(slidesQueNaoCabem([pior])).toEqual([{ numero: 1, tipo: "conteudo", linhas: 2, cortaSempre: true }]);
-    expect(slidesQueNaoCabem([slideDe("x".repeat(40), "x".repeat(200))])).toEqual([]);
-  });
-
-  it("o post de uma imagem cabe no pior caso: texto, linha em branco e chamada", () => {
-    const pior = "x".repeat(PostDoChatSchema.shape.texto.maxLength! + TETOS.cta + 2);
-    expect(alturaEstimada(pior, tamanhoDoTexto("cta", pior, false))).toBeLessThanOrEqual(ALTURA_TEXTO_SEM_ILUSTRACAO);
-  });
-});
-
-describe("a previsão de altura conta as quebras de linha", () => {
-  it("um texto quebrado ocupa MAIS que o mesmo texto corrido", () => {
-    expect(alturaEstimada("x".repeat(50) + "\n" + "x".repeat(50), 40)).toBeGreaterThan(alturaEstimada("x".repeat(100), 40));
-  });
-
-  it("cada bloco ocupa ao menos uma linha, e a linha em branco também", () => {
-    expect(alturaEstimada(Array(5).fill("ok").join("\n"), 40)).toBe(5 * 40 * 1.32);
-    expect(alturaEstimada(["um", "dois", "tres", "quatro", "cinco"].join("\n\n"), 40)).toBe(9 * 40 * 1.32);
+    expect(tamanhoDoSlide(post(false), false).cabe).toBe(true);
+    expect(slidesQueNaoCabem([post(true)])).toEqual([{ numero: 1, tipo: "cta", cortaSempre: true }]);
   });
 });
 
 describe("slidesQueNaoCabem", () => {
-  const slide = (texto: string): SlideParaArte[] => [
+  const um = (texto: string): SlideParaArte[] => [
     { numero: 1, total: 1, tipo: "conteudo", titulo: null, texto, assinaturaNoPe: false },
   ];
 
   it("silencia quando cabe", () => {
-    expect(slidesQueNaoCabem(slide("x".repeat(200)))).toEqual([]);
+    expect(slidesQueNaoCabem(um(textoDe(200)))).toEqual([]);
   });
 
+  // No piso, com o espaço, cabem 7 linhas (7 × 45 = 315 de 334); a 8ª já não.
   it("acusa o que não cabe nem no piso, e distingue 'corta só com o espaço' de 'corta sempre'", () => {
-    const dez = Array(10).fill("x".repeat(17)).join("\n");
-    expect(slidesQueNaoCabem(slide(dez))).toEqual([{ numero: 1, tipo: "conteudo", linhas: 10, cortaSempre: false }]);
+    const oito = Array(8).fill("x".repeat(20)).join("\n");
+    expect(slidesQueNaoCabem(um(oito))).toEqual([{ numero: 1, tipo: "conteudo", cortaSempre: false }]);
     const trinta = Array(30).fill("x".repeat(17)).join("\n");
-    expect(slidesQueNaoCabem(slide(trinta))[0].cortaSempre).toBe(true);
+    expect(slidesQueNaoCabem(um(trinta))[0].cortaSempre).toBe(true);
   });
 
   it("cala no que passou a caber porque a fonte desce um degrau", () => {
-    const oito = Array(8).fill("x".repeat(22)).join("\n");
-    expect(tamanhoDoTexto("conteudo", oito)).toBe(34);
-    expect(slidesQueNaoCabem(slide(oito))).toEqual([]);
+    const sete = Array(7).fill("x".repeat(22)).join("\n");
+    expect(fonte(um(sete)[0])).toBe(34);
+    expect(slidesQueNaoCabem(um(sete))).toEqual([]);
   });
 });

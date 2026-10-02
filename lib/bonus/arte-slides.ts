@@ -1,13 +1,15 @@
-// TRAZIDO DO MÉTODO LABS (site-ia, src/lib/ia/slides.ts, mudado por último em 19d25be, igual em
-// 45bc973 e em a56459b). DOIS DONOS: mudança aqui se avisa ao Labs, e a de lá se traz para cá
-// (docs/specs/2026-10-01-arte-do-carrossel.md, "Dois donos"). Os degraus, o piso e o fator sem
-// ilustração são os de lá, sem mudar um número. O que muda:
+// VEIO DO MÉTODO LABS (site-ia, src/lib/ia/slides.ts, em 45bc973). DOIS DONOS: o mesmo resultado nos
+// dois projetos é conferido pelos vetores (tests/vetores-da-arte.json), e não por código igual
+// (spec da Etapa 4, "Dois donos"). O piso e o fator sem ilustração são os de lá. O que muda:
 // - a entrada é o texto do Chat (carrossel-texto.ts): `chamada` no lugar de `chamadaParaAcao`, e
 //   `slidesDoTexto` escolhe entre o carrossel e o post;
-// - `slidesQueNaoCabem` mede `textoMedido` (a manchete e o corpo), como a arte desenha.
+// - a escolha da fonte mede a composição (arte-composicao.ts), a mesma que a arte desenha, com a
+//   conta exata (arte-medida.ts), e o gancho tem o degrau de 46 (os dois, Etapa 4 aqui e 48 lá).
 // No Chat, a "ilustração" é o espaço em branco que o operador reserva para a imagem do Canva.
 //
-import { alturaDisponivel, alturaEstimada } from "./arte-geometria";
+import { composicaoDoSlide } from "./arte-composicao";
+import { alturaDisponivel } from "./arte-geometria";
+import { medidaDaComposicao } from "./arte-medida";
 import type { TextoDeCarrossel, TextoDePost, TextoDoCarrossel } from "./carrossel-texto";
 
 // O carrossel gerado vira uma LISTA DE SLIDES para desenhar.
@@ -106,18 +108,6 @@ export function slidesDoTexto(t: TextoDoCarrossel): SlideParaArte[] {
 }
 
 /**
- * O TEXTO QUE A ARTE MEDE, que é o que ela desenha: a manchete e o corpo, no mesmo corpo
- * tipográfico (a rota do Labs mede assim). ⚠️ DIFERENTE DO LABS, de propósito: lá
- * `slidesQueNaoCabem` mede só o corpo, e um slide de conteúdo com manchete comprida podia cortar
- * na imagem com o aviso calado. Aqui a fonte da arte e o aviso medem este mesmo texto. A manchete
- * vai aparada, e só de espaços não conta: o conserto do Labs fez o mesmo (dev 1254847, 01/10).
- */
-export function textoMedido(s: SlideParaArte): string {
-  const titulo = s.titulo?.trim();
-  return titulo ? `${titulo}\n${s.texto}` : s.texto;
-}
-
-/**
  * Quanto o texto cresce quando o slide NÃO tem ilustração — **por tipo de slide**.
  *
  * A conta vem da geometria, não do gosto: sem a ilustração, a área de texto passa de ~374px
@@ -142,24 +132,6 @@ const FATOR_SEM_ILUSTRACAO: Record<TipoDeSlide, number> = {
   cta: 1.35,
 };
 
-/**
- * Tamanho da fonte do texto, em pixels, para o slide 1080×1350.
- *
- * ⚠️ `comIlustracao` decide se o texto divide o slide com a imagem ou fica com ele inteiro.
- * Antes o espaço da ilustração era reservado SEMPRE, mesmo vazio: um slide só de texto
- * desperdiçava 635px de altura e ficava com a fonte pequena sem motivo. Achado pelo Eduardo
- * em 02/09.
- *
- * POR QUE NÃO É FIXO: o gancho tem até 120 caracteres e o texto de um slide até ~280. Com
- * um tamanho só, ou o gancho fica pequeno demais para o que ele precisa fazer (parar o
- * dedo em menos de um segundo), ou o texto longo transborda a arte — e transbordar não dá
- * erro, só corta a frase no meio sem avisar.
- *
- * Os degraus são largos de propósito: variação suave por caractere deixaria cada slide com
- * um tamanho ligeiramente diferente, e a sequência inteira pareceria trêmula ao passar.
- */
-/**
- * Todos os tamanhos que a escada abaixo pode devolver, do maior ao menor.
 /**
  * Os degraus de cada tipo, do maior ao menor. **A escolha e o MAIOR QUE COUBER.**
  *
@@ -187,24 +159,22 @@ const FATOR_SEM_ILUSTRACAO: Record<TipoDeSlide, number> = {
 const DEGRAUS_POR_TIPO: Record<TipoDeSlide, readonly number[]> = {
   // 86 para o gancho curto, 72 ate 80 caracteres.
   //
-  // ⚠️ O MENOR ERA 60 E CORTAVA (22.13): com a ilustracao no slide sobram 382px, e um gancho
-  // de 120 caracteres em caixa alta ocupa 5 linhas de 60px = 396. O PNG saia cortado sem erro
-  // nenhum. Em 56 a mesma frase ocupa 370.
-  gancho: [86, 72, 56],
+  // ⚠️ O MENOR ERA 60 E CORTAVA (22.13): um gancho de 120 caracteres em caixa alta ocupava 5
+  // linhas de 60px. O PNG saia cortado sem erro nenhum.
+  //
+  // ⚠️ O 46 ENTROU NA ETAPA 4 (decisao do Eduardo, 02/10): com os 334px que sobram de fato com o
+  // espaco da imagem, as 5 linhas de 56 do gancho longo nao cabem, e sem o 46 ele cairia direto
+  // no piso de 34.
+  gancho: [86, 72, 56, 46],
 
   // O slide do meio parte de 46 — e nunca foi maior: manchete e corpo tem o MESMO corpo
   // tipografico nas pecas publicadas, e a hierarquia da casa e por PESO.
   conteudo: [46, 40, 34],
 
-  // ⚠️ 46 E NAO 48, pelo mesmo motivo do gancho: 200 caracteres em caixa alta ocupavam 7
-  // linhas de 48px = 443, contra 382 disponiveis. Em 46 cabem em 6 linhas = 364. O degrau e
-  // sensivel — 47 ja volta para 7 linhas e transborda.
+  // ⚠️ 46 E NAO 48, e 40 E NAO 42: os dois cortavam no Labs com a conta de antes (22.13).
   //
   // ⚠️ OS DOIS MENORES SO O POST DE UMA IMAGEM ALCANCA. A chamada de um carrossel para em 200
   // caracteres (schema); o post unico chega a ~550 contando o pedido opcional.
-  //
-  // ⚠️ 40 ERA 42 E CORTAVA (22.13): sem ilustracao o fator 1,35 levava a 57, e 350 caracteres
-  // ocupavam 978px contra 955. Em 40 ficam 927.
   cta: [60, 46, 40, 34],
 };
 /**
@@ -216,7 +186,17 @@ const DEGRAUS_POR_TIPO: Record<TipoDeSlide, readonly number[]> = {
  */
 const PISO_DE_LEGIBILIDADE = 34;
 
-export function tamanhoDoTexto(tipo: TipoDeSlide, texto: string, comIlustracao = true): number {
+/** A fonte do slide, e se o texto cabe nela. Se nem no piso couber, a fonte é o piso. */
+export type TamanhoDoSlide = { fonte: number; cabe: boolean };
+
+/**
+ * Tamanho da fonte do slide, em pixels, para a peça 1080×1350, com ou sem o espaço da imagem.
+ *
+ * POR QUE NÃO É FIXO: o gancho tem até 120 caracteres e o texto de um slide até ~280. Com um tamanho
+ * só, ou o gancho fica pequeno demais para parar o dedo, ou o texto longo transborda a arte. Os
+ * degraus são largos de propósito: variação de 1 em 1 deixaria a sequência trêmula ao passar.
+ */
+export function tamanhoDoSlide(s: SlideParaArte, comIlustracao: boolean): TamanhoDoSlide {
   // ⚠️ **O MAIOR DEGRAU DO TIPO QUE COUBER, e nada mais decide isto.**
   //
   // Duas reguas viviam aqui e discordavam. Uma escada por NUMERO DE CARACTERES escolhia o
@@ -241,24 +221,41 @@ export function tamanhoDoTexto(tipo: TipoDeSlide, texto: string, comIlustracao =
   // tamanho ligeiramente diferente e a sequencia pareceria tremula ao passar o dedo. E a
   // lista e a DO TIPO: um conteudo curto nao sobe ate 86px, que e o corpo do gancho.
   //
-  // ⚠️ **E PARA NO PISO DE 34, sem furar.** Se nem no piso couber, devolve o piso e quem avisa
-  // e `slidesQueNaoCabem`. Resolver "cabe" encolhendo ate ninguem ler e o que a decisao de
-  // 03/09 recusou — ela preferiu baixar o teto do schema de 350 para 300.
-  const escala = (d: number) => (comIlustracao ? d : Math.round(d * FATOR_SEM_ILUSTRACAO[tipo]));
+  // ⚠️ **E PARA NO PISO DE 34, sem furar.** Se nem no piso couber, devolve o piso com `cabe: false`,
+  // e quem avisa e `slidesQueNaoCabem`. Resolver "cabe" encolhendo ate ninguem ler e o que a decisao
+  // de 03/09 recusou — ela preferiu baixar o teto do schema de 350 para 300.
+  //
+  // ⚠️ MEDE A COMPOSICAO, a mesma que o desenho desenha (arte-composicao.ts), com a conta exata
+  // (arte-medida.ts). Cabe quando a altura nao passa do disponivel e nenhuma palavra vaza pela
+  // direita: a palavra mais larga que a linha, num degrau, faz o degrau nao caber.
   const limite = alturaDisponivel(comIlustracao);
+  const linhas = composicaoDoSlide(s.titulo, s.texto);
+  const cabeEm = (fonte: number) => {
+    const m = medidaDaComposicao(linhas, fonte);
+    return !m.vaza && m.altura <= limite;
+  };
 
-  const coube = DEGRAUS_POR_TIPO[tipo]
-    .map(escala)
-    .find((f) => alturaEstimada(texto, f) <= limite);
+  const degraus = degrausDoSlide(s.tipo, comIlustracao);
+  const coube = degraus.find(cabeEm);
+  return coube !== undefined ? { fonte: coube, cabe: true } : { fonte: degraus[degraus.length - 1], cabe: false };
+}
 
-  return coube ?? escala(PISO_DE_LEGIBILIDADE);
+/**
+ * Os tamanhos que a escolha tenta, do maior ao menor, já na escala do modo, com o piso no fim (o
+ * gancho não tem o 34 na lista, e chega a ele quando nem o 46 cabe). Os vetores com o Labs desenham
+ * esta mesma escada (tests/arte-desenhada.tsx).
+ */
+export function degrausDoSlide(tipo: TipoDeSlide, comIlustracao: boolean): number[] {
+  const escala = (d: number) => (comIlustracao ? d : Math.round(d * FATOR_SEM_ILUSTRACAO[tipo]));
+  const degraus = DEGRAUS_POR_TIPO[tipo].map(escala);
+  const piso = escala(PISO_DE_LEGIBILIDADE);
+  return degraus.includes(piso) ? degraus : [...degraus, piso];
 }
 
 /** Um slide que não cabe na arte, com o diagnóstico do porquê. */
 export type SlideQueNaoCabe = {
   numero: number;
   tipo: TipoDeSlide;
-  linhas: number;
   /** Corta mesmo SEM ilustração — o caso grave, não há o que remover para resolver. */
   cortaSempre: boolean;
 };
@@ -273,30 +270,20 @@ export type SlideQueNaoCabe = {
  * contra os 382 disponíveis quando há ilustração.
  *
  * ⚠️ **E BAIXAR A FONTE NÃO RESOLVE**, o que elimina a saída óbvia: fonte menor não junta duas
- * linhas em uma. No piso de legibilidade de 34px cabem 8 linhas com ilustração — um slide com
- * 9 quebras não cabe em tamanho nenhum que este projeto aceite. Por isso a saída é limitar a
- * quantidade de linhas (na instrução) e AVISAR quem está na tela (aqui).
+ * linhas em uma. No piso de legibilidade de 34px, com o espaço da imagem, cabem 7 linhas sem
+ * manchete, e 5 de corpo com ela (77 + 5 × 45 = 302 de 334). Por isso a saída é limitar a quantidade
+ * de linhas (na instrução) e AVISAR quem está na tela (aqui).
  *
- * ⚠️ **AVISA, NUNCA IMPEDE** — mesmo critério do painel de acentuação. A previsão é uma
- * estimativa (conta caracteres, o Satori quebra por palavra), então vai errar às vezes.
- * Aviso que trava publicação é aviso que alguém desliga, e aí para de pegar o caso real.
+ * ⚠️ **AVISA, NUNCA IMPEDE** — mesmo critério do painel de acentuação. Aviso que trava publicação é
+ * aviso que alguém desliga, e aí para de pegar o caso real.
  */
 export function slidesQueNaoCabem(slides: SlideParaArte[]): SlideQueNaoCabe[] {
   const fora: SlideQueNaoCabe[] = [];
 
   slides.forEach((s, i) => {
-    const medido = textoMedido(s);
-    const comIlustracao = alturaEstimada(medido, tamanhoDoTexto(s.tipo, medido, true)) > alturaDisponivel(true);
-    const semIlustracao = alturaEstimada(medido, tamanhoDoTexto(s.tipo, medido, false)) > alturaDisponivel(false);
-
-    if (comIlustracao || semIlustracao) {
-      fora.push({
-        numero: i + 1,
-        tipo: s.tipo,
-        linhas: medido.split("\n").length,
-        cortaSempre: semIlustracao,
-      });
-    }
+    const comIlustracao = !tamanhoDoSlide(s, true).cabe;
+    const semIlustracao = !tamanhoDoSlide(s, false).cabe;
+    if (comIlustracao || semIlustracao) fora.push({ numero: i + 1, tipo: s.tipo, cortaSempre: semIlustracao });
   });
 
   return fora;

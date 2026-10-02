@@ -1,9 +1,10 @@
 // O "NÃO CABE" ENQUANTO SE DIGITA: a mesma conta da arte (arte-slides.ts), feita sobre o que está
 // nos campos do editor AGORA, e não sobre o texto salvo (spec da Etapa 3, "A prévia e o não cabe").
 //
-// PURO, e roda no navegador. AVISA, NUNCA IMPEDE: a previsão conta caracteres na largura das
-// maiúsculas, e o Satori quebra por palavra (a regra do Labs, `slidesQueNaoCabem`). A prova real
-// confere a imagem de verdade com textos no limite de cada degrau.
+// PURO, e roda no navegador. AVISA, NUNCA IMPEDE (a regra do Labs, `slidesQueNaoCabem`). A conta é a
+// exata da Etapa 4 (arte-medida.ts), conferida contra o desenho pelos vetores combinados com o Labs
+// (tests/vetores-da-arte.json); onde o Satori também quebra dentro da palavra, ela só erra para o lado
+// seguro.
 import { slidesDoTexto, slidesQueNaoCabem } from "./arte-slides";
 import { textoNaoCabeComEspaco, textoNaoCabeNunca } from "./arte-textos";
 import { slidesDeConteudo } from "./carrossel-pedido";
