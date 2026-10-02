@@ -183,6 +183,8 @@ function texto(v: unknown): string {
   return typeof v === "string" ? v.replace(/\r\n?/g, "\n").trim() : "";
 }
 
+export type ProblemaDoCampo = { campo: string; erro: string };
+
 /**
  * A revisão do operador. O número de slides não muda (vem do pedido), o título interno não se
  * edita, e a palavra vem da linha, nunca do formulário.
@@ -192,9 +194,19 @@ export function lerRevisaoDoCarrossel(
   palavra: string,
   titulo: string,
   bruto: Record<string, unknown>
-): { ok: true; texto: TextoDoCarrossel } | { ok: false; problemas: { campo: string; erro: string }[] } {
+): { ok: true; texto: TextoDoCarrossel } | { ok: false; problemas: ProblemaDoCampo[] } {
+  const { valores, problemas } = conferirCampos(total, palavra, bruto);
+  return problemas.length ? { ok: false, problemas } : { ok: true, texto: montarTexto(total, titulo, valores) };
+}
+
+/** Os campos limpos (o \r\n e as pontas), e os problemas de cada um, na ordem da tela. */
+function conferirCampos(
+  total: number,
+  palavra: string,
+  bruto: Record<string, unknown>
+): { valores: Record<string, string>; problemas: ProblemaDoCampo[] } {
   const v: Record<string, string> = {};
-  const problemas: { campo: string; erro: string }[] = [];
+  const problemas: ProblemaDoCampo[] = [];
   for (const c of camposDoFormulario(total)) {
     const t = texto(bruto[c.nome]);
     v[c.nome] = t;
@@ -214,17 +226,65 @@ export function lerRevisaoDoCarrossel(
   if (v.legenda && !temPalavra(v.legenda, palavra)) {
     problemas.push({ campo: "legenda", erro: `precisa pedir a palavra ${palavra}` });
   }
-  if (problemas.length) return { ok: false, problemas };
+  return { valores: v, problemas };
+}
 
-  if (total === 1) {
-    return { ok: true, texto: { tipo: "post", titulo, texto: v.texto, chamada: v.chamada, legenda: v.legenda } };
-  }
+/** O texto do Chat a partir dos campos já limpos. */
+function montarTexto(total: number, titulo: string, v: Record<string, string>): TextoDoCarrossel {
+  if (total === 1) return { tipo: "post", titulo, texto: v.texto, chamada: v.chamada, legenda: v.legenda };
   const slides = Array.from({ length: slidesDeConteudo(total) }, (_, i) => ({
     titulo: v[`slide_${i + 1}_titulo`],
     texto: v[`slide_${i + 1}_texto`],
   }));
-  return {
-    ok: true,
-    texto: { tipo: "carrossel", titulo, gancho: v.gancho, slides, chamada: v.chamada, legenda: v.legenda },
-  };
+  return { tipo: "carrossel", titulo, gancho: v.gancho, slides, chamada: v.chamada, legenda: v.legenda };
+}
+
+/** Uma parte do carrossel que se salva sozinha: um slide, ou a legenda (spec da Etapa 4). */
+export type ParteDoCarrossel = { tipo: "slide"; numero: number } | { tipo: "legenda" };
+
+/**
+ * QUAL CAMPO É O SLIDE N: a regra única, usada pela tela, pelo aviso do "não cabe" (`campoDoAviso`)
+ * e pelo salvar de um slide. Ela segue a ordem da arte (`slidesDoTexto`): no carrossel, o slide 1 é
+ * o gancho, os do meio são os de conteúdo, e o último é a chamada; no post, o slide 1 junta o texto e
+ * a chamada. A legenda e o título interno nunca são slide. Slide fora do carrossel não tem campo.
+ */
+export function camposDaParte(total: number, parte: ParteDoCarrossel): string[] {
+  if (parte.tipo === "legenda") return ["legenda"];
+  const n = parte.numero;
+  if (!Number.isInteger(n) || n < 1 || n > total) return [];
+  if (total === 1) return ["texto", "chamada"];
+  if (n === 1) return ["gancho"];
+  if (n === total) return ["chamada"];
+  return [`slide_${n - 1}_titulo`, `slide_${n - 1}_texto`];
+}
+
+/** A parte que o formulário diz salvar ("slide_N" ou "legenda"), ou null. */
+export function lerParte(bruta: unknown, total: number): ParteDoCarrossel | null {
+  if (bruta === "legenda") return { tipo: "legenda" };
+  const m = typeof bruta === "string" ? /^slide_([1-9]\d*)$/.exec(bruta) : null;
+  const numero = m ? Number(m[1]) : 0;
+  return numero >= 1 && numero <= total ? { tipo: "slide", numero } : null;
+}
+
+/**
+ * JUNTA UMA PARTE AO TEXTO SALVO e confere o texto inteiro, como o salvar de tudo, mas RECUSA SÓ
+ * PELOS PROBLEMAS DA PARTE. Um problema em outro campo volta como aviso: uma regra que mude num
+ * deploy pode deixar outro campo inválido no texto salvo, e sem isto todo "Salvar slide N" seria
+ * recusado por causa dele, sem saída (spec da Etapa 4, "Salvar um slide"). Os campos que o
+ * formulário trouxer fora da parte são ignorados.
+ */
+export function juntarParte(
+  total: number,
+  palavra: string,
+  atual: TextoDoCarrossel,
+  parte: ParteDoCarrossel,
+  bruto: Record<string, unknown>
+): { ok: true; texto: TextoDoCarrossel; avisos: ProblemaDoCampo[] } | { ok: false; problemas: ProblemaDoCampo[] } {
+  const campos = camposDaParte(total, parte);
+  const junto: Record<string, unknown> = { ...valoresPorCampo(atual) };
+  for (const c of campos) junto[c] = bruto[c];
+  const { valores, problemas } = conferirCampos(total, palavra, junto);
+  const daParte = problemas.filter((p) => campos.includes(p.campo));
+  if (daParte.length) return { ok: false, problemas: daParte };
+  return { ok: true, texto: montarTexto(total, atual.titulo, valores), avisos: problemas };
 }

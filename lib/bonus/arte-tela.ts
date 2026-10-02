@@ -78,6 +78,28 @@ export function versaoDaArte(partes: (string | number | null)[]): string {
   return h.toString(16).padStart(8, "0");
 }
 
+/**
+ * A VERSÃO DE CADA MINIATURA (spec da Etapa 4): o resumo de tudo o que a rota desenha NAQUELE slide
+ * (o slide inteiro, com número, total, tipo, manchete e texto; se ele é só texto) e do cabeçalho, que é
+ * de todos. Salvar o slide 2 muda só a versão 2, e só a miniatura 2 é pedida de novo. Até a Etapa 3
+ * a versão era uma só, e qualquer gravação pedia as miniaturas todas.
+ *
+ * O `foto` do cabeçalho, aqui, é a URL da foto (a página não tem o `data:` que a rota desenha): a
+ * miniatura troca quando a Meta troca a foto.
+ */
+export function versoesDosSlides(slides: SlideParaArte[], soTexto: number[], cabecalho: CabecalhoDaArte): string[] {
+  return slides.map((s) =>
+    versaoDaArte([
+      JSON.stringify(s),
+      soTexto.includes(s.numero) ? "so_texto" : "com_espaco",
+      cabecalho.nome,
+      cabecalho.arroba,
+      cabecalho.foto,
+      cabecalho.iniciais,
+    ])
+  );
+}
+
 export function urlDaArte(bonusId: string, carrosselId: string, numero: number, versao: string, baixar = false): string {
   return `/bonus/${bonusId}/carrossel/${carrosselId}/arte?slide=${numero}&v=${versao}${baixar ? "&baixar=1" : ""}`;
 }
