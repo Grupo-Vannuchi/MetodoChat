@@ -48,6 +48,7 @@ Todas do Eduardo, em 02/10, pela caixa de perguntas.
 |---|---|
 | ordem | a página do carrossel primeiro |
 | de que conta é o carrossel | da conta logada quando ele nasceu: gerado com o Thiago e aberto com a N8X, continua do Thiago |
+| a conta desconectada do Chat | o carrossel continua dela, com o nome e o @ guardados ao nascer e as iniciais no lugar da foto |
 | a página | lista: um slide por linha, a miniatura à esquerda e o editor ao lado, expansível |
 | salvar | um botão por slide, que grava só aquele slide |
 | o "não cabe" | quebrar as linhas por palavra, com a largura de letra de hoje; a folga de 48px entra |
@@ -138,12 +139,18 @@ voltar a miniatura velha.
 
 - **O carrossel é da conta gravada no pedido.** A Etapa 3 já grava a conta logada em
   `carrosseis_gerados.arte.conta` ao pedir. A arte, a página e a rota usam essa conta.
+- **O carrossel guarda o nome e o @ da conta ao nascer** (`arte.nome` e `arte.arroba`), junto da
+  conta, no pedido, no "Gerar de novo" e no "Fixar nesta conta". Com a conta conectada, a arte usa os
+  dados atuais dela, com a foto. Desconectada (o Chat apaga a linha da conta), a arte segue com o
+  nome e o @ guardados e as iniciais no lugar da foto: o carrossel nunca vira de outra conta. Decisão
+  do Eduardo em 02/10.
 - **O seletor de conta sai da página.** Trocar a conta logada no Chat não muda os carrosséis que já
   existem.
 - **"Gerar de novo" usa a conta do carrossel original**, e não a logada no momento. Sem conta
   gravada no original, ou com ela desconectada do Chat, usa a logada.
-- **A conta gravada que foi desconectada do Chat:** a arte cai na conta logada e a página avisa, como
-  na Etapa 3.
+- **A conta gravada que foi desconectada do Chat, num carrossel sem o nome guardado** (os criados
+  entre o merge da Etapa 3 e o desta etapa): a arte cai na conta logada e a página avisa, como na
+  Etapa 3.
 - **Os carrosséis sem conta gravada** (os 4 da prova da Etapa 2, de 1, 2, 3 e 4 slides, de antes da
   `015`; não há dado para descobrir de que conta eram): mostram a conta logada, com um aviso e o
   botão "Fixar nesta conta". O botão grava a conta logada uma vez, e o carrossel passa a ser como os
@@ -181,6 +188,15 @@ hoje.
 O comentário de `alturaEstimada` que diz que ela "erra para o lado seguro" é corrigido. Em caixa alta
 grande, ela errava para o lado que deixa a peça invadir a margem.
 
+**O negrito (achado 71 da auditoria).** A manchete e o bloco final do gancho e da chamada saem em
+negrito, e a média das maiúsculas na Carlito Bold é 0,5679, 2,5% acima de 0,5538. A régua desenha
+também a manchete e o negrito em caixa alta no limite. Se ela cair, a conta usa 0,5679 nas linhas em
+negrito, combinado com o Labs antes.
+
+Os 48px de baixo, com o cabeçalho no pé, não são uma segunda causa: com a tag no topo ou no pé, o
+respiro de 48px entre a tag e o texto já está nos 175 do `CABECALHO_ESTIMADO` (127 + 48). Nos dois
+casos sobram 334px com o espaço da imagem.
+
 ### O efeito
 
 A conta fica mais rígida. Alguns textos que hoje "cabem" passam a ter o aviso, ou saem com a fonte
@@ -205,8 +221,9 @@ maior texto que a conta aceita em cada degrau, para:
 E confere em cada PNG:
 - a última linha escura (texto ou cabeçalho do pé) termina até a linha 1240, onde começa a margem
   de baixo;
-- com o espaço da imagem, o fim do texto mais 48 mais 573 também termina até 1240. O espaço é branco
-  no branco, e só a última linha escura não o enxergaria.
+- com o espaço da imagem e a tag no topo, o fim do texto mais 48 mais 573 também termina até 1240.
+  O espaço é branco no branco, e só a última linha escura não o enxergaria. Com a tag no pé, a última
+  linha escura já é a tag, abaixo do espaço, e ela é a medida.
 
 O PNG é lido por um decodificador pequeno no próprio teste (`zlib.inflateSync` e os 5 filtros do PNG,
 para RGBA de 8 bits sem entrelaçamento, que é o que o desenho gera). O `sharp` não serve: ele só
@@ -263,7 +280,8 @@ DDL, e o deploy dela não tem passo à mão.
 | pura | a foto em memória: uma busca para chamadas juntas, validade do sucesso e da falha, limpeza, com relógio falso |
 | integração | salvar um slide não mexe nos outros; dois salvamentos ao mesmo tempo não se apagam; só carrossel pronto |
 | integração | gravar o "só texto" mantém a conta; uma conta no formulário é ignorada; "Fixar nesta conta" grava uma vez e recusa a segunda |
-| integração | "Gerar de novo" usa a conta do original |
+| integração | "Gerar de novo" usa a conta do original; o pedido guarda o nome e o @ da conta |
+| pura | a conta do cabeçalho: conectada usa os dados atuais; desconectada com o nome guardado usa o guardado e as iniciais; sem nome guardado cai na logada |
 | tela | editar e salvar um slide; o "não salvo"; só a miniatura do slide salvo troca; a recusa volta sem apagar o que se digitou |
 | guardas | toda action começa por `exigirSessao`; nenhum componente novo usa `defaultValue=` |
 
