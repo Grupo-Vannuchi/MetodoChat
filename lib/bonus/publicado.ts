@@ -9,7 +9,7 @@
 // lá depois do envio (o primeiro bônus de 30/09 foi enviado com ZZTESTECHAT e publicado com
 // SUMIDO).
 import { lerAteOTeto, urlDaPorta } from "./labs";
-import { palavraValida, TEMA_MAX } from "./pedido";
+import { palavraValida } from "./pedido";
 
 /**
  * O TETO DA LISTA, próprio. A lista de produção tinha 20 158 bytes em 30/09 (58 bônus, uns 337
@@ -22,11 +22,27 @@ export const LISTA_MAX_BYTES = 512 * 1024;
 const TITULO_MAX = 220;
 const DESCRICAO_MAX = 1200;
 
+/**
+ * Os tetos do Labs para a palavra e o tema de um bônus (site-ia, src/lib/bonus-escrita.ts:68-69:
+ * `keyword` até 80, `theme` até 120). São MAIORES que os do pedido do Chat (30 e 80), e um bônus
+ * publicado lá dentro deles está no formato certo (achado 58).
+ */
+const PALAVRA_DO_LABS_MAX = 80;
+export const TEMA_DO_LABS_MAX = 120;
+
 export type BonusPublicado = { palavra: string; titulo: string; descricao: string; tema: string };
 
+/**
+ * `sem_palavra`, `sem_tema` e `palavra_fora_do_padrao` são bônus publicados no FORMATO DO CONTRATO
+ * que o Chat não consegue usar (achados 57 e 58): quem resolve é o operador, no /admin do Labs, e
+ * a tela diz isso. Nenhum deles libera o carrossel.
+ */
 export type SituacaoNoLabs =
   | { tipo: "publicado"; bonus: BonusPublicado }
   | { tipo: "nao_publicado" }
+  | { tipo: "sem_palavra" }
+  | { tipo: "sem_tema" }
+  | { tipo: "palavra_fora_do_padrao"; palavra: string }
   | { tipo: "sem_resposta" }
   | { tipo: "formato_estranho" }
   | { tipo: "sem_config" };
@@ -35,6 +51,14 @@ function textoAte(v: unknown, max: number): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
   return t && t.length <= max ? t : null;
+}
+
+/**
+ * O Labs manda o campo opcional sem valor como chave AUSENTE (contrato, site-ia 7971720). Texto em
+ * branco conta como ausente. `null` não é o contrato, e fica em `formato_estranho`.
+ */
+function ausente(v: unknown): boolean {
+  return v === undefined || (typeof v === "string" && v.trim() === "");
 }
 
 export function situacaoNaLista(corpo: unknown, slug: string): SituacaoNoLabs {
@@ -50,12 +74,23 @@ export function situacaoNaLista(corpo: unknown, slug: string): SituacaoNoLabs {
   );
   if (!item) return { tipo: "nao_publicado" };
 
-  // A palavra entra EXATAMENTE como o Labs a tem: a chamada tem de pedir essa grafia.
-  const palavra = typeof item.palavraChave === "string" ? item.palavraChave : "";
+  // Faltando a palavra e o tema, vale a palavra: sem ela, nenhuma chamada tem o que pedir.
+  if (ausente(item.palavraChave)) return { tipo: "sem_palavra" };
+  if (typeof item.palavraChave !== "string" || item.palavraChave.length > PALAVRA_DO_LABS_MAX) {
+    return { tipo: "formato_estranho" };
+  }
+  // A palavra entra EXATAMENTE como o Labs a tem: a chamada tem de pedir essa grafia. A
+  // conferência da chamada depende de letras e números sem espaço (`palavraValida`).
+  const palavra = item.palavraChave;
+  if (!palavraValida(palavra)) return { tipo: "palavra_fora_do_padrao", palavra };
+  if (ausente(item.tema)) return { tipo: "sem_tema" };
+
+  // O tema vai até o teto do Labs, e não até o do pedido do Chat: no carrossel ele só entra
+  // como contexto na mensagem à IA (carrossel-ia-parametros.ts).
+  const tema = textoAte(item.tema, TEMA_DO_LABS_MAX);
   const titulo = textoAte(item.titulo, TITULO_MAX);
   const descricao = textoAte(item.descricao, DESCRICAO_MAX);
-  const tema = textoAte(item.tema, TEMA_MAX);
-  if (!palavraValida(palavra) || !titulo || !descricao || !tema) return { tipo: "formato_estranho" };
+  if (!titulo || !descricao || !tema) return { tipo: "formato_estranho" };
   return { tipo: "publicado", bonus: { palavra, titulo, descricao, tema } };
 }
 

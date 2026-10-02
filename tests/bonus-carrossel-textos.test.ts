@@ -26,6 +26,9 @@ describe("as frases do carrossel", () => {
     const situacoes: SituacaoNoLabs[] = [
       { tipo: "publicado", bonus: { palavra: "SUMIDO", titulo: "t", descricao: "d", tema: "Vendas" } },
       { tipo: "nao_publicado" },
+      { tipo: "sem_palavra" },
+      { tipo: "sem_tema" },
+      { tipo: "palavra_fora_do_padrao", palavra: "SEM DOR" },
       { tipo: "sem_resposta" },
       { tipo: "formato_estranho" },
       { tipo: "sem_config" },
@@ -36,6 +39,24 @@ describe("as frases do carrossel", () => {
       expect(q.tom === "ok", s.tipo).toBe(s.tipo === "publicado");
     }
     expect(quadroDaSituacao(situacoes[0]).texto).toContain("SUMIDO");
+  });
+
+  // ACHADOS 57 E 58: o Labs respondeu no formato do contrato, e quem resolve é o operador, no
+  // /admin do Labs. A frase diz ONDE agir, e não "avise quem cuida do Labs".
+  it("o bônus sem palavra, sem tema ou com palavra fora do padrão diz o que fazer no /admin do Labs", () => {
+    expect(quadroDaSituacao({ tipo: "sem_palavra" })).toEqual({
+      tom: "atencao",
+      texto: "Este bônus está publicado no Labs sem palavra-chave. Cadastre uma no /admin do Labs para gerar carrossel.",
+    });
+    expect(quadroDaSituacao({ tipo: "sem_tema" })).toEqual({
+      tom: "atencao",
+      texto: "Este bônus está publicado no Labs sem tema. Cadastre um no /admin do Labs para gerar carrossel.",
+    });
+    expect(quadroDaSituacao({ tipo: "palavra_fora_do_padrao", palavra: "SEM DOR" })).toEqual({
+      tom: "atencao",
+      texto:
+        "A palavra-chave deste bônus no Labs é SEM DOR, e o Chat só aceita letras e números, sem espaço, de 3 a 30. Troque no /admin do Labs para gerar carrossel.",
+    });
   });
 
   it("cada falha da conferência diz o que fazer", () => {

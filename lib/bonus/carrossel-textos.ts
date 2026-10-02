@@ -3,6 +3,7 @@
 import type { Aviso } from "@/lib/avisos";
 import { SLIDES_MAX, SLIDES_MIN, TETO_CARROSSEL_DIARIO, type RecusaDoPedidoDeCarrossel } from "./carrossel-pedido";
 import { camposDoFormulario, type FalhaDaConferencia } from "./carrossel-texto";
+import { PALAVRA_MAX, PALAVRA_MIN } from "./pedido";
 import type { SituacaoNoLabs } from "./publicado";
 import type { TomDoQuadro } from "./textos";
 
@@ -54,6 +55,23 @@ export function quadroDaSituacao(s: SituacaoNoLabs): { tom: TomDoQuadro; texto: 
       return {
         tom: "atencao",
         texto: "Criado no Labs como oculto. Publique no /admin do Labs para gerar e usar carrossel.",
+      };
+    // ACHADOS 57 E 58: o Labs respondeu no formato do contrato, e quem resolve é o operador. A
+    // frase diz onde agir, e não "avise quem cuida do Labs".
+    case "sem_palavra":
+      return {
+        tom: "atencao",
+        texto: "Este bônus está publicado no Labs sem palavra-chave. Cadastre uma no /admin do Labs para gerar carrossel.",
+      };
+    case "sem_tema":
+      return {
+        tom: "atencao",
+        texto: "Este bônus está publicado no Labs sem tema. Cadastre um no /admin do Labs para gerar carrossel.",
+      };
+    case "palavra_fora_do_padrao":
+      return {
+        tom: "atencao",
+        texto: `A palavra-chave deste bônus no Labs é ${s.palavra}, e o Chat só aceita letras e números, sem espaço, de ${PALAVRA_MIN} a ${PALAVRA_MAX}. Troque no /admin do Labs para gerar carrossel.`,
       };
     case "sem_resposta":
       return { tom: "atencao", texto: "Não consegui consultar o Labs agora. Recarregue a página em instantes." };
