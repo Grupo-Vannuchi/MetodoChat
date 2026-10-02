@@ -2,11 +2,18 @@
 import { after } from "next/server";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { ACCOUNT_COOKIE } from "@/lib/account";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { resolverConta } from "@/lib/bonus/arte-conta";
 import type { ContextoDoCarrossel } from "@/lib/bonus/carrossel-ia-parametros";
 import { lerPedidoDeCarrossel } from "@/lib/bonus/carrossel-pedido";
 import { processarCarrossel } from "@/lib/bonus/carrossel-processo";
-import { criarPedidoDeCarrossel, lerCarrossel, salvarRevisaoDoCarrossel as gravarRevisao } from "@/lib/bonus/carrossel-repositorio";
+import {
+  contasParaArte,
+  criarPedidoDeCarrossel,
+  lerCarrossel,
+  salvarRevisaoDoCarrossel as gravarRevisao,
+} from "@/lib/bonus/carrossel-repositorio";
 import { textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
 import { camposDoFormulario, lerRevisaoDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import {
@@ -42,6 +49,15 @@ import { TEXTO_BONUS_NAO_ENCONTRADO, textoDaConfig, urlDoBonusComAviso } from "@
 async function exigirSessao(): Promise<void> {
   const jarra = await cookies();
   if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) redirect("/entrar");
+}
+
+/**
+ * A CONTA DO CABEÇALHO DA ARTE, gravada no pedido: a selecionada no Chat agora (spec da Etapa 3).
+ * Gravar na primeira visita seria uma escrita dentro de um GET; o pedido já é uma escrita.
+ */
+async function contaDoPedido(): Promise<string | null> {
+  const jarra = await cookies();
+  return resolverConta(await contasParaArte(), null, jarra.get(ACCOUNT_COOKIE)?.value).conta?.ig_user_id ?? null;
 }
 
 /** O bônus pronto para carrossel: criado no Labs e publicado lá. Qualquer outra coisa é recusa. */
@@ -89,6 +105,7 @@ export async function pedirCarrossel(
     total: lido.pedido.total,
     palavra: bonus.palavra,
     contexto: bonus.contexto,
+    conta: await contaDoPedido(),
   });
   if (!criado.ok) return recusa(textoDoTetoDoCarrossel());
   const id = criado.id;
@@ -116,6 +133,7 @@ export async function gerarCarrosselDeNovo(form: FormData): Promise<void> {
     total: linha.total_slides,
     palavra: bonus.palavra,
     contexto: bonus.contexto,
+    conta: await contaDoPedido(),
   });
   if (!criado.ok) redirect(urlDoCarrosselComAviso(linha.bonus_id, id, { tom: "erro", texto: textoDoTetoDoCarrossel() }));
   const novo = criado.id;

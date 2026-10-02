@@ -23,6 +23,8 @@ const COLUNAS = [
   "medicao",
   "gerado_em",
   "revisado_em",
+  // A 015 (Etapa 3): as escolhas da arte.
+  "arte",
 ];
 
 let bonusId: string;
@@ -57,14 +59,14 @@ describe("a tabela carrosseis_gerados", () => {
     expect(linhas.map((l) => l.column_name)).toEqual(COLUNAS);
   });
 
-  it("uma linha nova nasce pendente, sem texto e sem revisão", async () => {
+  it("uma linha nova nasce pendente, sem texto, sem revisão e sem escolha de arte", async () => {
     const [linha] = (await banco
       .db()
       .sql()
       .query(
         `insert into carrosseis_gerados (bonus_id, total_slides, palavra, contexto)
          values ($1, 10, 'SUMIDO', $2::jsonb)
-         returning estado, gerado, revisado, revisado_em, contexto`,
+         returning estado, gerado, revisado, revisado_em, contexto, arte`,
         [bonusId, { tema: "Vendas" }]
       )) as Record<string, unknown>[];
     expect(linha).toEqual({
@@ -73,7 +75,20 @@ describe("a tabela carrosseis_gerados", () => {
       revisado: null,
       revisado_em: null,
       contexto: { tema: "Vendas" },
+      arte: {},
     });
+  });
+
+  it("a arte não aceita null: a linha antiga ganha {} da 015", async () => {
+    await expect(
+      banco
+        .db()
+        .sql()
+        .query(
+          `insert into carrosseis_gerados (bonus_id, total_slides, palavra, contexto, arte) values ($1, 5, 'SUMIDO', '{}'::jsonb, null)`,
+          [bonusId]
+        )
+    ).rejects.toThrow(/null value in column "arte"/);
   });
 
   it.each([0, 11])("o banco recusa total de %i slides", async (total) => {

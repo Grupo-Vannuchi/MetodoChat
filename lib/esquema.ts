@@ -224,6 +224,15 @@ const MARCA_DAGUA = {
       porque:
         "tabela de FEATURE (carrosseis_gerados): a partida do painel não depende dela, de propósito",
     },
+    {
+      de: "015-arte-do-carrossel.sql",
+      // A COLUNA `arte` DA MESMA TABELA DE FEATURE, pelo mesmo motivo da 014: só a arte do
+      // carrossel (app/bonus/) a lê, e ela não pode impedir o painel inteiro de subir. Quem
+      // confere é testes-integracao/bonus-carrossel-tabela.integracao.ts. Decidido pelo Eduardo
+      // em 01/10/2026 (docs/specs/2026-10-01-arte-do-carrossel.md).
+      porque:
+        "coluna de FEATURE (carrosseis_gerados.arte): a partida do painel não depende dela, de propósito",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",
