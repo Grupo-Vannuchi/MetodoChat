@@ -1,10 +1,16 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { alertError, alertOk, alertWarn, btnPrimary, card, hint, link, pageSubtitle, pageTitle, skeleton } from "@/app/ui";
-import { gerarCarrosselDeNovo, salvarRevisaoDoCarrossel } from "@/app/bonus/carrossel-actions";
+import { gerarCarrosselDeNovo, salvarArteDoCarrossel, salvarRevisaoDoCarrossel } from "@/app/bonus/carrossel-actions";
+import { ACCOUNT_COOKIE } from "@/lib/account";
 import { avisoDaUrl } from "@/lib/avisos";
+import { resolverConta } from "@/lib/bonus/arte-conta";
+import { escolhasDaArte } from "@/lib/bonus/arte-escolhas";
+import { versaoDaArte } from "@/lib/bonus/arte-tela";
+import { TEXTO_ARTE_SEM_CONTA, rotuloDaConta, textoDaOrigemDaConta } from "@/lib/bonus/arte-textos";
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
-import { lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
+import { contasParaArte, lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
 import { descricaoDoCarrossel, textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
 import { camposDoFormulario, valoresPorCampo } from "@/lib/bonus/carrossel-texto";
 import {
@@ -19,7 +25,7 @@ import { lerLinha } from "@/lib/bonus/repositorio";
 import { geracaoNaTela } from "@/lib/bonus/tempos";
 import { TEXTO_TRAVOU, type TomDoQuadro } from "@/lib/bonus/textos";
 import Acompanhar from "../../acompanhar";
-import FormularioDaRevisao from "./formulario-da-revisao";
+import EditorDoCarrossel from "./editor-do-carrossel";
 
 // O teto de lib/bonus/tempos.ts (MAX_DURATION_S). O Next exige literal aqui, e
 // tests/bonus-carrossel-paginas.test.ts confere que é o mesmo número. O "Gerar de novo" desta
@@ -118,17 +124,43 @@ async function situacaoDoBonus(bonusId: string): Promise<SituacaoNoLabs> {
   return bonus?.slug ? situacaoNoLabs(process.env.LABS_URL, bonus.slug) : { tipo: "nao_publicado" };
 }
 
-function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
+/**
+ * O CARROSSEL PRONTO: a arte e o editor, num componente só (editor-do-carrossel.tsx). A conta do
+ * cabeçalho é a gravada no carrossel; sem ela, ou desconectada, a selecionada no Chat agora, e a
+ * tela diz isso (achado 61). A versão das miniaturas leva TUDO o que muda a imagem: a data do
+ * texto, as escolhas da arte, e o nome, o @ e a foto da conta (arte-tela.ts, `versaoDaArte`).
+ */
+async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
   const texto = textoDaLinhaDoCarrossel(carrossel);
   if (!texto) return <div className={alertError}>{TEXTO_CARROSSEL_SEM_TEXTO}</div>;
 
+  const contas = await contasParaArte();
+  const escolhas = escolhasDaArte(carrossel.arte, carrossel.total_slides);
+  const { conta, origem } = resolverConta(contas, escolhas.conta, (await cookies()).get(ACCOUNT_COOKIE)?.value);
+  const versaoBase = versaoDaArte([
+    (carrossel.revisado_em ?? carrossel.gerado_em)?.toISOString() ?? "",
+    JSON.stringify(carrossel.arte ?? {}),
+    conta?.ig_user_id ?? "",
+    conta?.name ?? "",
+    conta?.username ?? "",
+    conta?.profile_picture_url ?? "",
+  ]);
+
   return (
-    <FormularioDaRevisao
-      acao={salvarRevisaoDoCarrossel}
+    <EditorDoCarrossel
+      acaoDaRevisao={salvarRevisaoDoCarrossel}
+      acaoDaArte={salvarArteDoCarrossel}
+      bonusId={carrossel.bonus_id}
       carrosselId={carrossel.id}
       palavra={carrossel.palavra}
+      total={carrossel.total_slides}
       campos={camposDoFormulario(carrossel.total_slides)}
       valores={valoresPorCampo(texto)}
+      contas={contas.map((c) => ({ id: c.ig_user_id, rotulo: rotuloDaConta(c) }))}
+      contaInicial={conta?.ig_user_id ?? null}
+      avisoDaConta={conta ? textoDaOrigemDaConta(origem, conta.username ?? "") : TEXTO_ARTE_SEM_CONTA}
+      soTextoInicial={escolhas.soTexto}
+      versaoBase={versaoBase}
     />
   );
 }

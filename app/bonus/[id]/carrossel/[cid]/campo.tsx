@@ -20,6 +20,9 @@ import { textoDaFaltaDaPalavra, textoDeOutrasPalavras } from "@/lib/bonus/carros
 // como está (achado 53, decisão do Eduardo: copiar continua, com o aviso ao lado). Com
 // `soAPalavra` (só a chamada), avisa também a palavra gritada A MAIS (decisão do Eduardo,
 // 01/10). As regras e a ordem são as de `lerRevisaoDoCarrossel`: primeiro a falta, depois a mais.
+//
+// `avisoDeCabimento` (Etapa 3) é o "não cabe" do slide deste campo, calculado pelo editor da arte
+// sobre o que está nos campos agora. Ele avisa e nunca impede: o salvar não olha para ele.
 export default function Campo({
   nome,
   rotulo,
@@ -28,6 +31,7 @@ export default function Campo({
   linhas,
   palavra,
   soAPalavra,
+  avisoDeCabimento,
 }: {
   nome: string;
   rotulo: string;
@@ -36,6 +40,7 @@ export default function Campo({
   linhas: number;
   palavra?: string;
   soAPalavra?: boolean;
+  avisoDeCabimento?: string;
 }) {
   const [texto, setTexto] = useState(valorInicial);
   const [copiado, setCopiado] = useState(false);
@@ -63,6 +68,7 @@ export default function Campo({
         className={input}
       />
       {aviso && <p className={fieldError}>{aviso}</p>}
+      {avisoDeCabimento && <p className="mt-1.5 text-xs font-medium text-fecha dark:text-fecha-escuro">{avisoDeCabimento}</p>}
       <div className="mt-1 flex items-center justify-between gap-3">
         <p className={hint}>
           {texto.length} de {max} caracteres

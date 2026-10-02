@@ -16,8 +16,12 @@ describe("a página do carrossel", () => {
     expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain('import Acompanhar from "../../acompanhar";');
   });
 
-  it("entrega a action de salvar ao formulário da revisão, que mostra a resposta junto do botão", () => {
-    expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain("acao={salvarRevisaoDoCarrossel}");
+  // Na Etapa 3, a página entrega as duas actions ao editor (editor-do-carrossel.tsx), que leva a
+  // da revisão ao formulário e a da arte à seção da arte.
+  it("entrega a action de salvar a revisão e a de salvar a arte ao editor do carrossel", () => {
+    const pagina = ler("app/bonus/[id]/carrossel/[cid]/page.tsx");
+    expect(pagina).toContain("acaoDaRevisao={salvarRevisaoDoCarrossel}");
+    expect(pagina).toContain("acaoDaArte={salvarArteDoCarrossel}");
   });
 });
 

@@ -1,4 +1,5 @@
 import type { Aviso } from "@/lib/avisos";
+import type { ContaDoCabecalho, OrigemDaConta } from "./arte-conta";
 import type { RecusaDaArte } from "./arte-escolhas";
 
 // AS FRASES DA ARTE DO CARROSSEL, fora do JSX e da rota (o princípio de lib/bonus/textos.ts): uma
@@ -32,4 +33,34 @@ export function textoDaRecusaDaArte(motivo: RecusaDaArte): string {
     case "slide":
       return "Esse slide não existe neste carrossel. Recarregue a página.";
   }
+}
+
+// O "não cabe", junto do campo do editor e embaixo da miniatura.
+export function textoNaoCabeComEspaco(numero: number): string {
+  return `O slide ${numero} não cabe com o espaço da imagem. Marque "só texto" nele, ou encurte.`;
+}
+
+export function textoNaoCabeNunca(numero: number): string {
+  return `O slide ${numero} não cabe nem sem o espaço da imagem. Encurte o texto.`;
+}
+
+/** De onde veio a conta do cabeçalho. A gravada não precisa de aviso. */
+export function textoDaOrigemDaConta(origem: OrigemDaConta, arroba: string): string | null {
+  switch (origem) {
+    case "gravada":
+      return null;
+    case "selecionada":
+      return `A arte usa a conta selecionada no Chat agora (@${arroba}). Escolha uma conta acima para gravar neste carrossel.`;
+    case "gravada_saiu":
+      return `A conta gravada neste carrossel foi desconectada do Chat. A arte usa a selecionada agora (@${arroba}).`;
+  }
+}
+
+export function rotuloDaConta(c: ContaDoCabecalho): string {
+  return c.name ? `${c.name} (@${c.username ?? ""})` : `@${c.username ?? ""}`;
+}
+
+/** Antes do "Baixar todos": o navegador costuma pedir permissão para vários downloads. */
+export function textoDoBaixarTodos(total: number): string {
+  return `O navegador pode pedir permissão para baixar vários arquivos de uma vez. Aceite para receber os ${total} slides.`;
 }
