@@ -103,17 +103,6 @@ export async function listarCarrosseisDoBonus(bonusId: string): Promise<LinhaDoC
   )) as LinhaDoCarrossel[];
 }
 
-/** A revisão só vale para carrossel pronto. Devolve falso quando a linha não estava pronta. */
-export async function salvarRevisaoDoCarrossel(id: string, texto: TextoDoCarrossel): Promise<boolean> {
-  const linhas = (await sql().query(
-    `update carrosseis_gerados set revisado = $2::jsonb, revisado_em = now()
-      where id = $1 and estado = 'pronto'
-      returning id`,
-    [id, texto]
-  )) as { id: string }[];
-  return linhas.length > 0;
-}
-
 /**
  * SALVAR UMA PARTE (um slide, ou a legenda) NUMA TRANSAÇÃO, COM A LINHA TRAVADA (spec da Etapa 4):
  * lê o texto salvo (o revisado, ou o gerado) DEPOIS de travar a linha, junta a parte

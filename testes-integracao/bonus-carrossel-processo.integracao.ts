@@ -196,21 +196,8 @@ describe("processarCarrossel", () => {
   });
 });
 
-describe("a revisão e a lista", () => {
-  it("só salva carrossel pronto, e grava quando", async () => {
-    const pronto = await criado(5);
-    await processo.processarCarrossel(pronto, devolve(TEXTO));
-    const revisado = { ...TEXTO, gancho: "Seu cliente sumiu? Traga ele de volta." };
-    expect(await repo.salvarRevisaoDoCarrossel(pronto, revisado)).toBe(true);
-    const l = await repo.lerCarrossel(pronto);
-    expect(l?.revisado).toEqual(revisado);
-    expect(l?.revisado_em).toBeInstanceOf(Date);
-
-    const falho = await criado(6);
-    await processo.processarCarrossel(falho, devolve(TEXTO));
-    expect(await repo.salvarRevisaoDoCarrossel(falho, revisado)).toBe(false);
-  });
-
+// A revisão se grava por parte (salvarParteDoCarrossel, mais abaixo), desde a Etapa 4.
+describe("a lista", () => {
   it("a lista do bônus vem do mais novo para o mais velho, e só dele", async () => {
     const velho = await criado(5);
     const novo = await criado(3);

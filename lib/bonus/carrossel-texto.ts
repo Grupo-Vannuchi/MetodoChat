@@ -186,8 +186,12 @@ function texto(v: unknown): string {
 export type ProblemaDoCampo = { campo: string; erro: string };
 
 /**
- * A revisão do operador. O número de slides não muda (vem do pedido), o título interno não se
- * edita, e a palavra vem da linha, nunca do formulário.
+ * A revisão do operador, o carrossel inteiro de uma vez. O número de slides não muda (vem do
+ * pedido), o título interno não se edita, e a palavra vem da linha, nunca do formulário.
+ *
+ * ⚠️ SEM USO NA TELA DESDE A ETAPA 4: o "Salvar revisão" saiu, e cada slide se salva sozinho
+ * (`juntarParte`, abaixo). Ela fica porque os testes dela cobrem a conferência dos campos
+ * (`conferirCampos`), que `juntarParte` usa; tirá-la era mudança fora da etapa.
  */
 export function lerRevisaoDoCarrossel(
   total: number,

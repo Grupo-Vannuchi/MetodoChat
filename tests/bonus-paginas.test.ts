@@ -65,9 +65,8 @@ describe("nenhum campo de revisão do bônus volta a ser não controlado", () =>
     "app/bonus/[id]/formulario-do-envio.tsx",
     "app/bonus/[id]/carrossel/[cid]/page.tsx",
     "app/bonus/[id]/carrossel/[cid]/campo.tsx",
-    "app/bonus/[id]/carrossel/[cid]/formulario-da-revisao.tsx",
     "app/bonus/[id]/carrossel/[cid]/editor-do-carrossel.tsx",
-    "app/bonus/[id]/carrossel/[cid]/arte-do-carrossel.tsx",
+    "app/bonus/[id]/carrossel/[cid]/card-da-parte.tsx",
   ])("%s não usa defaultValue", (arquivo) => {
     const semComentarios = ler(arquivo)
       .split("\n")

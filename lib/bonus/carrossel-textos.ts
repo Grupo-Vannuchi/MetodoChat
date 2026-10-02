@@ -7,13 +7,6 @@ import { PALAVRA_MAX, PALAVRA_MIN } from "./pedido";
 import type { SituacaoNoLabs } from "./publicado";
 import type { TomDoQuadro } from "./textos";
 
-/**
- * A resposta do "Salvar revisão", que volta como ESTADO do formulário e não por redirect (achado
- * 52: todo redirect de Server Action recria a página no Next 16, e a edição na tela sumia).
- * `em` muda a cada resposta, para o aviso aparecer de novo mesmo com a mesma mensagem.
- */
-export type AvisoDaRevisao = Aviso & { em: number };
-
 /** A recusa do "Gerar carrossel", que também volta como estado do formulário. */
 export type AvisoDoPedidoDeCarrossel = Aviso & { em: number };
 
@@ -56,7 +49,6 @@ export const TEXTO_CARROSSEL_NAO_ENCONTRADO = "Esse carrossel não existe, ou o 
 export const TEXTO_NAO_DA_PARA_GERAR_CARROSSEL_DE_NOVO =
   "Só dá para gerar de novo um carrossel cuja geração falhou ou travou.";
 export const TEXTO_CARROSSEL_NAO_REVISAVEL = "Esse carrossel não está pronto para revisar.";
-export const TEXTO_REVISAO_SALVA = "Revisão salva.";
 export const TEXTO_TABELA_CARROSSEL_AUSENTE =
   "Falta a tabela dos carrosséis neste banco. Aplique a migração 014 (migrations/014-carrosseis-gerados.sql) e recarregue.";
 export const TEXTO_CARROSSEL_SEM_TEXTO = "O texto deste carrossel não passou na conferência de formato. Gere de novo.";

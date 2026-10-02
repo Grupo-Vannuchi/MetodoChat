@@ -22,7 +22,7 @@ export const TEXTO_ARTE_SEM_DESENHO =
  * por redirect: a seção da arte fica na página do editor, e recriar a página apagaria a edição
  * (achado 52). `em` muda a cada resposta, e é o que troca a versão das miniaturas depois de salvar.
  */
-export type AvisoDaArte = Aviso & { em: number };
+export type AvisoDaArte = Aviso & { em: number; versoes?: string[] };
 
 export const TEXTO_ARTE_SALVA = "Arte salva.";
 export const TEXTO_CONTA_FIXADA = "Conta fixada neste carrossel.";

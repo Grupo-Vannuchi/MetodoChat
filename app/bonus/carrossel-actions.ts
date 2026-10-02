@@ -31,17 +31,15 @@ import {
   fixarContaDoCarrossel as gravarContaFixada,
   lerCarrossel,
   salvarParteDoCarrossel,
-  salvarRevisaoDoCarrossel as gravarRevisao,
   salvarSoTextoDaArte,
 } from "@/lib/bonus/carrossel-repositorio";
 import { textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
-import { camposDaParte, camposDoFormulario, lerParte, lerRevisaoDoCarrossel } from "@/lib/bonus/carrossel-texto";
+import { camposDaParte, lerParte } from "@/lib/bonus/carrossel-texto";
 import {
   TEXTO_CARROSSEL_NAO_ENCONTRADO,
   TEXTO_CARROSSEL_NAO_REVISAVEL,
   TEXTO_NAO_DA_PARA_GERAR_CARROSSEL_DE_NOVO,
   TEXTO_PARTE_INVALIDA,
-  TEXTO_REVISAO_SALVA,
   TEXTO_SO_BONUS_CRIADO,
   quadroDaSituacao,
   textoDaParteSalva,
@@ -49,7 +47,6 @@ import {
   textoDoTetoDoCarrossel,
   textoDosProblemasDoCarrossel,
   urlDoCarrosselComAviso,
-  type AvisoDaRevisao,
   type AvisoDoPedidoDeCarrossel,
   type AvisoDoSlide,
 } from "@/lib/bonus/carrossel-textos";
@@ -176,40 +173,15 @@ export async function gerarCarrosselDeNovo(form: FormData): Promise<void> {
 }
 
 /**
- * A RESPOSTA VOLTA COMO ESTADO DO FORMULÁRIO (useActionState), E NUNCA POR REDIRECT PARA A
- * PRÓPRIA PÁGINA (achado 52, medido em 01/10 num navegador de verdade): todo redirect de Server
- * Action recria a página no Next 16, e o que o operador tinha digitado voltava ao texto com que a
- * página abriu. Numa recusa, a edição sumia, e o clique seguinte gravava o texto velho. Só a
- * sessão e o carrossel inexistente saem por redirect, para outra página.
- */
-export async function salvarRevisaoDoCarrossel(
-  _anterior: AvisoDaRevisao | null,
-  form: FormData
-): Promise<AvisoDaRevisao | null> {
-  await exigirSessao();
-  const id = form.get("id");
-  if (!ehIdDeBonus(id)) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
-  const linha = await lerCarrossel(id);
-  if (!linha) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
-  const resposta = (tom: AvisoDaRevisao["tom"], texto: string): AvisoDaRevisao => ({ tom, texto, em: Date.now() });
-  const atual = textoDaLinhaDoCarrossel(linha);
-  if (linha.estado !== "pronto" || !atual) return resposta("erro", TEXTO_CARROSSEL_NAO_REVISAVEL);
-  const bruto: Record<string, unknown> = Object.fromEntries(
-    camposDoFormulario(linha.total_slides).map((c) => [c.nome, form.get(c.nome)])
-  );
-  const lido = lerRevisaoDoCarrossel(linha.total_slides, linha.palavra, atual.titulo, bruto);
-  if (!lido.ok) {
-    return resposta("erro", `Corrija antes de salvar. ${textoDosProblemasDoCarrossel(linha.total_slides, lido.problemas)}`);
-  }
-  const salvou = await gravarRevisao(id, lido.texto);
-  return salvou ? resposta("ok", TEXTO_REVISAO_SALVA) : resposta("erro", TEXTO_CARROSSEL_NAO_REVISAVEL);
-}
-
-/**
  * O "SALVAR SLIDE N" E O "SALVAR LEGENDA" (spec da Etapa 4): grava só a parte, juntada ao texto
  * salvo numa transação com a linha travada (carrossel-repositorio.ts), e recusa só pelos problemas
- * dela. A resposta volta como ESTADO do card (achado 52), com a versão nova da miniatura do slide
- * salvo: só ela é pedida de novo. Os campos que o formulário trouxer fora da parte são ignorados.
+ * dela. Os campos que o formulário trouxer fora da parte são ignorados.
+ *
+ * A RESPOSTA VOLTA COMO ESTADO DO CARD (useActionState), E NUNCA POR REDIRECT PARA A PRÓPRIA PÁGINA
+ * (achado 52, medido em 01/10 num navegador de verdade): todo redirect de Server Action recria a
+ * página no Next 16, e o que o operador tinha digitado voltava ao texto com que a página abriu. Ela
+ * leva a versão nova da miniatura do slide salvo, e só ela é pedida de novo. Só a sessão e o
+ * carrossel inexistente saem por redirect, para outra página.
  */
 export async function salvarSlideDoCarrossel(_anterior: AvisoDoSlide | null, form: FormData): Promise<AvisoDoSlide | null> {
   await exigirSessao();
@@ -241,10 +213,9 @@ export async function salvarSlideDoCarrossel(_anterior: AvisoDoSlide | null, for
 
 /**
  * O "SÓ TEXTO" DA ARTE. A resposta volta como ESTADO (useActionState), e nunca por redirect, pelo
- * mesmo motivo do salvar da revisão (achado 52): a seção da arte fica na página do editor, e recriar
- * a página apagaria o que se estiver editando. Só carrossel pronto guarda escolha. A conta não vem do
- * formulário (spec da Etapa 4): o carrossel é da conta em que nasceu. Gravar aqui completa o nome e
- * o @ da conta gravada na Etapa 3 sem eles.
+ * mesmo motivo do salvar do slide (achado 52), com as versões novas das miniaturas. Só carrossel
+ * pronto guarda escolha. A conta não vem do formulário (spec da Etapa 4): o carrossel é da conta em
+ * que nasceu. Gravar aqui completa o nome e o @ da conta gravada na Etapa 3 sem eles.
  */
 export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form: FormData): Promise<AvisoDaArte | null> {
   await exigirSessao();
@@ -252,13 +223,22 @@ export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form:
   if (!ehIdDeBonus(id)) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
   const linha = await lerCarrossel(id);
   if (!linha) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
-  const resposta = (tom: AvisoDaArte["tom"], texto: string): AvisoDaArte => ({ tom, texto, em: Date.now() });
-  if (linha.estado !== "pronto" || !textoDaLinhaDoCarrossel(linha)) return resposta("erro", TEXTO_ARTE_NAO_PRONTA);
+  const resposta = (tom: AvisoDaArte["tom"], texto: string, versoes?: string[]): AvisoDaArte => ({
+    tom,
+    texto,
+    em: Date.now(),
+    ...(versoes ? { versoes } : {}),
+  });
+  const texto = linha.estado === "pronto" ? textoDaLinhaDoCarrossel(linha) : null;
+  if (!texto) return resposta("erro", TEXTO_ARTE_NAO_PRONTA);
   const lido = lerSoTextoDoFormulario(form.getAll("so_texto"), linha.total_slides);
   if (!lido.ok) return resposta("erro", textoDaRecusaDaArte(lido.motivo));
-  const falta = nomeQueFalta(await contasParaArte(), escolhasDaArte(linha.arte, linha.total_slides));
-  const salvou = await salvarSoTextoDaArte(id, lido.soTexto, falta);
-  return salvou ? resposta("ok", TEXTO_ARTE_SALVA) : resposta("erro", TEXTO_ARTE_NAO_PRONTA);
+  const contas = await contasParaArte();
+  const escolhas = escolhasDaArte(linha.arte, linha.total_slides);
+  const salvou = await salvarSoTextoDaArte(id, lido.soTexto, nomeQueFalta(contas, escolhas));
+  if (!salvou) return resposta("erro", TEXTO_ARTE_NAO_PRONTA);
+  const { conta } = resolverConta(contas, escolhas, await contaDoCookie());
+  return resposta("ok", TEXTO_ARTE_SALVA, versoesDosSlides(slidesDoTexto(texto), lido.soTexto, cabecalhoParaVersao(conta)));
 }
 
 /**

@@ -16,28 +16,13 @@ describe("a página do carrossel", () => {
     expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain('import Acompanhar from "../../acompanhar";');
   });
 
-  // Na Etapa 3, a página entrega as duas actions ao editor (editor-do-carrossel.tsx), que leva a
-  // da revisão ao formulário e a da arte à seção da arte.
-  it("entrega a action de salvar a revisão e a de salvar a arte ao editor do carrossel", () => {
+  // Na Etapa 4, a página entrega as três actions ao editor (editor-do-carrossel.tsx): a do slide
+  // vai a cada card, a da arte grava o "só texto", e a da conta é o "Fixar nesta conta".
+  it("entrega a action do slide, a da arte e a da conta ao editor do carrossel", () => {
     const pagina = ler("app/bonus/[id]/carrossel/[cid]/page.tsx");
-    expect(pagina).toContain("acaoDaRevisao={salvarRevisaoDoCarrossel}");
+    expect(pagina).toContain("acaoDoSlide={salvarSlideDoCarrossel}");
     expect(pagina).toContain("acaoDaArte={salvarArteDoCarrossel}");
-  });
-});
-
-// O "SALVAR REVISÃO" NÃO REDIRECIONA (achado 52, causa medida em 01/10 num navegador de verdade):
-// todo redirect de Server Action recria a página no Next 16, e o que o operador tinha digitado
-// voltava ao texto com que a página abriu. A recusa e o "Revisão salva." voltam como estado do
-// formulário. Só a sessão e o carrossel inexistente saem por redirect, para OUTRA página.
-describe("o salvar da revisão responde sem recriar a página", () => {
-  it("salvarRevisaoDoCarrossel não redireciona para a página do carrossel", () => {
-    const fonte = ler("app/bonus/carrossel-actions.ts");
-    const inicio = fonte.indexOf("export async function salvarRevisaoDoCarrossel(");
-    const fim = fonte.indexOf("\nexport ", inicio + 1);
-    const corpo = fonte.slice(inicio, fim === -1 ? undefined : fim);
-    expect(inicio).toBeGreaterThan(-1);
-    expect(corpo).not.toMatch(/urlDoCarrosselComAviso\(/);
-    expect(corpo).not.toMatch(/redirect\(`\/bonus\/\$\{/);
+    expect(pagina).toContain("acaoDaConta={fixarContaDoCarrossel}");
   });
 });
 
@@ -105,14 +90,13 @@ function primeirasInstrucoes(fonte: string): { nome: string; primeira: string }[
 // A SESSÃO É CONFERIDA DENTRO DE CADA ACTION, e não só no proxy.ts: Server Action tem endereço
 // próprio. O mesmo leitor de tests/bonus-paginas.test.ts, para o arquivo novo.
 describe("toda action do carrossel confere a sessão antes de qualquer coisa", () => {
-  it("as seis actions começam por `await exigirSessao();`", () => {
+  it("as cinco actions começam por `await exigirSessao();`", () => {
     const achados = primeirasInstrucoes(ler("app/bonus/carrossel-actions.ts"));
     expect(achados.map((a) => a.nome).sort()).toEqual([
       "fixarContaDoCarrossel",
       "gerarCarrosselDeNovo",
       "pedirCarrossel",
       "salvarArteDoCarrossel",
-      "salvarRevisaoDoCarrossel",
       "salvarSlideDoCarrossel",
     ]);
     for (const a of achados) expect(a.primeira, a.nome).toBe("await exigirSessao();");
