@@ -146,15 +146,22 @@ voltar a miniatura velha.
   do Eduardo em 02/10.
 - **O seletor de conta sai da página.** Trocar a conta logada no Chat não muda os carrosséis que já
   existem.
-- **"Gerar de novo" usa a conta do carrossel original**, e não a logada no momento. Sem conta
-  gravada no original, ou com ela desconectada do Chat, usa a logada.
-- **A conta gravada que foi desconectada do Chat, num carrossel sem o nome guardado** (os criados
-  entre o merge da Etapa 3 e o desta etapa): a arte cai na conta logada e a página avisa, como na
-  Etapa 3.
-- **Os carrosséis sem conta gravada** (os 4 da prova da Etapa 2, de 1, 2, 3 e 4 slides, de antes da
-  `015`; não há dado para descobrir de que conta eram): mostram a conta logada, com um aviso e o
-  botão "Fixar nesta conta". O botão grava a conta logada uma vez, e o carrossel passa a ser como os
+- **"Gerar de novo" herda a conta, o nome e o @ do carrossel original**, e não usa a logada no
+  momento, mesmo com a conta do original desconectada (decisão do Eduardo em 02/10). Só sem conta
+  gravada no original ele usa a logada.
+- **Carrossel com conta e sem o nome guardado.** Até o deploy desta etapa, o pedido e o seletor da
+  Etapa 3 gravam a conta sem o nome. Em 02/10 (14:29Z) eram 2, os de 4 e de 10 slides, que ganharam
+  conta pelo seletor. Para fechar essa janela sem DDL e sem gravar numa leitura, toda action que já
+  grava num carrossel (salvar um slide, gravar o "só texto") guarda também o nome e o @ quando a conta
+  está conectada e o nome falta. Se a conta for desconectada antes de alguma gravação, a arte cai na
+  conta logada e a página avisa, como na Etapa 3.
+- **Carrossel sem conta gravada** (de antes da `015`, sem dado para descobrir de que conta era; em
+  02/10 eram 3, os de 1, 2 e 3 slides): mostra a conta logada, com um aviso e o botão "Fixar nesta
+  conta". O botão grava a conta logada, com o nome e o @, uma vez, e o carrossel passa a ser como os
   novos. A action recusa se o carrossel já tiver conta.
+
+A spec descreve esses grupos pela condição (tem conta e não tem nome; não tem conta), e não pela
+lista: a lista muda enquanto a Etapa 3 está no ar.
 - **Gravar o "só texto" não pode apagar a conta.** Hoje `salvarEscolhasDaArte` troca o objeto
   `arte` inteiro (`set arte = $2::jsonb`). Ela passa a gravar só a chave `soTexto`
   (`arte || jsonb_build_object('soTexto', …)`), e um caso de integração prova que a conta fica,
@@ -260,9 +267,11 @@ DDL, e o deploy dela não tem passo à mão.
 
 - Toda action nova começa com `await exigirSessao()`, e a guarda que lê o arquivo de actions cobra
   isso de todas.
-- A action de salvar o slide ignora qualquer conta do formulário. A conta só se grava em três
-  lugares, nunca vinda do formulário e sempre entre as conectadas: no pedido (a logada), no "Gerar
-  de novo" (a do original, ou a logada sem ela) e no "Fixar nesta conta" (a logada).
+- A action de salvar o slide ignora qualquer conta do formulário. A conta, o nome e o @ nunca vêm
+  do formulário, e só se gravam em três lugares: no pedido e no "Fixar nesta conta" (a logada, entre
+  as conectadas) e no "Gerar de novo" (a do original, mesmo desconectada; sem ela, a logada). As
+  actions que gravam num carrossel só completam o nome e o @ da conta que ele já tem, lidos da tabela
+  de contas.
 - O "Fixar nesta conta" recusa um carrossel que já tem conta.
 - A leitura das contas continua só pelas quatro colunas do cabeçalho, nunca o `access_token`.
 
@@ -280,7 +289,7 @@ DDL, e o deploy dela não tem passo à mão.
 | pura | a foto em memória: uma busca para chamadas juntas, validade do sucesso e da falha, limpeza, com relógio falso |
 | integração | salvar um slide não mexe nos outros; dois salvamentos ao mesmo tempo não se apagam; só carrossel pronto |
 | integração | gravar o "só texto" mantém a conta; uma conta no formulário é ignorada; "Fixar nesta conta" grava uma vez e recusa a segunda |
-| integração | "Gerar de novo" usa a conta do original; o pedido guarda o nome e o @ da conta |
+| integração | "Gerar de novo" herda a conta, o nome e o @ do original, mesmo desconectada; o pedido guarda o nome e o @; salvar um slide completa o nome que falta |
 | pura | a conta do cabeçalho: conectada usa os dados atuais; desconectada com o nome guardado usa o guardado e as iniciais; sem nome guardado cai na logada |
 | tela | editar e salvar um slide; o "não salvo"; só a miniatura do slide salvo troca; a recusa volta sem apagar o que se digitou |
 | guardas | toda action começa por `exigirSessao`; nenhum componente novo usa `defaultValue=` |
