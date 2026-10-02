@@ -26,16 +26,19 @@ miniatura troca pela versão na URL, sem redirect nem `router.refresh`.
 rebaseados sobre `dd54ca5`). Leia antes de começar: este plano não repete o porquê das regras, só
 como construí-las.
 
-**Ensaio do plano (01/10):** o código deste plano foi escrito e testado fase a fase numa cópia
-isolada do repositório (`git worktree`, branch local `ensaio-arte-2`, sem push), e todo bloco de
-código abaixo foi tirado do git dessa cópia por um gerador, sem cópia à mão. Os números do ensaio:
-- lint e `tsc` limpos; 89 arquivos e 2 398 casos puros; 19 arquivos e 114 casos de tela;
-- `next build --webpack` limpo, com `ƒ /bonus/[id]/carrossel/[cid]/arte` na lista;
+**Ensaio do plano (01/10, refeito em 02/10):** o código deste plano foi escrito e testado fase a
+fase numa cópia isolada do repositório (`git worktree`, branch local `ensaio-arte-4`, sem push), e
+todo bloco de código abaixo foi tirado do git dessa cópia por um gerador, sem cópia à mão. Os
+números do ensaio:
+- lint e `tsc` limpos; 89 arquivos e 2 401 casos puros; 19 arquivos e 116 casos de tela;
+- `next build --webpack` limpo, com `ƒ /bonus/[id]/carrossel/[cid]/arte` na lista. O auditor
+  rodou também o build da Vercel (`next build`, Turbopack) numa cópia com `npm ci`: limpo, e o
+  `route.js.nft.json` da rota lista os dois `.ttf`;
 - integração no container: 37 arquivos, 308 passaram e 8 pularam. Na cópia, o
   `registro-de-migracoes` só passou com um `.env.local` **vazio**: o `migrar.mjs --a-mao` exige o
   arquivo como prova de estar na máquina de alguém, e lê a URL do banco do ambiente antes dele. Na
   árvore do projeto o `.env.local` existe, e nada disso muda;
-- as 19 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado;
+- as 25 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado;
 - os PNGs de amostra foram olhados: Carlito, hierarquia por peso, lista de hífens uma por linha, a
   tag no pé do último slide, o espaço da imagem em branco.
 
@@ -54,6 +57,20 @@ O ensaio achou quatro coisas, já resolvidas neste plano:
 4. **As recusas da rota com sessão não tinham teste.** O harness da integração não forja cookie
    (de propósito), então a rota só se prova sem sessão. O dono, o "pronto" e a faixa do slide
    passaram para `conferirPedidoDaArte` (arte-tela.ts), com um caso por recusa e uma mutação.
+
+A revisão do plano pelo auditor (02/10) trouxe quatro achados, também resolvidos aqui:
+- **65.** O `ImageResponse` responde 200 antes de desenhar, e uma falha no meio do desenho saía
+  como 200 com o corpo quebrado. `respostaDaArte` (FASE 3.6) agora lê o PNG inteiro antes de
+  responder e devolve `{ ok: false, falha }`: com a foto, desenha de novo com as iniciais; sem
+  foto, a rota responde 500 com frase própria. O caso de teste é o JPEG que só começa certo
+  (`FF D8 FF` e lixo), que o Satori recusa.
+- **66.** Emoji no texto faz o `next/og` buscar a twemoji em `cdn.jsdelivr.net` no meio do desenho,
+  sem opção para desligar. Fica escrito na spec e no comentário da rota, um caso de teste prova o
+  pedido com a rede recusada, e a prova da FASE 3.10 desenha um slide com emoji.
+- **67.** A escolha da arte recusada continuava marcada na tela. Agora a conta e o "só texto" voltam
+  para a última escolha aceita (FASE 3.8), com dois casos de tela.
+- **68.** O `mutar-arte.mjs` rodava as mutações de integração sem conferir o banco. Agora recusa sem
+  `DATABASE_URL_TESTES`, e conta como ✗ a rodada que não imprime "ALVO: banco de TESTE".
 
 ## Restrições globais
 
@@ -93,7 +110,7 @@ Valem para todas as fases, sem precisar repetir em cada uma.
 - **Escrita em produção só com o OK do Eduardo:** a `015` (FASE 3.10) e qualquer gravação da prova
   real. O preview usa o banco de produção: lá, "Salvar revisão", "Existe / Não existe" e as
   escolhas da arte gravam em produção.
-- **Ao fechar cada fase**, avisar o auditor (sessão `metodochat-cd` em 01/10; conferir o nome no
+- **Ao fechar cada fase**, avisar o auditor (sessão `metodochat-b7` em 02/10; conferir o nome no
   `ListAgents`, porque ele muda a cada reinício) com o hash e o que conferir. Não esperar a
   resposta para seguir.
 
@@ -2193,8 +2210,11 @@ git commit -m "feat(bonus): a foto da conta, buscada só do CDN da Meta, com pra
 - Produz: de `arte-tela.ts`, `type CabecalhoDaArte`, `numeroDoSlide`, `nomeDoArquivo`,
   `cabecalhosDaArte`, `cabecalhoDaConta`, `versaoDaArte`, `urlDaArte(bonusId, carrosselId, numero, versao, baixar = false)`,
   `conferirPedidoDaArte(linha, bonusId, slide)` (o dono, o "pronto" e a faixa do slide);
-  de `arte-textos.ts`, as recusas da rota; `desenhoDoSlide({ slide, fonte, comEspaco, cabecalho, familia })`;
-  `respostaDaArte({ slide, comEspaco, cabecalho, baixar, nomeDoArquivo }): Promise<Response>`; e a rota `GET`.
+  de `arte-textos.ts`, as recusas da rota (com `TEXTO_ARTE_SEM_FONTE` e `TEXTO_ARTE_SEM_DESENHO`);
+  `desenhoDoSlide({ slide, fonte, comEspaco, cabecalho, familia })`;
+  `type FalhaDaArte = "fonte" | "desenho"`, `type ArteDoSlide`,
+  `respostaDaArte({ slide, comEspaco, cabecalho, baixar, nomeDoArquivo }): Promise<ArteDoSlide>`
+  (o PNG já lido inteiro, achado 65); e a rota `GET`.
 
 - [ ] **Passo 1: os testes**
 
@@ -2369,7 +2389,7 @@ describe("o que a rota confere antes de desenhar", () => {
 Crie `tests/bonus-arte-resposta.test.ts`:
 
 ```ts
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { respostaDaArte } from "@/lib/bonus/arte-resposta";
 import { slidesDoTexto, type SlideParaArte } from "@/lib/bonus/arte-slides";
 import type { CabecalhoDaArte } from "@/lib/bonus/arte-tela";
@@ -2379,6 +2399,17 @@ import type { TextoDeCarrossel, TextoDePost } from "@/lib/bonus/carrossel-texto"
 // cabeçalhos conferidos são os que SAEM da resposta, e não os que o código pede (achado 59: o
 // next/og tem um padrão próprio, e só os `headers` passados o sobrescrevem). Se o desenho tiver um
 // `div` de vários filhos sem `display: flex`, o Satori recusa, e o caso cai aqui.
+
+// A LEITURA DA FONTE PODE SER FEITA FALHAR, um caso de cada vez: a troca é parcial (`importOriginal`
+// e espalha), e fora do caso que liga a chave a fonte é a de verdade, lida do disco.
+const fonteFalha = vi.hoisted(() => ({ agora: false }));
+vi.mock("@/lib/bonus/arte-fonte", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/bonus/arte-fonte")>();
+  return {
+    ...real,
+    fontesDaArte: () => (fonteFalha.agora ? Promise.reject(new Error("ENOENT")) : real.fontesDaArte()),
+  };
+});
 
 const PNG_1X1 =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
@@ -2407,8 +2438,8 @@ function tamanhoDoPng(b: Buffer): { assinatura: string; largura: number; altura:
   return { assinatura: b.subarray(0, 8).toString("hex"), largura: b.readUInt32BE(16), altura: b.readUInt32BE(20) };
 }
 
-async function desenhar(slide: SlideParaArte, extra: Partial<Parameters<typeof respostaDaArte>[0]> = {}) {
-  const r = await respostaDaArte({
+const pedir = (slide: SlideParaArte, extra: Partial<Parameters<typeof respostaDaArte>[0]> = {}) =>
+  respostaDaArte({
     slide,
     comEspaco: true,
     cabecalho: CABECALHO,
@@ -2416,7 +2447,11 @@ async function desenhar(slide: SlideParaArte, extra: Partial<Parameters<typeof r
     nomeDoArquivo: "reativar-clientes-whatsapp-slide-01.png",
     ...extra,
   });
-  return { r, png: Buffer.from(await r.arrayBuffer()) };
+
+async function desenhar(slide: SlideParaArte, extra: Partial<Parameters<typeof respostaDaArte>[0]> = {}) {
+  const arte = await pedir(slide, extra);
+  if (!arte.ok) throw new Error(`o desenho falhou: ${arte.falha}`);
+  return { r: arte.resposta, png: Buffer.from(await arte.resposta.arrayBuffer()) };
 }
 
 const [GANCHO, CONTEUDO, CHAMADA] = slidesDoTexto(CARROSSEL);
@@ -2455,6 +2490,46 @@ describe("o PNG de um slide", () => {
     const sem = (await desenhar(CONTEUDO, { comEspaco: false })).png;
     expect(com.equals(sem)).toBe(false);
   }, 60_000);
+});
+
+// QUANDO O DESENHO FALHA (achado 65): o ImageResponse fixa o status 200 ANTES de desenhar, porque o
+// desenho roda dentro do stream do corpo. Uma falha no meio sairia como 200 com o corpo quebrado, e
+// a miniatura, quebrada sem frase. Por isso respostaDaArte lê o PNG inteiro antes de responder.
+describe("quando o desenho falha", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    fonteFalha.agora = false;
+  });
+
+  // FF D8 FF é o começo de todo JPEG, e é só o começo que arte-foto.ts confere. Com o resto em lixo,
+  // o Satori recusa no meio do desenho ("Invalid JPEG").
+  it("a foto que começa como JPEG e não é: o slide sai com as iniciais, igual ao sem foto", async () => {
+    const jpegFalso = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(2000, 0x41)]);
+    const foto = `data:image/jpeg;base64,${jpegFalso.toString("base64")}`;
+    const comFoto = await desenhar(CONTEUDO, { cabecalho: { ...CABECALHO, foto } });
+    const semFoto = await desenhar(CONTEUDO);
+    expect(comFoto.r.status).toBe(200);
+    expect(comFoto.r.headers.get("cache-control")).toBe("private, no-store");
+    expect(comFoto.png.equals(semFoto.png)).toBe(true);
+  }, 60_000);
+
+  // Emoji faz o next/og buscar o desenho do emoji em cdn.jsdelivr.net no meio do desenho (achado
+  // 66), sem opção para desligar. Aqui a rede recusa, e nada sai da máquina.
+  it("sem foto para tirar, a falha volta como motivo, e não como 200 quebrado", async () => {
+    const pedidos: string[] = [];
+    vi.stubGlobal("fetch", async (url: string | URL | Request) => {
+      pedidos.push(new URL(url instanceof Request ? url.url : url).host);
+      throw new Error("rede recusada pelo teste");
+    });
+    const comEmoji = { ...CONTEUDO, texto: `Comente SUMIDO ${String.fromCodePoint(0x1f447)}` };
+    expect(await pedir(comEmoji)).toEqual({ ok: false, falha: "desenho" });
+    expect(pedidos).toContain("cdn.jsdelivr.net");
+  }, 60_000);
+
+  it("a fonte que não se lê volta como motivo próprio", async () => {
+    fonteFalha.agora = true;
+    expect(await pedir(CONTEUDO)).toEqual({ ok: false, falha: "fonte" });
+  });
 });
 ```
 
@@ -2688,6 +2763,8 @@ export const TEXTO_ARTE_SEM_CONTA =
   "Nenhuma conta do Instagram está conectada no Chat, e o cabeçalho da arte precisa de uma.";
 export const TEXTO_ARTE_SEM_FONTE =
   "A arte não pôde ser desenhada: a fonte Carlito não foi encontrada no servidor. Avise quem cuida do Chat.";
+export const TEXTO_ARTE_SEM_DESENHO =
+  "A arte deste slide não pôde ser desenhada. Se o texto tem emoji, tente de novo em instantes: o desenho do emoji vem de fora do Chat. Se continuar, avise quem cuida do Chat.";
 ```
 
 - [ ] **Passo 4: o desenho, trazido do JSX do Labs com as quatro diferenças**
@@ -2869,7 +2946,11 @@ export function desenhoDoSlide({
 }
 ```
 
-- [ ] **Passo 5: o PNG com a fonte e os cabeçalhos**
+- [ ] **Passo 5: o PNG com a fonte e os cabeçalhos, lido inteiro antes de responder**
+
+O `ImageResponse` fixa o status 200 antes de desenhar (o desenho roda dentro do stream do corpo,
+`next/dist/server/og/image-response.js`). Por isso o PNG é lido aqui, e cada falha volta como
+motivo (achado 65).
 
 Crie `lib/bonus/arte-resposta.tsx`:
 
@@ -2877,7 +2958,7 @@ Crie `lib/bonus/arte-resposta.tsx`:
 import "server-only";
 import { ImageResponse } from "next/og";
 import { desenhoDoSlide } from "./arte-desenho";
-import { fontesDaArte, FAMILIA_DA_ARTE } from "./arte-fonte";
+import { fontesDaArte, FAMILIA_DA_ARTE, type FonteDaArte } from "./arte-fonte";
 import { ALTURA, LARGURA } from "./arte-geometria";
 import { tamanhoDoTexto, textoMedido, type SlideParaArte } from "./arte-slides";
 import { cabecalhosDaArte, type CabecalhoDaArte } from "./arte-tela";
@@ -2888,6 +2969,19 @@ import { cabecalhosDaArte, type CabecalhoDaArte } from "./arte-tela";
 //
 // A FONTE DO TEXTO É ESCOLHIDA SOBRE O TEXTO MEDIDO (a manchete e o corpo), o mesmo que o aviso
 // "não cabe" mede (arte-slides.ts). `comEspaco` é o `!semIlustracao` do Labs.
+//
+// O PNG É LIDO INTEIRO AQUI, antes de a rota responder (achado 65). O ImageResponse fixa o status
+// 200 antes de desenhar, porque o desenho roda dentro do stream do corpo: uma falha no meio sairia
+// como 200 com o corpo quebrado, e a miniatura, quebrada sem frase. Lido aqui, o erro aparece, e
+// volta como motivo. As falhas conhecidas: a foto que passa pelos bytes iniciais e não é imagem
+// (então o slide sai de novo com as iniciais, como uma conta sem foto), e o emoji, cujo desenho o
+// next/og busca em cdn.jsdelivr.net no meio do desenho (achado 66; sem opção para desligar).
+
+/** Por que o slide não saiu: a rota troca cada motivo por uma frase (arte-textos.ts). */
+export type FalhaDaArte = "fonte" | "desenho";
+
+export type ArteDoSlide = { ok: true; resposta: Response } | { ok: false; falha: FalhaDaArte };
+
 export async function respostaDaArte({
   slide,
   comEspaco,
@@ -2900,15 +2994,32 @@ export async function respostaDaArte({
   cabecalho: CabecalhoDaArte;
   baixar: boolean;
   nomeDoArquivo: string;
-}): Promise<Response> {
-  const fontes = await fontesDaArte();
+}): Promise<ArteDoSlide> {
+  let fontes: FonteDaArte[];
+  try {
+    fontes = await fontesDaArte();
+  } catch {
+    return { ok: false, falha: "fonte" };
+  }
   const fonte = tamanhoDoTexto(slide.tipo, textoMedido(slide), comEspaco);
-  return new ImageResponse(desenhoDoSlide({ slide, fonte, comEspaco, cabecalho, familia: FAMILIA_DA_ARTE }), {
-    width: LARGURA,
-    height: ALTURA,
-    fonts: fontes,
-    headers: cabecalhosDaArte(baixar, nomeDoArquivo),
-  });
+
+  const desenhar = async (cab: CabecalhoDaArte): Promise<Response | null> => {
+    const imagem = new ImageResponse(desenhoDoSlide({ slide, fonte, comEspaco, cabecalho: cab, familia: FAMILIA_DA_ARTE }), {
+      width: LARGURA,
+      height: ALTURA,
+      fonts: fontes,
+      headers: cabecalhosDaArte(baixar, nomeDoArquivo),
+    });
+    try {
+      const png = await imagem.arrayBuffer();
+      return new Response(png, { status: imagem.status, headers: imagem.headers });
+    } catch {
+      return null;
+    }
+  };
+
+  const resposta = (await desenhar(cabecalho)) ?? (cabecalho.foto ? await desenhar({ ...cabecalho, foto: null }) : null);
+  return resposta ? { ok: true, resposta } : { ok: false, falha: "desenho" };
 }
 ```
 
@@ -2929,6 +3040,7 @@ import { cabecalhoDaConta, conferirPedidoDaArte, nomeDoArquivo } from "@/lib/bon
 import {
   TEXTO_ARTE_NAO_ENCONTRADA,
   TEXTO_ARTE_SEM_CONTA,
+  TEXTO_ARTE_SEM_DESENHO,
   TEXTO_ARTE_SEM_FONTE,
   TEXTO_ARTE_SEM_SESSAO,
 } from "@/lib/bonus/arte-textos";
@@ -2972,18 +3084,18 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!conta) return erro(409, TEXTO_ARTE_SEM_CONTA);
   const [foto, bonus] = await Promise.all([fotoDaConta(conta.profile_picture_url), lerLinha(id)]);
 
-  try {
-    return await respostaDaArte({
-      slide: slides[numero - 1],
-      comEspaco: comEspaco(escolhas, numero),
-      cabecalho: cabecalhoDaConta(conta, foto),
-      baixar: pedido.get("baixar") === "1",
-      nomeDoArquivo: nomeDoArquivo(bonus?.slug ?? null, numero),
-    });
-  } catch {
-    // A única falha antes do desenho é a leitura da fonte (arte-fonte.ts, sem fonte de reserva).
-    return erro(500, TEXTO_ARTE_SEM_FONTE);
-  }
+  // O PNG já sai lido inteiro (arte-resposta.tsx, achado 65): uma falha do desenho vira 500 com
+  // frase, e não um 200 com o corpo quebrado. Emoji no texto faz o desenho buscar o emoji em
+  // cdn.jsdelivr.net (achado 66); sem essa rede, o slide com emoji cai nesta frase.
+  const arte = await respostaDaArte({
+    slide: slides[numero - 1],
+    comEspaco: comEspaco(escolhas, numero),
+    cabecalho: cabecalhoDaConta(conta, foto),
+    baixar: pedido.get("baixar") === "1",
+    nomeDoArquivo: nomeDoArquivo(bonus?.slug ?? null, numero),
+  });
+  if (!arte.ok) return erro(500, arte.falha === "fonte" ? TEXTO_ARTE_SEM_FONTE : TEXTO_ARTE_SEM_DESENHO);
+  return arte.resposta;
 }
 ```
 
@@ -2995,11 +3107,13 @@ npx vitest run tests/bonus-arte-tela.test.ts tests/bonus-arte-resposta.test.ts t
 DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npx vitest run --config vitest.integracao.config.ts testes-integracao/bonus-arte-rota.integracao.ts
 ```
 
-Esperado: 29, 7 e 11 casos passam; a rota sem sessão responde 401 com `private, no-store`, e a
-integração passa (1 caso). Depois, gere PNGs de amostra (um teste descartável que grava a saída de
-`respostaDaArte` no scratchpad, e que NÃO entra no repositório) e OLHE: a Carlito, o negrito na
-manchete e na linha de fechamento, a lista de hífens uma por linha, a tag no pé do último slide e o
-espaço da imagem em branco abaixo do texto.
+Esperado: 29, 10 e 11 casos passam, inclusive a foto que só começa como JPEG (sai igual ao slide
+sem foto), o emoji com a rede recusada (`{ ok: false, falha: "desenho" }`, com o pedido a
+`cdn.jsdelivr.net` registrado) e a fonte que não se lê (`falha: "fonte"`); a rota sem sessão
+responde 401 com `private, no-store`, e a integração passa (1 caso). Depois, gere PNGs de amostra
+(um teste descartável que grava a saída de `respostaDaArte` no scratchpad, e que NÃO entra no
+repositório) e OLHE: a Carlito, o negrito na manchete e na linha de fechamento, a lista de hífens
+uma por linha, a tag no pé do último slide e o espaço da imagem em branco abaixo do texto.
 
 - [ ] **Passo 8: varrer e commitar**
 
@@ -3203,7 +3317,7 @@ Em `lib/bonus/arte-textos.ts`, aplique (com `git apply`, a partir da raiz, ou à
 
 ```diff
 diff --git a/lib/bonus/arte-textos.ts b/lib/bonus/arte-textos.ts
-index 6651c4d..ba1c798 100644
+index 94b4010..0aca28d 100644
 --- a/lib/bonus/arte-textos.ts
 +++ b/lib/bonus/arte-textos.ts
 @@ -1,3 +1,6 @@
@@ -3213,10 +3327,10 @@ index 6651c4d..ba1c798 100644
  // AS FRASES DA ARTE DO CARROSSEL, fora do JSX e da rota (o princípio de lib/bonus/textos.ts): uma
  // saída muda é indistinguível de sucesso, e cada saída tem frase, testada.
  
-@@ -10,3 +13,21 @@ export const TEXTO_ARTE_SEM_CONTA =
-   "Nenhuma conta do Instagram está conectada no Chat, e o cabeçalho da arte precisa de uma.";
- export const TEXTO_ARTE_SEM_FONTE =
+@@ -12,3 +15,21 @@ export const TEXTO_ARTE_SEM_FONTE =
    "A arte não pôde ser desenhada: a fonte Carlito não foi encontrada no servidor. Avise quem cuida do Chat.";
+ export const TEXTO_ARTE_SEM_DESENHO =
+   "A arte deste slide não pôde ser desenhada. Se o texto tem emoji, tente de novo em instantes: o desenho do emoji vem de fora do Chat. Se continuar, avise quem cuida do Chat.";
 +
 +/**
 + * A resposta do salvar da arte (a conta e o "só texto"), que volta como ESTADO e não por redirect:
@@ -3331,7 +3445,9 @@ git commit -m "feat(bonus): a action que grava a conta e o só texto da arte"
   frases `textoNaoCabeComEspaco`, `textoNaoCabeNunca`, `textoDaOrigemDaConta`, `rotuloDaConta`,
   `textoDoBaixarTodos`; os componentes `ArteDoCarrossel` e `EditorDoCarrossel`; e três props
   opcionais no `FormularioDaRevisao` (`avisosDeCabimento`, `aoEditar`, `aoSalvar`) e uma no
-  `Campo` (`avisoDeCabimento`).
+  `Campo` (`avisoDeCabimento`). Numa recusa da action da arte, `ArteDoCarrossel` devolve ao pai a
+  última escolha aceita, por `aoMudarConta(id: string | null)` e `aoMudarSoTexto(slides)` (achado
+  67).
 
 - [ ] **Passo 1: os testes**
 
@@ -3585,6 +3701,33 @@ describe("a seção da arte", () => {
     expect(caminhoDe(miniatura(1))).toBe(antes);
   });
 
+  // A miniatura e o "Baixar" seguem o que está gravado. A caixa, o seletor e o "não cabe" seguem a
+  // tela, e não podem mostrar uma escolha que o servidor recusou (achado 67): voltam para a última
+  // aceita.
+  it("na recusa, o só texto volta para a última escolha gravada", async () => {
+    renderizar([
+      { tom: "ok", texto: "Arte salva.", em: 7 },
+      { tom: "erro", texto: "Esse slide não existe neste carrossel. Recarregue a página.", em: 9 },
+    ]);
+    await act(async () => {
+      fireEvent.click(soTexto(2));
+    });
+    await act(async () => {
+      fireEvent.click(soTexto(1));
+    });
+    expect(screen.getByRole("status").textContent).toBe("Esse slide não existe neste carrossel. Recarregue a página.");
+    expect([1, 2, 3].map((n) => soTexto(n).checked)).toEqual([false, true, false]);
+  });
+
+  it("na recusa, o seletor volta para a conta que estava", async () => {
+    renderizar([{ tom: "erro", texto: "Essa conta não está conectada no Chat.", em: 9 }]);
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Conta do cabeçalho"), { target: { value: "1002" } });
+    });
+    expect(screen.getByRole("status").textContent).toBe("Essa conta não está conectada no Chat.");
+    expect((screen.getByLabelText("Conta do cabeçalho") as HTMLSelectElement).value).toBe("1001");
+  });
+
   it("o aviso de cabimento aparece embaixo do slide dele, e o da conta embaixo do seletor", () => {
     renderizar([], {
       avisos: { 2: "O slide 2 não cabe com o espaço da imagem." },
@@ -3827,7 +3970,7 @@ Em `lib/bonus/arte-textos.ts`, aplique (com `git apply`, a partir da raiz, ou à
 
 ```diff
 diff --git a/lib/bonus/arte-textos.ts b/lib/bonus/arte-textos.ts
-index ba1c798..cf5253d 100644
+index 0aca28d..91354ee 100644
 --- a/lib/bonus/arte-textos.ts
 +++ b/lib/bonus/arte-textos.ts
 @@ -1,4 +1,5 @@
@@ -3836,7 +3979,7 @@ index ba1c798..cf5253d 100644
  import type { RecusaDaArte } from "./arte-escolhas";
  
  // AS FRASES DA ARTE DO CARROSSEL, fora do JSX e da rota (o princípio de lib/bonus/textos.ts): uma
-@@ -31,3 +32,33 @@ export function textoDaRecusaDaArte(motivo: RecusaDaArte): string {
+@@ -33,3 +34,33 @@ export function textoDaRecusaDaArte(motivo: RecusaDaArte): string {
        return "Esse slide não existe neste carrossel. Recarregue a página.";
    }
  }
@@ -3878,7 +4021,7 @@ Crie `app/bonus/[id]/carrossel/[cid]/arte-do-carrossel.tsx`:
 
 ```tsx
 "use client";
-import { useActionState, useState, useTransition } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 import { alertError, btnPrimary, btnSecondary, card, hint, input, label } from "@/app/ui";
 import { urlDaArte } from "@/lib/bonus/arte-tela";
 import { textoDoBaixarTodos, type AvisoDaArte } from "@/lib/bonus/arte-textos";
@@ -3898,6 +4041,11 @@ import { textoDoBaixarTodos, type AvisoDaArte } from "@/lib/bonus/arte-textos";
 //
 // A conta e o "só texto" moram no pai (editor-do-carrossel.tsx), que precisa do "só texto" para o
 // aviso de cabimento do editor. A action entra por propriedade, para o teste de tela usar uma falsa.
+//
+// NUMA RECUSA, A CONTA E O "SÓ TEXTO" VOLTAM PARA A ÚLTIMA ESCOLHA ACEITA (achado 67): a escolha
+// muda na tela antes da action, para a caixa responder ao clique, mas a miniatura e o "Baixar"
+// seguem o que está gravado. Sem a volta, a caixa e o "não cabe" mostrariam uma escolha que o
+// servidor recusou. A primeira aceita é a que veio com a página.
 export default function ArteDoCarrossel({
   acao,
   bonusId,
@@ -3919,7 +4067,7 @@ export default function ArteDoCarrossel({
   total: number;
   contas: { id: string; rotulo: string }[];
   conta: string | null;
-  aoMudarConta: (id: string) => void;
+  aoMudarConta: (id: string | null) => void;
   soTexto: number[];
   aoMudarSoTexto: (slides: number[]) => void;
   avisoDaConta: string | null;
@@ -3928,9 +4076,20 @@ export default function ArteDoCarrossel({
   pausaMs?: number;
 }) {
   const [gravadaEm, setGravadaEm] = useState(0);
+  const aceita = useRef({ conta, soTexto });
   const [resposta, despachar, pendente] = useActionState(async (anterior: AvisoDaArte | null, form: FormData) => {
     const r = await acao(anterior, form);
-    if (r?.tom === "ok") setGravadaEm(r.em);
+    if (r?.tom === "ok") {
+      const enviada = form.get("conta");
+      aceita.current = {
+        conta: typeof enviada === "string" ? enviada : null,
+        soTexto: form.getAll("so_texto").map(Number),
+      };
+      setGravadaEm(r.em);
+    } else if (r?.tom === "erro") {
+      aoMudarConta(aceita.current.conta);
+      aoMudarSoTexto(aceita.current.soTexto);
+    }
     return r;
   }, null);
   const [, iniciar] = useTransition();
@@ -4333,8 +4492,9 @@ npx vitest run tests/bonus-arte-cabimento.test.ts tests/bonus-carrossel-paginas.
 npx vitest run --config vitest.dom.config.ts testes-dom/bonus-arte-do-carrossel.dom.tsx testes-dom/bonus-editor-do-carrossel.dom.tsx testes-dom/bonus-carrossel-formulario.dom.tsx testes-dom/bonus-carrossel-campo.dom.tsx testes-dom/bonus-carrossel-aviso.dom.tsx
 ```
 
-Esperado: `tsc` e lint limpos; 17 casos de cabimento e 30 das guardas das páginas; nas telas, 7
-da arte, 4 do editor, e os da revisão da Etapa 2 continuam verdes (26 ao todo nesses cinco).
+Esperado: `tsc` e lint limpos; 17 casos de cabimento e 30 das guardas das páginas; nas telas, 9
+da arte (com os dois da recusa que devolve a escolha aceita), 4 do editor, e os da revisão da
+Etapa 2 continuam verdes (28 ao todo nesses cinco).
 
 - [ ] **Passo 7: varrer e commitar**
 
@@ -4356,7 +4516,7 @@ git commit -m "feat(bonus): a seção da arte na página do carrossel, com o nã
 npm run verify
 ```
 
-Esperado: lint e tipos limpos; 89 arquivos / 2 398 casos puros; 19 / 114 de tela; varredura sem
+Esperado: lint e tipos limpos; 89 arquivos / 2 401 casos puros; 19 / 116 de tela; varredura sem
 vazamento; build com "MIGRAÇÃO PULADA" e a rota `ƒ /bonus/[id]/carrossel/[cid]/arte` na lista.
 
 - [ ] **Passo 2: a integração inteira**
@@ -4370,19 +4530,37 @@ Esperado: `[rede-global] ALVO: banco de TESTE`, 37 arquivos, 308 passaram e 8 pu
 
 - [ ] **Passo 3: as provas de mutação**
 
-Copie o Apêndice A para `$SCRATCH/mutar-arte.mjs` e rode da raiz:
+Copie o Apêndice A para `$SCRATCH/mutar-arte.mjs` e rode da raiz do repositório:
 
 ```bash
 DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" node "$SCRATCH/mutar-arte.mjs"
 git status --short
 ```
 
-Esperado: as 19 linhas com ✓, e a árvore limpa depois (cada arquivo volta byte a byte).
+Esperado: as 25 linhas com ✓, e a árvore limpa depois (cada arquivo volta byte a byte). Sem
+`DATABASE_URL_TESTES`, o script recusa antes de mutar (achado 68).
 
 - [ ] **Passo 4: conferir o plano contra o código**
 
-Cada arquivo criado ou modificado tem de ser o do bloco deste plano. Extraia os blocos `Crie`
-numa pasta à parte (`node "$SCRATCH/extrair.mjs" <plano> <caminho>`) e compare com `git show HEAD:<caminho>`.
+Cada arquivo criado tem de ser, no commit da fase que o criou, o do bloco `Crie` deste plano.
+Copie o Apêndice B para `$SCRATCH/extrair.mjs` e rode da raiz; os blocos são extraídos numa pasta
+fora da árvore:
+
+```bash
+P="$(pwd)/docs/plans/2026-10-01-arte-do-carrossel.md"
+D="$SCRATCH/conferir-plano"; rm -rf "$D"; mkdir -p "$D"
+grep -oP '^Crie `\K[^`]+' "$P" | while IFS= read -r f; do
+  (cd "$D" && node "$SCRATCH/extrair.mjs" "$P" "$f" >/dev/null) || { echo "✗ $f: não extraiu"; continue; }
+  c="$(git log --diff-filter=A --format=%h -1 -- "$f")"
+  git show "$c:$f" | cmp -s - "$D/$f" && echo "✓ $f ($c)" || echo "✗ $f difere do plano ($c)"
+done
+```
+
+Esperado: 27 linhas com ✓, nenhuma com ✗. Três desses arquivos mudam depois por diff
+(`lib/bonus/arte-escolhas.ts`, o teste dele e `lib/bonus/arte-textos.ts`), e por isso a conferência
+é no commit que os criou, e não no HEAD. Os arquivos modificados entram por diff: o `git apply`
+recusa um diff cujo contexto não bate, e quem aplicou à mão confere `git diff <fase>~1 <fase> --
+<arquivo>` contra o bloco da fase.
 
 ---
 
@@ -4424,7 +4602,10 @@ estão lá. Com o Eduardo na tela:
    revisão grava em produção: só com o OK);
 4. "Baixar todos" num navegador de verdade, com os arquivos contados;
 5. trocar a conta e o espaço de um slide, e ver a miniatura mudar sem a página ser recriada (grava
-   em produção: só com o OK).
+   em produção: só com o OK);
+6. um slide com emoji (achado 66): desenha com o emoji da twemoji, buscado pela função da Vercel
+   em `cdn.jsdelivr.net`. O texto com emoji entra pela revisão, que grava em produção: só com o OK,
+   e com o texto original devolvido depois.
 
 Se a fonte não entrar na função (a peça sai em outra fonte, ou a rota responde a frase da fonte),
 o conserto é `outputFileTracingIncludes` no `next.config.ts`, num commit próprio e com o OK do
@@ -4446,8 +4627,11 @@ depois.
 ## Apêndice A — as provas de mutação (`mutar-arte.mjs`)
 
 ```js
-// Provas de mutação da Etapa 3 (a arte), rodadas na cópia de ensaio. Cada arquivo volta byte a byte.
-// Uso, da raiz da cópia: node mutar-arte.mjs [filtro]
+// Provas de mutação da Etapa 3 (a arte). Cada arquivo volta byte a byte.
+// Uso, da raiz do repositório: DATABASE_URL_TESTES=<container> node mutar-arte.mjs [filtro]
+// As mutações INTEG rodam a suíte de integração, que sem DATABASE_URL_TESTES cai na DATABASE_URL, a
+// da PRODUÇÃO (achado 68): sem a variável, o script recusa antes de mutar, e uma rodada INTEG que
+// não imprime "ALVO: banco de TESTE" conta como ✗.
 import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -4488,8 +4672,18 @@ const MUTACOES = [
     de: '    "Cache-Control": "private, no-store",\n', para: '    "Cache-Control": "public, max-age=0, must-revalidate",\n',
     cmd: PURA("tests/bonus-arte-tela.test.ts"), caso: "a prévia abre no navegador, sem cache" },
   { nome: "o ImageResponse sem os headers (o padrão do next/og)", arq: "lib/bonus/arte-resposta.tsx",
-    de: "    headers: cabecalhosDaArte(baixar, nomeDoArquivo),\n", para: "",
+    de: "      headers: cabecalhosDaArte(baixar, nomeDoArquivo),\n", para: "",
     cmd: PURA("tests/bonus-arte-resposta.test.ts"), caso: "sai 1080×1350, em PNG" },
+  { nome: "65: a resposta sai sem o PNG lido (o 200 com o corpo quebrado)", arq: "lib/bonus/arte-resposta.tsx",
+    de: "      const png = await imagem.arrayBuffer();\n      return new Response(png, { status: imagem.status, headers: imagem.headers });\n",
+    para: "      return imagem;\n",
+    cmd: PURA("tests/bonus-arte-resposta.test.ts"), caso: "sem foto para tirar, a falha volta como motivo" },
+  { nome: "65: a foto que não é imagem não cai para as iniciais", arq: "lib/bonus/arte-resposta.tsx",
+    de: "(cabecalho.foto ? await desenhar({ ...cabecalho, foto: null }) : null)", para: "null",
+    cmd: PURA("tests/bonus-arte-resposta.test.ts"), caso: "a foto que começa como JPEG e não é" },
+  { nome: "65: a fonte que falha vira falha do desenho", arq: "lib/bonus/arte-resposta.tsx",
+    de: '    return { ok: false, falha: "fonte" };\n', para: '    return { ok: false, falha: "desenho" };\n',
+    cmd: PURA("tests/bonus-arte-resposta.test.ts"), caso: "a fonte que não se lê volta como motivo próprio" },
   { nome: "a rota desenha o carrossel de outro bônus", arq: "lib/bonus/arte-tela.ts",
     de: "  if (!linha || linha.bonus_id !== bonusId) return", para: "  if (!linha) return",
     cmd: PURA("tests/bonus-arte-tela.test.ts"), caso: "recusa o carrossel de outro bônus" },
@@ -4506,6 +4700,15 @@ const MUTACOES = [
   { nome: "a miniatura não troca depois de gravar a arte", arq: "app/bonus/[id]/carrossel/[cid]/arte-do-carrossel.tsx",
     de: "  const versao = `${versaoBase}-${gravadaEm}`;\n", para: "  const versao = `${versaoBase}-0`;\n",
     cmd: TELA("testes-dom/bonus-arte-do-carrossel.dom.tsx"), caso: "depois de gravar, as miniaturas trocam" },
+  { nome: "67: a recusa deixa o só texto marcado", arq: "app/bonus/[id]/carrossel/[cid]/arte-do-carrossel.tsx",
+    de: "      aoMudarSoTexto(aceita.current.soTexto);\n", para: "",
+    cmd: TELA("testes-dom/bonus-arte-do-carrossel.dom.tsx"), caso: "na recusa, o só texto volta para a última escolha gravada" },
+  { nome: "67: a recusa deixa a conta trocada", arq: "app/bonus/[id]/carrossel/[cid]/arte-do-carrossel.tsx",
+    de: "      aoMudarConta(aceita.current.conta);\n", para: "",
+    cmd: TELA("testes-dom/bonus-arte-do-carrossel.dom.tsx"), caso: "na recusa, o seletor volta para a conta que estava" },
+  { nome: "67: a escolha aceita não é lembrada", arq: "app/bonus/[id]/carrossel/[cid]/arte-do-carrossel.tsx",
+    de: "      aceita.current = {\n", para: "      void {\n",
+    cmd: TELA("testes-dom/bonus-arte-do-carrossel.dom.tsx"), caso: "na recusa, o só texto volta para a última escolha gravada" },
   { nome: "a miniatura não troca depois de Revisão salva.", arq: "app/bonus/[id]/carrossel/[cid]/editor-do-carrossel.tsx",
     de: "        aoSalvar={setRevisaoEm}\n", para: "",
     cmd: TELA("testes-dom/bonus-editor-do-carrossel.dom.tsx"), caso: "depois de Revisão salva., as miniaturas trocam" },
@@ -4523,8 +4726,14 @@ const MUTACOES = [
 ];
 
 const filtro = process.argv[2];
+const escolhidas = MUTACOES.filter((x) => !filtro || x.nome.includes(filtro));
+const ehInteg = (m) => m.cmd.includes("vitest.integracao.config.ts");
+if (escolhidas.some(ehInteg) && !process.env.DATABASE_URL_TESTES?.trim()) {
+  console.log("✗ há mutação INTEG e DATABASE_URL_TESTES está vazia: a integração iria para a produção. Nada foi mutado.");
+  process.exit(1);
+}
 let ruins = 0;
-for (const m of MUTACOES.filter((x) => !filtro || x.nome.includes(filtro))) {
+for (const m of escolhidas) {
   const original = readFileSync(m.arq);
   const texto = original.toString("utf8");
   const crlf = texto.includes("\r\n");
@@ -4547,9 +4756,47 @@ for (const m of MUTACOES.filter((x) => !filtro || x.nome.includes(filtro))) {
   } finally {
     writeFileSync(m.arq, original);
   }
+  if (ehInteg(m) && !saida.includes("ALVO: banco de TESTE")) {
+    console.log(`✗ ${m.nome}: a integração não imprimiu "ALVO: banco de TESTE". Pare e confira o banco.`);
+    ruins++;
+    continue;
+  }
   const casoCaiu = saida.split("\n").some((l) => /FAIL|×/.test(l) && l.includes(m.caso));
   if (!(caiu && casoCaiu)) ruins++;
   console.log(`${caiu && casoCaiu ? "✓" : "✗"} ${m.nome}: o caso "${m.caso}" ${casoCaiu ? "caiu" : "NÃO caiu"}`);
 }
 process.exit(ruins ? 1 : 0);
 ```
+
+## Apêndice B — o extrator dos blocos (`extrair.mjs`)
+
+````js
+// Extrai do plano o bloco de código de um arquivo e o grava no caminho do arquivo.
+// Uso: node extrair.mjs <plano.md> <caminho/do/arquivo> [...mais caminhos]
+// Acha a linha "Crie `<caminho>`:" ou "escrever `<caminho>`**", e copia o PRIMEIRO bloco
+// cercado por ``` que vem depois dela. Falha alto se não achar, ou se achar mais de uma âncora.
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+
+const [plano, ...alvos] = process.argv.slice(2);
+const linhas = readFileSync(plano, "utf8").split("\n");
+
+for (const alvo of alvos) {
+  const ancoras = [];
+  linhas.forEach((l, i) => {
+    if (l.trim() === `Crie \`${alvo}\`:` || l.includes(`escrever \`${alvo}\`**`)) ancoras.push(i);
+  });
+  if (ancoras.length !== 1) throw new Error(`${alvo}: ${ancoras.length} âncoras no plano (esperava 1)`);
+  let i = ancoras[0] + 1;
+  while (i < linhas.length && !/^```\w*\s*$/.test(linhas[i])) i++;
+  if (i >= linhas.length) throw new Error(`${alvo}: bloco de código não achado depois da âncora`);
+  const inicio = i + 1;
+  let fim = inicio;
+  while (fim < linhas.length && linhas[fim].trim() !== "```") fim++;
+  if (fim >= linhas.length) throw new Error(`${alvo}: bloco sem fechamento`);
+  const conteudo = linhas.slice(inicio, fim).join("\n") + "\n";
+  mkdirSync(dirname(alvo), { recursive: true });
+  writeFileSync(alvo, conteudo, "utf8");
+  console.log(`${alvo}: linhas ${inicio + 1}-${fim} do plano, ${conteudo.split("\n").length - 1} linhas`);
+}
+````
