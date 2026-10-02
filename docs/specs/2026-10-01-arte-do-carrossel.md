@@ -211,11 +211,15 @@ O desenho também pode falhar, e a falha não pode sair como imagem quebrada sem
 uma falha no meio sairia como 200 com o corpo quebrado. Por isso o PNG é lido inteiro antes de a
 rota responder. Se o desenho falhar com a foto da conta (uma foto que passa pelos bytes iniciais e
 não é imagem), o slide é desenhado de novo com as iniciais; sem foto, a rota responde 500 com frase
-própria. A fonte que não se lê tem outra frase.
+própria. A fonte que não se lê tem outra frase. A nova tentativa acontece em qualquer falha com
+foto, inclusive na do emoji: se a rede do emoji voltar entre as duas tentativas, o slide sai com as
+iniciais no lugar da foto, sem aviso. É raro, e só muda o cabeçalho.
 
 Emoji no texto faz o `next/og` buscar o desenho do emoji (a twemoji) em `cdn.jsdelivr.net` no meio
 do desenho, sem opção para desligar (achado 66). Não é SSRF, porque o endereço é fixo, mas a arte
-com emoji depende dessa rede: sem ela, o slide cai na frase do desenho. A instrução do carrossel
+com emoji depende dessa rede. Com a rede recusando, o slide cai na frase do desenho. Com a rede
+travando, a busca do emoji não tem prazo (`@vercel/og`), e a rota espera até o tempo máximo da
+função antes de falhar. A instrução do carrossel
 pede emoji "com parcimônia", e em 01/10 nenhum dos 5 carrosséis da produção tinha emoji. A prova
 real desenha um slide com emoji.
 
