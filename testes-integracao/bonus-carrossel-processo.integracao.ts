@@ -282,16 +282,22 @@ describe("salvar uma parte do carrossel", () => {
         await segurando;
       });
     await travado;
-    const a = repo.salvarParteDoCarrossel(id, { tipo: "slide", numero: 1 }, { gancho: GANCHO }, null);
-    const b = repo.salvarParteDoCarrossel(id, { tipo: "slide", numero: 5 }, { chamada: CHAMADA }, null);
+    // As chamadas ficam DENTRO do `try` (achado 74): se uma delas lançar antes de devolver a
+    // promessa (a função sumida, por exemplo), o `finally` solta a trava assim mesmo, e o caso cai
+    // em segundos, e não depois de a limpeza esperar a transação presa até o fim do prazo.
+    const salvamentos: Promise<unknown>[] = [];
     try {
+      salvamentos.push(
+        repo.salvarParteDoCarrossel(id, { tipo: "slide", numero: 1 }, { gancho: GANCHO }, null),
+        repo.salvarParteDoCarrossel(id, { tipo: "slide", numero: 5 }, { chamada: CHAMADA }, null)
+      );
       await new Promise((f) => setTimeout(f, 300));
     } finally {
       // Solta a trava antes de qualquer `expect` (a lição do teste do teto, logo acima).
       soltar();
       await transacao;
     }
-    await Promise.all([a, b]);
+    await Promise.all(salvamentos);
     expect((await repo.lerCarrossel(id))?.revisado).toEqual({ ...TEXTO, gancho: GANCHO, chamada: CHAMADA });
   });
 });
