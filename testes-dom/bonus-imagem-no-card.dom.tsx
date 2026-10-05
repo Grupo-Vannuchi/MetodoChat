@@ -103,12 +103,28 @@ const arquivo = () => new File(["x"], "slide.jpg", { type: "image/jpeg" });
 describe("a imagem do Canva no card", () => {
   it("o slide com espaço pede a imagem; o com imagem a mostra; o só texto não tem upload", () => {
     renderizar({ publicacao: { imagens: { 3: { url: IMAGEM, versao: "t3" } } } });
-    expect(within(card(2)).getByText("Subir imagem do Canva")).toBeTruthy();
+    expect(within(card(2)).getByText("Subir do Canva")).toBeTruthy();
     expect(within(card(3)).getByText("Trocar imagem")).toBeTruthy();
     expect(miniatura(3).getAttribute("src")).toBe(IMAGEM);
     expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 2, "b1"));
     expect(screen.queryByLabelText("Slide 1: imagem do Canva")).toBeNull();
     expect(miniatura(1).getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 1, "a1"));
+  });
+
+  // Pedido do Eduardo na prova (05/10): o upload ao lado do "Baixar", na mesma linha. A coluna da
+  // miniatura tem 224px, e os rótulos inteiros não cabiam lado a lado: o texto encurtou, e o nome
+  // acessível do "Baixar" continua dizendo o slide.
+  it("o upload fica ao lado do Baixar, na mesma linha, com os rótulos curtos", () => {
+    renderizar({ publicacao: { imagens: { 3: { url: IMAGEM, versao: "t3" } } } });
+    for (const [n, rotulo] of [
+      [2, "Subir do Canva"],
+      [3, "Trocar imagem"],
+    ] as const) {
+      const subir = within(card(n)).getByText(rotulo);
+      const baixar = within(card(n)).getByRole("link", { name: `Baixar o slide ${n}` });
+      expect(baixar.textContent).toBe("Baixar");
+      expect(subir.closest("label")?.parentElement).toBe(baixar.parentElement);
+    }
   });
 
   it("subir: assina com as medidas, sobe pelo PUT, guarda, e a miniatura passa a ser a imagem guardada", async () => {

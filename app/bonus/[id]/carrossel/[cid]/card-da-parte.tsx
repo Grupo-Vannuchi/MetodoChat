@@ -26,8 +26,8 @@ import type { ImagemNaTela } from "./publicacao-na-tela";
 // A versão da miniatura e o "só texto" moram no pai (editor-do-carrossel.tsx): o "só texto" se grava
 // por outra action, que devolve as versões, e o "Baixar todos" precisa das versões de todos.
 //
-// A IMAGEM DO CANVA (spec da Etapa 5): no slide com espaço, o "Subir imagem do Canva" (ou "Trocar
-// imagem"), e a miniatura passa a ser a imagem guardada. O "Baixar" continua baixando a arte do Chat,
+// A IMAGEM DO CANVA (spec da Etapa 5): no slide com espaço, o "Subir do Canva" (ou "Trocar
+// imagem"), ao lado do "Baixar", e a miniatura passa a ser a imagem guardada. O "Baixar" continua baixando a arte do Chat,
 // para levar ao Canva. Com o texto salvo depois da imagem, o card avisa. Com o carrossel na fila ou
 // publicado (`travado`), o card fica só para leitura: sem "Editar", sem upload, e o "Só texto"
 // desligado. A trava vale no servidor; aqui ela só se mostra.
@@ -141,19 +141,32 @@ export default function CardDaParte({
               Só texto
             </label>
             {naoCabe && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{naoCabe}</p>}
-            {enviarImagem && !soTexto && travado === null && (
-              <label className={`${btnSecondary} cursor-pointer`}>
-                {enviando ? "Subindo…" : imagem ? "Trocar imagem" : "Subir imagem do Canva"}
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  aria-label={`Slide ${numero}: imagem do Canva`}
-                  className="sr-only"
-                  disabled={enviando}
-                  onChange={aoEscolherImagem}
-                />
-              </label>
-            )}
+            {/* O UPLOAD AO LADO DO "BAIXAR", na mesma linha (pedido do Eduardo na prova de 05/10). A
+                coluna tem 224px, e os rótulos inteiros não cabiam lado a lado: o texto é curto, e o nome
+                acessível do "Baixar" continua dizendo o slide. Se faltar espaço, a linha quebra. */}
+            <div className="flex flex-wrap gap-2">
+              {enviarImagem && !soTexto && travado === null && (
+                <label className={`${btnSecondary} cursor-pointer whitespace-nowrap`}>
+                  {enviando ? "Subindo…" : imagem ? "Trocar imagem" : "Subir do Canva"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    aria-label={`Slide ${numero}: imagem do Canva`}
+                    className="sr-only"
+                    disabled={enviando}
+                    onChange={aoEscolherImagem}
+                  />
+                </label>
+              )}
+              <a
+                href={urlDaArte(bonusId, carrosselId, numero, versao, true)}
+                download
+                aria-label={`Baixar o slide ${numero}`}
+                className={`${btnSecondary} whitespace-nowrap`}
+              >
+                Baixar
+              </a>
+            </div>
             {desatualizada && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{TEXTO_TEXTO_MUDOU}</p>}
             {avisoDaImagem && (
               <p
@@ -165,9 +178,6 @@ export default function CardDaParte({
                 {avisoDaImagem.texto}
               </p>
             )}
-            <a href={urlDaArte(bonusId, carrosselId, numero, versao, true)} download className={btnSecondary}>
-              Baixar o slide {numero}
-            </a>
           </div>
         )}
         <form
