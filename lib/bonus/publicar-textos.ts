@@ -156,8 +156,24 @@ export function textoDaRecusaDaPublicacaoDoCarrossel(r: RecusaDaPublicacaoDoCarr
   }
 }
 
-/** A resposta de assinar e de guardar a imagem de um slide, como ESTADO (achado 52). */
-export type AvisoDaImagem = Aviso & { em: number };
+/** O pedido que chegou à action sem a forma que a tela manda: página velha, ou montado à mão. */
+export const TEXTO_PEDIDO_INVALIDO = "O pedido chegou incompleto. Recarregue a página e tente de novo.";
+
+/** O "Publicar" deu certo: o post está na fila, e não publicado ainda. */
+export function textoDaPublicacaoMandada(agendada: boolean): string {
+  return agendada
+    ? "Agendado. O post está no calendário do /publicar."
+    : "Na fila do /publicar. O Instagram leva até um minuto para mostrar o post.";
+}
+
+/** A resposta de assinar: o caminho e a URL assinada, ou a frase da recusa. */
+export type RespostaDaAssinatura = { ok: true; caminho: string; url: string } | { ok: false; texto: string };
+
+/**
+ * A resposta de guardar a imagem de um slide, como ESTADO (achado 52): com a versão do texto, para o
+ * aviso "o texto mudou", e o endereço público da imagem, para a miniatura do card.
+ */
+export type AvisoDaImagem = Aviso & { em: number; versao?: string; imagem?: string | null };
 
 /** A resposta do "Publicar", como ESTADO. */
 export type AvisoDaPublicacao = Aviso & { em: number };
