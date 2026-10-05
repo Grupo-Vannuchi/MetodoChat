@@ -37,10 +37,10 @@ mão. Os números do ensaio, na ordem deste plano:
   C";
 - `next build --webpack` limpo, com `ƒ /bonus/[id]/carrossel/[cid]` e
   `ƒ /bonus/[id]/carrossel/[cid]/arte` na lista (o Turbopack, ver o item 7 abaixo);
-- integração no container: 39 arquivos; 355 passaram, 8 pularam, e caíram só os 7 de `registro-de-migracoes`, pelo item 6 abaixo. Na árvore do projeto, a conta esperada é 362 passaram e 8 pularam (FASE 5.10);
+- integração no container: 39 arquivos; 356 passaram, 8 pularam, e caíram só os 7 de `registro-de-migracoes`, pelo item 6 abaixo. Na árvore do projeto, a conta esperada é 363 passaram e 8 pularam (FASE 5.10);
 - cada fase foi vista falhar antes do código e passar depois, na ordem deste plano, com os números
   de cada uma no passo dela;
-- as 44 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado. Uma não derrubava na
+- as 45 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado. Uma não derrubava na
   primeira rodada: sem o `for update` da reserva, os dois cliques do `Promise.all` às vezes não se
   cruzavam. O caso que força o cruzamento (uma transação do teste segura a linha) entrou na FASE 5.3;
 - o plano, aplicado do zero sobre `45a1fcf` numa cópia limpa, dá os 26 arquivos iguais ao fim do
@@ -73,6 +73,8 @@ O ensaio achou estas coisas, já resolvidas neste plano:
    terminava antes de a segunda ler. O caso novo força o cruzamento com o molde do teste dos dois
    salvamentos da Etapa 4 (uma transação do teste segura a linha e grava uma reserva), e a mutação
    passou a derrubá-lo.
+
+A revisão do plano pelo auditor (05/10) o liberou sem achado novo e trouxe um detalhe, resolvido aqui: a limpeza da reserva velha (FASE 5.5) não excluía os caminhos da tentativa atual. Um pedido montado à mão que repetisse a arte "Só texto" da reserva velha apagaria um arquivo do post que está entrando, e o item sairia `failed`. O filtro ganhou `!caminhos.includes(x)`, a FASE 5.5 ganhou o caso que prova, e o Apêndice A a mutação que o derruba (45).
 
 ## Restrições globais
 
@@ -2554,6 +2556,26 @@ describe("publicar", () => {
     expect((await processo.publicarNaFila({ id, quando: null, artes: await artesDe(id), contas, drenar })).ok).toBe(true);
     for (const v of velhas) expect(bucket.objetos.has(v)).toBe(false);
   });
+
+  // Revisão do plano (05/10): o navegador sempre assina um uuid novo, mas um pedido montado à mão pode
+  // repetir na tentativa nova a arte da reserva velha. A limpeza da velha não pode apagar o que está
+  // entrando na fila: o item sairia failed, com a mídia faltando.
+  it("a reserva velha que repete um caminho desta tentativa não apaga o arquivo do post que entra", async () => {
+    const { id } = await comImagens();
+    const artes = await artesDe(id);
+    await banco
+      .db()
+      .sql()
+      .query(
+        `update carrosseis_gerados set arte = arte || jsonb_build_object('publicacao',
+           $2::jsonb || jsonb_build_object('reservada_em', now() - interval '11 minutes')) where id = $1`,
+        [id, { chave: "pub:velha", caminhos: [artes[0].caminho] }]
+      );
+    expect((await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).ok).toBe(true);
+    const [item] = await fila();
+    expect(item.payload.caminhos[0]).toBe(artes[0].caminho);
+    expect(bucket.objetos.has(artes[0].caminho)).toBe(true);
+  });
 });
 ```
 
@@ -2581,7 +2603,7 @@ npx vitest run tests/bonus-publicar-estado.test.ts
 DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npx vitest run --config vitest.integracao.config.ts testes-integracao/bonus-publicar-processo.integracao.ts
 ```
 
-Esperado: o puro: 1 cai (a frase da quantidade) e 28 passam (29). A integração: `[rede-global] ALVO: banco de TESTE`, e os 22 pulam, porque o processo não existe.
+Esperado: o puro: 1 cai (a frase da quantidade) e 28 passam (29). A integração: `[rede-global] ALVO: banco de TESTE`, e os 23 pulam, porque o processo não existe.
 
 - [ ] **Passo 3: o código**
 
@@ -2812,9 +2834,11 @@ export async function publicarNaFila(p: {
     return reserva;
   }
   if (reserva.velha) {
-    // A RESERVA VELHA, QUE NUNCA ENTROU NA FILA, sai do bucket: o que está em payload da fila fica.
+    // A RESERVA VELHA, QUE NUNCA ENTROU NA FILA, sai do bucket: o que está em payload da fila fica,
+    // e o que esta tentativa vai publicar também (revisão do plano: um pedido montado à mão que
+    // repetisse a arte da reserva velha apagaria um arquivo do post que está entrando).
     const daVelhaNaFila = await caminhosNaFila(reserva.velha.caminhos);
-    await apagarSemDerrubar(reserva.velha.caminhos.filter((x) => !daVelhaNaFila.includes(x)));
+    await apagarSemDerrubar(reserva.velha.caminhos.filter((x) => !daVelhaNaFila.includes(x) && !caminhos.includes(x)));
   }
 
   let entrou = false;
@@ -2883,7 +2907,7 @@ npx vitest run tests/bonus-publicar-estado.test.ts
 DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npx vitest run --config vitest.integracao.config.ts testes-integracao/bonus-publicar-processo.integracao.ts
 ```
 
-Esperado: `tsc` limpo; 29 casos puros passam; a integração, `[rede-global] ALVO: banco de TESTE` e 22 passam.
+Esperado: `tsc` limpo; 29 casos puros passam; a integração, `[rede-global] ALVO: banco de TESTE` e 23 passam.
 
 - [ ] **Passo 5: varrer e commitar**
 
@@ -5157,7 +5181,7 @@ Esperado: lint e `tsc` limpos; 99 arquivos / 2 854 casos puros e 21 / 147 de tel
 DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npm run test:integracao
 ```
 
-Esperado: `[rede-global] ALVO: banco de TESTE`; 39 arquivos, 362 passaram e 8 pularam (na base, 37, 315 e 8).
+Esperado: `[rede-global] ALVO: banco de TESTE`; 39 arquivos, 363 passaram e 8 pularam (na base, 37, 315 e 8).
 
 - [ ] **Passo 3: as provas de mutação**
 
@@ -5168,7 +5192,7 @@ DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_te
 git status --short
 ```
 
-Esperado: as 44 com ✓, "44 mutações, 0 ruins", e a árvore limpa depois (cada arquivo volta byte a
+Esperado: as 45 com ✓, "45 mutações, 0 ruins", e a árvore limpa depois (cada arquivo volta byte a
 byte).
 
 - [ ] **Passo 4: nenhum arquivo do `/publicar` mudou**
@@ -5336,8 +5360,11 @@ const MUTACOES = [
     de: "    await desfazerReserva(p.id, chave);\n", para: "",
     cmd: T_PROCESSO, caso: "a fila que recusa desfaz a reserva" },
   { nome: "5.5: a reserva velha fica no bucket", arq: PROCESSO,
-    de: "    await apagarSemDerrubar(reserva.velha.caminhos.filter((x) => !daVelhaNaFila.includes(x)));\n", para: "",
+    de: "    await apagarSemDerrubar(reserva.velha.caminhos.filter((x) => !daVelhaNaFila.includes(x) && !caminhos.includes(x)));\n", para: "",
     cmd: T_PROCESSO, caso: "a reserva velha que nunca entrou na fila sai do bucket" },
+  { nome: "5.5: a limpeza da reserva velha apaga o que esta tentativa publica", arq: PROCESSO,
+    de: " && !caminhos.includes(x)));", para: "));",
+    cmd: T_PROCESSO, caso: "a reserva velha que repete um caminho desta tentativa" },
   { nome: "5.5: o agendado drena", arq: PROCESSO,
     de: "  if (p.quando === null) {", para: "  if (true) {",
     cmd: T_PROCESSO, caso: "agendado: entra com a hora pedida, e não drena" },
