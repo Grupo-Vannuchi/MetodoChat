@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { FOTO_MAX_BYTES, FOTO_TEMPO_MS, fotoDaConta, urlDeFotoAceita } from "@/lib/bonus/arte-foto";
+import {
+  FALHA_GUARDADA_MS,
+  FOTO_GUARDADA_MS,
+  FOTO_MAX_BYTES,
+  FOTO_TEMPO_MS,
+  fotoDaConta,
+  memoriaDasFotos,
+  urlDeFotoAceita,
+} from "@/lib/bonus/arte-foto";
 
 // A FOTO DA CONTA NO CABEÇALHO DA ARTE, buscada pela própria rota. A URL vem do banco (a Meta a dá),
 // e a rota é um servidor buscando um endereço: as travas são o que impede essa busca de ir a outro
@@ -94,5 +102,65 @@ describe("a busca da foto", () => {
   it("o prazo e o teto são os da spec", () => {
     expect(FOTO_TEMPO_MS).toBe(3_000);
     expect(FOTO_MAX_BYTES).toBe(512 * 1024);
+  });
+});
+
+// A FOTO EM MEMÓRIA (spec da Etapa 4, "A foto da conta em memória"). As miniaturas de um carrossel
+// chegam juntas, e cada uma buscava a foto de novo na Meta, até 3 s cada. A memória guarda a PROMESSA
+// por URL: chamadas juntas esperam a mesma busca. O relógio e a busca entram por parâmetro.
+describe("a foto em memória", () => {
+  const DATA = "data:image/jpeg;base64,/9j/";
+  const memoria = (resultados: (string | null)[]) => {
+    let agora = 1_000_000;
+    const buscar = vi.fn(async (): Promise<string | null> => (resultados.length ? (resultados.shift() as string | null) : DATA));
+    const m = memoriaDasFotos(buscar, () => agora);
+    return { m, buscar, andar: (ms: number) => (agora += ms) };
+  };
+
+  it("as miniaturas que chegam juntas fazem uma busca só", async () => {
+    const { m, buscar } = memoria([DATA]);
+    const fotos = await Promise.all(Array.from({ length: 10 }, () => m.foto(FOTO)));
+    expect(fotos).toEqual(Array(10).fill(DATA));
+    expect(buscar).toHaveBeenCalledTimes(1);
+  });
+
+  it("a foto achada fica guardada 10 minutos, e depois é buscada de novo", async () => {
+    const { m, buscar, andar } = memoria([DATA, DATA]);
+    await m.foto(FOTO);
+    andar(FOTO_GUARDADA_MS - 1);
+    await m.foto(FOTO);
+    expect(buscar).toHaveBeenCalledTimes(1);
+    andar(1);
+    await m.foto(FOTO);
+    expect(buscar).toHaveBeenCalledTimes(2);
+    expect(FOTO_GUARDADA_MS).toBe(10 * 60_000);
+  });
+
+  it("a falha fica guardada só 30 segundos, para uma queda da Meta não grudar", async () => {
+    const { m, buscar, andar } = memoria([null, DATA]);
+    expect(await m.foto(FOTO)).toBeNull();
+    andar(FALHA_GUARDADA_MS - 1);
+    expect(await m.foto(FOTO)).toBeNull();
+    andar(1);
+    expect(await m.foto(FOTO)).toBe(DATA);
+    expect(buscar).toHaveBeenCalledTimes(2);
+    expect(FALHA_GUARDADA_MS).toBe(30_000);
+  });
+
+  it("as fotos vencidas saem da memória (a URL muda quando o cron renova a conta)", async () => {
+    const { m, andar } = memoria([DATA, DATA, DATA]);
+    await m.foto(`${FOTO}&v=1`);
+    await m.foto(`${FOTO}&v=2`);
+    expect(m.quantas()).toBe(2);
+    andar(FOTO_GUARDADA_MS);
+    await m.foto(`${FOTO}&v=3`);
+    expect(m.quantas()).toBe(1);
+  });
+
+  it("sem URL não busca nem guarda", async () => {
+    const { m, buscar } = memoria([]);
+    expect(await m.foto(null)).toBeNull();
+    expect(buscar).not.toHaveBeenCalled();
+    expect(m.quantas()).toBe(0);
   });
 });

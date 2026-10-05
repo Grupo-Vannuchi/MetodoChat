@@ -65,6 +65,14 @@ export function cabecalhoDaConta(c: ContaDoCabecalho, foto: string | null): Cabe
 }
 
 /**
+ * O cabeçalho que a versão das miniaturas resume: o da conta, com a URL da foto no lugar do `data:`
+ * que só a rota tem. A página e a action de salvar o usam, para as duas darem a mesma versão.
+ */
+export function cabecalhoParaVersao(conta: ContaDoCabecalho | null): CabecalhoDaArte {
+  return conta ? cabecalhoDaConta(conta, conta.profile_picture_url) : { nome: "", arroba: "", foto: null, iniciais: "IG" };
+}
+
+/**
  * A VERSÃO DA PRÉVIA: um resumo curto (FNV-1a de 32 bits) de TUDO o que muda a imagem. A `<img>` só
  * pede de novo quando a URL muda, e a rota responde `no-store`, então é esta versão que decide se a
  * miniatura troca. A rota ignora o parâmetro.
@@ -76,6 +84,28 @@ export function versaoDaArte(partes: (string | number | null)[]): string {
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return h.toString(16).padStart(8, "0");
+}
+
+/**
+ * A VERSÃO DE CADA MINIATURA (spec da Etapa 4): o resumo de tudo o que a rota desenha NAQUELE slide
+ * (o slide inteiro, com número, total, tipo, manchete e texto; se ele é só texto) e do cabeçalho, que é
+ * de todos. Salvar o slide 2 muda só a versão 2, e só a miniatura 2 é pedida de novo. Até a Etapa 3
+ * a versão era uma só, e qualquer gravação pedia as miniaturas todas.
+ *
+ * O `foto` do cabeçalho, aqui, é a URL da foto (a página não tem o `data:` que a rota desenha): a
+ * miniatura troca quando a Meta troca a foto.
+ */
+export function versoesDosSlides(slides: SlideParaArte[], soTexto: number[], cabecalho: CabecalhoDaArte): string[] {
+  return slides.map((s) =>
+    versaoDaArte([
+      JSON.stringify(s),
+      soTexto.includes(s.numero) ? "so_texto" : "com_espaco",
+      cabecalho.nome,
+      cabecalho.arroba,
+      cabecalho.foto,
+      cabecalho.iniciais,
+    ])
+  );
 }
 
 export function urlDaArte(bonusId: string, carrosselId: string, numero: number, versao: string, baixar = false): string {

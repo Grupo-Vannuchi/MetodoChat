@@ -25,6 +25,12 @@
 //
 // TEXTO ESTÁVEL DE PROPÓSITO: é o prefixo cacheado (`cache_control`). Qualquer byte que
 // mude aqui invalida o cache de todas as gerações seguintes — edite com intenção.
+//
+// ⚠️ AS 5 LINHAS (4 COM FECHAMENTO) E O TÍTULO DE 50 CARACTERES SAEM DA GEOMETRIA DA ARTE (Etapa 4
+// aqui, 48.6 no Labs; o texto é o do Labs em 64ca3e7, trazido byte a byte). Até 02/10 ele pedia 6
+// linhas, e um slide de 6 linhas com manchete e o espaço da imagem invadia a margem de baixo mesmo
+// no piso de 34px: 77 + 6 × 45 = 347, contra 334. O teste (tests/bonus-carrossel-instrucao.test.ts)
+// recalcula os dois números com a conta exata e confere o sha256 do valor, o mesmo da cópia do Labs.
 
 import { REGRA_DE_PORTUGUES } from "./regra-de-portugues";
 
@@ -50,7 +56,9 @@ Isso decide tudo:
 - **Um slide, uma ideia.** Se precisa de duas, são dois slides.
 - **Cada slide termina devendo algo.** O último parágrafo do slide 3 é o que faz existir o slide 4.
 - **Texto curto de verdade.** Duas a três linhas por slide. O que não couber, corte. Não diminua a fonte.
-- **NO MÁXIMO 6 LINHAS FÍSICAS por slide, e a conta inclui item de lista e linha em branco.** Não é o mesmo que "2 a 3 ideias": uma lista de 5 marcadores são 5 linhas. A arte tem altura fixa e **corta o que passa** — e diminuir a fonte não resolve, porque fonte menor não junta duas linhas em uma.
+- **NO MÁXIMO 5 LINHAS FÍSICAS de texto por slide, e a conta inclui item de lista.** Se o slide tiver linha de fechamento, **no máximo 4, contando ela**: a linha em branco antes do fechamento também ocupa espaço. Não é o mesmo que "2 a 3 ideias": uma lista de 5 marcadores são 5 linhas. A arte tem altura fixa e **corta o que passa**, e diminuir a fonte não resolve, porque fonte menor não junta duas linhas em uma.
+- **Uma linha física tem até uns 50 caracteres.** Frase maior que isso ocupa duas linhas, e conta como duas.
+- **O título do slide cabe numa linha: até 50 caracteres.** Título maior quebra em duas e tira uma linha do texto.
 
 ## ESTRUTURA
 
@@ -70,7 +78,7 @@ Use com parcimônia: se todo slide tiver fechamento, nenhum tem destaque. O ganc
 
 ## FORMATO DO TEXTO
 
-1. **Lista se marca com hífen.** \`- assim\`. Nunca numerada, nunca com bolinha, nunca com emoji no lugar do marcador. Um item por linha, e **no máximo 4 itens** — a lista inteira precisa caber nas 6 linhas do slide, junto com a frase que a introduz.
+1. **Lista se marca com hífen.** \`- assim\`. Nunca numerada, nunca com bolinha, nunca com emoji no lugar do marcador. Um item por linha, e **no máximo 4 itens**: com a frase que a introduz, são as 5 linhas do slide. Lista com linha de fechamento tem **no máximo 2 itens**.
 2. **Nunca use travessão como conector.** Nada de "o preço subiu — e ninguém avisou". Separe em duas frases com ponto: "O preço subiu. Ninguém avisou."
 3. **Sem hashtag.** Nenhuma, em lugar nenhum.
 4. **Emoji com parcimônia**, e só quando ajudar a ler. Nunca no título do slide, e **nunca na linha de fechamento**.
@@ -102,6 +110,6 @@ ${REGRA_DE_PORTUGUES}
 
 - **titulo**: nome interno da geração, para quem opera reconhecer na lista. Direto e descritivo. NÃO aparece no post.
 - **gancho**: o texto do slide 1. Uma frase, no máximo ~120 caracteres. É o que faz o dedo parar.
-- **slides**: de 6 a 9 itens, cada um com **titulo** (curto, sem emoji) e **texto** (2 a 3 linhas). O primeiro item já desenvolve o gancho, sem repeti-lo.
+- **slides**: de 6 a 9 itens, cada um com **titulo** (até 50 caracteres, numa linha, sem emoji) e **texto** (2 a 3 linhas). O primeiro item já desenvolve o gancho, sem repeti-lo.
 - **chamadaParaAcao**: o texto do slide final. Uma ação só, dita de forma direta.
 - **legenda**: o texto do post. Primeira frase funcionando sozinha, depois no máximo dois parágrafos curtos, terminando na mesma ação do slide final.`;

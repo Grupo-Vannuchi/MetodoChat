@@ -5,6 +5,7 @@ import {
   textoDeOutrasPalavras,
   quadroDaSituacao,
   textoDaConferencia,
+  textoDaParteSalva,
   textoDaRecusaDoPedidoDeCarrossel,
   textoDosProblemasDoCarrossel,
   textoDoTetoDoCarrossel,
@@ -94,5 +95,20 @@ describe("as frases do carrossel", () => {
     const t = textoDaFaltaDaPalavra("SUMIDO");
     expect(t).toContain("palavra SUMIDO");
     expect(t).toMatch(/não recebe o bônus/);
+  });
+});
+
+// O "SALVAR SLIDE N" E O "SALVAR LEGENDA" (spec da Etapa 4): a resposta diz o que se salvou. Um
+// problema em outro campo não impede o salvar, e vai junto, para não sumir calado.
+describe("a resposta do salvar de uma parte", () => {
+  it("diz o slide ou a legenda que se salvou", () => {
+    expect(textoDaParteSalva({ tipo: "slide", numero: 3 }, 5, [])).toBe("Slide 3 salvo.");
+    expect(textoDaParteSalva({ tipo: "legenda" }, 5, [])).toBe("Legenda salva.");
+  });
+
+  it("o problema em outro campo vai junto, com o nome do campo", () => {
+    expect(textoDaParteSalva({ tipo: "slide", numero: 1 }, 5, [{ campo: "chamada", erro: "precisa pedir a palavra SUMIDO" }])).toBe(
+      "Slide 1 salvo. Atenção, em outro campo: Chamada (slide 5): precisa pedir a palavra SUMIDO."
+    );
   });
 });

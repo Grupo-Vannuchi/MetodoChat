@@ -1,9 +1,9 @@
 // O DESENHO DE UM SLIDE, em JSX para o Satori (o ImageResponse de next/og). PURO: recebe tudo
 // pronto, e quem busca a foto e lê a fonte é a rota.
 //
-// TRAZIDO DO MÉTODO LABS (site-ia, src/app/admin/carrossel/arte/route.tsx, mudado por último em
-// 19d25be, igual em 45bc973 e em a56459b). DOIS DONOS: mudança aqui se avisa ao Labs, e a de lá se
-// traz para cá (docs/specs/2026-10-01-arte-do-carrossel.md, "Dois donos"). O layout é o do manual
+// VEIO DO MÉTODO LABS (site-ia, src/app/admin/carrossel/arte/route.tsx, em 45bc973). DOIS DONOS: o
+// mesmo desenho nos dois projetos é conferido pelos vetores (tests/vetores-da-arte.json), que cada
+// lado desenha no próprio Satori (spec da Etapa 4, "Dois donos"). O layout é o do manual
 // de arte do perfil que o Eduardo levou ao Labs em 02/09: fundo branco, texto 100% preto, margem de
 // 110, Carlito Regular e Bold, texto ancorado no topo, hierarquia por PESO e não por tamanho, e a
 // linha de fechamento em negrito. As QUATRO diferenças, todas da spec:
@@ -12,6 +12,10 @@
 // 2. "só texto" é o `semIlustracao` do Labs: o bloco do espaço some;
 // 3. sem tema escuro e sem selo de verificado;
 // 4. o cabeçalho vem da conta do carrossel (arte-tela.ts), e não da foto do admin.
+//
+// ⚠️ DESENHA A COMPOSIÇÃO (arte-composicao.ts), linha a linha, e não o texto cru: é a mesma lista que
+// a conta do "não cabe" mede (arte-medida.ts). O negrito, o espaçamento, a normalização e o espaço
+// acima de cada linha saem de lá, e nada disso se decide aqui. Os espaços são os da geometria.
 //
 // ⚠️ O QUE NÃO SE MEXE, cada item com um defeito datado atrás no ROADMAP do Labs: uma caixa por
 // LINHA, e nunca `whiteSpace: "pre-wrap"` (o Satori desenha o `\n` e não o conta na altura, e as
@@ -22,18 +26,19 @@
 // ⚠️ O Satori entende um subconjunto de flexbox com estilo em linha: todo `div` com mais de um
 // filho precisa de `display: "flex"`. Por isso as cores estão escritas aqui.
 import type { ReactElement } from "react";
-import { ALTURA_ILUSTRACAO, ENTRELINHA, MARGEM } from "./arte-geometria";
+import { composicaoDoSlide } from "./arte-composicao";
+import {
+  ALTURA_ILUSTRACAO,
+  ENTRELINHA,
+  espacoAntes,
+  GAP_CABECALHO,
+  GAP_ILUSTRACAO,
+  LADO_DO_AVATAR,
+  MARGEM,
+} from "./arte-geometria";
 import type { SlideParaArte } from "./arte-slides";
 import type { CabecalhoDaArte } from "./arte-tela";
 
-/** Do fim do cabeçalho até a primeira linha de texto. Número do Labs. */
-const GAP_CABECALHO = 48;
-/** Da manchete ao corpo, medido como AVANÇO TOTAL, e não como espaço extra. Número do Labs. */
-const AVANCO_MANCHETE = 77;
-/** Entre parágrafos do corpo, inclusive antes da linha de fechamento. Número do Labs. */
-const GAP_PARAGRAFO = 41;
-/** Do fim do texto até o topo do espaço da imagem: o mesmo do cabeçalho, pela simetria (Labs, 39.2). */
-const GAP_ILUSTRACAO = 48;
 /** O fundo das iniciais quando a foto não vem: o azul do Instagram, como no Labs. */
 const AZUL_DAS_INICIAIS = "#3797F0";
 /** A paleta clara do Labs, a única aqui: texto 100% preto em fundo branco. */
@@ -53,12 +58,7 @@ export function desenhoDoSlide({
   cabecalho: CabecalhoDaArte;
   familia: string;
 }): ReactElement {
-  // OS BLOCOS do corpo: a linha em branco separa o parágrafo, e o último bloco é a linha de
-  // fechamento, em negrito, quando há mais de um.
-  const blocos = slide.texto
-    .split(/\n{2,}/)
-    .map((b) => b.trim())
-    .filter(Boolean);
+  const linhas = composicaoDoSlide(slide.titulo, slide.texto);
   const noPe = slide.assinaturaNoPe;
 
   const tag = (
@@ -66,13 +66,13 @@ export function desenhoDoSlide({
       {cabecalho.foto ? (
         /* eslint-disable-next-line @next/next/no-img-element -- JSX do Satori, e não HTML de
            página: `next/image` renderiza um componente que ele não sabe ler. */
-        <img src={cabecalho.foto} width={127} height={127} style={{ borderRadius: 999, objectFit: "cover" }} alt="" />
+        <img src={cabecalho.foto} width={LADO_DO_AVATAR} height={LADO_DO_AVATAR} style={{ borderRadius: 999, objectFit: "cover" }} alt="" />
       ) : (
         <div
           style={{
             display: "flex",
-            width: 127,
-            height: 127,
+            width: LADO_DO_AVATAR,
+            height: LADO_DO_AVATAR,
             borderRadius: 999,
             background: AZUL_DAS_INICIAIS,
             color: "#FFFFFF",
@@ -117,47 +117,21 @@ export function desenhoDoSlide({
           paddingBottom: noPe ? GAP_CABECALHO : 0,
         }}
       >
-        {slide.titulo && (
+        {linhas.map((linha, i) => (
           <div
+            key={i}
             style={{
               display: "flex",
               fontSize: fonte,
-              fontWeight: 700,
+              fontWeight: linha.negrito ? 700 : 400,
               lineHeight: ENTRELINHA,
-              letterSpacing: -0.4,
-              marginBottom: Math.max(0, AVANCO_MANCHETE - Math.round(fonte * ENTRELINHA)),
+              letterSpacing: linha.espacamento,
+              marginTop: espacoAntes(linha.antes, fonte),
             }}
           >
-            {slide.titulo}
+            {linha.texto}
           </div>
-        )}
-
-        {blocos.map((bloco, i) => {
-          const ultimo = i === blocos.length - 1;
-          // Negrito no ÚLTIMO bloco quando há fechamento (mais de um bloco), e no bloco único sem
-          // manchete acima: o gancho e a chamada, em que o texto É a peça.
-          const negrito = ultimo && (blocos.length > 1 || !slide.titulo);
-          return (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                fontSize: fonte,
-                fontWeight: negrito ? 700 : 400,
-                lineHeight: ENTRELINHA,
-                letterSpacing: negrito ? -0.4 : 0,
-                marginBottom: ultimo ? 0 : GAP_PARAGRAFO,
-              }}
-            >
-              {bloco.split("\n").map((linha, j) => (
-                <div key={j} style={{ display: "flex" }}>
-                  {linha}
-                </div>
-              ))}
-            </div>
-          );
-        })}
+        ))}
       </div>
 
       {/* O ESPAÇO DA IMAGEM, EM BRANCO: é onde o operador põe a imagem no Canva. Some no "só texto". */}

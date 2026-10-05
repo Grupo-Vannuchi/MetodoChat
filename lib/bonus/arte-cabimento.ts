@@ -1,13 +1,14 @@
 // O "NÃO CABE" ENQUANTO SE DIGITA: a mesma conta da arte (arte-slides.ts), feita sobre o que está
 // nos campos do editor AGORA, e não sobre o texto salvo (spec da Etapa 3, "A prévia e o não cabe").
 //
-// PURO, e roda no navegador. AVISA, NUNCA IMPEDE: a previsão conta caracteres na largura das
-// maiúsculas, e o Satori quebra por palavra (a regra do Labs, `slidesQueNaoCabem`). A prova real
-// confere a imagem de verdade com textos no limite de cada degrau.
+// PURO, e roda no navegador. AVISA, NUNCA IMPEDE (a regra do Labs, `slidesQueNaoCabem`). A conta é a
+// exata da Etapa 4 (arte-medida.ts), conferida contra o desenho pelos vetores combinados com o Labs
+// (tests/vetores-da-arte.json); onde o Satori também quebra dentro da palavra, ela só erra para o lado
+// seguro.
 import { slidesDoTexto, slidesQueNaoCabem } from "./arte-slides";
 import { textoNaoCabeComEspaco, textoNaoCabeNunca } from "./arte-textos";
 import { slidesDeConteudo } from "./carrossel-pedido";
-import type { TextoDoCarrossel } from "./carrossel-texto";
+import { camposDaParte, type TextoDoCarrossel } from "./carrossel-texto";
 
 /** O \r\n do textarea volta a ser \n, e as pontas em branco saem: é como a revisão grava. */
 function limpo(v: string | undefined): string {
@@ -38,12 +39,14 @@ export function textoDosCampos(total: number, valores: Record<string, string>): 
   };
 }
 
-/** O campo do editor onde aparece o aviso do slide: o corpo dele. */
+/**
+ * O campo do editor onde aparece o aviso do slide: o corpo dele. Sai de `camposDaParte`, a regra
+ * única de quais campos formam cada slide (spec da Etapa 4): no post, o primeiro (o texto, e não a
+ * chamada); nos outros, o último (o texto do slide de conteúdo, e não a manchete).
+ */
 export function campoDoAviso(numero: number, total: number): string {
-  if (total === 1) return "texto";
-  if (numero === 1) return "gancho";
-  if (numero === total) return "chamada";
-  return `slide_${numero - 1}_texto`;
+  const campos = camposDaParte(total, { tipo: "slide", numero });
+  return total === 1 ? campos[0] : campos[campos.length - 1];
 }
 
 /**

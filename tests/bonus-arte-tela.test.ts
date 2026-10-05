@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   cabecalhoDaConta,
+  cabecalhoParaVersao,
   cabecalhosDaArte,
   conferirPedidoDaArte,
   nomeDoArquivo,
   numeroDoSlide,
   urlDaArte,
   versaoDaArte,
+  versoesDosSlides,
+  type CabecalhoDaArte,
 } from "@/lib/bonus/arte-tela";
+import { slidesDoTexto } from "@/lib/bonus/arte-slides";
 import { TEXTO_ARTE_NAO_ENCONTRADA, TEXTO_ARTE_NAO_PRONTA, TEXTO_ARTE_SLIDE_INVALIDO } from "@/lib/bonus/arte-textos";
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
+import type { TextoDeCarrossel } from "@/lib/bonus/carrossel-texto";
 
 // O QUE A ROTA DA ARTE E A TELA DECIDEM, fora do JSX e da rota: o número do slide pedido, o nome do
 // arquivo baixado, os cabeçalhos da resposta, o cabeçalho da peça e a versão da prévia.
@@ -106,6 +111,60 @@ describe("a versão da prévia", () => {
     expect(urlDaArte(BONUS, CARROSSEL, 2, "abcd1234", true)).toBe(
       `/bonus/${BONUS}/carrossel/${CARROSSEL}/arte?slide=2&v=abcd1234&baixar=1`
     );
+  });
+});
+
+// A VERSÃO DE CADA MINIATURA (spec da Etapa 4): o resumo de tudo o que a rota desenha NAQUELE slide.
+// Salvar o slide 2 muda só a versão 2, e só a miniatura 2 é pedida de novo; o cabeçalho é de todos.
+describe("a versão de cada miniatura", () => {
+  const texto: TextoDeCarrossel = {
+    tipo: "carrossel",
+    titulo: "Nome interno",
+    gancho: "Seu cliente sumiu? Não é culpa dele.",
+    slides: [{ titulo: "O que fazer primeiro", texto: "Mande uma mensagem curta, lembrando do que ele comprou." }],
+    chamada: "Comente SUMIDO e receba as mensagens prontas.",
+    legenda: "x".repeat(100),
+  };
+  const CAB: CabecalhoDaArte = { nome: "Thiago Vannuchi", arroba: "thiagovannuchi", foto: "https://foto", iniciais: "TV" };
+  const base = versoesDosSlides(slidesDoTexto(texto), [], CAB);
+
+  it("uma versão por slide, e a mesma para as mesmas entradas", () => {
+    expect(base).toHaveLength(3);
+    expect(versoesDosSlides(slidesDoTexto(texto), [], CAB)).toEqual(base);
+    expect(new Set(base).size).toBe(3);
+  });
+
+  it.each([
+    ["o texto do slide 2", () => versoesDosSlides(slidesDoTexto({ ...texto, slides: [{ ...texto.slides[0], texto: "Outro texto do slide, com mais de trinta." }] }), [], CAB)],
+    ["a manchete do slide 2", () => versoesDosSlides(slidesDoTexto({ ...texto, slides: [{ ...texto.slides[0], titulo: "Outra manchete" }] }), [], CAB)],
+    ["o só texto do slide 2", () => versoesDosSlides(slidesDoTexto(texto), [2], CAB)],
+  ])("%s muda só a versão do slide 2", (_nome, outra) => {
+    const v = outra();
+    expect([v[0] === base[0], v[1] === base[1], v[2] === base[2]]).toEqual([true, false, true]);
+  });
+
+  it.each([
+    ["o nome", { ...CAB, nome: "Outro nome" }],
+    ["o @", { ...CAB, arroba: "outra" }],
+    ["a foto", { ...CAB, foto: "https://outra-foto" }],
+    ["sem foto", { ...CAB, foto: null }],
+    ["as iniciais", { ...CAB, iniciais: "OU" }],
+  ])("%s do cabeçalho muda a versão de todos", (_nome, cab) => {
+    const v = versoesDosSlides(slidesDoTexto(texto), [], cab);
+    expect(v.map((x, i) => x === base[i])).toEqual([false, false, false]);
+  });
+
+  it("o número e o total de cada slide entram: o mesmo texto noutra posição tem outra versão", () => {
+    const com4 = versoesDosSlides(slidesDoTexto({ ...texto, slides: [texto.slides[0], texto.slides[0]] }), [], CAB);
+    expect(com4[0]).not.toBe(base[0]);
+  });
+
+  // A página e a action de salvar calculam a versão do mesmo jeito: com a URL da foto no lugar do
+  // `data:` que só a rota tem.
+  it("o cabeçalho da versão é o da conta, com a URL da foto; sem conta, o vazio", () => {
+    const c = { ig_user_id: "1001", username: "thiagovannuchi", name: "Thiago Vannuchi", profile_picture_url: "https://foto" };
+    expect(cabecalhoParaVersao(c)).toEqual(CAB);
+    expect(cabecalhoParaVersao(null)).toEqual({ nome: "", arroba: "", foto: null, iniciais: "IG" });
   });
 });
 

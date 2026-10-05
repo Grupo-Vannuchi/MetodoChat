@@ -4,7 +4,7 @@ import { ACCOUNT_COOKIE } from "@/lib/account";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
 import { resolverConta } from "@/lib/bonus/arte-conta";
 import { comEspaco, escolhasDaArte } from "@/lib/bonus/arte-escolhas";
-import { fotoDaConta } from "@/lib/bonus/arte-foto";
+import { fotosDaInstancia } from "@/lib/bonus/arte-foto";
 import { respostaDaArte } from "@/lib/bonus/arte-resposta";
 import { cabecalhoDaConta, conferirPedidoDaArte, nomeDoArquivo } from "@/lib/bonus/arte-tela";
 import {
@@ -48,11 +48,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!conferido.ok) return erro(conferido.status, conferido.texto);
   const { linha, slides, numero } = conferido;
 
-  // A conta do cabeçalho: a gravada no carrossel; sem ela, ou desconectada, a selecionada no Chat.
+  // A conta do cabeçalho é a do carrossel (arte-conta.ts): conectada, os dados atuais; desconectada,
+  // o nome e o @ guardados, com as iniciais; sem conta gravada, a logada no Chat.
   const escolhas = escolhasDaArte(linha.arte, slides.length);
-  const { conta } = resolverConta(await contasParaArte(), escolhas.conta, jarra.get(ACCOUNT_COOKIE)?.value);
+  const { conta } = resolverConta(await contasParaArte(), escolhas, jarra.get(ACCOUNT_COOKIE)?.value);
   if (!conta) return erro(409, TEXTO_ARTE_SEM_CONTA);
-  const [foto, bonus] = await Promise.all([fotoDaConta(conta.profile_picture_url), lerLinha(id)]);
+  // A foto vem da memória desta instância (arte-foto.ts): as miniaturas chegam juntas, e uma busca
+  // só atende todas.
+  const [foto, bonus] = await Promise.all([fotosDaInstancia.foto(conta.profile_picture_url), lerLinha(id)]);
 
   // O PNG já sai lido inteiro (arte-resposta.tsx, achado 65): uma falha do desenho vira 500 com
   // frase, e não um 200 com o corpo quebrado. Emoji no texto faz o desenho buscar o emoji em

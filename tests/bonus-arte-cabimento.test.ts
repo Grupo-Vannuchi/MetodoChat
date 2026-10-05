@@ -94,13 +94,16 @@ describe("as frases da tela da arte", () => {
     expect(textoNaoCabeNunca(2)).toBe("O slide 2 não cabe nem sem o espaço da imagem. Encurte o texto.");
   });
 
-  it("a conta diz de onde veio, e cala quando é a gravada", () => {
+  it("a conta diz de onde veio, e cala quando é a do carrossel, conectada", () => {
     expect(textoDaOrigemDaConta("gravada", "thiagovannuchi")).toBeNull();
+    expect(textoDaOrigemDaConta("guardada", "n8x")).toBe(
+      "A conta deste carrossel (@n8x) foi desconectada do Chat. A arte segue com o nome dela, e as iniciais no lugar da foto."
+    );
     expect(textoDaOrigemDaConta("selecionada", "thiagovannuchi")).toBe(
-      "A arte usa a conta selecionada no Chat agora (@thiagovannuchi). Escolha uma conta acima para gravar neste carrossel."
+      'Este carrossel é de antes de a conta ser gravada, e a arte usa a conta logada agora (@thiagovannuchi). Use "Fixar nesta conta" para ele ficar com ela.'
     );
     expect(textoDaOrigemDaConta("gravada_saiu", "thiagovannuchi")).toBe(
-      "A conta gravada neste carrossel foi desconectada do Chat. A arte usa a selecionada agora (@thiagovannuchi)."
+      "A conta deste carrossel foi desconectada do Chat, e ele não guardou o nome dela. A arte usa a conta logada agora (@thiagovannuchi)."
     );
   });
 
@@ -119,8 +122,11 @@ describe("as frases da tela da arte", () => {
     );
   });
 
-  it("cada recusa do salvar da arte tem frase", () => {
-    expect(textoDaRecusaDaArte("conta")).toContain("não está conectada");
+  it("cada recusa da arte tem frase", () => {
     expect(textoDaRecusaDaArte("slide")).toContain("não existe");
+    expect(textoDaRecusaDaArte("ja_tem_conta")).toBe("Este carrossel já tem conta, e a conta de um carrossel não muda.");
+    expect(textoDaRecusaDaArte("sem_conta")).toBe(
+      "Nenhuma conta do Instagram está conectada no Chat, e o cabeçalho da arte precisa de uma."
+    );
   });
 });
