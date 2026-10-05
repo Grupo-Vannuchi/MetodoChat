@@ -16,6 +16,7 @@ import {
   textoDaTrava,
   textoDoCalendario,
   textoDoEstadoDaPublicacao,
+  tomDoEstadoDaPublicacao,
   type RecusaDaPublicacaoDoCarrossel,
 } from "@/lib/bonus/publicar-textos";
 
@@ -244,5 +245,19 @@ describe("as recusas da publicação têm frase, cada uma", () => {
     const estado: EstadoDaPublicacao = { tipo: "publicado", em: AGORA, filaId: "f" };
     expect(textoDaRecusaDaPublicacaoDoCarrossel({ motivo: "travado", estado })).toBe(textoDaTrava(estado));
     expect(textoDaRecusaDaPublicacaoDoCarrossel({ motivo: "faltam_imagens", slides: [2, 4] })).toBe("Falta a imagem dos slides 2 e 4.");
+  });
+});
+
+describe("a cor do estado na página", () => {
+  it("verde no agendado e no publicado; amarelo no publicando, cancelado e não entrou; vermelho no resto", () => {
+    expect(tomDoEstadoDaPublicacao({ tipo: "livre" })).toBeNull();
+    expect(tomDoEstadoDaPublicacao({ tipo: "agendado", quando: AGORA, filaId: "f" })).toBe("ok");
+    expect(tomDoEstadoDaPublicacao({ tipo: "publicado", em: AGORA, filaId: "f" })).toBe("ok");
+    expect(tomDoEstadoDaPublicacao({ tipo: "publicando", filaId: null })).toBe("atencao");
+    expect(tomDoEstadoDaPublicacao({ tipo: "cancelado", filaId: "f" })).toBe("atencao");
+    expect(tomDoEstadoDaPublicacao({ tipo: "nao_entrou" })).toBe("atencao");
+    expect(tomDoEstadoDaPublicacao({ tipo: "falhou", motivo: null, filaId: "f" })).toBe("erro");
+    expect(tomDoEstadoDaPublicacao({ tipo: "saiu_da_fila" })).toBe("erro");
+    expect(tomDoEstadoDaPublicacao({ tipo: "desconhecido" })).toBe("erro");
   });
 });

@@ -4,6 +4,7 @@ import {
   enviarImagemDoSlide,
   prepararArtesSoTexto,
   prepararImagem,
+  publicarDaTela,
 } from "@/app/bonus/[id]/carrossel/[cid]/imagem-no-navegador";
 import { urlDaArte } from "@/lib/bonus/arte-tela";
 import type { AvisoDaImagem, RespostaDaAssinatura } from "@/lib/bonus/publicar-textos";
@@ -220,5 +221,41 @@ describe("as artes Só texto, na hora de publicar", () => {
     });
     expect(r).toEqual({ ok: false, texto: "Não consegui preparar a arte do slide 1. Recarregue a página e publique de novo." });
     expect(assinar).not.toHaveBeenCalled();
+  });
+});
+
+describe("publicar da tela", () => {
+  const assinar = vi.fn(async (p: unknown): Promise<RespostaDaAssinatura> => {
+    const n = (p as { numero: number }).numero;
+    return { ok: true, caminho: `178/bonus-fila/${n}.jpg`, url: `https://bucket/sign/${n}?token=t` };
+  });
+  const base = {
+    bonusId: BONUS,
+    carrosselId: CARROSSEL,
+    soTexto: [1],
+    versoesDaMiniatura: ["m1", "m2"],
+    versoesDoTexto: ["t1", "t2"],
+    assinar,
+  };
+
+  it("prepara as artes só texto e manda junto, com a hora e o fuso do navegador", async () => {
+    const publicar = vi.fn(async () => ({ tom: "ok" as const, texto: "Na fila do /publicar.", em: 1 }));
+    const r = await publicarDaTela({ ...base, quando: "depois", dataHora: "2026-10-06T18:00", publicar });
+    expect(r).toMatchObject({ tom: "ok" });
+    expect(publicar).toHaveBeenCalledWith({
+      id: CARROSSEL,
+      quando: "depois",
+      dataHora: "2026-10-06T18:00",
+      fuso: String(new Date().getTimezoneOffset()),
+      artes: [{ numero: 1, caminho: "178/bonus-fila/1.jpg", versao: "t1" }],
+    });
+  });
+
+  it("a arte que não vem vira o aviso de erro, e o pedido não sai", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("erro", { status: 500 })));
+    const publicar = vi.fn();
+    const r = await publicarDaTela({ ...base, quando: "agora", dataHora: "", publicar });
+    expect(r).toMatchObject({ tom: "erro", texto: "Não consegui preparar a arte do slide 1. Recarregue a página e publique de novo." });
+    expect(publicar).not.toHaveBeenCalled();
   });
 });

@@ -74,3 +74,14 @@ describe("as frases das actions", () => {
     expect(textoDaPublicacaoMandada(true)).toMatch(/^Agendado/);
   });
 });
+
+describe("a página do carrossel entrega a publicação ao editor", () => {
+  it("as três actions da publicação, e o estado lido da fila", () => {
+    const pagina = ler("app/bonus/[id]/carrossel/[cid]/page.tsx");
+    expect(pagina).toContain("acaoDaAssinatura: assinarImagemDoCarrossel");
+    expect(pagina).toContain("acaoDaImagem: guardarImagemDoSlide");
+    expect(pagina).toContain("acaoDaPublicacao: publicarCarrossel");
+    expect(pagina).toContain("await estadoDoCarrossel(carrossel.arte)");
+    expect(pagina).toContain("publicacao={publicacao}");
+  });
+});

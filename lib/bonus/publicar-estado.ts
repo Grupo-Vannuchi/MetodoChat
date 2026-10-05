@@ -1,7 +1,7 @@
 // O ESTADO DA PUBLICAÇÃO DO CARROSSEL E O QUE FALTA PARA PUBLICAR (spec da Etapa 5). PURO: o
 // repositório lê a linha da fila e o relógio do banco, e esta função decide.
 import type { OrigemDaConta } from "./arte-conta";
-import type { ImagemGuardada, PublicacaoGuardada } from "./publicar-regras";
+import type { PublicacaoGuardada } from "./publicar-regras";
 
 /** A linha da fila do /publicar, lida pela `dedupe_key` exata que o carrossel guardou. */
 export type LinhaDaFila = { id: string; status: string; not_before: Date; sent_at: Date | null; error: string | null };
@@ -76,7 +76,8 @@ export type FaltaParaPublicar =
 export function faltasParaPublicar(p: {
   total: number;
   soTexto: number[];
-  imagens: Record<number, ImagemGuardada>;
+  /** A imagem de cada slide, como o banco a guarda ou como a tela a mostra: aqui só importa se há. */
+  imagens: Record<number, unknown>;
   origem: OrigemDaConta;
   slidesNaoSalvos: number[];
   legendaNaoSalva: boolean;

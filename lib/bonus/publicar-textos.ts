@@ -2,6 +2,7 @@ import type { Aviso } from "@/lib/avisos";
 import { fmtDate } from "@/lib/format";
 import type { EstadoDaPublicacao, FaltaParaPublicar } from "./publicar-estado";
 import type { ProblemaDaProporcao } from "./publicar-regras";
+import type { TomDoQuadro } from "./textos";
 
 // AS FRASES DA PUBLICAÇÃO DO CARROSSEL, fora do JSX e das actions (o princípio de
 // lib/bonus/textos.ts): uma saída muda é indistinguível de sucesso, e cada saída tem frase, testada.
@@ -37,6 +38,23 @@ export function textoDoEstadoDaPublicacao(e: EstadoDaPublicacao): string | null 
       return "O registro deste post saiu da fila. A conta foi desconectada? O carrossel segue travado, para não publicar duas vezes.";
     case "desconhecido":
       return "O post deste carrossel está num estado que o Chat não reconhece. O carrossel segue travado: avise quem cuida do Chat.";
+  }
+}
+
+/** A cor do estado na página: verde quando deu certo, amarelo quando espera, vermelho quando falhou. */
+export function tomDoEstadoDaPublicacao(e: EstadoDaPublicacao): TomDoQuadro | null {
+  switch (e.tipo) {
+    case "livre":
+      return null;
+    case "agendado":
+    case "publicado":
+      return "ok";
+    case "publicando":
+    case "cancelado":
+    case "nao_entrou":
+      return "atencao";
+    default:
+      return "erro";
   }
 }
 

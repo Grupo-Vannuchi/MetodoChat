@@ -6,6 +6,7 @@ import {
   textoDaArteQueNaoVeio,
   textoDaProporcao,
   type AvisoDaImagem,
+  type AvisoDaPublicacao,
   type RespostaDaAssinatura,
 } from "@/lib/bonus/publicar-textos";
 import { medidasDaConversao, planoDaConversao } from "@/lib/publicacao";
@@ -148,4 +149,31 @@ export async function prepararArtesSoTexto(p: {
     artes.push({ numero, caminho: assinatura.caminho, versao: p.versoesDoTexto[numero - 1] ?? "" });
   }
   return { ok: true, artes };
+}
+
+/**
+ * O CLIQUE NO "PUBLICAR": prepara as artes "Só texto" e manda o pedido, com a hora e o fuso do
+ * navegador (o `datetime-local` não tem fuso; a action lê os dois com as funções do /publicar). Fora
+ * do componente, para o relógio não ser lido durante o desenho da tela.
+ */
+export async function publicarDaTela(p: {
+  bonusId: string;
+  carrosselId: string;
+  soTexto: number[];
+  versoesDaMiniatura: string[];
+  versoesDoTexto: string[];
+  quando: "agora" | "depois";
+  dataHora: string;
+  assinar: Assinar;
+  publicar: (pedido: unknown) => Promise<AvisoDaPublicacao>;
+}): Promise<AvisoDaPublicacao> {
+  const artes = await prepararArtesSoTexto(p);
+  if (!artes.ok) return { tom: "erro", texto: artes.texto, em: Date.now() };
+  return p.publicar({
+    id: p.carrosselId,
+    quando: p.quando,
+    dataHora: p.dataHora,
+    fuso: String(new Date().getTimezoneOffset()),
+    artes: artes.artes,
+  });
 }

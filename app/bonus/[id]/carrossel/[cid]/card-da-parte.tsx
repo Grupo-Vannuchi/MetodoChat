@@ -1,5 +1,5 @@
 "use client";
-import { useActionState, useMemo, useState, useTransition, type ChangeEvent } from "react";
+import { useActionState, useEffect, useMemo, useState, useTransition, type ChangeEvent } from "react";
 import { badgeWarn, btnPrimary, btnSecondary, card, hint } from "@/app/ui";
 import AvisoDoFormulario from "@/app/bonus/aviso-do-formulario";
 import { avisosDeCabimento, campoDoAviso } from "@/lib/bonus/arte-cabimento";
@@ -49,6 +49,7 @@ export default function CardDaParte({
   versaoDoTexto = null,
   enviarImagem = null,
   travado = null,
+  aoMudarNaoSalvo,
 }: {
   acao: (anterior: AvisoDoSlide | null, form: FormData) => Promise<AvisoDoSlide | null>;
   bonusId: string;
@@ -72,6 +73,8 @@ export default function CardDaParte({
   enviarImagem?: ((arquivo: File) => Promise<AvisoDaImagem>) | null;
   /** A frase da trava, com o carrossel na fila ou publicado. */
   travado?: string | null;
+  /** Avisa o editor quando o card fica, ou deixa de ficar, "não salvo": o "Publicar" trava com ele. */
+  aoMudarNaoSalvo?: (naoSalvo: boolean) => void;
 }) {
   const doCard = (v: Record<string, string>) => Object.fromEntries(campos.map((c) => [c.nome, v[c.nome] ?? ""]));
   const [atuais, setAtuais] = useState(() => doCard(valores));
@@ -92,6 +95,9 @@ export default function CardDaParte({
 
   const numero = parte.tipo === "slide" ? parte.numero : null;
   const naoSalvo = campos.some((c) => atuais[c.nome] !== salvos[c.nome]);
+  useEffect(() => {
+    aoMudarNaoSalvo?.(naoSalvo);
+  }, [naoSalvo, aoMudarNaoSalvo]);
   const campoDoNaoCabe = numero ? campoDoAviso(numero, total) : null;
   const naoCabe = useMemo(
     () => (numero && campoDoNaoCabe ? avisosDeCabimento(total, atuais, soTexto ? [numero] : [])[campoDoNaoCabe] : undefined),
