@@ -104,6 +104,7 @@ export type RecusaDaPublicacaoDoCarrossel =
   | { motivo: "arte_velha"; numero: number }
   | { motivo: "caminho_na_fila" }
   | { motivo: "legenda"; texto: string }
+  | { motivo: "quantidade"; texto: string }
   | { motivo: "copia"; numero: number }
   | { motivo: "mudou" }
   | { motivo: "fila" }
@@ -142,6 +143,7 @@ export function textoDaRecusaDaPublicacaoDoCarrossel(r: RecusaDaPublicacaoDoCarr
     case "caminho_na_fila":
       return "Uma das imagens já está na fila de outro post. Recarregue a página e publique de novo.";
     case "legenda":
+    case "quantidade":
       return r.texto;
     case "copia":
       return `Não consegui preparar a imagem do slide ${r.numero} para a fila. Nada foi publicado; tente de novo em instantes.`;

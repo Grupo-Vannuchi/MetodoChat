@@ -221,6 +221,7 @@ describe("as recusas da publicação têm frase, cada uma", () => {
     { motivo: "arte_velha", numero: 5 },
     { motivo: "caminho_na_fila" },
     { motivo: "legenda", texto: "A legenda passa de 2.200 caracteres." },
+    { motivo: "quantidade", texto: "Um carrossel precisa de pelo menos duas mídias." },
     { motivo: "copia", numero: 2 },
     { motivo: "mudou" },
     { motivo: "fila" },
