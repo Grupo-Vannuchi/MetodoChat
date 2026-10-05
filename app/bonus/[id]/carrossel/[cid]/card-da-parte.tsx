@@ -1,12 +1,14 @@
 "use client";
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useMemo, useState, useTransition, type ChangeEvent } from "react";
 import { badgeWarn, btnPrimary, btnSecondary, card, hint } from "@/app/ui";
 import AvisoDoFormulario from "@/app/bonus/aviso-do-formulario";
 import { avisosDeCabimento, campoDoAviso } from "@/lib/bonus/arte-cabimento";
 import { urlDaArte } from "@/lib/bonus/arte-tela";
 import type { CampoDoCarrossel, ParteDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import type { AvisoDoSlide } from "@/lib/bonus/carrossel-textos";
+import { TEXTO_TEXTO_MUDOU, type AvisoDaImagem } from "@/lib/bonus/publicar-textos";
 import Campo from "./campo";
+import type { ImagemNaTela } from "./publicacao-na-tela";
 
 // O CARD DE UMA PARTE DO CARROSSEL (spec da Etapa 4, "Um card por slide"): a miniatura do slide, o
 // "Só texto" e o "Baixar" à esquerda, e ao lado o editor daquele slide, que abre no "Editar" e grava
@@ -23,6 +25,12 @@ import Campo from "./campo";
 //
 // A versão da miniatura e o "só texto" moram no pai (editor-do-carrossel.tsx): o "só texto" se grava
 // por outra action, que devolve as versões, e o "Baixar todos" precisa das versões de todos.
+//
+// A IMAGEM DO CANVA (spec da Etapa 5): no slide com espaço, o "Subir imagem do Canva" (ou "Trocar
+// imagem"), e a miniatura passa a ser a imagem guardada. O "Baixar" continua baixando a arte do Chat,
+// para levar ao Canva. Com o texto salvo depois da imagem, o card avisa. Com o carrossel na fila ou
+// publicado (`travado`), o card fica só para leitura: sem "Editar", sem upload, e o "Só texto"
+// desligado. A trava vale no servidor; aqui ela só se mostra.
 export default function CardDaParte({
   acao,
   bonusId,
@@ -37,6 +45,10 @@ export default function CardDaParte({
   soTexto,
   aoMudarSoTexto,
   soTextoPendente,
+  imagem = null,
+  versaoDoTexto = null,
+  enviarImagem = null,
+  travado = null,
 }: {
   acao: (anterior: AvisoDoSlide | null, form: FormData) => Promise<AvisoDoSlide | null>;
   bonusId: string;
@@ -52,19 +64,31 @@ export default function CardDaParte({
   soTexto: boolean;
   aoMudarSoTexto: (marcado: boolean) => void;
   soTextoPendente: boolean;
+  /** A imagem do Canva guardada neste slide (Etapa 5). */
+  imagem?: ImagemNaTela | null;
+  /** A versão do texto salvo deste slide, para o aviso "o texto mudou depois desta imagem". */
+  versaoDoTexto?: string | null;
+  /** Sobe a imagem do Canva deste slide. Sem ela, o card não tem upload. */
+  enviarImagem?: ((arquivo: File) => Promise<AvisoDaImagem>) | null;
+  /** A frase da trava, com o carrossel na fila ou publicado. */
+  travado?: string | null;
 }) {
   const doCard = (v: Record<string, string>) => Object.fromEntries(campos.map((c) => [c.nome, v[c.nome] ?? ""]));
   const [atuais, setAtuais] = useState(() => doCard(valores));
   const [salvos, setSalvos] = useState(() => doCard(valores));
   const [aberto, setAberto] = useState(false);
+  const [versaoDoTextoSalvo, setVersaoDoTextoSalvo] = useState(versaoDoTexto);
   const [resposta, enviar, pendente] = useActionState(async (anterior: AvisoDoSlide | null, form: FormData) => {
     const r = await acao(anterior, form);
     if (r?.tom === "ok") {
       setSalvos(Object.fromEntries(campos.map((c) => [c.nome, String(form.get(c.nome) ?? "")])));
       if (r.versao) aoNovaVersao(r.versao);
+      if (r.versaoDoTexto) setVersaoDoTextoSalvo(r.versaoDoTexto);
     }
     return r;
   }, null);
+  const [avisoDaImagem, setAvisoDaImagem] = useState<AvisoDaImagem | null>(null);
+  const [enviando, iniciarEnvio] = useTransition();
 
   const numero = parte.tipo === "slide" ? parte.numero : null;
   const naoSalvo = campos.some((c) => atuais[c.nome] !== salvos[c.nome]);
@@ -73,6 +97,18 @@ export default function CardDaParte({
     () => (numero && campoDoNaoCabe ? avisosDeCabimento(total, atuais, soTexto ? [numero] : [])[campoDoNaoCabe] : undefined),
     [numero, campoDoNaoCabe, total, atuais, soTexto]
   );
+  // Marcado "Só texto", o slide sai com a arte do Chat: a imagem guardada fica, mas não se usa.
+  const comImagem = numero !== null && !soTexto ? imagem : null;
+  const desatualizada = comImagem !== null && versaoDoTextoSalvo !== null && comImagem.versao !== versaoDoTextoSalvo;
+
+  function aoEscolherImagem(e: ChangeEvent<HTMLInputElement>) {
+    const arquivo = e.target.files?.[0];
+    e.target.value = "";
+    if (!arquivo || !enviarImagem) return;
+    iniciarEnvio(async () => {
+      setAvisoDaImagem(await enviarImagem(arquivo));
+    });
+  }
 
   return (
     <li className={`${card} p-4`}>
@@ -82,7 +118,7 @@ export default function CardDaParte({
             {/* eslint-disable-next-line @next/next/no-img-element -- a arte está atrás de sessão, e o
                 otimizador de imagem do Next buscaria a URL sem o cookie: a miniatura voltaria 401. */}
             <img
-              src={urlDaArte(bonusId, carrosselId, numero, versao)}
+              src={comImagem?.url ?? urlDaArte(bonusId, carrosselId, numero, versao)}
               alt={`Slide ${numero} de ${total}`}
               width={216}
               height={270}
@@ -93,12 +129,36 @@ export default function CardDaParte({
                 type="checkbox"
                 aria-label={`Slide ${numero}: só texto, sem o espaço da imagem`}
                 checked={soTexto}
-                disabled={soTextoPendente}
+                disabled={soTextoPendente || travado !== null}
                 onChange={(e) => aoMudarSoTexto(e.target.checked)}
               />
               Só texto
             </label>
             {naoCabe && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{naoCabe}</p>}
+            {enviarImagem && !soTexto && travado === null && (
+              <label className={`${btnSecondary} cursor-pointer`}>
+                {enviando ? "Subindo…" : imagem ? "Trocar imagem" : "Subir imagem do Canva"}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  aria-label={`Slide ${numero}: imagem do Canva`}
+                  className="sr-only"
+                  disabled={enviando}
+                  onChange={aoEscolherImagem}
+                />
+              </label>
+            )}
+            {desatualizada && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{TEXTO_TEXTO_MUDOU}</p>}
+            {avisoDaImagem && (
+              <p
+                role="status"
+                className={`text-xs font-medium ${
+                  avisoDaImagem.tom === "ok" ? "text-aberto dark:text-aberto-escuro" : "text-parou dark:text-parou-escuro"
+                }`}
+              >
+                {avisoDaImagem.texto}
+              </p>
+            )}
             <a href={urlDaArte(bonusId, carrosselId, numero, versao, true)} download className={btnSecondary}>
               Baixar o slide {numero}
             </a>
@@ -118,9 +178,11 @@ export default function CardDaParte({
             <h3 className="text-sm font-semibold">{numero !== null ? `Slide ${numero}` : "Legenda"}</h3>
             <div className="flex items-center gap-2">
               {naoSalvo && <span className={badgeWarn}>não salvo</span>}
-              <button type="button" aria-expanded={aberto} onClick={() => setAberto(!aberto)} className={btnSecondary}>
-                {aberto ? "Fechar" : "Editar"}
-              </button>
+              {travado === null && (
+                <button type="button" aria-expanded={aberto} onClick={() => setAberto(!aberto)} className={btnSecondary}>
+                  {aberto ? "Fechar" : "Editar"}
+                </button>
+              )}
             </div>
           </div>
           {!aberto && <p className={`${hint} whitespace-pre-line`}>{campos.map((c) => atuais[c.nome]).join("\n")}</p>}

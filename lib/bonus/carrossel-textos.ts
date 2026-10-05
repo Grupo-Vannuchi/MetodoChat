@@ -14,8 +14,10 @@ export type AvisoDoPedidoDeCarrossel = Aviso & { em: number };
  * A resposta do "Salvar slide N" e do "Salvar legenda" (spec da Etapa 4), como estado do card do
  * slide, e nunca por redirect (achado 52). `versao` é a versão nova da miniatura do slide salvo, e só
  * ela é pedida de novo; é null para a legenda e na recusa, quando a miniatura não muda.
+ * `versaoDoTexto` (Etapa 5) é a versão do texto salvo do slide, para o aviso "o texto mudou depois
+ * desta imagem" (publicar-regras.ts, `versaoDoTextoDoSlide`).
  */
-export type AvisoDoSlide = Aviso & { em: number; versao: string | null };
+export type AvisoDoSlide = Aviso & { em: number; versao: string | null; versaoDoTexto?: string | null };
 
 export const TEXTO_PARTE_INVALIDA = "Essa parte não existe neste carrossel. Recarregue a página.";
 

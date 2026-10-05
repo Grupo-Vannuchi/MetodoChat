@@ -1,11 +1,14 @@
 "use client";
 import { useActionState, useRef, useState, useTransition } from "react";
-import { alertError, alertOk, btnPrimary, btnSecondary, card, hint } from "@/app/ui";
+import { alertError, alertOk, alertWarn, btnPrimary, btnSecondary, card, hint } from "@/app/ui";
 import { urlDaArte } from "@/lib/bonus/arte-tela";
 import { textoDoBaixarTodos, type AvisoDaArte } from "@/lib/bonus/arte-textos";
 import { camposDaParte, type CampoDoCarrossel, type ParteDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import type { AvisoDoSlide } from "@/lib/bonus/carrossel-textos";
+import type { AvisoDaImagem } from "@/lib/bonus/publicar-textos";
 import CardDaParte from "./card-da-parte";
+import { enviarImagemDoSlide } from "./imagem-no-navegador";
+import type { ImagemNaTela, PublicacaoNaTela } from "./publicacao-na-tela";
 
 // O EDITOR DO CARROSSEL, SLIDE A SLIDE (spec da Etapa 4, "A página"): a conta do carrossel, um card
 // por slide (a miniatura e, ao lado, o editor dele: card-da-parte.tsx), o card da legenda, e o
@@ -20,6 +23,10 @@ import CardDaParte from "./card-da-parte";
 // escolha muda na tela antes da resposta, para a caixa responder ao clique; numa recusa, volta para a
 // última aceita (achado 67), porque a miniatura e o "Baixar" seguem o que está gravado. O formulário é
 // montado aqui e despachado numa transição, sem `<form action>` (medido no PR #5).
+//
+// A PUBLICAÇÃO (spec da Etapa 5) entra por `publicacao`, e sem ela a página é a da Etapa 4. As imagens
+// do Canva guardadas moram aqui, e cada card sobe a do seu slide (imagem-no-navegador.ts). Com o
+// carrossel na fila ou publicado, a trava aparece no topo e cada card fica só para leitura.
 //
 // As actions entram por propriedade, para o teste de tela usar falsas.
 export default function EditorDoCarrossel({
@@ -38,6 +45,7 @@ export default function EditorDoCarrossel({
   soTextoInicial,
   versoes: versoesIniciais,
   pausaMs = 400,
+  publicacao,
 }: {
   acaoDoSlide: (anterior: AvisoDoSlide | null, form: FormData) => Promise<AvisoDoSlide | null>;
   acaoDaArte: (anterior: AvisoDaArte | null, form: FormData) => Promise<AvisoDaArte | null>;
@@ -54,8 +62,11 @@ export default function EditorDoCarrossel({
   soTextoInicial: number[];
   versoes: string[];
   pausaMs?: number;
+  publicacao?: PublicacaoNaTela;
 }) {
   const [versoes, setVersoes] = useState(versoesIniciais);
+  const [imagens, setImagens] = useState<Record<number, ImagemNaTela>>(publicacao?.imagens ?? {});
+  const travado = publicacao?.travado ?? null;
   const [soTexto, setSoTexto] = useState(soTextoInicial);
   const aceito = useRef(soTextoInicial);
   const [respostaDaArte, despacharArte, artePendente] = useActionState(
@@ -91,6 +102,14 @@ export default function EditorDoCarrossel({
     iniciar(() => despacharArte(form));
   }
 
+  /** Sobe a imagem do Canva de um slide; guardada, ela passa a ser a miniatura dele. */
+  async function enviarImagem(p: PublicacaoNaTela, numero: number, arquivo: File): Promise<AvisoDaImagem> {
+    const r = await enviarImagemDoSlide({ carrosselId, numero, arquivo, assinar: p.acaoDaAssinatura, guardar: p.acaoDaImagem });
+    const versao = r.versao;
+    if (r.tom === "ok" && versao) setImagens((atuais) => ({ ...atuais, [numero]: { url: r.imagem ?? null, versao } }));
+    return r;
+  }
+
   async function baixarTodos() {
     setBaixando(true);
     for (const n of slides) {
@@ -108,6 +127,11 @@ export default function EditorDoCarrossel({
   return (
     <section className={`${card} space-y-4 p-6`}>
       <h2 className="text-base font-semibold">Arte e texto dos slides</h2>
+      {travado && (
+        <p role="status" className={alertWarn}>
+          {travado}
+        </p>
+      )}
       <div>
         <p className="text-sm">
           Conta do carrossel: <strong>{rotuloDaConta ?? "nenhuma conta conectada"}</strong>
@@ -154,6 +178,10 @@ export default function EditorDoCarrossel({
             soTexto={soTexto.includes(n)}
             aoMudarSoTexto={(marcado) => mudarSoTexto(n, marcado)}
             soTextoPendente={artePendente}
+            imagem={imagens[n] ?? null}
+            versaoDoTexto={publicacao?.versoesDoTexto[n - 1] ?? null}
+            enviarImagem={publicacao ? (arquivo) => enviarImagem(publicacao, n, arquivo) : null}
+            travado={travado}
           />
         ))}
         <CardDaParte
@@ -170,6 +198,7 @@ export default function EditorDoCarrossel({
           soTexto={false}
           aoMudarSoTexto={() => {}}
           soTextoPendente={false}
+          travado={travado}
         />
       </ul>
 
