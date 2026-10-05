@@ -4,7 +4,9 @@
 levantando os riscos durante o desenho (medidos no código da `main` em `a4411a5`).
 **Estado:** desenho aprovado pelo Eduardo nas três partes (a tela; por dentro; os testes e a prova),
 e revisado pela auditoria: o achado 75 (a marca de enfileirada) e o 76 (a proporção 4:5, decidida pelo
-Eduardo) estão absorvidos no texto.
+Eduardo) estão absorvidos no texto. **Adendo de 05/10, durante a prova:** a etapa ganhou o segundo jeito
+de imagem, "só a foto, no espaço da arte" (seção "A foto no espaço da arte"), aprovado pelo Eduardo
+nas duas partes; a prova passou a ser sem post real (nenhuma conta conectada é de teste).
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta
 própria, e nenhum arquivo do `/publicar` muda.
 **Etapas anteriores:** `docs/specs/2026-09-29-gerador-de-bonus.md`,
@@ -42,7 +44,19 @@ Todas do Eduardo, em 05/10, pela caixa de perguntas.
 | enquanto agendado | texto, "Só texto" e imagens travados até cancelar no calendário |
 | depois de publicado | a página fica só para leitura, e não há republicar |
 | a imagem guardada contra o `/publicar` que apaga | copiar ao publicar: a fila leva uma cópia, e o `/publicar` apaga só a cópia |
-| a prova | agendar, ver no calendário, cancelar, e um post real numa conta de teste, apagado depois no Instagram |
+| ~~a prova~~ | ~~agendar, ver no calendário, cancelar, e um post real numa conta de teste~~ (trocada no adendo, abaixo) |
+
+Decididas pelo Eduardo durante a prova de 05/10, depois de ver a imagem subida tomar o slide inteiro
+("A ideia é seguir o primeiro, mas o segundo também"):
+
+| decisão | escolha |
+|---|---|
+| os jeitos de imagem | dois: **"Subir foto"**, o principal, põe a foto no espaço reservado da arte (onde o criador de imagem da Etapa 6 também vai pôr a dele), com o texto e o cabeçalho do Chat; **"Slide pronto do Canva"** substitui o slide inteiro, para quando se quer algo além da foto |
+| como se escolhe | dois botões em cada slide com espaço, e não pela proporção (uma foto em pé 4:5 viraria slide pronto sem querer) |
+| a foto no espaço | cortada para preencher, centralizada; cantos retos, como a regra da casa no Labs |
+| quantas imagens por slide | uma: subir um jeito troca o outro |
+| subir o carrossel inteiro do Canva de uma vez | depois desta etapa |
+| a prova | sem post real: nenhuma das 4 contas conectadas é de teste. Agendar para daqui a 7 dias (folga se o cancelar falhar) e cancelar; o primeiro post real vai ser um que o Eduardo queira publicar, com a auditoria acompanhando |
 
 ---
 
@@ -85,18 +99,22 @@ O que o Eduardo aprovou na parte 1. Tudo mora na página do carrossel da Etapa 4
 
 ### O card de cada slide com espaço de imagem
 
-- Ganha **"Subir imagem do Canva"**. Aceita JPEG, PNG e WEBP. PNG e WEBP viram JPEG no navegador, como
+- Ganha os dois jeitos de imagem (adendo de 05/10): **"Subir foto"**, ao lado do **"Baixar"**, e
+  **"Slide pronto do Canva"** embaixo. A foto está na seção "A foto no espaço da arte". O resto desta
+  lista é do slide pronto.
+- O slide pronto aceita JPEG, PNG e WEBP. PNG e WEBP viram JPEG no navegador, como
   no `/publicar` (fundo branco, qualidade 0,9, até 1440 de largura).
-- A imagem tem de ser **4:5**, como a arte (1080×1350), com 1% de tolerância (de 0,792 a 0,808).
+- O slide pronto tem de ser **4:5**, como a arte (1080×1350), com 1% de tolerância (de 0,792 a 0,808).
   Outra proporção é recusada com a frase "A imagem do slide tem de ser 4:5, como a arte
   (1080×1350)." O motivo é do Instagram: todos os itens do carrossel são cortados pela proporção do
   PRIMEIRO (`lib/dedupe.ts:211-212`), e uma imagem quadrada no slide 1 cortaria o texto das artes
   "Só texto". O `/publicar` aceita de 0,8 a 1,91 (`lib/publicacao.ts:42-43`), e esta regra é só da
   página do carrossel.
 - Depois de subir, a miniatura do card passa a ser a imagem do Canva, e o botão vira **"Trocar
-  imagem"**. Trocar apaga a anterior do bucket.
+  slide pronto"**. Trocar apaga a anterior do bucket.
 - O **"Baixar"** continua baixando a arte do Chat, para levar ao Canva.
-- Se o texto do slide mudar depois da imagem, o card mostra **"O texto mudou depois desta imagem."**
+- Se o texto do slide mudar depois do slide pronto, o card mostra **"O texto mudou depois desta
+  imagem."** Com a foto no espaço, o aviso não aparece: a arte se redesenha com o texto novo.
 
 ### O card "Só texto"
 
@@ -172,7 +190,7 @@ A pasta é a da conta do carrossel (`pastaDaConta`, `lib/bucket.ts:184`), nunca 
 
 | prefixo | o quê | quem apaga |
 |---|---|---|
-| `<pasta>/bonus/<uuid>.jpg` | as imagens guardadas nos slides | o "Trocar imagem" (a anterior) |
+| `<pasta>/bonus/<uuid>.jpg` | as imagens guardadas nos slides (a foto no espaço e o slide pronto) | a troca, de um jeito ou do outro (a anterior) |
 | `<pasta>/bonus-fila/<uuid>.jpg` | o que vai para a fila: as cópias das guardadas e a arte "Só texto" convertida | o dreno, depois de publicar ou no cancelamento; esta etapa, em qualquer recusa |
 
 Nenhum dos dois entra pelo `/publicar`, que só aceita `pasta/arquivo.ext` com uma barra; os dois
@@ -311,6 +329,66 @@ que o `lib/publicacao.ts` já exporta (`planoDaConversao`, `medidasDaConversao`)
 `fillRect` branco antes do `drawImage`: o `canvas` nasce transparente, e sem ele o PNG vira JPEG de
 fundo preto.
 
+### A foto no espaço da arte (adendo de 05/10)
+
+O jeito principal de imagem, decidido pelo Eduardo durante a prova. A foto entra no espaço reservado
+da arte, o mesmo onde o criador de imagem da Etapa 6 vai pôr a dele, e o slide continua sendo a arte
+do Chat: a manchete, o texto e o cabeçalho.
+
+**O espaço** é o que a arte já reserva: 860×573 (`LARGURA_UTIL` por `ALTURA_ILUSTRACAO`,
+`lib/bonus/arte-geometria.ts:25-28`), deitado, 3:2. A conta do "não cabe" não muda: o espaço, o
+`GAP_ILUSTRACAO` e a altura útil são os mesmos, e os vetores combinados com o Labs
+(`tests/vetores-da-arte.json`) continuam iguais.
+
+**No navegador**, antes de subir:
+- a foto é cortada ao centro na proporção do espaço (860:573) e reduzida até 1720×1146 (o dobro do
+  espaço), em JPEG a 0,9. O que sobe já tem a forma do espaço, e a rota não corta nada;
+- a foto cujo recorte fica menor que o espaço (860×573) é recusada: "A foto é pequena para o espaço
+  da arte: o mínimo é 860×573." Ampliada, ela sairia borrada no post;
+- a regra do 4:5 não vale para a foto. Ela vale para o slide pronto, que é o slide inteiro.
+
+**Guardada** em `arte.imagens[n]`, como o slide pronto, com o campo novo `jeito`: `"foto"` ou
+`"slide"`. A entrada sem `jeito` (as de antes deste adendo) vale como `"slide"`. A de `jeito`
+desconhecido não conta: o slide volta a pedir a imagem e o "Publicar" trava, que é o lado seguro
+(nunca publica uma imagem do jeito errado). O caminho é o mesmo do slide pronto,
+`<pasta>/bonus/<uuid>.jpg`. Subir um jeito troca o outro, e a anterior sai do bucket.
+
+**A assinatura** recebe o jeito. A foto declarada tem de estar na proporção do espaço (860:573, com
+1% de tolerância), entre 860×573 e 1720×1146, em JPEG; o slide pronto segue no 4:5. As medidas são
+declaradas pelo navegador, como no resto do upload.
+
+**A rota da arte desenha a foto**, só no slide com espaço e com foto guardada:
+- busca a foto no servidor, só pelo endereço público do nosso bucket (`urlPublicaDoObjeto`), e só
+  se o caminho estiver na forma exata `<pasta da conta do carrossel>/bonus/<uuid>.jpg`: nada de outra
+  pasta, de outro host, nem de caminho vindo da URL;
+- com teto de tempo (3 s) e de bytes (2 MB), e conferindo os primeiros bytes de JPEG, no molde de
+  `fotoDaConta` (`lib/bonus/arte-foto.ts`); guardada em memória por instância, pelo caminho, que
+  nunca muda de conteúdo;
+- desenha `<img>` de 860×573 com `objectFit: "cover"` dentro do espaço, sem borda e sem canto
+  arredondado, como o Labs desenha a ilustração dele;
+- se qualquer coisa falhar, o slide sai com o espaço em branco, e nunca quebrado. A resposta continua
+  lida antes de sair (`respostaDaArte`, achado 65).
+
+**A versão da miniatura** (`versoesDosSlides`) passa a levar o caminho da foto do slide, quando ele
+tem espaço e foto: trocar a foto troca a miniatura e o "Baixar". A miniatura do slide com foto é a
+própria arte da rota, e não a foto do bucket.
+
+**Publicar.** O slide com foto publica a ARTE desenhada, e não a foto. Ele vai pelo caminho das
+artes "Só texto": o navegador baixa a arte da rota, converte em JPEG e sobe em `bonus-fila`. Só o
+slide pronto vai pelo caminho das cópias. A versão que o navegador manda para o slide com foto é a da
+arte com a foto (o texto do slide e o caminho da foto); o servidor recalcula e recusa a velha, como
+na arte "Só texto". A reserva confere também que as fotos são as mesmas.
+
+**O que falta para publicar** passa a ser: todo slide com espaço tem uma imagem, de qualquer jeito.
+
+**"Só texto"** tira o espaço: nem a foto nem o slide pronto são usados (ficam guardados, e voltam se o
+espaço voltar).
+
+**Os dois donos.** O desenho muda só quando há foto. Os vetores e a conta não mudam, e o Labs
+(`site-ia`) fica avisado de que o Chat desenha a foto no espaço com `cover`, sem canto, e de que o
+Labs desenha a ilustração com `contain`. As duas dão o mesmo resultado quando a imagem já vem na
+proporção do espaço, que é o caso das duas.
+
 ### O que não muda
 
 Nenhum arquivo do `/publicar`, do bucket, do dreno ou da fila. Esta etapa importa deles e não toca
@@ -371,7 +449,7 @@ Ficam:
 | pura | os caminhos: a forma exata de cada prefixo, na pasta da conta do carrossel; recusa outra pasta, outro prefixo, `..`, barra a mais e extensão diferente de `.jpg` |
 | pura | a forma pela quantidade: 1 slide é imagem, 2 a 10 é carrossel |
 | tela | a conversão para JPEG, com `canvas` e `createImageBitmap` falsos: pinta de branco antes de desenhar, usa as medidas do plano e grava `image/jpeg` na qualidade 0,9 |
-| tela | o card com imagem mostra a imagem guardada e o "Trocar imagem"; o aviso do texto que mudou; o "Publicar" travado com a frase de cada motivo; a página travada quando agendada |
+| tela | o card com o slide pronto mostra a imagem guardada e o "Trocar slide pronto"; o aviso do texto que mudou; o "Publicar" travado com a frase de cada motivo; a página travada quando agendada |
 | integração | guardar a imagem grava só aquele slide e mantém a conta e o "Só texto"; trocar apaga a anterior; caminho de outra pasta ou outro prefixo é recusado |
 | integração | publicar enfileira na conta do carrossel, com a selecionada no cookie sendo outra; os caminhos da fila são cópias em `bonus-fila`, na ordem dos slides; as guardadas continuam no bucket |
 | integração | dois publicar ao mesmo tempo: um post só, e as cópias do segundo apagadas |
@@ -381,6 +459,24 @@ Ficam:
 | integração | a trava no servidor: salvar slide, "Só texto", assinar, guardar e publicar recusados com o item `pending`, `sending` e `sent`; liberados com `failed` e `skipped` |
 | integração | o caminho de "Só texto" que já está no payload de outro item da fila é recusado |
 | guardas | toda action começa por `exigirSessao`; nenhum arquivo do `/publicar`, do bucket, do dreno ou da fila no diff |
+
+Do adendo (a foto no espaço):
+
+| suíte | o quê |
+|---|---|
+| pura | o `jeito` lido da coluna: sem campo vale "slide", "foto" e "slide" valem, o desconhecido não conta |
+| pura | a foto declarada: a proporção do espaço passa, as bordas de 1% passam, 4:5 é recusada, menor que 860×573 é recusada, maior que 1720×1146 é recusada |
+| pura | a versão da miniatura muda com o caminho da foto do slide com espaço, e não muda com a foto do slide "Só texto" |
+| pura | o que falta para publicar conta a foto e o slide pronto do mesmo jeito |
+| tela | os dois botões no slide com espaço; nenhum no "Só texto"; o "Trocar foto" e o "Trocar slide pronto" |
+| tela | a foto cortada ao centro no navegador, na proporção do espaço, e reduzida até 1720×1146; a foto pequena recusada antes de assinar |
+| tela | o aviso do texto que mudou só no slide pronto; a miniatura do slide com foto é a arte da rota |
+| integração | guardar com o jeito; trocar a foto pelo slide pronto apaga a foto do bucket, e o contrário também |
+| integração | publicar com um slide de foto: ele vai pelo caminho das artes (não copia a foto), com a versão da arte com a foto conferida; a versão velha é recusada |
+| integração | a assinatura recusa a foto fora da proporção do espaço, e o slide pronto fora do 4:5 |
+| desenho | a foto entra no espaço: o PNG tem a foto onde era branco, e o texto acima dela fica igual ao do slide sem foto |
+| desenho | a foto que falha (bytes que não são JPEG, caminho de outra pasta, outro host, resposta lenta) desenha o espaço em branco, e a rota responde um PNG válido |
+| desenho | os vetores combinados com o Labs continuam iguais (o sha256 do arquivo e a conta) |
 
 A integração usa o banco de teste do container e um bucket falso num servidor local, como
 `testes-integracao/publicacao.integracao.ts` já faz (com a guarda que exige a `SUPABASE_URL` em
@@ -397,20 +493,36 @@ código ensaiado numa cópia isolada antes do plano, e o plano trazendo os bloco
 ## A prova real
 
 No preview, com o Eduardo na tela. Cada gravação tem o OK dele, e a auditoria lê o banco antes e
-depois. O preview usa o banco e o bucket de produção, e o post real sai no Instagram de verdade.
+depois. O preview usa o banco e o bucket de produção. **Sem post real** (decisão do Eduardo no
+adendo): nenhuma das contas conectadas é de teste. Tudo no carrossel de 4 slides do Thiago
+(`4c5701a8`), que no fim volta a como estava (com o OK dele, e qualquer script lido pela auditoria
+antes de rodar).
 
-1. Subir a imagem do Canva em slides com espaço: a miniatura troca, e o "Publicar" diz quais faltam.
-   Uma imagem quadrada é recusada antes de subir, com a frase do 4:5 (sem gravar nada).
-2. Trocar uma imagem: a anterior sai do bucket.
-3. Editar o texto de um slide com imagem e salvar: aparece o aviso "o texto mudou depois desta
-   imagem".
-4. Agendar para o dia seguinte: a página mostra "Agendado", e texto, "Só texto" e imagens ficam
-   travados. O post aparece no calendário, com a conta do carrossel selecionada no menu.
-5. Cancelar no calendário: o botão volta, e as imagens continuam no carrossel.
-6. Um post real numa conta de teste, escolhida pelo Eduardo na hora, com um carrossel daquela conta
-   (gerado ou fixado nela, com o OK dele): "Agora", "Publicando" e "Publicado". Conferir no Instagram
-   a ordem dos slides, as artes "Só texto" sem recorte (o texto inteiro, de margem a margem), as
-   imagens do Canva e a legenda. Depois, o Eduardo apaga o post no Instagram.
+1. Uma foto menor que o espaço é recusada antes de subir; um slide pronto fora do 4:5 também (sem
+   gravar nada).
+2. Subir uma foto num slide: a miniatura é a arte do Chat com a foto no espaço, com o texto e o
+   cabeçalho; o "Baixar" baixa essa arte.
+3. Trocar a foto pelo slide pronto do Canva no mesmo slide: a foto sai do bucket, e a miniatura vira o
+   slide pronto.
+4. Editar o texto: o aviso "o texto mudou depois desta imagem" aparece no slide pronto, e não no slide
+   com foto, cuja arte se redesenha.
+5. Agendar para daqui a 7 dias: a página mostra "Agendado", e texto, "Só texto" e imagens ficam
+   travados. O post aparece no calendário, com a conta do carrossel selecionada no menu. Na fila, os
+   caminhos estão em `bonus-fila`: a arte com a foto, a cópia do slide pronto e as artes "Só texto".
+6. Cancelar no calendário (a auditoria confirma o `skipped` e as cópias fora do bucket): o botão volta,
+   e as imagens continuam no carrossel.
+
+**Fica NÃO MEDIDO até o primeiro post real** (vai assim no corpo do PR):
+- a Meta buscar a URL de duas barras (`<pasta>/bonus-fila/<uuid>.jpg`);
+- o recorte das artes, das fotos no espaço e dos slides prontos no carrossel publicado;
+- a ordem dos slides e a legenda no Instagram;
+- o "Agora" drenar e a linha ir a `sent`;
+- as cópias saírem do bucket depois do `sent`.
+
+O que a primeira prova (antes do adendo) já mediu: a página, os dois botões lado a lado ("Subir do
+Canva" ao lado do "Baixar", pedido do Eduardo, commit `30842a1`), o "Só texto" gravado, e a imagem
+de 1080×1350 guardada no slide com a versão do texto. Ela também achou o desencontro que virou este
+adendo: a imagem subida tomava o slide inteiro, e o uso principal era a foto no espaço.
 
 ---
 
@@ -427,5 +539,7 @@ depois. O preview usa o banco e o bucket de produção, e o post real sai no Ins
 - Limpar as imagens guardadas de carrossel publicado e os uploads órfãos.
 - Ver no carrossel o post de outra conta sem trocar o menu: o calendário é do `/publicar`, e segue
   mostrando só a conta selecionada.
-- O criador de imagem (Etapa 6).
+- Subir o carrossel inteiro do Canva de uma vez, na ordem (decisão do Eduardo no adendo).
+- Um "Tirar imagem" no card (achado 77): até ele existir, imagem errada se troca, não se tira.
+- O criador de imagem (Etapa 6), que vai pôr a imagem gerada no mesmo espaço da foto.
 - O carrossel avulso (Etapa 7).
