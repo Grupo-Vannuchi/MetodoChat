@@ -156,9 +156,15 @@ Duas chaves novas no `jsonb` de `carrosseis_gerados.arte`, ao lado de `conta`, `
   "enfileirada_em": "<instante>"}`. `enfileirada_em` só entra depois de a fila aceitar o item.
 
 A `chave` é a `dedupe_key` exata que foi para a fila, e não só os caminhos para recalcular: se a
-`publicacaoKey` mudar de formato um dia, o recálculo perderia o item. As leituras toleram a forma
-errada, como `escolhasDaArte` já faz: o que não tiver a forma certa volta ao padrão (sem imagem, sem
-publicação).
+`publicacaoKey` mudar de formato um dia, o recálculo perderia o item.
+
+As leituras não quebram a página com a forma errada, mas as duas chaves não erram para o mesmo lado:
+- uma imagem fora de forma fica de fora, como `escolhasDaArte` já faz, e o slide volta a pedir a
+  imagem;
+- uma `publicacao` fora de forma TRAVA (o estado "desconhecido"), e não vira "sem publicação". A
+  trava se escreve pelo que libera, e ler um registro estranho como "nada foi mandado" liberaria o
+  botão de um carrossel que pode estar na fila. Achado no ensaio do plano: a primeira redação desta
+  seção mandava as duas voltarem ao padrão.
 
 ### Os dois prefixos no bucket
 
@@ -345,6 +351,9 @@ dreno, as da fila depois de publicar ou cancelar.
 Ficam:
 - o upload que subiu e não foi guardado (a aba fechada entre o `PUT` e o guardar), como no
   `/publicar`;
+- a arte "Só texto" que o navegador subiu numa tentativa que parou ainda no navegador (a arte de
+  outro slide que não veio, ou a aba fechada antes de mandar o pedido): o servidor nunca soube
+  desses caminhos;
 - as imagens guardadas de um carrossel publicado, que a página, só para leitura, segue mostrando;
 - as cópias de um item `failed`, pela regra do `/publicar` (item falhado guarda os arquivos).
 
