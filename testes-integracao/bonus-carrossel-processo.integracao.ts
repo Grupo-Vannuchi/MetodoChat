@@ -325,26 +325,26 @@ describe("a arte", () => {
 
   it("gravar o só texto mantém a conta, e só vale em carrossel pronto", async () => {
     const id = await pronto(THIAGO);
-    expect(await repo.salvarSoTextoDaArte(id, [2, 4], null)).toBe(true);
+    expect(await repo.salvarSoTextoDaArte(id, [2, 4], null)).toEqual({ ok: true });
     expect(await arte(id)).toEqual({ ...THIAGO, soTexto: [2, 4] });
-    expect(await repo.salvarSoTextoDaArte(id, [], null)).toBe(true);
+    expect(await repo.salvarSoTextoDaArte(id, [], null)).toEqual({ ok: true });
     expect(await arte(id)).toEqual({ ...THIAGO, soTexto: [] });
 
     const pendente = await criado(5);
-    expect(await repo.salvarSoTextoDaArte(pendente, [2], null)).toBe(false);
+    expect(await repo.salvarSoTextoDaArte(pendente, [2], null)).toEqual({ ok: false, motivo: "nao_pronto" });
     expect(await arte(pendente)).toEqual({});
   });
 
   it("gravar o só texto completa o nome que falta da conta gravada na Etapa 3", async () => {
     const id = await pronto();
     await banco.db().sql().query(`update carrosseis_gerados set arte = '{"conta":"1001"}'::jsonb where id = $1`, [id]);
-    expect(await repo.salvarSoTextoDaArte(id, [3], { nome: "Thiago Vannuchi", arroba: "thiagovannuchi" })).toBe(true);
+    expect(await repo.salvarSoTextoDaArte(id, [3], { nome: "Thiago Vannuchi", arroba: "thiagovannuchi" })).toEqual({ ok: true });
     expect(await arte(id)).toEqual({ conta: "1001", nome: "Thiago Vannuchi", arroba: "thiagovannuchi", soTexto: [3] });
   });
 
   it("Fixar nesta conta grava uma vez, mantém o só texto, e recusa o carrossel que já tem conta", async () => {
     const id = await pronto();
-    expect(await repo.salvarSoTextoDaArte(id, [2], null)).toBe(true);
+    expect(await repo.salvarSoTextoDaArte(id, [2], null)).toEqual({ ok: true });
     expect(await repo.fixarContaDoCarrossel(id, THIAGO)).toBe(true);
     expect(await arte(id)).toEqual({ ...THIAGO, soTexto: [2] });
     expect(await repo.fixarContaDoCarrossel(id, { conta: "1002", nome: "N8X", arroba: "n8x" })).toBe(false);

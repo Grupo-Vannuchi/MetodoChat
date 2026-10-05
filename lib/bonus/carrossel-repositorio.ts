@@ -8,6 +8,8 @@ import { textoDaLinhaDoCarrossel } from "./carrossel-tela";
 import { juntarParte, type ParteDoCarrossel, type ProblemaDoCampo, type TextoDoCarrossel } from "./carrossel-texto";
 import type { Medicao } from "./ia-parametros";
 import { ehIdDeBonus } from "./pedido";
+import { publicacaoLivre, type EstadoDaPublicacao } from "./publicar-estado";
+import { estadoDaPublicacaoNa } from "./publicar-repositorio";
 
 // O SQL DO CARROSSEL. Toda escrita é um `update` CONDICIONAL: o `where` é a proteção, e
 // testes-integracao/bonus-carrossel-processo.integracao.ts é quem acusa se alguém a tirar.
@@ -109,6 +111,8 @@ export async function listarCarrosseisDoBonus(bonusId: string): Promise<LinhaDoC
  * (`juntarParte`, puro) e grava. Dois salvamentos ao mesmo tempo, de partes diferentes, não apagam um
  * ao outro: o segundo espera o primeiro e junta sobre o texto dele. Só carrossel pronto.
  * `nomeQueFalta` completa o nome e o @ da conta gravada na Etapa 3 sem eles, na mesma gravação.
+ * Com o carrossel na fila de publicação, ou publicado, recusa (spec da Etapa 5, "A trava no
+ * servidor"): o que está na tela é sempre o que vai sair.
  */
 export async function salvarParteDoCarrossel(
   id: string,
@@ -118,6 +122,7 @@ export async function salvarParteDoCarrossel(
 ): Promise<
   | { ok: true; texto: TextoDoCarrossel; avisos: ProblemaDoCampo[] }
   | { ok: false; motivo: "nao_pronto" }
+  | { ok: false; motivo: "travado"; estado: EstadoDaPublicacao }
   | { ok: false; motivo: "problemas"; problemas: ProblemaDoCampo[] }
 > {
   if (!ehIdDeBonus(id)) return { ok: false, motivo: "nao_pronto" };
@@ -125,6 +130,8 @@ export async function salvarParteDoCarrossel(
     const [linha] = (await tx.query(`select * from carrosseis_gerados where id = $1 for update`, [id])) as LinhaDoCarrossel[];
     const atual = linha?.estado === "pronto" ? textoDaLinhaDoCarrossel(linha) : null;
     if (!linha || !atual) return { ok: false as const, motivo: "nao_pronto" as const };
+    const estado = await estadoDaPublicacaoNa(tx, linha.arte);
+    if (!publicacaoLivre(estado)) return { ok: false as const, motivo: "travado" as const, estado };
     const r = juntarParte(linha.total_slides, linha.palavra, atual, parte, bruto);
     if (!r.ok) return { ok: false as const, motivo: "problemas" as const, problemas: r.problemas };
     await tx.query(
@@ -139,18 +146,25 @@ export async function salvarParteDoCarrossel(
  * O "SÓ TEXTO" DA ARTE, só em carrossel pronto. Grava SÓ a chave `soTexto` (`arte || …` junta as
  * chaves), e nunca o objeto inteiro: até a Etapa 3 a escrita trocava a coluna toda, e gravar o "só
  * texto" sem a conta a apagaria (spec da Etapa 4). `nomeQueFalta` completa o nome e o @ da conta
- * gravada na Etapa 3 sem eles (arte-conta.ts). Devolve falso quando a linha não estava pronta.
+ * gravada na Etapa 3 sem eles (arte-conta.ts).
+ *
+ * NUMA TRANSAÇÃO COM A LINHA TRAVADA (spec da Etapa 5): com o carrossel na fila de publicação, ou
+ * publicado, recusa, pela mesma função pura da trava que o salvar do slide usa.
  */
 export async function salvarSoTextoDaArte(
   id: string,
   soTexto: number[],
   nomeQueFalta: { nome: string | null; arroba: string | null } | null
-): Promise<boolean> {
-  const linhas = (await sql().query(
-    `update carrosseis_gerados set arte = arte || $2::jsonb where id = $1 and estado = 'pronto' returning id`,
-    [id, { ...chavesDaConta(nomeQueFalta), soTexto }]
-  )) as { id: string }[];
-  return linhas.length > 0;
+): Promise<{ ok: true } | { ok: false; motivo: "nao_pronto" } | { ok: false; motivo: "travado"; estado: EstadoDaPublicacao }> {
+  if (!ehIdDeBonus(id)) return { ok: false, motivo: "nao_pronto" };
+  return sql().begin(async (tx) => {
+    const [linha] = (await tx.query(`select * from carrosseis_gerados where id = $1 for update`, [id])) as LinhaDoCarrossel[];
+    if (!linha || linha.estado !== "pronto") return { ok: false as const, motivo: "nao_pronto" as const };
+    const estado = await estadoDaPublicacaoNa(tx, linha.arte);
+    if (!publicacaoLivre(estado)) return { ok: false as const, motivo: "travado" as const, estado };
+    await tx.query(`update carrosseis_gerados set arte = arte || $2::jsonb where id = $1`, [id, { ...chavesDaConta(nomeQueFalta), soTexto }]);
+    return { ok: true as const };
+  });
 }
 
 /**
