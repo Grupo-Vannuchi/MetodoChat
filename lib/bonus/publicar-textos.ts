@@ -65,6 +65,14 @@ export const TEXTO_CONTA_DESCONECTADA_PARA_PUBLICAR = "A conta deste carrossel f
 export const TEXTO_TEXTO_MUDOU = "O texto mudou depois desta imagem.";
 export const TEXTO_IMAGEM_GUARDADA = "Imagem guardada.";
 
+// O que o navegador recusa antes de subir (app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts).
+export const TEXTO_IMAGEM_ILEGIVEL = "Não consegui abrir esta imagem. Exporte de novo do Canva, em JPEG ou PNG.";
+export const TEXTO_FORMATO_DA_IMAGEM = "Envie a imagem do Canva em JPEG, PNG ou WEBP.";
+
+export function textoDaArteQueNaoVeio(numero: number): string {
+  return `Não consegui preparar a arte do slide ${numero}. Recarregue a página e publique de novo.`;
+}
+
 export function textoDaFalta(f: FaltaParaPublicar): string {
   switch (f.tipo) {
     case "sem_conta":
