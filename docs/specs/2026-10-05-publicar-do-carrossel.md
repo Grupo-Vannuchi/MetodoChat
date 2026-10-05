@@ -2,7 +2,9 @@
 
 **Nascido em:** 05/10/2026, desenhado com o Eduardo pela caixa de perguntas, com a sessão auditora
 levantando os riscos durante o desenho (medidos no código da `main` em `a4411a5`).
-**Estado:** desenho aprovado pelo Eduardo nas três partes (a tela; por dentro; os testes e a prova).
+**Estado:** desenho aprovado pelo Eduardo nas três partes (a tela; por dentro; os testes e a prova),
+e revisado pela auditoria: o achado 75 (a marca de enfileirada) e o 76 (a proporção 4:5, decidida pelo
+Eduardo) estão absorvidos no texto.
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta
 própria, e nenhum arquivo do `/publicar` muda.
 **Etapas anteriores:** `docs/specs/2026-09-29-gerador-de-bonus.md`,
@@ -34,6 +36,7 @@ Todas do Eduardo, em 05/10, pela caixa de perguntas.
 | o botão de publicar | travado até todo slide com espaço de imagem ter a imagem, dizendo qual falta |
 | por onde sai | publicar ou agendar na própria página do carrossel; o post entra na fila do `/publicar` e aparece no calendário dele; sempre na conta do carrossel. A tela de compor do `/publicar` não muda (ela não tem rascunho nem pré-preenchimento) |
 | a imagem subida | fica guardada no carrossel: sobe hoje, publica amanhã, e dá para trocar |
+| a proporção da imagem do slide | 4:5, como a arte do Chat (1080×1350); outra proporção é recusada no upload (achado 76) |
 | o texto muda depois da imagem | a imagem fica, e o card avisa "o texto mudou depois desta imagem" |
 | depois de mandar | a página mostra o estado e trava o botão; cancelado ou falho, o botão volta |
 | enquanto agendado | texto, "Só texto" e imagens travados até cancelar no calendário |
@@ -84,6 +87,12 @@ O que o Eduardo aprovou na parte 1. Tudo mora na página do carrossel da Etapa 4
 
 - Ganha **"Subir imagem do Canva"**. Aceita JPEG, PNG e WEBP. PNG e WEBP viram JPEG no navegador, como
   no `/publicar` (fundo branco, qualidade 0,9, até 1440 de largura).
+- A imagem tem de ser **4:5**, como a arte (1080×1350), com 1% de tolerância (de 0,792 a 0,808).
+  Outra proporção é recusada com a frase "A imagem do slide tem de ser 4:5, como a arte
+  (1080×1350)." O motivo é do Instagram: todos os itens do carrossel são cortados pela proporção do
+  PRIMEIRO (`lib/dedupe.ts:211-212`), e uma imagem quadrada no slide 1 cortaria o texto das artes
+  "Só texto". O `/publicar` aceita de 0,8 a 1,91 (`lib/publicacao.ts:42-43`), e esta regra é só da
+  página do carrossel.
 - Depois de subir, a miniatura do card passa a ser a imagem do Canva, e o botão vira **"Trocar
   imagem"**. Trocar apaga a anterior do bucket.
 - O **"Baixar"** continua baixando a arte do Chat, para levar ao Canva.
@@ -118,8 +127,9 @@ No lugar do botão aparece o estado, lido da fila:
 | `sent` | "Publicado em 06/10/2026, 18:01" |
 | `failed` | "Não publicou: <motivo da fila>", e o botão volta |
 | `skipped` | "Cancelado no calendário", e o botão volta |
-| a reserva sem linha na fila, há menos de 10 minutos | "Publicando" |
-| a reserva sem linha na fila, há 10 minutos ou mais | "A última tentativa não entrou na fila.", e o botão volta |
+| a reserva nunca enfileirada, sem linha na fila, há menos de 10 minutos | "Publicando" |
+| a reserva nunca enfileirada, sem linha na fila, há 10 minutos ou mais | "A última tentativa não entrou na fila.", e o botão volta |
+| enfileirada, e sem linha na fila | "O registro deste post saiu da fila. A conta foi desconectada?", e tudo segue travado (achado 75) |
 
 Os estados levam ao post no `/publicar`. Como o calendário só mostra a conta selecionada no menu,
 quando ela é outra a tela diz: "Para ver no calendário, selecione Thiago Vannuchi no menu."
@@ -142,7 +152,8 @@ Duas chaves novas no `jsonb` de `carrosseis_gerados.arte`, ao lado de `conta`, `
 
 - `imagens`: `{"2": {"caminho": "<pasta>/bonus/<uuid>.jpg", "versao": "<versão do texto>"}}`, uma
   entrada por slide com imagem guardada;
-- `publicacao`: `{"chave": "<dedupe_key exata>", "caminhos": [...], "reservada_em": "<instante>"}`.
+- `publicacao`: `{"chave": "<dedupe_key exata>", "caminhos": [...], "reservada_em": "<instante>",
+  "enfileirada_em": "<instante>"}`. `enfileirada_em` só entra depois de a fila aceitar o item.
 
 A `chave` é a `dedupe_key` exata que foi para a fila, e não só os caminhos para recalcular: se a
 `publicacaoKey` mudar de formato um dia, o recálculo perderia o item. As leituras toleram a forma
@@ -172,13 +183,16 @@ texto salvo agora.
 
 ### Subir a imagem de um slide
 
-1. O navegador lê a imagem, converte para JPEG quando preciso, e confere tipo, tamanho e proporção
-   com as mesmas regras do `/publicar` (`problemaDoArquivo`), para dizer cedo o que não serve.
+1. O navegador lê a imagem, converte para JPEG quando preciso, e confere tipo e tamanho com as
+   regras do `/publicar` (`problemaDoArquivo`) e a proporção 4:5 do slide
+   (`problemaDaProporcaoDoSlide`, pura), para dizer cedo o que não serve.
 2. A action **`assinarImagemDoCarrossel`** (id, slide, destino, descrição do arquivo): sessão; o
    carrossel pronto; a conta do carrossel gravada e conectada; a trava livre; o slide existe e, no
    destino `slide`, tem espaço de imagem (no destino `fila`, é "Só texto"); o `mime` é `image/jpeg`;
-   a descrição passa pela `decisaoDeAssinatura` (`lib/publicacao.ts:478`), com a forma do carrossel e
-   o teto do bucket (`tetoDoBucket`). Devolve o caminho (`<pasta>/bonus/<uuid>.jpg` no destino
+   a largura e a altura declaradas dão 4:5 (`problemaDaProporcaoDoSlide`, nos dois destinos: a arte
+   "Só texto" tem 1080×1350); a descrição passa pela `decisaoDeAssinatura` (`lib/publicacao.ts:478`),
+   com a forma do carrossel e o teto do bucket (`tetoDoBucket`). Como no `/publicar`, as medidas são
+   declaradas pelo navegador, e o servidor não vê os bytes para conferir. Devolve o caminho (`<pasta>/bonus/<uuid>.jpg` no destino
    `slide`, `<pasta>/bonus-fila/<uuid>.jpg` no destino `fila`) e a URL assinada daquele caminho só.
 3. O navegador sobe direto ao bucket (`PUT`, sem cabeçalho de autenticação, como o enviador do
    `/publicar`).
@@ -217,11 +231,18 @@ O clique do "Publicar" faz, em ordem:
 4. **A reserva**, numa transação curta: trava a linha (`for update`) e confere de novo a trava livre e
    que as imagens, o `soTexto` e as versões são os mesmos que foram copiados. Grava
    `arte.publicacao` com a chave e os caminhos, e faz `commit`. Em qualquer recusa daqui, apaga as
-   cópias e as artes "Só texto" desta tentativa.
+   cópias e as artes "Só texto" desta tentativa. Quando a reserva nova substitui uma velha que nunca
+   entrou na fila, depois do `commit` apaga os caminhos da velha que não aparecem em payload nenhum
+   da fila (sem isso, eles ficariam no bucket sem dono).
 5. **A fila**, depois do `commit`: `enqueuePublicacao(conta do carrossel, {forma, caminhos, legenda},
    quando)`. Se ela lança ou devolve falso, a reserva é desfeita (só se a chave ainda for a desta
-   tentativa) e as cópias são apagadas. Com "agora", drena a fila como o `/publicar`
-   (`drainQueue`, num `try`, `app/publicar/actions.ts:151-159`).
+   tentativa) e as cópias são apagadas.
+6. **A marca de enfileirada** (achado 75), numa segunda transação curta: grava
+   `arte.publicacao.enfileirada_em` com o `now()` do banco, só se a chave ainda for a desta
+   tentativa. Se essa gravação falhar, o post já está na fila e a resposta é de sucesso: a linha da
+   fila existe, e o estado vem dela.
+7. Com "agora", drena a fila como o `/publicar` (`drainQueue`, num `try`,
+   `app/publicar/actions.ts:151-159`).
 
 No sucesso, a página é recarregada (`router.refresh`). Aqui isso é seguro, ao contrário do salvar da
 Etapa 4, porque o publicar exige que nenhum card esteja "não salvo".
@@ -232,6 +253,14 @@ falha no `commit` deixaria um post na fila que o carrossel não conhece, e o bot
 no perfil, sem `DELETE` que desfaça. Com a reserva primeiro, o pior caso é o processo morrer entre o
 `commit` e a fila: a reserva fica sem linha, e a página mostra "Publicando" por 10 minutos e depois
 devolve o botão ("A última tentativa não entrou na fila.").
+
+**Por que a marca de enfileirada (achado 75).** A linha da fila nem sempre dura: desconectar a conta
+apaga todas as linhas da fila dela (`deleteAccount`, `lib/db.ts:469-474`). Sem a marca, um carrossel
+publicado cuja conta fosse desconectada perderia a linha `sent`, cairia em "reserva sem linha há 10
+minutos" e ficaria livre; reconectada a conta, um clique publicaria o mesmo carrossel de novo. Com a
+marca, "enfileirada e sem linha" trava para sempre. O que sobra é a soma de duas falhas: a marca não
+ser gravada (passo 6) E a conta ser desconectada depois. Nesse caso vale a regra dos 10 minutos, e o
+botão volta.
 
 **Dois cliques.** O primeiro reserva. O segundo faz as cópias dele, trava a linha, acha a reserva do
 primeiro, recusa e apaga as cópias dele. Sai um post só.
@@ -253,10 +282,11 @@ relógios já foram medidos a 53,9 segundos um do outro numa máquina de desenvo
 O carrossel está **livre** só quando:
 - não tem `arte.publicacao`; ou
 - a linha da fila da chave está em `failed` ou `skipped`; ou
-- a reserva não tem linha na fila há 10 minutos ou mais.
+- a reserva nunca foi enfileirada (sem `enfileirada_em`), não tem linha na fila, e tem 10 minutos ou
+  mais.
 
-Todo o resto trava: `pending`, `sending`, `sent`, a reserva recente sem linha, e qualquer estado que
-apareça na fila no futuro. A regra é escrita pelo contrário (o que libera), e não pelo que trava,
+Todo o resto trava: `pending`, `sending`, `sent`, a reserva recente sem linha, a enfileirada sem
+linha, e qualquer estado que apareça na fila no futuro. A regra é escrita pelo contrário (o que libera), e não pelo que trava,
 para um estado novo travar sozinho.
 
 Ela vale em todas as actions que gravam no carrossel:
@@ -308,7 +338,8 @@ Tudo cabe na coluna `arte`, que já existe. A etapa não tem DDL, e o deploy del
 
 ## O que fica no bucket sem dono (anotado, não resolvido)
 
-São apagados: a imagem trocada; as cópias e as artes de uma tentativa recusada ou que falhou; e, pelo
+São apagados: a imagem trocada; as cópias e as artes de uma tentativa recusada ou que falhou; os
+caminhos de uma reserva velha que nunca entrou na fila, quando uma tentativa nova a substitui; e, pelo
 dreno, as da fila depois de publicar ou cancelar.
 
 Ficam:
@@ -323,8 +354,9 @@ Ficam:
 
 | suíte | o quê |
 |---|---|
-| pura | o estado da publicação: cada estado da fila, a reserva sem linha antes e depois dos 10 minutos, e um estado desconhecido travando |
-| pura | a trava livre só em sem publicação, `failed`, `skipped` e reserva velha sem linha |
+| pura | o estado da publicação: cada estado da fila, a reserva nunca enfileirada sem linha antes e depois dos 10 minutos, a enfileirada sem linha travando, e um estado desconhecido travando |
+| pura | a trava livre só em sem publicação, `failed`, `skipped` e reserva velha, nunca enfileirada, sem linha |
+| pura | a proporção do slide: 1080×1350 passa, as bordas de 1% passam, 1:1 e 1,91:1 são recusadas, e medida ausente ou zero é recusada |
 | pura | a versão do texto do slide: muda com a manchete e o texto daquele slide, e não muda com a foto da conta |
 | pura | o que falta para publicar: os slides com espaço sem imagem, o "não salvo", a conta |
 | pura | os caminhos: a forma exata de cada prefixo, na pasta da conta do carrossel; recusa outra pasta, outro prefixo, `..`, barra a mais e extensão diferente de `.jpg` |
@@ -334,7 +366,9 @@ Ficam:
 | integração | guardar a imagem grava só aquele slide e mantém a conta e o "Só texto"; trocar apaga a anterior; caminho de outra pasta ou outro prefixo é recusado |
 | integração | publicar enfileira na conta do carrossel, com a selecionada no cookie sendo outra; os caminhos da fila são cópias em `bonus-fila`, na ordem dos slides; as guardadas continuam no bucket |
 | integração | dois publicar ao mesmo tempo: um post só, e as cópias do segundo apagadas |
-| integração | recusa e falha no meio da cópia apagam as cópias; falha na fila desfaz a reserva |
+| integração | recusa e falha no meio da cópia apagam as cópias; falha na fila desfaz a reserva; a reserva velha substituída tem os caminhos dela apagados |
+| integração | a linha da fila apagada depois de enfileirar (como faz o `deleteAccount`): o carrossel segue travado, mesmo passados os 10 minutos (achado 75) |
+| integração | a assinatura recusa medidas declaradas fora de 4:5 |
 | integração | a trava no servidor: salvar slide, "Só texto", assinar, guardar e publicar recusados com o item `pending`, `sending` e `sent`; liberados com `failed` e `skipped` |
 | integração | o caminho de "Só texto" que já está no payload de outro item da fila é recusado |
 | guardas | toda action começa por `exigirSessao`; nenhum arquivo do `/publicar`, do bucket, do dreno ou da fila no diff |
@@ -345,7 +379,8 @@ loopback). Nenhum teste toca o Supabase de verdade, nem a Meta.
 
 Como nas etapas anteriores: todo teste escrito antes do código e visto falhar; as proteções provadas
 também retirando-as e vendo o caso certo cair (a trava no servidor, a forma dos caminhos, o payload da
-fila, as cópias apagadas na recusa, os dois cliques, a versão do texto e a conta do carrossel); o
+fila, as cópias apagadas na recusa, os dois cliques, a versão do texto, a conta do carrossel, a marca
+de enfileirada e a proporção 4:5); o
 código ensaiado numa cópia isolada antes do plano, e o plano trazendo os blocos tirados dessa cópia.
 
 ---
@@ -356,6 +391,7 @@ No preview, com o Eduardo na tela. Cada gravação tem o OK dele, e a auditoria 
 depois. O preview usa o banco e o bucket de produção, e o post real sai no Instagram de verdade.
 
 1. Subir a imagem do Canva em slides com espaço: a miniatura troca, e o "Publicar" diz quais faltam.
+   Uma imagem quadrada é recusada antes de subir, com a frase do 4:5 (sem gravar nada).
 2. Trocar uma imagem: a anterior sai do bucket.
 3. Editar o texto de um slide com imagem e salvar: aparece o aviso "o texto mudou depois desta
    imagem".
@@ -364,7 +400,8 @@ depois. O preview usa o banco e o bucket de produção, e o post real sai no Ins
 5. Cancelar no calendário: o botão volta, e as imagens continuam no carrossel.
 6. Um post real numa conta de teste, escolhida pelo Eduardo na hora, com um carrossel daquela conta
    (gerado ou fixado nela, com o OK dele): "Agora", "Publicando" e "Publicado". Conferir no Instagram
-   a ordem dos slides, as artes "Só texto" e a legenda. Depois, o Eduardo apaga o post no Instagram.
+   a ordem dos slides, as artes "Só texto" sem recorte (o texto inteiro, de margem a margem), as
+   imagens do Canva e a legenda. Depois, o Eduardo apaga o post no Instagram.
 
 ---
 
