@@ -45,6 +45,16 @@ describe("a rota da arte", () => {
     expect(rota).toContain("fotosDaInstancia.foto(");
     expect(rota).not.toMatch(/\bfotoDaConta\(/);
   });
+
+  // A FOTO DO ESPAÇO (adendo da Etapa 5) é só a do jeito "foto" (`fotosDaArte`), e passa pela
+  // conferência do caminho na pasta da conta do carrossel e pela memória (`fotoDoEspaco`). Buscar
+  // direto pularia as duas.
+  it("a foto do espaço vem de fotosDaArte e de fotoDoEspaco, e nunca de uma busca direta", () => {
+    const rota = ler(ROTA);
+    expect(rota).toContain("fotosDaArte(");
+    expect(rota).toContain("fotoDoEspaco(");
+    expect(rota).not.toMatch(/\bbuscarFotoDoEspaco\(/);
+  });
 });
 
 // O TOKEN DE ACESSO DA CONTA NÃO SAI DA TABELA (achado 60): `accounts` guarda o `access_token`, e

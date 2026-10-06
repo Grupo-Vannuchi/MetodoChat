@@ -58,6 +58,17 @@ export function cabecalhosDaArte(baixar: boolean, nome: string): Record<string, 
   };
 }
 
+/**
+ * OS DOIS CABEÇALHOS QUE A ROTA DA ARTE MANDA PARA O PUBLICAR (adendo da Etapa 5), lidos pelo navegador
+ * no mesmo endereço (imagem-no-navegador.ts):
+ * - a foto do espaço: "sim" quando foi desenhada, "faltou" quando o espaço saiu em branco, e nada no
+ *   slide sem foto (achado 78);
+ * - a versão do que foi desenhado (`versaoDoDesenho`, publicar-regras.ts), que o navegador devolve ao
+ *   publicar, e que o servidor confere contra o que está salvo.
+ */
+export const CABECALHO_DA_FOTO = "X-Arte-Foto";
+export const CABECALHO_DA_VERSAO = "X-Arte-Versao";
+
 /** Sem nome, o @ faz as vezes de nome. As iniciais saem do que estiver no nome. */
 export function cabecalhoDaConta(c: ContaDoCabecalho, foto: string | null): CabecalhoDaArte {
   const nome = c.name?.trim() || c.username || "";

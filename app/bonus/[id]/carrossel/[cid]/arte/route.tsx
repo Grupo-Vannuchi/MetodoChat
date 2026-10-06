@@ -4,7 +4,7 @@ import { ACCOUNT_COOKIE } from "@/lib/account";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
 import { resolverConta } from "@/lib/bonus/arte-conta";
 import { comEspaco, escolhasDaArte } from "@/lib/bonus/arte-escolhas";
-import { fotosDaInstancia } from "@/lib/bonus/arte-foto";
+import { fotoDoEspaco, fotosDaInstancia } from "@/lib/bonus/arte-foto";
 import { respostaDaArte } from "@/lib/bonus/arte-resposta";
 import { cabecalhoDaConta, conferirPedidoDaArte, nomeDoArquivo } from "@/lib/bonus/arte-tela";
 import {
@@ -16,6 +16,7 @@ import {
 } from "@/lib/bonus/arte-textos";
 import { contasParaArte, lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
 import { ehIdDeBonus } from "@/lib/bonus/pedido";
+import { fotosDaArte, versaoDoDesenho } from "@/lib/bonus/publicar-regras";
 import { lerLinha } from "@/lib/bonus/repositorio";
 
 // A ARTE DE UM SLIDE DO CARROSSEL, em PNG de 1080×1350: um slide por pedido, desenhado na hora a
@@ -53,19 +54,32 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const escolhas = escolhasDaArte(linha.arte, slides.length);
   const { conta } = resolverConta(await contasParaArte(), escolhas, jarra.get(ACCOUNT_COOKIE)?.value);
   if (!conta) return erro(409, TEXTO_ARTE_SEM_CONTA);
-  // A foto vem da memória desta instância (arte-foto.ts): as miniaturas chegam juntas, e uma busca
+  // A FOTO DO ESPAÇO (adendo da Etapa 5): só no slide com espaço, e só a do jeito "foto", que o
+  // prefixo do caminho guardado diz (publicar-regras.ts). `fotoDoEspaco` confere o caminho na pasta da
+  // conta do carrossel antes de buscar.
+  const slide = slides[numero - 1];
+  const espaco = comEspaco(escolhas, numero);
+  const caminhoDaFoto = espaco ? (fotosDaArte(linha.arte, slides.length)[numero] ?? null) : null;
+  // As fotos vêm da memória desta instância (arte-foto.ts): as miniaturas chegam juntas, e uma busca
   // só atende todas.
-  const [foto, bonus] = await Promise.all([fotosDaInstancia.foto(conta.profile_picture_url), lerLinha(id)]);
+  const [foto, bonus, daFoto] = await Promise.all([
+    fotosDaInstancia.foto(conta.profile_picture_url),
+    lerLinha(id),
+    caminhoDaFoto ? fotoDoEspaco(caminhoDaFoto, escolhas.conta) : Promise.resolve(null),
+  ]);
 
   // O PNG já sai lido inteiro (arte-resposta.tsx, achado 65): uma falha do desenho vira 500 com
   // frase, e não um 200 com o corpo quebrado. Emoji no texto faz o desenho buscar o emoji em
   // cdn.jsdelivr.net (achado 66); sem essa rede, o slide com emoji cai nesta frase.
+  // A versão do desenho vai só no slide que sai com a arte do Chat: o "Só texto" e o com foto.
   const arte = await respostaDaArte({
-    slide: slides[numero - 1],
-    comEspaco: comEspaco(escolhas, numero),
+    slide,
+    comEspaco: espaco,
     cabecalho: cabecalhoDaConta(conta, foto),
     baixar: pedido.get("baixar") === "1",
     nomeDoArquivo: nomeDoArquivo(bonus?.slug ?? null, numero),
+    fotoDoEspaco: caminhoDaFoto ? { foto: daFoto } : null,
+    versao: !espaco || caminhoDaFoto ? versaoDoDesenho(slide, caminhoDaFoto) : null,
   });
   if (!arte.ok) return erro(500, arte.falha === "fonte" ? TEXTO_ARTE_SEM_FONTE : TEXTO_ARTE_SEM_DESENHO);
   return arte.resposta;
