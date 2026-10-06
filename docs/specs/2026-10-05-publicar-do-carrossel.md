@@ -6,7 +6,9 @@ levantando os riscos durante o desenho (medidos no código da `main` em `a4411a5
 e revisado pela auditoria: o achado 75 (a marca de enfileirada) e o 76 (a proporção 4:5, decidida pelo
 Eduardo) estão absorvidos no texto. **Adendo de 05/10, durante a prova:** a etapa ganhou o segundo jeito
 de imagem, "só a foto, no espaço da arte" (seção "A foto no espaço da arte"), aprovado pelo Eduardo
-nas duas partes; a prova passou a ser sem post real (nenhuma conta conectada é de teste).
+nas duas partes; a prova passou a ser sem post real (nenhuma conta conectada é de teste). A revisão do
+adendo trouxe os achados 78 (a arte com a foto que faltou) e 79 (o teto de 2 MB), absorvidos; o ensaio
+do adendo achou que a versão da página ficava velha depois de salvar (ver "A versão vem da rota").
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta
 própria, e nenhum arquivo do `/publicar` muda.
 **Etapas anteriores:** `docs/specs/2026-09-29-gerador-de-bonus.md`,
@@ -235,11 +237,13 @@ As duas respostas voltam como estado (useActionState), nunca por redirect (achad
 
 O clique do "Publicar" faz, em ordem:
 
-1. **No navegador**, para cada slide "Só texto": baixa a arte da rota da Etapa 3 (mesma origem, com a
-   sessão), converte o PNG em JPEG, pede a assinatura (`assinarImagemDoCarrossel` com o destino da
-   fila, que emite `<pasta>/bonus-fila/<uuid>.jpg`) e sobe.
+1. **No navegador**, para cada slide "Só texto" (e, pelo adendo, cada slide com foto): baixa a arte da
+   rota da Etapa 3 (mesma origem, com a sessão), lê dela a versão do desenho (o cabeçalho
+   `X-Arte-Versao`), converte o PNG em JPEG, pede a assinatura (`assinarImagemDoCarrossel` com o
+   destino da fila, que emite `<pasta>/bonus-fila/<uuid>.jpg`) e sobe.
 2. **A action `publicarCarrossel`** recebe o id, o "agora" ou a data e hora com o fuso do navegador,
-   e, para cada slide "Só texto", o caminho subido e a versão do texto que o navegador desenhou.
+   e, para cada slide que sai com a arte do Chat, o caminho subido e a versão que a rota mandou com
+   a arte (ver "A versão vem da rota").
    Confere, antes de tocar o bucket:
    - sessão; o carrossel pronto; a conta do carrossel gravada e conectada (origem `gravada` de
      `resolverConta`; `selecionada` pede o "Fixar"; `guardada` e `gravada_saiu` são conta
@@ -291,6 +295,15 @@ botão volta.
 
 **Dois cliques.** O primeiro reserva. O segundo faz as cópias dele, trava a linha, acha a reserva do
 primeiro, recusa e apaga as cópias dele. Sai um post só.
+
+**A versão vem da rota (achado no ensaio do adendo, 06/10).** A versão que confere a arte é a do que
+a rota DESENHOU, e a rota a manda junto com a arte, no cabeçalho `X-Arte-Versao`
+(`versaoDoDesenho`): a do texto, no "Só texto"; a do texto e do caminho da foto, no slide com foto. O
+navegador só a devolve, e o servidor a compara com a do que está salvo agora. Na primeira redação, a
+página mandava a versão do texto de quando ela abriu: depois de salvar um slide "Só texto" sem
+recarregar (o salvar não recarrega, achado 52), o publicar mandava a versão velha e era recusado
+sempre ("mudou enquanto a arte era preparada"), até recarregar a página. O ensaio mediu isso num
+teste de tela, que cai no código de `30842a1`.
 
 ### O estado da publicação
 
@@ -368,9 +381,19 @@ uma imagem do jeito errado); o arquivo dela, se houver, fica no bucket (ver "O q
 dono"). Subir um jeito troca o outro, e a anterior sai do bucket.
 
 **A assinatura** recebe o jeito e emite o prefixo dele. A foto declarada tem de estar na proporção do
-espaço (860:573, com 1% de tolerância), entre 860×573 e 1720×1146, em JPEG; o slide pronto segue no
-4:5. As medidas são declaradas pelo navegador, como no resto do upload. Um pedido montado à mão ainda
-pode subir outros bytes do que declarou; o efeito fica no próprio carrossel, como no slide pronto.
+espaço (860:573, com 1% de tolerância), entre 860×573 e 1720×1146, em JPEG, e com até 2 MB; o slide
+pronto segue no 4:5. As medidas são declaradas pelo navegador, como no resto do upload. Um pedido
+montado à mão ainda pode subir outros bytes do que declarou; o efeito fica no próprio carrossel, como
+no slide pronto.
+
+**Os 2 MB são o teto da busca da rota, com a mesma constante (achado 79).** O upload do slide segue o
+teto do `/publicar` (8 MB), e a rota só lê a foto até 2 MB. Uma foto entre os dois seria assinada,
+subiria e seria guardada, e a rota responderia sempre "faltou": o slide travaria o publicar para
+sempre, com uma frase que manda esperar. Por isso a regra da foto (`problemaDaFotoDoEspaco`), a
+assinatura e a busca da rota usam a mesma constante, exportada de um lugar só
+(`FOTO_DO_ESPACO_MAX_BYTES`, `lib/bonus/publicar-regras.ts`), e o navegador recusa antes de assinar a
+foto que, já reduzida, passa dela: "A foto passou de 2 MB mesmo reduzida. Tente outra foto, ou
+exporte esta com menos qualidade."
 
 **A rota da arte desenha a foto**, só no slide com espaço e com foto guardada:
 - busca a foto no servidor, só pelo endereço público do nosso bucket (`urlPublicaDoObjeto`), e só
@@ -395,9 +418,10 @@ própria arte da rota, e não a foto do bucket.
 
 **Publicar.** O slide com foto publica a ARTE desenhada, e não a foto. Ele vai pelo caminho das
 artes "Só texto": o navegador baixa a arte da rota, converte em JPEG e sobe em `bonus-fila`. Só o
-slide pronto vai pelo caminho das cópias. A versão que o navegador manda para o slide com foto é a da
-arte com a foto (o texto do slide e o caminho da foto); o servidor recalcula e recusa a velha, como
-na arte "Só texto". A reserva confere também que as fotos são as mesmas.
+slide pronto vai pelo caminho das cópias. A versão que o navegador manda para o slide com foto é a que
+a rota mandou com a arte (o texto do slide e o caminho da foto; ver "A versão vem da rota"); o
+servidor recalcula e recusa a velha, como na arte "Só texto". A reserva confere também que as fotos
+são as mesmas. A foto guardada num slide marcado "Só texto" não conta: ele vai com a arte "Só texto".
 
 **A arte com a foto que faltou não sobe (achado 78).** A versão é um resumo do texto e do caminho, e
 não sabe se a foto foi desenhada; o navegador, sem o cabeçalho, só conferiria o `r.ok` e a conversão.
@@ -512,6 +536,10 @@ Do adendo (a foto no espaço):
 | tela | ao publicar, a arte com `X-Arte-Foto: faltou` (ou sem o cabeçalho) recusa o slide com foto antes de assinar, com a frase, e nada sobe (achado 78) |
 | integração | o guardar tira o jeito do prefixo do caminho: `bonus-foto/` é foto, `bonus/` é slide pronto, outro prefixo é recusado |
 | desenho | os vetores combinados com o Labs continuam iguais (o sha256 do arquivo e a conta) |
+| pura e integração | a foto de 2 MB passa e a de 2 MB e 1 byte é recusada, na regra, na assinatura e na busca da rota, com a mesma constante (achado 79) |
+| tela | a versão que vai ao publicar é a que a rota mandou com a arte, e não a da página; depois de salvar um slide "Só texto" sem recarregar, a versão nova vai (achado no ensaio) |
+| integração | a foto guardada num slide marcado "Só texto" não entra: ele vai com a arte "Só texto" |
+| desenho | sem foto, a arte sai igual byte a byte à de antes do adendo |
 
 A integração usa o banco de teste do container e um bucket falso num servidor local, como
 `testes-integracao/publicacao.integracao.ts` já faz (com a guarda que exige a `SUPABASE_URL` em
