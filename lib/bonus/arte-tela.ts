@@ -94,8 +94,17 @@ export function versaoDaArte(partes: (string | number | null)[]): string {
  *
  * O `foto` do cabeçalho, aqui, é a URL da foto (a página não tem o `data:` que a rota desenha): a
  * miniatura troca quando a Meta troca a foto.
+ *
+ * `fotos` é o caminho da foto do espaço de cada slide que tem uma (`fotosDaArte`, publicar-regras.ts;
+ * adendo da Etapa 5): trocar a foto troca a miniatura e o "Baixar". No "Só texto" o espaço não existe,
+ * e a foto guardada não entra. É obrigatório, para o chamador que esquecer a foto não compilar.
  */
-export function versoesDosSlides(slides: SlideParaArte[], soTexto: number[], cabecalho: CabecalhoDaArte): string[] {
+export function versoesDosSlides(
+  slides: SlideParaArte[],
+  soTexto: number[],
+  cabecalho: CabecalhoDaArte,
+  fotos: Record<number, string>
+): string[] {
   return slides.map((s) =>
     versaoDaArte([
       JSON.stringify(s),
@@ -104,6 +113,7 @@ export function versoesDosSlides(slides: SlideParaArte[], soTexto: number[], cab
       cabecalho.arroba,
       cabecalho.foto,
       cabecalho.iniciais,
+      soTexto.includes(s.numero) ? null : (fotos[s.numero] ?? null),
     ])
   );
 }

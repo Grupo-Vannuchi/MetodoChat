@@ -16,6 +16,7 @@ import {
   textoDaTrava,
   textoDoCalendario,
   textoDoEstadoDaPublicacao,
+  textoDoProblemaDaFoto,
   tomDoEstadoDaPublicacao,
   type RecusaDaPublicacaoDoCarrossel,
 } from "@/lib/bonus/publicar-textos";
@@ -176,6 +177,12 @@ describe("o que falta para publicar", () => {
     expect(faltasParaPublicar({ ...base, imagens: {} })).toEqual([{ tipo: "imagens", slides: [2, 3, 4] }]);
   });
 
+  // Adendo da foto no espaço: todo slide com espaço tem uma imagem, de qualquer jeito.
+  it("a foto e o slide pronto contam do mesmo jeito", () => {
+    const imagens = { 2: { jeito: "foto" }, 3: { jeito: "slide" }, 4: { jeito: "foto" } };
+    expect(faltasParaPublicar({ ...base, imagens })).toEqual([]);
+  });
+
   it("o não salvo, porque o que sai é o texto salvo", () => {
     const tudo = { ...base, imagens: { ...base.imagens, 4: { caminho: "c4", versao: "v" } } };
     expect(faltasParaPublicar({ ...tudo, slidesNaoSalvos: [3], legendaNaoSalva: true })).toEqual([
@@ -200,6 +207,19 @@ describe("o que falta para publicar", () => {
     expect(textoDaFalta({ tipo: "nao_salvo", slides: [2, 3], legenda: true })).toBe("Salve os slides 2 e 3 e a legenda antes de publicar.");
     expect(textoDaFalta({ tipo: "sem_conta" })).toContain("Fixar nesta conta");
     expect(textoDaFalta({ tipo: "conta_desconectada" })).toContain("desconectada");
+  });
+});
+
+describe("as frases da foto no espaço", () => {
+  it("cada problema da foto tem frase própria, terminada em ponto", () => {
+    const frases = (["sem_medida", "proporcao", "pequena", "grande", "pesada"] as const).map(textoDoProblemaDaFoto);
+    for (const f of frases) expect(f).toMatch(/\.$/);
+    expect(new Set(frases).size).toBe(frases.length);
+  });
+
+  it("a pequena diz o mínimo do espaço, e a pesada diz os 2 MB (achado 79)", () => {
+    expect(textoDoProblemaDaFoto("pequena")).toBe("A foto é pequena para o espaço da arte: o mínimo é 860×573.");
+    expect(textoDoProblemaDaFoto("pesada")).toContain("2 MB");
   });
 });
 

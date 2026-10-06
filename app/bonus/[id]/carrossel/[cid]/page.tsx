@@ -17,7 +17,7 @@ import { escolhasDaArte } from "@/lib/bonus/arte-escolhas";
 import { slidesDoTexto } from "@/lib/bonus/arte-slides";
 import { cabecalhoParaVersao, versoesDosSlides } from "@/lib/bonus/arte-tela";
 import { publicacaoLivre } from "@/lib/bonus/publicar-estado";
-import { imagensDaArte, versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
+import { fotosDaArte, imagensDaArte, versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
 import { estadoDoCarrossel } from "@/lib/bonus/publicar-repositorio";
 import { textoDaTrava, textoDoCalendario, textoDoEstadoDaPublicacao, tomDoEstadoDaPublicacao } from "@/lib/bonus/publicar-textos";
 import { TEXTO_ARTE_SEM_CONTA, rotuloDaConta, textoDaOrigemDaConta } from "@/lib/bonus/arte-textos";
@@ -193,7 +193,12 @@ async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
       avisoDaConta={conta ? textoDaOrigemDaConta(origem, conta.username ?? "") : TEXTO_ARTE_SEM_CONTA}
       podeFixar={origem === "selecionada" && conta !== null}
       soTextoInicial={escolhas.soTexto}
-      versoes={versoesDosSlides(slidesDoTexto(texto), escolhas.soTexto, cabecalhoParaVersao(conta))}
+      versoes={versoesDosSlides(
+        slidesDoTexto(texto),
+        escolhas.soTexto,
+        cabecalhoParaVersao(conta),
+        fotosDaArte(carrossel.arte, carrossel.total_slides)
+      )}
       publicacao={publicacao}
     />
   );

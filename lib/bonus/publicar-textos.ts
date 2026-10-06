@@ -1,7 +1,7 @@
 import type { Aviso } from "@/lib/avisos";
 import { fmtDate } from "@/lib/format";
 import type { EstadoDaPublicacao, FaltaParaPublicar } from "./publicar-estado";
-import type { ProblemaDaProporcao } from "./publicar-regras";
+import type { ProblemaDaFoto, ProblemaDaProporcao } from "./publicar-regras";
 import type { TomDoQuadro } from "./textos";
 
 // AS FRASES DA PUBLICAÇÃO DO CARROSSEL, fora do JSX e das actions (o princípio de
@@ -110,6 +110,25 @@ export function textoDaProporcao(p: ProblemaDaProporcao): string {
   return p === "proporcao"
     ? "A imagem do slide tem de ser 4:5, como a arte (1080×1350)."
     : "Não consegui ler o tamanho da imagem. Exporte de novo do Canva e tente outra vez.";
+}
+
+/**
+ * A FOTO DO ESPAÇO DA ARTE que não serve (adendo de 05/10). O navegador recorta e reduz antes de
+ * subir: a proporção e o "grande" só aparecem num pedido montado à mão ou numa página velha.
+ */
+export function textoDoProblemaDaFoto(p: ProblemaDaFoto): string {
+  switch (p) {
+    case "sem_medida":
+      return "Não consegui ler o tamanho da foto. Tente outra foto.";
+    case "proporcao":
+      return "A foto tem de chegar cortada no formato do espaço da arte (860×573). Recarregue a página e tente de novo.";
+    case "pequena":
+      return "A foto é pequena para o espaço da arte: o mínimo é 860×573.";
+    case "grande":
+      return "A foto tem de chegar reduzida a no máximo 1720×1146. Recarregue a página e tente de novo.";
+    case "pesada":
+      return "A foto passou de 2 MB mesmo reduzida. Tente outra foto, ou exporte esta com menos qualidade.";
+  }
 }
 
 /** As recusas de assinar, guardar e publicar (publicar-processo.ts). */

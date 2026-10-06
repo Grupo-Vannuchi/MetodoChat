@@ -2,14 +2,22 @@ import { describe, expect, it } from "vitest";
 import type { SlideParaArte } from "@/lib/bonus/arte-slides";
 import { versoesDosSlides } from "@/lib/bonus/arte-tela";
 import {
+  FOTO_DO_ESPACO_MAX_BYTES,
+  PROPORCAO_DA_FOTO_MAX,
+  PROPORCAO_DA_FOTO_MIN,
   PROPORCAO_MAX,
   PROPORCAO_MIN,
   caminhoDaImagem,
   ehCaminhoDoDestino,
   formaDoCarrossel,
+  fotosDaArte,
   imagensDaArte,
+  jeitoDoCaminho,
+  problemaDaFotoDoEspaco,
   problemaDaProporcaoDoSlide,
   publicacaoDaArte,
+  recorteDaFoto,
+  versaoDoDesenho,
   versaoDoTextoDoSlide,
 } from "@/lib/bonus/publicar-regras";
 
@@ -19,17 +27,23 @@ const PASTA = "17841400000000001";
 const UUID = "0f8e2a4b-1c3d-4e5f-8a9b-0c1d2e3f4a5b";
 
 describe("os caminhos das imagens no bucket", () => {
-  it("a guardada no slide vai para <pasta>/bonus, e a da fila para <pasta>/bonus-fila", () => {
+  it("o slide pronto vai para <pasta>/bonus, a foto para <pasta>/bonus-foto, e a da fila para <pasta>/bonus-fila", () => {
     expect(caminhoDaImagem(PASTA, "slide", UUID)).toBe(`${PASTA}/bonus/${UUID}.jpg`);
+    expect(caminhoDaImagem(PASTA, "foto", UUID)).toBe(`${PASTA}/bonus-foto/${UUID}.jpg`);
     expect(caminhoDaImagem(PASTA, "fila", UUID)).toBe(`${PASTA}/bonus-fila/${UUID}.jpg`);
   });
 
   it("cada destino aceita só o próprio prefixo, na pasta da conta do carrossel", () => {
     expect(ehCaminhoDoDestino(`${PASTA}/bonus/${UUID}.jpg`, PASTA, "slide")).toBe(true);
+    expect(ehCaminhoDoDestino(`${PASTA}/bonus-foto/${UUID}.jpg`, PASTA, "foto")).toBe(true);
     expect(ehCaminhoDoDestino(`${PASTA}/bonus-fila/${UUID}.jpg`, PASTA, "fila")).toBe(true);
     // O prefixo de um não serve ao outro: a guardada nunca vai para a fila, e o dreno nunca a apaga.
     expect(ehCaminhoDoDestino(`${PASTA}/bonus/${UUID}.jpg`, PASTA, "fila")).toBe(false);
     expect(ehCaminhoDoDestino(`${PASTA}/bonus-fila/${UUID}.jpg`, PASTA, "slide")).toBe(false);
+    expect(ehCaminhoDoDestino(`${PASTA}/bonus-foto/${UUID}.jpg`, PASTA, "slide")).toBe(false);
+    expect(ehCaminhoDoDestino(`${PASTA}/bonus-foto/${UUID}.jpg`, PASTA, "fila")).toBe(false);
+    expect(ehCaminhoDoDestino(`${PASTA}/bonus/${UUID}.jpg`, PASTA, "foto")).toBe(false);
+    expect(ehCaminhoDoDestino(`${PASTA}/bonus-fila/${UUID}.jpg`, PASTA, "foto")).toBe(false);
   });
 
   it.each([
@@ -107,9 +121,36 @@ describe("a versão do texto do slide", () => {
   // aviso "o texto mudou" aparecer sem o texto ter mudado.
   it("não muda com a foto da conta, ao contrário da versão da miniatura", () => {
     const comFoto = (foto: string | null) =>
-      versoesDosSlides([slide], [], { nome: "Thiago", arroba: "thiago", foto, iniciais: "TH" })[0];
+      versoesDosSlides([slide], [], { nome: "Thiago", arroba: "thiago", foto, iniciais: "TH" }, {})[0];
     expect(comFoto("https://cdn/a.jpg")).not.toBe(comFoto("https://cdn/b.jpg"));
     expect(versaoDoTextoDoSlide(slide)).toBe(versaoDoTextoDoSlide(slide));
+  });
+});
+
+// A VERSÃO DO DESENHO: a da arte que sai no post, conferida pelo servidor ao publicar. O "Só texto" é
+// a versão do texto (a de antes do adendo); o slide com foto leva o caminho da foto junto.
+describe("a versão do desenho", () => {
+  const slide: SlideParaArte = {
+    numero: 2,
+    total: 5,
+    tipo: "conteudo",
+    titulo: "Os três sinais",
+    texto: "Responda o cliente no mesmo dia.",
+    assinaturaNoPe: false,
+  };
+  const FOTO = `${PASTA}/bonus-foto/${UUID}.jpg`;
+
+  it("sem foto, é a versão do texto", () => {
+    expect(versaoDoDesenho(slide, null)).toBe(versaoDoTextoDoSlide(slide));
+  });
+
+  it("com foto, muda com o caminho dela e com o texto do slide", () => {
+    const v = versaoDoDesenho(slide, FOTO);
+    expect(v).toMatch(/^[0-9a-f]{8}$/);
+    expect(v).not.toBe(versaoDoTextoDoSlide(slide));
+    expect(versaoDoDesenho(slide, `${PASTA}/bonus-foto/${UUID.slice(0, -1)}c.jpg`)).not.toBe(v);
+    expect(versaoDoDesenho({ ...slide, texto: "Responda no mesmo dia." }, FOTO)).not.toBe(v);
+    expect(versaoDoDesenho({ ...slide }, FOTO)).toBe(v);
   });
 });
 
@@ -148,6 +189,129 @@ describe("as imagens guardadas, lidas da coluna arte", () => {
         5
       )
     ).toEqual({ 1: img(1) });
+  });
+});
+
+// O JEITO DE CADA IMAGEM É O PREFIXO DO CAMINHO (adendo de 05/10, revisão da auditoria): o servidor o
+// lê do caminho que ele mesmo assinou, e não há campo que possa discordar dele.
+describe("o jeito de cada imagem guardada, lido do caminho", () => {
+  const foto = (n: number) => ({ caminho: `${PASTA}/bonus-foto/${UUID.slice(0, -1)}${n}.jpg`, versao: "0a1b2c3d" });
+  const pronto = (n: number) => ({ caminho: `${PASTA}/bonus/${UUID.slice(0, -1)}${n}.jpg`, versao: "0a1b2c3d" });
+
+  it("bonus-foto é a foto no espaço; bonus é o slide pronto, inclusive o guardado antes do adendo", () => {
+    expect(jeitoDoCaminho(foto(2).caminho)).toBe("foto");
+    expect(jeitoDoCaminho(pronto(2).caminho)).toBe("slide");
+  });
+
+  it.each([
+    ["a da fila", `${PASTA}/bonus-fila/${UUID}.jpg`],
+    ["o formato do /publicar, com uma barra só", `${PASTA}/${UUID}.jpg`],
+    ["outro prefixo", `${PASTA}/bonus-video/${UUID}.jpg`],
+    ["subir de pasta", `${PASTA}/bonus-foto/../${UUID}.jpg`],
+    ["nome que não é uuid", `${PASTA}/bonus-foto/foto.jpg`],
+    ["outra extensão", `${PASTA}/bonus-foto/${UUID}.png`],
+    ["sem pasta", `bonus-foto/${UUID}.jpg`],
+    ["pasta fora da higienização", `a.b/bonus-foto/${UUID}.jpg`],
+  ])("outro caminho não tem jeito, e não conta: %s", (_nome, caminho) => {
+    expect(jeitoDoCaminho(caminho)).toBeNull();
+  });
+
+  it("a entrada sem jeito fica de fora das imagens: o slide volta a pedir a imagem", () => {
+    const daFila = { caminho: `${PASTA}/bonus-fila/${UUID}.jpg`, versao: "0a1b2c3d" };
+    expect(imagensDaArte({ imagens: { "2": foto(2), "3": pronto(3), "4": daFila } }, 5)).toEqual({ 2: foto(2), 3: pronto(3) });
+  });
+
+  it("as fotos da arte são só as de bonus-foto, pelo número do slide", () => {
+    expect(fotosDaArte({ imagens: { "2": foto(2), "3": pronto(3), "4": foto(4) } }, 5)).toEqual({ 2: foto(2).caminho, 4: foto(4).caminho });
+    expect(fotosDaArte(null, 5)).toEqual({});
+  });
+});
+
+// A FOTO DECLARADA PARA O ESPAÇO DA ARTE (adendo de 05/10): 860:573, deitada, com 1% de tolerância,
+// entre 860×573 e 1720×1146, e até 2 MB (achado 79: a rota não lê mais que isso, e a foto que passasse
+// travaria o slide para sempre). O 4:5 não vale para a foto.
+describe("a foto declarada para o espaço da arte", () => {
+  it("o espaço e o dobro dele passam", () => {
+    expect(problemaDaFotoDoEspaco(860, 573, 300_000)).toBeNull();
+    expect(problemaDaFotoDoEspaco(1720, 1146, 300_000)).toBeNull();
+  });
+
+  it("as bordas de 1% da proporção passam, e o que passa delas é recusado", () => {
+    expect(PROPORCAO_DA_FOTO_MIN).toBeCloseTo((860 / 573) * 0.99, 12);
+    expect(PROPORCAO_DA_FOTO_MAX).toBeCloseTo((860 / 573) * 1.01, 12);
+    expect(problemaDaFotoDoEspaco(1486, 1000, 1)).toBeNull();
+    expect(problemaDaFotoDoEspaco(1515, 1000, 1)).toBeNull();
+    expect(problemaDaFotoDoEspaco(1485, 1000, 1)).toBe("proporcao");
+    expect(problemaDaFotoDoEspaco(1516, 1000, 1)).toBe("proporcao");
+  });
+
+  it("o 4:5 do slide pronto é recusado como foto", () => {
+    expect(problemaDaFotoDoEspaco(1080, 1350, 1)).toBe("proporcao");
+  });
+
+  it("menor que o espaço é pequena; maior que o dobro é grande", () => {
+    expect(problemaDaFotoDoEspaco(859, 572, 1)).toBe("pequena");
+    expect(problemaDaFotoDoEspaco(1722, 1147, 1)).toBe("grande");
+  });
+
+  it("2 MB passa, e 2 MB e 1 byte é pesada (achado 79)", () => {
+    expect(FOTO_DO_ESPACO_MAX_BYTES).toBe(2 * 1024 * 1024);
+    expect(problemaDaFotoDoEspaco(860, 573, FOTO_DO_ESPACO_MAX_BYTES)).toBeNull();
+    expect(problemaDaFotoDoEspaco(860, 573, FOTO_DO_ESPACO_MAX_BYTES + 1)).toBe("pesada");
+  });
+
+  it("sem medida, ou sem o tamanho em bytes, é recusada", () => {
+    expect(problemaDaFotoDoEspaco(undefined, 573, 1)).toBe("sem_medida");
+    expect(problemaDaFotoDoEspaco(860, 0, 1)).toBe("sem_medida");
+    expect(problemaDaFotoDoEspaco(860, 573, undefined)).toBe("sem_medida");
+    expect(problemaDaFotoDoEspaco(860, 573, Number.NaN)).toBe("sem_medida");
+  });
+});
+
+// O RECORTE DA FOTO NO NAVEGADOR: ao centro, na proporção do espaço, reduzido até 1720×1146 e nunca
+// ampliado. O que sai do recorte passa sempre na regra da foto declarada.
+describe("o recorte da foto", () => {
+  it("a foto deitada mais larga que o espaço perde as laterais, ao centro", () => {
+    const r = recorteDaFoto(2000, 1000);
+    expect(r).toEqual({ ok: true, recorte: { x: 249, y: 0, largura: 1501, altura: 1000, saida: { largura: 1501, altura: 1000 } } });
+  });
+
+  it("a foto em pé perde o alto e o baixo, ao centro", () => {
+    const r = recorteDaFoto(1080, 1350);
+    expect(r).toEqual({ ok: true, recorte: { x: 0, y: 315, largura: 1080, altura: 720, saida: { largura: 1080, altura: 720 } } });
+  });
+
+  it("a foto grande é reduzida ao dobro do espaço", () => {
+    const r = recorteDaFoto(4032, 3024);
+    expect(r.ok && r.recorte.saida).toEqual({ largura: 1720, altura: 1146 });
+    expect(r.ok && r.recorte).toMatchObject({ x: 0, largura: 4032, altura: 2686, y: 169 });
+  });
+
+  it("a foto cujo recorte fica menor que o espaço é pequena, e não é ampliada", () => {
+    expect(recorteDaFoto(1000, 572)).toEqual({ ok: false, problema: "pequena" });
+    expect(recorteDaFoto(859, 2000)).toEqual({ ok: false, problema: "pequena" });
+    expect(recorteDaFoto(860, 573)).toEqual({ ok: true, recorte: { x: 0, y: 0, largura: 860, altura: 573, saida: { largura: 860, altura: 573 } } });
+  });
+
+  it("sem medida não recorta", () => {
+    expect(recorteDaFoto(0, 573)).toEqual({ ok: false, problema: "sem_medida" });
+  });
+
+  it.each([
+    [860, 573],
+    [1000, 3000],
+    [3000, 1000],
+    [1719, 1145],
+    [1721, 1147],
+    [6000, 4000],
+    [4000, 6000],
+    [1366, 911],
+  ])("o recorte de %i×%i passa na regra da foto declarada", (largura, altura) => {
+    const r = recorteDaFoto(largura, altura);
+    if (!r.ok) throw new Error(`recusou: ${r.problema}`);
+    expect(problemaDaFotoDoEspaco(r.recorte.saida.largura, r.recorte.saida.altura, 1)).toBeNull();
+    expect(r.recorte.x + r.recorte.largura).toBeLessThanOrEqual(largura);
+    expect(r.recorte.y + r.recorte.altura).toBeLessThanOrEqual(altura);
   });
 });
 

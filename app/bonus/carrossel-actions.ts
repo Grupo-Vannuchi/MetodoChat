@@ -53,7 +53,7 @@ import {
 import { temChaveDaIA } from "@/lib/bonus/config";
 import { ehIdDeBonus } from "@/lib/bonus/pedido";
 import { situacaoNoLabs } from "@/lib/bonus/publicado";
-import { versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
+import { fotosDaArte, versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
 import { textoDaTrava } from "@/lib/bonus/publicar-textos";
 import { lerLinha } from "@/lib/bonus/repositorio";
 import { geracaoNaTela } from "@/lib/bonus/tempos";
@@ -211,7 +211,7 @@ export async function salvarSlideDoCarrossel(_anterior: AvisoDoSlide | null, for
   if (parte.tipo === "legenda") return resposta("ok", texto);
   const { conta } = resolverConta(contas, escolhas, await contaDoCookie());
   const slides = slidesDoTexto(r.texto);
-  const versoes = versoesDosSlides(slides, escolhas.soTexto, cabecalhoParaVersao(conta));
+  const versoes = versoesDosSlides(slides, escolhas.soTexto, cabecalhoParaVersao(conta), fotosDaArte(linha.arte, total));
   // A versão do texto salvo vai junto (Etapa 5): o card compara com a da imagem do Canva guardada.
   const doSlide = slides[parte.numero - 1];
   return { ...resposta("ok", texto, versoes[parte.numero - 1] ?? null), versaoDoTexto: doSlide ? versaoDoTextoDoSlide(doSlide) : null };
@@ -244,7 +244,11 @@ export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form:
   const salvou = await salvarSoTextoDaArte(id, lido.soTexto, nomeQueFalta(contas, escolhas));
   if (!salvou.ok) return resposta("erro", salvou.motivo === "travado" ? textoDaTrava(salvou.estado) : TEXTO_ARTE_NAO_PRONTA);
   const { conta } = resolverConta(contas, escolhas, await contaDoCookie());
-  return resposta("ok", TEXTO_ARTE_SALVA, versoesDosSlides(slidesDoTexto(texto), lido.soTexto, cabecalhoParaVersao(conta)));
+  return resposta(
+    "ok",
+    TEXTO_ARTE_SALVA,
+    versoesDosSlides(slidesDoTexto(texto), lido.soTexto, cabecalhoParaVersao(conta), fotosDaArte(linha.arte, linha.total_slides))
+  );
 }
 
 /**
