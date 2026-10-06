@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ALTURA_ILUSTRACAO, LARGURA_UTIL, MARGEM } from "@/lib/bonus/arte-geometria";
 import { respostaDaArte } from "@/lib/bonus/arte-resposta";
 import { slidesDoTexto, type SlideParaArte } from "@/lib/bonus/arte-slides";
 import type { CabecalhoDaArte } from "@/lib/bonus/arte-tela";
 import type { TextoDeCarrossel, TextoDePost } from "@/lib/bonus/carrossel-texto";
+import { lerPng } from "./arte-desenhada";
 
 // O PNG DE VERDADE: o desenho passa pelo Satori e pelo Resvg, com a Carlito lida do disco. Os
 // cabeçalhos conferidos são os que SAEM da resposta, e não os que o código pede (achado 59: o
@@ -139,4 +141,87 @@ describe("quando o desenho falha", () => {
     fonteFalha.agora = true;
     expect(await pedir(CONTEUDO)).toEqual({ ok: false, falha: "fonte" });
   });
+});
+
+// A FOTO NO ESPAÇO DA ARTE (adendo da Etapa 5): cortada para preencher (`cover`), sem borda e sem
+// canto, como o Labs desenha a ilustração dele. O JPEG de 3×2, vermelho, foi gerado uma vez pelo
+// `sharp` do Next (dependência opcional, só no ensaio) e fica aqui como texto.
+const FOTO_VERMELHA =
+  "data:image/jpeg;base64,/9j/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAACAAMDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAABwj/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCBADJcb//Z";
+const JPEG_FALSO = `data:image/jpeg;base64,${Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(2000, 0x41)]).toString("base64")}`;
+
+/** A caixa dos pixels que mudam de um PNG para o outro (os dois de 1080×1350). */
+function caixaDaDiferenca(a: Buffer, b: Buffer): { x: number; y: number; largura: number; altura: number } {
+  const [ia, ib] = [lerPng(a), lerPng(b)];
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -1, -1];
+  for (let y = 0; y < ia.altura; y++) {
+    for (let x = 0; x < ia.largura; x++) {
+      const o = (y * ia.largura + x) * 4;
+      if (ia.rgba[o] === ib.rgba[o] && ia.rgba[o + 1] === ib.rgba[o + 1] && ia.rgba[o + 2] === ib.rgba[o + 2]) continue;
+      [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)];
+    }
+  }
+  return { x: x0, y: y0, largura: x1 - x0 + 1, altura: y1 - y0 + 1 };
+}
+
+const vermelho = (png: Buffer, x: number, y: number) => {
+  const img = lerPng(png);
+  const o = (y * img.largura + x) * 4;
+  return img.rgba[o] > 150 && img.rgba[o + 1] < 90 && img.rgba[o + 2] < 90;
+};
+
+describe("a foto no espaço da arte", () => {
+  it("a foto preenche o espaço inteiro, até os cantos, e o resto da peça fica igual ao slide sem foto", async () => {
+    const com = await desenhar(CONTEUDO, { fotoDoEspaco: { foto: FOTO_VERMELHA } });
+    const sem = await desenhar(CONTEUDO);
+    const caixa = caixaDaDiferenca(com.png, sem.png);
+    expect(caixa).toMatchObject({ x: MARGEM, largura: LARGURA_UTIL, altura: ALTURA_ILUSTRACAO });
+    for (const [x, y] of [
+      [caixa.x, caixa.y],
+      [caixa.x + caixa.largura - 1, caixa.y],
+      [caixa.x, caixa.y + caixa.altura - 1],
+      [caixa.x + caixa.largura - 1, caixa.y + caixa.altura - 1],
+      [caixa.x + 430, caixa.y + 286],
+    ]) {
+      expect(vermelho(com.png, x, y), `${x},${y}`).toBe(true);
+    }
+    expect(com.r.headers.get("x-arte-foto")).toBe("sim");
+  }, 60_000);
+
+  it("a foto que faltou na busca: o espaço em branco, igual ao sem foto, e o cabeçalho diz faltou", async () => {
+    const faltou = await desenhar(CONTEUDO, { fotoDoEspaco: { foto: null } });
+    const sem = await desenhar(CONTEUDO);
+    expect(faltou.r.status).toBe(200);
+    expect(faltou.png.equals(sem.png)).toBe(true);
+    expect(faltou.r.headers.get("x-arte-foto")).toBe("faltou");
+  }, 60_000);
+
+  // O Satori recusa no meio do desenho o JPEG que só tem o começo certo. A peça sai sem a foto do
+  // espaço, e com a foto da conta, que não tem culpa.
+  it("a foto que começa como JPEG e não é: o espaço em branco, a foto da conta fica, e o cabeçalho diz faltou", async () => {
+    const cabecalho = { ...CABECALHO, foto: PNG_1X1 };
+    const quebrada = await desenhar(CONTEUDO, { cabecalho, fotoDoEspaco: { foto: JPEG_FALSO } });
+    const semFoto = await desenhar(CONTEUDO, { cabecalho });
+    expect(quebrada.png.equals(semFoto.png)).toBe(true);
+    expect(quebrada.r.headers.get("x-arte-foto")).toBe("faltou");
+  }, 60_000);
+
+  it("a foto da conta quebrada não leva a foto do espaço junto", async () => {
+    const r = await desenhar(CONTEUDO, { cabecalho: { ...CABECALHO, foto: JPEG_FALSO }, fotoDoEspaco: { foto: FOTO_VERMELHA } });
+    const semAConta = await desenhar(CONTEUDO, { fotoDoEspaco: { foto: FOTO_VERMELHA } });
+    expect(r.png.equals(semAConta.png)).toBe(true);
+    expect(r.r.headers.get("x-arte-foto")).toBe("sim");
+  }, 60_000);
+
+  it("sem foto guardada no slide, o cabeçalho da foto não vai", async () => {
+    expect((await desenhar(CONTEUDO)).r.headers.get("x-arte-foto")).toBeNull();
+    expect((await desenhar(CONTEUDO, { comEspaco: false })).r.headers.get("x-arte-foto")).toBeNull();
+  }, 60_000);
+
+  // A versão do que foi desenhado vai com a arte: o navegador a devolve ao publicar, e o servidor a
+  // confere contra o que está salvo agora.
+  it("a versão do desenho vai no cabeçalho, quando a rota a manda", async () => {
+    expect((await desenhar(CONTEUDO, { versao: "abcd1234" })).r.headers.get("x-arte-versao")).toBe("abcd1234");
+    expect((await desenhar(CONTEUDO)).r.headers.get("x-arte-versao")).toBeNull();
+  }, 60_000);
 });

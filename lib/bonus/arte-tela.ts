@@ -58,6 +58,17 @@ export function cabecalhosDaArte(baixar: boolean, nome: string): Record<string, 
   };
 }
 
+/**
+ * OS DOIS CABEÇALHOS QUE A ROTA DA ARTE MANDA PARA O PUBLICAR (adendo da Etapa 5), lidos pelo navegador
+ * no mesmo endereço (imagem-no-navegador.ts):
+ * - a foto do espaço: "sim" quando foi desenhada, "faltou" quando o espaço saiu em branco, e nada no
+ *   slide sem foto (achado 78);
+ * - a versão do que foi desenhado (`versaoDoDesenho`, publicar-regras.ts), que o navegador devolve ao
+ *   publicar, e que o servidor confere contra o que está salvo.
+ */
+export const CABECALHO_DA_FOTO = "X-Arte-Foto";
+export const CABECALHO_DA_VERSAO = "X-Arte-Versao";
+
 /** Sem nome, o @ faz as vezes de nome. As iniciais saem do que estiver no nome. */
 export function cabecalhoDaConta(c: ContaDoCabecalho, foto: string | null): CabecalhoDaArte {
   const nome = c.name?.trim() || c.username || "";
@@ -94,8 +105,17 @@ export function versaoDaArte(partes: (string | number | null)[]): string {
  *
  * O `foto` do cabeçalho, aqui, é a URL da foto (a página não tem o `data:` que a rota desenha): a
  * miniatura troca quando a Meta troca a foto.
+ *
+ * `fotos` é o caminho da foto do espaço de cada slide que tem uma (`fotosDaArte`, publicar-regras.ts;
+ * adendo da Etapa 5): trocar a foto troca a miniatura e o "Baixar". No "Só texto" o espaço não existe,
+ * e a foto guardada não entra. É obrigatório, para o chamador que esquecer a foto não compilar.
  */
-export function versoesDosSlides(slides: SlideParaArte[], soTexto: number[], cabecalho: CabecalhoDaArte): string[] {
+export function versoesDosSlides(
+  slides: SlideParaArte[],
+  soTexto: number[],
+  cabecalho: CabecalhoDaArte,
+  fotos: Record<number, string>
+): string[] {
   return slides.map((s) =>
     versaoDaArte([
       JSON.stringify(s),
@@ -104,6 +124,7 @@ export function versoesDosSlides(slides: SlideParaArte[], soTexto: number[], cab
       cabecalho.arroba,
       cabecalho.foto,
       cabecalho.iniciais,
+      soTexto.includes(s.numero) ? null : (fotos[s.numero] ?? null),
     ])
   );
 }

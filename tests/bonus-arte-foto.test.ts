@@ -1,13 +1,16 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   FALHA_GUARDADA_MS,
   FOTO_GUARDADA_MS,
   FOTO_MAX_BYTES,
   FOTO_TEMPO_MS,
+  buscarFotoDoEspaco,
   fotoDaConta,
+  fotoDoEspaco,
   memoriaDasFotos,
   urlDeFotoAceita,
 } from "@/lib/bonus/arte-foto";
+import { FOTO_DO_ESPACO_MAX_BYTES } from "@/lib/bonus/publicar-regras";
 
 // A FOTO DA CONTA NO CABEÇALHO DA ARTE, buscada pela própria rota. A URL vem do banco (a Meta a dá),
 // e a rota é um servidor buscando um endereço: as travas são o que impede essa busca de ir a outro
@@ -162,5 +165,94 @@ describe("a foto em memória", () => {
     expect(await m.foto(null)).toBeNull();
     expect(buscar).not.toHaveBeenCalled();
     expect(m.quantas()).toBe(0);
+  });
+});
+
+// A FOTO DO ESPAÇO DA ARTE (adendo da Etapa 5): a rota busca, no servidor, a foto guardada no slide,
+// só pelo endereço público do nosso bucket e só no caminho exato `<pasta da conta>/bonus-foto/<uuid>.jpg`.
+// O host é o do ambiente, e o caminho nunca vem da URL do pedido. Toda falha é null: o espaço sai em
+// branco, e a rota diz "faltou" (achado 78).
+describe("a foto do espaço da arte", () => {
+  const CONTA = "17841400000000001";
+  const CAMINHO = `${CONTA}/bonus-foto/0f8e2a4b-1c3d-4e5f-8a9b-0c1d2e3f4a5b.jpg`;
+  const ambiente = { ...process.env };
+  beforeAll(() => {
+    process.env.SUPABASE_URL = "https://exemplo.supabase.co";
+    process.env.SUPABASE_BUCKET = "MetodoChat";
+  });
+  afterAll(() => {
+    process.env.SUPABASE_URL = ambiente.SUPABASE_URL;
+    process.env.SUPABASE_BUCKET = ambiente.SUPABASE_BUCKET;
+  });
+
+  it("JPEG vira data: URI, buscado no endereço público do bucket, sem seguir redirect, sem cache e com prazo", async () => {
+    const f = buscador(async () => resposta(200, JPEG));
+    expect(await buscarFotoDoEspaco(CAMINHO, f)).toBe(`data:image/jpeg;base64,${Buffer.from(JPEG).toString("base64")}`);
+    const [url, opcoes] = f.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`https://exemplo.supabase.co/storage/v1/object/public/MetodoChat/${CAMINHO}`);
+    expect(opcoes).toMatchObject({ method: "GET", redirect: "manual", cache: "no-store" });
+    expect(opcoes.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  // O navegador sobe a foto em JPEG; o PNG (que o cabeçalho aceita) não é foto do espaço.
+  it("só JPEG: o PNG, o WebP e o HTML são sem foto", async () => {
+    for (const corpo of [PNG, "RIFF\u0000\u0000\u0000\u0000WEBPVP8 ", "<html>não é foto</html>"]) {
+      expect(await buscarFotoDoEspaco(CAMINHO, buscador(async () => resposta(200, corpo)))).toBeNull();
+    }
+  });
+
+  it.each([301, 302, 400, 404, 500])("status %i é sem foto", async (status) => {
+    expect(await buscarFotoDoEspaco(CAMINHO, buscador(async () => resposta(status, JPEG)))).toBeNull();
+  });
+
+  it("erro de rede ou prazo esgotado é sem foto", async () => {
+    const f = buscador(async () => {
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    });
+    expect(await buscarFotoDoEspaco(CAMINHO, f)).toBeNull();
+  });
+
+  // O teto é o MESMO da assinatura (achado 79), de um lugar só: a foto que sobe é a foto que se lê.
+  it("2 MB passa, e 2 MB e 1 byte é sem foto", async () => {
+    const no = new Uint8Array(FOTO_DO_ESPACO_MAX_BYTES);
+    no.set(JPEG);
+    const acima = new Uint8Array(FOTO_DO_ESPACO_MAX_BYTES + 1);
+    acima.set(JPEG);
+    expect(await buscarFotoDoEspaco(CAMINHO, buscador(async () => resposta(200, no)))).toMatch(/^data:image\/jpeg;base64,/);
+    expect(await buscarFotoDoEspaco(CAMINHO, buscador(async () => resposta(200, acima)))).toBeNull();
+  });
+
+  it("o caminho exato da foto, na pasta da conta do carrossel, passa pela memória", async () => {
+    const buscar = vi.fn(async () => "data:image/jpeg;base64,/9j/");
+    expect(await fotoDoEspaco(CAMINHO, CONTA, memoriaDasFotos(buscar))).toBe("data:image/jpeg;base64,/9j/");
+    expect(buscar).toHaveBeenCalledWith(CAMINHO);
+  });
+
+  it.each([
+    ["o slide pronto, de bonus/", `${CONTA}/bonus/0f8e2a4b-1c3d-4e5f-8a9b-0c1d2e3f4a5b.jpg`, CONTA],
+    ["a arte da fila", `${CONTA}/bonus-fila/0f8e2a4b-1c3d-4e5f-8a9b-0c1d2e3f4a5b.jpg`, CONTA],
+    ["a foto de outra conta", `17841400000000002/bonus-foto/0f8e2a4b-1c3d-4e5f-8a9b-0c1d2e3f4a5b.jpg`, CONTA],
+    ["subir de pasta", `${CONTA}/bonus-foto/../../outra/0f8e2a4b-1c3d-4e5f-8a9b-0c1d2e3f4a5b.jpg`, CONTA],
+    ["outro host, no lugar do caminho", "https://exemplo.com/foto.jpg", CONTA],
+    ["o carrossel sem conta", CAMINHO, null],
+  ])("recusa como foto %s, sem buscar", async (_nome, caminho, conta) => {
+    const buscar = vi.fn(async () => "data:image/jpeg;base64,/9j/");
+    expect(await fotoDoEspaco(caminho, conta, memoriaDasFotos(buscar))).toBeNull();
+    expect(buscar).not.toHaveBeenCalled();
+  });
+
+  // A memória é a mesma das fotos da conta (`memoriaDasFotos`): a falha não pode deixar a instância
+  // desenhando em branco por 10 minutos (achado 78).
+  it("a foto achada vale 10 minutos, e a falha só 30 segundos", async () => {
+    let agora = 1_000_000;
+    const resultados: (string | null)[] = [null, "data:image/jpeg;base64,/9j/"];
+    const buscar = vi.fn(async () => (resultados.length ? (resultados.shift() as string | null) : "data:image/jpeg;base64,/9j/"));
+    const m = memoriaDasFotos(buscar, () => agora);
+    expect(await fotoDoEspaco(CAMINHO, CONTA, m)).toBeNull();
+    agora += FALHA_GUARDADA_MS;
+    expect(await fotoDoEspaco(CAMINHO, CONTA, m)).toBe("data:image/jpeg;base64,/9j/");
+    agora += FOTO_GUARDADA_MS - 1;
+    await fotoDoEspaco(CAMINHO, CONTA, m);
+    expect(buscar).toHaveBeenCalledTimes(2);
   });
 });

@@ -8,7 +8,9 @@
 // 110, Carlito Regular e Bold, texto ancorado no topo, hierarquia por PESO e não por tamanho, e a
 // linha de fechamento em negrito. As QUATRO diferenças, todas da spec:
 // 1. sem ilustração: o espaço reservado sai EM BRANCO, sem a moldura tracejada nem o escrito do
-//    Labs, para receber a imagem no Canva;
+//    Labs, para receber a imagem no Canva; ou com a FOTO do slide (adendo da Etapa 5), cortada para
+//    preencher (`cover`), sem borda e sem canto. O Labs desenha a ilustração com `contain`: as duas
+//    dão o mesmo resultado quando a imagem já vem na proporção do espaço, que é o caso das duas;
 // 2. "só texto" é o `semIlustracao` do Labs: o bloco do espaço some;
 // 3. sem tema escuro e sem selo de verificado;
 // 4. o cabeçalho vem da conta do carrossel (arte-tela.ts), e não da foto do admin.
@@ -34,6 +36,7 @@ import {
   GAP_CABECALHO,
   GAP_ILUSTRACAO,
   LADO_DO_AVATAR,
+  LARGURA_UTIL,
   MARGEM,
 } from "./arte-geometria";
 import type { SlideParaArte } from "./arte-slides";
@@ -51,12 +54,15 @@ export function desenhoDoSlide({
   comEspaco,
   cabecalho,
   familia,
+  fotoDoEspaco = null,
 }: {
   slide: SlideParaArte;
   fonte: number;
   comEspaco: boolean;
   cabecalho: CabecalhoDaArte;
   familia: string;
+  /** A foto do espaço, como `data:` (a rota busca; arte-foto.ts). Sem ela, o espaço sai em branco. */
+  fotoDoEspaco?: string | null;
 }): ReactElement {
   const linhas = composicaoDoSlide(slide.titulo, slide.texto);
   const noPe = slide.assinaturaNoPe;
@@ -134,8 +140,17 @@ export function desenhoDoSlide({
         ))}
       </div>
 
-      {/* O ESPAÇO DA IMAGEM, EM BRANCO: é onde o operador põe a imagem no Canva. Some no "só texto". */}
-      {comEspaco && <div style={{ display: "flex", marginTop: GAP_ILUSTRACAO, height: ALTURA_ILUSTRACAO, flexShrink: 0 }} />}
+      {/* O ESPAÇO DA IMAGEM: em branco, onde o operador põe a imagem no Canva, ou com a foto do slide,
+          que o preenche até os cantos. Some no "só texto". */}
+      {comEspaco && (
+        <div style={{ display: "flex", marginTop: GAP_ILUSTRACAO, height: ALTURA_ILUSTRACAO, flexShrink: 0 }}>
+          {fotoDoEspaco ? (
+            /* eslint-disable-next-line @next/next/no-img-element -- JSX do Satori, e não HTML de
+               página: `next/image` renderiza um componente que ele não sabe ler. */
+            <img src={fotoDoEspaco} width={LARGURA_UTIL} height={ALTURA_ILUSTRACAO} style={{ objectFit: "cover" }} alt="" />
+          ) : null}
+        </div>
+      )}
 
       {/* O ESPAÇADOR: cresce com o que sobra, e põe a folga na base (ou entre o espaço e a tag no pé). */}
       <div style={{ display: "flex", flex: 1 }} />

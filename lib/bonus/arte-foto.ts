@@ -15,6 +15,11 @@
 //
 // Toda falha devolve null, e o cabeçalho sai com as iniciais: perder o rosto é pequeno, perder a
 // peça é perder o trabalho (a regra do Labs, src/lib/foto-de-perfil.ts).
+//
+// A FOTO DO ESPAÇO DA ARTE (adendo da Etapa 5) também é buscada aqui, no fim do arquivo, com as
+// mesmas travas e a mesma memória.
+import { pastaDaConta, urlPublicaDoObjeto } from "@/lib/bucket";
+import { ehCaminhoDoDestino, FOTO_DO_ESPACO_MAX_BYTES } from "./publicar-regras";
 
 export const FOTO_MAX_BYTES = 512 * 1024;
 export const FOTO_TEMPO_MS = 3_000;
@@ -134,3 +139,51 @@ export function memoriaDasFotos(
 
 /** A memória desta instância do servidor, que a rota da arte usa. */
 export const fotosDaInstancia = memoriaDasFotos();
+
+// A FOTO DO ESPAÇO DA ARTE (adendo da Etapa 5, "A rota da arte desenha a foto"), no molde de
+// `fotoDaConta`. O caminho vem de `arte.imagens` (gravado pelo servidor, que o assinou), e nunca da URL
+// do pedido. Mesmo assim, a busca só sai pelo endereço público do NOSSO bucket (`urlPublicaDoObjeto`,
+// com o host do ambiente) e só no caminho exato `<pasta da conta do carrossel>/bonus-foto/<uuid>.jpg`.
+// - sem seguir redirect, com prazo de 3 s e o teto da assinatura (`FOTO_DO_ESPACO_MAX_BYTES`, achado
+//   79): a foto que sobe é a foto que se lê;
+// - só JPEG, pelos bytes: o navegador sobe a foto em JPEG, e o resto não é foto do espaço;
+// - a memória é a mesma das fotos da conta (`memoriaDasFotos`), pelo caminho, que nunca muda de
+//   conteúdo: a achada vale 10 minutos, e a FALHA só 30 s, para uma falha passageira não deixar a
+//   instância desenhando o espaço em branco (achado 78).
+// Toda falha é null: o espaço sai em branco, e a rota diz "faltou".
+
+export async function buscarFotoDoEspaco(caminho: string, fetchImpl: typeof fetch = fetch): Promise<string | null> {
+  let res: Response;
+  try {
+    res = await fetchImpl(urlPublicaDoObjeto(caminho), {
+      method: "GET",
+      redirect: "manual",
+      cache: "no-store",
+      signal: AbortSignal.timeout(FOTO_TEMPO_MS),
+    });
+  } catch {
+    return null;
+  }
+  if (res.status !== 200) return null;
+  let bytes: Uint8Array | null;
+  try {
+    bytes = await bytesAteOTeto(res, FOTO_DO_ESPACO_MAX_BYTES);
+  } catch {
+    return null;
+  }
+  if (!bytes || tipoDaFoto(bytes) !== "jpeg") return null;
+  return `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`;
+}
+
+/** A memória das fotos do espaço desta instância do servidor, que a rota da arte usa. */
+export const fotosDoEspacoDaInstancia = memoriaDasFotos((caminho) => buscarFotoDoEspaco(caminho));
+
+/** A foto do espaço de um slide: só a do caminho exato, na pasta da conta do carrossel. */
+export function fotoDoEspaco(
+  caminho: string,
+  conta: string | null,
+  memoria: MemoriaDasFotos = fotosDoEspacoDaInstancia
+): Promise<string | null> {
+  if (!conta || !ehCaminhoDoDestino(caminho, pastaDaConta(conta), "foto")) return Promise.resolve(null);
+  return memoria.foto(caminho);
+}

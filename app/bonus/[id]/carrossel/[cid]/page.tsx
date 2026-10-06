@@ -8,12 +8,18 @@ import {
   salvarArteDoCarrossel,
   salvarSlideDoCarrossel,
 } from "@/app/bonus/carrossel-actions";
+import { assinarImagemDoCarrossel, guardarImagemDoSlide, publicarCarrossel } from "@/app/bonus/publicar-actions";
 import { ACCOUNT_COOKIE } from "@/lib/account";
 import { avisoDaUrl } from "@/lib/avisos";
-import { resolverConta } from "@/lib/bonus/arte-conta";
+import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
+import { contaSelecionada, resolverConta } from "@/lib/bonus/arte-conta";
 import { escolhasDaArte } from "@/lib/bonus/arte-escolhas";
 import { slidesDoTexto } from "@/lib/bonus/arte-slides";
 import { cabecalhoParaVersao, versoesDosSlides } from "@/lib/bonus/arte-tela";
+import { publicacaoLivre } from "@/lib/bonus/publicar-estado";
+import { fotosDaArte, imagensDaArte, versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
+import { estadoDoCarrossel } from "@/lib/bonus/publicar-repositorio";
+import { textoDaTrava, textoDoCalendario, textoDoEstadoDaPublicacao, tomDoEstadoDaPublicacao } from "@/lib/bonus/publicar-textos";
 import { TEXTO_ARTE_SEM_CONTA, rotuloDaConta, textoDaOrigemDaConta } from "@/lib/bonus/arte-textos";
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
 import { contasParaArte, lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
@@ -32,6 +38,7 @@ import { geracaoNaTela } from "@/lib/bonus/tempos";
 import { TEXTO_TRAVOU, type TomDoQuadro } from "@/lib/bonus/textos";
 import Acompanhar from "../../acompanhar";
 import EditorDoCarrossel from "./editor-do-carrossel";
+import type { PublicacaoNaTela } from "./publicacao-na-tela";
 
 // O teto de lib/bonus/tempos.ts (MAX_DURATION_S). O Next exige literal aqui, e
 // tests/bonus-carrossel-paginas.test.ts confere que é o mesmo número. O "Gerar de novo" desta
@@ -135,6 +142,10 @@ async function situacaoDoBonus(bonusId: string): Promise<SituacaoNoLabs> {
  * carrossel (arte-conta.ts): a página mostra qual é, avisa quando ela saiu do Chat, e oferece "Fixar
  * nesta conta" ao carrossel de antes de a conta ser gravada. Cada miniatura tem a sua versão, o resumo
  * de tudo o que a rota desenha naquele slide (arte-tela.ts, `versoesDosSlides`).
+ *
+ * A PUBLICAÇÃO (spec da Etapa 5) é decidida aqui, no servidor: as imagens do Canva guardadas, com o
+ * endereço público delas; a versão do texto de cada slide; o estado lido da fila pela chave exata; a
+ * trava; e o aviso do calendário, que só mostra a conta selecionada no menu.
  */
 async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
   const texto = textoDaLinhaDoCarrossel(carrossel);
@@ -142,7 +153,32 @@ async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
 
   const contas = await contasParaArte();
   const escolhas = escolhasDaArte(carrossel.arte, carrossel.total_slides);
-  const { conta, origem } = resolverConta(contas, escolhas, (await cookies()).get(ACCOUNT_COOKIE)?.value);
+  const doCookie = (await cookies()).get(ACCOUNT_COOKIE)?.value;
+  const { conta, origem } = resolverConta(contas, escolhas, doCookie);
+
+  const estado = await estadoDoCarrossel(carrossel.arte);
+  const filaId = "filaId" in estado ? estado.filaId : null;
+  const noMenu = contaSelecionada(contas, doCookie);
+  // O jeito de cada imagem é o prefixo do caminho (adendo da Etapa 5): as fotos são as de `bonus-foto`.
+  const fotos = fotosDaArte(carrossel.arte, carrossel.total_slides);
+  const publicacao: PublicacaoNaTela = {
+    acaoDaAssinatura: assinarImagemDoCarrossel,
+    acaoDaImagem: guardarImagemDoSlide,
+    acaoDaPublicacao: publicarCarrossel,
+    imagens: Object.fromEntries(
+      Object.entries(imagensDaArte(carrossel.arte, carrossel.total_slides)).map(([n, i]) => [
+        n,
+        { url: urlPublicaSeDerParaMontar(i.caminho), versao: i.versao, jeito: Number(n) in fotos ? "foto" : "slide" },
+      ])
+    ),
+    versoesDoTexto: slidesDoTexto(texto).map(versaoDoTextoDoSlide),
+    travado: publicacaoLivre(estado) ? null : textoDaTrava(estado),
+    origem,
+    arroba: origem === "gravada" ? (conta?.username ?? null) : null,
+    estado: { texto: textoDoEstadoDaPublicacao(estado), tom: tomDoEstadoDaPublicacao(estado), filaId, livre: publicacaoLivre(estado) },
+    avisoDoCalendario:
+      filaId && conta && escolhas.conta && noMenu?.ig_user_id !== escolhas.conta ? textoDoCalendario(rotuloDaConta(conta)) : null,
+  };
 
   return (
     <EditorDoCarrossel
@@ -159,7 +195,8 @@ async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
       avisoDaConta={conta ? textoDaOrigemDaConta(origem, conta.username ?? "") : TEXTO_ARTE_SEM_CONTA}
       podeFixar={origem === "selecionada" && conta !== null}
       soTextoInicial={escolhas.soTexto}
-      versoes={versoesDosSlides(slidesDoTexto(texto), escolhas.soTexto, cabecalhoParaVersao(conta))}
+      versoes={versoesDosSlides(slidesDoTexto(texto), escolhas.soTexto, cabecalhoParaVersao(conta), fotos)}
+      publicacao={publicacao}
     />
   );
 }

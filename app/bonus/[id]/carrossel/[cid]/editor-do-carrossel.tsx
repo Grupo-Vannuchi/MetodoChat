@@ -1,11 +1,16 @@
 "use client";
-import { useActionState, useRef, useState, useTransition } from "react";
-import { alertError, alertOk, btnPrimary, btnSecondary, card, hint } from "@/app/ui";
+import { useActionState, useCallback, useRef, useState, useTransition } from "react";
+import { alertError, alertOk, alertWarn, btnPrimary, btnSecondary, card, hint } from "@/app/ui";
 import { urlDaArte } from "@/lib/bonus/arte-tela";
 import { textoDoBaixarTodos, type AvisoDaArte } from "@/lib/bonus/arte-textos";
 import { camposDaParte, type CampoDoCarrossel, type ParteDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import type { AvisoDoSlide } from "@/lib/bonus/carrossel-textos";
+import type { JeitoDaImagem } from "@/lib/bonus/publicar-regras";
+import type { AvisoDaImagem } from "@/lib/bonus/publicar-textos";
 import CardDaParte from "./card-da-parte";
+import CardPublicar from "./card-publicar";
+import { enviarImagemDoSlide } from "./imagem-no-navegador";
+import type { ImagemNaTela, PublicacaoNaTela } from "./publicacao-na-tela";
 
 // O EDITOR DO CARROSSEL, SLIDE A SLIDE (spec da Etapa 4, "A página"): a conta do carrossel, um card
 // por slide (a miniatura e, ao lado, o editor dele: card-da-parte.tsx), o card da legenda, e o
@@ -20,6 +25,12 @@ import CardDaParte from "./card-da-parte";
 // escolha muda na tela antes da resposta, para a caixa responder ao clique; numa recusa, volta para a
 // última aceita (achado 67), porque a miniatura e o "Baixar" seguem o que está gravado. O formulário é
 // montado aqui e despachado numa transição, sem `<form action>` (medido no PR #5).
+//
+// A PUBLICAÇÃO (spec da Etapa 5) entra por `publicacao`, e sem ela a página é a da Etapa 4. As imagens
+// guardadas moram aqui, de um dos dois jeitos (a foto do espaço ou o slide pronto), e cada card sobe a
+// do seu slide (imagem-no-navegador.ts). Guardada a imagem, a versão da miniatura daquele slide vem
+// na resposta: a foto muda a arte. Com o carrossel na fila ou publicado, a trava aparece no topo e cada
+// card fica só para leitura.
 //
 // As actions entram por propriedade, para o teste de tela usar falsas.
 export default function EditorDoCarrossel({
@@ -38,6 +49,7 @@ export default function EditorDoCarrossel({
   soTextoInicial,
   versoes: versoesIniciais,
   pausaMs = 400,
+  publicacao,
 }: {
   acaoDoSlide: (anterior: AvisoDoSlide | null, form: FormData) => Promise<AvisoDoSlide | null>;
   acaoDaArte: (anterior: AvisoDaArte | null, form: FormData) => Promise<AvisoDaArte | null>;
@@ -54,8 +66,17 @@ export default function EditorDoCarrossel({
   soTextoInicial: number[];
   versoes: string[];
   pausaMs?: number;
+  publicacao?: PublicacaoNaTela;
 }) {
   const [versoes, setVersoes] = useState(versoesIniciais);
+  const [imagens, setImagens] = useState<Record<number, ImagemNaTela>>(publicacao?.imagens ?? {});
+  const travado = publicacao?.travado ?? null;
+  // As partes "não salvas" ("slide_N" e "legenda"): o "Publicar" trava com elas, porque o que sai é o
+  // texto salvo. Cada card avisa quando muda.
+  const [naoSalvos, setNaoSalvos] = useState<string[]>([]);
+  const marcarNaoSalvo = useCallback((chave: string, sim: boolean) => {
+    setNaoSalvos((atuais) => (atuais.includes(chave) === sim ? atuais : sim ? [...atuais, chave] : atuais.filter((k) => k !== chave)));
+  }, []);
   const [soTexto, setSoTexto] = useState(soTextoInicial);
   const aceito = useRef(soTextoInicial);
   const [respostaDaArte, despacharArte, artePendente] = useActionState(
@@ -91,6 +112,20 @@ export default function EditorDoCarrossel({
     iniciar(() => despacharArte(form));
   }
 
+  /**
+   * Sobe a imagem de um slide, no jeito escolhido. Guardada, ela entra no card com o jeito que o
+   * servidor leu do caminho, e a miniatura daquele slide ganha a versão nova.
+   */
+  async function enviarImagem(p: PublicacaoNaTela, numero: number, arquivo: File, jeito: JeitoDaImagem): Promise<AvisoDaImagem> {
+    const r = await enviarImagemDoSlide({ carrosselId, numero, jeito, arquivo, assinar: p.acaoDaAssinatura, guardar: p.acaoDaImagem });
+    const { versao, versaoDaMiniatura } = r;
+    if (r.tom === "ok" && versao) {
+      setImagens((atuais) => ({ ...atuais, [numero]: { url: r.imagem ?? null, versao, jeito: r.jeito ?? jeito } }));
+      if (versaoDaMiniatura) setVersoes((vs) => vs.map((x, i) => (i === numero - 1 ? versaoDaMiniatura : x)));
+    }
+    return r;
+  }
+
   async function baixarTodos() {
     setBaixando(true);
     for (const n of slides) {
@@ -106,85 +141,112 @@ export default function EditorDoCarrossel({
   }
 
   return (
-    <section className={`${card} space-y-4 p-6`}>
-      <h2 className="text-base font-semibold">Arte e texto dos slides</h2>
-      <div>
-        <p className="text-sm">
-          Conta do carrossel: <strong>{rotuloDaConta ?? "nenhuma conta conectada"}</strong>
-        </p>
-        {avisoDaConta && !fixada && <p className={hint}>{avisoDaConta}</p>}
-        {podeFixar && !fixada && (
-          <button
-            type="button"
-            disabled={contaPendente}
-            onClick={() => {
-              const form = new FormData();
-              form.set("id", carrosselId);
-              iniciar(() => fixar(form));
-            }}
-            className={`${btnSecondary} mt-2`}
-          >
-            Fixar nesta conta
-          </button>
-        )}
-        {respostaDaConta && (
-          <p role="status" className={`${respostaDaConta.tom === "ok" ? alertOk : alertError} mt-2`}>
-            {respostaDaConta.texto}
+    <div className="space-y-6">
+      <section className={`${card} space-y-4 p-6`}>
+        <h2 className="text-base font-semibold">Arte e texto dos slides</h2>
+        {travado && (
+          <p role="status" className={alertWarn}>
+            {travado}
           </p>
         )}
-      </div>
-      <p className={hint}>
-        A chamada pede a palavra <strong>{palavra}</strong>. Ela vem do bônus e não se edita aqui.
-      </p>
+        <div>
+          <p className="text-sm">
+            Conta do carrossel: <strong>{rotuloDaConta ?? "nenhuma conta conectada"}</strong>
+          </p>
+          {avisoDaConta && !fixada && <p className={hint}>{avisoDaConta}</p>}
+          {podeFixar && !fixada && (
+            <button
+              type="button"
+              disabled={contaPendente}
+              onClick={() => {
+                const form = new FormData();
+                form.set("id", carrosselId);
+                iniciar(() => fixar(form));
+              }}
+              className={`${btnSecondary} mt-2`}
+            >
+              Fixar nesta conta
+            </button>
+          )}
+          {respostaDaConta && (
+            <p role="status" className={`${respostaDaConta.tom === "ok" ? alertOk : alertError} mt-2`}>
+              {respostaDaConta.texto}
+            </p>
+          )}
+        </div>
+        <p className={hint}>
+          A chamada pede a palavra <strong>{palavra}</strong>. Ela vem do bônus e não se edita aqui.
+        </p>
 
-      <ul className="space-y-4">
-        {slides.map((n) => (
+        <ul className="space-y-4">
+          {slides.map((n) => (
+            <CardDaParte
+              key={n}
+              acao={acaoDoSlide}
+              bonusId={bonusId}
+              carrosselId={carrosselId}
+              palavra={palavra}
+              total={total}
+              parte={{ tipo: "slide", numero: n }}
+              campos={camposDe({ tipo: "slide", numero: n })}
+              valores={valores}
+              versao={versoes[n - 1]}
+              aoNovaVersao={(v) => setVersoes((vs) => vs.map((x, i) => (i === n - 1 ? v : x)))}
+              soTexto={soTexto.includes(n)}
+              aoMudarSoTexto={(marcado) => mudarSoTexto(n, marcado)}
+              soTextoPendente={artePendente}
+              imagem={imagens[n] ?? null}
+              versaoDoTexto={publicacao?.versoesDoTexto[n - 1] ?? null}
+              enviarImagem={publicacao ? (arquivo, jeito) => enviarImagem(publicacao, n, arquivo, jeito) : null}
+              travado={travado}
+              aoMudarNaoSalvo={(sim) => marcarNaoSalvo(`slide_${n}`, sim)}
+            />
+          ))}
           <CardDaParte
-            key={n}
             acao={acaoDoSlide}
             bonusId={bonusId}
             carrosselId={carrosselId}
             palavra={palavra}
             total={total}
-            parte={{ tipo: "slide", numero: n }}
-            campos={camposDe({ tipo: "slide", numero: n })}
+            parte={{ tipo: "legenda" }}
+            campos={camposDe({ tipo: "legenda" })}
             valores={valores}
-            versao={versoes[n - 1]}
-            aoNovaVersao={(v) => setVersoes((vs) => vs.map((x, i) => (i === n - 1 ? v : x)))}
-            soTexto={soTexto.includes(n)}
-            aoMudarSoTexto={(marcado) => mudarSoTexto(n, marcado)}
-            soTextoPendente={artePendente}
+            versao={null}
+            aoNovaVersao={() => {}}
+            soTexto={false}
+            aoMudarSoTexto={() => {}}
+            soTextoPendente={false}
+            travado={travado}
+            aoMudarNaoSalvo={(sim) => marcarNaoSalvo("legenda", sim)}
           />
-        ))}
-        <CardDaParte
-          acao={acaoDoSlide}
+        </ul>
+
+        {respostaDaArte?.tom === "erro" && (
+          <p role="status" className={alertError}>
+            {respostaDaArte.texto}
+          </p>
+        )}
+
+        <div className="space-y-2">
+          <p className={hint}>{textoDoBaixarTodos(total)}</p>
+          <button type="button" onClick={baixarTodos} disabled={baixando} className={btnPrimary}>
+            Baixar todos
+          </button>
+        </div>
+      </section>
+      {publicacao && (
+        <CardPublicar
+          publicacao={publicacao}
           bonusId={bonusId}
           carrosselId={carrosselId}
-          palavra={palavra}
           total={total}
-          parte={{ tipo: "legenda" }}
-          campos={camposDe({ tipo: "legenda" })}
-          valores={valores}
-          versao={null}
-          aoNovaVersao={() => {}}
-          soTexto={false}
-          aoMudarSoTexto={() => {}}
-          soTextoPendente={false}
+          soTexto={soTexto}
+          imagens={imagens}
+          versoesDaMiniatura={versoes}
+          slidesNaoSalvos={naoSalvos.filter((k) => k.startsWith("slide_")).map((k) => Number(k.slice("slide_".length)))}
+          legendaNaoSalva={naoSalvos.includes("legenda")}
         />
-      </ul>
-
-      {respostaDaArte?.tom === "erro" && (
-        <p role="status" className={alertError}>
-          {respostaDaArte.texto}
-        </p>
       )}
-
-      <div className="space-y-2">
-        <p className={hint}>{textoDoBaixarTodos(total)}</p>
-        <button type="button" onClick={baixarTodos} disabled={baixando} className={btnPrimary}>
-          Baixar todos
-        </button>
-      </div>
-    </section>
+    </div>
   );
 }

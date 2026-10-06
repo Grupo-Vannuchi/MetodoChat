@@ -53,6 +53,8 @@ import {
 import { temChaveDaIA } from "@/lib/bonus/config";
 import { ehIdDeBonus } from "@/lib/bonus/pedido";
 import { situacaoNoLabs } from "@/lib/bonus/publicado";
+import { fotosDaArte, versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
+import { textoDaTrava } from "@/lib/bonus/publicar-textos";
 import { lerLinha } from "@/lib/bonus/repositorio";
 import { geracaoNaTela } from "@/lib/bonus/tempos";
 import { TEXTO_BONUS_NAO_ENCONTRADO, textoDaConfig, urlDoBonusComAviso } from "@/lib/bonus/textos";
@@ -203,12 +205,16 @@ export async function salvarSlideDoCarrossel(_anterior: AvisoDoSlide | null, for
   const escolhas = escolhasDaArte(linha.arte, total);
   const r = await salvarParteDoCarrossel(id, parte, bruto, nomeQueFalta(contas, escolhas));
   if (!r.ok && r.motivo === "nao_pronto") return resposta("erro", TEXTO_CARROSSEL_NAO_REVISAVEL);
+  if (!r.ok && r.motivo === "travado") return resposta("erro", textoDaTrava(r.estado));
   if (!r.ok) return resposta("erro", `Corrija antes de salvar. ${textoDosProblemasDoCarrossel(total, r.problemas)}`);
   const texto = textoDaParteSalva(parte, total, r.avisos);
   if (parte.tipo === "legenda") return resposta("ok", texto);
   const { conta } = resolverConta(contas, escolhas, await contaDoCookie());
-  const versoes = versoesDosSlides(slidesDoTexto(r.texto), escolhas.soTexto, cabecalhoParaVersao(conta));
-  return resposta("ok", texto, versoes[parte.numero - 1] ?? null);
+  const slides = slidesDoTexto(r.texto);
+  const versoes = versoesDosSlides(slides, escolhas.soTexto, cabecalhoParaVersao(conta), fotosDaArte(linha.arte, total));
+  // A versão do texto salvo vai junto (Etapa 5): o card compara com a da imagem do Canva guardada.
+  const doSlide = slides[parte.numero - 1];
+  return { ...resposta("ok", texto, versoes[parte.numero - 1] ?? null), versaoDoTexto: doSlide ? versaoDoTextoDoSlide(doSlide) : null };
 }
 
 /**
@@ -236,9 +242,13 @@ export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form:
   const contas = await contasParaArte();
   const escolhas = escolhasDaArte(linha.arte, linha.total_slides);
   const salvou = await salvarSoTextoDaArte(id, lido.soTexto, nomeQueFalta(contas, escolhas));
-  if (!salvou) return resposta("erro", TEXTO_ARTE_NAO_PRONTA);
+  if (!salvou.ok) return resposta("erro", salvou.motivo === "travado" ? textoDaTrava(salvou.estado) : TEXTO_ARTE_NAO_PRONTA);
   const { conta } = resolverConta(contas, escolhas, await contaDoCookie());
-  return resposta("ok", TEXTO_ARTE_SALVA, versoesDosSlides(slidesDoTexto(texto), lido.soTexto, cabecalhoParaVersao(conta)));
+  return resposta(
+    "ok",
+    TEXTO_ARTE_SALVA,
+    versoesDosSlides(slidesDoTexto(texto), lido.soTexto, cabecalhoParaVersao(conta), fotosDaArte(linha.arte, linha.total_slides))
+  );
 }
 
 /**
