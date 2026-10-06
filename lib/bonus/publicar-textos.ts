@@ -1,7 +1,7 @@
 import type { Aviso } from "@/lib/avisos";
 import { fmtDate } from "@/lib/format";
 import type { EstadoDaPublicacao, FaltaParaPublicar } from "./publicar-estado";
-import type { ProblemaDaFoto, ProblemaDaProporcao } from "./publicar-regras";
+import type { JeitoDaImagem, ProblemaDaFoto, ProblemaDaProporcao } from "./publicar-regras";
 import type { TomDoQuadro } from "./textos";
 
 // AS FRASES DA PUBLICAÇÃO DO CARROSSEL, fora do JSX e das actions (o princípio de
@@ -142,6 +142,7 @@ export type RecusaDaPublicacaoDoCarrossel =
   | { motivo: "nao_e_so_texto"; numero: number }
   | { motivo: "tipo" }
   | { motivo: "proporcao"; problema: ProblemaDaProporcao }
+  | { motivo: "foto"; problema: ProblemaDaFoto }
   | { motivo: "arquivo"; texto: string }
   | { motivo: "caminho" }
   | { motivo: "faltam_imagens"; slides: number[] }
@@ -168,13 +169,15 @@ export function textoDaRecusaDaPublicacaoDoCarrossel(r: RecusaDaPublicacaoDoCarr
     case "slide":
       return "Esse slide não existe neste carrossel. Recarregue a página.";
     case "sem_espaco":
-      return `O slide ${r.numero} está marcado como "só texto": ele sai com a arte do Chat, sem imagem do Canva.`;
+      return `O slide ${r.numero} está marcado como "só texto": ele sai com a arte do Chat, sem foto nem slide pronto.`;
     case "nao_e_so_texto":
       return `O slide ${r.numero} tem espaço de imagem: ele sai com a imagem do Canva, e não com a arte do Chat.`;
     case "tipo":
       return "A imagem tem de chegar em JPEG. Recarregue a página e tente de novo.";
     case "proporcao":
       return textoDaProporcao(r.problema);
+    case "foto":
+      return textoDoProblemaDaFoto(r.problema);
     case "arquivo":
       return r.texto;
     case "caminho":
@@ -184,7 +187,7 @@ export function textoDaRecusaDaPublicacaoDoCarrossel(r: RecusaDaPublicacaoDoCarr
     case "arte_so_texto":
       return `A arte do slide ${r.numero} não chegou. Recarregue a página e publique de novo.`;
     case "arte_velha":
-      return `O texto do slide ${r.numero} mudou enquanto a arte era preparada. Publique de novo.`;
+      return `O slide ${r.numero} mudou enquanto a arte era preparada. Publique de novo.`;
     case "caminho_na_fila":
       return "Uma das imagens já está na fila de outro post. Recarregue a página e publique de novo.";
     case "legenda":
@@ -216,9 +219,16 @@ export type RespostaDaAssinatura = { ok: true; caminho: string; url: string } | 
 
 /**
  * A resposta de guardar a imagem de um slide, como ESTADO (achado 52): com a versão do texto, para o
- * aviso "o texto mudou", e o endereço público da imagem, para a miniatura do card.
+ * aviso "o texto mudou", e o endereço público da imagem, para a miniatura do card. Do adendo da foto:
+ * o jeito, que o servidor leu do caminho, e a versão nova da miniatura, que muda com a foto.
  */
-export type AvisoDaImagem = Aviso & { em: number; versao?: string; imagem?: string | null };
+export type AvisoDaImagem = Aviso & {
+  em: number;
+  versao?: string;
+  imagem?: string | null;
+  jeito?: JeitoDaImagem;
+  versaoDaMiniatura?: string;
+};
 
 /** A resposta do "Publicar", como ESTADO. */
 export type AvisoDaPublicacao = Aviso & { em: number };

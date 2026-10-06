@@ -12,6 +12,7 @@ import {
   imagensDaArte,
   publicacaoDaArte,
   versaoDoTextoDoSlide,
+  type JeitoDaImagem,
   type PublicacaoGuardada,
 } from "./publicar-regras";
 import type { RecusaDaPublicacaoDoCarrossel } from "./publicar-textos";
@@ -54,15 +55,17 @@ const recusa = (r: RecusaDaPublicacaoDoCarrossel): Recusa => ({ ok: false, recus
 
 /**
  * GUARDAR A IMAGEM DE UM SLIDE, com a linha travada: o carrossel pronto e com conta, a trava livre, o
- * slide com espaço de imagem, e o caminho na forma exata `<pasta da conta do carrossel>/bonus/<uuid>.jpg`.
- * A versão gravada é a do texto SALVO agora. Devolve a imagem anterior daquele slide, para quem chama
- * apagá-la do bucket depois do `commit`.
+ * slide com espaço de imagem, e o caminho na forma exata `<pasta da conta do carrossel>/bonus/<uuid>.jpg`
+ * (o slide pronto) ou `<pasta da conta do carrossel>/bonus-foto/<uuid>.jpg` (a foto do espaço, adendo
+ * da Etapa 5). O jeito é o prefixo do caminho que o servidor assinou, e não se grava à parte. A versão
+ * gravada é a do texto SALVO agora. Devolve a imagem anterior daquele slide, de qualquer jeito, para
+ * quem chama apagá-la do bucket depois do `commit`.
  */
 export async function gravarImagemDoSlide(
   id: string,
   numero: number,
   caminho: string
-): Promise<{ ok: true; anterior: string | null; versao: string } | Recusa> {
+): Promise<{ ok: true; anterior: string | null; versao: string; jeito: JeitoDaImagem } | Recusa> {
   if (!ehIdDeBonus(id)) return recusa({ motivo: "nao_pronto" });
   return sql().begin(async (tx) => {
     const [linha] = (await tx.query(`select * from carrosseis_gerados where id = $1 for update`, [id])) as LinhaDoCarrossel[];
@@ -75,7 +78,9 @@ export async function gravarImagemDoSlide(
     const slide = slidesDoTexto(texto)[numero - 1];
     if (!Number.isInteger(numero) || !slide) return recusa({ motivo: "slide" });
     if (!comEspaco(escolhas, numero)) return recusa({ motivo: "sem_espaco", numero });
-    if (!ehCaminhoDoDestino(caminho, pastaDaConta(escolhas.conta), "slide")) return recusa({ motivo: "caminho" });
+    const pasta = pastaDaConta(escolhas.conta);
+    const jeito = ehCaminhoDoDestino(caminho, pasta, "foto") ? "foto" : ehCaminhoDoDestino(caminho, pasta, "slide") ? "slide" : null;
+    if (!jeito) return recusa({ motivo: "caminho" });
     const anterior = imagensDaArte(linha.arte, linha.total_slides)[numero]?.caminho ?? null;
     const versao = versaoDoTextoDoSlide(slide);
     await tx.query(
@@ -85,7 +90,7 @@ export async function gravarImagemDoSlide(
         where id = $1`,
       [id, { [String(numero)]: { caminho, versao } }]
     );
-    return { ok: true as const, anterior: anterior === caminho ? null : anterior, versao };
+    return { ok: true as const, anterior: anterior === caminho ? null : anterior, versao, jeito };
   });
 }
 

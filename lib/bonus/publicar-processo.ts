@@ -13,6 +13,7 @@ import { drainQueue } from "@/lib/queue-drain";
 import { resolverConta, type ContaDoCabecalho } from "./arte-conta";
 import { comEspaco, escolhasDaArte, type EscolhasDaArte } from "./arte-escolhas";
 import { slidesDoTexto, type SlideParaArte } from "./arte-slides";
+import { cabecalhoParaVersao, versoesDosSlides } from "./arte-tela";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { lerCarrossel } from "./carrossel-repositorio";
 import { textoDaLinhaDoCarrossel } from "./carrossel-tela";
@@ -30,10 +31,13 @@ import {
 import {
   ehCaminhoDoDestino,
   formaDoCarrossel,
+  fotosDaArte,
   imagensDaArte,
+  problemaDaFotoDoEspaco,
   problemaDaProporcaoDoSlide,
-  versaoDoTextoDoSlide,
+  versaoDoDesenho,
   type DestinoDaImagem,
+  type JeitoDaImagem,
 } from "./publicar-regras";
 import type { RecusaDaPublicacaoDoCarrossel } from "./publicar-textos";
 
@@ -74,10 +78,12 @@ const numero = (v: unknown): number | undefined => (typeof v === "number" && Num
 const mensagem = (e: unknown) => (e instanceof Error && e.message ? e.message : "erro sem mensagem");
 
 /**
- * ASSINAR O UPLOAD DE UMA IMAGEM: no destino `slide`, a imagem do Canva de um slide com espaço; no
- * destino `fila`, a arte de um slide "Só texto", convertida no navegador na hora de publicar. Só
- * JPEG, em 4:5, pela `decisaoDeAssinatura` do /publicar com a forma do carrossel. As medidas são
- * declaradas pelo navegador, como no /publicar.
+ * ASSINAR O UPLOAD DE UMA IMAGEM: no destino `slide`, o slide pronto do Canva de um slide com espaço;
+ * no destino `foto`, a foto do espaço da arte (adendo da Etapa 5); no destino `fila`, a arte de um
+ * slide que sai com a arte do Chat (o "Só texto" e o com foto), convertida no navegador na hora de
+ * publicar. Só JPEG: a foto na proporção do espaço e até 2 MB (achado 79), o resto em 4:5; e tudo
+ * pela `decisaoDeAssinatura` do /publicar com a forma do carrossel. As medidas são declaradas pelo
+ * navegador, como no /publicar.
  */
 export async function assinarImagem(p: {
   id: string;
@@ -90,12 +96,18 @@ export async function assinarImagem(p: {
   if (!c.ok) return c;
   if (!Number.isInteger(p.numero) || !c.slides[p.numero - 1]) return recusa({ motivo: "slide" });
   const espaco = comEspaco(c.escolhas, p.numero);
-  if (p.destino === "slide" && !espaco) return recusa({ motivo: "sem_espaco", numero: p.numero });
-  if (p.destino === "fila" && espaco) return recusa({ motivo: "nao_e_so_texto", numero: p.numero });
+  const desenhado = !espaco || fotosDaArte(c.linha.arte, c.linha.total_slides)[p.numero] !== undefined;
+  if (p.destino !== "fila" && !espaco) return recusa({ motivo: "sem_espaco", numero: p.numero });
+  if (p.destino === "fila" && !desenhado) return recusa({ motivo: "nao_e_so_texto", numero: p.numero });
   const arquivo = (p.arquivo !== null && typeof p.arquivo === "object" ? p.arquivo : {}) as Record<string, unknown>;
   if (arquivo.mime !== "image/jpeg") return recusa({ motivo: "tipo" });
-  const proporcao = problemaDaProporcaoDoSlide(numero(arquivo.largura), numero(arquivo.altura));
-  if (proporcao) return recusa({ motivo: "proporcao", problema: proporcao });
+  if (p.destino === "foto") {
+    const foto = problemaDaFotoDoEspaco(numero(arquivo.largura), numero(arquivo.altura), numero(arquivo.bytes));
+    if (foto) return recusa({ motivo: "foto", problema: foto });
+  } else {
+    const proporcao = problemaDaProporcaoDoSlide(numero(arquivo.largura), numero(arquivo.altura));
+    if (proporcao) return recusa({ motivo: "proporcao", problema: proporcao });
+  }
   try {
     const decisao = decisaoDeAssinatura({ ...arquivo, forma: formaDoCarrossel(c.linha.total_slides) }, await tetoDoBucket());
     if (!decisao.ok) return recusa({ motivo: "arquivo", texto: decisao.erro });
@@ -105,31 +117,44 @@ export async function assinarImagem(p: {
   }
 }
 
-/** GUARDAR A IMAGEM SUBIDA NO SLIDE. A anterior sai do bucket depois do `commit`, sem derrubar a troca. */
+/**
+ * GUARDAR A IMAGEM SUBIDA NO SLIDE. A anterior, de qualquer jeito, sai do bucket depois do `commit`,
+ * sem derrubar a troca. Devolve o jeito, que o repositório leu do caminho, e a versão nova da
+ * miniatura daquele slide: a foto muda o desenho, e o slide pronto o devolve ao espaço em branco.
+ */
 export async function guardarImagem(p: {
   id: string;
   numero: number;
   caminho: unknown;
   contas: ContaDoCabecalho[];
-}): Promise<{ ok: true; versao: string } | Recusa> {
+}): Promise<{ ok: true; versao: string; jeito: JeitoDaImagem; versaoDaMiniatura: string } | Recusa> {
   const c = await conferirCarrossel(p.id, p.contas);
   if (!c.ok) return c;
   if (typeof p.caminho !== "string") return recusa({ motivo: "caminho" });
   const r = await gravarImagemDoSlide(p.id, p.numero, p.caminho);
   if (!r.ok) return r;
   if (r.anterior) await apagarSemDerrubar([r.anterior]);
-  return { ok: true, versao: r.versao };
+  const fotos = { ...fotosDaArte(c.linha.arte, c.linha.total_slides) };
+  if (r.jeito === "foto") fotos[p.numero] = p.caminho;
+  else delete fotos[p.numero];
+  const { conta } = resolverConta(p.contas, c.escolhas, undefined);
+  const versaoDaMiniatura = versoesDosSlides(c.slides, c.escolhas.soTexto, cabecalhoParaVersao(conta), fotos)[p.numero - 1];
+  return { ok: true, versao: r.versao, jeito: r.jeito, versaoDaMiniatura };
 }
 
-/** A arte de um slide "Só texto", subida pelo navegador na hora de publicar. */
+/** A arte de um slide que sai com a arte do Chat (o "Só texto" e o com foto), subida pelo navegador na hora de publicar. */
 export type ArteSubida = { numero: number; caminho: unknown; versao: unknown };
 
 /**
- * PUBLICAR OU AGENDAR (spec, "Publicar"): confere tudo antes de tocar o bucket; copia as imagens
- * guardadas para a fila, fora de qualquer transação; reserva com a linha travada, conferindo de novo;
- * enfileira na conta do carrossel; marca a reserva como enfileirada (achado 75); e, com "agora", drena
- * a fila como o /publicar. Em qualquer recusa depois do navegador ter subido as artes, as artes e as
- * cópias desta tentativa saem do bucket.
+ * PUBLICAR OU AGENDAR (spec, "Publicar"): confere tudo antes de tocar o bucket; copia os slides
+ * prontos guardados para a fila, fora de qualquer transação; reserva com a linha travada, conferindo
+ * de novo; enfileira na conta do carrossel; marca a reserva como enfileirada (achado 75); e, com
+ * "agora", drena a fila como o /publicar. Em qualquer recusa depois do navegador ter subido as artes,
+ * as artes e as cópias desta tentativa saem do bucket.
+ *
+ * O SLIDE COM FOTO PUBLICA A ARTE DESENHADA, e não a foto (adendo da Etapa 5): ele vai com as artes
+ * "Só texto", que o navegador baixou da rota e subiu em `bonus-fila`, com a versão do desenho (o
+ * texto e o caminho da foto). A foto guardada nunca vai para a fila, nem como cópia.
  *
  * `enfileirar` e `drenar` entram por parâmetro só para o teste: em produção são as do /publicar.
  */
@@ -154,11 +179,16 @@ export async function publicarNaFila(p: {
   const comImagem = c.slides.filter((s) => comEspaco(c.escolhas, s.numero));
   const faltam = comImagem.filter((s) => !imagens[s.numero]).map((s) => s.numero);
   if (faltam.length) return recusa({ motivo: "faltam_imagens", slides: faltam });
+  // OS SLIDES QUE SAEM COM A ARTE DO CHAT: o "Só texto" e o com foto. O resto sai com a cópia do slide
+  // pronto. A foto de cada um é a do slide com espaço; no "Só texto" a foto guardada não conta.
+  const fotos = fotosDaArte(c.linha.arte, total);
+  const fotoDe = (n: number) => (comEspaco(c.escolhas, n) ? (fotos[n] ?? null) : null);
+  const desenhados = c.slides.filter((s) => !comEspaco(c.escolhas, s.numero) || fotoDe(s.numero) !== null).map((s) => s.numero);
 
-  // AS ARTES "SÓ TEXTO", conferidas antes de tudo. Os caminhos que o navegador subiu só servem para
-  // apagar numa recusa quando passam na forma exata de `bonus-fila` da pasta do carrossel e não
-  // estão em payload nenhum da fila: sem isso, um pedido montado à mão faria esta tentativa apagar o
-  // arquivo de outro post.
+  // AS ARTES, conferidas antes de tudo. Os caminhos que o navegador subiu só servem para apagar numa
+  // recusa quando passam na forma exata de `bonus-fila` da pasta do carrossel e não estão em payload
+  // nenhum da fila: sem isso, um pedido montado à mão faria esta tentativa apagar o arquivo de outro
+  // post.
   const pasta = pastaDaConta(c.conta);
   const subidas = p.artes.filter((a) => ehCaminhoDoDestino(a.caminho, pasta, "fila")).map((a) => a.caminho as string);
   const descartaveis = subidas.filter((x, i) => subidas.indexOf(x) === i);
@@ -170,19 +200,19 @@ export async function publicarNaFila(p: {
   }
   const artes = new Map<number, string>();
   for (const a of p.artes) {
-    if (!c.escolhas.soTexto.includes(a.numero)) {
+    if (!desenhados.includes(a.numero)) {
       await descartar();
       return recusa({ motivo: "nao_e_so_texto", numero: a.numero });
     }
   }
-  for (const n of c.escolhas.soTexto) {
+  for (const n of desenhados) {
     const a = p.artes.find((x) => x.numero === n);
     const caminho = a?.caminho;
     if (!a || !ehCaminhoDoDestino(caminho, pasta, "fila") || [...artes.values()].includes(caminho)) {
       await descartar();
       return recusa({ motivo: "arte_so_texto", numero: n });
     }
-    if (a.versao !== versaoDoTextoDoSlide(c.slides[n - 1])) {
+    if (a.versao !== versaoDoDesenho(c.slides[n - 1], fotoDe(n))) {
       await descartar();
       return recusa({ motivo: "arte_velha", numero: n });
     }
@@ -196,23 +226,27 @@ export async function publicarNaFila(p: {
     return recusa({ motivo: "legenda", texto: textoDoProblemaDaLegenda(problema) });
   }
 
-  // AS CÓPIAS, fora de qualquer transação: segurar a linha enquanto se baixa e sobe até 10 imagens
-  // prenderia uma conexão por segundos e travaria os outros salvamentos do carrossel.
-  const origens = comImagem.map((s) => ({ numero: s.numero, caminho: imagens[s.numero].caminho }));
+  // AS CÓPIAS, só dos slides prontos e fora de qualquer transação: segurar a linha enquanto se baixa e
+  // sobe até 10 imagens prenderia uma conexão por segundos e travaria os outros salvamentos do carrossel.
+  const origens = comImagem
+    .filter((s) => !desenhados.includes(s.numero))
+    .map((s) => ({ numero: s.numero, caminho: imagens[s.numero].caminho }));
   const copiadas = await copiarTodasParaAFila(origens, c.conta);
   if (!copiadas.ok) {
     await descartar();
     return recusa({ motivo: "copia", numero: copiadas.numero });
   }
-  const caminhos = c.slides.map((s) => (comEspaco(c.escolhas, s.numero) ? copiadas.copias[s.numero] : (artes.get(s.numero) as string)));
+  const caminhos = c.slides.map((s) => (desenhados.includes(s.numero) ? (artes.get(s.numero) as string) : copiadas.copias[s.numero]));
   const chave = publicacaoKey(c.conta, forma, caminhos);
 
+  // A reserva confere de novo TODAS as imagens dos slides com espaço, as fotos inclusive: a arte com
+  // foto foi desenhada com a foto que estava guardada na hora.
   const reserva = await reservarPublicacao(
     p.id,
     {
       texto: JSON.stringify(c.texto),
       soTexto: c.escolhas.soTexto,
-      imagens: Object.fromEntries(origens.map((o) => [o.numero, o.caminho])),
+      imagens: Object.fromEntries(comImagem.map((s) => [s.numero, imagens[s.numero].caminho])),
     },
     chave,
     caminhos

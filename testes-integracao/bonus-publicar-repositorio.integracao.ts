@@ -19,6 +19,7 @@ const OUTRA = "17841400000000002";
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const guardada = (n: number, pasta = CONTA) => `${pasta}/bonus/${uuid(n)}.jpg`;
 const daFila = (n: number, pasta = CONTA) => `${pasta}/bonus-fila/${uuid(n)}.jpg`;
+const foto = (n: number, pasta = CONTA) => `${pasta}/bonus-foto/${uuid(n)}.jpg`;
 
 const slide = (i: number) => ({
   titulo: `Título do slide ${i}`,
@@ -114,7 +115,7 @@ describe("guardar a imagem de um slide", () => {
   it("grava só aquele slide, com a versão do texto salvo, e mantém a conta e o só texto", async () => {
     const id = await carrossel();
     const r = await publicar.gravarImagemDoSlide(id, 3, guardada(3));
-    expect(r).toEqual({ ok: true, anterior: null, versao: versaoDo(3) });
+    expect(r).toEqual({ ok: true, anterior: null, versao: versaoDo(3), jeito: "slide" });
     const arte = await arteDe(id);
     expect(arte.imagens).toEqual({ "3": { caminho: guardada(3), versao: versaoDo(3) } });
     expect(arte.conta).toBe(CONTA);
@@ -125,15 +126,38 @@ describe("guardar a imagem de um slide", () => {
     const id = await carrossel();
     await publicar.gravarImagemDoSlide(id, 2, guardada(2));
     await publicar.gravarImagemDoSlide(id, 3, guardada(3));
-    expect(await publicar.gravarImagemDoSlide(id, 3, guardada(33))).toEqual({ ok: true, anterior: guardada(3), versao: versaoDo(3) });
+    expect(await publicar.gravarImagemDoSlide(id, 3, guardada(33))).toEqual({
+      ok: true,
+      anterior: guardada(3),
+      versao: versaoDo(3),
+      jeito: "slide",
+    });
     expect(regras.imagensDaArte(await arteDe(id), 5)).toEqual({
       2: { caminho: guardada(2), versao: versaoDo(2) },
       3: { caminho: guardada(33), versao: versaoDo(3) },
     });
   });
 
+  // O JEITO É O PREFIXO DO CAMINHO (adendo da Etapa 5): a foto em bonus-foto, o slide pronto em bonus.
+  // A troca de um jeito pelo outro devolve a anterior, para ela sair do bucket.
+  it("guarda a foto de bonus-foto, e a troca de jeito devolve a anterior", async () => {
+    const id = await carrossel();
+    expect(await publicar.gravarImagemDoSlide(id, 3, foto(3))).toEqual({ ok: true, anterior: null, versao: versaoDo(3), jeito: "foto" });
+    expect(regras.fotosDaArte(await arteDe(id), 5)).toEqual({ 3: foto(3) });
+    expect(await publicar.gravarImagemDoSlide(id, 3, guardada(3))).toEqual({
+      ok: true,
+      anterior: foto(3),
+      versao: versaoDo(3),
+      jeito: "slide",
+    });
+    expect(regras.imagensDaArte(await arteDe(id), 5)).toEqual({ 3: { caminho: guardada(3), versao: versaoDo(3) } });
+    expect(regras.fotosDaArte(await arteDe(id), 5)).toEqual({});
+  });
+
   it.each([
     ["outra pasta", 3, guardada(3, OUTRA), "caminho"],
+    ["a foto de outra pasta", 3, foto(3, OUTRA), "caminho"],
+    ["outro prefixo", 3, `${CONTA}/bonus-video/${uuid(3)}.jpg`, "caminho"],
     ["o prefixo da fila", 3, daFila(3), "caminho"],
     ["o slide só texto", 1, guardada(1), "sem_espaco"],
     ["o slide que não existe", 6, guardada(6), "slide"],
@@ -250,6 +274,19 @@ describe("a reserva da publicação", () => {
     const r = await publicar.reservarPublicacao(id, { ...esperado, ...mudanca }, "pub:chave-1", caminhos);
     expect(r.ok ? null : r.recusa.motivo).toBe("mudou");
     expect(regras.publicacaoDaArte(await arteDe(id))).toBeNull();
+  });
+
+  // A reserva confere também que as fotos são as mesmas (adendo da Etapa 5): a arte subida foi
+  // desenhada com a foto que estava guardada na hora.
+  it("recusa quando a foto do espaço foi trocada desde a conferência", async () => {
+    const id = await carrossel();
+    await publicar.gravarImagemDoSlide(id, 2, foto(2));
+    await publicar.gravarImagemDoSlide(id, 3, guardada(3));
+    await publicar.gravarImagemDoSlide(id, 4, guardada(4));
+    const conferido = { ...esperado, imagens: { 2: foto(2), 3: guardada(3), 4: guardada(4) } };
+    await publicar.gravarImagemDoSlide(id, 2, foto(22));
+    const r = await publicar.reservarPublicacao(id, conferido, "pub:chave-1", caminhos);
+    expect(r.ok ? null : r.recusa.motivo).toBe("mudou");
   });
 
   it("dois reservando ao mesmo tempo: um só reserva, e o outro é recusado pela trava", async () => {

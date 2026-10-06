@@ -17,6 +17,7 @@ type ModuloProcesso = typeof import("@/lib/bonus/publicar-processo");
 type ModuloRepo = typeof import("@/lib/bonus/carrossel-repositorio");
 type ModuloRegras = typeof import("@/lib/bonus/publicar-regras");
 type ModuloSlides = typeof import("@/lib/bonus/arte-slides");
+type ModuloTela = typeof import("@/lib/bonus/arte-tela");
 type ContaDoCabecalho = import("@/lib/bonus/arte-conta").ContaDoCabecalho;
 
 const banco = bancoDescartavel();
@@ -27,6 +28,8 @@ const CHAVE_DO_BUCKET_FALSO = "chave-de-servico-inventada-para-o-teste";
 const BUCKET = "MetodoChatDeTeste";
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 9, 9]);
 const DECLARADO = { nome: "slide.jpg", mime: "image/jpeg", bytes: 1000, largura: 1080, altura: 1350 };
+/** A foto do espaço, já recortada e reduzida no navegador ao dobro do espaço (adendo da Etapa 5). */
+const FOTO_DECLARADA = { nome: "foto.jpg", mime: "image/jpeg", bytes: 1000, largura: 1720, altura: 1146 };
 
 const slide = (i: number) => ({
   titulo: `Título do slide ${i}`,
@@ -62,6 +65,7 @@ let processo: ModuloProcesso;
 let repo: ModuloRepo;
 let regras: ModuloRegras;
 let slides: ModuloSlides;
+let tela: ModuloTela;
 let contas: ContaDoCabecalho[];
 let bonusId: string;
 let drenagens: number;
@@ -131,6 +135,7 @@ beforeAll(async () => {
   repo = await import("@/lib/bonus/carrossel-repositorio");
   regras = await import("@/lib/bonus/publicar-regras");
   slides = await import("@/lib/bonus/arte-slides");
+  tela = await import("@/lib/bonus/arte-tela");
   for (const [conta, nome] of [
     [CONTA, "thiagovannuchi"],
     [OUTRA, "n8x"],
@@ -190,8 +195,9 @@ const versaoDo = (n: number, texto: TextoDeCarrossel | TextoDePost = TEXTO) =>
   regras.versaoDoTextoDoSlide(slides.slidesDoTexto(texto)[n - 1]);
 
 /** Assina, sobe pelo PUT de verdade (no bucket falso) e devolve o caminho. */
-async function subir(id: string, numero: number, destino: "slide" | "fila"): Promise<string> {
-  const a = await processo.assinarImagem({ id, numero, destino, arquivo: DECLARADO, contas });
+async function subir(id: string, numero: number, destino: "slide" | "foto" | "fila"): Promise<string> {
+  const arquivo = destino === "foto" ? FOTO_DECLARADA : DECLARADO;
+  const a = await processo.assinarImagem({ id, numero, destino, arquivo, contas });
   if (!a.ok) throw new Error(`assinar recusou: ${a.recusa.motivo}`);
   const r = await fetch(a.url, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: JPEG });
   if (!r.ok) throw new Error(`o PUT falhou: ${r.status}`);
@@ -266,16 +272,181 @@ describe("assinar a imagem", () => {
   });
 });
 
+// A FOTO NO ESPAÇO (adendo da Etapa 5): a assinatura recebe o jeito e emite o prefixo dele. A foto
+// declarada tem a proporção do espaço e até 2 MB (achado 79); o slide pronto segue no 4:5.
+describe("assinar a foto do espaço", () => {
+  it("assina em bonus-foto, na pasta da conta do carrossel", async () => {
+    const id = await carrossel();
+    const r = await processo.assinarImagem({ id, numero: 2, destino: "foto", arquivo: FOTO_DECLARADA, contas });
+    expect(r.ok && r.caminho).toMatch(new RegExp(`^${CONTA}/bonus-foto/[0-9a-f-]{36}\\.jpg$`));
+  });
+
+  it.each([
+    ["a foto em 4:5, como o slide pronto", { ...FOTO_DECLARADA, largura: 1080, altura: 1350 }, { motivo: "foto", problema: "proporcao" }],
+    ["a foto menor que o espaço", { ...FOTO_DECLARADA, largura: 600, altura: 400 }, { motivo: "foto", problema: "pequena" }],
+    ["a foto maior que o dobro do espaço", { ...FOTO_DECLARADA, largura: 3000, altura: 2000 }, { motivo: "foto", problema: "grande" }],
+    ["a foto de 2 MB e 1 byte (achado 79)", { ...FOTO_DECLARADA, bytes: 2 * 1024 * 1024 + 1 }, { motivo: "foto", problema: "pesada" }],
+    ["a foto em PNG", { ...FOTO_DECLARADA, mime: "image/png" }, { motivo: "tipo" }],
+  ] as const)("recusa %s", async (_nome, arquivo, recusa) => {
+    const id = await carrossel();
+    const r = await processo.assinarImagem({ id, numero: 2, destino: "foto", arquivo, contas });
+    expect(r.ok ? null : r.recusa).toEqual(recusa);
+    expect(bucket.chamadas.filter((c) => c.startsWith("assinou"))).toEqual([]);
+  });
+
+  it("a foto de 2 MB exatos passa (achado 79)", async () => {
+    const id = await carrossel();
+    const r = await processo.assinarImagem({ id, numero: 2, destino: "foto", arquivo: { ...FOTO_DECLARADA, bytes: 2 * 1024 * 1024 }, contas });
+    expect(r.ok).toBe(true);
+  });
+
+  it("a foto no slide só texto é recusada, e o slide pronto fora do 4:5 continua recusado", async () => {
+    const id = await carrossel();
+    const r1 = await processo.assinarImagem({ id, numero: 1, destino: "foto", arquivo: FOTO_DECLARADA, contas });
+    expect(r1.ok ? null : r1.recusa.motivo).toBe("sem_espaco");
+    const r2 = await processo.assinarImagem({ id, numero: 2, destino: "slide", arquivo: FOTO_DECLARADA, contas });
+    expect(r2.ok ? null : r2.recusa.motivo).toBe("proporcao");
+  });
+
+  // O slide com foto sai com a arte do Chat, e a arte vai para a fila como a do "Só texto". O slide
+  // pronto sai com a cópia dele, e não assina arte.
+  it("a arte da fila: o slide com foto assina, o slide pronto não", async () => {
+    const id = await carrossel();
+    await processo.guardarImagem({ id, numero: 2, caminho: await subir(id, 2, "foto"), contas });
+    await processo.guardarImagem({ id, numero: 3, caminho: await subir(id, 3, "slide"), contas });
+    const comFoto = await processo.assinarImagem({ id, numero: 2, destino: "fila", arquivo: DECLARADO, contas });
+    expect(comFoto.ok && comFoto.caminho).toMatch(new RegExp(`^${CONTA}/bonus-fila/[0-9a-f-]{36}\\.jpg$`));
+    const pronto = await processo.assinarImagem({ id, numero: 3, destino: "fila", arquivo: DECLARADO, contas });
+    expect(pronto.ok ? null : pronto.recusa.motivo).toBe("nao_e_so_texto");
+  });
+});
+
 describe("guardar a imagem", () => {
   it("guarda com a versão do texto, e a troca apaga a anterior do bucket", async () => {
     const id = await carrossel();
     const primeira = await subir(id, 3, "slide");
-    expect(await processo.guardarImagem({ id, numero: 3, caminho: primeira, contas })).toEqual({ ok: true, versao: versaoDo(3) });
+    expect(await processo.guardarImagem({ id, numero: 3, caminho: primeira, contas })).toMatchObject({
+      ok: true,
+      versao: versaoDo(3),
+      jeito: "slide",
+    });
     const segunda = await subir(id, 3, "slide");
     await processo.guardarImagem({ id, numero: 3, caminho: segunda, contas });
     expect(bucket.objetos.has(primeira)).toBe(false);
     expect(bucket.objetos.has(segunda)).toBe(true);
     expect(regras.imagensDaArte(await arteDe(id), 5)[3]).toEqual({ caminho: segunda, versao: versaoDo(3) });
+  });
+
+  // O JEITO SAI DO CAMINHO (adendo da Etapa 5): o navegador não diz o jeito no guardar.
+  it("guarda a foto pelo caminho de bonus-foto, e devolve o jeito e a versão nova da miniatura", async () => {
+    const id = await carrossel();
+    const foto = await subir(id, 2, "foto");
+    const r = await processo.guardarImagem({ id, numero: 2, caminho: foto, contas });
+    const cabecalho = tela.cabecalhoParaVersao(contas.find((c) => c.ig_user_id === CONTA) ?? null);
+    const miniatura = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], cabecalho, { 2: foto })[1];
+    expect(r).toEqual({ ok: true, versao: versaoDo(2), jeito: "foto", versaoDaMiniatura: miniatura });
+    expect(regras.fotosDaArte(await arteDe(id), 5)).toEqual({ 2: foto });
+  });
+
+  it("trocar a foto pelo slide pronto apaga a foto do bucket, e o contrário também", async () => {
+    const id = await carrossel();
+    const foto = await subir(id, 2, "foto");
+    await processo.guardarImagem({ id, numero: 2, caminho: foto, contas });
+    const pronto = await subir(id, 2, "slide");
+    expect(await processo.guardarImagem({ id, numero: 2, caminho: pronto, contas })).toMatchObject({ ok: true, jeito: "slide" });
+    expect(bucket.objetos.has(foto)).toBe(false);
+    expect(regras.fotosDaArte(await arteDe(id), 5)).toEqual({});
+    const outraFoto = await subir(id, 2, "foto");
+    expect(await processo.guardarImagem({ id, numero: 2, caminho: outraFoto, contas })).toMatchObject({ ok: true, jeito: "foto" });
+    expect(bucket.objetos.has(pronto)).toBe(false);
+    expect(regras.imagensDaArte(await arteDe(id), 5)[2]).toEqual({ caminho: outraFoto, versao: versaoDo(2) });
+  });
+});
+
+// O SLIDE COM FOTO PUBLICA A ARTE DESENHADA, e não a foto (adendo da Etapa 5): ele vai pelo caminho
+// das artes "Só texto", com a versão do desenho (o texto e o caminho da foto). A cópia é só do slide
+// pronto. A foto guardada nunca vai para a fila.
+describe("publicar com foto no espaço", () => {
+  /** Slide 2 com foto; 3 e 4 com slide pronto; 1 e 5 só texto. */
+  async function comFoto() {
+    const id = await carrossel();
+    const foto = await subir(id, 2, "foto");
+    await processo.guardarImagem({ id, numero: 2, caminho: foto, contas });
+    const prontos: Record<number, string> = {};
+    for (const n of [3, 4]) {
+      prontos[n] = await subir(id, n, "slide");
+      await processo.guardarImagem({ id, numero: n, caminho: prontos[n], contas });
+    }
+    return { id, foto, prontos };
+  }
+  const desenho = (n: number, foto: string | null) => regras.versaoDoDesenho(slides.slidesDoTexto(TEXTO)[n - 1], foto);
+
+  it("o slide com foto vai com a arte subida, e a foto não é copiada nem baixada", async () => {
+    const { id, foto, prontos } = await comFoto();
+    const artes = [
+      { numero: 1, caminho: await subir(id, 1, "fila"), versao: desenho(1, null) },
+      { numero: 2, caminho: await subir(id, 2, "fila"), versao: desenho(2, foto) },
+      { numero: 5, caminho: await subir(id, 5, "fila"), versao: desenho(5, null) },
+    ];
+    bucket.chamadas = [];
+    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null });
+    const [item] = await fila();
+    expect(item.payload.caminhos[1]).toBe(artes[1].caminho);
+    expect(item.payload.caminhos).not.toContain(foto);
+    expect(bucket.chamadas).not.toContain(`baixou ${foto}`);
+    expect(bucket.chamadas.filter((c) => c.startsWith("baixou")).sort()).toEqual([`baixou ${prontos[3]}`, `baixou ${prontos[4]}`].sort());
+    expect(bucket.objetos.has(foto)).toBe(true);
+  });
+
+  it("a versão velha da arte com foto é recusada, e as artes subidas saem do bucket", async () => {
+    const { id, foto } = await comFoto();
+    const artes = [
+      { numero: 1, caminho: await subir(id, 1, "fila"), versao: desenho(1, null) },
+      // A versão do texto, sem a foto: a arte que o navegador subiu é de antes da foto.
+      { numero: 2, caminho: await subir(id, 2, "fila"), versao: desenho(2, null) },
+      { numero: 5, caminho: await subir(id, 5, "fila"), versao: desenho(5, null) },
+    ];
+    const r = await processo.publicarNaFila({ id, quando: null, artes, contas, drenar });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "arte_velha", numero: 2 });
+    expect(daFila()).toEqual([]);
+    expect(await fila()).toEqual([]);
+    expect(bucket.objetos.has(foto)).toBe(true);
+  });
+
+  it("sem a arte do slide com foto, recusa: a foto nunca vai no lugar dela", async () => {
+    const { id } = await comFoto();
+    const artes = [
+      { numero: 1, caminho: await subir(id, 1, "fila"), versao: desenho(1, null) },
+      { numero: 5, caminho: await subir(id, 5, "fila"), versao: desenho(5, null) },
+    ];
+    const r = await processo.publicarNaFila({ id, quando: null, artes, contas, drenar });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "arte_so_texto", numero: 2 });
+    expect(await fila()).toEqual([]);
+  });
+
+  // "Só texto" tira o espaço: a foto fica guardada, e não é usada (volta se o espaço voltar).
+  it("a foto guardada num slide marcado só texto não entra: ele vai com a arte só texto", async () => {
+    const { id } = await comFoto();
+    await repo.salvarSoTextoDaArte(id, [1, 2, 5], null);
+    const artes = await Promise.all(
+      [1, 2, 5].map(async (n) => ({ numero: n, caminho: await subir(id, n, "fila"), versao: desenho(n, null) }))
+    );
+    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null });
+    const [item] = await fila();
+    expect(item.payload.caminhos[1]).toBe(artes[1].caminho);
+  });
+
+  it("a arte mandada para o slide pronto é recusada: ele sai com a cópia", async () => {
+    const { id, foto } = await comFoto();
+    const artes = [
+      { numero: 1, caminho: await subir(id, 1, "fila"), versao: desenho(1, null) },
+      { numero: 2, caminho: await subir(id, 2, "fila"), versao: desenho(2, foto) },
+      { numero: 3, caminho: await subir(id, 2, "fila"), versao: desenho(3, null) },
+      { numero: 5, caminho: await subir(id, 5, "fila"), versao: desenho(5, null) },
+    ];
+    const r = await processo.publicarNaFila({ id, quando: null, artes, contas, drenar });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "nao_e_so_texto", numero: 3 });
+    expect(daFila()).toEqual([]);
   });
 });
 

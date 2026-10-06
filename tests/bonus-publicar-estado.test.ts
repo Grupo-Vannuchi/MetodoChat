@@ -235,6 +235,8 @@ describe("as recusas da publicação têm frase, cada uma", () => {
     { motivo: "tipo" },
     { motivo: "proporcao", problema: "proporcao" },
     { motivo: "proporcao", problema: "sem_medida" },
+    { motivo: "foto", problema: "pequena" },
+    { motivo: "foto", problema: "pesada" },
     { motivo: "arquivo", texto: "A imagem é estreita demais: a largura mínima é 320 pixels." },
     { motivo: "caminho" },
     { motivo: "faltam_imagens", slides: [2, 4] },
