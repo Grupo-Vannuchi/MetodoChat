@@ -184,7 +184,9 @@ export async function enviarImagemDoSlide(p: {
  * sempre.
  *
  * O SLIDE COM FOTO SÓ SOBE COM A FOTO DESENHADA (achado 78): a rota diz `X-Arte-Foto: sim`, e qualquer
- * outra coisa (o "faltou", ou nada) recusa antes de assinar. O post sairia sem a foto, sem volta.
+ * outra coisa (o "faltou", ou nada) recusa antes de assinar. O post sairia sem a foto, sem volta. E O
+ * QUE A ROTA DIZ VALE MAIS QUE A PÁGINA (achado 81): ela só manda o cabeçalho no slide que tem foto no
+ * banco, e a página pode estar velha (a foto subiu noutra aba). Com o cabeçalho, só o "sim" sobe.
  */
 export async function prepararArtes(p: {
   bonusId: string;
@@ -200,7 +202,8 @@ export async function prepararArtes(p: {
     try {
       const r = await fetch(urlDaArte(p.bonusId, p.carrosselId, numero, p.versoesDaMiniatura[numero - 1] ?? ""), { cache: "no-store" });
       if (!r.ok) return { ok: false, texto: textoDaArteQueNaoVeio(numero) };
-      if (comFoto && r.headers.get(CABECALHO_DA_FOTO) !== "sim") return { ok: false, texto: textoDaFotoQueFaltou(numero) };
+      const foto = r.headers.get(CABECALHO_DA_FOTO);
+      if ((comFoto || foto !== null) && foto !== "sim") return { ok: false, texto: textoDaFotoQueFaltou(numero) };
       versao = r.headers.get(CABECALHO_DA_VERSAO);
       if (!versao) return { ok: false, texto: textoDaArteQueNaoVeio(numero) };
       pronta = await prepararImagem(await r.blob());

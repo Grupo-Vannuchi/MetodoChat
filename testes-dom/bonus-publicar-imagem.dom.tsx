@@ -292,6 +292,23 @@ describe("as artes do Chat, na hora de publicar", () => {
     expect(puts).toEqual([]);
   });
 
+  // ACHADO 81: a página pode estar velha (o slide ganhou a foto noutra aba, sem recarregar esta). A
+  // rota decide pelo banco, e só manda o cabeçalho da foto no slide que tem foto: o que ela diz vale.
+  it("a arte que veio com faltou não sobe, mesmo que a página ache o slide sem foto", async () => {
+    fotoNaArte = { 1: "faltou" };
+    const a = vi.fn();
+    const r = await prepararArtes(pedido([{ numero: 1, comFoto: false }], a));
+    expect(r).toEqual({ ok: false, texto: "A foto do slide 1 não carregou. Espere um instante e publique de novo." });
+    expect(a).not.toHaveBeenCalled();
+    expect(puts).toEqual([]);
+  });
+
+  it("a arte que veio com a foto desenhada sobe, mesmo que a página ache o slide sem foto", async () => {
+    fotoNaArte = { 1: "sim" };
+    const r = await prepararArtes(pedido([{ numero: 1, comFoto: false }]));
+    expect(r).toEqual({ ok: true, artes: [{ numero: 1, caminho: "178/bonus-fila/1.jpg", versao: "desenho-1" }] });
+  });
+
   it("a arte sem a versão do desenho não sobe", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("png", { status: 200, headers: { "content-type": "image/png" } })));
     const a = vi.fn();
