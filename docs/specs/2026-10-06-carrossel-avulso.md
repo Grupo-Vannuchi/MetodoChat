@@ -2,7 +2,8 @@
 
 **Nascido em:** 06/10/2026, desenhado com o Eduardo pela caixa de perguntas, com a sessão auditora
 levantando os riscos (medidos no código da `main` em `bf1bb32`, com a Etapa 5 em produção).
-**Estado:** desenho aprovado pelo Eduardo ("Sim, está certo"); esperando a revisão da auditoria.
+**Estado:** desenho aprovado pelo Eduardo ("Sim, está certo"); revisado pela auditoria, com o
+achado 82 absorvido (o `scripts/migrar.mjs` fica fora do diff).
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta
 própria, e nenhum arquivo do `/publicar` nem das automações muda.
 **Etapas anteriores:** `docs/specs/2026-09-29-gerador-de-bonus.md`,
@@ -136,9 +137,17 @@ contagens, a da tela (`carrosseisNasUltimas24h`) e a do pedido, dentro da trava
 
 O build de produção aplica a 016 no merge ("MODO: APLICANDO"), e ela segue o protocolo da 015:
 
-- uma leitura de linha de base, só leitura, antes;
-- as conferências de esquema novas no `scripts/migrar.mjs`, para as colunas e os `check`;
-- a conferência depois do deploy.
+- entra em `naoObservaveis` de `lib/esquema.ts`, como a 014 e a 015 (só a declaração, com o
+  motivo): uma coluna de feature não pode impedir o painel inteiro de subir. Quem confere as
+  colunas e os `check` é `testes-integracao/bonus-carrossel-tabela.integracao.ts`;
+- antes do merge, a auditoria faz uma leitura de linha de base, só de leitura;
+- depois do deploy, a auditoria lê de novo, por um script dela: as colunas, o `'bonus'` em todas
+  as linhas que já existiam e os dois `check`.
+
+**O `scripts/migrar.mjs` não muda (achado 82).** Ele é o script de deploy do Vinícius e roda em
+escrita em todo deploy de produção: uma conferência nova que falhasse travaria o deploy do produto
+inteiro. A 013, a 014 e a 015 nasceram sem tocá-lo. Se o Eduardo quiser as conferências da 016 lá,
+isso vai como proposta ao Vinícius no corpo do PR, e a decisão é dele.
 
 **Os dois caminhos que ficaram de fora:**
 - uma tabela própria para os avulsos, que duplicaria a página, o publicar, a trava e os testes;
@@ -188,9 +197,9 @@ outra origem dá 404 nas duas.
 
 **O endereço da página vem da linha.** Uma função pura nova dá o caminho de cada carrossel:
 `/bonus/<bonus_id>/carrossel/<id>` na origem `'bonus'`, e `/carrosseis/<id>` nas outras. Ela é usada:
-- por `urlDaArte`, que hoje recebe o id do bônus, e pelos componentes que a chamam (`card-da-parte`,
-  `editor-do-carrossel`, `card-publicar` e `imagem-no-navegador`), que passam a receber o caminho
-  pronto no lugar do `bonusId`;
+- por `urlDaArte`, que hoje recebe o id do bônus. Quem a chama (`card-da-parte`,
+  `editor-do-carrossel` e `imagem-no-navegador`), e o `card-publicar`, que só passa o `bonusId`
+  adiante, passam a receber o caminho pronto no lugar do `bonusId`;
 - por `urlDoCarrosselComAviso`, e pelos `redirect` das actions do carrossel, que hoje montam
   `/bonus/<bonus_id>/carrossel/<id>`.
 
@@ -213,8 +222,9 @@ nunca vem do formulário.
   escrita pelo que libera, a reserva antes da fila e a marca de enfileirada. Os testes dela continuam
   e ganham o avulso nos casos de publicar.
 - Nenhum arquivo do `/publicar`, do bucket, do dreno, da fila nem das automações. O diff fica em
-  `app/bonus/`, `app/carrosseis/`, `lib/bonus/`, `migrations/016-…`, `scripts/migrar.mjs` (só as
-  conferências da 016), o item do menu em `app/app-shell.tsx`, testes e `docs/`.
+  `app/bonus/`, `app/carrosseis/`, `lib/bonus/`, `migrations/016-…`, `lib/esquema.ts` (só a
+  declaração da 016), o item do menu em `app/app-shell.tsx`, testes e `docs/`. O
+  `scripts/migrar.mjs` fica fora (achado 82).
 
 ---
 
@@ -274,7 +284,8 @@ auditoria antes de rodar (achado 77).
 ## Pré-condições do merge
 
 1. `npm run verify` limpo, a integração verde no container, e o preview com a prova feita.
-2. A linha de base da 016 lida antes do merge, e a conferência depois do deploy.
+2. A linha de base da 016 lida pela auditoria antes do merge, e a conferência dela depois do
+   deploy, só de leitura.
 3. Nenhum `next dev` apontado para a produção durante o deploy, e as abas recarregadas depois.
 
 ---
