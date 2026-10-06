@@ -184,18 +184,21 @@ As leituras não quebram a página com a forma errada, mas as duas chaves não e
   botão de um carrossel que pode estar na fila. Achado no ensaio do plano: a primeira redação desta
   seção mandava as duas voltarem ao padrão.
 
-### Os dois prefixos no bucket
+### Os prefixos no bucket
 
 A pasta é a da conta do carrossel (`pastaDaConta`, `lib/bucket.ts:184`), nunca a do cookie.
 
 | prefixo | o quê | quem apaga |
 |---|---|---|
-| `<pasta>/bonus/<uuid>.jpg` | as imagens guardadas nos slides (a foto no espaço e o slide pronto) | a troca, de um jeito ou do outro (a anterior) |
-| `<pasta>/bonus-fila/<uuid>.jpg` | o que vai para a fila: as cópias das guardadas e a arte "Só texto" convertida | o dreno, depois de publicar ou no cancelamento; esta etapa, em qualquer recusa |
+| `<pasta>/bonus/<uuid>.jpg` | o slide pronto do Canva guardado no slide | a troca, de um jeito ou do outro (a anterior) |
+| `<pasta>/bonus-foto/<uuid>.jpg` | a foto guardada no slide, para o espaço da arte (adendo de 05/10) | a troca, de um jeito ou do outro (a anterior) |
+| `<pasta>/bonus-fila/<uuid>.jpg` | o que vai para a fila: as cópias dos slides prontos e as artes desenhadas (a "Só texto" e a com a foto), convertidas | o dreno, depois de publicar ou no cancelamento; esta etapa, em qualquer recusa |
 
-Nenhum dos dois entra pelo `/publicar`, que só aceita `pasta/arquivo.ext` com uma barra; os dois
+Nenhum dos três entra pelo `/publicar`, que só aceita `pasta/arquivo.ext` com uma barra; os três
 saem pelo dreno, que não confere a forma. Por isso uma imagem guardada nunca vai para a fila, e o
-dreno nunca a apaga: o que vai é sempre uma cópia em `bonus-fila`.
+dreno nunca a apaga: o que vai é sempre uma cópia ou uma arte em `bonus-fila`. O prefixo da foto é
+próprio para o jeito de cada imagem guardada sair do caminho que o servidor assinou (ver "A foto no
+espaço da arte").
 
 ### A versão do texto do slide
 
@@ -347,27 +350,44 @@ do Chat: a manchete, o texto e o cabeçalho.
   da arte: o mínimo é 860×573." Ampliada, ela sairia borrada no post;
 - a regra do 4:5 não vale para a foto. Ela vale para o slide pronto, que é o slide inteiro.
 
-**Guardada** em `arte.imagens[n]`, como o slide pronto, com o campo novo `jeito`: `"foto"` ou
-`"slide"`. A entrada sem `jeito` (as de antes deste adendo) vale como `"slide"`. A de `jeito`
-desconhecido não conta: o slide volta a pedir a imagem e o "Publicar" trava, que é o lado seguro
-(nunca publica uma imagem do jeito errado). O caminho é o mesmo do slide pronto,
-`<pasta>/bonus/<uuid>.jpg`. Subir um jeito troca o outro, e a anterior sai do bucket.
+**Guardada** em `arte.imagens[n]`, como o slide pronto, e **o jeito é o prefixo do caminho**
+(revisão do adendo pela auditoria: amarrar o jeito à assinatura): `<pasta>/bonus-foto/<uuid>.jpg` é
+foto no espaço, `<pasta>/bonus/<uuid>.jpg` é slide pronto. O navegador não diz o jeito no guardar: o
+servidor o lê do caminho que ele mesmo assinou. Não há campo de jeito na coluna: o caminho é a fonte
+única, e não existe um campo que possa discordar dele. As entradas de antes deste adendo, em `bonus/`,
+continuam slide pronto, sem migrar nada: é o caso das duas do carrossel `4c5701a8` (slides 2 e 3),
+guardadas na primeira prova.
 
-**A assinatura** recebe o jeito. A foto declarada tem de estar na proporção do espaço (860:573, com
-1% de tolerância), entre 860×573 e 1720×1146, em JPEG; o slide pronto segue no 4:5. As medidas são
-declaradas pelo navegador, como no resto do upload.
+Os lugares que o prefixo da foto toca, para o plano não esquecer nenhum: a assinatura
+(`assinarCaminho` e `caminhoDaImagem`, com um destino novo); `ehCaminhoDoDestino`; o guardar
+(`gravarImagemDoSlide`, que lê o jeito do caminho e apaga a anterior de qualquer jeito); a rota da
+arte, que busca a foto SÓ em `bonus-foto/`; o publicar, cuja cópia (`copiarTodasParaAFila`) é SÓ do
+slide pronto, em `bonus/`; e a lista do que fica no bucket. A entrada cujo caminho não está em nenhum dos dois prefixos
+não conta: o slide volta a pedir a imagem e o "Publicar" trava, que é o lado seguro (nunca publica
+uma imagem do jeito errado); o arquivo dela, se houver, fica no bucket (ver "O que fica no bucket sem
+dono"). Subir um jeito troca o outro, e a anterior sai do bucket.
+
+**A assinatura** recebe o jeito e emite o prefixo dele. A foto declarada tem de estar na proporção do
+espaço (860:573, com 1% de tolerância), entre 860×573 e 1720×1146, em JPEG; o slide pronto segue no
+4:5. As medidas são declaradas pelo navegador, como no resto do upload. Um pedido montado à mão ainda
+pode subir outros bytes do que declarou; o efeito fica no próprio carrossel, como no slide pronto.
 
 **A rota da arte desenha a foto**, só no slide com espaço e com foto guardada:
 - busca a foto no servidor, só pelo endereço público do nosso bucket (`urlPublicaDoObjeto`), e só
-  se o caminho estiver na forma exata `<pasta da conta do carrossel>/bonus/<uuid>.jpg`: nada de outra
-  pasta, de outro host, nem de caminho vindo da URL;
+  se o caminho estiver na forma exata `<pasta da conta do carrossel>/bonus-foto/<uuid>.jpg`: nada de
+  outra pasta, de outro prefixo, de outro host, nem de caminho vindo da URL;
 - com teto de tempo (3 s) e de bytes (2 MB), e conferindo os primeiros bytes de JPEG, no molde de
-  `fotoDaConta` (`lib/bonus/arte-foto.ts`); guardada em memória por instância, pelo caminho, que
-  nunca muda de conteúdo;
+  `fotoDaConta` (`lib/bonus/arte-foto.ts`);
+- guardada em memória por instância e pelo caminho, no molde de `memoriaDasFotos`
+  (`lib/bonus/arte-foto.ts:94-133`): a foto achada vale 10 minutos, a FALHA vale só 30 segundos, e as
+  vencidas saem a cada busca. Uma falha passageira não pode deixar a instância desenhando em branco;
 - desenha `<img>` de 860×573 com `objectFit: "cover"` dentro do espaço, sem borda e sem canto
   arredondado, como o Labs desenha a ilustração dele;
 - se qualquer coisa falhar, o slide sai com o espaço em branco, e nunca quebrado. A resposta continua
-  lida antes de sair (`respostaDaArte`, achado 65).
+  lida antes de sair (`respostaDaArte`, achado 65);
+- **e diz se a foto veio** (achado 78): no slide com foto, a resposta leva o cabeçalho
+  `X-Arte-Foto: sim` quando a foto foi desenhada, e `X-Arte-Foto: faltou` quando o espaço saiu em
+  branco. Nos outros slides, o cabeçalho não vai.
 
 **A versão da miniatura** (`versoesDosSlides`) passa a levar o caminho da foto do slide, quando ele
 tem espaço e foto: trocar a foto troca a miniatura e o "Baixar". A miniatura do slide com foto é a
@@ -378,6 +398,14 @@ artes "Só texto": o navegador baixa a arte da rota, converte em JPEG e sobe em 
 slide pronto vai pelo caminho das cópias. A versão que o navegador manda para o slide com foto é a da
 arte com a foto (o texto do slide e o caminho da foto); o servidor recalcula e recusa a velha, como
 na arte "Só texto". A reserva confere também que as fotos são as mesmas.
+
+**A arte com a foto que faltou não sobe (achado 78).** A versão é um resumo do texto e do caminho, e
+não sabe se a foto foi desenhada; o navegador, sem o cabeçalho, só conferiria o `r.ok` e a conversão.
+Uma busca da foto que passasse de 3 s, ou falhasse uma vez, na hora de publicar, subiria a arte com o
+espaço em branco, e o post sairia sem a foto, sem volta. Por isso, ao preparar o slide com foto, o
+navegador exige `X-Arte-Foto: sim`: qualquer outra coisa recusa antes de assinar, com a frase "A foto
+do slide N não carregou. Espere um instante e publique de novo." A miniatura pode sair em branco numa
+falha (ela se refaz na próxima busca); o post, não.
 
 **O que falta para publicar** passa a ser: todo slide com espaço tem uma imagem, de qualquer jeito.
 
@@ -429,6 +457,8 @@ dreno, as da fila depois de publicar ou cancelar.
 Ficam:
 - o upload que subiu e não foi guardado (a aba fechada entre o `PUT` e o guardar), como no
   `/publicar`;
+- o arquivo de uma entrada de imagem com caminho fora dos dois prefixos (adendo): ela não conta, e a
+  troca não a apaga, porque a leitura a pula;
 - a arte "Só texto" que o navegador subiu numa tentativa que parou ainda no navegador (a arte de
   outro slide que não veio, ou a aba fechada antes de mandar o pedido): o servidor nunca soube
   desses caminhos;
@@ -464,18 +494,23 @@ Do adendo (a foto no espaço):
 
 | suíte | o quê |
 |---|---|
-| pura | o `jeito` lido da coluna: sem campo vale "slide", "foto" e "slide" valem, o desconhecido não conta |
+| pura | o jeito lido do caminho guardado: `bonus-foto/` é foto, `bonus/` é slide pronto (inclusive as entradas de antes do adendo), outro prefixo não conta |
 | pura | a foto declarada: a proporção do espaço passa, as bordas de 1% passam, 4:5 é recusada, menor que 860×573 é recusada, maior que 1720×1146 é recusada |
 | pura | a versão da miniatura muda com o caminho da foto do slide com espaço, e não muda com a foto do slide "Só texto" |
 | pura | o que falta para publicar conta a foto e o slide pronto do mesmo jeito |
 | tela | os dois botões no slide com espaço; nenhum no "Só texto"; o "Trocar foto" e o "Trocar slide pronto" |
 | tela | a foto cortada ao centro no navegador, na proporção do espaço, e reduzida até 1720×1146; a foto pequena recusada antes de assinar |
 | tela | o aviso do texto que mudou só no slide pronto; a miniatura do slide com foto é a arte da rota |
-| integração | guardar com o jeito; trocar a foto pelo slide pronto apaga a foto do bucket, e o contrário também |
+| integração | guardar a foto e o slide pronto; trocar a foto pelo slide pronto apaga a foto do bucket, e o contrário também |
+| integração | a foto em `bonus-foto/` nunca vai para a fila como cópia: o slide com foto leva a arte desenhada, e a cópia é só do slide pronto |
+| desenho | a rota recusa como foto um caminho de `bonus/` (o slide pronto) e desenha o espaço em branco, com `X-Arte-Foto: faltou` |
 | integração | publicar com um slide de foto: ele vai pelo caminho das artes (não copia a foto), com a versão da arte com a foto conferida; a versão velha é recusada |
 | integração | a assinatura recusa a foto fora da proporção do espaço, e o slide pronto fora do 4:5 |
 | desenho | a foto entra no espaço: o PNG tem a foto onde era branco, e o texto acima dela fica igual ao do slide sem foto |
-| desenho | a foto que falha (bytes que não são JPEG, caminho de outra pasta, outro host, resposta lenta) desenha o espaço em branco, e a rota responde um PNG válido |
+| desenho | a foto que falha (bytes que não são JPEG, caminho de outra pasta ou de outro prefixo, outro host, resposta lenta) desenha o espaço em branco, a rota responde um PNG válido, e o cabeçalho diz `X-Arte-Foto: faltou`; com a foto desenhada, `sim`; sem foto no slide, nenhum |
+| pura | a memória da foto do espaço: a achada vale 10 minutos, a falha só 30 segundos, as vencidas saem (relógio falso) |
+| tela | ao publicar, a arte com `X-Arte-Foto: faltou` (ou sem o cabeçalho) recusa o slide com foto antes de assinar, com a frase, e nada sobe (achado 78) |
+| integração | o guardar tira o jeito do prefixo do caminho: `bonus-foto/` é foto, `bonus/` é slide pronto, outro prefixo é recusado |
 | desenho | os vetores combinados com o Labs continuam iguais (o sha256 do arquivo e a conta) |
 
 A integração usa o banco de teste do container e um bucket falso num servidor local, como
