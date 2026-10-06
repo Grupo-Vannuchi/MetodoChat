@@ -1,7 +1,7 @@
 // O ESTADO DA PUBLICAÇÃO DO CARROSSEL E O QUE FALTA PARA PUBLICAR (spec da Etapa 5). PURO: o
 // repositório lê a linha da fila e o relógio do banco, e esta função decide.
 import type { OrigemDaConta } from "./arte-conta";
-import type { PublicacaoGuardada } from "./publicar-regras";
+import type { JeitoDaImagem, PublicacaoGuardada } from "./publicar-regras";
 
 /** A linha da fila do /publicar, lida pela `dedupe_key` exata que o carrossel guardou. */
 export type LinhaDaFila = { id: string; status: string; not_before: Date; sent_at: Date | null; error: string | null };
@@ -92,4 +92,22 @@ export function faltasParaPublicar(p: {
     faltas.push({ tipo: "nao_salvo", slides: [...p.slidesNaoSalvos].sort((a, b) => a - b), legenda: p.legendaNaoSalva });
   }
   return faltas;
+}
+
+/**
+ * OS SLIDES QUE A TELA PREPARA AO PUBLICAR, com a arte do Chat (adendo da Etapa 5): o "Só texto" e o
+ * slide com foto. O com foto exige a foto desenhada (achado 78). O slide pronto sai com a cópia, que o
+ * servidor faz; e a foto guardada num slide "Só texto" não conta, porque o espaço não existe.
+ */
+export function artesParaPublicar(p: {
+  total: number;
+  soTexto: number[];
+  imagens: Record<number, { jeito: JeitoDaImagem } | undefined>;
+}): { numero: number; comFoto: boolean }[] {
+  const artes: { numero: number; comFoto: boolean }[] = [];
+  for (let n = 1; n <= p.total; n++) {
+    if (p.soTexto.includes(n)) artes.push({ numero: n, comFoto: false });
+    else if (p.imagens[n]?.jeito === "foto") artes.push({ numero: n, comFoto: true });
+  }
+  return artes;
 }

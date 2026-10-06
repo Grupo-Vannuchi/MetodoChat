@@ -86,6 +86,15 @@ export const TEXTO_IMAGEM_GUARDADA = "Imagem guardada.";
 // O que o navegador recusa antes de subir (app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts).
 export const TEXTO_IMAGEM_ILEGIVEL = "Não consegui abrir esta imagem. Exporte de novo do Canva, em JPEG ou PNG.";
 export const TEXTO_FORMATO_DA_IMAGEM = "Envie a imagem do Canva em JPEG, PNG ou WEBP.";
+export const TEXTO_FOTO_ILEGIVEL = "Não consegui abrir esta foto. Envie em JPEG, PNG ou WEBP.";
+
+/**
+ * A ARTE DO SLIDE COM FOTO VEIO COM O ESPAÇO EM BRANCO (achado 78): ela não sobe, porque o post sairia
+ * sem a foto. Uma busca que falhou fica guardada só 30 s na memória da rota: esperar resolve.
+ */
+export function textoDaFotoQueFaltou(numero: number): string {
+  return `A foto do slide ${numero} não carregou. Espere um instante e publique de novo.`;
+}
 
 export function textoDaArteQueNaoVeio(numero: number): string {
   return `Não consegui preparar a arte do slide ${numero}. Recarregue a página e publique de novo.`;

@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { alertError, alertOk, alertWarn, btnPrimary, card, hint, input, link } from "@/app/ui";
-import { faltasParaPublicar } from "@/lib/bonus/publicar-estado";
+import { artesParaPublicar, faltasParaPublicar } from "@/lib/bonus/publicar-estado";
 import { textoDaFalta, type AvisoDaPublicacao } from "@/lib/bonus/publicar-textos";
 import type { TomDoQuadro } from "@/lib/bonus/textos";
 import { publicarDaTela } from "./imagem-no-navegador";
@@ -16,6 +16,9 @@ import type { ImagemNaTela, PublicacaoNaTela } from "./publicacao-na-tela";
 // NO SUCESSO A PÁGINA RECARREGA (`router.refresh`), ao contrário do salvar da Etapa 4 (achados 52 e
 // 54): aqui é seguro, porque o botão só destrava com nenhum card "não salvo", e a página recarregada
 // é a que mostra o estado e a trava.
+//
+// O clique prepara as artes do Chat (o "Só texto" e o slide com foto, `artesParaPublicar`) e manda
+// cada uma com a versão que a rota desenhou (imagem-no-navegador.ts).
 const QUADRO: Record<TomDoQuadro, string> = { ok: alertOk, atencao: alertWarn, erro: alertError };
 
 export default function CardPublicar({
@@ -53,9 +56,8 @@ export default function CardPublicar({
       const r = await publicarDaTela({
         bonusId,
         carrosselId,
-        soTexto,
+        desenhados: artesParaPublicar({ total, soTexto, imagens }),
         versoesDaMiniatura,
-        versoesDoTexto: publicacao.versoesDoTexto,
         quando,
         dataHora: quando === "depois" ? dataHora : "",
         assinar: publicacao.acaoDaAssinatura,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fmtDate } from "@/lib/format";
 import {
   ESPERA_DA_RESERVA_MS,
+  artesParaPublicar,
   estadoDaPublicacao,
   faltasParaPublicar,
   publicacaoLivre,
@@ -207,6 +208,23 @@ describe("o que falta para publicar", () => {
     expect(textoDaFalta({ tipo: "nao_salvo", slides: [2, 3], legenda: true })).toBe("Salve os slides 2 e 3 e a legenda antes de publicar.");
     expect(textoDaFalta({ tipo: "sem_conta" })).toContain("Fixar nesta conta");
     expect(textoDaFalta({ tipo: "conta_desconectada" })).toContain("desconectada");
+  });
+});
+
+// AS ARTES QUE A TELA PREPARA AO PUBLICAR (adendo da Etapa 5): o "Só texto" e o slide com foto saem
+// com a arte do Chat. O com foto exige a foto desenhada (achado 78); o slide pronto sai com a cópia.
+describe("as artes que a tela prepara ao publicar", () => {
+  it("o só texto e o com foto, em ordem; o slide pronto e o sem imagem, não", () => {
+    const imagens = { 2: { jeito: "foto" as const }, 3: { jeito: "slide" as const } };
+    expect(artesParaPublicar({ total: 5, soTexto: [1, 5], imagens })).toEqual([
+      { numero: 1, comFoto: false },
+      { numero: 2, comFoto: true },
+      { numero: 5, comFoto: false },
+    ]);
+  });
+
+  it("a foto guardada num slide só texto não conta: o espaço não existe", () => {
+    expect(artesParaPublicar({ total: 3, soTexto: [2], imagens: { 2: { jeito: "foto" } } })).toEqual([{ numero: 2, comFoto: false }]);
   });
 });
 

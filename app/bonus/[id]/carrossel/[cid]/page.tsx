@@ -159,6 +159,8 @@ async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
   const estado = await estadoDoCarrossel(carrossel.arte);
   const filaId = "filaId" in estado ? estado.filaId : null;
   const noMenu = contaSelecionada(contas, doCookie);
+  // O jeito de cada imagem é o prefixo do caminho (adendo da Etapa 5): as fotos são as de `bonus-foto`.
+  const fotos = fotosDaArte(carrossel.arte, carrossel.total_slides);
   const publicacao: PublicacaoNaTela = {
     acaoDaAssinatura: assinarImagemDoCarrossel,
     acaoDaImagem: guardarImagemDoSlide,
@@ -166,7 +168,7 @@ async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
     imagens: Object.fromEntries(
       Object.entries(imagensDaArte(carrossel.arte, carrossel.total_slides)).map(([n, i]) => [
         n,
-        { url: urlPublicaSeDerParaMontar(i.caminho), versao: i.versao },
+        { url: urlPublicaSeDerParaMontar(i.caminho), versao: i.versao, jeito: Number(n) in fotos ? "foto" : "slide" },
       ])
     ),
     versoesDoTexto: slidesDoTexto(texto).map(versaoDoTextoDoSlide),
@@ -193,12 +195,7 @@ async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
       avisoDaConta={conta ? textoDaOrigemDaConta(origem, conta.username ?? "") : TEXTO_ARTE_SEM_CONTA}
       podeFixar={origem === "selecionada" && conta !== null}
       soTextoInicial={escolhas.soTexto}
-      versoes={versoesDosSlides(
-        slidesDoTexto(texto),
-        escolhas.soTexto,
-        cabecalhoParaVersao(conta),
-        fotosDaArte(carrossel.arte, carrossel.total_slides)
-      )}
+      versoes={versoesDosSlides(slidesDoTexto(texto), escolhas.soTexto, cabecalhoParaVersao(conta), fotos)}
       publicacao={publicacao}
     />
   );

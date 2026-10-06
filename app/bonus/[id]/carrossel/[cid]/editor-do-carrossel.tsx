@@ -5,6 +5,7 @@ import { urlDaArte } from "@/lib/bonus/arte-tela";
 import { textoDoBaixarTodos, type AvisoDaArte } from "@/lib/bonus/arte-textos";
 import { camposDaParte, type CampoDoCarrossel, type ParteDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import type { AvisoDoSlide } from "@/lib/bonus/carrossel-textos";
+import type { JeitoDaImagem } from "@/lib/bonus/publicar-regras";
 import type { AvisoDaImagem } from "@/lib/bonus/publicar-textos";
 import CardDaParte from "./card-da-parte";
 import CardPublicar from "./card-publicar";
@@ -26,8 +27,10 @@ import type { ImagemNaTela, PublicacaoNaTela } from "./publicacao-na-tela";
 // montado aqui e despachado numa transição, sem `<form action>` (medido no PR #5).
 //
 // A PUBLICAÇÃO (spec da Etapa 5) entra por `publicacao`, e sem ela a página é a da Etapa 4. As imagens
-// do Canva guardadas moram aqui, e cada card sobe a do seu slide (imagem-no-navegador.ts). Com o
-// carrossel na fila ou publicado, a trava aparece no topo e cada card fica só para leitura.
+// guardadas moram aqui, de um dos dois jeitos (a foto do espaço ou o slide pronto), e cada card sobe a
+// do seu slide (imagem-no-navegador.ts). Guardada a imagem, a versão da miniatura daquele slide vem
+// na resposta: a foto muda a arte. Com o carrossel na fila ou publicado, a trava aparece no topo e cada
+// card fica só para leitura.
 //
 // As actions entram por propriedade, para o teste de tela usar falsas.
 export default function EditorDoCarrossel({
@@ -109,11 +112,17 @@ export default function EditorDoCarrossel({
     iniciar(() => despacharArte(form));
   }
 
-  /** Sobe a imagem do Canva de um slide; guardada, ela passa a ser a miniatura dele. */
-  async function enviarImagem(p: PublicacaoNaTela, numero: number, arquivo: File): Promise<AvisoDaImagem> {
-    const r = await enviarImagemDoSlide({ carrosselId, numero, arquivo, assinar: p.acaoDaAssinatura, guardar: p.acaoDaImagem });
-    const versao = r.versao;
-    if (r.tom === "ok" && versao) setImagens((atuais) => ({ ...atuais, [numero]: { url: r.imagem ?? null, versao } }));
+  /**
+   * Sobe a imagem de um slide, no jeito escolhido. Guardada, ela entra no card com o jeito que o
+   * servidor leu do caminho, e a miniatura daquele slide ganha a versão nova.
+   */
+  async function enviarImagem(p: PublicacaoNaTela, numero: number, arquivo: File, jeito: JeitoDaImagem): Promise<AvisoDaImagem> {
+    const r = await enviarImagemDoSlide({ carrosselId, numero, jeito, arquivo, assinar: p.acaoDaAssinatura, guardar: p.acaoDaImagem });
+    const { versao, versaoDaMiniatura } = r;
+    if (r.tom === "ok" && versao) {
+      setImagens((atuais) => ({ ...atuais, [numero]: { url: r.imagem ?? null, versao, jeito: r.jeito ?? jeito } }));
+      if (versaoDaMiniatura) setVersoes((vs) => vs.map((x, i) => (i === numero - 1 ? versaoDaMiniatura : x)));
+    }
     return r;
   }
 
@@ -188,7 +197,7 @@ export default function EditorDoCarrossel({
               soTextoPendente={artePendente}
               imagem={imagens[n] ?? null}
               versaoDoTexto={publicacao?.versoesDoTexto[n - 1] ?? null}
-              enviarImagem={publicacao ? (arquivo) => enviarImagem(publicacao, n, arquivo) : null}
+              enviarImagem={publicacao ? (arquivo, jeito) => enviarImagem(publicacao, n, arquivo, jeito) : null}
               travado={travado}
               aoMudarNaoSalvo={(sim) => marcarNaoSalvo(`slide_${n}`, sim)}
             />
