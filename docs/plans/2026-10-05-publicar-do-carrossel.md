@@ -7418,7 +7418,7 @@ DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_te
 npx vitest run tests/bonus-publicar-estado.test.ts tests/bonus-publicar-paginas.test.ts
 ```
 
-Esperado: `tsc` limpo; `[rede-global] ALVO: banco de TESTE`; os 68 de integração e os 43 puros passam.
+Esperado: `tsc` limpo; `[rede-global] ALVO: banco de TESTE`; os 68 de integração e os 41 puros passam.
 
 - [ ] **Passo 5: varrer e commitar**
 
