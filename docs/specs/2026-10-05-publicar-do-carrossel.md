@@ -431,6 +431,13 @@ navegador exige `X-Arte-Foto: sim`: qualquer outra coisa recusa antes de assinar
 do slide N não carregou. Espere um instante e publique de novo." A miniatura pode sair em branco numa
 falha (ela se refaz na próxima busca); o post, não.
 
+**O que a rota diz da foto vale mais que a página (achado 81, decisão do Eduardo: corrigir antes da
+prova).** O servidor decide pelo banco quem vai como arte e com que versão, e a página pode estar velha:
+com a foto posta noutra aba, num slide que esta página ainda vê como "Só texto", ela mandaria a arte
+sem exigir o "sim", e a versão bateria. Uma busca que falhasse nessa hora publicaria o espaço em branco.
+Por isso o navegador recusa toda arte que venha com `X-Arte-Foto` e não diga "sim", e no slide que ele
+sabe ter foto exige o cabeçalho. A rota só o manda no slide que tem foto no banco.
+
 **O que falta para publicar** passa a ser: todo slide com espaço tem uma imagem, de qualquer jeito.
 
 **"Só texto"** tira o espaço: nem a foto nem o slide pronto são usados (ficam guardados, e voltam se o
@@ -534,6 +541,7 @@ Do adendo (a foto no espaço):
 | desenho | a foto que falha (bytes que não são JPEG, caminho de outra pasta ou de outro prefixo, outro host, resposta lenta) desenha o espaço em branco, a rota responde um PNG válido, e o cabeçalho diz `X-Arte-Foto: faltou`; com a foto desenhada, `sim`; sem foto no slide, nenhum |
 | pura | a memória da foto do espaço: a achada vale 10 minutos, a falha só 30 segundos, as vencidas saem (relógio falso) |
 | tela | ao publicar, a arte com `X-Arte-Foto: faltou` (ou sem o cabeçalho) recusa o slide com foto antes de assinar, com a frase, e nada sobe (achado 78) |
+| tela | a arte que vem com `X-Arte-Foto: faltou` num slide que a página vê sem foto também não sobe; com "sim", sobe (achado 81) |
 | integração | o guardar tira o jeito do prefixo do caminho: `bonus-foto/` é foto, `bonus/` é slide pronto, outro prefixo é recusado |
 | desenho | os vetores combinados com o Labs continuam iguais (o sha256 do arquivo e a conta) |
 | pura e integração | a foto de 2 MB passa e a de 2 MB e 1 byte é recusada, na regra, na assinatura e na busca da rota, com a mesma constante (achado 79) |

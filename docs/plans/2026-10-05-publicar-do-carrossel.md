@@ -78,7 +78,7 @@ A revisão do plano pelo auditor (05/10) o liberou sem achado novo e trouxe um d
 
 **Adendo de 06/10 (a foto no espaço da arte).** A prova da FASE 5.11 parou no meio, e a etapa ganhou o
 segundo jeito de imagem. A seção "ADENDO DE 06/10", antes dos apêndices, traz as FASES 5.12 a 5.17;
-a 5.17 substitui o que faltava da 5.11. O Apêndice B traz as 92 provas de mutação, que substituem as
+a 5.17 substitui o que faltava da 5.11. O Apêndice B traz as 93 provas de mutação, que substituem as
 do Apêndice A a partir da FASE 5.12. O auditor, em 06/10, é a sessão `metodochat-6e`.
 
 ## Restrições globais
@@ -5262,6 +5262,8 @@ dessa cópia por um gerador, sem cópia à mão. Os números do ensaio:
   do adendo) derrubaram, cada uma, o caso esperado;
 - o adendo, aplicado do zero sobre `e048087` numa cópia limpa, dá os 29 arquivos iguais ao fim do
   ensaio, byte a byte.
+- **depois da revisão, a FASE 5.15-bis (achado 81, `a3578c9`):** 21 arquivos e 166 casos de tela no
+  fim, e 93 mutações no Apêndice B (as 92, com três ajustes, e a do 81), todas derrubando o caso.
 
 O ensaio achou estas coisas, já resolvidas aqui:
 1. **A versão da página ficava velha (defeito da Etapa 5, de `f6e793a`).** O card "Publicar" mandava a
@@ -5293,6 +5295,7 @@ O ensaio achou estas coisas, já resolvidas aqui:
 | `lib/bonus/arte-foto.ts`, `arte-desenho.tsx`, `arte-resposta.tsx`, `arte-tela.ts`, `.../arte/route.tsx` | a busca da foto, o desenho com ela, e os cabeçalhos `X-Arte-Foto` e `X-Arte-Versao` | 5.13 |
 | `lib/bonus/publicar-repositorio.ts`, `publicar-processo.ts`, `publicar-textos.ts`, `app/bonus/publicar-actions.ts` | assinar, guardar e publicar a foto; a cópia só do slide pronto | 5.14 |
 | `.../imagem-no-navegador.ts`, `card-da-parte.tsx`, `editor-do-carrossel.tsx`, `card-publicar.tsx`, `publicacao-na-tela.ts`, `page.tsx`; `lib/bonus/publicar-estado.ts` | o recorte no navegador, os dois botões, a arte com a foto exigida e a versão da rota | 5.15 |
+| `.../imagem-no-navegador.ts` | o que a rota diz da foto vale mais que a página (achado 81) | 5.15-bis |
 
 ---
 
@@ -8896,7 +8899,126 @@ git commit -m "feat(bonus): a foto no card de cada slide, ao lado do Baixar, e o
 
 ---
 
-### FASE 5.16 — O verify, a integração inteira, as 92 mutações e o que não pode mudar
+### FASE 5.15-bis — A arte que diz que a foto faltou nunca sobe (achado 81)
+
+Entrou depois da revisão do adendo, por decisão do Eduardo ("Corrigir agora", 06/10), antes da 5.16.
+Ensaio: `a3578c9`, sobre `2e1195f`.
+
+**Por quê.** A exigência do "sim" usava a foto que a página conhecia (`comFoto`). O servidor decide
+pelo banco quem vai como arte e com que versão. Com a foto posta noutra aba, num slide que esta página
+ainda via como "Só texto", ela mandava a arte sem olhar o cabeçalho, e a versão batia. Uma busca da
+foto que falhasse nessa hora publicaria o espaço em branco. A rota só manda `X-Arte-Foto` no slide que
+tem foto no banco: com o cabeçalho, só o "sim" sobe.
+
+**Arquivos:**
+- Modificar: `app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts`
+- Testar: `testes-dom/bonus-publicar-imagem.dom.tsx`
+
+**Interfaces:** nenhuma muda. Em `prepararArtes`, a condição passa a ser `(comFoto || foto !== null)
+&& foto !== "sim"`, com `foto` o valor de `X-Arte-Foto`.
+
+- [ ] **Passo 1: os testes**
+
+Em `testes-dom/bonus-publicar-imagem.dom.tsx`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/testes-dom/bonus-publicar-imagem.dom.tsx b/testes-dom/bonus-publicar-imagem.dom.tsx
+index cc3dc86..f136ebd 100644
+--- a/testes-dom/bonus-publicar-imagem.dom.tsx
++++ b/testes-dom/bonus-publicar-imagem.dom.tsx
+@@ -292,6 +292,23 @@ describe("as artes do Chat, na hora de publicar", () => {
+     expect(puts).toEqual([]);
+   });
+ 
++  // ACHADO 81: a página pode estar velha (o slide ganhou a foto noutra aba, sem recarregar esta). A
++  // rota decide pelo banco, e só manda o cabeçalho da foto no slide que tem foto: o que ela diz vale.
++  it("a arte que veio com faltou não sobe, mesmo que a página ache o slide sem foto", async () => {
++    fotoNaArte = { 1: "faltou" };
++    const a = vi.fn();
++    const r = await prepararArtes(pedido([{ numero: 1, comFoto: false }], a));
++    expect(r).toEqual({ ok: false, texto: "A foto do slide 1 não carregou. Espere um instante e publique de novo." });
++    expect(a).not.toHaveBeenCalled();
++    expect(puts).toEqual([]);
++  });
++
++  it("a arte que veio com a foto desenhada sobe, mesmo que a página ache o slide sem foto", async () => {
++    fotoNaArte = { 1: "sim" };
++    const r = await prepararArtes(pedido([{ numero: 1, comFoto: false }]));
++    expect(r).toEqual({ ok: true, artes: [{ numero: 1, caminho: "178/bonus-fila/1.jpg", versao: "desenho-1" }] });
++  });
++
+   it("a arte sem a versão do desenho não sobe", async () => {
+     vi.stubGlobal("fetch", vi.fn(async () => new Response("png", { status: 200, headers: { "content-type": "image/png" } })));
+     const a = vi.fn();
+```
+
+- [ ] **Passo 2: ver falhar**
+
+```bash
+npx vitest run --config vitest.dom.config.ts testes-dom/bonus-publicar-imagem.dom.tsx
+```
+
+Esperado: 1 cai ("a arte que veio com faltou não sobe, mesmo que a página ache o slide sem foto") e
+24 passam (25).
+
+- [ ] **Passo 3: o código**
+
+Em `app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts b/app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts
+index 7170fd7..7178f8e 100644
+--- a/app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts
++++ b/app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts
+@@ -184,7 +184,9 @@ export async function enviarImagemDoSlide(p: {
+  * sempre.
+  *
+  * O SLIDE COM FOTO SÓ SOBE COM A FOTO DESENHADA (achado 78): a rota diz `X-Arte-Foto: sim`, e qualquer
+- * outra coisa (o "faltou", ou nada) recusa antes de assinar. O post sairia sem a foto, sem volta.
++ * outra coisa (o "faltou", ou nada) recusa antes de assinar. O post sairia sem a foto, sem volta. E O
++ * QUE A ROTA DIZ VALE MAIS QUE A PÁGINA (achado 81): ela só manda o cabeçalho no slide que tem foto no
++ * banco, e a página pode estar velha (a foto subiu noutra aba). Com o cabeçalho, só o "sim" sobe.
+  */
+ export async function prepararArtes(p: {
+   bonusId: string;
+@@ -200,7 +202,8 @@ export async function prepararArtes(p: {
+     try {
+       const r = await fetch(urlDaArte(p.bonusId, p.carrosselId, numero, p.versoesDaMiniatura[numero - 1] ?? ""), { cache: "no-store" });
+       if (!r.ok) return { ok: false, texto: textoDaArteQueNaoVeio(numero) };
+-      if (comFoto && r.headers.get(CABECALHO_DA_FOTO) !== "sim") return { ok: false, texto: textoDaFotoQueFaltou(numero) };
++      const foto = r.headers.get(CABECALHO_DA_FOTO);
++      if ((comFoto || foto !== null) && foto !== "sim") return { ok: false, texto: textoDaFotoQueFaltou(numero) };
+       versao = r.headers.get(CABECALHO_DA_VERSAO);
+       if (!versao) return { ok: false, texto: textoDaArteQueNaoVeio(numero) };
+       pronta = await prepararImagem(await r.blob());
+```
+
+- [ ] **Passo 4: ver passar**
+
+```bash
+npx tsc --noEmit
+npx vitest run --config vitest.dom.config.ts
+```
+
+Esperado: `tsc` limpo; 21 arquivos e 166 casos de tela passam.
+
+- [ ] **Passo 5: varrer e commitar**
+
+```bash
+node "$SCRATCH/varrer-texto.mjs" "app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts" testes-dom/bonus-publicar-imagem.dom.tsx
+test "$(git branch --show-current)" = "publicar-do-carrossel"
+git add "app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts" testes-dom/bonus-publicar-imagem.dom.tsx
+git commit -m "fix(bonus): a arte que diz que a foto faltou nunca sobe, mesmo com a página velha" -m "A exigência do sim usava a foto que a página conhecia. Com a foto posta noutra aba, a página mandava o slide como só texto e não olhava o cabeçalho; uma busca que falhasse nessa hora publicaria a arte em branco (achado 81). A rota só manda o cabeçalho no slide que tem foto no banco: com ele, só o sim sobe."
+```
+
+**Nas mutações (Apêndice B):** as duas do 78 no navegador trocam de âncora (a linha nova), entra a do
+81 ("5.15-bis: a página velha decide se a foto é exigida"), e a "5.15: a arte com foto não exige o
+sim", que tira o `comFoto` de `artesParaPublicar`, passa a cair no teste puro dela: com o 81, o
+navegador recusa o "faltou" sem depender da página, e o caso de tela do card não cai mais. São 93.
+
+---
+
+### FASE 5.16 — O verify, a integração inteira, as 93 mutações e o que não pode mudar
 
 - [ ] **Passo 1: o verify, na árvore do projeto**
 
@@ -8904,7 +9026,7 @@ git commit -m "feat(bonus): a foto no card de cada slide, ao lado do Baixar, e o
 npm run verify
 ```
 
-Esperado: lint e `tsc` limpos; 99 arquivos e 2 916 casos puros e 21 arquivos e 164 de tela; a varredura "SEM VAZAMENTO em A nem
+Esperado: lint e `tsc` limpos; 99 arquivos e 2 916 casos puros e 21 arquivos e 166 de tela; a varredura "SEM VAZAMENTO em A nem
 em C"; o build (Turbopack) com "MIGRAÇÃO PULADA" e as rotas `ƒ /bonus/[id]/carrossel/[cid]` e
 `ƒ /bonus/[id]/carrossel/[cid]/arte`.
 
@@ -8925,7 +9047,7 @@ DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_te
 git status --short
 ```
 
-Esperado: as 92 com ✓, "92 mutações, 0 ruins", e a árvore limpa depois (cada arquivo volta byte a
+Esperado: as 93 com ✓, "93 mutações, 0 ruins", e a árvore limpa depois (cada arquivo volta byte a
 byte).
 
 - [ ] **Passo 4: nenhum arquivo do `/publicar` mudou**
@@ -9211,7 +9333,7 @@ process.exit(ruins ? 1 : 0);
 ## Apêndice B — as provas de mutação depois do adendo
 
 A partir da FASE 5.12, este script substitui o do Apêndice A, que não acha mais seis âncoras (item 4
-do ensaio do adendo). São as 45 do Apêndice A, com as âncoras novas, e as 47 do adendo, cada uma com o
+do ensaio do adendo). São as 45 do Apêndice A, com as âncoras novas, e as 48 do adendo, cada uma com o
 número da FASE. Cada mutação tira uma proteção e roda o teste que a cobre; o caso nomeado tem de cair.
 O arquivo volta byte a byte depois de cada uma. Sem `DATABASE_URL_TESTES`, o script recusa antes de
 mutar.
@@ -9219,7 +9341,7 @@ mutar.
 ```js
 // Provas de mutação da Etapa 5 (publicar o carrossel), com o adendo da foto no espaço. Cada arquivo
 // volta byte a byte. As 45 de antes do adendo vêm de mutar-publicar.mjs (Apêndice A), com as âncoras
-// que o adendo mudou; as do adendo levam o número da FASE (5.12 a 5.15).
+// que o adendo mudou; as do adendo levam o número da FASE (5.12 a 5.15-bis).
 // Uso, da raiz do repositório: DATABASE_URL_TESTES=<container> node mutar-publicar-foto.mjs [filtro]
 // As mutações INTEG rodam a suíte de integração, que sem DATABASE_URL_TESTES cai na DATABASE_URL, a
 // da PRODUÇÃO (achado 68): sem a variável, o script recusa antes de mutar, e uma rodada INTEG que
@@ -9523,11 +9645,15 @@ const MUTACOES = [
     de: "    if (problema) return { ok: false, texto: textoDoProblemaDaFoto(problema) };\n", para: "",
     cmd: T_NAVEGADOR, caso: "a foto que passa de 2 MB depois de reduzida é recusada antes de assinar" },
   { nome: "5.15: a arte com foto sobe sem o sim (achado 78)", arq: NAVEGADOR,
-    de: '      if (comFoto && r.headers.get(CABECALHO_DA_FOTO) !== "sim") return { ok: false, texto: textoDaFotoQueFaltou(numero) };\n', para: "",
+    de: '      if ((comFoto || foto !== null) && foto !== "sim") return { ok: false, texto: textoDaFotoQueFaltou(numero) };\n', para: "",
     cmd: T_NAVEGADOR, caso: "a arte do slide com foto que veio faltou não assina nem sobe" },
   { nome: "5.15: a exigência do sim só olha o faltou (achado 78)", arq: NAVEGADOR,
-    de: 'r.headers.get(CABECALHO_DA_FOTO) !== "sim")', para: 'r.headers.get(CABECALHO_DA_FOTO) === "faltou")',
+    de: '&& foto !== "sim")', para: '&& foto === "faltou")',
     cmd: T_NAVEGADOR, caso: "a arte do slide com foto que veio sem o cabeçalho não assina nem sobe" },
+  // 5.15-bis o que a rota diz da foto vale mais que a página (achado 81)
+  { nome: "5.15-bis: a página velha decide se a foto é exigida (achado 81)", arq: NAVEGADOR,
+    de: 'if ((comFoto || foto !== null) && foto !== "sim")', para: 'if (comFoto && foto !== "sim")',
+    cmd: T_NAVEGADOR, caso: "a arte que veio com faltou não sobe, mesmo que a página ache o slide sem foto" },
   { nome: "5.15: a versão não é a da rota", arq: NAVEGADOR,
     de: "      versao = r.headers.get(CABECALHO_DA_VERSAO);\n", para: '      versao = "da-pagina";\n',
     cmd: T_NAVEGADOR, caso: "manda a versão da rota" },
@@ -9539,7 +9665,7 @@ const MUTACOES = [
     cmd: T_ESTADO, caso: "o só texto e o com foto, em ordem" },
   { nome: "5.15: a arte com foto não exige o sim (achado 78)", arq: ESTADO,
     de: "artes.push({ numero: n, comFoto: true });", para: "artes.push({ numero: n, comFoto: false });",
-    cmd: T_PUBLICAR, caso: "a foto que faltou na arte trava o pedido" },
+    cmd: T_ESTADO, caso: "o só texto e o com foto, em ordem" },
   { nome: "5.15: o card Publicar não manda a arte do slide com foto", arq: PUBLICAR,
     de: "        desenhados: artesParaPublicar({ total, soTexto, imagens }),\n", para: "        desenhados: soTexto.map((numero) => ({ numero, comFoto: false })),\n",
     cmd: T_PUBLICAR, caso: "o slide com foto e o só texto vão com a arte da rota" },
