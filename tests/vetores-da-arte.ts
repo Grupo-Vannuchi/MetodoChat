@@ -28,6 +28,15 @@ export type Vetor = {
 
 export type ArquivoDosVetores = {
   sobre: string[];
+  /**
+   * COM O QUE OS VETORES FORAM DESENHADOS, NO MOMENTO DA GERAÇÃO (commit `9f4fbf3`, Etapa 4). O
+   * `desenho` é o sha256 de `lib/bonus/arte-desenho.tsx` naquele commit (`06f967d8…`), e não o de hoje.
+   * Na Etapa 5 (adendo da foto no espaço, `1d63f6d`), o arquivo passou a `f46b898b…`: ele ganhou a foto
+   * dentro do espaço da imagem, só quando o slide tem foto. Sem foto, o PNG sai igual byte a byte ao de
+   * antes (6 PNGs medidos no ensaio, antes e depois), e é só o slide sem foto que os vetores medem.
+   * Por isso o arquivo dos vetores, e o sha256 dele combinado com o Labs, não mudaram. Os testes conferem
+   * as `fontes`, que são as de hoje; o `desenho` é o registro da geração.
+   */
   origem: { satori: string; og: string; fontes: Record<string, string>; desenho: Record<string, string> };
   normalizacao: string[];
   conta: string[];

@@ -448,6 +448,13 @@ espaço voltar).
 Labs desenha a ilustração com `contain`. As duas dão o mesmo resultado quando a imagem já vem na
 proporção do espaço, que é o caso das duas.
 
+**O registro do desenho nos vetores** (apontado pelo Labs, `site-ia-1f`, ao conferir o PR #8). O
+`origem.desenho` do arquivo dos vetores guarda o sha256 de `lib/bonus/arte-desenho.tsx` no momento da
+geração (`06f967d8…`, commit `9f4fbf3`). Com o adendo, o arquivo passa a `f46b898b…`, e o registro deixa
+de nomear o desenho de hoje. O arquivo dos vetores fica como está, e o sha256 combinado também: o
+desenho sem foto é igual byte a byte, e é só ele que os vetores medem. A explicação está escrita no tipo
+do arquivo (`tests/vetores-da-arte.ts`), para quem conferir a origem não achar uma diferença sem dono.
+
 ### O que não muda
 
 Nenhum arquivo do `/publicar`, do bucket, do dreno ou da fila. Esta etapa importa deles e não toca
