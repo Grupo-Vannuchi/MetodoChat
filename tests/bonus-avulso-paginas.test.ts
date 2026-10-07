@@ -102,3 +102,28 @@ describe("a página do carrossel avulso", () => {
     expect(pagina).toContain("<form action={gerarAvulsoDeNovo}>");
   });
 });
+
+// O MENU "CARROSSÉIS" E A LISTA (spec da Etapa 7): um item novo no menu, ao lado do "Bônus", com todos
+// os carrosséis e o botão "Novo carrossel". O item é uma linha em app/app-shell.tsx, como o "Bônus" foi
+// na FASE 1.9.
+describe("o menu Carrosséis", () => {
+  it("o item mora no menu, logo depois do Bônus", () => {
+    const menu = ler("app/app-shell.tsx");
+    const bonus = menu.indexOf('{ href: "/bonus", label: "Bônus"');
+    const carrosseis = menu.indexOf('{ href: "/carrosseis", label: "Carrosséis"');
+    expect(bonus).toBeGreaterThan(-1);
+    expect(carrosseis).toBeGreaterThan(bonus);
+    expect(menu.slice(bonus, carrosseis).split("\n")).toHaveLength(2);
+  });
+
+  it("a lista lê todos os carrosséis, monta cada item fora do JSX e leva ao Novo carrossel", () => {
+    const lista = ler("app/carrosseis/page.tsx");
+    expect(lista).toContain("await listarCarrosseis()");
+    expect(lista).toContain("itemDaListaDeCarrosseis(");
+    expect(lista).toContain('href="/carrosseis/novo"');
+  });
+
+  it("a página do carrossel entrega o aviso do funil, decidido pelo estado da fila", () => {
+    expect(ler("app/bonus/[id]/carrossel/[cid]/revisao.tsx")).toContain("avisoDoFunil: textoDoFunil(estado, carrossel.palavra)");
+  });
+});

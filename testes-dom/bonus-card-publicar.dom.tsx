@@ -138,6 +138,23 @@ describe("o card Publicar, com o carrossel na fila", () => {
     expect(screen.getByText("Para ver no calendário, selecione thiagovannuchi no menu.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Publicar" })).toBeNull();
   });
+
+  // O AVISO DO FUNIL (spec da Etapa 7): o post é novo, e a automação da palavra que já existe está
+  // presa a outro post. A página decide quando ele aparece (`textoDoFunil`); o card só o desenha.
+  it("o aviso do funil, com o caminho do /automacoes", () => {
+    renderizar({
+      estado: { texto: "Agendado para 06/10/2026, 18:00 (horário de Brasília).", tom: "ok", filaId: "f1", livre: false },
+      avisoDoFunil: "O funil não liga sozinho: depois que o post sair, crie no /automacoes a automação da palavra SUMIDO para este post.",
+    });
+    expect(screen.getByText(/O funil não liga sozinho/).textContent).toContain("da palavra SUMIDO para este post.");
+    expect(screen.getByRole("link", { name: "Abrir as automações" }).getAttribute("href")).toBe("/automacoes");
+  });
+
+  it("sem o aviso do funil, nem a frase nem o caminho", () => {
+    renderizar({ estado: { texto: null, tom: null, filaId: null, livre: true } });
+    expect(screen.queryByText(/O funil não liga sozinho/)).toBeNull();
+    expect(screen.queryByRole("link", { name: "Abrir as automações" })).toBeNull();
+  });
 });
 
 describe("o não salvo, pelo editor", () => {

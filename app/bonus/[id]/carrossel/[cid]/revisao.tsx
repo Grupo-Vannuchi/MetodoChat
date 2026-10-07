@@ -18,7 +18,13 @@ import { TEXTO_CARROSSEL_SEM_TEXTO } from "@/lib/bonus/carrossel-textos";
 import { publicacaoLivre } from "@/lib/bonus/publicar-estado";
 import { fotosDaArte, imagensDaArte, versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
 import { estadoDoCarrossel } from "@/lib/bonus/publicar-repositorio";
-import { textoDaTrava, textoDoCalendario, textoDoEstadoDaPublicacao, tomDoEstadoDaPublicacao } from "@/lib/bonus/publicar-textos";
+import {
+  textoDaTrava,
+  textoDoCalendario,
+  textoDoEstadoDaPublicacao,
+  textoDoFunil,
+  tomDoEstadoDaPublicacao,
+} from "@/lib/bonus/publicar-textos";
 import EditorDoCarrossel from "./editor-do-carrossel";
 import type { PublicacaoNaTela } from "./publicacao-na-tela";
 
@@ -35,6 +41,9 @@ import type { PublicacaoNaTela } from "./publicacao-na-tela";
  * A PUBLICAÇÃO (spec da Etapa 5) é decidida aqui, no servidor: as imagens do Canva guardadas, com o
  * endereço público delas; a versão do texto de cada slide; o estado lido da fila pela chave exata; a
  * trava; e o aviso do calendário, que só mostra a conta selecionada no menu.
+ *
+ * O AVISO DO FUNIL (spec da Etapa 7) também: depois de agendar ou publicar, a página lembra de ligar a
+ * automação da palavra no post novo, no /automacoes. Vale para o carrossel de bônus e para o avulso.
  */
 export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
   const texto = textoDaLinhaDoCarrossel(carrossel);
@@ -67,6 +76,7 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
     estado: { texto: textoDoEstadoDaPublicacao(estado), tom: tomDoEstadoDaPublicacao(estado), filaId, livre: publicacaoLivre(estado) },
     avisoDoCalendario:
       filaId && conta && escolhas.conta && noMenu?.ig_user_id !== escolhas.conta ? textoDoCalendario(rotuloDaConta(conta)) : null,
+    avisoDoFunil: textoDoFunil(estado, carrossel.palavra),
   };
 
   return (
