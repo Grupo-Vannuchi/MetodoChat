@@ -28,10 +28,11 @@ import type { ImagemNaTela } from "./publicacao-na-tela";
 // por outra action, que devolve as versões, e o "Baixar todos" precisa das versões de todos.
 //
 // A IMAGEM DO SLIDE (spec da Etapa 5 e o adendo de 05/10), de dois jeitos, no slide com espaço:
-// - a FOTO, o jeito principal: "Subir foto" (ou "Trocar foto"), ao lado do "Baixar". Ela entra no
-//   espaço da arte, e a miniatura é a própria arte da rota, com a foto;
-// - o SLIDE PRONTO do Canva, embaixo: "Slide pronto do Canva" (ou "Trocar slide pronto"). Ele é o
-//   slide inteiro, e a miniatura passa a ser ele. Com o texto salvo depois dele, o card avisa.
+// - a FOTO, o jeito principal: "Subir foto" (ou "Trocar foto"). Ela entra no espaço da arte, e a
+//   miniatura é a própria arte da rota, com a foto;
+// - o SLIDE PRONTO do Canva: "Slide pronto do Canva" (ou "Trocar slide pronto"). Ele é o slide
+//   inteiro, e a miniatura passa a ser ele. Com o texto salvo depois dele, o card avisa.
+// Os dois botões e o "Baixar" ficam numa linha embaixo do card, na largura dele (prova de 07/10).
 // Subir um jeito troca o outro. O "Baixar" continua baixando a arte do Chat, para levar ao Canva.
 // Com o carrossel na fila ou publicado (`travado`), o card fica só para leitura: sem "Editar", sem
 // upload, e o "Só texto" desligado. A trava vale no servidor; aqui ela só se mostra.
@@ -168,33 +169,7 @@ export default function CardDaParte({
               Só texto
             </label>
             {naoCabe && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{naoCabe}</p>}
-            {/* A FOTO AO LADO DO "BAIXAR", na mesma linha (pedido do Eduardo na prova de 05/10). A
-                coluna tem 224px, e os rótulos inteiros não cabiam lado a lado: o texto é curto, e o nome
-                acessível do "Baixar" continua dizendo o slide. Se faltar espaço, a linha quebra. O slide
-                pronto, que é o jeito de exceção, fica embaixo. */}
-            <div className="flex flex-wrap gap-2">
-              {podeSubir && botaoDeImagem("foto")}
-              <a
-                href={urlDaArte(caminho, numero, versao, true)}
-                download
-                aria-label={`Baixar o slide ${numero}`}
-                className={`${btnSecondary} whitespace-nowrap`}
-              >
-                Baixar
-              </a>
-            </div>
-            {podeSubir && <div className="flex">{botaoDeImagem("slide")}</div>}
             {desatualizada && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{TEXTO_TEXTO_MUDOU}</p>}
-            {avisoDaImagem && (
-              <p
-                role="status"
-                className={`text-xs font-medium ${
-                  avisoDaImagem.tom === "ok" ? "text-aberto dark:text-aberto-escuro" : "text-parou dark:text-parou-escuro"
-                }`}
-              >
-                {avisoDaImagem.texto}
-              </p>
-            )}
           </div>
         )}
         <form
@@ -240,6 +215,34 @@ export default function CardDaParte({
           </div>
         </form>
       </div>
+      {/* OS BOTÕES DA IMAGEM NUMA LINHA SÓ, NA LARGURA DO CARD (pedido do Eduardo na prova de 07/10): na
+          coluna da miniatura, de 224px, os três não cabiam lado a lado, e o card ficava alto. O aviso do
+          upload entra na mesma linha, centrado com os botões. Se faltar espaço, no celular, a linha
+          quebra. O nome acessível do "Baixar" continua dizendo o slide. */}
+      {numero !== null && versao !== null && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {podeSubir && botaoDeImagem("foto")}
+          {podeSubir && botaoDeImagem("slide")}
+          <a
+            href={urlDaArte(caminho, numero, versao, true)}
+            download
+            aria-label={`Baixar o slide ${numero}`}
+            className={`${btnSecondary} whitespace-nowrap`}
+          >
+            Baixar
+          </a>
+          {avisoDaImagem && (
+            <p
+              role="status"
+              className={`text-xs font-medium ${
+                avisoDaImagem.tom === "ok" ? "text-aberto dark:text-aberto-escuro" : "text-parou dark:text-parou-escuro"
+              }`}
+            >
+              {avisoDaImagem.texto}
+            </p>
+          )}
+        </div>
+      )}
     </li>
   );
 }

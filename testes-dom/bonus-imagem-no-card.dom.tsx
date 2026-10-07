@@ -144,20 +144,20 @@ describe("a imagem no card", () => {
     expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "b1"));
   });
 
-  // Pedido do Eduardo na prova (05/10): o upload ao lado do "Baixar", na mesma linha. Com os dois
-  // jeitos, quem fica ao lado é a foto, que é o jeito principal; o slide pronto vai embaixo.
-  it("a foto fica ao lado do Baixar, na mesma linha; o slide pronto, embaixo", () => {
+  // Pedido do Eduardo na prova de 07/10: os três botões da imagem numa linha só, embaixo do card, na
+  // ordem foto, slide pronto e "Baixar". Até ali, a foto ficava ao lado do "Baixar" e o slide pronto
+  // embaixo, na coluna de 224px da miniatura (pedido de 05/10), e o card ficava alto.
+  it("os três botões da imagem ficam numa linha só, na ordem foto, slide pronto e Baixar", () => {
     renderizar({ publicacao: { imagens: { 3: { url: FOTO, versao: "t3", jeito: "foto" } } } });
     for (const [n, rotulo] of [
       [2, "Subir foto"],
       [3, "Trocar foto"],
     ] as const) {
-      const foto = within(card(n)).getByText(rotulo);
-      const pronto = within(card(n)).getByText("Slide pronto do Canva");
+      const foto = within(card(n)).getByText(rotulo).closest("label");
+      const pronto = within(card(n)).getByText("Slide pronto do Canva").closest("label");
       const baixar = within(card(n)).getByRole("link", { name: `Baixar o slide ${n}` });
       expect(baixar.textContent).toBe("Baixar");
-      expect(foto.closest("label")?.parentElement).toBe(baixar.parentElement);
-      expect(pronto.closest("label")?.parentElement).not.toBe(baixar.parentElement);
+      expect([...(baixar.parentElement?.children ?? [])].slice(0, 3)).toEqual([foto, pronto, baixar]);
     }
   });
 
@@ -174,6 +174,10 @@ describe("a imagem no card", () => {
     expect(miniatura(2).getAttribute("src")).toBe("https://bucket/public/178/bonus/nova.jpg");
     expect(within(card(2)).getByText("Imagem guardada.")).toBeTruthy();
     expect(within(card(2)).getByText("Trocar slide pronto")).toBeTruthy();
+    // O aviso do upload fica na linha dos botões (prova de 07/10), e não solto embaixo deles.
+    expect(within(card(2)).getByText("Imagem guardada.").parentElement).toBe(
+      within(card(2)).getByRole("link", { name: "Baixar o slide 2" }).parentElement
+    );
   });
 
   it("subir a foto: recorta, assina no destino da foto, guarda, e a miniatura é a arte com a versão nova", async () => {
