@@ -37,7 +37,7 @@ export default function EditorDoCarrossel({
   acaoDoSlide,
   acaoDaArte,
   acaoDaConta,
-  bonusId,
+  caminho,
   carrosselId,
   palavra,
   total,
@@ -54,7 +54,7 @@ export default function EditorDoCarrossel({
   acaoDoSlide: (anterior: AvisoDoSlide | null, form: FormData) => Promise<AvisoDoSlide | null>;
   acaoDaArte: (anterior: AvisoDaArte | null, form: FormData) => Promise<AvisoDaArte | null>;
   acaoDaConta: (anterior: AvisoDaArte | null, form: FormData) => Promise<AvisoDaArte | null>;
-  bonusId: string;
+  caminho: string;
   carrosselId: string;
   palavra: string;
   total: number;
@@ -130,7 +130,7 @@ export default function EditorDoCarrossel({
     setBaixando(true);
     for (const n of slides) {
       const a = document.createElement("a");
-      a.href = urlDaArte(bonusId, carrosselId, n, versoes[n - 1], true);
+      a.href = urlDaArte(caminho, n, versoes[n - 1], true);
       a.setAttribute("download", "");
       document.body.appendChild(a);
       a.click();
@@ -183,7 +183,7 @@ export default function EditorDoCarrossel({
             <CardDaParte
               key={n}
               acao={acaoDoSlide}
-              bonusId={bonusId}
+              caminho={caminho}
               carrosselId={carrosselId}
               palavra={palavra}
               total={total}
@@ -204,7 +204,7 @@ export default function EditorDoCarrossel({
           ))}
           <CardDaParte
             acao={acaoDoSlide}
-            bonusId={bonusId}
+            caminho={caminho}
             carrosselId={carrosselId}
             palavra={palavra}
             total={total}
@@ -237,7 +237,7 @@ export default function EditorDoCarrossel({
       {publicacao && (
         <CardPublicar
           publicacao={publicacao}
-          bonusId={bonusId}
+          caminho={caminho}
           carrosselId={carrosselId}
           total={total}
           soTexto={soTexto}

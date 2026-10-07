@@ -27,9 +27,12 @@ export function textoDaParteSalva(parte: ParteDoCarrossel, total: number, avisos
   return avisos.length ? `${salvo} Atenção, em outro campo: ${textoDosProblemasDoCarrossel(total, avisos)}` : salvo;
 }
 
-/** O aviso vai pela URL com texto E tom: `avisoDaUrl` lê os dois, e sem tom tudo vira erro. */
-export function urlDoCarrosselComAviso(bonusId: string, carrosselId: string, aviso: Aviso): string {
-  return `/bonus/${bonusId}/carrossel/${carrosselId}?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;
+/**
+ * O aviso vai pela URL com texto E tom: `avisoDaUrl` lê os dois, e sem tom tudo vira erro. `caminho`
+ * é o da página do carrossel (carrossel-caminho.ts, `caminhoDoCarrossel`).
+ */
+export function urlDoCarrosselComAviso(caminho: string, aviso: Aviso): string {
+  return `${caminho}?aviso=${encodeURIComponent(aviso.texto)}&tom=${aviso.tom}`;
 }
 
 export function textoDaRecusaDoPedidoDeCarrossel(motivo: RecusaDoPedidoDeCarrossel): string {

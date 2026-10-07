@@ -37,7 +37,7 @@ import type { ImagemNaTela } from "./publicacao-na-tela";
 // upload, e o "Só texto" desligado. A trava vale no servidor; aqui ela só se mostra.
 export default function CardDaParte({
   acao,
-  bonusId,
+  caminho,
   carrosselId,
   palavra,
   total,
@@ -56,7 +56,7 @@ export default function CardDaParte({
   aoMudarNaoSalvo,
 }: {
   acao: (anterior: AvisoDoSlide | null, form: FormData) => Promise<AvisoDoSlide | null>;
-  bonusId: string;
+  caminho: string;
   carrosselId: string;
   palavra: string;
   total: number;
@@ -151,7 +151,7 @@ export default function CardDaParte({
             {/* eslint-disable-next-line @next/next/no-img-element -- a arte está atrás de sessão, e o
                 otimizador de imagem do Next buscaria a URL sem o cookie: a miniatura voltaria 401. */}
             <img
-              src={(comImagem?.jeito === "slide" ? comImagem.url : null) ?? urlDaArte(bonusId, carrosselId, numero, versao)}
+              src={(comImagem?.jeito === "slide" ? comImagem.url : null) ?? urlDaArte(caminho, numero, versao)}
               alt={`Slide ${numero} de ${total}`}
               width={216}
               height={270}
@@ -175,7 +175,7 @@ export default function CardDaParte({
             <div className="flex flex-wrap gap-2">
               {podeSubir && botaoDeImagem("foto")}
               <a
-                href={urlDaArte(bonusId, carrosselId, numero, versao, true)}
+                href={urlDaArte(caminho, numero, versao, true)}
                 download
                 aria-label={`Baixar o slide ${numero}`}
                 className={`${btnSecondary} whitespace-nowrap`}

@@ -17,9 +17,12 @@ const BONUS = "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f";
 const CARROSSEL = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
 
 describe("as frases do carrossel", () => {
-  it("a URL de volta leva texto E tom", () => {
-    expect(urlDoCarrosselComAviso(BONUS, CARROSSEL, { tom: "ok", texto: "salvo & pronto" })).toBe(
+  it("a URL de volta leva texto E tom, no caminho da página do carrossel", () => {
+    expect(urlDoCarrosselComAviso(`/bonus/${BONUS}/carrossel/${CARROSSEL}`, { tom: "ok", texto: "salvo & pronto" })).toBe(
       `/bonus/${BONUS}/carrossel/${CARROSSEL}?aviso=salvo%20%26%20pronto&tom=ok`
+    );
+    expect(urlDoCarrosselComAviso(`/carrosseis/${CARROSSEL}`, { tom: "erro", texto: "não deu" })).toBe(
+      `/carrosseis/${CARROSSEL}?aviso=n%C3%A3o%20deu&tom=erro`
     );
   });
 

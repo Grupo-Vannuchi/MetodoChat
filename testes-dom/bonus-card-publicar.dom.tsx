@@ -15,6 +15,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 const BONUS = "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f";
 const CARROSSEL = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
+const CAMINHO = `/bonus/${BONUS}/carrossel/${CARROSSEL}`;
 const TODAS = {
   1: { url: "u1", versao: "t1", jeito: "slide" as const },
   2: { url: "u2", versao: "t2", jeito: "slide" as const },
@@ -56,7 +57,7 @@ function renderizar(p: Partial<PublicacaoNaTela> = {}, extra: { naoSalvos?: numb
   render(
     <CardPublicar
       publicacao={completa}
-      bonusId={BONUS}
+      caminho={CAMINHO}
       carrosselId={CARROSSEL}
       total={3}
       soTexto={[]}
@@ -147,7 +148,7 @@ describe("o não salvo, pelo editor", () => {
         acaoDoSlide={async () => ({ tom: "ok", texto: "Slide 2 salvo.", em: 1, versao: "b2", versaoDoTexto: "t2" })}
         acaoDaArte={async () => null}
         acaoDaConta={async () => null}
-        bonusId={BONUS}
+        caminho={CAMINHO}
         carrosselId={CARROSSEL}
         palavra="SUMIDO"
         total={3}
@@ -221,7 +222,7 @@ describe("as artes que vão com o pedido", () => {
     render(
       <CardPublicar
         publicacao={completa}
-        bonusId={BONUS}
+        caminho={CAMINHO}
         carrosselId={CARROSSEL}
         total={3}
         soTexto={[3]}
@@ -274,7 +275,7 @@ describe("as artes que vão com o pedido", () => {
         acaoDoSlide={async () => ({ tom: "ok", texto: "Slide 1 salvo.", em: 1, versao: "a2", versaoDoTexto: "t1-novo" })}
         acaoDaArte={async () => null}
         acaoDaConta={async () => null}
-        bonusId={BONUS}
+        caminho={CAMINHO}
         carrosselId={CARROSSEL}
         palavra="SUMIDO"
         total={3}

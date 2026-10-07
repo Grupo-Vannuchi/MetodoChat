@@ -21,6 +21,7 @@ import { fotosDaArte, imagensDaArte, versaoDoTextoDoSlide } from "@/lib/bonus/pu
 import { estadoDoCarrossel } from "@/lib/bonus/publicar-repositorio";
 import { textoDaTrava, textoDoCalendario, textoDoEstadoDaPublicacao, tomDoEstadoDaPublicacao } from "@/lib/bonus/publicar-textos";
 import { TEXTO_ARTE_SEM_CONTA, rotuloDaConta, textoDaOrigemDaConta } from "@/lib/bonus/arte-textos";
+import { caminhoDoCarrossel, ehDaRota } from "@/lib/bonus/carrossel-caminho";
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
 import { contasParaArte, lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
 import { descricaoDoCarrossel, textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
@@ -66,7 +67,7 @@ export default async function PaginaDoCarrossel({
     if (!ehTabelaAusente(erro)) throw erro;
     return <div className={alertError}>{TEXTO_TABELA_CARROSSEL_AUSENTE}</div>;
   }
-  if (!carrossel || carrossel.bonus_id !== id) notFound();
+  if (!carrossel || !ehDaRota(carrossel, { tipo: "bonus", bonusId: id })) notFound();
 
   // Server Component `async` e `force-dynamic`: roda UMA vez por requisição, e ler o
   // relógio aqui é o comportamento pedido. A regra trata todo arquivo como cliente;
@@ -82,7 +83,7 @@ export default async function PaginaDoCarrossel({
   // /admin do Labs, e é esta leitura, feita também logo depois de salvar, que avisa. Durante a
   // geração a tela pergunta ao servidor a cada 2 s, e cada pergunta leria a lista inteira do
   // Labs de novo, sem nada a mostrar ainda.
-  const situacao = geracao === "gerando" ? null : await situacaoDoBonus(carrossel.bonus_id);
+  const situacao = geracao === "gerando" ? null : await situacaoDoBonus(id);
   const quadro = situacao ? quadroDaSituacao(situacao) : null;
   const trocada =
     situacao?.tipo === "publicado" && situacao.bonus.palavra !== carrossel.palavra ? situacao.bonus.palavra : null;
@@ -185,7 +186,7 @@ async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
       acaoDoSlide={salvarSlideDoCarrossel}
       acaoDaArte={salvarArteDoCarrossel}
       acaoDaConta={fixarContaDoCarrossel}
-      bonusId={carrossel.bonus_id}
+      caminho={caminhoDoCarrossel(carrossel)}
       carrosselId={carrossel.id}
       palavra={carrossel.palavra}
       total={carrossel.total_slides}

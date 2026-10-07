@@ -17,6 +17,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 const BONUS = "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f";
 const CARROSSEL = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
+const CAMINHO = `/bonus/${BONUS}/carrossel/${CARROSSEL}`;
 const VALORES = {
   gancho: "Seu cliente sumiu? Não é culpa dele.",
   slide_1_titulo: "O que fazer primeiro",
@@ -97,7 +98,7 @@ function renderizar({
       acaoDoSlide={async () => slide.shift() ?? null}
       acaoDaArte={async () => null}
       acaoDaConta={async () => null}
-      bonusId={BONUS}
+      caminho={CAMINHO}
       carrosselId={CARROSSEL}
       palavra="SUMIDO"
       total={3}
@@ -129,10 +130,10 @@ describe("a imagem no card", () => {
     expect(within(card(3)).getByText("Subir foto")).toBeTruthy();
     expect(within(card(3)).getByText("Trocar slide pronto")).toBeTruthy();
     expect(miniatura(3).getAttribute("src")).toBe(IMAGEM);
-    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 2, "b1"));
+    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "b1"));
     expect(screen.queryByLabelText("Slide 1: foto para o espaço da arte")).toBeNull();
     expect(screen.queryByLabelText("Slide 1: slide pronto do Canva")).toBeNull();
-    expect(miniatura(1).getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 1, "a1"));
+    expect(miniatura(1).getAttribute("src")).toBe(urlDaArte(CAMINHO, 1, "a1"));
   });
 
   // A miniatura do slide com foto é a própria arte da rota, com a foto no espaço, e não a foto do bucket.
@@ -140,7 +141,7 @@ describe("a imagem no card", () => {
     renderizar({ publicacao: { imagens: { 2: { url: FOTO, versao: "t2", jeito: "foto" } } } });
     expect(within(card(2)).getByText("Trocar foto")).toBeTruthy();
     expect(within(card(2)).getByText("Slide pronto do Canva")).toBeTruthy();
-    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 2, "b1"));
+    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "b1"));
   });
 
   // Pedido do Eduardo na prova (05/10): o upload ao lado do "Baixar", na mesma linha. Com os dois
@@ -185,7 +186,7 @@ describe("a imagem no card", () => {
       { id: CARROSSEL, numero: 2, destino: "foto", arquivo: { nome: "foto-2.jpg", mime: "image/jpeg", bytes: 4, largura: 1720, altura: 1146 } },
     ]);
     expect(recebidos.guardar).toEqual([{ id: CARROSSEL, numero: 2, caminho: "178/bonus-foto/nova.jpg" }]);
-    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 2, "b2-foto"));
+    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "b2-foto"));
     expect(within(card(2)).getByText("Trocar foto")).toBeTruthy();
     expect(within(card(2)).getByText("Slide pronto do Canva")).toBeTruthy();
   });
@@ -209,7 +210,7 @@ describe("a imagem no card", () => {
     });
     expect(recebidos.assinar).toEqual([]);
     expect(within(card(2)).getByText("A imagem do slide tem de ser 4:5, como a arte (1080×1350).")).toBeTruthy();
-    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 2, "b1"));
+    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "b1"));
   });
 
   it("a foto pequena é recusada no card, sem pedir assinatura", async () => {
@@ -254,7 +255,7 @@ describe("a imagem no card", () => {
     renderizar({ publicacao: { imagens: { 2: { url: IMAGEM, versao: "t2", jeito: "slide" } } }, soTexto: [2] });
     expect(screen.queryByLabelText("Slide 2: foto para o espaço da arte")).toBeNull();
     expect(screen.queryByLabelText("Slide 2: slide pronto do Canva")).toBeNull();
-    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 2, "b1"));
+    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "b1"));
   });
 });
 

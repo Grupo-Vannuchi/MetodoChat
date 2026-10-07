@@ -45,7 +45,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!ehIdDeBonus(id) || !ehIdDeBonus(cid)) return erro(404, TEXTO_ARTE_NAO_ENCONTRADA);
   const pedido = new URL(request.url).searchParams;
   // O dono, o "pronto" e o slide: arte-tela.ts, `conferirPedidoDaArte`, com um caso por recusa.
-  const conferido = conferirPedidoDaArte(await lerCarrossel(cid), id, pedido.get("slide"));
+  const conferido = conferirPedidoDaArte(await lerCarrossel(cid), { tipo: "bonus", bonusId: id }, pedido.get("slide"));
   if (!conferido.ok) return erro(conferido.status, conferido.texto);
   const { linha, slides, numero } = conferido;
 

@@ -189,7 +189,7 @@ export async function enviarImagemDoSlide(p: {
  * banco, e a página pode estar velha (a foto subiu noutra aba). Com o cabeçalho, só o "sim" sobe.
  */
 export async function prepararArtes(p: {
-  bonusId: string;
+  caminho: string;
   carrosselId: string;
   desenhados: { numero: number; comFoto: boolean }[];
   versoesDaMiniatura: string[];
@@ -200,7 +200,7 @@ export async function prepararArtes(p: {
     let pronta: ImagemPronta;
     let versao: string | null;
     try {
-      const r = await fetch(urlDaArte(p.bonusId, p.carrosselId, numero, p.versoesDaMiniatura[numero - 1] ?? ""), { cache: "no-store" });
+      const r = await fetch(urlDaArte(p.caminho, numero, p.versoesDaMiniatura[numero - 1] ?? ""), { cache: "no-store" });
       if (!r.ok) return { ok: false, texto: textoDaArteQueNaoVeio(numero) };
       const foto = r.headers.get(CABECALHO_DA_FOTO);
       if ((comFoto || foto !== null) && foto !== "sim") return { ok: false, texto: textoDaFotoQueFaltou(numero) };
@@ -235,7 +235,7 @@ export async function prepararArtes(p: {
  * componente, para o relógio não ser lido durante o desenho da tela.
  */
 export async function publicarDaTela(p: {
-  bonusId: string;
+  caminho: string;
   carrosselId: string;
   desenhados: { numero: number; comFoto: boolean }[];
   versoesDaMiniatura: string[];

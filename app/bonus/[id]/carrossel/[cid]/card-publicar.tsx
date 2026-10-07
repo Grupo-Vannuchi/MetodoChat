@@ -23,7 +23,7 @@ const QUADRO: Record<TomDoQuadro, string> = { ok: alertOk, atencao: alertWarn, e
 
 export default function CardPublicar({
   publicacao,
-  bonusId,
+  caminho,
   carrosselId,
   total,
   soTexto,
@@ -33,7 +33,7 @@ export default function CardPublicar({
   legendaNaoSalva,
 }: {
   publicacao: PublicacaoNaTela;
-  bonusId: string;
+  caminho: string;
   carrosselId: string;
   total: number;
   soTexto: number[];
@@ -54,7 +54,7 @@ export default function CardPublicar({
   function publicar() {
     iniciar(async () => {
       const r = await publicarDaTela({
-        bonusId,
+        caminho,
         carrosselId,
         desenhados: artesParaPublicar({ total, soTexto, imagens }),
         versoesDaMiniatura,
