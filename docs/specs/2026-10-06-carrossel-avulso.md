@@ -135,14 +135,20 @@ vira uma decisão pela origem.
 contagens, a da tela (`carrosseisNasUltimas24h`) e a do pedido, dentro da trava
 (`criarPedidoDeCarrossel`), ganham `and not texto_a_mao`. O escrito à mão não passa pela trava.
 
-O build de produção aplica a 016 no merge ("MODO: APLICANDO"), e ela segue o protocolo da 015:
+A 016 segue o protocolo da 015:
 
 - entra em `naoObservaveis` de `lib/esquema.ts`, como a 014 e a 015 (só a declaração, com o
   motivo): uma coluna de feature não pode impedir o painel inteiro de subir. Quem confere as
   colunas e os `check` é `testes-integracao/bonus-carrossel-tabela.integracao.ts`;
-- antes do merge, a auditoria faz uma leitura de linha de base, só de leitura;
-- depois do deploy, a auditoria lê de novo, por um script dela: as colunas, o `'bonus'` em todas
-  as linhas que já existiam e os dois `check`.
+- **é aplicada à mão na produção ANTES da prova no preview**, como a 015 na Etapa 3, com o OK do
+  Eduardo (`node scripts/migrar.mjs`, o ensaio a seco, e depois `--aplicar --a-mao`). O preview usa
+  o banco de produção, e o código novo lê as colunas novas: a contagem do teto, com `and not
+  texto_a_mao`, roda na página de todo bônus. Achado no ensaio do plano, em 07/10; até então esta
+  seção dizia que o build do merge aplicava a 016. O build do merge diz "Nada a aplicar";
+- é segura com o código de hoje no ar: ele grava sempre o `bonus_id` e nunca a `origem`, que nasce
+  `'bonus'`, e lê com `select *`, que ignora coluna nova;
+- antes de aplicar, a auditoria faz uma leitura de linha de base, só de leitura; depois, lê de novo,
+  por um script dela: as colunas, o `'bonus'` em todas as linhas que já existiam e os dois `check`.
 
 **O `scripts/migrar.mjs` não muda (achado 82).** Ele é o script de deploy do Vinícius e roda em
 escrita em todo deploy de produção: uma conferência nova que falhasse travaria o deploy do produto
@@ -266,7 +272,8 @@ nunca vem do formulário.
 ## A prova real
 
 No preview, com o Eduardo na tela. Cada gravação tem o OK dele, e a auditoria lê o banco antes e
-depois. O preview usa o banco e o bucket de produção. **Sem post real**, como na Etapa 5.
+depois. O preview usa o banco e o bucket de produção. **Sem post real**, como na Etapa 5. Antes de
+tudo, a 016 aplicada à mão na produção (seção "A migração 016").
 
 1. O menu "Carrosséis" lista os carrosséis que já existem, todos como "Bônus do Chat", e cada um
    abre a página de hoje.
@@ -284,8 +291,8 @@ auditoria antes de rodar (achado 77).
 ## Pré-condições do merge
 
 1. `npm run verify` limpo, a integração verde no container, e o preview com a prova feita.
-2. A linha de base da 016 lida pela auditoria antes do merge, e a conferência dela depois do
-   deploy, só de leitura.
+2. A 016 aplicada à mão antes da prova, com a linha de base da auditoria antes e a conferência dela
+   depois, só de leitura; o build do merge diz "Nada a aplicar".
 3. Nenhum `next dev` apontado para a produção durante o deploy, e as abas recarregadas depois.
 
 ---
