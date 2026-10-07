@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { MAX_DURATION_S } from "@/lib/bonus/tempos";
 
 // AS GUARDAS DO CARROSSEL AVULSO que nenhum tipo pega (spec da Etapa 7, "Segurança"): a sessão
 // conferida dentro de cada action, a conta que nunca vem do formulário, e a recusa do pedido como
@@ -55,6 +56,19 @@ describe("o que vem do formulário", () => {
     const fonte = ler(ACOES);
     expect(corpoDe(fonte, "pedirCarrosselAvulso")).toContain("contaParaGuardar(");
     expect(corpoDe(fonte, "gerarAvulsoDeNovo")).toContain("contaParaGerarDeNovo(");
+  });
+});
+
+// A GERAÇÃO RODA NO `after()` DA ACTION, sob o teto de tempo da página que a chamou: o Next exige
+// literal no `maxDuration`, e o número tem de ser o de lib/bonus/tempos.ts.
+describe("a página do novo carrossel", () => {
+  it("declara o mesmo maxDuration de lib/bonus/tempos.ts", () => {
+    const m = /export const maxDuration = (\d+);/.exec(ler("app/carrosseis/novo/page.tsx"));
+    expect(m?.[1]).toBe(String(MAX_DURATION_S));
+  });
+
+  it("entrega pedirCarrosselAvulso ao formulário", () => {
+    expect(ler("app/carrosseis/novo/page.tsx")).toContain("acao={pedirCarrosselAvulso}");
   });
 });
 
