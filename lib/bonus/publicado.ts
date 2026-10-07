@@ -61,19 +61,26 @@ function ausente(v: unknown): boolean {
   return v === undefined || (typeof v === "string" && v.trim() === "");
 }
 
-export function situacaoNaLista(corpo: unknown, slug: string): SituacaoNoLabs {
+/** Os itens da lista, ou null quando a resposta não tem a forma de lista. */
+function itensDaLista(corpo: unknown): unknown[] | null {
   const itens =
     corpo !== null && typeof corpo === "object" && !Array.isArray(corpo)
       ? (corpo as { items?: unknown }).items
       : undefined;
-  if (!Array.isArray(itens)) return { tipo: "formato_estranho" };
+  return Array.isArray(itens) ? itens : null;
+}
 
-  const item = itens.find(
-    (i): i is Record<string, unknown> =>
-      i !== null && typeof i === "object" && (i as { codigo?: unknown }).codigo === slug
-  );
-  if (!item) return { tipo: "nao_publicado" };
+const ehItem = (i: unknown): i is Record<string, unknown> => i !== null && typeof i === "object";
 
+export function situacaoNaLista(corpo: unknown, slug: string): SituacaoNoLabs {
+  const itens = itensDaLista(corpo);
+  if (!itens) return { tipo: "formato_estranho" };
+  const item = itens.find((i): i is Record<string, unknown> => ehItem(i) && i.codigo === slug);
+  return item ? situacaoDoItem(item) : { tipo: "nao_publicado" };
+}
+
+/** A REGRA DE CADA ITEM, a mesma para a situação de um bônus e para a lista de escolha do avulso. */
+function situacaoDoItem(item: Record<string, unknown>): SituacaoNoLabs {
   // Faltando a palavra e o tema, vale a palavra: sem ela, nenhuma chamada tem o que pedir.
   if (ausente(item.palavraChave)) return { tipo: "sem_palavra" };
   if (typeof item.palavraChave !== "string" || item.palavraChave.length > PALAVRA_DO_LABS_MAX) {
@@ -94,13 +101,38 @@ export function situacaoNaLista(corpo: unknown, slug: string): SituacaoNoLabs {
   return { tipo: "publicado", bonus: { palavra, titulo, descricao, tema } };
 }
 
-export async function situacaoNoLabs(
+/** Um bônus da lista do Labs que o Chat consegue usar, com o código (o slug) dele. */
+export type BonusDoLabs = BonusPublicado & { codigo: string };
+
+/** O teto do código que o Chat guarda (`carrosseis_gerados.labs_codigo`) e aceita do formulário. */
+export const CODIGO_MAX = 200;
+
+/**
+ * A LISTA DE ESCOLHA DO CARROSSEL AVULSO (spec da Etapa 7): só os bônus "publicado" pela regra de cada
+ * item, do mais novo para o mais velho (a lista do Labs vem na ordem de criação, a crescente). Null
+ * quando a resposta não tem a forma de lista.
+ */
+export function bonusDaLista(corpo: unknown): BonusDoLabs[] | null {
+  const itens = itensDaLista(corpo);
+  if (!itens) return null;
+  const bonus: BonusDoLabs[] = [];
+  for (const item of itens) {
+    if (!ehItem(item) || typeof item.codigo !== "string" || !item.codigo || item.codigo.length > CODIGO_MAX) continue;
+    const s = situacaoDoItem(item);
+    if (s.tipo === "publicado") bonus.push({ codigo: item.codigo, ...s.bonus });
+  }
+  return bonus.reverse();
+}
+
+type FalhaDaLeitura = { tipo: "sem_config" } | { tipo: "sem_resposta" } | { tipo: "formato_estranho" };
+
+/** O GET da lista pública, com teto de tempo e de tamanho: o corpo já em JSON, ou o motivo da falha. */
+async function lerListaDoLabs(
   base: string | undefined,
-  slug: string,
-  fetchImpl: typeof fetch = fetch
-): Promise<SituacaoNoLabs> {
+  fetchImpl: typeof fetch
+): Promise<{ ok: true; corpo: unknown } | ({ ok: false } & FalhaDaLeitura)> {
   const porta = urlDaPorta(base);
-  if (porta === null) return { tipo: "sem_config" };
+  if (porta === null) return { ok: false, tipo: "sem_config" };
   let res: Response;
   try {
     res = await fetchImpl(porta, {
@@ -110,20 +142,39 @@ export async function situacaoNoLabs(
       cache: "no-store",
     });
   } catch {
-    return { tipo: "sem_resposta" };
+    return { ok: false, tipo: "sem_resposta" };
   }
-  if (res.status !== 200) return { tipo: "sem_resposta" };
+  if (res.status !== 200) return { ok: false, tipo: "sem_resposta" };
 
   let texto: string | null;
   try {
     texto = await lerAteOTeto(res, LISTA_MAX_BYTES);
   } catch {
-    return { tipo: "sem_resposta" };
+    return { ok: false, tipo: "sem_resposta" };
   }
-  if (texto === null) return { tipo: "formato_estranho" };
+  if (texto === null) return { ok: false, tipo: "formato_estranho" };
   try {
-    return situacaoNaLista(JSON.parse(texto), slug);
+    return { ok: true, corpo: JSON.parse(texto) };
   } catch {
-    return { tipo: "formato_estranho" };
+    return { ok: false, tipo: "formato_estranho" };
   }
+}
+
+export async function situacaoNoLabs(
+  base: string | undefined,
+  slug: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<SituacaoNoLabs> {
+  const lida = await lerListaDoLabs(base, fetchImpl);
+  return lida.ok ? situacaoNaLista(lida.corpo, slug) : { tipo: lida.tipo };
+}
+
+export type ListaDoLabs = { ok: true; bonus: BonusDoLabs[] } | ({ ok: false } & FalhaDaLeitura);
+
+/** A lista de escolha, lida agora. A falha diz o motivo (a tela usa `quadroDaSituacao`). */
+export async function listaDoLabs(base: string | undefined, fetchImpl: typeof fetch = fetch): Promise<ListaDoLabs> {
+  const lida = await lerListaDoLabs(base, fetchImpl);
+  if (!lida.ok) return lida;
+  const bonus = bonusDaLista(lida.corpo);
+  return bonus ? { ok: true, bonus } : { ok: false, tipo: "formato_estranho" };
 }
