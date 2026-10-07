@@ -5,6 +5,7 @@
 // arquivo, uma coluna apagada da migração só apareceria quando a tela quebrasse.
 import { beforeEach, describe, expect, it } from "vitest";
 import { bancoDescartavel } from "./harness";
+import { migracoesEmOrdem } from "./migracoes";
 
 const banco = bancoDescartavel();
 
@@ -25,6 +26,10 @@ const COLUNAS = [
   "revisado_em",
   // A 015 (Etapa 3): as escolhas da arte.
   "arte",
+  // A 016 (Etapa 7): o carrossel avulso.
+  "origem",
+  "labs_codigo",
+  "texto_a_mao",
 ];
 
 let bonusId: string;
@@ -59,14 +64,14 @@ describe("a tabela carrosseis_gerados", () => {
     expect(linhas.map((l) => l.column_name)).toEqual(COLUNAS);
   });
 
-  it("uma linha nova nasce pendente, sem texto, sem revisão e sem escolha de arte", async () => {
+  it("uma linha nova nasce pendente, sem texto, sem revisão, sem escolha de arte, e de bônus", async () => {
     const [linha] = (await banco
       .db()
       .sql()
       .query(
         `insert into carrosseis_gerados (bonus_id, total_slides, palavra, contexto)
          values ($1, 10, 'SUMIDO', $2::jsonb)
-         returning estado, gerado, revisado, revisado_em, contexto, arte`,
+         returning estado, gerado, revisado, revisado_em, contexto, arte, origem, labs_codigo, texto_a_mao`,
         [bonusId, { tema: "Vendas" }]
       )) as Record<string, unknown>[];
     expect(linha).toEqual({
@@ -76,6 +81,9 @@ describe("a tabela carrosseis_gerados", () => {
       revisado_em: null,
       contexto: { tema: "Vendas" },
       arte: {},
+      origem: "bonus",
+      labs_codigo: null,
+      texto_a_mao: false,
     });
   });
 
@@ -137,5 +145,79 @@ describe("a tabela carrosseis_gerados", () => {
     expect(await contar()).toBe(1);
     await banco.db().sql().query(`delete from bonus_gerados where id = $1`, [bonusId]);
     expect(await contar()).toBe(0);
+  });
+});
+
+// O CARROSSEL AVULSO (a 016, spec da Etapa 7): sem bônus do Chat, de um bônus do Labs ou de um texto
+// livre. A origem amarra as colunas, e é o banco que recusa a combinação errada.
+describe("a 016: o carrossel avulso", () => {
+  const inserir = (colunas: string, valores: string, params: unknown[] = []) =>
+    banco
+      .db()
+      .sql()
+      .query(
+        `insert into carrosseis_gerados (total_slides, palavra, contexto, ${colunas}) values (5, 'BRUTAL', '{}'::jsonb, ${valores}) returning id`,
+        params
+      );
+
+  it("o avulso do Labs entra sem bônus e com o código, e o do texto livre sem nenhum dos dois", async () => {
+    await inserir("origem, labs_codigo", "'labs', 'conselheiro-brutalmente-honesto'");
+    await inserir("origem", "'livre'");
+    await inserir("origem, texto_a_mao", "'livre', true");
+    expect(await contar()).toBe(3);
+  });
+
+  it("o banco recusa origem fora da lista", async () => {
+    await expect(inserir("origem", "'notion'")).rejects.toThrow(/carrosseis_gerados_origem_check/);
+  });
+
+  it.each([
+    ["a origem 'bonus' sem bônus", "origem", "'bonus'", false],
+    ["o texto livre com bônus", "origem, bonus_id", "'livre', $1", true],
+    ["o avulso do Labs com bônus", "origem, labs_codigo, bonus_id", "'labs', 'x', $1", true],
+  ])("o banco recusa %s", async (_nome, colunas, valores, comBonus) => {
+    await expect(inserir(colunas, valores, comBonus ? [bonusId] : [])).rejects.toThrow(/carrosseis_gerados_origem_bonus_check/);
+  });
+
+  it.each([
+    ["o avulso do Labs sem código", "origem", "'labs'", false],
+    ["o texto livre com código", "origem, labs_codigo", "'livre', 'x'", false],
+    ["o carrossel de bônus com código", "bonus_id, labs_codigo", "$1, 'x'", true],
+  ])("o banco recusa %s", async (_nome, colunas, valores, comBonus) => {
+    await expect(inserir(colunas, valores, comBonus ? [bonusId] : [])).rejects.toThrow(/carrosseis_gerados_origem_labs_check/);
+  });
+
+  // AS LINHAS QUE JÁ EXISTIAM: o banco descartável nasce da pasta inteira, então o caso desfaz a 016,
+  // grava uma linha como as de produção hoje, e aplica a 016 de novo, duas vezes (ela é idempotente,
+  // como toda migração da pasta). A linha velha fica de bônus, sem código e fora do "à mão".
+  it("aplicada sobre as linhas que já existiam, todas ficam 'bonus', e ela roda duas vezes", async () => {
+    const m016 = migracoesEmOrdem().find((m) => m.nome === "016-carrossel-avulso.sql");
+    expect(m016).toBeDefined();
+    const sql = banco.db().sql();
+    try {
+      await sql.query(
+        `alter table carrosseis_gerados
+           drop constraint carrosseis_gerados_origem_labs_check,
+           drop constraint carrosseis_gerados_origem_bonus_check,
+           drop constraint carrosseis_gerados_origem_check,
+           drop column texto_a_mao,
+           drop column labs_codigo,
+           drop column origem,
+           alter column bonus_id set not null`
+      );
+      const [velha] = (await sql.query(
+        `insert into carrosseis_gerados (bonus_id, total_slides, palavra, contexto, estado) values ($1, 4, 'SUMIDO', '{}'::jsonb, 'pronto') returning id`,
+        [bonusId]
+      )) as { id: string }[];
+      await sql.query(m016!.comandos);
+      await sql.query(m016!.comandos);
+      const [lida] = (await sql.query(`select origem, labs_codigo, texto_a_mao, estado from carrosseis_gerados where id = $1`, [
+        velha.id,
+      ])) as Record<string, unknown>[];
+      expect(lida).toEqual({ origem: "bonus", labs_codigo: null, texto_a_mao: false, estado: "pronto" });
+    } finally {
+      // Se algo cair no meio, a tabela volta à forma da pasta para o arquivo seguinte.
+      await sql.query(m016!.comandos);
+    }
   });
 });
