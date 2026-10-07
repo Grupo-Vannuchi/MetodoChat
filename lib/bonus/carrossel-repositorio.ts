@@ -22,12 +22,20 @@ import { estadoDaPublicacaoNa } from "./publicar-repositorio";
  */
 export const TRAVA_DO_TETO_DO_CARROSSEL = 2026093001;
 
+/**
+ * O QUE O TETO CONTA: os pedidos das últimas 24 horas que chamaram a IA. O escrito à mão (Etapa 7)
+ * não gasta IA, e fica fora. A tela e o pedido contam pela mesma consulta.
+ */
+const CONTAGEM_DO_TETO = `select count(*)::int as n from carrosseis_gerados
+  where criado_em > now() - interval '24 hours' and not texto_a_mao`;
+
 export async function carrosseisNasUltimas24h(): Promise<number> {
-  const [linha] = (await sql().query(
-    `select count(*)::int as n from carrosseis_gerados where criado_em > now() - interval '24 hours'`
-  )) as { n: number }[];
+  const [linha] = (await sql().query(CONTAGEM_DO_TETO)) as { n: number }[];
   return linha?.n ?? 0;
 }
+
+/** A transação: só `query`, como lib/db.ts a entrega. */
+type Transacao = { query: (texto: string, params?: unknown[]) => Promise<unknown[]> };
 
 /** A conta como a coluna `arte` a guarda: sem as chaves vazias. */
 function chavesDaConta(c: Partial<ContaGuardada> | null): Record<string, string> {
@@ -38,9 +46,22 @@ function chavesDaConta(c: Partial<ContaGuardada> | null): Record<string, string>
 }
 
 /**
- * CONTAR E INSERIR NA MESMA TRANSAÇÃO, COM TRAVA: dois cliques com 9 no dia não fazem 11.
- * `conta` é a conta do carrossel, com o nome e o @, gravada no pedido (spec da Etapa 4): o
- * carrossel é dela, e nunca vira de outra. Sem conta, a arte nasce `{}`.
+ * CONTAR E INSERIR NA MESMA TRANSAÇÃO, COM TRAVA: dois cliques com 9 no dia não fazem 11. Serve ao
+ * pedido de bônus e ao avulso pela IA; `inserir` grava a linha e devolve o id.
+ */
+async function comTeto(inserir: (tx: Transacao) => Promise<string>): Promise<{ ok: true; id: string } | { ok: false }> {
+  return sql().begin(async (tx) => {
+    await tx.query(`select pg_advisory_xact_lock($1::bigint)`, [TRAVA_DO_TETO_DO_CARROSSEL]);
+    const [contagem] = (await tx.query(CONTAGEM_DO_TETO)) as { n: number }[];
+    if ((contagem?.n ?? 0) >= TETO_CARROSSEL_DIARIO) return { ok: false as const };
+    return { ok: true as const, id: await inserir(tx) };
+  });
+}
+
+/**
+ * O PEDIDO DE CARROSSEL DE UM BÔNUS DO CHAT, dentro do teto. `conta` é a conta do carrossel, com o
+ * nome e o @, gravada no pedido (spec da Etapa 4): o carrossel é dela, e nunca vira de outra. Sem
+ * conta, a arte nasce `{}`.
  */
 export async function criarPedidoDeCarrossel(p: {
   bonusId: string;
@@ -49,18 +70,48 @@ export async function criarPedidoDeCarrossel(p: {
   contexto: ContextoDoCarrossel;
   conta: ContaGuardada | null;
 }): Promise<{ ok: true; id: string } | { ok: false }> {
-  return sql().begin(async (tx) => {
-    await tx.query(`select pg_advisory_xact_lock($1::bigint)`, [TRAVA_DO_TETO_DO_CARROSSEL]);
-    const [contagem] = (await tx.query(
-      `select count(*)::int as n from carrosseis_gerados where criado_em > now() - interval '24 hours'`
-    )) as { n: number }[];
-    if ((contagem?.n ?? 0) >= TETO_CARROSSEL_DIARIO) return { ok: false as const };
+  return comTeto(async (tx) => {
     const [criada] = (await tx.query(
       `insert into carrosseis_gerados (bonus_id, total_slides, palavra, contexto, arte)
        values ($1, $2, $3, $4::jsonb, $5::jsonb) returning id`,
       [p.bonusId, p.total, p.palavra, p.contexto, p.conta?.conta ? chavesDaConta(p.conta) : {}]
     )) as { id: string }[];
-    return { ok: true as const, id: criada.id };
+    return criada.id;
+  });
+}
+
+/**
+ * O CARROSSEL AVULSO (spec da Etapa 7): de um bônus do Labs (`labsCodigo`) ou de um texto livre, sem
+ * bônus do Chat. Pela IA, ele nasce pendente, dentro do teto e com a mesma trava do pedido de bônus.
+ * Escrito à mão (`texto`, já conferido por quem chama), ele nasce pronto, marcado à mão, e fica fora
+ * do teto e da trava: não gasta IA. A conta é gravada como no pedido de bônus. O banco recusa a
+ * origem que não combina com o código (migrations/016-carrossel-avulso.sql).
+ */
+export async function criarCarrosselAvulso(p: {
+  origem: "labs" | "livre";
+  labsCodigo: string | null;
+  total: number;
+  palavra: string;
+  contexto: ContextoDoCarrossel;
+  conta: ContaGuardada | null;
+  texto: TextoDoCarrossel | null;
+}): Promise<{ ok: true; id: string } | { ok: false }> {
+  const arte = p.conta?.conta ? chavesDaConta(p.conta) : {};
+  if (p.texto) {
+    const [criada] = (await sql().query(
+      `insert into carrosseis_gerados (origem, labs_codigo, total_slides, palavra, contexto, arte, estado, gerado, gerado_em, texto_a_mao)
+       values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, 'pronto', $7::jsonb, now(), true) returning id`,
+      [p.origem, p.labsCodigo, p.total, p.palavra, p.contexto, arte, p.texto]
+    )) as { id: string }[];
+    return { ok: true, id: criada.id };
+  }
+  return comTeto(async (tx) => {
+    const [criada] = (await tx.query(
+      `insert into carrosseis_gerados (origem, labs_codigo, total_slides, palavra, contexto, arte)
+       values ($1, $2, $3, $4, $5::jsonb, $6::jsonb) returning id`,
+      [p.origem, p.labsCodigo, p.total, p.palavra, p.contexto, arte]
+    )) as { id: string }[];
+    return criada.id;
   });
 }
 
@@ -103,6 +154,11 @@ export async function listarCarrosseisDoBonus(bonusId: string): Promise<LinhaDoC
     `select * from carrosseis_gerados where bonus_id = $1 order by criado_em desc limit 50`,
     [bonusId]
   )) as LinhaDoCarrossel[];
+}
+
+/** Todos os carrosséis, os de bônus e os avulsos, do mais novo para o mais velho (o menu "Carrosséis"). */
+export async function listarCarrosseis(limite = 50): Promise<LinhaDoCarrossel[]> {
+  return (await sql().query(`select * from carrosseis_gerados order by criado_em desc limit $1`, [limite])) as LinhaDoCarrossel[];
 }
 
 /**
