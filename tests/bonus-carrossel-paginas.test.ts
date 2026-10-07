@@ -17,12 +17,18 @@ describe("a página do carrossel", () => {
   });
 
   // Na Etapa 4, a página entrega as três actions ao editor (editor-do-carrossel.tsx): a do slide
-  // vai a cada card, a da arte grava o "só texto", e a da conta é o "Fixar nesta conta".
+  // vai a cada card, a da arte grava o "só texto", e a da conta é o "Fixar nesta conta". Desde a
+  // Etapa 7, quem entrega é a parte de dentro da página (revisao.tsx), comum às duas páginas.
   it("entrega a action do slide, a da arte e a da conta ao editor do carrossel", () => {
-    const pagina = ler("app/bonus/[id]/carrossel/[cid]/page.tsx");
-    expect(pagina).toContain("acaoDoSlide={salvarSlideDoCarrossel}");
-    expect(pagina).toContain("acaoDaArte={salvarArteDoCarrossel}");
-    expect(pagina).toContain("acaoDaConta={fixarContaDoCarrossel}");
+    const revisao = ler("app/bonus/[id]/carrossel/[cid]/revisao.tsx");
+    expect(revisao).toContain("acaoDoSlide={salvarSlideDoCarrossel}");
+    expect(revisao).toContain("acaoDaArte={salvarArteDoCarrossel}");
+    expect(revisao).toContain("acaoDaConta={fixarContaDoCarrossel}");
+  });
+
+  it("a página do carrossel de bônus e a do avulso desenham a mesma revisão", () => {
+    expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain('import Revisao from "./revisao";');
+    expect(ler("app/carrosseis/[cid]/page.tsx")).toContain('import Revisao from "@/app/bonus/[id]/carrossel/[cid]/revisao";');
   });
 });
 

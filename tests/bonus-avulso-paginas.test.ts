@@ -81,3 +81,24 @@ describe("o pedido do avulso responde sem recriar a página na recusa", () => {
     expect(corpo.match(/redirect\(/g) ?? []).toHaveLength(1);
   });
 });
+
+// A PÁGINA DO AVULSO (spec da Etapa 7, "A página do carrossel avulso"): a mesma parte de dentro da
+// página do carrossel de bônus, e só o topo muda.
+describe("a página do carrossel avulso", () => {
+  const PAGINA = "app/carrosseis/[cid]/page.tsx";
+
+  it("declara o mesmo maxDuration de lib/bonus/tempos.ts: o Gerar de novo roda no after() dela", () => {
+    const m = /export const maxDuration = (\d+);/.exec(ler(PAGINA));
+    expect(m?.[1]).toBe(String(MAX_DURATION_S));
+  });
+
+  it("só serve o avulso: o carrossel de bônus dá 404 aqui", () => {
+    expect(ler(PAGINA)).toContain('if (!carrossel || !ehDaRota(carrossel, { tipo: "avulso" })) notFound();');
+  });
+
+  it("acompanha a geração com o componente da Etapa 1, e gera de novo pela action do avulso", () => {
+    const pagina = ler(PAGINA);
+    expect(pagina).toContain('import Acompanhar from "@/app/bonus/[id]/acompanhar";');
+    expect(pagina).toContain("<form action={gerarAvulsoDeNovo}>");
+  });
+});
