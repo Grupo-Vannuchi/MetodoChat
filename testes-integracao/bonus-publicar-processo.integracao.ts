@@ -617,3 +617,34 @@ describe("publicar", () => {
     expect(bucket.objetos.has(artes[0].caminho)).toBe(true);
   });
 });
+
+// O CARROSSEL AVULSO (spec da Etapa 7) publica pelo mesmo caminho: a publicação é do carrossel, pelo
+// id, e não olha o bônus. Um avulso do texto livre, sem `bonus_id`, sai na conta dele, com a reserva
+// antes da fila, e trava como o de bônus.
+describe("publicar o carrossel avulso", () => {
+  it("agendado: entra na conta do carrossel, com a reserva, e trava", async () => {
+    const [c] = (await banco
+      .db()
+      .sql()
+      .query(
+        `insert into carrosseis_gerados (origem, total_slides, palavra, contexto, estado, gerado, arte)
+         values ('livre', $1, 'SUMIDO', $2::jsonb, 'pronto', $3::jsonb, $4::jsonb) returning id`,
+        [TEXTO.slides.length + 2, { tipo: "livre", tema: "Vendas", conteudo: "Mensagens para trazer de volta quem sumiu." }, TEXTO, ARTE]
+      )) as { id: string }[];
+    const id = c.id;
+    for (const n of [2, 3, 4]) {
+      const g = await processo.guardarImagem({ id, numero: n, caminho: await subir(id, n, "slide"), contas });
+      if (!g.ok) throw new Error(`guardar recusou: ${g.recusa.motivo}`);
+    }
+    const quando = new Date(Date.now() + 7 * 86_400_000);
+    expect((await processo.publicarNaFila({ id, quando, artes: await artesDe(id), contas, drenar })).ok).toBe(true);
+
+    const [item, ...resto] = await fila();
+    expect(resto).toEqual([]);
+    expect([item.account_id, item.payload.forma, item.status]).toEqual([CONTA, "carrossel", "pending"]);
+    expect(item.payload.caminhos).toHaveLength(5);
+    expect((await arteDe(id)).publicacao).toMatchObject({ chave: item.dedupe_key });
+    const travado = await processo.assinarImagem({ id, numero: 2, destino: "slide", arquivo: DECLARADO, contas });
+    expect(travado.ok ? null : travado.recusa.motivo).toBe("travado");
+  });
+});
