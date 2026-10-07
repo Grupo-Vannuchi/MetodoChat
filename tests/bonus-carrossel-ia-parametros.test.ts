@@ -55,6 +55,23 @@ describe("a mensagem do carrossel", () => {
   });
 });
 
+// O TEXTO LIVRE (Etapa 7): o carrossel avulso sem bônus. A mensagem leva o tema e o conteúdo, e não
+// fala de um bônus nem do que ele resolve, que não existem.
+describe("a mensagem do carrossel do texto livre", () => {
+  const LIVRE = { tipo: "livre" as const, tema: "Produtividade", conteudo: "Um prompt que critica o seu plano sem dó." };
+
+  it("leva o tema e o conteúdo, e o mesmo pedido extra", () => {
+    const m = mensagemDoCarrossel({ total: 4, palavra: "BRUTAL", contexto: LIVRE });
+    expect(m).toBe(`Tema: Produtividade\n\nO conteúdo que este post divulga:\n${LIVRE.conteudo}\n\n${pedidoExtra(4, "BRUTAL")}`);
+  });
+
+  it("não fala de bônus nem do que deve resolver", () => {
+    const m = mensagemDoCarrossel({ total: 1, palavra: "BRUTAL", contexto: LIVRE });
+    expect(m).not.toContain("O bônus que");
+    expect(m).not.toContain("O que deve resolver");
+  });
+});
+
 describe("os parâmetros da chamada", () => {
   it("de 2 a 10: a instrução do carrossel, intacta, com a política do bônus", () => {
     const p = parametrosDoCarrossel(PEDIDO);
@@ -92,7 +109,22 @@ describe("o contexto gravado na linha", () => {
     expect(contextoGravado(CONTEXTO)).toEqual(CONTEXTO);
   });
 
-  it.each([null, {}, { ...CONTEXTO, tema: 1 }, "x"])("recusa o que não tem a forma: %j", (v) => {
+  // As linhas de antes da Etapa 7 não têm `tipo`, e continuam valendo como estão.
+  it("aceita o texto livre do avulso, e devolve só os campos dele", () => {
+    const livre = { tipo: "livre", tema: "Produtividade", conteudo: "Um prompt que critica o seu plano." };
+    expect(contextoGravado(livre)).toEqual(livre);
+    expect(contextoGravado({ ...livre, oQueResolve: "a mais" })).toEqual(livre);
+  });
+
+  it.each([
+    null,
+    {},
+    { ...CONTEXTO, tema: 1 },
+    "x",
+    { tipo: "livre", tema: "Produtividade" },
+    { tipo: "livre", conteudo: "sem tema" },
+    { ...CONTEXTO, tipo: "outro" },
+  ])("recusa o que não tem a forma: %j", (v) => {
     expect(contextoGravado(v)).toBeNull();
   });
 });

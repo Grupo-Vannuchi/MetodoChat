@@ -12,15 +12,31 @@ import { BETA_DO_FALLBACK, MODELO } from "./ia-parametros";
 import { INSTRUCAO_CARROSSEL } from "./instrucao-carrossel";
 import { INSTRUCAO_POST } from "./instrucao-post";
 
-/** O que o Labs dizia do bônus no momento do pedido, mais o que o operador pediu na Etapa 1. */
-export type ContextoDoCarrossel = { tema: string; titulo: string; descricao: string; oQueResolve: string };
+/**
+ * O que o Labs dizia do bônus no momento do pedido, mais o que o operador pediu na Etapa 1. O avulso
+ * de um bônus do Labs (Etapa 7) usa a mesma forma, com o "O que destacar" no `oQueResolve`.
+ */
+export type ContextoDeBonus = { tema: string; titulo: string; descricao: string; oQueResolve: string };
+
+/** O texto livre do carrossel avulso (Etapa 7): o tema e o conteúdo que o post divulga, sem bônus. */
+export type ContextoLivre = { tipo: "livre"; tema: string; conteudo: string };
+
+export type ContextoDoCarrossel = ContextoDeBonus | ContextoLivre;
 
 export type PedidoParaIA = { total: number; palavra: string; contexto: ContextoDoCarrossel };
 
-/** O contexto como a action o gravou em `carrosseis_gerados.contexto`. Forma errada → null. */
+/**
+ * O contexto como a action o gravou em `carrosseis_gerados.contexto`. Forma errada → null. O de
+ * bônus não tem `tipo` (as linhas de antes da Etapa 7 ficam como estão); um `tipo` desconhecido
+ * também é forma errada, e não vira bônus.
+ */
 export function contextoGravado(v: unknown): ContextoDoCarrossel | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
+  if (o.tipo === "livre") {
+    return typeof o.tema === "string" && typeof o.conteudo === "string" ? { tipo: "livre", tema: o.tema, conteudo: o.conteudo } : null;
+  }
+  if (o.tipo !== undefined) return null;
   const { tema, titulo, descricao, oQueResolve } = o;
   if (
     typeof tema !== "string" ||
@@ -70,8 +86,13 @@ export function pedidoExtra(total: number, palavra: string): string {
   );
 }
 
+/**
+ * A mensagem do pedido. A do texto livre (Etapa 7) leva o tema e o conteúdo, e não fala de um bônus
+ * nem do que ele resolve: não há bônus.
+ */
 export function mensagemDoCarrossel(p: PedidoParaIA): string {
   const c = p.contexto;
+  if ("tipo" in c) return `Tema: ${c.tema}\n\nO conteúdo que este post divulga:\n${c.conteudo}\n\n` + pedidoExtra(p.total, p.palavra);
   return (
     `Tema: ${c.tema}\n\nO que deve resolver:\n${c.oQueResolve}\n\n` +
     `O bônus que este post divulga: "${c.titulo}". ${c.descricao}\n\n` +
