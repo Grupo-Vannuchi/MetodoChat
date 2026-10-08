@@ -1,5 +1,6 @@
 import "server-only";
 import { sql } from "@/lib/db";
+import type { AcaoDaChamada } from "./acao-da-chamada";
 import type { ContaDoCabecalho, ContaGuardada } from "./arte-conta";
 import type { ContextoDoCarrossel } from "./carrossel-ia-parametros";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
@@ -86,30 +87,35 @@ export async function criarPedidoDeCarrossel(p: {
  * Escrito à mão (`texto`, já conferido por quem chama), ele nasce pronto, marcado à mão, e fica fora
  * do teto e da trava: não gasta IA. A conta é gravada como no pedido de bônus. O banco recusa a
  * origem que não combina com o código (migrations/016-carrossel-avulso.sql).
+ *
+ * SEM PALAVRA-CHAVE (spec da Etapa 8), a palavra é nula e a ação vai junto; com a palavra, a ação fica
+ * nula. O banco recusa as duas juntas, e nenhuma das duas (migrations/017-carrossel-sem-palavra.sql).
  */
-export async function criarCarrosselAvulso(p: {
-  origem: "labs" | "livre";
-  labsCodigo: string | null;
-  total: number;
-  palavra: string;
-  contexto: ContextoDoCarrossel;
-  conta: ContaGuardada | null;
-  texto: TextoDoCarrossel | null;
-}): Promise<{ ok: true; id: string } | { ok: false }> {
+export async function criarCarrosselAvulso(
+  p: {
+    origem: "labs" | "livre";
+    labsCodigo: string | null;
+    total: number;
+    contexto: ContextoDoCarrossel;
+    conta: ContaGuardada | null;
+    texto: TextoDoCarrossel | null;
+  } & ({ palavra: string; acao?: null } | { palavra: null; acao: AcaoDaChamada })
+): Promise<{ ok: true; id: string } | { ok: false }> {
   const arte = p.conta?.conta ? chavesDaConta(p.conta) : {};
+  const acao = p.palavra === null ? p.acao : null;
   if (p.texto) {
     const [criada] = (await sql().query(
-      `insert into carrosseis_gerados (origem, labs_codigo, total_slides, palavra, contexto, arte, estado, gerado, gerado_em, texto_a_mao)
-       values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, 'pronto', $7::jsonb, now(), true) returning id`,
-      [p.origem, p.labsCodigo, p.total, p.palavra, p.contexto, arte, p.texto]
+      `insert into carrosseis_gerados (origem, labs_codigo, total_slides, palavra, acao_da_chamada, contexto, arte, estado, gerado, gerado_em, texto_a_mao)
+       values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, 'pronto', $8::jsonb, now(), true) returning id`,
+      [p.origem, p.labsCodigo, p.total, p.palavra, acao, p.contexto, arte, p.texto]
     )) as { id: string }[];
     return { ok: true, id: criada.id };
   }
   return comTeto(async (tx) => {
     const [criada] = (await tx.query(
-      `insert into carrosseis_gerados (origem, labs_codigo, total_slides, palavra, contexto, arte)
-       values ($1, $2, $3, $4, $5::jsonb, $6::jsonb) returning id`,
-      [p.origem, p.labsCodigo, p.total, p.palavra, p.contexto, arte]
+      `insert into carrosseis_gerados (origem, labs_codigo, total_slides, palavra, acao_da_chamada, contexto, arte)
+       values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb) returning id`,
+      [p.origem, p.labsCodigo, p.total, p.palavra, acao, p.contexto, arte]
     )) as { id: string }[];
     return criada.id;
   });

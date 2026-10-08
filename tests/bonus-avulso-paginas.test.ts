@@ -126,4 +126,20 @@ describe("o menu Carrosséis", () => {
   it("a página do carrossel entrega o aviso do funil, decidido pelo estado da fila", () => {
     expect(ler("app/bonus/[id]/carrossel/[cid]/revisao.tsx")).toContain("avisoDoFunil: textoDoFunil(estado, carrossel.palavra)");
   });
+
+  // O CARROSSEL SEM PALAVRA-CHAVE (spec da Etapa 8): o topo diz a palavra ou a ação, e a palavra no Labs
+  // é comparada pelos dois lados, nas duas páginas. A revisão leva a ação ao editor.
+  it.each(["app/carrosseis/[cid]/page.tsx", "app/bonus/[id]/carrossel/[cid]/page.tsx"])(
+    "%s: o topo diz a palavra ou a ação, e a palavra no Labs vem de avisoDaPalavraNoLabs",
+    (pagina) => {
+      const fonte = ler(pagina);
+      expect(fonte).toContain("{textoDoPedidoDaChamada(carrossel)}");
+      expect(fonte).toContain("avisoDaPalavraNoLabs(situacao.bonus.palavra, carrossel.palavra)");
+      expect(fonte).not.toContain("palavra {carrossel.palavra}");
+    }
+  );
+
+  it("a revisão leva a ação da chamada ao editor", () => {
+    expect(ler("app/bonus/[id]/carrossel/[cid]/revisao.tsx")).toContain("acaoDaChamada={carrossel.acao_da_chamada}");
+  });
 });

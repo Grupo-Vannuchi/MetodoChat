@@ -37,11 +37,20 @@ function linha(troca: Partial<LinhaDoCarrossel>): LinhaDoCarrossel {
     origem: "livre",
     labs_codigo: null,
     texto_a_mao: true,
+    acao_da_chamada: null,
     ...troca,
   };
 }
 
 describe("o item da lista Carrosséis", () => {
+  // A lista não mostra a palavra, e não passa a mostrar a ação (decisão do Eduardo em 08/10, spec da
+  // Etapa 8): o item é o mesmo com e sem palavra.
+  it("o item é o mesmo com e sem palavra-chave", () => {
+    expect(itemDaListaDeCarrosseis(linha({ palavra: null, acao_da_chamada: "salvar" }), null, T0)).toEqual(
+      itemDaListaDeCarrosseis(linha({}), null, T0)
+    );
+  });
+
   it("o do texto livre: a página do avulso, o título do texto, a origem, a conta e os slides", () => {
     const item = itemDaListaDeCarrosseis(linha({ arte: { conta: "1001", arroba: "thiagovannuchi" } }), null, T0);
     expect(item).toEqual({

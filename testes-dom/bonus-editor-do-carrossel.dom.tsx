@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import EditorDoCarrossel from "@/app/bonus/[id]/carrossel/[cid]/editor-do-carrossel";
+import type { AcaoDaChamada } from "@/lib/bonus/acao-da-chamada";
 import { urlDaArte } from "@/lib/bonus/arte-tela";
 import type { AvisoDaArte } from "@/lib/bonus/arte-textos";
 import { camposDoFormulario } from "@/lib/bonus/carrossel-texto";
@@ -32,6 +33,8 @@ function renderizar({
   conta = [] as AvisoDaArte[],
   podeFixar = false,
   avisoDaConta = null as string | null,
+  palavra = "SUMIDO" as string | null,
+  acaoDaChamada = null as AcaoDaChamada | null,
 } = {}) {
   const recebidos = { slide: [] as FormData[], arte: [] as FormData[], conta: [] as FormData[] };
   render(
@@ -50,7 +53,8 @@ function renderizar({
       }}
       caminho={CAMINHO}
       carrosselId={CARROSSEL}
-      palavra="SUMIDO"
+      palavra={palavra}
+      acaoDaChamada={acaoDaChamada}
       total={3}
       campos={camposDoFormulario(3)}
       valores={VALORES}
@@ -70,6 +74,19 @@ const soTexto = (n: number) => screen.getByLabelText(`Slide ${n}: só texto, sem
 const cards = () => screen.getAllByRole("listitem");
 
 describe("o editor do carrossel, slide a slide", () => {
+  // O CARROSSEL SEM PALAVRA-CHAVE (spec da Etapa 8): a dica diz a ação, e a chamada que abriu com uma
+  // palavra gritada já avisa, pela regra sem palavra.
+  it("sem palavra-chave, a dica diz a ação, e a chamada avisa a palavra gritada", () => {
+    renderizar({ palavra: null, acaoDaChamada: "salvar" });
+    expect(screen.getByText(/Este carrossel não tem palavra-chave: a chamada pede/).textContent).toBe(
+      "Este carrossel não tem palavra-chave: a chamada pede salvar o post, e não pode ter palavra em maiúsculas."
+    );
+    expect(screen.queryByText(/A chamada pede a palavra/)).toBeNull();
+    expect(
+      screen.getByText("Tem SUMIDO em maiúsculas: este carrossel não tem palavra-chave, e quem comentar uma palavra não recebe nada.")
+    ).toBeTruthy();
+  });
+
   it("um card por slide, na ordem, e o da legenda por último", () => {
     renderizar();
     expect(cards().map((c) => within(c).getByRole("heading").textContent)).toEqual(["Slide 1", "Slide 2", "Slide 3", "Legenda"]);

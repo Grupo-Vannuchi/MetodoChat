@@ -32,6 +32,7 @@ function linha(troca: Partial<LinhaDoCarrossel>): LinhaDoCarrossel {
     origem: "bonus",
     labs_codigo: null,
     texto_a_mao: false,
+    acao_da_chamada: null,
     ...troca,
   };
 }

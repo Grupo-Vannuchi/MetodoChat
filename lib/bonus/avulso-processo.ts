@@ -1,4 +1,5 @@
 import "server-only";
+import { pedidoDaChamada, type PedidoDaChamada } from "./acao-da-chamada";
 import type { ContaGuardada } from "./arte-conta";
 import { contextoDoLabs, contextoLivre, tituloInterno, type PedidoAvulso } from "./avulso-pedido";
 import { contextoGravado, type ContextoDoCarrossel } from "./carrossel-ia-parametros";
@@ -35,10 +36,15 @@ async function doLabs(
   codigo: string,
   oQueResolve: string,
   lerSituacao: LerSituacao
-): Promise<{ ok: true; palavra: string; contexto: ContextoDoCarrossel } | Recusa> {
+): Promise<{ ok: true; chamada: PedidoDaChamada; contexto: ContextoDoCarrossel } | Recusa> {
   const s = await lerSituacao(codigo);
   if (s.tipo !== "publicado") return { ok: false, texto: quadroDaSituacao(s).texto };
-  return { ok: true, palavra: s.bonus.palavra, contexto: contextoDoLabs({ codigo, ...s.bonus }, oQueResolve) };
+  return { ok: true, chamada: { palavra: s.bonus.palavra, acao: null }, contexto: contextoDoLabs({ codigo, ...s.bonus }, oQueResolve) };
+}
+
+/** As colunas da palavra e da ação, para gravar (`criarCarrosselAvulso`). */
+function colunasDaChamada(c: PedidoDaChamada) {
+  return c.palavra === null ? { palavra: null, acao: c.acao } : { palavra: c.palavra };
 }
 
 /**
@@ -58,12 +64,12 @@ export async function pedirAvulso(p: {
   const origem =
     pedido.origem === "labs"
       ? await doLabs(pedido.codigo, pedido.destaque, p.lerSituacao)
-      : { ok: true as const, palavra: pedido.palavra, contexto: contextoLivre(pedido) };
+      : { ok: true as const, chamada: { palavra: pedido.palavra, acao: null } as PedidoDaChamada, contexto: contextoLivre(pedido) };
   if (!origem.ok) return origem;
 
   let texto: TextoDoCarrossel | null = null;
   if (pedido.jeito === "mao") {
-    const lido = lerRevisaoDoCarrossel(pedido.total, origem.palavra, tituloInterno(origem.contexto), p.bruto);
+    const lido = lerRevisaoDoCarrossel(pedido.total, origem.chamada.palavra, tituloInterno(origem.contexto), p.bruto);
     if (!lido.ok) return { ok: false, texto: `Corrija antes de criar. ${textoDosProblemasDoCarrossel(pedido.total, lido.problemas)}` };
     texto = lido.texto;
   }
@@ -72,7 +78,7 @@ export async function pedirAvulso(p: {
     origem: pedido.origem,
     labsCodigo: pedido.origem === "labs" ? pedido.codigo : null,
     total: pedido.total,
-    palavra: origem.palavra,
+    ...colunasDaChamada(origem.chamada),
     contexto: origem.contexto,
     conta: p.conta,
     texto,
@@ -84,8 +90,8 @@ export async function pedirAvulso(p: {
 /**
  * O "GERAR DE NOVO" DO AVULSO: um carrossel novo, da mesma origem e com o mesmo total, a partir do que
  * falhou ou travou. O do Labs relê o Labs pelo código, como o de bônus faz (`gerarCarrosselDeNovo`), e
- * mantém o destaque gravado; o do texto livre reaproveita o tema, o conteúdo e a palavra gravados,
- * porque não há outro lugar de onde lê-los. A conta é a do original (`contaParaGerarDeNovo`, na action).
+ * mantém o destaque gravado; o do texto livre reaproveita o tema, o conteúdo e a palavra gravados (ou,
+ * sem palavra, a ação: spec da Etapa 8), porque não há outro lugar de onde lê-los. A conta é a do original (`contaParaGerarDeNovo`, na action).
  */
 export async function gerarAvulsoDeNovo(p: {
   linha: LinhaDoCarrossel;
@@ -98,12 +104,13 @@ export async function gerarAvulsoDeNovo(p: {
   if (naTela !== "falhou" && naTela !== "travou") return { ok: false, texto: TEXTO_NAO_DA_PARA_GERAR_CARROSSEL_DE_NOVO };
 
   const gravado = contextoGravado(linha.contexto);
-  let origem: { ok: true; palavra: string; contexto: ContextoDoCarrossel } | Recusa;
+  let origem: { ok: true; chamada: PedidoDaChamada; contexto: ContextoDoCarrossel } | Recusa;
   if (linha.origem === "labs" && linha.labs_codigo) {
     const destaque = gravado && !("tipo" in gravado) ? gravado.oQueResolve : "";
     origem = await doLabs(linha.labs_codigo, destaque, p.lerSituacao);
   } else if (linha.origem === "livre" && gravado && "tipo" in gravado) {
-    origem = { ok: true, palavra: linha.palavra, contexto: gravado };
+    const chamada = pedidoDaChamada(linha);
+    origem = chamada ? { ok: true, chamada, contexto: gravado } : { ok: false, texto: TEXTO_AVULSO_SEM_CONTEXTO };
   } else {
     origem = { ok: false, texto: TEXTO_AVULSO_SEM_CONTEXTO };
   }
@@ -113,7 +120,7 @@ export async function gerarAvulsoDeNovo(p: {
     origem: linha.origem === "labs" ? "labs" : "livre",
     labsCodigo: linha.origem === "labs" ? linha.labs_codigo : null,
     total: linha.total_slides,
-    palavra: origem.palavra,
+    ...colunasDaChamada(origem.chamada),
     contexto: origem.contexto,
     conta: p.conta,
     texto: null,

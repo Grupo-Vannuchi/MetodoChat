@@ -1,6 +1,7 @@
 "use client";
 import { useActionState, useCallback, useRef, useState, useTransition } from "react";
 import { alertError, alertOk, alertWarn, btnPrimary, btnSecondary, card, hint } from "@/app/ui";
+import { rotuloDaAcao, type AcaoDaChamada } from "@/lib/bonus/acao-da-chamada";
 import { urlDaArte } from "@/lib/bonus/arte-tela";
 import { textoDoBaixarTodos, type AvisoDaArte } from "@/lib/bonus/arte-textos";
 import { camposDaParte, type CampoDoCarrossel, type ParteDoCarrossel } from "@/lib/bonus/carrossel-texto";
@@ -40,6 +41,7 @@ export default function EditorDoCarrossel({
   caminho,
   carrosselId,
   palavra,
+  acaoDaChamada = null,
   total,
   campos,
   valores,
@@ -56,7 +58,9 @@ export default function EditorDoCarrossel({
   acaoDaConta: (anterior: AvisoDaArte | null, form: FormData) => Promise<AvisoDaArte | null>;
   caminho: string;
   carrosselId: string;
-  palavra: string;
+  /** Nula no carrossel sem palavra-chave (spec da Etapa 8), que traz a ação em `acaoDaChamada`. */
+  palavra: string | null;
+  acaoDaChamada?: AcaoDaChamada | null;
   total: number;
   campos: CampoDoCarrossel[];
   valores: Record<string, string>;
@@ -174,9 +178,17 @@ export default function EditorDoCarrossel({
             </p>
           )}
         </div>
-        <p className={hint}>
-          A chamada pede a palavra <strong>{palavra}</strong>. Ela vem do bônus e não se edita aqui.
-        </p>
+        {palavra !== null ? (
+          <p className={hint}>
+            A chamada pede a palavra <strong>{palavra}</strong>. Ela vem do bônus e não se edita aqui.
+          </p>
+        ) : (
+          <p className={hint}>
+            Este carrossel não tem palavra-chave: a chamada pede{" "}
+            <strong>{acaoDaChamada ? rotuloDaAcao(acaoDaChamada).toLowerCase() : "outra ação"}</strong>, e não pode ter
+            palavra em maiúsculas.
+          </p>
+        )}
 
         <ul className="space-y-4">
           {slides.map((n) => (

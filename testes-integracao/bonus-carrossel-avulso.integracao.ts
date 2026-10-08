@@ -48,26 +48,30 @@ beforeEach(async () => {
 });
 
 type PedidoAvulso = Parameters<ModuloRepo["criarCarrosselAvulso"]>[0];
-const doLabs = (troca: Partial<PedidoAvulso> = {}): PedidoAvulso => ({
-  origem: "labs",
-  labsCodigo: CODIGO,
-  total: 5,
-  palavra: "BRUTAL",
-  contexto: DO_LABS,
-  conta: null,
-  texto: null,
-  ...troca,
-});
-const livre = (troca: Partial<PedidoAvulso> = {}): PedidoAvulso => ({
-  origem: "livre",
-  labsCodigo: null,
-  total: 5,
-  palavra: "BRUTAL",
-  contexto: LIVRE,
-  conta: null,
-  texto: null,
-  ...troca,
-});
+// A palavra e a ação são uma união (com palavra, ou sem palavra e com a ação, Etapa 8): a troca parcial
+// não sabe disso, e o resultado é conferido pelo banco.
+const doLabs = (troca: Partial<PedidoAvulso> = {}): PedidoAvulso =>
+  ({
+    origem: "labs",
+    labsCodigo: CODIGO,
+    total: 5,
+    palavra: "BRUTAL",
+    contexto: DO_LABS,
+    conta: null,
+    texto: null,
+    ...troca,
+  }) as PedidoAvulso;
+const livre = (troca: Partial<PedidoAvulso> = {}): PedidoAvulso =>
+  ({
+    origem: "livre",
+    labsCodigo: null,
+    total: 5,
+    palavra: "BRUTAL",
+    contexto: LIVRE,
+    conta: null,
+    texto: null,
+    ...troca,
+  }) as PedidoAvulso;
 
 async function criado(p: PedidoAvulso): Promise<string> {
   const r = await repo.criarCarrosselAvulso(p);
@@ -204,5 +208,77 @@ describe("a lista de todos os carrosséis", () => {
       [doLabsId, "labs"],
       [r.id, "bonus"],
     ]);
+  });
+});
+
+// O CARROSSEL SEM PALAVRA-CHAVE (spec da Etapa 8): a palavra nula e a ação gravadas, a IA recebendo a
+// ação, a conferência sem palavra gritada na chamada, e o salvar de cada slide pela mesma regra.
+describe("o carrossel sem palavra-chave", () => {
+  const SEM: TextoDeCarrossel = {
+    ...TEXTO,
+    chamada: "Salve este post para reler antes de mostrar o plano a alguém.",
+    legenda: "Antes de mostrar o seu plano a alguém, leia de novo estes pontos e salve para não esquecer.",
+  };
+
+  it("do texto livre e do Labs, pela IA: a palavra nula e a ação gravadas", async () => {
+    expect(await repo.lerCarrossel(await criado(livre({ palavra: null, acao: "salvar" })))).toMatchObject({
+      origem: "livre",
+      palavra: null,
+      acao_da_chamada: "salvar",
+      estado: "pendente",
+    });
+    expect(await repo.lerCarrossel(await criado(doLabs({ palavra: null, acao: "comentar" })))).toMatchObject({
+      origem: "labs",
+      labs_codigo: CODIGO,
+      palavra: null,
+      acao_da_chamada: "comentar",
+    });
+  });
+
+  it("com a palavra, a ação fica nula, como hoje", async () => {
+    expect(await repo.lerCarrossel(await criado(livre()))).toMatchObject({ palavra: "BRUTAL", acao_da_chamada: null });
+  });
+
+  it("escrito à mão: nasce pronto, sem palavra e com a ação", async () => {
+    expect(await repo.lerCarrossel(await criado(livre({ palavra: null, acao: "seguir", texto: SEM })))).toMatchObject({
+      estado: "pronto",
+      texto_a_mao: true,
+      palavra: null,
+      acao_da_chamada: "seguir",
+      gerado: SEM,
+    });
+  });
+
+  it("a IA recebe a ação, e a chamada sem palavra gritada fica pronta", async () => {
+    const id = await criado(livre({ palavra: null, acao: "seguir" }));
+    let recebido: unknown = null;
+    await processo.processarCarrossel(id, async (p) => {
+      recebido = p;
+      return { ok: true as const, texto: SEM, medicao: MEDICAO };
+    });
+    expect(recebido).toEqual({ total: 5, palavra: null, acao: "seguir", contexto: LIVRE });
+    expect(await repo.lerCarrossel(id)).toMatchObject({ estado: "pronto", gerado: SEM });
+  });
+
+  it("a chamada com palavra gritada falha, com a frase", async () => {
+    const id = await criado(livre({ palavra: null, acao: "salvar" }));
+    await processo.processarCarrossel(id, async () => ({ ok: true as const, texto: TEXTO, medicao: MEDICAO }));
+    expect(await repo.lerCarrossel(id)).toMatchObject({
+      estado: "falhou",
+      erro: "A chamada tem BRUTAL em maiúsculas, e este carrossel não tem palavra-chave. Gere de novo.",
+    });
+  });
+
+  it("salvar a chamada (o último slide) segue a regra sem palavra", async () => {
+    const id = await criado(livre({ palavra: null, acao: "salvar", texto: SEM }));
+    const ultimo = { tipo: "slide" as const, numero: 5 };
+    expect(await repo.salvarParteDoCarrossel(id, ultimo, { chamada: "Comente GUIA e receba o roteiro." }, null)).toEqual({
+      ok: false,
+      motivo: "problemas",
+      problemas: [{ campo: "chamada", erro: "não pode ter palavra em maiúsculas (GUIA): este carrossel não tem palavra-chave" }],
+    });
+    const nova = "Compartilhe com quem precisa ouvir isso hoje.";
+    const r = await repo.salvarParteDoCarrossel(id, ultimo, { chamada: nova }, null);
+    expect(r.ok && r.texto.chamada).toBe(nova);
   });
 });

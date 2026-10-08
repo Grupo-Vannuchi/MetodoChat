@@ -240,3 +240,26 @@ describe("gerar de novo o carrossel avulso", () => {
     expect(await contar()).toBe(1);
   });
 });
+
+// O "GERAR DE NOVO" SEM PALAVRA-CHAVE (spec da Etapa 8): o do texto livre repete a ação gravada.
+describe("gerar de novo o carrossel avulso sem palavra-chave", () => {
+  it("o do texto livre repete a palavra nula e a ação gravadas", async () => {
+    const criado = await repo.criarCarrosselAvulso({
+      origem: "livre",
+      labsCodigo: null,
+      total: 4,
+      palavra: null,
+      acao: "compartilhar",
+      contexto: { tipo: "livre", tema: "Vendas", conteudo: "Como vender sem parecer chato, em cinco passos." },
+      conta: THIAGO,
+      texto: null,
+    });
+    if (!criado.ok) throw new Error("teto no meio do teste");
+    await banco.db().sql().query(`update carrosseis_gerados set estado = 'falhou', erro = 'A API recusou.' where id = $1`, [criado.id]);
+    const l = labs(publicado());
+    const r = await processo.gerarAvulsoDeNovo({ linha: (await repo.lerCarrossel(criado.id))!, conta: THIAGO, lerSituacao: l.lerSituacao, agora: Date.now() });
+    if (!r.ok) throw new Error(r.texto);
+    expect(l.perguntados).toEqual([]);
+    expect(await repo.lerCarrossel(r.id)).toMatchObject({ origem: "livre", estado: "pendente", palavra: null, acao_da_chamada: "compartilhar", total_slides: 4 });
+  });
+});

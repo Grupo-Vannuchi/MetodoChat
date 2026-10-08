@@ -209,6 +209,7 @@ describe("o que a rota confere antes de desenhar", () => {
     origem: "bonus",
     labs_codigo: null,
     texto_a_mao: false,
+    acao_da_chamada: null,
     ...troca,
   });
   const DO_BONUS = { tipo: "bonus" as const, bonusId: BONUS };

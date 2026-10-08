@@ -7,7 +7,12 @@ import { ehDaRota } from "@/lib/bonus/carrossel-caminho";
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
 import { lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
 import { descricaoDoCarrossel, textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
-import { TEXTO_TABELA_CARROSSEL_AUSENTE, avisoDePalavraTrocada, quadroDaSituacao } from "@/lib/bonus/carrossel-textos";
+import {
+  TEXTO_TABELA_CARROSSEL_AUSENTE,
+  avisoDaPalavraNoLabs,
+  quadroDaSituacao,
+  textoDoPedidoDaChamada,
+} from "@/lib/bonus/carrossel-textos";
 import { ehTabelaAusente } from "@/lib/bonus/erros";
 import { situacaoNoLabs, type SituacaoNoLabs } from "@/lib/bonus/publicado";
 import { lerLinha } from "@/lib/bonus/repositorio";
@@ -60,8 +65,8 @@ export default async function PaginaDoCarrossel({
   // Labs de novo, sem nada a mostrar ainda.
   const situacao = geracao === "gerando" ? null : await situacaoDoBonus(id);
   const quadro = situacao ? quadroDaSituacao(situacao) : null;
-  const trocada =
-    situacao?.tipo === "publicado" && situacao.bonus.palavra !== carrossel.palavra ? situacao.bonus.palavra : null;
+  // A palavra no Labs comparada com a do carrossel, com os dois lados do sem palavra-chave (Etapa 8).
+  const avisoDaPalavra = situacao?.tipo === "publicado" ? avisoDaPalavraNoLabs(situacao.bonus.palavra, carrossel.palavra) : null;
 
   return (
     <div className="space-y-6">
@@ -71,13 +76,13 @@ export default async function PaginaDoCarrossel({
         </Link>
         <h1 className={`mt-2 ${pageTitle}`}>{texto?.titulo ?? descricaoDoCarrossel(carrossel)}</h1>
         <p className={pageSubtitle}>
-          {descricaoDoCarrossel(carrossel)} · palavra {carrossel.palavra}
+          {descricaoDoCarrossel(carrossel)} · {textoDoPedidoDaChamada(carrossel)}
         </p>
       </div>
 
       {aviso && <div className={aviso.tom === "ok" ? alertOk : alertError}>{aviso.texto}</div>}
       {quadro && <div className={QUADRO[quadro.tom]}>{quadro.texto}</div>}
-      {trocada && <div className={alertWarn}>{avisoDePalavraTrocada(trocada, carrossel.palavra)}</div>}
+      {avisoDaPalavra && <div className={alertWarn}>{avisoDaPalavra}</div>}
 
       {geracao === "gerando" && (
         <section className={`${card} space-y-3 p-6`}>
