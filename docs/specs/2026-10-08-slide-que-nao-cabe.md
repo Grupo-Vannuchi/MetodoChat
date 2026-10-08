@@ -4,7 +4,8 @@
 `c0c635c` (a Etapa 8 em produção desde 08/10, 15:08Z). É o passo curto que o Eduardo decidiu na prova
 da Etapa 8 ("Bloquear, depois desta etapa"), para o achado 87 da auditoria.
 **Estado:** desenho aprovado pelo Eduardo; revisado pela auditoria, com a ordem no servidor, o efeito
-na produção (confirmado pelo Eduardo) e o "quem manda é o servidor" absorvidos.
+na produção (confirmado pelo Eduardo) e o "quem manda é o servidor" absorvidos; o ensaio do plano
+refinou a frase do "Só texto" e acrescentou um caso de integração (marcados abaixo).
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta
 própria, e nenhum arquivo do `/publicar` nem das automações muda.
 **Etapas anteriores:** a Etapa 5 (`docs/specs/2026-10-05-publicar-do-carrossel.md`), que publica, e a
@@ -50,9 +51,11 @@ o problema deixa de ser um aviso e vira uma imagem cortada na rede social. O `ar
 
 - **O card "Publicar"** ganha um motivo novo para travar o botão, ao lado dos de hoje (a conta, as
   imagens que faltam, o que está "não salvo"; `faltasParaPublicar`, `lib/bonus/publicar-estado.ts:76`):
-  "O texto do slide 2 não cabe na arte e sairia cortado. Encurte o texto." No slide com foto, a frase
-  acrescenta: "ou marque "Só texto"". Com mais de um slide, a frase lista os números. Vale para
-  "Agora" e para "Agendar", que são o mesmo botão.
+  "O texto do slide 2 não cabe na arte e sairia cortado. Encurte o texto." No slide com foto cujo texto
+  cabe sem o espaço, a frase acrescenta: "ou marque "Só texto"". No que não cabe nem sem o espaço,
+  marcar "Só texto" não resolve, e a frase não o oferece (achado do ensaio: a palavra comprida da prova
+  é desse caso, e o aviso do card já faz essa diferença). Com mais de um slide, a frase lista os números
+  e diz em quais o "Só texto" resolve. Vale para "Agora" e para "Agendar", que são o mesmo botão.
 - **O card do slide** continua com o aviso de hoje (`avisosDeCabimento`,
   `lib/bonus/arte-cabimento.ts:56`), sem mudança.
 - **O "Escrever à mão"** do "Novo carrossel" continua sem o aviso: o carrossel nasce, e a página dele
@@ -65,7 +68,8 @@ o problema deixa de ser um aviso e vira uma imagem cortada na rede social. O `ar
 ### A regra, pura
 
 Uma função pura nova, num módulo da publicação (`lib/bonus/publicar-regras.ts` ou um módulo ao lado),
-responde, para cada slide, se ele sai cortado:
+responde, para cada slide, se ele sai cortado e, no com foto, se marcar "Só texto" resolve (o texto
+cabe sem o espaço):
 
 - **o slide pronto do Canva** (com espaço e com a imagem do jeito `slide`): nunca, porque sai a
   imagem dele, e não a arte;
@@ -86,7 +90,8 @@ arte (o `soTexto`) e as imagens guardadas. **A ordem importa:** o `descartar` s�
 imagens que faltam (`:179-181`), junto da conferência do `caminho_na_fila` (`:190-200`). A conferência
 nova entra depois dele e da conferência do `caminho_na_fila`, e antes da conferência das artes, da
 reserva e da fila; assim as artes subidas saem do bucket na recusa. (Fora do escopo: a recusa
-`faltam_imagens` de hoje vem antes do `descartar` e não apaga as artes subidas.) A recusa nova é `{ motivo: "nao_cabe"; slides: number[] }`
+`faltam_imagens` de hoje vem antes do `descartar` e não apaga as artes subidas.) A recusa nova é
+`{ motivo: "nao_cabe"; slides: number[]; soTextoResolve: number[] }`
 (`RecusaDaPublicacaoDoCarrossel`, `lib/bonus/publicar-textos.ts:182`), com a mesma frase da tela. As
 artes que o navegador já tiver subido para a fila são apagadas, como nas outras recusas depois delas
 (`descartar`, `:196`). Nada é reservado, e nada entra na fila.
@@ -97,7 +102,7 @@ O editor (`editor-do-carrossel.tsx`) não guarda o texto salvo de cada parte: ca
 Como o "não salvo" de hoje (`aoMudarNaoSalvo`), cada card de slide avisa o editor quando o slide dele
 passa a sair cortado ou deixa de sair, pela mesma regra pura, com o texto dos campos dele, o "Só texto"
 e o jeito da imagem. O editor passa a lista ao card "Publicar", e `faltasParaPublicar` ganha a falta
-`{ tipo: "nao_cabe"; slides }`. Como o botão já trava com qualquer parte "não salva", quando ele está
+`{ tipo: "nao_cabe"; slides; soTextoResolve }`. Como o botão já trava com qualquer parte "não salva", quando ele está
 livre o texto dos campos é o texto salvo, e a tela e o servidor contam sobre o mesmo texto.
 
 **Quem manda é o servidor.** O "Só texto" muda na tela no clique, antes de a gravação responder; numa
@@ -134,8 +139,8 @@ publicação pendente de nenhum deles (medido pela auditoria depois da prova da 
 | pura | a regra: o "Só texto" que não cabe sem o espaço sai cortado; o com foto que não cabe com o espaço sai cortado; o com foto que cabe com o espaço passa; o slide pronto do Canva nunca sai cortado, mesmo com o texto que não cabe; a palavra de 71 letras da prova sai cortada |
 | pura | a falta nova em `faltasParaPublicar`, na ordem das outras, e a frase dela, com um e com vários slides, com e sem a parte do "Só texto" |
 | pura | a recusa nova e a frase dela, iguais às da tela |
-| integração | o publicar e o agendar de um carrossel com um slide que sai cortado são recusados, as artes subidas saem do bucket, nada entra na fila e nada é reservado; o mesmo carrossel, com o slide marcado como pronto do Canva, publica |
-| tela | o botão "Publicar" trava com a frase quando um card avisa que sai cortado, e destrava quando o texto passa a caber |
+| integração | o publicar e o agendar de um carrossel com um slide que sai cortado são recusados, as artes subidas saem do bucket, nada entra na fila e nada é reservado; o mesmo carrossel publica com o slide marcado como pronto do Canva, e com ele marcado "Só texto" (o texto cabe sem o espaço; caso acrescentado no ensaio) |
+| tela | o botão "Publicar" trava com a frase quando um card avisa que sai cortado, e destrava quando o texto passa a caber; marcar "Só texto" no slide com foto destrava; o slide pronto do Canva não trava |
 | tela | a recusa `nao_cabe` do servidor aparece no card "Publicar" com a frase dela |
 
 Cada proteção principal ganha uma prova de mutação: retirada de propósito, o teste certo cai.
