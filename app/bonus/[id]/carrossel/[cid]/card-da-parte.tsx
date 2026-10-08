@@ -6,6 +6,7 @@ import { avisosDeCabimento, campoDoAviso } from "@/lib/bonus/arte-cabimento";
 import { urlDaArte } from "@/lib/bonus/arte-tela";
 import type { CampoDoCarrossel, ParteDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import type { AvisoDoSlide } from "@/lib/bonus/carrossel-textos";
+import { corteDoCard, type Corte } from "@/lib/bonus/publicar-cabimento";
 import type { JeitoDaImagem } from "@/lib/bonus/publicar-regras";
 import { TEXTO_TEXTO_MUDOU, type AvisoDaImagem } from "@/lib/bonus/publicar-textos";
 import Campo from "./campo";
@@ -23,6 +24,10 @@ import type { ImagemNaTela } from "./publicacao-na-tela";
 // "NÃO SALVO" compara o que está nos campos com o que foi gravado por último neste card: sair da
 // página perde o que não foi salvo. O "não cabe" é a conta da arte sobre o que está nos campos agora
 // (arte-cabimento.ts), junto do campo e embaixo da miniatura.
+//
+// O SLIDE QUE SAIRIA CORTADO NA IMAGEM PUBLICADA (spec da Etapa 9) é a mesma conta, no modo em que o
+// slide sai (publicar-cabimento.ts): o card avisa o editor quando ele passa a sair cortado ou deixa de
+// sair, como no "não salvo", e o "Publicar" trava. Aqui o card só avisa: salvar continua permitido.
 //
 // A versão da miniatura e o "só texto" moram no pai (editor-do-carrossel.tsx): o "só texto" se grava
 // por outra action, que devolve as versões, e o "Baixar todos" precisa das versões de todos.
@@ -55,6 +60,7 @@ export default function CardDaParte({
   enviarImagem = null,
   travado = null,
   aoMudarNaoSalvo,
+  aoMudarCorte,
 }: {
   acao: (anterior: AvisoDoSlide | null, form: FormData) => Promise<AvisoDoSlide | null>;
   caminho: string;
@@ -81,6 +87,8 @@ export default function CardDaParte({
   travado?: string | null;
   /** Avisa o editor quando o card fica, ou deixa de ficar, "não salvo": o "Publicar" trava com ele. */
   aoMudarNaoSalvo?: (naoSalvo: boolean) => void;
+  /** Avisa o editor quando o slide passa a sair cortado, ou deixa de sair: o "Publicar" trava com ele. */
+  aoMudarCorte?: (corte: Corte | null) => void;
 }) {
   const doCard = (v: Record<string, string>) => Object.fromEntries(campos.map((c) => [c.nome, v[c.nome] ?? ""]));
   const [atuais, setAtuais] = useState(() => doCard(valores));
@@ -110,6 +118,14 @@ export default function CardDaParte({
     () => (numero && campoDoNaoCabe ? avisosDeCabimento(total, atuais, soTexto ? [numero] : [])[campoDoNaoCabe] : undefined),
     [numero, campoDoNaoCabe, total, atuais, soTexto]
   );
+  const jeito = imagem?.jeito ?? null;
+  const corte = useMemo(
+    () => (numero !== null ? corteDoCard({ total, numero, valores: atuais, soTexto, jeito }) : null),
+    [numero, total, atuais, soTexto, jeito]
+  );
+  useEffect(() => {
+    aoMudarCorte?.(corte);
+  }, [corte, aoMudarCorte]);
   // Marcado "Só texto", o slide sai com a arte do Chat: a imagem guardada fica, mas não se usa.
   const comImagem = numero !== null && !soTexto ? imagem : null;
   // O aviso é só do slide pronto: com a foto no espaço, a arte se redesenha com o texto novo.

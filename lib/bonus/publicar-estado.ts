@@ -1,6 +1,7 @@
 // O ESTADO DA PUBLICAÇÃO DO CARROSSEL E O QUE FALTA PARA PUBLICAR (spec da Etapa 5). PURO: o
 // repositório lê a linha da fila e o relógio do banco, e esta função decide.
 import type { OrigemDaConta } from "./arte-conta";
+import type { SlidesCortados } from "./publicar-cabimento";
 import type { JeitoDaImagem, PublicacaoGuardada } from "./publicar-regras";
 
 /** A linha da fila do /publicar, lida pela `dedupe_key` exata que o carrossel guardou. */
@@ -67,11 +68,14 @@ export type FaltaParaPublicar =
   | { tipo: "sem_conta" }
   | { tipo: "conta_desconectada" }
   | { tipo: "imagens"; slides: number[] }
+  | { tipo: "nao_cabe"; slides: number[]; soTextoResolve: number[] }
   | { tipo: "nao_salvo"; slides: number[]; legenda: boolean };
 
 /**
  * O QUE TRAVA O BOTÃO "PUBLICAR" NA TELA, na ordem em que se resolve: a conta, as imagens dos slides
- * com espaço, e o que está "não salvo" (o que sai é o texto salvo, e não o que está nos campos).
+ * com espaço, o texto que sairia cortado (Etapa 9: a imagem do slide decide o modo da conta, e encurtar
+ * deixa o card sem salvar), e o que está "não salvo" (o que sai é o texto salvo, e não o que está nos
+ * campos).
  */
 export function faltasParaPublicar(p: {
   total: number;
@@ -81,6 +85,8 @@ export function faltasParaPublicar(p: {
   origem: OrigemDaConta;
   slidesNaoSalvos: number[];
   legendaNaoSalva: boolean;
+  /** Os slides que sairiam cortados, como os cards avisaram (publicar-cabimento.ts). */
+  cortados: SlidesCortados;
 }): FaltaParaPublicar[] {
   const faltas: FaltaParaPublicar[] = [];
   if (p.origem === "selecionada") faltas.push({ tipo: "sem_conta" });
@@ -88,6 +94,7 @@ export function faltasParaPublicar(p: {
   const semImagem: number[] = [];
   for (let n = 1; n <= p.total; n++) if (!p.soTexto.includes(n) && !p.imagens[n]) semImagem.push(n);
   if (semImagem.length) faltas.push({ tipo: "imagens", slides: semImagem });
+  if (p.cortados.slides.length) faltas.push({ tipo: "nao_cabe", ...p.cortados });
   if (p.slidesNaoSalvos.length || p.legendaNaoSalva) {
     faltas.push({ tipo: "nao_salvo", slides: [...p.slidesNaoSalvos].sort((a, b) => a - b), legenda: p.legendaNaoSalva });
   }

@@ -170,6 +170,7 @@ describe("o que falta para publicar", () => {
     origem: "gravada" as const,
     slidesNaoSalvos: [],
     legendaNaoSalva: false,
+    cortados: { slides: [], soTextoResolve: [] },
   };
 
   it("nada falta quando todo slide com espaço tem imagem e nada está sem salvar", () => {
@@ -191,6 +192,16 @@ describe("o que falta para publicar", () => {
     const tudo = { ...base, imagens: { ...base.imagens, 4: { caminho: "c4", versao: "v" } } };
     expect(faltasParaPublicar({ ...tudo, slidesNaoSalvos: [3], legendaNaoSalva: true })).toEqual([
       { tipo: "nao_salvo", slides: [3], legenda: true },
+    ]);
+  });
+
+  // O SLIDE QUE SAIRIA CORTADO (spec da Etapa 9): depois das imagens, porque a imagem do slide decide o
+  // modo da conta, e antes do não salvo, porque encurtar o texto deixa o card sem salvar.
+  it("o slide que sairia cortado, depois das imagens e antes do não salvo", () => {
+    expect(faltasParaPublicar({ ...base, cortados: { slides: [2], soTextoResolve: [2] }, slidesNaoSalvos: [3] })).toEqual([
+      { tipo: "imagens", slides: [4] },
+      { tipo: "nao_cabe", slides: [2], soTextoResolve: [2] },
+      { tipo: "nao_salvo", slides: [3], legenda: false },
     ]);
   });
 
@@ -320,6 +331,12 @@ describe("a frase do slide que sairia cortado", () => {
   it("a recusa do servidor tem a mesma frase", () => {
     expect(textoDaRecusaDaPublicacaoDoCarrossel({ motivo: "nao_cabe", slides: [1, 2], soTextoResolve: [2] })).toBe(
       textoDoSlideQueNaoCabe([1, 2], [2])
+    );
+  });
+
+  it("a falta da tela tem a mesma frase da recusa", () => {
+    expect(textoDaFalta({ tipo: "nao_cabe", slides: [1, 2], soTextoResolve: [2] })).toBe(
+      textoDaRecusaDaPublicacaoDoCarrossel({ motivo: "nao_cabe", slides: [1, 2], soTextoResolve: [2] })
     );
   });
 });

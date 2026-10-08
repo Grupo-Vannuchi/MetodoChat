@@ -160,6 +160,8 @@ export function textoDaFalta(f: FaltaParaPublicar): string {
       return TEXTO_CONTA_DESCONECTADA_PARA_PUBLICAR;
     case "imagens":
       return `Falta a imagem ${doSlides(f.slides)}.`;
+    case "nao_cabe":
+      return textoDoSlideQueNaoCabe(f.slides, f.soTextoResolve);
     case "nao_salvo": {
       const partes = [...(f.slides.length ? [listaDeSlides(f.slides)] : []), ...(f.legenda ? ["a legenda"] : [])];
       return `Salve ${partes.join(" e ")} antes de publicar.`;
