@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CardPublicar from "@/app/bonus/[id]/carrossel/[cid]/card-publicar";
 import EditorDoCarrossel from "@/app/bonus/[id]/carrossel/[cid]/editor-do-carrossel";
 import type { PublicacaoNaTela } from "@/app/bonus/[id]/carrossel/[cid]/publicacao-na-tela";
+import type { AvisoDaArte } from "@/lib/bonus/arte-textos";
 import { camposDoFormulario } from "@/lib/bonus/carrossel-texto";
-import type { AvisoDaPublicacao } from "@/lib/bonus/publicar-textos";
+import type { SlidesCortados } from "@/lib/bonus/publicar-cabimento";
+import { textoDaRecusaDaPublicacaoDoCarrossel, type AvisoDaPublicacao } from "@/lib/bonus/publicar-textos";
 
 // O CARD "PUBLICAR" (spec da Etapa 5, "A página"): a conta, o "Agora" ou o "Agendar", o botão travado
 // com a frase de cada falta, o estado depois de mandar, e a página recarregada no sucesso. As actions e
@@ -21,6 +23,7 @@ const TODAS = {
   2: { url: "u2", versao: "t2", jeito: "slide" as const },
   3: { url: "u3", versao: "t3", jeito: "slide" as const },
 };
+const NADA_CORTADO: SlidesCortados = { slides: [], soTextoResolve: [] };
 
 beforeEach(() => {
   refresh.mockReset();
@@ -52,7 +55,10 @@ function publicacao(p: Partial<PublicacaoNaTela> = {}, respostas: AvisoDaPublica
   return { completa, pedidos };
 }
 
-function renderizar(p: Partial<PublicacaoNaTela> = {}, extra: { naoSalvos?: number[]; legenda?: boolean; respostas?: AvisoDaPublicacao[] } = {}) {
+function renderizar(
+  p: Partial<PublicacaoNaTela> = {},
+  extra: { naoSalvos?: number[]; legenda?: boolean; respostas?: AvisoDaPublicacao[]; cortados?: SlidesCortados } = {}
+) {
   const { completa, pedidos } = publicacao(p, extra.respostas);
   render(
     <CardPublicar
@@ -65,6 +71,7 @@ function renderizar(p: Partial<PublicacaoNaTela> = {}, extra: { naoSalvos?: numb
       versoesDaMiniatura={["a1", "b1", "c1"]}
       slidesNaoSalvos={extra.naoSalvos ?? []}
       legendaNaoSalva={extra.legenda ?? false}
+      cortados={extra.cortados ?? NADA_CORTADO}
     />
   );
   return pedidos;
@@ -112,6 +119,25 @@ describe("o card Publicar, com o carrossel livre", () => {
     expect(botao().disabled).toBe(true);
     expect(screen.getByText("Falta a imagem dos slides 2 e 3.")).toBeTruthy();
     expect(screen.getByText("Salve o slide 2 e a legenda antes de publicar.")).toBeTruthy();
+  });
+
+  // O SLIDE QUE SAIRIA CORTADO (spec da Etapa 9): o editor passa ao card os slides que os cards avisaram.
+  it("o slide que sairia cortado trava o botão, com a frase", () => {
+    renderizar({}, { cortados: { slides: [2], soTextoResolve: [2] } });
+    expect(botao().disabled).toBe(true);
+    expect(screen.getByText('O texto do slide 2 não cabe na arte e sairia cortado. Encurte o texto ou marque "Só texto".')).toBeTruthy();
+  });
+
+  // QUEM MANDA É O SERVIDOR (spec da Etapa 9, "Na tela"): a recusa "nao_cabe" aparece junto do botão,
+  // como as outras recusas.
+  it("a recusa nao_cabe do servidor aparece junto do botão, com a frase dela", async () => {
+    const texto = textoDaRecusaDaPublicacaoDoCarrossel({ motivo: "nao_cabe", slides: [2], soTextoResolve: [] });
+    renderizar({}, { respostas: [{ tom: "erro", texto, em: 2 }] });
+    await act(async () => {
+      fireEvent.click(botao());
+    });
+    expect(screen.getByText("O texto do slide 2 não cabe na arte e sairia cortado. Encurte o texto.")).toBeTruthy();
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   it("sem conta gravada, ou com ela desconectada, o botão trava com a frase da conta", () => {
@@ -247,6 +273,7 @@ describe("as artes que vão com o pedido", () => {
         versoesDaMiniatura={["a1", "b1", "c1"]}
         slidesNaoSalvos={[]}
         legendaNaoSalva={false}
+        cortados={NADA_CORTADO}
       />
     );
     return { puts, pedidos };
@@ -323,5 +350,74 @@ describe("as artes que vão com o pedido", () => {
       fireEvent.click(botao());
     });
     expect((pedidos[0] as { artes: unknown[] }).artes).toEqual([{ numero: 1, caminho: "178/bonus-fila/1.jpg", versao: "desenho-1" }]);
+  });
+});
+
+// O SLIDE QUE SAI CORTADO, PELO EDITOR (spec da Etapa 9): cada card conta o slide dele no modo em que ele
+// sai, com o texto dos campos, e avisa o editor; o editor passa a lista ao card "Publicar".
+describe("o slide que sai cortado, pelo editor", () => {
+  /** Cabe sem o espaço da imagem e não cabe com ele (o de tests/bonus-arte-cabimento.test.ts). */
+  const OITO_LINHAS = Array(8).fill("x".repeat(20)).join("\n");
+  const FRASE = 'O texto do slide 2 não cabe na arte e sairia cortado. Encurte o texto ou marque "Só texto".';
+
+  /** O slide 2 com o texto de oito linhas e a imagem do jeito dado; o 1 e o 3 com o slide pronto. */
+  function editor(jeito2: "foto" | "slide", arte: AvisoDaArte | null = null) {
+    const { completa } = publicacao({ imagens: { ...TODAS, 2: { url: "u2", versao: "t2", jeito: jeito2 } } });
+    render(
+      <EditorDoCarrossel
+        acaoDoSlide={async () => ({ tom: "ok", texto: "Slide 2 salvo.", em: 1, versao: "b2", versaoDoTexto: "t2" })}
+        acaoDaArte={async () => arte}
+        acaoDaConta={async () => null}
+        caminho={CAMINHO}
+        carrosselId={CARROSSEL}
+        palavra="SUMIDO"
+        total={3}
+        campos={camposDoFormulario(3)}
+        valores={{
+          gancho: "Seu cliente sumiu? Não é culpa dele.",
+          slide_1_titulo: "O que fazer primeiro",
+          slide_1_texto: OITO_LINHAS,
+          chamada: "Comente SUMIDO e receba as mensagens prontas.",
+          legenda: "Quem sumiu ainda pode voltar. Comente SUMIDO que eu te mando as mensagens prontas.",
+        }}
+        rotuloDaConta="Thiago Vannuchi (@thiagovannuchi)"
+        avisoDaConta={null}
+        podeFixar={false}
+        soTextoInicial={[]}
+        versoes={["a1", "b1", "c1"]}
+        pausaMs={0}
+        publicacao={completa}
+      />
+    );
+  }
+
+  it("com a foto no slide, o card que avisa trava o Publicar, e encurtar e salvar destrava", async () => {
+    editor("foto");
+    expect(screen.getByText(FRASE)).toBeTruthy();
+    expect(botao().disabled).toBe(true);
+    const card2 = screen.getAllByRole("listitem")[1];
+    fireEvent.click(within(card2).getByRole("button", { name: "Editar" }));
+    fireEvent.input(screen.getByLabelText("Slide 2: texto"), { target: { value: "Um texto curto, que cabe com a foto." } });
+    expect(screen.queryByText(FRASE)).toBeNull();
+    expect(screen.getByText("Salve o slide 2 antes de publicar.")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Salvar slide 2" }));
+    });
+    expect(botao().disabled).toBe(false);
+  });
+
+  it("marcar Só texto no slide com foto que cabe sem o espaço destrava", async () => {
+    editor("foto", { tom: "ok", texto: "Arte salva.", em: 7, versoes: ["a1", "b3", "c1"] });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Slide 2: só texto, sem o espaço da imagem"));
+    });
+    expect(screen.queryByText(FRASE)).toBeNull();
+    expect(botao().disabled).toBe(false);
+  });
+
+  it("com o slide pronto do Canva, o mesmo texto não trava: sai a imagem dele", () => {
+    editor("slide");
+    expect(screen.queryByText(FRASE)).toBeNull();
+    expect(botao().disabled).toBe(false);
   });
 });

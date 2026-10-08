@@ -20,6 +20,7 @@ import {
   textoDoEstadoDaPublicacao,
   textoDoFunil,
   textoDoProblemaDaFoto,
+  textoDoSlideQueNaoCabe,
   tomDoEstadoDaPublicacao,
   type RecusaDaPublicacaoDoCarrossel,
 } from "@/lib/bonus/publicar-textos";
@@ -169,6 +170,7 @@ describe("o que falta para publicar", () => {
     origem: "gravada" as const,
     slidesNaoSalvos: [],
     legendaNaoSalva: false,
+    cortados: { slides: [], soTextoResolve: [] },
   };
 
   it("nada falta quando todo slide com espaço tem imagem e nada está sem salvar", () => {
@@ -190,6 +192,16 @@ describe("o que falta para publicar", () => {
     const tudo = { ...base, imagens: { ...base.imagens, 4: { caminho: "c4", versao: "v" } } };
     expect(faltasParaPublicar({ ...tudo, slidesNaoSalvos: [3], legendaNaoSalva: true })).toEqual([
       { tipo: "nao_salvo", slides: [3], legenda: true },
+    ]);
+  });
+
+  // O SLIDE QUE SAIRIA CORTADO (spec da Etapa 9): depois das imagens, porque a imagem do slide decide o
+  // modo da conta, e antes do não salvo, porque encurtar o texto deixa o card sem salvar.
+  it("o slide que sairia cortado, depois das imagens e antes do não salvo", () => {
+    expect(faltasParaPublicar({ ...base, cortados: { slides: [2], soTextoResolve: [2] }, slidesNaoSalvos: [3] })).toEqual([
+      { tipo: "imagens", slides: [4] },
+      { tipo: "nao_cabe", slides: [2], soTextoResolve: [2] },
+      { tipo: "nao_salvo", slides: [3], legenda: false },
     ]);
   });
 
@@ -263,6 +275,7 @@ describe("as recusas da publicação têm frase, cada uma", () => {
     { motivo: "arte_so_texto", numero: 5 },
     { motivo: "arte_velha", numero: 5 },
     { motivo: "caminho_na_fila" },
+    { motivo: "nao_cabe", slides: [2], soTextoResolve: [] },
     { motivo: "legenda", texto: "A legenda passa de 2.200 caracteres." },
     { motivo: "quantidade", texto: "Um carrossel precisa de pelo menos duas mídias." },
     { motivo: "copia", numero: 2 },
@@ -287,6 +300,44 @@ describe("as recusas da publicação têm frase, cada uma", () => {
     const estado: EstadoDaPublicacao = { tipo: "publicado", em: AGORA, filaId: "f" };
     expect(textoDaRecusaDaPublicacaoDoCarrossel({ motivo: "travado", estado })).toBe(textoDaTrava(estado));
     expect(textoDaRecusaDaPublicacaoDoCarrossel({ motivo: "faltam_imagens", slides: [2, 4] })).toBe("Falta a imagem dos slides 2 e 4.");
+  });
+});
+
+// O SLIDE QUE SAIRIA CORTADO (spec da Etapa 9): a mesma frase no card "Publicar" e na recusa do
+// servidor. O "Só texto" entra só para o slide com foto cujo texto cabe sem o espaço: no "Só texto" a
+// caixa já está marcada, e no que não cabe nem sem o espaço ela não resolve.
+describe("a frase do slide que sairia cortado", () => {
+  it("diz o slide e manda encurtar", () => {
+    expect(textoDoSlideQueNaoCabe([2], [])).toBe("O texto do slide 2 não cabe na arte e sairia cortado. Encurte o texto.");
+    expect(textoDoSlideQueNaoCabe([2, 5], [])).toBe("O texto dos slides 2 e 5 não cabe na arte e sairia cortado. Encurte o texto.");
+  });
+
+  it("no slide com foto que cabe sem o espaço, oferece o Só texto", () => {
+    expect(textoDoSlideQueNaoCabe([2], [2])).toBe('O texto do slide 2 não cabe na arte e sairia cortado. Encurte o texto ou marque "Só texto".');
+    expect(textoDoSlideQueNaoCabe([2, 4], [2, 4])).toBe(
+      'O texto dos slides 2 e 4 não cabe na arte e sairia cortado. Encurte o texto ou marque "Só texto".'
+    );
+  });
+
+  it("com os dois casos juntos, diz em qual o Só texto resolve", () => {
+    expect(textoDoSlideQueNaoCabe([1, 2, 4], [2])).toBe(
+      'O texto dos slides 1, 2 e 4 não cabe na arte e sairia cortado. Encurte o texto ou, no slide 2, marque "Só texto".'
+    );
+    expect(textoDoSlideQueNaoCabe([1, 2, 4], [2, 4])).toBe(
+      'O texto dos slides 1, 2 e 4 não cabe na arte e sairia cortado. Encurte o texto ou, nos slides 2 e 4, marque "Só texto".'
+    );
+  });
+
+  it("a recusa do servidor tem a mesma frase", () => {
+    expect(textoDaRecusaDaPublicacaoDoCarrossel({ motivo: "nao_cabe", slides: [1, 2], soTextoResolve: [2] })).toBe(
+      textoDoSlideQueNaoCabe([1, 2], [2])
+    );
+  });
+
+  it("a falta da tela tem a mesma frase da recusa", () => {
+    expect(textoDaFalta({ tipo: "nao_cabe", slides: [1, 2], soTextoResolve: [2] })).toBe(
+      textoDaRecusaDaPublicacaoDoCarrossel({ motivo: "nao_cabe", slides: [1, 2], soTextoResolve: [2] })
+    );
   });
 });
 

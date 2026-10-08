@@ -3,6 +3,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { alertError, alertOk, alertWarn, btnPrimary, card, hint, input, link } from "@/app/ui";
+import type { SlidesCortados } from "@/lib/bonus/publicar-cabimento";
 import { artesParaPublicar, faltasParaPublicar } from "@/lib/bonus/publicar-estado";
 import { textoDaFalta, type AvisoDaPublicacao } from "@/lib/bonus/publicar-textos";
 import type { TomDoQuadro } from "@/lib/bonus/textos";
@@ -11,8 +12,8 @@ import type { ImagemNaTela, PublicacaoNaTela } from "./publicacao-na-tela";
 
 // O CARD "PUBLICAR" (spec da Etapa 5, "A página"), no fim da página do carrossel: a conta em que o
 // post vai sair, o "Agora" ou o "Agendar", e o botão, travado com a frase de cada falta (a conta, a
-// imagem dos slides com espaço, o "não salvo"). Depois de mandar, o estado lido da fila toma o lugar do
-// botão, com o post no /publicar, onde se cancela ou remarca.
+// imagem dos slides com espaço, o texto que sairia cortado, o "não salvo"). Depois de mandar, o estado
+// lido da fila toma o lugar do botão, com o post no /publicar, onde se cancela ou remarca.
 //
 // NO SUCESSO A PÁGINA RECARREGA (`router.refresh`), ao contrário do salvar da Etapa 4 (achados 52 e
 // 54): aqui é seguro, porque o botão só destrava com nenhum card "não salvo", e a página recarregada
@@ -35,6 +36,7 @@ export default function CardPublicar({
   versoesDaMiniatura,
   slidesNaoSalvos,
   legendaNaoSalva,
+  cortados,
 }: {
   publicacao: PublicacaoNaTela;
   caminho: string;
@@ -45,6 +47,8 @@ export default function CardPublicar({
   versoesDaMiniatura: string[];
   slidesNaoSalvos: number[];
   legendaNaoSalva: boolean;
+  /** Os slides que sairiam cortados na imagem publicada, como os cards avisaram (Etapa 9). */
+  cortados: SlidesCortados;
 }) {
   const router = useRouter();
   const [quando, setQuando] = useState<"agora" | "depois">("agora");
@@ -52,7 +56,7 @@ export default function CardPublicar({
   const [aviso, setAviso] = useState<AvisoDaPublicacao | null>(null);
   const [pendente, iniciar] = useTransition();
   const { estado } = publicacao;
-  const faltas = faltasParaPublicar({ total, soTexto, imagens, origem: publicacao.origem, slidesNaoSalvos, legendaNaoSalva });
+  const faltas = faltasParaPublicar({ total, soTexto, imagens, origem: publicacao.origem, slidesNaoSalvos, legendaNaoSalva, cortados });
   const travado = pendente || faltas.length > 0 || (quando === "depois" && !dataHora);
 
   function publicar() {

@@ -15,6 +15,7 @@ export function listaDeSlides(numeros: number[]): string {
 }
 
 const doSlides = (numeros: number[]) => listaDeSlides(numeros).replace(/^os /, "dos ").replace(/^o /, "do ");
+const noSlides = (numeros: number[]) => listaDeSlides(numeros).replace(/^os /, "nos ").replace(/^o /, "no ");
 
 /** O estado no lugar do botão "Publicar". `null` quando o carrossel nunca foi mandado. */
 export function textoDoEstadoDaPublicacao(e: EstadoDaPublicacao): string | null {
@@ -138,6 +139,19 @@ export function textoDaArteQueNaoVeio(numero: number): string {
   return `Não consegui preparar a arte do slide ${numero}. Recarregue a página e publique de novo.`;
 }
 
+/**
+ * O SLIDE QUE SAIRIA CORTADO (spec da Etapa 9): a mesma frase no card "Publicar" e na recusa do
+ * servidor. O "Só texto" entra só para o slide com foto cujo texto cabe sem o espaço
+ * (publicar-cabimento.ts): no "Só texto" a caixa já está marcada, e no que não cabe nem sem o espaço
+ * ela não resolve.
+ */
+export function textoDoSlideQueNaoCabe(slides: number[], soTextoResolve: number[]): string {
+  const frase = `O texto ${doSlides(slides)} não cabe na arte e sairia cortado. Encurte o texto`;
+  if (!soTextoResolve.length) return `${frase}.`;
+  if (soTextoResolve.length === slides.length) return `${frase} ou marque "Só texto".`;
+  return `${frase} ou, ${noSlides(soTextoResolve)}, marque "Só texto".`;
+}
+
 export function textoDaFalta(f: FaltaParaPublicar): string {
   switch (f.tipo) {
     case "sem_conta":
@@ -146,6 +160,8 @@ export function textoDaFalta(f: FaltaParaPublicar): string {
       return TEXTO_CONTA_DESCONECTADA_PARA_PUBLICAR;
     case "imagens":
       return `Falta a imagem ${doSlides(f.slides)}.`;
+    case "nao_cabe":
+      return textoDoSlideQueNaoCabe(f.slides, f.soTextoResolve);
     case "nao_salvo": {
       const partes = [...(f.slides.length ? [listaDeSlides(f.slides)] : []), ...(f.legenda ? ["a legenda"] : [])];
       return `Salve ${partes.join(" e ")} antes de publicar.`;
@@ -196,6 +212,7 @@ export type RecusaDaPublicacaoDoCarrossel =
   | { motivo: "arte_so_texto"; numero: number }
   | { motivo: "arte_velha"; numero: number }
   | { motivo: "caminho_na_fila" }
+  | { motivo: "nao_cabe"; slides: number[]; soTextoResolve: number[] }
   | { motivo: "legenda"; texto: string }
   | { motivo: "quantidade"; texto: string }
   | { motivo: "copia"; numero: number }
@@ -237,6 +254,8 @@ export function textoDaRecusaDaPublicacaoDoCarrossel(r: RecusaDaPublicacaoDoCarr
       return `O slide ${r.numero} mudou enquanto a arte era preparada. Publique de novo.`;
     case "caminho_na_fila":
       return "Uma das imagens já está na fila de outro post. Recarregue a página e publique de novo.";
+    case "nao_cabe":
+      return textoDoSlideQueNaoCabe(r.slides, r.soTextoResolve);
     case "legenda":
     case "quantidade":
       return r.texto;

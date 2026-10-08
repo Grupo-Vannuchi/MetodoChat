@@ -6,6 +6,7 @@ import { urlDaArte } from "@/lib/bonus/arte-tela";
 import { textoDoBaixarTodos, type AvisoDaArte } from "@/lib/bonus/arte-textos";
 import { camposDaParte, type CampoDoCarrossel, type ParteDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import type { AvisoDoSlide } from "@/lib/bonus/carrossel-textos";
+import { juntarCortes, type Corte } from "@/lib/bonus/publicar-cabimento";
 import type { JeitoDaImagem } from "@/lib/bonus/publicar-regras";
 import type { AvisoDaImagem } from "@/lib/bonus/publicar-textos";
 import CardDaParte from "./card-da-parte";
@@ -80,6 +81,12 @@ export default function EditorDoCarrossel({
   const [naoSalvos, setNaoSalvos] = useState<string[]>([]);
   const marcarNaoSalvo = useCallback((chave: string, sim: boolean) => {
     setNaoSalvos((atuais) => (atuais.includes(chave) === sim ? atuais : sim ? [...atuais, chave] : atuais.filter((k) => k !== chave)));
+  }, []);
+  // Os slides que sairiam cortados na imagem publicada (spec da Etapa 9): o "Publicar" trava com eles.
+  // Cada card avisa quando o corte do slide dele muda, como no "não salvo".
+  const [cortes, setCortes] = useState<Record<number, Corte | null>>({});
+  const marcarCorte = useCallback((numero: number, corte: Corte | null) => {
+    setCortes((atuais) => ((atuais[numero] ?? null) === corte ? atuais : { ...atuais, [numero]: corte }));
   }, []);
   const [soTexto, setSoTexto] = useState(soTextoInicial);
   const aceito = useRef(soTextoInicial);
@@ -212,6 +219,7 @@ export default function EditorDoCarrossel({
               enviarImagem={publicacao ? (arquivo, jeito) => enviarImagem(publicacao, n, arquivo, jeito) : null}
               travado={travado}
               aoMudarNaoSalvo={(sim) => marcarNaoSalvo(`slide_${n}`, sim)}
+              aoMudarCorte={(corte) => marcarCorte(n, corte)}
             />
           ))}
           <CardDaParte
@@ -257,6 +265,7 @@ export default function EditorDoCarrossel({
           versoesDaMiniatura={versoes}
           slidesNaoSalvos={naoSalvos.filter((k) => k.startsWith("slide_")).map((k) => Number(k.slice("slide_".length)))}
           legendaNaoSalva={naoSalvos.includes("legenda")}
+          cortados={juntarCortes(cortes)}
         />
       )}
     </div>
