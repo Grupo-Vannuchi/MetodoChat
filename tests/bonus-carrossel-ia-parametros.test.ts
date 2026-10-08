@@ -128,3 +128,42 @@ describe("o contexto gravado na linha", () => {
     expect(contextoGravado(v)).toBeNull();
   });
 });
+
+// SEM PALAVRA-CHAVE (spec da Etapa 8, "O pedido à IA"): a instrução do Labs não muda, e o pedido extra
+// do Chat pede a ação escolhida no lugar da palavra, e manda não pedir palavra nenhuma.
+describe("o pedido sem palavra-chave", () => {
+  const LIVRE = { tipo: "livre" as const, tema: "Vendas", conteudo: "Como vender sem parecer chato, em cinco passos." };
+
+  it.each([1, 2, 10])("pede a ação e proíbe a palavra (%i slide(s))", (total) => {
+    const e = pedidoExtra(total, { acao: "salvar" });
+    expect(e).toContain("Na chamada para ação, peça para salvar o post.");
+    expect(e).toContain("Este post não tem palavra-chave: não peça para comentar uma palavra.");
+    expect(e).toContain("Na chamada, nenhuma palavra vai toda em maiúsculas, fora VENCE do bordão.");
+    expect(e).toContain("Termine a legenda no mesmo pedido.");
+    expect(e).not.toMatch(/comentar a palavra [A-Z]/);
+  });
+
+  it("cada ação vai com a frase dela", () => {
+    expect(pedidoExtra(4, { acao: "compartilhar" })).toContain("peça para compartilhar o post com quem precisa ver.");
+    expect(pedidoExtra(4, { acao: "seguir" })).toContain("peça para seguir o perfil.");
+    expect(pedidoExtra(4, { acao: "comentar" })).toContain("peça para comentar a opinião, sem palavra-chave.");
+  });
+
+  it("o total e o teto do post continuam os de hoje", () => {
+    expect(pedidoExtra(10, { acao: "salvar" })).toContain("8 slides de conteúdo");
+    expect(pedidoExtra(1, { acao: "salvar" })).toContain("no máximo 300 caracteres");
+  });
+
+  it("a mensagem leva o pedido da ação, no texto livre e no bônus do Labs", () => {
+    const livre: PedidoParaIA = { total: 4, palavra: null, acao: "seguir", contexto: LIVRE };
+    expect(mensagemDoCarrossel(livre).endsWith(pedidoExtra(4, { acao: "seguir" }))).toBe(true);
+    const labs: PedidoParaIA = { total: 1, palavra: null, acao: "comentar", contexto: CONTEXTO };
+    expect(mensagemDoCarrossel(labs).endsWith(pedidoExtra(1, { acao: "comentar" }))).toBe(true);
+  });
+
+  it("a instrução do sistema é a mesma, com ou sem palavra", () => {
+    const sem: PedidoParaIA = { total: 4, palavra: null, acao: "salvar", contexto: LIVRE };
+    expect(parametrosDoCarrossel(sem).system).toBe(INSTRUCAO_CARROSSEL);
+    expect(parametrosDoPost({ ...sem, total: 1 }).system).toBe(INSTRUCAO_POST);
+  });
+});
