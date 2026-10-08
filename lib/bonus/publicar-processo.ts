@@ -19,6 +19,7 @@ import { lerCarrossel } from "./carrossel-repositorio";
 import { textoDaLinhaDoCarrossel } from "./carrossel-tela";
 import type { TextoDoCarrossel } from "./carrossel-texto";
 import { apagarSemDerrubar, assinarCaminho, copiarTodasParaAFila } from "./publicar-bucket";
+import { slidesQueSaemCortados } from "./publicar-cabimento";
 import { publicacaoLivre } from "./publicar-estado";
 import {
   caminhosNaFila,
@@ -197,6 +198,14 @@ export async function publicarNaFila(p: {
   if (naFila.length) {
     await descartar();
     return recusa({ motivo: "caminho_na_fila" });
+  }
+  // O SLIDE QUE SAI CORTADO NÃO SAI (spec da Etapa 9, achado 87): a conta da arte no modo em que cada
+  // slide sai, sobre o texto salvo. Vem depois do `descartar`, para as artes que o navegador subiu
+  // saírem do bucket na recusa, e antes de conferir as artes, reservar e enfileirar.
+  const cortados = slidesQueSaemCortados(c.slides, desenhados.map((n) => ({ numero: n, comFoto: fotoDe(n) !== null })));
+  if (cortados.slides.length) {
+    await descartar();
+    return recusa({ motivo: "nao_cabe", ...cortados });
   }
   const artes = new Map<number, string>();
   for (const a of p.artes) {

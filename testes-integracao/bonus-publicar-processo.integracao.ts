@@ -677,3 +677,76 @@ describe("publicar o carrossel sem palavra-chave", () => {
     expect(travado.ok ? null : travado.recusa.motivo).toBe("travado");
   });
 });
+
+// O SLIDE QUE SAI CORTADO NÃO SAI (spec da Etapa 9, achado 87): o publicar e o agendar contam a arte no
+// modo em que cada slide sai, depois de as artes subirem. Na recusa elas saem do bucket, nada é
+// reservado e nada entra na fila. O slide pronto do Canva sai com a imagem dele, e não conta.
+describe("publicar com um slide que sai cortado", () => {
+  /** Cabe sem o espaço da imagem e não cabe com ele (o de tests/bonus-arte-cabimento.test.ts). */
+  const OITO_LINHAS = Array(8).fill("x".repeat(20)).join("\n");
+  const CORTADO: TextoDeCarrossel = { ...TEXTO, slides: [{ titulo: "Título do slide 1", texto: OITO_LINHAS }, slide(2), slide(3)] };
+  const desenho = (texto: TextoDeCarrossel, n: number, foto: string | null) =>
+    regras.versaoDoDesenho(slides.slidesDoTexto(texto)[n - 1], foto);
+
+  /** O slide 2 com a foto no espaço e o texto de oito linhas; o 3 e o 4 com o slide pronto; o 1 e o 5 só texto. */
+  async function comFotoNoSlide2() {
+    const id = await carrossel(ARTE, CORTADO);
+    const foto = await subir(id, 2, "foto");
+    await processo.guardarImagem({ id, numero: 2, caminho: foto, contas });
+    for (const n of [3, 4]) await processo.guardarImagem({ id, numero: n, caminho: await subir(id, n, "slide"), contas });
+    const artes = [
+      { numero: 1, caminho: await subir(id, 1, "fila"), versao: desenho(CORTADO, 1, null) },
+      { numero: 2, caminho: await subir(id, 2, "fila"), versao: desenho(CORTADO, 2, foto) },
+      { numero: 5, caminho: await subir(id, 5, "fila"), versao: desenho(CORTADO, 5, null) },
+    ];
+    return { id, artes };
+  }
+
+  it.each([
+    ["agora", null],
+    ["agendado", new Date(Date.now() + 7 * 86_400_000)],
+  ])("%s: recusa com o slide, as artes subidas saem do bucket, e nada é reservado nem entra na fila", async (_nome, quando) => {
+    const { id, artes } = await comFotoNoSlide2();
+    const r = await processo.publicarNaFila({ id, quando, artes, contas, drenar });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "nao_cabe", slides: [2], soTextoResolve: [2] });
+    for (const a of artes) expect(bucket.objetos.has(a.caminho)).toBe(false);
+    expect(daFila()).toEqual([]);
+    expect(await fila()).toEqual([]);
+    expect(regras.publicacaoDaArte(await arteDe(id))).toBeNull();
+    expect(drenagens).toBe(0);
+  });
+
+  it("o mesmo carrossel, com o slide pronto do Canva no slide 2, publica", async () => {
+    const id = await carrossel(ARTE, CORTADO);
+    for (const n of [2, 3, 4]) await processo.guardarImagem({ id, numero: n, caminho: await subir(id, n, "slide"), contas });
+    const artes = await Promise.all(
+      [1, 5].map(async (n) => ({ numero: n, caminho: await subir(id, n, "fila"), versao: desenho(CORTADO, n, null) }))
+    );
+    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null });
+    expect(await fila()).toHaveLength(1);
+  });
+
+  it("o mesmo carrossel, com o slide 2 marcado só texto, publica: sem o espaço, o texto cabe", async () => {
+    const id = await carrossel({ ...ARTE, soTexto: [1, 2, 5] }, CORTADO);
+    for (const n of [3, 4]) await processo.guardarImagem({ id, numero: n, caminho: await subir(id, n, "slide"), contas });
+    const artes = await Promise.all(
+      [1, 2, 5].map(async (n) => ({ numero: n, caminho: await subir(id, n, "fila"), versao: desenho(CORTADO, n, null) }))
+    );
+    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null });
+    expect(await fila()).toHaveLength(1);
+  });
+
+  it("o só texto que não cabe nem sem o espaço é recusado, e só encurtar resolve", async () => {
+    // A palavra de 71 letras, sem espaço, como a da prova da Etapa 8, no gancho (o slide 1, só texto).
+    const texto: TextoDeCarrossel = { ...TEXTO, gancho: "x".repeat(71) };
+    const id = await carrossel(ARTE, texto);
+    for (const n of [2, 3, 4]) await processo.guardarImagem({ id, numero: n, caminho: await subir(id, n, "slide"), contas });
+    const artes = await Promise.all(
+      [1, 5].map(async (n) => ({ numero: n, caminho: await subir(id, n, "fila"), versao: desenho(texto, n, null) }))
+    );
+    const r = await processo.publicarNaFila({ id, quando: null, artes, contas, drenar });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "nao_cabe", slides: [1], soTextoResolve: [] });
+    expect(daFila()).toEqual([]);
+    expect(await fila()).toEqual([]);
+  });
+});
