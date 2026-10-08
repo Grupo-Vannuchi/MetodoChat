@@ -16,7 +16,7 @@ import { camposDoFormulario } from "@/lib/bonus/carrossel-texto";
 import { TEXTO_CARROSSEL_NAO_ENCONTRADO, urlDoCarrosselComAviso } from "@/lib/bonus/carrossel-textos";
 import { temChaveDaIA } from "@/lib/bonus/config";
 import { ehIdDeBonus } from "@/lib/bonus/pedido";
-import { situacaoNoLabs } from "@/lib/bonus/publicado";
+import { situacaoDoAvulsoNoLabs } from "@/lib/bonus/publicado";
 import { textoDaConfig } from "@/lib/bonus/textos";
 
 // AS AÇÕES DO CARROSSEL AVULSO (spec da Etapa 7). O carrossel pronto usa as actions de sempre
@@ -35,7 +35,7 @@ async function exigirSessao(): Promise<void> {
   if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) redirect("/entrar");
 }
 
-const lerSituacao = (codigo: string) => situacaoNoLabs(process.env.LABS_URL, codigo);
+const lerSituacao = (codigo: string) => situacaoDoAvulsoNoLabs(process.env.LABS_URL, codigo);
 
 async function contaDoCookie(): Promise<string | undefined> {
   return (await cookies()).get(ACCOUNT_COOKIE)?.value;
@@ -56,6 +56,8 @@ export async function pedirCarrosselAvulso(_anterior: AvisoDoAvulso | null, form
     destaque: form.get("destaque"),
     tema: form.get("tema"),
     palavra: form.get("palavra"),
+    semPalavra: form.get("sem_palavra"),
+    acao: form.get("acao"),
     conteudo: form.get("conteudo"),
     total: form.get("total"),
     jeito: form.get("jeito"),

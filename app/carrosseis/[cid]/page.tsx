@@ -17,7 +17,7 @@ import {
 } from "@/lib/bonus/carrossel-textos";
 import { ehTabelaAusente } from "@/lib/bonus/erros";
 import { urlPublicaDoBonus } from "@/lib/bonus/labs";
-import { situacaoNoLabs } from "@/lib/bonus/publicado";
+import { situacaoDoAvulsoNoLabs } from "@/lib/bonus/publicado";
 import { geracaoNaTela } from "@/lib/bonus/tempos";
 import { TEXTO_TRAVOU, type TomDoQuadro } from "@/lib/bonus/textos";
 import { gerarAvulsoDeNovo } from "../actions";
@@ -65,7 +65,7 @@ export default async function PaginaDoAvulso({
   // pelo mesmo motivo: o bônus pode ser despublicado ou trocar de palavra no /admin do Labs depois de
   // gerar. Durante a geração não, porque a tela pergunta ao servidor a cada 2 s.
   const codigo = carrossel.origem === "labs" ? carrossel.labs_codigo : null;
-  const situacao = codigo && geracao !== "gerando" ? await situacaoNoLabs(process.env.LABS_URL, codigo) : null;
+  const situacao = codigo && geracao !== "gerando" ? await situacaoDoAvulsoNoLabs(process.env.LABS_URL, codigo) : null;
   const quadro = situacao ? quadroDaSituacao(situacao) : null;
   // A palavra no Labs comparada com a do carrossel, com os dois lados do sem palavra-chave (Etapa 8).
   const avisoDaPalavra = situacao?.tipo === "publicado" ? avisoDaPalavraNoLabs(situacao.bonus.palavra, carrossel.palavra) : null;

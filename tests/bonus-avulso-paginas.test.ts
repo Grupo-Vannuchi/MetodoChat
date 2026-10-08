@@ -143,3 +143,25 @@ describe("o menu Carrosséis", () => {
     expect(ler("app/bonus/[id]/carrossel/[cid]/revisao.tsx")).toContain("acaoDaChamada={carrossel.acao_da_chamada}");
   });
 });
+
+// AS DUAS REGRAS DO LABS NAS PÁGINAS E NAS ACTIONS (spec da Etapa 8, achado 85): o avulso lê o Labs pela
+// regra dele, que aceita o bônus sem palavra; o carrossel de bônus do Chat continua com a de hoje.
+describe("quem usa cada regra do Labs", () => {
+  it("as actions do avulso leem a caixa sem palavra, a ação e o Labs pela regra do avulso", () => {
+    const acoes = ler("app/carrosseis/actions.ts");
+    expect(acoes).toContain('semPalavra: form.get("sem_palavra")');
+    expect(acoes).toContain('acao: form.get("acao")');
+    expect(acoes).toContain("situacaoDoAvulsoNoLabs(process.env.LABS_URL, codigo)");
+    expect(acoes).not.toContain("situacaoNoLabs(");
+  });
+
+  it("a página do avulso lê o Labs pela regra do avulso", () => {
+    expect(ler("app/carrosseis/[cid]/page.tsx")).toContain("situacaoDoAvulsoNoLabs(process.env.LABS_URL, codigo)");
+  });
+
+  it("o carrossel de bônus do Chat continua com a regra de hoje", () => {
+    expect(ler("app/bonus/carrossel-actions.ts")).toContain("situacaoNoLabs(process.env.LABS_URL");
+    expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain("situacaoNoLabs(process.env.LABS_URL");
+    expect(ler("app/bonus/carrossel-actions.ts")).not.toContain("situacaoDoAvulsoNoLabs");
+  });
+});

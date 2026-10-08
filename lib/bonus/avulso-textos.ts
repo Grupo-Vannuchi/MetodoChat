@@ -29,6 +29,8 @@ export function textoDaRecusaDoPedidoAvulso(motivo: RecusaDoPedidoAvulso): strin
       return `O tema passa de ${TEMA_MAX} caracteres.`;
     case "palavra_invalida":
       return `A palavra-chave é uma palavra só, com letras e números, de ${PALAVRA_MIN} a ${PALAVRA_MAX}.`;
+    case "sem_acao":
+      return "Escolha o que a chamada pede.";
     case "conteudo_curto":
       return `Escreva ou cole o conteúdo do post, com pelo menos ${CONTEUDO_MIN} caracteres.`;
     case "conteudo_longo":

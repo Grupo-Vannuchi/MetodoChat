@@ -39,7 +39,7 @@ describe("o pedido do carrossel avulso", () => {
   it("do Labs: o código, o destaque, o total e o jeito", () => {
     expect(lerPedidoAvulso(DO_LABS)).toEqual({
       ok: true,
-      pedido: { origem: "labs", codigo: "conselheiro-brutalmente-honesto", destaque: "", total: 5, jeito: "ia" },
+      pedido: { origem: "labs", codigo: "conselheiro-brutalmente-honesto", destaque: "", total: 5, jeito: "ia", acao: null },
     });
   });
 
@@ -51,13 +51,14 @@ describe("o pedido do carrossel avulso", () => {
       destaque: "Mostre o antes\ne o depois.",
       total: 5,
       jeito: "ia",
+      acao: null,
     });
   });
 
   it("do texto livre: a palavra na forma que o Labs grava, sem acento e em maiúscula", () => {
     expect(lerPedidoAvulso(LIVRE)).toEqual({
       ok: true,
-      pedido: { origem: "livre", tema: "Produtividade", palavra: "BRUTAL", conteudo: LIVRE.conteudo, total: 4, jeito: "mao" },
+      pedido: { origem: "livre", tema: "Produtividade", palavra: "BRUTAL", acao: null, conteudo: LIVRE.conteudo, total: 4, jeito: "mao" },
     });
     const r = lerPedidoAvulso({ ...LIVRE, palavra: " Brútal " });
     expect(r.ok && r.pedido.origem === "livre" && r.pedido.palavra).toBe("BRUTAL");
@@ -65,7 +66,7 @@ describe("o pedido do carrossel avulso", () => {
 
   it("os campos da outra origem não entram no pedido", () => {
     const r = lerPedidoAvulso({ ...DO_LABS, tema: "Vendas", palavra: "OUTRA", conteudo: "x".repeat(50) });
-    expect(r.ok && r.pedido).toEqual({ origem: "labs", codigo: DO_LABS.codigo, destaque: "", total: 5, jeito: "ia" });
+    expect(r.ok && r.pedido).toEqual({ origem: "labs", codigo: DO_LABS.codigo, destaque: "", total: 5, jeito: "ia", acao: null });
   });
 
   it("o conteúdo nos limites passa", () => {
@@ -171,5 +172,43 @@ describe("a origem na tela", () => {
   it("com o contexto fora da forma, só a origem", () => {
     expect(textoDaOrigem({ origem: "labs", contexto: null })).toBe("Bônus do Labs");
     expect(textoDaOrigem({ origem: "livre", contexto: { tema: "t", titulo: "x", descricao: "d", oQueResolve: "o" } })).toBe("Texto livre");
+  });
+});
+
+// SEM PALAVRA-CHAVE (spec da Etapa 8): no texto livre, a caixa "Sem palavra-chave" troca a palavra pela
+// ação da chamada; no bônus do Labs, a ação vem do formulário e só vale se o bônus não tiver palavra,
+// o que só o processo sabe, depois de ler o Labs.
+describe("o pedido sem palavra-chave", () => {
+  it("texto livre com a caixa marcada: a palavra nula e a ação", () => {
+    expect(lerPedidoAvulso({ ...LIVRE, semPalavra: "1", acao: "salvar" })).toEqual({
+      ok: true,
+      pedido: { origem: "livre", tema: "Produtividade", palavra: null, acao: "salvar", conteudo: LIVRE.conteudo, total: 4, jeito: "mao" },
+    });
+  });
+
+  it("com a caixa marcada, o que estava no campo da palavra não entra, nem inválido", () => {
+    const r = lerPedidoAvulso({ ...LIVRE, palavra: "duas palavras", semPalavra: "1", acao: "seguir" });
+    expect(r.ok && r.pedido.origem === "livre" && [r.pedido.palavra, r.pedido.acao]).toEqual([null, "seguir"]);
+  });
+
+  it.each([[undefined], [""], ["curtir"], ["Salvar"]])("com a caixa marcada, sem uma das quatro ações (%j), é recusado", (acao) => {
+    expect(lerPedidoAvulso({ ...LIVRE, semPalavra: "1", acao })).toEqual({ ok: false, motivo: "sem_acao" });
+  });
+
+  it("sem a caixa, a palavra de hoje, e a ação do formulário não entra", () => {
+    const r = lerPedidoAvulso({ ...LIVRE, acao: "salvar" });
+    expect(r.ok && r.pedido.origem === "livre" && [r.pedido.palavra, r.pedido.acao]).toEqual(["BRUTAL", null]);
+    expect(lerPedidoAvulso({ ...LIVRE, palavra: "" })).toEqual({ ok: false, motivo: "palavra_invalida" });
+  });
+
+  it("do Labs: a ação do formulário vai junto, e a que não é uma das quatro vira nula", () => {
+    const r = lerPedidoAvulso({ ...DO_LABS, acao: "comentar" });
+    expect(r.ok && r.pedido.acao).toBe("comentar");
+    const outra = lerPedidoAvulso({ ...DO_LABS, acao: "curtir" });
+    expect(outra.ok && outra.pedido.acao).toBeNull();
+  });
+
+  it("a recusa diz o que fazer", () => {
+    expect(textoDaRecusaDoPedidoAvulso("sem_acao")).toBe("Escolha o que a chamada pede.");
   });
 });
