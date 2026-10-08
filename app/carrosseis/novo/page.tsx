@@ -10,7 +10,8 @@ import { pedirCarrosselAvulso } from "../actions";
 import FormularioDoAvulso from "./formulario-do-avulso";
 
 // O "NOVO CARROSSEL" (spec da Etapa 7). A lista do Labs é lida a cada vez, como a situação do bônus na
-// página dele: ela não está no contrato, e a falha mostra a frase, e não uma lista vazia.
+// página dele, e a falha mostra a frase, e não uma lista vazia. A lista está no contrato do Labs desde
+// 01/10, com a palavra e o tema opcionais (achado 83): o bônus que fica de fora é contado na tela.
 //
 // O teto de lib/bonus/tempos.ts (MAX_DURATION_S): a geração pela IA roda no `after()` da action desta
 // página. O Next exige literal aqui, e tests/bonus-avulso-paginas.test.ts confere que é o mesmo número.

@@ -1,9 +1,12 @@
 // A SITUAÇÃO DE UM BÔNUS NO LABS, lida da lista pública (`GET /api/bonus`).
 //
-// ⚠️ ESTA LEITURA NÃO ESTÁ NO CONTRATO (é a mesma de lib/bonus/temas.ts), e por isso FALHA
-// FECHADA: só "publicado" libera o carrossel. A lista traz só bônus ATIVOS, com `codigo` (o
-// slug), `palavraChave`, `titulo`, `tema` e `descricao` (medido em 30/09). Do lado do Labs ela
-// tem cache de 30 minutos, invalidado por toda ação do /admin e pelo POST (medido pelo auditor).
+// A LISTA ESTÁ NO CONTRATO DO LABS desde 01/10 (site-ia, docs/contrato-metodo-chat.md, seção do
+// `GET /api/bonus`; até a Etapa 8 este comentário dizia o contrário, achado 83). É a mesma leitura de
+// lib/bonus/temas.ts. A lista traz só bônus ATIVOS, em ordem de criação, sem o prompt, com `codigo` (o
+// slug), `titulo` e `descricao` sempre, e `palavraChave`, `tema` e `skillId` OPCIONAIS: sem valor, a
+// chave some do JSON. Por isso a leitura FALHA FECHADA: só "publicado" libera o carrossel. Do lado
+// do Labs ela tem cache de 30 minutos, invalidado por toda ação do /admin e pelo POST (medido pelo
+// auditor).
 //
 // A PALAVRA É A DO LABS, e nunca a que o Chat guardou: ela pode ter sido trocada no /admin de
 // lá depois do envio (o primeiro bônus de 30/09 foi enviado com ZZTESTECHAT e publicado com
@@ -65,7 +68,7 @@ function textoAte(v: unknown, max: number): string | null {
 }
 
 /**
- * O Labs manda o campo opcional sem valor como chave AUSENTE (contrato, site-ia 7971720). Texto em
+ * O Labs manda o campo opcional sem valor como chave AUSENTE (o contrato, seção do `GET /api/bonus`). Texto em
  * branco conta como ausente. `null` não é o contrato, e fica em `formato_estranho`.
  */
 function ausente(v: unknown): boolean {

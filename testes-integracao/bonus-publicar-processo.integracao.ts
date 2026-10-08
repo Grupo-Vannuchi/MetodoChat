@@ -648,3 +648,32 @@ describe("publicar o carrossel avulso", () => {
     expect(travado.ok ? null : travado.recusa.motivo).toBe("travado");
   });
 });
+
+// O CARROSSEL SEM PALAVRA-CHAVE (spec da Etapa 8) publica pelo mesmo caminho: a publicação não olha a
+// palavra. Ele sai na conta dele, com a reserva antes da fila, e trava como os outros.
+describe("publicar o carrossel sem palavra-chave", () => {
+  it("agendado: entra na conta do carrossel, com a reserva, e trava", async () => {
+    const [c] = (await banco
+      .db()
+      .sql()
+      .query(
+        `insert into carrosseis_gerados (origem, total_slides, palavra, acao_da_chamada, contexto, estado, gerado, arte)
+         values ('livre', $1, null, 'salvar', $2::jsonb, 'pronto', $3::jsonb, $4::jsonb) returning id`,
+        [TEXTO.slides.length + 2, { tipo: "livre", tema: "Vendas", conteudo: "Como vender sem parecer chato, em cinco passos." }, TEXTO, ARTE]
+      )) as { id: string }[];
+    const id = c.id;
+    for (const n of [2, 3, 4]) {
+      const g = await processo.guardarImagem({ id, numero: n, caminho: await subir(id, n, "slide"), contas });
+      if (!g.ok) throw new Error(`guardar recusou: ${g.recusa.motivo}`);
+    }
+    const quando = new Date(Date.now() + 7 * 86_400_000);
+    expect((await processo.publicarNaFila({ id, quando, artes: await artesDe(id), contas, drenar })).ok).toBe(true);
+
+    const [item, ...resto] = await fila();
+    expect(resto).toEqual([]);
+    expect([item.account_id, item.payload.forma, item.status]).toEqual([CONTA, "carrossel", "pending"]);
+    expect((await arteDe(id)).publicacao).toMatchObject({ chave: item.dedupe_key });
+    const travado = await processo.assinarImagem({ id, numero: 2, destino: "slide", arquivo: DECLARADO, contas });
+    expect(travado.ok ? null : travado.recusa.motivo).toBe("travado");
+  });
+});

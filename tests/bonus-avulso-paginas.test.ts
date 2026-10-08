@@ -173,3 +173,16 @@ describe("o Novo carrossel e os bônus que ficam de fora", () => {
     expect(ler("app/carrosseis/novo/page.tsx")).toContain("deFora={lista.ok ? textoDosBonusDeFora(lista.deFora) : null}");
   });
 });
+
+// O CONTRATO DA LISTA DO LABS (achado 83): a lista está no contrato desde 01/10 (site-ia,
+// docs/contrato-metodo-chat.md, seção do GET /api/bonus). Nenhum comentário diz o contrário, e a spec
+// da Etapa 7 ganhou a nota de correção.
+describe("a lista do Labs está no contrato", () => {
+  it.each(["lib/bonus/publicado.ts", "lib/bonus/temas.ts", "app/carrosseis/novo/page.tsx"])("%s não diz que ela está fora", (arquivo) => {
+    expect(ler(arquivo)).not.toMatch(/n[ãa]o est[áa] no contrato/i);
+  });
+
+  it("a spec da Etapa 7 tem a nota de correção", () => {
+    expect(ler("docs/specs/2026-10-06-carrossel-avulso.md")).toContain("**Correção de 08/10 (achado 83):**");
+  });
+});

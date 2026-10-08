@@ -1,9 +1,10 @@
 // AS SUGESTÕES DE TEMA, lidas do catálogo público do Labs.
 //
-// ⚠️ ESTA LEITURA NÃO ESTÁ NO CONTRATO: o `GET /api/bonus` do Labs lista os bônus
-// ATIVOS, sem autenticação (site-ia, route.ts:20-32). Se ele mudar, só as sugestões
-// somem: a lista completa chega na recusa `tema_fora_do_catalogo`, que está no
-// contrato. Por isso toda falha aqui vira lista vazia, e nada mais para.
+// O `GET /api/bonus` do Labs lista os bônus ATIVOS, sem autenticação, e está no contrato
+// desde 01/10 (site-ia, docs/contrato-metodo-chat.md; até a Etapa 8 este comentário dizia o
+// contrário, achado 83), com o `tema` opcional. As sugestões são só ajuda: a lista completa
+// chega na recusa `tema_fora_do_catalogo`. Por isso toda falha aqui vira lista vazia, e nada
+// mais para.
 //
 // SEM CACHE, e de propósito dito: as páginas de app/bonus/ são `force-dynamic`
 // (o padrão do dono), e isso põe `no-store` em todo fetch da página
