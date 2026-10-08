@@ -3,7 +3,8 @@
 **Nascido em:** 08/10/2026, desenhado com o Eduardo pela caixa de perguntas, sobre a `main` em
 `c0c635c` (a Etapa 8 em produção desde 08/10, 15:08Z). É o passo curto que o Eduardo decidiu na prova
 da Etapa 8 ("Bloquear, depois desta etapa"), para o achado 87 da auditoria.
-**Estado:** desenho aprovado pelo Eduardo; falta a revisão da auditoria.
+**Estado:** desenho aprovado pelo Eduardo; revisado pela auditoria, com a ordem no servidor, o efeito
+na produção (confirmado pelo Eduardo) e o "quem manda é o servidor" absorvidos.
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta
 própria, e nenhum arquivo do `/publicar` nem das automações muda.
 **Etapas anteriores:** a Etapa 5 (`docs/specs/2026-10-05-publicar-do-carrossel.md`), que publica, e a
@@ -34,6 +35,7 @@ Do Eduardo, pela caixa, em 08/10:
 | o que fazer com o slide que não cabe | bloquear o publicar e o agendar, num passo curto depois do merge da Etapa 8 (o caminho 1 do achado 87) |
 | qual slide barra | todo slide que sai cortado na imagem publicada: o "Só texto" cujo texto não cabe sem o espaço da imagem, e o slide com foto cujo texto não cabe com o espaço. O slide pronto do Canva não entra, porque não usa a arte do Chat |
 | o desenho (o botão travado com a frase, a recusa no servidor, o editor só avisando, sem banco) | aprovado como está nesta spec |
+| o efeito nos carrosséis que já existem (abaixo) | mantém: barrar todo slide que sai cortado, depois de saber que 3 dos 5 carrosséis de hoje travam com foto num slide |
 
 **A regra antiga que muda, e onde.** O comentário de `slidesQueNaoCabem`
 (`lib/bonus/arte-slides.ts:277`) registra a regra que veio do Labs: "AVISA, NUNCA IMPEDE … Aviso que
@@ -80,8 +82,11 @@ no modo em que o slide sai. Por isso o slide que o botão barra é sempre um sli
 ### No servidor
 
 `publicarNaFila` (`lib/bonus/publicar-processo.ts`) confere a regra com o texto salvo, as escolhas da
-arte (o `soTexto`) e as imagens guardadas, logo depois das imagens que faltam (`:179-181`) e antes de
-enfileirar. A recusa nova é `{ motivo: "nao_cabe"; slides: number[] }`
+arte (o `soTexto`) e as imagens guardadas. **A ordem importa:** o `descartar` só existe depois das
+imagens que faltam (`:179-181`), junto da conferência do `caminho_na_fila` (`:190-200`). A conferência
+nova entra depois dele e da conferência do `caminho_na_fila`, e antes da conferência das artes, da
+reserva e da fila; assim as artes subidas saem do bucket na recusa. (Fora do escopo: a recusa
+`faltam_imagens` de hoje vem antes do `descartar` e não apaga as artes subidas.) A recusa nova é `{ motivo: "nao_cabe"; slides: number[] }`
 (`RecusaDaPublicacaoDoCarrossel`, `lib/bonus/publicar-textos.ts:182`), com a mesma frase da tela. As
 artes que o navegador já tiver subido para a fila são apagadas, como nas outras recusas depois delas
 (`descartar`, `:196`). Nada é reservado, e nada entra na fila.
@@ -95,6 +100,12 @@ e o jeito da imagem. O editor passa a lista ao card "Publicar", e `faltasParaPub
 `{ tipo: "nao_cabe"; slides }`. Como o botão já trava com qualquer parte "não salva", quando ele está
 livre o texto dos campos é o texto salvo, e a tela e o servidor contam sobre o mesmo texto.
 
+**Quem manda é o servidor.** O "Só texto" muda na tela no clique, antes de a gravação responder; numa
+recusa da gravação, a caixa volta à última escolha aceita (`editor-do-carrossel.tsx:92-93`, e o teste
+de tela "na recusa, o só texto volta para a última escolha aceita"). Nesse intervalo, a tela pode
+medir um slide num modo, e o servidor no outro. Num descompasso assim, vale a recusa do servidor, e a
+frase dela aparece no card "Publicar", como as outras recusas (um caso de tela confere).
+
 ### O que não muda
 
 - A arte, o desenho, a conta do "não cabe" e os vetores combinados com o Labs.
@@ -102,6 +113,17 @@ livre o texto dos campos é o texto salvo, e a tela e o servidor contam sobre o 
 - O banco: nenhuma migração.
 - Nenhum arquivo do `/publicar`, do bucket, do dreno, da fila nem das automações. O diff fica em
   `app/bonus/`, `lib/bonus/`, testes e `docs/`.
+
+---
+
+## O efeito na produção
+
+Medido pela auditoria em 08/10, só lendo, com a conta de hoje: dos 5 carrosséis que existem, 3 têm um
+slide cujo texto não cabe COM o espaço da foto (o slide 1 do `e6af940e`, o 2 do `4c5701a8` e o 6 do
+`d3619afc`); sem o espaço, todos cabem. Depois desta etapa, publicar ou agendar um desses com foto
+nesse slide trava até marcar "Só texto" nele, encurtar o texto ou usar o slide pronto do Canva. Hoje
+ele sairia com o texto cortado. O Eduardo soube disso antes e manteve a decisão. Na fila não há
+publicação pendente de nenhum deles (medido pela auditoria depois da prova da Etapa 8).
 
 ---
 
@@ -114,6 +136,7 @@ livre o texto dos campos é o texto salvo, e a tela e o servidor contam sobre o 
 | pura | a recusa nova e a frase dela, iguais às da tela |
 | integração | o publicar e o agendar de um carrossel com um slide que sai cortado são recusados, as artes subidas saem do bucket, nada entra na fila e nada é reservado; o mesmo carrossel, com o slide marcado como pronto do Canva, publica |
 | tela | o botão "Publicar" trava com a frase quando um card avisa que sai cortado, e destrava quando o texto passa a caber |
+| tela | a recusa `nao_cabe` do servidor aparece no card "Publicar" com a frase dela |
 
 Cada proteção principal ganha uma prova de mutação: retirada de propósito, o teste certo cai.
 
