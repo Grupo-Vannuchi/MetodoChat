@@ -47,6 +47,17 @@ export type SituacaoNoLabs =
   | { tipo: "formato_estranho" }
   | { tipo: "sem_config" };
 
+/** O bônus que o AVULSO consegue usar: o sem palavra entra, com a palavra nula (spec da Etapa 8). */
+export type BonusDoAvulso = Omit<BonusPublicado, "palavra"> & { palavra: string | null };
+
+/**
+ * A SITUAÇÃO PELA REGRA DO AVULSO (spec da Etapa 8, achado 85): a do bônus do Chat, menos o
+ * `sem_palavra`, que vira "publicado" com a palavra nula quando o resto do bônus está no formato.
+ */
+export type SituacaoDoAvulso =
+  | { tipo: "publicado"; bonus: BonusDoAvulso }
+  | Exclude<SituacaoNoLabs, { tipo: "publicado" } | { tipo: "sem_palavra" }>;
+
 function textoAte(v: unknown, max: number): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
@@ -72,56 +83,121 @@ function itensDaLista(corpo: unknown): unknown[] | null {
 
 const ehItem = (i: unknown): i is Record<string, unknown> => i !== null && typeof i === "object";
 
-export function situacaoNaLista(corpo: unknown, slug: string): SituacaoNoLabs {
+type SemItem = { tipo: "formato_estranho" } | { tipo: "nao_publicado" };
+
+/** O item da lista com esse código, ou o motivo de não haver um. */
+function itemDaLista(corpo: unknown, slug: string): { item: Record<string, unknown> } | SemItem {
   const itens = itensDaLista(corpo);
   if (!itens) return { tipo: "formato_estranho" };
   const item = itens.find((i): i is Record<string, unknown> => ehItem(i) && i.codigo === slug);
-  return item ? situacaoDoItem(item) : { tipo: "nao_publicado" };
+  return item ? { item } : { tipo: "nao_publicado" };
 }
 
-/** A REGRA DE CADA ITEM, a mesma para a situação de um bônus e para a lista de escolha do avulso. */
-function situacaoDoItem(item: Record<string, unknown>): SituacaoNoLabs {
-  // Faltando a palavra e o tema, vale a palavra: sem ela, nenhuma chamada tem o que pedir.
-  if (ausente(item.palavraChave)) return { tipo: "sem_palavra" };
+/** A REGRA DO BÔNUS DO CHAT (`situacaoNoLabs`), a de antes da Etapa 8, sem mudança. */
+export function situacaoNaLista(corpo: unknown, slug: string): SituacaoNoLabs {
+  const achado = itemDaLista(corpo, slug);
+  return "item" in achado ? situacaoDoItem(achado.item) : achado;
+}
+
+/**
+ * A REGRA DO AVULSO DO LABS (spec da Etapa 8): o pedido pelo código, o "Gerar de novo" e o topo da
+ * página do avulso.
+ */
+export function situacaoNaListaDoAvulso(corpo: unknown, slug: string): SituacaoDoAvulso {
+  const achado = itemDaLista(corpo, slug);
+  return "item" in achado ? situacaoDoItemDoAvulso(achado.item) : achado;
+}
+
+/**
+ * A palavra de um item que TEM palavra, EXATAMENTE como o Labs a tem: a chamada tem de pedir essa
+ * grafia. A conferência da chamada depende de letras e números sem espaço (`palavraValida`).
+ */
+function palavraDoItem(
+  item: Record<string, unknown>
+): { palavra: string } | { tipo: "formato_estranho" } | { tipo: "palavra_fora_do_padrao"; palavra: string } {
   if (typeof item.palavraChave !== "string" || item.palavraChave.length > PALAVRA_DO_LABS_MAX) {
     return { tipo: "formato_estranho" };
   }
-  // A palavra entra EXATAMENTE como o Labs a tem: a chamada tem de pedir essa grafia. A
-  // conferência da chamada depende de letras e números sem espaço (`palavraValida`).
   const palavra = item.palavraChave;
-  if (!palavraValida(palavra)) return { tipo: "palavra_fora_do_padrao", palavra };
-  if (ausente(item.tema)) return { tipo: "sem_tema" };
+  return palavraValida(palavra) ? { palavra } : { tipo: "palavra_fora_do_padrao", palavra };
+}
 
-  // O tema vai até o teto do Labs, e não até o do pedido do Chat: no carrossel ele só entra
-  // como contexto na mensagem à IA (carrossel-ia-parametros.ts).
+/**
+ * O tema, o título e a descrição de um item. O tema vai até o teto do Labs, e não até o do pedido
+ * do Chat: no carrossel ele só entra como contexto na mensagem à IA (carrossel-ia-parametros.ts).
+ */
+function textosDoItem(
+  item: Record<string, unknown>
+): { titulo: string; descricao: string; tema: string } | { tipo: "sem_tema" } | { tipo: "formato_estranho" } {
+  if (ausente(item.tema)) return { tipo: "sem_tema" };
   const tema = textoAte(item.tema, TEMA_DO_LABS_MAX);
   const titulo = textoAte(item.titulo, TITULO_MAX);
   const descricao = textoAte(item.descricao, DESCRICAO_MAX);
   if (!titulo || !descricao || !tema) return { tipo: "formato_estranho" };
-  return { tipo: "publicado", bonus: { palavra, titulo, descricao, tema } };
+  return { titulo, descricao, tema };
 }
 
-/** Um bônus da lista do Labs que o Chat consegue usar, com o código (o slug) dele. */
-export type BonusDoLabs = BonusPublicado & { codigo: string };
+/** A REGRA DE CADA ITEM PARA O BÔNUS DO CHAT: sem palavra é `sem_palavra`, antes do tema. */
+function situacaoDoItem(item: Record<string, unknown>): SituacaoNoLabs {
+  // Faltando a palavra e o tema, vale a palavra: sem ela, nenhuma chamada tem o que pedir.
+  if (ausente(item.palavraChave)) return { tipo: "sem_palavra" };
+  const p = palavraDoItem(item);
+  if ("tipo" in p) return p;
+  const t = textosDoItem(item);
+  if ("tipo" in t) return t;
+  return { tipo: "publicado", bonus: { palavra: p.palavra, ...t } };
+}
+
+/**
+ * A REGRA DE CADA ITEM PARA O AVULSO (spec da Etapa 8): com palavra, a mesma do bônus do Chat; sem
+ * palavra, o tema e o resto pela mesma régua, e "publicado" com a palavra nula. O sem tema fica de
+ * fora com ou sem palavra.
+ */
+function situacaoDoItemDoAvulso(item: Record<string, unknown>): SituacaoDoAvulso {
+  let palavra: string | null = null;
+  if (!ausente(item.palavraChave)) {
+    const p = palavraDoItem(item);
+    if ("tipo" in p) return p;
+    palavra = p.palavra;
+  }
+  const t = textosDoItem(item);
+  if ("tipo" in t) return t;
+  return { tipo: "publicado", bonus: { palavra, ...t } };
+}
+
+/** Um bônus da lista do Labs que o avulso consegue usar, com o código (o slug) dele. */
+export type BonusDoLabs = BonusDoAvulso & { codigo: string };
+
+/** Os bônus da lista que ficaram de fora da escolha, por motivo (achado 84). */
+export type BonusDeFora = { semTema: number; palavraForaDoPadrao: number; formatoEstranho: number };
 
 /** O teto do código que o Chat guarda (`carrosseis_gerados.labs_codigo`) e aceita do formulário. */
 export const CODIGO_MAX = 200;
 
 /**
- * A LISTA DE ESCOLHA DO CARROSSEL AVULSO (spec da Etapa 7): só os bônus "publicado" pela regra de cada
- * item, do mais novo para o mais velho (a lista do Labs vem na ordem de criação, a crescente). Null
- * quando a resposta não tem a forma de lista.
+ * A LISTA DE ESCOLHA DO CARROSSEL AVULSO (spec da Etapa 7): só os bônus "publicado" pela regra do
+ * avulso, do mais novo para o mais velho (a lista do Labs vem na ordem de criação, a crescente).
+ * Desde a Etapa 8, o sem palavra entra (com a palavra nula), e os que ficam de fora são contados por
+ * motivo; o item sem código válido conta como formato que o Chat não lê. Null quando a resposta não
+ * tem a forma de lista.
  */
-export function bonusDaLista(corpo: unknown): BonusDoLabs[] | null {
+export function bonusDaLista(corpo: unknown): { bonus: BonusDoLabs[]; deFora: BonusDeFora } | null {
   const itens = itensDaLista(corpo);
   if (!itens) return null;
   const bonus: BonusDoLabs[] = [];
+  const deFora: BonusDeFora = { semTema: 0, palavraForaDoPadrao: 0, formatoEstranho: 0 };
   for (const item of itens) {
-    if (!ehItem(item) || typeof item.codigo !== "string" || !item.codigo || item.codigo.length > CODIGO_MAX) continue;
-    const s = situacaoDoItem(item);
+    if (!ehItem(item) || typeof item.codigo !== "string" || !item.codigo || item.codigo.length > CODIGO_MAX) {
+      deFora.formatoEstranho++;
+      continue;
+    }
+    const s = situacaoDoItemDoAvulso(item);
     if (s.tipo === "publicado") bonus.push({ codigo: item.codigo, ...s.bonus });
+    else if (s.tipo === "sem_tema") deFora.semTema++;
+    else if (s.tipo === "palavra_fora_do_padrao") deFora.palavraForaDoPadrao++;
+    else deFora.formatoEstranho++;
   }
-  return bonus.reverse();
+  return { bonus: bonus.reverse(), deFora };
 }
 
 type FalhaDaLeitura = { tipo: "sem_config" } | { tipo: "sem_resposta" } | { tipo: "formato_estranho" };
@@ -169,12 +245,22 @@ export async function situacaoNoLabs(
   return lida.ok ? situacaoNaLista(lida.corpo, slug) : { tipo: lida.tipo };
 }
 
-export type ListaDoLabs = { ok: true; bonus: BonusDoLabs[] } | ({ ok: false } & FalhaDaLeitura);
+/** A situação pela regra do avulso (spec da Etapa 8), lida agora pelo código. */
+export async function situacaoDoAvulsoNoLabs(
+  base: string | undefined,
+  codigo: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<SituacaoDoAvulso> {
+  const lida = await lerListaDoLabs(base, fetchImpl);
+  return lida.ok ? situacaoNaListaDoAvulso(lida.corpo, codigo) : { tipo: lida.tipo };
+}
+
+export type ListaDoLabs = { ok: true; bonus: BonusDoLabs[]; deFora: BonusDeFora } | ({ ok: false } & FalhaDaLeitura);
 
 /** A lista de escolha, lida agora. A falha diz o motivo (a tela usa `quadroDaSituacao`). */
 export async function listaDoLabs(base: string | undefined, fetchImpl: typeof fetch = fetch): Promise<ListaDoLabs> {
   const lida = await lerListaDoLabs(base, fetchImpl);
   if (!lida.ok) return lida;
-  const bonus = bonusDaLista(lida.corpo);
-  return bonus ? { ok: true, bonus } : { ok: false, tipo: "formato_estranho" };
+  const lista = bonusDaLista(lida.corpo);
+  return lista ? { ok: true, ...lista } : { ok: false, tipo: "formato_estranho" };
 }

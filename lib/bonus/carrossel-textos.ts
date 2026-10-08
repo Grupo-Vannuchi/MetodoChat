@@ -5,7 +5,7 @@ import { ehAcaoDaChamada, rotuloDaAcao } from "./acao-da-chamada";
 import { SLIDES_MAX, SLIDES_MIN, TETO_CARROSSEL_DIARIO, type RecusaDoPedidoDeCarrossel } from "./carrossel-pedido";
 import { camposDoFormulario, type FalhaDaConferencia, type ParteDoCarrossel, type ProblemaDoCampo } from "./carrossel-texto";
 import { PALAVRA_MAX, PALAVRA_MIN } from "./pedido";
-import type { SituacaoNoLabs } from "./publicado";
+import type { SituacaoDoAvulso, SituacaoNoLabs } from "./publicado";
 import type { TomDoQuadro } from "./textos";
 
 /** A recusa do "Gerar carrossel", que também volta como estado do formulário. */
@@ -59,11 +59,17 @@ export const TEXTO_TABELA_CARROSSEL_AUSENTE =
   "Falta a tabela dos carrosséis neste banco. Aplique a migração 014 (migrations/014-carrosseis-gerados.sql) e recarregue.";
 export const TEXTO_CARROSSEL_SEM_TEXTO = "O texto deste carrossel não passou na conferência de formato. Gere de novo.";
 
-/** A situação do bônus no Labs, lida agora. Só "publicado" é verde. */
-export function quadroDaSituacao(s: SituacaoNoLabs): { tom: TomDoQuadro; texto: string } {
+/**
+ * A situação do bônus no Labs, lida agora. Só "publicado" é verde. Pela regra do avulso (Etapa 8), o
+ * publicado pode vir sem palavra.
+ */
+export function quadroDaSituacao(s: SituacaoNoLabs | SituacaoDoAvulso): { tom: TomDoQuadro; texto: string } {
   switch (s.tipo) {
     case "publicado":
-      return { tom: "ok", texto: `Publicado no Labs · palavra ${s.bonus.palavra}` };
+      return {
+        tom: "ok",
+        texto: s.bonus.palavra === null ? "Publicado no Labs · sem palavra-chave" : `Publicado no Labs · palavra ${s.bonus.palavra}`,
+      };
     case "nao_publicado":
       return {
         tom: "atencao",
