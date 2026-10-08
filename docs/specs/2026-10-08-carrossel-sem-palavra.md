@@ -4,7 +4,8 @@
 `3d96638` (a Etapa 7 em produção desde 08/10, 12:19Z). É o passo curto que o Eduardo decidiu em
 07/10, durante a prova da Etapa 7: "Depois do merge da Etapa 7".
 **Estado:** desenho aprovado pelo Eduardo em três partes (a tela, por dentro, os testes e a prova);
-falta a revisão da auditoria.
+revisado pela auditoria, com o achado 85 absorvido (as duas regras do Labs) e a lista "Carrosséis"
+decidida pelo Eduardo (não muda).
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta
 própria, e nenhum arquivo do `/publicar` nem das automações muda.
 **Etapa anterior:** `docs/specs/2026-10-06-carrossel-avulso.md`.
@@ -43,6 +44,7 @@ Todas do Eduardo, pela caixa, em 08/10:
 | onde vale | no texto livre (o operador marca "Sem palavra-chave") e no bônus do Labs que não tem palavra. O bônus com palavra, do Chat ou do Labs, sempre usa a palavra |
 | onde guardar | uma migração 017: a `palavra` passa a aceitar nulo, e uma coluna nova guarda a ação, com o banco amarrando as duas |
 | a tela (parte 1) | aprovada: "Sem palavra-chave" no texto livre, o bônus do Labs sem palavra marcado na lista, a contagem dos que ficam de fora, a ação no topo da página, sem o aviso do funil |
+| a lista "Carrosséis" | não muda: ela não mostra a palavra hoje, e não passa a mostrar a ação (decidido depois da revisão da auditoria) |
 | por dentro (parte 2) e os testes e a prova (parte 3) | aprovados como estão nesta spec |
 
 ---
@@ -86,7 +88,10 @@ Todas do Eduardo, pela caixa, em 08/10:
 
 ### A lista "Carrosséis" (`/carrosseis`)
 
-Cada linha mostra "sem palavra-chave" onde hoje mostraria a palavra. O resto é igual.
+Não muda. Ela não mostra a palavra hoje (`itemDaListaDeCarrosseis`,
+`lib/bonus/carrosseis-tela.ts:30-41`: título, origem, conta e tamanho, geração e publicação), e
+continua sem mostrar a palavra ou a ação, por decisão do Eduardo em 08/10, depois da revisão da
+auditoria. A palavra ou a ação aparece só no topo da página de cada carrossel.
 
 ---
 
@@ -119,9 +124,13 @@ mudado para o build do merge.
 
 **É segura com o código de hoje no ar.** O código da Etapa 7 sempre grava a palavra e nunca a ação,
 e lê com `select *`, que ignora coluna nova. Durante a prova, a linha sem palavra existe no banco
-de produção. O código de hoje a mostraria em `/carrosseis/[cid]` com "palavra" sem nada depois, e
-recusaria salvar um slide dela ("precisa pedir a palavra"). Ninguém mexe nela pela produção, e ela
-sai na devolução. A auditoria mede, antes da prova, se alguma página de hoje quebra com ela.
+de produção. A auditoria rodou o código de `3d96638` com uma linha de palavra nula, sem banco, em
+08/10: nenhuma função lança. O código de hoje mostraria o topo de `/carrosseis/[cid]` com "palavra"
+sem nada depois, recusaria salvar um slide dela com "precisa pedir a palavra null", e, com o
+carrossel agendado, o aviso do funil diria "da palavra null". Uma aba velha que tentasse gravar uma
+linha sem palavra e sem ação seria barrada pelo `check` `(palavra is null) = (acao_da_chamada is
+not null)`. Ninguém grava nela pela produção, e ela sai na devolução. A prova mede a página real
+(passo 4).
 
 O tipo `LinhaDoCarrossel` (`lib/bonus/carrossel-linha.ts:17`) passa a ter `palavra: string | null`
 e `acao_da_chamada`. O compilador aponta cada uso da palavra, e cada um vira uma decisão, como o
@@ -155,15 +164,25 @@ Hoje `situacaoDoItem` (`lib/bonus/publicado.ts:83-101`) confere a palavra antes 
 `sem_palavra`, `palavra_fora_do_padrao`, `sem_tema` ou `formato_estranho`, e `bonusDaLista`
 (`:116-126`) descarta tudo que não é "publicado", sem contar.
 
-- **Para a lista de escolha do avulso**, o bônus sem `palavraChave` (a chave ausente ou o texto em
-  branco, como o contrato manda) e com tema entra, com a palavra nula. O sem tema fica de fora com
-  ou sem palavra: a ordem da conferência muda para que o tema seja olhado mesmo sem palavra.
-- **A lista devolve também a contagem** dos que ficaram de fora, por motivo (sem tema, palavra fora
-  do padrão, formato que o Chat não lê), e a tela mostra a frase.
-- **O carrossel de bônus do Chat não muda:** `situacaoNaLista` continua tratando o bônus do Chat sem
-  palavra como hoje (a frase de `sem_palavra`, `lib/bonus/carrossel-textos.ts:73`), e o banco
-  continua exigindo a palavra nele.
-- **O pedido avulso do Labs pelo código** aceita o bônus sem palavra, pela mesma regra da lista.
+Hoje essa regra é UMA só, e serve a dois caminhos (achado 85): `situacaoDoItem` é chamada por
+`situacaoNaLista` (`:79`), que é o caminho do carrossel de bônus do Chat (`situacaoNoLabs`, `:169`,
+em `app/bonus/carrossel-actions.ts:98` e `app/bonus/[id]/carrossel/[cid]/page.tsx:113`) e também o
+do avulso do Labs pelo código (`app/carrosseis/actions.ts:38`, `doLabs` em
+`lib/bonus/avulso-processo.ts:34-41`, e o topo de `app/carrosseis/[cid]/page.tsx:63`); e por
+`bonusDaLista` (`:121`). Mudar a ordem dentro dela mudaria o bônus do Chat. Por isso passam a ser
+**duas regras**:
+
+- **A do bônus do Chat é a de hoje, sem mudança.** `situacaoNaLista` continua devolvendo
+  `sem_palavra` para o bônus sem palavra, inclusive o "sem palavra E sem tema"
+  (`tests/bonus-publicado.test.ts:53-55`, que fica intacto), com a frase de hoje
+  (`lib/bonus/carrossel-textos.ts:73`). O banco continua exigindo a palavra nele.
+- **A do avulso do Labs é nova**, e vale nos três lugares do avulso: a lista de escolha, o pedido
+  pelo código e o "Gerar de novo" (os dois últimos por `doLabs`), além do topo da página do avulso.
+  O bônus sem `palavraChave` (a chave ausente ou o texto em branco, como o contrato manda) e com
+  tema é "publicado" com a palavra nula. O sem tema fica de fora com ou sem palavra.
+- **A lista de escolha devolve também a contagem** dos que ficaram de fora pela regra do avulso, por
+  motivo (sem tema, palavra fora do padrão, formato que o Chat não lê), e a tela mostra a frase.
+- Uma prova de mutação troca as duas regras de lugar, e um teste de cada lado cai.
 
 ### O pedido à IA
 
@@ -240,7 +259,8 @@ sem reescrever a spec antiga.
 | pura | o bônus do Chat sem palavra continua com a frase de hoje |
 | pura | o pedido à IA sem palavra: a frase da ação, sem "comentar a palavra", nos dois formatos (carrossel e post) |
 | pura | a conferência sem palavra: recusa a chamada com palavra gritada, aceita o VENCE, não exige nada da legenda |
-| pura | o aviso do funil some sem palavra; o topo da página e a linha da lista dizem a ação |
+| pura | o aviso do funil some sem palavra; o topo da página diz a ação; a linha da lista "Carrosséis" é igual com e sem palavra |
+| pura | as duas regras do Labs: a do bônus do Chat igual à de hoje (`tests/bonus-publicado.test.ts:53-55` intacto) e a do avulso com o sem palavra "publicado" |
 | pura | os dois avisos novos de palavra trocada |
 | integração | criar o avulso sem palavra, do texto livre (pela IA falsa e à mão) e do Labs (com a lista falsa); o escrito à mão sem palavra nasce pronto e fora do teto |
 | integração | o "Gerar de novo": o livre repete a ação; o do Labs segue o Labs, e recusa o que perdeu a palavra |
@@ -264,6 +284,9 @@ aplicada à mão na produção.
 2. Na página dele: o topo com "sem palavra-chave · a chamada pede: salvar o post"; a chamada com uma
    palavra em maiúsculas recusada ao salvar.
 3. Agendar para daqui a 7 dias e cancelar no calendário, sem o aviso do funil.
+4. Com o carrossel da prova ainda no banco, o Eduardo abre na produção (`metodochat.vercel.app`) a
+   lista `/carrosseis` e a página do carrossel da prova, só olhando, sem salvar nada: é a medição
+   da página real com o código de hoje.
 
 No fim, o que a prova criou sai do banco e do bucket, com o OK do Eduardo e o script lido pela
 auditoria antes de rodar (achado 77).
@@ -285,6 +308,10 @@ auditoria antes de rodar (achado 77).
 ## Fora desta etapa
 
 - Conferir que a chamada pede a ação escolhida (fica com o operador, na revisão).
+- A legenda sem palavra não tem regra nenhuma, e a regra da chamada pega só a palavra em
+  maiúsculas: um "comente quero", em minúsculas, passa na chamada e na legenda. A instrução do Labs
+  diz que o pedido padrão é comentar uma palavra-chave (`lib/bonus/instrucao-carrossel.ts:69`), e o
+  pedido extra manda não pedir; o que escapar disso fica com o operador, na revisão.
 - O carrossel sem palavra num bônus que tem palavra.
 - Ligar o funil sozinho: criar a automação da palavra presa ao post novo.
 - O criador de imagem (Etapa 6) e subir o carrossel inteiro do Canva de uma vez.
