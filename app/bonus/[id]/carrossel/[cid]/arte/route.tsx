@@ -1,22 +1,11 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 import { ACCOUNT_COOKIE } from "@/lib/account";
 import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
-import { resolverConta } from "@/lib/bonus/arte-conta";
-import { comEspaco, escolhasDaArte } from "@/lib/bonus/arte-escolhas";
-import { fotoDoEspaco, fotosDaInstancia } from "@/lib/bonus/arte-foto";
-import { respostaDaArte } from "@/lib/bonus/arte-resposta";
-import { cabecalhoDaConta, conferirPedidoDaArte, nomeDoArquivo } from "@/lib/bonus/arte-tela";
-import {
-  TEXTO_ARTE_NAO_ENCONTRADA,
-  TEXTO_ARTE_SEM_CONTA,
-  TEXTO_ARTE_SEM_DESENHO,
-  TEXTO_ARTE_SEM_FONTE,
-  TEXTO_ARTE_SEM_SESSAO,
-} from "@/lib/bonus/arte-textos";
-import { contasParaArte, lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
+import { desenharSlide, erroDaArte as erro } from "@/lib/bonus/arte-rota";
+import { conferirPedidoDaArte } from "@/lib/bonus/arte-tela";
+import { TEXTO_ARTE_NAO_ENCONTRADA, TEXTO_ARTE_SEM_SESSAO } from "@/lib/bonus/arte-textos";
+import { lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
 import { ehIdDeBonus } from "@/lib/bonus/pedido";
-import { fotosDaArte, versaoDoDesenho } from "@/lib/bonus/publicar-regras";
 import { lerLinha } from "@/lib/bonus/repositorio";
 
 // A ARTE DE UM SLIDE DO CARROSSEL, em PNG de 1080×1350: um slide por pedido, desenhado na hora a
@@ -30,13 +19,12 @@ import { lerLinha } from "@/lib/bonus/repositorio";
 //
 // `?slide=N` escolhe o slide (1 ao total); `?baixar=1` vira download com nome de arquivo; `?v=` é a
 // versão da prévia, que esta rota ignora (arte-tela.ts, `versaoDaArte`).
+//
+// O DESENHO MORA EM lib/bonus/arte-rota.ts (Etapa 7), comum a esta rota e à do carrossel avulso
+// (app/carrosseis/[cid]/arte/route.tsx). Esta só serve o carrossel do bônus da URL.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function erro(status: number, texto: string): NextResponse {
-  return NextResponse.json({ ok: false, erro: texto }, { status, headers: { "Cache-Control": "private, no-store" } });
-}
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string; cid: string }> }) {
   const jarra = await cookies();
@@ -45,42 +33,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!ehIdDeBonus(id) || !ehIdDeBonus(cid)) return erro(404, TEXTO_ARTE_NAO_ENCONTRADA);
   const pedido = new URL(request.url).searchParams;
   // O dono, o "pronto" e o slide: arte-tela.ts, `conferirPedidoDaArte`, com um caso por recusa.
-  const conferido = conferirPedidoDaArte(await lerCarrossel(cid), id, pedido.get("slide"));
+  const conferido = conferirPedidoDaArte(await lerCarrossel(cid), { tipo: "bonus", bonusId: id }, pedido.get("slide"));
   if (!conferido.ok) return erro(conferido.status, conferido.texto);
-  const { linha, slides, numero } = conferido;
-
-  // A conta do cabeçalho é a do carrossel (arte-conta.ts): conectada, os dados atuais; desconectada,
-  // o nome e o @ guardados, com as iniciais; sem conta gravada, a logada no Chat.
-  const escolhas = escolhasDaArte(linha.arte, slides.length);
-  const { conta } = resolverConta(await contasParaArte(), escolhas, jarra.get(ACCOUNT_COOKIE)?.value);
-  if (!conta) return erro(409, TEXTO_ARTE_SEM_CONTA);
-  // A FOTO DO ESPAÇO (adendo da Etapa 5): só no slide com espaço, e só a do jeito "foto", que o
-  // prefixo do caminho guardado diz (publicar-regras.ts). `fotoDoEspaco` confere o caminho na pasta da
-  // conta do carrossel antes de buscar.
-  const slide = slides[numero - 1];
-  const espaco = comEspaco(escolhas, numero);
-  const caminhoDaFoto = espaco ? (fotosDaArte(linha.arte, slides.length)[numero] ?? null) : null;
-  // As fotos vêm da memória desta instância (arte-foto.ts): as miniaturas chegam juntas, e uma busca
-  // só atende todas.
-  const [foto, bonus, daFoto] = await Promise.all([
-    fotosDaInstancia.foto(conta.profile_picture_url),
-    lerLinha(id),
-    caminhoDaFoto ? fotoDoEspaco(caminhoDaFoto, escolhas.conta) : Promise.resolve(null),
-  ]);
-
-  // O PNG já sai lido inteiro (arte-resposta.tsx, achado 65): uma falha do desenho vira 500 com
-  // frase, e não um 200 com o corpo quebrado. Emoji no texto faz o desenho buscar o emoji em
-  // cdn.jsdelivr.net (achado 66); sem essa rede, o slide com emoji cai nesta frase.
-  // A versão do desenho vai só no slide que sai com a arte do Chat: o "Só texto" e o com foto.
-  const arte = await respostaDaArte({
-    slide,
-    comEspaco: espaco,
-    cabecalho: cabecalhoDaConta(conta, foto),
+  return desenharSlide({
+    ...conferido,
+    doCookie: jarra.get(ACCOUNT_COOKIE)?.value,
     baixar: pedido.get("baixar") === "1",
-    nomeDoArquivo: nomeDoArquivo(bonus?.slug ?? null, numero),
-    fotoDoEspaco: caminhoDaFoto ? { foto: daFoto } : null,
-    versao: !espaco || caminhoDaFoto ? versaoDoDesenho(slide, caminhoDaFoto) : null,
+    // O arquivo baixado leva o endereço do bônus no Labs.
+    slug: async () => (await lerLinha(id))?.slug ?? null,
   });
-  if (!arte.ok) return erro(500, arte.falha === "fonte" ? TEXTO_ARTE_SEM_FONTE : TEXTO_ARTE_SEM_DESENHO);
-  return arte.resposta;
 }

@@ -76,8 +76,9 @@ describe("as frases das actions", () => {
 });
 
 describe("a página do carrossel entrega a publicação ao editor", () => {
+  // Desde a Etapa 7, a parte de dentro da página (revisao.tsx) é quem entrega, às duas páginas.
   it("as três actions da publicação, e o estado lido da fila", () => {
-    const pagina = ler("app/bonus/[id]/carrossel/[cid]/page.tsx");
+    const pagina = ler("app/bonus/[id]/carrossel/[cid]/revisao.tsx");
     expect(pagina).toContain("acaoDaAssinatura: assinarImagemDoCarrossel");
     expect(pagina).toContain("acaoDaImagem: guardarImagemDoSlide");
     expect(pagina).toContain("acaoDaPublicacao: publicarCarrossel");

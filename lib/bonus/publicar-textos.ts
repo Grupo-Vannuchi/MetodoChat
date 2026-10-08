@@ -2,6 +2,7 @@ import type { Aviso } from "@/lib/avisos";
 import { fmtDate } from "@/lib/format";
 import type { EstadoDaPublicacao, FaltaParaPublicar } from "./publicar-estado";
 import type { JeitoDaImagem, ProblemaDaFoto, ProblemaDaProporcao } from "./publicar-regras";
+import type { TipoDoRotulo } from "./tela";
 import type { TomDoQuadro } from "./textos";
 
 // AS FRASES DA PUBLICAÇÃO DO CARROSSEL, fora do JSX e das actions (o princípio de
@@ -55,6 +56,41 @@ export function tomDoEstadoDaPublicacao(e: EstadoDaPublicacao): TomDoQuadro | nu
       return "atencao";
     default:
       return "erro";
+  }
+}
+
+/**
+ * O AVISO DO FUNIL (spec da Etapa 7), depois de agendar ou publicar: o post é novo, e a automação da
+ * palavra que já existe está presa a outro post (lib/engine.ts:269). Quem liga é o operador, no
+ * /automacoes. Antes de mandar, e depois de cancelar ou de falhar, não há post a caminho.
+ */
+export function textoDoFunil(e: EstadoDaPublicacao, palavra: string): string | null {
+  return e.tipo === "agendado" || e.tipo === "publicando" || e.tipo === "publicado"
+    ? `O funil não liga sozinho: depois que o post sair, crie no /automacoes a automação da palavra ${palavra} para este post.`
+    : null;
+}
+
+/** O estado da publicação na lista "Carrosséis" (Etapa 7): uma palavra e a cor. Livre, nada. */
+export function rotuloDaPublicacao(e: EstadoDaPublicacao): { texto: string; tipo: TipoDoRotulo } | null {
+  switch (e.tipo) {
+    case "livre":
+      return null;
+    case "agendado":
+      return { texto: "Agendado", tipo: "neutro" };
+    case "publicando":
+      return { texto: "Publicando", tipo: "neutro" };
+    case "publicado":
+      return { texto: "Publicado", tipo: "ok" };
+    case "falhou":
+      return { texto: "Não publicou", tipo: "erro" };
+    case "cancelado":
+      return { texto: "Cancelado", tipo: "neutro" };
+    case "nao_entrou":
+      return { texto: "Não entrou na fila", tipo: "atencao" };
+    case "saiu_da_fila":
+      return { texto: "Saiu da fila", tipo: "atencao" };
+    case "desconhecido":
+      return { texto: "Estado desconhecido", tipo: "atencao" };
   }
 }
 

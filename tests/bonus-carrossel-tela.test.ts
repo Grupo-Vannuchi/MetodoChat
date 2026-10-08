@@ -29,6 +29,9 @@ function linha(troca: Partial<LinhaDoCarrossel>): LinhaDoCarrossel {
     gerado_em: new Date(T0),
     revisado_em: null,
     arte: {},
+    origem: "bonus",
+    labs_codigo: null,
+    texto_a_mao: false,
     ...troca,
   };
 }

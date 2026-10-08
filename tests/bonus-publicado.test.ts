@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { LISTA_MAX_BYTES, situacaoNaLista, situacaoNoLabs } from "@/lib/bonus/publicado";
+import { LISTA_MAX_BYTES, bonusDaLista, listaDoLabs, situacaoNaLista, situacaoNoLabs } from "@/lib/bonus/publicado";
 
 // O item como a lista pública do Labs o devolve (medido ao vivo em 30/09).
 const ITEM = {
@@ -132,5 +132,56 @@ describe("a leitura da lista pelo Chat", () => {
   it("passar do teto próprio é formato estranho", async () => {
     const gorda = buscador(async () => resposta(200, "x".repeat(LISTA_MAX_BYTES + 1)));
     expect(await situacaoNoLabs(LABS, ITEM.codigo, gorda)).toEqual({ tipo: "formato_estranho" });
+  });
+});
+
+// A LISTA DE ESCOLHA DO "NOVO CARROSSEL" (spec da Etapa 7): a mesma leitura, com as mesmas regras por
+// item. O bônus que o Chat não consegue usar não aparece, e a falha da leitura tem o motivo, e não
+// uma lista vazia.
+describe("a lista de escolha do carrossel avulso", () => {
+  const resposta = (status: number, corpo: unknown) =>
+    new Response(typeof corpo === "string" ? corpo : JSON.stringify(corpo), { status });
+  const buscador = (f: () => Promise<Response>) => vi.fn(f) as unknown as typeof fetch;
+  const BRUTAL = {
+    ...ITEM,
+    codigo: "conselheiro-brutalmente-honesto",
+    palavraChave: "BRUTAL",
+    titulo: "Conselheiro brutalmente honesto",
+    tema: "Produtividade",
+  };
+
+  it("traz só os bônus que o Chat consegue usar, do mais novo para o mais velho", () => {
+    const lista = {
+      items: [
+        ITEM,
+        { ...ITEM, codigo: "sem-palavra", palavraChave: undefined },
+        { ...ITEM, codigo: "palavra-de-fora", palavraChave: "SEM-DOR" },
+        { ...ITEM, codigo: "sem-tema", tema: "" },
+        { ...ITEM, codigo: 7 },
+        { ...ITEM, codigo: "" },
+        BRUTAL,
+      ],
+    };
+    expect(bonusDaLista(lista)).toEqual([
+      { codigo: BRUTAL.codigo, palavra: "BRUTAL", titulo: BRUTAL.titulo, tema: "Produtividade", descricao: ITEM.descricao },
+      { codigo: ITEM.codigo, palavra: "SUMIDO", titulo: ITEM.titulo, tema: "Vendas", descricao: ITEM.descricao },
+    ]);
+  });
+
+  it.each([null, {}, { items: "x" }, [], "texto"])("resposta sem lista de itens não é lista: %j", (corpo) => {
+    expect(bonusDaLista(corpo)).toBeNull();
+  });
+
+  it("a leitura devolve a lista inteira", async () => {
+    const f = buscador(async () => resposta(200, { items: [ITEM, BRUTAL] }));
+    const r = await listaDoLabs(LABS, f);
+    expect(r.ok && r.bonus.map((b) => b.codigo)).toEqual([BRUTAL.codigo, ITEM.codigo]);
+  });
+
+  it("a falha da leitura diz o motivo", async () => {
+    expect(await listaDoLabs(undefined, buscador(async () => resposta(200, LISTA)))).toEqual({ ok: false, tipo: "sem_config" });
+    expect(await listaDoLabs(LABS, buscador(async () => resposta(503, {})))).toEqual({ ok: false, tipo: "sem_resposta" });
+    expect(await listaDoLabs(LABS, buscador(async () => resposta(200, "<html>")))).toEqual({ ok: false, tipo: "formato_estranho" });
+    expect(await listaDoLabs(LABS, buscador(async () => resposta(200, { items: 1 })))).toEqual({ ok: false, tipo: "formato_estranho" });
   });
 });

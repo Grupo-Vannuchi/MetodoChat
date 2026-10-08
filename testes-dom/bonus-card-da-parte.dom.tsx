@@ -14,6 +14,7 @@ import type { AvisoDoSlide } from "@/lib/bonus/carrossel-textos";
 
 const BONUS = "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f";
 const CARROSSEL = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
+const CAMINHO = `/bonus/${BONUS}/carrossel/${CARROSSEL}`;
 const VALORES = {
   gancho: "Seu cliente sumiu? Não é culpa dele.",
   slide_1_titulo: "O que fazer primeiro",
@@ -32,7 +33,7 @@ function Card({ acao, parte, soTextoInicial = false }: { acao: (a: AvisoDoSlide 
   return (
     <CardDaParte
       acao={acao}
-      bonusId={BONUS}
+      caminho={CAMINHO}
       carrosselId={CARROSSEL}
       palavra="SUMIDO"
       total={3}
@@ -74,9 +75,9 @@ async function salvar(nome = "Salvar slide 2") {
 describe("o card de um slide", () => {
   it("mostra a miniatura pela rota da arte, com a versão, e o baixar do slide", () => {
     renderizar([]);
-    expect(miniatura().getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 2, "v1"));
+    expect(miniatura().getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "v1"));
     const baixar = screen.getByRole("link", { name: "Baixar o slide 2" });
-    expect(baixar.getAttribute("href")).toBe(urlDaArte(BONUS, CARROSSEL, 2, "v1", true));
+    expect(baixar.getAttribute("href")).toBe(urlDaArte(CAMINHO, 2, "v1", true));
     expect(baixar.hasAttribute("download")).toBe(true);
   });
 
@@ -104,7 +105,7 @@ describe("o card de um slide", () => {
     editar();
     fireEvent.change(texto(), { target: { value: "Um texto revisado do slide dois, mais curto." } });
     await salvar();
-    expect(miniatura().getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 2, "v2"));
+    expect(miniatura().getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "v2"));
     expect(texto().value).toBe("Um texto revisado do slide dois, mais curto.");
     expect(screen.getByRole("status").textContent).toBe("Slide 2 salvo.");
   });
@@ -116,7 +117,7 @@ describe("o card de um slide", () => {
     await salvar();
     expect(texto().value).toBe("curto");
     expect(screen.getByRole("status").textContent).toMatch(/precisa de pelo menos 30/);
-    expect(miniatura().getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 2, "v1"));
+    expect(miniatura().getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "v1"));
   });
 
   it("não salvo aparece ao editar, some ao salvar, e fica na recusa", async () => {

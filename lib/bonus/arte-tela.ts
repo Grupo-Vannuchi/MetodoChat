@@ -2,6 +2,7 @@
 import { iniciais, type ContaDoCabecalho } from "./arte-conta";
 import { slidesDoTexto, type SlideParaArte } from "./arte-slides";
 import { TEXTO_ARTE_NAO_ENCONTRADA, TEXTO_ARTE_NAO_PRONTA, TEXTO_ARTE_SLIDE_INVALIDO } from "./arte-textos";
+import { ehDaRota, type RotaDoCarrossel } from "./carrossel-caminho";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { textoDaLinhaDoCarrossel } from "./carrossel-tela";
 
@@ -16,18 +17,19 @@ export function numeroDoSlide(v: string | null, total: number): number | null {
 }
 
 /**
- * O QUE A ROTA CONFERE ANTES DE DESENHAR, depois da sessão e dos ids: o carrossel existe e é do
- * bônus da URL; está pronto, com texto de forma válida (o revisado, ou o gerado); e o slide pedido
- * existe nele. Fora da rota para cada recusa ter teste: a integração só alcança a rota sem sessão.
+ * O QUE A ROTA CONFERE ANTES DE DESENHAR, depois da sessão e dos ids: o carrossel existe e é da rota
+ * que o pediu (o do bônus da URL, ou um avulso: carrossel-caminho.ts, `ehDaRota`); está pronto, com
+ * texto de forma válida (o revisado, ou o gerado); e o slide pedido existe nele. Fora da rota para
+ * cada recusa ter teste: a integração só alcança a rota sem sessão.
  */
 export function conferirPedidoDaArte(
   linha: LinhaDoCarrossel | null,
-  bonusId: string,
+  rota: RotaDoCarrossel,
   slide: string | null
 ):
   | { ok: true; linha: LinhaDoCarrossel; slides: SlideParaArte[]; numero: number }
   | { ok: false; status: 400 | 404 | 409; texto: string } {
-  if (!linha || linha.bonus_id !== bonusId) return { ok: false, status: 404, texto: TEXTO_ARTE_NAO_ENCONTRADA };
+  if (!linha || !ehDaRota(linha, rota)) return { ok: false, status: 404, texto: TEXTO_ARTE_NAO_ENCONTRADA };
   const texto = linha.estado === "pronto" ? textoDaLinhaDoCarrossel(linha) : null;
   if (!texto) return { ok: false, status: 409, texto: TEXTO_ARTE_NAO_PRONTA };
   const slides = slidesDoTexto(texto);
@@ -129,6 +131,7 @@ export function versoesDosSlides(
   );
 }
 
-export function urlDaArte(bonusId: string, carrosselId: string, numero: number, versao: string, baixar = false): string {
-  return `/bonus/${bonusId}/carrossel/${carrosselId}/arte?slide=${numero}&v=${versao}${baixar ? "&baixar=1" : ""}`;
+/** `caminho` é o da página do carrossel (carrossel-caminho.ts): a arte mora embaixo dela. */
+export function urlDaArte(caminho: string, numero: number, versao: string, baixar = false): string {
+  return `${caminho}/arte?slide=${numero}&v=${versao}${baixar ? "&baixar=1" : ""}`;
 }

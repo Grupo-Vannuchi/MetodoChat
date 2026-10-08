@@ -12,11 +12,13 @@ import {
 import type { PublicacaoGuardada } from "@/lib/bonus/publicar-regras";
 import {
   listaDeSlides,
+  rotuloDaPublicacao,
   textoDaFalta,
   textoDaRecusaDaPublicacaoDoCarrossel,
   textoDaTrava,
   textoDoCalendario,
   textoDoEstadoDaPublicacao,
+  textoDoFunil,
   textoDoProblemaDaFoto,
   tomDoEstadoDaPublicacao,
   type RecusaDaPublicacaoDoCarrossel,
@@ -299,5 +301,44 @@ describe("a cor do estado na página", () => {
     expect(tomDoEstadoDaPublicacao({ tipo: "falhou", motivo: null, filaId: "f" })).toBe("erro");
     expect(tomDoEstadoDaPublicacao({ tipo: "saiu_da_fila" })).toBe("erro");
     expect(tomDoEstadoDaPublicacao({ tipo: "desconhecido" })).toBe("erro");
+  });
+});
+
+// O AVISO DO FUNIL (spec da Etapa 7): o post é novo, e a automação da palavra que já existe está presa
+// a outro post (lib/engine.ts:269). Vale para todo carrossel, o de bônus e o avulso.
+describe("o aviso do funil", () => {
+  it("depois de agendar ou publicar, diz a palavra", () => {
+    const frase =
+      "O funil não liga sozinho: depois que o post sair, crie no /automacoes a automação da palavra BRUTAL para este post.";
+    expect(textoDoFunil({ tipo: "agendado", quando: AGORA, filaId: "f" }, "BRUTAL")).toBe(frase);
+    expect(textoDoFunil({ tipo: "publicando", filaId: null }, "BRUTAL")).toBe(frase);
+    expect(textoDoFunil({ tipo: "publicado", em: AGORA, filaId: "f" }, "BRUTAL")).toBe(frase);
+  });
+
+  it.each([
+    { tipo: "livre" },
+    { tipo: "falhou", motivo: null, filaId: "f" },
+    { tipo: "cancelado", filaId: "f" },
+    { tipo: "nao_entrou" },
+    { tipo: "saiu_da_fila" },
+    { tipo: "desconhecido" },
+  ] as EstadoDaPublicacao[])("sem post a caminho, nada: %j", (e) => {
+    expect(textoDoFunil(e, "BRUTAL")).toBeNull();
+  });
+});
+
+// O ESTADO DA PUBLICAÇÃO NA LISTA "CARROSSÉIS" (spec da Etapa 7): uma palavra e a cor, quando há
+// publicação.
+describe("o rótulo da publicação na lista", () => {
+  it("cada estado tem rótulo, e o livre não tem", () => {
+    expect(rotuloDaPublicacao({ tipo: "livre" })).toBeNull();
+    expect(rotuloDaPublicacao({ tipo: "agendado", quando: AGORA, filaId: "f" })).toEqual({ texto: "Agendado", tipo: "neutro" });
+    expect(rotuloDaPublicacao({ tipo: "publicando", filaId: null })).toEqual({ texto: "Publicando", tipo: "neutro" });
+    expect(rotuloDaPublicacao({ tipo: "publicado", em: AGORA, filaId: "f" })).toEqual({ texto: "Publicado", tipo: "ok" });
+    expect(rotuloDaPublicacao({ tipo: "falhou", motivo: null, filaId: "f" })).toEqual({ texto: "Não publicou", tipo: "erro" });
+    expect(rotuloDaPublicacao({ tipo: "cancelado", filaId: "f" })).toEqual({ texto: "Cancelado", tipo: "neutro" });
+    expect(rotuloDaPublicacao({ tipo: "nao_entrou" })).toEqual({ texto: "Não entrou na fila", tipo: "atencao" });
+    expect(rotuloDaPublicacao({ tipo: "saiu_da_fila" })).toEqual({ texto: "Saiu da fila", tipo: "atencao" });
+    expect(rotuloDaPublicacao({ tipo: "desconhecido" })).toEqual({ texto: "Estado desconhecido", tipo: "atencao" });
   });
 });

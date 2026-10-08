@@ -21,11 +21,17 @@ export function lerPedidoDeCarrossel(bruto: { bonusId: unknown; total: unknown }
   | { ok: true; pedido: PedidoDeCarrossel }
   | { ok: false; motivo: RecusaDoPedidoDeCarrossel } {
   if (!ehIdDeBonus(bruto.bonusId)) return { ok: false, motivo: "bonus_invalido" };
-  const texto = typeof bruto.total === "string" ? bruto.total.trim() : "";
-  if (!/^\d{1,2}$/.test(texto)) return { ok: false, motivo: "total_invalido" };
-  const total = Number(texto);
-  if (total < SLIDES_MIN || total > SLIDES_MAX) return { ok: false, motivo: "total_invalido" };
+  const total = lerTotalDeSlides(bruto.total);
+  if (total === null) return { ok: false, motivo: "total_invalido" };
   return { ok: true, pedido: { bonusId: bruto.bonusId, total } };
+}
+
+/** O total do formulário: só dígitos, de SLIDES_MIN a SLIDES_MAX. É a regra do avulso também (Etapa 7). */
+export function lerTotalDeSlides(bruto: unknown): number | null {
+  const texto = typeof bruto === "string" ? bruto.trim() : "";
+  if (!/^\d{1,2}$/.test(texto)) return null;
+  const total = Number(texto);
+  return total < SLIDES_MIN || total > SLIDES_MAX ? null : total;
 }
 
 export function restamCarrosseisHoje(usadas: number): number {

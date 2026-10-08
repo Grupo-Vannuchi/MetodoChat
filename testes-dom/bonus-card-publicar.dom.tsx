@@ -15,6 +15,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 const BONUS = "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f";
 const CARROSSEL = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
+const CAMINHO = `/bonus/${BONUS}/carrossel/${CARROSSEL}`;
 const TODAS = {
   1: { url: "u1", versao: "t1", jeito: "slide" as const },
   2: { url: "u2", versao: "t2", jeito: "slide" as const },
@@ -56,7 +57,7 @@ function renderizar(p: Partial<PublicacaoNaTela> = {}, extra: { naoSalvos?: numb
   render(
     <CardPublicar
       publicacao={completa}
-      bonusId={BONUS}
+      caminho={CAMINHO}
       carrosselId={CARROSSEL}
       total={3}
       soTexto={[]}
@@ -137,6 +138,23 @@ describe("o card Publicar, com o carrossel na fila", () => {
     expect(screen.getByText("Para ver no calendário, selecione thiagovannuchi no menu.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Publicar" })).toBeNull();
   });
+
+  // O AVISO DO FUNIL (spec da Etapa 7): o post é novo, e a automação da palavra que já existe está
+  // presa a outro post. A página decide quando ele aparece (`textoDoFunil`); o card só o desenha.
+  it("o aviso do funil, com o caminho do /automacoes", () => {
+    renderizar({
+      estado: { texto: "Agendado para 06/10/2026, 18:00 (horário de Brasília).", tom: "ok", filaId: "f1", livre: false },
+      avisoDoFunil: "O funil não liga sozinho: depois que o post sair, crie no /automacoes a automação da palavra SUMIDO para este post.",
+    });
+    expect(screen.getByText(/O funil não liga sozinho/).textContent).toContain("da palavra SUMIDO para este post.");
+    expect(screen.getByRole("link", { name: "Abrir as automações" }).getAttribute("href")).toBe("/automacoes");
+  });
+
+  it("sem o aviso do funil, nem a frase nem o caminho", () => {
+    renderizar({ estado: { texto: null, tom: null, filaId: null, livre: true } });
+    expect(screen.queryByText(/O funil não liga sozinho/)).toBeNull();
+    expect(screen.queryByRole("link", { name: "Abrir as automações" })).toBeNull();
+  });
 });
 
 describe("o não salvo, pelo editor", () => {
@@ -147,7 +165,7 @@ describe("o não salvo, pelo editor", () => {
         acaoDoSlide={async () => ({ tom: "ok", texto: "Slide 2 salvo.", em: 1, versao: "b2", versaoDoTexto: "t2" })}
         acaoDaArte={async () => null}
         acaoDaConta={async () => null}
-        bonusId={BONUS}
+        caminho={CAMINHO}
         carrosselId={CARROSSEL}
         palavra="SUMIDO"
         total={3}
@@ -221,7 +239,7 @@ describe("as artes que vão com o pedido", () => {
     render(
       <CardPublicar
         publicacao={completa}
-        bonusId={BONUS}
+        caminho={CAMINHO}
         carrosselId={CARROSSEL}
         total={3}
         soTexto={[3]}
@@ -274,7 +292,7 @@ describe("as artes que vão com o pedido", () => {
         acaoDoSlide={async () => ({ tom: "ok", texto: "Slide 1 salvo.", em: 1, versao: "a2", versaoDoTexto: "t1-novo" })}
         acaoDaArte={async () => null}
         acaoDaConta={async () => null}
-        bonusId={BONUS}
+        caminho={CAMINHO}
         carrosselId={CARROSSEL}
         palavra="SUMIDO"
         total={3}

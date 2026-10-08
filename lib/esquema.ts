@@ -233,6 +233,16 @@ const MARCA_DAGUA = {
       porque:
         "coluna de FEATURE (carrosseis_gerados.arte): a partida do painel não depende dela, de propósito",
     },
+    {
+      de: "016-carrossel-avulso.sql",
+      // AS COLUNAS DO CARROSSEL AVULSO (`origem`, `labs_codigo`, `texto_a_mao`) na mesma tabela de
+      // feature, pelo mesmo motivo da 014 e da 015: só o gerador (app/bonus/ e app/carrosseis/) as
+      // lê, e elas não podem impedir o painel inteiro de subir. Quem confere é
+      // testes-integracao/bonus-carrossel-tabela.integracao.ts. Decidido pelo Eduardo em
+      // 06/10/2026 (docs/specs/2026-10-06-carrossel-avulso.md).
+      porque:
+        "colunas de FEATURE (carrosseis_gerados.origem, labs_codigo e texto_a_mao): a partida do painel não depende delas, de propósito",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",

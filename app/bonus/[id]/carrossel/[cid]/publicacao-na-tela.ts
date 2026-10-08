@@ -29,4 +29,6 @@ export type PublicacaoNaTela = {
   estado: { texto: string | null; tom: TomDoQuadro | null; filaId: string | null; livre: boolean };
   /** "Para ver no calendário, selecione … no menu", quando a conta do menu é outra. */
   avisoDoCalendario: string | null;
+  /** O aviso do funil (Etapa 7, `textoDoFunil`), depois de agendar ou publicar. */
+  avisoDoFunil?: string | null;
 };

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { alertError, alertOk, alertWarn, btnPrimary, card, hint, input, link } from "@/app/ui";
 import { artesParaPublicar, faltasParaPublicar } from "@/lib/bonus/publicar-estado";
@@ -19,11 +20,14 @@ import type { ImagemNaTela, PublicacaoNaTela } from "./publicacao-na-tela";
 //
 // O clique prepara as artes do Chat (o "Só texto" e o slide com foto, `artesParaPublicar`) e manda
 // cada uma com a versão que a rota desenhou (imagem-no-navegador.ts).
+//
+// DEPOIS DE AGENDAR OU PUBLICAR, O AVISO DO FUNIL (spec da Etapa 7), com o caminho do /automacoes: o
+// post é novo, e ninguém liga a automação da palavra nele sozinho. A página decide quando ele aparece.
 const QUADRO: Record<TomDoQuadro, string> = { ok: alertOk, atencao: alertWarn, erro: alertError };
 
 export default function CardPublicar({
   publicacao,
-  bonusId,
+  caminho,
   carrosselId,
   total,
   soTexto,
@@ -33,7 +37,7 @@ export default function CardPublicar({
   legendaNaoSalva,
 }: {
   publicacao: PublicacaoNaTela;
-  bonusId: string;
+  caminho: string;
   carrosselId: string;
   total: number;
   soTexto: number[];
@@ -54,7 +58,7 @@ export default function CardPublicar({
   function publicar() {
     iniciar(async () => {
       const r = await publicarDaTela({
-        bonusId,
+        caminho,
         carrosselId,
         desenhados: artesParaPublicar({ total, soTexto, imagens }),
         versoesDaMiniatura,
@@ -78,6 +82,14 @@ export default function CardPublicar({
         </a>
       )}
       {publicacao.avisoDoCalendario && <p className={hint}>{publicacao.avisoDoCalendario}</p>}
+      {publicacao.avisoDoFunil && (
+        <p className={alertWarn}>
+          {publicacao.avisoDoFunil}{" "}
+          <Link href="/automacoes" className={link}>
+            Abrir as automações
+          </Link>
+        </p>
+      )}
       {estado.livre && (
         <div className="space-y-3">
           {publicacao.arroba && (

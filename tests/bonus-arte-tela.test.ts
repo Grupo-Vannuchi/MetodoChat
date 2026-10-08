@@ -21,6 +21,7 @@ import type { TextoDeCarrossel } from "@/lib/bonus/carrossel-texto";
 
 const BONUS = "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f";
 const CARROSSEL = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
+const CAMINHO = `/bonus/${BONUS}/carrossel/${CARROSSEL}`;
 
 describe("o número do slide pedido", () => {
   it.each([
@@ -106,11 +107,10 @@ describe("a versão da prévia", () => {
     expect(v).toMatch(/^[0-9a-f]{8}$/);
   });
 
-  it("o endereço da miniatura e o do baixar", () => {
-    expect(urlDaArte(BONUS, CARROSSEL, 2, "abcd1234")).toBe(`/bonus/${BONUS}/carrossel/${CARROSSEL}/arte?slide=2&v=abcd1234`);
-    expect(urlDaArte(BONUS, CARROSSEL, 2, "abcd1234", true)).toBe(
-      `/bonus/${BONUS}/carrossel/${CARROSSEL}/arte?slide=2&v=abcd1234&baixar=1`
-    );
+  it("o endereço da miniatura e o do baixar, a partir do caminho da página", () => {
+    expect(urlDaArte(CAMINHO, 2, "abcd1234")).toBe(`/bonus/${BONUS}/carrossel/${CARROSSEL}/arte?slide=2&v=abcd1234`);
+    expect(urlDaArte(CAMINHO, 2, "abcd1234", true)).toBe(`/bonus/${BONUS}/carrossel/${CARROSSEL}/arte?slide=2&v=abcd1234&baixar=1`);
+    expect(urlDaArte(`/carrosseis/${CARROSSEL}`, 3, "abcd1234")).toBe(`/carrosseis/${CARROSSEL}/arte?slide=3&v=abcd1234`);
   });
 });
 
@@ -206,28 +206,42 @@ describe("o que a rota confere antes de desenhar", () => {
     gerado_em: new Date(0),
     revisado_em: null,
     arte: {},
+    origem: "bonus",
+    labs_codigo: null,
+    texto_a_mao: false,
     ...troca,
   });
+  const DO_BONUS = { tipo: "bonus" as const, bonusId: BONUS };
+  const AVULSA = { tipo: "avulso" as const };
 
   it("o carrossel pronto e o slide que existe: os slides e o número", () => {
-    const r = conferirPedidoDaArte(linha(), BONUS, "2");
+    const r = conferirPedidoDaArte(linha(), DO_BONUS, "2");
     expect(r.ok && [r.numero, r.slides.length, r.slides[1].titulo]).toEqual([2, 3, "O que fazer primeiro"]);
   });
 
   it("o revisado vale sobre o gerado", () => {
     const revisado = { ...TEXTO, gancho: "O gancho revisado pelo operador." };
-    const r = conferirPedidoDaArte(linha({ revisado }), BONUS, "1");
+    const r = conferirPedidoDaArte(linha({ revisado }), DO_BONUS, "1");
     expect(r.ok && r.slides[0].texto).toBe("O gancho revisado pelo operador.");
   });
 
+  it("a rota dos avulsos desenha o avulso do Labs e o do texto livre", () => {
+    const doLabs = linha({ origem: "labs", bonus_id: null, labs_codigo: "conselheiro-brutalmente-honesto" });
+    const livre = linha({ origem: "livre", bonus_id: null });
+    expect(conferirPedidoDaArte(doLabs, AVULSA, "1").ok).toBe(true);
+    expect(conferirPedidoDaArte(livre, AVULSA, "3").ok).toBe(true);
+  });
+
   it.each([
-    ["o carrossel que não existe", null as LinhaDoCarrossel | null, BONUS, "1", 404, TEXTO_ARTE_NAO_ENCONTRADA],
-    ["o carrossel de outro bônus", linha({ bonus_id: "9f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f" }), BONUS, "1", 404, TEXTO_ARTE_NAO_ENCONTRADA],
-    ["o carrossel ainda gerando", linha({ estado: "gerando", gerado: null }), BONUS, "1", 409, TEXTO_ARTE_NAO_PRONTA],
-    ["o pronto com texto de forma errada", linha({ gerado: { tipo: "carrossel" } }), BONUS, "1", 409, TEXTO_ARTE_NAO_PRONTA],
-    ["o slide além do total", linha(), BONUS, "4", 400, TEXTO_ARTE_SLIDE_INVALIDO],
-    ["o slide que não é número", linha(), BONUS, "x", 400, TEXTO_ARTE_SLIDE_INVALIDO],
-  ])("recusa %s", (_nome, l, bonus, slide, status, texto) => {
-    expect(conferirPedidoDaArte(l, bonus, slide)).toEqual({ ok: false, status, texto });
+    ["o carrossel que não existe", null as LinhaDoCarrossel | null, DO_BONUS, "1", 404, TEXTO_ARTE_NAO_ENCONTRADA],
+    ["o carrossel de outro bônus", linha({ bonus_id: "9f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f" }), DO_BONUS, "1", 404, TEXTO_ARTE_NAO_ENCONTRADA],
+    ["o avulso na rota do bônus", linha({ origem: "livre", bonus_id: null }), DO_BONUS, "1", 404, TEXTO_ARTE_NAO_ENCONTRADA],
+    ["o de bônus na rota dos avulsos", linha(), AVULSA, "1", 404, TEXTO_ARTE_NAO_ENCONTRADA],
+    ["o carrossel ainda gerando", linha({ estado: "gerando", gerado: null }), DO_BONUS, "1", 409, TEXTO_ARTE_NAO_PRONTA],
+    ["o pronto com texto de forma errada", linha({ gerado: { tipo: "carrossel" } }), DO_BONUS, "1", 409, TEXTO_ARTE_NAO_PRONTA],
+    ["o slide além do total", linha(), DO_BONUS, "4", 400, TEXTO_ARTE_SLIDE_INVALIDO],
+    ["o slide que não é número", linha(), DO_BONUS, "x", 400, TEXTO_ARTE_SLIDE_INVALIDO],
+  ])("recusa %s", (_nome, l, rota, slide, status, texto) => {
+    expect(conferirPedidoDaArte(l, rota, slide)).toEqual({ ok: false, status, texto });
   });
 });

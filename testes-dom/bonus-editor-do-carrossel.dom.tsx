@@ -13,6 +13,7 @@ import type { AvisoDoSlide } from "@/lib/bonus/carrossel-textos";
 
 const BONUS = "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f";
 const CARROSSEL = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
+const CAMINHO = `/bonus/${BONUS}/carrossel/${CARROSSEL}`;
 const VALORES = {
   gancho: "Seu cliente sumiu? Não é culpa dele.",
   slide_1_titulo: "O que fazer primeiro",
@@ -47,7 +48,7 @@ function renderizar({
         recebidos.conta.push(f);
         return conta.shift() ?? null;
       }}
-      bonusId={BONUS}
+      caminho={CAMINHO}
       carrosselId={CARROSSEL}
       palavra="SUMIDO"
       total={3}
@@ -73,7 +74,7 @@ describe("o editor do carrossel, slide a slide", () => {
     renderizar();
     expect(cards().map((c) => within(c).getByRole("heading").textContent)).toEqual(["Slide 1", "Slide 2", "Slide 3", "Legenda"]);
     expect([1, 2, 3].map((n) => miniatura(n).getAttribute("src"))).toEqual(
-      ["a1", "b1", "c1"].map((v, i) => urlDaArte(BONUS, CARROSSEL, i + 1, v))
+      ["a1", "b1", "c1"].map((v, i) => urlDaArte(CAMINHO, i + 1, v))
     );
   });
 
@@ -90,7 +91,7 @@ describe("o editor do carrossel, slide a slide", () => {
       fireEvent.click(screen.getByRole("button", { name: "Salvar slide 2" }));
     });
     expect([1, 2, 3].map((n) => miniatura(n).getAttribute("src"))).toEqual(
-      ["a1", "b2", "c1"].map((v, i) => urlDaArte(BONUS, CARROSSEL, i + 1, v))
+      ["a1", "b2", "c1"].map((v, i) => urlDaArte(CAMINHO, i + 1, v))
     );
   });
 
@@ -101,7 +102,7 @@ describe("o editor do carrossel, slide a slide", () => {
     });
     expect(recebidos.arte.map((f) => [f.get("id"), f.getAll("so_texto"), f.get("conta")])).toEqual([[CARROSSEL, ["2"], null]]);
     expect(soTexto(2).checked).toBe(true);
-    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(BONUS, CARROSSEL, 2, "b3"));
+    expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "b3"));
   });
 
   // A miniatura e o "Baixar" seguem o que está gravado. A caixa e o "não cabe" seguem a tela, e não
@@ -152,6 +153,6 @@ describe("o editor do carrossel, slide a slide", () => {
       fireEvent.click(screen.getByRole("button", { name: "Baixar todos" }));
     });
     await waitFor(() => expect(baixados).toHaveLength(3));
-    expect(baixados).toEqual(["a1", "b1", "c1"].map((v, i) => `${urlDaArte(BONUS, CARROSSEL, i + 1, v, true)}|true`));
+    expect(baixados).toEqual(["a1", "b1", "c1"].map((v, i) => `${urlDaArte(CAMINHO, i + 1, v, true)}|true`));
   });
 });

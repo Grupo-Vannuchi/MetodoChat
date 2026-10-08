@@ -22,6 +22,7 @@ import {
   textoDaRecusaDaArte,
   type AvisoDaArte,
 } from "@/lib/bonus/arte-textos";
+import { caminhoDoCarrossel } from "@/lib/bonus/carrossel-caminho";
 import type { ContextoDoCarrossel } from "@/lib/bonus/carrossel-ia-parametros";
 import { lerPedidoDeCarrossel } from "@/lib/bonus/carrossel-pedido";
 import { processarCarrossel } from "@/lib/bonus/carrossel-processo";
@@ -145,20 +146,24 @@ export async function gerarCarrosselDeNovo(form: FormData): Promise<void> {
   const id = form.get("id");
   if (!ehIdDeBonus(id)) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
   const linha = await lerCarrossel(id);
-  if (!linha) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
+  // O avulso (Etapa 7) gera de novo pela action dele (app/carrosseis/actions.ts): esta só conhece o
+  // carrossel de bônus.
+  const bonusId = linha?.bonus_id;
+  if (!linha || !bonusId) redirect(urlDoBonusComAviso(null, { tom: "erro", texto: TEXTO_CARROSSEL_NAO_ENCONTRADO }));
+  const caminho = caminhoDoCarrossel(linha);
   const naTela = geracaoNaTela(linha.estado, linha.criado_em, Date.now());
   if (naTela !== "falhou" && naTela !== "travou") {
-    redirect(urlDoCarrosselComAviso(linha.bonus_id, id, { tom: "erro", texto: TEXTO_NAO_DA_PARA_GERAR_CARROSSEL_DE_NOVO }));
+    redirect(urlDoCarrosselComAviso(caminho, { tom: "erro", texto: TEXTO_NAO_DA_PARA_GERAR_CARROSSEL_DE_NOVO }));
   }
   if (!temChaveDaIA(process.env)) {
-    redirect(urlDoCarrosselComAviso(linha.bonus_id, id, { tom: "erro", texto: textoDaConfig("sem_chave_ia") }));
+    redirect(urlDoCarrosselComAviso(caminho, { tom: "erro", texto: textoDaConfig("sem_chave_ia") }));
   }
-  const bonus = await bonusParaCarrossel(linha.bonus_id);
-  if (!bonus.ok) redirect(urlDoCarrosselComAviso(linha.bonus_id, id, { tom: "erro", texto: bonus.texto }));
+  const bonus = await bonusParaCarrossel(bonusId);
+  if (!bonus.ok) redirect(urlDoCarrosselComAviso(caminho, { tom: "erro", texto: bonus.texto }));
   // O novo herda a conta do original, mesmo desconectada (decisão do Eduardo em 02/10): gerar de
   // novo um carrossel do Thiago com o Chat na N8X faz outro do Thiago.
   const criado = await criarPedidoDeCarrossel({
-    bonusId: linha.bonus_id,
+    bonusId,
     total: linha.total_slides,
     palavra: bonus.palavra,
     contexto: bonus.contexto,
@@ -168,10 +173,10 @@ export async function gerarCarrosselDeNovo(form: FormData): Promise<void> {
       await contaDoCookie()
     ),
   });
-  if (!criado.ok) redirect(urlDoCarrosselComAviso(linha.bonus_id, id, { tom: "erro", texto: textoDoTetoDoCarrossel() }));
+  if (!criado.ok) redirect(urlDoCarrosselComAviso(caminho, { tom: "erro", texto: textoDoTetoDoCarrossel() }));
   const novo = criado.id;
   after(() => processarCarrossel(novo));
-  redirect(`/bonus/${linha.bonus_id}/carrossel/${novo}`);
+  redirect(`/bonus/${bonusId}/carrossel/${novo}`);
 }
 
 /**

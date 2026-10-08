@@ -18,6 +18,7 @@ import {
   IconX,
   IconImage,
   IconMensagemLink,
+  IconCamera,
 } from "./icons";
 import Progresso from "./publicar/progresso";
 
@@ -43,6 +44,7 @@ const NAV_GROUPS: {
       // `app/publicar/page.tsx`.
       { href: "/publicar", label: "Publicações", icon: IconImage },
       { href: "/bonus", label: "Bônus", icon: IconMensagemLink },
+      { href: "/carrosseis", label: "Carrosséis", icon: IconCamera },
       { href: "/automacoes", label: "Automações", icon: IconZap },
       { href: "/contatos", label: "Contatos", icon: IconUsers },
       { href: "/eventos", label: "Atividade", icon: IconActivity },

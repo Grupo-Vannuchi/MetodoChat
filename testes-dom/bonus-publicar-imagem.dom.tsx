@@ -20,6 +20,7 @@ import type { AvisoDaImagem, RespostaDaAssinatura } from "@/lib/bonus/publicar-t
 
 const BONUS = "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f";
 const CARROSSEL = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
+const CAMINHO = `/bonus/${BONUS}/carrossel/${CARROSSEL}`;
 
 let medidas: { width: number; height: number };
 let pinceladas: string[];
@@ -247,7 +248,7 @@ describe("as artes do Chat, na hora de publicar", () => {
     return { ok: true, caminho: `178/bonus-fila/${n}.jpg`, url: `https://bucket/sign/${n}?token=t` };
   });
   const pedido = (desenhados: { numero: number; comFoto: boolean }[], a = assinar) => ({
-    bonusId: BONUS,
+    caminho: CAMINHO,
     carrosselId: CARROSSEL,
     desenhados,
     versoesDaMiniatura: ["m1", "m2", "m3", "m4", "m5"],
@@ -273,7 +274,7 @@ describe("as artes do Chat, na hora de publicar", () => {
         { numero: 5, caminho: "178/bonus-fila/5.jpg", versao: "desenho-5" },
       ],
     });
-    expect(artesPedidas).toEqual([urlDaArte(BONUS, CARROSSEL, 1, "m1"), urlDaArte(BONUS, CARROSSEL, 2, "m2"), urlDaArte(BONUS, CARROSSEL, 5, "m5")]);
+    expect(artesPedidas).toEqual([urlDaArte(CAMINHO, 1, "m1"), urlDaArte(CAMINHO, 2, "m2"), urlDaArte(CAMINHO, 5, "m5")]);
     expect(assinar.mock.calls.map((c) => (c[0] as { destino: string }).destino)).toEqual(["fila", "fila", "fila"]);
     expect(puts.map((p) => p.tipo)).toEqual(["image/jpeg", "image/jpeg", "image/jpeg"]);
     expect(toBlob).toHaveLength(3);
@@ -345,7 +346,7 @@ describe("publicar da tela", () => {
     return { ok: true, caminho: `178/bonus-fila/${n}.jpg`, url: `https://bucket/sign/${n}?token=t` };
   });
   const base = {
-    bonusId: BONUS,
+    caminho: CAMINHO,
     carrosselId: CARROSSEL,
     desenhados: [{ numero: 1, comFoto: false }],
     versoesDaMiniatura: ["m1", "m2"],
