@@ -243,6 +243,16 @@ const MARCA_DAGUA = {
       porque:
         "colunas de FEATURE (carrosseis_gerados.origem, labs_codigo e texto_a_mao): a partida do painel não depende delas, de propósito",
     },
+    {
+      de: "017-carrossel-sem-palavra.sql",
+      // A PALAVRA QUE PODE FALTAR E A AÇÃO DA CHAMADA (`acao_da_chamada`) na mesma tabela de feature,
+      // pelo mesmo motivo da 014, da 015 e da 016: só o gerador (app/bonus/ e app/carrosseis/) as lê,
+      // e elas não podem impedir o painel inteiro de subir. Quem confere é
+      // testes-integracao/bonus-carrossel-tabela.integracao.ts. Decidido pelo Eduardo em
+      // 08/10/2026 (docs/specs/2026-10-08-carrossel-sem-palavra.md).
+      porque:
+        "coluna de FEATURE (carrosseis_gerados.acao_da_chamada, e a palavra que pode faltar): a partida do painel não depende dela, de propósito",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",
