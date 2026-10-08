@@ -32,7 +32,7 @@ repete o porquê das regras, só como construí-las.
 do repositório (`git worktree`, branch local `ensaio-sem-palavra`, sem push, saída de `7fbae51`), e
 todo bloco de código abaixo foi tirado do git dessa cópia por um gerador, sem cópia à mão. Os números
 do ensaio:
-- lint e `tsc` limpos em cada fase; no fim, 107 arquivos e 3 095 casos puros (103 e 3 006 na base), 22
+- lint e `tsc` limpos em cada fase; no fim, 107 arquivos e 3 099 casos puros (103 e 3 006 na base), 22
   e 184 de tela (22 e 177 na base);
 - `next build --webpack` limpo (com `ƒ /carrosseis`, `ƒ /carrosseis/[cid]`, `ƒ /carrosseis/[cid]/arte` e `ƒ /carrosseis/novo` na lista), e o `AGENTS.md` intacto (o Turbopack, ver o item 7 abaixo);
 - integração no container: 42 arquivos; 434 passaram, 8 pularam e 7 caíram, só os de
@@ -3853,7 +3853,7 @@ env -u CLAUDECODE -u AI_AGENT npm run verify
 git diff --stat AGENTS.md
 ```
 
-Esperado: lint e `tsc` limpos; 107 arquivos e 3 095 casos puros e 22 e 184 de tela; a varredura "SEM
+Esperado: lint e `tsc` limpos; 107 arquivos e 3 099 casos puros e 22 e 184 de tela; a varredura "SEM
 VAZAMENTO em A nem em C"; o build (Turbopack) com "MIGRAÇÃO PULADA" e as rotas `ƒ /carrosseis`,
 `ƒ /carrosseis/[cid]`, `ƒ /carrosseis/[cid]/arte` e `ƒ /carrosseis/novo`; o `AGENTS.md` sem diferença.
 
