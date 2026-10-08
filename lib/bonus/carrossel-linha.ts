@@ -1,5 +1,6 @@
 // A LINHA DE `carrosseis_gerados` como o driver a devolve (migrations/014-carrosseis-gerados.sql).
 // Só tipos: é o que carrossel-repositorio.ts (server-only) e carrossel-tela.ts (puro) compartilham.
+import type { AcaoDaChamada } from "./acao-da-chamada";
 import type { EstadoDaGeracao } from "./tempos";
 
 /**
@@ -14,7 +15,8 @@ export type LinhaDoCarrossel = {
   bonus_id: string | null;
   criado_em: Date;
   total_slides: number;
-  palavra: string;
+  /** Nula no carrossel sem palavra-chave (migrations/017-carrossel-sem-palavra.sql). */
+  palavra: string | null;
   contexto: unknown;
   estado: EstadoDaGeracao;
   gerado: unknown;
@@ -30,4 +32,6 @@ export type LinhaDoCarrossel = {
   labs_codigo: string | null;
   /** Escrito à mão pelo operador: não gastou IA e não conta no teto. */
   texto_a_mao: boolean;
+  /** O que a chamada pede quando não há palavra (a 017): o banco garante palavra OU ação. */
+  acao_da_chamada: AcaoDaChamada | null;
 };

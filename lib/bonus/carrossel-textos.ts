@@ -1,10 +1,11 @@
 // AS FRASES DO CARROSSEL, fora do JSX (mesmo princípio de lib/bonus/textos.ts): uma saída muda
 // é indistinguível de sucesso, e o texto de cada saída vem de função pura, com teste.
 import type { Aviso } from "@/lib/avisos";
+import { ehAcaoDaChamada, rotuloDaAcao } from "./acao-da-chamada";
 import { SLIDES_MAX, SLIDES_MIN, TETO_CARROSSEL_DIARIO, type RecusaDoPedidoDeCarrossel } from "./carrossel-pedido";
 import { camposDoFormulario, type FalhaDaConferencia, type ParteDoCarrossel, type ProblemaDoCampo } from "./carrossel-texto";
 import { PALAVRA_MAX, PALAVRA_MIN } from "./pedido";
-import type { SituacaoNoLabs } from "./publicado";
+import type { SituacaoDoAvulso, SituacaoNoLabs } from "./publicado";
 import type { TomDoQuadro } from "./textos";
 
 /** A recusa do "Gerar carrossel", que também volta como estado do formulário. */
@@ -58,11 +59,17 @@ export const TEXTO_TABELA_CARROSSEL_AUSENTE =
   "Falta a tabela dos carrosséis neste banco. Aplique a migração 014 (migrations/014-carrosseis-gerados.sql) e recarregue.";
 export const TEXTO_CARROSSEL_SEM_TEXTO = "O texto deste carrossel não passou na conferência de formato. Gere de novo.";
 
-/** A situação do bônus no Labs, lida agora. Só "publicado" é verde. */
-export function quadroDaSituacao(s: SituacaoNoLabs): { tom: TomDoQuadro; texto: string } {
+/**
+ * A situação do bônus no Labs, lida agora. Só "publicado" é verde. Pela regra do avulso (Etapa 8), o
+ * publicado pode vir sem palavra.
+ */
+export function quadroDaSituacao(s: SituacaoNoLabs | SituacaoDoAvulso): { tom: TomDoQuadro; texto: string } {
   switch (s.tipo) {
     case "publicado":
-      return { tom: "ok", texto: `Publicado no Labs · palavra ${s.bonus.palavra}` };
+      return {
+        tom: "ok",
+        texto: s.bonus.palavra === null ? "Publicado no Labs · sem palavra-chave" : `Publicado no Labs · palavra ${s.bonus.palavra}`,
+      };
     case "nao_publicado":
       return {
         tom: "atencao",
@@ -100,7 +107,8 @@ export function quadroDaSituacao(s: SituacaoNoLabs): { tom: TomDoQuadro; texto: 
   }
 }
 
-export function textoDaConferencia(f: FalhaDaConferencia, palavra: string): string {
+/** `palavra` nula é o carrossel sem palavra-chave (spec da Etapa 8): a falha dele é a "gritada". */
+export function textoDaConferencia(f: FalhaDaConferencia, palavra: string | null): string {
   switch (f.motivo) {
     case "tipo_errado":
       return "A IA devolveu um formato diferente do pedido. Gere de novo.";
@@ -110,7 +118,14 @@ export function textoDaConferencia(f: FalhaDaConferencia, palavra: string): stri
       return `A IA não pôs a palavra ${palavra} na ${f.onde}. Gere de novo.`;
     case "outra_palavra":
       return `A chamada pede também ${f.palavras.join(", ")}, além de ${palavra}. Gere de novo.`;
+    case "gritada":
+      return `A chamada tem ${f.palavras.join(", ")} em maiúsculas, e este carrossel não tem palavra-chave. Gere de novo.`;
   }
+}
+
+/** O aviso embaixo da chamada do carrossel sem palavra-chave, quando ela tem palavra gritada. */
+export function textoDaGritadaSemPalavra(gritadas: string[]): string {
+  return `Tem ${gritadas.join(", ")} em maiúsculas: este carrossel não tem palavra-chave, e quem comentar uma palavra não recebe nada.`;
 }
 
 export function textoDosProblemasDoCarrossel(total: number, problemas: { campo: string; erro: string }[]): string {
@@ -130,4 +145,27 @@ export function textoDaFaltaDaPalavra(palavra: string): string {
 
 export function avisoDePalavraTrocada(noLabs: string, noCarrossel: string): string {
   return `No Labs, a palavra deste bônus agora é ${noLabs}, e este carrossel pede ${noCarrossel}. Gere outro carrossel para usar a palavra nova.`;
+}
+
+/**
+ * A PALAVRA DO BÔNUS NO LABS COMPARADA COM A DO CARROSSEL (avulso do Labs), com os dois lados do
+ * carrossel sem palavra-chave (spec da Etapa 8). Igual, nada; trocada, o aviso de hoje.
+ */
+export function avisoDaPalavraNoLabs(noLabs: string | null, noCarrossel: string | null): string | null {
+  if (noLabs === noCarrossel) return null;
+  if (noCarrossel === null) {
+    return `No Labs, este bônus agora tem a palavra ${noLabs}. Este carrossel foi feito sem palavra-chave; para usar a palavra, crie um carrossel novo.`;
+  }
+  if (noLabs === null) {
+    return `No Labs, este bônus não tem mais palavra-chave. Este carrossel pede a palavra ${noCarrossel}: confira se a automação dela ainda existe.`;
+  }
+  return avisoDePalavraTrocada(noLabs, noCarrossel);
+}
+
+/** O que a chamada pede, no topo da página do carrossel: a palavra, ou, sem ela, a ação (Etapa 8). */
+export function textoDoPedidoDaChamada(l: { palavra: string | null; acao_da_chamada: unknown }): string {
+  if (l.palavra !== null) return `palavra ${l.palavra}`;
+  if (!ehAcaoDaChamada(l.acao_da_chamada)) return "sem palavra-chave";
+  const rotulo = rotuloDaAcao(l.acao_da_chamada);
+  return `sem palavra-chave · a chamada pede: ${rotulo[0].toLowerCase()}${rotulo.slice(1)}`;
 }

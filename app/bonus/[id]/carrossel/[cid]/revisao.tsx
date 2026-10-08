@@ -87,6 +87,7 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
       caminho={caminhoDoCarrossel(carrossel)}
       carrosselId={carrossel.id}
       palavra={carrossel.palavra}
+      acaoDaChamada={carrossel.acao_da_chamada}
       total={carrossel.total_slides}
       campos={camposDoFormulario(carrossel.total_slides)}
       valores={valoresPorCampo(texto)}

@@ -186,6 +186,12 @@ pedido. A lista de escolha do "Novo carrossel" sai da mesma leitura, por uma fun
 de `situacaoNaLista`, com as mesmas regras por item: o bônus fora do formato não aparece. Uma falha
 da leitura mostra a frase da falha, e não a lista vazia.
 
+> **Correção de 08/10 (achado 83):** a lista do Labs está no contrato desde 01/10 (site-ia,
+> `docs/contrato-metodo-chat.md`, seção do `GET /api/bonus`), com `palavraChave` e `tema` opcionais.
+> A frase acima veio de um comentário do código de 30/09, anterior ao contrato. O comportamento não
+> muda: a leitura continua falhando fechada. O bônus sem palavra passou a ser usado na Etapa 8
+> (`docs/specs/2026-10-08-carrossel-sem-palavra.md`).
+
 ### As rotas
 
 Nenhum arquivo de `app/bonus/[id]/carrossel/` muda de lugar. As rotas novas reaproveitam os

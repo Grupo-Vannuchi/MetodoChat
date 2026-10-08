@@ -6,6 +6,7 @@ import { contextoGravado } from "./carrossel-ia-parametros";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { SLIDES_MAX, SLIDES_MIN } from "./carrossel-pedido";
 import { PALAVRA_MAX, PALAVRA_MIN, TEMA_MAX } from "./pedido";
+import type { BonusDeFora } from "./publicado";
 
 /** A recusa do "Novo carrossel", que volta como estado do formulário (achado 52), e nunca por redirect. */
 export type AvisoDoAvulso = Aviso & { em: number };
@@ -28,6 +29,8 @@ export function textoDaRecusaDoPedidoAvulso(motivo: RecusaDoPedidoAvulso): strin
       return `O tema passa de ${TEMA_MAX} caracteres.`;
     case "palavra_invalida":
       return `A palavra-chave é uma palavra só, com letras e números, de ${PALAVRA_MIN} a ${PALAVRA_MAX}.`;
+    case "sem_acao":
+      return "Escolha o que a chamada pede.";
     case "conteudo_curto":
       return `Escreva ou cole o conteúdo do post, com pelo menos ${CONTEUDO_MIN} caracteres.`;
     case "conteudo_longo":
@@ -41,4 +44,22 @@ export function textoDaOrigem(l: Pick<LinhaDoCarrossel, "origem" | "contexto">):
   const c = contextoGravado(l.contexto);
   if (l.origem === "labs") return c && !("tipo" in c) ? `Bônus do Labs: ${c.titulo}` : "Bônus do Labs";
   return c && "tipo" in c ? `Texto livre: ${c.tema}` : "Texto livre";
+}
+
+/**
+ * OS BÔNUS DO LABS QUE FICAM DE FORA DA ESCOLHA (spec da Etapa 8, achado 84), contados por motivo, só
+ * as partes que existem. Nenhum de fora, nada.
+ */
+export function textoDosBonusDeFora(d: BonusDeFora): string | null {
+  const total = d.semTema + d.palavraForaDoPadrao + d.formatoEstranho;
+  if (total === 0) return null;
+  const partes = [
+    d.semTema ? `${d.semTema} sem tema` : null,
+    d.palavraForaDoPadrao
+      ? `${d.palavraForaDoPadrao} com a palavra fora do padrão do Chat (de ${PALAVRA_MIN} a ${PALAVRA_MAX} letras maiúsculas ou números)`
+      : null,
+    d.formatoEstranho ? `${d.formatoEstranho} num formato que o Chat não lê` : null,
+  ].filter((p): p is string => p !== null);
+  const lista = partes.length > 1 ? `${partes.slice(0, -1).join(", ")} e ${partes[partes.length - 1]}` : partes[0];
+  return `${total === 1 ? "1 bônus do Labs não aparece" : `${total} bônus do Labs não aparecem`}: ${lista}.`;
 }

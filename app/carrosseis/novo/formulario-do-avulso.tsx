@@ -3,6 +3,7 @@ import { useActionState, useMemo, useState, useTransition } from "react";
 import { alertWarn, btnPrimary, btnSecondary, hint, input, label } from "@/app/ui";
 import AvisoDoFormulario from "@/app/bonus/aviso-do-formulario";
 import Campo from "@/app/bonus/[id]/carrossel/[cid]/campo";
+import { ACOES_DA_CHAMADA, rotuloDaAcao, type AcaoDaChamada } from "@/lib/bonus/acao-da-chamada";
 import { CONTEUDO_MAX, DESTAQUE_MAX, type JeitoDoTexto } from "@/lib/bonus/avulso-pedido";
 import type { AvisoDoAvulso } from "@/lib/bonus/avulso-textos";
 import { SLIDES_MAX, SLIDES_MIN, SLIDES_PADRAO, TETO_CARROSSEL_DIARIO } from "@/lib/bonus/carrossel-pedido";
@@ -23,6 +24,10 @@ import type { BonusDoLabs } from "@/lib/bonus/publicado";
 // action, e o `<select>` controlado volta para a opção do HTML do servidor. A recusa volta como estado
 // (achado 52), e o que se escreveu fica na tela. A action entra por propriedade, para o teste de tela
 // usar uma falsa.
+//
+// SEM PALAVRA-CHAVE (spec da Etapa 8): no texto livre, a caixa "Sem palavra-chave" esconde a palavra e
+// pede a ação da chamada; o bônus do Labs sem palavra aparece marcado e pede a ação também. Os campos
+// à mão, sem palavra, avisam a palavra gritada na chamada (`palavra` nula em campo.tsx).
 
 /** A busca pelo título, sem acento e sem diferença de maiúscula. */
 function semAcento(t: string): string {
@@ -33,6 +38,7 @@ export default function FormularioDoAvulso({
   acao,
   bonus,
   falhaDaLista,
+  deFora = null,
   restam,
 }: {
   acao: (anterior: AvisoDoAvulso | null, form: FormData) => Promise<AvisoDoAvulso | null>;
@@ -40,6 +46,8 @@ export default function FormularioDoAvulso({
   bonus: BonusDoLabs[];
   /** A frase da falha da leitura do Labs; null quando a lista veio. */
   falhaDaLista: string | null;
+  /** A frase dos bônus do Labs que ficaram de fora da escolha (achado 84); null quando nenhum. */
+  deFora?: string | null;
   restam: number;
 }) {
   // `pendente` desliga os botões enquanto o pedido roda: um clique duplo criaria dois carrosséis.
@@ -52,6 +60,8 @@ export default function FormularioDoAvulso({
   const [destaque, setDestaque] = useState("");
   const [tema, setTema] = useState("");
   const [palavra, setPalavra] = useState("");
+  const [semPalavra, setSemPalavra] = useState(false);
+  const [acaoDaChamada, setAcaoDaChamada] = useState<AcaoDaChamada | null>(null);
   const [conteudo, setConteudo] = useState("");
   const [total, setTotal] = useState(String(SLIDES_PADRAO));
 
@@ -63,6 +73,8 @@ export default function FormularioDoAvulso({
     return bonus.filter((b) => b === escolhido || !q || semAcento(b.titulo).includes(q));
   }, [bonus, busca, escolhido]);
   const palavraDoPost = origem === "labs" ? (escolhido?.palavra ?? "") : normalizarPalavra(palavra);
+  // Sem palavra: a caixa do texto livre, ou o bônus do Labs que não tem palavra. Aí a chamada pede a ação.
+  const semPalavraNoPost = origem === "livre" ? semPalavra : escolhido !== null && escolhido.palavra === null;
   const semLista = origem === "labs" && falhaDaLista !== null;
 
   return (
@@ -114,10 +126,11 @@ export default function FormularioDoAvulso({
               </select>
               {escolhido && (
                 <p className={hint}>
-                  Palavra {escolhido.palavra} · {escolhido.tema}
+                  {escolhido.palavra === null ? "Sem palavra-chave" : `Palavra ${escolhido.palavra}`} · {escolhido.tema}
                 </p>
               )}
-              {bonus.length === 0 && <p className={hint}>Nenhum bônus publicado no Labs com palavra-chave e tema.</p>}
+              {bonus.length === 0 && <p className={hint}>Nenhum bônus publicado no Labs que o Chat consiga usar.</p>}
+              {deFora && <p className={hint}>{deFora}</p>}
             </div>
             <div>
               <label htmlFor="destaque" className={label}>
@@ -145,20 +158,26 @@ export default function FormularioDoAvulso({
             </label>
             <input id="tema" name="tema" value={tema} maxLength={TEMA_MAX} onChange={(e) => setTema(e.target.value)} className={input} />
           </div>
-          <div>
-            <label htmlFor="palavra" className={label}>
-              Palavra-chave
-            </label>
-            <input
-              id="palavra"
-              name="palavra"
-              value={palavra}
-              maxLength={PALAVRA_MAX}
-              onChange={(e) => setPalavra(e.target.value)}
-              className={input}
-            />
-            <p className={hint}>A palavra que a pessoa comenta para receber. Uma palavra só, com letras e números.</p>
-          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="sem_palavra" value="1" checked={semPalavra} onChange={(e) => setSemPalavra(e.target.checked)} />
+            Sem palavra-chave
+          </label>
+          {!semPalavra && (
+            <div>
+              <label htmlFor="palavra" className={label}>
+                Palavra-chave
+              </label>
+              <input
+                id="palavra"
+                name="palavra"
+                value={palavra}
+                maxLength={PALAVRA_MAX}
+                onChange={(e) => setPalavra(e.target.value)}
+                className={input}
+              />
+              <p className={hint}>A palavra que a pessoa comenta para receber. Uma palavra só, com letras e números.</p>
+            </div>
+          )}
           <div>
             <label htmlFor="conteudo" className={label}>
               Conteúdo
@@ -175,6 +194,21 @@ export default function FormularioDoAvulso({
             <p className={hint}>O que o post divulga, escrito ou colado do Notion.</p>
           </div>
         </div>
+      )}
+
+      {semPalavraNoPost && (
+        <fieldset className="space-y-2">
+          <legend className={label}>O que a chamada pede</legend>
+          <div className="flex flex-wrap gap-4 text-sm">
+            {ACOES_DA_CHAMADA.map((a) => (
+              <label key={a} className="flex items-center gap-2">
+                <input type="radio" name="acao" value={a} checked={acaoDaChamada === a} onChange={() => setAcaoDaChamada(a)} />
+                {rotuloDaAcao(a)}
+              </label>
+            ))}
+          </div>
+          <p className={hint}>Sem palavra-chave, não há funil: a chamada pede só esta ação, sem palavra em maiúsculas.</p>
+        </fieldset>
       )}
 
       <div>
@@ -201,7 +235,7 @@ export default function FormularioDoAvulso({
               valorInicial=""
               max={c.max}
               linhas={c.linhas}
-              palavra={c.pedePalavra && palavraDoPost ? palavraDoPost : undefined}
+              palavra={!c.pedePalavra ? undefined : semPalavraNoPost ? null : palavraDoPost || undefined}
               soAPalavra={c.soAPalavra}
             />
           ))}

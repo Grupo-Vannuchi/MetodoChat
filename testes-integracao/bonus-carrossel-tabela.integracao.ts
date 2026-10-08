@@ -30,6 +30,8 @@ const COLUNAS = [
   "origem",
   "labs_codigo",
   "texto_a_mao",
+  // A 017 (Etapa 8): o carrossel sem palavra-chave.
+  "acao_da_chamada",
 ];
 
 let bonusId: string;
@@ -64,14 +66,14 @@ describe("a tabela carrosseis_gerados", () => {
     expect(linhas.map((l) => l.column_name)).toEqual(COLUNAS);
   });
 
-  it("uma linha nova nasce pendente, sem texto, sem revisão, sem escolha de arte, e de bônus", async () => {
+  it("uma linha nova nasce pendente, sem texto, sem revisão, sem escolha de arte, de bônus e sem ação", async () => {
     const [linha] = (await banco
       .db()
       .sql()
       .query(
         `insert into carrosseis_gerados (bonus_id, total_slides, palavra, contexto)
          values ($1, 10, 'SUMIDO', $2::jsonb)
-         returning estado, gerado, revisado, revisado_em, contexto, arte, origem, labs_codigo, texto_a_mao`,
+         returning estado, gerado, revisado, revisado_em, contexto, arte, origem, labs_codigo, texto_a_mao, acao_da_chamada`,
         [bonusId, { tema: "Vendas" }]
       )) as Record<string, unknown>[];
     expect(linha).toEqual({
@@ -84,6 +86,7 @@ describe("a tabela carrosseis_gerados", () => {
       origem: "bonus",
       labs_codigo: null,
       texto_a_mao: false,
+      acao_da_chamada: null,
     });
   });
 
@@ -216,8 +219,84 @@ describe("a 016: o carrossel avulso", () => {
       ])) as Record<string, unknown>[];
       expect(lida).toEqual({ origem: "bonus", labs_codigo: null, texto_a_mao: false, estado: "pronto" });
     } finally {
-      // Se algo cair no meio, a tabela volta à forma da pasta para o arquivo seguinte.
+      // Se algo cair no meio, a tabela volta à forma da pasta para o arquivo seguinte. As migrações
+      // depois da 016 também rodam de novo: apagar a coluna `origem` apaga junto todo `check` que a
+      // usa, e a 017 tem um (`carrosseis_gerados_bonus_palavra_check`).
       await sql.query(m016!.comandos);
+      for (const m of migracoesEmOrdem().filter((m) => m.nome > "016-carrossel-avulso.sql")) await sql.query(m.comandos);
+    }
+  });
+});
+
+// O CARROSSEL SEM PALAVRA-CHAVE (a 017, spec da Etapa 8): a palavra pode faltar, e então a chamada pede
+// uma ação. O banco amarra as duas: ou palavra, ou ação; o carrossel de bônus do Chat sempre tem
+// palavra; a ação é uma das quatro; e a palavra vazia não é um terceiro jeito de dizer "sem palavra".
+describe("a 017: o carrossel sem palavra-chave", () => {
+  const inserir = (colunas: string, valores: string, params: unknown[] = []) =>
+    banco
+      .db()
+      .sql()
+      .query(`insert into carrosseis_gerados (total_slides, contexto, ${colunas}) values (5, '{}'::jsonb, ${valores}) returning id`, params);
+
+  it("o texto livre e o avulso do Labs entram sem palavra e com a ação", async () => {
+    await inserir("origem, palavra, acao_da_chamada", "'livre', null, 'salvar'");
+    await inserir("origem, labs_codigo, palavra, acao_da_chamada", "'labs', 'sem-palavra', null, 'comentar'");
+    await inserir("origem, palavra, acao_da_chamada, texto_a_mao", "'livre', null, 'seguir', true");
+    await inserir("origem, palavra, acao_da_chamada", "'livre', null, 'compartilhar'");
+    expect(await contar()).toBe(4);
+  });
+
+  it.each([
+    ["a palavra e a ação juntas", "origem, palavra, acao_da_chamada", "'livre', 'BRUTAL', 'salvar'"],
+    ["nem palavra nem ação", "origem, palavra", "'livre', null"],
+  ])("o banco recusa %s", async (_nome, colunas, valores) => {
+    await expect(inserir(colunas, valores)).rejects.toThrow(/carrosseis_gerados_palavra_ou_acao_check/);
+  });
+
+  it("o banco recusa o carrossel de bônus do Chat sem palavra, mesmo com a ação", async () => {
+    await expect(inserir("bonus_id, palavra, acao_da_chamada", "$1, null, 'salvar'", [bonusId])).rejects.toThrow(
+      /carrosseis_gerados_bonus_palavra_check/
+    );
+  });
+
+  it("o banco recusa a ação fora das quatro", async () => {
+    await expect(inserir("origem, palavra, acao_da_chamada", "'livre', null, 'curtir'")).rejects.toThrow(
+      /carrosseis_gerados_acao_check/
+    );
+  });
+
+  it("o banco recusa a palavra vazia", async () => {
+    await expect(inserir("origem, palavra", "'livre', ''")).rejects.toThrow(/carrosseis_gerados_palavra_vazia_check/);
+  });
+
+  // AS LINHAS QUE JÁ EXISTIAM: como na 016, o caso desfaz a 017, grava uma linha como as de produção
+  // hoje (com palavra), e aplica a 017 de novo, duas vezes. A linha velha fica com a palavra e sem ação.
+  it("aplicada sobre as linhas que já existiam, todas ficam com a palavra e sem ação, e ela roda duas vezes", async () => {
+    const m017 = migracoesEmOrdem().find((m) => m.nome === "017-carrossel-sem-palavra.sql");
+    expect(m017).toBeDefined();
+    const sql = banco.db().sql();
+    try {
+      await sql.query(
+        `alter table carrosseis_gerados
+           drop constraint carrosseis_gerados_palavra_vazia_check,
+           drop constraint carrosseis_gerados_bonus_palavra_check,
+           drop constraint carrosseis_gerados_palavra_ou_acao_check,
+           drop constraint carrosseis_gerados_acao_check,
+           drop column acao_da_chamada,
+           alter column palavra set not null`
+      );
+      const [velha] = (await sql.query(
+        `insert into carrosseis_gerados (bonus_id, total_slides, palavra, contexto, estado) values ($1, 4, 'SUMIDO', '{}'::jsonb, 'pronto') returning id`,
+        [bonusId]
+      )) as { id: string }[];
+      await sql.query(m017!.comandos);
+      await sql.query(m017!.comandos);
+      const [lida] = (await sql.query(`select palavra, acao_da_chamada, origem, estado from carrosseis_gerados where id = $1`, [
+        velha.id,
+      ])) as Record<string, unknown>[];
+      expect(lida).toEqual({ palavra: "SUMIDO", acao_da_chamada: null, origem: "bonus", estado: "pronto" });
+    } finally {
+      await sql.query(m017!.comandos);
     }
   });
 });

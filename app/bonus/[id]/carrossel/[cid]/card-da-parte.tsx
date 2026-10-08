@@ -59,7 +59,8 @@ export default function CardDaParte({
   acao: (anterior: AvisoDoSlide | null, form: FormData) => Promise<AvisoDoSlide | null>;
   caminho: string;
   carrosselId: string;
-  palavra: string;
+  /** Nula no carrossel sem palavra-chave (spec da Etapa 8): a chamada avisa toda palavra gritada. */
+  palavra: string | null;
   total: number;
   parte: ParteDoCarrossel;
   campos: CampoDoCarrossel[];

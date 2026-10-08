@@ -5,7 +5,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ContaGuardada } from "@/lib/bonus/arte-conta";
 import type { PedidoAvulso } from "@/lib/bonus/avulso-pedido";
-import type { SituacaoNoLabs } from "@/lib/bonus/publicado";
+import type { SituacaoDoAvulso } from "@/lib/bonus/publicado";
 import { bancoDescartavel } from "./harness";
 
 type ModuloProcesso = typeof import("@/lib/bonus/avulso-processo");
@@ -20,7 +20,10 @@ const NO_LABS = {
   descricao: "Um prompt que critica o seu plano sem dó.",
   tema: "Produtividade",
 };
-const publicado = (troca: Partial<typeof NO_LABS> = {}): SituacaoNoLabs => ({ tipo: "publicado", bonus: { ...NO_LABS, ...troca } });
+const publicado = (troca: Partial<{ palavra: string | null; titulo: string; descricao: string; tema: string }> = {}): SituacaoDoAvulso => ({
+  tipo: "publicado",
+  bonus: { ...NO_LABS, ...troca },
+});
 const THIAGO: ContaGuardada = { conta: "17841400000000001", nome: "Thiago Vannuchi", arroba: "thiagovannuchi" };
 
 /** Os campos do carrossel de 5 slides escritos à mão, na forma que o formulário manda. */
@@ -42,12 +45,14 @@ const doLabs = (troca: Partial<Extract<PedidoAvulso, { origem: "labs" }>> = {}):
   destaque: "Mostre o antes e o depois.",
   total: 5,
   jeito: "ia",
+  acao: null,
   ...troca,
 });
 const livre = (troca: Partial<Extract<PedidoAvulso, { origem: "livre" }>> = {}): PedidoAvulso => ({
   origem: "livre",
   tema: "Produtividade",
   palavra: "BRUTAL",
+  acao: null,
   conteudo: "Um prompt que critica o seu plano sem dó nenhum.",
   total: 5,
   jeito: "ia",
@@ -72,7 +77,7 @@ async function contar(): Promise<number> {
 }
 
 /** Quem lê a situação no Labs, falso, e o que ele foi perguntado. */
-function labs(situacao: SituacaoNoLabs) {
+function labs(situacao: SituacaoDoAvulso) {
   const perguntados: string[] = [];
   return {
     perguntados,
@@ -101,9 +106,9 @@ describe("pedir o carrossel avulso", () => {
   });
 
   it.each([
-    ["despublicado", { tipo: "nao_publicado" } as SituacaoNoLabs, "Criado no Labs como oculto"],
-    ["com a palavra fora do padrão", { tipo: "palavra_fora_do_padrao", palavra: "SEM-DOR" } as SituacaoNoLabs, "SEM-DOR"],
-    ["sem resposta", { tipo: "sem_resposta" } as SituacaoNoLabs, "Não consegui consultar o Labs"],
+    ["despublicado", { tipo: "nao_publicado" } as SituacaoDoAvulso, "Criado no Labs como oculto"],
+    ["com a palavra fora do padrão", { tipo: "palavra_fora_do_padrao", palavra: "SEM-DOR" } as SituacaoDoAvulso, "SEM-DOR"],
+    ["sem resposta", { tipo: "sem_resposta" } as SituacaoDoAvulso, "Não consegui consultar o Labs"],
   ])("o bônus do Labs %s é recusado com a frase, sem gravar nada", async (_nome, situacao, frase) => {
     const r = await processo.pedirAvulso({ pedido: doLabs(), bruto: {}, conta: null, lerSituacao: labs(situacao).lerSituacao });
     expect(r.ok).toBe(false);
@@ -238,5 +243,110 @@ describe("gerar de novo o carrossel avulso", () => {
     });
     expect(!novo.ok && novo.texto).toBe("Só dá para gerar de novo um carrossel cuja geração falhou ou travou.");
     expect(await contar()).toBe(1);
+  });
+});
+
+// O "GERAR DE NOVO" SEM PALAVRA-CHAVE (spec da Etapa 8): o do texto livre repete a ação gravada.
+describe("gerar de novo o carrossel avulso sem palavra-chave", () => {
+  it("o do texto livre repete a palavra nula e a ação gravadas", async () => {
+    const criado = await repo.criarCarrosselAvulso({
+      origem: "livre",
+      labsCodigo: null,
+      total: 4,
+      palavra: null,
+      acao: "compartilhar",
+      contexto: { tipo: "livre", tema: "Vendas", conteudo: "Como vender sem parecer chato, em cinco passos." },
+      conta: THIAGO,
+      texto: null,
+    });
+    if (!criado.ok) throw new Error("teto no meio do teste");
+    await banco.db().sql().query(`update carrosseis_gerados set estado = 'falhou', erro = 'A API recusou.' where id = $1`, [criado.id]);
+    const l = labs(publicado());
+    const r = await processo.gerarAvulsoDeNovo({ linha: (await repo.lerCarrossel(criado.id))!, conta: THIAGO, lerSituacao: l.lerSituacao, agora: Date.now() });
+    if (!r.ok) throw new Error(r.texto);
+    expect(l.perguntados).toEqual([]);
+    expect(await repo.lerCarrossel(r.id)).toMatchObject({ origem: "livre", estado: "pendente", palavra: null, acao_da_chamada: "compartilhar", total_slides: 4 });
+  });
+});
+
+// PEDIR SEM PALAVRA-CHAVE (spec da Etapa 8): o texto livre com a ação do formulário; o bônus do Labs
+// sem palavra, pela regra do avulso, com a ação exigida; o bônus com palavra ignora a ação.
+describe("pedir o carrossel avulso sem palavra-chave", () => {
+  const SEM_A_MAO = {
+    ...A_MAO,
+    chamada: "Salve este post para reler antes de mostrar o plano a alguém.",
+    legenda: "Antes de mostrar o seu plano a alguém, leia de novo estes pontos e salve para não esquecer.",
+  };
+
+  it("do texto livre, pela IA: a palavra nula e a ação, sem perguntar ao Labs", async () => {
+    const l = labs(publicado());
+    const r = await processo.pedirAvulso({ pedido: livre({ palavra: null, acao: "salvar" }), bruto: {}, conta: THIAGO, lerSituacao: l.lerSituacao });
+    if (!r.ok) throw new Error(r.texto);
+    expect(l.perguntados).toEqual([]);
+    expect(await repo.lerCarrossel(r.id)).toMatchObject({ origem: "livre", palavra: null, acao_da_chamada: "salvar", estado: "pendente" });
+  });
+
+  it("do texto livre, à mão: nasce pronto sem palavra, e a chamada com palavra gritada é recusada", async () => {
+    const pedido = livre({ palavra: null, acao: "seguir", jeito: "mao" });
+    const recusa = await processo.pedirAvulso({ pedido, bruto: { ...SEM_A_MAO, chamada: "Comente GUIA e receba o roteiro." }, conta: THIAGO, lerSituacao: labs(publicado()).lerSituacao });
+    expect(!recusa.ok && recusa.texto).toContain("não pode ter palavra em maiúsculas (GUIA)");
+    expect(await contar()).toBe(0);
+    const r = await processo.pedirAvulso({ pedido, bruto: SEM_A_MAO, conta: THIAGO, lerSituacao: labs(publicado()).lerSituacao });
+    if (!r.ok) throw new Error(r.texto);
+    expect(await repo.lerCarrossel(r.id)).toMatchObject({ estado: "pronto", texto_a_mao: true, palavra: null, acao_da_chamada: "seguir" });
+  });
+
+  it("do Labs sem palavra, com a ação: a palavra nula e a ação", async () => {
+    const r = await processo.pedirAvulso({ pedido: doLabs({ acao: "comentar" }), bruto: {}, conta: null, lerSituacao: labs(publicado({ palavra: null })).lerSituacao });
+    if (!r.ok) throw new Error(r.texto);
+    expect(await repo.lerCarrossel(r.id)).toMatchObject({ origem: "labs", labs_codigo: CODIGO, palavra: null, acao_da_chamada: "comentar" });
+  });
+
+  it("do Labs sem palavra e sem a ação, é recusado com a frase, sem gravar nada", async () => {
+    const r = await processo.pedirAvulso({ pedido: doLabs(), bruto: {}, conta: null, lerSituacao: labs(publicado({ palavra: null })).lerSituacao });
+    expect(r).toEqual({ ok: false, texto: "Escolha o que a chamada pede: este bônus do Labs não tem palavra-chave." });
+    expect(await contar()).toBe(0);
+  });
+
+  it("do Labs com palavra, a ação do formulário não entra", async () => {
+    const r = await processo.pedirAvulso({ pedido: doLabs({ acao: "salvar" }), bruto: {}, conta: null, lerSituacao: labs(publicado()).lerSituacao });
+    if (!r.ok) throw new Error(r.texto);
+    expect(await repo.lerCarrossel(r.id)).toMatchObject({ palavra: "BRUTAL", acao_da_chamada: null });
+  });
+});
+
+// O "GERAR DE NOVO" DO LABS SEM PALAVRA (spec da Etapa 8): segue o Labs de agora.
+describe("gerar de novo o avulso do Labs, pela palavra de agora", () => {
+  async function falhouDoLabs(pedido: PedidoAvulso, situacao: SituacaoDoAvulso): Promise<string> {
+    const r = await processo.pedirAvulso({ pedido, bruto: {}, conta: THIAGO, lerSituacao: labs(situacao).lerSituacao });
+    if (!r.ok) throw new Error(r.texto);
+    await banco.db().sql().query(`update carrosseis_gerados set estado = 'falhou', erro = 'A API recusou.' where id = $1`, [r.id]);
+    return r.id;
+  }
+  const deNovo = async (id: string, situacao: SituacaoDoAvulso) =>
+    processo.gerarAvulsoDeNovo({ linha: (await repo.lerCarrossel(id))!, conta: THIAGO, lerSituacao: labs(situacao).lerSituacao, agora: Date.now() });
+
+  it("feito sem palavra, e o Labs continua sem: sai com a ação gravada", async () => {
+    const id = await falhouDoLabs(doLabs({ acao: "seguir" }), publicado({ palavra: null }));
+    const r = await deNovo(id, publicado({ palavra: null }));
+    if (!r.ok) throw new Error(r.texto);
+    expect(await repo.lerCarrossel(r.id)).toMatchObject({ palavra: null, acao_da_chamada: "seguir" });
+  });
+
+  it("feito sem palavra, e o Labs agora tem palavra: sai com a palavra", async () => {
+    const id = await falhouDoLabs(doLabs({ acao: "seguir" }), publicado({ palavra: null }));
+    const r = await deNovo(id, publicado());
+    if (!r.ok) throw new Error(r.texto);
+    expect(await repo.lerCarrossel(r.id)).toMatchObject({ palavra: "BRUTAL", acao_da_chamada: null });
+  });
+
+  it("feito com palavra, e o Labs perdeu a palavra: recusado com a frase, sem gravar nada", async () => {
+    const id = await falhouDoLabs(doLabs(), publicado());
+    const antes = await contar();
+    expect(await deNovo(id, publicado({ palavra: null }))).toEqual({
+      ok: false,
+      texto: "No Labs, este bônus não tem mais palavra-chave. Crie um carrossel novo e escolha o que a chamada pede.",
+    });
+    expect(await contar()).toBe(antes);
   });
 });

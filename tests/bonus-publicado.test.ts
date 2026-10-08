@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { LISTA_MAX_BYTES, bonusDaLista, listaDoLabs, situacaoNaLista, situacaoNoLabs } from "@/lib/bonus/publicado";
+import {
+  LISTA_MAX_BYTES,
+  bonusDaLista,
+  listaDoLabs,
+  situacaoDoAvulsoNoLabs,
+  situacaoNaLista,
+  situacaoNaListaDoAvulso,
+  situacaoNoLabs,
+} from "@/lib/bonus/publicado";
 
 // O item como a lista pública do Labs o devolve (medido ao vivo em 30/09).
 const ITEM = {
@@ -150,22 +158,33 @@ describe("a lista de escolha do carrossel avulso", () => {
     tema: "Produtividade",
   };
 
-  it("traz só os bônus que o Chat consegue usar, do mais novo para o mais velho", () => {
+  // Desde a Etapa 8, o bônus sem palavra entra (com a palavra nula), e os que ficam de fora são
+  // contados por motivo, para a tela dizer quantos e por quê (achado 84).
+  it("traz os bônus que o Chat consegue usar, do mais novo para o mais velho, e conta os de fora", () => {
     const lista = {
       items: [
         ITEM,
         { ...ITEM, codigo: "sem-palavra", palavraChave: undefined },
         { ...ITEM, codigo: "palavra-de-fora", palavraChave: "SEM-DOR" },
         { ...ITEM, codigo: "sem-tema", tema: "" },
+        { ...ITEM, codigo: "sem-palavra-nem-tema", palavraChave: undefined, tema: undefined },
         { ...ITEM, codigo: 7 },
         { ...ITEM, codigo: "" },
         BRUTAL,
       ],
     };
-    expect(bonusDaLista(lista)).toEqual([
-      { codigo: BRUTAL.codigo, palavra: "BRUTAL", titulo: BRUTAL.titulo, tema: "Produtividade", descricao: ITEM.descricao },
-      { codigo: ITEM.codigo, palavra: "SUMIDO", titulo: ITEM.titulo, tema: "Vendas", descricao: ITEM.descricao },
-    ]);
+    expect(bonusDaLista(lista)).toEqual({
+      bonus: [
+        { codigo: BRUTAL.codigo, palavra: "BRUTAL", titulo: BRUTAL.titulo, tema: "Produtividade", descricao: ITEM.descricao },
+        { codigo: "sem-palavra", palavra: null, titulo: ITEM.titulo, tema: "Vendas", descricao: ITEM.descricao },
+        { codigo: ITEM.codigo, palavra: "SUMIDO", titulo: ITEM.titulo, tema: "Vendas", descricao: ITEM.descricao },
+      ],
+      deFora: { semTema: 2, palavraForaDoPadrao: 1, formatoEstranho: 2 },
+    });
+  });
+
+  it("sem nenhum de fora, a contagem é zero", () => {
+    expect(bonusDaLista({ items: [ITEM, BRUTAL] })?.deFora).toEqual({ semTema: 0, palavraForaDoPadrao: 0, formatoEstranho: 0 });
   });
 
   it.each([null, {}, { items: "x" }, [], "texto"])("resposta sem lista de itens não é lista: %j", (corpo) => {
@@ -176,6 +195,7 @@ describe("a lista de escolha do carrossel avulso", () => {
     const f = buscador(async () => resposta(200, { items: [ITEM, BRUTAL] }));
     const r = await listaDoLabs(LABS, f);
     expect(r.ok && r.bonus.map((b) => b.codigo)).toEqual([BRUTAL.codigo, ITEM.codigo]);
+    expect(r.ok && r.deFora).toEqual({ semTema: 0, palavraForaDoPadrao: 0, formatoEstranho: 0 });
   });
 
   it("a falha da leitura diz o motivo", async () => {
@@ -183,5 +203,54 @@ describe("a lista de escolha do carrossel avulso", () => {
     expect(await listaDoLabs(LABS, buscador(async () => resposta(503, {})))).toEqual({ ok: false, tipo: "sem_resposta" });
     expect(await listaDoLabs(LABS, buscador(async () => resposta(200, "<html>")))).toEqual({ ok: false, tipo: "formato_estranho" });
     expect(await listaDoLabs(LABS, buscador(async () => resposta(200, { items: 1 })))).toEqual({ ok: false, tipo: "formato_estranho" });
+  });
+});
+
+// AS DUAS REGRAS DO LABS (spec da Etapa 8, achado 85): a do bônus do Chat continua a de hoje (o sem
+// palavra é "sem_palavra", acima); a do avulso aceita o bônus sem palavra e com tema, com a palavra
+// nula. Com palavra, as duas dizem o mesmo.
+describe("a regra do avulso do Labs", () => {
+  const avulso = (troca: Record<string, unknown>) => situacaoNaListaDoAvulso({ items: [{ ...ITEM, ...troca }] }, ITEM.codigo);
+
+  it.each([
+    ["chave ausente", { palavraChave: undefined }],
+    ["texto vazio", { palavraChave: "" }],
+    ["só espaço", { palavraChave: "   " }],
+  ])("sem palavra (%s) e com tema, é publicado com a palavra nula", (_nome, troca) => {
+    expect(avulso(troca)).toEqual({
+      tipo: "publicado",
+      bonus: { palavra: null, titulo: ITEM.titulo, descricao: ITEM.descricao, tema: "Vendas" },
+    });
+  });
+
+  it("sem palavra e sem tema, fica de fora pelo tema", () => {
+    expect(avulso({ palavraChave: undefined, tema: undefined })).toEqual({ tipo: "sem_tema" });
+  });
+
+  it("sem palavra e com o título fora do formato, é formato estranho", () => {
+    expect(avulso({ palavraChave: undefined, titulo: "" })).toEqual({ tipo: "formato_estranho" });
+  });
+
+  it.each([
+    ["publicado", {}],
+    ["palavra fora do padrão", { palavraChave: "SEM-DOR" }],
+    ["palavra que não é texto", { palavraChave: null }],
+    ["sem tema", { tema: "" }],
+  ])("com palavra, diz o mesmo que a regra do bônus do Chat (%s)", (_nome, troca) => {
+    const corpo = { items: [{ ...ITEM, ...troca }] };
+    expect(situacaoNaListaDoAvulso(corpo, ITEM.codigo)).toEqual(situacaoNaLista(corpo, ITEM.codigo));
+  });
+
+  it("fora da lista e lista estranha, como a regra do Chat", () => {
+    expect(situacaoNaListaDoAvulso(LISTA, "zz-teste")).toEqual({ tipo: "nao_publicado" });
+    expect(situacaoNaListaDoAvulso({ items: "x" }, ITEM.codigo)).toEqual({ tipo: "formato_estranho" });
+  });
+
+  it("a leitura do avulso pergunta ao Labs e usa a regra dele", async () => {
+    const corpo = { items: [{ ...ITEM, palavraChave: undefined }] };
+    const f = vi.fn(async () => new Response(JSON.stringify(corpo), { status: 200 })) as unknown as typeof fetch;
+    expect(await situacaoDoAvulsoNoLabs(LABS, ITEM.codigo, f)).toMatchObject({ tipo: "publicado", bonus: { palavra: null } });
+    expect(await situacaoNoLabs(LABS, ITEM.codigo, f)).toEqual({ tipo: "sem_palavra" });
+    expect(await situacaoDoAvulsoNoLabs(undefined, ITEM.codigo, f)).toEqual({ tipo: "sem_config" });
   });
 });

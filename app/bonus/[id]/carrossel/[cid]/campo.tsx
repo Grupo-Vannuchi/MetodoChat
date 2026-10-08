@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { btnSecondary, fieldError, hint, input, label } from "@/app/ui";
 import { outrasGritadas, temPalavra } from "@/lib/bonus/carrossel-texto";
-import { textoDaFaltaDaPalavra, textoDeOutrasPalavras } from "@/lib/bonus/carrossel-textos";
+import { textoDaFaltaDaPalavra, textoDaGritadaSemPalavra, textoDeOutrasPalavras } from "@/lib/bonus/carrossel-textos";
 
 // UM CAMPO DO CARROSSEL: edita, conta e copia. O botão copia o que está NO CAMPO agora, e não o
 // que abriu na página: é esse texto que o operador leva para o Canva até a Etapa 3 existir.
@@ -20,6 +20,8 @@ import { textoDaFaltaDaPalavra, textoDeOutrasPalavras } from "@/lib/bonus/carros
 // como está (achado 53, decisão do Eduardo: copiar continua, com o aviso ao lado). Com
 // `soAPalavra` (só a chamada), avisa também a palavra gritada A MAIS (decisão do Eduardo,
 // 01/10). As regras e a ordem são as de `lerRevisaoDoCarrossel`: primeiro a falta, depois a mais.
+// `palavra` NULA é o carrossel sem palavra-chave (spec da Etapa 8): a chamada avisa toda palavra
+// gritada, e a legenda não avisa nada.
 //
 // `avisoDeCabimento` (Etapa 3) é o "não cabe" do slide deste campo, calculado pelo editor da arte
 // sobre o que está nos campos agora. Ele avisa e nunca impede: o salvar não olha para ele.
@@ -38,7 +40,7 @@ export default function Campo({
   valorInicial: string;
   max: number;
   linhas: number;
-  palavra?: string;
+  palavra?: string | null;
   soAPalavra?: boolean;
   avisoDeCabimento?: string;
 }) {
@@ -46,7 +48,10 @@ export default function Campo({
   const [copiado, setCopiado] = useState(false);
 
   let aviso: string | null = null;
-  if (palavra && !temPalavra(texto, palavra)) {
+  if (palavra === null) {
+    const gritadas = soAPalavra ? outrasGritadas(texto, null) : [];
+    if (gritadas.length) aviso = textoDaGritadaSemPalavra(gritadas);
+  } else if (palavra && !temPalavra(texto, palavra)) {
     aviso = textoDaFaltaDaPalavra(palavra);
   } else if (palavra && soAPalavra) {
     const outras = outrasGritadas(texto, palavra);
