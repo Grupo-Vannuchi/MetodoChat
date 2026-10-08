@@ -23,13 +23,16 @@ const SUMIDO: BonusDoLabs = {
   descricao: "Mensagens prontas para trazer de volta quem sumiu.",
 };
 
-function renderizar(respostas: AvisoDoAvulso[] = [], { restam = 10, falhaDaLista = null as string | null } = {}) {
+function renderizar(
+  respostas: AvisoDoAvulso[] = [],
+  { restam = 10, falhaDaLista = null as string | null, bonus = [BRUTAL, SUMIDO], deFora = null as string | null } = {}
+) {
   const recebidos: FormData[] = [];
   const acao = async (_anterior: AvisoDoAvulso | null, f: FormData) => {
     recebidos.push(f);
     return respostas.shift() ?? null;
   };
-  render(<FormularioDoAvulso acao={acao} bonus={[BRUTAL, SUMIDO]} falhaDaLista={falhaDaLista} restam={restam} />);
+  render(<FormularioDoAvulso acao={acao} bonus={bonus} falhaDaLista={falhaDaLista} deFora={deFora} restam={restam} />);
   return recebidos;
 }
 
@@ -164,5 +167,72 @@ describe("escrever à mão", () => {
     expect(botao("Criar com este texto").disabled).toBe(false);
     fireEvent.click(botao("Voltar para a IA"));
     expect(screen.queryByLabelText("Gancho (slide 1)")).toBeNull();
+  });
+});
+
+// SEM PALAVRA-CHAVE (spec da Etapa 8): no texto livre, a caixa troca a palavra pela ação; o bônus do
+// Labs sem palavra aparece marcado e pede a ação; os bônus que ficam de fora são contados.
+describe("o novo carrossel sem palavra-chave", () => {
+  const SEM_PALAVRA: BonusDoLabs = { ...SUMIDO, codigo: "bonus-sem-palavra", palavra: null, titulo: "Um bônus sem palavra" };
+  const acoes = () => ["Salvar o post", "Compartilhar", "Seguir o perfil", "Comentar a opinião"].map((r) => campo(r));
+
+  it("texto livre: a caixa esconde a palavra, pede a ação, e manda a caixa e a ação", async () => {
+    const recebidos = renderizar();
+    fireEvent.click(screen.getByLabelText("De um texto livre"));
+    expect(screen.queryByText("O que a chamada pede")).toBeNull();
+    fireEvent.click(screen.getByLabelText("Sem palavra-chave"));
+    expect(screen.queryByLabelText("Palavra-chave")).toBeNull();
+    expect(screen.getByText("O que a chamada pede")).toBeTruthy();
+    expect(acoes().map((a) => a.checked)).toEqual([false, false, false, false]);
+    escrever("Tema", "Vendas");
+    escrever("Conteúdo", "Como vender sem parecer chato, em cinco passos.");
+    fireEvent.click(screen.getByLabelText("Salvar o post"));
+    await clicar("Gerar com a IA");
+    expect(recebidos.map(doFormulario)).toEqual([
+      {
+        origem: "livre",
+        tema: "Vendas",
+        sem_palavra: "1",
+        acao: "salvar",
+        conteudo: "Como vender sem parecer chato, em cinco passos.",
+        total: "10",
+        jeito: "ia",
+      },
+    ]);
+  });
+
+  it("o bônus do Labs sem palavra aparece marcado, e pede a ação", async () => {
+    const recebidos = renderizar([], { bonus: [BRUTAL, SEM_PALAVRA] });
+    escrever("Bônus do Labs", SEM_PALAVRA.codigo);
+    expect(screen.getByText("Sem palavra-chave · Vendas")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Comentar a opinião"));
+    await clicar("Gerar com a IA");
+    expect(recebidos.map(doFormulario)).toEqual([
+      { origem: "labs", codigo: SEM_PALAVRA.codigo, acao: "comentar", total: "10", jeito: "ia" },
+    ]);
+  });
+
+  it("o bônus do Labs com palavra não mostra a escolha da ação", () => {
+    renderizar([], { bonus: [BRUTAL, SEM_PALAVRA] });
+    escrever("Bônus do Labs", BRUTAL.codigo);
+    expect(screen.queryByText("O que a chamada pede")).toBeNull();
+  });
+
+  it("a frase dos bônus que ficam de fora aparece embaixo da lista", () => {
+    renderizar([], { deFora: "1 bônus do Labs não aparece: 1 sem tema." });
+    expect(screen.getByText("1 bônus do Labs não aparece: 1 sem tema.")).toBeTruthy();
+  });
+
+  it("à mão, sem palavra: a chamada avisa a palavra gritada, e a legenda não pede palavra", () => {
+    renderizar();
+    fireEvent.click(screen.getByLabelText("De um texto livre"));
+    fireEvent.click(screen.getByLabelText("Sem palavra-chave"));
+    fireEvent.click(botao("Escrever à mão"));
+    escrever("Chamada (slide 10)", "Comente GUIA e receba o roteiro.");
+    escrever("Legenda do post", "Uma legenda que não pede palavra nenhuma, e tudo bem.");
+    expect(
+      screen.getByText("Tem GUIA em maiúsculas: este carrossel não tem palavra-chave, e quem comentar uma palavra não recebe nada.")
+    ).toBeTruthy();
+    expect(screen.queryByText(/Falta a palavra/)).toBeNull();
   });
 });

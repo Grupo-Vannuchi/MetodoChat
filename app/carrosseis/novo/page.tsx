@@ -2,6 +2,7 @@ import Link from "next/link";
 import { alertError, card, link, pageSubtitle, pageTitle } from "@/app/ui";
 import { restamCarrosseisHoje } from "@/lib/bonus/carrossel-pedido";
 import { carrosseisNasUltimas24h } from "@/lib/bonus/carrossel-repositorio";
+import { textoDosBonusDeFora } from "@/lib/bonus/avulso-textos";
 import { TEXTO_TABELA_CARROSSEL_AUSENTE, quadroDaSituacao } from "@/lib/bonus/carrossel-textos";
 import { ehTabelaAusente } from "@/lib/bonus/erros";
 import { listaDoLabs } from "@/lib/bonus/publicado";
@@ -40,6 +41,7 @@ export default async function NovoCarrossel() {
           acao={pedirCarrosselAvulso}
           bonus={lista.ok ? lista.bonus : []}
           falhaDaLista={lista.ok ? null : quadroDaSituacao({ tipo: lista.tipo }).texto}
+          deFora={lista.ok ? textoDosBonusDeFora(lista.deFora) : null}
           restam={restamCarrosseisHoje(usadas)}
         />
       </section>

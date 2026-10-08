@@ -165,3 +165,11 @@ describe("quem usa cada regra do Labs", () => {
     expect(ler("app/bonus/carrossel-actions.ts")).not.toContain("situacaoDoAvulsoNoLabs");
   });
 });
+
+// OS BÔNUS DO LABS QUE FICAM DE FORA (spec da Etapa 8, achado 84): a página do Novo carrossel entrega a
+// frase, montada fora do JSX, ao formulário.
+describe("o Novo carrossel e os bônus que ficam de fora", () => {
+  it("a página entrega a frase dos bônus de fora ao formulário", () => {
+    expect(ler("app/carrosseis/novo/page.tsx")).toContain("deFora={lista.ok ? textoDosBonusDeFora(lista.deFora) : null}");
+  });
+});
