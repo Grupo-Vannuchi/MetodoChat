@@ -100,7 +100,8 @@ export function quadroDaSituacao(s: SituacaoNoLabs): { tom: TomDoQuadro; texto: 
   }
 }
 
-export function textoDaConferencia(f: FalhaDaConferencia, palavra: string): string {
+/** `palavra` nula é o carrossel sem palavra-chave (spec da Etapa 8): a falha dele é a "gritada". */
+export function textoDaConferencia(f: FalhaDaConferencia, palavra: string | null): string {
   switch (f.motivo) {
     case "tipo_errado":
       return "A IA devolveu um formato diferente do pedido. Gere de novo.";
@@ -110,7 +111,14 @@ export function textoDaConferencia(f: FalhaDaConferencia, palavra: string): stri
       return `A IA não pôs a palavra ${palavra} na ${f.onde}. Gere de novo.`;
     case "outra_palavra":
       return `A chamada pede também ${f.palavras.join(", ")}, além de ${palavra}. Gere de novo.`;
+    case "gritada":
+      return `A chamada tem ${f.palavras.join(", ")} em maiúsculas, e este carrossel não tem palavra-chave. Gere de novo.`;
   }
+}
+
+/** O aviso embaixo da chamada do carrossel sem palavra-chave, quando ela tem palavra gritada. */
+export function textoDaGritadaSemPalavra(gritadas: string[]): string {
+  return `Tem ${gritadas.join(", ")} em maiúsculas: este carrossel não tem palavra-chave, e quem comentar uma palavra não recebe nada.`;
 }
 
 export function textoDosProblemasDoCarrossel(total: number, problemas: { campo: string; erro: string }[]): string {

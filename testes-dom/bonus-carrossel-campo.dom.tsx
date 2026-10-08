@@ -121,6 +121,31 @@ describe("o campo do carrossel", () => {
     expect(screen.queryByText(/Falta a palavra/)).toBeNull();
   });
 
+  // O CARROSSEL SEM PALAVRA-CHAVE (spec da Etapa 8): `palavra` nula. Na chamada, toda palavra gritada
+  // é acusada na hora; na legenda, nada.
+  it("sem palavra-chave, a chamada avisa a palavra gritada, e a legenda não avisa nada", () => {
+    render(
+      <>
+        <Campo
+          nome="chamada"
+          rotulo="Chamada (slide 3)"
+          valorInicial="Salve este post. Quem vende, VENCE."
+          max={200}
+          linhas={3}
+          palavra={null}
+          soAPalavra
+        />
+        <Campo nome="legenda" rotulo="Legenda do post" valorInicial="Uma legenda sem PALAVRA nenhuma." max={900} linhas={8} palavra={null} />
+      </>
+    );
+    expect(screen.queryByText(/em maiúsculas/)).toBeNull();
+    expect(screen.queryByText(/Falta a palavra/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Chamada (slide 3)"), { target: { value: "Comente GUIA e receba." } });
+    expect(
+      screen.getByText("Tem GUIA em maiúsculas: este carrossel não tem palavra-chave, e quem comentar uma palavra não recebe nada.")
+    ).toBeTruthy();
+  });
+
   it("campo que não pede a palavra nunca avisa", () => {
     render(<Campo nome="gancho" rotulo="Gancho (slide 1)" valorInicial="Sem palavra nenhuma." max={120} linhas={2} />);
     expect(screen.queryByText(/Falta a palavra/)).toBeNull();

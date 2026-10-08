@@ -93,9 +93,10 @@ export const GRITADAS_PERMITIDAS: ReadonlySet<string> = new Set([
 /**
  * As OUTRAS palavras gritadas: todas em maiúsculas, de 3 caracteres ou mais, com pelo menos uma
  * letra (número não é palavra-chave), fora a palavra do bônus e as permitidas. Decisão do
- * Eduardo em 30/09: "Comente SUMIDO ou GUIA" é recusada.
+ * Eduardo em 30/09: "Comente SUMIDO ou GUIA" é recusada. Sem palavra-chave (`null`, spec da Etapa
+ * 8), TODA palavra gritada conta, fora as permitidas.
  */
-export function outrasGritadas(texto: string, palavra: string): string[] {
+export function outrasGritadas(texto: string, palavra: string | null): string[] {
   const achadas = texto.match(/(?<![\p{L}\p{N}])[\p{Lu}\p{N}]{3,}(?![\p{L}\p{N}])/gu) ?? [];
   return [...new Set(achadas)].filter((w) => /\p{Lu}/u.test(w) && w !== palavra && !GRITADAS_PERMITIDAS.has(w));
 }
@@ -104,7 +105,8 @@ export type FalhaDaConferencia =
   | { motivo: "tipo_errado" }
   | { motivo: "slides"; vieram: number; esperados: number }
   | { motivo: "palavra"; onde: "chamada" | "legenda" }
-  | { motivo: "outra_palavra"; palavras: string[] };
+  | { motivo: "outra_palavra"; palavras: string[] }
+  | { motivo: "gritada"; palavras: string[] };
 
 /**
  * O que a IA devolveu serve? `null` é que serve.
@@ -113,11 +115,19 @@ export type FalhaDaConferencia =
  * Decisão do Eduardo em 30/09 (achado 49 do auditor): o Labs também só confere a chamada, e uma
  * legenda de até 900 caracteres tem ênfases em maiúsculas que recusariam gerações boas. O
  * operador revisa a legenda antes de usar.
+ *
+ * SEM PALAVRA-CHAVE (`palavra` nula, spec da Etapa 8): a chamada não pode ter nenhuma palavra
+ * gritada, porque um "Comente GUIA" sem automação deixaria quem comentou sem resposta; a legenda
+ * fica livre. Se a chamada pede a ação escolhida, quem confere é o operador.
  */
-export function conferirGerado(total: number, palavra: string, t: TextoDoCarrossel): FalhaDaConferencia | null {
+export function conferirGerado(total: number, palavra: string | null, t: TextoDoCarrossel): FalhaDaConferencia | null {
   if ((total === 1) !== (t.tipo === "post")) return { motivo: "tipo_errado" };
   if (t.tipo === "carrossel" && t.slides.length !== slidesDeConteudo(total)) {
     return { motivo: "slides", vieram: t.slides.length, esperados: slidesDeConteudo(total) };
+  }
+  if (palavra === null) {
+    const gritadas = outrasGritadas(t.chamada, null);
+    return gritadas.length ? { motivo: "gritada", palavras: gritadas } : null;
   }
   if (!temPalavra(t.chamada, palavra)) return { motivo: "palavra", onde: "chamada" };
   if (!temPalavra(t.legenda, palavra)) return { motivo: "palavra", onde: "legenda" };
@@ -195,7 +205,7 @@ export type ProblemaDoCampo = { campo: string; erro: string };
  */
 export function lerRevisaoDoCarrossel(
   total: number,
-  palavra: string,
+  palavra: string | null,
   titulo: string,
   bruto: Record<string, unknown>
 ): { ok: true; texto: TextoDoCarrossel } | { ok: false; problemas: ProblemaDoCampo[] } {
@@ -206,7 +216,7 @@ export function lerRevisaoDoCarrossel(
 /** Os campos limpos (o \r\n e as pontas), e os problemas de cada um, na ordem da tela. */
 function conferirCampos(
   total: number,
-  palavra: string,
+  palavra: string | null,
   bruto: Record<string, unknown>
 ): { valores: Record<string, string>; problemas: ProblemaDoCampo[] } {
   const v: Record<string, string> = {};
@@ -216,6 +226,18 @@ function conferirCampos(
     v[c.nome] = t;
     if (t.length < c.min) problemas.push({ campo: c.nome, erro: `precisa de pelo menos ${c.min} caracteres` });
     else if (t.length > c.max) problemas.push({ campo: c.nome, erro: `passa de ${c.max} caracteres` });
+  }
+  // Sem palavra-chave (spec da Etapa 8), a mesma regra de `conferirGerado`: nenhuma gritada na
+  // chamada, e a legenda livre.
+  if (palavra === null) {
+    const gritadas = v.chamada ? outrasGritadas(v.chamada, null) : [];
+    if (gritadas.length) {
+      problemas.push({
+        campo: "chamada",
+        erro: `não pode ter palavra em maiúsculas (${gritadas.join(", ")}): este carrossel não tem palavra-chave`,
+      });
+    }
+    return { valores: v, problemas };
   }
   // As mesmas regras de `conferirGerado`, e na mesma ordem: sem a palavra, é isso que se diz da
   // chamada; com ela, as outras gritadas. Na legenda, só a presença (achado 49).
@@ -279,7 +301,7 @@ export function lerParte(bruta: unknown, total: number): ParteDoCarrossel | null
  */
 export function juntarParte(
   total: number,
-  palavra: string,
+  palavra: string | null,
   atual: TextoDoCarrossel,
   parte: ParteDoCarrossel,
   bruto: Record<string, unknown>
