@@ -62,9 +62,11 @@ export function tomDoEstadoDaPublicacao(e: EstadoDaPublicacao): TomDoQuadro | nu
 /**
  * O AVISO DO FUNIL (spec da Etapa 7), depois de agendar ou publicar: o post é novo, e a automação da
  * palavra que já existe está presa a outro post (lib/engine.ts:269). Quem liga é o operador, no
- * /automacoes. Antes de mandar, e depois de cancelar ou de falhar, não há post a caminho.
+ * /automacoes. Antes de mandar, e depois de cancelar ou de falhar, não há post a caminho. Sem
+ * palavra-chave (spec da Etapa 8), não há automação para criar, e não há aviso.
  */
-export function textoDoFunil(e: EstadoDaPublicacao, palavra: string): string | null {
+export function textoDoFunil(e: EstadoDaPublicacao, palavra: string | null): string | null {
+  if (palavra === null) return null;
   return e.tipo === "agendado" || e.tipo === "publicando" || e.tipo === "publicado"
     ? `O funil não liga sozinho: depois que o post sair, crie no /automacoes a automação da palavra ${palavra} para este post.`
     : null;

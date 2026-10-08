@@ -1,6 +1,7 @@
 // AS FRASES DO CARROSSEL, fora do JSX (mesmo princípio de lib/bonus/textos.ts): uma saída muda
 // é indistinguível de sucesso, e o texto de cada saída vem de função pura, com teste.
 import type { Aviso } from "@/lib/avisos";
+import { ehAcaoDaChamada, rotuloDaAcao } from "./acao-da-chamada";
 import { SLIDES_MAX, SLIDES_MIN, TETO_CARROSSEL_DIARIO, type RecusaDoPedidoDeCarrossel } from "./carrossel-pedido";
 import { camposDoFormulario, type FalhaDaConferencia, type ParteDoCarrossel, type ProblemaDoCampo } from "./carrossel-texto";
 import { PALAVRA_MAX, PALAVRA_MIN } from "./pedido";
@@ -138,4 +139,27 @@ export function textoDaFaltaDaPalavra(palavra: string): string {
 
 export function avisoDePalavraTrocada(noLabs: string, noCarrossel: string): string {
   return `No Labs, a palavra deste bônus agora é ${noLabs}, e este carrossel pede ${noCarrossel}. Gere outro carrossel para usar a palavra nova.`;
+}
+
+/**
+ * A PALAVRA DO BÔNUS NO LABS COMPARADA COM A DO CARROSSEL (avulso do Labs), com os dois lados do
+ * carrossel sem palavra-chave (spec da Etapa 8). Igual, nada; trocada, o aviso de hoje.
+ */
+export function avisoDaPalavraNoLabs(noLabs: string | null, noCarrossel: string | null): string | null {
+  if (noLabs === noCarrossel) return null;
+  if (noCarrossel === null) {
+    return `No Labs, este bônus agora tem a palavra ${noLabs}. Este carrossel foi feito sem palavra-chave; para usar a palavra, crie um carrossel novo.`;
+  }
+  if (noLabs === null) {
+    return `No Labs, este bônus não tem mais palavra-chave. Este carrossel pede a palavra ${noCarrossel}: confira se a automação dela ainda existe.`;
+  }
+  return avisoDePalavraTrocada(noLabs, noCarrossel);
+}
+
+/** O que a chamada pede, no topo da página do carrossel: a palavra, ou, sem ela, a ação (Etapa 8). */
+export function textoDoPedidoDaChamada(l: { palavra: string | null; acao_da_chamada: unknown }): string {
+  if (l.palavra !== null) return `palavra ${l.palavra}`;
+  if (!ehAcaoDaChamada(l.acao_da_chamada)) return "sem palavra-chave";
+  const rotulo = rotuloDaAcao(l.acao_da_chamada);
+  return `sem palavra-chave · a chamada pede: ${rotulo[0].toLowerCase()}${rotulo.slice(1)}`;
 }

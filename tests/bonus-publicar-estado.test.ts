@@ -325,6 +325,13 @@ describe("o aviso do funil", () => {
   ] as EstadoDaPublicacao[])("sem post a caminho, nada: %j", (e) => {
     expect(textoDoFunil(e, "BRUTAL")).toBeNull();
   });
+
+  // SEM PALAVRA-CHAVE (spec da Etapa 8): não há automação para criar, e o aviso não aparece.
+  it("sem palavra-chave, nada, nem depois de agendar ou publicar", () => {
+    expect(textoDoFunil({ tipo: "agendado", quando: AGORA, filaId: "f" }, null)).toBeNull();
+    expect(textoDoFunil({ tipo: "publicando", filaId: null }, null)).toBeNull();
+    expect(textoDoFunil({ tipo: "publicado", em: AGORA, filaId: "f" }, null)).toBeNull();
+  });
 });
 
 // O ESTADO DA PUBLICAÇÃO NA LISTA "CARROSSÉIS" (spec da Etapa 7): uma palavra e a cor, quando há
