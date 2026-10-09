@@ -29,6 +29,43 @@ export const TRAVADA_IMAGEM_MS = 210_000;
  */
 export const COMPRESSAO_DA_IMAGEM = 90;
 
+/** O estado de uma linha de `imagens_geradas` (a 018). */
+export type EstadoDaLinhaDaImagem = "gerando" | "pronta" | "falhou";
+
+/** Uma linha de `imagens_geradas`, como o repositório a lê. */
+export type LinhaDaImagem = {
+  id: string;
+  numero: number;
+  descricao: string;
+  estado: EstadoDaLinhaDaImagem;
+  motivo: string | null;
+  caminho: string | null;
+  criado_em: Date;
+  terminado_em: Date | null;
+};
+
+/** O que a tela mostra de um slide: nada pedido, gerando, pronta, falhou, ou travada pelo prazo. */
+export type EstadoDaImagem =
+  | { tipo: "nenhuma" }
+  | { tipo: "gerando" }
+  | { tipo: "pronta"; caminho: string }
+  | { tipo: "falhou"; motivo: string }
+  | { tipo: "travada" };
+
+/**
+ * O ESTADO DA IMAGEM DE UM SLIDE, pela última linha dele e pelo relógio do banco (spec da Etapa 6, "O
+ * acompanhar"). A linha `gerando` que passou de `TRAVADA_IMAGEM_MS` não termina mais: é travada.
+ */
+export function estadoDaImagem(
+  linha: Pick<LinhaDaImagem, "estado" | "motivo" | "caminho" | "criado_em"> | null,
+  agora: Date
+): EstadoDaImagem {
+  if (!linha) return { tipo: "nenhuma" };
+  if (linha.estado === "pronta" && linha.caminho) return { tipo: "pronta", caminho: linha.caminho };
+  if (linha.estado === "falhou" && linha.motivo) return { tipo: "falhou", motivo: linha.motivo };
+  return agora.getTime() - linha.criado_em.getTime() >= TRAVADA_IMAGEM_MS ? { tipo: "travada" } : { tipo: "gerando" };
+}
+
 /** O que impede guardar a imagem gerada: não é JPEG, ou não passa na regra da foto do espaço. */
 export type ProblemaDaImagem = "formato" | ProblemaDaFoto;
 
