@@ -4,6 +4,10 @@
 > (recomendada) ou `superpowers:executing-plans`, fase por fase. Os passos usam caixa de
 > seleção (`- [ ]`) para acompanhar.
 
+> **Adendo de 09/10:** a prova da FASE 6.9 parou no passo 6, e a spec ganhou o adendo do estilo do
+> Chat e do modelo novo. As FASES 6.10 a 6.14 estão na seção "ADENDO DE 09/10", no fim deste plano, com
+> o Apêndice B.
+
 **Objetivo:** em cada slide com espaço, o operador descreve a cena, o Chat pede a imagem à OpenAI e ela
 entra no espaço da arte exatamente como uma foto subida; o pedido volta na hora, a imagem é gerada em
 segundo plano e o card acompanha, com teto de 10 imagens em 24 horas.
@@ -4614,6 +4618,1908 @@ const MUTACOES = [
   { nome: "6.7: a página não diz o que está gerando", arq: REVISAO,
     de: '        .filter((l) => estadoDaImagem(l, agora).tipo === "gerando")', para: "        .filter(() => false)",
     cmd: T_PAGINAS, caso: "a action do pedido, a conta do dia e o que está gerando, pelo relógio do banco" },
+];
+
+const filtro = process.argv[2];
+const escolhidas = MUTACOES.filter((x) => !filtro || x.nome.includes(filtro));
+const ehInteg = (m) => m.cmd.includes("vitest.integracao.config.ts");
+if (escolhidas.some(ehInteg) && !process.env.DATABASE_URL_TESTES?.trim()) {
+  console.log("✗ há mutação INTEG e DATABASE_URL_TESTES está vazia: a integração iria para a produção. Nada foi mutado.");
+  process.exit(1);
+}
+let ruins = 0;
+for (const m of escolhidas) {
+  const original = readFileSync(m.arq);
+  const texto = original.toString("utf8");
+  const crlf = texto.includes("\r\n");
+  const de = crlf ? m.de.replace(/\n/g, "\r\n") : m.de;
+  const para = crlf ? m.para.replace(/\n/g, "\r\n") : m.para;
+  const n = texto.split(de).length - 1;
+  if (n !== 1) {
+    console.log(`✗ ${m.nome}: o trecho aparece ${n} vez(es)`);
+    ruins++;
+    continue;
+  }
+  writeFileSync(m.arq, texto.replace(de, () => para), "utf8");
+  let saida = "";
+  let caiu = false;
+  try {
+    saida = execSync(`${m.cmd} 2>&1`, { encoding: "utf8", stdio: "pipe", env: { ...process.env }, maxBuffer: 64 * 1024 * 1024 });
+  } catch (e) {
+    caiu = true;
+    saida = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+  } finally {
+    writeFileSync(m.arq, original);
+  }
+  if (ehInteg(m) && !saida.includes("ALVO: banco de TESTE")) {
+    console.log(`✗ ${m.nome}: a integração não imprimiu "ALVO: banco de TESTE". Pare e confira o banco.`);
+    ruins++;
+    continue;
+  }
+  const casoCaiu = saida.split("\n").some((l) => /FAIL|×/.test(l) && l.includes(m.caso));
+  if (!(caiu && casoCaiu)) ruins++;
+  console.log(`${caiu && casoCaiu ? "✓" : "✗"} ${m.nome}: o caso "${m.caso}" ${casoCaiu ? "caiu" : "NÃO caiu"}`);
+}
+console.log(`${escolhidas.length} mutações, ${ruins} ruins`);
+process.exit(ruins ? 1 : 0);
+```
+
+---
+
+## ADENDO DE 09/10 — as regras do Chat, o modelo novo e a tela do estilo
+
+**Por que existe.** A FASE 6.9 parou no passo 6: a primeira imagem real (carrossel `4e3664ea`, linha
+`b6292a0b`) saiu com "cara de IA", e a OpenAI desliga o `gpt-image-1` em 23/10/2026 (achado 90). O
+Eduardo pausou a prova e decidiu o adendo da spec (`7601731`, `9d60490`, `f401b7e` e `7fecd1f`, revisados
+pela auditoria): regras de estilo próprias do Chat, o `gpt-image-2.5-flare-2026-09-08` em `high` (medido
+pelo Labs e escolhido olhando as imagens), e a tela com o estilo. Estas fases continuam a branch
+`criador-de-imagem` depois de `7fecd1f`; a 018 não muda, e não há migração nova.
+
+**Ensaio do adendo (09/10):** o código foi escrito e testado fase a fase numa cópia isolada (`git
+worktree`, branch local `ensaio-imagem-2-novo`, sem push, saída de `7fecd1f`), e todo bloco abaixo foi tirado
+do git dela pelo gerador, sem cópia à mão. Os números:
+- lint e `tsc` limpos em cada fase; no fim, 116 arquivos e 3 209 casos puros (116 e 3 209 na base: o
+  teste das regras do Labs saiu e o do Chat entrou), 23 e 203 de tela (23 e 201 na base);
+- `next build --webpack` limpo, com as duas rotas `imagem`; o `AGENTS.md` intacto;
+- integração no container: 45 arquivos; 486 passaram, 8 pularam e 7 caíram, só os de `registro-de-migracoes` (item 6 abaixo); na árvore do projeto, a conta esperada é 45 arquivos, 493 passaram e 8 pularam (FASE 6.13);
+- cada fase foi vista falhar antes do código e passar depois, com os números no passo dela;
+- as 50 provas de mutação do Apêndice B derrubaram, cada uma, o caso esperado;
+- o adendo, aplicado do zero sobre `7fecd1f` numa cópia limpa, dá os 9 arquivos iguais ao fim
+  do ensaio, byte a byte;
+- os pedidos A e B do apêndice da spec saem do `montarPrompt` byte a byte (o teste lê a spec).
+
+O ensaio do adendo achou estas coisas, já resolvidas abaixo:
+1. **O que foi medido é o que vai ao ar.** O teste das regras lê os pedidos A e B do apêndice da spec e
+   cobra o `montarPrompt` byte a byte. Uma letra mudada no estilo derruba o teste (mutação "6.10: o
+   pedido medido muda uma letra").
+2. **A frase do 403 da tradução copiada cita o `gpt-image-1`** (`erro-ilustracao.ts:17` e `:61`). O
+   arquivo continua cópia do Labs (blob `6a5e8f55`), e o Chat não o muda sozinho; o Labs tira o nome do
+   modelo na fase 49.2 dele e manda o blob novo antes do commit (combinado em 09/10). Até lá, a varredura
+   do `gpt-image-1` (FASE 6.13) acha essas duas linhas e o comentário de histórico de `imagem-openai.ts`,
+   e nenhuma vez o modelo no corpo da chamada.
+3. **O estilo vai no começo da descrição** (`comEstilo`, `separarEstiloDaDescricao`): a tela guarda
+   `/cinema …`, o "Gerar de novo" lê de volta, e a tabela 018 não ganha coluna.
+4. **Casos que passam antes do código, de propósito** (FASE 6.10): os que protegem o que fica igual ao
+   Labs (a `PROIBICAO_DE_TEXTO` letra por letra, o fundo e a pessoa real, o ponto final, e os quatro do
+   aviso de texto, que é a lista de termos do Labs).
+5. **Os atalhos do Labs mudam de nome no Chat** (`ESTILOS` → `ATALHOS`), porque `ESTILOS` passa a ser os
+   três estilos; a tela e o teste de tela trocam o nome na FASE 6.10.
+6. **A cópia de ensaio derruba `registro-de-migracoes`** e não roda o Turbopack, como antes; na árvore do
+   projeto os dois rodam (FASE 6.13).
+
+As restrições globais do começo deste plano valem para o adendo, com duas a mais:
+- **A chave e o modelo.** Nenhum teste chama a OpenAI; a única chamada é a da prova retomada (FASE 6.14),
+  duas imagens de US$ 0,0432, com o OK do Eduardo.
+- **A tradução das recusas (`erro-ilustracao.ts`) não muda no Chat sem o blob novo do Labs.**
+
+### Mapa dos arquivos do adendo
+
+| arquivo | responsabilidade | fase |
+|---|---|---|
+| `lib/bonus/prompt-ilustracao.ts`, `tests/bonus-prompt-ilustracao.test.ts`, `tests/bonus-ilustracao-copia.test.ts`; `gerar-imagem.tsx` e o teste de tela (o nome `ATALHOS`) | as regras de estilo do Chat, os pedidos medidos, a cópia só da tradução | 6.10 |
+| `lib/bonus/imagem-openai.ts`, `tests/bonus-imagem-openai.test.ts` | o modelo e a qualidade escolhidos, na versão medida | 6.11 |
+| `lib/bonus/prompt-ilustracao.ts`, `lib/bonus/imagem-textos.ts`, `gerar-imagem.tsx` e os testes | o estilo na tela e na descrição, a regra do manual do perfil, o aviso de texto nos dois casos | 6.12 |
+
+---
+
+### FASE 6.10 — As regras de estilo do Chat
+
+**Arquivos:**
+- Reescrever: `lib/bonus/prompt-ilustracao.ts` (deixa de ser cópia do Labs)
+- Modificar: `app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx` (só o nome `ATALHOS`)
+- Testar: `tests/bonus-prompt-ilustracao.test.ts` (reescrito: os casos do Chat), `tests/bonus-ilustracao-copia.test.ts` (só a tradução), `testes-dom/bonus-gerar-imagem.dom.tsx` (só o nome `ATALHOS`), `tests/bonus-erro-ilustracao.test.ts` (sem mudar)
+
+**Interfaces:**
+- Consome: o apêndice "Os pedidos da medição" da spec (o teste o lê).
+- Produz: `PROIBICAO_DE_TEXTO`, `PROIBICAO_DE_PESSOA_REAL` e `FUNDO` (do Labs, sem mudar uma letra);
+  `type ChaveDoEstilo = "cinema" | "ilustracao" | "comercial"`, `type EstiloDaImagem`, `ESTILOS` (os três),
+  `ESTILO_PADRAO = "cinema"`; `type Atalho`, `ATALHOS` (os cinco, com o `/grafico` novo);
+  `type LeituraDaDescricao`, `lerDescricao(descricao)`, `trechosEntreAspas(cena): { trechos; semPar }`;
+  `pedeTextoNaImagem` (a lista do Labs); `MIN_DESCRICAO = 10`, `MAX_DESCRICAO = 600`,
+  `MAX_TEXTO_ENTRE_ASPAS = 120`, `validarDescricao(descricao): ErroDeDescricao`; `textoExato(trechos)`;
+  `montarPrompt(descricao)`, na ordem estilo, atalho, cena, fundo, pessoa real e texto.
+
+- [ ] **Passo 1: os testes**
+
+O teste das regras é reescrito inteiro (os casos do Labs saem; os do aviso de texto ficam):
+
+Crie `tests/bonus-prompt-ilustracao.test.ts`:
+
+```ts
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import {
+  ATALHOS,
+  ESTILOS,
+  ESTILO_PADRAO,
+  FUNDO,
+  MAX_DESCRICAO,
+  MAX_TEXTO_ENTRE_ASPAS,
+  MIN_DESCRICAO,
+  PROIBICAO_DE_PESSOA_REAL,
+  PROIBICAO_DE_TEXTO,
+  lerDescricao,
+  montarPrompt,
+  pedeTextoNaImagem,
+  textoExato,
+  trechosEntreAspas,
+  validarDescricao,
+} from "@/lib/bonus/prompt-ilustracao";
+
+// AS REGRAS DA IMAGEM DO CHAT (spec da Etapa 6, adendo de 09/10). Até o adendo, este arquivo era a cópia
+// do teste do Labs; com as regras próprias, os casos são do Chat. Os do aviso de texto (`pedeTextoNaImagem`)
+// vêm do Labs, porque a lista de termos é a de lá.
+
+const RAIZ = fileURLToPath(new URL("..", import.meta.url));
+const SPEC = readFileSync(`${RAIZ}/docs/specs/2026-10-09-criador-de-imagem.md`, "utf8").replace(/\r\n/g, "\n");
+
+/** A cerca dos blocos de código, escrita assim para este arquivo caber num bloco do plano. */
+const CERCA = "`".repeat(3);
+
+/** O bloco de código logo depois de um rótulo do apêndice "Os pedidos da medição". */
+function doApendice(rotulo: string): string {
+  const i = SPEC.indexOf(rotulo, SPEC.indexOf("## Apêndice: os pedidos da medição"));
+  if (i < 0) throw new Error(`${rotulo} não está no apêndice da spec`);
+  const abre = `${CERCA}text\n`;
+  const a = SPEC.indexOf(abre, i) + abre.length;
+  return SPEC.slice(a, SPEC.indexOf(`\n${CERCA}`, a));
+}
+
+const estilo = (chave: string) => ESTILOS.find((e) => e.chave === chave)!;
+const atalho = (chave: string) => ATALHOS.find((a) => a.chave === chave)!;
+
+describe("o que foi medido é o que vai ao ar", () => {
+  // ⚠️ O PEDIDO DA MEDIÇÃO DOS MODELOS (09/10) SAIU DESTAS REGRAS, e o Eduardo escolheu o modelo olhando
+  // as imagens dele. Se o montarPrompt mudar uma letra, o que vai à OpenAI deixa de ser o medido.
+  it.each([
+    ["A", "**A descrição A**", "**O pedido A**"],
+    ["B", "**A descrição B**", "**O pedido B**"],
+  ])("o pedido %s do apêndice da spec sai byte a byte", (_, descricao, pedido) => {
+    expect(montarPrompt(doApendice(descricao))).toBe(doApendice(pedido));
+  });
+});
+
+describe("montarPrompt", () => {
+  it("a ordem: estilo, atalho, cena, fundo, pessoa real e, por último, o texto", () => {
+    const p = montarPrompt('/ilustracao /passo três etapas de um atendimento, com o post-it "FIM"');
+    const posicoes = [
+      p.indexOf(estilo("ilustracao").texto),
+      p.indexOf(atalho("passo").texto),
+      p.indexOf("três etapas de um atendimento"),
+      p.indexOf(FUNDO),
+      p.indexOf(PROIBICAO_DE_PESSOA_REAL),
+      p.indexOf("Escreva na imagem exatamente"),
+    ];
+    expect(posicoes.every((x) => x >= 0)).toBe(true);
+    expect([...posicoes].sort((a, b) => a - b)).toEqual(posicoes);
+  });
+
+  it("sem estilo na descrição, vale o /cinema", () => {
+    expect(ESTILO_PADRAO).toBe("cinema");
+    expect(montarPrompt("uma reunião de equipe ao fim da tarde").startsWith(estilo("cinema").texto)).toBe(true);
+  });
+
+  it.each(["cinema", "ilustracao", "comercial"])("o estilo /%s entra com o seu trecho, no começo", (chave) => {
+    const p = montarPrompt(`/${chave} uma reunião de equipe ao fim da tarde`);
+    expect(p.startsWith(estilo(chave).texto)).toBe(true);
+    for (const outro of ESTILOS.filter((e) => e.chave !== chave)) expect(p).not.toContain(outro.texto);
+  });
+
+  it("sem aspas, a proibição de texto do Labs é a última coisa", () => {
+    const p = montarPrompt("/cinema uma lousa numa sala de reunião vazia");
+    expect(p.endsWith(PROIBICAO_DE_TEXTO)).toBe(true);
+    expect(p).not.toContain("Escreva na imagem");
+  });
+
+  it("com aspas retas ou curvas, pede exatamente aqueles trechos, por último, com aspas retas", () => {
+    const p = montarPrompt("/cinema um quadro com “AÇÕES” e um post-it \"META\" na parede");
+    expect(p.endsWith(textoExato(["AÇÕES", "META"]))).toBe(true);
+    expect(p).toContain('entre aspas: "AÇÕES"; "META". Cada um aparece uma vez');
+    expect(p).not.toContain(PROIBICAO_DE_TEXTO);
+  });
+
+  it("o nome de marca entre aspas sai em letra simples, sem logo", () => {
+    expect(textoExato(["ChatGPT"])).toContain(
+      "Se um deles for o nome de uma marca ou de um produto, escreva-o em letras simples e comuns, sem o logotipo"
+    );
+    expect(textoExato(["ChatGPT"]).endsWith("Nenhum outro texto, letra, número ou logotipo em nenhuma parte da imagem.")).toBe(true);
+  });
+
+  it("a pessoa real e o fundo entram sempre, com aspas e sem aspas", () => {
+    for (const d of ["/comercial uma vitrine à noite", '/comercial uma vitrine à noite com a placa "ABERTO"']) {
+      expect(montarPrompt(d)).toContain(PROIBICAO_DE_PESSOA_REAL);
+      expect(montarPrompt(d)).toContain(FUNDO);
+    }
+  });
+
+  it("fecha a cena com ponto, sem duplicar, e junta os espaços", () => {
+    expect(montarPrompt("uma mesa   de\n trabalho")).toContain(" uma mesa de trabalho. ");
+    expect(montarPrompt("uma mesa de trabalho!")).toContain(" uma mesa de trabalho! ");
+  });
+});
+
+describe("as regras que ficaram do Labs, sem mudar uma letra", () => {
+  it("a proibição de texto", () => {
+    expect(PROIBICAO_DE_TEXTO).toBe(
+      "Toda superfície que poderia conter escrita — lousa, quadro branco, flip chart, projetor, " +
+        "tela, cartaz, placa, papel — aparece EM BRANCO, ou apenas com linhas, barras e setas " +
+        "desenhadas à mão, sem rótulo. Sem nenhum texto, sem letras, sem palavras, sem números e " +
+        "sem logotipos em nenhuma parte da imagem."
+    );
+  });
+
+  it("os atalhos do Labs, menos o /grafico", () => {
+    expect(ATALHOS.map((a) => a.chave)).toEqual(["showcase", "marketing", "grafico", "passo", "antes-depois"]);
+    expect(atalho("showcase").texto).toBe(
+      "Composição de vitrine: o objeto principal centralizado e em destaque, visto de leve " +
+        "perspectiva, com bastante ar em volta e nenhum elemento competindo com ele."
+    );
+    expect(atalho("marketing").texto).toBe(
+      "Composição de campanha: uma pessoa em ação junto do objeto principal, gestos claros e " +
+        "legíveis em miniatura, sugerindo uso e movimento."
+    );
+    expect(atalho("passo").texto).toBe(
+      "Composição de fluxo: três ou quatro elementos na horizontal, ligados por setas " +
+        "simples, lidos da esquerda para a direita como etapas de um processo."
+    );
+  });
+
+  it("o /grafico aceita só os números e rótulos que estiverem entre aspas", () => {
+    expect(atalho("grafico").texto).toBe(
+      "Composição de dado: barras, setas ou blocos de tamanhos diferentes representando " +
+        "comparação ou crescimento, sem eixos nem escala; números e rótulos, só os que estiverem " +
+        "entre aspas na descrição."
+    );
+  });
+});
+
+describe("lerDescricao", () => {
+  it("lê um estilo e um atalho no começo, em qualquer ordem e em maiúscula", () => {
+    for (const d of ["/cinema /grafico três barras", "/GRAFICO /Cinema três barras"]) {
+      const l = lerDescricao(d);
+      expect([l.estilo.chave, l.atalho?.chave, l.cena, l.desconhecido, l.repetido]).toEqual(["cinema", "grafico", "três barras", null, null]);
+    }
+  });
+
+  it("sem barra, a descrição inteira é a cena, com o estilo padrão", () => {
+    const l = lerDescricao("  uma loja /cinema no meio  ");
+    expect([l.estilo.chave, l.atalho, l.cena]).toEqual(["cinema", null, "uma loja /cinema no meio"]);
+  });
+
+  it("o que não existe e o que se repete ficam marcados", () => {
+    expect(lerDescricao("/showkase uma caixa").desconhecido).toBe("showkase");
+    expect(lerDescricao("/cinema /comercial uma loja").repetido).toBe("estilo");
+    expect(lerDescricao("/passo /grafico uma tabela").repetido).toBe("atalho");
+  });
+});
+
+describe("trechosEntreAspas", () => {
+  it("lê aspas retas e curvas, na ordem, e ignora o vazio", () => {
+    expect(trechosEntreAspas('um "A", um “B” e um ""')).toEqual({ trechos: ["A", "B"], semPar: false });
+  });
+
+  it("acusa a aspa sem par", () => {
+    expect(trechosEntreAspas('um "A').semPar).toBe(true);
+    expect(trechosEntreAspas("um A” solto").semPar).toBe(true);
+    expect(trechosEntreAspas("um “A “B”").semPar).toBe(true);
+  });
+});
+
+describe("validarDescricao", () => {
+  const ok = { ok: true };
+
+  it("recusa a cena vazia e a curta, contadas sem os atalhos e sem o texto entre aspas", () => {
+    expect(validarDescricao("/cinema /grafico")).toEqual({ ok: false, mensagem: "Descreva o que a imagem deve mostrar." });
+    expect(validarDescricao('/cinema "UM TEXTO BEM LONGO AQUI" ok').ok).toBe(false);
+    expect(validarDescricao(`/cinema ${"x".repeat(MIN_DESCRICAO - 1)}`).ok).toBe(false);
+    expect(validarDescricao(`/cinema ${"x".repeat(MIN_DESCRICAO)}`)).toEqual(ok);
+  });
+
+  it("recusa a descrição inteira acima do máximo e aceita exatamente nele", () => {
+    expect(validarDescricao("x".repeat(MAX_DESCRICAO + 1)).ok).toBe(false);
+    expect(validarDescricao("x".repeat(MAX_DESCRICAO))).toEqual(ok);
+  });
+
+  it("recusa o texto entre aspas acima de 120 e aceita exatamente nele", () => {
+    const cena = "uma parede de escritório com um quadro";
+    expect(validarDescricao(`${cena} "${"A".repeat(MAX_TEXTO_ENTRE_ASPAS + 1)}"`).ok).toBe(false);
+    expect(validarDescricao(`${cena} "${"A".repeat(60)}" e "${"B".repeat(60)}"`)).toEqual(ok);
+    expect(validarDescricao(`${cena} "${"A".repeat(61)}" e "${"B".repeat(60)}"`).ok).toBe(false);
+  });
+
+  it("recusa a aspa sem par, com a frase dela", () => {
+    expect(validarDescricao('uma parede de escritório com "VENDAS')).toEqual({
+      ok: false,
+      mensagem: "Feche as aspas do texto que deve aparecer na imagem.",
+    });
+  });
+
+  it("recusa o atalho que não existe, com os estilos e os atalhos que existem", () => {
+    const r = validarDescricao("/showkase uma caixa em destaque na mesa");
+    expect(r.ok).toBe(false);
+    expect(r.ok ? "" : r.mensagem).toBe(
+      "Não existe o atalho /showkase. Os estilos: /cinema, /ilustracao, /comercial. " +
+        "Os atalhos: /showcase, /marketing, /grafico, /passo, /antes-depois."
+    );
+  });
+
+  it("recusa dois estilos e dois atalhos", () => {
+    expect(validarDescricao("/cinema /comercial uma loja iluminada à noite")).toEqual({ ok: false, mensagem: "Escolha um estilo só para a imagem." });
+    expect(validarDescricao("/passo /grafico uma tabela de vendas")).toEqual({ ok: false, mensagem: "Use um atalho de composição só." });
+  });
+});
+
+describe("pedeTextoNaImagem (a lista de termos do Labs)", () => {
+  it("reconhece a descrição REAL que produziu a imagem torta no Labs", () => {
+    const real =
+      "Uma reunião de marketing discutindo sobre a queda da vendas organicas, uma pessoa triste por isso \n" +
+      "na lousa/ projetor (uma dessas opções, estar escrito, Analise queda ORGANICA)";
+    expect(pedeTextoNaImagem(real)).toBe("escrito");
+  });
+
+  it("NÃO dispara em escritório, que contém 'escrito'", () => {
+    expect(pedeTextoNaImagem("uma reuniao num escritorio com quatro pessoas")).toBeNull();
+    expect(pedeTextoNaImagem("uma reunião num escritório com quatro pessoas")).toBeNull();
+  });
+
+  it("mede a cena, e não os atalhos", () => {
+    expect(pedeTextoNaImagem("/cinema /grafico tres barras subindo lado a lado")).toBeNull();
+  });
+
+  it("dispara em todos os termos da lista, um a um", () => {
+    for (const t of ["escrito", "escreva", "texto", "letras", "palavra", "frase", "placa", "legenda"]) {
+      expect(pedeTextoNaImagem(`uma cena com ${t} no meio`), `${t} deveria disparar`).not.toBeNull();
+    }
+  });
+});
+```
+
+Em `tests/bonus-ilustracao-copia.test.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/tests/bonus-ilustracao-copia.test.ts b/tests/bonus-ilustracao-copia.test.ts
+index d1e2f98..c030a71 100644
+--- a/tests/bonus-ilustracao-copia.test.ts
++++ b/tests/bonus-ilustracao-copia.test.ts
+@@ -3,19 +3,19 @@ import { readFileSync } from "node:fs";
+ import { fileURLToPath } from "node:url";
+ import { describe, expect, it } from "vitest";
+ 
+-// AS REGRAS DA IMAGEM SÃO AS DO LABS, BYTE A BYTE (spec da Etapa 6, "As regras, copiadas do Labs").
++// A TRADUÇÃO DAS RECUSAS DA OPENAI É A DO LABS, BYTE A BYTE (spec da Etapa 6, "As regras de estilo do
++// Chat", adendo de 09/10).
+ //
+-// O Chat copia os dois módulos puros da ilustração do Labs (site-ia, `src/lib/ia/`) sem mudar uma letra:
+-// o estilo, as proibições, os atalhos e a tradução das recusas da OpenAI foram decididos pelo Eduardo lá,
+-// entre 02/09 e 22/09. A conferência é a soma do git do arquivo (a mesma de `git hash-object` e do
++// `erro-ilustracao.ts` é o da dev do Labs em `69c079d`, de 09/10, com o filtro do pedaço da chave que a
++// OpenAI devolve no 401. A conferência é a soma do git do arquivo (a mesma de `git hash-object` e do
+ // GitHub), e por isso a cópia não ganha nem um cabeçalho: a origem está aqui.
+ //
+-// - `prompt-ilustracao.ts` é o da main do Labs em `672ee71` (igual na dev);
+-// - `erro-ilustracao.ts` é o da dev do Labs em `69c079d`, de 09/10: o filtro do pedaço da chave que a
+-//   OpenAI devolve no 401, achado neste ensaio e decidido pelo Eduardo no Labs. Ele chega à main de lá no
+-//   próximo deploy deles.
++// ⚠️ ATÉ O ADENDO, `prompt-ilustracao.ts` TAMBÉM ESTAVA AQUI (o da main do Labs em `672ee71`, blob
++// `d993e809`). Em 09/10 o Eduardo decidiu que o Chat tem regras de estilo próprias, e ele saiu desta
++// trava; as regras dele são conferidas em tests/bonus-prompt-ilustracao.test.ts. A recusa da OpenAI não é
++// estilo, e continua igual nos dois lados.
+ //
+-// MUDAR UMA REGRA NUM LADO SÓ DERRUBA ESTE TESTE, e é para derrubar. A mudança se combina com o Labs
++// MUDAR A TRADUÇÃO NUM LADO SÓ DERRUBA ESTE TESTE, e é para derrubar. A mudança se combina com o Labs
+ // (acordo de 08/10) e se faz nos dois; quando o Labs mudar o dele, ele avisa, e a cópia nova troca a
+ // soma daqui.
+ const RAIZ = fileURLToPath(new URL("..", import.meta.url));
+@@ -29,11 +29,8 @@ function somaDoGit(relativo: string): string {
+     .digest("hex");
+ }
+ 
+-describe("as regras da imagem, copiadas do Labs", () => {
+-  it.each([
+-    ["lib/bonus/prompt-ilustracao.ts", "d993e8099f1b630ccd7e3ad5034f5552334b4f10"],
+-    ["lib/bonus/erro-ilustracao.ts", "6a5e8f55c82a871563498c9e4622a8b3f27b3566"],
+-  ])("%s é o arquivo do Labs, byte a byte", (arquivo, soma) => {
++describe("a tradução das recusas, copiada do Labs", () => {
++  it.each([["lib/bonus/erro-ilustracao.ts", "6a5e8f55c82a871563498c9e4622a8b3f27b3566"]])("%s é o arquivo do Labs, byte a byte", (arquivo, soma) => {
+     expect(somaDoGit(arquivo)).toBe(soma);
+   });
+ });
+```
+
+Em `testes-dom/bonus-gerar-imagem.dom.tsx`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/testes-dom/bonus-gerar-imagem.dom.tsx b/testes-dom/bonus-gerar-imagem.dom.tsx
+index 287fa86..284e31b 100644
+--- a/testes-dom/bonus-gerar-imagem.dom.tsx
++++ b/testes-dom/bonus-gerar-imagem.dom.tsx
+@@ -13,7 +13,7 @@ import {
+   textoDoContador,
+   type AvisoDoPedidoDeImagem,
+ } from "@/lib/bonus/imagem-textos";
+-import { ESTILOS } from "@/lib/bonus/prompt-ilustracao";
++import { ATALHOS } from "@/lib/bonus/prompt-ilustracao";
+ 
+ // O CRIADOR DE IMAGEM NA TELA (spec da Etapa 6, "A tela" e "Pedir e acompanhar"): o botão em cada slide com
+ // espaço, o campo com os atalhos do Labs, o aviso de texto, o contador do dia, o pedido que volta na hora,
+@@ -146,7 +146,7 @@ describe("o campo da cena", () => {
+     renderizar();
+     abrir(2);
+     expect(campo(2)).toBeTruthy();
+-    for (const e of ESTILOS) expect(within(card(2)).getByText(`/${e.chave}`)).toBeTruthy();
++    for (const a of ATALHOS) expect(within(card(2)).getByText(`/${a.chave}`)).toBeTruthy();
+     expect(within(card(2)).getByText(textoDoContador(3))).toBeTruthy();
+   });
+ 
+```
+
+- [ ] **Passo 2: ver falhar**
+
+```bash
+npx vitest run tests/bonus-prompt-ilustracao.test.ts tests/bonus-ilustracao-copia.test.ts tests/bonus-erro-ilustracao.test.ts
+npx vitest run --config vitest.dom.config.ts testes-dom/bonus-gerar-imagem.dom.tsx
+```
+
+Esperado: nos puros, 22 caem e 18 passam (40), só no arquivo das regras: o que não existe ainda (os
+estilos, os atalhos, `lerDescricao`, `trechosEntreAspas`, `textoExato`) e os pedidos medidos. Passam antes,
+de propósito, os que protegem o que fica igual ao Labs (item 4 do ensaio do adendo), a cópia da tradução e
+o teste do Labs dela. Na tela, 1 cai e 11 passam (12): a lista dos atalhos.
+
+- [ ] **Passo 3: o código**
+
+O arquivo das regras é reescrito inteiro (as três regras do Labs, os atalhos e a lista de termos ficam,
+com o comentário deles):
+
+Crie `lib/bonus/prompt-ilustracao.ts`:
+
+```ts
+// AS REGRAS DA IMAGEM DO CHAT (spec da Etapa 6, adendo de 09/10, "As regras de estilo do Chat"). PURO,
+// para ser testável fora do módulo que chama a API.
+//
+// ⚠️ ESTE ARQUIVO NASCEU DA CÓPIA DO LABS, E SE SEPAROU DELE EM 09/10. Até ali ele era, byte a byte, o
+// `src/lib/ia/prompt-ilustracao.ts` do Labs (main 672ee71, blob d993e809), feito para as ilustrações do
+// site. A primeira imagem real do Chat saiu com "cara de IA", e as seis referências que o Eduardo mandou
+// dos carrosséis pediam o contrário daquelas regras: texto em português dentro da imagem, luz de cinema,
+// a cena como metáfora do post. Ele decidiu, pela caixa, que o Chat tem regras próprias. Ficaram do Labs,
+// sem mudar uma letra, a proibição de texto (quando não há aspas), a de pessoa real e de marca (o manual
+// do perfil) e a cena de borda a borda; os atalhos de composição ficaram, com o `/grafico` ajustado.
+// A tradução das recusas da OpenAI (`erro-ilustracao.ts`) continua cópia do Labs.
+//
+// A pessoa digita a CENA, e pode começar por um estilo e um atalho (`/cinema /antes-depois …`). O
+// estilo, a composição, o fundo e as proibições são acrescentados aqui. O texto que deve aparecer na
+// imagem vai ENTRE ASPAS, e só ele aparece.
+//
+// ⚠️ NÃO há chamada ao Claude para "melhorar" a descrição, como no Labs.
+
+// A REGRA DO TEXTO, QUANDO A DESCRIÇÃO NÃO TEM ASPAS. O bloco abaixo é o do Labs, sem mudar uma letra
+// (inclusive o comentário). No Chat, com trechos entre aspas, o lugar dela é de `textoExato`, que pede
+// exatamente aqueles trechos e mais nenhum texto; as duas vão por último, pelo mesmo motivo.
+/**
+ * A regra que não é opcional: PROIBIR TEXTO.
+ *
+ * ⚠️ **ELA COMEÇA AFIRMANDO, E ISSO NÃO É ESTILO DE REDAÇÃO — É O QUE FAZ A REGRA PEGAR.**
+ *
+ * Até 22/09 ela era só negação: *"Sem nenhum texto, sem letras, sem palavras…"*. Em 21/09 o
+ * Eduardo gerou uma cena de reunião **sem pedir texto nenhum**, e a lousa saiu escrita
+ * `VENDAS ORGANICAS` — sem o circunflexo. A proibição estava no prompt, no fim, e perdeu.
+ *
+ * **Modelo de imagem obedece mal a negação.** "Sem texto" compete com "lousa" e "gráfico", que
+ * são superfícies que pedem escrita, e a superfície ganha: o modelo desenha a cena plausível e
+ * a proibição vira um detalhe contra a física do quadro. A forma que funciona é dizer o que a
+ * superfície DEVE ser — em branco, ou com linha e seta sem rótulo —, porque isso ele consegue
+ * desenhar. A negação fica junto, como segunda linha, e não como única.
+ *
+ * ⚠️ E a lista de superfícies é NOMEADA de propósito. "Sem texto" genérico não diz ao modelo
+ * ONDE ele está prestes a escrever; "a lousa aparece em branco" diz.
+ *
+ * Modelo de imagem escreve ilegível — troca letra, inventa acento, e é pior em português.
+ * O carrossel inteiro foi desenhado para o texto ser composto por código justamente por
+ * isso; deixar o modelo escrever aqui desfaria essa decisão dentro da própria peça, e do
+ * jeito mais visível possível, porque a palavra torta fica no meio da arte.
+ *
+ * Vai no FIM do prompt de propósito: é a última coisa que o modelo lê.
+ */
+export const PROIBICAO_DE_TEXTO =
+  "Toda superfície que poderia conter escrita — lousa, quadro branco, flip chart, projetor, " +
+  "tela, cartaz, placa, papel — aparece EM BRANCO, ou apenas com linhas, barras e setas " +
+  "desenhadas à mão, sem rótulo. Sem nenhum texto, sem letras, sem palavras, sem números e " +
+  "sem logotipos em nenhuma parte da imagem.";
+
+// A REGRA DO MANUAL DO PERFIL, DO LABS, SEM MUDAR UMA LETRA. O Eduardo a manteve no Chat em 09/10:
+// pessoa real, figura pública e marca continuam proibidas, e a tela a mostra junto do campo.
+/**
+ * A outra regra que não é opcional: NINGUÉM RECONHECÍVEL.
+ *
+ * Vem do manual do perfil, trazido pelo Eduardo em 02/09: foto de figura pública não pode
+ * ser usada, e ilustração de ícone entra no lugar. É restrição de direito de imagem, não de
+ * estética — e um post publicado com o rosto de alguém identificável é problema jurídico
+ * que nenhum ajuste de arte desfaz depois.
+ *
+ * ⚠️ **PROÍBE PESSOA RECONHECÍVEL, NÃO PESSOA.** A distinção é obrigatória: o atalho
+ * `/marketing` PEDE "uma pessoa em ação". Uma proibição escrita como "sem pessoas"
+ * contradiria o próprio atalho logo acima dela no prompt, e o modelo entrega imagem confusa
+ * em vez de recusar — o mesmo modo de falha de um atalho que pede o que a proibição de texto
+ * veta.
+ *
+ * ⚠️ **A REDAÇÃO MUDOU EM 21/09, E A MUDANÇA AFROUXA UM POUCO — DE PROPÓSITO E COM CUSTO.**
+ * Ela dizia "genéricas e estilizadas, **sem traços faciais identificáveis**", que fazia
+ * sentido no estilo vetorial plano. Em fotografia, pedir rosto não identificável produz
+ * gente borrada ou de costas, que é pior que o problema.
+ *
+ * O que a regra protege — **direito de imagem** — continua inteiro e ficou mais explícito:
+ * pessoa fictícia e anônima, nenhuma semelhança com quem existe, e agora também **sem marca,
+ * logotipo ou uniforme identificável**, que a redação antiga não cobria. O que se perdeu é a
+ * proteção de segunda linha que o rosto sem traço dava de graça: hoje a peça sai com rostos
+ * nítidos de pessoas inventadas, e quem confere se alguma saiu parecida com alguém é quem
+ * revisa antes de publicar.
+ *
+ * Fica ao lado da proibição de texto, no fim: é o que não fazer, e é a última coisa lida.
+ */
+export const PROIBICAO_DE_PESSOA_REAL =
+  "As pessoas retratadas devem ser fictícias e anônimas, sem semelhança com ninguém " +
+  "existente. Nunca retrate pessoa real, figura pública, celebridade, político ou sósia de " +
+  "alguém existente, e não reproduza marca, logotipo ou uniforme identificável.";
+
+/** As chaves dos três estilos do Chat. */
+export type ChaveDoEstilo = "cinema" | "ilustracao" | "comercial";
+
+/** Um estilo da imagem: o que a tela mostra (`rotulo`, `resumo`) e o trecho que vai à OpenAI (`texto`). */
+export type EstiloDaImagem = { chave: ChaveDoEstilo; rotulo: string; resumo: string; texto: string };
+
+/**
+ * OS TRÊS ESTILOS, escolhidos por slide (decisão do Eduardo em 09/10, depois das referências). O
+ * "objeto 3D em fundo claro" ficou de fora.
+ *
+ * ⚠️ **O LABS TINHA UM ESTILO SÓ, E O MOTIVO VALE COMO HISTÓRICO:** "dez slides com dez estéticas leem
+ * como colagem". As referências dos carrosséis do Chat mostram o contrário, um jeito por post, e o
+ * Eduardo escolheu três. O que o Labs aprendeu continua dentro de cada um: descrever a luz e a ÓPTICA,
+ * e não adjetivo de qualidade ("foto realista de alta qualidade" o modelo já acha que cumpre); pedir
+ * pele com poros contra a pele de plástico; e pedir as mãos repousadas ou fora do primeiro plano, que é
+ * a única coisa que o prompt faz pelos dedos ("modelo não obedece negativa; obedece enquadramento"). A
+ * alavanca forte contra artefato é o modelo e a qualidade, escolhidos pela medição do adendo.
+ *
+ * Os textos são os da tabela da spec, e os pedidos medidos do apêndice saem deles: um teste confere.
+ */
+export const ESTILOS: EstiloDaImagem[] = [
+  {
+    chave: "cinema",
+    rotulo: "Cena de cinema",
+    resumo: "foto realista, luz dramática e contraste forte",
+    texto:
+      "Fotografia realista com cara de cena de cinema, num ambiente de trabalho brasileiro contemporâneo. " +
+      "Luz dramática e quente, de abajur, de janela no fim da tarde ou de tela, com sombras profundas e " +
+      "contraste forte; fundo levemente desfocado. Cores ricas e naturais. Pele com textura real, poros e " +
+      "pequenas imperfeições, sem brilho oleoso e sem retoque. Expressões claras e postura natural, com as " +
+      "mãos repousadas ou fora do primeiro plano. Sem aparência de render 3D, de desenho ou de banco de " +
+      "imagens.",
+  },
+  {
+    chave: "ilustracao",
+    rotulo: "Ilustração conceitual",
+    resumo: "uma metáfora desenhada, com textura",
+    texto:
+      "Ilustração conceitual digital, com acabamento de peça editorial: uma metáfora visual clara do " +
+      "assunto, feita de objetos simbólicos, ícones simples, post-its, fios e setas, sobre fundo com " +
+      "textura de papel. Cores vivas e harmônicas, sombras suaves, traço limpo e volume leve. Não é foto " +
+      "nem render 3D realista.",
+  },
+  {
+    chave: "comercial",
+    rotulo: "Ambiente comercial brilhante",
+    resumo: "loja, vitrine ou fachada iluminada",
+    texto:
+      "Fotografia realista de ambiente comercial bem iluminado: loja, vitrine, balcão ou fachada, com luz " +
+      "quente de spots, reflexos no chão e no vidro, produtos organizados e brilho convidativo de vitrine. " +
+      "Cores quentes e saturadas na medida, nitidez de foto profissional. Fachadas, caixas e produtos sem " +
+      "nome, sem marca e sem logotipo visível.",
+  },
+];
+
+/** Sem estilo na descrição, vale este; a tela sempre manda um. */
+export const ESTILO_PADRAO: ChaveDoEstilo = "cinema";
+
+// A CENA DE BORDA A BORDA, DO LABS, SEM MUDAR UMA LETRA.
+/**
+ * O cenário, e ele OCUPA O RETÂNGULO INTEIRO.
+ *
+ * ⚠️ **CHAMAVA-SE `FUNDO_TRANSPARENTE` ATÉ 21/09, e a razão de então era boa:** o slide tem dois
+ * fundos possíveis (claro e escuro) e a escolha acontece na hora de baixar, DEPOIS de a
+ * ilustração existir. Com fundo opaco, gerar no claro e baixar no escuro deixaria um
+ * retângulo branco colado no meio da arte.
+ *
+ * **A razão caiu junto com o estilo vetorial.** Fotografia preenche os 3:2 de ponta a ponta,
+ * então não há fundo aparecendo atrás dela para brigar com o tema — é assim que as peças
+ * publicadas da conta são. O que a transparência protegia deixou de existir.
+ *
+ * ⚠️ E ela cobrava um preço que só apareceu na tela: com fundo transparente o desenho flutua
+ * na caixa, e quando o texto transborda os dois se sobrepõem. Foi o "mal posicionada" que o
+ * Eduardo apontou em 21/09.
+ */
+export const FUNDO =
+  "A cena deve preencher todo o quadro, de borda a borda, sem moldura, sem borda branca e " +
+  "sem fundo liso sobrando.";
+
+// OS ATALHOS DE COMPOSIÇÃO, DO LABS. No Labs chamavam-se `ESTILOS` (era a única escolha); no Chat, o
+// estilo é a estética e o atalho é a composição. Os textos são os do Labs, menos o do `/grafico`, que
+// passa a aceitar os números e rótulos que o operador escreve entre aspas (adendo de 09/10).
+/**
+ * ATALHOS DE COMPOSIÇÃO, escritos com barra no começo da descrição: `/showcase uma caixa…`.
+ *
+ * Pedido pelo Eduardo em 02/09, com a pergunta certa junto: "não sei se tem como aplicar na
+ * API". **Tem, e é mais simples do que parece.** No ChatGPT a barra não é recurso do
+ * modelo: é um texto guardado que ele cola antes do seu. Pela API é a mesma coisa — o
+ * atalho vira um trecho de prompt, e este arquivo já fazia isso com o estilo fixo.
+ *
+ * ⚠️ **O QUE O ATALHO MUDA É O ENQUADRAMENTO, NÃO A ESTÉTICA.** O estilo escolhido (`ESTILOS`, acima)
+ * vale com qualquer atalho: a mesma luz, o mesmo acabamento. Isso é deliberado e contraria o impulso
+ * de deixar cada atalho com a cara dele — dez slides com dez estéticas leem como colagem, e
+ * a sequência precisa parecer uma coisa só. O atalho decide O QUE aparece e COMO está
+ * composto; a linguagem visual não se mexe.
+ *
+ * Nenhum deles pede texto por conta própria: um atalho que pede o que a regra do texto proíbe
+ * logo abaixo produz imagem confusa em vez de recusa. No Chat, o `/grafico` aceita os números e
+ * rótulos que o operador escreve entre aspas, e só esses (adendo de 09/10).
+ */
+export type Atalho = {
+  chave: string;
+  /** Nome curto, para a lista. */
+  rotulo: string;
+  /**
+   * O que o atalho faz, em uma frase, **para aparecer na tela**.
+   *
+   * ⚠️ Não é o `texto`: aquele é escrito para o modelo de imagem e tem 200 caracteres de
+   * jargão de composição. Este é para a pessoa, e precisa caber numa linha.
+   *
+   * Existe porque a explicação estava só num `title` de hover — que não existe no celular, e
+   * que este projeto já rejeitou por escrito duas vezes ("o motivo VISÍVEL, não num
+   * tooltip"). `/showcase` até se adivinha; `/passo` e `/grafico` não dizem nada a quem
+   * chega, e a instrução do projeto assume que quem opera esta tela não acompanha as
+   * conversas onde os atalhos foram decididos.
+   */
+  resumo: string;
+  /** O trecho que entra no prompt da imagem. Escrito para o modelo, não para a pessoa. */
+  texto: string;
+};
+
+export const ATALHOS: Atalho[] = [
+  {
+    chave: "showcase",
+    resumo: "O objeto centralizado e em destaque, com ar em volta e nada competindo.",
+    rotulo: "Vitrine do produto",
+    texto:
+      "Composição de vitrine: o objeto principal centralizado e em destaque, visto de leve " +
+      "perspectiva, com bastante ar em volta e nenhum elemento competindo com ele.",
+  },
+  {
+    chave: "marketing",
+    resumo: "Uma pessoa em ação junto do objeto, sugerindo uso e movimento.",
+    rotulo: "Cena de divulgação",
+    texto:
+      "Composição de campanha: uma pessoa em ação junto do objeto principal, gestos claros e " +
+      "legíveis em miniatura, sugerindo uso e movimento.",
+  },
+  {
+    chave: "grafico",
+    resumo: "Barras ou blocos comparando tamanhos; números e rótulos, só os que você puser entre aspas.",
+    rotulo: "Dados e comparação",
+    texto:
+      "Composição de dado: barras, setas ou blocos de tamanhos diferentes representando " +
+      "comparação ou crescimento, sem eixos nem escala; números e rótulos, só os que estiverem " +
+      "entre aspas na descrição.",
+  },
+  {
+    chave: "passo",
+    resumo: "Três ou quatro elementos ligados por setas, lidos da esquerda para a direita.",
+    rotulo: "Sequência de etapas",
+    texto:
+      "Composição de fluxo: três ou quatro elementos na horizontal, ligados por setas " +
+      "simples, lidos da esquerda para a direita como etapas de um processo.",
+  },
+  {
+    chave: "antes-depois",
+    resumo: "Duas metades: à esquerda o desorganizado, à direita o mesmo resolvido.",
+    rotulo: "Antes e depois",
+    texto:
+      "Composição em duas metades separadas por uma linha vertical: à esquerda o estado " +
+      "desorganizado, à direita o mesmo assunto resolvido e em ordem.",
+  },
+];
+
+const ESTILO_POR_CHAVE = new Map(ESTILOS.map((e) => [e.chave as string, e]));
+const ATALHO_POR_CHAVE = new Map(ATALHOS.map((a) => [a.chave, a]));
+
+/** A descrição lida: o estilo (o padrão, se não veio), o atalho, a cena e o que deu errado no começo. */
+export type LeituraDaDescricao = {
+  estilo: EstiloDaImagem;
+  atalho: Atalho | null;
+  /** A cena, já sem os atalhos do começo. É ela que passa pelas regras de tamanho. */
+  cena: string;
+  /** O que veio depois de uma barra e não é estilo nem atalho. */
+  desconhecido: string | null;
+  /** Dois estilos, ou dois atalhos, no começo. */
+  repetido: "estilo" | "atalho" | null;
+};
+
+/**
+ * Separa o estilo e o atalho da cena: no começo da descrição, até um de cada, em qualquer ordem.
+ *
+ * ⚠️ ATALHO DESCONHECIDO NÃO É IGNORADO nem vira cena (a lição do Labs): ignorar faz a pessoa achar que
+ * o estilo foi aplicado, e virar cena manda o modelo desenhar a palavra.
+ */
+export function lerDescricao(descricao: string): LeituraDaDescricao {
+  let resto = descricao.trim();
+  let estilo: EstiloDaImagem | null = null;
+  let atalho: Atalho | null = null;
+  let desconhecido: string | null = null;
+  let repetido: LeituraDaDescricao["repetido"] = null;
+  for (;;) {
+    const m = /^\/([a-z-]+)\s*([\s\S]*)$/i.exec(resto);
+    if (!m) break;
+    const chave = m[1].toLowerCase();
+    const comoEstilo = ESTILO_POR_CHAVE.get(chave);
+    const comoAtalho = ATALHO_POR_CHAVE.get(chave);
+    if (comoEstilo) {
+      if (estilo) repetido ??= "estilo";
+      estilo = comoEstilo;
+    } else if (comoAtalho) {
+      if (atalho) repetido ??= "atalho";
+      atalho = comoAtalho;
+    } else {
+      desconhecido ??= chave;
+    }
+    resto = m[2];
+  }
+  return { estilo: estilo ?? ESTILO_POR_CHAVE.get(ESTILO_PADRAO)!, atalho, cena: resto.trim(), desconhecido, repetido };
+}
+
+/**
+ * Os trechos entre aspas da cena, retas (`"…"`) ou curvas (`“…”`), na ordem em que aparecem; e se
+ * alguma aspa ficou sem par. Trecho vazio (`""`) não conta.
+ */
+export function trechosEntreAspas(cena: string): { trechos: string[]; semPar: boolean } {
+  const trechos: string[] = [];
+  let aberto: string | null = null;
+  for (const c of cena) {
+    if (aberto === null) {
+      if (c === '"' || c === "“") aberto = "";
+      else if (c === "”") return { trechos, semPar: true };
+    } else if (c === '"' || c === "”") {
+      if (aberto.length > 0) trechos.push(aberto);
+      aberto = null;
+    } else if (c === "“") {
+      return { trechos, semPar: true };
+    } else {
+      aberto += c;
+    }
+  }
+  return { trechos, semPar: aberto !== null };
+}
+
+/**
+ * Termos que denunciam um pedido de TEXTO DENTRO da imagem.
+ *
+ * ⚠️ **ESTA LISTA NASCEU DE UM CASO REAL, em 21/09.** O Eduardo descreveu *"na lousa/projetor
+ * (uma dessas opções, estar escrito, Analise queda ORGANICA)"*, e o prompt que saiu daqui
+ * terminava com *"Sem nenhum texto, sem letras, sem palavras"*. **O prompt se contradiz**, o
+ * modelo obedeceu a descrição, e a imagem saiu com `ORGÁNICA` — acento errado, que é
+ * exatamente o que a proibição existe para evitar.
+ *
+ * ⚠️ **O CÓDIGO JÁ TINHA PREVISTO ESSA ARMADILHA, para o lado errado.** O comentário dos
+ * `ESTILOS` diz: *"um atalho que pede o que o prompt proíbe logo abaixo produz imagem confusa
+ * em vez de recusa"*. A regra valia para os atalhos que nós escrevemos e **nunca foi aplicada
+ * à descrição que a pessoa digita** — que é a única das duas que muda todo dia.
+ *
+ * ⚠️ **E A TELA JÁ "AVISAVA", sem servir para nada.** Ela dizia *"a proibição de texto na
+ * imagem já é acrescentada — não precisa pedir"*. Isso lê como **"nós cuidamos disso"**, não
+ * como **"não funciona se você pedir"**. Aviso que descreve o mecanismo em vez da consequência
+ * não muda comportamento nenhum.
+ */
+const PEDIDOS_DE_TEXTO = [
+  "escrito",
+  "escrita",
+  "escritos",
+  "escritas",
+  "escreva",
+  "escrever",
+  "escrevendo",
+  "texto",
+  "letras",
+  "palavra",
+  "palavras",
+  "números",
+  "numeros",
+  "título",
+  "titulo",
+  "legenda",
+  "rótulo",
+  "rotulo",
+  "frase",
+  "dizeres",
+  "placa",
+] as const;
+
+/**
+ * O termo que faz a descrição pedir texto na imagem, ou `null`.
+ *
+ * ⚠️ **NÃO É VALIDAÇÃO, é aviso — e a separação é deliberada.** `validarDescricao` decide se o
+ * botão pode ser clicado; isto só explica um risco. Detecção por palavra erra, e travar quem
+ * escreveu "a placa da porta" seria pior que a imagem torta que ela evita. Decidido pelo
+ * Eduardo em 21/09, que pediu explicitamente um aviso e não um bloqueio.
+ *
+ * ⚠️ **A FRONTEIRA NÃO PODE SER `\b`.** O `\b` do JavaScript é ASCII: "órgão" e "título"
+ * quebram nos acentos e o casamento sai onde não devia. Este projeto já perdeu 317 skills de
+ * cobertura por isso. A forma que funciona é `[^\wÀ-ÿ]` dos dois lados — e é ela que faz
+ * **"escritório" não casar com "escrito"**, que seria o falso positivo mais provável aqui.
+ */
+export function pedeTextoNaImagem(descricao: string): string | null {
+  const cena = lerDescricao(descricao).cena;
+  for (const termo of PEDIDOS_DE_TEXTO) {
+    const re = new RegExp(`(^|[^\\wÀ-ÿ])${termo}(?=[^\\wÀ-ÿ]|$)`, "i");
+    if (re.test(cena)) return termo;
+  }
+  return null;
+}
+
+export const MIN_DESCRICAO = 10;
+export const MAX_DESCRICAO = 600;
+/** O texto entre aspas, somado: mais do que isso, o modelo erra letras e a imagem vira cartaz. */
+export const MAX_TEXTO_ENTRE_ASPAS = 120;
+
+export type ErroDeDescricao = { ok: true } | { ok: false; mensagem: string };
+
+/**
+ * Confere a descrição ANTES de gastar uma chamada (spec, "A conferência da descrição"). Uma recusa aqui
+ * custa zero; uma imagem inútil custa dinheiro e uma unidade do teto do dia.
+ *
+ * A CENA que se mede, para o mínimo, é a de sem os atalhos e sem o texto entre aspas: "/cinema "VENDAS""
+ * passaria de raspão e geraria uma imagem vaga.
+ */
+export function validarDescricao(descricao: string): ErroDeDescricao {
+  const lida = lerDescricao(descricao);
+  if (lida.desconhecido) {
+    return {
+      ok: false,
+      mensagem:
+        `Não existe o atalho /${lida.desconhecido}. ` +
+        `Os estilos: ${ESTILOS.map((e) => `/${e.chave}`).join(", ")}. ` +
+        `Os atalhos: ${ATALHOS.map((a) => `/${a.chave}`).join(", ")}.`,
+    };
+  }
+  if (lida.repetido === "estilo") return { ok: false, mensagem: "Escolha um estilo só para a imagem." };
+  if (lida.repetido === "atalho") return { ok: false, mensagem: "Use um atalho de composição só." };
+  if (descricao.trim().length > MAX_DESCRICAO) {
+    return {
+      ok: false,
+      mensagem: `A descrição passou de ${MAX_DESCRICAO} caracteres. Descreva uma cena só — quanto mais coisa, menos o modelo acerta cada uma.`,
+    };
+  }
+  const aspas = trechosEntreAspas(lida.cena);
+  if (aspas.semPar) return { ok: false, mensagem: "Feche as aspas do texto que deve aparecer na imagem." };
+  if (aspas.trechos.join("").length > MAX_TEXTO_ENTRE_ASPAS) {
+    return {
+      ok: false,
+      mensagem: `O texto entre aspas passou de ${MAX_TEXTO_ENTRE_ASPAS} caracteres. Encurte: texto longo sai com erro e vira cartaz.`,
+    };
+  }
+  const semAspas = lida.cena.replace(/["“][^"”]*["”]/g, " ").replace(/\s+/g, " ").trim();
+  if (semAspas.length === 0) return { ok: false, mensagem: "Descreva o que a imagem deve mostrar." };
+  if (semAspas.length < MIN_DESCRICAO) {
+    return {
+      ok: false,
+      mensagem: `Descreva com um pouco mais de detalhe — pelo menos ${MIN_DESCRICAO} caracteres. Descrição vaga gera imagem vaga, e a chamada é paga.`,
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * A REGRA DO TEXTO, QUANDO HÁ ASPAS: escrever exatamente aqueles trechos, com os acentos, e mais nenhum
+ * texto. O nome de marca entre aspas sai em letra simples, sem logo (decisão do Eduardo na revisão do
+ * adendo): o Chat não reconhece toda marca, então não recusa; diz ao modelo como escrever.
+ */
+export function textoExato(trechos: string[]): string {
+  return (
+    "Escreva na imagem exatamente estes textos, em português do Brasil, com a grafia, as maiúsculas e os " +
+    `acentos exatamente como estão entre aspas: ${trechos.map((t) => `"${t}"`).join("; ")}. Cada um aparece ` +
+    "uma vez, legível, numa superfície que faça sentido na cena (placa, tela, papel, quadro, post-it ou " +
+    "rótulo). Se um deles for o nome de uma marca ou de um produto, escreva-o em letras simples e comuns, " +
+    "sem o logotipo, o ícone, as cores ou a fonte da marca. Nenhum outro texto, letra, número ou logotipo " +
+    "em nenhuma parte da imagem."
+  );
+}
+
+/**
+ * MONTA O PEDIDO: estilo, atalho, cena, fundo, pessoa real e, por último, o texto (a ordem decidida pelo
+ * Eduardo na revisão do adendo). O texto e as proibições ficam no fim porque "é a última coisa que o
+ * modelo lê" (o Labs). Juntados por um espaço, a cena com ponto final, como no Labs.
+ *
+ * ⚠️ OS PEDIDOS DA MEDIÇÃO (o apêndice da spec) SAEM DAQUI BYTE A BYTE, e um teste confere: o que foi
+ * medido é o que vai ao ar.
+ */
+export function montarPrompt(descricao: string): string {
+  const lida = lerDescricao(descricao);
+  const cena = lida.cena.replace(/\s+/g, " ").trim();
+  const comPonto = /[.!?]$/.test(cena) ? cena : `${cena}.`;
+  const { trechos } = trechosEntreAspas(cena);
+  return [
+    lida.estilo.texto,
+    ...(lida.atalho ? [lida.atalho.texto] : []),
+    comPonto,
+    FUNDO,
+    PROIBICAO_DE_PESSOA_REAL,
+    trechos.length > 0 ? textoExato(trechos) : PROIBICAO_DE_TEXTO,
+  ].join(" ");
+}
+```
+
+Em `app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx b/app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx
+index bf47717..630dba4 100644
+--- a/app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx
++++ b/app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx
+@@ -12,7 +12,7 @@ import {
+   textoDoPedidoDeTexto,
+   type AvisoDoPedidoDeImagem,
+ } from "@/lib/bonus/imagem-textos";
+-import { ESTILOS, pedeTextoNaImagem } from "@/lib/bonus/prompt-ilustracao";
++import { ATALHOS, pedeTextoNaImagem } from "@/lib/bonus/prompt-ilustracao";
+ 
+ // O "GERAR IMAGEM" DE UM SLIDE (spec da Etapa 6, "A tela" e "Pedir e acompanhar"), na linha dos botões da
+ // imagem do card, ao lado do "Subir foto" e do "Slide pronto do Canva".
+@@ -157,7 +157,7 @@ export default function GerarImagem({
+               />
+               {/* Os atalhos em linhas, e não numa lista: os cards já são os itens da lista da página. */}
+               <div className={`${hint} space-y-0.5`}>
+-                {ESTILOS.map((e) => (
++                {ATALHOS.map((e) => (
+                   <p key={e.chave}>
+                     <code>{`/${e.chave}`}</code> {e.rotulo}: {e.resumo}
+                   </p>
+```
+
+- [ ] **Passo 4: ver passar**
+
+```bash
+npx tsc --noEmit
+npx eslint lib/bonus/prompt-ilustracao.ts "app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx" tests/bonus-prompt-ilustracao.test.ts tests/bonus-ilustracao-copia.test.ts testes-dom/bonus-gerar-imagem.dom.tsx
+npx vitest run tests/bonus-prompt-ilustracao.test.ts tests/bonus-ilustracao-copia.test.ts tests/bonus-erro-ilustracao.test.ts
+npx vitest run --config vitest.dom.config.ts testes-dom/bonus-gerar-imagem.dom.tsx
+npm test
+DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npx vitest run --config vitest.integracao.config.ts testes-integracao/bonus-imagem-processo.integracao.ts
+```
+
+Esperado: `tsc` e lint limpos; os 40 puros e os 12 de tela passam; a suíte pura com 116 arquivos e 3 201
+casos; `[rede-global] ALVO: banco de TESTE`, e os 23 do processo passam (as descrições dele passam pela
+regra nova).
+
+- [ ] **Passo 5: varrer e commitar**
+
+```bash
+node "$SCRATCH/varrer-texto.mjs" lib/bonus/prompt-ilustracao.ts "app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx" tests/bonus-prompt-ilustracao.test.ts tests/bonus-ilustracao-copia.test.ts testes-dom/bonus-gerar-imagem.dom.tsx
+test "$(git branch --show-current)" = "criador-de-imagem"
+git add lib/bonus/prompt-ilustracao.ts "app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx" tests/bonus-prompt-ilustracao.test.ts tests/bonus-ilustracao-copia.test.ts testes-dom/bonus-gerar-imagem.dom.tsx
+git commit -m "feat(bonus): as regras de estilo do Chat, com os pedidos medidos byte a byte"
+```
+
+---
+
+### FASE 6.11 — O modelo novo, na versão medida
+
+**Arquivos:**
+- Modificar: `lib/bonus/imagem-openai.ts` (o `CORPO_FIXO` e os comentários)
+- Testar: `tests/bonus-imagem-openai.test.ts`
+
+**Interfaces:**
+- Produz: `CORPO_FIXO` com `model: "gpt-image-2.5-flare-2026-09-08"` e `quality: "high"`; o resto igual
+  (`1536x1024`, `n: 1`, `background: "opaque"`, `output_format: "jpeg"`, `output_compression: 90`).
+
+- [ ] **Passo 1: o teste**
+
+Em `tests/bonus-imagem-openai.test.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/tests/bonus-imagem-openai.test.ts b/tests/bonus-imagem-openai.test.ts
+index 949355e..02d9415 100644
+--- a/tests/bonus-imagem-openai.test.ts
++++ b/tests/bonus-imagem-openai.test.ts
+@@ -12,8 +12,9 @@ import {
+ import { montarPrompt } from "@/lib/bonus/prompt-ilustracao";
+ 
+ // A CHAMADA À OPENAI (spec da Etapa 6, "A chamada à OpenAI"), com um `fetch` falso: nada sai desta
+-// máquina. O corpo é o do Labs (lib/bonus/prompt-ilustracao.ts embrulha a cena), com uma diferença: o
+-// JPEG, porque a foto do espaço do Chat é JPEG de até 2 MB.
++// máquina. O corpo leva o JPEG, porque a foto do espaço do Chat é JPEG de até 2 MB, e o modelo e a
++// qualidade do adendo de 09/10: o gpt-image-1 sai do ar em 23/10/2026 (achado 90), e o Eduardo escolheu,
++// pela medição, o gpt-image-2.5-flare em high, com a versão medida fixa.
+ //
+ // A CHAVE DESTES TESTES É INVENTADA, e não começa por "sk-" de propósito: a varredura da etapa procura
+ // esse começo em todo arquivo novo. Onde o teste precisa de um "sk-", ele é montado em partes.
+@@ -42,7 +43,7 @@ describe("a chamada à OpenAI", () => {
+     expect(buscar).not.toHaveBeenCalled();
+   });
+ 
+-  it("o corpo é o do Labs em JPEG, com a cena embrulhada nas regras, e com prazo", async () => {
++  it("o corpo leva o modelo medido e escolhido, em JPEG, com a cena embrulhada nas regras, e com prazo", async () => {
+     const buscar = vi.fn(async (_url: string, _init: RequestInit) => resposta(200, { data: [{ b64_json: "AQID" }] }));
+     await gerarNaOpenAI(CENA, AMBIENTE, buscar as unknown as typeof fetch);
+     const [url, init] = buscar.mock.calls[0];
+@@ -50,17 +51,22 @@ describe("a chamada à OpenAI", () => {
+     expect(init.method).toBe("POST");
+     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer chave-inventada-para-o-teste");
+     expect(JSON.parse(String(init.body))).toEqual({ ...CORPO_FIXO, prompt: montarPrompt(CENA) });
+-    expect(CORPO_FIXO).toMatchObject({
+-      model: "gpt-image-1",
++    expect(CORPO_FIXO).toEqual({
++      model: "gpt-image-2.5-flare-2026-09-08",
+       size: "1536x1024",
+-      quality: "medium",
++      quality: "high",
+       n: 1,
+       background: "opaque",
+       output_format: "jpeg",
++      output_compression: 90,
+     });
+     expect(init.signal).toBeInstanceOf(AbortSignal);
+   });
+ 
++  it("o modelo que a OpenAI desliga em 23/10/2026 não está no corpo", () => {
++    expect(JSON.stringify(CORPO_FIXO)).not.toContain('"gpt-image-1"');
++  });
++
+   it("a imagem volta em bytes, lida de data[0].b64_json", async () => {
+     const buscar = async () => resposta(200, { data: [{ b64_json: Buffer.from([0xff, 0xd8, 0xff, 1]).toString("base64") }] });
+     expect(await gerarNaOpenAI(CENA, AMBIENTE, buscar as unknown as typeof fetch)).toEqual({
+```
+
+- [ ] **Passo 2: ver falhar**
+
+```bash
+npx vitest run tests/bonus-imagem-openai.test.ts
+```
+
+Esperado: 2 caem e 10 passam (12): o corpo ainda tem o `gpt-image-1` em `medium`.
+
+- [ ] **Passo 3: o código**
+
+Em `lib/bonus/imagem-openai.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/lib/bonus/imagem-openai.ts b/lib/bonus/imagem-openai.ts
+index b798295..b8455c2 100644
+--- a/lib/bonus/imagem-openai.ts
++++ b/lib/bonus/imagem-openai.ts
+@@ -17,20 +17,24 @@ import { montarPrompt } from "./prompt-ilustracao";
+ // SEM SDK, com `fetch` direto, como o Labs: o endpoint é um POST com JSON, e a resposta tem um campo que
+ // interessa. Nada muda no package.json.
+ //
+-// O CORPO É O DO LABS, com uma diferença: `output_format: "jpeg"`, e não "png". O Chat guarda a imagem
+-// como a foto do espaço, e a rota da arte só a lê como JPEG e até 2 MB (lib/bonus/arte-foto.ts); o PNG do
+-// Labs passava de 2 MB. O resto (modelo, tamanho, qualidade, fundo) foi decidido e medido lá, e não muda
+-// aqui sem combinar.
++// O CORPO: `output_format: "jpeg"`, e não o "png" do Labs. O Chat guarda a imagem como a foto do espaço,
++// e a rota da arte só a lê como JPEG e até 2 MB (lib/bonus/arte-foto.ts); o PNG do Labs passava de 2 MB.
++//
++// ⚠️ O MODELO E A QUALIDADE SÃO OS DO ADENDO DE 09/10 (achado 90). O `gpt-image-1` em `medium`, do Labs, sai
++// do ar em 23/10/2026 (developers.openai.com/api/docs/deprecations). O Eduardo escolheu, olhando a
++// medição dos dois substitutos, o `gpt-image-2.5-flare` em `high` (US$ 0,0432 e uns 16 s por imagem), e
++// pediu a VERSÃO FIXA: o nome sem data é um apelido, que pode passar a outra versão sem aviso, mudando o
++// estilo e o custo. Trocar o modelo é uma medição nova, e não uma linha mudada aqui.
+ //
+ // A CHAVE sai do ambiente, vai só no cabeçalho, e nunca para uma frase, um log ou o banco (`tirarChave`).
+ 
+ export const ENDERECO_DA_OPENAI = "https://api.openai.com/v1/images/generations";
+ 
+-/** O corpo, menos o prompt. 1536×1024 é o 3:2 deitado do espaço (860×573): a API só aceita três tamanhos. */
++/** O corpo, menos o prompt. 1536×1024 é o 3:2 deitado do espaço (860×573), um dos tamanhos recomendados. */
+ export const CORPO_FIXO = {
+-  model: "gpt-image-1",
++  model: "gpt-image-2.5-flare-2026-09-08",
+   size: "1536x1024",
+-  quality: "medium",
++  quality: "high",
+   n: 1,
+   background: "opaque",
+   output_format: "jpeg",
+@@ -44,7 +48,7 @@ export type GerarNaOpenAI = (descricao: string) => Promise<RespostaDaOpenAI>;
+ 
+ /**
+  * Gera a imagem da descrição que o operador digitou. O embrulho nas regras (estilo, fundo, proibições) é
+- * o `montarPrompt` do Labs. `ambiente` e `buscar` entram por parâmetro só para o teste.
++ * o `montarPrompt` do Chat. `ambiente` e `buscar` entram por parâmetro só para o teste.
+  */
+ export async function gerarNaOpenAI(
+   descricao: string,
+```
+
+- [ ] **Passo 4: ver passar**
+
+```bash
+npx tsc --noEmit
+npx eslint lib/bonus/imagem-openai.ts tests/bonus-imagem-openai.test.ts
+npx vitest run tests/bonus-imagem-openai.test.ts
+```
+
+Esperado: `tsc` e lint limpos; os 12 passam.
+
+- [ ] **Passo 5: varrer e commitar**
+
+```bash
+node "$SCRATCH/varrer-texto.mjs" lib/bonus/imagem-openai.ts tests/bonus-imagem-openai.test.ts
+test "$(git branch --show-current)" = "criador-de-imagem"
+git add lib/bonus/imagem-openai.ts tests/bonus-imagem-openai.test.ts
+git commit -m "feat(bonus): a imagem sai do gpt-image-2.5-flare em high, na versão medida"
+```
+
+---
+
+### FASE 6.12 — O estilo, a regra do manual do perfil e o aviso de texto no campo da cena
+
+**Arquivos:**
+- Modificar: `lib/bonus/prompt-ilustracao.ts` (`comEstilo`, `separarEstiloDaDescricao`),
+  `lib/bonus/imagem-textos.ts` (a regra na tela e o aviso de texto; sai `textoDoPedidoDeTexto`),
+  `app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx` (a escolha do estilo, a regra, o aviso)
+- Testar: `tests/bonus-prompt-ilustracao.test.ts`, `tests/bonus-imagem-textos.test.ts`, `testes-dom/bonus-gerar-imagem.dom.tsx`
+
+**Interfaces:**
+- Consome: `ESTILOS`, `ChaveDoEstilo`, `ESTILO_PADRAO`, `trechosEntreAspas` e `pedeTextoNaImagem` (FASE 6.10).
+- Produz: `comEstilo(estilo: ChaveDoEstilo, resto: string): string`;
+  `separarEstiloDaDescricao(descricao): { estilo: ChaveDoEstilo; resto: string }`;
+  `TEXTO_REGRAS_DA_IMAGEM`, `TEXTO_ESCREVA_ENTRE_ASPAS`, `TEXTO_CONFIRA_A_GRAFIA`,
+  `textoDoAvisoDeTexto(descricao): string | null`; na tela, o grupo de rádio "Estilo" (um por estilo,
+  com o rótulo e o resumo), o pedido com `descricao: comEstilo(estilo, descricao)`.
+
+- [ ] **Passo 1: os testes**
+
+Em `tests/bonus-prompt-ilustracao.test.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/tests/bonus-prompt-ilustracao.test.ts b/tests/bonus-prompt-ilustracao.test.ts
+index dee799f..d446491 100644
+--- a/tests/bonus-prompt-ilustracao.test.ts
++++ b/tests/bonus-prompt-ilustracao.test.ts
+@@ -11,9 +11,11 @@ import {
+   MIN_DESCRICAO,
+   PROIBICAO_DE_PESSOA_REAL,
+   PROIBICAO_DE_TEXTO,
++  comEstilo,
+   lerDescricao,
+   montarPrompt,
+   pedeTextoNaImagem,
++  separarEstiloDaDescricao,
+   textoExato,
+   trechosEntreAspas,
+   validarDescricao,
+@@ -166,6 +168,24 @@ describe("lerDescricao", () => {
+   });
+ });
+ 
++describe("o estilo no começo da descrição, para a tela", () => {
++  // A tela guarda o estilo como o primeiro atalho da descrição: o "Gerar de novo" o lê de volta, e a
++  // tabela 018 não precisa de coluna nova.
++  it("comEstilo põe o estilo na frente da descrição", () => {
++    expect(comEstilo("ilustracao", "  /antes-depois dois cérebros  ")).toBe("/ilustracao /antes-depois dois cérebros");
++  });
++
++  it("separarEstiloDaDescricao devolve o estilo e o resto, com o atalho ainda nele", () => {
++    expect(separarEstiloDaDescricao("/comercial /showcase uma vitrine")).toEqual({ estilo: "comercial", resto: "/showcase uma vitrine" });
++    expect(separarEstiloDaDescricao("/CINEMA")).toEqual({ estilo: "cinema", resto: "" });
++  });
++
++  it("sem estilo no começo, o padrão e a descrição inteira", () => {
++    expect(separarEstiloDaDescricao("/marketing uma pessoa na loja")).toEqual({ estilo: "cinema", resto: "/marketing uma pessoa na loja" });
++    expect(separarEstiloDaDescricao("uma pessoa na loja")).toEqual({ estilo: "cinema", resto: "uma pessoa na loja" });
++  });
++});
++
+ describe("trechosEntreAspas", () => {
+   it("lê aspas retas e curvas, na ordem, e ignora o vazio", () => {
+     expect(trechosEntreAspas('um "A", um “B” e um ""')).toEqual({ trechos: ["A", "B"], semPar: false });
+```
+
+Em `tests/bonus-imagem-textos.test.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/tests/bonus-imagem-textos.test.ts b/tests/bonus-imagem-textos.test.ts
+index 22ad6e2..74bf146 100644
+--- a/tests/bonus-imagem-textos.test.ts
++++ b/tests/bonus-imagem-textos.test.ts
+@@ -1,13 +1,17 @@
+ import { describe, expect, it } from "vitest";
+ import { TETO_IMAGEM_DIARIO } from "@/lib/bonus/imagem-regras";
+ import {
++  TEXTO_CONFIRA_A_GRAFIA,
++  TEXTO_ESCREVA_ENTRE_ASPAS,
+   TEXTO_GERANDO_A_IMAGEM,
+   TEXTO_IMAGEM_FALHOU_SEM_MOTIVO,
+   TEXTO_IMAGEM_GERADA,
+   TEXTO_IMAGEM_NAO_SUBIU,
+   TEXTO_IMAGEM_TRAVADA,
++  TEXTO_REGRAS_DA_IMAGEM,
+   TEXTO_SEM_CHAVE_DA_IMAGEM,
+   textoDaRecusaDaImagem,
++  textoDoAvisoDeTexto,
+   textoDoContador,
+   textoDoProblemaDaImagem,
+   type RecusaDaImagem,
+@@ -66,3 +70,27 @@ describe("as outras frases da imagem", () => {
+     expect(TEXTO_GERANDO_A_IMAGEM).toBe("Gerando a imagem… leva uns 30 segundos.");
+   });
+ });
++
++describe("as regras e o aviso de texto na hora de gerar (adendo de 09/10)", () => {
++  it("a regra do manual do perfil, e a do texto entre aspas, numa frase só", () => {
++    expect(TEXTO_REGRAS_DA_IMAGEM).toBe(
++      "Sem marca e sem pessoa real (manual do perfil). Texto só entre aspas, exatamente como escrito; nome de marca sai em letra simples, sem logo."
++    );
++  });
++
++  // O aviso, e não o bloqueio (decisão do Eduardo no Labs em 21/09), agora em dois casos.
++  it("sem aspas, a descrição que pede texto ouve que o texto vai entre aspas", () => {
++    expect(textoDoAvisoDeTexto("uma placa com o nome da loja na entrada")).toBe(TEXTO_ESCREVA_ENTRE_ASPAS);
++    expect(TEXTO_ESCREVA_ENTRE_ASPAS).toBe("Para o texto aparecer na imagem, escreva-o entre aspas.");
++  });
++
++  it("com aspas, ela ouve que a grafia se confere antes de publicar", () => {
++    expect(textoDoAvisoDeTexto('uma placa escrita "ABERTO" na porta')).toBe(TEXTO_CONFIRA_A_GRAFIA);
++    expect(textoDoAvisoDeTexto("uma porta com “ABERTO”")).toBe(TEXTO_CONFIRA_A_GRAFIA);
++    expect(TEXTO_CONFIRA_A_GRAFIA).toBe("Confira a grafia na imagem antes de publicar.");
++  });
++
++  it("sem texto pedido e sem aspas, nada", () => {
++    expect(textoDoAvisoDeTexto("uma loja de roupas cheia de gente")).toBeNull();
++  });
++});
+```
+
+Em `testes-dom/bonus-gerar-imagem.dom.tsx`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/testes-dom/bonus-gerar-imagem.dom.tsx b/testes-dom/bonus-gerar-imagem.dom.tsx
+index 284e31b..e10e993 100644
+--- a/testes-dom/bonus-gerar-imagem.dom.tsx
++++ b/testes-dom/bonus-gerar-imagem.dom.tsx
+@@ -7,8 +7,11 @@ import { camposDoFormulario } from "@/lib/bonus/carrossel-texto";
+ import type { ConsultaDaImagem } from "@/lib/bonus/imagem-consulta";
+ import { urlDaConsultaDaImagem } from "@/lib/bonus/imagem-regras";
+ import {
++  TEXTO_CONFIRA_A_GRAFIA,
++  TEXTO_ESCREVA_ENTRE_ASPAS,
+   TEXTO_GERANDO_A_IMAGEM,
+   TEXTO_IMAGEM_GERADA,
++  TEXTO_REGRAS_DA_IMAGEM,
+   textoDaRecusaDaImagem,
+   textoDoContador,
+   type AvisoDoPedidoDeImagem,
+@@ -16,9 +19,9 @@ import {
+ import { ATALHOS } from "@/lib/bonus/prompt-ilustracao";
+ 
+ // O CRIADOR DE IMAGEM NA TELA (spec da Etapa 6, "A tela" e "Pedir e acompanhar"): o botão em cada slide com
+-// espaço, o campo com os atalhos do Labs, o aviso de texto, o contador do dia, o pedido que volta na hora,
+-// e a consulta que acompanha até a imagem entrar no espaço. A action e a consulta são falsas: nada sai para
+-// a rede, e nada chama a OpenAI.
++// espaço, o campo com o estilo (adendo de 09/10), os atalhos, as regras do manual do perfil, o aviso de
++// texto, o contador do dia, o pedido que volta na hora, e a consulta que acompanha até a imagem entrar no
++// espaço. A action e a consulta são falsas: nada sai para a rede, e nada chama a OpenAI.
+ 
+ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+ 
+@@ -150,15 +153,36 @@ describe("o campo da cena", () => {
+     expect(within(card(2)).getByText(textoDoContador(3))).toBeTruthy();
+   });
+ 
+-  // O aviso, e não o bloqueio, decidido pelo Eduardo no Labs em 21/09: a IA de imagem escreve errado.
+-  it("avisa quando a descrição pede texto na imagem, sem travar o botão", () => {
++  // O aviso, e não o bloqueio (decisão do Eduardo no Labs em 21/09), em dois casos pelo adendo de 09/10.
++  it("avisa para pôr o texto entre aspas, e depois para conferir a grafia, sem travar o botão", () => {
+     renderizar();
+     abrir(2);
+     fireEvent.change(campo(2), { target: { value: "uma placa com o nome da loja na entrada" } });
+-    expect(within(card(2)).getByText(/pede texto na imagem/)).toBeTruthy();
++    expect(within(card(2)).getByText(TEXTO_ESCREVA_ENTRE_ASPAS)).toBeTruthy();
+     expect(gerar(2).disabled).toBe(false);
++    fireEvent.change(campo(2), { target: { value: 'uma placa com "LOJA ABERTA" na entrada' } });
++    expect(within(card(2)).getByText(TEXTO_CONFIRA_A_GRAFIA)).toBeTruthy();
++    expect(within(card(2)).queryByText(TEXTO_ESCREVA_ENTRE_ASPAS)).toBeNull();
+     fireEvent.change(campo(2), { target: { value: "uma loja de roupas cheia de gente" } });
+-    expect(within(card(2)).queryByText(/pede texto na imagem/)).toBeNull();
++    expect(within(card(2)).queryByText(TEXTO_CONFIRA_A_GRAFIA)).toBeNull();
++  });
++
++  it("mostra a regra do manual do perfil junto do campo", () => {
++    renderizar();
++    abrir(2);
++    expect(within(card(2)).getByText(TEXTO_REGRAS_DA_IMAGEM)).toBeTruthy();
++  });
++
++  it("o estilo começa em Cena de cinema e vai para o começo da descrição", async () => {
++    const { pedidos } = renderizar();
++    abrir(2);
++    expect((within(card(2)).getByRole("radio", { name: /^Cena de cinema/ }) as HTMLInputElement).checked).toBe(true);
++    fireEvent.click(within(card(2)).getByRole("radio", { name: /^Ilustração conceitual/ }));
++    fireEvent.change(campo(2), { target: { value: CENA } });
++    await act(async () => {
++      fireEvent.click(gerar(2));
++    });
++    expect(pedidos).toEqual([{ id: CARROSSEL, numero: 2, descricao: `/ilustracao ${CENA}` }]);
+   });
+ 
+   it("no teto do dia, o Gerar trava com a frase do teto", () => {
+@@ -168,10 +192,11 @@ describe("o campo da cena", () => {
+     expect(within(card(2)).getByText(textoDaRecusaDaImagem({ motivo: "teto" }))).toBeTruthy();
+   });
+ 
+-  it("o Gerar de novo volta com a última descrição do slide", () => {
+-    renderizar({ gerada: { descricoes: { 2: "a primeira descrição da cena" } } });
++  it("o Gerar de novo volta com o estilo e a última descrição do slide", () => {
++    renderizar({ gerada: { descricoes: { 2: "/comercial /showcase a primeira descrição da cena" } } });
+     abrir(2, "Gerar de novo");
+-    expect(campo(2).value).toBe("a primeira descrição da cena");
++    expect(campo(2).value).toBe("/showcase a primeira descrição da cena");
++    expect((within(card(2)).getByRole("radio", { name: /^Ambiente comercial brilhante/ }) as HTMLInputElement).checked).toBe(true);
+   });
+ });
+ 
+@@ -183,7 +208,7 @@ describe("pedir e acompanhar", () => {
+     ];
+     const { pedidos } = renderizar();
+     await pedir(2);
+-    expect(pedidos).toEqual([{ id: CARROSSEL, numero: 2, descricao: CENA }]);
++    expect(pedidos).toEqual([{ id: CARROSSEL, numero: 2, descricao: `/cinema ${CENA}` }]);
+     expect(within(card(2)).getByText(TEXTO_GERANDO_A_IMAGEM)).toBeTruthy();
+     await waitFor(() => expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "b9")));
+     expect(urls[0]).toBe(urlDaConsultaDaImagem(CAMINHO, 2));
+```
+
+- [ ] **Passo 2: ver falhar**
+
+```bash
+npx vitest run tests/bonus-imagem-textos.test.ts tests/bonus-prompt-ilustracao.test.ts
+npx vitest run --config vitest.dom.config.ts testes-dom/bonus-gerar-imagem.dom.tsx
+```
+
+Esperado: nos puros, 7 caem e 36 passam (43): as frases e as duas funções novas. Na tela, 5 caem e 9
+passam (14): o aviso nos dois casos, a regra na tela, o estilo no pedido, o "Gerar de novo" com o estilo, e
+o pedido que agora leva `/cinema` na frente.
+
+- [ ] **Passo 3: o código**
+
+Em `lib/bonus/prompt-ilustracao.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/lib/bonus/prompt-ilustracao.ts b/lib/bonus/prompt-ilustracao.ts
+index c8dbab7..ed24089 100644
+--- a/lib/bonus/prompt-ilustracao.ts
++++ b/lib/bonus/prompt-ilustracao.ts
+@@ -297,6 +297,23 @@ export function lerDescricao(descricao: string): LeituraDaDescricao {
+   return { estilo: estilo ?? ESTILO_POR_CHAVE.get(ESTILO_PADRAO)!, atalho, cena: resto.trim(), desconhecido, repetido };
+ }
+ 
++/**
++ * O ESTILO NO COMEÇO DA DESCRIÇÃO, PARA A TELA. A tela tem a escolha do estilo à parte do campo da cena, e
++ * guarda o estilo como o primeiro atalho da descrição (`/cinema …`): assim o "Gerar de novo" o lê de volta,
++ * e a tabela 018, já na produção, não precisa de coluna nova (spec, adendo de 09/10).
++ */
++export function comEstilo(estilo: ChaveDoEstilo, resto: string): string {
++  return `/${estilo} ${resto.trim()}`;
++}
++
++/** O inverso de `comEstilo`: o estilo do começo (ou o padrão) e o resto, com o atalho ainda nele. */
++export function separarEstiloDaDescricao(descricao: string): { estilo: ChaveDoEstilo; resto: string } {
++  const m = /^\/([a-z-]+)(?:\s+([\s\S]*))?$/i.exec(descricao.trim());
++  const chave = m?.[1].toLowerCase();
++  if (m && chave && ESTILO_POR_CHAVE.has(chave)) return { estilo: chave as ChaveDoEstilo, resto: (m[2] ?? "").trim() };
++  return { estilo: ESTILO_PADRAO, resto: descricao.trim() };
++}
++
+ /**
+  * Os trechos entre aspas da cena, retas (`"…"`) ou curvas (`“…”`), na ordem em que aparecem; e se
+  * alguma aspa ficou sem par. Trecho vazio (`""`) não conta.
+```
+
+Em `lib/bonus/imagem-textos.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/lib/bonus/imagem-textos.ts b/lib/bonus/imagem-textos.ts
+index fd2d323..b500dbc 100644
+--- a/lib/bonus/imagem-textos.ts
++++ b/lib/bonus/imagem-textos.ts
+@@ -1,5 +1,6 @@
+ import type { Aviso } from "@/lib/avisos";
+ import { TETO_IMAGEM_DIARIO, type ProblemaDaImagem } from "./imagem-regras";
++import { pedeTextoNaImagem, trechosEntreAspas } from "./prompt-ilustracao";
+ import { textoDaRecusaDaPublicacaoDoCarrossel, type RecusaDaPublicacaoDoCarrossel } from "./publicar-textos";
+ 
+ // AS FRASES DO CRIADOR DE IMAGEM, fora do JSX e das actions (o princípio de lib/bonus/textos.ts): uma
+@@ -63,12 +64,23 @@ export const TEXTO_SEM_REDE_DA_OPENAI = "Não consegui falar com a OpenAI. Tente
+ export const TEXTO_OPENAI_SEM_IMAGEM = "A OpenAI respondeu sem a imagem. Tente de novo; se repetir, avise quem cuida do Chat.";
+ 
+ /**
+- * O AVISO DA DESCRIÇÃO QUE PEDE TEXTO NA IMAGEM (`pedeTextoNaImagem`, do Labs): é aviso, e não bloqueio,
+- * como o Eduardo decidiu lá em 21/09. Ele diz a consequência, e não o mecanismo: a IA de imagem escreve
+- * errado, e o texto do slide já vem da arte.
++ * AS REGRAS NA HORA DE GERAR (spec da Etapa 6, adendo de 09/10, "As regras na tela"): a do manual do
++ * perfil, que o Eduardo manteve e pediu escrita junto do campo, e a do texto entre aspas.
+  */
+-export function textoDoPedidoDeTexto(termo: string): string {
+-  return `A descrição pede texto na imagem ("${termo}"). A IA de imagem escreve errado, e o texto do slide já vem da arte: descreva a cena sem ele.`;
++export const TEXTO_REGRAS_DA_IMAGEM =
++  "Sem marca e sem pessoa real (manual do perfil). Texto só entre aspas, exatamente como escrito; nome de marca sai em letra simples, sem logo.";
++export const TEXTO_ESCREVA_ENTRE_ASPAS = "Para o texto aparecer na imagem, escreva-o entre aspas.";
++export const TEXTO_CONFIRA_A_GRAFIA = "Confira a grafia na imagem antes de publicar.";
++
++/**
++ * O AVISO DE TEXTO (mudou no adendo de 09/10): é aviso, e não bloqueio, como o Eduardo decidiu no Labs em
++ * 21/09. Sem aspas, a descrição que pede texto (`pedeTextoNaImagem`, a lista do Labs) ouve que o texto vai
++ * entre aspas, porque sem elas a imagem sai sem texto nenhum; com aspas, que a grafia se confere antes de
++ * publicar, porque o modelo ainda pode errar uma letra.
++ */
++export function textoDoAvisoDeTexto(descricao: string): string | null {
++  if (trechosEntreAspas(descricao).trechos.length > 0) return TEXTO_CONFIRA_A_GRAFIA;
++  return pedeTextoNaImagem(descricao) ? TEXTO_ESCREVA_ENTRE_ASPAS : null;
+ }
+ 
+ /**
+```
+
+Em `app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx b/app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx
+index 630dba4..a9035dd 100644
+--- a/app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx
++++ b/app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx
+@@ -7,18 +7,20 @@ import {
+   TEXTO_GERANDO_A_IMAGEM,
+   TEXTO_IMAGEM_FALHOU_SEM_MOTIVO,
+   TEXTO_IMAGEM_GERADA,
++  TEXTO_REGRAS_DA_IMAGEM,
+   textoDaRecusaDaImagem,
++  textoDoAvisoDeTexto,
+   textoDoContador,
+-  textoDoPedidoDeTexto,
+   type AvisoDoPedidoDeImagem,
+ } from "@/lib/bonus/imagem-textos";
+-import { ATALHOS, pedeTextoNaImagem } from "@/lib/bonus/prompt-ilustracao";
++import { ATALHOS, ESTILOS, comEstilo, separarEstiloDaDescricao, type ChaveDoEstilo } from "@/lib/bonus/prompt-ilustracao";
+ 
+ // O "GERAR IMAGEM" DE UM SLIDE (spec da Etapa 6, "A tela" e "Pedir e acompanhar"), na linha dos botões da
+ // imagem do card, ao lado do "Subir foto" e do "Slide pronto do Canva".
+ //
+-// O botão abre o campo da cena, com os cinco atalhos do Labs, o aviso da descrição que pede texto e o
+-// contador do dia. O "Gerar" chama a action do pedido, que confere, reserva e VOLTA NA HORA (achado 88):
++// O botão abre o campo da cena, com a escolha do estilo (adendo de 09/10), os cinco atalhos, a regra do
++// manual do perfil, o aviso de texto e o contador do dia. O estilo vai para o começo da descrição
++// (`comEstilo`), e o "Gerar de novo" o lê de volta (`separarEstiloDaDescricao`). O "Gerar" chama a action do pedido, que confere, reserva e VOLTA NA HORA (achado 88):
+ // a imagem é gerada no servidor, e este componente pergunta pela rota GET da consulta, uma pergunta de cada
+ // vez, até ela ficar pronta ou falhar. Enquanto isso, o resto da página funciona. A página que abre com uma
+ // geração em andamento começa aqui em "Gerando…" e acompanha.
+@@ -29,7 +31,7 @@ export type GeradorDoSlide = {
+   /** A conta das últimas 24 horas, comum a todos os cards. */
+   hoje: number;
+   aoMudarHoje: (hoje: number) => void;
+-  /** A última descrição deste slide, para o "Gerar de novo". */
++  /** A última descrição deste slide, com o estilo no começo, para o "Gerar de novo". */
+   descricaoInicial: string | null;
+   /** Uma geração deste slide estava em andamento quando a página abriu. */
+   gerandoInicial: boolean;
+@@ -62,7 +64,9 @@ export default function GerarImagem({
+   aoMudarGerando: (gerando: boolean) => void;
+ }) {
+   const [aberto, setAberto] = useState(false);
+-  const [descricao, setDescricao] = useState(gerador.descricaoInicial ?? "");
++  const [inicial] = useState(() => separarEstiloDaDescricao(gerador.descricaoInicial ?? ""));
++  const [estilo, setEstilo] = useState<ChaveDoEstilo>(inicial.estilo);
++  const [descricao, setDescricao] = useState(inicial.resto);
+   const [jaPediu, setJaPediu] = useState(gerador.descricaoInicial !== null);
+   const [gerando, setGerando] = useState(gerador.gerandoInicial);
+   const [aviso, setAviso] = useState<AvisoNaTela | null>(gerador.gerandoInicial ? { tom: "atencao", texto: TEXTO_GERANDO_A_IMAGEM } : null);
+@@ -121,12 +125,12 @@ export default function GerarImagem({
+     };
+   }, [gerando, rodada, caminho, numero, gerador.intervaloMs]);
+ 
+-  const termo = pedeTextoNaImagem(descricao);
++  const avisoDeTexto = textoDoAvisoDeTexto(descricao);
+   const noTeto = gerador.hoje >= TETO_IMAGEM_DIARIO;
+ 
+   function pedir() {
+     iniciar(async () => {
+-      const r = await gerador.acao({ id: carrosselId, numero, descricao });
++      const r = await gerador.acao({ id: carrosselId, numero, descricao: comEstilo(estilo, descricao) });
+       if (r.hoje !== undefined) gerador.aoMudarHoje(r.hoje);
+       if (r.tom !== "ok") {
+         setAviso({ tom: "erro", texto: r.texto });
+@@ -147,6 +151,23 @@ export default function GerarImagem({
+         <div className="order-last basis-full space-y-2">
+           {aberto && (
+             <div className="space-y-2">
++              <fieldset className="space-y-1">
++                <legend className="text-sm font-medium">Estilo</legend>
++                {ESTILOS.map((e) => (
++                  <label key={e.chave} className="flex items-center gap-2 text-sm">
++                    <input
++                      type="radio"
++                      name={`estilo-do-slide-${numero}`}
++                      value={e.chave}
++                      checked={estilo === e.chave}
++                      onChange={() => setEstilo(e.chave)}
++                    />
++                    <span>
++                      {e.rotulo}: {e.resumo}
++                    </span>
++                  </label>
++                ))}
++              </fieldset>
+               <p className="text-sm font-medium">Descreva a cena</p>
+               <textarea
+                 aria-label={`Slide ${numero}: descreva a cena`}
+@@ -163,7 +184,8 @@ export default function GerarImagem({
+                   </p>
+                 ))}
+               </div>
+-              {termo && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{textoDoPedidoDeTexto(termo)}</p>}
++              <p className={hint}>{TEXTO_REGRAS_DA_IMAGEM}</p>
++              {avisoDeTexto && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{avisoDeTexto}</p>}
+               <p className={hint}>{textoDoContador(gerador.hoje)}</p>
+               {noTeto && <p className="text-xs font-medium text-parou dark:text-parou-escuro">{textoDaRecusaDaImagem({ motivo: "teto" })}</p>}
+               <button type="button" onClick={pedir} disabled={ocupado || noTeto} className={btnPrimary}>
+```
+
+- [ ] **Passo 4: ver passar**
+
+```bash
+npx tsc --noEmit
+npx eslint lib/bonus/prompt-ilustracao.ts lib/bonus/imagem-textos.ts "app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx" tests/bonus-imagem-textos.test.ts tests/bonus-prompt-ilustracao.test.ts testes-dom/bonus-gerar-imagem.dom.tsx
+npx vitest run tests/bonus-imagem-textos.test.ts tests/bonus-prompt-ilustracao.test.ts
+npx vitest run --config vitest.dom.config.ts testes-dom/bonus-gerar-imagem.dom.tsx
+npm test
+npm run test:dom
+```
+
+Esperado: `tsc` e lint limpos; os 43 puros e os 14 de tela passam; as suítes inteiras com 116 arquivos e
+3 209 casos puros, e 23 e 203 de tela.
+
+- [ ] **Passo 5: varrer e commitar**
+
+```bash
+node "$SCRATCH/varrer-texto.mjs" lib/bonus/prompt-ilustracao.ts lib/bonus/imagem-textos.ts "app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx" tests/bonus-imagem-textos.test.ts tests/bonus-prompt-ilustracao.test.ts testes-dom/bonus-gerar-imagem.dom.tsx
+test "$(git branch --show-current)" = "criador-de-imagem"
+git add lib/bonus/prompt-ilustracao.ts lib/bonus/imagem-textos.ts "app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx" tests/bonus-imagem-textos.test.ts tests/bonus-prompt-ilustracao.test.ts testes-dom/bonus-gerar-imagem.dom.tsx
+git commit -m "feat(bonus): o estilo, a regra do manual do perfil e o aviso de texto no campo da cena"
+```
+
+---
+
+### FASE 6.13 — O verify, a integração, as mutações, a guarda e as varreduras, de novo
+
+- [ ] **Passo 1: o verify, na árvore do projeto**
+
+```bash
+env -u CLAUDECODE -u AI_AGENT npm run verify
+git diff --stat AGENTS.md
+```
+
+Esperado: lint e `tsc` limpos; 116 arquivos e 3 209 casos puros e 23 e 203 de tela; "SEM VAZAMENTO em A
+nem em C"; o build (Turbopack) com "MIGRAÇÃO PULADA" e as duas rotas `imagem`; o `AGENTS.md` sem diferença.
+
+- [ ] **Passo 2: a integração inteira, no container**
+
+```bash
+DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npm run test:integracao
+```
+
+Esperado: `[rede-global] ALVO: banco de TESTE`; 45 arquivos, 493 passaram e 8 pularam (como na FASE 6.8).
+
+- [ ] **Passo 3: as provas de mutação**
+
+Copie o script do Apêndice B para `$SCRATCH/mutar-imagem-2.mjs` e rode, da raiz:
+
+```bash
+DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" node "$SCRATCH/mutar-imagem-2.mjs"
+git status --short
+```
+
+Esperado: as 50 com ✓, "50 mutações, 0 ruins", e a árvore limpa depois.
+
+- [ ] **Passo 4: a guarda do diff**
+
+Os cinco comandos da FASE 6.8, passo 4, contra `aef1eeb`, com o mesmo esperado; e o adendo sozinho:
+
+```bash
+git diff --stat 7fecd1f -- . ':!docs'
+```
+
+Esperado: só os 9 arquivos do mapa do adendo.
+
+- [ ] **Passo 5: a varredura da chave e a do modelo que sai do ar**
+
+Os quatro comandos da FASE 6.8, passo 5, com o mesmo esperado; e:
+
+```bash
+git grep -n 'model: "gpt-image-1"' HEAD -- app lib
+git grep -n "gpt-image-1" HEAD -- app lib
+```
+
+Esperado: a primeira vazia (o modelo velho não está no corpo); a segunda só com
+`lib/bonus/erro-ilustracao.ts:17` e `:61` (a cópia do Labs, item 2 do ensaio do adendo) e o comentário de
+histórico em `lib/bonus/imagem-openai.ts`.
+
+- [ ] **Passo 6: avisar o auditor**, com o hash, os números e o pedido de conferir antes do push. O push
+  das fases do adendo e o PR só com o OK do Eduardo.
+
+---
+
+### FASE 6.14 — A prova retomada, no preview, com o Eduardo
+
+Cada escrita em produção tem o OK do Eduardo, pela caixa, e a auditoria lê o banco antes e depois, com a
+hora mandada antes de cada gravação. O preview usa o banco, o bucket e a chave de produção (a chave em
+Preview). **Sem post real.**
+
+- [ ] **Passo 1: o push das fases do adendo, com o OK do Eduardo.** Empurre só a branch
+  (`git push origin refs/heads/criador-de-imagem:refs/heads/criador-de-imagem`). No log do build do
+  preview, confira o commit, "MIGRAÇÃO PULADA" e as duas rotas `imagem`.
+
+- [ ] **Passo 2: a prova** (os passos da spec, "A prova retomada"), com textos conferidos pelas regras de
+  cada campo antes de mandar ao Eduardo:
+  1. o carrossel `4e3664ea` (ou um novo, à mão, com 1 slide);
+  2. "Gerar imagem" em "Cena de cinema", com uma cena e um texto acentuado entre aspas (~US$ 0,043): a
+     imagem no espaço, o contador sobe, e a auditoria mede o JPEG e a grafia;
+  3. "Gerar de novo" em "Ilustração conceitual", recarregando durante o "Gerando…" (~US$ 0,043): o card
+     volta em "Gerando…", a imagem troca sozinha, a anterior sai do bucket, e o campo volta com o estilo;
+  4. a cena com menos de 10 caracteres e a aspa sem par: recusadas, sem custo e sem linha nova;
+  5. agendar para daqui a 7 dias e cancelar no calendário: a arte da fila leva a imagem gerada.
+
+- [ ] **Passo 3: a devolução.** O carrossel e as imagens da prova saem do banco e do bucket, com o OK do
+  Eduardo e o script lido pela auditoria antes de rodar (achado 77). As linhas de `imagens_geradas` ficam,
+  com o carrossel nulo.
+
+- [ ] **Passo 4: o PR.** O corpo, conferido pela auditoria, e o PR com o OK do Eduardo. O merge é do
+  Vinícius, e o build do merge diz "Nada a aplicar: as 19 migrações".
+
+---
+
+## Apêndice B — as provas de mutação do adendo
+
+O script do Apêndice A, com as mutações que miravam a cópia das regras ajustadas ao adendo e as novas das
+FASES 6.10 a 6.12. Sem `DATABASE_URL_TESTES`, ele recusa antes de mutar, e nenhuma mutação chama a OpenAI.
+
+```js
+// Provas de mutação da Etapa 6 (o criador de imagem), com o adendo de 09/10 (as regras de estilo do Chat, o
+// modelo novo e a tela do estilo). Cada mutação tira uma proteção e roda o teste que a
+// cobre; o caso nomeado tem de cair. Cada arquivo volta byte a byte.
+// Uso, da raiz do repositório: DATABASE_URL_TESTES=<container> node mutar-imagem.mjs [filtro]
+// As mutações INTEG rodam a suíte de integração, que sem DATABASE_URL_TESTES cai na DATABASE_URL, a da
+// PRODUÇÃO (achado 68): sem a variável, o script recusa antes de mutar, e uma rodada INTEG que não imprime
+// "ALVO: banco de TESTE" conta como ✗. Nenhuma mutação chama a OpenAI: os testes usam uma falsa.
+import { execSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+
+const PURA = (f) => `npx vitest run ${f}`;
+const TELA = (f) => `npx vitest run --config vitest.dom.config.ts ${f}`;
+const INTEG = (f) => `npx vitest run --config vitest.integracao.config.ts ${f}`;
+
+const MIGRACAO = "migrations/018-imagens-geradas.sql";
+const ESQUEMA = "lib/esquema.ts";
+const PROMPT = "lib/bonus/prompt-ilustracao.ts";
+const ERRO = "lib/bonus/erro-ilustracao.ts";
+const OPENAI = "lib/bonus/imagem-openai.ts";
+const REGRAS = "lib/bonus/imagem-regras.ts";
+const JPEG = "lib/bonus/imagem-jpeg.ts";
+const REPO = "lib/bonus/imagem-repositorio.ts";
+const PROCESSO = "lib/bonus/imagem-processo.ts";
+const ACOES = "app/bonus/imagem-actions.ts";
+const TEXTOS = "lib/bonus/imagem-textos.ts";
+const ROTA = "app/bonus/[id]/carrossel/[cid]/imagem/route.ts";
+const CONSULTA = "lib/bonus/imagem-consulta.ts";
+const CARD = "app/bonus/[id]/carrossel/[cid]/card-da-parte.tsx";
+const GERAR = "app/bonus/[id]/carrossel/[cid]/gerar-imagem.tsx";
+const EDITOR = "app/bonus/[id]/carrossel/[cid]/editor-do-carrossel.tsx";
+const REVISAO = "app/bonus/[id]/carrossel/[cid]/revisao.tsx";
+
+const T_TABELA = INTEG("testes-integracao/bonus-imagens-tabela.integracao.ts");
+const T_PARTIDA = INTEG("testes-integracao/esquema-de-partida.integracao.ts");
+const T_COPIA = PURA("tests/bonus-ilustracao-copia.test.ts");
+const T_ERRO = PURA("tests/bonus-erro-ilustracao.test.ts");
+const T_PROMPT = PURA("tests/bonus-prompt-ilustracao.test.ts");
+const T_TEXTOS = PURA("tests/bonus-imagem-textos.test.ts");
+const T_OPENAI = PURA("tests/bonus-imagem-openai.test.ts");
+const T_JPEG = PURA("tests/bonus-imagem-jpeg.test.ts");
+const T_ESTADO = PURA("tests/bonus-imagem-estado.test.ts");
+const T_REPO = INTEG("testes-integracao/bonus-imagem-repositorio.integracao.ts");
+const T_PROCESSO = INTEG("testes-integracao/bonus-imagem-processo.integracao.ts");
+const T_PAGINAS = PURA("tests/bonus-imagem-paginas.test.ts");
+const T_TELA = TELA("testes-dom/bonus-gerar-imagem.dom.tsx");
+
+const MUTACOES = [
+  // 6.1 a migração 018
+  { nome: "6.1: sem o check do caminho", arq: MIGRACAO,
+    de: "    check ((estado = 'pronta') = (caminho is not null)),", para: "    check (true),",
+    cmd: T_TABELA, caso: "o banco recusa pronta sem caminho" },
+  { nome: "6.1: o carrossel apagado leva a linha junto", arq: MIGRACAO,
+    de: "  carrossel_id uuid references carrosseis_gerados (id) on delete set null,",
+    para: "  carrossel_id uuid references carrosseis_gerados (id) on delete cascade,",
+    cmd: T_TABELA, caso: "o carrossel apagado deixa a linha, com o carrossel nulo" },
+  { nome: "6.1: a 018 fora da marca d'água", arq: ESQUEMA,
+    de: '      de: "018-imagens-geradas.sql",', para: '      de: "018-outra.sql",',
+    cmd: T_PARTIDA, caso: "a MARCA D'ÁGUA cobre a pasta inteira" },
+  // 6.2 as regras copiadas do Labs
+  { nome: "6.2: a tradução das recusas mudada só no Chat", arq: ERRO,
+    de: "3) a chave tem permissão de escrita em imagens.", para: "3) a chave tem permissão.",
+    cmd: T_COPIA, caso: "lib/bonus/erro-ilustracao.ts é o arquivo do Labs, byte a byte" },
+  { nome: "6.2: o filtro do pedaço da chave tirado do arquivo do Labs", arq: ERRO,
+    de: '  const detalhe = erro.message?.trim().replace(PEDACO_DA_CHAVE, "sk-…");', para: "  const detalhe = erro.message?.trim();",
+    cmd: T_ERRO, caso: "tira o pedaço da chave que a OpenAI põe na mensagem do 401" },
+  // 6.3 a chamada à OpenAI e o JPEG
+  { nome: "6.3: a chave que vaza para a frase", arq: OPENAI,
+    de: "  if (!resposta.ok) return { ok: false, erro: tirarChave(mensagemDaOpenAI(resposta.status, corpo), chave) };",
+    para: "  if (!resposta.ok) return { ok: false, erro: mensagemDaOpenAI(resposta.status, corpo) };",
+    cmd: T_OPENAI, caso: "a chave nunca vai para a frase: nem o pedaço que a OpenAI devolve, nem a chave inteira" },
+  { nome: "6.3: o PNG do Labs no lugar do JPEG", arq: OPENAI,
+    de: '  output_format: "jpeg",', para: '  output_format: "png",',
+    cmd: T_OPENAI, caso: "o corpo leva o modelo medido e escolhido, em JPEG, com a cena embrulhada nas regras, e com prazo" },
+  { nome: "6.3: sem a chave, chama assim mesmo", arq: OPENAI,
+    de: "  if (!chave) return { ok: false, erro: TEXTO_SEM_CHAVE_DA_IMAGEM };\n", para: "",
+    cmd: T_OPENAI, caso: "sem a chave, recusa sem chamar" },
+  { nome: "6.3: o que não é JPEG passa", arq: REGRAS,
+    de: '  if (!medidas) return "formato";', para: "  if (!medidas) return null;",
+    cmd: T_JPEG, caso: "o que não é JPEG é formato" },
+  { nome: "6.3: a tabela de Huffman lida como as medidas", arq: JPEG,
+    de: "marca <= 0xcf && marca !== 0xc4 && marca !== 0xc8", para: "marca <= 0xcf && marca !== 0xc8",
+    cmd: T_JPEG, caso: "a tabela de Huffman (C4) não é confundida com as medidas" },
+  // 6.4 o teto
+  { nome: "6.4: o teto sem a trava", arq: REPO,
+    de: "    await tx.query(`select pg_advisory_xact_lock($1::bigint)`, [TRAVA_DO_TETO_DA_IMAGEM]);\n", para: "",
+    cmd: T_REPO, caso: "a reserva espera a trava do teto: contar e inserir não correm em paralelo" },
+  { nome: "6.4: o teto só conta as prontas", arq: REPO,
+    de: "where criado_em > now() - interval '24 hours'`;", para: "where criado_em > now() - interval '24 hours' and estado = 'pronta'`;",
+    cmd: T_REPO, caso: "com 10 em 24 h, de qualquer estado, o décimo primeiro é recusado, sem linha nova" },
+  { nome: "6.4: dois pedidos no mesmo slide", arq: REPO,
+    de: '    if (gerando.length) return { ok: false as const, motivo: "gerando" as const, hoje };\n', para: "",
+    cmd: T_REPO, caso: "o segundo pedido do mesmo slide é recusado; outro slide passa" },
+  { nome: "6.4: a pronta marcada fora de gerando", arq: REPO,
+    de: "set estado = 'pronta', caminho = $2, terminado_em = now()\n      where id = $1 and estado = 'gerando'",
+    para: "set estado = 'pronta', caminho = $2, terminado_em = now()\n      where id = $1",
+    cmd: T_REPO, caso: "pronta e falhou só saem de gerando, e uma vez" },
+  { nome: "6.4: a travada não vira travada", arq: REGRAS,
+    de: ">= TRAVADA_IMAGEM_MS ? { tipo: \"travada\" }", para: ">= TRAVADA_IMAGEM_MS * 10 ? { tipo: \"travada\" }",
+    cmd: T_ESTADO, caso: "gerando depois do prazo é travada" },
+  // 6.5 o processo
+  { nome: "6.5: o pedir sem conferir a descrição", arq: PROCESSO,
+    de: '  if (!descricao.ok) return { ok: false, recusa: { motivo: "descricao", texto: descricao.mensagem } };\n', para: "",
+    cmd: T_PROCESSO, caso: "recusa a descrição curta, sem linha nova" },
+  { nome: "6.5: o pedir sem conferir o espaço", arq: PROCESSO,
+    de: '  if (!comEspaco(c.escolhas, p.numero)) return { ok: false, recusa: { motivo: "sem_espaco", numero: p.numero } };\n', para: "",
+    cmd: T_PROCESSO, caso: "recusa o slide só texto, sem linha nova" },
+  { nome: "6.5: o apagar depois do guardarImagem (achado 89)", arq: PROCESSO,
+    de: "    // A linha `gerando` vence pelo prazo, aparece como falha e conta no teto; a foto fica no slide.",
+    para: "    // A linha `gerando` vence pelo prazo, aparece como falha e conta no teto; a foto fica no slide.\n    await apagarSemDerrubar([caminho]);",
+    cmd: T_PROCESSO, caso: "a falha ao marcar a linha, depois de guardar, deixa a foto no bucket e no slide" },
+  { nome: "6.5: a falha ao guardar não apaga o que subiu (achado 89)", arq: PROCESSO,
+    de: "    subido = assinado.caminho;\n", para: "",
+    cmd: T_PROCESSO, caso: "a falha ao guardar apaga do bucket o que subiu" },
+  { nome: "6.5: a imagem gerada assinada como slide pronto", arq: PROCESSO,
+    de: 'destino: "foto", arquivo,', para: 'destino: "slide", arquivo,',
+    cmd: T_PROCESSO, caso: "vai para bonus-foto na pasta da conta, o slide guarda como foto, a anterior sai, e a linha fica pronta" },
+  // 6.6 a action e a consulta
+  { nome: "6.6: a geração dentro da action, sem after (achado 88)", arq: ACOES,
+    de: "  after(() => gerarImagem({ reservaId, id, numero, descricao, contas }));",
+    para: "  await gerarImagem({ reservaId, id, numero, descricao, contas });",
+    cmd: T_PAGINAS, caso: "não espera a imagem: a geração vai para o after()" },
+  { nome: "6.6: a consulta como action (achado 88)", arq: ROTA,
+    de: 'export const runtime = "nodejs";', para: '"use server";\nexport const runtime = "nodejs";',
+    cmd: T_PAGINAS, caso: "é uma rota GET, fora da fila das actions" },
+  { nome: "6.6: a consulta sem a sessão", arq: ROTA,
+    de: "  if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) return respostaDaConsulta({ erro: TEXTO_ARTE_SEM_SESSAO }, 401);\n", para: "",
+    cmd: T_PAGINAS, caso: "o GET confere a sessão antes de qualquer outra coisa" },
+  { nome: "6.6: a consulta em cache", arq: CONSULTA,
+    de: '"Cache-Control": "private, no-store"', para: '"Cache-Control": "public, max-age=60"',
+    cmd: T_PAGINAS, caso: "nunca fica em cache: o estado muda a cada geração" },
+  { nome: "6.6: a travada some da consulta", arq: CONSULTA,
+    de: '  if (estado.tipo === "travada") return { estado: "falhou", hoje, texto: TEXTO_IMAGEM_TRAVADA };\n', para: "",
+    cmd: T_PROCESSO, caso: "a linha travada pelo prazo vira falha, com a frase da travada" },
+  // 6.7 a tela
+  { nome: "6.7: o card sem o Gerar imagem", arq: CARD,
+    de: "{podeSubir && gerarImagem && (", para: "{false && gerarImagem && (",
+    cmd: T_TELA, caso: "aparece no slide com espaço, e não no só texto" },
+  { nome: "6.7: o Gerar imagem com o carrossel na fila", arq: CARD,
+    de: "{podeSubir && gerarImagem && (", para: "{gerarImagem && (",
+    cmd: T_TELA, caso: "não aparece com o carrossel na fila" },
+  { nome: "6.7: os outros botões não se desligam", arq: CARD,
+    de: "disabled={enviando || gerandoImagem}", para: "disabled={enviando}",
+    cmd: T_TELA, caso: "enquanto gera, os outros botões da imagem daquele slide ficam desligados" },
+  { nome: "6.7: o aviso de texto some", arq: GERAR,
+    de: "{avisoDeTexto && <p", para: "{false && <p",
+    cmd: T_TELA, caso: "avisa para pôr o texto entre aspas, e depois para conferir a grafia, sem travar o botão" },
+  { nome: "6.7: o teto não trava o Gerar", arq: GERAR,
+    de: "disabled={ocupado || noTeto}", para: "disabled={ocupado}",
+    cmd: T_TELA, caso: "no teto do dia, o Gerar trava com a frase do teto" },
+  { nome: "6.7: a pronta não troca a miniatura", arq: EDITOR,
+    de: "        setVersoes((vs) => vs.map((x, i) => (i === numero - 1 ? versaoDaMiniatura : x)));\n", para: "",
+    cmd: T_TELA, caso: "o pedido volta na hora, e a consulta põe a imagem no espaço com a miniatura nova" },
+  { nome: "6.7: a página não começa em Gerando", arq: EDITOR,
+    de: "      gerandoInicial: g.gerando.includes(numero),", para: "      gerandoInicial: false,",
+    cmd: T_TELA, caso: "a página que abre com a geração em andamento começa o card em Gerando…, e acompanha" },
+  { nome: "6.7: o Gerar de novo sem a descrição", arq: EDITOR,
+    de: "      descricaoInicial: g.descricoes[numero] ?? null,", para: "      descricaoInicial: null,",
+    cmd: T_TELA, caso: "o Gerar de novo volta com o estilo e a última descrição do slide" },
+  { nome: "6.7: a página não diz o que está gerando", arq: REVISAO,
+    de: '        .filter((l) => estadoDaImagem(l, agora).tipo === "gerando")', para: "        .filter(() => false)",
+    cmd: T_PAGINAS, caso: "a action do pedido, a conta do dia e o que está gerando, pelo relógio do banco" },
+  // 6.10 as regras do Chat (adendo de 09/10)
+  { nome: "6.10: o pedido medido muda uma letra", arq: PROMPT,
+    de: '"Luz dramática e quente, de abajur', para: '"Luz dramática e fria, de abajur',
+    cmd: T_PROMPT, caso: "o pedido A do apêndice da spec sai byte a byte" },
+  { nome: "6.10: a regra do texto sai do fim", arq: PROMPT,
+    de: "    FUNDO,\n    PROIBICAO_DE_PESSOA_REAL,\n    trechos.length > 0 ? textoExato(trechos) : PROIBICAO_DE_TEXTO,\n",
+    para: "    trechos.length > 0 ? textoExato(trechos) : PROIBICAO_DE_TEXTO,\n    FUNDO,\n    PROIBICAO_DE_PESSOA_REAL,\n",
+    cmd: T_PROMPT, caso: "a ordem: estilo, atalho, cena, fundo, pessoa real e, por último, o texto" },
+  { nome: "6.10: o texto entre aspas ignorado", arq: PROMPT,
+    de: "    trechos.length > 0 ? textoExato(trechos) : PROIBICAO_DE_TEXTO,\n", para: "    PROIBICAO_DE_TEXTO,\n",
+    cmd: T_PROMPT, caso: "com aspas retas ou curvas, pede exatamente aqueles trechos, por último, com aspas retas" },
+  { nome: "6.10: a pessoa real sai do pedido", arq: PROMPT,
+    de: "    PROIBICAO_DE_PESSOA_REAL,\n    trechos.length", para: "    trechos.length",
+    cmd: T_PROMPT, caso: "a pessoa real e o fundo entram sempre, com aspas e sem aspas" },
+  { nome: "6.10: o nome de marca sem a letra simples", arq: PROMPT,
+    de: "Se um deles for o nome de uma marca ou de um produto, escreva-o em letras simples e comuns, ", para: "",
+    cmd: T_PROMPT, caso: "o nome de marca entre aspas sai em letra simples, sem logo" },
+  { nome: "6.10: o limite das aspas não confere", arq: PROMPT,
+    de: '  if (aspas.trechos.join("").length > MAX_TEXTO_ENTRE_ASPAS) {', para: "  if (false) {",
+    cmd: T_PROMPT, caso: "recusa o texto entre aspas acima de 120 e aceita exatamente nele" },
+  { nome: "6.10: a aspa sem par passa", arq: PROMPT,
+    de: '  if (aspas.semPar) return { ok: false, mensagem: "Feche as aspas do texto que deve aparecer na imagem." };\n', para: "",
+    cmd: T_PROMPT, caso: "recusa a aspa sem par, com a frase dela" },
+  { nome: "6.10: a cena conta o texto entre aspas no mínimo", arq: PROMPT,
+    de: '  const semAspas = lida.cena.replace(/["“][^"”]*["”]/g, " ").replace(/\\s+/g, " ").trim();',
+    para: '  const semAspas = lida.cena.replace(/\\s+/g, " ").trim();',
+    cmd: T_PROMPT, caso: "recusa a cena vazia e a curta, contadas sem os atalhos e sem o texto entre aspas" },
+  { nome: "6.10: dois estilos passam", arq: PROMPT,
+    de: '  if (lida.repetido === "estilo") return { ok: false, mensagem: "Escolha um estilo só para a imagem." };\n', para: "",
+    cmd: T_PROMPT, caso: "recusa dois estilos e dois atalhos" },
+  // 6.11 o modelo novo
+  { nome: "6.11: o apelido no lugar da versão medida", arq: OPENAI,
+    de: '  model: "gpt-image-2.5-flare-2026-09-08",', para: '  model: "gpt-image-2.5-flare",',
+    cmd: T_OPENAI, caso: "o corpo leva o modelo medido e escolhido, em JPEG, com a cena embrulhada nas regras, e com prazo" },
+  { nome: "6.11: a qualidade trocada", arq: OPENAI,
+    de: '  quality: "high",', para: '  quality: "medium",',
+    cmd: T_OPENAI, caso: "o corpo leva o modelo medido e escolhido, em JPEG, com a cena embrulhada nas regras, e com prazo" },
+  { nome: "6.11: o modelo que sai do ar volta", arq: OPENAI,
+    de: '  model: "gpt-image-2.5-flare-2026-09-08",', para: '  model: "gpt-image-1",',
+    cmd: T_OPENAI, caso: "o modelo que a OpenAI desliga em 23/10/2026 não está no corpo" },
+  // 6.12 a tela
+  { nome: "6.12: o estilo não vai para a descrição", arq: GERAR,
+    de: "descricao: comEstilo(estilo, descricao) });", para: "descricao });",
+    cmd: T_TELA, caso: "o estilo começa em Cena de cinema e vai para o começo da descrição" },
+  { nome: "6.12: a regra do manual do perfil some da tela", arq: GERAR,
+    de: "              <p className={hint}>{TEXTO_REGRAS_DA_IMAGEM}</p>\n", para: "",
+    cmd: T_TELA, caso: "mostra a regra do manual do perfil junto do campo" },
+  { nome: "6.12: o Gerar de novo perde o estilo", arq: GERAR,
+    de: "useState<ChaveDoEstilo>(inicial.estilo);", para: 'useState<ChaveDoEstilo>("cinema");',
+    cmd: T_TELA, caso: "o Gerar de novo volta com o estilo e a última descrição do slide" },
+  { nome: "6.12: com aspas, o aviso não manda conferir a grafia", arq: TEXTOS,
+    de: "  if (trechosEntreAspas(descricao).trechos.length > 0) return TEXTO_CONFIRA_A_GRAFIA;\n", para: "",
+    cmd: T_TEXTOS, caso: "com aspas, ela ouve que a grafia se confere antes de publicar" },
 ];
 
 const filtro = process.argv[2];
