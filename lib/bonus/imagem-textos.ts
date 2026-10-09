@@ -1,5 +1,6 @@
 import type { Aviso } from "@/lib/avisos";
 import { TETO_IMAGEM_DIARIO, type ProblemaDaImagem } from "./imagem-regras";
+import { pedeTextoNaImagem, trechosEntreAspas } from "./prompt-ilustracao";
 import { textoDaRecusaDaPublicacaoDoCarrossel, type RecusaDaPublicacaoDoCarrossel } from "./publicar-textos";
 
 // AS FRASES DO CRIADOR DE IMAGEM, fora do JSX e das actions (o princípio de lib/bonus/textos.ts): uma
@@ -63,12 +64,23 @@ export const TEXTO_SEM_REDE_DA_OPENAI = "Não consegui falar com a OpenAI. Tente
 export const TEXTO_OPENAI_SEM_IMAGEM = "A OpenAI respondeu sem a imagem. Tente de novo; se repetir, avise quem cuida do Chat.";
 
 /**
- * O AVISO DA DESCRIÇÃO QUE PEDE TEXTO NA IMAGEM (`pedeTextoNaImagem`, do Labs): é aviso, e não bloqueio,
- * como o Eduardo decidiu lá em 21/09. Ele diz a consequência, e não o mecanismo: a IA de imagem escreve
- * errado, e o texto do slide já vem da arte.
+ * AS REGRAS NA HORA DE GERAR (spec da Etapa 6, adendo de 09/10, "As regras na tela"): a do manual do
+ * perfil, que o Eduardo manteve e pediu escrita junto do campo, e a do texto entre aspas.
  */
-export function textoDoPedidoDeTexto(termo: string): string {
-  return `A descrição pede texto na imagem ("${termo}"). A IA de imagem escreve errado, e o texto do slide já vem da arte: descreva a cena sem ele.`;
+export const TEXTO_REGRAS_DA_IMAGEM =
+  "Sem marca e sem pessoa real (manual do perfil). Texto só entre aspas, exatamente como escrito; nome de marca sai em letra simples, sem logo.";
+export const TEXTO_ESCREVA_ENTRE_ASPAS = "Para o texto aparecer na imagem, escreva-o entre aspas.";
+export const TEXTO_CONFIRA_A_GRAFIA = "Confira a grafia na imagem antes de publicar.";
+
+/**
+ * O AVISO DE TEXTO (mudou no adendo de 09/10): é aviso, e não bloqueio, como o Eduardo decidiu no Labs em
+ * 21/09. Sem aspas, a descrição que pede texto (`pedeTextoNaImagem`, a lista do Labs) ouve que o texto vai
+ * entre aspas, porque sem elas a imagem sai sem texto nenhum; com aspas, que a grafia se confere antes de
+ * publicar, porque o modelo ainda pode errar uma letra.
+ */
+export function textoDoAvisoDeTexto(descricao: string): string | null {
+  if (trechosEntreAspas(descricao).trechos.length > 0) return TEXTO_CONFIRA_A_GRAFIA;
+  return pedeTextoNaImagem(descricao) ? TEXTO_ESCREVA_ENTRE_ASPAS : null;
 }
 
 /**

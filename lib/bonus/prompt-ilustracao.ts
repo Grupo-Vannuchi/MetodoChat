@@ -298,6 +298,23 @@ export function lerDescricao(descricao: string): LeituraDaDescricao {
 }
 
 /**
+ * O ESTILO NO COMEÇO DA DESCRIÇÃO, PARA A TELA. A tela tem a escolha do estilo à parte do campo da cena, e
+ * guarda o estilo como o primeiro atalho da descrição (`/cinema …`): assim o "Gerar de novo" o lê de volta,
+ * e a tabela 018, já na produção, não precisa de coluna nova (spec, adendo de 09/10).
+ */
+export function comEstilo(estilo: ChaveDoEstilo, resto: string): string {
+  return `/${estilo} ${resto.trim()}`;
+}
+
+/** O inverso de `comEstilo`: o estilo do começo (ou o padrão) e o resto, com o atalho ainda nele. */
+export function separarEstiloDaDescricao(descricao: string): { estilo: ChaveDoEstilo; resto: string } {
+  const m = /^\/([a-z-]+)(?:\s+([\s\S]*))?$/i.exec(descricao.trim());
+  const chave = m?.[1].toLowerCase();
+  if (m && chave && ESTILO_POR_CHAVE.has(chave)) return { estilo: chave as ChaveDoEstilo, resto: (m[2] ?? "").trim() };
+  return { estilo: ESTILO_PADRAO, resto: descricao.trim() };
+}
+
+/**
  * Os trechos entre aspas da cena, retas (`"…"`) ou curvas (`“…”`), na ordem em que aparecem; e se
  * alguma aspa ficou sem par. Trecho vazio (`""`) não conta.
  */

@@ -7,18 +7,20 @@ import {
   TEXTO_GERANDO_A_IMAGEM,
   TEXTO_IMAGEM_FALHOU_SEM_MOTIVO,
   TEXTO_IMAGEM_GERADA,
+  TEXTO_REGRAS_DA_IMAGEM,
   textoDaRecusaDaImagem,
+  textoDoAvisoDeTexto,
   textoDoContador,
-  textoDoPedidoDeTexto,
   type AvisoDoPedidoDeImagem,
 } from "@/lib/bonus/imagem-textos";
-import { ATALHOS, pedeTextoNaImagem } from "@/lib/bonus/prompt-ilustracao";
+import { ATALHOS, ESTILOS, comEstilo, separarEstiloDaDescricao, type ChaveDoEstilo } from "@/lib/bonus/prompt-ilustracao";
 
 // O "GERAR IMAGEM" DE UM SLIDE (spec da Etapa 6, "A tela" e "Pedir e acompanhar"), na linha dos botões da
 // imagem do card, ao lado do "Subir foto" e do "Slide pronto do Canva".
 //
-// O botão abre o campo da cena, com os cinco atalhos do Labs, o aviso da descrição que pede texto e o
-// contador do dia. O "Gerar" chama a action do pedido, que confere, reserva e VOLTA NA HORA (achado 88):
+// O botão abre o campo da cena, com a escolha do estilo (adendo de 09/10), os cinco atalhos, a regra do
+// manual do perfil, o aviso de texto e o contador do dia. O estilo vai para o começo da descrição
+// (`comEstilo`), e o "Gerar de novo" o lê de volta (`separarEstiloDaDescricao`). O "Gerar" chama a action do pedido, que confere, reserva e VOLTA NA HORA (achado 88):
 // a imagem é gerada no servidor, e este componente pergunta pela rota GET da consulta, uma pergunta de cada
 // vez, até ela ficar pronta ou falhar. Enquanto isso, o resto da página funciona. A página que abre com uma
 // geração em andamento começa aqui em "Gerando…" e acompanha.
@@ -29,7 +31,7 @@ export type GeradorDoSlide = {
   /** A conta das últimas 24 horas, comum a todos os cards. */
   hoje: number;
   aoMudarHoje: (hoje: number) => void;
-  /** A última descrição deste slide, para o "Gerar de novo". */
+  /** A última descrição deste slide, com o estilo no começo, para o "Gerar de novo". */
   descricaoInicial: string | null;
   /** Uma geração deste slide estava em andamento quando a página abriu. */
   gerandoInicial: boolean;
@@ -62,7 +64,9 @@ export default function GerarImagem({
   aoMudarGerando: (gerando: boolean) => void;
 }) {
   const [aberto, setAberto] = useState(false);
-  const [descricao, setDescricao] = useState(gerador.descricaoInicial ?? "");
+  const [inicial] = useState(() => separarEstiloDaDescricao(gerador.descricaoInicial ?? ""));
+  const [estilo, setEstilo] = useState<ChaveDoEstilo>(inicial.estilo);
+  const [descricao, setDescricao] = useState(inicial.resto);
   const [jaPediu, setJaPediu] = useState(gerador.descricaoInicial !== null);
   const [gerando, setGerando] = useState(gerador.gerandoInicial);
   const [aviso, setAviso] = useState<AvisoNaTela | null>(gerador.gerandoInicial ? { tom: "atencao", texto: TEXTO_GERANDO_A_IMAGEM } : null);
@@ -121,12 +125,12 @@ export default function GerarImagem({
     };
   }, [gerando, rodada, caminho, numero, gerador.intervaloMs]);
 
-  const termo = pedeTextoNaImagem(descricao);
+  const avisoDeTexto = textoDoAvisoDeTexto(descricao);
   const noTeto = gerador.hoje >= TETO_IMAGEM_DIARIO;
 
   function pedir() {
     iniciar(async () => {
-      const r = await gerador.acao({ id: carrosselId, numero, descricao });
+      const r = await gerador.acao({ id: carrosselId, numero, descricao: comEstilo(estilo, descricao) });
       if (r.hoje !== undefined) gerador.aoMudarHoje(r.hoje);
       if (r.tom !== "ok") {
         setAviso({ tom: "erro", texto: r.texto });
@@ -147,6 +151,23 @@ export default function GerarImagem({
         <div className="order-last basis-full space-y-2">
           {aberto && (
             <div className="space-y-2">
+              <fieldset className="space-y-1">
+                <legend className="text-sm font-medium">Estilo</legend>
+                {ESTILOS.map((e) => (
+                  <label key={e.chave} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name={`estilo-do-slide-${numero}`}
+                      value={e.chave}
+                      checked={estilo === e.chave}
+                      onChange={() => setEstilo(e.chave)}
+                    />
+                    <span>
+                      {e.rotulo}: {e.resumo}
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
               <p className="text-sm font-medium">Descreva a cena</p>
               <textarea
                 aria-label={`Slide ${numero}: descreva a cena`}
@@ -163,7 +184,8 @@ export default function GerarImagem({
                   </p>
                 ))}
               </div>
-              {termo && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{textoDoPedidoDeTexto(termo)}</p>}
+              <p className={hint}>{TEXTO_REGRAS_DA_IMAGEM}</p>
+              {avisoDeTexto && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{avisoDeTexto}</p>}
               <p className={hint}>{textoDoContador(gerador.hoje)}</p>
               {noTeto && <p className="text-xs font-medium text-parou dark:text-parou-escuro">{textoDaRecusaDaImagem({ motivo: "teto" })}</p>}
               <button type="button" onClick={pedir} disabled={ocupado || noTeto} className={btnPrimary}>

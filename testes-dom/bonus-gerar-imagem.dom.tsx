@@ -7,8 +7,11 @@ import { camposDoFormulario } from "@/lib/bonus/carrossel-texto";
 import type { ConsultaDaImagem } from "@/lib/bonus/imagem-consulta";
 import { urlDaConsultaDaImagem } from "@/lib/bonus/imagem-regras";
 import {
+  TEXTO_CONFIRA_A_GRAFIA,
+  TEXTO_ESCREVA_ENTRE_ASPAS,
   TEXTO_GERANDO_A_IMAGEM,
   TEXTO_IMAGEM_GERADA,
+  TEXTO_REGRAS_DA_IMAGEM,
   textoDaRecusaDaImagem,
   textoDoContador,
   type AvisoDoPedidoDeImagem,
@@ -16,9 +19,9 @@ import {
 import { ATALHOS } from "@/lib/bonus/prompt-ilustracao";
 
 // O CRIADOR DE IMAGEM NA TELA (spec da Etapa 6, "A tela" e "Pedir e acompanhar"): o botão em cada slide com
-// espaço, o campo com os atalhos do Labs, o aviso de texto, o contador do dia, o pedido que volta na hora,
-// e a consulta que acompanha até a imagem entrar no espaço. A action e a consulta são falsas: nada sai para
-// a rede, e nada chama a OpenAI.
+// espaço, o campo com o estilo (adendo de 09/10), os atalhos, as regras do manual do perfil, o aviso de
+// texto, o contador do dia, o pedido que volta na hora, e a consulta que acompanha até a imagem entrar no
+// espaço. A action e a consulta são falsas: nada sai para a rede, e nada chama a OpenAI.
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
@@ -150,15 +153,36 @@ describe("o campo da cena", () => {
     expect(within(card(2)).getByText(textoDoContador(3))).toBeTruthy();
   });
 
-  // O aviso, e não o bloqueio, decidido pelo Eduardo no Labs em 21/09: a IA de imagem escreve errado.
-  it("avisa quando a descrição pede texto na imagem, sem travar o botão", () => {
+  // O aviso, e não o bloqueio (decisão do Eduardo no Labs em 21/09), em dois casos pelo adendo de 09/10.
+  it("avisa para pôr o texto entre aspas, e depois para conferir a grafia, sem travar o botão", () => {
     renderizar();
     abrir(2);
     fireEvent.change(campo(2), { target: { value: "uma placa com o nome da loja na entrada" } });
-    expect(within(card(2)).getByText(/pede texto na imagem/)).toBeTruthy();
+    expect(within(card(2)).getByText(TEXTO_ESCREVA_ENTRE_ASPAS)).toBeTruthy();
     expect(gerar(2).disabled).toBe(false);
+    fireEvent.change(campo(2), { target: { value: 'uma placa com "LOJA ABERTA" na entrada' } });
+    expect(within(card(2)).getByText(TEXTO_CONFIRA_A_GRAFIA)).toBeTruthy();
+    expect(within(card(2)).queryByText(TEXTO_ESCREVA_ENTRE_ASPAS)).toBeNull();
     fireEvent.change(campo(2), { target: { value: "uma loja de roupas cheia de gente" } });
-    expect(within(card(2)).queryByText(/pede texto na imagem/)).toBeNull();
+    expect(within(card(2)).queryByText(TEXTO_CONFIRA_A_GRAFIA)).toBeNull();
+  });
+
+  it("mostra a regra do manual do perfil junto do campo", () => {
+    renderizar();
+    abrir(2);
+    expect(within(card(2)).getByText(TEXTO_REGRAS_DA_IMAGEM)).toBeTruthy();
+  });
+
+  it("o estilo começa em Cena de cinema e vai para o começo da descrição", async () => {
+    const { pedidos } = renderizar();
+    abrir(2);
+    expect((within(card(2)).getByRole("radio", { name: /^Cena de cinema/ }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(within(card(2)).getByRole("radio", { name: /^Ilustração conceitual/ }));
+    fireEvent.change(campo(2), { target: { value: CENA } });
+    await act(async () => {
+      fireEvent.click(gerar(2));
+    });
+    expect(pedidos).toEqual([{ id: CARROSSEL, numero: 2, descricao: `/ilustracao ${CENA}` }]);
   });
 
   it("no teto do dia, o Gerar trava com a frase do teto", () => {
@@ -168,10 +192,11 @@ describe("o campo da cena", () => {
     expect(within(card(2)).getByText(textoDaRecusaDaImagem({ motivo: "teto" }))).toBeTruthy();
   });
 
-  it("o Gerar de novo volta com a última descrição do slide", () => {
-    renderizar({ gerada: { descricoes: { 2: "a primeira descrição da cena" } } });
+  it("o Gerar de novo volta com o estilo e a última descrição do slide", () => {
+    renderizar({ gerada: { descricoes: { 2: "/comercial /showcase a primeira descrição da cena" } } });
     abrir(2, "Gerar de novo");
-    expect(campo(2).value).toBe("a primeira descrição da cena");
+    expect(campo(2).value).toBe("/showcase a primeira descrição da cena");
+    expect((within(card(2)).getByRole("radio", { name: /^Ambiente comercial brilhante/ }) as HTMLInputElement).checked).toBe(true);
   });
 });
 
@@ -183,7 +208,7 @@ describe("pedir e acompanhar", () => {
     ];
     const { pedidos } = renderizar();
     await pedir(2);
-    expect(pedidos).toEqual([{ id: CARROSSEL, numero: 2, descricao: CENA }]);
+    expect(pedidos).toEqual([{ id: CARROSSEL, numero: 2, descricao: `/cinema ${CENA}` }]);
     expect(within(card(2)).getByText(TEXTO_GERANDO_A_IMAGEM)).toBeTruthy();
     await waitFor(() => expect(miniatura(2).getAttribute("src")).toBe(urlDaArte(CAMINHO, 2, "b9")));
     expect(urls[0]).toBe(urlDaConsultaDaImagem(CAMINHO, 2));

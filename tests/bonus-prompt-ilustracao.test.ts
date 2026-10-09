@@ -11,9 +11,11 @@ import {
   MIN_DESCRICAO,
   PROIBICAO_DE_PESSOA_REAL,
   PROIBICAO_DE_TEXTO,
+  comEstilo,
   lerDescricao,
   montarPrompt,
   pedeTextoNaImagem,
+  separarEstiloDaDescricao,
   textoExato,
   trechosEntreAspas,
   validarDescricao,
@@ -163,6 +165,24 @@ describe("lerDescricao", () => {
     expect(lerDescricao("/showkase uma caixa").desconhecido).toBe("showkase");
     expect(lerDescricao("/cinema /comercial uma loja").repetido).toBe("estilo");
     expect(lerDescricao("/passo /grafico uma tabela").repetido).toBe("atalho");
+  });
+});
+
+describe("o estilo no começo da descrição, para a tela", () => {
+  // A tela guarda o estilo como o primeiro atalho da descrição: o "Gerar de novo" o lê de volta, e a
+  // tabela 018 não precisa de coluna nova.
+  it("comEstilo põe o estilo na frente da descrição", () => {
+    expect(comEstilo("ilustracao", "  /antes-depois dois cérebros  ")).toBe("/ilustracao /antes-depois dois cérebros");
+  });
+
+  it("separarEstiloDaDescricao devolve o estilo e o resto, com o atalho ainda nele", () => {
+    expect(separarEstiloDaDescricao("/comercial /showcase uma vitrine")).toEqual({ estilo: "comercial", resto: "/showcase uma vitrine" });
+    expect(separarEstiloDaDescricao("/CINEMA")).toEqual({ estilo: "cinema", resto: "" });
+  });
+
+  it("sem estilo no começo, o padrão e a descrição inteira", () => {
+    expect(separarEstiloDaDescricao("/marketing uma pessoa na loja")).toEqual({ estilo: "cinema", resto: "/marketing uma pessoa na loja" });
+    expect(separarEstiloDaDescricao("uma pessoa na loja")).toEqual({ estilo: "cinema", resto: "uma pessoa na loja" });
   });
 });
 
