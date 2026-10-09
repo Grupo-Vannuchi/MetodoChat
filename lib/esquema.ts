@@ -253,6 +253,16 @@ const MARCA_DAGUA = {
       porque:
         "coluna de FEATURE (carrosseis_gerados.acao_da_chamada, e a palavra que pode faltar): a partida do painel não depende dela, de propósito",
     },
+    {
+      de: "018-imagens-geradas.sql",
+      // A TERCEIRA TABELA DE FEATURE, pelo mesmo motivo da 013 e da 014: `imagens_geradas` é do criador
+      // de imagem (app/bonus/), que conta nela o teto do dia e guarda a última descrição de cada slide,
+      // e uma tabela que só ele lê não pode impedir o painel inteiro de subir. Quem confere as colunas é
+      // testes-integracao/bonus-imagens-tabela.integracao.ts. Decidido pelo Eduardo em 09/10/2026
+      // (docs/specs/2026-10-09-criador-de-imagem.md).
+      porque:
+        "tabela de FEATURE (imagens_geradas): a partida do painel não depende dela, de propósito",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",
