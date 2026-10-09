@@ -3,7 +3,7 @@
 **Nascido em:** 09/10/2026, pedido pelo Eduardo com um print da lista "Carrosséis", logo depois de a
 Etapa 6 entrar em produção (`main` em `af714d3`). Desenhado com ele pela caixa de perguntas.
 **Estado:** desenho aprovado pelo Eduardo, em duas partes (a tela; por dentro); revisado pela auditoria
-em `d142ed8`, sem bloqueio, com os achados 92 a 95 absorvidos (o 95 decidido pelo Eduardo).
+em `d142ed8`, sem bloqueio, com os achados 92 a 96 absorvidos (o 95 decidido pelo Eduardo).
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta própria,
 e nenhum arquivo do `/publicar`, da fila nem das automações muda.
 **Etapas anteriores:** a Etapa 7 criou o menu "Carrosséis" (`app/carrosseis/page.tsx`); a Etapa 5, o
@@ -128,7 +128,10 @@ Numa transação (`lib/bonus/apagar-carrossel.ts`, novo, `server-only`):
    apagar nada. **A corrida com um pedido de imagem** fica fechada pela chave estrangeira da 018: o
    `insert` da reserva da imagem trava a linha do carrossel em `key share`, que espera o `for update` do
    apagar (e vice-versa). Se a reserva entra antes, o apagar a vê e recusa; se o apagar entra antes, a
-   reserva falha pela chave estrangeira, sem chamar a OpenAI;
+   reserva bate na chave estrangeira (código `23503`), sem linha nova e sem chamar a OpenAI. Hoje esse erro
+   sobe até a tela, que cairia na página de erro (`imagem-repositorio.ts:49-52`, `imagem-processo.ts:47-48`,
+   `imagem-actions.ts:32-41`, `gerar-imagem.tsx:131-142`; achado 96): `reservarImagem` passa a pegar o
+   `23503` e devolver a recusa de carrossel que não existe mais (a `nao_pronto` de hoje), com a frase dela;
 3. apaga a linha (`delete … returning`, exigindo 1). As linhas de `imagens_geradas` dele ficam, com o
    carrossel nulo, pela chave estrangeira da 018 (`on delete set null`): são o histórico do teto das
    imagens. As linhas da fila ficam, como histórico.
@@ -191,7 +194,7 @@ são a arte do slide 1.
 | integração | apagar um rascunho: a linha some, as linhas de `imagens_geradas` ficam com o carrossel nulo, as linhas da fila ficam, e os arquivos das imagens e as cópias da fila saem do bucket falso |
 | integração | as recusas, sem apagar nada nem tocar no bucket: agendado, publicando, publicado, geração do texto em andamento, uma imagem gerando (achado 95), o carrossel que não existe |
 | integração | o apagar e o agendar ao mesmo tempo: um espera o outro; se o agendar passa antes, o apagar recusa |
-| integração | o apagar e a reserva de uma imagem ao mesmo tempo: se a reserva passa antes, o apagar recusa; se o apagar passa antes, a reserva falha pela chave estrangeira, sem linha nova |
+| integração | o apagar e a reserva de uma imagem ao mesmo tempo: se a reserva passa antes, o apagar recusa; se o apagar passa antes, a reserva devolve a recusa de carrossel que não existe mais (e não um erro), sem linha nova (achado 96) |
 | integração | a falha do bucket depois do commit não desfaz o banco |
 | tela | as três abas com a contagem, a aba do endereço, a capa em cada linha, o selo de cada aba e a aba vazia; o "Apagar carrossel" com a confirmação em dois cliques, o "Cancelar" que volta, a frase no lugar do botão quando não pode, e a recusa do servidor que aparece no botão |
 | páginas | a action nova confere a sessão antes de tudo (a guarda que lê o arquivo); a página do carrossel que falhou na geração também tem o botão |
