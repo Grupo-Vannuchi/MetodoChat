@@ -10,6 +10,7 @@ import { corteDoCard, type Corte } from "@/lib/bonus/publicar-cabimento";
 import type { JeitoDaImagem } from "@/lib/bonus/publicar-regras";
 import { TEXTO_TEXTO_MUDOU, type AvisoDaImagem } from "@/lib/bonus/publicar-textos";
 import Campo from "./campo";
+import GerarImagem, { type GeradorDoSlide } from "./gerar-imagem";
 import type { ImagemNaTela } from "./publicacao-na-tela";
 
 // O CARD DE UMA PARTE DO CARROSSEL (spec da Etapa 4, "Um card por slide"): a miniatura do slide, o
@@ -39,6 +40,8 @@ import type { ImagemNaTela } from "./publicacao-na-tela";
 //   inteiro, e a miniatura passa a ser ele. Com o texto salvo depois dele, o card avisa.
 // Os dois botões e o "Baixar" ficam numa linha embaixo do card, na largura dele (prova de 07/10).
 // Subir um jeito troca o outro. O "Baixar" continua baixando a arte do Chat, para levar ao Canva.
+// Na mesma linha, o "Gerar imagem" (spec da Etapa 6, gerar-imagem.tsx): a imagem gerada entra no espaço
+// como uma foto, e enquanto ela gera os outros botões da imagem deste slide ficam desligados.
 // Com o carrossel na fila ou publicado (`travado`), o card fica só para leitura: sem "Editar", sem
 // upload, e o "Só texto" desligado. A trava vale no servidor; aqui ela só se mostra.
 export default function CardDaParte({
@@ -61,6 +64,7 @@ export default function CardDaParte({
   travado = null,
   aoMudarNaoSalvo,
   aoMudarCorte,
+  gerarImagem = null,
 }: {
   acao: (anterior: AvisoDoSlide | null, form: FormData) => Promise<AvisoDoSlide | null>;
   caminho: string;
@@ -89,6 +93,8 @@ export default function CardDaParte({
   aoMudarNaoSalvo?: (naoSalvo: boolean) => void;
   /** Avisa o editor quando o slide passa a sair cortado, ou deixa de sair: o "Publicar" trava com ele. */
   aoMudarCorte?: (corte: Corte | null) => void;
+  /** Gera a imagem do espaço deste slide (Etapa 6). Sem ele, o card não tem o "Gerar imagem". */
+  gerarImagem?: GeradorDoSlide | null;
 }) {
   const doCard = (v: Record<string, string>) => Object.fromEntries(campos.map((c) => [c.nome, v[c.nome] ?? ""]));
   const [atuais, setAtuais] = useState(() => doCard(valores));
@@ -107,6 +113,7 @@ export default function CardDaParte({
   const [avisoDaImagem, setAvisoDaImagem] = useState<AvisoDaImagem | null>(null);
   const [enviando, iniciarEnvio] = useTransition();
   const [jeitoEnviado, setJeitoEnviado] = useState<JeitoDaImagem | null>(null);
+  const [gerandoImagem, setGerandoImagem] = useState(false);
 
   const numero = parte.tipo === "slide" ? parte.numero : null;
   const naoSalvo = campos.some((c) => atuais[c.nome] !== salvos[c.nome]);
@@ -154,7 +161,7 @@ export default function CardDaParte({
           accept="image/jpeg,image/png,image/webp"
           aria-label={jeito === "foto" ? `Slide ${numero}: foto para o espaço da arte` : `Slide ${numero}: slide pronto do Canva`}
           className="sr-only"
-          disabled={enviando}
+          disabled={enviando || gerandoImagem}
           onChange={(e) => aoEscolherImagem(e, jeito)}
         />
       </label>
@@ -240,6 +247,15 @@ export default function CardDaParte({
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {podeSubir && botaoDeImagem("foto")}
           {podeSubir && botaoDeImagem("slide")}
+          {podeSubir && gerarImagem && (
+            <GerarImagem
+              caminho={caminho}
+              carrosselId={carrosselId}
+              numero={numero}
+              gerador={gerarImagem}
+              aoMudarGerando={setGerandoImagem}
+            />
+          )}
           <a
             href={urlDaArte(caminho, numero, versao, true)}
             download

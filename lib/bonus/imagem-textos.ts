@@ -63,6 +63,15 @@ export const TEXTO_SEM_REDE_DA_OPENAI = "Não consegui falar com a OpenAI. Tente
 export const TEXTO_OPENAI_SEM_IMAGEM = "A OpenAI respondeu sem a imagem. Tente de novo; se repetir, avise quem cuida do Chat.";
 
 /**
+ * O AVISO DA DESCRIÇÃO QUE PEDE TEXTO NA IMAGEM (`pedeTextoNaImagem`, do Labs): é aviso, e não bloqueio,
+ * como o Eduardo decidiu lá em 21/09. Ele diz a consequência, e não o mecanismo: a IA de imagem escreve
+ * errado, e o texto do slide já vem da arte.
+ */
+export function textoDoPedidoDeTexto(termo: string): string {
+  return `A descrição pede texto na imagem ("${termo}"). A IA de imagem escreve errado, e o texto do slide já vem da arte: descreva a cena sem ele.`;
+}
+
+/**
  * A CHAVE NUNCA VAI PARA UMA FRASE. A mensagem que a OpenAI devolve num 401 traz um pedaço mascarado da
  * chave ("Incorrect API key provided: " seguido do começo e do fim dela), e a frase do Labs repassa a
  * mensagem inteira entre parênteses. Antes de a frase ir para a tela ou para o banco, todo trecho que

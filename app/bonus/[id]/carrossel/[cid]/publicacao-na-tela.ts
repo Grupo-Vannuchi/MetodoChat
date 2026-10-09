@@ -1,4 +1,5 @@
 import type { OrigemDaConta } from "@/lib/bonus/arte-conta";
+import type { AvisoDoPedidoDeImagem } from "@/lib/bonus/imagem-textos";
 import type { JeitoDaImagem } from "@/lib/bonus/publicar-regras";
 import type { AvisoDaImagem, AvisoDaPublicacao, RespostaDaAssinatura } from "@/lib/bonus/publicar-textos";
 import type { TomDoQuadro } from "@/lib/bonus/textos";
@@ -11,6 +12,18 @@ import type { TomDoQuadro } from "@/lib/bonus/textos";
  * slide pronto, a miniatura é o endereço; no slide com foto, é a arte da rota, com a foto no espaço.
  */
 export type ImagemNaTela = { url: string | null; versao: string; jeito: JeitoDaImagem };
+
+/**
+ * O CRIADOR DE IMAGEM (spec da Etapa 6): a action do pedido, a conta do dia, a última descrição de cada
+ * slide (para o "Gerar de novo") e os slides com uma geração em andamento quando a página abriu (o card
+ * começa em "Gerando…" e acompanha). Sem ele, os cards não têm o "Gerar imagem".
+ */
+export type ImagemGeradaNaTela = {
+  acaoDoPedido: (pedido: unknown) => Promise<AvisoDoPedidoDeImagem>;
+  hoje: number;
+  descricoes: Record<number, string>;
+  gerando: number[];
+};
 
 export type PublicacaoNaTela = {
   acaoDaAssinatura: (pedido: unknown) => Promise<RespostaDaAssinatura>;
@@ -31,4 +44,6 @@ export type PublicacaoNaTela = {
   avisoDoCalendario: string | null;
   /** O aviso do funil (Etapa 7, `textoDoFunil`), depois de agendar ou publicar. */
   avisoDoFunil?: string | null;
+  /** O criador de imagem (Etapa 6). */
+  imagemGerada?: ImagemGeradaNaTela;
 };

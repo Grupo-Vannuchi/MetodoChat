@@ -95,3 +95,14 @@ describe("a consulta comum", () => {
     expect(urlDaConsultaDaImagem("/bonus/b1/carrossel/c1", 3)).toBe("/bonus/b1/carrossel/c1/imagem?slide=3");
   });
 });
+
+// A PÁGINA ENTREGA O CRIADOR DE IMAGEM AO EDITOR (desde a Etapa 7, a parte de dentro da página é a revisão,
+// comum às duas rotas do carrossel): a action do pedido e o que a tabela 018 diz de cada slide.
+describe("a página do carrossel entrega o criador de imagem ao editor", () => {
+  it("a action do pedido, a conta do dia e o que está gerando, pelo relógio do banco", () => {
+    const fonte = ler("app/bonus/[id]/carrossel/[cid]/revisao.tsx");
+    expect(fonte).toContain("acaoDoPedido: pedirImagemDoSlide,");
+    expect(fonte).toContain("ultimasDoCarrossel(carrossel.id)");
+    expect(fonte).toContain('estadoDaImagem(l, agora).tipo === "gerando"');
+  });
+});

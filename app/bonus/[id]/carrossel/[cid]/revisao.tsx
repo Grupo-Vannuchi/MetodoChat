@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { alertError } from "@/app/ui";
 import { fixarContaDoCarrossel, salvarArteDoCarrossel, salvarSlideDoCarrossel } from "@/app/bonus/carrossel-actions";
+import { pedirImagemDoSlide } from "@/app/bonus/imagem-actions";
 import { assinarImagemDoCarrossel, guardarImagemDoSlide, publicarCarrossel } from "@/app/bonus/publicar-actions";
 import { ACCOUNT_COOKIE } from "@/lib/account";
 import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
@@ -15,6 +16,8 @@ import { contasParaArte } from "@/lib/bonus/carrossel-repositorio";
 import { textoDaLinhaDoCarrossel } from "@/lib/bonus/carrossel-tela";
 import { camposDoFormulario, valoresPorCampo } from "@/lib/bonus/carrossel-texto";
 import { TEXTO_CARROSSEL_SEM_TEXTO } from "@/lib/bonus/carrossel-textos";
+import { imagensNasUltimas24h, ultimasDoCarrossel } from "@/lib/bonus/imagem-repositorio";
+import { estadoDaImagem } from "@/lib/bonus/imagem-regras";
 import { publicacaoLivre } from "@/lib/bonus/publicar-estado";
 import { fotosDaArte, imagensDaArte, versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
 import { estadoDoCarrossel } from "@/lib/bonus/publicar-repositorio";
@@ -44,6 +47,9 @@ import type { PublicacaoNaTela } from "./publicacao-na-tela";
  *
  * O AVISO DO FUNIL (spec da Etapa 7) também: depois de agendar ou publicar, a página lembra de ligar a
  * automação da palavra no post novo, no /automacoes. Vale para o carrossel de bônus e para o avulso.
+ *
+ * O CRIADOR DE IMAGEM (spec da Etapa 6) também: a conta do dia, a última descrição de cada slide e os
+ * slides com uma geração em andamento, lidos de `imagens_geradas` pelo relógio do banco.
  */
 export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarrossel }) {
   const texto = textoDaLinhaDoCarrossel(carrossel);
@@ -59,6 +65,7 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
   const noMenu = contaSelecionada(contas, doCookie);
   // O jeito de cada imagem é o prefixo do caminho (adendo da Etapa 5): as fotos são as de `bonus-foto`.
   const fotos = fotosDaArte(carrossel.arte, carrossel.total_slides);
+  const [{ agora, linhas: geradas }, hojeDeImagens] = await Promise.all([ultimasDoCarrossel(carrossel.id), imagensNasUltimas24h()]);
   const publicacao: PublicacaoNaTela = {
     acaoDaAssinatura: assinarImagemDoCarrossel,
     acaoDaImagem: guardarImagemDoSlide,
@@ -77,6 +84,14 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
     avisoDoCalendario:
       filaId && conta && escolhas.conta && noMenu?.ig_user_id !== escolhas.conta ? textoDoCalendario(rotuloDaConta(conta)) : null,
     avisoDoFunil: textoDoFunil(estado, carrossel.palavra),
+    imagemGerada: {
+      acaoDoPedido: pedirImagemDoSlide,
+      hoje: hojeDeImagens,
+      descricoes: Object.fromEntries(Object.values(geradas).map((l) => [l.numero, l.descricao])),
+      gerando: Object.values(geradas)
+        .filter((l) => estadoDaImagem(l, agora).tipo === "gerando")
+        .map((l) => l.numero),
+    },
   };
 
   return (
