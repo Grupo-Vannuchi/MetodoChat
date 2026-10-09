@@ -13,7 +13,7 @@ import {
   textoDoContador,
   type AvisoDoPedidoDeImagem,
 } from "@/lib/bonus/imagem-textos";
-import { ESTILOS } from "@/lib/bonus/prompt-ilustracao";
+import { ATALHOS } from "@/lib/bonus/prompt-ilustracao";
 
 // O CRIADOR DE IMAGEM NA TELA (spec da Etapa 6, "A tela" e "Pedir e acompanhar"): o botão em cada slide com
 // espaço, o campo com os atalhos do Labs, o aviso de texto, o contador do dia, o pedido que volta na hora,
@@ -146,7 +146,7 @@ describe("o campo da cena", () => {
     renderizar();
     abrir(2);
     expect(campo(2)).toBeTruthy();
-    for (const e of ESTILOS) expect(within(card(2)).getByText(`/${e.chave}`)).toBeTruthy();
+    for (const a of ATALHOS) expect(within(card(2)).getByText(`/${a.chave}`)).toBeTruthy();
     expect(within(card(2)).getByText(textoDoContador(3))).toBeTruthy();
   });
 

@@ -1,15 +1,24 @@
-// O PROMPT da ilustração do slide. PURO, para ser testável fora do módulo que chama a API —
-// mesmo padrão de `payment-logic` × `payments` e de `schemas` × `gerar`.
+// AS REGRAS DA IMAGEM DO CHAT (spec da Etapa 6, adendo de 09/10, "As regras de estilo do Chat"). PURO,
+// para ser testável fora do módulo que chama a API.
 //
-// A pessoa digita só a CENA ("uma lousa de sala de aula com um professor apontando"). Tudo
-// o que faz a peça funcionar dentro do carrossel — estilo, fundo, e a proibição de texto —
-// é acrescentado aqui, igual em toda ilustração. Se isso ficasse a cargo de quem digita,
-// cada slide sairia de um mundo diferente e a sequência não leria como uma coisa só.
+// ⚠️ ESTE ARQUIVO NASCEU DA CÓPIA DO LABS, E SE SEPAROU DELE EM 09/10. Até ali ele era, byte a byte, o
+// `src/lib/ia/prompt-ilustracao.ts` do Labs (main 672ee71, blob d993e809), feito para as ilustrações do
+// site. A primeira imagem real do Chat saiu com "cara de IA", e as seis referências que o Eduardo mandou
+// dos carrosséis pediam o contrário daquelas regras: texto em português dentro da imagem, luz de cinema,
+// a cena como metáfora do post. Ele decidiu, pela caixa, que o Chat tem regras próprias. Ficaram do Labs,
+// sem mudar uma letra, a proibição de texto (quando não há aspas), a de pessoa real e de marca (o manual
+// do perfil) e a cena de borda a borda; os atalhos de composição ficaram, com o `/grafico` ajustado.
+// A tradução das recusas da OpenAI (`erro-ilustracao.ts`) continua cópia do Labs.
 //
-// ⚠️ NÃO há chamada ao Claude para "melhorar" a descrição. Seria uma segunda API paga no
-// caminho de uma feature que já espera crédito em duas contas, para resolver algo que uma
-// frase de estilo fixa resolve.
+// A pessoa digita a CENA, e pode começar por um estilo e um atalho (`/cinema /antes-depois …`). O
+// estilo, a composição, o fundo e as proibições são acrescentados aqui. O texto que deve aparecer na
+// imagem vai ENTRE ASPAS, e só ele aparece.
+//
+// ⚠️ NÃO há chamada ao Claude para "melhorar" a descrição, como no Labs.
 
+// A REGRA DO TEXTO, QUANDO A DESCRIÇÃO NÃO TEM ASPAS. O bloco abaixo é o do Labs, sem mudar uma letra
+// (inclusive o comentário). No Chat, com trechos entre aspas, o lugar dela é de `textoExato`, que pede
+// exatamente aqueles trechos e mais nenhum texto; as duas vão por último, pelo mesmo motivo.
 /**
  * A regra que não é opcional: PROIBIR TEXTO.
  *
@@ -41,6 +50,8 @@ export const PROIBICAO_DE_TEXTO =
   "desenhadas à mão, sem rótulo. Sem nenhum texto, sem letras, sem palavras, sem números e " +
   "sem logotipos em nenhuma parte da imagem.";
 
+// A REGRA DO MANUAL DO PERFIL, DO LABS, SEM MUDAR UMA LETRA. O Eduardo a manteve no Chat em 09/10:
+// pessoa real, figura pública e marca continuam proibidas, e a tela a mostra junto do campo.
 /**
  * A outra regra que não é opcional: NINGUÉM RECONHECÍVEL.
  *
@@ -74,67 +85,65 @@ export const PROIBICAO_DE_PESSOA_REAL =
   "existente. Nunca retrate pessoa real, figura pública, celebridade, político ou sósia de " +
   "alguém existente, e não reproduza marca, logotipo ou uniforme identificável.";
 
-/**
- * O estilo, igual em toda ilustração.
- *
- * Fixo porque a sequência precisa parecer uma coisa só — dez slides com dez estéticas
- * diferentes leem como colagem.
- *
- * ⚠️ **ERA VETORIAL PLANO E AZUL ATÉ 21/09, e a troca foi decidida pelo Eduardo com as peças
- * publicadas na mão.** A frase antiga — *"vetorial plano e minimalista… azul vivo… sem
- * fotografia"* — foi escrita em **31/08, antes de as referências existirem**. Quando elas
- * apareceram, em 21/09, eram **três fotografias e uma capa desenhada**: o gerador produzia
- * exatamente o oposto do que a conta publica, e obedecendo a uma ordem nossa.
- *
- * ⚠️ **A PEÇA QUE ELE APROVOU NAQUELE DIA NÃO SAIU DAQUI** — era fotográfica e tinha texto
- * dentro do quadro, duas coisas que este prompt proíbe. Ela foi ENVIADA pela tela (38.1). O
- * caminho de envio continua sendo o de controle total; este é o de um clique.
- *
- * ⚠️ **O VOCABULÁRIO DE CÂMERA ENTROU EM 22/09** — distância focal, abertura, direção da luz,
- * e a recusa explícita de HDR, nitidez exagerada e vinheta. O Eduardo olhou uma peça em
- * produção e disse "a imagem está muito ruim ainda".
- *
- * **O motivo de descrever a ÓPTICA e não a qualidade:** pedir "foto realista de alta
- * qualidade" é adjetivo, e adjetivo o modelo já acha que está cumprindo. Dizer "35 mm a
- * f/2.8, luz de janela lateral" descreve uma CENA FÍSICA possível, e é isso que ele sabe
- * reproduzir — a mesma razão pela qual a proibição de texto só passou a funcionar quando
- * virou "a lousa aparece em branco".
- *
- * ⚠️ **E ISSO NÃO CONSERTA OBJETO QUE O MODELO NÃO SABE DESENHAR.** A peça que gerou a queixa
- * pedia "Manhattan inteira em 3D sobre a mesa" — uma maquete que não existe para ele copiar,
- * e que sai como aglomerado genérico de torres. As cenas de reunião saem bem porque são
- * comuns. Nenhuma frase de estilo alcança essa diferença; o caminho para cena difícil é o
- * envio.
- *
- * ⚠️ **A `PROIBICAO_DE_TEXTO` CONTINUA VALENDO, e isso é escolha separada, não descuido.**
- * A peça que ele gostou tem um gráfico rotulado, então a proibição custa alguma coisa — mas
- * modelo de imagem erra letra e acento em português, e aqui a imagem sai pronta para
- * publicar. Trocar isso é uma decisão dele, não uma consequência desta.
- *
- * ⚠️ **AS DUAS ÚLTIMAS FRASES SÃO CONTRA ARTEFATO, e entraram em 21/09 junto com a subida de
- * qualidade** — foram pedidas pelo mesmo feedback ("cara das pessoas muito plástica, 6 dedos,
- * mão branca e mão escura").
- *
- * *"Pele com textura natural, poros e pequenas imperfeições, sem retoque"* ataca a pele
- * plástica pedindo o oposto do que o modelo faz sozinho — ele tende ao rosto de catálogo.
- *
- * *"Enquadramento de meio corpo ou mais aberto, com as mãos repousadas e fora do primeiro
- * plano"* é a única coisa que se pode fazer pelos DEDOS por prompt, e é indireta: **não pede
- * mão correta — pede menos mão em destaque.** Modelo de imagem não obedece negativa
- * ("sem seis dedos" costuma piorar); obedece enquadramento. O lever forte contra artefato é a
- * qualidade, este é o fraco, e nenhum dos dois garante.
- */
-export const ESTILO =
-  "Fotografia editorial realista, em ambiente corporativo brasileiro contemporâneo. " +
-  // ⚠️ VOCABULARIO DE CAMERA, acrescentado em 22/09. Ver o bloco acima: descrever a OPTICA
-  // move o modelo para o territorio de fotografia de verdade; adjetivo de qualidade, nao.
-  "Registrada com lente de 35 mm a f/2.8: foco nítido no rosto principal e fundo levemente " +
-  "desfocado. Luz natural de janela vindo de lado, sombras suaves e contraste moderado. " +
-  "Cores sóbrias e fiéis, sem filtro chamativo, sem HDR, sem nitidez exagerada, sem vinheta " +
-  "e sem aparência de render 3D ou de desenho. Pele com textura natural, poros e pequenas " +
-  "imperfeições, sem retoque e sem aparência de banco de imagens. Enquadramento de meio " +
-  "corpo ou mais aberto, com as mãos repousadas e fora do primeiro plano.";
+/** As chaves dos três estilos do Chat. */
+export type ChaveDoEstilo = "cinema" | "ilustracao" | "comercial";
 
+/** Um estilo da imagem: o que a tela mostra (`rotulo`, `resumo`) e o trecho que vai à OpenAI (`texto`). */
+export type EstiloDaImagem = { chave: ChaveDoEstilo; rotulo: string; resumo: string; texto: string };
+
+/**
+ * OS TRÊS ESTILOS, escolhidos por slide (decisão do Eduardo em 09/10, depois das referências). O
+ * "objeto 3D em fundo claro" ficou de fora.
+ *
+ * ⚠️ **O LABS TINHA UM ESTILO SÓ, E O MOTIVO VALE COMO HISTÓRICO:** "dez slides com dez estéticas leem
+ * como colagem". As referências dos carrosséis do Chat mostram o contrário, um jeito por post, e o
+ * Eduardo escolheu três. O que o Labs aprendeu continua dentro de cada um: descrever a luz e a ÓPTICA,
+ * e não adjetivo de qualidade ("foto realista de alta qualidade" o modelo já acha que cumpre); pedir
+ * pele com poros contra a pele de plástico; e pedir as mãos repousadas ou fora do primeiro plano, que é
+ * a única coisa que o prompt faz pelos dedos ("modelo não obedece negativa; obedece enquadramento"). A
+ * alavanca forte contra artefato é o modelo e a qualidade, escolhidos pela medição do adendo.
+ *
+ * Os textos são os da tabela da spec, e os pedidos medidos do apêndice saem deles: um teste confere.
+ */
+export const ESTILOS: EstiloDaImagem[] = [
+  {
+    chave: "cinema",
+    rotulo: "Cena de cinema",
+    resumo: "foto realista, luz dramática e contraste forte",
+    texto:
+      "Fotografia realista com cara de cena de cinema, num ambiente de trabalho brasileiro contemporâneo. " +
+      "Luz dramática e quente, de abajur, de janela no fim da tarde ou de tela, com sombras profundas e " +
+      "contraste forte; fundo levemente desfocado. Cores ricas e naturais. Pele com textura real, poros e " +
+      "pequenas imperfeições, sem brilho oleoso e sem retoque. Expressões claras e postura natural, com as " +
+      "mãos repousadas ou fora do primeiro plano. Sem aparência de render 3D, de desenho ou de banco de " +
+      "imagens.",
+  },
+  {
+    chave: "ilustracao",
+    rotulo: "Ilustração conceitual",
+    resumo: "uma metáfora desenhada, com textura",
+    texto:
+      "Ilustração conceitual digital, com acabamento de peça editorial: uma metáfora visual clara do " +
+      "assunto, feita de objetos simbólicos, ícones simples, post-its, fios e setas, sobre fundo com " +
+      "textura de papel. Cores vivas e harmônicas, sombras suaves, traço limpo e volume leve. Não é foto " +
+      "nem render 3D realista.",
+  },
+  {
+    chave: "comercial",
+    rotulo: "Ambiente comercial brilhante",
+    resumo: "loja, vitrine ou fachada iluminada",
+    texto:
+      "Fotografia realista de ambiente comercial bem iluminado: loja, vitrine, balcão ou fachada, com luz " +
+      "quente de spots, reflexos no chão e no vidro, produtos organizados e brilho convidativo de vitrine. " +
+      "Cores quentes e saturadas na medida, nitidez de foto profissional. Fachadas, caixas e produtos sem " +
+      "nome, sem marca e sem logotipo visível.",
+  },
+];
+
+/** Sem estilo na descrição, vale este; a tela sempre manda um. */
+export const ESTILO_PADRAO: ChaveDoEstilo = "cinema";
+
+// A CENA DE BORDA A BORDA, DO LABS, SEM MUDAR UMA LETRA.
 /**
  * O cenário, e ele OCUPA O RETÂNGULO INTEIRO.
  *
@@ -155,25 +164,28 @@ export const FUNDO =
   "A cena deve preencher todo o quadro, de borda a borda, sem moldura, sem borda branca e " +
   "sem fundo liso sobrando.";
 
+// OS ATALHOS DE COMPOSIÇÃO, DO LABS. No Labs chamavam-se `ESTILOS` (era a única escolha); no Chat, o
+// estilo é a estética e o atalho é a composição. Os textos são os do Labs, menos o do `/grafico`, que
+// passa a aceitar os números e rótulos que o operador escreve entre aspas (adendo de 09/10).
 /**
- * ATALHOS DE ESTILO, escritos com barra no começo da descrição: `/showcase uma caixa…`.
+ * ATALHOS DE COMPOSIÇÃO, escritos com barra no começo da descrição: `/showcase uma caixa…`.
  *
  * Pedido pelo Eduardo em 02/09, com a pergunta certa junto: "não sei se tem como aplicar na
  * API". **Tem, e é mais simples do que parece.** No ChatGPT a barra não é recurso do
  * modelo: é um texto guardado que ele cola antes do seu. Pela API é a mesma coisa — o
  * atalho vira um trecho de prompt, e este arquivo já fazia isso com o estilo fixo.
  *
- * ⚠️ **O QUE O ATALHO MUDA É O ENQUADRAMENTO, NÃO A ESTÉTICA.** O `ESTILO` acima continua
- * valendo em todos: a mesma fotografia editorial, a mesma luz. Isso é deliberado e contraria o impulso
+ * ⚠️ **O QUE O ATALHO MUDA É O ENQUADRAMENTO, NÃO A ESTÉTICA.** O estilo escolhido (`ESTILOS`, acima)
+ * vale com qualquer atalho: a mesma luz, o mesmo acabamento. Isso é deliberado e contraria o impulso
  * de deixar cada atalho com a cara dele — dez slides com dez estéticas leem como colagem, e
  * a sequência precisa parecer uma coisa só. O atalho decide O QUE aparece e COMO está
  * composto; a linguagem visual não se mexe.
  *
- * Nenhum deles pode pedir texto, número ou rótulo: a `PROIBICAO_DE_TEXTO` vem depois e
- * venceria de qualquer forma, mas um atalho que pede o que o prompt proíbe logo abaixo
- * produz imagem confusa em vez de recusa.
+ * Nenhum deles pede texto por conta própria: um atalho que pede o que a regra do texto proíbe
+ * logo abaixo produz imagem confusa em vez de recusa. No Chat, o `/grafico` aceita os números e
+ * rótulos que o operador escreve entre aspas, e só esses (adendo de 09/10).
  */
-export type Estilo = {
+export type Atalho = {
   chave: string;
   /** Nome curto, para a lista. */
   rotulo: string;
@@ -194,7 +206,7 @@ export type Estilo = {
   texto: string;
 };
 
-export const ESTILOS: Estilo[] = [
+export const ATALHOS: Atalho[] = [
   {
     chave: "showcase",
     resumo: "O objeto centralizado e em destaque, com ar em volta e nada competindo.",
@@ -213,11 +225,12 @@ export const ESTILOS: Estilo[] = [
   },
   {
     chave: "grafico",
-    resumo: "Barras ou blocos comparando tamanhos — sem número e sem rótulo.",
+    resumo: "Barras ou blocos comparando tamanhos; números e rótulos, só os que você puser entre aspas.",
     rotulo: "Dados e comparação",
     texto:
       "Composição de dado: barras, setas ou blocos de tamanhos diferentes representando " +
-      "comparação ou crescimento, sem eixos, sem escala e sem rótulo de nenhum tipo.",
+      "comparação ou crescimento, sem eixos nem escala; números e rótulos, só os que estiverem " +
+      "entre aspas na descrição.",
   },
   {
     chave: "passo",
@@ -237,35 +250,74 @@ export const ESTILOS: Estilo[] = [
   },
 ];
 
-const POR_CHAVE = new Map(ESTILOS.map((e) => [e.chave, e]));
+const ESTILO_POR_CHAVE = new Map(ESTILOS.map((e) => [e.chave as string, e]));
+const ATALHO_POR_CHAVE = new Map(ATALHOS.map((a) => [a.chave, a]));
 
-export type LeituraDoAtalho = {
-  /** O atalho reconhecido, ou `null` quando a descrição não começa com barra. */
-  estilo: Estilo | null;
-  /** A cena, já sem o atalho. É ela que passa pela validação de tamanho. */
+/** A descrição lida: o estilo (o padrão, se não veio), o atalho, a cena e o que deu errado no começo. */
+export type LeituraDaDescricao = {
+  estilo: EstiloDaImagem;
+  atalho: Atalho | null;
+  /** A cena, já sem os atalhos do começo. É ela que passa pelas regras de tamanho. */
   cena: string;
-  /** O que veio depois da barra e não existe. `null` quando não há problema. */
+  /** O que veio depois de uma barra e não é estilo nem atalho. */
   desconhecido: string | null;
+  /** Dois estilos, ou dois atalhos, no começo. */
+  repetido: "estilo" | "atalho" | null;
 };
 
 /**
- * Separa o atalho da cena.
+ * Separa o estilo e o atalho da cena: no começo da descrição, até um de cada, em qualquer ordem.
  *
- * ⚠️ ATALHO DESCONHECIDO NÃO É IGNORADO nem tratado como parte da cena. As duas saídas
- * silenciosas são piores que a recusa: ignorar faz a pessoa achar que o estilo foi aplicado
- * quando não foi, e tratar como cena manda o modelo desenhar a palavra "/showkase". Quem
- * digita barra está pedindo um atalho — se ele não existe, isso precisa ser dito.
+ * ⚠️ ATALHO DESCONHECIDO NÃO É IGNORADO nem vira cena (a lição do Labs): ignorar faz a pessoa achar que
+ * o estilo foi aplicado, e virar cena manda o modelo desenhar a palavra.
  */
-export function separarEstilo(descricao: string): LeituraDoAtalho {
-  const limpa = descricao.trim();
-  const m = /^\/([a-z-]+)\s*([\s\S]*)$/i.exec(limpa);
-  if (!m) return { estilo: null, cena: limpa, desconhecido: null };
+export function lerDescricao(descricao: string): LeituraDaDescricao {
+  let resto = descricao.trim();
+  let estilo: EstiloDaImagem | null = null;
+  let atalho: Atalho | null = null;
+  let desconhecido: string | null = null;
+  let repetido: LeituraDaDescricao["repetido"] = null;
+  for (;;) {
+    const m = /^\/([a-z-]+)\s*([\s\S]*)$/i.exec(resto);
+    if (!m) break;
+    const chave = m[1].toLowerCase();
+    const comoEstilo = ESTILO_POR_CHAVE.get(chave);
+    const comoAtalho = ATALHO_POR_CHAVE.get(chave);
+    if (comoEstilo) {
+      if (estilo) repetido ??= "estilo";
+      estilo = comoEstilo;
+    } else if (comoAtalho) {
+      if (atalho) repetido ??= "atalho";
+      atalho = comoAtalho;
+    } else {
+      desconhecido ??= chave;
+    }
+    resto = m[2];
+  }
+  return { estilo: estilo ?? ESTILO_POR_CHAVE.get(ESTILO_PADRAO)!, atalho, cena: resto.trim(), desconhecido, repetido };
+}
 
-  const chave = m[1].toLowerCase();
-  const estilo = POR_CHAVE.get(chave);
-  if (!estilo) return { estilo: null, cena: m[2].trim(), desconhecido: chave };
-
-  return { estilo, cena: m[2].trim(), desconhecido: null };
+/**
+ * Os trechos entre aspas da cena, retas (`"…"`) ou curvas (`“…”`), na ordem em que aparecem; e se
+ * alguma aspa ficou sem par. Trecho vazio (`""`) não conta.
+ */
+export function trechosEntreAspas(cena: string): { trechos: string[]; semPar: boolean } {
+  const trechos: string[] = [];
+  let aberto: string | null = null;
+  for (const c of cena) {
+    if (aberto === null) {
+      if (c === '"' || c === "“") aberto = "";
+      else if (c === "”") return { trechos, semPar: true };
+    } else if (c === '"' || c === "”") {
+      if (aberto.length > 0) trechos.push(aberto);
+      aberto = null;
+    } else if (c === "“") {
+      return { trechos, semPar: true };
+    } else {
+      aberto += c;
+    }
+  }
+  return { trechos, semPar: aberto !== null };
 }
 
 /**
@@ -325,7 +377,7 @@ const PEDIDOS_DE_TEXTO = [
  * **"escritório" não casar com "escrito"**, que seria o falso positivo mais provável aqui.
  */
 export function pedeTextoNaImagem(descricao: string): string | null {
-  const cena = separarEstilo(descricao).cena;
+  const cena = lerDescricao(descricao).cena;
   for (const termo of PEDIDOS_DE_TEXTO) {
     const re = new RegExp(`(^|[^\\wÀ-ÿ])${termo}(?=[^\\wÀ-ÿ]|$)`, "i");
     if (re.test(cena)) return termo;
@@ -335,73 +387,91 @@ export function pedeTextoNaImagem(descricao: string): string | null {
 
 export const MIN_DESCRICAO = 10;
 export const MAX_DESCRICAO = 600;
+/** O texto entre aspas, somado: mais do que isso, o modelo erra letras e a imagem vira cartaz. */
+export const MAX_TEXTO_ENTRE_ASPAS = 120;
 
-export type ErroDeDescricao =
-  | { ok: true }
-  | { ok: false; mensagem: string };
+export type ErroDeDescricao = { ok: true } | { ok: false; mensagem: string };
 
 /**
- * Confere a descrição ANTES de gastar uma chamada.
+ * Confere a descrição ANTES de gastar uma chamada (spec, "A conferência da descrição"). Uma recusa aqui
+ * custa zero; uma imagem inútil custa dinheiro e uma unidade do teto do dia.
  *
- * O mínimo não é burocracia: "uma lousa" gera qualquer coisa, e a chamada é paga. Uma
- * recusa aqui custa zero; uma imagem inútil custa dinheiro e uma unidade da cota do dia.
+ * A CENA que se mede, para o mínimo, é a de sem os atalhos e sem o texto entre aspas: "/cinema "VENDAS""
+ * passaria de raspão e geraria uma imagem vaga.
  */
 export function validarDescricao(descricao: string): ErroDeDescricao {
-  const atalho = separarEstilo(descricao);
-
-  if (atalho.desconhecido) {
+  const lida = lerDescricao(descricao);
+  if (lida.desconhecido) {
     return {
       ok: false,
-      mensagem: `Não existe o atalho /${atalho.desconhecido}. Os que existem: ${ESTILOS.map((e) => `/${e.chave}`).join(", ")}.`,
+      mensagem:
+        `Não existe o atalho /${lida.desconhecido}. ` +
+        `Os estilos: ${ESTILOS.map((e) => `/${e.chave}`).join(", ")}. ` +
+        `Os atalhos: ${ATALHOS.map((a) => `/${a.chave}`).join(", ")}.`,
     };
   }
-
-  // A CENA é o que se mede, não o texto digitado: com o atalho contando para o mínimo,
-  // "/showcase uma" passaria de raspão e geraria uma imagem vaga — que é justamente o que
-  // este limite existe para evitar, e a chamada é paga.
-  const limpa = atalho.cena;
-
-  if (limpa.length === 0) {
-    return { ok: false, mensagem: "Descreva o que a ilustração deve mostrar." };
-  }
-  if (limpa.length < MIN_DESCRICAO) {
-    return {
-      ok: false,
-      mensagem: `Descreva com um pouco mais de detalhe — pelo menos ${MIN_DESCRICAO} caracteres. Descrição vaga gera imagem vaga, e a chamada é paga.`,
-    };
-  }
-  if (limpa.length > MAX_DESCRICAO) {
+  if (lida.repetido === "estilo") return { ok: false, mensagem: "Escolha um estilo só para a imagem." };
+  if (lida.repetido === "atalho") return { ok: false, mensagem: "Use um atalho de composição só." };
+  if (descricao.trim().length > MAX_DESCRICAO) {
     return {
       ok: false,
       mensagem: `A descrição passou de ${MAX_DESCRICAO} caracteres. Descreva uma cena só — quanto mais coisa, menos o modelo acerta cada uma.`,
+    };
+  }
+  const aspas = trechosEntreAspas(lida.cena);
+  if (aspas.semPar) return { ok: false, mensagem: "Feche as aspas do texto que deve aparecer na imagem." };
+  if (aspas.trechos.join("").length > MAX_TEXTO_ENTRE_ASPAS) {
+    return {
+      ok: false,
+      mensagem: `O texto entre aspas passou de ${MAX_TEXTO_ENTRE_ASPAS} caracteres. Encurte: texto longo sai com erro e vira cartaz.`,
+    };
+  }
+  const semAspas = lida.cena.replace(/["“][^"”]*["”]/g, " ").replace(/\s+/g, " ").trim();
+  if (semAspas.length === 0) return { ok: false, mensagem: "Descreva o que a imagem deve mostrar." };
+  if (semAspas.length < MIN_DESCRICAO) {
+    return {
+      ok: false,
+      mensagem: `Descreva com um pouco mais de detalhe — pelo menos ${MIN_DESCRICAO} caracteres. Descrição vaga gera imagem vaga, e a chamada é paga.`,
     };
   }
   return { ok: true };
 }
 
 /**
- * Monta o prompt final: a cena que a pessoa descreveu, embrulhada nas regras fixas.
+ * A REGRA DO TEXTO, QUANDO HÁ ASPAS: escrever exatamente aqueles trechos, com os acentos, e mais nenhum
+ * texto. O nome de marca entre aspas sai em letra simples, sem logo (decisão do Eduardo na revisão do
+ * adendo): o Chat não reconhece toda marca, então não recusa; diz ao modelo como escrever.
+ */
+export function textoExato(trechos: string[]): string {
+  return (
+    "Escreva na imagem exatamente estes textos, em português do Brasil, com a grafia, as maiúsculas e os " +
+    `acentos exatamente como estão entre aspas: ${trechos.map((t) => `"${t}"`).join("; ")}. Cada um aparece ` +
+    "uma vez, legível, numa superfície que faça sentido na cena (placa, tela, papel, quadro, post-it ou " +
+    "rótulo). Se um deles for o nome de uma marca ou de um produto, escreva-o em letras simples e comuns, " +
+    "sem o logotipo, o ícone, as cores ou a fonte da marca. Nenhum outro texto, letra, número ou logotipo " +
+    "em nenhuma parte da imagem."
+  );
+}
+
+/**
+ * MONTA O PEDIDO: estilo, atalho, cena, fundo, pessoa real e, por último, o texto (a ordem decidida pelo
+ * Eduardo na revisão do adendo). O texto e as proibições ficam no fim porque "é a última coisa que o
+ * modelo lê" (o Labs). Juntados por um espaço, a cena com ponto final, como no Labs.
  *
- * A ORDEM importa e não é decorativa — cena primeiro (é o assunto), estilo e fundo depois
- * (são como desenhar), proibição por último (é o que não fazer, e fica mais perto do fim
- * do que o modelo lê).
+ * ⚠️ OS PEDIDOS DA MEDIÇÃO (o apêndice da spec) SAEM DAQUI BYTE A BYTE, e um teste confere: o que foi
+ * medido é o que vai ao ar.
  */
 export function montarPrompt(descricao: string): string {
-  const atalho = separarEstilo(descricao);
-  const cena = atalho.cena.replace(/\s+/g, " ");
-  // O ponto final evita que a cena e o estilo virem uma frase só, o que costuma fazer o
-  // modelo ler "minimalista" como parte do que foi pedido em vez de como instrução.
+  const lida = lerDescricao(descricao);
+  const cena = lida.cena.replace(/\s+/g, " ").trim();
   const comPonto = /[.!?]$/.test(cena) ? cena : `${cena}.`;
-
-  // O ENQUADRAMENTO vem logo depois da cena e ANTES do estilo: ele fala do assunto (o que
-  // aparece, como está posto), e o estilo fala do traço. Invertido, o modelo tende a ler a
-  // composição como mais uma característica visual e a diluí-la.
+  const { trechos } = trechosEntreAspas(cena);
   return [
+    lida.estilo.texto,
+    ...(lida.atalho ? [lida.atalho.texto] : []),
     comPonto,
-    ...(atalho.estilo ? [atalho.estilo.texto] : []),
-    ESTILO,
     FUNDO,
     PROIBICAO_DE_PESSOA_REAL,
-    PROIBICAO_DE_TEXTO,
+    trechos.length > 0 ? textoExato(trechos) : PROIBICAO_DE_TEXTO,
   ].join(" ");
 }

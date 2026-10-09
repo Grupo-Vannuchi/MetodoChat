@@ -12,7 +12,7 @@ import {
   textoDoPedidoDeTexto,
   type AvisoDoPedidoDeImagem,
 } from "@/lib/bonus/imagem-textos";
-import { ESTILOS, pedeTextoNaImagem } from "@/lib/bonus/prompt-ilustracao";
+import { ATALHOS, pedeTextoNaImagem } from "@/lib/bonus/prompt-ilustracao";
 
 // O "GERAR IMAGEM" DE UM SLIDE (spec da Etapa 6, "A tela" e "Pedir e acompanhar"), na linha dos botões da
 // imagem do card, ao lado do "Subir foto" e do "Slide pronto do Canva".
@@ -157,7 +157,7 @@ export default function GerarImagem({
               />
               {/* Os atalhos em linhas, e não numa lista: os cards já são os itens da lista da página. */}
               <div className={`${hint} space-y-0.5`}>
-                {ESTILOS.map((e) => (
+                {ATALHOS.map((e) => (
                   <p key={e.chave}>
                     <code>{`/${e.chave}`}</code> {e.rotulo}: {e.resumo}
                   </p>
