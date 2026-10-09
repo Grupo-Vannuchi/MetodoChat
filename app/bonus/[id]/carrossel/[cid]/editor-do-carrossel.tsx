@@ -9,10 +9,12 @@ import type { AvisoDoSlide } from "@/lib/bonus/carrossel-textos";
 import { juntarCortes, type Corte } from "@/lib/bonus/publicar-cabimento";
 import type { JeitoDaImagem } from "@/lib/bonus/publicar-regras";
 import type { AvisoDaImagem } from "@/lib/bonus/publicar-textos";
+import { INTERVALO_CONSULTA_MS } from "@/lib/bonus/tempos";
 import CardDaParte from "./card-da-parte";
 import CardPublicar from "./card-publicar";
+import type { GeradorDoSlide } from "./gerar-imagem";
 import { enviarImagemDoSlide } from "./imagem-no-navegador";
-import type { ImagemNaTela, PublicacaoNaTela } from "./publicacao-na-tela";
+import type { ImagemGeradaNaTela, ImagemNaTela, PublicacaoNaTela } from "./publicacao-na-tela";
 
 // O EDITOR DO CARROSSEL, SLIDE A SLIDE (spec da Etapa 4, "A página"): a conta do carrossel, um card
 // por slide (a miniatura e, ao lado, o editor dele: card-da-parte.tsx), o card da legenda, e o
@@ -34,6 +36,10 @@ import type { ImagemNaTela, PublicacaoNaTela } from "./publicacao-na-tela";
 // na resposta: a foto muda a arte. Com o carrossel na fila ou publicado, a trava aparece no topo e cada
 // card fica só para leitura.
 //
+// O CRIADOR DE IMAGEM (spec da Etapa 6) entra por `publicacao.imagemGerada`: cada card com espaço ganha o
+// "Gerar imagem" (gerar-imagem.tsx). A conta do dia mora aqui, comum a todos os cards; pronta a imagem,
+// ela entra como foto, e a miniatura daquele slide ganha a versão que a consulta trouxe.
+//
 // As actions entram por propriedade, para o teste de tela usar falsas.
 export default function EditorDoCarrossel({
   acaoDoSlide,
@@ -52,6 +58,7 @@ export default function EditorDoCarrossel({
   soTextoInicial,
   versoes: versoesIniciais,
   pausaMs = 400,
+  intervaloDaConsultaMs = INTERVALO_CONSULTA_MS,
   publicacao,
 }: {
   acaoDoSlide: (anterior: AvisoDoSlide | null, form: FormData) => Promise<AvisoDoSlide | null>;
@@ -71,10 +78,13 @@ export default function EditorDoCarrossel({
   soTextoInicial: number[];
   versoes: string[];
   pausaMs?: number;
+  /** O intervalo entre as perguntas da consulta da imagem; o teste de tela usa um menor. */
+  intervaloDaConsultaMs?: number;
   publicacao?: PublicacaoNaTela;
 }) {
   const [versoes, setVersoes] = useState(versoesIniciais);
   const [imagens, setImagens] = useState<Record<number, ImagemNaTela>>(publicacao?.imagens ?? {});
+  const [hojeDeImagens, setHojeDeImagens] = useState(publicacao?.imagemGerada?.hoje ?? 0);
   const travado = publicacao?.travado ?? null;
   // As partes "não salvas" ("slide_N" e "legenda"): o "Publicar" trava com elas, porque o que sai é o
   // texto salvo. Cada card avisa quando muda.
@@ -135,6 +145,25 @@ export default function EditorDoCarrossel({
       if (versaoDaMiniatura) setVersoes((vs) => vs.map((x, i) => (i === numero - 1 ? versaoDaMiniatura : x)));
     }
     return r;
+  }
+
+  /**
+   * O gerador de imagem de um slide (Etapa 6): a action do pedido, a conta do dia, a última descrição e
+   * a geração em andamento. Pronta a imagem, ela entra como foto, e a miniatura ganha a versão nova.
+   */
+  function geradorDoSlide(g: ImagemGeradaNaTela, numero: number): GeradorDoSlide {
+    return {
+      acao: g.acaoDoPedido,
+      hoje: hojeDeImagens,
+      aoMudarHoje: setHojeDeImagens,
+      descricaoInicial: g.descricoes[numero] ?? null,
+      gerandoInicial: g.gerando.includes(numero),
+      aoPronta: ({ versao, versaoDaMiniatura }) => {
+        setImagens((atuais) => ({ ...atuais, [numero]: { url: null, versao: versao ?? "", jeito: "foto" } }));
+        setVersoes((vs) => vs.map((x, i) => (i === numero - 1 ? versaoDaMiniatura : x)));
+      },
+      intervaloMs: intervaloDaConsultaMs,
+    };
   }
 
   async function baixarTodos() {
@@ -220,6 +249,7 @@ export default function EditorDoCarrossel({
               travado={travado}
               aoMudarNaoSalvo={(sim) => marcarNaoSalvo(`slide_${n}`, sim)}
               aoMudarCorte={(corte) => marcarCorte(n, corte)}
+              gerarImagem={publicacao?.imagemGerada ? geradorDoSlide(publicacao.imagemGerada, n) : null}
             />
           ))}
           <CardDaParte
