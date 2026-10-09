@@ -61,8 +61,11 @@ type CarrosselConferido = {
   conta: string;
 };
 
-/** O que as três operações conferem antes de tudo: pronto, com conta gravada e conectada, e a trava livre. */
-async function conferirCarrossel(id: string, contas: ContaDoCabecalho[]): Promise<CarrosselConferido | Recusa> {
+/**
+ * O que as três operações conferem antes de tudo: pronto, com conta gravada e conectada, e a trava livre.
+ * Exportada para o pedido de imagem (lib/bonus/imagem-processo.ts, Etapa 6), que confere igual.
+ */
+export async function conferirCarrossel(id: string, contas: ContaDoCabecalho[]): Promise<CarrosselConferido | Recusa> {
   const linha = await lerCarrossel(id);
   const texto = linha?.estado === "pronto" ? textoDaLinhaDoCarrossel(linha) : null;
   if (!linha || !texto) return recusa({ motivo: "nao_pronto" });
