@@ -64,6 +64,8 @@ Do Eduardo, pela caixa, no adendo de 09/10, depois da primeira imagem real e das
 | os atalhos de composição | os cinco continuam, ajustados ao texto entre aspas |
 | o modelo e a qualidade | medidos antes, com a mesma cena nos dois modelos novos e em duas qualidades; o Eduardo escolhe olhando |
 | o desenho do adendo | aprovado em três partes (as regras e a tela, por dentro, a medição e a ordem) |
+| o nome de marca entre aspas (revisão do adendo) | sai em letra simples, sem logotipo, ícone, cores ou fonte da marca; a tela diz isso |
+| a ordem do pedido (revisão do adendo) | a regra do texto e as proibições por último, como o Labs aprendeu |
 
 **O que vem do Labs, e o que mudou no adendo.** As regras de estilo foram decididas pelo Eduardo no
 Labs, entre 02/09 e 22/09, para as ilustrações do site, e o Chat as copiou inteiras até a primeira imagem
@@ -97,8 +99,8 @@ o mesmo editor):
   a descrição inteira tem até 600; o texto entre aspas soma até 120; o atalho que não existe é recusado
   com a lista dos que existem, e a aspa sem par também, com a frase dela.
 - **As regras na tela (adendo de 09/10):** junto do campo, sempre visível, "Sem marca e sem pessoa
-  real (manual do perfil). Texto só entre aspas, exatamente como escrito." É a regra do manual do
-  perfil registrada na hora de gerar, como o Eduardo pediu.
+  real (manual do perfil). Texto só entre aspas, exatamente como escrito; nome de marca sai em letra
+  simples, sem logo." É a regra do manual do perfil registrada na hora de gerar, como o Eduardo pediu.
 - **O aviso de texto (mudou no adendo):** ~~se a descrição pedir texto na imagem, o campo avisa que a
   IA escreve errado e que o texto do slide já vem da arte~~. Se a descrição pedir texto ("escrito",
   "placa", "título" e os outros termos do Labs) sem nenhum trecho entre aspas, o campo avisa "Para o
@@ -161,18 +163,30 @@ conta da arte, os vetores e este arquivo; o Labs avisa antes de mudá-lo.
    representando comparação ou crescimento, sem eixos nem escala; números e rótulos, só os que estiverem
    entre aspas na descrição." O que o Labs escreveu sobre eles continua valendo: o atalho muda o
    enquadramento, não a estética.
-3. **A cena**: a descrição digitada, sem os atalhos, com as aspas onde o operador as pôs.
-4. **O texto**: com trechos entre aspas (retas `"…"` ou curvas `“…”`), "Escreva na imagem exatamente
-   estes textos, em português do Brasil, com a grafia, as maiúsculas e os acentos exatamente como estão
-   entre aspas: «trecho 1»; «trecho 2». Cada um aparece uma vez, legível, numa superfície que faça sentido
-   na cena (placa, tela, papel, quadro, post-it ou rótulo). Nenhum outro texto, letra, número ou logotipo
-   em nenhuma parte da imagem." Sem aspas, a `PROIBICAO_DE_TEXTO` do Labs, sem mudar uma letra.
+3. **A cena**: a descrição digitada, sem os atalhos, com os espaços repetidos reduzidos a um, com as
+   aspas onde o operador as pôs, e com ponto final quando não termina em ".", "!" ou "?" (como o Labs).
+4. **A cena de borda a borda**: o `FUNDO` do Labs, sem mudar uma letra.
 5. **As proibições do manual do perfil**: a `PROIBICAO_DE_PESSOA_REAL` do Labs, sem mudar uma letra
    (pessoa fictícia e anônima; nenhuma pessoa real, figura pública, celebridade, político ou sósia; nenhuma
    marca, logotipo ou uniforme identificável).
-6. **A cena de borda a borda**: o `FUNDO` do Labs, sem mudar uma letra.
+6. **O texto, por último**: com trechos entre aspas (retas `"…"` ou curvas `“…”`), `Escreva na imagem
+   exatamente estes textos, em português do Brasil, com a grafia, as maiúsculas e os acentos exatamente
+   como estão entre aspas: "trecho 1"; "trecho 2". Cada um aparece uma vez, legível, numa superfície que
+   faça sentido na cena (placa, tela, papel, quadro, post-it ou rótulo). Se um deles for o nome de uma
+   marca ou de um produto, escreva-o em letras simples e comuns, sem o logotipo, o ícone, as cores ou a
+   fonte da marca. Nenhum outro texto, letra, número ou logotipo em nenhuma parte da imagem.` Os trechos
+   vão com aspas retas, na ordem em que aparecem, separados por "; ". Sem aspas, a `PROIBICAO_DE_TEXTO` do
+   Labs, sem mudar uma letra.
 
-`montarPrompt` junta as seis nessa ordem, a aprovada pelo Eduardo.
+`montarPrompt` junta as seis nessa ordem, separadas por um espaço, como o Labs. **A ordem foi decidida
+pelo Eduardo na revisão do adendo:** a regra do texto e as proibições vão por último, porque o Labs pôs a
+proibição de texto no fim de propósito ("é a última coisa que o modelo lê", `prompt-ilustracao.ts:36` do
+Labs); o começo (estilo, atalho, cena) é o da aprovação do desenho. O Labs abre pela cena ("é o
+assunto"); a medição mostra se o estilo na frente atrapalha o assunto.
+
+**O nome de marca entre aspas** (decisão do Eduardo na revisão do adendo): sai em letra simples, sem o
+logotipo, o ícone, as cores ou a fonte da marca. O Chat não reconhece todo nome de marca, então não
+recusa; a regra do pedido e a frase da tela dizem isso.
 
 **A conferência da descrição** (`validarDescricao`, antes de qualquer chamada, sem custo): no começo,
 até um estilo e um atalho, em qualquer ordem; um atalho que não existe é recusado com a lista dos que
@@ -209,8 +223,15 @@ dele, fora da produção do Chat, sem contar no teto do Chat) gera a mesma cena 
 montado pelas regras acima, no estilo `/cinema` e com um texto acentuado entre aspas, nos dois modelos e
 em duas qualidades (`medium` e `high`): 4 imagens; e mais uma no estilo `/ilustracao`. São 5 imagens, uns
 US$ 0,60. De cada uma ficam registrados o custo pelo `usage` da resposta, o tempo, as mãos e a pele
-ampliadas, e a grafia do texto. O Eduardo compara lado a lado e escolhe o modelo e a qualidade; o plano
-os fixa num lugar só (`imagem-openai.ts`), e o custo do teto e da prova se refaz com o número medido.
+ampliadas, a grafia do texto e se apareceram letras ou textos soltos além dos que estavam entre aspas. O
+Eduardo compara lado a lado e escolhe o modelo e a qualidade; o plano os fixa num lugar só
+(`imagem-openai.ts`), e o custo do teto e da prova se refaz com o número medido.
+
+**O medido é o que vai ao ar.** Os pedidos da medição estão no apêndice "Os pedidos da medição",
+montados por script a partir destas regras (os três estilos e o trecho do texto tirados desta spec; o
+`FUNDO`, a `PROIBICAO_DE_PESSOA_REAL`, a `PROIBICAO_DE_TEXTO` e os atalhos tirados do arquivo do Labs), e
+não à mão. O Labs manda cada um exatamente como está lá e guarda o texto enviado; o plano ganha um teste
+que obriga o `montarPrompt` do Chat a devolver, para as mesmas descrições, exatamente esses textos.
 
 **O que não muda na chamada:** `1536x1024`, `n: 1`, `background: "opaque"`, `output_format: "jpeg"` e a
 compressão que o plano fixou (`COMPRESSAO_DA_IMAGEM`; sem ela, o padrão é 100 e o arquivo cresce; a
@@ -339,7 +360,7 @@ contatos não vão.
 | suíte | o quê |
 |---|---|
 | pura | ~~a cópia das regras: a soma do git de cada arquivo igual à do blob do Labs; os testes do Labs, copiados~~ (adendo) a cópia da tradução das recusas: a soma do git de `erro-ilustracao.ts` igual à do blob do Labs, e o teste do Labs copiado (`mensagemDaOpenAI`, com o pedaço da chave tirado) |
-| pura | (adendo) as regras do Chat: `montarPrompt` na ordem aprovada (estilo, atalho, cena, texto, pessoa real, fundo), com o trecho de cada estilo e o `/cinema` quando não há estilo; o texto entre aspas (retas e curvas) vira a ordem de escrever exatamente aqueles trechos, e sem aspas entra a `PROIBICAO_DE_TEXTO`; a `PROIBICAO_DE_PESSOA_REAL` e o `FUNDO` sempre presentes e sem mudar uma letra; `validarDescricao` (cena curta sem contar atalhos nem aspas, descrição longa, aspas acima de 120, aspa sem par, estilo ou atalho desconhecido, dois estilos); `pedeTextoNaImagem` (os termos, e "escritório" não casa com "escrito") |
+| pura | (adendo) as regras do Chat: `montarPrompt` na ordem decidida (estilo, atalho, cena, fundo, pessoa real, texto), devolvendo byte a byte os pedidos medidos (apêndice), com o trecho de cada estilo e o `/cinema` quando não há estilo; o texto entre aspas (retas e curvas) vira a ordem de escrever exatamente aqueles trechos, e sem aspas entra a `PROIBICAO_DE_TEXTO`; a `PROIBICAO_DE_PESSOA_REAL` e o `FUNDO` sempre presentes e sem mudar uma letra; `validarDescricao` (cena curta sem contar atalhos nem aspas, descrição longa, aspas acima de 120, aspa sem par, estilo ou atalho desconhecido, dois estilos); `pedeTextoNaImagem` (os termos, e "escritório" não casa com "escrito") |
 | pura | `mensagemDaOpenAI` (sem crédito, 429, 401, 403, 400, outro), as frases de cada recusa do Chat, e o contador "Hoje: N de 10" |
 | pura | a leitura da largura e da altura do cabeçalho do JPEG, e a conferência da imagem pela regra da foto (JPEG, 1536×1024 passa; PNG, outra proporção e mais de 2 MB não) |
 | pura | o corpo da chamada (o modelo e a qualidade escolhidos no adendo, nunca o `gpt-image-1`; tamanho, fundo, formato JPEG, compressão, n), com o `fetch` falso, sem rede; a chave ausente recusa sem chamar; o prazo vira a frase da demora |
@@ -434,3 +455,46 @@ Do merge:
 - (Adendo) O estilo "objeto 3D em fundo claro", que estava entre as referências e não foi escolhido.
 - Imagem de pessoa real: as regras proíbem; uma foto real continua entrando pelo "Subir foto", e a
   responsabilidade pelo direito de imagem é de quem sobe.
+
+---
+
+## Apêndice: os pedidos da medição
+
+Montados por `montar-pedidos-medicao.mjs` (scratchpad da sessão de desenvolvimento) a partir das regras
+deste adendo, sem cópia à mão. Todos com o mesmo corpo, fora o modelo, a qualidade e o pedido:
+
+```json
+{"size":"1536x1024","n":1,"background":"opaque","output_format":"jpeg","output_compression":90}
+```
+
+| id | modelo | qualidade | descrição digitada |
+|---|---|---|---|
+| A1 | `gpt-image-2.5-flare` | `medium` | a descrição A |
+| A2 | `gpt-image-2.5-flare` | `high` | a descrição A |
+| A3 | `gpt-image-2.5-sunburst` | `medium` | a descrição A |
+| A4 | `gpt-image-2.5-sunburst` | `high` | a descrição A |
+| B1 | `gpt-image-2.5-flare` | `high` | a descrição B |
+
+**A descrição A** (estilo `/cinema`, sem atalho; 28 caracteres entre aspas):
+
+```text
+/cinema um empresário cansado à mesa do escritório à noite, com a mão na testa, olhando o notebook com um gráfico de barras caindo; num post-it colado na borda da tela, "REUNIÃO ÀS 9H", e no caderno aberto ao lado, "AÇÕES DA SEMANA"
+```
+
+**O pedido A**, que vai à OpenAI em A1 a A4 (1608 caracteres):
+
+```text
+Fotografia realista com cara de cena de cinema, num ambiente de trabalho brasileiro contemporâneo. Luz dramática e quente, de abajur, de janela no fim da tarde ou de tela, com sombras profundas e contraste forte; fundo levemente desfocado. Cores ricas e naturais. Pele com textura real, poros e pequenas imperfeições, sem brilho oleoso e sem retoque. Expressões claras e postura natural, com as mãos repousadas ou fora do primeiro plano. Sem aparência de render 3D, de desenho ou de banco de imagens. um empresário cansado à mesa do escritório à noite, com a mão na testa, olhando o notebook com um gráfico de barras caindo; num post-it colado na borda da tela, "REUNIÃO ÀS 9H", e no caderno aberto ao lado, "AÇÕES DA SEMANA". A cena deve preencher todo o quadro, de borda a borda, sem moldura, sem borda branca e sem fundo liso sobrando. As pessoas retratadas devem ser fictícias e anônimas, sem semelhança com ninguém existente. Nunca retrate pessoa real, figura pública, celebridade, político ou sósia de alguém existente, e não reproduza marca, logotipo ou uniforme identificável. Escreva na imagem exatamente estes textos, em português do Brasil, com a grafia, as maiúsculas e os acentos exatamente como estão entre aspas: "REUNIÃO ÀS 9H"; "AÇÕES DA SEMANA". Cada um aparece uma vez, legível, numa superfície que faça sentido na cena (placa, tela, papel, quadro, post-it ou rótulo). Se um deles for o nome de uma marca ou de um produto, escreva-o em letras simples e comuns, sem o logotipo, o ícone, as cores ou a fonte da marca. Nenhum outro texto, letra, número ou logotipo em nenhuma parte da imagem.
+```
+
+**A descrição B** (estilo `/ilustracao`, atalho `/antes-depois`; 29 caracteres entre aspas):
+
+```text
+/ilustracao /antes-depois dois cérebros vistos de cima, lado a lado: o da esquerda enrolado em fios embaraçados, com post-its "ANSIEDADE" e "PROCRASTINAÇÃO"; o da direita organizado, com linhas de luz e um post-it "ROTINA"
+```
+
+**O pedido B**, que vai à OpenAI em B1 (1538 caracteres):
+
+```text
+Ilustração conceitual digital, com acabamento de peça editorial: uma metáfora visual clara do assunto, feita de objetos simbólicos, ícones simples, post-its, fios e setas, sobre fundo com textura de papel. Cores vivas e harmônicas, sombras suaves, traço limpo e volume leve. Não é foto nem render 3D realista. Composição em duas metades separadas por uma linha vertical: à esquerda o estado desorganizado, à direita o mesmo assunto resolvido e em ordem. dois cérebros vistos de cima, lado a lado: o da esquerda enrolado em fios embaraçados, com post-its "ANSIEDADE" e "PROCRASTINAÇÃO"; o da direita organizado, com linhas de luz e um post-it "ROTINA". A cena deve preencher todo o quadro, de borda a borda, sem moldura, sem borda branca e sem fundo liso sobrando. As pessoas retratadas devem ser fictícias e anônimas, sem semelhança com ninguém existente. Nunca retrate pessoa real, figura pública, celebridade, político ou sósia de alguém existente, e não reproduza marca, logotipo ou uniforme identificável. Escreva na imagem exatamente estes textos, em português do Brasil, com a grafia, as maiúsculas e os acentos exatamente como estão entre aspas: "ANSIEDADE"; "PROCRASTINAÇÃO"; "ROTINA". Cada um aparece uma vez, legível, numa superfície que faça sentido na cena (placa, tela, papel, quadro, post-it ou rótulo). Se um deles for o nome de uma marca ou de um produto, escreva-o em letras simples e comuns, sem o logotipo, o ícone, as cores ou a fonte da marca. Nenhum outro texto, letra, número ou logotipo em nenhuma parte da imagem.
+```
