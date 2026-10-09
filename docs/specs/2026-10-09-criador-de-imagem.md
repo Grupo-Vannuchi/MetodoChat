@@ -62,7 +62,7 @@ Do Eduardo, pela caixa, no adendo de 09/10, depois da primeira imagem real e das
 | pessoa real e figura pública | continuam proibidas (manual do perfil), escritas na tela junto da de marca |
 | os estilos | três, escolhidos por slide: cena de cinema, ilustração conceitual e ambiente comercial brilhante (o objeto 3D ficou de fora) |
 | os atalhos de composição | os cinco continuam, ajustados ao texto entre aspas |
-| o modelo e a qualidade | medidos antes, com a mesma cena nos dois modelos novos e em duas qualidades; o Eduardo escolheu olhando: **`gpt-image-2.5-flare` em `high`** (a imagem A2 da medição) |
+| o modelo e a qualidade | medidos antes, com a mesma cena nos dois modelos novos e em duas qualidades; o Eduardo escolheu olhando: **`gpt-image-2.5-flare` em `high`** (a imagem A2 da medição), com a versão fixa `gpt-image-2.5-flare-2026-09-08` |
 | o desenho do adendo | aprovado em três partes (as regras e a tela, por dentro, a medição e a ordem) |
 | o nome de marca entre aspas (revisão do adendo) | sai em letra simples, sem logotipo, ícone, cores ou fonte da marca; a tela diz isso |
 | a ordem do pedido (revisão do adendo) | a regra do texto e as proibições por último, como o Labs aprendeu |
@@ -256,9 +256,14 @@ gráfico que parecem números. Nenhum dedo fundido nas mãos que aparecem. A res
 o snapshot (só `created`, `background`, `output_format`, `quality`, `safety_identifier`, `size`, `usage` e
 `data`), então o código não confere pela resposta qual modelo respondeu.
 
-**A escolha do Eduardo: `gpt-image-2.5-flare` em `high`** (a A2): US$ 0,0432 por imagem, uns 16 s. O
-plano fixa `model: "gpt-image-2.5-flare"` (o nome medido, sem o snapshot) e `quality: "high"` num lugar
-só, e nenhum `gpt-image-1` sobra no código. O prazo da chamada (`TIMEOUT_IMAGEM_MS`, 180 s) cobre os 16 s
+**A escolha do Eduardo: `gpt-image-2.5-flare` em `high`** (a A2): US$ 0,0432 por imagem, uns 16 s. **E a
+versão fixa** (decisão dele, a partir de uma sugestão da auditoria): o nome `gpt-image-2.5-flare` é um
+apelido, que hoje aponta para o snapshot `gpt-image-2.5-flare-2026-09-08` (o padrão, pela página oficial
+do modelo) e pode passar a apontar para outro sem aviso, mudando o estilo e o custo. O plano fixa
+`model: "gpt-image-2.5-flare-2026-09-08"` e `quality: "high"` num lugar só, e nenhum `gpt-image-1` sobra
+no código. Quando a OpenAI anunciar o desligamento desse snapshot (na página de desativações, como fez
+com o `gpt-image-1`), a troca passa por uma medição nova. Como a resposta não diz qual modelo respondeu,
+a prova retomada é a primeira geração com o snapshot pelo nome. O prazo da chamada (`TIMEOUT_IMAGEM_MS`, 180 s) cobre os 16 s
 com folga.
 
 ### A chamada à OpenAI
@@ -452,8 +457,8 @@ Da prova:
 4. Recomendado: um limite de gasto no projeto da OpenAI dessa chave, como segunda guarda além do teto
    do banco (o Eduardo confirmou em 09/10 que colocou).
 5. (Adendo) A medição feita (09/10) e o modelo e a qualidade escolhidos pelo Eduardo
-   (`gpt-image-2.5-flare` em `high`); o plano do adendo executado, sem `gpt-image-1` em lugar nenhum do
-   código.
+   (`gpt-image-2.5-flare-2026-09-08` em `high`); o plano do adendo executado, sem `gpt-image-1` em lugar
+   nenhum do código.
 
 Do merge:
 
