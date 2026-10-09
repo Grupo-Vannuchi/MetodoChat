@@ -6,7 +6,8 @@
 publicados); esta etapa é a imagem do espaço da arte.
 **Estado:** desenho aprovado pelo Eduardo, em três partes; revisado pela auditoria, com o pedir e
 acompanhar (achado 88, escolhido pelo Eduardo), o bucket na falha (achado 89) e as pré-condições do
-Fluid Compute e do limite de gasto absorvidos.
+Fluid Compute e do limite de gasto absorvidos; o ensaio do plano acertou os nomes e a versão das cópias
+do Labs ("As regras, copiadas do Labs").
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta
 própria, e nenhum arquivo do `/publicar` nem das automações muda.
 **Etapas anteriores:** a Etapa 5 e o adendo "foto no espaço" (`docs/specs/2026-10-05-publicar-do-carrossel.md`),
@@ -93,16 +94,20 @@ o mesmo editor):
 
 ### As regras, copiadas do Labs
 
-Um módulo puro novo (`lib/bonus/imagem-prompt.ts`) é a cópia de `src/lib/ia/prompt-ilustracao.ts` do
-Labs na `main` `672ee71` (sha do blob `d993e809…`): `PROIBICAO_DE_TEXTO`, `PROIBICAO_DE_PESSOA_REAL`,
-`ESTILO`, `FUNDO`, `ESTILOS`, `separarEstilo`, `pedeTextoNaImagem`, `MIN_DESCRICAO`, `MAX_DESCRICAO`,
-`validarDescricao` e `montarPrompt`. A tradução das recusas da OpenAI (`mensagemDaOpenAI`) é a cópia
-de `src/lib/ia/erro-ilustracao.ts` (`c2ce506f…`), noutro módulo puro. Os comentários que contam a
-história de cada regra vêm junto, com a origem citada.
+Um módulo puro novo (`lib/bonus/prompt-ilustracao.ts`, o nome do Labs) é a cópia, byte a byte, de
+`src/lib/ia/prompt-ilustracao.ts` do Labs na `main` `672ee71` (sha do blob `d993e809…`, igual na dev):
+`PROIBICAO_DE_TEXTO`, `PROIBICAO_DE_PESSOA_REAL`, `ESTILO`, `FUNDO`, `ESTILOS`, `separarEstilo`,
+`pedeTextoNaImagem`, `MIN_DESCRICAO`, `MAX_DESCRICAO`, `validarDescricao` e `montarPrompt`. A tradução das
+recusas da OpenAI (`mensagemDaOpenAI`) é a cópia, byte a byte, de `src/lib/ia/erro-ilustracao.ts`
+(`lib/bonus/erro-ilustracao.ts`), na versão da dev do Labs em `69c079d` (blob `6a5e8f55…`), que já traz o
+filtro do pedaço da chave do 401: achado no ensaio deste plano, decidido pelo Eduardo no Labs em 09/10, e
+avisado ao Chat antes do commit, como combinado; ele chega à main de lá no próximo deploy. Os testes do
+Labs para os dois arquivos vêm junto, com o caminho do import trocado e um cabeçalho que diz a origem.
 
-Um teste trava a cópia: a soma dos textos que vão para o modelo (as quatro regras e os cinco atalhos)
-é a do Labs em `672ee71`. Mudar uma regra num lado sem o outro derruba o teste, e a mudança se combina
-entre os dois, como a conta da arte e os vetores (acordo de 08/10 com o Labs).
+Um teste trava a cópia: a soma do git de cada arquivo é a do blob do Labs. A cópia não ganha nem um
+cabeçalho, e a origem fica escrita no teste. Mudar uma regra num lado sem o outro derruba o teste, e a
+mudança se combina entre os dois, como a conta da arte e os vetores (acordo de 08/10 com o Labs; o Labs
+confirmou em 09/10 que avisa antes de mudar os dois arquivos).
 
 ### A chamada à OpenAI
 
@@ -222,7 +227,7 @@ contatos não vão.
 
 | suíte | o quê |
 |---|---|
-| pura | a cópia das regras: a soma dos textos igual à do Labs em `672ee71`; `montarPrompt` na ordem (cena, atalho, estilo, fundo, pessoa real, texto); `validarDescricao` (curta, longa, atalho desconhecido, o atalho que não conta no mínimo); `pedeTextoNaImagem` (os termos, e "escritório" não casa com "escrito") |
+| pura | a cópia das regras: a soma do git de cada arquivo igual à do blob do Labs; os testes do Labs, copiados: `montarPrompt` na ordem (cena, atalho, estilo, fundo, pessoa real, texto), `validarDescricao` (curta, longa, atalho desconhecido, o atalho que não conta no mínimo), `pedeTextoNaImagem` (os termos, e "escritório" não casa com "escrito") e `mensagemDaOpenAI` (com o pedaço da chave tirado) |
 | pura | `mensagemDaOpenAI` (sem crédito, 429, 401, 403, 400, outro), as frases de cada recusa do Chat, e o contador "Hoje: N de 10" |
 | pura | a leitura da largura e da altura do cabeçalho do JPEG, e a conferência da imagem pela regra da foto (JPEG, 1536×1024 passa; PNG, outra proporção e mais de 2 MB não) |
 | pura | o corpo da chamada (modelo, tamanho, qualidade, fundo, formato JPEG, n), com o `fetch` falso, sem rede; a chave ausente recusa sem chamar; o prazo vira a frase da demora |
