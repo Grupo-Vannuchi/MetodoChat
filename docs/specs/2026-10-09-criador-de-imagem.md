@@ -62,7 +62,7 @@ Do Eduardo, pela caixa, no adendo de 09/10, depois da primeira imagem real e das
 | pessoa real e figura pública | continuam proibidas (manual do perfil), escritas na tela junto da de marca |
 | os estilos | três, escolhidos por slide: cena de cinema, ilustração conceitual e ambiente comercial brilhante (o objeto 3D ficou de fora) |
 | os atalhos de composição | os cinco continuam, ajustados ao texto entre aspas |
-| o modelo e a qualidade | medidos antes, com a mesma cena nos dois modelos novos e em duas qualidades; o Eduardo escolhe olhando |
+| o modelo e a qualidade | medidos antes, com a mesma cena nos dois modelos novos e em duas qualidades; o Eduardo escolheu olhando: **`gpt-image-2.5-flare` em `high`** (a imagem A2 da medição) |
 | o desenho do adendo | aprovado em três partes (as regras e a tela, por dentro, a medição e a ordem) |
 | o nome de marca entre aspas (revisão do adendo) | sai em letra simples, sem logotipo, ícone, cores ou fonte da marca; a tela diz isso |
 | a ordem do pedido (revisão do adendo) | a regra do texto e as proibições por último, como o Labs aprendeu |
@@ -236,7 +236,30 @@ que obriga o `montarPrompt` do Chat a devolver, para as mesmas descrições, exa
 **O que não muda na chamada:** `1536x1024`, `n: 1`, `background: "opaque"`, `output_format: "jpeg"` e a
 compressão que o plano fixou (`COMPRESSAO_DA_IMAGEM`; sem ela, o padrão é 100 e o arquivo cresce; a
 primeira imagem real, no `gpt-image-1`, deu 193 734 bytes). As recusas do modelo novo (o 403 da
-verificação e o formato do erro) e o custo real ficam como não medidos até a primeira geração da prova.
+verificação e o formato do erro) ficam como não medidas até a primeira geração da prova.
+
+**O que a medição mostrou (09/10, 15:03Z a 15:05Z, pelo Labs; conferida pela auditoria).** Os 5 pedidos
+enviados são idênticos ao apêndice; as 5 respostas vieram com HTTP 200, em JPEG 1536×1024:
+
+| id | modelo | qualidade | tempo | tokens (texto / imagem) | custo | bytes |
+|---|---|---|---|---|---|---|
+| A1 | `gpt-image-2.5-flare` | `medium` | 11,1 s | 415 / 343 | US$ 0,0124 | 173 333 |
+| A2 | `gpt-image-2.5-flare` | `high` | 15,5 s | 415 / 1372 | US$ 0,0432 | 175 370 |
+| A3 | `gpt-image-2.5-sunburst` | `medium` | 17,9 s | 415 / 343 | US$ 0,0124 | 174 275 |
+| A4 | `gpt-image-2.5-sunburst` | `high` | 35,3 s | 415 / 1372 | US$ 0,0432 | 186 980 |
+| B1 | `gpt-image-2.5-flare` | `high` | 19,6 s | 401 / 1372 | US$ 0,0432 | 388 985 |
+
+O custo é o `usage` pela tarifa oficial (US$ 5 por milhão de tokens de texto e US$ 30 por milhão de
+tokens de imagem); os tokens de imagem são fixos por qualidade e tamanho, iguais nos dois modelos. O
+texto acentuado entre aspas saiu certo nas cinco, uma vez cada; só a A4 tem marcas miúdas nos eixos do
+gráfico que parecem números. Nenhum dedo fundido nas mãos que aparecem. A resposta não traz o modelo nem
+o snapshot (só `created`, `background`, `output_format`, `quality`, `safety_identifier`, `size`, `usage` e
+`data`), então o código não confere pela resposta qual modelo respondeu.
+
+**A escolha do Eduardo: `gpt-image-2.5-flare` em `high`** (a A2): US$ 0,0432 por imagem, uns 16 s. O
+plano fixa `model: "gpt-image-2.5-flare"` (o nome medido, sem o snapshot) e `quality: "high"` num lugar
+só, e nenhum `gpt-image-1` sobra no código. O prazo da chamada (`TIMEOUT_IMAGEM_MS`, 180 s) cobre os 16 s
+com folga.
 
 ### A chamada à OpenAI
 
@@ -347,9 +370,8 @@ roda o processo com uma OpenAI falsa.
 ## O efeito na produção
 
 O botão "Gerar imagem" aparece em todo slide com espaço dos carrosséis que já existem, e nada muda
-neles até alguém gerar. Cada imagem gerada custa ~~cerca de US$ 0,063~~ o que a medição do adendo mostrar para
-o modelo e a qualidade escolhidos (perto de US$ 0,04 em `medium` ou US$ 0,17 em `high`, pela tabela do
-`gpt-image-2`), na conta da OpenAI, até 10 por 24 horas.
+neles até alguém gerar. Cada imagem gerada custa ~~cerca de US$ 0,063~~ US$ 0,0432 (o `gpt-image-2.5-flare`
+em `high`, medido no adendo), na conta da OpenAI, até 10 por 24 horas: no máximo uns US$ 0,43 por dia.
 A descrição digitada vai para a OpenAI, um terceiro novo no Chat; o texto do carrossel e os dados dos
 contatos não vão.
 
@@ -408,7 +430,7 @@ teto da produção. Se o modelo recusa um pedido assim, e se cobra a recusa, fic
 No fim, o carrossel e as imagens saem do banco e do bucket, com o OK do Eduardo e o script lido pela
 auditoria antes de rodar (achado 77). As linhas de `imagens_geradas` ficam, com o carrossel nulo: são o
 histórico do teto, e as da prova contam no teto da produção por 24 horas. Custo da prova retomada: duas
-imagens, com o preço medido do modelo escolhido.
+imagens de US$ 0,0432, uns US$ 0,09.
 
 ---
 
@@ -429,8 +451,9 @@ Da prova:
    opção, e por isso ele ou o Vinícius confere de novo em Settings → Functions antes da prova.
 4. Recomendado: um limite de gasto no projeto da OpenAI dessa chave, como segunda guarda além do teto
    do banco (o Eduardo confirmou em 09/10 que colocou).
-5. (Adendo) A medição feita, e o modelo e a qualidade escolhidos pelo Eduardo; o plano do adendo
-   executado, sem `gpt-image-1` em lugar nenhum do código.
+5. (Adendo) A medição feita (09/10) e o modelo e a qualidade escolhidos pelo Eduardo
+   (`gpt-image-2.5-flare` em `high`); o plano do adendo executado, sem `gpt-image-1` em lugar nenhum do
+   código.
 
 Do merge:
 
