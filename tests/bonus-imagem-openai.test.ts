@@ -12,8 +12,9 @@ import {
 import { montarPrompt } from "@/lib/bonus/prompt-ilustracao";
 
 // A CHAMADA À OPENAI (spec da Etapa 6, "A chamada à OpenAI"), com um `fetch` falso: nada sai desta
-// máquina. O corpo é o do Labs (lib/bonus/prompt-ilustracao.ts embrulha a cena), com uma diferença: o
-// JPEG, porque a foto do espaço do Chat é JPEG de até 2 MB.
+// máquina. O corpo leva o JPEG, porque a foto do espaço do Chat é JPEG de até 2 MB, e o modelo e a
+// qualidade do adendo de 09/10: o gpt-image-1 sai do ar em 23/10/2026 (achado 90), e o Eduardo escolheu,
+// pela medição, o gpt-image-2.5-flare em high, com a versão medida fixa.
 //
 // A CHAVE DESTES TESTES É INVENTADA, e não começa por "sk-" de propósito: a varredura da etapa procura
 // esse começo em todo arquivo novo. Onde o teste precisa de um "sk-", ele é montado em partes.
@@ -42,7 +43,7 @@ describe("a chamada à OpenAI", () => {
     expect(buscar).not.toHaveBeenCalled();
   });
 
-  it("o corpo é o do Labs em JPEG, com a cena embrulhada nas regras, e com prazo", async () => {
+  it("o corpo leva o modelo medido e escolhido, em JPEG, com a cena embrulhada nas regras, e com prazo", async () => {
     const buscar = vi.fn(async (_url: string, _init: RequestInit) => resposta(200, { data: [{ b64_json: "AQID" }] }));
     await gerarNaOpenAI(CENA, AMBIENTE, buscar as unknown as typeof fetch);
     const [url, init] = buscar.mock.calls[0];
@@ -50,15 +51,20 @@ describe("a chamada à OpenAI", () => {
     expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer chave-inventada-para-o-teste");
     expect(JSON.parse(String(init.body))).toEqual({ ...CORPO_FIXO, prompt: montarPrompt(CENA) });
-    expect(CORPO_FIXO).toMatchObject({
-      model: "gpt-image-1",
+    expect(CORPO_FIXO).toEqual({
+      model: "gpt-image-2.5-flare-2026-09-08",
       size: "1536x1024",
-      quality: "medium",
+      quality: "high",
       n: 1,
       background: "opaque",
       output_format: "jpeg",
+      output_compression: 90,
     });
     expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("o modelo que a OpenAI desliga em 23/10/2026 não está no corpo", () => {
+    expect(JSON.stringify(CORPO_FIXO)).not.toContain('"gpt-image-1"');
   });
 
   it("a imagem volta em bytes, lida de data[0].b64_json", async () => {

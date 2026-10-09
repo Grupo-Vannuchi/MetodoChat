@@ -17,20 +17,24 @@ import { montarPrompt } from "./prompt-ilustracao";
 // SEM SDK, com `fetch` direto, como o Labs: o endpoint é um POST com JSON, e a resposta tem um campo que
 // interessa. Nada muda no package.json.
 //
-// O CORPO É O DO LABS, com uma diferença: `output_format: "jpeg"`, e não "png". O Chat guarda a imagem
-// como a foto do espaço, e a rota da arte só a lê como JPEG e até 2 MB (lib/bonus/arte-foto.ts); o PNG do
-// Labs passava de 2 MB. O resto (modelo, tamanho, qualidade, fundo) foi decidido e medido lá, e não muda
-// aqui sem combinar.
+// O CORPO: `output_format: "jpeg"`, e não o "png" do Labs. O Chat guarda a imagem como a foto do espaço,
+// e a rota da arte só a lê como JPEG e até 2 MB (lib/bonus/arte-foto.ts); o PNG do Labs passava de 2 MB.
+//
+// ⚠️ O MODELO E A QUALIDADE SÃO OS DO ADENDO DE 09/10 (achado 90). O `gpt-image-1` em `medium`, do Labs, sai
+// do ar em 23/10/2026 (developers.openai.com/api/docs/deprecations). O Eduardo escolheu, olhando a
+// medição dos dois substitutos, o `gpt-image-2.5-flare` em `high` (US$ 0,0432 e uns 16 s por imagem), e
+// pediu a VERSÃO FIXA: o nome sem data é um apelido, que pode passar a outra versão sem aviso, mudando o
+// estilo e o custo. Trocar o modelo é uma medição nova, e não uma linha mudada aqui.
 //
 // A CHAVE sai do ambiente, vai só no cabeçalho, e nunca para uma frase, um log ou o banco (`tirarChave`).
 
 export const ENDERECO_DA_OPENAI = "https://api.openai.com/v1/images/generations";
 
-/** O corpo, menos o prompt. 1536×1024 é o 3:2 deitado do espaço (860×573): a API só aceita três tamanhos. */
+/** O corpo, menos o prompt. 1536×1024 é o 3:2 deitado do espaço (860×573), um dos tamanhos recomendados. */
 export const CORPO_FIXO = {
-  model: "gpt-image-1",
+  model: "gpt-image-2.5-flare-2026-09-08",
   size: "1536x1024",
-  quality: "medium",
+  quality: "high",
   n: 1,
   background: "opaque",
   output_format: "jpeg",
@@ -44,7 +48,7 @@ export type GerarNaOpenAI = (descricao: string) => Promise<RespostaDaOpenAI>;
 
 /**
  * Gera a imagem da descrição que o operador digitou. O embrulho nas regras (estilo, fundo, proibições) é
- * o `montarPrompt` do Labs. `ambiente` e `buscar` entram por parâmetro só para o teste.
+ * o `montarPrompt` do Chat. `ambiente` e `buscar` entram por parâmetro só para o teste.
  */
 export async function gerarNaOpenAI(
   descricao: string,
