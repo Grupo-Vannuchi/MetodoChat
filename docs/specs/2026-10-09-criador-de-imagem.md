@@ -4,7 +4,9 @@
 `aef1eeb` (a Etapa 9 em produção desde 08/10, 17:53Z). A capa do slide 1 fica com o Canva, pelo
 "Slide pronto do Canva" que já existe (decisão do Eduardo no mesmo dia, depois de comparar três posts
 publicados); esta etapa é a imagem do espaço da arte.
-**Estado:** desenho aprovado pelo Eduardo, em três partes; à espera da revisão da auditoria.
+**Estado:** desenho aprovado pelo Eduardo, em três partes; revisado pela auditoria, com o pedir e
+acompanhar (achado 88, escolhido pelo Eduardo), o bucket na falha (achado 89) e as pré-condições do
+Fluid Compute e do limite de gasto absorvidos.
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta
 própria, e nenhum arquivo do `/publicar` nem das automações muda.
 **Etapas anteriores:** a Etapa 5 e o adendo "foto no espaço" (`docs/specs/2026-10-05-publicar-do-carrossel.md`),
@@ -38,6 +40,7 @@ Do Eduardo, pela caixa, em 09/10:
 | o teto | 10 imagens nas últimas 24 horas, somando todos os carrosséis, como o Labs |
 | a chave | `OPENAI_API_KEY` na Vercel do Chat, em Production e Preview, criada pelo Eduardo ou pelo Vinícius; uma chave só para o Chat é a sugestão |
 | a tela, o por dentro e a prova | aprovados como estão nesta spec |
+| a espera da imagem (achado 88, da revisão) | pedir e acompanhar: o clique registra o pedido e volta na hora, a imagem é gerada em segundo plano, e o card acompanha |
 
 **O que vem do Labs sem mudar.** As regras de estilo foram decididas pelo Eduardo no Labs, entre 02/09
 e 22/09, e valem inteiras aqui: a fotografia editorial realista, a cena de borda a borda, a proibição
@@ -66,7 +69,9 @@ o mesmo editor):
   termos do Labs), o campo avisa que a IA escreve errado e que o texto do slide já vem da arte. É
   aviso, não bloqueio, como o Eduardo decidiu no Labs em 21/09.
 - **Enquanto gera:** "Gerando a imagem… leva uns 30 segundos", com os botões da imagem daquele slide
-  desligados.
+  desligados. O resto da página continua funcionando: salvar, "Só texto", outro slide e publicar. Se a
+  página for recarregada ou a aba fechada, a geração continua no servidor, e o card volta em
+  "Gerando…" até a imagem aparecer.
 - **Pronta:** a imagem entra no espaço, como uma foto subida. A miniatura troca pela versão nova, e a
   imagem anterior daquele slide, de qualquer jeito (foto, imagem gerada ou slide pronto), sai do
   bucket, como numa troca de foto hoje.
@@ -142,41 +147,65 @@ O teto conta as linhas das últimas 24 horas, de qualquer estado, no relógio do
 pedido que falhou, porque a OpenAI pode ter cobrado. A conta e a linha nova acontecem numa transação
 com trava própria (`pg_advisory_xact_lock`, no molde de `comTeto`, `lib/bonus/carrossel-repositorio.ts:53`),
 para dois cliques juntos não passarem do 10. Na mesma trava, um slide com uma linha `gerando` mais
-nova que o prazo da chamada recusa o segundo pedido: cada slide gera uma imagem de cada vez.
+nova que `TRAVADA_IMAGEM_MS` (abaixo) recusa o segundo pedido: cada slide gera uma imagem de cada vez.
 
 A linha nasce `gerando` antes da chamada e termina `pronta` (com o caminho) ou `falhou` (com o
 motivo). A página lê dela a contagem de hoje e a última descrição de cada slide, para o "Gerar de
 novo".
 
-### O processo e a action
+### Pedir e acompanhar (achado 88)
 
-O processo (`lib/bonus/imagem-processo.ts`) faz, nesta ordem:
+**Por que não esperar a imagem na action.** O Next instalado manda as Server Actions de um cliente
+uma de cada vez: "If a user triggers three actions in quick succession, the second waits for the first
+to finish" (`node_modules/next/dist/docs/01-app/02-guides/server-actions.md:28`). Uma action que
+esperasse a imagem por até 180 s prenderia, nesse tempo, o salvar de cada slide, o "Só texto", o
+guardar foto, o "Gerar" de outro slide e o publicar. A página pareceria travada. Por isso o pedido e
+a geração se separam, como o Chat já faz com a geração do bônus e do carrossel pela IA (`after()`, em
+`app/bonus/actions.ts` e `app/carrosseis/actions.ts`) e como o Labs faz com a ilustração (decisão do
+Eduardo em 09/10).
+
+**O pedido** é uma action curta (`pedirImagemDoSlide`, num arquivo novo em `app/bonus/`). Ela confere a
+sessão por conta própria, como toda action do gerador, lê o pedido e faz, nesta ordem:
 
 1. confere o carrossel como o publicar confere (pronto, com a conta gravada e conectada, e a trava
    livre) e o slide (existe e tem espaço);
 2. confere a descrição (`validarDescricao`) e a chave;
 3. reserva no teto (a linha `gerando`), ou recusa;
-4. chama a OpenAI, confere a imagem, sobe para o bucket e guarda no slide;
-5. marca a linha `pronta` ou `falhou`.
 
-Os passos 1 a 3 recusam sem chamar a OpenAI, ou seja, sem custo. Uma falha depois de subir ao bucket
-apaga o que subiu. A chamada à OpenAI entra por parâmetro só para o teste, como o `enfileirar` do
-publicar: a integração usa uma OpenAI falsa.
+e volta na hora, como estado (nunca por redirect, achado 52), com a frase e a contagem de hoje. Os
+passos 1 a 3 recusam sem chamar a OpenAI, ou seja, sem custo.
 
-A action (`gerarImagemDoSlide`, num arquivo novo em `app/bonus/`) confere a sessão por conta própria,
-como toda action do gerador, lê o pedido e chama o processo. A resposta volta como estado
-(`useActionState` ou transição), nunca por redirect (achado 52), com a frase, a versão nova da
-miniatura e a contagem de hoje. Ela espera a imagem: o Chat tem 300 s por página na Vercel, e o Labs
-pede e consulta por causa da hospedagem dele. Se a aba fechar no meio, o servidor termina e guarda; a
-página recarregada mostra a imagem.
+**A geração** roda depois da resposta, no `after()` da mesma action, dentro do `maxDuration` da página
+(300 s). O processo (`lib/bonus/imagem-processo.ts`):
+
+4. chama a OpenAI, confere a imagem, sobe para o bucket e guarda no slide (`guardarImagem`, que
+   confere de novo o carrossel: se ele foi agendado no meio, a imagem não entra);
+5. marca a linha `pronta` (com o caminho) ou `falhou` (com o motivo).
+
+**O que sai do bucket numa falha (achado 89).** Enquanto o `guardarImagem` não confirmou, uma falha
+apaga o arquivo que subiu. Depois dele, o arquivo já é a foto do slide (o caminho foi gravado e a
+imagem anterior saiu do bucket): uma falha ao marcar a linha deixa o arquivo, e a linha `gerando`
+vence pelo prazo e conta no teto.
+
+**O acompanhar.** O card pergunta o estado da linha a cada 2 s (`INTERVALO_CONSULTA_MS`) por uma rota
+GET da pasta da feature, ao lado da rota da arte, que confere a sessão e o carrossel e só lê. Fora da
+fila das actions, a consulta nunca prende a página. Pronta, a resposta traz a versão nova da miniatura,
+e o card mostra a imagem; com falha, a frase. A linha `gerando` mais velha que o prazo da chamada com
+uma folga (`TRAVADA_IMAGEM_MS`) aparece como falha ("A geração não terminou. Tente de novo."), libera
+o slide e continua contando no teto. A página que abre com uma linha `gerando` no slide começa o card
+em "Gerando…": recarregar ou fechar a aba não para a geração.
+
+A chamada à OpenAI entra por parâmetro só para o teste, como o `enfileirar` do publicar: a integração
+roda o processo com uma OpenAI falsa.
 
 ### O que não muda
 
 - A arte, o desenho, a conta do "não cabe" e os vetores combinados com o Labs.
 - A rota da arte, o publicar, a fila e o "Subir foto": a imagem gerada passa por eles como foto.
 - Nenhum arquivo do `/publicar`, do bucket (`lib/bucket.ts`), do dreno, da fila nem das automações, e
-  nenhuma dependência nova. O diff fica em `app/bonus/`, `lib/bonus/`, `migrations/018-…`, a declaração
-  em `lib/esquema.ts`, testes e `docs/`.
+  nenhuma dependência nova. O diff fica em `app/bonus/`, `app/carrosseis/` (a rota da consulta ao lado
+  da rota da arte, uma em cada caminho do carrossel, como a arte), `lib/bonus/`, `migrations/018-…`, a
+  declaração em `lib/esquema.ts`, testes e `docs/`.
 
 ---
 
@@ -200,9 +229,11 @@ contatos não vão.
 | integração | a tabela 018: as colunas, os `check`, o carrossel apagado deixando a linha, a migração rodando duas vezes, e a declaração em `naoObservaveis` |
 | integração | gerar com a OpenAI falsa e o bucket falso: a imagem vai para `bonus-foto/` na pasta da conta do carrossel, o slide guarda com o jeito foto, a anterior sai do bucket, a linha fica `pronta`; o publicar desse slide sai pela arte, como foto |
 | integração | o teto: o 11º pedido em 24 horas é recusado sem chamar a OpenAI; dois pedidos juntos no mesmo slide geram uma imagem só; a falha da OpenAI (400, 401, 429, demora) fica `falhou` e conta; a imagem fora do formato não é guardada e o que subiu sai do bucket |
-| integração | as recusas antes da chamada: o carrossel na fila ou publicado, o slide "Só texto", o slide que não existe, sem conta, com a conta desconectada e sem a chave |
-| tela | o botão só no slide com espaço e sem trava; o campo com os atalhos; o aviso de texto; o "Gerando…"; a imagem no espaço com a miniatura nova; o "Gerar de novo" com a última descrição; o contador e a trava no 10; a frase da recusa |
-| páginas | a action nova confere a sessão (a guarda que lê os arquivos das actions) |
+| integração | o bucket na falha (achado 89): antes do `guardarImagem` confirmar, o arquivo que subiu sai; com a falha forçada ao marcar a linha, depois dele, o arquivo fica e o slide continua com a foto que abre; o carrossel agendado no meio da geração não recebe a imagem |
+| integração | as recusas do pedido, antes da chamada e sem linha nova: o carrossel na fila ou publicado, o slide "Só texto", o slide que não existe, sem conta, com a conta desconectada, sem a chave e a descrição fora da regra |
+| integração | a consulta: o estado de cada linha (`gerando`, `pronta` com a versão da miniatura, `falhou` com a frase), a linha travada pelo prazo, e a sessão e o carrossel conferidos |
+| tela | o botão só no slide com espaço e sem trava; o campo com os atalhos; o aviso de texto; o "Gerando…" com a consulta; a imagem no espaço com a miniatura nova; o "Gerar de novo" com a última descrição; o contador e a trava no 10; a frase da recusa; **outra action (salvar um slide) sai enquanto a imagem gera** (achado 88); a página que abre com a linha `gerando` começa o card em "Gerando…" |
+| páginas | a action nova e a rota da consulta conferem a sessão (as guardas que leem os arquivos); a action chama o processo no `after()` |
 
 Cada proteção principal ganha uma prova de mutação: retirada de propósito, o teste certo cai.
 
@@ -217,15 +248,17 @@ Os textos sugeridos para digitar passam antes pelo schema de cada campo (o míni
 1. "Novo carrossel" → texto livre → "Escrever à mão", com 1 slide; criar (grava).
 2. No slide, "Gerar imagem" com uma descrição de cena (grava; **~US$ 0,063**): a imagem aparece no
    espaço, e o contador mostra "Hoje: 1 de 10". A auditoria mede o JPEG guardado (medidas e bytes).
-3. "Gerar de novo" com a descrição ajustada (grava; **~US$ 0,063**): a imagem troca, a anterior sai do
-   bucket, e o contador vai a 2.
+3. "Gerar de novo" com a descrição ajustada (grava; **~US$ 0,063**), e, durante o "Gerando…", recarregar
+   a página: o card volta em "Gerando…" e a imagem aparece sem novo clique. A imagem troca, a anterior
+   sai do bucket, e o contador vai a 2.
 4. Uma descrição com menos de 10 caracteres: recusada antes de chamar a OpenAI, sem custo e sem linha
    nova.
 5. Agendar para daqui a 7 dias e cancelar no calendário (gravam): a arte da fila leva a imagem gerada.
 
 No fim, o carrossel e as imagens saem do banco e do bucket, com o OK do Eduardo e o script lido pela
 auditoria antes de rodar (achado 77). As linhas de `imagens_geradas` ficam, com o carrossel nulo: são o
-histórico do teto. Custo da prova: ~US$ 0,13.
+histórico do teto, e as 2 da prova contam no teto da produção por 24 horas (sobram 8 nesse dia). Custo
+da prova: ~US$ 0,13.
 
 ---
 
@@ -239,6 +272,12 @@ Da prova:
    valor.
 2. A 018 aplicada à mão na produção, com o OK do Eduardo, antes da prova, porque o preview usa o
    banco de produção (como a 016 e a 017).
+3. O Fluid Compute ligado no projeto da Vercel: no plano Hobby, os 300 s das páginas exigem o Fluid
+   (`lib/bonus/tempos.ts:11`), e sem ele a função para em 60 s e a geração no `after()` pode ser
+   cortada. O Eduardo o conferiu ligado em 29/09, para a Etapa 1; o conector da Vercel não mostra a
+   opção, e por isso ele ou o Vinícius confere de novo em Settings → Functions antes da prova.
+4. Recomendado: um limite de gasto no projeto da OpenAI dessa chave, como segunda guarda além do teto
+   do banco.
 
 Do merge:
 
