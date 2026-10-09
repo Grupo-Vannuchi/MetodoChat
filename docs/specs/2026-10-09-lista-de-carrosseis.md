@@ -3,7 +3,9 @@
 **Nascido em:** 09/10/2026, pedido pelo Eduardo com um print da lista "Carrosséis", logo depois de a
 Etapa 6 entrar em produção (`main` em `af714d3`). Desenhado com ele pela caixa de perguntas.
 **Estado:** desenho aprovado pelo Eduardo, em duas partes (a tela; por dentro); revisado pela auditoria
-em `d142ed8`, sem bloqueio, com os achados 92 a 96 absorvidos (o 95 decidido pelo Eduardo).
+em `d142ed8`, sem bloqueio, com os achados 92 a 96 absorvidos (o 95 decidido pelo Eduardo). O ensaio do
+plano, em 09/10, corrigiu o selo esperado nos passos 2 e 4 da prova e acertou três detalhes de "Por
+dentro": o nome da action, a frase da recusa do publicado e os caminhos que saem do bucket.
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta própria,
 e nenhum arquivo do `/publicar`, da fila nem das automações muda.
 **Etapas anteriores:** a Etapa 7 criou o menu "Carrosséis" (`app/carrosseis/page.tsx`); a Etapa 5, o
@@ -115,9 +117,11 @@ Uma regra pura (`podeApagar`), a mesma na tela e no servidor:
 
 ### O apagar no servidor
 
-Uma action nova (`apagarCarrossel`, em `app/bonus/`, ao lado das actions do carrossel) confere a sessão
-antes de tudo, como toda action do gerador, e lê o id. Ela devolve estado em toda recusa (achado 52) e,
-no sucesso, vai para a lista com o aviso.
+Uma action nova (`apagarCarrosselDaPagina`, em `app/bonus/apagar-actions.ts`, ao lado das actions do
+carrossel; a transação abaixo é `apagarCarrossel`) confere a sessão antes de tudo, como toda action do
+gerador, e lê o id. Ela devolve estado em toda recusa (achado 52) e, no sucesso, vai para a lista com o
+aviso. A recusa do publicado, que a página não oferece (ela não desenha o botão), também tem frase: "Este
+carrossel já foi publicado, e fica como histórico.".
 
 Numa transação (`lib/bonus/apagar-carrossel.ts`, novo, `server-only`):
 
@@ -142,6 +146,10 @@ Depois do commit, os arquivos dele saem do bucket, com `apagarSemDerrubar` (`pub
   slides prontos do Canva em `bonus/`;
 - as cópias da fila que tenham sobrado (`arte.publicacao.caminhos`, em `bonus-fila/`); o cancelamento já
   as tira, e a publicação que falhou pode tê-las deixado.
+
+Só saem os caminhos da pasta da conta do carrossel, na forma exata do destino de cada um
+(`ehCaminhoDoDestino`, `publicar-regras.ts`): apagar não tem volta, e um caminho estranho guardado na
+linha não leva junto o arquivo de outro post.
 
 Uma falha no bucket não desfaz o banco: o carrossel já está apagado, e o arquivo fica sem dono (como em
 "O que fica no bucket sem dono", da Etapa 5).
@@ -211,11 +219,13 @@ real.** A auditoria lê o banco antes e depois de cada gravação, com a hora ma
 1. A lista: as três abas com os carrosséis de hoje, a capa em cada linha e os selos novos, conferidos
    contra a medição da auditoria (hoje, os 5 em "Rascunhos").
 2. "Novo carrossel" → texto livre → "Escrever à mão", com 1 slide (grava). Ele aparece em "Rascunhos",
-   sem selo, com a capa.
+   com a capa e o selo "Pronto para revisar": o carrossel escrito à mão nasce sem revisão (`revisado_em`
+   nulo, `carrossel-repositorio.ts:108-110`), e só o "Revisado" sai da lista.
 3. Agendar esse carrossel para daqui a 7 dias (grava; achado 94): a lista mostra "Agendados (1)", com o
    selo "Agendado para…", e a página dele mostra "Para apagar, cancele o agendamento no calendário
    antes." no lugar do botão.
-4. Cancelar no calendário do `/publicar` (grava): ele volta a "Rascunhos", sem selo, e o botão volta.
+4. Cancelar no calendário do `/publicar` (grava): ele volta a "Rascunhos", com o mesmo selo "Pronto para
+   revisar" (o cancelado não ganha selo da publicação), e o botão volta.
 5. "Apagar carrossel" → "Cancelar" (nada muda) → "Apagar carrossel" → "Sim, apagar" (grava): a lista em
    "Rascunhos", com "Carrossel apagado." em verde, sem ele. A auditoria confere a linha apagada, as linhas
    da fila que ficam e o bucket.
