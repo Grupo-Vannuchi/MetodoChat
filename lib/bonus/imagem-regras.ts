@@ -66,6 +66,15 @@ export function estadoDaImagem(
   return agora.getTime() - linha.criado_em.getTime() >= TRAVADA_IMAGEM_MS ? { tipo: "travada" } : { tipo: "gerando" };
 }
 
+/**
+ * O ENDEREÇO DA CONSULTA de um slide: ao lado da rota da arte, no caminho do carrossel
+ * (`caminhoDoCarrossel`), uma rota GET que só lê. O card pergunta por ela, e não por uma action, porque
+ * uma action entraria na fila das outras da página (achado 88).
+ */
+export function urlDaConsultaDaImagem(caminho: string, numero: number): string {
+  return `${caminho}/imagem?slide=${numero}`;
+}
+
 /** O que impede guardar a imagem gerada: não é JPEG, ou não passa na regra da foto do espaço. */
 export type ProblemaDaImagem = "formato" | ProblemaDaFoto;
 

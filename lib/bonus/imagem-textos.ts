@@ -1,3 +1,4 @@
+import type { Aviso } from "@/lib/avisos";
 import { TETO_IMAGEM_DIARIO, type ProblemaDaImagem } from "./imagem-regras";
 import { textoDaRecusaDaPublicacaoDoCarrossel, type RecusaDaPublicacaoDoCarrossel } from "./publicar-textos";
 
@@ -36,6 +37,12 @@ export function textoDaRecusaDaImagem(r: RecusaDaImagem): string {
       return textoDaRecusaDaPublicacaoDoCarrossel(r);
   }
 }
+
+/**
+ * A resposta do pedido de imagem, como ESTADO (achado 52): a frase (o "Gerando…" ou a recusa) e a conta
+ * do dia, quando o pedido chegou ao teto.
+ */
+export type AvisoDoPedidoDeImagem = Aviso & { em: number; hoje?: number };
 
 /** "Hoje: 3 de 10 imagens." A conta das últimas 24 horas, que a tela mostra junto do campo. */
 export function textoDoContador(hoje: number): string {

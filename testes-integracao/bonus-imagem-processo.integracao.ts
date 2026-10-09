@@ -17,6 +17,9 @@ type ModuloPublicar = typeof import("@/lib/bonus/publicar-processo");
 type ModuloRegras = typeof import("@/lib/bonus/publicar-regras");
 type ModuloSlides = typeof import("@/lib/bonus/arte-slides");
 type ModuloTextos = typeof import("@/lib/bonus/imagem-textos");
+type ModuloConsulta = typeof import("@/lib/bonus/imagem-consulta");
+type ModuloCarrossel = typeof import("@/lib/bonus/carrossel-repositorio");
+type ModuloTela = typeof import("@/lib/bonus/arte-tela");
 type ContaDoCabecalho = import("@/lib/bonus/arte-conta").ContaDoCabecalho;
 
 const banco = bancoDescartavel();
@@ -59,6 +62,9 @@ let publicar: ModuloPublicar;
 let regras: ModuloRegras;
 let slides: ModuloSlides;
 let textos: ModuloTextos;
+let consulta: ModuloConsulta;
+let carrosselRepo: ModuloCarrossel;
+let tela: ModuloTela;
 let contas: ContaDoCabecalho[];
 
 beforeAll(async () => {
@@ -119,6 +125,9 @@ beforeAll(async () => {
   regras = await import("@/lib/bonus/publicar-regras");
   slides = await import("@/lib/bonus/arte-slides");
   textos = await import("@/lib/bonus/imagem-textos");
+  consulta = await import("@/lib/bonus/imagem-consulta");
+  carrosselRepo = await import("@/lib/bonus/carrossel-repositorio");
+  tela = await import("@/lib/bonus/arte-tela");
   await banco.db().upsertAccount({
     ig_user_id: CONTA,
     username: "thiagovannuchi",
@@ -388,5 +397,52 @@ describe("gerar a imagem", () => {
     });
     expect(r).toEqual({ ok: false, motivo: textos.TEXTO_IMAGEM_FALHOU_SEM_MOTIVO });
     expect((await linhas())[0]).toMatchObject({ estado: "falhou", motivo: textos.TEXTO_IMAGEM_FALHOU_SEM_MOTIVO });
+  });
+});
+
+// A CONSULTA DE UM SLIDE (spec da Etapa 6, "O acompanhar"): o que a rota GET devolve ao card, que pergunta
+// a cada 2 s enquanto a imagem gera. A rota só confere a sessão e o carrossel e chama esta consulta.
+describe("a consulta de um slide", () => {
+  const consultar = async (id: string, numero = 2) => {
+    const linha = await carrosselRepo.lerCarrossel(id);
+    if (!linha) throw new Error("o carrossel devia existir");
+    return consulta.consultarImagem({ linha, numero });
+  };
+
+  it("sem pedido, nenhuma, com a conta do dia", async () => {
+    const id = await carrossel();
+    expect(await consultar(id)).toEqual({ estado: "nenhuma", hoje: 0 });
+  });
+
+  it("gerando, enquanto a geração não termina; o outro slide segue sem pedido", async () => {
+    const id = await carrossel();
+    await reservado(id);
+    expect(await consultar(id)).toEqual({ estado: "gerando", hoje: 1 });
+    expect(await consultar(id, 3)).toEqual({ estado: "nenhuma", hoje: 1 });
+  });
+
+  it("pronta, com a versão nova da miniatura, a mesma que a página desenharia", async () => {
+    const id = await carrossel();
+    const r = await imagem.gerarImagem({ reservaId: await reservado(id), id, numero: 2, descricao: CENA, contas, gerar: openaiQueGera });
+    if (!r.ok) throw new Error(`a geração devia passar: ${r.motivo}`);
+    const conta = contas.find((c) => c.ig_user_id === CONTA) ?? null;
+    const comFoto = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], tela.cabecalhoParaVersao(conta), { 2: r.caminho })[1];
+    const semFoto = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], tela.cabecalhoParaVersao(conta), {})[1];
+    expect(comFoto).not.toBe(semFoto);
+    expect(await consultar(id)).toEqual({ estado: "pronta", hoje: 1, versao: expect.any(String), versaoDaMiniatura: comFoto });
+  });
+
+  it("falhou, com o motivo da linha", async () => {
+    const id = await carrossel();
+    const erro = "A OpenAI recusou o pedido.";
+    await imagem.gerarImagem({ reservaId: await reservado(id), id, numero: 2, descricao: CENA, contas, gerar: async () => ({ ok: false, erro }) });
+    expect(await consultar(id)).toEqual({ estado: "falhou", hoje: 1, texto: erro });
+  });
+
+  it("a linha travada pelo prazo vira falha, com a frase da travada", async () => {
+    const id = await carrossel();
+    await reservado(id);
+    await banco.db().sql().query(`update imagens_geradas set criado_em = now() - interval '4 minutes'`);
+    expect(await consultar(id)).toEqual({ estado: "falhou", hoje: 1, texto: textos.TEXTO_IMAGEM_TRAVADA });
   });
 });
