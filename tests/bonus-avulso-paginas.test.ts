@@ -123,6 +123,18 @@ describe("o menu Carrosséis", () => {
     expect(lista).toContain('href="/carrosseis/novo"');
   });
 
+  // AS ABAS E A CAPA (spec da Etapa 10): a aba vem do endereço, a separação e a ordem são da regra pura, e
+  // a capa é calculada com as contas lidas uma vez e o endereço público do bucket, como a página do
+  // carrossel calcula a miniatura.
+  it("a lista abre a aba do endereço, separa pela regra e calcula a capa como a página do carrossel", () => {
+    const lista = ler("app/carrosseis/page.tsx");
+    expect(lista).toContain("abaDoEndereco(sp.aba)");
+    expect(lista).toContain("separarPorAba(");
+    expect(lista).toContain("await contasParaArte()");
+    expect(lista).toContain("urlPublica: urlPublicaSeDerParaMontar");
+    expect(lista).toContain("capaDoCarrossel(");
+  });
+
   it("a página do carrossel entrega o aviso do funil, decidido pelo estado da fila", () => {
     expect(ler("app/bonus/[id]/carrossel/[cid]/revisao.tsx")).toContain("avisoDoFunil: textoDoFunil(estado, carrossel.palavra)");
   });
