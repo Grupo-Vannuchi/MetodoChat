@@ -119,7 +119,8 @@ Valem para todas as fases, sem precisar repetir em cada uma.
 - **Pastas da etapa:** `app/bonus/`, `app/carrosseis/` e `lib/bonus/`; fora delas, só testes e `docs/`.
   **Nenhum arquivo do `/publicar`, da fila, das automações, dos `scripts`, das migrações nem do
   `package` muda**, e do `lib/bonus/publicar-*` nada muda também: o apagar só lê a trava do publicar
-  (a FASE 10.5 confere).
+  (a FASE 10.5 confere). O adendo de 13/10 toca o `app/app-shell.tsx`, arquivo do dono, só no import e na
+  linha do `active` (a FASE 10.8 confere o +2/−2).
 - **Sem migração.** O build do merge tem de dizer "Nada a aplicar: as 19 migrações".
 - **Sufixo de teste é o que decide se ele roda:** `tests/**/*.test.ts` (puro, entra no `verify`),
   `testes-integracao/**/*.integracao.ts` (banco, fora do `verify`), `testes-dom/**/*.dom.tsx`
@@ -152,6 +153,7 @@ Valem para todas as fases, sem precisar repetir em cada uma.
 | `lib/bonus/imagem-repositorio.ts`, `lib/bonus/imagem-processo.ts` | a reserva da imagem que perde a corrida devolve `nao_pronto` (achado 96) | 10.2 |
 | `app/bonus/apagar-actions.ts`, `app/bonus/[id]/carrossel/[cid]/apagar.tsx`, `botao-de-apagar.tsx`, as duas `page.tsx` do carrossel | a action, o fim da página e o botão com dois cliques | 10.3 |
 | `app/carrosseis/lista.tsx`, `app/carrosseis/page.tsx` | a lista com as abas, a capa e o selo | 10.1 (o mínimo) e 10.4 |
+| `lib/bonus/menu-ativo.ts`, `app/app-shell.tsx` (+2/−2), `app/bonus/[id]/carrossel/[cid]/page.tsx` | o voltar leva à lista, e o menu marca "Carrosséis" no carrossel de bônus (adendo de 13/10) | 10.7 |
 
 ---
 
@@ -2528,6 +2530,9 @@ git commit -m "feat(bonus): a lista de carrosséis em abas, com a capa de cada u
 
 ### FASE 10.5 — O verify, a integração inteira, as mutações e a guarda do diff
 
+> Executada em 13/10 com as 29 mutações de então. Com o adendo, o Apêndice A tem 33 (as 4 da FASE 10.7
+> procuram trechos que só existem depois dela), e quem as roda é a FASE 10.8.
+
 - [ ] **Passo 1: o verify, na árvore do projeto**
 
 ```bash
@@ -2575,6 +2580,9 @@ Esperado: as duas saídas vazias.
 
 ### FASE 10.6 — A prova real, no preview, com o Eduardo
 
+> **Em 13/10 a prova parou no passo 1**, que é só de leitura, para o adendo do voltar e do menu (no fim deste
+> plano). Ela recomeça desde o passo 1 na FASE 10.8, passo 6, num preview novo.
+
 Cada escrita em produção tem o OK do Eduardo, pela caixa, e a auditoria lê o banco antes e depois
 (avisada com a hora). O preview usa o banco e o bucket de produção. **Sem custo e sem post real. Sem
 migração.** Os textos sugeridos para digitar passam antes pelo schema de cada campo (o mínimo e o
@@ -2614,6 +2622,309 @@ Eduardo. O merge é do Vinícius, e o build do merge diz "Nada a aplicar: as 19 
 
 ---
 
+## Adendo de 13/10 — o voltar e o menu do carrossel de bônus
+
+**De onde veio:** a prova (FASE 10.6) parou no passo 1, que é só de leitura. O Eduardo apontou que,
+entrando pela lista "Carrosséis" num carrossel de bônus, o menu marca "Bônus" e o "Voltar para o bônus"
+leva ao bônus, e não à lista. Vem da Etapa 7. Ele decidiu pela caixa: "Voltar leva à lista". A spec
+registra o adendo em `e02f7e8` ("Adendo de 13/10"), liberada pela auditoria.
+
+**Ensaio:** a FASE 10.7 foi escrita e testada na mesma cópia (`ensaio-lista-97`), em `94ad254`, sobre
+`353973d` (a árvore de `117e33d`). Os números: o ver falhar e o ver passar estão no passo da fase; no fim,
+119 arquivos e 3 301 casos puros (a tela e a integração não mudam: 25 e 220; 46 arquivos, 516 passaram e 8
+pularam); as 4 mutações novas do Apêndice A caem; o diff do `app/app-shell.tsx` é +2/−2.
+
+### FASE 10.7 — O voltar leva à lista, e o menu marca Carrosséis
+
+**Arquivos:**
+- Criar: `lib/bonus/menu-ativo.ts`
+- Modificar: `app/app-shell.tsx` (arquivo do dono: só o import e a linha do `active`, +2/−2),
+  `app/bonus/[id]/carrossel/[cid]/page.tsx` (o topo)
+- Testar: `tests/bonus-menu-ativo.test.ts` (novo), `tests/bonus-carrossel-paginas.test.ts`,
+  `tests/bonus-avulso-paginas.test.ts`
+
+**Interfaces:**
+- Produz: `itemDoMenuAtivo(href: string, pathname: string): boolean`. O carrossel de bônus
+  (`/bonus/<id>/carrossel` e o que vem embaixo, pelo segmento inteiro) marca `/carrosseis`; o `"/"` só na
+  raiz; os outros pelo começo do endereço, como hoje. O teste lê os itens do menu do próprio
+  `app-shell.tsx`.
+
+- [ ] **Passo 1: os testes**
+
+Crie `tests/bonus-menu-ativo.test.ts`:
+
+```ts
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import { itemDoMenuAtivo } from "@/lib/bonus/menu-ativo";
+
+// O ITEM MARCADO NO MENU (spec da Etapa 10, adendo de 13/10): o carrossel de bônus mora embaixo do bônus
+// (`/bonus/<id>/carrossel/<cid>`), mas é do menu "Carrosséis", como o avulso. Todo o resto fica como era:
+// "/" só na raiz, e os outros itens pelo começo do endereço.
+
+const RAIZ = fileURLToPath(new URL("..", import.meta.url));
+/** Os endereços do menu, lidos do próprio app/app-shell.tsx: o teste acompanha o menu de verdade. */
+const ITENS = [...readFileSync(`${RAIZ}/app/app-shell.tsx`, "utf8").matchAll(/\{ href: "([^"]+)", label:/g)].map((m) => m[1]);
+const BONUS = "0f8e2a8c-6c1d-4f4e-9a55-1f2b3c4d5e6f";
+const CARROSSEL = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
+
+const marcados = (pathname: string) => ITENS.filter((href) => itemDoMenuAtivo(href, pathname));
+
+describe("o item marcado no menu", () => {
+  it("o menu tem o Bônus e os Carrosséis (o teste lê os itens do app-shell)", () => {
+    expect(ITENS).toEqual(expect.arrayContaining(["/", "/bonus", "/carrosseis", "/publicar"]));
+    expect(ITENS.length).toBeGreaterThan(5);
+  });
+
+  it("o bônus e a página dele marcam Bônus", () => {
+    expect(marcados("/bonus")).toEqual(["/bonus"]);
+    expect(marcados(`/bonus/${BONUS}`)).toEqual(["/bonus"]);
+  });
+
+  it("o carrossel de bônus marca Carrosséis, e não Bônus", () => {
+    expect(marcados(`/bonus/${BONUS}/carrossel/${CARROSSEL}`)).toEqual(["/carrosseis"]);
+    expect(marcados(`/bonus/${BONUS}/carrossel/${CARROSSEL}/arte`)).toEqual(["/carrosseis"]);
+    expect(marcados(`/bonus/${BONUS}/carrossel`)).toEqual(["/carrosseis"]);
+  });
+
+  it("o caminho que só começa igual não é carrossel: o segmento inteiro conta", () => {
+    expect(marcados(`/bonus/${BONUS}/carrosselX`)).toEqual(["/bonus"]);
+    expect(marcados(`/bonus/${BONUS}/carrosseis`)).toEqual(["/bonus"]);
+    expect(marcados(`/bonus/carrossel/${CARROSSEL}`)).toEqual(["/bonus"]);
+  });
+
+  it("a lista, o novo carrossel e o avulso marcam Carrosséis", () => {
+    for (const p of ["/carrosseis", "/carrosseis/novo", `/carrosseis/${CARROSSEL}`]) expect(marcados(p)).toEqual(["/carrosseis"]);
+  });
+
+  it('o "/" só marca na raiz', () => {
+    expect(marcados("/")).toEqual(["/"]);
+    expect(marcados("/contatos")).not.toContain("/");
+  });
+
+  it("os outros itens ficam como eram: pelo começo do endereço", () => {
+    for (const href of ITENS.filter((h) => h !== "/")) {
+      for (const p of [href, `${href}/x`, "/", "/outra-coisa"]) {
+        expect(itemDoMenuAtivo(href, p), `${href} em ${p}`).toBe(p.startsWith(href));
+      }
+    }
+  });
+
+  it("nunca dois itens marcados ao mesmo tempo", () => {
+    const caminhos = [...ITENS, ...ITENS.map((h) => `${h}/x`), `/bonus/${BONUS}/carrossel/${CARROSSEL}`, `/bonus/${BONUS}/carrosselX`];
+    for (const p of caminhos) expect(marcados(p).length, p).toBeLessThanOrEqual(1);
+  });
+});
+```
+
+Em `tests/bonus-carrossel-paginas.test.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/tests/bonus-carrossel-paginas.test.ts b/tests/bonus-carrossel-paginas.test.ts
+index b5a552f..235b16f 100644
+--- a/tests/bonus-carrossel-paginas.test.ts
++++ b/tests/bonus-carrossel-paginas.test.ts
+@@ -26,6 +26,15 @@ describe("a página do carrossel", () => {
+     expect(revisao).toContain("acaoDaConta={fixarContaDoCarrossel}");
+   });
+ 
++  // O VOLTAR DO CARROSSEL DE BÔNUS (spec da Etapa 10, adendo de 13/10): leva à lista "Carrosséis", como o
++  // do avulso, e o bônus fica ao lado. Quem entrava pela lista e clicava em voltar ia parar no bônus.
++  it("o topo leva de volta à lista Carrosséis, e ao lado ao bônus", () => {
++    const pagina = ler("app/bonus/[id]/carrossel/[cid]/page.tsx");
++    expect(pagina).toMatch(/<Link href="\/carrosseis" className=\{link\}>\s*Voltar para os carrosséis\s*<\/Link>/);
++    expect(pagina).toMatch(/<Link href=\{`\/bonus\/\$\{id\}`\} className=\{link\}>\s*Ver o bônus\s*<\/Link>/);
++    expect(pagina).not.toContain("Voltar para o bônus");
++  });
++
+   it("a página do carrossel de bônus e a do avulso desenham a mesma revisão", () => {
+     expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain('import Revisao from "./revisao";');
+     expect(ler("app/carrosseis/[cid]/page.tsx")).toContain('import Revisao from "@/app/bonus/[id]/carrossel/[cid]/revisao";');
+```
+
+Em `tests/bonus-avulso-paginas.test.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/tests/bonus-avulso-paginas.test.ts b/tests/bonus-avulso-paginas.test.ts
+index 8c9f8f0..f79a03c 100644
+--- a/tests/bonus-avulso-paginas.test.ts
++++ b/tests/bonus-avulso-paginas.test.ts
+@@ -116,6 +116,15 @@ describe("o menu Carrosséis", () => {
+     expect(menu.slice(bonus, carrosseis).split("\n")).toHaveLength(2);
+   });
+ 
++  // O ITEM MARCADO (spec da Etapa 10, adendo de 13/10): o menu pergunta à regra pura, que marca
++  // "Carrosséis" no carrossel de bônus. A mudança no arquivo do dono é só o import e a linha do `active`.
++  it("o menu pergunta o item marcado à regra pura", () => {
++    const menu = ler("app/app-shell.tsx");
++    expect(menu).toContain('import { itemDoMenuAtivo } from "@/lib/bonus/menu-ativo";');
++    expect(menu).toContain("const active = itemDoMenuAtivo(item.href, pathname);");
++    expect(menu).not.toContain("pathname.startsWith(item.href)");
++  });
++
+   it("a lista lê todos os carrosséis, monta cada item fora do JSX e leva ao Novo carrossel", () => {
+     const lista = ler("app/carrosseis/page.tsx");
+     expect(lista).toContain("await listarCarrosseis()");
+```
+
+- [ ] **Passo 2: ver falhar, com log**
+
+```bash
+npx vitest run tests/bonus-menu-ativo.test.ts > "$SCRATCH/fase-10-7-antes.log" 2>&1
+npx vitest run tests/bonus-carrossel-paginas.test.ts tests/bonus-avulso-paginas.test.ts >> "$SCRATCH/fase-10-7-antes.log" 2>&1
+```
+
+Esperado: o `bonus-menu-ativo` cai sem rodar caso nenhum, porque `lib/bonus/menu-ativo.ts` não existe; nas
+páginas, 2 caem e 39 passam (41): o topo da página do carrossel de bônus e o menu.
+
+- [ ] **Passo 3: o código**
+
+Crie `lib/bonus/menu-ativo.ts`:
+
+```ts
+// O ITEM MARCADO NO MENU (spec da Etapa 10, adendo de 13/10). PURO, com teste: o menu (app/app-shell.tsx)
+// pergunta aqui, para cada item, se ele é o da página aberta.
+//
+// O CARROSSEL DE BÔNUS mora embaixo do bônus (`/bonus/<id>/carrossel/<cid>`, carrossel-caminho.ts), mas é
+// do menu "Carrosséis", como o avulso: quem entra nele pela lista não está no "Bônus" (decisão do Eduardo
+// em 13/10). O segmento conta inteiro: `/bonus/<id>/carrosselX` não é carrossel. Todo o resto fica como
+// era: "/" só na raiz, e os outros itens pelo começo do endereço.
+
+const CARROSSEL_DE_BONUS = /^\/bonus\/[^/]+\/carrossel(\/|$)/;
+
+export function itemDoMenuAtivo(href: string, pathname: string): boolean {
+  if (href === "/") return pathname === "/";
+  if (CARROSSEL_DE_BONUS.test(pathname)) return href === "/carrosseis";
+  return pathname.startsWith(href);
+}
+```
+
+Em `app/app-shell.tsx`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/app/app-shell.tsx b/app/app-shell.tsx
+index 8fefb87..b882b4b 100644
+--- a/app/app-shell.tsx
++++ b/app/app-shell.tsx
+@@ -21,6 +21,7 @@ import {
+   IconCamera,
+ } from "./icons";
+ import Progresso from "./publicar/progresso";
++import { itemDoMenuAtivo } from "@/lib/bonus/menu-ativo";
+ 
+ // Agrupado: "Gerenciar" é o trabalho do dia a dia, "Sistema" é o que se mexe
+ // uma vez. Sem os grupos, cinco itens soltos têm todos o mesmo peso.
+@@ -111,8 +112,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+             </p>
+           )}
+           {group.items.map((item) => {
+-            const active =
+-              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
++            const active = itemDoMenuAtivo(item.href, pathname);
+             const Icon = item.icon;
+             return (
+               <Link
+```
+
+Em `app/bonus/[id]/carrossel/[cid]/page.tsx`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/app/bonus/[id]/carrossel/[cid]/page.tsx b/app/bonus/[id]/carrossel/[cid]/page.tsx
+index 63a425b..c1b4c87 100644
+--- a/app/bonus/[id]/carrossel/[cid]/page.tsx
++++ b/app/bonus/[id]/carrossel/[cid]/page.tsx
+@@ -72,9 +72,14 @@ export default async function PaginaDoCarrossel({
+   return (
+     <div className="space-y-6">
+       <div>
+-        <Link href={`/bonus/${id}`} className={link}>
+-          Voltar para o bônus
+-        </Link>
++        <div className="flex flex-wrap gap-x-4 gap-y-1">
++          <Link href="/carrosseis" className={link}>
++            Voltar para os carrosséis
++          </Link>
++          <Link href={`/bonus/${id}`} className={link}>
++            Ver o bônus
++          </Link>
++        </div>
+         <h1 className={`mt-2 ${pageTitle}`}>{texto?.titulo ?? descricaoDoCarrossel(carrossel)}</h1>
+         <p className={pageSubtitle}>
+           {descricaoDoCarrossel(carrossel)} · {textoDoPedidoDaChamada(carrossel)}
+```
+
+- [ ] **Passo 4: ver passar, com log**
+
+```bash
+{ npx tsc --noEmit; echo "tsc saiu $?"; npx eslint lib/bonus/menu-ativo.ts app/app-shell.tsx "app/bonus/[id]/carrossel/[cid]/page.tsx" tests/bonus-menu-ativo.test.ts tests/bonus-carrossel-paginas.test.ts tests/bonus-avulso-paginas.test.ts; echo "eslint saiu $?"; npx vitest run tests/bonus-menu-ativo.test.ts; npx vitest run tests/bonus-carrossel-paginas.test.ts tests/bonus-avulso-paginas.test.ts tests/escala.test.ts; git diff --numstat app/app-shell.tsx; } > "$SCRATCH/fase-10-7-depois.log" 2>&1
+```
+
+Esperado: `tsc` e lint saem 0; os 8 da regra passam; os 55 das páginas e da escala passam; o
+`git diff --numstat` do `app/app-shell.tsx` dá `2 2`.
+
+- [ ] **Passo 5: varrer e commitar**
+
+```bash
+node "$SCRATCH/varrer-texto.mjs" lib/bonus/menu-ativo.ts app/app-shell.tsx "app/bonus/[id]/carrossel/[cid]/page.tsx" tests/bonus-menu-ativo.test.ts tests/bonus-carrossel-paginas.test.ts tests/bonus-avulso-paginas.test.ts
+test "$(git branch --show-current)" = "lista-de-carrosseis"
+git add lib/bonus/menu-ativo.ts app/app-shell.tsx "app/bonus/[id]/carrossel/[cid]/page.tsx" tests/bonus-menu-ativo.test.ts tests/bonus-carrossel-paginas.test.ts tests/bonus-avulso-paginas.test.ts
+git commit -m "feat(bonus): o carrossel de bônus volta para a lista e marca Carrosséis no menu"
+```
+
+---
+
+### FASE 10.8 — A verificação de novo, e a prova desde o passo 1
+
+- [ ] **Passo 1: o verify, na árvore do projeto, com log**
+
+```bash
+{ env -u CLAUDECODE -u AI_AGENT npm run verify; echo "verify saiu $?"; git diff --stat AGENTS.md; } > "$SCRATCH/fase-10-8-verify.log" 2>&1
+```
+
+Esperado: lint e `tsc` limpos; 119 arquivos e 3 301 casos puros e 25 arquivos e 220 de tela; a varredura
+"SEM VAZAMENTO em A nem em C"; o build com "MIGRAÇÃO PULADA" e as rotas `ƒ /carrosseis`,
+`ƒ /carrosseis/[cid]` e `ƒ /bonus/[id]/carrossel/[cid]`; o `AGENTS.md` sem diferença.
+
+- [ ] **Passo 2: a integração inteira, no container, com log**
+
+```bash
+DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npm run test:integracao > "$SCRATCH/fase-10-8-integracao.log" 2>&1
+```
+
+Esperado: `[rede-global] ALVO: banco de TESTE`; 46 arquivos, 516 passaram e 8 pularam (a 10.7 não toca no
+banco).
+
+- [ ] **Passo 3: as 33 provas de mutação, com log**
+
+Copie o script do Apêndice A (agora com as 4 da FASE 10.7) para `$SCRATCH/mutar-lista.mjs` e rode, da raiz:
+
+```bash
+DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" node "$SCRATCH/mutar-lista.mjs" > "$SCRATCH/fase-10-8-mutacoes.log" 2>&1
+git status --short
+```
+
+Esperado: as 33 com ✓, "33 mutações, 0 ruins", e a árvore limpa depois.
+
+- [ ] **Passo 4: a guarda do diff, com log**
+
+```bash
+{ git diff --stat af714d3 -- app/publicar app/api app/automacoes lib/bucket.ts lib/db.ts lib/queue-drain.ts lib/engine.ts lib/publicacao.ts lib/dedupe.ts lib/esquema.ts scripts migrations lib/bonus/publicar-estado.ts lib/bonus/publicar-regras.ts lib/bonus/publicar-repositorio.ts lib/bonus/publicar-processo.ts lib/bonus/publicar-bucket.ts lib/bonus/publicar-textos.ts package.json package-lock.json next.config.ts proxy.ts; echo "=== guarda 2"; git diff --stat af714d3 -- . ':!app/bonus' ':!app/carrosseis' ':!lib/bonus' ':!tests' ':!testes-dom' ':!testes-integracao' ':!docs' ':!app/app-shell.tsx'; echo "=== app-shell"; git diff --numstat af714d3 -- app/app-shell.tsx; } > "$SCRATCH/fase-10-8-guarda.log" 2>&1
+```
+
+Esperado: as duas primeiras saídas vazias, e o `app-shell.tsx` com `2 2` (só o import e a linha do
+`active`).
+
+- [ ] **Passo 5: avisar o auditor**, com o hash e os logs. O push da branch só com o OK do Eduardo, e o
+  preview novo conferido como na FASE 10.6, passo 2.
+
+- [ ] **Passo 6: a prova, desde o passo 1, no preview novo** (os passos da FASE 10.6, com o Eduardo na tela e
+  a hora ao auditor antes de cada gravação). O passo 1 ganha, só de leitura: abrir um carrossel de bônus
+  pela lista; ver o menu marcar "Carrosséis"; "Voltar para os carrosséis" leva à lista; "Ver o bônus" leva
+  ao bônus dele.
+
+---
+
 ## Apêndice A — as provas de mutação
 
 Cada mutação tira uma proteção e roda o teste que a cobre; o caso nomeado tem de cair. O arquivo
@@ -2642,6 +2953,8 @@ const BOTAO = "app/bonus/[id]/carrossel/[cid]/botao-de-apagar.tsx";
 const PAGINA_BONUS = "app/bonus/[id]/carrossel/[cid]/page.tsx";
 const LISTA_TELA = "app/carrosseis/lista.tsx";
 const PAGINA_LISTA = "app/carrosseis/page.tsx";
+const MENU = "lib/bonus/menu-ativo.ts";
+const MENU_SHELL = "app/app-shell.tsx";
 
 const T_LISTA = PURA("tests/bonus-carrosseis-tela.test.ts");
 const T_REGRAS = PURA("tests/bonus-apagar-regras.test.ts");
@@ -2650,6 +2963,8 @@ const T_PAGINAS = PURA("tests/bonus-apagar-paginas.test.ts");
 const T_BOTAO = TELA("testes-dom/bonus-apagar-carrossel.dom.tsx");
 const T_LISTA_TELA = TELA("testes-dom/bonus-lista-de-carrosseis.dom.tsx");
 const T_GUARDA_LISTA = PURA("tests/bonus-avulso-paginas.test.ts");
+const T_MENU = PURA("tests/bonus-menu-ativo.test.ts");
+const T_PAGINAS_CARROSSEL = PURA("tests/bonus-carrossel-paginas.test.ts");
 
 const MUTACOES = [
   // 10.1 as regras puras
@@ -2749,6 +3064,21 @@ const MUTACOES = [
   { nome: "10.4: a página ignora a aba do endereço", arq: PAGINA_LISTA,
     de: "  const aba = abaDoEndereco(sp.aba);", para: '  const aba = abaDoEndereco("rascunhos");',
     cmd: T_GUARDA_LISTA, caso: "a lista abre a aba do endereço" },
+  // 10.7 o voltar e o menu do carrossel de bônus (adendo de 13/10)
+  { nome: "10.7: a regra volta ao startsWith", arq: MENU,
+    de: '  if (CARROSSEL_DE_BONUS.test(pathname)) return href === "/carrosseis";\n', para: "",
+    cmd: T_MENU, caso: "o carrossel de bônus marca Carrosséis, e não Bônus" },
+  { nome: "10.7: o limite do segmento sai", arq: MENU,
+    de: "const CARROSSEL_DE_BONUS = /^\\/bonus\\/[^/]+\\/carrossel(\\/|$)/;", para: "const CARROSSEL_DE_BONUS = /^\\/bonus\\/[^/]+\\/carrossel/;",
+    cmd: T_MENU, caso: "o caminho que só começa igual não é carrossel" },
+  { nome: "10.7: o link volta para o bônus", arq: PAGINA_BONUS,
+    de: '          <Link href="/carrosseis" className={link}>\n            Voltar para os carrosséis',
+    para: "          <Link href={`/bonus/${id}`} className={link}>\n            Voltar para o bônus",
+    cmd: T_PAGINAS_CARROSSEL, caso: "o topo leva de volta à lista Carrosséis" },
+  { nome: "10.7: o app-shell volta à conta de hoje", arq: MENU_SHELL,
+    de: "            const active = itemDoMenuAtivo(item.href, pathname);",
+    para: '            const active =\n              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);',
+    cmd: T_GUARDA_LISTA, caso: "o menu pergunta o item marcado à regra pura" },
 ];
 
 const filtro = process.argv[2];
