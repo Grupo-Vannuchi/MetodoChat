@@ -7,7 +7,7 @@ em `d142ed8`, sem bloqueio, com os achados 92 a 96 absorvidos (o 95 decidido pel
 plano, em 09/10, corrigiu o selo esperado nos passos 2 e 4 da prova e acertou três detalhes de "Por
 dentro": o nome da action, a frase da recusa do publicado e os caminhos que saem do bucket. A revisão do
 plano, em 13/10, trouxe o achado 97 (ANOTAR), absorvido: a cópia que um item da fila ainda usa fica no
-bucket.
+bucket. Na prova, em 13/10, o Eduardo pediu o adendo do voltar e do menu do carrossel de bônus (no fim).
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta própria,
 e nenhum arquivo do `/publicar`, da fila nem das automações muda.
 **Etapas anteriores:** a Etapa 7 criou o menu "Carrosséis" (`app/carrosseis/page.tsx`); a Etapa 5, o
@@ -251,6 +251,59 @@ Do merge:
 3. Nenhum `next dev` apontado para a produção durante o deploy, e as abas recarregadas depois.
 
 ---
+
+## Adendo de 13/10: o voltar e o menu do carrossel de bônus
+
+**De onde veio:** do passo 1 da prova, em 13/10 (só leitura, nada gravado). O Eduardo viu a lista certa, e
+apontou que, entrando pela lista "Carrosséis" num carrossel de bônus, o menu marca "Bônus" e o link do
+topo, "Voltar para o bônus", leva ao bônus, e não à lista. Vem da Etapa 7: o carrossel de bônus mora em
+`/bonus/<id>/carrossel/<cid>` (`caminhoDoCarrossel`, `carrossel-caminho.ts:11-13`), o menu marca o item
+pelo começo do endereço (`pathname.startsWith(href)`, `app/app-shell.tsx:114-115`) e o topo da página
+leva ao bônus (`app/bonus/[id]/carrossel/[cid]/page.tsx:74-76`). O avulso já volta para a lista
+(`app/carrosseis/[cid]/page.tsx:77-79`).
+
+**A decisão do Eduardo**, pela caixa, entre três: "Voltar leva à lista". As outras eram voltar para onde
+veio (com uma marca no endereço, que se perde depois das actions da página) e abrir todo carrossel em
+`/carrosseis` (uma etapa nova, que mexe nas rotas).
+
+### A tela
+
+- Na página do carrossel de bônus, o topo passa a ter dois links: **"Voltar para os carrosséis"**, que leva
+  à lista (`/carrosseis`, que abre em "Rascunhos", como o "Voltar" do avulso), e, ao lado, **"Ver o
+  bônus"**, que leva ao bônus dele (`/bonus/<id>`). O "Voltar para o bônus" sai.
+- Nessa página, o menu marca **"Carrosséis"**, e não "Bônus".
+
+### Por dentro
+
+- **Uma regra pura**, fora do componente e com teste: `itemDoMenuAtivo(href, pathname)`, em
+  `lib/bonus/menu-ativo.ts` (novo). O carrossel de bônus (`/bonus/<id>/carrossel` e o que vem embaixo,
+  pelo segmento inteiro) marca "Carrosséis"; todo o resto fica como hoje: `"/"` só na raiz, e os outros
+  pelo começo do endereço.
+- **O `app/app-shell.tsx`**, arquivo do dono, só passa a chamar essa função no lugar da conta de hoje (a
+  linha do `active` e o import). A feature já tocou nele duas vezes, para pôr os itens "Bônus" e
+  "Carrosséis".
+
+### O que não muda
+
+As rotas e os endereços (`caminhoDoCarrossel`), as actions, a página do bônus e a lista de carrosséis
+dela (que levam à mesma página do carrossel), a página do avulso, e o redirect depois de apagar (que já
+vai para a lista).
+
+### Testes
+
+| suíte | o quê |
+|---|---|
+| pura | o item marcado: `/bonus` e `/bonus/<id>` marcam "Bônus"; `/bonus/<id>/carrossel/<cid>` (e o que vem embaixo) marca "Carrosséis", e não "Bônus"; `/carrosseis`, `/carrosseis/novo` e `/carrosseis/<cid>` marcam "Carrosséis"; um caminho que só começa igual (`/bonus/<id>/carrosselX`) não marca "Carrosséis"; `"/"` só na raiz; os outros itens do menu como hoje; e nunca dois itens marcados ao mesmo tempo |
+| páginas | o topo da página do carrossel de bônus tem "Voltar para os carrosséis" (`/carrosseis`) e "Ver o bônus" (`/bonus/<id>`), e não tem mais "Voltar para o bônus"; o `app-shell.tsx` pergunta o item marcado à regra pura |
+
+Cada proteção ganha uma mutação no Apêndice A do plano: a regra volta ao `startsWith`; o limite do
+segmento sai; o link volta para o bônus; o `app-shell.tsx` volta à conta de hoje.
+
+### A prova
+
+A prova recomeça do passo 1, num preview novo. O passo 1 ganha: abrir um carrossel de bônus pela lista e
+ver "Carrosséis" marcado no menu, "Voltar para os carrosséis" levar à lista, e "Ver o bônus" levar ao
+bônus dele. Só leitura.
 
 ## Fora desta etapa
 
