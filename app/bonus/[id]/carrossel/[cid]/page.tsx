@@ -19,6 +19,7 @@ import { lerLinha } from "@/lib/bonus/repositorio";
 import { geracaoNaTela } from "@/lib/bonus/tempos";
 import { TEXTO_TRAVOU, type TomDoQuadro } from "@/lib/bonus/textos";
 import Acompanhar from "../../acompanhar";
+import Apagar from "./apagar";
 import Revisao from "./revisao";
 
 // O teto de lib/bonus/tempos.ts (MAX_DURATION_S). O Next exige literal aqui, e
@@ -109,6 +110,8 @@ export default async function PaginaDoCarrossel({
       )}
 
       {geracao === "pronto" && <Revisao carrossel={carrossel} />}
+
+      <Apagar carrossel={carrossel} geracao={geracao} />
     </div>
   );
 }
