@@ -21,6 +21,7 @@ import {
   IconCamera,
 } from "./icons";
 import Progresso from "./publicar/progresso";
+import { itemDoMenuAtivo } from "@/lib/bonus/menu-ativo";
 
 // Agrupado: "Gerenciar" é o trabalho do dia a dia, "Sistema" é o que se mexe
 // uma vez. Sem os grupos, cinco itens soltos têm todos o mesmo peso.
@@ -111,8 +112,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
             </p>
           )}
           {group.items.map((item) => {
-            const active =
-              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            const active = itemDoMenuAtivo(item.href, pathname);
             const Icon = item.icon;
             return (
               <Link

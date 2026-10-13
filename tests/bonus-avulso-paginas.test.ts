@@ -116,6 +116,15 @@ describe("o menu Carrosséis", () => {
     expect(menu.slice(bonus, carrosseis).split("\n")).toHaveLength(2);
   });
 
+  // O ITEM MARCADO (spec da Etapa 10, adendo de 13/10): o menu pergunta à regra pura, que marca
+  // "Carrosséis" no carrossel de bônus. A mudança no arquivo do dono é só o import e a linha do `active`.
+  it("o menu pergunta o item marcado à regra pura", () => {
+    const menu = ler("app/app-shell.tsx");
+    expect(menu).toContain('import { itemDoMenuAtivo } from "@/lib/bonus/menu-ativo";');
+    expect(menu).toContain("const active = itemDoMenuAtivo(item.href, pathname);");
+    expect(menu).not.toContain("pathname.startsWith(item.href)");
+  });
+
   it("a lista lê todos os carrosséis, monta cada item fora do JSX e leva ao Novo carrossel", () => {
     const lista = ler("app/carrosseis/page.tsx");
     expect(lista).toContain("await listarCarrosseis()");

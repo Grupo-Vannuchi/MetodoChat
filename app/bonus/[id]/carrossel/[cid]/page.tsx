@@ -72,9 +72,14 @@ export default async function PaginaDoCarrossel({
   return (
     <div className="space-y-6">
       <div>
-        <Link href={`/bonus/${id}`} className={link}>
-          Voltar para o bônus
-        </Link>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          <Link href="/carrosseis" className={link}>
+            Voltar para os carrosséis
+          </Link>
+          <Link href={`/bonus/${id}`} className={link}>
+            Ver o bônus
+          </Link>
+        </div>
         <h1 className={`mt-2 ${pageTitle}`}>{texto?.titulo ?? descricaoDoCarrossel(carrossel)}</h1>
         <p className={pageSubtitle}>
           {descricaoDoCarrossel(carrossel)} · {textoDoPedidoDaChamada(carrossel)}
