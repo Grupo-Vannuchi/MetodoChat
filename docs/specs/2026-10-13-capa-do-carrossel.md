@@ -6,7 +6,8 @@ slide inteiro e o título grande, uma delas feita por IA), e o pedido de um slid
 09/10 a decisão tinha sido o Canva, pelo "Slide pronto do Canva" no slide 1, sem código. Desenhado com ele
 pela caixa de perguntas e por modelos lado a lado no navegador.
 **Estado:** desenho aprovado pelo Eduardo, em três partes (a tela e o desenho; a imagem e o publicar; o
-que não muda, os testes e a prova). Aguarda a revisão da auditoria.
+que não muda, os testes e a prova). Revisada pela auditoria em `0b754b3`, sem bloqueio, com o achado 98
+(CORRIGIR) absorvido pela decisão do Eduardo (a capa só com 2 slides ou mais) e as três notas dela no texto.
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta própria,
 e nenhum arquivo do `/publicar`, da fila nem das automações muda.
 **Depende da Etapa 10:** o código começa depois que a Etapa 10 (a lista e o apagar) entrar na `main`,
@@ -37,6 +38,7 @@ Do Eduardo, pela caixa e pelos modelos no navegador, em 13/10:
 | como o carrossel usa a capa | um quarto jeito no slide 1, escolhido por carrossel; quem não escolher fica como hoje |
 | a imagem por IA | o mesmo criador (modelo, regras de estilo), em pé, no mesmo limite de 10 por dia e no mesmo custo, medido na prova |
 | onde | só no Chat: o Labs não muda, e as medidas divididas com ele também não |
+| o post de 1 slide (achado 98, da revisão) | a capa só existe nos carrosséis de 2 slides ou mais; o post de uma imagem só fica como hoje |
 
 ---
 
@@ -47,6 +49,10 @@ Do Eduardo, pela caixa e pelos modelos no navegador, em 13/10:
 - Os jeitos do slide 1 passam a ser quatro: o **padrão** (o texto com o espaço da imagem deitada embaixo),
   o **"Só texto"**, o **"Slide pronto do Canva"** e o **"Capa com imagem"**. Um jeito exclui os outros. O
   "Capa com imagem" só existe no slide 1; os outros slides não mudam.
+- **A capa só existe nos carrosséis de 2 slides ou mais**, que têm o gancho (decisão do Eduardo, achado 98).
+  O post de uma imagem só (1 slide) não tem gancho: o slide dele junta o texto, de 60 a 300 caracteres, e a
+  chamada (`camposDoFormulario(1)`, `carrossel-texto.ts:160-166`; o texto `{ tipo: "post" }`), e isso não
+  cabe como título grande por cima da imagem. Nele, o card não oferece a capa, e o post fica como hoje.
 - Com a capa ligada, o card mostra **"Subir foto da capa"** e **"Gerar com IA"** (o mesmo campo da cena, com
   o estilo e os atalhos da Etapa 6), e a miniatura mostra a capa.
 - Sem imagem ainda, a miniatura mostra a capa com o fundo escuro liso, para o desenho e o "não cabe"
@@ -92,7 +98,11 @@ Do Eduardo, pela caixa e pelos modelos no navegador, em 13/10:
   largura).
 - O pedido da capa ganha uma frase nas regras do Chat (`prompt-ilustracao.ts`): o terço de baixo da imagem
   com fundo simples, sem rosto nem objeto importante, porque o gancho vai por cima. A regra de não escrever
-  texto na imagem continua.
+  texto na imagem continua. **A frase entra só no pedido da capa:** os pedidos medidos da Etapa 6 (o teste que
+  lê o apêndice da spec da 6) continuam iguais, byte a byte (nota da revisão).
+- **O corpo da chamada à OpenAI** (`CORPO_FIXO`, `imagem-openai.ts:33-36`) passa a receber o tamanho pelo
+  jeito: 1024×1536 na capa, e 1536×1024 em todo o resto, como hoje. O teste do corpo da Etapa 6 continua
+  cobrando o 1536×1024 nos outros slides (nota da revisão).
 - O custo da imagem em pé é **medido na prova**, na primeira geração, antes de o uso normal começar. A
   expectativa é a mesma de hoje (US$ 0,0432, high), porque a OpenAI cobra os dois tamanhos iguais; se a
   medida der outro número, ele fica escrito no PR.
@@ -113,7 +123,11 @@ Do Eduardo, pela caixa e pelos modelos no navegador, em 13/10:
   "Só texto" (`salvarArteDoCarrossel`, `carrossel-actions.ts:231`, com a linha travada e a trava do
   publicar). `escolhasDaArte` (`arte-escolhas.ts:20-28`) ganha o campo `capa`. A capa e o "Só texto" no
   slide 1 não convivem: ligar um desliga o outro.
-- O carrossel sem a chave (os 5 de hoje, e todo carrossel que não ligar a capa) continua como hoje.
+- O carrossel sem a chave (os 5 de hoje, e todo carrossel que não ligar a capa) continua como hoje. No post
+  de 1 slide, a chave não vale: `escolhasDaArte` devolve a capa desligada, e o servidor recusa ligá-la.
+- **Uma imagem com o prefixo de outro jeito conta como sem imagem** (nota da revisão): uma `bonus-capa/` com
+  a capa desligada, ou uma `bonus-foto/` com a capa ligada, não é desenhada; a tela, as faltas do publicar e
+  o servidor a tratam como a imagem que falta.
 
 ---
 
@@ -165,8 +179,8 @@ Do Eduardo, pela caixa e pelos modelos no navegador, em 13/10:
 
 | suíte | o quê |
 |---|---|
-| pura | o jeito do slide 1 (a capa e o "Só texto" não convivem; sem a chave, o jeito de hoje); o destino `capa` (o caminho na forma exata e na pasta da conta; o jeito pelo prefixo); a regra da foto da capa (4:5, os tamanhos, os 2 MB) e o recorte em 4:5; a regra da imagem gerada para a capa (1024×1536); a medida do gancho da capa (os degraus, o bloco, a maiúscula antes de medir, e o gancho de 120 caracteres no menor degrau); a falta e a recusa da capa sem imagem e do gancho que não cabe; a versão da miniatura com a capa |
-| integração | ligar e desligar a capa (com a trava do publicar); guardar a imagem da capa e trocar a antiga; a geração em pé contando no mesmo limite de 10; publicar com a capa (a cópia em `bonus-fila/`); o servidor recusando a capa sem imagem e o gancho que não cabe; o apagar levando a imagem da capa |
+| pura | o jeito do slide 1 (a capa e o "Só texto" não convivem; sem a chave, o jeito de hoje; o post de 1 slide não oferece a capa, achado 98); a imagem com o prefixo de outro jeito conta como sem imagem; o destino `capa` (o caminho na forma exata e na pasta da conta; o jeito pelo prefixo); a regra da foto da capa (4:5, os tamanhos, os 2 MB) e o recorte em 4:5; a regra da imagem gerada para a capa (1024×1536); a medida do gancho da capa (os degraus, o bloco, a maiúscula antes de medir, e o gancho de 120 caracteres no menor degrau); a falta e a recusa da capa sem imagem e do gancho que não cabe; a versão da miniatura com a capa |
+| integração | ligar e desligar a capa (com a trava do publicar; o post de 1 slide recusa); o pedido da capa em pé e os pedidos da Etapa 6 iguais; guardar a imagem da capa e trocar a antiga; a geração em pé contando no mesmo limite de 10; publicar com a capa (a cópia em `bonus-fila/`); o servidor recusando a capa sem imagem e o gancho que não cabe; o apagar levando a imagem da capa |
 | tela | o card do slide 1 com o quarto jeito, os dois botões, a miniatura e o aviso do "não cabe"; o "Publicar" travado com a frase |
 | guarda | 0 diferença em `arte-geometria.ts` e em `tests/vetores-da-arte.json`; nada do `/publicar`, da fila, das automações, das migrações nem do `package` |
 
