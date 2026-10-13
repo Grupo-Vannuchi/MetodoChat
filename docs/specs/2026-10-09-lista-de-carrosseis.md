@@ -5,7 +5,9 @@ Etapa 6 entrar em produção (`main` em `af714d3`). Desenhado com ele pela caixa
 **Estado:** desenho aprovado pelo Eduardo, em duas partes (a tela; por dentro); revisado pela auditoria
 em `d142ed8`, sem bloqueio, com os achados 92 a 96 absorvidos (o 95 decidido pelo Eduardo). O ensaio do
 plano, em 09/10, corrigiu o selo esperado nos passos 2 e 4 da prova e acertou três detalhes de "Por
-dentro": o nome da action, a frase da recusa do publicado e os caminhos que saem do bucket.
+dentro": o nome da action, a frase da recusa do publicado e os caminhos que saem do bucket. A revisão do
+plano, em 13/10, trouxe o achado 97 (ANOTAR), absorvido: a cópia que um item da fila ainda usa fica no
+bucket.
 **Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta própria,
 e nenhum arquivo do `/publicar`, da fila nem das automações muda.
 **Etapas anteriores:** a Etapa 7 criou o menu "Carrosséis" (`app/carrosseis/page.tsx`); a Etapa 5, o
@@ -144,8 +146,11 @@ Depois do commit, os arquivos dele saem do bucket, com `apagarSemDerrubar` (`pub
 
 - as imagens guardadas nos slides (`arte.imagens`): as fotos e as imagens geradas em `bonus-foto/`, e os
   slides prontos do Canva em `bonus/`;
-- as cópias da fila que tenham sobrado (`arte.publicacao.caminhos`, em `bonus-fila/`); o cancelamento já
-  as tira, e a publicação que falhou pode tê-las deixado.
+- as cópias da fila que tenham sobrado (`arte.publicacao.caminhos`, em `bonus-fila/`) e que nenhum item da
+  fila use mais, como as da reserva que não entrou na fila. A cópia que ainda está no payload de um item
+  fica (achado 97): o item que falhou mantém o arquivo, pela regra do dono (`lib/queue-drain.ts:301-303`:
+  "Objeto de item falhado não é órfão."), e o publicar já não apaga caminho que esteja na fila
+  (`caminhosNaFila`, `publicar-repositorio.ts:98`). O cancelamento já tira as dele.
 
 Só saem os caminhos da pasta da conta do carrossel, na forma exata do destino de cada um
 (`ehCaminhoDoDestino`, `publicar-regras.ts`): apagar não tem volta, e um caminho estranho guardado na
@@ -199,7 +204,7 @@ são a arte do slide 1.
 |---|---|
 | pura | `abaDoCarrossel` em cada um dos nove estados; a ordem dentro de cada aba (o "publicando" antes dos agendados; o publicado sem hora no fim); o selo de cada aba (sem o "Revisado", o "Não publicou" vermelho, "Agendado para…" e "Publicado em…" no horário de Brasília, e "Publicado" sem a hora, achado 93); a contagem das abas; a aba do endereço (desconhecida abre "Rascunhos"); `urlDepoisDeApagar` com `tom=ok` (achado 92) |
 | pura | `podeApagar`: os quatro estados livres, a geração parada e as imagens paradas podem; agendado, publicando, publicado, `saiu_da_fila`, `desconhecido`, a geração do texto em andamento e uma imagem gerando dentro do prazo não (a travada pelo prazo não segura); a frase de cada recusa |
-| integração | apagar um rascunho: a linha some, as linhas de `imagens_geradas` ficam com o carrossel nulo, as linhas da fila ficam, e os arquivos das imagens e as cópias da fila saem do bucket falso |
+| integração | apagar um rascunho: a linha some, as linhas de `imagens_geradas` ficam com o carrossel nulo, as linhas da fila ficam, e os arquivos das imagens saem do bucket falso; a cópia que um item da fila ainda usa (o post que falhou) fica, e a da reserva que não entrou na fila sai (achado 97) |
 | integração | as recusas, sem apagar nada nem tocar no bucket: agendado, publicando, publicado, geração do texto em andamento, uma imagem gerando (achado 95), o carrossel que não existe |
 | integração | o apagar e o agendar ao mesmo tempo: um espera o outro; se o agendar passa antes, o apagar recusa |
 | integração | o apagar e a reserva de uma imagem ao mesmo tempo: se a reserva passa antes, o apagar recusa; se o apagar passa antes, a reserva devolve a recusa de carrossel que não existe mais (e não um erro), sem linha nova (achado 96) |
