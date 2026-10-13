@@ -24,7 +24,6 @@ import { ehTabelaAusente } from "@/lib/bonus/erros";
 import { publicacaoDaArte } from "@/lib/bonus/publicar-regras";
 import { estadoDoCarrossel } from "@/lib/bonus/publicar-repositorio";
 import type { TipoDoRotulo } from "@/lib/bonus/tela";
-import { fmtDate } from "@/lib/format";
 
 // O MENU "CARROSSÉIS" (spec da Etapa 7): todos os carrosséis, os dos bônus e os avulsos, do mais novo
 // para o mais velho, e o botão "Novo carrossel". Cada linha leva à página do carrossel (a de bônus, ou
@@ -89,12 +88,15 @@ export default async function Carrosseis({ searchParams }: { searchParams: Promi
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium">{item.titulo}</span>
                       <span className={`block truncate text-xs ${muted}`}>
-                        {item.origem} · {item.detalhe} · {fmtDate(l.criado_em)}
+                        {item.origem} · {item.detalhe} · {item.criado}
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-2">
-                      {item.publicacao && <span className={SELO[item.publicacao.tipo]}>{item.publicacao.texto}</span>}
-                      <span className={SELO[item.geracao.tipo]}>{item.geracao.texto}</span>
+                      {item.selos.map((s) => (
+                        <span key={s.texto} className={SELO[s.tipo]}>
+                          {s.texto}
+                        </span>
+                      ))}
                     </span>
                   </Link>
                 </li>
