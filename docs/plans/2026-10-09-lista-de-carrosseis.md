@@ -12,8 +12,9 @@ com confirmação, para o rascunho.
 ordem, o selo e a capa de cada carrossel; `lib/bonus/apagar-regras.ts` decide quem pode ser apagado
 (`podeApagar`, a mesma trava do publicar, mais a geração do texto e a da imagem) e quais arquivos saem do
 bucket. O servidor (`lib/bonus/apagar-carrossel.ts`, novo) apaga numa transação com a linha travada
-(`for update`), pelo relógio do banco, e tira os arquivos do bucket depois do commit; a reserva de uma
-imagem que perde a corrida para o apagar devolve a recusa `nao_pronto` (achado 96). A action
+(`for update`), pelo relógio do banco, e tira os arquivos do bucket depois do commit, menos a cópia que
+um item da fila ainda usa (achado 97); a reserva de uma imagem que perde a corrida para o apagar devolve a
+recusa `nao_pronto` (achado 96). A action
 (`app/bonus/apagar-actions.ts`) confere a sessão, devolve a recusa como estado e, no sucesso, vai para a
 lista com o aviso em verde. A tela: o botão com dois cliques no fim das duas páginas do carrossel, e a
 lista desenhada por um componente sem estado (`app/carrosseis/lista.tsx`). Sem migração.
@@ -24,21 +25,23 @@ v4 com os tokens de `app/ui.ts`.
 
 **Spec:** `docs/specs/2026-10-09-lista-de-carrosseis.md` (commits `d142ed8`, `a98b9ca` e `75861fe`,
 liberada pela auditoria com os achados 92 a 96 e lida pelo Eduardo em 09/10; `7ebe02d` registra o que o
-ensaio acertou, itens 1 a 3 abaixo). Leia antes de começar: este plano não repete o porquê das regras, só
+ensaio acertou, itens 1 a 3 abaixo; `dd2ec50` registra o achado 97, da revisão deste plano). Leia antes de começar: este plano não repete o porquê das regras, só
 como construí-las.
 
-**Ensaio do plano (09/10):** o código deste plano foi escrito e testado fase a fase numa cópia isolada
-do repositório (`git worktree`, branch local `ensaio-lista`, sem push, saída de `75861fe`), e todo bloco
-de código abaixo foi tirado do git dessa cópia por um gerador, sem cópia à mão. Os números do ensaio:
+**Ensaio do plano (09/10, com a FASE 10.2 refeita em 13/10 para o achado 97):** o código deste plano foi
+escrito e testado fase a fase numa cópia isolada do repositório (`git worktree`, branch local
+`ensaio-lista-97`, sem push, saída de `75861fe`; a `ensaio-lista`, em `c8af975`, é a de antes do 97, a
+que a auditoria mediu primeiro), e todo bloco de código abaixo foi tirado do git dessa cópia por um
+gerador, sem cópia à mão. Do `c8af975` ao `353973d` mudam só os dois arquivos do 97. Os números do ensaio:
 - lint e `tsc` limpos em cada fase; no fim, 118 arquivos e 3 291 casos puros (116 arquivos e 3 209 na base) e
   25 arquivos e 220 de tela (23 arquivos e 203 na base);
 - `next build --webpack` limpo, com `ƒ /carrosseis` e `ƒ /carrosseis/[cid]` na lista, e o `AGENTS.md`
   intacto (item 8 abaixo);
-- integração no container: 46 arquivos, 515 passaram e 8 pularam (na base, 45 arquivos, 493 passaram e 8 pularam), com o `.env.local` vazio na cópia
+- integração no container: 46 arquivos, 516 passaram e 8 pularam (na base, 45 arquivos, 493 passaram e 8 pularam), com o `.env.local` vazio na cópia
   (item 8 abaixo);
 - cada fase foi vista falhar antes do código e passar depois, na ordem deste plano, com os números de
   cada uma no passo dela;
-- as 28 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado;
+- as 29 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado;
 - o plano, aplicado do zero numa cópia limpa, dá os 20 arquivos iguais ao fim do ensaio, byte a byte;
 - a guarda do diff (FASE 10.5, passo 4) saiu vazia: nada do `/publicar`, da fila, das automações, dos
   `scripts`, das migrações nem do `package`, e nada fora das pastas da etapa.
@@ -75,13 +78,18 @@ O ensaio achou estas coisas, já resolvidas neste plano:
    existiam em `tests/bonus-avulso-paginas.test.ts`.
 10. **Uma integração de cada vez.** Duas rodadas ao mesmo tempo no mesmo container derrubam o schema
    uma da outra (o item 11 do plano da Etapa 7).
-
-**Um ponto para a auditoria conferir** (não muda o desenho aprovado): o apagar tira do bucket as cópias
-da fila de uma publicação que falhou (`arte.publicacao.caminhos`), como a spec manda. O dono escreveu que
-o item `failed` mantém o arquivo "porque quem for tentar de novo precisa da mídia"
-(`app/publicar/post/actions.ts:179`, `lib/queue-drain.ts:301`), mas o calendário não tem "tentar de
-novo" ("NÃO HÁ BOTÃO NENHUM", `app/publicar/page.tsx:606-610`), e o `failed` não volta à fila. Se um dia
-o "tentar de novo" existir, o carrossel apagado não terá mais a mídia daquele post.
+11. **O achado 97 (ANOTAR, da revisão deste plano), já resolvido:** o apagar levava do bucket também as
+   cópias de uma publicação que falhou, que ainda estão no payload do item dela. O dono escreveu que o item
+   `failed` mantém o arquivo ("Objeto de item falhado não é órfão.", `lib/queue-drain.ts:301-303`), e o
+   publicar já não apaga caminho que esteja na fila (`caminhosNaFila`, `publicar-repositorio.ts:98`,
+   usado em `publicar-processo.ts:192-200` e `:271-275`). Agora, depois do commit, o apagar tira de
+   `caminhosDoCarrossel` os caminhos que `caminhosNaFila` acha, e só apaga o resto. O caso do post que
+   falhou mostra a cópia ficando; o da reserva que não entrou na fila mostra a cópia saindo (no ensaio, este
+   já passava antes do conserto: ele prova que o filtro não segura a cópia que ninguém usa). A mutação
+   "10.2: a cópia que um item da fila usa sai do bucket" derruba o primeiro.
+12. **O script de mutação tira as cores da saída antes de procurar o caso** (nota da auditoria em 13/10):
+   num terminal com cor, o vitest pinta o " > " das linhas FAIL, e o caso "a aba de cada carrossel >
+   publicando", o único com " > ", não era achado, embora caísse.
 
 **Fora desta etapa, anotado:** a lista lê os 50 carrosséis mais novos (`listarCarrosseis`, como hoje); a
 contagem das abas é desses 50.
@@ -1065,8 +1073,8 @@ git commit -m "feat(bonus): as regras puras da lista em abas e do apagar"
 **Interfaces:**
 - Consome: `podeApagar`, `caminhosDoCarrossel` e `PodeApagar` (FASE 10.1); `estadoDaPublicacaoNa(tx,
   arte)` e `estadoDoCarrossel(arte)` (`publicar-repositorio.ts`); `apagarSemDerrubar`
-  (`publicar-bucket.ts`); `pastaDaConta` (`lib/bucket.ts`); `TRAVADA_IMAGEM_MS` (`imagem-regras.ts`);
-  `ehIdDeBonus` (`pedido.ts`).
+  (`publicar-bucket.ts`); `caminhosNaFila` (`publicar-repositorio.ts`, achado 97); `pastaDaConta`
+  (`lib/bucket.ts`); `TRAVADA_IMAGEM_MS` (`imagem-regras.ts`); `ehIdDeBonus` (`pedido.ts`).
 - Produz: `podeApagarAgora(l: LinhaDoCarrossel, geracao: GeracaoNaTela): Promise<PodeApagar>` (a
   leitura da página, fora de transação); `apagarCarrossel(id: string, apagar = apagarSemDerrubar):
   Promise<PodeApagar>` (a transação; `apagar` entra por parâmetro só para o teste); a variante
@@ -1277,7 +1285,9 @@ async function segurando<T>(passo: (tx: Tx) => Promise<void>, corrida: () => Pro
 }
 
 describe("apagar um rascunho", () => {
-  it("a linha some; as imagens geradas ficam com o carrossel nulo; a fila fica; os arquivos dele saem do bucket", async () => {
+  // A CÓPIA QUE UM ITEM DA FILA AINDA USA FICA (achado 97): o item que falhou mantém o arquivo, pela regra
+  // do dono (lib/queue-drain.ts:301-303), e o apagar não a leva, como o publicar já não leva (`caminhosNaFila`).
+  it("a linha some; as imagens geradas ficam com o carrossel nulo; a fila fica; os arquivos dele saem do bucket, menos a cópia que um item da fila ainda usa (achado 97)", async () => {
     const id = await carrossel({ arte: { ...COM_ARQUIVOS, publicacao: publicacao("pub:falhou") } });
     await fila("pub:falhou", "failed");
     await imagemGerada(id, "pronta");
@@ -1288,8 +1298,16 @@ describe("apagar um rascunho", () => {
     expect(await existe(id)).toBe(false);
     expect(await sql().query(`select carrossel_id, caminho from imagens_geradas`)).toEqual([{ carrossel_id: null, caminho: FOTO }]);
     expect(await sql().query(`select dedupe_key, status from queue`)).toEqual([{ dedupe_key: "pub:falhou", status: "failed" }]);
+    expect([...bucket.objetos.keys()].sort()).toEqual([FILA, ALHEIO].sort());
+    expect([...bucket.chamadas].sort()).toEqual([`apagou ${FOTO}`, `apagou ${PRONTO}`].sort());
+  });
+
+  it("a cópia de uma reserva que não entrou na fila sai do bucket: nenhum item a usa (achado 97)", async () => {
+    const id = await carrossel({ arte: { ...ARTE, publicacao: publicacao("pub:sem-linha", { enfileirada: false, reservadaHaMin: 11 }) } });
+    noBucket(FILA, ALHEIO);
+    expect(await apagar.apagarCarrossel(id)).toEqual({ ok: true });
     expect([...bucket.objetos.keys()]).toEqual([ALHEIO]);
-    expect([...bucket.chamadas].sort()).toEqual([`apagou ${FILA}`, `apagou ${FOTO}`, `apagou ${PRONTO}`].sort());
+    expect(bucket.chamadas).toEqual([`apagou ${FILA}`]);
   });
 
   it("o cancelado no calendário e o que não entrou na fila também se apagam", async () => {
@@ -1496,7 +1514,7 @@ describe("a leitura da página", () => {
 DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npx vitest run --config vitest.integracao.config.ts testes-integracao/bonus-apagar-carrossel.integracao.ts
 ```
 
-Esperado: `[rede-global] ALVO: banco de TESTE`; o arquivo cai sem rodar caso nenhum (os 22 ficam pulados),
+Esperado: `[rede-global] ALVO: banco de TESTE`; o arquivo cai sem rodar caso nenhum (os 23 ficam pulados),
 porque `lib/bonus/apagar-carrossel.ts` não existe.
 
 - [ ] **Passo 3: o código**
@@ -1513,7 +1531,7 @@ import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { TRAVADA_IMAGEM_MS } from "./imagem-regras";
 import { ehIdDeBonus } from "./pedido";
 import { apagarSemDerrubar } from "./publicar-bucket";
-import { estadoDaPublicacaoNa, estadoDoCarrossel } from "./publicar-repositorio";
+import { caminhosNaFila, estadoDaPublicacaoNa, estadoDoCarrossel } from "./publicar-repositorio";
 import { geracaoNaTela, type GeracaoNaTela } from "./tempos";
 
 // O APAGAR NO SERVIDOR (spec da Etapa 10, "O apagar no servidor"). A linha é travada (`for update`),
@@ -1551,7 +1569,9 @@ export async function podeApagarAgora(l: LinhaDoCarrossel, geracao: GeracaoNaTel
  * `imagens_geradas` ficam com o carrossel nulo (`on delete set null`, a 018: são o histórico do teto), e
  * as da fila ficam, como histórico.
  *
- * DEPOIS DO COMMIT, os arquivos dele saem do bucket (`caminhosDoCarrossel`). Uma falha ali não desfaz o
+ * DEPOIS DO COMMIT, os arquivos dele saem do bucket (`caminhosDoCarrossel`), menos os que ainda estão no
+ * payload de um item da fila (achado 97): o item que falhou mantém o arquivo, pela regra do dono
+ * (lib/queue-drain.ts:301-303), como o publicar já faz (`caminhosNaFila`). Uma falha no bucket não desfaz o
  * banco: o carrossel já está apagado, e o arquivo fica sem dono. `apagar` entra por parâmetro só para o
  * teste: em produção é `apagarSemDerrubar`.
  */
@@ -1573,7 +1593,8 @@ export async function apagarCarrossel(id: string, apagar: (caminhos: string[]) =
     return { ok: true as const, caminhos: caminhosDoCarrossel(linha.arte, linha.total_slides, conta ? pastaDaConta(conta) : null) };
   });
   if (!r.ok) return r;
-  await apagar(r.caminhos);
+  const naFila = await caminhosNaFila(r.caminhos);
+  await apagar(r.caminhos.filter((c) => !naFila.includes(c)));
   return { ok: true };
 }
 ```
@@ -1659,7 +1680,7 @@ DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_te
 DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npx vitest run --config vitest.integracao.config.ts testes-integracao/bonus-imagem-repositorio.integracao.ts testes-integracao/bonus-imagem-processo.integracao.ts
 ```
 
-Esperado: `tsc` e lint limpos; `[rede-global] ALVO: banco de TESTE`, e os 22 passam. Nas duas da imagem que já existiam,
+Esperado: `tsc` e lint limpos; `[rede-global] ALVO: banco de TESTE`, e os 23 passam. Nas duas da imagem que já existiam,
 `[rede-global] ALVO: banco de TESTE`, 2 arquivos e os 35 passam.
 
 - [ ] **Passo 5: varrer e commitar**
@@ -2524,7 +2545,7 @@ VAZAMENTO em A nem em C"; o build (Turbopack) com "MIGRAÇÃO PULADA" e as rotas
 DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npm run test:integracao
 ```
 
-Esperado: `[rede-global] ALVO: banco de TESTE`; 46 arquivos, 515 passaram e 8 pularam (na base, 45 arquivos, 493 passaram e 8 pularam).
+Esperado: `[rede-global] ALVO: banco de TESTE`; 46 arquivos, 516 passaram e 8 pularam (na base, 45 arquivos, 493 passaram e 8 pularam).
 
 - [ ] **Passo 3: as provas de mutação**
 
@@ -2535,7 +2556,7 @@ DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_te
 git status --short
 ```
 
-Esperado: as 28 com ✓, "28 mutações, 0 ruins", e a árvore limpa depois (cada arquivo volta byte a
+Esperado: as 29 com ✓, "29 mutações, 0 ruins", e a árvore limpa depois (cada arquivo volta byte a
 byte).
 
 - [ ] **Passo 4: a guarda do diff**
@@ -2580,7 +2601,8 @@ No log do build do preview, confira o commit e "MIGRAÇÃO PULADA".
    revisar", e o botão volta.
 5. "Apagar carrossel" → "Cancelar" (nada muda) → "Apagar carrossel" → "Sim, apagar" (grava): a lista em
    "Rascunhos", com "Carrossel apagado." em verde, sem ele. A auditoria confere a linha apagada, as
-   linhas da fila que ficam e o bucket.
+   linhas da fila que ficam e o bucket (as cópias do agendamento cancelado já saíram no cancelamento, e o
+   apagar não as procura de novo: elas estão no payload do item cancelado, achado 97).
 
 "Publicados" não tem dado real para a prova (nenhum carrossel foi publicado, e a prova não publica):
 fica coberto pelos testes, e o PR diz isso.
@@ -2676,6 +2698,9 @@ const MUTACOES = [
     de: "    return { ok: true as const, caminhos: caminhosDoCarrossel(linha.arte, linha.total_slides, conta ? pastaDaConta(conta) : null) };",
     para: "    await apagar(caminhosDoCarrossel(linha.arte, linha.total_slides, conta ? pastaDaConta(conta) : null));\n    return { ok: true as const, caminhos: [] };",
     cmd: T_APAGAR, caso: "quem apaga os arquivos já não acha a linha" },
+  { nome: "10.2: a cópia que um item da fila usa sai do bucket (achado 97)", arq: APAGAR,
+    de: "  await apagar(r.caminhos.filter((c) => !naFila.includes(c)));", para: "  await apagar(r.caminhos);",
+    cmd: T_APAGAR, caso: "menos a cópia que um item da fila ainda usa" },
   { nome: "10.2: o 23503 sem tratar (achado 96)", arq: REPO,
     de: '    if (carrosselSumiu(erro)) return { ok: false, motivo: "nao_pronto" };\n', para: "",
     cmd: T_APAGAR, caso: "a reserva bate na chave estrangeira e devolve a recusa" },
@@ -2757,6 +2782,9 @@ for (const m of escolhidas) {
   } finally {
     writeFileSync(m.arq, original);
   }
+  // As cores do vitest pintam o " > " das linhas FAIL num terminal com cor, e o caso com " > " não seria
+  // achado (nota da auditoria em 13/10): a saída perde os códigos de cor antes de procurar o caso.
+  saida = saida.replace(/\x1b\[[0-9;]*m/g, "");
   if (ehInteg(m) && !saida.includes("ALVO: banco de TESTE")) {
     console.log(`✗ ${m.nome}: a integração não imprimiu "ALVO: banco de TESTE". Pare e confira o banco.`);
     ruins++;
