@@ -389,7 +389,7 @@ describe("publicar com foto no espaço", () => {
       { numero: 5, caminho: await subir(id, 5, "fila"), versao: desenho(5, null) },
     ];
     bucket.chamadas = [];
-    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null });
+    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null, jaVale: true });
     const [item] = await fila();
     expect(item.payload.caminhos[1]).toBe(artes[1].caminho);
     expect(item.payload.caminhos).not.toContain(foto);
@@ -431,7 +431,7 @@ describe("publicar com foto no espaço", () => {
     const artes = await Promise.all(
       [1, 2, 5].map(async (n) => ({ numero: n, caminho: await subir(id, n, "fila"), versao: desenho(n, null) }))
     );
-    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null });
+    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null, jaVale: true });
     const [item] = await fila();
     expect(item.payload.caminhos[1]).toBe(artes[1].caminho);
   });
@@ -455,7 +455,7 @@ describe("publicar", () => {
     const { id, guardadas } = await comImagens();
     const artes = await artesDe(id);
     const r = await processo.publicarNaFila({ id, quando: null, artes, contas, drenar });
-    expect(r).toEqual({ ok: true, quando: null });
+    expect(r).toEqual({ ok: true, quando: null, jaVale: true });
 
     const [item, ...resto] = await fila();
     expect(resto).toEqual([]);
@@ -488,6 +488,19 @@ describe("publicar", () => {
     // A HORA EXATA, e não "a menos de dois minutos" (spec da hora marcada): o motor grava a hora pedida.
     expect(item.not_before.getTime()).toBe(quando.getTime());
     expect(drenagens).toBe(0);
+  });
+
+  it("no minuto corrente: entra valendo, e drena como o agora (achado 99)", async () => {
+    const { id } = await comImagens();
+    // TRINTA SEGUNDOS NO PASSADO, como o "depois" no minuto corrente que a tolerância de
+    // `momentoDaPublicacao` deixa passar. Antes, só `quando === null` drenava, e o post ficava parado.
+    const quando = new Date(Date.now() - 30_000);
+    expect(await processo.publicarNaFila({ id, quando, artes: await artesDe(id), contas, drenar })).toEqual({
+      ok: true,
+      quando,
+      jaVale: true,
+    });
+    expect(drenagens).toBe(1);
   });
 
   it("um erro no tique depois de enfileirar não apaga a mídia do post (achado 101)", async () => {
@@ -742,7 +755,7 @@ describe("publicar com um slide que sai cortado", () => {
     const artes = await Promise.all(
       [1, 5].map(async (n) => ({ numero: n, caminho: await subir(id, n, "fila"), versao: desenho(CORTADO, n, null) }))
     );
-    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null });
+    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null, jaVale: true });
     expect(await fila()).toHaveLength(1);
   });
 
@@ -752,7 +765,7 @@ describe("publicar com um slide que sai cortado", () => {
     const artes = await Promise.all(
       [1, 2, 5].map(async (n) => ({ numero: n, caminho: await subir(id, n, "fila"), versao: desenho(CORTADO, n, null) }))
     );
-    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null });
+    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null, jaVale: true });
     expect(await fila()).toHaveLength(1);
   });
 

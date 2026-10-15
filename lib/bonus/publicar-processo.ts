@@ -1,7 +1,7 @@
 import "server-only";
 import { pastaDaConta, tetoDoBucket } from "@/lib/bucket";
 import { publicacaoKey } from "@/lib/dedupe";
-import { enqueuePublicacao } from "@/lib/engine";
+import { enqueuePublicacao, type ResultadoDaPublicacao } from "@/lib/engine";
 import {
   decisaoDeAssinatura,
   problemaDaLegenda,
@@ -152,9 +152,9 @@ export type ArteSubida = { numero: number; caminho: unknown; versao: unknown };
 /**
  * PUBLICAR OU AGENDAR (spec, "Publicar"): confere tudo antes de tocar o bucket; copia os slides
  * prontos guardados para a fila, fora de qualquer transação; reserva com a linha travada, conferindo
- * de novo; enfileira na conta do carrossel; marca a reserva como enfileirada (achado 75); e, com
- * "agora", drena a fila como o /publicar. Em qualquer recusa depois do navegador ter subido as artes,
- * as artes e as cópias desta tentativa saem do bucket.
+ * de novo; enfileira na conta do carrossel; marca a reserva como enfileirada (achado 75); e, com o
+ * post que já vale pelo banco, drena a fila como o /publicar. Em qualquer recusa depois do navegador
+ * ter subido as artes, as artes e as cópias desta tentativa saem do bucket.
  *
  * O SLIDE COM FOTO PUBLICA A ARTE DESENHADA, e não a foto (adendo da Etapa 5): ele vai com as artes
  * "Só texto", que o navegador baixou da rota e subiu em `bonus-fila`, com a versão do desenho (o
@@ -169,7 +169,7 @@ export async function publicarNaFila(p: {
   contas: ContaDoCabecalho[];
   enfileirar?: typeof enqueuePublicacao;
   drenar?: () => Promise<unknown>;
-}): Promise<{ ok: true; quando: Date | null } | Recusa> {
+}): Promise<{ ok: true; quando: Date | null; jaVale: boolean } | Recusa> {
   const enfileirar = p.enfileirar ?? enqueuePublicacao;
   const drenar = p.drenar ?? drainQueue;
   const c = await conferirCarrossel(p.id, p.contas);
@@ -275,13 +275,15 @@ export async function publicarNaFila(p: {
     await apagarSemDerrubar(reserva.velha.caminhos.filter((x) => !daVelhaNaFila.includes(x) && !caminhos.includes(x)));
   }
 
-  let entrou = false;
+  let r: ResultadoDaPublicacao = { entrou: false };
   try {
-    entrou = (await enfileirar(c.conta, { forma, caminhos, legenda: reserva.legenda }, p.quando)).entrou;
+    r = await enfileirar(c.conta, { forma, caminhos, legenda: reserva.legenda }, p.quando);
   } catch {
-    entrou = false;
+    // SÓ O ERRO DE ANTES DO INSERT CHEGA AQUI: o do tique fica dentro de `enqueuePublicacao`
+    // (achado 101), e desfazer a reserva com o post na fila apagaria a mídia dele.
+    r = { entrou: false };
   }
-  if (!entrou) {
+  if (!r.entrou) {
     await desfazerReserva(p.id, chave);
     await descartar(Object.values(copiadas.copias));
     return recusa({ motivo: "fila" });
@@ -295,14 +297,16 @@ export async function publicarNaFila(p: {
     // O resíduo está escrito na spec: a marca falhar E a conta ser desconectada depois.
   }
 
-  // ENFILEIRAR NÃO ENVIA (app/publicar/actions.ts:136-159): "agora" nasce com atraso zero, e sem a
-  // drenagem o post sairia no próximo tique. O agendado não drena.
-  if (p.quando === null) {
+  // ENFILEIRAR NÃO ENVIA (app/publicar/actions.ts, o bloco "ENFILEIRAR NÃO ENVIA"): o que já vale pelo
+  // banco não ganha tique, e sem a drenagem o post sairia no próximo tique de outra coisa. Quem diz que
+  // já vale é o banco, e não `quando === null`: o "depois" no minuto corrente nasce vencido (achado
+  // 99). O que ainda não vale não drena.
+  if (r.jaVale) {
     try {
       await drenar();
     } catch {
       // A trava atômica do dreno garante que o próximo recupera; o estado na página diz "publicando".
     }
   }
-  return { ok: true, quando: p.quando };
+  return { ok: true, quando: p.quando, jaVale: r.jaVale };
 }
