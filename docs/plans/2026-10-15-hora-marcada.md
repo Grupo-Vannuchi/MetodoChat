@@ -67,6 +67,10 @@ O ensaio achou estas coisas, já resolvidas neste plano:
    (FASE 5).
 9. **Uma integração de cada vez.** Duas rodadas ao mesmo tempo no mesmo container derrubam o schema uma da
    outra.
+10. **A guarda conta `greatest(now()` no motor inteiro, comentários inclusive** (nota da revisão deste plano):
+   um comentário em `lib/engine.ts` com essa expressão a derruba. É rígido de propósito, no jeito das guardas
+   do dono, e o comentário da guarda diz isso. A nota mudou só esse comentário (FASE 2); os números e as
+   mutações são os mesmos.
 
 **Fora deste plano, anotado:** o achado 100 (o post em retentativa aparece como "Agendado para" no gerador)
 vai num PR do gerador; o achado 103 (um "Esperar" antes de `pedir_follow` ou de `pedir_dado` é descartado)
@@ -376,6 +380,10 @@ import { describe, expect, it } from "vitest";
 // ESTA GUARDA É PURA DE PROPÓSITO. O `npm run verify` não roda a integração, e o caso que mede a
 // espera das mensagens no banco (`gatilho-entrega.integracao.ts`) só roda com o container. Lida
 // aqui, a fronteira cai no portão de todo commit.
+//
+// A CONTA É DO ARQUIVO INTEIRO, COMENTÁRIOS INCLUSIVE (nota da revisão do plano): um comentário em
+// `lib/engine.ts` que escreva a expressão do `greatest` da publicação derruba a guarda. É rígido de
+// propósito, no jeito das guardas do dono: quem escreve a expressão no motor tem de passar por aqui.
 
 const RAIZ = fileURLToPath(new URL("..", import.meta.url));
 const MOTOR = readFileSync(`${RAIZ}/lib/engine.ts`, "utf8").replace(/\r\n/g, "\n");
