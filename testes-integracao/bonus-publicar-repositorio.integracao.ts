@@ -246,6 +246,33 @@ describe("a trava nas gravações do carrossel", () => {
     const [linha] = (await banco.db().sql().query(`select * from carrosseis_gerados where id = $1`, [id])) as { arte: unknown }[];
     expect((await publicar.estadoDoCarrossel(linha.arte)).tipo).toBe("publicado");
   });
+
+  // A NOVA TENTATIVA, LIDA DO BANCO (achado 100): o repositório já lê o error da linha, e o estado
+  // separa o agendado do post que já foi tentado.
+  it("o pendente no futuro: sem motivo é agendado; com motivo é publicando; na cota, com a espera", async () => {
+    const id = await publicado(CHAVE);
+    await naFila(CHAVE, "pending");
+    const arte = async () =>
+      ((await banco.db().sql().query(`select arte from carrosseis_gerados where id = $1`, [id])) as { arte: unknown }[])[0].arte;
+    expect((await publicar.estadoDoCarrossel(await arte())).tipo).toBe("agendado");
+
+    await banco.db().sql().query(`update queue set error = 'a Meta ainda esta processando a midia' where dedupe_key = $1`, [CHAVE]);
+    expect(await publicar.estadoDoCarrossel(await arte())).toMatchObject({ tipo: "publicando" });
+    expect(await publicar.estadoDoCarrossel(await arte())).not.toHaveProperty("espera");
+
+    await banco
+      .db()
+      .sql()
+      .query(
+        `update queue set error = 'a cota de publicacoes da conta acabou (25 de 25 em 24h); o post sai assim que ela virar'
+          where dedupe_key = $1`,
+        [CHAVE]
+      );
+    const [{ not_before }] = (await banco.db().sql().query(`select not_before from queue where dedupe_key = $1`, [CHAVE])) as {
+      not_before: Date;
+    }[];
+    expect(await publicar.estadoDoCarrossel(await arte())).toMatchObject({ tipo: "publicando", espera: { motivo: "cota", ate: not_before } });
+  });
 });
 
 describe("a reserva da publicação", () => {
