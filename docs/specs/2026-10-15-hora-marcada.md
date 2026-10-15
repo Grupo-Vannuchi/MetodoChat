@@ -8,7 +8,8 @@ revisão de risco do conserto (o que poderia acabar, falhar ou errar com a regra
 Eduardo) e pela auditoria própria do perigo. Essa auditoria mapeou quem grava e quem lê
 `queue.not_before`, levantou os testes das mensagens com espera e mediu a produção. O teto no tique das
 mensagens foi escolha do Eduardo. A auditoria revisou a spec em `5df6053` e a liberou sem achado novo;
-os cinco ajustes de texto dela e o caminho do gerador na prova já entraram. Aguarda a leitura do Eduardo.
+os cinco ajustes de texto dela e o caminho do gerador na prova já entraram. Lida pelo Eduardo em 15/10.
+O ensaio do plano acertou o T8 e um teste do criador de imagem (marcados abaixo).
 **Projeto de quem:** o motor (a fila, o `/publicar` e o remarcar) era do Vinícius Gualberto, que saiu
 da empresa em 15/10. Por decisão do Eduardo, passamos a mexer nele no jeito do Vinícius: o comentário
 diz o porquê e a medição, a regra vira função pura com teste, cada proteção tem a mutação que a
@@ -305,7 +306,7 @@ a trava da `DATABASE_URL_TESTES`.
 | T5 | integração | a menos de 15 s também arma: com `falta` = 10, o tique sai com 15 | voltar o piso |
 | T6 | integração | o erro no tique não derruba: com `getConfig` lançando erro, `entrou` fica `true`, e o gerador não apaga as cópias | tirar o `try` |
 | T7 | integração | as mensagens continuam relativas: `gatilho-entrega.integracao.ts:426` (o `dm_link` com espera, `:454-455`) | mandar as mensagens pelo INSERT absoluto |
-| T8 | integração | o remarcar: para o minuto corrente, sai no dreno; para +10 s, arma 15; para +2 dias, não arma tique | não drenar no remarcar; voltar o piso |
+| T8 | integração | o remarcar: para o minuto corrente, sai no dreno, e a hora gravada é a do banco, e não o minuto que passou; com a config fora do ar, a ação não cai e a hora nova fica gravada (achado 101); para além do horizonte, não arma tique. O "+10 s arma 15" não é alcançável pela ação, porque o campo só aceita minutos inteiros: o buraco dos 15 s fica com o P (acertado no ensaio do plano) | não drenar no remarcar; gravar a hora vencida; tirar o `try` do tique; ignorar o horizonte |
 | T9 | integração | a mensagem com espera de 2 dias pede o tique do horizonte, e não 172805 | tirar o `Math.min` do `enqueue` |
 
 **Os testes que mudam de propósito:**
@@ -320,6 +321,8 @@ a trava da `DATABASE_URL_TESTES`.
   com o `coalesce`.
 - `testes-integracao/bonus-publicar-processo.integracao.ts:560` (o `enfileirar: async () => false`)
   passa para o retorno novo.
+- `testes-integracao/bonus-imagem-processo.integracao.ts:293` compara o retorno de `publicarNaFila` inteiro, e
+  ganha o `jaVale: false` do agendado para amanhã (acertado no ensaio do plano).
 
 ---
 
