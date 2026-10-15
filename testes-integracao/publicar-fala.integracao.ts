@@ -420,6 +420,37 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     expect(item?.no_futuro).toBe(true);
   });
 
+  // =========================================================================
+  // O "DEPOIS" NO MINUTO CORRENTE (achado 99, spec da hora marcada).
+  //
+  // `momentoDaPublicacao` aceita até 60 s no passado — a tolerância do minuto
+  // que o campo `datetime-local` obriga —, e o post nascia vencido. Só o
+  // "agora" drenava, e o `enqueue` não armava tique abaixo de 15 s: o post
+  // ficava parado até a próxima drenagem de outra coisa. Agora quem decide é o
+  // banco (`jaVale`), e o post sai na hora, como o "agora".
+  // =========================================================================
+  test("o 'depois' no minuto corrente sai na hora, como o 'agora'", async () => {
+    const minuto = new Date(Math.floor(Date.now() / 60000) * 60000).toISOString().slice(0, 16);
+    const caminho = `${CONTA_A}/depois-no-minuto-corrente.jpg`;
+    const d = await desfechoDe(
+      pedidoDePublicar({ forma: "imagem", caminhos: caminho, quando: "depois", dataHora: minuto, fuso: "0" })
+    );
+
+    expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+    const aviso = avisoDaUrlDeVolta(d.url);
+    expect(aviso.tom).toBe("ok");
+    // A FRASE DO "AGORA": a hora escolhida já chegou, e ecoá-la prometeria uma
+    // espera que não existe.
+    expect(aviso.texto).toBe(
+      "Publicação na fila. Ela sai em instantes — acompanhe o desfecho em Atividade."
+    );
+
+    const itens = await itensDaFila(CONTA_A);
+    const item = itens.find((i) => i.dedupe_key.endsWith(caminho));
+    expect(item?.status).toBe("sent");
+    expect(meta.publicacoes.at(-1)?.igUserId).toBe(CONTA_A);
+  });
+
   test("forma desconhecida recusa antes de gravar", async () => {
     // "video" É A PALAVRA QUE O PRODUTO NÃO TEM, e ela é o caso real: a
     // especificação mediu que `VIDEO` não existe como `media_type` na Meta —

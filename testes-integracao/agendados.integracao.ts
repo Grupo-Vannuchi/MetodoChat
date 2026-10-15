@@ -670,6 +670,31 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
   });
 
   // =========================================================================
+  // O MINUTO CORRENTE (achado 99, spec da hora marcada).
+  //
+  // A tolerância de `momentoDaPublicacao` aceita até 60 s no passado, e o
+  // remarcar para o minuto corrente gravava uma hora já vencida sem drenar e
+  // sem tique (`atrasoDoTiqueDoRemarcar` não armava até 15 s). O post ficava
+  // parado até a próxima drenagem de outra coisa. Agora o banco diz que já
+  // vale, e o remarcar drena, como o compor.
+  // =========================================================================
+  test("remarcar para o minuto corrente sai no dreno, como o compor", async () => {
+    const id = await semear({ conta: CONTA_A, emSegundos: 3600 });
+    const minuto = Math.floor(Date.now() / 60000) * 60000;
+
+    const d = await desfechoDe(acoes.remarcarPublicacao, pedidoDeRemarcar(id, campoDeDataHora(minuto)));
+
+    expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+    expect(avisoDaUrlDeVolta(d.url).tom).toBe("ok");
+    const item = await lerItem(id);
+    expect(item.status).toBe("sent");
+    // A HORA GRAVADA É A DO BANCO, e não o minuto que já passou: o `greatest` do
+    // remarcar é o mesmo de `enqueuePublicacao`.
+    expect(item.not_before.getTime()).toBeGreaterThan(minuto);
+    expect(meta.publicacoes.at(-1)).toEqual({ igUserId: CONTA_A, token: TOKEN_A });
+  });
+
+  // =========================================================================
   // O FUSO, E O QUE A TELA DE VERDADE MANDA.
   //
   // Nenhum portão media isto até 09/09/2026: o único caso que exercitava o fuso
