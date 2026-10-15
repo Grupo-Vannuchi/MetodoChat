@@ -7,7 +7,8 @@ em 15/10, o DEV e a auditoria estudaram o conserto com agentes, só lendo.
 revisão de risco do conserto (o que poderia acabar, falhar ou errar com a regra nova, pedida pelo
 Eduardo) e pela auditoria própria do perigo. Essa auditoria mapeou quem grava e quem lê
 `queue.not_before`, levantou os testes das mensagens com espera e mediu a produção. O teto no tique das
-mensagens foi escolha do Eduardo. Aguarda a revisão da spec pela auditoria e a leitura do Eduardo.
+mensagens foi escolha do Eduardo. A auditoria revisou a spec em `5df6053` e a liberou sem achado novo;
+os cinco ajustes de texto dela e o caminho do gerador na prova já entraram. Aguarda a leitura do Eduardo.
 **Projeto de quem:** o motor (a fila, o `/publicar` e o remarcar) era do Vinícius Gualberto, que saiu
 da empresa em 15/10. Por decisão do Eduardo, passamos a mexer nele no jeito do Vinícius: o comentário
 diz o porquê e a medição, a regra vira função pura com teste, cada proteção tem a mutação que a
@@ -243,7 +244,8 @@ mensagens sem ninguém ter pedido.
 | `app/publicar/post/actions.ts:272-276` | "as três regras de `enqueue`: nada abaixo de 15 s" | a função nova |
 | `tests/publicacao.test.ts:1925-1927` | "`momentoDaPublicacao` já recusa" o passado | a tolerância do minuto deixa passar até 60 s, e o passado vira agora |
 | `lib/qstash.ts:28-29` | "os dois lugares que pedem tique com atraso escolhido" | são cinco: o `enqueue`, o `enqueuePublicacao`, o remarcar, o rodapé e `armarTiquesDoDia` |
-| `lib/queue-drain.ts:448` e `:1319-1322`; `app/api/cron/daily/route.ts:109-114` | `enqueuePublicacao` "não arma nada além de um dia" | continua verdade e fica. Com o teto, o "o QStash só recebe atrasos que ele já cumpre" de `queue-drain.ts:1321-1322` passa a valer também para as mensagens |
+| `lib/queue-drain.ts:1319-1322` e `app/api/cron/daily/route.ts:109-114` | `enqueuePublicacao` "não arma nada além de um dia" | continua verdade e fica. Com o teto, o "o QStash só recebe atrasos que ele já cumpre" de `queue-drain.ts:1321-1322` passa a valer também para as mensagens |
+| `app/publicar/post/actions.ts:263-264`; `lib/publicacao.ts:1764-1765` e `:1791`; `testes-integracao/tique-do-rodape.integracao.ts:213` e `:287-288`; `tests/publicacao.test.ts:1886` | citam o `agendarTique` (`atraso <= HORIZONTE`) como o que decide o tique da publicação | citam a função nova. O plano termina conferindo que não sobra nenhum `agendarTique` no repositório |
 
 ### O que não muda
 
@@ -294,11 +296,11 @@ a trava da `DATABASE_URL_TESTES`.
 
 | # | suíte | o que prova | a mutação que o derruba |
 |---|---|---|---|
-| G | pura, lendo o arquivo | a fronteira: o INSERT do `enqueue` continua com `now() + make_interval(secs => $8::int)`, e só `enqueuePublicacao` grava a hora absoluta. Fica na suíte pura porque o `verify` não roda a integração | pôr o `greatest` no INSERT do `enqueue` |
+| G | pura, lendo o arquivo | a fronteira: o INSERT do `enqueue` continua com `now() + make_interval(secs => $8::int)`, e só `enqueuePublicacao` grava a hora absoluta. A guarda lê `lib/engine.ts` e cobra duas coisas: a string exata do INSERT do `enqueue` presente, e uma ocorrência só de `greatest(now()` no arquivo, dentro do corpo de `enqueuePublicacao`. Fica na suíte pura porque o `verify` não roda a integração | pôr o `greatest` no INSERT do `enqueue` |
 | P | pura | `atrasoDoTiqueDaPublicacao`: 0 → nenhum; 1 → 6; 15 → 20 (hoje, nenhum: o 99); horizonte → horizonte (o 102); horizonte + 1 → nenhum; `NaN` → nenhum | voltar o piso de 15 s; tirar o `min` |
 | T1 | integração | a hora gravada é a marcada: com `quando` = `now()` do banco + 120,67 s, `not_before` sai igual, ao milissegundo | voltar ao `Math.round` + `make_interval` |
 | T2 | integração | o resultado não depende do relógio da aplicação: com `Date.now()` adiantado 30 s (`vi.spyOn`), `not_before` não muda | medir a distância com `Date.now()` |
-| T3 | integração | a hora no passado vira agora e sai: com `quando` = agora − 30 s, vem `ja_vale`, e o compor drena (com a Meta falsa do harness de `agendados.integracao.ts`) | drenar só com `quando === null` |
+| T3 | integração | a hora no passado vira agora e sai: com `quando` = agora − 30 s, vem `ja_vale`, e o compor e o gerador drenam (com a Meta falsa do harness de `agendados.integracao.ts`) | drenar só com `quando === null` |
 | T4 | integração | a borda de 1 dia tem teto: com `falta` = horizonte, o tique pedido é o horizonte, e não 86405 | tirar o `min`. Hoje este teste fica vermelho: é o 102 |
 | T5 | integração | a menos de 15 s também arma: com `falta` = 10, o tique sai com 15 | voltar o piso |
 | T6 | integração | o erro no tique não derruba: com `getConfig` lançando erro, `entrou` fica `true`, e o gerador não apaga as cópias | tirar o `try` |
@@ -313,7 +315,7 @@ a trava da `DATABASE_URL_TESTES`.
 - `testes-integracao/tique-do-rodape.integracao.ts` monta o `quando` a partir de `Date.now()` (os
   ajudantes de `:216-222` e `:277-279`). Ele passa a montar pelo relógio do banco, para não depender de
   a máquina estar em dia com o container.
-- `testes-integracao/publicacao.integracao.ts` (19 usos) e `tique-do-rodape.integracao.ts` (8 usos)
+- `testes-integracao/publicacao.integracao.ts` (18 chamadas) e `tique-do-rodape.integracao.ts` (7 chamadas)
   passam a ler o retorno novo. Os casos que enfileiram com `null` e esperam o dreno continuam certos
   com o `coalesce`.
 - `testes-integracao/bonus-publicar-processo.integracao.ts:560` (o `enfileirar: async () => false`)
@@ -332,10 +334,16 @@ cada gravação, o Eduardo dá o OK, a hora vai à auditoria, e a auditoria lê 
 2. Na lista de agendados, remarcar para o dia seguinte, às 10:00 (grava). A auditoria confere que a
    hora nova está exata.
 3. Cancelar (grava `skipped`).
+4. No gerador, criar um carrossel à mão ("Novo carrossel" → texto livre → "Escrever à mão", 1 slide
+   em "Só texto", sem imagem e sem custo de IA) e agendar para daqui a 2 dias, às 10:00 (gravam). A
+   auditoria confere que `not_before` é exato e que a frase é a de "agendado", que esta etapa passa a
+   decidir pelo `jaVale` (`app/bonus/publicar-actions.ts:95`).
+5. Cancelar no calendário (grava `skipped`).
 
-O gerador chama o mesmo `enqueuePublicacao`, e a parte dele que muda (drenar quando `jaVale`) está
-coberta pelos testes T3 e T6. No fim, o que a prova criou sai do banco e do bucket. Para isso, o
-Eduardo dá o OK, e a auditoria lê o script antes de ele rodar.
+A parte do gerador que só a integração alcança (drenar quando `jaVale` e o erro do tique) fica com
+T3 e T6. No fim, o que a prova criou sai do banco e do bucket: o carrossel pela tela, se a Etapa 10
+já estiver na `main`, ou por um script, e o post do `/publicar` por um script. O Eduardo dá o OK, e a
+auditoria lê cada script antes de ele rodar.
 
 ---
 
@@ -346,9 +354,8 @@ Eduardo dá o OK, e a auditoria lê o script antes de ele rodar.
 3. O merge é do Eduardo, no GitHub, depois da conferência da auditoria.
 4. Nenhum `next dev` apontado para a produção durante o deploy.
 
-Esta etapa não toca nenhum arquivo da Etapa 10 (a branch `lista-de-carrosseis` só acrescenta
-`testes-integracao/bonus-apagar-carrossel.integracao.ts` fora das pastas dela), então as duas entram em
-qualquer ordem.
+Esta etapa e a Etapa 10 (a branch `lista-de-carrosseis`) não têm nenhum arquivo em comum (medido),
+então as duas entram em qualquer ordem.
 
 ---
 
