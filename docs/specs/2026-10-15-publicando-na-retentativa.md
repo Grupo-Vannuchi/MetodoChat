@@ -1,6 +1,6 @@
 # O post em nova tentativa aparece como "publicando" no gerador
 
-**Nascido em:** 15/10/2026, sobre a `main` em `fc16464` (a hora marcada em produção desde as 16:01Z). É o
+**Nascido em:** 15/10/2026, sobre a `main` em `fc16464` (a hora marcada mesclada às 16:01Z, no ar desde as 16:02Z). É o
 achado 100 da auditoria, visto no estudo do achado 91, e o Eduardo decidiu consertá-lo no gerador, num PR
 nosso.
 **Estado:** desenho aprovado pelo Eduardo pela caixa em 15/10, depois de cruzado com a auditoria
@@ -12,8 +12,9 @@ spec pela auditoria e a leitura do Eduardo.
 
 ## O que é
 
-Na página do carrossel, um "Publicar agora" que entra em nova tentativa aparece como "Agendado para
-[a hora + 1 minuto]". O post não foi agendado: ele está saindo, e a Meta pediu para esperar. A causa é que
+Na página do carrossel, um post que entra em nova tentativa (o "Publicar agora", ou um agendado quando
+chega a hora) aparece como "Agendado para [a hora da nova tentativa]". Ele não foi agendado de novo: está
+saindo, e precisou esperar. A causa é que
 o dreno, quando tenta de novo, empurra o `not_before` para a frente, e o gerador decide "agendado" só
 porque o `not_before` está no futuro (`lib/bonus/publicar-estado.ts:37-40`).
 
@@ -23,7 +24,7 @@ As três novas tentativas de uma publicação, medidas em `fc16464`:
 |---|---|---|
 | a Meta ainda processa a mídia | +60 s | `pending` e "a Meta ainda esta processando a midia" (`lib/queue-drain.ts:549-553`) |
 | a conta chegou ao limite de posts das últimas 24 horas | +3600 s, repetida até a janela virar | `pending` e "a cota de publicacoes da conta acabou (X de Y em 24h); o post sai assim que ela virar" (`:588-592`) |
-| uma falha passageira | +120 s, até 3 tentativas | `pending` e a mensagem do erro (`:1253-1256`) |
+| uma falha passageira | +120 s, enquanto o post tiver menos de 3 tentativas, contadas todas, inclusive as da cota e da Meta processando (`:1039`, `:1252`) | `pending` e a mensagem do erro (`:1253-1256`) |
 
 As três gravam um `error` não nulo, e o `finish` só limpa o `error` quando o post sai (`:223`). Medido
 pela auditoria: nenhum outro caminho grava `error` numa publicação `pending`. O `enqueuePublicacao` não
@@ -95,7 +96,7 @@ a frase no dreno, a guarda cai no `verify`, e não na tela de quem espera.
 
 - O motor: `lib/queue-drain.ts`, `lib/engine.ts`, `app/publicar/` e a fila.
 - O repositório do gerador: ele já lê o `error`.
-- A trava: `publicacaoLivre` (`publicar-estado.ts:64-66`) já trava o `agendado` e o `publicando`. O
+- A trava: `publicacaoLivre` (`publicar-estado.ts:63-64`) já trava o `agendado` e o `publicando`. O
   carrossel segue travado como hoje, e o funil (`textoDoFunil`, `publicar-textos.ts:71`) trata os dois
   igual.
 - O banco: nenhuma migração.
@@ -124,7 +125,8 @@ a frase no dreno, a guarda cai no `verify`, e não na tela de quem espera.
   O post sai na hora nova de qualquer jeito. Consertar isto pediria ao remarcar limpar o `error`, no
   `/publicar`, por causa de uma frase do gerador: fica de fora.
 - **A frase "O Instagram leva até um minuto"** vale para a espera de +60 s. Na falha passageira, a nova
-  tentativa é em 2 minutos, até 3 vezes. A frase é a de hoje e não muda.
+  tentativa é em 2 minutos, enquanto o post tiver menos de 3 tentativas, contadas todas (`:1039`,
+  `:1252`). A frase é a de hoje e não muda.
 - **A lista de carrosséis da Etapa 10**, quando entrar, mostra "Publicando…" sem a hora no caso da cota
   (`selosDoCarrossel`). O tipo ganha `espera` opcional, e o código dela continua compilando.
 
