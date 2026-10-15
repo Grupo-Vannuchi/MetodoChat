@@ -1397,7 +1397,7 @@ const TOLERANCIA_DO_MINUTO_EM_MS = 60_000;
  * =============================================================================
  * DIA PASSADO NÃO É ADIANTAMENTO
  *
- * `enqueuePublicacao` (lib/engine.ts) trata atraso negativo como zero — ou
+ * `enqueuePublicacao` (lib/engine.ts) grava `greatest(now(), quando)` — ou
  * seja, o post agendado para ontem sairia NA HORA. Quem escolheu a data errada
  * publicaria agora, no perfil público, sem desfazer. Recusar aqui é o que
  * transforma um engano de digitação num aviso, em vez de num post.

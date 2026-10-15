@@ -485,8 +485,28 @@ describe("publicar", () => {
     const quando = new Date(Date.now() + 86_400_000);
     expect((await processo.publicarNaFila({ id, quando, artes: await artesDe(id), contas, drenar })).ok).toBe(true);
     const [item] = await fila();
-    expect(Math.abs(item.not_before.getTime() - quando.getTime())).toBeLessThan(120_000);
+    // A HORA EXATA, e não "a menos de dois minutos" (spec da hora marcada): o motor grava a hora pedida.
+    expect(item.not_before.getTime()).toBe(quando.getTime());
     expect(drenagens).toBe(0);
+  });
+
+  it("um erro no tique depois de enfileirar não apaga a mídia do post (achado 101)", async () => {
+    const { id } = await comImagens();
+    const artes = await artesDe(id);
+    // A CONFIG FORA DO AR, só neste schema descartável: `getConfig` lança no tique, como lançaria com o
+    // banco caindo entre o insert e o tique. Antes, o erro voltava do enfileirar, e o `catch` daqui
+    // desfazia a reserva e apagava as cópias de um post que já estava na fila.
+    await banco.db().sql().query(`alter table config rename to config_fora_do_ar`);
+    let r: Awaited<ReturnType<typeof processo.publicarNaFila>>;
+    try {
+      r = await processo.publicarNaFila({ id, quando: new Date(Date.now() + 2 * 60 * 60 * 1000), artes, contas, drenar });
+    } finally {
+      await banco.db().sql().query(`alter table config_fora_do_ar rename to config`);
+    }
+    expect(r.ok).toBe(true);
+    const [item] = await fila();
+    expect(item.payload.caminhos.every((c) => bucket.objetos.has(c))).toBe(true);
+    expect(regras.publicacaoDaArte(await arteDe(id))).not.toBeNull();
   });
 
   it("o post de um slide sai como imagem única", async () => {
@@ -557,7 +577,7 @@ describe("publicar", () => {
 
   it("a fila que recusa desfaz a reserva e apaga as cópias e as artes", async () => {
     const { id } = await comImagens();
-    const r = await processo.publicarNaFila({ id, quando: null, artes: await artesDe(id), contas, drenar, enfileirar: async () => false });
+    const r = await processo.publicarNaFila({ id, quando: null, artes: await artesDe(id), contas, drenar, enfileirar: async () => ({ entrou: false as const }) });
     expect(r.ok ? null : r.recusa.motivo).toBe("fila");
     expect(regras.publicacaoDaArte(await arteDe(id))).toBeNull();
     expect(daFila()).toEqual([]);

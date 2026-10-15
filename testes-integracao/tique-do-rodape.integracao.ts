@@ -64,7 +64,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { bancoDescartavel } from "./harness";
 import { comoNumaRequisicao } from "./semear-requisicao";
 
@@ -209,18 +209,35 @@ beforeEach(async () => {
 /**
  * Semeia um post agendado e ZERA o contador.
  *
- * O `enqueue` publica o tique dele quando a hora cabe no horizonte
- * (`agendarTique`, lib/engine.ts), e esse tique é do CAMINHO DE ENTRADA — não é
- * o do rodapé. Contá-lo junto misturaria dois mecanismos num número só.
+ * `enqueuePublicacao` publica o tique dele quando a hora cabe no horizonte
+ * (`atrasoDoTiqueDaPublicacao`, lib/publicacao.ts), e esse tique é do CAMINHO DE
+ * ENTRADA — não é o do rodapé. Contá-lo junto misturaria dois mecanismos num
+ * número só.
  */
 async function agendarPostDaqui(segundos: number) {
-  const entrou = await engine.enqueuePublicacao(
+  const r = await engine.enqueuePublicacao(
     CONTA,
     { forma: "imagem", caminhos: [`${CONTA}/post-${segundos}s.jpg`] },
-    new Date(Date.now() + segundos * 1000)
+    await daquiPeloBanco(segundos)
   );
-  expect(entrou).toBe(true);
+  expect(r.entrou).toBe(true);
   publicados = [];
+}
+
+/**
+ * Um instante daqui a N segundos PELO RELÓGIO DO BANCO, que é o que compara a
+ * hora gravada (spec `docs/specs/2026-10-15-hora-marcada.md`). Montado pelo
+ * relógio da máquina, o caso dependeria de a máquina estar em dia com o
+ * container — e a hora gravada passou a ser exatamente a que entra aqui.
+ */
+async function daquiPeloBanco(segundos: number): Promise<Date> {
+  const [linha] = (await banco
+    .db()
+    .sql()
+    .query(`select now() + make_interval(secs => $1::float8) as instante`, [segundos])) as {
+    instante: Date;
+  }[];
+  return linha.instante;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,9 +290,11 @@ async function idDoUnicoItem(): Promise<string> {
 }
 
 /** Um instante daqui a N horas, truncado ao minuto — que e o que o
- *  `<input type="datetime-local">` manda. */
-function daquiAHoras(horas: number): number {
-  return Math.floor((Date.now() + horas * 60 * 60 * 1000) / 60000) * 60000;
+ *  `<input type="datetime-local">` manda. A hora de partida e a do banco, pelo
+ *  mesmo motivo de `daquiPeloBanco`. */
+async function daquiAHoras(horas: number): Promise<number> {
+  const agora = (await daquiPeloBanco(0)).getTime();
+  return Math.floor((agora + horas * 60 * 60 * 1000) / 60000) * 60000;
 }
 
 // =============================================================================
@@ -284,8 +303,8 @@ function daquiAHoras(horas: number): number {
 //
 // Ate 09/09/2026 remarcar nao armava tique NENHUM, e o comentario que
 // justificava a ausencia lia errado o codigo que citava: ele dizia que
-// `enqueuePublicacao` passa `agendarTique: false` de proposito. Ela passa
-// `agendarTique: atraso <= HORIZONTE` (lib/engine.ts).
+// `enqueuePublicacao` nao armava tique de proposito. Ela armava sempre que a
+// hora cabia no horizonte (lib/engine.ts).
 //
 // E O CRON DIARIO NAO COBRIA O BURACO. `armarTiquesDoDia` so e honesta para
 // `not_before` escrito ANTES da passagem dela — e remarcar move a hora para
@@ -304,7 +323,7 @@ describe("o tique da hora nova, e o par de controle que o mede", () => {
     await engine.enqueuePublicacao(
       CONTA,
       { forma: "imagem", caminhos: [`${CONTA}/compor-daqui-a-duas-horas.jpg`] },
-      new Date(Date.now() + 2 * 60 * 60 * 1000)
+      await daquiPeloBanco(2 * 60 * 60)
     );
     expect(publicados.length).toBe(1);
 
@@ -316,13 +335,13 @@ describe("o tique da hora nova, e o par de controle que o mede", () => {
     await engine.enqueuePublicacao(
       CONTA,
       { forma: "imagem", caminhos: [`${CONTA}/remarcado-de-um-mes-para-duas-horas.jpg`] },
-      new Date(Date.now() + 30 * UM_DIA_EM_SEGUNDOS * 1000)
+      await daquiPeloBanco(30 * UM_DIA_EM_SEGUNDOS)
     );
     expect(publicados.length).toBe(0);
     const id = await idDoUnicoItem();
     publicados = [];
 
-    const aviso = await avisoDe(acoes.remarcarPublicacao, pedidoDeRemarcar(id, daquiAHoras(2)));
+    const aviso = await avisoDe(acoes.remarcarPublicacao, pedidoDeRemarcar(id, await daquiAHoras(2)));
     expect(aviso.tom).toBe("ok");
     expect(aviso.texto).toContain("Post remarcado");
 
@@ -345,14 +364,14 @@ describe("o tique da hora nova, e o par de controle que o mede", () => {
     await engine.enqueuePublicacao(
       CONTA,
       { forma: "imagem", caminhos: [`${CONTA}/remarcado-para-o-mes-que-vem.jpg`] },
-      new Date(Date.now() + 2 * 60 * 60 * 1000)
+      await daquiPeloBanco(2 * 60 * 60)
     );
     const id = await idDoUnicoItem();
     publicados = [];
 
     const aviso = await avisoDe(
       acoes.remarcarPublicacao,
-      pedidoDeRemarcar(id, daquiAHoras(30 * 24))
+      pedidoDeRemarcar(id, await daquiAHoras(30 * 24))
     );
     expect(aviso.tom).toBe("ok");
     expect(aviso.texto).toContain("Post remarcado");
@@ -367,13 +386,13 @@ describe("o tique da hora nova, e o par de controle que o mede", () => {
     await engine.enqueuePublicacao(
       CONTA,
       { forma: "imagem", caminhos: [`${CONTA}/nao-vai-ser-remarcado.jpg`] },
-      new Date(Date.now() + 2 * 60 * 60 * 1000)
+      await daquiPeloBanco(2 * 60 * 60)
     );
     await banco.db().sql().query(`update queue set kind = 'dm_manual'`);
     const id = await idDoUnicoItem();
     publicados = [];
 
-    const aviso = await avisoDe(acoes.remarcarPublicacao, pedidoDeRemarcar(id, daquiAHoras(2)));
+    const aviso = await avisoDe(acoes.remarcarPublicacao, pedidoDeRemarcar(id, await daquiAHoras(2)));
     expect(aviso.tom).toBe("erro");
     expect(aviso.texto).toContain("Não achei este post agendado nesta conta");
 
@@ -448,7 +467,7 @@ describe("a varredura do cron e o horizonte que ela nunca pode passar", () => {
       // os cinco segundos de folga o levariam a 86405. Uma folga de 30 s abaixo
       // da borda NÃO serve de caso: ela deixa o plantio sobreviver, e isso foi
       // medido antes de este número virar o que é.
-      new Date(Date.now() + UM_DIA_EM_SEGUNDOS * 1000)
+      await daquiPeloBanco(UM_DIA_EM_SEGUNDOS)
     );
     publicados = [];
 
@@ -467,7 +486,7 @@ describe("a varredura do cron e o horizonte que ela nunca pode passar", () => {
     await engine.enqueuePublicacao(
       CONTA,
       { forma: "imagem", caminhos: [`${CONTA}/daqui-a-duas-horas.jpg`] },
-      new Date(Date.now() + 2 * 60 * 60 * 1000)
+      await daquiPeloBanco(2 * 60 * 60)
     );
     publicados = [];
 
@@ -477,5 +496,188 @@ describe("a varredura do cron e o horizonte que ela nunca pode passar", () => {
     const segundos = Number((publicados[0].atraso ?? "").replace(/s$/, ""));
     expect(segundos).toBeGreaterThan(2 * 60 * 60 - 60);
     expect(segundos).toBeLessThanOrEqual(2 * 60 * 60 + 10);
+  });
+});
+
+/** Os segundos que um tique pediu ao QStash falso, lidos do cabeçalho `Upstash-Delay`. */
+function segundosDoTique(i: number): number {
+  return Number((publicados[i].atraso ?? "").replace(/s$/, ""));
+}
+
+/** O `not_before` do único item da fila. O `beforeEach` a esvazia, então há exatamente um. */
+async function notBeforeDoUnicoItem(): Promise<Date> {
+  const linhas = (await banco.db().sql().query(`select not_before from queue`)) as { not_before: Date }[];
+  expect(linhas.length).toBe(1);
+  return linhas[0].not_before;
+}
+
+// =============================================================================
+// A HORA MARCADA (15/10/2026, spec docs/specs/2026-10-15-hora-marcada.md)
+//
+// `enqueuePublicacao` transformava a hora marcada numa DURAÇÃO pelo relógio da
+// aplicação, com `Math.round`, e o banco somava a duração ao relógio dele: as
+// 10:00 foram gravadas como 12:59:59.670Z, e a tela mostrou "09:59" (achado 91,
+// em 3 de 7 agendamentos reais). Agora a hora é gravada como veio, e o banco
+// mede o que falta no mesmo statement que a grava.
+//
+// ESTE ARQUIVO É O LUGAR porque é o único que conta tiques: os outros apagam a
+// QSTASH_TOKEN.
+// =============================================================================
+describe("a hora marcada da publicação", () => {
+  test("a hora gravada é a marcada, ao milissegundo", async () => {
+    // A FRAÇÃO É O CASO. Com 120,67 s, o `Math.round` de antes gravava 121 s
+    // depois do `now()` do insert, e não a hora pedida.
+    const quando = await daquiPeloBanco(120.67);
+    const r = await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/hora-exata.jpg`] },
+      quando
+    );
+    expect(r.entrou).toBe(true);
+    expect((await notBeforeDoUnicoItem()).getTime()).toBe(quando.getTime());
+  });
+
+  test("o relógio da aplicação adiantado não muda a hora gravada", async () => {
+    // TRINTA SEGUNDOS À FRENTE, como uma máquina fora de sincronia. Antes, a
+    // duração era medida contra `Date.now()`, e o post nascia 30 s mais cedo.
+    const quando = await daquiPeloBanco(2 * 60 * 60);
+    const real = Date.now();
+    const relogio = vi.spyOn(Date, "now").mockReturnValue(real + 30_000);
+    try {
+      await engine.enqueuePublicacao(
+        CONTA,
+        { forma: "imagem", caminhos: [`${CONTA}/relogio-adiantado.jpg`] },
+        quando
+      );
+    } finally {
+      relogio.mockRestore();
+    }
+    expect((await notBeforeDoUnicoItem()).getTime()).toBe(quando.getTime());
+  });
+
+  test("o banco diz se o item já vale e quanto falta, e o passado vira agora", async () => {
+    const r = await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/daqui-a-duas-horas.jpg`] },
+      await daquiPeloBanco(2 * 60 * 60)
+    );
+    expect(r).toEqual({ entrou: true, jaVale: false, falta: 2 * 60 * 60 });
+
+    await banco.db().sql().query(`delete from queue`);
+    publicados = [];
+    // TRINTA SEGUNDOS NO PASSADO, como o "depois" no minuto corrente que a
+    // tolerância de `momentoDaPublicacao` deixa passar. Ele vira "agora": o
+    // `not_before` é o `now()` do insert, e não a hora velha.
+    const passado = await daquiPeloBanco(-30);
+    const agora = await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/trinta-segundos-atras.jpg`] },
+      passado
+    );
+    expect(agora).toEqual({ entrou: true, jaVale: true, falta: 0 });
+    expect((await notBeforeDoUnicoItem()).getTime()).toBeGreaterThan(passado.getTime());
+    expect(publicados).toEqual([]);
+  });
+
+  test("na borda de um dia, o tique pedido é o horizonte, e não 86405 s (achado 102)", async () => {
+    await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/borda-de-um-dia.jpg`] },
+      await daquiPeloBanco(UM_DIA_EM_SEGUNDOS)
+    );
+    expect(publicados.length).toBe(1);
+    expect(segundosDoTique(0)).toBe(UM_DIA_EM_SEGUNDOS);
+  });
+
+  test("a menos de 15 s, o tique sai: o post não fica parado (achado 99)", async () => {
+    await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/daqui-a-dez-segundos.jpg`] },
+      await daquiPeloBanco(10)
+    );
+    expect(publicados.length).toBe(1);
+    // DEZ SEGUNDOS MAIS A FOLGA. O `ceil` do banco dá 10 enquanto o insert leva
+    // menos de um segundo; a faixa aceita a rodada lenta, e não aceita o zero.
+    expect(segundosDoTique(0)).toBeGreaterThanOrEqual(14);
+    expect(segundosDoTique(0)).toBeLessThanOrEqual(15);
+  });
+
+  test("um erro no tique depois do insert não desfaz o que entrou (achado 101)", async () => {
+    // A CONFIG FORA DO AR, só neste schema descartável: `getConfig` lança, como
+    // lançaria com o banco caindo entre o insert e o tique. O post já está na
+    // fila, e responder "falhou" levaria o gerador a apagar a mídia dele.
+    await banco.db().sql().query(`alter table config rename to config_fora_do_ar`);
+    try {
+      const r = await engine.enqueuePublicacao(
+        CONTA,
+        { forma: "imagem", caminhos: [`${CONTA}/config-fora-do-ar.jpg`] },
+        await daquiPeloBanco(2 * 60 * 60)
+      );
+      expect(r.entrou).toBe(true);
+    } finally {
+      await banco.db().sql().query(`alter table config_fora_do_ar rename to config`);
+    }
+    await idDoUnicoItem();
+    expect(publicados).toEqual([]);
+  });
+});
+
+// =============================================================================
+// O TETO TAMBÉM NAS MENSAGENS (achado 102, escolha do Eduardo em 15/10).
+//
+// O bloco "Esperar" do editor não tem teto (`app/automacoes/editor/painel.tsx`,
+// só `min={0}`), e o cron diário só arma posts (`armarTiquesDoDia` filtra
+// `kind = 'publicacao'`). Uma espera de dois dias pedia ao QStash 172805 s, um
+// horizonte que ninguém conferiu, e a recusa dele seria engolida. Com o teto, o
+// tique sai em um dia, e o rodapé do dreno leva a mensagem até a hora.
+// =============================================================================
+describe("o tique das mensagens com espera", () => {
+  const PESSOA = "9300000000000102";
+
+  test("a mensagem que espera dois dias pede o tique do horizonte, e não 172805 s", async () => {
+    await banco
+      .db()
+      .sql()
+      .query(
+        `insert into automations
+           (account_id, name, active, triggers, keywords, match_type, steps, ligacoes)
+         values ($1, 'espera de dois dias', true, array['dm'], array['quero-dois-dias'], 'contains',
+                 $2::text::jsonb, $3::text::jsonb)`,
+        [
+          CONTA,
+          // O MOLDE DE `gatilho-entrega.integracao.ts` ("a espera do editor"): uma
+          // mensagem agora, a espera, e a mensagem que ela segura. O id de bloco tem
+          // a forma `b_` e seis ou mais letras e numeros (`FORMA_DO_ID`, lib/steps.ts).
+          JSON.stringify([
+            { id: "b_agora02", tipo: "dm", texto: "Isto sai agora." },
+            { id: "b_doisdia", tipo: "dm", texto: "Isto sai em dois dias." },
+            { id: "b_espera2", tipo: "esperar", minutos: 2 * 24 * 60 },
+          ]),
+          JSON.stringify([
+            { de: "b_agora02", quando: { tipo: "sempre" }, para: "b_espera2" },
+            { de: "b_espera2", quando: { tipo: "sempre" }, para: "b_doisdia" },
+          ]),
+        ]
+      );
+
+    await engine.handleMessagingEvent(CONTA, {
+      sender: { id: PESSOA },
+      message: { mid: "m-dois-dias", text: "quero-dois-dias" },
+    });
+
+    // A SEGUNDA MENSAGEM ESTÁ NA FILA COM OS DOIS DIAS INTEIROS: o teto é do
+    // tique, e não da espera. A primeira sai agora, e não pede tique.
+    const fila = (await banco
+      .db()
+      .sql()
+      .query(
+        `select ceil(extract(epoch from (not_before - now())))::int as falta from queue order by not_before`
+      )) as { falta: number }[];
+    expect(fila.length).toBe(2);
+    expect(fila[0].falta).toBeLessThanOrEqual(0);
+    expect(fila[1].falta).toBeGreaterThan(2 * UM_DIA_EM_SEGUNDOS - 60);
+
+    expect(publicados.length).toBe(1);
+    expect(segundosDoTique(0)).toBe(UM_DIA_EM_SEGUNDOS);
   });
 });

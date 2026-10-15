@@ -112,7 +112,7 @@ export async function publicar(formData: FormData): Promise<void> {
     );
   }
 
-  const entrou = await enqueuePublicacao(
+  const r = await enqueuePublicacao(
     conta.ig_user_id,
     {
       forma,
@@ -124,10 +124,11 @@ export async function publicar(formData: FormData): Promise<void> {
     momento.quando
   );
 
-  if (!entrou) {
-    // `enqueue` DEVOLVE `false` QUANDO A `dedupe_key` JÁ EXISTE, e isso não é
-    // falha: o post está na fila. Dizer "deu erro" faria alguém subir o arquivo
-    // de novo e publicar duas vezes — no perfil público, sem desfazer.
+  if (!r.entrou) {
+    // `enqueuePublicacao` DEVOLVE `entrou: false` QUANDO A `dedupe_key` JÁ
+    // EXISTE, e isso não é falha: o post está na fila. Dizer "deu erro" faria
+    // alguém subir o arquivo de novo e publicar duas vezes — no perfil público,
+    // sem desfazer.
     redirect(
       urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaDaPublicacao("ja_enfileirado") })
     );

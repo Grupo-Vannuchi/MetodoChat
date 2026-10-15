@@ -103,7 +103,7 @@ import {
 // `payloadDaPublicacao` monta o que vai no `jsonb`, e `FormaDePublicacao` é a
 // união das quatro formas — as duas de `lib/publicacao.ts`, que não tem import
 // nenhum e roda também no navegador.
-import { payloadDaPublicacao, type FormaDePublicacao } from "./publicacao";
+import { atrasoDoTiqueDaPublicacao, payloadDaPublicacao, type FormaDePublicacao } from "./publicacao";
 // A DEFINIÇÃO DE "FILA VIVA" TEM UM DONO SÓ, e não é escrita à mão de novo
 // aqui: ver o comentário em `enqueueLote`, onde ela substitui
 // `status in ('pending','guardado')`.
@@ -288,6 +288,14 @@ function findMatch(
 // resposta manual ficava presa quase um minuto. Na Vercel os relógios são
 // sincronizados e a diferença é de milissegundos, e foi por isso que isso nunca
 // apareceu em produção.
+//
+// ISTO É O CONTRATO DAS MENSAGENS, e só delas: "mande daqui a N minutos" é uma
+// duração, e duração não tem hora no relógio de ninguém. A PUBLICAÇÃO NÃO PASSA
+// POR AQUI. A hora marcada é absoluta, e convertê-la em duração trazia de volta
+// o relógio da aplicação que este comentário tirou: as 10:00 foram gravadas
+// como 12:59:59.670Z (achado 91). Ela tem o INSERT dela, em `enqueuePublicacao`,
+// e `tests/hora-marcada-guarda.test.ts` lê este arquivo para as duas regras não
+// se misturarem.
 async function enqueue(item: {
   account_id: string;
   kind: QueueItem["kind"];
@@ -297,19 +305,6 @@ async function enqueue(item: {
   payload: Record<string, unknown>;
   dedupe_key: string;
   delaySeconds?: number;
-  // O TIQUE DO QSTASH É OPCIONAL, E SÓ A PUBLICAÇÃO DESLIGA.
-  //
-  // Todo item de MENSAGEM continua armando o seu, como sempre: o padrão é
-  // ligado, e nenhum chamador antigo mudou de comportamento. A publicação é o
-  // primeiro tipo que se agenda para semanas à frente, e um atraso de 30 dias
-  // entregue ao QStash depende de um horizonte que NÃO foi verificado — se ele
-  // recusar, `scheduleTick` engole o erro (e está certo em engolir) e o post
-  // não sai, calado.
-  //
-  // Quem arma o tique dela é `armarTiquesDoDia` (lib/queue-drain.ts), no cron
-  // diário, quando a hora chega a menos de um dia de distância. Ver
-  // `HORIZONTE_DO_TIQUE_EM_SEGUNDOS` (lib/qstash.ts) para o desenho inteiro.
-  agendarTique?: boolean;
 }): Promise<boolean> {
   const atraso = Math.max(0, Math.round(item.delaySeconds ?? 0));
   const rows = (await sql().query(
@@ -334,9 +329,17 @@ async function enqueue(item: {
   const inserted = rows.length > 0;
 
   // item com atraso: pede pro QStash acordar o app na hora certa
-  if (inserted && atraso > 15 && item.agendarTique !== false) {
+  //
+  // O TETO É O HORIZONTE, aplicado depois da folga (achado 102, escolha do
+  // Eduardo em 15/10). O "Esperar" do editor não tem teto, e o cron diário só
+  // arma posts (`armarTiquesDoDia` filtra `kind = 'publicacao'`): uma espera de
+  // dois dias pedia ao QStash 172805 s, um horizonte que ninguém conferiu, e a
+  // recusa dele seria engolida por `scheduleTick`. Com o teto, o tique acorda o
+  // dreno em um dia, e o rodapé do dreno arma o seguinte, já dentro do
+  // horizonte, até a hora (lib/queue-drain.ts).
+  if (inserted && atraso > 15) {
     const config = await getConfig();
-    await scheduleTick(config.app_url ?? "", atraso + 5);
+    await scheduleTick(config.app_url ?? "", Math.min(atraso + 5, HORIZONTE_DO_TIQUE_EM_SEGUNDOS));
   }
   return inserted;
 }
@@ -2574,6 +2577,26 @@ export async function enqueueLote(
 // `upsertContact`, a janela de 24 h, as variáveis de `{{first_name}}`) deixa de
 // alcançar este item por consequência disso, e não por uma exceção escrita em
 // cada um.
+//
+// =============================================================================
+// A HORA MARCADA É GRAVADA COMO VEIO (spec docs/specs/2026-10-15-hora-marcada.md)
+//
+// Até 15/10/2026 a hora marcada virava uma DURAÇÃO aqui, medida contra
+// `Date.now()` e arredondada, e `enqueue` a somava ao `now()` do banco. A
+// duração era medida por um relógio e somada por outro, e o arredondamento
+// tirava até meio segundo: as 10:00 foram gravadas como 12:59:59.670Z, e a tela
+// mostrou "09:59" (achado 91, em 3 de 7 agendamentos reais, de 10 a 330 ms
+// antes do minuto). O remarcar já gravava a hora absoluta
+// (app/publicar/post/actions.ts), e o dreno obedece a ela.
+//
+// O RESULTADO É MEDIDO PELO BANCO, no mesmo statement que grava: `ja_vale` diz
+// se a hora não está no futuro, e `falta` quantos segundos faltam. Quem
+// enfileirou drena o que já vale (achado 99), e o tique sai pela distância que o
+// banco mediu (`atrasoDoTiqueDaPublicacao`, lib/publicacao.ts).
+export type ResultadoDaPublicacao =
+  | { entrou: false }
+  | { entrou: true; jaVale: boolean; falta: number };
+
 export async function enqueuePublicacao(
   accountId: string,
   pedido: {
@@ -2584,37 +2607,56 @@ export async function enqueuePublicacao(
     nomeDoAudio?: string;
   },
   quando: Date | null
-): Promise<boolean> {
+): Promise<ResultadoDaPublicacao> {
   // SEM ARQUIVO NÃO HÁ POST. `lerPayloadDaPublicacao` recusaria a lista vazia
   // depois, no dreno, e o item viraria um `failed` com motivo escrito — mas
   // gastando uma linha de fila e uma passada para dizer o que dá para dizer
   // aqui, antes de gravar nada.
-  if (!pedido.caminhos.length) return false;
+  if (!pedido.caminhos.length) return { entrou: false };
 
-  // O ATRASO VEM EM SEGUNDOS, e a conta de "agora" quem faz é o BANCO — é o
-  // contrato de `enqueue`, e o comentário dela tem a medição que o justifica
-  // (53,9 segundos de diferença entre os dois relógios NESTA máquina). O que
-  // sai daqui é uma DURAÇÃO, e duração não depende de qual relógio a mediu.
+  // `quando: null` é agora, pelo `now()` do banco. Data no passado também é
+  // agora, e não um erro: quem agendou para as 14h e confirmou às 14h01 quer
+  // publicar. O `coalesce` é escrito mesmo com o `greatest` ignorando NULL, para
+  // ninguém precisar conhecer a armadilha ao ler a linha.
   //
-  // `quando: null` é agora. Data no passado também é agora, e não um atraso
-  // negativo: quem agendou para as 14h e confirmou às 14h01 quer publicar, não
-  // quer um erro.
-  const atraso = quando ? Math.max(0, Math.round((quando.getTime() - Date.now()) / 1000)) : 0;
+  // O QUE O INSERT DE `enqueue` FAZ, ESTE REPETE: o `on conflict` da
+  // `dedupe_key`, o payload cru (o motivo está em `enqueue`), e as colunas de
+  // contato, automação e comentário nulas.
+  const linhas = (await sql().query(
+    `insert into queue (account_id, kind, payload, dedupe_key, not_before)
+     values ($1, 'publicacao', $2, $3, greatest(now(), coalesce($4::timestamptz, now())))
+     on conflict (dedupe_key) do nothing
+     returning id,
+               (not_before <= now()) as ja_vale,
+               greatest(0, ceil(extract(epoch from (not_before - now()))))::int as falta`,
+    [
+      accountId,
+      payloadDaPublicacao(pedido),
+      // A CHAVE LEVA A CONTA, pelo mesmo motivo que a de `enqueueLote` leva:
+      // `dedupe_key` é `unique` na tabela inteira. O resto dela é a FORMA e a
+      // lista INTEIRA de caminhos, em ordem — cada caminho é único por upload, e
+      // a ordem do carrossel é conteúdo. Ver `publicacaoKey` (lib/dedupe.ts), que
+      // tem as duas medições que obrigaram as duas partes.
+      publicacaoKey(accountId, pedido.forma, pedido.caminhos),
+      quando,
+    ]
+  )) as { id: string; ja_vale: boolean; falta: number }[];
+  if (!linhas.length) return { entrou: false };
+  const { ja_vale: jaVale, falta } = linhas[0];
 
-  return enqueue({
-    account_id: accountId,
-    kind: "publicacao",
-    // A CHAVE LEVA A CONTA, pelo mesmo motivo que a de `enqueueLote` leva:
-    // `dedupe_key` é `unique` na tabela inteira. O resto dela é a FORMA e a
-    // lista INTEIRA de caminhos, em ordem — cada caminho é único por upload, e
-    // a ordem do carrossel é conteúdo. Ver `publicacaoKey` (lib/dedupe.ts), que
-    // tem as duas medições que obrigaram as duas partes.
-    dedupe_key: publicacaoKey(accountId, pedido.forma, pedido.caminhos),
-    payload: payloadDaPublicacao(pedido),
-    delaySeconds: atraso,
-    // O TIQUE SÓ SAI DAQUI QUANDO A HORA CABE NO HORIZONTE QUE CONFERIMOS. Ver
-    // `HORIZONTE_DO_TIQUE_EM_SEGUNDOS` (lib/qstash.ts): além de um dia, quem
-    // arma é o cron diário, e não uma promessa do QStash que ninguém verificou.
-    agendarTique: atraso <= HORIZONTE_DO_TIQUE_EM_SEGUNDOS,
-  });
+  // O TIQUE NÃO DERRUBA O QUE JÁ ENTROU (achado 101). Daqui para baixo o post
+  // está na fila: um erro na config ou no QStash que voltasse como falha faria o
+  // /publicar dizer "erro" de um post que vai sair, e o gerador apagar a mídia
+  // dele (lib/bonus/publicar-processo.ts). Sem tique o post ainda sai — pelo
+  // rodapé do dreno, por um webhook ou pelo cron —, só mais tarde.
+  const atrasoDoTique = jaVale ? null : atrasoDoTiqueDaPublicacao(falta, HORIZONTE_DO_TIQUE_EM_SEGUNDOS);
+  if (atrasoDoTique !== null) {
+    try {
+      const config = await getConfig();
+      await scheduleTick(config.app_url ?? "", atrasoDoTique);
+    } catch {
+      // Calado de propósito: o post está na fila, e é isso que a tela diz.
+    }
+  }
+  return { entrou: true, jaVale, falta };
 }

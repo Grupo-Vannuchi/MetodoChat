@@ -277,7 +277,7 @@ export async function publicarNaFila(p: {
 
   let entrou = false;
   try {
-    entrou = await enfileirar(c.conta, { forma, caminhos, legenda: reserva.legenda }, p.quando);
+    entrou = (await enfileirar(c.conta, { forma, caminhos, legenda: reserva.legenda }, p.quando)).entrou;
   } catch {
     entrou = false;
   }
