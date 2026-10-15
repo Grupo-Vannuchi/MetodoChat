@@ -37,6 +37,7 @@ import {
   recusaDaQuantidade,
   moverNaOrdem,
   rotuloDoEnvio,
+  atrasoDoTiqueDaPublicacao,
   atrasoDoTiqueDoRemarcar,
   avisoDoAtrasoNaLista,
   fraseSobreAMidia,
@@ -1931,6 +1932,51 @@ describe("atrasoDoTiqueDoRemarcar", () => {
 
   it("data ilegivel NAO arma, e nao vira NaN entregue ao QStash", () => {
     expect(atrasoDoTiqueDoRemarcar(new Date("nao sou data"), agora, UM_DIA)).toBe(null);
+  });
+});
+
+// =============================================================================
+// O TIQUE DA HORA MARCADA (15/10/2026, spec docs/specs/2026-10-15-hora-marcada.md)
+//
+// A distancia vem do BANCO, medida no mesmo statement que gravou a hora: nenhum
+// relogio da aplicacao entra na conta. E o piso de 15 s do `enqueue` nao vale:
+// o "agora" nascia com atraso zero e era drenado na hora, mas o post marcado
+// para daqui a 10 s ficava sem tique e sem dreno (achado 99).
+// =============================================================================
+describe("atrasoDoTiqueDaPublicacao", () => {
+  // O QUE JA VALE NAO ARMA: quem enfileirou drena na hora, e um tique para "ja"
+  // acordaria uma drenagem depois da que ja levou o post.
+  it("o que ja vale NAO arma: quem drena e quem enfileirou", () => {
+    expect(atrasoDoTiqueDaPublicacao(0, UM_DIA)).toBe(null);
+    expect(atrasoDoTiqueDaPublicacao(-30, UM_DIA)).toBe(null);
+  });
+
+  // O BURACO DO ACHADO 99: de 1 a 15 s o `enqueue` nao armava, e so o "agora"
+  // drenava. O post ficava parado ate a proxima drenagem de outra coisa.
+  it("perto arma, sem o piso de 15 s (achado 99)", () => {
+    expect(atrasoDoTiqueDaPublicacao(1, UM_DIA)).toBe(6);
+    expect(atrasoDoTiqueDaPublicacao(10, UM_DIA)).toBe(15);
+    expect(atrasoDoTiqueDaPublicacao(15, UM_DIA)).toBe(20);
+  });
+
+  it("duas horas a frente arma o tique, com os cinco segundos de folga", () => {
+    expect(atrasoDoTiqueDaPublicacao(7200, UM_DIA)).toBe(7205);
+  });
+
+  // A BORDA EXATA, com o teto aplicado DEPOIS da folga: o `enqueue` entregava
+  // 86405 s aqui, cinco segundos alem do horizonte (achado 102).
+  it("na borda do horizonte o atraso NAO passa de um dia (achado 102)", () => {
+    expect(atrasoDoTiqueDaPublicacao(UM_DIA, UM_DIA)).toBe(UM_DIA);
+  });
+
+  it("alem do horizonte NAO arma: quem arma e o cron diario", () => {
+    expect(atrasoDoTiqueDaPublicacao(UM_DIA + 1, UM_DIA)).toBe(null);
+    expect(atrasoDoTiqueDaPublicacao(30 * UM_DIA, UM_DIA)).toBe(null);
+  });
+
+  it("numero ilegivel NAO arma, e nao vira NaN entregue ao QStash", () => {
+    expect(atrasoDoTiqueDaPublicacao(Number.NaN, UM_DIA)).toBe(null);
+    expect(atrasoDoTiqueDaPublicacao(Number.POSITIVE_INFINITY, UM_DIA)).toBe(null);
   });
 });
 

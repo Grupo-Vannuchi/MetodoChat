@@ -1818,6 +1818,39 @@ export function atrasoDoTiqueDoRemarcar(
 }
 
 /**
+ * O ATRASO, EM SEGUNDOS, DO TIQUE DE UMA PUBLICAÇÃO GRAVADA PELA HORA MARCADA —
+ * ou `null` quando não há tique a armar (spec `docs/specs/2026-10-15-hora-marcada.md`).
+ *
+ * `falta` SÃO OS SEGUNDOS QUE O BANCO MEDIU entre a hora gravada e o `now()`
+ * dele, no mesmo statement que a gravou. Nenhum relógio da aplicação entra na
+ * conta: foi um `Date.now()` convertendo a hora marcada em duração, arredondada,
+ * que gravou as 10:00 como 12:59:59.670Z (achado 91, medido em 3 de 7
+ * agendamentos reais).
+ *
+ *   `<= 0`        não arma: o item já vale, e quem drena é quem enfileirou.
+ *   `> horizonte` não arma: além de um dia, quem arma é o cron diário
+ *                 (`armarTiquesDoDia`, lib/queue-drain.ts).
+ *   o resto       `falta + 5`, com o teto aplicado DEPOIS da folga, pela lição
+ *                 de `armarTiquesDoDia` e do rodapé do dreno: na borda exata,
+ *                 `falta + 5` passaria cinco segundos do horizonte (achado 102).
+ *
+ * O PISO DE 15 s DO `enqueue` NÃO VALE AQUI (achado 99). Ele existe porque a
+ * mensagem com atraso zero sai na drenagem que já está a caminho. A publicação
+ * marcada para daqui a 10 s não tem drenagem a caminho: sem tique, ela ficava
+ * parada até a próxima drenagem de outra coisa — um webhook, ou o cron do dia
+ * seguinte.
+ *
+ * O `horizonteEmSegundos` É PARÂMETRO pelo mesmo motivo de
+ * `atrasoDoTiqueDoRemarcar`: a constante mora em `lib/qstash.ts`, que é
+ * `server-only`, e este arquivo é lido no NAVEGADOR.
+ */
+export function atrasoDoTiqueDaPublicacao(falta: number, horizonteEmSegundos: number): number | null {
+  if (!Number.isFinite(falta) || falta <= 0) return null;
+  if (falta > horizonteEmSegundos) return null;
+  return Math.min(falta + 5, horizonteEmSegundos);
+}
+
+/**
  * A frase de cada desfecho, por ação.
  *
  * A FRASE DE `tarde_demais` TEM DE DIZER QUE O POST SAIU, e não apenas que o
