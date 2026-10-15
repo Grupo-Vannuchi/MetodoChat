@@ -379,6 +379,32 @@ describe("o tique da hora nova, e o par de controle que o mede", () => {
     expect(publicados).toEqual([]);
   });
 
+  // O ERRO DO TIQUE NAO DERRUBA O REMARCAR (achado 101). A hora nova ja esta
+  // gravada quando o tique e pedido: um erro ali que subisse faria a acao
+  // voltar sem o `redirect`, e a tela nao diria que o post foi remarcado.
+  test("um erro no tique nao derruba o remarcar (achado 101)", async () => {
+    await engine.enqueuePublicacao(
+      CONTA,
+      { forma: "imagem", caminhos: [`${CONTA}/remarcado-com-a-config-fora.jpg`] },
+      await daquiPeloBanco(30 * UM_DIA_EM_SEGUNDOS)
+    );
+    const id = await idDoUnicoItem();
+    const alvo = await daquiAHoras(2);
+    publicados = [];
+
+    await banco.db().sql().query(`alter table config rename to config_fora_do_ar`);
+    let aviso: { texto: string | null; tom: string | null };
+    try {
+      aviso = await avisoDe(acoes.remarcarPublicacao, pedidoDeRemarcar(id, alvo));
+    } finally {
+      await banco.db().sql().query(`alter table config_fora_do_ar rename to config`);
+    }
+    expect(aviso.tom).toBe("ok");
+    expect(aviso.texto).toContain("Post remarcado");
+    expect((await notBeforeDoUnicoItem()).getTime()).toBe(alvo);
+    expect(publicados).toEqual([]);
+  });
+
   // E UM REMARCAR RECUSADO NAO ARMA NADA. Sem esta linha, o tique poderia ter
   // sido posto fora do `if (desfecho === "feito")` e ninguem veria: um tique
   // para uma hora que nao foi gravada acorda o app para nada.
