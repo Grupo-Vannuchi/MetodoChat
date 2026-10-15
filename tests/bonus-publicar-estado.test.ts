@@ -191,6 +191,26 @@ describe("as frases do estado", () => {
     }
   });
 
+  // A ESPERA DA COTA DIZ O MOTIVO E A HORA (achado 100, decisão do Eduardo): ela dura uma hora, e
+  // repete até a janela de 24 h virar. O publicando sem espera fica com a frase de sempre.
+  it("o publicando na espera da cota diz o motivo e a hora da nova tentativa", () => {
+    const ate = depois(3_600_000);
+    expect(textoDoEstadoDaPublicacao({ tipo: "publicando", filaId: "f", espera: { motivo: "cota", ate } })).toBe(
+      `Publicando assim que o Instagram liberar: a conta chegou ao limite de posts das últimas 24 horas. Nova tentativa por volta de ${fmtDate(ate)} (horário de Brasília).`
+    );
+    expect(textoDoEstadoDaPublicacao({ tipo: "publicando", filaId: "f" })).toBe(
+      "Publicando. O Instagram leva até um minuto: recarregue a página para ver."
+    );
+  });
+
+  // A TRAVA APONTA O CALENDÁRIO NA ESPERA DA COTA (pedido da auditoria): o post que espera continua
+  // cancelável, e "não muda até o post sair" esconderia a saída que existe.
+  it("a trava na espera da cota aponta o calendário", () => {
+    expect(textoDaTrava({ tipo: "publicando", filaId: "f", espera: { motivo: "cota", ate: AGORA } })).toBe(
+      "Esperando o Instagram liberar: para mudar, cancele no calendário."
+    );
+  });
+
   it("a trava das edições diz por que o carrossel não muda", () => {
     expect(textoDaTrava({ tipo: "agendado", quando: AGORA, filaId: "f" })).toBe("Agendado: para mudar, cancele no calendário.");
     expect(textoDaTrava({ tipo: "publicando", filaId: null })).toBe("Publicando: o carrossel não muda até o post sair.");
@@ -389,6 +409,7 @@ describe("a cor do estado na página", () => {
     expect(tomDoEstadoDaPublicacao({ tipo: "agendado", quando: AGORA, filaId: "f" })).toBe("ok");
     expect(tomDoEstadoDaPublicacao({ tipo: "publicado", em: AGORA, filaId: "f" })).toBe("ok");
     expect(tomDoEstadoDaPublicacao({ tipo: "publicando", filaId: null })).toBe("atencao");
+    expect(tomDoEstadoDaPublicacao({ tipo: "publicando", filaId: "f", espera: { motivo: "cota", ate: AGORA } })).toBe("atencao");
     expect(tomDoEstadoDaPublicacao({ tipo: "cancelado", filaId: "f" })).toBe("atencao");
     expect(tomDoEstadoDaPublicacao({ tipo: "nao_entrou" })).toBe("atencao");
     expect(tomDoEstadoDaPublicacao({ tipo: "falhou", motivo: null, filaId: "f" })).toBe("erro");
