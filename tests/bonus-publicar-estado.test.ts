@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { fmtDate } from "@/lib/format";
 import {
   ESPERA_DA_RESERVA_MS,
+  MOTIVO_DA_COTA,
   artesParaPublicar,
   estadoDaPublicacao,
   faltasParaPublicar,
@@ -66,6 +69,34 @@ describe("o estado da publicação, lido da fila", () => {
     });
   });
 
+  // A NOVA TENTATIVA NÃO É AGENDADO (achado 100, spec 2026-10-15-publicando-na-retentativa). O dreno
+  // empurra o not_before para a frente e grava o motivo no error, e só a nova tentativa grava error numa
+  // publicação pendente. Antes, o "Publicar agora" que esperava a Meta aparecia como "Agendado para".
+  it("pendente com o motivo de uma tentativa, e a hora no futuro, é publicando", () => {
+    for (const error of ["a Meta ainda esta processando a midia", "fetch failed", "a Meta respondeu 500"]) {
+      expect(estadoDaPublicacao(reserva(), linha({ not_before: depois(60_000), error }), AGORA)).toEqual({
+        tipo: "publicando",
+        filaId: "fila-1",
+      });
+    }
+  });
+
+  // A COTA ESPERA UMA HORA, e por isso diz o motivo e a hora da nova tentativa (decisão do Eduardo).
+  it("pendente esperando a cota da conta é publicando, com a espera e a hora da nova tentativa", () => {
+    const error = `${MOTIVO_DA_COTA} (25 de 25 em 24h); o post sai assim que ela virar`;
+    expect(estadoDaPublicacao(reserva(), linha({ not_before: depois(3_600_000), error }), AGORA)).toEqual({
+      tipo: "publicando",
+      filaId: "fila-1",
+      espera: { motivo: "cota", ate: depois(3_600_000) },
+    });
+  });
+
+  // VENCIDA, A COTA NÃO TEM MAIS O QUE ESPERAR: o dreno a pega na próxima passada.
+  it("a cota com a hora vencida é publicando, sem espera", () => {
+    const error = `${MOTIVO_DA_COTA} (25 de 25 em 24h); o post sai assim que ela virar`;
+    expect(estadoDaPublicacao(reserva(), linha({ not_before: AGORA, error }), AGORA)).toEqual({ tipo: "publicando", filaId: "fila-1" });
+  });
+
   it("enviado é publicado, com a hora do envio", () => {
     expect(estadoDaPublicacao(reserva(), linha({ status: "sent", sent_at: antes(60_000) }), AGORA)).toEqual({
       tipo: "publicado",
@@ -104,6 +135,17 @@ describe("o estado da publicação, lido da fila", () => {
     expect(estadoDaPublicacao(reserva({ reservadaEm: antes(86_400_000), enfileiradaEm: antes(86_399_000) }), null, AGORA)).toEqual({
       tipo: "saiu_da_fila",
     });
+  });
+});
+
+// O ACOPLAMENTO AO TEXTO DO DRENO (spec 2026-10-15-publicando-na-retentativa, "A guarda do
+// acoplamento"): o gerador reconhece a espera da cota pelo começo do error que o dreno grava. Se a frase
+// mudar lá, este caso cai no verify, e não na tela de quem espera.
+describe("o motivo da cota, como o dreno grava", () => {
+  it("o error da cota em lib/queue-drain.ts começa por MOTIVO_DA_COTA", () => {
+    const raiz = fileURLToPath(new URL("..", import.meta.url));
+    const dreno = readFileSync(`${raiz}/lib/queue-drain.ts`, "utf8");
+    expect(dreno).toContain("error: `" + MOTIVO_DA_COTA + " (");
   });
 });
 
@@ -147,6 +189,26 @@ describe("as frases do estado", () => {
     ] as EstadoDaPublicacao[]) {
       expect(textoDoEstadoDaPublicacao(e)).toMatch(/\.$/);
     }
+  });
+
+  // A ESPERA DA COTA DIZ O MOTIVO E A HORA (achado 100, decisão do Eduardo): ela dura uma hora, e
+  // repete até a janela de 24 h virar. O publicando sem espera fica com a frase de sempre.
+  it("o publicando na espera da cota diz o motivo e a hora da nova tentativa", () => {
+    const ate = depois(3_600_000);
+    expect(textoDoEstadoDaPublicacao({ tipo: "publicando", filaId: "f", espera: { motivo: "cota", ate } })).toBe(
+      `Publicando assim que o Instagram liberar: a conta chegou ao limite de posts das últimas 24 horas. Nova tentativa por volta de ${fmtDate(ate)} (horário de Brasília).`
+    );
+    expect(textoDoEstadoDaPublicacao({ tipo: "publicando", filaId: "f" })).toBe(
+      "Publicando. O Instagram leva até um minuto: recarregue a página para ver."
+    );
+  });
+
+  // A TRAVA APONTA O CALENDÁRIO NA ESPERA DA COTA (pedido da auditoria): o post que espera continua
+  // cancelável, e "não muda até o post sair" esconderia a saída que existe.
+  it("a trava na espera da cota aponta o calendário", () => {
+    expect(textoDaTrava({ tipo: "publicando", filaId: "f", espera: { motivo: "cota", ate: AGORA } })).toBe(
+      "Esperando o Instagram liberar: para mudar, cancele no calendário."
+    );
   });
 
   it("a trava das edições diz por que o carrossel não muda", () => {
@@ -347,6 +409,7 @@ describe("a cor do estado na página", () => {
     expect(tomDoEstadoDaPublicacao({ tipo: "agendado", quando: AGORA, filaId: "f" })).toBe("ok");
     expect(tomDoEstadoDaPublicacao({ tipo: "publicado", em: AGORA, filaId: "f" })).toBe("ok");
     expect(tomDoEstadoDaPublicacao({ tipo: "publicando", filaId: null })).toBe("atencao");
+    expect(tomDoEstadoDaPublicacao({ tipo: "publicando", filaId: "f", espera: { motivo: "cota", ate: AGORA } })).toBe("atencao");
     expect(tomDoEstadoDaPublicacao({ tipo: "cancelado", filaId: "f" })).toBe("atencao");
     expect(tomDoEstadoDaPublicacao({ tipo: "nao_entrou" })).toBe("atencao");
     expect(tomDoEstadoDaPublicacao({ tipo: "falhou", motivo: null, filaId: "f" })).toBe("erro");
