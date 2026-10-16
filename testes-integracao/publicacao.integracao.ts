@@ -394,7 +394,7 @@ async function semearEnviadosNaUltimaHora(conta: string, kind: string, quantas: 
 describe("o motor publica no perfil, e na ordem certa", () => {
   test("o caminho inteiro: cria o container, ve FINISHED, publica, e SO ENTAO apaga o arquivo", async () => {
     const caminho = `${CONTA_A}/um.jpg`;
-    expect(await engine.enqueuePublicacao(CONTA_A, { forma: "imagem", caminhos: [caminho] }, null)).toBe(true);
+    expect((await engine.enqueuePublicacao(CONTA_A, { forma: "imagem", caminhos: [caminho] }, null)).entrou).toBe(true);
 
     await drenar();
 
@@ -808,11 +808,13 @@ describe("o carrossel: os filhos primeiro, o pai depois, e um post so", () => {
 
   test("tres filhos, um pai, um media_publish, e os tres arquivos apagados", async () => {
     expect(
-      await engine.enqueuePublicacao(
-        CONTA_A,
-        { forma: "carrossel", caminhos: TRES, legenda: "a legenda mora no pai" },
-        null
-      )
+      (
+        await engine.enqueuePublicacao(
+          CONTA_A,
+          { forma: "carrossel", caminhos: TRES, legenda: "a legenda mora no pai" },
+          null
+        )
+      ).entrou
     ).toBe(true);
 
     await drenar();
@@ -890,11 +892,13 @@ describe("o carrossel: os filhos primeiro, o pai depois, e um post so", () => {
   test("filho de VIDEO leva media_type VIDEO, e o de imagem no mesmo pai nao leva", async () => {
     const MISTO = [`${CONTA_A}/carrossel-foto.jpg`, `${CONTA_A}/carrossel-clipe.mp4`];
     expect(
-      await engine.enqueuePublicacao(
-        CONTA_A,
-        { forma: "carrossel", caminhos: MISTO, legenda: "foto e clipe" },
-        null
-      )
+      (
+        await engine.enqueuePublicacao(
+          CONTA_A,
+          { forma: "carrossel", caminhos: MISTO, legenda: "foto e clipe" },
+          null
+        )
+      ).entrou
     ).toBe(true);
 
     await drenar();

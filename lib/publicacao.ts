@@ -1397,7 +1397,7 @@ const TOLERANCIA_DO_MINUTO_EM_MS = 60_000;
  * =============================================================================
  * DIA PASSADO NÃO É ADIANTAMENTO
  *
- * `enqueuePublicacao` (lib/engine.ts) trata atraso negativo como zero — ou
+ * `enqueuePublicacao` (lib/engine.ts) grava `greatest(now(), quando)` — ou
  * seja, o post agendado para ontem sairia NA HORA. Quem escolheu a data errada
  * publicaria agora, no perfil público, sem desfazer. Recusar aqui é o que
  * transforma um engano de digitação num aviso, em vez de num post.
@@ -1753,68 +1753,45 @@ export function desfechoDaMudanca(
 }
 
 /**
- * O ATRASO, EM SEGUNDOS, DO TIQUE QUE UM REMARCAR TEM DE ARMAR — ou `null`
- * quando não há tique a armar.
+ * O ATRASO, EM SEGUNDOS, DO TIQUE DE UMA PUBLICAÇÃO GRAVADA PELA HORA MARCADA —
+ * ou `null` quando não há tique a armar (spec `docs/specs/2026-10-15-hora-marcada.md`).
  *
- * =============================================================================
- * O DEFEITO QUE ELA FECHA, medido em 09/09/2026
+ * `falta` SÃO OS SEGUNDOS QUE O BANCO MEDIU entre a hora gravada e o `now()`
+ * dele, no mesmo statement que a gravou. Nenhum relógio da aplicação entra na
+ * conta: foi um `Date.now()` convertendo a hora marcada em duração, arredondada,
+ * que gravou as 10:00 como 12:59:59.670Z (achado 91, medido em 3 de 7
+ * agendamentos reais).
  *
- * Remarcar não armava tique nenhum, e o comentário que justificava a ausência
- * LIA ERRADO o código que citava: ele dizia que `enqueuePublicacao` "passa
- * `agendarTique: false` de propósito". Ela não passa —
- * `lib/engine.ts` passa `agendarTique: atraso <= HORIZONTE_DO_TIQUE_EM_SEGUNDOS`.
- * Ou seja, COMPOR ARMA O TIQUE sempre que a hora cabe em 24 h; só além de um dia
- * é que o cron diário assume.
+ *   `<= 0`        não arma: o item já vale, e quem drena é quem enfileirou.
+ *   `> horizonte` não arma: além de um dia, quem arma é o cron diário
+ *                 (`armarTiquesDoDia`, lib/queue-drain.ts).
+ *   o resto       `falta + 5`, com o teto aplicado DEPOIS da folga, pela lição
+ *                 de `armarTiquesDoDia` e do rodapé do dreno: na borda exata,
+ *                 `falta + 5` passaria cinco segundos do horizonte (achado 102).
  *
- * Medido com um QStash falso, o mesmo post e a mesma distância de 2 h:
- * **compor gera 1 tique, remarcar gerava 0.**
+ * O PISO DE 15 s DO `enqueue` NÃO VALE AQUI (achado 99). Ele existe porque a
+ * mensagem com atraso zero sai na drenagem que já está a caminho. A publicação
+ * marcada para daqui a 10 s não tem drenagem a caminho: sem tique, ela ficava
+ * parada até a próxima drenagem de outra coisa — um webhook, ou o cron do dia
+ * seguinte.
  *
- * E A GARANTIA DO CRON NÃO COBRIA O BURACO. `armarTiquesDoDia`
- * (lib/queue-drain.ts) é honesta enquanto o `not_before` for escrito ANTES da
- * passagem do cron — é isso que faz "todo post que vence em T teve uma passagem
- * nas 24 h anteriores a T". Remarcar quebra a premissa: ele move o `not_before`
- * para dentro de uma janela cuja passagem JÁ ACONTECEU. O cron é diário
- * (`vercel.json`: `0 9 * * *`), então um post remarcado para daqui a duas horas
- * podia sair ~23 h depois, CALADO — depois de a tela ter dito "Ele sai na hora
- * nova".
+ * O COMPOR E O REMARCAR USAM A MESMA FUNÇÃO. Até 09/09/2026 remarcar não
+ * armava tique nenhum: medido com um QStash falso, compor para +2 h gerava 1
+ * tique e remarcar gerava 0. O cron diário não cobria o buraco, porque
+ * `armarTiquesDoDia` só é honesta para `not_before` escrito ANTES da passagem
+ * dela, e remarcar move a hora para dentro de uma janela JÁ VARRIDA: o post
+ * podia sair ~23 h depois, calado. A função daquele conserto
+ * (`atrasoDoTiqueDoRemarcar`) media a distância pelo relógio da aplicação, e
+ * deu lugar a esta.
  *
- * =============================================================================
- * AS TRÊS REGRAS SÃO AS DE `enqueue` (lib/engine.ts), e nenhuma é nova
- *
- *   `<= 15 s`   não arma: o item sai na drenagem que já está a caminho, e um
- *               tique para daqui a nada é uma volta ao app sem serventia. É o
- *               `atraso > 15` de `enqueue`, escrito com o mesmo número.
- *   `> horizonte` não arma: além de um dia, quem arma é o cron diário. Entregar
- *               um mês de atraso ao QStash depende de um horizonte que NUNCA foi
- *               verificado — e se ele recusasse, `scheduleTick` engoliria o erro
- *               (está certo em engolir) e o post não sairia, calado. É o
- *               `agendarTique: atraso <= HORIZONTE` de `enqueuePublicacao`.
- *   `+ 5 s`     de folga: o tique tem de chegar DEPOIS de o item ficar elegível,
- *               e não no instante exato — a seleção do dreno pede
- *               `not_before <= now()`, e um tique adiantado por um milissegundo
- *               é uma drenagem que não acha nada.
- *
- * O TETO É APLICADO DEPOIS DA FOLGA, e essa é a única diferença para o
- * `enqueue` — de propósito, e pela lição já escrita em `armarTiquesDoDia` e no
- * rodapé do dreno: com a hora nova na borda exata do horizonte, `distância + 5`
- * entregaria 86405 s, CINCO SEGUNDOS além do horizonte que este projeto declarou
- * nunca ultrapassar. Os cinco segundos não se perdem — um tique cinco segundos
- * cedo acorda uma drenagem que não acha nada, e a seguinte acha.
- *
- * O `horizonteEmSegundos` É PARÂMETRO porque a constante mora em `lib/qstash.ts`,
- * que é `server-only`, e este arquivo é lido pelo enviador no NAVEGADOR (ver o
- * cabeçalho). Quem passa o número é a ação, que já é servidor.
+ * O `horizonteEmSegundos` É PARÂMETRO porque a constante mora em
+ * `lib/qstash.ts`, que é `server-only`, e este arquivo é lido pelo enviador no
+ * NAVEGADOR (ver o cabeçalho). Quem passa o número é o servidor.
  */
-export function atrasoDoTiqueDoRemarcar(
-  quando: Date,
-  agora: number,
-  horizonteEmSegundos: number
-): number | null {
-  const distancia = Math.round((quando.getTime() - agora) / 1000);
-  if (!Number.isFinite(distancia)) return null;
-  if (distancia <= 15) return null;
-  if (distancia > horizonteEmSegundos) return null;
-  return Math.min(distancia + 5, horizonteEmSegundos);
+export function atrasoDoTiqueDaPublicacao(falta: number, horizonteEmSegundos: number): number | null {
+  if (!Number.isFinite(falta) || falta <= 0) return null;
+  if (falta > horizonteEmSegundos) return null;
+  return Math.min(falta + 5, horizonteEmSegundos);
 }
 
 /**

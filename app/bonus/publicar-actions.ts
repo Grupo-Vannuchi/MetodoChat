@@ -92,6 +92,6 @@ export async function publicarCarrossel(pedido: unknown): Promise<AvisoDaPublica
   });
   const r = await publicarNaFila({ id: p.id, quando: momento.quando, artes, contas: await contasParaArte() });
   return r.ok
-    ? { tom: "ok", texto: textoDaPublicacaoMandada(r.quando !== null), em }
+    ? { tom: "ok", texto: textoDaPublicacaoMandada(!r.jaVale), em }
     : { tom: "erro", texto: textoDaRecusaDaPublicacaoDoCarrossel(r.recusa), em };
 }

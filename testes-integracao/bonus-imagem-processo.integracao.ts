@@ -293,6 +293,8 @@ describe("gerar a imagem", () => {
     expect(await publicar.publicarNaFila({ id, quando: new Date(Date.now() + 86_400_000), artes, contas, drenar: async () => {} })).toEqual({
       ok: true,
       quando: expect.any(Date),
+      // AGENDADO PARA AMANHÃ, ainda não vale pelo banco (spec da hora marcada).
+      jaVale: false,
     });
     const [item] = (await banco.db().sql().query(`select payload from queue`)) as { payload: { caminhos: string[] } }[];
     expect(item.payload.caminhos[1]).toBe(artes[1].caminho);

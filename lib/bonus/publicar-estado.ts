@@ -14,10 +14,17 @@ export type LinhaDaFila = { id: string; status: string; not_before: Date; sent_a
  */
 export const ESPERA_DA_RESERVA_MS = 10 * 60_000;
 
+/**
+ * O COMEÇO DO MOTIVO QUE O DRENO GRAVA QUANDO A CONTA CHEGA AO LIMITE DE POSTS DAS ÚLTIMAS 24 HORAS
+ * (lib/queue-drain.ts, a espera da cota de publicação). O gerador reconhece a espera pelo texto, e
+ * `tests/bonus-publicar-estado.test.ts` lê o dreno para a frase de lá não mudar sem este começo mudar junto.
+ */
+export const MOTIVO_DA_COTA = "a cota de publicacoes da conta acabou";
+
 export type EstadoDaPublicacao =
   | { tipo: "livre" }
   | { tipo: "agendado"; quando: Date; filaId: string }
-  | { tipo: "publicando"; filaId: string | null }
+  | { tipo: "publicando"; filaId: string | null; espera?: { motivo: "cota"; ate: Date } }
   | { tipo: "publicado"; em: Date | null; filaId: string }
   | { tipo: "falhou"; motivo: string | null; filaId: string }
   | { tipo: "cancelado"; filaId: string }
@@ -34,10 +41,22 @@ export function estadoDaPublicacao(
   if (publicacao === "estranha") return { tipo: "desconhecido" };
   if (linha) {
     switch (linha.status) {
-      case "pending":
-        return linha.not_before.getTime() > agora.getTime()
-          ? { tipo: "agendado", quando: linha.not_before, filaId: linha.id }
-          : { tipo: "publicando", filaId: linha.id };
+      case "pending": {
+        // A NOVA TENTATIVA NÃO É AGENDADO (achado 100, spec 2026-10-15-publicando-na-retentativa). O
+        // dreno empurra o `not_before` para a frente quando a Meta pede para esperar (+60 s), quando a
+        // conta chega ao limite de posts (+1 h) e numa falha passageira (+120 s), e grava o motivo no
+        // `error`. Só a nova tentativa grava `error` numa publicação pendente (medido pela auditoria em
+        // 15/10): um post agendado que ainda não foi tentado tem `error` nulo. Antes, o "Publicar agora"
+        // que esperava a Meta aparecia como "Agendado para" a hora seguinte.
+        const noFuturo = linha.not_before.getTime() > agora.getTime();
+        if (noFuturo && linha.error === null) return { tipo: "agendado", quando: linha.not_before, filaId: linha.id };
+        // A COTA ESPERA UMA HORA, repetida até a janela de 24 h virar, e por isso a tela diz o motivo e
+        // a hora da nova tentativa (decisão do Eduardo). As outras esperas saem em 1 ou 2 minutos.
+        if (noFuturo && linha.error?.startsWith(MOTIVO_DA_COTA)) {
+          return { tipo: "publicando", filaId: linha.id, espera: { motivo: "cota", ate: linha.not_before } };
+        }
+        return { tipo: "publicando", filaId: linha.id };
+      }
       case "sending":
         return { tipo: "publicando", filaId: linha.id };
       case "sent":
