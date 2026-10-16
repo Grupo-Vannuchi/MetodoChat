@@ -2618,7 +2618,8 @@ fica coberto pelos testes, e o PR diz isso.
 No fim, o que a prova deixou no banco (a linha da fila do agendamento cancelado, que o apagar mantém
 como histórico) sai ou fica conforme o Eduardo decidir pela caixa; se sair, é por um script lido pela
 auditoria antes de rodar (achado 77). Depois: o corpo do PR, conferido pelo auditor, e o PR com o OK do
-Eduardo. O merge é do Vinícius, e o build do merge diz "Nada a aplicar: as 19 migrações".
+Eduardo. O merge é do Eduardo, no GitHub (o Vinícius saiu da empresa em 15/10), e o build do merge diz "Nada a
+aplicar: as 19 migrações".
 
 ---
 
@@ -2922,6 +2923,40 @@ Esperado: as duas primeiras saídas vazias, e o `app-shell.tsx` com `2 2` (só o
   a hora ao auditor antes de cada gravação). O passo 1 ganha, só de leitura: abrir um carrossel de bônus
   pela lista; ver o menu marcar "Carrosséis"; "Voltar para os carrosséis" leva à lista; "Ver o bônus" leva
   ao bônus dele.
+
+---
+
+### FASE 10.9 — A branch recebe a main de 16/10
+
+> Feita em 16/10, com o OK do Eduardo pela caixa e o método revisto pela auditoria (`metodochat-05`).
+
+A prova da FASE 10.8, passo 6, parou antes de gravar. Enquanto isso, a main andou 17 commits, de `af714d3`
+a `640838a`: a hora marcada (PR #13) e o post em nova tentativa aparecendo como "Publicando" no gerador
+(PR #14). A prova tem de rodar sobre o código que vai para a produção, e por isso a branch recebe a main
+antes do push.
+
+- **Merge, e não rebase.** A branch já está no GitHub: o rebase pediria force push e trocaria os hashes
+  conferidos fase a fase. O commit de merge `c32434e` leva só a junção. O `git merge-tree` previu a árvore
+  `62cbec8e…`, e foi a que saiu. Nenhum arquivo foi tocado pelos dois lados desde `af714d3`.
+- **Só a Etapa 10 sobre a main.** `git diff af714d3 88ba019` e `git diff 640838a c32434e` dão o mesmo
+  `git patch-id --stable`: `9bc491e2…` fora de `docs/` e `78a5de89…` com `docs/`.
+- **O que a main mudou e a Etapa 10 lê.** O post em nova tentativa agora é `publicando`. O `podeApagar` dá a
+  ele o mesmo motivo do agendado, e a lista o põe em "Agendados". A Etapa 10 não chama o
+  `enqueuePublicacao`, que mudou de retorno na hora marcada.
+- **A verificação de novo, na árvore juntada:**
+  - o `verify`: 120 arquivos e 3 310 casos puros (os 119 e 3 301 da Etapa 10, mais 1 arquivo e 9 casos da
+    main), 25 arquivos e 220 casos de tela, "SEM VAZAMENTO em A nem em C" e "MIGRAÇÃO PULADA". O `AGENTS.md`
+    ficou sem diferença;
+  - a integração no container: 46 arquivos, com 529 casos que passaram e 8 que pularam (os 516 da Etapa 10,
+    mais 13 da main);
+  - as 33 mutações do Apêndice A: "33 mutações, 0 ruins", e a árvore limpa depois;
+  - a guarda do diff, agora contra `640838a`, com as mesmas listas da FASE 10.8, passo 4: as duas primeiras
+    saídas vazias, e o `app-shell.tsx` com `2 2`.
+- **Depois:**
+  - o push da branch sem force (`git push origin refs/heads/lista-de-carrosseis:refs/heads/lista-de-carrosseis`),
+    com o OK do Eduardo, e só depois de `git merge-base --is-ancestor 88ba019 HEAD`;
+  - a prova da FASE 10.8, passo 6, desde o passo 1, com uma linha de base nova da auditoria. A de 13/10 está
+    velha.
 
 ---
 
