@@ -13,7 +13,10 @@ plano, uma sonda de laboratório mediu o que o `redirect` da action faz com a te
 isso, o identificador do pedido sai (por recomendação da auditoria) e a action não muda. A revisão do
 plano (`56eb105`) trouxe os achados 115 (o post sem legenda, BLOQUEIA), 116 (a subida dentro da transição) e
 117 (o EXIF que falhava aberto), absorvidos aqui e no plano. O caso de tela do 115 achou ainda um defeito já
-em produção, o fuso vazio, e o Eduardo decidiu pela caixa corrigi-lo nesta etapa.
+em produção, o fuso vazio (achado 118), e o Eduardo decidiu pela caixa corrigi-lo nesta etapa. A segunda
+revisão do plano (`6e032a9`) achou o mesmo fuso vazio no remarcar, medido por uma sonda, e o Eduardo decidiu
+corrigir junto também; e trouxe o 119 (o "Quando" que não travava na subida) e o 120 (a foto deitada no
+navegador que recusa a orientação), absorvidos.
 **Projeto de quem:** do Vinícius Gualberto, que saiu da empresa em 15/10. Por decisão do Eduardo, o
 código dele pode mudar no jeito dele: o porquê e a medição no comentário, a regra como função pura com
 teste, uma mutação por proteção e o commit numa frase. Mexer no `/publicar` pede antes a auditoria do
@@ -67,7 +70,8 @@ Do Eduardo, pela caixa, em 19/10:
 | quando os arquivos sobem | ao clicar em Publicar, e não ao escolher |
 | o reels e o story (depois da revisão) | também sobem no clique: um jeito só para as quatro formas |
 | o achado 113 (depois da revisão) | corrigido nesta etapa |
-| o fuso vazio (achado no plano, já em produção) | corrigido nesta etapa |
+| o fuso vazio (achado 118, no plano, já em produção) | corrigido nesta etapa |
+| o fuso vazio também no remarcar (medido na segunda revisão) | corrigido nesta etapa |
 | a tela e o "por dentro" | aprovados |
 
 ---
@@ -117,10 +121,11 @@ Do Eduardo, pela caixa, em 19/10:
 
 - **O botão Publicar não envia o formulário sozinho** (achados 107 e 108). Ele vira um botão de cliente,
   no molde do gerador (`app/bonus/[id]/carrossel/[cid]/card-publicar.tsx:57-77` e `:129-131`):
-  - trava no primeiro clique, e a trava é ligada antes de qualquer espera. Um segundo clique, ou um
-    Enter num campo de texto (o `nome_do_audio`, `app/publicar/novo/page.tsx:238-243`), não começa outra
-    leva;
-  - o envio nativo do formulário (o Enter) é segurado e cai no mesmo caminho, sob a mesma trava. O
+  - trava no primeiro clique, e a trava é ligada antes de qualquer espera. Um segundo clique, ou um envio
+    nativo do formulário, não começa outra leva;
+  - o envio nativo do formulário é segurado e cai no mesmo caminho, sob a mesma trava. Correção da segunda
+    revisão do plano: hoje o Enter NÃO envia este formulário no navegador, porque não há botão de `submit`
+    e a data e o nome do áudio são campos que bloqueiam o envio implícito. O `onSubmit` fica como defesa. O
     invariante: o `submit` nativo do formulário SEMPRE leva `preventDefault` no próprio `form`, antes do
     ouvinte do React na raiz (o React confere `nativeEvent.defaultPrevented` antes de chamar a action do
     `<form action>`), e nunca chega à action pelo React. A action só é chamada pelo caminho da trava.
@@ -149,8 +154,10 @@ Do Eduardo, pela caixa, em 19/10:
   e publicar o resto; aqui a tela recusa e pede para recomeçar. A hora é conferida de novo logo antes de
   chamar a action, porque a subida pode levar minutos e a tolerância do "agora" é de 60 s
   (`lib/publicacao.ts:1379`, `:1416`).
-- **Durante a subida**, a forma, a proporção, os modos e a lista ficam travados. Fechar ou recarregar a
-  aba pede confirmação (`beforeunload`). Sair pelo menu interrompe a subida, e a janelinha diz "A
+- **Durante a subida**, a forma, a proporção, os modos, a lista, a legenda, o "Quando" e as opções do reels
+  ficam travados (o "Quando" e as opções do reels pelo achado 119: eles vêm prontos da página, e a pessoa
+  trocava "agora" por "outra hora" no meio de um reels, com a tela mostrando um valor e a action recebendo o
+  do clique). Fechar ou recarregar a aba pede confirmação (`beforeunload`). Sair pelo menu interrompe a subida, e a janelinha diz "A
   publicação não foi pedida.". Hoje o laço e a subida sobrevivem a sair da tela (`enviador.tsx:148-191`,
   `:597-622`).
 - **A subida corre fora da transição** (achado 116). Uma transição assíncrona aberta prende as seguintes, e
@@ -209,6 +216,19 @@ publicação, medidos pela auditoria em `260b9dd`:
 As outras saídas `skipped` do dreno (`:966`, `:1135`, `:1143` e `:1247`) são de lote ou de mensagem, e
 não de publicação. A frase decide pelo MOTIVO, e não pelo status, como o `statusBadge` já faz com
 `MOTIVO_CANCELADO_PELO_DONO` (`app/labels.ts:443`).
+
+### O fuso do remarcar (achado 118, na página do post)
+
+O remarcar da página do post mandava o fuso por um campo escondido com `defaultValue` vazio, preenchido
+por um `<Script id="fuso-do-remarcar">`. O `<Script>` do Next com o mesmo id roda UMA VEZ por documento.
+Uma sonda mediu em 19/10, no `next dev` e no `next start`, com o fuso de Manaus forçado no navegador:
+
+- o post aberto por carga inteira manda "240";
+- o segundo post aberto por Link, como do calendário, manda vazio, e a action cai no fuso de Brasília.
+
+O campo passa a ser de cliente e controlado (`app/publicar/campo-do-fuso.tsx`): o servidor o escreve vazio, a
+hidratação põe o fuso do navegador, e um novo desenho não o apaga. Sem JavaScript ele fica vazio, e a action
+cai no fuso do painel, como antes. O `<Script>` sai.
 
 ---
 
@@ -274,7 +294,11 @@ DA TELA DE COMPOR"): "um `if` sobre regra de negócio dentro do JSX está no lug
   `:570`). Correção da revisão do plano: o gerador NÃO passa a opção
   (`app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts` chama `createImageBitmap(arquivo)`), e nada em
   produção prova que todo navegador a aceita. Se ela der erro, a chamada se repete sem ela, para um
-  navegador que a recuse não deixar toda imagem "ilegível".
+  navegador que a recuse não deixar toda imagem "ilegível". **Menos para o JPEG que precisa girar**
+  (achado 120): o navegador que recusa "from-image" é o que não conhece o valor, e sem ele a rotação do EXIF
+  não é garantida; a foto em pé gravada deitada seria medida, cortada e publicada deitada, com a miniatura
+  (que o CSS gira) mostrando certo. O JPEG com orientação diferente de 1 (o 0 incluído) não repete, e fica
+  "ilegível".
 - **A fiação do navegador mora em `app/publicar/navegador.ts`** (desvio declarado: a spec não previa o
   arquivo), entregue ao compositor por propriedade, porque o jsdom não tem `canvas`, `createImageBitmap` nem
   `URL.createObjectURL` e o teste de tela entrega uma falsa. A medida do vídeo tem tempo-limite de 10 s, e
@@ -315,7 +339,7 @@ chama a mesma action, com um `FormData` montado por ele.
 
 - A fila, o dreno e o envio ao Instagram.
 - A rota de assinar e as regras da Meta (`problemaDoArquivo`).
-- O calendário (fora a capa), o cancelar e o remarcar.
+- O calendário (fora a capa), o cancelar e o remarcar (fora o campo do fuso).
 - O gerador de bônus e os carrosséis dele.
 - O banco: nenhuma migração.
 
@@ -332,7 +356,8 @@ chama a mesma action, com um `FormData` montado por ele.
 - **O clique em Publicar demora o tempo do envio**: segundos para uma imagem, minutos para um carrossel
   de 10 ou um reels grande. A janelinha mostra o andamento.
 - **A página do post cancelado diz a verdade sobre o arquivo.**
-- **A legenda e o fuso chegam à action**, e o post agendado fora de Brasília sai na hora marcada.
+- **A legenda e o fuso chegam à action**, e o post agendado ou remarcado fora de Brasília sai na hora
+  marcada.
 
 **Os resíduos, escritos (os órfãos que continuam no bucket):**
 - recarregar ou fechar a aba no meio da subida, mesmo depois do aviso;
@@ -343,6 +368,16 @@ chama a mesma action, com um `FormData` montado por ele.
 **A frase do cancelado pode mentir num caso**: ela diz "O arquivo foi apagado do armazenamento." pelo motivo
 do cancelamento, e o cancelar apaga com `limparOBucket`. Se essa limpeza falhar, o arquivo fica e a frase
 diz que saiu. O resíduo fica escrito, e não medido.
+
+**A action pode sair depois de a tela sair** (lido no Next 16.3.8, e não medido; anotação da segunda
+revisão). Se um clique no menu já deixou uma navegação pendente nos instantes finais da última subida, o
+POST da action espera essa navegação assentar (`app-router-instance.js`), e o compositor desmonta com a leva
+já encerrada: o post entra na fila mesmo assim. A janela é curta, mas "sair pelo menu interrompe" vale para
+a subida, e não para a action já pedida.
+
+**O deslocamento do fuso é o de agora**, e não o da data marcada: num fuso com horário de verão, um
+agendamento que atravessa a troca sairia uma hora fora. No Brasil isso não acontece desde 2019, e a conta
+pela data marcada não tem como ser testada na máquina do ensaio, que está em Brasília.
 
 Trocar a forma antes de clicar deixa de orfanar, porque nada subiu. A varredura de órfãos continua sendo
 recurso novo, como o Vinícius registrou (`lib/bucket.ts` não sabe listar).
@@ -366,9 +401,11 @@ recurso novo, como o Vinícius registrou (`lib/bucket.ts` não sabe listar).
 | pura | `problemaDoPrimeiroSlide`: [imagem recusada, vídeo 9:16, imagem] com 4:5 trava; o vídeo sem medida em primeiro trava; o carrossel só de vídeos não trava; a frase só oferece a proporção quando o vídeo está a 1% de uma delas |
 | pura | a lista (acrescentar até 10, remover, a contagem, a frase), `caixaDaMiniatura`, as frases do clique, `ehVideoNoPost` e `pareceVideo` direto (as extensões, a maiúscula, `?` e `#`, e `.bin`); a borda de 1% do vídeo em primeiro (1080×1340 passa, 1080×1330 trava) |
 | pura | `fraseSobreAMidia`, pelo motivo: o cancelado pelo painel diz que foi apagado; a "conta não conectada" e o que falhou dizem que ficou |
-| tela | o seletor da proporção com 4:5 marcado; escolher não envia; a lista com miniatura, os dois modos, ↑ ↓ e "Remover"; o vermelho; a contagem; as travas; **dois cliques (e o Enter) dão uma leva de assinaturas e uma chamada da action**; a recusa da hora ou da legenda antes de qualquer assinatura; o Enter não chama a action pelo `submit` (0 chamada direta); a ordem da subida; a action só com todos os caminhos; o caminho guardado só depois do 2xx; a trava solta depois da action. Precisa de um `XMLHttpRequest` falso, que ainda não existe na suíte. Depois da revisão do plano: **a action recebe as oito chaves que lê** (forma, caminhos, legenda, quando, data_hora, fuso, compartilhar_no_feed e nome_do_audio), com a legenda digitada e as opções do reels na tela; os dois cliques num só quadro; a hora conferida de novo depois da subida; o clique antes da leitura dos arquivos; o `beforeunload`; sair da tela com a assinatura pendente; o modo e a conta que descartam o caminho guardado; e o navegador de verdade (a opção da orientação recusada, a leitura que falha, o tempo-limite do vídeo e o sinal no pedido da assinatura) |
+| tela | o seletor da proporção com 4:5 marcado; escolher não envia; a lista com miniatura, os dois modos, ↑ ↓ e "Remover"; o vermelho; a contagem; as travas; **dois cliques (e o Enter) dão uma leva de assinaturas e uma chamada da action**; a recusa da hora ou da legenda antes de qualquer assinatura; o Enter não chama a action pelo `submit` (0 chamada direta); a ordem da subida; a action só com todos os caminhos; o caminho guardado só depois do 2xx; a trava solta depois da action. Precisa de um `XMLHttpRequest` falso, que ainda não existe na suíte. Depois da revisão do plano: **a action recebe as oito chaves que lê** (forma, caminhos, legenda, quando, data_hora, fuso, compartilhar_no_feed e nome_do_audio), com a legenda digitada e as opções do reels na tela; os dois cliques num só quadro; a hora conferida de novo depois da subida; o clique antes da leitura dos arquivos; o `beforeunload`; sair da tela com a assinatura pendente; o modo e a conta que descartam o caminho guardado; e o navegador de verdade (a opção da orientação recusada, a leitura que falha, o tempo-limite do vídeo e o sinal no pedido da assinatura). Depois da segunda revisão: o "Quando" e as opções do reels travados durante a subida (119); o JPEG com EXIF 6 que não repete sem a opção (120); o JPEG que iria cru com a orientação 6 e vai pelo `canvas`; e o clique e o envio nativo no mesmo quadro. Os casos falam em "envio nativo", e não em Enter, que não envia este formulário |
+| tela | o campo do fuso do remarcar: com o fuso ao montar, depois de um novo desenho e no segundo formulário da aba (`testes-dom/publicar-campo-do-fuso.dom.tsx`) |
 | guarda | a chamada da action no compositor sem `catch` em volta, só ela dentro da transição, e o formulário lido antes da primeira espera: um teste que lê o arquivo, no jeito das guardas do Vinícius, porque o jsdom não reproduz o `NEXT_REDIRECT` |
 | páginas | a página do post desenha `<video>` para o caminho de vídeo nas quatro formas; o calendário não usa o vídeo como capa, e o post só de vídeo mostra o ▶. A integração de `nao-saiu` não liga o bucket, e a capa ali é nula. **Desvio declarado:** o caso é uma guarda de texto, que casa a expressão inteira com o ramo, e não uma suíte que monta a URL, porque as duas páginas são de servidor e leem o banco |
+| guarda | o remarcar usa o campo do fuso de cliente, e nem o campo escondido nem o `<Script>` (`tests/publicar-remarcar-fuso.test.ts`) |
 | integração | a frase nova do `sem_arquivo` (`testes-integracao/publicar-fala.integracao.ts`) |
 
 Cada proteção principal ganha uma prova de mutação: retirada de propósito, o teste certo cai. A do
@@ -402,8 +439,14 @@ gravação tem o OK do Eduardo e a hora mandada antes, e a auditoria lê a produ
      marcada (o fuso lido no clique), as medidas de cada imagem no bucket (4:5 nas três) e que o JPEG
      subiu igual ao original, byte a byte.
    - A página do post mostra o vídeo como vídeo, e o calendário mostra a capa.
-3. Cancelar na página do post (`app/publicar/post/[id]/page.tsx:279-286`) (grava). O cancelamento tira
-   os arquivos do bucket, e a página passa a dizer que o arquivo foi apagado.
+3. **Remarcar o post da prova** (grava), aberto pelo calendário como o segundo post da aba, para daqui a 8
+   dias. A auditoria confere a hora nova.
+4. Cancelar na página do post (`app/publicar/post/[id]/page.tsx`, o formulário do cancelar) (grava). O
+   cancelamento tira os arquivos do bucket, e a página passa a dizer que o arquivo foi apagado.
+
+**O que a prova não mostra:** o Eduardo está em Brasília, onde o fuso certo e o padrão da action coincidem.
+Os passos 2 e 3 provam que o compor e o remarcar não quebraram; o fuso fica provado pelas sondas e pelos
+casos de tela.
 
 ---
 
