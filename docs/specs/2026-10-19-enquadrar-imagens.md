@@ -6,8 +6,9 @@ Eduardo confirmou pela caixa que é o carrossel do `/publicar`, o compositor ant
 **Estado:** desenho aprovado pelo Eduardo pela caixa em 19/10, em três partes. A auditoria do perigo e a
 revisão da spec (`metodochat-0d`, sobre `268daf3`) trouxeram os achados 107 e 108 (BLOQUEIA), 109 a 112
 (CORRIGIR) e 113 (ANOTAR, já em produção), todos absorvidos nesta versão. Duas decisões novas do Eduardo
-saíram dessa revisão: o reels e o story também passam a enviar no clique, e o 113 é corrigido aqui.
-Aguarda a revisão do diff pela auditoria e a leitura do Eduardo.
+saíram dessa revisão: o reels e o story também passam a enviar no clique, e o 113 é corrigido aqui. A
+revisão do diff (`9f68b1e`) trouxe o achado 114 (a prova não clica com "Publicar agora" marcado) e três
+correções de precisão, absorvidos. Aguarda a liberação da auditoria e a leitura do Eduardo.
 **Projeto de quem:** do Vinícius Gualberto, que saiu da empresa em 15/10. Por decisão do Eduardo, o
 código dele pode mudar no jeito dele: o porquê e a medição no comentário, a regra como função pura com
 teste, uma mutação por proteção e o commit numa frase. Mexer no `/publicar` pede antes a auditoria do
@@ -110,7 +111,10 @@ Do Eduardo, pela caixa, em 19/10:
   - trava no primeiro clique, e a trava é ligada antes de qualquer espera. Um segundo clique, ou um
     Enter num campo de texto (o `nome_do_audio`, `app/publicar/novo/page.tsx:238-243`), não começa outra
     leva;
-  - o envio nativo do formulário (o Enter) é segurado e cai no mesmo caminho, sob a mesma trava.
+  - o envio nativo do formulário (o Enter) é segurado e cai no mesmo caminho, sob a mesma trava. O
+    invariante: o `submit` nativo do formulário SEMPRE leva `preventDefault` no próprio `form`, antes do
+    ouvinte do React na raiz (o React confere `nativeEvent.defaultPrevented` antes de chamar a action do
+    `<form action>`), e nunca chega à action pelo React. A action só é chamada pelo caminho da trava.
 - **Antes de subir qualquer arquivo**, a tela roda as mesmas funções puras que a action roda
   (`recusaDaQuantidade`, `problemaDaLegenda`, e `camposDaDataHora`, `instanteDoAgendamento` e
   `momentoDaPublicacao`, `app/publicar/actions.ts`). A recusa aparece na tela com a frase da action, sem
@@ -134,11 +138,19 @@ Do Eduardo, pela caixa, em 19/10:
 - **Se uma subida falha**, nada vai para a fila, e a lista diz qual falhou. Os que já subiram ficam
   guardados, e um novo clique sobe só os que faltam. Mudar o modo, a proporção ou o arquivo de um slide
   descarta o caminho guardado dele.
-- **Depois do sucesso**, a action leva de volta à tela com o aviso, como hoje, e a tela nasce vazia.
-  Depois de uma recusa da action, a lista e os caminhos já subidos ficam. Para a tela saber a diferença,
-  o clique leva um identificador do pedido, e a action o devolve no endereço do sucesso. A tela esvazia a
-  lista quando o endereço traz o pedido dela. Não se depende de o React recriar ou manter o componente
-  depois do `redirect` (achado 109).
+- **Depois do sucesso**, a action leva de volta à tela com o aviso, como hoje, e a tela nasce vazia. O
+  clique leva um identificador do pedido, e a action o devolve no endereço do sucesso. A tela esvazia a
+  lista quando o endereço traz o pedido dela. Assim o sucesso não depende de o React recriar ou manter o
+  componente depois do `redirect` (achado 109).
+- **Depois de uma recusa da action**, há dois desfechos possíveis, e o plano mede qual acontece, no
+  ensaio ou no preview, antes de o código ficar pronto:
+  - **o componente é mantido:** a lista e os caminhos já subidos ficam, e um novo clique sobe só o que
+    falta;
+  - **o componente é recriado:** a lista some, porque os `File` não sobrevivem, e o que subiu vira órfão
+    (nos resíduos).
+
+  As conferências antes da subida (acima) deixam essa recusa rara: sobram a conta trocada no meio e a
+  corrida do "já enfileirado".
 - **O reels e o story** passam pelo mesmo clique, sem enquadramento: o arquivo vai como hoje, convertido
   ou cru pelas regras de `planoDaConversao`, só que sobe no clique.
 
@@ -153,10 +165,19 @@ Do Eduardo, pela caixa, em 19/10:
 
 ### A frase do post encerrado (achado 113)
 
-`fraseSobreAMidia` passa a dizer o que aconteceu com o arquivo em cada caminho. O cancelado pelo painel
-diz que o arquivo foi apagado, e o que falhou diz que ele continua lá ("Objeto de item falhado não é
-órfão", `lib/queue-drain.ts:301-303`). O plano mede, caminho por caminho, os outros encerramentos do
-dreno antes de escrever a frase deles.
+`fraseSobreAMidia` passa a dizer o que aconteceu com o arquivo em cada caminho. Os encerramentos de uma
+publicação, medidos pela auditoria em `260b9dd`:
+
+| como encerrou | o arquivo | a frase |
+|---|---|---|
+| cancelado pelo painel: `skipped` com `MOTIVO_CANCELADO_PELO_DONO` (`app/publicar/post/actions.ts:159-164`) | apagado (`:199-202`) | o arquivo foi apagado |
+| "conta não conectada": `skipped` pelo dreno (`lib/queue-drain.ts:1087-1091`), sem `limparOBucket` | fica | o arquivo continua no armazenamento |
+| `failed` | fica ("Objeto de item falhado não é órfão", `lib/queue-drain.ts:301-303`) | o arquivo continua no armazenamento |
+| `sent` | apagado depois de publicar (`:609`) | a frase de hoje, sem mudança |
+
+As outras saídas `skipped` do dreno (`:966`, `:1135`, `:1143` e `:1247`) são de lote ou de mensagem, e
+não de publicação. A frase decide pelo MOTIVO, e não pelo status, como o `statusBadge` já faz com
+`MOTIVO_CANCELADO_PELO_DONO` (`app/labels.ts:443`).
 
 ---
 
@@ -266,7 +287,8 @@ endereço do sucesso. Todo o resto continua igual: as recusas, a fila, o dreno e
 - recarregar ou fechar a aba no meio da subida, mesmo depois do aviso;
 - remover um slide, trocar a forma, ou mudar o arquivo, o modo ou a proporção de um slide depois de uma
   tentativa que subiu algo e falhou;
-- a recusa da action depois da subida, se a pessoa abandonar a tela em vez de tentar de novo.
+- a recusa da action depois da subida, se a pessoa abandonar a tela em vez de tentar de novo, ou se o
+  componente for recriado depois do `redirect` (o plano mede qual dos dois desfechos acontece).
 
 Trocar a forma antes de clicar deixa de orfanar, porque nada subiu. A varredura de órfãos continua sendo
 recurso novo, como o Vinícius registrou (`lib/bucket.ts` não sabe listar).
@@ -289,8 +311,8 @@ recurso novo, como o Vinícius registrou (`lib/bucket.ts` não sabe listar).
 | pura | `problemaDaSaida`: o PNG e a foto 0,75 que não ficam vermelhos; a saída estreita que fica |
 | pura | `problemaDoPrimeiroSlide`: [imagem recusada, vídeo 9:16, imagem] com 4:5 trava; o vídeo sem medida em primeiro trava; o carrossel só de vídeos não trava; a frase só oferece a proporção quando o vídeo está a 1% de uma delas |
 | pura | `recorteDoInstagramNoVideo`, a lista (acrescentar até 10, remover, a contagem, a frase), `ehVideoNoPost` e `pareceVideo` direto (as extensões, a maiúscula, `?` e `#`, e `.bin`) |
-| pura | `fraseSobreAMidia`: o cancelado diz que foi apagado, e o que falhou diz que ficou |
-| tela | o seletor da proporção com 4:5 marcado; escolher não envia; a lista com miniatura, os dois modos, ↑ ↓ e "Remover"; o vermelho; a contagem; as travas; **dois cliques (e o Enter) dão uma leva de assinaturas e uma chamada da action**; a recusa da hora ou da legenda antes de qualquer assinatura; a ordem da subida; a action só com todos os caminhos; o caminho guardado só depois do 2xx; a lista que fica depois de uma recusa e some depois do sucesso. Precisa de um `XMLHttpRequest` falso, que ainda não existe na suíte |
+| pura | `fraseSobreAMidia`, pelo motivo: o cancelado pelo painel diz que foi apagado; a "conta não conectada" e o que falhou dizem que ficou |
+| tela | o seletor da proporção com 4:5 marcado; escolher não envia; a lista com miniatura, os dois modos, ↑ ↓ e "Remover"; o vermelho; a contagem; as travas; **dois cliques (e o Enter) dão uma leva de assinaturas e uma chamada da action**; a recusa da hora ou da legenda antes de qualquer assinatura; o Enter não chama a action pelo `submit` (0 chamada direta); a ordem da subida; a action só com todos os caminhos; o caminho guardado só depois do 2xx; a lista que fica depois de uma recusa e some depois do sucesso. Precisa de um `XMLHttpRequest` falso, que ainda não existe na suíte |
 | páginas | a página do post desenha `<video>` para o caminho de vídeo nas quatro formas; o calendário não usa o vídeo como capa. A integração de `nao-saiu` não liga o bucket, e a capa ali é nula: o caso vai numa suíte que monta a URL |
 | integração | a action devolve o pedido no endereço do sucesso, e não nas recusas; a frase nova do `sem_arquivo` |
 
@@ -311,11 +333,13 @@ gravação tem o OK do Eduardo e a hora mandada antes, e a auditoria lê a produ
    - um JPEG já em 4:5 exato, com até 1440 px de largura, que vai sem redesenho;
    - um vídeo curto de iPhone (`.mov`), em quarto, aberto no Chrome do computador e no Safari.
 
-   A lista mostra as miniaturas. Confere-se remover um slide e escolher de novo, e dois cliques rápidos
-   no Publicar.
-2. Agendar para daqui a 7 dias (grava).
-   - A auditoria confere no bucket as medidas de cada imagem (4:5 nas três), que o JPEG subiu igual ao
-     original, byte a byte, e que há um item só na fila.
+   A lista mostra as miniaturas. Confere-se remover um slide e escolher de novo. **Nenhum clique em
+   Publicar com "Publicar agora" marcado**: é o padrão do formulário (`app/publicar/novo/page.tsx:150-153`,
+   "sai em instantes, e não dá para desfazer"), e o clique publicaria de verdade (achado 114).
+2. Marcar **"Publicar em outra hora"**, com a data de daqui a 7 dias, e só então dar **dois cliques
+   rápidos** no Publicar (grava).
+   - A auditoria confere logo depois que há **um item só na fila**, as medidas de cada imagem no bucket
+     (4:5 nas três) e que o JPEG subiu igual ao original, byte a byte.
    - A página do post mostra o vídeo como vídeo, e o calendário mostra a capa.
 3. Cancelar na página do post (`app/publicar/post/[id]/page.tsx:279-286`) (grava). O cancelamento tira
    os arquivos do bucket, e a página passa a dizer que o arquivo foi apagado.
