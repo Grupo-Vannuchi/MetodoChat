@@ -46,7 +46,9 @@ export async function pedirImagem(p: {
   if (!descricao.ok) return { ok: false, recusa: { motivo: "descricao", texto: descricao.mensagem } };
   if (!ambiente.OPENAI_API_KEY?.trim()) return { ok: false, recusa: { motivo: "sem_chave" } };
   const r = await reservarImagem({ carrosselId: c.linha.id, numero: p.numero, descricao: p.descricao.trim() });
-  return r.ok ? { ok: true, reservaId: r.id, hoje: r.hoje } : { ok: false, recusa: { motivo: r.motivo }, hoje: r.hoje };
+  if (r.ok) return { ok: true, reservaId: r.id, hoje: r.hoje };
+  // O carrossel apagado no meio (achado 96) não tem a conta do dia: a transação da reserva abortou.
+  return r.motivo === "nao_pronto" ? { ok: false, recusa: { motivo: "nao_pronto" } } : { ok: false, recusa: { motivo: r.motivo }, hoje: r.hoje };
 }
 
 /**
