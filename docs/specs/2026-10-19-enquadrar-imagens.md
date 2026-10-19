@@ -8,7 +8,9 @@ revisão da spec (`metodochat-0d`, sobre `268daf3`) trouxeram os achados 107 e 1
 (CORRIGIR) e 113 (ANOTAR, já em produção), todos absorvidos nesta versão. Duas decisões novas do Eduardo
 saíram dessa revisão: o reels e o story também passam a enviar no clique, e o 113 é corrigido aqui. A
 revisão do diff (`9f68b1e`) trouxe o achado 114 (a prova não clica com "Publicar agora" marcado) e três
-correções de precisão, absorvidos. Aguarda a liberação da auditoria e a leitura do Eduardo.
+correções de precisão, absorvidos; a spec foi liberada em `057a18c` e lida pelo Eduardo. No começo do
+plano, uma sonda de laboratório mediu o que o `redirect` da action faz com a tela: ela é recriada. Com
+isso, o identificador do pedido sai (por recomendação da auditoria) e a action não muda.
 **Projeto de quem:** do Vinícius Gualberto, que saiu da empresa em 15/10. Por decisão do Eduardo, o
 código dele pode mudar no jeito dele: o porquê e a medição no comentário, a regra como função pura com
 teste, uma mutação por proteção e o commit numa frase. Mexer no `/publicar` pede antes a auditoria do
@@ -138,19 +140,26 @@ Do Eduardo, pela caixa, em 19/10:
 - **Se uma subida falha**, nada vai para a fila, e a lista diz qual falhou. Os que já subiram ficam
   guardados, e um novo clique sobe só os que faltam. Mudar o modo, a proporção ou o arquivo de um slide
   descarta o caminho guardado dele.
-- **Depois do sucesso**, a action leva de volta à tela com o aviso, como hoje, e a tela nasce vazia. O
-  clique leva um identificador do pedido, e a action o devolve no endereço do sucesso. A tela esvazia a
-  lista quando o endereço traz o pedido dela. Assim o sucesso não depende de o React recriar ou manter o
-  componente depois do `redirect` (achado 109).
-- **Depois de uma recusa da action**, há dois desfechos possíveis, e o plano mede qual acontece, no
-  ensaio ou no preview, antes de o código ficar pronto:
-  - **o componente é mantido:** a lista e os caminhos já subidos ficam, e um novo clique sobe só o que
-    falta;
-  - **o componente é recriado:** a lista some, porque os `File` não sobrevivem, e o que subiu vira órfão
-    (nos resíduos).
+- **O que acontece depois da action, MEDIDO** (achado 109). A action termina em `redirect` para a
+  própria tela, com o aviso, como hoje. Uma sonda de laboratório mediu, em 19/10, no Next 16.3.8, no
+  `next dev` e no `next build` + `next start`, o que isso faz com um componente de cliente que chama uma
+  action assim, dentro de `startTransition`, com redirect para a mesma rota e outro parâmetro de busca:
+  - o componente é **recriado**: o estado some, e ele monta de novo;
+  - a espera da action **rejeita** com `NEXT_REDIRECT`, e o `finally` roda;
+  - o `isPending` volta a falso.
 
-  As conferências antes da subida (acima) deixam essa recusa rara: sobram a conta trocada no meio e a
-  corrida do "já enfileirado".
+  A sonda é a raiz da página dela. No `/publicar/novo` o compositor fica dentro de uma página de servidor,
+  e por isso a medição não é "medida no `/publicar`", mas os dois desfechos ficam cobertos abaixo.
+- **Depois do sucesso**, a tela nasce vazia, porque é recriada. Se um Next futuro passar a manter o
+  componente, a lista que ficar guarda os MESMOS caminhos: um novo clique chama a action com a mesma
+  chave de dedupe (`pub:conta:forma:caminhos`, `lib/dedupe.ts:225-226`) e cai em "já enfileirado"
+  (`app/publicar/actions.ts:127-135`), sem post em dobro. A proteção desse caso já existe.
+- **Depois de uma recusa da action**, a lista some, porque os `File` não sobrevivem à recriação, e o que
+  subiu vira órfão (nos resíduos). As conferências antes da subida (acima) deixam essa recusa rara:
+  sobram a conta trocada no meio e a corrida do "já enfileirado".
+- **A chamada da action não tem `catch` que engula o erro.** O `NEXT_REDIRECT` chega como rejeição, e um
+  `catch` que o tratasse como falha poria "o envio falhou" por cima de um sucesso. Só `try`/`finally`, e
+  o `finally` solta a trava.
 - **O reels e o story** passam pelo mesmo clique, sem enquadramento: o arquivo vai como hoje, convertido
   ou cru pelas regras de `planoDaConversao`, só que sobe no clique.
 
@@ -249,8 +258,8 @@ DA TELA DE COMPOR"): "um `if` sobre regra de negócio dentro do JSX está no lug
 
 ### A action `publicar` (`app/publicar/actions.ts`)
 
-Só uma mudança: ela lê o identificador do pedido, se vier e tiver a forma de um UUID, e o devolve no
-endereço do sucesso. Todo o resto continua igual: as recusas, a fila, o dreno e os avisos.
+Não muda. As recusas, a fila, o dreno, os avisos e o `redirect` continuam como estão. O compositor
+chama a mesma action, com um `FormData` montado por ele.
 
 ### As frases do fluxo antigo
 
@@ -287,8 +296,7 @@ endereço do sucesso. Todo o resto continua igual: as recusas, a fila, o dreno e
 - recarregar ou fechar a aba no meio da subida, mesmo depois do aviso;
 - remover um slide, trocar a forma, ou mudar o arquivo, o modo ou a proporção de um slide depois de uma
   tentativa que subiu algo e falhou;
-- a recusa da action depois da subida, se a pessoa abandonar a tela em vez de tentar de novo, ou se o
-  componente for recriado depois do `redirect` (o plano mede qual dos dois desfechos acontece).
+- a recusa da action depois da subida: a tela é recriada pelo `redirect` (medido), e a lista some.
 
 Trocar a forma antes de clicar deixa de orfanar, porque nada subiu. A varredura de órfãos continua sendo
 recurso novo, como o Vinícius registrou (`lib/bucket.ts` não sabe listar).
@@ -312,13 +320,15 @@ recurso novo, como o Vinícius registrou (`lib/bucket.ts` não sabe listar).
 | pura | `problemaDoPrimeiroSlide`: [imagem recusada, vídeo 9:16, imagem] com 4:5 trava; o vídeo sem medida em primeiro trava; o carrossel só de vídeos não trava; a frase só oferece a proporção quando o vídeo está a 1% de uma delas |
 | pura | `recorteDoInstagramNoVideo`, a lista (acrescentar até 10, remover, a contagem, a frase), `ehVideoNoPost` e `pareceVideo` direto (as extensões, a maiúscula, `?` e `#`, e `.bin`) |
 | pura | `fraseSobreAMidia`, pelo motivo: o cancelado pelo painel diz que foi apagado; a "conta não conectada" e o que falhou dizem que ficou |
-| tela | o seletor da proporção com 4:5 marcado; escolher não envia; a lista com miniatura, os dois modos, ↑ ↓ e "Remover"; o vermelho; a contagem; as travas; **dois cliques (e o Enter) dão uma leva de assinaturas e uma chamada da action**; a recusa da hora ou da legenda antes de qualquer assinatura; o Enter não chama a action pelo `submit` (0 chamada direta); a ordem da subida; a action só com todos os caminhos; o caminho guardado só depois do 2xx; a lista que fica depois de uma recusa e some depois do sucesso. Precisa de um `XMLHttpRequest` falso, que ainda não existe na suíte |
+| tela | o seletor da proporção com 4:5 marcado; escolher não envia; a lista com miniatura, os dois modos, ↑ ↓ e "Remover"; o vermelho; a contagem; as travas; **dois cliques (e o Enter) dão uma leva de assinaturas e uma chamada da action**; a recusa da hora ou da legenda antes de qualquer assinatura; o Enter não chama a action pelo `submit` (0 chamada direta); a ordem da subida; a action só com todos os caminhos; o caminho guardado só depois do 2xx; a trava solta depois da action. Precisa de um `XMLHttpRequest` falso, que ainda não existe na suíte |
+| guarda | a chamada da action no compositor sem `catch` em volta: um teste que lê o arquivo, no jeito das guardas do Vinícius, porque o jsdom não reproduz o `NEXT_REDIRECT` |
 | páginas | a página do post desenha `<video>` para o caminho de vídeo nas quatro formas; o calendário não usa o vídeo como capa. A integração de `nao-saiu` não liga o bucket, e a capa ali é nula: o caso vai numa suíte que monta a URL |
-| integração | a action devolve o pedido no endereço do sucesso, e não nas recusas; a frase nova do `sem_arquivo` |
+| integração | a frase nova do `sem_arquivo` (`testes-integracao/publicar-fala.integracao.ts`) |
 
 Cada proteção principal ganha uma prova de mutação: retirada de propósito, o teste certo cai. A do
 arredondamento troca o "para baixo" pelo "ao mais próximo" e tem de derrubar a varredura. A da trava tira
-a referência ligada antes da espera, e o teste dos dois cliques tem de cair.
+a referência ligada antes da espera, e o teste dos dois cliques tem de cair. A do `catch` põe um `catch`
+que engole o erro em volta da chamada da action, e a guarda tem de cair.
 
 ---
 
