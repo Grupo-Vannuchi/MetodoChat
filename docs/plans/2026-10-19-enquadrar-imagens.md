@@ -11,33 +11,36 @@ calendário passam a mostrar o vídeo como vídeo, e a página do post cancelado
 
 **Arquitetura:** as regras são puras e moram em `lib/publicacao.ts`, numa seção nova, "O ENQUADRAMENTO":
 a geometria do corte e do encaixe, o arquivo que vai sem redesenho, o vermelho da lista sobre a saída
-prevista, a trava do primeiro slide, a lista e a capa. O compositor (`app/publicar/enviador.tsx`) passa a
-montar o formulário inteiro: o botão é `type="button"`, trava numa referência antes de qualquer espera, sobe
-os arquivos e só então chama a action, uma vez, com um `FormData` montado por ele. A fiação do navegador
-(medir, desenhar no `canvas`, assinar e subir) vai para `app/publicar/navegador.ts`, que o teste de tela
-troca por uma falsa. A action, a rota de assinar, a fila e o dreno não mudam.
+prevista, a trava do primeiro slide, a lista, a caixa da miniatura, as frases do clique e a capa. O
+compositor (`app/publicar/enviador.tsx`) passa a montar o formulário inteiro: o botão é `type="button"` e
+trava numa referência antes de qualquer espera; o formulário é lido no clique, com a legenda e o fuso; a
+subida corre FORA da transição, com um estado próprio e um `AbortController` por leva; e só então a action
+é chamada, uma vez, dentro da transição, com aquele `FormData`. A fiação do navegador (medir, desenhar no
+`canvas`, assinar e subir) vai para `app/publicar/navegador.ts`, que o teste de tela troca por uma falsa. A
+action, a rota de assinar, a fila e o dreno não mudam.
 
 **Stack:** a do projeto, no Next.js 16.3.8: Vitest (as três suítes), Testing Library no jsdom, Postgres no
 container para a integração.
 
-**Spec:** `docs/specs/2026-10-19-enquadrar-imagens.md` (commits `268daf3`, `9f68b1e`, `057a18c` e
-`c0d47e0`; auditoria do perigo e revisão pela auditoria, com os achados 107 a 114 absorvidos; liberada em
-`c0d47e0`; lida pelo Eduardo em 19/10). Leia antes de começar: este plano não repete o porquê, só como
-construir.
+**Spec:** `docs/specs/2026-10-19-enquadrar-imagens.md` (commits `268daf3`, `9f68b1e`, `057a18c`,
+`c0d47e0` e `0ffc1d8`; auditoria do perigo e revisão pela auditoria, com os achados 107 a 114 absorvidos;
+liberada em `c0d47e0`; lida pelo Eduardo em 19/10; `0ffc1d8` absorve a revisão do plano, 115 a 117, e o
+fuso). Leia antes de começar: este plano não repete o porquê, só como construir.
 
-**Ensaio do plano (19/10):** o código deste plano foi escrito e testado fase a fase numa cópia isolada do
-repositório (`git worktree`, branch local `ensaio-enquadrar`, sem push, saída de `c0d47e0` pelo mesmo
-conteúdo), e todo bloco de código abaixo foi tirado do git dessa cópia por um gerador, sem cópia à mão. Os
-números do ensaio:
-- lint e `tsc` limpos em cada fase; no fim, 123 arquivos e 3 368 casos puros (120 arquivos e 3 310 na base) e
-  26 arquivos e 241 de tela (25 arquivos e 220 na base);
+**Ensaio do plano (19/10, refeito depois da revisão):** o código deste plano foi escrito e testado fase a
+fase numa cópia isolada do repositório (`git worktree`, branch local `ensaio-enquadrar-2`, sem push, saída de
+`c0d47e0` pelo mesmo conteúdo), e todo bloco de código abaixo foi tirado do git dessa cópia por um gerador,
+sem cópia à mão. A primeira versão do plano (`56eb105`) foi revisada pela auditoria, e o ensaio foi refeito do
+zero com a revisão (abaixo). Os números do ensaio:
+- lint e `tsc` limpos em cada fase; no fim, 123 arquivos e 3 385 casos puros (120 arquivos e 3 310 na base) e
+  26 arquivos e 255 de tela (25 arquivos e 220 na base);
 - `next build --webpack` limpo (no ensaio, o `node_modules` é uma junção, que o Turbopack recusa), e o
   `AGENTS.md` intacto;
 - a varredura "SEM VAZAMENTO em A nem em C";
 - integração no container: 46 arquivos, 529 passaram e 8 pularam (igual à base: o que muda nela é só a frase do `sem_arquivo`),
   com o `.env.local` vazio na cópia;
 - cada fase foi vista falhar antes do código e passar depois, com os números no passo dela;
-- as 27 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado;
+- as 55 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado;
 - o plano, aplicado do zero numa cópia limpa, dá os 12 arquivos iguais ao fim do ensaio, byte a byte;
 - a guarda do diff (FASE 6, passo 4) mostrou só os arquivos do mapa abaixo.
 
@@ -49,14 +52,43 @@ em 3 voltou a 0), a espera rejeita com `NEXT_REDIRECT`, o `finally` roda e o `is
 isso, a spec tirou o identificador do pedido (`c0d47e0`), e a chamada da action ficou sem `catch` (Apêndice
 B traz a sonda).
 
+**A revisão da auditoria sobre `56eb105` (19/10), absorvida neste plano:**
+- **115 (BLOQUEIA): o post saía sem legenda.** A legenda ficava `disabled` durante a subida, e o formulário
+  era lido depois dela; campo desabilitado não entra no `FormData`. A auditoria mediu com uma sonda: as
+  chaves recebidas foram `fuso`, `quando`, `data_hora`, `forma` e `caminhos`. Agora o formulário é lido no
+  clique, antes de qualquer espera, e o caso de tela digita tudo o que a action lê e confere as oito chaves.
+- **O mesmo caso achou o FUSO VAZIO, já na produção.** O campo escondido do fuso era escrito por um efeito, e
+  o React o devolvia ao `defaultValue` vazio a cada desenho. Medido em 19/10 com o compositor de produção
+  (`260b9dd`, no jsdom): o campo vale "180" depois de montar e fica vazio na primeira letra da legenda. A
+  action cai então no fuso do painel (`FUSO_DO_PAINEL_EM_MINUTOS`, 180): quem agenda fora de Brasília vê o
+  post sair na hora errada (em Manaus, 1 hora antes). O Eduardo decidiu pela caixa corrigir junto: o fuso é
+  lido no clique, e o campo escondido sai.
+- **116 (CORRIGIR): a subida dentro da transição.** (a) Pela leitura do React embutido no Next (não medido),
+  uma transição assíncrona aberta prende as seguintes, e o `Link` do menu navega por `startTransition`. A
+  subida passa a correr fora, com um estado `enviando` que trava a tela e liga o `beforeunload`; dentro da
+  transição fica só a espera da action, que é o que a sonda mediu. (b) Um `AbortController` por leva, criado
+  antes da primeira espera, com o sinal também no pedido da assinatura e conferido depois de cada espera; o
+  `catch` da subida não escreve depois da saída da tela, para não apagar "A publicação não foi pedida.".
+- **117 (CORRIGIR): o EXIF falhava aberto.** `orientacaoDoJpeg` devolvia 1 ("pode ir cru") também quando não
+  conseguia ler, e a tela só passa 64 KiB. Agora não ler vale 0, que vai pelo `canvas`; o 1 só sai de uma
+  leitura que chegou ao fim. Os bytes de preenchimento 0xFF são pulados, e o `lerOrientacao` tem `catch`.
+- **As anotações que entraram:** a opção `imageOrientation` repetida sem ela no navegador que a recusa (e o
+  comentário corrigido: o gerador não a passa); o tempo-limite de 10 s na medida do vídeo; o desenho de menos
+  de 1 px recusado no "Inteira"; o comentário do arredondamento; as guardas das prévias apertadas, com o ▶;
+  os dois cliques num só `act`; os casos da borda de 1% do vídeo, da etiqueta 0x0112 depois de outras e do
+  APP1 de XMP antes do EXIF; o `chaveDe` com a conta; a lista com `setSlides` funcional; o "Remover" com o
+  nome; a legenda conferida sem os espaços das pontas; o aviso de quem ficou de fora zerado ao remover; a
+  frase própria quando nenhum arquivo escolhido serve; e as frases do clique levadas para `lib`.
+
 O ensaio achou estas coisas, já resolvidas neste plano:
-1. **A miniatura é desenhada pelo próprio navegador, sem `canvas`.** A caixa da linha tem a proporção
-   escolhida e o fundo branco, e a imagem vai com `object-cover` (o corte ao centro) ou `object-contain` (a
-   imagem inteira com bordas): é o mesmo enquadramento que `geometriaDoEnquadramento` manda o `canvas`
-   desenhar na subida. A spec previa refazer as miniaturas no `canvas`, uma de cada vez, com um bitmap vivo
-   por vez: sem `canvas` na tela, não há bitmap a segurar. Pelo mesmo motivo, o vídeo aparece com
-   `object-cover` na caixa, que já é o corte do Instagram, e `recorteDoInstagramNoVideo` sai: ninguém o
-   chamaria.
+1. **A miniatura é desenhada pelo próprio navegador, sem `canvas`** (desvio declarado da spec). A caixa da
+   linha tem a proporção do post e o fundo branco, e a imagem vai com `object-cover` (o corte ao centro) ou
+   `object-contain` (a imagem inteira com bordas): é o mesmo enquadramento que `geometriaDoEnquadramento`
+   manda o `canvas` desenhar na subida. A spec previa refazer as miniaturas no `canvas`, uma de cada vez, com
+   um bitmap vivo por vez: sem `canvas` na tela, não há bitmap a segurar. Pelo mesmo motivo, o vídeo aparece
+   com `object-cover` na caixa, que já é o corte do Instagram, e `recorteDoInstagramNoVideo` sai: ninguém o
+   chamaria. No carrossel só de vídeos, a caixa tem a medida do primeiro vídeo (`caixaDaMiniatura`), porque é
+   por ele que a Meta corta os outros.
 2. **A fiação do navegador mora num arquivo novo, `app/publicar/navegador.ts`**, entregue ao compositor por
    propriedade (`navegador`), com `navegadorDeVerdade` como padrão. O jsdom não tem `canvas`,
    `createImageBitmap` nem `URL.createObjectURL`, e o teste de tela entrega uma falsa, no molde das actions
@@ -67,18 +99,25 @@ O ensaio achou estas coisas, já resolvidas neste plano:
    conta (`pastaDaConta`, de `lib/bucket.ts`, que é de servidor).
 4. **`problemaDaSaida` ganhou `imagem_ilegivel`**: a imagem que o navegador não conseguiu abrir (sem medida)
    não tem como ser enquadrada, e a frase pede exportar em JPEG ou PNG.
-5. **Duas frases novas no clique**, sem regra nova por trás: "Espere a tela terminar de ler os arquivos."
-   (o clique antes de a medida chegar) e "A conta mudou durante o envio. Recarregue a página e monte o post
-   de novo." (a pasta conferida antes da action).
+5. **As frases do clique moram em `lib`, com caso**: "Espere a tela terminar de ler os arquivos." e "A conta
+   mudou durante o envio. Recarregue a página e monte o post de novo." (`textoDaRecusaDaTela`), a do envio
+   que não foi (`textoDoEnvioQueNaoFoi`) e a da quantidade na tela (`textoDaQuantidadeNaTela`), que diz "O
+   arquivo escolhido não serve: o motivo está na lista. Escolha outro." quando há arquivo e nenhum serve, em
+   vez de mandar escolher um arquivo.
 6. **`fraseSobreAMidia` recebe o motivo como parâmetro obrigatório**, para quem chamar não esquecer a
    pergunta.
 7. **A guarda da escala (`tests/escala.test.ts`) recusou `text-[10px]` e `rounded-md`** no selo de vídeo da
    página do post: ele usa `text-[11px]` (o mesmo do calendário) e `rounded-lg`.
-8. **A guarda do compositor normaliza o fim de linha antes de procurar**: na cópia do Windows, com
-   `core.autocrlf`, o arquivo chega em CRLF.
+8. **As guardas normalizam o fim de linha antes de procurar**: na cópia do Windows, com `core.autocrlf`, o
+   arquivo chega em CRLF.
 9. **No ensaio, refazer um commit com `reset`, `cherry-pick` e `stash` reescreveu a cópia em CRLF.** Os
    commits saíram certos (o git normaliza), mas a cópia teve de voltar a LF com `para-lf.mjs`. Na execução,
    não reescreva o histórico: cada fase é um commit novo.
+10. **As prévias são cobertas por uma guarda de texto, e não por uma suíte que monta a URL** (desvio
+    declarado da spec): as duas páginas são de servidor e leem o banco, e a integração de `nao-saiu` não liga
+    o bucket. A guarda casa a expressão inteira, com o ramo, e o ▶ do post só de vídeo.
+11. **No 1,91:1, o "cru" é o JPEG igual à saída do `canvas`, e não o de proporção exata**: a exata quase não
+    existe (só larguras múltiplas de 191), e o 1080×566 vai cru.
 
 ## Restrições globais
 
@@ -95,7 +134,8 @@ O ensaio achou estas coisas, já resolvidas neste plano:
 - **Os arquivos desta etapa são os do mapa abaixo, e mais nenhum.** Nada da action (`app/publicar/actions.ts`),
   da rota de assinar (`app/api/`), da fila e do dreno (`lib/queue-drain.ts`, `lib/engine.ts`), do bucket
   (`lib/bucket.ts`), das migrações, dos `scripts` nem do `package`.
-- **A chamada da action no compositor não tem `catch`** (a medição acima): só `try`/`finally`.
+- **A chamada da action no compositor não tem `catch`** (a medição acima): só `try`/`finally`. **E só ela
+  fica dentro da transição** (achado 116): a subida corre fora.
 - **Sem migração.** O build do merge tem de dizer "Nada a aplicar: as 19 migrações".
 - **Uma rodada de integração de cada vez**, sempre com `DATABASE_URL_TESTES` apontando para o container
   (`127.0.0.1:5434`). Toda rodada tem de imprimir `[rede-global] ALVO: banco de TESTE`. Nunca rode com a
@@ -110,18 +150,18 @@ O ensaio achou estas coisas, já resolvidas neste plano:
 
 | arquivo | responsabilidade | fase |
 |---|---|---|
-| `lib/publicacao.ts` | a seção "O ENQUADRAMENTO" e `pareceVideo` exportada; `fraseSobreAMidia` pelo motivo; a frase do `sem_arquivo` | 1, 2 e 4 |
-| `tests/publicacao-enquadramento.test.ts` (novo) | as regras puras do enquadramento, com a varredura do arredondamento | 1 |
+| `lib/publicacao.ts` | a seção "O ENQUADRAMENTO" (com a orientação EXIF e as frases do clique) e `pareceVideo` exportada; `fraseSobreAMidia` pelo motivo; a frase do `sem_arquivo` | 1, 2 e 4 |
+| `tests/publicacao-enquadramento.test.ts` (novo) | as regras puras do enquadramento, com a varredura do arredondamento e a leitura do EXIF que não falha aberta | 1 |
 | `tests/publicacao.test.ts` | a frase do post encerrado pelo motivo; a frase do `sem_arquivo` | 2 e 4 |
 | `app/publicar/post/[id]/page.tsx` | o motivo na frase da mídia; o vídeo como vídeo na prévia | 2 e 3 |
 | `app/publicar/page.tsx` | a capa do calendário pela regra pura, e o ícone do post só de vídeo | 3 |
 | `tests/publicar-previas.test.ts` (novo) | a guarda das duas prévias | 3 |
 | `testes-integracao/publicar-fala.integracao.ts` | a frase nova do `sem_arquivo` | 4 |
-| `app/publicar/navegador.ts` (novo) | a fiação do navegador: medir, desenhar, assinar e subir, interrompível | 5 |
-| `app/publicar/enviador.tsx` | o compositor: o formulário inteiro, a lista e o envio no clique | 5 |
+| `app/publicar/navegador.ts` (novo) | a fiação do navegador: medir (com tempo-limite no vídeo), ler a orientação, desenhar, assinar e subir, os dois últimos interrompíveis | 5 |
+| `app/publicar/enviador.tsx` | o compositor: o formulário inteiro, a lista, e o envio no clique, com o formulário e o fuso lidos no clique e a subida fora da transição | 5 |
 | `app/publicar/novo/page.tsx` | entrega ao compositor a action, a pasta e as partes de servidor | 5 |
-| `testes-dom/publicar-compositor.dom.tsx` (novo) | o compositor com um navegador falso, e o `subirComProgresso` com um `XMLHttpRequest` falso | 5 |
-| `tests/publicar-compositor-guarda.test.ts` (novo) | a guarda do clique: sem `catch`, a trava antes da espera, o formulário sem `action` | 5 |
+| `testes-dom/publicar-compositor.dom.tsx` (novo) | o compositor com um navegador falso; o navegador de verdade com o `createImageBitmap`, o `fetch` e os relógios falsos; e o `subirComProgresso` com um `XMLHttpRequest` falso | 5 |
+| `tests/publicar-compositor-guarda.test.ts` (novo) | a guarda do clique: sem `catch`, só a action na transição, a trava antes da espera, o formulário lido antes dela e sem `action` | 5 |
 
 ---
 
@@ -135,11 +175,11 @@ O ensaio achou estas coisas, já resolvidas neste plano:
 git ls-remote origin refs/heads/main
 git switch enquadrar-imagens
 git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "sem upstream"
-git log --oneline -6
+git log --oneline -8
 ```
 
-Esperado: a `main` em `260b9dd` (ou depois dele); "sem upstream"; a branch com os quatro commits da spec e
-este plano sobre `260b9dd`.
+Esperado: a `main` em `260b9dd` (ou depois dele); "sem upstream"; a branch com os cinco commits da spec e
+os dois deste plano sobre `260b9dd`.
 
 - [ ] **Passo 2: o `node_modules` próprio** (o Turbopack do `verify` recusa uma junção que aponte para fora
   da cópia)
@@ -172,11 +212,13 @@ Esperado: 120 arquivos e 3 310 casos puros; 25 arquivos e 220 de tela; `[rede-gl
 - Produz, em `lib/publicacao.ts`: `ProporcaoDoPost = "4:5" | "1:1" | "1,91:1"`; `PROPORCOES_DO_POST`
   (`{ id, rotulo, largura, altura }`, a razão como fração inteira); `PROPORCAO_PADRAO = "4:5"`;
   `ModoDoEnquadramento = "cortar" | "inteira"`; `Retangulo`; `geometriaDoEnquadramento({ largura, altura,
-  proporcao, modo })`; `orientacaoDoJpeg(bytes)`; `vaiSemRedesenho({ mime, largura, altura, bytes,
-  proporcao, orientacao })`; `ProblemaDaSaida`, `problemaDaSaida(forma, arq, proporcao, modo, teto)` e
-  `textoDoProblemaDaSaida`; `ProblemaDoPrimeiroSlide`, `problemaDoPrimeiroSlide(itens, proporcao)` e
-  `textoDoProblemaDoPrimeiroSlide`; `acrescentarNaLista(lista, novos, forma)`; `textoDaContagem(validos)`;
-  `ehVideoNoPost(forma, caminho)`; `capaDoPost(forma, caminhos)`; e `pareceVideo` exportada.
+  proporcao, modo })`; `orientacaoDoJpeg(bytes)` (de 1 a 8, ou 0 quando não deu para ler);
+  `vaiSemRedesenho({ mime, largura, altura, bytes, proporcao, orientacao })`; `ProblemaDaSaida`,
+  `problemaDaSaida(forma, arq, proporcao, modo, teto)` e `textoDoProblemaDaSaida`; `ProblemaDoPrimeiroSlide`,
+  `problemaDoPrimeiroSlide(itens, proporcao)` e `textoDoProblemaDoPrimeiroSlide`; `acrescentarNaLista(lista,
+  novos, forma)`; `textoDaContagem(validos)`; `textoDaQuantidadeNaTela(forma, escolhidos, validos)`;
+  `RecusaDaTela` e `textoDaRecusaDaTela`; `textoDoEnvioQueNaoFoi(nome)`; `caixaDaMiniatura(forma, itens,
+  proporcao)`; `ehVideoNoPost(forma, caminho)`; `capaDoPost(forma, caminhos)`; e `pareceVideo` exportada.
 
 - [ ] **Passo 1: os testes**
 
@@ -188,6 +230,7 @@ import {
   PROPORCOES_DO_POST,
   PROPORCAO_PADRAO,
   acrescentarNaLista,
+  caixaDaMiniatura,
   capaDoPost,
   ehVideoNoPost,
   geometriaDoEnquadramento,
@@ -197,6 +240,10 @@ import {
   problemaDoArquivo,
   problemaDoPrimeiroSlide,
   textoDaContagem,
+  textoDaQuantidadeNaTela,
+  textoDaRecusaDaPublicacao,
+  textoDaRecusaDaTela,
+  textoDoEnvioQueNaoFoi,
   textoDoProblema,
   textoDoProblemaDaSaida,
   textoDoProblemaDoPrimeiroSlide,
@@ -324,6 +371,21 @@ describe("geometriaDoEnquadramento", () => {
     }
   });
 
+  // O PISO DE 320 É DO `canvas`, E NÃO DO DESENHO DENTRO DELE: inteira, a
+  // imagem de 1×1600 em 1,91:1 daria um canvas de 1440×754 com um desenho de
+  // 0 px de largura, e subiria um slide todo branco.
+  it("o desenho de menos de 1 pixel é recusa, e o corte dessa imagem não sugere as bordas", () => {
+    for (const modo of MODOS) {
+      expect(geometriaDoEnquadramento({ largura: 1, altura: 1600, proporcao: "1,91:1", modo })).toEqual({
+        ok: false,
+        problema: "estreito_demais",
+        sugereBordas: false,
+      });
+    }
+    // Deitada: 3000×1 inteira em 4:5 daria um desenho de 1440×0.
+    expect(geometriaDoEnquadramento({ largura: 3000, altura: 1, proporcao: "4:5", modo: "inteira" }).ok).toBe(false);
+  });
+
   it("medida que não é número positivo não tem geometria", () => {
     for (const [largura, altura] of [
       [0, 100],
@@ -363,6 +425,7 @@ describe("geometriaDoEnquadramento", () => {
           expect(g.origem.x + g.origem.largura).toBeLessThanOrEqual(largura);
           expect(g.origem.y + g.origem.altura).toBeLessThanOrEqual(altura);
           expect(g.destino.x >= 0 && g.destino.y >= 0).toBe(true);
+          expect(g.destino.largura >= 1 && g.destino.altura >= 1).toBe(true);
           expect(g.destino.x + g.destino.largura).toBeLessThanOrEqual(g.largura);
           expect(g.destino.y + g.destino.altura).toBeLessThanOrEqual(g.altura);
           // O invariante pela razão.
@@ -379,28 +442,36 @@ describe("geometriaDoEnquadramento", () => {
   });
 });
 
-// O EXIF DE UM JPEG MÍNIMO: SOI, um APP1 com a orientação na IFD0, e EOI. A ordem dos bytes do TIFF vem
-// nas duas formas que existem, "II" (Intel) e "MM" (Motorola).
-function jpegComOrientacao(valor: number, ordem: "II" | "MM", antes: number[] = []): Uint8Array {
+// UM SEGMENTO DO JPEG: o marcador, o tamanho (que conta os próprios 2 bytes) e o corpo.
+function segmento(marcador: number, corpo: number[]): number[] {
+  const tamanho = corpo.length + 2;
+  return [0xff, marcador, tamanho >> 8, tamanho & 0xff, ...corpo];
+}
+
+const ascii = (s: string) => Array.from(s, (c) => c.charCodeAt(0));
+
+// O EXIF DE UM JPEG MÍNIMO: SOI, um APP1 com a IFD0, e EOI. A ordem dos bytes do TIFF vem nas duas formas
+// que existem, "II" (Intel) e "MM" (Motorola). `valor` nulo é o EXIF sem a etiqueta 0x0112; `etiquetasAntes`
+// põe outras entradas na IFD0 antes dela, como a 0x010F (o fabricante), que as câmeras gravam primeiro.
+function jpegComOrientacao(
+  valor: number | null,
+  ordem: "II" | "MM",
+  antes: number[] = [],
+  etiquetasAntes: number[] = []
+): Uint8Array {
   const u16 = (n: number) => (ordem === "II" ? [n & 0xff, n >> 8] : [n >> 8, n & 0xff]);
   const u32 = (n: number) =>
     ordem === "II" ? [n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, n >>> 24] : [n >>> 24, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+  const entradas = [...etiquetasAntes.map((t) => [t, 1]), ...(valor === null ? [] : [[0x0112, valor]])];
   const tiff = [
     ...(ordem === "II" ? [0x49, 0x49] : [0x4d, 0x4d]),
     ...u16(42),
     ...u32(8),
-    ...u16(1),
-    ...u16(0x0112),
-    ...u16(3),
-    ...u32(1),
-    ...u16(valor),
-    0,
-    0,
+    ...u16(entradas.length),
+    ...entradas.flatMap(([etiqueta, v]) => [...u16(etiqueta), ...u16(3), ...u32(1), ...u16(v), 0, 0]),
     ...u32(0),
   ];
-  const corpo = [0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff];
-  const tamanho = corpo.length + 2;
-  return new Uint8Array([0xff, 0xd8, ...antes, 0xff, 0xe1, tamanho >> 8, tamanho & 0xff, ...corpo, 0xff, 0xd9]);
+  return new Uint8Array([0xff, 0xd8, ...antes, ...segmento(0xe1, [...ascii("Exif"), 0, 0, ...tiff]), 0xff, 0xd9]);
 }
 
 describe("orientacaoDoJpeg", () => {
@@ -410,15 +481,54 @@ describe("orientacaoDoJpeg", () => {
   });
 
   it("acha o APP1 depois de um APP0 (JFIF)", () => {
-    const app0 = [0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00];
+    const app0 = segmento(0xe0, [...ascii("JFIF"), 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]);
     expect(orientacaoDoJpeg(jpegComOrientacao(6, "MM", app0))).toBe(6);
   });
 
-  it("JPEG sem EXIF, arquivo que não é JPEG e bytes cortados valem 1", () => {
+  it("pula um APP1 de XMP antes do EXIF: só o que começa com Exif\\0\\0 é EXIF", () => {
+    const xmp = segmento(0xe1, [...ascii("http://ns.adobe.com/xap/1.0/"), 0, ...ascii("<x:xmpmeta/>")]);
+    expect(orientacaoDoJpeg(jpegComOrientacao(6, "II", xmp))).toBe(6);
+  });
+
+  it("acha a etiqueta 0x0112 depois de outras na IFD0", () => {
+    expect(orientacaoDoJpeg(jpegComOrientacao(8, "II", [], [0x010f, 0x0110]))).toBe(8);
+    expect(orientacaoDoJpeg(jpegComOrientacao(3, "MM", [], [0x010f]))).toBe(3);
+  });
+
+  it("aceita os bytes de preenchimento 0xFF antes de um marcador, como a norma permite", () => {
+    expect(orientacaoDoJpeg(jpegComOrientacao(6, "II", [0xff, 0xff]))).toBe(6);
+  });
+
+  // O 1 SÓ SAI DE UMA LEITURA QUE CHEGOU AO FIM: "nada a girar" deixa o JPEG ir cru.
+  it("vale 1 o JPEG sem EXIF até o SOS ou o EOI, e o EXIF sem a etiqueta", () => {
     expect(orientacaoDoJpeg(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]))).toBe(1);
-    expect(orientacaoDoJpeg(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toBe(1);
-    expect(orientacaoDoJpeg(jpegComOrientacao(6, "II").slice(0, 20))).toBe(1);
-    expect(orientacaoDoJpeg(new Uint8Array([]))).toBe(1);
+    const app0 = segmento(0xe0, [...ascii("JFIF"), 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]);
+    expect(orientacaoDoJpeg(new Uint8Array([0xff, 0xd8, ...app0, 0xff, 0xda, 0x00, 0x08]))).toBe(1);
+    expect(orientacaoDoJpeg(jpegComOrientacao(null, "II", [], [0x010f]))).toBe(1);
+  });
+
+  // O ACHADO 117: NÃO CONSEGUIR LER É 0, E O 0 VAI PELO `canvas`. Antes isso era 1, e a leitura falhava
+  // aberta: a tela só passa os primeiros 64 KiB, e um APP1 que terminasse depois deles subia cru.
+  it("vale 0 o que não deu para ler: outro formato, vazio, bytes cortados e o APP1 que passa dos 64 KiB", () => {
+    expect(orientacaoDoJpeg(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toBe(0);
+    expect(orientacaoDoJpeg(new Uint8Array([]))).toBe(0);
+    expect(orientacaoDoJpeg(jpegComOrientacao(6, "II").slice(0, 20))).toBe(0);
+    const app0 = segmento(0xe0, [...ascii("JFIF"), 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]);
+    expect(orientacaoDoJpeg(new Uint8Array([0xff, 0xd8, ...app0]))).toBe(0);
+
+    const grande = segmento(0xe2, new Array(65_514).fill(0));
+    const inteiro = jpegComOrientacao(6, "II", grande);
+    expect(2 + grande.length).toBeLessThan(64 * 1024); // o APP1 começa antes dos 64 KiB…
+    expect(orientacaoDoJpeg(inteiro)).toBe(6);
+    expect(orientacaoDoJpeg(inteiro.slice(0, 64 * 1024))).toBe(0); // …e termina depois deles
+  });
+
+  it("vale 0 o segmento malformado: valor fora de 1 a 8, TIFF sem a marca, e marcador sem tamanho", () => {
+    expect(orientacaoDoJpeg(jpegComOrientacao(9, "II"))).toBe(0);
+    expect(orientacaoDoJpeg(jpegComOrientacao(0, "MM"))).toBe(0);
+    const semMarca = new Uint8Array([0xff, 0xd8, ...segmento(0xe1, [...ascii("Exif"), 0, 0, ...ascii("XX"), 42, 0, 8, 0, 0, 0]), 0xff, 0xd9]);
+    expect(orientacaoDoJpeg(semMarca)).toBe(0);
+    expect(orientacaoDoJpeg(new Uint8Array([0xff, 0xd8, 0xff, 0xd0, 0x00, 0x04, 0, 0, 0xff, 0xd9]))).toBe(0);
   });
 });
 
@@ -431,8 +541,19 @@ describe("vaiSemRedesenho: o JPEG que o enquadramento não mudaria vai como veio
     expect(vaiSemRedesenho({ ...base, largura: 1146, altura: 600, proporcao: "1,91:1" })).toBe(true);
   });
 
+  // NO 1,91:1 A PROPORÇÃO EXATA QUASE NÃO EXISTE (só larguras múltiplas de 191): o que vai cru é o
+  // JPEG com a medida que o `canvas` daria, como o 1080×566 (razão 1,908).
+  it("no 1,91:1, o JPEG igual à saída do canvas vai cru", () => {
+    expect(vaiSemRedesenho({ ...base, largura: 1080, altura: 566, proporcao: "1,91:1" })).toBe(true);
+    expect(vaiSemRedesenho({ ...base, largura: 1080, altura: 567, proporcao: "1,91:1" })).toBe(false);
+  });
+
   it.each([3, 6, 8])("a foto girada pelo EXIF (%i) passa pelo canvas", (orientacao) => {
     expect(vaiSemRedesenho({ ...base, orientacao })).toBe(false);
+  });
+
+  it("a orientação que não deu para ler (0) passa pelo canvas", () => {
+    expect(vaiSemRedesenho({ ...base, orientacao: 0 })).toBe(false);
   });
 
   it("PNG e WebP passam pelo canvas", () => {
@@ -538,6 +659,11 @@ describe("problemaDoPrimeiroSlide: a Meta corta todos pela proporção do primei
     expect(problemaDoPrimeiroSlide([video(1086, 1350), img()], "4:5")).toBe(null);
   });
 
+  it("a borda da tolerância: 1080×1340 (0,75% de 4:5) passa, 1080×1330 (1,5%) trava", () => {
+    expect(problemaDoPrimeiroSlide([video(1080, 1340), img()], "4:5")).toBe(null);
+    expect(problemaDoPrimeiroSlide([video(1080, 1330), img()], "4:5")).toEqual({ motivo: "video_fora", proporcaoProxima: null });
+  });
+
   it("o primeiro VÁLIDO decide: a imagem recusada na frente não conta", () => {
     expect(problemaDoPrimeiroSlide([img(false), video(1080, 1920), img()], "4:5")).toEqual({ motivo: "video_fora", proporcaoProxima: null });
   });
@@ -589,6 +715,57 @@ describe("a lista de montagem", () => {
     expect(textoDaContagem(1)).toBe("O post vai sair com 1 slide.");
     expect(textoDaContagem(4)).toBe("O post vai sair com 4 slides.");
   });
+
+  it("a caixa da miniatura é a proporção escolhida", () => {
+    expect(caixaDaMiniatura("imagem", [], "4:5")).toEqual({ largura: 4, altura: 5 });
+    expect(caixaDaMiniatura("carrossel", [{ video: false, largura: 3000, altura: 2000, valido: true }], "1,91:1")).toEqual({
+      largura: 191,
+      altura: 100,
+    });
+    // Com uma imagem válida, o vídeo é cortado pela proporção escolhida, como as imagens.
+    const misto = [
+      { video: true, largura: 1080, altura: 1920, valido: true },
+      { video: false, largura: 1080, altura: 1350, valido: true },
+    ];
+    expect(caixaDaMiniatura("carrossel", misto, "1:1")).toEqual({ largura: 1, altura: 1 });
+  });
+
+  it("no carrossel só de vídeos, a caixa é a do primeiro vídeo válido: é por ele que a Meta corta", () => {
+    const videos = [
+      { video: false, largura: 10, altura: 10, valido: false },
+      { video: true, largura: 1080, altura: 1920, valido: true },
+      { video: true, largura: 1920, altura: 1080, valido: true },
+    ];
+    expect(caixaDaMiniatura("carrossel", videos, "4:5")).toEqual({ largura: 1080, altura: 1920 });
+    // Sem medida do primeiro, fica a escolhida.
+    expect(caixaDaMiniatura("carrossel", [{ video: true, valido: true }, videos[1]], "4:5")).toEqual({ largura: 4, altura: 5 });
+  });
+});
+
+describe("as frases do clique, fora do JSX", () => {
+  it("a quantidade na tela é a da action, e aponta a lista quando há arquivo escolhido e nenhum serve", () => {
+    expect(textoDaQuantidadeNaTela("imagem", 1, 1)).toBe(null);
+    expect(textoDaQuantidadeNaTela("carrossel", 3, 2)).toBe(null);
+    expect(textoDaQuantidadeNaTela("imagem", 0, 0)).toBe(textoDaRecusaDaPublicacao("sem_arquivo"));
+    expect(textoDaQuantidadeNaTela("carrossel", 3, 1)).toBe(textoDaRecusaDaPublicacao("carrossel_curto_demais"));
+    expect(textoDaQuantidadeNaTela("imagem", 1, 0)).toBe("O arquivo escolhido não serve: o motivo está na lista. Escolha outro.");
+    expect(textoDaQuantidadeNaTela("carrossel", 3, 0)).toBe(
+      "Nenhum dos arquivos escolhidos serve: o motivo de cada um está na lista."
+    );
+  });
+
+  it("as recusas que só a tela faz", () => {
+    expect(textoDaRecusaDaTela("lendo_arquivos")).toBe("Espere a tela terminar de ler os arquivos.");
+    expect(textoDaRecusaDaTela("conta_mudou")).toBe(
+      "A conta mudou durante o envio. Recarregue a página e monte o post de novo."
+    );
+  });
+
+  it("a subida que não foi diz qual, e que o próximo clique não sobe de novo o que já subiu", () => {
+    expect(textoDoEnvioQueNaoFoi("foto.jpg (2 de 3)")).toBe(
+      "O envio de foto.jpg (2 de 3) não foi. Confira o motivo na lista de envios e clique em Publicar de novo: o que já subiu não sobe outra vez."
+    );
+  });
 });
 
 describe("o vídeo nas prévias", () => {
@@ -619,7 +796,7 @@ describe("o vídeo nas prévias", () => {
 npx vitest run tests/publicacao-enquadramento.test.ts
 ```
 
-Esperado: os 48 casos caem (48): as funções ainda não existem em `lib/publicacao.ts`.
+Esperado: os 62 casos caem (62): as funções ainda não existem em `lib/publicacao.ts`.
 
 - [ ] **Passo 3: o código**
 
@@ -627,7 +804,7 @@ Em `lib/publicacao.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
 
 ```diff
 diff --git a/lib/publicacao.ts b/lib/publicacao.ts
-index ef4fc78..4591485 100644
+index ef4fc78..8f76057 100644
 --- a/lib/publicacao.ts
 +++ b/lib/publicacao.ts
 @@ -545,7 +545,7 @@ export function decisaoDeAssinatura(corpo: unknown, teto: number): DecisaoDeAssi
@@ -639,7 +816,7 @@ index ef4fc78..4591485 100644
    const semQuery = url.split(/[?#]/)[0].toLowerCase();
    return [".mp4", ".mov", ".m4v", ".webm"].some((ext) => semQuery.endsWith(ext));
  }
-@@ -2505,3 +2505,381 @@ export function mediaIdParaVerNoInstagram(d: {
+@@ -2505,3 +2505,468 @@ export function mediaIdParaVerNoInstagram(d: {
    if (!d.saiu) return null;
    return d.mediaId ?? null;
  }
@@ -706,8 +883,9 @@ index ef4fc78..4591485 100644
 + * arredonda para BAIXO; no 1,91:1 ela tem de ficar em 1,91 ou ABAIXO, então a
 + * altura arredonda para CIMA. Medido pela auditoria em 19/10, de 320 a 1440 de
 + * largura: o 4:5 arredondado ao mais próximo dá 560 saídas fora da faixa, e
-+ * para baixo, 0. A largura sai sempre primeiro, e a altura sempre dela, para o
-+ * sentido nunca inverter.
++ * para baixo, 0. A largura sai sempre primeiro (para baixo, quando vem da
++ * altura da origem), e a altura é sempre recalculada dela, aqui: por isso o
++ * sentido nunca inverte.
 + */
 +function alturaPelaLargura(largura: number, f: { largura: number; altura: number }): number {
 +  const exata = (largura * f.altura) / f.largura;
@@ -763,6 +941,10 @@ index ef4fc78..4591485 100644
 +  const encostaNaLargura = l * altura >= a * largura;
 +  const dw = encostaNaLargura ? largura : Math.min(largura, Math.round((altura * l) / a));
 +  const dh = encostaNaLargura ? Math.min(altura, Math.round((largura * a) / l)) : altura;
++  // O DESENHO DE MENOS DE 1 PIXEL É RECUSA. O piso de 320 vale para o `canvas`,
++  // e não para a imagem dentro dele: um 1×1600 em 1,91:1 dá um desenho de 0 px
++  // de largura, e subiria um slide todo branco.
++  if (dw < 1 || dh < 1) return null;
 +  return {
 +    largura,
 +    altura,
@@ -796,32 +978,46 @@ index ef4fc78..4591485 100644
 +}
 +
 +/**
-+ * A ORIENTAÇÃO EXIF DE UM JPEG, lida dos bytes do começo do arquivo, ou 1.
++ * A ORIENTAÇÃO EXIF DE UM JPEG, lida dos bytes do começo do arquivo: de 1 a 8,
++ * ou 0 quando a leitura não foi até o fim.
 + *
 + * ELA EXISTE PORQUE O JPEG QUE VAI SEM REDESENHO leva a orientação gravada nele,
 + * e o código não mede se a Meta a respeita. A foto de celular em pé é o caso
 + * principal desta etapa, e o celular costuma gravá-la deitada com a orientação
-+ * 6. Quem passa pelo `canvas` sai com a orientação aplicada
-+ * (`createImageBitmap` com `imageOrientation: "from-image"`); quem iria cru com
-+ * orientação diferente de 1 vai pelo `canvas` também (`vaiSemRedesenho`).
++ * 6. Quem passa pelo `canvas` sai com a orientação que o navegador aplica ao
++ * abrir a imagem (`navegador.ts`); quem iria cru com orientação diferente de 1
++ * vai pelo `canvas` também (`vaiSemRedesenho`).
 + *
 + * É SÓ O SEGMENTO APP1 ("Exif\0\0"), a IFD0 e a etiqueta 0x0112, nas duas ordens
-+ * de bytes do TIFF. Qualquer coisa fora disso (outro formato, bytes cortados,
-+ * etiqueta ausente ou fora de 1 a 8) devolve 1, que é "nada a girar".
++ * de bytes do TIFF. O 1 ("nada a girar") só sai de uma leitura que chegou ao
++ * fim: os cabeçalhos acabaram (SOS ou EOI) sem EXIF, ou o EXIF não tem a
++ * etiqueta. O que impede a leitura (outro formato, bytes cortados, segmento
++ * malformado, valor fora de 1 a 8) devolve 0, e o 0 vai pelo `canvas`. Antes
++ * isso devolvia 1, e a leitura FALHAVA ABERTA (achado 117): a tela só passa os
++ * primeiros 64 KiB do arquivo, e um APP1 que terminasse depois deles deixava
++ * subir cru um JPEG girado.
 + */
 +export function orientacaoDoJpeg(b: Uint8Array): number {
-+  if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return 1;
++  if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return 0;
 +  let i = 2;
-+  while (i + 4 <= b.length) {
-+    if (b[i] !== 0xff) return 1;
++  for (;;) {
++    if (i >= b.length || b[i] !== 0xff) return 0;
++    // OS BYTES DE PREENCHIMENTO: a norma do JPEG deixa qualquer marcador vir
++    // depois de quantos 0xFF quiser.
++    while (i + 1 < b.length && b[i + 1] === 0xff) i++;
++    if (i + 1 >= b.length) return 0;
 +    const marcador = b[i + 1];
 +    // EOI ou o começo da imagem (SOS): os cabeçalhos acabaram sem EXIF.
 +    if (marcador === 0xd9 || marcador === 0xda) return 1;
++    // UM MARCADOR SEM TAMANHO no meio dos cabeçalhos (outro SOI, um RST, o TEM)
++    // é arquivo que esta leitura não entende.
++    if (marcador === 0x00 || marcador === 0x01 || (marcador >= 0xd0 && marcador <= 0xd8)) return 0;
++    if (i + 4 > b.length) return 0;
 +    const tamanho = (b[i + 2] << 8) | b[i + 3];
-+    if (tamanho < 2) return 1;
++    if (tamanho < 2) return 0;
 +    const inicio = i + 4;
 +    const fim = i + 2 + tamanho;
-+    if (fim > b.length) return 1;
++    if (fim > b.length) return 0;
 +    const ehExif =
 +      marcador === 0xe1 &&
 +      tamanho >= 8 &&
@@ -834,31 +1030,31 @@ index ef4fc78..4591485 100644
 +    if (ehExif) return orientacaoDoTiff(b, inicio + 6, fim);
 +    i = fim;
 +  }
-+  return 1;
 +}
 +
 +function orientacaoDoTiff(b: Uint8Array, t: number, fim: number): number {
-+  if (t + 8 > fim) return 1;
++  if (t + 8 > fim) return 0;
 +  const intel = b[t] === 0x49 && b[t + 1] === 0x49;
 +  const motorola = b[t] === 0x4d && b[t + 1] === 0x4d;
-+  if (!intel && !motorola) return 1;
++  if (!intel && !motorola) return 0;
 +  const u16 = (p: number) => (intel ? b[p] | (b[p + 1] << 8) : (b[p] << 8) | b[p + 1]);
 +  const u32 = (p: number) =>
 +    (intel
 +      ? b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24)
 +      : (b[p] << 24) | (b[p + 1] << 16) | (b[p + 2] << 8) | b[p + 3]) >>> 0;
-+  if (u16(t + 2) !== 42) return 1;
++  if (u16(t + 2) !== 42) return 0;
 +  const ifd = t + u32(t + 4);
-+  if (ifd + 2 > fim) return 1;
++  if (ifd + 2 > fim) return 0;
 +  const entradas = u16(ifd);
 +  for (let k = 0; k < entradas; k++) {
 +    const e = ifd + 2 + k * 12;
-+    if (e + 12 > fim) return 1;
++    if (e + 12 > fim) return 0;
 +    if (u16(e) === 0x0112) {
 +      const v = u16(e + 8);
-+      return v >= 1 && v <= 8 ? v : 1;
++      return v >= 1 && v <= 8 ? v : 0;
 +    }
 +  }
++  // A IFD0 FOI LIDA INTEIRA, e a etiqueta não está nela: nada a girar.
 +  return 1;
 +}
 +
@@ -868,11 +1064,15 @@ index ef4fc78..4591485 100644
 + * já serve não passa pelo canvas", porque o `canvas` re-comprime e a perda vai
 + * ao perfil público), estendida à proporção.
 + *
-+ * "NÃO MUDARIA NENHUM PIXEL" É EXATO, e não a 1%. O gerador aceita 0,792 a
-+ * 0,808 (`lib/bonus/publicar-regras.ts`) porque lá a assinatura recusa abaixo de
-+ * 0,8 depois; aqui um cru a 0,807 em primeiro faria a Meta cortar os outros em
-+ * cerca de 12 px. E também: até 8 MiB (o teto da Meta para imagem), com medida,
-+ * e com a orientação EXIF 1 (`orientacaoDoJpeg`).
++ * "NÃO MUDARIA NENHUM PIXEL" É IGUAL À SAÍDA DO `canvas`, e não a 1%: o
++ * original já tem a medida que a geometria daria, com o recorte do tamanho dele.
++ * No 4:5 e no 1:1 isso é a proporção exata; no 1,91:1 a exata quase não existe
++ * (só larguras múltiplas de 191), e o que vai cru é a medida arredondada, como o
++ * 1080×566. O gerador aceita 0,792 a 0,808 (`lib/bonus/publicar-regras.ts`)
++ * porque lá a assinatura recusa abaixo de 0,8 depois; aqui um cru a 0,807 em
++ * primeiro faria a Meta cortar os outros em cerca de 12 px. E também: até 8 MiB
++ * (o teto da Meta para imagem), com medida, e com a orientação EXIF 1
++ * (`orientacaoDoJpeg`; o 0, que é "não deu para ler", vai pelo `canvas`).
 + */
 +export function vaiSemRedesenho(p: {
 +  mime: string;
@@ -1008,6 +1208,70 @@ index ef4fc78..4591485 100644
 +}
 +
 +/**
++ * A QUANTIDADE, NA TELA: a `recusaDaQuantidade` da action, sobre os VÁLIDOS,
++ * com uma diferença. Quando há arquivo escolhido e nenhum serve, a frase da
++ * action manda escolher um arquivo, e ele já foi escolhido: a pessoa procuraria
++ * o problema no lugar errado. Aí a frase aponta a lista, onde cada linha
++ * vermelha diz o motivo dela.
++ */
++export function textoDaQuantidadeNaTela(forma: FormaDePublicacao, escolhidos: number, validos: number): string | null {
++  const recusa = recusaDaQuantidade(forma, validos);
++  if (!recusa) return null;
++  if (recusa === "sem_arquivo" && escolhidos > 0) {
++    return escolhidos === 1
++      ? "O arquivo escolhido não serve: o motivo está na lista. Escolha outro."
++      : "Nenhum dos arquivos escolhidos serve: o motivo de cada um está na lista.";
++  }
++  return textoDaRecusaDaPublicacao(recusa);
++}
++
++/**
++ * AS RECUSAS QUE SÓ A TELA FAZ, no clique, antes de chamar a action:
++ *   - "lendo_arquivos": o clique chegou antes de o navegador medir todos os
++ *     arquivos, e sem medida não há enquadramento nem trava do primeiro slide;
++ *   - "conta_mudou": algum caminho subiu fora da pasta da conta desta tela (a
++ *     troca no seletor no meio da subida). A action descartaria esses calada
++ *     (`caminhosDoCampo`) e publicaria o resto.
++ */
++export type RecusaDaTela = "lendo_arquivos" | "conta_mudou";
++
++export function textoDaRecusaDaTela(r: RecusaDaTela): string {
++  switch (r) {
++    case "lendo_arquivos":
++      return "Espere a tela terminar de ler os arquivos.";
++    case "conta_mudou":
++      return "A conta mudou durante o envio. Recarregue a página e monte o post de novo.";
++  }
++}
++
++/** O clique que parou numa subida: qual não foi, e que o próximo clique não sobe de novo o que já subiu. */
++export function textoDoEnvioQueNaoFoi(nome: string): string {
++  return `O envio de ${nome} não foi. Confira o motivo na lista de envios e clique em Publicar de novo: o que já subiu não sobe outra vez.`;
++}
++
++/**
++ * A CAIXA DA MINIATURA, em largura sobre altura: a proporção escolhida, porque
++ * é nela que as imagens saem e é por ela que o Instagram corta os vídeos que
++ * vêm depois de uma imagem. A exceção é o carrossel SÓ DE VÍDEOS: ali não há
++ * imagem enquadrada, e a Meta corta todos pela proporção do primeiro vídeo que
++ * sai (o primeiro válido), e não pela escolhida, que só vale para imagem.
++ */
++export function caixaDaMiniatura(
++  forma: FormaDePublicacao,
++  itens: { video: boolean; largura?: number; altura?: number; valido: boolean }[],
++  proporcao: ProporcaoDoPost
++): { largura: number; altura: number } {
++  const f = fracaoDa(proporcao);
++  const escolhida = { largura: f.largura, altura: f.altura };
++  if (forma !== "carrossel") return escolhida;
++  const validos = itens.filter((i) => i.valido);
++  if (!validos.length || validos.some((i) => !i.video)) return escolhida;
++  const primeiro = validos[0];
++  if (!medidaPositiva(primeiro.largura) || !medidaPositiva(primeiro.altura)) return escolhida;
++  return { largura: primeiro.largura, altura: primeiro.altura };
++}
++
++/**
 + * É VÍDEO NA PRÉVIA? O reels sempre é; as outras formas, pela extensão do
 + * caminho, como o dreno decide `video_url` contra `image_url`
 + * (`parametrosDoContainer`). As prévias da página do post e do calendário
@@ -1031,7 +1295,7 @@ npx eslint lib/publicacao.ts tests/publicacao-enquadramento.test.ts
 npx vitest run tests/publicacao-enquadramento.test.ts tests/publicacao.test.ts
 ```
 
-Esperado: `tsc` e lint limpos; os 2 arquivos passam, com 317 casos (os 48 novos e os 269 de `tests/publicacao.test.ts`).
+Esperado: `tsc` e lint limpos; os 2 arquivos passam, com 331 casos (os 62 novos e os 269 de `tests/publicacao.test.ts`).
 
 - [ ] **Passo 5: varrer e commitar**
 
@@ -1048,9 +1312,11 @@ As regras do enquadramento do /publicar ficam puras, com a varredura do arredond
 O compositor só aceitava ou recusava cada imagem pela faixa da Meta. As regras
 novas dão o retângulo do corte ao centro ou da imagem inteira com bordas na
 proporção escolhida, quando o JPEG vai como veio, o vermelho da lista sobre a
-saída prevista, a trava do vídeo em primeiro e a capa das prévias. O 4:5 fica no
-limite exato da Meta, e uma varredura de 320 a 1440 de largura pega o meio pixel
-arredondado para o lado errado.
+saída prevista, a trava do vídeo em primeiro, a caixa da miniatura, as frases
+do clique e a capa das prévias. O 4:5 fica no limite exato da Meta, e uma
+varredura de 320 a 1440 de largura pega o meio pixel arredondado para o lado
+errado. A orientação do JPEG que não deu para ler vale 0 e vai pelo canvas: só
+a leitura que chegou ao fim deixa o arquivo ir cru.
 MSG
 ```
 
@@ -1140,7 +1406,7 @@ Em `lib/publicacao.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
 
 ```diff
 diff --git a/lib/publicacao.ts b/lib/publicacao.ts
-index 4591485..403537d 100644
+index 8f76057..0c4bb6c 100644
 --- a/lib/publicacao.ts
 +++ b/lib/publicacao.ts
 @@ -2397,13 +2397,25 @@ export const MOTIVO_NAO_REGISTRADO =
@@ -1264,18 +1530,23 @@ import { describe, expect, it } from "vitest";
 // página do post desenhava `<img>` para todo caminho, e o calendário usava o primeiro caminho como capa:
 // o vídeo saía como imagem quebrada, nas quatro formas. A decisão (é vídeo? qual é a capa?) é pura e tem
 // caso em tests/publicacao-enquadramento.test.ts; aqui se cobra que as duas telas a perguntem, e não a
-// refaçam no JSX. As duas são de servidor e leem o banco, e a integração de `nao-saiu` não liga o
-// bucket (a capa ali é nula), então a guarda lê o arquivo, no jeito das outras guardas de página.
+// refaçam no JSX.
+//
+// É UMA GUARDA DE TEXTO, E NÃO UMA SUÍTE QUE MONTA A URL, como a spec pedia (desvio declarado): as duas
+// páginas são de servidor e leem o banco, e a integração de `nao-saiu` não liga o bucket (a capa ali é
+// nula). Por isso as expressões são as inteiras, com o ramo: um `!` na frente da pergunta, ou os ramos
+// trocados, derrubam o caso.
 
 const RAIZ = fileURLToPath(new URL("..", import.meta.url));
-const ler = (rel: string) => readFileSync(`${RAIZ}/${rel}`, "utf8");
+const ler = (rel: string) => readFileSync(`${RAIZ}/${rel}`, "utf8").replace(/\r\n/g, "\n");
 
 describe("a página do post", () => {
   const pagina = ler("app/publicar/post/[id]/page.tsx");
 
-  it("pergunta à regra pura se cada caminho é vídeo, e desenha <video> para ele", () => {
-    expect(pagina).toContain("ehVideoNoPost(p.forma, m.caminho)");
-    expect(pagina).toMatch(/<video[\s\S]*?muted[\s\S]*?preload="metadata"/);
+  it("pergunta à regra pura se cada caminho é vídeo, e o ramo do sim desenha <video>; o do não, <img>", () => {
+    expect(pagina).toMatch(
+      /p && ehVideoNoPost\(p\.forma, m\.caminho\) \? \(\s*<span[^>]*>\s*<video\s[\s\S]*?muted[\s\S]*?preload="metadata"[\s\S]*?\) : \([\s\S]*?<img\s/
+    );
   });
 });
 
@@ -1283,8 +1554,13 @@ describe("o calendário", () => {
   const pagina = ler("app/publicar/page.tsx");
 
   it("pede a capa à regra pura, e não pega o primeiro caminho", () => {
-    expect(pagina).toContain("capaDoPost(p.forma, p.caminhos)");
+    expect(pagina).toContain("const primeira = !saiu && p ? capaDoPost(p.forma, p.caminhos) : null;");
     expect(pagina).not.toContain("p?.caminhos?.[0]");
+  });
+
+  it("o post só de vídeo, que não saiu, mostra o ícone de vídeo no lugar da capa", () => {
+    expect(pagina).toContain("const soVideo = !saiu && !!p && p.caminhos.length > 0 && primeira === null;");
+    expect(pagina).toContain('{saiu ? "✓" : soVideo ? "▶" : "•"}');
   });
 });
 ```
@@ -1295,7 +1571,7 @@ describe("o calendário", () => {
 npx vitest run tests/publicar-previas.test.ts
 ```
 
-Esperado: os 2 casos caem (2): as duas telas ainda não perguntam à regra pura.
+Esperado: os 3 casos caem (3): as duas telas ainda não perguntam à regra pura.
 
 - [ ] **Passo 3: o código**
 
@@ -1433,7 +1709,7 @@ npx eslint app/publicar/page.tsx "app/publicar/post/[id]/page.tsx" tests/publica
 npx vitest run tests/publicar-previas.test.ts tests/escala.test.ts
 ```
 
-Esperado: `tsc` e lint limpos; os 2 arquivos passam, com 16 casos (a guarda da escala aceita o selo de vídeo).
+Esperado: `tsc` e lint limpos; os 2 arquivos passam, com 17 casos (a guarda da escala aceita o selo de vídeo).
 
 - [ ] **Passo 5: varrer e commitar**
 
@@ -1532,7 +1808,7 @@ Em `lib/publicacao.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
 
 ```diff
 diff --git a/lib/publicacao.ts b/lib/publicacao.ts
-index 403537d..cdce267 100644
+index 0c4bb6c..603147c 100644
 --- a/lib/publicacao.ts
 +++ b/lib/publicacao.ts
 @@ -1473,11 +1473,13 @@ export function textoDaRecusaDaPublicacao(motivo: RecusaDaPublicacao): string {
@@ -1596,12 +1872,13 @@ MSG
 - Modificar: `app/publicar/novo/page.tsx`
 
 **Interfaces:**
-- Consome: as regras da FASE 1; `recusaDaQuantidade`, `problemaDaLegenda`, `camposDaDataHora`,
-  `instanteDoAgendamento`, `momentoDaPublicacao`, `fusoDoCampo`, `textoDaRecusaDaPublicacao` (as mesmas da
-  action); o depósito de envios (`app/publicar/envios.ts`, sem mudança).
-- Produz: `Navegador` e `navegadorDeVerdade` (`app/publicar/navegador.ts`), com `subirComProgresso(url,
-  arquivo, aoAndar, sinal)` exportada; o `Enviador` com as propriedades `teto`, `pasta`, `acao`, `quando`,
-  `opcoesDoReels`, `rodape` e `navegador?`.
+- Consome: as regras da FASE 1; `problemaDaLegenda`, `camposDaDataHora`, `instanteDoAgendamento`,
+  `momentoDaPublicacao`, `fusoDoCampo`, `textoDaRecusaDaPublicacao` (as mesmas da action); o depósito de
+  envios (`app/publicar/envios.ts`, sem mudança).
+- Produz: `Navegador` e `navegadorDeVerdade` (`app/publicar/navegador.ts`), com `assinar(pedido, sinal)`,
+  `subirComProgresso(url, arquivo, aoAndar, sinal)` e `TEMPO_PARA_MEDIR_VIDEO_EM_MS` exportados; o
+  `Enviador` com as propriedades `teto`, `pasta`, `acao`, `quando`, `opcoesDoReels`, `rodape` e
+  `navegador?`.
 
 - [ ] **Passo 1: os testes de tela e a guarda**
 
@@ -1610,12 +1887,20 @@ Crie `testes-dom/publicar-compositor.dom.tsx`:
 ```tsx
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 import Enviador from "@/app/publicar/enviador";
 import { lerEnvios, limparEnvios } from "@/app/publicar/envios";
-import { subirComProgresso, type Medidas, type Navegador } from "@/app/publicar/navegador";
+import {
+  TEMPO_PARA_MEDIR_VIDEO_EM_MS,
+  navegadorDeVerdade,
+  subirComProgresso,
+  type Medidas,
+  type Navegador,
+} from "@/app/publicar/navegador";
 import {
   geometriaDoEnquadramento,
   textoDaRecusaDaPublicacao,
+  textoDaRecusaDaTela,
   textoDoProblemaDaLegenda,
   textoDoProblemaDaSaida,
   textoDoProblemaDoPrimeiroSlide,
@@ -1623,10 +1908,11 @@ import {
 
 // O COMPOSITOR DO /publicar (spec 2026-10-19-enquadrar-imagens): a proporção, a lista com a miniatura,
 // o vermelho, as travas antes de subir, e o envio NO CLIQUE, com a trava contra o clique duplo (achado
-// 107) e a action chamada uma vez com os caminhos da subida (achado 108). O jsdom não tem `canvas`,
-// `createImageBitmap` nem `URL.createObjectURL`, então o navegador é falso, como as actions falsas do
-// gerador. A action também é falsa: a de verdade termina em `redirect`, e o que isso faz foi medido numa
-// sonda (ver o cabeçalho do compositor).
+// 107), a action chamada uma vez com os caminhos da subida (achado 108) e com tudo o que o formulário
+// tinha no clique (achado 115), e a subida que para quando a tela sai (achado 116). O jsdom não tem
+// `canvas`, `createImageBitmap` nem `URL.createObjectURL`, então o navegador é falso, como as actions
+// falsas do gerador. A action também é falsa: a de verdade termina em `redirect`, e o que isso faz foi
+// medido numa sonda (ver o cabeçalho do compositor).
 
 const MIB = 1024 * 1024;
 const PASTA = "17841400000000001";
@@ -1635,38 +1921,63 @@ type Falso = {
   nav: Navegador;
   assinados: string[];
   enquadrados: { nome: string; desenho: unknown }[];
+  /** Os sinais que chegaram à subida e ao pedido da assinatura. */
   sinais: AbortSignal[];
+  sinaisDaAssinatura: AbortSignal[];
   soltos: string[];
+  /** A pasta dos caminhos que a assinatura devolve: muda com a conta. */
+  pasta: string;
+  /** Solta a assinatura segurada (`segurarAssinatura`), que ignora o sinal de propósito. */
+  soltarAssinatura: () => void;
 };
 
 function navegadorFalso(
   medidas: Record<string, Medidas>,
-  opcoes: { falharUmaVez?: string[]; pasta?: string; pendurar?: boolean } = {}
+  opcoes: {
+    falharUmaVez?: string[];
+    pendurar?: boolean;
+    segurarAssinatura?: boolean;
+    medirPendurado?: string[];
+    antesDeSubir?: () => void;
+  } = {}
 ): Falso {
-  const assinados: string[] = [];
-  const enquadrados: { nome: string; desenho: unknown }[] = [];
-  const sinais: AbortSignal[] = [];
-  const soltos: string[] = [];
   const falhar = new Set(opcoes.falharUmaVez ?? []);
   const jpg = (nome: string) => nome.replace(/\.\w+$/, ".jpg");
-  const nav: Navegador = {
+  const f: Falso = {
+    nav: undefined as unknown as Navegador,
+    assinados: [],
+    enquadrados: [],
+    sinais: [],
+    sinaisDaAssinatura: [],
+    soltos: [],
+    pasta: PASTA,
+    soltarAssinatura: () => {},
+  };
+  f.nav = {
     criarEndereco: (a) => `blob:${a.name}`,
     soltarEndereco: (e) => {
-      soltos.push(e);
+      f.soltos.push(e);
     },
-    medir: async (a) => medidas[a.name] ?? {},
+    medir: (a) => (opcoes.medirPendurado?.includes(a.name) ? new Promise<Medidas>(() => {}) : Promise.resolve(medidas[a.name] ?? {})),
     lerOrientacao: async () => 1,
     enquadrar: async (a, desenho) => {
-      enquadrados.push({ nome: a.name, desenho });
+      f.enquadrados.push({ nome: a.name, desenho });
       return new File(["jpeg"], jpg(a.name), { type: "image/jpeg" });
     },
     converter: async (a) => new File(["jpeg"], jpg(a.name), { type: "image/jpeg" }),
-    assinar: async (p) => {
-      assinados.push(p.nome);
-      return { ok: true, caminho: `${opcoes.pasta ?? PASTA}/${p.nome}`, url: `https://bucket.test/${p.nome}` };
+    assinar: async (p, sinal) => {
+      f.sinaisDaAssinatura.push(sinal);
+      if (opcoes.segurarAssinatura) {
+        await new Promise<void>((ok) => {
+          f.soltarAssinatura = ok;
+        });
+      }
+      f.assinados.push(p.nome);
+      return { ok: true, caminho: `${f.pasta}/${p.nome}`, url: `https://bucket.test/${p.nome}` };
     },
     subir: async (_url, arquivo, aoAndar, sinal) => {
-      sinais.push(sinal);
+      f.sinais.push(sinal);
+      opcoes.antesDeSubir?.();
       if (opcoes.pendurar) {
         return new Promise<void>((_ok, nao) => sinal.addEventListener("abort", () => nao(new Error("O envio foi interrompido."))));
       }
@@ -1674,7 +1985,7 @@ function navegadorFalso(
       aoAndar(arquivo.size, arquivo.size);
     },
   };
-  return { nav, assinados, enquadrados, sinais, soltos };
+  return f;
 }
 
 const QUANDO = (
@@ -1690,12 +2001,35 @@ const QUANDO = (
   </fieldset>
 );
 
-function renderizar(f: Falso) {
+// AS OPÇÕES DO REELS COM OS MESMOS NOMES da página (`app/publicar/novo/page.tsx`): a action os lê
+// (`app/publicar/actions.ts`), e o caso do achado 115 confere que eles chegam.
+const OPCOES_DO_REELS = (
+  <fieldset>
+    <label>
+      <input type="checkbox" name="compartilhar_no_feed" value="1" defaultChecked /> Mostrar também no feed
+    </label>
+    <label htmlFor="nome_do_audio">Nome do áudio</label>
+    <input id="nome_do_audio" name="nome_do_audio" type="text" />
+  </fieldset>
+);
+
+function renderizar(f: Falso, opcoes: { opcoesDoReels?: ReactNode } = {}) {
   const acao = vi.fn(async (_dados: FormData) => {});
-  const r = render(
-    <Enviador teto={50 * MIB} pasta={PASTA} acao={acao} navegador={f.nav} quando={QUANDO} opcoesDoReels={null} rodape={<p>rodapé</p>} />
+  const elemento = (pasta: string) => (
+    <Enviador
+      teto={50 * MIB}
+      pasta={pasta}
+      acao={acao}
+      navegador={f.nav}
+      quando={QUANDO}
+      opcoesDoReels={opcoes.opcoesDoReels ?? null}
+      rodape={<p>rodapé</p>}
+    />
   );
-  return { acao, ...r };
+  const r = render(elemento(PASTA));
+  /** A troca de conta no seletor: a página volta com outra pasta, e o compositor fica montado. */
+  const trocarDeConta = (pasta: string) => r.rerender(elemento(pasta));
+  return { acao, trocarDeConta, ...r };
 }
 
 const arquivo = (nome: string, tipo: string, bytes = 1000) => new File([new Uint8Array(bytes)], nome, { type: tipo });
@@ -1706,12 +2040,36 @@ function escolherForma(forma: string) {
   fireEvent.change(screen.getByLabelText("Forma"), { target: { value: forma } });
 }
 
-async function escolher(arquivos: File[]) {
+async function escolherSemEsperar(arquivos: File[]) {
   const campo = screen.getByLabelText(/^Arquivos?$/) as HTMLInputElement;
   await act(async () => {
     fireEvent.change(campo, { target: { files: arquivos } });
   });
+}
+
+async function escolher(arquivos: File[]) {
+  await escolherSemEsperar(arquivos);
   await waitFor(() => expect(screen.queryByText("Lendo o arquivo…")).toBeNull());
+}
+
+/** A data e a hora no formato do `datetime-local`, na hora local, como a pessoa digita. */
+function campoLocal(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function marcarOutraHora(daquiAMs: number) {
+  fireEvent.click(screen.getByLabelText(/Publicar em outra hora/));
+  const valor = campoLocal(new Date(Date.now() + daquiAMs));
+  fireEvent.change(screen.getByLabelText("Data e hora"), { target: { value: valor } });
+  return valor;
+}
+
+/** O `beforeunload` que o navegador dispara ao fechar a aba: `defaultPrevented` é o pedido de confirmação. */
+function fecharAAba(): boolean {
+  const ev = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(ev);
+  return ev.defaultPrevented;
 }
 
 const MEDIDAS: Record<string, Medidas> = {
@@ -1721,12 +2079,15 @@ const MEDIDAS: Record<string, Medidas> = {
   "outra.jpg": { largura: 1080, altura: 1350 },
   "terceira.jpg": { largura: 1080, altura: 1350 },
   "deitado.mp4": { largura: 1920, altura: 1080, segundos: 10 },
+  "reels.mp4": { largura: 1080, altura: 1920, segundos: 30 },
   "animado.gif": { largura: 500, altura: 500 },
 };
 
 afterEach(() => {
   limparEnvios();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("a montagem, antes do clique", () => {
@@ -1751,7 +2112,7 @@ describe("a montagem, antes do clique", () => {
     fireEvent.click(within(linha).getByRole("button", { name: "Inteira, com bordas" }));
     expect(within(linha).getByRole("button", { name: "Inteira, com bordas" }).getAttribute("aria-pressed")).toBe("true");
     expect(within(linha).getByRole("button", { name: "Descer celular.jpg" })).toBeTruthy();
-    fireEvent.click(within(linha).getByRole("button", { name: "Remover" }));
+    fireEvent.click(within(linha).getByRole("button", { name: "Remover celular.jpg" }));
     expect(screen.queryByRole("listitem", { name: "celular.jpg" })).toBeNull();
     expect(f.soltos).toContain("blob:celular.jpg");
   });
@@ -1765,6 +2126,18 @@ describe("a montagem, antes do clique", () => {
     expect(screen.getByText(/O post vai sair com 2 slides\./)).toBeTruthy();
   });
 
+  it("na imagem única com o único arquivo vermelho, a frase aponta a lista, e não manda escolher um arquivo", async () => {
+    const f = navegadorFalso(MEDIDAS);
+    const { acao } = renderizar(f);
+    await escolher([arquivo("animado.gif", "image/gif")]);
+    const frase = "O arquivo escolhido não serve: o motivo está na lista. Escolha outro.";
+    expect(screen.getByText(frase)).toBeTruthy();
+    fireEvent.click(botao());
+    expect((await screen.findByRole("alert")).textContent).toBe(frase);
+    expect(f.assinados).toEqual([]);
+    expect(acao).not.toHaveBeenCalled();
+  });
+
   it("no carrossel, escolher de novo acrescenta ao fim; na imagem única, troca o arquivo", async () => {
     renderizar(navegadorFalso(MEDIDAS));
     escolherForma("carrossel");
@@ -1775,6 +2148,15 @@ describe("a montagem, antes do clique", () => {
     await escolher([arquivo("arte.jpg", "image/jpeg")]);
     await escolher([arquivo("outra.jpg", "image/jpeg")]);
     expect(screen.getAllByRole("listitem").map((l) => l.getAttribute("aria-label"))).toEqual(["outra.jpg"]);
+  });
+
+  it("o aviso de quem ficou de fora some ao remover um slide", async () => {
+    renderizar(navegadorFalso(MEDIDAS));
+    escolherForma("carrossel");
+    await escolher(Array.from({ length: 11 }, (_, i) => arquivo(`f${i}.jpg`, "image/jpeg")));
+    expect(screen.getByText(/1 arquivo ficou de fora/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remover f0.jpg" }));
+    expect(screen.queryByText(/ficou de fora/)).toBeNull();
   });
 
   it("trocar a forma esvazia a lista, sem subir nada", async () => {
@@ -1830,6 +2212,17 @@ describe("as travas antes de subir (achado 109)", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(textoDaRecusaDaPublicacao("data_invalida"));
     expect(f.assinados).toEqual([]);
   });
+
+  it("o clique antes de a tela terminar de ler os arquivos espera, e nada sobe", async () => {
+    const f = navegadorFalso(MEDIDAS, { medirPendurado: ["arte.jpg"] });
+    const { acao } = renderizar(f);
+    await escolherSemEsperar([arquivo("arte.jpg", "image/jpeg")]);
+    expect(screen.getByText("Lendo o arquivo…")).toBeTruthy();
+    fireEvent.click(botao());
+    expect((await screen.findByRole("alert")).textContent).toBe(textoDaRecusaDaTela("lendo_arquivos"));
+    expect(f.assinados).toEqual([]);
+    expect(acao).not.toHaveBeenCalled();
+  });
 });
 
 describe("o envio no clique", () => {
@@ -1842,6 +2235,24 @@ describe("o envio no clique", () => {
     fireEvent.click(botao());
     fireEvent.submit(formulario());
     await waitFor(() => expect(acao).toHaveBeenCalledTimes(1));
+    expect(f.assinados).toEqual(["arte.jpg", "outra.jpg"]);
+  });
+
+  // NO MESMO QUADRO, O BOTÃO AINDA NÃO ESTÁ DESABILITADO: o React só desenha o "ocupado" depois. Quem
+  // segura o segundo clique aqui é a referência da trava, e não o `disabled`.
+  it("dois cliques no mesmo quadro, antes de qualquer desenho, também dão uma leva só", async () => {
+    const f = navegadorFalso(MEDIDAS);
+    const { acao } = renderizar(f);
+    escolherForma("carrossel");
+    await escolher([arquivo("arte.jpg", "image/jpeg"), arquivo("outra.jpg", "image/jpeg")]);
+    const b = botao();
+    await act(async () => {
+      b.click();
+      b.click();
+    });
+    await waitFor(() => expect(acao).toHaveBeenCalled());
+    await act(async () => {});
+    expect(acao).toHaveBeenCalledTimes(1);
     expect(f.assinados).toEqual(["arte.jpg", "outra.jpg"]);
   });
 
@@ -1866,6 +2277,34 @@ describe("o envio no clique", () => {
     const dados = acao.mock.calls[0][0];
     expect(dados.get("forma")).toBe("carrossel");
     expect(dados.get("caminhos")).toBe(`${PASTA}/outra.jpg\n${PASTA}/arte.jpg\n${PASTA}/terceira.jpg`);
+  });
+
+  // O ACHADO 115: a legenda ficava `disabled` durante a subida, e o formulário era lido depois dela. Campo
+  // desabilitado não entra no `FormData`, e o post saía sem legenda. O caso digita tudo o que a action lê
+  // (`app/publicar/actions.ts`) e confere que tudo chega. Ele achou também o FUSO VAZIO: o campo escondido
+  // voltava ao valor inicial a cada desenho, já na produção, e foi corrigido junto (decisão do Eduardo, 19/10).
+  it("a action recebe tudo o que o formulário tinha no clique: legenda, hora, fuso e as opções do reels (achado 115)", async () => {
+    const f = navegadorFalso(MEDIDAS);
+    const { acao } = renderizar(f, { opcoesDoReels: OPCOES_DO_REELS });
+    escolherForma("reels");
+    await escolher([arquivo("reels.mp4", "video/mp4")]);
+    fireEvent.change(screen.getByLabelText("Legenda"), { target: { value: "Legenda de prova" } });
+    const dataHora = marcarOutraHora(3 * 24 * 60 * 60 * 1000);
+    fireEvent.change(screen.getByLabelText("Nome do áudio"), { target: { value: "Áudio de prova" } });
+    fireEvent.click(botao());
+    await waitFor(() => expect(acao).toHaveBeenCalledTimes(1));
+    const dados = acao.mock.calls[0][0];
+    const lidos = ["forma", "caminhos", "legenda", "quando", "data_hora", "fuso", "compartilhar_no_feed", "nome_do_audio"];
+    expect(Object.fromEntries(lidos.map((k) => [k, dados.get(k)]))).toEqual({
+      forma: "reels",
+      caminhos: `${PASTA}/reels.mp4`,
+      legenda: "Legenda de prova",
+      quando: "depois",
+      data_hora: dataHora,
+      fuso: String(new Date().getTimezoneOffset()),
+      compartilhar_no_feed: "1",
+      nome_do_audio: "Áudio de prova",
+    });
   });
 
   it("a foto em pé passa pelo canvas com a geometria; o JPEG já em 4:5 vai como veio", async () => {
@@ -1894,12 +2333,67 @@ describe("o envio no clique", () => {
     expect(acao.mock.calls[0][0].get("caminhos")).toBe(`${PASTA}/arte.jpg\n${PASTA}/outra.jpg\n${PASTA}/terceira.jpg`);
   });
 
+  it("mudar o modo de um slide que já subiu descarta o caminho dele, e o novo clique o sobe de novo", async () => {
+    const f = navegadorFalso(MEDIDAS, { falharUmaVez: ["outra.jpg"] });
+    const { acao } = renderizar(f);
+    escolherForma("carrossel");
+    await escolher([arquivo("celular.jpg", "image/jpeg"), arquivo("outra.jpg", "image/jpeg")]);
+    fireEvent.click(botao());
+    await screen.findByRole("alert");
+    await waitFor(() => expect(botao().disabled).toBe(false));
+    const linha = screen.getByRole("listitem", { name: "celular.jpg" });
+    fireEvent.click(within(linha).getByRole("button", { name: "Inteira, com bordas" }));
+    fireEvent.click(botao());
+    await waitFor(() => expect(acao).toHaveBeenCalledTimes(1));
+    expect(f.assinados).toEqual(["celular.jpg", "outra.jpg", "celular.jpg", "outra.jpg"]);
+    const inteira = geometriaDoEnquadramento({ largura: 1080, altura: 1920, proporcao: "4:5", modo: "inteira" });
+    expect(f.enquadrados.map((e) => e.desenho)).toEqual([
+      geometriaDoEnquadramento({ largura: 1080, altura: 1920, proporcao: "4:5", modo: "cortar" }),
+      inteira,
+    ]);
+  });
+
+  it("trocar de conta entre uma tentativa que falhou e a próxima sobe tudo de novo, na pasta nova", async () => {
+    const f = navegadorFalso(MEDIDAS, { falharUmaVez: ["outra.jpg"] });
+    const { acao, trocarDeConta } = renderizar(f);
+    escolherForma("carrossel");
+    await escolher([arquivo("arte.jpg", "image/jpeg"), arquivo("outra.jpg", "image/jpeg")]);
+    fireEvent.click(botao());
+    await screen.findByRole("alert");
+    await waitFor(() => expect(botao().disabled).toBe(false));
+    f.pasta = "17841400000000002";
+    trocarDeConta("17841400000000002");
+    fireEvent.click(botao());
+    await waitFor(() => expect(acao).toHaveBeenCalledTimes(1));
+    expect(f.assinados).toEqual(["arte.jpg", "outra.jpg", "arte.jpg", "outra.jpg"]);
+    expect(acao.mock.calls[0][0].get("caminhos")).toBe("17841400000000002/arte.jpg\n17841400000000002/outra.jpg");
+  });
+
   it("um caminho fora da pasta da conta recusa, sem chamar a action", async () => {
-    const f = navegadorFalso(MEDIDAS, { pasta: "outra-conta" });
+    const f = navegadorFalso(MEDIDAS);
+    f.pasta = "outra-conta";
     const { acao } = renderizar(f);
     await escolher([arquivo("arte.jpg", "image/jpeg")]);
     fireEvent.click(botao());
-    expect((await screen.findByRole("alert")).textContent).toContain("A conta mudou durante o envio.");
+    expect((await screen.findByRole("alert")).textContent).toBe(textoDaRecusaDaTela("conta_mudou"));
+    expect(acao).not.toHaveBeenCalled();
+  });
+
+  it("a hora é conferida de novo depois da subida: a que passou durante ela recusa, sem chamar a action", async () => {
+    const relogio = Date.now.bind(Date);
+    let salto = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => relogio() + salto);
+    const f = navegadorFalso(MEDIDAS, {
+      antesDeSubir: () => {
+        salto = 10 * 60 * 1000;
+      },
+    });
+    const { acao } = renderizar(f);
+    await escolher([arquivo("arte.jpg", "image/jpeg")]);
+    marcarOutraHora(5 * 60 * 1000);
+    fireEvent.click(botao());
+    expect((await screen.findByRole("alert")).textContent).toBe(textoDaRecusaDaPublicacao("data_no_passado"));
+    expect(f.assinados).toEqual(["arte.jpg"]);
     expect(acao).not.toHaveBeenCalled();
   });
 
@@ -1914,6 +2408,16 @@ describe("o envio no clique", () => {
     expect(botao().textContent).toBe("Publicar");
   });
 
+  it("fechar a aba no meio da subida pede confirmação; fora dela, não", async () => {
+    const f = navegadorFalso(MEDIDAS, { pendurar: true });
+    renderizar(f);
+    await escolher([arquivo("arte.jpg", "image/jpeg")]);
+    expect(fecharAAba()).toBe(false);
+    fireEvent.click(botao());
+    await waitFor(() => expect(f.sinais).toHaveLength(1));
+    expect(fecharAAba()).toBe(true);
+  });
+
   it("sair da tela no meio da subida interrompe, e a action não é chamada", async () => {
     const f = navegadorFalso(MEDIDAS, { pendurar: true });
     const { acao, unmount } = renderizar(f);
@@ -1922,8 +2426,95 @@ describe("o envio no clique", () => {
     await waitFor(() => expect(f.sinais).toHaveLength(1));
     unmount();
     expect(f.sinais[0].aborted).toBe(true);
-    await waitFor(() => expect(lerEnvios()[0]?.detalhe).toBe("A publicação não foi pedida."));
+    // O QUE A LEVA FAZ DEPOIS DE ABORTADA roda nas esperas seguintes: elas correm aqui, antes de conferir,
+    // para um `catch` atrasado não ter como reescrever a frase depois do `expect`.
+    await act(async () => {});
+    expect(lerEnvios()[0]?.detalhe).toBe("A publicação não foi pedida.");
     expect(acao).not.toHaveBeenCalled();
+  });
+
+  it("sair da tela com a assinatura pendente interrompe o pedido, e a leva não segue quando ela responde (achado 116)", async () => {
+    const f = navegadorFalso(MEDIDAS, { segurarAssinatura: true });
+    const { acao, unmount } = renderizar(f);
+    await escolher([arquivo("arte.jpg", "image/jpeg")]);
+    fireEvent.click(botao());
+    await waitFor(() => expect(f.sinaisDaAssinatura).toHaveLength(1));
+    unmount();
+    expect(f.sinaisDaAssinatura[0].aborted).toBe(true);
+    // A ASSINATURA FALSA IGNORA O SINAL e responde depois da saída: é a leva que tem de parar.
+    await act(async () => {
+      f.soltarAssinatura();
+    });
+    await act(async () => {});
+    expect(f.sinais).toEqual([]);
+    expect(acao).not.toHaveBeenCalled();
+    expect(lerEnvios()[0]?.detalhe).toBe("A publicação não foi pedida.");
+  });
+});
+
+describe("o navegador de verdade", () => {
+  it("mede a imagem pelo bitmap com a orientação, e repete sem a opção no navegador que a recusa", async () => {
+    const opcoesPedidas: unknown[] = [];
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(async (_a: Blob, opcoes?: ImageBitmapOptions) => {
+        opcoesPedidas.push(opcoes);
+        if (opcoes) throw new TypeError("opção desconhecida");
+        return { width: 300, height: 400, close() {} };
+      })
+    );
+    expect(await navegadorDeVerdade.medir(arquivo("a.jpg", "image/jpeg"))).toEqual({ largura: 300, altura: 400 });
+    expect(opcoesPedidas).toEqual([{ imageOrientation: "from-image" }, undefined]);
+  });
+
+  it("a orientação de um JPEG sem EXIF é 1, e a leitura que falha vale 0, sem deixar o slide lendo para sempre", async () => {
+    const semExif = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], "a.jpg", { type: "image/jpeg" });
+    expect(await navegadorDeVerdade.lerOrientacao(semExif)).toBe(1);
+    const ilegivel = {
+      type: "image/jpeg",
+      slice: () => ({ arrayBuffer: () => Promise.reject(new Error("o arquivo sumiu do disco")) }),
+    } as unknown as File;
+    expect(await navegadorDeVerdade.lerOrientacao(ilegivel)).toBe(0);
+  });
+
+  it("o vídeo que o navegador não mede no tempo-limite fica sem medida, e o endereço é solto", async () => {
+    vi.useFakeTimers();
+    const soltos: string[] = [];
+    const urlOriginal = { criar: URL.createObjectURL, soltar: URL.revokeObjectURL };
+    URL.createObjectURL = () => "blob:video";
+    URL.revokeObjectURL = (e: string) => {
+      soltos.push(e);
+    };
+    try {
+      let pronto = false;
+      const medida = navegadorDeVerdade.medir(arquivo("v.mp4", "video/mp4")).then((m) => {
+        pronto = true;
+        return m;
+      });
+      await vi.advanceTimersByTimeAsync(TEMPO_PARA_MEDIR_VIDEO_EM_MS - 1);
+      expect(pronto).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await medida).toEqual({});
+      expect(soltos).toEqual(["blob:video"]);
+    } finally {
+      URL.createObjectURL = urlOriginal.criar;
+      URL.revokeObjectURL = urlOriginal.soltar;
+    }
+  });
+
+  it("o pedido da assinatura leva o sinal da leva", async () => {
+    const pedidos: RequestInit[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        pedidos.push(init);
+        return new Response(JSON.stringify({ caminho: `${PASTA}/a.jpg`, url: "https://bucket.test/a.jpg" }), { status: 200 });
+      })
+    );
+    const controle = new AbortController();
+    const r = await navegadorDeVerdade.assinar({ forma: "imagem", nome: "a.jpg", mime: "image/jpeg", bytes: 1 }, controle.signal);
+    expect(r).toEqual({ ok: true, caminho: `${PASTA}/a.jpg`, url: "https://bucket.test/a.jpg" });
+    expect(pedidos[0].signal).toBe(controle.signal);
   });
 });
 
@@ -1998,29 +2589,43 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-// A GUARDA DO CLIQUE DE PUBLICAR (spec 2026-10-19-enquadrar-imagens, achados 107 a 109). O teste de tela
-// (testes-dom/publicar-compositor.dom.tsx) cobra o comportamento com uma action falsa; o que ele NÃO
-// alcança é o `redirect` da action de verdade. Uma sonda mediu em 19/10/2026, no Next 16.3.8, que a
-// espera da action REJEITA com `NEXT_REDIRECT` quando ela redireciona, inclusive no sucesso. Um `catch`
-// em volta da chamada trataria o sucesso como falha, e o jsdom não reproduz o `NEXT_REDIRECT`. Então a
-// guarda lê o arquivo, no jeito das guardas do Vinícius.
+// A GUARDA DO CLIQUE DE PUBLICAR (spec 2026-10-19-enquadrar-imagens, achados 107 a 109, 115 e 116). O
+// teste de tela (testes-dom/publicar-compositor.dom.tsx) cobra o comportamento com uma action falsa; o que
+// ele NÃO alcança é o `redirect` da action de verdade nem a transição do roteador. Uma sonda mediu em
+// 19/10/2026, no Next 16.3.8, que a espera da action REJEITA com `NEXT_REDIRECT` quando ela redireciona,
+// inclusive no sucesso. Um `catch` em volta da chamada trataria o sucesso como falha, e o jsdom não
+// reproduz o `NEXT_REDIRECT`. Então a guarda lê o arquivo, no jeito das guardas do Vinícius.
 
 const RAIZ = fileURLToPath(new URL("..", import.meta.url));
 // O FIM DE LINHA SAI ANTES DE PROCURAR: na cópia do Windows, com `core.autocrlf`, o arquivo chega em
 // CRLF, e uma expressão que espera `\n` logo depois da chave de fechamento não acharia a função.
 const ler = (rel: string) => readFileSync(`${RAIZ}/${rel}`, "utf8").replace(/\r\n/g, "\n");
+const funcao = (fonte: string, cabeca: string) =>
+  new RegExp(`\\n {2}${cabeca} \\{[\\s\\S]*?\\n {2}\\}\\n`).exec(fonte)?.[0] ?? "";
 
 describe("o compositor do /publicar", () => {
   const fonte = ler("app/publicar/enviador.tsx");
-  const publicar = /\n {2}function publicar\(\) \{[\s\S]*?\n {2}\}\n/.exec(fonte)?.[0] ?? "";
+  const publicar = funcao(fonte, "async function publicar\\(\\)");
+  const montar = funcao(fonte, "async function montarOPedido\\(\\): Promise<FormData \\| null>");
+  const liberar = funcao(fonte, "function liberar\\(\\)");
 
-  it("acha a função do clique", () => {
-    expect(publicar).toContain("await acao(pedido);");
+  it("acha as funções do clique", () => {
+    expect(publicar).toContain("await acao(dados);");
+    expect(montar).toContain("await subirTodos(");
+    expect(liberar).toContain("trava.current = false;");
   });
 
   it("a chamada da action não tem catch em volta: só try/finally, e o finally solta a trava", () => {
     expect(publicar).not.toMatch(/\bcatch\b/);
-    expect(publicar).toMatch(/\} finally \{\s*trava\.current = false;/);
+    expect(publicar).toMatch(/\} finally \{\s*liberar\(\);/);
+  });
+
+  // O ACHADO 116: a subida dentro da transição prenderia a navegação do menu até ela acabar. Dentro do
+  // `iniciar` fica só a espera da action, que é o que a sonda mediu.
+  it("dentro da transição fica só a action, e a subida corre fora dela", () => {
+    expect(publicar).toMatch(/iniciar\(async \(\) => \{\s*try \{\s*await acao\(dados\);\s*\} finally \{\s*liberar\(\);\s*\}\s*\}\);/);
+    expect(publicar.indexOf("await montarOPedido()")).toBeGreaterThan(-1);
+    expect(publicar.indexOf("await montarOPedido()")).toBeLessThan(publicar.indexOf("iniciar("));
   });
 
   it("a trava é ligada antes de qualquer espera (achado 107)", () => {
@@ -2034,13 +2639,22 @@ describe("o compositor do /publicar", () => {
     expect(trava).toBeLessThan(publicar.indexOf("await"));
   });
 
+  // O ACHADO 115: lido depois da subida, o formulário vinha sem a legenda, que a tela desabilita.
+  it("o formulário é lido antes de qualquer espera, e é ele que vai à action", () => {
+    const leitura = montar.indexOf("const pedido = new FormData(form);");
+    expect(leitura).toBeGreaterThan(-1);
+    expect(leitura).toBeLessThan(montar.indexOf("await"));
+    expect(montar.match(/new FormData\(/g)).toHaveLength(1);
+    expect(montar).toContain("return pedido;");
+  });
+
   it("o formulário não tem action, e o envio nativo cai no mesmo caminho", () => {
     expect(fonte).not.toMatch(/<form[^>]*\baction=/);
-    expect(fonte).toMatch(/onSubmit=\{\(ev\) => \{\s*ev\.preventDefault\(\);\s*publicar\(\);/);
+    expect(fonte).toMatch(/onSubmit=\{\(ev\) => \{\s*ev\.preventDefault\(\);\s*void publicar\(\);/);
   });
 
   it("o botão de publicar é type=button, e chama o mesmo caminho", () => {
-    expect(fonte).toMatch(/<button type="button" className=\{btnPrimary\} disabled=\{pendente\} onClick=\{publicar\}>/);
+    expect(fonte).toMatch(/<button type="button" className=\{btnPrimary\} disabled=\{ocupado\} onClick=\{\(\) => void publicar\(\)\}>/);
   });
 });
 
@@ -2062,7 +2676,7 @@ npx vitest run tests/publicar-compositor-guarda.test.ts
 ```
 
 Esperado: o teste de tela nem carrega (`Failed to resolve import "@/app/publicar/navegador"`), e a guarda derruba
-os 6 casos (6): o compositor antigo não tem a função do clique, e a página ainda monta o formulário com a
+os 8 casos (8): o compositor antigo não tem as funções do clique, e a página ainda monta o formulário com a
 action.
 
 - [ ] **Passo 3: a fiação do navegador**
@@ -2107,13 +2721,17 @@ export type Navegador = {
   soltarEndereco(endereco: string): void;
   /** As medidas que o `canvas` vai usar: a imagem pelo mesmo bitmap que desenha, o vídeo pelos metadados. */
   medir(arquivo: File): Promise<Medidas>;
-  /** A orientação EXIF do JPEG (1 em qualquer outro caso). */
+  /** A orientação EXIF do JPEG: de 1 a 8, ou 0 quando não deu para ler (`orientacaoDoJpeg`). */
   lerOrientacao(arquivo: File): Promise<number>;
   /** O desenho do enquadramento, num JPEG do tamanho do canvas. */
   enquadrar(arquivo: File, desenho: { largura: number; altura: number; origem: Retangulo; destino: Retangulo }): Promise<File>;
   /** A conversão de sempre (o story): PNG ou WebP em JPEG, no tamanho que `planoDaConversao` mandou. */
   converter(arquivo: File, plano: { largura: number; altura: number; qualidade: number }): Promise<File>;
-  assinar(pedido: PedidoDeAssinatura): Promise<{ ok: true; caminho: string; url: string } | { ok: false; erro: string }>;
+  /** O pedido da URL assinada. O sinal interrompe, como o da subida. */
+  assinar(
+    pedido: PedidoDeAssinatura,
+    sinal: AbortSignal
+  ): Promise<{ ok: true; caminho: string; url: string } | { ok: false; erro: string }>;
   /** O PUT na URL assinada, com progresso. O sinal interrompe. */
   subir(url: string, arquivo: File, aoAndar: (enviados: number, total: number) => void, sinal: AbortSignal): Promise<void>;
 };
@@ -2122,11 +2740,21 @@ export type Navegador = {
  * O BITMAP COM A ORIENTAÇÃO APLICADA, e é o MESMO para medir e para desenhar
  * (achado 110). A tela media com `new Image().naturalWidth` e desenhava com
  * `createImageBitmap(arquivo)`, e o desenho era esticado nas medidas da
- * primeira API. A opção é explícita, como o gerador já faz
- * (`app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts`).
+ * primeira API.
+ *
+ * A OPÇÃO `imageOrientation: "from-image"` É PEDIDA, MAS NÃO É EXIGIDA. Ela é o
+ * padrão da norma de hoje, e nada em produção prova que todo navegador a aceita:
+ * o gerador chama `createImageBitmap(arquivo)` sem opção nenhuma
+ * (`app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts`). Um navegador que a
+ * recusasse deixaria TODA imagem como "ilegível". Então, se ela der erro, a
+ * chamada se repete sem ela.
  */
-function bitmapDe(arquivo: Blob): Promise<ImageBitmap> {
-  return createImageBitmap(arquivo, { imageOrientation: "from-image" });
+async function bitmapDe(arquivo: Blob): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(arquivo, { imageOrientation: "from-image" });
+  } catch {
+    return await createImageBitmap(arquivo);
+  }
 }
 
 /** ZERO VIRA AUSENTE: `videoWidth` é 0 enquanto os metadados não carregaram. */
@@ -2134,8 +2762,17 @@ function numeroOuNada(n: number): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
+/**
+ * O TEMPO-LIMITE DA MEDIDA DO VÍDEO. Um navegador que não dispara nem o
+ * `loadedmetadata` nem o `error` deixaria o slide em "Lendo o arquivo…" e o
+ * Publicar recusando para sempre. Passado o tempo, o vídeo fica sem medida, que
+ * é o mesmo desfecho do vídeo que o navegador não abre.
+ */
+export const TEMPO_PARA_MEDIR_VIDEO_EM_MS = 10_000;
+
 function medirVideo(arquivo: File): Promise<Medidas> {
   const endereco = URL.createObjectURL(arquivo);
+  let relogio: ReturnType<typeof setTimeout> | undefined;
   return new Promise<Medidas>((ok) => {
     const video = document.createElement("video");
     video.preload = "metadata";
@@ -2148,8 +2785,12 @@ function medirVideo(arquivo: File): Promise<Medidas> {
     // MEDIR PODE FALHAR, E FALHAR NÃO É RECUSAR: um codec que este navegador não
     // abre (o `.mov` HEVC no Chrome) ainda pode ser um vídeo que a Meta aceita.
     video.onerror = () => ok({});
+    relogio = setTimeout(() => ok({}), TEMPO_PARA_MEDIR_VIDEO_EM_MS);
     video.src = endereco;
-  }).finally(() => URL.revokeObjectURL(endereco));
+  }).finally(() => {
+    clearTimeout(relogio);
+    URL.revokeObjectURL(endereco);
+  });
 }
 
 /**
@@ -2216,9 +2857,15 @@ export const navegadorDeVerdade: Navegador = {
   async lerOrientacao(arquivo) {
     if (arquivo.type !== "image/jpeg") return 1;
     // OS CABEÇALHOS DO JPEG ficam no começo: 64 KiB bastam, e ler o arquivo
-    // inteiro de uma foto de 8 MB para achar dois bytes seria desperdício.
-    const bytes = new Uint8Array(await arquivo.slice(0, 64 * 1024).arrayBuffer());
-    return orientacaoDoJpeg(bytes);
+    // inteiro de uma foto de 8 MB para achar dois bytes seria desperdício. O
+    // EXIF que termina depois deles dá 0, e o 0 vai pelo `canvas` (achado 117).
+    // A LEITURA QUE FALHA TAMBÉM DÁ 0: sem o `catch`, o slide ficava em "Lendo o
+    // arquivo…" e o Publicar recusando para sempre.
+    try {
+      return orientacaoDoJpeg(new Uint8Array(await arquivo.slice(0, 64 * 1024).arrayBuffer()));
+    } catch {
+      return 0;
+    }
   },
 
   async enquadrar(arquivo, d) {
@@ -2243,11 +2890,12 @@ export const navegadorDeVerdade: Navegador = {
     }
   },
 
-  async assinar(pedido) {
+  async assinar(pedido, sinal) {
     const resposta = await fetch("/api/midia/assinar", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(pedido),
+      signal: sinal,
     });
     const dados = (await resposta.json().catch(() => null)) as { caminho?: string; url?: string; error?: string } | null;
     // A FRASE DO SERVIDOR PASSA INTEIRA: ela veio de `textoDoProblema` do outro
@@ -2324,6 +2972,7 @@ import {
   PROPORCOES_DO_POST,
   PROPORCAO_PADRAO,
   acrescentarNaLista,
+  caixaDaMiniatura,
   camposDaDataHora,
   campoAceitaVariosArquivos,
   fusoDoCampo,
@@ -2336,13 +2985,15 @@ import {
   problemaDaSaida,
   problemaDoArquivo,
   problemaDoPrimeiroSlide,
-  recusaDaQuantidade,
   resumoDoProgresso,
   rotuloDaForma,
   rotuloDoEnvio,
   tetoParaAConferenciaDaTela,
   textoDaContagem,
+  textoDaQuantidadeNaTela,
   textoDaRecusaDaPublicacao,
+  textoDaRecusaDaTela,
+  textoDoEnvioQueNaoFoi,
   textoDoProblema,
   textoDoProblemaDaLegenda,
   textoDoProblemaDaSaida,
@@ -2376,16 +3027,35 @@ import { btnPrimary, card, fieldError, hint, input, label, muted, numero } from 
 // `DELETE` (achado 107). Por isso:
 //
 //   - O BOTÃO É `type="button"` E TRAVA NUMA REFERÊNCIA ligada antes de
-//     qualquer espera, no molde do gerador (card-publicar.tsx). O `isPending`
+//     qualquer espera, no molde do gerador (card-publicar.tsx). O estado da tela
 //     não serve de trava: ele só muda no próximo render, e dois cliques no mesmo
 //     quadro passariam os dois.
 //   - O FORMULÁRIO NÃO TEM `action`. O Enter num campo de texto vira `submit`,
 //     que leva `preventDefault` aqui mesmo e cai no mesmo caminho, sob a mesma
 //     trava. A action só é chamada por `publicar`.
-//   - A ACTION RECEBE UM `FormData` MONTADO AQUI, com os caminhos de uma
-//     variável, e não de um campo controlado pelo estado: o React lê o
-//     formulário no instante do envio, e um estado atualizado depois de uma
-//     espera ainda não chegou ao campo (achado 108).
+//   - O FORMULÁRIO É LIDO NO CLIQUE, antes de qualquer espera (achado 115).
+//     Durante a subida a tela trava os campos com `disabled`, e campo
+//     desabilitado não entra no `FormData`: lido depois da subida, o post saía
+//     sem legenda, calado, nas quatro formas.
+//   - A ACTION RECEBE ESSE `FormData`, com os caminhos de uma variável, e não de
+//     um campo controlado pelo estado: um estado atualizado depois de uma espera
+//     ainda não chegou ao campo (achado 108).
+//
+// =============================================================================
+// A SUBIDA FICA FORA DA TRANSIÇÃO (achado 116)
+//
+// Uma transição assíncrona aberta prende as seguintes: o React junta toda
+// transição nova à que está em curso, e o `Link` do menu navega por
+// `startTransition`. Com a subida dentro da transição, o clique no menu ficaria
+// parado até a subida e a action acabarem (minutos num reels), e a action seria
+// chamada de uma tela que ninguém está vendo. Isso foi LIDO no React embutido no
+// Next, e não medido; o conserto vale nos dois casos. A subida corre fora, com um
+// estado `enviando` próprio, que trava a tela e liga o `beforeunload`. Dentro da
+// transição fica só a espera da action, que é o que a sonda abaixo mediu.
+//
+// CADA LEVA TEM UM `AbortController`, criado antes da primeira espera. Sair da
+// tela o aborta: o pedido da assinatura e a subida param, e depois de cada
+// espera a leva confere o sinal antes de seguir.
 //
 // =============================================================================
 // A ACTION TERMINA EM `redirect`, E ISSO FOI MEDIDO
@@ -2402,9 +3072,9 @@ import { btnPrimary, card, fieldError, hint, input, label, muted, numero } from 
 // NENHUMA DECISÃO MORA AQUI
 //
 // O retângulo do corte, se o arquivo vai cru, o vermelho da lista, a trava do
-// primeiro slide, a quantidade, a legenda e a hora vêm de `lib/publicacao.ts`,
-// puros e com caso. O que sobra aqui é fiação e desenho, e a fiação do
-// navegador está em `./navegador.ts`.
+// primeiro slide, a caixa da miniatura, a quantidade, a legenda, a hora e as
+// frases do clique vêm de `lib/publicacao.ts`, puros e com caso. O que sobra
+// aqui é fiação e desenho, e a fiação do navegador está em `./navegador.ts`.
 
 /** Um arquivo escolhido, e o que a tela sabe dele. */
 type Slide = {
@@ -2415,9 +3085,10 @@ type Slide = {
   video: boolean;
   /** `null` enquanto o navegador ainda mede. */
   medidas: Medidas | null;
+  /** A orientação EXIF; 0 até ser lida, e quando não deu para ler. */
   orientacao: number;
   modo: ModoDoEnquadramento;
-  /** O caminho no bucket, SÓ depois do 2xx da subida, e para qual forma, proporção e modo ele foi feito. */
+  /** O caminho no bucket, SÓ depois do 2xx da subida, e para qual conta, forma, proporção e modo ele foi feito. */
   enviado: { caminho: string; chave: string } | null;
 };
 
@@ -2446,24 +3117,18 @@ export default function Enviador({
   const [slides, setSlides] = useState<Slide[]>([]);
   const [foraDaLista, setForaDaLista] = useState(0);
   const [recusa, setRecusa] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
   const [pendente, iniciar] = useTransition();
+  /** A tela travada: subindo os arquivos, ou esperando a action. */
+  const ocupado = enviando || pendente;
   const formulario = useRef<HTMLFormElement>(null);
   const campoDeArquivo = useRef<HTMLInputElement>(null);
-  const campoDeFuso = useRef<HTMLInputElement>(null);
   const trava = useRef(false);
-  const montado = useRef(true);
-  const controles = useRef(new Set<AbortController>());
+  /** O controle da leva em curso, e `null` fora dela. */
+  const leva = useRef<AbortController | null>(null);
   const proximoId = useRef(0);
   const enderecos = useRef(new Set<string>());
   const envios = useSyncExternalStore(assinarEnvios, lerEnvios, lerEnviosNoServidor);
-
-  // O FUSO É ESCRITO NO DOM DEPOIS DA HIDRATAÇÃO, e não durante o render: o
-  // servidor roda em UTC e o navegador não, e um `value` calculado no render
-  // seria diferente dos dois lados. Ele existe porque o `datetime-local` manda
-  // "14:30" e cala sobre onde são 14:30 (`instanteDoAgendamento`).
-  useEffect(() => {
-    if (campoDeFuso.current) campoDeFuso.current.value = String(new Date().getTimezoneOffset());
-  }, []);
 
   // A JANELINHA NÃO ATRAVESSA UM PEDIDO NOVO: o depósito é um módulo e sobrevive
   // ao `redirect`, e o envio ENCERRADO do pedido anterior ficaria no canto.
@@ -2476,13 +3141,11 @@ export default function Enviador({
   // chamada de uma tela que ninguém está vendo. A janelinha diz que a
   // publicação não foi pedida, e os endereços das miniaturas são soltos.
   useEffect(() => {
-    montado.current = true;
-    const ativos = controles.current;
     const locais = enderecos.current;
     return () => {
-      montado.current = false;
-      for (const c of ativos) c.abort();
-      if (trava.current) {
+      const emCurso = leva.current;
+      if (emCurso) {
+        emCurso.abort();
         definirEnvios(
           lerEnvios().map((e) =>
             e.estado === "pronto" || e.estado === "recusado" || e.estado === "falhou"
@@ -2499,14 +3162,14 @@ export default function Enviador({
   // FECHAR OU RECARREGAR A ABA NO MEIO DA SUBIDA pede confirmação: o que já subiu
   // ficaria órfão no bucket, e o post não seria pedido.
   useEffect(() => {
-    if (!pendente) return;
+    if (!ocupado) return;
     const segurar = (ev: BeforeUnloadEvent) => {
       ev.preventDefault();
       ev.returnValue = "";
     };
     window.addEventListener("beforeunload", segurar);
     return () => window.removeEventListener("beforeunload", segurar);
-  }, [pendente]);
+  }, [ocupado]);
 
   const enquadra = forma === "imagem" || forma === "carrossel";
   const tetoDaTela = tetoParaAConferenciaDaTela(teto);
@@ -2524,19 +3187,18 @@ export default function Enviador({
             tetoDaTela
           ),
   }));
+  const algumMedindo = linhas.some((l) => l.medindo);
   const validos = linhas.filter((l) => !l.medindo && !l.problema).map((l) => l.s);
-  const problemaDaQuantidade = slides.length ? recusaDaQuantidade(forma, validos.length) : null;
-  const primeiroSlide =
-    forma === "carrossel"
-      ? problemaDoPrimeiroSlide(
-          linhas
-            .filter((l) => !l.medindo)
-            .map((l) => ({ video: l.s.video, largura: l.s.medidas?.largura, altura: l.s.medidas?.altura, valido: !l.problema })),
-          proporcao
-        )
-      : null;
-  const problemaDaLegendaAtual = problemaDaLegenda(legenda);
-  const fracao = PROPORCOES_DO_POST.find((p) => p.id === proporcao) ?? PROPORCOES_DO_POST[0];
+  const medidos = linhas
+    .filter((l) => !l.medindo)
+    .map((l) => ({ video: l.s.video, largura: l.s.medidas?.largura, altura: l.s.medidas?.altura, valido: !l.problema }));
+  // A QUANTIDADE SÓ É DITA COM TUDO MEDIDO: um arquivo ainda em leitura não é
+  // válido nem vermelho, e contá-lo como "não serve" seria mentir por um instante.
+  const quantidadeNaTela = slides.length && !algumMedindo ? textoDaQuantidadeNaTela(forma, slides.length, validos.length) : null;
+  const primeiroSlide = forma === "carrossel" ? problemaDoPrimeiroSlide(medidos, proporcao) : null;
+  // A LEGENDA É CONFERIDA COMO A ACTION A CONFERE: sem os espaços das pontas.
+  const problemaDaLegendaAtual = problemaDaLegenda(legenda.trim());
+  const caixa = caixaDaMiniatura(forma, medidos, proporcao);
 
   function soltar(lista: Slide[]) {
     for (const s of lista) {
@@ -2575,15 +3237,21 @@ export default function Enviador({
         endereco,
         video: arquivo.type.startsWith("video/"),
         medidas: null,
-        orientacao: 1,
+        orientacao: 0,
         modo: "cortar",
         enviado: null,
       };
     });
+    // QUEM FICA NA LISTA é decidido sobre a lista que a pessoa vê, mas os dados
+    // de cada slide vêm do estado mais novo: uma medida que chegou entre o último
+    // desenho e esta escolha não se perde (o slide ficaria em "Lendo o arquivo…").
     const { lista, deFora } = acrescentarNaLista(slides, novos, forma);
     const ficam = new Set(lista.map((s) => s.id));
     soltar([...slides, ...novos].filter((s) => !ficam.has(s.id)));
-    setSlides(lista);
+    setSlides((atuais) => {
+      const porId = new Map(atuais.map((s) => [s.id, s]));
+      return lista.map((s) => porId.get(s.id) ?? s);
+    });
     setForaDaLista(deFora);
     // A MEDIDA DE CADA UM, sem segurar a tela: a linha diz "Lendo o arquivo…"
     // até ela chegar.
@@ -2596,20 +3264,28 @@ export default function Enviador({
   function remover(id: string) {
     soltar(slides.filter((s) => s.id === id));
     setSlides((atuais) => atuais.filter((s) => s.id !== id));
+    // O AVISO DE QUEM FICOU DE FORA SAI JUNTO: com um slide a menos, ele já não
+    // diz a verdade.
+    setForaDaLista(0);
   }
 
   function mudarModo(id: string, modo: ModoDoEnquadramento) {
     setSlides((atuais) => atuais.map((s) => (s.id === id ? { ...s, modo } : s)));
   }
 
-  /** Para que forma, proporção e modo o caminho guardado vale: mudar qualquer um sobe de novo. */
+  /**
+   * Para que conta, forma, proporção e modo o caminho guardado vale: mudar
+   * qualquer um sobe de novo. A CONTA ENTRA porque a troca no seletor entre uma
+   * tentativa que falhou e a próxima deixaria guardado um caminho da pasta
+   * antiga, e o clique seguinte recusaria com "a conta mudou" sem envio nenhum em
+   * andamento.
+   */
   function chaveDe(s: Slide): string {
-    return `${forma}|${proporcao}|${s.modo}`;
+    return `${pasta}|${forma}|${proporcao}|${s.modo}`;
   }
 
-  /** A recusa da hora, pelas mesmas funções da action. `null` quando ela serve. */
-  function recusaDaHora(form: HTMLFormElement): string | null {
-    const dados = new FormData(form);
+  /** A recusa da hora, pelas mesmas funções da action, sobre o formulário lido no clique. `null` quando ela serve. */
+  function recusaDaHora(dados: FormData): string | null {
     const campos = camposDaDataHora(dados.get("data_hora"));
     const momento = momentoDaPublicacao(
       dados.get("quando"),
@@ -2620,7 +3296,7 @@ export default function Enviador({
   }
 
   /** Prepara e sobe um slide. Devolve o caminho, ou `null` com o motivo já escrito na janelinha. */
-  async function prepararESubir(s: Slide, nome: string): Promise<string | null> {
+  async function prepararESubir(s: Slide, nome: string, sinal: AbortSignal): Promise<string | null> {
     try {
       let arquivo = s.arquivo;
       let medidas: Medidas = s.medidas ?? {};
@@ -2642,6 +3318,7 @@ export default function Enviador({
           }
           atualizarEnvio(nome, { estado: "convertendo" });
           arquivo = await navegador.enquadrar(s.arquivo, g);
+          seguir(sinal);
           medidas = { largura: g.largura, altura: g.altura };
         }
       } else if (ehImagem && forma === "story") {
@@ -2649,6 +3326,7 @@ export default function Enviador({
         if (plano.converter) {
           atualizarEnvio(nome, { estado: "convertendo" });
           arquivo = await navegador.converter(s.arquivo, plano);
+          seguir(sinal);
           if (plano.largura > 0) medidas = { largura: plano.largura, altura: plano.altura };
         }
       }
@@ -2669,23 +3347,22 @@ export default function Enviador({
       }
 
       atualizarEnvio(nome, { estado: "assinando", enviados: 0, total: arquivo.size });
-      const assinatura = await navegador.assinar({ forma, nome: arquivo.name, ...declarado });
+      const assinatura = await navegador.assinar({ forma, nome: arquivo.name, ...declarado }, sinal);
+      seguir(sinal);
       if (!assinatura.ok) {
         atualizarEnvio(nome, { estado: "recusado", detalhe: assinatura.erro });
         return null;
       }
 
       atualizarEnvio(nome, { estado: "enviando", enviados: 0, total: arquivo.size });
-      const controle = new AbortController();
-      controles.current.add(controle);
-      try {
-        await navegador.subir(assinatura.url, arquivo, (enviados, total) => atualizarEnvio(nome, { enviados, total }), controle.signal);
-      } finally {
-        controles.current.delete(controle);
-      }
+      await navegador.subir(assinatura.url, arquivo, (enviados, total) => atualizarEnvio(nome, { enviados, total }), sinal);
       atualizarEnvio(nome, { estado: "pronto", enviados: arquivo.size, total: arquivo.size });
       return assinatura.caminho;
     } catch (erro) {
+      // A LEVA INTERROMPIDA PELA SAÍDA DA TELA NÃO ESCREVE NADA: a limpeza já pôs
+      // "A publicação não foi pedida." na janelinha, e "O envio foi
+      // interrompido." por cima dela diria menos.
+      if (sinal.aborted) return null;
       // O ENVIO QUE NÃO FOI NÃO PODE SUMIR CALADO. Este `catch` é da SUBIDA, e não
       // da action: a action é chamada fora daqui, sem `catch` (ver o cabeçalho).
       atualizarEnvio(nome, { estado: "falhou", detalhe: mensagemDoErro(erro) });
@@ -2694,7 +3371,7 @@ export default function Enviador({
   }
 
   /** Sobe os válidos na ordem da lista. Os que já subiram para a mesma chave não sobem de novo. */
-  async function subirTodos(lista: Slide[]): Promise<string[] | null> {
+  async function subirTodos(lista: Slide[], sinal: AbortSignal): Promise<string[] | null> {
     const nomes = lista.map((s, i) => rotuloDoEnvio(s.arquivo.name, i, lista.length));
     const jaEnviado = (s: Slide) => (s.enviado && s.enviado.chave === chaveDe(s) ? s.enviado.caminho : null);
     definirEnvios(
@@ -2712,14 +3389,10 @@ export default function Enviador({
         caminhos.push(guardado);
         continue;
       }
-      if (!montado.current) return null;
-      const caminho = await prepararESubir(lista[i], nomes[i]);
+      const caminho = await prepararESubir(lista[i], nomes[i], sinal);
+      if (sinal.aborted) return null;
       if (!caminho) {
-        if (montado.current) {
-          setRecusa(
-            `O envio de ${nomes[i]} não foi. Confira o motivo na lista de envios e clique em Publicar de novo: o que já subiu não sobe outra vez.`
-          );
-        }
+        setRecusa(textoDoEnvioQueNaoFoi(nomes[i]));
         return null;
       }
       // O CAMINHO SÓ É GUARDADO DEPOIS DO 2xx: `prepararESubir` só o devolve
@@ -2732,68 +3405,109 @@ export default function Enviador({
     return caminhos;
   }
 
-  function publicar() {
+  /**
+   * AS CONFERÊNCIAS, A SUBIDA E O PEDIDO, fora da transição. Devolve o
+   * `FormData` da action, ou `null` com o motivo já na tela.
+   */
+  async function montarOPedido(): Promise<FormData | null> {
+    const form = formulario.current;
+    if (!form) return null;
+    // O FORMULÁRIO É LIDO AQUI, NO CLIQUE, antes de qualquer espera e antes de a
+    // tela travar os campos (achado 115).
+    const pedido = new FormData(form);
+    // O FUSO TAMBÉM É O DO CLIQUE. Ele morava num campo escondido, escrito por um
+    // efeito depois da hidratação, e o React devolvia o campo ao `defaultValue`
+    // vazio a cada desenho: medido em 19/10 no compositor de produção, o campo ia
+    // de "180" a vazio na primeira letra da legenda, e a action caía no fuso do
+    // painel (`fusoDoCampo`). Quem agendava fora de Brasília via o post sair na
+    // hora errada. Lido aqui, no navegador e no clique, ele não passa por desenho
+    // nenhum, e o `datetime-local` continua com quem diga onde são as 14:30.
+    pedido.set("fuso", String(new Date().getTimezoneOffset()));
+    // AS CONFERÊNCIAS ANTES DE SUBIR, com as MESMAS funções da action (achado
+    // 109): antes, todas chegavam depois da subida, porque o formulário não tem
+    // `required`.
+    if (algumMedindo) {
+      setRecusa(textoDaRecusaDaTela("lendo_arquivos"));
+      return null;
+    }
+    const quantidade = textoDaQuantidadeNaTela(forma, slides.length, validos.length);
+    if (quantidade) {
+      setRecusa(quantidade);
+      return null;
+    }
+    if (primeiroSlide) {
+      setRecusa(textoDoProblemaDoPrimeiroSlide(primeiroSlide));
+      return null;
+    }
+    const daLegenda = problemaDaLegenda(String(pedido.get("legenda") ?? "").trim());
+    if (daLegenda) {
+      setRecusa(textoDoProblemaDaLegenda(daLegenda));
+      return null;
+    }
+    const daHora = recusaDaHora(pedido);
+    if (daHora) {
+      setRecusa(daHora);
+      return null;
+    }
+
+    const controle = new AbortController();
+    leva.current = controle;
+    setEnviando(true);
+    try {
+      const caminhos = await subirTodos(validos, controle.signal);
+      if (!caminhos || controle.signal.aborted) return null;
+      // TODOS NA PASTA DA CONTA DESTA TELA. A troca de conta no seletor no meio
+      // da subida faria a action descartar calada o que é de outra pasta
+      // (`caminhosDoCampo`) e publicar o resto.
+      if (caminhos.some((c) => !c.startsWith(`${pasta}/`))) {
+        setRecusa(textoDaRecusaDaTela("conta_mudou"));
+        return null;
+      }
+      // A HORA DE NOVO: a subida pode levar minutos, e a tolerância do "agora"
+      // é de 60 s.
+      const daHoraDepois = recusaDaHora(pedido);
+      if (daHoraDepois) {
+        setRecusa(daHoraDepois);
+        return null;
+      }
+      // A JANELINHA SAI ANTES DA ACTION: "Envios concluídos." não é
+      // "publicado", e o desfecho é o aviso que a action devolve na tela.
+      limparEnvios();
+      pedido.set("forma", forma);
+      pedido.set("caminhos", caminhos.join("\n"));
+      return pedido;
+    } finally {
+      leva.current = null;
+    }
+  }
+
+  /** Solta a trava e destrava a tela: a leva acabou sem pedido, ou a action respondeu. */
+  function liberar() {
+    trava.current = false;
+    setEnviando(false);
+  }
+
+  async function publicar() {
     // A TRAVA, ligada antes de qualquer espera (achado 107).
     if (trava.current) return;
     trava.current = true;
     setRecusa(null);
+    let pedido: FormData | null = null;
+    try {
+      pedido = await montarOPedido();
+    } finally {
+      // SEM PEDIDO (a recusa, a falha da subida ou a saída da tela), a trava
+      // solta aqui; com ele, só depois da action.
+      if (!pedido) liberar();
+    }
+    if (!pedido) return;
+    const dados = pedido;
+    // A ACTION, E SÓ ELA, DENTRO DA TRANSIÇÃO: é o que a sonda mediu.
     iniciar(async () => {
       try {
-        const form = formulario.current;
-        if (!form) return;
-        // AS CONFERÊNCIAS ANTES DE SUBIR, com as MESMAS funções da action
-        // (achado 109): antes, todas chegavam depois da subida, porque o
-        // formulário não tem `required`.
-        if (slides.some((s) => s.medidas === null)) {
-          setRecusa("Espere a tela terminar de ler os arquivos.");
-          return;
-        }
-        const quantidade = recusaDaQuantidade(forma, validos.length);
-        if (quantidade) {
-          setRecusa(textoDaRecusaDaPublicacao(quantidade));
-          return;
-        }
-        if (primeiroSlide) {
-          setRecusa(textoDoProblemaDoPrimeiroSlide(primeiroSlide));
-          return;
-        }
-        const daLegenda = problemaDaLegenda(legenda);
-        if (daLegenda) {
-          setRecusa(textoDoProblemaDaLegenda(daLegenda));
-          return;
-        }
-        const daHora = recusaDaHora(form);
-        if (daHora) {
-          setRecusa(daHora);
-          return;
-        }
-
-        const caminhos = await subirTodos(validos);
-        if (!caminhos || !montado.current) return;
-        // TODOS NA PASTA DA CONTA DESTA TELA. A troca de conta no seletor no meio
-        // da subida faria a action descartar calada o que é de outra pasta
-        // (`caminhosDoCampo`) e publicar o resto.
-        if (caminhos.some((c) => !c.startsWith(`${pasta}/`))) {
-          setRecusa("A conta mudou durante o envio. Recarregue a página e monte o post de novo.");
-          return;
-        }
-        // A HORA DE NOVO: a subida pode levar minutos, e a tolerância do "agora"
-        // é de 60 s.
-        const daHoraDepois = recusaDaHora(form);
-        if (daHoraDepois) {
-          setRecusa(daHoraDepois);
-          return;
-        }
-
-        // A JANELINHA SAI ANTES DA ACTION: "Envios concluídos." não é
-        // "publicado", e o desfecho é o aviso que a action devolve na tela.
-        limparEnvios();
-        const pedido = new FormData(form);
-        pedido.set("forma", forma);
-        pedido.set("caminhos", caminhos.join("\n"));
-        await acao(pedido);
+        await acao(dados);
       } finally {
-        trava.current = false;
+        liberar();
       }
     });
   }
@@ -2804,7 +3518,7 @@ export default function Enviador({
       className={`${card} space-y-6 p-5`}
       onSubmit={(ev) => {
         ev.preventDefault();
-        publicar();
+        void publicar();
       }}
     >
       <div>
@@ -2816,7 +3530,7 @@ export default function Enviador({
           name="forma"
           className={input}
           value={forma}
-          disabled={pendente}
+          disabled={ocupado}
           onChange={(e) => trocarForma(e.target.value as FormaDePublicacao)}
         >
           {/* AS PALAVRAS VÊM DE `rotuloDaForma` (lib/publicacao.ts): a tela de
@@ -2845,7 +3559,7 @@ export default function Enviador({
                   name="proporcao"
                   value={p.id}
                   checked={proporcao === p.id}
-                  disabled={pendente}
+                  disabled={ocupado}
                   onChange={() => setProporcao(p.id)}
                 />
                 {p.rotulo}
@@ -2870,7 +3584,7 @@ export default function Enviador({
           // clique, direto ao bucket, e a action recebe o caminho.
           accept={tiposQueOCampoAceita(forma)}
           multiple={campoAceitaVariosArquivos(forma)}
-          disabled={pendente}
+          disabled={ocupado}
           onChange={aoEscolherArquivo}
           className="block w-full text-sm text-zinc-600 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-zinc-700 hover:file:bg-zinc-200 dark:text-zinc-400 dark:file:bg-zinc-800 dark:file:text-zinc-200"
         />
@@ -2907,16 +3621,16 @@ export default function Enviador({
                 problema={problema}
                 forma={forma}
                 enquadra={enquadra}
-                fracao={fracao}
-                pendente={pendente}
+                caixa={caixa}
+                ocupado={ocupado}
                 aoMudarModo={(modo) => mudarModo(s.id, modo)}
-                aoMover={(para) => setSlides(moverNaOrdem(slides, i, para))}
+                aoMover={(para) => setSlides((atuais) => moverNaOrdem(atuais, i, para))}
                 aoRemover={() => remover(s.id)}
               />
             ))}
           </ol>
           {/* A MESMA FRASE QUE A ACTION USARIA AO RECUSAR: aqui ela avisa. */}
-          {problemaDaQuantidade && <p className={fieldError}>{textoDaRecusaDaPublicacao(problemaDaQuantidade)}</p>}
+          {quantidadeNaTela && <p className={fieldError}>{quantidadeNaTela}</p>}
           {primeiroSlide && <p className={fieldError}>{textoDoProblemaDoPrimeiroSlide(primeiroSlide)}</p>}
         </div>
       )}
@@ -2930,7 +3644,7 @@ export default function Enviador({
           name="legenda"
           rows={5}
           value={legenda}
-          disabled={pendente}
+          disabled={ocupado}
           onChange={(e) => setLegenda(e.target.value)}
           className={input}
           placeholder="O texto que aparece embaixo do post."
@@ -2944,8 +3658,6 @@ export default function Enviador({
           <p className={`shrink-0 text-xs ${numero} ${muted}`}>{legenda.length}/2200</p>
         </div>
       </div>
-
-      <input ref={campoDeFuso} type="hidden" name="fuso" defaultValue="" />
 
       {/* A LISTA DOS ENVIOS DENTRO DA TELA, além da janelinha do canto: as duas
           leem o MESMO depósito e a MESMA função pura. */}
@@ -2971,12 +3683,17 @@ export default function Enviador({
       )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         {rodape}
-        <button type="button" className={btnPrimary} disabled={pendente} onClick={publicar}>
-          {pendente ? "Enviando…" : "Publicar"}
+        <button type="button" className={btnPrimary} disabled={ocupado} onClick={() => void publicar()}>
+          {ocupado ? "Enviando…" : "Publicar"}
         </button>
       </div>
     </form>
   );
+}
+
+/** Depois de cada espera da leva: se a tela saiu no meio, a leva para aqui. */
+function seguir(sinal: AbortSignal) {
+  if (sinal.aborted) throw new Error("O envio foi interrompido.");
 }
 
 /** Uma linha da lista de montagem: a miniatura já enquadrada, o nome, o modo, a ordem e o remover. */
@@ -2988,8 +3705,8 @@ function LinhaDoSlide({
   problema,
   forma,
   enquadra,
-  fracao,
-  pendente,
+  caixa,
+  ocupado,
   aoMudarModo,
   aoMover,
   aoRemover,
@@ -3001,26 +3718,26 @@ function LinhaDoSlide({
   problema: ProblemaDaSaida | null;
   forma: FormaDePublicacao;
   enquadra: boolean;
-  fracao: { largura: number; altura: number };
-  pendente: boolean;
+  caixa: { largura: number; altura: number };
+  ocupado: boolean;
   aoMudarModo: (modo: ModoDoEnquadramento) => void;
   aoMover: (para: number) => void;
   aoRemover: () => void;
 }) {
   const nome = s.arquivo.name;
   // A MINIATURA É O RESULTADO, desenhado pelo próprio navegador: a caixa tem a
-  // proporção escolhida, e `object-cover` é o corte ao centro, `object-contain`
-  // sobre o branco é a imagem inteira com bordas. É o mesmo enquadramento que
-  // `geometriaDoEnquadramento` manda o `canvas` desenhar, sem `canvas` nenhum na
-  // tela. O vídeo, que não é recortado, aparece com `object-cover` na caixa: é
-  // o corte que o Instagram faz.
+  // proporção do post (`caixaDaMiniatura`), e `object-cover` é o corte ao
+  // centro, `object-contain` sobre o branco é a imagem inteira com bordas. É o
+  // mesmo enquadramento que `geometriaDoEnquadramento` manda o `canvas` desenhar,
+  // sem `canvas` nenhum na tela. O vídeo, que não é recortado, aparece com
+  // `object-cover` na caixa: é o corte que o Instagram faz.
   const ajuste = s.video || !enquadra || s.modo === "cortar" ? "object-cover" : "object-contain";
   return (
     <li className="flex items-start gap-3 text-xs" aria-label={nome}>
       <span className={`${numero} ${muted} pt-1`}>{i + 1}.</span>
       <span
         className="relative block w-16 shrink-0 overflow-hidden rounded-lg border border-traco bg-white dark:border-traco-escuro"
-        style={enquadra ? { aspectRatio: `${fracao.largura} / ${fracao.altura}` } : { height: "4rem" }}
+        style={enquadra ? { aspectRatio: `${caixa.largura} / ${caixa.altura}` } : { height: "4rem" }}
       >
         {s.video ? (
           <video src={s.endereco} muted playsInline preload="metadata" className={`h-full w-full ${ajuste}`} />
@@ -3050,7 +3767,7 @@ function LinhaDoSlide({
                 key={modo}
                 type="button"
                 aria-pressed={s.modo === modo}
-                disabled={pendente}
+                disabled={ocupado}
                 onClick={() => aoMudarModo(modo)}
                 className={`rounded-lg border px-2 py-0.5 ${
                   s.modo === modo
@@ -3071,7 +3788,7 @@ function LinhaDoSlide({
           <button
             type="button"
             aria-label={`Subir ${nome}`}
-            disabled={pendente || i === 0}
+            disabled={ocupado || i === 0}
             onClick={() => aoMover(i - 1)}
             className="rounded-lg px-2 py-0.5 text-zinc-600 enabled:hover:bg-zinc-100 disabled:opacity-30 dark:text-zinc-300 dark:enabled:hover:bg-zinc-800"
           >
@@ -3080,7 +3797,7 @@ function LinhaDoSlide({
           <button
             type="button"
             aria-label={`Descer ${nome}`}
-            disabled={pendente || i === total - 1}
+            disabled={ocupado || i === total - 1}
             onClick={() => aoMover(i + 1)}
             className="rounded-lg px-2 py-0.5 text-zinc-600 enabled:hover:bg-zinc-100 disabled:opacity-30 dark:text-zinc-300 dark:enabled:hover:bg-zinc-800"
           >
@@ -3090,7 +3807,8 @@ function LinhaDoSlide({
       )}
       <button
         type="button"
-        disabled={pendente}
+        aria-label={`Remover ${nome}`}
+        disabled={ocupado}
         onClick={aoRemover}
         className="rounded-lg px-2 py-0.5 text-zinc-600 enabled:hover:bg-zinc-100 disabled:opacity-30 dark:text-zinc-300 dark:enabled:hover:bg-zinc-800"
       >
@@ -3206,7 +3924,7 @@ npx vitest run --config vitest.dom.config.ts testes-dom/publicar-compositor.dom.
 npx vitest run tests/publicar-compositor-guarda.test.ts
 ```
 
-Esperado: `tsc` e lint limpos; os 21 casos de tela passam, e os 6 da guarda.
+Esperado: `tsc` e lint limpos; os 35 casos de tela passam, e os 8 da guarda.
 
 - [ ] **Passo 7: varrer e commitar**
 
@@ -3225,9 +3943,13 @@ troca o corte pela imagem inteira com bordas, reordena e remove antes de
 subir qualquer coisa. Com o envio no clique, o caminho deixa de existir antes
 do botão e a dedupe deixa de segurar o clique duplo: o botão trava antes de
 qualquer espera e chama a action uma vez, com os caminhos da subida, no molde
-do gerador. As recusas da legenda, da hora, da quantidade e do vídeo em
-primeiro aparecem antes de subir. A action termina em redirect, que rejeita
-a espera com NEXT_REDIRECT: a chamada fica sem catch, e uma guarda lê isso.
+do gerador. O formulário é lido no clique, antes de a tela travar os campos,
+e a legenda chega à action; o fuso, que o campo escondido perdia a cada
+desenho já na produção, é lido no clique também. A subida corre fora da
+transição, e sair da tela a interrompe, da assinatura ao envio. As recusas da
+legenda, da hora, da quantidade e do vídeo em primeiro aparecem antes de
+subir. A action termina em redirect, que rejeita a espera com NEXT_REDIRECT:
+a chamada fica sem catch, e uma guarda lê isso.
 MSG
 ```
 
@@ -3242,7 +3964,7 @@ env -u CLAUDECODE -u AI_AGENT npm run verify
 git diff --stat AGENTS.md
 ```
 
-Esperado: lint e `tsc` limpos; 123 arquivos e 3 368 casos puros e 26 arquivos e 241 de tela; a varredura "SEM VAZAMENTO
+Esperado: lint e `tsc` limpos; 123 arquivos e 3 385 casos puros e 26 arquivos e 255 de tela; a varredura "SEM VAZAMENTO
 em A nem em C"; o build (Turbopack) com "MIGRAÇÃO PULADA" e as rotas `ƒ /publicar`, `ƒ /publicar/novo` e
 `ƒ /publicar/post/[id]`; o `AGENTS.md` sem diferença.
 
@@ -3263,7 +3985,7 @@ DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_te
 git status --short
 ```
 
-Esperado: as 27 com ✓, "27 mutações, 0 ruins", e a árvore limpa depois.
+Esperado: as 55 com ✓, "55 mutações, 0 ruins", e a árvore limpa depois.
 
 - [ ] **Passo 4: a guarda do diff**
 
@@ -3316,11 +4038,15 @@ do build do preview, confira o commit e "MIGRAÇÃO PULADA". O endereço do prev
    celular em pé, tirada no celular, em "Cortar"; um print ou arte deitada, em "Inteira, com bordas"; um
    JPEG já em 4:5 exato, com até 1440 px de largura, que vai sem redesenho; um vídeo curto de iPhone
    (`.mov`), em quarto, aberto no Chrome do computador e no Safari. A lista mostra as miniaturas, e se
-   confere remover um slide e escolher de novo.
-2. Marcar **"Publicar em outra hora"**, com a data de daqui a 7 dias, e só então dar **dois cliques
-   rápidos** no Publicar (grava). A auditoria confere logo depois que há **um item só na fila**, as medidas
-   de cada imagem no bucket (4:5 nas três) e que o JPEG subiu igual ao original, byte a byte. A página do
-   post mostra o vídeo como vídeo, e o calendário mostra a capa.
+   confere remover um slide e escolher de novo. No Safari do iPhone, anotar se o primeiro quadro do vídeo
+   aparece na miniatura (o `<video preload="metadata">` pode ficar em branco ali; se ficar, é anotação, e não
+   bloqueio).
+2. **Digitar uma legenda curta** (a auditoria do 115 lembrou: uma prova sem legenda não pegaria a legenda
+   que some), marcar **"Publicar em outra hora"**, com a data de daqui a 7 dias, às 10:00, e só então dar
+   **dois cliques rápidos** no Publicar (grava). A auditoria confere logo depois que há **um item só na
+   fila**, com a legenda digitada e a hora marcada (10:00 de Brasília, 13:00 UTC: o fuso lido no clique),
+   as medidas de cada imagem no bucket (4:5 nas três) e que o JPEG subiu igual ao original, byte a byte. A
+   página do post mostra o vídeo como vídeo, e o calendário mostra a capa.
 3. Cancelar na página do post (grava). O cancelamento tira os arquivos do bucket, e a página passa a dizer
    que o arquivo foi apagado.
 
@@ -3377,8 +4103,33 @@ const MUTACOES = [
     para: "  const sugereBordas = false;",
     cmd: T_ENQ, caso: "o corte que deixa a imagem estreita demais sugere as bordas" },
   { nome: "1: o EXIF lido só na ordem Intel", arq: REGRAS,
-    de: "  if (!intel && !motorola) return 1;", para: "  if (!intel) return 1;",
+    de: "  if (!intel && !motorola) return 0;", para: "  if (!intel) return 0;",
     cmd: T_ENQ, caso: "nas duas ordens de bytes" },
+  { nome: "1: a leitura cortada volta a valer 1, e falha aberta (achado 117)", arq: REGRAS,
+    de: "    if (fim > b.length) return 0;", para: "    if (fim > b.length) return 1;",
+    cmd: T_ENQ, caso: "vale 0 o que não deu para ler" },
+  { nome: "1: os bytes de preenchimento 0xFF deixam de ser pulados", arq: REGRAS,
+    de: "    while (i + 1 < b.length && b[i + 1] === 0xff) i++;\n", para: "",
+    cmd: T_ENQ, caso: "aceita os bytes de preenchimento 0xFF" },
+  { nome: "1: só a primeira entrada da IFD0 é lida", arq: REGRAS,
+    de: "  for (let k = 0; k < entradas; k++) {", para: "  for (let k = 0; k < Math.min(entradas, 1); k++) {",
+    cmd: T_ENQ, caso: "acha a etiqueta 0x0112 depois de outras na IFD0" },
+  { nome: "1: todo APP1 vira EXIF, até o de XMP", arq: REGRAS,
+    de: "      b[inicio] === 0x45 &&\n      b[inicio + 1] === 0x78 &&\n      b[inicio + 2] === 0x69 &&\n      b[inicio + 3] === 0x66 &&\n      b[inicio + 4] === 0 &&\n      b[inicio + 5] === 0;",
+    para: "      true;",
+    cmd: T_ENQ, caso: "pula um APP1 de XMP antes do EXIF" },
+  { nome: "1: o desenho de menos de 1 pixel passa", arq: REGRAS,
+    de: "  if (dw < 1 || dh < 1) return null;\n", para: "",
+    cmd: T_ENQ, caso: "o desenho de menos de 1 pixel é recusa" },
+  { nome: "1: a tolerância do vídeo em primeiro dobra", arq: REGRAS,
+    de: "const TOLERANCIA_DA_PROPORCAO_DO_VIDEO = 0.01;", para: "const TOLERANCIA_DA_PROPORCAO_DO_VIDEO = 0.02;",
+    cmd: T_ENQ, caso: "a borda da tolerância" },
+  { nome: "1: a quantidade manda escolher o arquivo que já foi escolhido", arq: REGRAS,
+    de: '  if (recusa === "sem_arquivo" && escolhidos > 0) {', para: "  if (false) {",
+    cmd: T_ENQ, caso: "a quantidade na tela é a da action, e aponta a lista" },
+  { nome: "1: a miniatura do carrossel só de vídeos fica na proporção escolhida", arq: REGRAS,
+    de: "  return { largura: primeiro.largura, altura: primeiro.altura };", para: "  return escolhida;",
+    cmd: T_ENQ, caso: "no carrossel só de vídeos, a caixa é a do primeiro vídeo válido" },
   { nome: "1: o cru ignora a orientação EXIF", arq: REGRAS,
     de: '  if (p.mime !== "image/jpeg" || p.orientacao !== 1) return false;', para: '  if (p.mime !== "image/jpeg") return false;',
     cmd: T_ENQ, caso: "a foto girada pelo EXIF" },
@@ -3391,7 +4142,7 @@ const MUTACOES = [
     para: "  return problemaDoArquivo(forma, arq, tetoDoBucketEmBytes);",
     cmd: T_ENQ, caso: "a foto de celular 3:4 e o PNG em pé não ficam vermelhos" },
   { nome: "1: a trava olha o primeiro da lista, e não o primeiro válido (achado 111)", arq: REGRAS,
-    de: "  const primeiro = validos[0];", para: "  const primeiro = itens[0];",
+    de: "  const primeiro = validos[0];\n  if (!primeiro.video) return null;", para: "  const primeiro = itens[0];\n  if (!primeiro.video) return null;",
     cmd: T_ENQ, caso: "o primeiro VÁLIDO decide" },
   { nome: "1: o carrossel só de vídeos passa a travar", arq: REGRAS,
     de: "  if (!validos.some((i) => !i.video)) return null;\n", para: "  if (!validos.length) return null;\n",
@@ -3413,9 +4164,15 @@ const MUTACOES = [
   { nome: "3: a página do post volta a desenhar <img> para o vídeo", arq: POST,
     de: "                p && ehVideoNoPost(p.forma, m.caminho) ? (", para: "                false ? (",
     cmd: T_PREVIAS, caso: "pergunta à regra pura se cada caminho é vídeo" },
+  { nome: "3: a pergunta da página do post sai negada", arq: POST,
+    de: "                p && ehVideoNoPost(p.forma, m.caminho) ? (", para: "                p && !ehVideoNoPost(p.forma, m.caminho) ? (",
+    cmd: T_PREVIAS, caso: "pergunta à regra pura se cada caminho é vídeo" },
   { nome: "3: o calendário volta a pegar o primeiro caminho", arq: CALENDARIO,
     de: "const primeira = !saiu && p ? capaDoPost(p.forma, p.caminhos) : null;", para: "const primeira = !saiu ? p?.caminhos?.[0] ?? null : null;",
     cmd: T_PREVIAS, caso: "pede a capa à regra pura" },
+  { nome: "3: o post só de vídeo perde o ícone no calendário", arq: CALENDARIO,
+    de: '{saiu ? "✓" : soVideo ? "▶" : "•"}', para: '{saiu ? "✓" : "•"}',
+    cmd: T_PREVIAS, caso: "o post só de vídeo, que não saiu, mostra o ícone de vídeo" },
   // FASE 4: a frase do sem arquivo
   { nome: "4: a frase do sem arquivo volta a mandar esperar o envio (pura)", arq: REGRAS,
     de: '      return "Escolha um arquivo antes de publicar.";', para: '      return "Escolha um arquivo e espere o envio terminar antes de publicar.";',
@@ -3424,34 +4181,91 @@ const MUTACOES = [
     de: '      return "Escolha um arquivo antes de publicar.";', para: '      return "Escolha um arquivo e espere o envio terminar antes de publicar.";',
     cmd: T_FALA, caso: "sem arquivo (campo vazio) recusa com o que fazer" },
   // FASE 5: o compositor
-  { nome: "5: sem a trava, dois cliques sobem duas vezes (achado 107)", arq: COMPOSITOR,
+  { nome: "5: sem a trava, dois cliques no mesmo quadro sobem duas vezes (achado 107)", arq: COMPOSITOR,
+    de: "    if (trava.current) return;\n    trava.current = true;", para: "    trava.current = true;",
+    cmd: T_TELA, caso: "dois cliques no mesmo quadro, antes de qualquer desenho" },
+  { nome: "5: sem a trava, o Enter abre outra leva", arq: COMPOSITOR,
     de: "    if (trava.current) return;\n    trava.current = true;", para: "    trava.current = true;",
     cmd: T_TELA, caso: "dois cliques e o Enter dão UMA leva de assinaturas" },
   { nome: "5: sem a trava, a guarda cai também", arq: COMPOSITOR,
     de: "    if (trava.current) return;\n    trava.current = true;", para: "    trava.current = true;",
     cmd: T_GUARDA, caso: "a trava é ligada antes de qualquer espera" },
   { nome: "5: um catch engole o erro da action (o NEXT_REDIRECT)", arq: COMPOSITOR,
-    de: "        await acao(pedido);\n      } finally {", para: "        await acao(pedido);\n      } catch {\n        setRecusa(\"O envio falhou.\");\n      } finally {",
+    de: "        await acao(dados);\n      } finally {", para: "        await acao(dados);\n      } catch {\n        setRecusa(\"O envio falhou.\");\n      } finally {",
     cmd: T_GUARDA, caso: "a chamada da action não tem catch em volta" },
+  { nome: "5: a subida volta para dentro da transição (achado 116)", arq: COMPOSITOR,
+    de: "        await acao(dados);\n", para: "        await montarOPedido();\n        await acao(dados);\n",
+    cmd: T_GUARDA, caso: "dentro da transição fica só a action" },
   { nome: "5: o envio nativo deixa de ser segurado", arq: COMPOSITOR,
-    de: "        ev.preventDefault();\n        publicar();", para: "        publicar();",
+    de: "        ev.preventDefault();\n        void publicar();", para: "        void publicar();",
     cmd: T_GUARDA, caso: "o formulário não tem action" },
+  { nome: "5: o formulário é lido depois da subida, e a legenda some (achado 115)", arq: COMPOSITOR,
+    de: '      pedido.set("forma", forma);\n      pedido.set("caminhos", caminhos.join("\\n"));\n      return pedido;',
+    para: '      const tarde = new FormData(form);\n      tarde.set("forma", forma);\n      tarde.set("caminhos", caminhos.join("\\n"));\n      return tarde;',
+    cmd: T_TELA, caso: "a action recebe tudo o que o formulário tinha no clique" },
+  { nome: "5: o formulário lido depois da subida, na guarda", arq: COMPOSITOR,
+    de: '      pedido.set("forma", forma);\n      pedido.set("caminhos", caminhos.join("\\n"));\n      return pedido;',
+    para: '      const tarde = new FormData(form);\n      tarde.set("forma", forma);\n      tarde.set("caminhos", caminhos.join("\\n"));\n      return tarde;',
+    cmd: T_GUARDA, caso: "o formulário é lido antes de qualquer espera" },
+  { nome: "5: o fuso deixa de ser lido no clique", arq: COMPOSITOR,
+    de: '    pedido.set("fuso", String(new Date().getTimezoneOffset()));\n', para: "",
+    cmd: T_TELA, caso: "a action recebe tudo o que o formulário tinha no clique" },
+  { nome: "5: o clique deixa de esperar a leitura dos arquivos", arq: COMPOSITOR,
+    de: "    if (algumMedindo) {", para: "    if (false) {",
+    cmd: T_TELA, caso: "o clique antes de a tela terminar de ler os arquivos" },
   { nome: "5: a hora deixa de ser conferida antes de subir (achado 109)", arq: COMPOSITOR,
-    de: "        const daHora = recusaDaHora(form);\n        if (daHora) {", para: "        const daHora = null as string | null;\n        if (daHora) {",
+    de: "    const daHora = recusaDaHora(pedido);\n    if (daHora) {", para: "    const daHora = null as string | null;\n    if (daHora) {",
     cmd: T_TELA, caso: "'outra hora' sem a data trava antes de subir" },
+  { nome: "5: a hora deixa de ser conferida depois da subida", arq: COMPOSITOR,
+    de: "      const daHoraDepois = recusaDaHora(pedido);\n      if (daHoraDepois) {", para: "      const daHoraDepois = null as string | null;\n      if (daHoraDepois) {",
+    cmd: T_TELA, caso: "a hora é conferida de novo depois da subida" },
   { nome: "5: a falha da subida devolve o caminho mesmo assim", arq: COMPOSITOR,
-    de: "        await navegador.subir(assinatura.url, arquivo, (enviados, total) => atualizarEnvio(nome, { enviados, total }), controle.signal);",
-    para: "        await navegador.subir(assinatura.url, arquivo, (enviados, total) => atualizarEnvio(nome, { enviados, total }), controle.signal).catch(() => {});",
+    de: "      await navegador.subir(assinatura.url, arquivo, (enviados, total) => atualizarEnvio(nome, { enviados, total }), sinal);",
+    para: "      await navegador.subir(assinatura.url, arquivo, (enviados, total) => atualizarEnvio(nome, { enviados, total }), sinal).catch(() => {});",
     cmd: T_TELA, caso: "o caminho só fica guardado depois do 2xx" },
+  { nome: "5: mudar o modo deixa de descartar o caminho guardado", arq: COMPOSITOR,
+    de: "    return `${pasta}|${forma}|${proporcao}|${s.modo}`;", para: "    return `${pasta}|${forma}|${proporcao}`;",
+    cmd: T_TELA, caso: "mudar o modo de um slide que já subiu descarta o caminho dele" },
+  { nome: "5: trocar de conta deixa de descartar o caminho guardado", arq: COMPOSITOR,
+    de: "    return `${pasta}|${forma}|${proporcao}|${s.modo}`;", para: "    return `${forma}|${proporcao}|${s.modo}`;",
+    cmd: T_TELA, caso: "trocar de conta entre uma tentativa que falhou e a próxima" },
   { nome: "5: a pasta da conta deixa de ser conferida", arq: COMPOSITOR,
-    de: "        if (caminhos.some((c) => !c.startsWith(`${pasta}/`))) {", para: "        if (false) {",
+    de: "      if (caminhos.some((c) => !c.startsWith(`${pasta}/`))) {", para: "      if (false) {",
     cmd: T_TELA, caso: "um caminho fora da pasta da conta recusa" },
   { nome: "5: a janelinha fica até a action", arq: COMPOSITOR,
-    de: "        limparEnvios();\n        const pedido = new FormData(form);", para: "        const pedido = new FormData(form);",
+    de: '      limparEnvios();\n      pedido.set("forma", forma);', para: '      pedido.set("forma", forma);',
     cmd: T_TELA, caso: "a trava solta depois da action, e a janelinha sai antes dela" },
+  { nome: "5: fechar a aba no meio da subida deixa de pedir confirmação", arq: COMPOSITOR,
+    de: '    window.addEventListener("beforeunload", segurar);\n', para: "",
+    cmd: T_TELA, caso: "fechar a aba no meio da subida pede confirmação" },
   { nome: "5: sair da tela deixa a subida andando", arq: COMPOSITOR,
-    de: "      for (const c of ativos) c.abort();\n", para: "",
+    de: "        emCurso.abort();\n", para: "",
     cmd: T_TELA, caso: "sair da tela no meio da subida interrompe" },
+  { nome: "5: o catch da subida escreve por cima da frase da limpeza (achado 116)", arq: COMPOSITOR,
+    de: "      if (sinal.aborted) return null;\n      // O ENVIO QUE NÃO FOI", para: "      // O ENVIO QUE NÃO FOI",
+    cmd: T_TELA, caso: "sair da tela no meio da subida interrompe" },
+  { nome: "5: o pedido da assinatura vai sem o sinal da leva (achado 116)", arq: COMPOSITOR,
+    de: ", ...declarado }, sinal);", para: ", ...declarado }, new AbortController().signal);",
+    cmd: T_TELA, caso: "sair da tela com a assinatura pendente interrompe o pedido" },
+  { nome: "5: a leva segue depois da assinatura mesmo com a tela fora (achado 116)", arq: COMPOSITOR,
+    de: ", ...declarado }, sinal);\n      seguir(sinal);\n", para: ", ...declarado }, sinal);\n",
+    cmd: T_TELA, caso: "sair da tela com a assinatura pendente interrompe o pedido" },
+  { nome: "5: o aviso de quem ficou de fora fica ao remover", arq: COMPOSITOR,
+    de: "    setForaDaLista(0);\n  }\n\n  function mudarModo", para: "  }\n\n  function mudarModo",
+    cmd: T_TELA, caso: "o aviso de quem ficou de fora some ao remover um slide" },
+  { nome: "5: o fetch da assinatura sai sem o sinal", arq: NAVEGADOR,
+    de: "      signal: sinal,\n", para: "",
+    cmd: T_TELA, caso: "o pedido da assinatura leva o sinal da leva" },
+  { nome: "5: o navegador que recusa a opção da orientação deixa toda imagem ilegível", arq: NAVEGADOR,
+    de: "  } catch {\n    return await createImageBitmap(arquivo);\n  }", para: "  } finally {\n    // nada\n  }",
+    cmd: T_TELA, caso: "mede a imagem pelo bitmap com a orientação, e repete sem a opção" },
+  { nome: "5: a leitura da orientação que falha deixa o slide lendo para sempre", arq: NAVEGADOR,
+    de: "    try {\n      return orientacaoDoJpeg(new Uint8Array(await arquivo.slice(0, 64 * 1024).arrayBuffer()));\n    } catch {\n      return 0;\n    }",
+    para: "    return orientacaoDoJpeg(new Uint8Array(await arquivo.slice(0, 64 * 1024).arrayBuffer()));",
+    cmd: T_TELA, caso: "a leitura que falha vale 0" },
+  { nome: "5: a medida do vídeo perde o tempo-limite", arq: NAVEGADOR,
+    de: "    relogio = setTimeout(() => ok({}), TEMPO_PARA_MEDIR_VIDEO_EM_MS);\n", para: "",
+    cmd: T_TELA, caso: "o vídeo que o navegador não mede no tempo-limite" },
   { nome: "5: o sinal deixa de abortar o PUT", arq: NAVEGADOR,
     de: '    sinal.addEventListener("abort", abortar, { once: true });\n', para: "",
     cmd: T_TELA, caso: "o sinal aborta o pedido, e a subida rejeita" },
