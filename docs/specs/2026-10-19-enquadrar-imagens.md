@@ -10,7 +10,10 @@ saíram dessa revisão: o reels e o story também passam a enviar no clique, e o
 revisão do diff (`9f68b1e`) trouxe o achado 114 (a prova não clica com "Publicar agora" marcado) e três
 correções de precisão, absorvidos; a spec foi liberada em `057a18c` e lida pelo Eduardo. No começo do
 plano, uma sonda de laboratório mediu o que o `redirect` da action faz com a tela: ela é recriada. Com
-isso, o identificador do pedido sai (por recomendação da auditoria) e a action não muda.
+isso, o identificador do pedido sai (por recomendação da auditoria) e a action não muda. A revisão do
+plano (`56eb105`) trouxe os achados 115 (o post sem legenda, BLOQUEIA), 116 (a subida dentro da transição) e
+117 (o EXIF que falhava aberto), absorvidos aqui e no plano. O caso de tela do 115 achou ainda um defeito já
+em produção, o fuso vazio, e o Eduardo decidiu pela caixa corrigi-lo nesta etapa.
 **Projeto de quem:** do Vinícius Gualberto, que saiu da empresa em 15/10. Por decisão do Eduardo, o
 código dele pode mudar no jeito dele: o porquê e a medição no comentário, a regra como função pura com
 teste, uma mutação por proteção e o commit numa frase. Mexer no `/publicar` pede antes a auditoria do
@@ -64,6 +67,7 @@ Do Eduardo, pela caixa, em 19/10:
 | quando os arquivos sobem | ao clicar em Publicar, e não ao escolher |
 | o reels e o story (depois da revisão) | também sobem no clique: um jeito só para as quatro formas |
 | o achado 113 (depois da revisão) | corrigido nesta etapa |
+| o fuso vazio (achado no plano, já em produção) | corrigido nesta etapa |
 | a tela e o "por dentro" | aprovados |
 
 ---
@@ -79,7 +83,8 @@ Do Eduardo, pela caixa, em 19/10:
   (`recusaDaQuantidade`, `lib/publicacao.ts:1257`). Na imagem única, escolher de novo troca o arquivo.
 - **A lista de montagem**, uma linha por arquivo:
   - **a miniatura já enquadrada**, na proporção escolhida, desenhada no navegador com o mesmo branco das
-    bordas;
+    bordas. No carrossel só de vídeos, a caixa tem a medida do primeiro vídeo, porque é por ele que a Meta
+    corta os outros;
   - o nome do arquivo (`rotuloDoEnvio`, como hoje);
   - nas imagens, **"Cortar"** e **"Inteira, com bordas"**, com "Cortar" marcado;
   - **↑ ↓**, como hoje (`moverNaOrdem`), e **"Remover"**.
@@ -94,7 +99,9 @@ Do Eduardo, pela caixa, em 19/10:
     estreita, como num 640×360 em 4:5, que dá 288 px;
   - o vídeo longo ou pesado demais, pelas regras de hoje.
 - **Acima da lista:** "**O post vai sair com N slides.**". Com menos de 2 válidos no carrossel, o
-  Publicar trava com a frase da quantidade.
+  Publicar trava com a frase da quantidade. Quando há arquivo escolhido e nenhum serve (a imagem única com o
+  único arquivo vermelho), a frase aponta a lista ("O arquivo escolhido não serve: o motivo está na lista.
+  Escolha outro."), em vez de mandar escolher um arquivo.
 - **A trava do primeiro slide** (achado 111). A Meta corta todos pela proporção do primeiro que SAI (o
   primeiro válido, pulando os vermelhos). Quando o post tem pelo menos uma imagem e esse primeiro é um
   vídeo, o Publicar trava em dois casos:
@@ -117,11 +124,20 @@ Do Eduardo, pela caixa, em 19/10:
     invariante: o `submit` nativo do formulário SEMPRE leva `preventDefault` no próprio `form`, antes do
     ouvinte do React na raiz (o React confere `nativeEvent.defaultPrevented` antes de chamar a action do
     `<form action>`), e nunca chega à action pelo React. A action só é chamada pelo caminho da trava.
+- **O formulário é lido no clique**, antes de qualquer espera (achado 115). Durante a subida a tela trava
+  os campos com `disabled`, e campo desabilitado não entra no `FormData`: lido depois da subida, o post saía
+  sem legenda, calado, nas quatro formas (medido pela auditoria com uma sonda). O `FormData` lido no clique
+  é o que vai à action, com a forma e os caminhos acrescentados.
+- **O fuso também é lido no clique.** Ele morava num campo escondido escrito por um efeito, e o React o
+  devolvia ao valor inicial vazio a cada desenho: medido em 19/10 com o compositor de produção, o campo vale
+  "180" depois de montar e fica vazio na primeira letra da legenda. A action cai então no fuso do painel
+  (`fusoDoCampo`, 180), e quem agenda fora de Brasília vê o post sair na hora errada (em Manaus, 1 hora
+  antes). O campo escondido sai.
 - **Antes de subir qualquer arquivo**, a tela roda as mesmas funções puras que a action roda
-  (`recusaDaQuantidade`, `problemaDaLegenda`, e `camposDaDataHora`, `instanteDoAgendamento` e
-  `momentoDaPublicacao`, `app/publicar/actions.ts`). A recusa aparece na tela com a frase da action, sem
-  subir nada. Hoje todas essas recusas chegam depois da subida, porque o formulário não tem `required`
-  (achado 109).
+  (`recusaDaQuantidade`, `problemaDaLegenda` sobre a legenda sem os espaços das pontas, e
+  `camposDaDataHora`, `instanteDoAgendamento` e `momentoDaPublicacao`, `app/publicar/actions.ts`). A recusa
+  aparece na tela com a frase da action, sem subir nada. Hoje todas essas recusas chegam depois da subida,
+  porque o formulário não tem `required` (achado 109).
 - **A subida**, depois do clique:
   1. a janelinha de envios (`app/publicar/envios.ts`) nasce aqui, e não na escolha;
   2. cada arquivo válido é preparado (enquadrado no `canvas`, ou mandado como veio, abaixo) e sobe, um
@@ -137,9 +153,15 @@ Do Eduardo, pela caixa, em 19/10:
   aba pede confirmação (`beforeunload`). Sair pelo menu interrompe a subida, e a janelinha diz "A
   publicação não foi pedida.". Hoje o laço e a subida sobrevivem a sair da tela (`enviador.tsx:148-191`,
   `:597-622`).
+- **A subida corre fora da transição** (achado 116). Uma transição assíncrona aberta prende as seguintes, e
+  o `Link` do menu navega por `startTransition`: com a subida dentro dela, o clique no menu ficaria parado
+  até a subida e a action acabarem (lido no React embutido no Next, e não medido). A subida tem um estado
+  próprio, que trava a tela e liga o `beforeunload`, e dentro da transição fica só a espera da action, que é
+  o que a sonda mediu. Cada leva tem um `AbortController`, criado antes da primeira espera, com o sinal no
+  pedido da assinatura e na subida, e conferido depois de cada espera.
 - **Se uma subida falha**, nada vai para a fila, e a lista diz qual falhou. Os que já subiram ficam
   guardados, e um novo clique sobe só os que faltam. Mudar o modo, a proporção ou o arquivo de um slide
-  descarta o caminho guardado dele.
+  descarta o caminho guardado dele, e trocar de conta no seletor descarta todos.
 - **O que acontece depois da action, MEDIDO** (achado 109). A action termina em `redirect` para a
   própria tela, com o aviso, como hoje. Uma sonda de laboratório mediu, em 19/10, no Next 16.3.8, no
   `next dev` e no `next build` + `next start`, o que isso faz com um componente de cliente que chama uma
@@ -214,22 +236,31 @@ DA TELA DE COMPOR"): "um `if` sobre regra de negócio dentro do JSX está no lug
     amplia imagem.
 - **`vaiSemRedesenho({ mime, largura, altura, bytes, proporcao, orientacao })`**: o arquivo vai como veio,
   sem `canvas`, só quando o enquadramento **não mudaria nenhum pixel**. Ou seja: JPEG; a geometria dá o
-  recorte igual à imagem inteira e a saída com as medidas do original; até 1440 px de largura; até 8 MiB;
-  e a orientação EXIF ausente ou igual a 1. Sem medida, não vai cru. É a regra do Vinícius de "JPEG que
-  já serve não passa pelo canvas" (`planoDaConversao`, `:951-982`), estendida à proporção. Não se usa a
+  recorte igual à imagem inteira e a saída com as medidas do original (igual à saída do `canvas`: no
+  1,91:1 a proporção exata quase não existe, só em larguras múltiplas de 191, e o 1080×566 vai cru); até
+  1440 px de largura; até 8 MiB; e a orientação EXIF ausente ou igual a 1. Sem medida, não vai cru. É a
+  regra do Vinícius de "JPEG que já serve não passa pelo canvas" (`planoDaConversao`, `:951-982`),
+  estendida à proporção. Não se usa a
   tolerância de 1% do gerador (0,792–0,808, `lib/bonus/publicar-regras.ts:61-62`): ali, a assinatura
   recusa abaixo de 0,8 depois. Aqui, um cru a 0,807 em primeiro cortaria os outros em cerca de 12 px.
 - **`orientacaoDoJpeg(bytes)`**: lê a orientação EXIF no segmento APP1 do JPEG, pura e sobre os bytes.
-  Devolve 1 quando não há EXIF.
+  Devolve 1 só de uma leitura que chegou ao fim (os cabeçalhos acabaram sem EXIF, ou o EXIF não tem a
+  etiqueta), e 0 quando não deu para ler (outro formato, bytes cortados, segmento malformado), e o 0 vai pelo
+  `canvas` (achado 117). A tela lê só os primeiros 64 KiB: um APP1 que termina depois deles dá 0, e não 1.
 - **`problemaDaSaida(...)`**: o vermelho da lista, sobre a saída prevista. O mime da saída é JPEG quando
   o `canvas` converte (`MIMES_QUE_O_CANVAS_CONVERTE`, `:914`), as medidas são as da geometria, e os bytes
   só contam no cru. O `problemaDoArquivo` de hoje continua valendo, sobre o arquivo que de fato sobe.
 - **`problemaDoPrimeiroSlide(itens, proporcao)`**: a trava acima, sobre o primeiro válido, com o caso do
   vídeo sem medida e o carrossel só de vídeos.
-- **`recorteDoInstagramNoVideo(proporcaoDoVideo, proporcaoDoPost)`**: o retângulo visível, em frações,
-  para a marca da prévia do vídeo.
+- **`recorteDoInstagramNoVideo` saiu no plano** (desvio declarado): a miniatura é desenhada por CSS, e
+  não pelo `canvas` (abaixo), e o vídeo aparece com `object-cover` na caixa da proporção, que já é o corte
+  do Instagram. Ninguém chamaria a função.
+- **`caixaDaMiniatura(forma, itens, proporcao)`**: a proporção da caixa da miniatura; no carrossel só de
+  vídeos, a do primeiro vídeo válido.
 - **A lista**: acrescentar até 10, remover, a contagem dos válidos e a frase "O post vai sair com N
   slides.".
+- **As frases do clique** (`textoDaRecusaDaTela`, `textoDoEnvioQueNaoFoi`, `textoDaQuantidadeNaTela`), em
+  `lib`, com caso, e não no JSX.
 - **`ehVideoNoPost(forma, caminho)`**: o reels, ou `pareceVideo` (`lib/publicacao.ts:548`) nas outras
   formas, como o dreno faz.
 
@@ -238,20 +269,30 @@ DA TELA DE COMPOR"): "um `if` sobre regra de negócio dentro do JSX está no lug
 - **O estado** passa a ser a lista de arquivos escolhidos, cada um com o `File`, as medidas, o modo, o
   problema, se houver, e o caminho, só depois do 2xx.
 - **As medidas saem do mesmo bitmap que o `canvas` desenha** (achado 110): `createImageBitmap(arquivo,
-  { imageOrientation: "from-image" })`, como o gerador já faz
-  (`app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts:65-66` e `:91`). Hoje a tela mede com
-  `new Image().naturalWidth` (`enviador.tsx:508-516`) e desenha com outro objeto, esticando o desenho nas
-  medidas do primeiro (`:553`, `:570`).
+  { imageOrientation: "from-image" })`. Hoje a tela mede com `new Image().naturalWidth`
+  (`enviador.tsx:508-516`) e desenha com outro objeto, esticando o desenho nas medidas do primeiro (`:553`,
+  `:570`). Correção da revisão do plano: o gerador NÃO passa a opção
+  (`app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts` chama `createImageBitmap(arquivo)`), e nada em
+  produção prova que todo navegador a aceita. Se ela der erro, a chamada se repete sem ela, para um
+  navegador que a recuse não deixar toda imagem "ilegível".
+- **A fiação do navegador mora em `app/publicar/navegador.ts`** (desvio declarado: a spec não previa o
+  arquivo), entregue ao compositor por propriedade, porque o jsdom não tem `canvas`, `createImageBitmap` nem
+  `URL.createObjectURL` e o teste de tela entrega uma falsa. A medida do vídeo tem tempo-limite de 10 s, e
+  a leitura da orientação que falha vale 0.
+- **A imagem que o navegador não abriu fica vermelha** (`imagem_ilegivel`, desvio declarado): sem medida,
+  não há como enquadrá-la, e a frase pede exportar em JPEG ou PNG.
 - **O `canvas` pinta o branco antes do `drawImage`**, como hoje (`enviador.tsx:568`). É a proteção do
   PNG transparente, e agora é também a cor da borda. Depois do `toBlob`, a tela confere que o tipo
   saiu JPEG, como o gerador confere (`imagem-no-navegador.ts:103`, `:132`, `:214`). Hoje o tipo é forçado
   (`enviador.tsx:579`).
-- **As miniaturas** são refeitas uma de cada vez, com um só bitmap vivo por vez, e liberadas
-  (`URL.revokeObjectURL`) ao refazer, ao remover e ao sair da tela.
-- **O botão e a trava**, como em "O envio no clique". A action continua a mesma: a tela monta o
-  `FormData` do formulário e põe os caminhos de uma referência, não de um campo controlado pelo estado.
-  O React lê o formulário no instante do envio, e um estado atualizado depois de uma espera ainda não
-  chegou ao campo (achado 108).
+- **As miniaturas são desenhadas por CSS, e não pelo `canvas`** (desvio declarado no plano). A caixa tem a
+  proporção do post e o fundo branco, e a imagem vai com `object-cover` (o corte ao centro) ou
+  `object-contain` (inteira, com bordas): é o mesmo enquadramento que `geometriaDoEnquadramento` manda o
+  `canvas` desenhar na subida. Sem `canvas` na tela, não há bitmap a segurar; os endereços locais são
+  liberados (`URL.revokeObjectURL`) ao remover e ao sair da tela.
+- **O botão e a trava**, como em "O envio no clique". A action continua a mesma: a tela lê o `FormData` do
+  formulário no clique e põe os caminhos de uma variável, não de um campo controlado pelo estado. Um estado
+  atualizado depois de uma espera ainda não chegou ao campo (achado 108).
 - **O que a rota de assinar recebe não muda**: o tipo, o tamanho e as medidas DECLARADAS do arquivo que
   sobe, e não do original. A rota confere esses números (`app/api/midia/assinar/route.ts:47-51`,
   `decisaoDeAssinatura`, `lib/publicacao.ts:478`). A action não confere a mídia.
@@ -291,12 +332,17 @@ chama a mesma action, com um `FormData` montado por ele.
 - **O clique em Publicar demora o tempo do envio**: segundos para uma imagem, minutos para um carrossel
   de 10 ou um reels grande. A janelinha mostra o andamento.
 - **A página do post cancelado diz a verdade sobre o arquivo.**
+- **A legenda e o fuso chegam à action**, e o post agendado fora de Brasília sai na hora marcada.
 
 **Os resíduos, escritos (os órfãos que continuam no bucket):**
 - recarregar ou fechar a aba no meio da subida, mesmo depois do aviso;
 - remover um slide, trocar a forma, ou mudar o arquivo, o modo ou a proporção de um slide depois de uma
   tentativa que subiu algo e falhou;
 - a recusa da action depois da subida: a tela é recriada pelo `redirect` (medido), e a lista some.
+
+**A frase do cancelado pode mentir num caso**: ela diz "O arquivo foi apagado do armazenamento." pelo motivo
+do cancelamento, e o cancelar apaga com `limparOBucket`. Se essa limpeza falhar, o arquivo fica e a frase
+diz que saiu. O resíduo fica escrito, e não medido.
 
 Trocar a forma antes de clicar deixa de orfanar, porque nada subiu. A varredura de órfãos continua sendo
 recurso novo, como o Vinícius registrou (`lib/bucket.ts` não sabe listar).
@@ -314,21 +360,22 @@ recurso novo, como o Vinícius registrou (`lib/bucket.ts` não sabe listar).
 | suíte | o quê |
 |---|---|
 | pura | `geometriaDoEnquadramento`: a varredura de 320 a 1440 de largura × 3 proporções × 2 modos, passando cada saída por `problemaDoArquivo`, com `Number.isInteger` e o recorte dentro da imagem; os casos de origem mais larga, mais alta e igual; o teto de 1440; a recusa abaixo de 320 e a frase que sugere as bordas |
-| pura | `vaiSemRedesenho`: o cru só sem mudar pixel; nunca com PNG ou WebP, fora da proporção exata, acima de 1440, acima de 8 MiB, sem medida ou com EXIF diferente de 1 |
-| pura | `orientacaoDoJpeg`: os bytes de orientação 1, 3, 6 e 8, e o JPEG sem EXIF |
+| pura | `vaiSemRedesenho`: o cru só sem mudar pixel (igual à saída do `canvas`); nunca com PNG ou WebP, diferente da saída, acima de 1440, acima de 8 MiB, sem medida ou com EXIF diferente de 1 (o 0 incluído) |
+| pura | `orientacaoDoJpeg`: os bytes de orientação 1, 3, 6 e 8 nas duas ordens; o APP1 depois do APP0 e de um APP1 de XMP; a etiqueta depois de outras; os bytes de preenchimento; o 1 só sem EXIF ou sem a etiqueta; o 0 para o cortado (o APP1 que passa dos 64 KiB), o vazio, o malformado e o valor fora de 1 a 8 |
 | pura | `problemaDaSaida`: o PNG e a foto 0,75 que não ficam vermelhos; a saída estreita que fica |
 | pura | `problemaDoPrimeiroSlide`: [imagem recusada, vídeo 9:16, imagem] com 4:5 trava; o vídeo sem medida em primeiro trava; o carrossel só de vídeos não trava; a frase só oferece a proporção quando o vídeo está a 1% de uma delas |
-| pura | `recorteDoInstagramNoVideo`, a lista (acrescentar até 10, remover, a contagem, a frase), `ehVideoNoPost` e `pareceVideo` direto (as extensões, a maiúscula, `?` e `#`, e `.bin`) |
+| pura | a lista (acrescentar até 10, remover, a contagem, a frase), `caixaDaMiniatura`, as frases do clique, `ehVideoNoPost` e `pareceVideo` direto (as extensões, a maiúscula, `?` e `#`, e `.bin`); a borda de 1% do vídeo em primeiro (1080×1340 passa, 1080×1330 trava) |
 | pura | `fraseSobreAMidia`, pelo motivo: o cancelado pelo painel diz que foi apagado; a "conta não conectada" e o que falhou dizem que ficou |
-| tela | o seletor da proporção com 4:5 marcado; escolher não envia; a lista com miniatura, os dois modos, ↑ ↓ e "Remover"; o vermelho; a contagem; as travas; **dois cliques (e o Enter) dão uma leva de assinaturas e uma chamada da action**; a recusa da hora ou da legenda antes de qualquer assinatura; o Enter não chama a action pelo `submit` (0 chamada direta); a ordem da subida; a action só com todos os caminhos; o caminho guardado só depois do 2xx; a trava solta depois da action. Precisa de um `XMLHttpRequest` falso, que ainda não existe na suíte |
-| guarda | a chamada da action no compositor sem `catch` em volta: um teste que lê o arquivo, no jeito das guardas do Vinícius, porque o jsdom não reproduz o `NEXT_REDIRECT` |
-| páginas | a página do post desenha `<video>` para o caminho de vídeo nas quatro formas; o calendário não usa o vídeo como capa. A integração de `nao-saiu` não liga o bucket, e a capa ali é nula: o caso vai numa suíte que monta a URL |
+| tela | o seletor da proporção com 4:5 marcado; escolher não envia; a lista com miniatura, os dois modos, ↑ ↓ e "Remover"; o vermelho; a contagem; as travas; **dois cliques (e o Enter) dão uma leva de assinaturas e uma chamada da action**; a recusa da hora ou da legenda antes de qualquer assinatura; o Enter não chama a action pelo `submit` (0 chamada direta); a ordem da subida; a action só com todos os caminhos; o caminho guardado só depois do 2xx; a trava solta depois da action. Precisa de um `XMLHttpRequest` falso, que ainda não existe na suíte. Depois da revisão do plano: **a action recebe as oito chaves que lê** (forma, caminhos, legenda, quando, data_hora, fuso, compartilhar_no_feed e nome_do_audio), com a legenda digitada e as opções do reels na tela; os dois cliques num só quadro; a hora conferida de novo depois da subida; o clique antes da leitura dos arquivos; o `beforeunload`; sair da tela com a assinatura pendente; o modo e a conta que descartam o caminho guardado; e o navegador de verdade (a opção da orientação recusada, a leitura que falha, o tempo-limite do vídeo e o sinal no pedido da assinatura) |
+| guarda | a chamada da action no compositor sem `catch` em volta, só ela dentro da transição, e o formulário lido antes da primeira espera: um teste que lê o arquivo, no jeito das guardas do Vinícius, porque o jsdom não reproduz o `NEXT_REDIRECT` |
+| páginas | a página do post desenha `<video>` para o caminho de vídeo nas quatro formas; o calendário não usa o vídeo como capa, e o post só de vídeo mostra o ▶. A integração de `nao-saiu` não liga o bucket, e a capa ali é nula. **Desvio declarado:** o caso é uma guarda de texto, que casa a expressão inteira com o ramo, e não uma suíte que monta a URL, porque as duas páginas são de servidor e leem o banco |
 | integração | a frase nova do `sem_arquivo` (`testes-integracao/publicar-fala.integracao.ts`) |
 
 Cada proteção principal ganha uma prova de mutação: retirada de propósito, o teste certo cai. A do
 arredondamento troca o "para baixo" pelo "ao mais próximo" e tem de derrubar a varredura. A da trava tira
 a referência ligada antes da espera, e o teste dos dois cliques tem de cair. A do `catch` põe um `catch`
-que engole o erro em volta da chamada da action, e a guarda tem de cair.
+que engole o erro em volta da chamada da action, e a guarda tem de cair. A da legenda lê o formulário
+depois da subida, e o caso das oito chaves tem de cair.
 
 ---
 
@@ -343,13 +390,17 @@ gravação tem o OK do Eduardo e a hora mandada antes, e a auditoria lê a produ
    - um JPEG já em 4:5 exato, com até 1440 px de largura, que vai sem redesenho;
    - um vídeo curto de iPhone (`.mov`), em quarto, aberto no Chrome do computador e no Safari.
 
-   A lista mostra as miniaturas. Confere-se remover um slide e escolher de novo. **Nenhum clique em
-   Publicar com "Publicar agora" marcado**: é o padrão do formulário (`app/publicar/novo/page.tsx:150-153`,
-   "sai em instantes, e não dá para desfazer"), e o clique publicaria de verdade (achado 114).
-2. Marcar **"Publicar em outra hora"**, com a data de daqui a 7 dias, e só então dar **dois cliques
-   rápidos** no Publicar (grava).
-   - A auditoria confere logo depois que há **um item só na fila**, as medidas de cada imagem no bucket
-     (4:5 nas três) e que o JPEG subiu igual ao original, byte a byte.
+   A lista mostra as miniaturas. Confere-se remover um slide e escolher de novo. No Safari do iPhone,
+   anota-se se o primeiro quadro do vídeo aparece (o `<video preload="metadata">` pode ficar em branco ali).
+   **Nenhum clique em Publicar com "Publicar agora" marcado**: é o padrão do formulário
+   (`app/publicar/novo/page.tsx:150-153`, "sai em instantes, e não dá para desfazer"), e o clique
+   publicaria de verdade (achado 114).
+2. **Digitar uma legenda curta**, marcar **"Publicar em outra hora"**, com a data de daqui a 7 dias, e só
+   então dar **dois cliques rápidos** no Publicar (grava). Sem legenda, a prova não pegaria a legenda que
+   some (achado 115).
+   - A auditoria confere logo depois que há **um item só na fila**, com a legenda digitada e a hora
+     marcada (o fuso lido no clique), as medidas de cada imagem no bucket (4:5 nas três) e que o JPEG
+     subiu igual ao original, byte a byte.
    - A página do post mostra o vídeo como vídeo, e o calendário mostra a capa.
 3. Cancelar na página do post (`app/publicar/post/[id]/page.tsx:279-286`) (grava). O cancelamento tira
    os arquivos do bucket, e a página passa a dizer que o arquivo foi apagado.
