@@ -19,6 +19,12 @@
 -- caso é o RLS, conferido por testes-integracao/rls-nas-tabelas.integracao.ts na rodada do
 -- `test:integracao`.
 --
+-- E AS FUNÇÕES FUTURAS CONTINUAM EXECUTÁVEIS PELA API PÚBLICA (achado 130 da auditoria): o padrão
+-- embutido do Postgres dá EXECUTE ao PUBLIC em toda função nova, e o `anon` é membro do PUBLIC. Isso
+-- não está no pg_default_acl (0 entradas globais, medido), então esta migração não o alcança. Hoje há 0
+-- funções no `public` e 0 nas migrações. A migração que criar uma função tem de fazer, junto,
+-- `revoke execute on function <nome>(<argumentos>) from public`, porque o PostgREST a ofereceria no /rpc.
+--
 -- SÓ AGE ONDE OS PAPÉIS EXISTEM: no Supabase. No container de teste eles não existem, e o laço não roda
 -- nenhuma vez. O schema é o `current_schema()`, como na 019, e o criador dos privilégios padrão é o
 -- `current_user`, o mesmo papel que vai criar as tabelas futuras.
