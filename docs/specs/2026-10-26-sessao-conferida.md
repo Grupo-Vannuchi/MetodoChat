@@ -122,6 +122,52 @@ vai: ele fecha as duas portas e cobra isso nos testes.
 **A suíte inteira continua passando:** os puros, os de tela e os de integração no container, com o
 `tsc` e o lint.
 
+## Adendo da execução: os testes do dono e o login de verdade (achado 131)
+
+**O que a execução achou:** com a conferência nas 20 ações, 63 casos caíram em 8 arquivos de
+integração do dono (capa-do-post, acoes-que-falam, agendados, tique-do-rodape, publicar-fala,
+inicio-oportunidades, marcar-em-lote e portas-de-publicar).
+- Eles medem o CORPO das ações dentro de `comoNumaRequisicao` (`testes-integracao/semear-requisicao.ts`).
+- A jarra de cookies desse simulador sai vazia de propósito, porque a regra do dono é não forjar cookie.
+- Com a jarra vazia, a ação agora vai para `/entrar` na primeira instrução.
+- A spec não tinha previsto isso.
+
+**A decisão do Eduardo pela caixa, em 26/10:** entrar pelo login de verdade.
+- `comoNumaRequisicao` continua com a jarra vazia, e é com ela que se mede o "sem sessão".
+- A variante opt-in `comoNumaRequisicaoComSessao` entra pela ação de entrar de verdade
+  (`app/entrar/actions.ts`), com uma senha de teste, e leva na requisição seguinte o cookie que essa
+  ação emitiu. Nenhuma sessão é montada à mão.
+- Só as 16 chamadas que rodam ações passaram para a variante. As outras 19 (as páginas, o dreno e o
+  `getSelectedAccountId`) ficam sem sessão.
+
+**As condições da auditoria:**
+- **C1:** a senha de teste é um literal, posto em `process.env.ADMIN_PASSWORD` no topo de
+  `semear-requisicao.ts`, por cima do que vier do ambiente. O `.env.local` continua sem ser lido.
+- **C2:** antes de usar o cookie, a variante recalcula a assinatura dele com a chave da senha de teste.
+  Se não bater, ela estoura. É isso que impede um cookie assinado com a senha real, que valeria no
+  painel de produção.
+- **C3:** o valor do cookie nunca é impresso. O teste confere um booleano (`sessaoDeTesteConfere`).
+- **C4:** o arquivo novo `testes-integracao/sessao-nas-acoes.integracao.ts` mede, para cada uma das
+  20 ações sem sessão, o destino `/entrar` e o tamanho de TODAS as tabelas do schema, antes e depois.
+- **C5:** o login confere o destino `"/"`, que é o caminho do sucesso.
+- **C6:** as mutações incluem a variante sem o cookie (os 8 arquivos caem) e uma ação sem a
+  conferência (o caso dela cai).
+- **C7:** o comentário do dono em `semear-requisicao.ts` ganhou a parte da variante. Os quatro
+  cabeçalhos que diziam "a jarra sai vazia" ganharam uma nota.
+- **C8:** toda rodada usa a `DATABASE_URL_TESTES`.
+
+**Medido:**
+- Os 8 arquivos voltaram a passar (109 casos), e o arquivo novo passa (22).
+- As mutações:
+  - M1, uma ação sem a conferência: cai o caso dela, no puro e na integração;
+  - M2, a variante sem o cookie: caem os mesmos 63;
+  - M3, o `exigirSessao` sem conferir: caem o puro e os 20 da integração;
+  - M4, o matcher antigo: caem os 6 caminhos;
+  - M5, a rota trabalhando antes de conferir: cai o caso das rotas;
+  - M6, o layout sem a guarda: cai o caso do layout;
+  - M7, a assinatura conferida com outra senha: caem o caso da sessão de teste e os 6 do
+    `marcar-em-lote`.
+
 ## A prova, no preview
 
 A prova é feita pelo Eduardo no navegador. O preview usa o banco de produção, então só a entrada grava
