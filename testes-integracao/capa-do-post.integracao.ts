@@ -58,7 +58,7 @@ import type { AddressInfo, Socket } from "node:net";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
 import type { AutomationRow } from "@/app/automacoes/list-client";
 import type { Configuracao } from "@/app/automacoes/editor/painel";
 import MediaPicker from "@/app/automacoes/media-picker";
@@ -252,7 +252,7 @@ async function salvarPelaAcao(args: {
   // ("Sem nenhum bloco, a automação não envia nada."), e este arquivo não
   // está medindo o motor, então o conteúdo do bloco não importa.
   const PASSO_MINIMO = [{ id: "b_capa0001", tipo: "dm", texto: "Valeu por comentar!" }];
-  const { valor } = await comoNumaRequisicao(`/automacoes/${args.id}`, () =>
+  const { valor } = await comoNumaRequisicaoComSessao(`/automacoes/${args.id}`, () =>
     acoes.salvarAutomacao(args.id, PASSO_MINIMO, [], {
       nome: "automação da capa que não apodrece (editor)",
       ativo: false,
@@ -277,7 +277,7 @@ async function salvarComGatilho(args: {
   story?: { id: string; thumb: string };
 }): Promise<void> {
   const PASSO_MINIMO = [{ id: "b_alvo0001", tipo: "dm", texto: "Oi!" }];
-  const { valor } = await comoNumaRequisicao(`/automacoes/${args.id}`, () =>
+  const { valor } = await comoNumaRequisicaoComSessao(`/automacoes/${args.id}`, () =>
     acoes.salvarAutomacao(args.id, PASSO_MINIMO, [], {
       nome: `automação de gatilho ${args.gatilho}`,
       ativo: false,

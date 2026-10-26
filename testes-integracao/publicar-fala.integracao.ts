@@ -42,6 +42,11 @@
 // mede "conta certa" confere essa precondição antes de medir, pela mesma
 // disciplina de `acoes-que-falam.integracao.ts`.
 //
+// DESDE 26/10/2026, AS AÇÕES RODAM EM `comoNumaRequisicaoComSessao`: elas
+// começam por `await exigirSessao()`, e com a jarra vazia iriam para /entrar.
+// A sessão é a que a ação de entrar emitiu para a senha de teste (ver
+// `semear-requisicao.ts`); nada é forjado, e o cookie de conta continua ausente.
+//
 // -----------------------------------------------------------------------------
 // O SEGUNDO PLANTIO OBRIGATÓRIO — a conta vinda do FORMULÁRIO, e não do cookie.
 //
@@ -64,7 +69,7 @@ import {
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
 
 type ModuloAcoes = typeof import("@/app/publicar/actions");
 type ModuloIg = typeof import("@/lib/ig");
@@ -237,7 +242,7 @@ function urlDoDigest(digest: string | null): string | null {
  * `try/catch`.
  */
 async function desfechoDe(form: FormData): Promise<Desfecho> {
-  const { valor } = await comoNumaRequisicao("/publicar", async () => {
+  const { valor } = await comoNumaRequisicaoComSessao("/publicar", async () => {
     try {
       await acoes.publicar(form);
       return null as string | null;

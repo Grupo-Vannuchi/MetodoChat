@@ -1,6 +1,7 @@
 "use server";
 import { getSelectedAccount } from "@/lib/account";
 import { sql } from "@/lib/db";
+import { exigirSessao } from "@/lib/exigir-sessao";
 
 // Registra que esta conversa foi vista agora.
 //
@@ -41,6 +42,7 @@ import { sql } from "@/lib/db";
 // Este comentário existe para a próxima varredura não tratar estes dois
 // `return;` como esquecimento.
 export async function marcarVisto(contactIgId: string): Promise<void> {
+  await exigirSessao();
   if (!/^\d{1,32}$/.test(contactIgId)) return;
   const account = await getSelectedAccount();
   if (!account) return;

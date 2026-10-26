@@ -44,6 +44,11 @@
 // contas nascem em ORDEM: CONTA_A primeiro, CONTA_B depois, e é essa ordem — não
 // um cookie — que faz CONTA_A ser "a conta selecionada". O bloco confere essa
 // precondição antes de medir.
+//
+// DESDE 26/10/2026, AS AÇÕES RODAM EM `comoNumaRequisicaoComSessao`: elas
+// começam por `await exigirSessao()`, e com a jarra vazia iriam para /entrar.
+// A sessão é a que a ação de entrar emitiu para a senha de teste (ver
+// `semear-requisicao.ts`); nada é forjado, e o cookie de conta continua ausente.
 import {
   createServer,
   type IncomingMessage,
@@ -53,7 +58,7 @@ import {
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
 import { textoDaArvore } from "./texto-da-arvore";
 
 type ModuloAcoes = typeof import("@/app/publicar/post/actions");
@@ -261,7 +266,7 @@ async function desfechoDe(
   acao: (form: FormData) => Promise<void>,
   form: FormData
 ): Promise<Desfecho> {
-  const { valor } = await comoNumaRequisicao("/publicar", async () => {
+  const { valor } = await comoNumaRequisicaoComSessao("/publicar", async () => {
     try {
       await acao(form);
       return null as string | null;

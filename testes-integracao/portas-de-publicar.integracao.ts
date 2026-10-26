@@ -38,6 +38,11 @@
 // atalho, e não é uma sessão inventada. A conta que estas duas portas enxergam é
 // a conta deste teste por construção do schema, e não por credencial.
 //
+// DESDE 26/10/2026, AS AÇÕES RODAM EM `comoNumaRequisicaoComSessao`: elas
+// começam por `await exigirSessao()`, e com a jarra vazia iriam para /entrar.
+// A sessão é a que a ação de entrar emitiu para a senha de teste (ver
+// `semear-requisicao.ts`); nada é forjado, e o cookie de conta continua ausente.
+//
 // -----------------------------------------------------------------------------
 // O QUE ELE MEDE, e por que não bastava função pura.
 //
@@ -79,7 +84,7 @@
 // exercita o CORPO do Server Action, e não a fronteira de serialização do POST.
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
 
 type ModuloAcoes = typeof import("@/app/automacoes/actions");
 
@@ -202,7 +207,7 @@ describe("as duas portas de publicar, com o contexto de requisição semeado", (
   // --------------------------------------------------------------------------
   test("ATIVAR recusa o link contornável quando a chave está DESLIGADA", async () => {
     const id = await semear("chave desligada", false);
-    const { valor, tags } = await comoNumaRequisicao("/automacoes", () =>
+    const { valor, tags } = await comoNumaRequisicaoComSessao("/automacoes", () =>
       acoes.toggleAutomation(id, true)
     );
     expect(valor.ok).toBe(false);
@@ -214,7 +219,7 @@ describe("as duas portas de publicar, com o contexto de requisição semeado", (
 
   test("ATIVAR aceita a MESMA lista quando a chave está LIGADA", async () => {
     const id = await semear("chave ligada", true);
-    const { valor, tags } = await comoNumaRequisicao("/automacoes", () =>
+    const { valor, tags } = await comoNumaRequisicaoComSessao("/automacoes", () =>
       acoes.toggleAutomation(id, true)
     );
     expect(valor.ok).toBe(true);
@@ -231,7 +236,7 @@ describe("as duas portas de publicar, com o contexto de requisição semeado", (
   // --------------------------------------------------------------------------
   test("SALVAR não trava por erro de ATIVAR: grava e devolve ok", async () => {
     const id = await semear("salvar com erro de ativar", false);
-    const { valor } = await comoNumaRequisicao("/automacoes", () =>
+    const { valor } = await comoNumaRequisicaoComSessao("/automacoes", () =>
       acoes.salvarAutomacao(id, PASSOS, LIGACOES, {
         nome: "salvo pela metade",
         ativo: false,
@@ -249,7 +254,7 @@ describe("as duas portas de publicar, com o contexto de requisição semeado", (
 
   test("SALVAR com a caixa Ativa marcada grava PAUSADA e diz por quê", async () => {
     const id = await semear("salvar marcando ativa", false);
-    const { valor } = await comoNumaRequisicao("/automacoes", () =>
+    const { valor } = await comoNumaRequisicaoComSessao("/automacoes", () =>
       acoes.salvarAutomacao(id, PASSOS, LIGACOES, {
         nome: "queria publicar",
         ativo: true,
@@ -284,7 +289,7 @@ describe("as duas portas de publicar, com o contexto de requisição semeado", (
   // --------------------------------------------------------------------------
   test("SALVAR aceita o gatilho abertura com o payload que o PAINEL manda", async () => {
     const id = await semear("gatilho abertura", false);
-    const { valor } = await comoNumaRequisicao("/automacoes", () =>
+    const { valor } = await comoNumaRequisicaoComSessao("/automacoes", () =>
       acoes.salvarAutomacao(id, [{ id: "b_abert01", tipo: "dm", texto: "Que bom te ver!" }], [], {
         nome: "porta de entrada",
         ativo: false,
@@ -346,7 +351,7 @@ describe("as duas portas de publicar, com o contexto de requisição semeado", (
     form.set("name", "porta de entrada recem-criada");
     form.set("trigger", "abertura");
 
-    const { valor } = await comoNumaRequisicao("/automacoes/nova", async () => {
+    const { valor } = await comoNumaRequisicaoComSessao("/automacoes/nova", async () => {
       try {
         const erro = await acoes.criarAutomacao(null, form);
         return { erro, digest: null as string | null };
