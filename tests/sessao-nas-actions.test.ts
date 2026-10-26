@@ -207,6 +207,31 @@ function handlerConfere(f: ts.FunctionDeclaration, sf: ts.SourceFile): boolean {
 
 const rotas = () => arquivosDe("app").filter((rel) => /\/route\.tsx?$/.test(rel));
 
+const METODOS_HTTP = new Set(["GET", "HEAD", "OPTIONS", "POST", "PUT", "DELETE", "PATCH"]);
+
+/**
+ * Os handlers de uma rota que NÃO estão escritos como `export function`: um `export const POST = …`,
+ * um `export { GET }` ou um `export *`. O leitor de `handlerConfere` só enxerga funções, e um handler
+ * desses passaria sem conferência nenhuma (achado 132 da auditoria). Hoje nenhuma rota tem essa forma.
+ */
+function handlersForaDeFuncao(sf: ts.SourceFile): string[] {
+  const nomes: string[] = [];
+  for (const s of sf.statements) {
+    if (ts.isVariableStatement(s) && exportado(s)) {
+      for (const d of s.declarationList.declarations) {
+        if (ts.isIdentifier(d.name) && METODOS_HTTP.has(d.name.text)) nomes.push(d.name.text);
+      }
+    }
+    if (ts.isExportDeclaration(s)) {
+      if (!s.exportClause) nomes.push("*");
+      else if (ts.isNamedExports(s.exportClause)) {
+        for (const e of s.exportClause.elements) if (METODOS_HTTP.has(e.name.text)) nomes.push(e.name.text);
+      }
+    }
+  }
+  return nomes;
+}
+
 describe("toda rota fora das públicas confere a sessão antes de qualquer trabalho", () => {
   it("o leitor acusa quando há o que acusar", () => {
     const casos: [string, boolean][] = [
@@ -222,6 +247,14 @@ describe("toda rota fora das públicas confere a sessão antes de qualquer traba
       expect(handlerConfere(f, sf), fonte).toBe(esperado);
     }
     expect(caminhoDaRota("app/bonus/[id]/carrossel/[cid]/arte/route.tsx")).toBe("/bonus/[id]/carrossel/[cid]/arte");
+    expect(
+      handlersForaDeFuncao(
+        analisar(
+          "r.ts",
+          'export const runtime = "nodejs";\nexport const POST = async () => new Response();\nexport { GET } from "./x";\nexport * from "./y";\nexport async function PUT() {}\n'
+        )
+      )
+    ).toEqual(["POST", "GET", "*"]);
   });
 
   it("as públicas são as do proxy.ts, e as protegidas incluem as oito de 26/10", () => {
@@ -248,6 +281,9 @@ describe("toda rota fora das públicas confere a sessão antes de qualquer traba
       );
       if (handlers.length === 0) falhas.push(`${rel}: nenhum handler exportado como function`);
       for (const f of handlers) if (!handlerConfere(f, sf)) falhas.push(`${rel} ${f.name?.text}`);
+      for (const nome of handlersForaDeFuncao(sf)) {
+        falhas.push(`${rel} ${nome}: handler fora de "export async function", que este leitor não confere`);
+      }
     }
     expect(falhas).toEqual([]);
   });
