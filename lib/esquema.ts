@@ -263,6 +263,19 @@ const MARCA_DAGUA = {
       porque:
         "tabela de FEATURE (imagens_geradas): a partida do painel não depende dela, de propósito",
     },
+    {
+      de: "019-rls-nas-tabelas.sql",
+      // O RLS LIGADO EM TODA TABELA, sem nenhuma regra (varredura de segurança de 26/10/2026). Ela não
+      // cria tabela nem coluna: muda um atributo da tabela (`relrowsecurity`), que presença não vê.
+      //
+      // E ELA FICA DO LADO CALADO DA TABELA DO TOPO: um banco que não a recebeu serve o painel
+      // normalmente, porque o app entra como o dono, que passa por cima do RLS. O que muda é a API
+      // pública do Supabase, que fica aberta sem avisar ninguém. Por isso a partida não a confere, e
+      // quem confere é testes-integracao/rls-nas-tabelas.integracao.ts, que exige o RLS em toda tabela,
+      // inclusive nas que uma migração futura criar. Decidido pelo Eduardo em 26/10/2026.
+      porque:
+        "liga o RLS nas tabelas, um atributo da tabela que presença de coluna não vê; a partida do painel não depende dele",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",
