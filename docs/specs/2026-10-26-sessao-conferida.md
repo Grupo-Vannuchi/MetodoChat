@@ -62,9 +62,9 @@ vai: ele fecha as duas portas e cobra isso nos testes.
 3. **A lista de contas do menu (`app/layout.tsx`).** O layout só chama `listAccounts()` quando o cookie
    de sessão é válido. Sem sessão, a lista sai vazia, como já sai hoje quando o banco não responde.
    - **Depois do login, o menu aparece com as contas sem recarregar a página.** A action de entrar grava
-     o cookie, e a doc do Next (`01-getting-started/07-mutating-data.md:510`) diz que gravar um cookie
-     numa Server Action renderiza de novo a página e os layouts dela no servidor. Isso também é conferido
-     na prova.
+     o cookie (`app/entrar/actions.ts:41`) e faz `redirect("/")` (`:48`). A página nova é desenhada no
+     servidor já com o cookie gravado, e o layout dela confere a sessão e lê as contas (achado 128 da
+     auditoria). A prova também confere isso.
 
 ## O que não muda
 
@@ -87,9 +87,17 @@ vai: ele fecha as duas portas e cobra isso nos testes.
      expressão regular. A assinatura de `sendReply` tem `{` antes do corpo (medido: 1 das 20) e enganaria
      o molde de `tests/bonus-paginas.test.ts:22`.
    - **Ele vale também para os arquivos futuros:** uma ação nova sem a conferência faz o teste cair.
-2. **No mesmo arquivo, as rotas.** Todo `route.ts` ou `route.tsx` de `app/` fora dos prefixos públicos
-   tem de chamar `isValidSession`. Hoje as oito rotas protegidas já chamam, então esse caso nasce verde:
-   a prova dele é a mutação.
+2. **No mesmo arquivo, as rotas.** A regra vale para todo `route.ts` ou `route.tsx` de `app/` fora dos
+   prefixos públicos, em cada handler exportado (`GET`, `POST`…).
+   - A primeira instrução que não seja `const <nome> = await cookies();` tem de ser um
+     `if (!isValidSession(...))`.
+   - O ramo desse `if` tem de RETORNAR: um `return` direto ou um bloco que termina em `return`.
+   - Isso pega uma conferência movida para depois do trabalho ou com o resultado ignorado, e não só a
+     ausência dela (achado 127 da auditoria).
+   - As oito rotas protegidas de hoje têm uma de duas formas, medidas pelo analisador:
+     - quatro começam pelo `if` (as do CSV, a de mídia e a de assinar);
+     - quatro leem `await cookies()` e fazem o `if` logo em seguida (as de imagem e de arte).
+   - Esse caso nasce verde, e a prova dele é a mutação.
 3. **`tests/proxy-matcher.test.ts`**, com o verificador do próprio Next. Esta versão exporta
    `unstable_doesMiddlewareMatch` de `next/experimental/testing/server`, e a doc chama a mesma função de
    `unstable_doesProxyMatch`.
@@ -140,3 +148,9 @@ ou remarcar. A conferência delas é o teste 1, que cobra a primeira instrução
   todas as sessões abertas, porque a chave da sessão é derivada da senha (`lib/auth.ts:34-39`).
 - **As seis cópias locais de `exigirSessao`:** ficam como estão, para este PR não tocar o que já é
   seguro.
+- **O `configurarWebhookAuto` sem importador** (`app/setup/actions.ts:135`, achado 129 da auditoria):
+  ele ganha a conferência como as outras 19 ações, e apagá-lo fica para um PR futuro.
+- **O prefixo `/_next` da `PUBLIC_PREFIXES`** (`proxy.ts:14`): continua público no porteiro. Não há
+  página sob `/_next`, e uma ação chamada ali confere a sessão sozinha, pelo item 2 de "O que muda".
+- **A prova no preview pede login na Vercel:** o preview está atrás da proteção SSO dela (medido pela
+  auditoria em 20/10).
