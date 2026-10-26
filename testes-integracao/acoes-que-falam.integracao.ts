@@ -60,11 +60,16 @@
 // mexer em cookie. O segundo cria a conta no `beforeAll` dele. Cada bloco
 // confere a própria condição antes de medir, para que uma reordenação futura
 // fique VERMELHA em vez de passar medindo outra coisa.
+//
+// DESDE 26/10/2026, AS AÇÕES RODAM EM `comoNumaRequisicaoComSessao`: elas
+// começam por `await exigirSessao()`, e com a jarra vazia iriam para /entrar.
+// A sessão é a que a ação de entrar emitiu para a senha de teste (ver
+// `semear-requisicao.ts`); nada é forjado, e o cookie de conta continua ausente.
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
 import { hojeNoFusoDoPrazo } from "@/lib/lote";
 
 type ModuloAcoes = typeof import("@/app/contatos/actions");
@@ -181,7 +186,7 @@ function urlDoDigest(digest: string | null): string | null {
  * mensagem de outra pessoa. É essa distinção que mata P8 e P9.
  */
 async function desfechoDe(rota: string, acao: () => Promise<unknown>): Promise<Desfecho> {
-  const { valor } = await comoNumaRequisicao(rota, async () => {
+  const { valor } = await comoNumaRequisicaoComSessao(rota, async () => {
     try {
       await acao();
       return null as string | null;

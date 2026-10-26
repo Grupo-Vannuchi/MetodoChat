@@ -21,6 +21,7 @@ import {
   TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO,
 } from "@/lib/publicacao";
 import { avisoDoDesfecho, urlDeAgendadosComAviso } from "@/lib/avisos";
+import { exigirSessao } from "@/lib/exigir-sessao";
 
 /**
  * CANCELAR E REMARCAR UM POST AGENDADO.
@@ -117,6 +118,7 @@ function revalidarAsDuasTelas(): void {
 }
 
 export async function cancelarPublicacao(formData: FormData): Promise<void> {
+  await exigirSessao();
   const conta = await getSelectedAccount();
   if (!conta) {
     redirect(
@@ -206,6 +208,7 @@ export async function cancelarPublicacao(formData: FormData): Promise<void> {
 }
 
 export async function remarcarPublicacao(formData: FormData): Promise<void> {
+  await exigirSessao();
   const conta = await getSelectedAccount();
   if (!conta) {
     redirect(

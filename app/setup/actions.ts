@@ -13,6 +13,7 @@ import {
   perguntasDoFormulario,
   type LinhaDoFormulario,
 } from "./portas";
+import { exigirSessao } from "@/lib/exigir-sessao";
 
 // Reassina `CAMPOS_DE_WEBHOOK` (lib/ig.ts) em todas as contas conectadas. A
 // assinatura já acontece sozinha no OAuth, mas se falhar naquele momento nada
@@ -24,6 +25,7 @@ import {
 // desconectar e reconectar a conta do dono — o que apagaria a ligação viva com
 // a Meta por causa de uma linha de configuração.
 export async function reassinarWebhooks(): Promise<void> {
+  await exigirSessao();
   const accounts = await listAccounts();
   let ok = 0;
   const falhas: string[] = [];
@@ -52,6 +54,7 @@ export async function reassinarWebhooks(): Promise<void> {
 // num diagnóstico específico e acionável.
 // ============================================================
 export async function testarWebhook(): Promise<void> {
+  await exigirSessao();
   const config = await getConfig();
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
@@ -133,6 +136,7 @@ export async function testarWebhook(): Promise<void> {
 // diferentes das credenciais do login do Instagram. Se vierem no formulário,
 // são salvas; senão, usa as já salvas (com fallback nas do login).
 export async function configurarWebhookAuto(formData: FormData): Promise<void> {
+  await exigirSessao();
   const config = await getConfig();
 
   const metaAppId = String(formData.get("meta_app_id") ?? "").trim();
@@ -186,6 +190,7 @@ export async function configurarWebhookAuto(formData: FormData): Promise<void> {
 }
 
 export async function saveMetaCredentials(formData: FormData): Promise<void> {
+  await exigirSessao();
   const appId = String(formData.get("instagram_app_id") ?? "").trim();
   const appSecret = String(formData.get("instagram_app_secret") ?? "").trim();
   if (!appId || !appSecret) {
@@ -239,6 +244,7 @@ function recusar(motivo: string, conta: string, linhas: LinhaDoFormulario[]): ne
 }
 
 export async function salvarPerguntasDeAbertura(formData: FormData): Promise<void> {
+  await exigirSessao();
   const igUserId = contaDoFormulario(formData);
   const conta = await getAccount(igUserId);
   // A CONTA VEM DO FORMULÁRIO, então ela é conferida contra as conectadas. Sem

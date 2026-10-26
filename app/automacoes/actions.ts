@@ -11,6 +11,7 @@ import {
   ligacoesValidas,
   podeFicarAtiva,
 } from "@/lib/steps";
+import { exigirSessao } from "@/lib/exigir-sessao";
 
 function splitList(raw: string, sep: RegExp): string[] {
   return raw
@@ -152,6 +153,7 @@ export async function salvarAutomacao(
   ligacoesRecebidas: unknown,
   configuracao: unknown
 ): Promise<Resultado> {
+  await exigirSessao();
   const accountId = await getSelectedAccountId();
   if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
 
@@ -433,6 +435,7 @@ export async function criarAutomacao(
   _anterior: string | null,
   formData: FormData
 ): Promise<string | null> {
+  await exigirSessao();
   const accountId = await getSelectedAccountId();
   if (!accountId) return "Conecte uma conta do Instagram antes.";
 
@@ -536,6 +539,7 @@ export async function criarAutomacao(
 // esta função existe para permitir.
 // ---------------------------------------------------------------------------
 export async function toggleAutomation(id: string, active: boolean): Promise<Resultado> {
+  await exigirSessao();
   const accountId = await getSelectedAccountId();
   if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
 
@@ -615,6 +619,7 @@ export async function toggleAutomation(id: string, active: boolean): Promise<Res
 // mesma resposta pelo mesmo motivo — distingui-las contaria a quem tentou que
 // aquele id existe.
 export async function deleteAutomation(id: string): Promise<Resultado> {
+  await exigirSessao();
   const accountId = await getSelectedAccountId();
   if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
   const linhas = (await sql().query(
@@ -636,6 +641,7 @@ export async function deleteAutomation(id: string): Promise<Resultado> {
 //
 // TAMBÉM DEVOLVE `Resultado`, pelo mesmo motivo de `deleteAutomation`, acima.
 export async function duplicateAutomation(id: string): Promise<Resultado> {
+  await exigirSessao();
   const accountId = await getSelectedAccountId();
   if (!accountId) return { ok: false, erro: "Nenhuma conta conectada." };
 

@@ -25,7 +25,7 @@
 // chama `cookies()` de `next/headers`, que estoura fora de uma requisição.
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
 
 type ModuloAcoes = typeof import("@/app/contatos/actions");
 type ModuloConta = typeof import("@/lib/account");
@@ -96,7 +96,7 @@ function urlDoDigest(digest: string | null): string | null {
 }
 
 async function marcar(form: FormData): Promise<Desfecho> {
-  const { valor } = await comoNumaRequisicao("/contatos", async () => {
+  const { valor } = await comoNumaRequisicaoComSessao("/contatos", async () => {
     try {
       await acoes.marcarCategoriaEmLote(form);
       return null as string | null;

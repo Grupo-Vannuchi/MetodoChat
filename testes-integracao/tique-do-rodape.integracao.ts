@@ -66,7 +66,7 @@ import {
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+import { comoNumaRequisicaoComSessao } from "./semear-requisicao";
 
 type ModuloEngine = typeof import("@/lib/engine");
 type ModuloDreno = typeof import("@/lib/queue-drain");
@@ -256,7 +256,7 @@ async function avisoDe(
   acao: (form: FormData) => Promise<void>,
   form: FormData
 ): Promise<{ texto: string | null; tom: string | null }> {
-  const { valor } = await comoNumaRequisicao("/publicar", async () => {
+  const { valor } = await comoNumaRequisicaoComSessao("/publicar", async () => {
     try {
       await acao(form);
       return null as string | null;

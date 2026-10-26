@@ -27,6 +27,7 @@ import {
 // ./page.tsx: ver lib/event-filters.ts para a medição de por que esta lista
 // não pode voltar a ser reescrita à mão.
 import { TIPOS_DE_MENSAGEM_RECEBIDA } from "@/lib/event-filters";
+import { exigirSessao } from "@/lib/exigir-sessao";
 
 /**
  * Preenche nome/@ dos contatos que ficaram salvos só com o número (IGSID),
@@ -56,6 +57,7 @@ import { TIPOS_DE_MENSAGEM_RECEBIDA } from "@/lib/event-filters";
  * caminho de VOLTA, e nada além disso.
  */
 export async function atualizarPerfis(formData: FormData): Promise<void> {
+  await exigirSessao();
   // Antes de qualquer recusa, como em `enviarLote`: as duas saídas desta função
   // devolvem o dono para a mesma ficha em que ele estava.
   const filtro = filtroDoCampo(formData.get("categoria"));
@@ -120,6 +122,7 @@ export async function atualizarPerfis(formData: FormData): Promise<void> {
  * a linha que voltou.
  */
 export async function enviarLote(formData: FormData): Promise<void> {
+  await exigirSessao();
   // O FILTRO VEM PRIMEIRO DE TUDO, antes de qualquer recusa: cada `redirect`
   // abaixo devolve o dono para a MESMA categoria que ele estava olhando, e não
   // para "tudo" — ele só perde o recorte quando o próprio campo não é legível
@@ -312,6 +315,7 @@ export async function enviarLote(formData: FormData): Promise<void> {
  * usos.
  */
 export async function marcarCategoriaEmLote(formData: FormData): Promise<void> {
+  await exigirSessao();
   const filtro = filtroDoCampo(formData.get("filtro"));
   // Cru de propósito: `urlDoAvisoNaTabela` só repassa, e `normalizarBusca` é da
   // LEITURA da página. Normalizar aqui faria a URL de volta discordar da que a

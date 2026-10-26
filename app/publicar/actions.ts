@@ -18,6 +18,7 @@ import {
   textoDaRecusaDaPublicacao,
 } from "@/lib/publicacao";
 import { urlDePublicarComAviso, avisoDaPublicacaoEnfileirada } from "@/lib/avisos";
+import { exigirSessao } from "@/lib/exigir-sessao";
 
 /**
  * Enfileira uma publicação para a conta selecionada.
@@ -55,6 +56,7 @@ import { urlDePublicarComAviso, avisoDaPublicacaoEnfileirada } from "@/lib/aviso
  * arquivo.
  */
 export async function publicar(formData: FormData): Promise<void> {
+  await exigirSessao();
   const conta = await getSelectedAccount();
   if (!conta) {
     redirect(
