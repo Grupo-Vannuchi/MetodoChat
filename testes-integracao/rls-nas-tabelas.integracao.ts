@@ -8,7 +8,8 @@
 // então ligar o RLS sem nenhuma regra fecha a API pública e não muda nada no painel.
 //
 // O PRIMEIRO CASO É A GUARDA DO FUTURO: a 019 liga o RLS no que existe, e uma tabela criada por uma
-// migração depois dela nasce aberta. Este caso cai nesse dia, e quem criou a tabela liga o RLS nela.
+// migração depois dela nasce sem ele. Este caso cai na próxima rodada do `test:integracao`, que não está
+// no `verify` nem no build, e quem criou a tabela liga o RLS nela. Até lá, a 020 a segura fechada.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { bancoDescartavel } from "./harness";
@@ -80,6 +81,9 @@ describe("o RLS nas tabelas", () => {
     ).rejects.toThrow(/row-level security/);
   });
 
+  // O QUE ESTE CASO NÃO PROVA: no container, quem roda é o superusuário `postgres`, que passaria pelo RLS
+  // mesmo sem ser o dono e sem `bypassrls`. A garantia da produção (o `postgres` de lá é o dono das 12,
+  // com `bypassrls` e sem superusuário) está na medição de 26/10, na spec, e não neste caso.
   it("o dono continua lendo e gravando, como o painel", async () => {
     await banco.db().sql().query(`delete from config`);
     await banco.db().sql().query(`insert into config (id) values (1) on conflict do nothing`);

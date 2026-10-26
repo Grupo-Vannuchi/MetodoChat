@@ -17,8 +17,10 @@
 --
 -- O LAÇO, E NÃO UMA LISTA DE TABELAS: ele liga o RLS em toda tabela do schema em que roda (o `public`
 -- na produção, o schema descartável nos testes), inclusive a `schema_migrations`, que nasce do
--- scripts/migrar.mjs e não de uma migração. Uma tabela criada DEPOIS desta migração nasce aberta: quem
--- segura isso é testes-integracao/rls-nas-tabelas.integracao.ts, que exige o RLS em toda tabela.
+-- scripts/migrar.mjs e não de uma migração. Uma tabela criada DEPOIS desta migração nasce sem o RLS:
+-- testes-integracao/rls-nas-tabelas.integracao.ts exige o RLS em toda tabela, mas só cai na próxima
+-- rodada do `test:integracao`, que não está no `verify` nem no build. Até lá, quem a segura fechada é a
+-- 020, que tira da API pública as permissões que uma tabela nova traria.
 --
 -- IDEMPOTENTE, como toda migração desta pasta: o laço só pega as tabelas que ainda não têm o RLS.
 do $$
