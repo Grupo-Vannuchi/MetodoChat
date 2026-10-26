@@ -29,6 +29,10 @@ export function proxy(req: NextRequest) {
   return NextResponse.redirect(url);
 }
 
+// O MATCHER TIRA DO PORTEIRO SÓ O QUE É ARQUIVO DO NEXT E O FAVICON. Até 26/10/2026 ele tirava qualquer
+// endereço terminado em .svg, .png, .jpg ou .ico, inclusive o de uma tela de segmento dinâmico
+// (`/conversas/x.png`), e uma Server Action chamada num caminho fora do matcher pula o porteiro junto
+// (docs/specs/2026-10-26-sessao-conferida.md). tests/proxy-matcher.test.ts confere pelo verificador do Next.
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|.*\\.(?:svg|png|jpg|ico)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon\\.ico$).*)"],
 };
