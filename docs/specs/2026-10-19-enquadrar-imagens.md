@@ -217,11 +217,12 @@ As outras saídas `skipped` do dreno (`:966`, `:1135`, `:1143` e `:1247`) são d
 não de publicação. A frase decide pelo MOTIVO, e não pelo status, como o `statusBadge` já faz com
 `MOTIVO_CANCELADO_PELO_DONO` (`app/labels.ts:443`).
 
-### O fuso do remarcar (achado 118, na página do post)
+### O fuso do remarcar (achado 121, na página do post)
 
 O remarcar da página do post mandava o fuso por um campo escondido com `defaultValue` vazio, preenchido
 por um `<Script id="fuso-do-remarcar">`. O `<Script>` do Next com o mesmo id roda UMA VEZ por documento.
-Uma sonda mediu em 19/10, no `next dev` e no `next start`, com o fuso de Manaus forçado no navegador:
+Uma sonda mediu em 19/10, no `next dev` e no `next start` (e de novo em 27/10, no `next start` do Next 16.4.3,
+com o mesmo resultado), com o fuso de Manaus forçado no navegador:
 
 - o post aberto por carga inteira manda "240";
 - o segundo post aberto por Link, como do calendário, manda vazio, e a action cai no fuso de Brasília.

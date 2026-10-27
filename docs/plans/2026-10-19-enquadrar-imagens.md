@@ -16,33 +16,38 @@ compositor (`app/publicar/enviador.tsx`) passa a montar o formulário inteiro: o
 trava numa referência antes de qualquer espera; o formulário é lido no clique, com a legenda e o fuso; a
 subida corre FORA da transição, com um estado próprio e um `AbortController` por leva; e só então a action
 é chamada, uma vez, dentro da transição, com aquele `FormData`. A fiação do navegador (medir, desenhar no
-`canvas`, assinar e subir) vai para `app/publicar/navegador.ts`, que o teste de tela troca por uma falsa. A
-action, a rota de assinar, a fila e o dreno não mudam.
+`canvas`, assinar e subir) vai para `app/publicar/navegador.ts`, que o teste de tela troca por uma falsa. O
+remarcar da página do post passa a mandar o fuso por um campo de cliente (`app/publicar/campo-do-fuso.tsx`).
+A action, a rota de assinar, a fila e o dreno não mudam.
 
-**Stack:** a do projeto, no Next.js 16.3.8: Vitest (as três suítes), Testing Library no jsdom, Postgres no
+**Stack:** a do projeto, no Next.js 16.4.3: Vitest (as três suítes), Testing Library no jsdom, Postgres no
 container para a integração.
 
 **Spec:** `docs/specs/2026-10-19-enquadrar-imagens.md` (commits `268daf3`, `9f68b1e`, `057a18c`,
-`c0d47e0` e `0ffc1d8`; auditoria do perigo e revisão pela auditoria, com os achados 107 a 114 absorvidos;
-liberada em `c0d47e0`; lida pelo Eduardo em 19/10; `0ffc1d8` absorve a revisão do plano, 115 a 117, e o
-fuso). Leia antes de começar: este plano não repete o porquê, só como construir.
+`c0d47e0`, `0ffc1d8` e `143127f`; auditoria do perigo e revisão pela auditoria, com os achados 107 a 114
+absorvidos; liberada em `c0d47e0`; lida pelo Eduardo em 19/10; `0ffc1d8` absorve a primeira revisão do plano,
+115 a 117, e o fuso; `143127f` absorve a segunda, 118 a 120, e o fuso do remarcar, que a auditoria numerou 121; em 27/10, o
+commit deste plano corrige esse número na spec e registra a sonda refeita no Next 16.4.3). Leia antes de
+começar: este plano não repete o porquê, só como construir.
 
-**Ensaio do plano (19/10, refeito depois da revisão):** o código deste plano foi escrito e testado fase a
-fase numa cópia isolada do repositório (`git worktree`, branch local `ensaio-enquadrar-2`, sem push, saída de
-`c0d47e0` pelo mesmo conteúdo), e todo bloco de código abaixo foi tirado do git dessa cópia por um gerador,
-sem cópia à mão. A primeira versão do plano (`56eb105`) foi revisada pela auditoria, e o ensaio foi refeito do
-zero com a revisão (abaixo). Os números do ensaio:
-- lint e `tsc` limpos em cada fase; no fim, 123 arquivos e 3 385 casos puros (120 arquivos e 3 310 na base) e
-  26 arquivos e 255 de tela (25 arquivos e 220 na base);
-- `next build --webpack` limpo (no ensaio, o `node_modules` é uma junção, que o Turbopack recusa), e o
-  `AGENTS.md` intacto;
+**Ensaio do plano (19/10, refeito depois de cada revisão, e levado para a `main` nova em 27/10):** o código
+deste plano foi escrito e testado fase a fase numa cópia isolada do repositório (`git worktree`, sem push), e
+todo bloco de código abaixo foi tirado do git dessa cópia por um gerador, sem cópia à mão. A primeira versão
+do plano (`56eb105`) e a segunda (`6e032a9`) foram revisadas pela auditoria, e o ensaio foi refeito com cada
+revisão (abaixo). Em 27/10, as seis fases do ensaio (`ensaio-enquadrar-2`, até `5dd215d`) foram reaplicadas
+por `cherry-pick`, sem conflito, numa branch local nova, `ensaio-enquadrar-3`, saída de `aa366eb`: a
+`enquadrar-imagens` depois de receber a `main` em `991bf90` (abaixo). Os números são os dessa cópia:
+- lint e `tsc` limpos em cada fase; no fim, 127 arquivos e 3 409 casos puros (123 arquivos e 3 332 na base) e
+  27 arquivos e 262 de tela (25 arquivos e 220 na base);
+- `next build` (Turbopack) limpo, com o `node_modules` próprio na cópia (até 19/10 era uma junção, que o
+  Turbopack recusa, e o build ia com `--webpack`), e o `AGENTS.md` intacto;
 - a varredura "SEM VAZAMENTO em A nem em C";
-- integração no container: 46 arquivos, 529 passaram e 8 pularam (igual à base: o que muda nela é só a frase do `sem_arquivo`),
+- integração no container: 51 arquivos, 575 passaram e 8 pularam (igual à base: o que muda nela é só a frase do `sem_arquivo`),
   com o `.env.local` vazio na cópia;
 - cada fase foi vista falhar antes do código e passar depois, com os números no passo dela;
-- as 55 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado;
-- o plano, aplicado do zero numa cópia limpa, dá os 12 arquivos iguais ao fim do ensaio, byte a byte;
-- a guarda do diff (FASE 6, passo 4) mostrou só os arquivos do mapa abaixo.
+- as 60 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado;
+- o plano, aplicado do zero numa cópia limpa, dá os 15 arquivos iguais ao fim do ensaio, byte a byte;
+- a guarda do diff (FASE 7, passo 4) mostrou só os arquivos do mapa abaixo.
 
 **A medição antes do código (19/10).** A spec mandava medir o que o `redirect` da action faz com o
 componente que a chama. Uma sonda de laboratório, numa cópia descartável sem banco, chamou uma action
@@ -50,7 +55,17 @@ componente que a chama. Uma sonda de laboratório, numa cópia descartável sem 
 pelo DevTools. No `next dev` e no `next build` + `next start` (16.3.8): o componente é recriado (um contador
 em 3 voltou a 0), a espera rejeita com `NEXT_REDIRECT`, o `finally` roda e o `isPending` volta a falso. Com
 isso, a spec tirou o identificador do pedido (`c0d47e0`), e a chamada da action ficou sem `catch` (Apêndice
-B traz a sonda).
+B traz a sonda). **Em 27/10, a mesma sonda rodou de novo no Next 16.4.3**, o que a `main` passou a usar, no
+`next start` e no `next dev`, e o desfecho foi o mesmo (a tabela está no Apêndice B): o desenho do clique
+continua valendo.
+
+**A `main` recebida (27/10).** De `260b9dd` a `991bf90`, a `main` recebeu a varredura de segurança (PRs #16
+a #20): o RLS e o fim das permissões públicas (as migrações 019 e 020), a sessão conferida no começo de toda
+action (`exigirSessao`, inclusive nas três do `/publicar`), a chave da Meta fora da página de Configuração, o
+Next 16.4.3 com o zod 4.6.7 e a rotina diária com porteiro. Nenhum arquivo que este plano muda foi tocado,
+fora `testes-integracao/publicar-fala.integracao.ts`, que passou a chamar a action em
+`comoNumaRequisicaoComSessao` (5 linhas a mais no topo); o diff da FASE 4 já foi tirado sobre ele. A branch
+recebeu a `main` por merge em `aa366eb`, sem conflito.
 
 **A revisão da auditoria sobre `56eb105` (19/10), absorvida neste plano:**
 - **115 (BLOQUEIA): o post saía sem legenda.** A legenda ficava `disabled` durante a subida, e o formulário
@@ -79,6 +94,40 @@ B traz a sonda).
   APP1 de XMP antes do EXIF; o `chaveDe` com a conta; a lista com `setSlides` funcional; o "Remover" com o
   nome; a legenda conferida sem os espaços das pontas; o aviso de quem ficou de fora zerado ao remover; a
   frase própria quando nenhum arquivo escolhido serve; e as frases do clique levadas para `lib`.
+
+**A segunda revisão da auditoria, sobre `6e032a9` (19/10), absorvida neste plano:**
+- **O fuso vazio virou o achado 118**, medido também pela auditoria (no fuso dela, "240" antes e "" depois de
+  uma letra). Ela anotou que o REMARCAR tem o mesmo desenho (o achado 121): o campo escondido com `defaultValue` vazio,
+  preenchido por um `<Script>` de id fixo. **Medido em 19/10 com uma sonda** (o Apêndice C), no `next dev` e
+  no `next start`, com o fuso de Manaus forçado no navegador:
+  - o post aberto por carga inteira manda "240";
+  - o segundo post aberto por Link, como do calendário, manda vazio, porque o `<Script>` de mesmo id só roda
+    uma vez por documento, e a action cai no fuso de Brasília.
+  - em 27/10, a mesma sonda rodou no `next start` do Next 16.4.3, o da produção de hoje, com o mesmo
+    resultado: o achado continua em produção.
+
+  O Eduardo decidiu pela caixa corrigir junto. É a FASE 6: o campo do fuso do remarcar passa a ser de
+  cliente e controlado, e o `<Script>` sai.
+- **119: o "Quando" e as opções do reels não travavam durante a subida.** Eles vêm prontos da página, de
+  servidor, e a pessoa podia trocar "agora" por "outra hora" no meio de um reels de minutos: a tela mostrava o
+  valor novo, e a action recebia o do clique. Agora eles ficam num `<fieldset disabled={ocupado}>`, e um caso
+  de tela confere os cinco campos travados durante a subida. Essa trava virou também uma segunda defesa
+  contra o envio repetido: um segundo envio, depois de um desenho, sai sem o "Quando" e é recusado pela hora.
+  Por isso a mutação da trava pelo envio nativo passou a usar um caso novo, com o clique e o envio nativo no
+  mesmo quadro, antes de qualquer desenho.
+- **120: a repetição sem a opção podia publicar a foto deitada.** O navegador que recusa "from-image" é o que
+  não conhece o valor, e sem ele a rotação do EXIF não é garantida. Agora o JPEG com orientação diferente de 1
+  (o 0 incluído) não repete: o erro sobe, e o slide fica "ilegível". O JPEG com orientação 1, o PNG e o WebP
+  repetem. A leitura da orientação virou uma função só (`orientacaoDoArquivo`), usada pelos dois.
+- **As anotações:**
+  - um caso de tela com a orientação 6 num JPEG que iria cru, e que vai pelo `canvas` (R4);
+  - o comentário e a spec corrigidos sobre o Enter, que não envia este formulário no navegador (R5): não há
+    botão de `submit`, e a data e o nome do áudio bloqueiam o envio implícito. O `onSubmit` fica como defesa,
+    e os casos passam a falar em "envio nativo";
+  - a action que pode sair depois da desmontagem foi para os resíduos da spec (R3);
+  - o fuso pela data marcada (R6) NÃO entrou. O deslocamento continua o de agora, e o comentário de
+    `fusoDoCampo` diz por quê: sem horário de verão no Brasil desde 2019, e sem como testar a outra conta
+    nesta máquina, que está em Brasília. O comentário velho dali ("por um `useEffect`") foi corrigido.
 
 O ensaio achou estas coisas, já resolvidas neste plano:
 1. **A miniatura é desenhada pelo próprio navegador, sem `canvas`** (desvio declarado da spec). A caixa da
@@ -121,8 +170,9 @@ O ensaio achou estas coisas, já resolvidas neste plano:
 
 ## Restrições globais
 
-- **Branch:** `enquadrar-imagens`, saída da `main` em `260b9dd`, **sem upstream** (o `git worktree add -b`
-  sobre `origin/main` liga a branch à `main`: desligue com `git branch --unset-upstream enquadrar-imagens`).
+- **Branch:** `enquadrar-imagens`, saída da `main` em `260b9dd` e com a `main` em `991bf90` recebida no merge
+  `aa366eb`, **sem upstream** (o `git worktree add -b` sobre `origin/main` liga a branch à `main`: desligue com
+  `git branch --unset-upstream enquadrar-imagens`).
   Nunca commitar nem empurrar na `main`. Conferir `git branch --show-current` antes de cada commit.
 - **`git add` com caminho explícito.** Nunca `-A` nem `.`.
 - **Commit no estilo do Vinícius:** uma frase dizendo o efeito, sem prefixo, o porquê no corpo, sem
@@ -136,24 +186,26 @@ O ensaio achou estas coisas, já resolvidas neste plano:
   (`lib/bucket.ts`), das migrações, dos `scripts` nem do `package`.
 - **A chamada da action no compositor não tem `catch`** (a medição acima): só `try`/`finally`. **E só ela
   fica dentro da transição** (achado 116): a subida corre fora.
-- **Sem migração.** O build do merge tem de dizer "Nada a aplicar: as 19 migrações".
+- **Sem migração.** O build do merge tem de dizer "Nada a aplicar: as 21 migrações" (a 019 e a 020 vieram da
+  `main`).
 - **Uma rodada de integração de cada vez**, sempre com `DATABASE_URL_TESTES` apontando para o container
   (`127.0.0.1:5434`). Toda rodada tem de imprimir `[rede-global] ALVO: banco de TESTE`. Nunca rode com a
   variável vazia: ela cai na `DATABASE_URL`, que é **produção**.
 - **`next build` sem as variáveis de agente:** `env -u CLAUDECODE -u AI_AGENT ...`, e `git diff AGENTS.md`
   depois.
 - **Escrita em produção só com o OK do Eduardo**, a hora mandada à auditoria antes, e o "pode" dela.
-- **Ao fechar cada fase**, avisar o auditor (`metodochat-0d` em 19/10; conferir o nome no `ListAgents`) com
-  o hash.
+- **Ao fechar cada fase**, avisar o auditor (`metodochat-54` em 27/10; o nome muda por sessão, então conferir
+  no `ListAgents`) com o hash.
+- **Toda linha citada (`arquivo:linha`) diz o SHA em que foi medida.**
 
 ## Mapa dos arquivos
 
 | arquivo | responsabilidade | fase |
 |---|---|---|
-| `lib/publicacao.ts` | a seção "O ENQUADRAMENTO" (com a orientação EXIF e as frases do clique) e `pareceVideo` exportada; `fraseSobreAMidia` pelo motivo; a frase do `sem_arquivo` | 1, 2 e 4 |
+| `lib/publicacao.ts` | a seção "O ENQUADRAMENTO" (com a orientação EXIF e as frases do clique) e `pareceVideo` exportada; `fraseSobreAMidia` pelo motivo; a frase do `sem_arquivo`; o comentário de `fusoDoCampo` | 1, 2, 4, 5 e 6 |
 | `tests/publicacao-enquadramento.test.ts` (novo) | as regras puras do enquadramento, com a varredura do arredondamento e a leitura do EXIF que não falha aberta | 1 |
 | `tests/publicacao.test.ts` | a frase do post encerrado pelo motivo; a frase do `sem_arquivo` | 2 e 4 |
-| `app/publicar/post/[id]/page.tsx` | o motivo na frase da mídia; o vídeo como vídeo na prévia | 2 e 3 |
+| `app/publicar/post/[id]/page.tsx` | o motivo na frase da mídia; o vídeo como vídeo na prévia; o campo do fuso de cliente no remarcar, sem o `<Script>` | 2, 3 e 6 |
 | `app/publicar/page.tsx` | a capa do calendário pela regra pura, e o ícone do post só de vídeo | 3 |
 | `tests/publicar-previas.test.ts` (novo) | a guarda das duas prévias | 3 |
 | `testes-integracao/publicar-fala.integracao.ts` | a frase nova do `sem_arquivo` | 4 |
@@ -162,6 +214,9 @@ O ensaio achou estas coisas, já resolvidas neste plano:
 | `app/publicar/novo/page.tsx` | entrega ao compositor a action, a pasta e as partes de servidor | 5 |
 | `testes-dom/publicar-compositor.dom.tsx` (novo) | o compositor com um navegador falso; o navegador de verdade com o `createImageBitmap`, o `fetch` e os relógios falsos; e o `subirComProgresso` com um `XMLHttpRequest` falso | 5 |
 | `tests/publicar-compositor-guarda.test.ts` (novo) | a guarda do clique: sem `catch`, só a action na transição, a trava antes da espera, o formulário lido antes dela e sem `action` | 5 |
+| `app/publicar/campo-do-fuso.tsx` (novo) | o campo do fuso de cliente, controlado, para o formulário de servidor do remarcar | 6 |
+| `testes-dom/publicar-campo-do-fuso.dom.tsx` (novo) | o campo tem o fuso ao montar, depois de um novo desenho e no segundo formulário da aba | 6 |
+| `tests/publicar-remarcar-fuso.test.ts` (novo) | a guarda do remarcar: o campo de cliente no formulário, e nem o campo escondido nem o `<Script>` | 6 |
 
 ---
 
@@ -175,11 +230,12 @@ O ensaio achou estas coisas, já resolvidas neste plano:
 git ls-remote origin refs/heads/main
 git switch enquadrar-imagens
 git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "sem upstream"
-git log --oneline -8
+git log --oneline --first-parent -12
 ```
 
-Esperado: a `main` em `260b9dd` (ou depois dele); "sem upstream"; a branch com os cinco commits da spec e
-os dois deste plano sobre `260b9dd`.
+Esperado: a `main` em `991bf90` (ou depois dele); "sem upstream"; a branch, pelo primeiro pai, com os seis
+commits da spec e os dois primeiros deste plano sobre `260b9dd`, o merge da `main` (`aa366eb`) e o commit
+deste plano.
 
 - [ ] **Passo 2: o `node_modules` próprio** (o Turbopack do `verify` recusa uma junção que aponte para fora
   da cópia)
@@ -197,8 +253,8 @@ npm run banco:teste
 DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npm run test:integracao
 ```
 
-Esperado: 120 arquivos e 3 310 casos puros; 25 arquivos e 220 de tela; `[rede-global] ALVO: banco de TESTE`,
-46 arquivos, 529 passaram e 8 pularam.
+Esperado: 123 arquivos e 3 332 casos puros; 25 arquivos e 220 de tela; `[rede-global] ALVO: banco de TESTE`,
+51 arquivos, 575 passaram e 8 pularam.
 
 ---
 
@@ -1768,10 +1824,10 @@ Em `testes-integracao/publicar-fala.integracao.ts`, aplique (com `git apply`, a 
 
 ```diff
 diff --git a/testes-integracao/publicar-fala.integracao.ts b/testes-integracao/publicar-fala.integracao.ts
-index 9deefad..02f7f80 100644
+index f70879a..f69f5b2 100644
 --- a/testes-integracao/publicar-fala.integracao.ts
 +++ b/testes-integracao/publicar-fala.integracao.ts
-@@ -501,7 +501,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)",
+@@ -506,7 +506,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)",
      expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
      const aviso = avisoDaUrlDeVolta(d.url);
      expect(aviso.tom).toBe("erro");
@@ -1780,7 +1836,7 @@ index 9deefad..02f7f80 100644
    });
  
    test("legenda longa demais recusa com a MESMA frase que a tela já mostrava", async () => {
-@@ -605,7 +605,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)",
+@@ -610,7 +610,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)",
      // A MESMA RECUSA DE CAMPO VAZIO: depois do filtro pela pasta do cookie,
      // não sobrou caminho nenhum — e é essa a verdade que a frase conta.
      expect(aviso.tom).toBe("erro");
@@ -1869,7 +1925,7 @@ MSG
 - Criar: `app/publicar/navegador.ts`, `testes-dom/publicar-compositor.dom.tsx`,
   `tests/publicar-compositor-guarda.test.ts`
 - Substituir: `app/publicar/enviador.tsx` (o arquivo inteiro)
-- Modificar: `app/publicar/novo/page.tsx`
+- Modificar: `app/publicar/novo/page.tsx`; `lib/publicacao.ts` (só o comentário de `fusoDoCampo`)
 
 **Interfaces:**
 - Consome: as regras da FASE 1; `problemaDaLegenda`, `camposDaDataHora`, `instanteDoAgendamento`,
@@ -1939,6 +1995,8 @@ function navegadorFalso(
     segurarAssinatura?: boolean;
     medirPendurado?: string[];
     antesDeSubir?: () => void;
+    /** A orientação EXIF de cada arquivo; quem não está aqui tem 1. */
+    orientacoes?: Record<string, number>;
   } = {}
 ): Falso {
   const falhar = new Set(opcoes.falharUmaVez ?? []);
@@ -1959,7 +2017,7 @@ function navegadorFalso(
       f.soltos.push(e);
     },
     medir: (a) => (opcoes.medirPendurado?.includes(a.name) ? new Promise<Medidas>(() => {}) : Promise.resolve(medidas[a.name] ?? {})),
-    lerOrientacao: async () => 1,
+    lerOrientacao: async (a) => opcoes.orientacoes?.[a.name] ?? 1,
     enquadrar: async (a, desenho) => {
       f.enquadrados.push({ nome: a.name, desenho });
       return new File(["jpeg"], jpg(a.name), { type: "image/jpeg" });
@@ -2226,7 +2284,7 @@ describe("as travas antes de subir (achado 109)", () => {
 });
 
 describe("o envio no clique", () => {
-  it("dois cliques e o Enter dão UMA leva de assinaturas e UMA chamada da action (achado 107)", async () => {
+  it("dois cliques e um envio nativo do formulário dão UMA leva de assinaturas e UMA chamada da action (achado 107)", async () => {
     const f = navegadorFalso(MEDIDAS);
     const { acao } = renderizar(f);
     escolherForma("carrossel");
@@ -2256,7 +2314,29 @@ describe("o envio no clique", () => {
     expect(f.assinados).toEqual(["arte.jpg", "outra.jpg"]);
   });
 
-  it("o Enter cai no mesmo caminho: o formulário não tem action, e a recusa aparece", async () => {
+  // O MESMO, COM O ENVIO NATIVO. Depois de um desenho, o "Quando" já está travado (achado 119), e um segundo
+  // envio sairia sem ele, recusado pela hora: é uma segunda defesa, mas não é a trava. No mesmo quadro, nada
+  // está travado ainda, e só a referência segura o segundo pedido.
+  it("um clique e um envio nativo no mesmo quadro também dão uma leva só", async () => {
+    const f = navegadorFalso(MEDIDAS);
+    const { acao } = renderizar(f);
+    escolherForma("carrossel");
+    await escolher([arquivo("arte.jpg", "image/jpeg"), arquivo("outra.jpg", "image/jpeg")]);
+    const b = botao();
+    const form = formulario();
+    await act(async () => {
+      b.click();
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await waitFor(() => expect(acao).toHaveBeenCalled());
+    await act(async () => {});
+    expect(acao).toHaveBeenCalledTimes(1);
+    expect(f.assinados).toEqual(["arte.jpg", "outra.jpg"]);
+  });
+
+  // O ENTER NÃO ENVIA ESTE FORMULÁRIO no navegador: não há botão de `submit`, e a data e o nome do áudio
+  // bloqueiam o envio implícito. O envio nativo continua segurado como defesa, venha de onde vier.
+  it("o envio nativo cai no mesmo caminho: o formulário não tem action, e a recusa aparece", async () => {
     const f = navegadorFalso(MEDIDAS);
     const { acao } = renderizar(f);
     expect(formulario().getAttribute("action")).toBe(null);
@@ -2305,6 +2385,18 @@ describe("o envio no clique", () => {
       compartilhar_no_feed: "1",
       nome_do_audio: "Áudio de prova",
     });
+  });
+
+  // O JPEG JÁ EM 4:5 IRIA CRU, mas com a orientação 6 a Meta poderia mostrá-lo deitado: ele passa pelo
+  // `canvas`, que sai com a orientação aplicada.
+  it("o JPEG já em 4:5 com a orientação EXIF 6 passa pelo canvas, em vez de ir como veio", async () => {
+    const f = navegadorFalso(MEDIDAS, { orientacoes: { "arte.jpg": 6 } });
+    const { acao } = renderizar(f);
+    await escolher([arquivo("arte.jpg", "image/jpeg")]);
+    fireEvent.click(botao());
+    await waitFor(() => expect(acao).toHaveBeenCalledTimes(1));
+    const geometria = geometriaDoEnquadramento({ largura: 1080, altura: 1350, proporcao: "4:5", modo: "cortar" });
+    expect(f.enquadrados).toEqual([{ nome: "arte.jpg", desenho: geometria }]);
   });
 
   it("a foto em pé passa pelo canvas com a geometria; o JPEG já em 4:5 vai como veio", async () => {
@@ -2408,6 +2500,26 @@ describe("o envio no clique", () => {
     expect(botao().textContent).toBe("Publicar");
   });
 
+  // O ACHADO 119: o "Quando" e as opções do reels vêm prontos da página, e não travavam. No meio de um reels
+  // de minutos, trocar "agora" por "outra hora" mudava a tela, e a action recebia o do clique.
+  it("o Quando e as opções do reels travam durante a subida", async () => {
+    const f = navegadorFalso(MEDIDAS, { pendurar: true });
+    renderizar(f, { opcoesDoReels: OPCOES_DO_REELS });
+    escolherForma("reels");
+    await escolher([arquivo("reels.mp4", "video/mp4")]);
+    const campos = () => [
+      screen.getByLabelText(/Publicar agora/),
+      screen.getByLabelText(/Publicar em outra hora/),
+      screen.getByLabelText("Data e hora"),
+      screen.getByLabelText(/Mostrar também no feed/),
+      screen.getByLabelText("Nome do áudio"),
+    ];
+    expect(campos().map((c) => c.matches(":disabled"))).toEqual([false, false, false, false, false]);
+    fireEvent.click(botao());
+    await waitFor(() => expect(f.sinais).toHaveLength(1));
+    expect(campos().map((c) => c.matches(":disabled"))).toEqual([true, true, true, true, true]);
+  });
+
   it("fechar a aba no meio da subida pede confirmação; fora dela, não", async () => {
     const f = navegadorFalso(MEDIDAS, { pendurar: true });
     renderizar(f);
@@ -2453,7 +2565,8 @@ describe("o envio no clique", () => {
 });
 
 describe("o navegador de verdade", () => {
-  it("mede a imagem pelo bitmap com a orientação, e repete sem a opção no navegador que a recusa", async () => {
+  /** O `createImageBitmap` de um navegador que não conhece "from-image": recusa a opção, e sem ela mede 300×400. */
+  function bitmapQueRecusaAOpcao() {
     const opcoesPedidas: unknown[] = [];
     vi.stubGlobal(
       "createImageBitmap",
@@ -2463,8 +2576,31 @@ describe("o navegador de verdade", () => {
         return { width: 300, height: 400, close() {} };
       })
     );
-    expect(await navegadorDeVerdade.medir(arquivo("a.jpg", "image/jpeg"))).toEqual({ largura: 300, altura: 400 });
-    expect(opcoesPedidas).toEqual([{ imageOrientation: "from-image" }, undefined]);
+    return opcoesPedidas;
+  }
+
+  // UM JPEG MÍNIMO COM O EXIF NA ORIENTAÇÃO 6 (Intel): SOI, um APP1 com uma entrada 0x0112 na IFD0, e EOI.
+  const tiff6 = [0x49, 0x49, 0x2a, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0];
+  const jpegGirado = () =>
+    new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0, 34, 0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff6, 0xff, 0xd9])], "g.jpg", {
+      type: "image/jpeg",
+    });
+  const jpegSemExif = () => new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], "a.jpg", { type: "image/jpeg" });
+
+  it("mede a imagem pelo bitmap com a orientação, e repete sem a opção no navegador que a recusa", async () => {
+    const opcoesPedidas = bitmapQueRecusaAOpcao();
+    expect(await navegadorDeVerdade.medir(jpegSemExif())).toEqual({ largura: 300, altura: 400 });
+    expect(await navegadorDeVerdade.medir(arquivo("p.png", "image/png"))).toEqual({ largura: 300, altura: 400 });
+    expect(opcoesPedidas).toEqual([{ imageOrientation: "from-image" }, undefined, { imageOrientation: "from-image" }, undefined]);
+  });
+
+  // O ACHADO 120: sem a opção, a rotação do EXIF não é garantida, e o JPEG em pé gravado deitado seria medido e
+  // cortado deitado, e publicado assim. Ele não repete: fica sem medida, e a lista o marca como ilegível.
+  it("o JPEG que precisa girar não repete sem a opção: fica sem medida, e não deitado", async () => {
+    const opcoesPedidas = bitmapQueRecusaAOpcao();
+    expect(await navegadorDeVerdade.lerOrientacao(jpegGirado())).toBe(6);
+    expect(await navegadorDeVerdade.medir(jpegGirado())).toEqual({});
+    expect(opcoesPedidas).toEqual([{ imageOrientation: "from-image" }]);
   });
 
   it("a orientação de um JPEG sem EXIF é 1, e a leitura que falha vale 0, sem deixar o slide lendo para sempre", async () => {
@@ -2748,12 +2884,41 @@ export type Navegador = {
  * (`app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts`). Um navegador que a
  * recusasse deixaria TODA imagem como "ilegível". Então, se ela der erro, a
  * chamada se repete sem ela.
+ *
+ * MENOS PARA O JPEG QUE PRECISA GIRAR (achado 120). O navegador que dá erro com
+ * "from-image" é justamente o que não conhece o valor, e sem ele a rotação do
+ * EXIF não é garantida: a foto de celular em pé seria medida e cortada deitada,
+ * e o `canvas` tira o EXIF, então o post sairia deitado, sem `DELETE`, com a
+ * miniatura (que o CSS gira) mostrando certo. Então o JPEG com orientação
+ * diferente de 1 (o 0, que é "não deu para ler", incluído) não repete: o erro
+ * sobe, e o slide fica "ilegível", que é visível. O JPEG com orientação 1, o PNG
+ * e o WebP repetem.
  */
 async function bitmapDe(arquivo: Blob): Promise<ImageBitmap> {
   try {
     return await createImageBitmap(arquivo, { imageOrientation: "from-image" });
-  } catch {
+  } catch (erro) {
+    if (arquivo.type === "image/jpeg" && (await orientacaoDoArquivo(arquivo)) !== 1) throw erro;
     return await createImageBitmap(arquivo);
+  }
+}
+
+/**
+ * A ORIENTAÇÃO EXIF DE UM ARQUIVO: a do JPEG (`orientacaoDoJpeg`), e 1 para o
+ * resto, que não tem o que girar aqui.
+ *
+ * OS CABEÇALHOS DO JPEG ficam no começo: 64 KiB bastam, e ler o arquivo inteiro
+ * de uma foto de 8 MB para achar dois bytes seria desperdício. O EXIF que termina
+ * depois deles dá 0, e o 0 vai pelo `canvas` (achado 117). A LEITURA QUE FALHA
+ * TAMBÉM DÁ 0: sem o `catch`, o slide ficava em "Lendo o arquivo…" e o Publicar
+ * recusando para sempre.
+ */
+async function orientacaoDoArquivo(arquivo: Blob): Promise<number> {
+  if (arquivo.type !== "image/jpeg") return 1;
+  try {
+    return orientacaoDoJpeg(new Uint8Array(await arquivo.slice(0, 64 * 1024).arrayBuffer()));
+  } catch {
+    return 0;
   }
 }
 
@@ -2854,19 +3019,7 @@ export const navegadorDeVerdade: Navegador = {
     }
   },
 
-  async lerOrientacao(arquivo) {
-    if (arquivo.type !== "image/jpeg") return 1;
-    // OS CABEÇALHOS DO JPEG ficam no começo: 64 KiB bastam, e ler o arquivo
-    // inteiro de uma foto de 8 MB para achar dois bytes seria desperdício. O
-    // EXIF que termina depois deles dá 0, e o 0 vai pelo `canvas` (achado 117).
-    // A LEITURA QUE FALHA TAMBÉM DÁ 0: sem o `catch`, o slide ficava em "Lendo o
-    // arquivo…" e o Publicar recusando para sempre.
-    try {
-      return orientacaoDoJpeg(new Uint8Array(await arquivo.slice(0, 64 * 1024).arrayBuffer()));
-    } catch {
-      return 0;
-    }
-  },
+  lerOrientacao: orientacaoDoArquivo,
 
   async enquadrar(arquivo, d) {
     const bitmap = await bitmapDe(arquivo);
@@ -3030,9 +3183,11 @@ import { btnPrimary, card, fieldError, hint, input, label, muted, numero } from 
 //     qualquer espera, no molde do gerador (card-publicar.tsx). O estado da tela
 //     não serve de trava: ele só muda no próximo render, e dois cliques no mesmo
 //     quadro passariam os dois.
-//   - O FORMULÁRIO NÃO TEM `action`. O Enter num campo de texto vira `submit`,
-//     que leva `preventDefault` aqui mesmo e cai no mesmo caminho, sob a mesma
-//     trava. A action só é chamada por `publicar`.
+//   - O FORMULÁRIO NÃO TEM `action`. Hoje o Enter não o envia: não há botão de
+//     `submit`, e a data e o nome do áudio são campos que bloqueiam o envio
+//     implícito. Ainda assim, um envio nativo leva `preventDefault` aqui mesmo e
+//     cai no mesmo caminho, sob a mesma trava: a action só é chamada por
+//     `publicar`, venha o envio de onde vier.
 //   - O FORMULÁRIO É LIDO NO CLIQUE, antes de qualquer espera (achado 115).
 //     Durante a subida a tela trava os campos com `disabled`, e campo
 //     desabilitado não entra no `FormData`: lido depois da subida, o post saía
@@ -3673,8 +3828,15 @@ export default function Enviador({
         </div>
       )}
 
-      {quando}
-      {opcoesDoReels}
+      {/* O "QUANDO" E AS OPÇÕES DO REELS TRAVAM JUNTO (achado 119). Eles vêm
+          prontos da página, de servidor, e sem isso a pessoa trocava "agora" por
+          "outra hora" no meio de um reels de minutos: a tela mostrava o valor
+          novo, e a action recebia o do clique. O formulário já foi lido antes de
+          a tela travar, então travar não tira nada do pedido. */}
+      <fieldset disabled={ocupado} className="m-0 min-w-0 space-y-6 border-0 p-0">
+        {quando}
+        {opcoesDoReels}
+      </fieldset>
 
       {recusa && (
         <p role="alert" className={fieldError}>
@@ -3915,23 +4077,55 @@ index 6586210..7a1ba4d 100644
      </div>
 ```
 
-- [ ] **Passo 6: ver passar**
+- [ ] **Passo 6: o comentário do fuso** (a tela de compor deixou o campo escondido)
+
+Em `lib/publicacao.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/lib/publicacao.ts b/lib/publicacao.ts
+index 603147c..345e545 100644
+--- a/lib/publicacao.ts
++++ b/lib/publicacao.ts
+@@ -1545,9 +1545,17 @@ const FORMA_DO_CAMINHO = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.[a-z0-9]+$/;
+  * -03:00 o ano inteiro.
+  *
+  * O CAMPO CHEGA VAZIO QUANDO O JAVASCRIPT NÃO RODOU, e as duas telas que o
+- * mandam o preenchem por caminhos diferentes: a de compor por um `useEffect`
+- * (`app/publicar/enviador.tsx`, que é cliente), a dos agendados por um
+- * `<Script>` embutido (`app/publicar/agendados/page.tsx`, que é 100% servidor).
++ * mandam o preenchem por caminhos diferentes: a de compor o lê no clique, direto
++ * do navegador (`app/publicar/enviador.tsx`, que é cliente), e a de remarcar por
++ * um `<Script>` embutido (`app/publicar/post/[id]/page.tsx`, que é 100%
++ * servidor). A de compor usava um campo escondido escrito por um `useEffect`, e o
++ * React o devolvia ao `defaultValue` vazio a cada desenho (achado 118, medido em
++ * 19/10): quem agendava fora de Brasília caía aqui sem saber.
++ *
++ * O DESLOCAMENTO É O DO MOMENTO DO CLIQUE, e não o da data marcada. Num fuso com
++ * horário de verão, um agendamento que atravessa a troca sairia uma hora fora.
++ * No Brasil isso não acontece desde 2019, e a conta pela data marcada não tem
++ * como ser testada nesta máquina, que está em Brasília.
+  *
+  * ATÉ 09/09/2026 A TELA DOS AGENDADOS NÃO MANDAVA O CAMPO, e o comentário que
+  * estava aqui dizia que um campo vazio era impossível na prática — "nesse
+```
+
+- [ ] **Passo 7: ver passar**
 
 ```bash
 npx tsc --noEmit
-npx eslint app/publicar/enviador.tsx app/publicar/navegador.ts app/publicar/novo/page.tsx testes-dom/publicar-compositor.dom.tsx tests/publicar-compositor-guarda.test.ts
+npx eslint app/publicar/enviador.tsx app/publicar/navegador.ts app/publicar/novo/page.tsx lib/publicacao.ts testes-dom/publicar-compositor.dom.tsx tests/publicar-compositor-guarda.test.ts
 npx vitest run --config vitest.dom.config.ts testes-dom/publicar-compositor.dom.tsx
 npx vitest run tests/publicar-compositor-guarda.test.ts
 ```
 
-Esperado: `tsc` e lint limpos; os 35 casos de tela passam, e os 8 da guarda.
+Esperado: `tsc` e lint limpos; os 39 casos de tela passam, e os 8 da guarda.
 
-- [ ] **Passo 7: varrer e commitar**
+- [ ] **Passo 8: varrer e commitar**
 
 ```bash
-node "$SCRATCH/varrer-texto.mjs" app/publicar/enviador.tsx app/publicar/navegador.ts app/publicar/novo/page.tsx testes-dom/publicar-compositor.dom.tsx tests/publicar-compositor-guarda.test.ts
+node "$SCRATCH/varrer-texto.mjs" app/publicar/enviador.tsx app/publicar/navegador.ts app/publicar/novo/page.tsx lib/publicacao.ts testes-dom/publicar-compositor.dom.tsx tests/publicar-compositor-guarda.test.ts
 test "$(git branch --show-current)" = "enquadrar-imagens"
-git add app/publicar/enviador.tsx app/publicar/navegador.ts app/publicar/novo/page.tsx testes-dom/publicar-compositor.dom.tsx tests/publicar-compositor-guarda.test.ts
+git add app/publicar/enviador.tsx app/publicar/navegador.ts app/publicar/novo/page.tsx lib/publicacao.ts testes-dom/publicar-compositor.dom.tsx tests/publicar-compositor-guarda.test.ts
 ```
 
 ```bash
@@ -3946,16 +4140,294 @@ qualquer espera e chama a action uma vez, com os caminhos da subida, no molde
 do gerador. O formulário é lido no clique, antes de a tela travar os campos,
 e a legenda chega à action; o fuso, que o campo escondido perdia a cada
 desenho já na produção, é lido no clique também. A subida corre fora da
-transição, e sair da tela a interrompe, da assinatura ao envio. As recusas da
-legenda, da hora, da quantidade e do vídeo em primeiro aparecem antes de
-subir. A action termina em redirect, que rejeita a espera com NEXT_REDIRECT:
-a chamada fica sem catch, e uma guarda lê isso.
+transição, com o Quando e as opções do reels travados, e sair da tela a
+interrompe, da assinatura ao envio. O JPEG que precisa girar não é medido sem
+a orientação aplicada. As recusas da legenda, da hora, da quantidade e do
+vídeo em primeiro aparecem antes de subir. A action termina em redirect, que
+rejeita a espera com NEXT_REDIRECT: a chamada fica sem catch, e uma guarda lê
+isso.
 MSG
 ```
 
 ---
 
-### FASE 6 — A verificação inteira
+### FASE 6 — O remarcar manda o fuso do navegador também a partir do segundo post (achado 121)
+
+**Arquivos:**
+- Criar: `app/publicar/campo-do-fuso.tsx`, `testes-dom/publicar-campo-do-fuso.dom.tsx`,
+  `tests/publicar-remarcar-fuso.test.ts`
+- Modificar: `app/publicar/post/[id]/page.tsx` (o formulário do remarcar, sem o `<Script>`);
+  `lib/publicacao.ts` (só o comentário de `fusoDoCampo`)
+
+**Interfaces:**
+- Produz: `CampoDoFuso({ name })` (`app/publicar/campo-do-fuso.tsx`, de cliente), que desenha o
+  `<input type="hidden">` controlado com o nome que a página dá. O nome vem da página de propósito: o
+  `name=fuso` continua à vista na árvore do formulário, que é onde `testes-integracao/agendados.integracao.ts`
+  ("o formulário de remarcar leva o campo do fuso") o procura. No ensaio, com o nome escrito dentro do
+  componente, esse caso caiu na suíte inteira.
+
+- [ ] **Passo 1: o caso de tela e a guarda**
+
+Crie `testes-dom/publicar-campo-do-fuso.dom.tsx`:
+
+```tsx
+import { render } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import CampoDoFuso from "@/app/publicar/campo-do-fuso";
+
+// O FUSO DO REMARCAR (spec 2026-10-19-enquadrar-imagens, achado 118). A tela de remarcar é de servidor, e o
+// fuso vinha de um campo escondido com `defaultValue` vazio, preenchido por um `<Script>` de id fixo. Uma sonda
+// mediu em 19/10, no `next dev` e no `next start`, com o fuso de Manaus: o post aberto por carga inteira
+// mandava "240", e o segundo post aberto por Link, como do calendário, mandava vazio, porque o `<Script>` de
+// mesmo id só roda uma vez por documento. O campo agora é de cliente, e estes casos cobram que ele tem o fuso
+// ao montar, depois de um novo desenho e no segundo formulário da mesma aba.
+
+const formulario = () => (
+  <form>
+    <CampoDoFuso name="fuso" />
+  </form>
+);
+const lido = (raiz: HTMLElement) => new FormData(raiz.querySelector("form")!).get("fuso");
+const doNavegador = () => String(new Date().getTimezoneOffset());
+
+describe("o campo do fuso", () => {
+  it("nasce com o fuso do navegador", () => {
+    const { container } = render(formulario());
+    expect(lido(container)).toBe(doNavegador());
+  });
+
+  // UMA ACTION QUE VOLTA À PÁGINA, OU UM `router.refresh`, desenha a página de novo com as mesmas
+  // propriedades. Era esse desenho que devolvia o campo de `defaultValue` ao valor inicial vazio.
+  it("continua com ele quando a página é desenhada de novo", () => {
+    const { container, rerender } = render(formulario());
+    rerender(formulario());
+    rerender(formulario());
+    expect(lido(container)).toBe(doNavegador());
+  });
+
+  it("o segundo formulário montado na mesma aba também tem o fuso, como o segundo post aberto por Link", () => {
+    render(formulario()).unmount();
+    const { container } = render(formulario());
+    expect(lido(container)).toBe(doNavegador());
+  });
+});
+```
+
+Crie `tests/publicar-remarcar-fuso.test.ts`:
+
+```ts
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+// A GUARDA DO FUSO DO REMARCAR (spec 2026-10-19-enquadrar-imagens, achado 118). A página do post é de
+// servidor e lê o banco, e o jsdom não roda o `<Script>` do Next: o comportamento do campo está em
+// testes-dom/publicar-campo-do-fuso.dom.tsx, e aqui se cobra que o formulário do remarcar o usa, e não volta
+// ao campo escondido preenchido por um `<Script>` de id fixo, que só roda uma vez por documento (medido).
+
+const RAIZ = fileURLToPath(new URL("..", import.meta.url));
+const ler = (rel: string) => readFileSync(`${RAIZ}/${rel}`, "utf8").replace(/\r\n/g, "\n");
+
+describe("o remarcar da página do post", () => {
+  const pagina = ler("app/publicar/post/[id]/page.tsx");
+
+  it("o formulário do remarcar leva o campo do fuso de cliente", () => {
+    expect(pagina).toMatch(/<form action=\{remarcarPublicacao\}(?:(?!<\/form>)[\s\S])*<CampoDoFuso name="fuso" \/>/);
+  });
+
+  it("e não o campo escondido preenchido pelo <Script>", () => {
+    expect(pagina).not.toContain('<input type="hidden" name="fuso"');
+    expect(pagina).not.toContain("next/script");
+  });
+});
+```
+
+- [ ] **Passo 2: ver falhar**
+
+```bash
+npx vitest run --config vitest.dom.config.ts testes-dom/publicar-campo-do-fuso.dom.tsx
+npx vitest run tests/publicar-remarcar-fuso.test.ts
+```
+
+Esperado: o teste de tela nem carrega (`Failed to resolve import "@/app/publicar/campo-do-fuso"`), e a guarda derruba
+os 2 casos (2): o remarcar ainda usa o campo escondido preenchido pelo `<Script>`.
+
+- [ ] **Passo 3: o campo de cliente**
+
+Crie `app/publicar/campo-do-fuso.tsx`:
+
+```tsx
+"use client";
+import { useSyncExternalStore } from "react";
+
+// O FUSO DO NAVEGADOR NUM FORMULÁRIO DE SERVIDOR (achado 118).
+//
+// O `<input type="datetime-local">` manda "14:30" e CALA sobre onde são 14:30;
+// lido no servidor, que roda em UTC, isso seria 14:30Z (ver
+// `instanteDoAgendamento`). O fuso vem do navegador, e ele só existe lá.
+//
+// ELE MORAVA NUM CAMPO ESCONDIDO com `defaultValue` vazio, preenchido por um
+// `<Script>` de id fixo, e isso falhava de dois jeitos. O `<Script>` do Next com
+// o mesmo id roda UMA VEZ por documento: uma sonda mediu em 19/10, no `next dev`
+// e no `next start`, com o fuso de Manaus, que o post aberto por carga inteira
+// mandava "240", e o segundo post aberto por Link, como do calendário, mandava
+// vazio. E um novo desenho da página devolve o campo de `defaultValue` ao valor
+// inicial (medido no compositor no mesmo dia). Vazio, `fusoDoCampo` cai no fuso
+// de Brasília, e quem remarcava em outro fuso via o post sair na hora errada.
+//
+// AGORA O CAMPO É DE CLIENTE, CONTROLADO. O servidor o escreve vazio (ele não
+// sabe onde a pessoa está), a hidratação passa ao valor do navegador, e um novo
+// desenho não o apaga, porque o valor é do componente. Sem JavaScript ele fica
+// vazio, e a action cai no fuso do painel, que é a rede de sempre.
+//
+// O NOME DO CAMPO VEM DE QUEM MONTA O FORMULÁRIO: é a página que sabe o que a
+// action lê, e o `name=fuso` continua à vista na árvore dela, que é onde
+// testes-integracao/agendados.integracao.ts o procura.
+const nadaMuda = () => () => {};
+const doNavegador = () => String(new Date().getTimezoneOffset());
+const doServidor = () => "";
+
+export default function CampoDoFuso({ name }: { name: string }) {
+  const fuso = useSyncExternalStore(nadaMuda, doNavegador, doServidor);
+  return <input type="hidden" name={name} value={fuso} />;
+}
+```
+
+- [ ] **Passo 4: o remarcar usa o campo, e o `<Script>` sai**
+
+Em `app/publicar/post/[id]/page.tsx`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/app/publicar/post/[id]/page.tsx b/app/publicar/post/[id]/page.tsx
+index 3a7ed44..9b9ae66 100644
+--- a/app/publicar/post/[id]/page.tsx
++++ b/app/publicar/post/[id]/page.tsx
+@@ -1,5 +1,4 @@
+ import Link from "next/link";
+-import Script from "next/script";
+ import { notFound } from "next/navigation";
+ import { sql, type QueueItem } from "@/lib/db";
+ import { getSelectedAccount } from "@/lib/account";
+@@ -36,6 +35,7 @@ import {
+   numero,
+ } from "../../../ui";
+ import { cancelarPublicacao, remarcarPublicacao } from "../actions";
++import CampoDoFuso from "../../campo-do-fuso";
+ 
+ export const dynamic = "force-dynamic";
+ 
+@@ -280,11 +280,12 @@ export default async function DetalheDaPublicacao({
+                 seria 14:30Z — TRÊS HORAS antes do que a pessoa marcou. Ver
+                 `instanteDoAgendamento` (lib/publicacao.ts).
+ 
+-                Ele nasce VAZIO e é preenchido pelo `<Script>` do fim desta tela
+-                — nunca calculado no render, que aqui é servidor e não sabe onde
+-                a pessoa está. Vazio, `fusoDoCampo` cai no padrão de Brasília
+-                (180), que é a rede de quem não rodou JavaScript. */}
+-            <input type="hidden" name="fuso" defaultValue="" />
++                O CAMPO É DE CLIENTE (achado 118). Ele era um campo escondido
++                preenchido por um `<Script>` de id fixo, que só roda uma vez por
++                documento: medido em 19/10, o segundo post aberto por Link
++                mandava o fuso vazio, e a action caía no de Brasília. Ver
++                `app/publicar/campo-do-fuso.tsx`. */}
++            <CampoDoFuso name="fuso" />
+             <div>
+               <label className={label} htmlFor="data_hora">
+                 Nova data e hora
+@@ -301,7 +302,7 @@ export default async function DetalheDaPublicacao({
+ 
+           {/* CANCELAR PEDE CONFIRMAÇÃO, e a confirmação é um campo do
+               formulário — não um `confirm()` do navegador, que exigiria
+-              `"use client"` numa tela que não precisa de nenhum. */}
++              `"use client"` no formulário só para isso. */}
+           <form action={cancelarPublicacao} className={`${subtle} space-y-2 p-3`}>
+             <input type="hidden" name="id" value={item.id} />
+             <label className="flex items-center gap-2 text-sm">
+@@ -317,13 +318,6 @@ export default async function DetalheDaPublicacao({
+           </p>
+         </section>
+       )}
+-
+-      {/* O MESMO `<Script>` da tela antiga, e pelo mesmo motivo: a única coisa
+-          que esta página precisa do navegador é UM NÚMERO que só existe lá. Se
+-          ele não rodar, nada quebra — `fusoDoCampo` cai no padrão de Brasília. */}
+-      <Script id="fuso-do-remarcar">
+-        {`document.querySelectorAll('input[name="fuso"]').forEach(function(c){c.value=String(new Date().getTimezoneOffset())})`}
+-      </Script>
+     </div>
+   );
+ }
+```
+
+Em `lib/publicacao.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/lib/publicacao.ts b/lib/publicacao.ts
+index 345e545..a2f05ab 100644
+--- a/lib/publicacao.ts
++++ b/lib/publicacao.ts
+@@ -1547,12 +1547,15 @@ const FORMA_DO_CAMINHO = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.[a-z0-9]+$/;
+  * O CAMPO CHEGA VAZIO QUANDO O JAVASCRIPT NÃO RODOU, e as duas telas que o
+  * mandam o preenchem por caminhos diferentes: a de compor o lê no clique, direto
+  * do navegador (`app/publicar/enviador.tsx`, que é cliente), e a de remarcar por
+- * um `<Script>` embutido (`app/publicar/post/[id]/page.tsx`, que é 100%
+- * servidor). A de compor usava um campo escondido escrito por um `useEffect`, e o
+- * React o devolvia ao `defaultValue` vazio a cada desenho (achado 118, medido em
+- * 19/10): quem agendava fora de Brasília caía aqui sem saber.
+- *
+- * O DESLOCAMENTO É O DO MOMENTO DO CLIQUE, e não o da data marcada. Num fuso com
++ * um campo de cliente controlado (`app/publicar/campo-do-fuso.tsx`), dentro de
++ * uma página de servidor. Antes, a de compor usava um campo escondido escrito por
++ * um `useEffect`, que o React devolvia ao `defaultValue` vazio a cada desenho, e a
++ * de remarcar um `<Script>` de id fixo, que só roda uma vez por documento (achado
++ * 118, os dois medidos em 19/10): quem agendava ou remarcava fora de Brasília
++ * caía aqui sem saber.
++ *
++ * O DESLOCAMENTO É O DE AGORA (o do clique no compor, o da abertura da tela no
++ * remarcar), e não o da data marcada. Num fuso com
+  * horário de verão, um agendamento que atravessa a troca sairia uma hora fora.
+  * No Brasil isso não acontece desde 2019, e a conta pela data marcada não tem
+  * como ser testada nesta máquina, que está em Brasília.
+```
+
+- [ ] **Passo 5: ver passar**
+
+```bash
+npx tsc --noEmit
+npx eslint app/publicar/campo-do-fuso.tsx "app/publicar/post/[id]/page.tsx" lib/publicacao.ts testes-dom/publicar-campo-do-fuso.dom.tsx tests/publicar-remarcar-fuso.test.ts
+npx vitest run --config vitest.dom.config.ts testes-dom/publicar-campo-do-fuso.dom.tsx
+npx vitest run tests/publicar-remarcar-fuso.test.ts tests/publicar-previas.test.ts
+DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npx vitest run --config vitest.integracao.config.ts testes-integracao/agendados.integracao.ts
+```
+
+Esperado: `tsc` e lint limpos; os 3 casos de tela passam; os 2 arquivos puros passam, com 5 casos; e na integração,
+`[rede-global] ALVO: banco de TESTE`, os 32 casos de `agendados` passam, com "o formulário de remarcar leva o
+campo do fuso".
+
+- [ ] **Passo 6: varrer e commitar**
+
+```bash
+node "$SCRATCH/varrer-texto.mjs" app/publicar/campo-do-fuso.tsx "app/publicar/post/[id]/page.tsx" lib/publicacao.ts testes-dom/publicar-campo-do-fuso.dom.tsx tests/publicar-remarcar-fuso.test.ts
+test "$(git branch --show-current)" = "enquadrar-imagens"
+git add app/publicar/campo-do-fuso.tsx "app/publicar/post/[id]/page.tsx" lib/publicacao.ts testes-dom/publicar-campo-do-fuso.dom.tsx tests/publicar-remarcar-fuso.test.ts
+```
+
+```bash
+git commit -F - <<'MSG'
+O remarcar do /publicar manda o fuso do navegador também a partir do segundo post
+
+A tela de remarcar preenchia o fuso por um Script de id fixo, que roda uma vez
+por documento: o segundo post aberto pelo calendário mandava o fuso vazio, e a
+action caía no de Brasília, então quem remarcava em outro fuso via o post sair
+na hora errada. Uma sonda mediu isso em 19/10, no next dev e no next start. O
+campo passa a ser de cliente e controlado: o servidor o escreve vazio, a
+hidratação põe o fuso do navegador, e um novo desenho não o apaga.
+MSG
+```
+
+---
+
+### FASE 7 — A verificação inteira
 
 - [ ] **Passo 1: o verify**
 
@@ -3964,7 +4436,7 @@ env -u CLAUDECODE -u AI_AGENT npm run verify
 git diff --stat AGENTS.md
 ```
 
-Esperado: lint e `tsc` limpos; 123 arquivos e 3 385 casos puros e 26 arquivos e 255 de tela; a varredura "SEM VAZAMENTO
+Esperado: lint e `tsc` limpos; 127 arquivos e 3 409 casos puros e 27 arquivos e 262 de tela; a varredura "SEM VAZAMENTO
 em A nem em C"; o build (Turbopack) com "MIGRAÇÃO PULADA" e as rotas `ƒ /publicar`, `ƒ /publicar/novo` e
 `ƒ /publicar/post/[id]`; o `AGENTS.md` sem diferença.
 
@@ -3974,7 +4446,7 @@ em A nem em C"; o build (Turbopack) com "MIGRAÇÃO PULADA" e as rotas `ƒ /publ
 DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_testes" npm run test:integracao
 ```
 
-Esperado: `[rede-global] ALVO: banco de TESTE`; 46 arquivos, 529 passaram e 8 pularam.
+Esperado: `[rede-global] ALVO: banco de TESTE`; 51 arquivos, 575 passaram e 8 pularam.
 
 - [ ] **Passo 3: as provas de mutação**
 
@@ -3985,30 +4457,33 @@ DATABASE_URL_TESTES="postgresql://postgres:postgres@127.0.0.1:5434/metodochat_te
 git status --short
 ```
 
-Esperado: as 55 com ✓, "55 mutações, 0 ruins", e a árvore limpa depois.
+Esperado: as 60 com ✓, "60 mutações, 0 ruins", e a árvore limpa depois.
 
 - [ ] **Passo 4: a guarda do diff**
 
 ```bash
-git diff --name-only 260b9dd -- . ':!docs'
-git diff --stat 260b9dd -- app/publicar/actions.ts app/api lib/queue-drain.ts lib/engine.ts lib/bucket.ts lib/dedupe.ts lib/db.ts lib/esquema.ts lib/bonus migrations scripts package.json package-lock.json next.config.ts proxy.ts
+git diff --name-only aa366eb -- . ':!docs'
+git diff --stat aa366eb -- app/publicar/actions.ts app/api lib/queue-drain.ts lib/engine.ts lib/bucket.ts lib/dedupe.ts lib/db.ts lib/esquema.ts lib/bonus migrations scripts package.json package-lock.json next.config.ts proxy.ts
 ```
 
-Esperado: na primeira, só os 12 arquivos do mapa:
+Esperado: na primeira, só os 15 arquivos do mapa:
 
 ```text
+app/publicar/campo-do-fuso.tsx
 app/publicar/enviador.tsx
 app/publicar/navegador.ts
 app/publicar/novo/page.tsx
 app/publicar/page.tsx
 app/publicar/post/[id]/page.tsx
 lib/publicacao.ts
+testes-dom/publicar-campo-do-fuso.dom.tsx
 testes-dom/publicar-compositor.dom.tsx
 testes-integracao/publicar-fala.integracao.ts
 tests/publicacao-enquadramento.test.ts
 tests/publicacao.test.ts
 tests/publicar-compositor-guarda.test.ts
 tests/publicar-previas.test.ts
+tests/publicar-remarcar-fuso.test.ts
 ```
 
 e a segunda vazia.
@@ -4017,7 +4492,7 @@ e a segunda vazia.
 
 ---
 
-### FASE 7 — A prova real, no preview, com o Eduardo
+### FASE 8 — A prova real, no preview, com o Eduardo
 
 Cada escrita em produção tem o OK do Eduardo, pela caixa, e a auditoria lê o banco antes e depois (avisada
 com a hora). O preview usa o banco e o bucket de produção. **Sem post real. Sem migração. Nenhum clique em
@@ -4044,16 +4519,24 @@ do build do preview, confira o commit e "MIGRAÇÃO PULADA". O endereço do prev
 2. **Digitar uma legenda curta** (a auditoria do 115 lembrou: uma prova sem legenda não pegaria a legenda
    que some), marcar **"Publicar em outra hora"**, com a data de daqui a 7 dias, às 10:00, e só então dar
    **dois cliques rápidos** no Publicar (grava). A auditoria confere logo depois que há **um item só na
-   fila**, com a legenda digitada e a hora marcada (10:00 de Brasília, 13:00 UTC: o fuso lido no clique),
-   as medidas de cada imagem no bucket (4:5 nas três) e que o JPEG subiu igual ao original, byte a byte. A
-   página do post mostra o vídeo como vídeo, e o calendário mostra a capa.
-3. Cancelar na página do post (grava). O cancelamento tira os arquivos do bucket, e a página passa a dizer
+   fila**, com a legenda digitada e a hora marcada (10:00 de Brasília, 13:00 UTC), as medidas de cada imagem
+   no bucket (4:5 nas três) e que o JPEG subiu igual ao original, byte a byte. A página do post mostra o
+   vídeo como vídeo, e o calendário mostra a capa.
+3. **Remarcar o post da prova** (grava): do calendário, abrir antes outro post e voltar, e só então abrir o
+   da prova pelo calendário, como o segundo post da aba, e remarcá-lo para daqui a 8 dias, às 11:00. A
+   auditoria confere a hora nova (14:00 UTC).
+4. Cancelar na página do post (grava). O cancelamento tira os arquivos do bucket, e a página passa a dizer
    que o arquivo foi apagado.
+
+**O que esta prova não mostra:** o Eduardo está em Brasília, onde o fuso certo e o padrão da action
+(`FUSO_DO_PAINEL_EM_MINUTOS`, 180) coincidem. Os passos 2 e 3 provam que o compor e o remarcar não quebraram,
+e não o fuso: o fuso está provado pelas sondas (a do compositor, no jsdom, e a do remarcar, Apêndice C, com o
+fuso de Manaus) e pelos casos de tela.
 
 A linha da fila cancelada sai ou fica conforme o Eduardo decidir pela caixa; se sair, é por um script lido
 pela auditoria antes de rodar. Depois: o corpo do PR e a mensagem do merge, conferidos pela auditoria, e o PR
 com o OK do Eduardo. **O merge é do Eduardo**, com a mensagem colada nos dois campos (o título e a
-descrição), e o build do merge diz "Nada a aplicar: as 19 migrações".
+descrição), e o build do merge diz "Nada a aplicar: as 21 migrações".
 
 ---
 
@@ -4081,6 +4564,7 @@ const REGRAS = "lib/publicacao.ts";
 const COMPOSITOR = "app/publicar/enviador.tsx";
 const NAVEGADOR = "app/publicar/navegador.ts";
 const POST = "app/publicar/post/[id]/page.tsx";
+const CAMPO_DO_FUSO = "app/publicar/campo-do-fuso.tsx";
 const CALENDARIO = "app/publicar/page.tsx";
 
 const T_ENQ = PURA("tests/publicacao-enquadramento.test.ts");
@@ -4089,6 +4573,8 @@ const T_PREVIAS = PURA("tests/publicar-previas.test.ts");
 const T_GUARDA = PURA("tests/publicar-compositor-guarda.test.ts");
 const T_TELA = DOM("testes-dom/publicar-compositor.dom.tsx");
 const T_FALA = INTEG("testes-integracao/publicar-fala.integracao.ts");
+const T_CAMPO = DOM("testes-dom/publicar-campo-do-fuso.dom.tsx");
+const T_REMARCAR = PURA("tests/publicar-remarcar-fuso.test.ts");
 
 const MUTACOES = [
   // FASE 1: as regras puras
@@ -4184,9 +4670,16 @@ const MUTACOES = [
   { nome: "5: sem a trava, dois cliques no mesmo quadro sobem duas vezes (achado 107)", arq: COMPOSITOR,
     de: "    if (trava.current) return;\n    trava.current = true;", para: "    trava.current = true;",
     cmd: T_TELA, caso: "dois cliques no mesmo quadro, antes de qualquer desenho" },
-  { nome: "5: sem a trava, o Enter abre outra leva", arq: COMPOSITOR,
+  { nome: "5: sem a trava, um envio nativo abre outra leva", arq: COMPOSITOR,
     de: "    if (trava.current) return;\n    trava.current = true;", para: "    trava.current = true;",
-    cmd: T_TELA, caso: "dois cliques e o Enter dão UMA leva de assinaturas" },
+    cmd: T_TELA, caso: "um clique e um envio nativo no mesmo quadro também dão uma leva só" },
+  { nome: "5: o Quando e as opções do reels deixam de travar na subida (achado 119)", arq: COMPOSITOR,
+    de: '      <fieldset disabled={ocupado} className="m-0 min-w-0 space-y-6 border-0 p-0">',
+    para: '      <fieldset className="m-0 min-w-0 space-y-6 border-0 p-0">',
+    cmd: T_TELA, caso: "o Quando e as opções do reels travam durante a subida" },
+  { nome: "5: o compositor deixa de passar a orientação ao cru", arq: COMPOSITOR,
+    de: "          orientacao: s.orientacao,\n", para: "          orientacao: 1,\n",
+    cmd: T_TELA, caso: "o JPEG já em 4:5 com a orientação EXIF 6 passa pelo canvas" },
   { nome: "5: sem a trava, a guarda cai também", arq: COMPOSITOR,
     de: "    if (trava.current) return;\n    trava.current = true;", para: "    trava.current = true;",
     cmd: T_GUARDA, caso: "a trava é ligada antes de qualquer espera" },
@@ -4257,11 +4750,14 @@ const MUTACOES = [
     de: "      signal: sinal,\n", para: "",
     cmd: T_TELA, caso: "o pedido da assinatura leva o sinal da leva" },
   { nome: "5: o navegador que recusa a opção da orientação deixa toda imagem ilegível", arq: NAVEGADOR,
-    de: "  } catch {\n    return await createImageBitmap(arquivo);\n  }", para: "  } finally {\n    // nada\n  }",
+    de: "    return await createImageBitmap(arquivo);\n", para: "    throw erro;\n",
     cmd: T_TELA, caso: "mede a imagem pelo bitmap com a orientação, e repete sem a opção" },
+  { nome: "5: o JPEG que precisa girar repete sem a opção, e sai deitado (achado 120)", arq: NAVEGADOR,
+    de: '    if (arquivo.type === "image/jpeg" && (await orientacaoDoArquivo(arquivo)) !== 1) throw erro;\n', para: "",
+    cmd: T_TELA, caso: "o JPEG que precisa girar não repete sem a opção" },
   { nome: "5: a leitura da orientação que falha deixa o slide lendo para sempre", arq: NAVEGADOR,
-    de: "    try {\n      return orientacaoDoJpeg(new Uint8Array(await arquivo.slice(0, 64 * 1024).arrayBuffer()));\n    } catch {\n      return 0;\n    }",
-    para: "    return orientacaoDoJpeg(new Uint8Array(await arquivo.slice(0, 64 * 1024).arrayBuffer()));",
+    de: "  try {\n    return orientacaoDoJpeg(new Uint8Array(await arquivo.slice(0, 64 * 1024).arrayBuffer()));\n  } catch {\n    return 0;\n  }",
+    para: "  return orientacaoDoJpeg(new Uint8Array(await arquivo.slice(0, 64 * 1024).arrayBuffer()));",
     cmd: T_TELA, caso: "a leitura que falha vale 0" },
   { nome: "5: a medida do vídeo perde o tempo-limite", arq: NAVEGADOR,
     de: "    relogio = setTimeout(() => ok({}), TEMPO_PARA_MEDIR_VIDEO_EM_MS);\n", para: "",
@@ -4269,6 +4765,13 @@ const MUTACOES = [
   { nome: "5: o sinal deixa de abortar o PUT", arq: NAVEGADOR,
     de: '    sinal.addEventListener("abort", abortar, { once: true });\n', para: "",
     cmd: T_TELA, caso: "o sinal aborta o pedido, e a subida rejeita" },
+  // FASE 6: o fuso do remarcar (achado 118)
+  { nome: "6: o campo do fuso nasce vazio no navegador", arq: CAMPO_DO_FUSO,
+    de: "const doNavegador = () => String(new Date().getTimezoneOffset());", para: 'const doNavegador = () => "";',
+    cmd: T_CAMPO, caso: "nasce com o fuso do navegador" },
+  { nome: "6: o remarcar volta ao campo escondido do <Script>", arq: POST,
+    de: '            <CampoDoFuso name="fuso" />\n', para: '            <input type="hidden" name="fuso" defaultValue="" />\n',
+    cmd: T_REMARCAR, caso: "o formulário do remarcar leva o campo do fuso de cliente" },
 ];
 
 const filtro = process.argv[2];
@@ -4319,9 +4822,20 @@ process.exit(ruins ? 1 : 0);
 
 ## Apêndice B — a sonda do redirect
 
-A sonda que mediu o desfecho da action com `redirect` (19/10, Next 16.3.8). Ela roda numa cópia descartável
-com `node_modules` próprio, o `instrumentation.ts` tirado (ele exige banco na partida), o `.env.local` vazio
-e nenhuma variável de banco no shell, na rota pública `/entrar/sonda`. Depois, a cópia volta como estava.
+A sonda que mediu o desfecho da action com `redirect` (19/10, Next 16.3.8; de novo em 27/10, Next 16.4.3, numa
+cópia da `main` em `80a4a50`). Ela roda numa cópia descartável com `node_modules` próprio, o
+`instrumentation.ts` tirado (ele exige banco na partida), o `.env.local` vazio e nenhuma variável de banco no
+shell, na rota pública `/entrar/sonda`. Depois, a cópia volta como estava.
+
+O desfecho, nas duas versões:
+
+| | 16.3.8 (19/10) | 16.4.3, `next start` (27/10) | 16.4.3, `next dev` (27/10) |
+|---|---|---|---|
+| o componente | recriado: o contador em 3 voltou a 0 | recriado: montagens de 1 a 2, o contador de 3 a 0 | recriado: montagens de 2 a 4 (o StrictMode do dev conta em dobro), o contador de 3 a 0 |
+| a espera da action | rejeita com `NEXT_REDIRECT` | rejeita com `Error: NEXT_REDIRECT`, e não resolve | igual |
+| o `finally` | roda | roda (1 vez) | roda (1 vez) |
+| o `isPending` | volta a falso | `[false, true, false]` | `[false, false, true, false, false]` |
+| a segunda chamada | — | igual: 3 montagens, 2 rejeições, 2 `finally` | igual: 6 montagens |
 
 `app/entrar/sonda/acoes.ts`:
 
@@ -4489,6 +5003,186 @@ try {
   await avalia("document.querySelector('#chamar').click()");
   await dorme(6000);
   console.log("2a CHAMADA +6s", await leitura());
+  ws.close();
+} finally {
+  edge.kill();
+}
+```
+
+## Apêndice C — a sonda do fuso do remarcar
+
+A sonda que mediu o fuso do remarcar (19/10, Next 16.3.8; de novo em 27/10, Next 16.4.3, no `next start`), nas
+mesmas condições da sonda do Apêndice B, na rota pública `/entrar/sonda-fuso`. A página do post da sonda tem o MESMO desenho do remarcar de antes desta
+etapa: o campo escondido com `defaultValue` vazio e o `<Script id="fuso-do-remarcar">`. O resultado, igual no
+`next dev` e no `next start` da 16.3.8 e no `next start` da 16.4.3, com o fuso de Manaus forçado no navegador:
+
+```text
+CARGA INTEIRA DO POST 2        {"href":"/entrar/sonda-fuso/2","fuso":"240","offset":240}
+  remarcar ->                  post 2 recebeu fuso="240"
+POST 1 POR LINK, DEPOIS DO 2   {"href":"/entrar/sonda-fuso/1","fuso":"","offset":240}
+  remarcar ->                  post 1 recebeu fuso=""
+LISTA NOVA, PRIMEIRO POST      {"href":"/entrar/sonda-fuso/1","fuso":"240","offset":240}
+  remarcar ->                  post 1 recebeu fuso="240"
+LISTA NOVA, SEGUNDO POST       {"href":"/entrar/sonda-fuso/2","fuso":"","offset":240}
+  remarcar ->                  post 2 recebeu fuso=""
+```
+
+`app/entrar/sonda-fuso/acoes.ts`:
+
+```js
+"use server";
+import { redirect } from "next/navigation";
+
+// SONDA DE LABORATÓRIO (não vai para commit): o fuso que a action do remarcar recebe. Ela termina como a
+// de verdade (`remarcarPublicacao`), num redirect para a lista, e o aviso diz o que chegou.
+export async function remarcarDaSonda(form: FormData): Promise<void> {
+  const id = String(form.get("id") ?? "");
+  redirect(`/entrar/sonda-fuso?aviso=${encodeURIComponent(`post ${id} recebeu fuso=${JSON.stringify(form.get("fuso"))}`)}`);
+}
+```
+
+`app/entrar/sonda-fuso/page.tsx`:
+
+```js
+import Link from "next/link";
+
+export const dynamic = "force-dynamic";
+
+// SONDA DE LABORATÓRIO: a lista, como o calendário, de onde se abre cada post por um Link.
+export default async function Lista({ searchParams }: { searchParams: Promise<{ aviso?: string }> }) {
+  const { aviso } = await searchParams;
+  return (
+    <div>
+      <p id="aviso">{aviso ?? ""}</p>
+      <Link id="post-1" href="/entrar/sonda-fuso/1">post 1</Link>
+      <Link id="post-2" href="/entrar/sonda-fuso/2">post 2</Link>
+    </div>
+  );
+}
+```
+
+`app/entrar/sonda-fuso/[id]/page.tsx`:
+
+```js
+import Script from "next/script";
+import { remarcarDaSonda } from "../acoes";
+
+export const dynamic = "force-dynamic";
+
+// SONDA DE LABORATÓRIO: o MESMO desenho do remarcar de `app/publicar/post/[id]/page.tsx` (o campo
+// escondido com defaultValue vazio, e o <Script> com id fixo que o preenche), numa página de servidor.
+export default async function Post({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return (
+    <div>
+      <form action={remarcarDaSonda}>
+        <input type="hidden" name="id" value={id} />
+        <input type="hidden" name="fuso" defaultValue="" />
+        <input id="data_hora" name="data_hora" type="datetime-local" />
+        <button id="remarcar">Remarcar</button>
+      </form>
+      <Script id="fuso-do-remarcar">
+        {`document.querySelectorAll('input[name="fuso"]').forEach(function(c){c.value=String(new Date().getTimezoneOffset())})`}
+      </Script>
+    </div>
+  );
+}
+```
+
+O motorista (`node sonda-fuso-cdp.mjs <pasta-de-perfil-temporária>`, com o servidor na porta 3999):
+
+```js
+// Dirige um Edge sem janela, pelo protocolo do DevTools, contra a sonda do fuso do remarcar
+// (http://localhost:3999/entrar/sonda-fuso), com o fuso de Manaus (240) forçado no navegador. Mede o
+// campo escondido e o que a action recebe: no post aberto por carga inteira, no primeiro e no segundo
+// post abertos por Link, como do calendário. Não grava nada em lugar nenhum.
+// Uso: node sonda-fuso-cdp.mjs <pasta-de-perfil-temporaria>
+import { spawn } from "node:child_process";
+
+const EDGE = "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
+const PORTA = 9334;
+const BASE = "http://localhost:3999/entrar/sonda-fuso";
+const perfil = process.argv[2];
+const dorme = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const edge = spawn(EDGE, ["--headless=new", `--remote-debugging-port=${PORTA}`, `--user-data-dir=${perfil}`, "--no-first-run", "about:blank"], {
+  stdio: "ignore",
+});
+try {
+  let alvos = null;
+  for (let i = 0; i < 40 && !alvos; i++) {
+    await dorme(250);
+    try {
+      alvos = await (await fetch(`http://127.0.0.1:${PORTA}/json/list`)).json();
+    } catch {}
+  }
+  const pagina = alvos.find((a) => a.type === "page");
+  const ws = new WebSocket(pagina.webSocketDebuggerUrl);
+  await new Promise((r) => ws.addEventListener("open", r, { once: true }));
+  let id = 0;
+  const pendentes = new Map();
+  ws.addEventListener("message", (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.id && pendentes.has(m.id)) {
+      pendentes.get(m.id)(m);
+      pendentes.delete(m.id);
+    }
+  });
+  const cdp = (method, params = {}) =>
+    new Promise((r) => {
+      const meu = ++id;
+      pendentes.set(meu, r);
+      ws.send(JSON.stringify({ id: meu, method, params }));
+    });
+  const avalia = async (expr) => (await cdp("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true })).result?.result?.value;
+  const espera = async (expr) => {
+    for (let i = 0; i < 120; i++) {
+      if (await avalia(`(${expr}) ? 1 : 0`)) return true;
+      await dorme(250);
+    }
+    return false;
+  };
+  const campo = () => avalia(`JSON.stringify({ href: location.pathname + location.search, fuso: document.querySelector('input[name="fuso"]')?.value, offset: new Date().getTimezoneOffset() })`);
+  const aviso = () => avalia(`document.querySelector('#aviso')?.textContent`);
+  const remarcar = async () => {
+    await avalia(`document.querySelector('#remarcar').click()`);
+    await espera(`location.pathname === "/entrar/sonda-fuso" && document.querySelector('#aviso')?.textContent`);
+    await dorme(500);
+    return aviso();
+  };
+
+  await cdp("Page.enable");
+  await cdp("Runtime.enable");
+  await cdp("Emulation.setTimezoneOverride", { timezoneId: "America/Manaus" });
+
+  // 1. O post aberto por carga inteira: o <Script> roda pela primeira vez neste documento.
+  await cdp("Page.navigate", { url: `${BASE}/2` });
+  await espera(`document.querySelector('#remarcar')`);
+  await dorme(2000);
+  console.log("CARGA INTEIRA DO POST 2       ", await campo());
+  console.log("  remarcar ->                 ", await remarcar());
+
+  // 2. Da lista, o post 1 por Link (navegação de cliente), como do calendário.
+  await avalia(`document.querySelector('#post-1').click()`);
+  await espera(`location.pathname === "/entrar/sonda-fuso/1" && document.querySelector('#remarcar')`);
+  await dorme(2000);
+  console.log("POST 1 POR LINK, DEPOIS DO 2  ", await campo());
+  console.log("  remarcar ->                 ", await remarcar());
+
+  // 3. Um documento novo: a lista por carga inteira, e o primeiro post por Link.
+  await cdp("Page.navigate", { url: BASE });
+  await espera(`document.querySelector('#post-1')`);
+  await dorme(1500);
+  await avalia(`document.querySelector('#post-1').click()`);
+  await espera(`location.pathname === "/entrar/sonda-fuso/1" && document.querySelector('#remarcar')`);
+  await dorme(2000);
+  console.log("LISTA NOVA, PRIMEIRO POST     ", await campo());
+  console.log("  remarcar ->                 ", await remarcar());
+  await avalia(`document.querySelector('#post-2').click()`);
+  await espera(`location.pathname === "/entrar/sonda-fuso/2" && document.querySelector('#remarcar')`);
+  await dorme(2000);
+  console.log("LISTA NOVA, SEGUNDO POST      ", await campo());
+  console.log("  remarcar ->                 ", await remarcar());
   ws.close();
 } finally {
   edge.kill();
