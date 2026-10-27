@@ -74,6 +74,7 @@ const CONTA_B = "17800000000000902";
 const TOKEN_A = "token-da-conta-a-que-nao-vale-nada";
 const TOKEN_B = "token-da-conta-b-que-nao-vale-nada";
 const CHAVE_DO_BUCKET_FALSO = "chave-de-servico-inventada-para-o-teste";
+const SEGREDO_DO_CRON = "segredo-de-cron-inventado-para-o-teste";
 const BUCKET = "MetodoChatDeTeste";
 
 // ---------------------------------------------------------------------------
@@ -257,10 +258,12 @@ beforeAll(async () => {
   // A SEGUNDA FRONTEIRA, herdada de `gatilho-entrega`: sem token, `scheduleTick`
   // não sai da máquina. Este arquivo deixa item pendente de propósito.
   delete process.env.QSTASH_TOKEN;
-  // E O CRON SÓ EXIGE SEGREDO QUANDO ELE EXISTE (app/api/cron/daily/route.ts).
-  // Apagado aqui, o caso que chama a ROTA entra pela mesma porta que a Vercel
-  // usa quando ninguém configurou `CRON_SECRET` — sem forjar autorização nenhuma.
-  delete process.env.CRON_SECRET;
+  // E O CRON EXIGE O SEGREDO SEMPRE, desde 27/10/2026 (app/api/cron/daily/route.ts;
+  // docs/specs/2026-10-27-cron-e-oauth.md): sem ele, a rota recusa. O caso que chama
+  // a ROTA entra pela mesma porta que a Vercel usa em produção — um segredo
+  // configurado e o cabeçalho `Authorization: Bearer <segredo>` que ela manda —,
+  // com um valor de teste, sem forjar autorização nenhuma.
+  process.env.CRON_SECRET = SEGREDO_DO_CRON;
 
   engine = await import("@/lib/engine");
   ig = await import("@/lib/ig");
@@ -735,7 +738,10 @@ describe("o cron diario arma os tiques do dia", () => {
     const { valor } = await comoNumaRequisicao("/api/cron/daily", async () => {
       const { NextRequest } = await import("next/server");
       const resposta = await cron.GET(
-        new NextRequest("https://exemplo.invalid/api/cron/daily", { method: "GET" })
+        new NextRequest("https://exemplo.invalid/api/cron/daily", {
+          method: "GET",
+          headers: { authorization: `Bearer ${SEGREDO_DO_CRON}` },
+        })
       );
       return {
         status: resposta.status,

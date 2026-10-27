@@ -5,7 +5,7 @@ import {
   getProfile,
   subscribeToWebhooks,
 } from "@/lib/ig";
-import { oauthState } from "@/lib/auth";
+import { OAUTH_STATE_COOKIE, oauthStateConfere } from "@/lib/auth";
 import { getConfig, upsertAccount } from "@/lib/db";
 import { logEvent } from "@/lib/engine";
 import { canonicalAppUrl } from "@/lib/app-url";
@@ -19,12 +19,19 @@ export async function GET(req: NextRequest) {
   const code = q.get("code");
   const state = q.get("state");
 
+  // O COOKIE DO STATE É APAGADO EM TODA RESPOSTA, dê certo ou não: cada state serve uma vez
+  // (docs/specs/2026-10-27-cron-e-oauth.md).
+  const semOState = (res: NextResponse) => {
+    res.cookies.set(OAUTH_STATE_COOKIE, "", { path: "/api/oauth", maxAge: 0 });
+    return res;
+  };
   const fail = (reason: string) =>
-    NextResponse.redirect(`${appUrl}/setup?erro=${encodeURIComponent(reason)}`);
+    semOState(NextResponse.redirect(`${appUrl}/setup?erro=${encodeURIComponent(reason)}`));
 
   if (q.get("error")) return fail(q.get("error_description") ?? "autorização negada");
   if (!code) return fail("código ausente");
-  if (state !== oauthState()) return fail("state inválido");
+  // O state que volta tem de ser o que o começo (`/api/oauth/login`) sorteou e guardou no cookie.
+  if (!oauthStateConfere(req.cookies.get(OAUTH_STATE_COOKIE)?.value, state)) return fail("state inválido");
 
   const config = await getConfig();
   if (!config.instagram_app_id || !config.instagram_app_secret) {
@@ -87,7 +94,7 @@ export async function GET(req: NextRequest) {
       path: "/",
       maxAge: 60 * 60 * 24 * 365,
     });
-    return res;
+    return semOState(res);
   } catch (err) {
     return fail(err instanceof Error ? err.message.slice(0, 200) : "erro desconhecido");
   }
