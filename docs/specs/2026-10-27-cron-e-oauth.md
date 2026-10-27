@@ -55,6 +55,16 @@ como o Vinícius desenhou.
 - O ganho seria pequeno: forjar um evento exige uma das chaves secretas de qualquer jeito.
 - Fica registrado como aceito.
 
+**A conexão começada fora do endereço principal (achado 136 da auditoria):** o cookie do `state` é gravado
+no endereço onde a conexão começa, mas a volta vai para o endereço canônico (`APP_URL`, o
+`metodochat.vercel.app`).
+- Começada por outro endereço (os outros aliases, que ficam atrás do login da Vercel, ou um preview), a volta
+  chega sem o cookie e recusa com "state inválido", sem gravar nada.
+- Para conectar uma conta, o painel tem de ser aberto pelo `metodochat.vercel.app`, que é o endereço de uso.
+- O conserto seria o começo redirecionar para o endereço canônico antes de sortear o `state`. Ele fica de
+  fora agora por dois motivos: o impacto é pequeno, e com ele a prova no preview passaria a exercitar a rota
+  da produção, e não o código novo.
+
 ## Os testes, escritos antes do código
 
 - **`testes-integracao/cron-e-oauth.integracao.ts`, no container:**
