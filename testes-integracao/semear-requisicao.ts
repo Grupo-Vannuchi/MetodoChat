@@ -305,6 +305,14 @@ function cacheDeVerdade(): unknown {
   // (next/dist/server/web/spec-extension/revalidate.js) exige que este campo
   // exista; no ramo `type: 'request'` ele nunca é chamado — só empilha a tag em
   // `store.pendingRevalidatedTags`. Não há nem um objeto de mentira aqui.
+  //
+  // O MANIFESTO VAI COMO OBJETO, E O `previewProps` À PARTE, DESDE O NEXT 16.4 (medido em 27/10/2026, na
+  // atualização para a 16.4.3). Até a 16.3, o construtor recebia `getPrerenderManifest`, uma função; na
+  // 16.4 ele passou a receber `prerenderManifest` (o objeto) e `previewProps`, e lê
+  // `previewProps.previewModeId` logo no começo
+  // (next/dist/server/lib/incremental-cache/index.js, no `constructor`). Com o formato antigo, todo
+  // contexto semeado estourava com "Cannot read properties of undefined (reading 'previewModeId')".
+  const preview = { previewModeId: "", previewModeSigningKey: "", previewModeEncryptionKey: "" };
   return new CacheDoNext({
     fs: undefined,
     dev: true,
@@ -313,13 +321,14 @@ function cacheDeVerdade(): unknown {
     serverDistDir: undefined,
     requestHeaders: {},
     maxMemoryCacheSize: 0,
-    getPrerenderManifest: () => ({
+    previewProps: preview,
+    prerenderManifest: {
       version: 4,
       routes: {},
       dynamicRoutes: {},
       notFoundRoutes: [],
-      preview: { previewModeId: "", previewModeSigningKey: "", previewModeEncryptionKey: "" },
-    }),
+      preview,
+    },
     fetchCacheKeyPrefix: "",
     CurCacheHandler: undefined,
     allowedRevalidateHeaderKeys: [],
