@@ -193,7 +193,10 @@ export async function saveMetaCredentials(formData: FormData): Promise<void> {
   await exigirSessao();
   const appId = String(formData.get("instagram_app_id") ?? "").trim();
   const appSecret = String(formData.get("instagram_app_secret") ?? "").trim();
-  if (!appId || !appSecret) {
+  // A CHAVE EM BRANCO MANTÉM A GRAVADA (achado 123): a tela não leva mais o valor da chave, então o
+  // campo chega vazio sempre que o dono só quer trocar o App ID. Recusa só se não houver chave nenhuma.
+  const chaveGravada = appSecret ? null : (await getConfig()).instagram_app_secret;
+  if (!appId || (!appSecret && !chaveGravada)) {
     redirect(`/setup?erro=${encodeURIComponent("Preencha o App ID e a chave secreta.")}`);
   }
 
@@ -208,7 +211,7 @@ export async function saveMetaCredentials(formData: FormData): Promise<void> {
 
   await updateConfig({
     instagram_app_id: appId,
-    instagram_app_secret: appSecret,
+    ...(appSecret ? { instagram_app_secret: appSecret } : {}),
     ...(appUrl && !isEphemeralUrl(appUrl) ? { app_url: appUrl } : {}),
   });
   revalidatePath("/setup");

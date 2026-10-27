@@ -90,6 +90,8 @@ export default async function SetupPage({
   const urlInstavel = isEphemeralUrl(appUrl) || isEphemeralUrl(origemAtual);
 
   const metaOk = isMetaConfigured(config);
+  // Só o FATO de haver chave chega à tela, nunca o valor (ver o campo da etapa 2).
+  const temChave = Boolean(config.instagram_app_secret);
   const accounts = await listAccounts();
   const connected = accounts.length > 0;
   const eventRows = (await sql()`select count(*)::int as n from events`) as { n: number }[];
@@ -290,13 +292,20 @@ export default async function SetupPage({
               <label className={`mb-1 block text-xs font-medium ${muted}`}>
                 Chave secreta do app do Instagram
               </label>
+              {/* A CHAVE NÃO VAI PARA A PÁGINA (achado 123): com ela no `defaultValue`, o campo
+                  mostrava ●●●●, mas o valor ia inteiro no HTML para quem estivesse logado. A tela só
+                  sabe SE há chave; em branco, o salvar mantém a gravada (actions.ts). O
+                  `new-password` impede o navegador de preencher aqui a senha do painel que ele
+                  guardou. testes-integracao/chave-fora-da-pagina.integracao.ts confere. */}
               <input
                 name="instagram_app_secret"
                 type="password"
-                defaultValue={config.instagram_app_secret ?? ""}
-                required
+                autoComplete="new-password"
+                required={!temChave}
                 className={inputCls}
-                placeholder="••••••••••••••••"
+                placeholder={
+                  temChave ? "Chave configurada ✓ — deixe em branco para manter" : "••••••••••••••••"
+                }
               />
             </div>
             <SubmitButton className={btnPrimary} pendingLabel="Salvando…">
