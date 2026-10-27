@@ -13,9 +13,12 @@ export const maxDuration = 60;
 // 3) encerra os lotes guardados cujo prazo venceu
 // e no fim drena a fila como rede de segurança.
 export async function GET(req: NextRequest) {
-  // se CRON_SECRET existir, a Vercel manda "Authorization: Bearer <segredo>"
+  // Com CRON_SECRET, a Vercel manda "Authorization: Bearer <segredo>". SEM ela, a rotina RECUSA, como o
+  // tique da fila (app/api/queue/tick/route.ts): até 27/10/2026 ela liberava, e a variável só existe em
+  // produção, então os previews (que leem o banco de produção) rodavam a rotina para qualquer pedido
+  // (docs/specs/2026-10-27-cron-e-oauth.md).
   const secret = process.env.CRON_SECRET;
-  if (secret && !safeEqualSecret(req.headers.get("authorization") ?? "", `Bearer ${secret}`)) {
+  if (!secret || !safeEqualSecret(req.headers.get("authorization") ?? "", `Bearer ${secret}`)) {
     return new NextResponse("unauthorized", { status: 401 });
   }
 

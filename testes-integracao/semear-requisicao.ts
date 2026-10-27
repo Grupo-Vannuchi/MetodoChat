@@ -577,3 +577,12 @@ export async function sessaoDeTesteConfere(): Promise<boolean> {
   const { isValidSession } = await import("@/lib/auth");
   return assinadoComASenhaDeTeste(valor) && isValidSession(valor);
 }
+
+/**
+ * O cabeçalho `cookie` da sessão de teste, para um ROUTE HANDLER que lê `req.cookies` direto do pedido
+ * (e não `cookies()` do contexto). É o mesmo que `comoNumaRequisicaoComSessao` leva: o que a ação de
+ * entrar emitiu para a senha de teste, conferido pela assinatura. O valor não deve ser impresso.
+ */
+export async function cabecalhoDaSessaoDeTeste(): Promise<string> {
+  return entrarDeVerdade();
+}
