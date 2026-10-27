@@ -37,7 +37,10 @@ servidor (o callback do OAuth, o webhook e as actions).
      pública, como hoje) é gravado;
    - com o campo em branco e nenhuma chave gravada, a recusa é a de hoje: "Preencha o App ID e a chave
      secreta.";
-   - com uma chave nova no campo, ela substitui a antiga, como hoje.
+   - com uma chave nova no campo, ela substitui a antiga, como hoje;
+   - com o campo em branco e um App ID DIFERENTE do gravado, a recusa é "Ao trocar o App ID, informe a
+     chave secreta do app novo.", e nada muda (achado 133 da auditoria, de 27/10). Sem isso, a chave do app
+     antigo iria junto do app novo, e o OAuth e as assinaturas do webhook dele falhariam.
 
 ## O que não muda
 
@@ -56,6 +59,9 @@ servidor (o callback do OAuth, o webhook e as actions).
 3. **O salvar em branco sem chave recusa:** sem chave gravada e com o campo vazio, a recusa é a de hoje, e a
    `config` não ganha chave.
 4. **A chave nova substitui:** com o campo preenchido, a `config` passa a ter a chave nova.
+5. **Trocar o App ID exige a chave nova:** com uma chave gravada, um App ID diferente e o campo vazio dão a
+   recusa, e a `config` continua com o App ID e a chave de antes. O caso cai sem o conserto, e a mutação
+   que tira a recusa também o derruba.
 
 **Medido sobre a `main`:** o caso 1 cai (o valor está no `defaultValue`) e o caso 2 também (o salvar recusa
 o campo vazio). Os casos 3 e 4 passam, porque guardam o comportamento de hoje. O caso 1 confere também que o

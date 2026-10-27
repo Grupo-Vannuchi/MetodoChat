@@ -194,10 +194,16 @@ export async function saveMetaCredentials(formData: FormData): Promise<void> {
   const appId = String(formData.get("instagram_app_id") ?? "").trim();
   const appSecret = String(formData.get("instagram_app_secret") ?? "").trim();
   // A CHAVE EM BRANCO MANTÉM A GRAVADA (achado 123): a tela não leva mais o valor da chave, então o
-  // campo chega vazio sempre que o dono só quer trocar o App ID. Recusa só se não houver chave nenhuma.
-  const chaveGravada = appSecret ? null : (await getConfig()).instagram_app_secret;
+  // campo chega vazio sempre que o dono salva sem mexer nela. Recusa só se não houver chave nenhuma.
+  const gravada = appSecret ? null : await getConfig();
+  const chaveGravada = gravada?.instagram_app_secret ?? null;
   if (!appId || (!appSecret && !chaveGravada)) {
     redirect(`/setup?erro=${encodeURIComponent("Preencha o App ID e a chave secreta.")}`);
+  }
+  // E ELA SÓ VALE PARA O APP GRAVADO (achado 133): com outro App ID, a chave do app antigo iria junto, e o
+  // OAuth e as assinaturas do webhook do app novo falhariam.
+  if (!appSecret && gravada?.instagram_app_id && gravada.instagram_app_id !== appId) {
+    redirect(`/setup?erro=${encodeURIComponent("Ao trocar o App ID, informe a chave secreta do app novo.")}`);
   }
 
   // Captura a URL pública do app. Só grava se for um endereço ESTÁVEL: gravar

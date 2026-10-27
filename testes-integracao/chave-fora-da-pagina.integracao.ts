@@ -91,6 +91,20 @@ describe("a chave do app da Meta na Configuração", () => {
     expect(await chaveGravada()).toBe(null);
   });
 
+  // A CHAVE GRAVADA SÓ VALE PARA O APP GRAVADO (achado 133 da auditoria): trocar o App ID com o campo em
+  // branco deixaria a chave do app antigo junto do app novo, e o OAuth e as assinaturas do webhook dele
+  // falhariam.
+  it("trocar o App ID com o campo da chave em branco é recusado, e nada muda", async () => {
+    await gravarChave(CHAVE);
+    const destino = await salvar({ instagram_app_id: "6543210987654321", instagram_app_secret: "" });
+    expect(destino).toBe("/setup?erro=Ao trocar o App ID, informe a chave secreta do app novo.");
+    expect(await chaveGravada()).toBe(CHAVE);
+    const [linha] = (await banco.db().sql().query(`select instagram_app_id from config where id = 1`)) as {
+      instagram_app_id: string;
+    }[];
+    expect(linha.instagram_app_id).toBe(APP_ID);
+  });
+
   it("uma chave nova no campo substitui a gravada", async () => {
     await gravarChave(CHAVE);
     const destino = await salvar({ instagram_app_id: APP_ID, instagram_app_secret: CHAVE_NOVA });
