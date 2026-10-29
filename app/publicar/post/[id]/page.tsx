@@ -16,6 +16,7 @@ import {
   rotuloDaFormaDoItem,
   fraseSobreAMidia,
   mediaIdParaVerNoInstagram,
+  ehVideoNoPost,
 } from "@/lib/publicacao";
 import { resolvePosts } from "@/lib/media-lookup";
 import {
@@ -194,24 +195,49 @@ export default async function DetalheDaPublicacao({
               {midia.length === 1 ? "Mídia" : `${midia.length} mídias`}
             </h2>
             <div className="mt-2 flex flex-wrap gap-2">
-              {midia.map((m) => (
-                // O BUCKET É PÚBLICO POR EXIGÊNCIA DA META, que baixa a mídia do
-                // nosso endereço com um cliente sem token (lib/bucket.ts). Então
-                // a prévia não custa assinatura nenhuma.
-                //
-                // `<img>` E NÃO `next/image`: o endereço é do Supabase e mudaria
-                // a cada post, e configurar domínio remoto para uma prévia de
-                // 96px é pagar caro por nada. `alt` vazio de propósito — a
-                // legenda ao lado já diz o que é, e um alt inventado sobre uma
-                // imagem que ninguém descreveu seria pior que silêncio.
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={m.caminho}
-                  src={m.url}
-                  alt=""
-                  className="h-24 w-24 rounded-xl border border-traco object-cover dark:border-traco-escuro"
-                />
-              ))}
+              {midia.map((m) =>
+                // O VÍDEO É VÍDEO NA PRÉVIA (spec 2026-10-19-enquadrar-imagens).
+                // Esta lista desenhava `<img>` para todo caminho, e o `.mp4` do
+                // carrossel, do reels ou do story saía como imagem quebrada. Quem
+                // decide é `ehVideoNoPost`, a mesma regra do dreno. O `<video>`
+                // vem mudo e só com os metadados, que bastam para o primeiro
+                // quadro: baixar o vídeo inteiro para uma prévia de 96px seria
+                // pagar banda por nada.
+                p && ehVideoNoPost(p.forma, m.caminho) ? (
+                  <span key={m.caminho} className="relative block h-24 w-24">
+                    <video
+                      src={m.url}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="h-24 w-24 rounded-xl border border-traco object-cover dark:border-traco-escuro"
+                    />
+                    <span
+                      aria-hidden
+                      className="absolute bottom-1 right-1 rounded-lg bg-black/60 px-1 text-[11px] text-white"
+                    >
+                      ▶ vídeo
+                    </span>
+                  </span>
+                ) : (
+                  // O BUCKET É PÚBLICO POR EXIGÊNCIA DA META, que baixa a mídia do
+                  // nosso endereço com um cliente sem token (lib/bucket.ts). Então
+                  // a prévia não custa assinatura nenhuma.
+                  //
+                  // `<img>` E NÃO `next/image`: o endereço é do Supabase e mudaria
+                  // a cada post, e configurar domínio remoto para uma prévia de
+                  // 96px é pagar caro por nada. `alt` vazio de propósito — a
+                  // legenda ao lado já diz o que é, e um alt inventado sobre uma
+                  // imagem que ninguém descreveu seria pior que silêncio.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={m.caminho}
+                    src={m.url}
+                    alt=""
+                    className="h-24 w-24 rounded-xl border border-traco object-cover dark:border-traco-escuro"
+                  />
+                )
+              )}
             </div>
           </div>
         )}
