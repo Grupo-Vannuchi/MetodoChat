@@ -1401,6 +1401,13 @@ describe("textoDaRecusaDaPublicacao", () => {
     }
   });
 
+  // O ENVIO SAIU DE ANTES DO BOTÃO (spec 2026-10-19-enquadrar-imagens): o arquivo sobe no clique, e
+  // "espere o envio terminar" mandaria esperar algo que a tela já não faz antes. A action continua
+  // recusando sem arquivo, como defesa: o campo é do navegador.
+  it("sem arquivo: a frase não manda esperar envio nenhum", () => {
+    expect(textoDaRecusaDaPublicacao("sem_arquivo")).toBe("Escolha um arquivo antes de publicar.");
+  });
+
   // AS TRÊS RECUSAS DE HORA SÃO TRÊS CONSELHOS DIFERENTES, e é por isso que
   // `momentoDaPublicacao` devolve três motivos em vez de um "não deu". Se as
   // frases fossem iguais, a distinção que aquela função faz não chegaria a

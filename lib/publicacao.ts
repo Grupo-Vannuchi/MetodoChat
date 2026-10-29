@@ -1473,11 +1473,13 @@ export function textoDaRecusaDaPublicacao(motivo: RecusaDaPublicacao): string {
   switch (motivo) {
     case "sem_conta":
       return "Nenhuma conta do Instagram está selecionada. Conecte ou escolha uma conta antes de publicar.";
-    // O ARQUIVO É O QUE FALTA COM MAIS FREQUÊNCIA, e o motivo é a forma da
-    // tela: o envio ao bucket acontece ANTES do botão, e quem clica cedo
-    // demais chega aqui sem caminho nenhum.
+    // O ENVIO AO BUCKET ERA ANTES DO BOTÃO, e esta frase mandava esperar ele
+    // terminar. Desde a spec 2026-10-19-enquadrar-imagens o arquivo sobe NO
+    // clique, e a tela confere a quantidade antes de subir: aqui só chega o
+    // campo vazio de quem chamou a ação sem a tela, ou o caminho de outra
+    // pasta, que `caminhosDoCampo` descarta.
     case "sem_arquivo":
-      return "Escolha um arquivo e espere o envio terminar antes de publicar.";
+      return "Escolha um arquivo antes de publicar.";
     case "forma_desconhecida":
       return "Escolha entre imagem, carrossel, reels e story.";
     // AS TRÊS FRASES DA QUANTIDADE DIZEM O QUE FAZER, e cada uma diz outra
