@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Script from "next/script";
 import { notFound } from "next/navigation";
 import { sql, type QueueItem } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
@@ -36,6 +35,7 @@ import {
   numero,
 } from "../../../ui";
 import { cancelarPublicacao, remarcarPublicacao } from "../actions";
+import CampoDoFuso from "../../campo-do-fuso";
 
 export const dynamic = "force-dynamic";
 
@@ -280,11 +280,12 @@ export default async function DetalheDaPublicacao({
                 seria 14:30Z — TRÊS HORAS antes do que a pessoa marcou. Ver
                 `instanteDoAgendamento` (lib/publicacao.ts).
 
-                Ele nasce VAZIO e é preenchido pelo `<Script>` do fim desta tela
-                — nunca calculado no render, que aqui é servidor e não sabe onde
-                a pessoa está. Vazio, `fusoDoCampo` cai no padrão de Brasília
-                (180), que é a rede de quem não rodou JavaScript. */}
-            <input type="hidden" name="fuso" defaultValue="" />
+                O CAMPO É DE CLIENTE (achado 121). Ele era um campo escondido
+                preenchido por um `<Script>` de id fixo, que só roda uma vez por
+                documento: medido em 19/10, o segundo post aberto por Link
+                mandava o fuso vazio, e a action caía no de Brasília. Ver
+                `app/publicar/campo-do-fuso.tsx`. */}
+            <CampoDoFuso name="fuso" />
             <div>
               <label className={label} htmlFor="data_hora">
                 Nova data e hora
@@ -301,7 +302,7 @@ export default async function DetalheDaPublicacao({
 
           {/* CANCELAR PEDE CONFIRMAÇÃO, e a confirmação é um campo do
               formulário — não um `confirm()` do navegador, que exigiria
-              `"use client"` numa tela que não precisa de nenhum. */}
+              `"use client"` no formulário só para isso. */}
           <form action={cancelarPublicacao} className={`${subtle} space-y-2 p-3`}>
             <input type="hidden" name="id" value={item.id} />
             <label className="flex items-center gap-2 text-sm">
@@ -317,13 +318,6 @@ export default async function DetalheDaPublicacao({
           </p>
         </section>
       )}
-
-      {/* O MESMO `<Script>` da tela antiga, e pelo mesmo motivo: a única coisa
-          que esta página precisa do navegador é UM NÚMERO que só existe lá. Se
-          ele não rodar, nada quebra — `fusoDoCampo` cai no padrão de Brasília. */}
-      <Script id="fuso-do-remarcar">
-        {`document.querySelectorAll('input[name="fuso"]').forEach(function(c){c.value=String(new Date().getTimezoneOffset())})`}
-      </Script>
     </div>
   );
 }

@@ -1547,12 +1547,15 @@ const FORMA_DO_CAMINHO = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.[a-z0-9]+$/;
  * O CAMPO CHEGA VAZIO QUANDO O JAVASCRIPT NÃO RODOU, e as duas telas que o
  * mandam o preenchem por caminhos diferentes: a de compor o lê no clique, direto
  * do navegador (`app/publicar/enviador.tsx`, que é cliente), e a de remarcar por
- * um `<Script>` embutido (`app/publicar/post/[id]/page.tsx`, que é 100%
- * servidor). A de compor usava um campo escondido escrito por um `useEffect`, e o
- * React o devolvia ao `defaultValue` vazio a cada desenho (achado 118, medido em
- * 19/10): quem agendava fora de Brasília caía aqui sem saber.
+ * um campo de cliente controlado (`app/publicar/campo-do-fuso.tsx`), dentro de
+ * uma página de servidor. Antes, a de compor usava um campo escondido escrito por
+ * um `useEffect`, que o React devolvia ao `defaultValue` vazio a cada desenho, e a
+ * de remarcar um `<Script>` de id fixo, que só roda uma vez por documento (achados
+ * 118 e 121, os dois medidos em 19/10): quem agendava ou remarcava fora de Brasília
+ * caía aqui sem saber.
  *
- * O DESLOCAMENTO É O DO MOMENTO DO CLIQUE, e não o da data marcada. Num fuso com
+ * O DESLOCAMENTO É O DE AGORA (o do clique no compor, o da abertura da tela no
+ * remarcar), e não o da data marcada. Num fuso com
  * horário de verão, um agendamento que atravessa a troca sairia uma hora fora.
  * No Brasil isso não acontece desde 2019, e a conta pela data marcada não tem
  * como ser testada nesta máquina, que está em Brasília.
