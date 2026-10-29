@@ -2397,13 +2397,25 @@ export const MOTIVO_NAO_REGISTRADO =
  * contrário: *"O arquivo continua no armazenamento"*. Duas telas do mesmo
  * produto dizendo coisas opostas sobre o mesmo arquivo.
  *
- * A MÍDIA SÓ É APAGADA DEPOIS DE PUBLICAR (`limparOBucket`, lib/queue-drain.ts),
+ * A MÍDIA É APAGADA DEPOIS DE PUBLICAR (`limparOBucket`, lib/queue-drain.ts),
  * e por isso a pergunta certa é `saiu`, e nunca "não é pending".
+ *
+ * E TAMBÉM NO CANCELAR (achado 113, 19/10/2026). O cancelar do painel apaga a
+ * mídia (`app/publicar/post/actions.ts`, `limparOBucket`), e esta frase dizia o
+ * contrário: as provas de 15, 16 e 19/10 mediram 400 no bucket depois de
+ * cancelar. Quem decide é o MOTIVO, e não o status, como o `statusBadge`
+ * (app/labels.ts) já faz com `MOTIVO_CANCELADO_PELO_DONO`: o dreno também grava
+ * `skipped` ("conta não conectada", lib/queue-drain.ts) sem tocar no bucket, e o
+ * `failed` mantém o arquivo ("Objeto de item falhado não é órfão"). O motivo é
+ * obrigatório, para quem chamar não esquecer a pergunta.
  */
-export function fraseSobreAMidia(d: {
-  saiu: boolean;
-  encerrado: boolean;
-}): string | null {
+export function fraseSobreAMidia(
+  d: {
+    saiu: boolean;
+    encerrado: boolean;
+  },
+  motivo: string | null
+): string | null {
   if (d.saiu) {
     return (
       "Este post já saiu. A mídia foi apagada do armazenamento depois da " +
@@ -2411,9 +2423,12 @@ export function fraseSobreAMidia(d: {
     );
   }
   if (d.encerrado) {
-    // NÃO SAIU E NÃO VAI SAIR: cancelado ou recusado. O arquivo CONTINUA lá, e
-    // dizer isso é o que permite ao dono agendar de novo sem subir tudo outra
-    // vez. É a mesma frase da seção "Não saíram".
+    if (motivo?.trim() === MOTIVO_CANCELADO_PELO_DONO) {
+      return "Este post foi cancelado e não vai sair. O arquivo foi apagado do armazenamento.";
+    }
+    // NÃO SAIU E NÃO VAI SAIR, e o arquivo CONTINUA lá: o que falhou e o que o
+    // dreno pulou. Dizer isso é o que permite ao dono agendar de novo sem subir
+    // tudo outra vez. É a mesma frase da seção "Não saíram".
     return "Este post não saiu e não vai sair. O arquivo continua no armazenamento.";
   }
   // Ainda vai sair: não há nada a explicar sobre a mídia, e ela está ali do lado.

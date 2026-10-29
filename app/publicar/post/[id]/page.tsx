@@ -102,7 +102,7 @@ export default async function DetalheDaPublicacao({
   // duas moravam nesta mesma variável, e por isso um post falhado recebia
   // "este post já saiu". Ver `fraseSobreAMidia`.
   const podeMexer = item.status === "pending";
-  const sobreAMidia = fraseSobreAMidia(quando);
+  const sobreAMidia = fraseSobreAMidia(quando, item.error);
   // A MÍDIA SÓ EXISTE ENQUANTO O POST NÃO SAIU. Ver o cabeçalho.
   // AS URLS SÃO MONTADAS AQUI, e as que não derem saem da lista: `null` vira
   // imagem quebrada se chegar num `src`. Ver `urlPublicaSeDerParaMontar`.
