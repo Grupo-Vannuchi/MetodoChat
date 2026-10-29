@@ -506,7 +506,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
     const aviso = avisoDaUrlDeVolta(d.url);
     expect(aviso.tom).toBe("erro");
-    expect(aviso.texto).toBe("Escolha um arquivo e espere o envio terminar antes de publicar.");
+    expect(aviso.texto).toBe("Escolha um arquivo antes de publicar.");
   });
 
   test("legenda longa demais recusa com a MESMA frase que a tela já mostrava", async () => {
@@ -610,7 +610,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     // A MESMA RECUSA DE CAMPO VAZIO: depois do filtro pela pasta do cookie,
     // não sobrou caminho nenhum — e é essa a verdade que a frase conta.
     expect(aviso.tom).toBe("erro");
-    expect(aviso.texto).toBe("Escolha um arquivo e espere o envio terminar antes de publicar.");
+    expect(aviso.texto).toBe("Escolha um arquivo antes de publicar.");
 
     // NADA ENTROU NA FILA DE CONTA_A apontando para o arquivo de CONTA_B —
     // nem um item a mais em CONTA_A, nem qualquer item para CONTA_B (nenhuma

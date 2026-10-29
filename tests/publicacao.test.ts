@@ -1401,6 +1401,13 @@ describe("textoDaRecusaDaPublicacao", () => {
     }
   });
 
+  // O ENVIO SAIU DE ANTES DO BOTÃO (spec 2026-10-19-enquadrar-imagens): o arquivo sobe no clique, e
+  // "espere o envio terminar" mandaria esperar algo que a tela já não faz antes. A action continua
+  // recusando sem arquivo, como defesa: o campo é do navegador.
+  it("sem arquivo: a frase não manda esperar envio nenhum", () => {
+    expect(textoDaRecusaDaPublicacao("sem_arquivo")).toBe("Escolha um arquivo antes de publicar.");
+  });
+
   // AS TRÊS RECUSAS DE HORA SÃO TRÊS CONSELHOS DIFERENTES, e é por isso que
   // `momentoDaPublicacao` devolve três motivos em vez de um "não deu". Se as
   // frases fossem iguais, a distinção que aquela função faz não chegaria a
@@ -2653,32 +2660,41 @@ describe("fraseSobreAMidia — a tela irma nao pode dizer o contrario", () => {
     });
 
   it("publicado: a midia foi apagada, e a frase diz por que", () => {
-    const t = fraseSobreAMidia(daFila("sent", new Date()))!;
+    const t = fraseSobreAMidia(daFila("sent", new Date()), null)!;
     expect(t).toContain("já saiu");
     expect(t).toContain("apagada");
   });
 
   it("falhado: NAO saiu, e o arquivo CONTINUA la", () => {
-    const t = fraseSobreAMidia(daFila("failed", null))!;
+    const t = fraseSobreAMidia(daFila("failed", null), "a Meta respondeu 500")!;
     expect(t).not.toContain("já saiu");
     expect(t).toContain("continua no armazenamento");
   });
 
-  it("cancelado: a mesma frase do falhado — os dois nao vao sair", () => {
-    const t = fraseSobreAMidia(daFila("skipped", null))!;
-    expect(t).not.toContain("já saiu");
-    expect(t).toContain("continua no armazenamento");
+  // O ACHADO 113 (19/10/2026): esta frase dizia que o arquivo do CANCELADO continuava no
+  // armazenamento, e o cancelar o apaga (`app/publicar/post/actions.ts`, `limparOBucket`). As provas
+  // de 15, 16 e 19/10 mediram 400 no bucket depois de cancelar. A frase decide pelo MOTIVO, e nao pelo
+  // status, como o `statusBadge` (app/labels.ts) ja faz: o dreno tambem grava `skipped`, e la o
+  // arquivo fica.
+  it("cancelado pelo painel: o arquivo foi APAGADO", () => {
+    const t = fraseSobreAMidia(daFila("skipped", null), MOTIVO_CANCELADO_PELO_DONO)!;
+    expect(t).toBe("Este post foi cancelado e não vai sair. O arquivo foi apagado do armazenamento.");
+  });
+
+  it("pulado pelo dreno, com a conta desconectada: o arquivo CONTINUA la", () => {
+    const t = fraseSobreAMidia(daFila("skipped", null), "conta não conectada")!;
+    expect(t).toBe("Este post não saiu e não vai sair. O arquivo continua no armazenamento.");
   });
 
   it("agendado: nao ha nada a explicar, e a midia esta ali do lado", () => {
-    expect(fraseSobreAMidia(daFila("pending", null))).toBe(null);
+    expect(fraseSobreAMidia(daFila("pending", null), null)).toBe(null);
   });
 
   it("A PERGUNTA E `saiu`, e nunca 'nao e pending'", () => {
     // A invariante que impede o defeito de voltar: dos quatro estados, so UM
     // recebe a frase de "ja saiu".
     const dizemQueSaiu = ["sent", "failed", "skipped", "pending"].filter((st) => {
-      const t = fraseSobreAMidia(daFila(st, st === "sent" ? new Date() : null));
+      const t = fraseSobreAMidia(daFila(st, st === "sent" ? new Date() : null), null);
       return t !== null && t.includes("já saiu");
     });
     expect(dizemQueSaiu).toEqual(["sent"]);

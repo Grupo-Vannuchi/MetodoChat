@@ -1,18 +1,16 @@
 import Link from "next/link";
 import { getSelectedAccount } from "@/lib/account";
-import { tetoDoBucket } from "@/lib/bucket";
+import { pastaDaConta, tetoDoBucket } from "@/lib/bucket";
 import { avisoDaUrl } from "@/lib/avisos";
 import { PUBLICACOES_POR_DIA } from "@/lib/publicacao";
 import Enviador from "../enviador";
 import { publicar } from "../actions";
 import {
-  card,
   subtle,
   input,
   label,
   hint,
   muted,
-  btnPrimary,
   pageTitle,
   pageSubtitle,
   alertOk,
@@ -28,6 +26,12 @@ import {
 // que mora no `app-shell`), e o motivo está escrito no cabeçalho dele: o
 // navegador é quem envia o arquivo porque a Vercel recusa corpo acima de 4,5 MB.
 // Tudo o mais aqui é HTML de servidor, como no resto da base.
+//
+// O FORMULÁRIO MORA NELE desde a spec 2026-10-19-enquadrar-imagens: o arquivo
+// sobe no clique de publicar, e o botão precisa travar no primeiro clique e
+// chamar a action uma vez só (achados 107 e 108). Os pedaços de servidor do
+// formulário — o "Quando", as opções de reels e o rodapé — continuam escritos
+// aqui, e entram nele prontos, por propriedade.
 //
 // NENHUMA DECISÃO NO JSX: o aviso vem de `avisoDaUrl`, os limites de legenda e
 // de formato vêm de `lib/publicacao.ts`, e o teto do armazenamento vem do
@@ -110,9 +114,12 @@ export default async function Publicar({
             </p>
           </div>
 
-          <form action={publicar} className={`${card} space-y-6 p-5`}>
-            <Enviador teto={teto} />
-
+          <Enviador
+            teto={teto}
+            pasta={pastaDaConta(conta.ig_user_id)}
+            acao={publicar}
+            quando={
+              <>
             {/* QUANDO — refeito em 11/09/2026 porque o dono disse que estava
                 feio, e ele estava. Três coisas erradas, e a primeira não era
                 estética:
@@ -213,7 +220,9 @@ export default async function Publicar({
                 <p className={hint}>Uma hora que já passou é recusada.</p>
               </div>
             </fieldset>
-
+              </>
+            }
+            opcoesDoReels={
             <fieldset className={`${subtle} space-y-3 p-4`}>
               {/* MESMO TRATAMENTO DO "Quando", e por isso: `<legend>` fica em
                   cima da borda por padrão do navegador, e era o único
@@ -247,15 +256,14 @@ export default async function Publicar({
                 </p>
               </div>
             </fieldset>
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            }
+            rodape={
               <p className={`text-xs ${muted}`}>
                 O Instagram aceita até {PUBLICACOES_POR_DIA} publicações por conta a cada 24
                 horas.
               </p>
-              <button className={btnPrimary}>Publicar</button>
-            </div>
-          </form>
+            }
+          />
         </>
       )}
     </div>

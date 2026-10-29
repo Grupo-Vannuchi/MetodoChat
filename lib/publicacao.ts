@@ -545,7 +545,7 @@ export function decisaoDeAssinatura(corpo: unknown, teto: number): DecisaoDeAssi
  * ficou `.bin` porque o nome do arquivo não tinha extensão conhecida. Esse
  * continua sendo lido como imagem, e a Meta continua recusando alto.
  */
-function pareceVideo(url: string): boolean {
+export function pareceVideo(url: string): boolean {
   const semQuery = url.split(/[?#]/)[0].toLowerCase();
   return [".mp4", ".mov", ".m4v", ".webm"].some((ext) => semQuery.endsWith(ext));
 }
@@ -1473,11 +1473,13 @@ export function textoDaRecusaDaPublicacao(motivo: RecusaDaPublicacao): string {
   switch (motivo) {
     case "sem_conta":
       return "Nenhuma conta do Instagram está selecionada. Conecte ou escolha uma conta antes de publicar.";
-    // O ARQUIVO É O QUE FALTA COM MAIS FREQUÊNCIA, e o motivo é a forma da
-    // tela: o envio ao bucket acontece ANTES do botão, e quem clica cedo
-    // demais chega aqui sem caminho nenhum.
+    // O ENVIO AO BUCKET ERA ANTES DO BOTÃO, e esta frase mandava esperar ele
+    // terminar. Desde a spec 2026-10-19-enquadrar-imagens o arquivo sobe NO
+    // clique, e a tela confere a quantidade antes de subir: aqui só chega o
+    // campo vazio de quem chamou a ação sem a tela, ou o caminho de outra
+    // pasta, que `caminhosDoCampo` descarta.
     case "sem_arquivo":
-      return "Escolha um arquivo e espere o envio terminar antes de publicar.";
+      return "Escolha um arquivo antes de publicar.";
     case "forma_desconhecida":
       return "Escolha entre imagem, carrossel, reels e story.";
     // AS TRÊS FRASES DA QUANTIDADE DIZEM O QUE FAZER, e cada uma diz outra
@@ -1543,9 +1545,20 @@ const FORMA_DO_CAMINHO = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.[a-z0-9]+$/;
  * -03:00 o ano inteiro.
  *
  * O CAMPO CHEGA VAZIO QUANDO O JAVASCRIPT NÃO RODOU, e as duas telas que o
- * mandam o preenchem por caminhos diferentes: a de compor por um `useEffect`
- * (`app/publicar/enviador.tsx`, que é cliente), a dos agendados por um
- * `<Script>` embutido (`app/publicar/agendados/page.tsx`, que é 100% servidor).
+ * mandam o preenchem por caminhos diferentes: a de compor o lê no clique, direto
+ * do navegador (`app/publicar/enviador.tsx`, que é cliente), e a de remarcar por
+ * um campo de cliente controlado (`app/publicar/campo-do-fuso.tsx`), dentro de
+ * uma página de servidor. Antes, a de compor usava um campo escondido escrito por
+ * um `useEffect`, que o React devolvia ao `defaultValue` vazio a cada desenho, e a
+ * de remarcar um `<Script>` de id fixo, que só roda uma vez por documento (achados
+ * 118 e 121, os dois medidos em 19/10): quem agendava ou remarcava fora de Brasília
+ * caía aqui sem saber.
+ *
+ * O DESLOCAMENTO É O DE AGORA (o do clique no compor, o da abertura da tela no
+ * remarcar), e não o da data marcada. Num fuso com
+ * horário de verão, um agendamento que atravessa a troca sairia uma hora fora.
+ * No Brasil isso não acontece desde 2019, e a conta pela data marcada não tem
+ * como ser testada nesta máquina, que está em Brasília.
  *
  * ATÉ 09/09/2026 A TELA DOS AGENDADOS NÃO MANDAVA O CAMPO, e o comentário que
  * estava aqui dizia que um campo vazio era impossível na prática — "nesse
@@ -2397,13 +2410,25 @@ export const MOTIVO_NAO_REGISTRADO =
  * contrário: *"O arquivo continua no armazenamento"*. Duas telas do mesmo
  * produto dizendo coisas opostas sobre o mesmo arquivo.
  *
- * A MÍDIA SÓ É APAGADA DEPOIS DE PUBLICAR (`limparOBucket`, lib/queue-drain.ts),
+ * A MÍDIA É APAGADA DEPOIS DE PUBLICAR (`limparOBucket`, lib/queue-drain.ts),
  * e por isso a pergunta certa é `saiu`, e nunca "não é pending".
+ *
+ * E TAMBÉM NO CANCELAR (achado 113, 19/10/2026). O cancelar do painel apaga a
+ * mídia (`app/publicar/post/actions.ts`, `limparOBucket`), e esta frase dizia o
+ * contrário: as provas de 15, 16 e 19/10 mediram 400 no bucket depois de
+ * cancelar. Quem decide é o MOTIVO, e não o status, como o `statusBadge`
+ * (app/labels.ts) já faz com `MOTIVO_CANCELADO_PELO_DONO`: o dreno também grava
+ * `skipped` ("conta não conectada", lib/queue-drain.ts) sem tocar no bucket, e o
+ * `failed` mantém o arquivo ("Objeto de item falhado não é órfão"). O motivo é
+ * obrigatório, para quem chamar não esquecer a pergunta.
  */
-export function fraseSobreAMidia(d: {
-  saiu: boolean;
-  encerrado: boolean;
-}): string | null {
+export function fraseSobreAMidia(
+  d: {
+    saiu: boolean;
+    encerrado: boolean;
+  },
+  motivo: string | null
+): string | null {
   if (d.saiu) {
     return (
       "Este post já saiu. A mídia foi apagada do armazenamento depois da " +
@@ -2411,9 +2436,12 @@ export function fraseSobreAMidia(d: {
     );
   }
   if (d.encerrado) {
-    // NÃO SAIU E NÃO VAI SAIR: cancelado ou recusado. O arquivo CONTINUA lá, e
-    // dizer isso é o que permite ao dono agendar de novo sem subir tudo outra
-    // vez. É a mesma frase da seção "Não saíram".
+    if (motivo?.trim() === MOTIVO_CANCELADO_PELO_DONO) {
+      return "Este post foi cancelado e não vai sair. O arquivo foi apagado do armazenamento.";
+    }
+    // NÃO SAIU E NÃO VAI SAIR, e o arquivo CONTINUA lá: o que falhou e o que o
+    // dreno pulou. Dizer isso é o que permite ao dono agendar de novo sem subir
+    // tudo outra vez. É a mesma frase da seção "Não saíram".
     return "Este post não saiu e não vai sair. O arquivo continua no armazenamento.";
   }
   // Ainda vai sair: não há nada a explicar sobre a mídia, e ela está ali do lado.
@@ -2504,4 +2532,469 @@ export function mediaIdParaVerNoInstagram(d: {
 }): string | null {
   if (!d.saiu) return null;
   return d.mediaId ?? null;
+}
+
+// =============================================================================
+// O ENQUADRAMENTO (spec 2026-10-19-enquadrar-imagens, o ponto 3 dos feedbacks
+// do Vinícius)
+//
+// O COMPOSITOR SÓ ACEITAVA OU RECUSAVA. Cada arquivo era conferido contra a
+// faixa da Meta, de 0,8 a 1,91 (`problemaDoArquivo`), e a foto de celular em
+// pé, 3:4 ou 9:16, caía fora sem oferta nenhuma de cortar. E o Instagram corta
+// todos os slides de um carrossel pela proporção do primeiro (citado da spec de
+// 03/09, não medido), sem o painel mostrar como fica.
+//
+// AGORA A PESSOA ESCOLHE A PROPORÇÃO, e cada imagem cabe nela de um de dois
+// jeitos: cortada ao centro, ou inteira com bordas brancas. Tudo o que decide
+// isso mora aqui, puro e com caso, pela regra do cabeçalho "AS DECISÕES DA TELA
+// DE COMPOR": o `canvas` só desenha o retângulo que sai daqui.
+// =============================================================================
+
+export type ProporcaoDoPost = "4:5" | "1:1" | "1,91:1";
+
+/**
+ * AS TRÊS PROPORÇÕES DO FEED, com a razão escrita como FRAÇÃO INTEIRA (largura
+ * sobre altura). A conta da altura é feita em inteiros por um motivo medido: 4:5
+ * fica EXATAMENTE no limite de 0,8 da Meta, e meio pixel para o lado errado vira
+ * recusa na rota de assinar depois de a pessoa montar o post inteiro (achado 112).
+ */
+export const PROPORCOES_DO_POST: readonly {
+  id: ProporcaoDoPost;
+  rotulo: string;
+  largura: number;
+  altura: number;
+}[] = [
+  { id: "4:5", rotulo: "4:5 (em pé)", largura: 4, altura: 5 },
+  { id: "1:1", rotulo: "1:1 (quadrado)", largura: 1, altura: 1 },
+  { id: "1,91:1", rotulo: "1,91:1 (deitado)", largura: 191, altura: 100 },
+];
+
+/** O 4:5 é o padrão (decisão do Eduardo): é o que ocupa mais espaço no feed, e é o que o gerador usa. */
+export const PROPORCAO_PADRAO: ProporcaoDoPost = "4:5";
+
+export type ModoDoEnquadramento = "cortar" | "inteira";
+
+/** Um retângulo em pixels inteiros: a origem do `drawImage` na imagem, ou o destino no `canvas`. */
+export type Retangulo = { x: number; y: number; largura: number; altura: number };
+
+export type GeometriaDoEnquadramento =
+  | { ok: true; largura: number; altura: number; origem: Retangulo; destino: Retangulo }
+  | { ok: false; problema: "estreito_demais"; sugereBordas: boolean };
+
+/** A tolerância do vídeo em primeiro: ele não é recortado, então "na proporção" admite 1%. */
+const TOLERANCIA_DA_PROPORCAO_DO_VIDEO = 0.01;
+
+function fracaoDa(p: ProporcaoDoPost): { largura: number; altura: number } {
+  return PROPORCOES_DO_POST.find((x) => x.id === p) ?? PROPORCOES_DO_POST[0];
+}
+
+/**
+ * A ALTURA DO CANVAS PELA LARGURA, sem nunca sair da faixa da Meta.
+ *
+ * O SENTIDO DO ARREDONDAMENTO É A REGRA INTEIRA. No 4:5 a razão tem de ficar
+ * em 0,8 ou ACIMA (a Meta recusa `largura / altura < 0.8`), então a altura
+ * arredonda para BAIXO; no 1,91:1 ela tem de ficar em 1,91 ou ABAIXO, então a
+ * altura arredonda para CIMA. Medido pela auditoria em 19/10, de 320 a 1440 de
+ * largura: o 4:5 arredondado ao mais próximo dá 560 saídas fora da faixa, e
+ * para baixo, 0. A largura sai sempre primeiro (para baixo, quando vem da
+ * altura da origem), e a altura é sempre recalculada dela, aqui: por isso o
+ * sentido nunca inverte.
+ */
+function alturaPelaLargura(largura: number, f: { largura: number; altura: number }): number {
+  const exata = (largura * f.altura) / f.largura;
+  if (f.largura < f.altura) return Math.floor(exata);
+  if (f.largura > f.altura) return Math.ceil(exata);
+  return largura;
+}
+
+function medidaPositiva(n: number | undefined): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n > 0;
+}
+
+function geometriaSemRecusa(
+  l: number,
+  a: number,
+  f: { largura: number; altura: number },
+  modo: ModoDoEnquadramento
+): { largura: number; altura: number; origem: Retangulo; destino: Retangulo } | null {
+  // A ORIGEM É MAIS LARGA QUE A PROPORÇÃO? A comparação é em inteiros, pela
+  // mesma razão da altura: `l / a > 0.8` em ponto flutuante erra no limite.
+  const maisLarga = l * f.altura > a * f.largura;
+  // Cortar guarda a dimensão que cabe; inteira guarda a que sobra. Sem passar de
+  // 1440, que é o teto de hoje (`CONVERSAO_LARGURA_MAX`): acima dele a Meta reduz
+  // sozinha, e os pixels a mais são bytes que sobem para nada.
+  const larguraNatural =
+    modo === "cortar"
+      ? maisLarga
+        ? Math.floor((a * f.largura) / f.altura)
+        : l
+      : maisLarga
+        ? l
+        : Math.floor((a * f.largura) / f.altura);
+  const largura = Math.min(larguraNatural, CONVERSAO_LARGURA_MAX);
+  if (largura < IMAGEM_LARGURA_MIN) return null;
+  const altura = alturaPelaLargura(largura, f);
+
+  if (modo === "cortar") {
+    // O RECORTE TEM A RAZÃO DA SAÍDA, e não a da fração: a saída já foi
+    // arredondada, e um recorte com outra razão seria esticado no desenho.
+    const sobraLargura = l * altura >= a * largura;
+    const sw = sobraLargura ? Math.min(l, Math.round((a * largura) / altura)) : l;
+    const sh = sobraLargura ? a : Math.min(a, Math.round((l * altura) / largura));
+    return {
+      largura,
+      altura,
+      origem: { x: Math.floor((l - sw) / 2), y: Math.floor((a - sh) / 2), largura: sw, altura: sh },
+      destino: { x: 0, y: 0, largura, altura },
+    };
+  }
+
+  // INTEIRA: a imagem toda, encostada nos dois lados que encostam, e centrada
+  // nos outros dois. O que sobra é o branco que o `canvas` pinta antes.
+  const encostaNaLargura = l * altura >= a * largura;
+  const dw = encostaNaLargura ? largura : Math.min(largura, Math.round((altura * l) / a));
+  const dh = encostaNaLargura ? Math.min(altura, Math.round((largura * a) / l)) : altura;
+  // O DESENHO DE MENOS DE 1 PIXEL É RECUSA. O piso de 320 vale para o `canvas`,
+  // e não para a imagem dentro dele: um 1×1600 em 1,91:1 dá um desenho de 0 px
+  // de largura, e subiria um slide todo branco.
+  if (dw < 1 || dh < 1) return null;
+  return {
+    largura,
+    altura,
+    origem: { x: 0, y: 0, largura: l, altura: a },
+    destino: { x: Math.floor((largura - dw) / 2), y: Math.floor((altura - dh) / 2), largura: dw, altura: dh },
+  };
+}
+
+/**
+ * O QUE O `canvas` DESENHA: a medida dele, e os dois retângulos do
+ * `drawImage(bitmap, origem…, destino…)`, todos em pixels inteiros.
+ *
+ * NÃO SE AMPLIA IMAGEM. A saída mais estreita que 320 px (`IMAGEM_LARGURA_MIN`)
+ * é recusa, e quando é o CORTE que a deixa estreita (um print 640×360 cortado em
+ * 4:5 dá 288 px) e a imagem inteira caberia, a recusa sugere as bordas.
+ */
+export function geometriaDoEnquadramento(p: {
+  largura: number;
+  altura: number;
+  proporcao: ProporcaoDoPost;
+  modo: ModoDoEnquadramento;
+}): GeometriaDoEnquadramento {
+  if (!medidaPositiva(p.largura) || !medidaPositiva(p.altura)) {
+    return { ok: false, problema: "estreito_demais", sugereBordas: false };
+  }
+  const f = fracaoDa(p.proporcao);
+  const g = geometriaSemRecusa(p.largura, p.altura, f, p.modo);
+  if (g) return { ok: true, ...g };
+  const sugereBordas = p.modo === "cortar" && geometriaSemRecusa(p.largura, p.altura, f, "inteira") !== null;
+  return { ok: false, problema: "estreito_demais", sugereBordas };
+}
+
+/**
+ * A ORIENTAÇÃO EXIF DE UM JPEG, lida dos bytes do começo do arquivo: de 1 a 8,
+ * ou 0 quando a leitura não foi até o fim.
+ *
+ * ELA EXISTE PORQUE O JPEG QUE VAI SEM REDESENHO leva a orientação gravada nele,
+ * e o código não mede se a Meta a respeita. A foto de celular em pé é o caso
+ * principal desta etapa, e o celular costuma gravá-la deitada com a orientação
+ * 6. Quem passa pelo `canvas` sai com a orientação que o navegador aplica ao
+ * abrir a imagem (`navegador.ts`); quem iria cru com orientação diferente de 1
+ * vai pelo `canvas` também (`vaiSemRedesenho`).
+ *
+ * É SÓ O SEGMENTO APP1 ("Exif\0\0"), a IFD0 e a etiqueta 0x0112, nas duas ordens
+ * de bytes do TIFF. O 1 ("nada a girar") só sai de uma leitura que chegou ao
+ * fim: os cabeçalhos acabaram (SOS ou EOI) sem EXIF, ou o EXIF não tem a
+ * etiqueta. O que impede a leitura (outro formato, bytes cortados, segmento
+ * malformado, valor fora de 1 a 8) devolve 0, e o 0 vai pelo `canvas`. Antes
+ * isso devolvia 1, e a leitura FALHAVA ABERTA (achado 117): a tela só passa os
+ * primeiros 64 KiB do arquivo, e um APP1 que terminasse depois deles deixava
+ * subir cru um JPEG girado.
+ */
+export function orientacaoDoJpeg(b: Uint8Array): number {
+  if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return 0;
+  let i = 2;
+  for (;;) {
+    if (i >= b.length || b[i] !== 0xff) return 0;
+    // OS BYTES DE PREENCHIMENTO: a norma do JPEG deixa qualquer marcador vir
+    // depois de quantos 0xFF quiser.
+    while (i + 1 < b.length && b[i + 1] === 0xff) i++;
+    if (i + 1 >= b.length) return 0;
+    const marcador = b[i + 1];
+    // EOI ou o começo da imagem (SOS): os cabeçalhos acabaram sem EXIF.
+    if (marcador === 0xd9 || marcador === 0xda) return 1;
+    // UM MARCADOR SEM TAMANHO no meio dos cabeçalhos (outro SOI, um RST, o TEM)
+    // é arquivo que esta leitura não entende.
+    if (marcador === 0x00 || marcador === 0x01 || (marcador >= 0xd0 && marcador <= 0xd8)) return 0;
+    if (i + 4 > b.length) return 0;
+    const tamanho = (b[i + 2] << 8) | b[i + 3];
+    if (tamanho < 2) return 0;
+    const inicio = i + 4;
+    const fim = i + 2 + tamanho;
+    if (fim > b.length) return 0;
+    const ehExif =
+      marcador === 0xe1 &&
+      tamanho >= 8 &&
+      b[inicio] === 0x45 &&
+      b[inicio + 1] === 0x78 &&
+      b[inicio + 2] === 0x69 &&
+      b[inicio + 3] === 0x66 &&
+      b[inicio + 4] === 0 &&
+      b[inicio + 5] === 0;
+    if (ehExif) return orientacaoDoTiff(b, inicio + 6, fim);
+    i = fim;
+  }
+}
+
+function orientacaoDoTiff(b: Uint8Array, t: number, fim: number): number {
+  if (t + 8 > fim) return 0;
+  const intel = b[t] === 0x49 && b[t + 1] === 0x49;
+  const motorola = b[t] === 0x4d && b[t + 1] === 0x4d;
+  if (!intel && !motorola) return 0;
+  const u16 = (p: number) => (intel ? b[p] | (b[p + 1] << 8) : (b[p] << 8) | b[p + 1]);
+  const u32 = (p: number) =>
+    (intel
+      ? b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24)
+      : (b[p] << 24) | (b[p + 1] << 16) | (b[p + 2] << 8) | b[p + 3]) >>> 0;
+  if (u16(t + 2) !== 42) return 0;
+  const ifd = t + u32(t + 4);
+  if (ifd + 2 > fim) return 0;
+  const entradas = u16(ifd);
+  for (let k = 0; k < entradas; k++) {
+    const e = ifd + 2 + k * 12;
+    if (e + 12 > fim) return 0;
+    if (u16(e) === 0x0112) {
+      const v = u16(e + 8);
+      return v >= 1 && v <= 8 ? v : 0;
+    }
+  }
+  // A IFD0 FOI LIDA INTEIRA, e a etiqueta não está nela: nada a girar.
+  return 1;
+}
+
+/**
+ * O ARQUIVO VAI COMO VEIO, sem `canvas`, só quando o enquadramento não mudaria
+ * nenhum pixel. É a regra que o Vinícius deixou em `planoDaConversao` ("JPEG que
+ * já serve não passa pelo canvas", porque o `canvas` re-comprime e a perda vai
+ * ao perfil público), estendida à proporção.
+ *
+ * "NÃO MUDARIA NENHUM PIXEL" É IGUAL À SAÍDA DO `canvas`, e não a 1%: o
+ * original já tem a medida que a geometria daria, com o recorte do tamanho dele.
+ * No 4:5 e no 1:1 isso é a proporção exata; no 1,91:1 a exata quase não existe
+ * (só larguras múltiplas de 191), e o que vai cru é a medida arredondada, como o
+ * 1080×566. O gerador aceita 0,792 a 0,808 (`lib/bonus/publicar-regras.ts`)
+ * porque lá a assinatura recusa abaixo de 0,8 depois; aqui um cru a 0,807 em
+ * primeiro faria a Meta cortar os outros em cerca de 12 px. E também: até 8 MiB
+ * (o teto da Meta para imagem), com medida, e com a orientação EXIF 1
+ * (`orientacaoDoJpeg`; o 0, que é "não deu para ler", vai pelo `canvas`).
+ */
+export function vaiSemRedesenho(p: {
+  mime: string;
+  largura?: number;
+  altura?: number;
+  bytes: number;
+  proporcao: ProporcaoDoPost;
+  orientacao: number;
+}): boolean {
+  if (p.mime !== "image/jpeg" || p.orientacao !== 1) return false;
+  if (!medidaPositiva(p.largura) || !medidaPositiva(p.altura)) return false;
+  if (p.bytes > IMAGEM_BYTES_MAX || p.largura > CONVERSAO_LARGURA_MAX) return false;
+  const g = geometriaDoEnquadramento({ largura: p.largura, altura: p.altura, proporcao: p.proporcao, modo: "cortar" });
+  return (
+    g.ok &&
+    g.largura === p.largura &&
+    g.altura === p.altura &&
+    g.origem.largura === p.largura &&
+    g.origem.altura === p.altura
+  );
+}
+
+/** O que impede um arquivo de entrar na lista: os de `problemaDoArquivo`, e mais dois do enquadramento. */
+export type ProblemaDaSaida = ProblemaDoArquivo | "estreito_no_corte" | "imagem_ilegivel";
+
+/**
+ * O VERMELHO DA LISTA, sobre a SAÍDA PREVISTA, e não sobre o original (achado
+ * 110). `problemaDoArquivo` sobre o original marcaria todo PNG e WebP (a Meta só
+ * aceita JPEG), a foto em pé (fora da faixa) e o original acima de 8 MiB, e esses
+ * três o `canvas` resolve. O `problemaDoArquivo` de sempre continua valendo,
+ * sobre o arquivo que de fato sobe, no clique.
+ *
+ * O REELS E O STORY seguem as regras de hoje: o reels só aceita vídeo, e o story
+ * converte imagem sem regra de proporção (`planoDaConversao`).
+ */
+export function problemaDaSaida(
+  forma: FormaDePublicacao,
+  arq: { mime: string; largura?: number; altura?: number; bytes: number; segundos?: number; orientacao: number },
+  proporcao: ProporcaoDoPost,
+  modo: ModoDoEnquadramento,
+  tetoDoBucketEmBytes: number
+): ProblemaDaSaida | null {
+  if (!arq.mime.startsWith("image/")) return problemaDoArquivo(forma, arq, tetoDoBucketEmBytes);
+  if (forma === "reels" || !MIMES_QUE_O_CANVAS_CONVERTE.includes(arq.mime)) return "tipo_nao_suportado";
+  if (!medidaPositiva(arq.largura) || !medidaPositiva(arq.altura)) return "imagem_ilegivel";
+
+  if (forma === "story") {
+    const plano = planoDaConversao(arq);
+    if (!plano.converter) return problemaDoArquivo(forma, arq, tetoDoBucketEmBytes);
+    const largura = plano.largura > 0 ? plano.largura : arq.largura;
+    return largura < IMAGEM_LARGURA_MIN ? "estreito_demais" : null;
+  }
+
+  const g = geometriaDoEnquadramento({ largura: arq.largura, altura: arq.altura, proporcao, modo });
+  if (!g.ok) return g.sugereBordas ? "estreito_no_corte" : "estreito_demais";
+  if (vaiSemRedesenho({ ...arq, proporcao })) return problemaDoArquivo(forma, arq, tetoDoBucketEmBytes);
+  return null;
+}
+
+export function textoDoProblemaDaSaida(p: ProblemaDaSaida): string {
+  switch (p) {
+    case "estreito_no_corte":
+      return 'Cortada nesta proporção, a imagem fica estreita demais (menos de 320 pixels). Use "Inteira, com bordas".';
+    case "imagem_ilegivel":
+      return "Não consegui abrir esta imagem neste navegador. Exporte em JPEG ou PNG e tente de novo.";
+    default:
+      return textoDoProblema(p);
+  }
+}
+
+export type ProblemaDoPrimeiroSlide =
+  | { motivo: "video_fora"; proporcaoProxima: ProporcaoDoPost | null }
+  | { motivo: "video_sem_medida" };
+
+/**
+ * A TRAVA DO PRIMEIRO SLIDE (achado 111). A Meta corta todos os slides pela
+ * proporção do PRIMEIRO QUE SAI, e o vídeo não é recortado: um vídeo deitado em
+ * primeiro mandaria no corte de todas as imagens que acabaram de ser enquadradas.
+ *
+ * O PRIMEIRO É O PRIMEIRO VÁLIDO: a linha vermelha da lista não sai, então não
+ * manda em nada. O vídeo sem medida (o navegador não o abriu) trava também,
+ * porque não dá para saber o corte. E o carrossel SÓ DE VÍDEOS, aceito hoje,
+ * continua aceito: não há imagem enquadrada a proteger.
+ */
+export function problemaDoPrimeiroSlide(
+  itens: { video: boolean; largura?: number; altura?: number; valido: boolean }[],
+  proporcao: ProporcaoDoPost
+): ProblemaDoPrimeiroSlide | null {
+  const validos = itens.filter((i) => i.valido);
+  if (!validos.some((i) => !i.video)) return null;
+  const primeiro = validos[0];
+  if (!primeiro.video) return null;
+  if (!medidaPositiva(primeiro.largura) || !medidaPositiva(primeiro.altura)) return { motivo: "video_sem_medida" };
+  const razao = primeiro.largura / primeiro.altura;
+  const perto = (p: ProporcaoDoPost) => {
+    const f = fracaoDa(p);
+    const alvo = f.largura / f.altura;
+    return Math.abs(razao - alvo) / alvo <= TOLERANCIA_DA_PROPORCAO_DO_VIDEO;
+  };
+  if (perto(proporcao)) return null;
+  return { motivo: "video_fora", proporcaoProxima: PROPORCOES_DO_POST.map((p) => p.id).find(perto) ?? null };
+}
+
+export function textoDoProblemaDoPrimeiroSlide(p: ProblemaDoPrimeiroSlide): string {
+  if (p.motivo === "video_sem_medida") {
+    return "Não consegui medir o vídeo do primeiro slide: ponha uma imagem em primeiro.";
+  }
+  const base = "O primeiro slide decide o corte de todos: ponha uma imagem em primeiro";
+  return p.proporcaoProxima ? `${base}, ou escolha a proporção ${fracaoRotulo(p.proporcaoProxima)}.` : `${base}.`;
+}
+
+function fracaoRotulo(p: ProporcaoDoPost): string {
+  return PROPORCOES_DO_POST.find((x) => x.id === p)?.rotulo ?? p;
+}
+
+/**
+ * ESCOLHER DE NOVO, na lista de montagem. No carrossel, acrescenta ao fim até
+ * `CARROSSEL_ITENS_MAX`, e diz quantos ficaram de fora, para a tela avisar. Nas
+ * outras formas, que publicam um arquivo só, troca o arquivo.
+ */
+export function acrescentarNaLista<T>(lista: T[], novos: T[], forma: FormaDePublicacao): { lista: T[]; deFora: number } {
+  if (forma === "carrossel") {
+    const juntos = [...lista, ...novos];
+    return { lista: juntos.slice(0, CARROSSEL_ITENS_MAX), deFora: Math.max(0, juntos.length - CARROSSEL_ITENS_MAX) };
+  }
+  if (!novos.length) return { lista, deFora: 0 };
+  return { lista: novos.slice(0, 1), deFora: novos.length - 1 };
+}
+
+/** A frase acima da lista do carrossel: quantos slides vão sair, contando só os válidos. */
+export function textoDaContagem(validos: number): string {
+  return validos === 1 ? "O post vai sair com 1 slide." : `O post vai sair com ${validos} slides.`;
+}
+
+/**
+ * A QUANTIDADE, NA TELA: a `recusaDaQuantidade` da action, sobre os VÁLIDOS,
+ * com uma diferença. Quando há arquivo escolhido e nenhum serve, a frase da
+ * action manda escolher um arquivo, e ele já foi escolhido: a pessoa procuraria
+ * o problema no lugar errado. Aí a frase aponta a lista, onde cada linha
+ * vermelha diz o motivo dela.
+ */
+export function textoDaQuantidadeNaTela(forma: FormaDePublicacao, escolhidos: number, validos: number): string | null {
+  const recusa = recusaDaQuantidade(forma, validos);
+  if (!recusa) return null;
+  if (recusa === "sem_arquivo" && escolhidos > 0) {
+    return escolhidos === 1
+      ? "O arquivo escolhido não serve: o motivo está na lista. Escolha outro."
+      : "Nenhum dos arquivos escolhidos serve: o motivo de cada um está na lista.";
+  }
+  return textoDaRecusaDaPublicacao(recusa);
+}
+
+/**
+ * AS RECUSAS QUE SÓ A TELA FAZ, no clique, antes de chamar a action:
+ *   - "lendo_arquivos": o clique chegou antes de o navegador medir todos os
+ *     arquivos, e sem medida não há enquadramento nem trava do primeiro slide;
+ *   - "conta_mudou": algum caminho subiu fora da pasta da conta desta tela (a
+ *     troca no seletor no meio da subida). A action descartaria esses calada
+ *     (`caminhosDoCampo`) e publicaria o resto.
+ */
+export type RecusaDaTela = "lendo_arquivos" | "conta_mudou";
+
+export function textoDaRecusaDaTela(r: RecusaDaTela): string {
+  switch (r) {
+    case "lendo_arquivos":
+      return "Espere a tela terminar de ler os arquivos.";
+    case "conta_mudou":
+      return "A conta mudou durante o envio. Recarregue a página e monte o post de novo.";
+  }
+}
+
+/** O clique que parou numa subida: qual não foi, e que o próximo clique não sobe de novo o que já subiu. */
+export function textoDoEnvioQueNaoFoi(nome: string): string {
+  return `O envio de ${nome} não foi. Confira o motivo na lista de envios e clique em Publicar de novo: o que já subiu não sobe outra vez.`;
+}
+
+/**
+ * A CAIXA DA MINIATURA, em largura sobre altura: a proporção escolhida, porque
+ * é nela que as imagens saem e é por ela que o Instagram corta os vídeos que
+ * vêm depois de uma imagem. A exceção é o carrossel SÓ DE VÍDEOS: ali não há
+ * imagem enquadrada, e a Meta corta todos pela proporção do primeiro vídeo que
+ * sai (o primeiro válido), e não pela escolhida, que só vale para imagem.
+ */
+export function caixaDaMiniatura(
+  forma: FormaDePublicacao,
+  itens: { video: boolean; largura?: number; altura?: number; valido: boolean }[],
+  proporcao: ProporcaoDoPost
+): { largura: number; altura: number } {
+  const f = fracaoDa(proporcao);
+  const escolhida = { largura: f.largura, altura: f.altura };
+  if (forma !== "carrossel") return escolhida;
+  const validos = itens.filter((i) => i.valido);
+  if (!validos.length || validos.some((i) => !i.video)) return escolhida;
+  const primeiro = validos[0];
+  if (!medidaPositiva(primeiro.largura) || !medidaPositiva(primeiro.altura)) return escolhida;
+  return { largura: primeiro.largura, altura: primeiro.altura };
+}
+
+/**
+ * É VÍDEO NA PRÉVIA? O reels sempre é; as outras formas, pela extensão do
+ * caminho, como o dreno decide `video_url` contra `image_url`
+ * (`parametrosDoContainer`). As prévias da página do post e do calendário
+ * desenhavam `<img>` para todo caminho, e o vídeo saía como imagem quebrada.
+ */
+export function ehVideoNoPost(forma: FormaDePublicacao, caminho: string): boolean {
+  return forma === "reels" || pareceVideo(caminho);
+}
+
+/** A capa do calendário: o primeiro caminho de imagem do post, ou nada quando ele só tem vídeo. */
+export function capaDoPost(forma: FormaDePublicacao, caminhos: string[]): string | null {
+  return caminhos.find((c) => !ehVideoNoPost(forma, c)) ?? null;
 }
