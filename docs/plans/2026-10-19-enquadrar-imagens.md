@@ -36,7 +36,8 @@ todo bloco de código abaixo foi tirado do git dessa cópia por um gerador, sem 
 do plano (`56eb105`) e a segunda (`6e032a9`) foram revisadas pela auditoria, e o ensaio foi refeito com cada
 revisão (abaixo). Em 27/10, as seis fases do ensaio (`ensaio-enquadrar-2`, até `5dd215d`) foram reaplicadas
 por `cherry-pick`, sem conflito, numa branch local nova, `ensaio-enquadrar-3`, saída de `aa366eb`: a
-`enquadrar-imagens` depois de receber a `main` em `991bf90` (abaixo). Os números são os dessa cópia:
+`enquadrar-imagens` depois de receber a `main` em `991bf90` (abaixo). Na terceira revisão (abaixo), a F6 foi
+refeita só nos comentários. Os números são os dessa cópia:
 - lint e `tsc` limpos em cada fase; no fim, 127 arquivos e 3 409 casos puros (123 arquivos e 3 332 na base) e
   27 arquivos e 262 de tela (25 arquivos e 220 na base);
 - `next build` (Turbopack) limpo, com o `node_modules` próprio na cópia (até 19/10 era uma junção, que o
@@ -128,6 +129,18 @@ recebeu a `main` por merge em `aa366eb`, sem conflito.
   - o fuso pela data marcada (R6) NÃO entrou. O deslocamento continua o de agora, e o comentário de
     `fusoDoCampo` diz por quê: sem horário de verão no Brasil desde 2019, e sem como testar a outra conta
     nesta máquina, que está em Brasília. O comentário velho dali ("por um `useEffect`") foi corrigido.
+
+**A terceira revisão da auditoria, sobre `b6fc942` (27/10), absorvida neste plano:** ela conferiu o 119, o
+120 e a atualização para a `main` nova, e trouxe:
+- **138 (CORRIGIR): a correção do 121 não tinha sido medida num navegador.** O Apêndice C só media o desenho
+  antigo, e os casos de tela montam o campo no cliente, sem a hidratação. Agora a mesma sonda roda também com
+  o campo novo, no `next start` do 16.4.3, com o fuso de Manaus: as quatro linhas dão "240", inclusive o
+  segundo post aberto por Link (Apêndice C).
+- **139 (ANOTAR): o código da F6 ainda dizia "achado 118"** em cinco lugares. A F6 foi refeita só nos
+  comentários: o remarcar é o 121, e `lib/publicacao.ts` fala dos "achados 118 e 121". O comentário do
+  campo e o do caso de tela registram a sonda do campo novo.
+- **A prova mostra o fuso do remarcar.** Por decisão do Eduardo pela caixa (27/10), o passo 3 da FASE 8
+  remarca com o navegador em Manaus, e a hora esperada passa a ser 15:00 UTC.
 
 O ensaio achou estas coisas, já resolvidas neste plano:
 1. **A miniatura é desenhada pelo próprio navegador, sem `canvas`** (desvio declarado da spec). A caixa da
@@ -4175,12 +4188,14 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import CampoDoFuso from "@/app/publicar/campo-do-fuso";
 
-// O FUSO DO REMARCAR (spec 2026-10-19-enquadrar-imagens, achado 118). A tela de remarcar é de servidor, e o
+// O FUSO DO REMARCAR (spec 2026-10-19-enquadrar-imagens, achado 121). A tela de remarcar é de servidor, e o
 // fuso vinha de um campo escondido com `defaultValue` vazio, preenchido por um `<Script>` de id fixo. Uma sonda
 // mediu em 19/10, no `next dev` e no `next start`, com o fuso de Manaus: o post aberto por carga inteira
 // mandava "240", e o segundo post aberto por Link, como do calendário, mandava vazio, porque o `<Script>` de
 // mesmo id só roda uma vez por documento. O campo agora é de cliente, e estes casos cobram que ele tem o fuso
-// ao montar, depois de um novo desenho e no segundo formulário da mesma aba.
+// ao montar, depois de um novo desenho e no segundo formulário da mesma aba. A hidratação, que o jsdom não
+// faz, foi medida pela mesma sonda com o campo novo no lugar (27/10, `next start` do 16.4.3): todo post manda
+// "240", também o segundo aberto por Link.
 
 const formulario = () => (
   <form>
@@ -4220,7 +4235,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-// A GUARDA DO FUSO DO REMARCAR (spec 2026-10-19-enquadrar-imagens, achado 118). A página do post é de
+// A GUARDA DO FUSO DO REMARCAR (spec 2026-10-19-enquadrar-imagens, achado 121). A página do post é de
 // servidor e lê o banco, e o jsdom não roda o `<Script>` do Next: o comportamento do campo está em
 // testes-dom/publicar-campo-do-fuso.dom.tsx, e aqui se cobra que o formulário do remarcar o usa, e não volta
 // ao campo escondido preenchido por um `<Script>` de id fixo, que só roda uma vez por documento (medido).
@@ -4260,7 +4275,7 @@ Crie `app/publicar/campo-do-fuso.tsx`:
 "use client";
 import { useSyncExternalStore } from "react";
 
-// O FUSO DO NAVEGADOR NUM FORMULÁRIO DE SERVIDOR (achado 118).
+// O FUSO DO NAVEGADOR NUM FORMULÁRIO DE SERVIDOR (achado 121).
 //
 // O `<input type="datetime-local">` manda "14:30" e CALA sobre onde são 14:30;
 // lido no servidor, que roda em UTC, isso seria 14:30Z (ver
@@ -4278,7 +4293,9 @@ import { useSyncExternalStore } from "react";
 // AGORA O CAMPO É DE CLIENTE, CONTROLADO. O servidor o escreve vazio (ele não
 // sabe onde a pessoa está), a hidratação passa ao valor do navegador, e um novo
 // desenho não o apaga, porque o valor é do componente. Sem JavaScript ele fica
-// vazio, e a action cai no fuso do painel, que é a rede de sempre.
+// vazio, e a action cai no fuso do painel, que é a rede de sempre. A mesma
+// sonda, com este campo no lugar, mediu em 27/10 no `next start` do 16.4.3 que
+// todo post manda "240", também o segundo aberto por Link.
 //
 // O NOME DO CAMPO VEM DE QUEM MONTA O FORMULÁRIO: é a página que sabe o que a
 // action lê, e o `name=fuso` continua à vista na árvore dela, que é onde
@@ -4299,7 +4316,7 @@ Em `app/publicar/post/[id]/page.tsx`, aplique (com `git apply`, a partir da raiz
 
 ```diff
 diff --git a/app/publicar/post/[id]/page.tsx b/app/publicar/post/[id]/page.tsx
-index 3a7ed44..9b9ae66 100644
+index 3a7ed44..2294afd 100644
 --- a/app/publicar/post/[id]/page.tsx
 +++ b/app/publicar/post/[id]/page.tsx
 @@ -1,5 +1,4 @@
@@ -4325,7 +4342,7 @@ index 3a7ed44..9b9ae66 100644
 -                a pessoa está. Vazio, `fusoDoCampo` cai no padrão de Brasília
 -                (180), que é a rede de quem não rodou JavaScript. */}
 -            <input type="hidden" name="fuso" defaultValue="" />
-+                O CAMPO É DE CLIENTE (achado 118). Ele era um campo escondido
++                O CAMPO É DE CLIENTE (achado 121). Ele era um campo escondido
 +                preenchido por um `<Script>` de id fixo, que só roda uma vez por
 +                documento: medido em 19/10, o segundo post aberto por Link
 +                mandava o fuso vazio, e a action caía no de Brasília. Ver
@@ -4363,7 +4380,7 @@ Em `lib/publicacao.ts`, aplique (com `git apply`, a partir da raiz, ou à mão):
 
 ```diff
 diff --git a/lib/publicacao.ts b/lib/publicacao.ts
-index 345e545..a2f05ab 100644
+index 345e545..92acea6 100644
 --- a/lib/publicacao.ts
 +++ b/lib/publicacao.ts
 @@ -1547,12 +1547,15 @@ const FORMA_DO_CAMINHO = /^[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\.[a-z0-9]+$/;
@@ -4379,8 +4396,8 @@ index 345e545..a2f05ab 100644
 + * um campo de cliente controlado (`app/publicar/campo-do-fuso.tsx`), dentro de
 + * uma página de servidor. Antes, a de compor usava um campo escondido escrito por
 + * um `useEffect`, que o React devolvia ao `defaultValue` vazio a cada desenho, e a
-+ * de remarcar um `<Script>` de id fixo, que só roda uma vez por documento (achado
-+ * 118, os dois medidos em 19/10): quem agendava ou remarcava fora de Brasília
++ * de remarcar um `<Script>` de id fixo, que só roda uma vez por documento (achados
++ * 118 e 121, os dois medidos em 19/10): quem agendava ou remarcava fora de Brasília
 + * caía aqui sem saber.
 + *
 + * O DESLOCAMENTO É O DE AGORA (o do clique no compor, o da abertura da tela no
@@ -4421,7 +4438,10 @@ por documento: o segundo post aberto pelo calendário mandava o fuso vazio, e a
 action caía no de Brasília, então quem remarcava em outro fuso via o post sair
 na hora errada. Uma sonda mediu isso em 19/10, no next dev e no next start. O
 campo passa a ser de cliente e controlado: o servidor o escreve vazio, a
-hidratação põe o fuso do navegador, e um novo desenho não o apaga.
+hidratação põe o fuso do navegador, e um novo desenho não o apaga. A mesma
+sonda, com o campo novo no lugar, mediu em 27/10 no next start do 16.4.3 que
+todo post manda o fuso do navegador, também o segundo aberto por Link. É o
+achado 121 da auditoria.
 MSG
 ```
 
@@ -4522,16 +4542,20 @@ do build do preview, confira o commit e "MIGRAÇÃO PULADA". O endereço do prev
    fila**, com a legenda digitada e a hora marcada (10:00 de Brasília, 13:00 UTC), as medidas de cada imagem
    no bucket (4:5 nas três) e que o JPEG subiu igual ao original, byte a byte. A página do post mostra o
    vídeo como vídeo, e o calendário mostra a capa.
-3. **Remarcar o post da prova** (grava): do calendário, abrir antes outro post e voltar, e só então abrir o
+3. **Remarcar o post da prova com o navegador em Manaus** (grava; decisão do Eduardo pela caixa, em 27/10).
+   No Chrome, na aba do calendário, abrir as ferramentas de desenvolvedor (F12), o menu ⋮ → More tools →
+   Sensors, e em Location criar um local (Manage → Add location) com o Timezone ID `America/Manaus` e
+   escolhê-lo, com as ferramentas abertas. Só então, do calendário, abrir antes outro post e voltar, abrir o
    da prova pelo calendário, como o segundo post da aba, e remarcá-lo para daqui a 8 dias, às 11:00. A
-   auditoria confere a hora nova (14:00 UTC).
+   auditoria confere a hora nova: **15:00 UTC** (11:00 de Manaus), e não 14:00, que seria o fuso de
+   Brasília. Depois, fechar as ferramentas, e o navegador volta ao fuso de Brasília.
 4. Cancelar na página do post (grava). O cancelamento tira os arquivos do bucket, e a página passa a dizer
    que o arquivo foi apagado.
 
-**O que esta prova não mostra:** o Eduardo está em Brasília, onde o fuso certo e o padrão da action
-(`FUSO_DO_PAINEL_EM_MINUTOS`, 180) coincidem. Os passos 2 e 3 provam que o compor e o remarcar não quebraram,
-e não o fuso: o fuso está provado pelas sondas (a do compositor, no jsdom, e a do remarcar, Apêndice C, com o
-fuso de Manaus) e pelos casos de tela.
+**O que esta prova mostra do fuso:** o Eduardo está em Brasília, onde o fuso certo e o padrão da action
+(`FUSO_DO_PAINEL_EM_MINUTOS`, 180) coincidem. Por isso o passo 2 prova só que o compor não quebrou, e o fuso
+dele fica provado pelos casos de tela e pela sonda do compositor no jsdom. O passo 3, com o navegador em
+Manaus, prova o fuso do remarcar no preview: as 15:00 UTC só saem se o campo levou "240" até a action.
 
 A linha da fila cancelada sai ou fica conforme o Eduardo decidir pela caixa; se sair, é por um script lido
 pela auditoria antes de rodar. Depois: o corpo do PR e a mensagem do merge, conferidos pela auditoria, e o PR
@@ -4765,7 +4789,7 @@ const MUTACOES = [
   { nome: "5: o sinal deixa de abortar o PUT", arq: NAVEGADOR,
     de: '    sinal.addEventListener("abort", abortar, { once: true });\n', para: "",
     cmd: T_TELA, caso: "o sinal aborta o pedido, e a subida rejeita" },
-  // FASE 6: o fuso do remarcar (achado 118)
+  // FASE 6: o fuso do remarcar (achado 121)
   { nome: "6: o campo do fuso nasce vazio no navegador", arq: CAMPO_DO_FUSO,
     de: "const doNavegador = () => String(new Date().getTimezoneOffset());", para: 'const doNavegador = () => "";',
     cmd: T_CAMPO, caso: "nasce com o fuso do navegador" },
@@ -5027,6 +5051,22 @@ LISTA NOVA, SEGUNDO POST       {"href":"/entrar/sonda-fuso/2","fuso":"","offset"
   remarcar ->                  post 2 recebeu fuso=""
 ```
 
+Em 27/10, a mesma sonda rodou no `next start` do 16.4.3, primeiro com o desenho ANTIGO, com o mesmo resultado
+acima, e depois com o desenho NOVO (achado 138 da auditoria): o `[id]/page.tsx` do fim deste apêndice no lugar
+do antigo, e uma cópia igual de `app/publicar/campo-do-fuso.tsx` em `app/entrar/sonda-fuso/campo-do-fuso.tsx`.
+Com o campo novo, todo post manda o fuso, também o segundo aberto por Link:
+
+```text
+CARGA INTEIRA DO POST 2        {"href":"/entrar/sonda-fuso/2","fuso":"240","offset":240}
+  remarcar ->                  post 2 recebeu fuso="240"
+POST 1 POR LINK, DEPOIS DO 2   {"href":"/entrar/sonda-fuso/1","fuso":"240","offset":240}
+  remarcar ->                  post 1 recebeu fuso="240"
+LISTA NOVA, PRIMEIRO POST      {"href":"/entrar/sonda-fuso/1","fuso":"240","offset":240}
+  remarcar ->                  post 1 recebeu fuso="240"
+LISTA NOVA, SEGUNDO POST       {"href":"/entrar/sonda-fuso/2","fuso":"240","offset":240}
+  remarcar ->                  post 2 recebeu fuso="240"
+```
+
 `app/entrar/sonda-fuso/acoes.ts`:
 
 ```js
@@ -5186,5 +5226,31 @@ try {
   ws.close();
 } finally {
   edge.kill();
+}
+```
+
+O `app/entrar/sonda-fuso/[id]/page.tsx` do desenho novo (27/10):
+
+```js
+import CampoDoFuso from "../campo-do-fuso";
+import { remarcarDaSonda } from "../acoes";
+
+export const dynamic = "force-dynamic";
+
+// SONDA DE LABORATÓRIO: o desenho NOVO do remarcar, o `<CampoDoFuso name="fuso" />` de
+// `app/publicar/campo-do-fuso.tsx` (copiado ao lado, igual), no lugar do campo escondido com
+// defaultValue vazio e do <Script> de id fixo, numa página de servidor.
+export default async function Post({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return (
+    <div>
+      <form action={remarcarDaSonda}>
+        <input type="hidden" name="id" value={id} />
+        <CampoDoFuso name="fuso" />
+        <input id="data_hora" name="data_hora" type="datetime-local" />
+        <button id="remarcar">Remarcar</button>
+      </form>
+    </div>
+  );
 }
 ```

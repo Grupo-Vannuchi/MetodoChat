@@ -47,7 +47,7 @@ pela faixa da Meta, de 0,8 a 1,91 (`lib/publicacao.ts:41-43`, `:185-199`). Medid
 5. **A página do post cancelado mente sobre o arquivo** (achado 113, em produção). Ela diz "O arquivo
    continua no armazenamento." (`fraseSobreAMidia`, `lib/publicacao.ts:2413-2417`, presa por
    `tests/publicacao.test.ts:2667-2671`), mas o cancelar apaga a mídia
-   (`app/publicar/post/actions.ts:199-202`). As provas de 15, 16 e 19/10 mediram 400 no bucket depois de
+   (`app/publicar/post/actions.ts:201-204`, no `991bf90`). As provas de 15, 16 e 19/10 mediram 400 no bucket depois de
    cancelar.
 
 O mesmo enquadramento vale para o post de **imagem única** do `/publicar`, que recusa a foto em pé pela
@@ -182,7 +182,7 @@ Do Eduardo, pela caixa, em 19/10:
 - **Depois do sucesso**, a tela nasce vazia, porque é recriada. Se um Next futuro passar a manter o
   componente, a lista que ficar guarda os MESMOS caminhos: um novo clique chama a action com a mesma
   chave de dedupe (`pub:conta:forma:caminhos`, `lib/dedupe.ts:225-226`) e cai em "já enfileirado"
-  (`app/publicar/actions.ts:127-135`), sem post em dobro. A proteção desse caso já existe.
+  (`app/publicar/actions.ts:129-137`, no `991bf90`), sem post em dobro. A proteção desse caso já existe.
 - **Depois de uma recusa da action**, a lista some, porque os `File` não sobrevivem à recriação, e o que
   subiu vira órfão (nos resíduos). As conferências antes da subida (acima) deixam essa recusa rara:
   sobram a conta trocada no meio e a corrida do "já enfileirado".
@@ -208,7 +208,7 @@ publicação, medidos pela auditoria em `260b9dd`:
 
 | como encerrou | o arquivo | a frase |
 |---|---|---|
-| cancelado pelo painel: `skipped` com `MOTIVO_CANCELADO_PELO_DONO` (`app/publicar/post/actions.ts:159-164`) | apagado (`:199-202`) | o arquivo foi apagado |
+| cancelado pelo painel: `skipped` com `MOTIVO_CANCELADO_PELO_DONO` (`app/publicar/post/actions.ts:161-166`, no `991bf90`) | apagado (`:201-204`) | o arquivo foi apagado |
 | "conta não conectada": `skipped` pelo dreno (`lib/queue-drain.ts:1087-1091`), sem `limparOBucket` | fica | o arquivo continua no armazenamento |
 | `failed` | fica ("Objeto de item falhado não é órfão", `lib/queue-drain.ts:301-303`) | o arquivo continua no armazenamento |
 | `sent` | apagado depois de publicar (`:609`) | a frase de hoje, sem mudança |
@@ -431,7 +431,7 @@ gravação tem o OK do Eduardo e a hora mandada antes, e a auditoria lê a produ
    A lista mostra as miniaturas. Confere-se remover um slide e escolher de novo. No Safari do iPhone,
    anota-se se o primeiro quadro do vídeo aparece (o `<video preload="metadata">` pode ficar em branco ali).
    **Nenhum clique em Publicar com "Publicar agora" marcado**: é o padrão do formulário
-   (`app/publicar/novo/page.tsx:150-153`, "sai em instantes, e não dá para desfazer"), e o clique
+   (`app/publicar/novo/page.tsx:150-153`, medido no `991bf90`, "sai em instantes, e não dá para desfazer"), e o clique
    publicaria de verdade (achado 114).
 2. **Digitar uma legenda curta**, marcar **"Publicar em outra hora"**, com a data de daqui a 7 dias, e só
    então dar **dois cliques rápidos** no Publicar (grava). Sem legenda, a prova não pegaria a legenda que
@@ -440,21 +440,22 @@ gravação tem o OK do Eduardo e a hora mandada antes, e a auditoria lê a produ
      marcada (o fuso lido no clique), as medidas de cada imagem no bucket (4:5 nas três) e que o JPEG
      subiu igual ao original, byte a byte.
    - A página do post mostra o vídeo como vídeo, e o calendário mostra a capa.
-3. **Remarcar o post da prova** (grava), aberto pelo calendário como o segundo post da aba, para daqui a 8
-   dias. A auditoria confere a hora nova.
+3. **Remarcar o post da prova com o navegador no fuso de Manaus** (grava; decisão do Eduardo pela caixa, em
+   27/10), aberto pelo calendário como o segundo post da aba, para daqui a 8 dias, às 11:00. A auditoria confere
+   a hora nova: 15:00 UTC, e não 14:00, que seria o fuso de Brasília.
 4. Cancelar na página do post (`app/publicar/post/[id]/page.tsx`, o formulário do cancelar) (grava). O
    cancelamento tira os arquivos do bucket, e a página passa a dizer que o arquivo foi apagado.
 
-**O que a prova não mostra:** o Eduardo está em Brasília, onde o fuso certo e o padrão da action coincidem.
-Os passos 2 e 3 provam que o compor e o remarcar não quebraram; o fuso fica provado pelas sondas e pelos
-casos de tela.
+**O que a prova mostra do fuso:** o Eduardo está em Brasília, onde o fuso certo e o padrão da action
+coincidem. O passo 2 prova que o compor não quebrou, e o fuso dele fica provado pela sonda e pelos casos de
+tela. O passo 3, com o navegador em Manaus, prova o fuso do remarcar.
 
 ---
 
 ## Pré-condições do merge
 
 1. `npm run verify` limpo, a integração verde no container, e a prova feita no preview.
-2. Nenhuma migração: o build do merge diz "Nada a aplicar: as 19 migrações".
+2. Nenhuma migração: o build do merge diz "Nada a aplicar: as 21 migrações" (a 019 e a 020 vieram da `main`).
 3. O merge é do Eduardo, no GitHub, com a mensagem preparada no estilo do Vinícius, colada nos dois
    campos.
 
