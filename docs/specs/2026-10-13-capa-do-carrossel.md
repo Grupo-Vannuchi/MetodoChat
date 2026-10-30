@@ -8,10 +8,13 @@ pela caixa de perguntas e por modelos lado a lado no navegador.
 **Estado:** desenho aprovado pelo Eduardo, em três partes (a tela e o desenho; a imagem e o publicar; o
 que não muda, os testes e a prova). Revisada pela auditoria em `0b754b3`, sem bloqueio, com o achado 98
 (CORRIGIR) absorvido pela decisão do Eduardo (a capa só com 2 slides ou mais) e as três notas dela no texto.
-**Projeto de quem:** do Vinícius Gualberto. Como as etapas anteriores, entra como visita: pasta própria,
-e nenhum arquivo do `/publicar`, da fila nem das automações muda.
-**Depende da Etapa 10:** o código começa depois que a Etapa 10 (a lista e o apagar) entrar na `main`,
-porque o apagar dela precisa levar a imagem da capa (abaixo, "O que muda no apagar").
+**Remedida em 30/10** sobre a `main` em `9b0c3e6`, que a branch recebeu por merge (`1fe61b8`). Das linhas
+citadas, só as do `publicar-estado.ts` andaram (o achado 100 mexeu nele). O apagar da Etapa 10 já existe, e
+a versão da miniatura passou a ser usada também pela lista de carrosséis. As migrações são 21.
+**Projeto de quem:** do Vinícius Gualberto, que saiu em 15/10. Como as etapas anteriores, entra como visita:
+pasta própria, e nenhum arquivo do `/publicar`, da fila nem das automações muda.
+**Dependia da Etapa 10**, porque o apagar dela precisa levar a imagem da capa (abaixo, "O que muda no
+apagar"). A Etapa 10 entrou na `main` em 19/10 (PR #15, `260b9dd`).
 
 ---
 
@@ -19,7 +22,7 @@ porque o apagar dela precisa levar a imagem da capa (abaixo, "O que muda no apag
 
 Hoje o slide 1 sai no estilo de todos os slides: fundo branco, o cabeçalho da conta (a foto, o nome e o @),
 o gancho em texto e, por padrão, o espaço de uma imagem deitada embaixo (`lib/bonus/arte-desenho.tsx`,
-`FUNDO` e `TEXTO` em :46-49). Esta etapa dá ao slide 1 um quarto jeito, **"Capa com imagem"**: uma
+`FUNDO` e `TEXTO` em :48-49). Esta etapa dá ao slide 1 um quarto jeito, **"Capa com imagem"**: uma
 imagem ocupa o slide inteiro, e o gancho vem grande por cima, como nas capas de carrossel dos exemplos.
 A imagem é uma foto subida ou uma imagem do criador de imagem da Etapa 6, em pé.
 
@@ -123,7 +126,7 @@ Do Eduardo, pela caixa e pelos modelos no navegador, em 13/10:
   "Só texto" (`salvarArteDoCarrossel`, `carrossel-actions.ts:231`, com a linha travada e a trava do
   publicar). `escolhasDaArte` (`arte-escolhas.ts:20-28`) ganha o campo `capa`. A capa e o "Só texto" no
   slide 1 não convivem: ligar um desliga o outro.
-- O carrossel sem a chave (os 5 de hoje, e todo carrossel que não ligar a capa) continua como hoje. No post
+- O carrossel sem a chave (os que já existem, e todo carrossel que não ligar a capa) continua como hoje. No post
   de 1 slide, a chave não vale: `escolhasDaArte` devolve a capa desligada, e o servidor recusa ligá-la.
 - **Uma imagem com o prefixo de outro jeito conta como sem imagem** (nota da revisão): uma `bonus-capa/` com
   a capa desligada, ou uma `bonus-foto/` com a capa ligada, não é desenhada; a tela, as faltas do publicar e
@@ -135,17 +138,17 @@ Do Eduardo, pela caixa e pelos modelos no navegador, em 13/10:
 
 - A capa é desenhada pelo Chat, pela rota da arte de hoje, e vai à fila como os slides com foto: o navegador
   baixa o slide montado, em 1080×1350, e sobe a cópia em `bonus-fila/` (`artesParaPublicar`,
-  `publicar-estado.ts:109`, ganha a capa).
+  `publicar-estado.ts:128`, ganha a capa).
 - O "Publicar" trava, com a frase dele, enquanto a capa não tem imagem (a falta "imagens" de hoje, em
-  `faltasParaPublicar`, `publicar-estado.ts:80`) ou o gancho não cabe na capa (a falta "não cabe" da Etapa 9).
+  `faltasParaPublicar`, `publicar-estado.ts:99`) ou o gancho não cabe na capa (a falta "não cabe" da Etapa 9).
 - O servidor confere de novo, antes da fila: o jeito, a imagem com o prefixo `bonus-capa/` e o cabimento do
   gancho.
 
 ## O que muda no apagar (Etapa 10)
 
-- O apagar leva a imagem da capa junto com o carrossel: `caminhosDoCarrossel` (`apagar-regras.ts`, da Etapa
-  10) passa a aceitar o destino `capa`, na pasta da conta, na forma exata. Por isso esta etapa começa depois
-  de a 10 entrar na `main`.
+- O apagar leva a imagem da capa junto com o carrossel: `caminhosDoCarrossel` (`apagar-regras.ts:41`, da
+  Etapa 10) passa a aceitar o destino `capa`, na pasta da conta, na forma exata. Por isso esta etapa
+  esperou a 10 entrar na `main`.
 
 ---
 
@@ -159,8 +162,10 @@ Do Eduardo, pela caixa e pelos modelos no navegador, em 13/10:
   servidor (o achado 70 nasceu de a conta e o desenho divergirem). O ensaio mede que o gancho mais longo do
   schema (120 caracteres, em maiúscula) cabe no menor degrau; se não couber, o degrau ou o bloco mudam no
   plano, com a medição escrita.
-- **A versão da miniatura** (`versoesDosSlides`) passa a resumir também o jeito da capa e a imagem dela, para
-  a miniatura trocar quando um dos dois mudar.
+- **A versão da miniatura** (`versoesDosSlides`, `arte-tela.ts:115`) passa a resumir também o jeito da capa e
+  a imagem dela, para a miniatura trocar quando um dos dois mudar. Ela é chamada em quatro lugares, e os
+  quatro passam a levar a capa: `carrossel-actions.ts:219` e `:255`, `revisao.tsx:113` e a lista de
+  carrosséis da Etapa 10 (`carrosseis-tela.ts:164`), para a miniatura da lista mostrar a capa também.
 - **A rota da imagem** (a consulta da Etapa 6) e o pedido de imagem aceitam o slide 1 em capa, com o tamanho
   em pé e o destino `capa`.
 
@@ -208,9 +213,9 @@ e o bucket de produção. **Sem post real.** Uma imagem por IA, de cerca de US$ 
 
 ## Pré-condições
 
-1. A Etapa 10 na `main`.
+1. A Etapa 10 na `main` (feito em 19/10).
 2. `npm run verify` limpo, a integração verde no container, e o preview com a prova feita.
-3. O build do merge diz "Nada a aplicar: as 19 migrações".
+3. O build do merge diz "Nada a aplicar: as 21 migrações" (a 019 e a 020 vieram da `main`).
 
 ---
 
