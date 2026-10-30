@@ -185,7 +185,7 @@ describe("a trava nas gravações do carrossel", () => {
   const CHAVE = `pub:${CONTA}:carrossel:${daFila(90)}`;
   const tentar = async (id: string) => ({
     slide: await repo.salvarParteDoCarrossel(id, { tipo: "slide", numero: 2 }, { slide_1_titulo: "Outro título do slide 1", slide_1_texto: TEXTO.slides[0].texto }, null),
-    soTexto: await repo.salvarSoTextoDaArte(id, [1], null),
+    soTexto: await repo.salvarSoTextoDaArte(id, [1], null, false),
     imagem: await publicar.gravarImagemDoSlide(id, 3, guardada(3)),
   });
   const motivos = (r: Awaited<ReturnType<typeof tentar>>) => [

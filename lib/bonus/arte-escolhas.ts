@@ -45,7 +45,7 @@ export function comEspaco(e: EscolhasDaArte, numero: number): boolean {
   return !e.soTexto.includes(numero) && !ehCapa(e, numero);
 }
 
-export type RecusaDaArte = "slide" | "ja_tem_conta" | "sem_conta";
+export type RecusaDaArte = "slide" | "ja_tem_conta" | "sem_conta" | RecusaDaCapa;
 
 /**
  * O "só texto" que o formulário da arte mandou. O navegador manda o que quiser: cada slide tem de

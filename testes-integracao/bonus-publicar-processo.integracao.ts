@@ -427,7 +427,7 @@ describe("publicar com foto no espaço", () => {
   // "Só texto" tira o espaço: a foto fica guardada, e não é usada (volta se o espaço voltar).
   it("a foto guardada num slide marcado só texto não entra: ele vai com a arte só texto", async () => {
     const { id } = await comFoto();
-    await repo.salvarSoTextoDaArte(id, [1, 2, 5], null);
+    await repo.salvarSoTextoDaArte(id, [1, 2, 5], null, false);
     const artes = await Promise.all(
       [1, 2, 5].map(async (n) => ({ numero: n, caminho: await subir(id, n, "fila"), versao: desenho(n, null) }))
     );

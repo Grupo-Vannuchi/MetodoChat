@@ -12,7 +12,7 @@ import {
   resolverConta,
   type ContaGuardada,
 } from "@/lib/bonus/arte-conta";
-import { escolhasDaArte, lerSoTextoDoFormulario } from "@/lib/bonus/arte-escolhas";
+import { escolhasDaArte, lerCapaDoFormulario, lerSoTextoDoFormulario } from "@/lib/bonus/arte-escolhas";
 import { slidesDoTexto } from "@/lib/bonus/arte-slides";
 import { cabecalhoParaVersao, versoesDosSlides } from "@/lib/bonus/arte-tela";
 import {
@@ -227,6 +227,9 @@ export async function salvarSlideDoCarrossel(_anterior: AvisoDoSlide | null, for
  * mesmo motivo do salvar do slide (achado 52), com as versões novas das miniaturas. Só carrossel
  * pronto guarda escolha. A conta não vem do formulário (spec da Etapa 4): o carrossel é da conta em
  * que nasceu. Gravar aqui completa o nome e o @ da conta gravada na Etapa 3 sem eles.
+ *
+ * A CAPA (spec da Etapa 11) vem no mesmo formulário (`capa`: "1" ou ausente), e se grava junto do "só
+ * texto": a tela manda sempre os dois. As versões devolvidas já são as da capa nova.
  */
 export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form: FormData): Promise<AvisoDaArte | null> {
   await exigirSessao();
@@ -244,11 +247,15 @@ export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form:
   if (!texto) return resposta("erro", TEXTO_ARTE_NAO_PRONTA);
   const lido = lerSoTextoDoFormulario(form.getAll("so_texto"), linha.total_slides);
   if (!lido.ok) return resposta("erro", textoDaRecusaDaArte(lido.motivo));
+  const capa = lerCapaDoFormulario(form.get("capa"), lido.soTexto, linha.total_slides);
+  if (!capa.ok) return resposta("erro", textoDaRecusaDaArte(capa.motivo));
   const contas = await contasParaArte();
   const escolhas = escolhasDaArte(linha.arte, linha.total_slides);
-  const salvou = await salvarSoTextoDaArte(id, lido.soTexto, nomeQueFalta(contas, escolhas));
+  const salvou = await salvarSoTextoDaArte(id, lido.soTexto, nomeQueFalta(contas, escolhas), capa.capa);
   if (!salvou.ok) return resposta("erro", salvou.motivo === "travado" ? textoDaTrava(salvou.estado) : TEXTO_ARTE_NAO_PRONTA);
   const { conta } = resolverConta(contas, escolhas, await contaDoCookie());
+  // A capa como ficou gravada: as imagens são as de antes, com o jeito novo do slide 1.
+  const arteNova = { ...(linha.arte as Record<string, unknown>), soTexto: lido.soTexto, capa: capa.capa };
   return resposta(
     "ok",
     TEXTO_ARTE_SALVA,
@@ -257,7 +264,7 @@ export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form:
       lido.soTexto,
       cabecalhoParaVersao(conta),
       fotosDaArte(linha.arte, linha.total_slides),
-      capaDaArte(linha.arte, linha.total_slides)
+      capaDaArte(arteNova, linha.total_slides)
     )
   );
 }

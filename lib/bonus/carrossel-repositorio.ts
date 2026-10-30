@@ -212,11 +212,18 @@ export async function salvarParteDoCarrossel(
  *
  * NUMA TRANSAÇÃO COM A LINHA TRAVADA (spec da Etapa 5): com o carrossel na fila de publicação, ou
  * publicado, recusa, pela mesma função pura da trava que o salvar do slide usa.
+ *
+ * A CAPA (spec da Etapa 11) vai na mesma escrita, porque ligar a capa e o "Só texto" no slide 1 se
+ * desligam um ao outro: os dois mudam juntos, ou nenhum. Ela é OBRIGATÓRIA aqui, para quem gravar o "só
+ * texto" dizer também a capa. A chave `capa: true` só existe com a capa ligada; desligar a tira da
+ * coluna, e o carrossel sem capa guarda a mesma `arte` de antes da Etapa 11. A imagem guardada no slide
+ * 1 fica: com o jeito trocado, ela conta como sem imagem, e sai do bucket quando a nova entra.
  */
 export async function salvarSoTextoDaArte(
   id: string,
   soTexto: number[],
-  nomeQueFalta: { nome: string | null; arroba: string | null } | null
+  nomeQueFalta: { nome: string | null; arroba: string | null } | null,
+  capa: boolean
 ): Promise<{ ok: true } | { ok: false; motivo: "nao_pronto" } | { ok: false; motivo: "travado"; estado: EstadoDaPublicacao }> {
   if (!ehIdDeBonus(id)) return { ok: false, motivo: "nao_pronto" };
   return sql().begin(async (tx) => {
@@ -224,7 +231,10 @@ export async function salvarSoTextoDaArte(
     if (!linha || linha.estado !== "pronto") return { ok: false as const, motivo: "nao_pronto" as const };
     const estado = await estadoDaPublicacaoNa(tx, linha.arte);
     if (!publicacaoLivre(estado)) return { ok: false as const, motivo: "travado" as const, estado };
-    await tx.query(`update carrosseis_gerados set arte = arte || $2::jsonb where id = $1`, [id, { ...chavesDaConta(nomeQueFalta), soTexto }]);
+    await tx.query(`update carrosseis_gerados set arte = (arte - 'capa') || $2::jsonb where id = $1`, [
+      id,
+      { ...chavesDaConta(nomeQueFalta), soTexto, ...(capa ? { capa: true } : {}) },
+    ]);
     return { ok: true as const };
   });
 }

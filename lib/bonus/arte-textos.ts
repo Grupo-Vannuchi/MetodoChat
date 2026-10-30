@@ -35,6 +35,13 @@ export function textoDaRecusaDaArte(motivo: RecusaDaArte): string {
       return "Este carrossel já tem conta, e a conta de um carrossel não muda.";
     case "sem_conta":
       return TEXTO_ARTE_SEM_CONTA;
+    // A CAPA (Etapa 11): a tela nunca manda estes; a frase existe para a escrita errada não sair muda.
+    case "capa":
+      return "A escolha da capa veio num formato que o Chat não entende. Recarregue a página.";
+    case "capa_no_post":
+      return "O post de uma imagem só não tem capa: ele não tem gancho.";
+    case "capa_e_so_texto":
+      return 'O slide 1 não pode ser capa e "Só texto" ao mesmo tempo. Desmarque um dos dois.';
   }
 }
 
