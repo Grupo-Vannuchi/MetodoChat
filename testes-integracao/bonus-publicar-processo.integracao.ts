@@ -343,7 +343,7 @@ describe("guardar a imagem", () => {
     const foto = await subir(id, 2, "foto");
     const r = await processo.guardarImagem({ id, numero: 2, caminho: foto, contas });
     const cabecalho = tela.cabecalhoParaVersao(contas.find((c) => c.ig_user_id === CONTA) ?? null);
-    const miniatura = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], cabecalho, { 2: foto })[1];
+    const miniatura = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], cabecalho, { 2: foto }, regras.SEM_CAPA)[1];
     expect(r).toEqual({ ok: true, versao: versaoDo(2), jeito: "foto", versaoDaMiniatura: miniatura });
     expect(regras.fotosDaArte(await arteDe(id), 5)).toEqual({ 2: foto });
   });

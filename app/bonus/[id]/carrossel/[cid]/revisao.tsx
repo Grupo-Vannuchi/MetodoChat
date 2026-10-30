@@ -19,7 +19,7 @@ import { TEXTO_CARROSSEL_SEM_TEXTO } from "@/lib/bonus/carrossel-textos";
 import { imagensNasUltimas24h, ultimasDoCarrossel } from "@/lib/bonus/imagem-repositorio";
 import { estadoDaImagem } from "@/lib/bonus/imagem-regras";
 import { publicacaoLivre } from "@/lib/bonus/publicar-estado";
-import { fotosDaArte, imagensDaArte, versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
+import { capaDaArte, fotosDaArte, imagensDaArte, versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
 import { estadoDoCarrossel } from "@/lib/bonus/publicar-repositorio";
 import {
   textoDaTrava,
@@ -110,7 +110,13 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
       avisoDaConta={conta ? textoDaOrigemDaConta(origem, conta.username ?? "") : TEXTO_ARTE_SEM_CONTA}
       podeFixar={origem === "selecionada" && conta !== null}
       soTextoInicial={escolhas.soTexto}
-      versoes={versoesDosSlides(slidesDoTexto(texto), escolhas.soTexto, cabecalhoParaVersao(conta), fotos)}
+      versoes={versoesDosSlides(
+        slidesDoTexto(texto),
+        escolhas.soTexto,
+        cabecalhoParaVersao(conta),
+        fotos,
+        capaDaArte(carrossel.arte, carrossel.total_slides)
+      )}
       publicacao={publicacao}
     />
   );

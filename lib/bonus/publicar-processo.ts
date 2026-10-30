@@ -30,6 +30,7 @@ import {
   reservarPublicacao,
 } from "./publicar-repositorio";
 import {
+  capaDaArte,
   ehCaminhoDoDestino,
   formaDoCarrossel,
   fotosDaArte,
@@ -141,8 +142,14 @@ export async function guardarImagem(p: {
   const fotos = { ...fotosDaArte(c.linha.arte, c.linha.total_slides) };
   if (r.jeito === "foto") fotos[p.numero] = p.caminho;
   else delete fotos[p.numero];
+  // A CAPA COM A IMAGEM NOVA (Etapa 11): guardada no slide 1, ela é a imagem da capa se for do jeito capa;
+  // de outro jeito, a capa fica sem imagem. Em outro slide, a capa não muda.
+  const capa =
+    p.numero === 1
+      ? { ligada: c.escolhas.capa, caminho: c.escolhas.capa && r.jeito === "capa" ? p.caminho : null }
+      : capaDaArte(c.linha.arte, c.linha.total_slides);
   const { conta } = resolverConta(p.contas, c.escolhas, undefined);
-  const versaoDaMiniatura = versoesDosSlides(c.slides, c.escolhas.soTexto, cabecalhoParaVersao(conta), fotos)[p.numero - 1];
+  const versaoDaMiniatura = versoesDosSlides(c.slides, c.escolhas.soTexto, cabecalhoParaVersao(conta), fotos, capa)[p.numero - 1];
   return { ok: true, versao: r.versao, jeito: r.jeito, versaoDaMiniatura };
 }
 

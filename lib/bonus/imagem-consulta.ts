@@ -9,7 +9,7 @@ import { textoDaLinhaDoCarrossel } from "./carrossel-tela";
 import { imagensNasUltimas24h, ultimasDoCarrossel } from "./imagem-repositorio";
 import { estadoDaImagem } from "./imagem-regras";
 import { TEXTO_IMAGEM_TRAVADA } from "./imagem-textos";
-import { fotosDaArte, imagensDaArte } from "./publicar-regras";
+import { capaDaArte, fotosDaArte, imagensDaArte } from "./publicar-regras";
 
 // A CONSULTA DE UM SLIDE (spec da Etapa 6, "O acompanhar"), comum às duas rotas GET
 // (app/bonus/[id]/carrossel/[cid]/imagem e app/carrosseis/[cid]/imagem), que só conferem a sessão e o
@@ -34,7 +34,13 @@ export async function consultarImagem(p: { linha: LinhaDoCarrossel; numero: numb
   const total = p.linha.total_slides;
   const escolhas = escolhasDaArte(p.linha.arte, total);
   const { conta } = resolverConta(await contasParaArte(), escolhas, p.doCookie);
-  const versoes = versoesDosSlides(slidesDoTexto(texto), escolhas.soTexto, cabecalhoParaVersao(conta), fotosDaArte(p.linha.arte, total));
+  const versoes = versoesDosSlides(
+    slidesDoTexto(texto),
+    escolhas.soTexto,
+    cabecalhoParaVersao(conta),
+    fotosDaArte(p.linha.arte, total),
+    capaDaArte(p.linha.arte, total)
+  );
   return {
     estado: "pronta",
     hoje,

@@ -15,6 +15,7 @@ import { slidesDoTexto } from "@/lib/bonus/arte-slides";
 import { TEXTO_ARTE_NAO_ENCONTRADA, TEXTO_ARTE_NAO_PRONTA, TEXTO_ARTE_SLIDE_INVALIDO } from "@/lib/bonus/arte-textos";
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
 import type { TextoDeCarrossel } from "@/lib/bonus/carrossel-texto";
+import { SEM_CAPA } from "@/lib/bonus/publicar-regras";
 
 // O QUE A ROTA DA ARTE E A TELA DECIDEM, fora do JSX e da rota: o número do slide pedido, o nome do
 // arquivo baixado, os cabeçalhos da resposta, o cabeçalho da peça e a versão da prévia.
@@ -126,18 +127,18 @@ describe("a versão de cada miniatura", () => {
     legenda: "x".repeat(100),
   };
   const CAB: CabecalhoDaArte = { nome: "Thiago Vannuchi", arroba: "thiagovannuchi", foto: "https://foto", iniciais: "TV" };
-  const base = versoesDosSlides(slidesDoTexto(texto), [], CAB, {});
+  const base = versoesDosSlides(slidesDoTexto(texto), [], CAB, {}, SEM_CAPA);
 
   it("uma versão por slide, e a mesma para as mesmas entradas", () => {
     expect(base).toHaveLength(3);
-    expect(versoesDosSlides(slidesDoTexto(texto), [], CAB, {})).toEqual(base);
+    expect(versoesDosSlides(slidesDoTexto(texto), [], CAB, {}, SEM_CAPA)).toEqual(base);
     expect(new Set(base).size).toBe(3);
   });
 
   it.each([
-    ["o texto do slide 2", () => versoesDosSlides(slidesDoTexto({ ...texto, slides: [{ ...texto.slides[0], texto: "Outro texto do slide, com mais de trinta." }] }), [], CAB, {})],
-    ["a manchete do slide 2", () => versoesDosSlides(slidesDoTexto({ ...texto, slides: [{ ...texto.slides[0], titulo: "Outra manchete" }] }), [], CAB, {})],
-    ["o só texto do slide 2", () => versoesDosSlides(slidesDoTexto(texto), [2], CAB, {})],
+    ["o texto do slide 2", () => versoesDosSlides(slidesDoTexto({ ...texto, slides: [{ ...texto.slides[0], texto: "Outro texto do slide, com mais de trinta." }] }), [], CAB, {}, SEM_CAPA)],
+    ["a manchete do slide 2", () => versoesDosSlides(slidesDoTexto({ ...texto, slides: [{ ...texto.slides[0], titulo: "Outra manchete" }] }), [], CAB, {}, SEM_CAPA)],
+    ["o só texto do slide 2", () => versoesDosSlides(slidesDoTexto(texto), [2], CAB, {}, SEM_CAPA)],
   ])("%s muda só a versão do slide 2", (_nome, outra) => {
     const v = outra();
     expect([v[0] === base[0], v[1] === base[1], v[2] === base[2]]).toEqual([true, false, true]);
@@ -150,7 +151,7 @@ describe("a versão de cada miniatura", () => {
     ["sem foto", { ...CAB, foto: null }],
     ["as iniciais", { ...CAB, iniciais: "OU" }],
   ])("%s do cabeçalho muda a versão de todos", (_nome, cab) => {
-    const v = versoesDosSlides(slidesDoTexto(texto), [], cab, {});
+    const v = versoesDosSlides(slidesDoTexto(texto), [], cab, {}, SEM_CAPA);
     expect(v.map((x, i) => x === base[i])).toEqual([false, false, false]);
   });
 
@@ -159,14 +160,14 @@ describe("a versão de cada miniatura", () => {
   it("a foto do espaço muda só a versão do slide dela; a do slide só texto não muda nada", () => {
     const FOTO = "17841400000000001/bonus-foto/0f8e2a4b-1c3d-4e5f-8a9b-0c1d2e3f4a5b.jpg";
     const OUTRA = "17841400000000001/bonus-foto/0f8e2a4b-1c3d-4e5f-8a9b-0c1d2e3f4a5c.jpg";
-    const v = versoesDosSlides(slidesDoTexto(texto), [], CAB, { 2: FOTO });
+    const v = versoesDosSlides(slidesDoTexto(texto), [], CAB, { 2: FOTO }, SEM_CAPA);
     expect([v[0] === base[0], v[1] === base[1], v[2] === base[2]]).toEqual([true, false, true]);
-    expect(versoesDosSlides(slidesDoTexto(texto), [], CAB, { 2: OUTRA })[1]).not.toBe(v[1]);
-    expect(versoesDosSlides(slidesDoTexto(texto), [2], CAB, { 2: FOTO })).toEqual(versoesDosSlides(slidesDoTexto(texto), [2], CAB, {}));
+    expect(versoesDosSlides(slidesDoTexto(texto), [], CAB, { 2: OUTRA }, SEM_CAPA)[1]).not.toBe(v[1]);
+    expect(versoesDosSlides(slidesDoTexto(texto), [2], CAB, { 2: FOTO }, SEM_CAPA)).toEqual(versoesDosSlides(slidesDoTexto(texto), [2], CAB, {}, SEM_CAPA));
   });
 
   it("o número e o total de cada slide entram: o mesmo texto noutra posição tem outra versão", () => {
-    const com4 = versoesDosSlides(slidesDoTexto({ ...texto, slides: [texto.slides[0], texto.slides[0]] }), [], CAB, {});
+    const com4 = versoesDosSlides(slidesDoTexto({ ...texto, slides: [texto.slides[0], texto.slides[0]] }), [], CAB, {}, SEM_CAPA);
     expect(com4[0]).not.toBe(base[0]);
   });
 

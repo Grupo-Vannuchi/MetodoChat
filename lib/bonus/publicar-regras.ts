@@ -261,6 +261,9 @@ export function fotosDaArte(v: unknown, total: number): Record<number, string> {
  */
 export type CapaDaArte = { ligada: boolean; caminho: string | null };
 
+/** A capa desligada: a dos carrosséis de antes da Etapa 11, e a de quem não a ligou. */
+export const SEM_CAPA: CapaDaArte = { ligada: false, caminho: null };
+
 export function capaDaArte(v: unknown, total: number): CapaDaArte {
   const escolhas = escolhasDaArte(v, total);
   if (!escolhas.capa) return { ligada: false, caminho: null };

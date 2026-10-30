@@ -7,6 +7,7 @@ import {
   PROPORCAO_DA_FOTO_MIN,
   PROPORCAO_MAX,
   PROPORCAO_MIN,
+  SEM_CAPA,
   caminhoDaImagem,
   ehCaminhoDoDestino,
   formaDoCarrossel,
@@ -121,7 +122,7 @@ describe("a versão do texto do slide", () => {
   // aviso "o texto mudou" aparecer sem o texto ter mudado.
   it("não muda com a foto da conta, ao contrário da versão da miniatura", () => {
     const comFoto = (foto: string | null) =>
-      versoesDosSlides([slide], [], { nome: "Thiago", arroba: "thiago", foto, iniciais: "TH" }, {})[0];
+      versoesDosSlides([slide], [], { nome: "Thiago", arroba: "thiago", foto, iniciais: "TH" }, {}, SEM_CAPA)[0];
     expect(comFoto("https://cdn/a.jpg")).not.toBe(comFoto("https://cdn/b.jpg"));
     expect(versaoDoTextoDoSlide(slide)).toBe(versaoDoTextoDoSlide(slide));
   });

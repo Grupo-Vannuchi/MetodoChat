@@ -428,8 +428,8 @@ describe("a consulta de um slide", () => {
     const r = await imagem.gerarImagem({ reservaId: await reservado(id), id, numero: 2, descricao: CENA, contas, gerar: openaiQueGera });
     if (!r.ok) throw new Error(`a geração devia passar: ${r.motivo}`);
     const conta = contas.find((c) => c.ig_user_id === CONTA) ?? null;
-    const comFoto = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], tela.cabecalhoParaVersao(conta), { 2: r.caminho })[1];
-    const semFoto = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], tela.cabecalhoParaVersao(conta), {})[1];
+    const comFoto = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], tela.cabecalhoParaVersao(conta), { 2: r.caminho }, regras.SEM_CAPA)[1];
+    const semFoto = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], tela.cabecalhoParaVersao(conta), {}, regras.SEM_CAPA)[1];
     expect(comFoto).not.toBe(semFoto);
     expect(await consultar(id)).toEqual({ estado: "pronta", hoje: 1, versao: expect.any(String), versaoDaMiniatura: comFoto });
   });
