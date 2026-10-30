@@ -163,9 +163,15 @@ Do Eduardo, pela caixa e pelos modelos no navegador, em 13/10:
   schema (120 caracteres, em maiúscula) cabe no menor degrau; se não couber, o degrau ou o bloco mudam no
   plano, com a medição escrita.
 - **A versão da miniatura** (`versoesDosSlides`, `arte-tela.ts:115`) passa a resumir também o jeito da capa e
-  a imagem dela, para a miniatura trocar quando um dos dois mudar. Ela é chamada em quatro lugares, e os
-  quatro passam a levar a capa: `carrossel-actions.ts:219` e `:255`, `revisao.tsx:113` e a lista de
-  carrosséis da Etapa 10 (`carrosseis-tela.ts:164`), para a miniatura da lista mostrar a capa também.
+  a imagem dela, para a miniatura trocar quando um dos dois mudar. Ela é chamada em seis lugares, e os
+  seis passam a levar a capa: `carrossel-actions.ts:219` e `:255`, `revisao.tsx:113`, a consulta da imagem
+  (`imagem-consulta.ts:37`), o processo do publicar (`publicar-processo.ts:145`) e a lista de carrosséis
+  da Etapa 10 (`carrosseis-tela.ts:164`), para a miniatura da lista mostrar a capa também. Num slide sem
+  a capa, a versão continua igual à de hoje, byte a byte, para nenhuma miniatura existente ser pedida de
+  novo à toa.
+- **Vale para o carrossel do bônus e para o avulso** (Etapa 7): os dois usam a mesma parte de dentro da
+  página (`revisao.tsx`) e o mesmo desenho (`arte-rota.ts`). As duas rotas da consulta da imagem
+  (`app/bonus/[id]/carrossel/[cid]/imagem` e `app/carrosseis/[cid]/imagem`) aceitam a capa.
 - **A rota da imagem** (a consulta da Etapa 6) e o pedido de imagem aceitam o slide 1 em capa, com o tamanho
   em pé e o destino `capa`.
 
