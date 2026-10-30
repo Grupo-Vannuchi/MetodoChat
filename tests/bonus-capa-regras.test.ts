@@ -196,6 +196,13 @@ describe("a foto declarada para a capa", () => {
     expect(problemaDaFotoDaCapa(1080, 0, 1)).toBe("sem_medida");
     expect(problemaDaFotoDaCapa(1080, 1350, undefined)).toBe("sem_medida");
   });
+
+  // O achado 149: a assinatura da capa não passa pela `decisaoDeAssinatura`, que recusa o zero em todo
+  // outro destino (lib/publicacao.ts:504-506). A régua da capa o recusa por conta própria.
+  it("a capa declarada com 0 byte é recusada, como em todo outro destino", () => {
+    expect(problemaDaFotoDaCapa(1080, 1350, 0)).toBe("sem_medida");
+    expect(problemaDaFotoDaCapa(1024, 1536, 0)).toBe("sem_medida");
+  });
 });
 
 describe("o recorte da foto da capa", () => {

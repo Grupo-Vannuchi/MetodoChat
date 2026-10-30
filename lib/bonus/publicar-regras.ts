@@ -155,6 +155,9 @@ export function recorteDaFoto(
  * A GERADA POR IA SAI EM 1024×1536, o tamanho em pé da OpenAI (imagem-openai.ts), e só ela passa fora do
  * 4:5: o desenho a corta em cima e embaixo (`objectFit: cover`), e ela sai ampliada uns 5% (1024 para
  * 1080 de largura). Aceitar a medida exata, e não uma faixa, mantém a regra do 4:5 para tudo o mais.
+ *
+ * O ZERO É SEM MEDIDA (achado 149): a assinatura da capa não passa pela `decisaoDeAssinatura`, que recusa
+ * o arquivo declarado com 0 byte em todo outro destino. A régua da capa recusa o zero por conta própria.
  */
 export const CAPA_MAX_LARGURA = LARGURA * 2;
 export const CAPA_MAX_ALTURA = ALTURA * 2;
@@ -167,7 +170,7 @@ export function problemaDaFotoDaCapa(
   altura: number | undefined,
   bytes: number | undefined
 ): ProblemaDaFoto | null {
-  if (!largura || !altura || !(largura > 0) || !(altura > 0) || !(typeof bytes === "number" && bytes >= 0)) return "sem_medida";
+  if (!largura || !altura || !(largura > 0) || !(altura > 0) || !(typeof bytes === "number" && bytes > 0)) return "sem_medida";
   const gerada = largura === LARGURA_DA_CAPA_GERADA && altura === ALTURA_DA_CAPA_GERADA;
   if (!gerada) {
     if (problemaDaProporcaoDoSlide(largura, altura)) return "proporcao";
