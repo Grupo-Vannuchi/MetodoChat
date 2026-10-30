@@ -1,15 +1,15 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { resolverConta } from "./arte-conta";
-import { comEspaco, escolhasDaArte } from "./arte-escolhas";
-import { fotoDoEspaco, fotosDaInstancia } from "./arte-foto";
+import { comEspaco, ehCapa, escolhasDaArte } from "./arte-escolhas";
+import { fotoDaCapa, fotoDoEspaco, fotosDaInstancia } from "./arte-foto";
 import { respostaDaArte } from "./arte-resposta";
 import type { SlideParaArte } from "./arte-slides";
 import { cabecalhoDaConta, nomeDoArquivo } from "./arte-tela";
 import { TEXTO_ARTE_SEM_CONTA, TEXTO_ARTE_SEM_DESENHO, TEXTO_ARTE_SEM_FONTE } from "./arte-textos";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { contasParaArte } from "./carrossel-repositorio";
-import { fotosDaArte, versaoDoDesenho } from "./publicar-regras";
+import { capaDaArte, fotosDaArte, versaoDoDesenho } from "./publicar-regras";
 
 // O DESENHO DE UM SLIDE, COMUM ÀS DUAS ROTAS DA ARTE (spec da Etapa 7): a do carrossel de bônus
 // (app/bonus/[id]/carrossel/[cid]/arte/route.tsx) e a do avulso (app/carrosseis/[cid]/arte/route.tsx).
@@ -40,29 +40,43 @@ export async function desenharSlide(p: {
   // A FOTO DO ESPAÇO (adendo da Etapa 5): só no slide com espaço, e só a do jeito "foto", que o
   // prefixo do caminho guardado diz (publicar-regras.ts). `fotoDoEspaco` confere o caminho na pasta da
   // conta do carrossel antes de buscar.
+  // A CAPA (Etapa 11): no slide 1 em capa, a imagem é a da capa (`capaDaArte`, só a do jeito capa), e
+  // `fotoDaCapa` confere o caminho em `bonus-capa` da pasta da conta antes de buscar.
   const slide = slides[numero - 1];
+  const capa = ehCapa(escolhas, numero);
   const espaco = comEspaco(escolhas, numero);
-  const caminhoDaFoto = espaco ? (fotosDaArte(linha.arte, slides.length)[numero] ?? null) : null;
+  const caminhoDaFoto = capa
+    ? capaDaArte(linha.arte, slides.length).caminho
+    : espaco
+      ? (fotosDaArte(linha.arte, slides.length)[numero] ?? null)
+      : null;
   // As fotos vêm da memória desta instância (arte-foto.ts): as miniaturas chegam juntas, e uma busca
   // só atende todas.
   const [foto, slug, daFoto] = await Promise.all([
     fotosDaInstancia.foto(conta.profile_picture_url),
     p.slug(),
-    caminhoDaFoto ? fotoDoEspaco(caminhoDaFoto, escolhas.conta) : Promise.resolve(null),
+    caminhoDaFoto === null
+      ? Promise.resolve(null)
+      : capa
+        ? fotoDaCapa(caminhoDaFoto, escolhas.conta)
+        : fotoDoEspaco(caminhoDaFoto, escolhas.conta),
   ]);
 
   // O PNG já sai lido inteiro (arte-resposta.tsx, achado 65): uma falha do desenho vira 500 com
   // frase, e não um 200 com o corpo quebrado. Emoji no texto faz o desenho buscar o emoji em
   // cdn.jsdelivr.net (achado 66); sem essa rede, o slide com emoji cai nesta frase.
-  // A versão do desenho vai só no slide que sai com a arte do Chat: o "Só texto" e o com foto.
+  // A versão do desenho vai só no slide que sai com a arte do Chat: o "Só texto", o com foto e a capa
+  // com a imagem dela. A capa sem imagem não tem versão: ela não se publica.
+  const desenhado = capa ? caminhoDaFoto !== null : !espaco || caminhoDaFoto !== null;
   const arte = await respostaDaArte({
     slide,
     comEspaco: espaco,
+    capa,
     cabecalho: cabecalhoDaConta(conta, foto),
     baixar: p.baixar,
     nomeDoArquivo: nomeDoArquivo(slug, numero),
     fotoDoEspaco: caminhoDaFoto ? { foto: daFoto } : null,
-    versao: !espaco || caminhoDaFoto ? versaoDoDesenho(slide, caminhoDaFoto) : null,
+    versao: desenhado ? versaoDoDesenho(slide, caminhoDaFoto) : null,
   });
   if (!arte.ok) return erroDaArte(500, arte.falha === "fonte" ? TEXTO_ARTE_SEM_FONTE : TEXTO_ARTE_SEM_DESENHO);
   return arte.resposta;

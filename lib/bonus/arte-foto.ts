@@ -187,3 +187,17 @@ export function fotoDoEspaco(
   if (!conta || !ehCaminhoDoDestino(caminho, pastaDaConta(conta), "foto")) return Promise.resolve(null);
   return memoria.foto(caminho);
 }
+
+/**
+ * A IMAGEM DA CAPA (spec da Etapa 11): a mesma busca, as mesmas travas e a mesma memória da foto do
+ * espaço, só no caminho exato `<pasta da conta do carrossel>/bonus-capa/<uuid>.jpg`. O teto é o mesmo
+ * (2 MB): a imagem da capa sobe pela mesma regra de bytes.
+ */
+export function fotoDaCapa(
+  caminho: string,
+  conta: string | null,
+  memoria: MemoriaDasFotos = fotosDoEspacoDaInstancia
+): Promise<string | null> {
+  if (!conta || !ehCaminhoDoDestino(caminho, pastaDaConta(conta), "capa")) return Promise.resolve(null);
+  return memoria.foto(caminho);
+}

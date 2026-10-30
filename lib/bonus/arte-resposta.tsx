@@ -5,6 +5,8 @@ import { fontesDaArte, FAMILIA_DA_ARTE, type FonteDaArte } from "./arte-fonte";
 import { ALTURA, LARGURA } from "./arte-geometria";
 import { tamanhoDoSlide, type SlideParaArte } from "./arte-slides";
 import { CABECALHO_DA_FOTO, CABECALHO_DA_VERSAO, cabecalhosDaArte, type CabecalhoDaArte } from "./arte-tela";
+import { desenhoDaCapa } from "./capa-desenho";
+import { tamanhoDaCapa } from "./capa-medida";
 
 // O PNG DE UM SLIDE: o desenho, a fonte e os cabeçalhos da resposta, juntos. A rota decide o que
 // desenhar; isto desenha. Separado da rota para o teste desenhar de verdade sem sessão nem banco
@@ -25,6 +27,10 @@ import { CABECALHO_DA_FOTO, CABECALHO_DA_VERSAO, cabecalhosDaArte, type Cabecalh
 // fica em branco. Ela é a última a sair: a foto da conta quebrada não a leva junto. E A RESPOSTA DIZ SE
 // ELA VEIO (achado 78): no slide com foto, `X-Arte-Foto` é "sim" ou "faltou". O publicar recusa a arte
 // com "faltou", porque o post sairia sem a foto, em público e sem volta; a miniatura só se refaz.
+//
+// A CAPA (spec da Etapa 11) é o mesmo caminho com outro desenho: `capa` troca a escolha da fonte pela da
+// capa (capa-medida.ts) e o desenho pelo dela (capa-desenho.tsx), e `fotoDoEspaco` leva a imagem da capa,
+// com as mesmas tentativas e o mesmo `X-Arte-Foto`: a capa sem a imagem também não é publicada.
 
 /** Por que o slide não saiu: a rota troca cada motivo por uma frase (arte-textos.ts). */
 export type FalhaDaArte = "fonte" | "desenho";
@@ -39,6 +45,7 @@ export async function respostaDaArte({
   nomeDoArquivo,
   fotoDoEspaco = null,
   versao = null,
+  capa = false,
 }: {
   slide: SlideParaArte;
   comEspaco: boolean;
@@ -46,12 +53,15 @@ export async function respostaDaArte({
   baixar: boolean;
   nomeDoArquivo: string;
   /**
-   * A foto do espaço do slide: `null` quando o slide não tem foto guardada (e o cabeçalho da foto não
-   * vai); `{ foto: null }` quando tem, e a busca falhou; `{ foto }` com o `data:` da foto.
+   * A foto do espaço do slide (na capa, a imagem da capa): `null` quando o slide não tem foto guardada (e
+   * o cabeçalho da foto não vai); `{ foto: null }` quando tem, e a busca falhou; `{ foto }` com o `data:`
+   * da foto.
    */
   fotoDoEspaco?: { foto: string | null } | null;
   /** A versão do desenho (`versaoDoDesenho`), que vai no cabeçalho para o publicar a devolver. */
   versao?: string | null;
+  /** O slide 1 em "Capa com imagem" (Etapa 11): o desenho e a fonte são os da capa. */
+  capa?: boolean;
 }): Promise<ArteDoSlide> {
   let fontes: FonteDaArte[];
   try {
@@ -59,10 +69,12 @@ export async function respostaDaArte({
   } catch {
     return { ok: false, falha: "fonte" };
   }
-  const { fonte } = tamanhoDoSlide(slide, comEspaco);
+  const { fonte } = capa ? tamanhoDaCapa(slide) : tamanhoDoSlide(slide, comEspaco);
 
   const desenhar = async (cab: CabecalhoDaArte, foto: string | null): Promise<Response | null> => {
-    const desenho = desenhoDoSlide({ slide, fonte, comEspaco, cabecalho: cab, familia: FAMILIA_DA_ARTE, fotoDoEspaco: foto });
+    const desenho = capa
+      ? desenhoDaCapa({ slide, fonte, cabecalho: cab, familia: FAMILIA_DA_ARTE, imagem: foto })
+      : desenhoDoSlide({ slide, fonte, comEspaco, cabecalho: cab, familia: FAMILIA_DA_ARTE, fotoDoEspaco: foto });
     const imagem = new ImageResponse(desenho, {
       width: LARGURA,
       height: ALTURA,
