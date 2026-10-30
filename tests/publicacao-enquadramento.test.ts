@@ -175,6 +175,9 @@ describe("geometriaDoEnquadramento", () => {
   // rota de assinar, depois de a pessoa montar o post inteiro. A auditoria contou, de 320 a 1440: a altura
   // do 4:5 arredondada ao mais próximo dá 560 saídas fora da faixa; para baixo, 0. A varredura passa cada
   // saída pela MESMA função que a rota usa, e confere o invariante pela razão.
+  // O PRAZO É PRÓPRIO (achado 148): são cerca de 20 mil geometrias e 250 mil `expect`, que levaram de 3,4 a
+  // 5,4 s nesta máquina em 30/10, contra os 5 s do padrão do vitest. O prazo padrão derrubava o caso por
+  // tempo, e não por defeito; os casos pesados do repositório já têm prazo próprio (bonus-arte-desenho).
   it("toda saída, de 320 a 1440 de largura, nas três proporções e nos dois modos, passa na regra da Meta", () => {
     const formas: [number, number][] = [];
     for (let l = 320; l <= 1440; l++) {
@@ -212,7 +215,7 @@ describe("geometriaDoEnquadramento", () => {
       }
     }
     expect(conferidas).toBeGreaterThan(18_000);
-  });
+  }, 60_000);
 });
 
 // UM SEGMENTO DO JPEG: o marcador, o tamanho (que conta os próprios 2 bytes) e o corpo.
