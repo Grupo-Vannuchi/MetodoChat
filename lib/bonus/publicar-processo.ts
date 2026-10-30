@@ -11,7 +11,7 @@ import {
 } from "@/lib/publicacao";
 import { drainQueue } from "@/lib/queue-drain";
 import { resolverConta, type ContaDoCabecalho } from "./arte-conta";
-import { comEspaco, escolhasDaArte, type EscolhasDaArte } from "./arte-escolhas";
+import { comEspaco, ehCapa, escolhasDaArte, type EscolhasDaArte } from "./arte-escolhas";
 import { slidesDoTexto, type SlideParaArte } from "./arte-slides";
 import { cabecalhoParaVersao, versoesDosSlides } from "./arte-tela";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
@@ -35,6 +35,7 @@ import {
   formaDoCarrossel,
   fotosDaArte,
   imagensDaArte,
+  problemaDaFotoDaCapa,
   problemaDaFotoDoEspaco,
   problemaDaProporcaoDoSlide,
   versaoDoDesenho,
@@ -89,6 +90,13 @@ const mensagem = (e: unknown) => (e instanceof Error && e.message ? e.message : 
  * publicar. Só JPEG: a foto na proporção do espaço e até 2 MB (achado 79), o resto em 4:5; e tudo
  * pela `decisaoDeAssinatura` do /publicar com a forma do carrossel. As medidas são declaradas pelo
  * navegador, como no /publicar.
+ *
+ * NO DESTINO `capa` (spec da Etapa 11), a imagem da capa do slide 1 em capa, pela regra da foto da capa
+ * (`problemaDaFotoDaCapa`: JPEG, 4:5 ou a gerada 1024×1536, e até 2 MB). Ela NÃO passa pela
+ * `decisaoDeAssinatura`, de propósito: aquela é a régua da fila do /publicar, e recusa abaixo de 0,8 a
+ * imagem gerada em pé (1024×1536, 0,667). A imagem da capa nunca vai à fila: vai a arte da capa, em
+ * 1080×1350, que passa pela régua no destino `fila`. O teto de bytes da capa (2 MB) fica bem abaixo do
+ * da Meta e do bucket.
  */
 export async function assinarImagem(p: {
   id: string;
@@ -100,12 +108,30 @@ export async function assinarImagem(p: {
   const c = await conferirCarrossel(p.id, p.contas);
   if (!c.ok) return c;
   if (!Number.isInteger(p.numero) || !c.slides[p.numero - 1]) return recusa({ motivo: "slide" });
+  const capa = ehCapa(c.escolhas, p.numero);
   const espaco = comEspaco(c.escolhas, p.numero);
-  const desenhado = !espaco || fotosDaArte(c.linha.arte, c.linha.total_slides)[p.numero] !== undefined;
-  if (p.destino !== "fila" && !espaco) return recusa({ motivo: "sem_espaco", numero: p.numero });
-  if (p.destino === "fila" && !desenhado) return recusa({ motivo: "nao_e_so_texto", numero: p.numero });
+  if (p.destino === "capa") {
+    if (!capa) return recusa({ motivo: "sem_capa", numero: p.numero });
+  } else if (p.destino !== "fila" && !espaco) {
+    return recusa(capa ? { motivo: "na_capa", numero: p.numero } : { motivo: "sem_espaco", numero: p.numero });
+  }
+  if (p.destino === "fila") {
+    // A arte da capa só sobe com a imagem da capa: sem ela, o slide 1 não está pronto para publicar.
+    if (capa && capaDaArte(c.linha.arte, c.linha.total_slides).caminho === null) return recusa({ motivo: "faltam_imagens", slides: [p.numero] });
+    const desenhado = capa || !espaco || fotosDaArte(c.linha.arte, c.linha.total_slides)[p.numero] !== undefined;
+    if (!desenhado) return recusa({ motivo: "nao_e_so_texto", numero: p.numero });
+  }
   const arquivo = (p.arquivo !== null && typeof p.arquivo === "object" ? p.arquivo : {}) as Record<string, unknown>;
   if (arquivo.mime !== "image/jpeg") return recusa({ motivo: "tipo" });
+  if (p.destino === "capa") {
+    const problema = problemaDaFotoDaCapa(numero(arquivo.largura), numero(arquivo.altura), numero(arquivo.bytes));
+    if (problema) return recusa({ motivo: "capa_foto", problema });
+    try {
+      return { ok: true, ...(await assinarCaminho(c.conta, "capa")) };
+    } catch (e) {
+      return recusa({ motivo: "armazenamento", texto: mensagem(e) });
+    }
+  }
   if (p.destino === "foto") {
     const foto = problemaDaFotoDoEspaco(numero(arquivo.largura), numero(arquivo.altura), numero(arquivo.bytes));
     if (foto) return recusa({ motivo: "foto", problema: foto });

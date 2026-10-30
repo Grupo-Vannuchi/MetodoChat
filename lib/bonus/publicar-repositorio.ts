@@ -1,7 +1,7 @@
 import "server-only";
 import { pastaDaConta } from "@/lib/bucket";
 import { sql } from "@/lib/db";
-import { comEspaco, escolhasDaArte } from "./arte-escolhas";
+import { comEspaco, ehCapa, escolhasDaArte } from "./arte-escolhas";
 import { slidesDoTexto } from "./arte-slides";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { textoDaLinhaDoCarrossel } from "./carrossel-tela";
@@ -60,6 +60,10 @@ const recusa = (r: RecusaDaPublicacaoDoCarrossel): Recusa => ({ ok: false, recus
  * da Etapa 5). O jeito é o prefixo do caminho que o servidor assinou, e não se grava à parte. A versão
  * gravada é a do texto SALVO agora. Devolve a imagem anterior daquele slide, de qualquer jeito, para
  * quem chama apagá-la do bucket depois do `commit`.
+ *
+ * NO SLIDE 1 EM CAPA (spec da Etapa 11), só a imagem da capa, em `<pasta>/bonus-capa/<uuid>.jpg`; e a da
+ * capa só entra no slide em capa. A capa desligada no meio de uma subida (ou de uma geração por IA) cai
+ * aqui, com a linha travada, e a imagem que subiu sai do bucket por quem chama.
  */
 export async function gravarImagemDoSlide(
   id: string,
@@ -77,10 +81,12 @@ export async function gravarImagemDoSlide(
     if (!publicacaoLivre(estado)) return recusa({ motivo: "travado", estado });
     const slide = slidesDoTexto(texto)[numero - 1];
     if (!Number.isInteger(numero) || !slide) return recusa({ motivo: "slide" });
-    if (!comEspaco(escolhas, numero)) return recusa({ motivo: "sem_espaco", numero });
+    const capa = ehCapa(escolhas, numero);
+    if (!capa && !comEspaco(escolhas, numero)) return recusa({ motivo: "sem_espaco", numero });
     const pasta = pastaDaConta(escolhas.conta);
-    const jeito = ehCaminhoDoDestino(caminho, pasta, "foto") ? "foto" : ehCaminhoDoDestino(caminho, pasta, "slide") ? "slide" : null;
+    const jeito = (["foto", "slide", "capa"] as const).find((j) => ehCaminhoDoDestino(caminho, pasta, j)) ?? null;
     if (!jeito) return recusa({ motivo: "caminho" });
+    if (capa !== (jeito === "capa")) return recusa(capa ? { motivo: "na_capa", numero } : { motivo: "sem_capa", numero });
     const anterior = imagensDaArte(linha.arte, linha.total_slides)[numero]?.caminho ?? null;
     const versao = versaoDoTextoDoSlide(slide);
     await tx.query(

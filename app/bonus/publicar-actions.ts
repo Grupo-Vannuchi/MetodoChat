@@ -40,13 +40,15 @@ const inteiro = (v: unknown): number => (typeof v === "number" && Number.isInteg
 /**
  * A PERMISSÃO PARA SUBIR UMA IMAGEM: no destino `slide`, o slide pronto do Canva de um slide com
  * espaço; no destino `foto`, a foto do espaço da arte (adendo da Etapa 5); no destino `fila`, a arte
- * desenhada, convertida na hora de publicar. O navegador sobe direto ao bucket, pela URL assinada,
- * porque a Vercel recusa corpo acima de 4,5 MB (lib/bucket.ts).
+ * desenhada, convertida na hora de publicar; no destino `capa`, a foto da capa do slide 1 (Etapa 11). O
+ * navegador sobe direto ao bucket, pela URL assinada, porque a Vercel recusa corpo acima de 4,5 MB
+ * (lib/bucket.ts).
  */
 export async function assinarImagemDoCarrossel(pedido: unknown): Promise<RespostaDaAssinatura> {
   await exigirSessao();
   const p = registro(pedido);
-  const destino = p.destino === "slide" || p.destino === "foto" || p.destino === "fila" ? p.destino : null;
+  const destino =
+    p.destino === "slide" || p.destino === "foto" || p.destino === "fila" || p.destino === "capa" ? p.destino : null;
   if (!ehIdDeBonus(p.id) || !destino) return { ok: false, texto: TEXTO_PEDIDO_INVALIDO };
   const r = await assinarImagem({ id: p.id, numero: inteiro(p.numero), destino, arquivo: p.arquivo, contas: await contasParaArte() });
   return r.ok ? { ok: true, caminho: r.caminho, url: r.url } : { ok: false, texto: textoDaRecusaDaPublicacaoDoCarrossel(r.recusa) };

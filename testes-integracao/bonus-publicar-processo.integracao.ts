@@ -783,3 +783,83 @@ describe("publicar com um slide que sai cortado", () => {
     expect(await fila()).toEqual([]);
   });
 });
+
+// A FOTO DA CAPA (spec da Etapa 11, "A imagem da capa"): o slide 1 em capa recebe só a imagem da capa, em
+// `bonus-capa`, pela regra da capa (o 4:5 de 1080×1350 a 2160×2700, ou a gerada 1024×1536, até 2 MB). A
+// imagem da capa só entra no slide em capa, e a troca de jeito apaga a imagem anterior do bucket, como a
+// troca de foto. A capa desligada no meio de uma subida é recusada no guardar, com a linha travada.
+describe("a foto da capa", () => {
+  /** O slide 1 em capa; o 5 só texto; o 2, o 3 e o 4 com espaço. */
+  const ARTE_CAPA = { conta: CONTA, nome: "Thiago Vannuchi", arroba: "thiagovannuchi", soTexto: [5], capa: true };
+  const CAPA_DECLARADA = { nome: "capa.jpg", mime: "image/jpeg", bytes: 1000, largura: 1080, altura: 1350 };
+  const GERADA_DECLARADA = { nome: "imagem-gerada.jpg", mime: "image/jpeg", bytes: 1000, largura: 1024, altura: 1536 };
+  const CAMINHO_DA_CAPA = new RegExp(`^${CONTA}/bonus-capa/[0-9a-f-]{36}\.jpg$`);
+
+  async function subirCapa(id: string, arquivo: Record<string, unknown> = CAPA_DECLARADA): Promise<string> {
+    const a = await processo.assinarImagem({ id, numero: 1, destino: "capa", arquivo, contas });
+    if (!a.ok) throw new Error(`assinar recusou: ${a.recusa.motivo}`);
+    const r = await fetch(a.url, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: JPEG });
+    if (!r.ok) throw new Error(`o PUT falhou: ${r.status}`);
+    return a.caminho;
+  }
+
+  it("assina em bonus-capa, na pasta da conta do carrossel; a gerada em pé (1024×1536) também passa", async () => {
+    const id = await carrossel(ARTE_CAPA);
+    expect(await subirCapa(id)).toMatch(CAMINHO_DA_CAPA);
+    expect(await subirCapa(id, GERADA_DECLARADA)).toMatch(CAMINHO_DA_CAPA);
+  });
+
+  it("sem a capa ligada, a imagem da capa é recusada; no slide em capa, a foto do espaço e o slide pronto também", async () => {
+    const semCapa = await carrossel({ ...ARTE_CAPA, capa: false });
+    const r = await processo.assinarImagem({ id: semCapa, numero: 1, destino: "capa", arquivo: CAPA_DECLARADA, contas });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "sem_capa", numero: 1 });
+    const id = await carrossel(ARTE_CAPA);
+    for (const [destino, arquivo] of [
+      ["foto", FOTO_DECLARADA],
+      ["slide", DECLARADO],
+    ] as const) {
+      const recusa = await processo.assinarImagem({ id, numero: 1, destino, arquivo, contas });
+      expect(recusa.ok ? null : recusa.recusa).toEqual({ motivo: "na_capa", numero: 1 });
+    }
+    expect(bucket.chamadas).toEqual([]);
+  });
+
+  it("a foto fora do 4:5, ou acima de 2 MB, é recusada como capa", async () => {
+    const id = await carrossel(ARTE_CAPA);
+    const deitada = await processo.assinarImagem({ id, numero: 1, destino: "capa", arquivo: FOTO_DECLARADA, contas });
+    expect(deitada.ok ? null : deitada.recusa).toEqual({ motivo: "capa_foto", problema: "proporcao" });
+    const pesada = await processo.assinarImagem({ id, numero: 1, destino: "capa", arquivo: { ...CAPA_DECLARADA, bytes: 2 * 1024 * 1024 + 1 }, contas });
+    expect(pesada.ok ? null : pesada.recusa).toEqual({ motivo: "capa_foto", problema: "pesada" });
+  });
+
+  it("guardar a capa devolve o jeito capa e a miniatura com a capa; a foto anterior do slide 1 sai do bucket", async () => {
+    const id = await carrossel({ ...ARTE_CAPA, capa: false });
+    const foto = await subir(id, 1, "foto");
+    await processo.guardarImagem({ id, numero: 1, caminho: foto, contas });
+    await repo.salvarSoTextoDaArte(id, [5], null, true);
+    const capa = await subirCapa(id);
+    const r = await processo.guardarImagem({ id, numero: 1, caminho: capa, contas });
+    const cabecalho = tela.cabecalhoParaVersao(contas.find((c) => c.ig_user_id === CONTA) ?? null);
+    const miniatura = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [5], cabecalho, {}, { ligada: true, caminho: capa })[0];
+    expect(r).toEqual({ ok: true, versao: versaoDo(1), jeito: "capa", versaoDaMiniatura: miniatura });
+    expect(bucket.objetos.has(foto)).toBe(false);
+    expect(regras.capaDaArte(await arteDe(id), 5)).toEqual({ ligada: true, caminho: capa });
+  });
+
+  it("a capa desligada no meio da subida: guardar a imagem da capa é recusado, e nada muda na arte", async () => {
+    const id = await carrossel(ARTE_CAPA);
+    const capa = await subirCapa(id);
+    await repo.salvarSoTextoDaArte(id, [5], null, false);
+    const r = await processo.guardarImagem({ id, numero: 1, caminho: capa, contas });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "sem_capa", numero: 1 });
+    expect(regras.imagensDaArte(await arteDe(id), 5)).toEqual({});
+  });
+
+  it("a capa ligada no meio da subida da foto do espaço: guardar a foto no slide 1 é recusado", async () => {
+    const id = await carrossel({ ...ARTE_CAPA, capa: false });
+    const foto = await subir(id, 1, "foto");
+    await repo.salvarSoTextoDaArte(id, [5], null, true);
+    const r = await processo.guardarImagem({ id, numero: 1, caminho: foto, contas });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "na_capa", numero: 1 });
+  });
+});
