@@ -5,8 +5,9 @@ import { comEspaco, escolhasDaArte, lerSoTextoDoFormulario } from "@/lib/bonus/a
 // banco não é confiável por forma: uma linha antiga tem `{}`, e uma escrita errada não pode quebrar
 // a página. O que não tiver a forma certa volta ao padrão, que é "com espaço" e sem conta gravada.
 // Desde a Etapa 4, a coluna guarda também o nome e o @ da conta, gravados quando o carrossel nasce.
+// Desde a Etapa 11, a capa do slide 1, desligada no padrão (tests/bonus-capa-regras.test.ts).
 describe("as escolhas da arte de um carrossel", () => {
-  const VAZIA = { conta: null, nome: null, arroba: null, soTexto: [] };
+  const VAZIA = { conta: null, nome: null, arroba: null, soTexto: [], capa: false };
 
   it("a linha antiga, sem nada, não tem conta e tem todo slide com espaço", () => {
     expect(escolhasDaArte({}, 5)).toEqual(VAZIA);
@@ -15,7 +16,7 @@ describe("as escolhas da arte de um carrossel", () => {
   it("lê a conta, o nome e o @ guardados, e os slides só de texto, em ordem e sem repetir", () => {
     expect(
       escolhasDaArte({ conta: "17841400000000001", nome: "Thiago Vannuchi", arroba: "thiagovannuchi", soTexto: [4, 2, 2] }, 5)
-    ).toEqual({ conta: "17841400000000001", nome: "Thiago Vannuchi", arroba: "thiagovannuchi", soTexto: [2, 4] });
+    ).toEqual({ conta: "17841400000000001", nome: "Thiago Vannuchi", arroba: "thiagovannuchi", soTexto: [2, 4], capa: false });
   });
 
   it("a conta da Etapa 3, gravada sem o nome, volta sem o nome", () => {
