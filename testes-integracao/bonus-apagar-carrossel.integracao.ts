@@ -244,6 +244,17 @@ describe("apagar um rascunho", () => {
     await imagemGerada(id, "gerando", 211_000);
     expect(await apagar.apagarCarrossel(id)).toEqual({ ok: true });
   });
+
+  // A CAPA (Etapa 11): a imagem dela, em `bonus-capa/`, sai do bucket com o carrossel.
+  it("a imagem da capa sai do bucket com o carrossel", async () => {
+    const CAPA = `${CONTA}/bonus-capa/${u(4)}.jpg`;
+    const id = await carrossel({ arte: { ...ARTE, capa: true, imagens: { "1": { caminho: CAPA, versao: "v" } } } });
+    noBucket(CAPA, ALHEIO);
+    expect(await apagar.apagarCarrossel(id)).toEqual({ ok: true });
+    expect(await existe(id)).toBe(false);
+    expect([...bucket.objetos.keys()]).toEqual([ALHEIO]);
+    expect(bucket.chamadas).toEqual([`apagou ${CAPA}`]);
+  });
 });
 
 describe("as recusas, sem apagar nada nem tocar no bucket", () => {
