@@ -8,6 +8,7 @@ import { textoDaLinhaDoCarrossel } from "./carrossel-tela";
 import { ehIdDeBonus } from "./pedido";
 import { estadoDaPublicacao, publicacaoLivre, type EstadoDaPublicacao, type LinhaDaFila } from "./publicar-estado";
 import {
+  capaDaArte,
   ehCaminhoDoDestino,
   imagensDaArte,
   publicacaoDaArte,
@@ -118,7 +119,9 @@ export type ConferidoParaPublicar = {
   /** O texto salvo, como `JSON.stringify` o escreve. */
   texto: string;
   soTexto: number[];
-  /** O caminho da imagem guardada de cada slide com espaço, que foi copiada. */
+  /** A capa do slide 1 (Etapa 11), ligada ou não: ligar ou desligar no meio muda o que sai. */
+  capa: boolean;
+  /** O caminho da imagem guardada de cada slide com espaço, que foi copiada, e o da imagem da capa. */
   imagens: Record<number, string>;
 };
 
@@ -146,9 +149,13 @@ export async function reservarPublicacao(
     const imagens = imagensDaArte(linha.arte, linha.total_slides);
     const atuais: Record<number, string> = {};
     for (let n = 1; n <= linha.total_slides; n++) if (comEspaco(escolhas, n) && imagens[n]) atuais[n] = imagens[n].caminho;
+    // A CAPA (Etapa 11): a imagem da capa entra como a do slide 1, só no jeito capa.
+    const capa = capaDaArte(linha.arte, linha.total_slides);
+    if (capa.caminho) atuais[1] = capa.caminho;
     const mudou =
       JSON.stringify(texto) !== conferido.texto ||
       JSON.stringify(escolhas.soTexto) !== JSON.stringify([...conferido.soTexto].sort((a, b) => a - b)) ||
+      escolhas.capa !== conferido.capa ||
       JSON.stringify(atuais) !== JSON.stringify(conferido.imagens);
     if (mudou) return recusa({ motivo: "mudou" });
     const anterior = publicacaoDaArte(linha.arte);

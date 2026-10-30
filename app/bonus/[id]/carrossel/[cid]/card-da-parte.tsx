@@ -56,6 +56,7 @@ export default function CardDaParte({
   versao,
   aoNovaVersao,
   soTexto,
+  capa = false,
   aoMudarSoTexto,
   soTextoPendente,
   imagem = null,
@@ -95,6 +96,8 @@ export default function CardDaParte({
   aoMudarCorte?: (corte: Corte | null) => void;
   /** Gera a imagem do espaço deste slide (Etapa 6). Sem ele, o card não tem o "Gerar imagem". */
   gerarImagem?: GeradorDoSlide | null;
+  /** O slide 1 em "Capa com imagem" (Etapa 11). O editor o passa em cada card de slide. */
+  capa?: boolean;
 }) {
   const doCard = (v: Record<string, string>) => Object.fromEntries(campos.map((c) => [c.nome, v[c.nome] ?? ""]));
   const [atuais, setAtuais] = useState(() => doCard(valores));
@@ -127,8 +130,8 @@ export default function CardDaParte({
   );
   const jeito = imagem?.jeito ?? null;
   const corte = useMemo(
-    () => (numero !== null ? corteDoCard({ total, numero, valores: atuais, soTexto, jeito }) : null),
-    [numero, total, atuais, soTexto, jeito]
+    () => (numero !== null ? corteDoCard({ total, numero, valores: atuais, soTexto, jeito, capa }) : null),
+    [numero, total, atuais, soTexto, jeito, capa]
   );
   useEffect(() => {
     aoMudarCorte?.(corte);

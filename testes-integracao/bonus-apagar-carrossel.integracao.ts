@@ -350,7 +350,7 @@ describe("o apagar e o agendar ao mesmo tempo: um espera o outro", () => {
         await tx.query(`select id from carrosseis_gerados where id = $1 for update`, [id]);
         await tx.query(`delete from carrosseis_gerados where id = $1`, [id]);
       },
-      () => publicar.reservarPublicacao(id, { texto: JSON.stringify(TEXTO), soTexto: [], imagens: {} }, "pub:tarde", [FILA])
+      () => publicar.reservarPublicacao(id, { texto: JSON.stringify(TEXTO), soTexto: [], capa: false, imagens: {} }, "pub:tarde", [FILA])
     );
     expect(r).toEqual({ ok: false, recusa: { motivo: "nao_pronto" } });
   });

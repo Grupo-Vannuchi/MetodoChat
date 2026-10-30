@@ -95,12 +95,18 @@ export type FaltaParaPublicar =
  * com espaço, o texto que sairia cortado (Etapa 9: a imagem do slide decide o modo da conta, e encurtar
  * deixa o card sem salvar), e o que está "não salvo" (o que sai é o texto salvo, e não o que está nos
  * campos).
+ *
+ * A CAPA (spec da Etapa 11): o slide 1 em capa pede a imagem da capa, e só ela conta; a imagem da capa num
+ * slide com espaço também não conta (a imagem de outro jeito conta como sem imagem). A imagem sem o jeito
+ * dito conta no slide com espaço, como antes. `capa` é obrigatória, para o chamador não esquecê-la.
  */
 export function faltasParaPublicar(p: {
   total: number;
   soTexto: number[];
-  /** A imagem de cada slide, como o banco a guarda ou como a tela a mostra: aqui só importa se há. */
+  /** A imagem de cada slide, como o banco a guarda ou como a tela a mostra: importa se há, e o jeito dela. */
   imagens: Record<number, unknown>;
+  /** O slide 1 em "Capa com imagem" (Etapa 11). */
+  capa: boolean;
   origem: OrigemDaConta;
   slidesNaoSalvos: number[];
   legendaNaoSalva: boolean;
@@ -110,8 +116,13 @@ export function faltasParaPublicar(p: {
   const faltas: FaltaParaPublicar[] = [];
   if (p.origem === "selecionada") faltas.push({ tipo: "sem_conta" });
   if (p.origem === "guardada" || p.origem === "gravada_saiu") faltas.push({ tipo: "conta_desconectada" });
+  const jeitoDe = (n: number): unknown => {
+    const i = p.imagens[n];
+    return i !== null && typeof i === "object" ? (i as { jeito?: unknown }).jeito : undefined;
+  };
+  const temImagem = (n: number) => (p.capa && n === 1 ? jeitoDe(n) === "capa" : Boolean(p.imagens[n]) && jeitoDe(n) !== "capa");
   const semImagem: number[] = [];
-  for (let n = 1; n <= p.total; n++) if (!p.soTexto.includes(n) && !p.imagens[n]) semImagem.push(n);
+  for (let n = 1; n <= p.total; n++) if (!p.soTexto.includes(n) && !temImagem(n)) semImagem.push(n);
   if (semImagem.length) faltas.push({ tipo: "imagens", slides: semImagem });
   if (p.cortados.slides.length) faltas.push({ tipo: "nao_cabe", ...p.cortados });
   if (p.slidesNaoSalvos.length || p.legendaNaoSalva) {
@@ -124,15 +135,22 @@ export function faltasParaPublicar(p: {
  * OS SLIDES QUE A TELA PREPARA AO PUBLICAR, com a arte do Chat (adendo da Etapa 5): o "Só texto" e o
  * slide com foto. O com foto exige a foto desenhada (achado 78). O slide pronto sai com a cópia, que o
  * servidor faz; e a foto guardada num slide "Só texto" não conta, porque o espaço não existe.
+ *
+ * A CAPA (spec da Etapa 11) também sai com a arte do Chat: o slide 1 em capa, com a imagem da capa, vai
+ * com `comFoto` (a rota tem de ter desenhado a imagem, achado 78) e `capa` (a conta do corte é a da capa).
+ * A capa sem imagem não sai: falta a imagem dela.
  */
 export function artesParaPublicar(p: {
   total: number;
   soTexto: number[];
   imagens: Record<number, { jeito: JeitoDaImagem } | undefined>;
-}): { numero: number; comFoto: boolean }[] {
-  const artes: { numero: number; comFoto: boolean }[] = [];
+  capa: boolean;
+}): { numero: number; comFoto: boolean; capa?: true }[] {
+  const artes: { numero: number; comFoto: boolean; capa?: true }[] = [];
   for (let n = 1; n <= p.total; n++) {
-    if (p.soTexto.includes(n)) artes.push({ numero: n, comFoto: false });
+    if (p.capa && n === 1) {
+      if (p.imagens[n]?.jeito === "capa") artes.push({ numero: n, comFoto: true, capa: true });
+    } else if (p.soTexto.includes(n)) artes.push({ numero: n, comFoto: false });
     else if (p.imagens[n]?.jeito === "foto") artes.push({ numero: n, comFoto: true });
   }
   return artes;

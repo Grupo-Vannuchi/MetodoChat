@@ -278,7 +278,7 @@ describe("a trava nas gravações do carrossel", () => {
 describe("a reserva da publicação", () => {
   const imagensDe = (id: string) => publicar.gravarImagemDoSlide(id, 2, guardada(2)).then(() =>
     publicar.gravarImagemDoSlide(id, 3, guardada(3))).then(() => publicar.gravarImagemDoSlide(id, 4, guardada(4)));
-  const esperado = { texto: JSON.stringify(TEXTO), soTexto: [1, 5], imagens: { 2: guardada(2), 3: guardada(3), 4: guardada(4) } };
+  const esperado = { texto: JSON.stringify(TEXTO), soTexto: [1, 5], capa: false, imagens: { 2: guardada(2), 3: guardada(3), 4: guardada(4) } };
   const caminhos = [daFila(1), daFila(2), daFila(3), daFila(4), daFila(5)];
 
   it("grava a chave e os caminhos, com a hora do banco, e devolve a legenda salva", async () => {
@@ -398,5 +398,55 @@ describe("a reserva da publicação", () => {
     await naFila("pub:x", "pending", [daFila(1), daFila(2)]);
     expect(await publicar.caminhosNaFila([daFila(2), daFila(3)])).toEqual([daFila(2)]);
     expect(await publicar.caminhosNaFila([daFila(3)])).toEqual([]);
+  });
+});
+
+// A RESERVA COM A CAPA (spec da Etapa 11): a reserva confere de novo, com a linha travada, se a capa
+// continua ligada e com a mesma imagem com que a arte dela foi desenhada. A imagem da capa entra como a do
+// slide 1.
+describe("a reserva com a capa", () => {
+  const CAPA = `${CONTA}/bonus-capa/${uuid(1)}.jpg`;
+  const OUTRA = `${CONTA}/bonus-capa/${uuid(11)}.jpg`;
+  const caminhos = [daFila(1), daFila(2), daFila(3), daFila(4), daFila(5)];
+  const esperado = {
+    texto: JSON.stringify(TEXTO),
+    soTexto: [5],
+    capa: true,
+    imagens: { 1: CAPA, 2: guardada(2), 3: guardada(3), 4: guardada(4) },
+  };
+  async function comCapa(): Promise<string> {
+    const id = await carrossel({ ...ARTE, soTexto: [5], capa: true });
+    for (const [n, c] of [
+      [1, CAPA],
+      [2, guardada(2)],
+      [3, guardada(3)],
+      [4, guardada(4)],
+    ] as const) {
+      const g = await publicar.gravarImagemDoSlide(id, n, c);
+      if (!g.ok) throw new Error(`gravar recusou: ${g.recusa.motivo}`);
+    }
+    return id;
+  }
+
+  it("a capa ligada, com a imagem conferida, reserva", async () => {
+    const id = await comCapa();
+    expect(await publicar.reservarPublicacao(id, esperado, "pub:capa-1", caminhos)).toMatchObject({ ok: true });
+  });
+
+  it.each([
+    ["a capa que a tela achava desligada", { capa: false, imagens: { 2: guardada(2), 3: guardada(3), 4: guardada(4) } }],
+    ["outra imagem da capa", { imagens: { ...esperado.imagens, 1: OUTRA } }],
+  ])("recusa quando mudou %s", async (_nome, mudanca) => {
+    const id = await comCapa();
+    const r = await publicar.reservarPublicacao(id, { ...esperado, ...mudanca }, "pub:capa-2", caminhos);
+    expect(r.ok ? null : r.recusa.motivo).toBe("mudou");
+    expect(regras.publicacaoDaArte(await arteDe(id))).toBeNull();
+  });
+
+  it("a capa desligada no banco depois de conferir: a reserva vê que mudou", async () => {
+    const id = await comCapa();
+    await repo.salvarSoTextoDaArte(id, [5], null, false);
+    const r = await publicar.reservarPublicacao(id, esperado, "pub:capa-3", caminhos);
+    expect(r.ok ? null : r.recusa.motivo).toBe("mudou");
   });
 });

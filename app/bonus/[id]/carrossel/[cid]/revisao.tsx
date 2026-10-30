@@ -110,6 +110,7 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
       avisoDaConta={conta ? textoDaOrigemDaConta(origem, conta.username ?? "") : TEXTO_ARTE_SEM_CONTA}
       podeFixar={origem === "selecionada" && conta !== null}
       soTextoInicial={escolhas.soTexto}
+      capaInicial={escolhas.capa}
       versoes={versoesDosSlides(
         slidesDoTexto(texto),
         escolhas.soTexto,

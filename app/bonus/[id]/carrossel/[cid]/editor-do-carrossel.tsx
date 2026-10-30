@@ -56,6 +56,7 @@ export default function EditorDoCarrossel({
   avisoDaConta,
   podeFixar,
   soTextoInicial,
+  capaInicial = false,
   versoes: versoesIniciais,
   pausaMs = 400,
   intervaloDaConsultaMs = INTERVALO_CONSULTA_MS,
@@ -76,6 +77,8 @@ export default function EditorDoCarrossel({
   avisoDaConta: string | null;
   podeFixar: boolean;
   soTextoInicial: number[];
+  /** O slide 1 em "Capa com imagem" (Etapa 11), como está gravado. A página o passa sempre. */
+  capaInicial?: boolean;
   versoes: string[];
   pausaMs?: number;
   /** O intervalo entre as perguntas da consulta da imagem; o teste de tela usa um menor. */
@@ -100,6 +103,7 @@ export default function EditorDoCarrossel({
   }, []);
   const [soTexto, setSoTexto] = useState(soTextoInicial);
   const aceito = useRef(soTextoInicial);
+  const [capa] = useState(capaInicial);
   const [respostaDaArte, despacharArte, artePendente] = useActionState(
     async (anterior: AvisoDaArte | null, form: FormData) => {
       const r = await acaoDaArte(anterior, form);
@@ -241,6 +245,7 @@ export default function EditorDoCarrossel({
               versao={versoes[n - 1]}
               aoNovaVersao={(v) => setVersoes((vs) => vs.map((x, i) => (i === n - 1 ? v : x)))}
               soTexto={soTexto.includes(n)}
+              capa={capa && n === 1}
               aoMudarSoTexto={(marcado) => mudarSoTexto(n, marcado)}
               soTextoPendente={artePendente}
               imagem={imagens[n] ?? null}
@@ -291,6 +296,7 @@ export default function EditorDoCarrossel({
           carrosselId={carrosselId}
           total={total}
           soTexto={soTexto}
+          capa={capa}
           imagens={imagens}
           versoesDaMiniatura={versoes}
           slidesNaoSalvos={naoSalvos.filter((k) => k.startsWith("slide_")).map((k) => Number(k.slice("slide_".length)))}

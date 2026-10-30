@@ -66,3 +66,26 @@ describe("as rotas da consulta e a action do pedido, com a capa", () => {
     expect(fonte).toContain("gerarImagem({ reservaId, id, numero, descricao, contas, formato })");
   });
 });
+
+// A CAPA CHEGA AO "PUBLICAR" DA TELA (Etapa 11): a página passa a capa gravada ao editor, e o editor a
+// passa ao card do "Publicar" e aos cards dos slides. Os componentes têm a capa desligada como padrão, para
+// os testes de tela de antes da capa seguirem iguais; por isso a guarda confere que quem os monta a passa.
+describe("a capa passa da página ao card do Publicar", () => {
+  const PASTA = "app/bonus/[id]/carrossel/[cid]";
+
+  it("a página passa a capa gravada ao editor", () => {
+    expect(ler(`${PASTA}/revisao.tsx`)).toContain("capaInicial={escolhas.capa}");
+  });
+
+  it("o editor passa a capa ao card do Publicar e ao card do slide 1", () => {
+    const editor = ler(`${PASTA}/editor-do-carrossel.tsx`);
+    expect(editor).toContain("capa={capa}");
+    expect(editor).toContain("capa={capa && n === 1}");
+  });
+
+  it("o card do Publicar leva a capa às faltas e às artes", () => {
+    const card = ler(`${PASTA}/card-publicar.tsx`);
+    expect(card).toMatch(/faltasParaPublicar\(\{[^}]*\bcapa\b/);
+    expect(card).toMatch(/artesParaPublicar\(\{[^}]*\bcapa\b/);
+  });
+});
