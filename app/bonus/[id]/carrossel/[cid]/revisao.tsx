@@ -19,7 +19,7 @@ import { TEXTO_CARROSSEL_SEM_TEXTO } from "@/lib/bonus/carrossel-textos";
 import { imagensNasUltimas24h, ultimasDoCarrossel } from "@/lib/bonus/imagem-repositorio";
 import { estadoDaImagem } from "@/lib/bonus/imagem-regras";
 import { publicacaoLivre } from "@/lib/bonus/publicar-estado";
-import { capaDaArte, fotosDaArte, imagensDaArte, versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
+import { capaDaArte, fotosDaArte, imagensDaArte, jeitoDoCaminho, versaoDoTextoDoSlide } from "@/lib/bonus/publicar-regras";
 import { estadoDoCarrossel } from "@/lib/bonus/publicar-repositorio";
 import {
   textoDaTrava,
@@ -63,7 +63,8 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
   const estado = await estadoDoCarrossel(carrossel.arte);
   const filaId = "filaId" in estado ? estado.filaId : null;
   const noMenu = contaSelecionada(contas, doCookie);
-  // O jeito de cada imagem é o prefixo do caminho (adendo da Etapa 5): as fotos são as de `bonus-foto`.
+  // O jeito de cada imagem é o prefixo do caminho (adendo da Etapa 5): as fotos são as de `bonus-foto`, e
+  // a capa, a de `bonus-capa` (Etapa 11). `imagensDaArte` só lê caminho com jeito.
   const fotos = fotosDaArte(carrossel.arte, carrossel.total_slides);
   const [{ agora, linhas: geradas }, hojeDeImagens] = await Promise.all([ultimasDoCarrossel(carrossel.id), imagensNasUltimas24h()]);
   const publicacao: PublicacaoNaTela = {
@@ -73,7 +74,7 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
     imagens: Object.fromEntries(
       Object.entries(imagensDaArte(carrossel.arte, carrossel.total_slides)).map(([n, i]) => [
         n,
-        { url: urlPublicaSeDerParaMontar(i.caminho), versao: i.versao, jeito: Number(n) in fotos ? "foto" : "slide" },
+        { url: urlPublicaSeDerParaMontar(i.caminho), versao: i.versao, jeito: jeitoDoCaminho(i.caminho) ?? "slide" },
       ])
     ),
     versoesDoTexto: slidesDoTexto(texto).map(versaoDoTextoDoSlide),

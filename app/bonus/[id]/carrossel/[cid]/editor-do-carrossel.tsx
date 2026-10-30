@@ -28,7 +28,9 @@ import type { ImagemGeradaNaTela, ImagemNaTela, PublicacaoNaTela } from "./publi
 // O "SÓ TEXTO" se grava na hora, pela action da arte, e a resposta traz as versões das miniaturas. A
 // escolha muda na tela antes da resposta, para a caixa responder ao clique; numa recusa, volta para a
 // última aceita (achado 67), porque a miniatura e o "Baixar" seguem o que está gravado. O formulário é
-// montado aqui e despachado numa transição, sem `<form action>` (medido no PR #5).
+// montado aqui e despachado numa transição, sem `<form action>` (medido no PR #5). A CAPA do slide 1
+// (spec da Etapa 11) vai no mesmo formulário: ligar a capa tira o "Só texto" do slide 1, e marcar o "Só
+// texto" nele desliga a capa; na recusa, os dois voltam juntos.
 //
 // A PUBLICAÇÃO (spec da Etapa 5) entra por `publicacao`, e sem ela a página é a da Etapa 4. As imagens
 // guardadas moram aqui, de um dos dois jeitos (a foto do espaço ou o slide pronto), e cada card sobe a
@@ -103,15 +105,19 @@ export default function EditorDoCarrossel({
   }, []);
   const [soTexto, setSoTexto] = useState(soTextoInicial);
   const aceito = useRef(soTextoInicial);
-  const [capa] = useState(capaInicial);
+  // A CAPA (spec da Etapa 11) se grava pela mesma action do "só texto", e volta junto com ele na recusa.
+  const [capa, setCapa] = useState(capaInicial);
+  const capaAceita = useRef(capaInicial);
   const [respostaDaArte, despacharArte, artePendente] = useActionState(
     async (anterior: AvisoDaArte | null, form: FormData) => {
       const r = await acaoDaArte(anterior, form);
       if (r?.tom === "ok") {
         aceito.current = form.getAll("so_texto").map(Number);
+        capaAceita.current = form.get("capa") === "1";
         if (r.versoes) setVersoes(r.versoes);
       } else if (r?.tom === "erro") {
         setSoTexto(aceito.current);
+        setCapa(capaAceita.current);
       }
       return r;
     },
@@ -128,13 +134,26 @@ export default function EditorDoCarrossel({
     return campos.filter((c) => nomes.includes(c.nome));
   };
 
-  function mudarSoTexto(numero: number, marcado: boolean) {
-    const novo = marcado ? [...soTexto, numero].sort((a, b) => a - b) : soTexto.filter((n) => n !== numero);
-    setSoTexto(novo);
+  /** Grava o "só texto" e a capa juntos: a action recebe sempre os dois, e nunca os dois no slide 1. */
+  function gravarArte(novoSoTexto: number[], novaCapa: boolean) {
+    setSoTexto(novoSoTexto);
+    setCapa(novaCapa);
     const form = new FormData();
     form.set("id", carrosselId);
-    for (const n of novo) form.append("so_texto", String(n));
+    for (const n of novoSoTexto) form.append("so_texto", String(n));
+    if (novaCapa) form.set("capa", "1");
     iniciar(() => despacharArte(form));
+  }
+
+  function mudarSoTexto(numero: number, marcado: boolean) {
+    const novo = marcado ? [...soTexto, numero].sort((a, b) => a - b) : soTexto.filter((n) => n !== numero);
+    // Marcar "Só texto" no slide 1 desliga a capa: um jeito exclui o outro (spec da Etapa 11).
+    gravarArte(novo, marcado && numero === 1 ? false : capa);
+  }
+
+  /** Ligar a capa tira o "Só texto" do slide 1; desligar não mexe no resto. */
+  function mudarCapa(marcada: boolean) {
+    gravarArte(marcada ? soTexto.filter((n) => n !== 1) : soTexto, marcada);
   }
 
   /**
@@ -163,7 +182,9 @@ export default function EditorDoCarrossel({
       descricaoInicial: g.descricoes[numero] ?? null,
       gerandoInicial: g.gerando.includes(numero),
       aoPronta: ({ versao, versaoDaMiniatura }) => {
-        setImagens((atuais) => ({ ...atuais, [numero]: { url: null, versao: versao ?? "", jeito: "foto" } }));
+        // Na capa (Etapa 11), a imagem gerada é a da capa; no resto, uma foto do espaço.
+        const jeito: JeitoDaImagem = capa && numero === 1 ? "capa" : "foto";
+        setImagens((atuais) => ({ ...atuais, [numero]: { url: null, versao: versao ?? "", jeito } }));
         setVersoes((vs) => vs.map((x, i) => (i === numero - 1 ? versaoDaMiniatura : x)));
       },
       intervaloMs: intervaloDaConsultaMs,
@@ -246,6 +267,8 @@ export default function EditorDoCarrossel({
               aoNovaVersao={(v) => setVersoes((vs) => vs.map((x, i) => (i === n - 1 ? v : x)))}
               soTexto={soTexto.includes(n)}
               capa={capa && n === 1}
+              podeTerCapa={n === 1 && total >= 2}
+              aoMudarCapa={mudarCapa}
               aoMudarSoTexto={(marcado) => mudarSoTexto(n, marcado)}
               soTextoPendente={artePendente}
               imagem={imagens[n] ?? null}

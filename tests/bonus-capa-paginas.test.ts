@@ -77,6 +77,12 @@ describe("a capa passa da página ao card do Publicar", () => {
     expect(ler(`${PASTA}/revisao.tsx`)).toContain("capaInicial={escolhas.capa}");
   });
 
+  // O jeito de cada imagem é o prefixo do caminho: pelas fotos, a imagem da capa sairia como slide pronto,
+  // e o card do slide 1 em capa a daria como a que falta.
+  it("a página lê o jeito de cada imagem pelo caminho, para a imagem da capa ser a da capa", () => {
+    expect(ler(`${PASTA}/revisao.tsx`)).toContain('jeito: jeitoDoCaminho(i.caminho) ?? "slide"');
+  });
+
   it("o editor passa a capa ao card do Publicar e ao card do slide 1", () => {
     const editor = ler(`${PASTA}/editor-do-carrossel.tsx`);
     expect(editor).toContain("capa={capa}");

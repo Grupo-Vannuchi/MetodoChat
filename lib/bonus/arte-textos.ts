@@ -54,6 +54,9 @@ export function textoNaoCabeNunca(numero: number): string {
   return `O slide ${numero} não cabe nem sem o espaço da imagem. Encurte o texto.`;
 }
 
+/** O gancho que não cabe na capa nem no menor degrau (spec da Etapa 11): só encurtar resolve. */
+export const TEXTO_GANCHO_NAO_CABE_NA_CAPA = "O gancho não cabe na capa. Encurte o texto.";
+
 /** De onde veio a conta do cabeçalho (arte-conta.ts). A do carrossel, conectada, não precisa de aviso. */
 export function textoDaOrigemDaConta(origem: OrigemDaConta, arroba: string): string | null {
   switch (origem) {

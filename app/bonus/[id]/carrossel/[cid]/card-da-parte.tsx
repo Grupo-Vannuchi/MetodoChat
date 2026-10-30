@@ -2,7 +2,7 @@
 import { useActionState, useEffect, useMemo, useState, useTransition, type ChangeEvent } from "react";
 import { badgeWarn, btnPrimary, btnSecondary, card, hint } from "@/app/ui";
 import AvisoDoFormulario from "@/app/bonus/aviso-do-formulario";
-import { avisosDeCabimento, campoDoAviso } from "@/lib/bonus/arte-cabimento";
+import { avisoDaCapa, avisosDeCabimento, campoDoAviso } from "@/lib/bonus/arte-cabimento";
 import { urlDaArte } from "@/lib/bonus/arte-tela";
 import type { CampoDoCarrossel, ParteDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import type { AvisoDoSlide } from "@/lib/bonus/carrossel-textos";
@@ -44,6 +44,11 @@ import type { ImagemNaTela } from "./publicacao-na-tela";
 // como uma foto, e enquanto ela gera os outros botões da imagem deste slide ficam desligados.
 // Com o carrossel na fila ou publicado (`travado`), o card fica só para leitura: sem "Editar", sem
 // upload, e o "Só texto" desligado. A trava vale no servidor; aqui ela só se mostra.
+//
+// A CAPA (spec da Etapa 11), só no slide 1 de um carrossel de 2 slides ou mais: a caixa "Capa com imagem"
+// ao lado do "Só texto" (marcar um desmarca o outro, no editor). Com ela ligada, os botões da imagem são
+// "Subir foto da capa" e "Gerar com IA" (o mesmo gerador, em pé), a miniatura é a arte da capa (o fundo
+// escuro antes da imagem) e o aviso é o do gancho que não cabe na capa.
 export default function CardDaParte({
   acao,
   caminho,
@@ -57,6 +62,8 @@ export default function CardDaParte({
   aoNovaVersao,
   soTexto,
   capa = false,
+  podeTerCapa = false,
+  aoMudarCapa,
   aoMudarSoTexto,
   soTextoPendente,
   imagem = null,
@@ -98,6 +105,10 @@ export default function CardDaParte({
   gerarImagem?: GeradorDoSlide | null;
   /** O slide 1 em "Capa com imagem" (Etapa 11). O editor o passa em cada card de slide. */
   capa?: boolean;
+  /** Este card oferece a capa: o slide 1 de um carrossel de 2 slides ou mais (achado 98). */
+  podeTerCapa?: boolean;
+  /** Liga ou desliga a capa; o editor grava junto do "só texto". */
+  aoMudarCapa?: (marcada: boolean) => void;
 }) {
   const doCard = (v: Record<string, string>) => Object.fromEntries(campos.map((c) => [c.nome, v[c.nome] ?? ""]));
   const [atuais, setAtuais] = useState(() => doCard(valores));
@@ -124,9 +135,15 @@ export default function CardDaParte({
     aoMudarNaoSalvo?.(naoSalvo);
   }, [naoSalvo, aoMudarNaoSalvo]);
   const campoDoNaoCabe = numero ? campoDoAviso(numero, total) : null;
+  // Na capa, o aviso é o do gancho pela conta da capa (Etapa 11); no resto, o de hoje.
   const naoCabe = useMemo(
-    () => (numero && campoDoNaoCabe ? avisosDeCabimento(total, atuais, soTexto ? [numero] : [])[campoDoNaoCabe] : undefined),
-    [numero, campoDoNaoCabe, total, atuais, soTexto]
+    () =>
+      numero && campoDoNaoCabe
+        ? capa
+          ? avisoDaCapa(total, atuais)
+          : avisosDeCabimento(total, atuais, soTexto ? [numero] : [])[campoDoNaoCabe]
+        : undefined,
+    [numero, campoDoNaoCabe, total, atuais, soTexto, capa]
   );
   const jeito = imagem?.jeito ?? null;
   const corte = useMemo(
@@ -136,8 +153,10 @@ export default function CardDaParte({
   useEffect(() => {
     aoMudarCorte?.(corte);
   }, [corte, aoMudarCorte]);
-  // Marcado "Só texto", o slide sai com a arte do Chat: a imagem guardada fica, mas não se usa.
-  const comImagem = numero !== null && !soTexto ? imagem : null;
+  // Marcado "Só texto", o slide sai com a arte do Chat: a imagem guardada fica, mas não se usa. E a imagem
+  // de outro jeito também não (Etapa 11): na capa, só a da capa; fora dela, a da capa não conta.
+  const valeAqui = imagem !== null && (capa ? imagem.jeito === "capa" : imagem.jeito !== "capa");
+  const comImagem = numero !== null && !soTexto && valeAqui ? imagem : null;
   // O aviso é só do slide pronto: com a foto no espaço, a arte se redesenha com o texto novo.
   const desatualizada = comImagem?.jeito === "slide" && versaoDoTextoSalvo !== null && comImagem.versao !== versaoDoTextoSalvo;
   const podeSubir = enviarImagem !== null && !soTexto && travado === null;
@@ -155,14 +174,23 @@ export default function CardDaParte({
   /** O botão de um jeito: o rótulo diz se o slide já tem uma imagem daquele jeito. */
   const botaoDeImagem = (jeito: JeitoDaImagem) => {
     const tem = imagem?.jeito === jeito;
-    const rotulo = jeito === "foto" ? (tem ? "Trocar foto" : "Subir foto") : tem ? "Trocar slide pronto" : "Slide pronto do Canva";
+    const rotulo = {
+      foto: tem ? "Trocar foto" : "Subir foto",
+      slide: tem ? "Trocar slide pronto" : "Slide pronto do Canva",
+      capa: tem ? "Trocar foto da capa" : "Subir foto da capa",
+    }[jeito];
+    const nome = {
+      foto: `Slide ${numero}: foto para o espaço da arte`,
+      slide: `Slide ${numero}: slide pronto do Canva`,
+      capa: `Slide ${numero}: foto da capa`,
+    }[jeito];
     return (
       <label className={`${btnSecondary} cursor-pointer whitespace-nowrap`}>
         {enviando && jeitoEnviado === jeito ? "Subindo…" : rotulo}
         <input
           type="file"
           accept="image/jpeg,image/png,image/webp"
-          aria-label={jeito === "foto" ? `Slide ${numero}: foto para o espaço da arte` : `Slide ${numero}: slide pronto do Canva`}
+          aria-label={nome}
           className="sr-only"
           disabled={enviando || gerandoImagem}
           onChange={(e) => aoEscolherImagem(e, jeito)}
@@ -195,6 +223,18 @@ export default function CardDaParte({
               />
               Só texto
             </label>
+            {podeTerCapa && (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  aria-label={`Slide ${numero}: capa com imagem, a imagem no slide inteiro e o gancho grande por cima`}
+                  checked={capa}
+                  disabled={soTextoPendente || travado !== null}
+                  onChange={(e) => aoMudarCapa?.(e.target.checked)}
+                />
+                Capa com imagem
+              </label>
+            )}
             {naoCabe && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{naoCabe}</p>}
             {desatualizada && <p className="text-xs font-medium text-fecha dark:text-fecha-escuro">{TEXTO_TEXTO_MUDOU}</p>}
           </div>
@@ -248,8 +288,9 @@ export default function CardDaParte({
           quebra. O nome acessível do "Baixar" continua dizendo o slide. */}
       {numero !== null && versao !== null && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {podeSubir && botaoDeImagem("foto")}
-          {podeSubir && botaoDeImagem("slide")}
+          {podeSubir && !capa && botaoDeImagem("foto")}
+          {podeSubir && !capa && botaoDeImagem("slide")}
+          {podeSubir && capa && botaoDeImagem("capa")}
           {podeSubir && gerarImagem && (
             <GerarImagem
               caminho={caminho}
@@ -257,6 +298,7 @@ export default function CardDaParte({
               numero={numero}
               gerador={gerarImagem}
               aoMudarGerando={setGerandoImagem}
+              rotulo={capa ? "Gerar com IA" : "Gerar imagem"}
             />
           )}
           <a

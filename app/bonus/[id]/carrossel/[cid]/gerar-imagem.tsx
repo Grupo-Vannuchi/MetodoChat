@@ -55,6 +55,7 @@ export default function GerarImagem({
   numero,
   gerador,
   aoMudarGerando,
+  rotulo = "Gerar imagem",
 }: {
   caminho: string;
   carrosselId: string;
@@ -62,6 +63,8 @@ export default function GerarImagem({
   gerador: GeradorDoSlide;
   /** Avisa o card quando a geração começa ou termina: os outros botões da imagem ficam desligados. */
   aoMudarGerando: (gerando: boolean) => void;
+  /** O rótulo antes do primeiro pedido: "Gerar imagem", ou "Gerar com IA" na capa (Etapa 11). */
+  rotulo?: string;
 }) {
   const [aberto, setAberto] = useState(false);
   const [inicial] = useState(() => separarEstiloDaDescricao(gerador.descricaoInicial ?? ""));
@@ -145,7 +148,7 @@ export default function GerarImagem({
   return (
     <>
       <button type="button" aria-expanded={aberto} onClick={() => setAberto(!aberto)} className={`${btnSecondary} whitespace-nowrap`}>
-        {jaPediu ? "Gerar de novo" : "Gerar imagem"}
+        {jaPediu ? "Gerar de novo" : rotulo}
       </button>
       {(aberto || aviso) && (
         <div className="order-last basis-full space-y-2">
