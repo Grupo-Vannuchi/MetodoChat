@@ -8,7 +8,7 @@ import {
   TEXTO_SEM_REDE_DA_OPENAI,
   tirarChave,
 } from "./imagem-textos";
-import { montarPrompt } from "./prompt-ilustracao";
+import { montarPrompt, montarPromptDaCapa } from "./prompt-ilustracao";
 
 // A CHAMADA À API DE IMAGEM DA OPENAI (spec da Etapa 6, "A chamada à OpenAI"). Molde:
 // site-ia/src/lib/ia/ilustracao.ts, na main 672ee71, onde o caminho inteiro foi provado contra a API de
@@ -41,6 +41,13 @@ export const CORPO_FIXO = {
   output_compression: COMPRESSAO_DA_IMAGEM,
 } as const;
 
+/**
+ * O CORPO DA CAPA (spec da Etapa 11, "Gerada por IA"): o mesmo modelo, a mesma qualidade e o mesmo JPEG, só
+ * que em pé, 1024×1536, outro dos tamanhos recomendados. O corpo de todo o resto continua o `CORPO_FIXO`,
+ * deitado. O custo da imagem em pé é medido na prova (a expectativa é a mesma, US$ 0,0432 em high).
+ */
+export const CORPO_DA_CAPA = { ...CORPO_FIXO, size: "1024x1536" } as const;
+
 export type RespostaDaOpenAI = { ok: true; bytes: Uint8Array } | { ok: false; erro: string };
 
 /** A assinatura que o processo recebe por parâmetro: a de verdade em produção, uma falsa no teste. */
@@ -50,10 +57,27 @@ export type GerarNaOpenAI = (descricao: string) => Promise<RespostaDaOpenAI>;
  * Gera a imagem da descrição que o operador digitou. O embrulho nas regras (estilo, fundo, proibições) é
  * o `montarPrompt` do Chat. `ambiente` e `buscar` entram por parâmetro só para o teste.
  */
-export async function gerarNaOpenAI(
+export function gerarNaOpenAI(
   descricao: string,
   ambiente: Readonly<Record<string, string | undefined>> = process.env,
   buscar: typeof fetch = fetch
+): Promise<RespostaDaOpenAI> {
+  return chamarAOpenAI({ ...CORPO_FIXO, prompt: montarPrompt(descricao) }, ambiente, buscar);
+}
+
+/** A imagem da capa (Etapa 11): em pé, com o pedido da capa (`montarPromptDaCapa`). */
+export function gerarCapaNaOpenAI(
+  descricao: string,
+  ambiente: Readonly<Record<string, string | undefined>> = process.env,
+  buscar: typeof fetch = fetch
+): Promise<RespostaDaOpenAI> {
+  return chamarAOpenAI({ ...CORPO_DA_CAPA, prompt: montarPromptDaCapa(descricao) }, ambiente, buscar);
+}
+
+async function chamarAOpenAI(
+  corpoDoPedido: Record<string, unknown>,
+  ambiente: Readonly<Record<string, string | undefined>>,
+  buscar: typeof fetch
 ): Promise<RespostaDaOpenAI> {
   const chave = ambiente.OPENAI_API_KEY?.trim();
   if (!chave) return { ok: false, erro: TEXTO_SEM_CHAVE_DA_IMAGEM };
@@ -63,7 +87,7 @@ export async function gerarNaOpenAI(
     resposta = await buscar(ENDERECO_DA_OPENAI, {
       method: "POST",
       headers: { Authorization: `Bearer ${chave}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ ...CORPO_FIXO, prompt: montarPrompt(descricao) }),
+      body: JSON.stringify(corpoDoPedido),
       signal: AbortSignal.timeout(TIMEOUT_IMAGEM_MS),
     });
   } catch (e) {

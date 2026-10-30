@@ -45,3 +45,24 @@ describe("as frases das recusas da capa", () => {
     expect(textoDaRecusaDaArte("capa_e_so_texto")).toBe('O slide 1 não pode ser capa e "Só texto" ao mesmo tempo. Desmarque um dos dois.');
   });
 });
+
+// AS DUAS ROTAS DA CONSULTA DA IMAGEM (a do bônus e a do avulso) aceitam a capa porque não decidem jeito:
+// elas conferem a sessão e o slide, e chamam a consulta comum (lib/bonus/imagem-consulta.ts), que a
+// integração confere com a capa (testes-integracao/bonus-imagem-processo, "a imagem da capa"). E a action
+// do pedido manda à geração o formato que o pedido decidiu, e nunca o deduz de novo.
+describe("as rotas da consulta e a action do pedido, com a capa", () => {
+  const ROTAS = ["app/bonus/[id]/carrossel/[cid]/imagem/route.ts", "app/carrosseis/[cid]/imagem/route.ts"];
+
+  it.each(ROTAS)("%s confere o slide e chama a consulta comum, sem decidir o jeito", (rota) => {
+    const fonte = ler(rota);
+    expect(fonte).toContain("conferirPedidoDaArte(");
+    expect(fonte).toContain("consultarImagem(");
+    expect(fonte).not.toMatch(/\b(comEspaco|ehCapa|escolhasDaArte|soTexto|capaDaArte)\b/);
+  });
+
+  it("a action do pedido passa à geração o formato que o pedido decidiu", () => {
+    const fonte = ler("app/bonus/imagem-actions.ts");
+    expect(fonte).toContain("const { reservaId, formato } = r;");
+    expect(fonte).toContain("gerarImagem({ reservaId, id, numero, descricao, contas, formato })");
+  });
+});

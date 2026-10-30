@@ -479,6 +479,28 @@ export function textoExato(trechos: string[]): string {
  * medido é o que vai ao ar.
  */
 export function montarPrompt(descricao: string): string {
+  return montar(descricao, null);
+}
+
+/**
+ * A FRASE DA CAPA (spec da Etapa 11, "Gerada por IA"): a imagem em pé, com o terço de baixo livre, porque
+ * o gancho vai por cima dele. Ela não fala em título nem em texto, para o modelo não escrever nada ali: a
+ * regra do texto continua a de sempre, e vem por último.
+ */
+export const ESPACO_DO_GANCHO =
+  "A imagem é vertical. Deixe o terço de baixo do quadro com fundo simples, sem rosto e sem nenhum objeto " +
+  "importante: essa parte vai ficar coberta.";
+
+/**
+ * O PEDIDO DA CAPA: o mesmo pedido, com a frase da capa depois do fundo e antes das proibições. Só o
+ * pedido da capa a leva: `montarPrompt` continua saindo igual, byte a byte, aos pedidos medidos da Etapa
+ * 6 (nota da revisão da spec da Etapa 11).
+ */
+export function montarPromptDaCapa(descricao: string): string {
+  return montar(descricao, ESPACO_DO_GANCHO);
+}
+
+function montar(descricao: string, depoisDoFundo: string | null): string {
   const lida = lerDescricao(descricao);
   const cena = lida.cena.replace(/\s+/g, " ").trim();
   const comPonto = /[.!?]$/.test(cena) ? cena : `${cena}.`;
@@ -488,6 +510,7 @@ export function montarPrompt(descricao: string): string {
     ...(lida.atalho ? [lida.atalho.texto] : []),
     comPonto,
     FUNDO,
+    ...(depoisDoFundo ? [depoisDoFundo] : []),
     PROIBICAO_DE_PESSOA_REAL,
     trechos.length > 0 ? textoExato(trechos) : PROIBICAO_DE_TEXTO,
   ].join(" ");

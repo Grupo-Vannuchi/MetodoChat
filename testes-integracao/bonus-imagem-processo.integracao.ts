@@ -264,7 +264,7 @@ describe("gerar a imagem", () => {
     const id = await carrossel();
     const anterior = await slidePronto(id, 2);
     const reservaId = await reservado(id);
-    const r = await imagem.gerarImagem({ reservaId, id, numero: 2, descricao: CENA, contas, gerar: openaiQueGera });
+    const r = await imagem.gerarImagem({ formato: "espaco", reservaId, id, numero: 2, descricao: CENA, contas, gerar: openaiQueGera });
     if (!r.ok) throw new Error(`a geração devia passar: ${r.motivo}`);
     expect(r.caminho).toMatch(new RegExp(`^${CONTA}/bonus-foto/[0-9a-f-]{36}\\.jpg$`));
     expect(bucket.objetos.get(r.caminho)).toEqual(GERADA);
@@ -276,7 +276,7 @@ describe("gerar a imagem", () => {
   it("o publicar desse slide sai pela arte, como foto: a imagem gerada não vai para a fila", async () => {
     const id = await carrossel();
     for (const n of [3, 4]) await slidePronto(id, n);
-    const r = await imagem.gerarImagem({ reservaId: await reservado(id), id, numero: 2, descricao: CENA, contas, gerar: openaiQueGera });
+    const r = await imagem.gerarImagem({ formato: "espaco", reservaId: await reservado(id), id, numero: 2, descricao: CENA, contas, gerar: openaiQueGera });
     if (!r.ok) throw new Error(`a geração devia passar: ${r.motivo}`);
     const desenho = (n: number, foto: string | null) => regras.versaoDoDesenho(slides.slidesDoTexto(TEXTO)[n - 1], foto);
     const subir = async (n: number) => {
@@ -304,7 +304,7 @@ describe("gerar a imagem", () => {
   it("a recusa da OpenAI fica falhou, com a frase, e nada sobe", async () => {
     const id = await carrossel();
     const erro = "A OpenAI recusou o pedido. (OpenAI: Your request was rejected by the safety system.)";
-    const r = await imagem.gerarImagem({ reservaId: await reservado(id), id, numero: 2, descricao: CENA, contas, gerar: async () => ({ ok: false, erro }) });
+    const r = await imagem.gerarImagem({ formato: "espaco", reservaId: await reservado(id), id, numero: 2, descricao: CENA, contas, gerar: async () => ({ ok: false, erro }) });
     expect(r).toEqual({ ok: false, motivo: erro });
     expect(await linhas()).toEqual([{ numero: 2, estado: "falhou", motivo: erro, caminho: null }]);
     expect(bucket.chamadas).toEqual([]);
@@ -314,6 +314,7 @@ describe("gerar a imagem", () => {
     const id = await carrossel();
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const r = await imagem.gerarImagem({
+      formato: "espaco",
       reservaId: await reservado(id),
       id,
       numero: 2,
@@ -338,7 +339,7 @@ describe("gerar a imagem", () => {
         ]);
       return { ok: true as const, bytes: GERADA };
     };
-    const r = await imagem.gerarImagem({ reservaId, id, numero: 2, descricao: CENA, contas, gerar: agendaNoMeio });
+    const r = await imagem.gerarImagem({ formato: "espaco", reservaId, id, numero: 2, descricao: CENA, contas, gerar: agendaNoMeio });
     expect(r.ok).toBe(false);
     expect(fotosNoBucket()).toEqual([]);
     expect(regras.fotosDaArte(await arteDe(id), 5)).toEqual({});
@@ -349,6 +350,7 @@ describe("gerar a imagem", () => {
   it("a falha ao guardar apaga do bucket o que subiu", async () => {
     const id = await carrossel();
     const r = await imagem.gerarImagem({
+      formato: "espaco",
       reservaId: await reservado(id),
       id,
       numero: 2,
@@ -368,6 +370,7 @@ describe("gerar a imagem", () => {
   it("a falha ao marcar a linha, depois de guardar, deixa a foto no bucket e no slide", async () => {
     const id = await carrossel();
     const r = await imagem.gerarImagem({
+      formato: "espaco",
       reservaId: await reservado(id),
       id,
       numero: 2,
@@ -388,6 +391,7 @@ describe("gerar a imagem", () => {
   it("a OpenAI que lança fica falhou, com a frase sem motivo", async () => {
     const id = await carrossel();
     const r = await imagem.gerarImagem({
+      formato: "espaco",
       reservaId: await reservado(id),
       id,
       numero: 2,
@@ -425,7 +429,7 @@ describe("a consulta de um slide", () => {
 
   it("pronta, com a versão nova da miniatura, a mesma que a página desenharia", async () => {
     const id = await carrossel();
-    const r = await imagem.gerarImagem({ reservaId: await reservado(id), id, numero: 2, descricao: CENA, contas, gerar: openaiQueGera });
+    const r = await imagem.gerarImagem({ formato: "espaco", reservaId: await reservado(id), id, numero: 2, descricao: CENA, contas, gerar: openaiQueGera });
     if (!r.ok) throw new Error(`a geração devia passar: ${r.motivo}`);
     const conta = contas.find((c) => c.ig_user_id === CONTA) ?? null;
     const comFoto = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], tela.cabecalhoParaVersao(conta), { 2: r.caminho }, regras.SEM_CAPA)[1];
@@ -437,7 +441,7 @@ describe("a consulta de um slide", () => {
   it("falhou, com o motivo da linha", async () => {
     const id = await carrossel();
     const erro = "A OpenAI recusou o pedido.";
-    await imagem.gerarImagem({ reservaId: await reservado(id), id, numero: 2, descricao: CENA, contas, gerar: async () => ({ ok: false, erro }) });
+    await imagem.gerarImagem({ formato: "espaco", reservaId: await reservado(id), id, numero: 2, descricao: CENA, contas, gerar: async () => ({ ok: false, erro }) });
     expect(await consultar(id)).toEqual({ estado: "falhou", hoje: 1, texto: erro });
   });
 
@@ -446,5 +450,59 @@ describe("a consulta de um slide", () => {
     await reservado(id);
     await banco.db().sql().query(`update imagens_geradas set criado_em = now() - interval '4 minutes'`);
     expect(await consultar(id)).toEqual({ estado: "falhou", hoje: 1, texto: textos.TEXTO_IMAGEM_TRAVADA });
+  });
+});
+
+// A IMAGEM DA CAPA POR IA (spec da Etapa 11): o pedido no slide 1 em capa sai no formato da capa e conta no
+// mesmo teto de 10; a geração sobe em `bonus-capa`, pela regra da capa, e o slide 1 a guarda como capa. A
+// consulta, a mesma das duas rotas (a do bônus e a do avulso), devolve a miniatura com a capa. Se a capa for
+// desligada antes de a imagem voltar, o guardar recusa com a linha travada, e a imagem sai do bucket.
+describe("a imagem da capa", () => {
+  /** O slide 1 em capa; o 5 só texto. */
+  const ARTE_CAPA = { ...ARTE, soTexto: [5], capa: true };
+  const CAPA_GERADA = jpeg(1024, 1536);
+  const openaiQueGeraACapa = async () => ({ ok: true as const, bytes: CAPA_GERADA });
+  const capasNoBucket = () => [...bucket.objetos.keys()].filter((k) => k.startsWith(`${CONTA}/bonus-capa/`));
+
+  it("o pedido no slide 1 em capa sai no formato da capa, e o do slide 2 no do espaço, no mesmo teto", async () => {
+    const id = await carrossel(ARTE_CAPA);
+    expect(await pedir(id, 1)).toMatchObject({ ok: true, hoje: 1, formato: "capa" });
+    expect(await pedir(id, 2)).toMatchObject({ ok: true, hoje: 2, formato: "espaco" });
+  });
+
+  it("gera em bonus-capa, o slide 1 guarda como capa, e a consulta devolve a miniatura com a capa", async () => {
+    const id = await carrossel(ARTE_CAPA);
+    const reservaId = await reservado(id, 1);
+    const r = await imagem.gerarImagem({ formato: "capa", reservaId, id, numero: 1, descricao: CENA, contas, gerar: openaiQueGeraACapa });
+    if (!r.ok) throw new Error(`a geração devia passar: ${r.motivo}`);
+    expect(r.caminho).toMatch(new RegExp(`^${CONTA}/bonus-capa/[0-9a-f-]{36}\.jpg$`));
+    expect(capasNoBucket()).toEqual([r.caminho]);
+    expect(regras.capaDaArte(await arteDe(id), 5)).toEqual({ ligada: true, caminho: r.caminho });
+    expect(await linhas()).toEqual([{ numero: 1, estado: "pronta", motivo: null, caminho: r.caminho }]);
+
+    const linha = await carrosselRepo.lerCarrossel(id);
+    if (!linha) throw new Error("o carrossel sumiu");
+    const cabecalho = tela.cabecalhoParaVersao(contas.find((c) => c.ig_user_id === CONTA) ?? null);
+    const miniatura = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [5], cabecalho, {}, { ligada: true, caminho: r.caminho })[0];
+    expect(await consulta.consultarImagem({ linha, numero: 1 })).toMatchObject({ estado: "pronta", versaoDaMiniatura: miniatura });
+  });
+
+  it("a imagem deitada que volta para a capa falha com a frase da capa, e nada sobe", async () => {
+    const id = await carrossel(ARTE_CAPA);
+    const r = await imagem.gerarImagem({ formato: "capa", reservaId: await reservado(id, 1), id, numero: 1, descricao: CENA, contas, gerar: openaiQueGera });
+    expect(r).toEqual({ ok: false, motivo: textos.textoDoProblemaDaCapaGerada("proporcao") });
+    expect(bucket.chamadas).toEqual([]);
+    expect(await linhas()).toMatchObject([{ numero: 1, estado: "falhou" }]);
+  });
+
+  it("a capa desligada antes de a imagem voltar: o guardar recusa, e a imagem sai do bucket", async () => {
+    const id = await carrossel(ARTE_CAPA);
+    const reservaId = await reservado(id, 1);
+    await carrosselRepo.salvarSoTextoDaArte(id, [5], null, false);
+    const r = await imagem.gerarImagem({ formato: "capa", reservaId, id, numero: 1, descricao: CENA, contas, gerar: openaiQueGeraACapa });
+    expect(r.ok).toBe(false);
+    expect(capasNoBucket()).toEqual([]);
+    expect(regras.imagensDaArte(await arteDe(id), 5)).toEqual({});
+    expect(await linhas()).toMatchObject([{ numero: 1, estado: "falhou" }]);
   });
 });

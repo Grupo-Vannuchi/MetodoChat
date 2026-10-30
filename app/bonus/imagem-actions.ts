@@ -40,7 +40,7 @@ export async function pedirImagemDoSlide(pedido: unknown): Promise<AvisoDoPedido
   const contas = await contasParaArte();
   const r = await pedirImagem({ id, numero, descricao, contas });
   if (!r.ok) return { tom: "erro", texto: textoDaRecusaDaImagem(r.recusa), em, ...(r.hoje === undefined ? {} : { hoje: r.hoje }) };
-  const { reservaId } = r;
-  after(() => gerarImagem({ reservaId, id, numero, descricao, contas }));
+  const { reservaId, formato } = r;
+  after(() => gerarImagem({ reservaId, id, numero, descricao, contas, formato }));
   return { tom: "ok", texto: TEXTO_GERANDO_A_IMAGEM, em, hoje: r.hoje };
 }
