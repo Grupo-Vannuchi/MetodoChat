@@ -42,6 +42,11 @@
 // mede "conta certa" confere essa precondição antes de medir, pela mesma
 // disciplina de `acoes-que-falam.integracao.ts`.
 //
+// DESDE 26/10/2026, AS AÇÕES RODAM EM `comoNumaRequisicaoComSessao`: elas
+// começam por `await exigirSessao()`, e com a jarra vazia iriam para /entrar.
+// A sessão é a que a ação de entrar emitiu para a senha de teste (ver
+// `semear-requisicao.ts`); nada é forjado, e o cookie de conta continua ausente.
+//
 // -----------------------------------------------------------------------------
 // O SEGUNDO PLANTIO OBRIGATÓRIO — a conta vinda do FORMULÁRIO, e não do cookie.
 //
@@ -64,7 +69,7 @@ import {
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
 
 type ModuloAcoes = typeof import("@/app/publicar/actions");
 type ModuloIg = typeof import("@/lib/ig");
@@ -237,7 +242,7 @@ function urlDoDigest(digest: string | null): string | null {
  * `try/catch`.
  */
 async function desfechoDe(form: FormData): Promise<Desfecho> {
-  const { valor } = await comoNumaRequisicao("/publicar", async () => {
+  const { valor } = await comoNumaRequisicaoComSessao("/publicar", async () => {
     try {
       await acoes.publicar(form);
       return null as string | null;
@@ -420,6 +425,37 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     expect(item?.no_futuro).toBe(true);
   });
 
+  // =========================================================================
+  // O "DEPOIS" NO MINUTO CORRENTE (achado 99, spec da hora marcada).
+  //
+  // `momentoDaPublicacao` aceita até 60 s no passado — a tolerância do minuto
+  // que o campo `datetime-local` obriga —, e o post nascia vencido. Só o
+  // "agora" drenava, e o `enqueue` não armava tique abaixo de 15 s: o post
+  // ficava parado até a próxima drenagem de outra coisa. Agora quem decide é o
+  // banco (`jaVale`), e o post sai na hora, como o "agora".
+  // =========================================================================
+  test("o 'depois' no minuto corrente sai na hora, como o 'agora'", async () => {
+    const minuto = new Date(Math.floor(Date.now() / 60000) * 60000).toISOString().slice(0, 16);
+    const caminho = `${CONTA_A}/depois-no-minuto-corrente.jpg`;
+    const d = await desfechoDe(
+      pedidoDePublicar({ forma: "imagem", caminhos: caminho, quando: "depois", dataHora: minuto, fuso: "0" })
+    );
+
+    expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+    const aviso = avisoDaUrlDeVolta(d.url);
+    expect(aviso.tom).toBe("ok");
+    // A FRASE DO "AGORA": a hora escolhida já chegou, e ecoá-la prometeria uma
+    // espera que não existe.
+    expect(aviso.texto).toBe(
+      "Publicação na fila. Ela sai em instantes — acompanhe o desfecho em Atividade."
+    );
+
+    const itens = await itensDaFila(CONTA_A);
+    const item = itens.find((i) => i.dedupe_key.endsWith(caminho));
+    expect(item?.status).toBe("sent");
+    expect(meta.publicacoes.at(-1)?.igUserId).toBe(CONTA_A);
+  });
+
   test("forma desconhecida recusa antes de gravar", async () => {
     // "video" É A PALAVRA QUE O PRODUTO NÃO TEM, e ela é o caso real: a
     // especificação mediu que `VIDEO` não existe como `media_type` na Meta —
@@ -470,7 +506,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
     const aviso = avisoDaUrlDeVolta(d.url);
     expect(aviso.tom).toBe("erro");
-    expect(aviso.texto).toBe("Escolha um arquivo e espere o envio terminar antes de publicar.");
+    expect(aviso.texto).toBe("Escolha um arquivo antes de publicar.");
   });
 
   test("legenda longa demais recusa com a MESMA frase que a tela já mostrava", async () => {
@@ -574,7 +610,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     // A MESMA RECUSA DE CAMPO VAZIO: depois do filtro pela pasta do cookie,
     // não sobrou caminho nenhum — e é essa a verdade que a frase conta.
     expect(aviso.tom).toBe("erro");
-    expect(aviso.texto).toBe("Escolha um arquivo e espere o envio terminar antes de publicar.");
+    expect(aviso.texto).toBe("Escolha um arquivo antes de publicar.");
 
     // NADA ENTROU NA FILA DE CONTA_A apontando para o arquivo de CONTA_B —
     // nem um item a mais em CONTA_A, nem qualquer item para CONTA_B (nenhuma

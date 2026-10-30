@@ -26,6 +26,15 @@ describe("a página do carrossel", () => {
     expect(revisao).toContain("acaoDaConta={fixarContaDoCarrossel}");
   });
 
+  // O VOLTAR DO CARROSSEL DE BÔNUS (spec da Etapa 10, adendo de 13/10): leva à lista "Carrosséis", como o
+  // do avulso, e o bônus fica ao lado. Quem entrava pela lista e clicava em voltar ia parar no bônus.
+  it("o topo leva de volta à lista Carrosséis, e ao lado ao bônus", () => {
+    const pagina = ler("app/bonus/[id]/carrossel/[cid]/page.tsx");
+    expect(pagina).toMatch(/<Link href="\/carrosseis" className=\{link\}>\s*Voltar para os carrosséis\s*<\/Link>/);
+    expect(pagina).toMatch(/<Link href=\{`\/bonus\/\$\{id\}`\} className=\{link\}>\s*Ver o bônus\s*<\/Link>/);
+    expect(pagina).not.toContain("Voltar para o bônus");
+  });
+
   it("a página do carrossel de bônus e a do avulso desenham a mesma revisão", () => {
     expect(ler("app/bonus/[id]/carrossel/[cid]/page.tsx")).toContain('import Revisao from "./revisao";');
     expect(ler("app/carrosseis/[cid]/page.tsx")).toContain('import Revisao from "@/app/bonus/[id]/carrossel/[cid]/revisao";');

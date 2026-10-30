@@ -24,15 +24,41 @@ export async function imagensNasUltimas24h(): Promise<number> {
   return linha?.n ?? 0;
 }
 
-export type ReservaDaImagem = { ok: true; id: string; hoje: number } | { ok: false; motivo: "teto" | "gerando"; hoje: number };
+export type ReservaDaImagem =
+  | { ok: true; id: string; hoje: number }
+  | { ok: false; motivo: "teto" | "gerando"; hoje: number }
+  | { ok: false; motivo: "nao_pronto" };
+
+/** A chave estrangeira da 018 (`imagens_geradas.carrossel_id`), pelo nome que o Postgres deu a ela. */
+const CHAVE_DO_CARROSSEL = "imagens_geradas_carrossel_id_fkey";
+
+/** O carrossel apagado no meio da reserva (achado 96): o 23503 desta chave, e nenhum outro erro. */
+function carrosselSumiu(erro: unknown): boolean {
+  const e = erro as { code?: unknown; constraint_name?: unknown } | null;
+  return e?.code === "23503" && e.constraint_name === CHAVE_DO_CARROSSEL;
+}
 
 /**
  * RESERVAR UM PEDIDO, NA MESMA TRANSAÇÃO E COM TRAVA: contar, conferir o slide e inserir não correm em
  * paralelo, e dois cliques com 9 no dia não fazem 11. O slide que já tem uma linha `gerando` dentro do
  * prazo recusa o segundo pedido: cada slide gera uma imagem de cada vez. `hoje` é a conta do dia, com
  * este pedido quando ele entra.
+ *
+ * O CARROSSEL APAGADO NO MEIO (spec da Etapa 10, achado 96): o `insert` trava a linha do carrossel em
+ * `key share` e espera o `for update` do apagar; se o apagar passou, a chave estrangeira recusa (23503),
+ * sem linha nova e sem chamar a OpenAI. O erro aborta a transação, por isso o `catch` envolve o `begin`,
+ * e não fica dentro dele. A recusa é a do carrossel que não está pronto (`nao_pronto`), com a frase dela.
  */
 export async function reservarImagem(p: { carrosselId: string; numero: number; descricao: string }): Promise<ReservaDaImagem> {
+  try {
+    return await reservarNaTransacao(p);
+  } catch (erro) {
+    if (carrosselSumiu(erro)) return { ok: false, motivo: "nao_pronto" };
+    throw erro;
+  }
+}
+
+function reservarNaTransacao(p: { carrosselId: string; numero: number; descricao: string }): Promise<ReservaDaImagem> {
   return sql().begin(async (tx) => {
     await tx.query(`select pg_advisory_xact_lock($1::bigint)`, [TRAVA_DO_TETO_DA_IMAGEM]);
     const [contagem] = (await tx.query(CONTAGEM_DO_TETO)) as { n: number }[];

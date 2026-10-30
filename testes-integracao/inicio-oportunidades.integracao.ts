@@ -9,7 +9,7 @@
 // certo a lista errada. O que só se mede pelo EFEITO é QUAIS posts chegam nela.
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+import { comoNumaRequisicaoComSessao } from "./semear-requisicao";
 
 const banco = bancoDescartavel();
 
@@ -148,7 +148,7 @@ describe("o post atravessa para a automação nova", () => {
     form.set("post", "18056760980769921");
 
     // `criarAutomacao` termina em `redirect`, que LANÇA. O digest é o desfecho.
-    await comoNumaRequisicao("/automacoes/nova", async () => {
+    await comoNumaRequisicaoComSessao("/automacoes/nova", async () => {
       try {
         await acoes.criarAutomacao(null, form);
       } catch {
@@ -175,7 +175,7 @@ describe("o post atravessa para a automação nova", () => {
     form.set("match_type", "any");
     form.set("post", "nao-e-um-id");
 
-    await comoNumaRequisicao("/automacoes/nova", async () => {
+    await comoNumaRequisicaoComSessao("/automacoes/nova", async () => {
       try {
         await acoes.criarAutomacao(null, form);
       } catch {
@@ -217,7 +217,7 @@ describe("o post atravessa para a automação nova", () => {
     form.set("match_type", "any");
     form.set("post", "18056760980769922");
 
-    await comoNumaRequisicao("/automacoes/nova", async () => {
+    await comoNumaRequisicaoComSessao("/automacoes/nova", async () => {
       try {
         await acoes.criarAutomacao(null, form);
       } catch {

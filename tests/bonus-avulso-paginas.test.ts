@@ -116,11 +116,32 @@ describe("o menu Carrosséis", () => {
     expect(menu.slice(bonus, carrosseis).split("\n")).toHaveLength(2);
   });
 
+  // O ITEM MARCADO (spec da Etapa 10, adendo de 13/10): o menu pergunta à regra pura, que marca
+  // "Carrosséis" no carrossel de bônus. A mudança no arquivo do dono é só o import e a linha do `active`.
+  it("o menu pergunta o item marcado à regra pura", () => {
+    const menu = ler("app/app-shell.tsx");
+    expect(menu).toContain('import { itemDoMenuAtivo } from "@/lib/bonus/menu-ativo";');
+    expect(menu).toContain("const active = itemDoMenuAtivo(item.href, pathname);");
+    expect(menu).not.toContain("pathname.startsWith(item.href)");
+  });
+
   it("a lista lê todos os carrosséis, monta cada item fora do JSX e leva ao Novo carrossel", () => {
     const lista = ler("app/carrosseis/page.tsx");
     expect(lista).toContain("await listarCarrosseis()");
     expect(lista).toContain("itemDaListaDeCarrosseis(");
     expect(lista).toContain('href="/carrosseis/novo"');
+  });
+
+  // AS ABAS E A CAPA (spec da Etapa 10): a aba vem do endereço, a separação e a ordem são da regra pura, e
+  // a capa é calculada com as contas lidas uma vez e o endereço público do bucket, como a página do
+  // carrossel calcula a miniatura.
+  it("a lista abre a aba do endereço, separa pela regra e calcula a capa como a página do carrossel", () => {
+    const lista = ler("app/carrosseis/page.tsx");
+    expect(lista).toContain("abaDoEndereco(sp.aba)");
+    expect(lista).toContain("separarPorAba(");
+    expect(lista).toContain("await contasParaArte()");
+    expect(lista).toContain("urlPublica: urlPublicaSeDerParaMontar");
+    expect(lista).toContain("capaDoCarrossel(");
   });
 
   it("a página do carrossel entrega o aviso do funil, decidido pelo estado da fila", () => {

@@ -25,7 +25,11 @@ export function textoDoEstadoDaPublicacao(e: EstadoDaPublicacao): string | null 
     case "agendado":
       return `Agendado para ${fmtDate(e.quando)} (horário de Brasília).`;
     case "publicando":
-      return "Publicando. O Instagram leva até um minuto: recarregue a página para ver.";
+      // A ESPERA DA COTA DIZ O MOTIVO E A HORA (achado 100): ela dura uma hora, e repete até a janela
+      // de 24 h virar. As outras esperas saem em 1 ou 2 minutos, e ficam com a frase de sempre.
+      return e.espera
+        ? `Publicando assim que o Instagram liberar: a conta chegou ao limite de posts das últimas 24 horas. Nova tentativa por volta de ${fmtDate(e.espera.ate)} (horário de Brasília).`
+        : "Publicando. O Instagram leva até um minuto: recarregue a página para ver.";
     case "publicado":
       return e.em ? `Publicado em ${fmtDate(e.em)}.` : "Publicado.";
     case "falhou":
@@ -103,7 +107,12 @@ export function textoDaTrava(e: EstadoDaPublicacao): string {
     case "agendado":
       return "Agendado: para mudar, cancele no calendário.";
     case "publicando":
-      return "Publicando: o carrossel não muda até o post sair.";
+      // NA ESPERA DA COTA, O CALENDÁRIO (pedido da auditoria no achado 100): o post que espera continua
+      // cancelável (o cancelar só exige `status = 'pending'`), e "não muda até o post sair" esconderia
+      // a saída que existe.
+      return e.espera
+        ? "Esperando o Instagram liberar: para mudar, cancele no calendário."
+        : "Publicando: o carrossel não muda até o post sair.";
     case "publicado":
       return "Este carrossel já foi publicado, e fica só para leitura.";
     default:

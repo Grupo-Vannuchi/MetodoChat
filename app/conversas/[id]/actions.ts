@@ -8,11 +8,13 @@ import { windowState } from "@/lib/inbox-window";
 import { sql } from "@/lib/db";
 import { normalizarCategoria } from "@/lib/categorias";
 import { urlDaConversaComAviso, avisoDaCategoriaSalva } from "@/lib/avisos";
+import { exigirSessao } from "@/lib/exigir-sessao";
 
 export async function sendReply(
   _prev: { error?: string } | undefined,
   formData: FormData
 ): Promise<{ error?: string }> {
+  await exigirSessao();
   const account = await getSelectedAccount();
   if (!account) return { error: "Conecte uma conta do Instagram primeiro." };
 
@@ -96,6 +98,7 @@ export async function sendReply(
  * montar a URL de volta, e o de sem conta vem antes da conferência de formato.
  */
 export async function definirCategoria(formData: FormData): Promise<void> {
+  await exigirSessao();
   const contactIgId = String(formData.get("contato") ?? "");
 
   const account = await getSelectedAccount();

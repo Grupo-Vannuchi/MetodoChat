@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { alertError, alertOk, alertWarn, btnPrimary, card, hint, link, pageSubtitle, pageTitle, skeleton } from "@/app/ui";
 import Acompanhar from "@/app/bonus/[id]/acompanhar";
+import Apagar from "@/app/bonus/[id]/carrossel/[cid]/apagar";
 import Revisao from "@/app/bonus/[id]/carrossel/[cid]/revisao";
 import { avisoDaUrl } from "@/lib/avisos";
 import { textoDaOrigem } from "@/lib/bonus/avulso-textos";
@@ -117,6 +118,8 @@ export default async function PaginaDoAvulso({
       )}
 
       {geracao === "pronto" && <Revisao carrossel={carrossel} />}
+
+      <Apagar carrossel={carrossel} geracao={geracao} />
     </div>
   );
 }

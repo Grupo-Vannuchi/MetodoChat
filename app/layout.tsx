@@ -7,6 +7,7 @@ import AppShell from "./app-shell";
 import { SwitcherAccount } from "./account-switcher";
 import { listAccounts } from "@/lib/db";
 import { ACCOUNT_COOKIE } from "@/lib/account";
+import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
 
 // AS TRÊS FAMÍLIAS. A Sora saiu: não por ser ruim, mas por ser a fonte que
 // aparece em todo modelo de SaaS — ela era metade do "ar de modelo" que a
@@ -72,20 +73,28 @@ const themeScript = `try{var t=localStorage.getItem("theme");var d=t?t==="dark":
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Contas conectadas alimentam o seletor da sidebar. Sem banco/config ainda
-  // (primeiro acesso, páginas públicas), a sidebar aparece sem conta.
+  // (primeiro acesso), a sidebar aparece sem conta.
+  //
+  // SÓ COM SESSÃO: este layout roda também nas páginas públicas, e o AppShell é
+  // componente de cliente, então a lista que ele recebe vai no corpo da resposta.
+  // Sem sessão, ela sai vazia (docs/specs/2026-10-26-sessao-conferida.md;
+  // tests/layout-contas.test.ts).
   let accounts: SwitcherAccount[] = [];
   let selectedId: string | null = null;
   try {
-    accounts = (await listAccounts()).map((a) => ({
-      ig_user_id: a.ig_user_id,
-      username: a.username,
-      profile_picture_url: a.profile_picture_url,
-    }));
-    const cookieId = (await cookies()).get(ACCOUNT_COOKIE)?.value;
-    selectedId =
-      accounts.find((a) => a.ig_user_id === cookieId)?.ig_user_id ??
-      accounts[0]?.ig_user_id ??
-      null;
+    const jarra = await cookies();
+    if (isValidSession(jarra.get(SESSION_COOKIE)?.value)) {
+      accounts = (await listAccounts()).map((a) => ({
+        ig_user_id: a.ig_user_id,
+        username: a.username,
+        profile_picture_url: a.profile_picture_url,
+      }));
+      const cookieId = jarra.get(ACCOUNT_COOKIE)?.value;
+      selectedId =
+        accounts.find((a) => a.ig_user_id === cookieId)?.ig_user_id ??
+        accounts[0]?.ig_user_id ??
+        null;
+    }
   } catch {
     // banco indisponível: segue sem contas
   }

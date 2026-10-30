@@ -44,6 +44,11 @@
 // contas nascem em ORDEM: CONTA_A primeiro, CONTA_B depois, e é essa ordem — não
 // um cookie — que faz CONTA_A ser "a conta selecionada". O bloco confere essa
 // precondição antes de medir.
+//
+// DESDE 26/10/2026, AS AÇÕES RODAM EM `comoNumaRequisicaoComSessao`: elas
+// começam por `await exigirSessao()`, e com a jarra vazia iriam para /entrar.
+// A sessão é a que a ação de entrar emitiu para a senha de teste (ver
+// `semear-requisicao.ts`); nada é forjado, e o cookie de conta continua ausente.
 import {
   createServer,
   type IncomingMessage,
@@ -53,7 +58,7 @@ import {
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
 import { textoDaArvore } from "./texto-da-arvore";
 
 type ModuloAcoes = typeof import("@/app/publicar/post/actions");
@@ -261,7 +266,7 @@ async function desfechoDe(
   acao: (form: FormData) => Promise<void>,
   form: FormData
 ): Promise<Desfecho> {
-  const { valor } = await comoNumaRequisicao("/publicar", async () => {
+  const { valor } = await comoNumaRequisicaoComSessao("/publicar", async () => {
     try {
       await acao(form);
       return null as string | null;
@@ -667,6 +672,31 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     await comoNumaRequisicao("/publicar", () => dreno.drainQueue());
     expect((await lerItem(id)).status).toBe("pending");
     expect(meta.containers.length).toBe(containersAntes);
+  });
+
+  // =========================================================================
+  // O MINUTO CORRENTE (achado 99, spec da hora marcada).
+  //
+  // A tolerância de `momentoDaPublicacao` aceita até 60 s no passado, e o
+  // remarcar para o minuto corrente gravava uma hora já vencida sem drenar e
+  // sem tique (`atrasoDoTiqueDoRemarcar` não armava até 15 s). O post ficava
+  // parado até a próxima drenagem de outra coisa. Agora o banco diz que já
+  // vale, e o remarcar drena, como o compor.
+  // =========================================================================
+  test("remarcar para o minuto corrente sai no dreno, como o compor", async () => {
+    const id = await semear({ conta: CONTA_A, emSegundos: 3600 });
+    const minuto = Math.floor(Date.now() / 60000) * 60000;
+
+    const d = await desfechoDe(acoes.remarcarPublicacao, pedidoDeRemarcar(id, campoDeDataHora(minuto)));
+
+    expect(d.digest ?? "").toMatch(/^NEXT_REDIRECT/);
+    expect(avisoDaUrlDeVolta(d.url).tom).toBe("ok");
+    const item = await lerItem(id);
+    expect(item.status).toBe("sent");
+    // A HORA GRAVADA É A DO BANCO, e não o minuto que já passou: o `greatest` do
+    // remarcar é o mesmo de `enqueuePublicacao`.
+    expect(item.not_before.getTime()).toBeGreaterThan(minuto);
+    expect(meta.publicacoes.at(-1)).toEqual({ igUserId: CONTA_A, token: TOKEN_A });
   });
 
   // =========================================================================

@@ -13,6 +13,7 @@ import {
   perguntasDoFormulario,
   type LinhaDoFormulario,
 } from "./portas";
+import { exigirSessao } from "@/lib/exigir-sessao";
 
 // Reassina `CAMPOS_DE_WEBHOOK` (lib/ig.ts) em todas as contas conectadas. A
 // assinatura já acontece sozinha no OAuth, mas se falhar naquele momento nada
@@ -24,6 +25,7 @@ import {
 // desconectar e reconectar a conta do dono — o que apagaria a ligação viva com
 // a Meta por causa de uma linha de configuração.
 export async function reassinarWebhooks(): Promise<void> {
+  await exigirSessao();
   const accounts = await listAccounts();
   let ok = 0;
   const falhas: string[] = [];
@@ -52,6 +54,7 @@ export async function reassinarWebhooks(): Promise<void> {
 // num diagnóstico específico e acionável.
 // ============================================================
 export async function testarWebhook(): Promise<void> {
+  await exigirSessao();
   const config = await getConfig();
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
@@ -133,6 +136,7 @@ export async function testarWebhook(): Promise<void> {
 // diferentes das credenciais do login do Instagram. Se vierem no formulário,
 // são salvas; senão, usa as já salvas (com fallback nas do login).
 export async function configurarWebhookAuto(formData: FormData): Promise<void> {
+  await exigirSessao();
   const config = await getConfig();
 
   const metaAppId = String(formData.get("meta_app_id") ?? "").trim();
@@ -186,10 +190,20 @@ export async function configurarWebhookAuto(formData: FormData): Promise<void> {
 }
 
 export async function saveMetaCredentials(formData: FormData): Promise<void> {
+  await exigirSessao();
   const appId = String(formData.get("instagram_app_id") ?? "").trim();
   const appSecret = String(formData.get("instagram_app_secret") ?? "").trim();
-  if (!appId || !appSecret) {
+  // A CHAVE EM BRANCO MANTÉM A GRAVADA (achado 123): a tela não leva mais o valor da chave, então o
+  // campo chega vazio sempre que o dono salva sem mexer nela. Recusa só se não houver chave nenhuma.
+  const gravada = appSecret ? null : await getConfig();
+  const chaveGravada = gravada?.instagram_app_secret ?? null;
+  if (!appId || (!appSecret && !chaveGravada)) {
     redirect(`/setup?erro=${encodeURIComponent("Preencha o App ID e a chave secreta.")}`);
+  }
+  // E ELA SÓ VALE PARA O APP GRAVADO (achado 133): com outro App ID, a chave do app antigo iria junto, e o
+  // OAuth e as assinaturas do webhook do app novo falhariam.
+  if (!appSecret && gravada?.instagram_app_id && gravada.instagram_app_id !== appId) {
+    redirect(`/setup?erro=${encodeURIComponent("Ao trocar o App ID, informe a chave secreta do app novo.")}`);
   }
 
   // Captura a URL pública do app. Só grava se for um endereço ESTÁVEL: gravar
@@ -203,7 +217,7 @@ export async function saveMetaCredentials(formData: FormData): Promise<void> {
 
   await updateConfig({
     instagram_app_id: appId,
-    instagram_app_secret: appSecret,
+    ...(appSecret ? { instagram_app_secret: appSecret } : {}),
     ...(appUrl && !isEphemeralUrl(appUrl) ? { app_url: appUrl } : {}),
   });
   revalidatePath("/setup");
@@ -239,6 +253,7 @@ function recusar(motivo: string, conta: string, linhas: LinhaDoFormulario[]): ne
 }
 
 export async function salvarPerguntasDeAbertura(formData: FormData): Promise<void> {
+  await exigirSessao();
   const igUserId = contaDoFormulario(formData);
   const conta = await getAccount(igUserId);
   // A CONTA VEM DO FORMULÁRIO, então ela é conferida contra as conectadas. Sem

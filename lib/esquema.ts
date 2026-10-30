@@ -263,6 +263,32 @@ const MARCA_DAGUA = {
       porque:
         "tabela de FEATURE (imagens_geradas): a partida do painel não depende dela, de propósito",
     },
+    {
+      de: "019-rls-nas-tabelas.sql",
+      // O RLS LIGADO EM TODA TABELA, sem nenhuma regra (varredura de segurança de 26/10/2026). Ela não
+      // cria tabela nem coluna: muda um atributo da tabela (`relrowsecurity`), que presença não vê.
+      //
+      // E ELA FICA DO LADO CALADO DA TABELA DO TOPO: um banco que não a recebeu serve o painel
+      // normalmente, porque o app entra como o dono, que passa por cima do RLS. O que muda é a API
+      // pública do Supabase, que fica aberta sem avisar ninguém. Por isso a partida não a confere, e
+      // quem confere é testes-integracao/rls-nas-tabelas.integracao.ts, que exige o RLS em toda tabela,
+      // inclusive nas que uma migração futura criar, na rodada do `test:integracao` (que não está no
+      // `verify` nem no build). Decidido pelo Eduardo em 26/10/2026.
+      porque:
+        "liga o RLS nas tabelas, um atributo da tabela que presença de coluna não vê; a partida do painel não depende dele",
+    },
+    {
+      de: "020-sem-permissao-publica.sql",
+      // A CHAVE PÚBLICA SEM PERMISSÃO NENHUMA (varredura de segurança de 26/10/2026, recomendação da
+      // auditoria). Ela não cria tabela nem coluna: revoga permissões de `anon` e `authenticated`, que
+      // só existem no Supabase, e os privilégios padrão do schema. Presença de coluna não vê nada disso.
+      //
+      // DO LADO CALADO, COMO A 019: um banco sem ela serve o painel normalmente, porque o app entra como
+      // o dono. Quem confere é testes-integracao/sem-permissao-publica.integracao.ts. Decidido pelo
+      // Eduardo em 26/10/2026.
+      porque:
+        "revoga permissões de papéis do Supabase, que presença de coluna não vê; a partida do painel não depende dela",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",

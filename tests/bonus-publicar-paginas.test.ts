@@ -73,6 +73,14 @@ describe("as frases das actions", () => {
     expect(textoDaPublicacaoMandada(false)).not.toMatch(/^Publicado/);
     expect(textoDaPublicacaoMandada(true)).toMatch(/^Agendado/);
   });
+
+  // A FRASE SEGUE O QUE O BANCO MEDIU (spec da hora marcada): o "depois" no minuto corrente já vale e
+  // sai na hora, e dizer "Agendado" prometeria uma espera que não existe.
+  it("a frase de agendado vem do jaVale do banco, e não da hora pedida", () => {
+    const fonte = ler(ACTIONS);
+    expect(fonte).toContain("textoDaPublicacaoMandada(!r.jaVale)");
+    expect(fonte).not.toContain("textoDaPublicacaoMandada(r.quando !== null)");
+  });
 });
 
 describe("a página do carrossel entrega a publicação ao editor", () => {

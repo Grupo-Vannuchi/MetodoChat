@@ -18,6 +18,7 @@ import {
   textoDaRecusaDaPublicacao,
 } from "@/lib/publicacao";
 import { urlDePublicarComAviso, avisoDaPublicacaoEnfileirada } from "@/lib/avisos";
+import { exigirSessao } from "@/lib/exigir-sessao";
 
 /**
  * Enfileira uma publicação para a conta selecionada.
@@ -55,6 +56,7 @@ import { urlDePublicarComAviso, avisoDaPublicacaoEnfileirada } from "@/lib/aviso
  * arquivo.
  */
 export async function publicar(formData: FormData): Promise<void> {
+  await exigirSessao();
   const conta = await getSelectedAccount();
   if (!conta) {
     redirect(
@@ -112,7 +114,7 @@ export async function publicar(formData: FormData): Promise<void> {
     );
   }
 
-  const entrou = await enqueuePublicacao(
+  const r = await enqueuePublicacao(
     conta.ig_user_id,
     {
       forma,
@@ -124,20 +126,25 @@ export async function publicar(formData: FormData): Promise<void> {
     momento.quando
   );
 
-  if (!entrou) {
-    // `enqueue` DEVOLVE `false` QUANDO A `dedupe_key` JÁ EXISTE, e isso não é
-    // falha: o post está na fila. Dizer "deu erro" faria alguém subir o arquivo
-    // de novo e publicar duas vezes — no perfil público, sem desfazer.
+  if (!r.entrou) {
+    // `enqueuePublicacao` DEVOLVE `entrou: false` QUANDO A `dedupe_key` JÁ
+    // EXISTE, e isso não é falha: o post está na fila. Dizer "deu erro" faria
+    // alguém subir o arquivo de novo e publicar duas vezes — no perfil público,
+    // sem desfazer.
     redirect(
       urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaDaPublicacao("ja_enfileirado") })
     );
   }
 
   // ENFILEIRAR NÃO ENVIA, e esta linha é a mesma que faltava no lote até 02/09.
-  // `enqueue` (lib/engine.ts:321) só pede um tique ao QStash quando o atraso
-  // passa de 15 segundos — e "agora" nasce com atraso ZERO, ou seja não agenda
-  // nada. Sem esta drenagem, o post sairia quando chegasse um webhook de fora,
-  // ou às 09:00 do dia seguinte.
+  // O que já vale não ganha tique (`atrasoDoTiqueDaPublicacao`, lib/publicacao.ts):
+  // sem esta drenagem, o post sairia quando chegasse um webhook de fora, ou no
+  // cron do dia seguinte.
+  //
+  // QUEM DIZ QUE JÁ VALE É O BANCO (`r.jaVale`), e não a palavra "agora". O
+  // "depois" no minuto corrente passa pela tolerância de `momentoDaPublicacao`
+  // e nasce vencido: até 15/10/2026 só o "agora" drenava, o `enqueue` não
+  // armava tique abaixo de 15 s, e esse post ficava parado (achado 99).
   //
   // A DRENAGEM NÃO ESPERA A META. O ramo da publicação (Tarefa 4) cria o
   // contêiner, consulta o `status_code` UMA vez e devolve o item à fila com
@@ -145,10 +152,10 @@ export async function publicar(formData: FormData): Promise<void> {
   // segundos (medido), então a segunda passada é o caso normal. Quem clicou
   // espera pela ida, não pela publicação.
   //
-  // O AGENDADO NÃO DRENA: o item tem `not_before` no futuro, a drenagem não o
-  // pegaria, e o que ela faria era gastar o tempo de quem clicou drenando os
-  // itens dos outros.
-  if (momento.quando === null) {
+  // O QUE AINDA NÃO VALE NÃO DRENA: o item tem `not_before` no futuro, a
+  // drenagem não o pegaria, e o que ela faria era gastar o tempo de quem clicou
+  // drenando os itens dos outros.
+  if (r.jaVale) {
     try {
       await drainQueue();
     } catch {
@@ -168,6 +175,7 @@ export async function publicar(formData: FormData): Promise<void> {
   //
   // A HORA ECOADA VEM DOS CAMPOS ESCOLHIDOS, e não do `Date`: este servidor
   // roda em UTC, e formatar o instante aqui mostraria três horas a mais do que
-  // a pessoa digitou.
-  redirect(urlDePublicarComAviso(avisoDaPublicacaoEnfileirada(momento.quando ? campos : null)));
+  // a pessoa digitou. O QUE JÁ VALE LEVA A FRASE DO "AGORA": ecoar a hora do
+  // minuto corrente prometeria uma espera que não existe.
+  redirect(urlDePublicarComAviso(avisoDaPublicacaoEnfileirada(r.jaVale ? null : campos)));
 }

@@ -10,6 +10,7 @@ import {
   linhaDaFalha,
   rotuloDaFormaDoItem,
   FRASE_DA_FALHA,
+  capaDoPost,
 } from "@/lib/publicacao";
 import {
   card,
@@ -445,7 +446,13 @@ export default async function Agendados({
                         // dreno apaga a mídia do bucket depois de publicar
                         // (`limparOBucket`). Num post publicado a prévia seria
                         // uma imagem quebrada, então nem se tenta.
-                        const primeira = !saiu ? p?.caminhos?.[0] : undefined;
+                        //
+                        // E A CAPA É A PRIMEIRA IMAGEM, e não o primeiro
+                        // caminho (spec 2026-10-19-enquadrar-imagens): o
+                        // vídeo saía como imagem quebrada. O post só de vídeo
+                        // fica sem capa, e a célula desenha o ícone dele.
+                        const primeira = !saiu && p ? capaDoPost(p.forma, p.caminhos) : null;
+                        const soVideo = !saiu && !!p && p.caminhos.length > 0 && primeira === null;
                         // `null` QUANDO O AMBIENTE NÃO DEIXA MONTAR A URL, e
                         // aí a célula desenha o símbolo em vez de uma imagem
                         // quebrada. Prévia não vale uma tela — ver
@@ -494,7 +501,7 @@ export default async function Agendados({
                                 aria-hidden
                                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-traco text-[11px] dark:bg-traco-escuro"
                               >
-                                {saiu ? "✓" : "•"}
+                                {saiu ? "✓" : soVideo ? "▶" : "•"}
                               </span>
                             )}
                             {/* O PONTO DE ESTADO — do tamanho de um sinal, que é

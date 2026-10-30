@@ -46,6 +46,21 @@
 // esta fundação existe sem quebrá-la.
 //
 // -----------------------------------------------------------------------------
+// E QUANDO A AÇÃO EXIGE SESSÃO (26/10/2026, docs/specs/2026-10-26-sessao-conferida.md).
+//
+// Desde a varredura de segurança desse dia, toda Server Action do painel começa
+// por `await exigirSessao()`, e com a jarra vazia ela vai para /entrar antes de
+// fazer qualquer coisa. A jarra CONTINUA VAZIA POR PADRÃO: `comoNumaRequisicao`
+// não mudou, e é com ela que se mede o "sem sessão, nada acontece".
+//
+// Para medir o CORPO de uma ação, há a variante opt-in
+// `comoNumaRequisicaoComSessao`, e ela também NÃO FORJA NADA. Ela entra pela ação
+// de entrar de verdade (app/entrar/actions.ts), com a SENHA DE TESTE abaixo, e
+// leva na requisição seguinte o cookie que essa ação emitiu. O cookie de conta
+// continua ausente, e o tombo para a primeira conta continua valendo. Decidido
+// pelo Eduardo pela caixa em 26/10/2026, com as condições da auditoria (achado 131).
+//
+// -----------------------------------------------------------------------------
 // A ORDEM É OBRIGATÓRIA, e é a armadilha que quase matou este caminho.
 //
 // `createAsyncLocalStorage` (next/dist/server/app-render/async-local-storage.js)
@@ -81,9 +96,34 @@
 // NENHUM COOKIE ENTROU JUNTO. A jarra continua vazia (ver acima), e o webhook
 // nem a consultaria: ele autentica por assinatura HMAC do corpo.
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash, createHmac } from "node:crypto";
 import { createRequire } from "node:module";
 
 const req = createRequire(import.meta.url);
+
+// ---------------------------------------------------------------------------
+// A SENHA DE TESTE, posta ANTES de qualquer coisa derivar a chave da sessão.
+//
+// A chave é sha256("metodochat-session:" + ADMIN_PASSWORD) (lib/auth.ts), guardada
+// em cache POR PROCESSO. O `.env.local` tem a senha de verdade, e este harness
+// nunca a lê (banco-descartavel.ts). Mas se ela chegasse ao `process.env` por
+// outro caminho (o shell, um `vercel env pull`), o login da variante com sessão
+// emitiria um cookie que vale 30 dias no painel de produção. Por isso a senha é
+// um LITERAL, e SOBRESCREVE o que vier do ambiente, como tests/session.test.ts
+// já faz. E a variante confere a assinatura do cookie contra este literal
+// (`assinadoComASenhaDeTeste`) antes de usá-lo: se algo no processo derivou a
+// chave antes com outra senha, a assinatura não bate, e o caminho morre em
+// vermelho. O valor do cookie nunca é impresso.
+export const SENHA_DE_TESTE = "senha-de-teste-que-nao-vale-nada";
+process.env.ADMIN_PASSWORD = SENHA_DE_TESTE;
+
+/** O cookie `v2.<expira>.<assinatura>` foi assinado com a chave da SENHA DE TESTE? */
+export function assinadoComASenhaDeTeste(valor: string): boolean {
+  const [versao, expira, assinatura] = valor.split(".");
+  if (versao !== "v2" || !expira || !assinatura) return false;
+  const chave = createHash("sha256").update(`metodochat-session:${SENHA_DE_TESTE}`).digest();
+  return createHmac("sha256", chave).update(`${versao}.${expira}`).digest("hex") === assinatura;
+}
 
 // ---------------------------------------------------------------------------
 // A GUARDA — e ela é a razão de este arquivo ter mais comentário que código.
@@ -265,6 +305,14 @@ function cacheDeVerdade(): unknown {
   // (next/dist/server/web/spec-extension/revalidate.js) exige que este campo
   // exista; no ramo `type: 'request'` ele nunca é chamado — só empilha a tag em
   // `store.pendingRevalidatedTags`. Não há nem um objeto de mentira aqui.
+  //
+  // O MANIFESTO VAI COMO OBJETO, E O `previewProps` À PARTE, DESDE O NEXT 16.4 (medido em 27/10/2026, na
+  // atualização para a 16.4.3). Até a 16.3, o construtor recebia `getPrerenderManifest`, uma função; na
+  // 16.4 ele passou a receber `prerenderManifest` (o objeto) e `previewProps`, e lê
+  // `previewProps.previewModeId` logo no começo
+  // (next/dist/server/lib/incremental-cache/index.js, no `constructor`). Com o formato antigo, todo
+  // contexto semeado estourava com "Cannot read properties of undefined (reading 'previewModeId')".
+  const preview = { previewModeId: "", previewModeSigningKey: "", previewModeEncryptionKey: "" };
   return new CacheDoNext({
     fs: undefined,
     dev: true,
@@ -273,13 +321,14 @@ function cacheDeVerdade(): unknown {
     serverDistDir: undefined,
     requestHeaders: {},
     maxMemoryCacheSize: 0,
-    getPrerenderManifest: () => ({
+    previewProps: preview,
+    prerenderManifest: {
       version: 4,
       routes: {},
       dynamicRoutes: {},
       notFoundRoutes: [],
-      preview: { previewModeId: "", previewModeSigningKey: "", previewModeEncryptionKey: "" },
-    }),
+      preview,
+    },
     fetchCacheKeyPrefix: "",
     CurCacheHandler: undefined,
     allowedRevalidateHeaderKeys: [],
@@ -301,10 +350,13 @@ export type DentroDaRequisicao<T> = {
 
 async function rodarNoContexto<T>(
   rota: string,
-  corpo: () => Promise<T>
+  corpo: () => Promise<T>,
+  // Só `comoNumaRequisicaoComSessao` passa algo aqui: o cookie que a ação de
+  // entrar emitiu. Ver o cabeçalho.
+  cabecalhos: Record<string, string> = {}
 ): Promise<DentroDaRequisicao<T>> {
   const requestStore = criarRequestStore(
-    { headers: {} }, // SEM COOKIE NENHUM: nada é forjado. Ver o cabeçalho.
+    { headers: cabecalhos }, // VAZIO POR PADRÃO: nada é forjado. Ver o cabeçalho.
     new URL(`http://127.0.0.1${rota}`),
     [],
     undefined,
@@ -448,4 +500,89 @@ export async function comoNumaRequisicao<T>(
 ): Promise<DentroDaRequisicao<T>> {
   await provarOEfeito();
   return rodarNoContexto(rota, corpo);
+}
+
+// O cabeçalho `cookie` da sessão de teste, depois do primeiro login deste arquivo.
+let cookieDaSessaoDeTeste: string | null = null;
+
+/**
+ * Entra pela AÇÃO DE ENTRAR DE VERDADE, com a senha de teste, e devolve o
+ * cabeçalho `cookie` com o que ela emitiu. Não monta sessão nenhuma à mão.
+ *
+ * Duas conferências antes de devolver, e as duas estouram sem imprimir o cookie:
+ * o login mandou para "/" (o caminho do sucesso, e não só "gravou algo"), e o
+ * cookie foi assinado com a SENHA DE TESTE (ver o topo deste arquivo).
+ */
+async function entrarDeVerdade(): Promise<string> {
+  if (cookieDaSessaoDeTeste) return cookieDaSessaoDeTeste;
+  const { login } = await import("@/app/entrar/actions");
+  const { cookies } = await import("next/headers");
+  const { SESSION_COOKIE } = await import("@/lib/auth");
+
+  const { valor } = await rodarNoContexto("/entrar", async () => {
+    const form = new FormData();
+    form.set("password", SENHA_DE_TESTE);
+    let digest: string | null = null;
+    try {
+      await login(undefined, form);
+    } catch (e) {
+      const d = (e as { digest?: unknown }).digest;
+      if (typeof d !== "string") throw e;
+      digest = d;
+    }
+    return { digest, cookie: (await cookies()).get(SESSION_COOKIE)?.value ?? null };
+  });
+
+  const destino = valor.digest?.startsWith("NEXT_REDIRECT;")
+    ? valor.digest.split(";").slice(2, -2).join(";")
+    : null;
+  if (destino !== "/") {
+    throw new Error(
+      `O LOGIN DE TESTE NÃO ENTROU: a ação de entrar devia mandar para "/", e ` +
+        `${destino === null ? "voltou sem redirect" : `mandou para "${destino}"`}. ` +
+        "Sem isso, a variante com sessão mediria uma sessão que o painel não emitiu."
+    );
+  }
+  if (!valor.cookie || !assinadoComASenhaDeTeste(valor.cookie)) {
+    throw new Error(
+      "O COOKIE DO LOGIN NÃO É DE TESTE: ele não foi assinado com a SENHA_DE_TESTE " +
+        "(o valor não é impresso). Algo no processo derivou a chave da sessão com " +
+        "outra senha antes deste arquivo; um cookie desses poderia valer no painel " +
+        "de produção. Ache quem leu a ADMIN_PASSWORD antes do topo de " +
+        "testes-integracao/semear-requisicao.ts."
+    );
+  }
+  cookieDaSessaoDeTeste = `${SESSION_COOKIE}=${valor.cookie}`;
+  return cookieDaSessaoDeTeste;
+}
+
+/**
+ * Como `comoNumaRequisicao`, mas com a sessão que a ação de entrar emitiu para a
+ * senha de teste. É para medir o CORPO de uma Server Action que começa por
+ * `await exigirSessao()`; o "sem sessão" se mede com `comoNumaRequisicao`.
+ */
+export async function comoNumaRequisicaoComSessao<T>(
+  rota: string,
+  corpo: () => Promise<T>
+): Promise<DentroDaRequisicao<T>> {
+  await provarOEfeito();
+  const cookie = await entrarDeVerdade();
+  return rodarNoContexto(rota, corpo, { cookie });
+}
+
+/** A sessão de teste está de pé: um booleano, para nenhum teste ver o valor do cookie. */
+export async function sessaoDeTesteConfere(): Promise<boolean> {
+  const cookie = await entrarDeVerdade();
+  const [, valor] = cookie.split("=");
+  const { isValidSession } = await import("@/lib/auth");
+  return assinadoComASenhaDeTeste(valor) && isValidSession(valor);
+}
+
+/**
+ * O cabeçalho `cookie` da sessão de teste, para um ROUTE HANDLER que lê `req.cookies` direto do pedido
+ * (e não `cookies()` do contexto). É o mesmo que `comoNumaRequisicaoComSessao` leva: o que a ação de
+ * entrar emitiu para a senha de teste, conferido pela assinatura. O valor não deve ser impresso.
+ */
+export async function cabecalhoDaSessaoDeTeste(): Promise<string> {
+  return entrarDeVerdade();
 }

@@ -4,9 +4,9 @@ import { redirect } from "next/navigation";
 import { getSelectedAccount } from "@/lib/account";
 import { getConfig, sql } from "@/lib/db";
 import { HORIZONTE_DO_TIQUE_EM_SEGUNDOS, scheduleTick } from "@/lib/qstash";
-import { limparOBucket } from "@/lib/queue-drain";
+import { drainQueue, limparOBucket } from "@/lib/queue-drain";
 import {
-  atrasoDoTiqueDoRemarcar,
+  atrasoDoTiqueDaPublicacao,
   camposDaDataHora,
   confirmouOCancelamento,
   desfechoDaMudanca,
@@ -21,6 +21,7 @@ import {
   TEXTO_SEM_CONFIRMACAO_DO_CANCELAMENTO,
 } from "@/lib/publicacao";
 import { avisoDoDesfecho, urlDeAgendadosComAviso } from "@/lib/avisos";
+import { exigirSessao } from "@/lib/exigir-sessao";
 
 /**
  * CANCELAR E REMARCAR UM POST AGENDADO.
@@ -117,6 +118,7 @@ function revalidarAsDuasTelas(): void {
 }
 
 export async function cancelarPublicacao(formData: FormData): Promise<void> {
+  await exigirSessao();
   const conta = await getSelectedAccount();
   if (!conta) {
     redirect(
@@ -206,6 +208,7 @@ export async function cancelarPublicacao(formData: FormData): Promise<void> {
 }
 
 export async function remarcarPublicacao(formData: FormData): Promise<void> {
+  await exigirSessao();
   const conta = await getSelectedAccount();
   if (!conta) {
     redirect(
@@ -244,12 +247,19 @@ export async function remarcarPublicacao(formData: FormData): Promise<void> {
     redirect(urlDeAgendadosComAviso(avisoDoDesfecho("data_invalida", "remarcar")));
   }
 
-  const afetadas = await sql().query(
-    `update queue set not_before = $3
+  // A HORA NOVA É GRAVADA COMO VEIO, e o `greatest` é o mesmo de
+  // `enqueuePublicacao` (lib/engine.ts): a tolerância de `momentoDaPublicacao`
+  // aceita o minuto corrente, que já passou, e ele vira "agora" pelo relógio do
+  // banco. O `returning` devolve o que o banco mediu no mesmo statement: se o
+  // item já vale, e quantos segundos faltam (spec da hora marcada).
+  const afetadas = (await sql().query(
+    `update queue set not_before = greatest(now(), $3::timestamptz)
      ${ALVO_DA_MUDANCA}
-     returning id`,
+     returning id,
+               (not_before <= now()) as ja_vale,
+               greatest(0, ceil(extract(epoch from (not_before - now()))))::int as falta`,
     [id, conta.ig_user_id, momento.quando]
-  );
+  )) as { id: string; ja_vale: boolean; falta: number }[];
 
   const desfecho = desfechoDaMudanca(
     afetadas.length,
@@ -260,33 +270,44 @@ export async function remarcarPublicacao(formData: FormData): Promise<void> {
   //
   // ATÉ 09/09/2026 NÃO HAVIA TIQUE AQUI, e o comentário que justificava a
   // ausência LIA ERRADO o código que citava: ele afirmava que
-  // `enqueuePublicacao` passa `agendarTique: false` de propósito. Ela não
-  // passa — `lib/engine.ts` passa `agendarTique: atraso <= HORIZONTE`. Compor
-  // arma o tique sempre que a hora cabe em 24 h; remarcar não armava nunca.
+  // `enqueuePublicacao` não armava tique de propósito. Ela armava sempre que a
+  // hora cabia em 24 h; remarcar não armava nunca.
   //
   // E O CRON DIÁRIO NÃO COBRIA O BURACO: `armarTiquesDoDia` só é honesta para
   // `not_before` escrito ANTES da passagem dela, e remarcar move a hora para
   // dentro de uma janela JÁ VARRIDA. Medido: compor para +2 h gera 1 tique;
   // remarcar para +2 h gerava 0, e o post podia sair ~23 h depois, calado.
   //
-  // A DECISÃO É DE `atrasoDoTiqueDoRemarcar` (lib/publicacao.ts), com caso de
-  // teste, e não de um `if` escrito aqui — a mesma disciplina de todo o resto
-  // deste arquivo. Ela respeita as três regras de `enqueue`: nada abaixo de
-  // 15 s, nada além do horizonte (além de um dia quem arma é o cron), e cinco
+  // O QUE JÁ VALE DRENA, como no compor (achado 99): o remarcar para o minuto
+  // corrente gravava uma hora vencida sem dreno e sem tique, e o post ficava
+  // parado até a próxima drenagem de outra coisa.
+  //
+  // O QUE AINDA NÃO VALE GANHA O TIQUE pela distância que o banco mediu
+  // (`atrasoDoTiqueDaPublicacao`, lib/publicacao.ts), a mesma regra do compor:
+  // nada além do horizonte (além de um dia quem arma é o cron), e cinco
   // segundos de folga com o teto aplicado depois.
   //
-  // ELE NÃO PODE DERRUBAR A AÇÃO, e não derruba: `scheduleTick` (lib/qstash.ts)
-  // engole todo erro por desenho. Sem tique o post ainda sai — pelo próximo
-  // webhook ou pelo cron —, só mais tarde; com uma exceção subindo daqui, o
-  // `redirect` de baixo nunca aconteceria e a ação voltaria muda.
+  // NADA DISTO PODE DERRUBAR A AÇÃO (achado 101): a hora nova já está gravada.
+  // Sem tique o post ainda sai — pelo próximo webhook ou pelo cron —, só mais
+  // tarde; com uma exceção subindo daqui, o `redirect` de baixo nunca
+  // aconteceria e a ação voltaria muda.
   if (desfecho === "feito") {
-    const atrasoDoTique = atrasoDoTiqueDoRemarcar(
-      momento.quando,
-      Date.now(),
-      HORIZONTE_DO_TIQUE_EM_SEGUNDOS
-    );
-    if (atrasoDoTique !== null) {
-      await scheduleTick((await getConfig()).app_url ?? "", atrasoDoTique);
+    const { ja_vale, falta } = afetadas[0];
+    if (ja_vale) {
+      try {
+        await drainQueue();
+      } catch {
+        // A trava atômica garante que o próximo dreno recupera, como no compor.
+      }
+    } else {
+      const atrasoDoTique = atrasoDoTiqueDaPublicacao(falta, HORIZONTE_DO_TIQUE_EM_SEGUNDOS);
+      if (atrasoDoTique !== null) {
+        try {
+          await scheduleTick((await getConfig()).app_url ?? "", atrasoDoTique);
+        } catch {
+          // Calado de propósito: a hora nova está gravada, e é isso que a tela diz.
+        }
+      }
     }
   }
 

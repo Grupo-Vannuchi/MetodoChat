@@ -25,8 +25,12 @@ export function qstashEnabled(): boolean {
  * atrasos de até um dia — que é a faixa em que ele já funciona hoje, todo dia,
  * em produção.
  *
- * Quem respeita esta constante são os dois lugares que pedem tique com atraso
- * escolhido: `enqueue` (lib/engine.ts) e o rodapé de `drainQueue`.
+ * Quem respeita esta constante são os cinco lugares que pedem tique com atraso
+ * escolhido: `enqueue` e `enqueuePublicacao` (lib/engine.ts), o remarcar
+ * (app/publicar/post/actions.ts), o rodapé de `drainQueue` e
+ * `armarTiquesDoDia` (lib/queue-drain.ts). O `enqueue` foi o último a ganhar o
+ * teto, em 15/10/2026: a mensagem com espera de dois dias pedia 172805 s
+ * (achado 102).
  */
 export const HORIZONTE_DO_TIQUE_EM_SEGUNDOS = 24 * 60 * 60;
 

@@ -2,9 +2,11 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { ACCOUNT_COOKIE } from "@/lib/account";
+import { exigirSessao } from "@/lib/exigir-sessao";
 
 // Troca a conta ativa do painel (server action chamada pelo seletor).
 export async function selectAccount(formData: FormData): Promise<void> {
+  await exigirSessao();
   const id = String(formData.get("account_id") ?? "");
   // ESTE `return;` FICA MUDO DE PROPÓSITO, e não é o esquecimento que o resto
   // desta branch existe para fechar. Duas razões, e as duas precisam ser
