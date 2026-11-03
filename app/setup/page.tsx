@@ -209,6 +209,15 @@ export default async function SetupPage({
         </section>
       )}
 
+      {/* O LINK DE CONVITE, À VISTA (achado 163, decidido pelo Eduardo em 03/11/2026). Ele nasceu na etapa 6,
+          ao lado do "Conectar outra conta", mas com a instalação concluída o bloco abaixo nasce recolhido, e o
+          botão ficava escondido lá dentro. Mora aqui, fora do <details>, e tests/convite-a-vista.test.ts cobra
+          isso. */}
+      <section className={`p-5 ${card}`}>
+        <h3 className="mb-1 text-sm font-semibold text-zinc-800 dark:text-zinc-200">Convidar um cliente</h3>
+        <Convites linhas={convites} metaOk={metaOk} />
+      </section>
+
       {/* A INSTALAÇÃO INTEIRA, RECOLHIDA QUANDO JÁ TERMINOU.
 
           Medido em 31/08/2026 nesta tela, em produção: 6341 px de página
@@ -515,7 +524,9 @@ export default async function SetupPage({
               autorizar aqui.
             </p>
           )}
-          <Convites linhas={convites} metaOk={metaOk} />
+          <p className={`text-xs ${muted}`}>
+            Para o cliente conectar a própria conta, use o <b>Convidar um cliente</b>, acima.
+          </p>
         </Step>
 
         <Step

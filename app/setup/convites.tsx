@@ -19,8 +19,7 @@ export default function Convites({ linhas, metaOk }: { linhas: LinhaDoConvite[];
   const [estado, gerar, gerando] = useActionState<EstadoDoGerar, FormData>(gerarConvite, null);
 
   return (
-    <div className="space-y-3 border-t border-traco pt-3 dark:border-traco-escuro">
-      <p className="font-medium text-zinc-800 dark:text-zinc-200">Ou mande um link de convite ao cliente</p>
+    <div className="space-y-3">
       <p className={`text-xs ${muted}`}>
         O cliente abre o link no computador e conecta a própria conta, sem a senha do painel e sem passar a
         senha do Instagram a ninguém. O link vale 7 dias e serve para uma conexão. A conta dele precisa estar
