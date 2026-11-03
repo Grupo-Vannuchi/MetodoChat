@@ -124,10 +124,17 @@ export async function GET(req: NextRequest) {
         // motor só busca o perfil na 1ª mensagem), e sem anular tomaria uma
         // vaga por dia para sempre.
         if (fotoDepoisDaFalha(atual, erro, contaLida, agora) === "anular") {
-          await sql().query(
-            `update contacts set profile_pic = null where account_id = $1 and ig_id = $2`,
-            [account.ig_user_id, c.ig_id]
-          );
+          // Protegido como o resto do laço (achado 156): uma escrita que falha
+          // aqui não pode parar a passagem do dia, com os tokens, os lotes
+          // vencidos e a drenagem que vêm depois.
+          try {
+            await sql().query(
+              `update contacts set profile_pic = null where account_id = $1 and ig_id = $2`,
+              [account.ig_user_id, c.ig_id]
+            );
+          } catch {
+            // amanhã tenta de novo
+          }
         }
       }
     }
