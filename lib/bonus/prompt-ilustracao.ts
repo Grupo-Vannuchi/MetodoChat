@@ -483,13 +483,15 @@ export function montarPrompt(descricao: string): string {
 }
 
 /**
- * A FRASE DA CAPA (spec da Etapa 11, "Gerada por IA"): a imagem em pé, com o terço de baixo livre, porque
- * o gancho vai por cima dele. Ela não fala em título nem em texto, para o modelo não escrever nada ali: a
- * regra do texto continua a de sempre, e vem por último.
+ * A FRASE DA CAPA (spec da Etapa 11, "Gerada por IA"): a imagem em pé, com o terço de baixo mais escuro e
+ * calmo, sem faixa, porque o gancho vai por cima dele (achado 153: o "fundo simples" de antes saiu como um
+ * bloco liso, com borda reta, e contradizia o FUNDO). Ela não fala em título nem em texto, para o modelo não
+ * escrever nada ali: a regra do texto continua a de sempre, e vem por último.
  */
 export const ESPACO_DO_GANCHO =
-  "A imagem é vertical. Deixe o terço de baixo do quadro com fundo simples, sem rosto e sem nenhum objeto " +
-  "importante: essa parte vai ficar coberta.";
+  "A imagem é vertical. A cena continua até a borda de baixo, sem faixa, sem bloco e sem divisão: no terço " +
+  "de baixo, ela fica mais escura e mais calma, sem rosto e sem nenhum objeto importante, porque essa parte " +
+  "vai ficar coberta.";
 
 /**
  * O PEDIDO DA CAPA: o mesmo pedido, com a frase da capa depois do fundo e antes das proibições. Só o

@@ -6,7 +6,7 @@ import { FOTO_DO_ESPACO_MAX_BYTES } from "@/lib/bonus/publicar-regras";
 
 // A IMAGEM DA CAPA POR IA (spec da Etapa 11, "Gerada por IA"): o mesmo criador da Etapa 6 (o modelo fixo, a
 // qualidade, as regras de estilo), só que em pé, 1024×1536, e com uma frase a mais no pedido: o terço de
-// baixo livre, porque o gancho vai por cima. Os pedidos e o corpo da Etapa 6 continuam iguais, byte a byte
+// baixo mais escuro e calmo, sem faixa, porque o gancho vai por cima (achado 153). Os pedidos e o corpo da Etapa 6 continuam iguais, byte a byte
 // (tests/bonus-prompt-ilustracao.test.ts e tests/bonus-imagem-openai.test.ts, sem mudança).
 
 const CENA = "/cinema uma pessoa olhando o celular numa loja de roupas";
@@ -33,6 +33,12 @@ describe("o pedido da capa", () => {
   it("a frase da capa não fala em título nem em texto, para o modelo não escrever no terço de baixo", () => {
     expect(ESPACO_DO_GANCHO).not.toMatch(/t[íi]tulo|texto|escrev|letra|palavra/i);
     expect(ESPACO_DO_GANCHO).toContain("terço de baixo");
+  });
+
+  it("a frase da capa não pede fundo liso no terço de baixo: a cena continua até a borda (achado 153)", () => {
+    expect(ESPACO_DO_GANCHO).not.toMatch(/fundo simples|lis[oa]/i);
+    expect(ESPACO_DO_GANCHO).toMatch(/continua até a borda de baixo/);
+    expect(ESPACO_DO_GANCHO).toMatch(/sem faixa/);
   });
 
   it("o pedido de hoje não leva a frase da capa", () => {
