@@ -3,13 +3,20 @@ import { armarTiquesDoDia, cancelarLotesVencidos, drainQueue } from "@/lib/queue
 import { refreshLongLivedToken, getUserProfile, getProfile } from "@/lib/ig";
 import { listAccounts, updateAccountToken, sql } from "@/lib/db";
 import { safeEqualSecret } from "@/lib/crypto";
+import {
+  JANELA_DAS_FOTOS,
+  escolherParaRenovar,
+  fotoDepoisDaFalha,
+  fotoDepoisDaResposta,
+} from "@/lib/fotos-dos-contatos";
 
 export const maxDuration = 60;
 
 // Cron diário da Vercel (o plano grátis permite 1x/dia). Para CADA conta
 // conectada:
 // 1) renova o token longo do Instagram quando ele tem mais de 7 dias
-// 2) atualiza nome/foto dos contatos recentes (as URLs de foto expiram)
+// 2) renova nome/foto dos contatos mais recentes cuja foto venceu ou vence
+//    antes da próxima passagem (as URLs de foto expiram; lib/fotos-dos-contatos.ts)
 // 3) encerra os lotes guardados cujo prazo venceu
 // e no fim drena a fila como rede de segurança.
 export async function GET(req: NextRequest) {
@@ -58,8 +65,12 @@ export async function GET(req: NextRequest) {
     //
     // Foi assim que apareceu: a do install ficou 403 enquanto as 31 dos
     // contatos carregavam, porque só elas passavam por aqui.
+    // `contaLida` É A PROVA DE QUE O TOKEN VALE nesta passagem, e só com ela uma
+    // recusa da Meta anula a foto de um contato (`fotoDepoisDaFalha`).
+    let contaLida = false;
     try {
       const meu = await getProfile(token);
+      contaLida = true;
       await sql().query(
         `update accounts set
            username = coalesce($2, username),
@@ -73,28 +84,58 @@ export async function GET(req: NextRequest) {
       // token recém-renovado às vezes demora a valer; amanhã tenta de novo
     }
 
+    // AS 20 VAGAS VÃO PARA QUEM PRECISA (achado 135): até 03/11/2026 eram as
+    // mesmas 20 mais recentes todo dia, e o resto das fotos vencia. A ordem da
+    // recência é a de antes; quem entra e quem sai está em
+    // lib/fotos-dos-contatos.ts. O nome e o arroba vêm junto com a foto, então
+    // passam a ser relidos a cada ~4 dias, e não mais todo dia.
+    const agora = Date.now();
     const contacts = (await sql().query(
-      `select ig_id from contacts
-       where account_id = $1
+      `select ig_id, profile_pic from contacts
+       where account_id = $1 and profile_pic is not null
        order by coalesce(last_reply_at, first_contact_at) desc
-       limit 20`,
-      [account.ig_user_id]
-    )) as { ig_id: string }[];
+       limit $2`,
+      [account.ig_user_id, JANELA_DAS_FOTOS]
+    )) as { ig_id: string; profile_pic: string | null }[];
 
-    for (const c of contacts) {
+    for (const c of escolherParaRenovar(contacts, agora)) {
+      // `escolherParaRenovar` só devolve quem tem foto.
+      const atual = c.profile_pic as string;
       try {
         const p = await getUserProfile(c.ig_id, token);
         await sql().query(
           `update contacts set
              username = coalesce($3, username),
              name = coalesce($4, name),
-             profile_pic = coalesce($5, profile_pic)
+             profile_pic = $5
            where account_id = $1 and ig_id = $2`,
-          [account.ig_user_id, c.ig_id, p.username ?? null, p.name ?? null, p.profile_pic ?? null]
+          [
+            account.ig_user_id,
+            c.ig_id,
+            p.username ?? null,
+            p.name ?? null,
+            fotoDepoisDaResposta(atual, p.profile_pic, agora),
+          ]
         );
         profiles++;
-      } catch {
-        // conta privada/apagada ou só comentou: mantém o que já temos
+      } catch (erro) {
+        // conta privada/apagada ou só comentou: mantém o que já temos, menos a
+        // foto JÁ vencida que a Meta recusou de verdade. Ela não volta mais (o
+        // motor só busca o perfil na 1ª mensagem), e sem anular tomaria uma
+        // vaga por dia para sempre.
+        if (fotoDepoisDaFalha(atual, erro, contaLida, agora) === "anular") {
+          // Protegido como o resto do laço (achado 156): uma escrita que falha
+          // aqui não pode parar a passagem do dia, com os tokens, os lotes
+          // vencidos e a drenagem que vêm depois.
+          try {
+            await sql().query(
+              `update contacts set profile_pic = null where account_id = $1 and ig_id = $2`,
+              [account.ig_user_id, c.ig_id]
+            );
+          } catch {
+            // amanhã tenta de novo
+          }
+        }
       }
     }
   }
