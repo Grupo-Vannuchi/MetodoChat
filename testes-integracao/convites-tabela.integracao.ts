@@ -123,6 +123,15 @@ describe("o repositório dos convites", () => {
     expect(Object.keys(lista[0])).not.toContain("codigo_hash");
   });
 
+  it("a lista traz o arroba da conta que entrou pelo convite", async () => {
+    const { id } = await repo.criarConvite("Dr. Marcus");
+    await repo.reivindicarEGravarConta(id, conta("token-1"));
+    await repo.criarConvite("pendente");
+    const lista = await repo.listarConvites();
+    expect(lista.find((c) => c.id === id)).toMatchObject({ conta_conectada: CONTA, conta_username: "conta_do_convite" });
+    expect(lista.find((c) => c.id !== id)).toMatchObject({ conta_conectada: null, conta_username: null });
+  });
+
   it("cancelar vale só para o pendente, uma vez", async () => {
     const { id } = await repo.criarConvite("Dr. Marcus");
     expect(await repo.cancelarConvite(id)).toBe(true);

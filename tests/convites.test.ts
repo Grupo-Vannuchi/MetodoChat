@@ -6,8 +6,10 @@ import {
   LIMITE_DO_PARA_QUEM,
   VALIDADE_DO_CONVITE_DIAS,
   codigoBemFormado,
+  PREFIXO_DA_ASSINATURA,
   estadoDoConvite,
   hashDoCodigo,
+  linhaDoConvite,
   motivoDoErro,
   novoCodigoDeConvite,
   paraQuemDoFormulario,
@@ -137,5 +139,71 @@ describe("o texto do erro que vai para o painel (achado 159)", () => {
 
   it("ignora segredo vazio ou ausente", () => {
     expect(textoParaOPainel("abc", ["", null, undefined])).toBe("abc");
+  });
+});
+
+describe("a linha do convite na etapa 6", () => {
+  const quando = (d: Date | string | null) => (d ? `[${new Date(d).toISOString().slice(5, 16)}]` : "—");
+  const base = {
+    id: "c1",
+    para_quem: "Dr. Marcus",
+    criado_em: new Date(AGORA - 3_600_000),
+    expira_em: new Date(AGORA + 86_400_000),
+    cancelado_em: null,
+    usado_em: null,
+    conta_conectada: null,
+    conta_username: null,
+    ultimo_erro: null,
+    ultimo_erro_em: null,
+  };
+
+  it("o pendente diz quando vence e é o único que se cancela", () => {
+    expect(linhaDoConvite(base, AGORA, quando)).toEqual({
+      id: "c1",
+      paraQuem: "Dr. Marcus",
+      estado: "pendente",
+      detalhe: "vence em [11-04T15:00]",
+      aviso: null,
+      cancelavel: true,
+    });
+  });
+
+  it("o usado diz a conta e quando; o vencido e o cancelado dizem quando", () => {
+    const usado = { ...base, usado_em: new Date(AGORA - 60_000), conta_conectada: "178", conta_username: "drmarcus" };
+    expect(linhaDoConvite(usado, AGORA, quando)).toMatchObject({
+      estado: "usado",
+      detalhe: "@drmarcus, em [11-03T14:59]",
+      cancelavel: false,
+    });
+    expect(linhaDoConvite({ ...usado, conta_username: null }, AGORA, quando).detalhe).toBe("@178, em [11-03T14:59]");
+    expect(linhaDoConvite({ ...base, expira_em: new Date(AGORA) }, AGORA, quando)).toMatchObject({
+      estado: "vencido",
+      detalhe: "venceu em [11-03T15:00]",
+      cancelavel: false,
+    });
+    expect(linhaDoConvite({ ...base, cancelado_em: new Date(AGORA - 120_000) }, AGORA, quando)).toMatchObject({
+      estado: "cancelado",
+      detalhe: "cancelado em [11-03T14:58]",
+      cancelavel: false,
+    });
+  });
+
+  it("a tentativa que falhou aparece com a hora, e a assinatura que falhou aponta o reassinar (achado 158)", () => {
+    const erro = new Date(AGORA - 30_000);
+    expect(linhaDoConvite({ ...base, ultimo_erro: "a Meta recusou", ultimo_erro_em: erro }, AGORA, quando).aviso).toBe(
+      "A última tentativa falhou ([11-03T14:59]): a Meta recusou"
+    );
+    const usado = { ...base, usado_em: erro, conta_conectada: "178", conta_username: "drmarcus" };
+    expect(
+      linhaDoConvite(
+        { ...usado, ultimo_erro: `${PREFIXO_DA_ASSINATURA}a Meta caiu`, ultimo_erro_em: erro },
+        AGORA,
+        quando
+      ).aviso
+    ).toBe('conectada, mas a assinatura dos webhooks falhou: a Meta caiu. Use o botão "Reassinar webhooks" do passo 5.');
+    // O erro de uma tentativa ANTES da que deu certo não vira aviso no convite usado.
+    expect(
+      linhaDoConvite({ ...usado, ultimo_erro: "a Meta recusou", ultimo_erro_em: erro }, AGORA, quando).aviso
+    ).toBeNull();
   });
 });

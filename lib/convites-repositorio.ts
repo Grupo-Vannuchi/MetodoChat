@@ -21,6 +21,9 @@ export type Convite = {
 
 const COLUNAS =
   "id, para_quem, criado_em, expira_em, cancelado_em, usado_em, conta_conectada, ultimo_erro, ultimo_erro_em";
+const COLUNAS_DA_LISTA = COLUNAS.split(", ")
+  .map((coluna) => `c.${coluna}`)
+  .join(", ");
 
 // O id chega da volta do Instagram num cookie, e um valor torto não pode virar erro de banco.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -51,11 +54,18 @@ export async function conviteDoId(id: string): Promise<Convite | null> {
   return linha ?? null;
 }
 
+/** O convite da lista, com o arroba da conta que entrou por ele, quando entrou. */
+export type ConviteNaLista = Convite & { conta_username: string | null };
+
 /** Os 20 mais recentes, para a lista da etapa 6. */
-export async function listarConvites(): Promise<Convite[]> {
+export async function listarConvites(): Promise<ConviteNaLista[]> {
   return (await sql().query(
-    `select ${COLUNAS} from convites_de_conexao order by criado_em desc, id desc limit 20`
-  )) as Convite[];
+    `select ${COLUNAS_DA_LISTA}, a.username as conta_username
+       from convites_de_conexao c
+       left join accounts a on a.ig_user_id = c.conta_conectada
+      order by c.criado_em desc, c.id desc
+      limit 20`
+  )) as ConviteNaLista[];
 }
 
 /** Só o pendente é cancelado. Devolve se cancelou. */

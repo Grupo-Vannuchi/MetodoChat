@@ -14,6 +14,8 @@ import {
   type LinhaDoFormulario,
 } from "./portas";
 import { exigirSessao } from "@/lib/exigir-sessao";
+import { FRASE_DO_PARA_QUEM_INVALIDO, paraQuemDoFormulario, type EstadoDoGerar } from "@/lib/convites";
+import { cancelarConvite as cancelarNoBanco, criarConvite } from "@/lib/convites-repositorio";
 
 // Reassina `CAMPOS_DE_WEBHOOK` (lib/ig.ts) em todas as contas conectadas. A
 // assinatura já acontece sozinha no OAuth, mas se falhar naquele momento nada
@@ -323,4 +325,29 @@ export async function salvarPerguntasDeAbertura(formData: FormData): Promise<voi
         : `@${conta.username ?? conta.ig_user_id} está com ${noAr} pergunta(s) de abertura no ar ✓`
     )}`
   );
+}
+
+// O LINK DE CONVITE (docs/specs/2026-11-03-link-de-convite.md): gera o código, grava só o hash e devolve o
+// link UMA VEZ, no estado da ação. O link não vai para a URL nem para o log, e não pode ser mostrado de
+// novo. Ele nasce no endereço canônico, e não no de onde o painel foi aberto: o cookie do `state` só volta
+// junto se o começo acontecer no endereço da volta (achado 136).
+export async function gerarConvite(_anterior: EstadoDoGerar, formData: FormData): Promise<EstadoDoGerar> {
+  await exigirSessao();
+  const paraQuem = paraQuemDoFormulario(formData.get("para_quem"));
+  if (!paraQuem) return { erro: FRASE_DO_PARA_QUEM_INVALIDO };
+  const config = await getConfig();
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const appUrl = canonicalAppUrl(config.app_url, host ? `${proto}://${host}` : "");
+  const { codigo } = await criarConvite(paraQuem);
+  revalidatePath("/setup");
+  return { link: `${appUrl}/convite/${codigo}`, paraQuem };
+}
+
+// Só o pendente é cancelado; o resto fica como está, e a lista mostra o estado de verdade.
+export async function cancelarConvite(formData: FormData): Promise<void> {
+  await exigirSessao();
+  await cancelarNoBanco(String(formData.get("id") ?? ""));
+  revalidatePath("/setup");
 }

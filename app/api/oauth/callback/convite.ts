@@ -9,7 +9,7 @@ import { OAUTH_CONVITE_COOKIE, OAUTH_STATE_COOKIE, oauthStateConfere } from "@/l
 import { getConfig } from "@/lib/db";
 import { logEvent } from "@/lib/engine";
 import { canonicalAppUrl } from "@/lib/app-url";
-import { estadoDoConvite, textoParaOPainel, type MotivoDoErro } from "@/lib/convites";
+import { estadoDoConvite, PREFIXO_DA_ASSINATURA, textoParaOPainel, type MotivoDoErro } from "@/lib/convites";
 import { anotarErroDoConvite, conviteDoId, reivindicarEGravarConta } from "@/lib/convites-repositorio";
 
 // A VOLTA DO INSTAGRAM PELO LINK DE CONVITE (docs/specs/2026-11-03-link-de-convite.md). A rota da volta
@@ -112,7 +112,7 @@ export async function voltaDoConvite(req: NextRequest, conviteId: string): Promi
   try {
     await subscribeToWebhooks(conta.ig_user_id, conta.access_token);
   } catch (err) {
-    const aviso = textoParaOPainel(`conectada, mas a assinatura dos webhooks falhou: ${mensagem(err)}`, segredos);
+    const aviso = textoParaOPainel(`${PREFIXO_DA_ASSINATURA}${mensagem(err)}`, segredos);
     await anotar(aviso, "usado");
     try {
       await logEvent(conta.ig_user_id, "subscribe_failed", { message: aviso });

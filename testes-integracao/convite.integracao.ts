@@ -5,13 +5,15 @@
 // AS ROTAS SÃO CHAMADAS COMO A VERCEL AS CHAMA: o handler de verdade, com um `NextRequest`. A sessão, quando
 // há, é a do login de verdade (`cabecalhoDaSessaoDeTeste`, ./semear-requisicao.ts). Valores inventados:
 // nenhuma credencial de verdade entra em teste.
+import { createHash } from "node:crypto";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { cabecalhoDaSessaoDeTeste } from "./semear-requisicao";
+import { cabecalhoDaSessaoDeTeste, comoNumaRequisicaoComSessao } from "./semear-requisicao";
 
 type ModuloComeco = typeof import("@/app/api/oauth/convite/[codigo]/route");
 type ModuloLogin = typeof import("@/app/api/oauth/login/route");
 type ModuloRepositorio = typeof import("@/lib/convites-repositorio");
+type ModuloAcoes = typeof import("@/app/setup/actions");
 
 const banco = bancoDescartavel();
 
@@ -23,12 +25,14 @@ const COOKIE_DO_CONVITE = "metodochat_oauth_convite";
 let comeco: ModuloComeco;
 let login: ModuloLogin;
 let repo: ModuloRepositorio;
+let acoes: ModuloAcoes;
 let Pedido: typeof import("next/server").NextRequest;
 
 beforeAll(async () => {
   comeco = await import("@/app/api/oauth/convite/[codigo]/route");
   login = await import("@/app/api/oauth/login/route");
   repo = await import("@/lib/convites-repositorio");
+  acoes = await import("@/app/setup/actions");
   Pedido = (await import("next/server")).NextRequest;
   await banco.db().sql().query(`insert into config (id) values (1) on conflict do nothing`);
 });
@@ -126,5 +130,54 @@ describe("o começo da conexão de hoje, com a sessão", () => {
     expect(doConvite).toMatch(/Path=\/api\/oauth/i);
     expect(doConvite).toMatch(/(Max-Age=0|Expires=Thu, 01 Jan 1970)/i);
     expect(cookies(resposta).get(COOKIE_DO_STATE)).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// AS AÇÕES DA ETAPA 6
+// ---------------------------------------------------------------------------------------------------
+
+const formulario = (campos: Record<string, string>) => {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(campos)) fd.set(k, v);
+  return fd;
+};
+
+const linhas = async () =>
+  (await banco.db().sql().query(`select * from convites_de_conexao order by criado_em`)) as Record<string, unknown>[];
+
+describe("as ações da etapa 6", () => {
+  it("gerar devolve o link no endereço canônico, uma vez, e grava só o hash do código", async () => {
+    const { valor, tags } = await comoNumaRequisicaoComSessao("/setup", () =>
+      acoes.gerarConvite(null, formulario({ para_quem: "  Dr. Marcus  " }))
+    );
+    expect(valor && "link" in valor).toBe(true);
+    const { link, paraQuem } = valor as { link: string; paraQuem: string };
+    expect(paraQuem).toBe("Dr. Marcus");
+    expect(link).toMatch(new RegExp(`^${APP_URL}/convite/[A-Za-z0-9_-]{43}$`));
+    const codigo = link.slice(link.lastIndexOf("/") + 1);
+    const [linha] = await linhas();
+    expect(linha.codigo_hash).toBe(createHash("sha256").update(codigo).digest("hex"));
+    expect(linha.para_quem).toBe("Dr. Marcus");
+    expect(tags.length).toBeGreaterThan(0);
+    // O link devolvido abre o convite.
+    expect(destino(await comecar(codigo)).origin).toBe("https://www.instagram.com");
+  });
+
+  it("gerar recusa o \"para quem\" vazio ou longo demais, sem gravar", async () => {
+    for (const para_quem of ["   ", "x".repeat(61)]) {
+      const { valor } = await comoNumaRequisicaoComSessao("/setup", () =>
+        acoes.gerarConvite(null, formulario({ para_quem }))
+      );
+      expect(valor).toEqual({ erro: "Diga para quem é o convite, em até 60 caracteres." });
+    }
+    expect(await linhas()).toHaveLength(0);
+  });
+
+  it("cancelar cancela o pendente, e o começo passa a recusar", async () => {
+    const { id, codigo } = await repo.criarConvite("Dr. Marcus");
+    await comoNumaRequisicaoComSessao("/setup", () => acoes.cancelarConvite(formulario({ id })));
+    expect((await linhas())[0].cancelado_em).toBeInstanceOf(Date);
+    expect(destino(await comecar(codigo)).toString()).toBe(`${APP_URL}/convite/${codigo}`);
   });
 });

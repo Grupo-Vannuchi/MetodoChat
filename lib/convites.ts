@@ -84,3 +84,60 @@ export function textoParaOPainel(texto: string, segredos: (string | null | undef
   for (const segredo of segredos) if (segredo) limpo = limpo.split(segredo).join("OCULTO");
   return limpo.length > LIMITE_DO_ERRO ? limpo.slice(0, LIMITE_DO_ERRO) : limpo;
 }
+
+// A ASSINATURA DOS WEBHOOKS QUE FALHA DEPOIS DA CONEXÃO (achado 158): a volta anota este começo no convite
+// já usado, e a linha da etapa 6 o reconhece para apontar o "Reassinar webhooks".
+export const PREFIXO_DA_ASSINATURA = "conectada, mas a assinatura dos webhooks falhou: ";
+
+export const FRASE_DO_PARA_QUEM_INVALIDO = "Diga para quem é o convite, em até 60 caracteres.";
+
+/** O que a ação de gerar devolve à etapa 6: o link, que só existe nesta resposta, ou a recusa. */
+export type EstadoDoGerar = { link: string; paraQuem: string } | { erro: string } | null;
+
+export type ConviteParaLinha = DatasDoConvite & {
+  id: string;
+  para_quem: string;
+  conta_conectada: string | null;
+  conta_username: string | null;
+  ultimo_erro: string | null;
+  ultimo_erro_em: Date | string | null;
+};
+
+export type LinhaDoConvite = {
+  id: string;
+  paraQuem: string;
+  estado: EstadoDoConvite;
+  detalhe: string;
+  aviso: string | null;
+  cancelavel: boolean;
+};
+
+/**
+ * Uma linha da lista da etapa 6. `quando` formata a data (no painel, o `fmtDate` de lib/format.ts). O
+ * erro de uma tentativa ANTES da que deu certo não vira aviso no convite usado: ali, só a assinatura que
+ * falhou depois da conexão importa.
+ */
+export function linhaDoConvite(
+  c: ConviteParaLinha,
+  agoraMs: number,
+  quando: (d: Date | string | null) => string
+): LinhaDoConvite {
+  const estado = estadoDoConvite(c, agoraMs);
+  const detalhe =
+    estado === "pendente"
+      ? `vence em ${quando(c.expira_em)}`
+      : estado === "usado"
+        ? `@${c.conta_username ?? c.conta_conectada}, em ${quando(c.usado_em)}`
+        : estado === "vencido"
+          ? `venceu em ${quando(c.expira_em)}`
+          : `cancelado em ${quando(c.cancelado_em)}`;
+  let aviso: string | null = null;
+  if (c.ultimo_erro && estado === "usado") {
+    if (c.ultimo_erro.startsWith(PREFIXO_DA_ASSINATURA)) {
+      aviso = `${c.ultimo_erro}. Use o botão "Reassinar webhooks" do passo 5.`;
+    }
+  } else if (c.ultimo_erro) {
+    aviso = `A última tentativa falhou (${quando(c.ultimo_erro_em)}): ${c.ultimo_erro}`;
+  }
+  return { id: c.id, paraQuem: c.para_quem, estado, detalhe, aviso, cancelavel: estado === "pendente" };
+}
