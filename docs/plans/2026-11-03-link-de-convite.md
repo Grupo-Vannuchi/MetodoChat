@@ -44,7 +44,7 @@ Os números são os dessa cópia:
   e os dois eram erros do roteiro, e não buracos nos testes: um caso com o nome errado e um trecho que aparecia
   também num comentário. Corrigido o roteiro, deu 50 de 50. Na revisão do plano, a auditoria pediu a 51ª, a
   V10 (a volta do convite gravando o cookie da conta selecionada), que a spec lista e o roteiro não tinha; ela
-  entrou na execução, na FASE 7;
+  entrou na execução, na FASE 7. E o 163 trouxe a 52ª, a A8 (FASE 6-bis);
 - o plano, aplicado do zero numa cópia limpa, dá os 29 arquivos iguais ao fim do ensaio, byte a byte;
 - a guarda do diff (FASE 7, passo 4) mostrou só os 29 arquivos do mapa abaixo: `lib/steps.ts` muda só na
   palavra `export`, e o motor, a fila, o gerador de bônus, o `/publicar`, o bucket, os `scripts` e o `package`
@@ -81,6 +81,21 @@ Os números são os dessa cópia:
     tela nascem no `vi.hoisted` (FASE 6).
 12. **Uma integração de cada vez.** Duas rodadas ao mesmo tempo no mesmo container derrubam o schema uma da
     outra (medido de novo em 03/11, na branch das fotos).
+
+**O que a execução achou (03/11), já resolvido ou anotado neste plano:**
+1. **A mutação V10** (a volta do convite gravando o cookie da conta selecionada), que a spec lista e o Apêndice A
+   não tinha, pedida pela auditoria na revisão do plano. Ela entrou na FASE 7, num commit de docs (`a7d6d85`).
+2. **163 (ANOTAR, resolvido na FASE 6-bis):** com a instalação toda concluída, as etapas da Configuração nascem
+   recolhidas no `<details>` "Instalação" (`app/setup/page.tsx:227`, medido em `a7d6d85`), e o bloco do convite,
+   na etapa 6, ficava escondido lá dentro. A prova do preview tropeçou nisso (o campo "Para quem" existia, mas
+   escondido). O Eduardo escolheu pela caixa "Tirar para fora, à vista": o bloco vai para a seção "Convidar um
+   cliente", antes do "Instalação".
+3. **164 (ANOTAR):** medido no preview, o `Cache-Control` da PÁGINA do convite é o do Next para página dinâmica
+   ("private, no-cache, no-store, max-age=0, must-revalidate", o mesmo do `/entrar`), e não o `no-store` do
+   `next.config.ts`. O nosso aparece no 307 da ROTA do começo. Sem cache, a página continua: ela é
+   `force-dynamic`, e o `no-store` está entre as diretivas. O `X-Robots-Tag: noindex` do preview vem também da
+   Vercel (aparece no `/entrar`), e só o `curl -I` da produção prova o nosso. O `Referrer-Policy: no-referrer`
+   está na página e no 307, e não no `/entrar`: é o nosso.
 
 ## Restrições globais
 
@@ -140,9 +155,10 @@ Os números são os dessa cópia:
 | `app/convite/[codigo]/page.tsx`, `app/convite/pronto/page.tsx`, `app/convite/erro/page.tsx` (novos) | as três páginas abertas | 5 |
 | `testes-integracao/convite-paginas.integracao.ts` (novo) | as três páginas, em HTML | 5 |
 | `app/setup/actions.ts` | `gerarConvite` e `cancelarConvite` | 6 |
-| `app/setup/convites.tsx` (novo) | o bloco da etapa 6 | 6 |
-| `app/setup/page.tsx` | a lista dos convites na etapa 6 | 6 |
-| `testes-dom/convites-no-setup.dom.tsx` (novo) | o bloco da etapa 6 | 6 |
+| `app/setup/convites.tsx` (novo) | o bloco do convite | 6 e 6-bis |
+| `app/setup/page.tsx` | a lista dos convites; a seção "Convidar um cliente", fora do "Instalação" | 6 e 6-bis |
+| `testes-dom/convites-no-setup.dom.tsx` (novo) | o bloco do convite | 6 |
+| `tests/convite-a-vista.test.ts` (novo) | o convite fora de qualquer `<details>` (achado 163) | 6-bis |
 
 ---
 
@@ -2902,6 +2918,163 @@ git commit -F "$SCRATCH/msg-conv-f6.txt"
 
 ---
 
+### FASE 6-bis — O bloco do convite à vista (achado 163, na execução)
+
+**Arquivos:** `app/setup/page.tsx`, `app/setup/convites.tsx`, `tests/convite-a-vista.test.ts` (novo).
+
+- [ ] **Passo 1: o teste, antes do código** (lê a página pela árvore do TypeScript)
+
+Crie `tests/convite-a-vista.test.ts`:
+
+```ts
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import ts from "typescript";
+import { describe, expect, it } from "vitest";
+
+// O BLOCO DO LINK DE CONVITE À VISTA (achado 163, decidido pelo Eduardo em 03/11/2026). Com a instalação toda
+// concluída, as etapas da Configuração nascem recolhidas num <details> "Instalação" (app/setup/page.tsx), e o
+// convite, que estava na etapa 6, ficava escondido lá dentro: para gerar um link, era preciso abrir o bloco. O
+// convite passou a morar numa seção própria, fora de qualquer <details>, e este teste lê a página pela árvore do
+// TypeScript para isso não voltar sem ninguém ver.
+const PAGINA = fileURLToPath(new URL("../app/setup/page.tsx", import.meta.url));
+
+function jsxDoConvite(fonte: string, arquivo = "page.tsx"): { quantos: number; dentroDeDetails: number } {
+  const sf = ts.createSourceFile(arquivo, fonte, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let quantos = 0;
+  let dentroDeDetails = 0;
+  const nome = (n: ts.Node) =>
+    ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n) ? n.tagName.getText(sf) : null;
+  const visitar = (n: ts.Node) => {
+    if (nome(n) === "Convites") {
+      quantos++;
+      for (let p = n.parent; p; p = p.parent) {
+        if (ts.isJsxElement(p) && p.openingElement.tagName.getText(sf) === "details") {
+          dentroDeDetails++;
+          break;
+        }
+      }
+    }
+    ts.forEachChild(n, visitar);
+  };
+  visitar(sf);
+  return { quantos, dentroDeDetails };
+}
+
+describe("o bloco do convite na Configuração (achado 163)", () => {
+  it("o leitor acusa o convite dentro de um <details>, e não acusa o de fora", () => {
+    expect(jsxDoConvite("const a = <details><summary>x</summary><div><Convites linhas={[]} /></div></details>;")).toEqual({
+      quantos: 1,
+      dentroDeDetails: 1,
+    });
+    expect(jsxDoConvite("const a = <section><Convites linhas={[]} /></section>;")).toEqual({ quantos: 1, dentroDeDetails: 0 });
+  });
+
+  it("a página desenha o convite uma vez só, fora do bloco Instalação recolhido", () => {
+    expect(jsxDoConvite(readFileSync(PAGINA, "utf8"))).toEqual({ quantos: 1, dentroDeDetails: 0 });
+  });
+});
+```
+
+- [ ] **Passo 2: ver o teste falhar**
+
+```bash
+npx vitest run tests/convite-a-vista.test.ts
+```
+
+Esperado: o caso do leitor passa, e "a página desenha o convite uma vez só, fora do bloco Instalação recolhido"
+cai com `expected { quantos: 1, dentroDeDetails: 1 } to deeply equal { quantos: 1, dentroDeDetails: +0 }`.
+
+- [ ] **Passo 3: a seção "Convidar um cliente", fora do "Instalação"**
+
+Em `app/setup/page.tsx`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/app/setup/page.tsx b/app/setup/page.tsx
+index cde77b0..2d5c087 100644
+--- a/app/setup/page.tsx
++++ b/app/setup/page.tsx
+@@ -209,6 +209,15 @@ export default async function SetupPage({
+         </section>
+       )}
+ 
++      {/* O LINK DE CONVITE, À VISTA (achado 163, decidido pelo Eduardo em 03/11/2026). Ele nasceu na etapa 6,
++          ao lado do "Conectar outra conta", mas com a instalação concluída o bloco abaixo nasce recolhido, e o
++          botão ficava escondido lá dentro. Mora aqui, fora do <details>, e tests/convite-a-vista.test.ts cobra
++          isso. */}
++      <section className={`p-5 ${card}`}>
++        <h3 className="mb-1 text-sm font-semibold text-zinc-800 dark:text-zinc-200">Convidar um cliente</h3>
++        <Convites linhas={convites} metaOk={metaOk} />
++      </section>
++
+       {/* A INSTALAÇÃO INTEIRA, RECOLHIDA QUANDO JÁ TERMINOU.
+ 
+           Medido em 31/08/2026 nesta tela, em produção: 6341 px de página
+@@ -515,7 +524,9 @@ export default async function SetupPage({
+               autorizar aqui.
+             </p>
+           )}
+-          <Convites linhas={convites} metaOk={metaOk} />
++          <p className={`text-xs ${muted}`}>
++            Para o cliente conectar a própria conta, use o <b>Convidar um cliente</b>, acima.
++          </p>
+         </Step>
+ 
+         <Step
+```
+
+Em `app/setup/convites.tsx`, aplique (com `git apply`, a partir da raiz, ou à mão):
+
+```diff
+diff --git a/app/setup/convites.tsx b/app/setup/convites.tsx
+index 94a0083..0579449 100644
+--- a/app/setup/convites.tsx
++++ b/app/setup/convites.tsx
+@@ -19,8 +19,7 @@ export default function Convites({ linhas, metaOk }: { linhas: LinhaDoConvite[];
+   const [estado, gerar, gerando] = useActionState<EstadoDoGerar, FormData>(gerarConvite, null);
+ 
+   return (
+-    <div className="space-y-3 border-t border-traco pt-3 dark:border-traco-escuro">
+-      <p className="font-medium text-zinc-800 dark:text-zinc-200">Ou mande um link de convite ao cliente</p>
++    <div className="space-y-3">
+       <p className={`text-xs ${muted}`}>
+         O cliente abre o link no computador e conecta a própria conta, sem a senha do painel e sem passar a
+         senha do Instagram a ninguém. O link vale 7 dias e serve para uma conexão. A conta dele precisa estar
+```
+
+- [ ] **Passo 4: ver passar**
+
+```bash
+npx vitest run tests/convite-a-vista.test.ts
+npx vitest run --config vitest.dom.config.ts testes-dom/convites-no-setup.dom.tsx testes-dom/convite-sem-menu.dom.tsx
+npx eslint app/setup/page.tsx app/setup/convites.tsx tests/convite-a-vista.test.ts
+npx tsc --noEmit
+```
+
+Esperado: 2 casos puros; 2 arquivos e 8 casos de tela; lint e `tsc` limpos. Varra os três arquivos.
+
+- [ ] **Passo 5: o commit**
+
+A mensagem do commit, gravada em `$SCRATCH/msg-conv-163.txt`:
+
+```text
+O link de convite fica à vista na Configuração, fora da instalação recolhida
+
+Com a instalação toda concluída, as etapas da Configuração nascem recolhidas
+no bloco Instalação, e o convite, que estava na etapa 6, ficava escondido lá
+dentro: para gerar um link, era preciso abrir o bloco. Medido na prova do
+preview e decidido pelo Eduardo em 03/11 (achado 163), ele passa a morar numa
+seção própria, Convidar um cliente, antes do bloco, e a etapa 6 aponta para
+ela. Um teste lê a página e cobra o convite fora de qualquer details.
+```
+
+```bash
+git add app/setup/page.tsx app/setup/convites.tsx tests/convite-a-vista.test.ts
+git commit -F "$SCRATCH/msg-conv-163.txt"
+```
+
+---
+
 ### FASE 7 — A verificação inteira, as mutações e a guarda do diff
 
 - [ ] **Passo 1: o `verify`, com o build**
@@ -2911,7 +3084,7 @@ env -u CLAUDECODE -u AI_AGENT npm run verify
 git diff --stat AGENTS.md
 ```
 
-Esperado: lint e `tsc` limpos; 139 arquivos e 3 564 casos puros; 30 arquivos e 293 de tela; "SEM VAZAMENTO em A
+Esperado (medido em 03/11 no `1e75167`, com o 163): lint e `tsc` limpos; 140 arquivos e 3 566 casos puros; 30 arquivos e 293 de tela; "SEM VAZAMENTO em A
 nem em C, nas duas varreduras."; "MIGRAÇÃO PULADA"; "▲ Next.js 16.4.3 (Turbopack)" e "Compiled successfully",
 com `/api/oauth/convite/[codigo]`, `/convite/[codigo]`, `/convite/erro` e `/convite/pronto` entre as 42 rotas; e
 nenhuma diferença no `AGENTS.md`.
@@ -2931,8 +3104,8 @@ Esperado: `[rede-global] ALVO: banco de TESTE`, nenhum `teste_tmp_*` antes e dep
 node "$SCRATCH/mutar-convite.mjs"
 ```
 
-Esperado: as 51 mutações derrubando, cada uma, o caso nomeado, e "51 mutações, 0 ruins; árvore no fim:
-limpa".
+Esperado: as 52 mutações derrubando, cada uma, o caso nomeado, e "52 mutações, 0 ruins; árvore no fim:
+limpa". A 52ª é a A8, do 163.
 
 - [ ] **Passo 4: a guarda do diff**
 
@@ -2942,7 +3115,7 @@ git diff ce83e8a HEAD -- lib/steps.ts lib/db.ts
 git diff --quiet ce83e8a HEAD -- lib/engine.ts lib/queue-drain.ts lib/bonus app/bonus app/publicar lib/publicacao.ts lib/bucket.ts scripts package.json package-lock.json && echo "guarda: 0 diferença"
 ```
 
-Esperado: os 29 arquivos do mapa e nenhum outro (1 878 linhas a mais e 13 a menos); em `lib/steps.ts`, só o
+Esperado: os 30 arquivos do mapa e nenhum outro (1 935 linhas a mais e 13 a menos, com o 163); em `lib/steps.ts`, só o
 `export` do `semSegredo`; em `lib/db.ts`, só o `upsertAccount` com o segundo parâmetro; e "guarda: 0 diferença".
 
 ---
@@ -3002,6 +3175,13 @@ Se a branch já existir no GitHub, pare. No log do build do preview, confira: o 
   5. Cancelar o convite na etapa 6 (grava) e abrir a página de novo: "Este link não vale mais. Peça um novo a
      quem te mandou."
 
+  **Feita em 03/11, das 18:22Z às 18:42Z** (`navegador-prova/prova-convite.mjs`, `d4b1e689`, no deploy
+  `dpl_3heM4zye` de `a7d6d85`), com cada gravação liberada pelo Eduardo e pela auditoria. O convite da prova
+  (`344b162c`) foi gerado às 18:31Z e cancelado às 18:40Z, e fica no banco como histórico. Duas paradas antes de
+  gravar (o "Instalação" recolhido, que virou o 163, e um resumo de dentro dele pego pelo localizador) e uma no
+  meio (um clique do Eduardo na janela, no "Conectar meu Instagram", que mostrou o botão funcionando) foram
+  resolvidas sem gravar nada. Os cabeçalhos medidos estão no 164.
+
 - [ ] **Passo 6: o PR**, com o OK do Eduardo. O corpo leva o que muda, os efeitos e os números deste plano, e
   nenhuma arroba solta. O merge é do Eduardo.
 
@@ -3011,7 +3191,11 @@ Se a branch já existir no GitHub, pare. No log do build do preview, confira: o 
 
 ```bash
 curl -sI https://metodochat.vercel.app/convite/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | grep -iE "referrer-policy|cache-control|x-robots-tag"
+curl -sI https://metodochat.vercel.app/entrar | grep -iE "referrer-policy|cache-control|x-robots-tag"
 ```
+
+Esperado (164): na página, o `Referrer-Policy: no-referrer` e o `X-Robots-Tag: noindex`, que o `/entrar` não tem; o
+`Cache-Control` da página é o do Next para página dinâmica, com o `no-store` entre as diretivas.
 
 - [ ] **Passo 8: a prova na produção, com o OK do Eduardo**, e o antes e o depois da auditoria: gerar um
   convite, abrir numa janela anônima e reconectar a `@saas.metodoia`, a conta de teste que já está conectada.
@@ -3068,6 +3252,7 @@ const T_TABELA = integ("testes-integracao/convites-tabela.integracao.ts");
 const T_CONVITE = integ("testes-integracao/convite.integracao.ts");
 const T_VOLTA = integ("testes-integracao/convite-volta.integracao.ts");
 const T_PAGINAS = integ("testes-integracao/convite-paginas.integracao.ts");
+const T_A_VISTA = puro("tests/convite-a-vista.test.ts");
 
 const L = "lib/convites.ts";
 const R = "lib/convites-repositorio.ts";
@@ -3139,6 +3324,7 @@ const mutacoes = [
   { nome: "A5: a tela sem o link", arq: "app/setup/convites.tsx", de: /<CopyField label=\{`Link de convite para \$\{estado\.paraQuem\}`\} value=\{estado\.link\} \/>/, para: "", teste: T_SETUP, cai: "mostra o link uma vez, com o copiar e o aviso de que ele não volta" },
   { nome: "A6: o cancelar em todas as linhas", arq: "app/setup/convites.tsx", de: /\{l\.cancelavel && \(/, para: "{(", teste: T_SETUP, cai: "a lista mostra os quatro estados" },
   { nome: "A7: o gerar sem trava sem a Meta", arq: "app/setup/convites.tsx", de: /disabled=\{!metaOk \|\| gerando\}/, para: "disabled={gerando}", teste: T_SETUP, cai: "sem o app da Meta configurado, o botão de gerar fica travado" },
+  { nome: "A8: o convite volta para dentro de um bloco recolhido (achado 163)", arq: "app/setup/page.tsx", de: /<Convites linhas=\{convites\} metaOk=\{metaOk\} \/>/, para: "<details><summary>Convidar</summary><Convites linhas={convites} metaOk={metaOk} /></details>", teste: T_A_VISTA, cai: "a página desenha o convite uma vez só, fora do bloco Instalação recolhido" },
 ];
 
 let ruins = 0;
