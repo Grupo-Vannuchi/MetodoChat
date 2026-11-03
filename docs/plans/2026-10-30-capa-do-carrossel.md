@@ -5967,6 +5967,44 @@ descrição), e o build do merge diz "Nada a aplicar: as 21 migrações".
 
 ---
 
+### Achado 153 (03/11) — a frase da capa por IA
+
+> A prova da FASE 11 foi feita em 30/10, das 18:52Z às 19:19Z, por um roteiro num Chrome com perfil próprio
+> (o `prova-capa.mjs`, lido pela auditoria). O fim ficou igual à base. A correção foi decidida pelo Eduardo
+> pela caixa em 03/11 ("Corrigir o pedido") e lida pela auditoria (`metodochat-cb`) antes do código.
+
+**O que a prova mostrou.** A capa gerada por IA saiu com uma borda reta e um bloco marrom liso no terço de
+baixo, atrás do gancho. Na cópia da capa que foi à fila (1080×1350), na faixa de x 830 a 1080, longe do texto,
+o maior salto de brilho entre linhas vizinhas é de 6,0, entre y 985 e 986. A borda está na imagem gerada, e não
+no desenho: `capa-desenho.tsx` põe a imagem em `cover`, com duas sombras em degradê, sem caixa. A causa era a
+frase da capa (`ESPACO_DO_GANCHO`), que pedia o terço de baixo "com fundo simples". Isso contradizia o `FUNDO`,
+que proíbe fundo liso, e o modelo resolveu pintando uma faixa.
+
+**A correção, no commit `4826c10`** (`lib/bonus/prompt-ilustracao.ts` e `tests/bonus-capa-imagem.test.ts`):
+- o caso novo "a frase da capa não pede fundo liso no terço de baixo: a cena continua até a borda (achado
+  153)" caiu com a frase antiga, na primeira linha, por "fundo simples";
+- a frase nova: "A imagem é vertical. A cena continua até a borda de baixo, sem faixa, sem bloco e sem
+  divisão: no terço de baixo, ela fica mais escura e mais calma, sem rosto e sem nenhum objeto importante,
+  porque essa parte vai ficar coberta.";
+- os casos de antes continuam passando: o pedido da capa é o de hoje com a frase depois do `FUNDO`, a frase
+  não fala em título nem em texto, e o pedido da Etapa 6 continua igual, byte a byte.
+
+**A verificação refeita, sobre `4826c10`:**
+- o `verify`: 136 arquivos e 3 525 casos puros (os 3 524 da FASE 10 mais o caso novo), 28 arquivos e 279 de
+  tela, "SEM VAZAMENTO em A nem em C", "MIGRAÇÃO PULADA" e as 6 rotas; o `AGENTS.md` sem diferença;
+- a integração no container: 52 arquivos, 600 passaram e 8 pularam;
+- as 71 mutações do Apêndice A: "71 mutações, 0 ruins", com o registro igual, byte a byte, ao da FASE 10;
+- a mutação nova (a frase antiga de volta): o caso do achado 153 caiu.
+
+**O que falta:** o push com o OK do Eduardo e uma prova curta, só da IA, presa ao deploy novo. Ela segue os
+passos entrar, criar, capa, ia, baixar a arte do slide 1 (só leitura), apagar e apagar o perfil, com o mesmo
+gancho, a mesma cena e o mesmo estilo de 30/10. O critério, escrito antes de ver a imagem: na faixa de x 830 a
+1080, o maior salto de brilho entre linhas vizinhas, de y 600 a 1340, fica em até 3,0 (a borda deu 6,0, e o
+segundo maior da foto boa deu 1,8), e o recorte de y 860 a 1140 vai para o olho. Uma imagem é uma amostra só,
+e o PR diz isso.
+
+---
+
 ## Apêndice A — as provas de mutação
 
 O script roda da raiz do repositório, com a `DATABASE_URL_TESTES` do container (ele recusa sem ela). Cada

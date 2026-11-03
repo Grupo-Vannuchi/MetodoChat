@@ -103,6 +103,15 @@ Do Eduardo, pela caixa e pelos modelos no navegador, em 13/10:
   com fundo simples, sem rosto nem objeto importante, porque o gancho vai por cima. A regra de não escrever
   texto na imagem continua. **A frase entra só no pedido da capa:** os pedidos medidos da Etapa 6 (o teste que
   lê o apêndice da spec da 6) continuam iguais, byte a byte (nota da revisão).
+
+  > **Achado 153 (03/11/2026): a frase acima mudou.** Na prova de 30/10, a capa gerada com o "fundo
+  > simples" no terço de baixo saiu com uma borda reta e um bloco marrom liso atrás do gancho. Na faixa de
+  > x 830 a 1080, longe do texto, o brilho salta 6,0 entre as linhas vizinhas de y 985 e 986 (de 1350). A
+  > frase contradizia o `FUNDO`, que proíbe fundo liso, e o modelo resolveu pintando uma faixa. Desde o
+  > commit `4826c10`, a frase é: "A imagem é vertical. A cena continua até a borda de baixo, sem faixa, sem
+  > bloco e sem divisão: no terço de baixo, ela fica mais escura e mais calma, sem rosto e sem nenhum objeto
+  > importante, porque essa parte vai ficar coberta." O resto deste item continua valendo.
+
 - **O corpo da chamada à OpenAI** (`CORPO_FIXO`, `imagem-openai.ts:33-36`) passa a receber o tamanho pelo
   jeito: 1024×1536 na capa, e 1536×1024 em todo o resto, como hoje. O teste do corpo da Etapa 6 continua
   cobrando o 1536×1024 nos outros slides (nota da revisão).
