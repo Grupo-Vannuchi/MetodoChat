@@ -84,6 +84,16 @@ afterEach(() => {
 
 const arquivo = (tipo: string) => new File(["x"], "slide.png", { type: tipo });
 
+// UM JPEG MÍNIMO SEM EXIF (a orientação 1) e um com o EXIF na orientação 6 (Intel): SOI, um APP1 com uma
+// entrada 0x0112 na IFD0, e EOI. O molde é testes-dom/publicar-compositor.dom.tsx:640-645. O "x" de
+// `arquivo` não é JPEG: a orientação dele é 0, "não deu para ler".
+const tiff6 = [0x49, 0x49, 0x2a, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0];
+const jpegGirado = () =>
+  new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0, 34, 0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff6, 0xff, 0xd9])], "g.jpg", {
+    type: "image/jpeg",
+  });
+const jpegSemExif = () => new File([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], "a.jpg", { type: "image/jpeg" });
+
 describe("a conversão para JPEG, copiada do enviador do /publicar", () => {
   // A ARMADILHA Nº 1 (app/publicar/enviador.tsx:537-544): o canvas nasce transparente, e o PNG com
   // fundo transparente viraria JPEG de fundo preto.
@@ -102,7 +112,7 @@ describe("a conversão para JPEG, copiada do enviador do /publicar", () => {
 
 describe("preparar a imagem", () => {
   it("o JPEG que já serve vai cru, sem passar pelo canvas", async () => {
-    const original = arquivo("image/jpeg");
+    const original = jpegSemExif();
     const pronta = await prepararImagem(original);
     expect(pronta).toEqual({ jpeg: original, largura: 1080, altura: 1350 });
     expect(toBlob).toEqual([]);
@@ -289,6 +299,91 @@ describe("enviar a foto da capa do slide 1", () => {
     const r = await enviarImagemDoSlide({ carrosselId: CARROSSEL, numero: 1, jeito: "capa", arquivo: arquivo("image/jpeg"), assinar, guardar: vi.fn() });
     expect(r).toMatchObject({ tom: "erro", texto: "A foto da capa passou de 2 MB mesmo reduzida. Tente outra foto, ou exporte esta com menos qualidade." });
     expect(assinar).not.toHaveBeenCalled();
+  });
+});
+
+// A FOTO DE CELULAR GIRADA (achados 152 e 155): a câmera grava a foto em pé deitada, com a rotação no EXIF, e
+// o canvas tira o EXIF. A regra é a do /publicar (`bitmapDe`, app/publicar/navegador.ts, achados 110, 117 e
+// 120): o navegador abre a imagem pedindo a rotação; se ele não conhece o pedido, repete sem ele, menos no
+// JPEG que precisa girar (ou cuja rotação não deu para ler), que fica ilegível, e não deitado. E o slide
+// pronto em JPEG só vai cru sem nada a girar (`vaiSemRedesenho`, lib/publicacao.ts).
+describe("a foto de celular girada (achados 152 e 155)", () => {
+  const assinarOk = vi.fn(
+    async (): Promise<RespostaDaAssinatura> => ({ ok: true, caminho: "178/bonus-capa/u.jpg", url: "https://bucket/sign/178/bonus-capa/u.jpg?token=t" })
+  );
+  const guardado: AvisoDaImagem = { tom: "ok", texto: "Imagem guardada.", em: 1, versao: "0a1b2c3d", jeito: "capa", versaoDaMiniatura: "m1-capa" };
+  const FOTO_ILEGIVEL = "Não consegui abrir esta foto. Envie em JPEG, PNG ou WEBP.";
+
+  /** O `createImageBitmap` que anota o que foi pedido. `recusaAOpcao`: o navegador que não conhece "from-image". */
+  function bitmapQueAnota(recusaAOpcao: boolean) {
+    const opcoesPedidas: unknown[] = [];
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(async (_a: Blob, opcoes?: ImageBitmapOptions) => {
+        opcoesPedidas.push(opcoes);
+        if (opcoes && recusaAOpcao) throw new TypeError("opção desconhecida");
+        return { width: medidas.width, height: medidas.height, close: () => pinceladas.push("fechou") };
+      })
+    );
+    return opcoesPedidas;
+  }
+
+  it("a foto da capa e a do espaço pedem a rotação do EXIF ao abrir", async () => {
+    const opcoesPedidas = bitmapQueAnota(false);
+    medidas = { width: 3024, height: 4032 };
+    await enviarImagemDoSlide({ carrosselId: CARROSSEL, numero: 1, jeito: "capa", arquivo: jpegGirado(), assinar: assinarOk, guardar: vi.fn() });
+    await enviarImagemDoSlide({ carrosselId: CARROSSEL, numero: 2, jeito: "foto", arquivo: jpegGirado(), assinar: assinarOk, guardar: vi.fn() });
+    expect(opcoesPedidas).toEqual([{ imageOrientation: "from-image" }, { imageOrientation: "from-image" }]);
+  });
+
+  it("num navegador que recusa o pedido, a foto sem EXIF repete sem ele, recorta e sobe", async () => {
+    const opcoesPedidas = bitmapQueAnota(true);
+    medidas = { width: 3024, height: 4032 };
+    const guardar = vi.fn(async () => guardado);
+    const r = await enviarImagemDoSlide({ carrosselId: CARROSSEL, numero: 1, jeito: "capa", arquivo: jpegSemExif(), assinar: assinarOk, guardar });
+    expect(r).toBe(guardado);
+    expect(opcoesPedidas).toEqual([{ imageOrientation: "from-image" }, undefined]);
+    expect(puts).toHaveLength(1);
+  });
+
+  // O ACHADO 152: sem o pedido, a rotação não é garantida, e a foto em pé gravada deitada seria cortada deitada.
+  it.each([
+    ["com o EXIF 6", jpegGirado],
+    ["cuja rotação não deu para ler (0)", () => arquivo("image/jpeg")],
+  ])("num navegador que recusa o pedido, a foto %s não repete: fica ilegível, sem assinar nem subir", async (_nome, foto) => {
+    for (const jeito of ["capa", "foto"] as const) {
+      const opcoesPedidas = bitmapQueAnota(true);
+      const assinar = vi.fn();
+      const r = await enviarImagemDoSlide({ carrosselId: CARROSSEL, numero: jeito === "capa" ? 1 : 2, jeito, arquivo: foto(), assinar, guardar: vi.fn() });
+      expect(r).toMatchObject({ tom: "erro", texto: FOTO_ILEGIVEL });
+      expect(opcoesPedidas).toEqual([{ imageOrientation: "from-image" }]);
+      expect(assinar).not.toHaveBeenCalled();
+    }
+    expect(puts).toEqual([]);
+  });
+
+  // O ACHADO 117: a leitura que falha vale 0, e o 0 não repete.
+  it("num navegador que recusa o pedido, a foto cuja leitura falha também não repete", async () => {
+    const opcoesPedidas = bitmapQueAnota(true);
+    const quebrado = jpegSemExif();
+    Object.defineProperty(quebrado, "slice", { value: () => ({ arrayBuffer: () => Promise.reject(new Error("leitura")) }) });
+    const assinar = vi.fn();
+    const r = await enviarImagemDoSlide({ carrosselId: CARROSSEL, numero: 1, jeito: "capa", arquivo: quebrado, assinar, guardar: vi.fn() });
+    expect(r).toMatchObject({ tom: "erro", texto: FOTO_ILEGIVEL });
+    expect(opcoesPedidas).toEqual([{ imageOrientation: "from-image" }]);
+    expect(assinar).not.toHaveBeenCalled();
+  });
+
+  // O ACHADO 155: o slide pronto em JPEG ia cru sempre que não precisava encolher, com os pixels deitados e o
+  // EXIF dentro, até no Chrome. Com rotação, ele passa pelo canvas, que grava a rotação nos pixels.
+  it("o slide pronto em JPEG com o EXIF 6 passa pelo canvas, e não vai cru", async () => {
+    const opcoesPedidas = bitmapQueAnota(false);
+    const original = jpegGirado();
+    const pronta = await prepararImagem(original);
+    expect(pronta.jpeg).not.toBe(original);
+    expect(pronta).toMatchObject({ largura: 1080, altura: 1350 });
+    expect(toBlob).toEqual([{ tipo: "image/jpeg", qualidade: 0.9, largura: 1080, altura: 1350 }]);
+    expect(opcoesPedidas).toEqual([{ imageOrientation: "from-image" }, { imageOrientation: "from-image" }]);
   });
 });
 
