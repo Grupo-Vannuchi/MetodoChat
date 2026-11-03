@@ -5,15 +5,21 @@ import {
   getProfile,
   subscribeToWebhooks,
 } from "@/lib/ig";
-import { OAUTH_STATE_COOKIE, oauthStateConfere } from "@/lib/auth";
+import { OAUTH_CONVITE_COOKIE, OAUTH_STATE_COOKIE, oauthStateConfere } from "@/lib/auth";
 import { getConfig, upsertAccount } from "@/lib/db";
 import { logEvent } from "@/lib/engine";
 import { canonicalAppUrl } from "@/lib/app-url";
 import { ACCOUNT_COOKIE } from "@/lib/account";
+import { voltaDoConvite } from "./convite";
 
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
+  // COM O COOKIE DO CONVITE, a conexão é do cliente, que começou pelo link de convite
+  // (docs/specs/2026-11-03-link-de-convite.md), e o caminho é outro, em ./convite.ts. Sem ele, nada muda.
+  const conviteId = req.cookies.get(OAUTH_CONVITE_COOKIE)?.value;
+  if (conviteId) return voltaDoConvite(req, conviteId);
+
   const appUrl = req.nextUrl.origin;
   const q = req.nextUrl.searchParams;
   const code = q.get("code");
