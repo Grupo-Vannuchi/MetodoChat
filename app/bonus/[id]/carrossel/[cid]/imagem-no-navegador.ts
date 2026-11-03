@@ -21,7 +21,7 @@ import {
   type AvisoDaPublicacao,
   type RespostaDaAssinatura,
 } from "@/lib/bonus/publicar-textos";
-import { medidasDaConversao, planoDaConversao } from "@/lib/publicacao";
+import { QUALIDADE_DO_JPEG, medidasDaConversao, orientacaoDoJpeg, planoDaConversao } from "@/lib/publicacao";
 
 // A IMAGEM NO NAVEGADOR (spec da Etapa 5). O arquivo NÃO passa pelo servidor: a Vercel recusa corpo
 // acima de 4,5 MB (lib/bucket.ts), e o navegador sobe direto ao bucket, pela URL assinada que a
@@ -31,6 +31,40 @@ import { medidasDaConversao, planoDaConversao } from "@/lib/publicacao";
 // falsas.
 
 export type ImagemPronta = { jpeg: Blob; largura: number; altura: number };
+
+/**
+ * A IMAGEM ABERTA COM A ROTAÇÃO DO EXIF (achados 152 e 155). A câmera grava a foto em pé deitada, com a
+ * rotação no EXIF, e o canvas tira o EXIF: sem a rotação aplicada na abertura, a foto seria medida, cortada
+ * e publicada deitada.
+ *
+ * COPIADA de `bitmapDe` (app/publicar/navegador.ts, achados 110 e 120), que não é exportada. O pedido
+ * `imageOrientation: "from-image"` é o padrão da norma de hoje, mas não é exigido: o navegador que não o
+ * conhece dá erro, e a abertura se repete sem ele. MENOS no JPEG que precisa girar (a orientação diferente
+ * de 1, com o 0 de "não deu para ler" incluído): sem o pedido, a rotação não é garantida, então o erro sobe,
+ * e a foto fica ilegível, que se vê, em vez de deitada, que não se vê.
+ */
+async function bitmapComOrientacao(arquivo: Blob): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(arquivo, { imageOrientation: "from-image" });
+  } catch (erro) {
+    if (arquivo.type === "image/jpeg" && (await orientacaoDoArquivo(arquivo)) !== 1) throw erro;
+    return await createImageBitmap(arquivo);
+  }
+}
+
+/**
+ * A ORIENTAÇÃO EXIF DE UM ARQUIVO, copiada de `orientacaoDoArquivo` (app/publicar/navegador.ts): a do JPEG
+ * pelos primeiros 64 KiB (`orientacaoDoJpeg`, lib/publicacao.ts), e 1 para o resto. A leitura que falha vale
+ * 0 (achado 117).
+ */
+async function orientacaoDoArquivo(arquivo: Blob): Promise<number> {
+  if (arquivo.type !== "image/jpeg") return 1;
+  try {
+    return orientacaoDoJpeg(new Uint8Array(await arquivo.slice(0, 64 * 1024).arrayBuffer()));
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * Redesenha a imagem como JPEG, no tamanho do plano.
@@ -45,7 +79,7 @@ export type ImagemPronta = { jpeg: Blob; largura: number; altura: number };
  * fundo PRETO, no perfil público.
  */
 export async function converterParaJpeg(imagem: Blob, plano: { largura: number; altura: number; qualidade: number }): Promise<Blob> {
-  const bitmap = await createImageBitmap(imagem);
+  const bitmap = await bitmapComOrientacao(imagem);
   try {
     const { largura, altura } = medidasDaConversao(plano, bitmap);
     const tela = document.createElement("canvas");
@@ -64,13 +98,22 @@ export async function converterParaJpeg(imagem: Blob, plano: { largura: number; 
   }
 }
 
-/** A imagem em JPEG e as medidas FINAIS dela: JPEG que já serve vai cru; o resto passa pelo canvas. */
+/**
+ * A imagem em JPEG e as medidas FINAIS dela: JPEG que já serve vai cru; o resto passa pelo canvas.
+ *
+ * O JPEG SÓ VAI CRU SEM NADA A GIRAR (achado 155), como no /publicar (`vaiSemRedesenho`, lib/publicacao.ts):
+ * cru, ele levaria os pixels deitados e a rotação no EXIF. Com rotação (ou com o 0 de "não deu para ler"),
+ * ele passa pelo canvas nas mesmas medidas, e sai com a rotação nos pixels.
+ */
 export async function prepararImagem(arquivo: Blob): Promise<ImagemPronta> {
-  const bitmap = await createImageBitmap(arquivo);
+  const bitmap = await bitmapComOrientacao(arquivo);
   const medida = { largura: bitmap.width, altura: bitmap.height };
   bitmap.close();
   const plano = planoDaConversao({ mime: arquivo.type, ...medida });
-  if (!plano.converter) return { jpeg: arquivo, ...medida };
+  if (!plano.converter) {
+    if (arquivo.type !== "image/jpeg" || (await orientacaoDoArquivo(arquivo)) === 1) return { jpeg: arquivo, ...medida };
+    return { jpeg: await converterParaJpeg(arquivo, { largura: 0, altura: 0, qualidade: QUALIDADE_DO_JPEG }), ...medida };
+  }
   const final = medidasDaConversao(plano, { width: medida.largura, height: medida.altura });
   return { jpeg: await converterParaJpeg(arquivo, plano), ...final };
 }
@@ -116,7 +159,7 @@ async function recortarParaJpeg(
 ): Promise<{ ok: true; pronta: ImagemPronta } | { ok: false; texto: string }> {
   let bitmap: ImageBitmap;
   try {
-    bitmap = await createImageBitmap(arquivo);
+    bitmap = await bitmapComOrientacao(arquivo);
   } catch {
     return { ok: false, texto: TEXTO_FOTO_ILEGIVEL };
   }

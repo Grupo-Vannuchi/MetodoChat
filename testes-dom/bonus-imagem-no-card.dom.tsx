@@ -166,8 +166,10 @@ describe("a imagem no card", () => {
     await act(async () => {
       fireEvent.change(subirPronto(2), { target: { files: [arquivo()] } });
     });
+    // Os 4 bytes são os do JPEG que o canvas falso grava: o "x" de `arquivo` não é JPEG de verdade, a rotação
+    // dele não dá para ler, e por isso ele passa pelo canvas em vez de ir cru (achado 155).
     expect(recebidos.assinar).toEqual([
-      { id: CARROSSEL, numero: 2, destino: "slide", arquivo: { nome: "slide-2.jpg", mime: "image/jpeg", bytes: 1, largura: 1080, altura: 1350 } },
+      { id: CARROSSEL, numero: 2, destino: "slide", arquivo: { nome: "slide-2.jpg", mime: "image/jpeg", bytes: 4, largura: 1080, altura: 1350 } },
     ]);
     expect(puts).toEqual(["https://bucket/sign/178/bonus/nova.jpg?token=t"]);
     expect(recebidos.guardar).toEqual([{ id: CARROSSEL, numero: 2, caminho: "178/bonus/nova.jpg" }]);
