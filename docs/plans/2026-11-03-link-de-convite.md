@@ -42,7 +42,9 @@ Os números são os dessa cópia:
 - cada fase foi vista falhar antes do código e passar depois, com os números no passo dela;
 - as 50 provas de mutação do Apêndice A derrubaram, cada uma, o caso esperado. A primeira rodada deu 2 ruins,
   e os dois eram erros do roteiro, e não buracos nos testes: um caso com o nome errado e um trecho que aparecia
-  também num comentário. Corrigido o roteiro, deu 50 de 50;
+  também num comentário. Corrigido o roteiro, deu 50 de 50. Na revisão do plano, a auditoria pediu a 51ª, a
+  V10 (a volta do convite gravando o cookie da conta selecionada), que a spec lista e o roteiro não tinha; ela
+  entrou na execução, na FASE 7;
 - o plano, aplicado do zero numa cópia limpa, dá os 29 arquivos iguais ao fim do ensaio, byte a byte;
 - a guarda do diff (FASE 7, passo 4) mostrou só os 29 arquivos do mapa abaixo: `lib/steps.ts` muda só na
   palavra `export`, e o motor, a fila, o gerador de bônus, o `/publicar`, o bucket, os `scripts` e o `package`
@@ -2929,7 +2931,7 @@ Esperado: `[rede-global] ALVO: banco de TESTE`, nenhum `teste_tmp_*` antes e dep
 node "$SCRATCH/mutar-convite.mjs"
 ```
 
-Esperado: as 50 mutações derrubando, cada uma, o caso nomeado, e "50 mutações, 0 ruins; árvore no fim:
+Esperado: as 51 mutações derrubando, cada uma, o caso nomeado, e "51 mutações, 0 ruins; árvore no fim:
 limpa".
 
 - [ ] **Passo 4: a guarda do diff**
@@ -3121,6 +3123,7 @@ const mutacoes = [
   { nome: "V7: os segredos sem o code", arq: V, de: /= \[code, config\.instagram_app_secret\];/, para: "= [config.instagram_app_secret];", teste: T_VOLTA, cai: "a Meta em erro deixa o convite pendente, com o erro limpo dos segredos" },
   { nome: "V8: a assinatura que falha não vai para o convite", arq: V, de: /\s*await anotar\(aviso, "usado"\);/, para: "", teste: T_VOLTA, cai: "a assinatura dos webhooks que falha fica no convite usado" },
   { nome: "V9: o fim não apaga o cookie do convite", arq: V, de: /\s*res\.cookies\.set\(OAUTH_CONVITE_COOKIE, "", \{ path: "\/api\/oauth", maxAge: 0 \}\);/, para: "", teste: T_VOLTA, cai: "conecta a conta, usa o convite" },
+  { nome: "V10: a volta do convite grava o cookie da conta (pedido da auditoria)", arq: V, de: /(res\.cookies\.set\(OAUTH_CONVITE_COOKIE, "", \{ path: "\/api\/oauth", maxAge: 0 \}\);)/, para: '$1 res.cookies.set("metodochat_account", "17800000000021501", { path: "/" });', teste: T_VOLTA, cai: "conecta a conta, usa o convite" },
 
   // AS PÁGINAS
   { nome: "P1: a página do link não confere o estado", arq: "app/convite/[codigo]/page.tsx", de: /const pendente = !!convite && estadoDoConvite\(convite, agora\) === "pendente";/, para: "const pendente = !!convite || agora < 0;", teste: T_PAGINAS, cai: "o cancelado, o usado, o vencido, o inexistente e o torto têm a mesma frase" },
