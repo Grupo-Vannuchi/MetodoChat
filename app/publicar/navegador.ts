@@ -57,11 +57,11 @@ export type Navegador = {
  * primeira API.
  *
  * A OPÇÃO `imageOrientation: "from-image"` É PEDIDA, MAS NÃO É EXIGIDA. Ela é o
- * padrão da norma de hoje, e nada em produção prova que todo navegador a aceita:
- * o gerador chama `createImageBitmap(arquivo)` sem opção nenhuma
- * (`app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts`). Um navegador que a
- * recusasse deixaria TODA imagem como "ilegível". Então, se ela der erro, a
- * chamada se repete sem ela.
+ * padrão da norma de hoje, e nada em produção prova que todo navegador a aceita.
+ * Um navegador que a recusasse deixaria TODA imagem como "ilegível". Então, se
+ * ela der erro, a chamada se repete sem ela. O gerador de bônus segue a mesma
+ * regra, copiada (`app/bonus/[id]/carrossel/[cid]/imagem-no-navegador.ts`,
+ * achados 152 e 155).
  *
  * MENOS PARA O JPEG QUE PRECISA GIRAR (achado 120). O navegador que dá erro com
  * "from-image" é justamente o que não conhece o valor, e sem ele a rotação do
