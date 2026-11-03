@@ -64,7 +64,10 @@ O degrau 3 é o que o painel pode resolver:
   - **pendente:** "vence em 10/11, 14:30", com o botão **Cancelar**;
   - **usado:** "`@conta`, em 04/11, 10:12";
   - **vencido** e **cancelado**;
-  - se houver `ultimo_erro`, uma linha com "a última tentativa falhou: …" e a hora.
+  - se houver `ultimo_erro`, uma linha com "a última tentativa falhou: …" e a hora;
+  - no convite usado cuja assinatura dos webhooks falhou (achado 158), a linha diz "conectada, mas a
+    assinatura dos webhooks falhou: …" e aponta o botão "Reassinar webhooks" do passo 5
+    (`app/setup/subscription-status.tsx`).
 - O estado sai de uma função pura, nesta ordem: cancelado, usado, vencido (`expira_em <= agora`) e pendente.
 
 ### 3. A página do cliente, `/convite/[codigo]` (aberta, sem senha do painel)
@@ -74,8 +77,9 @@ O degrau 3 é o que o painel pode resolver:
   - o título "Conectar seu Instagram";
   - o passo a passo:
     1. a conta precisa ser Profissional (Comercial ou Criador);
-    2. aceitar o convite de testador pelo computador, com o link para instagram.com/accounts/manage_access e
-       o mesmo aviso da etapa 5 ("não aparece no aplicativo do celular");
+    2. aceitar o convite de testador pelo computador, com o link para instagram.com/accounts/manage_access
+       (`target="_blank"` e `rel="noreferrer"`, para o endereço com o código não ir junto) e o mesmo aviso
+       da etapa 5 ("não aparece no aplicativo do celular");
     3. o botão **"Conectar meu Instagram"**, que leva a `/api/oauth/convite/[codigo]`.
 - **Com o convite vencido, usado, cancelado ou inexistente,** a página mostra uma frase só: "Este link não vale
   mais. Peça um novo a quem te mandou." A mesma frase para os quatro, para a página não dizer qual é o caso.
@@ -114,7 +118,10 @@ O degrau 3 é o que o painel pode resolver:
      - se voltar, o mesmo `insert … on conflict` do `upsertAccount` (`lib/db.ts:427-444`), dentro da
        transação;
   6. a assinatura dos webhooks, como hoje (`route.ts:72-82`): a falha não desfaz a conexão e continua indo
-     para o evento `subscribe_failed`;
+     para o evento `subscribe_failed`. **E ela fica também no convite** (achado 158): o `ultimo_erro` do
+     convite já usado recebe "conectada, mas a assinatura dos webhooks falhou: …". Na conexão de hoje, quem
+     conecta vê essa falha no /setup; pelo convite, quem vê é o cliente, que só lê "Pronto", então o aviso
+     tem de chegar ao painel por outro caminho;
   7. o destino é `/convite/pronto`. A volta **não** grava o cookie da conta selecionada (`route.ts:91-96`),
      porque quem conectou é o cliente, e não alguém do painel;
   8. os dois cookies, o do `state` e o do convite, são apagados em toda resposta, dê certo ou não.
@@ -123,6 +130,22 @@ O degrau 3 é o que o painel pode resolver:
   - `/convite/erro`: uma frase por motivo (negado, vencido ou falhou), sempre com "Se precisar, peça um novo
     link a quem te mandou." O motivo vem de uma lista fechada. Nada do texto da Meta chega ao cliente; ele
     fica em `ultimo_erro`, para o painel.
+- **O que vai para o `ultimo_erro`** (achado 159): o texto passa pela mesma limpeza do `semSegredo`
+  (`lib/steps.ts:4950-4955`: `access_token`, `client_secret` e `appsecret_proof` viram `OCULTO`). Além dela,
+  o `code` da volta, o token e o código do convite são trocados por `OCULTO` onde aparecerem, e o resultado é
+  cortado em 160 caracteres, como o `avisoAssinatura` de hoje (`route.ts:76`). A regra é uma função pura.
+
+### 6. Os cabeçalhos das rotas do convite (achado 157)
+
+O código do convite viaja no caminho da URL, então ele fica no histórico do navegador, no log de requisições
+da Vercel e no Referer. Ele é de uso único e vence em 7 dias, mas antes do uso ele vale. Por isso, toda
+resposta de `/convite/*` e de `/api/oauth/convite/*` leva:
+- `Referrer-Policy: no-referrer`;
+- `Cache-Control: no-store`;
+- `X-Robots-Tag: noindex`.
+
+Os três vêm de um `headers()` novo no `next.config.ts`, que hoje só tem o `redirects()`, para as duas
+famílias de caminho.
 
 ## As regras, em resumo
 
@@ -159,7 +182,11 @@ O degrau 3 é o que o painel pode resolver:
   - o estado do convite, com o relógio fixo: as quatro saídas e as fronteiras (`expira_em` igual a agora é
     vencido);
   - o "para quem": vazio, só espaços, 60 e 61 caracteres;
-  - o motivo do erro: só os três da lista viram frase, e qualquer outro valor vira "falhou".
+  - o motivo do erro: só os três da lista viram frase, e qualquer outro valor vira "falhou";
+  - o texto do `ultimo_erro` (achado 159): com `access_token=…`, com o `code`, com o token e com o código do
+    convite no meio, sai com `OCULTO` no lugar de cada um; com 400 caracteres, sai com 160;
+  - os cabeçalhos (achado 157): o `headers()` do `next.config.ts` dá os três para `/convite/:path*` e para
+    `/api/oauth/convite/:path*`, e nenhum para as outras rotas.
 - **Integração, no container, com a Meta falsa no loopback** (a guarda do `IG_GRAPH_BASE` antes de qualquer
   chamada, como em `agendados.integracao.ts`):
   - a ação de gerar, com a sessão de teste: grava o hash e não o código; o link devolvido abre o convite;
@@ -168,7 +195,10 @@ O degrau 3 é o que o painel pode resolver:
   - a volta com o convite: grava a conta, marca o convite como usado com a `conta_conectada`, manda para
     `/convite/pronto` e não grava o cookie da conta;
   - a volta com o convite reivindicado no meio (marcado como usado entre o começo e a volta): não grava a conta;
-  - a volta com a Meta em erro: o convite segue pendente, com o `ultimo_erro`;
+  - a volta com a Meta em erro: o convite segue pendente, com o `ultimo_erro` limpo (a Meta falsa devolve um
+    erro com o `code` e um `access_token=` no texto, e nenhum dos dois chega à coluna);
+  - a volta com a assinatura dos webhooks em erro: a conta é gravada, o convite fica usado, e o `ultimo_erro`
+    diz "conectada, mas a assinatura dos webhooks falhou" (achado 158);
   - a volta com `?error=`: "autorização negada" no convite;
   - a volta sem o cookie do convite: igual a hoje, para `/?conectado=1` e com o cookie da conta;
   - o começo de hoje apaga o cookie do convite;
@@ -177,7 +207,9 @@ O degrau 3 é o que o painel pode resolver:
 - **Tela:** o bloco da etapa 6 mostra o link uma vez, com o copiar, e a lista com os quatro estados.
 - **As mutações,** entre outras: a reivindicação sem o `usado_em is null`; a conta gravada fora da transação; a
   volta do convite gravando o cookie da conta; a página dizendo qual dos quatro casos é; o código guardado no
-  lugar do hash; o `/convite` fora da `PUBLIC_PREFIXES`; o começo de hoje sem apagar o cookie do convite.
+  lugar do hash; o `/convite` fora da `PUBLIC_PREFIXES`; o começo de hoje sem apagar o cookie do convite; a
+  limpeza do `ultimo_erro` sem o `code`; o corte em 160 tirado; um dos três cabeçalhos tirado; a assinatura que
+  falha sem ir para o convite.
 
 ## A prova
 
@@ -185,9 +217,15 @@ O degrau 3 é o que o painel pode resolver:
   --a-mao`): o preview lê o banco de produção, e a tabela tem de existir para ele. Uma tabela vazia que nenhum
   código da produção lê não muda nada no painel de hoje. O deploy do merge tem de dizer "Nada a aplicar: as 22
   migrações".
+- **Depois da 021 e antes do preview, o auditor lê na produção, só lendo:**
+  - o `relrowsecurity` da tabela nova = true;
+  - `has_table_privilege` de `anon` e de `authenticated` = false para select, insert, update e delete;
+  - 0 linhas.
 - **No preview,** com o OK do Eduardo e a hora mandada ao auditor antes de cada gravação:
   - gerar um convite: 1 linha nova, com o hash e sem o código;
   - abrir `/convite/[codigo]` no endereço do preview, numa janela anônima: o passo a passo;
+  - os três cabeçalhos medidos na resposta de verdade, na página e no começo (`curl -I`), porque o teste
+    puro lê a configuração, e não a resposta;
   - "Conectar meu Instagram": a tela de autorização do Instagram, **e parar ali**. A volta registrada na Meta é
     a da produção, que ainda não conhece o convite, e o cookie do `state` ficou no endereço do preview;
   - cancelar o convite e abrir a página de novo: "Este link não vale mais".
