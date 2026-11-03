@@ -228,6 +228,7 @@ describe("o que falta para publicar", () => {
   const base = {
     total: 5,
     soTexto: [1, 5],
+    capa: false,
     imagens: { 2: { caminho: "c2", versao: "v" }, 3: { caminho: "c3", versao: "v" } },
     origem: "gravada" as const,
     slidesNaoSalvos: [],
@@ -292,7 +293,7 @@ describe("o que falta para publicar", () => {
 describe("as artes que a tela prepara ao publicar", () => {
   it("o só texto e o com foto, em ordem; o slide pronto e o sem imagem, não", () => {
     const imagens = { 2: { jeito: "foto" as const }, 3: { jeito: "slide" as const } };
-    expect(artesParaPublicar({ total: 5, soTexto: [1, 5], imagens })).toEqual([
+    expect(artesParaPublicar({ total: 5, soTexto: [1, 5], imagens, capa: false })).toEqual([
       { numero: 1, comFoto: false },
       { numero: 2, comFoto: true },
       { numero: 5, comFoto: false },
@@ -300,7 +301,7 @@ describe("as artes que a tela prepara ao publicar", () => {
   });
 
   it("a foto guardada num slide só texto não conta: o espaço não existe", () => {
-    expect(artesParaPublicar({ total: 3, soTexto: [2], imagens: { 2: { jeito: "foto" } } })).toEqual([{ numero: 2, comFoto: false }]);
+    expect(artesParaPublicar({ total: 3, soTexto: [2], imagens: { 2: { jeito: "foto" } }, capa: false })).toEqual([{ numero: 2, comFoto: false }]);
   });
 });
 

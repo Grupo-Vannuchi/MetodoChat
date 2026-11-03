@@ -57,6 +57,13 @@ export function textoDoProblemaDaImagem(p: ProblemaDaImagem): string {
     : "A OpenAI devolveu uma imagem que não serve para o espaço da arte. Tente de novo.";
 }
 
+/** A imagem da capa que voltou e não serve (Etapa 11), com a mesma regra da frase acima. */
+export function textoDoProblemaDaCapaGerada(p: ProblemaDaImagem): string {
+  return p === "pesada"
+    ? "A imagem veio com mais de 2 MB, e o Chat não a guarda. Tente de novo."
+    : "A OpenAI devolveu uma imagem que não serve para a capa. Tente de novo.";
+}
+
 export const TEXTO_SEM_CHAVE_DA_IMAGEM =
   "A geração de imagem não está configurada: falta a chave da OpenAI no servidor. Avise quem cuida do Chat.";
 export const TEXTO_OPENAI_DEMOROU = "A OpenAI demorou demais para responder. Tente de novo.";

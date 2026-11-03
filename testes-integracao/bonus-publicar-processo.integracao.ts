@@ -343,7 +343,7 @@ describe("guardar a imagem", () => {
     const foto = await subir(id, 2, "foto");
     const r = await processo.guardarImagem({ id, numero: 2, caminho: foto, contas });
     const cabecalho = tela.cabecalhoParaVersao(contas.find((c) => c.ig_user_id === CONTA) ?? null);
-    const miniatura = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], cabecalho, { 2: foto })[1];
+    const miniatura = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [1, 5], cabecalho, { 2: foto }, regras.SEM_CAPA)[1];
     expect(r).toEqual({ ok: true, versao: versaoDo(2), jeito: "foto", versaoDaMiniatura: miniatura });
     expect(regras.fotosDaArte(await arteDe(id), 5)).toEqual({ 2: foto });
   });
@@ -427,7 +427,7 @@ describe("publicar com foto no espaço", () => {
   // "Só texto" tira o espaço: a foto fica guardada, e não é usada (volta se o espaço voltar).
   it("a foto guardada num slide marcado só texto não entra: ele vai com a arte só texto", async () => {
     const { id } = await comFoto();
-    await repo.salvarSoTextoDaArte(id, [1, 2, 5], null);
+    await repo.salvarSoTextoDaArte(id, [1, 2, 5], null, false);
     const artes = await Promise.all(
       [1, 2, 5].map(async (n) => ({ numero: n, caminho: await subir(id, n, "fila"), versao: desenho(n, null) }))
     );
@@ -781,5 +781,174 @@ describe("publicar com um slide que sai cortado", () => {
     expect(r.ok ? null : r.recusa).toEqual({ motivo: "nao_cabe", slides: [1], soTextoResolve: [] });
     expect(daFila()).toEqual([]);
     expect(await fila()).toEqual([]);
+  });
+});
+
+// A FOTO DA CAPA (spec da Etapa 11, "A imagem da capa"): o slide 1 em capa recebe só a imagem da capa, em
+// `bonus-capa`, pela regra da capa (o 4:5 de 1080×1350 a 2160×2700, ou a gerada 1024×1536, até 2 MB). A
+// imagem da capa só entra no slide em capa, e a troca de jeito apaga a imagem anterior do bucket, como a
+// troca de foto. A capa desligada no meio de uma subida é recusada no guardar, com a linha travada.
+describe("a foto da capa", () => {
+  /** O slide 1 em capa; o 5 só texto; o 2, o 3 e o 4 com espaço. */
+  const ARTE_CAPA = { conta: CONTA, nome: "Thiago Vannuchi", arroba: "thiagovannuchi", soTexto: [5], capa: true };
+  const CAPA_DECLARADA = { nome: "capa.jpg", mime: "image/jpeg", bytes: 1000, largura: 1080, altura: 1350 };
+  const GERADA_DECLARADA = { nome: "imagem-gerada.jpg", mime: "image/jpeg", bytes: 1000, largura: 1024, altura: 1536 };
+  const CAMINHO_DA_CAPA = new RegExp(`^${CONTA}/bonus-capa/[0-9a-f-]{36}\.jpg$`);
+
+  async function subirCapa(id: string, arquivo: Record<string, unknown> = CAPA_DECLARADA): Promise<string> {
+    const a = await processo.assinarImagem({ id, numero: 1, destino: "capa", arquivo, contas });
+    if (!a.ok) throw new Error(`assinar recusou: ${a.recusa.motivo}`);
+    const r = await fetch(a.url, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: JPEG });
+    if (!r.ok) throw new Error(`o PUT falhou: ${r.status}`);
+    return a.caminho;
+  }
+
+  it("assina em bonus-capa, na pasta da conta do carrossel; a gerada em pé (1024×1536) também passa", async () => {
+    const id = await carrossel(ARTE_CAPA);
+    expect(await subirCapa(id)).toMatch(CAMINHO_DA_CAPA);
+    expect(await subirCapa(id, GERADA_DECLARADA)).toMatch(CAMINHO_DA_CAPA);
+  });
+
+  it("sem a capa ligada, a imagem da capa é recusada; no slide em capa, a foto do espaço e o slide pronto também", async () => {
+    const semCapa = await carrossel({ ...ARTE_CAPA, capa: false });
+    const r = await processo.assinarImagem({ id: semCapa, numero: 1, destino: "capa", arquivo: CAPA_DECLARADA, contas });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "sem_capa", numero: 1 });
+    const id = await carrossel(ARTE_CAPA);
+    for (const [destino, arquivo] of [
+      ["foto", FOTO_DECLARADA],
+      ["slide", DECLARADO],
+    ] as const) {
+      const recusa = await processo.assinarImagem({ id, numero: 1, destino, arquivo, contas });
+      expect(recusa.ok ? null : recusa.recusa).toEqual({ motivo: "na_capa", numero: 1 });
+    }
+    expect(bucket.chamadas).toEqual([]);
+  });
+
+  it("a foto fora do 4:5, ou acima de 2 MB, é recusada como capa", async () => {
+    const id = await carrossel(ARTE_CAPA);
+    const deitada = await processo.assinarImagem({ id, numero: 1, destino: "capa", arquivo: FOTO_DECLARADA, contas });
+    expect(deitada.ok ? null : deitada.recusa).toEqual({ motivo: "capa_foto", problema: "proporcao" });
+    const pesada = await processo.assinarImagem({ id, numero: 1, destino: "capa", arquivo: { ...CAPA_DECLARADA, bytes: 2 * 1024 * 1024 + 1 }, contas });
+    expect(pesada.ok ? null : pesada.recusa).toEqual({ motivo: "capa_foto", problema: "pesada" });
+  });
+
+  it("guardar a capa devolve o jeito capa e a miniatura com a capa; a foto anterior do slide 1 sai do bucket", async () => {
+    const id = await carrossel({ ...ARTE_CAPA, capa: false });
+    const foto = await subir(id, 1, "foto");
+    await processo.guardarImagem({ id, numero: 1, caminho: foto, contas });
+    await repo.salvarSoTextoDaArte(id, [5], null, true);
+    const capa = await subirCapa(id);
+    const r = await processo.guardarImagem({ id, numero: 1, caminho: capa, contas });
+    const cabecalho = tela.cabecalhoParaVersao(contas.find((c) => c.ig_user_id === CONTA) ?? null);
+    const miniatura = tela.versoesDosSlides(slides.slidesDoTexto(TEXTO), [5], cabecalho, {}, { ligada: true, caminho: capa })[0];
+    expect(r).toEqual({ ok: true, versao: versaoDo(1), jeito: "capa", versaoDaMiniatura: miniatura });
+    expect(bucket.objetos.has(foto)).toBe(false);
+    expect(regras.capaDaArte(await arteDe(id), 5)).toEqual({ ligada: true, caminho: capa });
+  });
+
+  it("a capa desligada no meio da subida: guardar a imagem da capa é recusado, e nada muda na arte", async () => {
+    const id = await carrossel(ARTE_CAPA);
+    const capa = await subirCapa(id);
+    await repo.salvarSoTextoDaArte(id, [5], null, false);
+    const r = await processo.guardarImagem({ id, numero: 1, caminho: capa, contas });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "sem_capa", numero: 1 });
+    expect(regras.imagensDaArte(await arteDe(id), 5)).toEqual({});
+  });
+
+  it("a capa ligada no meio da subida da foto do espaço: guardar a foto no slide 1 é recusado", async () => {
+    const id = await carrossel({ ...ARTE_CAPA, capa: false });
+    const foto = await subir(id, 1, "foto");
+    await repo.salvarSoTextoDaArte(id, [5], null, true);
+    const r = await processo.guardarImagem({ id, numero: 1, caminho: foto, contas });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "na_capa", numero: 1 });
+  });
+});
+
+// PUBLICAR COM A CAPA (spec da Etapa 11, "O publicar"): a capa sai com a arte do Chat, desenhada com a
+// imagem da capa, pela mesma subida das artes "Só texto" e com foto. A imagem da capa nunca é copiada nem
+// vai à fila. O publicar recusa a capa sem imagem, a arte desenhada com outra imagem e o gancho que não cabe
+// na capa; e a imagem da capa guardada num slide com espaço (a capa desligada) conta como a que falta.
+describe("publicar com a capa", () => {
+  const ARTE_CAPA = { conta: CONTA, nome: "Thiago Vannuchi", arroba: "thiagovannuchi", soTexto: [5], capa: true };
+  const CAPA_DECLARADA = { nome: "capa.jpg", mime: "image/jpeg", bytes: 1000, largura: 1080, altura: 1350 };
+  const desenho = (texto: TextoDeCarrossel, n: number, imagem: string | null) => regras.versaoDoDesenho(slides.slidesDoTexto(texto)[n - 1], imagem);
+
+  async function subirCapa(id: string): Promise<string> {
+    const a = await processo.assinarImagem({ id, numero: 1, destino: "capa", arquivo: CAPA_DECLARADA, contas });
+    if (!a.ok) throw new Error(`assinar recusou: ${a.recusa.motivo}`);
+    await fetch(a.url, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: JPEG });
+    return a.caminho;
+  }
+
+  /** O slide 1 em capa (com a imagem dela, se pedida); o 2, o 3 e o 4 com o slide pronto; o 5 só texto. */
+  async function comCapa(texto: TextoDeCarrossel = TEXTO, comImagem = true) {
+    const id = await carrossel(ARTE_CAPA, texto);
+    let capa: string | null = null;
+    if (comImagem) {
+      capa = await subirCapa(id);
+      const g = await processo.guardarImagem({ id, numero: 1, caminho: capa, contas });
+      if (!g.ok) throw new Error(`guardar recusou: ${g.recusa.motivo}`);
+    }
+    for (const n of [2, 3, 4]) await processo.guardarImagem({ id, numero: n, caminho: await subir(id, n, "slide"), contas });
+    return { id, capa };
+  }
+
+  it("a capa vai com a arte subida, desenhada com a imagem dela; a imagem da capa não é copiada nem vai à fila", async () => {
+    const { id, capa } = await comCapa();
+    const artes = [
+      { numero: 1, caminho: await subir(id, 1, "fila"), versao: desenho(TEXTO, 1, capa) },
+      { numero: 5, caminho: await subir(id, 5, "fila"), versao: desenho(TEXTO, 5, null) },
+    ];
+    bucket.chamadas = [];
+    expect(await processo.publicarNaFila({ id, quando: null, artes, contas, drenar })).toEqual({ ok: true, quando: null, jaVale: true });
+    const [item] = await fila();
+    expect(item.payload.caminhos[0]).toBe(artes[0].caminho);
+    expect(item.payload.caminhos).not.toContain(capa);
+    expect(bucket.chamadas).not.toContain(`baixou ${capa}`);
+    expect(bucket.objetos.has(capa as string)).toBe(true);
+  });
+
+  it("a capa sem imagem é recusada antes de tocar o bucket, e a arte dela nem se assina", async () => {
+    const { id } = await comCapa(TEXTO, false);
+    const daCapa = await processo.assinarImagem({ id, numero: 1, destino: "fila", arquivo: DECLARADO, contas });
+    expect(daCapa.ok ? null : daCapa.recusa).toEqual({ motivo: "faltam_imagens", slides: [1] });
+    const artes = [{ numero: 5, caminho: await subir(id, 5, "fila"), versao: desenho(TEXTO, 5, null) }];
+    const r = await processo.publicarNaFila({ id, quando: null, artes, contas, drenar });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "faltam_imagens", slides: [1] });
+    expect(await fila()).toEqual([]);
+  });
+
+  it("a arte da capa desenhada com outra imagem é velha, e as artes subidas saem do bucket", async () => {
+    const { id } = await comCapa();
+    const OUTRA = `${CONTA}/bonus-capa/0b2f4c1e-7a9d-4e3b-9c5f-1d2e3f4a5b6d.jpg`;
+    const artes = [
+      { numero: 1, caminho: await subir(id, 1, "fila"), versao: desenho(TEXTO, 1, OUTRA) },
+      { numero: 5, caminho: await subir(id, 5, "fila"), versao: desenho(TEXTO, 5, null) },
+    ];
+    const r = await processo.publicarNaFila({ id, quando: null, artes, contas, drenar });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "arte_velha", numero: 1 });
+    for (const a of artes) expect(bucket.objetos.has(a.caminho)).toBe(false);
+  });
+
+  it("o gancho que não cabe na capa é recusado, e só encurtar resolve", async () => {
+    const texto: TextoDeCarrossel = { ...TEXTO, gancho: "Desinconstitucionalissimamente proibido" };
+    const { id, capa } = await comCapa(texto);
+    const artes = [
+      { numero: 1, caminho: await subir(id, 1, "fila"), versao: desenho(texto, 1, capa) },
+      { numero: 5, caminho: await subir(id, 5, "fila"), versao: desenho(texto, 5, null) },
+    ];
+    const r = await processo.publicarNaFila({ id, quando: null, artes, contas, drenar });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "nao_cabe", slides: [1], soTextoResolve: [] });
+    expect(await fila()).toEqual([]);
+  });
+
+  it("com a capa desligada, a imagem da capa guardada no slide 1 conta como a que falta, e não é copiada", async () => {
+    const { id } = await comCapa();
+    await repo.salvarSoTextoDaArte(id, [5], null, false);
+    bucket.chamadas = [];
+    const artes = [{ numero: 5, caminho: await subir(id, 5, "fila"), versao: desenho(TEXTO, 5, null) }];
+    const r = await processo.publicarNaFila({ id, quando: null, artes, contas, drenar });
+    expect(r.ok ? null : r.recusa).toEqual({ motivo: "faltam_imagens", slides: [1] });
+    expect(bucket.chamadas.filter((c) => c.startsWith("baixou"))).toEqual([]);
   });
 });

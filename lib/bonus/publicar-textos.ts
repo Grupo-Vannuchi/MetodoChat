@@ -203,6 +203,25 @@ export function textoDoProblemaDaFoto(p: ProblemaDaFoto): string {
   }
 }
 
+/**
+ * A FOTO DA CAPA que não serve (spec da Etapa 11). Como na foto do espaço, o navegador recorta e reduz
+ * antes de subir: a proporção e o "grande" só aparecem num pedido montado à mão ou numa página velha.
+ */
+export function textoDoProblemaDaCapa(p: ProblemaDaFoto): string {
+  switch (p) {
+    case "sem_medida":
+      return "Não consegui ler o tamanho da foto da capa. Tente outra foto.";
+    case "proporcao":
+      return "A foto da capa tem de chegar cortada em 4:5, em pé. Recarregue a página e tente de novo.";
+    case "pequena":
+      return "A foto é pequena para a capa: o mínimo é 1080×1350, depois do corte em 4:5.";
+    case "grande":
+      return "A foto da capa tem de chegar reduzida a no máximo 2160×2700. Recarregue a página e tente de novo.";
+    case "pesada":
+      return "A foto da capa passou de 2 MB mesmo reduzida. Tente outra foto, ou exporte esta com menos qualidade.";
+  }
+}
+
 /** As recusas de assinar, guardar e publicar (publicar-processo.ts). */
 export type RecusaDaPublicacaoDoCarrossel =
   | { motivo: "nao_pronto" }
@@ -215,6 +234,9 @@ export type RecusaDaPublicacaoDoCarrossel =
   | { motivo: "tipo" }
   | { motivo: "proporcao"; problema: ProblemaDaProporcao }
   | { motivo: "foto"; problema: ProblemaDaFoto }
+  | { motivo: "capa_foto"; problema: ProblemaDaFoto }
+  | { motivo: "sem_capa"; numero: number }
+  | { motivo: "na_capa"; numero: number }
   | { motivo: "arquivo"; texto: string }
   | { motivo: "caminho" }
   | { motivo: "faltam_imagens"; slides: number[] }
@@ -251,6 +273,12 @@ export function textoDaRecusaDaPublicacaoDoCarrossel(r: RecusaDaPublicacaoDoCarr
       return textoDaProporcao(r.problema);
     case "foto":
       return textoDoProblemaDaFoto(r.problema);
+    case "capa_foto":
+      return textoDoProblemaDaCapa(r.problema);
+    case "sem_capa":
+      return `O slide ${r.numero} não está como capa: a imagem da capa só entra com a "Capa com imagem" ligada. Recarregue a página.`;
+    case "na_capa":
+      return `O slide ${r.numero} está como capa: ele recebe só a foto da capa, e não a foto do espaço nem o slide pronto. Recarregue a página.`;
     case "arquivo":
       return r.texto;
     case "caminho":

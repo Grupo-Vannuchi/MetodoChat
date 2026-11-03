@@ -242,6 +242,56 @@ describe("enviar a foto do espaço de um slide", () => {
   });
 });
 
+// A FOTO DA CAPA (spec da Etapa 11): o mesmo caminho da foto do espaço, com o corte em 4:5, a redução
+// até 2160×2700, o destino `capa` e as frases da capa.
+describe("enviar a foto da capa do slide 1", () => {
+  const assinarOk = vi.fn(
+    async (): Promise<RespostaDaAssinatura> => ({ ok: true, caminho: "178/bonus-capa/u.jpg", url: "https://bucket/sign/178/bonus-capa/u.jpg?token=t" })
+  );
+  const guardado: AvisoDaImagem = { tom: "ok", texto: "Imagem guardada.", em: 1, versao: "0a1b2c3d", jeito: "capa", versaoDaMiniatura: "m1-capa" };
+
+  it("a foto de celular em 3:4 perde o alto e o baixo, é reduzida a 2160×2700, assina no destino da capa, sobe e guarda", async () => {
+    medidas = { width: 3024, height: 4032 };
+    const guardar = vi.fn(async () => guardado);
+    const r = await enviarImagemDoSlide({ carrosselId: CARROSSEL, numero: 1, jeito: "capa", arquivo: arquivo("image/jpeg"), assinar: assinarOk, guardar });
+    expect(r).toBe(guardado);
+    expect(pinceladas).toEqual(["cor #ffffff", "pintou 2160x2700", "recortou 0,126 3024x3780 em 2160x2700", "fechou"]);
+    expect(toBlob).toEqual([{ tipo: "image/jpeg", qualidade: 0.9, largura: 2160, altura: 2700 }]);
+    expect(assinarOk).toHaveBeenCalledWith({
+      id: CARROSSEL,
+      numero: 1,
+      destino: "capa",
+      arquivo: { nome: "capa-1.jpg", mime: "image/jpeg", bytes: 4, largura: 2160, altura: 2700 },
+    });
+    expect(puts).toEqual([{ url: "https://bucket/sign/178/bonus-capa/u.jpg?token=t", tipo: "image/jpeg", corpo: expect.any(Blob) }]);
+    expect(guardar).toHaveBeenCalledWith({ id: CARROSSEL, numero: 1, caminho: "178/bonus-capa/u.jpg" });
+  });
+
+  it("a foto deitada perde as laterais, e não é ampliada", async () => {
+    medidas = { width: 1920, height: 1440 };
+    await enviarImagemDoSlide({ carrosselId: CARROSSEL, numero: 1, jeito: "capa", arquivo: arquivo("image/jpeg"), assinar: assinarOk, guardar: vi.fn() });
+    expect(pinceladas).toContain("recortou 384,0 1152x1440 em 1152x1440");
+  });
+
+  it("a foto cujo corte fica menor que 1080×1350 é recusada antes de assinar, com a frase da capa", async () => {
+    medidas = { width: 1000, height: 1600 };
+    const assinar = vi.fn();
+    const r = await enviarImagemDoSlide({ carrosselId: CARROSSEL, numero: 1, jeito: "capa", arquivo: arquivo("image/jpeg"), assinar, guardar: vi.fn() });
+    expect(r).toMatchObject({ tom: "erro", texto: "A foto é pequena para a capa: o mínimo é 1080×1350, depois do corte em 4:5." });
+    expect(assinar).not.toHaveBeenCalled();
+    expect(toBlob).toEqual([]);
+  });
+
+  it("a foto da capa que passa de 2 MB depois de reduzida é recusada antes de assinar", async () => {
+    medidas = { width: 2160, height: 2700 };
+    bytesDoJpeg = FOTO_DO_ESPACO_MAX_BYTES + 1;
+    const assinar = vi.fn();
+    const r = await enviarImagemDoSlide({ carrosselId: CARROSSEL, numero: 1, jeito: "capa", arquivo: arquivo("image/jpeg"), assinar, guardar: vi.fn() });
+    expect(r).toMatchObject({ tom: "erro", texto: "A foto da capa passou de 2 MB mesmo reduzida. Tente outra foto, ou exporte esta com menos qualidade." });
+    expect(assinar).not.toHaveBeenCalled();
+  });
+});
+
 describe("as artes do Chat, na hora de publicar", () => {
   const assinar = vi.fn(async (p: unknown): Promise<RespostaDaAssinatura> => {
     const n = (p as { numero: number }).numero;

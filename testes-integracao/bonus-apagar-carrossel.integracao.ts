@@ -244,6 +244,17 @@ describe("apagar um rascunho", () => {
     await imagemGerada(id, "gerando", 211_000);
     expect(await apagar.apagarCarrossel(id)).toEqual({ ok: true });
   });
+
+  // A CAPA (Etapa 11): a imagem dela, em `bonus-capa/`, sai do bucket com o carrossel.
+  it("a imagem da capa sai do bucket com o carrossel", async () => {
+    const CAPA = `${CONTA}/bonus-capa/${u(4)}.jpg`;
+    const id = await carrossel({ arte: { ...ARTE, capa: true, imagens: { "1": { caminho: CAPA, versao: "v" } } } });
+    noBucket(CAPA, ALHEIO);
+    expect(await apagar.apagarCarrossel(id)).toEqual({ ok: true });
+    expect(await existe(id)).toBe(false);
+    expect([...bucket.objetos.keys()]).toEqual([ALHEIO]);
+    expect(bucket.chamadas).toEqual([`apagou ${CAPA}`]);
+  });
 });
 
 describe("as recusas, sem apagar nada nem tocar no bucket", () => {
@@ -350,7 +361,7 @@ describe("o apagar e o agendar ao mesmo tempo: um espera o outro", () => {
         await tx.query(`select id from carrosseis_gerados where id = $1 for update`, [id]);
         await tx.query(`delete from carrosseis_gerados where id = $1`, [id]);
       },
-      () => publicar.reservarPublicacao(id, { texto: JSON.stringify(TEXTO), soTexto: [], imagens: {} }, "pub:tarde", [FILA])
+      () => publicar.reservarPublicacao(id, { texto: JSON.stringify(TEXTO), soTexto: [], capa: false, imagens: {} }, "pub:tarde", [FILA])
     );
     expect(r).toEqual({ ok: false, recusa: { motivo: "nao_pronto" } });
   });

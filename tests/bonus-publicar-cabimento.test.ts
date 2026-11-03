@@ -100,22 +100,22 @@ describe("o corte do slide de um card, com o texto dos campos dele", () => {
   const card2 = (texto: string) => ({ slide_1_titulo: VALORES.slide_1_titulo, slide_1_texto: texto });
 
   it("com a foto no espaço, conta com o espaço", () => {
-    expect(corteDoCard({ total: 3, numero: 2, valores: card2(OITO_LINHAS), soTexto: false, jeito: "foto" })).toBe("so_texto_resolve");
+    expect(corteDoCard({ capa: false, total: 3, numero: 2, valores: card2(OITO_LINHAS), soTexto: false, jeito: "foto" })).toBe("so_texto_resolve");
   });
 
   it("marcado Só texto, conta sem o espaço, e a foto guardada não conta", () => {
-    expect(corteDoCard({ total: 3, numero: 2, valores: card2(OITO_LINHAS), soTexto: true, jeito: "foto" })).toBeNull();
-    expect(corteDoCard({ total: 3, numero: 2, valores: card2(TRINTA_LINHAS), soTexto: true, jeito: null })).toBe("encurtar");
+    expect(corteDoCard({ capa: false, total: 3, numero: 2, valores: card2(OITO_LINHAS), soTexto: true, jeito: "foto" })).toBeNull();
+    expect(corteDoCard({ capa: false, total: 3, numero: 2, valores: card2(TRINTA_LINHAS), soTexto: true, jeito: null })).toBe("encurtar");
   });
 
   it("com o slide pronto do Canva, ou ainda sem imagem, não conta", () => {
-    expect(corteDoCard({ total: 3, numero: 2, valores: card2(TRINTA_LINHAS), soTexto: false, jeito: "slide" })).toBeNull();
-    expect(corteDoCard({ total: 3, numero: 2, valores: card2(TRINTA_LINHAS), soTexto: false, jeito: null })).toBeNull();
+    expect(corteDoCard({ capa: false, total: 3, numero: 2, valores: card2(TRINTA_LINHAS), soTexto: false, jeito: "slide" })).toBeNull();
+    expect(corteDoCard({ capa: false, total: 3, numero: 2, valores: card2(TRINTA_LINHAS), soTexto: false, jeito: null })).toBeNull();
   });
 
   it("no post, o texto e a chamada são do mesmo card", () => {
     const valores = { texto: PALAVRA_DA_PROVA, chamada: "Salve este post." };
-    expect(corteDoCard({ total: 1, numero: 1, valores, soTexto: false, jeito: "foto" })).toBe("encurtar");
+    expect(corteDoCard({ capa: false, total: 1, numero: 1, valores, soTexto: false, jeito: "foto" })).toBe("encurtar");
   });
 });
 

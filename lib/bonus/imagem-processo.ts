@@ -1,11 +1,17 @@
 import "server-only";
 import type { ContaDoCabecalho } from "./arte-conta";
-import { comEspaco } from "./arte-escolhas";
+import { comEspaco, ehCapa } from "./arte-escolhas";
 import { medidasDoJpeg } from "./imagem-jpeg";
-import { gerarNaOpenAI, type GerarNaOpenAI } from "./imagem-openai";
-import { problemaDaImagemGerada } from "./imagem-regras";
+import { gerarCapaNaOpenAI, gerarNaOpenAI, type GerarNaOpenAI } from "./imagem-openai";
+import { problemaDaCapaGerada, problemaDaImagemGerada, type FormatoDaImagem } from "./imagem-regras";
 import { marcarFalhou, marcarPronta as marcarProntaNoBanco, reservarImagem } from "./imagem-repositorio";
-import { TEXTO_IMAGEM_FALHOU_SEM_MOTIVO, TEXTO_IMAGEM_NAO_SUBIU, textoDoProblemaDaImagem, type RecusaDaImagem } from "./imagem-textos";
+import {
+  TEXTO_IMAGEM_FALHOU_SEM_MOTIVO,
+  TEXTO_IMAGEM_NAO_SUBIU,
+  textoDoProblemaDaCapaGerada,
+  textoDoProblemaDaImagem,
+  type RecusaDaImagem,
+} from "./imagem-textos";
 import { validarDescricao } from "./prompt-ilustracao";
 import { apagarSemDerrubar } from "./publicar-bucket";
 import { assinarImagem, conferirCarrossel, guardarImagem } from "./publicar-processo";
@@ -25,8 +31,15 @@ import { textoDaRecusaDaPublicacaoDoCarrossel } from "./publicar-textos";
 // O QUE SAI DO BUCKET NUMA FALHA (achado 89): enquanto o `guardarImagem` não confirmou, a falha apaga o
 // arquivo que subiu. Depois dele, o arquivo é a foto do slide, e a anterior já saiu do bucket: uma falha
 // ao marcar a linha deixa o arquivo, e a linha `gerando` vence pelo prazo e conta no teto.
+//
+// A CAPA (spec da Etapa 11): o pedido no slide 1 em capa sai no formato da capa, em pé, com o pedido e o
+// corpo dela (imagem-openai.ts), a regra dela e o destino `bonus-capa`. O teto é o mesmo (10 por dia): a
+// capa conta junto com as outras. O formato é decidido no pedido; se o jeito mudar antes de a imagem
+// voltar, o guardar recusa com a linha travada, e a imagem que subiu sai do bucket.
 
-export type PedidoDaImagem = { ok: true; reservaId: string; hoje: number } | { ok: false; recusa: RecusaDaImagem; hoje?: number };
+export type PedidoDaImagem =
+  | { ok: true; reservaId: string; hoje: number; formato: FormatoDaImagem }
+  | { ok: false; recusa: RecusaDaImagem; hoje?: number };
 
 /** PEDIR UMA IMAGEM: as conferências que não custam nada, e a reserva no teto. */
 export async function pedirImagem(p: {
@@ -41,12 +54,13 @@ export async function pedirImagem(p: {
   const c = await conferirCarrossel(p.id, p.contas);
   if (!c.ok) return c;
   if (!Number.isInteger(p.numero) || !c.slides[p.numero - 1]) return { ok: false, recusa: { motivo: "slide" } };
-  if (!comEspaco(c.escolhas, p.numero)) return { ok: false, recusa: { motivo: "sem_espaco", numero: p.numero } };
+  const capa = ehCapa(c.escolhas, p.numero);
+  if (!capa && !comEspaco(c.escolhas, p.numero)) return { ok: false, recusa: { motivo: "sem_espaco", numero: p.numero } };
   const descricao = validarDescricao(p.descricao);
   if (!descricao.ok) return { ok: false, recusa: { motivo: "descricao", texto: descricao.mensagem } };
   if (!ambiente.OPENAI_API_KEY?.trim()) return { ok: false, recusa: { motivo: "sem_chave" } };
   const r = await reservarImagem({ carrosselId: c.linha.id, numero: p.numero, descricao: p.descricao.trim() });
-  if (r.ok) return { ok: true, reservaId: r.id, hoje: r.hoje };
+  if (r.ok) return { ok: true, reservaId: r.id, hoje: r.hoje, formato: capa ? "capa" : "espaco" };
   // O carrossel apagado no meio (achado 96) não tem a conta do dia: a transação da reserva abortou.
   return r.motivo === "nao_pronto" ? { ok: false, recusa: { motivo: "nao_pronto" } } : { ok: false, recusa: { motivo: r.motivo }, hoje: r.hoje };
 }
@@ -61,11 +75,14 @@ export async function gerarImagem(p: {
   numero: number;
   descricao: string;
   contas: ContaDoCabecalho[];
+  /** O formato que o pedido decidiu (`pedirImagem`): o da capa, em pé, ou o do espaço. */
+  formato: FormatoDaImagem;
   gerar?: GerarNaOpenAI;
   guardar?: typeof guardarImagem;
   marcarPronta?: typeof marcarProntaNoBanco;
 }): Promise<{ ok: true; caminho: string } | { ok: false; motivo: string }> {
-  const gerar = p.gerar ?? ((descricao: string) => gerarNaOpenAI(descricao));
+  const capa = p.formato === "capa";
+  const gerar = p.gerar ?? ((descricao: string) => (capa ? gerarCapaNaOpenAI(descricao) : gerarNaOpenAI(descricao)));
   const guardar = p.guardar ?? guardarImagem;
   const marcarPronta = p.marcarPronta ?? marcarProntaNoBanco;
   let subido: string | null = null;
@@ -83,11 +100,11 @@ export async function gerarImagem(p: {
   try {
     const r = await gerar(p.descricao);
     if (!r.ok) return falhar(r.erro);
-    const problema = problemaDaImagemGerada(r.bytes);
+    const problema = capa ? problemaDaCapaGerada(r.bytes) : problemaDaImagemGerada(r.bytes);
     const medidas = medidasDoJpeg(r.bytes);
-    if (problema || !medidas) return falhar(textoDoProblemaDaImagem(problema ?? "formato"));
+    if (problema || !medidas) return falhar((capa ? textoDoProblemaDaCapaGerada : textoDoProblemaDaImagem)(problema ?? "formato"));
     const arquivo = { nome: "imagem-gerada.jpg", mime: "image/jpeg", bytes: r.bytes.length, largura: medidas.largura, altura: medidas.altura };
-    const assinado = await assinarImagem({ id: p.id, numero: p.numero, destino: "foto", arquivo, contas: p.contas });
+    const assinado = await assinarImagem({ id: p.id, numero: p.numero, destino: capa ? "capa" : "foto", arquivo, contas: p.contas });
     if (!assinado.ok) return falhar(textoDaRecusaDaPublicacaoDoCarrossel(assinado.recusa));
     // A cópia dos bytes dá ao `fetch` o tipo que ele aceita como corpo (`Uint8Array<ArrayBuffer>`).
     const subida = await fetch(assinado.url, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: new Uint8Array(r.bytes) });

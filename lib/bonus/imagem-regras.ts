@@ -1,7 +1,14 @@
 // AS REGRAS DO CRIADOR DE IMAGEM (spec da Etapa 6). PURO: o processo, o repositório, a consulta e a
 // tela leem daqui.
 import { medidasDoJpeg } from "./imagem-jpeg";
-import { problemaDaFotoDoEspaco, type ProblemaDaFoto } from "./publicar-regras";
+import { problemaDaFotoDaCapa, problemaDaFotoDoEspaco, type ProblemaDaFoto } from "./publicar-regras";
+
+/**
+ * O FORMATO DA IMAGEM PEDIDA (spec da Etapa 11): a do espaço, deitada, ou a da capa, em pé. Ele é decidido
+ * no pedido, pelo jeito do slide naquela hora, e segue com a reserva até o guardar, que confere de novo o
+ * jeito com a linha travada.
+ */
+export type FormatoDaImagem = "espaco" | "capa";
 
 /**
  * O TETO: 10 imagens nas últimas 24 horas, somando todos os carrosséis (decisão do Eduardo em 09/10, o
@@ -87,4 +94,14 @@ export function problemaDaImagemGerada(bytes: Uint8Array): ProblemaDaImagem | nu
   const medidas = medidasDoJpeg(bytes);
   if (!medidas) return "formato";
   return problemaDaFotoDoEspaco(medidas.largura, medidas.altura, bytes.length);
+}
+
+/**
+ * A IMAGEM DA CAPA QUE VOLTOU (spec da Etapa 11), conferida pela regra da foto da capa: o JPEG em pé de
+ * 1024×1536 da OpenAI passa, até 2 MB; a deitada, não.
+ */
+export function problemaDaCapaGerada(bytes: Uint8Array): ProblemaDaImagem | null {
+  const medidas = medidasDoJpeg(bytes);
+  if (!medidas) return "formato";
+  return problemaDaFotoDaCapa(medidas.largura, medidas.altura, bytes.length);
 }

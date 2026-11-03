@@ -3,7 +3,7 @@
 // as contas, e estas funções decidem a aba, a ordem, o selo e a capa.
 import { fmtDate } from "@/lib/format";
 import { resolverConta, type ContaDoCabecalho } from "./arte-conta";
-import { escolhasDaArte } from "./arte-escolhas";
+import { comEspaco, escolhasDaArte } from "./arte-escolhas";
 import { slidesDoTexto } from "./arte-slides";
 import { cabecalhoParaVersao, urlDaArte, versoesDosSlides } from "./arte-tela";
 import { TEXTO_CARROSSEL_APAGADO } from "./apagar-textos";
@@ -12,7 +12,7 @@ import { caminhoDoCarrossel } from "./carrossel-caminho";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { descricaoDoCarrossel, rotuloDoCarrossel, textoDaLinhaDoCarrossel } from "./carrossel-tela";
 import type { EstadoDaPublicacao } from "./publicar-estado";
-import { fotosDaArte, imagensDaArte, jeitoDoCaminho } from "./publicar-regras";
+import { capaDaArte, fotosDaArte, imagensDaArte, jeitoDoCaminho } from "./publicar-regras";
 import { rotuloDaPublicacao } from "./publicar-textos";
 import type { TipoDoRotulo } from "./tela";
 import { geracaoNaTela } from "./tempos";
@@ -148,19 +148,26 @@ export type ContextoDaCapa = {
 
 /**
  * A CAPA: a miniatura do slide 1, a mesma que a página do carrossel mostra (revisao.tsx e
- * card-da-parte.tsx): a imagem do "Slide pronto do Canva", se o slide 1 tiver uma e não for "Só texto";
- * senão a arte do slide 1, pela rota da arte, com a versão que a página calcula. `null` é o quadro vazio:
- * o carrossel ainda gerando, travado, falhado, ou sem texto.
+ * card-da-parte.tsx): a imagem do "Slide pronto do Canva", se o slide 1 tiver uma e estiver com o espaço
+ * (nem "Só texto", nem em "Capa com imagem", da Etapa 11); senão a arte do slide 1, pela rota da arte, com
+ * a versão que a página calcula, a da capa inclusive. `null` é o quadro vazio: o carrossel ainda gerando,
+ * travado, falhado, ou sem texto.
  */
 export function capaDoCarrossel(l: LinhaDoCarrossel, agoraMs: number, c: ContextoDaCapa): string | null {
   if (geracaoNaTela(l.estado, l.criado_em, agoraMs) !== "pronto") return null;
   const texto = textoDaLinhaDoCarrossel(l);
   if (!texto) return null;
   const escolhas = escolhasDaArte(l.arte, l.total_slides);
-  const imagem = escolhas.soTexto.includes(1) ? undefined : imagensDaArte(l.arte, l.total_slides)[1];
+  const imagem = comEspaco(escolhas, 1) ? imagensDaArte(l.arte, l.total_slides)[1] : undefined;
   const pronto = imagem && jeitoDoCaminho(imagem.caminho) === "slide" ? c.urlPublica(imagem.caminho) : null;
   if (pronto) return pronto;
   const { conta } = resolverConta(c.contas, escolhas, c.doCookie);
-  const [versao] = versoesDosSlides(slidesDoTexto(texto), escolhas.soTexto, cabecalhoParaVersao(conta), fotosDaArte(l.arte, l.total_slides));
+  const [versao] = versoesDosSlides(
+    slidesDoTexto(texto),
+    escolhas.soTexto,
+    cabecalhoParaVersao(conta),
+    fotosDaArte(l.arte, l.total_slides),
+    capaDaArte(l.arte, l.total_slides)
+  );
   return urlDaArte(caminhoDoCarrossel(l), 1, versao);
 }

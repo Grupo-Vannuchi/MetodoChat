@@ -150,4 +150,13 @@ describe("os arquivos que saem do bucket depois do commit", () => {
   it("a publicação estranha não apaga nada da fila", () => {
     expect(caminhosDoCarrossel({ conta: CONTA, publicacao: { chave: "k" } }, 5, CONTA)).toEqual([]);
   });
+
+  // A CAPA (Etapa 11): a imagem dela mora em `bonus-capa/` e sai com o carrossel, como a foto e o slide
+  // pronto. A que ficou guardada depois de a capa ser desligada também sai: o arquivo é do carrossel.
+  it("a imagem da capa sai também, ligada ou não; a capa de outra conta fica", () => {
+    const CAPA = `${CONTA}/bonus-capa/${u(8)}.jpg`;
+    const imagens = { "1": { caminho: CAPA, versao: "v" }, "2": { caminho: `99999/bonus-capa/${u(9)}.jpg`, versao: "v" } };
+    expect(caminhosDoCarrossel({ conta: CONTA, capa: true, imagens }, 5, CONTA)).toEqual([CAPA]);
+    expect(caminhosDoCarrossel({ conta: CONTA, imagens }, 5, CONTA)).toEqual([CAPA]);
+  });
 });

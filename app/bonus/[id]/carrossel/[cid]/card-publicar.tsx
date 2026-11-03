@@ -32,6 +32,7 @@ export default function CardPublicar({
   carrosselId,
   total,
   soTexto,
+  capa = false,
   imagens,
   versoesDaMiniatura,
   slidesNaoSalvos,
@@ -43,6 +44,8 @@ export default function CardPublicar({
   carrosselId: string;
   total: number;
   soTexto: number[];
+  /** O slide 1 em "Capa com imagem" (Etapa 11): ele pede a imagem da capa e sai com a arte da capa. */
+  capa?: boolean;
   imagens: Record<number, ImagemNaTela>;
   versoesDaMiniatura: string[];
   slidesNaoSalvos: number[];
@@ -56,7 +59,7 @@ export default function CardPublicar({
   const [aviso, setAviso] = useState<AvisoDaPublicacao | null>(null);
   const [pendente, iniciar] = useTransition();
   const { estado } = publicacao;
-  const faltas = faltasParaPublicar({ total, soTexto, imagens, origem: publicacao.origem, slidesNaoSalvos, legendaNaoSalva, cortados });
+  const faltas = faltasParaPublicar({ total, soTexto, imagens, capa, origem: publicacao.origem, slidesNaoSalvos, legendaNaoSalva, cortados });
   const travado = pendente || faltas.length > 0 || (quando === "depois" && !dataHora);
 
   function publicar() {
@@ -64,7 +67,7 @@ export default function CardPublicar({
       const r = await publicarDaTela({
         caminho,
         carrosselId,
-        desenhados: artesParaPublicar({ total, soTexto, imagens }),
+        desenhados: artesParaPublicar({ total, soTexto, imagens, capa }),
         versoesDaMiniatura,
         quando,
         dataHora: quando === "depois" ? dataHora : "",

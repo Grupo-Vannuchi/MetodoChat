@@ -6,7 +6,8 @@
 // (tests/vetores-da-arte.json); onde o Satori também quebra dentro da palavra, ela só erra para o lado
 // seguro.
 import { slidesDoTexto, slidesQueNaoCabem } from "./arte-slides";
-import { textoNaoCabeComEspaco, textoNaoCabeNunca } from "./arte-textos";
+import { TEXTO_GANCHO_NAO_CABE_NA_CAPA, textoNaoCabeComEspaco, textoNaoCabeNunca } from "./arte-textos";
+import { tamanhoDaCapa } from "./capa-medida";
 import { slidesDeConteudo } from "./carrossel-pedido";
 import { camposDaParte, type TextoDoCarrossel } from "./carrossel-texto";
 
@@ -60,4 +61,14 @@ export function avisosDeCabimento(total: number, valores: Record<string, string>
     else if (!soTexto.includes(f.numero)) avisos[campoDoAviso(f.numero, total)] = textoNaoCabeComEspaco(f.numero);
   }
   return avisos;
+}
+
+/**
+ * O AVISO DA CAPA (spec da Etapa 11): o gancho que está no campo agora, em maiúscula e pela conta da capa
+ * (`tamanhoDaCapa`), que não cabe nem no menor degrau. Na capa, o "Só texto" não resolve: só encurtar.
+ * `undefined` quando cabe.
+ */
+export function avisoDaCapa(total: number, valores: Record<string, string>): string | undefined {
+  const [gancho] = slidesDoTexto(textoDosCampos(total, valores));
+  return gancho && !tamanhoDaCapa(gancho).cabe ? TEXTO_GANCHO_NAO_CABE_NA_CAPA : undefined;
 }

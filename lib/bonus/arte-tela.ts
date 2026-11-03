@@ -5,6 +5,7 @@ import { TEXTO_ARTE_NAO_ENCONTRADA, TEXTO_ARTE_NAO_PRONTA, TEXTO_ARTE_SLIDE_INVA
 import { ehDaRota, type RotaDoCarrossel } from "./carrossel-caminho";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { textoDaLinhaDoCarrossel } from "./carrossel-tela";
+import type { CapaDaArte } from "./publicar-regras";
 
 /** O cabeçalho da peça: a "tag" do manual de arte (foto redonda, nome e @). */
 export type CabecalhoDaArte = { nome: string; arroba: string; foto: string | null; iniciais: string };
@@ -111,23 +112,32 @@ export function versaoDaArte(partes: (string | number | null)[]): string {
  * `fotos` é o caminho da foto do espaço de cada slide que tem uma (`fotosDaArte`, publicar-regras.ts;
  * adendo da Etapa 5): trocar a foto troca a miniatura e o "Baixar". No "Só texto" o espaço não existe,
  * e a foto guardada não entra. É obrigatório, para o chamador que esquecer a foto não compilar.
+ *
+ * `capa` é a capa do slide 1 (`capaDaArte`, publicar-regras.ts; spec da Etapa 11): ligar ou desligar a
+ * capa, e trocar a imagem dela, trocam a miniatura do slide 1. Ela também é OBRIGATÓRIA, pelo mesmo
+ * motivo da foto: são seis chamadas, e a sétima não pode esquecê-la. No slide sem a capa, a versão é a de
+ * antes da Etapa 11, byte a byte, para nenhuma miniatura existente ser pedida de novo à toa
+ * (tests/bonus-capa-versoes.test.ts guarda os valores medidos na `main`).
  */
 export function versoesDosSlides(
   slides: SlideParaArte[],
   soTexto: number[],
   cabecalho: CabecalhoDaArte,
-  fotos: Record<number, string>
+  fotos: Record<number, string>,
+  capa: CapaDaArte
 ): string[] {
   return slides.map((s) =>
-    versaoDaArte([
-      JSON.stringify(s),
-      soTexto.includes(s.numero) ? "so_texto" : "com_espaco",
-      cabecalho.nome,
-      cabecalho.arroba,
-      cabecalho.foto,
-      cabecalho.iniciais,
-      soTexto.includes(s.numero) ? null : (fotos[s.numero] ?? null),
-    ])
+    capa.ligada && s.numero === 1
+      ? versaoDaArte([JSON.stringify(s), "capa", cabecalho.nome, cabecalho.arroba, cabecalho.foto, cabecalho.iniciais, capa.caminho])
+      : versaoDaArte([
+          JSON.stringify(s),
+          soTexto.includes(s.numero) ? "so_texto" : "com_espaco",
+          cabecalho.nome,
+          cabecalho.arroba,
+          cabecalho.foto,
+          cabecalho.iniciais,
+          soTexto.includes(s.numero) ? null : (fotos[s.numero] ?? null),
+        ])
   );
 }
 

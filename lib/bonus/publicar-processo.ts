@@ -11,7 +11,7 @@ import {
 } from "@/lib/publicacao";
 import { drainQueue } from "@/lib/queue-drain";
 import { resolverConta, type ContaDoCabecalho } from "./arte-conta";
-import { comEspaco, escolhasDaArte, type EscolhasDaArte } from "./arte-escolhas";
+import { comEspaco, ehCapa, escolhasDaArte, type EscolhasDaArte } from "./arte-escolhas";
 import { slidesDoTexto, type SlideParaArte } from "./arte-slides";
 import { cabecalhoParaVersao, versoesDosSlides } from "./arte-tela";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
@@ -30,12 +30,16 @@ import {
   reservarPublicacao,
 } from "./publicar-repositorio";
 import {
+  capaDaArte,
   ehCaminhoDoDestino,
   formaDoCarrossel,
   fotosDaArte,
   imagensDaArte,
+  jeitoDoCaminho,
+  problemaDaFotoDaCapa,
   problemaDaFotoDoEspaco,
   problemaDaProporcaoDoSlide,
+  valeNoSlide,
   versaoDoDesenho,
   type DestinoDaImagem,
   type JeitoDaImagem,
@@ -88,6 +92,13 @@ const mensagem = (e: unknown) => (e instanceof Error && e.message ? e.message : 
  * publicar. Só JPEG: a foto na proporção do espaço e até 2 MB (achado 79), o resto em 4:5; e tudo
  * pela `decisaoDeAssinatura` do /publicar com a forma do carrossel. As medidas são declaradas pelo
  * navegador, como no /publicar.
+ *
+ * NO DESTINO `capa` (spec da Etapa 11), a imagem da capa do slide 1 em capa, pela regra da foto da capa
+ * (`problemaDaFotoDaCapa`: JPEG, 4:5 ou a gerada 1024×1536, e até 2 MB). Ela NÃO passa pela
+ * `decisaoDeAssinatura`, de propósito: aquela é a régua da fila do /publicar, e recusa abaixo de 0,8 a
+ * imagem gerada em pé (1024×1536, 0,667). A imagem da capa nunca vai à fila: vai a arte da capa, em
+ * 1080×1350, que passa pela régua no destino `fila`. O teto de bytes da capa (2 MB) fica bem abaixo do
+ * da Meta e do bucket.
  */
 export async function assinarImagem(p: {
   id: string;
@@ -99,12 +110,30 @@ export async function assinarImagem(p: {
   const c = await conferirCarrossel(p.id, p.contas);
   if (!c.ok) return c;
   if (!Number.isInteger(p.numero) || !c.slides[p.numero - 1]) return recusa({ motivo: "slide" });
+  const capa = ehCapa(c.escolhas, p.numero);
   const espaco = comEspaco(c.escolhas, p.numero);
-  const desenhado = !espaco || fotosDaArte(c.linha.arte, c.linha.total_slides)[p.numero] !== undefined;
-  if (p.destino !== "fila" && !espaco) return recusa({ motivo: "sem_espaco", numero: p.numero });
-  if (p.destino === "fila" && !desenhado) return recusa({ motivo: "nao_e_so_texto", numero: p.numero });
+  if (p.destino === "capa") {
+    if (!capa) return recusa({ motivo: "sem_capa", numero: p.numero });
+  } else if (p.destino !== "fila" && !espaco) {
+    return recusa(capa ? { motivo: "na_capa", numero: p.numero } : { motivo: "sem_espaco", numero: p.numero });
+  }
+  if (p.destino === "fila") {
+    // A arte da capa só sobe com a imagem da capa: sem ela, o slide 1 não está pronto para publicar.
+    if (capa && capaDaArte(c.linha.arte, c.linha.total_slides).caminho === null) return recusa({ motivo: "faltam_imagens", slides: [p.numero] });
+    const desenhado = capa || !espaco || fotosDaArte(c.linha.arte, c.linha.total_slides)[p.numero] !== undefined;
+    if (!desenhado) return recusa({ motivo: "nao_e_so_texto", numero: p.numero });
+  }
   const arquivo = (p.arquivo !== null && typeof p.arquivo === "object" ? p.arquivo : {}) as Record<string, unknown>;
   if (arquivo.mime !== "image/jpeg") return recusa({ motivo: "tipo" });
+  if (p.destino === "capa") {
+    const problema = problemaDaFotoDaCapa(numero(arquivo.largura), numero(arquivo.altura), numero(arquivo.bytes));
+    if (problema) return recusa({ motivo: "capa_foto", problema });
+    try {
+      return { ok: true, ...(await assinarCaminho(c.conta, "capa")) };
+    } catch (e) {
+      return recusa({ motivo: "armazenamento", texto: mensagem(e) });
+    }
+  }
   if (p.destino === "foto") {
     const foto = problemaDaFotoDoEspaco(numero(arquivo.largura), numero(arquivo.altura), numero(arquivo.bytes));
     if (foto) return recusa({ motivo: "foto", problema: foto });
@@ -141,8 +170,14 @@ export async function guardarImagem(p: {
   const fotos = { ...fotosDaArte(c.linha.arte, c.linha.total_slides) };
   if (r.jeito === "foto") fotos[p.numero] = p.caminho;
   else delete fotos[p.numero];
+  // A CAPA COM A IMAGEM NOVA (Etapa 11): guardada no slide 1, ela é a imagem da capa se for do jeito capa;
+  // de outro jeito, a capa fica sem imagem. Em outro slide, a capa não muda.
+  const capa =
+    p.numero === 1
+      ? { ligada: c.escolhas.capa, caminho: c.escolhas.capa && r.jeito === "capa" ? p.caminho : null }
+      : capaDaArte(c.linha.arte, c.linha.total_slides);
   const { conta } = resolverConta(p.contas, c.escolhas, undefined);
-  const versaoDaMiniatura = versoesDosSlides(c.slides, c.escolhas.soTexto, cabecalhoParaVersao(conta), fotos)[p.numero - 1];
+  const versaoDaMiniatura = versoesDosSlides(c.slides, c.escolhas.soTexto, cabecalhoParaVersao(conta), fotos, capa)[p.numero - 1];
   return { ok: true, versao: r.versao, jeito: r.jeito, versaoDaMiniatura };
 }
 
@@ -181,12 +216,21 @@ export async function publicarNaFila(p: {
 
   const imagens = imagensDaArte(c.linha.arte, total);
   const comImagem = c.slides.filter((s) => comEspaco(c.escolhas, s.numero));
-  const faltam = comImagem.filter((s) => !imagens[s.numero]).map((s) => s.numero);
+  // A IMAGEM QUE VALE NO JEITO DO SLIDE (spec da Etapa 11): a capa pede a imagem dela, e a imagem de
+  // outro jeito conta como a que falta. Sem isso, a imagem da capa guardada num slide com espaço (a capa
+  // desligada depois de subir) iria para a fila como cópia de slide pronto.
+  const capa = capaDaArte(c.linha.arte, total);
+  const vale = (n: number) => imagens[n] !== undefined && valeNoSlide(c.escolhas, n, jeitoDoCaminho(imagens[n].caminho));
+  const faltam = c.slides
+    .filter((s) => (comEspaco(c.escolhas, s.numero) || ehCapa(c.escolhas, s.numero)) && !vale(s.numero))
+    .map((s) => s.numero);
   if (faltam.length) return recusa({ motivo: "faltam_imagens", slides: faltam });
-  // OS SLIDES QUE SAEM COM A ARTE DO CHAT: o "Só texto" e o com foto. O resto sai com a cópia do slide
-  // pronto. A foto de cada um é a do slide com espaço; no "Só texto" a foto guardada não conta.
+  // OS SLIDES QUE SAEM COM A ARTE DO CHAT: o "Só texto", o com foto e a capa. O resto sai com a cópia do
+  // slide pronto. A foto de cada um é a do slide com espaço; no "Só texto" a foto guardada não conta. O
+  // desenho da capa leva a imagem da capa.
   const fotos = fotosDaArte(c.linha.arte, total);
   const fotoDe = (n: number) => (comEspaco(c.escolhas, n) ? (fotos[n] ?? null) : null);
+  const desenhoDe = (n: number) => (ehCapa(c.escolhas, n) ? capa.caminho : fotoDe(n));
   const desenhados = c.slides.filter((s) => !comEspaco(c.escolhas, s.numero) || fotoDe(s.numero) !== null).map((s) => s.numero);
 
   // AS ARTES, conferidas antes de tudo. Os caminhos que o navegador subiu só servem para apagar numa
@@ -205,7 +249,10 @@ export async function publicarNaFila(p: {
   // O SLIDE QUE SAI CORTADO NÃO SAI (spec da Etapa 9, achado 87): a conta da arte no modo em que cada
   // slide sai, sobre o texto salvo. Vem depois do `descartar`, para as artes que o navegador subiu
   // saírem do bucket na recusa, e antes de conferir as artes, reservar e enfileirar.
-  const cortados = slidesQueSaemCortados(c.slides, desenhados.map((n) => ({ numero: n, comFoto: fotoDe(n) !== null })));
+  const cortados = slidesQueSaemCortados(
+    c.slides,
+    desenhados.map((n) => ({ numero: n, comFoto: desenhoDe(n) !== null, ...(ehCapa(c.escolhas, n) ? { capa: true as const } : {}) }))
+  );
   if (cortados.slides.length) {
     await descartar();
     return recusa({ motivo: "nao_cabe", ...cortados });
@@ -224,7 +271,7 @@ export async function publicarNaFila(p: {
       await descartar();
       return recusa({ motivo: "arte_so_texto", numero: n });
     }
-    if (a.versao !== versaoDoDesenho(c.slides[n - 1], fotoDe(n))) {
+    if (a.versao !== versaoDoDesenho(c.slides[n - 1], desenhoDe(n))) {
       await descartar();
       return recusa({ motivo: "arte_velha", numero: n });
     }
@@ -252,13 +299,18 @@ export async function publicarNaFila(p: {
   const chave = publicacaoKey(c.conta, forma, caminhos);
 
   // A reserva confere de novo TODAS as imagens dos slides com espaço, as fotos inclusive: a arte com
-  // foto foi desenhada com a foto que estava guardada na hora.
+  // foto foi desenhada com a foto que estava guardada na hora. E a capa (Etapa 11): se ela continua
+  // ligada, e com a mesma imagem com que a arte dela foi desenhada.
   const reserva = await reservarPublicacao(
     p.id,
     {
       texto: JSON.stringify(c.texto),
       soTexto: c.escolhas.soTexto,
-      imagens: Object.fromEntries(comImagem.map((s) => [s.numero, imagens[s.numero].caminho])),
+      capa: c.escolhas.capa,
+      imagens: Object.fromEntries([
+        ...comImagem.map((s) => [s.numero, imagens[s.numero].caminho] as const),
+        ...(capa.ligada && capa.caminho ? [[1, capa.caminho] as const] : []),
+      ]),
     },
     chave,
     caminhos

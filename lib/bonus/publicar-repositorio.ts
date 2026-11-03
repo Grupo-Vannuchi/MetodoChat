@@ -1,13 +1,14 @@
 import "server-only";
 import { pastaDaConta } from "@/lib/bucket";
 import { sql } from "@/lib/db";
-import { comEspaco, escolhasDaArte } from "./arte-escolhas";
+import { comEspaco, ehCapa, escolhasDaArte } from "./arte-escolhas";
 import { slidesDoTexto } from "./arte-slides";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
 import { textoDaLinhaDoCarrossel } from "./carrossel-tela";
 import { ehIdDeBonus } from "./pedido";
 import { estadoDaPublicacao, publicacaoLivre, type EstadoDaPublicacao, type LinhaDaFila } from "./publicar-estado";
 import {
+  capaDaArte,
   ehCaminhoDoDestino,
   imagensDaArte,
   publicacaoDaArte,
@@ -60,6 +61,10 @@ const recusa = (r: RecusaDaPublicacaoDoCarrossel): Recusa => ({ ok: false, recus
  * da Etapa 5). O jeito é o prefixo do caminho que o servidor assinou, e não se grava à parte. A versão
  * gravada é a do texto SALVO agora. Devolve a imagem anterior daquele slide, de qualquer jeito, para
  * quem chama apagá-la do bucket depois do `commit`.
+ *
+ * NO SLIDE 1 EM CAPA (spec da Etapa 11), só a imagem da capa, em `<pasta>/bonus-capa/<uuid>.jpg`; e a da
+ * capa só entra no slide em capa. A capa desligada no meio de uma subida (ou de uma geração por IA) cai
+ * aqui, com a linha travada, e a imagem que subiu sai do bucket por quem chama.
  */
 export async function gravarImagemDoSlide(
   id: string,
@@ -77,10 +82,12 @@ export async function gravarImagemDoSlide(
     if (!publicacaoLivre(estado)) return recusa({ motivo: "travado", estado });
     const slide = slidesDoTexto(texto)[numero - 1];
     if (!Number.isInteger(numero) || !slide) return recusa({ motivo: "slide" });
-    if (!comEspaco(escolhas, numero)) return recusa({ motivo: "sem_espaco", numero });
+    const capa = ehCapa(escolhas, numero);
+    if (!capa && !comEspaco(escolhas, numero)) return recusa({ motivo: "sem_espaco", numero });
     const pasta = pastaDaConta(escolhas.conta);
-    const jeito = ehCaminhoDoDestino(caminho, pasta, "foto") ? "foto" : ehCaminhoDoDestino(caminho, pasta, "slide") ? "slide" : null;
+    const jeito = (["foto", "slide", "capa"] as const).find((j) => ehCaminhoDoDestino(caminho, pasta, j)) ?? null;
     if (!jeito) return recusa({ motivo: "caminho" });
+    if (capa !== (jeito === "capa")) return recusa(capa ? { motivo: "na_capa", numero } : { motivo: "sem_capa", numero });
     const anterior = imagensDaArte(linha.arte, linha.total_slides)[numero]?.caminho ?? null;
     const versao = versaoDoTextoDoSlide(slide);
     await tx.query(
@@ -112,7 +119,9 @@ export type ConferidoParaPublicar = {
   /** O texto salvo, como `JSON.stringify` o escreve. */
   texto: string;
   soTexto: number[];
-  /** O caminho da imagem guardada de cada slide com espaço, que foi copiada. */
+  /** A capa do slide 1 (Etapa 11), ligada ou não: ligar ou desligar no meio muda o que sai. */
+  capa: boolean;
+  /** O caminho da imagem guardada de cada slide com espaço, que foi copiada, e o da imagem da capa. */
   imagens: Record<number, string>;
 };
 
@@ -140,9 +149,13 @@ export async function reservarPublicacao(
     const imagens = imagensDaArte(linha.arte, linha.total_slides);
     const atuais: Record<number, string> = {};
     for (let n = 1; n <= linha.total_slides; n++) if (comEspaco(escolhas, n) && imagens[n]) atuais[n] = imagens[n].caminho;
+    // A CAPA (Etapa 11): a imagem da capa entra como a do slide 1, só no jeito capa.
+    const capa = capaDaArte(linha.arte, linha.total_slides);
+    if (capa.caminho) atuais[1] = capa.caminho;
     const mudou =
       JSON.stringify(texto) !== conferido.texto ||
       JSON.stringify(escolhas.soTexto) !== JSON.stringify([...conferido.soTexto].sort((a, b) => a - b)) ||
+      escolhas.capa !== conferido.capa ||
       JSON.stringify(atuais) !== JSON.stringify(conferido.imagens);
     if (mudou) return recusa({ motivo: "mudou" });
     const anterior = publicacaoDaArte(linha.arte);

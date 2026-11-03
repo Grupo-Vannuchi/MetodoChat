@@ -18,7 +18,7 @@ import {
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
 import type { TextoDoCarrossel } from "@/lib/bonus/carrossel-texto";
 import type { EstadoDaPublicacao } from "@/lib/bonus/publicar-estado";
-import { fotosDaArte } from "@/lib/bonus/publicar-regras";
+import { SEM_CAPA, capaDaArte, fotosDaArte } from "@/lib/bonus/publicar-regras";
 import { TRAVADA_MS } from "@/lib/bonus/tempos";
 
 // O QUE A LISTA "CARROSSÉIS" MOSTRA DE CADA CARROSSEL (spec da Etapa 7, "O menu Carrosséis"; spec da
@@ -276,7 +276,7 @@ describe("a capa: a miniatura do slide 1, como a página do carrossel a mostra",
   const versaoDaPagina = (l: LinhaDoCarrossel) => {
     const escolhas = escolhasDaArte(l.arte, l.total_slides);
     const { conta } = resolverConta(CONTAS, escolhas, undefined);
-    return versoesDosSlides(slidesDoTexto(TEXTO), escolhas.soTexto, cabecalhoParaVersao(conta), fotosDaArte(l.arte, l.total_slides))[0];
+    return versoesDosSlides(slidesDoTexto(TEXTO), escolhas.soTexto, cabecalhoParaVersao(conta), fotosDaArte(l.arte, l.total_slides), SEM_CAPA)[0];
   };
 
   it("sem imagem no slide 1: a arte do slide 1, com a versão que a página calcula", () => {
@@ -312,6 +312,23 @@ describe("a capa: a miniatura do slide 1, como a página do carrossel a mostra",
 
   it("o slide pronto de outro slide não muda a capa", () => {
     expect(capa({ arte: { conta: CONTA, imagens: { "2": { caminho: PRONTO, versao: "v1" } } } })).toBe(capa({ arte: { conta: CONTA } }));
+  });
+
+  // A "CAPA COM IMAGEM" (Etapa 11) no slide 1: a miniatura é a arte da capa, com a versão que leva a capa,
+  // e o slide pronto guardado nele não vale ali.
+  it("o slide 1 em capa: a arte da capa, mesmo com um slide pronto guardado nele", () => {
+    const l = linha({ arte: { conta: CONTA, capa: true, imagens: { "1": { caminho: PRONTO, versao: "v1" } } } });
+    const escolhas = escolhasDaArte(l.arte, l.total_slides);
+    const { conta } = resolverConta(CONTAS, escolhas, undefined);
+    const [versao] = versoesDosSlides(
+      slidesDoTexto(TEXTO),
+      escolhas.soTexto,
+      cabecalhoParaVersao(conta),
+      fotosDaArte(l.arte, l.total_slides),
+      capaDaArte(l.arte, l.total_slides)
+    );
+    expect(capa({ arte: l.arte })).toBe(urlDaArte(`/carrosseis/${CARROSSEL}`, 1, versao));
+    expect(versao).not.toBe(versaoDaPagina(l));
   });
 
   it("ainda gerando, travado ou falhado: o quadro vazio (null)", () => {

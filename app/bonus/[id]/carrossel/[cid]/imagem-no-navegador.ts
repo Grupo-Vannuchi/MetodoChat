@@ -1,9 +1,12 @@
 import { CABECALHO_DA_FOTO, CABECALHO_DA_VERSAO, urlDaArte } from "@/lib/bonus/arte-tela";
 import {
+  problemaDaFotoDaCapa,
   problemaDaFotoDoEspaco,
   problemaDaProporcaoDoSlide,
+  recorteDaCapa,
   recorteDaFoto,
   type JeitoDaImagem,
+  type RecorteDaFoto,
 } from "@/lib/bonus/publicar-regras";
 import {
   TEXTO_FORMATO_DA_IMAGEM,
@@ -12,6 +15,7 @@ import {
   textoDaArteQueNaoVeio,
   textoDaFotoQueFaltou,
   textoDaProporcao,
+  textoDoProblemaDaCapa,
   textoDoProblemaDaFoto,
   type AvisoDaImagem,
   type AvisoDaPublicacao,
@@ -80,7 +84,36 @@ const QUALIDADE_DA_FOTO = 0.9;
  * O que sobe já tem a forma do espaço, e a rota não corta nada. A pequena é recusada antes de assinar,
  * e a que passa de 2 MB também (achado 79), com a regra que a assinatura vai conferir.
  */
-export async function prepararFoto(arquivo: Blob): Promise<{ ok: true; pronta: ImagemPronta } | { ok: false; texto: string }> {
+export function prepararFoto(arquivo: Blob): Promise<{ ok: true; pronta: ImagemPronta } | { ok: false; texto: string }> {
+  return recortarParaJpeg(arquivo, {
+    recortar: recorteDaFoto,
+    problema: problemaDaFotoDoEspaco,
+    frase: textoDoProblemaDaFoto,
+  });
+}
+
+/**
+ * A FOTO DA CAPA (spec da Etapa 11): cortada ao centro em 4:5 e reduzida até 2160×2700, em JPEG, pelo
+ * mesmo caminho da foto do espaço, com a regra e as frases da capa. A pequena (menos de 1080×1350
+ * depois do corte) é recusada antes de assinar, e a que passa de 2 MB também.
+ */
+export function prepararCapa(arquivo: Blob): Promise<{ ok: true; pronta: ImagemPronta } | { ok: false; texto: string }> {
+  return recortarParaJpeg(arquivo, {
+    recortar: recorteDaCapa,
+    problema: problemaDaFotoDaCapa,
+    frase: textoDoProblemaDaCapa,
+  });
+}
+
+/** O recorte no canvas, comum à foto do espaço e à da capa: cada uma com a sua regra e as suas frases. */
+async function recortarParaJpeg(
+  arquivo: Blob,
+  regra: {
+    recortar: (l: number, a: number) => { ok: true; recorte: RecorteDaFoto } | { ok: false; problema: "sem_medida" | "pequena" };
+    problema: typeof problemaDaFotoDoEspaco;
+    frase: typeof textoDoProblemaDaFoto;
+  }
+): Promise<{ ok: true; pronta: ImagemPronta } | { ok: false; texto: string }> {
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(arquivo);
@@ -88,8 +121,8 @@ export async function prepararFoto(arquivo: Blob): Promise<{ ok: true; pronta: I
     return { ok: false, texto: TEXTO_FOTO_ILEGIVEL };
   }
   try {
-    const r = recorteDaFoto(bitmap.width, bitmap.height);
-    if (!r.ok) return { ok: false, texto: textoDoProblemaDaFoto(r.problema) };
+    const r = regra.recortar(bitmap.width, bitmap.height);
+    if (!r.ok) return { ok: false, texto: regra.frase(r.problema) };
     const { x, y, largura, altura, saida } = r.recorte;
     const tela = document.createElement("canvas");
     tela.width = saida.largura;
@@ -101,8 +134,8 @@ export async function prepararFoto(arquivo: Blob): Promise<{ ok: true; pronta: I
     pincel.drawImage(bitmap, x, y, largura, altura, 0, 0, saida.largura, saida.altura);
     const jpeg = await new Promise<Blob | null>((resolver) => tela.toBlob(resolver, "image/jpeg", QUALIDADE_DA_FOTO));
     if (!jpeg || jpeg.type !== "image/jpeg") return { ok: false, texto: TEXTO_FOTO_ILEGIVEL };
-    const problema = problemaDaFotoDoEspaco(saida.largura, saida.altura, jpeg.size);
-    if (problema) return { ok: false, texto: textoDoProblemaDaFoto(problema) };
+    const problema = regra.problema(saida.largura, saida.altura, jpeg.size);
+    if (problema) return { ok: false, texto: regra.frase(problema) };
     return { ok: true, pronta: { jpeg, largura: saida.largura, altura: saida.altura } };
   } finally {
     bitmap.close();
@@ -136,10 +169,10 @@ async function prepararSlidePronto(arquivo: Blob): Promise<{ ok: true; pronta: I
 }
 
 /**
- * A IMAGEM DE UM SLIDE, de um dos dois jeitos: a foto do espaço (recortada) ou o slide pronto do Canva
- * (no 4:5). Confere antes de pedir a assinatura, assina no destino do jeito, sobe direto ao bucket, e
- * guarda. O jeito vai só na assinatura: no guardar, o servidor o lê do caminho que ele assinou. Cada
- * saída é um aviso, e nenhuma é muda.
+ * A IMAGEM DE UM SLIDE, de um dos três jeitos: a foto do espaço (recortada), o slide pronto do Canva
+ * (no 4:5) ou a foto da capa (recortada em 4:5, Etapa 11). Confere antes de pedir a assinatura, assina
+ * no destino do jeito, sobe direto ao bucket, e guarda. O jeito vai só na assinatura: no guardar, o
+ * servidor o lê do caminho que ele assinou. Cada saída é um aviso, e nenhuma é muda.
  */
 export async function enviarImagemDoSlide(p: {
   carrosselId: string;
@@ -149,7 +182,12 @@ export async function enviarImagemDoSlide(p: {
   assinar: Assinar;
   guardar: Guardar;
 }): Promise<AvisoDaImagem> {
-  const preparada = p.jeito === "foto" ? await prepararFoto(p.arquivo) : await prepararSlidePronto(p.arquivo);
+  const preparada =
+    p.jeito === "foto"
+      ? await prepararFoto(p.arquivo)
+      : p.jeito === "capa"
+        ? await prepararCapa(p.arquivo)
+        : await prepararSlidePronto(p.arquivo);
   if (!preparada.ok) return erro(preparada.texto);
   const { pronta } = preparada;
   const assinatura = await p.assinar({
@@ -157,7 +195,7 @@ export async function enviarImagemDoSlide(p: {
     numero: p.numero,
     destino: p.jeito,
     arquivo: {
-      nome: `${p.jeito === "foto" ? "foto" : "slide"}-${p.numero}.jpg`,
+      nome: `${p.jeito}-${p.numero}.jpg`,
       mime: "image/jpeg",
       bytes: pronta.jpeg.size,
       largura: pronta.largura,
