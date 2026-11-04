@@ -1,6 +1,6 @@
 import "server-only";
 import { redirect } from "next/navigation";
-import { sessaoAtual } from "./sessao";
+import { sessaoAtual, type LoginDaSessao } from "./sessao";
 
 // A CONFERÊNCIA DE SESSÃO DAS SERVER ACTIONS, para a primeira instrução de cada uma
 // (docs/specs/2026-10-26-sessao-conferida.md). O proxy.ts não basta: uma Server Action é chamada por
@@ -17,4 +17,17 @@ import { sessaoAtual } from "./sessao";
 // chamável de fora.
 export async function exigirSessao(): Promise<void> {
   if (!(await sessaoAtual())) redirect("/entrar");
+}
+
+/**
+ * O LOGIN DA SESSÃO, SE FOR ADMINISTRADOR; senão, volta para o início (docs/specs/2026-11-04-logins.md,
+ * seção 4). Vai logo DEPOIS do `await exigirSessao();` nas actions que só o administrador pode chamar: a
+ * página Logins e o convite. Nesta entrega todo login é administrador, e a conferência já fica no servidor
+ * para a entrega 2, quando nasce o login comum.
+ */
+export async function exigirAdministrador(): Promise<LoginDaSessao> {
+  const login = await sessaoAtual();
+  if (!login) redirect("/entrar");
+  if (!login.administrador) redirect("/");
+  return login;
 }

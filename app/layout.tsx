@@ -3,7 +3,7 @@ import { Archivo, IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import Script from "next/script";
 import { cookies } from "next/headers";
 import "./globals.css";
-import AppShell from "./app-shell";
+import AppShell, { type LoginDoMenu } from "./app-shell";
 import { SwitcherAccount } from "./account-switcher";
 import { listAccounts } from "@/lib/db";
 import { ACCOUNT_COOKIE } from "@/lib/account";
@@ -82,10 +82,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // (lib/sessao.ts, docs/specs/2026-11-04-logins.md).
   let accounts: SwitcherAccount[] = [];
   let selectedId: string | null = null;
+  // O NOME E O MARCADOR DE ADMINISTRADOR vão ao menu (o item Logins e a Minha
+  // conta); o id, o e-mail e o id da sessão ficam no servidor.
+  let doMenu: LoginDoMenu | null = null;
   try {
     const jarra = await cookies();
     const login = await sessaoAtual();
     if (login) {
+      doMenu = { nome: login.nome, administrador: login.administrador };
       accounts = (await listAccounts()).map((a) => ({
         ig_user_id: a.ig_user_id,
         username: a.username,
@@ -122,7 +126,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <Script id="theme-init" strategy="beforeInteractive">
           {themeScript}
         </Script>
-        <AppShell accounts={accounts} selectedId={selectedId}>
+        <AppShell accounts={accounts} selectedId={selectedId} login={doMenu}>
           {children}
         </AppShell>
       </body>
