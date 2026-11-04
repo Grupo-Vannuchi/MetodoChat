@@ -299,6 +299,14 @@ const MARCA_DAGUA = {
         "tabela de FEATURE (convites_de_conexao): a partida do painel não depende dela, de propósito",
     },
   ],
+  // AS TABELAS QUE NASCEM DEPOIS DA BASE E QUE A PARTIDA EXIGE. A primeira é a dos logins (a 022,
+  // docs/specs/2026-11-04-logins.md): ao contrário das tabelas de feature de `naoObservaveis`, sem
+  // `logins` e `sessoes` ninguém entra no painel, e servir sem elas seria servir uma tela de entrar que
+  // estoura. Decidido com o Eduardo em 04/11/2026.
+  tabelasDepois: [
+    { tabela: "logins", de: "022-logins-e-sessoes.sql" },
+    { tabela: "sessoes", de: "022-logins-e-sessoes.sql" },
+  ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",
 } as const;
@@ -315,6 +323,9 @@ export function faltando(
   const falta: string[] = [];
   for (const t of MARCA_DAGUA.tabelas) {
     if (!tabelas.has(t)) falta.push(`tabela ausente: ${t} (migrations/000-esquema-base.sql)`);
+  }
+  for (const t of MARCA_DAGUA.tabelasDepois) {
+    if (!tabelas.has(t.tabela)) falta.push(`tabela ausente: ${t.tabela} (migrations/${t.de})`);
   }
   for (const c of MARCA_DAGUA.colunas) {
     // Tabela que já faltou inteira não gera uma segunda queixa pela coluna: a
