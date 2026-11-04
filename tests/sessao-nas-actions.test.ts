@@ -263,6 +263,7 @@ describe("toda rota fora das públicas confere a sessão antes de qualquer traba
     expect(publicas).toEqual([
       "app/api/cron/daily/route.ts",
       "app/api/oauth/callback/route.ts",
+      "app/api/oauth/convite/[codigo]/route.ts",
       "app/api/oauth/login/route.ts",
       "app/api/queue/tick/route.ts",
       "app/api/webhook/route.ts",

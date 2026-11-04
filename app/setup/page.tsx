@@ -13,6 +13,9 @@ import SubmitButton from "./submit-button";
 import { IconAlert } from "../icons";
 import Avatar from "../avatar";
 import { fmtDate } from "@/lib/format";
+import { linhaDoConvite } from "@/lib/convites";
+import { listarConvites } from "@/lib/convites-repositorio";
+import Convites from "./convites";
 import { card, input, muted, btnPrimary, alertError, alertOk, link } from "../ui";
 
 export const dynamic = "force-dynamic";
@@ -96,6 +99,12 @@ export default async function SetupPage({
   const connected = accounts.length > 0;
   const eventRows = (await sql()`select count(*)::int as n from events`) as { n: number }[];
   const hasEvents = (eventRows[0]?.n ?? 0) > 0;
+  // OS CONVITES DA ETAPA 6 (docs/specs/2026-11-03-link-de-convite.md). Server Component `async`: roda UMA
+  // vez por requisição, e ler o relógio aqui é o comportamento pedido. A regra trata todo arquivo como
+  // cliente; o dono silencia do mesmo jeito, com o motivo por extenso, em app/page.tsx:322-333.
+  // eslint-disable-next-line react-hooks/purity
+  const agora = Date.now();
+  const convites = (await listarConvites()).map((c) => linhaDoConvite(c, agora, fmtDate));
 
   const inputCls = input;
 
@@ -199,6 +208,15 @@ export default async function SetupPage({
           </Suspense>
         </section>
       )}
+
+      {/* O LINK DE CONVITE, À VISTA (achado 163, decidido pelo Eduardo em 03/11/2026). Ele nasceu na etapa 6,
+          ao lado do "Conectar outra conta", mas com a instalação concluída o bloco abaixo nasce recolhido, e o
+          botão ficava escondido lá dentro. Mora aqui, fora do <details>, e tests/convite-a-vista.test.ts cobra
+          isso. */}
+      <section className={`p-5 ${card}`}>
+        <h3 className="mb-1 text-sm font-semibold text-zinc-800 dark:text-zinc-200">Convidar um cliente</h3>
+        <Convites linhas={convites} metaOk={metaOk} />
+      </section>
 
       {/* A INSTALAÇÃO INTEIRA, RECOLHIDA QUANDO JÁ TERMINOU.
 
@@ -506,6 +524,9 @@ export default async function SetupPage({
               autorizar aqui.
             </p>
           )}
+          <p className={`text-xs ${muted}`}>
+            Para o cliente conectar a própria conta, use o <b>Convidar um cliente</b>, acima.
+          </p>
         </Step>
 
         <Step

@@ -71,6 +71,12 @@ export function isValidSession(value: string | undefined, now: number = Date.now
 // (que exige a sessão) sorteia um, guarda no cookie abaixo, e a volta só aceita o mesmo valor, uma vez.
 export const OAUTH_STATE_COOKIE = "metodochat_oauth_state";
 export const OAUTH_STATE_MAX_AGE_SECONDS = 10 * 60;
+
+// O COOKIE DO CONVITE (docs/specs/2026-11-03-link-de-convite.md): o começo pelo link de convite
+// (`/api/oauth/convite/[codigo]`) grava o id do convite ao lado do `state`, com as mesmas opções e o mesmo
+// prazo, e é ele que diz à volta que a conexão é do cliente, e não de alguém do painel. O começo de hoje
+// (`/api/oauth/login`) o apaga.
+export const OAUTH_CONVITE_COOKIE = "metodochat_oauth_convite";
 const STATE_HEX = /^[0-9a-f]{64}$/;
 
 export function novoOauthState(): string {

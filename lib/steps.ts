@@ -4947,7 +4947,7 @@ const LIMITE_DA_MENSAGEM = 300;
  * este produto põe em query string em algum caminho. O valor é substituído,
  * não removido: quem lê precisa saber que ele ESTAVA ali.
  */
-function semSegredo(texto: string): string {
+export function semSegredo(texto: string): string {
   return texto.replace(
     /(access_token|client_secret|appsecret_proof)=([^&\s"']*)/gi,
     "$1=OCULTO"

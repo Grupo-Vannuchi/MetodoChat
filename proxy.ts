@@ -10,6 +10,8 @@ const PUBLIC_PREFIXES = [
   "/api/queue/tick",
   "/privacidade",
   "/exclusao-de-dados",
+  // O link de convite, que o cliente abre sem a senha do painel (docs/specs/2026-11-03-link-de-convite.md).
+  "/convite",
   "/entrar",
   "/_next",
   "/favicon.ico",

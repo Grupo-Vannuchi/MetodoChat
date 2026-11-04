@@ -3,6 +3,7 @@ import { authorizeUrl } from "@/lib/ig";
 import {
   isValidSession,
   novoOauthState,
+  OAUTH_CONVITE_COOKIE,
   OAUTH_STATE_COOKIE,
   OAUTH_STATE_MAX_AGE_SECONDS,
   SESSION_COOKIE,
@@ -43,5 +44,8 @@ export async function GET(req: NextRequest) {
     path: "/api/oauth",
     maxAge: OAUTH_STATE_MAX_AGE_SECONDS,
   });
+  // SEM O COOKIE DO CONVITE: uma conexão normal, feita depois de um convite no mesmo navegador, não pode
+  // ser tratada como a do cliente na volta (docs/specs/2026-11-03-link-de-convite.md).
+  res.cookies.set(OAUTH_CONVITE_COOKIE, "", { path: "/api/oauth", maxAge: 0 });
   return res;
 }

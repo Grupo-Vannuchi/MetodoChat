@@ -424,15 +424,20 @@ export async function getAccount(igUserId: string): Promise<Account | undefined>
   return rows[0];
 }
 
-export async function upsertAccount(a: {
-  ig_user_id: string;
-  username: string | null;
-  name: string | null;
-  profile_picture_url: string | null;
-  access_token: string;
-  token_expires_at: Date | null;
-}): Promise<void> {
-  await sql().query(
+// O SEGUNDO PARÂMETRO É A TRANSAÇÃO, quando há uma: a volta do link de convite grava a conta na mesma
+// transação que reivindica o convite (lib/convites-repositorio.ts). Sem ele, é o pool, como sempre foi.
+export async function upsertAccount(
+  a: {
+    ig_user_id: string;
+    username: string | null;
+    name: string | null;
+    profile_picture_url: string | null;
+    access_token: string;
+    token_expires_at: Date | null;
+  },
+  executor: SqlTx = sql()
+): Promise<void> {
+  await executor.query(
     `insert into accounts (ig_user_id, username, name, profile_picture_url,
                            access_token, token_expires_at, connected_at)
      values ($1, $2, $3, $4, $5, $6, now())

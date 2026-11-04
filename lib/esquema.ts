@@ -289,6 +289,15 @@ const MARCA_DAGUA = {
       porque:
         "revoga permissões de papéis do Supabase, que presença de coluna não vê; a partida do painel não depende dela",
     },
+    {
+      de: "021-convites-de-conexao.sql",
+      // A QUARTA TABELA DE FEATURE, pelo mesmo motivo da 013, da 014 e da 018: `convites_de_conexao` é do
+      // link de convite (app/convite/ e app/api/oauth/convite/), que só ele lê, e ela não pode impedir o
+      // painel inteiro de subir. Quem confere as colunas é testes-integracao/convites-tabela.integracao.ts.
+      // Decidido pelo Eduardo em 03/11/2026 (docs/specs/2026-11-03-link-de-convite.md).
+      porque:
+        "tabela de FEATURE (convites_de_conexao): a partida do painel não depende dela, de propósito",
+    },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",

@@ -61,8 +61,9 @@ const NAV_GROUPS: {
   },
 ];
 
-// Páginas sem painel (login e páginas públicas exigidas pela Meta)
-const PUBLIC_PATHS = ["/entrar", "/privacidade", "/exclusao-de-dados"];
+// Páginas sem painel (login, páginas públicas exigidas pela Meta e o link de
+// convite, que o cliente abre sem a senha do painel)
+const PUBLIC_PATHS = ["/entrar", "/privacidade", "/exclusao-de-dados", "/convite"];
 
 // A ROTA DO EDITOR, que recebe a janela inteira: nada de menu, nada de `max-w`,
 // nada de padding. Enquanto se edita, o quadro é o aplicativo — e ele traz a
