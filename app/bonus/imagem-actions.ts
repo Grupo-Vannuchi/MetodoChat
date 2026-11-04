@@ -1,8 +1,7 @@
 "use server";
 import { after } from "next/server";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { sessaoAtual } from "@/lib/sessao";
 import { contasParaArte } from "@/lib/bonus/carrossel-repositorio";
 import { gerarImagem, pedirImagem } from "@/lib/bonus/imagem-processo";
 import { TEXTO_GERANDO_A_IMAGEM, textoDaRecusaDaImagem, type AvisoDoPedidoDeImagem } from "@/lib/bonus/imagem-textos";
@@ -20,8 +19,7 @@ import { TEXTO_PEDIDO_INVALIDO } from "@/lib/bonus/publicar-textos";
 // pela rota GET da consulta. A resposta volta como estado, e nunca por redirect (achado 52).
 
 async function exigirSessao(): Promise<void> {
-  const jarra = await cookies();
-  if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) redirect("/entrar");
+  if (!(await sessaoAtual())) redirect("/entrar");
 }
 
 const registro = (v: unknown): Record<string, unknown> =>

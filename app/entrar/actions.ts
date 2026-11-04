@@ -1,49 +1,30 @@
 "use server";
-import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import {
-  isValidPassword,
-  createSessionValue,
-  SESSION_COOKIE,
-  SESSION_MAX_AGE_SECONDS,
-} from "@/lib/auth";
+import { conferirEntrada } from "@/lib/entrada";
+import { ipDoCliente } from "@/lib/ip-do-cliente";
+import { FRASE_DA_ENTRADA_ERRADA } from "@/lib/logins";
 import { isLockedOut, recordFailure, clearAttempts, LOCKOUT_MESSAGE } from "@/lib/login-throttle";
+import { abrirSessao } from "@/lib/sessao";
 
-// Quem está tentando entrar. Atrás da Vercel, o IP real é o PRIMEIRO item de
-// x-forwarded-for — os seguintes são os proxies do caminho, que o cliente pode
-// forjar acrescentando itens à esquerda... por isso o primeiro é o que a borda
-// escreveu, e é o único confiável aqui.
-async function clientIp(): Promise<string> {
-  const h = await headers();
-  const encaminhado = h.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return encaminhado || h.get("x-real-ip") || "desconhecido";
-}
-
+// A ENTRADA COM E-MAIL E SENHA (docs/specs/2026-11-04-logins.md, seção 3). Até 04/11/2026 era só a senha
+// única. Toda entrada errada dá a mesma frase, e conta no freio de tentativas do IP, que é o de sempre.
 export async function login(
   _prev: { error?: string } | undefined,
   formData: FormData
 ): Promise<{ error?: string }> {
-  const ip = await clientIp();
+  const ip = await ipDoCliente();
 
   if (await isLockedOut(ip)) {
     return { error: LOCKOUT_MESSAGE };
   }
 
-  const password = String(formData.get("password") ?? "");
-  if (!isValidPassword(password)) {
+  const loginId = await conferirEntrada(String(formData.get("email") ?? ""), String(formData.get("password") ?? ""));
+  if (!loginId) {
     await recordFailure(ip);
-    return { error: "Senha incorreta." };
+    return { error: FRASE_DA_ENTRADA_ERRADA };
   }
 
   await clearAttempts(ip);
-
-  const store = await cookies(); // Next 16: cookies() é assíncrono
-  store.set(SESSION_COOKIE, createSessionValue(), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: SESSION_MAX_AGE_SECONDS,
-    path: "/",
-  });
+  await abrirSessao(loginId);
   redirect("/");
 }

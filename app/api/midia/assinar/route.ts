@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSelectedAccount } from "@/lib/account";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { sessaoDoCookie } from "@/lib/sessao";
 import { decisaoDeAssinatura } from "@/lib/publicacao";
 import { caminhoDoObjeto, tetoDoBucket, urlAssinadaDeUpload, urlPublicaDoObjeto } from "@/lib/bucket";
 
@@ -51,7 +52,7 @@ import { caminhoDoObjeto, tetoDoBucket, urlAssinadaDeUpload, urlPublicaDoObjeto 
 // o contêiner. Esta rota corta cedo o que já dá para saber que não serve.
 
 export async function POST(req: NextRequest) {
-  if (!isValidSession(req.cookies.get(SESSION_COOKIE)?.value)) {
+  if (!(await sessaoDoCookie(req.cookies.get(SESSION_COOKIE)?.value))) {
     return new NextResponse("unauthorized", { status: 401 });
   }
 

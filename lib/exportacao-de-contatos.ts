@@ -6,7 +6,7 @@
 //
 // E AQUI A PUREZA NÃO É ESTILO, É A ÚNICA REDE POSSÍVEL. As duas rotas de
 // exportação (`app/api/contatos/csv/route.ts` e
-// `app/api/contatos/csv-completo/route.ts`) começam em `isValidSession`, e
+// `app/api/contatos/csv-completo/route.ts`) começam em `sessaoDoCookie`, e
 // sessão não se forja: nenhum teste de integração desta base alcança o que elas
 // fazem depois dessa linha. O comentário da rota antiga já dizia isso, e o que
 // ele descrevia como "o que dava para prender puro está preso" era pouco — o

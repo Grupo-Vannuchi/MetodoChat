@@ -1,7 +1,6 @@
 "use server";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { sessaoAtual } from "@/lib/sessao";
 import { apagarCarrossel } from "@/lib/bonus/apagar-carrossel";
 import { textoDoApagar, type AvisoDoApagar } from "@/lib/bonus/apagar-textos";
 import { urlDepoisDeApagar } from "@/lib/bonus/carrosseis-tela";
@@ -19,8 +18,7 @@ import { TEXTO_PEDIDO_INVALIDO } from "@/lib/bonus/publicar-textos";
 // do servidor (lib/bonus/apagar-carrossel.ts).
 
 async function exigirSessao(): Promise<void> {
-  const jarra = await cookies();
-  if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) redirect("/entrar");
+  if (!(await sessaoAtual())) redirect("/entrar");
 }
 
 /** APAGAR O CARROSSEL DA PÁGINA, depois da confirmação do botão. */

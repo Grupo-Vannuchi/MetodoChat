@@ -3,7 +3,7 @@ import { after } from "next/server";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ACCOUNT_COOKIE } from "@/lib/account";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { sessaoAtual } from "@/lib/sessao";
 import { contaParaGerarDeNovo, contaParaGuardar, contaSelecionada } from "@/lib/bonus/arte-conta";
 import { escolhasDaArte } from "@/lib/bonus/arte-escolhas";
 import { lerPedidoAvulso } from "@/lib/bonus/avulso-pedido";
@@ -31,8 +31,7 @@ import { textoDaConfig } from "@/lib/bonus/textos";
 // código, e a palavra e o contexto vêm da lista pública. A conta é a do cookie, e nunca do formulário.
 
 async function exigirSessao(): Promise<void> {
-  const jarra = await cookies();
-  if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) redirect("/entrar");
+  if (!(await sessaoAtual())) redirect("/entrar");
 }
 
 const lerSituacao = (codigo: string) => situacaoDoAvulsoNoLabs(process.env.LABS_URL, codigo);

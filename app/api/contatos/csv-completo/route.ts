@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { sessaoDoCookie } from "@/lib/sessao";
 import { diaDaChave } from "@/lib/dedupe";
 import {
   recorteDaUrl,
@@ -26,7 +27,7 @@ import {
 // DM, e o arquivo é aberto com dois cliques na máquina do marketing.
 //
 // ESTA ROTA É CASCA FINA, E ISSO É A DECISÃO ESTRUTURAL DA TAREFA. O handler
-// começa em `isValidSession`, e sessão não se forja: nada que more aqui dentro
+// começa em `sessaoDoCookie`, e sessão não se forja: nada que more aqui dentro
 // pode ter teste de integração. Então aqui só ficam as quatro coisas que
 // PRECISAM de servidor — autenticar, achar a conta, consultar, devolver — e
 // tudo o que DECIDE o arquivo (as peneiras, as colunas, a ordem, cada célula)
@@ -35,7 +36,7 @@ import {
 // nasce aqui dentro nasce sem rede nenhuma.
 
 export async function GET(req: NextRequest) {
-  if (!isValidSession(req.cookies.get(SESSION_COOKIE)?.value)) {
+  if (!(await sessaoDoCookie(req.cookies.get(SESSION_COOKIE)?.value))) {
     return new NextResponse("unauthorized", { status: 401 });
   }
   const account = await getSelectedAccount();

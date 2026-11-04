@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { sessaoDoCookie } from "@/lib/sessao";
 
 // Next 16: middleware.ts virou proxy.ts (roda em Node).
-// Protege o painel com a sessão de senha; rotas públicas passam direto.
+// Protege o painel com a sessão do login; rotas públicas passam direto.
+//
+// A SESSÃO É CONFERIDA NO BANCO desde os logins (docs/specs/2026-11-04-logins.md, seção 2). A documentação
+// do Next 16 desaconselha consultar o banco no proxy, por desempenho (o proxy roda também nas pré-cargas);
+// o desenho aprovado mantém o porteiro como a porta das páginas, e a prova mede o custo antes do PR.
+//
+// A ORDEM IMPORTA: os caminhos públicos passam ANTES da sessão. O webhook da Meta, o cron, a fila, o OAuth
+// e o convite não pagam a consulta, e tests/proxy-ordem.test.ts segura isso.
 const PUBLIC_PREFIXES = [
   "/api/webhook",
   "/api/oauth",
@@ -17,12 +25,12 @@ const PUBLIC_PREFIXES = [
   "/favicon.ico",
 ];
 
-export function proxy(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   if (PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return NextResponse.next();
   }
-  if (isValidSession(req.cookies.get(SESSION_COOKIE)?.value)) {
+  if (await sessaoDoCookie(req.cookies.get(SESSION_COOKIE)?.value)) {
     return NextResponse.next();
   }
   const url = req.nextUrl.clone();

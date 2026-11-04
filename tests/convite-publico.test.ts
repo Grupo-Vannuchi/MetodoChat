@@ -7,18 +7,20 @@ import { proxy } from "@/proxy";
 // senha do painel. Este arquivo confere as duas portas que deixam ele passar e os cabeçalhos que fecham o
 // código do link (achado 157).
 
+// Desde os logins (docs/specs/2026-11-04-logins.md) o porteiro é assíncrono: ele confere a sessão no banco.
+// Sem cookie, a conferência responde que não vale sem consultar nada.
 const passa = (caminho: string) => proxy(new NextRequest(`https://painel.exemplo.com.br${caminho}`));
 
 describe("o porteiro do painel e o convite", () => {
   it.each(["/convite/abc", "/convite/pronto", "/convite/erro", "/api/oauth/convite/abc"])(
     "%s passa sem a sessão",
-    (caminho) => {
-      expect(passa(caminho).headers.get("location")).toBeNull();
+    async (caminho) => {
+      expect((await passa(caminho)).headers.get("location")).toBeNull();
     }
   );
 
-  it.each(["/convites", "/convite-x", "/setup"])("%s continua pedindo a sessão", (caminho) => {
-    expect(new URL(passa(caminho).headers.get("location") ?? "").pathname).toBe("/entrar");
+  it.each(["/convites", "/convite-x", "/setup"])("%s continua pedindo a sessão", async (caminho) => {
+    expect(new URL((await passa(caminho)).headers.get("location") ?? "").pathname).toBe("/entrar");
   });
 });
 

@@ -1,8 +1,7 @@
 "use server";
 import { after } from "next/server";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { sessaoAtual } from "@/lib/sessao";
 import { temChaveDaIA } from "@/lib/bonus/config";
 import { CAMPOS_REVISADOS } from "@/lib/bonus/contrato";
 import { ehIdDeBonus, lerPedido } from "@/lib/bonus/pedido";
@@ -33,8 +32,7 @@ import {
 // todo sucesso leva à tela do bônus, que mostra o estado gravado.
 
 async function exigirSessao(): Promise<void> {
-  const jarra = await cookies();
-  if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) redirect("/entrar");
+  if (!(await sessaoAtual())) redirect("/entrar");
 }
 
 /**

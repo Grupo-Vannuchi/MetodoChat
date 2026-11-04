@@ -7,7 +7,7 @@ import AppShell from "./app-shell";
 import { SwitcherAccount } from "./account-switcher";
 import { listAccounts } from "@/lib/db";
 import { ACCOUNT_COOKIE } from "@/lib/account";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { sessaoAtual } from "@/lib/sessao";
 
 // AS TRÊS FAMÍLIAS. A Sora saiu: não por ser ruim, mas por ser a fonte que
 // aparece em todo modelo de SaaS — ela era metade do "ar de modelo" que a
@@ -78,12 +78,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // SÓ COM SESSÃO: este layout roda também nas páginas públicas, e o AppShell é
   // componente de cliente, então a lista que ele recebe vai no corpo da resposta.
   // Sem sessão, ela sai vazia (docs/specs/2026-10-26-sessao-conferida.md;
-  // tests/layout-contas.test.ts).
+  // tests/layout-contas.test.ts). Desde os logins, a sessão é a do banco
+  // (lib/sessao.ts, docs/specs/2026-11-04-logins.md).
   let accounts: SwitcherAccount[] = [];
   let selectedId: string | null = null;
   try {
     const jarra = await cookies();
-    if (isValidSession(jarra.get(SESSION_COOKIE)?.value)) {
+    const login = await sessaoAtual();
+    if (login) {
       accounts = (await listAccounts()).map((a) => ({
         ig_user_id: a.ig_user_id,
         username: a.username,

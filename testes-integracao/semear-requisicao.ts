@@ -96,34 +96,31 @@
 // NENHUM COOKIE ENTROU JUNTO. A jarra continua vazia (ver acima), e o webhook
 // nem a consultaria: ele autentica por assinatura HMAC do corpo.
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash, createHmac } from "node:crypto";
 import { createRequire } from "node:module";
+import { exigirPrefixo } from "./banco-descartavel";
 
 const req = createRequire(import.meta.url);
 
 // ---------------------------------------------------------------------------
-// A SENHA DE TESTE, posta ANTES de qualquer coisa derivar a chave da sessão.
+// O LOGIN DE TESTE, e a senha única de teste posta ANTES de qualquer coisa a ler.
 //
-// A chave é sha256("metodochat-session:" + ADMIN_PASSWORD) (lib/auth.ts), guardada
-// em cache POR PROCESSO. O `.env.local` tem a senha de verdade, e este harness
-// nunca a lê (banco-descartavel.ts). Mas se ela chegasse ao `process.env` por
-// outro caminho (o shell, um `vercel env pull`), o login da variante com sessão
-// emitiria um cookie que vale 30 dias no painel de produção. Por isso a senha é
-// um LITERAL, e SOBRESCREVE o que vier do ambiente, como tests/session.test.ts
-// já faz. E a variante confere a assinatura do cookie contra este literal
-// (`assinadoComASenhaDeTeste`) antes de usá-lo: se algo no processo derivou a
-// chave antes com outra senha, a assinatura não bate, e o caminho morre em
-// vermelho. O valor do cookie nunca é impresso.
+// DESDE OS LOGINS (docs/specs/2026-11-04-logins.md) a sessão mora no banco: o
+// cookie é um código sorteado, e só vale onde a linha da sessão existe. A
+// variante com sessão cria um login de teste no SCHEMA DESCARTÁVEL deste arquivo
+// e entra pela ação de entrar de verdade, com e-mail e senha. Um cookie desses
+// não vale em lugar nenhum fora deste schema, e a variante confere que a sessão
+// foi gravada nele (`exigirPrefixo`) antes de usá-la.
+//
+// A ADMIN_PASSWORD continua sobrescrita por um LITERAL: a passagem da senha única
+// (seção 6 da spec) a lê, e os testes da passagem têm de ler a de teste, e nunca
+// uma que chegasse ao `process.env` por outro caminho (o shell, um
+// `vercel env pull`). O `.env.local` tem a senha de verdade, e este harness nunca
+// a lê (banco-descartavel.ts). O valor do cookie nunca é impresso.
 export const SENHA_DE_TESTE = "senha-de-teste-que-nao-vale-nada";
 process.env.ADMIN_PASSWORD = SENHA_DE_TESTE;
 
-/** O cookie `v2.<expira>.<assinatura>` foi assinado com a chave da SENHA DE TESTE? */
-export function assinadoComASenhaDeTeste(valor: string): boolean {
-  const [versao, expira, assinatura] = valor.split(".");
-  if (versao !== "v2" || !expira || !assinatura) return false;
-  const chave = createHash("sha256").update(`metodochat-session:${SENHA_DE_TESTE}`).digest();
-  return createHmac("sha256", chave).update(`${versao}.${expira}`).digest("hex") === assinatura;
-}
+/** O e-mail do login de teste: um domínio reservado, que não é de ninguém. */
+export const EMAIL_DE_TESTE = "login-de-teste@exemplo.invalid";
 
 // ---------------------------------------------------------------------------
 // A GUARDA — e ela é a razão de este arquivo ter mais comentário que código.
@@ -506,21 +503,35 @@ export async function comoNumaRequisicao<T>(
 let cookieDaSessaoDeTeste: string | null = null;
 
 /**
- * Entra pela AÇÃO DE ENTRAR DE VERDADE, com a senha de teste, e devolve o
- * cabeçalho `cookie` com o que ela emitiu. Não monta sessão nenhuma à mão.
+ * Entra pela AÇÃO DE ENTRAR DE VERDADE, com o login de teste, e devolve o
+ * cabeçalho `cookie` com o que ela emitiu. Não monta sessão nenhuma à mão: o
+ * login de teste é criado no schema descartável (se ainda não existir), e a
+ * sessão sai da ação.
  *
  * Duas conferências antes de devolver, e as duas estouram sem imprimir o cookie:
- * o login mandou para "/" (o caminho do sucesso, e não só "gravou algo"), e o
- * cookie foi assinado com a SENHA DE TESTE (ver o topo deste arquivo).
+ * o login mandou para "/" (o caminho do sucesso, e não só "gravou algo"), e a
+ * sessão foi gravada no schema descartável (ver o topo deste arquivo).
  */
 async function entrarDeVerdade(): Promise<string> {
-  if (cookieDaSessaoDeTeste) return cookieDaSessaoDeTeste;
+  const { SESSION_COOKIE } = await import("@/lib/auth");
+  const { sessaoPorCodigo, criarLogin } = await import("@/lib/logins-repositorio");
+  // A SESSÃO GUARDADA AINDA VALE? Um caso que apagou as sessões ou os logins a derrubou.
+  if (cookieDaSessaoDeTeste && (await sessaoPorCodigo(cookieDaSessaoDeTeste.split("=")[1]))) {
+    return cookieDaSessaoDeTeste;
+  }
+  const { hashDaSenha } = await import("@/lib/logins");
+  const { sql } = await import("@/lib/db");
+  const [existe] = (await sql().query(`select id from logins where email = $1`, [EMAIL_DE_TESTE])) as unknown[];
+  if (!existe) {
+    const r = await criarLogin({ email: EMAIL_DE_TESTE, nome: "Login de teste", senhaHash: await hashDaSenha(SENHA_DE_TESTE) });
+    if ("erro" in r) throw new Error(`O LOGIN DE TESTE NÃO NASCEU: ${r.erro}`);
+  }
   const { login } = await import("@/app/entrar/actions");
   const { cookies } = await import("next/headers");
-  const { SESSION_COOKIE } = await import("@/lib/auth");
 
   const { valor } = await rodarNoContexto("/entrar", async () => {
     const form = new FormData();
+    form.set("email", EMAIL_DE_TESTE);
     form.set("password", SENHA_DE_TESTE);
     let digest: string | null = null;
     try {
@@ -543,13 +554,13 @@ async function entrarDeVerdade(): Promise<string> {
         "Sem isso, a variante com sessão mediria uma sessão que o painel não emitiu."
     );
   }
-  if (!valor.cookie || !assinadoComASenhaDeTeste(valor.cookie)) {
+  const [onde] = (await sql().query(`select current_schema() as schema`)) as { schema: string }[];
+  exigirPrefixo(onde.schema, "a sessão do login de teste");
+  if (!valor.cookie || !(await sessaoPorCodigo(valor.cookie))) {
     throw new Error(
-      "O COOKIE DO LOGIN NÃO É DE TESTE: ele não foi assinado com a SENHA_DE_TESTE " +
-        "(o valor não é impresso). Algo no processo derivou a chave da sessão com " +
-        "outra senha antes deste arquivo; um cookie desses poderia valer no painel " +
-        "de produção. Ache quem leu a ADMIN_PASSWORD antes do topo de " +
-        "testes-integracao/semear-requisicao.ts."
+      "A SESSÃO DO LOGIN DE TESTE NÃO ESTÁ NO SCHEMA DESCARTÁVEL: o cookie que a " +
+        "ação de entrar emitiu não acha a linha dele em `sessoes` (o valor não é " +
+        "impresso). Sem isso, a variante com sessão mediria uma sessão de outro lugar."
     );
   }
   cookieDaSessaoDeTeste = `${SESSION_COOKIE}=${valor.cookie}`;
@@ -557,8 +568,8 @@ async function entrarDeVerdade(): Promise<string> {
 }
 
 /**
- * Como `comoNumaRequisicao`, mas com a sessão que a ação de entrar emitiu para a
- * senha de teste. É para medir o CORPO de uma Server Action que começa por
+ * Como `comoNumaRequisicao`, mas com a sessão que a ação de entrar emitiu para o
+ * login de teste. É para medir o CORPO de uma Server Action que começa por
  * `await exigirSessao()`; o "sem sessão" se mede com `comoNumaRequisicao`.
  */
 export async function comoNumaRequisicaoComSessao<T>(
@@ -574,14 +585,14 @@ export async function comoNumaRequisicaoComSessao<T>(
 export async function sessaoDeTesteConfere(): Promise<boolean> {
   const cookie = await entrarDeVerdade();
   const [, valor] = cookie.split("=");
-  const { isValidSession } = await import("@/lib/auth");
-  return assinadoComASenhaDeTeste(valor) && isValidSession(valor);
+  const { sessaoDoCookie } = await import("@/lib/sessao");
+  return (await sessaoDoCookie(valor))?.email === EMAIL_DE_TESTE;
 }
 
 /**
  * O cabeçalho `cookie` da sessão de teste, para um ROUTE HANDLER que lê `req.cookies` direto do pedido
  * (e não `cookies()` do contexto). É o mesmo que `comoNumaRequisicaoComSessao` leva: o que a ação de
- * entrar emitiu para a senha de teste, conferido pela assinatura. O valor não deve ser impresso.
+ * entrar emitiu para o login de teste, conferido no schema descartável. O valor não deve ser impresso.
  */
 export async function cabecalhoDaSessaoDeTeste(): Promise<string> {
   return entrarDeVerdade();

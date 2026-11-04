@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { ACCOUNT_COOKIE } from "@/lib/account";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { sessaoDoCookie } from "@/lib/sessao";
 import { desenharSlide, erroDaArte as erro } from "@/lib/bonus/arte-rota";
 import { conferirPedidoDaArte } from "@/lib/bonus/arte-tela";
 import { TEXTO_ARTE_NAO_ENCONTRADA, TEXTO_ARTE_SEM_SESSAO } from "@/lib/bonus/arte-textos";
@@ -28,7 +29,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string; cid: string }> }) {
   const jarra = await cookies();
-  if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) return erro(401, TEXTO_ARTE_SEM_SESSAO);
+  if (!(await sessaoDoCookie(jarra.get(SESSION_COOKIE)?.value))) return erro(401, TEXTO_ARTE_SEM_SESSAO);
   const { id, cid } = await params;
   if (!ehIdDeBonus(id) || !ehIdDeBonus(cid)) return erro(404, TEXTO_ARTE_NAO_ENCONTRADA);
   const pedido = new URL(request.url).searchParams;

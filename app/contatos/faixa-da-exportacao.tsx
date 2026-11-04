@@ -10,7 +10,7 @@ import { btnGhost, muted } from "../ui";
 // POR QUE ELA SAIU DE `page.tsx`: para o teste de DOM alcançar a faixa sem
 // montar a página inteira. `ContatosPage` é `async`, consulta o Postgres e lê a
 // conta selecionada — `testes-dom/` roda offline, em jsdom, sem banco —, e as
-// duas rotas de exportação começam em `isValidSession`, que teste nenhum desta
+// duas rotas de exportação começam em `sessaoDoCookie`, que teste nenhum desta
 // base atravessa. Era esse o buraco: a regra mais importante desta tela não
 // tinha rede DO LADO DA TELA, e a revisão de 23/09/2026 provou plantando o
 // defeito de 11/09/2026 aqui dentro — ele passou por `tsc`, `eslint`, 1804

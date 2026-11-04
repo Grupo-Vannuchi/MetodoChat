@@ -3,9 +3,11 @@ import { sql } from "./db";
 
 // Freio de força bruta no login.
 //
-// A ADMIN_PASSWORD protege o painel inteiro e ainda deriva a chave da sessão e
-// o state do OAuth. Sem freio, dá para chutar senha à vontade — e um único
-// acerto entrega tudo.
+// A senha de cada login protege o painel (docs/specs/2026-11-04-logins.md). Sem
+// freio, dá para chutar senha à vontade — e um único acerto entrega tudo. Até
+// 04/11/2026 a senha era uma só, a ADMIN_PASSWORD, que ainda derivava a chave da
+// sessão. Desde os logins, o mesmo freio vale para a entrada e para a senha atual
+// da troca de senha.
 //
 // O contador mora no banco, não em memória: em serverless cada instância tem a
 // sua, e um atacante que caia em instâncias diferentes nunca alcançaria o
