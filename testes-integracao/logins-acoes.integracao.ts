@@ -174,6 +174,11 @@ describe("a página Logins", () => {
     expect(h).not.toContain("scrypt$");
     // O próprio login não tem o botão de desativar: um só "Desativar", o da outra pessoa.
     expect(h.match(/>Desativar</g)?.length).toBe(1);
+    // Nem a senha nova: ela derruba TODAS as sessões do login, e quem a usasse em si mesmo se derrubaria
+    // (nota da auditoria ao plano, 04/11). Para a própria senha, a página aponta a Minha conta.
+    expect(h).toContain("Senha nova para Outra pessoa");
+    expect(h).not.toContain("Senha nova para Login de teste");
+    expect(h).toContain('href="/minha-conta"');
     const torto = await desenhar("<b>vazado</b>");
     expect(torto).not.toContain("vazado");
   });

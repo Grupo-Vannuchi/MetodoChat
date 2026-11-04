@@ -18,32 +18,41 @@ const MAX_ATTEMPTS = 8;
 
 export const LOCKOUT_MESSAGE = `Muitas tentativas. Espere ${WINDOW_MINUTES} minutos e tente de novo.`;
 
+// A TENTATIVA É CONTADA ANTES DA CONFERÊNCIA DA SENHA (achado 173 da auditoria,
+// docs/specs/2026-11-04-logins.md). Até 04/11/2026 o freio olhava antes
+// (`isLockedOut`) e só gravava a falha depois (`recordFailure`): uma rajada de
+// pedidos em paralelo do mesmo IP passava inteira pela olhada antes de a
+// primeira falha ser gravada. Sem custo na conferência, isso pesava pouco; com
+// o scrypt dos logins (~480 ms e ~128 MiB cada), virava amplificação.
+//
+// Agora cada tentativa é RESERVADA antes do scrypt, numa transação com uma
+// trava por IP (`pg_advisory_xact_lock`): conta a janela e, abaixo do teto,
+// grava a tentativa. Acima do teto, recusa sem gravar e sem scrypt. O acerto
+// limpa as tentativas do IP (`clearAttempts`), como antes. A conta é a mesma de
+// antes: com 8 tentativas na janela, a nona ouve o freio.
+//
 // Falha ABERTA de propósito: se o banco estiver fora do ar, o freio não
 // funciona, mas o login também não trava. Barrar aqui deixaria o dono do painel
 // de fora justo quando ele mais precisa entrar — e a senha continua sendo
-// exigida de qualquer forma.
-export async function isLockedOut(ip: string): Promise<boolean> {
+// exigida de qualquer forma (e, sem banco, nem a conferência dela acontece).
+export async function reservarTentativa(ip: string): Promise<boolean> {
   try {
-    const rows = (await sql().query(
-      `select count(*)::int as total from login_attempts
-       where ip = $1 and attempted_at > now() - make_interval(mins => $2::int)`,
-      [ip, WINDOW_MINUTES]
-    )) as { total: number }[];
-    return (rows[0]?.total ?? 0) >= MAX_ATTEMPTS;
-  } catch {
-    return false;
-  }
-}
-
-export async function recordFailure(ip: string): Promise<void> {
-  try {
-    await sql().query(`insert into login_attempts (ip) values ($1)`, [ip]);
+    const permitida = await sql().begin(async (tx) => {
+      await tx.query(`select pg_advisory_xact_lock(hashtext('login_attempts:' || $1))`, [ip]);
+      const [linha] = (await tx.query(
+        `select count(*)::int as total from login_attempts
+         where ip = $1 and attempted_at > now() - make_interval(mins => $2::int)`,
+        [ip, WINDOW_MINUTES]
+      )) as { total: number }[];
+      if ((linha?.total ?? 0) >= MAX_ATTEMPTS) return false;
+      await tx.query(`insert into login_attempts (ip) values ($1)`, [ip]);
+      return true;
+    });
     // limpeza oportunista: sem isto a tabela cresceria para sempre
-    await sql().query(
-      `delete from login_attempts where attempted_at < now() - interval '1 day'`
-    );
+    await sql().query(`delete from login_attempts where attempted_at < now() - interval '1 day'`);
+    return permitida;
   } catch {
-    // sem banco não há freio; o acerto da senha continua obrigatório
+    return true;
   }
 }
 

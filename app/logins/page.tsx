@@ -1,8 +1,9 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listarLogins } from "@/lib/logins-repositorio";
 import { avisoDaPagina } from "@/lib/logins-textos";
 import { sessaoAtual } from "@/lib/sessao";
-import { alertInfo, badgeNeutral, badgeWarn, btnGhost, card, muted, pageSubtitle, pageTitle } from "../ui";
+import { alertInfo, badgeNeutral, badgeWarn, btnGhost, card, link, muted, pageSubtitle, pageTitle } from "../ui";
 import { desativarLoginAction, reativarLoginAction } from "./actions";
 import { CriarLogin, DefinirSenha } from "./formularios";
 
@@ -64,7 +65,20 @@ export default async function LoginsPage({
                 {desativado && <span className={badgeWarn}>desativado</span>}
                 <span className={`ml-auto text-xs ${muted}`}>criado em {quando(l.criado_em)}</span>
               </div>
-              {!desativado && <DefinirSenha id={l.id} nome={l.nome} />}
+              {/* A SENHA NOVA NÃO APARECE NA PRÓPRIA LINHA: ela derruba TODAS as sessões do login, e quem a
+                  usasse em si mesmo se derrubaria (nota da auditoria ao plano, 04/11/2026). A própria senha
+                  se troca na Minha conta, que mantém a sessão de quem troca. */}
+              {souEu ? (
+                <p className={`text-xs ${muted}`}>
+                  Para trocar a sua senha, use a{" "}
+                  <Link href="/minha-conta" className={link}>
+                    Minha conta
+                  </Link>
+                  .
+                </p>
+              ) : (
+                !desativado && <DefinirSenha id={l.id} nome={l.nome} />
+              )}
               {!souEu && (
                 <form action={desativado ? reativarLoginAction : desativarLoginAction}>
                   <input type="hidden" name="id" value={l.id} />
