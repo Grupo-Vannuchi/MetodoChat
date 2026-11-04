@@ -4,6 +4,7 @@ import Script from "next/script";
 import { cookies } from "next/headers";
 import "./globals.css";
 import AppShell, { type LoginDoMenu } from "./app-shell";
+import { sair } from "./minha-conta/actions";
 import { SwitcherAccount } from "./account-switcher";
 import { listAccounts } from "@/lib/db";
 import { ACCOUNT_COOKIE } from "@/lib/account";
@@ -126,7 +127,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <Script id="theme-init" strategy="beforeInteractive">
           {themeScript}
         </Script>
-        <AppShell accounts={accounts} selectedId={selectedId} login={doMenu}>
+        <AppShell accounts={accounts} selectedId={selectedId} login={doMenu} sair={sair}>
           {children}
         </AppShell>
       </body>
