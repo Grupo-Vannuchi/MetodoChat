@@ -5,6 +5,7 @@
 // valer.
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { card } from "@/app/ui";
 import { bancoDescartavel } from "./harness";
 
 type ModuloPagina = typeof import("@/app/convite/[codigo]/page");
@@ -108,5 +109,62 @@ describe("as páginas do fim", () => {
     expect(h).not.toContain("vazado");
     expect(await htmlDoErro(["negado", "vencido"])).toContain("Não deu certo conectar a conta.");
     expect(await htmlDoErro(undefined)).toContain("Não deu certo conectar a conta.");
+  });
+});
+
+// O CARTÃO E O BOTÃO (o print do Eduardo, 04/11/2026). Na produção, o botão "Conectar meu Instagram" saiu
+// grudado no texto do passo 3: ele estava dentro do `<li>`, com `block` e com o `inline-flex` do btnPrimary
+// na mesma classe, e quem ganha entre duas utilidades de display é a ordem das regras no CSS gerado, e não a
+// ordem na string. E as três páginas eram texto solto, sem o cartão e a marca da tela de entrar.
+//
+// A CONTAGEM DO DISPLAY olha só as utilidades SEM prefixo. `sm:flex`, `dark:block`, `hover:hidden` e afins
+// valem em outra condição e não brigam com a de base, então ficam de fora.
+const DISPLAY = new Set([
+  "block",
+  "inline",
+  "inline-block",
+  "flex",
+  "inline-flex",
+  "grid",
+  "inline-grid",
+  "contents",
+  "table",
+  "hidden",
+]);
+const displaysDaBase = (classe: string) => classe.split(/\s+/).filter((c) => DISPLAY.has(c));
+
+/** O `<a>` do botão de conectar: onde ele começa no HTML e a classe dele, com os atributos em qualquer ordem. */
+function botaoDeConectar(h: string): { onde: number; classe: string } {
+  const tag = /<a\b[^>]*\bhref="\/api\/oauth\/convite\/[^"]+"[^>]*>/.exec(h);
+  if (!tag) throw new Error("o botão de conectar não está na página");
+  const classe = /\bclass="([^"]*)"/.exec(tag[0]);
+  if (!classe) throw new Error("o botão de conectar não tem classe");
+  return { onde: tag.index, classe: classe[1] };
+}
+
+const PASTILHA_DA_MARCA = /<span class="[^"]*">M<\/span>/;
+
+describe("o cartão e o botão de conectar", () => {
+  it("o botão fica depois da lista, fora de qualquer passo, com uma utilidade de display só", async () => {
+    const { codigo } = await repo.criarConvite("Prova");
+    const h = await html(codigo);
+    const botao = botaoDeConectar(h);
+    expect(botao.onde).toBeGreaterThan(h.lastIndexOf("</ol>"));
+    expect(displaysDaBase(botao.classe)).toHaveLength(1);
+  });
+
+  it("as três páginas, nos quatro estados, desenham o cartão e a marca da tela de entrar", async () => {
+    const { codigo } = await repo.criarConvite("Prova");
+    const paginas = {
+      pendente: await html(codigo),
+      "não vale": await html("a".repeat(43)),
+      pronto: renderToStaticMarkup(await pronto.default()),
+      erro: await htmlDoErro("falhou"),
+    };
+    for (const [estado, h] of Object.entries(paginas)) {
+      expect(h, estado).toContain(card);
+      expect(h, estado).toMatch(PASTILHA_DA_MARCA);
+      expect(h, estado).toContain("Conectar seu Instagram");
+    }
   });
 });
