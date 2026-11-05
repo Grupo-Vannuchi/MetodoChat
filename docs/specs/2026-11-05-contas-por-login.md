@@ -21,7 +21,7 @@
 
 ## O que estava aberto
 
-O inventário de 05/11, medido no `af395e2`, achou **84 pontos do servidor**: 45 actions, 11 rotas (fora o cron, o webhook e a fila) e 28 páginas. Em relação ao de 04/11, no `ed2b515`, nenhum mudou de categoria. A entrega 1 só acrescentou 6 actions e 2 páginas, todas sem conta.
+O inventário de 05/11, medido no `af395e2`, achou **84 pontos do servidor**: 45 actions, 11 rotas (fora o cron, o webhook e a fila) e 28 páginas, layouts e componentes de servidor que leem dados. A auditoria, contando por arquivo, achou 29 páginas e 2 layouts. Em relação ao de 04/11, no `ed2b515`, nenhum mudou de categoria. A entrega 1 só acrescentou 6 actions e 2 páginas, todas sem conta.
 
 - **Os logins não têm ligação com contas.** A `logins` e a `sessoes` (`migrations/022-logins-e-sessoes.sql`) não têm coluna de conta.
 - **A conta escolhida é um cookie que vale para qualquer login.**
@@ -37,7 +37,7 @@ O inventário de 05/11, medido no `af395e2`, achou **84 pontos do servidor**: 45
   A publicação passa por `conferirCarrossel` (`lib/bonus/publicar-processo.ts:72`), que só exige que a conta gravada no carrossel esteja conectada, qualquer uma (`:77-79`).
 - **4 pontos leem todas as contas:** `reassinarWebhooks` (`app/setup/actions.ts:29`), `SetupPage` (`app/setup/page.tsx:77`), `PortasDeEntrada` e `SubscriptionStatus`. A Configuração não confere papel: só `gerarConvite` e `cancelarConvite` chamam `exigirAdministrador` (`app/setup/actions.ts:339` e `:355`).
 - **Qualquer login conecta uma conta nova.** `/api/oauth/login` (`app/api/oauth/login/route.ts:14`) só confere a sessão (`:18-20`). O botão "+ Conectar outra conta" fica no seletor (`app/account-switcher.tsx:93-98`) e na Configuração.
-- **A Atividade mostra os eventos sem conta para todos.** É o `or e.account_id is null` em `lib/event-query.ts:33`.
+- **A Atividade mostra os eventos sem conta para todos.** É o `or e.account_id is null` em `lib/event-query.ts:33`. Quando um webhook dá erro, o corpo inteiro é gravado sem conta (`app/api/webhook/route.ts:252`), e a Atividade mostra o payload cru (`app/eventos/page.tsx:374`). Hoje, a DM ou o comentário de uma conta, num webhook que deu erro, aparece na Atividade de qualquer conta.
 - **A senha única ainda é lida.** O caminho da passagem é `lib/entrada.ts:28-34`, e a leitura da `ADMIN_PASSWORD` fica na `senhaUnicaConfere` (`lib/auth.ts:40-41`). Na produção, os dois logins já têm senha (leitura da auditoria de 05/11, às 13:18Z).
 
 ---
@@ -76,19 +76,22 @@ alter table logins alter column administrador set default false;
 - `exigirConta(contaId)`: lê o login da sessão e recusa se `podeVerConta` não confirmar. Na action, a recusa é um `{ erro }` com a frase "Você não tem acesso a essa conta." ou o redirect para o início, conforme o que a action devolve hoje. Na rota, é um 403.
 
 Quem passa a perguntar à regra:
-- **`getSelectedAccount` e `getSelectedAccountId`** (`lib/account.ts:9` e `:16`) passam a usar `contaEscolhida` com o login da sessão. A assinatura não muda. Os 29 pontos que já usam a conta escolhida (categorias a e a+c✓ do inventário) ficam presos às contas do login sem mudar uma linha deles.
+- **`getSelectedAccount` e `getSelectedAccountId`** (`lib/account.ts:9` e `:16`) passam a usar `contaEscolhida` com o login da sessão. A assinatura não muda. Os 29 pontos que já usam a conta escolhida (categorias a e a+c✓ do inventário) ficam presos às contas do login sem mudar uma linha deles. Isso vale porque cada consulta deles liga o id que vem do navegador à conta escolhida, como o inventário mediu (os 14 a+c✓). Essa ligação passa a ser fronteira, e a integração a prova (ver "Os testes").
 - **O layout** (`app/layout.tsx:94-103`) monta o seletor com `contasDoLogin` e a escolha com `contaEscolhida`, no lugar da cópia à mão.
 - **`selectAccount`** grava o cookie só se `podeVerConta` confirmar. Um id que não é do login é ignorado, como o vazio de hoje (`app/account-actions.ts:33`).
 - **O carrossel** separa as duas coisas que a `contasParaArte` faz hoje:
   - **para mostrar** (a arte, a revisão, a lista e o `resolverConta` da conferência), continua a lista de todas as contas, porque todo login vê todos os carrosséis;
-  - **para escolher** a conta de um carrossel novo ou de um carrossel sem conta (`contaDoPedido`, `app/bonus/carrossel-actions.ts:81-84`; o pedido e o gerar de novo do avulso), vale `contaEscolhida`, com as contas do login.
+  - **para escolher** a conta de um carrossel novo ou de um carrossel sem conta, vale `contaEscolhida`, com as contas do login. São três lugares:
+    - o `contaDoPedido` (`app/bonus/carrossel-actions.ts:81-84`) e o pedido do avulso;
+    - o `contaParaGerarDeNovo` dos dois gerar de novo (`lib/bonus/arte-conta.ts:63-74`, chamado em `app/bonus/carrossel-actions.ts:169-173` e em `app/carrosseis/actions.ts:90`). Ele mantém a conta do original e, quando o original não tem conta, hoje cai na `contaSelecionada` com todas as contas e o cookie cru (`:72`). Passa a cair na `contaEscolhida` (achado 179);
+    - a "conta do menu" da revisão do carrossel (`app/bonus/[id]/carrossel/[cid]/revisao.tsx:60-65`, usada no aviso do calendário em `:86`), que hoje lê o cookie cru.
 
 A regra não guarda nada em memória entre pedidos: tirar uma conta de um login vale no próximo clique.
 
 ### 3. O que muda para o login comum
 
 - **A Configuração e a página Logins** somem do menu, e as duas páginas mandam o comum para o início no servidor. Todas as actions de `app/setup/actions.ts` passam a chamar `exigirAdministrador`: `reassinarWebhooks`, `testarWebhook`, `configurarWebhookAuto`, `saveMetaCredentials` e `salvarPerguntasDeAbertura`, além dos dois convites, que já chamam. Os 4 pontos que leem todas as contas ficam todos dentro da Configuração, e por isso só o administrador chega a eles.
-- **Conectar conta é do administrador.** `/api/oauth/login` passa a exigir administrador e recusa o comum com o redirect para o início. O "+ Conectar outra conta" do seletor, e o "Conectar Instagram" do seletor sem contas, aparecem só para o administrador. A volta do OAuth (`/api/oauth/callback`) não muda: ela só chega depois de um começo que já exigiu o administrador, pelo cookie do `state`.
+- **Conectar conta é do administrador.** `/api/oauth/login` passa a exigir administrador e recusa o comum com o redirect para o início. O "+ Conectar outra conta" do seletor, e o "Conectar Instagram" do seletor sem contas, aparecem só para o administrador. A volta do OAuth (`/api/oauth/callback`) não muda: pelo cookie do `state`, ela só chega depois do começo de um administrador ou de um convite válido, que só o administrador gera. O convite é público e cria o próprio `state` (`app/api/oauth/convite/[codigo]/route.ts:36-45`).
 - **O comum sem contas** vê, nas páginas de conta, a frase "Você ainda não tem contas. Peça ao administrador." no lugar do convite para conectar.
 - **A Atividade:** para o comum, os eventos sem conta (`e.account_id is null`) não aparecem. O `buildWhere` (`lib/event-query.ts:29`) ganha o parâmetro que diz se os eventos sem conta entram, e só o administrador os recebe.
 - **Os carrosséis.** Exigem `podeVerConta` sobre a conta gravada no carrossel:
@@ -100,7 +103,7 @@ A regra não guarda nada em memória entre pedidos: tirar uma conta de um login 
   `fixarContaDoCarrossel` grava a conta escolhida, que já sai das contas do login (seção 2), e ganha a mesma conferência como rede.
 
   Ficam abertos a todo login, porque editam o carrossel e não agem na conta:
-  - `gerarCarrosselDeNovo` e `gerarAvulsoDeNovo`, que mantêm a conta do original;
+  - `gerarCarrosselDeNovo` e `gerarAvulsoDeNovo`, que mantêm a conta do original. Sem conta no original, usam a conta escolhida do login (seção 2);
   - `salvarSlideDoCarrossel` e `salvarArteDoCarrossel`;
   - as 4 rotas de arte e de imagem e as 2 páginas de um carrossel, que só mostram.
 
@@ -160,17 +163,35 @@ A regra não guarda nada em memória entre pedidos: tirar uma conta de um login 
   - as páginas e as rotas de conta (os CSVs, a mídia, o assinar) servem a A, e nunca a B;
   - as actions da Configuração e o `/api/oauth/login` recusam o comum;
   - num carrossel da B, o comum é recusado em imagem, assinar, guardar, publicar e apagar, e nada muda no banco. Num carrossel da A, cada um funciona. Ele edita o texto dos dois;
+  - o comum com o cookie da B gera de novo um carrossel sem conta, nos dois gerar de novo, e a conta do carrossel novo nunca é a B (179);
+  - **a ligação do id à conta (181).** O comum, com um id que é da B, é recusado sem mudar nada:
+    - nas automações: `deleteAutomation` e `salvarAutomacao`;
+    - nas conversas: `sendReply` e `definirCategoria`;
+    - nas publicações: `remarcarPublicacao`;
+    - nas 3 páginas por id: `/automacoes/[id]`, `/conversas/[id]` e `/publicar/post/[id]`, que não mostram o item da B.
+
+    O cancelar de outra conta (`testes-integracao/agendados.integracao.ts:496`) e a categoria em lote (`testes-integracao/marcar-em-lote.integracao.ts:178`) já provam a mesma ligação e continuam;
   - a Atividade do comum não mostra os eventos sem conta;
   - na página Logins: criar comum e administrador; salvar as contas; trocar o papel com as duas travas; a recusa de uma conta que não existe;
   - o administrador continua vendo tudo, como hoje;
   - a entrada de um login sem senha é recusada com a frase de sempre.
-- **As mutações**, uma por trava: cada conferência tirada derruba o caso nomeado. Entre elas: a queda na primeira conta sem filtro; o `selectAccount` sem conferência; cada action do carrossel sem o `podeVerConta`; a Configuração sem o `exigirAdministrador`; o `/api/oauth/login` aberto; o `for update` do papel; e o `is null` da Atividade para o comum.
+- **As mutações**, uma por trava: cada conferência tirada derruba o caso nomeado. Entre elas:
+  - a queda na primeira conta sem filtro;
+  - o `selectAccount` sem conferência;
+  - cada action do carrossel sem o `podeVerConta`;
+  - o `contaParaGerarDeNovo` de volta à lista de todas as contas (179);
+  - o `account_id` tirado da consulta de uma das actions por id (181);
+  - a Configuração sem o `exigirAdministrador`;
+  - o `/api/oauth/login` aberto;
+  - o `for update` do papel;
+  - o `is null` da Atividade para o comum.
 
 ---
 
 ## A prova
 
 - **A 023 à mão na produção**, com o OK do Eduardo e a leitura da auditoria antes e depois. O código da main não lê a tabela, e o padrão novo de `administrador` só vale para logins criados depois.
+- **Entre a 023 e o merge, ninguém cria login (achado 180).** A página de hoje cria o login sem dizer o papel (`lib/logins-repositorio.ts:41`) e diz que todo login é administrador (`app/logins/page.tsx:37`). Com o padrão novo, um login criado nesse intervalo nasceria comum, sem nenhuma conta. O Eduardo é avisado antes da 023.
 - **No preview**, com o roteiro do navegador que espera numa página só de texto e só abre o formulário depois do pode:
   - o Eduardo cria um login comum de prova (`prova-contas`, no domínio reservado `exemplo.invalid`) e dá a ele uma conta só;
   - numa janela sem perfil, o login de prova entra e vê só aquela conta no seletor e nas páginas. A Configuração e a página Logins não aparecem e mandam para o início;
