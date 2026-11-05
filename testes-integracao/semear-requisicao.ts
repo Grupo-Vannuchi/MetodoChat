@@ -523,7 +523,15 @@ async function entrarDeVerdade(): Promise<string> {
   const { sql } = await import("@/lib/db");
   const [existe] = (await sql().query(`select id from logins where email = $1`, [EMAIL_DE_TESTE])) as unknown[];
   if (!existe) {
-    const r = await criarLogin({ email: EMAIL_DE_TESTE, nome: "Login de teste", senhaHash: await hashDaSenha(SENHA_DE_TESTE) });
+    // O LOGIN DE TESTE É ADMINISTRADOR, e diz isso: desde a 023 o padrão é comum
+    // (docs/specs/2026-11-05-contas-por-login.md), e um login de teste comum, sem contas, faria os casos de
+    // hoje medirem um painel vazio.
+    const r = await criarLogin({
+      email: EMAIL_DE_TESTE,
+      nome: "Login de teste",
+      senhaHash: await hashDaSenha(SENHA_DE_TESTE),
+      administrador: true,
+    });
     if ("erro" in r) throw new Error(`O LOGIN DE TESTE NÃO NASCEU: ${r.erro}`);
   }
   const { login } = await import("@/app/entrar/actions");

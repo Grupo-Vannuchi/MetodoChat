@@ -302,10 +302,13 @@ const MARCA_DAGUA = {
   // AS TABELAS QUE NASCEM DEPOIS DA BASE E QUE A PARTIDA EXIGE. A primeira é a dos logins (a 022,
   // docs/specs/2026-11-04-logins.md): ao contrário das tabelas de feature de `naoObservaveis`, sem
   // `logins` e `sessoes` ninguém entra no painel, e servir sem elas seria servir uma tela de entrar que
-  // estoura. Decidido com o Eduardo em 04/11/2026.
+  // estoura. Decidido com o Eduardo em 04/11/2026. A `logins_contas` (a 023,
+  // docs/specs/2026-11-05-contas-por-login.md) entra pelo mesmo motivo: sem ela o login comum não acha
+  // conta nenhuma.
   tabelasDepois: [
     { tabela: "logins", de: "022-logins-e-sessoes.sql" },
     { tabela: "sessoes", de: "022-logins-e-sessoes.sql" },
+    { tabela: "logins_contas", de: "023-logins-contas.sql" },
   ],
   // A migração que cria as oito tabelas de `tabelas`, acima.
   base: "000-esquema-base.sql",

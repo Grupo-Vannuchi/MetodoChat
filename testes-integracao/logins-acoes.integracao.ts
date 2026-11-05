@@ -62,7 +62,12 @@ async function comSessao<T>(rota: string, corpo: () => Promise<T>): Promise<{ de
 }
 
 async function outroLogin(email: string): Promise<string> {
-  const r = await repo.criarLogin({ email, nome: "Outra pessoa", senhaHash: await logins.hashDaSenha("a senha da outra pessoa") });
+  const r = await repo.criarLogin({
+    email,
+    nome: "Outra pessoa",
+    senhaHash: await logins.hashDaSenha("a senha da outra pessoa"),
+    administrador: true,
+  });
   if ("erro" in r) throw new Error(r.erro);
   return r.id;
 }

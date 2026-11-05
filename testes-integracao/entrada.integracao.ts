@@ -39,7 +39,12 @@ beforeEach(async () => {
 const SENHA = "uma senha de login comprida";
 
 async function novoLogin(email: string, senha: string | null = SENHA): Promise<string> {
-  const r = await repo.criarLogin({ email, nome: "Fulano", senhaHash: senha === null ? null : await logins.hashDaSenha(senha) });
+  const r = await repo.criarLogin({
+    email,
+    nome: "Fulano",
+    senhaHash: senha === null ? null : await logins.hashDaSenha(senha),
+    administrador: true,
+  });
   if ("erro" in r) throw new Error(r.erro);
   return r.id;
 }

@@ -31,7 +31,9 @@ export async function criarLoginAction(
   if (!nome) return { erro: FRASE_DO_NOME };
   if (!email) return { erro: FRASE_DO_EMAIL };
   if (!senhaValida(senha)) return { erro: FRASE_DA_SENHA };
-  const r = await criarLogin({ email, nome, senhaHash: await hashDaSenha(senha) });
+  // O PAPEL VAI EXPLÍCITO (a 023 trocou o padrão para comum). Até a caixinha "Administrador" entrar na página,
+  // todo login criado aqui é administrador, como a página diz.
+  const r = await criarLogin({ email, nome, senhaHash: await hashDaSenha(senha), administrador: true });
   if ("erro" in r) return { erro: FRASE_DO_EMAIL_REPETIDO };
   revalidatePath("/logins");
   return { ok: `Login de ${nome} criado. Passe a senha inicial a ${nome}.` };

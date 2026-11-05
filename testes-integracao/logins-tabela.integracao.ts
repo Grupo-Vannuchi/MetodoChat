@@ -31,8 +31,9 @@ beforeEach(async () => {
 
 const q = (texto: string, params: unknown[] = []) => banco.db().sql().query(texto, params) as Promise<Record<string, unknown>[]>;
 
+// DESDE AS CONTAS POR LOGIN (a 023) o papel vai sempre explícito: os casos deste arquivo são de administradores.
 async function novoLogin(email: string, senhaHash: string | null = HASH): Promise<string> {
-  const r = await repo.criarLogin({ email, nome: email.split("@")[0], senhaHash });
+  const r = await repo.criarLogin({ email, nome: email.split("@")[0], senhaHash, administrador: true });
   if ("erro" in r) throw new Error(r.erro);
   return r.id;
 }
@@ -71,8 +72,10 @@ describe("as tabelas logins e sessoes", () => {
     await expect(inserir("fulano@exemplo.invalid", "Fulano", "senha-em-claro")).rejects.toThrow(/logins_senha_hash_check/);
     await inserir("fulano@exemplo.invalid", "Fulano", null);
     await expect(inserir("fulano@exemplo.invalid", "Outro", HASH)).rejects.toThrow(/logins_email_key/);
+    // O PADRÃO DO PAPEL É O DA 023: um login criado sem dizer o papel nasce comum
+    // (docs/specs/2026-11-05-contas-por-login.md, seção 1). Na 022 ele nascia administrador.
     const [linha] = await q(`select administrador from logins where email = 'fulano@exemplo.invalid'`);
-    expect(linha.administrador).toBe(true);
+    expect(linha.administrador).toBe(false);
   });
 
   it("recusa o hash de sessão fora do formato, e apagar o login apaga as sessões", async () => {
@@ -89,9 +92,9 @@ describe("as tabelas logins e sessoes", () => {
 
 describe("o repositório dos logins", () => {
   it("criar devolve o id, e o e-mail repetido volta como erro, e não como exceção", async () => {
-    const r = await repo.criarLogin({ email: "a@exemplo.invalid", nome: "A", senhaHash: HASH });
+    const r = await repo.criarLogin({ email: "a@exemplo.invalid", nome: "A", senhaHash: HASH, administrador: true });
     expect("id" in r).toBe(true);
-    expect(await repo.criarLogin({ email: "a@exemplo.invalid", nome: "Outra A", senhaHash: HASH })).toEqual({
+    expect(await repo.criarLogin({ email: "a@exemplo.invalid", nome: "Outra A", senhaHash: HASH, administrador: false })).toEqual({
       erro: "email_repetido",
     });
   });
