@@ -105,17 +105,6 @@ describe("o repositório dos logins", () => {
     expect(await repo.loginParaEntrar("ninguem@exemplo.invalid")).toBeNull();
   });
 
-  it("a passagem grava o hash só no login ativo sem senha, uma vez", async () => {
-    const semSenha = await novoLogin("passagem@exemplo.invalid", null);
-    const comSenha = await novoLogin("com-senha@exemplo.invalid");
-    expect(await repo.gravarSenhaDaPassagem(comSenha, HASH)).toBe(false);
-    expect(await repo.gravarSenhaDaPassagem(semSenha, HASH)).toBe(true);
-    expect(await repo.gravarSenhaDaPassagem(semSenha, HASH)).toBe(false);
-    const desativadoSemSenha = await novoLogin("desativado-sem-senha@exemplo.invalid", null);
-    await q(`update logins set desativado_em = now() where id = $1`, [desativadoSemSenha]);
-    expect(await repo.gravarSenhaDaPassagem(desativadoSemSenha, HASH)).toBe(false);
-  });
-
   it("a lista vem do mais velho para o mais novo, sem o hash", async () => {
     await novoLogin("primeiro@exemplo.invalid");
     await novoLogin("segundo@exemplo.invalid");

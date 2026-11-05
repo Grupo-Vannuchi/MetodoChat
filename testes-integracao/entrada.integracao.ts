@@ -3,8 +3,13 @@
 // descartável.
 //
 // O que se mede: a entrada certa abre UMA sessão e grava o cookie; toda entrada errada dá a mesma frase e
-// nenhuma sessão; o freio de tentativas segue valendo; a passagem da senha única grava o hash uma vez, só
-// num login sem senha; e o cookie v2 de antes não vale mais.
+// nenhuma sessão; o freio de tentativas segue valendo; o login sem senha não entra; e o cookie v2 de antes
+// não vale mais.
+//
+// A PASSAGEM DA SENHA ÚNICA SAIU (docs/specs/2026-11-05-contas-por-login.md, seção 5): até a entrega 2, um
+// login sem senha entrava uma vez pela `ADMIN_PASSWORD` e gravava ali a senha própria. Agora ele tem a
+// resposta de qualquer entrada errada, com o tempo de uma conferência, mesmo com a variável no ambiente (ela
+// fica na Vercel até depois do merge).
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bancoDescartavel } from "./harness";
 import { comoNumaRequisicao, SENHA_DE_TESTE } from "./semear-requisicao";
@@ -33,7 +38,6 @@ beforeEach(async () => {
   await q(`delete from sessoes`);
   await q(`delete from logins`);
   await q(`delete from login_attempts`);
-  process.env.ADMIN_PASSWORD = SENHA_DE_TESTE;
 });
 
 const SENHA = "uma senha de login comprida";
@@ -116,39 +120,53 @@ describe("a entrada", () => {
   });
 });
 
-describe("a passagem da senha única", () => {
-  it("o login sem senha entra com a ADMIN_PASSWORD, uma vez, e a segunda entrada já usa o hash", async () => {
-    const id = await novoLogin("eduardo@exemplo.invalid", null);
-    const primeira = await entrar("eduardo@exemplo.invalid", SENHA_DE_TESTE);
-    expect(primeira.destino).toBe("/");
-    const [linha] = await q(`select senha_hash from logins where id = $1`, [id]);
-    expect(String(linha.senha_hash)).toMatch(/^scrypt\$/);
-    expect(await logins.senhaConfere(SENHA_DE_TESTE, String(linha.senha_hash))).toBe(true);
+/**
+ * Roda o corpo com a ADMIN_PASSWORD de teste no ambiente, como ela ainda está na Vercel até depois do merge, e
+ * a devolve como estava. É o pior caso para a entrada: a senha que antes era a única está à mão.
+ */
+async function comASenhaUnicaNoAmbiente<T>(corpo: () => Promise<T>): Promise<T> {
+  const antes = process.env.ADMIN_PASSWORD;
+  process.env.ADMIN_PASSWORD = SENHA_DE_TESTE;
+  try {
+    return await corpo();
+  } finally {
+    if (antes === undefined) delete process.env.ADMIN_PASSWORD;
+    else process.env.ADMIN_PASSWORD = antes;
+  }
+}
 
-    // A partir daqui, quem decide é o hash: trocar a ADMIN_PASSWORD não muda nada.
-    process.env.ADMIN_PASSWORD = "outra senha unica qualquer";
-    expect((await entrar("eduardo@exemplo.invalid", SENHA_DE_TESTE)).destino).toBe("/");
-    expect((await entrar("eduardo@exemplo.invalid", "outra senha unica qualquer")).erro).toBe("E-mail ou senha incorretos.");
+const senhaDe = async (id: string) => (await q(`select senha_hash from logins where id = $1`, [id]))[0].senha_hash;
+
+describe("o login sem senha", () => {
+  it("é recusado com a frase de sempre, e nada é gravado no senha_hash", async () => {
+    const id = await novoLogin("sem-senha@exemplo.invalid", null);
+    const r = await entrar("sem-senha@exemplo.invalid", "uma senha qualquer que ele tentou");
+    expect(r).toEqual({ erro: logins.FRASE_DA_ENTRADA_ERRADA, destino: null, cookie: null });
+    expect(await senhaDe(id)).toBeNull();
+    expect(await quantasSessoes()).toBe(0);
   });
 
-  it("sem a ADMIN_PASSWORD no ambiente, a passagem recusa e não grava nada", async () => {
-    const id = await novoLogin("eduardo@exemplo.invalid", null);
-    delete process.env.ADMIN_PASSWORD;
-    const r = await entrar("eduardo@exemplo.invalid", SENHA_DE_TESTE);
-    expect(r.erro).toBe("E-mail ou senha incorretos.");
-    expect((await q(`select senha_hash from logins where id = $1`, [id]))[0].senha_hash).toBeNull();
+  it("nem a senha de teste que antes era a única abre esse login, mesmo com a ADMIN_PASSWORD no ambiente", async () => {
+    const id = await novoLogin("sem-senha@exemplo.invalid", null);
+    const r = await comASenhaUnicaNoAmbiente(() => entrar("sem-senha@exemplo.invalid", SENHA_DE_TESTE));
+    expect(r).toEqual({ erro: logins.FRASE_DA_ENTRADA_ERRADA, destino: null, cookie: null });
+    expect(await senhaDe(id)).toBeNull();
+    expect(await quantasSessoes()).toBe(0);
   });
 
-  it("a senha errada na passagem não grava nada", async () => {
-    const id = await novoLogin("eduardo@exemplo.invalid", null);
-    expect((await entrar("eduardo@exemplo.invalid", "nao e a senha unica")).erro).toBe("E-mail ou senha incorretos.");
-    expect((await q(`select senha_hash from logins where id = $1`, [id]))[0].senha_hash).toBeNull();
+  // O TEMPO NÃO CONTA: o login sem senha paga o scrypt de fachada, como o e-mail que não existe, para a
+  // resposta não dizer de fora que aquele e-mail tem login.
+  it("leva o tempo de uma conferência de senha", async () => {
+    await novoLogin("sem-senha@exemplo.invalid", null);
+    const t = performance.now();
+    await entrar("sem-senha@exemplo.invalid", "uma senha qualquer que ele tentou");
+    expect(performance.now() - t).toBeGreaterThan(150);
   });
 
-  it("um login COM senha não aceita a ADMIN_PASSWORD", async () => {
+  it("um login COM senha também não aceita a ADMIN_PASSWORD", async () => {
     await novoLogin("com-senha@exemplo.invalid");
-    const r = await entrar("com-senha@exemplo.invalid", SENHA_DE_TESTE);
-    expect(r.erro).toBe("E-mail ou senha incorretos.");
+    const r = await comASenhaUnicaNoAmbiente(() => entrar("com-senha@exemplo.invalid", SENHA_DE_TESTE));
+    expect(r.erro).toBe(logins.FRASE_DA_ENTRADA_ERRADA);
     expect(await quantasSessoes()).toBe(0);
   });
 });

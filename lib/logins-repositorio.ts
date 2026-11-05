@@ -53,7 +53,10 @@ export async function criarLogin(dados: {
   }
 }
 
-/** O que a entrada precisa para conferir: o id, o hash (nulo na passagem) e se o login está desativado. */
+/**
+ * O que a entrada precisa para conferir: o id, o hash e se o login está desativado. O hash nulo é o de um
+ * login sem senha própria, que não entra (docs/specs/2026-11-05-contas-por-login.md, seção 5).
+ */
 export async function loginParaEntrar(
   email: string
 ): Promise<{ id: string; senha_hash: string | null; desativado: boolean } | null> {
@@ -62,20 +65,6 @@ export async function loginParaEntrar(
     [email]
   )) as { id: string; senha_hash: string | null; desativado: boolean }[];
   return linha ?? null;
-}
-
-/**
- * A PASSAGEM DA SENHA ÚNICA (seção 6 da spec): grava o hash só num login ativo que ainda está sem senha. A
- * segunda entrada já não passa por aqui, e duas entradas ao mesmo tempo gravam uma vez só.
- */
-export async function gravarSenhaDaPassagem(id: string, senhaHash: string): Promise<boolean> {
-  const linhas = (await sql().query(
-    `update logins set senha_hash = $2
-      where id = $1 and senha_hash is null and desativado_em is null
-      returning id`,
-    [id, senhaHash]
-  )) as { id: string }[];
-  return linhas.length === 1;
 }
 
 export async function listarLogins(): Promise<Login[]> {

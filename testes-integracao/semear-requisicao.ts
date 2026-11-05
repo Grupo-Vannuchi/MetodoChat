@@ -111,7 +111,7 @@ import { exigirPrefixo } from "./banco-descartavel";
 const req = createRequire(import.meta.url);
 
 // ---------------------------------------------------------------------------
-// O LOGIN DE TESTE, e a senha única de teste posta ANTES de qualquer coisa a ler.
+// O LOGIN DE TESTE e a senha dele.
 //
 // DESDE OS LOGINS (docs/specs/2026-11-04-logins.md) a sessão mora no banco: o
 // cookie é um código sorteado, e só vale onde a linha da sessão existe. A
@@ -120,13 +120,14 @@ const req = createRequire(import.meta.url);
 // não vale em lugar nenhum fora deste schema, e a variante confere que a sessão
 // foi gravada nele (`exigirPrefixo`) antes de usá-la.
 //
-// A ADMIN_PASSWORD continua sobrescrita por um LITERAL: a passagem da senha única
-// (seção 6 da spec) a lê, e os testes da passagem têm de ler a de teste, e nunca
-// uma que chegasse ao `process.env` por outro caminho (o shell, um
-// `vercel env pull`). O `.env.local` tem a senha de verdade, e este harness nunca
-// a lê (banco-descartavel.ts). O valor do cookie nunca é impresso.
+// A ADMIN_PASSWORD JÁ NÃO É POSTA AQUI. Até a entrega 2 este arquivo a
+// sobrescrevia com a senha de teste, porque a passagem da senha única a lia.
+// A passagem saiu (docs/specs/2026-11-05-contas-por-login.md, seção 5), e nada
+// em app/ nem em lib/ lê a variável (tests/sem-senha-unica.test.ts). O
+// `.env.local` tem a senha de verdade, e este harness nunca a lê
+// (banco-descartavel.ts). SENHA_DE_TESTE é a senha dos logins de teste, e o
+// valor do cookie nunca é impresso.
 export const SENHA_DE_TESTE = "senha-de-teste-que-nao-vale-nada";
-process.env.ADMIN_PASSWORD = SENHA_DE_TESTE;
 
 /** O e-mail do login de teste: um domínio reservado, que não é de ninguém. */
 export const EMAIL_DE_TESTE = "login-de-teste@exemplo.invalid";

@@ -1,6 +1,6 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { safeEqualHex, safeEqualSecret } from "./crypto";
+import { safeEqualHex } from "./crypto";
 
 // O COOKIE DA SESSÃO. Até 04/11/2026 o valor era `v2.<expira>.<assinatura>`, assinado com uma chave derivada
 // da ADMIN_PASSWORD. Desde os logins (docs/specs/2026-11-04-logins.md) ele leva um código sorteado, e a
@@ -30,15 +30,4 @@ export function novoOauthState(): string {
 export function oauthStateConfere(doCookie: string | undefined, daVolta: string | null): boolean {
   if (!doCookie || !daVolta || !STATE_HEX.test(doCookie) || !STATE_HEX.test(daVolta)) return false;
   return safeEqualHex(doCookie, daVolta);
-}
-
-/**
- * A SENHA ÚNICA, SÓ PARA A PASSAGEM (seção 6 da spec): a primeira entrada num login sem senha confere a
- * senha digitada contra a ADMIN_PASSWORD do ambiente. Sem a variável, recusa. É a única leitura dela que
- * sobrou, e sai na entrega 2.
- */
-export function senhaUnicaConfere(senha: string): boolean {
-  const unica = process.env.ADMIN_PASSWORD;
-  if (!unica) return false;
-  return safeEqualSecret(senha, unica);
 }
