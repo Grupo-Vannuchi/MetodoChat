@@ -1,7 +1,7 @@
 // A LINHA DO BANCO CHEGA INTEIRA NA EXPORTAÇÃO COMPLETA — o degrau que a rota
 // não consegue provar sozinha.
 //
-// A ROTA COMEÇA EM `isValidSession`, E SESSÃO NÃO SE FORJA: nada desta base
+// A ROTA COMEÇA EM `sessaoDoCookie`, E SESSÃO NÃO SE FORJA: nada desta base
 // entra no handler de `app/api/contatos/csv-completo/route.ts`, e não é este
 // arquivo que vai tentar. O que dá para medir sem forjar uma é o degrau logo
 // abaixo dele — a PROJEÇÃO da consulta atravessando o driver de verdade e

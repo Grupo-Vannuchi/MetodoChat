@@ -19,6 +19,7 @@ import {
   IconImage,
   IconMensagemLink,
   IconCamera,
+  IconPessoa,
 } from "./icons";
 import Progresso from "./publicar/progresso";
 import { itemDoMenuAtivo } from "@/lib/bonus/menu-ativo";
@@ -61,6 +62,19 @@ const NAV_GROUPS: {
   },
 ];
 
+// O ITEM DOS LOGINS, SÓ PARA ADMINISTRADOR (docs/specs/2026-11-04-logins.md,
+// seção 4). Esconder o item é conforto: quem confere é a página e as actions
+// dela, no servidor.
+const ITEM_DOS_LOGINS = { href: "/logins", label: "Logins", icon: IconPessoa };
+
+function gruposDoMenu(administrador: boolean) {
+  if (!administrador) return NAV_GROUPS;
+  return NAV_GROUPS.map((g) => (g.label === "Sistema" ? { ...g, items: [...g.items, ITEM_DOS_LOGINS] } : g));
+}
+
+/** O login da sessão, como o menu precisa dele: o nome e se é administrador. */
+export type LoginDoMenu = { nome: string; administrador: boolean };
+
 // Páginas sem painel (login, páginas públicas exigidas pela Meta e o link de
 // convite, que o cliente abre sem a senha do painel)
 const PUBLIC_PATHS = ["/entrar", "/privacidade", "/exclusao-de-dados", "/convite"];
@@ -101,11 +115,11 @@ function ThemeToggle() {
   );
 }
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLinks({ onNavigate, administrador }: { onNavigate?: () => void; administrador: boolean }) {
   const pathname = usePathname();
   return (
     <nav className="flex flex-col gap-5">
-      {NAV_GROUPS.map((group, gi) => (
+      {gruposDoMenu(administrador).map((group, gi) => (
         <div key={group.label ?? gi} className="flex flex-col gap-0.5">
           {group.label && (
             <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-600 dark:text-zinc-400">
@@ -168,25 +182,60 @@ function Brand() {
   );
 }
 
+// A MINHA CONTA E O SAIR, no rodapé do menu (docs/specs/2026-11-04-logins.md,
+// seção 5). O SAIR É UM FORMULÁRIO (POST), e nunca um link (achado 169): o Next
+// pré-carrega os links, e um Sair por GET derrubaria a sessão de quem só passou o
+// mouse. A action chega pelo layout, que é do servidor, para esta casca, que é
+// do cliente, não importar módulo de servidor.
+function LoginNoRodape({ login, sair, onNavigate }: { login: LoginDoMenu; sair?: () => Promise<void>; onNavigate?: () => void }) {
+  return (
+    <div className="flex items-center gap-1 px-1">
+      <Link
+        href="/minha-conta"
+        onClick={onNavigate}
+        title="Minha conta"
+        className="min-w-0 flex-1 truncate rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100/70 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:text-zinc-300 dark:hover:bg-zinc-800/40"
+      >
+        {login.nome}
+      </Link>
+      {sair && (
+        <form action={sair}>
+          <button
+            type="submit"
+            className="rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100/70 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-100"
+          >
+            Sair
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function SidebarBody({
   accounts,
   selectedId,
+  login,
+  sair,
   onNavigate,
 }: {
   accounts: SwitcherAccount[];
   selectedId: string | null;
+  login: LoginDoMenu | null;
+  sair?: () => Promise<void>;
   onNavigate?: () => void;
 }) {
   return (
     <div className="flex h-full flex-col gap-6 py-5">
       <Brand />
       <div className="flex-1 px-2">
-        <NavLinks onNavigate={onNavigate} />
+        <NavLinks onNavigate={onNavigate} administrador={login?.administrador ?? false} />
       </div>
       <div className="space-y-1 px-2">
         <div className="mb-2 border-t border-zinc-200/70 pt-2 dark:border-zinc-800/70">
           <AccountSwitcher accounts={accounts} selectedId={selectedId} />
         </div>
+        {login && <LoginNoRodape login={login} sair={sair} onNavigate={onNavigate} />}
         <ThemeToggle />
         {/* Crédito: prioridade visual baixa de propósito — texto pequeno, cor
             apagada e só ganha contraste no hover. */}
@@ -206,10 +255,14 @@ function SidebarBody({
 export default function AppShell({
   accounts,
   selectedId,
+  login = null,
+  sair,
   children,
 }: {
   accounts: SwitcherAccount[];
   selectedId: string | null;
+  login?: LoginDoMenu | null;
+  sair?: () => Promise<void>;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -269,7 +322,7 @@ export default function AppShell({
 
       {/* Sidebar fixa (desktop) */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] border-r border-zinc-200/80 bg-zinc-50/50 lg:block dark:border-zinc-800/80 dark:bg-zinc-950">
-        <SidebarBody accounts={accounts} selectedId={selectedId} />
+        <SidebarBody accounts={accounts} selectedId={selectedId} login={login} sair={sair} />
       </aside>
 
       {/* Barra superior + gaveta (mobile) */}
@@ -303,6 +356,8 @@ export default function AppShell({
             <SidebarBody
               accounts={accounts}
               selectedId={selectedId}
+              login={login}
+              sair={sair}
               onNavigate={() => setOpen(false)}
             />
           </div>

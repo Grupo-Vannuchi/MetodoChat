@@ -28,7 +28,7 @@ import {
 // A EXPORTAÇÃO EM CSV, PRESA FORA DA ROTA.
 //
 // As duas rotas de exportação (`app/api/contatos/csv/route.ts` e
-// `app/api/contatos/csv-completo/route.ts`) começam em `isValidSession`, e
+// `app/api/contatos/csv-completo/route.ts`) começam em `sessaoDoCookie`, e
 // sessão não se forja: teste de integração nenhum alcança o que elas fazem
 // depois disso. Por isso TUDO o que decide o arquivo mora em
 // `lib/exportacao-de-contatos.ts`, e é aqui que ele tem rede.
@@ -964,7 +964,7 @@ describe("emailDoContato — o registro, e nada além dele", () => {
 // neutralização) e tem o caso byte a byte lá em cima, intocado por esta tarefa.
 // ESTA função decide o CONTEÚDO — quais pessoas, e com que e-mail —, que é
 // exatamente o que o `where c.email is not null` decidia no banco e ninguém
-// conseguia prender: a rota começa em `isValidSession`, e sessão não se forja.
+// conseguia prender: a rota começa em `sessaoDoCookie`, e sessão não se forja.
 // ------------------------------------------------------------
 describe("listaDeEmailDaTela — quem entra no arquivo, e com que e-mail", () => {
   const TUDO: FiltroDeCategoria = { tipo: "tudo" };
@@ -1055,7 +1055,7 @@ describe("listaDeEmailDaTela — quem entra no arquivo, e com que e-mail", () =>
 // voltaria a sair da COLUNA: o Passo 1 desfeito em silêncio, com quem só tem o
 // e-mail coletado sumindo da lista que o marketing importa.
 //
-// E A ROTA NÃO TEM COMO TER TESTE: ela começa em `isValidSession`, e sessão não
+// E A ROTA NÃO TEM COMO TER TESTE: ela começa em `sessaoDoCookie`, e sessão não
 // se forja. Por isso a conferência tem de morar aqui, no módulo puro, onde ela
 // é exercível — que é a mesma razão pela qual todo o resto deste arquivo existe.
 // ------------------------------------------------------------

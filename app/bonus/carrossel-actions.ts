@@ -3,7 +3,7 @@ import { after } from "next/server";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ACCOUNT_COOKIE } from "@/lib/account";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { sessaoAtual } from "@/lib/sessao";
 import {
   contaParaGerarDeNovo,
   contaParaGuardar,
@@ -70,8 +70,7 @@ import { TEXTO_BONUS_NAO_ENCONTRADO, textoDaConfig, urlDoBonusComAviso } from "@
 // formulário: a página aberta pode estar velha.
 
 async function exigirSessao(): Promise<void> {
-  const jarra = await cookies();
-  if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) redirect("/entrar");
+  if (!(await sessaoAtual())) redirect("/entrar");
 }
 
 /**

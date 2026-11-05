@@ -71,6 +71,9 @@ it("a MARCA D'ÁGUA cobre a pasta inteira: nenhuma migração passa sem ser deci
   for (const n of esquema.marcaDagua.naoObservaveis) {
     conhecidas.set(n.de, `não observável: ${n.porque}`);
   }
+  for (const t of esquema.marcaDagua.tabelasDepois) {
+    conhecidas.set(t.de, `tabela ${t.tabela}`);
+  }
 
   const semDecisao = naPasta.filter((n) => !conhecidas.has(n));
   expect(
@@ -100,6 +103,21 @@ it("a MARCA D'ÁGUA cobre a pasta inteira: nenhuma migração passa sem ser deci
   for (const t of esquema.marcaDagua.tabelas) {
     expect(tabelas.has(t), `tabela ${t}`).toBe(true);
   }
+  for (const t of esquema.marcaDagua.tabelasDepois) {
+    expect(tabelas.has(t.tabela), `tabela ${t.tabela}`).toBe(true);
+  }
+});
+
+it("uma TABELA de depois da base que falta deixa a conferência vermelha, com a migração dela", async () => {
+  const presentes = [...(await colunasDe((t) => banco.db().sql().query(t)))].map((c) => {
+    const [table_name, column_name] = c.split(".");
+    return { table_name, column_name };
+  });
+  expect(esquema.faltando(presentes)).toEqual([]);
+  const semLogins = presentes.filter((p) => p.table_name !== "logins");
+  expect(esquema.faltando(semLogins)).toEqual(["tabela ausente: logins (migrations/022-logins-e-sessoes.sql)"]);
+  const semSessoes = presentes.filter((p) => p.table_name !== "sessoes");
+  expect(esquema.faltando(semSessoes)).toEqual(["tabela ausente: sessoes (migrations/022-logins-e-sessoes.sql)"]);
 });
 
 it("uma COLUNA que falta deixa a conferência vermelha — e ela NÃO cria a coluna de volta", async () => {

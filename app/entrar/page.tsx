@@ -14,16 +14,27 @@ export default function EntrarPage() {
           </span>
           <div>
             <h1 className="titulo text-lg font-bold leading-tight">Entrar no painel</h1>
-            <p className={`text-xs ${muted}`}>Use a senha do administrador.</p>
+            <p className={`text-xs ${muted}`}>Use o seu e-mail e a sua senha.</p>
           </div>
         </div>
         <form action={action} className="space-y-3">
           <input
+            type="email"
+            name="email"
+            required
+            autoFocus
+            autoComplete="username"
+            placeholder="E-mail"
+            aria-label="E-mail"
+            className={input}
+          />
+          <input
             type="password"
             name="password"
             required
-            autoFocus
+            autoComplete="current-password"
             placeholder="Senha"
+            aria-label="Senha"
             className={input}
           />
           {state?.error && <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>}

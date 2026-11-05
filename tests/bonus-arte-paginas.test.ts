@@ -35,7 +35,7 @@ describe.each(ROTAS)("a rota da arte %s", (rota) => {
     expect(inicio).toBeGreaterThan(-1);
     expect(linhas.slice(0, 2)).toEqual([
       "const jarra = await cookies();",
-      "if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) return erro(401, TEXTO_ARTE_SEM_SESSAO);",
+      "if (!(await sessaoDoCookie(jarra.get(SESSION_COOKIE)?.value))) return erro(401, TEXTO_ARTE_SEM_SESSAO);",
     ]);
   });
 

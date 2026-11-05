@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { sessaoDoCookie } from "@/lib/sessao";
 import { diaDaChave } from "@/lib/dedupe";
 import {
   recorteDaUrl,
@@ -30,7 +31,7 @@ import {
 // TAB ou CR.
 //
 // A MUDANÇA É JUSTAMENTE O QUE PRENDE A PROMESSA. Este handler começa em
-// `isValidSession`, e sessão não se forja: teste de integração nenhum alcança o
+// `sessaoDoCookie`, e sessão não se forja: teste de integração nenhum alcança o
 // que vem depois. Enquanto o conteúdo do arquivo era montado aqui dentro,
 // "não muda nem um byte" era uma frase sem ninguém conferindo — e é por haver
 // quem confira que a exceção de segurança acima pôde ser feita de propósito, e
@@ -69,7 +70,7 @@ import {
 // foi inventada agora: é a mesma da migração `012` (`btrim(email) <> ''`).
 
 export async function GET(req: NextRequest) {
-  if (!isValidSession(req.cookies.get(SESSION_COOKIE)?.value)) {
+  if (!(await sessaoDoCookie(req.cookies.get(SESSION_COOKIE)?.value))) {
     return new NextResponse("unauthorized", { status: 401 });
   }
   const account = await getSelectedAccount();

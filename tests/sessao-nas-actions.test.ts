@@ -90,7 +90,10 @@ function exigirSessaoConfere(sf: ts.SourceFile): boolean {
   return false;
 }
 
-const corpoConfere = (corpo: string) => /!isValidSession\(/.test(corpo) && corpo.includes('redirect("/entrar")');
+// DESDE OS LOGINS (docs/specs/2026-11-04-logins.md) a sessão é conferida no banco, por `sessaoAtual()`
+// (lib/sessao.ts), e não mais pela assinatura do cookie.
+const corpoConfere = (corpo: string) =>
+  /if \(!\(await sessaoAtual\(\)\)\) redirect\("\/entrar"\);/.test(corpo);
 
 // A AÇÃO DE ENTRAR É PÚBLICA POR DEFINIÇÃO: é ela que cria a sessão.
 const ACOES_PUBLICAS = new Set(["app/entrar/actions.ts"]);
@@ -110,6 +113,17 @@ describe("toda Server Action confere a sessão antes de qualquer coisa", () => {
       { nome: "export const e = async () => {};", primeira: null },
     ]);
     expect(exigirSessaoConfere(analisar("y.ts", "async function exigirSessao() {}\n"))).toBe(false);
+    expect(
+      exigirSessaoConfere(analisar("y.ts", 'async function exigirSessao() {\n  if (!(await sessaoAtual())) redirect("/entrar");\n}\n'))
+    ).toBe(true);
+    expect(
+      exigirSessaoConfere(analisar("y.ts", 'async function exigirSessao() {\n  if (!sessaoAtual()) redirect("/entrar");\n}\n'))
+    ).toBe(false);
+    expect(
+      exigirSessaoConfere(
+        analisar("y.ts", 'async function exigirSessao() {\n  const j = await cookies();\n  if (!isValidSession(j)) redirect("/entrar");\n}\n')
+      )
+    ).toBe(false);
   });
 
   it("o leitor acha os arquivos de ação, inclusive os vinte da varredura de 26/10", () => {
@@ -188,21 +202,25 @@ function retorna(s: ts.Statement): boolean {
 
 /**
  * A conferência de um handler de rota: a primeira instrução que não seja `const x = await cookies();`
- * tem de ser `if (!isValidSession(...))` com um ramo que RETORNA. Presença não basta (achado 127 da
- * auditoria): uma conferência depois do trabalho, ou com o resultado ignorado, passaria.
+ * tem de ser `if (!(await sessaoDoCookie(...)))` com um ramo que RETORNA. Presença não basta (achado 127
+ * da auditoria): uma conferência depois do trabalho, ou com o resultado ignorado, passaria. Desde os
+ * logins (docs/specs/2026-11-04-logins.md), a sessão é a do banco, e a chamada é esperada com `await`:
+ * sem ele, a promessa sempre seria verdadeira, e a negação, sempre falsa.
  */
 function handlerConfere(f: ts.FunctionDeclaration, sf: ts.SourceFile): boolean {
   const instrucoes = f.body?.statements ?? ts.factory.createNodeArray<ts.Statement>();
   const primeira = instrucoes.find((s) => !leCookies(s, sf));
   if (!primeira || !ts.isIfStatement(primeira)) return false;
   const c = primeira.expression;
-  const negaASessao =
+  const esperado =
     ts.isPrefixUnaryExpression(c) &&
     c.operator === ts.SyntaxKind.ExclamationToken &&
-    ts.isCallExpression(c.operand) &&
-    ts.isIdentifier(c.operand.expression) &&
-    c.operand.expression.text === "isValidSession";
-  return negaASessao && retorna(primeira.thenStatement);
+    ts.isParenthesizedExpression(c.operand) &&
+    ts.isAwaitExpression(c.operand.expression) &&
+    ts.isCallExpression(c.operand.expression.expression) &&
+    ts.isIdentifier(c.operand.expression.expression.expression) &&
+    c.operand.expression.expression.expression.text === "sessaoDoCookie";
+  return esperado && retorna(primeira.thenStatement);
 }
 
 const rotas = () => arquivosDe("app").filter((rel) => /\/route\.tsx?$/.test(rel));
@@ -235,11 +253,15 @@ function handlersForaDeFuncao(sf: ts.SourceFile): string[] {
 describe("toda rota fora das públicas confere a sessão antes de qualquer trabalho", () => {
   it("o leitor acusa quando há o que acusar", () => {
     const casos: [string, boolean][] = [
-      ["export async function GET(r) {\n  if (!isValidSession(x)) return y;\n  t();\n}", true],
-      ["export async function GET(r) {\n  const j = await cookies();\n  if (!isValidSession(x)) {\n    return y;\n  }\n}", true],
-      ["export async function GET(r) {\n  t();\n  if (!isValidSession(x)) return y;\n}", false],
-      ["export async function GET(r) {\n  if (!isValidSession(x)) {\n    log();\n  }\n  t();\n}", false],
-      ["export async function GET(r) {\n  isValidSession(x);\n  t();\n}", false],
+      ["export async function GET(r) {\n  if (!(await sessaoDoCookie(x))) return y;\n  t();\n}", true],
+      ["export async function GET(r) {\n  const j = await cookies();\n  if (!(await sessaoDoCookie(x))) {\n    return y;\n  }\n}", true],
+      ["export async function GET(r) {\n  t();\n  if (!(await sessaoDoCookie(x))) return y;\n}", false],
+      ["export async function GET(r) {\n  if (!(await sessaoDoCookie(x))) {\n    log();\n  }\n  t();\n}", false],
+      ["export async function GET(r) {\n  await sessaoDoCookie(x);\n  t();\n}", false],
+      // SEM O `await`, a promessa é sempre verdadeira, e a conferência nunca recusaria.
+      ["export async function GET(r) {\n  if (!sessaoDoCookie(x)) return y;\n  t();\n}", false],
+      // O NOME ANTIGO NÃO VALE MAIS: a assinatura do cookie v2 saiu.
+      ["export async function GET(r) {\n  if (!isValidSession(x)) return y;\n  t();\n}", false],
     ];
     for (const [fonte, esperado] of casos) {
       const sf = analisar("r.ts", fonte);

@@ -1,7 +1,6 @@
 "use server";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { sessaoAtual } from "@/lib/sessao";
 import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
 import { contasParaArte } from "@/lib/bonus/carrossel-repositorio";
 import { ehIdDeBonus } from "@/lib/bonus/pedido";
@@ -29,8 +28,7 @@ import { camposDaDataHora, fusoDoCampo, instanteDoAgendamento, momentoDaPublicac
 // recriar a página apagaria o que está digitado nos outros cards.
 
 async function exigirSessao(): Promise<void> {
-  const jarra = await cookies();
-  if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) redirect("/entrar");
+  if (!(await sessaoAtual())) redirect("/entrar");
 }
 
 const registro = (v: unknown): Record<string, unknown> =>

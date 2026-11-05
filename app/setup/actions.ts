@@ -13,7 +13,7 @@ import {
   perguntasDoFormulario,
   type LinhaDoFormulario,
 } from "./portas";
-import { exigirSessao } from "@/lib/exigir-sessao";
+import { exigirAdministrador, exigirSessao } from "@/lib/exigir-sessao";
 import { FRASE_DO_PARA_QUEM_INVALIDO, paraQuemDoFormulario, type EstadoDoGerar } from "@/lib/convites";
 import { cancelarConvite as cancelarNoBanco, criarConvite } from "@/lib/convites-repositorio";
 
@@ -331,8 +331,12 @@ export async function salvarPerguntasDeAbertura(formData: FormData): Promise<voi
 // link UMA VEZ, no estado da ação. O link não vai para a URL nem para o log, e não pode ser mostrado de
 // novo. Ele nasce no endereço canônico, e não no de onde o painel foi aberto: o cookie do `state` só volta
 // junto se o começo acontecer no endereço da volta (achado 136).
+//
+// SÓ O ADMINISTRADOR GERA E CANCELA CONVITES (decisão de 03/11/2026, docs/specs/2026-11-04-logins.md,
+// seção 4). Nesta entrega todo login é administrador, e a conferência já fica no servidor.
 export async function gerarConvite(_anterior: EstadoDoGerar, formData: FormData): Promise<EstadoDoGerar> {
   await exigirSessao();
+  await exigirAdministrador();
   const paraQuem = paraQuemDoFormulario(formData.get("para_quem"));
   if (!paraQuem) return { erro: FRASE_DO_PARA_QUEM_INVALIDO };
   const config = await getConfig();
@@ -348,6 +352,7 @@ export async function gerarConvite(_anterior: EstadoDoGerar, formData: FormData)
 // Só o pendente é cancelado; o resto fica como está, e a lista mostra o estado de verdade.
 export async function cancelarConvite(formData: FormData): Promise<void> {
   await exigirSessao();
+  await exigirAdministrador();
   await cancelarNoBanco(String(formData.get("id") ?? ""));
   revalidatePath("/setup");
 }

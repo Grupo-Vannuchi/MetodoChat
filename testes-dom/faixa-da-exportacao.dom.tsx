@@ -29,7 +29,7 @@ import type { FiltroDeCategoria } from "@/lib/categorias";
 // (`peneirar`), sobre a mesma lista que a faixa recebeu.
 //
 // SEM SESSÃO E SEM BANCO. As duas rotas de exportação começam em
-// `isValidSession`, e sessão não se forja — nenhum teste desta base entra
+// `sessaoDoCookie`, e sessão não se forja — nenhum teste desta base entra
 // nelas. Por isso a faixa foi extraída para
 // `app/contatos/faixa-da-exportacao.tsx`: é o que permite montá-la aqui com um
 // conjunto conhecido, sem subir a página inteira, que é `async`, consulta o

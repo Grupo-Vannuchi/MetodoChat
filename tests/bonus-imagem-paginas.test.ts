@@ -74,7 +74,7 @@ describe.each(ROTAS)("a consulta %s", (rota) => {
     expect(inicio).toBeGreaterThan(-1);
     expect(linhas.slice(0, 2)).toEqual([
       "const jarra = await cookies();",
-      "if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) return respostaDaConsulta({ erro: TEXTO_ARTE_SEM_SESSAO }, 401);",
+      "if (!(await sessaoDoCookie(jarra.get(SESSION_COOKIE)?.value))) return respostaDaConsulta({ erro: TEXTO_ARTE_SEM_SESSAO }, 401);",
     ]);
   });
 

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { ACCOUNT_COOKIE } from "@/lib/account";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { sessaoDoCookie } from "@/lib/sessao";
 import { conferirPedidoDaArte } from "@/lib/bonus/arte-tela";
 import { TEXTO_ARTE_NAO_ENCONTRADA, TEXTO_ARTE_SEM_SESSAO } from "@/lib/bonus/arte-textos";
 import { lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
@@ -19,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string; cid: string }> }) {
   const jarra = await cookies();
-  if (!isValidSession(jarra.get(SESSION_COOKIE)?.value)) return respostaDaConsulta({ erro: TEXTO_ARTE_SEM_SESSAO }, 401);
+  if (!(await sessaoDoCookie(jarra.get(SESSION_COOKIE)?.value))) return respostaDaConsulta({ erro: TEXTO_ARTE_SEM_SESSAO }, 401);
   const { id, cid } = await params;
   if (!ehIdDeBonus(id) || !ehIdDeBonus(cid)) return respostaDaConsulta({ erro: TEXTO_ARTE_NAO_ENCONTRADA }, 404);
   // O dono, o "pronto" e o slide, pela mesma conferência da rota da arte.

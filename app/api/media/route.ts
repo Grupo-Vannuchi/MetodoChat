@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMedia, getStories } from "@/lib/ig";
 import { getSelectedAccount } from "@/lib/account";
-import { isValidSession, SESSION_COOKIE } from "@/lib/auth";
+import { SESSION_COOKIE } from "@/lib/auth";
+import { sessaoDoCookie } from "@/lib/sessao";
 
 // Lista posts/reels (padrão) ou stories ativos (?type=stories) da conta
 // selecionada no painel, para o seletor visual do formulário.
 export async function GET(req: NextRequest) {
-  if (!isValidSession(req.cookies.get(SESSION_COOKIE)?.value)) {
+  if (!(await sessaoDoCookie(req.cookies.get(SESSION_COOKIE)?.value))) {
     return new NextResponse("unauthorized", { status: 401 });
   }
   try {

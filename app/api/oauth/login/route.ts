@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeUrl } from "@/lib/ig";
 import {
-  isValidSession,
   novoOauthState,
   OAUTH_CONVITE_COOKIE,
   OAUTH_STATE_COOKIE,
@@ -10,12 +9,13 @@ import {
 } from "@/lib/auth";
 import { getConfig, updateConfig } from "@/lib/db";
 import { canonicalAppUrl, isEphemeralUrl } from "@/lib/app-url";
+import { sessaoDoCookie } from "@/lib/sessao";
 
 export async function GET(req: NextRequest) {
   // A CONEXÃO SÓ COMEÇA COM A SESSÃO DO PAINEL. `/api/oauth` está na PUBLIC_PREFIXES do proxy.ts (a volta
   // do Instagram tem de passar), então quem confere é esta rota. Sem sessão, nenhum state é entregue
   // (docs/specs/2026-10-27-cron-e-oauth.md).
-  if (!isValidSession(req.cookies.get(SESSION_COOKIE)?.value)) {
+  if (!(await sessaoDoCookie(req.cookies.get(SESSION_COOKIE)?.value))) {
     return NextResponse.redirect(`${req.nextUrl.origin}/entrar`);
   }
   const config = await getConfig();
