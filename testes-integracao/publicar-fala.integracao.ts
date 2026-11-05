@@ -69,7 +69,10 @@ import {
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
+// A CONTA ESCOLHIDA E AS TELAS DE CONTA RODAM COM A SESSÃO DE TESTE (administrador, que vê todas): desde
+// as contas por login (docs/specs/2026-11-05-contas-por-login.md), sem login não há conta escolhida
+// (lib/account.ts). O cookie de conta continua ausente, e o tombo para a primeira conta continua valendo.
+import { comoNumaRequisicaoComSessao } from "./semear-requisicao";
 
 type ModuloAcoes = typeof import("@/app/publicar/actions");
 type ModuloIg = typeof import("@/lib/ig");
@@ -315,7 +318,7 @@ async function itensDaFila(conta_id: string): Promise<LinhaDaFila[]> {
 // ===========================================================================
 describe("a recusa de quem ainda não conectou conta nenhuma", () => {
   test("a condição deste bloco é o schema SEM conta — e ele confere isso antes de medir", async () => {
-    const { valor } = await comoNumaRequisicao("/publicar", () => conta.getSelectedAccountId());
+    const { valor } = await comoNumaRequisicaoComSessao("/publicar", () => conta.getSelectedAccountId());
     expect(valor).toBe(null);
   });
 
@@ -352,8 +355,8 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
     }
   });
 
-  test("a condição deste bloco é CONTA_A vir sem cookie nenhum — e ele confere isso antes de medir", async () => {
-    const { valor } = await comoNumaRequisicao("/publicar", () => conta.getSelectedAccountId());
+  test("a condição deste bloco é CONTA_A vir sem cookie de conta — e ele confere isso antes de medir", async () => {
+    const { valor } = await comoNumaRequisicaoComSessao("/publicar", () => conta.getSelectedAccountId());
     expect(valor).toBe(CONTA_A);
   });
 

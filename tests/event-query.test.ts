@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildWhere } from "@/lib/event-query";
+import { buildWhere, postsComEventos } from "@/lib/event-query";
 import { NO_FILTERS, type EventFilters } from "@/lib/event-filters";
 
 const filtros = (p: Partial<EventFilters> = {}): EventFilters => ({ ...NO_FILTERS, ...p });
@@ -18,6 +18,47 @@ describe("isolamento por conta", () => {
     const w = buildWhere("conta-1", filtros({ type: "comment" }));
     expect(w.sql).toContain("(e.account_id = $1 or e.account_id is null)");
     expect(w.sql).toContain("and");
+  });
+});
+
+// OS EVENTOS SEM CONTA SÓ PARA O ADMINISTRADOR (docs/specs/2026-11-05-contas-por-login.md, seção 3). Quando
+// um webhook dá erro, o corpo inteiro é gravado sem conta (`account_id` nulo), com a DM ou o comentário de
+// qualquer conta dentro. O terceiro parâmetro diz se eles entram: a Atividade do login comum passa `false`.
+describe("os eventos sem conta", () => {
+  it("com false, o primeiro termo é só a conta, e o `is null` sai", () => {
+    const w = buildWhere("conta-1", filtros(), false);
+    expect(w.sql).toContain("(e.account_id = $1)");
+    expect(w.sql).not.toContain("is null");
+    expect(w.params).toEqual(["conta-1"]);
+  });
+
+  it("com false e um filtro ao lado, a conta continua entre parênteses e os parâmetros na mesma ordem", () => {
+    const w = buildWhere("conta-1", filtros({ type: "comment" }), false);
+    expect(w.sql.startsWith("(e.account_id = $1)\n")).toBe(true);
+    expect(w.sql).toContain("e.type = $2");
+    expect(w.sql).not.toContain("is null");
+    expect(w.params).toEqual(["conta-1", "comment"]);
+  });
+
+  it("o padrão é o de hoje: a conta e os sem conta, igual a passar true", () => {
+    const padrao = buildWhere("conta-1", filtros({ q: "oi" }));
+    expect(padrao.sql).toContain("(e.account_id = $1 or e.account_id is null)");
+    expect(buildWhere("conta-1", filtros({ q: "oi" }), true)).toEqual(padrao);
+  });
+
+  // O SELETOR DE POSTS DA ATIVIDADE SEGUE A MESMA REGRA: um evento sem conta com `media` ofereceria ao comum
+  // o post de outra conta, e a contagem dele.
+  it("postsComEventos com false: só a conta, e o `is null` sai", () => {
+    const w = postsComEventos("conta-1", 12, false);
+    expect(w.sql).toContain("where (e.account_id = $1)");
+    expect(w.sql).not.toContain("e.account_id is null");
+    expect(w.params).toEqual(["conta-1"]);
+  });
+
+  it("postsComEventos no padrão é o de hoje: a conta e os sem conta, igual a passar true", () => {
+    const padrao = postsComEventos("conta-1", 12);
+    expect(padrao.sql).toContain("where (e.account_id = $1 or e.account_id is null)");
+    expect(postsComEventos("conta-1", 12, true)).toEqual(padrao);
   });
 });
 

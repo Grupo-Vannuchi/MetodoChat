@@ -1,5 +1,7 @@
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { getConfig, isMetaConfigured, listAccounts, sql } from "@/lib/db";
+import { sessaoAtual } from "@/lib/sessao";
 import { qstashEnabled } from "@/lib/qstash";
 import { saveMetaCredentials, testarWebhook } from "./actions";
 import { resumoDaInstalacao, subtituloDaConfiguracao } from "./portas";
@@ -79,6 +81,13 @@ export default async function SetupPage({
 }: {
   searchParams: Promise<{ erro?: string; salvo?: string; rascunho?: string }>;
 }) {
+  // A CONFIGURAÇÃO É DO ADMINISTRADOR (docs/specs/2026-11-05-contas-por-login.md, seção 3), conferido aqui
+  // no servidor, como a página Logins (app/logins/page.tsx): o item do menu escondido é só conforto. Esta
+  // página lê todas as contas e a `config` inteira, e as actions dela conferem de novo
+  // (`exigirAdministrador`, ./actions.ts).
+  const quem = await sessaoAtual();
+  if (!quem) redirect("/entrar");
+  if (!quem.administrador) redirect("/");
   const sp = await searchParams;
   const config = await getConfig();
 

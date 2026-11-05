@@ -10,7 +10,10 @@
 // apagar a chave gravada, nem ser recusado quando ela já existe.
 import { beforeAll, describe, expect, it } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
+// A CONTA ESCOLHIDA E AS TELAS DE CONTA RODAM COM A SESSÃO DE TESTE (administrador, que vê todas): desde
+// as contas por login (docs/specs/2026-11-05-contas-por-login.md), sem login não há conta escolhida
+// (lib/account.ts). O cookie de conta continua ausente, e o tombo para a primeira conta continua valendo.
+import { comoNumaRequisicaoComSessao } from "./semear-requisicao";
 import { textoDaArvore } from "./texto-da-arvore";
 
 const banco = bancoDescartavel();
@@ -66,7 +69,7 @@ async function salvar(campos: Record<string, string>): Promise<string | null> {
 describe("a chave do app da Meta na Configuração", () => {
   it("a página não leva a chave, e diz que ela está configurada", async () => {
     await gravarChave(CHAVE);
-    const { valor } = await comoNumaRequisicao("/setup", () =>
+    const { valor } = await comoNumaRequisicaoComSessao("/setup", () =>
       pagina.default({ searchParams: Promise.resolve({}) })
     );
     const texto = textoDaArvore(valor);

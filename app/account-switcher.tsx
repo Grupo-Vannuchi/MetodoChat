@@ -13,12 +13,20 @@ export type SwitcherAccount = {
 
 // Seletor de conta na base da sidebar. Sem conta conectada, vira um atalho
 // direto para a configuração.
+//
+// CONECTAR CONTA É DO ADMINISTRADOR (docs/specs/2026-11-05-contas-por-login.md,
+// seção 3): o "+ Conectar outra conta" e o atalho "Conectar Instagram" só
+// aparecem com `podeConectar`. O login comum sem contas não vê atalho nenhum.
+// Esconder é conforto: quem confere é o `/api/oauth/login` e a Configuração,
+// no servidor.
 export default function AccountSwitcher({
   accounts,
   selectedId,
+  podeConectar,
 }: {
   accounts: SwitcherAccount[];
   selectedId: string | null;
+  podeConectar: boolean;
 }) {
   const [open, setOpen] = useState(false);
   // A troca envolve uma ida ao servidor (cookie + recarregar os dados da nova
@@ -29,6 +37,7 @@ export default function AccountSwitcher({
   const [optimisticId, setOptimisticId] = useOptimistic(selectedId);
 
   if (!accounts.length) {
+    if (!podeConectar) return null;
     return (
       <Link
         href="/setup"
@@ -89,14 +98,16 @@ export default function AccountSwitcher({
               </li>
             ))}
           </ul>
-          <div className="border-t border-zinc-200 dark:border-zinc-800">
-            <a
-              href="/api/oauth/login"
-              className="block px-3 py-2 text-sm text-tinta transition-colors hover:bg-traco/40 dark:text-tinta-escuro dark:hover:bg-traco-escuro/60"
-            >
-              + Conectar outra conta
-            </a>
-          </div>
+          {podeConectar && (
+            <div className="border-t border-zinc-200 dark:border-zinc-800">
+              <a
+                href="/api/oauth/login"
+                className="block px-3 py-2 text-sm text-tinta transition-colors hover:bg-traco/40 dark:text-tinta-escuro dark:hover:bg-traco-escuro/60"
+              >
+                + Conectar outra conta
+              </a>
+            </div>
+          )}
         </div>
       )}
 

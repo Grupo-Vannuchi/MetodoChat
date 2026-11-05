@@ -84,7 +84,10 @@
 // exercita o CORPO do Server Action, e não a fronteira de serialização do POST.
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
+// A CONTA ESCOLHIDA E AS TELAS DE CONTA RODAM COM A SESSÃO DE TESTE (administrador, que vê todas): desde
+// as contas por login (docs/specs/2026-11-05-contas-por-login.md), sem login não há conta escolhida
+// (lib/account.ts). O cookie de conta continua ausente, e o tombo para a primeira conta continua valendo.
+import { comoNumaRequisicaoComSessao } from "./semear-requisicao";
 
 type ModuloAcoes = typeof import("@/app/automacoes/actions");
 
@@ -187,8 +190,8 @@ async function ativaNoBanco(id: string): Promise<boolean> {
 }
 
 describe("as duas portas de publicar, com o contexto de requisição semeado", () => {
-  test("a conta chega às portas sem cookie nenhum, pelo tombo declarado", async () => {
-    const { valor } = await comoNumaRequisicao("/automacoes", async () => {
+  test("a conta chega às portas sem cookie de conta, pelo tombo declarado", async () => {
+    const { valor } = await comoNumaRequisicaoComSessao("/automacoes", async () => {
       const conta = await import("@/lib/account");
       return conta.getSelectedAccountId();
     });

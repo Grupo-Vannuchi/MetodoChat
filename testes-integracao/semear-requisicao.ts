@@ -41,9 +41,17 @@
 // cima dela desde sempre — não é brecha, não é atalho, e não é uma sessão
 // inventada. A conta do teste é a conta do teste por construção do schema.
 //
+// DESDE AS CONTAS POR LOGIN (docs/specs/2026-11-05-contas-por-login.md), o
+// tombo é a primeira conta QUE O LOGIN VÊ, e sem login não há conta nenhuma:
+// `getSelectedAccount` pergunta a `contaEscolhida` (lib/acesso.ts) com o login
+// da sessão. Por isso, a jarra vazia de `comoNumaRequisicao` mede o "sem
+// sessão", e quem mede a conta escolhida usa a variante com sessão (o login de
+// teste é administrador e vê todas) ou a do login comum, mais abaixo.
+//
 // Se algum dia alguém precisar de DUAS contas neste caminho, a saída NÃO é
 // forjar o cookie: é medir de novo. Forjar cookie de sessão é regra do dono, e
-// esta fundação existe sem quebrá-la.
+// esta fundação existe sem quebrá-la. O cookie da conta, quando um caso precisa
+// dele, é o que `selectAccount` emitiu (ver o bloco do login comum).
 //
 // -----------------------------------------------------------------------------
 // E QUANDO A AÇÃO EXIGE SESSÃO (26/10/2026, docs/specs/2026-10-26-sessao-conferida.md).
@@ -57,8 +65,9 @@
 // `comoNumaRequisicaoComSessao`, e ela também NÃO FORJA NADA. Ela entra pela ação
 // de entrar de verdade (app/entrar/actions.ts), com a SENHA DE TESTE abaixo, e
 // leva na requisição seguinte o cookie que essa ação emitiu. O cookie de conta
-// continua ausente, e o tombo para a primeira conta continua valendo. Decidido
-// pelo Eduardo pela caixa em 26/10/2026, com as condições da auditoria (achado 131).
+// continua ausente (a não ser que o caso peça o que `selectAccount` emitiu), e o
+// tombo para a primeira conta continua valendo. Decidido pelo Eduardo pela caixa
+// em 26/10/2026, com as condições da auditoria (achado 131).
 //
 // -----------------------------------------------------------------------------
 // A ORDEM É OBRIGATÓRIA, e é a armadilha que quase matou este caminho.
@@ -499,38 +508,67 @@ export async function comoNumaRequisicao<T>(
   return rodarNoContexto(rota, corpo);
 }
 
-// O cabeçalho `cookie` da sessão de teste, depois do primeiro login deste arquivo.
-let cookieDaSessaoDeTeste: string | null = null;
+// ---------------------------------------------------------------------------
+// O LOGIN COMUM DE TESTE (docs/specs/2026-11-05-contas-por-login.md, seções 2 e 3).
+//
+// DESDE AS CONTAS POR LOGIN, a conta escolhida depende de quem entrou: o
+// administrador vê todas, e o comum só as que recebeu (lib/acesso.ts). O login
+// de teste de cima é administrador; este é o outro lado. Ele nasce comum
+// (`administrador: false`), com a mesma senha de teste, e entra pela MESMA ação
+// de entrar de verdade. As contas dele são postas por `definirContasDoLogin`
+// (lib/logins-repositorio.ts) antes de cada uso, para cada caso dizer quais são
+// em vez de herdar as do vizinho.
+//
+// O COOKIE DA CONTA NUNCA É ESCRITO À MÃO, e é a regra do dono do topo deste
+// arquivo. Quando um caso precisa do comum com o cookie de uma conta que ele não
+// tem (o mesmo navegador, depois de outro login ter escolhido outra conta: a
+// spec, "O que fica de fora"), o valor é o que `selectAccount`
+// (app/account-actions.ts) EMITIU numa requisição do login de teste, que é
+// administrador e pode escolher qualquer conta, lido de `cookies()` depois da
+// chamada, como `entrarComo` lê o da sessão.
+export const EMAIL_DO_COMUM_DE_TESTE = "comum-de-teste@exemplo.invalid";
+
+type QuemEntra = { email: string; nome: string; administrador: boolean };
+
+// O LOGIN DE TESTE É ADMINISTRADOR, e diz isso: desde a 023 o padrão é comum
+// (docs/specs/2026-11-05-contas-por-login.md), e um login de teste comum, sem
+// contas, faria os casos de hoje medirem um painel vazio.
+const LOGIN_DE_TESTE: QuemEntra = { email: EMAIL_DE_TESTE, nome: "Login de teste", administrador: true };
+const COMUM_DE_TESTE: QuemEntra = { email: EMAIL_DO_COMUM_DE_TESTE, nome: "Comum de teste", administrador: false };
+
+// O cabeçalho `cookie` da sessão de cada login de teste, depois do primeiro login dele neste arquivo.
+const cookiesDasSessoes = new Map<string, string>();
+
+/** O valor de um `nome=valor` de cookie, sem o nome. */
+const valorDoCookie = (cabecalho: string) => cabecalho.slice(cabecalho.indexOf("=") + 1);
 
 /**
- * Entra pela AÇÃO DE ENTRAR DE VERDADE, com o login de teste, e devolve o
+ * Entra pela AÇÃO DE ENTRAR DE VERDADE, com um login de teste, e devolve o
  * cabeçalho `cookie` com o que ela emitiu. Não monta sessão nenhuma à mão: o
- * login de teste é criado no schema descartável (se ainda não existir), e a
- * sessão sai da ação.
+ * login é criado no schema descartável (se ainda não existir), e a sessão sai
+ * da ação.
  *
  * Duas conferências antes de devolver, e as duas estouram sem imprimir o cookie:
  * o login mandou para "/" (o caminho do sucesso, e não só "gravou algo"), e a
  * sessão foi gravada no schema descartável (ver o topo deste arquivo).
  */
-async function entrarDeVerdade(): Promise<string> {
+async function entrarComo(quem: QuemEntra): Promise<string> {
   const { SESSION_COOKIE } = await import("@/lib/auth");
   const { sessaoPorCodigo, criarLogin } = await import("@/lib/logins-repositorio");
   // A SESSÃO GUARDADA AINDA VALE? Um caso que apagou as sessões ou os logins a derrubou.
-  if (cookieDaSessaoDeTeste && (await sessaoPorCodigo(cookieDaSessaoDeTeste.split("=")[1]))) {
-    return cookieDaSessaoDeTeste;
+  const guardada = cookiesDasSessoes.get(quem.email);
+  if (guardada && (await sessaoPorCodigo(valorDoCookie(guardada)))) {
+    return guardada;
   }
   const { hashDaSenha } = await import("@/lib/logins");
   const { sql } = await import("@/lib/db");
-  const [existe] = (await sql().query(`select id from logins where email = $1`, [EMAIL_DE_TESTE])) as unknown[];
+  const [existe] = (await sql().query(`select id from logins where email = $1`, [quem.email])) as unknown[];
   if (!existe) {
-    // O LOGIN DE TESTE É ADMINISTRADOR, e diz isso: desde a 023 o padrão é comum
-    // (docs/specs/2026-11-05-contas-por-login.md), e um login de teste comum, sem contas, faria os casos de
-    // hoje medirem um painel vazio.
     const r = await criarLogin({
-      email: EMAIL_DE_TESTE,
-      nome: "Login de teste",
+      email: quem.email,
+      nome: quem.nome,
       senhaHash: await hashDaSenha(SENHA_DE_TESTE),
-      administrador: true,
+      administrador: quem.administrador,
     });
     if ("erro" in r) throw new Error(`O LOGIN DE TESTE NÃO NASCEU: ${r.erro}`);
   }
@@ -539,7 +577,7 @@ async function entrarDeVerdade(): Promise<string> {
 
   const { valor } = await rodarNoContexto("/entrar", async () => {
     const form = new FormData();
-    form.set("email", EMAIL_DE_TESTE);
+    form.set("email", quem.email);
     form.set("password", SENHA_DE_TESTE);
     let digest: string | null = null;
     try {
@@ -571,21 +609,101 @@ async function entrarDeVerdade(): Promise<string> {
         "impresso). Sem isso, a variante com sessão mediria uma sessão de outro lugar."
     );
   }
-  cookieDaSessaoDeTeste = `${SESSION_COOKIE}=${valor.cookie}`;
-  return cookieDaSessaoDeTeste;
+  const cabecalho = `${SESSION_COOKIE}=${valor.cookie}`;
+  cookiesDasSessoes.set(quem.email, cabecalho);
+  return cabecalho;
+}
+
+/** A sessão do login de teste, que é administrador. */
+function entrarDeVerdade(): Promise<string> {
+  return entrarComo(LOGIN_DE_TESTE);
+}
+
+/**
+ * O `metodochat_account=<id>` que `selectAccount` EMITIU numa requisição do login de teste (administrador),
+ * lido de `cookies()` depois da chamada. A conferência estoura se a action não emitiu a conta pedida: sem
+ * ela, um caso "com o cookie da conta X" mediria um navegador sem cookie nenhum.
+ */
+async function cookieDaContaEmitido(contaId: string): Promise<string> {
+  const { ACCOUNT_COOKIE } = await import("@/lib/account");
+  const { selectAccount } = await import("@/app/account-actions");
+  const { cookies } = await import("next/headers");
+  const sessao = await entrarDeVerdade();
+  const { valor } = await rodarNoContexto(
+    "/",
+    async () => {
+      const form = new FormData();
+      form.set("account_id", contaId);
+      await selectAccount(form);
+      return (await cookies()).get(ACCOUNT_COOKIE)?.value ?? null;
+    },
+    { cookie: sessao }
+  );
+  if (valor !== contaId) {
+    throw new Error(
+      `O COOKIE DA CONTA NÃO FOI EMITIDO: \`selectAccount\` do login de teste (administrador) devia gravar ` +
+        `a conta pedida, e ${valor === null ? "não gravou nada" : "gravou outra"}. Sem ele, o caso mediria ` +
+        "um navegador sem o cookie da conta."
+    );
+  }
+  return `${ACCOUNT_COOKIE}=${valor}`;
 }
 
 /**
  * Como `comoNumaRequisicao`, mas com a sessão que a ação de entrar emitiu para o
  * login de teste. É para medir o CORPO de uma Server Action que começa por
  * `await exigirSessao()`; o "sem sessão" se mede com `comoNumaRequisicao`.
+ *
+ * `contaDoCookie`, se pedido, leva junto o cookie da conta que `selectAccount`
+ * emitiu para essa conta (ver o bloco do login comum, acima).
  */
 export async function comoNumaRequisicaoComSessao<T>(
   rota: string,
-  corpo: () => Promise<T>
+  corpo: () => Promise<T>,
+  opcoes: { contaDoCookie?: string } = {}
 ): Promise<DentroDaRequisicao<T>> {
   await provarOEfeito();
-  const cookie = await entrarDeVerdade();
+  const sessao = await entrarDeVerdade();
+  const cookie =
+    opcoes.contaDoCookie === undefined ? sessao : `${sessao}; ${await cookieDaContaEmitido(opcoes.contaDoCookie)}`;
+  return rodarNoContexto(rota, corpo, { cookie });
+}
+
+/**
+ * O cabeçalho `cookie` do login COMUM de teste, ligado só às `contas` (por `definirContasDoLogin`, a cada
+ * chamada), e com o cookie da conta que `selectAccount` emitiu, se `contaDoCookie` for pedido. Serve às
+ * rotas que leem `req.cookies` direto do pedido. O valor não deve ser impresso.
+ */
+export async function cabecalhoDoComumDeTeste(contas: string[], contaDoCookie?: string): Promise<string> {
+  const sessao = await entrarComo(COMUM_DE_TESTE);
+  const { sessaoDoCookie } = await import("@/lib/sessao");
+  const quem = await sessaoDoCookie(valorDoCookie(sessao));
+  // O COMUM TEM DE SER COMUM: um caso que o promovesse e não o devolvesse faria os vizinhos medirem um
+  // administrador com o nome do comum.
+  if (!quem || quem.email !== EMAIL_DO_COMUM_DE_TESTE || quem.administrador) {
+    throw new Error(
+      "O LOGIN COMUM DE TESTE NÃO É COMUM: a sessão emitida para ele não é de um login comum ativo. " +
+        "Sem isso, os casos do login comum mediriam outro papel."
+    );
+  }
+  const { definirContasDoLogin } = await import("@/lib/logins-repositorio");
+  const r = await definirContasDoLogin(quem.id, contas);
+  if (r !== "ok") throw new Error(`AS CONTAS DO LOGIN COMUM DE TESTE NÃO FORAM POSTAS: ${r}`);
+  if (contaDoCookie === undefined) return sessao;
+  return `${sessao}; ${await cookieDaContaEmitido(contaDoCookie)}`;
+}
+
+/**
+ * Como `comoNumaRequisicaoComSessao`, mas com o login COMUM de teste: ligado só às `contas`, e com o cookie
+ * da conta `contaDoCookie` (o que `selectAccount` emitiu para o administrador), se pedido.
+ */
+export async function comoNumaRequisicaoComoComum<T>(
+  rota: string,
+  corpo: () => Promise<T>,
+  opcoes: { contas: string[]; contaDoCookie?: string }
+): Promise<DentroDaRequisicao<T>> {
+  await provarOEfeito();
+  const cookie = await cabecalhoDoComumDeTeste(opcoes.contas, opcoes.contaDoCookie);
   return rodarNoContexto(rota, corpo, { cookie });
 }
 

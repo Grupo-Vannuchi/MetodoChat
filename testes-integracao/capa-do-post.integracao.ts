@@ -58,6 +58,9 @@ import type { AddressInfo, Socket } from "node:net";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { bancoDescartavel } from "./harness";
+// A CONTA ESCOLHIDA E AS TELAS DE CONTA RODAM COM A SESSÃO DE TESTE (administrador, que vê todas): desde
+// as contas por login (docs/specs/2026-11-05-contas-por-login.md), sem login não há conta escolhida
+// (lib/account.ts). O cookie de conta continua ausente, e o tombo para a primeira conta continua valendo.
 import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
 import type { AutomationRow } from "@/app/automacoes/list-client";
 import type { Configuracao } from "@/app/automacoes/editor/painel";
@@ -156,7 +159,7 @@ function acharLinhas(no: unknown): AutomationRow[] | null {
 }
 
 async function linhasDasAutomacoes(): Promise<AutomationRow[]> {
-  const { valor } = await comoNumaRequisicao("/automacoes", () =>
+  const { valor } = await comoNumaRequisicaoComSessao("/automacoes", () =>
     telaDeAutomacoes.default({ searchParams: Promise.resolve({}) })
   );
   const linhas = acharLinhas(valor);
@@ -211,7 +214,7 @@ function acharConfiguracao(no: unknown): Configuracao | null {
  * dado. Lança quando `acharConfiguracao` não a acha — mesmo motivo do `throw`
  * em `linhasDasAutomacoes`, acima. */
 async function configuracaoDoEditor(id: string): Promise<Configuracao> {
-  const { valor } = await comoNumaRequisicao(`/automacoes/${id}`, () =>
+  const { valor } = await comoNumaRequisicaoComSessao(`/automacoes/${id}`, () =>
     editorDaAutomacao.default({ params: Promise.resolve({ id }) })
   );
   const configuracao = acharConfiguracao(valor);

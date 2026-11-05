@@ -1,5 +1,6 @@
 import { sql, QueueItem } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
+import { sessaoAtual } from "@/lib/sessao";
 import { fmtDate } from "@/lib/format";
 import { card, muted, tableWrap, thead, rowDivide, btnGhost } from "../ui";
 import {
@@ -72,6 +73,12 @@ export default async function EventosPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const account = await getSelectedAccount();
+  // OS EVENTOS SEM CONTA SÓ PARA O ADMINISTRADOR (docs/specs/2026-11-05-contas-por-login.md, seção 3): o
+  // corpo de um webhook que deu erro é gravado sem conta e pode ser de qualquer conta (ver `buildWhere`).
+  // O papel vai às duas consultas que leem eventos: a lista e o seletor de posts. Sem login não há conta
+  // escolhida, e o `false` é só o lado seguro do tipo.
+  const login = await sessaoAtual();
+  const comEventosSemConta = login?.administrador ?? false;
   const params = await searchParams;
   const filtros = parseFilters(params);
   // QUANTOS EVENTOS ESTA PÁGINA TRAZ. Ele vem da barra de endereço e NÃO de
@@ -81,10 +88,10 @@ export default async function EventosPage({
   // muda.
   const quantos = quantosEventos(params.ver);
   const envios = parseEnvioFilters(params);
-  const where = account ? buildWhere(account.ig_user_id, filtros) : null;
+  const where = account ? buildWhere(account.ig_user_id, filtros, comEventosSemConta) : null;
   const whereEnvios = account ? buildEnviosWhere(account.ig_user_id, envios) : null;
   const situacoes = whereEnvios ? contagemPorSituacao(whereEnvios) : null;
-  const opcoes = account ? postsComEventos(account.ig_user_id, POSTS_NO_SELETOR) : null;
+  const opcoes = account ? postsComEventos(account.ig_user_id, POSTS_NO_SELETOR, comEventosSemConta) : null;
 
   // Junta com contatos para mostrar QUEM é a pessoa, não o número dela.
   // As cinco consultas são independentes — em paralelo para não empilhar

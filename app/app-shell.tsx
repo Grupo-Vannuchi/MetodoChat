@@ -55,21 +55,24 @@ const NAV_GROUPS: {
   },
   {
     label: "Sistema",
-    items: [
-      { href: "/produtos", label: "Produtos", icon: IconStore },
-      { href: "/setup", label: "Configuração", icon: IconSettings },
-    ],
+    items: [{ href: "/produtos", label: "Produtos", icon: IconStore }],
   },
 ];
 
-// O ITEM DOS LOGINS, SÓ PARA ADMINISTRADOR (docs/specs/2026-11-04-logins.md,
-// seção 4). Esconder o item é conforto: quem confere é a página e as actions
-// dela, no servidor.
-const ITEM_DOS_LOGINS = { href: "/logins", label: "Logins", icon: IconPessoa };
+// OS ITENS DA CONFIGURAÇÃO E DOS LOGINS, SÓ PARA ADMINISTRADOR
+// (docs/specs/2026-11-04-logins.md, seção 4, e docs/specs/2026-11-05-contas-por-login.md,
+// seção 3: o login comum faz tudo nas contas dele, menos a Configuração e os
+// logins). Esconder o item é conforto: quem confere é a página e as actions de
+// cada um, no servidor. A ordem do grupo Sistema do administrador é a de antes:
+// Produtos, Configuração e Logins.
+const ITENS_DO_ADMINISTRADOR = [
+  { href: "/setup", label: "Configuração", icon: IconSettings },
+  { href: "/logins", label: "Logins", icon: IconPessoa },
+];
 
 function gruposDoMenu(administrador: boolean) {
   if (!administrador) return NAV_GROUPS;
-  return NAV_GROUPS.map((g) => (g.label === "Sistema" ? { ...g, items: [...g.items, ITEM_DOS_LOGINS] } : g));
+  return NAV_GROUPS.map((g) => (g.label === "Sistema" ? { ...g, items: [...g.items, ...ITENS_DO_ADMINISTRADOR] } : g));
 }
 
 /** O login da sessão, como o menu precisa dele: o nome e se é administrador. */
@@ -233,7 +236,11 @@ function SidebarBody({
       </div>
       <div className="space-y-1 px-2">
         <div className="mb-2 border-t border-zinc-200/70 pt-2 dark:border-zinc-800/70">
-          <AccountSwitcher accounts={accounts} selectedId={selectedId} />
+          <AccountSwitcher
+            accounts={accounts}
+            selectedId={selectedId}
+            podeConectar={login?.administrador ?? false}
+          />
         </div>
         {login && <LoginNoRodape login={login} sair={sair} onNavigate={onNavigate} />}
         <ThemeToggle />

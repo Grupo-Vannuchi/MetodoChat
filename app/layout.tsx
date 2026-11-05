@@ -6,8 +6,9 @@ import "./globals.css";
 import AppShell, { type LoginDoMenu } from "./app-shell";
 import { sair } from "./minha-conta/actions";
 import { SwitcherAccount } from "./account-switcher";
-import { listAccounts } from "@/lib/db";
 import { ACCOUNT_COOKIE } from "@/lib/account";
+import { contasDoLogin } from "@/lib/acesso";
+import { escolherConta } from "@/lib/acesso-escolha";
 import { sessaoAtual } from "@/lib/sessao";
 
 // AS TRÊS FAMÍLIAS. A Sora saiu: não por ser ruim, mas por ser a fonte que
@@ -81,26 +82,28 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Sem sessão, ela sai vazia (docs/specs/2026-10-26-sessao-conferida.md;
   // tests/layout-contas.test.ts). Desde os logins, a sessão é a do banco
   // (lib/sessao.ts, docs/specs/2026-11-04-logins.md).
+  //
+  // A LISTA É A DO LOGIN, e a escolha também (docs/specs/2026-11-05-contas-por-login.md, seção 2): o seletor
+  // mostra só as contas que ele vê (`contasDoLogin`, lib/acesso.ts), e o cookie só desempata entre elas
+  // (`escolherConta`, a mesma escolha pura da conta escolhida). Antes, este layout refazia a escolha à mão
+  // sobre todas as contas.
   let accounts: SwitcherAccount[] = [];
   let selectedId: string | null = null;
-  // O NOME E O MARCADOR DE ADMINISTRADOR vão ao menu (o item Logins e a Minha
-  // conta); o id, o e-mail e o id da sessão ficam no servidor.
+  // O NOME E O MARCADOR DE ADMINISTRADOR vão ao menu (os itens Configuração e
+  // Logins, o conectar conta do seletor e a Minha conta); o id, o e-mail e o id
+  // da sessão ficam no servidor.
   let doMenu: LoginDoMenu | null = null;
   try {
     const jarra = await cookies();
     const login = await sessaoAtual();
     if (login) {
       doMenu = { nome: login.nome, administrador: login.administrador };
-      accounts = (await listAccounts()).map((a) => ({
+      accounts = (await contasDoLogin(login)).map((a) => ({
         ig_user_id: a.ig_user_id,
         username: a.username,
         profile_picture_url: a.profile_picture_url,
       }));
-      const cookieId = jarra.get(ACCOUNT_COOKIE)?.value;
-      selectedId =
-        accounts.find((a) => a.ig_user_id === cookieId)?.ig_user_id ??
-        accounts[0]?.ig_user_id ??
-        null;
+      selectedId = escolherConta(accounts, jarra.get(ACCOUNT_COOKIE)?.value)?.ig_user_id ?? null;
     }
   } catch {
     // banco indisponível: segue sem contas

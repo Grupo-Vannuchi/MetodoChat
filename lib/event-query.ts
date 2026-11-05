@@ -26,11 +26,22 @@ function toSearchPattern(termo: string): string {
   return `%${termo.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 }
 
-export function buildWhere(accountId: string, f: EventFilters): Where {
+// OS EVENTOS SEM CONTA (`e.account_id is null`) SÓ ENTRAM SE `comEventosSemConta`
+// (docs/specs/2026-11-05-contas-por-login.md, seção 3). Quando um webhook dá
+// erro, o corpo inteiro é gravado sem conta (app/api/webhook/route.ts), com a DM
+// ou o comentário de qualquer conta dentro. O administrador vê todas as contas e
+// os recebe; o login comum, não (app/eventos/page.tsx passa o papel). O padrão é
+// o de antes desta entrega. É o primeiro termo das duas consultas deste arquivo,
+// a da lista (`buildWhere`) e a do seletor de posts (`postsComEventos`).
+function termoDaConta(comEventosSemConta: boolean): string {
+  return comEventosSemConta ? "(e.account_id = $1 or e.account_id is null)" : "(e.account_id = $1)";
+}
+
+export function buildWhere(accountId: string, f: EventFilters, comEventosSemConta = true): Where {
   // Os parênteses do primeiro termo importam: sem eles `A or B and C` seria
   // lido como `A or (B and C)` e vazaria evento de outra conta assim que
   // qualquer filtro entrasse.
-  const partes = ["(e.account_id = $1 or e.account_id is null)"];
+  const partes = [termoDaConta(comEventosSemConta)];
   const params: unknown[] = [accountId];
   const ref = () => `$${params.length}`;
 
@@ -77,11 +88,15 @@ export function buildWhere(accountId: string, f: EventFilters): Where {
 // esta lista que alimenta o seletor: assim toda opção oferecida produz
 // resultado. Não recebe os outros filtros de propósito — senão escolher um post
 // esconderia os demais e não daria para trocar.
-export function postsComEventos(accountId: string, limite: number): Where {
+//
+// OS EVENTOS SEM CONTA ENTRAM PELA MESMA REGRA DE `buildWhere` (`termoDaConta`,
+// acima): com `comEventosSemConta` falso (o login comum), um evento sem conta com
+// `media` não oferece o post, nem a contagem, de outra conta.
+export function postsComEventos(accountId: string, limite: number, comEventosSemConta = true): Where {
   return {
     sql: `select e.payload->'media'->>'id' as id, count(*)::int as total
           from events e
-          where (e.account_id = $1 or e.account_id is null)
+          where ${termoDaConta(comEventosSemConta)}
             and e.payload->'media'->>'id' is not null
           group by 1
           order by max(e.created_at) desc

@@ -22,8 +22,8 @@ export async function exigirSessao(): Promise<void> {
 /**
  * O LOGIN DA SESSÃO, SE FOR ADMINISTRADOR; senão, volta para o início (docs/specs/2026-11-04-logins.md,
  * seção 4). Vai logo DEPOIS do `await exigirSessao();` nas actions que só o administrador pode chamar: a
- * página Logins e o convite. Nesta entrega todo login é administrador, e a conferência já fica no servidor
- * para a entrega 2, quando nasce o login comum.
+ * página Logins e, desde as contas por login (docs/specs/2026-11-05-contas-por-login.md, seção 3), toda a
+ * Configuração (app/setup/actions.ts), o convite incluído.
  */
 export async function exigirAdministrador(): Promise<LoginDaSessao> {
   const login = await sessaoAtual();

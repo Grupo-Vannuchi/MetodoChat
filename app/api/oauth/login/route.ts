@@ -15,8 +15,15 @@ export async function GET(req: NextRequest) {
   // A CONEXÃO SÓ COMEÇA COM A SESSÃO DO PAINEL. `/api/oauth` está na PUBLIC_PREFIXES do proxy.ts (a volta
   // do Instagram tem de passar), então quem confere é esta rota. Sem sessão, nenhum state é entregue
   // (docs/specs/2026-10-27-cron-e-oauth.md).
-  if (!(await sessaoDoCookie(req.cookies.get(SESSION_COOKIE)?.value))) {
+  const login = await sessaoDoCookie(req.cookies.get(SESSION_COOKIE)?.value);
+  if (!login) {
     return NextResponse.redirect(`${req.nextUrl.origin}/entrar`);
+  }
+  // E SÓ O ADMINISTRADOR CONECTA CONTA (docs/specs/2026-11-05-contas-por-login.md, seção 3). O login comum
+  // volta para o início antes de qualquer state: sem ele, a volta do OAuth (`/api/oauth/callback`) recusa,
+  // e uma conta nova só nasce do começo de um administrador ou de um convite, que só ele gera.
+  if (!login.administrador) {
+    return NextResponse.redirect(`${req.nextUrl.origin}/`);
   }
   const config = await getConfig();
   if (!config.instagram_app_id) {

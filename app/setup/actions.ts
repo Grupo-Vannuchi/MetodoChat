@@ -17,6 +17,11 @@ import { exigirAdministrador, exigirSessao } from "@/lib/exigir-sessao";
 import { FRASE_DO_PARA_QUEM_INVALIDO, paraQuemDoFormulario, type EstadoDoGerar } from "@/lib/convites";
 import { cancelarConvite as cancelarNoBanco, criarConvite } from "@/lib/convites-repositorio";
 
+// TODA ACTION DESTE ARQUIVO É DO ADMINISTRADOR (docs/specs/2026-11-05-contas-por-login.md, seção 3: o login
+// comum faz tudo nas contas dele, menos a Configuração e os logins). Cada uma chama `exigirAdministrador`
+// logo DEPOIS do `await exigirSessao();`, que continua a primeira instrução (tests/sessao-nas-actions.test.ts
+// cobra). Os pontos que leem todas as contas, como `reassinarWebhooks`, ficam assim só ao alcance dele.
+
 // Reassina `CAMPOS_DE_WEBHOOK` (lib/ig.ts) em todas as contas conectadas. A
 // assinatura já acontece sozinha no OAuth, mas se falhar naquele momento nada
 // chega e o painel fica mudo — este botão conserta sem precisar reconectar tudo.
@@ -28,6 +33,7 @@ import { cancelarConvite as cancelarNoBanco, criarConvite } from "@/lib/convites
 // a Meta por causa de uma linha de configuração.
 export async function reassinarWebhooks(): Promise<void> {
   await exigirSessao();
+  await exigirAdministrador();
   const accounts = await listAccounts();
   let ok = 0;
   const falhas: string[] = [];
@@ -57,6 +63,7 @@ export async function reassinarWebhooks(): Promise<void> {
 // ============================================================
 export async function testarWebhook(): Promise<void> {
   await exigirSessao();
+  await exigirAdministrador();
   const config = await getConfig();
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
@@ -139,6 +146,7 @@ export async function testarWebhook(): Promise<void> {
 // são salvas; senão, usa as já salvas (com fallback nas do login).
 export async function configurarWebhookAuto(formData: FormData): Promise<void> {
   await exigirSessao();
+  await exigirAdministrador();
   const config = await getConfig();
 
   const metaAppId = String(formData.get("meta_app_id") ?? "").trim();
@@ -193,6 +201,7 @@ export async function configurarWebhookAuto(formData: FormData): Promise<void> {
 
 export async function saveMetaCredentials(formData: FormData): Promise<void> {
   await exigirSessao();
+  await exigirAdministrador();
   const appId = String(formData.get("instagram_app_id") ?? "").trim();
   const appSecret = String(formData.get("instagram_app_secret") ?? "").trim();
   // A CHAVE EM BRANCO MANTÉM A GRAVADA (achado 123): a tela não leva mais o valor da chave, então o
@@ -256,6 +265,7 @@ function recusar(motivo: string, conta: string, linhas: LinhaDoFormulario[]): ne
 
 export async function salvarPerguntasDeAbertura(formData: FormData): Promise<void> {
   await exigirSessao();
+  await exigirAdministrador();
   const igUserId = contaDoFormulario(formData);
   const conta = await getAccount(igUserId);
   // A CONTA VEM DO FORMULÁRIO, então ela é conferida contra as conectadas. Sem
