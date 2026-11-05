@@ -1,13 +1,11 @@
 "use server";
 import { after } from "next/server";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ACCOUNT_COOKIE } from "@/lib/account";
+import { FRASE_SEM_CONTAS } from "@/lib/logins-textos";
 import { sessaoAtual } from "@/lib/sessao";
 import {
   contaParaGerarDeNovo,
   contaParaGuardar,
-  contaSelecionada,
   nomeQueFalta,
   resolverConta,
   type ContaGuardada,
@@ -22,6 +20,7 @@ import {
   textoDaRecusaDaArte,
   type AvisoDaArte,
 } from "@/lib/bonus/arte-textos";
+import { cabecalhosDoLogin, contaDoMenuNoCarrossel } from "@/lib/bonus/carrossel-acesso";
 import { caminhoDoCarrossel } from "@/lib/bonus/carrossel-caminho";
 import type { ContextoDoCarrossel } from "@/lib/bonus/carrossel-ia-parametros";
 import { lerPedidoDeCarrossel } from "@/lib/bonus/carrossel-pedido";
@@ -68,6 +67,11 @@ import { TEXTO_BONUS_NAO_ENCONTRADO, textoDaConfig, urlDoBonusComAviso } from "@
 //
 // A PALAVRA E O CONTEXTO SÃO LIDOS DO LABS AQUI, NO SERVIDOR, a cada pedido, e nunca aceitos do
 // formulário: a página aberta pode estar velha.
+//
+// A CONTA DE UM CARROSSEL NOVO É UMA DAS DO LOGIN (docs/specs/2026-11-05-contas-por-login.md, seção 2, e
+// achado 179): a do menu, escolhida na lista do login (`contaDoMenuNoCarrossel` e `cabecalhosDoLogin`,
+// lib/bonus/carrossel-acesso.ts, que leem só as quatro colunas do cabeçalho, achado 60). `contasParaArte`,
+// a lista de todas, fica para mostrar: todo login vê e edita todos os carrosséis.
 
 async function exigirSessao(): Promise<void> {
   if (!(await sessaoAtual())) redirect("/entrar");
@@ -79,12 +83,13 @@ async function exigirSessao(): Promise<void> {
  * de um GET; o pedido já é uma escrita.
  */
 async function contaDoPedido(): Promise<ContaGuardada | null> {
-  const logada = contaSelecionada(await contasParaArte(), await contaDoCookie());
+  const logada = await contaDoMenuNoCarrossel();
   return logada ? contaParaGuardar(logada) : null;
 }
 
-async function contaDoCookie(): Promise<string | undefined> {
-  return (await cookies()).get(ACCOUNT_COOKIE)?.value;
+/** O id da conta do menu, para as funções puras de lib/bonus/arte-conta.ts. */
+async function contaDoMenu(): Promise<string | undefined> {
+  return (await contaDoMenuNoCarrossel())?.ig_user_id;
 }
 
 /** O bônus pronto para carrossel: criado no Labs e publicado lá. Qualquer outra coisa é recusa. */
@@ -160,7 +165,8 @@ export async function gerarCarrosselDeNovo(form: FormData): Promise<void> {
   const bonus = await bonusParaCarrossel(bonusId);
   if (!bonus.ok) redirect(urlDoCarrosselComAviso(caminho, { tom: "erro", texto: bonus.texto }));
   // O novo herda a conta do original, mesmo desconectada (decisão do Eduardo em 02/10): gerar de
-  // novo um carrossel do Thiago com o Chat na N8X faz outro do Thiago.
+  // novo um carrossel do Thiago com o Chat na N8X faz outro do Thiago. O original sem conta usa a
+  // logada, escolhida nas contas do login (achado 179).
   const criado = await criarPedidoDeCarrossel({
     bonusId,
     total: linha.total_slides,
@@ -169,7 +175,8 @@ export async function gerarCarrosselDeNovo(form: FormData): Promise<void> {
     conta: contaParaGerarDeNovo(
       await contasParaArte(),
       escolhasDaArte(linha.arte, linha.total_slides),
-      await contaDoCookie()
+      await contaDoMenu(),
+      await cabecalhosDoLogin()
     ),
   });
   if (!criado.ok) redirect(urlDoCarrosselComAviso(caminho, { tom: "erro", texto: textoDoTetoDoCarrossel() }));
@@ -213,7 +220,7 @@ export async function salvarSlideDoCarrossel(_anterior: AvisoDoSlide | null, for
   if (!r.ok) return resposta("erro", `Corrija antes de salvar. ${textoDosProblemasDoCarrossel(total, r.problemas)}`);
   const texto = textoDaParteSalva(parte, total, r.avisos);
   if (parte.tipo === "legenda") return resposta("ok", texto);
-  const { conta } = resolverConta(contas, escolhas, await contaDoCookie());
+  const { conta } = resolverConta(contas, escolhas, await contaDoMenu(), await cabecalhosDoLogin());
   const slides = slidesDoTexto(r.texto);
   const versoes = versoesDosSlides(slides, escolhas.soTexto, cabecalhoParaVersao(conta), fotosDaArte(linha.arte, total), capaDaArte(linha.arte, total));
   // A versão do texto salvo vai junto (Etapa 5): o card compara com a da imagem do Canva guardada.
@@ -252,7 +259,7 @@ export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form:
   const escolhas = escolhasDaArte(linha.arte, linha.total_slides);
   const salvou = await salvarSoTextoDaArte(id, lido.soTexto, nomeQueFalta(contas, escolhas), capa.capa);
   if (!salvou.ok) return resposta("erro", salvou.motivo === "travado" ? textoDaTrava(salvou.estado) : TEXTO_ARTE_NAO_PRONTA);
-  const { conta } = resolverConta(contas, escolhas, await contaDoCookie());
+  const { conta } = resolverConta(contas, escolhas, await contaDoMenu(), await cabecalhosDoLogin());
   // A capa como ficou gravada: as imagens são as de antes, com o jeito novo do slide 1.
   const arteNova = { ...(linha.arte as Record<string, unknown>), soTexto: lido.soTexto, capa: capa.capa };
   return resposta(
@@ -272,6 +279,9 @@ export async function salvarArteDoCarrossel(_anterior: AvisoDaArte | null, form:
  * "FIXAR NESTA CONTA" (decisão do Eduardo em 02/10): o carrossel de antes da 015, sem conta gravada,
  * passa a ser da conta logada agora, com o nome e o @, uma vez só. A resposta volta como estado,
  * como as outras da página.
+ *
+ * A CONTA SAI DAS CONTAS DO LOGIN (docs/specs/2026-11-05-contas-por-login.md, seção 3): a escolhida no
+ * menu, na lista do login. O login sem contas recebe a frase de quem não tem contas, e nada é gravado.
  */
 export async function fixarContaDoCarrossel(_anterior: AvisoDaArte | null, form: FormData): Promise<AvisoDaArte | null> {
   await exigirSessao();
@@ -282,8 +292,8 @@ export async function fixarContaDoCarrossel(_anterior: AvisoDaArte | null, form:
   const resposta = (tom: AvisoDaArte["tom"], texto: string): AvisoDaArte => ({ tom, texto, em: Date.now() });
   if (linha.estado !== "pronto" || !textoDaLinhaDoCarrossel(linha)) return resposta("erro", TEXTO_ARTE_NAO_PRONTA);
   if (escolhasDaArte(linha.arte, linha.total_slides).conta) return resposta("erro", textoDaRecusaDaArte("ja_tem_conta"));
-  const logada = contaSelecionada(await contasParaArte(), await contaDoCookie());
-  if (!logada) return resposta("erro", textoDaRecusaDaArte("sem_conta"));
+  const logada = await contaDoMenuNoCarrossel();
+  if (!logada) return resposta("erro", FRASE_SEM_CONTAS);
   // O `where` do repositório recusa quem já tem conta: outra aba pode ter fixado no meio.
   const fixou = await gravarContaFixada(id, contaParaGuardar(logada));
   return fixou ? resposta("ok", TEXTO_CONTA_FIXADA) : resposta("erro", textoDaRecusaDaArte("ja_tem_conta"));

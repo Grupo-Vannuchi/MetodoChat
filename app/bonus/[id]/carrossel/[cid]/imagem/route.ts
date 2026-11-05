@@ -1,9 +1,9 @@
 import { cookies } from "next/headers";
-import { ACCOUNT_COOKIE } from "@/lib/account";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { sessaoDoCookie } from "@/lib/sessao";
 import { conferirPedidoDaArte } from "@/lib/bonus/arte-tela";
 import { TEXTO_ARTE_NAO_ENCONTRADA, TEXTO_ARTE_SEM_SESSAO } from "@/lib/bonus/arte-textos";
+import { cabecalhosDoLogin, contaDoMenuNoCarrossel } from "@/lib/bonus/carrossel-acesso";
 import { lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
 import { consultarImagem, respostaDaConsulta } from "@/lib/bonus/imagem-consulta";
 import { ehIdDeBonus } from "@/lib/bonus/pedido";
@@ -14,6 +14,9 @@ import { ehIdDeBonus } from "@/lib/bonus/pedido";
 //
 // A SESSÃO É CONFERIDA AQUI, como na rota da arte ao lado, e não só no proxy.ts. Sem sessão, 401.
 // tests/bonus-imagem-paginas.test.ts confere que isto é a primeira coisa do GET.
+//
+// A CONTA DA MINIATURA, no carrossel sem conta gravada, é a do menu, nas contas do login
+// (docs/specs/2026-11-05-contas-por-login.md, seção 2), lidas aqui, no corpo do handler.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,5 +29,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   // O dono, o "pronto" e o slide, pela mesma conferência da rota da arte.
   const conferido = conferirPedidoDaArte(await lerCarrossel(cid), { tipo: "bonus", bonusId: id }, new URL(request.url).searchParams.get("slide"));
   if (!conferido.ok) return respostaDaConsulta({ erro: conferido.texto }, conferido.status);
-  return respostaDaConsulta(await consultarImagem({ linha: conferido.linha, numero: conferido.numero, doCookie: jarra.get(ACCOUNT_COOKIE)?.value }));
+  return respostaDaConsulta(
+    await consultarImagem({
+      linha: conferido.linha,
+      numero: conferido.numero,
+      doCookie: (await contaDoMenuNoCarrossel())?.ig_user_id,
+      permitidas: await cabecalhosDoLogin(),
+    })
+  );
 }
