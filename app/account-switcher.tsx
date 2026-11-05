@@ -36,9 +36,10 @@ export default function AccountSwitcher({
   const [pending, startTransition] = useTransition();
   const [optimisticId, setOptimisticId] = useOptimistic(selectedId);
 
+  // O ATALHO FICA DENTRO DO `podeConectar ?`, e não depois de um `return` antecipado: é assim que
+  // tests/paginas-sem-conta.test.ts reconhece o link para a Configuração no ramo do administrador.
   if (!accounts.length) {
-    if (!podeConectar) return null;
-    return (
+    return podeConectar ? (
       <Link
         href="/setup"
         className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/60"
@@ -46,7 +47,7 @@ export default function AccountSwitcher({
         <IconSettings className="h-4 w-4" />
         Conectar Instagram
       </Link>
-    );
+    ) : null;
   }
 
   const current = accounts.find((a) => a.ig_user_id === optimisticId) ?? accounts[0];

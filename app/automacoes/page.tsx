@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { sql, Automation } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
+import { FRASE_SEM_CONTAS } from "@/lib/logins-textos";
+import { sessaoAtual } from "@/lib/sessao";
 import {
   resolvePosts,
   TETO_DA_CAPA_NA_TELA_MS,
@@ -18,6 +20,9 @@ export default async function AutomacoesPage({
 }) {
   const sp = await searchParams;
   const account = await getSelectedAccount();
+  // SEM CONTA, O PAPEL DECIDE O QUE A TELA DIZ (docs/specs/2026-11-05-contas-por-login.md, seção 3): o
+  // administrador, o convite de hoje com a Configuração; o comum, a frase de pedir ao administrador.
+  const administrador = (await sessaoAtual())?.administrador ?? false;
   // cada automação pertence a uma conta conectada
   const automations = account
     ? ((await sql().query(
@@ -182,6 +187,7 @@ export default async function AutomacoesPage({
         <div>
           <h1 className={pageTitle}>Automações</h1>
           <p className={pageSubtitle}>
+            {/* Sem conta, o subtítulo do comum fica vazio: ele lê a frase no corpo, uma vez só. */}
             {account ? (
               <>
                 {automations.length === 0
@@ -191,9 +197,9 @@ export default async function AutomacoesPage({
                     }`}{" "}
                 em <span className="font-medium">@{account.username ?? account.ig_user_id}</span>
               </>
-            ) : (
+            ) : administrador ? (
               "Conecte uma conta para começar"
-            )}
+            ) : null}
           </p>
         </div>
         {account && automations.length > 0 && (
@@ -204,13 +210,17 @@ export default async function AutomacoesPage({
       </div>
 
       {!account ? (
-        <div className={`p-8 text-center text-sm ${card} ${muted}`}>
-          Conecte uma conta do Instagram em{" "}
-          <Link href="/setup" className={link}>
-            Configuração
-          </Link>{" "}
-          para criar automações.
-        </div>
+        administrador ? (
+          <div className={`p-8 text-center text-sm ${card} ${muted}`}>
+            Conecte uma conta do Instagram em{" "}
+            <Link href="/setup" className={link}>
+              Configuração
+            </Link>{" "}
+            para criar automações.
+          </div>
+        ) : (
+          <div className={`p-8 text-center text-sm ${card} ${muted}`}>{FRASE_SEM_CONTAS}</div>
+        )
       ) : rows.length === 0 ? (
         <ListaVazia />
       ) : (

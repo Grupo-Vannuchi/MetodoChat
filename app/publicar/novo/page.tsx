@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { getSelectedAccount } from "@/lib/account";
+import { textoSemConta } from "@/lib/logins-textos";
+import { sessaoAtual } from "@/lib/sessao";
 import { pastaDaConta, tetoDoBucket } from "@/lib/bucket";
 import { avisoDaUrl } from "@/lib/avisos";
 import { PUBLICACOES_POR_DIA } from "@/lib/publicacao";
@@ -51,6 +53,8 @@ export default async function Publicar({
   const params = await searchParams;
   const aviso = avisoDaUrl(params.aviso, params.tom);
   const conta = await getSelectedAccount();
+  // SEM CONTA, O PAPEL DECIDE O QUE A TELA DIZ (docs/specs/2026-11-05-contas-por-login.md, seção 3).
+  const administrador = (await sessaoAtual())?.administrador ?? false;
 
   // O TETO É PERGUNTADO AO BUCKET, E A PERGUNTA PODE FALHAR. Um `throw` aqui
   // seria a tela inteira em branco por causa de um número que só serve para
@@ -69,9 +73,12 @@ export default async function Publicar({
       <div>
         <h1 className={pageTitle}>Novo post</h1>
         <p className={pageSubtitle}>
+          {/* Sem conta, o subtítulo do comum fica vazio: ele lê a frase no corpo, uma vez só. */}
           {conta
             ? `no perfil de @${conta.username ?? conta.ig_user_id}`
-            : "Nenhuma conta selecionada."}
+            : administrador
+              ? "Nenhuma conta selecionada."
+              : null}
         </p>
         {/* O LINK PARA OS AGENDADOS, e ele e obrigatorio: uma tela sem link nao
             existe para quem usa, e este produto ja pagou por isso. Ele fica
@@ -96,7 +103,7 @@ export default async function Publicar({
       {!conta ? (
         <div className={emptyWrap}>
           <p className={muted}>
-            Conecte uma conta do Instagram em Configuração para publicar pelo painel.
+            {textoSemConta(administrador, "Conecte uma conta do Instagram em Configuração para publicar pelo painel.")}
           </p>
         </div>
       ) : (

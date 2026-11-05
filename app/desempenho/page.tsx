@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
+import { FRASE_SEM_CONTAS } from "@/lib/logins-textos";
+import { sessaoAtual } from "@/lib/sessao";
 import { fmtDate } from "@/lib/format";
 // A CHAVE DO DIA E O FUSO VÊM DE `lib/calendario.ts`, e não de uma cópia local.
 // Esta tela nasceu com a quarta cópia byte a byte da mesma função — mesmo
@@ -66,6 +68,9 @@ function montarSerie(porDia: Map<string, number>) {
 
 export default async function Desempenho() {
   const account = await getSelectedAccount();
+  // SEM CONTA, O PAPEL DECIDE O QUE A TELA DIZ (docs/specs/2026-11-05-contas-por-login.md, seção 3): o
+  // administrador, o convite de hoje com a Configuração; o comum, a frase de pedir ao administrador.
+  const administrador = (await sessaoAtual())?.administrador ?? false;
 
   const [counts, serie] = await Promise.all([
     (async () =>
@@ -138,20 +143,27 @@ export default async function Desempenho() {
       <header>
         <h1 className="titulo text-2xl font-bold">Desempenho</h1>
         <p className={`mt-0.5 text-sm ${muted}`}>
+          {/* Sem conta, o subtítulo do comum fica vazio: ele lê a frase no corpo, uma vez só. */}
           {account
             ? `Os últimos ${DIAS_GRAFICO} dias de @${account.username ?? account.ig_user_id}`
-            : "Conecte uma conta do Instagram para ver os números"}
+            : administrador
+              ? "Conecte uma conta do Instagram para ver os números"
+              : null}
         </p>
       </header>
 
       {!account ? (
-        <div className={`p-6 text-sm ${card} ${muted}`}>
-          Nenhuma conta conectada ainda. Vá em{" "}
-          <Link href="/setup" className={link}>
-            Configuração
-          </Link>
-          .
-        </div>
+        administrador ? (
+          <div className={`p-6 text-sm ${card} ${muted}`}>
+            Nenhuma conta conectada ainda. Vá em{" "}
+            <Link href="/setup" className={link}>
+              Configuração
+            </Link>
+            .
+          </div>
+        ) : (
+          <div className={`p-6 text-sm ${card} ${muted}`}>{FRASE_SEM_CONTAS}</div>
+        )
       ) : (
         <>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

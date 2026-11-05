@@ -1,4 +1,5 @@
 import { getSelectedAccount } from "@/lib/account";
+import { sessaoAtual } from "@/lib/sessao";
 import { categoriasDasConversas, listConversations } from "@/lib/conversations";
 import { frasePendentes, quantasSemCategoria } from "@/lib/categorias";
 import { card, muted, pageTitle } from "../ui";
@@ -21,6 +22,9 @@ export const dynamic = "force-dynamic";
 // desenha a lista. As duas coisas juntas é que fazem o badge sumir sem F5.
 export default async function ConversasLayout({ children }: { children: React.ReactNode }) {
   const account = await getSelectedAccount();
+  // O PAPEL VAI À LISTA, que é de cliente: sem conta, ela escolhe a frase por ele
+  // (docs/specs/2026-11-05-contas-por-login.md, seção 3).
+  const administrador = (await sessaoAtual())?.administrador ?? false;
   // DUAS consultas, e nao uma: a lista e uma PAGINA (as 50 mais recentes) e o
   // contador e sobre a CONTA INTEIRA. Contar sobre a pagina fazia o cabecalho
   // sumir assim que o topo ficasse marcado, com o resto por marcar abaixo do
@@ -54,7 +58,7 @@ export default async function ConversasLayout({ children }: { children: React.Re
           página inteira crescer e levar as duas junto. */}
       <div className={`flex h-[calc(100vh-13rem)] overflow-hidden ${card}`}>
         <ColunaLista>
-          <Lista conversas={conversas} semConta={!account} />
+          <Lista conversas={conversas} semConta={!account} administrador={administrador} />
         </ColunaLista>
         <ColunaConversa>{children}</ColunaConversa>
       </div>

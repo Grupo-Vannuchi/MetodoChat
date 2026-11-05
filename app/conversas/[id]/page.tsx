@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { sql } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
+import { textoSemConta } from "@/lib/logins-textos";
+import { sessaoAtual } from "@/lib/sessao";
 import {
   conversationMessages,
   attachmentLabel,
@@ -120,6 +122,9 @@ export default async function ConversaPage({
   // cima (o do formato do id) FICA: um id que não é conversa não é uma conversa
   // vazia, é outra página.
   if (!account) {
+    // O PAPEL DECIDE O QUE A TELA SEM CONTA DIZ (docs/specs/2026-11-05-contas-por-login.md, seção 3): o comum
+    // não conecta conta, e lê a frase de pedir ao administrador.
+    const administrador = (await sessaoAtual())?.administrador ?? false;
     return (
       <div className="p-4">
         {/* NOMEIA O DESTINO, como as outras quatro telas aninhadas: "a lista"
@@ -131,7 +136,7 @@ export default async function ConversaPage({
         {aviso && (
           <div className={`mt-3 ${aviso.tom === "ok" ? alertOk : alertError}`}>{aviso.texto}</div>
         )}
-        <p className={`mt-3 text-sm ${muted}`}>Conecte uma conta do Instagram primeiro.</p>
+        <p className={`mt-3 text-sm ${muted}`}>{textoSemConta(administrador, "Conecte uma conta do Instagram primeiro.")}</p>
       </div>
     );
   }

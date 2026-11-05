@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { sql, Contact } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
+import { textoSemConta } from "@/lib/logins-textos";
+import { sessaoAtual } from "@/lib/sessao";
 import { fmtDate } from "@/lib/format";
 import { windowState } from "@/lib/inbox-window";
 import {
@@ -370,6 +372,8 @@ export default async function ContatosPage({
   // CSS montada com texto vindo de fora.
   const aviso = avisoDaUrl(sp.aviso, sp.tom);
   const account = await getSelectedAccount();
+  // SEM CONTA, O PAPEL DECIDE O QUE A TELA DIZ (docs/specs/2026-11-05-contas-por-login.md, seção 3).
+  const administrador = (await sessaoAtual())?.administrador ?? false;
   // SEM `limit`, E ISSO É A CORREÇÃO DE UM DEFEITO, não uma folga.
   //
   // A consulta tinha `limit 200`, e as fichas — inclusive o número de
@@ -556,7 +560,7 @@ export default async function ContatosPage({
 
       {rows.length === 0 ? (
         <div className={`p-8 text-center text-sm ${card} ${muted}`}>
-          {account ? "Ninguém interagiu ainda." : "Conecte uma conta do Instagram primeiro."}
+          {account ? "Ninguém interagiu ainda." : textoSemConta(administrador, "Conecte uma conta do Instagram primeiro.")}
         </div>
       ) : (
         <div className="space-y-10">

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { sql, getConfig, isMetaConfigured } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
+import { FRASE_SEM_CONTAS } from "@/lib/logins-textos";
+import { sessaoAtual } from "@/lib/sessao";
 import { listConversations } from "@/lib/conversations";
 import { windowState } from "@/lib/inbox-window";
 import {
@@ -101,7 +103,11 @@ export default async function Home({
   searchParams: Promise<{ conectado?: string; erro?: string }>;
 }) {
   const sp = await searchParams; // Next 16: searchParams é assíncrono
-  const [config, account] = await Promise.all([getConfig(), getSelectedAccount()]);
+  const [config, account, login] = await Promise.all([getConfig(), getSelectedAccount(), sessaoAtual()]);
+  // O PAPEL DECIDE O QUE A TELA SEM CONTA DIZ (docs/specs/2026-11-05-contas-por-login.md, seção 3): o
+  // administrador vê o convite de hoje, com a Configuração; o comum, a frase de pedir ao administrador, sem
+  // link para a Configuração, que o mandaria para o início.
+  const administrador = login?.administrador ?? false;
 
   const [sinais, conversas, oportunidadesCruas] = await Promise.all([
     // CADA BLOCO FALHA SOZINHO (mesma restrição das oportunidades, abaixo): um
@@ -396,16 +402,22 @@ export default async function Home({
               Ele vira link de texto discreto, ao lado do @usuário.
             */}
             <p className={`mt-0.5 flex flex-wrap items-center gap-2 text-sm ${muted}`}>
+              {/* O "RECONECTAR" É DO ADMINISTRADOR: ele começa a conexão de uma conta
+                  (/api/oauth/login), e a rota manda o comum para o início (F3). E SEM
+                  CONTA, O SUBTÍTULO DO COMUM FICA VAZIO: a frase de pedir ao
+                  administrador já está no corpo, uma vez só. */}
               {account ? (
                 <>
                   <span>@{account.username ?? account.ig_user_id}</span>
-                  <a href="/api/oauth/login" className={`text-xs ${link}`}>
-                    Reconectar
-                  </a>
+                  {administrador && (
+                    <a href="/api/oauth/login" className={`text-xs ${link}`}>
+                      Reconectar
+                    </a>
+                  )}
                 </>
-              ) : (
+              ) : administrador ? (
                 "Comece conectando sua conta do Instagram"
-              )}
+              ) : null}
             </p>
           </div>
         </div>
@@ -420,11 +432,11 @@ export default async function Home({
               Nova automação
             </Link>
           </div>
-        ) : (
+        ) : administrador ? (
           <Link href="/setup" className={btnPrimary}>
             {isMetaConfigured(config) ? "Continuar configuração" : "Começar configuração"}
           </Link>
-        )}
+        ) : null}
       </header>
 
       {/* O PULSO. Uma linha, sempre visível, inclusive quando está tudo bem:
@@ -434,13 +446,17 @@ export default async function Home({
       {account && <p className={`text-xs ${muted}`}>{pulso}</p>}
 
       {!account ? (
-        <div className={`p-6 text-sm ${card} ${muted}`}>
-          Nenhuma conta conectada ainda. Vá em{" "}
-          <Link href="/setup" className={link}>
-            Configuração
-          </Link>{" "}
-          — o assistente te guia passo a passo (leva uns 15 minutos, só na primeira vez).
-        </div>
+        administrador ? (
+          <div className={`p-6 text-sm ${card} ${muted}`}>
+            Nenhuma conta conectada ainda. Vá em{" "}
+            <Link href="/setup" className={link}>
+              Configuração
+            </Link>{" "}
+            — o assistente te guia passo a passo (leva uns 15 minutos, só na primeira vez).
+          </div>
+        ) : (
+          <div className={`p-6 text-sm ${card} ${muted}`}>{FRASE_SEM_CONTAS}</div>
+        )
       ) : itens.length === 0 ? (
         // O ESTADO CALMO — o desfecho comum, e o que esta tela existe para
         // poder dizer. Não é tela de erro nem espaço à espera de conteúdo: é a

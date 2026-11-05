@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { sql, type QueueItem } from "@/lib/db";
 import { getSelectedAccount } from "@/lib/account";
+import { textoSemConta } from "@/lib/logins-textos";
+import { sessaoAtual } from "@/lib/sessao";
 import { fmtDate } from "@/lib/format";
 import { avisoDaUrl } from "@/lib/avisos";
 import {
@@ -127,6 +129,8 @@ export default async function Agendados({
   const params = await searchParams;
   const aviso = avisoDaUrl(params.aviso, params.tom);
   const conta = await getSelectedAccount();
+  // SEM CONTA, O PAPEL DECIDE O QUE A TELA DIZ (docs/specs/2026-11-05-contas-por-login.md, seção 3).
+  const administrador = (await sessaoAtual())?.administrador ?? false;
 
   // A GRADE VEM ANTES DA CONSULTA, porque e ela que diz qual janela buscar.
   const hoje = chaveDoDia(new Date());
@@ -318,9 +322,12 @@ export default async function Agendados({
         <div>
           <h1 className={pageTitle}>Publicações</h1>
           <p className={pageSubtitle}>
+            {/* Sem conta, o subtítulo do comum fica vazio: ele lê a frase no corpo, uma vez só. */}
             {conta
               ? `o que sai e o que já saiu no perfil de @${conta.username ?? conta.ig_user_id}`
-              : "Nenhuma conta selecionada."}
+              : administrador
+                ? "Nenhuma conta selecionada."
+                : null}
           </p>
         </div>
         <Link href="/publicar/novo" className={btnPrimary}>
@@ -333,7 +340,7 @@ export default async function Agendados({
       {!conta ? (
         <div className={emptyWrap}>
           <p className={muted}>
-            Conecte uma conta do Instagram em Configuração para ver o que está agendado.
+            {textoSemConta(administrador, "Conecte uma conta do Instagram em Configuração para ver o que está agendado.")}
           </p>
         </div>
       ) : (

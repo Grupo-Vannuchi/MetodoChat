@@ -9,12 +9,16 @@ import { muted, numero } from "../ui";
 import Avatar from "../avatar";
 import { badgeDaConversa } from "@/lib/inbox-badge";
 import { semCategoria } from "@/lib/categorias";
+import { textoSemConta } from "@/lib/logins-textos";
 
 // A coluna da esquerda do inbox.
 //
 // É componente de cliente por um motivo só: marcar a conversa aberta. O layout
 // que a renderiza não sabe qual rota filha está ativa — só o navegador sabe, via
 // usePathname. Os dados continuam vindo do servidor, por props.
+//
+// O PAPEL TAMBÉM VEM POR PROP (`administrador`, do layout): sem conta, o administrador lê o convite de hoje, e
+// o comum, a frase de pedir ao administrador (docs/specs/2026-11-05-contas-por-login.md, seção 3).
 
 export type ConversaResumo = {
   ig_id: string;
@@ -32,9 +36,11 @@ export type ConversaResumo = {
 export default function Lista({
   conversas,
   semConta,
+  administrador,
 }: {
   conversas: ConversaResumo[];
   semConta: boolean;
+  administrador: boolean;
 }) {
   const pathname = usePathname();
 
@@ -42,7 +48,7 @@ export default function Lista({
     return (
       <p className={`p-5 text-sm ${muted}`}>
         {semConta
-          ? "Conecte uma conta do Instagram primeiro."
+          ? textoSemConta(administrador, "Conecte uma conta do Instagram primeiro.")
           : "Nenhuma conversa ainda. Assim que alguém mandar mensagem, ela aparece aqui."}
       </p>
     );

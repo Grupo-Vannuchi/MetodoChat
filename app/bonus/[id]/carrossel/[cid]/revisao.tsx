@@ -3,6 +3,8 @@ import { fixarContaDoCarrossel, salvarArteDoCarrossel, salvarSlideDoCarrossel } 
 import { pedirImagemDoSlide } from "@/app/bonus/imagem-actions";
 import { assinarImagemDoCarrossel, guardarImagemDoSlide, publicarCarrossel } from "@/app/bonus/publicar-actions";
 import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
+import { textoSemConta } from "@/lib/logins-textos";
+import { sessaoAtual } from "@/lib/sessao";
 import { resolverConta } from "@/lib/bonus/arte-conta";
 import { escolhasDaArte } from "@/lib/bonus/arte-escolhas";
 import { slidesDoTexto } from "@/lib/bonus/arte-slides";
@@ -60,6 +62,9 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
   const escolhas = escolhasDaArte(carrossel.arte, carrossel.total_slides);
   const noMenu = await contaDoMenuNoCarrossel();
   const { conta, origem } = resolverConta(contas, escolhas, noMenu?.ig_user_id, await cabecalhosDoLogin());
+  // SEM CONTA PARA O CABEÇALHO, O PAPEL DECIDE O AVISO (docs/specs/2026-11-05-contas-por-login.md, seção 3):
+  // "nenhuma conta conectada" é verdade para o administrador; o comum sem contas lê a frase de pedir a ele.
+  const administrador = (await sessaoAtual())?.administrador ?? false;
 
   const estado = await estadoDoCarrossel(carrossel.arte);
   const filaId = "filaId" in estado ? estado.filaId : null;
@@ -108,7 +113,7 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
       campos={camposDoFormulario(carrossel.total_slides)}
       valores={valoresPorCampo(texto)}
       rotuloDaConta={conta ? rotuloDaConta(conta) : null}
-      avisoDaConta={conta ? textoDaOrigemDaConta(origem, conta.username ?? "") : TEXTO_ARTE_SEM_CONTA}
+      avisoDaConta={conta ? textoDaOrigemDaConta(origem, conta.username ?? "") : textoSemConta(administrador, TEXTO_ARTE_SEM_CONTA)}
       podeFixar={origem === "selecionada" && conta !== null}
       soTextoInicial={escolhas.soTexto}
       capaInicial={escolhas.capa}
