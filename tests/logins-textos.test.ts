@@ -4,6 +4,8 @@ import {
   avisoDaPagina,
   FRASE_CARROSSEL_DE_OUTRA_CONTA,
   FRASE_CONTAS_SALVAS,
+  FRASE_DA_CONTA_QUE_NAO_EXISTE,
+  FRASE_DO_LOGIN_ADMINISTRADOR,
   FRASE_SEM_ACESSO_A_CONTA,
   FRASE_SEM_CONTAS,
   textoSemConta,
@@ -44,6 +46,12 @@ describe("as frases das contas por login", () => {
     expect(FRASE_CARROSSEL_DE_OUTRA_CONTA).toBe("Esse carrossel é de uma conta que você não tem.");
     expect(FRASE_SEM_CONTAS).toBe("Você ainda não tem contas. Peça ao administrador.");
     expect(FRASE_CONTAS_SALVAS).toBe("Contas salvas. Valem já no próximo clique desse login.");
+  });
+
+  // AS CONTAS DE UM LOGIN, NA PÁGINA LOGINS (seção 4): as duas recusas do "Salvar contas".
+  it("o salvar contas recusa o administrador e a conta que não existe, cada um com a sua frase", () => {
+    expect(FRASE_DO_LOGIN_ADMINISTRADOR).toBe("Esse login é administrador e já vê todas as contas.");
+    expect(FRASE_DA_CONTA_QUE_NAO_EXISTE).toBe("Uma das contas marcadas não existe mais. Recarregue a página.");
   });
 
   // A PÁGINA SEM CONTA (seção 3): o administrador continua vendo o texto de hoje, que manda conectar uma

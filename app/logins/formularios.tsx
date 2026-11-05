@@ -1,11 +1,15 @@
 "use client";
 import { useActionState } from "react";
-import { criarLoginAction, definirSenhaAction, type EstadoDoFormulario } from "./actions";
-import { alertError, alertOk, btnPrimary, btnSecondary, input, label } from "../ui";
+import { criarLoginAction, definirContasDoLoginAction, definirSenhaAction, type EstadoDoFormulario } from "./actions";
+import { alertError, alertOk, btnPrimary, btnSecondary, input, label, muted } from "../ui";
 
 // OS FORMULÁRIOS DA PÁGINA LOGINS (docs/specs/2026-11-04-logins.md, seção 4): criar um login e definir a
 // senha nova de quem esqueceu. A senha é digitada pelo administrador, que a passa à pessoa; nenhum e-mail
 // sai daqui.
+//
+// DESDE AS CONTAS POR LOGIN (docs/specs/2026-11-05-contas-por-login.md, seção 4): o criar tem a caixinha
+// "Administrador", desmarcada (o login novo nasce comum), e cada login comum tem as contas dele, uma caixinha
+// por conta conectada.
 
 function Resposta({ estado }: { estado: EstadoDoFormulario }) {
   if (estado.erro)
@@ -56,8 +60,56 @@ export function CriarLogin() {
           />
         </div>
       </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" name="administrador" />
+        Administrador
+      </label>
+      <p className={`text-xs ${muted}`}>
+        Desmarcada, o login é comum: vê só as contas que você der a ele, e não entra na Configuração nem nos Logins.
+      </p>
       <button type="submit" disabled={criando} className={btnPrimary}>
         Criar login
+      </button>
+      <Resposta estado={estado} />
+    </form>
+  );
+}
+
+/** Uma conta como a caixinha a mostra: o id, o @ e o nome, e nunca o token. */
+export type ContaDaCaixinha = { ig_user_id: string; username: string | null; name: string | null };
+
+/**
+ * AS CONTAS DE UM LOGIN COMUM: uma caixinha por conta conectada, marcada se o login já a recebeu, e o "Salvar
+ * contas", que troca o conjunto de uma vez. A resposta volta como estado, como a senha nova.
+ */
+export function ContasDoLogin({
+  id,
+  nome,
+  contas,
+  marcadas,
+}: {
+  id: string;
+  nome: string;
+  contas: ContaDaCaixinha[];
+  marcadas: string[];
+}) {
+  const [estado, salvar, salvando] = useActionState<EstadoDoFormulario, FormData>(definirContasDoLoginAction, {});
+  if (!contas.length) return <p className={`text-xs ${muted}`}>Ainda não há contas no painel.</p>;
+  return (
+    <form action={salvar} className="space-y-2">
+      <input type="hidden" name="id" value={id} />
+      <p className={label}>Contas de {nome}</p>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {contas.map((c) => (
+          <label key={c.ig_user_id} className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="contas" value={c.ig_user_id} defaultChecked={marcadas.includes(c.ig_user_id)} />
+            {c.username ? `@${c.username}` : c.ig_user_id}
+            {c.name && <span className={muted}>{c.name}</span>}
+          </label>
+        ))}
+      </div>
+      <button type="submit" disabled={salvando} className={btnSecondary}>
+        Salvar contas
       </button>
       <Resposta estado={estado} />
     </form>

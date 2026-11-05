@@ -17,6 +17,9 @@ export const FRASE_SEM_ACESSO_A_CONTA = "Você não tem acesso a essa conta.";
 export const FRASE_CARROSSEL_DE_OUTRA_CONTA = "Esse carrossel é de uma conta que você não tem.";
 export const FRASE_SEM_CONTAS = "Você ainda não tem contas. Peça ao administrador.";
 export const FRASE_CONTAS_SALVAS = "Contas salvas. Valem já no próximo clique desse login.";
+// As duas recusas do "Salvar contas" da página Logins (seção 4). O login que não existe usa a frase de sempre.
+export const FRASE_DO_LOGIN_ADMINISTRADOR = "Esse login é administrador e já vê todas as contas.";
+export const FRASE_DA_CONTA_QUE_NAO_EXISTE = "Uma das contas marcadas não existe mais. Recarregue a página.";
 
 /**
  * O TEXTO DA PÁGINA SEM CONTA (seção 3): o administrador vê o de hoje, que manda conectar uma conta; o comum
