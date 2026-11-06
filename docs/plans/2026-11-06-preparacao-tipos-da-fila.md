@@ -13,7 +13,7 @@
 
 **Stack:** a do projeto, no Next.js 16.4.3: Vitest (puros e integração) e o Postgres no container para a integração.
 
-**Spec:** `docs/specs/2026-11-06-linkedin-no-perfil.md`, §0 (commits `8c2be0e`, `7ef13ea` e `9e42566`, na branch local `linkedin-no-perfil`; auditada pela `metodochat-f9`, com os achados 188 a 199, e lida pelo Eduardo em 06/11/2026: "Li, pode seguir"). Leia o §0 antes de começar: este plano não repete o porquê, só como construir.
+**Spec:** `docs/specs/2026-11-06-linkedin-no-perfil.md`, §0 (commits `8c2be0e`, `7ef13ea` e `9e42566`, que são a base desta branch e também da branch local `linkedin-no-perfil`; auditada pela `metodochat-f9`, com os achados 188 a 199, e lida pelo Eduardo em 06/11/2026: "Li, pode seguir"). Leia o §0 antes de começar: este plano não repete o porquê, só como construir.
 
 **Por que a preparação vem antes, em uma frase:** o preview do LinkedIn usa o banco de produção, e o dreno da produção, com o código de hoje, pegaria uma linha `publicacao_linkedin`, a mandaria para o caminho das mensagens e armaria um tique a cada 20 s por ela. E a 024, aplicada à mão, quebraria o build de todo deploy da `main` até o merge.
 
@@ -21,7 +21,7 @@
 - FASE 1, `97e5194` (patch-id `1cc18e14dbd9`);
 - FASE 2, `d545f20` (patch-id `4a13d4071180`);
 - FASE 3, `54aca93` (patch-id `0021100894e8`).
-As mensagens são as deste plano. Os números de RED e de GREEN de cada passo são os do ensaio.
+As mensagens são as deste plano. Os números de RED e de GREEN de cada passo são os do ensaio, guardados em arquivo (`ep-f1-red.log`, `ep-f1-green.log`, `ep-f2-red.log`, `ep-f2-sel.log`, `ep-f2-green.log`, `ep-f3-red.log`, `ep-f3-green.log`, `ep-verify.log`, `ep-integ.log` e `ep-mutacoes.log`, na pasta de trabalho do DEV). O ensaio saiu do `56cd72a`, e a branch de execução sai do `9e42566`: os três commits da spec só mexem em `docs/specs`, então o código e os diffs são os mesmos.
 
 Os números do fim, no `54aca93` (entre parênteses, os da base `56cd72a`):
 - lint e `tsc` limpos em cada fase;
@@ -33,7 +33,7 @@ Os números do fim, no `54aca93` (entre parênteses, os da base `56cd72a`):
 
 ## Restrições globais
 
-- **Branch:** `preparacao-tipos-da-fila`, saída da `main` em `56cd72a`, sem upstream. Nunca commitar nem empurrar na `main`: ela não está protegida, e um push nela dispara o deploy na Vercel. Conferir `git branch --show-current` antes de cada commit.
+- **Branch:** `preparacao-tipos-da-fila`, saída do `9e42566` (a spec do LinkedIn: `8c2be0e` → `7ef13ea` → `9e42566`, os mesmos commits, sobre a `main` em `56cd72a`), sem upstream. Assim o PR leva o §0 que este plano cita, e a branch do LinkedIn fica em cima da preparação sem conflito. Nunca commitar nem empurrar na `main`: ela não está protegida, e um push nela dispara o deploy na Vercel. Conferir `git branch --show-current` antes de cada commit.
 - **`git add` com caminho explícito.** Nunca `-A` nem `.`.
 - **Commit no estilo do Vinícius:** uma frase dizendo o efeito, sem prefixo, sem rodapé de IA. Autor: Eduardo Kobal <162614913+Eduardokobal@users.noreply.github.com>.
 - **Antes de cada commit**, varrer os arquivos tocados atrás de caractere de controle e de fim de linha misturado.
@@ -65,19 +65,21 @@ O que fica de fora, e por quê:
 
 ### FASE 0 — Começar da branch certa
 
-- [ ] **Passo 1: a branch, saída da `main` remota**
+- [ ] **Passo 1: a branch, saída da spec**
 
 ```bash
 git fetch origin
-git rev-parse --short origin/main   # tem de dar 56cd72a
-git worktree add -b preparacao-tipos-da-fila <pasta-da-copia> origin/main
+git rev-parse --short origin/main                 # tem de dar 56cd72a
+git merge-base --is-ancestor 56cd72a 9e42566 && echo "a spec está sobre a main"
+git diff --name-only 56cd72a 9e42566              # só docs/specs/2026-11-06-linkedin-no-perfil.md
+git worktree add -b preparacao-tipos-da-fila <pasta-da-copia> 9e42566
 cd <pasta-da-copia>
-git branch --unset-upstream          # sem upstream: nada sobe sem querer
-git branch --show-current            # preparacao-tipos-da-fila
+git branch --unset-upstream                        # sem upstream: nada sobe sem querer
+git branch --show-current                          # preparacao-tipos-da-fila
 npm ci
 ```
 
-Se `origin/main` não estiver em `56cd72a`, pare: a base mudou, e o plano precisa ser conferido de novo.
+Se `origin/main` não estiver em `56cd72a`, ou se a spec mexer em outro arquivo além do dela, pare: a base mudou, e o plano precisa ser conferido de novo.
 
 ---
 
@@ -827,10 +829,11 @@ Esperado: as 7 como "MORTA", e "7 mutações, 0 ruins; árvore no fim: limpa".
 - [ ] **Passo 4: a guarda do diff**
 
 ```bash
-git diff --stat 56cd72a HEAD
+git diff --stat 9e42566 HEAD -- . ':!docs'
+git diff --name-only 56cd72a HEAD -- docs
 ```
 
-Esperado: os 7 arquivos do mapa, e mais nenhum: "7 files changed, 415 insertions(+), 25 deletions(-)". O patch-id de cada fase (`git show <commit> | git patch-id --stable`) tem de bater com o do ensaio: `1cc18e14dbd9`, `4a13d4071180` e `0021100894e8`.
+Esperado: no primeiro, os 7 arquivos do mapa, e mais nenhum: "7 files changed, 415 insertions(+), 25 deletions(-)". No segundo, só a spec e este plano. O patch-id de cada fase (`git show <commit> | git patch-id --stable`) tem de bater com o do ensaio: `1cc18e14dbd9`, `4a13d4071180` e `0021100894e8`.
 
 ---
 
