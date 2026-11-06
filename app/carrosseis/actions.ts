@@ -1,14 +1,13 @@
 "use server";
 import { after } from "next/server";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { ACCOUNT_COOKIE } from "@/lib/account";
 import { sessaoAtual } from "@/lib/sessao";
-import { contaParaGerarDeNovo, contaParaGuardar, contaSelecionada } from "@/lib/bonus/arte-conta";
+import { contaParaGerarDeNovo, contaParaGuardar } from "@/lib/bonus/arte-conta";
 import { escolhasDaArte } from "@/lib/bonus/arte-escolhas";
 import { lerPedidoAvulso } from "@/lib/bonus/avulso-pedido";
 import { gerarAvulsoDeNovo as gerarDeNovo, pedirAvulso } from "@/lib/bonus/avulso-processo";
 import { textoDaRecusaDoPedidoAvulso, type AvisoDoAvulso } from "@/lib/bonus/avulso-textos";
+import { cabecalhosDoLogin, contaDoMenuNoCarrossel } from "@/lib/bonus/carrossel-acesso";
 import { caminhoDoCarrossel, ehDaRota } from "@/lib/bonus/carrossel-caminho";
 import { processarCarrossel } from "@/lib/bonus/carrossel-processo";
 import { contasParaArte, lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
@@ -28,7 +27,10 @@ import { textoDaConfig } from "@/lib/bonus/textos";
 // `await exigirSessao();`.
 //
 // O BÔNUS DO LABS É LIDO AQUI, NO SERVIDOR, a cada pedido (avulso-processo.ts): do formulário vem só o
-// código, e a palavra e o contexto vêm da lista pública. A conta é a do cookie, e nunca do formulário.
+// código, e a palavra e o contexto vêm da lista pública. A conta é a escolhida no menu, e nunca do
+// formulário: desde as contas por login (docs/specs/2026-11-05-contas-por-login.md, seção 2, e achado
+// 179), ela sai das contas do login (`contaDoMenuNoCarrossel` e `cabecalhosDoLogin`,
+// lib/bonus/carrossel-acesso.ts), e o cookie só desempata dentro delas.
 
 async function exigirSessao(): Promise<void> {
   if (!(await sessaoAtual())) redirect("/entrar");
@@ -36,8 +38,9 @@ async function exigirSessao(): Promise<void> {
 
 const lerSituacao = (codigo: string) => situacaoDoAvulsoNoLabs(process.env.LABS_URL, codigo);
 
-async function contaDoCookie(): Promise<string | undefined> {
-  return (await cookies()).get(ACCOUNT_COOKIE)?.value;
+/** O id da conta do menu, para as funções puras de lib/bonus/arte-conta.ts. */
+async function contaDoMenu(): Promise<string | undefined> {
+  return (await contaDoMenuNoCarrossel())?.ig_user_id;
 }
 
 /**
@@ -65,7 +68,7 @@ export async function pedirCarrosselAvulso(_anterior: AvisoDoAvulso | null, form
   if (lido.pedido.jeito === "ia" && !temChaveDaIA(process.env)) return recusa(textoDaConfig("sem_chave_ia"));
   // Os campos do texto escrito à mão, pelos nomes da tela (a fonte única deles, carrossel-texto.ts).
   const bruto = Object.fromEntries(camposDoFormulario(lido.pedido.total).map((c) => [c.nome, form.get(c.nome)]));
-  const logada = contaSelecionada(await contasParaArte(), await contaDoCookie());
+  const logada = await contaDoMenuNoCarrossel();
   const r = await pedirAvulso({ pedido: lido.pedido, bruto, conta: logada ? contaParaGuardar(logada) : null, lerSituacao });
   if (!r.ok) return recusa(r.texto);
   const id = r.id;
@@ -87,7 +90,12 @@ export async function gerarAvulsoDeNovo(form: FormData): Promise<void> {
   if (!linha || !ehDaRota(linha, { tipo: "avulso" })) redirect(naoAchado);
   const caminho = caminhoDoCarrossel(linha);
   if (!temChaveDaIA(process.env)) redirect(urlDoCarrosselComAviso(caminho, { tom: "erro", texto: textoDaConfig("sem_chave_ia") }));
-  const conta = contaParaGerarDeNovo(await contasParaArte(), escolhasDaArte(linha.arte, linha.total_slides), await contaDoCookie());
+  const conta = contaParaGerarDeNovo(
+    await contasParaArte(),
+    escolhasDaArte(linha.arte, linha.total_slides),
+    await contaDoMenu(),
+    await cabecalhosDoLogin()
+  );
   const r = await gerarDeNovo({ linha, conta, lerSituacao, agora: Date.now() });
   if (!r.ok) redirect(urlDoCarrosselComAviso(caminho, { tom: "erro", texto: r.texto }));
   const novo = r.id;

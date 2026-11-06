@@ -63,7 +63,10 @@
 // isto que o plantio do relatório confirma.
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+// A CONTA ESCOLHIDA E AS TELAS DE CONTA RODAM COM A SESSÃO DE TESTE (administrador, que vê todas): desde
+// as contas por login (docs/specs/2026-11-05-contas-por-login.md), sem login não há conta escolhida
+// (lib/account.ts). O cookie de conta continua ausente, e o tombo para a primeira conta continua valendo.
+import { comoNumaRequisicaoComSessao } from "./semear-requisicao";
 import { textoDaArvore } from "./texto-da-arvore";
 
 type ModuloTelaDeDesempenho = typeof import("@/app/desempenho/page");
@@ -138,7 +141,7 @@ async function totalDoGrafico(): Promise<{ arvore: string; linhasDoGrafico: { di
   }) as typeof s.query;
 
   try {
-    const { valor: arvore } = await comoNumaRequisicao("/desempenho", async () =>
+    const { valor: arvore } = await comoNumaRequisicaoComSessao("/desempenho", async () =>
       textoDaArvore(await telaDeDesempenho.default())
     );
     if (capturado === null) {

@@ -1,15 +1,16 @@
-import { cookies } from "next/headers";
 import { alertError } from "@/app/ui";
 import { fixarContaDoCarrossel, salvarArteDoCarrossel, salvarSlideDoCarrossel } from "@/app/bonus/carrossel-actions";
 import { pedirImagemDoSlide } from "@/app/bonus/imagem-actions";
 import { assinarImagemDoCarrossel, guardarImagemDoSlide, publicarCarrossel } from "@/app/bonus/publicar-actions";
-import { ACCOUNT_COOKIE } from "@/lib/account";
 import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
-import { contaSelecionada, resolverConta } from "@/lib/bonus/arte-conta";
+import { textoSemConta } from "@/lib/logins-textos";
+import { sessaoAtual } from "@/lib/sessao";
+import { resolverConta } from "@/lib/bonus/arte-conta";
 import { escolhasDaArte } from "@/lib/bonus/arte-escolhas";
 import { slidesDoTexto } from "@/lib/bonus/arte-slides";
 import { cabecalhoParaVersao, versoesDosSlides } from "@/lib/bonus/arte-tela";
 import { TEXTO_ARTE_SEM_CONTA, rotuloDaConta, textoDaOrigemDaConta } from "@/lib/bonus/arte-textos";
+import { cabecalhosDoLogin, contaDoMenuNoCarrossel } from "@/lib/bonus/carrossel-acesso";
 import { caminhoDoCarrossel } from "@/lib/bonus/carrossel-caminho";
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
 import { contasParaArte } from "@/lib/bonus/carrossel-repositorio";
@@ -55,14 +56,18 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
   const texto = textoDaLinhaDoCarrossel(carrossel);
   if (!texto) return <div className={alertError}>{TEXTO_CARROSSEL_SEM_TEXTO}</div>;
 
+  // AS DUAS LISTAS (docs/specs/2026-11-05-contas-por-login.md, seção 2): todas as contas, para mostrar a
+  // do carrossel (todo login vê todos), e as do login, onde a conta do menu e a queda na logada escolhem.
   const contas = await contasParaArte();
   const escolhas = escolhasDaArte(carrossel.arte, carrossel.total_slides);
-  const doCookie = (await cookies()).get(ACCOUNT_COOKIE)?.value;
-  const { conta, origem } = resolverConta(contas, escolhas, doCookie);
+  const noMenu = await contaDoMenuNoCarrossel();
+  const { conta, origem } = resolverConta(contas, escolhas, noMenu?.ig_user_id, await cabecalhosDoLogin());
+  // SEM CONTA PARA O CABEÇALHO, O PAPEL DECIDE O AVISO (docs/specs/2026-11-05-contas-por-login.md, seção 3):
+  // "nenhuma conta conectada" é verdade para o administrador; o comum sem contas lê a frase de pedir a ele.
+  const administrador = (await sessaoAtual())?.administrador ?? false;
 
   const estado = await estadoDoCarrossel(carrossel.arte);
   const filaId = "filaId" in estado ? estado.filaId : null;
-  const noMenu = contaSelecionada(contas, doCookie);
   // O jeito de cada imagem é o prefixo do caminho (adendo da Etapa 5): as fotos são as de `bonus-foto`, e
   // a capa, a de `bonus-capa` (Etapa 11). `imagensDaArte` só lê caminho com jeito.
   const fotos = fotosDaArte(carrossel.arte, carrossel.total_slides);
@@ -108,7 +113,7 @@ export default async function Revisao({ carrossel }: { carrossel: LinhaDoCarross
       campos={camposDoFormulario(carrossel.total_slides)}
       valores={valoresPorCampo(texto)}
       rotuloDaConta={conta ? rotuloDaConta(conta) : null}
-      avisoDaConta={conta ? textoDaOrigemDaConta(origem, conta.username ?? "") : TEXTO_ARTE_SEM_CONTA}
+      avisoDaConta={conta ? textoDaOrigemDaConta(origem, conta.username ?? "") : textoSemConta(administrador, TEXTO_ARTE_SEM_CONTA)}
       podeFixar={origem === "selecionada" && conta !== null}
       soTextoInicial={escolhas.soTexto}
       capaInicial={escolhas.capa}

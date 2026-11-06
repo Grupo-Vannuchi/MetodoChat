@@ -58,6 +58,9 @@ import {
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
+// A CONTA ESCOLHIDA E AS TELAS DE CONTA RODAM COM A SESSÃO DE TESTE (administrador, que vê todas): desde
+// as contas por login (docs/specs/2026-11-05-contas-por-login.md), sem login não há conta escolhida
+// (lib/account.ts). O cookie de conta continua ausente, e o tombo para a primeira conta continua valendo.
 import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
 import { textoDaArvore } from "./texto-da-arvore";
 
@@ -398,8 +401,8 @@ function campoDeDataHora(instante: number): string {
 }
 
 describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", () => {
-  test("a condição deste bloco é CONTA_A vir sem cookie nenhum — e ele confere isso antes de medir", async () => {
-    const { valor } = await comoNumaRequisicao("/publicar", () =>
+  test("a condição deste bloco é CONTA_A vir sem cookie de conta — e ele confere isso antes de medir", async () => {
+    const { valor } = await comoNumaRequisicaoComSessao("/publicar", () =>
       conta.getSelectedAccountId()
     );
     expect(valor).toBe(CONTA_A);
@@ -895,7 +898,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
 
   /** A arvore que a tela dos agendados devolve, em texto. */
   async function arvoreDosAgendados(): Promise<string> {
-    const { valor } = await comoNumaRequisicao("/publicar", async () =>
+    const { valor } = await comoNumaRequisicaoComSessao("/publicar", async () =>
       textoDaArvore(await telaDosAgendados.default({ searchParams: Promise.resolve({}) }))
     );
     return valor;
@@ -915,7 +918,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
    * `comoNumaRequisicao` direto na acao, sem tela nenhuma no meio.
    */
   async function arvoreDoDetalhe(id: string): Promise<string> {
-    const { valor } = await comoNumaRequisicao(`/publicar/post/${id}`, async () =>
+    const { valor } = await comoNumaRequisicaoComSessao(`/publicar/post/${id}`, async () =>
       textoDaArvore(
         await telaDoDetalhe.default({
           params: Promise.resolve({ id }),
@@ -928,7 +931,7 @@ describe("com a conta selecionada pelo tombo declarado (a primeira do schema)", 
 
   /** A arvore que a tela de Envios devolve, em texto. */
   async function arvoreDeEnvios(): Promise<string> {
-    const { valor } = await comoNumaRequisicao("/eventos", async () =>
+    const { valor } = await comoNumaRequisicaoComSessao("/eventos", async () =>
       textoDaArvore(await telaDeEnvios.default({ searchParams: Promise.resolve({}) }))
     );
     return valor;

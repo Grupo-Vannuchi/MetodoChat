@@ -118,6 +118,10 @@ it("uma TABELA de depois da base que falta deixa a conferência vermelha, com a 
   expect(esquema.faltando(semLogins)).toEqual(["tabela ausente: logins (migrations/022-logins-e-sessoes.sql)"]);
   const semSessoes = presentes.filter((p) => p.table_name !== "sessoes");
   expect(esquema.faltando(semSessoes)).toEqual(["tabela ausente: sessoes (migrations/022-logins-e-sessoes.sql)"]);
+  // AS CONTAS POR LOGIN (a 023, docs/specs/2026-11-05-contas-por-login.md): sem a tabela, o login comum não
+  // acha conta nenhuma, e a partida tem de recusar em vez de servir um painel vazio.
+  const semContas = presentes.filter((p) => p.table_name !== "logins_contas");
+  expect(esquema.faltando(semContas)).toEqual(["tabela ausente: logins_contas (migrations/023-logins-contas.sql)"]);
 });
 
 it("uma COLUNA que falta deixa a conferência vermelha — e ela NÃO cria a coluna de volta", async () => {

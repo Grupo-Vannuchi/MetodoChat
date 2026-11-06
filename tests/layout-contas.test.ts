@@ -7,9 +7,13 @@ import { describe, expect, it } from "vitest";
 //
 // O layout raiz roda em toda página, inclusive nas públicas (/entrar, /privacidade e
 // /exclusao-de-dados), e passa a lista ao AppShell, que é componente de cliente: o que ele recebe vai no
-// corpo da resposta. Este caso exige que a chamada a `listAccounts(` fique dentro de um `if` que confere
+// corpo da resposta. Este caso exige que a chamada que monta a lista fique dentro de um `if` que confere
 // a sessão, no ramo verdadeiro dele. Desde os logins (docs/specs/2026-11-04-logins.md), a conferência é
 // `if (login)`, com `login` declarado como `await sessaoAtual()` (lib/sessao.ts), a sessão do banco.
+//
+// DESDE AS CONTAS POR LOGIN (docs/specs/2026-11-05-contas-por-login.md, seção 2), a lista é a do login:
+// `contasDoLogin(login)` (lib/acesso.ts, o único lugar que sabe quem vê qual conta). O layout não chama
+// mais `listAccounts(` nenhuma vez: com ela de volta, o seletor do login comum mostraria todas as contas.
 
 const RAIZ = fileURLToPath(new URL("..", import.meta.url));
 
@@ -38,12 +42,12 @@ function nomesDaSessao(sf: ts.SourceFile): Set<string> {
   return nomes;
 }
 
-/** Cada chamada a `listAccounts(` e se ela está no ramo verdadeiro de um `if (<o login da sessão>)`. */
-function chamadasGuardadas(sf: ts.SourceFile): boolean[] {
+/** Cada chamada a `<funcao>(` e se ela está no ramo verdadeiro de um `if (<o login da sessão>)`. */
+function chamadasGuardadas(sf: ts.SourceFile, funcao: string): boolean[] {
   const daSessao = nomesDaSessao(sf);
   const saida: boolean[] = [];
   const visitar = (n: ts.Node) => {
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "listAccounts") {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === funcao) {
       let filho: ts.Node = n;
       let guardada = false;
       for (let pai = n.parent; pai; filho = pai, pai = pai.parent) {
@@ -67,33 +71,38 @@ function chamadasGuardadas(sf: ts.SourceFile): boolean[] {
 
 describe("o layout raiz e a lista de contas", () => {
   it("o leitor acusa quando há o que acusar", () => {
-    expect(chamadasGuardadas(analisar("async function f() { const a = await listAccounts(); }"))).toEqual([false]);
+    const c = (fonte: string, funcao = "contasDoLogin") => chamadasGuardadas(analisar(fonte), funcao);
+    expect(c("async function f() { const a = await contasDoLogin(login); }")).toEqual([false]);
     expect(
-      chamadasGuardadas(
-        analisar("async function f() { const login = await sessaoAtual(); if (login) { const a = await listAccounts(); } }")
-      )
+      c("async function f() { const login = await sessaoAtual(); if (login) { const a = await contasDoLogin(login); } }")
     ).toEqual([true]);
     expect(
-      chamadasGuardadas(
-        analisar(
-          "async function f() { const login = await sessaoAtual(); if (login) { t(); } else { const a = await listAccounts(); } }"
-        )
+      c(
+        "async function f() { const login = await sessaoAtual(); if (login) { t(); } else { const a = await contasDoLogin(login); } }"
       )
     ).toEqual([false]);
     // Um `if` sobre outro nome não é a sessão.
-    expect(
-      chamadasGuardadas(analisar("async function f() { const x = await outra(); if (x) { const a = await listAccounts(); } }"))
-    ).toEqual([false]);
+    expect(c("async function f() { const x = await outra(); if (x) { const a = await contasDoLogin(x); } }")).toEqual([
+      false,
+    ]);
     // O nome antigo não vale mais.
+    expect(c("async function f() { if (isValidSession(x)) { const a = await contasDoLogin(x); } }")).toEqual([false]);
+    // E A `listAccounts(` É ACHADA ONDE ESTIVER, guardada ou não: o caso de baixo exige que não haja nenhuma.
     expect(
-      chamadasGuardadas(analisar("async function f() { if (isValidSession(x)) { const a = await listAccounts(); } }"))
-    ).toEqual([false]);
+      c("async function f() { const login = await sessaoAtual(); if (login) { const a = await listAccounts(); } }", "listAccounts")
+    ).toEqual([true]);
+    expect(c("async function f() { const a = await listAccounts(); }", "listAccounts")).toEqual([false]);
   });
 
-  it("app/layout.tsx só chama listAccounts() com a sessão conferida", () => {
+  it("app/layout.tsx só chama contasDoLogin() com a sessão conferida", () => {
     const sf = analisar(readFileSync(`${RAIZ}/app/layout.tsx`, "utf8"));
-    const chamadas = chamadasGuardadas(sf);
+    const chamadas = chamadasGuardadas(sf, "contasDoLogin");
     expect(chamadas.length).toBeGreaterThan(0);
     expect(chamadas).toEqual(chamadas.map(() => true));
+  });
+
+  it("app/layout.tsx não chama listAccounts(): o seletor mostra só as contas do login", () => {
+    const sf = analisar(readFileSync(`${RAIZ}/app/layout.tsx`, "utf8"));
+    expect(chamadasGuardadas(sf, "listAccounts")).toEqual([]);
   });
 });

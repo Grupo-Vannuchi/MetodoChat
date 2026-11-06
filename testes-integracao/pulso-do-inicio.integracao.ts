@@ -87,7 +87,10 @@
 // derruba este caso, esteja o instante semeado no passado ou no futuro.
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+// A CONTA ESCOLHIDA E AS TELAS DE CONTA RODAM COM A SESSÃO DE TESTE (administrador, que vê todas): desde
+// as contas por login (docs/specs/2026-11-05-contas-por-login.md), sem login não há conta escolhida
+// (lib/account.ts). O cookie de conta continua ausente, e o tombo para a primeira conta continua valendo.
+import { comoNumaRequisicaoComSessao } from "./semear-requisicao";
 import { textoDaArvore } from "./texto-da-arvore";
 
 type ModuloTelaDoPainel = typeof import("@/app/page");
@@ -185,7 +188,7 @@ async function limparAFila(): Promise<void> {
 }
 
 async function arvoreDoPainel(): Promise<string> {
-  const { valor } = await comoNumaRequisicao("/", async () =>
+  const { valor } = await comoNumaRequisicaoComSessao("/", async () =>
     textoDaArvore(await telaDoPainel.default({ searchParams: Promise.resolve({}) }))
   );
   return valor;

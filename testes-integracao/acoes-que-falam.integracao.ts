@@ -69,7 +69,10 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
+// A CONTA ESCOLHIDA E AS TELAS DE CONTA RODAM COM A SESSÃO DE TESTE (administrador, que vê todas): desde
+// as contas por login (docs/specs/2026-11-05-contas-por-login.md), sem login não há conta escolhida
+// (lib/account.ts). O cookie de conta continua ausente, e o tombo para a primeira conta continua valendo.
+import { comoNumaRequisicaoComSessao } from "./semear-requisicao";
 import { hojeNoFusoDoPrazo } from "@/lib/lote";
 
 type ModuloAcoes = typeof import("@/app/contatos/actions");
@@ -317,7 +320,7 @@ async function statusDosItens(igId: string): Promise<string[]> {
 // ===========================================================================
 describe("as recusas de quem ainda não conectou conta nenhuma", () => {
   test("a condição deste bloco é o schema SEM conta — e ele confere isso antes de medir", async () => {
-    const { valor } = await comoNumaRequisicao("/contatos", () =>
+    const { valor } = await comoNumaRequisicaoComSessao("/contatos", () =>
       conta.getSelectedAccountId()
     );
     expect(valor).toBe(null);
@@ -352,7 +355,7 @@ describe("as recusas de quem ainda não conectou conta nenhuma", () => {
     const FRASE = "Conecte uma conta do Instagram primeiro.";
     const ID = "17841400000000999";
 
-    const { valor } = await comoNumaRequisicao(`/conversas/${ID}`, async () => {
+    const { valor } = await comoNumaRequisicaoComSessao(`/conversas/${ID}`, async () => {
       const tela = await import("@/app/conversas/[id]/page");
       try {
         const arvore = await tela.default({
@@ -393,8 +396,8 @@ describe("enviarLote termina falando, e o que ela diz é contado do lote certo",
     });
   });
 
-  test("a conta chega às ações sem cookie nenhum, pelo tombo declarado", async () => {
-    const { valor } = await comoNumaRequisicao("/contatos", () =>
+  test("a conta chega às ações sem cookie de conta, pelo tombo declarado", async () => {
+    const { valor } = await comoNumaRequisicaoComSessao("/contatos", () =>
       conta.getSelectedAccountId()
     );
     expect(valor).toBe(CONTA);
@@ -513,7 +516,7 @@ describe("enviarLote termina falando, e o que ela diz é contado do lote certo",
   // o clique errado entrava.
   // -------------------------------------------------------------------------
   test("o campo de prazo não deixa escolher um dia que já passou", async () => {
-    const { valor } = await comoNumaRequisicao("/contatos", async () => {
+    const { valor } = await comoNumaRequisicaoComSessao("/contatos", async () => {
       const tela = await import("@/app/contatos/page");
       return tela.default({ searchParams: Promise.resolve({}) });
     });

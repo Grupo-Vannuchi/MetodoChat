@@ -37,7 +37,10 @@
 // nenhum, procurando o prop pelo NOME.
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao } from "./semear-requisicao";
+// A CONTA ESCOLHIDA E AS TELAS DE CONTA RODAM COM A SESSÃO DE TESTE (administrador, que vê todas): desde
+// as contas por login (docs/specs/2026-11-05-contas-por-login.md), sem login não há conta escolhida
+// (lib/account.ts). O cookie de conta continua ausente, e o tombo para a primeira conta continua valendo.
+import { comoNumaRequisicaoComSessao } from "./semear-requisicao";
 import { migracoesEmOrdem } from "./migracoes";
 // `lib/ficha-do-coletado.ts` é módulo puro (não fala com o banco): pode ser
 // importado no topo, como `migracao-dos-dados-legados.integracao.ts` já faz com
@@ -95,7 +98,7 @@ function itensDaFicha(raiz: unknown): ItemDaFicha[] {
 
 /** A ficha que a tela da conversa monta para este contato. */
 async function fichaNaTela(igId: string): Promise<ItemDaFicha[]> {
-  const { valor } = await comoNumaRequisicao(`/conversas/${igId}`, async () => {
+  const { valor } = await comoNumaRequisicaoComSessao(`/conversas/${igId}`, async () => {
     const tela = await import("@/app/conversas/[id]/page");
     return itensDaFicha(
       await tela.default({
@@ -161,14 +164,14 @@ beforeAll(async () => {
 
 describe("a ficha que a tela da conversa monta", () => {
   test("a conta que a tela usa é a desta suíte, e não a vizinha", async () => {
-    const { valor } = await comoNumaRequisicao("/conversas", async () => {
+    const { valor } = await comoNumaRequisicaoComSessao("/conversas", async () => {
       const conta = await import("@/lib/account");
       return conta.getSelectedAccountId();
     });
     expect(
       valor,
       "`listAccounts` ordena por `created_at asc` e `getSelectedAccount` cai na " +
-        "primeira sem cookie. Se este caso ficar vermelho, os de baixo estão " +
+        "primeira sem cookie de conta. Se este caso ficar vermelho, os de baixo estão " +
         "medindo a conta errada."
     ).toBe(CONTA);
   });

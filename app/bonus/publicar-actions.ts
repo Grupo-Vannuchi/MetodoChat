@@ -1,8 +1,9 @@
 "use server";
 import { redirect } from "next/navigation";
+import { FRASE_CARROSSEL_DE_OUTRA_CONTA } from "@/lib/logins-textos";
 import { sessaoAtual } from "@/lib/sessao";
 import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
-import { contasParaArte } from "@/lib/bonus/carrossel-repositorio";
+import { cabecalhosDoLogin, carrosselDeOutraConta } from "@/lib/bonus/carrossel-acesso";
 import { ehIdDeBonus } from "@/lib/bonus/pedido";
 import { assinarImagem, guardarImagem, publicarNaFila, type ArteSubida } from "@/lib/bonus/publicar-processo";
 import {
@@ -26,6 +27,10 @@ import { camposDaDataHora, fusoDoCampo, instanteDoAgendamento, momentoDaPublicac
 // (lib/bonus/publicar-processo.ts), onde mora tudo o que decide e grava. A CONTA NUNCA VEM DO
 // NAVEGADOR: é a gravada no carrossel. A resposta volta como estado, e nunca por redirect (achado 52):
 // recriar a página apagaria o que está digitado nos outros cards.
+//
+// SÓ NAS CONTAS DO LOGIN (docs/specs/2026-11-05-contas-por-login.md, seção 3): o carrossel de uma conta que
+// o login não tem é recusado logo depois da validação do id, antes do bucket e da fila. O processo recebe as
+// contas do login (`cabecalhosDoLogin`), e não todas, como rede.
 
 async function exigirSessao(): Promise<void> {
   if (!(await sessaoAtual())) redirect("/entrar");
@@ -48,7 +53,8 @@ export async function assinarImagemDoCarrossel(pedido: unknown): Promise<Respost
   const destino =
     p.destino === "slide" || p.destino === "foto" || p.destino === "fila" || p.destino === "capa" ? p.destino : null;
   if (!ehIdDeBonus(p.id) || !destino) return { ok: false, texto: TEXTO_PEDIDO_INVALIDO };
-  const r = await assinarImagem({ id: p.id, numero: inteiro(p.numero), destino, arquivo: p.arquivo, contas: await contasParaArte() });
+  if (await carrosselDeOutraConta(p.id)) return { ok: false, texto: FRASE_CARROSSEL_DE_OUTRA_CONTA };
+  const r = await assinarImagem({ id: p.id, numero: inteiro(p.numero), destino, arquivo: p.arquivo, contas: await cabecalhosDoLogin() });
   return r.ok ? { ok: true, caminho: r.caminho, url: r.url } : { ok: false, texto: textoDaRecusaDaPublicacaoDoCarrossel(r.recusa) };
 }
 
@@ -61,7 +67,8 @@ export async function guardarImagemDoSlide(pedido: unknown): Promise<AvisoDaImag
   const p = registro(pedido);
   const em = Date.now();
   if (!ehIdDeBonus(p.id) || typeof p.caminho !== "string") return { tom: "erro", texto: TEXTO_PEDIDO_INVALIDO, em };
-  const r = await guardarImagem({ id: p.id, numero: inteiro(p.numero), caminho: p.caminho, contas: await contasParaArte() });
+  if (await carrosselDeOutraConta(p.id)) return { tom: "erro", texto: FRASE_CARROSSEL_DE_OUTRA_CONTA, em };
+  const r = await guardarImagem({ id: p.id, numero: inteiro(p.numero), caminho: p.caminho, contas: await cabecalhosDoLogin() });
   if (!r.ok) return { tom: "erro", texto: textoDaRecusaDaPublicacaoDoCarrossel(r.recusa), em };
   return {
     tom: "ok",
@@ -83,6 +90,7 @@ export async function publicarCarrossel(pedido: unknown): Promise<AvisoDaPublica
   const p = registro(pedido);
   const em = Date.now();
   if (!ehIdDeBonus(p.id)) return { tom: "erro", texto: TEXTO_PEDIDO_INVALIDO, em };
+  if (await carrosselDeOutraConta(p.id)) return { tom: "erro", texto: FRASE_CARROSSEL_DE_OUTRA_CONTA, em };
   const campos = camposDaDataHora(p.dataHora);
   const momento = momentoDaPublicacao(p.quando, campos ? instanteDoAgendamento(campos, fusoDoCampo(p.fuso)) : null, Date.now());
   if (!momento.ok) return { tom: "erro", texto: textoDaRecusaDaPublicacao(momento.motivo), em };
@@ -90,7 +98,7 @@ export async function publicarCarrossel(pedido: unknown): Promise<AvisoDaPublica
     const r = registro(a);
     return { numero: inteiro(r.numero), caminho: r.caminho, versao: r.versao };
   });
-  const r = await publicarNaFila({ id: p.id, quando: momento.quando, artes, contas: await contasParaArte() });
+  const r = await publicarNaFila({ id: p.id, quando: momento.quando, artes, contas: await cabecalhosDoLogin() });
   return r.ok
     ? { tom: "ok", texto: textoDaPublicacaoMandada(!r.jaVale), em }
     : { tom: "erro", texto: textoDaRecusaDaPublicacaoDoCarrossel(r.recusa), em };

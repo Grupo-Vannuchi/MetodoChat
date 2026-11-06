@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { alertError, alertOk, btnPrimary, pageSubtitle, pageTitle } from "@/app/ui";
-import { ACCOUNT_COOKIE } from "@/lib/account";
 import { avisoDaUrl } from "@/lib/avisos";
 import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
 import { abaDoEndereco, capaDoCarrossel, itemDaListaDeCarrosseis, separarPorAba } from "@/lib/bonus/carrosseis-tela";
+import { cabecalhosDoLogin, contaDoMenuNoCarrossel } from "@/lib/bonus/carrossel-acesso";
 import type { LinhaDoCarrossel } from "@/lib/bonus/carrossel-linha";
 import { contasParaArte, listarCarrosseis } from "@/lib/bonus/carrossel-repositorio";
 import { TEXTO_TABELA_CARROSSEL_AUSENTE } from "@/lib/bonus/carrossel-textos";
@@ -19,7 +18,9 @@ import ListaDeCarrosseis from "./lista";
 //
 // AS ABAS (spec da Etapa 10): "Rascunhos", "Agendados" e "Publicados", pelo estado da publicação de hoje,
 // com a aba no endereço (`?aba=`). A CAPA de cada linha é a miniatura do slide 1, calculada como a página
-// do carrossel calcula: as contas do cabeçalho são lidas uma vez, com o cookie da conta.
+// do carrossel calcula: as contas do cabeçalho são lidas uma vez, com a conta do menu e as contas do login
+// (docs/specs/2026-11-05-contas-por-login.md, seção 2: todo login vê todos os carrosséis, e a queda na
+// logada escolhe só nas contas dele).
 //
 // O ESTADO DA PUBLICAÇÃO é lido da fila só para o carrossel que tem publicação guardada: os outros
 // não pagam a consulta.
@@ -49,7 +50,8 @@ export default async function Carrosseis({
   }
   const estados = await Promise.all(linhas.map((l) => (publicacaoDaArte(l.arte) === null ? null : estadoDoCarrossel(l.arte))));
   const contas = await contasParaArte();
-  const doCookie = (await cookies()).get(ACCOUNT_COOKIE)?.value;
+  const doCookie = (await contaDoMenuNoCarrossel())?.ig_user_id;
+  const permitidas = await cabecalhosDoLogin();
   // Server Component `async` e `force-dynamic`: roda UMA vez por requisição, e ler o
   // relógio aqui é o comportamento pedido. A regra trata todo arquivo como cliente;
   // o dono silencia do mesmo jeito, com o motivo por extenso, em app/page.tsx:322-333.
@@ -59,7 +61,7 @@ export default async function Carrosseis({
     linhas.map((linha, i) => ({ linha, estado: estados[i] })),
     aba
   );
-  const contexto = { contas, doCookie, urlPublica: urlPublicaSeDerParaMontar };
+  const contexto = { contas, doCookie, permitidas, urlPublica: urlPublicaSeDerParaMontar };
 
   return (
     <div className="space-y-6">

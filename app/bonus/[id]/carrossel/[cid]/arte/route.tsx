@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
-import { ACCOUNT_COOKIE } from "@/lib/account";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { sessaoDoCookie } from "@/lib/sessao";
 import { desenharSlide, erroDaArte as erro } from "@/lib/bonus/arte-rota";
+import { cabecalhosDoLogin, contaDoMenuNoCarrossel } from "@/lib/bonus/carrossel-acesso";
 import { conferirPedidoDaArte } from "@/lib/bonus/arte-tela";
 import { TEXTO_ARTE_NAO_ENCONTRADA, TEXTO_ARTE_SEM_SESSAO } from "@/lib/bonus/arte-textos";
 import { lerCarrossel } from "@/lib/bonus/carrossel-repositorio";
@@ -23,6 +23,10 @@ import { lerLinha } from "@/lib/bonus/repositorio";
 //
 // O DESENHO MORA EM lib/bonus/arte-rota.ts (Etapa 7), comum a esta rota e à do carrossel avulso
 // (app/carrosseis/[cid]/arte/route.tsx). Esta só serve o carrossel do bônus da URL.
+//
+// A CONTA DO CABEÇALHO, no carrossel sem conta gravada, é a do menu, nas contas do login
+// (docs/specs/2026-11-05-contas-por-login.md, seção 2): as duas são lidas aqui, no corpo do handler, onde
+// tests/acesso-nas-actions.test.ts procura a chamada à regra. Mostrar o carrossel é de todo login.
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +42,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!conferido.ok) return erro(conferido.status, conferido.texto);
   return desenharSlide({
     ...conferido,
-    doCookie: jarra.get(ACCOUNT_COOKIE)?.value,
+    doCookie: (await contaDoMenuNoCarrossel())?.ig_user_id,
+    permitidas: await cabecalhosDoLogin(),
     baixar: pedido.get("baixar") === "1",
     // O arquivo baixado leva o endereço do bônus no Labs.
     slug: async () => (await lerLinha(id))?.slug ?? null,

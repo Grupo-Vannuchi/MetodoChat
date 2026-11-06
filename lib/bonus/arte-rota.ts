@@ -1,6 +1,6 @@
 import "server-only";
 import { NextResponse } from "next/server";
-import { resolverConta } from "./arte-conta";
+import { resolverConta, type ContaDoCabecalho } from "./arte-conta";
 import { comEspaco, ehCapa, escolhasDaArte } from "./arte-escolhas";
 import { fotoDaCapa, fotoDoEspaco, fotosDaInstancia } from "./arte-foto";
 import { respostaDaArte } from "./arte-resposta";
@@ -25,17 +25,26 @@ export async function desenharSlide(p: {
   linha: LinhaDoCarrossel;
   slides: SlideParaArte[];
   numero: number;
-  /** A conta do cookie: a do cabeçalho quando o carrossel não tem conta gravada. */
+  /**
+   * O id da conta do menu (lib/bonus/carrossel-acesso.ts, `contaDoMenuNoCarrossel`): a do cabeçalho quando o
+   * carrossel não tem conta gravada.
+   */
   doCookie: string | undefined;
+  /**
+   * As contas do login (lib/bonus/carrossel-acesso.ts, `cabecalhosDoLogin`), onde a queda na logada
+   * escolhe (docs/specs/2026-11-05-contas-por-login.md, seção 2). A rota as lê no corpo dela, onde
+   * tests/acesso-nas-actions.test.ts procura a chamada à regra. Sem elas, valem todas, como antes.
+   */
+  permitidas?: ContaDoCabecalho[];
   baixar: boolean;
   /** O nome do arquivo baixado (`nomeDoArquivo`): o slug do bônus do Chat, ou o código do Labs. */
   slug: () => Promise<string | null>;
 }): Promise<Response> {
   const { linha, slides, numero } = p;
   // A conta do cabeçalho é a do carrossel (arte-conta.ts): conectada, os dados atuais; desconectada,
-  // o nome e o @ guardados, com as iniciais; sem conta gravada, a logada no Chat.
+  // o nome e o @ guardados, com as iniciais; sem conta gravada, a logada no Chat, nas contas do login.
   const escolhas = escolhasDaArte(linha.arte, slides.length);
-  const { conta } = resolverConta(await contasParaArte(), escolhas, p.doCookie);
+  const { conta } = resolverConta(await contasParaArte(), escolhas, p.doCookie, p.permitidas);
   if (!conta) return erroDaArte(409, TEXTO_ARTE_SEM_CONTA);
   // A FOTO DO ESPAÇO (adendo da Etapa 5): só no slide com espaço, e só a do jeito "foto", que o
   // prefixo do caminho guardado diz (publicar-regras.ts). `fotoDoEspaco` confere o caminho na pasta da

@@ -5,6 +5,11 @@
 // (com a foto); desconectada, os guardados (com as iniciais, porque o Chat apaga a linha da conta).
 // A "conta logada" é a selecionada no painel (lib/account.ts, `getSelectedAccount`): a do cookie,
 // e sem ela a primeira conectada. Estas funções não leem o cookie nem o banco: recebem os dois.
+//
+// DESDE AS CONTAS POR LOGIN (docs/specs/2026-11-05-contas-por-login.md, seção 2, e achado 179), são DUAS
+// listas: `contas`, todas as conectadas, para achar a conta gravada e completar o nome (todo login vê todos
+// os carrosséis); e `permitidas`, as do login (lib/bonus/carrossel-acesso.ts, `cabecalhosDoLogin`), onde a
+// queda na logada escolhe. Sem `permitidas`, vale `contas`, como antes.
 
 /** Só as colunas que o cabeçalho usa, e nunca o token (achado 60). */
 export type ContaDoCabecalho = {
@@ -36,10 +41,12 @@ export function contaParaGuardar(c: ContaDoCabecalho): ContaGuardada {
   return { conta: c.ig_user_id, nome: c.name, arroba: c.username };
 }
 
+/** A conta do cabeçalho: a gravada, achada em `contas`; sem ela, a logada, escolhida em `permitidas`. */
 export function resolverConta(
   contas: ContaDoCabecalho[],
   guardada: ContaGuardada,
-  doCookie: string | undefined
+  doCookie: string | undefined,
+  permitidas: ContaDoCabecalho[] = contas
 ): { conta: ContaDoCabecalho | null; origem: OrigemDaConta } {
   if (guardada.conta) {
     const achada = contas.find((c) => c.ig_user_id === guardada.conta);
@@ -50,26 +57,28 @@ export function resolverConta(
         origem: "guardada",
       };
     }
-    return { conta: contaSelecionada(contas, doCookie), origem: "gravada_saiu" };
+    return { conta: contaSelecionada(permitidas, doCookie), origem: "gravada_saiu" };
   }
-  return { conta: contaSelecionada(contas, doCookie), origem: "selecionada" };
+  return { conta: contaSelecionada(permitidas, doCookie), origem: "selecionada" };
 }
 
 /**
  * A CONTA DO "GERAR DE NOVO": a do carrossel original, mesmo desconectada (decisão do Eduardo em
  * 02/10). Sem o nome guardado e com a conta conectada, o nome e o @ vêm da tabela de contas. Só o
- * original sem conta usa a logada agora.
+ * original sem conta usa a logada agora, ESCOLHIDA EM `permitidas` (achado 179): sem isso, um comum com o
+ * cookie de outra conta no navegador geraria de novo um carrossel numa conta que ele não tem.
  */
 export function contaParaGerarDeNovo(
   contas: ContaDoCabecalho[],
   original: ContaGuardada,
-  doCookie: string | undefined
+  doCookie: string | undefined,
+  permitidas: ContaDoCabecalho[] = contas
 ): ContaGuardada | null {
   if (original.conta) {
     const falta = nomeQueFalta(contas, original);
     return falta ? { conta: original.conta, ...falta } : original;
   }
-  const logada = contaSelecionada(contas, doCookie);
+  const logada = contaSelecionada(permitidas, doCookie);
   return logada ? contaParaGuardar(logada) : null;
 }
 

@@ -139,10 +139,15 @@ export function separarPorAba<T extends EntradaDaLista>(
   return { contagem, daAba: daAba.sort(ordem[aba]) };
 }
 
-/** O que a capa precisa de fora: as contas do cabeçalho, o cookie da conta e o endereço público do bucket. */
+/**
+ * O que a capa precisa de fora: as contas do cabeçalho, a conta do menu e o endereço público do bucket. E as
+ * contas do login (`permitidas`, docs/specs/2026-11-05-contas-por-login.md, seção 2), onde a queda na logada
+ * escolhe; sem elas, valem todas, como antes.
+ */
 export type ContextoDaCapa = {
   contas: ContaDoCabecalho[];
   doCookie: string | undefined;
+  permitidas?: ContaDoCabecalho[];
   urlPublica: (caminho: string) => string | null;
 };
 
@@ -161,7 +166,7 @@ export function capaDoCarrossel(l: LinhaDoCarrossel, agoraMs: number, c: Context
   const imagem = comEspaco(escolhas, 1) ? imagensDaArte(l.arte, l.total_slides)[1] : undefined;
   const pronto = imagem && jeitoDoCaminho(imagem.caminho) === "slide" ? c.urlPublica(imagem.caminho) : null;
   if (pronto) return pronto;
-  const { conta } = resolverConta(c.contas, escolhas, c.doCookie);
+  const { conta } = resolverConta(c.contas, escolhas, c.doCookie, c.permitidas);
   const [versao] = versoesDosSlides(
     slidesDoTexto(texto),
     escolhas.soTexto,

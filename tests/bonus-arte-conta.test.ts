@@ -97,6 +97,38 @@ describe("a conta do Gerar de novo", () => {
   });
 });
 
+// A LISTA PERMITIDA (docs/specs/2026-11-05-contas-por-login.md, seção 2, e achado 179): todo login vê todos
+// os carrosséis, e por isso `contas` continua a lista de todas, para achar a conta gravada e completar o
+// nome. A QUEDA NA LOGADA (o carrossel sem conta, ou com a conta gravada que saiu sem nome) escolhe só nas
+// contas do login: um comum com o cookie de outra conta no navegador nunca cai nela.
+describe("a lista permitida, das contas do login", () => {
+  it("sem conta no carrossel: a queda escolhe na permitida, e o cookie de fora dela não vale", () => {
+    expect(resolverConta(CONTAS, guardada(null), "1002", [A])).toEqual({ conta: A, origem: "selecionada" });
+    expect(resolverConta(CONTAS, guardada(null), "1002", [])).toEqual({ conta: null, origem: "selecionada" });
+  });
+
+  it("a conta gravada que saiu sem nome também cai na permitida", () => {
+    expect(resolverConta(CONTAS, guardada("7777"), "1002", [A])).toEqual({ conta: A, origem: "gravada_saiu" });
+  });
+
+  it("a conta gravada continua achada em `contas`, mesmo fora da permitida", () => {
+    expect(resolverConta(CONTAS, guardada("1002"), "1001", [A])).toEqual({ conta: B, origem: "gravada" });
+  });
+
+  it("sem a permitida, vale a lista toda, como antes", () => {
+    expect(resolverConta(CONTAS, guardada(null), "1002")).toEqual(resolverConta(CONTAS, guardada(null), "1002", CONTAS));
+  });
+
+  it("o Gerar de novo de um original sem conta escolhe na permitida (179)", () => {
+    expect(contaParaGerarDeNovo(CONTAS, guardada(null), "1002", [A])).toEqual(guardada("1001", "Nome de thiagovannuchi", "thiagovannuchi"));
+    expect(contaParaGerarDeNovo(CONTAS, guardada(null), "1002", [])).toBeNull();
+  });
+
+  it("o Gerar de novo de um original com conta e sem nome completa o nome em `contas`, mesmo fora da permitida", () => {
+    expect(contaParaGerarDeNovo(CONTAS, guardada("1002"), "1001", [A])).toEqual(guardada("1002", "Nome de n8x", "n8x"));
+  });
+});
+
 // O NOME QUE FALTA: os carrosséis que ganharam conta na Etapa 3 a guardaram sem o nome. As actions
 // que já gravam num carrossel completam o nome e o @, quando a conta está conectada.
 describe("o nome que falta", () => {

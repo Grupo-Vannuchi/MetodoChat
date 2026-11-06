@@ -1,5 +1,5 @@
 import "server-only";
-import { resolverConta } from "./arte-conta";
+import { resolverConta, type ContaDoCabecalho } from "./arte-conta";
 import { escolhasDaArte } from "./arte-escolhas";
 import { slidesDoTexto } from "./arte-slides";
 import { cabecalhoParaVersao, versoesDosSlides } from "./arte-tela";
@@ -18,13 +18,22 @@ import { capaDaArte, fotosDaArte, imagensDaArte } from "./publicar-regras";
 // Pronta, a resposta traz a versão nova da miniatura, a mesma que a página desenharia ao recarregar
 // (`versoesDosSlides`, com a foto do slide), e a versão do texto guardada com a imagem. A travada pelo
 // prazo vira falha, com a frase dela.
+//
+// A CONTA DA MINIATURA, quando o carrossel não tem conta gravada, é a do menu, escolhida nas contas do login
+// (`doCookie` e `permitidas`, que a rota lê no corpo dela: docs/specs/2026-11-05-contas-por-login.md, seção
+// 2). Sem `permitidas`, valem todas, como antes.
 
 export type ConsultaDaImagem =
   | { estado: "nenhuma" | "gerando"; hoje: number }
   | { estado: "pronta"; hoje: number; versao: string | null; versaoDaMiniatura: string }
   | { estado: "falhou"; hoje: number; texto: string };
 
-export async function consultarImagem(p: { linha: LinhaDoCarrossel; numero: number; doCookie?: string }): Promise<ConsultaDaImagem> {
+export async function consultarImagem(p: {
+  linha: LinhaDoCarrossel;
+  numero: number;
+  doCookie?: string;
+  permitidas?: ContaDoCabecalho[];
+}): Promise<ConsultaDaImagem> {
   const [{ agora, linhas }, hoje] = await Promise.all([ultimasDoCarrossel(p.linha.id), imagensNasUltimas24h()]);
   const estado = estadoDaImagem(linhas[p.numero] ?? null, agora);
   if (estado.tipo === "falhou") return { estado: "falhou", hoje, texto: estado.motivo };
@@ -33,7 +42,7 @@ export async function consultarImagem(p: { linha: LinhaDoCarrossel; numero: numb
   if (estado.tipo !== "pronta" || !texto) return { estado: estado.tipo === "gerando" ? "gerando" : "nenhuma", hoje };
   const total = p.linha.total_slides;
   const escolhas = escolhasDaArte(p.linha.arte, total);
-  const { conta } = resolverConta(await contasParaArte(), escolhas, p.doCookie);
+  const { conta } = resolverConta(await contasParaArte(), escolhas, p.doCookie, p.permitidas);
   const versoes = versoesDosSlides(
     slidesDoTexto(texto),
     escolhas.soTexto,

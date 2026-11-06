@@ -25,7 +25,10 @@
 // chama `cookies()` de `next/headers`, que estoura fora de uma requisição.
 import { beforeAll, describe, expect, test } from "vitest";
 import { bancoDescartavel } from "./harness";
-import { comoNumaRequisicao, comoNumaRequisicaoComSessao } from "./semear-requisicao";
+// A CONTA ESCOLHIDA E AS TELAS DE CONTA RODAM COM A SESSÃO DE TESTE (administrador, que vê todas): desde
+// as contas por login (docs/specs/2026-11-05-contas-por-login.md), sem login não há conta escolhida
+// (lib/account.ts). O cookie de conta continua ausente, e o tombo para a primeira conta continua valendo.
+import { comoNumaRequisicaoComSessao } from "./semear-requisicao";
 
 type ModuloAcoes = typeof import("@/app/contatos/actions");
 type ModuloConta = typeof import("@/lib/account");
@@ -165,10 +168,10 @@ beforeAll(async () => {
   // criação um dia deixar de bastar (ou algo plantar um cookie sem querer), o
   // teste tem de morrer aqui, com nome, e não silenciosamente medir a conta
   // errada.
-  const { valor } = await comoNumaRequisicao("/contatos", () => conta.getSelectedAccountId());
+  const { valor } = await comoNumaRequisicaoComSessao("/contatos", () => conta.getSelectedAccountId());
   if (valor !== CONTA) {
     throw new Error(
-      `PRECONDIÇÃO QUEBRADA: sem cookie, \`getSelectedAccount\` devolveu ` +
+      `PRECONDIÇÃO QUEBRADA: com a sessão e sem cookie de conta, \`getSelectedAccount\` devolveu ` +
         `\`${String(valor)}\`, e este arquivo espera \`${CONTA}\` (a primeira conta ` +
         "criada). Sem isso, os casos abaixo mediriam a conta errada — ou nenhuma."
     );
