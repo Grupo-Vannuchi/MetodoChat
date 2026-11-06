@@ -22,6 +22,7 @@ import { renderVariables, type VariableContext } from "./variables";
 // coluna é `variableContext`, aqui embaixo; quem entende o `jsonb` é ele.
 import { lerCampos } from "./campos";
 import { lerPayloadDoLote, loteExpirou } from "./lote";
+import { TIPOS_QUE_O_DRENO_CONHECE } from "./fila-tipos";
 import {
   leituraDoContainer,
   lerPayloadDaPublicacao,
@@ -1041,6 +1042,13 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
          select id from queue
          where ((status = 'pending' and not_before <= now())
             or (status = 'sending' and claimed_at < now() - interval '3 minutes'))
+           -- SO OS TIPOS QUE ESTE CODIGO SABE DRENAR (lib/fila-tipos.ts). O banco e
+           -- um so para a producao e os previews, e um tipo escrito por um codigo
+           -- mais novo cairia, aqui, no caminho das mensagens. Ele fica pending,
+           -- intocado, ate o codigo que o conhece chegar
+           -- (testes-integracao/dreno-tipo-desconhecido.integracao.ts). Sem crase
+           -- neste comentario: ele mora DENTRO do template do SQL.
+           and kind = any($3::text[])
            -- A PUBLICACAO NAO E BLOQUEADA PELO TETO DE MENSAGEM. A conta que
            -- estourou as 190 DMs da hora sai INTEIRA do lote, e sem esta
            -- excecao um lote grande de mensagens -- que leva horas para sair --
@@ -1057,7 +1065,7 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
        returning q.*
      )
      select *, now() as agora_do_banco from lote order by created_at, id`,
-    [BATCH_SIZE, blocked]
+    [BATCH_SIZE, blocked, Array.from(TIPOS_QUE_O_DRENO_CONHECE)]
   )) as (QueueItem & { agora_do_banco: Date })[];
 
   // O RELOGIO QUE JULGA A VALIDADE É O DO BANCO, E NÃO O DA APLICAÇÃO.
@@ -1286,9 +1294,15 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
   // E O DANO QUE ISTO EVITA NÃO É NA PUBLICAÇÃO: `scheduleTick` engole todo erro
   // (lib/qstash.ts), então estourada a cota do QStash param CALADOS os tiques de
   // todo o produto — os lembretes com atraso à frente dos posts.
+  //
+  // SÓ OS TIPOS QUE ESTE CÓDIGO DRENA (lib/fila-tipos.ts), como a seleção lá em cima. Uma linha de tipo
+  // que ele não conhece fica `pending` para sempre, e sem este filtro o `min(not_before)` dela, vencido,
+  // armaria um tique a cada 20 s, sem fim — a cota do QStash acabaria, e com ela os tiques do produto
+  // inteiro (testes-integracao/dreno-tipo-desconhecido.integracao.ts).
   const nextRows = (await sql()`
     select extract(epoch from (min(not_before) - now()))::float8 as secs
     from queue where status = 'pending'
+      and kind = any(${Array.from(TIPOS_QUE_O_DRENO_CONHECE)}::text[])
       and not_before <= now() + make_interval(secs => ${HORIZONTE_DO_TIQUE_EM_SEGUNDOS}::int)
   `) as { secs: number | null }[];
   const secs = nextRows[0]?.secs;
