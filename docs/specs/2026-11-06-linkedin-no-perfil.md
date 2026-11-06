@@ -33,7 +33,9 @@
   - O payload (`lib/publicacao.ts:737`) não tem destino, e as formas são as do Instagram (`lib/publicacao.ts:95`).
   - O dreno publica pela mecânica de contêiner da Meta (`publicarDaFila`, `lib/queue-drain.ts:465`), apaga a mídia depois do `sent` (`lib/queue-drain.ts:607`) e trata o erro 4xx da Meta como permanente (`lib/queue-drain.ts:1251`).
   - A publicação fica fora da cota de DM da conta (`lib/queue-drain.ts:992` e `:1050`). O ramo dela começa em `lib/queue-drain.ts:1160`.
+  - **O dreno pega qualquer linha pendente, sem olhar o tipo** (a seleção em `lib/queue-drain.ts:1036-1061`). Um tipo que ele não conhece cai no caminho das mensagens (`processItem`, `lib/queue-drain.ts:1167`).
   - As telas leem o andamento direto da fila, filtrando `kind = 'publicacao'` (`app/publicar/page.tsx:262` e `app/publicar/post/[id]/page.tsx:85`).
+- **A conferência do build.** O `scripts/migrar.mjs` roda em todo deploy de produção. Ele exige o texto EXATO de cada restrição conferida, e o `queue_kind_check` esperado é o da 010 (`scripts/migrar.mjs:830-839`). Uma divergência é falha "NOS DOIS MODOS" (`:1043-1055`), e o script sai com código 1 (`:1312-1316`), o que derruba o build.
 - **As mídias** ficam num bucket do Supabase, com leitura por URL pública, porque a Meta busca o arquivo (`lib/bucket.ts:189`). O teto é perguntado ao bucket a cada vez, e foi medido em 50 MB em 03/09/2026 (`lib/bucket.ts:303`); ele sobe sozinho se o plano do Supabase mudar.
 - **Os testes** falam com um servidor HTTP falso na própria máquina. A base da Graph só se move sob duas travas: a variável de teste e o endereço de loopback (`baseDoGraph`, `lib/ig.ts:63`).
 
@@ -78,7 +80,7 @@ O plano começa por aqui, antes de qualquer código da entrega:
    O script passa pela auditoria antes de rodar, e o resultado vai à auditoria e ao Eduardo.
 
 **A leitura, escrita antes de rodar:**
-- as três reservas respondem: a entrega segue como desenhada;
+- as três reservas respondem: a entrega segue como desenhada. **A reserva não prova o post.** Que o `POST /rest/posts` com documento e autor pessoa é aceito, só a prova no preview mostra, no primeiro post de carrossel. Se lá der 403, o carrossel do LinkedIn fica desligado na tela, com o motivo, e volta à caixa do Eduardo com as três opções abaixo; as outras formas seguem;
 - o documento dá 403 e o resto responde: o carrossel volta à caixa do Eduardo antes do plano. As opções a levar são três:
   - o carrossel vai como várias imagens, se a reserva de imagem responder e as várias imagens também forem aceitas;
   - o carrossel fica só no Instagram;
@@ -88,6 +90,15 @@ O plano começa por aqui, antes de qualquer código da entrega:
 ---
 
 ## O que muda
+
+### 0. A preparação na `main`, antes de tudo (um PR pequeno, só dela)
+
+Na prova, o preview usa o banco de produção. O dreno da produção, com o código de hoje, roda a cada webhook, a cada tique e no cron, e pegaria uma linha `publicacao_linkedin` antes do preview: ela cairia no caminho das mensagens (`lib/queue-drain.ts:1167`) e se perderia. E a 024 aplicada à mão quebraria o build de todo deploy da `main` até o merge (188). Por isso, antes da 024, um PR pequeno vai à `main`, com o processo de sempre (testes antes, auditoria, OK do Eduardo, merge dele):
+
+- **O dreno só pega os tipos que conhece.** A seleção (`lib/queue-drain.ts:1036-1061`) ganha `kind = any(<os tipos que este código sabe drenar>)`. Um tipo novo, escrito por um código mais novo, fica `pending`, intocado, até o código que o conhece chegar. A lista mora num lugar só, e um teste prende que ela tem todos os tipos do `queue_kind_check`, menos os que um código futuro acrescentar.
+- **A conferência aceita as duas formas do `queue_kind_check`:** a da 010 (de hoje) e a da 024, com o `publicacao_linkedin`. Qualquer outro texto continua sendo divergência. Assim, com a 024 aplicada à mão, o build da `main` segue passando, e não há janela.
+
+Com a preparação em produção, a 024 pode ser aplicada antes do preview, e a prova não corre o risco de o dreno antigo estragar uma linha do LinkedIn. O dreno do preview drena também as linhas da produção, como em toda prova anterior com o banco de produção. O código do Instagram nele é o mesmo da `main`.
 
 ### 1. A migração 024
 
@@ -104,7 +115,7 @@ O plano começa por aqui, antes de qualquer código da entrega:
   - a coluna `conta_alvo text`, com chave estrangeira para `accounts (ig_user_id)` e `on delete cascade`;
   - o check `(rede = 'linkedin') = (conta_alvo is not null)`.
   As linhas de hoje ficam `instagram` e sem conta-alvo, e passam no check.
-- **A fila ganha o tipo `publicacao_linkedin`**, alargando o check do `kind`, como a 008 e a 010. Alargar é seguro num deploy só: o código antigo nunca escreve o tipo novo.
+- **A fila ganha o tipo `publicacao_linkedin`**, alargando o check do `kind`, como a 008 e a 010. Alargar é seguro num deploy só: o código antigo nunca escreve o tipo novo, e, depois da preparação (§0), também não o pega. O texto novo do `queue_kind_check` entra no `scripts/migrar.mjs` (`ESPERADAS_RESTRICOES`, `:814`) com `de: "024-..."`, no lugar da linha da 010, e a forma da 010 sai da lista de aceitas no merge desta entrega.
 - **A partida.** A `linkedin_conexoes` entra na conferência do esquema como tabela de FEATURE, como a 021 (`lib/esquema.ts:293`): sem ela, o painel sobe, e só o LinkedIn não funciona.
 - A 024 é aplicada à mão na produção antes do preview, com o OK do Eduardo, como a 022 e a 023. O código da `main` não lê nada dela.
 
@@ -142,7 +153,7 @@ O plano começa por aqui, antes de qualquer código da entrega:
 ### 4. O cliente do LinkedIn (`lib/linkedin.ts`, novo)
 
 - A **base** é `https://api.linkedin.com`. Nos testes, ela se move sob as mesmas duas travas da `baseDoGraph` (`lib/ig.ts:63`): a variável `LINKEDIN_API_BASE`, só com `VITEST=true` e só para o loopback.
-- A **versão** é uma constante num lugar só, `LINKEDIN_VERSION = "202610"`, com o fim do suporte (15/10/2027) escrito ao lado. Um teste puro falha a partir de 01/09/2027, para a troca ser lembrada antes de a versão sair do ar.
+- A **versão** é uma constante num lugar só, `LINKEDIN_VERSION = "202610"`, com o fim do suporte (15/10/2027) escrito ao lado. **Escolha:** um teste puro falha a partir de 01/09/2027, e com ele **todo `npm test` fica vermelho** até a versão ser trocada. É de propósito: a troca é lembrada seis semanas antes de a versão sair do ar, e não por um post que falha em produção.
 - **As chamadas**, todas com teto de tempo, como o `graphFetch`:
   - a troca do código;
   - o `userinfo`;
@@ -184,7 +195,24 @@ Esta parte mexe na fila e no dreno, que são do motor. Ela vai com a auditoria, 
   - a chave é `pub-linkedin:<conta>:<forma>:<caminhos>`, com um prefixo próprio, para nunca colidir com a do Instagram. Na forma `texto`, que não tem caminho, a chave leva o hash do texto e do horário;
   - o payload leva a forma do LinkedIn, os caminhos, o texto, o título do documento e, ao longo do envio, as marcas de cada passo.
 - **Uma linha por rede.** A action de publicar e o `publicarNaFila` do gerador enfileiram uma linha para cada rede marcada. O Instagram continua passando pelo `enqueuePublicacao` de hoje, sem mudança. Se a linha do LinkedIn não puder nascer (sem conexão, vencida, ou forma que não serve), a tela recusa antes de gravar qualquer linha, com o motivo. Cada linha tem andamento, tentativas e chave próprios: **se uma rede falhar, a outra segue.**
-- **A mídia de cada rede.** Quando as duas redes levam arquivo, a linha do LinkedIn recebe uma **cópia** própria no bucket, feita no servidor, de modo que o dreno do Instagram, que apaga depois do `sent`, não apaga o arquivo do LinkedIn. Se a cópia pode ser feita sem baixar o arquivo, o plano mede. Só LinkedIn: sem cópia.
+- **A mídia de cada rede.** Quando as duas redes levam arquivo, a linha do LinkedIn recebe uma **cópia** própria no bucket, feita no servidor, de modo que o dreno do Instagram, que apaga depois do `sent`, não apaga o arquivo do LinkedIn. Se a cópia pode ser feita sem baixar o arquivo, o plano mede. Só LinkedIn: sem cópia, e a linha do LinkedIn usa os caminhos originais.
+- **A ordem, quando uma parte falha no meio** (192):
+  1. todas as conferências (a conta, a conexão, as formas, o texto), sem gravar nada;
+  2. a cópia da mídia do LinkedIn. Se ela falha, nada é gravado, e a tela diz o motivo;
+  3. a linha do LinkedIn;
+  4. a linha do Instagram, pelo `enqueuePublicacao` de hoje. Se ela falha, a do LinkedIn passa a `skipped`, com o motivo, e as cópias saem; a tela diz que nada foi agendado.
+
+  Cada chave contra duplicação vale por si: um post repetido numa rede e novo na outra agenda só a nova, e a tela diz qual já existia. O plano prende cada uma dessas saídas com um caso.
+- **Todos os pontos que dizem `kind = 'publicacao'` hoje** (medidos no `56cd72a`), e o que cada um passa a fazer:
+  - `lib/queue-drain.ts:992`, a cota de DM: o post do LinkedIn também fica fora dela;
+  - `lib/queue-drain.ts:1050`, a exceção da seleção: o post do LinkedIn também não é bloqueado pelo teto de DM;
+  - `lib/queue-drain.ts:1349`, o `armarTiquesDoDia`: arma o tique também para o post do LinkedIn;
+  - `lib/bonus/publicar-repositorio.ts:109`, o `caminhosNaFila`: procura os caminhos nas linhas dos dois tipos. Ele é usado em `lib/bonus/apagar-carrossel.ts:72` e em `lib/bonus/publicar-processo.ts:243` e `:326`; sem isso, apagar um carrossel que está na fila só do LinkedIn apagaria os arquivos dele;
+  - `lib/envio-filters.ts:61`, a lista `KINDS_FORA_DA_ENTREGA_DO_MOTOR`, e `app/page.tsx:155` e `:159`: o post do LinkedIn não conta como mensagem entregue, e a falha dele não conta como falha de mensagem, no Início e no Desempenho;
+  - `app/publicar/page.tsx:264`, `:274` e `:297`, e `app/publicar/post/[id]/page.tsx:90`: as telas leem os dois tipos;
+  - `app/publicar/post/actions.ts:84` e `:107`: cancelar e remarcar valem para os dois tipos;
+  - `lib/db.ts:361` (o tipo do `kind`) e `app/labels.ts:294` (o rótulo "Publicação no LinkedIn").
+  O plano refaz essa busca no commit dele e lista o que tiver mudado.
 - **O dreno** ganha um ramo `publicacao_linkedin`, ao lado do ramo de hoje (`lib/queue-drain.ts:1160`), que chama `publicarNoLinkedinDaFila` (em `lib/linkedin-fila.ts`). Também mudam os dois pontos que hoje dizem `kind = 'publicacao'`:
   - a cota de DM (`:992`), para o post do LinkedIn não comer a cota das mensagens;
   - a exceção da seleção (`:1050`).
@@ -196,7 +224,7 @@ Esta parte mexe na fila e no dreno, que são do motor. Ela vai com a auditoria, 
      - carrossel: monta o PDF com os JPEG dos slides (um por página, no tamanho do slide), reserva, envia e marca o `documento_urn`;
      - vídeo: reserva com o tamanho, envia as partes que o LinkedIn pedir, marca cada `etag` e fecha com o `finalizeUpload`.
      O envio lê do bucket por faixa de bytes (`Range`) e manda parte por parte, sem o arquivo inteiro na memória. Se o tempo da passada acabar, as partes feitas ficam marcadas, e a linha volta a `pending` para continuar de onde parou. Com o teto medido em 03/09 (50 MB), um vídeo tem até 13 partes de 4 MB; o envio em partes vale para qualquer teto.
-  3. Publica: `POST /rest/posts` com o autor `urn:li:person:<pessoa_id>`, o texto, `visibility: PUBLIC`, `distribution.feedDistribution: MAIN_FEED`, `lifecycleState: PUBLISHED` e a mídia. Marca o `post_urn`. Um `post_urn` já marcado nunca publica de novo.
+  3. Publica: `POST /rest/posts` com o autor `urn:li:person:<pessoa_id>`, o texto, `visibility: PUBLIC` (fixo nesta entrega; não há escolha de visibilidade na tela), `distribution.feedDistribution: MAIN_FEED`, `lifecycleState: PUBLISHED` e a mídia. Marca o `post_urn`. Um `post_urn` já marcado nunca publica de novo.
      O documento e o vídeo processam do lado do LinkedIn. Se o post for recusado por mídia ainda não pronta, a linha volta a `pending` com espera, como a espera do contêiner de hoje (+60 s, até 5 consultas).
   4. `sent` e, depois, apaga a mídia da própria linha.
 - **As novas tentativas** seguem as de hoje: o permanente vai a `failed`; o passageiro volta a `pending` com +120 s, até 3 tentativas. O texto do erro nunca leva o token.
@@ -217,6 +245,10 @@ Esta parte mexe na fila e no dreno, que são do motor. Ela vai com a auditoria, 
   - a página do post mostra o andamento daquela rede e, publicado, o link "Ver no LinkedIn" (`https://www.linkedin.com/feed/update/<post_urn>/`);
   - cancelar e remarcar valem para os dois tipos.
 - **A Configuração** (só administrador): em cada conta, "LinkedIn conectado como <nome>, vence em N dias" (com o aviso a partir de 7 dias), ou "sem LinkedIn", com o botão do convite e o "Desconectar".
+- **A política de privacidade e a exclusão de dados** (193). O app do LinkedIn pede o endereço de uma política, e as páginas de hoje falam só do Instagram e da Meta (`app/privacidade/page.tsx:22`). As duas páginas (`/privacidade` e `/exclusao-de-dados`) passam a dizer:
+  - o que o painel guarda do LinkedIn: o identificador, o nome e a autorização;
+  - para que serve: só publicar o que a agência agenda;
+  - como apagar: o "Desconectar" na Configuração, ou o pedido de exclusão.
 
 ### 8. As chaves
 
@@ -264,8 +296,14 @@ Esta parte mexe na fila e no dreno, que são do motor. Ela vai com a auditoria, 
   - as caixinhas ligadas e desligadas, com os motivos;
   - o "Só texto" desliga o Instagram, e o story desliga o LinkedIn;
   - o contador do texto do LinkedIn.
+- **Da preparação (§0, no PR dela):**
+  - o dreno não pega um tipo que não conhece: uma linha de tipo novo fica `pending`, intocada, e as de hoje saem como sempre;
+  - a conferência aceita a forma da 010 e a da 024 do `queue_kind_check`, e acusa qualquer outra;
+  - mutações: tirar o filtro de tipos, e aceitar qualquer texto na conferência.
 - **De integração (`testes-integracao/`, contra o banco de teste e um LinkedIn falso no loopback):**
   - a 024: colunas, checks, chaves estrangeiras, cascade, RLS e privilégios;
+  - os pontos do `kind = 'publicacao'`: o tique do dia, o `caminhosNaFila`, as contagens do Início e do Desempenho, as telas, e o cancelar e o remarcar, cada um com uma linha do LinkedIn;
+  - a ordem do enfileirar: a cópia que falha, a linha do Instagram que falha, e a duplicada numa rede só;
   - o convite do LinkedIn, ponta a ponta: o `state` errado não grava nada; convite vencido, cancelado ou usado; conta-alvo apagada; reconexão;
   - a regra de acesso: o login comum sem a conta não gera convite, não publica e não vê a conexão;
   - a publicação: as duas redes viram duas linhas; uma falha não mexe na outra; a cópia da mídia; a passada repetida não refaz o envio nem republica com `post_urn` marcado; o vídeo em partes retoma de onde parou; o 401 vira "venceu"; o post do LinkedIn não come a cota de DM;
@@ -278,11 +316,11 @@ Esta parte mexe na fila e no dreno, que são do motor. Ela vai com a auditoria, 
 
 - Primeiro, a sonda (acima), sem publicar nada.
 - Depois, no preview, com o Eduardo e o roteiro do navegador lido pela auditoria antes (a espera numa página só de texto; achados 176 e 186):
-  - a 024 aplicada à mão antes, com o OK dele;
+  - a preparação (§0) já em produção, e a 024 aplicada à mão depois dela, com o OK dele;
   - a conexão por convite;
   - um post de cada forma, com a rede marcada;
   - um post nas duas redes;
   - o vencimento simulado;
   - o desconectar.
-- **Em qual LinkedIn os posts de teste saem, e com qual visibilidade**, o Eduardo decide pela caixa antes da prova. Cada post de teste é público ou para as conexões no perfil escolhido, e é apagado à mão depois, se a API não deixar apagar.
+- **Em qual LinkedIn os posts de teste saem**, o Eduardo decide pela caixa antes da prova. Como a visibilidade é fixa (`PUBLIC`), cada post de teste é **público** no perfil escolhido, por pouco tempo, e é apagado à mão logo depois de conferido (190).
 - Nenhum post no Instagram de cliente, nenhuma DM.
