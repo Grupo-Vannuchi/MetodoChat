@@ -33,7 +33,7 @@
   - O payload (`lib/publicacao.ts:737`) não tem destino, e as formas são as do Instagram (`lib/publicacao.ts:95`).
   - O dreno publica pela mecânica de contêiner da Meta (`publicarDaFila`, `lib/queue-drain.ts:465`), apaga a mídia depois do `sent` (`lib/queue-drain.ts:607`) e trata o erro 4xx da Meta como permanente (`lib/queue-drain.ts:1251`).
   - A publicação fica fora da cota de DM da conta (`lib/queue-drain.ts:992` e `:1050`). O ramo dela começa em `lib/queue-drain.ts:1160`.
-  - **O dreno pega qualquer linha pendente, sem olhar o tipo** (a seleção em `lib/queue-drain.ts:1036-1061`). Um tipo que ele não conhece cai no caminho das mensagens (`processItem`, `lib/queue-drain.ts:1167`).
+  - **O dreno pega qualquer linha pendente, sem olhar o tipo** (a seleção em `lib/queue-drain.ts:1036-1061`). Um tipo que ele não conhece cai no caminho das mensagens (`processItem`, `lib/queue-drain.ts:1168`).
   - As telas leem o andamento direto da fila, filtrando `kind = 'publicacao'` (`app/publicar/page.tsx:262` e `app/publicar/post/[id]/page.tsx:85`).
 - **A conferência do build.** O `scripts/migrar.mjs` roda em todo deploy de produção. Ele exige o texto EXATO de cada restrição conferida, e o `queue_kind_check` esperado é o da 010 (`scripts/migrar.mjs:830-839`). Uma divergência é falha "NOS DOIS MODOS" (`:1043-1055`), e o script sai com código 1 (`:1312-1316`), o que derruba o build.
 - **As mídias** ficam num bucket do Supabase, com leitura por URL pública, porque a Meta busca o arquivo (`lib/bucket.ts:189`). O teto é perguntado ao bucket a cada vez, e foi medido em 50 MB em 03/09/2026 (`lib/bucket.ts:303`); ele sobe sozinho se o plano do Supabase mudar.
@@ -93,7 +93,7 @@ O plano começa por aqui, antes de qualquer código da entrega:
 
 ### 0. A preparação na `main`, antes de tudo (um PR pequeno, só dela)
 
-Na prova, o preview usa o banco de produção. O dreno da produção, com o código de hoje, roda a cada webhook, a cada tique e no cron, e pegaria uma linha `publicacao_linkedin` antes do preview: ela cairia no caminho das mensagens (`lib/queue-drain.ts:1167`) e se perderia. E a 024 aplicada à mão quebraria o build de todo deploy da `main` até o merge (188). Por isso, antes da 024, um PR pequeno vai à `main`, com o processo de sempre (testes antes, auditoria, OK do Eduardo, merge dele):
+Na prova, o preview usa o banco de produção. O dreno da produção, com o código de hoje, roda a cada webhook, a cada tique e no cron, e pegaria uma linha `publicacao_linkedin` antes do preview: ela cairia no caminho das mensagens (`lib/queue-drain.ts:1168`) e se perderia. E a 024 aplicada à mão quebraria o build de todo deploy da `main` até o merge (188). Por isso, antes da 024, um PR pequeno vai à `main`, com o processo de sempre (testes antes, auditoria, OK do Eduardo, merge dele):
 
 - **O dreno só pega os tipos que conhece.** A seleção (`lib/queue-drain.ts:1036-1061`) ganha `kind = any(<os tipos que este código sabe drenar>)`. Um tipo novo, escrito por um código mais novo, fica `pending`, intocado, até o código que o conhece chegar. A lista mora num lugar só, e um teste prende que ela tem todos os tipos do `queue_kind_check`, menos os que um código futuro acrescentar.
 - **A conferência aceita as duas formas do `queue_kind_check`:** a da 010 (de hoje) e a da 024, com o `publicacao_linkedin`. Qualquer outro texto continua sendo divergência. Assim, com a 024 aplicada à mão, o build da `main` segue passando, e não há janela.
@@ -213,10 +213,7 @@ Esta parte mexe na fila e no dreno, que são do motor. Ela vai com a auditoria, 
   - `app/publicar/post/actions.ts:84` e `:107`: cancelar e remarcar valem para os dois tipos;
   - `lib/db.ts:361` (o tipo do `kind`) e `app/labels.ts:294` (o rótulo "Publicação no LinkedIn").
   O plano refaz essa busca no commit dele e lista o que tiver mudado.
-- **O dreno** ganha um ramo `publicacao_linkedin`, ao lado do ramo de hoje (`lib/queue-drain.ts:1160`), que chama `publicarNoLinkedinDaFila` (em `lib/linkedin-fila.ts`). Também mudam os dois pontos que hoje dizem `kind = 'publicacao'`:
-  - a cota de DM (`:992`), para o post do LinkedIn não comer a cota das mensagens;
-  - a exceção da seleção (`:1050`).
-  O ramo do Instagram e o `publicarDaFila` não mudam.
+- **O dreno** ganha um ramo `publicacao_linkedin`, ao lado do ramo de hoje (`lib/queue-drain.ts:1160`), que chama `publicarNoLinkedinDaFila` (em `lib/linkedin-fila.ts`). Os outros pontos do dreno que dizem `kind = 'publicacao'` estão na lista completa, acima. O ramo do Instagram e o `publicarDaFila` não mudam.
 - **Os passos, cada um marcado no payload antes do seguinte, para a passada repetida não refazer o que já foi feito:**
   1. Lê a conexão. Ausente ou vencida: `failed`, com o motivo.
   2. Prepara a mídia:
