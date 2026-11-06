@@ -828,6 +828,16 @@ const ESPERADAS_RESTRICOES = [
     // acusar divergência para sempre, e a acusação seria mentira. Foi assim que
     // a `008` substituiu a `004` aqui, e é assim que a `010` substitui a `008`:
     // o `de` aponta para quem escreveu o texto que está no banco AGORA.
+    //
+    // E ELA ACEITA UMA SEGUNDA FORMA, a da entrega do LinkedIn
+    // (docs/specs/2026-11-06-linkedin-no-perfil.md, §0). A `024` alarga a
+    // restrição com `publicacao_linkedin` e é aplicada à mão ANTES do merge
+    // daquela entrega, como a `022` e a `023`; sem `tambemAceitas`, todo deploy da
+    // `main` nessa janela morreria aqui. No merge do LinkedIn, a forma da `024`
+    // vira a `definicao` desta linha, e a da `010` sai. Uma terceira forma
+    // continua sendo divergência (testes-integracao/conferencia-do-kind.integracao.ts).
+    // Os dois textos são os do `pg_get_constraintdef`, o segundo medido no banco
+    // de teste em 06/11/2026.
     tabela: "queue",
     nome: "queue_kind_check",
     de: "010-fila-publicacao.sql",
@@ -836,6 +846,17 @@ const ESPERADAS_RESTRICOES = [
       "'dm_welcome'::text, 'dm_link'::text, 'dm_reminder'::text, " +
       "'dm_follow_gate'::text, 'dm_email_ask'::text, 'story_reaction'::text, " +
       "'dm_manual'::text, 'dm_lote'::text, 'publicacao'::text])))",
+    tambemAceitas: [
+      {
+        de: "024 (a entrega do LinkedIn, aplicada à mão antes do merge dela)",
+        definicao:
+          "CHECK ((kind = ANY (ARRAY['private_reply'::text, 'comment_reply'::text, " +
+          "'dm_welcome'::text, 'dm_link'::text, 'dm_reminder'::text, " +
+          "'dm_follow_gate'::text, 'dm_email_ask'::text, 'story_reaction'::text, " +
+          "'dm_manual'::text, 'dm_lote'::text, 'publicacao'::text, " +
+          "'publicacao_linkedin'::text])))",
+      },
+    ],
   },
   {
     // A GÊMEA DA LINHA ACIMA, na coluna vizinha da mesma tabela. Ela está aqui
@@ -1023,7 +1044,7 @@ for (const { tabela, coluna, aponta, aoExcluir, de } of ESPERADAS_CHAVES) {
   }
 }
 
-for (const { tabela, nome, definicao, de } of ESPERADAS_RESTRICOES) {
+for (const { tabela, nome, definicao, de, tambemAceitas = [] } of ESPERADAS_RESTRICOES) {
   const achadas = await sql`
     select pg_get_constraintdef(c.oid) as definicao
     from pg_constraint c
@@ -1040,14 +1061,20 @@ for (const { tabela, nome, definicao, de } of ESPERADAS_RESTRICOES) {
     continue;
   }
 
-  if (achadas[0].definicao !== definicao) {
+  // AS FORMAS ACEITAS: a da `definicao` e, só na linha que as tiver, as de
+  // `tambemAceitas` (a do `queue_kind_check`, acima). A comparação é sempre do
+  // texto inteiro, como antes.
+  const formas = [{ de, definicao }, ...tambemAceitas];
+  const casada = formas.find((f) => f.definicao === achadas[0].definicao);
+
+  if (!casada) {
     // DIVERGÊNCIA DE DEFINIÇÃO É FALHA NOS DOIS MODOS, pelo mesmo motivo da forma
     // de coluna e da regra de exclusão: a restrição já está no banco com o
     // conteúdo errado, e o par "derruba se houver, cria em seguida" só a conserta
     // se ELE for quem rodar — se alguém a tiver reescrito por fora, não.
     console.log(
-      `CONFERIDO no banco: ${tabela}.${nome} existe, MAS DIVERGE de ${de}\n` +
-        `  esperado: ${definicao}\n` +
+      `CONFERIDO no banco: ${tabela}.${nome} existe, MAS DIVERGE de ${formas.map((f) => f.de).join(" e de ")}\n` +
+        formas.map((f) => `  esperado: ${f.definicao}\n`).join("") +
         `  achado:   ${achadas[0].definicao}\n` +
         "  Pare e investigue."
     );
@@ -1055,7 +1082,7 @@ for (const { tabela, nome, definicao, de } of ESPERADAS_RESTRICOES) {
     continue;
   }
 
-  console.log(`CONFERIDO no banco: ${tabela}.${nome} existe e confere (${de})`);
+  console.log(`CONFERIDO no banco: ${tabela}.${nome} existe e confere (${casada.de})`);
 }
 
 // ============================================================
