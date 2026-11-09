@@ -12,7 +12,11 @@ import CartaoDoConvite from "../cartao";
 //
 // O CÓDIGO VIAJA NO CAMINHO DA URL, e os cabeçalhos do `next.config.ts` fecham o resto (achado 157). O link
 // de fora vai com `rel="noreferrer"`, para o endereço com o código não ir junto.
-export const metadata = { title: "Conectar seu Instagram", robots: { index: false, follow: false } };
+//
+// O CONVITE DO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §3) tem os passos dele, no mesmo
+// cartão. O título da aba é o mesmo para as duas redes: ele é fixo, e a rede só se sabe depois de ler o
+// convite.
+export const metadata = { title: "Conectar sua conta", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
 const MANAGE_ACCESS = "https://www.instagram.com/accounts/manage_access/";
@@ -47,6 +51,32 @@ export default async function ConvitePage({ params }: { params: Promise<{ codigo
     return (
       <CartaoDoConvite>
         <p>{FRASE_DO_LINK_QUE_NAO_VALE}</p>
+      </CartaoDoConvite>
+    );
+  }
+
+  // O LINKEDIN: o cliente entra com o login dele e autoriza. Se ele já autorizou antes e está logado, o
+  // LinkedIn pula a tela de autorização e volta direto (a documentação, spec §3, "Renovar").
+  if (convite.rede === "linkedin") {
+    return (
+      <CartaoDoConvite rede="linkedin" subtitulo="Pelo navegador, em dois passos.">
+        <ol className="space-y-4">
+          <Passo n={1}>
+            Clique no botão abaixo e entre no LinkedIn com o <b>seu login</b>, o do seu perfil pessoal.
+          </Passo>
+          <Passo n={2}>
+            Na tela do LinkedIn, clique em <b>Permitir</b>. Com isso, o painel pode publicar no seu perfil o que for
+            agendado para ele.
+            <span className={`mt-1 block text-xs ${muted}`}>
+              Se você já autorizou antes, o LinkedIn pode pular esta tela e voltar direto.
+            </span>
+          </Passo>
+        </ol>
+        <div className="pt-2">
+          <a href={`/api/oauth/convite/${encodeURIComponent(codigo)}`} className={`${btnPrimary} w-full`}>
+            Conectar meu LinkedIn
+          </a>
+        </div>
       </CartaoDoConvite>
     );
   }

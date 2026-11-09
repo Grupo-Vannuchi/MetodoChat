@@ -1,0 +1,60 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+// A AUTORIZAÇÃO DO LINKEDIN NUNCA VAI AO NAVEGADOR (docs/specs/2026-11-06-linkedin-no-perfil.md, §2), no molde
+// do achado 60 (tests/bonus-arte-paginas.test.ts): a `linkedin_conexoes` guarda o token em texto puro, e só
+// lib/linkedin-conexoes.ts a lê. As telas recebem o resumo (o nome e o vencimento), e nada mais.
+//
+// ESTE ARQUIVO VALE PARA O QUE AINDA NÃO EXISTE: ele procura os arquivos em vez de uma lista. Um componente de
+// cliente novo que importe o repositório, ou um ponto novo que leia a linha inteira, faz ele cair.
+
+const RAIZ = fileURLToPath(new URL("..", import.meta.url));
+const ler = (rel: string) => readFileSync(join(RAIZ, rel), "utf8");
+
+function arquivosDe(pasta: string): string[] {
+  const saida: string[] = [];
+  const andar = (abs: string) => {
+    for (const nome of readdirSync(abs)) {
+      const caminho = join(abs, nome);
+      if (statSync(caminho).isDirectory()) andar(caminho);
+      else if (/\.tsx?$/.test(nome)) saida.push(relative(RAIZ, caminho).split(sep).join("/"));
+    }
+  };
+  andar(join(RAIZ, pasta));
+  return saida.sort();
+}
+
+const CODIGO = [...arquivosDe("app"), ...arquivosDe("lib")];
+const ehCliente = (fonte: string) => /^\s*(?:\/\/[^\n]*\n\s*)*["']use client["']/.test(fonte);
+const IMPORTA_O_REPOSITORIO = /from\s+["'](?:@\/lib\/|\.{1,2}\/(?:[\w.-]+\/)*)linkedin-conexoes["']/;
+const IMPORTA_O_CLIENTE = /from\s+["'](?:@\/lib\/|\.{1,2}\/(?:[\w.-]+\/)*)linkedin["']/;
+
+describe("a autorização do LinkedIn fica no servidor", () => {
+  it("nenhum componente de cliente importa o repositório da conexão nem o cliente do LinkedIn", () => {
+    const clientes = CODIGO.filter((rel) => ehCliente(ler(rel)));
+    expect(clientes.length).toBeGreaterThan(0);
+    const errados = clientes.filter((rel) => IMPORTA_O_REPOSITORIO.test(ler(rel)) || IMPORTA_O_CLIENTE.test(ler(rel)));
+    expect(errados).toEqual([]);
+  });
+
+  it("só estes arquivos importam o repositório da conexão", () => {
+    const importam = CODIGO.filter((rel) => IMPORTA_O_REPOSITORIO.test(ler(rel)));
+    expect(importam).toEqual(["app/setup/actions.ts", "app/setup/page.tsx", "lib/convites-repositorio.ts"]);
+  });
+
+  it("a linha inteira, com o token, só sai pela conexaoDaConta, e nesta parte ninguém a chama", () => {
+    // Na parte 2, o dreno da publicação entra nesta lista: é o único que precisa da autorização.
+    const chamam = CODIGO.filter((rel) => rel !== "lib/linkedin-conexoes.ts" && /\bconexaoDaConta\b/.test(ler(rel)));
+    expect(chamam).toEqual([]);
+  });
+
+  it("a Configuração lê só os resumos, e o componente de cliente dela não fala de token", () => {
+    const pagina = ler("app/setup/page.tsx");
+    expect(pagina).toMatch(/\bresumosDasConexoes\(/);
+    const tela = ler("app/setup/linkedin-das-contas.tsx");
+    expect(ehCliente(tela)).toBe(true);
+    expect(tela).not.toMatch(/access_token|accessToken|pessoa_id/);
+  });
+});

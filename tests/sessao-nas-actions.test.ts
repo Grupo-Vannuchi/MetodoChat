@@ -286,6 +286,8 @@ describe("toda rota fora das públicas confere a sessão antes de qualquer traba
       "app/api/cron/daily/route.ts",
       "app/api/oauth/callback/route.ts",
       "app/api/oauth/convite/[codigo]/route.ts",
+      // A volta do LinkedIn (docs/specs/2026-11-06-linkedin-no-perfil.md, §3): pública como a do Instagram.
+      "app/api/oauth/linkedin/callback/route.ts",
       "app/api/oauth/login/route.ts",
       "app/api/queue/tick/route.ts",
       "app/api/webhook/route.ts",

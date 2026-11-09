@@ -303,11 +303,12 @@ async function tamanhos(): Promise<Record<string, number>> {
   return saida;
 }
 
-/** O que as actions da Configuração mexeriam: a `config`, os convites e o tamanho de cada tabela. */
+/** O que as actions da Configuração mexeriam: a `config`, os convites, o LinkedIn e o tamanho de cada tabela. */
 async function estadoDaConfiguracao() {
   return {
     config: await q(`select * from config where id = 1`),
     convites: await q(`select * from convites_de_conexao order by criado_em, id`),
+    linkedin: await q(`select * from linkedin_conexoes order by account_id`),
     tamanhos: await tamanhos(),
   };
 }
@@ -315,8 +316,24 @@ async function estadoDaConfiguracao() {
 describe("a Configuração manda o login comum para o início, sem mudar nada", () => {
   let conviteId = "";
 
+  // O LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §2): a conta A, que o comum vê, já tem LinkedIn, e
+  // as chaves do app estão no ambiente. Assim, sem a conferência do administrador, o convite seria gravado e a
+  // conexão seria apagada, e a foto acusaria.
   beforeAll(async () => {
     conviteId = (await convites.criarConvite("convite do administrador")).id;
+    process.env.LINKEDIN_CLIENT_ID = "idDoAppDoLinkedinDeTeste";
+    process.env.LINKEDIN_CLIENT_SECRET = "segredo-do-app-do-linkedin-de-teste";
+    await q(
+      `insert into linkedin_conexoes (account_id, pessoa_id, nome, access_token, expira_em)
+       values ($1, 'p', 'Dra. Ana Souza', 't', now() + interval '60 days')
+       on conflict (account_id) do nothing`,
+      [CONTA_A]
+    );
+  });
+
+  afterAll(() => {
+    delete process.env.LINKEDIN_CLIENT_ID;
+    delete process.env.LINKEDIN_CLIENT_SECRET;
   });
 
   // A `config` VOLTA AO MESMO PONTO antes de cada caso: com o App ID e a URL do app (a Meta falsa), e sem
@@ -343,10 +360,12 @@ describe("a Configuração manda o login comum para o início, sem mudar nada", 
     ["salvarPerguntasDeAbertura", () => setup.salvarPerguntasDeAbertura(form({ conta: CONTA_A }))],
     ["gerarConvite", () => setup.gerarConvite(null, form({ para_quem: "Dr. Comum" }))],
     ["cancelarConvite", () => setup.cancelarConvite(form({ id: conviteId }))],
+    ["gerarConviteDoLinkedin", () => setup.gerarConviteDoLinkedin(null, form({ conta: CONTA_A }))],
+    ["desconectarLinkedin", () => setup.desconectarLinkedin(form({ conta: CONTA_A }))],
   ];
 
-  it("a lista tem as 5 actions da Configuração e os 2 convites", () => {
-    expect(ACOES).toHaveLength(7);
+  it("a lista tem as 5 actions da Configuração, os 2 convites e as 2 do LinkedIn", () => {
+    expect(ACOES).toHaveLength(9);
   });
 
   it.each(ACOES)("%s vai para /, e nada muda", async (_nome, acao) => {

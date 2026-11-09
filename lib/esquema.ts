@@ -298,6 +298,15 @@ const MARCA_DAGUA = {
       porque:
         "tabela de FEATURE (convites_de_conexao): a partida do painel não depende dela, de propósito",
     },
+    {
+      de: "024-linkedin-conexoes.sql",
+      // A QUINTA TABELA DE FEATURE, pelo mesmo motivo da 021: `linkedin_conexoes` e as colunas `rede` e
+      // `conta_alvo` do convite são do LinkedIn (docs/specs/2026-11-06-linkedin-no-perfil.md, §1), que só ele
+      // lê, e não podem impedir o painel inteiro de subir. Quem as confere é
+      // testes-integracao/linkedin-tabela.integracao.ts.
+      porque:
+        "tabela e colunas de FEATURE (linkedin_conexoes; convites_de_conexao.rede e conta_alvo): a partida do painel não depende delas, de propósito",
+    },
   ],
   // AS TABELAS QUE NASCEM DEPOIS DA BASE E QUE A PARTIDA EXIGE. A primeira é a dos logins (a 022,
   // docs/specs/2026-11-04-logins.md): ao contrário das tabelas de feature de `naoObservaveis`, sem

@@ -14,6 +14,16 @@
 - **o caminho técnico é o A**: o painel fala direto com o LinkedIn, e a publicação entra na fila como mais um destino. Os outros dois caminhos oferecidos, recusados: um serviço de terceiros que publica em todas as redes (mensalidade, dependência e os dados dos clientes passando por outra empresa) e a publicação na hora, fora da fila (sem agendamento, e o vídeo grande estouraria o tempo da Vercel);
 - **o desenho abaixo foi aprovado** em três partes: a conexão e o convite; a publicação na fila; e as telas, o que fica de fora e o teste antes do código.
 
+**A emenda de 09/11/2026** (decisões do Eduardo pela caixa, depois da sonda):
+- **a sonda rodou** em 09/11 e as três reservas (documento, vídeo e imagem) responderam 200: a entrega segue como desenhada, inclusive o carrossel em PDF. A ferramenta de token do portal deu erro, e o token de teste saiu de um script de troca, conferido pela auditoria antes de rodar. A troca devolveu o `scope` separado por vírgula ("openid,profile,w_member_social") e um `id_token`;
+- **a entrega vai em três partes**, cada uma com plano, prova e PR próprios:
+  1. **a conexão**: a 024, só com a `linkedin_conexoes` e a rede e a conta-alvo do convite (§1, sem o tipo da fila); o repositório e a regra de acesso (§2); o convite e a volta (§3); a troca do código e o `userinfo` (§4); o vencimento (§5); a Configuração, a privacidade e a exclusão de dados (§7);
+  2. **a publicação de "só texto" e de imagem**: a 025, que alarga o `queue_kind_check` com o `publicacao_linkedin`, junto com o ramo do dreno que sabe drenar a linha (o `tests/fila-tipos.test.ts` prende a lista do dreno à última migração que escreve o check); o resto do §4, do §5 e do §6; as telas de publicar, do calendário e do post (§7);
+  3. **o carrossel em PDF e o vídeo em partes**, com a caixinha do LinkedIn no carrossel do gerador.
+- **o "Desconectar" não revoga no LinkedIn** (achado 206): a documentação não traz endpoint de revogação, e a lista de serviços permitidos do LinkedIn não mostrou a autorização que existia. O "Desconectar" apaga a autorização do painel e para de usá-la; no LinkedIn, ela vence sozinha em até 60 dias. A tela e as páginas de privacidade dizem isso.
+
+Onde o texto abaixo diz "a 024" para o tipo da fila, leia "a 025".
+
 ---
 
 ## O que existe hoje (medido no `56cd72a`)
@@ -93,12 +103,12 @@ O plano começa por aqui, antes de qualquer código da entrega:
 
 ### 0. A preparação na `main`, antes de tudo (um PR pequeno, só dela)
 
-Na prova, o preview usa o banco de produção. O dreno da produção, com o código de hoje, roda a cada webhook, a cada tique e no cron, e pegaria uma linha `publicacao_linkedin` antes do preview: ela cairia no caminho das mensagens (`lib/queue-drain.ts:1168`) e se perderia. E a 024 aplicada à mão quebraria o build de todo deploy da `main` até o merge (188). Por isso, antes da 024, um PR pequeno vai à `main`, com o processo de sempre (testes antes, auditoria, OK do Eduardo, merge dele):
+Na prova, o preview usa o banco de produção. O dreno da produção, com o código de hoje, roda a cada webhook, a cada tique e no cron, e pegaria uma linha `publicacao_linkedin` antes do preview: ela cairia no caminho das mensagens (`lib/queue-drain.ts:1168`) e se perderia. E a 025 (a do tipo da fila, na parte 2; emenda de 09/11) aplicada à mão quebraria o build de todo deploy da `main` até o merge (188). Por isso, antes dela, um PR pequeno vai à `main`, com o processo de sempre (testes antes, auditoria, OK do Eduardo, merge dele):
 
 - **O dreno só pega os tipos que conhece.** A seleção (`lib/queue-drain.ts:1036-1061`) ganha `kind = any(<os tipos que este código sabe drenar>)`. Um tipo novo, escrito por um código mais novo, fica `pending`, intocado, até o código que o conhece chegar. A lista mora num lugar só, e um teste prende que ela tem todos os tipos do `queue_kind_check`, menos os que um código futuro acrescentar.
-- **A conferência aceita as duas formas do `queue_kind_check`:** a da 010 (de hoje) e a da 024, com o `publicacao_linkedin`. Qualquer outro texto continua sendo divergência. Assim, com a 024 aplicada à mão, o build da `main` segue passando, e não há janela.
+- **A conferência aceita as duas formas do `queue_kind_check`:** a da 010 (de hoje) e a da 025, com o `publicacao_linkedin`. Qualquer outro texto continua sendo divergência. Assim, com a 025 aplicada à mão, o build da `main` segue passando, e não há janela.
 
-Com a preparação em produção, a 024 pode ser aplicada antes do preview, e a prova não corre o risco de o dreno antigo estragar uma linha do LinkedIn. O dreno do preview drena também as linhas da produção, como em toda prova anterior com o banco de produção. O código do Instagram nele é o mesmo da `main`.
+Com a preparação em produção, a 025 pode ser aplicada antes do preview da parte 2, e a prova não corre o risco de o dreno antigo estragar uma linha do LinkedIn. O dreno do preview drena também as linhas da produção, como em toda prova anterior com o banco de produção. O código do Instagram nele é o mesmo da `main`.
 
 ### 1. A migração 024
 
@@ -115,9 +125,9 @@ Com a preparação em produção, a 024 pode ser aplicada antes do preview, e a 
   - a coluna `conta_alvo text`, com chave estrangeira para `accounts (ig_user_id)` e `on delete cascade`;
   - o check `(rede = 'linkedin') = (conta_alvo is not null)`.
   As linhas de hoje ficam `instagram` e sem conta-alvo, e passam no check.
-- **A fila ganha o tipo `publicacao_linkedin`**, alargando o check do `kind`, como a 008 e a 010. Alargar é seguro num deploy só: o código antigo nunca escreve o tipo novo, e, depois da preparação (§0), também não o pega. O texto novo do `queue_kind_check` entra no `scripts/migrar.mjs` (`ESPERADAS_RESTRICOES`, `:814`) com `de: "024-..."`, no lugar da linha da 010, e a forma da 010 sai da lista de aceitas no merge desta entrega.
+- **A fila ganha o tipo `publicacao_linkedin`** (NA 025, na parte 2; emenda de 09/11), alargando o check do `kind`, como a 008 e a 010. Alargar é seguro num deploy só: o código antigo nunca escreve o tipo novo, e, depois da preparação (§0), também não o pega. O texto novo do `queue_kind_check` entra no `scripts/migrar.mjs` (`ESPERADAS_RESTRICOES`, `:814`) com `de: "025-..."`, no lugar da linha da 010, e a forma da 010 sai da lista de aceitas no merge da parte 2.
 - **A partida.** A `linkedin_conexoes` entra na conferência do esquema como tabela de FEATURE, como a 021 (`lib/esquema.ts:293`): sem ela, o painel sobe, e só o LinkedIn não funciona.
-- A 024 é aplicada à mão na produção antes do preview, com o OK do Eduardo, como a 022 e a 023. O código da `main` não lê nada dela.
+- A 024 é aplicada à mão na produção antes do preview da parte 1, com o OK do Eduardo, como a 022 e a 023. O código da `main` não lê nada dela. A 025, do mesmo jeito, antes do preview da parte 2.
 
 ### 2. A conexão e a regra de acesso
 
@@ -245,7 +255,7 @@ Esta parte mexe na fila e no dreno, que são do motor. Ela vai com a auditoria, 
 - **A política de privacidade e a exclusão de dados** (193). O app do LinkedIn pede o endereço de uma política, e as páginas de hoje falam só do Instagram e da Meta (`app/privacidade/page.tsx:22`). As duas páginas (`/privacidade` e `/exclusao-de-dados`) passam a dizer:
   - o que o painel guarda do LinkedIn: o identificador, o nome e a autorização;
   - para que serve: só publicar o que a agência agenda;
-  - como apagar: o "Desconectar" na Configuração, ou o pedido de exclusão.
+  - como apagar: o "Desconectar" na Configuração, ou o pedido de exclusão. O painel apaga a autorização e para de usá-la; no LinkedIn, ela vence sozinha em até 60 dias (achado 206, emenda de 09/11).
 
 ### 8. As chaves
 
@@ -295,10 +305,10 @@ Esta parte mexe na fila e no dreno, que são do motor. Ela vai com a auditoria, 
   - o contador do texto do LinkedIn.
 - **Da preparação (§0, no PR dela):**
   - o dreno não pega um tipo que não conhece: uma linha de tipo novo fica `pending`, intocada, e as de hoje saem como sempre;
-  - a conferência aceita a forma da 010 e a da 024 do `queue_kind_check`, e acusa qualquer outra;
+  - a conferência aceita a forma da 010 e a da 025 do `queue_kind_check`, e acusa qualquer outra;
   - mutações: tirar o filtro de tipos, e aceitar qualquer texto na conferência.
 - **De integração (`testes-integracao/`, contra o banco de teste e um LinkedIn falso no loopback):**
-  - a 024: colunas, checks, chaves estrangeiras, cascade, RLS e privilégios;
+  - a 024 (parte 1) e a 025 (parte 2): colunas, checks, chaves estrangeiras, cascade, RLS e privilégios;
   - os pontos do `kind = 'publicacao'`: o tique do dia, o `caminhosNaFila`, as contagens do Início e do Desempenho, as telas, e o cancelar e o remarcar, cada um com uma linha do LinkedIn;
   - a ordem do enfileirar: a cópia que falha, a linha do Instagram que falha, e a duplicada numa rede só;
   - o convite do LinkedIn, ponta a ponta: o `state` errado não grava nada; convite vencido, cancelado ou usado; conta-alvo apagada; reconexão;
@@ -313,7 +323,7 @@ Esta parte mexe na fila e no dreno, que são do motor. Ela vai com a auditoria, 
 
 - Primeiro, a sonda (acima), sem publicar nada.
 - Depois, no preview, com o Eduardo e o roteiro do navegador lido pela auditoria antes (a espera numa página só de texto; achados 176 e 186):
-  - a preparação (§0) já em produção, e a 024 aplicada à mão depois dela, com o OK dele;
+  - a preparação (§0) já em produção, e a migração de cada parte (a 024 na parte 1, a 025 na parte 2) aplicada à mão antes do preview dela, com o OK dele;
   - a conexão por convite;
   - um post de cada forma, com a rede marcada;
   - um post nas duas redes;

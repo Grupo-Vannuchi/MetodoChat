@@ -24,6 +24,10 @@ const COLUNAS = [
   "conta_conectada",
   "ultimo_erro",
   "ultimo_erro_em",
+  // A 024 (a conexão do LinkedIn, docs/specs/2026-11-06-linkedin-no-perfil.md, §1): a rede do convite e a
+  // conta do painel que ganha o LinkedIn. testes-integracao/linkedin-tabela.integracao.ts confere as regras.
+  "rede",
+  "conta_alvo",
 ];
 
 const CONTA = "17800000000021001";

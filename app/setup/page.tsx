@@ -18,6 +18,10 @@ import { fmtDate } from "@/lib/format";
 import { linhaDoConvite } from "@/lib/convites";
 import { listarConvites } from "@/lib/convites-repositorio";
 import Convites from "./convites";
+import { resumosDasConexoes } from "@/lib/linkedin-conexoes";
+import { credenciaisDoLinkedin } from "@/lib/linkedin";
+import { vencimentoDoLinkedin } from "@/lib/linkedin-publicacao";
+import LinkedinDasContas, { type LinhaDoLinkedin } from "./linkedin-das-contas";
 import { card, input, muted, btnPrimary, alertError, alertOk, link } from "../ui";
 
 export const dynamic = "force-dynamic";
@@ -114,6 +118,20 @@ export default async function SetupPage({
   // eslint-disable-next-line react-hooks/purity
   const agora = Date.now();
   const convites = (await listarConvites()).map((c) => linhaDoConvite(c, agora, fmtDate));
+  // O LINKEDIN DAS CONTAS (docs/specs/2026-11-06-linkedin-no-perfil.md, §7): só o resumo de cada conexão (o
+  // nome e o vencimento, já decidido aqui), nunca a autorização (tests/linkedin-token-fora-do-cliente.test.ts).
+  const resumosDoLinkedin = await resumosDasConexoes();
+  const linhasDoLinkedin: LinhaDoLinkedin[] = accounts.map((a) => {
+    const resumo = resumosDoLinkedin.get(a.ig_user_id);
+    const vencimento = resumo ? vencimentoDoLinkedin(resumo.expira_em, agora) : null;
+    return {
+      contaId: a.ig_user_id,
+      arroba: `@${a.username ?? a.ig_user_id}`,
+      conexao:
+        resumo && vencimento ? { nome: resumo.nome, estado: vencimento.estado, frase: vencimento.frase } : null,
+    };
+  });
+  const chavesDoLinkedin = credenciaisDoLinkedin() !== null;
 
   const inputCls = input;
 
@@ -226,6 +244,15 @@ export default async function SetupPage({
         <h3 className="mb-1 text-sm font-semibold text-zinc-800 dark:text-zinc-200">Convidar um cliente</h3>
         <Convites linhas={convites} metaOk={metaOk} />
       </section>
+
+      {/* O LINKEDIN DAS CONTAS, À VISTA como o convite (achado 163): fora do <details> da instalação, que nasce
+          recolhido. Uma linha por conta do painel. */}
+      {connected && (
+        <section className={`p-5 ${card}`}>
+          <h3 className="mb-1 text-sm font-semibold text-zinc-800 dark:text-zinc-200">LinkedIn das contas</h3>
+          <LinkedinDasContas linhas={linhasDoLinkedin} chavesOk={chavesDoLinkedin} />
+        </section>
+      )}
 
       {/* A INSTALAÇÃO INTEIRA, RECOLHIDA QUANDO JÁ TERMINOU.
 

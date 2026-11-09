@@ -206,4 +206,14 @@ describe("a linha do convite na etapa 6", () => {
       linhaDoConvite({ ...usado, ultimo_erro: "a Meta recusou", ultimo_erro_em: erro }, AGORA, quando).aviso
     ).toBeNull();
   });
+
+  // O CONVITE DO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §3) aparece na mesma lista, e o
+  // detalhe diz a rede. O do Instagram fica como sempre, com a rede dita ou não.
+  it("o convite do LinkedIn diz a rede no detalhe", () => {
+    const doLinkedin = { ...base, para_quem: "@drmarcus", rede: "linkedin" as const };
+    expect(linhaDoConvite(doLinkedin, AGORA, quando).detalhe).toBe("LinkedIn · vence em [11-04T15:00]");
+    const usado = { ...doLinkedin, usado_em: new Date(AGORA - 60_000), conta_conectada: "178", conta_username: "drmarcus" };
+    expect(linhaDoConvite(usado, AGORA, quando).detalhe).toBe("LinkedIn · @drmarcus, em [11-03T14:59]");
+    expect(linhaDoConvite({ ...base, rede: "instagram" as const }, AGORA, quando).detalhe).toBe("vence em [11-04T15:00]");
+  });
 });

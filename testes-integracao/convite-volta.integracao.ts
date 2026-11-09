@@ -226,6 +226,23 @@ describe("a volta do Instagram pelo convite", () => {
     expect(meta.trocas).toBe(0);
   });
 
+  // O CONVITE DO LINKEDIN GRAVA OS MESMOS COOKIES (docs/specs/2026-11-06-linkedin-no-perfil.md, §3). Na volta do
+  // Instagram, ele não pode servir para pôr um Instagram qualquer no painel.
+  it("o convite do LinkedIn na volta do Instagram não conecta conta nenhuma, e não chama a Meta", async () => {
+    const ALVO = "17800000000024301";
+    await banco.db().sql().query(`delete from accounts where ig_user_id = $1`, [ALVO]);
+    await banco
+      .db()
+      .sql()
+      .query(`insert into accounts (ig_user_id, username, access_token) values ($1, 'alvo', 'ig-token-de-teste')`, [ALVO]);
+    const { id } = await repo.criarConvite("@alvo", { rede: "linkedin", contaAlvo: ALVO });
+    const resposta = await voltar({ convite: id });
+    oFimDoConvite(resposta, "/convite/erro", "vencido");
+    expect(await conviteNoBanco(id)).toMatchObject({ usado_em: null, conta_conectada: null });
+    expect(await tokenDaConta()).toBeNull();
+    expect(meta.trocas).toBe(0);
+  });
+
   it("a assinatura dos webhooks que falha fica no convite usado (achado 158), e a conta fica", async () => {
     const { id } = await repo.criarConvite("Dr. Marcus");
     meta.assinatura = { status: 500, corpo: JSON.stringify({ error: { message: "a Meta caiu" } }) };

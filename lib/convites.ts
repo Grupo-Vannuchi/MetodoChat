@@ -30,6 +30,10 @@ export function hashDoCodigo(codigo: string): string {
 
 export type EstadoDoConvite = "pendente" | "usado" | "vencido" | "cancelado";
 
+// A REDE DO CONVITE (a 024, docs/specs/2026-11-06-linkedin-no-perfil.md, §1): o do Instagram cria a conta do
+// painel; o do LinkedIn liga o LinkedIn a uma conta que já existe, a conta-alvo.
+export type Rede = "instagram" | "linkedin";
+
 type DatasDoConvite = {
   cancelado_em: Date | string | null;
   usado_em: Date | string | null;
@@ -74,6 +78,31 @@ export const FRASE_DO_LINK_QUE_NAO_VALE = "Este link não vale mais. Peça um no
 
 export const FRASE_DO_PRONTO = "Pronto, sua conta do Instagram foi conectada. Pode fechar esta página.";
 
+// AS PÁGINAS ABERTAS DO CONVITE DO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §3). A rede das
+// páginas do fim chega pela URL, e por isso vem de uma lista fechada, como o motivo: fora dela, é o Instagram de
+// sempre.
+export function redeDoParametro(valor: unknown): Rede {
+  return valor === "linkedin" ? "linkedin" : "instagram";
+}
+
+export const TITULO_DA_REDE: Record<Rede, string> = {
+  instagram: "Conectar seu Instagram",
+  linkedin: "Conectar seu LinkedIn",
+};
+
+export const FRASE_DO_PRONTO_DA_REDE: Record<Rede, string> = {
+  instagram: FRASE_DO_PRONTO,
+  linkedin: "Pronto, seu LinkedIn foi conectado. Pode fechar esta página.",
+};
+
+/** A frase do erro na rede do convite: só a recusa diz onde foi recusada. */
+export function fraseDoMotivo(motivo: MotivoDoErro, rede: Rede): string {
+  if (motivo === "negado" && rede === "linkedin") {
+    return "A autorização foi recusada no LinkedIn, e o LinkedIn não foi conectado.";
+  }
+  return FRASE_DO_MOTIVO[motivo];
+}
+
 /**
  * O texto do erro que vai para o `ultimo_erro` do convite (achado 159). Passa pela limpeza de sempre
  * (`semSegredo`, a query da Meta), troca por OCULTO cada segredo da volta (o `code`, o token e o código
@@ -101,6 +130,8 @@ export type ConviteParaLinha = DatasDoConvite & {
   conta_username: string | null;
   ultimo_erro: string | null;
   ultimo_erro_em: Date | string | null;
+  /** A rede do convite (a 024); sem ela, o do Instagram. */
+  rede?: Rede;
 };
 
 export type LinhaDoConvite = {
@@ -115,7 +146,7 @@ export type LinhaDoConvite = {
 /**
  * Uma linha da lista da etapa 6. `quando` formata a data (no painel, o `fmtDate` de lib/format.ts). O
  * erro de uma tentativa ANTES da que deu certo não vira aviso no convite usado: ali, só a assinatura que
- * falhou depois da conexão importa.
+ * falhou depois da conexão importa. O convite do LinkedIn diz a rede no começo do detalhe.
  */
 export function linhaDoConvite(
   c: ConviteParaLinha,
@@ -124,13 +155,14 @@ export function linhaDoConvite(
 ): LinhaDoConvite {
   const estado = estadoDoConvite(c, agoraMs);
   const detalhe =
-    estado === "pendente"
+    (c.rede === "linkedin" ? "LinkedIn · " : "") +
+    (estado === "pendente"
       ? `vence em ${quando(c.expira_em)}`
       : estado === "usado"
         ? `@${c.conta_username ?? c.conta_conectada}, em ${quando(c.usado_em)}`
         : estado === "vencido"
           ? `venceu em ${quando(c.expira_em)}`
-          : `cancelado em ${quando(c.cancelado_em)}`;
+          : `cancelado em ${quando(c.cancelado_em)}`);
   let aviso: string | null = null;
   if (c.ultimo_erro && estado === "usado") {
     if (c.ultimo_erro.startsWith(PREFIXO_DA_ASSINATURA)) {

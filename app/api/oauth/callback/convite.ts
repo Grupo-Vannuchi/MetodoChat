@@ -55,8 +55,12 @@ export async function voltaDoConvite(req: NextRequest, conviteId: string): Promi
     return erro("negado");
   }
 
+  // SÓ O CONVITE DO INSTAGRAM (docs/specs/2026-11-06-linkedin-no-perfil.md, §3): o do LinkedIn grava os mesmos
+  // cookies, e aqui ele não chama a Meta nem conecta conta nenhuma.
   const convite = await conviteDoId(conviteId);
-  if (!convite || estadoDoConvite(convite, Date.now()) !== "pendente") return erro("vencido");
+  if (!convite || convite.rede !== "instagram" || estadoDoConvite(convite, Date.now()) !== "pendente") {
+    return erro("vencido");
+  }
 
   const code = q.get("code");
   if (!code) {
