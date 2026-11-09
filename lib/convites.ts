@@ -130,6 +130,8 @@ export type ConviteParaLinha = DatasDoConvite & {
   conta_username: string | null;
   ultimo_erro: string | null;
   ultimo_erro_em: Date | string | null;
+  /** A rede do convite (a 024); sem ela, o do Instagram. */
+  rede?: Rede;
 };
 
 export type LinhaDoConvite = {
@@ -144,7 +146,7 @@ export type LinhaDoConvite = {
 /**
  * Uma linha da lista da etapa 6. `quando` formata a data (no painel, o `fmtDate` de lib/format.ts). O
  * erro de uma tentativa ANTES da que deu certo não vira aviso no convite usado: ali, só a assinatura que
- * falhou depois da conexão importa.
+ * falhou depois da conexão importa. O convite do LinkedIn diz a rede no começo do detalhe.
  */
 export function linhaDoConvite(
   c: ConviteParaLinha,
@@ -153,13 +155,14 @@ export function linhaDoConvite(
 ): LinhaDoConvite {
   const estado = estadoDoConvite(c, agoraMs);
   const detalhe =
-    estado === "pendente"
+    (c.rede === "linkedin" ? "LinkedIn · " : "") +
+    (estado === "pendente"
       ? `vence em ${quando(c.expira_em)}`
       : estado === "usado"
         ? `@${c.conta_username ?? c.conta_conectada}, em ${quando(c.usado_em)}`
         : estado === "vencido"
           ? `venceu em ${quando(c.expira_em)}`
-          : `cancelado em ${quando(c.cancelado_em)}`;
+          : `cancelado em ${quando(c.cancelado_em)}`);
   let aviso: string | null = null;
   if (c.ultimo_erro && estado === "usado") {
     if (c.ultimo_erro.startsWith(PREFIXO_DA_ASSINATURA)) {

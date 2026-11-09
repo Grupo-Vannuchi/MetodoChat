@@ -14,8 +14,16 @@ import {
   type LinhaDoFormulario,
 } from "./portas";
 import { exigirAdministrador, exigirSessao } from "@/lib/exigir-sessao";
-import { FRASE_DO_PARA_QUEM_INVALIDO, paraQuemDoFormulario, type EstadoDoGerar } from "@/lib/convites";
+import {
+  FRASE_DO_PARA_QUEM_INVALIDO,
+  LIMITE_DO_PARA_QUEM,
+  paraQuemDoFormulario,
+  type EstadoDoGerar,
+} from "@/lib/convites";
 import { cancelarConvite as cancelarNoBanco, criarConvite } from "@/lib/convites-repositorio";
+import { podeVerConta } from "@/lib/acesso";
+import { apagarConexao } from "@/lib/linkedin-conexoes";
+import { ambienteDaVercel, baseDoPainelParaOLinkedin, credenciaisDoLinkedin } from "@/lib/linkedin";
 
 // TODA ACTION DESTE ARQUIVO É DO ADMINISTRADOR (docs/specs/2026-11-05-contas-por-login.md, seção 3: o login
 // comum faz tudo nas contas dele, menos a Configuração e os logins). Cada uma chama `exigirAdministrador`
@@ -364,5 +372,45 @@ export async function cancelarConvite(formData: FormData): Promise<void> {
   await exigirSessao();
   await exigirAdministrador();
   await cancelarNoBanco(String(formData.get("id") ?? ""));
+  revalidatePath("/setup");
+}
+
+// O LINKEDIN DE UMA CONTA (docs/specs/2026-11-06-linkedin-no-perfil.md, §3 e §7; a parte 1, a conexão). O
+// administrador gera o convite do LinkedIn de uma conta do painel; o dono do perfil abre o link e autoriza com
+// o login dele, e a conexão vai para essa conta (a conta-alvo do convite). O link aparece UMA VEZ, como o do
+// Instagram, e nasce no endereço do painel para o LinkedIn (`baseDoPainelParaOLinkedin`): o canônico na
+// produção, o da branch no preview, o mesmo da volta.
+//
+// A CONTA VEM DO FORMULÁRIO, então ela é conferida pela regra (`podeVerConta`, lib/acesso.ts): para o
+// administrador, que ela existe no painel. Sem as chaves do app nas variáveis da Vercel (§8), não gera.
+export async function gerarConviteDoLinkedin(_anterior: EstadoDoGerar, formData: FormData): Promise<EstadoDoGerar> {
+  await exigirSessao();
+  const login = await exigirAdministrador();
+  if (!credenciaisDoLinkedin()) {
+    return { erro: "O LinkedIn está desligado: faltam as chaves do app do LinkedIn nas variáveis da Vercel." };
+  }
+  const contaId = String(formData.get("conta") ?? "");
+  const conta = (await podeVerConta(login, contaId)) ? await getAccount(contaId) : null;
+  if (!conta) return { erro: "Esta conta não está conectada neste painel." };
+  // O "para quem" é o @ da conta, cortado como o `char_length` da 021 conta: caractere, e não pedaço de UTF-16.
+  const paraQuem = Array.from(`@${conta.username ?? conta.ig_user_id}`).slice(0, LIMITE_DO_PARA_QUEM).join("");
+  const config = await getConfig();
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const base = baseDoPainelParaOLinkedin(ambienteDaVercel(), canonicalAppUrl(config.app_url, host ? `${proto}://${host}` : ""));
+  const { codigo } = await criarConvite(paraQuem, { rede: "linkedin", contaAlvo: conta.ig_user_id });
+  revalidatePath("/setup");
+  return { link: `${base}/convite/${codigo}`, paraQuem };
+}
+
+// O "DESCONECTAR" APAGA A AUTORIZAÇÃO DO PAINEL, E SÓ (achado 206): o LinkedIn não tem como revogar a
+// autorização de fora (a documentação não traz endpoint para isso), então ela continua valendo lá até vencer,
+// em até 60 dias, sem ninguém com cópia. A tela diz isso antes de confirmar.
+export async function desconectarLinkedin(formData: FormData): Promise<void> {
+  await exigirSessao();
+  const login = await exigirAdministrador();
+  const contaId = String(formData.get("conta") ?? "");
+  if (await podeVerConta(login, contaId)) await apagarConexao(contaId);
   revalidatePath("/setup");
 }
