@@ -112,6 +112,59 @@ describe("as páginas do fim", () => {
   });
 });
 
+// O CONVITE DO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §3): a mesma página e as mesmas páginas
+// do fim, com os passos e as frases do LinkedIn. A rede do fim chega pela URL (`?rede=linkedin`), de uma lista
+// fechada, como o motivo.
+describe("as páginas do convite do LinkedIn", () => {
+  const CONTA = "17800000000024201";
+
+  beforeEach(async () => {
+    await banco.db().sql().query(`delete from accounts where ig_user_id = $1`, [CONTA]);
+    await banco
+      .db()
+      .sql()
+      .query(`insert into accounts (ig_user_id, username, access_token) values ($1, 'conta_da_ana', 'ig-token-de-teste')`, [
+        CONTA,
+      ]);
+  });
+
+  it("com o convite pendente, mostra os passos do LinkedIn e o botão, e nada do Instagram nem do painel", async () => {
+    const { codigo } = await repo.criarConvite("@conta_da_ana", { rede: "linkedin", contaAlvo: CONTA });
+    const h = await html(codigo);
+    expect(h).toContain("Conectar seu LinkedIn");
+    expect(h).toContain("Conectar meu LinkedIn");
+    expect(h).toContain(`href="/api/oauth/convite/${codigo}"`);
+    expect(h).toContain("o seu perfil pessoal");
+    expect(h).not.toContain("Instagram");
+    expect(h).not.toContain("conta_da_ana");
+  });
+
+  it("o convite do LinkedIn que já não vale tem a mesma página de todo link que não vale", async () => {
+    const { id, codigo } = await repo.criarConvite("@conta_da_ana", { rede: "linkedin", contaAlvo: CONTA });
+    await repo.cancelarConvite(id);
+    expect(await html(codigo)).toBe(await html("a".repeat(43)));
+  });
+
+  it("o \"Pronto\" e o erro dizem LinkedIn, com o título do LinkedIn", async () => {
+    const prontoDoLinkedin = renderToStaticMarkup(
+      await pronto.default({ searchParams: Promise.resolve({ rede: "linkedin" }) })
+    );
+    expect(prontoDoLinkedin).toContain("Pronto, seu LinkedIn foi conectado. Pode fechar esta página.");
+    expect(prontoDoLinkedin).toContain("Conectar seu LinkedIn");
+    const negado = renderToStaticMarkup(
+      await erro.default({ searchParams: Promise.resolve({ motivo: "negado", rede: "linkedin" }) })
+    );
+    expect(negado).toContain("A autorização foi recusada no LinkedIn");
+    expect(negado).toContain("Conectar seu LinkedIn");
+    expect(negado).not.toContain("Instagram");
+  });
+
+  it("uma rede fora da lista vira o Instagram de sempre", async () => {
+    const h = renderToStaticMarkup(await pronto.default({ searchParams: Promise.resolve({ rede: "tiktok" }) }));
+    expect(h).toContain("Pronto, sua conta do Instagram foi conectada.");
+  });
+});
+
 // O CARTÃO E O BOTÃO (o print do Eduardo, 04/11/2026). Na produção, o botão "Conectar meu Instagram" saiu
 // grudado no texto do passo 3: ele estava dentro do `<li>`, com `block` e com o `inline-flex` do btnPrimary
 // na mesma classe, e quem ganha entre duas utilidades de display é a ordem das regras no CSS gerado, e não a

@@ -190,6 +190,9 @@ const FORA_DA_REGRA: Record<string, { motivo: string; leOPapel?: true }> = {
     motivo: "a volta do OAuth, pelo state: só chega do começo de um administrador ou de um convite",
   },
   "app/api/oauth/convite/[codigo]/route.ts GET": { motivo: "o começo do convite, público, pelo código" },
+  "app/api/oauth/linkedin/callback/route.ts GET": {
+    motivo: "a volta do LinkedIn, pelo state e pelo convite: a conexão vai para a conta-alvo que o administrador escolheu",
+  },
   "app/api/oauth/login/route.ts GET": {
     motivo: "confere o papel no login da sessão que a rota lê (login.administrador)",
     leOPapel: true,
