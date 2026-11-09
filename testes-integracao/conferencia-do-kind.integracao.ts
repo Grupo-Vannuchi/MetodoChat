@@ -2,10 +2,11 @@
 //
 // O `scripts/migrar.mjs` roda em todo deploy de produção e exige o texto EXATO de cada restrição conferida;
 // uma divergência derruba o build (saída 1). A entrega do LinkedIn alarga o `queue_kind_check` com o tipo
-// `publicacao_linkedin` (a migração 024), aplicada à mão antes do merge, como a 022 e a 023. Sem esta
-// preparação, todo deploy da `main` entre a 024 e o merge morreria no build.
+// `publicacao_linkedin` (a migração 025, na parte 2 da entrega; a 024 da parte 1 não toca a fila), aplicada à
+// mão antes do merge, como a 022 e a 023. Sem esta preparação, todo deploy da `main` entre a 025 e o merge
+// morreria no build.
 //
-// As duas formas aceitas são a da 010 (a de hoje) e a da 024. Qualquer terceira continua sendo divergência:
+// As duas formas aceitas são a da 010 (a de hoje) e a da 025. Qualquer terceira continua sendo divergência:
 // é o que este arquivo prova, rodando o script de verdade, como o build roda, contra um schema descartável.
 //
 // OS TEXTOS SÃO OS DO `pg_get_constraintdef`, medidos no banco de teste em 06/11/2026.
@@ -93,7 +94,7 @@ it("a forma da 010 confere", async () => {
   expect(r.saida).toContain(CONFERE);
 }, 120_000);
 
-it("a forma da 024, com o publicacao_linkedin, também confere", async () => {
+it("a forma da 025, com o publicacao_linkedin, também confere", async () => {
   await checkCom([...TIPOS_DA_010, "publicacao_linkedin"]);
   const r = await migrar("--a-mao");
   expect(r.codigo, r.saida).toBe(0);

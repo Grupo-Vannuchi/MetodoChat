@@ -830,10 +830,11 @@ const ESPERADAS_RESTRICOES = [
     // o `de` aponta para quem escreveu o texto que está no banco AGORA.
     //
     // E ELA ACEITA UMA SEGUNDA FORMA, a da entrega do LinkedIn
-    // (docs/specs/2026-11-06-linkedin-no-perfil.md, §0). A `024` alarga a
+    // (docs/specs/2026-11-06-linkedin-no-perfil.md, §0). A `025` (a parte 2 da
+    // entrega, a publicação; a `024` da parte 1 não toca a fila) alarga a
     // restrição com `publicacao_linkedin` e é aplicada à mão ANTES do merge
-    // daquela entrega, como a `022` e a `023`; sem `tambemAceitas`, todo deploy da
-    // `main` nessa janela morreria aqui. No merge do LinkedIn, a forma da `024`
+    // daquela parte, como a `022` e a `023`; sem `tambemAceitas`, todo deploy da
+    // `main` nessa janela morreria aqui. No merge da parte 2, a forma da `025`
     // vira a `definicao` desta linha, e a da `010` sai. Uma terceira forma
     // continua sendo divergência (testes-integracao/conferencia-do-kind.integracao.ts).
     // Os dois textos são os do `pg_get_constraintdef`, o segundo medido no banco
@@ -848,7 +849,7 @@ const ESPERADAS_RESTRICOES = [
       "'dm_manual'::text, 'dm_lote'::text, 'publicacao'::text])))",
     tambemAceitas: [
       {
-        de: "024 (a entrega do LinkedIn, aplicada à mão antes do merge dela)",
+        de: "025 (a fila do LinkedIn, parte 2 da entrega, aplicada à mão antes do merge dela)",
         definicao:
           "CHECK ((kind = ANY (ARRAY['private_reply'::text, 'comment_reply'::text, " +
           "'dm_welcome'::text, 'dm_link'::text, 'dm_reminder'::text, " +

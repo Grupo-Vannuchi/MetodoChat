@@ -21,8 +21,22 @@ export default async function PrivacidadePage() {
       <p>
         Para funcionar, o aplicativo recebe da API oficial do Instagram (Meta Platforms) e armazena:
         o identificador público e o nome de usuário de quem interage com a conta conectada, o texto
-        de comentários e mensagens recebidos, e os horários dessas interações. Nenhum outro dado é
-        coletado. Não coletamos senhas, e-mails, telefones nem dados de navegação.
+        de comentários e mensagens recebidos, e os horários dessas interações. Nenhum outro dado do
+        Instagram é coletado. Não coletamos senhas, e-mails, telefones nem dados de navegação.
+      </p>
+
+      {/* O LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §7). O "Desconectar" diz o que faz e o que não
+          faz (achado 206): o LinkedIn não tem como revogar a autorização de fora, e ela vence sozinha lá. */}
+      <h2 className="titulo text-lg font-semibold text-zinc-900 dark:text-zinc-100">LinkedIn</h2>
+      <p>
+        Quando o dono de uma conta conecta o próprio LinkedIn pelo link de convite, o aplicativo guarda o
+        identificador dele no LinkedIn, o nome e a autorização de publicar que o LinkedIn entrega, válida por 60
+        dias. Esses dados servem só para publicar no perfil dele o que for agendado no painel.
+      </p>
+      <p>
+        Para apagar: o administrador usa o &quot;Desconectar&quot; na Configuração, ou você faz o pedido de
+        exclusão (abaixo). O aplicativo apaga a autorização e para de usá-la; no LinkedIn, ela vence sozinha em
+        até 60 dias.
       </p>
 
       <h2 className="titulo text-lg font-semibold text-zinc-900 dark:text-zinc-100">Uso dos dados</h2>

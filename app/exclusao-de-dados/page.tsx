@@ -22,6 +22,13 @@ export default async function ExclusaoDeDadosPage() {
         A exclusão é feita em até 7 dias e remove todos os registros associados ao seu usuário do
         banco de dados desta instância.
       </p>
+      {/* O LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §7; achado 206). */}
+      <p>
+        Se você conectou o seu LinkedIn a este aplicativo, ele guarda o seu identificador no LinkedIn, o seu
+        nome e a autorização de publicar, válida por 60 dias. A exclusão apaga esses dados, e o aplicativo para
+        de usar a autorização; no LinkedIn, ela vence sozinha em até 60 dias. O administrador também pode
+        apagá-los na hora, pelo &quot;Desconectar&quot; da Configuração.
+      </p>
     </article>
   );
 }
