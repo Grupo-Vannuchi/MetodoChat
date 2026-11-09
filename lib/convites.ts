@@ -30,6 +30,10 @@ export function hashDoCodigo(codigo: string): string {
 
 export type EstadoDoConvite = "pendente" | "usado" | "vencido" | "cancelado";
 
+// A REDE DO CONVITE (a 024, docs/specs/2026-11-06-linkedin-no-perfil.md, §1): o do Instagram cria a conta do
+// painel; o do LinkedIn liga o LinkedIn a uma conta que já existe, a conta-alvo.
+export type Rede = "instagram" | "linkedin";
+
 type DatasDoConvite = {
   cancelado_em: Date | string | null;
   usado_em: Date | string | null;

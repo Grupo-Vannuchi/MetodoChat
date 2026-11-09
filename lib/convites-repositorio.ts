@@ -1,6 +1,7 @@
 import "server-only";
 import { sql, upsertAccount } from "./db";
-import { VALIDADE_DO_CONVITE_DIAS, codigoBemFormado, hashDoCodigo, novoCodigoDeConvite } from "./convites";
+import { VALIDADE_DO_CONVITE_DIAS, codigoBemFormado, hashDoCodigo, novoCodigoDeConvite, type Rede } from "./convites";
+import { gravarConexao, type NovaConexao } from "./linkedin-conexoes";
 
 // OS CONVITES DE CONEXÃO NO BANCO (a 021, docs/specs/2026-11-03-link-de-convite.md). O relógio é o do
 // banco, como no resto deste projeto: o prazo nasce de `now()`, e a reivindicação confere `expira_em >
@@ -17,10 +18,13 @@ export type Convite = {
   conta_conectada: string | null;
   ultimo_erro: string | null;
   ultimo_erro_em: Date | null;
+  /** A 024: o convite do LinkedIn liga o LinkedIn a uma conta do painel que já existe, a conta-alvo. */
+  rede: Rede;
+  conta_alvo: string | null;
 };
 
 const COLUNAS =
-  "id, para_quem, criado_em, expira_em, cancelado_em, usado_em, conta_conectada, ultimo_erro, ultimo_erro_em";
+  "id, para_quem, criado_em, expira_em, cancelado_em, usado_em, conta_conectada, ultimo_erro, ultimo_erro_em, rede, conta_alvo";
 const COLUNAS_DA_LISTA = COLUNAS.split(", ")
   .map((coluna) => `c.${coluna}`)
   .join(", ");
@@ -28,14 +32,20 @@ const COLUNAS_DA_LISTA = COLUNAS.split(", ")
 // O id chega da volta do Instagram num cookie, e um valor torto não pode virar erro de banco.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Grava o hash de um código novo e devolve o código, que só existe nesta resposta. */
-export async function criarConvite(paraQuem: string): Promise<{ id: string; codigo: string }> {
+/**
+ * Grava o hash de um código novo e devolve o código, que só existe nesta resposta. Sem o alvo, é o convite
+ * do Instagram de sempre; com ele, o do LinkedIn da conta-alvo (a 024).
+ */
+export async function criarConvite(
+  paraQuem: string,
+  alvo?: { rede: "linkedin"; contaAlvo: string }
+): Promise<{ id: string; codigo: string }> {
   const codigo = novoCodigoDeConvite();
   const [linha] = (await sql().query(
-    `insert into convites_de_conexao (codigo_hash, para_quem, expira_em)
-     values ($1, $2, now() + make_interval(days => $3))
+    `insert into convites_de_conexao (codigo_hash, para_quem, expira_em, rede, conta_alvo)
+     values ($1, $2, now() + make_interval(days => $3), $4, $5)
      returning id`,
-    [hashDoCodigo(codigo), paraQuem, VALIDADE_DO_CONVITE_DIAS]
+    [hashDoCodigo(codigo), paraQuem, VALIDADE_DO_CONVITE_DIAS, alvo?.rede ?? "instagram", alvo?.contaAlvo ?? null]
   )) as { id: string }[];
   return { id: linha.id, codigo };
 }
@@ -98,18 +108,45 @@ export async function anotarErroDoConvite(id: string, texto: string, estado: "pe
  * O USO DO CONVITE E A CONTA, NA MESMA TRANSAÇÃO. A reivindicação só volta a linha se o convite ainda
  * estiver pendente; sem ela, a conta não é gravada. Se a conta falhar ao gravar, a transação desfaz a
  * reivindicação, e o convite continua valendo. Devolve se conectou.
+ *
+ * SÓ O CONVITE DO INSTAGRAM (a 024): o do LinkedIn grava os mesmos cookies, e sem a rede no `where` ele
+ * serviria para pôr um Instagram qualquer no painel pela volta do Instagram.
  */
 export async function reivindicarEGravarConta(id: string, conta: Parameters<typeof upsertAccount>[0]): Promise<boolean> {
   if (!UUID.test(id)) return false;
   return sql().begin(async (tx) => {
     const reivindicado = await tx.query(
       `update convites_de_conexao set usado_em = now(), conta_conectada = $2
-        where id = $1 and usado_em is null and cancelado_em is null and expira_em > now()
+        where id = $1 and rede = 'instagram' and usado_em is null and cancelado_em is null and expira_em > now()
         returning id`,
       [id, conta.ig_user_id]
     );
     if (reivindicado.length === 0) return false;
     await upsertAccount(conta, tx);
     return true;
+  });
+}
+
+/**
+ * O USO DO CONVITE DO LINKEDIN E A CONEXÃO, NA MESMA TRANSAÇÃO (docs/specs/2026-11-06-linkedin-no-perfil.md,
+ * §3). A CONTA VEM DO CONVITE, e não de quem chama: a conexão vai para a `conta_alvo` que o administrador
+ * escolheu ao gerar o link. Só o convite do LinkedIn, e só o pendente. Se a conexão falhar ao gravar, a
+ * transação desfaz a reivindicação. Devolve a conta conectada, ou null.
+ */
+export async function reivindicarEGravarConexao(
+  id: string,
+  pessoa: Omit<NovaConexao, "account_id">
+): Promise<string | null> {
+  if (!UUID.test(id)) return null;
+  return sql().begin(async (tx) => {
+    const [reivindicado] = (await tx.query(
+      `update convites_de_conexao set usado_em = now(), conta_conectada = conta_alvo
+        where id = $1 and rede = 'linkedin' and usado_em is null and cancelado_em is null and expira_em > now()
+        returning conta_alvo`,
+      [id]
+    )) as { conta_alvo: string }[];
+    if (!reivindicado) return null;
+    await gravarConexao({ account_id: reivindicado.conta_alvo, ...pessoa }, tx);
+    return reivindicado.conta_alvo;
   });
 }
