@@ -5,15 +5,11 @@ import { textoSemConta } from "@/lib/logins-textos";
 import { sessaoAtual } from "@/lib/sessao";
 import { fmtDate } from "@/lib/format";
 import { avisoDaUrl } from "@/lib/avisos";
-import {
-  avisoDoAtrasoNaLista,
-  dataDaLinhaDeEnvio,
-  lerPayloadDaPublicacao,
-  linhaDaFalha,
-  rotuloDaFormaDoItem,
-  FRASE_DA_FALHA,
-  capaDoPost,
-} from "@/lib/publicacao";
+import { avisoDoAtrasoNaLista, dataDaLinhaDeEnvio, FRASE_DA_FALHA } from "@/lib/publicacao";
+// O POST DE QUALQUER REDE (a parte 2a do LinkedIn): o quadrado e a linha de "Não saíram" saem de funções puras que
+// leem o post do Instagram como antes e o do LinkedIn com a rede no nome. As consultas leem os dois tipos.
+import { cartaoDoPost, linhaDaFalhaDoPost } from "@/lib/post-da-fila";
+import { TIPOS_DE_PUBLICACAO } from "@/lib/fila-tipos";
 import {
   card,
   muted,
@@ -261,20 +257,20 @@ export default async function Agendados({
         // =====================================================================
         sql().query(
           `select * from queue
-            where account_id = $1 and kind = 'publicacao'
+            where account_id = $1 and kind = any($5::text[])
               and status in ('pending', 'sent')
               and coalesce(sent_at, not_before) >= $2::timestamptz
               and coalesce(sent_at, not_before) < $3::timestamptz
             order by coalesce(sent_at, not_before), id
             limit $4`,
-          [conta.ig_user_id, inicioDaJanela, fimDaJanela, AGENDADOS_NA_TELA]
+          [conta.ig_user_id, inicioDaJanela, fimDaJanela, AGENDADOS_NA_TELA, Array.from(TIPOS_DE_PUBLICACAO)]
         ),
         sql().query(
           `select * from queue
-            where account_id = $1 and kind = 'publicacao' and status = 'failed'
+            where account_id = $1 and kind = any($3::text[]) and status = 'failed'
             order by coalesce(claimed_at, not_before) desc, id
             limit $2`,
-          [conta.ig_user_id, FALHADAS_NA_TELA]
+          [conta.ig_user_id, FALHADAS_NA_TELA, Array.from(TIPOS_DE_PUBLICACAO)]
         ),
         // O QUE ESTA AGENDADO FORA DESTA GRADE — e esta consulta existe por um
         // defeito que a revisao achou em 11/09/2026.
@@ -294,9 +290,9 @@ export default async function Agendados({
         sql().query(
           `select count(*)::int as fora, min(not_before) as proximo
              from queue
-            where account_id = $1 and kind = 'publicacao' and status = 'pending'
+            where account_id = $1 and kind = any($4::text[]) and status = 'pending'
               and (not_before < $2::timestamptz or not_before >= $3::timestamptz)`,
-          [conta.ig_user_id, inicioDaJanela, fimDaJanela]
+          [conta.ig_user_id, inicioDaJanela, fimDaJanela, Array.from(TIPOS_DE_PUBLICACAO)]
         ),
       ])) as [QueueItem[], QueueItem[], { fora: number; proximo: Date | null }[]])
     : ([[], [], [{ fora: 0, proximo: null }]] as [
@@ -446,7 +442,6 @@ export default async function Agendados({
                       </p>
 
                       {mostrados.map((item) => {
-                        const p = lerPayloadDaPublicacao(item.payload);
                         const quando = dataDaLinhaDeEnvio(item);
                         const saiu = quando.saiu;
                         // A MINIATURA SÓ EXISTE ENQUANTO O POST NÃO SAIU: o
@@ -457,9 +452,11 @@ export default async function Agendados({
                         // E A CAPA É A PRIMEIRA IMAGEM, e não o primeiro
                         // caminho (spec 2026-10-19-enquadrar-imagens): o
                         // vídeo saía como imagem quebrada. O post só de vídeo
-                        // fica sem capa, e a célula desenha o ícone dele.
-                        const primeira = !saiu && p ? capaDoPost(p.forma, p.caminhos) : null;
-                        const soVideo = !saiu && !!p && p.caminhos.length > 0 && primeira === null;
+                        // fica sem capa, e a célula desenha o ícone dele. Quem
+                        // decide, nas duas redes, é `cartaoDoPost`.
+                        const cartao = cartaoDoPost(item, saiu);
+                        const primeira = cartao.capa;
+                        const soVideo = cartao.soVideo;
                         // `null` QUANDO O AMBIENTE NÃO DEIXA MONTAR A URL, e
                         // aí a célula desenha o símbolo em vez de uma imagem
                         // quebrada. Prévia não vale uma tela — ver
@@ -532,7 +529,7 @@ export default async function Agendados({
                                 {horaDoDia(quando.quando)}
                               </span>
                               <span className={`block truncate text-[11px] ${muted}`}>
-                                {rotuloDaFormaDoItem(p)}
+                                {cartao.rotulo}
                               </span>
                             </span>
                           </Link>
@@ -639,7 +636,7 @@ export default async function Agendados({
           </div>
           <ul className="space-y-4">
             {falhadas.map((item) => {
-              const falha = linhaDaFalha(item);
+              const falha = linhaDaFalhaDoPost(item);
               return (
                 <li
                   key={item.id}

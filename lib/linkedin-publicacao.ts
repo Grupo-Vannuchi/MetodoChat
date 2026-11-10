@@ -42,6 +42,15 @@ export function rotuloDaFormaNoLinkedin(forma: FormaNoLinkedin): string {
   return forma === "texto" ? "Só texto" : "Imagem";
 }
 
+/**
+ * O NOME DO POST DO LINKEDIN NAS TELAS DE PUBLICAÇÕES, com a rede na frente ("LinkedIn · Só texto"), como a linha
+ * do convite do LinkedIn (lib/convites.ts). O post do Instagram continua só com o nome da forma. O payload que não
+ * se lê ainda tem nome, porque a linha dele continua existindo e é dela que sai o cancelar.
+ */
+export function rotuloDoPostNoLinkedin(p: { forma: FormaNoLinkedin } | null): string {
+  return `LinkedIn · ${p ? rotuloDaFormaNoLinkedin(p.forma) : "Forma não reconhecida"}`;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // O TEXTO
 // ---------------------------------------------------------------------------------------------------------------

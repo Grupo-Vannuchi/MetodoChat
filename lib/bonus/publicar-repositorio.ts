@@ -1,6 +1,7 @@
 import "server-only";
 import { pastaDaConta } from "@/lib/bucket";
 import { sql } from "@/lib/db";
+import { TIPOS_DE_PUBLICACAO } from "@/lib/fila-tipos";
 import { comEspaco, ehCapa, escolhasDaArte } from "./arte-escolhas";
 import { slidesDoTexto } from "./arte-slides";
 import type { LinhaDoCarrossel } from "./carrossel-linha";
@@ -101,13 +102,16 @@ export async function gravarImagemDoSlide(
   });
 }
 
-/** Os caminhos desta lista que aparecem no payload de algum item de publicação da fila. */
+/**
+ * Os caminhos desta lista que aparecem no payload de algum item de publicação da fila, de qualquer rede
+ * (`TIPOS_DE_PUBLICACAO`, lib/fila-tipos.ts; a parte 2a do LinkedIn).
+ */
 export async function caminhosNaFila(caminhos: string[]): Promise<string[]> {
   const achados: string[] = [];
   for (const caminho of caminhos) {
     const [r] = (await sql().query(
-      `select exists (select 1 from queue where kind = 'publicacao' and payload->'caminhos' ? $1) as achou`,
-      [caminho]
+      `select exists (select 1 from queue where kind = any($2::text[]) and payload->'caminhos' ? $1) as achou`,
+      [caminho, Array.from(TIPOS_DE_PUBLICACAO)]
     )) as { achou: boolean }[];
     if (r?.achou) achados.push(caminho);
   }

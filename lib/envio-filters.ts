@@ -7,6 +7,7 @@
 // de períodos discordariam no dia em que alguém mexesse numa delas.
 
 import { PERIODS, type PeriodKey } from "./event-filters";
+import { TIPOS_DE_PUBLICACAO } from "./fila-tipos";
 
 // Quantos envios a lista mostra por padrão. A seção precisa caber em uma tela
 // de 1366×623 sem rolar, e é o número de linhas que decide isso. O que fica de
@@ -31,17 +32,6 @@ export function origemDoKind(kind: string): OrigemKey {
 }
 
 /**
- * O `kind` da PUBLICAÇÃO, e ele merece nome porque é a exceção mais repetida
- * deste produto: publicação usa a mesma fila das mensagens e não é mensagem.
- *
- * O dreno já o separa, com o motivo escrito (`lib/queue-drain.ts`): um post não
- * pode comer a cota de DM. As telas precisam da mesma separação por outro
- * motivo — "mensagens entregues" com post dentro é um número que mente sobre a
- * saúde do motor.
- */
-export const KIND_PUBLICACAO = "publicacao";
-
-/**
  * OS KINDS QUE NÃO CONTAM COMO "O MOTOR ENTREGOU".
  *
  * Duas exclusões, por dois motivos diferentes:
@@ -52,15 +42,19 @@ export const KIND_PUBLICACAO = "publicacao";
  * do motor faz a tela dizer que está tudo rodando quando quem está rodando é
  * gente. Medido em 15/09: era exatamente esse o risco no pulso do Início.
  *
- * `publicacao` é post, não mensagem — ver `KIND_PUBLICACAO`. Medido no mesmo
- * dia: `/desempenho` dizia "Mensagens entregues: 5" com 3 entregues.
+ * os tipos de POST (`TIPOS_DE_PUBLICACAO`, lib/fila-tipos.ts: o do Instagram
+ * e, desde a parte 2a do LinkedIn, o do LinkedIn) não são mensagem: usam a
+ * mesma fila e não são entrega do motor. O dreno já os separa, com o motivo
+ * escrito (`lib/queue-drain.ts`): um post não pode comer a cota de DM. Medido
+ * no mesmo dia: `/desempenho` dizia "Mensagens entregues: 5" com 3 entregues.
+ * Até a parte 2a, este lugar tinha uma constante própria só com `publicacao`.
  *
- * DERIVADA DE `KINDS_MANUAIS`, e não reescrita: um kind manual novo entra aqui
- * sozinho no dia em que nascer.
+ * DERIVADA DE `KINDS_MANUAIS` e de `TIPOS_DE_PUBLICACAO`, e não reescrita: um
+ * kind novo de uma das duas entra aqui sozinho no dia em que nascer.
  */
 export const KINDS_FORA_DA_ENTREGA_DO_MOTOR = [
   ...KINDS_MANUAIS,
-  KIND_PUBLICACAO,
+  ...TIPOS_DE_PUBLICACAO,
 ] as const;
 
 /**
