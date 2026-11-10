@@ -19,12 +19,13 @@ import {
 import { oportunidadesDaConta } from "@/lib/oportunidades";
 import { fraseDoPulso, fraseDas24h } from "@/lib/pulso";
 // KINDS_FORA_DA_ENTREGA_DO_MOTOR É A LISTA DE VERDADE DE "ISSO NÃO É O MOTOR
-// ENTREGANDO": o pulso não pode escrever `'dm_manual'` nem `'publicacao'` de
-// próprio punho, porque as duas strings já moram em lib/envio-filters.ts
-// (espelhadas pelo SQL de Envios) — uma segunda definição aqui é a próxima
+// ENTREGANDO": o pulso não pode escrever `'dm_manual'` nem os tipos de post de
+// próprio punho, porque eles já moram em lib/envio-filters.ts (os posts, pela
+// lista de lib/fila-tipos.ts) — uma segunda definição aqui é a próxima
 // divergência. STATUS_DE_FILA_VIVA é a mesma ideia para "o que ainda vai
 // sair" (mora ao lado, no mesmo arquivo).
 import { KINDS_FORA_DA_ENTREGA_DO_MOTOR, STATUS_DE_FILA_VIVA } from "@/lib/envio-filters";
+import { TIPOS_DE_PUBLICACAO } from "@/lib/fila-tipos";
 // TIPOS_DE_MENSAGEM_RECEBIDA É A MESMA LISTA QUE app/contatos/page.tsx e
 // app/contatos/actions.ts usam: os quatro `type` de evento que significam
 // "alguém falou com a conta". Escrevê-la à mão aqui foi o defeito medido em
@@ -151,12 +152,15 @@ export default async function Home({
                  -- testes-integracao/nao-saiu.integracao.ts.
                  -- (sem crases neste comentario: ele mora DENTRO de um template
                  --  literal, e uma crase o fecharia no meio.)
+                 -- OS TIPOS DE POST SAO UMA LISTA ($7, TIPOS_DE_PUBLICACAO de
+                 -- lib/fila-tipos.ts): o post do LinkedIn que falha e aviso de
+                 -- publicacao, e nao de mensagem.
                  (select count(*)::int from queue where account_id = $1 and status = 'failed'
-                    and kind = 'publicacao'
+                    and kind = any($7::text[])
                     and coalesce(claimed_at, not_before)
                         > now() - make_interval(days => $2::int)) as falhas_publicacao,
                  (select count(*)::int from queue where account_id = $1 and status = 'failed'
-                    and kind <> 'publicacao'
+                    and not (kind = any($7::text[]))
                     and created_at > now() - make_interval(hours => $3::int))
                     as falhas_mensagem,
                  -- O PULSO. "hoje" e o dia de SAO PAULO, e nao de UTC: o
@@ -223,6 +227,7 @@ export default async function Home({
             Array.from(KINDS_FORA_DA_ENTREGA_DO_MOTOR),
             Array.from(STATUS_DE_FILA_VIVA),
             Array.from(TIPOS_DE_MENSAGEM_RECEBIDA),
+            Array.from(TIPOS_DE_PUBLICACAO),
           ]
         )) as Omit<Sinais, "medido">[];
         return linhas[0] ? { ...linhas[0], medido: true } : ZERO;

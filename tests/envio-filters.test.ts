@@ -233,7 +233,9 @@ describe("o vocabulário que o SQL consome", () => {
   it("publicação está FORA da conta de entrega do motor, junto com os manuais", () => {
     // O defeito que este vocabulário fecha: /desempenho dizia "Mensagens
     // entregues: 5" com 3 entregues pelo motor — os outros dois eram POSTS.
-    expect([...KINDS_FORA_DA_ENTREGA_DO_MOTOR]).toEqual(["dm_manual", "publicacao"]);
+    // Desde a parte 2a do LinkedIn, o post do LinkedIn também (lib/fila-tipos.ts,
+    // TIPOS_DE_PUBLICACAO).
+    expect([...KINDS_FORA_DA_ENTREGA_DO_MOTOR]).toEqual(["dm_manual", "publicacao", "publicacao_linkedin"]);
   });
 
   it("a lista DERIVA de KINDS_MANUAIS, e não o repete", () => {

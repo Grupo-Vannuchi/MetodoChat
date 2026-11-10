@@ -307,6 +307,14 @@ const MARCA_DAGUA = {
       porque:
         "tabela e colunas de FEATURE (linkedin_conexoes; convites_de_conexao.rede e conta_alvo): a partida do painel não depende delas, de propósito",
     },
+    {
+      de: "025-fila-linkedin.sql",
+      // A QUARTA DA FAMÍLIA DA 004, DA 008 E DA 010: alarga o `queue_kind_check` com o `publicacao_linkedin`
+      // (docs/specs/2026-11-06-linkedin-no-perfil.md, §6). Do lado ALTO, como elas: um banco sem a 025 RECUSA a
+      // linha do LinkedIn, e quem confere o texto inteiro da restrição é o `scripts/migrar.mjs`
+      // (testes-integracao/conferencia-do-kind.integracao.ts).
+      porque: "reescreve a definição de um `check` que já existe (11 tipos -> 12)",
+    },
   ],
   // AS TABELAS QUE NASCEM DEPOIS DA BASE E QUE A PARTIDA EXIGE. A primeira é a dos logins (a 022,
   // docs/specs/2026-11-04-logins.md): ao contrário das tabelas de feature de `naoObservaveis`, sem

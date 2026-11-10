@@ -22,8 +22,12 @@ describe("o compositor do /publicar", () => {
   const montar = funcao(fonte, "async function montarOPedido\\(\\): Promise<FormData \\| null>");
   const liberar = funcao(fonte, "function liberar\\(\\)");
 
+  // DESDE A PARTE 2a DO LINKEDIN, a action é a da rede do clique (`destino`): a do Instagram ou a do LinkedIn,
+  // escolhida antes de qualquer espera, como o formulário.
   it("acha as funções do clique", () => {
-    expect(publicar).toContain("await acao(dados);");
+    expect(publicar).toContain("await destino(dados);");
+    expect(publicar).toContain("const destino = noLinkedin ? (acaoDoLinkedin ?? acao) : acao;");
+    expect(publicar.indexOf("const destino =")).toBeLessThan(publicar.indexOf("await"));
     expect(montar).toContain("await subirTodos(");
     expect(liberar).toContain("trava.current = false;");
   });
@@ -36,7 +40,7 @@ describe("o compositor do /publicar", () => {
   // O ACHADO 116: a subida dentro da transição prenderia a navegação do menu até ela acabar. Dentro do
   // `iniciar` fica só a espera da action, que é o que a sonda mediu.
   it("dentro da transição fica só a action, e a subida corre fora dela", () => {
-    expect(publicar).toMatch(/iniciar\(async \(\) => \{\s*try \{\s*await acao\(dados\);\s*\} finally \{\s*liberar\(\);\s*\}\s*\}\);/);
+    expect(publicar).toMatch(/iniciar\(async \(\) => \{\s*try \{\s*await destino\(dados\);\s*\} finally \{\s*liberar\(\);\s*\}\s*\}\);/);
     expect(publicar.indexOf("await montarOPedido()")).toBeGreaterThan(-1);
     expect(publicar.indexOf("await montarOPedido()")).toBeLessThan(publicar.indexOf("iniciar("));
   });
@@ -77,5 +81,8 @@ describe("a página de compor", () => {
   it("entrega a action ao compositor, e não monta o formulário dela", () => {
     expect(pagina).toContain("acao={publicar}");
     expect(pagina).not.toContain("<form action={publicar}");
+    // A do LinkedIn (a parte 2a) também.
+    expect(pagina).toContain("acaoDoLinkedin={publicarNoLinkedin}");
+    expect(pagina).not.toContain("<form action={publicarNoLinkedin}");
   });
 });

@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getSelectedAccount } from "@/lib/account";
 import { getConfig, sql } from "@/lib/db";
 import { HORIZONTE_DO_TIQUE_EM_SEGUNDOS, scheduleTick } from "@/lib/qstash";
-import { drainQueue, limparOBucket } from "@/lib/queue-drain";
+import { drainQueue, drenarUmaPublicacaoDoLinkedin, limparOBucket } from "@/lib/queue-drain";
 import {
   atrasoDoTiqueDaPublicacao,
   camposDaDataHora,
@@ -14,7 +14,6 @@ import {
   fusoDoCampo,
   identificadorDaFila,
   instanteDoAgendamento,
-  lerPayloadDaPublicacao,
   momentoDaPublicacao,
   textoDaRecusaDaPublicacao,
   MOTIVO_CANCELADO_PELO_DONO,
@@ -22,6 +21,10 @@ import {
 } from "@/lib/publicacao";
 import { avisoDoDesfecho, urlDeAgendadosComAviso } from "@/lib/avisos";
 import { exigirSessao } from "@/lib/exigir-sessao";
+// O POST DE QUALQUER REDE (a parte 2a do LinkedIn): as duas ações valem para os tipos de post da fila, os arquivos
+// a apagar e o aviso do "já saiu" saem do payload e da rede da linha.
+import { TIPOS_DE_PUBLICACAO } from "@/lib/fila-tipos";
+import { avisoDoDesfechoDoPost, caminhosDoPostDaFila, ehPostDoLinkedin } from "@/lib/post-da-fila";
 
 /**
  * CANCELAR E REMARCAR UM POST AGENDADO.
@@ -50,9 +53,10 @@ import { exigirSessao } from "@/lib/exigir-sessao";
  *
  *   `status = 'pending'` fecha a corrida com o dreno (acima);
  *   `account_id`         impede cancelar o post de OUTRA conta;
- *   `kind = 'publicacao'` impede que um identificador trocado atinja uma
- *                        MENSAGEM da fila — o `id` é `uuid` e a tabela é a
- *                        mesma para os onze tipos.
+ *   `kind` na lista dos tipos de post (`TIPOS_DE_PUBLICACAO`, lib/fila-tipos.ts:
+ *                        o do Instagram e o do LinkedIn) impede que um
+ *                        identificador trocado atinja uma MENSAGEM da fila — o
+ *                        `id` é `uuid` e a tabela é a mesma para os doze tipos.
  *
  * A CONTA VEM DO COOKIE DE SELEÇÃO, NUNCA DO FORMULÁRIO. É a mesma porta que
  * `alvoDoLote` (lib/lote.ts) fecha no envio em lote e que `caminhosDoCampo`
@@ -78,10 +82,10 @@ import { exigirSessao } from "@/lib/exigir-sessao";
  */
 
 /** O `where` das duas ações, escrito UMA vez. Ver as três defesas no cabeçalho.
- *  Ele é constante do código, e os valores entram como `$1`/`$2` — nenhum texto
- *  do navegador é concatenado aqui. */
+ *  Ele é constante do código, e os valores entram como `$1`/`$2`/`$4` (os tipos
+ *  de post) — nenhum texto do navegador é concatenado aqui. */
 const ALVO_DA_MUDANCA =
-  `where id = $1 and account_id = $2 and kind = 'publicacao' and status = 'pending'`;
+  `where id = $1 and account_id = $2 and kind = any($4::text[]) and status = 'pending'`;
 
 /**
  * O STATUS do item, ignorando o filtro de status — ou `null` se ele não existe.
@@ -102,12 +106,13 @@ const ALVO_DA_MUDANCA =
  * responderia um status e faria a tela dizer que o post de outra pessoa já saiu —
  * que é contar sobre a fila alheia.
  */
-async function statusNaConta(id: string, contaId: string): Promise<string | null> {
+async function statusNaConta(id: string, contaId: string): Promise<{ status: string; kind: string } | null> {
+  // O `kind` VOLTA JUNTO (a parte 2a do LinkedIn): é ele que escolhe o aviso do "já saiu" de cada rede.
   const linhas = (await sql().query(
-    `select status from queue where id = $1 and account_id = $2 and kind = 'publicacao'`,
-    [id, contaId]
-  )) as { status: string }[];
-  return linhas[0]?.status ?? null;
+    `select status, kind from queue where id = $1 and account_id = $2 and kind = any($3::text[])`,
+    [id, contaId, Array.from(TIPOS_DE_PUBLICACAO)]
+  )) as { status: string; kind: string }[];
+  return linhas[0] ?? null;
 }
 
 /** As duas telas que uma mudança desatualiza: a lista de agendados (um item a
@@ -161,17 +166,16 @@ export async function cancelarPublicacao(formData: FormData): Promise<void> {
   const afetadas = (await sql().query(
     `update queue set status = 'skipped', error = $3
      ${ALVO_DA_MUDANCA}
-     returning id, payload`,
-    [id, conta.ig_user_id, MOTIVO_CANCELADO_PELO_DONO]
-  )) as { id: string; payload: unknown }[];
+     returning id, kind, payload`,
+    [id, conta.ig_user_id, MOTIVO_CANCELADO_PELO_DONO, Array.from(TIPOS_DE_PUBLICACAO)]
+  )) as { id: string; kind: string; payload: unknown }[];
 
   // A SEGUNDA CONSULTA SÓ NO CAMINHO DE FALHA, e é o `?` que garante isso: com
   // linha afetada não há pergunta a fazer, e o `null` que entra é lido como
   // "não interessa" por `desfechoDaMudanca`, que já respondeu "feito" antes.
-  const desfecho = desfechoDaMudanca(
-    afetadas.length,
-    afetadas.length > 0 ? null : await statusNaConta(id, conta.ig_user_id)
-  );
+  const naConta = afetadas.length > 0 ? null : await statusNaConta(id, conta.ig_user_id);
+  const desfecho = desfechoDaMudanca(afetadas.length, naConta?.status ?? null);
+  const rede = afetadas[0]?.kind ?? naConta?.kind ?? null;
 
   // A MÍDIA DO POST CANCELADO SAI DO BUCKET, e o cancelamento é o outro caso em
   // que o arquivo é ÓRFÃO DE VERDADE.
@@ -189,7 +193,8 @@ export async function cancelarPublicacao(formData: FormData): Promise<void> {
   // um post que a Meta está BAIXANDO neste instante quebraria a publicação, do
   // jeito difícil de ler que o cabeçalho daquela função descreve.
   //
-  // PAYLOAD ILEGÍVEL NÃO APAGA NADA: `lerPayloadDaPublicacao` recusa em vez de
+  // PAYLOAD ILEGÍVEL NÃO APAGA NADA: o leitor do payload de cada rede
+  // (`caminhosDoPostDaFila`, lib/post-da-fila.ts) recusa em vez de
   // confiar num `jsonb` que pode ter sido editado por fora, e um caminho vindo
   // de um payload que ninguém entende é a última coisa que se quer entregar a um
   // `DELETE`.
@@ -199,12 +204,14 @@ export async function cancelarPublicacao(formData: FormData): Promise<void> {
   // segunda tentativa —, e o que ela faz na falha é registrar em Atividade. O
   // `redirect` de baixo continua sendo a única saída desta ação.
   if (afetadas.length > 0) {
-    const pub = lerPayloadDaPublicacao(afetadas[0].payload);
-    if (pub) await limparOBucket(afetadas[0], pub.caminhos, conta.ig_user_id);
+    // Os caminhos saem do payload da rede da linha (`caminhosDoPostDaFila`): o post do LinkedIn só de texto não
+    // tem arquivo, e o com imagem tem um.
+    const caminhos = caminhosDoPostDaFila(afetadas[0].kind, afetadas[0].payload);
+    if (caminhos) await limparOBucket(afetadas[0], caminhos, conta.ig_user_id);
   }
 
   revalidarAsDuasTelas();
-  redirect(urlDeAgendadosComAviso(avisoDoDesfecho(desfecho, "cancelar")));
+  redirect(urlDeAgendadosComAviso(avisoDoDesfechoDoPost(desfecho, "cancelar", rede)));
 }
 
 export async function remarcarPublicacao(formData: FormData): Promise<void> {
@@ -255,16 +262,14 @@ export async function remarcarPublicacao(formData: FormData): Promise<void> {
   const afetadas = (await sql().query(
     `update queue set not_before = greatest(now(), $3::timestamptz)
      ${ALVO_DA_MUDANCA}
-     returning id,
+     returning id, kind,
                (not_before <= now()) as ja_vale,
                greatest(0, ceil(extract(epoch from (not_before - now()))))::int as falta`,
-    [id, conta.ig_user_id, momento.quando]
-  )) as { id: string; ja_vale: boolean; falta: number }[];
+    [id, conta.ig_user_id, momento.quando, Array.from(TIPOS_DE_PUBLICACAO)]
+  )) as { id: string; kind: string; ja_vale: boolean; falta: number }[];
 
-  const desfecho = desfechoDaMudanca(
-    afetadas.length,
-    afetadas.length > 0 ? null : await statusNaConta(id, conta.ig_user_id)
-  );
+  const naConta = afetadas.length > 0 ? null : await statusNaConta(id, conta.ig_user_id);
+  const desfecho = desfechoDaMudanca(afetadas.length, naConta?.status ?? null);
 
   // O TIQUE DA HORA NOVA, e ele é o outro lado de "Ele sai na hora nova".
   //
@@ -292,10 +297,13 @@ export async function remarcarPublicacao(formData: FormData): Promise<void> {
   // tarde; com uma exceção subindo daqui, o `redirect` de baixo nunca
   // aconteceria e a ação voltaria muda.
   if (desfecho === "feito") {
-    const { ja_vale, falta } = afetadas[0];
+    const { ja_vale, falta, kind } = afetadas[0];
     if (ja_vale) {
       try {
-        await drainQueue();
+        // O POST DO LINKEDIN DRENA SÓ A PRÓPRIA LINHA (achado 211), como o "agora" do compor: o dreno inteiro
+        // mandaria também as mensagens vencidas do banco, que é um só para a produção e os previews.
+        if (ehPostDoLinkedin(kind)) await drenarUmaPublicacaoDoLinkedin(id);
+        else await drainQueue();
       } catch {
         // A trava atômica garante que o próximo dreno recupera, como no compor.
       }

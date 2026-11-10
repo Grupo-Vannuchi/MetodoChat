@@ -11,12 +11,13 @@ import {
   avisoDoAtrasoNaLista,
   dataDaLinhaDeEnvio,
   fraseDaDataDaLinha,
-  lerPayloadDaPublicacao,
-  rotuloDaFormaDoItem,
-  fraseSobreAMidia,
   mediaIdParaVerNoInstagram,
-  ehVideoNoPost,
 } from "@/lib/publicacao";
+// O POST DE QUALQUER REDE (a parte 2a do LinkedIn): o título, o texto, a mídia, a frase sobre ela, o link para ver
+// o post e a nota do cancelar saem de `paginaDoPost`, que lê o post do Instagram como antes e o do LinkedIn com o
+// "Ver no LinkedIn". A consulta lê os dois tipos.
+import { paginaDoPost } from "@/lib/post-da-fila";
+import { TIPOS_DE_PUBLICACAO } from "@/lib/fila-tipos";
 import { resolvePosts } from "@/lib/media-lookup";
 import {
   card,
@@ -87,27 +88,27 @@ export default async function DetalheDaPublicacao({
         `select q.*, a.username as conta_username
            from queue q
            left join accounts a on a.ig_user_id = q.account_id
-          where q.id = $1::uuid and q.account_id = $2 and q.kind = 'publicacao'`,
-        [id, conta.ig_user_id]
+          where q.id = $1::uuid and q.account_id = $2 and q.kind = any($3::text[])`,
+        [id, conta.ig_user_id, Array.from(TIPOS_DE_PUBLICACAO)]
       )) as Linha[])
     : [];
 
   const item = linhas[0];
   if (!item) notFound();
 
-  const p = lerPayloadDaPublicacao(item.payload);
   const quando = dataDaLinhaDeEnvio(item);
+  const pagina = paginaDoPost(item, quando);
   const atrasado = avisoDoAtrasoNaLista(quando);
   // `podeMexer` é sobre a AÇÃO (só `pending` se cancela ou se remarca), e a
   // frase sobre a MÍDIA é outra pergunta — ela depende de o post ter SAÍDO. As
   // duas moravam nesta mesma variável, e por isso um post falhado recebia
   // "este post já saiu". Ver `fraseSobreAMidia`.
   const podeMexer = item.status === "pending";
-  const sobreAMidia = fraseSobreAMidia(quando, item.error);
+  const sobreAMidia = pagina.sobreAMidia;
   // A MÍDIA SÓ EXISTE ENQUANTO O POST NÃO SAIU. Ver o cabeçalho.
   // AS URLS SÃO MONTADAS AQUI, e as que não derem saem da lista: `null` vira
   // imagem quebrada se chegar num `src`. Ver `urlPublicaSeDerParaMontar`.
-  const midia = (podeMexer ? (p?.caminhos ?? []) : [])
+  const midia = (podeMexer ? pagina.caminhos : [])
     .map((caminho) => ({ caminho, url: urlPublicaSeDerParaMontar(caminho) }))
     .filter((m): m is { caminho: string; url: string } => m.url !== null);
   // "VER NO INSTAGRAM" — O LINK É BUSCADO, E NÃO GUARDADO.
@@ -132,7 +133,7 @@ export default async function DetalheDaPublicacao({
   // `app/eventos/post-line.tsx`, que também só vira âncora quando há permalink.
   const idNoInstagram = mediaIdParaVerNoInstagram({
     saiu: quando.saiu,
-    mediaId: p?.mediaId ?? null,
+    mediaId: pagina.mediaIdNoInstagram,
   });
   const permalink =
     conta && idNoInstagram
@@ -155,7 +156,7 @@ export default async function DetalheDaPublicacao({
           ← Publicações
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <h1 className={pageTitle}>{rotuloDaFormaDoItem(p)}</h1>
+          <h1 className={pageTitle}>{pagina.titulo}</h1>
           {/* O SELO DIZ O ESTADO, e ele vem de `statusBadge` — a mesma função
               da tela de Atividade, que distingue o post que o DONO cancelou
               daquele que o SISTEMA pulou. Sem ele, esta tela não tinha como
@@ -181,11 +182,12 @@ export default async function DetalheDaPublicacao({
 
       <section className={`space-y-4 p-5 ${card}`}>
         <div>
-          <h2 className="titulo text-sm font-semibold">Legenda</h2>
+          <h2 className="titulo text-sm font-semibold">{pagina.tituloDoTexto}</h2>
           {/* A LEGENDA INTEIRA, e não o resumo da lista: esta tela é de um item
-              só, e quem chegou aqui veio justamente conferir o que vai sair. */}
+              só, e quem chegou aqui veio justamente conferir o que vai sair. No
+              LinkedIn, é o texto do post. */}
           <p className="mt-1 whitespace-pre-wrap text-sm">
-            {p?.legenda?.trim() ? p.legenda : <span className={muted}>Sem legenda.</span>}
+            {pagina.texto ?? <span className={muted}>{pagina.semTexto}</span>}
           </p>
         </div>
 
@@ -203,7 +205,7 @@ export default async function DetalheDaPublicacao({
                 // vem mudo e só com os metadados, que bastam para o primeiro
                 // quadro: baixar o vídeo inteiro para uma prévia de 96px seria
                 // pagar banda por nada.
-                p && ehVideoNoPost(p.forma, m.caminho) ? (
+                pagina.ehVideo(m.caminho) ? (
                   <span key={m.caminho} className="relative block h-24 w-24">
                     <video
                       src={m.url}
@@ -263,6 +265,19 @@ export default async function DetalheDaPublicacao({
             Ver no Instagram ↗
           </a>
         )}
+
+        {/* "VER NO LINKEDIN": o endereço sai do URN que o LinkedIn devolveu no post (`linkParaVerNoLinkedin`), sem
+            ida à rede. O mesmo par `target`/`rel` do link do Instagram, pelo mesmo motivo. */}
+        {pagina.linkNoLinkedin && (
+          <a
+            href={pagina.linkNoLinkedin}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`inline-block text-sm ${link}`}
+          >
+            Ver no LinkedIn ↗
+          </a>
+        )}
       </section>
 
       {podeMexer && (
@@ -312,10 +327,7 @@ export default async function DetalheDaPublicacao({
             <button className={btnDanger}>Cancelar este post</button>
           </form>
 
-          <p className={hint}>
-            Cancelar tira o post da fila e ele não sai. Se ele já tiver saído, só o
-            aplicativo do Instagram apaga — a API não apaga mídia.
-          </p>
+          <p className={hint}>{pagina.notaDoCancelar}</p>
         </section>
       )}
     </div>

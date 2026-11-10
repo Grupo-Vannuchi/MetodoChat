@@ -332,7 +332,7 @@ async function enqueue(item: {
   //
   // O TETO É O HORIZONTE, aplicado depois da folga (achado 102, escolha do
   // Eduardo em 15/10). O "Esperar" do editor não tem teto, e o cron diário só
-  // arma posts (`armarTiquesDoDia` filtra `kind = 'publicacao'`): uma espera de
+  // arma posts (`armarTiquesDoDia` filtra os tipos de post): uma espera de
   // dois dias pedia ao QStash 172805 s, um horizonte que ninguém conferiu, e a
   // recusa dele seria engolida por `scheduleTick`. Com o teto, o tique acorda o
   // dreno em um dia, e o rodapé do dreno arma o seguinte, já dentro do
