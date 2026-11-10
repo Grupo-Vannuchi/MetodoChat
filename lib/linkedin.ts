@@ -1,8 +1,8 @@
 import "server-only";
 
-// O CLIENTE DO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §3 e §4). NA PARTE 1 (a conexão), só o
-// que o convite usa: a autorização, a troca do código pela autorização e o `userinfo`. A versão
-// (`Linkedin-Version`) e as chamadas de `/rest` (a reserva, o envio e o post) vêm na parte 2, que publica.
+// O CLIENTE DO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §3 e §4). NA PARTE 1 (a conexão), o que o
+// convite usa: a autorização, a troca do código pela autorização e o `userinfo`. NA PARTE 2a (só texto e imagem),
+// as chamadas versionadas de `/rest`: a reserva da imagem, o envio dela e o post.
 //
 // AS CHAVES DO APP (`LINKEDIN_CLIENT_ID` e `LINKEDIN_CLIENT_SECRET`) FICAM SÓ NAS VARIÁVEIS DA VERCEL, nunca no
 // código nem no banco, porque o repositório é público (§8). Sem as duas, o LinkedIn fica desligado no painel.
@@ -89,10 +89,13 @@ export class LinkedinError extends Error {
   }
 }
 
-async function chamar(url: string, init: RequestInit): Promise<{ status: number; texto: string }> {
+async function chamar(
+  url: string,
+  init: RequestInit
+): Promise<{ status: number; texto: string; restliId: string | null }> {
   try {
     const res = await fetch(url, { ...init, signal: AbortSignal.timeout(TETO_DO_LINKEDIN_MS) });
-    return { status: res.status, texto: await res.text() };
+    return { status: res.status, texto: await res.text(), restliId: res.headers.get("x-restli-id") };
   } catch (err) {
     // O endereço vai sem a query: nenhuma destas chamadas leva segredo nela, e assim continua.
     const onde = url.split("?")[0];
@@ -154,7 +157,97 @@ export async function pessoaDoLinkedin(accessToken: string): Promise<{ sub: stri
   const corpo = json(r.texto);
   const sub = corpo?.sub;
   if (typeof sub !== "string" || !sub) throw new LinkedinError(r.status, "o userinfo veio sem o sub");
-  const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const texto = (v: unknown) => (typeof v === "string" ? nomeLimpo(v) : "");
   const nome = texto(corpo?.name) || [texto(corpo?.given_name), texto(corpo?.family_name)].filter(Boolean).join(" ");
   return { sub, nome: nome || "sem nome no LinkedIn" };
+}
+
+/** O nome com os espaços juntados e as pontas aparadas: a prova de 09/11 trouxe dois espaços no meio. */
+export function nomeLimpo(nome: string): string {
+  return nome.replace(/\s+/g, " ").trim();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// A PARTE 2a: AS CHAMADAS VERSIONADAS DE PUBLICAR
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * A VERSÃO DA API (`Linkedin-Version`, formato AAAAMM). A 202610 é a mais nova na página de versões, e toda
+ * versão tem suporte por pelo menos um ano ("supported and stable for a minimum of one year before sunset"); a
+ * spec registrou o fim em 15/10/2027. tests/linkedin-rest.test.ts fica vermelho a partir de 01/09/2027, de
+ * propósito, para a troca ser lembrada antes.
+ */
+export const LINKEDIN_VERSION = "202610";
+
+function cabecalhosDoRest(token: string): Record<string, string> {
+  return {
+    authorization: `Bearer ${token}`,
+    "linkedin-version": LINKEDIN_VERSION,
+    "x-restli-protocol-version": "2.0.0",
+    "content-type": "application/json",
+  };
+}
+
+/**
+ * A RESERVA DA IMAGEM (`POST /rest/images?action=initializeUpload`, Images API), com a pessoa como dona.
+ * Devolve o endereço de envio e o URN da imagem.
+ */
+export async function reservarImagem(token: string, pessoaId: string): Promise<{ uploadUrl: string; imagemUrn: string }> {
+  const r = await chamar(`${basesDoLinkedin().api}/rest/images?action=initializeUpload`, {
+    method: "POST",
+    headers: cabecalhosDoRest(token),
+    body: JSON.stringify({ initializeUploadRequest: { owner: `urn:li:person:${pessoaId}` } }),
+  });
+  if (r.status !== 200) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+  const valor = json(r.texto)?.value as Record<string, unknown> | undefined;
+  const uploadUrl = valor?.uploadUrl;
+  const imagemUrn = valor?.image;
+  if (typeof uploadUrl !== "string" || typeof imagemUrn !== "string" || !imagemUrn.startsWith("urn:li:image:")) {
+    throw new LinkedinError(r.status, "a reserva da imagem não devolveu o endereço e o URN");
+  }
+  return { uploadUrl, imagemUrn };
+}
+
+/**
+ * O ENDEREÇO DE ENVIO RECEBE A AUTORIZAÇÃO (o upload da imagem "requires a valid OAuth token in the
+ * 'Authorization' header", na página da Assets API), então ele só é usado se for https de um domínio do
+ * LinkedIn. Nos testes, o loopback, sob a trava do vitest.
+ */
+export function enderecoDeEnvioConfiavel(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (process.env.VITEST === "true" && BASE_DE_TESTE.test(u.origin)) return true;
+  return u.protocol === "https:" && (u.hostname === "linkedin.com" || u.hostname.endsWith(".linkedin.com"));
+}
+
+/** O ENVIO DA IMAGEM: `PUT` dos bytes no endereço da reserva, com a autorização (a página da Assets API). */
+export async function enviarImagem(uploadUrl: string, token: string, bytes: ArrayBuffer, mime: string): Promise<void> {
+  if (!enderecoDeEnvioConfiavel(uploadUrl)) {
+    throw new LinkedinError(0, "o endereço de envio da imagem não é do LinkedIn");
+  }
+  const r = await chamar(uploadUrl, {
+    method: "PUT",
+    headers: { authorization: `Bearer ${token}`, "content-type": mime },
+    body: bytes,
+  });
+  if (r.status !== 200 && r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+}
+
+/**
+ * O POST (`POST /rest/posts`, Posts API): "You should get a 201 response and the response header x-restli-id
+ * contains the Post ID". Devolve o URN do post.
+ */
+export async function criarPost(token: string, corpo: Record<string, unknown>): Promise<string> {
+  const r = await chamar(`${basesDoLinkedin().api}/rest/posts`, {
+    method: "POST",
+    headers: cabecalhosDoRest(token),
+    body: JSON.stringify(corpo),
+  });
+  if (r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+  if (!r.restliId) throw new LinkedinError(r.status, "o post saiu sem o x-restli-id");
+  return r.restliId;
 }

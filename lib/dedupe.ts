@@ -224,3 +224,13 @@ export const loteKey = (accountId: string, loteId: string, contactIgId: string) 
 // código.
 export const publicacaoKey = (accountId: string, forma: string, caminhos: string[]) =>
   `pub:${accountId}:${forma}:${caminhos.join(",")}`;
+
+// A CHAVE DA LINHA `publicacao_linkedin` (docs/specs/2026-11-06-linkedin-no-perfil.md, §6; a parte 2a). O
+// PREFIXO É PRÓPRIO (`pub-linkedin:`), para nunca colidir com a do Instagram. Na imagem, é a lista de caminhos,
+// como a do Instagram (cada caminho é único por upload). No SÓ TEXTO, que não tem arquivo, é o identificador do
+// envio que a tela sorteia ao abrir: o mesmo clique repetido não entra duas vezes, e o mesmo texto pode ser
+// publicado de novo noutro envio.
+export const chaveDaPublicacaoNoLinkedin = (accountId: string, forma: string, caminhos: string[], idDoEnvio: string) =>
+  forma === "texto"
+    ? `pub-linkedin:${accountId}:texto:${idDoEnvio}`
+    : `pub-linkedin:${accountId}:${forma}:${caminhos.join(",")}`;
