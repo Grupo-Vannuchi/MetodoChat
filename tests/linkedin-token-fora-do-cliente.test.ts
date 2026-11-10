@@ -41,12 +41,23 @@ describe("a autorização do LinkedIn fica no servidor", () => {
 
   it("só estes arquivos importam o repositório da conexão", () => {
     const importam = CODIGO.filter((rel) => IMPORTA_O_REPOSITORIO.test(ler(rel)));
+    // A parte 2a: a tela de compor e a action de publicar leem só o resumo (a disponibilidade do LinkedIn).
     expect(importam).toEqual([
+      "app/publicar/actions.ts",
+      "app/publicar/novo/page.tsx",
       "app/setup/actions.ts",
       "app/setup/page.tsx",
       "lib/convites-repositorio.ts",
       "lib/linkedin-fila.ts",
     ]);
+  });
+
+  it("a tela de compor e a action de publicar leem só o resumo", () => {
+    for (const rel of ["app/publicar/actions.ts", "app/publicar/novo/page.tsx"]) {
+      const fonte = ler(rel);
+      expect(fonte, rel).toMatch(/\bresumoDaConexao\(/);
+      expect(fonte, rel).not.toMatch(/conexaoDaConta|access_token|accessToken/);
+    }
   });
 
   it("a linha inteira, com o token, só sai pela conexaoDaConta, e só o post da fila a chama", () => {

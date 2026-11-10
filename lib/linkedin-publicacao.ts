@@ -101,6 +101,113 @@ export function problemaDoTextoDoLinkedin(texto: string, _forma: FormaNoLinkedin
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// O PEDIDO DE PUBLICAR, NA TELA E NA ACTION
+// ---------------------------------------------------------------------------------------------------------------
+
+export type RecusaDoPedidoNoLinkedin = "forma_desconhecida" | "quantidade" | "texto_vazio" | "texto_longo" | "envio_sem_id";
+
+const ID_DO_ENVIO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * O QUE IMPEDE O PEDIDO DE VIRAR LINHA NA FILA, numa função só: a tela confere antes de subir o arquivo, a action
+ * confere de novo no servidor, e o enfileirar (lib/linkedin-fila.ts) é a terceira barreira. O texto é contado pela
+ * mesma `tamanhoDoTextoNoLinkedin` do contador da tela (achado 212). O id do envio é o que a tela gera uma vez por
+ * formulário, e é a chave do só texto contra o clique repetido (`chaveDaPublicacaoNoLinkedin`, lib/dedupe.ts).
+ */
+export function recusaDoPedidoNoLinkedin(p: {
+  forma: FormaNoLinkedin | null;
+  caminhos: string[];
+  texto: string;
+  idDoEnvio: string;
+}): RecusaDoPedidoNoLinkedin | null {
+  if (!p.forma) return "forma_desconhecida";
+  if (p.caminhos.length !== (p.forma === "imagem" ? 1 : 0)) return "quantidade";
+  const problema = problemaDoTextoDoLinkedin(p.texto, p.forma);
+  if (problema === "vazio") return "texto_vazio";
+  if (problema === "longo") return "texto_longo";
+  if (!ID_DO_ENVIO.test(p.idDoEnvio)) return "envio_sem_id";
+  return null;
+}
+
+export function textoDaRecusaNoLinkedin(r: RecusaDoPedidoNoLinkedin): string {
+  switch (r) {
+    case "forma_desconhecida":
+      return "Escolha a forma do post no LinkedIn: só texto ou imagem.";
+    case "quantidade":
+      return "O post do LinkedIn com imagem leva uma imagem, e o só texto não leva arquivo.";
+    case "texto_vazio":
+      return "Escreva o texto do post.";
+    case "texto_longo":
+      return "O texto passa de 3.000 caracteres no LinkedIn, onde as hashtags e alguns sinais contam mais. Encurte o texto.";
+    case "envio_sem_id":
+      return "O formulário chegou incompleto. Recarregue a página e tente de novo.";
+  }
+}
+
+/**
+ * O ID DO ENVIO, gerado pela tela uma vez por formulário: um UUID v4, pelo `crypto.getRandomValues` (que o
+ * navegador e o Node têm; o `randomUUID` falta em navegadores antigos e no jsdom de alguns testes).
+ */
+export function novoIdDoEnvio(): string {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/** A frase curta do contador da tela (achado 212): por que o número pode passar do que se digitou. */
+export const NOTA_DO_CONTADOR_DO_LINKEDIN = "As hashtags e alguns sinais (como @, _ e *) contam mais de um caractere no LinkedIn.";
+
+export type DisponibilidadeDoLinkedin = { disponivel: true; nome: string } | { disponivel: false; motivo: string };
+
+/**
+ * O LINKEDIN DA CONTA NA TELA DE COMPOR: ligado com a conexão dentro da validade; desligado, com o motivo, sem
+ * conexão ou com ela vencida (spec, §7). A action confere de novo, pela mesma função.
+ */
+export function disponibilidadeDoLinkedin(
+  resumo: { nome: string; expira_em: Date | string } | null,
+  agoraMs: number
+): DisponibilidadeDoLinkedin {
+  if (!resumo) {
+    return {
+      disponivel: false,
+      motivo: "Esta conta não tem LinkedIn conectado. Quem administra o painel manda o convite pela Configuração.",
+    };
+  }
+  if (vencimentoDoLinkedin(resumo.expira_em, agoraMs).estado === "vencido") {
+    return {
+      disponivel: false,
+      motivo: `O LinkedIn de ${resumo.nome} venceu. Quem administra o painel manda o convite de novo pela Configuração.`,
+    };
+  }
+  return { disponivel: true, nome: resumo.nome };
+}
+
+/**
+ * O AVISO DEPOIS DE PUBLICAR NO LINKEDIN. O "agora" publica na mesma ida (`drenarUmaPublicacaoDoLinkedin`), então
+ * o aviso diz o desfecho: publicado; na fila ("aguardando", ou outro dreno já a pegou); ou não saiu, com o motivo.
+ * O agendado ecoa a hora dos campos escolhidos, como `avisoDaPublicacaoEnfileirada` (lib/avisos.ts): o servidor
+ * roda em UTC.
+ */
+export function avisoDoPostNoLinkedin(d: {
+  desfecho: "publicado" | "aguardando" | "falhou" | null;
+  motivo?: string | null;
+  agendadoPara: { dia: number; mes: number; hora: number; minuto: number } | null;
+}): { tom: "ok" | "erro"; texto: string } {
+  if (d.agendadoPara) {
+    const p = (n: number) => String(n).padStart(2, "0");
+    const { dia, mes, hora, minuto } = d.agendadoPara;
+    return { tom: "ok", texto: `Post do LinkedIn agendado para ${p(dia)}/${p(mes)} às ${p(hora)}:${p(minuto)}. Acompanhe em Publicações.` };
+  }
+  if (d.desfecho === "publicado") return { tom: "ok", texto: "Post publicado no LinkedIn." };
+  if (d.desfecho === "falhou") {
+    return { tom: "erro", texto: `O post não saiu no LinkedIn: ${d.motivo?.trim() || "o motivo não foi registrado"}.` };
+  }
+  return { tom: "ok", texto: "O post do LinkedIn está na fila e vai sair em instantes. Acompanhe em Publicações." };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // O PAYLOAD DA LINHA `publicacao_linkedin` NA FILA
 // ---------------------------------------------------------------------------------------------------------------
 

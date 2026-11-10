@@ -1,6 +1,9 @@
 import "server-only";
 import { sql, getConfig, type QueueItem } from "./db";
 import type { ResultadoDaPublicacao } from "./engine";
+
+/** O resultado do enfileirar, como o do Instagram (`ResultadoDaPublicacao`), com o id da linha que entrou. */
+export type ResultadoDoLinkedin = { entrou: false } | (Extract<ResultadoDaPublicacao, { entrou: true }> & { id: string });
 import { scheduleTick, HORIZONTE_DO_TIQUE_EM_SEGUNDOS } from "./qstash";
 import { atrasoDoTiqueDaPublicacao } from "./publicacao";
 import { chaveDaPublicacaoNoLinkedin } from "./dedupe";
@@ -21,7 +24,7 @@ import {
   motivoDaAutorizacaoRecusada,
   oPostPodeTerSaido,
   payloadDoLinkedin,
-  problemaDoTextoDoLinkedin,
+  recusaDoPedidoNoLinkedin,
   type FormaNoLinkedin,
 } from "./linkedin-publicacao";
 
@@ -31,8 +34,6 @@ import {
 //
 // O DRENO PASSA AS TRÊS FUNÇÕES DELE (`finish`, `guardarNoPayload` e `limparOBucket`), e este arquivo não importa o
 // dreno: o dreno importa daqui, e o contrário seria um ciclo.
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * ENFILEIRA O POST DO LINKEDIN. `quando: null` é agora, pelo `now()` do banco, e data no passado também é agora
@@ -50,9 +51,10 @@ export async function enqueuePublicacaoNoLinkedin(
   accountId: string,
   pedido: { forma: FormaNoLinkedin; caminhos: string[]; texto: string; idDoEnvio: string },
   quando: Date | null
-): Promise<ResultadoDaPublicacao> {
+): Promise<ResultadoDoLinkedin> {
   const payload = payloadDoLinkedin(pedido);
-  if (!lerPayloadDoLinkedin(payload) || problemaDoTextoDoLinkedin(payload.texto, payload.forma) || !UUID.test(pedido.idDoEnvio)) {
+  // AS MESMAS RECUSAS DA TELA E DA ACTION (`recusaDoPedidoNoLinkedin`), sobre o texto já aparado do payload.
+  if (recusaDoPedidoNoLinkedin({ ...pedido, texto: payload.texto }) || !lerPayloadDoLinkedin(payload)) {
     return { entrou: false };
   }
   const linhas = (await sql().query(
@@ -65,7 +67,7 @@ export async function enqueuePublicacaoNoLinkedin(
     [accountId, payload, chaveDaPublicacaoNoLinkedin(accountId, pedido.forma, pedido.caminhos, pedido.idDoEnvio), quando]
   )) as { id: string; ja_vale: boolean; falta: number }[];
   if (!linhas.length) return { entrou: false };
-  const { ja_vale: jaVale, falta } = linhas[0];
+  const { id, ja_vale: jaVale, falta } = linhas[0];
 
   // O TIQUE NÃO DERRUBA O QUE JÁ ENTROU (o achado 101, do `enqueuePublicacao`): sem tique, o post ainda sai pelo
   // rodapé do dreno, por um webhook ou pelo cron, só mais tarde.
@@ -78,7 +80,13 @@ export async function enqueuePublicacaoNoLinkedin(
       // Calado de propósito: o post está na fila, e é isso que a tela diz.
     }
   }
-  return { entrou: true, jaVale, falta };
+  return { entrou: true, jaVale, falta, id };
+}
+
+/** O motivo gravado numa linha da fila, para o aviso do "agora" que não saiu. */
+export async function erroDaLinha(id: string): Promise<string | null> {
+  const [linha] = (await sql().query(`select error from queue where id = $1`, [id])) as { error: string | null }[];
+  return linha?.error ?? null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

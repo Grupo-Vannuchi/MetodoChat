@@ -6,7 +6,10 @@ import { pastaDaConta, tetoDoBucket } from "@/lib/bucket";
 import { avisoDaUrl } from "@/lib/avisos";
 import { PUBLICACOES_POR_DIA } from "@/lib/publicacao";
 import Enviador from "../enviador";
-import { publicar } from "../actions";
+import { publicar, publicarNoLinkedin } from "../actions";
+// O LINKEDIN DA CONTA (a parte 2a): só o resumo, e a tela recebe só o nome ou o motivo de estar desligado.
+import { resumoDaConexao } from "@/lib/linkedin-conexoes";
+import { disponibilidadeDoLinkedin } from "@/lib/linkedin-publicacao";
 import {
   subtle,
   input,
@@ -68,6 +71,14 @@ export default async function Publicar({
     teto = null;
   }
 
+  // O LINKEDIN DA CONTA SELECIONADA: ligado com a conexão dentro da validade, ou desligado com o motivo. A action
+  // confere de novo, pela mesma função (`publicarNoLinkedin`). Server Component `async`: roda UMA vez por
+  // requisição, e ler o relógio aqui é o comportamento pedido; a regra de pureza trata todo arquivo como cliente,
+  // e é silenciada com o motivo, como em app/setup/page.tsx.
+  // eslint-disable-next-line react-hooks/purity
+  const agora = Date.now();
+  const linkedin = conta ? disponibilidadeDoLinkedin(await resumoDaConexao(conta.ig_user_id), agora) : null;
+
   return (
     <div className="space-y-6">
       <div>
@@ -125,6 +136,8 @@ export default async function Publicar({
             teto={teto}
             pasta={pastaDaConta(conta.ig_user_id)}
             acao={publicar}
+            linkedin={linkedin}
+            acaoDoLinkedin={publicarNoLinkedin}
             quando={
               <>
             {/* QUANDO — refeito em 11/09/2026 porque o dono disse que estava

@@ -42,7 +42,7 @@ export function fraseDoPulso(p: {
  *
  * ESTA FRASE E A DO PULSO FALAM DE COISAS DIFERENTES, e a spec escreve isso para
  * ninguém "consertar" a duplicação: o pulso conta só o que o MOTOR entregou
- * SOZINHO (a fila, menos os kinds manuais — `dm_manual` — e menos `publicacao`);
+ * SOZINHO (a fila, menos os kinds manuais — `dm_manual` — e menos os posts, do Instagram e do LinkedIn);
  * esta conta o MOVIMENTO DA CONTA inteiro, incluindo o que foi feito à mão.
  *
  * A RESPOSTA DIGITADA NA TELA NÃO "ESTÁ SÓ NOS EVENTOS" — ela passa pela MESMA

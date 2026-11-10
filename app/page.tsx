@@ -19,9 +19,9 @@ import {
 import { oportunidadesDaConta } from "@/lib/oportunidades";
 import { fraseDoPulso, fraseDas24h } from "@/lib/pulso";
 // KINDS_FORA_DA_ENTREGA_DO_MOTOR É A LISTA DE VERDADE DE "ISSO NÃO É O MOTOR
-// ENTREGANDO": o pulso não pode escrever `'dm_manual'` nem `'publicacao'` de
-// próprio punho, porque as duas strings já moram em lib/envio-filters.ts
-// (espelhadas pelo SQL de Envios) — uma segunda definição aqui é a próxima
+// ENTREGANDO": o pulso não pode escrever `'dm_manual'` nem os tipos de post de
+// próprio punho, porque eles já moram em lib/envio-filters.ts (os posts, pela
+// lista de lib/fila-tipos.ts) — uma segunda definição aqui é a próxima
 // divergência. STATUS_DE_FILA_VIVA é a mesma ideia para "o que ainda vai
 // sair" (mora ao lado, no mesmo arquivo).
 import { KINDS_FORA_DA_ENTREGA_DO_MOTOR, STATUS_DE_FILA_VIVA } from "@/lib/envio-filters";

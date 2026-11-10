@@ -201,8 +201,9 @@ const linhaDoLinkedin = async () =>
 describe("enfileirar um post do LinkedIn", () => {
   it("grava a linha publicacao_linkedin com o payload, a chave própria e a hora", async () => {
     const r = await enfileirarTexto();
-    expect(r).toEqual({ entrou: true, jaVale: true, falta: 0 });
     const linha = await linhaDoLinkedin();
+    // O ID DA LINHA VOLTA JUNTO: é com ele que o "agora" da tela publica só esta linha (achado 211).
+    expect(r).toEqual({ entrou: true, jaVale: true, falta: 0, id: linha.id });
     expect(linha).toMatchObject({
       account_id: CONTA,
       status: "pending",

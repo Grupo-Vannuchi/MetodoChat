@@ -13,6 +13,21 @@ import { describe, expect, it } from "vitest";
 const RAIZ = process.cwd();
 const ROTAS = ["app/api/queue/tick/route.ts", "app/api/webhook/route.ts", "app/api/cron/daily/route.ts"];
 
+// O "AGORA" DA TELA DE COMPOR DO LINKEDIN (app/publicar/actions.ts, `publicarNoLinkedin`) também: a hora é marcada
+// logo depois da sessão (a primeira linha de toda action é `await exigirSessao();`, tests/sessao-nas-actions.test.ts)
+// e vai ao `drenarUmaPublicacaoDoLinkedin`, e não a hora de depois do enfileirar.
+describe("a action de publicar no LinkedIn passa o começo da função ao \"agora\"", () => {
+  it("app/publicar/actions.ts", () => {
+    const fonte = readFileSync(join(RAIZ, "app/publicar/actions.ts"), "utf8").replace(/\r\n/g, "\n");
+    const inicio = fonte.indexOf("export async function publicarNoLinkedin(");
+    expect(inicio).toBeGreaterThan(-1);
+    const fim = fonte.indexOf("\nexport ", inicio + 1);
+    const corpo = fonte.slice(inicio, fim === -1 ? undefined : fim);
+    expect(corpo).toMatch(/\{\n {2}await exigirSessao\(\);\n {2}const inicioDaFuncaoMs = Date\.now\(\);\n/);
+    expect(corpo).toMatch(/drenarUmaPublicacaoDoLinkedin\(\s*[\w.]+,\s*inicioDaFuncaoMs\s*\)/);
+  });
+});
+
 describe("as rotas que drenam passam o começo da função ao dreno", () => {
   for (const rota of ROTAS) {
     it(rota, () => {

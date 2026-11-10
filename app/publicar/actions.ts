@@ -19,6 +19,18 @@ import {
 } from "@/lib/publicacao";
 import { urlDePublicarComAviso, avisoDaPublicacaoEnfileirada } from "@/lib/avisos";
 import { exigirSessao } from "@/lib/exigir-sessao";
+// O POST NO LINKEDIN (a parte 2a): a conexão só pelo resumo (o token fica no repositório, e só o dreno o lê), as
+// regras puras do pedido e o enfileirar e o "agora" da fila do LinkedIn.
+import { resumoDaConexao } from "@/lib/linkedin-conexoes";
+import {
+  avisoDoPostNoLinkedin,
+  disponibilidadeDoLinkedin,
+  formaNoLinkedinDoCampo,
+  recusaDoPedidoNoLinkedin,
+  textoDaRecusaNoLinkedin,
+} from "@/lib/linkedin-publicacao";
+import { enqueuePublicacaoNoLinkedin, erroDaLinha } from "@/lib/linkedin-fila";
+import { drenarUmaPublicacaoDoLinkedin } from "@/lib/queue-drain";
 
 /**
  * Enfileira uma publicação para a conta selecionada.
@@ -178,4 +190,81 @@ export async function publicar(formData: FormData): Promise<void> {
   // a pessoa digitou. O QUE JÁ VALE LEVA A FRASE DO "AGORA": ecoar a hora do
   // minuto corrente prometeria uma espera que não existe.
   redirect(urlDePublicarComAviso(avisoDaPublicacaoEnfileirada(r.jaVale ? null : campos)));
+}
+
+/**
+ * ENFILEIRA UM POST NO LINKEDIN para a conta selecionada (docs/specs/2026-11-06-linkedin-no-perfil.md, §7; a
+ * parte 2a: só texto ou imagem, uma rede por post).
+ *
+ * AS MESMAS REGRAS DA ACTION DE CIMA: nenhuma saída muda (toda saída é `redirect` com aviso de função pura); a
+ * conta vem da regra das contas (`getSelectedAccount`, lib/account.ts), e nunca do formulário; e os caminhos
+ * passam por `caminhosDoCampo` com a pasta dessa conta, que descarta o que for de outra pasta.
+ *
+ * E MAIS TRÊS:
+ *   - a conexão é conferida de novo aqui, pela mesma `disponibilidadeDoLinkedin` da tela: a tela pode ter sido
+ *     aberta antes de a autorização vencer;
+ *   - o pedido passa pela mesma `recusaDoPedidoNoLinkedin` da tela, que conta o texto pela mesma função do
+ *     contador (achado 212);
+ *   - o "agora" publica SÓ a própria linha (`drenarUmaPublicacaoDoLinkedin`, achado 211), com o prazo contado do
+ *     começo desta função (a segunda linha: a primeira de toda action é a sessão, tests/sessao-nas-actions.test.ts),
+ *     e o aviso diz o desfecho. Sem o drenar, o preview, que não tem QStash, nunca publicaria (nota 198).
+ */
+export async function publicarNoLinkedin(formData: FormData): Promise<void> {
+  await exigirSessao();
+  const inicioDaFuncaoMs = Date.now();
+  const conta = await getSelectedAccount();
+  if (!conta) {
+    redirect(urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaDaPublicacao("sem_conta") }));
+  }
+
+  const disponivel = disponibilidadeDoLinkedin(await resumoDaConexao(conta.ig_user_id), Date.now());
+  if (!disponivel.disponivel) {
+    redirect(urlDePublicarComAviso({ tom: "erro", texto: disponivel.motivo }));
+  }
+
+  const forma = formaNoLinkedinDoCampo(formData.get("forma_linkedin"));
+  const caminhos = caminhosDoCampo(formData.get("caminhos"), pastaDaConta(conta.ig_user_id));
+  const texto = String(formData.get("texto") ?? "").trim();
+  const idDoEnvio = String(formData.get("id_do_envio") ?? "");
+  const recusa = recusaDoPedidoNoLinkedin({ forma, caminhos, texto, idDoEnvio });
+  if (recusa || !forma) {
+    redirect(urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaNoLinkedin(recusa ?? "forma_desconhecida") }));
+  }
+
+  // A HORA, pelos mesmos três passos da action de cima.
+  const campos = camposDaDataHora(formData.get("data_hora"));
+  const fuso = fusoDoCampo(formData.get("fuso"));
+  const momento = momentoDaPublicacao(
+    formData.get("quando"),
+    campos ? instanteDoAgendamento(campos, fuso) : null,
+    Date.now()
+  );
+  if (!momento.ok) {
+    redirect(urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaDaPublicacao(momento.motivo) }));
+  }
+
+  const r = await enqueuePublicacaoNoLinkedin(conta.ig_user_id, { forma, caminhos, texto, idDoEnvio }, momento.quando);
+  if (!r.entrou) {
+    // O MESMO ENVIO DE NOVO (a chave já existe): o post já está na fila, ou já saiu. Dizer "deu erro" faria alguém
+    // mandar de novo, com outro envio, e publicar duas vezes.
+    redirect(urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaDaPublicacao("ja_enfileirado") }));
+  }
+
+  // O "AGORA": o que já vale publica na mesma ida, só esta linha. O erro daqui não derruba o que entrou: a linha
+  // está na fila, e o aviso diz "vai sair em instantes".
+  let desfecho: "publicado" | "aguardando" | "falhou" | null = null;
+  let motivo: string | null = null;
+  if (r.jaVale) {
+    try {
+      desfecho = await drenarUmaPublicacaoDoLinkedin(r.id, inicioDaFuncaoMs);
+      if (desfecho === "falhou") motivo = await erroDaLinha(r.id);
+    } catch {
+      desfecho = null;
+    }
+  }
+
+  revalidatePath("/publicar/novo");
+  revalidatePath("/publicar");
+  revalidatePath("/eventos");
+  redirect(urlDePublicarComAviso(avisoDoPostNoLinkedin({ desfecho, motivo, agendadoPara: r.jaVale ? null : campos })));
 }
