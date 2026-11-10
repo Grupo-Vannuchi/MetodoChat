@@ -979,18 +979,30 @@ export async function cancelarLotesVencidos(): Promise<{ vencidos: number }> {
  * É o `catch` do `drainQueue`, tirado para uma função quando o "agora" do LinkedIn
  * (`drenarUmaPublicacaoDoLinkedin`, logo abaixo) passou a precisar do mesmo desfecho.
  */
-async function devolverOuEncerrar(item: QueueItem, err: unknown): Promise<void> {
+async function devolverOuEncerrar(item: QueueItem, err: unknown): Promise<"pending" | "failed"> {
   const permanent = err instanceof IgError && err.status >= 400 && err.status < 500;
   const giveUp = permanent || item.attempts >= 3;
+  const status = giveUp ? "failed" : "pending";
   await finish(item.id, {
-    status: giveUp ? "failed" : "pending",
+    status,
     retryInSeconds: 120,
     error: err instanceof Error ? err.message.slice(0, 500) : String(err),
   });
+  return status;
 }
 
-/** O que o post do LinkedIn usa do dreno (lib/linkedin-fila.ts). */
-const DEPENDENCIAS_DO_LINKEDIN: DependenciasDoDreno = { finish, guardarNoPayload, limparOBucket };
+/**
+ * O ORÇAMENTO DE TEMPO DE UMA FUNÇÃO QUE DRENA: as rotas que drenam têm `maxDuration` 60 (o tique, o webhook e o
+ * cron), e os 5 s que faltam são a folga. É contado do COMEÇO DA FUNÇÃO (`inicioDaFuncaoMs`), que as três rotas
+ * passam (tests/dreno-com-prazo.test.ts); sem ele, conta da hora em que o dreno começou. Hoje só o post do
+ * LinkedIn o lê (lib/linkedin-fila.ts), para não começar um passo que a função não tem tempo de terminar.
+ */
+export const ORCAMENTO_DA_FUNCAO_MS = 55_000;
+
+/** O que o post do LinkedIn usa do dreno (lib/linkedin-fila.ts), com o prazo desta função. */
+function dependenciasDoLinkedin(inicioDaFuncaoMs: number): DependenciasDoDreno {
+  return { finish, guardarNoPayload, limparOBucket, prazoMs: inicioDaFuncaoMs + ORCAMENTO_DA_FUNCAO_MS };
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -1003,9 +1015,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * do LinkedIn, `pending` e já valer. Com o dreno geral rodando ao mesmo tempo, só um dos dois a pega: o `update`
  * espera a trava do outro e confere o `where` de novo, e aí a linha já é `sending`.
  *
- * Devolve o desfecho, ou null quando não pegou nada (id torto, outro tipo, agendada, ou já pega).
+ * ELA NÃO TEM O RODAPÉ DO `drainQueue`, que é quem arma o próximo tique. Quando a linha volta à fila (sem tempo, ou
+ * por um erro passageiro), esta função mesma pede o tique dela; sem isso, o post esperaria o próximo webhook ou o
+ * cron do dia seguinte (testes-integracao/tique-do-rodape.integracao.ts).
+ *
+ * Devolve o desfecho ("aguardando" quando a linha voltou à fila), ou null quando não pegou nada (id torto, outro
+ * tipo, agendada, ou já pega).
  */
-export async function drenarUmaPublicacaoDoLinkedin(id: string): Promise<"publicado" | "falhou" | null> {
+export async function drenarUmaPublicacaoDoLinkedin(
+  id: string,
+  inicioDaFuncaoMs: number = Date.now()
+): Promise<"publicado" | "aguardando" | "falhou" | null> {
   if (!UUID.test(id)) return null;
   const [item] = (await sql().query(
     `update queue set status = 'sending', claimed_at = now(), attempts = attempts + 1
@@ -1014,15 +1034,36 @@ export async function drenarUmaPublicacaoDoLinkedin(id: string): Promise<"public
     [id]
   )) as QueueItem[];
   if (!item) return null;
+  let desfecho: "publicado" | "aguardando" | "falhou";
   try {
-    return await publicarNoLinkedinDaFila(item, DEPENDENCIAS_DO_LINKEDIN);
+    desfecho = await publicarNoLinkedinDaFila(item, dependenciasDoLinkedin(inicioDaFuncaoMs));
   } catch (err) {
-    await devolverOuEncerrar(item, err);
-    return "falhou";
+    desfecho = (await devolverOuEncerrar(item, err)) === "pending" ? "aguardando" : "falhou";
+  }
+  if (desfecho === "aguardando") await armarOTiqueDaLinha(item.id);
+  return desfecho;
+}
+
+/**
+ * O TIQUE DE UMA LINHA QUE VOLTOU À FILA, pela hora dela e com a mesma conta do rodapé do `drainQueue` (vinte
+ * segundos no mínimo, o horizonte no máximo). Calado como os outros: sem tique o post ainda sai, só mais tarde.
+ */
+async function armarOTiqueDaLinha(id: string): Promise<void> {
+  try {
+    const [linha] = (await sql().query(
+      `select extract(epoch from (not_before - now()))::float8 as secs from queue where id = $1 and status = 'pending'`,
+      [id]
+    )) as { secs: number }[];
+    if (!linha) return;
+    const config = await getConfig();
+    await scheduleTick(config.app_url ?? "", Math.min(Math.max(linha.secs + 5, 20), HORIZONTE_DO_TIQUE_EM_SEGUNDOS));
+  } catch {
+    // Calado de propósito: a linha está na fila.
   }
 }
 
-export async function drainQueue(): Promise<ResumoDaDrenagem> {
+export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Promise<ResumoDaDrenagem> {
+  const depsDoLinkedin = dependenciasDoLinkedin(opcoes.inicioDaFuncaoMs ?? Date.now());
   const result = { sent: 0, skipped: 0, failed: 0, guardados: 0, aguardando: 0 };
   const accounts = await listAccounts();
   if (!accounts.length) return result;
@@ -1229,8 +1270,9 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
       // O POST DO LINKEDIN (a parte 2a), pelo mesmo caminho e no mesmo `try`: o erro passageiro dele cai no `catch`
       // de baixo, como o da Meta. O que é recusa do LinkedIn, ou dúvida depois do POST, ele mesmo encerra.
       if (item.kind === "publicacao_linkedin") {
-        const desfecho = await publicarNoLinkedinDaFila(item, DEPENDENCIAS_DO_LINKEDIN);
+        const desfecho = await publicarNoLinkedinDaFila(item, depsDoLinkedin);
         if (desfecho === "publicado") result.sent++;
+        else if (desfecho === "aguardando") result.aguardando++;
         else result.failed++;
         continue;
       }

@@ -19,6 +19,13 @@ export const CAMINHO_DA_VOLTA_DO_LINKEDIN = "/api/oauth/linkedin/callback";
 /** O teto de tempo de cada chamada ao LinkedIn, como o da Graph (lib/ig.ts): para ela terminar algum dia. */
 export const TETO_DO_LINKEDIN_MS = 10_000;
 
+/**
+ * O teto do envio da imagem, que leva até 8 MB (~4,3 Mbit/s em 15 s). A soma do ramo da imagem (o bucket, a
+ * reserva, este envio e o post) cabe nos 60 s da função com folga, e o ramo confere o tempo que resta antes de
+ * começar (lib/linkedin-fila.ts). tests/linkedin-rest.test.ts mede o teto que cada chamada pede.
+ */
+export const TETO_DO_ENVIO_DA_IMAGEM_MS = 15_000;
+
 // AS BASES SÓ SE MOVEM NOS TESTES, sob as mesmas duas travas da `baseDoGraph` (lib/ig.ts): `VITEST=true`, que
 // `next build` e a Vercel não definem, e o loopback, e só ele (a autorização viaja nestas chamadas, e uma base
 // apontando para fora seria vazar a autorização por variável de ambiente). As duas bases vão juntas para o
@@ -91,16 +98,17 @@ export class LinkedinError extends Error {
 
 async function chamar(
   url: string,
-  init: RequestInit
+  init: RequestInit,
+  tetoMs: number = TETO_DO_LINKEDIN_MS
 ): Promise<{ status: number; texto: string; restliId: string | null }> {
   try {
-    const res = await fetch(url, { ...init, signal: AbortSignal.timeout(TETO_DO_LINKEDIN_MS) });
+    const res = await fetch(url, { ...init, signal: AbortSignal.timeout(tetoMs) });
     return { status: res.status, texto: await res.text(), restliId: res.headers.get("x-restli-id") };
   } catch (err) {
     // O endereço vai sem a query: nenhuma destas chamadas leva segredo nela, e assim continua.
     const onde = url.split("?")[0];
     if (err instanceof Error && err.name === "TimeoutError") {
-      throw new LinkedinError(0, `${onde} não respondeu em ${TETO_DO_LINKEDIN_MS}ms`);
+      throw new LinkedinError(0, `${onde} não respondeu em ${tetoMs}ms`);
     }
     throw new LinkedinError(0, `${onde} falhou na rede`);
   }
@@ -229,11 +237,11 @@ export async function enviarImagem(uploadUrl: string, token: string, bytes: Arra
   if (!enderecoDeEnvioConfiavel(uploadUrl)) {
     throw new LinkedinError(0, "o endereço de envio da imagem não é do LinkedIn");
   }
-  const r = await chamar(uploadUrl, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${token}`, "content-type": mime },
-    body: bytes,
-  });
+  const r = await chamar(
+    uploadUrl,
+    { method: "PUT", headers: { authorization: `Bearer ${token}`, "content-type": mime }, body: bytes },
+    TETO_DO_ENVIO_DA_IMAGEM_MS
+  );
   if (r.status !== 200 && r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300));
 }
 

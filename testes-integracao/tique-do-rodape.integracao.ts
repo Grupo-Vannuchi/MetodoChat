@@ -707,3 +707,59 @@ describe("o tique das mensagens com espera", () => {
     expect(segundosDoTique(0)).toBe(UM_DIA_EM_SEGUNDOS);
   });
 });
+
+// O "AGORA" DO LINKEDIN NÃO TEM RODAPÉ (nota da auditoria sobre o F2-bis da parte 2a). `drenarUmaPublicacaoDoLinkedin`
+// drena uma linha só, e não passa pelo rodapé do `drainQueue`, que é quem arma o próximo tique. Quando ele devolve
+// a linha à fila (pela falta de tempo, em ~20 s, ou por um erro passageiro, em 120 s), ele mesmo pede o tique
+// dela. Sem isso, o post esperaria o próximo webhook ou o cron do dia seguinte.
+//
+// NADA AQUI FALA COM O LINKEDIN NEM COM O BUCKET DE VERDADE: a base do LinkedIn e a SUPABASE_URL vão para a Meta
+// falsa deste arquivo, que responde 500 a tudo.
+describe("o \"agora\" do LinkedIn que devolve a linha à fila pede o tique dela", () => {
+  beforeAll(() => {
+    process.env.LINKEDIN_API_BASE = process.env.IG_GRAPH_BASE;
+  });
+  afterAll(() => {
+    delete process.env.LINKEDIN_API_BASE;
+  });
+
+  async function linhaDoLinkedin(payload: Record<string, unknown>): Promise<string> {
+    const [linha] = (await banco
+      .db()
+      .sql()
+      .query(
+        `insert into queue (account_id, kind, payload, dedupe_key) values ($1, 'publicacao_linkedin', $2, $3) returning id`,
+        [CONTA, payload, `pub-linkedin:${CONTA}:tique:${Math.random()}`]
+      )) as { id: string }[];
+    return linha.id;
+  }
+
+  test("sem tempo para o post, a linha volta em ~20 s, e o tique é pedido para ela", async () => {
+    const id = await linhaDoLinkedin({ forma: "texto", caminhos: [], texto: "Olá" });
+    const desfecho = await dreno.drenarUmaPublicacaoDoLinkedin(id, Date.now() - (dreno.ORCAMENTO_DA_FUNCAO_MS - 5_000));
+    expect(desfecho).toBe("aguardando");
+    expect(publicados.length).toBe(1);
+    expect(segundosDoTique(0)).toBeGreaterThanOrEqual(20);
+    expect(segundosDoTique(0)).toBeLessThanOrEqual(30);
+  });
+
+  test("com um erro passageiro, a linha volta em 120 s, e o tique é pedido para ela", async () => {
+    await banco
+      .db()
+      .sql()
+      .query(
+        `insert into linkedin_conexoes (account_id, pessoa_id, nome, access_token, expira_em)
+         values ($1, 'pessoaDoTique', 'Pessoa do Tique', 'autorizacao-inventada-que-nao-vale-nada', now() + interval '30 days')
+         on conflict (account_id) do nothing`,
+        [CONTA]
+      );
+    const id = await linhaDoLinkedin({ forma: "imagem", caminhos: [`${CONTA}/foto-do-tique.jpg`], texto: "Com foto" });
+    const desfecho = await dreno.drenarUmaPublicacaoDoLinkedin(id);
+    expect(desfecho).toBe("aguardando");
+    const [linha] = (await banco.db().sql().query(`select status from queue where id = $1`, [id])) as { status: string }[];
+    expect(linha.status).toBe("pending");
+    expect(publicados.length).toBe(1);
+    expect(segundosDoTique(0)).toBeGreaterThanOrEqual(120);
+    expect(segundosDoTique(0)).toBeLessThanOrEqual(130);
+  });
+});

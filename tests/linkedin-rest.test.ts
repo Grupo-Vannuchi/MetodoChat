@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { enderecoDeEnvioConfiavel, LINKEDIN_VERSION, nomeLimpo } from "@/lib/linkedin";
+import {
+  criarPost,
+  enderecoDeEnvioConfiavel,
+  enviarImagem,
+  LINKEDIN_VERSION,
+  nomeLimpo,
+  TETO_DO_ENVIO_DA_IMAGEM_MS,
+  TETO_DO_LINKEDIN_MS,
+} from "@/lib/linkedin";
 import { chaveDaPublicacaoNoLinkedin, publicacaoKey } from "@/lib/dedupe";
 
 // O QUE É PURO NAS CHAMADAS DE PUBLICAR NO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §4 e §6; a
@@ -8,6 +16,40 @@ import { chaveDaPublicacaoNoLinkedin, publicacaoKey } from "@/lib/dedupe";
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+// O TETO DE TEMPO DE CADA CHAMADA (notas da auditoria sobre a F2): o envio da imagem leva até 8 MB e tem teto
+// próprio, de 15 s (~4,3 Mbit/s); as outras chamadas ficam nos 10 s. A soma do ramo da imagem (o bucket, a reserva,
+// o envio e o post) cabe nos 60 s da função com folga, e o ramo confere o tempo que resta antes de começar
+// (lib/linkedin-fila.ts). Os casos trocam o `fetch` por um que responde na hora e leem o teto que cada chamada
+// pediu ao `AbortSignal.timeout`.
+describe("o teto de tempo das chamadas de publicar", () => {
+  function medirOsTetos(resposta: () => Response) {
+    const tetos: number[] = [];
+    const original = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      tetos.push(ms);
+      return original(ms);
+    });
+    vi.stubGlobal("fetch", async () => resposta());
+    return tetos;
+  }
+
+  it("o envio da imagem tem 15 s", async () => {
+    expect(TETO_DO_ENVIO_DA_IMAGEM_MS).toBe(15_000);
+    const tetos = medirOsTetos(() => new Response("", { status: 201 }));
+    await enviarImagem("https://www.linkedin.com/dms-uploads/C4E10AQ/x", "token-de-teste", new ArrayBuffer(4), "image/jpeg");
+    expect(tetos).toEqual([TETO_DO_ENVIO_DA_IMAGEM_MS]);
+  });
+
+  it("o post continua com os 10 s de toda chamada", async () => {
+    const tetos = medirOsTetos(() => new Response("", { status: 201, headers: { "x-restli-id": "urn:li:share:1" } }));
+    await criarPost("token-de-teste", { author: "urn:li:person:x" });
+    expect(tetos).toEqual([TETO_DO_LINKEDIN_MS]);
+    expect(TETO_DO_LINKEDIN_MS).toBe(10_000);
+  });
 });
 
 describe("a versão da API do LinkedIn", () => {

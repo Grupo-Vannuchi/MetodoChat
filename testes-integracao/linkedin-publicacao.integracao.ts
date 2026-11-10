@@ -40,8 +40,10 @@ const linkedin = {
   segurarOPost: null as null | Promise<void>,
   statusDaReserva: 200,
   desconhecidos: [] as string[],
+  /** Chamado quando o PUT da imagem chega: é como o caso faz o relógio andar durante o envio. */
+  aoEnviar: null as null | (() => void),
 };
-const bucket = { apagados: [] as string[] };
+const bucket = { apagados: [] as string[], baixados: [] as string[] };
 
 let servidorLinkedin: Server;
 let servidorBucket: Server;
@@ -80,6 +82,7 @@ beforeAll(async () => {
     }
     if (req.method === "PUT" && u.pathname === "/envio/C4E10AQ") {
       linkedin.envios.push(corpo);
+      linkedin.aoEnviar?.();
       return responder(res, 201, "");
     }
     if (req.method === "POST" && u.pathname === "/rest/posts") {
@@ -100,6 +103,7 @@ beforeAll(async () => {
     const publico = `/storage/v1/object/public/${BUCKET}/`;
     const privado = `/storage/v1/object/${BUCKET}/`;
     if (req.method === "GET" && u.pathname.startsWith(publico)) {
+      bucket.baixados.push(decodeURIComponent(u.pathname.slice(publico.length)));
       res.writeHead(200, { "content-type": "image/jpeg" });
       return res.end(BYTES_DA_IMAGEM);
     }
@@ -165,8 +169,10 @@ beforeEach(async () => {
     segurarOPost: null,
     statusDaReserva: 200,
     desconhecidos: [],
+    aoEnviar: null,
   });
   bucket.apagados = [];
+  bucket.baixados = [];
   await q(`delete from queue`);
   await q(`delete from linkedin_conexoes`);
   await conectar();
@@ -390,6 +396,89 @@ describe("os erros do LinkedIn no dreno", () => {
     );
     await dreno.drainQueue();
     expect((await linhaDoLinkedin()).error).toBe("o payload deste item não é de um post do LinkedIn");
+  });
+});
+
+// O ORÇAMENTO DE TEMPO DA FUNÇÃO (nota da auditoria sobre a F2): as funções que drenam têm 60 s, e um passo que não
+// cabe no que resta não começa. Morta no meio, a linha ficaria em 'sending'; depois da marca, viraria "pode ter
+// saído". O começo da função entra pelo `inicioDaFuncaoMs`, aqui posto no passado para sobrar pouco.
+describe("o post do LinkedIn não começa o que a função não tem tempo de terminar", () => {
+  const restando = (ms: number) => Date.now() - (dreno.ORCAMENTO_DA_FUNCAO_MS - ms);
+  const linhaCompleta = async () =>
+    (await q(`select status, attempts, error, payload, not_before > now() as adiado from queue where kind = 'publicacao_linkedin'`))[0];
+
+  it("só texto, com 5 s restando: não chama o LinkedIn, volta pending e não gasta a tentativa", async () => {
+    await enfileirarTexto();
+    const resumo = await dreno.drainQueue({ inicioDaFuncaoMs: restando(5_000) });
+    expect(resumo.aguardando).toBe(1);
+    expect(linkedin.pedidos).toEqual([]);
+    const linha = await linhaCompleta();
+    expect(linha).toMatchObject({ status: "pending", attempts: 0, adiado: true });
+    expect(String(linha.error)).toContain("não bastava");
+    expect((linha.payload as Record<string, unknown>).post_tentado_em ?? null).toBeNull();
+  });
+
+  it("imagem, com 25 s restando: não baixa, não reserva e volta pending", async () => {
+    await enfileirarImagem();
+    await dreno.drainQueue({ inicioDaFuncaoMs: restando(25_000) });
+    expect(bucket.baixados).toEqual([]);
+    expect(linkedin.pedidos).toEqual([]);
+    expect(await linhaCompleta()).toMatchObject({ status: "pending", attempts: 0 });
+  });
+
+  it("imagem já enviada, com 25 s restando: só o post falta, e ele sai", async () => {
+    await enfileirarImagem();
+    await q(`update queue set payload = payload || '{"imagem_urn":"urn:li:image:JaEnviada"}'::jsonb where kind = 'publicacao_linkedin'`);
+    await dreno.drainQueue({ inicioDaFuncaoMs: restando(25_000) });
+    expect(bucket.baixados).toEqual([]);
+    expect(linkedin.pedidos.map((p) => p.caminho)).toEqual(["/rest/posts"]);
+    expect(linkedin.posts[0]).toMatchObject({ content: { media: { id: "urn:li:image:JaEnviada" } } });
+    expect((await linhaCompleta()).status).toBe("sent");
+  });
+
+  it("a imagem que termina perto do fim para antes da marca; a passada seguinte só publica", async () => {
+    // O RELÓGIO ANDA 27 S DURANTE O ENVIO: começa com 41 s restando (passa a conferência da imagem, de 40 s) e
+    // termina com ~14 s (não passa a do post, de 15 s). Só o `Date.now` deste processo anda; o banco não.
+    const real = Date.now.bind(Date);
+    let deslocamento = 0;
+    const espiao = vi.spyOn(Date, "now").mockImplementation(() => real() + deslocamento);
+    linkedin.aoEnviar = () => {
+      deslocamento += 27_000;
+    };
+    try {
+      await enfileirarImagem();
+      await dreno.drainQueue({ inicioDaFuncaoMs: restando(41_000) });
+    } finally {
+      espiao.mockRestore();
+    }
+    expect(linkedin.envios).toHaveLength(1);
+    expect(linkedin.pedidos.some((p) => p.caminho === "/rest/posts")).toBe(false);
+    const linha = await linhaCompleta();
+    expect(linha).toMatchObject({ status: "pending", attempts: 0 });
+    expect((linha.payload as Record<string, unknown>).imagem_urn).toBe("urn:li:image:C4E10AQFalsa");
+    expect((linha.payload as Record<string, unknown>).post_tentado_em ?? null).toBeNull();
+
+    await q(`update queue set not_before = now() - interval '1 minute'`);
+    await dreno.drainQueue({ inicioDaFuncaoMs: restando(45_000) });
+    expect(linkedin.envios).toHaveLength(1);
+    expect(bucket.baixados).toHaveLength(1);
+    expect(linkedin.posts).toHaveLength(1);
+    expect((await linhaCompleta()).status).toBe("sent");
+  });
+
+  it("com tempo de sobra, a imagem sai inteira numa passada só", async () => {
+    await enfileirarImagem();
+    await dreno.drainQueue({ inicioDaFuncaoMs: restando(45_000) });
+    expect(bucket.baixados).toEqual([`${CONTA}/foto.jpg`]);
+    expect((await linhaCompleta()).status).toBe("sent");
+  });
+
+  it("o \"agora\" com 5 s restando devolve aguardando, sem chamar o LinkedIn", async () => {
+    await enfileirarTexto();
+    const id = String((await linhaDoLinkedin()).id);
+    expect(await dreno.drenarUmaPublicacaoDoLinkedin(id, restando(5_000))).toBe("aguardando");
+    expect(linkedin.pedidos).toEqual([]);
+    expect(await linhaCompleta()).toMatchObject({ status: "pending", attempts: 0 });
   });
 });
 

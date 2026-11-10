@@ -97,6 +97,7 @@ export async function GET(req: NextRequest) {
 // porquê está em lib/webhook-signature.ts.
 // ============================================================
 export async function POST(req: NextRequest) {
+  const inicioDaFuncaoMs = Date.now();
   // corpo CRU antes de qualquer parse — a assinatura é do corpo exato
   const rawBody = await req.text();
   const assinatura = req.headers.get("x-hub-signature-256");
@@ -258,7 +259,8 @@ export async function POST(req: NextRequest) {
   // dispara a drenagem já, sem segurar a resposta (QStash e cron são o backup)
   after(async () => {
     try {
-      await drainQueue();
+      // O começo da função, e não o do `after()`: o webhook já gastou o tempo de tratar a mensagem.
+      await drainQueue({ inicioDaFuncaoMs });
     } catch {
       // a trava atômica garante que o próximo dreno recupera
     }

@@ -20,6 +20,7 @@ export const maxDuration = 60;
 // 3) encerra os lotes guardados cujo prazo venceu
 // e no fim drena a fila como rede de segurança.
 export async function GET(req: NextRequest) {
+  const inicioDaFuncaoMs = Date.now();
   // Com CRON_SECRET, a Vercel manda "Authorization: Bearer <segredo>". SEM ela, a rotina RECUSA, como o
   // tique da fila (app/api/queue/tick/route.ts): até 27/10/2026 ela liberava, e a variável só existe em
   // produção, então os previews (que leem o banco de produção) rodavam a rotina para qualquer pedido
@@ -175,7 +176,9 @@ export async function GET(req: NextRequest) {
   // Medir quanto uma passagem do cron custa hoje, em produção, é o que decide.
   const { armados } = await armarTiquesDoDia();
 
-  const drained = await drainQueue();
+  // O COMEÇO DA FUNÇÃO VAI AO DRENO: depois de até ~40 s de tiques, o post do LinkedIn que não couber no que
+  // resta volta à fila e sai no tique seguinte (lib/linkedin-fila.ts).
+  const drained = await drainQueue({ inicioDaFuncaoMs });
   return NextResponse.json({
     accounts: accounts.length,
     refreshed,

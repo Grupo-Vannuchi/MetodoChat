@@ -6,7 +6,14 @@ import { atrasoDoTiqueDaPublicacao } from "./publicacao";
 import { chaveDaPublicacaoNoLinkedin } from "./dedupe";
 import { urlPublicaDoObjeto } from "./bucket";
 import { conexaoDaConta } from "./linkedin-conexoes";
-import { criarPost, enviarImagem, LinkedinError, reservarImagem } from "./linkedin";
+import {
+  criarPost,
+  enviarImagem,
+  LinkedinError,
+  reservarImagem,
+  TETO_DO_ENVIO_DA_IMAGEM_MS,
+  TETO_DO_LINKEDIN_MS,
+} from "./linkedin";
 import {
   corpoDoPost,
   desfechoDoErroDoLinkedin,
@@ -82,17 +89,45 @@ export type DependenciasDoDreno = {
   finish: (id: string, campos: { status: string; sent_at?: Date; error?: string }) => Promise<void>;
   guardarNoPayload: (id: string, campos: Record<string, unknown>) => Promise<void>;
   limparOBucket: (item: { id: string }, caminhos: string[], igUserId: string) => Promise<void>;
+  /** A hora (epoch, ms) até a qual a função pode trabalhar; depois dela, a Vercel pode matá-la. */
+  prazoMs: number;
 };
 
-export type DesfechoDoPostNoLinkedin = "publicado" | "falhou";
+export type DesfechoDoPostNoLinkedin = "publicado" | "aguardando" | "falhou";
 
 export const MOTIVO_DO_PAYLOAD_TORTO = "o payload deste item não é de um post do LinkedIn";
 export const MOTIVO_SEM_CONEXAO = "esta conta não tem LinkedIn conectado";
 export const MOTIVO_PODE_TER_SAIDO =
   "o post pode ter saído no LinkedIn sem a confirmação chegar; confira no seu LinkedIn antes de publicar de novo";
+export const MOTIVO_SEM_TEMPO = "o tempo desta passada não bastava para o post sair inteiro; ele sai na próxima";
 
 /** O teto do download da imagem do bucket. Sem ele, um bucket que não responde seguraria o dreno inteiro. */
-const TETO_DO_BUCKET_MS = 20_000;
+const TETO_DO_BUCKET_MS = 10_000;
+
+// O ORÇAMENTO DE TEMPO DO RAMO (notas da auditoria sobre a F2). As funções que drenam têm 60 s, e a Vercel mata a
+// que passa disso. Morta no meio, a linha fica em 'sending' e, depois da marca do POST, vira "pode ter saído":
+// nenhum dos dois duplica, mas os dois fazem o post falhar sem precisar. Então cada passo só começa se o que resta
+// do prazo cobre o pior caso dele (a soma dos tetos), com folga. A soma do ramo inteiro é 45 s.
+const FOLGA_MS = 5_000;
+/** O bucket, a reserva e o envio, com a folga: 40 s. */
+const TEMPO_PARA_A_IMAGEM_MS = TETO_DO_BUCKET_MS + TETO_DO_LINKEDIN_MS + TETO_DO_ENVIO_DA_IMAGEM_MS + FOLGA_MS;
+/** O POST, com a folga: 15 s. */
+const TEMPO_PARA_O_POST_MS = TETO_DO_LINKEDIN_MS + FOLGA_MS;
+/** Quando falta tempo, a linha volta para daqui a pouco: a próxima passada é outra função, com o prazo inteiro. */
+const VOLTA_SEM_TEMPO_EM_SEGUNDOS = 20;
+
+/**
+ * A LINHA VOLTA À FILA SEM GASTAR A TENTATIVA: a reivindicação contou uma, e nada foi tentado. Sem o desconto,
+ * três passadas sem tempo levariam o primeiro erro passageiro a encerrar a linha.
+ */
+async function devolverSemGastarTentativa(id: string): Promise<void> {
+  await sql().query(
+    `update queue set status = 'pending', attempts = greatest(attempts - 1, 0),
+            not_before = now() + make_interval(secs => $2::int), error = $3
+      where id = $1`,
+    [id, VOLTA_SEM_TEMPO_EM_SEGUNDOS, MOTIVO_SEM_TEMPO]
+  );
+}
 
 /**
  * Os bytes da imagem, pelo endereço público do bucket (o mesmo do `copiarParaAFila`, lib/bonus/publicar-bucket.ts).
@@ -128,7 +163,9 @@ async function tirarAMarcaDoPost(id: string): Promise<void> {
  *   1. com o `post_urn`, o post já saiu: a linha fecha `sent` sem publicar de novo;
  *   2. com o `post_tentado_em` e sem o `post_urn`, um POST anterior ficou sem resposta (a função caiu, o banco
  *      falhou): a linha vai a `failed` dizendo para conferir no LinkedIn, e NÃO publica (achado 210);
- *   3. sem conexão, ou com ela vencida, a linha vai a `failed` com o motivo, sem chamar o LinkedIn;
+ *   3. sem tempo para o passo seguinte, a linha volta à fila sem gastar a tentativa (o orçamento, acima); a
+ *      conferência se repete antes da marca;
+ *   3a. sem conexão, ou com ela vencida, a linha vai a `failed` com o motivo, sem chamar o LinkedIn;
  *   4. a imagem: baixa do bucket, reserva com a pessoa dona, envia, e grava o `imagem_urn`. Numa passada seguinte,
  *      ela não sobe de novo;
  *   5. o `post_tentado_em` é gravado ANTES do POST, e o `post_urn` logo depois;
@@ -153,6 +190,14 @@ export async function publicarNoLinkedinDaFila(item: QueueItem, deps: Dependenci
   if (pub.postTentadoEm) {
     await deps.finish(item.id, { status: "failed", error: MOTIVO_PODE_TER_SAIDO });
     return "falhou";
+  }
+
+  // O TEMPO, ANTES DE QUALQUER CHAMADA: a imagem que ainda não subiu precisa do bucket, da reserva e do envio; o
+  // resto, só do post.
+  const precisa = pub.forma === "imagem" && !pub.imagemUrn ? TEMPO_PARA_A_IMAGEM_MS : TEMPO_PARA_O_POST_MS;
+  if (deps.prazoMs - Date.now() < precisa) {
+    await devolverSemGastarTentativa(item.id);
+    return "aguardando";
   }
 
   const conexao = conta ? await conexaoDaConta(conta) : null;
@@ -180,6 +225,13 @@ export async function publicarNoLinkedinDaFila(item: QueueItem, deps: Dependenci
       return "falhou";
     }
     await deps.guardarNoPayload(item.id, { imagem_urn: imagemUrn });
+  }
+
+  // O TEMPO DE NOVO, depois da imagem: o passo que pode duplicar nunca começa perto do fim da função. O
+  // `imagem_urn` já está gravado, e a passada seguinte só publica.
+  if (deps.prazoMs - Date.now() < TEMPO_PARA_O_POST_MS) {
+    await devolverSemGastarTentativa(item.id);
+    return "aguardando";
   }
 
   // A MARCA ANTES DO POST (achado 210): uma resposta perdida daqui em diante não vira um segundo post.

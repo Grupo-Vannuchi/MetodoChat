@@ -16,6 +16,7 @@ export const maxDuration = 60;
 // legítimo chama esta rota — o webhook e o cron diário drenam por conta
 // própria —, então só o CRON_SECRET abre.
 export async function POST(req: NextRequest) {
+  const inicioDaFuncaoMs = Date.now();
   const body = await req.text();
 
   if (qstashEnabled()) {
@@ -29,6 +30,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const result = await drainQueue();
+  // O COMEÇO DA FUNÇÃO VAI AO DRENO, que o usa como prazo do post do LinkedIn (lib/queue-drain.ts,
+  // `ORCAMENTO_DA_FUNCAO_MS`).
+  const result = await drainQueue({ inicioDaFuncaoMs });
   return NextResponse.json(result);
 }
