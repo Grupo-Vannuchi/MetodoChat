@@ -6280,7 +6280,7 @@ Antes: a auditoria tira a base da fila pelo lado dela (as contagens por tipo e p
 ```bash
 node --env-file="<raiz do repositório principal>/.env.local" scripts/migrar.mjs --a-mao            # o ensaio a seco
 node --env-file="<raiz do repositório principal>/.env.local" scripts/migrar.mjs --aplicar --a-mao  # grava
-node --env-file="<raiz do repositório principal>/.env.local" scripts/migrar.mjs --a-mao            # nada a aplicar
+node --env-file="<raiz do repositório principal>/.env.local" scripts/migrar.mjs --a-mao            # a 025 já aplicada, nenhum ►
 ```
 
 Esperado: o primeiro ensaio a seco mostra só `►    025-fila-linkedin.sql`, com os comandos dela; a aplicação grava a 025 no registro; e o segundo ensaio a seco mostra a 025 como "já aplicada, nada a fazer", sem nenhum `►`, e a conferência do `queue_kind_check` diz "existe e confere (025-fila-linkedin.sql)". (A frase "Nada a aplicar" só sai com `--aplicar`: `scripts/migrar.mjs:561-566` na `f15c3ad`.) A auditoria lê a base depois: as mesmas contagens, e o check com o `publicacao_linkedin`.
@@ -6298,7 +6298,7 @@ No log do build do preview, confira: o commit, nenhum aviso do Node 26, "Detecte
 
 - [ ] **Passo 3: as decisões do Eduardo, pela caixa**
   - qual conta do painel publica;
-  - os dois textos dos posts da prova. Eles levam três casos do texto, para ver no LinkedIn de verdade como ficaram: uma hashtag com `_` (por exemplo, `#marketing_2026`; nota 1 da auditoria), uma hashtag com acento (por exemplo, `#educação`; o `\p{L}`, achado 212) e um "C#" no meio de uma frase (que continua texto). A imagem do segundo é a MAIOR que for usar (nota 2);
+  - os dois textos dos posts da prova. Eles levam três casos do texto, para ver no LinkedIn de verdade como ficaram: uma hashtag com `_` (por exemplo, `#marketing_2026`; nota 1 da auditoria), uma hashtag com acento (por exemplo, `#educação`; o `\p{L}`, achado 212) e um "C#" no meio de uma frase (que continua texto). A imagem do segundo é a MAIOR que for usar (nota 2). O Eduardo escolhe os textos dos 2 posts sabendo que apagar o post não desfaz o que já foi visto nem as notificações, e o intervalo até apagar fica o mais curto possível (achado 190);
   - se a conexão fica no fim, ou se é desconectada.
 
 A CONEXÃO, SE A CONTA ESTIVER SEM LINKEDIN, É PELA PRODUÇÃO: a parte 1 está em produção, então o Eduardo gera o convite do LinkedIn na Configuração de `https://metodochat.vercel.app` e o abre. A volta é a da produção, que já está no app do LinkedIn, e o preview lê a mesma tabela. O app do LinkedIn não precisa do endereço da branch nesta parte. Um convite só, gerado na hora, e usado logo (achado 209).
