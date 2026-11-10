@@ -107,11 +107,14 @@ export type LadoDoLinkedin =
  * O QUE ACONTECEU NO ENFILEIRAR DAS DUAS REDES (spec, §6; achados 192 e 199):
  *   - "entrou": as duas linhas foram tentadas, e cada lado diz o seu;
  *   - "instagram_nao_entrou": o enfileirar do Instagram lançou, e o LinkedIn foi desfeito (estava pendente), ou
- *     seguiu (um dreno já o tinha pego), ou já estava na fila antes deste envio (e não foi mexido).
+ *     seguiu (um dreno já o tinha pego), ou já estava na fila antes deste envio (e não foi mexido);
+ *   - "linkedin_nao_entrou": a cópia da imagem ou o enfileirar do LinkedIn falhou, antes de a linha do Instagram
+ *     ser tentada. Nada foi gravado, e a cópia que chegou a existir saiu do bucket.
  */
 export type DesfechoDasDuasRedes =
   | { tipo: "entrou"; campos: Campos | null; instagram: LadoDoInstagram; linkedin: LadoDoLinkedin }
-  | { tipo: "instagram_nao_entrou"; linkedin: "desfeito" | "seguiu" | "ja_existia" };
+  | { tipo: "instagram_nao_entrou"; linkedin: "desfeito" | "seguiu" | "ja_existia" }
+  | { tipo: "linkedin_nao_entrou"; motivo: string };
 
 const JA_EXISTIA_NO_LINKEDIN = "O post do LinkedIn já estava na fila. Nada foi duplicado.";
 
@@ -121,6 +124,9 @@ const JA_EXISTIA_NO_LINKEDIN = "O post do LinkedIn já estava na fila. Nada foi 
  * de erro quando o LinkedIn não saiu, quando nada de novo entrou, e em toda saída em que o Instagram não entrou.
  */
 export function avisoDasDuasRedes(d: DesfechoDasDuasRedes): Aviso {
+  if (d.tipo === "linkedin_nao_entrou") {
+    return { tom: "erro", texto: `Nada foi agendado: o post não pôde ser preparado para o LinkedIn (${d.motivo}). Tente de novo.` };
+  }
   if (d.tipo === "instagram_nao_entrou") {
     switch (d.linkedin) {
       case "desfeito":

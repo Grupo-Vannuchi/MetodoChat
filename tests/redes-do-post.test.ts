@@ -215,12 +215,20 @@ describe("o aviso das duas redes", () => {
     expect(a.texto).toContain("LinkedIn já estava na fila");
   });
 
+  it("o LinkedIn não entrou (a cópia da imagem ou a fila dele falhou): nada foi agendado, com o motivo", () => {
+    const a = avisoDasDuasRedes({ tipo: "linkedin_nao_entrou", motivo: "o armazenamento não respondeu em 10 s ao baixar a imagem" });
+    expect(a.tom).toBe("erro");
+    expect(a.texto).toContain("Nada foi agendado");
+    expect(a.texto).toContain("o armazenamento não respondeu em 10 s ao baixar a imagem");
+  });
+
   it("cada saída tem a sua frase", () => {
     const frases = [
       avisoDasDuasRedes({ tipo: "instagram_nao_entrou", linkedin: "desfeito" }).texto,
       avisoDasDuasRedes({ tipo: "instagram_nao_entrou", linkedin: "seguiu" }).texto,
       avisoDasDuasRedes({ tipo: "instagram_nao_entrou", linkedin: "ja_existia" }).texto,
+      avisoDasDuasRedes({ tipo: "linkedin_nao_entrou", motivo: "x" }).texto,
     ];
-    expect(new Set(frases).size).toBe(3);
+    expect(new Set(frases).size).toBe(4);
   });
 });
