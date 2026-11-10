@@ -68,6 +68,9 @@ export function estadoDasCaixinhas(p: {
   };
 }
 
+/** A recusa da tela quando nenhuma caixinha está marcada: não há para onde publicar. */
+export const TEXTO_SEM_REDE = "Marque ao menos uma rede: Instagram ou LinkedIn.";
+
 /** As redes que o formulário marcou: só o valor "1" marca, como os outros campos de marcar desta tela. */
 export function redesDoPedido(campos: { instagram: unknown; linkedin: unknown }): Record<Rede, boolean> {
   return { instagram: campos.instagram === "1", linkedin: campos.linkedin === "1" };

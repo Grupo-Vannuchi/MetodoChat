@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CAIXINHAS_DE_PARTIDA,
   NOTA_DA_LEGENDA_NO_LINKEDIN,
+  TEXTO_SEM_REDE,
   avisoDasDuasRedes,
   estadoDasCaixinhas,
   formasDaTela,
@@ -94,6 +95,12 @@ describe("as caixinhas", () => {
 });
 
 describe("as redes do pedido", () => {
+  it("sem nenhuma rede marcada, a tela diz para marcar uma", () => {
+    expect(TEXTO_SEM_REDE).toContain("Marque");
+    expect(TEXTO_SEM_REDE).toContain("Instagram");
+    expect(TEXTO_SEM_REDE).toContain("LinkedIn");
+  });
+
   it("só o valor '1' marca a rede", () => {
     expect(redesDoPedido({ instagram: "1", linkedin: null })).toEqual({ instagram: true, linkedin: false });
     expect(redesDoPedido({ instagram: "1", linkedin: "1" })).toEqual(as2);

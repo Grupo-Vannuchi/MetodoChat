@@ -51,8 +51,20 @@ import {
   tamanhoDoTextoNoLinkedin,
   textoDaRecusaNoLinkedin,
   type DisponibilidadeDoLinkedin,
-  type FormaNoLinkedin,
 } from "@/lib/linkedin-publicacao";
+// AS DUAS REDES NO MESMO POST (a parte 2b): o que cada forma aceita, as caixinhas, o texto que vai ao LinkedIn e a
+// recusa sem rede, das mesmas regras puras que a action lê.
+import {
+  CAIXINHAS_DE_PARTIDA,
+  NOTA_DA_LEGENDA_NO_LINKEDIN,
+  TEXTO_SEM_REDE,
+  estadoDasCaixinhas,
+  formasDaTela,
+  redeAceitaAForma,
+  textoQueVaiAoLinkedin,
+  type FormaDaTela,
+  type Rede,
+} from "@/lib/redes-do-post";
 import { assinarEnvios, atualizarEnvio, definirEnvios, lerEnvios, lerEnviosNoServidor, limparEnvios } from "./envios";
 import { navegadorDeVerdade, type Medidas, type Navegador } from "./navegador";
 import { btnPrimary, card, fieldError, hint, input, label, muted, numero } from "../ui";
@@ -149,6 +161,7 @@ export default function Enviador({
   rodape,
   linkedin = null,
   acaoDoLinkedin,
+  acaoDasDuasRedes,
   navegador = navegadorDeVerdade,
 }: {
   teto: number | null;
@@ -164,20 +177,34 @@ export default function Enviador({
    * estar desligado. Sem ele, a tela é só do Instagram, como antes. Nunca o token: só o resumo chega aqui.
    */
   linkedin?: DisponibilidadeDoLinkedin | null;
+  /** A action do post só no LinkedIn (a parte 2a). */
   acaoDoLinkedin?: (dados: FormData) => Promise<void>;
+  /** A action do post de imagem nas duas redes (a parte 2b). */
+  acaoDasDuasRedes?: (dados: FormData) => Promise<void>;
   navegador?: Navegador;
 }) {
-  // A REDE DO POST (a parte 2a: uma rede por post). No LinkedIn, a imagem sobe pelas regras da forma "imagem" do
-  // Instagram (JPEG, a proporção e o enquadramento), então a `forma` abaixo fica em "imagem" enquanto a rede é o
-  // LinkedIn, e todo o caminho da subida continua o mesmo.
-  const [rede, setRede] = useState<"instagram" | "linkedin">("instagram");
-  const [formaNoLinkedin, setFormaNoLinkedin] = useState<FormaNoLinkedin>("texto");
+  // AS REDES DO POST (a parte 2b): as caixinhas "Instagram" e "LinkedIn", que começam só com o Instagram marcado
+  // (`CAIXINHAS_DE_PARTIDA`, a decisão do Eduardo de 10/11). Cada forma liga e desliga as redes
+  // (`estadoDasCaixinhas`), e a caixinha desligada nunca conta como marcada.
+  const [marcadas, setMarcadas] = useState<Record<Rede, boolean>>({ ...CAIXINHAS_DE_PARTIDA });
+  // A FORMA DA TELA inclui o só texto, que é só do LinkedIn. Para a subida, vale a forma do Instagram: no só texto
+  // nada sobe, e a imagem do LinkedIn sobe pelas regras da imagem do Instagram (JPEG, a proporção e o enquadramento),
+  // então todo o caminho da subida continua o mesmo.
+  const [formaDaTela, setFormaDaTela] = useState<FormaDaTela>("imagem");
+  const forma: FormaDePublicacao = formaDaTela === "texto" ? "imagem" : formaDaTela;
   // O ID DO ENVIO, um por formulário: é a chave do só texto contra o clique repetido. A action termina em
   // `redirect`, que recria o componente (ver o cabeçalho), e o formulário seguinte nasce com outro.
   const [idDoEnvio] = useState(novoIdDoEnvio);
-  const mostraARede = linkedin !== null && !!acaoDoLinkedin;
-  const noLinkedin = mostraARede && rede === "linkedin" && linkedin?.disponivel === true;
-  const [forma, setForma] = useState<FormaDePublicacao>("imagem");
+  const mostraARede = linkedin !== null && !!acaoDoLinkedin && !!acaoDasDuasRedes;
+  const redes = estadoDasCaixinhas({ forma: formaDaTela, marcadas, linkedin: mostraARede ? linkedin : null });
+  const paraOInstagram = redes.instagram.marcada;
+  const paraOLinkedin = redes.linkedin?.marcada === true;
+  /** Só no LinkedIn: o campo "Texto" e a action da parte 2a. */
+  const soNoLinkedin = paraOLinkedin && !paraOInstagram;
+  /** Nas duas: a "Legenda", o "Texto para o LinkedIn" (opcional) e a action das duas. */
+  const nasDuas = paraOLinkedin && paraOInstagram;
+  /** O texto próprio do LinkedIn, no post das duas redes. Vazio, vai a legenda. */
+  const [textoProprio, setTextoProprio] = useState("");
   const [proporcao, setProporcao] = useState<ProporcaoDoPost>(PROPORCAO_PADRAO);
   const [legenda, setLegenda] = useState("");
   const [slides, setSlides] = useState<Slide[]>([]);
@@ -263,12 +290,16 @@ export default function Enviador({
   const quantidadeNaTela = slides.length && !algumMedindo ? textoDaQuantidadeNaTela(forma, slides.length, validos.length) : null;
   const primeiroSlide = forma === "carrossel" ? problemaDoPrimeiroSlide(medidos, proporcao) : null;
   // A LEGENDA É CONFERIDA COMO A ACTION A CONFERE: sem os espaços das pontas.
-  const problemaDaLegendaAtual = noLinkedin ? null : problemaDaLegenda(legenda.trim());
+  const problemaDaLegendaAtual = paraOInstagram ? problemaDaLegenda(legenda.trim()) : null;
+  // O TEXTO QUE VAI AO LINKEDIN: só nele, o campo "Texto" (o mesmo estado da legenda); nas duas, o texto próprio
+  // ou, sem ele, a legenda (`textoQueVaiAoLinkedin`, a mesma função da action).
+  const textoDoLinkedin = soNoLinkedin ? legenda.trim() : textoQueVaiAoLinkedin({ legenda, textoProprio });
   // NO LINKEDIN, o texto é contado como o LinkedIn conta, pela mesma função da action. Enquanto se digita, só o
   // longo é vermelho: o vazio é o estado de quem ainda não começou, e é recusado no clique.
-  const textoLongoNoLinkedin = noLinkedin && problemaDoTextoDoLinkedin(legenda.trim(), formaNoLinkedin) === "longo";
-  // O ARQUIVO SÓ EXISTE NO INSTAGRAM E NA IMAGEM DO LINKEDIN.
-  const temArquivo = !noLinkedin || formaNoLinkedin === "imagem";
+  const textoLongoNoLinkedin =
+    paraOLinkedin && problemaDoTextoDoLinkedin(textoDoLinkedin, formaDaTela === "texto" ? "texto" : "imagem") === "longo";
+  // O ARQUIVO SÓ NÃO EXISTE NO SÓ TEXTO.
+  const temArquivo = formaDaTela !== "texto";
   const caixa = caixaDaMiniatura(forma, medidos, proporcao);
 
   function soltar(lista: Slide[]) {
@@ -278,13 +309,19 @@ export default function Enviador({
     }
   }
 
-  function trocarForma(nova: FormaDePublicacao) {
+  function trocarForma(nova: FormaDaTela) {
     // TROCAR A FORMA DESCARTA A LISTA, porque as regras são outras (um vídeo de
     // 90 s serve para reels e não para story). Antes, isso deixava no bucket
     // tudo o que já tinha subido, e era o caminho mais barato do órfão (o
     // Vinícius registrou em aberto). Agora nada subiu antes do clique, e nada
     // fica.
-    setForma(nova);
+    setFormaDaTela(nova);
+    // A REDE QUE A FORMA NOVA NÃO ACEITA SAI DESMARCADA, e voltar à forma de antes não a remarca: o post do
+    // LinkedIn sai público no perfil pessoal, e só vai quem marcar de novo.
+    setMarcadas((atuais) => ({
+      instagram: atuais.instagram && !redeAceitaAForma("instagram", nova),
+      linkedin: atuais.linkedin && !redeAceitaAForma("linkedin", nova),
+    }));
     descartarALista();
   }
 
@@ -297,16 +334,9 @@ export default function Enviador({
     if (campoDeArquivo.current) campoDeArquivo.current.value = "";
   }
 
-  /** Trocar a rede descarta a lista, como trocar a forma. No LinkedIn, a imagem segue a forma "imagem". O texto fica. */
-  function trocarRede(nova: "instagram" | "linkedin") {
-    setRede(nova);
-    setForma("imagem");
-    descartarALista();
-  }
-
-  function trocarFormaNoLinkedin(nova: FormaNoLinkedin) {
-    setFormaNoLinkedin(nova);
-    descartarALista();
+  /** Marcar ou desmarcar uma rede não descarta a lista: a forma, e com ela as regras da subida, é a mesma. */
+  function marcar(rede: Rede, marcada: boolean) {
+    setMarcadas((atuais) => ({ ...atuais, [rede]: marcada }));
   }
 
   async function aoEscolherArquivo(ev: React.ChangeEvent<HTMLInputElement>) {
@@ -513,6 +543,11 @@ export default function Enviador({
     // AS CONFERÊNCIAS ANTES DE SUBIR, com as MESMAS funções da action (achado
     // 109): antes, todas chegavam depois da subida, porque o formulário não tem
     // `required`.
+    // SEM NENHUMA REDE MARCADA, não há para onde publicar.
+    if (!paraOInstagram && !paraOLinkedin) {
+      setRecusa(TEXTO_SEM_REDE);
+      return null;
+    }
     if (algumMedindo) {
       setRecusa(textoDaRecusaDaTela("lendo_arquivos"));
       return null;
@@ -526,14 +561,23 @@ export default function Enviador({
       setRecusa(textoDoProblemaDoPrimeiroSlide(primeiroSlide));
       return null;
     }
-    if (noLinkedin) {
+    // O TEXTO QUE VAI AO LINKEDIN, lido do formulário do clique: só nele, o "Texto"; nas duas, o próprio ou a legenda.
+    const textoDoLinkedinNoPedido = soNoLinkedin
+      ? String(pedido.get("texto") ?? "").trim()
+      : textoQueVaiAoLinkedin({
+          legenda: String(pedido.get("legenda") ?? ""),
+          textoProprio: String(pedido.get("texto_linkedin") ?? ""),
+        });
+    const formaNoLinkedin = formaDaTela === "texto" ? "texto" : "imagem";
+    if (paraOLinkedin) {
       // O TEXTO DO LINKEDIN, pela mesma função da action, antes de subir qualquer arquivo.
-      const doTexto = problemaDoTextoDoLinkedin(String(pedido.get("texto") ?? "").trim(), formaNoLinkedin);
+      const doTexto = problemaDoTextoDoLinkedin(textoDoLinkedinNoPedido, formaNoLinkedin);
       if (doTexto) {
         setRecusa(textoDaRecusaNoLinkedin(doTexto === "vazio" ? "texto_vazio" : "texto_longo"));
         return null;
       }
-    } else {
+    }
+    if (paraOInstagram) {
       const daLegenda = problemaDaLegenda(String(pedido.get("legenda") ?? "").trim());
       if (daLegenda) {
         setRecusa(textoDoProblemaDaLegenda(daLegenda));
@@ -571,22 +615,29 @@ export default function Enviador({
       // "publicado", e o desfecho é o aviso que a action devolve na tela.
       limparEnvios();
       pedido.set("caminhos", caminhos.join("\n"));
-      if (noLinkedin) {
+      if (paraOLinkedin) {
         // O PEDIDO INTEIRO DO LINKEDIN, pela mesma função de recusas da action, agora com os caminhos da subida.
         const recusaNoLinkedin = recusaDoPedidoNoLinkedin({
           forma: formaNoLinkedin,
           caminhos,
-          texto: String(pedido.get("texto") ?? "").trim(),
+          texto: textoDoLinkedinNoPedido,
           idDoEnvio,
         });
         if (recusaNoLinkedin) {
           setRecusa(textoDaRecusaNoLinkedin(recusaNoLinkedin));
           return null;
         }
-        pedido.set("forma_linkedin", formaNoLinkedin);
         pedido.set("id_do_envio", idDoEnvio);
+      }
+      if (soNoLinkedin) {
+        pedido.set("forma_linkedin", formaNoLinkedin);
       } else {
         pedido.set("forma", forma);
+      }
+      if (nasDuas) {
+        // AS DUAS CAIXINHAS VÃO DITAS, além de marcadas: a action das duas é só delas.
+        pedido.set("rede_instagram", "1");
+        pedido.set("rede_linkedin", "1");
       }
       return pedido;
     } finally {
@@ -605,8 +656,9 @@ export default function Enviador({
     if (trava.current) return;
     trava.current = true;
     setRecusa(null);
-    // A ACTION É A DA REDE DO CLIQUE, escolhida antes de qualquer espera, como o formulário.
-    const destino = noLinkedin ? (acaoDoLinkedin ?? acao) : acao;
+    // A ACTION É A DAS REDES DO CLIQUE, escolhida antes de qualquer espera, como o formulário: as duas, só o
+    // LinkedIn, ou só o Instagram.
+    const destino = nasDuas ? (acaoDasDuasRedes ?? acao) : soNoLinkedin ? (acaoDoLinkedin ?? acao) : acao;
     let pedido: FormData | null = null;
     try {
       pedido = await montarOPedido();
@@ -636,89 +688,77 @@ export default function Enviador({
         void publicar();
       }}
     >
-      {/* A REDE DO POST (a parte 2a: uma rede por post). Só aparece quando a página manda o LinkedIn da conta; o
-          LinkedIn desligado (sem conexão, ou vencida) aparece desligado, com o motivo que veio do servidor. */}
-      {mostraARede && linkedin && (
+      {/* AS REDES DO POST (a parte 2b: uma ou as duas). Só aparecem quando a página manda o LinkedIn da conta. Cada
+          caixinha desligada diz o motivo: a conexão (sem LinkedIn, ou vencido), que veio do servidor, ou a forma. */}
+      {mostraARede && linkedin && redes.linkedin && (
         <fieldset className="space-y-2">
-          <legend className={label}>Rede</legend>
+          <legend className={label}>Redes</legend>
           <div className="flex flex-wrap gap-4 text-sm">
             <label className="flex items-center gap-2">
               <input
-                type="radio"
-                name="rede"
-                value="instagram"
-                checked={!noLinkedin}
-                disabled={ocupado}
-                onChange={() => trocarRede("instagram")}
+                type="checkbox"
+                name="rede_instagram"
+                value="1"
+                checked={redes.instagram.marcada}
+                disabled={ocupado || !redes.instagram.ligada}
+                onChange={(e) => marcar("instagram", e.target.checked)}
               />
               Instagram
             </label>
             <label className="flex items-center gap-2">
               <input
-                type="radio"
-                name="rede"
-                value="linkedin"
-                checked={noLinkedin}
-                disabled={ocupado || !linkedin.disponivel}
-                onChange={() => trocarRede("linkedin")}
+                type="checkbox"
+                name="rede_linkedin"
+                value="1"
+                checked={redes.linkedin.marcada}
+                disabled={ocupado || !redes.linkedin.ligada}
+                onChange={(e) => marcar("linkedin", e.target.checked)}
               />
               LinkedIn
             </label>
           </div>
+          {redes.instagram.motivo && <p className={hint}>{redes.instagram.motivo}</p>}
           <p className={hint}>
-            {linkedin.disponivel
-              ? `Um post vai a uma rede só. No LinkedIn, ele sai no perfil de ${linkedin.nome}.`
-              : linkedin.motivo}
+            {redes.linkedin.motivo ?? (linkedin.disponivel ? `No LinkedIn, o post sai no perfil de ${linkedin.nome}.` : "")}
           </p>
         </fieldset>
       )}
 
-      {noLinkedin ? (
-        <div>
-          <label className={label} htmlFor="forma">
-            Forma
-          </label>
-          <select
-            id="forma"
-            name="forma_linkedin"
-            className={input}
-            value={formaNoLinkedin}
-            disabled={ocupado}
-            onChange={(e) => trocarFormaNoLinkedin(e.target.value as FormaNoLinkedin)}
-          >
+      <div>
+        <label className={label} htmlFor="forma">
+          Forma
+        </label>
+        <select
+          id="forma"
+          name="forma"
+          className={input}
+          value={formaDaTela}
+          disabled={ocupado}
+          onChange={(e) => trocarForma(e.target.value as FormaDaTela)}
+        >
+          {/* AS PALAVRAS VÊM DE `rotuloDaForma` (lib/publicacao.ts): a tela de
+              agendados usa as mesmas quatro. A ORDEM é desta tela. O só texto
+              só aparece com o LinkedIn disponível (`formasDaTela`). */}
+          <option value="imagem">{rotuloDaForma("imagem")}</option>
+          <option value="carrossel">{rotuloDaForma("carrossel")}</option>
+          <option value="reels">{rotuloDaForma("reels")}</option>
+          <option value="story">{rotuloDaForma("story")}</option>
+          {formasDaTela(mostraARede ? linkedin : null).includes("texto") && (
             <option value="texto">{rotuloDaFormaNoLinkedin("texto")}</option>
-            <option value="imagem">{rotuloDaFormaNoLinkedin("imagem")}</option>
-          </select>
-          <p className={hint}>A imagem segue as regras da imagem do Instagram: JPEG, na proporção escolhida.</p>
-        </div>
-      ) : (
-        <div>
-          <label className={label} htmlFor="forma">
-            Forma
-          </label>
-          <select
-            id="forma"
-            name="forma"
-            className={input}
-            value={forma}
-            disabled={ocupado}
-            onChange={(e) => trocarForma(e.target.value as FormaDePublicacao)}
-          >
-            {/* AS PALAVRAS VÊM DE `rotuloDaForma` (lib/publicacao.ts): a tela de
-                agendados usa as mesmas quatro. A ORDEM é desta tela. */}
-            <option value="imagem">{rotuloDaForma("imagem")}</option>
-            <option value="carrossel">{rotuloDaForma("carrossel")}</option>
-            <option value="reels">{rotuloDaForma("reels")}</option>
-            <option value="story">{rotuloDaForma("story")}</option>
-          </select>
+          )}
+        </select>
+        {formaDaTela !== "texto" && (
           <p className={hint}>
             No carrossel valem duas regras da Meta: reels não entra (vídeo em carrossel é vídeo comum, sem áudio
             nomeado e sem aparecer no feed como reels), e todos os itens são cortados pela proporção do PRIMEIRO
             — por isso a ordem importa, e dá para mudá-la na lista abaixo. São de 2 a {CARROSSEL_ITENS_MAX} itens,
             e o post inteiro conta como uma só publicação.
           </p>
-        </div>
-      )}
+        )}
+        {paraOLinkedin && formaDaTela === "imagem" && (
+          <p className={hint}>No LinkedIn, a imagem segue as regras da imagem do Instagram: JPEG, na proporção escolhida.</p>
+        )}
+      </div>
 
       {enquadra && temArquivo && (
         <fieldset className="space-y-2">
@@ -809,7 +849,7 @@ export default function Enviador({
         </div>
       )}
 
-      {noLinkedin ? (
+      {soNoLinkedin ? (
         // O TEXTO DO LINKEDIN: o mesmo estado da legenda (trocar de rede não apaga o que se escreveu), outro nome
         // no formulário, e o contador que conta como o LinkedIn conta, com a frase que diz por quê (achado 212).
         <div>
@@ -858,6 +898,34 @@ export default function Enviador({
             </p>
             <p className={`shrink-0 text-xs ${numero} ${muted}`}>{legenda.length}/2200</p>
           </div>
+          {nasDuas && (
+            // O TEXTO PRÓPRIO DO LINKEDIN, NO POST DAS DUAS REDES (spec, §7): opcional. Vazio, o LinkedIn leva a
+            // legenda, e o contador conta o que vai de fato, pela mesma função da action (achado 212).
+            <div className="mt-4">
+              <label className={label} htmlFor="texto_linkedin">
+                Texto para o LinkedIn (opcional)
+              </label>
+              <p className={hint}>{NOTA_DA_LEGENDA_NO_LINKEDIN}</p>
+              <textarea
+                id="texto_linkedin"
+                name="texto_linkedin"
+                rows={4}
+                value={textoProprio}
+                disabled={ocupado}
+                onChange={(e) => setTextoProprio(e.target.value)}
+                className={input}
+                placeholder="Vazio, vai a legenda."
+              />
+              <div className="mt-1.5 flex items-start justify-between gap-3">
+                <p className={textoLongoNoLinkedin ? fieldError : hint}>
+                  {textoLongoNoLinkedin ? textoDaRecusaNoLinkedin("texto_longo") : NOTA_DO_CONTADOR_DO_LINKEDIN}
+                </p>
+                <p className={`shrink-0 text-xs ${numero} ${muted}`}>
+                  {tamanhoDoTextoNoLinkedin(textoDoLinkedin)}/{LIMITE_DO_TEXTO_DO_LINKEDIN}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -882,8 +950,8 @@ export default function Enviador({
           a tela travar, então travar não tira nada do pedido. */}
       <fieldset disabled={ocupado} className="m-0 min-w-0 space-y-6 border-0 p-0">
         {quando}
-        {/* AS OPÇÕES DO REELS SÃO DO INSTAGRAM: no LinkedIn elas saem da tela e do formulário. */}
-        {!noLinkedin && opcoesDoReels}
+        {/* AS OPÇÕES DO REELS SÃO DO INSTAGRAM: só no LinkedIn, elas saem da tela e do formulário. */}
+        {!soNoLinkedin && opcoesDoReels}
       </fieldset>
 
       {recusa && (
