@@ -6294,7 +6294,7 @@ git ls-remote origin refs/heads/linkedin-publicacao   # vazio; se não estiver, 
 git push -u origin refs/heads/linkedin-publicacao:refs/heads/linkedin-publicacao
 ```
 
-No log do build do preview, confira: o commit, nenhum aviso do Node 26, "Detected Next.js version: 16.4.3", "MIGRAÇÃO PULADA". No deployment, meça o endereço da branch (o `alias` do `get_deployment`). Ele deve ser `metodochat-git-linkedin-publicacao-moraesvannuchi-debugs-projects.vercel.app`, pelo padrão medido nas partes anteriores.
+No log do build do preview, confira: o commit, nenhum aviso do Node 26, "Detected Next.js version: 16.4.3", "MIGRAÇÃO PULADA". No deployment, meça o endereço da branch (o `alias` do `get_deployment`). Pelo padrão das partes anteriores, ele seria `metodochat-git-linkedin-publicacao-moraesvannuchi-debugs-projects.vercel.app`. Só que esse rótulo teria 65 caracteres, acima dos 63 de um rótulo de DNS, e a Vercel o encurta com um hash. O medido em 10/11 é `metodochat-git-linkedin-p-584d3a-moraesvannuchi-debugs-projects.vercel.app`, com 63 caracteres.
 
 - [ ] **Passo 3: as decisões do Eduardo, pela caixa**
   - qual conta do painel publica;
@@ -6313,6 +6313,14 @@ O roteiro vai à auditoria antes. A espera fica numa página só de texto, e nen
 5. os dois posts são apagados à mão, no LinkedIn, pelo Eduardo, logo depois.
 
 No fim, a auditoria confere que não há nenhuma linha `publicacao_linkedin` em `pending` nem em `sending`.
+
+Medido na prova de 10/11 (o Eduardo, com a @thiagovannuchi e o LinkedIn pessoal do Thiago; a base lida pela auditoria antes e depois de cada passo que grava):
+- A conexão foi pela produção, com 1 convite só, gerado às 14:58:59Z e usado às 14:59:21Z. Ficou com 60 dias e nenhum convite pendente; o achado 209 não se repetiu.
+- O post só de texto teve 1 tentativa, `sent`. O ramo (o `sent_at` menos o `claimed_at`) levou 861 ms, e o `post_tentado_em` foi gravado antes do post. As chaves foram `caminhos` (0), `forma`, `post_tentado_em`, `post_urn` e `texto`, sem `imagem_urn`.
+- O post com imagem também teve 1 tentativa, `sent`. O ramo inteiro (o bucket, a reserva, o envio e o post) levou 1.869 ms, longe dos 45 s. As chaves foram `caminhos` (1), `forma`, `imagem_urn`, `post_tentado_em`, `post_urn` e `texto`. Depois do `sent`, o arquivo da imagem não existia mais no bucket.
+- No LinkedIn, no post com imagem, o "#marketing_2026" e o "#educação" saíram como hashtags inteiras, e o "C#" como texto no meio da frase. O post só de texto foi apagado antes dessa conferência, e não foi refeito.
+- Os dois posts foram apagados à mão, e a conexão foi desfeita no fim. Ficaram 0 conexões, as 2 linhas `sent` e nenhuma linha em `pending` nem em `sending`.
+- O `get_runtime_errors` não trouxe nenhum erro no período. O `get_runtime_logs` por nível veio vazio, no preview e na produção (o Hobby guarda 1 hora).
 
 - [ ] **Passo 5: o PR, com o OK do Eduardo.** O corpo leva o que muda, os números deste plano, o que o ensaio achou, a 025 já aplicada, e nenhuma arroba solta. A mensagem do merge vai à parte, e a auditoria lê os dois antes de o PR abrir. O merge é do Eduardo.
 
