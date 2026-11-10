@@ -826,38 +826,27 @@ const ESPERADAS_RESTRICOES = [
     // duplicada: `queue_kind_check` é UMA restrição, e o banco só tem a versão
     // mais nova dela. Uma segunda entrada com o mesmo nome faria uma das duas
     // acusar divergência para sempre, e a acusação seria mentira. Foi assim que
-    // a `008` substituiu a `004` aqui, e é assim que a `010` substitui a `008`:
-    // o `de` aponta para quem escreveu o texto que está no banco AGORA.
+    // a `008` substituiu a `004` aqui, a `010` substituiu a `008`, e é assim que
+    // a `025` substitui a `010`: o `de` aponta para quem escreveu o texto que
+    // está no banco AGORA.
     //
-    // E ELA ACEITA UMA SEGUNDA FORMA, a da entrega do LinkedIn
-    // (docs/specs/2026-11-06-linkedin-no-perfil.md, §0). A `025` (a parte 2 da
-    // entrega, a publicação; a `024` da parte 1 não toca a fila) alarga a
-    // restrição com `publicacao_linkedin` e é aplicada à mão ANTES do merge
-    // daquela parte, como a `022` e a `023`; sem `tambemAceitas`, todo deploy da
-    // `main` nessa janela morreria aqui. No merge da parte 2, a forma da `025`
-    // vira a `definicao` desta linha, e a da `010` sai. Uma terceira forma
-    // continua sendo divergência (testes-integracao/conferencia-do-kind.integracao.ts).
-    // Os dois textos são os do `pg_get_constraintdef`, o segundo medido no banco
-    // de teste em 06/11/2026.
+    // A `025` É A PARTE 2a DA ENTREGA DO LINKEDIN
+    // (docs/specs/2026-11-06-linkedin-no-perfil.md, §0 e §6): alarga a restrição
+    // com `publicacao_linkedin`, e foi aplicada à mão ANTES do merge da parte 2a,
+    // como a `022`, a `023` e a `024`. Na janela entre a aplicação e o merge, a
+    // `main` aceitava também a forma da `010`, por um `tambemAceitas` que saiu com
+    // o merge: daqui em diante a forma da `010` é divergência, como qualquer outra
+    // (testes-integracao/conferencia-do-kind.integracao.ts). O texto é o do
+    // `pg_get_constraintdef`, medido no banco de teste em 06/11/2026.
     tabela: "queue",
     nome: "queue_kind_check",
-    de: "010-fila-publicacao.sql",
+    de: "025-fila-linkedin.sql",
     definicao:
       "CHECK ((kind = ANY (ARRAY['private_reply'::text, 'comment_reply'::text, " +
       "'dm_welcome'::text, 'dm_link'::text, 'dm_reminder'::text, " +
       "'dm_follow_gate'::text, 'dm_email_ask'::text, 'story_reaction'::text, " +
-      "'dm_manual'::text, 'dm_lote'::text, 'publicacao'::text])))",
-    tambemAceitas: [
-      {
-        de: "025 (a fila do LinkedIn, parte 2 da entrega, aplicada à mão antes do merge dela)",
-        definicao:
-          "CHECK ((kind = ANY (ARRAY['private_reply'::text, 'comment_reply'::text, " +
-          "'dm_welcome'::text, 'dm_link'::text, 'dm_reminder'::text, " +
-          "'dm_follow_gate'::text, 'dm_email_ask'::text, 'story_reaction'::text, " +
-          "'dm_manual'::text, 'dm_lote'::text, 'publicacao'::text, " +
-          "'publicacao_linkedin'::text])))",
-      },
-    ],
+      "'dm_manual'::text, 'dm_lote'::text, 'publicacao'::text, " +
+      "'publicacao_linkedin'::text])))",
   },
   {
     // A GÊMEA DA LINHA ACIMA, na coluna vizinha da mesma tabela. Ela está aqui

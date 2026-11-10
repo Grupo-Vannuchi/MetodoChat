@@ -23,6 +23,15 @@ export const TIPOS_QUE_O_DRENO_CONHECE = [
   "dm_manual",
   "dm_lote",
   "publicacao",
+  // O POST NO PERFIL PESSOAL DO LINKEDIN (a 025; docs/specs/2026-11-06-linkedin-no-perfil.md, §6). Quem o
+  // publica é lib/linkedin-fila.ts, chamado pelo ramo dele no dreno.
+  "publicacao_linkedin",
 ] as const;
 
 export type TipoDaFila = (typeof TIPOS_QUE_O_DRENO_CONHECE)[number];
+
+// OS TIPOS QUE SÃO POST, E NÃO MENSAGEM (a spec, §6). Os pontos que dizem "post, e não mensagem" perguntam a
+// esta lista, e não a um literal: a cota horária de DM não conta post, a conta no teto de DM não segura post, e
+// os tiques do dia são armados só para post (lib/queue-drain.ts). Com um literal, o post do LinkedIn comeria a
+// cota de DM e ficaria parado atrás de um lote grande.
+export const TIPOS_DE_PUBLICACAO = ["publicacao", "publicacao_linkedin"] as const satisfies readonly TipoDaFila[];

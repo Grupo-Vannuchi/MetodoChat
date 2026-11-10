@@ -41,13 +41,19 @@ describe("a autorização do LinkedIn fica no servidor", () => {
 
   it("só estes arquivos importam o repositório da conexão", () => {
     const importam = CODIGO.filter((rel) => IMPORTA_O_REPOSITORIO.test(ler(rel)));
-    expect(importam).toEqual(["app/setup/actions.ts", "app/setup/page.tsx", "lib/convites-repositorio.ts"]);
+    expect(importam).toEqual([
+      "app/setup/actions.ts",
+      "app/setup/page.tsx",
+      "lib/convites-repositorio.ts",
+      "lib/linkedin-fila.ts",
+    ]);
   });
 
-  it("a linha inteira, com o token, só sai pela conexaoDaConta, e nesta parte ninguém a chama", () => {
-    // Na parte 2, o dreno da publicação entra nesta lista: é o único que precisa da autorização.
+  it("a linha inteira, com o token, só sai pela conexaoDaConta, e só o post da fila a chama", () => {
+    // A parte 2a: o post do LinkedIn pela fila (lib/linkedin-fila.ts, chamado pelo dreno) é o único que precisa da
+    // autorização.
     const chamam = CODIGO.filter((rel) => rel !== "lib/linkedin-conexoes.ts" && /\bconexaoDaConta\b/.test(ler(rel)));
-    expect(chamam).toEqual([]);
+    expect(chamam).toEqual(["lib/linkedin-fila.ts"]);
   });
 
   it("a Configuração lê só os resumos, e o componente de cliente dela não fala de token", () => {

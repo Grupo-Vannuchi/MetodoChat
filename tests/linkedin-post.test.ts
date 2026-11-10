@@ -7,6 +7,7 @@ import {
   lerPayloadDoLinkedin,
   linkParaVerNoLinkedin,
   motivoDaAutorizacaoRecusada,
+  oPostPodeTerSaido,
   payloadDoLinkedin,
   problemaDoTextoDoLinkedin,
   rotuloDaFormaNoLinkedin,
@@ -93,6 +94,13 @@ describe("o erro do LinkedIn", () => {
     expect(motivoDaAutorizacaoRecusada("Dra. Ana")).toBe(
       "o LinkedIn de Dra. Ana não aceita mais a autorização (venceu ou foi retirada); mande o convite de novo"
     );
+  });
+
+  // O ACHADO 210: o POST /rest/posts não tem chave contra repetição. Só uma resposta 4xx prova que o post não foi
+  // criado; a rede (0), o 5xx e o 2xx sem o id deixam a dúvida, e a linha não pode ser tentada de novo.
+  it("depois do POST, só o 4xx prova que o post não saiu; a rede, o 5xx e o 2xx sem id deixam a dúvida", () => {
+    for (const s of [0, 200, 201, 500, 502, 503, 504]) expect(oPostPodeTerSaido(s), String(s)).toBe(true);
+    for (const s of [400, 401, 403, 404, 409, 422, 429]) expect(oPostPodeTerSaido(s), String(s)).toBe(false);
   });
 });
 

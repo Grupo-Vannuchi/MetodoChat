@@ -1,13 +1,13 @@
-// A CONFERÊNCIA DO `queue_kind_check` ACEITA DUAS FORMAS, E SÓ ELAS (docs/specs/2026-11-06-linkedin-no-perfil.md, §0).
+// A CONFERÊNCIA DO `queue_kind_check` ACEITA A FORMA DA 025, E SÓ ELA (docs/specs/2026-11-06-linkedin-no-perfil.md,
+// §0 e §1; a parte 2a).
 //
 // O `scripts/migrar.mjs` roda em todo deploy de produção e exige o texto EXATO de cada restrição conferida;
-// uma divergência derruba o build (saída 1). A entrega do LinkedIn alarga o `queue_kind_check` com o tipo
-// `publicacao_linkedin` (a migração 025, na parte 2 da entrega; a 024 da parte 1 não toca a fila), aplicada à
-// mão antes do merge, como a 022 e a 023. Sem esta preparação, todo deploy da `main` entre a 025 e o merge
-// morreria no build.
+// uma divergência derruba o build (saída 1). A 025 alargou o `queue_kind_check` com o `publicacao_linkedin`, e
+// foi aplicada à mão antes do merge da parte 2a; na janela, a `main` aceitava as duas formas (a da 010 e a da
+// 025, pela preparação). Com a parte 2a, a forma da 025 vira a única, e a da 010 passa a divergir: um banco que
+// voltasse a ela recusaria a linha do LinkedIn, e o build tem de acusar.
 //
-// As duas formas aceitas são a da 010 (a de hoje) e a da 025. Qualquer terceira continua sendo divergência:
-// é o que este arquivo prova, rodando o script de verdade, como o build roda, contra um schema descartável.
+// É o que este arquivo prova, rodando o script de verdade, como o build roda, contra um schema descartável.
 //
 // OS TEXTOS SÃO OS DO `pg_get_constraintdef`, medidos no banco de teste em 06/11/2026.
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -53,7 +53,7 @@ beforeAll(async () => {
   leitor = postgres(urlDoTeste, { prepare: false, ssl: sslDaUrl(urlDoTeste), max: 1 });
   // A trava de `banco-descartavel`: confere NO BANCO que o caminho é o schema temporário sozinho.
   await conferirCaminho((texto) => leitor!.unsafe(texto), schema);
-  // A pasta inteira, pelo próprio script: o `queue_kind_check` nasce na forma da 010.
+  // A pasta inteira, pelo próprio script: o `queue_kind_check` nasce na forma da 025.
   const r = await migrar("--aplicar", "--a-mao");
   if (r.codigo !== 0) throw new Error(`a pasta não aplicou no schema descartável:\n${r.saida}`);
 }, 240_000);
@@ -87,32 +87,35 @@ async function checkCom(tipos: string[]) {
 
 const CONFERE = "CONFERIDO no banco: queue.queue_kind_check existe e confere";
 
-it("a forma da 010 confere", async () => {
-  await checkCom(TIPOS_DA_010);
-  const r = await migrar("--a-mao");
-  expect(r.codigo, r.saida).toBe(0);
-  expect(r.saida).toContain(CONFERE);
-}, 120_000);
+const TIPOS_DA_025 = [...TIPOS_DA_010, "publicacao_linkedin"];
 
-it("a forma da 025, com o publicacao_linkedin, também confere", async () => {
-  await checkCom([...TIPOS_DA_010, "publicacao_linkedin"]);
+it("a forma da 025, com o publicacao_linkedin, confere", async () => {
+  await checkCom(TIPOS_DA_025);
   const r = await migrar("--a-mao");
   expect(r.codigo, r.saida).toBe(0);
-  expect(r.saida).toContain(CONFERE);
+  expect(r.saida).toContain(`${CONFERE} (025-fila-linkedin.sql)`);
   expect(r.saida).not.toContain("queue_kind_check existe, MAS DIVERGE");
 }, 120_000);
 
+it("a forma da 010, de antes da 025, agora diverge, e derruba o script", async () => {
+  await checkCom(TIPOS_DA_010);
+  const r = await migrar("--a-mao");
+  expect(r.codigo, r.saida).toBe(1);
+  expect(r.saida).toContain("queue.queue_kind_check existe, MAS DIVERGE");
+  await checkCom(TIPOS_DA_025);
+}, 120_000);
+
 it("uma terceira forma continua divergindo, e derruba o script", async () => {
-  await checkCom([...TIPOS_DA_010, "publicacao_linkedin", "tipo_que_ninguem_escreveu"]);
+  await checkCom([...TIPOS_DA_025, "tipo_que_ninguem_escreveu"]);
   const r = await migrar("--a-mao");
   expect(r.codigo, r.saida).toBe(1);
   expect(r.saida).toContain("queue.queue_kind_check existe, MAS DIVERGE");
 }, 120_000);
 
-it("a forma da 010 sem um tipo também diverge", async () => {
-  await checkCom(TIPOS_DA_010.filter((t) => t !== "dm_lote"));
+it("a forma da 025 sem um tipo também diverge", async () => {
+  await checkCom(TIPOS_DA_025.filter((t) => t !== "dm_lote"));
   const r = await migrar("--a-mao");
   expect(r.codigo, r.saida).toBe(1);
   expect(r.saida).toContain("queue.queue_kind_check existe, MAS DIVERGE");
-  await checkCom(TIPOS_DA_010);
+  await checkCom(TIPOS_DA_025);
 }, 120_000);

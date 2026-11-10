@@ -22,7 +22,10 @@ import { renderVariables, type VariableContext } from "./variables";
 // coluna é `variableContext`, aqui embaixo; quem entende o `jsonb` é ele.
 import { lerCampos } from "./campos";
 import { lerPayloadDoLote, loteExpirou } from "./lote";
-import { TIPOS_QUE_O_DRENO_CONHECE } from "./fila-tipos";
+import { TIPOS_DE_PUBLICACAO, TIPOS_QUE_O_DRENO_CONHECE } from "./fila-tipos";
+// O POST DO LINKEDIN (a parte 2a). O arquivo dele não importa este: as três funções de que ele precisa vão como
+// parâmetro (`DEPENDENCIAS_DO_LINKEDIN`, lá embaixo).
+import { publicarNoLinkedinDaFila, type DependenciasDoDreno } from "./linkedin-fila";
 import {
   leituraDoContainer,
   lerPayloadDaPublicacao,
@@ -74,8 +77,8 @@ const GAP_MS = 600; // ~1,6 envios/segundo
 // escrita e não só implícita:
 //
 //   1. GASTANDO O TETO. A contagem do teto horário é `status = 'sent'` na
-//      última hora — ela conta LINHA DE FILA, não mensagem. Sem o `kind <>
-//      'publicacao'` da consulta lá embaixo, publicar trinta posts numa manhã
+//      última hora — ela conta LINHA DE FILA, não mensagem. Sem o filtro dos
+//      tipos de post da consulta lá embaixo, publicar trinta posts numa manhã
 //      comeria trinta das 190 DMs daquela hora, e as respostas automáticas do
 //      painel — que são o produto — passariam a engasgar por causa de um
 //      recurso que nada tem a ver com elas. O sintoma seria "o robô parou de
@@ -971,6 +974,54 @@ export async function cancelarLotesVencidos(): Promise<{ vencidos: number }> {
   return { vencidos: vencidos.length };
 }
 
+/**
+ * O ERRO QUE SUBIU DE UM ITEM: o 4xx da Meta encerra; o resto volta à fila em 2 minutos, até a terceira tentativa.
+ * É o `catch` do `drainQueue`, tirado para uma função quando o "agora" do LinkedIn
+ * (`drenarUmaPublicacaoDoLinkedin`, logo abaixo) passou a precisar do mesmo desfecho.
+ */
+async function devolverOuEncerrar(item: QueueItem, err: unknown): Promise<void> {
+  const permanent = err instanceof IgError && err.status >= 400 && err.status < 500;
+  const giveUp = permanent || item.attempts >= 3;
+  await finish(item.id, {
+    status: giveUp ? "failed" : "pending",
+    retryInSeconds: 120,
+    error: err instanceof Error ? err.message.slice(0, 500) : String(err),
+  });
+}
+
+/** O que o post do LinkedIn usa do dreno (lib/linkedin-fila.ts). */
+const DEPENDENCIAS_DO_LINKEDIN: DependenciasDoDreno = { finish, guardarNoPayload, limparOBucket };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * O "AGORA" DO POST NO LINKEDIN DRENA SÓ A PRÓPRIA LINHA (achado 211; a nota 198: no preview não há QStash, e quem
+ * publica o post de agora é a própria action, que chama esta função).
+ *
+ * O `drainQueue` inteiro, na action, mandaria também as mensagens vencidas e os posts do Instagram do banco, que é
+ * um só para a produção e os previews. Esta função reivindica UMA linha, numa instrução só: ela só a pega se for
+ * do LinkedIn, `pending` e já valer. Com o dreno geral rodando ao mesmo tempo, só um dos dois a pega: o `update`
+ * espera a trava do outro e confere o `where` de novo, e aí a linha já é `sending`.
+ *
+ * Devolve o desfecho, ou null quando não pegou nada (id torto, outro tipo, agendada, ou já pega).
+ */
+export async function drenarUmaPublicacaoDoLinkedin(id: string): Promise<"publicado" | "falhou" | null> {
+  if (!UUID.test(id)) return null;
+  const [item] = (await sql().query(
+    `update queue set status = 'sending', claimed_at = now(), attempts = attempts + 1
+      where id = $1 and kind = 'publicacao_linkedin' and status = 'pending' and not_before <= now()
+      returning *`,
+    [id]
+  )) as QueueItem[];
+  if (!item) return null;
+  try {
+    return await publicarNoLinkedinDaFila(item, DEPENDENCIAS_DO_LINKEDIN);
+  } catch (err) {
+    await devolverOuEncerrar(item, err);
+    return "falhou";
+  }
+}
+
 export async function drainQueue(): Promise<ResumoDaDrenagem> {
   const result = { sent: 0, skipped: 0, failed: 0, guardados: 0, aguardando: 0 };
   const accounts = await listAccounts();
@@ -980,17 +1031,18 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
   // O limite horário da Meta é POR CONTA: contas no teto ficam de fora do
   // lote (em vez de serem reivindicadas e devolvidas, o que inflaria attempts).
   //
-  // O `kind <> 'publicacao'` É O QUE IMPEDE UM POST DE COMER A COTA DE DM.
+  // O FILTRO DOS TIPOS DE POST É O QUE IMPEDE UM POST DE COMER A COTA DE DM.
   // Esta contagem é sobre LINHA DE FILA `sent`, e não sobre mensagem: sem o
   // filtro, trinta posts publicados numa manhã tirariam trinta das 190
   // mensagens daquela hora, e as respostas automáticas do painel — que são o
   // produto — engasgariam por causa de um recurso que nada tem a ver com elas.
   // Publicação tem limite próprio na Meta, perguntado a ela em
-  // `publicarDaFila`. Ver o bloco `HOURLY_CAP`, no topo do arquivo.
+  // `publicarDaFila`. Ver o bloco `HOURLY_CAP`, no topo do arquivo. A lista
+  // (lib/fila-tipos.ts) tem também o post do LinkedIn, que nem passa pela Meta.
   const capRows = (await sql()`
     select account_id, count(*)::int as n from queue
     where status = 'sent' and sent_at > now() - interval '1 hour'
-      and kind <> 'publicacao'
+      and not (kind = any(${Array.from(TIPOS_DE_PUBLICACAO)}::text[]))
     group by account_id
   `) as { account_id: string | null; n: number }[];
   const blocked = capRows
@@ -1054,8 +1106,9 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
            -- excecao um lote grande de mensagens -- que leva horas para sair --
            -- deixaria todo post agendado daquela conta parado atras dele,
            -- inclusive o marcado para uma hora exata. O limite de publicacao e
-           -- outro, e quem o pergunta a Meta e publicarDaFila.
-           and (kind = 'publicacao'
+           -- outro, e quem o pergunta a Meta e publicarDaFila. Vale para
+           -- todo tipo de post (lib/fila-tipos.ts, TIPOS_DE_PUBLICACAO).
+           and (kind = any($4::text[])
                 or account_id is null
                 or not (account_id = any($2::text[])))
          order by created_at
@@ -1065,7 +1118,7 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
        returning q.*
      )
      select *, now() as agora_do_banco from lote order by created_at, id`,
-    [BATCH_SIZE, blocked, Array.from(TIPOS_QUE_O_DRENO_CONHECE)]
+    [BATCH_SIZE, blocked, Array.from(TIPOS_QUE_O_DRENO_CONHECE), Array.from(TIPOS_DE_PUBLICACAO)]
   )) as (QueueItem & { agora_do_banco: Date })[];
 
   // O RELOGIO QUE JULGA A VALIDADE É O DO BANCO, E NÃO O DA APLICAÇÃO.
@@ -1173,6 +1226,15 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
         continue;
       }
 
+      // O POST DO LINKEDIN (a parte 2a), pelo mesmo caminho e no mesmo `try`: o erro passageiro dele cai no `catch`
+      // de baixo, como o da Meta. O que é recusa do LinkedIn, ou dúvida depois do POST, ele mesmo encerra.
+      if (item.kind === "publicacao_linkedin") {
+        const desfecho = await publicarNoLinkedinDaFila(item, DEPENDENCIAS_DO_LINKEDIN);
+        if (desfecho === "publicado") result.sent++;
+        else result.failed++;
+        continue;
+      }
+
       const { outcome, messageId, sentText } = await processItem(
         item,
         account.ig_user_id,
@@ -1256,13 +1318,7 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
         result.skipped++;
       }
     } catch (err) {
-      const permanent = err instanceof IgError && err.status >= 400 && err.status < 500;
-      const giveUp = permanent || item.attempts >= 3;
-      await finish(item.id, {
-        status: giveUp ? "failed" : "pending",
-        retryInSeconds: 120,
-        error: err instanceof Error ? err.message.slice(0, 500) : String(err),
-      });
+      await devolverOuEncerrar(item, err);
       result.failed++;
     }
   }
@@ -1341,8 +1397,9 @@ export async function drainQueue(): Promise<ResumoDaDrenagem> {
  *
  * =============================================================================
  * A FORMA É A DA VARREDURA DE LOTES VENCIDOS, logo acima, e as duas dividem o
- * mesmo cuidado: ELA NÃO TOCA EM `pending` DE MENSAGEM. O filtro por
- * `kind = 'publicacao'` é o que garante isso — devolver mensagem à disputa da
+ * mesmo cuidado: ELA NÃO TOCA EM `pending` DE MENSAGEM. O filtro pelos tipos
+ * de post (`TIPOS_DE_PUBLICACAO`, lib/fila-tipos.ts: o do Instagram e o do
+ * LinkedIn) é o que garante isso — devolver mensagem à disputa da
  * fila é a fome que a migração 009 fechou, e nada aqui pode reabri-la.
  *
  * SÓ O QUE AINDA NÃO VENCEU (`not_before > now()`): o que já está na hora sai
@@ -1360,12 +1417,12 @@ export async function armarTiquesDoDia(): Promise<{ armados: number }> {
   const linhas = (await sql().query(
     `select distinct ceil(extract(epoch from (not_before - now())))::int as secs
        from queue
-      where kind = 'publicacao' and status = 'pending'
+      where kind = any($2::text[]) and status = 'pending'
         and not_before > now()
         and not_before <= now() + make_interval(secs => $1::int)
       order by secs
       limit 200`,
-    [HORIZONTE_DO_TIQUE_EM_SEGUNDOS]
+    [HORIZONTE_DO_TIQUE_EM_SEGUNDOS, Array.from(TIPOS_DE_PUBLICACAO)]
   )) as { secs: number }[];
   if (!linhas.length) return { armados: 0 };
 

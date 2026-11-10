@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { TIPOS_QUE_O_DRENO_CONHECE, type TipoDaFila } from "@/lib/fila-tipos";
+import { TIPOS_DE_PUBLICACAO, TIPOS_QUE_O_DRENO_CONHECE, type TipoDaFila } from "@/lib/fila-tipos";
 import type { QueueItem } from "@/lib/db";
 
 // A LISTA DOS TIPOS QUE O DRENO CONHECE É A DO BANCO (docs/specs/2026-11-06-linkedin-no-perfil.md, §0).
@@ -30,7 +30,8 @@ function tiposDaUltimaMigracaoDoCheck(): { arquivo: string; tipos: string[] } {
 describe("os tipos que o dreno conhece", () => {
   it("são exatamente os do queue_kind_check da última migração que o escreve", () => {
     const { arquivo, tipos } = tiposDaUltimaMigracaoDoCheck();
-    expect(arquivo).toBe("010-fila-publicacao.sql");
+    // A 025 (a parte 2a do LinkedIn) alargou o check com o `publicacao_linkedin`, e o dreno ganhou o ramo dele.
+    expect(arquivo).toBe("025-fila-linkedin.sql");
     expect([...TIPOS_QUE_O_DRENO_CONHECE].sort()).toEqual([...tipos].sort());
   });
 
@@ -40,5 +41,13 @@ describe("os tipos que o dreno conhece", () => {
 
   it("são o tipo do kind da linha da fila (QueueItem), e não uma segunda lista", () => {
     expectTypeOf<QueueItem["kind"]>().toEqualTypeOf<TipoDaFila>();
+  });
+
+  // OS TIPOS DE PUBLICAÇÃO (docs/specs/2026-11-06-linkedin-no-perfil.md, §6): os pontos que dizem "post, e não
+  // mensagem" (a cota de DM, a exceção da seleção, os tiques do dia, as contagens do Início, as telas) perguntam
+  // a esta lista, e não a um literal.
+  it("os de publicação são o post do Instagram e o do LinkedIn, e os dois o dreno conhece", () => {
+    expect([...TIPOS_DE_PUBLICACAO]).toEqual(["publicacao", "publicacao_linkedin"]);
+    for (const t of TIPOS_DE_PUBLICACAO) expect(TIPOS_QUE_O_DRENO_CONHECE).toContain(t);
   });
 });

@@ -188,3 +188,12 @@ export function desfechoDoErroDoLinkedin(status: number): DesfechoDoErroDoLinked
 export function motivoDaAutorizacaoRecusada(nome: string): string {
   return `o LinkedIn de ${nome} não aceita mais a autorização (venceu ou foi retirada); mande o convite de novo`;
 }
+
+/**
+ * DEPOIS DO POST, O POST PODE TER SAÍDO? (achado 210). O `POST /rest/posts` não tem chave contra repetição, então
+ * só uma resposta 4xx prova que o LinkedIn não criou nada. A rede (0), o 5xx e o 2xx sem o `x-restli-id` deixam a
+ * dúvida, e a linha não pode ser tentada de novo: o dono confere no LinkedIn.
+ */
+export function oPostPodeTerSaido(status: number): boolean {
+  return !(status >= 400 && status < 500);
+}

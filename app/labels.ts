@@ -292,6 +292,8 @@ const KIND: Record<QueueItem["kind"], string> = {
   // para um post ela erraria duas vezes: sugere destinatário onde não há um, e
   // esconde a única coisa da fila que fica pública para sempre.
   publicacao: "Publicação no Instagram",
+  // O POST NO PERFIL PESSOAL DO LINKEDIN (migrations/025-fila-linkedin.sql), pelo mesmo motivo da de cima.
+  publicacao_linkedin: "Publicação no LinkedIn",
 };
 
 // Kind sem rótulo devolve algo legível, e nunca o nome interno — como
