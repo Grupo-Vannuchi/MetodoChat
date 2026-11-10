@@ -40,6 +40,8 @@ const linkedin = {
   segurarOPost: null as null | Promise<void>,
   statusDaReserva: 200,
   desconhecidos: [] as string[],
+  /** Para cada POST do post: a linha já tinha a marca `post_tentado_em` quando ele chegou? (achado 210) */
+  marcadaNoPost: [] as (boolean | null)[],
   /** Chamado quando o PUT da imagem chega: é como o caso faz o relógio andar durante o envio. */
   aoEnviar: null as null | (() => void),
 };
@@ -86,6 +88,11 @@ beforeAll(async () => {
       return responder(res, 201, "");
     }
     if (req.method === "POST" && u.pathname === "/rest/posts") {
+      // A MARCA ANTES DO POST, medida no banco no instante em que o POST chega.
+      const [l] = await q(
+        `select payload ? 'post_tentado_em' as marcada from queue where kind = 'publicacao_linkedin' and status = 'sending' limit 1`
+      );
+      linkedin.marcadaNoPost.push(l ? Boolean(l.marcada) : null);
       if (linkedin.segurarOPost) await linkedin.segurarOPost;
       if (linkedin.statusDoPost !== 201) return responder(res, linkedin.statusDoPost, { message: "o post falhou de propósito" });
       linkedin.posts.push(JSON.parse(corpo.toString()) as Record<string, unknown>);
@@ -169,6 +176,7 @@ beforeEach(async () => {
     segurarOPost: null,
     statusDaReserva: 200,
     desconhecidos: [],
+    marcadaNoPost: [],
     aoEnviar: null,
   });
   bucket.apagados = [];
@@ -259,6 +267,8 @@ describe("o dreno publica no LinkedIn", () => {
     expect(linha.error).toBeNull();
     expect((linha.payload as Record<string, unknown>).post_urn).toBe("urn:li:share:7000000000000000001");
     expect(typeof (linha.payload as Record<string, unknown>).post_tentado_em).toBe("string");
+    // A MARCA JÁ ESTAVA NO BANCO QUANDO O POST CHEGOU (achado 210), e não foi gravada depois dele.
+    expect(linkedin.marcadaNoPost).toEqual([true]);
   });
 
   it("imagem: reserva com a pessoa dona, envia os bytes do bucket, publica com a imagem e só então apaga o arquivo", async () => {
@@ -287,6 +297,33 @@ describe("o dreno publica no LinkedIn", () => {
     await dreno.drainQueue();
     expect((await linhaDoLinkedin()).status).toBe("sent");
     expect(linkedin.posts).toHaveLength(1);
+  });
+
+  it("o post do LinkedIn que saiu não conta na cota horária de DM", async () => {
+    // 189 DMs e 1 post do LinkedIn saíram na última hora: são 189 mensagens, abaixo do teto de 190, e a conta não
+    // é bloqueada. Contando o post, seriam 190, e a DM pendente nem seria pega.
+    await q(
+      `insert into queue (account_id, kind, payload, dedupe_key, status, sent_at, not_before)
+       select $1, 'dm_lote', '{}'::jsonb, 'cota-' || g, 'sent', now() - interval '10 minutes', now() - interval '10 minutes'
+         from generate_series(1, 189) g`,
+      [CONTA]
+    );
+    await q(
+      `insert into queue (account_id, kind, payload, dedupe_key, status, sent_at, not_before)
+       values ($1, 'publicacao_linkedin', '{"forma":"texto","caminhos":[],"texto":"x"}'::jsonb, 'cota-li', 'sent',
+               now() - interval '5 minutes', now() - interval '5 minutes')`,
+      [CONTA]
+    );
+    await q(
+      `insert into queue (account_id, kind, contact_ig_id, payload, dedupe_key)
+       values ($1, 'dm_manual', '99000000000000025', '{"text":"oi"}'::jsonb, 'cota-dm')`,
+      [CONTA]
+    );
+    await dreno.drainQueue();
+    // PEGA é o que importa: a reivindicação conta a tentativa. Sem Meta nesta rodada, o envio não sai, e não
+    // precisa: o que se mede é que a conta não ficou fora do lote.
+    const [dm] = await q(`select attempts from queue where dedupe_key = 'cota-dm'`);
+    expect(dm.attempts).toBe(1);
   });
 });
 
@@ -512,6 +549,16 @@ describe("o \"agora\" drena só a própria linha (achado 211)", () => {
     );
     const ig = String((await q(`select id from queue where kind = 'publicacao'`))[0].id);
     expect(await dreno.drenarUmaPublicacaoDoLinkedin(ig)).toBeNull();
+    // A QUE JÁ SAIU: uma linha do LinkedIn `sent`, com a hora no passado e sem o URN, que um "agora" sem o
+    // `status = 'pending'` publicaria de novo.
+    const [saiu] = await q(
+      `insert into queue (account_id, kind, payload, dedupe_key, status, sent_at, not_before)
+       values ($1, 'publicacao_linkedin', '{"forma":"texto","caminhos":[],"texto":"já saiu"}'::jsonb, 'pub-linkedin:ja-saiu',
+               'sent', now() - interval '1 minute', now() - interval '2 minutes')
+       returning id`,
+      [CONTA]
+    );
+    expect(await dreno.drenarUmaPublicacaoDoLinkedin(String(saiu.id))).toBeNull();
     expect(await dreno.drenarUmaPublicacaoDoLinkedin("não é uuid")).toBeNull();
     expect(linkedin.pedidos).toHaveLength(0);
   });

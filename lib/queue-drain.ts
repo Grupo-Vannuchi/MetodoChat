@@ -1047,8 +1047,9 @@ export async function drenarUmaPublicacaoDoLinkedin(
 /**
  * O TIQUE DE UMA LINHA QUE VOLTOU À FILA, pela hora dela e com a mesma conta do rodapé do `drainQueue` (vinte
  * segundos no mínimo, o horizonte no máximo). Calado como os outros: sem tique o post ainda sai, só mais tarde.
+ * A action de publicar no LinkedIn também o chama, quando o "agora" lança antes de pegar a linha.
  */
-async function armarOTiqueDaLinha(id: string): Promise<void> {
+export async function armarOTiqueDaLinha(id: string): Promise<void> {
   try {
     const [linha] = (await sql().query(
       `select extract(epoch from (not_before - now()))::float8 as secs from queue where id = $1 and status = 'pending'`,

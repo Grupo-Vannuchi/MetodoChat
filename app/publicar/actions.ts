@@ -30,7 +30,7 @@ import {
   textoDaRecusaNoLinkedin,
 } from "@/lib/linkedin-publicacao";
 import { enqueuePublicacaoNoLinkedin, erroDaLinha } from "@/lib/linkedin-fila";
-import { drenarUmaPublicacaoDoLinkedin } from "@/lib/queue-drain";
+import { armarOTiqueDaLinha, drenarUmaPublicacaoDoLinkedin } from "@/lib/queue-drain";
 
 /**
  * Enfileira uma publicação para a conta selecionada.
@@ -259,7 +259,11 @@ export async function publicarNoLinkedin(formData: FormData): Promise<void> {
       desfecho = await drenarUmaPublicacaoDoLinkedin(r.id, inicioDaFuncaoMs);
       if (desfecho === "falhou") motivo = await erroDaLinha(r.id);
     } catch {
+      // O "AGORA" LANÇOU, talvez antes de pegar a linha (o banco engasgou no `update`), e aí ela ficou `pending`
+      // sem tique: o enfileirar não arma tique para o que já vale. Este tique é o que faz o "vai sair em instantes"
+      // ser verdade (nota da auditoria sobre a F4). Calado, como os outros.
       desfecho = null;
+      await armarOTiqueDaLinha(r.id);
     }
   }
 

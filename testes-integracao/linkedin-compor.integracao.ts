@@ -273,15 +273,16 @@ describe("a regra das contas: a conta vem da sessão, e nunca do formulário", (
     expect((await linhas())[0]).toMatchObject({ account_id: CONTA_A, status: "sent" });
   });
 
-  it("o login comum sem conta nenhuma não publica, nem com o cookie de uma conta com LinkedIn", async () => {
-    const aviso = await publicarComoComum(formulario(), [], CONTA_A);
+  // O CAMPO "conta" NO FORMULÁRIO é o que mandaria quem tentasse escolher a conta por fora: a action não o lê.
+  it("o login comum sem conta nenhuma não publica, nem com o cookie nem com um campo de uma conta com LinkedIn", async () => {
+    const aviso = await publicarComoComum(formulario({ conta: CONTA_A }), [], CONTA_A);
     expect(aviso.tom).toBe("erro");
     expect(await linhas()).toEqual([]);
     expect(linkedin.pedidos).toEqual([]);
   });
 
   it("o login comum só com outra conta não publica no LinkedIn da conta que ele não vê", async () => {
-    const aviso = await publicarComoComum(formulario(), [CONTA_B], CONTA_A);
+    const aviso = await publicarComoComum(formulario({ conta: CONTA_A }), [CONTA_B], CONTA_A);
     expect(aviso.tom).toBe("erro");
     expect(await linhas()).toEqual([]);
     expect(linkedin.pedidos).toEqual([]);
