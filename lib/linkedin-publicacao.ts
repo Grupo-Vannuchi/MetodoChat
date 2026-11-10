@@ -26,6 +26,22 @@ export function vencimentoDoLinkedin(expiraEm: Date | string, agoraMs: number): 
   };
 }
 
+/**
+ * O CONVITE NUMA CONTA QUE JÁ TEM O LINKEDIN PEDE CONFIRMAÇÃO (a decisão do Eduardo pela caixa, 10/11, 17:16:36Z:
+ * "Pede confirmação antes"; o achado 209). Um convite novo, quando usado, troca a conexão que existe. Sem LinkedIn,
+ * ou com ele vencido, não há o que trocar. A tela pede, e o servidor recusa sem a confirmação, pela mesma regra.
+ */
+export function oConvitePedeConfirmacao(estado: Vencimento["estado"] | null): boolean {
+  return estado === "valido" || estado === "perto";
+}
+
+export function textoDaConfirmacaoDoConvite(nome: string): string {
+  return `Esta conta já tem o LinkedIn de ${nome} conectado. Um convite novo, quando usado, troca essa conexão pela nova. Gerar o convite mesmo assim?`;
+}
+
+export const TEXTO_DO_CONVITE_SEM_CONFIRMACAO =
+  "Esta conta já tem o LinkedIn conectado: confirme antes de gerar um convite novo.";
+
 // ---------------------------------------------------------------------------------------------------------------
 // AS FORMAS DA PARTE 2a
 // ---------------------------------------------------------------------------------------------------------------

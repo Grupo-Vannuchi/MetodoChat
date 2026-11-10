@@ -3,6 +3,7 @@ import { useActionState, useState } from "react";
 import CopyField from "./copy-field";
 import { desconectarLinkedin, gerarConviteDoLinkedin } from "./actions";
 import type { EstadoDoGerar } from "@/lib/convites";
+import { oConvitePedeConfirmacao, textoDaConfirmacaoDoConvite } from "@/lib/linkedin-publicacao";
 import { alertError, btnPrimary, btnSecondary, muted } from "../ui";
 
 // O LINKEDIN DAS CONTAS NA CONFIGURAÇÃO (docs/specs/2026-11-06-linkedin-no-perfil.md, §7; a parte 1, a
@@ -19,7 +20,12 @@ export type LinhaDoLinkedin = {
 function LinhaDaConta({ linha, chavesOk }: { linha: LinhaDoLinkedin; chavesOk: boolean }) {
   const [estado, gerar, gerando] = useActionState<EstadoDoGerar, FormData>(gerarConviteDoLinkedin, null);
   const [confirmando, setConfirmando] = useState(false);
+  // O CONVITE NUMA CONTA QUE JÁ TEM O LINKEDIN VÁLIDO pede confirmação (a decisão do Eduardo de 10/11; o achado
+  // 209): o botão abre a pergunta, e só o "Sim, gerar o convite" chama a ação, com o "confirmado". O servidor
+  // recusa sem ele, pela mesma regra (`oConvitePedeConfirmacao`).
+  const [confirmandoConvite, setConfirmandoConvite] = useState(false);
   const c = linha.conexao;
+  const pedeConfirmacao = oConvitePedeConfirmacao(c?.estado ?? null);
 
   return (
     <li className="space-y-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800">
@@ -41,18 +47,48 @@ function LinhaDaConta({ linha, chavesOk }: { linha: LinhaDoLinkedin; chavesOk: b
         </>
       )}
       <div className="flex flex-wrap gap-2">
-        <form action={gerar}>
-          <input type="hidden" name="conta" value={linha.contaId} />
-          <button type="submit" disabled={!chavesOk || gerando} className={btnPrimary}>
-            Convidar a conectar o LinkedIn
-          </button>
-        </form>
+        {pedeConfirmacao ? (
+          !confirmandoConvite && (
+            <button
+              type="button"
+              disabled={!chavesOk || gerando}
+              onClick={() => setConfirmandoConvite(true)}
+              className={btnPrimary}
+            >
+              Convidar a conectar o LinkedIn
+            </button>
+          )
+        ) : (
+          <form action={gerar}>
+            <input type="hidden" name="conta" value={linha.contaId} />
+            <button type="submit" disabled={!chavesOk || gerando} className={btnPrimary}>
+              Convidar a conectar o LinkedIn
+            </button>
+          </form>
+        )}
         {c && !confirmando && (
           <button type="button" onClick={() => setConfirmando(true)} className={btnSecondary}>
             Desconectar
           </button>
         )}
       </div>
+      {c && pedeConfirmacao && confirmandoConvite && (
+        <div className="space-y-2 rounded-lg border border-zinc-200 p-2 dark:border-zinc-800">
+          <p className="text-xs">{textoDaConfirmacaoDoConvite(c.nome)}</p>
+          <div className="flex gap-2">
+            <form action={gerar} onSubmit={() => setConfirmandoConvite(false)}>
+              <input type="hidden" name="conta" value={linha.contaId} />
+              <input type="hidden" name="confirmado" value="1" />
+              <button type="submit" disabled={!chavesOk || gerando} className={btnPrimary}>
+                Sim, gerar o convite
+              </button>
+            </form>
+            <button type="button" onClick={() => setConfirmandoConvite(false)} className={btnSecondary}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
       {c && confirmando && (
         // O QUE O DESCONECTAR FAZ, E O QUE ELE NÃO FAZ (achado 206): o LinkedIn não tem como revogar a autorização
         // de fora, então ela vence sozinha lá. A frase vem antes do botão que apaga.

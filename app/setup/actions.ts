@@ -22,8 +22,9 @@ import {
 } from "@/lib/convites";
 import { cancelarConvite as cancelarNoBanco, criarConvite } from "@/lib/convites-repositorio";
 import { podeVerConta } from "@/lib/acesso";
-import { apagarConexao } from "@/lib/linkedin-conexoes";
+import { apagarConexao, resumoDaConexao } from "@/lib/linkedin-conexoes";
 import { ambienteDaVercel, baseDoPainelParaOLinkedin, credenciaisDoLinkedin } from "@/lib/linkedin";
+import { oConvitePedeConfirmacao, TEXTO_DO_CONVITE_SEM_CONFIRMACAO, vencimentoDoLinkedin } from "@/lib/linkedin-publicacao";
 
 // TODA ACTION DESTE ARQUIVO É DO ADMINISTRADOR (docs/specs/2026-11-05-contas-por-login.md, seção 3: o login
 // comum faz tudo nas contas dele, menos a Configuração e os logins). Cada uma chama `exigirAdministrador`
@@ -392,6 +393,14 @@ export async function gerarConviteDoLinkedin(_anterior: EstadoDoGerar, formData:
   const contaId = String(formData.get("conta") ?? "");
   const conta = (await podeVerConta(login, contaId)) ? await getAccount(contaId) : null;
   if (!conta) return { erro: "Esta conta não está conectada neste painel." };
+  // A CONTA QUE JÁ TEM O LINKEDIN VÁLIDO só ganha convite confirmado (a decisão do Eduardo de 10/11; o achado 209):
+  // um convite usado troca a conexão que existe. A tela pede a confirmação, e esta recusa é a segunda barreira, para
+  // um duplo clique (ou um envio de fora da tela) não gravar convite nenhum.
+  const resumo = await resumoDaConexao(conta.ig_user_id);
+  const estado = resumo ? vencimentoDoLinkedin(resumo.expira_em, Date.now()).estado : null;
+  if (oConvitePedeConfirmacao(estado) && formData.get("confirmado") !== "1") {
+    return { erro: TEXTO_DO_CONVITE_SEM_CONFIRMACAO };
+  }
   // O "para quem" é o @ da conta, cortado como o `char_length` da 021 conta: caractere, e não pedaço de UTF-16.
   const paraQuem = Array.from(`@${conta.username ?? conta.ig_user_id}`).slice(0, LIMITE_DO_PARA_QUEM).join("");
   const config = await getConfig();
