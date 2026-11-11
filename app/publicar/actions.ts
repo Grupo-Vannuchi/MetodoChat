@@ -29,8 +29,18 @@ import {
   recusaDoPedidoNoLinkedin,
   textoDaRecusaNoLinkedin,
 } from "@/lib/linkedin-publicacao";
-import { enqueuePublicacaoNoLinkedin, erroDaLinha } from "@/lib/linkedin-fila";
+import {
+  aChaveDoLinkedinJaExiste,
+  desfazerLinhaDoLinkedin,
+  enqueuePublicacaoNoLinkedin,
+  erroDaLinha,
+  type ResultadoDoLinkedin,
+} from "@/lib/linkedin-fila";
 import { armarOTiqueDaLinha, drenarUmaPublicacaoDoLinkedin } from "@/lib/queue-drain";
+// O POST DAS DUAS REDES (a parte 2b): as regras puras das duas, e a cópia da imagem para a linha do LinkedIn.
+import { avisoDasDuasRedes, redeAceitaAForma, textoQueVaiAoLinkedin } from "@/lib/redes-do-post";
+import { apagarACopiaSemDerrubar, copiarImagemParaOLinkedin } from "@/lib/linkedin-copia";
+import type { ResultadoDaPublicacao } from "@/lib/engine";
 
 /**
  * Enfileira uma publicação para a conta selecionada.
@@ -271,4 +281,179 @@ export async function publicarNoLinkedin(formData: FormData): Promise<void> {
   revalidatePath("/publicar");
   revalidatePath("/eventos");
   redirect(urlDePublicarComAviso(avisoDoPostNoLinkedin({ desfecho, motivo, agendadoPara: r.jaVale ? null : campos })));
+}
+
+/**
+ * O POST DE IMAGEM NAS DUAS REDES, Instagram e LinkedIn, para a conta selecionada (docs/specs/2026-11-06-linkedin-
+ * no-perfil.md, §6 e §7; a parte 2b). Uma linha por rede, cada uma com a sua chave, o seu andamento e as suas
+ * tentativas: se uma rede falhar ao publicar, a outra segue.
+ *
+ * AS MESMAS REGRAS DAS DUAS ACTIONS DE CIMA: a sessão primeiro; nenhuma saída muda; a conta da regra das contas, e
+ * nunca do formulário; os caminhos pela pasta dessa conta; a conexão e o pedido do LinkedIn conferidos de novo
+ * aqui, pelas mesmas funções da tela.
+ *
+ * A ORDEM, QUANDO UMA PARTE FALHA NO MEIO (achado 192, com o ajuste da auditoria de 10/11):
+ *   1. todas as conferências, sem gravar nada;
+ *   2. a chave do LinkedIn já está na fila? Então ele "já existia", e não há cópia (depois de um "agora", o dreno do
+ *      Instagram já apagou o original, e copiar falharia);
+ *   3. a cópia da imagem para a linha do LinkedIn (lib/linkedin-copia.ts). Se falha, nada é gravado;
+ *   4. a linha do LinkedIn, com a cópia, e a chave pelo caminho ORIGINAL. Se ela não entra (o banco recusou, ou a
+ *      chave apareceu entre a conferência e o insert), a cópia sai, e nada é gravado;
+ *   5. a linha do Instagram, pelo `enqueuePublicacao` de hoje, sem mudança. Se ele LANÇA, a do LinkedIn é desfeita
+ *      só se ainda estiver pendente (achado 199), e só então a cópia sai; um dreno que já a pegou segue com ela.
+ *      A chave do Instagram que já existia não é falha: a tela diz que ele já estava na fila.
+ *
+ * O "AGORA" (a escolha (a) da auditoria): primeiro o LinkedIn, só a própria linha (`drenarUmaPublicacaoDoLinkedin`,
+ * achado 211), que só começa o passo que tem tempo de terminar; depois o dreno de hoje para o Instagram, com o
+ * mesmo começo da função, para outra linha do LinkedIn que ele pegue respeitar o prazo. O dreno não muda nesta
+ * entrega.
+ */
+export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
+  await exigirSessao();
+  const inicioDaFuncaoMs = Date.now();
+  const conta = await getSelectedAccount();
+  if (!conta) {
+    redirect(urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaDaPublicacao("sem_conta") }));
+  }
+
+  // 1. AS CONFERÊNCIAS, sem gravar nada.
+  const disponivel = disponibilidadeDoLinkedin(await resumoDaConexao(conta.ig_user_id), Date.now());
+  if (!disponivel.disponivel) {
+    redirect(urlDePublicarComAviso({ tom: "erro", texto: disponivel.motivo }));
+  }
+
+  // NESTA ENTREGA, AS DUAS REDES JUNTAS SÓ NA IMAGEM: o carrossel e o vídeo chegam ao LinkedIn na parte 3, e o story
+  // não existe lá. O motivo é o mesmo que a tela mostra na caixinha desligada.
+  const forma = formaQueATelaPublica(formData.get("forma"));
+  if (forma !== "imagem") {
+    redirect(
+      urlDePublicarComAviso({
+        tom: "erro",
+        texto: (forma && redeAceitaAForma("linkedin", forma)) || textoDaRecusaDaPublicacao("forma_desconhecida"),
+      })
+    );
+  }
+
+  const caminhos = caminhosDoCampo(formData.get("caminhos"), pastaDaConta(conta.ig_user_id));
+  const quantidade = recusaDaQuantidade(forma, caminhos.length);
+  if (quantidade) {
+    redirect(urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaDaPublicacao(quantidade) }));
+  }
+
+  const legenda = String(formData.get("legenda") ?? "").trim();
+  const problema = problemaDaLegenda(legenda);
+  if (problema) {
+    redirect(urlDePublicarComAviso({ tom: "erro", texto: textoDoProblemaDaLegenda(problema) }));
+  }
+
+  // O TEXTO DO LINKEDIN: o próprio, quando há; sem ele, a legenda. Contado pela mesma função do contador (212).
+  const texto = textoQueVaiAoLinkedin({ legenda, textoProprio: String(formData.get("texto_linkedin") ?? "") });
+  const idDoEnvio = String(formData.get("id_do_envio") ?? "");
+  const recusa = recusaDoPedidoNoLinkedin({ forma, caminhos, texto, idDoEnvio });
+  if (recusa) {
+    redirect(urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaNoLinkedin(recusa) }));
+  }
+
+  const campos = camposDaDataHora(formData.get("data_hora"));
+  const fuso = fusoDoCampo(formData.get("fuso"));
+  const momento = momentoDaPublicacao(
+    formData.get("quando"),
+    campos ? instanteDoAgendamento(campos, fuso) : null,
+    Date.now()
+  );
+  if (!momento.ok) {
+    redirect(urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaDaPublicacao(momento.motivo) }));
+  }
+
+  // 2 A 4. O LINKEDIN: a chave, a cópia e a linha.
+  const pedidoDoLinkedin = { forma, caminhos, texto, idDoEnvio };
+  let linkedin: ResultadoDoLinkedin = { entrou: false };
+  let copia: string | null = null;
+  if (!(await aChaveDoLinkedinJaExiste(conta.ig_user_id, pedidoDoLinkedin))) {
+    let falhaDoLinkedin: string | null = null;
+    try {
+      copia = await copiarImagemParaOLinkedin(caminhos[0], conta.ig_user_id);
+    } catch (e) {
+      falhaDoLinkedin = e instanceof Error ? e.message : "a cópia da imagem falhou";
+    }
+    if (copia) {
+      try {
+        linkedin = await enqueuePublicacaoNoLinkedin(
+          conta.ig_user_id,
+          { ...pedidoDoLinkedin, caminhos: [copia] },
+          momento.quando,
+          { caminhosDaChave: caminhos }
+        );
+      } catch {
+        falhaDoLinkedin = "a fila do LinkedIn não respondeu";
+      }
+      // A CÓPIA QUE NÃO VAI SER USADA SAI: o banco recusou a linha, ou a chave apareceu entre a conferência e o
+      // insert (dois cliques juntos). No segundo caso, o LinkedIn "já existia", e o Instagram segue.
+      if (!linkedin.entrou) {
+        await apagarACopiaSemDerrubar(copia);
+        copia = null;
+      }
+    }
+    if (falhaDoLinkedin) {
+      redirect(urlDePublicarComAviso(avisoDasDuasRedes({ tipo: "linkedin_nao_entrou", motivo: falhaDoLinkedin })));
+    }
+  }
+
+  // 5. O INSTAGRAM, pelo enfileirar de hoje. Se ele lança, a compensação do 192 e do 199.
+  let instagram: ResultadoDaPublicacao | null = null;
+  try {
+    instagram = await enqueuePublicacao(conta.ig_user_id, { forma, caminhos, legenda: legenda || undefined }, momento.quando);
+  } catch {
+    instagram = null;
+  }
+  if (!instagram) {
+    let lado: "desfeito" | "seguiu" | "ja_existia" = "ja_existia";
+    if (linkedin.entrou) {
+      let desfeita = false;
+      try {
+        desfeita = await desfazerLinhaDoLinkedin(linkedin.id);
+      } catch {
+        // Sem a resposta do banco, a linha continua como estava: pendente, ela sai sozinha. A cópia fica.
+      }
+      lado = desfeita ? "desfeito" : "seguiu";
+      if (desfeita && copia) await apagarACopiaSemDerrubar(copia);
+    }
+    redirect(urlDePublicarComAviso(avisoDasDuasRedes({ tipo: "instagram_nao_entrou", linkedin: lado })));
+  }
+
+  // 6. O "AGORA": o LinkedIn primeiro, só a própria linha; depois o dreno de hoje, para o Instagram.
+  let desfecho: "publicado" | "aguardando" | "falhou" | null = null;
+  let motivo: string | null = null;
+  if (linkedin.entrou && linkedin.jaVale) {
+    try {
+      desfecho = await drenarUmaPublicacaoDoLinkedin(linkedin.id, inicioDaFuncaoMs);
+      if (desfecho === "falhou") motivo = await erroDaLinha(linkedin.id);
+    } catch {
+      // O mesmo `catch` do `publicarNoLinkedin`: a linha pode ter ficado pendente sem tique, e este tique é o que
+      // faz o "vai sair em instantes" ser verdade.
+      desfecho = null;
+      await armarOTiqueDaLinha(linkedin.id);
+    }
+  }
+  if (instagram.entrou && instagram.jaVale) {
+    try {
+      await drainQueue({ inicioDaFuncaoMs });
+    } catch {
+      // O mesmo `catch` do `publicar`: a trava atômica garante que o próximo dreno recupera.
+    }
+  }
+
+  revalidatePath("/publicar/novo");
+  revalidatePath("/publicar");
+  revalidatePath("/eventos");
+  redirect(
+    urlDePublicarComAviso(
+      avisoDasDuasRedes({
+        tipo: "entrou",
+        campos,
+        instagram: instagram.entrou ? { entrou: true, jaVale: instagram.jaVale } : { entrou: false },
+        linkedin: linkedin.entrou ? { entrou: true, jaVale: linkedin.jaVale, desfecho, motivo } : { entrou: false },
+      })
+    )
+  );
 }

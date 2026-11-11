@@ -46,11 +46,16 @@ import {
  * A CHAVE (lib/dedupe.ts, `chaveDaPublicacaoNoLinkedin`): a imagem pela conta e pelo caminho, que é único por
  * upload; o só texto pela conta e pelo id do envio, que a tela gera uma vez por formulário. O mesmo clique
  * repetido não entra duas vezes; o mesmo texto num envio novo entra.
+ *
+ * NO POST DAS DUAS REDES (a parte 2b), a linha leva a CÓPIA da imagem (lib/linkedin-copia.ts), e a chave sai do
+ * caminho ORIGINAL (`caminhosDaChave`): cada envio faz uma cópia nova, e a chave pela cópia deixaria o mesmo clique
+ * repetido entrar de novo, num segundo post.
  */
 export async function enqueuePublicacaoNoLinkedin(
   accountId: string,
   pedido: { forma: FormaNoLinkedin; caminhos: string[]; texto: string; idDoEnvio: string },
-  quando: Date | null
+  quando: Date | null,
+  opcoes: { caminhosDaChave?: string[] } = {}
 ): Promise<ResultadoDoLinkedin> {
   const payload = payloadDoLinkedin(pedido);
   // AS MESMAS RECUSAS DA TELA E DA ACTION (`recusaDoPedidoNoLinkedin`), sobre o texto já aparado do payload.
@@ -64,7 +69,7 @@ export async function enqueuePublicacaoNoLinkedin(
      returning id,
                (not_before <= now()) as ja_vale,
                greatest(0, ceil(extract(epoch from (not_before - now()))))::int as falta`,
-    [accountId, payload, chaveDaPublicacaoNoLinkedin(accountId, pedido.forma, pedido.caminhos, pedido.idDoEnvio), quando]
+    [accountId, payload, chaveDaPublicacaoNoLinkedin(accountId, pedido.forma, opcoes.caminhosDaChave ?? pedido.caminhos, pedido.idDoEnvio), quando]
   )) as { id: string; ja_vale: boolean; falta: number }[];
   if (!linhas.length) return { entrou: false };
   const { id, ja_vale: jaVale, falta } = linhas[0];
@@ -81,6 +86,40 @@ export async function enqueuePublicacaoNoLinkedin(
     }
   }
   return { entrou: true, jaVale, falta, id };
+}
+
+/**
+ * A CHAVE DO LINKEDIN JÁ ESTÁ NA FILA? (o post das duas redes, a parte 2b). É conferida ANTES da cópia: depois de um
+ * "agora", o dreno do Instagram apaga o original, e o mesmo envio repetido tem de dar "já existia", e não uma cópia
+ * de um arquivo que não existe mais. Dois cliques juntos podem passar os dois por aqui; o `on conflict` do
+ * enfileirar segura o segundo, e quem chama apaga a cópia que sobrou.
+ */
+export async function aChaveDoLinkedinJaExiste(
+  accountId: string,
+  pedido: { forma: FormaNoLinkedin; caminhos: string[]; idDoEnvio: string }
+): Promise<boolean> {
+  const linhas = (await sql().query(`select 1 from queue where dedupe_key = $1 limit 1`, [
+    chaveDaPublicacaoNoLinkedin(accountId, pedido.forma, pedido.caminhos, pedido.idDoEnvio),
+  ])) as unknown[];
+  return linhas.length > 0;
+}
+
+export const MOTIVO_DESFEITO_PELO_INSTAGRAM =
+  "o post das duas redes não entrou na fila do Instagram, e este foi desfeito antes de sair";
+
+/**
+ * DESFAZ A LINHA DO LINKEDIN DO POST DAS DUAS REDES, quando a do Instagram não entrou (achado 192). SÓ A LINHA
+ * AINDA PENDENTE (achado 199): se um dreno já a pegou, ela segue, e quem chama não apaga a cópia, que ela usa.
+ * Devolve se desfez.
+ */
+export async function desfazerLinhaDoLinkedin(id: string): Promise<boolean> {
+  const linhas = (await sql().query(
+    `update queue set status = 'skipped', error = $2
+      where id = $1 and kind = 'publicacao_linkedin' and status = 'pending'
+      returning id`,
+    [id, MOTIVO_DESFEITO_PELO_INSTAGRAM]
+  )) as unknown[];
+  return linhas.length > 0;
 }
 
 /** O motivo gravado numa linha da fila, para o aviso do "agora" que não saiu. */

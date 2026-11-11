@@ -22,11 +22,13 @@ describe("o compositor do /publicar", () => {
   const montar = funcao(fonte, "async function montarOPedido\\(\\): Promise<FormData \\| null>");
   const liberar = funcao(fonte, "function liberar\\(\\)");
 
-  // DESDE A PARTE 2a DO LINKEDIN, a action é a da rede do clique (`destino`): a do Instagram ou a do LinkedIn,
-  // escolhida antes de qualquer espera, como o formulário.
+  // DESDE A PARTE 2a DO LINKEDIN, a action é a das redes do clique (`destino`); desde a 2b, a das duas, a só do
+  // LinkedIn ou a só do Instagram, escolhida antes de qualquer espera, como o formulário.
   it("acha as funções do clique", () => {
     expect(publicar).toContain("await destino(dados);");
-    expect(publicar).toContain("const destino = noLinkedin ? (acaoDoLinkedin ?? acao) : acao;");
+    expect(publicar).toContain(
+      "const destino = nasDuas ? (acaoDasDuasRedes ?? acao) : soNoLinkedin ? (acaoDoLinkedin ?? acao) : acao;"
+    );
     expect(publicar.indexOf("const destino =")).toBeLessThan(publicar.indexOf("await"));
     expect(montar).toContain("await subirTodos(");
     expect(liberar).toContain("trava.current = false;");

@@ -6,7 +6,7 @@ import { pastaDaConta, tetoDoBucket } from "@/lib/bucket";
 import { avisoDaUrl } from "@/lib/avisos";
 import { PUBLICACOES_POR_DIA } from "@/lib/publicacao";
 import Enviador from "../enviador";
-import { publicar, publicarNoLinkedin } from "../actions";
+import { publicar, publicarNasDuasRedes, publicarNoLinkedin } from "../actions";
 // O LINKEDIN DA CONTA (a parte 2a): só o resumo, e a tela recebe só o nome ou o motivo de estar desligado.
 import { resumoDaConexao } from "@/lib/linkedin-conexoes";
 import { disponibilidadeDoLinkedin } from "@/lib/linkedin-publicacao";
@@ -138,6 +138,7 @@ export default async function Publicar({
             acao={publicar}
             linkedin={linkedin}
             acaoDoLinkedin={publicarNoLinkedin}
+            acaoDasDuasRedes={publicarNasDuasRedes}
             quando={
               <>
             {/* QUANDO — refeito em 11/09/2026 porque o dono disse que estava

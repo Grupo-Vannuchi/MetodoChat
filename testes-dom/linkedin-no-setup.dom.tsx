@@ -10,6 +10,7 @@ const { gerarConviteDoLinkedin, desconectarLinkedin } = vi.hoisted(() => ({
 vi.mock("@/app/setup/actions", () => ({ gerarConviteDoLinkedin, desconectarLinkedin }));
 
 import LinkedinDasContas, { type LinhaDoLinkedin } from "@/app/setup/linkedin-das-contas";
+import { textoDaConfirmacaoDoConvite } from "@/lib/linkedin-publicacao";
 
 // O LINKEDIN DAS CONTAS NA CONFIGURAÇÃO (docs/specs/2026-11-06-linkedin-no-perfil.md, §7; a parte 1, a
 // conexão): cada conta com o LinkedIn conectado, perto de vencer, vencido ou ausente; o convite, cujo link
@@ -68,9 +69,9 @@ describe("o LinkedIn de cada conta", () => {
     gerarConviteDoLinkedin.mockResolvedValue({ erro: "Esta conta não está conectada neste painel." });
     render(<LinkedinDasContas linhas={LINHAS} chavesOk />);
     await act(async () => {
-      fireEvent.click(within(linhaDa("@conta_valida")).getByRole("button", { name: "Convidar a conectar o LinkedIn" }));
+      fireEvent.click(within(linhaDa("@conta_sem")).getByRole("button", { name: "Convidar a conectar o LinkedIn" }));
     });
-    expect(within(linhaDa("@conta_valida")).getByRole("alert").textContent).toBe("Esta conta não está conectada neste painel.");
+    expect(within(linhaDa("@conta_sem")).getByRole("alert").textContent).toBe("Esta conta não está conectada neste painel.");
   });
 
   it("sem as chaves do app, diz o motivo e desliga o convite, e o Desconectar continua", () => {
@@ -82,6 +83,73 @@ describe("o LinkedIn de cada conta", () => {
     expect((within(linhaDa("@conta_valida")).getByRole("button", { name: "Desconectar" }) as HTMLButtonElement).disabled).toBe(
       false
     );
+  });
+});
+
+// O CONVITE NUMA CONTA QUE JÁ TEM O LINKEDIN (a decisão do Eduardo, 10/11: "Pede confirmação antes"; o achado
+// 209). O botão abre a confirmação, com o nome de quem está conectado, e só o "Sim, gerar o convite" chama a ação,
+// com o "confirmado". O servidor recusa sem ele (testes-integracao/linkedin-acoes.integracao.ts).
+describe("o convite numa conta que já tem LinkedIn (achado 209)", () => {
+  const botaoDoConvite = (arroba: string) => within(linhaDa(arroba)).getByRole("button", { name: "Convidar a conectar o LinkedIn" });
+
+  it("na conta conectada, o botão abre a confirmação com o nome, e não chama a ação", async () => {
+    render(<LinkedinDasContas linhas={LINHAS} chavesOk />);
+    await act(async () => {
+      fireEvent.click(botaoDoConvite("@conta_valida"));
+    });
+    expect(gerarConviteDoLinkedin).not.toHaveBeenCalled();
+    expect(linhaDa("@conta_valida").textContent).toContain(textoDaConfirmacaoDoConvite("Dra. Ana Souza"));
+    expect(within(linhaDa("@conta_valida")).getByRole("button", { name: "Sim, gerar o convite" })).toBeTruthy();
+  });
+
+  it("o \"Sim, gerar o convite\" chama a ação uma vez, com a conta da linha e o confirmado", async () => {
+    gerarConviteDoLinkedin.mockResolvedValue({ link: "https://painel.exemplo.com.br/convite/abc", paraQuem: "@conta_valida" });
+    render(<LinkedinDasContas linhas={LINHAS} chavesOk />);
+    await act(async () => {
+      fireEvent.click(botaoDoConvite("@conta_valida"));
+    });
+    await act(async () => {
+      fireEvent.click(within(linhaDa("@conta_valida")).getByRole("button", { name: "Sim, gerar o convite" }));
+    });
+    expect(gerarConviteDoLinkedin).toHaveBeenCalledTimes(1);
+    const dados = gerarConviteDoLinkedin.mock.calls[0][1] as FormData;
+    expect(dados.get("conta")).toBe("1");
+    expect(dados.get("confirmado")).toBe("1");
+    expect(within(linhaDa("@conta_valida")).getByText("https://painel.exemplo.com.br/convite/abc")).toBeTruthy();
+  });
+
+  it("perto de vencer também pede a confirmação", async () => {
+    render(<LinkedinDasContas linhas={LINHAS} chavesOk />);
+    await act(async () => {
+      fireEvent.click(botaoDoConvite("@conta_perto"));
+    });
+    expect(gerarConviteDoLinkedin).not.toHaveBeenCalled();
+    expect(linhaDa("@conta_perto").textContent).toContain(textoDaConfirmacaoDoConvite("Dr. Bruno Lima"));
+  });
+
+  it("o Cancelar fecha a confirmação sem chamar nada", async () => {
+    render(<LinkedinDasContas linhas={LINHAS} chavesOk />);
+    await act(async () => {
+      fireEvent.click(botaoDoConvite("@conta_valida"));
+    });
+    await act(async () => {
+      fireEvent.click(within(linhaDa("@conta_valida")).getByRole("button", { name: "Cancelar" }));
+    });
+    expect(within(linhaDa("@conta_valida")).queryByRole("button", { name: "Sim, gerar o convite" })).toBeNull();
+    expect(gerarConviteDoLinkedin).not.toHaveBeenCalled();
+  });
+
+  it("sem LinkedIn, ou com ele vencido, o convite sai direto, sem confirmação", async () => {
+    gerarConviteDoLinkedin.mockResolvedValue({ link: "https://painel.exemplo.com.br/convite/xyz", paraQuem: "@x" });
+    render(<LinkedinDasContas linhas={LINHAS} chavesOk />);
+    for (const arroba of ["@conta_sem", "@conta_vencida"]) {
+      await act(async () => {
+        fireEvent.click(botaoDoConvite(arroba));
+      });
+    }
+    expect(gerarConviteDoLinkedin).toHaveBeenCalledTimes(2);
+    expect((gerarConviteDoLinkedin.mock.calls[0][1] as FormData).get("confirmado")).toBeNull();
+    expect((gerarConviteDoLinkedin.mock.calls[1][1] as FormData).get("confirmado")).toBeNull();
   });
 });
 

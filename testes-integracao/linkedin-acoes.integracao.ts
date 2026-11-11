@@ -98,6 +98,55 @@ describe("gerar o convite do LinkedIn de uma conta", () => {
   });
 });
 
+// O CONVITE NUMA CONTA QUE JÁ TEM O LINKEDIN (a decisão do Eduardo, 10/11: "Pede confirmação antes"; o achado 209).
+// A confirmação vale no SERVIDOR, e não só na tela: o duplo clique sem confirmar não grava convite nenhum.
+describe("o convite numa conta que já tem LinkedIn (achado 209)", () => {
+  const conectar = (expira: string) =>
+    q(
+      `insert into linkedin_conexoes (account_id, pessoa_id, nome, access_token, expira_em)
+       values ($1, 'p', 'Dra. Ana Souza', 't', ${expira})`,
+      [CONTA]
+    );
+  const gerarConfirmado = (conta: string) =>
+    comoNumaRequisicaoComSessao("/setup", () => acoes.gerarConviteDoLinkedin(null, form({ conta, confirmado: "1" })));
+
+  it("com o LinkedIn válido, sem a confirmação, não gera, e diz por quê", async () => {
+    await conectar("now() + interval '45 days'");
+    const regras = await import("@/lib/linkedin-publicacao");
+    const { valor } = await gerar(CONTA);
+    expect(valor).toEqual({ erro: regras.TEXTO_DO_CONVITE_SEM_CONFIRMACAO });
+    expect(await q(`select 1 from convites_de_conexao`)).toHaveLength(0);
+  });
+
+  it("dois pedidos sem a confirmação, um logo depois do outro (o 209), não gravam nada", async () => {
+    await conectar("now() + interval '45 days'");
+    await Promise.all([gerar(CONTA), gerar(CONTA)]);
+    expect(await q(`select 1 from convites_de_conexao`)).toHaveLength(0);
+  });
+
+  it("perto de vencer também pede a confirmação", async () => {
+    await conectar("now() + interval '3 days'");
+    const { valor } = await gerar(CONTA);
+    expect(valor && "erro" in valor).toBe(true);
+    expect(await q(`select 1 from convites_de_conexao`)).toHaveLength(0);
+  });
+
+  it("com a confirmação, gera o convite, e a conexão que existe fica como está", async () => {
+    await conectar("now() + interval '45 days'");
+    const { valor } = await gerarConfirmado(CONTA);
+    expect(valor && "link" in valor).toBe(true);
+    expect(await q(`select 1 from convites_de_conexao where rede = 'linkedin' and conta_alvo = $1`, [CONTA])).toHaveLength(1);
+    expect(await q(`select 1 from linkedin_conexoes where account_id = $1`, [CONTA])).toHaveLength(1);
+  });
+
+  it("com o LinkedIn vencido, o convite sai sem a confirmação", async () => {
+    await conectar("now() - interval '1 minute'");
+    const { valor } = await gerar(CONTA);
+    expect(valor && "link" in valor).toBe(true);
+    expect(await q(`select 1 from convites_de_conexao`)).toHaveLength(1);
+  });
+});
+
 describe("desconectar o LinkedIn de uma conta", () => {
   it("apaga a conexão da conta, e a conta fica", async () => {
     await q(

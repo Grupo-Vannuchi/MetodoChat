@@ -28,6 +28,24 @@ describe("a action de publicar no LinkedIn passa o começo da função ao \"agor
   });
 });
 
+// O "AGORA" DAS DUAS REDES (`publicarNasDuasRedes`, a parte 2b): o mesmo começo vai ao LinkedIn e ao dreno de hoje,
+// que publica o Instagram, para outra linha do LinkedIn que esse dreno pegue respeitar o prazo (nota da auditoria
+// sobre o desenho da 2b). E o LinkedIn vem antes (a escolha (a)): só a própria linha, com o tempo inteiro.
+describe("a action das duas redes passa o começo da função ao LinkedIn e ao dreno do Instagram", () => {
+  it("app/publicar/actions.ts, publicarNasDuasRedes", () => {
+    const fonte = readFileSync(join(RAIZ, "app/publicar/actions.ts"), "utf8").replace(/\r\n/g, "\n");
+    const inicio = fonte.indexOf("export async function publicarNasDuasRedes(");
+    expect(inicio).toBeGreaterThan(-1);
+    const fim = fonte.indexOf("\nexport ", inicio + 1);
+    const corpo = fonte.slice(inicio, fim === -1 ? undefined : fim);
+    expect(corpo).toMatch(/\{\n {2}await exigirSessao\(\);\n {2}const inicioDaFuncaoMs = Date\.now\(\);\n/);
+    expect(corpo).toMatch(/drenarUmaPublicacaoDoLinkedin\(\s*[\w.]+,\s*inicioDaFuncaoMs\s*\)/);
+    expect(corpo).toMatch(/drainQueue\(\{\s*inicioDaFuncaoMs\s*\}\)/);
+    expect(corpo).not.toMatch(/drainQueue\(\)/);
+    expect(corpo.indexOf("drenarUmaPublicacaoDoLinkedin(")).toBeLessThan(corpo.indexOf("drainQueue("));
+  });
+});
+
 describe("as rotas que drenam passam o começo da função ao dreno", () => {
   for (const rota of ROTAS) {
     it(rota, () => {
