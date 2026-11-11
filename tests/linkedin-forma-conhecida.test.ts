@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { FORMAS_NO_LINKEDIN, soAFormaConhecidaDoLinkedin } from "@/lib/linkedin-publicacao";
 import { AVISO_DO_REMARCAR_DA_FORMA_NOVA } from "@/lib/post-da-fila";
 
@@ -38,5 +40,29 @@ describe("o aviso do remarcar de um post de forma nova", () => {
       tom: "erro",
       texto: "Este post do LinkedIn é de um formato que esta versão do painel ainda não publica. Ele não foi remarcado.",
     });
+  });
+});
+
+// OS QUATRO PONTOS DO DRENO USAM O MESMO PREDICADO (nota da auditoria): a seleção, o tique do rodapé, os tiques do
+// dia e o "agora". Um ponto sem ele pegaria, ou armaria tique por, a linha de forma nova. E o laço percorre o lote
+// na ordem de `naOrdemDoLote` (lib/fila-tipos.ts).
+describe("o dreno usa o predicado e a ordem do lote", () => {
+  const dreno = readFileSync(join(process.cwd(), "lib/queue-drain.ts"), "utf8");
+
+  it("o predicado da forma conhecida aparece nos quatro pontos, e só neles", () => {
+    expect(dreno.match(/soAFormaConhecidaDoLinkedin\(/g)?.length).toBe(4);
+    for (const ponto of [
+      /export async function drenarUmaPublicacaoDoLinkedin[\s\S]*?soAFormaConhecidaDoLinkedin\([\s\S]*?returning \*/,
+      /with lote as \([\s\S]*?soAFormaConhecidaDoLinkedin\([\s\S]*?for update skip locked/,
+      /min\(not_before\)[\s\S]*?soAFormaConhecidaDoLinkedin\(/,
+      /export async function armarTiquesDoDia[\s\S]*?soAFormaConhecidaDoLinkedin\(/,
+    ]) {
+      expect(dreno).toMatch(ponto);
+    }
+  });
+
+  it("o laço do dreno percorre o lote na ordem de naOrdemDoLote", () => {
+    expect(dreno.match(/for \(const item of naOrdemDoLote\(items\)\)/g)?.length).toBe(1);
+    expect(dreno).not.toMatch(/for \(const item of items\)/);
   });
 });
