@@ -47,11 +47,39 @@ export const TEXTO_DO_CONVITE_SEM_CONFIRMACAO =
 // ---------------------------------------------------------------------------------------------------------------
 
 export type FormaNoLinkedin = "texto" | "imagem";
-const FORMAS_NO_LINKEDIN: readonly FormaNoLinkedin[] = ["texto", "imagem"];
+
+/**
+ * AS FORMAS QUE ESTE CÓDIGO SABE PUBLICAR NO LINKEDIN, numa lista só: a do formulário, a do payload e a do dreno
+ * (`soAFormaConhecidaDoLinkedin`, abaixo). Uma forma acrescentada aqui é uma forma que o dreno passa a pegar.
+ */
+export const FORMAS_NO_LINKEDIN: readonly FormaNoLinkedin[] = ["texto", "imagem"];
 
 /** A forma que veio do formulário, de uma lista fechada. */
 export function formaNoLinkedinDoCampo(bruto: unknown): FormaNoLinkedin | null {
   return (FORMAS_NO_LINKEDIN as readonly unknown[]).includes(bruto) ? (bruto as FormaNoLinkedin) : null;
+}
+
+const MARCADOR_DE_PARAMETRO = /^\$[1-9]\d?$/;
+
+/**
+ * O PREDICADO DA FORMA CONHECIDA (a preparação da parte 3 do LinkedIn; docs/plans/2026-11-11-linkedin-forma-conhecida.md).
+ *
+ * O banco é um só para a produção e os previews, e a parte 3 grava posts do LinkedIn de forma nova (o carrossel em
+ * PDF, o vídeo). Este código não os sabe publicar: o ramo do dreno os mandaria a `failed` por payload torto. Com este
+ * predicado, a linha de forma que este código não conhece fica `pending`, intocada, e não arma tique, até o código
+ * que a conhece chegar, como o tipo desconhecido (`TIPOS_QUE_O_DRENO_CONHECE`, lib/fila-tipos.ts).
+ *
+ * SÓ A FORMA PRESENTE E DESCONHECIDA FICA DE FORA (nota da auditoria). A linha sem forma, ou com uma forma que não é
+ * texto, continua sendo pega e vai a `failed` como antes: ela não é de um código mais novo, é torta, e não pode
+ * ficar parada calada para sempre.
+ *
+ * UM TEXTO SÓ, usado nos quatro pontos do dreno (lib/queue-drain.ts: a seleção, o tique do rodapé, os tiques do dia e
+ * o "agora") e no remarcar (app/publicar/post/actions.ts). O marcador é o do parâmetro que leva `FORMAS_NO_LINKEDIN`;
+ * nenhum texto de fora entra no SQL.
+ */
+export function soAFormaConhecidaDoLinkedin(marcador: string): string {
+  if (!MARCADOR_DE_PARAMETRO.test(marcador)) throw new Error(`marcador de parâmetro inválido: ${JSON.stringify(marcador)}`);
+  return `(kind <> 'publicacao_linkedin' or jsonb_typeof(payload->'forma') is distinct from 'string' or payload->>'forma' = any(${marcador}::text[]))`;
 }
 
 export function rotuloDaFormaNoLinkedin(forma: FormaNoLinkedin): string {
