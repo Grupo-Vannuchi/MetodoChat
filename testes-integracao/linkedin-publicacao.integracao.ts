@@ -427,9 +427,12 @@ describe("os erros do LinkedIn no dreno", () => {
     expect(linkedin.pedidos).toHaveLength(0);
   });
 
+  // A FORMA É DA LISTA, E O RESTO É TORTO (a imagem sem o caminho). Uma forma que não é da lista ("reels", que este
+  // caso usava antes) é de um código mais novo e fica intocada, pela preparação da parte 3
+  // (testes-integracao/dreno-forma-desconhecida.integracao.ts).
   it("o payload que não é do LinkedIn vai a failed com o motivo escrito", async () => {
     await q(
-      `insert into queue (account_id, kind, payload, dedupe_key) values ($1, 'publicacao_linkedin', '{"forma":"reels"}'::jsonb, 'pub-linkedin:torta')`,
+      `insert into queue (account_id, kind, payload, dedupe_key) values ($1, 'publicacao_linkedin', '{"forma":"imagem","caminhos":[],"texto":"sem a imagem"}'::jsonb, 'pub-linkedin:torta')`,
       [CONTA]
     );
     await dreno.drainQueue();

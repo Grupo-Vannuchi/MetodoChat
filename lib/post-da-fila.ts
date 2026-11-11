@@ -147,3 +147,14 @@ export function avisoDoDesfechoDoPost(
   }
   return avisoDoDesfecho(d, acao);
 }
+
+/**
+ * O AVISO DO REMARCAR DE UM POST DO LINKEDIN DE FORMA NOVA (a preparação da parte 3 do LinkedIn;
+ * docs/plans/2026-11-11-linkedin-forma-conhecida.md). Este código não publica a forma (`soAFormaConhecidaDoLinkedin`,
+ * lib/linkedin-publicacao.ts), então o remarcar não grava a hora nova nem drena: "feito" seria fingir, porque a linha
+ * ficaria parada, e "não encontrado" seria falso, porque o post está ali.
+ */
+export const AVISO_DO_REMARCAR_DA_FORMA_NOVA: Aviso = {
+  tom: "erro",
+  texto: "Este post do LinkedIn é de um formato que esta versão do painel ainda não publica. Ele não foi remarcado.",
+};

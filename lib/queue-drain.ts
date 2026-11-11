@@ -22,10 +22,13 @@ import { renderVariables, type VariableContext } from "./variables";
 // coluna é `variableContext`, aqui embaixo; quem entende o `jsonb` é ele.
 import { lerCampos } from "./campos";
 import { lerPayloadDoLote, loteExpirou } from "./lote";
-import { TIPOS_DE_PUBLICACAO, TIPOS_QUE_O_DRENO_CONHECE } from "./fila-tipos";
+import { naOrdemDoLote, TIPOS_DE_PUBLICACAO, TIPOS_QUE_O_DRENO_CONHECE } from "./fila-tipos";
 // O POST DO LINKEDIN (a parte 2a). O arquivo dele não importa este: as três funções de que ele precisa vão como
 // parâmetro (`DEPENDENCIAS_DO_LINKEDIN`, lá embaixo).
 import { publicarNoLinkedinDaFila, type DependenciasDoDreno } from "./linkedin-fila";
+// A FORMA DO POST DO LINKEDIN QUE ESTE CÓDIGO CONHECE (a preparação da parte 3): um predicado só, nos quatro pontos
+// que pegam a linha ou armam tique por ela — a seleção, o tique do rodapé, os tiques do dia e o "agora".
+import { FORMAS_NO_LINKEDIN, soAFormaConhecidaDoLinkedin } from "./linkedin-publicacao";
 import {
   leituraDoContainer,
   lerPayloadDaPublicacao,
@@ -1020,7 +1023,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * cron do dia seguinte (testes-integracao/tique-do-rodape.integracao.ts).
  *
  * Devolve o desfecho ("aguardando" quando a linha voltou à fila), ou null quando não pegou nada (id torto, outro
- * tipo, agendada, ou já pega).
+ * tipo, agendada, já pega, ou de uma forma que este código não conhece: `soAFormaConhecidaDoLinkedin`).
  */
 export async function drenarUmaPublicacaoDoLinkedin(
   id: string,
@@ -1030,8 +1033,9 @@ export async function drenarUmaPublicacaoDoLinkedin(
   const [item] = (await sql().query(
     `update queue set status = 'sending', claimed_at = now(), attempts = attempts + 1
       where id = $1 and kind = 'publicacao_linkedin' and status = 'pending' and not_before <= now()
+        and ${soAFormaConhecidaDoLinkedin("$2")}
       returning *`,
-    [id]
+    [id, Array.from(FORMAS_NO_LINKEDIN)]
   )) as QueueItem[];
   if (!item) return null;
   let desfecho: "publicado" | "aguardando" | "falhou";
@@ -1143,6 +1147,12 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
            -- (testes-integracao/dreno-tipo-desconhecido.integracao.ts). Sem crase
            -- neste comentario: ele mora DENTRO do template do SQL.
            and kind = any($3::text[])
+           -- E SO O POST DO LINKEDIN DE FORMA QUE ESTE CODIGO CONHECE (a preparacao
+           -- da parte 3; lib/linkedin-publicacao.ts, soAFormaConhecidaDoLinkedin). Vale
+           -- para os dois lados do or de cima: a pendente vencida e a presa em sending.
+           -- A forma nova fica pending, intocada, ate o codigo que a conhece chegar
+           -- (testes-integracao/dreno-forma-desconhecida.integracao.ts).
+           and ${soAFormaConhecidaDoLinkedin("$5")}
            -- A PUBLICACAO NAO E BLOQUEADA PELO TETO DE MENSAGEM. A conta que
            -- estourou as 190 DMs da hora sai INTEIRA do lote, e sem esta
            -- excecao um lote grande de mensagens -- que leva horas para sair --
@@ -1160,7 +1170,13 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
        returning q.*
      )
      select *, now() as agora_do_banco from lote order by created_at, id`,
-    [BATCH_SIZE, blocked, Array.from(TIPOS_QUE_O_DRENO_CONHECE), Array.from(TIPOS_DE_PUBLICACAO)]
+    [
+      BATCH_SIZE,
+      blocked,
+      Array.from(TIPOS_QUE_O_DRENO_CONHECE),
+      Array.from(TIPOS_DE_PUBLICACAO),
+      Array.from(FORMAS_NO_LINKEDIN),
+    ]
   )) as (QueueItem & { agora_do_banco: Date })[];
 
   // O RELOGIO QUE JULGA A VALIDADE É O DO BANCO, E NÃO O DA APLICAÇÃO.
@@ -1185,7 +1201,10 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
   const marcado = items[0]?.agora_do_banco;
   const agoraNoBanco = marcado instanceof Date ? marcado.getTime() : Date.now();
 
-  for (const item of items) {
+  // A ORDEM DO LOTE (a preparação da parte 3 do LinkedIn; `naOrdemDoLote`, lib/fila-tipos.ts): o post do LinkedIn
+  // que já foi adiado por falta de tempo vai primeiro, para começar com o prazo da função quase inteiro. Só ele; o
+  // resto segue na ordem da seleção.
+  for (const item of naOrdemDoLote(items)) {
     const account = item.account_id ? byId.get(item.account_id) : undefined;
     if (!account) {
       // conta desconectada (ou item órfão antigo): não há token para enviar
@@ -1398,12 +1417,19 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
   // que ele não conhece fica `pending` para sempre, e sem este filtro o `min(not_before)` dela, vencido,
   // armaria um tique a cada 20 s, sem fim — a cota do QStash acabaria, e com ela os tiques do produto
   // inteiro (testes-integracao/dreno-tipo-desconhecido.integracao.ts).
-  const nextRows = (await sql()`
-    select extract(epoch from (min(not_before) - now()))::float8 as secs
-    from queue where status = 'pending'
-      and kind = any(${Array.from(TIPOS_QUE_O_DRENO_CONHECE)}::text[])
-      and not_before <= now() + make_interval(secs => ${HORIZONTE_DO_TIQUE_EM_SEGUNDOS}::int)
-  `) as { secs: number | null }[];
+  //
+  // E SÓ O POST DO LINKEDIN DE FORMA QUE ESTE CÓDIGO CONHECE (a preparação da parte 3), pelo mesmo motivo: a linha
+  // de forma nova fica `pending`, e o `min(not_before)` dela, vencido, armaria o mesmo tique sem fim
+  // (testes-integracao/dreno-forma-desconhecida.integracao.ts). O predicado é texto, e por isso a consulta vai
+  // pelo `query`, com os valores como parâmetro.
+  const nextRows = (await sql().query(
+    `select extract(epoch from (min(not_before) - now()))::float8 as secs
+       from queue where status = 'pending'
+        and kind = any($1::text[])
+        and ${soAFormaConhecidaDoLinkedin("$3")}
+        and not_before <= now() + make_interval(secs => $2::int)`,
+    [Array.from(TIPOS_QUE_O_DRENO_CONHECE), HORIZONTE_DO_TIQUE_EM_SEGUNDOS, Array.from(FORMAS_NO_LINKEDIN)]
+  )) as { secs: number | null }[];
   const secs = nextRows[0]?.secs;
   if (secs !== null && secs !== undefined) {
     const config = await getConfig();
@@ -1461,11 +1487,12 @@ export async function armarTiquesDoDia(): Promise<{ armados: number }> {
     `select distinct ceil(extract(epoch from (not_before - now())))::int as secs
        from queue
       where kind = any($2::text[]) and status = 'pending'
+        and ${soAFormaConhecidaDoLinkedin("$3")}
         and not_before > now()
         and not_before <= now() + make_interval(secs => $1::int)
       order by secs
       limit 200`,
-    [HORIZONTE_DO_TIQUE_EM_SEGUNDOS, Array.from(TIPOS_DE_PUBLICACAO)]
+    [HORIZONTE_DO_TIQUE_EM_SEGUNDOS, Array.from(TIPOS_DE_PUBLICACAO), Array.from(FORMAS_NO_LINKEDIN)]
   )) as { secs: number }[];
   if (!linhas.length) return { armados: 0 };
 
