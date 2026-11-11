@@ -3251,7 +3251,7 @@ git ls-remote origin refs/heads/linkedin-duas-redes   # vazio; se não estiver, 
 git push -u origin refs/heads/linkedin-duas-redes:refs/heads/linkedin-duas-redes
 ```
 
-No log do build do preview, confira: o commit, nenhum aviso do Node 26, "Detected Next.js version: 16.4.3", "MIGRAÇÃO PULADA". No deployment, meça o endereço da branch (o `alias` do `get_deployment`). O rótulo `metodochat-git-linkedin-duas-redes-moraesvannuchi-debugs-projects` tem 66 caracteres, acima dos 63 de um rótulo de DNS, então a Vercel o encurta com um hash, como na 2a: o endereço é o que o `alias` disser.
+No log do build do preview, confira: o commit, nenhum aviso do Node 26, "Detected Next.js version: 16.4.3", "MIGRAÇÃO PULADA". No deployment, meça o endereço da branch (o `alias` do `get_deployment`). O rótulo `metodochat-git-linkedin-duas-redes-moraesvannuchi-debugs-projects` tem 65 caracteres, acima dos 63 de um rótulo de DNS, então a Vercel o encurta com um hash, como na 2a: o endereço é o que o `alias` disser. O medido em 11/11 é `metodochat-git-linkedin-d-78e8ee-moraesvannuchi-debugs-projects.vercel.app`, com 63 caracteres no rótulo.
 
 - [ ] **Passo 2: as decisões do Eduardo, pela caixa**
   - qual conta do painel publica. O post sai PÚBLICO no Instagram dessa conta e no LinkedIn pessoal ligado a ela;
@@ -3274,6 +3274,19 @@ O roteiro vai à auditoria antes. A espera fica numa página só de texto, e nen
 O que a prova NÃO provoca, e por quê: o Instagram que não entra na fila (seria mexer no banco ou na rede da produção) e o mesmo envio repetido (a tela trava o segundo clique, e cada formulário novo sobe um arquivo novo, com outro caminho). Os dois estão na integração (FASE 2) e nas mutações.
 
 No fim, a auditoria confere que não há nenhuma linha `publicacao` nem `publicacao_linkedin` da prova em `pending` nem em `sending`.
+
+Medido na prova de 11/11 (o Eduardo, com a mesma conta e o mesmo LinkedIn pessoal da prova da 2a; a base lida pela auditoria antes e depois de cada passo que grava):
+- A conexão foi pela produção, com 1 convite só, gerado às 12:14:52Z e usado às 12:15:14Z. Ficou com 60 dias, e o nome do perfil veio com um espaço só.
+- As caixinhas de partida e o carrossel que desliga o LinkedIn foram mandados junto com o passo 11, e não tiveram print. A tela com as duas caixinhas está na resposta do Eduardo pela caixa. O desligar, e o LinkedIn que continua desmarcado na volta, ficam provados pelos testes de tela e pelas mutações F3-2 e F3-3.
+- O primeiro "Publicar" (12:28:13Z) saiu só no LinkedIn. O Instagram estava desmarcado, e a legenda foi no campo "Texto" do modo só LinkedIn: isso é o achado 215, uma nota para a parte 3, porque nada na tela chama a atenção para o Instagram desmarcado. A linha `publicacao_linkedin` teve 1 tentativa e terminou `sent` em 2.168 ms, com o arquivo original (sem cópia, como deve ser numa rede só) e o texto de 97 caracteres. O post foi apagado. O passo 11 foi refeito com as duas caixinhas e os dois campos conferidos na instrução, e o Eduardo confirmou por escrito, sem o print.
+- O post nas duas redes foi às 12:35:46Z:
+  - a linha `publicacao_linkedin` teve 1 tentativa e terminou `sent`, com o ramo (o `sent_at` menos o `claimed_at`) em 2.300 ms. O `caminhos` era a CÓPIA, e a chave, o caminho ORIGINAL. O texto tinha 117 caracteres: era o texto próprio, e não a legenda de 97;
+  - a linha `publicacao` nasceu junto, com o original e a legenda de 97 caracteres. A 1ª tentativa, no "agora", parou no erro gravado "a Meta ainda esta processando a midia" (sem acento, como está no código da fila), com o contêiner já criado. A 2ª foi às 12:39:43Z, num dreno da produção, e saiu em 3.452 ms, com o `media_id`. No preview não há QStash (as variáveis `QSTASH_*` só existem na produção), então nenhum tique foi armado ali para a linha que espera o contêiner. Isso é o achado 216, e a linha esperou o dreno seguinte da produção;
+  - depois dos `sent`, a cópia e os dois originais (o do primeiro post e o deste) davam 400 NoSuchKey no bucket.
+- O post do LinkedIn trouxe o texto próprio, com o "#marketing_2026" como hashtag. O do Instagram trouxe a legenda, com o "#teste_2026". Os dois foram apagados à mão logo depois. O print do LinkedIn não ficou em arquivo; o texto próprio está provado pelo banco, com os 117 caracteres.
+- Na Configuração do preview, o "Convidar a conectar o LinkedIn" da conta conectada abriu a pergunta com o nome do perfil, e o "Cancelar" a fechou sem link. Os convites ficaram iguais antes e depois: 5 do LinkedIn, nenhum pendente.
+- A conexão foi desfeita no fim, pela produção. Ficaram 0 conexões, as linhas da prova em `sent` e nenhuma linha em `pending` nem em `sending`.
+- O `get_runtime_errors` não trouxe nenhum erro no período. O `get_runtime_logs` por nível veio vazio, no preview e na produção: o Hobby guarda 1 hora, e o caminho da prova não escreve no console.
 
 - [ ] **Passo 4: o PR, com o OK do Eduardo.** O corpo leva o que muda, os números deste plano, o que o ensaio achou, os limites conhecidos, e nenhuma arroba solta nem nome de pessoa ou de conta. A mensagem do merge vai à parte, e a auditoria lê os dois antes de o PR abrir. O merge é do Eduardo.
 
