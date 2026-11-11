@@ -66,3 +66,25 @@ describe("o dreno usa o predicado e a ordem do lote", () => {
     expect(dreno).not.toMatch(/for \(const item of items\)/);
   });
 });
+
+// O REMARCAR USA O MESMO PREDICADO (a preparação da parte 3): na gravação da hora nova e na leitura do status que
+// separa a forma nova do "não encontrado". O cancelar não o usa: cancelar é a ação do dono, e vale para toda forma.
+describe("o remarcar usa o predicado, e o cancelar não", () => {
+  const acoes = readFileSync(join(process.cwd(), "app/publicar/post/actions.ts"), "utf8");
+  const corpo = (nome: string) => {
+    const inicio = acoes.indexOf(`export async function ${nome}(`);
+    const fim = acoes.indexOf("\nexport async function ", inicio + 1);
+    return acoes.slice(inicio, fim === -1 ? undefined : fim);
+  };
+
+  it("o predicado aparece duas vezes no arquivo: no update do remarcar e na leitura do status", () => {
+    expect(acoes.match(/soAFormaConhecidaDoLinkedin\(/g)?.length).toBe(2);
+    expect(corpo("remarcarPublicacao")).toMatch(/update queue set not_before[\s\S]*?soAFormaConhecidaDoLinkedin\(/);
+    expect(acoes).toMatch(/async function statusNaConta[\s\S]*?soAFormaConhecidaDoLinkedin\([\s\S]*?\n\}/);
+  });
+
+  it("o remarcar recusa a forma nova com o aviso próprio, e o cancelar não fala dela", () => {
+    expect(corpo("remarcarPublicacao")).toContain("AVISO_DO_REMARCAR_DA_FORMA_NOVA");
+    expect(corpo("cancelarPublicacao")).not.toMatch(/soAFormaConhecidaDoLinkedin|AVISO_DO_REMARCAR_DA_FORMA_NOVA/);
+  });
+});

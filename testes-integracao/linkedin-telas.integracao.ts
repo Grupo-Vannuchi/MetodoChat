@@ -374,6 +374,59 @@ describe("cancelar e remarcar valem para o post do LinkedIn", () => {
   });
 });
 
+// O POST DO LINKEDIN DE FORMA NOVA (a preparação da parte 3 do LinkedIn; docs/plans/2026-11-11-linkedin-forma-conhecida.md).
+// Este código não publica a forma: o remarcar não grava a hora nova nem drena, e diz por quê, em vez de "feito"
+// (a linha ficaria parada) ou de "não encontrado" (o post está ali). O cancelar continua valendo: é a ação do dono.
+describe("o remarcar e o cancelar de um post do LinkedIn de forma nova", () => {
+  async function semearFormaNova(emSegundos: number): Promise<{ id: string; notBefore: number }> {
+    semente++;
+    const [linha] = (await q(
+      `insert into queue (account_id, kind, payload, dedupe_key, not_before)
+       values ($1, 'publicacao_linkedin', $2, $3, now() + make_interval(secs => $4::int))
+       returning id, not_before`,
+      [
+        CONTA_A,
+        { forma: "carrossel", caminhos: [`${CONTA_A}/novo-${semente}-a.jpg`, `${CONTA_A}/novo-${semente}-b.jpg`], texto: "um carrossel do futuro" },
+        `telas-forma-nova-${semente}`,
+        emSegundos,
+      ]
+    )) as { id: string; not_before: Date }[];
+    return { id: linha.id, notBefore: new Date(linha.not_before).getTime() };
+  }
+
+  it("remarcar para o minuto corrente: nada muda, nada drena, e o aviso diz que esta versão não publica o formato", async () => {
+    await conectar();
+    const { id, notBefore } = await semearFormaNova(3600);
+    const minuto = Math.floor(Date.now() / 60000) * 60000;
+    const aviso = await avisoDe(acoes.remarcarPublicacao, formulario({ id, data_hora: campoDeDataHora(minuto), fuso: "0" }));
+    expect(aviso).toEqual({
+      tom: "erro",
+      texto: "Este post do LinkedIn é de um formato que esta versão do painel ainda não publica. Ele não foi remarcado.",
+    });
+    const depois = await lerItem(id);
+    expect(depois).toMatchObject({ status: "pending", attempts: 0, error: null });
+    expect(new Date(depois.not_before as Date).getTime()).toBe(notBefore);
+    expect(pedidos.linkedin).toEqual([]);
+    expect(pedidos.meta).toEqual([]);
+  });
+
+  it("remarcar para daqui a três horas: a hora não muda, e o aviso é o mesmo", async () => {
+    const { id, notBefore } = await semearFormaNova(3600);
+    const alvo = Math.floor((Date.now() + 3 * 3600 * 1000) / 60000) * 60000;
+    const aviso = await avisoDe(acoes.remarcarPublicacao, formulario({ id, data_hora: campoDeDataHora(alvo), fuso: "0" }));
+    expect(aviso.tom).toBe("erro");
+    expect(aviso.texto).toBe("Este post do LinkedIn é de um formato que esta versão do painel ainda não publica. Ele não foi remarcado.");
+    expect(new Date((await lerItem(id)).not_before as Date).getTime()).toBe(notBefore);
+  });
+
+  it("cancelar continua valendo: a linha fica skipped com o motivo do dono", async () => {
+    const { id } = await semearFormaNova(3600);
+    const aviso = await avisoDe(acoes.cancelarPublicacao, formulario({ id, confirmo: "1" }));
+    expect(aviso.tom).toBe("ok");
+    expect(await lerItem(id)).toMatchObject({ status: "skipped", error: publicacao.MOTIVO_CANCELADO_PELO_DONO });
+  });
+});
+
 describe("o Início e o gerador conhecem o post do LinkedIn", () => {
   it("o post do LinkedIn que falhou é aviso de publicação, e não de mensagem", async () => {
     await semear({ forma: "texto", status: "failed", emSegundos: -3600, reivindicadoEm: -3600, error: "falhou" });

@@ -24,7 +24,15 @@ import { exigirSessao } from "@/lib/exigir-sessao";
 // O POST DE QUALQUER REDE (a parte 2a do LinkedIn): as duas ações valem para os tipos de post da fila, os arquivos
 // a apagar e o aviso do "já saiu" saem do payload e da rede da linha.
 import { TIPOS_DE_PUBLICACAO } from "@/lib/fila-tipos";
-import { avisoDoDesfechoDoPost, caminhosDoPostDaFila, ehPostDoLinkedin } from "@/lib/post-da-fila";
+import {
+  AVISO_DO_REMARCAR_DA_FORMA_NOVA,
+  avisoDoDesfechoDoPost,
+  caminhosDoPostDaFila,
+  ehPostDoLinkedin,
+} from "@/lib/post-da-fila";
+// A FORMA DO POST DO LINKEDIN QUE ESTE CÓDIGO CONHECE (a preparação da parte 3): o remarcar não grava a hora nova de
+// um post de forma nova, que este código não publica.
+import { FORMAS_NO_LINKEDIN, soAFormaConhecidaDoLinkedin } from "@/lib/linkedin-publicacao";
 
 /**
  * CANCELAR E REMARCAR UM POST AGENDADO.
@@ -106,12 +114,18 @@ const ALVO_DA_MUDANCA =
  * responderia um status e faria a tela dizer que o post de outra pessoa já saiu —
  * que é contar sobre a fila alheia.
  */
-async function statusNaConta(id: string, contaId: string): Promise<{ status: string; kind: string } | null> {
-  // O `kind` VOLTA JUNTO (a parte 2a do LinkedIn): é ele que escolhe o aviso do "já saiu" de cada rede.
+async function statusNaConta(
+  id: string,
+  contaId: string
+): Promise<{ status: string; kind: string; forma_conhecida: boolean } | null> {
+  // O `kind` VOLTA JUNTO (a parte 2a do LinkedIn): é ele que escolhe o aviso do "já saiu" de cada rede. E se a forma
+  // é uma que este código conhece (a preparação da parte 3), pelo mesmo predicado do update do remarcar: é o que
+  // separa o post de forma nova, que está ali e não foi remarcado, do "não encontrado".
   const linhas = (await sql().query(
-    `select status, kind from queue where id = $1 and account_id = $2 and kind = any($3::text[])`,
-    [id, contaId, Array.from(TIPOS_DE_PUBLICACAO)]
-  )) as { status: string; kind: string }[];
+    `select status, kind, ${soAFormaConhecidaDoLinkedin("$4")} as forma_conhecida
+       from queue where id = $1 and account_id = $2 and kind = any($3::text[])`,
+    [id, contaId, Array.from(TIPOS_DE_PUBLICACAO), Array.from(FORMAS_NO_LINKEDIN)]
+  )) as { status: string; kind: string; forma_conhecida: boolean }[];
   return linhas[0] ?? null;
 }
 
@@ -259,16 +273,25 @@ export async function remarcarPublicacao(formData: FormData): Promise<void> {
   // aceita o minuto corrente, que já passou, e ele vira "agora" pelo relógio do
   // banco. O `returning` devolve o que o banco mediu no mesmo statement: se o
   // item já vale, e quantos segundos faltam (spec da hora marcada).
+  //
+  // SÓ O POST DE FORMA QUE ESTE CÓDIGO CONHECE (a preparação da parte 3 do LinkedIn): a forma nova não é publicada
+  // por este código, e gravar a hora dela, ou drenar, seria dizer "feito" com a linha parada.
   const afetadas = (await sql().query(
     `update queue set not_before = greatest(now(), $3::timestamptz)
      ${ALVO_DA_MUDANCA}
+       and ${soAFormaConhecidaDoLinkedin("$5")}
      returning id, kind,
                (not_before <= now()) as ja_vale,
                greatest(0, ceil(extract(epoch from (not_before - now()))))::int as falta`,
-    [id, conta.ig_user_id, momento.quando, Array.from(TIPOS_DE_PUBLICACAO)]
+    [id, conta.ig_user_id, momento.quando, Array.from(TIPOS_DE_PUBLICACAO), Array.from(FORMAS_NO_LINKEDIN)]
   )) as { id: string; kind: string; ja_vale: boolean; falta: number }[];
 
   const naConta = afetadas.length > 0 ? null : await statusNaConta(id, conta.ig_user_id);
+  // A FORMA NOVA TEM AVISO PRÓPRIO: o post está ali, pendente, e não foi remarcado. Nada foi gravado, nada drena e
+  // nenhum tique é armado (testes-integracao/linkedin-telas.integracao.ts).
+  if (naConta && naConta.status === "pending" && !naConta.forma_conhecida) {
+    redirect(urlDeAgendadosComAviso(AVISO_DO_REMARCAR_DA_FORMA_NOVA));
+  }
   const desfecho = desfechoDaMudanca(afetadas.length, naConta?.status ?? null);
 
   // O TIQUE DA HORA NOVA, e ele é o outro lado de "Ele sai na hora nova".
