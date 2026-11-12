@@ -22,7 +22,14 @@ import { renderVariables, type VariableContext } from "./variables";
 // coluna é `variableContext`, aqui embaixo; quem entende o `jsonb` é ele.
 import { lerCampos } from "./campos";
 import { lerPayloadDoLote, loteExpirou } from "./lote";
-import { naOrdemDoLote, TIPOS_DE_PUBLICACAO, TIPOS_QUE_O_DRENO_CONHECE } from "./fila-tipos";
+import {
+  jaPassouDaHoraDeParar,
+  naOrdemDoLote,
+  textoDaDevolucao,
+  TIPOS_DE_PUBLICACAO,
+  TIPOS_DO_DRENO_DE_CLIQUE,
+  TIPOS_QUE_O_DRENO_CONHECE,
+} from "./fila-tipos";
 // O POST DO LINKEDIN (a parte 2a). O arquivo dele não importa este: as três funções de que ele precisa vão como
 // parâmetro (`DEPENDENCIAS_DO_LINKEDIN`, lá embaixo).
 import { publicarNoLinkedinDaFila, type DependenciasDoDreno } from "./linkedin-fila";
@@ -413,10 +420,14 @@ export async function limparOBucket(
 async function containerPaiDoCarrossel(
   item: QueueItem,
   account: Account,
-  pub: { caminhos: string[]; legenda?: string; filhos: string[] }
-): Promise<string> {
+  pub: { caminhos: string[]; legenda?: string; filhos: string[] },
+  passouDaHoraDeParar: () => boolean
+): Promise<string | null> {
   const filhos = [...pub.filhos];
   for (let i = filhos.length; i < pub.caminhos.length; i++) {
+    // A HORA DE PARAR ANTES DE CADA FILHO (a 3a-0; o 223, P2): `null`, e quem chama devolve a linha. A lista já
+    // gravada fica, e a passada seguinte continua daqui, sem recriar o que existe.
+    if (passouDaHoraDeParar()) return null;
     const filho = await criarContainer(
       account.ig_user_id,
       account.access_token,
@@ -433,6 +444,7 @@ async function containerPaiDoCarrossel(
   // O PAI POR ÚLTIMO, com a lista inteira e a legenda. `parametrosDoContainerPai`
   // é quem recusa zero, um e mais de dez — e ele nunca chega aqui com essas
   // contagens, porque a quantidade já foi conferida duas vezes antes.
+  if (passouDaHoraDeParar()) return null;
   return criarContainer(
     account.ig_user_id,
     account.access_token,
@@ -440,8 +452,12 @@ async function containerPaiDoCarrossel(
   );
 }
 
-/** O que aconteceu com um item de publicação nesta passada. */
-type DesfechoDaPublicacao = "publicado" | "aguardando" | "falhou";
+/**
+ * O que aconteceu com um item de publicação nesta passada. O `devolvido` (a 3a-0; o 223, P2) é o post que parou no
+ * meio porque a hora de parar chegou: ele voltou à fila sem gastar a tentativa, com o que já tinha feito no payload, e
+ * o laço o conta em `devolvidos`, e não em `aguardando`, que é a publicação esperando a Meta.
+ */
+type DesfechoDaPublicacao = "publicado" | "aguardando" | "falhou" | "devolvido";
 
 /**
  * PUBLICA UM ITEM DA FILA. É o ramo que não é mensagem.
@@ -469,7 +485,24 @@ type DesfechoDaPublicacao = "publicado" | "aguardando" | "falhou";
  * ficar decidido aqui fica sem rede, e o cabeçalho conta as duas vezes em que
  * isso já custou caro.
  */
-async function publicarDaFila(item: QueueItem, account: Account): Promise<DesfechoDaPublicacao> {
+async function publicarDaFila(
+  item: QueueItem,
+  account: Account,
+  passouDaHoraDeParar: () => boolean,
+  devolverDoLote: (ids: readonly string[]) => Promise<void>
+): Promise<DesfechoDaPublicacao> {
+  // A HORA DE PARAR POR DENTRO (a 3a-0; o 223; scratchpad/desenho-223.md, P2). Um carrossel faz até 11 POSTs sem teto
+  // (o teto do `graphFetch` é só do GET, de propósito: lib/ig.ts) e 2 GETs de até 8 s, e começado aos 39 s ele ainda
+  // podia passar do corte da função, que pula o rodapé. Antes de cada ida à Meta, passou da hora: a linha volta à fila
+  // pelo mesmo caminho do laço (`devolverOQueNaoComecou`), sem gastar a tentativa, e o que já foi gravado no payload
+  // (os filhos, o contêiner) fica para a passada seguinte. O corte de um post não publica em dobro (a lista de filhos
+  // gravada a cada filho e o "publicado não republica", abaixo); o que esta conferência evita é a linha presa em
+  // `sending` por 3 minutos, sem tique. O relógio e a devolução são os do laço, que o dreno passa: a devolução leva
+  // a ficha da reivindicação (o 225) e conta o que o banco de fato devolveu.
+  const devolver = async (): Promise<DesfechoDaPublicacao> => {
+    await devolverDoLote([item.id]);
+    return "devolvido";
+  };
   const pub = lerPayloadDaPublicacao(item.payload);
   if (!pub) {
     // MESMO DESFECHO DO LOTE COM PAYLOAD INVÁLIDO, e pela mesma razão: um item
@@ -508,9 +541,10 @@ async function publicarDaFila(item: QueueItem, account: Account): Promise<Desfec
 
   let containerId = pub.containerId;
   if (!containerId) {
-    containerId =
+    if (pub.forma !== "carrossel" && passouDaHoraDeParar()) return devolver();
+    const criado =
       pub.forma === "carrossel"
-        ? await containerPaiDoCarrossel(item, account, pub)
+        ? await containerPaiDoCarrossel(item, account, pub, passouDaHoraDeParar)
         : await criarContainer(
             account.ig_user_id,
             account.access_token,
@@ -527,11 +561,17 @@ async function publicarDaFila(item: QueueItem, account: Account): Promise<Desfec
               nomeDoAudio: pub.nomeDoAudio,
             })
           );
+    // A HORA DE PARAR CHEGOU ENTRE OS FILHOS, OU ANTES DO PAI: a lista dos filhos já está gravada.
+    if (criado === null) return devolver();
+    containerId = criado;
     // GRAVADO ANTES DE QUALQUER OUTRA COISA. Se a consulta de estado logo
     // abaixo estourar, o `catch` de `drainQueue` devolve o item à fila — e a
     // passada seguinte tem de encontrar ESTE contêiner, e não criar o segundo.
     await guardarNoPayload(item.id, { container_id: containerId });
   }
+
+  // A HORA DE PARAR ANTES DA LEITURA DE ESTADO: o contêiner já está gravado.
+  if (passouDaHoraDeParar()) return devolver();
 
   const leitura = leituraDoContainer(
     await estadoDoContainerNaMeta(containerId, account.access_token)
@@ -586,6 +626,9 @@ async function publicarDaFila(item: QueueItem, account: Account): Promise<Desfec
   // /{ig-media-id}` não existe no Login do Instagram (medido em 03/09), e a
   // remoção é manual, no aplicativo.
   if (leitura.estado === "pronto") {
+    // A HORA DE PARAR ANTES DA COTA E ANTES DA PUBLICAÇÃO: nada foi publicado, e a passada seguinte lê o estado de
+    // novo (um GET) e publica com o mesmo contêiner.
+    if (passouDaHoraDeParar()) return devolver();
     const cota = cotaDePublicacao(await limiteDePublicacao(account.ig_user_id, account.access_token));
     if (cotaEstourada(cota)) {
       // `pending`, E NÃO `failed`. A publicação não deu errado — ela ainda não
@@ -599,6 +642,7 @@ async function publicarDaFila(item: QueueItem, account: Account): Promise<Desfec
       });
       return "aguardando";
     }
+    if (passouDaHoraDeParar()) return devolver();
     const resposta = await publicarContainer(
       account.ig_user_id,
       account.access_token,
@@ -910,6 +954,11 @@ export type ResumoDaDrenagem = {
   // Em português pela mesma razão que `guardados`: o estado que ele conta é o
   // da publicação esperando a Meta, e o produto chama isso de aguardar.
   aguardando: number;
+  // O SEXTO CONTADOR (a 3a-0; o 223): as linhas que voltaram à fila sem terminar, porque a hora de parar chegou
+  // (`jaPassouDaHoraDeParar`, lib/fila-tipos.ts): as do laço nem começaram, e o post do Instagram parou no meio, com o
+  // que já tinha feito no payload. Não é o `aguardando`, que é a publicação esperando a Meta. É o número de linhas que
+  // o banco de fato devolveu; zero quando o dreno nem reivindicou, porque nada foi pego.
+  devolvidos: number;
 };
 
 /**
@@ -997,10 +1046,44 @@ async function devolverOuEncerrar(item: QueueItem, err: unknown): Promise<"pendi
 /**
  * O ORÇAMENTO DE TEMPO DE UMA FUNÇÃO QUE DRENA: as rotas que drenam têm `maxDuration` 60 (o tique, o webhook e o
  * cron), e os 5 s que faltam são a folga. É contado do COMEÇO DA FUNÇÃO (`inicioDaFuncaoMs`), que as três rotas
- * passam (tests/dreno-com-prazo.test.ts); sem ele, conta da hora em que o dreno começou. Hoje só o post do
- * LinkedIn o lê (lib/linkedin-fila.ts), para não começar um passo que a função não tem tempo de terminar.
+ * passam (tests/dreno-com-prazo.test.ts); sem ele, conta da hora em que o dreno começou. Dois o leem: o post do
+ * LinkedIn (lib/linkedin-fila.ts), para não começar um passo que a função não tem tempo de terminar, e a hora de parar
+ * do dreno (a 3a-0; `jaPassouDaHoraDeParar`, lib/fila-tipos.ts), para não começar item nenhum depois dela.
  */
 export const ORCAMENTO_DA_FUNCAO_MS = 55_000;
+
+/**
+ * DEVOLVE À FILA AS LINHAS DO LOTE QUE NÃO COMEÇARAM, porque a hora de parar chegou (a 3a-0; o 223;
+ * scratchpad/desenho-223.md, P1). Num `update` só:
+ *   - `pending`, com `not_before = now()`: elas saem na passada seguinte, que o rodapé arma em 20 s;
+ *   - sem gastar a tentativa (`greatest(attempts − 1, 0)`, como a devolução do post do LinkedIn): a reivindicação
+ *     contou uma, e nada foi tentado;
+ *   - com o `error` que estava. Um texto novo cairia no genérico da tela de Envios (app/labels.ts), falso para uma
+ *     linha que ninguém tentou, e só a nova tentativa grava `error` numa publicação pendente
+ *     (lib/bonus/publicar-estado.ts);
+ *   - só o que ainda está em `sending` COM A FICHA DESTE DRENO, o `claimed_at` que ele gravou no lote inteiro (o
+ *     225, da leitura independente): uma linha que outro processo encerrou não volta, e uma linha que outro dreno
+ *     resgatou depois de 3 minutos (numa página de 300 s, um POST sem teto pode segurar este dreno) é daquele dreno, e
+ *     não volta. Sem a ficha, ele devolveria a pending o que o outro já mandou, e um terceiro mandaria de novo.
+ * Uma linha vai ao registro, só com a contagem e os tipos (`textoDaDevolucao`). Devolve quantas o banco devolveu.
+ * Sem a resposta do banco, as linhas ficam em `sending`, sem tique, até o resgate de 3 minutos por um dreno qualquer:
+ * o rodapé roda, mas não arma nada para elas.
+ */
+async function devolverOQueNaoComecou(ids: readonly string[], fichaDaReivindicacao: string | null): Promise<number> {
+  if (ids.length === 0 || fichaDaReivindicacao === null) return 0;
+  try {
+    const linhas = (await sql().query(
+      `update queue set status = 'pending', attempts = greatest(attempts - 1, 0), not_before = now()
+        where id = any($1::uuid[]) and status = 'sending' and claimed_at = $2::text::timestamptz
+        returning kind`,
+      [Array.from(ids), fichaDaReivindicacao]
+    )) as { kind: string }[];
+    if (linhas.length > 0) console.log(textoDaDevolucao(linhas.map((l) => l.kind)));
+    return linhas.length;
+  } catch {
+    return 0;
+  }
+}
 
 /** O que o post do LinkedIn usa do dreno (lib/linkedin-fila.ts), com o prazo desta função. */
 function dependenciasDoLinkedin(inicioDaFuncaoMs: number): DependenciasDoDreno {
@@ -1067,9 +1150,22 @@ export async function armarOTiqueDaLinha(id: string): Promise<void> {
   }
 }
 
-export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Promise<ResumoDaDrenagem> {
-  const depsDoLinkedin = dependenciasDoLinkedin(opcoes.inicioDaFuncaoMs ?? Date.now());
-  const result = { sent: 0, skipped: 0, failed: 0, guardados: 0, aguardando: 0 };
+/**
+ * O DRENO DA FILA. `inicioDaFuncaoMs` é o começo da função que o chama: a hora de parar e o prazo do post do LinkedIn
+ * são contados dele. `doClique` (a 3a-0; o 224) é o dreno que roda dentro de um clique de quem usa o painel: a
+ * seleção sai sem o post do LinkedIn (`TIPOS_DO_DRENO_DE_CLIQUE`, lib/fila-tipos.ts), que pode levar a passada
+ * inteira, e o rodapé continua contando o post do LinkedIn, e arma o tique para ele.
+ */
+export async function drainQueue(
+  opcoes: { inicioDaFuncaoMs?: number; doClique?: boolean } = {}
+): Promise<ResumoDaDrenagem> {
+  const inicioDaFuncaoMs = opcoes.inicioDaFuncaoMs ?? Date.now();
+  const depsDoLinkedin = dependenciasDoLinkedin(inicioDaFuncaoMs);
+  const result = { sent: 0, skipped: 0, failed: 0, guardados: 0, aguardando: 0, devolvidos: 0 };
+  // A HORA DE PARAR (a 3a-0; o 223; scratchpad/desenho-223.md, P1): nada começa depois dela. O relógio é o desta
+  // função, o mesmo do prazo do LinkedIn, e não o do banco.
+  const passouDaHoraDeParar = () =>
+    jaPassouDaHoraDeParar({ inicioDaFuncaoMs, orcamentoMs: ORCAMENTO_DA_FUNCAO_MS, agoraMs: Date.now() });
   const accounts = await listAccounts();
   if (!accounts.length) return result;
   const byId = new Map(accounts.map((a) => [a.ig_user_id, a]));
@@ -1132,7 +1228,13 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
   //
   // O `skip locked` continua onde estava: o `explain` mostra o `LockRows`
   // debaixo do `Limit` dentro da CTE, e o `Sort` só por cima do `CTE Scan`.
-  const items = (await sql().query(
+  // A HORA DE PARAR, ANTES DE REIVINDICAR (a 3a-0): o dreno que começa depois dela não pega nada, e vai direto ao
+  // rodapé, que arma o tique. É o cron depois dos tiques do dia, o envio de um lote grande e o "agora" das duas redes
+  // depois do LinkedIn. A conferência vem ANTES do `update` da seleção: uma linha reivindicada e devolvida em seguida
+  // gastaria duas idas ao banco à toa.
+  const items = (passouDaHoraDeParar()
+    ? []
+    : await sql().query(
     `with lote as (
        update queue q
        set status = 'sending', claimed_at = now(), attempts = q.attempts + 1
@@ -1169,15 +1271,27 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
        )
        returning q.*
      )
-     select *, now() as agora_do_banco from lote order by created_at, id`,
+     select *, now() as agora_do_banco, claimed_at::text as reivindicado_em from lote order by created_at, id`,
     [
       BATCH_SIZE,
       blocked,
-      Array.from(TIPOS_QUE_O_DRENO_CONHECE),
+      Array.from(opcoes.doClique ? TIPOS_DO_DRENO_DE_CLIQUE : TIPOS_QUE_O_DRENO_CONHECE),
       Array.from(TIPOS_DE_PUBLICACAO),
       Array.from(FORMAS_NO_LINKEDIN),
     ]
-  )) as (QueueItem & { agora_do_banco: Date })[];
+  )) as (QueueItem & { agora_do_banco: Date; reivindicado_em: string })[];
+
+  // A FICHA DA REIVINDICAÇÃO (a 3a-0; o 225): o `claimed_at` que este dreno gravou no lote inteiro (um `now()` só, do
+  // mesmo `update`), em TEXTO, com os microssegundos do banco: o `Date` do driver só guarda milissegundos, e a
+  // comparação exata falharia. E ELA VAI COMO TEXTO E VIRA INSTANTE NO SQL (`$2::text::timestamptz`): com o parâmetro
+  // tipado como `timestamptz`, o postgres.js o converte para `Date` antes de mandar, e os microssegundos se perdem
+  // (medido em 12/11 no banco de teste: "…24.428574+00" voltou "…24.428+00" e não casou). A devolução só mexe na
+  // linha que ainda tem esta ficha, e soma no `devolvidos` o que o
+  // banco de fato devolveu (nota da leitura independente).
+  const fichaDaReivindicacao = items[0]?.reivindicado_em ?? null;
+  const devolver = async (ids: readonly string[]): Promise<void> => {
+    result.devolvidos += await devolverOQueNaoComecou(ids, fichaDaReivindicacao);
+  };
 
   // O RELOGIO QUE JULGA A VALIDADE É O DO BANCO, E NÃO O DA APLICAÇÃO.
   //
@@ -1204,7 +1318,17 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
   // A ORDEM DO LOTE (a preparação da parte 3 do LinkedIn; `naOrdemDoLote`, lib/fila-tipos.ts): o post do LinkedIn
   // que já foi adiado por falta de tempo vai primeiro, para começar com o prazo da função quase inteiro. Só ele; o
   // resto segue na ordem da seleção.
+  //
+  // E A HORA DE PARAR, ANTES DE CADA ITEM (a 3a-0; o 223): passou dela, o item da vez e todos os que faltam voltam à
+  // fila sem começar (`devolverOQueNaoComecou`), e o laço termina. O que falta é este conjunto, e não um índice: o laço
+  // continua a percorrer `naOrdemDoLote(items)`, que a guarda da 3-0 cobra (tests/linkedin-forma-conhecida.test.ts).
+  const naoComecados = new Set(items.map((i) => i.id));
   for (const item of naOrdemDoLote(items)) {
+    if (passouDaHoraDeParar()) {
+      await devolver([...naoComecados]);
+      break;
+    }
+    naoComecados.delete(item.id);
     const account = item.account_id ? byId.get(item.account_id) : undefined;
     if (!account) {
       // conta desconectada (ou item órfão antigo): não há token para enviar
@@ -1280,10 +1404,11 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
       // de retentativa escrita só para este ramo seria uma segunda coisa para
       // manter, e o `catch` de baixo já está certo.
       if (item.kind === "publicacao") {
-        const desfecho = await publicarDaFila(item, account);
+        const desfecho = await publicarDaFila(item, account, passouDaHoraDeParar, devolver);
         if (desfecho === "publicado") result.sent++;
         else if (desfecho === "aguardando") result.aguardando++;
-        else result.failed++;
+        // O "DEVOLVIDO" JÁ FOI CONTADO NA DEVOLUÇÃO, pelo número de linhas que o banco devolveu (a 3a-0).
+        else if (desfecho === "falhou") result.failed++;
         continue;
       }
 

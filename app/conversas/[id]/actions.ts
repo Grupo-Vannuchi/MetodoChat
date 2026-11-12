@@ -15,6 +15,7 @@ export async function sendReply(
   formData: FormData
 ): Promise<{ error?: string }> {
   await exigirSessao();
+  const inicioDaFuncaoMs = Date.now();
   const account = await getSelectedAccount();
   if (!account) return { error: "Conecte uma conta do Instagram primeiro." };
 
@@ -59,7 +60,8 @@ export async function sendReply(
   // horário ou "não enviada", certa de primeira, sem depender de o JavaScript da
   // página estar de pé.
   try {
-    await drainQueue();
+    // O DRENO DO CLIQUE (a 3a-0): com o começo da função, e sem o post do LinkedIn, que pode levar a passada inteira.
+    await drainQueue({ inicioDaFuncaoMs, doClique: true });
   } catch {
     // A trava atômica garante que o próximo dreno recupera. O item fica
     // 'pending' e o balão mostra "enviando…", que aqui é verdade.

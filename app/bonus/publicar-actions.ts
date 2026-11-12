@@ -87,6 +87,7 @@ export async function guardarImagemDoSlide(pedido: unknown): Promise<AvisoDaImag
  */
 export async function publicarCarrossel(pedido: unknown): Promise<AvisoDaPublicacao> {
   await exigirSessao();
+  const inicioDaFuncaoMs = Date.now();
   const p = registro(pedido);
   const em = Date.now();
   if (!ehIdDeBonus(p.id)) return { tom: "erro", texto: TEXTO_PEDIDO_INVALIDO, em };
@@ -98,7 +99,7 @@ export async function publicarCarrossel(pedido: unknown): Promise<AvisoDaPublica
     const r = registro(a);
     return { numero: inteiro(r.numero), caminho: r.caminho, versao: r.versao };
   });
-  const r = await publicarNaFila({ id: p.id, quando: momento.quando, artes, contas: await cabecalhosDoLogin() });
+  const r = await publicarNaFila({ id: p.id, quando: momento.quando, artes, contas: await cabecalhosDoLogin(), inicioDaFuncaoMs });
   return r.ok
     ? { tom: "ok", texto: textoDaPublicacaoMandada(!r.jaVale), em }
     : { tom: "erro", texto: textoDaRecusaDaPublicacaoDoCarrossel(r.recusa), em };

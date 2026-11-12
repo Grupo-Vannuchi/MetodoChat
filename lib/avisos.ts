@@ -112,8 +112,8 @@ export function textoDoLoteEnviado(agora: number, guardadas: number): string {
  * O aviso do lote inteiro — texto E tom —, resolvendo a ambiguidade que
  * `textoDoLoteEnviado(0, 0)` sozinha não sabe resolver.
  *
- * `enviarLote` (app/contatos/actions.ts) tem `try { await drainQueue(); }
- * catch {}`. Quando o dreno LANÇA — que é o motivo de o `catch` existir —,
+ * `enviarLote` (app/contatos/actions.ts) tem
+ * `try { await drainQueue({ inicioDaFuncaoMs, doClique: true }); } catch {}`. Quando o dreno LANÇA — que é o motivo de o `catch` existir —,
  * nenhum item deste lote chega a virar `sent` nem `guardado`: os dois ficam
  * ZERO, e os itens ficam `pending` (nem enviados, nem guardados — só ainda não
  * tentados). `textoDoLoteEnviado(0, 0)` devolve "ninguém recebeu agora · 0

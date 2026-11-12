@@ -123,6 +123,7 @@ export async function atualizarPerfis(formData: FormData): Promise<void> {
  */
 export async function enviarLote(formData: FormData): Promise<void> {
   await exigirSessao();
+  const inicioDaFuncaoMs = Date.now();
   // O FILTRO VEM PRIMEIRO DE TUDO, antes de qualquer recusa: cada `redirect`
   // abaixo devolve o dono para a MESMA categoria que ele estava olhando, e não
   // para "tudo" — ele só perde o recorte quando o próprio campo não é legível
@@ -246,7 +247,9 @@ export async function enviarLote(formData: FormData): Promise<void> {
   // ponta; o resto do lote sai pelo tique que a própria drenagem agenda. Quem
   // clicou espera pelo primeiro punhado, e não pelos 126.
   try {
-    await drainQueue();
+    // O DRENO DO CLIQUE (a 3a-0): com o começo da função, que já gastou um insert por contato, e sem o post do
+    // LinkedIn, que pode levar a passada inteira.
+    await drainQueue({ inicioDaFuncaoMs, doClique: true });
   } catch {
     // A trava atômica garante que o próximo dreno recupera. Os itens ficam
     // 'pending' e a tela de Envios mostra isso — que aqui é verdade.

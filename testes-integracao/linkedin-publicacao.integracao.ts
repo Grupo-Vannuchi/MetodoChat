@@ -448,14 +448,16 @@ describe("o post do LinkedIn não começa o que a função não tem tempo de ter
   const linhaCompleta = async () =>
     (await q(`select status, attempts, error, payload, not_before > now() as adiado from queue where kind = 'publicacao_linkedin'`))[0];
 
-  it("só texto, com 5 s restando: não chama o LinkedIn, volta pending e não gasta a tentativa", async () => {
+  // COM 5 s RESTANDO, O DRENO DO LOTE NEM REIVINDICA (a hora de parar da 3a-0; lib/fila-tipos.ts): a linha fica como
+  // estava, e o LinkedIn não é chamado. A regra do próprio post do LinkedIn, que adia com o motivo, continua provada no
+  // dreno de uma linha só, no caso do "agora" com 5 s restando, logo abaixo.
+  it("só texto, com 5 s restando: o dreno nem pega a linha, não chama o LinkedIn, e a linha fica pending, com a tentativa de antes", async () => {
     await enfileirarTexto();
     const resumo = await dreno.drainQueue({ inicioDaFuncaoMs: restando(5_000) });
-    expect(resumo.aguardando).toBe(1);
+    expect(resumo).toMatchObject({ aguardando: 0, devolvidos: 0 });
     expect(linkedin.pedidos).toEqual([]);
     const linha = await linhaCompleta();
-    expect(linha).toMatchObject({ status: "pending", attempts: 0, adiado: true });
-    expect(String(linha.error)).toContain("não bastava");
+    expect(linha).toMatchObject({ status: "pending", attempts: 0, adiado: false, error: null });
     expect((linha.payload as Record<string, unknown>).post_tentado_em ?? null).toBeNull();
   });
 
@@ -519,7 +521,10 @@ describe("o post do LinkedIn não começa o que a função não tem tempo de ter
     const id = String((await linhaDoLinkedin()).id);
     expect(await dreno.drenarUmaPublicacaoDoLinkedin(id, restando(5_000))).toBe("aguardando");
     expect(linkedin.pedidos).toEqual([]);
-    expect(await linhaCompleta()).toMatchObject({ status: "pending", attempts: 0 });
+    const linha = await linhaCompleta();
+    expect(linha).toMatchObject({ status: "pending", attempts: 0, adiado: true });
+    expect(String(linha.error)).toContain("não bastava");
+    expect((linha.payload as Record<string, unknown>).post_tentado_em ?? null).toBeNull();
   });
 });
 

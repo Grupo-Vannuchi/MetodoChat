@@ -230,6 +230,7 @@ export async function cancelarPublicacao(formData: FormData): Promise<void> {
 
 export async function remarcarPublicacao(formData: FormData): Promise<void> {
   await exigirSessao();
+  const inicioDaFuncaoMs = Date.now();
   const conta = await getSelectedAccount();
   if (!conta) {
     redirect(
@@ -325,8 +326,10 @@ export async function remarcarPublicacao(formData: FormData): Promise<void> {
       try {
         // O POST DO LINKEDIN DRENA SÓ A PRÓPRIA LINHA (achado 211), como o "agora" do compor: o dreno inteiro
         // mandaria também as mensagens vencidas do banco, que é um só para a produção e os previews.
-        if (ehPostDoLinkedin(kind)) await drenarUmaPublicacaoDoLinkedin(id);
-        else await drainQueue();
+        // OS DOIS COM O COMEÇO DA FUNÇÃO (a 3a-0), e o dreno do clique sem o post do LinkedIn, que pode levar a
+        // passada inteira: o do próprio post sai pelo dreno de uma linha só, acima.
+        if (ehPostDoLinkedin(kind)) await drenarUmaPublicacaoDoLinkedin(id, inicioDaFuncaoMs);
+        else await drainQueue({ inicioDaFuncaoMs, doClique: true });
       } catch {
         // A trava atômica garante que o próximo dreno recupera, como no compor.
       }
