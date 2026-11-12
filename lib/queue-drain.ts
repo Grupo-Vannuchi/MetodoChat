@@ -22,7 +22,13 @@ import { renderVariables, type VariableContext } from "./variables";
 // coluna é `variableContext`, aqui embaixo; quem entende o `jsonb` é ele.
 import { lerCampos } from "./campos";
 import { lerPayloadDoLote, loteExpirou } from "./lote";
-import { naOrdemDoLote, TIPOS_DE_PUBLICACAO, TIPOS_QUE_O_DRENO_CONHECE } from "./fila-tipos";
+import {
+  jaPassouDaHoraDeParar,
+  naOrdemDoLote,
+  textoDaDevolucao,
+  TIPOS_DE_PUBLICACAO,
+  TIPOS_QUE_O_DRENO_CONHECE,
+} from "./fila-tipos";
 // O POST DO LINKEDIN (a parte 2a). O arquivo dele não importa este: as três funções de que ele precisa vão como
 // parâmetro (`DEPENDENCIAS_DO_LINKEDIN`, lá embaixo).
 import { publicarNoLinkedinDaFila, type DependenciasDoDreno } from "./linkedin-fila";
@@ -910,6 +916,10 @@ export type ResumoDaDrenagem = {
   // Em português pela mesma razão que `guardados`: o estado que ele conta é o
   // da publicação esperando a Meta, e o produto chama isso de aguardar.
   aguardando: number;
+  // O SEXTO CONTADOR (a 3a-0; o 223): as linhas que voltaram à fila sem começar, porque a hora de parar chegou
+  // (`jaPassouDaHoraDeParar`, lib/fila-tipos.ts). Não é o `aguardando`, que é a publicação esperando a Meta: estas
+  // nem foram tentadas. Zero quando o dreno nem reivindicou, porque nada foi pego.
+  devolvidos: number;
 };
 
 /**
@@ -1002,6 +1012,35 @@ async function devolverOuEncerrar(item: QueueItem, err: unknown): Promise<"pendi
  */
 export const ORCAMENTO_DA_FUNCAO_MS = 55_000;
 
+/**
+ * DEVOLVE À FILA AS LINHAS DO LOTE QUE NÃO COMEÇARAM, porque a hora de parar chegou (a 3a-0; o 223;
+ * scratchpad/desenho-223.md, P1). Num `update` só:
+ *   - `pending`, com `not_before = now()`: elas saem na passada seguinte, que o rodapé arma em 20 s;
+ *   - sem gastar a tentativa (`greatest(attempts − 1, 0)`, como a devolução do post do LinkedIn): a reivindicação
+ *     contou uma, e nada foi tentado;
+ *   - com o `error` que estava. Um texto novo cairia no genérico da tela de Envios (app/labels.ts), falso para uma
+ *     linha que ninguém tentou, e só a nova tentativa grava `error` numa publicação pendente
+ *     (lib/bonus/publicar-estado.ts);
+ *   - só o que ainda está em `sending`: uma linha que outro processo encerrou no meio do caminho não volta.
+ * Uma linha vai ao registro, só com a contagem e os tipos (`textoDaDevolucao`). Sem a resposta do banco, as linhas
+ * ficam em `sending`, e o resgate de 3 minutos as devolve; o rodapé roda do mesmo jeito.
+ */
+async function devolverOQueNaoComecou(ids: readonly string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  try {
+    const linhas = (await sql().query(
+      `update queue set status = 'pending', attempts = greatest(attempts - 1, 0), not_before = now()
+        where id = any($1::uuid[]) and status = 'sending'
+        returning kind`,
+      [Array.from(ids)]
+    )) as { kind: string }[];
+    if (linhas.length > 0) console.log(textoDaDevolucao(linhas.map((l) => l.kind)));
+    return linhas.length;
+  } catch {
+    return 0;
+  }
+}
+
 /** O que o post do LinkedIn usa do dreno (lib/linkedin-fila.ts), com o prazo desta função. */
 function dependenciasDoLinkedin(inicioDaFuncaoMs: number): DependenciasDoDreno {
   return { finish, guardarNoPayload, limparOBucket, prazoMs: inicioDaFuncaoMs + ORCAMENTO_DA_FUNCAO_MS };
@@ -1068,8 +1107,13 @@ export async function armarOTiqueDaLinha(id: string): Promise<void> {
 }
 
 export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Promise<ResumoDaDrenagem> {
-  const depsDoLinkedin = dependenciasDoLinkedin(opcoes.inicioDaFuncaoMs ?? Date.now());
-  const result = { sent: 0, skipped: 0, failed: 0, guardados: 0, aguardando: 0 };
+  const inicioDaFuncaoMs = opcoes.inicioDaFuncaoMs ?? Date.now();
+  const depsDoLinkedin = dependenciasDoLinkedin(inicioDaFuncaoMs);
+  const result = { sent: 0, skipped: 0, failed: 0, guardados: 0, aguardando: 0, devolvidos: 0 };
+  // A HORA DE PARAR (a 3a-0; o 223; scratchpad/desenho-223.md, P1): nada começa depois dela. O relógio é o desta
+  // função, o mesmo do prazo do LinkedIn, e não o do banco.
+  const passouDaHoraDeParar = () =>
+    jaPassouDaHoraDeParar({ inicioDaFuncaoMs, orcamentoMs: ORCAMENTO_DA_FUNCAO_MS, agoraMs: Date.now() });
   const accounts = await listAccounts();
   if (!accounts.length) return result;
   const byId = new Map(accounts.map((a) => [a.ig_user_id, a]));
@@ -1132,7 +1176,13 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
   //
   // O `skip locked` continua onde estava: o `explain` mostra o `LockRows`
   // debaixo do `Limit` dentro da CTE, e o `Sort` só por cima do `CTE Scan`.
-  const items = (await sql().query(
+  // A HORA DE PARAR, ANTES DE REIVINDICAR (a 3a-0): o dreno que começa depois dela não pega nada, e vai direto ao
+  // rodapé, que arma o tique. É o cron depois dos tiques do dia, o envio de um lote grande e o "agora" das duas redes
+  // depois do LinkedIn. A conferência vem ANTES do `update` da seleção: uma linha reivindicada e devolvida em seguida
+  // gastaria duas idas ao banco à toa.
+  const items = (passouDaHoraDeParar()
+    ? []
+    : await sql().query(
     `with lote as (
        update queue q
        set status = 'sending', claimed_at = now(), attempts = q.attempts + 1
@@ -1204,7 +1254,17 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
   // A ORDEM DO LOTE (a preparação da parte 3 do LinkedIn; `naOrdemDoLote`, lib/fila-tipos.ts): o post do LinkedIn
   // que já foi adiado por falta de tempo vai primeiro, para começar com o prazo da função quase inteiro. Só ele; o
   // resto segue na ordem da seleção.
+  //
+  // E A HORA DE PARAR, ANTES DE CADA ITEM (a 3a-0; o 223): passou dela, o item da vez e todos os que faltam voltam à
+  // fila sem começar (`devolverOQueNaoComecou`), e o laço termina. O que falta é este conjunto, e não um índice: o laço
+  // continua a percorrer `naOrdemDoLote(items)`, que a guarda da 3-0 cobra (tests/linkedin-forma-conhecida.test.ts).
+  const naoComecados = new Set(items.map((i) => i.id));
   for (const item of naOrdemDoLote(items)) {
+    if (passouDaHoraDeParar()) {
+      result.devolvidos += await devolverOQueNaoComecou([...naoComecados]);
+      break;
+    }
+    naoComecados.delete(item.id);
     const account = item.account_id ? byId.get(item.account_id) : undefined;
     if (!account) {
       // conta desconectada (ou item órfão antigo): não há token para enviar
