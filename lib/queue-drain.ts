@@ -27,6 +27,7 @@ import {
   naOrdemDoLote,
   textoDaDevolucao,
   TIPOS_DE_PUBLICACAO,
+  TIPOS_DO_DRENO_DE_CLIQUE,
   TIPOS_QUE_O_DRENO_CONHECE,
 } from "./fila-tipos";
 // O POST DO LINKEDIN (a parte 2a). O arquivo dele não importa este: as três funções de que ele precisa vão como
@@ -1141,7 +1142,15 @@ export async function armarOTiqueDaLinha(id: string): Promise<void> {
   }
 }
 
-export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Promise<ResumoDaDrenagem> {
+/**
+ * O DRENO DA FILA. `inicioDaFuncaoMs` é o começo da função que o chama: a hora de parar e o prazo do post do LinkedIn
+ * são contados dele. `doClique` (a 3a-0; o 224) é o dreno que roda dentro de um clique de quem usa o painel: a
+ * seleção sai sem o post do LinkedIn (`TIPOS_DO_DRENO_DE_CLIQUE`, lib/fila-tipos.ts), que pode levar a passada
+ * inteira, e o rodapé continua contando o post do LinkedIn, e arma o tique para ele.
+ */
+export async function drainQueue(
+  opcoes: { inicioDaFuncaoMs?: number; doClique?: boolean } = {}
+): Promise<ResumoDaDrenagem> {
   const inicioDaFuncaoMs = opcoes.inicioDaFuncaoMs ?? Date.now();
   const depsDoLinkedin = dependenciasDoLinkedin(inicioDaFuncaoMs);
   const result = { sent: 0, skipped: 0, failed: 0, guardados: 0, aguardando: 0, devolvidos: 0 };
@@ -1258,7 +1267,7 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
     [
       BATCH_SIZE,
       blocked,
-      Array.from(TIPOS_QUE_O_DRENO_CONHECE),
+      Array.from(opcoes.doClique ? TIPOS_DO_DRENO_DE_CLIQUE : TIPOS_QUE_O_DRENO_CONHECE),
       Array.from(TIPOS_DE_PUBLICACAO),
       Array.from(FORMAS_NO_LINKEDIN),
     ]

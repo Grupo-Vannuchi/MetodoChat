@@ -196,15 +196,20 @@ export type ArteSubida = { numero: number; caminho: unknown; versao: unknown };
  * texto e o caminho da foto). A foto guardada nunca vai para a fila, nem como cópia.
  *
  * `enfileirar` e `drenar` entram por parâmetro só para o teste: em produção são as do /publicar.
+ *
+ * `inicioDaFuncaoMs` é o começo da action que publica (a 3a-0; o 223): a hora de parar do dreno é contada dele. O
+ * dreno daqui é o de um clique, sem o post do LinkedIn (o 224). Sem o começo, vale a hora desta chamada.
  */
 export async function publicarNaFila(p: {
   id: string;
   quando: Date | null;
   artes: ArteSubida[];
   contas: ContaDoCabecalho[];
+  inicioDaFuncaoMs?: number;
   enfileirar?: typeof enqueuePublicacao;
-  drenar?: () => Promise<unknown>;
+  drenar?: (opcoes: { inicioDaFuncaoMs: number; doClique: boolean }) => Promise<unknown>;
 }): Promise<{ ok: true; quando: Date | null; jaVale: boolean } | Recusa> {
+  const inicioDaFuncaoMs = p.inicioDaFuncaoMs ?? Date.now();
   const enfileirar = p.enfileirar ?? enqueuePublicacao;
   const drenar = p.drenar ?? drainQueue;
   const c = await conferirCarrossel(p.id, p.contas);
@@ -355,7 +360,7 @@ export async function publicarNaFila(p: {
   // 99). O que ainda não vale não drena.
   if (r.jaVale) {
     try {
-      await drenar();
+      await drenar({ inicioDaFuncaoMs, doClique: true });
     } catch {
       // A trava atômica do dreno garante que o próximo recupera; o estado na página diz "publicando".
     }

@@ -434,3 +434,29 @@ describe("o post do Instagram confere a hora de parar por dentro (a P2)", () => 
     expect((await linha(id)).status).toBe("sent");
   });
 });
+
+// O DRENO DE CLIQUE NÃO PEGA O POST DO LINKEDIN (a 3a-0; o 224; scratchpad/desenho-223.md, P3). A seleção do dreno não
+// filtra pela conta do clique, e a passada de um post do LinkedIn pode levar a função inteira: quem só respondeu uma
+// mensagem esperaria o post de outro. No clique, a seleção sai sem o `publicacao_linkedin`; o rodapé continua contando
+// o post do LinkedIn, e arma o tique para ele, que sai no dreno do tique.
+describe("o dreno de clique não pega o post do LinkedIn (a P3, o 224)", () => {
+  it("a linha do LinkedIn vencida fica como estava, a mensagem do clique sai, e o rodapé arma o tique para o LinkedIn", async () => {
+    const li = await postDoLinkedinAdiado();
+    await mensagem("a mensagem do clique");
+    const resumo = await dreno.drainQueue({ inicioDaFuncaoMs: Date.now(), doClique: true });
+    expect(resumo).toMatchObject({ sent: 1, devolvidos: 0 });
+    expect(meta.textos).toEqual(["a mensagem do clique"]);
+    expect(linkedin.pedidos).toEqual([]);
+    expect(await linha(li)).toMatchObject({ status: "pending", attempts: 0, claimed_at: null });
+    expect(qstash.publicados).toHaveLength(1);
+  });
+
+  it("o mesmo lote, no dreno de uma rota (o tique, o webhook ou o cron): o post do LinkedIn sai", async () => {
+    const li = await postDoLinkedinAdiado();
+    await mensagem("a mensagem da rota");
+    const resumo = await dreno.drainQueue({ inicioDaFuncaoMs: Date.now() });
+    expect(resumo).toMatchObject({ sent: 2 });
+    expect(linkedin.pedidos).toEqual(["POST /rest/posts"]);
+    expect((await linha(li)).status).toBe("sent");
+  });
+});

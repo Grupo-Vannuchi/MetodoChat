@@ -79,6 +79,7 @@ import type { ResultadoDaPublicacao } from "@/lib/engine";
  */
 export async function publicar(formData: FormData): Promise<void> {
   await exigirSessao();
+  const inicioDaFuncaoMs = Date.now();
   const conta = await getSelectedAccount();
   if (!conta) {
     redirect(
@@ -179,7 +180,8 @@ export async function publicar(formData: FormData): Promise<void> {
   // drenando os itens dos outros.
   if (r.jaVale) {
     try {
-      await drainQueue();
+      // O DRENO DO CLIQUE (a 3a-0): com o começo da função, e sem o post do LinkedIn, que pode levar a passada inteira.
+      await drainQueue({ inicioDaFuncaoMs, doClique: true });
     } catch {
       // A trava atômica garante que o próximo dreno recupera. O item fica
       // 'pending' e a tela de Atividade mostra isso — que aqui é verdade. É o
@@ -437,7 +439,7 @@ export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
   }
   if (instagram.entrou && instagram.jaVale) {
     try {
-      await drainQueue({ inicioDaFuncaoMs });
+      await drainQueue({ inicioDaFuncaoMs, doClique: true });
     } catch {
       // O mesmo `catch` do `publicar`: a trava atômica garante que o próximo dreno recupera.
     }
