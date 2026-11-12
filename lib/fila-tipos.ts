@@ -57,3 +57,41 @@ function adiamentosDoPayload(payload: unknown): number {
   const v = (payload as Record<string, unknown>).adiamentos;
   return typeof v === "number" && Number.isInteger(v) ? v : 0;
 }
+
+// OS TIPOS DO DRENO DE CLIQUE (a 3a-0; o 224; scratchpad/desenho-223.md, P3). Os drenos que rodam dentro do clique de
+// quem usa o painel (responder no inbox, enviar um lote, publicar no Instagram, remarcar e o "Publicar" do bônus) não
+// pegam o post do LinkedIn: a passada dele pode ser longa (até ~52 s pelos tetos), e a seleção do dreno não filtra
+// pela conta do clique, então o clique de uma pessoa esperaria o post de outra. O post do LinkedIn sai pelos drenos das
+// rotas (o tique, o webhook e o cron) e pelo dreno de uma linha só dele (o "agora" e o Remarcar).
+export const TIPOS_DO_DRENO_DE_CLIQUE = TIPOS_QUE_O_DRENO_CONHECE.filter(
+  (t): t is Exclude<TipoDaFila, "publicacao_linkedin"> => t !== "publicacao_linkedin"
+);
+
+// A HORA DE PARAR (a 3a-0; o 223; scratchpad/desenho-223.md, P1 e P2). Nada começa depois dela: nem a reivindicação do
+// lote, nem um item do laço, nem uma etapa do post do Instagram. Ela é o começo da função mais o orçamento
+// (`ORCAMENTO_DA_FUNCAO_MS`, 55 s, lib/queue-drain.ts) menos a reserva para o que já começou terminar: 40 s numa função
+// de 60, com 20 s até o corte.
+//
+// A RESERVA É UMA ESTIMATIVA, E NÃO UMA MEDIDA. Ela cobre o perigo que importa em cada tipo: na mensagem, uma ida à Meta
+// e os 600 ms do ritmo (o corte entre o envio e o `finish` mandaria em dobro, lib/ig.ts); no post do Instagram, uma
+// etapa (o corte ali não publica em dobro, mas deixa a linha em `sending` até o resgate). No post do LinkedIn, cada
+// passo já só começa se o pior caso dele cabe (lib/linkedin-fila.ts).
+export const RESERVA_PARA_TERMINAR_MS = 15_000;
+
+export function jaPassouDaHoraDeParar(p: { inicioDaFuncaoMs: number; orcamentoMs: number; agoraMs: number }): boolean {
+  return p.agoraMs >= p.inicioDaFuncaoMs + p.orcamentoMs - RESERVA_PARA_TERMINAR_MS;
+}
+
+// A LINHA DO REGISTRO QUANDO O DRENO DEVOLVE ITENS À FILA (a 3a-0; pedido da auditoria): só a contagem e os tipos, sem
+// id, sem texto e sem conta. A função recebe só os tipos, e então não tem como levar outra coisa. É o único jeito de
+// ver a regra da hora de parar agindo na produção, e a primeira hora a lê nos registros da Vercel.
+export function textoDaDevolucao(tipos: readonly string[]): string {
+  const porTipo = new Map<string, number>();
+  for (const t of tipos) porTipo.set(t, (porTipo.get(t) ?? 0) + 1);
+  const lista = [...porTipo.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([t, n]) => `${t} ${n}`)
+    .join(", ");
+  const n = tipos.length;
+  return `[dreno] a hora de parar chegou: ${n} ${n === 1 ? "item voltou" : "itens voltaram"} à fila sem gastar tentativa (${lista})`;
+}

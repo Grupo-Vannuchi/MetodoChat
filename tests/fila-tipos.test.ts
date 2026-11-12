@@ -1,7 +1,16 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { naOrdemDoLote, TIPOS_DE_PUBLICACAO, TIPOS_QUE_O_DRENO_CONHECE, type TipoDaFila } from "@/lib/fila-tipos";
+import {
+  jaPassouDaHoraDeParar,
+  naOrdemDoLote,
+  RESERVA_PARA_TERMINAR_MS,
+  textoDaDevolucao,
+  TIPOS_DE_PUBLICACAO,
+  TIPOS_DO_DRENO_DE_CLIQUE,
+  TIPOS_QUE_O_DRENO_CONHECE,
+  type TipoDaFila,
+} from "@/lib/fila-tipos";
 import type { QueueItem } from "@/lib/db";
 
 // A LISTA DOS TIPOS QUE O DRENO CONHECE É A DO BANCO (docs/specs/2026-11-06-linkedin-no-perfil.md, §0).
@@ -99,5 +108,49 @@ describe("a ordem do lote", () => {
     const copia = [...lote];
     naOrdemDoLote(lote);
     expect(lote).toEqual(copia);
+  });
+});
+
+// OS TIPOS DO DRENO DE CLIQUE (a 3a-0; o 224): o dreno que roda dentro do clique de quem usa o painel não pega o post
+// do LinkedIn, que pode levar uma passada inteira, e a seleção não filtra pela conta do clique.
+describe("os tipos do dreno de clique (a 3a-0, o 224)", () => {
+  it("são os que o dreno conhece, na mesma ordem, menos o post do LinkedIn", () => {
+    expect(TIPOS_DO_DRENO_DE_CLIQUE).toEqual(TIPOS_QUE_O_DRENO_CONHECE.filter((t) => t !== "publicacao_linkedin"));
+    expect(TIPOS_DO_DRENO_DE_CLIQUE).toHaveLength(TIPOS_QUE_O_DRENO_CONHECE.length - 1);
+    expect(TIPOS_DO_DRENO_DE_CLIQUE).not.toContain("publicacao_linkedin");
+    expect(TIPOS_DO_DRENO_DE_CLIQUE).toContain("publicacao");
+    expect(TIPOS_DO_DRENO_DE_CLIQUE).toContain("dm_manual");
+  });
+});
+
+// A HORA DE PARAR (a 3a-0; o 223): nada começa depois dela. É o começo da função mais o orçamento, menos a reserva
+// para o que já começou terminar: 55 − 15 = 40 s numa função de 60.
+describe("a hora de parar (a 3a-0, o 223)", () => {
+  const passou = (agoraMs: number) => jaPassouDaHoraDeParar({ inicioDaFuncaoMs: 1_000_000, orcamentoMs: 55_000, agoraMs });
+
+  it("a reserva é de 15 s, e a hora de parar é o começo mais 40 s, contando o próprio instante", () => {
+    expect(RESERVA_PARA_TERMINAR_MS).toBe(15_000);
+    expect(passou(1_000_000)).toBe(false);
+    expect(passou(1_039_999)).toBe(false);
+    expect(passou(1_040_000)).toBe(true);
+    expect(passou(1_100_000)).toBe(true);
+  });
+
+  it("segue o orçamento que recebe", () => {
+    expect(jaPassouDaHoraDeParar({ inicioDaFuncaoMs: 0, orcamentoMs: 30_000, agoraMs: 14_999 })).toBe(false);
+    expect(jaPassouDaHoraDeParar({ inicioDaFuncaoMs: 0, orcamentoMs: 30_000, agoraMs: 15_000 })).toBe(true);
+  });
+});
+
+// A LINHA DO REGISTRO DA DEVOLUÇÃO (a 3a-0; pedido da auditoria): só a contagem e os tipos. Ela recebe só os tipos,
+// e o caso de integração confere a linha que de fato vai ao registro (testes-integracao/dreno-hora-de-parar).
+describe("a linha do registro da devolução (a 3a-0)", () => {
+  it("diz a contagem e os tipos, em ordem alfabética, no plural e no singular", () => {
+    expect(textoDaDevolucao(["dm_lote", "publicacao", "dm_lote"])).toBe(
+      "[dreno] a hora de parar chegou: 3 itens voltaram à fila sem gastar tentativa (dm_lote 2, publicacao 1)"
+    );
+    expect(textoDaDevolucao(["dm_manual"])).toBe(
+      "[dreno] a hora de parar chegou: 1 item voltou à fila sem gastar tentativa (dm_manual 1)"
+    );
   });
 });
