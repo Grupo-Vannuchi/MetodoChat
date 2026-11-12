@@ -34,7 +34,19 @@ const TOKEN_DO_QSTASH = "token-de-qstash-inventado-para-a-hora-de-parar";
 const APP_URL = "https://exemplo.invalid";
 
 const qstash = { publicados: [] as string[] };
-const meta = { textos: [] as string[], desconhecidos: [] as string[] };
+const meta = {
+  textos: [] as string[],
+  desconhecidos: [] as string[],
+  // O POST DO INSTAGRAM (a P2): os contêineres criados, as leituras de estado, as cotas e as publicações, e quanto cada
+  // ida demora, para a hora de parar chegar no ponto que o caso escolhe. O atraso do contêiner é pelo número dele.
+  containers: 0,
+  estados: 0,
+  cotas: 0,
+  publicacoes: 0,
+  atrasoDoContainer: (_n: number) => 0,
+  atrasoDoEstadoMs: 0,
+  atrasoDaCotaMs: 0,
+};
 const linkedin = { pedidos: [] as string[], atrasoMs: 0, durante: null as null | (() => Promise<void>) };
 
 let servidorQstash: Server;
@@ -73,6 +85,30 @@ beforeAll(async () => {
       meta.textos.push(lido.message?.text ?? "");
       return responder(res, 200, { message_id: `mid-${meta.textos.length}`, recipient_id: CONTATO });
     }
+    const ultimo = u.pathname.split("/").filter(Boolean).pop() ?? "";
+    if (req.method === "POST" && ultimo === "media") {
+      meta.containers++;
+      const n = meta.containers;
+      const atraso = meta.atrasoDoContainer(n);
+      if (atraso) await esperar(atraso);
+      return responder(res, 200, { id: `container-${n}` });
+    }
+    if (req.method === "GET" && (u.searchParams.get("fields") ?? "").includes("status_code")) {
+      meta.estados++;
+      if (meta.atrasoDoEstadoMs) await esperar(meta.atrasoDoEstadoMs);
+      return responder(res, 200, { id: ultimo, status_code: "FINISHED" });
+    }
+    if (req.method === "GET" && ultimo === "content_publishing_limit") {
+      meta.cotas++;
+      if (meta.atrasoDaCotaMs) await esperar(meta.atrasoDaCotaMs);
+      return responder(res, 200, { config: { quota_total: 100, quota_duration: 86400 }, quota_usage: 0 });
+    }
+    if (req.method === "POST" && ultimo === "media_publish") {
+      meta.publicacoes++;
+      return responder(res, 200, { id: `media-${meta.publicacoes}` });
+    }
+    // O BUCKET FALSO, só para o apagar depois do post: o `limparOBucket` registra e segue se falhar.
+    if (req.method === "DELETE") return responder(res, 200, { message: "ok" });
     meta.desconhecidos.push(`${req.method} ${u.pathname}`);
     responder(res, 404, { error: { message: `o falso não conhece ${u.pathname}` } });
   });
@@ -95,6 +131,10 @@ beforeAll(async () => {
   process.env.QSTASH_TOKEN = TOKEN_DO_QSTASH;
   process.env.IG_GRAPH_BASE = base(servidorMeta);
   process.env.LINKEDIN_API_BASE = base(servidorLinkedin);
+  // O ENDEREÇO PÚBLICO DA FOTO é montado a partir do bucket, e o apagar fala com ele: os dois vão à Meta falsa.
+  process.env.SUPABASE_URL = base(servidorMeta);
+  process.env.SUPABASE_BUCKET = "midia-da-hora-de-parar";
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "chave-do-bucket-da-hora-de-parar-que-nao-vale-nada";
 
   // AS GUARDAS, ANTES DE QUALQUER DRENO: sem os desvios, este teste falaria com as redes de verdade.
   const ig = await import("@/lib/ig");
@@ -117,7 +157,17 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const v of ["QSTASH_URL", "QSTASH_TOKEN", "IG_GRAPH_BASE", "LINKEDIN_API_BASE"]) delete process.env[v];
+  for (const v of [
+    "QSTASH_URL",
+    "QSTASH_TOKEN",
+    "IG_GRAPH_BASE",
+    "LINKEDIN_API_BASE",
+    "SUPABASE_URL",
+    "SUPABASE_BUCKET",
+    "SUPABASE_SERVICE_ROLE_KEY",
+  ]) {
+    delete process.env[v];
+  }
   for (const s of [servidorQstash, servidorMeta, servidorLinkedin]) await new Promise<void>((pronto) => s.close(() => pronto()));
 });
 
@@ -135,6 +185,13 @@ beforeEach(async () => {
   qstash.publicados = [];
   meta.textos = [];
   meta.desconhecidos = [];
+  meta.containers = 0;
+  meta.estados = 0;
+  meta.cotas = 0;
+  meta.publicacoes = 0;
+  meta.atrasoDoContainer = () => 0;
+  meta.atrasoDoEstadoMs = 0;
+  meta.atrasoDaCotaMs = 0;
   linkedin.pedidos = [];
   linkedin.atrasoMs = 0;
   linkedin.durante = null;
@@ -280,4 +337,100 @@ describe("sem passar da hora de parar, o dreno é o de hoje", () => {
     expect(meta.textos).toEqual(["um", "dois"]);
     expect(linhas).toEqual([]);
   }, 30_000);
+});
+
+// O POST DO INSTAGRAM CONFERE A HORA DE PARAR POR DENTRO (a 3a-0; o 223; scratchpad/desenho-223.md, P2). Antes de cada
+// ida à Meta (cada filho do carrossel, o pai, o contêiner da imagem, a leitura de estado, a cota e a publicação), passou
+// da hora: a linha volta à fila sem gastar a tentativa, com o que já foi gravado no payload (os filhos, o contêiner), e
+// a passada seguinte continua dali, sem recriar nada. Cada caso para num ponto: a Meta falsa demora na ida anterior.
+
+/** Um post do Instagram vencido, na conta, com as fotos dadas. */
+async function postDoInstagram(forma: "imagem" | "carrossel", fotos: number): Promise<string> {
+  const caminhos = Array.from({ length: fotos }, (_, i) => `${CONTA}/foto-${i + 1}.jpg`);
+  const [l] = (await q(
+    `insert into queue (account_id, kind, payload, dedupe_key, not_before)
+     values ($1, 'publicacao', $2, $3, now() - interval '1 minute')
+     returning id`,
+    [CONTA, { forma, caminhos, legenda: "A legenda do post" }, `hora-de-parar:instagram:${forma}:${fotos}`]
+  )) as { id: string }[];
+  return l.id;
+}
+
+const payloadDe = async (id: string) =>
+  ((await q(`select payload from queue where id = $1`, [id])) as { payload: Record<string, unknown> }[])[0].payload;
+
+describe("o post do Instagram confere a hora de parar por dentro (a P2)", () => {
+  it("antes de um filho do carrossel: o filho já criado fica no payload, e a passada seguinte cria só os que faltam", async () => {
+    const id = await postDoInstagram("carrossel", 3);
+    meta.atrasoDoContainer = (n) => (n === 1 ? 2_000 : 0);
+    const resumo = await dreno.drainQueue({ inicioDaFuncaoMs: haTrintaENoveSegundos() });
+    expect(resumo).toMatchObject({ devolvidos: 1, sent: 0 });
+    expect(await linha(id)).toMatchObject({ status: "pending", attempts: 0, vencida: true });
+    expect(await payloadDe(id)).toMatchObject({ filhos: ["container-1"] });
+    expect((await payloadDe(id)).container_id).toBeUndefined();
+    expect(meta.containers).toBe(1);
+
+    meta.atrasoDoContainer = () => 0;
+    expect(await dreno.drainQueue()).toMatchObject({ sent: 1, devolvidos: 0 });
+    // OS DOIS FILHOS QUE FALTAVAM E O PAI: 1 + 2 + 1, e o primeiro filho é o mesmo.
+    expect(meta.containers).toBe(4);
+    expect(await payloadDe(id)).toMatchObject({ filhos: ["container-1", "container-2", "container-3"], container_id: "container-4" });
+    expect(meta.publicacoes).toBe(1);
+  });
+
+  it("antes do pai do carrossel: os filhos ficam, e a passada seguinte cria só o pai", async () => {
+    const id = await postDoInstagram("carrossel", 2);
+    meta.atrasoDoContainer = (n) => (n === 2 ? 2_000 : 0);
+    expect(await dreno.drainQueue({ inicioDaFuncaoMs: haTrintaENoveSegundos() })).toMatchObject({ devolvidos: 1 });
+    expect(await payloadDe(id)).toMatchObject({ filhos: ["container-1", "container-2"] });
+    expect((await payloadDe(id)).container_id).toBeUndefined();
+    expect(meta.containers).toBe(2);
+
+    meta.atrasoDoContainer = () => 0;
+    expect(await dreno.drainQueue()).toMatchObject({ sent: 1 });
+    expect(meta.containers).toBe(3);
+    expect(await payloadDe(id)).toMatchObject({ container_id: "container-3" });
+  });
+
+  it("antes da leitura de estado: o contêiner da imagem fica, e a passada seguinte só lê o estado e publica", async () => {
+    const id = await postDoInstagram("imagem", 1);
+    meta.atrasoDoContainer = () => 2_000;
+    expect(await dreno.drainQueue({ inicioDaFuncaoMs: haTrintaENoveSegundos() })).toMatchObject({ devolvidos: 1 });
+    expect(await payloadDe(id)).toMatchObject({ container_id: "container-1" });
+    expect(meta.estados).toBe(0);
+
+    meta.atrasoDoContainer = () => 0;
+    expect(await dreno.drainQueue()).toMatchObject({ sent: 1 });
+    expect(meta.containers).toBe(1);
+    expect(meta.publicacoes).toBe(1);
+  });
+
+  it("antes da cota: o estado já lido não conta consulta a mais, e a passada seguinte publica com o mesmo contêiner", async () => {
+    const id = await postDoInstagram("imagem", 1);
+    meta.atrasoDoEstadoMs = 2_000;
+    expect(await dreno.drainQueue({ inicioDaFuncaoMs: haTrintaENoveSegundos() })).toMatchObject({ devolvidos: 1 });
+    expect(meta.estados).toBe(1);
+    expect(meta.cotas).toBe(0);
+    expect(await linha(id)).toMatchObject({ status: "pending", attempts: 0 });
+
+    meta.atrasoDoEstadoMs = 0;
+    expect(await dreno.drainQueue()).toMatchObject({ sent: 1 });
+    expect(meta.containers).toBe(1);
+    expect(meta.publicacoes).toBe(1);
+  });
+
+  it("antes da publicação: nada foi publicado, e a passada seguinte publica uma vez só, com o mesmo contêiner", async () => {
+    const id = await postDoInstagram("imagem", 1);
+    meta.atrasoDaCotaMs = 2_000;
+    expect(await dreno.drainQueue({ inicioDaFuncaoMs: haTrintaENoveSegundos() })).toMatchObject({ devolvidos: 1, sent: 0 });
+    expect(meta.cotas).toBe(1);
+    expect(meta.publicacoes).toBe(0);
+    expect(await linha(id)).toMatchObject({ status: "pending", attempts: 0 });
+
+    meta.atrasoDaCotaMs = 0;
+    expect(await dreno.drainQueue()).toMatchObject({ sent: 1 });
+    expect(meta.containers).toBe(1);
+    expect(meta.publicacoes).toBe(1);
+    expect((await linha(id)).status).toBe("sent");
+  });
 });

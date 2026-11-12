@@ -419,10 +419,14 @@ export async function limparOBucket(
 async function containerPaiDoCarrossel(
   item: QueueItem,
   account: Account,
-  pub: { caminhos: string[]; legenda?: string; filhos: string[] }
-): Promise<string> {
+  pub: { caminhos: string[]; legenda?: string; filhos: string[] },
+  passouDaHoraDeParar: () => boolean
+): Promise<string | null> {
   const filhos = [...pub.filhos];
   for (let i = filhos.length; i < pub.caminhos.length; i++) {
+    // A HORA DE PARAR ANTES DE CADA FILHO (a 3a-0; o 223, P2): `null`, e quem chama devolve a linha. A lista já
+    // gravada fica, e a passada seguinte continua daqui, sem recriar o que existe.
+    if (passouDaHoraDeParar()) return null;
     const filho = await criarContainer(
       account.ig_user_id,
       account.access_token,
@@ -439,6 +443,7 @@ async function containerPaiDoCarrossel(
   // O PAI POR ÚLTIMO, com a lista inteira e a legenda. `parametrosDoContainerPai`
   // é quem recusa zero, um e mais de dez — e ele nunca chega aqui com essas
   // contagens, porque a quantidade já foi conferida duas vezes antes.
+  if (passouDaHoraDeParar()) return null;
   return criarContainer(
     account.ig_user_id,
     account.access_token,
@@ -446,8 +451,12 @@ async function containerPaiDoCarrossel(
   );
 }
 
-/** O que aconteceu com um item de publicação nesta passada. */
-type DesfechoDaPublicacao = "publicado" | "aguardando" | "falhou";
+/**
+ * O que aconteceu com um item de publicação nesta passada. O `devolvido` (a 3a-0; o 223, P2) é o post que parou no
+ * meio porque a hora de parar chegou: ele voltou à fila sem gastar a tentativa, com o que já tinha feito no payload, e
+ * o laço o conta em `devolvidos`, e não em `aguardando`, que é a publicação esperando a Meta.
+ */
+type DesfechoDaPublicacao = "publicado" | "aguardando" | "falhou" | "devolvido";
 
 /**
  * PUBLICA UM ITEM DA FILA. É o ramo que não é mensagem.
@@ -475,7 +484,22 @@ type DesfechoDaPublicacao = "publicado" | "aguardando" | "falhou";
  * ficar decidido aqui fica sem rede, e o cabeçalho conta as duas vezes em que
  * isso já custou caro.
  */
-async function publicarDaFila(item: QueueItem, account: Account): Promise<DesfechoDaPublicacao> {
+async function publicarDaFila(
+  item: QueueItem,
+  account: Account,
+  passouDaHoraDeParar: () => boolean
+): Promise<DesfechoDaPublicacao> {
+  // A HORA DE PARAR POR DENTRO (a 3a-0; o 223; scratchpad/desenho-223.md, P2). Um carrossel faz até 11 POSTs sem teto
+  // (o teto do `graphFetch` é só do GET, de propósito: lib/ig.ts) e 2 GETs de até 8 s, e começado aos 39 s ele ainda
+  // podia passar do corte da função, que pula o rodapé. Antes de cada ida à Meta, passou da hora: a linha volta à fila
+  // pelo mesmo caminho do laço (`devolverOQueNaoComecou`), sem gastar a tentativa, e o que já foi gravado no payload
+  // (os filhos, o contêiner) fica para a passada seguinte. O corte de um post não publica em dobro (a lista de filhos
+  // gravada a cada filho e o "publicado não republica", abaixo); o que esta conferência evita é a linha presa em
+  // `sending` por 3 minutos, sem tique. O relógio é o do laço, que o dreno passa.
+  const devolver = async (): Promise<DesfechoDaPublicacao> => {
+    await devolverOQueNaoComecou([item.id]);
+    return "devolvido";
+  };
   const pub = lerPayloadDaPublicacao(item.payload);
   if (!pub) {
     // MESMO DESFECHO DO LOTE COM PAYLOAD INVÁLIDO, e pela mesma razão: um item
@@ -514,9 +538,10 @@ async function publicarDaFila(item: QueueItem, account: Account): Promise<Desfec
 
   let containerId = pub.containerId;
   if (!containerId) {
-    containerId =
+    if (pub.forma !== "carrossel" && passouDaHoraDeParar()) return devolver();
+    const criado =
       pub.forma === "carrossel"
-        ? await containerPaiDoCarrossel(item, account, pub)
+        ? await containerPaiDoCarrossel(item, account, pub, passouDaHoraDeParar)
         : await criarContainer(
             account.ig_user_id,
             account.access_token,
@@ -533,11 +558,17 @@ async function publicarDaFila(item: QueueItem, account: Account): Promise<Desfec
               nomeDoAudio: pub.nomeDoAudio,
             })
           );
+    // A HORA DE PARAR CHEGOU ENTRE OS FILHOS, OU ANTES DO PAI: a lista dos filhos já está gravada.
+    if (criado === null) return devolver();
+    containerId = criado;
     // GRAVADO ANTES DE QUALQUER OUTRA COISA. Se a consulta de estado logo
     // abaixo estourar, o `catch` de `drainQueue` devolve o item à fila — e a
     // passada seguinte tem de encontrar ESTE contêiner, e não criar o segundo.
     await guardarNoPayload(item.id, { container_id: containerId });
   }
+
+  // A HORA DE PARAR ANTES DA LEITURA DE ESTADO: o contêiner já está gravado.
+  if (passouDaHoraDeParar()) return devolver();
 
   const leitura = leituraDoContainer(
     await estadoDoContainerNaMeta(containerId, account.access_token)
@@ -592,6 +623,9 @@ async function publicarDaFila(item: QueueItem, account: Account): Promise<Desfec
   // /{ig-media-id}` não existe no Login do Instagram (medido em 03/09), e a
   // remoção é manual, no aplicativo.
   if (leitura.estado === "pronto") {
+    // A HORA DE PARAR ANTES DA COTA E ANTES DA PUBLICAÇÃO: nada foi publicado, e a passada seguinte lê o estado de
+    // novo (um GET) e publica com o mesmo contêiner.
+    if (passouDaHoraDeParar()) return devolver();
     const cota = cotaDePublicacao(await limiteDePublicacao(account.ig_user_id, account.access_token));
     if (cotaEstourada(cota)) {
       // `pending`, E NÃO `failed`. A publicação não deu errado — ela ainda não
@@ -605,6 +639,7 @@ async function publicarDaFila(item: QueueItem, account: Account): Promise<Desfec
       });
       return "aguardando";
     }
+    if (passouDaHoraDeParar()) return devolver();
     const resposta = await publicarContainer(
       account.ig_user_id,
       account.access_token,
@@ -1340,9 +1375,10 @@ export async function drainQueue(opcoes: { inicioDaFuncaoMs?: number } = {}): Pr
       // de retentativa escrita só para este ramo seria uma segunda coisa para
       // manter, e o `catch` de baixo já está certo.
       if (item.kind === "publicacao") {
-        const desfecho = await publicarDaFila(item, account);
+        const desfecho = await publicarDaFila(item, account, passouDaHoraDeParar);
         if (desfecho === "publicado") result.sent++;
         else if (desfecho === "aguardando") result.aguardando++;
+        else if (desfecho === "devolvido") result.devolvidos++;
         else result.failed++;
         continue;
       }
