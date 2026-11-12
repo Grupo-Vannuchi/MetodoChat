@@ -112,18 +112,43 @@ const DRENOS_DE_CLIQUE = [
 
 const COMECO_DEPOIS_DA_SESSAO = /\{\n {2}await exigirSessao\(\);\n {2}const inicioDaFuncaoMs = Date\.now\(\);\n/;
 
-describe("os arquivos que importam o dreno (a 3a-0)", () => {
-  it("são os 8 de sempre: as 3 rotas, as 4 actions de clique e o processo do bônus", () => {
+// O 226 (a leitura independente): a lista pega TODO jeito de chegar ao dreno (o import com aspas duplas ou simples, o
+// relativo, o `import * as` e o `await import`); nenhum arquivo dá outro nome ao dreno nem o guarda numa variável (fora
+// o `drenar` do bônus, que tem caso próprio); e toda chamada é uma das DUAS formas exatas: a das rotas, e a do clique em
+// todo o resto, inclusive numa action nova de um destes arquivos.
+const CHEGA_AO_DRENO = /(?:\bfrom\s*|\bimport\s*\(\s*)["'](?:@\/lib\/|(?:\.{1,2}\/)+(?:[\w[\]-]+\/)*)queue-drain["']/;
+const FORMA_DA_ROTA = "drainQueue({ inicioDaFuncaoMs })";
+const FORMA_DO_CLIQUE = "drainQueue({ inicioDaFuncaoMs, doClique: true })";
+
+/** O código sem as linhas de comentário (as de `//` e as de JSDoc), para o comentário que cita o dreno não contar. */
+const soOCodigo = (arquivo: string) =>
+  ler(arquivo)
+    .split("\n")
+    .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+    .join("\n");
+
+describe("os arquivos que chegam ao dreno (a 3a-0)", () => {
+  it("são os 8 de sempre, por qualquer jeito de importar: as 3 rotas, as 4 actions de clique e o processo do bônus", () => {
     const achados = [...arquivosDe("app"), ...arquivosDe("lib")]
-      .filter((f) => /import\s*\{[^}]*\bdrainQueue\b[^}]*\}\s*from\s*"@\/lib\/queue-drain"/.test(ler(f)))
+      .filter((f) => f !== "lib/queue-drain.ts" && CHEGA_AO_DRENO.test(ler(f)))
       .sort();
     expect(achados).toEqual(QUEM_IMPORTA_O_DRENO);
   });
 
-  it("nenhum chama o dreno sem o começo da função", () => {
+  it("nenhum dá outro nome ao dreno nem o guarda numa variável (fora o drenar do bônus)", () => {
     for (const arquivo of QUEM_IMPORTA_O_DRENO) {
-      expect(ler(arquivo)).not.toMatch(/drainQueue\(\s*\)/);
-      for (const chamada of ler(arquivo).match(/drainQueue\([^)]*\)/g) ?? []) expect(chamada).toMatch(/inicioDaFuncaoMs/);
+      const codigo = soOCodigo(arquivo)
+        .replace(/import\s*\{[^}]*\}\s*from\s*["'][^"']+["'];?/g, "")
+        .replace("p.drenar ?? drainQueue", "");
+      expect(codigo).not.toMatch(/\bdrainQueue\s+as\b/);
+      expect(codigo.match(/\bdrainQueue\b(?!\s*\()/g) ?? []).toEqual([]);
+    }
+  });
+
+  it("toda chamada do dreno é uma das duas formas exatas: a das rotas nas 3 rotas, e a do clique em todo o resto", () => {
+    for (const arquivo of QUEM_IMPORTA_O_DRENO) {
+      const esperada = ROTAS.includes(arquivo) ? FORMA_DA_ROTA : FORMA_DO_CLIQUE;
+      for (const chamada of soOCodigo(arquivo).match(/\bdrainQueue\s*\([^)]*\)/g) ?? []) expect(chamada).toBe(esperada);
     }
   });
 });

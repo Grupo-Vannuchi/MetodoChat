@@ -46,6 +46,8 @@ const meta = {
   atrasoDoContainer: (_n: number) => 0,
   atrasoDoEstadoMs: 0,
   atrasoDaCotaMs: 0,
+  /** O que acontece durante a criação de cada contêiner (o 225: outro dreno resgata a linha no meio do caminho). */
+  duranteDoContainer: null as null | (() => Promise<void>),
 };
 const linkedin = { pedidos: [] as string[], atrasoMs: 0, durante: null as null | (() => Promise<void>) };
 
@@ -89,6 +91,7 @@ beforeAll(async () => {
     if (req.method === "POST" && ultimo === "media") {
       meta.containers++;
       const n = meta.containers;
+      if (meta.duranteDoContainer) await meta.duranteDoContainer();
       const atraso = meta.atrasoDoContainer(n);
       if (atraso) await esperar(atraso);
       return responder(res, 200, { id: `container-${n}` });
@@ -192,6 +195,7 @@ beforeEach(async () => {
   meta.atrasoDoContainer = () => 0;
   meta.atrasoDoEstadoMs = 0;
   meta.atrasoDaCotaMs = 0;
+  meta.duranteDoContainer = null;
   linkedin.pedidos = [];
   linkedin.atrasoMs = 0;
   linkedin.durante = null;
@@ -329,11 +333,16 @@ describe("a hora de parar, no laço", () => {
 });
 
 describe("sem passar da hora de parar, o dreno é o de hoje", () => {
-  it("as mensagens saem, nada volta, e não há linha de registro", async () => {
+  // O LOTE TEM O POST DO LINKEDIN DE PASSO CURTO (só texto, já adiado, e então o primeiro), como o desenho pede (§6,
+  // nota da leitura independente): ele sai, as mensagens saem depois dele, e nada volta.
+  it("o lote com o post do LinkedIn de passo curto (só texto) e as mensagens: tudo sai, nada volta, e não há linha de registro", async () => {
+    const li = await postDoLinkedinAdiado();
     await mensagem("um");
     await mensagem("dois");
     const { valor: resumo, linhas } = await comORegistro(() => dreno.drainQueue());
-    expect(resumo).toMatchObject({ sent: 2, devolvidos: 0 });
+    expect(resumo).toMatchObject({ sent: 3, devolvidos: 0 });
+    expect((await linha(li)).status).toBe("sent");
+    expect(linkedin.pedidos).toEqual(["POST /rest/posts"]);
     expect(meta.textos).toEqual(["um", "dois"]);
     expect(linhas).toEqual([]);
   }, 30_000);
@@ -458,5 +467,37 @@ describe("o dreno de clique não pega o post do LinkedIn (a P3, o 224)", () => {
     expect(resumo).toMatchObject({ sent: 2 });
     expect(linkedin.pedidos).toEqual(["POST /rest/posts"]);
     expect((await linha(li)).status).toBe("sent");
+  });
+});
+
+// A DEVOLUÇÃO SÓ MEXE NO QUE ESTE DRENO PEGOU (a 3a-0; o 225, da leitura independente). Numa página de 300 s, um POST
+// sem teto pode segurar o dreno A por mais de 3 minutos; o dreno B resgata as linhas de A e as processa; e A, ao voltar,
+// passava da hora e as devolvia a pending, e um terceiro dreno mandaria de novo o que B mandou. A reivindicação grava o
+// mesmo `claimed_at` no lote inteiro, e a devolução só mexe na linha que ainda tem esse `claimed_at`. Os casos trocam o
+// `claimed_at` à mão, como faria o resgate de outro dreno, no meio da passada de A.
+describe("a devolução só mexe no que este dreno pegou (o 225)", () => {
+  it("no laço: a mensagem que outro dreno resgatou no meio do caminho não volta, e a que continua deste dreno volta", async () => {
+    await postDoLinkedinAdiado();
+    const resgatada = await mensagem("a que outro dreno resgatou");
+    const nossa = await mensagem("a que continua deste dreno");
+    linkedin.atrasoMs = 2_000;
+    linkedin.durante = async () => {
+      await q(`update queue set claimed_at = now() + interval '1 second' where id = $1`, [resgatada]);
+    };
+    const resumo = await dreno.drainQueue({ inicioDaFuncaoMs: haTrintaENoveSegundos() });
+    expect((await linha(resgatada)).status).toBe("sending");
+    expect((await linha(nossa)).status).toBe("pending");
+    expect(resumo.devolvidos).toBe(1);
+  });
+
+  it("no post do Instagram: o post que outro dreno resgatou no meio do caminho não volta, e não conta como devolvido", async () => {
+    const id = await postDoInstagram("carrossel", 3);
+    meta.atrasoDoContainer = (n) => (n === 1 ? 2_000 : 0);
+    meta.duranteDoContainer = async () => {
+      await q(`update queue set claimed_at = now() + interval '1 second' where id = $1`, [id]);
+    };
+    const resumo = await dreno.drainQueue({ inicioDaFuncaoMs: haTrintaENoveSegundos() });
+    expect((await linha(id)).status).toBe("sending");
+    expect(resumo.devolvidos).toBe(0);
   });
 });

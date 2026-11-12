@@ -488,7 +488,8 @@ type DesfechoDaPublicacao = "publicado" | "aguardando" | "falhou" | "devolvido";
 async function publicarDaFila(
   item: QueueItem,
   account: Account,
-  passouDaHoraDeParar: () => boolean
+  passouDaHoraDeParar: () => boolean,
+  devolverDoLote: (ids: readonly string[]) => Promise<void>
 ): Promise<DesfechoDaPublicacao> {
   // A HORA DE PARAR POR DENTRO (a 3a-0; o 223; scratchpad/desenho-223.md, P2). Um carrossel faz até 11 POSTs sem teto
   // (o teto do `graphFetch` é só do GET, de propósito: lib/ig.ts) e 2 GETs de até 8 s, e começado aos 39 s ele ainda
@@ -496,9 +497,10 @@ async function publicarDaFila(
   // pelo mesmo caminho do laço (`devolverOQueNaoComecou`), sem gastar a tentativa, e o que já foi gravado no payload
   // (os filhos, o contêiner) fica para a passada seguinte. O corte de um post não publica em dobro (a lista de filhos
   // gravada a cada filho e o "publicado não republica", abaixo); o que esta conferência evita é a linha presa em
-  // `sending` por 3 minutos, sem tique. O relógio é o do laço, que o dreno passa.
+  // `sending` por 3 minutos, sem tique. O relógio e a devolução são os do laço, que o dreno passa: a devolução leva
+  // a ficha da reivindicação (o 225) e conta o que o banco de fato devolveu.
   const devolver = async (): Promise<DesfechoDaPublicacao> => {
-    await devolverOQueNaoComecou([item.id]);
+    await devolverDoLote([item.id]);
     return "devolvido";
   };
   const pub = lerPayloadDaPublicacao(item.payload);
@@ -952,9 +954,10 @@ export type ResumoDaDrenagem = {
   // Em português pela mesma razão que `guardados`: o estado que ele conta é o
   // da publicação esperando a Meta, e o produto chama isso de aguardar.
   aguardando: number;
-  // O SEXTO CONTADOR (a 3a-0; o 223): as linhas que voltaram à fila sem começar, porque a hora de parar chegou
-  // (`jaPassouDaHoraDeParar`, lib/fila-tipos.ts). Não é o `aguardando`, que é a publicação esperando a Meta: estas
-  // nem foram tentadas. Zero quando o dreno nem reivindicou, porque nada foi pego.
+  // O SEXTO CONTADOR (a 3a-0; o 223): as linhas que voltaram à fila sem terminar, porque a hora de parar chegou
+  // (`jaPassouDaHoraDeParar`, lib/fila-tipos.ts): as do laço nem começaram, e o post do Instagram parou no meio, com o
+  // que já tinha feito no payload. Não é o `aguardando`, que é a publicação esperando a Meta. É o número de linhas que
+  // o banco de fato devolveu; zero quando o dreno nem reivindicou, porque nada foi pego.
   devolvidos: number;
 };
 
@@ -1043,8 +1046,9 @@ async function devolverOuEncerrar(item: QueueItem, err: unknown): Promise<"pendi
 /**
  * O ORÇAMENTO DE TEMPO DE UMA FUNÇÃO QUE DRENA: as rotas que drenam têm `maxDuration` 60 (o tique, o webhook e o
  * cron), e os 5 s que faltam são a folga. É contado do COMEÇO DA FUNÇÃO (`inicioDaFuncaoMs`), que as três rotas
- * passam (tests/dreno-com-prazo.test.ts); sem ele, conta da hora em que o dreno começou. Hoje só o post do
- * LinkedIn o lê (lib/linkedin-fila.ts), para não começar um passo que a função não tem tempo de terminar.
+ * passam (tests/dreno-com-prazo.test.ts); sem ele, conta da hora em que o dreno começou. Dois o leem: o post do
+ * LinkedIn (lib/linkedin-fila.ts), para não começar um passo que a função não tem tempo de terminar, e a hora de parar
+ * do dreno (a 3a-0; `jaPassouDaHoraDeParar`, lib/fila-tipos.ts), para não começar item nenhum depois dela.
  */
 export const ORCAMENTO_DA_FUNCAO_MS = 55_000;
 
@@ -1057,18 +1061,22 @@ export const ORCAMENTO_DA_FUNCAO_MS = 55_000;
  *   - com o `error` que estava. Um texto novo cairia no genérico da tela de Envios (app/labels.ts), falso para uma
  *     linha que ninguém tentou, e só a nova tentativa grava `error` numa publicação pendente
  *     (lib/bonus/publicar-estado.ts);
- *   - só o que ainda está em `sending`: uma linha que outro processo encerrou no meio do caminho não volta.
- * Uma linha vai ao registro, só com a contagem e os tipos (`textoDaDevolucao`). Sem a resposta do banco, as linhas
- * ficam em `sending`, e o resgate de 3 minutos as devolve; o rodapé roda do mesmo jeito.
+ *   - só o que ainda está em `sending` COM A FICHA DESTE DRENO, o `claimed_at` que ele gravou no lote inteiro (o
+ *     225, da leitura independente): uma linha que outro processo encerrou não volta, e uma linha que outro dreno
+ *     resgatou depois de 3 minutos (numa página de 300 s, um POST sem teto pode segurar este dreno) é daquele dreno, e
+ *     não volta. Sem a ficha, ele devolveria a pending o que o outro já mandou, e um terceiro mandaria de novo.
+ * Uma linha vai ao registro, só com a contagem e os tipos (`textoDaDevolucao`). Devolve quantas o banco devolveu.
+ * Sem a resposta do banco, as linhas ficam em `sending`, sem tique, até o resgate de 3 minutos por um dreno qualquer:
+ * o rodapé roda, mas não arma nada para elas.
  */
-async function devolverOQueNaoComecou(ids: readonly string[]): Promise<number> {
-  if (ids.length === 0) return 0;
+async function devolverOQueNaoComecou(ids: readonly string[], fichaDaReivindicacao: string | null): Promise<number> {
+  if (ids.length === 0 || fichaDaReivindicacao === null) return 0;
   try {
     const linhas = (await sql().query(
       `update queue set status = 'pending', attempts = greatest(attempts - 1, 0), not_before = now()
-        where id = any($1::uuid[]) and status = 'sending'
+        where id = any($1::uuid[]) and status = 'sending' and claimed_at = $2::text::timestamptz
         returning kind`,
-      [Array.from(ids)]
+      [Array.from(ids), fichaDaReivindicacao]
     )) as { kind: string }[];
     if (linhas.length > 0) console.log(textoDaDevolucao(linhas.map((l) => l.kind)));
     return linhas.length;
@@ -1263,7 +1271,7 @@ export async function drainQueue(
        )
        returning q.*
      )
-     select *, now() as agora_do_banco from lote order by created_at, id`,
+     select *, now() as agora_do_banco, claimed_at::text as reivindicado_em from lote order by created_at, id`,
     [
       BATCH_SIZE,
       blocked,
@@ -1271,7 +1279,19 @@ export async function drainQueue(
       Array.from(TIPOS_DE_PUBLICACAO),
       Array.from(FORMAS_NO_LINKEDIN),
     ]
-  )) as (QueueItem & { agora_do_banco: Date })[];
+  )) as (QueueItem & { agora_do_banco: Date; reivindicado_em: string })[];
+
+  // A FICHA DA REIVINDICAÇÃO (a 3a-0; o 225): o `claimed_at` que este dreno gravou no lote inteiro (um `now()` só, do
+  // mesmo `update`), em TEXTO, com os microssegundos do banco: o `Date` do driver só guarda milissegundos, e a
+  // comparação exata falharia. E ELA VAI COMO TEXTO E VIRA INSTANTE NO SQL (`$2::text::timestamptz`): com o parâmetro
+  // tipado como `timestamptz`, o postgres.js o converte para `Date` antes de mandar, e os microssegundos se perdem
+  // (medido em 12/11 no banco de teste: "…24.428574+00" voltou "…24.428+00" e não casou). A devolução só mexe na
+  // linha que ainda tem esta ficha, e soma no `devolvidos` o que o
+  // banco de fato devolveu (nota da leitura independente).
+  const fichaDaReivindicacao = items[0]?.reivindicado_em ?? null;
+  const devolver = async (ids: readonly string[]): Promise<void> => {
+    result.devolvidos += await devolverOQueNaoComecou(ids, fichaDaReivindicacao);
+  };
 
   // O RELOGIO QUE JULGA A VALIDADE É O DO BANCO, E NÃO O DA APLICAÇÃO.
   //
@@ -1305,7 +1325,7 @@ export async function drainQueue(
   const naoComecados = new Set(items.map((i) => i.id));
   for (const item of naOrdemDoLote(items)) {
     if (passouDaHoraDeParar()) {
-      result.devolvidos += await devolverOQueNaoComecou([...naoComecados]);
+      await devolver([...naoComecados]);
       break;
     }
     naoComecados.delete(item.id);
@@ -1384,11 +1404,11 @@ export async function drainQueue(
       // de retentativa escrita só para este ramo seria uma segunda coisa para
       // manter, e o `catch` de baixo já está certo.
       if (item.kind === "publicacao") {
-        const desfecho = await publicarDaFila(item, account, passouDaHoraDeParar);
+        const desfecho = await publicarDaFila(item, account, passouDaHoraDeParar, devolver);
         if (desfecho === "publicado") result.sent++;
         else if (desfecho === "aguardando") result.aguardando++;
-        else if (desfecho === "devolvido") result.devolvidos++;
-        else result.failed++;
+        // O "DEVOLVIDO" JÁ FOI CONTADO NA DEVOLUÇÃO, pelo número de linhas que o banco devolveu (a 3a-0).
+        else if (desfecho === "falhou") result.failed++;
         continue;
       }
 
