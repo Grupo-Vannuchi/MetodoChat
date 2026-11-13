@@ -168,3 +168,16 @@ export function avisoDasDuasRedes(d: DesfechoDasDuasRedes): Aviso {
     texto: `Instagram: ${doInstagram} LinkedIn: ${doLinkedin.texto}`,
   };
 }
+
+/**
+ * O BOTÃO DIZ ONDE O POST SAI (o achado 215; a decisão do Eduardo pela caixa, em 11/11: "O botão diz as redes").
+ * Com as caixinhas na tela, o botão diz as redes marcadas, e o verbo segue o "Quando": "Agendar" no "depois", e
+ * "Publicar" no resto. Quem marcou só o LinkedIn lê isso no próprio clique. Sem rede marcada, ou sem as caixinhas (a
+ * conta sem o LinkedIn na página), o botão é o de antes, "Publicar".
+ */
+export function textoDoBotaoDePublicar(p: { comRedes: boolean; instagram: boolean; linkedin: boolean; agendar: boolean }): string {
+  if (!p.comRedes || (!p.instagram && !p.linkedin)) return "Publicar";
+  const verbo = p.agendar ? "Agendar" : "Publicar";
+  if (p.instagram && p.linkedin) return `${verbo} no Instagram e no LinkedIn`;
+  return p.instagram ? `${verbo} no Instagram` : `${verbo} no LinkedIn`;
+}

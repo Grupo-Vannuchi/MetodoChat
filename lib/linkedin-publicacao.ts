@@ -357,3 +357,61 @@ export function motivoDaAutorizacaoRecusada(nome: string): string {
 export function oPostPodeTerSaido(status: number): boolean {
   return !(status >= 400 && status < 500);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// O CARROSSEL EM PDF (a parte 3a; scratchpad/desenho-li3.md, §6)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** O título do documento no LinkedIn tem no máximo 100 caracteres: o limite não está na página, e a escolha é nossa. */
+export const TITULO_DO_DOCUMENTO_MAX = 100;
+
+/**
+ * O TÍTULO DO DOCUMENTO, obrigatório no post com documento ("The media title (Required field for Documents API)", o
+ * Post schema). O LinkedIn o mostra em cima do carrossel no feed. A decisão do Eduardo pela caixa, em 11/11, foi "O
+ * começo do texto": o texto do post numa linha só, até 100 caracteres, cortado no fim de uma palavra, com reticências
+ * quando cortado. Uma palavra só, maior que o limite, é cortada no meio.
+ */
+export function tituloDoDocumento(texto: string): string {
+  const linha = texto.replace(/\s+/g, " ").trim();
+  const letras = Array.from(linha);
+  if (letras.length <= TITULO_DO_DOCUMENTO_MAX) return linha;
+  const cabe = letras.slice(0, TITULO_DO_DOCUMENTO_MAX - 1).join("");
+  const ultimoEspaco = cabe.lastIndexOf(" ");
+  return `${ultimoEspaco > 0 ? cabe.slice(0, ultimoEspaco) : cabe}…`;
+}
+
+/**
+ * O TETO DO CARROSSEL NO LINKEDIN, somando as fotos que subiram: 15 MB. A vazão do bucket e a do envio ao LinkedIn,
+ * a partir da Vercel, não foram medidas; com 15 MB, baixar em 10 s pede ~12 Mbit/s e subir em 25 s pede ~4,8 Mbit/s,
+ * a mesma ordem que a imagem já supõe (lib/linkedin.ts, `TETO_DO_ENVIO_DA_IMAGEM_MS`). A prova leva um carrossel perto
+ * do teto, e ele só sobe depois dessa medida.
+ */
+export const TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES = 15 * 1024 * 1024;
+
+export type ProblemaDoCarrosselNoLinkedin = "video" | "grande";
+
+/**
+ * O CARROSSEL QUE NÃO VAI AO LINKEDIN: o PDF só leva fotos (o carrossel do Instagram aceita vídeo nos itens), e as
+ * fotos juntas têm de caber no teto. A tela confere os itens antes de subir (o vídeo) e o total depois da conversão
+ * (o tamanho que de fato sobe); o dreno confere de novo o que baixou.
+ */
+export function problemaDoCarrosselNoLinkedin(itens: readonly { video: boolean; bytes: number }[]): ProblemaDoCarrosselNoLinkedin | null {
+  if (itens.some((i) => i.video)) return "video";
+  const total = itens.reduce((soma, i) => soma + i.bytes, 0);
+  return total > TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES ? "grande" : null;
+}
+
+export function textoDoProblemaDoCarrosselNoLinkedin(p: ProblemaDoCarrosselNoLinkedin): string {
+  return p === "video"
+    ? "O carrossel do LinkedIn vai como PDF, só com fotos."
+    : "As fotos do carrossel passam de 15 MB juntas, o limite do LinkedIn neste painel. Tire fotos ou use fotos menores.";
+}
+
+/**
+ * O JPEG QUE PODE IR CRU, SEM O CANVAS, QUANDO O LINKEDIN ESTÁ MARCADO NO CARROSSEL: só o de 1 ou 3 componentes (cinza
+ * ou cor de tela), que o PDF de fotos aceita como está (lib/pdf-de-fotos.ts). O CMYK de gráfica, e o que não deu para
+ * ler (0), passam pelo canvas, que devolve cor de tela. Sem o LinkedIn, a regra do Instagram não muda.
+ */
+export function vaiCruParaOLinkedin(componentes: number): boolean {
+  return componentes === 1 || componentes === 3;
+}
