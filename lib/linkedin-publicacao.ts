@@ -2,7 +2,7 @@
 // tela de cliente e o servidor leem as mesmas regras. Na parte 1 (a conexão), o vencimento; na parte 2a (só
 // texto e imagem, uma rede por post), as formas, o texto, o payload da fila, o corpo do post e os erros. Na parte
 // 3a, o carrossel em PDF; o vídeo vem na 3b. O único import é o de lib/publicacao.ts, que também é puro.
-import { CARROSSEL_ITENS_MAX, CARROSSEL_ITENS_MIN } from "./publicacao";
+import { CARROSSEL_ITENS_MAX, CARROSSEL_ITENS_MIN, pareceVideo } from "./publicacao";
 
 /** O aviso de que a autorização vai vencer começa a 7 dias. */
 export const AVISO_DO_VENCIMENTO_DIAS = 7;
@@ -162,7 +162,13 @@ export function problemaDoTextoDoLinkedin(texto: string, _forma: FormaNoLinkedin
 // O PEDIDO DE PUBLICAR, NA TELA E NA ACTION
 // ---------------------------------------------------------------------------------------------------------------
 
-export type RecusaDoPedidoNoLinkedin = "forma_desconhecida" | "quantidade" | "texto_vazio" | "texto_longo" | "envio_sem_id";
+export type RecusaDoPedidoNoLinkedin =
+  | "forma_desconhecida"
+  | "quantidade"
+  | "carrossel_com_video"
+  | "texto_vazio"
+  | "texto_longo"
+  | "envio_sem_id";
 
 const ID_DO_ENVIO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -180,6 +186,9 @@ export function recusaDoPedidoNoLinkedin(p: {
 }): RecusaDoPedidoNoLinkedin | null {
   if (!p.forma) return "forma_desconhecida";
   if (!quantidadeServe(p.forma, p.caminhos.length)) return "quantidade";
+  // O PDF DO CARROSSEL SÓ LEVA FOTOS (a parte 3a). O vídeo é reconhecido pela extensão do caminho, como o dreno do
+  // Instagram decide (`pareceVideo`); a tela confere antes, pelo tipo do arquivo, e desliga a caixinha.
+  if (p.forma === "carrossel" && p.caminhos.some((c) => pareceVideo(c))) return "carrossel_com_video";
   const problema = problemaDoTextoDoLinkedin(p.texto, p.forma);
   if (problema === "vazio") return "texto_vazio";
   if (problema === "longo") return "texto_longo";
@@ -193,6 +202,8 @@ export function textoDaRecusaNoLinkedin(r: RecusaDoPedidoNoLinkedin): string {
       return "Escolha a forma do post no LinkedIn: só texto, imagem ou carrossel.";
     case "quantidade":
       return "O post do LinkedIn com imagem leva uma imagem, o carrossel leva de 2 a 10 fotos, e o só texto não leva arquivo.";
+    case "carrossel_com_video":
+      return textoDoProblemaDoCarrosselNoLinkedin("video");
     case "texto_vazio":
       return "Escreva o texto do post.";
     case "texto_longo":

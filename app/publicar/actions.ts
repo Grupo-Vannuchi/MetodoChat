@@ -37,9 +37,10 @@ import {
   type ResultadoDoLinkedin,
 } from "@/lib/linkedin-fila";
 import { armarOTiqueDaLinha, drenarUmaPublicacaoDoLinkedin } from "@/lib/queue-drain";
-// O POST DAS DUAS REDES (a parte 2b): as regras puras das duas, e a cópia da imagem para a linha do LinkedIn.
+// O POST DAS DUAS REDES (a parte 2b): as regras puras das duas, e as cópias para a linha do LinkedIn (uma no post de
+// imagem; uma por foto no carrossel, a parte 3a).
 import { avisoDasDuasRedes, redeAceitaAForma, textoQueVaiAoLinkedin } from "@/lib/redes-do-post";
-import { apagarACopiaSemDerrubar, copiarImagemParaOLinkedin } from "@/lib/linkedin-copia";
+import { apagarAsCopiasSemDerrubar, copiarAsImagensParaOLinkedin } from "@/lib/linkedin-copia";
 import type { ResultadoDaPublicacao } from "@/lib/engine";
 
 /**
@@ -286,9 +287,9 @@ export async function publicarNoLinkedin(formData: FormData): Promise<void> {
 }
 
 /**
- * O POST DE IMAGEM NAS DUAS REDES, Instagram e LinkedIn, para a conta selecionada (docs/specs/2026-11-06-linkedin-
- * no-perfil.md, §6 e §7; a parte 2b). Uma linha por rede, cada uma com a sua chave, o seu andamento e as suas
- * tentativas: se uma rede falhar ao publicar, a outra segue.
+ * O POST DE IMAGEM OU DE CARROSSEL NAS DUAS REDES, Instagram e LinkedIn, para a conta selecionada
+ * (docs/specs/2026-11-06-linkedin-no-perfil.md, §6 e §7; a parte 2b, e o carrossel na 3a). Uma linha por rede, cada
+ * uma com a sua chave, o seu andamento e as suas tentativas: se uma rede falhar ao publicar, a outra segue.
  *
  * AS MESMAS REGRAS DAS DUAS ACTIONS DE CIMA: a sessão primeiro; nenhuma saída muda; a conta da regra das contas, e
  * nunca do formulário; os caminhos pela pasta dessa conta; a conexão e o pedido do LinkedIn conferidos de novo
@@ -298,17 +299,25 @@ export async function publicarNoLinkedin(formData: FormData): Promise<void> {
  *   1. todas as conferências, sem gravar nada;
  *   2. a chave do LinkedIn já está na fila? Então ele "já existia", e não há cópia (depois de um "agora", o dreno do
  *      Instagram já apagou o original, e copiar falharia);
- *   3. a cópia da imagem para a linha do LinkedIn (lib/linkedin-copia.ts). Se falha, nada é gravado;
- *   4. a linha do LinkedIn, com a cópia, e a chave pelo caminho ORIGINAL. Se ela não entra (o banco recusou, ou a
- *      chave apareceu entre a conferência e o insert), a cópia sai, e nada é gravado;
+ *   3. as cópias para a linha do LinkedIn, uma por arquivo, em paralelo (lib/linkedin-copia.ts). Se uma falha, as
+ *      que deram certo saem, e nada é gravado;
+ *   4. a linha do LinkedIn, com as cópias, e a chave pelos caminhos ORIGINAIS. Se ela não entra (o banco recusou, ou
+ *      a chave apareceu entre a conferência e o insert), as cópias saem, e nada é gravado;
  *   5. a linha do Instagram, pelo `enqueuePublicacao` de hoje, sem mudança. Se ele LANÇA, a do LinkedIn é desfeita
- *      só se ainda estiver pendente (achado 199), e só então a cópia sai; um dreno que já a pegou segue com ela.
+ *      só se ainda estiver pendente (achado 199), e só então as cópias saem; um dreno que já a pegou segue com elas.
  *      A chave do Instagram que já existia não é falha: a tela diz que ele já estava na fila.
  *
  * O "AGORA" (a escolha (a) da auditoria): primeiro o LinkedIn, só a própria linha (`drenarUmaPublicacaoDoLinkedin`,
  * achado 211), que só começa o passo que tem tempo de terminar; depois o dreno de hoje para o Instagram, com o
  * mesmo começo da função, para outra linha do LinkedIn que ele pegue respeitar o prazo. O dreno não muda nesta
  * entrega.
+ *
+ * O TEMPO, COM O CARROSSEL (a parte 3a; nota da auditoria sobre a F4). As cópias correm em paralelo: o pior caso de
+ * dez fotos é o de uma, três chamadas de até 10 s (~30 s), dentro dos 60 s da página (`maxDuration`,
+ * app/publicar/novo/page.tsx). A passada da mídia do carrossel pede 52 s dos 55 do orçamento, e só começa no "agora"
+ * se tudo antes dela levou menos de 3 s; senão a linha volta sem gastar tentativa, e o aviso diz que o post vai sair.
+ * As linhas só entram depois de TODAS as cópias: se a função for cortada no meio delas, nada foi gravado, e as que já
+ * subiram ficam no bucket sem dono, como a cópia que o `apagarACopiaSemDerrubar` não consegue apagar.
  */
 export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
   await exigirSessao();
@@ -324,10 +333,12 @@ export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
     redirect(urlDePublicarComAviso({ tom: "erro", texto: disponivel.motivo }));
   }
 
-  // NESTA ENTREGA, AS DUAS REDES JUNTAS SÓ NA IMAGEM: o carrossel e o vídeo chegam ao LinkedIn na parte 3, e o story
-  // não existe lá. O motivo é o mesmo que a tela mostra na caixinha desligada.
+  // AS DUAS REDES JUNTAS NA IMAGEM E NO CARROSSEL: as formas da tela que o LinkedIn publica com arquivo, pela lista
+  // única (`FORMAS_NO_LINKEDIN`; o carrossel vai como PDF, só com fotos, na parte 3a). O vídeo chega ao LinkedIn
+  // depois, e o story não existe lá. O motivo é o mesmo que a tela mostra na caixinha desligada.
   const forma = formaQueATelaPublica(formData.get("forma"));
-  if (forma !== "imagem") {
+  const formaNoLinkedin = formaNoLinkedinDoCampo(forma);
+  if (!forma || !formaNoLinkedin) {
     redirect(
       urlDePublicarComAviso({
         tom: "erro",
@@ -351,7 +362,7 @@ export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
   // O TEXTO DO LINKEDIN: o próprio, quando há; sem ele, a legenda. Contado pela mesma função do contador (212).
   const texto = textoQueVaiAoLinkedin({ legenda, textoProprio: String(formData.get("texto_linkedin") ?? "") });
   const idDoEnvio = String(formData.get("id_do_envio") ?? "");
-  const recusa = recusaDoPedidoNoLinkedin({ forma, caminhos, texto, idDoEnvio });
+  const recusa = recusaDoPedidoNoLinkedin({ forma: formaNoLinkedin, caminhos, texto, idDoEnvio });
   if (recusa) {
     redirect(urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaNoLinkedin(recusa) }));
   }
@@ -367,33 +378,34 @@ export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
     redirect(urlDePublicarComAviso({ tom: "erro", texto: textoDaRecusaDaPublicacao(momento.motivo) }));
   }
 
-  // 2 A 4. O LINKEDIN: a chave, a cópia e a linha.
-  const pedidoDoLinkedin = { forma, caminhos, texto, idDoEnvio };
+  // 2 A 4. O LINKEDIN: a chave, as cópias e a linha.
+  const pedidoDoLinkedin = { forma: formaNoLinkedin, caminhos, texto, idDoEnvio };
   let linkedin: ResultadoDoLinkedin = { entrou: false };
-  let copia: string | null = null;
+  let copias: string[] = [];
   if (!(await aChaveDoLinkedinJaExiste(conta.ig_user_id, pedidoDoLinkedin))) {
     let falhaDoLinkedin: string | null = null;
     try {
-      copia = await copiarImagemParaOLinkedin(caminhos[0], conta.ig_user_id);
+      // UMA CÓPIA POR ARQUIVO, EM PARALELO e na ordem das originais; se uma falha, as outras já saíram do bucket.
+      copias = await copiarAsImagensParaOLinkedin(caminhos, conta.ig_user_id);
     } catch (e) {
       falhaDoLinkedin = e instanceof Error ? e.message : "a cópia da imagem falhou";
     }
-    if (copia) {
+    if (copias.length) {
       try {
         linkedin = await enqueuePublicacaoNoLinkedin(
           conta.ig_user_id,
-          { ...pedidoDoLinkedin, caminhos: [copia] },
+          { ...pedidoDoLinkedin, caminhos: copias },
           momento.quando,
           { caminhosDaChave: caminhos }
         );
       } catch {
         falhaDoLinkedin = "a fila do LinkedIn não respondeu";
       }
-      // A CÓPIA QUE NÃO VAI SER USADA SAI: o banco recusou a linha, ou a chave apareceu entre a conferência e o
+      // AS CÓPIAS QUE NÃO VÃO SER USADAS SAEM: o banco recusou a linha, ou a chave apareceu entre a conferência e o
       // insert (dois cliques juntos). No segundo caso, o LinkedIn "já existia", e o Instagram segue.
       if (!linkedin.entrou) {
-        await apagarACopiaSemDerrubar(copia);
-        copia = null;
+        await apagarAsCopiasSemDerrubar(copias);
+        copias = [];
       }
     }
     if (falhaDoLinkedin) {
@@ -415,10 +427,10 @@ export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
       try {
         desfeita = await desfazerLinhaDoLinkedin(linkedin.id);
       } catch {
-        // Sem a resposta do banco, a linha continua como estava: pendente, ela sai sozinha. A cópia fica.
+        // Sem a resposta do banco, a linha continua como estava: pendente, ela sai sozinha. As cópias ficam.
       }
       lado = desfeita ? "desfeito" : "seguiu";
-      if (desfeita && copia) await apagarACopiaSemDerrubar(copia);
+      if (desfeita && copias.length) await apagarAsCopiasSemDerrubar(copias);
     }
     redirect(urlDePublicarComAviso(avisoDasDuasRedes({ tipo: "instagram_nao_entrou", linkedin: lado })));
   }

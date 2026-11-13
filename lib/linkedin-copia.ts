@@ -82,3 +82,27 @@ export async function apagarACopiaSemDerrubar(caminho: string): Promise<void> {
     // Fica no bucket sem dono; o aviso da tela já diz o que aconteceu com o post.
   }
 }
+
+/**
+ * AS CÓPIAS DO POST DAS DUAS REDES, uma por arquivo, EM PARALELO, na ordem das originais (a parte 3a: o carrossel leva
+ * de 2 a 10 fotos, e a ordem delas é a das páginas do PDF). Cada uma é a cópia de cima, com os mesmos tetos; em
+ * paralelo, o pior caso de dez é o de uma só, três chamadas de até 10 s (~30 s), e não dez vezes isso.
+ *
+ * ESPERA TODAS TERMINAREM (`allSettled`), e não só a primeira falha: se uma falha, as que deram certo são apagadas, e
+ * só então sobe o erro da primeira que falhou, na ordem das originais. Assim nenhuma cópia termina depois da limpeza e
+ * fica no bucket sem dono (o desenho da 3a: "se uma cópia falha, as que deram certo saem, e nada é gravado").
+ */
+export async function copiarAsImagensParaOLinkedin(origens: readonly string[], conta: string): Promise<string[]> {
+  if (origens.length === 0) throw new Error("nenhuma imagem para copiar");
+  const feitas = await Promise.allSettled(origens.map((origem) => copiarImagemParaOLinkedin(origem, conta)));
+  const copias = feitas.flatMap((f) => (f.status === "fulfilled" ? [f.value] : []));
+  const falha = feitas.find((f): f is PromiseRejectedResult => f.status === "rejected");
+  if (!falha) return copias;
+  await apagarAsCopiasSemDerrubar(copias);
+  throw falha.reason;
+}
+
+/** As cópias que não vão ser usadas, apagadas juntas e sem derrubar quem chama (a de cima, para cada uma). */
+export async function apagarAsCopiasSemDerrubar(caminhos: readonly string[]): Promise<void> {
+  await Promise.all(caminhos.map((caminho) => apagarACopiaSemDerrubar(caminho)));
+}

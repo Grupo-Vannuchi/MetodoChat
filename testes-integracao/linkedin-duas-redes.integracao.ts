@@ -42,6 +42,11 @@ const bucket = {
   objetos: new Map<string, Uint8Array>(),
   chamadas: [] as string[],
   recusarSubida: false,
+  // A PARTE 3a: só a primeira subida que chegar é recusada; as outras podem esperar antes de terminar; e o download
+  // pode ser lento (o "agora" do carrossel com as cópias passando de 3 s).
+  recusarUmaSubida: false,
+  atrasoDaSubidaMs: 0,
+  atrasoDaBaixadaMs: 0,
 };
 
 let servidorFalso: Server;
@@ -76,12 +81,18 @@ beforeAll(async () => {
     if (req.method === "PUT" && u.pathname.startsWith(assinar)) {
       bucket.chamadas.push(`subiu ${depois(assinar)}`);
       if (bucket.recusarSubida) return responder(res, 400, { message: "o bucket falso recusou de propósito" });
+      if (bucket.recusarUmaSubida) {
+        bucket.recusarUmaSubida = false;
+        return responder(res, 400, { message: "o bucket falso recusou esta subida de propósito" });
+      }
+      if (bucket.atrasoDaSubidaMs) await esperar(bucket.atrasoDaSubidaMs);
       bucket.objetos.set(depois(assinar), new Uint8Array(corpo));
       return responder(res, 200, { Key: depois(assinar) });
     }
     const publico = `/storage/v1/object/public/${BUCKET}/`;
     if (req.method === "GET" && u.pathname.startsWith(publico)) {
       bucket.chamadas.push(`baixou ${depois(publico)}`);
+      if (bucket.atrasoDaBaixadaMs) await esperar(bucket.atrasoDaBaixadaMs);
       const objeto = bucket.objetos.get(depois(publico));
       if (!objeto) return responder(res, 400, { message: "Object not found" });
       res.writeHead(200, { "content-type": "image/jpeg" });
@@ -105,6 +116,13 @@ beforeAll(async () => {
         });
       }
       if (req.method === "PUT" && u.pathname === "/envio/C4E10AQduas") return responder(res, 201, "");
+      // O DOCUMENTO DO CARROSSEL (a parte 3a), para o caso de a passada da mídia caber no "agora".
+      if (req.method === "POST" && u.pathname === "/rest/documents") {
+        return responder(res, 200, {
+          value: { uploadUrl: `http://127.0.0.1:${porta}/envio/D5510duas`, document: "urn:li:document:DasDuasRedes" },
+        });
+      }
+      if (req.method === "PUT" && u.pathname === "/envio/D5510duas") return responder(res, 201, "");
       if (req.method === "POST" && u.pathname === "/rest/posts") {
         return responder(res, 201, "", { "x-restli-id": "urn:li:share:7000000000000000262" });
       }
@@ -203,6 +221,9 @@ beforeEach(async () => {
   bucket.objetos = new Map([[ORIGINAL, JPEG]]);
   bucket.chamadas = [];
   bucket.recusarSubida = false;
+  bucket.recusarUmaSubida = false;
+  bucket.atrasoDaSubidaMs = 0;
+  bucket.atrasoDaBaixadaMs = 0;
 });
 
 async function conectar(conta: string) {
@@ -507,7 +528,9 @@ describe("as recusas: nenhuma linha entra, e o bucket e as redes não são chama
   const casos: [string, Partial<Record<string, string>>, (t: string | null) => void][] = [
     ["a imagem de outra conta (descartada antes de copiar)", { caminhos: `${CONTA_B}/foto-do-post.jpg` }, (t) => expect(t).toBeTruthy()],
     ["sem a imagem", { caminhos: "" }, (t) => expect(t).toBeTruthy()],
-    ["a forma que o LinkedIn ainda não recebe", { forma: "carrossel" }, (t) => expect(t).toContain("próxima entrega")],
+    ["o reels, que o LinkedIn ainda não recebe", { forma: "reels" }, (t) => expect(t).toContain("próxima entrega")],
+    ["o carrossel com vídeo, que o PDF do LinkedIn não leva", { forma: "carrossel", caminhos: `${ORIGINAL}\n${CONTA_A}/video-do-post.mp4` }, (t) =>
+      expect(t).toBe(regrasDoLinkedin.textoDaRecusaNoLinkedin("carrossel_com_video"))],
     ["o story", { forma: "story" }, (t) => expect(t).toContain("não tem story")],
     ["o texto vazio nas duas (a legenda e o texto próprio)", { legenda: "", texto_linkedin: "  " }, (t) =>
       expect(t).toBe(regrasDoLinkedin.textoDaRecusaNoLinkedin("texto_vazio"))],
@@ -548,6 +571,143 @@ describe("a regra das contas: a conta vem da sessão, e nunca do formulário", (
     const aviso = await nasDuasComoComum(formulario({ ...daquiA2Horas(), conta: CONTA_A }), [CONTA_B], CONTA_A);
     expect(aviso.tom).toBe("erro");
     expect(await linhas()).toEqual([]);
+    expect(bucket.chamadas).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// O CARROSSEL NAS DUAS REDES (a parte 3a; scratchpad/desenho-li3.md, "As duas redes"): a linha do LinkedIn leva uma
+// cópia de cada foto, feitas em paralelo e na ordem das originais; a chave continua pelos caminhos ORIGINAIS, e a
+// ordem do 192 e do 199 não muda; quando uma cópia falha, as que deram certo saem do bucket, e nada é gravado.
+
+const FOTOS = [1, 2, 3].map((n) => `${CONTA_A}/foto-${n}-do-carrossel.jpg`);
+const bytesDaFoto = (n: number) => new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x10 + n, 0xff, 0xd9]);
+const comAsFotos = () => FOTOS.forEach((caminho, i) => bucket.objetos.set(caminho, bytesDaFoto(i + 1)));
+const carrossel = (campos: Partial<Record<string, string>> = {}) => formulario({ forma: "carrossel", caminhos: FOTOS.join("\n"), ...campos });
+const soAsOriginais = () => [ORIGINAL, ...FOTOS].sort();
+const apagadas = () => bucket.chamadas.filter((c) => c.startsWith("apagou ")).map((c) => c.slice("apagou ".length));
+
+describe("o carrossel nas duas redes (a parte 3a)", () => {
+  it("agendado: o LinkedIn leva uma cópia de cada foto, na ordem, e a chave é a das originais", async () => {
+    comAsFotos();
+    const aviso = await nasDuasComoAdministrador(carrossel(daquiA2Horas()));
+    expect(aviso.tom).toBe("ok");
+    expect(aviso.texto).toContain("Instagram: Publicação agendada para");
+    expect(aviso.texto).toContain("LinkedIn: Post do LinkedIn agendado para");
+    const [ig] = await daRede("publicacao");
+    const [li] = await daRede("publicacao_linkedin");
+    expect(ig.payload.caminhos).toEqual(FOTOS);
+    expect(li.payload.forma).toBe("carrossel");
+    const copias = li.payload.caminhos as string[];
+    expect(copias).toHaveLength(3);
+    for (const [i, copia] of copias.entries()) {
+      expect(copia).toMatch(COPIA);
+      expect(Array.from(bucket.objetos.get(copia) ?? [])).toEqual(Array.from(bytesDaFoto(i + 1)));
+    }
+    expect(li.dedupe_key).toBe(`pub-linkedin:${CONTA_A}:carrossel:${FOTOS.join(",")}`);
+    expect(linkedin.pedidos).toEqual([]);
+    expect(meta.containers).toBe(0);
+  });
+
+  it("o mesmo carrossel de novo: já existia nas duas, pela chave das originais, e nenhuma cópia nova é feita", async () => {
+    comAsFotos();
+    const hora = daquiA2Horas();
+    await nasDuasComoAdministrador(carrossel(hora));
+    const antes = [...bucket.objetos.keys()].sort();
+    bucket.chamadas = [];
+    const aviso = await nasDuasComoAdministrador(carrossel(hora));
+    expect(aviso.tom).toBe("erro");
+    expect(aviso.texto?.match(/Nada foi duplicado/g)).toHaveLength(2);
+    expect(await linhas()).toHaveLength(2);
+    expect([...bucket.objetos.keys()].sort()).toEqual(antes);
+    expect(bucket.chamadas).toEqual([]);
+  });
+
+  it("agora, com as cópias passando de 3 s: o Instagram sai, e o LinkedIn fica aguardando, adiado sem gastar tentativa", async () => {
+    comAsFotos();
+    bucket.atrasoDaBaixadaMs = 3_100;
+    const inicio = Date.now();
+    const aviso = await nasDuasComoAdministrador(carrossel());
+    const levou = Date.now() - inicio;
+    console.log(`O AGORA DO CARROSSEL NAS DUAS REDES, com o bucket a 3,1 s por download: ${levou} ms`);
+    expect(aviso).toEqual(
+      redes.avisoDasDuasRedes({
+        tipo: "entrou",
+        campos: null,
+        instagram: { entrou: true, jaVale: true },
+        linkedin: { entrou: true, jaVale: true, desfecho: "aguardando", motivo: null },
+      })
+    );
+    expect((await daRede("publicacao"))[0].status).toBe("sent");
+    const [li] = await q(
+      `select status, attempts, payload, not_before > now() as adiada from queue where kind = 'publicacao_linkedin'`
+    );
+    expect(li).toMatchObject({ status: "pending", attempts: 0, adiada: true });
+    expect(li.payload).toMatchObject({ adiamentos: 1 });
+    expect(linkedin.pedidos).toEqual([]);
+    // AS CÓPIAS FICAM PARA A PASSADA SEGUINTE; as originais, o dreno do Instagram apagou depois de publicar.
+    const copias = (li.payload as { caminhos: string[] }).caminhos;
+    expect([...bucket.objetos.keys()].sort()).toEqual([ORIGINAL, ...copias].sort());
+  }, 30_000);
+
+  it("a cópia que falha no meio: as que subiram saem do bucket depois de terminar, e nada é gravado", async () => {
+    comAsFotos();
+    bucket.recusarUmaSubida = true;
+    bucket.atrasoDaSubidaMs = 300;
+    const aviso = await nasDuasComoAdministrador(carrossel(daquiA2Horas()));
+    expect(aviso.tom).toBe("erro");
+    expect(aviso.texto).toContain("Nada foi agendado");
+    expect(aviso.texto).toContain("HTTP 400");
+    expect(await linhas()).toEqual([]);
+    const subiram = bucket.chamadas.filter((c) => c.startsWith("subiu ")).map((c) => c.slice("subiu ".length));
+    expect(subiram).toHaveLength(3);
+    // A PRIMEIRA SUBIDA FOI RECUSADA NA HORA; as outras duas terminaram 300 ms depois, e só então saíram.
+    expect(apagadas().sort()).toEqual(subiram.slice(1).sort());
+    expect([...bucket.objetos.keys()].sort()).toEqual(soAsOriginais());
+  });
+
+  it("a linha do LinkedIn que o banco recusa: as três cópias saem, e nada foi agendado", async () => {
+    comAsFotos();
+    await comGatilho(
+      "teste_recusa_o_linkedin",
+      "before",
+      `if new.kind = 'publicacao_linkedin' then raise exception 'o banco de teste recusou a linha do LinkedIn'; end if; return new;`,
+      async () => {
+        const aviso = await nasDuasComoAdministrador(carrossel(daquiA2Horas()));
+        expect(aviso.tom).toBe("erro");
+        expect(aviso.texto).toContain("Nada foi agendado");
+        expect(await linhas()).toEqual([]);
+        expect(apagadas()).toHaveLength(3);
+        expect([...bucket.objetos.keys()].sort()).toEqual(soAsOriginais());
+      }
+    );
+  });
+
+  it("o Instagram que o banco recusa, com o carrossel do LinkedIn pendente: o LinkedIn é desfeito, e as três cópias saem", async () => {
+    comAsFotos();
+    await comGatilho("teste_recusa_o_instagram", "before", RECUSA_DO_INSTAGRAM, async () => {
+      const aviso = await nasDuasComoAdministrador(carrossel(daquiA2Horas()));
+      expect(aviso).toEqual(redes.avisoDasDuasRedes({ tipo: "instagram_nao_entrou", linkedin: "desfeito" }));
+      expect((await daRede("publicacao_linkedin"))[0].status).toBe("skipped");
+      expect(apagadas()).toHaveLength(3);
+      expect([...bucket.objetos.keys()].sort()).toEqual(soAsOriginais());
+    });
+  });
+
+  // A CHAVE CONTRA O CLIQUE DUPLO NÃO MUDA PARA O POST SÓ DE IMAGEM (nota da auditoria sobre a F4): a linha que já está
+  // na fila, gravada com a chave escrita à mão como a produção de hoje (e2949fb) a escreve, pela original, segura o
+  // mesmo envio depois desta entrega.
+  it("a imagem que já está na fila, com a chave da produção de hoje: o mesmo envio dá já existia no LinkedIn, sem cópia", async () => {
+    await q(
+      `insert into queue (account_id, kind, payload, dedupe_key, not_before)
+       values ($1, 'publicacao_linkedin', $2, $3, now() + interval '2 hours')`,
+      [CONTA_A, { forma: "imagem", caminhos: [ORIGINAL], texto: "O post do LinkedIn" }, `pub-linkedin:${CONTA_A}:imagem:${ORIGINAL}`]
+    );
+    const aviso = await nasDuasComoAdministrador(formulario(daquiA2Horas()));
+    expect(aviso.texto).toContain("LinkedIn: O post do LinkedIn já estava na fila. Nada foi duplicado.");
+    expect(aviso.texto).toContain("Instagram: Publicação agendada para");
+    expect(await daRede("publicacao_linkedin")).toHaveLength(1);
+    expect(await daRede("publicacao")).toHaveLength(1);
     expect(bucket.chamadas).toEqual([]);
   });
 });
