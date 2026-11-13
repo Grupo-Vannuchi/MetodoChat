@@ -11,7 +11,7 @@ import {
   textoQueVaiAoLinkedin,
 } from "@/lib/redes-do-post";
 import { avisoDaPublicacaoEnfileirada } from "@/lib/avisos";
-import { avisoDoPostNoLinkedin } from "@/lib/linkedin-publicacao";
+import { avisoDoPostNoLinkedin, textoDoProblemaDoCarrosselNoLinkedin } from "@/lib/linkedin-publicacao";
 import { textoDaRecusaDaPublicacao } from "@/lib/publicacao";
 
 // AS DUAS REDES NO MESMO POST (docs/specs/2026-11-06-linkedin-no-perfil.md, §6 e §7; a parte 2b). As regras puras
@@ -32,10 +32,10 @@ describe("o que cada rede aceita", () => {
     expect(redeAceitaAForma("instagram", "texto")).toContain("só de texto");
   });
 
-  it("o LinkedIn aceita o só texto e a imagem; o carrossel e o reels chegam na próxima entrega, e o story nunca", () => {
+  it("o LinkedIn aceita o só texto, a imagem e o carrossel (em PDF, a parte 3a); o reels chega na próxima entrega, e o story nunca", () => {
     expect(redeAceitaAForma("linkedin", "texto")).toBeNull();
     expect(redeAceitaAForma("linkedin", "imagem")).toBeNull();
-    expect(redeAceitaAForma("linkedin", "carrossel")).toContain("próxima entrega");
+    expect(redeAceitaAForma("linkedin", "carrossel")).toBeNull();
     expect(redeAceitaAForma("linkedin", "reels")).toContain("próxima entrega");
     expect(redeAceitaAForma("linkedin", "story")).toContain("não tem story");
   });
@@ -79,12 +79,24 @@ describe("as caixinhas", () => {
     expect(e.linkedin).toEqual({ ligada: false, marcada: false, motivo: desligado.motivo });
   });
 
-  it("o story, o carrossel e o reels desligam o LinkedIn, com o motivo da forma", () => {
-    for (const forma of ["story", "carrossel", "reels"] as const) {
+  it("o story e o reels desligam o LinkedIn, com o motivo da forma", () => {
+    for (const forma of ["story", "reels"] as const) {
       const e = estadoDasCaixinhas({ forma, marcadas: as2, linkedin: ligado });
       expect(e.linkedin).toEqual({ ligada: false, marcada: false, motivo: redeAceitaAForma("linkedin", forma) });
       expect(e.instagram.marcada).toBe(true);
     }
+  });
+
+  // O PDF DO CARROSSEL SÓ LEVA FOTOS (a parte 3a): um vídeo na lista desliga o LinkedIn, e o Instagram não muda.
+  it("o carrossel com vídeo desliga o LinkedIn, com o motivo do PDF; sem vídeo, ele fica ligado", () => {
+    const comVideo = estadoDasCaixinhas({ forma: "carrossel", marcadas: as2, linkedin: ligado, comVideo: true });
+    expect(comVideo.linkedin).toEqual({ ligada: false, marcada: false, motivo: textoDoProblemaDoCarrosselNoLinkedin("video") });
+    expect(comVideo.instagram).toEqual({ ligada: true, marcada: true, motivo: null });
+    const soFotos = estadoDasCaixinhas({ forma: "carrossel", marcadas: as2, linkedin: ligado, comVideo: false });
+    expect(soFotos.linkedin).toEqual({ ligada: true, marcada: true, motivo: null });
+    // SEM A CONEXÃO, o motivo é o da conexão, como antes.
+    const semConexao = estadoDasCaixinhas({ forma: "carrossel", marcadas: as2, linkedin: desligado, comVideo: true });
+    expect(semConexao.linkedin?.motivo).toBe(desligado.motivo);
   });
 
   it("o só texto desliga o Instagram, com o motivo", () => {

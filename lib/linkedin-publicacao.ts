@@ -465,6 +465,11 @@ export function textoDoProblemaDoCarrosselNoLinkedin(p: ProblemaDoCarrosselNoLin
     : "As fotos do carrossel passam de 15 MB juntas, o limite do LinkedIn neste painel. Tire fotos ou use fotos menores.";
 }
 
+/** A NOTA DA TELA COM O LINKEDIN MARCADO NO CARROSSEL (a parte 3a): o que vai, e o teto, antes de subir. */
+export const NOTA_DO_CARROSSEL_NO_LINKEDIN = `No LinkedIn, o carrossel vai como um documento PDF, uma página por foto: só fotos, até ${
+  TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES / (1024 * 1024)
+} MB juntas.`;
+
 /**
  * O JPEG QUE VAI COMO ESTÁ PARA O PDF DO CARROSSEL, e o que pode ir cru, sem o canvas, quando o LinkedIn está marcado
  * no carrossel: uma regra só, para a tela e para o PDF (lib/pdf-de-fotos.ts).

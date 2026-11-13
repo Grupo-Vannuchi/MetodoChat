@@ -6,6 +6,7 @@ import {
   type FormaDePublicacao,
   type Retangulo,
 } from "@/lib/publicacao";
+import { cabecalhoDoJpeg, type CabecalhoDoJpeg } from "@/lib/bonus/imagem-jpeg";
 
 // A FIAÇÃO DO NAVEGADOR DO /publicar — medir, ler a orientação, desenhar no
 // `canvas`, pedir a URL assinada e subir com progresso. Nenhuma decisão de
@@ -37,6 +38,11 @@ export type Navegador = {
   medir(arquivo: File): Promise<Medidas>;
   /** A orientação EXIF do JPEG: de 1 a 8, ou 0 quando não deu para ler (`orientacaoDoJpeg`). */
   lerOrientacao(arquivo: File): Promise<number>;
+  /**
+   * O cabeçalho do JPEG (os componentes, a precisão e o processo), para o carrossel do LinkedIn (a parte 3a), ou
+   * `null`. OPCIONAL: o navegador sem ele manda toda foto do carrossel do LinkedIn pelo canvas, que é o caminho seguro.
+   */
+  lerCabecalho?(arquivo: File): Promise<CabecalhoDoJpeg | null>;
   /** O desenho do enquadramento, num JPEG do tamanho do canvas. */
   enquadrar(arquivo: File, desenho: { largura: number; altura: number; origem: Retangulo; destino: Retangulo }): Promise<File>;
   /** A conversão de sempre (o story): PNG ou WebP em JPEG, no tamanho que `planoDaConversao` mandou. */
@@ -198,6 +204,17 @@ export const navegadorDeVerdade: Navegador = {
   },
 
   lerOrientacao: orientacaoDoArquivo,
+
+  // O CABEÇALHO DO JPEG (a parte 3a), nos primeiros 256 KiB: o SOF vem depois do EXIF e dos perfis de cor. O que ficar
+  // além deles, o que não é JPEG e a leitura que falha dão null, e o null vai pelo canvas.
+  async lerCabecalho(arquivo) {
+    if (arquivo.type !== "image/jpeg") return null;
+    try {
+      return cabecalhoDoJpeg(new Uint8Array(await arquivo.slice(0, 256 * 1024).arrayBuffer()));
+    } catch {
+      return null;
+    }
+  },
 
   async enquadrar(arquivo, d) {
     const bitmap = await bitmapDe(arquivo);

@@ -670,6 +670,27 @@ describe("o navegador de verdade", () => {
     expect(await navegadorDeVerdade.lerOrientacao(ilegivel)).toBe(0);
   });
 
+  // O CABEÇALHO DO JPEG, para o carrossel do LinkedIn (a parte 3a): os componentes, a precisão e o processo, lidos
+  // dos primeiros 256 KiB. O que não é JPEG, o que não deu para ler e o SOF depois dos 256 KiB dão null, e o null
+  // vai pelo canvas.
+  it("lê o cabeçalho do JPEG para o carrossel do LinkedIn; o que não é JPEG, ou não deu para ler, é null", async () => {
+    const comSof = (componentes: number, antes: number[] = []) =>
+      new Uint8Array([0xff, 0xd8, ...antes, 0xff, 0xc0, 0, 8 + 3 * componentes, 8, 0, 20, 0, 16, componentes, ...Array(3 * componentes).fill(1), 0xff, 0xd9]);
+    const jpeg = (b: Uint8Array<ArrayBuffer>) => new File([b], "f.jpg", { type: "image/jpeg" });
+    expect(await navegadorDeVerdade.lerCabecalho?.(jpeg(comSof(3)))).toEqual({ largura: 16, altura: 20, componentes: 3, precisao: 8, marcador: 0xc0 });
+    expect((await navegadorDeVerdade.lerCabecalho?.(jpeg(comSof(4))))?.componentes).toBe(4);
+    expect(await navegadorDeVerdade.lerCabecalho?.(new File([comSof(3)], "f.png", { type: "image/png" }))).toBeNull();
+    const ilegivel = {
+      type: "image/jpeg",
+      slice: () => ({ arrayBuffer: () => Promise.reject(new Error("o arquivo sumiu do disco")) }),
+    } as unknown as File;
+    expect(await navegadorDeVerdade.lerCabecalho?.(ilegivel)).toBeNull();
+    // CINCO SEGMENTOS DE 60.000 BYTES ANTES DO SOF: 300.000 bytes, além dos 256 KiB lidos.
+    const longo: number[] = [];
+    for (let k = 0; k < 5; k++) longo.push(0xff, 0xe2, 0xea, 0x60, ...new Array(59_998).fill(0));
+    expect(await navegadorDeVerdade.lerCabecalho?.(jpeg(comSof(3, longo)))).toBeNull();
+  });
+
   it("o vídeo que o navegador não mede no tempo-limite fica sem medida, e o endereço é solto", async () => {
     vi.useFakeTimers();
     const soltos: string[] = [];

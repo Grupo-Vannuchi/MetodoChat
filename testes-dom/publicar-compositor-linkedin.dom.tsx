@@ -1,45 +1,80 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Enviador from "@/app/publicar/enviador";
-import { limparEnvios } from "@/app/publicar/envios";
+import { lerEnvios, limparEnvios } from "@/app/publicar/envios";
 import type { Medidas, Navegador } from "@/app/publicar/navegador";
 import {
+  NOTA_DO_CARROSSEL_NO_LINKEDIN,
   NOTA_DO_CONTADOR_DO_LINKEDIN,
   tamanhoDoTextoNoLinkedin,
   textoDaRecusaNoLinkedin,
+  textoDoProblemaDoCarrosselNoLinkedin,
   type DisponibilidadeDoLinkedin,
 } from "@/lib/linkedin-publicacao";
-import { rotuloDaForma } from "@/lib/publicacao";
+import type { CabecalhoDoJpeg } from "@/lib/bonus/imagem-jpeg";
+import { rotuloDaForma, rotuloDoEnvio, textoDoEnvioQueNaoFoi } from "@/lib/publicacao";
 import { NOTA_DA_LEGENDA_NO_LINKEDIN, redeAceitaAForma, TEXTO_SEM_REDE } from "@/lib/redes-do-post";
 
 // O COMPOR COM AS DUAS REDES (docs/specs/2026-11-06-linkedin-no-perfil.md, §7; a parte 2b). A tela tem as caixinhas
 // "Instagram" e "LinkedIn", que começam só com o Instagram marcado (a decisão do Eduardo, 10/11). Cada forma liga e
-// desliga as redes, com o motivo: o só texto é só do LinkedIn, e o carrossel, o reels e o story não vão ao LinkedIn
-// nesta entrega. Só no LinkedIn, o campo é o "Texto" da parte 2a; nas duas, a "Legenda" e o "Texto para o LinkedIn",
+// desliga as redes, com o motivo: o só texto é só do LinkedIn, o reels e o story não vão ao LinkedIn, e o carrossel
+// vai como PDF, só com fotos (a parte 3a). Só no LinkedIn, o campo é o "Texto" da parte 2a; nas duas, a "Legenda" e o "Texto para o LinkedIn",
 // opcional. O clique chama a action das redes marcadas, e só ela. O navegador e as actions são falsos, como no
 // teste do compositor (testes-dom/publicar-compositor.dom.tsx).
 
 const MIB = 1024 * 1024;
 const PASTA = "17841400000000002";
-const MEDIDAS: Record<string, Medidas> = { "arte.jpg": { largura: 1080, altura: 1350 } };
+const NA_MEDIDA = { largura: 1080, altura: 1350 };
+const MEDIDAS: Record<string, Medidas> = {
+  "arte.jpg": NA_MEDIDA,
+  // O CARROSSEL DA PARTE 3a: fotos na medida exata do 4:5, que vão cruas pela regra do Instagram.
+  "a.jpg": NA_MEDIDA,
+  "b.jpg": NA_MEDIDA,
+  "cmyk.jpg": NA_MEDIDA,
+  "grande-1.jpg": NA_MEDIDA,
+  "grande-2.jpg": NA_MEDIDA,
+  "clipe.mp4": { largura: 1080, altura: 1920, segundos: 10 },
+};
 
-function navegadorFalso() {
-  const f = { assinados: [] as { forma: string; nome: string }[] };
+/** O cabeçalho que a tela lê com o LinkedIn marcado no carrossel: o de cor de tela, a não ser o que o caso pedir. */
+const RGB: CabecalhoDoJpeg = { largura: 1080, altura: 1350, componentes: 3, precisao: 8, marcador: 0xc0 };
+const CMYK: CabecalhoDoJpeg = { ...RGB, componentes: 4 };
+
+type OpcoesDoNavegador = {
+  cabecalhos?: Record<string, CabecalhoDoJpeg>;
+  /** O navegador sem o leitor do cabeçalho (o método é opcional). */
+  semCabecalho?: boolean;
+  /** A subida destes arquivos falha uma vez. */
+  falharSubidaDe?: Set<string>;
+};
+
+function navegadorFalso(opcoes: OpcoesDoNavegador = {}) {
+  const f = { assinados: [] as { forma: string; nome: string }[], enquadrados: [] as string[], cabecalhosLidos: [] as string[] };
   const nav: Navegador = {
     criarEndereco: (a) => `blob:${a.name}`,
     soltarEndereco: () => {},
     medir: async (a) => MEDIDAS[a.name] ?? {},
     lerOrientacao: async () => 1,
-    enquadrar: async (a) => new File(["jpeg"], a.name, { type: "image/jpeg" }),
+    enquadrar: async (a) => {
+      f.enquadrados.push(a.name);
+      return new File(["jpeg"], a.name, { type: "image/jpeg" });
+    },
     converter: async (a) => a,
     assinar: async (p) => {
       f.assinados.push({ forma: p.forma, nome: p.nome });
       return { ok: true, caminho: `${PASTA}/${p.nome.replace(/\.\w+$/, "")}.jpg`, url: `https://bucket.test/${p.nome}` };
     },
     subir: async (_url, arquivo, aoAndar) => {
+      if (opcoes.falharSubidaDe?.delete(arquivo.name)) throw new Error("A conexão caiu durante o envio.");
       aoAndar(arquivo.size, arquivo.size);
     },
   };
+  if (!opcoes.semCabecalho) {
+    nav.lerCabecalho = async (a) => {
+      f.cabecalhosLidos.push(a.name);
+      return opcoes.cabecalhos?.[a.name] ?? RGB;
+    };
+  }
   return { f, nav };
 }
 
@@ -58,8 +93,8 @@ const QUANDO = (
 
 const LIGADO: DisponibilidadeDoLinkedin = { disponivel: true, nome: "Dra. Ana Souza" };
 
-function renderizar(linkedin: DisponibilidadeDoLinkedin | null) {
-  const { f, nav } = navegadorFalso();
+function renderizar(linkedin: DisponibilidadeDoLinkedin | null, opcoes: OpcoesDoNavegador = {}) {
+  const { f, nav } = navegadorFalso(opcoes);
   const acao = vi.fn(async (_dados: FormData) => {});
   const acaoDoLinkedin = vi.fn(async (_dados: FormData) => {});
   const acaoDasDuasRedes = vi.fn(async (_dados: FormData) => {});
@@ -80,7 +115,8 @@ function renderizar(linkedin: DisponibilidadeDoLinkedin | null) {
   return { f, acao, acaoDoLinkedin, acaoDasDuasRedes };
 }
 
-const botao = () => screen.getByRole("button", { name: /^(Publicar|Enviando…)$/ }) as HTMLButtonElement;
+// O BOTÃO DIZ AS REDES E O QUANDO (a parte 3a, o 215): "Publicar no Instagram", "Agendar no LinkedIn"...
+const botao = () => screen.getByRole("button", { name: /^(Publicar|Agendar|Enviando…)/ }) as HTMLButtonElement;
 const caixinha = (rede: "Instagram" | "LinkedIn") => screen.getByLabelText(rede) as HTMLInputElement;
 const campoDoTexto = () => screen.getByLabelText("Texto") as HTMLTextAreaElement;
 const campoDaLegenda = () => screen.getByLabelText("Legenda") as HTMLTextAreaElement;
@@ -91,6 +127,20 @@ async function escolherAImagem() {
   await act(async () => {
     fireEvent.change(screen.getByLabelText("Arquivo"), {
       target: { files: [new File([new Uint8Array(1000)], "arte.jpg", { type: "image/jpeg" })] },
+    });
+  });
+  await waitFor(() => expect(screen.queryByText("Lendo o arquivo…")).toBeNull());
+}
+
+/** Os arquivos do carrossel: o nome vira um JPEG de 1.000 bytes (ou um MP4, pela extensão), ou o arquivo pronto. */
+async function escolherArquivos(arquivos: (string | File)[]) {
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText("Arquivos"), {
+      target: {
+        files: arquivos.map((a) =>
+          typeof a === "string" ? new File([new Uint8Array(1000)], a, { type: a.endsWith(".mp4") ? "video/mp4" : "image/jpeg" }) : a
+        ),
+      },
     });
   });
   await waitFor(() => expect(screen.queryByText("Lendo o arquivo…")).toBeNull());
@@ -135,11 +185,14 @@ describe("as caixinhas das redes", () => {
     expect(Array.from(forma.options).map((o) => o.value)).not.toContain("texto");
   });
 
-  it("o carrossel, o reels e o story desligam e desmarcam o LinkedIn, com o motivo da forma", () => {
+  it("o reels e o story desligam e desmarcam o LinkedIn, com o motivo da forma; o carrossel não (a parte 3a)", () => {
     renderizar(LIGADO);
     fireEvent.click(caixinha("LinkedIn"));
     expect(caixinha("LinkedIn").checked).toBe(true);
-    for (const forma of ["carrossel", "reels", "story"] as const) {
+    escolherForma("carrossel");
+    expect(caixinha("LinkedIn").disabled).toBe(false);
+    expect(caixinha("LinkedIn").checked).toBe(true);
+    for (const forma of ["reels", "story"] as const) {
       escolherForma(forma);
       expect(caixinha("LinkedIn").disabled).toBe(true);
       expect(caixinha("LinkedIn").checked).toBe(false);
@@ -316,25 +369,167 @@ describe("nas duas redes", () => {
     expect(acaoDasDuasRedes).not.toHaveBeenCalled();
   });
 
-  it("trocar para o carrossel com as duas marcadas deixa só o Instagram, e o clique vai à action dele", async () => {
-    const { acao, acaoDasDuasRedes } = renderizar(LIGADO);
+  it("o carrossel com as duas marcadas: as duas ficam, e o clique vai à action das duas, com a forma e as fotos na ordem", async () => {
+    const { f, acao, acaoDasDuasRedes } = renderizar(LIGADO);
     fireEvent.click(caixinha("LinkedIn"));
     escolherForma("carrossel");
+    expect(caixinha("LinkedIn").checked).toBe(true);
+    expect(screen.getByLabelText("Texto para o LinkedIn (opcional)")).toBeTruthy();
+    expect(screen.getByText(NOTA_DO_CARROSSEL_NO_LINKEDIN)).toBeTruthy();
+    await escolherArquivos(["b.jpg", "a.jpg"]);
+    fireEvent.change(campoDaLegenda(), { target: { value: "O carrossel #ig" } });
+    await clicarEmPublicar();
+    await waitFor(() => expect(acaoDasDuasRedes).toHaveBeenCalledTimes(1));
+    const dados = acaoDasDuasRedes.mock.calls[0][0];
+    expect(dados.get("forma")).toBe("carrossel");
+    expect(dados.get("caminhos")).toBe(`${PASTA}/b.jpg\n${PASTA}/a.jpg`);
+    expect(f.assinados).toEqual([
+      { forma: "carrossel", nome: "b.jpg" },
+      { forma: "carrossel", nome: "a.jpg" },
+    ]);
+    expect(acao).not.toHaveBeenCalled();
+  });
+});
+
+// O CARROSSEL NO LINKEDIN (a parte 3a; scratchpad/desenho-li3.md, §6): ele vai como PDF, só com fotos, até 15 MB
+// juntas. O vídeo na lista desliga o LinkedIn; com o LinkedIn marcado, o JPEG só vai cru se o PDF o leva como está
+// (`vaiCruParaOLinkedin`), e o resto passa pelo canvas; o total é contado pelo que de fato sobe.
+describe("o carrossel no LinkedIn (a parte 3a)", () => {
+  it("só no LinkedIn: a action do LinkedIn recebe a forma carrossel e as fotos na ordem, com a nota do PDF", async () => {
+    const { f, acao, acaoDoLinkedin } = renderizar(LIGADO);
+    escolherForma("carrossel");
+    fireEvent.click(caixinha("LinkedIn"));
+    fireEvent.click(caixinha("Instagram"));
+    expect(screen.getByText(NOTA_DO_CARROSSEL_NO_LINKEDIN)).toBeTruthy();
+    await escolherArquivos(["b.jpg", "a.jpg"]);
+    fireEvent.change(campoDoTexto(), { target: { value: "O carrossel" } });
+    await clicarEmPublicar();
+    await waitFor(() => expect(acaoDoLinkedin).toHaveBeenCalledTimes(1));
+    const dados = acaoDoLinkedin.mock.calls[0][0];
+    expect(dados.get("forma_linkedin")).toBe("carrossel");
+    expect(dados.get("caminhos")).toBe(`${PASTA}/b.jpg\n${PASTA}/a.jpg`);
+    expect(f.assinados.map((a) => a.forma)).toEqual(["carrossel", "carrossel"]);
+    expect(acao).not.toHaveBeenCalled();
+  });
+
+  it("um vídeo no carrossel desliga e desmarca o LinkedIn, com o motivo do PDF, e tirar o vídeo não o remarca", async () => {
+    renderizar(LIGADO);
+    escolherForma("carrossel");
+    fireEvent.click(caixinha("LinkedIn"));
+    expect(caixinha("LinkedIn").checked).toBe(true);
+    await escolherArquivos(["a.jpg", "clipe.mp4"]);
+    expect(caixinha("LinkedIn").disabled).toBe(true);
     expect(caixinha("LinkedIn").checked).toBe(false);
-    expect(screen.queryByLabelText("Texto para o LinkedIn (opcional)")).toBeNull();
-    await act(async () => {
-      fireEvent.change(screen.getByLabelText("Arquivos"), {
-        target: {
-          files: [
-            new File([new Uint8Array(1000)], "arte.jpg", { type: "image/jpeg" }),
-            new File([new Uint8Array(1000)], "arte.jpg", { type: "image/jpeg" }),
-          ],
-        },
-      });
-    });
-    await waitFor(() => expect(screen.queryByText("Lendo o arquivo…")).toBeNull());
+    expect(screen.getByText(textoDoProblemaDoCarrosselNoLinkedin("video"))).toBeTruthy();
+    expect(caixinha("Instagram").checked).toBe(true);
+    // O POST SAI PÚBLICO NO PERFIL PESSOAL: tirar o vídeo liga a caixinha, mas só vai quem marcar de novo.
+    fireEvent.click(screen.getByRole("button", { name: "Remover clipe.mp4" }));
+    expect(caixinha("LinkedIn").disabled).toBe(false);
+    expect(caixinha("LinkedIn").checked).toBe(false);
+  });
+
+  it("com o LinkedIn marcado, o JPEG que o PDF não leva como está (CMYK) passa pelo canvas, e o de cor de tela vai cru", async () => {
+    const { f, acaoDasDuasRedes } = renderizar(LIGADO, { cabecalhos: { "cmyk.jpg": CMYK } });
+    escolherForma("carrossel");
+    fireEvent.click(caixinha("LinkedIn"));
+    await escolherArquivos(["a.jpg", "cmyk.jpg"]);
+    fireEvent.change(campoDaLegenda(), { target: { value: "O carrossel #ig" } });
+    await clicarEmPublicar();
+    await waitFor(() => expect(acaoDasDuasRedes).toHaveBeenCalledTimes(1));
+    expect(f.cabecalhosLidos).toEqual(["a.jpg", "cmyk.jpg"]);
+    expect(f.enquadrados).toEqual(["cmyk.jpg"]);
+    expect(acaoDasDuasRedes.mock.calls[0][0].get("caminhos")).toBe(`${PASTA}/a.jpg\n${PASTA}/cmyk.jpg`);
+  });
+
+  it("sem o LinkedIn, a regra do Instagram não muda: o mesmo JPEG de 4 componentes vai cru, e o cabeçalho nem é lido", async () => {
+    const { f, acao } = renderizar(LIGADO, { cabecalhos: { "cmyk.jpg": CMYK } });
+    escolherForma("carrossel");
+    await escolherArquivos(["a.jpg", "cmyk.jpg"]);
+    fireEvent.change(campoDaLegenda(), { target: { value: "O carrossel #ig" } });
     await clicarEmPublicar();
     await waitFor(() => expect(acao).toHaveBeenCalledTimes(1));
+    expect(f.cabecalhosLidos).toEqual([]);
+    expect(f.enquadrados).toEqual([]);
+  });
+
+  it("o navegador que não lê o cabeçalho: com o LinkedIn marcado, toda foto passa pelo canvas", async () => {
+    const { f, acaoDasDuasRedes } = renderizar(LIGADO, { semCabecalho: true });
+    escolherForma("carrossel");
+    fireEvent.click(caixinha("LinkedIn"));
+    await escolherArquivos(["a.jpg", "b.jpg"]);
+    fireEvent.change(campoDaLegenda(), { target: { value: "O carrossel #ig" } });
+    await clicarEmPublicar();
+    await waitFor(() => expect(acaoDasDuasRedes).toHaveBeenCalledTimes(1));
+    expect(f.enquadrados).toEqual(["a.jpg", "b.jpg"]);
+  });
+
+  it("o total passa de 15 MB com o LinkedIn: a foto que passaria do teto não sobe, a lista diz por quê, e nada é publicado", async () => {
+    const { f, acaoDasDuasRedes } = renderizar(LIGADO);
+    escolherForma("carrossel");
+    fireEvent.click(caixinha("LinkedIn"));
+    // DUAS FOTOS DE 7,6 MiB, que vão cruas (até 8 MiB, na medida): 15,2 MiB juntas.
+    const grande = (nome: string) => new File([new Uint8Array(Math.floor(7.6 * MIB))], nome, { type: "image/jpeg" });
+    await escolherArquivos([grande("grande-1.jpg"), grande("grande-2.jpg")]);
+    fireEvent.change(campoDaLegenda(), { target: { value: "O carrossel #ig" } });
+    await clicarEmPublicar();
+    const segunda = rotuloDoEnvio("grande-2.jpg", 1, 2);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(textoDoEnvioQueNaoFoi(segunda)));
+    expect(lerEnvios().find((e) => e.nome === segunda)).toMatchObject({
+      estado: "recusado",
+      detalhe: textoDoProblemaDoCarrosselNoLinkedin("grande"),
+    });
+    expect(f.assinados).toEqual([{ forma: "carrossel", nome: "grande-1.jpg" }]);
     expect(acaoDasDuasRedes).not.toHaveBeenCalled();
+  });
+
+  it("sem o LinkedIn, as mesmas fotos grandes sobem: o teto é só do PDF", async () => {
+    const { f, acao } = renderizar(LIGADO);
+    escolherForma("carrossel");
+    const grande = (nome: string) => new File([new Uint8Array(Math.floor(7.6 * MIB))], nome, { type: "image/jpeg" });
+    await escolherArquivos([grande("grande-1.jpg"), grande("grande-2.jpg")]);
+    fireEvent.change(campoDaLegenda(), { target: { value: "O carrossel #ig" } });
+    await clicarEmPublicar();
+    await waitFor(() => expect(acao).toHaveBeenCalledTimes(1));
+    expect(f.assinados).toHaveLength(2);
+  });
+
+  it("a foto que subiu crua só para o Instagram sobe de novo pelo canvas quando o LinkedIn é marcado depois", async () => {
+    const { f, acao, acaoDasDuasRedes } = renderizar(LIGADO, { cabecalhos: { "cmyk.jpg": CMYK }, falharSubidaDe: new Set(["b.jpg"]) });
+    escolherForma("carrossel");
+    await escolherArquivos(["cmyk.jpg", "b.jpg"]);
+    fireEvent.change(campoDaLegenda(), { target: { value: "O carrossel #ig" } });
+    // SÓ O INSTAGRAM: a foto CMYK sobe crua, e a segunda falha.
+    await clicarEmPublicar();
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(textoDoEnvioQueNaoFoi(rotuloDoEnvio("b.jpg", 1, 2))));
+    expect(f.enquadrados).toEqual([]);
+    expect(acao).not.toHaveBeenCalled();
+    // COM O LINKEDIN, o caminho guardado não vale: ela sobe de novo, pelo canvas.
+    fireEvent.click(caixinha("LinkedIn"));
+    await clicarEmPublicar();
+    await waitFor(() => expect(acaoDasDuasRedes).toHaveBeenCalledTimes(1));
+    expect(f.enquadrados).toEqual(["cmyk.jpg"]);
+    expect(f.assinados.map((a) => a.nome)).toEqual(["cmyk.jpg", "b.jpg", "cmyk.jpg", "b.jpg"]);
+  });
+});
+
+// O BOTÃO DIZ ONDE E QUANDO O POST SAI (o 215; a decisão do Eduardo de 11/11, "O botão diz as redes"): quem marcou só
+// o LinkedIn lê isso no próprio clique. O "Quando" vem pronto da página, e o botão acompanha a escolha.
+describe("o botão de publicar (215)", () => {
+  it("diz as redes marcadas, e Agendar com a outra hora", () => {
+    renderizar(LIGADO);
+    expect(botao().textContent).toBe("Publicar no Instagram");
+    fireEvent.click(caixinha("LinkedIn"));
+    expect(botao().textContent).toBe("Publicar no Instagram e no LinkedIn");
+    fireEvent.click(caixinha("Instagram"));
+    expect(botao().textContent).toBe("Publicar no LinkedIn");
+    fireEvent.click(screen.getByLabelText(/Publicar em outra hora/));
+    expect(botao().textContent).toBe("Agendar no LinkedIn");
+    fireEvent.click(screen.getByLabelText(/Publicar agora/));
+    expect(botao().textContent).toBe("Publicar no LinkedIn");
+  });
+
+  it("sem o LinkedIn na página, o botão continua Publicar, como antes", () => {
+    renderizar(null);
+    expect(botao().textContent).toBe("Publicar");
   });
 });
