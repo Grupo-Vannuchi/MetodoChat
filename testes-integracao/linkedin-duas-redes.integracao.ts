@@ -581,7 +581,11 @@ describe("a regra das contas: a conta vem da sessão, e nunca do formulário", (
 // ordem do 192 e do 199 não muda; quando uma cópia falha, as que deram certo saem do bucket, e nada é gravado.
 
 const FOTOS = [1, 2, 3].map((n) => `${CONTA_A}/foto-${n}-do-carrossel.jpg`);
-const bytesDaFoto = (n: number) => new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x10 + n, 0xff, 0xd9]);
+// UM JPEG COM CABEÇALHO DE VERDADE: um comentário com o número da foto, o SOF0 de 16×16 em cor de tela e o fim. O PDF
+// do carrossel só lê o cabeçalho (lib/pdf-de-fotos.ts), e é ele que deixa a passada do documento chegar ao LinkedIn
+// falso, se ela começar (o caso do achado 222, abaixo).
+const bytesDaFoto = (n: number) =>
+  new Uint8Array([0xff, 0xd8, 0xff, 0xfe, 0, 3, n, 0xff, 0xc0, 0, 17, 8, 0, 16, 0, 16, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1, 0xff, 0xd9]);
 const comAsFotos = () => FOTOS.forEach((caminho, i) => bucket.objetos.set(caminho, bytesDaFoto(i + 1)));
 const carrossel = (campos: Partial<Record<string, string>> = {}) => formulario({ forma: "carrossel", caminhos: FOTOS.join("\n"), ...campos });
 const soAsOriginais = () => [ORIGINAL, ...FOTOS].sort();
@@ -711,3 +715,92 @@ describe("o carrossel nas duas redes (a parte 3a)", () => {
     expect(bucket.chamadas).toEqual([]);
   });
 });
+
+// O "AGORA" DO CARROSSEL NAS DUAS REDES NÃO COMEÇA O DOCUMENTO NO CLIQUE (achado 222, da auditoria sobre a F4 da 3a).
+// A action publica o LinkedIn primeiro e o Instagram depois, na mesma função de 60 s, e o dreno do Instagram não lê o
+// orçamento. A passada do documento pede 52 s dos 55: começada no clique, ela deixaria o Instagram com uns 5 s. No
+// carrossel, o LinkedIn conta o prazo com a reserva do Instagram (`comecoDoLinkedinNoAgoraDasDuas`): a linha volta
+// adiada, para depois do dreno do Instagram. E o dreno do Instagram, que é o do clique, não pega a linha do LinkedIn
+// (a 3a-0, o 224): ela sai pelos drenos das rotas.
+describe("o agora do carrossel nas duas redes não começa o documento no clique (achado 222)", () => {
+  it("a reserva do Instagram é maior que a folga do documento: com ela, a passada do documento nunca cabe no clique", async () => {
+    const fila = await import("@/lib/linkedin-fila");
+    const dreno = await import("@/lib/queue-drain");
+    expect(dreno.ORCAMENTO_DA_FUNCAO_MS - fila.RESERVA_DO_INSTAGRAM_NO_CARROSSEL_MS).toBeLessThan(fila.TEMPO_PARA_O_DOCUMENTO_MS);
+    // NA IMAGEM, NADA MUDA (a 2b): o começo é o da função.
+    expect(fila.comecoDoLinkedinNoAgoraDasDuas("imagem", 1_000_000)).toBe(1_000_000);
+    expect(fila.comecoDoLinkedinNoAgoraDasDuas("carrossel", 1_000_000)).toBe(1_000_000 - fila.RESERVA_DO_INSTAGRAM_NO_CARROSSEL_MS);
+  });
+
+  it("com as cópias instantâneas: o LinkedIn não chama nada no clique, a linha volta adiada antes do dreno do Instagram, e o Instagram sai", async () => {
+    comAsFotos();
+    const inicio = Date.now();
+    const aviso = await nasDuasComoAdministrador(carrossel());
+    const levou = Date.now() - inicio;
+    console.log(`O AGORA DO CARROSSEL NAS DUAS REDES, com as cópias instantâneas: ${levou} ms`);
+    expect(aviso).toEqual(
+      redes.avisoDasDuasRedes({
+        tipo: "entrou",
+        campos: null,
+        instagram: { entrou: true, jaVale: true },
+        linkedin: { entrou: true, jaVale: true, desfecho: "aguardando", motivo: null },
+      })
+    );
+    // NEM A RESERVA DO DOCUMENTO: a passada do documento não começou no clique.
+    expect(linkedin.pedidos).toEqual([]);
+    const [li] = await q(
+      `select status, attempts, payload, not_before > now() as adiada from queue where kind = 'publicacao_linkedin'`
+    );
+    expect(li).toMatchObject({ status: "pending", attempts: 0, adiada: true });
+    expect(li.payload).toMatchObject({ adiamentos: 1 });
+    expect((li.payload as Record<string, unknown>).documento_urn).toBeUndefined();
+    expect((await daRede("publicacao"))[0].status).toBe("sent");
+    expect(meta).toMatchObject({ containers: 4, publicacoes: 1, desconhecidos: [] });
+  });
+
+  it("o agora do LinkedIn que lança antes de adiar: o dreno do Instagram, de clique, não pega a linha do LinkedIn, que fica vencida e sem adiamento para os drenos das rotas", async () => {
+    comAsFotos();
+    // A RECUSA DA PRIMEIRA REIVINDICAÇÃO DA LINHA DO LINKEDIN, uma vez só (a do "agora" dele). O dreno do Instagram,
+    // que é o do clique, nem tenta reivindicá-la. A sequência, a função e o gatilho nascem e morrem aqui.
+    await q(`create sequence teste_uma_vez_222`);
+    try {
+      await comGatilhoDeUpdate(
+        "teste_recusa_a_reivindicacao",
+        // O `nextval` SÓ RODA DENTRO DO PRIMEIRO `if`: o Postgres não promete a ordem das partes de um `and`.
+        `if new.kind = 'publicacao_linkedin' and old.status = 'pending' and new.status = 'sending' then
+           if nextval('teste_uma_vez_222') = 1 then
+             raise exception 'o banco de teste recusou a reivindicação do LinkedIn';
+           end if;
+         end if;
+         return new;`,
+        async () => {
+          const aviso = await nasDuasComoAdministrador(carrossel());
+          expect(aviso.tom).toBe("ok");
+          expect(linkedin.pedidos).toEqual([]);
+          const [li] = await q(
+            `select status, attempts, payload, not_before <= now() as vencida from queue where kind = 'publicacao_linkedin'`
+          );
+          expect(li).toMatchObject({ status: "pending", attempts: 0, vencida: true });
+          expect((li.payload as Record<string, unknown>).adiamentos).toBeUndefined();
+          expect((li.payload as Record<string, unknown>).documento_urn).toBeUndefined();
+          expect((await daRede("publicacao"))[0].status).toBe("sent");
+        }
+      );
+    } finally {
+      await q(`drop sequence if exists teste_uma_vez_222`);
+    }
+  });
+});
+
+/** O GATILHO DE TESTE NO UPDATE, irmão do `comGatilho` de cima: nasce, o caso roda, e ele morre no `finally`. */
+async function comGatilhoDeUpdate(nome: string, corpoDaFuncao: string, caso: () => Promise<void>) {
+  if (!/^teste_[a-z_]+$/.test(nome)) throw new Error(`o gatilho de teste tem de começar com teste_: ${nome}`);
+  await q(`create function ${nome}() returns trigger language plpgsql as $$ begin ${corpoDaFuncao} end $$`);
+  await q(`create trigger ${nome} before update on queue for each row execute function ${nome}()`);
+  try {
+    await caso();
+  } finally {
+    await q(`drop trigger if exists ${nome} on queue`);
+    await q(`drop function if exists ${nome}()`);
+  }
+}

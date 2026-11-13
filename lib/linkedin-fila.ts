@@ -178,10 +178,28 @@ const TEMPO_DE_MONTAGEM_DO_PDF_MS = 2_000;
  * (10 s) e o envio do documento (25 s), com a folga: 52 s. Ela só cabe no começo de uma função; o post vem numa
  * passada seguinte, se não sobrar tempo.
  */
-const TEMPO_PARA_O_DOCUMENTO_MS =
+export const TEMPO_PARA_O_DOCUMENTO_MS =
   TETO_DO_BUCKET_MS + TEMPO_DE_MONTAGEM_DO_PDF_MS + TETO_DO_LINKEDIN_MS + TETO_DO_ENVIO_DO_DOCUMENTO_MS + FOLGA_MS;
 /** Quando falta tempo, a linha volta para daqui a pouco: a próxima passada é outra função, com o prazo inteiro. */
 const VOLTA_SEM_TEMPO_EM_SEGUNDOS = 20;
+
+/**
+ * A RESERVA DO INSTAGRAM NO "AGORA" DO CARROSSEL DAS DUAS REDES (achado 222, da auditoria sobre a F4 da 3a). A action
+ * das duas redes publica o LinkedIn primeiro e o Instagram depois, na mesma função de 60 s. A passada do documento
+ * pede 52 s dos 55: começada no clique, ela empurraria o dreno do Instagram para depois da hora de parar (a 3a-0,
+ * lib/fila-tipos.ts), e o Instagram não sairia no clique, só no tique seguinte.
+ *
+ * ENTÃO, NO CARROSSEL DAS DUAS REDES, O LINKEDIN CONTA O PRAZO COMO SE A FUNÇÃO TIVESSE COMEÇADO 20 s ANTES: 55 − 20 =
+ * 35 s, menos que os 52 do documento, e a passada do documento nunca cabe no clique. A linha volta adiada, sem gastar
+ * tentativa e para daqui a 20 s (`VOLTA_SEM_TEMPO_EM_SEGUNDOS`), antes do dreno do Instagram, e o "agora" do LinkedIn
+ * arma o tique dela. A reserva só vale para esse "agora": o dreno do Instagram é o do clique, e não pega o post do
+ * LinkedIn (a 3a-0, o 224). Na imagem, nada muda (a 2b).
+ */
+export const RESERVA_DO_INSTAGRAM_NO_CARROSSEL_MS = 20_000;
+
+export function comecoDoLinkedinNoAgoraDasDuas(forma: FormaNoLinkedin, inicioDaFuncaoMs: number): number {
+  return forma === "carrossel" ? inicioDaFuncaoMs - RESERVA_DO_INSTAGRAM_NO_CARROSSEL_MS : inicioDaFuncaoMs;
+}
 /**
  * O TETO DOS ADIAMENTOS (a parte 3a; nota da auditoria): a volta sem gastar tentativa não tinha teto, e uma linha que
  * nunca tivesse tempo seria adiada para sempre. O sétimo adiamento encerra a linha com o motivo. No lote, a linha já

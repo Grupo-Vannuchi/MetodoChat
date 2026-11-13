@@ -31,6 +31,7 @@ import {
 } from "@/lib/linkedin-publicacao";
 import {
   aChaveDoLinkedinJaExiste,
+  comecoDoLinkedinNoAgoraDasDuas,
   desfazerLinhaDoLinkedin,
   enqueuePublicacaoNoLinkedin,
   erroDaLinha,
@@ -308,14 +309,14 @@ export async function publicarNoLinkedin(formData: FormData): Promise<void> {
  *      A chave do Instagram que já existia não é falha: a tela diz que ele já estava na fila.
  *
  * O "AGORA" (a escolha (a) da auditoria): primeiro o LinkedIn, só a própria linha (`drenarUmaPublicacaoDoLinkedin`,
- * achado 211), que só começa o passo que tem tempo de terminar; depois o dreno de hoje para o Instagram, com o
- * mesmo começo da função, para outra linha do LinkedIn que ele pegue respeitar o prazo. O dreno não muda nesta
- * entrega.
+ * achado 211), que só começa o passo que tem tempo de terminar; depois o dreno do clique para o Instagram, com o
+ * começo da função e sem o post do LinkedIn (a 3a-0).
  *
  * O TEMPO, COM O CARROSSEL (a parte 3a; nota da auditoria sobre a F4). As cópias correm em paralelo: o pior caso de
  * dez fotos é o de uma, três chamadas de até 10 s (~30 s), dentro dos 60 s da página (`maxDuration`,
- * app/publicar/novo/page.tsx). A passada da mídia do carrossel pede 52 s dos 55 do orçamento, e só começa no "agora"
- * se tudo antes dela levou menos de 3 s; senão a linha volta sem gastar tentativa, e o aviso diz que o post vai sair.
+ * app/publicar/novo/page.tsx). A passada da mídia do carrossel pede 52 s dos 55 do orçamento, e no "agora" das duas
+ * redes ela nunca começa: o LinkedIn conta o prazo com a reserva do Instagram (achado 222,
+ * `comecoDoLinkedinNoAgoraDasDuas`), a linha volta sem gastar tentativa, e o aviso diz que o post vai sair.
  * As linhas só entram depois de TODAS as cópias: se a função for cortada no meio delas, nada foi gravado, e as que já
  * subiram ficam no bucket sem dono, como a cópia que o `apagarACopiaSemDerrubar` não consegue apagar.
  */
@@ -435,12 +436,16 @@ export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
     redirect(urlDePublicarComAviso(avisoDasDuasRedes({ tipo: "instagram_nao_entrou", linkedin: lado })));
   }
 
-  // 6. O "AGORA": o LinkedIn primeiro, só a própria linha; depois o dreno de hoje, para o Instagram.
+  // 6. O "AGORA": o LinkedIn primeiro, só a própria linha; depois o dreno do clique, para o Instagram, que não pega o
+  // post do LinkedIn (a 3a-0). NO CARROSSEL, o LinkedIn conta o prazo com a reserva do Instagram (achado 222): o
+  // documento nunca começa neste clique, e a linha volta adiada antes do dreno do Instagram, que sai na hora. Na
+  // imagem, o começo é o da função, como na 2b.
+  const inicioDoLinkedin = comecoDoLinkedinNoAgoraDasDuas(formaNoLinkedin, inicioDaFuncaoMs);
   let desfecho: "publicado" | "aguardando" | "falhou" | null = null;
   let motivo: string | null = null;
   if (linkedin.entrou && linkedin.jaVale) {
     try {
-      desfecho = await drenarUmaPublicacaoDoLinkedin(linkedin.id, inicioDaFuncaoMs);
+      desfecho = await drenarUmaPublicacaoDoLinkedin(linkedin.id, inicioDoLinkedin);
       if (desfecho === "falhou") motivo = await erroDaLinha(linkedin.id);
     } catch {
       // O mesmo `catch` do `publicarNoLinkedin`: a linha pode ter ficado pendente sem tique, e este tique é o que
