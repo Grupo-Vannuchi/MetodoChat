@@ -308,9 +308,16 @@ export function lerPayloadDoLinkedin(bruto: unknown): LeituraDoPayloadDoLinkedin
 
 /**
  * O corpo do `POST /rest/posts` (Posts API): o autor é a pessoa, o texto já transformado, PÚBLICO (fixo nesta
- * entrega; não há escolha de visibilidade na tela), no feed, publicado, e a imagem quando há.
+ * entrega; não há escolha de visibilidade na tela), no feed, publicado, e a imagem quando há. O documento do
+ * carrossel (a parte 3a) vai com o título, que é obrigatório nele (`tituloDoDocumento`).
  */
-export function corpoDoPost(p: { pessoaId: string; texto: string; imagemUrn?: string }): Record<string, unknown> {
+export function corpoDoPost(p: {
+  pessoaId: string;
+  texto: string;
+  imagemUrn?: string;
+  documento?: { urn: string; titulo: string };
+}): Record<string, unknown> {
+  const media = p.imagemUrn ? { id: p.imagemUrn } : p.documento ? { id: p.documento.urn, title: p.documento.titulo } : null;
   return {
     author: `urn:li:person:${p.pessoaId}`,
     commentary: textoParaOLinkedin(p.texto),
@@ -318,7 +325,7 @@ export function corpoDoPost(p: { pessoaId: string; texto: string; imagemUrn?: st
     distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
     lifecycleState: "PUBLISHED",
     isReshareDisabledByAuthor: false,
-    ...(p.imagemUrn ? { content: { media: { id: p.imagemUrn } } } : {}),
+    ...(media ? { content: { media } } : {}),
   };
 }
 

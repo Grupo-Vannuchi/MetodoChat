@@ -26,6 +26,13 @@ export const TETO_DO_LINKEDIN_MS = 10_000;
  */
 export const TETO_DO_ENVIO_DA_IMAGEM_MS = 15_000;
 
+/**
+ * O teto do envio do documento do carrossel (a parte 3a), que leva até os 15 MB do carrossel
+ * (`TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES`, ~4,8 Mbit/s em 25 s). A passada da mídia do carrossel (o bucket, a montagem
+ * do PDF, a reserva e este envio) soma 52 s com a folga, e só começa no início de uma função (lib/linkedin-fila.ts).
+ */
+export const TETO_DO_ENVIO_DO_DOCUMENTO_MS = 25_000;
+
 // AS BASES SÓ SE MOVEM NOS TESTES, sob as mesmas duas travas da `baseDoGraph` (lib/ig.ts): `VITEST=true`, que
 // `next build` e a Vercel não definem, e o loopback, e só ele (a autorização viaja nestas chamadas, e uma base
 // apontando para fora seria vazar a autorização por variável de ambiente). As duas bases vão juntas para o
@@ -242,6 +249,40 @@ export async function enviarImagem(uploadUrl: string, token: string, bytes: Arra
     { method: "PUT", headers: { authorization: `Bearer ${token}`, "content-type": mime }, body: bytes },
     TETO_DO_ENVIO_DA_IMAGEM_MS
   );
+  if (r.status !== 200 && r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+}
+
+/**
+ * A RESERVA DO DOCUMENTO DO CARROSSEL (`POST /rest/documents?action=initializeUpload`, Documents API; a parte 3a),
+ * com a pessoa como dona ("For documents with person URN owners, the caller must match the document owner"). A sonda
+ * de 09/11 deu 200 nela. Devolve o endereço de envio e o URN do documento.
+ */
+export async function reservarDocumento(token: string, pessoaId: string): Promise<{ uploadUrl: string; documentoUrn: string }> {
+  const r = await chamar(`${basesDoLinkedin().api}/rest/documents?action=initializeUpload`, {
+    method: "POST",
+    headers: cabecalhosDoRest(token),
+    body: JSON.stringify({ initializeUploadRequest: { owner: `urn:li:person:${pessoaId}` } }),
+  });
+  if (r.status !== 200) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+  const valor = json(r.texto)?.value as Record<string, unknown> | undefined;
+  const uploadUrl = valor?.uploadUrl;
+  const documentoUrn = valor?.document;
+  if (typeof uploadUrl !== "string" || typeof documentoUrn !== "string" || !documentoUrn.startsWith("urn:li:document:")) {
+    throw new LinkedinError(r.status, "a reserva do documento não devolveu o endereço e o URN");
+  }
+  return { uploadUrl, documentoUrn };
+}
+
+/**
+ * O ENVIO DO DOCUMENTO: um `PUT` só, dos bytes do PDF, com a autorização, como o exemplo da Documents API ("curl
+ * --upload-file" com o "Authorization: Bearer"). O endereço passa pela mesma regra do da imagem: só https de um
+ * domínio do LinkedIn recebe a autorização (os exemplos trazem `https://www.linkedin.com/dms-uploads/...`).
+ */
+export async function enviarDocumento(uploadUrl: string, token: string, bytes: Uint8Array<ArrayBuffer>): Promise<void> {
+  if (!enderecoDeEnvioConfiavel(uploadUrl)) {
+    throw new LinkedinError(0, "o endereço de envio do documento não é do LinkedIn");
+  }
+  const r = await chamar(uploadUrl, { method: "PUT", headers: { authorization: `Bearer ${token}` }, body: bytes }, TETO_DO_ENVIO_DO_DOCUMENTO_MS);
   if (r.status !== 200 && r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300));
 }
 

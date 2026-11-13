@@ -173,3 +173,15 @@ describe("o link para ver o post no LinkedIn", () => {
     }
   });
 });
+
+// O POST COM O DOCUMENTO DO CARROSSEL (a parte 3a): o conteúdo leva o URN do documento e o título, que é
+// obrigatório no documento ("The media title (Required field for Documents API)", o Post schema).
+describe("o corpo do POST /rest/posts com o documento do carrossel", () => {
+  it("o conteúdo leva o documento e o título", () => {
+    expect(corpoDoPost({ pessoaId: "abc", texto: "x", documento: { urn: "urn:li:document:D", titulo: "Cinco dicas" } })).toMatchObject({
+      author: "urn:li:person:abc",
+      commentary: "x",
+      content: { media: { id: "urn:li:document:D", title: "Cinco dicas" } },
+    });
+  });
+});
