@@ -18,7 +18,7 @@ import { cabecalhoDoJpeg } from "./bonus/imagem-jpeg";
 const ESPACO_DE_COR: Record<number, string> = { 1: "/DeviceGray", 3: "/DeviceRGB" };
 
 /** Monta o PDF, uma página por foto, na ordem. Lança com o número da foto (a partir de 1) que não serve. */
-export function pdfDeFotos(fotos: readonly Uint8Array[]): Uint8Array {
+export function pdfDeFotos(fotos: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
   if (fotos.length === 0) throw new Error("o PDF precisa de ao menos uma foto");
   const paginas = fotos.map((foto, i) => {
     const c = cabecalhoDoJpeg(foto);

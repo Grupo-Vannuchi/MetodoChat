@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  aMidiaAindaNaoEstaPronta,
   corpoDoPost,
   desfechoDoErroDoLinkedin,
   formaNoLinkedinDoCampo,
@@ -18,15 +19,17 @@ import {
 // AS REGRAS PURAS DO POST NO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §5; a parte 2a: só texto e
 // imagem, uma rede por post). A tela de publicar e o servidor leem as mesmas funções.
 
-describe("as formas do LinkedIn na 2a", () => {
-  it("são só texto e imagem; o resto, inclusive o que é do Instagram, não vale", () => {
+describe("as formas do LinkedIn (a 2a e o carrossel da 3a)", () => {
+  it("são só texto, imagem e carrossel; o resto, inclusive o que é só do Instagram, não vale", () => {
     expect(formaNoLinkedinDoCampo("texto")).toBe("texto");
     expect(formaNoLinkedinDoCampo("imagem")).toBe("imagem");
-    for (const outra of ["carrossel", "reels", "story", "", null, undefined, ["texto"]]) {
+    expect(formaNoLinkedinDoCampo("carrossel")).toBe("carrossel");
+    for (const outra of ["reels", "video", "story", "", null, undefined, ["texto"]]) {
       expect(formaNoLinkedinDoCampo(outra)).toBeNull();
     }
     expect(rotuloDaFormaNoLinkedin("texto")).toBe("Só texto");
     expect(rotuloDaFormaNoLinkedin("imagem")).toBe("Imagem");
+    expect(rotuloDaFormaNoLinkedin("carrossel")).toBe("Carrossel (PDF)");
   });
 });
 
@@ -115,13 +118,40 @@ describe("o payload da linha do LinkedIn na fila", () => {
       caminhos: ["conta/a.jpg"],
       texto: "Olá",
       imagemUrn: "urn:li:image:X",
+      documentoUrn: null,
+      consultasDaMidia: 0,
+      adiamentos: 0,
       postTentadoEm: "2026-11-09T19:00:00Z",
       postUrn: "urn:li:share:1",
     });
   });
 
+  it("o carrossel leva de 2 a 10 fotos, e lê de volta o documento, as consultas e os adiamentos", () => {
+    const fotos = ["conta/a.jpg", "conta/b.jpg"];
+    const p = payloadDoLinkedin({ forma: "carrossel", caminhos: fotos, texto: "Cinco dicas" });
+    expect(lerPayloadDoLinkedin({ ...p, documento_urn: "urn:li:document:D", consultas_da_midia: 2, adiamentos: 1 })).toMatchObject({
+      forma: "carrossel",
+      caminhos: fotos,
+      documentoUrn: "urn:li:document:D",
+      consultasDaMidia: 2,
+      adiamentos: 1,
+    });
+    expect(lerPayloadDoLinkedin({ forma: "carrossel", caminhos: ["conta/a.jpg"], texto: "x" })).toBeNull();
+    expect(lerPayloadDoLinkedin({ forma: "carrossel", caminhos: Array(11).fill("conta/a.jpg"), texto: "x" })).toBeNull();
+    expect(lerPayloadDoLinkedin({ forma: "carrossel", caminhos: Array(10).fill("conta/a.jpg"), texto: "x" })).not.toBeNull();
+  });
+
+  it("as consultas e os adiamentos que não são inteiros a partir de zero valem zero", () => {
+    for (const torto of [-1, 1.5, "3", null]) {
+      expect(lerPayloadDoLinkedin({ forma: "texto", caminhos: [], texto: "x", consultas_da_midia: torto, adiamentos: torto })).toMatchObject({
+        consultasDaMidia: 0,
+        adiamentos: 0,
+      });
+    }
+  });
+
   it("recusa a forma desconhecida, o texto com arquivo e a imagem sem arquivo, ou com dois", () => {
-    expect(lerPayloadDoLinkedin({ forma: "reels", caminhos: ["a/b.mp4"], texto: "x" })).toBeNull();
+    expect(lerPayloadDoLinkedin({ forma: "video", caminhos: ["a/b.mp4"], texto: "x" })).toBeNull();
     expect(lerPayloadDoLinkedin({ forma: "texto", caminhos: ["a/b.jpg"], texto: "x" })).toBeNull();
     expect(lerPayloadDoLinkedin({ forma: "imagem", caminhos: [], texto: "x" })).toBeNull();
     expect(lerPayloadDoLinkedin({ forma: "imagem", caminhos: ["a/b.jpg", "a/c.jpg"], texto: "x" })).toBeNull();
@@ -183,5 +213,22 @@ describe("o corpo do POST /rest/posts com o documento do carrossel", () => {
       commentary: "x",
       content: { media: { id: "urn:li:document:D", title: "Cinco dicas" } },
     });
+  });
+});
+
+// O DOCUMENTO QUE O LINKEDIN AINDA PROCESSA (a parte 3a). A Posts API não tem código próprio para a mídia não
+// pronta; a Videos API lista o 400 "MEDIA_ASSET_WAITING_UPLOAD" e o estado "PROCESSING". O post com o documento que
+// volta assim não foi criado (é um 4xx), e a linha espera e consulta de novo. O "PROCESSING_FAILED" não espera: falhou.
+describe("o documento que o LinkedIn ainda processa", () => {
+  it("o 400 que fala em WAITING_UPLOAD ou em PROCESSING é a mídia não pronta", () => {
+    expect(aMidiaAindaNaoEstaPronta(400, '{"code":"MEDIA_ASSET_WAITING_UPLOAD","message":"Media asset is waiting upload"}')).toBe(true);
+    expect(aMidiaAindaNaoEstaPronta(400, "the document is still PROCESSING")).toBe(true);
+  });
+
+  it("o PROCESSING_FAILED, outro 400, ou outro status não são", () => {
+    expect(aMidiaAindaNaoEstaPronta(400, '{"code":"MEDIA_ASSET_PROCESSING_FAILED"}')).toBe(false);
+    expect(aMidiaAindaNaoEstaPronta(400, '{"code":"INVALID_URN_TYPE"}')).toBe(false);
+    expect(aMidiaAindaNaoEstaPronta(422, "WAITING_UPLOAD")).toBe(false);
+    expect(aMidiaAindaNaoEstaPronta(500, "PROCESSING")).toBe(false);
   });
 });

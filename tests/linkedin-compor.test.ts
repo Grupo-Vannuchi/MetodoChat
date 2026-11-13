@@ -18,9 +18,10 @@ const pedido = (p: Partial<Parameters<typeof recusaDoPedidoNoLinkedin>[0]> = {})
   recusaDoPedidoNoLinkedin({ forma: "texto", caminhos: [], texto: "Olá #mundo", idDoEnvio: ENVIO, ...p });
 
 describe("as recusas do pedido de publicar no LinkedIn", () => {
-  it("o pedido certo passa, nas duas formas", () => {
+  it("o pedido certo passa, nas três formas", () => {
     expect(pedido()).toBeNull();
     expect(pedido({ forma: "imagem", caminhos: ["conta/foto.jpg"] })).toBeNull();
+    expect(pedido({ forma: "carrossel", caminhos: ["conta/a.jpg", "conta/b.jpg"] })).toBeNull();
   });
 
   it("a forma que não é do LinkedIn", () => {
@@ -31,6 +32,12 @@ describe("as recusas do pedido de publicar no LinkedIn", () => {
     expect(pedido({ caminhos: ["conta/foto.jpg"] })).toBe("quantidade");
     expect(pedido({ forma: "imagem", caminhos: [] })).toBe("quantidade");
     expect(pedido({ forma: "imagem", caminhos: ["conta/a.jpg", "conta/b.jpg"] })).toBe("quantidade");
+  });
+
+  it("o carrossel leva de 2 a 10 fotos", () => {
+    expect(pedido({ forma: "carrossel", caminhos: ["conta/a.jpg"] })).toBe("quantidade");
+    expect(pedido({ forma: "carrossel", caminhos: Array(11).fill("conta/a.jpg") })).toBe("quantidade");
+    expect(pedido({ forma: "carrossel", caminhos: Array(10).fill("conta/a.jpg") })).toBeNull();
   });
 
   it("o texto vazio, nas duas formas", () => {
@@ -68,6 +75,10 @@ describe("as recusas do pedido de publicar no LinkedIn", () => {
     expect(new Set(frases).size).toBe(5);
     expect(textoDaRecusaNoLinkedin("texto_longo")).toContain("3.000");
     expect(textoDaRecusaNoLinkedin("texto_longo")).toContain("hashtags");
+    expect(textoDaRecusaNoLinkedin("forma_desconhecida")).toBe("Escolha a forma do post no LinkedIn: só texto, imagem ou carrossel.");
+    expect(textoDaRecusaNoLinkedin("quantidade")).toBe(
+      "O post do LinkedIn com imagem leva uma imagem, o carrossel leva de 2 a 10 fotos, e o só texto não leva arquivo."
+    );
   });
 });
 

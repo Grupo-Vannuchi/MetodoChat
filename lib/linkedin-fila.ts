@@ -11,13 +11,17 @@ import { urlPublicaDoObjeto } from "./bucket";
 import { conexaoDaConta } from "./linkedin-conexoes";
 import {
   criarPost,
+  enviarDocumento,
   enviarImagem,
   LinkedinError,
+  reservarDocumento,
   reservarImagem,
   TETO_DO_ENVIO_DA_IMAGEM_MS,
+  TETO_DO_ENVIO_DO_DOCUMENTO_MS,
   TETO_DO_LINKEDIN_MS,
 } from "./linkedin";
 import {
+  aMidiaAindaNaoEstaPronta,
   corpoDoPost,
   desfechoDoErroDoLinkedin,
   lerPayloadDoLinkedin,
@@ -25,8 +29,13 @@ import {
   oPostPodeTerSaido,
   payloadDoLinkedin,
   recusaDoPedidoNoLinkedin,
+  textoDoProblemaDoCarrosselNoLinkedin,
+  TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES,
+  tituloDoDocumento,
   type FormaNoLinkedin,
+  type LeituraDoPayloadDoLinkedin,
 } from "./linkedin-publicacao";
+import { pdfDeFotos } from "./pdf-de-fotos";
 
 // O POST DO LINKEDIN PELA FILA (docs/specs/2026-11-06-linkedin-no-perfil.md, §6; a parte 2a: só texto e imagem,
 // uma rede por post). Dois pedaços: o enfileirar, no molde do `enqueuePublicacao` (lib/engine.ts), e o publicar,
@@ -160,19 +169,75 @@ const FOLGA_MS = 5_000;
 const TEMPO_PARA_A_IMAGEM_MS = TETO_DO_BUCKET_MS + TETO_DO_LINKEDIN_MS + TETO_DO_ENVIO_DA_IMAGEM_MS + FOLGA_MS;
 /** O POST, com a folga: 15 s. */
 const TEMPO_PARA_O_POST_MS = TETO_DO_LINKEDIN_MS + FOLGA_MS;
+/**
+ * A MONTAGEM DO PDF DO CARROSSEL (lib/pdf-de-fotos.ts): juntar os JPEGs, até os 15 MB do carrossel, e escrever a
+ * tabela de posições. É linear nos bytes, sem recomprimir; os 2 s são a trava, e o plano mede o tempo de verdade.
+ */
+const TEMPO_DE_MONTAGEM_DO_PDF_MS = 2_000;
+/**
+ * A MÍDIA DO CARROSSEL (a parte 3a; o 213): as fotos do bucket, baixadas juntas (10 s), a montagem (2 s), a reserva
+ * (10 s) e o envio do documento (25 s), com a folga: 52 s. Ela só cabe no começo de uma função; o post vem numa
+ * passada seguinte, se não sobrar tempo.
+ */
+const TEMPO_PARA_O_DOCUMENTO_MS =
+  TETO_DO_BUCKET_MS + TEMPO_DE_MONTAGEM_DO_PDF_MS + TETO_DO_LINKEDIN_MS + TETO_DO_ENVIO_DO_DOCUMENTO_MS + FOLGA_MS;
 /** Quando falta tempo, a linha volta para daqui a pouco: a próxima passada é outra função, com o prazo inteiro. */
 const VOLTA_SEM_TEMPO_EM_SEGUNDOS = 20;
+/**
+ * O TETO DOS ADIAMENTOS (a parte 3a; nota da auditoria): a volta sem gastar tentativa não tinha teto, e uma linha que
+ * nunca tivesse tempo seria adiada para sempre. O sétimo adiamento encerra a linha com o motivo. No lote, a linha já
+ * adiada vai primeiro (`naOrdemDoLote`, lib/fila-tipos.ts), e começa com o prazo quase inteiro.
+ */
+export const ADIAMENTOS_MAX = 6;
+export const MOTIVO_SEM_TEMPO_DEMAIS = "o post não coube no tempo de nenhuma passada; publique de novo, com menos fotos";
+/**
+ * O DOCUMENTO QUE O LINKEDIN AINDA PROCESSA (a parte 3a): a linha volta em um minuto, até cinco consultas, como a
+ * espera do contêiner da Meta. Na sexta, ela encerra com o motivo.
+ */
+export const CONSULTAS_DA_MIDIA_MAX = 5;
+const ESPERA_DA_MIDIA_EM_SEGUNDOS = 60;
+export const MOTIVO_MIDIA_PROCESSANDO = "o LinkedIn ainda está processando o documento; o post sai na próxima consulta";
+export const MOTIVO_MIDIA_NAO_FICOU_PRONTA = "o LinkedIn não terminou de processar o documento a tempo; publique de novo";
 
 /**
  * A LINHA VOLTA À FILA SEM GASTAR A TENTATIVA: a reivindicação contou uma, e nada foi tentado. Sem o desconto,
- * três passadas sem tempo levariam o primeiro erro passageiro a encerrar a linha.
+ * três passadas sem tempo levariam o primeiro erro passageiro a encerrar a linha. O adiamento fica contado no payload.
  */
-async function devolverSemGastarTentativa(id: string): Promise<void> {
+async function devolverSemGastarTentativa(id: string, adiamentos: number): Promise<void> {
   await sql().query(
     `update queue set status = 'pending', attempts = greatest(attempts - 1, 0),
-            not_before = now() + make_interval(secs => $2::int), error = $3
+            not_before = now() + make_interval(secs => $2::int), error = $3,
+            payload = payload || jsonb_build_object('adiamentos', $4::int)
       where id = $1`,
-    [id, VOLTA_SEM_TEMPO_EM_SEGUNDOS, MOTIVO_SEM_TEMPO]
+    [id, VOLTA_SEM_TEMPO_EM_SEGUNDOS, MOTIVO_SEM_TEMPO, adiamentos]
+  );
+}
+
+/** Sem tempo para o passo seguinte: adia, contando, ou encerra no sétimo adiamento. */
+async function adiarOuEncerrar(
+  item: QueueItem,
+  pub: LeituraDoPayloadDoLinkedin,
+  deps: DependenciasDoDreno
+): Promise<DesfechoDoPostNoLinkedin> {
+  if (pub.adiamentos >= ADIAMENTOS_MAX) {
+    await deps.finish(item.id, { status: "failed", error: MOTIVO_SEM_TEMPO_DEMAIS });
+    return "falhou";
+  }
+  await devolverSemGastarTentativa(item.id, pub.adiamentos + 1);
+  return "aguardando";
+}
+
+/**
+ * O DOCUMENTO AINDA NÃO ESTÁ PRONTO: o post não foi criado (o 4xx prova), então a marca do POST sai, e a linha volta
+ * em um minuto sem gastar a tentativa, com a consulta contada.
+ */
+async function esperarAMidia(id: string, consultas: number): Promise<void> {
+  await sql().query(
+    `update queue set status = 'pending', attempts = greatest(attempts - 1, 0),
+            not_before = now() + make_interval(secs => $2::int), error = $3,
+            payload = (payload - 'post_tentado_em') || jsonb_build_object('consultas_da_midia', $4::int)
+      where id = $1`,
+    [id, ESPERA_DA_MIDIA_EM_SEGUNDOS, MOTIVO_MIDIA_PROCESSANDO, consultas]
   );
 }
 
@@ -240,12 +305,14 @@ export async function publicarNoLinkedinDaFila(item: QueueItem, deps: Dependenci
   }
 
   // O TEMPO, ANTES DE QUALQUER CHAMADA: a imagem que ainda não subiu precisa do bucket, da reserva e do envio; o
-  // resto, só do post.
-  const precisa = pub.forma === "imagem" && !pub.imagemUrn ? TEMPO_PARA_A_IMAGEM_MS : TEMPO_PARA_O_POST_MS;
-  if (deps.prazoMs - Date.now() < precisa) {
-    await devolverSemGastarTentativa(item.id);
-    return "aguardando";
-  }
+  // documento do carrossel, também da montagem do PDF; o resto, só do post.
+  const precisa =
+    pub.forma === "imagem" && !pub.imagemUrn
+      ? TEMPO_PARA_A_IMAGEM_MS
+      : pub.forma === "carrossel" && !pub.documentoUrn
+        ? TEMPO_PARA_O_DOCUMENTO_MS
+        : TEMPO_PARA_O_POST_MS;
+  if (deps.prazoMs - Date.now() < precisa) return adiarOuEncerrar(item, pub, deps);
 
   const conexao = conta ? await conexaoDaConta(conta) : null;
   if (!conexao) {
@@ -274,12 +341,41 @@ export async function publicarNoLinkedinDaFila(item: QueueItem, deps: Dependenci
     await deps.guardarNoPayload(item.id, { imagem_urn: imagemUrn });
   }
 
-  // O TEMPO DE NOVO, depois da imagem: o passo que pode duplicar nunca começa perto do fim da função. O
-  // `imagem_urn` já está gravado, e a passada seguinte só publica.
-  if (deps.prazoMs - Date.now() < TEMPO_PARA_O_POST_MS) {
-    await devolverSemGastarTentativa(item.id);
-    return "aguardando";
+  // O DOCUMENTO DO CARROSSEL (a parte 3a): as fotos do bucket, baixadas juntas; o total no teto; o PDF montado aqui,
+  // com o JPEG como está; a reserva e o envio. O `documento_urn` fica gravado, e a passada seguinte não refaz nada
+  // disso. Repetir este passo inteiro, se a marca se perdeu, é seguro: a reserva nova é outro documento, e o de antes
+  // fica sem uso no LinkedIn. A foto que falta no bucket é erro passageiro (sobe ao `catch` do dreno); a foto que
+  // não é JPEG, e o total acima do teto, encerram a linha antes de qualquer chamada ao LinkedIn.
+  let documentoUrn = pub.documentoUrn ?? undefined;
+  if (pub.forma === "carrossel" && !documentoUrn) {
+    const fotos = (await Promise.all(pub.caminhos.map(bytesDaImagem))).map((b) => new Uint8Array(b));
+    if (fotos.reduce((soma, f) => soma + f.length, 0) > TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES) {
+      await deps.finish(item.id, { status: "failed", error: textoDoProblemaDoCarrosselNoLinkedin("grande") });
+      return "falhou";
+    }
+    let pdf: Uint8Array<ArrayBuffer>;
+    try {
+      pdf = pdfDeFotos(fotos);
+    } catch (err) {
+      await deps.finish(item.id, { status: "failed", error: err instanceof Error ? err.message : "o PDF do carrossel não foi montado" });
+      return "falhou";
+    }
+    try {
+      const reserva = await reservarDocumento(conexao.access_token, conexao.pessoa_id);
+      await enviarDocumento(reserva.uploadUrl, conexao.access_token, pdf);
+      documentoUrn = reserva.documentoUrn;
+    } catch (err) {
+      const recusa = recusaDoLinkedin(err, conexao.nome);
+      if (recusa === null) throw err;
+      await deps.finish(item.id, { status: "failed", error: recusa });
+      return "falhou";
+    }
+    await deps.guardarNoPayload(item.id, { documento_urn: documentoUrn });
   }
+
+  // O TEMPO DE NOVO, depois da mídia: o passo que pode duplicar nunca começa perto do fim da função. O
+  // `imagem_urn` (ou o `documento_urn`) já está gravado, e a passada seguinte só publica.
+  if (deps.prazoMs - Date.now() < TEMPO_PARA_O_POST_MS) return adiarOuEncerrar(item, pub, deps);
 
   // A MARCA ANTES DO POST (achado 210): uma resposta perdida daqui em diante não vira um segundo post.
   await deps.guardarNoPayload(item.id, { post_tentado_em: new Date().toISOString() });
@@ -287,12 +383,28 @@ export async function publicarNoLinkedinDaFila(item: QueueItem, deps: Dependenci
   try {
     postUrn = await criarPost(
       conexao.access_token,
-      corpoDoPost({ pessoaId: conexao.pessoa_id, texto: pub.texto, imagemUrn })
+      corpoDoPost({
+        pessoaId: conexao.pessoa_id,
+        texto: pub.texto,
+        imagemUrn,
+        documento: documentoUrn ? { urn: documentoUrn, titulo: tituloDoDocumento(pub.texto) } : undefined,
+      })
     );
   } catch (err) {
     if (!(err instanceof LinkedinError) || oPostPodeTerSaido(err.status)) {
       await deps.finish(item.id, { status: "failed", error: MOTIVO_PODE_TER_SAIDO });
       return "falhou";
+    }
+    // O DOCUMENTO QUE O LINKEDIN AINDA PROCESSA (a parte 3a): o 4xx prova que o post não foi criado. A linha espera
+    // um minuto e consulta de novo, até cinco vezes; na sexta, encerra com o motivo.
+    if (pub.forma === "carrossel" && aMidiaAindaNaoEstaPronta(err.status, err.texto)) {
+      if (pub.consultasDaMidia >= CONSULTAS_DA_MIDIA_MAX) {
+        await tirarAMarcaDoPost(item.id);
+        await deps.finish(item.id, { status: "failed", error: MOTIVO_MIDIA_NAO_FICOU_PRONTA });
+        return "falhou";
+      }
+      await esperarAMidia(item.id, pub.consultasDaMidia + 1);
+      return "aguardando";
     }
     // O LinkedIn respondeu 4xx: o post não foi criado, e a marca sai. O 429 e o 409 voltam à fila; o resto encerra.
     await tirarAMarcaDoPost(item.id);
