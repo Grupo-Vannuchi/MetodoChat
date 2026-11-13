@@ -21,7 +21,6 @@ import {
   TETO_DO_LINKEDIN_MS,
 } from "./linkedin";
 import {
-  aMidiaAindaNaoEstaPronta,
   corpoDoPost,
   desfechoDoErroDoLinkedin,
   lerPayloadDoLinkedin,
@@ -189,7 +188,8 @@ const VOLTA_SEM_TEMPO_EM_SEGUNDOS = 20;
  * adiada vai primeiro (`naOrdemDoLote`, lib/fila-tipos.ts), e começa com o prazo quase inteiro.
  */
 export const ADIAMENTOS_MAX = 6;
-export const MOTIVO_SEM_TEMPO_DEMAIS = "o post não coube no tempo de nenhuma passada; publique de novo, com menos fotos";
+export const MOTIVO_SEM_TEMPO_DEMAIS = "o post não coube no tempo de nenhuma passada; publique de novo";
+export const MOTIVO_SEM_TEMPO_DEMAIS_NO_CARROSSEL = "o post não coube no tempo de nenhuma passada; publique de novo, com menos fotos";
 /**
  * O DOCUMENTO QUE O LINKEDIN AINDA PROCESSA (a parte 3a): a linha volta em um minuto, até cinco consultas, como a
  * espera do contêiner da Meta. Na sexta, ela encerra com o motivo.
@@ -220,7 +220,9 @@ async function adiarOuEncerrar(
   deps: DependenciasDoDreno
 ): Promise<DesfechoDoPostNoLinkedin> {
   if (pub.adiamentos >= ADIAMENTOS_MAX) {
-    await deps.finish(item.id, { status: "failed", error: MOTIVO_SEM_TEMPO_DEMAIS });
+    // O MOTIVO PELA FORMA: só o carrossel fala em fotos (nota da auditoria sobre a F3).
+    const motivo = pub.forma === "carrossel" ? MOTIVO_SEM_TEMPO_DEMAIS_NO_CARROSSEL : MOTIVO_SEM_TEMPO_DEMAIS;
+    await deps.finish(item.id, { status: "failed", error: motivo });
     return "falhou";
   }
   await devolverSemGastarTentativa(item.id, pub.adiamentos + 1);
@@ -397,7 +399,7 @@ export async function publicarNoLinkedinDaFila(item: QueueItem, deps: Dependenci
     }
     // O DOCUMENTO QUE O LINKEDIN AINDA PROCESSA (a parte 3a): o 4xx prova que o post não foi criado. A linha espera
     // um minuto e consulta de novo, até cinco vezes; na sexta, encerra com o motivo.
-    if (pub.forma === "carrossel" && aMidiaAindaNaoEstaPronta(err.status, err.texto)) {
+    if (pub.forma === "carrossel" && err.midiaNaoPronta) {
       if (pub.consultasDaMidia >= CONSULTAS_DA_MIDIA_MAX) {
         await tirarAMarcaDoPost(item.id);
         await deps.finish(item.id, { status: "failed", error: MOTIVO_MIDIA_NAO_FICOU_PRONTA });

@@ -24,10 +24,12 @@ export function medidasDoJpeg(b: Uint8Array): MedidasDoJpeg | null {
 
 /**
  * O CABEÇALHO DO JPEG, lido do mesmo segmento SOF: as medidas, os componentes de cor (1 é cinza, 3 é a cor de tela,
- * 4 é o CMYK da gráfica) e a precisão em bits. É o que o PDF de fotos do LinkedIn precisa para pôr a foto como ela
- * está (a parte 3a: lib/pdf-de-fotos.ts), e o que a tela de publicar lê para decidir se a foto vai crua.
+ * 4 é o CMYK da gráfica), a precisão em bits e o próprio marcador do SOF, que diz o processo (C0 o baseline, C1 o
+ * estendido, C2 o progressivo; C3, C7, CB e CF os sem perda; de C9 a CB e de CD a CF os aritméticos: a tabela B.1 da
+ * norma, ITU T.81). É o que o PDF de fotos do LinkedIn precisa para pôr a foto como ela está (a parte 3a:
+ * lib/pdf-de-fotos.ts), e o que a tela de publicar lê para decidir se a foto vai crua.
  */
-export type CabecalhoDoJpeg = MedidasDoJpeg & { componentes: number; precisao: number };
+export type CabecalhoDoJpeg = MedidasDoJpeg & { componentes: number; precisao: number; marcador: number };
 
 export function cabecalhoDoJpeg(b: Uint8Array): CabecalhoDoJpeg | null {
   if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return null;
@@ -48,7 +50,7 @@ export function cabecalhoDoJpeg(b: Uint8Array): CabecalhoDoJpeg | null {
       const altura = (b[i + 5] << 8) | b[i + 6];
       const largura = (b[i + 7] << 8) | b[i + 8];
       const componentes = b[i + 9];
-      return largura > 0 && altura > 0 ? { largura, altura, componentes, precisao } : null;
+      return largura > 0 && altura > 0 ? { largura, altura, componentes, precisao, marcador: marca } : null;
     }
     i += 2 + tamanho;
   }

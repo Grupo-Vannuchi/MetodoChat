@@ -455,10 +455,18 @@ export function textoDoProblemaDoCarrosselNoLinkedin(p: ProblemaDoCarrosselNoLin
 }
 
 /**
- * O JPEG QUE PODE IR CRU, SEM O CANVAS, QUANDO O LINKEDIN ESTÁ MARCADO NO CARROSSEL: só o de 1 ou 3 componentes (cinza
- * ou cor de tela), que o PDF de fotos aceita como está (lib/pdf-de-fotos.ts). O CMYK de gráfica, e o que não deu para
- * ler (0), passam pelo canvas, que devolve cor de tela. Sem o LinkedIn, a regra do Instagram não muda.
+ * O JPEG QUE VAI COMO ESTÁ PARA O PDF DO CARROSSEL, e o que pode ir cru, sem o canvas, quando o LinkedIn está marcado
+ * no carrossel: uma regra só, para a tela e para o PDF (lib/pdf-de-fotos.ts).
+ *   - 1 ou 3 componentes (cinza ou cor de tela): o CMYK de gráfica pediria a inversão do Adobe, que nem todo leitor
+ *     faz igual;
+ *   - 8 bits: o de 12 não é aceito pelo filtro do PDF em todo lugar;
+ *   - o baseline, o estendido ou o progressivo (C0, C1 e C2), que usam a DCT do filtro /DCTDecode. O sem perda e o
+ *     aritmético não (nota da auditoria sobre a F1 da 3a).
+ * O resto, e o que não deu para ler (null), passa pelo canvas, que devolve um JPEG baseline de cor de tela. Sem o
+ * LinkedIn, a regra do Instagram não muda.
  */
-export function vaiCruParaOLinkedin(componentes: number): boolean {
-  return componentes === 1 || componentes === 3;
+const MARCADORES_DA_DCT = new Set([0xc0, 0xc1, 0xc2]);
+
+export function vaiCruParaOLinkedin(c: { componentes: number; precisao: number; marcador: number } | null): boolean {
+  return !!c && (c.componentes === 1 || c.componentes === 3) && c.precisao === 8 && MARCADORES_DA_DCT.has(c.marcador);
 }

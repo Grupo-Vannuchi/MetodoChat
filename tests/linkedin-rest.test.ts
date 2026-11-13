@@ -185,3 +185,23 @@ describe("a reserva e o envio do documento do carrossel", () => {
     });
   });
 });
+
+// A MÍDIA NÃO PRONTA É DECIDIDA NA RESPOSTA INTEIRA (nota da auditoria sobre a F3 da 3a). O erro guarda só os
+// primeiros 300 caracteres da resposta, para a mensagem; o código do LinkedIn pode vir depois deles, e a decisão
+// tem de ver o texto todo, dentro do `criarPost`.
+describe("o post recusado pela mídia que o LinkedIn ainda processa", () => {
+  it("o código depois dos 300 primeiros caracteres ainda conta, e o erro diz que a mídia não está pronta", async () => {
+    const longo = JSON.stringify({ message: "x".repeat(400), code: "MEDIA_ASSET_WAITING_UPLOAD" });
+    vi.stubGlobal("fetch", async () => new Response(longo, { status: 400 }));
+    await expect(criarPost("token-de-teste", { author: "urn:li:person:x" })).rejects.toMatchObject({
+      name: "LinkedinError",
+      status: 400,
+      midiaNaoPronta: true,
+    });
+  });
+
+  it("o outro 400, e o post que deu certo, não", async () => {
+    vi.stubGlobal("fetch", async () => new Response('{"code":"INVALID_URN_TYPE"}', { status: 400 }));
+    await expect(criarPost("token-de-teste", { author: "urn:li:person:x" })).rejects.toMatchObject({ status: 400, midiaNaoPronta: false });
+  });
+});

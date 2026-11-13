@@ -7,6 +7,8 @@ import "server-only";
 // AS CHAVES DO APP (`LINKEDIN_CLIENT_ID` e `LINKEDIN_CLIENT_SECRET`) FICAM SÓ NAS VARIÁVEIS DA VERCEL, nunca no
 // código nem no banco, porque o repositório é público (§8). Sem as duas, o LinkedIn fica desligado no painel.
 
+import { aMidiaAindaNaoEstaPronta } from "./linkedin-publicacao";
+
 const OAUTH = "https://www.linkedin.com";
 const API = "https://api.linkedin.com";
 
@@ -95,11 +97,18 @@ export function temPermissaoDePublicar(scope: unknown): boolean {
 export class LinkedinError extends Error {
   status: number;
   texto: string;
-  constructor(status: number, texto: string) {
+  /**
+   * O POST RECUSADO PORQUE O LINKEDIN AINDA PROCESSA A MÍDIA (a parte 3a), decidido na resposta INTEIRA dentro do
+   * `criarPost` (`aMidiaAindaNaoEstaPronta`): o `texto` guarda só o começo dela, para a mensagem, e o código do
+   * LinkedIn pode vir depois (nota da auditoria sobre a F3).
+   */
+  midiaNaoPronta: boolean;
+  constructor(status: number, texto: string, midiaNaoPronta = false) {
     super(`LinkedIn ${status}: ${texto}`);
     this.name = "LinkedinError";
     this.status = status;
     this.texto = texto;
+    this.midiaNaoPronta = midiaNaoPronta;
   }
 }
 
@@ -296,7 +305,7 @@ export async function criarPost(token: string, corpo: Record<string, unknown>): 
     headers: cabecalhosDoRest(token),
     body: JSON.stringify(corpo),
   });
-  if (r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+  if (r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300), aMidiaAindaNaoEstaPronta(r.status, r.texto));
   if (!r.restliId) throw new LinkedinError(r.status, "o post saiu sem o x-restli-id");
   return r.restliId;
 }

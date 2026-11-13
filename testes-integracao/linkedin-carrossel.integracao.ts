@@ -288,7 +288,8 @@ describe("o carrossel em PDF no LinkedIn", () => {
     await dreno.drainQueue({ inicioDaFuncaoMs: restando(40_000) });
 
     expect(linkedin.pedidos).toEqual([]);
-    expect(await linha(id)).toMatchObject({ status: "failed", error: fila.MOTIVO_SEM_TEMPO_DEMAIS });
+    expect(await linha(id)).toMatchObject({ status: "failed", error: fila.MOTIVO_SEM_TEMPO_DEMAIS_NO_CARROSSEL });
+    expect(fila.MOTIVO_SEM_TEMPO_DEMAIS_NO_CARROSSEL).toContain("menos fotos");
   });
 
   it("a foto que não é JPEG encerra a linha antes de qualquer chamada ao LinkedIn, dizendo qual foto", async () => {

@@ -9,11 +9,13 @@
 // processamento além de juntar os bytes. As medidas e as cores saem do cabeçalho do JPEG (`cabecalhoDoJpeg`). A
 // página tem o tamanho da foto, um ponto por pixel: quem mostra o PDF o escala, e a proporção é o que conta.
 //
-// SÓ CINZA E COR DE TELA (1 ou 3 componentes), DE 8 BITS. O CMYK de gráfica pediria a inversão do Adobe, que nem todo
-// leitor faz igual, e o de 12 bits não é aceito pelo filtro em todo lugar. A tela de publicar converte para JPEG de
+// SÓ CINZA E COR DE TELA (1 ou 3 componentes), DE 8 BITS, E SÓ OS PROCESSOS DA DCT (C0, C1 e C2). O CMYK de gráfica
+// pediria a inversão do Adobe, que nem todo leitor faz igual; o de 12 bits não é aceito pelo filtro em todo lugar; e o
+// sem perda e o aritmético não são decodificados pelo /DCTDecode. A tela de publicar converte para JPEG de
 // cor de tela, pelo canvas, toda foto que não sirva quando o LinkedIn está marcado (`vaiCruParaOLinkedin`), então
 // esta recusa só se alcança por um pedido montado à mão.
 import { cabecalhoDoJpeg } from "./bonus/imagem-jpeg";
+import { vaiCruParaOLinkedin } from "./linkedin-publicacao";
 
 const ESPACO_DE_COR: Record<number, string> = { 1: "/DeviceGray", 3: "/DeviceRGB" };
 
@@ -22,11 +24,11 @@ export function pdfDeFotos(fotos: readonly Uint8Array[]): Uint8Array<ArrayBuffer
   if (fotos.length === 0) throw new Error("o PDF precisa de ao menos uma foto");
   const paginas = fotos.map((foto, i) => {
     const c = cabecalhoDoJpeg(foto);
-    const cor = c ? ESPACO_DE_COR[c.componentes] : undefined;
-    if (!c || !cor || c.precisao !== 8) {
-      throw new Error(`a foto ${i + 1} não é um JPEG de 8 bits em cor de tela (RGB) ou em tons de cinza`);
+    // A MESMA REGRA DA TELA (`vaiCruParaOLinkedin`): 1 ou 3 componentes, 8 bits e um processo da DCT.
+    if (!c || !vaiCruParaOLinkedin(c)) {
+      throw new Error(`a foto ${i + 1} não é um JPEG comum de 8 bits em cor de tela (RGB) ou em tons de cinza`);
     }
-    return { foto, largura: c.largura, altura: c.altura, cor };
+    return { foto, largura: c.largura, altura: c.altura, cor: ESPACO_DE_COR[c.componentes] };
   });
 
   // OS OBJETOS: 1 o catálogo, 2 as páginas, e três por página (a página, o desenho dela e a imagem).

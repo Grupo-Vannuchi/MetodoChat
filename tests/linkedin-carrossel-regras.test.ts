@@ -46,15 +46,26 @@ function jpeg(p: { largura: number; altura: number; sof?: number; componentes?: 
 
 describe("o cabeçalho do JPEG: as medidas, os componentes e a precisão", () => {
   it("os dois JPEGs de verdade do ffmpeg: baseline, 3 componentes, 8 bits", () => {
-    expect(cabecalhoDoJpeg(FOTO_A)).toEqual({ largura: 16, altura: 20, componentes: 3, precisao: 8 });
-    expect(cabecalhoDoJpeg(FOTO_B)).toEqual({ largura: 20, altura: 16, componentes: 3, precisao: 8 });
+    expect(cabecalhoDoJpeg(FOTO_A)).toEqual({ largura: 16, altura: 20, componentes: 3, precisao: 8, marcador: 0xc0 });
+    expect(cabecalhoDoJpeg(FOTO_B)).toEqual({ largura: 20, altura: 16, componentes: 3, precisao: 8, marcador: 0xc0 });
   });
 
   it("o progressivo (SOF2), o cinza (1 componente), o CMYK (4) e o de 12 bits", () => {
-    expect(cabecalhoDoJpeg(jpeg({ largura: 1080, altura: 1350, sof: 0xc2 }))).toEqual({ largura: 1080, altura: 1350, componentes: 3, precisao: 8 });
+    expect(cabecalhoDoJpeg(jpeg({ largura: 1080, altura: 1350, sof: 0xc2 }))).toEqual({
+      largura: 1080,
+      altura: 1350,
+      componentes: 3,
+      precisao: 8,
+      marcador: 0xc2,
+    });
     expect(cabecalhoDoJpeg(jpeg({ largura: 600, altura: 600, componentes: 1 }))).toMatchObject({ componentes: 1 });
     expect(cabecalhoDoJpeg(jpeg({ largura: 600, altura: 600, componentes: 4 }))).toMatchObject({ componentes: 4 });
     expect(cabecalhoDoJpeg(jpeg({ largura: 600, altura: 600, precisao: 12 }))).toMatchObject({ precisao: 12 });
+  });
+
+  it("o sem perda (C3) e o aritmético (C9) também são lidos, com o marcador de cada um", () => {
+    expect(cabecalhoDoJpeg(jpeg({ largura: 8, altura: 8, sof: 0xc3 }))).toMatchObject({ marcador: 0xc3 });
+    expect(cabecalhoDoJpeg(jpeg({ largura: 8, altura: 8, sof: 0xc9 }))).toMatchObject({ marcador: 0xc9 });
   });
 
   it("o SOF depois de segmentos grandes (um EXIF e um perfil de cor de 60 KB cada, 120 KB antes dele) ainda é achado", () => {
@@ -130,6 +141,13 @@ describe("o PDF de fotos", () => {
     expect(() => pdfDeFotos([FOTO_A, new Uint8Array([1, 2, 3])])).toThrow(/foto 2/);
     expect(() => pdfDeFotos([])).toThrow();
   });
+
+  it("recusa, com o número da foto, o JPEG que o filtro do PDF não decodifica: o sem perda (C3) e o aritmético (C9)", () => {
+    // A TABELA B.1 DA NORMA DO JPEG (ITU T.81): C3, C7, CB e CF são sem perda, sem a DCT; C9 a CB e CD a CF, aritméticos.
+    expect(() => pdfDeFotos([FOTO_A, jpeg({ largura: 8, altura: 8, sof: 0xc3 })])).toThrow(/foto 2/);
+    expect(() => pdfDeFotos([jpeg({ largura: 8, altura: 8, sof: 0xc9 })])).toThrow(/foto 1/);
+    expect(comoTexto(pdfDeFotos([jpeg({ largura: 8, altura: 8, sof: 0xc1 }), jpeg({ largura: 8, altura: 8, sof: 0xc2 })]))).toContain("/Count 2");
+  });
 });
 
 describe("o título do documento no LinkedIn: o começo do texto (a decisão do Eduardo, 11/11)", () => {
@@ -182,9 +200,18 @@ describe("o carrossel no LinkedIn: só fotos, até 15 MB no total", () => {
 
 describe("o JPEG que pode ir cru com o LinkedIn marcado", () => {
   it("só o de 1 ou 3 componentes (cinza ou cor de tela); o CMYK e o que não deu para ler passam pelo canvas", () => {
-    expect(vaiCruParaOLinkedin(1)).toBe(true);
-    expect(vaiCruParaOLinkedin(3)).toBe(true);
-    for (const outro of [0, 2, 4]) expect(vaiCruParaOLinkedin(outro)).toBe(false);
+    expect(vaiCruParaOLinkedin({ componentes: 1, precisao: 8, marcador: 0xc0 })).toBe(true);
+    expect(vaiCruParaOLinkedin({ componentes: 3, precisao: 8, marcador: 0xc0 })).toBe(true);
+    for (const outro of [0, 2, 4]) expect(vaiCruParaOLinkedin({ componentes: outro, precisao: 8, marcador: 0xc0 })).toBe(false);
+    expect(vaiCruParaOLinkedin(null)).toBe(false);
+  });
+
+  it("só o baseline, o estendido e o progressivo (C0, C1 e C2), de 8 bits; o sem perda e o aritmético passam pelo canvas", () => {
+    for (const marcador of [0xc0, 0xc1, 0xc2]) expect(vaiCruParaOLinkedin({ componentes: 3, precisao: 8, marcador })).toBe(true);
+    for (const marcador of [0xc3, 0xc5, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xcf]) {
+      expect(vaiCruParaOLinkedin({ componentes: 3, precisao: 8, marcador })).toBe(false);
+    }
+    expect(vaiCruParaOLinkedin({ componentes: 3, precisao: 12, marcador: 0xc1 })).toBe(false);
   });
 });
 
