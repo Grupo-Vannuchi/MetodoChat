@@ -18,11 +18,17 @@ import { MOTIVO_NAO_REGISTRADO, fraseSobreAMidia } from "@/lib/publicacao";
 const IG = { kind: "publicacao", payload: { forma: "imagem", caminhos: ["conta/ig.jpg"], legenda: "A legenda" } };
 const LI_TEXTO = { kind: "publicacao_linkedin", payload: { forma: "texto", caminhos: [], texto: "O texto do post" } };
 const LI_IMAGEM = { kind: "publicacao_linkedin", payload: { forma: "imagem", caminhos: ["conta/li.jpg"], texto: "Com foto" } };
+// O CARROSSEL DO LINKEDIN (a parte 3a): as fotos vão como PDF, e as telas mostram a primeira como capa.
+const LI_CARROSSEL = {
+  kind: "publicacao_linkedin",
+  payload: { forma: "carrossel", caminhos: ["conta/c1.jpg", "conta/c2.jpg"], texto: "O carrossel" },
+};
 
 describe("o nome do post do LinkedIn", () => {
   it("leva a rede na frente, como o convite do LinkedIn", () => {
     expect(rotuloDoPostNoLinkedin({ forma: "texto" })).toBe("LinkedIn · Só texto");
     expect(rotuloDoPostNoLinkedin({ forma: "imagem" })).toBe("LinkedIn · Imagem");
+    expect(rotuloDoPostNoLinkedin({ forma: "carrossel" })).toBe("LinkedIn · Carrossel (PDF)");
     expect(rotuloDoPostNoLinkedin(null)).toBe("LinkedIn · Forma não reconhecida");
   });
 });
@@ -45,6 +51,11 @@ describe("o quadrado do calendário", () => {
     expect(cartaoDoPost(LI_IMAGEM, false)).toEqual({ rotulo: "LinkedIn · Imagem", capa: "conta/li.jpg", soVideo: false });
     expect(cartaoDoPost(LI_IMAGEM, true)).toEqual({ rotulo: "LinkedIn · Imagem", capa: null, soVideo: false });
     expect(cartaoDoPost(LI_TEXTO, false)).toEqual({ rotulo: "LinkedIn · Só texto", capa: null, soVideo: false });
+  });
+
+  it("o carrossel do LinkedIn: a capa é a primeira foto, enquanto não saiu (a parte 3a)", () => {
+    expect(cartaoDoPost(LI_CARROSSEL, false)).toEqual({ rotulo: "LinkedIn · Carrossel (PDF)", capa: "conta/c1.jpg", soVideo: false });
+    expect(cartaoDoPost(LI_CARROSSEL, true)).toEqual({ rotulo: "LinkedIn · Carrossel (PDF)", capa: null, soVideo: false });
   });
 
   it("o payload torto do LinkedIn não vira o do Instagram", () => {
@@ -77,6 +88,7 @@ describe("os arquivos que o cancelar apaga", () => {
     expect(caminhosDoPostDaFila(IG.kind, IG.payload)).toEqual(["conta/ig.jpg"]);
     expect(caminhosDoPostDaFila(LI_IMAGEM.kind, LI_IMAGEM.payload)).toEqual(["conta/li.jpg"]);
     expect(caminhosDoPostDaFila(LI_TEXTO.kind, LI_TEXTO.payload)).toEqual([]);
+    expect(caminhosDoPostDaFila(LI_CARROSSEL.kind, LI_CARROSSEL.payload)).toEqual(["conta/c1.jpg", "conta/c2.jpg"]);
     expect(caminhosDoPostDaFila("publicacao_linkedin", { forma: "reels", caminhos: ["x"] })).toBeNull();
     expect(caminhosDoPostDaFila("publicacao", { forma: "nada" })).toBeNull();
   });
@@ -126,6 +138,17 @@ describe("a página de um post", () => {
     expect(p.caminhos).toEqual(["conta/li.jpg"]);
     expect(p.sobreAMidia).toBe(fraseSobreAMidia(saiu, null));
     expect(p.ehVideo("conta/li.mp4")).toBe(false);
+  });
+
+  it("o carrossel do LinkedIn tem todas as fotos e a frase sobre a mídia, e nunca é vídeo (a parte 3a)", () => {
+    const agendadoComErro = paginaDoPost({ ...LI_CARROSSEL, error: "o LinkedIn recusou" }, agendado);
+    expect(agendadoComErro.titulo).toBe("LinkedIn · Carrossel (PDF)");
+    expect(agendadoComErro.caminhos).toEqual(["conta/c1.jpg", "conta/c2.jpg"]);
+    expect(agendadoComErro.sobreAMidia).toBe(fraseSobreAMidia(agendado, "o LinkedIn recusou"));
+    expect(paginaDoPost({ ...LI_CARROSSEL, error: null }, saiu).sobreAMidia).toBe(fraseSobreAMidia(saiu, null));
+    expect(agendadoComErro.ehVideo("conta/c1.mp4")).toBe(false);
+    // O SÓ TEXTO CONTINUA SEM A FRASE: ele não tem mídia.
+    expect(paginaDoPost({ ...LI_TEXTO, error: null }, saiu).sobreAMidia).toBeNull();
   });
 });
 

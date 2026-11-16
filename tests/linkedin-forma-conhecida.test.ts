@@ -13,8 +13,8 @@ import { AVISO_DO_REMARCAR_DA_FORMA_NOVA } from "@/lib/post-da-fila";
 // efeito dele contra o Postgres de verdade está em testes-integracao/dreno-forma-desconhecida.integracao.ts.
 
 describe("as formas do post do LinkedIn que este código conhece", () => {
-  it("são as que o ramo do dreno publica hoje: só texto e imagem", () => {
-    expect([...FORMAS_NO_LINKEDIN]).toEqual(["texto", "imagem"]);
+  it("são as que o ramo do dreno publica hoje: só texto, imagem e o carrossel em PDF (a parte 3a)", () => {
+    expect([...FORMAS_NO_LINKEDIN]).toEqual(["texto", "imagem", "carrossel"]);
   });
 });
 

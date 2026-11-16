@@ -461,6 +461,26 @@ describe("o post do LinkedIn não começa o que a função não tem tempo de ter
     expect((linha.payload as Record<string, unknown>).post_tentado_em ?? null).toBeNull();
   });
 
+  // O TETO DOS ADIAMENTOS VALE PARA TODA FORMA (a parte 3a; nota da auditoria): antes, a volta sem tempo não tinha
+  // teto. O motivo do só texto e o da imagem não falam em fotos. PELO DRENO DE UMA LINHA SÓ: com 5 s restando, o dreno
+  // do lote nem reivindica (a hora de parar da 3a-0), e a regra do próprio post só é vista aqui.
+  it("só texto, no sétimo adiamento: não chama o LinkedIn, e a linha vai a failed com o motivo sem falar em fotos", async () => {
+    await enfileirarTexto();
+    await q(`update queue set payload = payload || '{"adiamentos":6}'::jsonb where kind = 'publicacao_linkedin'`);
+    const id = String((await linhaDoLinkedin()).id);
+    await dreno.drenarUmaPublicacaoDoLinkedin(id, restando(5_000));
+    expect(linkedin.pedidos).toEqual([]);
+    expect(await linhaCompleta()).toMatchObject({ status: "failed", error: fila.MOTIVO_SEM_TEMPO_DEMAIS });
+    expect(fila.MOTIVO_SEM_TEMPO_DEMAIS).not.toContain("foto");
+  });
+
+  it("só texto, adiado: o adiamento fica contado no payload", async () => {
+    await enfileirarTexto();
+    const id = String((await linhaDoLinkedin()).id);
+    expect(await dreno.drenarUmaPublicacaoDoLinkedin(id, restando(5_000))).toBe("aguardando");
+    expect((await linhaCompleta()).payload).toMatchObject({ adiamentos: 1 });
+  });
+
   it("imagem, com 25 s restando: não baixa, não reserva e volta pending", async () => {
     await enfileirarImagem();
     await dreno.drainQueue({ inicioDaFuncaoMs: restando(25_000) });

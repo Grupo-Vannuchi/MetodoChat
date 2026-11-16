@@ -386,7 +386,8 @@ describe("o remarcar e o cancelar de um post do LinkedIn de forma nova", () => {
        returning id, not_before`,
       [
         CONTA_A,
-        { forma: "carrossel", caminhos: [`${CONTA_A}/novo-${semente}-a.jpg`, `${CONTA_A}/novo-${semente}-b.jpg`], texto: "um carrossel do futuro" },
+        // A FORMA NOVA DE EXEMPLO É O VÍDEO (a parte 3b), que este código ainda não publica. Até a 3a, era o carrossel.
+        { forma: "video", caminhos: [`${CONTA_A}/novo-${semente}.mp4`], texto: "um vídeo do futuro" },
         `telas-forma-nova-${semente}`,
         emSegundos,
       ]

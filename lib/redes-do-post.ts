@@ -3,7 +3,11 @@
 // ao LinkedIn quando o post é das duas, e o aviso das duas. As regras de cada rede continuam onde estavam: as do
 // Instagram em lib/publicacao.ts, e as do LinkedIn em lib/linkedin-publicacao.ts.
 import { avisoDaPublicacaoEnfileirada, type Aviso } from "@/lib/avisos";
-import { avisoDoPostNoLinkedin, type DisponibilidadeDoLinkedin } from "@/lib/linkedin-publicacao";
+import {
+  avisoDoPostNoLinkedin,
+  textoDoProblemaDoCarrosselNoLinkedin,
+  type DisponibilidadeDoLinkedin,
+} from "@/lib/linkedin-publicacao";
 import { textoDaRecusaDaPublicacao, type FormaDePublicacao } from "@/lib/publicacao";
 
 export type Rede = "instagram" | "linkedin";
@@ -14,17 +18,17 @@ export type FormaDaTela = FormaDePublicacao | "texto";
 const FORMAS_DO_INSTAGRAM: readonly FormaDePublicacao[] = ["imagem", "carrossel", "reels", "story"];
 
 /**
- * POR QUE UMA REDE NÃO ACEITA A FORMA, ou null quando aceita. Nesta entrega o LinkedIn recebe só texto e imagem: o
- * carrossel (em PDF) e o vídeo chegam na próxima (a parte 3), e o story não existe lá.
+ * POR QUE UMA REDE NÃO ACEITA A FORMA, ou null quando aceita. O LinkedIn recebe o só texto, a imagem e o carrossel,
+ * que vai como PDF, só com fotos (a parte 3a; o vídeo na lista desliga a caixinha, em `estadoDasCaixinhas`). O vídeo
+ * chega na próxima entrega (a 3b), e o story não existe lá.
  */
 export function redeAceitaAForma(rede: Rede, forma: FormaDaTela): string | null {
   if (rede === "instagram") return forma === "texto" ? "O Instagram não publica post só de texto." : null;
   switch (forma) {
     case "texto":
     case "imagem":
-      return null;
     case "carrossel":
-      return "O LinkedIn recebe carrossel na próxima entrega.";
+      return null;
     case "reels":
       return "O LinkedIn recebe vídeo na próxima entrega.";
     case "story":
@@ -51,17 +55,23 @@ export type EstadoDaCaixinha = { ligada: boolean; marcada: boolean; motivo: stri
 /**
  * O ESTADO DE CADA CAIXINHA: ligada quando a rede aceita a forma (e, no LinkedIn, quando a conexão vale); marcada só
  * se ligada E marcada por quem compõe; e o motivo quando desligada. A caixinha desligada nunca conta como marcada,
- * mesmo que o formulário a mande. Sem o LinkedIn na página, não há caixinha do LinkedIn (`null`).
+ * mesmo que o formulário a mande. Sem o LinkedIn na página, não há caixinha do LinkedIn (`null`). No carrossel, o
+ * vídeo na lista desliga o LinkedIn: o PDF só leva fotos (a parte 3a).
  */
 export function estadoDasCaixinhas(p: {
   forma: FormaDaTela;
   marcadas: Readonly<Record<Rede, boolean>>;
   linkedin: DisponibilidadeDoLinkedin | null;
+  /** Há vídeo na lista de arquivos. */
+  comVideo?: boolean;
 }): { instagram: EstadoDaCaixinha; linkedin: EstadoDaCaixinha | null } {
   const motivoDoInstagram = redeAceitaAForma("instagram", p.forma);
   const instagram = { ligada: !motivoDoInstagram, marcada: !motivoDoInstagram && p.marcadas.instagram, motivo: motivoDoInstagram };
   if (!p.linkedin) return { instagram, linkedin: null };
-  const motivoDoLinkedin = p.linkedin.disponivel ? redeAceitaAForma("linkedin", p.forma) : p.linkedin.motivo;
+  const motivoDoLinkedin = p.linkedin.disponivel
+    ? (redeAceitaAForma("linkedin", p.forma) ??
+      (p.forma === "carrossel" && p.comVideo ? textoDoProblemaDoCarrosselNoLinkedin("video") : null))
+    : p.linkedin.motivo;
   return {
     instagram,
     linkedin: { ligada: !motivoDoLinkedin, marcada: !motivoDoLinkedin && p.marcadas.linkedin, motivo: motivoDoLinkedin },
@@ -167,4 +177,17 @@ export function avisoDasDuasRedes(d: DesfechoDasDuasRedes): Aviso {
     tom: nadaNovo || doLinkedin.tom === "erro" ? "erro" : "ok",
     texto: `Instagram: ${doInstagram} LinkedIn: ${doLinkedin.texto}`,
   };
+}
+
+/**
+ * O BOTÃO DIZ ONDE O POST SAI (o achado 215; a decisão do Eduardo pela caixa, em 11/11: "O botão diz as redes").
+ * Com as caixinhas na tela, o botão diz as redes marcadas, e o verbo segue o "Quando": "Agendar" no "depois", e
+ * "Publicar" no resto. Quem marcou só o LinkedIn lê isso no próprio clique. Sem rede marcada, ou sem as caixinhas (a
+ * conta sem o LinkedIn na página), o botão é o de antes, "Publicar".
+ */
+export function textoDoBotaoDePublicar(p: { comRedes: boolean; instagram: boolean; linkedin: boolean; agendar: boolean }): string {
+  if (!p.comRedes || (!p.instagram && !p.linkedin)) return "Publicar";
+  const verbo = p.agendar ? "Agendar" : "Publicar";
+  if (p.instagram && p.linkedin) return `${verbo} no Instagram e no LinkedIn`;
+  return p.instagram ? `${verbo} no Instagram` : `${verbo} no LinkedIn`;
 }

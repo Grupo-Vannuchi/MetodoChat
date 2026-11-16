@@ -40,17 +40,23 @@ import {
   type ProporcaoDoPost,
 } from "@/lib/publicacao";
 // O LINKEDIN (a parte 2a: uma rede por post). As regras puras dele, sem import de servidor: as formas, o texto
-// contado como o LinkedIn conta (achado 212), as recusas do pedido e o id do envio.
+// contado como o LinkedIn conta (achado 212), as recusas do pedido e o id do envio. Na parte 3a, o carrossel em PDF:
+// a nota, o teto das fotos juntas e o JPEG que vai cru.
 import {
   LIMITE_DO_TEXTO_DO_LINKEDIN,
+  NOTA_DO_CARROSSEL_NO_LINKEDIN,
   NOTA_DO_CONTADOR_DO_LINKEDIN,
+  TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES,
   novoIdDoEnvio,
   problemaDoTextoDoLinkedin,
   recusaDoPedidoNoLinkedin,
   rotuloDaFormaNoLinkedin,
   tamanhoDoTextoNoLinkedin,
   textoDaRecusaNoLinkedin,
+  textoDoProblemaDoCarrosselNoLinkedin,
+  vaiCruParaOLinkedin,
   type DisponibilidadeDoLinkedin,
+  type FormaNoLinkedin,
 } from "@/lib/linkedin-publicacao";
 // AS DUAS REDES NO MESMO POST (a parte 2b): o que cada forma aceita, as caixinhas, o texto que vai ao LinkedIn e a
 // recusa sem rede, das mesmas regras puras que a action lê.
@@ -61,6 +67,7 @@ import {
   estadoDasCaixinhas,
   formasDaTela,
   redeAceitaAForma,
+  textoDoBotaoDePublicar,
   textoQueVaiAoLinkedin,
   type FormaDaTela,
   type Rede,
@@ -148,8 +155,11 @@ type Slide = {
   /** A orientação EXIF; 0 até ser lida, e quando não deu para ler. */
   orientacao: number;
   modo: ModoDoEnquadramento;
-  /** O caminho no bucket, SÓ depois do 2xx da subida, e para qual conta, forma, proporção e modo ele foi feito. */
-  enviado: { caminho: string; chave: string } | null;
+  /**
+   * O caminho no bucket, SÓ depois do 2xx da subida, e para qual conta, forma, proporção e modo ele foi feito; e os
+   * bytes que subiram, para o teto do carrossel do LinkedIn (a parte 3a).
+   */
+  enviado: { caminho: string; chave: string; bytes: number } | null;
 };
 
 export default function Enviador({
@@ -179,7 +189,7 @@ export default function Enviador({
   linkedin?: DisponibilidadeDoLinkedin | null;
   /** A action do post só no LinkedIn (a parte 2a). */
   acaoDoLinkedin?: (dados: FormData) => Promise<void>;
-  /** A action do post de imagem nas duas redes (a parte 2b). */
+  /** A action do post de imagem ou de carrossel nas duas redes (a parte 2b; o carrossel na 3a). */
   acaoDasDuasRedes?: (dados: FormData) => Promise<void>;
   navegador?: Navegador;
 }) {
@@ -195,19 +205,34 @@ export default function Enviador({
   // O ID DO ENVIO, um por formulário: é a chave do só texto contra o clique repetido. A action termina em
   // `redirect`, que recria o componente (ver o cabeçalho), e o formulário seguinte nasce com outro.
   const [idDoEnvio] = useState(novoIdDoEnvio);
+  // A LISTA VEM ANTES DAS CAIXINHAS: um vídeo no carrossel desliga o LinkedIn (a parte 3a).
+  const [slides, setSlides] = useState<Slide[]>([]);
   const mostraARede = linkedin !== null && !!acaoDoLinkedin && !!acaoDasDuasRedes;
-  const redes = estadoDasCaixinhas({ forma: formaDaTela, marcadas, linkedin: mostraARede ? linkedin : null });
+  const redes = estadoDasCaixinhas({
+    forma: formaDaTela,
+    marcadas,
+    linkedin: mostraARede ? linkedin : null,
+    comVideo: slides.some((s) => s.video),
+  });
   const paraOInstagram = redes.instagram.marcada;
   const paraOLinkedin = redes.linkedin?.marcada === true;
   /** Só no LinkedIn: o campo "Texto" e a action da parte 2a. */
   const soNoLinkedin = paraOLinkedin && !paraOInstagram;
   /** Nas duas: a "Legenda", o "Texto para o LinkedIn" (opcional) e a action das duas. */
   const nasDuas = paraOLinkedin && paraOInstagram;
+  /** A forma que vai ao LinkedIn: o só texto, a imagem ou o carrossel, que vai como PDF (a parte 3a). */
+  const formaNoLinkedin: FormaNoLinkedin = formaDaTela === "texto" ? "texto" : formaDaTela === "carrossel" ? "carrossel" : "imagem";
+  /** O carrossel que vai ao LinkedIn: o JPEG só vai cru se o PDF o leva como está, e as fotos juntas têm o teto dele. */
+  const carrosselNoLinkedin = paraOLinkedin && formaNoLinkedin === "carrossel";
+  /**
+   * "AGENDAR" OU "PUBLICAR" NO BOTÃO (o 215). O "Quando" vem pronto da página e não é controlado aqui: a escolha chega
+   * pela mudança que sobe ao formulário. O padrão da página é "agora" (app/publicar/novo/page.tsx).
+   */
+  const [agendar, setAgendar] = useState(false);
   /** O texto próprio do LinkedIn, no post das duas redes. Vazio, vai a legenda. */
   const [textoProprio, setTextoProprio] = useState("");
   const [proporcao, setProporcao] = useState<ProporcaoDoPost>(PROPORCAO_PADRAO);
   const [legenda, setLegenda] = useState("");
-  const [slides, setSlides] = useState<Slide[]>([]);
   const [foraDaLista, setForaDaLista] = useState(0);
   const [recusa, setRecusa] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -297,7 +322,7 @@ export default function Enviador({
   // NO LINKEDIN, o texto é contado como o LinkedIn conta, pela mesma função da action. Enquanto se digita, só o
   // longo é vermelho: o vazio é o estado de quem ainda não começou, e é recusado no clique.
   const textoLongoNoLinkedin =
-    paraOLinkedin && problemaDoTextoDoLinkedin(textoDoLinkedin, formaDaTela === "texto" ? "texto" : "imagem") === "longo";
+    paraOLinkedin && problemaDoTextoDoLinkedin(textoDoLinkedin, formaNoLinkedin) === "longo";
   // O ARQUIVO SÓ NÃO EXISTE NO SÓ TEXTO.
   const temArquivo = formaDaTela !== "texto";
   const caixa = caixaDaMiniatura(forma, medidos, proporcao);
@@ -370,6 +395,12 @@ export default function Enviador({
       return lista.map((s) => porId.get(s.id) ?? s);
     });
     setForaDaLista(deFora);
+    // UM VÍDEO NO CARROSSEL DESMARCA O LINKEDIN (a parte 3a: o PDF só leva fotos), como a forma que ele não aceita: a
+    // caixinha se desliga com o motivo, e tirar o vídeo não a remarca. O post sai público no perfil pessoal, e só vai
+    // quem marcar de novo.
+    if (forma === "carrossel" && novos.some((n) => n.video && ficam.has(n.id))) {
+      setMarcadas((atuais) => ({ ...atuais, linkedin: false }));
+    }
     // A MEDIDA DE CADA UM, sem segurar a tela: a linha diz "Lendo o arquivo…"
     // até ela chegar.
     for (const s of novos.filter((n) => ficam.has(n.id))) {
@@ -395,10 +426,11 @@ export default function Enviador({
    * qualquer um sobe de novo. A CONTA ENTRA porque a troca no seletor entre uma
    * tentativa que falhou e a próxima deixaria guardado um caminho da pasta
    * antiga, e o clique seguinte recusaria com "a conta mudou" sem envio nenhum em
-   * andamento.
+   * andamento. O LINKEDIN NO CARROSSEL TAMBÉM ENTRA (a parte 3a): com ele, o JPEG que o PDF não leva como está passa
+   * pelo canvas, e o caminho que subiu cru só para o Instagram não serve.
    */
   function chaveDe(s: Slide): string {
-    return `${pasta}|${forma}|${proporcao}|${s.modo}`;
+    return `${pasta}|${forma}|${proporcao}|${s.modo}|${carrosselNoLinkedin ? "pdf" : "ig"}`;
   }
 
   /** A recusa da hora, pelas mesmas funções da action, sobre o formulário lido no clique. `null` quando ela serve. */
@@ -412,14 +444,22 @@ export default function Enviador({
     return momento.ok ? null : textoDaRecusaDaPublicacao(momento.motivo);
   }
 
-  /** Prepara e sobe um slide. Devolve o caminho, ou `null` com o motivo já escrito na janelinha. */
-  async function prepararESubir(s: Slide, nome: string, sinal: AbortSignal): Promise<string | null> {
+  /**
+   * Prepara e sobe um slide. Devolve o caminho e os bytes que subiram, ou `null` com o motivo já escrito na
+   * janelinha. `cabe` é o teto do carrossel do LinkedIn, sobre o arquivo que DE FATO sobe (a parte 3a).
+   */
+  async function prepararESubir(
+    s: Slide,
+    nome: string,
+    sinal: AbortSignal,
+    cabe: (bytes: number) => boolean
+  ): Promise<{ caminho: string; bytes: number } | null> {
     try {
       let arquivo = s.arquivo;
       let medidas: Medidas = s.medidas ?? {};
       const ehImagem = arquivo.type.startsWith("image/");
       if (ehImagem && enquadra && medidas.largura && medidas.altura) {
-        const cru = vaiSemRedesenho({
+        let cru = vaiSemRedesenho({
           mime: arquivo.type,
           largura: medidas.largura,
           altura: medidas.altura,
@@ -427,6 +467,14 @@ export default function Enviador({
           proporcao,
           orientacao: s.orientacao,
         });
+        // COM O LINKEDIN NO CARROSSEL, O JPEG SÓ VAI CRU SE O PDF O LEVA COMO ESTÁ (`vaiCruParaOLinkedin`, a mesma regra
+        // de lib/pdf-de-fotos.ts): o CMYK, o de 12 bits, o sem perda, o aritmético e o que não deu para ler (também no
+        // navegador sem o leitor) passam pelo canvas, que devolve um JPEG baseline de cor de tela. Sem o LinkedIn, a
+        // regra do Instagram não muda.
+        if (cru && carrosselNoLinkedin) {
+          cru = vaiCruParaOLinkedin((await navegador.lerCabecalho?.(s.arquivo)) ?? null);
+          seguir(sinal);
+        }
         if (!cru) {
           const g = geometriaDoEnquadramento({ largura: medidas.largura, altura: medidas.altura, proporcao, modo: s.modo });
           if (!g.ok) {
@@ -462,6 +510,11 @@ export default function Enviador({
         atualizarEnvio(nome, { estado: "recusado", detalhe: textoDoProblema(problema) });
         return null;
       }
+      // O TETO DO CARROSSEL DO LINKEDIN (a parte 3a), antes de assinar: a foto que passaria das fotos juntas não sobe.
+      if (!cabe(arquivo.size)) {
+        atualizarEnvio(nome, { estado: "recusado", detalhe: textoDoProblemaDoCarrosselNoLinkedin("grande") });
+        return null;
+      }
 
       atualizarEnvio(nome, { estado: "assinando", enviados: 0, total: arquivo.size });
       const assinatura = await navegador.assinar({ forma, nome: arquivo.name, ...declarado }, sinal);
@@ -474,7 +527,7 @@ export default function Enviador({
       atualizarEnvio(nome, { estado: "enviando", enviados: 0, total: arquivo.size });
       await navegador.subir(assinatura.url, arquivo, (enviados, total) => atualizarEnvio(nome, { enviados, total }), sinal);
       atualizarEnvio(nome, { estado: "pronto", enviados: arquivo.size, total: arquivo.size });
-      return assinatura.caminho;
+      return { caminho: assinatura.caminho, bytes: arquivo.size };
     } catch (erro) {
       // A LEVA INTERROMPIDA PELA SAÍDA DA TELA NÃO ESCREVE NADA: a limpeza já pôs
       // "A publicação não foi pedida." na janelinha, e "O envio foi
@@ -490,7 +543,7 @@ export default function Enviador({
   /** Sobe os válidos na ordem da lista. Os que já subiram para a mesma chave não sobem de novo. */
   async function subirTodos(lista: Slide[], sinal: AbortSignal): Promise<string[] | null> {
     const nomes = lista.map((s, i) => rotuloDoEnvio(s.arquivo.name, i, lista.length));
-    const jaEnviado = (s: Slide) => (s.enviado && s.enviado.chave === chaveDe(s) ? s.enviado.caminho : null);
+    const jaEnviado = (s: Slide) => (s.enviado && s.enviado.chave === chaveDe(s) ? s.enviado : null);
     definirEnvios(
       lista.map(
         (s, i): EnvioEmAndamento =>
@@ -499,16 +552,27 @@ export default function Enviador({
             : { nome: nomes[i], estado: "escolhido", enviados: 0, total: s.arquivo.size }
       )
     );
+    // O TETO DO CARROSSEL DO LINKEDIN (a parte 3a): as fotos juntas, contadas pelo que DE FATO sobe (depois do
+    // canvas), na ordem da lista, as já guardadas também. A foto que passaria do teto não sobe, e o motivo vai à lista.
+    const teto = carrosselNoLinkedin ? TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES : null;
+    let total = 0;
+    const cabe = (bytes: number) => teto === null || total + bytes <= teto;
     const caminhos: string[] = [];
     for (let i = 0; i < lista.length; i++) {
       const guardado = jaEnviado(lista[i]);
       if (guardado) {
-        caminhos.push(guardado);
+        if (!cabe(guardado.bytes)) {
+          atualizarEnvio(nomes[i], { estado: "recusado", detalhe: textoDoProblemaDoCarrosselNoLinkedin("grande") });
+          setRecusa(textoDoEnvioQueNaoFoi(nomes[i]));
+          return null;
+        }
+        total += guardado.bytes;
+        caminhos.push(guardado.caminho);
         continue;
       }
-      const caminho = await prepararESubir(lista[i], nomes[i], sinal);
+      const subido = await prepararESubir(lista[i], nomes[i], sinal, cabe);
       if (sinal.aborted) return null;
-      if (!caminho) {
+      if (!subido) {
         setRecusa(textoDoEnvioQueNaoFoi(nomes[i]));
         return null;
       }
@@ -516,8 +580,9 @@ export default function Enviador({
       // depois de `subir` resolver.
       const chave = chaveDe(lista[i]);
       const id = lista[i].id;
-      setSlides((atuais) => atuais.map((x) => (x.id === id ? { ...x, enviado: { caminho, chave } } : x)));
-      caminhos.push(caminho);
+      setSlides((atuais) => atuais.map((x) => (x.id === id ? { ...x, enviado: { ...subido, chave } } : x)));
+      total += subido.bytes;
+      caminhos.push(subido.caminho);
     }
     return caminhos;
   }
@@ -568,7 +633,6 @@ export default function Enviador({
           legenda: String(pedido.get("legenda") ?? ""),
           textoProprio: String(pedido.get("texto_linkedin") ?? ""),
         });
-    const formaNoLinkedin = formaDaTela === "texto" ? "texto" : "imagem";
     if (paraOLinkedin) {
       // O TEXTO DO LINKEDIN, pela mesma função da action, antes de subir qualquer arquivo.
       const doTexto = problemaDoTextoDoLinkedin(textoDoLinkedinNoPedido, formaNoLinkedin);
@@ -687,6 +751,11 @@ export default function Enviador({
         ev.preventDefault();
         void publicar();
       }}
+      onChange={(ev) => {
+        // O "QUANDO" DA PÁGINA, acompanhado pela mudança que sobe ao formulário: o botão diz "Agendar" (o 215).
+        const alvo: EventTarget = ev.target;
+        if (alvo instanceof HTMLInputElement && alvo.name === "quando") setAgendar(alvo.value === "depois");
+      }}
     >
       {/* AS REDES DO POST (a parte 2b: uma ou as duas). Só aparecem quando a página manda o LinkedIn da conta. Cada
           caixinha desligada diz o motivo: a conexão (sem LinkedIn, ou vencido), que veio do servidor, ou a forma. */}
@@ -758,6 +827,7 @@ export default function Enviador({
         {paraOLinkedin && formaDaTela === "imagem" && (
           <p className={hint}>No LinkedIn, a imagem segue as regras da imagem do Instagram: JPEG, na proporção escolhida.</p>
         )}
+        {carrosselNoLinkedin && <p className={hint}>{NOTA_DO_CARROSSEL_NO_LINKEDIN}</p>}
       </div>
 
       {enquadra && temArquivo && (
@@ -962,7 +1032,9 @@ export default function Enviador({
       <div className="flex flex-wrap items-center justify-between gap-3">
         {rodape}
         <button type="button" className={btnPrimary} disabled={ocupado} onClick={() => void publicar()}>
-          {ocupado ? "Enviando…" : "Publicar"}
+          {ocupado
+            ? "Enviando…"
+            : textoDoBotaoDePublicar({ comRedes: mostraARede, instagram: paraOInstagram, linkedin: paraOLinkedin, agendar })}
         </button>
       </div>
     </form>

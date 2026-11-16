@@ -130,13 +130,14 @@ async function linha(id: string) {
   return l;
 }
 
-const CARROSSEL = { forma: "carrossel", caminhos: [`${CONTA}/a.jpg`, `${CONTA}/b.jpg`], texto: "um carrossel do futuro" };
+// A FORMA NOVA DE EXEMPLO É O VÍDEO (a parte 3b), que este código ainda não publica. Até a 3a, era o carrossel.
+const FORMA_NOVA = { forma: "video", caminhos: [`${CONTA}/a.mp4`], texto: "um vídeo do futuro" };
 const TEXTO = { forma: "texto", caminhos: [], texto: "um post só de texto" };
 const IMAGEM = { forma: "imagem", caminhos: [`${CONTA}/c.jpg`], texto: "um post com imagem" };
 
 describe("o dreno e um post do LinkedIn de forma que ele não conhece", () => {
   test("a linha de forma nova fica pending e intocada, e as de forma conhecida são pegas", async () => {
-    const nova = await semear(CARROSSEL);
+    const nova = await semear(FORMA_NOVA);
     const texto = await semear(TEXTO);
     const imagem = await semear(IMAGEM);
     const antes = await linha(nova);
@@ -169,7 +170,7 @@ describe("o dreno e um post do LinkedIn de forma que ele não conhece", () => {
   });
 
   test("a linha de forma nova presa em sending há mais de 3 minutos não é retomada", async () => {
-    const presa = await semear(CARROSSEL, { status: "sending", reivindicadoHaSegundos: 600 });
+    const presa = await semear(FORMA_NOVA, { status: "sending", reivindicadoHaSegundos: 600 });
     const antes = await linha(presa);
 
     await dreno.drainQueue();
@@ -179,7 +180,7 @@ describe("o dreno e um post do LinkedIn de forma que ele não conhece", () => {
   });
 
   test("o rodapé não arma tique por uma linha de forma nova vencida, que fica pending (sem isso, um tique a cada 20 s)", async () => {
-    await semear(CARROSSEL);
+    await semear(FORMA_NOVA);
 
     await dreno.drainQueue();
 
@@ -187,7 +188,7 @@ describe("o dreno e um post do LinkedIn de forma que ele não conhece", () => {
   });
 
   test("o rodapé não arma tique por uma linha de forma nova para daqui a pouco", async () => {
-    await semear(CARROSSEL, { emSegundos: 600 });
+    await semear(FORMA_NOVA, { emSegundos: 600 });
 
     await dreno.drainQueue();
 
@@ -203,7 +204,7 @@ describe("o dreno e um post do LinkedIn de forma que ele não conhece", () => {
   });
 
   test("os tiques do dia não contam a linha de forma nova, e contam a de forma conhecida", async () => {
-    await semear(CARROSSEL, { emSegundos: 7200 });
+    await semear(FORMA_NOVA, { emSegundos: 7200 });
     expect(await dreno.armarTiquesDoDia()).toEqual({ armados: 0 });
     expect(publicados).toEqual([]);
 
@@ -213,7 +214,7 @@ describe("o dreno e um post do LinkedIn de forma que ele não conhece", () => {
   });
 
   test("o agora não pega a linha de forma nova, e pega a de forma conhecida", async () => {
-    const nova = await semear(CARROSSEL);
+    const nova = await semear(FORMA_NOVA);
     const texto = await semear(TEXTO);
     const antes = await linha(nova);
 

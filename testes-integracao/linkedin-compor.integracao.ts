@@ -220,6 +220,32 @@ describe("agendar no LinkedIn", () => {
   });
 });
 
+// O CARROSSEL SÓ NO LINKEDIN (a parte 3a): a forma já é aceita pela lista única (`FORMAS_NO_LINKEDIN`, desde a F3), e a
+// linha leva os caminhos da pasta da conta, na ordem, com a chave por eles.
+describe("o carrossel só no LinkedIn", () => {
+  it("agendado: as fotos da pasta da conta vão à linha na ordem, a chave é por elas, e ninguém fala com o LinkedIn", async () => {
+    const fotos = [3, 1, 2].map((n) => `${CONTA_A}/foto-${n}.jpg`);
+    const alvo = new Date(Date.now() + 2 * 3600 * 1000);
+    alvo.setUTCSeconds(0, 0);
+    const aviso = await publicarComoAdministrador(
+      formulario({
+        forma_linkedin: "carrossel",
+        caminhos: fotos.join("\n"),
+        quando: "depois",
+        data_hora: alvo.toISOString().slice(0, 16),
+        fuso: "0",
+      })
+    );
+    expect(aviso.tom).toBe("ok");
+    expect(aviso.texto).toContain("agendado para");
+    const [linha] = await q(`select status, dedupe_key, payload from queue`);
+    expect(linha.status).toBe("pending");
+    expect(linha.payload).toMatchObject({ forma: "carrossel", caminhos: fotos });
+    expect(linha.dedupe_key).toBe(`pub-linkedin:${CONTA_A}:carrossel:${fotos.join(",")}`);
+    expect(linkedin.pedidos).toEqual([]);
+  });
+});
+
 describe("as recusas: nenhuma linha entra", () => {
   const casos: [string, Partial<Record<string, string>>, string][] = [
     ["a forma desconhecida", { forma_linkedin: "reels" }, "forma_desconhecida"],
@@ -230,6 +256,14 @@ describe("as recusas: nenhuma linha entra", () => {
     // 2.998 caracteres digitados, e mais de 3.000 no LinkedIn: o servidor conta como o contador.
     ["o texto longo depois das hashtags", { texto: `${"a".repeat(2990)} #ab #cd` }, "texto_longo"],
     ["o envio sem id", { id_do_envio: "" }, "envio_sem_id"],
+    // O CARROSSEL (a parte 3a): de 2 a 10 fotos, todas da pasta da conta, e nenhum vídeo, que o PDF não leva.
+    ["o carrossel com uma foto só", { forma_linkedin: "carrossel", caminhos: `${CONTA_A}/a.jpg` }, "quantidade"],
+    [
+      "o carrossel com a foto de outra conta (descartada, e sobra uma)",
+      { forma_linkedin: "carrossel", caminhos: `${CONTA_A}/a.jpg\n${CONTA_B}/b.jpg` },
+      "quantidade",
+    ],
+    ["o carrossel com vídeo", { forma_linkedin: "carrossel", caminhos: `${CONTA_A}/a.jpg\n${CONTA_A}/b.mp4` }, "carrossel_com_video"],
   ];
   for (const [nome, campos, recusa] of casos) {
     it(nome, async () => {

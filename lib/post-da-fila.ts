@@ -34,7 +34,8 @@ export function cartaoDoPost(
 ): { rotulo: string; capa: string | null; soVideo: boolean } {
   if (ehPostDoLinkedin(item.kind)) {
     const li = lerPayloadDoLinkedin(item.payload);
-    return { rotulo: rotuloDoPostNoLinkedin(li), capa: !saiu && li?.forma === "imagem" ? li.caminhos[0] : null, soVideo: false };
+    // A CAPA É A IMAGEM, ou a primeira foto do carrossel (a parte 3a); o só texto não tem.
+    return { rotulo: rotuloDoPostNoLinkedin(li), capa: !saiu && li && li.forma !== "texto" ? li.caminhos[0] : null, soVideo: false };
   }
   // O INSTAGRAM, como a célula decidia antes (app/publicar/page.tsx): a capa é a primeira imagem, e o post só de
   // vídeo fica sem capa e desenha o ícone dele.
@@ -107,8 +108,8 @@ export function paginaDoPost(
       semTexto: "Sem texto.",
       caminhos: li?.caminhos ?? [],
       ehVideo: () => false,
-      // O SÓ TEXTO NÃO TEM MÍDIA, e a frase sobre a mídia apagada mentiria.
-      sobreAMidia: li?.forma === "imagem" ? fraseSobreAMidia(quando, item.error) : null,
+      // O SÓ TEXTO NÃO TEM MÍDIA, e a frase sobre a mídia apagada mentiria. A imagem e o carrossel (a parte 3a) têm.
+      sobreAMidia: li && li.forma !== "texto" ? fraseSobreAMidia(quando, item.error) : null,
       mediaIdNoInstagram: null,
       linkNoLinkedin: quando.saiu ? linkParaVerNoLinkedin(li?.postUrn) : null,
       notaDoCancelar: NOTA_DO_CANCELAR_NO_LINKEDIN,

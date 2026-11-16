@@ -330,6 +330,26 @@ describe("a hora de parar, no laço", () => {
     expect(await linha(encerrada)).toMatchObject({ status: "skipped", error: "encerrada por outro" });
     expect(resumo.devolvidos).toBe(1);
   });
+
+  // A LINHA DO CARROSSEL DEVOLVIDA PELA HORA DE PARAR NÃO GANHA ADIAMENTO (a parte 3a): a devolução só escreve o
+  // status, a tentativa e o `not_before`. O `adiamentos` é da regra do próprio post do LinkedIn, quando um passo dele
+  // não cabe, e esta linha nem chegou a ser vista.
+  it("a linha do carrossel do LinkedIn devolvida pela hora de parar não ganha adiamento, e volta com a tentativa de antes", async () => {
+    await postDoLinkedinAdiado();
+    const antes = { forma: "carrossel", caminhos: [`${CONTA}/foto-1.jpg`, `${CONTA}/foto-2.jpg`], texto: "O carrossel que vem depois" };
+    const [carrossel] = (await q(
+      `insert into queue (account_id, kind, payload, dedupe_key, not_before)
+       values ($1, 'publicacao_linkedin', $2, 'hora-de-parar:carrossel', now() - interval '1 minute')
+       returning id`,
+      [CONTA, antes]
+    )) as { id: string }[];
+    linkedin.atrasoMs = 2_000;
+    const resumo = await dreno.drainQueue({ inicioDaFuncaoMs: haTrintaENoveSegundos() });
+    expect(await linha(carrossel.id)).toMatchObject({ status: "pending", attempts: 0, error: null, vencida: true });
+    expect(await payloadDe(carrossel.id)).toEqual(antes);
+    expect(resumo.devolvidos).toBe(1);
+    expect(linkedin.pedidos).toEqual(["POST /rest/posts"]);
+  });
 });
 
 describe("sem passar da hora de parar, o dreno é o de hoje", () => {

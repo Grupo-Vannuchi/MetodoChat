@@ -10,7 +10,9 @@ process.env.SUPABASE_URL = "https://exemplo.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "chave-de-teste-que-nao-vale-nada";
 process.env.SUPABASE_BUCKET = "MetodoChat";
 
-const { copiarImagemParaOLinkedin, TETO_DA_COPIA_BYTES, TETO_DA_COPIA_MS } = await import("@/lib/linkedin-copia");
+const { copiarAsImagensParaOLinkedin, copiarImagemParaOLinkedin, TETO_DA_COPIA_BYTES, TETO_DA_COPIA_MS } = await import(
+  "@/lib/linkedin-copia"
+);
 
 const CONTA = "17841400000000001";
 const OUTRA = "17841400000000002";
@@ -166,5 +168,89 @@ describe("copiar a imagem do post para a linha do LinkedIn", () => {
     const erro = await copia;
     expect((erro as Error).message).toMatch(/não respondeu em 10 s/);
     expect(chamadas.map((c) => c.metodo)).toEqual(["GET", "POST", "PUT"]);
+  });
+});
+
+// AS CÓPIAS DO CARROSSEL NAS DUAS REDES (a parte 3a; scratchpad/desenho-li3.md, "As duas redes"): uma por foto, EM
+// PARALELO, na ordem das originais (a ordem é a das páginas do PDF). O pior caso é o de uma cópia só, três chamadas
+// de até 10 s, e não dez vezes isso. Se uma falha, as outras terminam, as que deram certo são apagadas, e o erro sobe.
+describe("copiar as fotos do carrossel para a linha do LinkedIn", () => {
+  const ORIGENS = [1, 2, 3].map((n) => `${CONTA}/foto-${n}.jpg`);
+  const assinar = (c: Chamada) => {
+    const caminho = c.url.split("/object/upload/sign/MetodoChat/")[1];
+    return Response.json({ url: `/object/upload/sign/MetodoChat/${caminho}?token=t`, token: "t" });
+  };
+  const caminhoDaSubida = (c: Chamada) => c.url.split("/object/upload/sign/MetodoChat/")[1].split("?")[0];
+
+  it("uma cópia por foto, na ordem das originais, mesmo quando a última responde primeiro", async () => {
+    responder = async (c) => {
+      if (c.metodo === "POST") return assinar(c);
+      if (c.metodo === "GET") {
+        const n = Number(/foto-(\d+)\.jpg$/.exec(c.url)?.[1]);
+        await new Promise((pronto) => setTimeout(pronto, (4 - n) * 20));
+        return new Response(new Uint8Array([0xff, 0xd8, n]), { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    };
+    const copias = await copiarAsImagensParaOLinkedin(ORIGENS, CONTA);
+    expect(copias).toHaveLength(3);
+    expect(new Set(copias).size).toBe(3);
+    for (const [i, copia] of copias.entries()) {
+      expect(copia).toMatch(new RegExp(`^${CONTA}/[0-9a-f-]{36}\\.jpg$`));
+      const subida = chamadas.find((c) => c.metodo === "PUT" && caminhoDaSubida(c) === copia);
+      expect(Array.from(subida?.corpo as Uint8Array)).toEqual([0xff, 0xd8, i + 1]);
+    }
+  });
+
+  it("em paralelo: com cada chamada no limite do teto, dez cópias levam o tempo de uma (três tetos), e não dez vezes isso", async () => {
+    vi.useFakeTimers();
+    const dez = Array.from({ length: 10 }, (_, i) => `${CONTA}/foto-${i + 1}.jpg`);
+    const quase = TETO_DA_COPIA_MS - 1;
+    responder = (c) =>
+      new Promise<Response>((pronto) =>
+        setTimeout(
+          () => pronto(c.metodo === "POST" ? assinar(c) : c.metodo === "GET" ? new Response(JPEG, { status: 200 }) : new Response("{}", { status: 200 })),
+          quase
+        )
+      );
+    let terminou = false;
+    const feitas = copiarAsImagensParaOLinkedin(dez, CONTA).then((copias) => {
+      terminou = true;
+      return copias;
+    });
+    await vi.advanceTimersByTimeAsync(3 * quase - 1);
+    expect(terminou).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(terminou).toBe(true);
+    await expect(feitas).resolves.toHaveLength(10);
+    expect(chamadas.filter((c) => c.metodo === "GET")).toHaveLength(10);
+  });
+
+  it("uma cópia que falha: as outras terminam, as que subiram são apagadas, e o erro é o da que falhou", async () => {
+    let subidas = 0;
+    responder = async (c) => {
+      if (c.metodo === "POST") return assinar(c);
+      if (c.metodo === "GET") return new Response(JPEG, { status: 200 });
+      if (c.metodo === "PUT") {
+        subidas++;
+        if (subidas === 1) return new Response("{}", { status: 400 });
+        // AS OUTRAS TERMINAM DEPOIS DA FALHA: quem não espera por elas não tem o que apagar, e elas sobram no bucket.
+        await new Promise((pronto) => setTimeout(pronto, 50));
+        return new Response("{}", { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    };
+    const erro = await copiarAsImagensParaOLinkedin(ORIGENS, CONTA).catch((e: Error) => e);
+    expect(erro).toBeInstanceOf(Error);
+    expect((erro as Error).message).toMatch(/recusou a cópia \(HTTP 400\)/);
+    const subiram = chamadas.filter((c) => c.metodo === "PUT").map(caminhoDaSubida);
+    const apagadas = chamadas.filter((c) => c.metodo === "DELETE").map((c) => c.url.split("/object/MetodoChat/")[1]);
+    expect(subiram).toHaveLength(3);
+    expect([...apagadas].sort()).toEqual(subiram.slice(1).sort());
+  });
+
+  it("a lista vazia é recusada antes de qualquer chamada", async () => {
+    await expect(copiarAsImagensParaOLinkedin([], CONTA)).rejects.toThrow(/nenhuma imagem/);
+    expect(chamadas).toEqual([]);
   });
 });

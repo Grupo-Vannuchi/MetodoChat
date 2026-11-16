@@ -1,7 +1,8 @@
 // AS DECISÕES PURAS DO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §5), SEM IMPORT DE SERVIDOR: a
 // tela de cliente e o servidor leem as mesmas regras. Na parte 1 (a conexão), o vencimento; na parte 2a (só
-// texto e imagem, uma rede por post), as formas, o texto, o payload da fila, o corpo do post e os erros. O
-// carrossel em PDF e o vídeo vêm na parte 3.
+// texto e imagem, uma rede por post), as formas, o texto, o payload da fila, o corpo do post e os erros. Na parte
+// 3a, o carrossel em PDF; o vídeo vem na 3b. O único import é o de lib/publicacao.ts, que também é puro.
+import { CARROSSEL_ITENS_MAX, CARROSSEL_ITENS_MIN, pareceVideo } from "./publicacao";
 
 /** O aviso de que a autorização vai vencer começa a 7 dias. */
 export const AVISO_DO_VENCIMENTO_DIAS = 7;
@@ -46,13 +47,25 @@ export const TEXTO_DO_CONVITE_SEM_CONFIRMACAO =
 // AS FORMAS DA PARTE 2a
 // ---------------------------------------------------------------------------------------------------------------
 
-export type FormaNoLinkedin = "texto" | "imagem";
+/** As formas do post no LinkedIn: o só texto e a imagem (a parte 2a), e o carrossel em PDF (a parte 3a). */
+export type FormaNoLinkedin = "texto" | "imagem" | "carrossel";
 
 /**
  * AS FORMAS QUE ESTE CÓDIGO SABE PUBLICAR NO LINKEDIN, numa lista só: a do formulário, a do payload e a do dreno
- * (`soAFormaConhecidaDoLinkedin`, abaixo). Uma forma acrescentada aqui é uma forma que o dreno passa a pegar.
+ * (`soAFormaConhecidaDoLinkedin`, abaixo). Uma forma acrescentada aqui é uma forma que o dreno passa a pegar: o
+ * carrossel entra junto com o ramo dele (lib/linkedin-fila.ts).
  */
-export const FORMAS_NO_LINKEDIN: readonly FormaNoLinkedin[] = ["texto", "imagem"];
+export const FORMAS_NO_LINKEDIN: readonly FormaNoLinkedin[] = ["texto", "imagem", "carrossel"];
+
+/**
+ * QUANTOS ARQUIVOS CADA FORMA LEVA, numa função só, para o pedido e para o payload: o só texto nenhum, a imagem um, e
+ * o carrossel as mesmas 2 a 10 fotos do carrossel do Instagram (`CARROSSEL_ITENS_MIN` e `CARROSSEL_ITENS_MAX`).
+ */
+function quantidadeServe(forma: FormaNoLinkedin, quantos: number): boolean {
+  if (forma === "texto") return quantos === 0;
+  if (forma === "imagem") return quantos === 1;
+  return quantos >= CARROSSEL_ITENS_MIN && quantos <= CARROSSEL_ITENS_MAX;
+}
 
 /** A forma que veio do formulário, de uma lista fechada. */
 export function formaNoLinkedinDoCampo(bruto: unknown): FormaNoLinkedin | null {
@@ -83,6 +96,7 @@ export function soAFormaConhecidaDoLinkedin(marcador: string): string {
 }
 
 export function rotuloDaFormaNoLinkedin(forma: FormaNoLinkedin): string {
+  if (forma === "carrossel") return "Carrossel (PDF)";
   return forma === "texto" ? "Só texto" : "Imagem";
 }
 
@@ -148,7 +162,13 @@ export function problemaDoTextoDoLinkedin(texto: string, _forma: FormaNoLinkedin
 // O PEDIDO DE PUBLICAR, NA TELA E NA ACTION
 // ---------------------------------------------------------------------------------------------------------------
 
-export type RecusaDoPedidoNoLinkedin = "forma_desconhecida" | "quantidade" | "texto_vazio" | "texto_longo" | "envio_sem_id";
+export type RecusaDoPedidoNoLinkedin =
+  | "forma_desconhecida"
+  | "quantidade"
+  | "carrossel_com_video"
+  | "texto_vazio"
+  | "texto_longo"
+  | "envio_sem_id";
 
 const ID_DO_ENVIO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -165,7 +185,10 @@ export function recusaDoPedidoNoLinkedin(p: {
   idDoEnvio: string;
 }): RecusaDoPedidoNoLinkedin | null {
   if (!p.forma) return "forma_desconhecida";
-  if (p.caminhos.length !== (p.forma === "imagem" ? 1 : 0)) return "quantidade";
+  if (!quantidadeServe(p.forma, p.caminhos.length)) return "quantidade";
+  // O PDF DO CARROSSEL SÓ LEVA FOTOS (a parte 3a). O vídeo é reconhecido pela extensão do caminho, como o dreno do
+  // Instagram decide (`pareceVideo`); a tela confere antes, pelo tipo do arquivo, e desliga a caixinha.
+  if (p.forma === "carrossel" && p.caminhos.some((c) => pareceVideo(c))) return "carrossel_com_video";
   const problema = problemaDoTextoDoLinkedin(p.texto, p.forma);
   if (problema === "vazio") return "texto_vazio";
   if (problema === "longo") return "texto_longo";
@@ -176,9 +199,11 @@ export function recusaDoPedidoNoLinkedin(p: {
 export function textoDaRecusaNoLinkedin(r: RecusaDoPedidoNoLinkedin): string {
   switch (r) {
     case "forma_desconhecida":
-      return "Escolha a forma do post no LinkedIn: só texto ou imagem.";
+      return "Escolha a forma do post no LinkedIn: só texto, imagem ou carrossel.";
     case "quantidade":
-      return "O post do LinkedIn com imagem leva uma imagem, e o só texto não leva arquivo.";
+      return "O post do LinkedIn com imagem leva uma imagem, o carrossel leva de 2 a 10 fotos, e o só texto não leva arquivo.";
+    case "carrossel_com_video":
+      return textoDoProblemaDoCarrosselNoLinkedin("video");
     case "texto_vazio":
       return "Escreva o texto do post.";
     case "texto_longo":
@@ -260,12 +285,19 @@ export function avisoDoPostNoLinkedin(d: {
  * foi feito (spec, §6): `imagem_urn` depois do envio da imagem; `post_tentado_em` ANTES do POST do post (achado
  * 210: o POST não tem chave contra repetição, e uma resposta perdida não pode virar um segundo post); e
  * `post_urn` com o id que o LinkedIn devolveu.
+ *
+ * NO CARROSSEL (a parte 3a): `documento_urn` depois do envio do PDF; `consultas_da_midia`, as vezes em que o post
+ * voltou porque o LinkedIn ainda processava o documento; e `adiamentos`, as passadas que não tinham tempo para o
+ * passo seguinte (vale para toda forma, e o dreno lê o número para pôr a linha adiada primeiro no lote).
  */
 export type PayloadDoLinkedin = {
   forma: FormaNoLinkedin;
   caminhos: string[];
   texto: string;
   imagem_urn?: string;
+  documento_urn?: string;
+  consultas_da_midia?: number;
+  adiamentos?: number;
   post_tentado_em?: string;
   post_urn?: string;
 };
@@ -279,6 +311,9 @@ export type LeituraDoPayloadDoLinkedin = {
   caminhos: string[];
   texto: string;
   imagemUrn: string | null;
+  documentoUrn: string | null;
+  consultasDaMidia: number;
+  adiamentos: number;
   postTentadoEm: string | null;
   postUrn: string | null;
 };
@@ -290,13 +325,19 @@ export function lerPayloadDoLinkedin(bruto: unknown): LeituraDoPayloadDoLinkedin
   const forma = formaNoLinkedinDoCampo(p.forma);
   if (!forma || typeof p.texto !== "string") return null;
   const caminhos = Array.isArray(p.caminhos) && p.caminhos.every((c) => typeof c === "string") ? (p.caminhos as string[]) : null;
-  if (!caminhos || caminhos.length !== (forma === "imagem" ? 1 : 0)) return null;
+  if (!caminhos || !quantidadeServe(forma, caminhos.length)) return null;
   const texto = (v: unknown) => (typeof v === "string" && v ? v : null);
+  // A CONTAGEM QUE NÃO É UM INTEIRO A PARTIR DE ZERO VALE ZERO: ela só é escrita pelo dreno, e um valor torto não
+  // pode encerrar a linha antes da hora.
+  const contagem = (v: unknown) => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : 0);
   return {
     forma,
     caminhos,
     texto: p.texto,
     imagemUrn: texto(p.imagem_urn),
+    documentoUrn: texto(p.documento_urn),
+    consultasDaMidia: contagem(p.consultas_da_midia),
+    adiamentos: contagem(p.adiamentos),
     postTentadoEm: texto(p.post_tentado_em),
     postUrn: texto(p.post_urn),
   };
@@ -308,9 +349,16 @@ export function lerPayloadDoLinkedin(bruto: unknown): LeituraDoPayloadDoLinkedin
 
 /**
  * O corpo do `POST /rest/posts` (Posts API): o autor é a pessoa, o texto já transformado, PÚBLICO (fixo nesta
- * entrega; não há escolha de visibilidade na tela), no feed, publicado, e a imagem quando há.
+ * entrega; não há escolha de visibilidade na tela), no feed, publicado, e a imagem quando há. O documento do
+ * carrossel (a parte 3a) vai com o título, que é obrigatório nele (`tituloDoDocumento`).
  */
-export function corpoDoPost(p: { pessoaId: string; texto: string; imagemUrn?: string }): Record<string, unknown> {
+export function corpoDoPost(p: {
+  pessoaId: string;
+  texto: string;
+  imagemUrn?: string;
+  documento?: { urn: string; titulo: string };
+}): Record<string, unknown> {
+  const media = p.imagemUrn ? { id: p.imagemUrn } : p.documento ? { id: p.documento.urn, title: p.documento.titulo } : null;
   return {
     author: `urn:li:person:${p.pessoaId}`,
     commentary: textoParaOLinkedin(p.texto),
@@ -318,7 +366,7 @@ export function corpoDoPost(p: { pessoaId: string; texto: string; imagemUrn?: st
     distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
     lifecycleState: "PUBLISHED",
     isReshareDisabledByAuthor: false,
-    ...(p.imagemUrn ? { content: { media: { id: p.imagemUrn } } } : {}),
+    ...(media ? { content: { media } } : {}),
   };
 }
 
@@ -356,4 +404,85 @@ export function motivoDaAutorizacaoRecusada(nome: string): string {
  */
 export function oPostPodeTerSaido(status: number): boolean {
   return !(status >= 400 && status < 500);
+}
+
+/**
+ * O DOCUMENTO QUE O LINKEDIN AINDA PROCESSA (a parte 3a). A Posts API não tem código próprio para a mídia não pronta;
+ * a Videos API lista o 400 "MEDIA_ASSET_WAITING_UPLOAD" e o estado "PROCESSING". Um 400 que fale em WAITING_UPLOAD ou
+ * em PROCESSING (e não em PROCESSING_FAILED, que é falha) é a mídia não pronta: o post não foi criado, e a linha
+ * espera e consulta de novo. Como o LinkedIn responde de fato ao documento em processamento, a prova mede.
+ */
+export function aMidiaAindaNaoEstaPronta(status: number, texto: string): boolean {
+  return status === 400 && /WAITING_UPLOAD|PROCESSING(?!_FAILED)/.test(texto);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// O CARROSSEL EM PDF (a parte 3a; scratchpad/desenho-li3.md, §6)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** O título do documento no LinkedIn tem no máximo 100 caracteres: o limite não está na página, e a escolha é nossa. */
+export const TITULO_DO_DOCUMENTO_MAX = 100;
+
+/**
+ * O TÍTULO DO DOCUMENTO, obrigatório no post com documento ("The media title (Required field for Documents API)", o
+ * Post schema). O LinkedIn o mostra em cima do carrossel no feed. A decisão do Eduardo pela caixa, em 11/11, foi "O
+ * começo do texto": o texto do post numa linha só, até 100 caracteres, cortado no fim de uma palavra, com reticências
+ * quando cortado. Uma palavra só, maior que o limite, é cortada no meio.
+ */
+export function tituloDoDocumento(texto: string): string {
+  const linha = texto.replace(/\s+/g, " ").trim();
+  const letras = Array.from(linha);
+  if (letras.length <= TITULO_DO_DOCUMENTO_MAX) return linha;
+  const cabe = letras.slice(0, TITULO_DO_DOCUMENTO_MAX - 1).join("");
+  const ultimoEspaco = cabe.lastIndexOf(" ");
+  return `${ultimoEspaco > 0 ? cabe.slice(0, ultimoEspaco) : cabe}…`;
+}
+
+/**
+ * O TETO DO CARROSSEL NO LINKEDIN, somando as fotos que subiram: 15 MB. A vazão do bucket e a do envio ao LinkedIn,
+ * a partir da Vercel, não foram medidas; com 15 MB, baixar em 10 s pede ~12 Mbit/s e subir em 25 s pede ~4,8 Mbit/s,
+ * a mesma ordem que a imagem já supõe (lib/linkedin.ts, `TETO_DO_ENVIO_DA_IMAGEM_MS`). A prova leva um carrossel perto
+ * do teto, e ele só sobe depois dessa medida.
+ */
+export const TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES = 15 * 1024 * 1024;
+
+export type ProblemaDoCarrosselNoLinkedin = "video" | "grande";
+
+/**
+ * O CARROSSEL QUE NÃO VAI AO LINKEDIN: o PDF só leva fotos (o carrossel do Instagram aceita vídeo nos itens), e as
+ * fotos juntas têm de caber no teto. A tela confere os itens antes de subir (o vídeo) e o total depois da conversão
+ * (o tamanho que de fato sobe); o dreno confere de novo o que baixou.
+ */
+export function problemaDoCarrosselNoLinkedin(itens: readonly { video: boolean; bytes: number }[]): ProblemaDoCarrosselNoLinkedin | null {
+  if (itens.some((i) => i.video)) return "video";
+  const total = itens.reduce((soma, i) => soma + i.bytes, 0);
+  return total > TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES ? "grande" : null;
+}
+
+export function textoDoProblemaDoCarrosselNoLinkedin(p: ProblemaDoCarrosselNoLinkedin): string {
+  return p === "video"
+    ? "O carrossel do LinkedIn vai como PDF, só com fotos."
+    : "As fotos do carrossel passam de 15 MB juntas, o limite do LinkedIn neste painel. Tire fotos ou use fotos menores.";
+}
+
+/** A NOTA DA TELA COM O LINKEDIN MARCADO NO CARROSSEL (a parte 3a): o que vai, e o teto, antes de subir. */
+export const NOTA_DO_CARROSSEL_NO_LINKEDIN = `No LinkedIn, o carrossel vai como um documento PDF, uma página por foto: só fotos, até ${
+  TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES / (1024 * 1024)
+} MB juntas.`;
+
+/**
+ * O JPEG QUE VAI COMO ESTÁ PARA O PDF DO CARROSSEL, e o que pode ir cru, sem o canvas, quando o LinkedIn está marcado
+ * no carrossel: uma regra só, para a tela e para o PDF (lib/pdf-de-fotos.ts).
+ *   - 1 ou 3 componentes (cinza ou cor de tela): o CMYK de gráfica pediria a inversão do Adobe, que nem todo leitor
+ *     faz igual;
+ *   - 8 bits: o de 12 não é aceito pelo filtro do PDF em todo lugar;
+ *   - o baseline, o estendido ou o progressivo (C0, C1 e C2), que usam a DCT do filtro /DCTDecode. O sem perda e o
+ *     aritmético não (nota da auditoria sobre a F1 da 3a).
+ * O resto, e o que não deu para ler (null), passa pelo canvas, que devolve um JPEG baseline de cor de tela. Sem o
+ * LinkedIn, a regra do Instagram não muda.
+ */
+const MARCADORES_DA_DCT = new Set([0xc0, 0xc1, 0xc2]);
+
+export function vaiCruParaOLinkedin(c: { componentes: number; precisao: number; marcador: number } | null): boolean {
+  return !!c && (c.componentes === 1 || c.componentes === 3) && c.precisao === 8 && MARCADORES_DA_DCT.has(c.marcador);
 }

@@ -7,6 +7,7 @@ import {
   recusaDoPedidoNoLinkedin,
   tamanhoDoTextoNoLinkedin,
   textoDaRecusaNoLinkedin,
+  textoDoProblemaDoCarrosselNoLinkedin,
 } from "@/lib/linkedin-publicacao";
 
 // O COMPOR DO POST NO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §7; a parte 2a). A tela confere o
@@ -18,9 +19,10 @@ const pedido = (p: Partial<Parameters<typeof recusaDoPedidoNoLinkedin>[0]> = {})
   recusaDoPedidoNoLinkedin({ forma: "texto", caminhos: [], texto: "Olá #mundo", idDoEnvio: ENVIO, ...p });
 
 describe("as recusas do pedido de publicar no LinkedIn", () => {
-  it("o pedido certo passa, nas duas formas", () => {
+  it("o pedido certo passa, nas três formas", () => {
     expect(pedido()).toBeNull();
     expect(pedido({ forma: "imagem", caminhos: ["conta/foto.jpg"] })).toBeNull();
+    expect(pedido({ forma: "carrossel", caminhos: ["conta/a.jpg", "conta/b.jpg"] })).toBeNull();
   });
 
   it("a forma que não é do LinkedIn", () => {
@@ -31,6 +33,22 @@ describe("as recusas do pedido de publicar no LinkedIn", () => {
     expect(pedido({ caminhos: ["conta/foto.jpg"] })).toBe("quantidade");
     expect(pedido({ forma: "imagem", caminhos: [] })).toBe("quantidade");
     expect(pedido({ forma: "imagem", caminhos: ["conta/a.jpg", "conta/b.jpg"] })).toBe("quantidade");
+  });
+
+  it("o carrossel leva de 2 a 10 fotos", () => {
+    expect(pedido({ forma: "carrossel", caminhos: ["conta/a.jpg"] })).toBe("quantidade");
+    expect(pedido({ forma: "carrossel", caminhos: Array(11).fill("conta/a.jpg") })).toBe("quantidade");
+    expect(pedido({ forma: "carrossel", caminhos: Array(10).fill("conta/a.jpg") })).toBeNull();
+  });
+
+  // O PDF DO CARROSSEL SÓ LEVA FOTOS (a parte 3a). O carrossel do Instagram aceita vídeo nos itens; o do LinkedIn não.
+  // O vídeo é reconhecido pela extensão do caminho, como o dreno do Instagram decide (`pareceVideo`, lib/publicacao.ts).
+  it("o carrossel com vídeo não vai ao LinkedIn, com a frase da tela", () => {
+    expect(pedido({ forma: "carrossel", caminhos: ["conta/a.jpg", "conta/b.mp4"] })).toBe("carrossel_com_video");
+    expect(pedido({ forma: "carrossel", caminhos: ["conta/a.mov", "conta/b.jpg"] })).toBe("carrossel_com_video");
+    // A quantidade vem antes: um vídeo sozinho já não é carrossel.
+    expect(pedido({ forma: "carrossel", caminhos: ["conta/b.mp4"] })).toBe("quantidade");
+    expect(textoDaRecusaNoLinkedin("carrossel_com_video")).toBe(textoDoProblemaDoCarrosselNoLinkedin("video"));
   });
 
   it("o texto vazio, nas duas formas", () => {
@@ -62,12 +80,16 @@ describe("as recusas do pedido de publicar no LinkedIn", () => {
   });
 
   it("cada recusa tem a sua frase, e a do texto longo diz por que conta mais", () => {
-    const frases = (["forma_desconhecida", "quantidade", "texto_vazio", "texto_longo", "envio_sem_id"] as const).map(
-      textoDaRecusaNoLinkedin
-    );
-    expect(new Set(frases).size).toBe(5);
+    const frases = (
+      ["forma_desconhecida", "quantidade", "carrossel_com_video", "texto_vazio", "texto_longo", "envio_sem_id"] as const
+    ).map(textoDaRecusaNoLinkedin);
+    expect(new Set(frases).size).toBe(6);
     expect(textoDaRecusaNoLinkedin("texto_longo")).toContain("3.000");
     expect(textoDaRecusaNoLinkedin("texto_longo")).toContain("hashtags");
+    expect(textoDaRecusaNoLinkedin("forma_desconhecida")).toBe("Escolha a forma do post no LinkedIn: só texto, imagem ou carrossel.");
+    expect(textoDaRecusaNoLinkedin("quantidade")).toBe(
+      "O post do LinkedIn com imagem leva uma imagem, o carrossel leva de 2 a 10 fotos, e o só texto não leva arquivo."
+    );
   });
 });
 

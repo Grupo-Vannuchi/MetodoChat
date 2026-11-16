@@ -7,6 +7,8 @@ import "server-only";
 // AS CHAVES DO APP (`LINKEDIN_CLIENT_ID` e `LINKEDIN_CLIENT_SECRET`) FICAM SÓ NAS VARIÁVEIS DA VERCEL, nunca no
 // código nem no banco, porque o repositório é público (§8). Sem as duas, o LinkedIn fica desligado no painel.
 
+import { aMidiaAindaNaoEstaPronta } from "./linkedin-publicacao";
+
 const OAUTH = "https://www.linkedin.com";
 const API = "https://api.linkedin.com";
 
@@ -25,6 +27,13 @@ export const TETO_DO_LINKEDIN_MS = 10_000;
  * começar (lib/linkedin-fila.ts). tests/linkedin-rest.test.ts mede o teto que cada chamada pede.
  */
 export const TETO_DO_ENVIO_DA_IMAGEM_MS = 15_000;
+
+/**
+ * O teto do envio do documento do carrossel (a parte 3a), que leva até os 15 MB do carrossel
+ * (`TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES`, ~4,8 Mbit/s em 25 s). A passada da mídia do carrossel (o bucket, a montagem
+ * do PDF, a reserva e este envio) soma 52 s com a folga, e só começa no início de uma função (lib/linkedin-fila.ts).
+ */
+export const TETO_DO_ENVIO_DO_DOCUMENTO_MS = 25_000;
 
 // AS BASES SÓ SE MOVEM NOS TESTES, sob as mesmas duas travas da `baseDoGraph` (lib/ig.ts): `VITEST=true`, que
 // `next build` e a Vercel não definem, e o loopback, e só ele (a autorização viaja nestas chamadas, e uma base
@@ -88,11 +97,18 @@ export function temPermissaoDePublicar(scope: unknown): boolean {
 export class LinkedinError extends Error {
   status: number;
   texto: string;
-  constructor(status: number, texto: string) {
+  /**
+   * O POST RECUSADO PORQUE O LINKEDIN AINDA PROCESSA A MÍDIA (a parte 3a), decidido na resposta INTEIRA dentro do
+   * `criarPost` (`aMidiaAindaNaoEstaPronta`): o `texto` guarda só o começo dela, para a mensagem, e o código do
+   * LinkedIn pode vir depois (nota da auditoria sobre a F3).
+   */
+  midiaNaoPronta: boolean;
+  constructor(status: number, texto: string, midiaNaoPronta = false) {
     super(`LinkedIn ${status}: ${texto}`);
     this.name = "LinkedinError";
     this.status = status;
     this.texto = texto;
+    this.midiaNaoPronta = midiaNaoPronta;
   }
 }
 
@@ -246,6 +262,40 @@ export async function enviarImagem(uploadUrl: string, token: string, bytes: Arra
 }
 
 /**
+ * A RESERVA DO DOCUMENTO DO CARROSSEL (`POST /rest/documents?action=initializeUpload`, Documents API; a parte 3a),
+ * com a pessoa como dona ("For documents with person URN owners, the caller must match the document owner"). A sonda
+ * de 09/11 deu 200 nela. Devolve o endereço de envio e o URN do documento.
+ */
+export async function reservarDocumento(token: string, pessoaId: string): Promise<{ uploadUrl: string; documentoUrn: string }> {
+  const r = await chamar(`${basesDoLinkedin().api}/rest/documents?action=initializeUpload`, {
+    method: "POST",
+    headers: cabecalhosDoRest(token),
+    body: JSON.stringify({ initializeUploadRequest: { owner: `urn:li:person:${pessoaId}` } }),
+  });
+  if (r.status !== 200) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+  const valor = json(r.texto)?.value as Record<string, unknown> | undefined;
+  const uploadUrl = valor?.uploadUrl;
+  const documentoUrn = valor?.document;
+  if (typeof uploadUrl !== "string" || typeof documentoUrn !== "string" || !documentoUrn.startsWith("urn:li:document:")) {
+    throw new LinkedinError(r.status, "a reserva do documento não devolveu o endereço e o URN");
+  }
+  return { uploadUrl, documentoUrn };
+}
+
+/**
+ * O ENVIO DO DOCUMENTO: um `PUT` só, dos bytes do PDF, com a autorização, como o exemplo da Documents API ("curl
+ * --upload-file" com o "Authorization: Bearer"). O endereço passa pela mesma regra do da imagem: só https de um
+ * domínio do LinkedIn recebe a autorização (os exemplos trazem `https://www.linkedin.com/dms-uploads/...`).
+ */
+export async function enviarDocumento(uploadUrl: string, token: string, bytes: Uint8Array<ArrayBuffer>): Promise<void> {
+  if (!enderecoDeEnvioConfiavel(uploadUrl)) {
+    throw new LinkedinError(0, "o endereço de envio do documento não é do LinkedIn");
+  }
+  const r = await chamar(uploadUrl, { method: "PUT", headers: { authorization: `Bearer ${token}` }, body: bytes }, TETO_DO_ENVIO_DO_DOCUMENTO_MS);
+  if (r.status !== 200 && r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+}
+
+/**
  * O POST (`POST /rest/posts`, Posts API): "You should get a 201 response and the response header x-restli-id
  * contains the Post ID". Devolve o URN do post.
  */
@@ -255,7 +305,7 @@ export async function criarPost(token: string, corpo: Record<string, unknown>): 
     headers: cabecalhosDoRest(token),
     body: JSON.stringify(corpo),
   });
-  if (r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+  if (r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300), aMidiaAindaNaoEstaPronta(r.status, r.texto));
   if (!r.restliId) throw new LinkedinError(r.status, "o post saiu sem o x-restli-id");
   return r.restliId;
 }

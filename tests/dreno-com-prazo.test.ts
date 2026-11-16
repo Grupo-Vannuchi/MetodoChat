@@ -28,9 +28,11 @@ describe("a action de publicar no LinkedIn passa o começo da função ao \"agor
   });
 });
 
-// O "AGORA" DAS DUAS REDES (`publicarNasDuasRedes`, a parte 2b): o mesmo começo vai ao LinkedIn e ao dreno de hoje,
-// que publica o Instagram, para outra linha do LinkedIn que esse dreno pegue respeitar o prazo (nota da auditoria
-// sobre o desenho da 2b). E o LinkedIn vem antes (a escolha (a)): só a própria linha, com o tempo inteiro.
+// O "AGORA" DAS DUAS REDES (`publicarNasDuasRedes`, a parte 2b): o LinkedIn vem antes (a escolha (a)), só a própria
+// linha, e depois o dreno do clique publica o Instagram, com o começo da função e sem o post do LinkedIn (a 3a-0, o
+// 224). NO CARROSSEL (a parte 3a, achado 222), o começo do LinkedIn vem com a reserva do Instagram
+// (`comecoDoLinkedinNoAgoraDasDuas`, lib/linkedin-fila.ts), que na imagem devolve o próprio começo da função; os casos
+// estão em testes-integracao/linkedin-duas-redes.integracao.ts.
 describe("a action das duas redes passa o começo da função ao LinkedIn e ao dreno do Instagram", () => {
   it("app/publicar/actions.ts, publicarNasDuasRedes", () => {
     const fonte = readFileSync(join(RAIZ, "app/publicar/actions.ts"), "utf8").replace(/\r\n/g, "\n");
@@ -39,9 +41,10 @@ describe("a action das duas redes passa o começo da função ao LinkedIn e ao d
     const fim = fonte.indexOf("\nexport ", inicio + 1);
     const corpo = fonte.slice(inicio, fim === -1 ? undefined : fim);
     expect(corpo).toMatch(/\{\n {2}await exigirSessao\(\);\n {2}const inicioDaFuncaoMs = Date\.now\(\);\n/);
-    expect(corpo).toMatch(/drenarUmaPublicacaoDoLinkedin\(\s*[\w.]+,\s*inicioDaFuncaoMs\s*\)/);
+    expect(corpo).toMatch(/const inicioDoLinkedin = comecoDoLinkedinNoAgoraDasDuas\(\s*formaNoLinkedin,\s*inicioDaFuncaoMs\s*\);/);
+    expect(corpo).toMatch(/drenarUmaPublicacaoDoLinkedin\(\s*[\w.]+,\s*inicioDoLinkedin\s*\)/);
     // O DRENO DO INSTAGRAM, NO CLIQUE, NÃO PEGA O POST DO LINKEDIN (a 3a-0, o 224): o da própria linha já saiu pelo
-    // `drenarUmaPublicacaoDoLinkedin`, logo acima.
+    // `drenarUmaPublicacaoDoLinkedin`, logo acima. Por isso a reserva do carrossel não vai a ele.
     expect(corpo).toMatch(/drainQueue\(\{\s*inicioDaFuncaoMs,\s*doClique:\s*true\s*\}\)/);
     expect(corpo).not.toMatch(/drainQueue\(\)/);
     expect(corpo.indexOf("drenarUmaPublicacaoDoLinkedin(")).toBeLessThan(corpo.indexOf("drainQueue("));
