@@ -1,7 +1,7 @@
 // AS DECISÕES PURAS DO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §5), SEM IMPORT DE SERVIDOR: a
 // tela de cliente e o servidor leem as mesmas regras. Na parte 1 (a conexão), o vencimento; na parte 2a (só
 // texto e imagem, uma rede por post), as formas, o texto, o payload da fila, o corpo do post e os erros. Na parte
-// 3a, o carrossel em PDF; o vídeo vem na 3b. O único import é o de lib/publicacao.ts, que também é puro.
+// 3a, o carrossel em PDF; na 3b, o vídeo em partes. O único import é o de lib/publicacao.ts, que também é puro.
 import { CARROSSEL_ITENS_MAX, CARROSSEL_ITENS_MIN, pareceVideo } from "./publicacao";
 
 /** O aviso de que a autorização vai vencer começa a 7 dias. */
@@ -47,23 +47,27 @@ export const TEXTO_DO_CONVITE_SEM_CONFIRMACAO =
 // AS FORMAS DA PARTE 2a
 // ---------------------------------------------------------------------------------------------------------------
 
-/** As formas do post no LinkedIn: o só texto e a imagem (a parte 2a), e o carrossel em PDF (a parte 3a). */
-export type FormaNoLinkedin = "texto" | "imagem" | "carrossel";
+/**
+ * As formas do post no LinkedIn: o só texto e a imagem (a parte 2a), o carrossel em PDF (a parte 3a) e o vídeo em
+ * partes (a parte 3b).
+ */
+export type FormaNoLinkedin = "texto" | "imagem" | "carrossel" | "video";
 
 /**
  * AS FORMAS QUE ESTE CÓDIGO SABE PUBLICAR NO LINKEDIN, numa lista só: a do formulário, a do payload e a do dreno
  * (`soAFormaConhecidaDoLinkedin`, abaixo). Uma forma acrescentada aqui é uma forma que o dreno passa a pegar: o
- * carrossel entra junto com o ramo dele (lib/linkedin-fila.ts).
+ * carrossel entrou junto com o ramo dele (lib/linkedin-fila.ts), e o vídeo também entra só com o ramo dele.
  */
 export const FORMAS_NO_LINKEDIN: readonly FormaNoLinkedin[] = ["texto", "imagem", "carrossel"];
 
 /**
- * QUANTOS ARQUIVOS CADA FORMA LEVA, numa função só, para o pedido e para o payload: o só texto nenhum, a imagem um, e
- * o carrossel as mesmas 2 a 10 fotos do carrossel do Instagram (`CARROSSEL_ITENS_MIN` e `CARROSSEL_ITENS_MAX`).
+ * QUANTOS ARQUIVOS CADA FORMA LEVA, numa função só, para o pedido e para o payload: o só texto nenhum, a imagem e o
+ * vídeo um, e o carrossel as mesmas 2 a 10 fotos do carrossel do Instagram (`CARROSSEL_ITENS_MIN` e
+ * `CARROSSEL_ITENS_MAX`).
  */
 function quantidadeServe(forma: FormaNoLinkedin, quantos: number): boolean {
   if (forma === "texto") return quantos === 0;
-  if (forma === "imagem") return quantos === 1;
+  if (forma === "imagem" || forma === "video") return quantos === 1;
   return quantos >= CARROSSEL_ITENS_MIN && quantos <= CARROSSEL_ITENS_MAX;
 }
 
@@ -97,6 +101,7 @@ export function soAFormaConhecidaDoLinkedin(marcador: string): string {
 
 export function rotuloDaFormaNoLinkedin(forma: FormaNoLinkedin): string {
   if (forma === "carrossel") return "Carrossel (PDF)";
+  if (forma === "video") return "Vídeo";
   return forma === "texto" ? "Só texto" : "Imagem";
 }
 
@@ -166,6 +171,7 @@ export type RecusaDoPedidoNoLinkedin =
   | "forma_desconhecida"
   | "quantidade"
   | "carrossel_com_video"
+  | "video_nao_mp4"
   | "texto_vazio"
   | "texto_longo"
   | "envio_sem_id";
@@ -189,6 +195,9 @@ export function recusaDoPedidoNoLinkedin(p: {
   // O PDF DO CARROSSEL SÓ LEVA FOTOS (a parte 3a). O vídeo é reconhecido pela extensão do caminho, como o dreno do
   // Instagram decide (`pareceVideo`); a tela confere antes, pelo tipo do arquivo, e desliga a caixinha.
   if (p.forma === "carrossel" && p.caminhos.some((c) => pareceVideo(c))) return "carrossel_com_video";
+  // O VÍDEO DO LINKEDIN SÓ VAI EM MP4 (a parte 3b). O caminho ganha a extensão pelo tipo de quem subiu
+  // (lib/bucket.ts), então o MOV do iPhone chega com ".mov"; a tela confere antes, pelo tipo do arquivo.
+  if (p.forma === "video" && !p.caminhos.every((c) => c.toLowerCase().endsWith(".mp4"))) return "video_nao_mp4";
   const problema = problemaDoTextoDoLinkedin(p.texto, p.forma);
   if (problema === "vazio") return "texto_vazio";
   if (problema === "longo") return "texto_longo";
@@ -204,6 +213,8 @@ export function textoDaRecusaNoLinkedin(r: RecusaDoPedidoNoLinkedin): string {
       return "O post do LinkedIn com imagem leva uma imagem, o carrossel leva de 2 a 10 fotos, e o só texto não leva arquivo.";
     case "carrossel_com_video":
       return textoDoProblemaDoCarrosselNoLinkedin("video");
+    case "video_nao_mp4":
+      return TEXTO_DO_VIDEO_QUE_NAO_E_MP4;
     case "texto_vazio":
       return "Escreva o texto do post.";
     case "texto_longo":
@@ -485,4 +496,88 @@ const MARCADORES_DA_DCT = new Set([0xc0, 0xc1, 0xc2]);
 
 export function vaiCruParaOLinkedin(c: { componentes: number; precisao: number; marcador: number } | null): boolean {
   return !!c && (c.componentes === 1 || c.componentes === 3) && c.precisao === 8 && MARCADORES_DA_DCT.has(c.marcador);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// O VÍDEO EM PARTES (a parte 3b; scratchpad/desenho-li3b.md, v3)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * SÓ MP4 ("File format: MP4.", a Videos API). O reels do Instagram aceita também o MOV (`lib/publicacao.ts`), que é o
+ * padrão do iPhone: com ele, a caixinha do LinkedIn desliga, com esta frase, e o post vai só ao Instagram.
+ */
+export const TEXTO_DO_VIDEO_QUE_NAO_E_MP4 = "O LinkedIn só aceita vídeo MP4.";
+
+export function oVideoVaiAoLinkedin(mime: string): boolean {
+  return mime === "video/mp4";
+}
+
+/**
+ * O QUE JÁ FOI FEITO NO ENVIO DO VÍDEO, lido do payload GRAVADO (o 230): a reserva, quantas partes ela devolveu,
+ * quantas têm o `ETag` gravado e o fim.
+ */
+export type EstadoDoEnvioDoVideo = { reservado: boolean; partes: number; etags: number; finalizado: boolean };
+
+/** As etapas do vídeo, uma por passada (o 231): a reserva, cada parte, o fim e o post. */
+export type EtapaDoVideo = "reserva" | "parte" | "fim" | "post";
+
+/** Os `ETag` a mais que as partes (um payload torto) não contam: a etapa seguinte é o fim. */
+function etagsQueContam(e: EstadoDoEnvioDoVideo): number {
+  return e.reservado ? Math.min(e.etags, e.partes) : 0;
+}
+
+/**
+ * O PROGRESSO DO VÍDEO (o 230): um número que só cresce ao longo das etapas, a reserva (1), cada `ETag` gravado (1 por
+ * parte) e o fim (1). A passada que o aumenta devolve a linha à fila sem contar adiamento; a que não aumenta, conta
+ * contra os tetos. Ele é lido do que a gravação devolveu, e não do que a passada achou que fez.
+ */
+export function progressoDoVideo(e: EstadoDoEnvioDoVideo): number {
+  return (e.reservado ? 1 : 0) + etagsQueContam(e) + (e.reservado && e.finalizado ? 1 : 0);
+}
+
+export function proximaEtapaDoVideo(e: EstadoDoEnvioDoVideo): EtapaDoVideo {
+  if (!e.reservado) return "reserva";
+  if (etagsQueContam(e) < e.partes) return "parte";
+  return e.finalizado ? "post" : "fim";
+}
+
+/**
+ * OS DOIS TETOS DO VÍDEO, para nenhum defeito virar um laço sem fim (o 230 e o 237):
+ *   - as passadas que COMEÇARAM uma etapa, com avanço ou sem, até o número de partes mais as três etapas de uma vez só
+ *     (a reserva, o fim e o post) mais 6 de folga. A passada do post que volta por mídia não pronta não conta aqui,
+ *     porque as consultas têm o teto delas;
+ *   - a idade: 2 horas desde a primeira passada. É ela que limita a espera da passada sem tempo, que não conta como
+ *     passada (um segundo vídeo na fila não gasta a folga esperando o primeiro).
+ */
+export const PASSADAS_DE_FOLGA_DO_VIDEO = 6;
+export const IDADE_MAXIMA_DO_VIDEO_MS = 2 * 60 * 60 * 1000;
+
+export function tetoDePassadasDoVideo(partes: number): number {
+  return partes + 3 + PASSADAS_DE_FOLGA_DO_VIDEO;
+}
+
+export type TetoDoVideo = "passadas" | "idade";
+
+export function tetoDoVideoAtingido(p: {
+  partes: number;
+  passadas: number;
+  primeiraPassadaEmMs: number | null;
+  agoraMs: number;
+}): TetoDoVideo | null {
+  if (p.passadas > tetoDePassadasDoVideo(p.partes)) return "passadas";
+  if (p.primeiraPassadaEmMs !== null && p.agoraMs - p.primeiraPassadaEmMs >= IDADE_MAXIMA_DO_VIDEO_MS) return "idade";
+  return null;
+}
+
+/**
+ * O ERRO DE UMA PARTE DO VÍDEO (o 234 e o 238). A parte vai SEM o token, para o endereço já assinado da reserva:
+ * o 401 e o 403 ali são a parte recusada (o endereço venceu ou não vale), e NÃO a autorização da conexão, que
+ * mandaria o convite de novo sem razão. A rede, o 409, o 429 e os 5xx passam, como em `desfechoDoErroDoLinkedin`;
+ * os outros 4xx não passam sozinhos.
+ */
+export type DesfechoDoErroDaParte = "recusada" | "passageiro" | "permanente";
+
+export function desfechoDoErroDaParte(status: number): DesfechoDoErroDaParte {
+  if (status === 401 || status === 403) return "recusada";
+  return desfechoDoErroDoLinkedin(status) === "passageiro" ? "passageiro" : "permanente";
 }
