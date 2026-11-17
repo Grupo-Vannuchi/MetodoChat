@@ -853,6 +853,11 @@ describe("o vídeo nas duas redes (a parte 3b)", () => {
     const [li] = await daRede("publicacao_linkedin");
     expect(li.status).toBe("pending");
     expect(li.payload.video_urn).toBeUndefined();
+    // INTOCADO DE VERDADE: o ramo do vídeo não rodou, nem uma etapa que falhasse antes de chamar o LinkedIn (nenhuma
+    // marca da primeira passada, nenhuma passada contada, nenhum erro).
+    expect(li.error).toBeNull();
+    expect(li.payload.primeira_passada_em).toBeUndefined();
+    expect(li.payload.passadas_do_video).toBeUndefined();
     expect(linkedin.pedidos).toEqual([]);
     expect(meta.containers).toBeGreaterThanOrEqual(1);
   });
