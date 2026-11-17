@@ -345,15 +345,17 @@ describe("o vídeo em partes no LinkedIn", () => {
     expect(linkedin.pedidos).toEqual([]);
   });
 
-  it("o começo máximo de cada etapa, contra a hora de parar dos 40 s (o 231)", () => {
+  it("o começo máximo de cada etapa, contra a hora de parar dos 40 s (o 231), com a folga de 2 s (o 242) e o fim de duas chamadas (o 240)", () => {
     const prazo = 1_000_000 + 55_000;
     const aos = (s: number) => 1_000_000 + s * 1000;
-    expect(fila.aEtapaDoVideoCabe("reserva", aos(20), prazo)).toBe(true);
-    expect(fila.aEtapaDoVideoCabe("reserva", aos(20.001), prazo)).toBe(false);
-    expect(fila.aEtapaDoVideoCabe("parte", aos(15), prazo)).toBe(true);
-    expect(fila.aEtapaDoVideoCabe("parte", aos(15.001), prazo)).toBe(false);
-    expect(fila.aEtapaDoVideoCabe("fim", aos(30), prazo)).toBe(true);
-    expect(fila.aEtapaDoVideoCabe("post", aos(30.001), prazo)).toBe(false);
+    expect(fila.aEtapaDoVideoCabe("reserva", aos(17.999), prazo)).toBe(true);
+    expect(fila.aEtapaDoVideoCabe("reserva", aos(18), prazo)).toBe(false);
+    expect(fila.aEtapaDoVideoCabe("parte", aos(12.999), prazo)).toBe(true);
+    expect(fila.aEtapaDoVideoCabe("parte", aos(13), prazo)).toBe(false);
+    expect(fila.aEtapaDoVideoCabe("fim", aos(17.999), prazo)).toBe(true);
+    expect(fila.aEtapaDoVideoCabe("fim", aos(18), prazo)).toBe(false);
+    expect(fila.aEtapaDoVideoCabe("post", aos(27.999), prazo)).toBe(true);
+    expect(fila.aEtapaDoVideoCabe("post", aos(28), prazo)).toBe(false);
   });
 });
 
@@ -409,6 +411,28 @@ describe("os erros de cada etapa do vídeo (o 238)", () => {
     expect(await dreno.drenarUmaPublicacaoDoLinkedin(id)).toBe("falhou");
     expect((await linha(id)).error).toContain("mande o convite de novo");
     expect(linkedin.pedidos).toEqual([]);
+  });
+  it("três erros passageiros SEGUIDOS, sem avanço entre eles, encerram a linha (o 247)", async () => {
+    const id = await reservado();
+    linkedin.respostasDasPartes = [{ status: 503 }, { status: 503 }, { status: 503 }];
+    for (let i = 0; i < 2; i++) {
+      expect(await dreno.drenarUmaPublicacaoDoLinkedin(id)).toBe("aguardando");
+      await valerJa(id);
+    }
+    expect(await dreno.drenarUmaPublicacaoDoLinkedin(id)).toBe("falhou");
+    expect((await linha(id)).status).toBe("failed");
+    expect(bucket.apagados).toEqual([]);
+  });
+
+  it("o erro de rede de uma parte vai para a linha com um texto fixo, sem o endereço do envio (o 243)", async () => {
+    const id = await reservado();
+    linkedin.enderecoDasPartes = null;
+    await q(`update queue set payload = jsonb_set(payload, '{partes,0,url}', '"http://127.0.0.1:10/parte-que-ninguem-ouve"') where id = $1`, [id]);
+    expect(await dreno.drenarUmaPublicacaoDoLinkedin(id)).toBe("aguardando");
+    const l = await linha(id);
+    expect(l.error).toContain("o envio da parte do vídeo falhou na rede");
+    expect(l.error).not.toContain("127.0.0.1");
+    expect(l.error).not.toContain("parte-que-ninguem-ouve");
   });
 });
 
@@ -486,6 +510,39 @@ describe("o fim e o post do vídeo", () => {
     expect(l).toMatchObject({ status: "pending", espera_um_minuto: true, error: fila.MOTIVO_VIDEO_PROCESSANDO });
     expect(l.payload).toMatchObject({ consultas_da_midia: 1, passadas_do_video: passadas });
     expect(l.payload.post_tentado_em).toBeUndefined();
+  });
+
+  it("o fim conta as duas chamadas (o 240): aos 25 s ele não começa mais, e a linha volta sem chamar o LinkedIn", async () => {
+    const id = await comTodasAsPartes();
+    expect(await dreno.drenarUmaPublicacaoDoLinkedin(id, Date.now() - 25_000)).toBe("aguardando");
+    expect(linkedin.pedidos).toEqual([]);
+    const l = await linha(id);
+    expect(l).toMatchObject({ status: "pending", error: fila.MOTIVO_SEM_TEMPO });
+    expect(l.payload.video_finalizado).toBeUndefined();
+    expect(l.payload.fim_tentado_em).toBeUndefined();
+  });
+
+  it("o post não cai no teto das passadas (o 241): o fim foi a última passada permitida, e o post publica", async () => {
+    const id = await comTodasAsPartes();
+    // As 3 partes dão o teto de 12 passadas, que só encerra quando PASSA dele: com 12 contadas, o fim ainda começa e
+    // vira a 13ª. Sem a correção, a passada do post, com 13, encerraria o vídeo já finalizado.
+    await q(`update queue set payload = payload || '{"passadas_do_video": 12}'::jsonb where id = $1`, [id]);
+    expect(await dreno.drenarUmaPublicacaoDoLinkedin(id)).toBe("aguardando"); // o fim, a 13ª
+    expect((await linha(id)).payload).toMatchObject({ video_finalizado: true, passadas_do_video: 13 });
+    await valerJa(id);
+    expect(await dreno.drenarUmaPublicacaoDoLinkedin(id)).toBe("publicado");
+    expect((await linha(id)).status).toBe("sent");
+  });
+
+  it("a consulta do estado que falha de passagem (429) não encerra o fim perdido (o 244): a linha volta à fila", async () => {
+    const id = await comTodasAsPartes();
+    await q(`update queue set payload = payload || jsonb_build_object('fim_tentado_em', now()::text) where id = $1`, [id]);
+    linkedin.respostaDoFim = { status: 400, corpo: "{}" };
+    linkedin.estadoDoVideo = { status: 429, corpo: "{}" };
+    expect(await dreno.drenarUmaPublicacaoDoLinkedin(id)).toBe("aguardando");
+    const l = await linha(id);
+    expect(l).toMatchObject({ status: "pending", attempts: 1 });
+    expect(l.payload.video_finalizado).toBeUndefined();
   });
 
   it("na décima primeira consulta, a linha encerra com o motivo do vídeo", async () => {

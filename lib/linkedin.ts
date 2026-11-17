@@ -395,7 +395,20 @@ export async function enviarParteDoVideo(uploadUrl: string, bytes: Uint8Array<Ar
   if (!enderecoDeEnvioConfiavel(uploadUrl)) {
     throw new LinkedinError(STATUS_RECUSADO_PELO_PAINEL, "o endereço de envio do vídeo não é do LinkedIn");
   }
-  const r = await chamar(uploadUrl, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: bytes }, TETO_DO_ENVIO_DA_PARTE_MS);
+  // O ERRO DA CHAMADA NÃO LEVA O ENDEREÇO (o 243): o `chamar` põe o endereço, sem a query, nas frases de tempo, de rede e
+  // de redirecionamento, e a frase da parte vai para a coluna `error`, que a tela mostra. O status fica, e a frase é fixa.
+  let r: Awaited<ReturnType<typeof chamar>>;
+  try {
+    r = await chamar(uploadUrl, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: bytes }, TETO_DO_ENVIO_DA_PARTE_MS);
+  } catch (err) {
+    const status = err instanceof LinkedinError ? err.status : 0;
+    throw new LinkedinError(
+      status,
+      status === STATUS_RECUSADO_PELO_PAINEL
+        ? "o envio da parte do vídeo foi redirecionado, e a chamada não seguiu"
+        : "o envio da parte do vídeo falhou na rede ou não respondeu a tempo"
+    );
+  }
   if (r.status !== 200 && r.status !== 201) throw new LinkedinError(r.status, `o LinkedIn recusou a parte do vídeo (${r.status})`);
   if (!r.etag) throw new LinkedinError(r.status, "o LinkedIn aceitou a parte do vídeo sem o ETag");
   return r.etag;

@@ -249,24 +249,32 @@ export const MOTIVO_VIDEO_PODE_TER_SUBIDO =
   "o vídeo pode ter terminado de subir ao LinkedIn sem a confirmação chegar; publique de novo";
 
 /**
- * O PIOR CASO DE CADA ETAPA DO VÍDEO, pelos tetos (o §3.3): a reserva (o tamanho pelo bucket e a reserva), uma parte
- * (a faixa do bucket e o envio dela), o fim e o post.
+ * A FOLGA DE CADA ETAPA DO VÍDEO (o 242): depois da conferência do tempo ainda vêm a conexão, a contagem da passada e as
+ * gravações, que não estão nos tetos. Os outros ramos usam a `FOLGA_MS`; aqui, 2 s por etapa.
+ */
+const FOLGA_DA_ETAPA_DO_VIDEO_MS = 2_000;
+
+/**
+ * O PIOR CASO DE CADA ETAPA DO VÍDEO, pelos tetos e com a folga (o §3.3): a reserva (o tamanho pelo bucket e a reserva),
+ * uma parte (a faixa do bucket e o envio dela), o fim e o post. O FIM CONTA DUAS CHAMADAS (o 240): o fim perdido faz o
+ * `finalizeUpload` e depois a consulta do estado, 10 s cada.
  */
 export const PIOR_CASO_DA_ETAPA_DO_VIDEO_MS: Readonly<Record<EtapaDoVideo, number>> = {
-  reserva: TETO_DO_BUCKET_MS + TETO_DO_LINKEDIN_MS,
-  parte: TETO_DO_BUCKET_MS + TETO_DO_ENVIO_DA_PARTE_MS,
-  fim: TETO_DO_LINKEDIN_MS,
-  post: TETO_DO_LINKEDIN_MS,
+  reserva: TETO_DO_BUCKET_MS + TETO_DO_LINKEDIN_MS + FOLGA_DA_ETAPA_DO_VIDEO_MS,
+  parte: TETO_DO_BUCKET_MS + TETO_DO_ENVIO_DA_PARTE_MS + FOLGA_DA_ETAPA_DO_VIDEO_MS,
+  fim: 2 * TETO_DO_LINKEDIN_MS + FOLGA_DA_ETAPA_DO_VIDEO_MS,
+  post: TETO_DO_LINKEDIN_MS + FOLGA_DA_ETAPA_DO_VIDEO_MS,
 };
 
 /**
  * UMA ETAPA POR PASSADA, que só começa se o pior caso dela termina ANTES da hora de parar da 3a-0 (o 231): o prazo do
- * dreno menos a reserva para terminar (lib/fila-tipos.ts). Com o prazo de 55 s, a hora de parar é aos 40 s: a reserva
- * começa até os 20 s, a parte até os 15 s, e o fim e o post até os 30 s. Assim, nenhuma mensagem do mesmo lote volta à
- * fila por causa do vídeo.
+ * dreno menos a reserva para terminar (lib/fila-tipos.ts). Com o prazo de 55 s, a hora de parar é aos 40 s; com a
+ * folga, a reserva começa antes dos 18 s, a parte antes dos 13 s, o fim antes dos 18 s e o post antes dos 28 s. O fim
+ * da etapa tem de ficar ANTES da hora de parar, e não nela (o 242: a hora de parar é `>=`). Assim, nenhuma mensagem do
+ * mesmo lote volta à fila por causa do vídeo.
  */
 export function aEtapaDoVideoCabe(etapa: EtapaDoVideo, agoraMs: number, prazoMs: number): boolean {
-  return agoraMs + PIOR_CASO_DA_ETAPA_DO_VIDEO_MS[etapa] <= prazoMs - RESERVA_PARA_TERMINAR_MS;
+  return agoraMs + PIOR_CASO_DA_ETAPA_DO_VIDEO_MS[etapa] < prazoMs - RESERVA_PARA_TERMINAR_MS;
 }
 
 /**
@@ -454,9 +462,12 @@ async function passadaDoVideo(
     return "falhou";
   }
   const primeiraMs = await marcarAPrimeiraPassada(item.id);
+  // A ETAPA ANTES DOS TETOS (o 241): a passada do post não conta no teto das passadas, que é das etapas do envio; com o
+  // vídeo finalizado, ela publica mesmo que o fim tenha sido a última passada permitida. O teto de idade vale sempre.
+  const etapa = proximaEtapaDoVideo(estado);
   const teto = tetoDoVideoAtingido({
     partes: estado.partes,
-    passadas: pub.passadasDoVideo,
+    passadas: etapa === "post" ? 0 : pub.passadasDoVideo,
     primeiraPassadaEmMs: primeiraMs,
     agoraMs: Date.now(),
   });
@@ -465,7 +476,6 @@ async function passadaDoVideo(
     return "falhou";
   }
 
-  const etapa = proximaEtapaDoVideo(estado);
   if (!aEtapaDoVideoCabe(etapa, Date.now(), deps.prazoMs)) {
     await devolverOVideoSemContar(item.id);
     return "aguardando";
@@ -506,7 +516,12 @@ async function passadaDoVideo(
         await finalizarVideo(conexao.access_token, pub.videoUrn as string, pub.uploadToken as string, pub.etags.slice(0, estado.partes));
       } catch (err) {
         if (!(repetido && err instanceof LinkedinError && desfechoDoErroDoLinkedin(err.status) === "permanente")) throw err;
-        const situacao = await estadoDoVideo(conexao.access_token, pub.videoUrn as string).catch(() => null);
+        // A CONSULTA QUE FALHA DE PASSAGEM (a rede, o 429, o 5xx) não encerra um vídeo que provavelmente está bom (o
+        // 244): o erro sobe, e a linha volta à fila. Só a recusa da consulta encerra.
+        const situacao = await estadoDoVideo(conexao.access_token, pub.videoUrn as string).catch((e: unknown) => {
+          if (e instanceof LinkedinError && desfechoDoErroDoLinkedin(e.status) === "passageiro") throw e;
+          return null;
+        });
         if (situacao !== "AVAILABLE" && situacao !== "PROCESSING") {
           await deps.finish(item.id, { status: "failed", error: MOTIVO_VIDEO_PODE_TER_SUBIDO });
           return "falhou";
