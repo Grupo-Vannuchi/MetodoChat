@@ -545,9 +545,16 @@ describe("o fim e o post do vídeo", () => {
     expect(l.payload.video_finalizado).toBeUndefined();
   });
 
-  it("na décima primeira consulta, a linha encerra com o motivo do vídeo", async () => {
+  it("a décima consulta ainda espera, e na décima primeira a linha encerra com o motivo do vídeo", async () => {
     const id = await comTodasAsPartes();
     expect(await dreno.drenarUmaPublicacaoDoLinkedin(id)).toBe("aguardando"); // o fim
+    // A DÉCIMA CONSULTA AINDA ESPERA: o teto do vídeo é 10, e não os 5 do documento (a lacuna achada nas mutações).
+    await q(`update queue set not_before = now(), payload = payload || '{"consultas_da_midia": 9}'::jsonb where id = $1`, [id]);
+    linkedin.respostaDoPost = { status: 400, corpo: '{"code":"MEDIA_ASSET_WAITING_UPLOAD"}' };
+    expect(await dreno.drenarUmaPublicacaoDoLinkedin(id)).toBe("aguardando");
+    const decima = await linha(id);
+    expect(decima).toMatchObject({ status: "pending", error: fila.MOTIVO_VIDEO_PROCESSANDO });
+    expect(decima.payload).toMatchObject({ consultas_da_midia: 10 });
     await q(`update queue set not_before = now(), payload = payload || '{"consultas_da_midia": 10}'::jsonb where id = $1`, [id]);
     linkedin.respostaDoPost = { status: 400, corpo: '{"code":"MEDIA_ASSET_WAITING_UPLOAD"}' };
     expect(await dreno.drenarUmaPublicacaoDoLinkedin(id)).toBe("falhou");
