@@ -6,6 +6,8 @@ import type { Medidas, Navegador } from "@/app/publicar/navegador";
 import {
   NOTA_DO_CARROSSEL_NO_LINKEDIN,
   NOTA_DO_CONTADOR_DO_LINKEDIN,
+  NOTA_DO_VIDEO_NO_LINKEDIN,
+  TEXTO_DO_VIDEO_QUE_NAO_E_MP4,
   tamanhoDoTextoNoLinkedin,
   textoDaRecusaNoLinkedin,
   textoDoProblemaDoCarrosselNoLinkedin,
@@ -17,8 +19,8 @@ import { NOTA_DA_LEGENDA_NO_LINKEDIN, redeAceitaAForma, TEXTO_SEM_REDE } from "@
 
 // O COMPOR COM AS DUAS REDES (docs/specs/2026-11-06-linkedin-no-perfil.md, §7; a parte 2b). A tela tem as caixinhas
 // "Instagram" e "LinkedIn", que começam só com o Instagram marcado (a decisão do Eduardo, 10/11). Cada forma liga e
-// desliga as redes, com o motivo: o só texto é só do LinkedIn, o reels e o story não vão ao LinkedIn, e o carrossel
-// vai como PDF, só com fotos (a parte 3a). Só no LinkedIn, o campo é o "Texto" da parte 2a; nas duas, a "Legenda" e o "Texto para o LinkedIn",
+// desliga as redes, com o motivo: o só texto é só do LinkedIn, o story não vai ao LinkedIn, o carrossel
+// vai como PDF, só com fotos (a parte 3a), e o reels vai como vídeo, só em MP4 (a parte 3b). Só no LinkedIn, o campo é o "Texto" da parte 2a; nas duas, a "Legenda" e o "Texto para o LinkedIn",
 // opcional. O clique chama a action das redes marcadas, e só ela. O navegador e as actions são falsos, como no
 // teste do compositor (testes-dom/publicar-compositor.dom.tsx).
 
@@ -34,6 +36,8 @@ const MEDIDAS: Record<string, Medidas> = {
   "grande-1.jpg": NA_MEDIDA,
   "grande-2.jpg": NA_MEDIDA,
   "clipe.mp4": { largura: 1080, altura: 1920, segundos: 10 },
+  // O MOV DO iPHONE (a parte 3b): o LinkedIn só aceita MP4.
+  "clipe.mov": { largura: 1080, altura: 1920, segundos: 10 },
 };
 
 /** O cabeçalho que a tela lê com o LinkedIn marcado no carrossel: o de cor de tela, a não ser o que o caso pedir. */
@@ -62,7 +66,9 @@ function navegadorFalso(opcoes: OpcoesDoNavegador = {}) {
     converter: async (a) => a,
     assinar: async (p) => {
       f.assinados.push({ forma: p.forma, nome: p.nome });
-      return { ok: true, caminho: `${PASTA}/${p.nome.replace(/\.\w+$/, "")}.jpg`, url: `https://bucket.test/${p.nome}` };
+      // A EXTENSÃO VEM DO TIPO, como em lib/bucket.ts: o vídeo fica .mp4 ou .mov (a parte 3b), e o resto, .jpg.
+      const ext = p.nome.endsWith(".mp4") ? "mp4" : p.nome.endsWith(".mov") ? "mov" : "jpg";
+      return { ok: true, caminho: `${PASTA}/${p.nome.replace(/\.\w+$/, "")}.${ext}`, url: `https://bucket.test/${p.nome}` };
     },
     subir: async (_url, arquivo, aoAndar) => {
       if (opcoes.falharSubidaDe?.delete(arquivo.name)) throw new Error("A conexão caiu durante o envio.");
@@ -185,20 +191,20 @@ describe("as caixinhas das redes", () => {
     expect(Array.from(forma.options).map((o) => o.value)).not.toContain("texto");
   });
 
-  it("o reels e o story desligam e desmarcam o LinkedIn, com o motivo da forma; o carrossel não (a parte 3a)", () => {
+  it("o story desliga e desmarca o LinkedIn, com o motivo da forma; o carrossel e o reels não (as partes 3a e 3b)", () => {
     renderizar(LIGADO);
     fireEvent.click(caixinha("LinkedIn"));
     expect(caixinha("LinkedIn").checked).toBe(true);
-    escolherForma("carrossel");
-    expect(caixinha("LinkedIn").disabled).toBe(false);
-    expect(caixinha("LinkedIn").checked).toBe(true);
-    for (const forma of ["reels", "story"] as const) {
+    for (const forma of ["carrossel", "reels"] as const) {
       escolherForma(forma);
-      expect(caixinha("LinkedIn").disabled).toBe(true);
-      expect(caixinha("LinkedIn").checked).toBe(false);
-      expect(screen.getByText(redeAceitaAForma("linkedin", forma) as string)).toBeTruthy();
-      expect(caixinha("Instagram").checked).toBe(true);
+      expect(caixinha("LinkedIn").disabled).toBe(false);
+      expect(caixinha("LinkedIn").checked).toBe(true);
     }
+    escolherForma("story");
+    expect(caixinha("LinkedIn").disabled).toBe(true);
+    expect(caixinha("LinkedIn").checked).toBe(false);
+    expect(screen.getByText(redeAceitaAForma("linkedin", "story") as string)).toBeTruthy();
+    expect(caixinha("Instagram").checked).toBe(true);
     // VOLTAR À IMAGEM NÃO REMARCA O LINKEDIN SOZINHO: o post sai público no perfil pessoal, e só vai quem marcar.
     escolherForma("imagem");
     expect(caixinha("LinkedIn").disabled).toBe(false);
@@ -531,5 +537,60 @@ describe("o botão de publicar (215)", () => {
   it("sem o LinkedIn na página, o botão continua Publicar, como antes", () => {
     renderizar(null);
     expect(botao().textContent).toBe("Publicar");
+  });
+});
+
+/** O reels tem um campo só, "Arquivo" (o carrossel é que tem "Arquivos"). */
+async function escolherOVideo(arquivo: File) {
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText("Arquivo"), { target: { files: [arquivo] } });
+  });
+  await waitFor(() => expect(screen.queryByText("Lendo o arquivo…")).toBeNull());
+}
+const mp4 = () => new File([new Uint8Array(1000)], "clipe.mp4", { type: "video/mp4" });
+
+// O VÍDEO NO LINKEDIN (a parte 3b; scratchpad/desenho-li3b.md, §3.1): o reels vai ao LinkedIn como vídeo, só em MP4,
+// com a nota de que ele sai em minutos. O MOV do iPhone desliga e desmarca a caixinha, com a frase do MP4.
+describe("o vídeo no LinkedIn (a parte 3b)", () => {
+  it("só no LinkedIn: o reels MP4 vai à action do LinkedIn com a forma vídeo, com a nota do vídeo", async () => {
+    const { acao, acaoDoLinkedin } = renderizar(LIGADO);
+    escolherForma("reels");
+    fireEvent.click(caixinha("LinkedIn"));
+    fireEvent.click(caixinha("Instagram"));
+    expect(screen.getByText(NOTA_DO_VIDEO_NO_LINKEDIN)).toBeTruthy();
+    await escolherOVideo(mp4());
+    fireEvent.change(campoDoTexto(), { target: { value: "Um vídeo novo" } });
+    await clicarEmPublicar();
+    await waitFor(() => expect(acaoDoLinkedin).toHaveBeenCalledTimes(1));
+    const dados = acaoDoLinkedin.mock.calls[0][0];
+    expect(dados.get("forma_linkedin")).toBe("video");
+    expect(dados.get("caminhos")).toBe(`${PASTA}/clipe.mp4`);
+    expect(acao).not.toHaveBeenCalled();
+  });
+
+  it("nas duas: o reels MP4 vai à action das duas, com a forma reels", async () => {
+    const { acaoDasDuasRedes } = renderizar(LIGADO);
+    escolherForma("reels");
+    fireEvent.click(caixinha("LinkedIn"));
+    expect(caixinha("Instagram").checked).toBe(true);
+    await escolherOVideo(mp4());
+    fireEvent.change(campoDaLegenda(), { target: { value: "O vídeo #ig" } });
+    await clicarEmPublicar();
+    await waitFor(() => expect(acaoDasDuasRedes).toHaveBeenCalledTimes(1));
+    const dados = acaoDasDuasRedes.mock.calls[0][0];
+    expect(dados.get("forma")).toBe("reels");
+    expect(dados.get("caminhos")).toBe(`${PASTA}/clipe.mp4`);
+  });
+
+  it("o MOV desliga e desmarca o LinkedIn, com a frase do MP4, e o Instagram segue marcado", async () => {
+    renderizar(LIGADO);
+    escolherForma("reels");
+    fireEvent.click(caixinha("LinkedIn"));
+    expect(caixinha("LinkedIn").checked).toBe(true);
+    await escolherOVideo(new File([new Uint8Array(1000)], "clipe.mov", { type: "video/quicktime" }));
+    expect(caixinha("LinkedIn").disabled).toBe(true);
+    expect(caixinha("LinkedIn").checked).toBe(false);
+    expect(screen.getByText(TEXTO_DO_VIDEO_QUE_NAO_E_MP4)).toBeTruthy();
+    expect(caixinha("Instagram").checked).toBe(true);
   });
 });

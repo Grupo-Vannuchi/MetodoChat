@@ -277,8 +277,16 @@ export async function remarcarPublicacao(formData: FormData): Promise<void> {
   //
   // SÓ O POST DE FORMA QUE ESTE CÓDIGO CONHECE (a preparação da parte 3 do LinkedIn): a forma nova não é publicada
   // por este código, e gravar a hora dela, ou drenar, seria dizer "feito" com a linha parada.
+  //
+  // O VÍDEO DO LINKEDIN RECOMEÇA A CONTAR A IDADE (o 245; a parte 3b, scratchpad/desenho-li3b.md, §3.7: "a linha
+  // continua de onde parou"). O teto de 2 horas conta da primeira passada (`marcarAPrimeiraPassada`,
+  // lib/linkedin-fila.ts), e o vídeo remarcado para mais de 2 horas depois dela encerraria na primeira passada da hora
+  // nova. O Remarcar tira a marca, e a primeira passada depois da hora nova grava outra. As passadas ficam: o Remarcar
+  // não soma passada, e o teto delas continua sendo o limite do envio. O payload das outras linhas não muda.
   const afetadas = (await sql().query(
-    `update queue set not_before = greatest(now(), $3::timestamptz)
+    `update queue set not_before = greatest(now(), $3::timestamptz),
+                      payload = case when kind = 'publicacao_linkedin' and payload->>'forma' = 'video'
+                                     then payload - 'primeira_passada_em' else payload end
      ${ALVO_DA_MUDANCA}
        and ${soAFormaConhecidaDoLinkedin("$5")}
      returning id, kind,

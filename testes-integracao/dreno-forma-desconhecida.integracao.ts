@@ -130,8 +130,9 @@ async function linha(id: string) {
   return l;
 }
 
-// A FORMA NOVA DE EXEMPLO É O VÍDEO (a parte 3b), que este código ainda não publica. Até a 3a, era o carrossel.
-const FORMA_NOVA = { forma: "video", caminhos: [`${CONTA}/a.mp4`], texto: "um vídeo do futuro" };
+// A FORMA NOVA DE EXEMPLO É UMA QUE NENHUMA PARTE PLANEJOU (a enquete), porque este código já publica o vídeo (a
+// parte 3b). Até a 3a, era o carrossel; até a 3b, o vídeo.
+const FORMA_NOVA = { forma: "enquete", caminhos: [`${CONTA}/a.mp4`], texto: "uma enquete do futuro" };
 const TEXTO = { forma: "texto", caminhos: [], texto: "um post só de texto" };
 const IMAGEM = { forma: "imagem", caminhos: [`${CONTA}/c.jpg`], texto: "um post com imagem" };
 

@@ -5,8 +5,10 @@
 import { avisoDaPublicacaoEnfileirada, type Aviso } from "@/lib/avisos";
 import {
   avisoDoPostNoLinkedin,
+  TEXTO_DO_VIDEO_QUE_NAO_E_MP4,
   textoDoProblemaDoCarrosselNoLinkedin,
   type DisponibilidadeDoLinkedin,
+  type FormaNoLinkedin,
 } from "@/lib/linkedin-publicacao";
 import { textoDaRecusaDaPublicacao, type FormaDePublicacao } from "@/lib/publicacao";
 
@@ -18,9 +20,9 @@ export type FormaDaTela = FormaDePublicacao | "texto";
 const FORMAS_DO_INSTAGRAM: readonly FormaDePublicacao[] = ["imagem", "carrossel", "reels", "story"];
 
 /**
- * POR QUE UMA REDE NÃO ACEITA A FORMA, ou null quando aceita. O LinkedIn recebe o só texto, a imagem e o carrossel,
- * que vai como PDF, só com fotos (a parte 3a; o vídeo na lista desliga a caixinha, em `estadoDasCaixinhas`). O vídeo
- * chega na próxima entrega (a 3b), e o story não existe lá.
+ * POR QUE UMA REDE NÃO ACEITA A FORMA, ou null quando aceita. O LinkedIn recebe o só texto, a imagem, o carrossel,
+ * que vai como PDF, só com fotos (a parte 3a; o vídeo na lista desliga a caixinha, em `estadoDasCaixinhas`), e o reels,
+ * que vai como vídeo, só em MP4 (a parte 3b; o MOV desliga a caixinha). O story não existe lá.
  */
 export function redeAceitaAForma(rede: Rede, forma: FormaDaTela): string | null {
   if (rede === "instagram") return forma === "texto" ? "O Instagram não publica post só de texto." : null;
@@ -28,9 +30,8 @@ export function redeAceitaAForma(rede: Rede, forma: FormaDaTela): string | null 
     case "texto":
     case "imagem":
     case "carrossel":
-      return null;
     case "reels":
-      return "O LinkedIn recebe vídeo na próxima entrega.";
+      return null;
     case "story":
       return "O LinkedIn não tem story.";
   }
@@ -64,13 +65,16 @@ export function estadoDasCaixinhas(p: {
   linkedin: DisponibilidadeDoLinkedin | null;
   /** Há vídeo na lista de arquivos. */
   comVideo?: boolean;
+  /** Há um vídeo que não é MP4 na lista (o MOV do iPhone, a parte 3b). */
+  videoQueNaoEMp4?: boolean;
 }): { instagram: EstadoDaCaixinha; linkedin: EstadoDaCaixinha | null } {
   const motivoDoInstagram = redeAceitaAForma("instagram", p.forma);
   const instagram = { ligada: !motivoDoInstagram, marcada: !motivoDoInstagram && p.marcadas.instagram, motivo: motivoDoInstagram };
   if (!p.linkedin) return { instagram, linkedin: null };
   const motivoDoLinkedin = p.linkedin.disponivel
     ? (redeAceitaAForma("linkedin", p.forma) ??
-      (p.forma === "carrossel" && p.comVideo ? textoDoProblemaDoCarrosselNoLinkedin("video") : null))
+      (p.forma === "carrossel" && p.comVideo ? textoDoProblemaDoCarrosselNoLinkedin("video") : null) ??
+      (p.forma === "reels" && p.videoQueNaoEMp4 ? TEXTO_DO_VIDEO_QUE_NAO_E_MP4 : null))
     : p.linkedin.motivo;
   return {
     instagram,
@@ -113,7 +117,7 @@ export type LadoDoInstagram = { entrou: true; jaVale: boolean } | { entrou: fals
 
 /** O lado do LinkedIn: entrou, com o desfecho do "agora" quando já valia, ou a chave já existia. */
 export type LadoDoLinkedin =
-  | { entrou: true; jaVale: boolean; desfecho: "publicado" | "aguardando" | "falhou" | null; motivo?: string | null }
+  | { entrou: true; jaVale: boolean; desfecho: "publicado" | "aguardando" | "falhou" | null; motivo?: string | null; forma?: FormaNoLinkedin }
   | { entrou: false };
 
 /**
@@ -170,6 +174,7 @@ export function avisoDasDuasRedes(d: DesfechoDasDuasRedes): Aviso {
         desfecho: d.linkedin.desfecho,
         motivo: d.linkedin.motivo,
         agendadoPara: d.linkedin.jaVale ? null : d.campos,
+        forma: d.linkedin.forma,
       })
     : { tom: "ok" as const, texto: JA_EXISTIA_NO_LINKEDIN };
   const nadaNovo = !d.instagram.entrou && !d.linkedin.entrou;

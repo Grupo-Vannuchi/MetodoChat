@@ -7,7 +7,7 @@ import "server-only";
 // AS CHAVES DO APP (`LINKEDIN_CLIENT_ID` e `LINKEDIN_CLIENT_SECRET`) FICAM SÓ NAS VARIÁVEIS DA VERCEL, nunca no
 // código nem no banco, porque o repositório é público (§8). Sem as duas, o LinkedIn fica desligado no painel.
 
-import { aMidiaAindaNaoEstaPronta } from "./linkedin-publicacao";
+import { aMidiaAindaNaoEstaPronta, oProcessamentoFalhou } from "./linkedin-publicacao";
 
 const OAUTH = "https://www.linkedin.com";
 const API = "https://api.linkedin.com";
@@ -103,28 +103,52 @@ export class LinkedinError extends Error {
    * LinkedIn pode vir depois (nota da auditoria sobre a F3).
    */
   midiaNaoPronta: boolean;
-  constructor(status: number, texto: string, midiaNaoPronta = false) {
+  /**
+   * O POST RECUSADO PORQUE O LINKEDIN NÃO CONSEGUIU PROCESSAR O VÍDEO (`MEDIA_ASSET_PROCESSING_FAILED`, a parte 3b),
+   * decidido também na resposta inteira.
+   */
+  processamentoFalhou: boolean;
+  constructor(status: number, texto: string, midiaNaoPronta = false, processamentoFalhou = false) {
     super(`LinkedIn ${status}: ${texto}`);
     this.name = "LinkedinError";
     this.status = status;
     this.texto = texto;
     this.midiaNaoPronta = midiaNaoPronta;
+    this.processamentoFalhou = processamentoFalhou;
   }
 }
 
+/**
+ * O PEDIDO QUE O PAINEL RECUSOU SEM CHEGAR AO LINKEDIN, e que repetir não conserta (a nota da auditoria sobre a F2 da
+ * 3b): o redirecionamento recusado, e o endereço de uma parte do vídeo fora da regra do domínio. Não é um status de
+ * HTTP: `desfechoDoErroDoLinkedin` o trata como permanente, e não como a rede (status 0), que passa.
+ */
+export const STATUS_RECUSADO_PELO_PAINEL = -1;
+
+/**
+ * TODA CHAMADA AO LINKEDIN PASSA POR AQUI, com o teto de tempo e SEM SEGUIR REDIRECIONAMENTO (o 234, a parte 3b): a
+ * regra do domínio (`enderecoDeEnvioConfiavel`) confere só o primeiro endereço, e um 3xx para fora do LinkedIn
+ * levaria junto o token, ou a parte do vídeo do cliente. O redirecionamento recusado é permanente
+ * (`STATUS_RECUSADO_PELO_PAINEL`).
+ */
 async function chamar(
   url: string,
   init: RequestInit,
   tetoMs: number = TETO_DO_LINKEDIN_MS
-): Promise<{ status: number; texto: string; restliId: string | null }> {
+): Promise<{ status: number; texto: string; restliId: string | null; etag: string | null }> {
   try {
-    const res = await fetch(url, { ...init, signal: AbortSignal.timeout(tetoMs) });
-    return { status: res.status, texto: await res.text(), restliId: res.headers.get("x-restli-id") };
+    const res = await fetch(url, { ...init, redirect: "error", signal: AbortSignal.timeout(tetoMs) });
+    return { status: res.status, texto: await res.text(), restliId: res.headers.get("x-restli-id"), etag: res.headers.get("etag") };
   } catch (err) {
     // O endereço vai sem a query: nenhuma destas chamadas leva segredo nela, e assim continua.
     const onde = url.split("?")[0];
     if (err instanceof Error && err.name === "TimeoutError") {
       throw new LinkedinError(0, `${onde} não respondeu em ${tetoMs}ms`);
+    }
+    // O `fetch` do Node recusa o 3xx com um erro de rede cuja causa fala do redirecionamento.
+    const causa = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
+    if (causa instanceof Error && /redirect/i.test(causa.message)) {
+      throw new LinkedinError(STATUS_RECUSADO_PELO_PAINEL, `${onde} redirecionou, e a chamada não seguiu`);
     }
     throw new LinkedinError(0, `${onde} falhou na rede`);
   }
@@ -295,6 +319,128 @@ export async function enviarDocumento(uploadUrl: string, token: string, bytes: U
   if (r.status !== 200 && r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300));
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// O VÍDEO EM PARTES (a parte 3b; scratchpad/desenho-li3b.md, v3; a Videos API, lida em 11/11)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * O teto do envio de UMA parte do vídeo: as partes são de 4 MiB nos exemplos da Videos API (~2,2 Mbit/s em 15 s), e
+ * a parte inteira (a faixa do bucket e este envio) só começa se terminar antes da hora de parar (o 231,
+ * lib/linkedin-fila.ts).
+ */
+export const TETO_DO_ENVIO_DA_PARTE_MS = 15_000;
+
+/** Uma parte do vídeo: o primeiro e o último byte, inclusivos, e o endereço de envio dela. */
+export type ParteDoVideo = { inicio: number; fim: number; url: string };
+
+/**
+ * AS PARTES DA RESERVA, conferidas antes de qualquer gravação: cada endereço pela regra do domínio, e os intervalos
+ * cobrindo o arquivo inteiro, de 0 ao tamanho − 1, em ordem, sem buraco nem sobra. Uma reserva torta não vira um
+ * envio pela metade.
+ */
+function partesConferidas(instrucoes: unknown, tamanho: number): ParteDoVideo[] | null {
+  if (!Array.isArray(instrucoes) || instrucoes.length === 0) return null;
+  const partes: ParteDoVideo[] = [];
+  let esperado = 0;
+  for (const i of instrucoes) {
+    if (!i || typeof i !== "object") return null;
+    const { uploadUrl, firstByte, lastByte } = i as Record<string, unknown>;
+    if (typeof uploadUrl !== "string" || !enderecoDeEnvioConfiavel(uploadUrl)) return null;
+    if (!Number.isSafeInteger(firstByte) || !Number.isSafeInteger(lastByte)) return null;
+    const inicio = firstByte as number;
+    const fim = lastByte as number;
+    if (inicio !== esperado || fim < inicio) return null;
+    partes.push({ inicio, fim, url: uploadUrl });
+    esperado = fim + 1;
+  }
+  return esperado === tamanho ? partes : null;
+}
+
+/**
+ * A RESERVA DO VÍDEO (`POST /rest/videos?action=initializeUpload`, Videos API), com a pessoa como dona ("For videos
+ * with member URN owners, the caller needs to match the video owner") e o tamanho, que decide quantas partes
+ * vêm. Sem legenda e sem capa. Devolve o URN, o token do envio (que pode vir vazio no vídeo de uma parte só) e as
+ * partes conferidas.
+ */
+export async function reservarVideo(
+  token: string,
+  pessoaId: string,
+  tamanho: number
+): Promise<{ videoUrn: string; uploadToken: string; partes: ParteDoVideo[] }> {
+  const r = await chamar(`${basesDoLinkedin().api}/rest/videos?action=initializeUpload`, {
+    method: "POST",
+    headers: cabecalhosDoRest(token),
+    body: JSON.stringify({
+      initializeUploadRequest: { owner: `urn:li:person:${pessoaId}`, fileSizeBytes: tamanho, uploadCaptions: false, uploadThumbnail: false },
+    }),
+  });
+  if (r.status !== 200) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+  const valor = json(r.texto)?.value as Record<string, unknown> | undefined;
+  const videoUrn = valor?.video;
+  const uploadToken = valor?.uploadToken;
+  const partes = partesConferidas(valor?.uploadInstructions, tamanho);
+  if (typeof videoUrn !== "string" || !videoUrn.startsWith("urn:li:video:") || typeof uploadToken !== "string" || !partes) {
+    throw new LinkedinError(r.status, "a reserva do vídeo não devolveu o URN, o token do envio e as partes do arquivo inteiro");
+  }
+  return { videoUrn, uploadToken, partes };
+}
+
+/**
+ * O ENVIO DE UMA PARTE (o 234): um `PUT` dos bytes da parte, com o tipo binário e SEM a autorização, como o exemplo
+ * da Videos API, que traz o endereço já assinado. O endereço passa pela regra do domínio mesmo assim: o vídeo é do
+ * cliente e não sai do LinkedIn. Devolve o `ETag` da resposta, que é o id da parte; sem ele, ou vazio, é erro. O
+ * erro leva só o status, e não a resposta (o 236): a tela mostra a coluna `error`.
+ */
+export async function enviarParteDoVideo(uploadUrl: string, bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  if (!enderecoDeEnvioConfiavel(uploadUrl)) {
+    throw new LinkedinError(STATUS_RECUSADO_PELO_PAINEL, "o endereço de envio do vídeo não é do LinkedIn");
+  }
+  // O ERRO DA CHAMADA NÃO LEVA O ENDEREÇO (o 243): o `chamar` põe o endereço, sem a query, nas frases de tempo, de rede e
+  // de redirecionamento, e a frase da parte vai para a coluna `error`, que a tela mostra. O status fica, e a frase é fixa.
+  let r: Awaited<ReturnType<typeof chamar>>;
+  try {
+    r = await chamar(uploadUrl, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: bytes }, TETO_DO_ENVIO_DA_PARTE_MS);
+  } catch (err) {
+    const status = err instanceof LinkedinError ? err.status : 0;
+    throw new LinkedinError(
+      status,
+      status === STATUS_RECUSADO_PELO_PAINEL
+        ? "o envio da parte do vídeo foi redirecionado, e a chamada não seguiu"
+        : "o envio da parte do vídeo falhou na rede ou não respondeu a tempo"
+    );
+  }
+  if (r.status !== 200 && r.status !== 201) throw new LinkedinError(r.status, `o LinkedIn recusou a parte do vídeo (${r.status})`);
+  if (!r.etag) throw new LinkedinError(r.status, "o LinkedIn aceitou a parte do vídeo sem o ETag");
+  return r.etag;
+}
+
+/**
+ * O FIM DO ENVIO (`POST /rest/videos?action=finalizeUpload`): o vídeo, o token do envio e os ETags "na mesma ordem
+ * das partes nas instruções".
+ */
+export async function finalizarVideo(token: string, videoUrn: string, uploadToken: string, etags: readonly string[]): Promise<void> {
+  const r = await chamar(`${basesDoLinkedin().api}/rest/videos?action=finalizeUpload`, {
+    method: "POST",
+    headers: cabecalhosDoRest(token),
+    body: JSON.stringify({ finalizeUploadRequest: { video: videoUrn, uploadToken, uploadedPartIds: [...etags] } }),
+  });
+  if (r.status !== 200) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+}
+
+/**
+ * O ESTADO DO VÍDEO (`GET /rest/videos/{urn}`): PROCESSING, PROCESSING_FAILED, AVAILABLE ou WAITING_UPLOAD. Ele só é
+ * lido no fim perdido (o 233). Se a consulta funciona só com o `w_member_social` não está medido: a prova mede.
+ */
+export async function estadoDoVideo(token: string, videoUrn: string): Promise<string | null> {
+  const r = await chamar(`${basesDoLinkedin().api}/rest/videos/${encodeURIComponent(videoUrn)}`, {
+    method: "GET",
+    headers: cabecalhosDoRest(token),
+  });
+  if (r.status !== 200) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+  const status = json(r.texto)?.status;
+  return typeof status === "string" && status ? status : null;
+}
+
 /**
  * O POST (`POST /rest/posts`, Posts API): "You should get a 201 response and the response header x-restli-id
  * contains the Post ID". Devolve o URN do post.
@@ -305,7 +451,9 @@ export async function criarPost(token: string, corpo: Record<string, unknown>): 
     headers: cabecalhosDoRest(token),
     body: JSON.stringify(corpo),
   });
-  if (r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300), aMidiaAindaNaoEstaPronta(r.status, r.texto));
+  if (r.status !== 201) {
+    throw new LinkedinError(r.status, r.texto.slice(0, 300), aMidiaAindaNaoEstaPronta(r.status, r.texto), oProcessamentoFalhou(r.status, r.texto));
+  }
   if (!r.restliId) throw new LinkedinError(r.status, "o post saiu sem o x-restli-id");
   return r.restliId;
 }

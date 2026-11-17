@@ -47,6 +47,8 @@ const bucket = {
   recusarUmaSubida: false,
   atrasoDaSubidaMs: 0,
   atrasoDaBaixadaMs: 0,
+  // A PARTE 3b: a cópia do vídeo no próprio servidor do Storage.
+  recusarCopia: false,
 };
 
 let servidorFalso: Server;
@@ -104,6 +106,18 @@ beforeAll(async () => {
       bucket.chamadas.push(`apagou ${depois(objeto)}`);
       bucket.objetos.delete(depois(objeto));
       return responder(res, 200, { message: "ok" });
+    }
+
+    // A CÓPIA NO SERVIDOR DO STORAGE (a parte 3b, o vídeo nas duas redes).
+    if (req.method === "POST" && u.pathname === "/storage/v1/object/copy") {
+      if (req.headers["apikey"] !== CHAVE_DO_BUCKET) return responder(res, 401, { message: "sem apikey" });
+      const { sourceKey, destinationKey } = JSON.parse(corpo.toString()) as { sourceKey: string; destinationKey: string };
+      bucket.chamadas.push(`copiou ${sourceKey} -> ${destinationKey}`);
+      if (bucket.recusarCopia) return responder(res, 500, { message: "o bucket falso recusou a cópia de propósito" });
+      const origem = bucket.objetos.get(sourceKey);
+      if (!origem) return responder(res, 404, { message: "Object not found" });
+      bucket.objetos.set(destinationKey, origem);
+      return responder(res, 200, { Key: destinationKey });
     }
 
     // O LINKEDIN: reservar a imagem, enviá-la e publicar.
@@ -224,6 +238,7 @@ beforeEach(async () => {
   bucket.recusarUmaSubida = false;
   bucket.atrasoDaSubidaMs = 0;
   bucket.atrasoDaBaixadaMs = 0;
+  bucket.recusarCopia = false;
 });
 
 async function conectar(conta: string) {
@@ -528,7 +543,8 @@ describe("as recusas: nenhuma linha entra, e o bucket e as redes não são chama
   const casos: [string, Partial<Record<string, string>>, (t: string | null) => void][] = [
     ["a imagem de outra conta (descartada antes de copiar)", { caminhos: `${CONTA_B}/foto-do-post.jpg` }, (t) => expect(t).toBeTruthy()],
     ["sem a imagem", { caminhos: "" }, (t) => expect(t).toBeTruthy()],
-    ["o reels, que o LinkedIn ainda não recebe", { forma: "reels" }, (t) => expect(t).toContain("próxima entrega")],
+    // O REELS VAI AO LINKEDIN DESDE A 3b, como vídeo, só em MP4: com a imagem do formulário, a recusa é a do MP4.
+    ["o reels sem um MP4, que o LinkedIn não recebe", { forma: "reels" }, (t) => expect(t).toBe(regrasDoLinkedin.TEXTO_DO_VIDEO_QUE_NAO_E_MP4)],
     ["o carrossel com vídeo, que o PDF do LinkedIn não leva", { forma: "carrossel", caminhos: `${ORIGINAL}\n${CONTA_A}/video-do-post.mp4` }, (t) =>
       expect(t).toBe(regrasDoLinkedin.textoDaRecusaNoLinkedin("carrossel_com_video"))],
     ["o story", { forma: "story" }, (t) => expect(t).toContain("não tem story")],
@@ -804,3 +820,63 @@ async function comGatilhoDeUpdate(nome: string, corpoDaFuncao: string, caso: () 
     await q(`drop function if exists ${nome}()`);
   }
 }
+
+// O VÍDEO NAS DUAS REDES (a parte 3b; scratchpad/desenho-li3b.md, §3.6). O Instagram leva o reels original; a linha do
+// LinkedIn leva a forma "video" e uma cópia feita no próprio servidor do Storage, sem baixar nem subir nada aqui. No
+// "agora", o clique não drena o LinkedIn (o 232): só arma o tique da linha, e o Instagram sai no dreno do clique.
+const VIDEO_ORIGINAL = `${CONTA_A}/video-do-post.mp4`;
+const MP4 = new Uint8Array([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70]);
+const COPIA_DO_VIDEO = new RegExp(`^${CONTA_A}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.mp4$`);
+const reels = (campos: Partial<Record<string, string>> = {}) => formulario({ forma: "reels", caminhos: VIDEO_ORIGINAL, ...campos });
+
+describe("o vídeo nas duas redes (a parte 3b)", () => {
+  it("agendado: o Instagram leva o reels, o LinkedIn leva a forma vídeo com uma cópia feita no servidor, e a chave é a do original", async () => {
+    bucket.objetos.set(VIDEO_ORIGINAL, MP4);
+    const aviso = await nasDuasComoAdministrador(reels(daquiA2Horas()));
+    expect(aviso.tom).toBe("ok");
+    const [ig] = await daRede("publicacao");
+    const [li] = await daRede("publicacao_linkedin");
+    expect(ig.payload).toMatchObject({ forma: "reels", caminhos: [VIDEO_ORIGINAL] });
+    expect(li.payload.forma).toBe("video");
+    const [copia] = li.payload.caminhos as string[];
+    expect(copia).toMatch(COPIA_DO_VIDEO);
+    expect(li.dedupe_key).toBe(`pub-linkedin:${CONTA_A}:video:${VIDEO_ORIGINAL}`);
+    expect(bucket.chamadas).toEqual([`copiou ${VIDEO_ORIGINAL} -> ${copia}`]);
+    expect(Array.from(bucket.objetos.get(copia) ?? [])).toEqual(Array.from(MP4));
+    expect(linkedin.pedidos).toEqual([]);
+  });
+
+  it("agora: o clique não drena o LinkedIn (o 232), que fica na fila intocado, e o Instagram sai no dreno do clique", async () => {
+    bucket.objetos.set(VIDEO_ORIGINAL, MP4);
+    const aviso = await nasDuasComoAdministrador(reels());
+    expect(aviso.texto).toContain(`LinkedIn: ${regrasDoLinkedin.AVISO_DO_VIDEO_NA_FILA}`);
+    const [li] = await daRede("publicacao_linkedin");
+    expect(li.status).toBe("pending");
+    expect(li.payload.video_urn).toBeUndefined();
+    // INTOCADO DE VERDADE: o ramo do vídeo não rodou, nem uma etapa que falhasse antes de chamar o LinkedIn (nenhuma
+    // marca da primeira passada, nenhuma passada contada, nenhum erro).
+    expect(li.error).toBeNull();
+    expect(li.payload.primeira_passada_em).toBeUndefined();
+    expect(li.payload.passadas_do_video).toBeUndefined();
+    expect(linkedin.pedidos).toEqual([]);
+    expect(meta.containers).toBeGreaterThanOrEqual(1);
+  });
+
+  it("o MOV não vai ao LinkedIn: nada é gravado, nenhuma cópia é feita, e a tela diz a frase do MP4", async () => {
+    const mov = `${CONTA_A}/video-do-post.mov`;
+    bucket.objetos.set(mov, MP4);
+    const aviso = await nasDuasComoAdministrador(formulario({ forma: "reels", caminhos: mov }));
+    expect(aviso).toEqual({ tom: "erro", texto: regrasDoLinkedin.TEXTO_DO_VIDEO_QUE_NAO_E_MP4 });
+    expect(await linhas()).toEqual([]);
+    expect(bucket.chamadas).toEqual([]);
+  });
+
+  it("a cópia no servidor que falha: nada é gravado, e a tela diz o motivo", async () => {
+    bucket.objetos.set(VIDEO_ORIGINAL, MP4);
+    bucket.recusarCopia = true;
+    const aviso = await nasDuasComoAdministrador(reels(daquiA2Horas()));
+    expect(aviso.tom).toBe("erro");
+    expect(aviso.texto).toContain("Nada foi agendado");
+    expect(await linhas()).toEqual([]);
+  });
+});

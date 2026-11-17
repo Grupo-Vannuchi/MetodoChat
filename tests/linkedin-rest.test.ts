@@ -1,13 +1,21 @@
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   criarPost,
   enderecoDeEnvioConfiavel,
   enviarDocumento,
   enviarImagem,
+  enviarParteDoVideo,
+  estadoDoVideo,
+  finalizarVideo,
   LINKEDIN_VERSION,
   nomeLimpo,
   reservarDocumento,
+  reservarVideo,
+  STATUS_RECUSADO_PELO_PAINEL,
   TETO_DO_ENVIO_DA_IMAGEM_MS,
+  TETO_DO_ENVIO_DA_PARTE_MS,
   TETO_DO_ENVIO_DO_DOCUMENTO_MS,
   TETO_DO_LINKEDIN_MS,
 } from "@/lib/linkedin";
@@ -203,5 +211,208 @@ describe("o post recusado pela mídia que o LinkedIn ainda processa", () => {
   it("o outro 400, e o post que deu certo, não", async () => {
     vi.stubGlobal("fetch", async () => new Response('{"code":"INVALID_URN_TYPE"}', { status: 400 }));
     await expect(criarPost("token-de-teste", { author: "urn:li:person:x" })).rejects.toMatchObject({ status: 400, midiaNaoPronta: false });
+  });
+});
+
+// O VÍDEO EM PARTES (a parte 3b; scratchpad/desenho-li3b.md, v3): a reserva com o tamanho, as partes conferidas, o
+// envio de cada parte SEM o token (o 234), o fim com os ETags na ordem, e o estado do vídeo (o 233).
+describe("a reserva do vídeo", () => {
+  function responderUmaVez(corpo: unknown, status = 200) {
+    const pedidos: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      pedidos.push({ url, init });
+      return new Response(typeof corpo === "string" ? corpo : JSON.stringify(corpo), { status });
+    });
+    return pedidos;
+  }
+  const instrucao = (firstByte: number, lastByte: number, n: number) => ({
+    uploadUrl: `https://www.linkedin.com/dms-uploads/V77/uploadedVideo?parte=${n}`,
+    firstByte,
+    lastByte,
+  });
+
+  it("pede o vídeo com a pessoa dona e o tamanho, sem legenda nem capa, e devolve as partes, o URN e o token", async () => {
+    const pedidos = responderUmaVez({
+      value: {
+        uploadInstructions: [instrucao(0, 4194303, 1), instrucao(4194304, 5000000, 2)],
+        video: "urn:li:video:V77",
+        uploadToken: "token-do-envio",
+        uploadUrlsExpireAt: 1999999999999,
+      },
+    });
+    expect(await reservarVideo("token-de-teste", "pessoaX", 5000001)).toEqual({
+      videoUrn: "urn:li:video:V77",
+      uploadToken: "token-do-envio",
+      partes: [
+        { inicio: 0, fim: 4194303, url: "https://www.linkedin.com/dms-uploads/V77/uploadedVideo?parte=1" },
+        { inicio: 4194304, fim: 5000000, url: "https://www.linkedin.com/dms-uploads/V77/uploadedVideo?parte=2" },
+      ],
+    });
+    expect(pedidos[0].url.endsWith("/rest/videos?action=initializeUpload")).toBe(true);
+    expect(JSON.parse(String(pedidos[0].init.body))).toEqual({
+      initializeUploadRequest: { owner: "urn:li:person:pessoaX", fileSizeBytes: 5000001, uploadCaptions: false, uploadThumbnail: false },
+    });
+    expect(pedidos[0].init.redirect).toBe("error");
+  });
+
+  it("o token do envio vazio é aceito (o vídeo de uma parte só)", async () => {
+    responderUmaVez({ value: { uploadInstructions: [instrucao(0, 99999, 1)], video: "urn:li:video:V1", uploadToken: "" } });
+    expect((await reservarVideo("token-de-teste", "pessoaX", 100000)).uploadToken).toBe("");
+  });
+
+  it("recusa a reserva sem o URN de vídeo, sem instruções, ou com um endereço que não é do LinkedIn", async () => {
+    const ok = { uploadInstructions: [instrucao(0, 99, 1)], video: "urn:li:video:V1", uploadToken: "t" };
+    responderUmaVez({ value: { ...ok, video: "urn:li:image:I" } });
+    await expect(reservarVideo("token-de-teste", "pessoaX", 100)).rejects.toMatchObject({ name: "LinkedinError" });
+    responderUmaVez({ value: { ...ok, uploadInstructions: [] } });
+    await expect(reservarVideo("token-de-teste", "pessoaX", 100)).rejects.toMatchObject({ name: "LinkedinError" });
+    responderUmaVez({ value: { ...ok, uploadInstructions: [{ ...instrucao(0, 99, 1), uploadUrl: "https://www.exemplo.com/x" }] } });
+    await expect(reservarVideo("token-de-teste", "pessoaX", 100)).rejects.toMatchObject({ name: "LinkedinError" });
+  });
+
+  it("recusa as partes que não cobrem o arquivo inteiro, em ordem, sem buraco nem sobra", async () => {
+    const reserva = (instrucoes: unknown[], tamanho: number) => {
+      responderUmaVez({ value: { uploadInstructions: instrucoes, video: "urn:li:video:V1", uploadToken: "t" } });
+      return reservarVideo("token-de-teste", "pessoaX", tamanho);
+    };
+    await expect(reserva([instrucao(0, 49, 1), instrucao(51, 99, 2)], 100)).rejects.toMatchObject({ name: "LinkedinError" });
+    await expect(reserva([instrucao(0, 49, 1), instrucao(40, 99, 2)], 100)).rejects.toMatchObject({ name: "LinkedinError" });
+    await expect(reserva([instrucao(0, 98, 1)], 100)).rejects.toMatchObject({ name: "LinkedinError" });
+    await expect(reserva([instrucao(0, 100, 1)], 100)).rejects.toMatchObject({ name: "LinkedinError" });
+    await expect(reserva([instrucao(1, 99, 1)], 100)).rejects.toMatchObject({ name: "LinkedinError" });
+    await expect(reserva([{ ...instrucao(0, 99, 1), lastByte: "99" }], 100)).rejects.toMatchObject({ name: "LinkedinError" });
+  });
+
+  it("a reserva recusada pelo LinkedIn é um erro com o status", async () => {
+    responderUmaVez("{}", 403);
+    await expect(reservarVideo("token-de-teste", "pessoaX", 100)).rejects.toMatchObject({ name: "LinkedinError", status: 403 });
+  });
+});
+
+describe("o envio de uma parte do vídeo (o 234)", () => {
+  function gravar(resposta: () => Response) {
+    const pedidos: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      pedidos.push({ url, init });
+      return resposta();
+    });
+    return pedidos;
+  }
+  const ENDERECO = "https://www.linkedin.com/dms-uploads/V77/uploadedVideo?parte=1";
+
+  it("é um PUT SEM a autorização, com os bytes, o tipo binário e o teto de 15 s, e devolve o ETag", async () => {
+    expect(TETO_DO_ENVIO_DA_PARTE_MS).toBe(15_000);
+    const tetos: number[] = [];
+    const original = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      tetos.push(ms);
+      return original(ms);
+    });
+    const pedidos = gravar(() => new Response("", { status: 200, headers: { etag: '"etag-da-parte-1"' } }));
+    const bytes = new Uint8Array([1, 2, 3]);
+    expect(await enviarParteDoVideo(ENDERECO, bytes)).toBe('"etag-da-parte-1"');
+    expect(tetos).toEqual([TETO_DO_ENVIO_DA_PARTE_MS]);
+    expect(pedidos[0].init.method).toBe("PUT");
+    const cabecalhos = pedidos[0].init.headers as Record<string, string>;
+    expect(Object.keys(cabecalhos).map((k) => k.toLowerCase())).not.toContain("authorization");
+    expect(cabecalhos["content-type"]).toBe("application/octet-stream");
+    expect(pedidos[0].init.body).toBe(bytes);
+    expect(pedidos[0].init.redirect).toBe("error");
+  });
+
+  it("a parte aceita sem o ETag, ou com ele vazio, é um erro", async () => {
+    gravar(() => new Response("", { status: 200 }));
+    await expect(enviarParteDoVideo(ENDERECO, new Uint8Array(3))).rejects.toMatchObject({ name: "LinkedinError", status: 200 });
+    gravar(() => new Response("", { status: 201, headers: { etag: "" } }));
+    await expect(enviarParteDoVideo(ENDERECO, new Uint8Array(3))).rejects.toMatchObject({ name: "LinkedinError", status: 201 });
+  });
+
+  it("o endereço que não é do LinkedIn não recebe a parte: o vídeo é do cliente", async () => {
+    const pedidos = gravar(() => new Response("", { status: 200, headers: { etag: "e" } }));
+    await expect(enviarParteDoVideo("https://www.exemplo.com/x", new Uint8Array(3))).rejects.toMatchObject({
+      name: "LinkedinError",
+      status: STATUS_RECUSADO_PELO_PAINEL,
+    });
+    expect(pedidos).toHaveLength(0);
+  });
+
+  it("a parte recusada é um erro com o status, e o texto não leva a resposta do LinkedIn (o 236)", async () => {
+    gravar(() => new Response("um texto longo do LinkedIn que a tela não deve mostrar", { status: 403 }));
+    const erro = await enviarParteDoVideo(ENDERECO, new Uint8Array(3)).catch((e: unknown) => e);
+    expect(erro).toMatchObject({ name: "LinkedinError", status: 403 });
+    expect(String((erro as Error).message)).not.toContain("um texto longo");
+  });
+});
+
+describe("o fim do envio e o estado do vídeo", () => {
+  function gravar(resposta: () => Response) {
+    const pedidos: { url: string; init: RequestInit }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      pedidos.push({ url, init });
+      return resposta();
+    });
+    return pedidos;
+  }
+
+  it("o fim leva o vídeo, o token do envio e os ETags na ordem das partes", async () => {
+    const pedidos = gravar(() => new Response("", { status: 200 }));
+    await finalizarVideo("token-de-teste", "urn:li:video:V77", "token-do-envio", ['"e1"', '"e2"', '"e3"']);
+    expect(pedidos[0].url.endsWith("/rest/videos?action=finalizeUpload")).toBe(true);
+    expect(JSON.parse(String(pedidos[0].init.body))).toEqual({
+      finalizeUploadRequest: { video: "urn:li:video:V77", uploadToken: "token-do-envio", uploadedPartIds: ['"e1"', '"e2"', '"e3"'] },
+    });
+    expect((pedidos[0].init.headers as Record<string, string>).authorization).toBe("Bearer token-de-teste");
+    expect(pedidos[0].init.redirect).toBe("error");
+  });
+
+  it("o fim recusado é um erro com o status", async () => {
+    gravar(() => new Response("{}", { status: 400 }));
+    await expect(finalizarVideo("token-de-teste", "urn:li:video:V77", "t", ["e"])).rejects.toMatchObject({ name: "LinkedinError", status: 400 });
+  });
+
+  it("o estado do vídeo vem do GET com o URN codificado no caminho", async () => {
+    const pedidos = gravar(() => new Response(JSON.stringify({ status: "AVAILABLE", id: "urn:li:video:V77" }), { status: 200 }));
+    expect(await estadoDoVideo("token-de-teste", "urn:li:video:V77")).toBe("AVAILABLE");
+    expect(pedidos[0].url.endsWith("/rest/videos/urn%3Ali%3Avideo%3AV77")).toBe(true);
+    expect(pedidos[0].init.method ?? "GET").toBe("GET");
+  });
+
+  it("o estado que não veio, ou a consulta recusada, é null ou erro", async () => {
+    gravar(() => new Response("{}", { status: 200 }));
+    expect(await estadoDoVideo("token-de-teste", "urn:li:video:V77")).toBeNull();
+    gravar(() => new Response("{}", { status: 403 }));
+    await expect(estadoDoVideo("token-de-teste", "urn:li:video:V77")).rejects.toMatchObject({ name: "LinkedinError", status: 403 });
+  });
+});
+
+// O REDIRECIONAMENTO NÃO É SEGUIDO (o 234). A regra do domínio confere só o primeiro endereço; um 3xx para fora do
+// LinkedIn levaria o token (ou a parte do vídeo) junto. Este caso usa dois servidores de verdade no loopback, sem
+// trocar o `fetch`, para medir o que o `fetch` do Node faz com o `redirect: "error"`.
+describe("o redirecionamento não é seguido", () => {
+  it("a parte que recebe um 307 não vai ao endereço do redirecionamento", async () => {
+    const recebidos: string[] = [];
+    const destino: Server = createServer((req, res) => {
+      recebidos.push(req.url ?? "");
+      res.writeHead(200, { etag: "nao-devia-chegar" });
+      res.end();
+    });
+    await new Promise<void>((pronto) => destino.listen(0, "127.0.0.1", pronto));
+    const portaDestino = (destino.address() as AddressInfo).port;
+    const origem: Server = createServer((_req, res) => {
+      res.writeHead(307, { location: `http://127.0.0.1:${portaDestino}/capturado` });
+      res.end();
+    });
+    await new Promise<void>((pronto) => origem.listen(0, "127.0.0.1", pronto));
+    const portaOrigem = (origem.address() as AddressInfo).port;
+    try {
+      await expect(enviarParteDoVideo(`http://127.0.0.1:${portaOrigem}/envio`, new Uint8Array([1, 2, 3]))).rejects.toMatchObject({
+        name: "LinkedinError",
+        status: STATUS_RECUSADO_PELO_PAINEL,
+      });
+      expect(recebidos).toEqual([]);
+    } finally {
+      await new Promise((pronto) => origem.close(pronto));
+      await new Promise((pronto) => destino.close(pronto));
+    }
   });
 });

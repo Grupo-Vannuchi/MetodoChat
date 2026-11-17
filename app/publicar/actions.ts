@@ -41,7 +41,7 @@ import { armarOTiqueDaLinha, drenarUmaPublicacaoDoLinkedin } from "@/lib/queue-d
 // O POST DAS DUAS REDES (a parte 2b): as regras puras das duas, e as cópias para a linha do LinkedIn (uma no post de
 // imagem; uma por foto no carrossel, a parte 3a).
 import { avisoDasDuasRedes, redeAceitaAForma, textoQueVaiAoLinkedin } from "@/lib/redes-do-post";
-import { apagarAsCopiasSemDerrubar, copiarAsImagensParaOLinkedin } from "@/lib/linkedin-copia";
+import { apagarAsCopiasSemDerrubar, copiarAsImagensParaOLinkedin, copiarOVideoParaOLinkedin } from "@/lib/linkedin-copia";
 import type { ResultadoDaPublicacao } from "@/lib/engine";
 
 /**
@@ -284,12 +284,12 @@ export async function publicarNoLinkedin(formData: FormData): Promise<void> {
   revalidatePath("/publicar/novo");
   revalidatePath("/publicar");
   revalidatePath("/eventos");
-  redirect(urlDePublicarComAviso(avisoDoPostNoLinkedin({ desfecho, motivo, agendadoPara: r.jaVale ? null : campos })));
+  redirect(urlDePublicarComAviso(avisoDoPostNoLinkedin({ desfecho, motivo, agendadoPara: r.jaVale ? null : campos, forma })));
 }
 
 /**
- * O POST DE IMAGEM OU DE CARROSSEL NAS DUAS REDES, Instagram e LinkedIn, para a conta selecionada
- * (docs/specs/2026-11-06-linkedin-no-perfil.md, §6 e §7; a parte 2b, e o carrossel na 3a). Uma linha por rede, cada
+ * O POST DE IMAGEM, DE CARROSSEL OU DE VÍDEO NAS DUAS REDES, Instagram e LinkedIn, para a conta selecionada
+ * (docs/specs/2026-11-06-linkedin-no-perfil.md, §6 e §7; a parte 2b, o carrossel na 3a e o vídeo na 3b). Uma linha por rede, cada
  * uma com a sua chave, o seu andamento e as suas tentativas: se uma rede falhar ao publicar, a outra segue.
  *
  * AS MESMAS REGRAS DAS DUAS ACTIONS DE CIMA: a sessão primeiro; nenhuma saída muda; a conta da regra das contas, e
@@ -334,11 +334,12 @@ export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
     redirect(urlDePublicarComAviso({ tom: "erro", texto: disponivel.motivo }));
   }
 
-  // AS DUAS REDES JUNTAS NA IMAGEM E NO CARROSSEL: as formas da tela que o LinkedIn publica com arquivo, pela lista
-  // única (`FORMAS_NO_LINKEDIN`; o carrossel vai como PDF, só com fotos, na parte 3a). O vídeo chega ao LinkedIn
-  // depois, e o story não existe lá. O motivo é o mesmo que a tela mostra na caixinha desligada.
+  // AS DUAS REDES JUNTAS NA IMAGEM, NO CARROSSEL E NO VÍDEO: as formas da tela que o LinkedIn publica com arquivo,
+  // pela lista única (`FORMAS_NO_LINKEDIN`; o carrossel vai como PDF, só com fotos, na parte 3a). O reels da tela é o
+  // vídeo do LinkedIn (a parte 3b), e o story não existe lá. O motivo é o mesmo que a tela mostra na caixinha
+  // desligada.
   const forma = formaQueATelaPublica(formData.get("forma"));
-  const formaNoLinkedin = formaNoLinkedinDoCampo(forma);
+  const formaNoLinkedin = forma === "reels" ? "video" : formaNoLinkedinDoCampo(forma);
   if (!forma || !formaNoLinkedin) {
     redirect(
       urlDePublicarComAviso({
@@ -386,8 +387,12 @@ export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
   if (!(await aChaveDoLinkedinJaExiste(conta.ig_user_id, pedidoDoLinkedin))) {
     let falhaDoLinkedin: string | null = null;
     try {
-      // UMA CÓPIA POR ARQUIVO, EM PARALELO e na ordem das originais; se uma falha, as outras já saíram do bucket.
-      copias = await copiarAsImagensParaOLinkedin(caminhos, conta.ig_user_id);
+      // UMA CÓPIA POR ARQUIVO, EM PARALELO e na ordem das originais; se uma falha, as outras já saíram do bucket. O
+      // VÍDEO (a parte 3b) é copiado no próprio servidor do Storage, sem passar por aqui.
+      copias =
+        formaNoLinkedin === "video"
+          ? [await copiarOVideoParaOLinkedin(caminhos[0], conta.ig_user_id)]
+          : await copiarAsImagensParaOLinkedin(caminhos, conta.ig_user_id);
     } catch (e) {
       falhaDoLinkedin = e instanceof Error ? e.message : "a cópia da imagem falhou";
     }
@@ -439,11 +444,15 @@ export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
   // 6. O "AGORA": o LinkedIn primeiro, só a própria linha; depois o dreno do clique, para o Instagram, que não pega o
   // post do LinkedIn (a 3a-0). NO CARROSSEL, o LinkedIn conta o prazo com a reserva do Instagram (achado 222): o
   // documento nunca começa neste clique, e a linha volta adiada antes do dreno do Instagram, que sai na hora. Na
-  // imagem, o começo é o da função, como na 2b.
+  // imagem, o começo é o da função, como na 2b. NO VÍDEO (a parte 3b; o 232), o clique não drena o LinkedIn: a primeira
+  // etapa dele (a reserva, 20 s) caberia mesmo com a reserva do Instagram, e tiraria tempo dele. O clique só arma o tique
+  // da linha, e o aviso diz que o post do LinkedIn vai sair.
   const inicioDoLinkedin = comecoDoLinkedinNoAgoraDasDuas(formaNoLinkedin, inicioDaFuncaoMs);
   let desfecho: "publicado" | "aguardando" | "falhou" | null = null;
   let motivo: string | null = null;
-  if (linkedin.entrou && linkedin.jaVale) {
+  if (linkedin.entrou && linkedin.jaVale && formaNoLinkedin === "video") {
+    await armarOTiqueDaLinha(linkedin.id);
+  } else if (linkedin.entrou && linkedin.jaVale) {
     try {
       desfecho = await drenarUmaPublicacaoDoLinkedin(linkedin.id, inicioDoLinkedin);
       if (desfecho === "falhou") motivo = await erroDaLinha(linkedin.id);
@@ -471,7 +480,7 @@ export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
         tipo: "entrou",
         campos,
         instagram: instagram.entrou ? { entrou: true, jaVale: instagram.jaVale } : { entrou: false },
-        linkedin: linkedin.entrou ? { entrou: true, jaVale: linkedin.jaVale, desfecho, motivo } : { entrou: false },
+        linkedin: linkedin.entrou ? { entrou: true, jaVale: linkedin.jaVale, desfecho, motivo, forma: formaNoLinkedin } : { entrou: false },
       })
     )
   );

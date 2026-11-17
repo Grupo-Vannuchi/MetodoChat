@@ -41,11 +41,13 @@ import {
 } from "@/lib/publicacao";
 // O LINKEDIN (a parte 2a: uma rede por post). As regras puras dele, sem import de servidor: as formas, o texto
 // contado como o LinkedIn conta (achado 212), as recusas do pedido e o id do envio. Na parte 3a, o carrossel em PDF:
-// a nota, o teto das fotos juntas e o JPEG que vai cru.
+// a nota, o teto das fotos juntas e o JPEG que vai cru. Na parte 3b, o vídeo: só MP4, e a nota de que ele sai em minutos.
 import {
   LIMITE_DO_TEXTO_DO_LINKEDIN,
   NOTA_DO_CARROSSEL_NO_LINKEDIN,
   NOTA_DO_CONTADOR_DO_LINKEDIN,
+  NOTA_DO_VIDEO_NO_LINKEDIN,
+  oVideoVaiAoLinkedin,
   TETO_DO_CARROSSEL_NO_LINKEDIN_BYTES,
   novoIdDoEnvio,
   problemaDoTextoDoLinkedin,
@@ -213,6 +215,8 @@ export default function Enviador({
     marcadas,
     linkedin: mostraARede ? linkedin : null,
     comVideo: slides.some((s) => s.video),
+    // O VÍDEO DO LINKEDIN SÓ VAI EM MP4 (a parte 3b): o MOV do iPhone desliga a caixinha, com a frase.
+    videoQueNaoEMp4: slides.some((s) => s.video && !oVideoVaiAoLinkedin(s.arquivo.type)),
   });
   const paraOInstagram = redes.instagram.marcada;
   const paraOLinkedin = redes.linkedin?.marcada === true;
@@ -220,8 +224,12 @@ export default function Enviador({
   const soNoLinkedin = paraOLinkedin && !paraOInstagram;
   /** Nas duas: a "Legenda", o "Texto para o LinkedIn" (opcional) e a action das duas. */
   const nasDuas = paraOLinkedin && paraOInstagram;
-  /** A forma que vai ao LinkedIn: o só texto, a imagem ou o carrossel, que vai como PDF (a parte 3a). */
-  const formaNoLinkedin: FormaNoLinkedin = formaDaTela === "texto" ? "texto" : formaDaTela === "carrossel" ? "carrossel" : "imagem";
+  /**
+   * A forma que vai ao LinkedIn: o só texto, a imagem, o carrossel, que vai como PDF (a parte 3a), ou o reels, que vai
+   * como vídeo (a parte 3b).
+   */
+  const formaNoLinkedin: FormaNoLinkedin =
+    formaDaTela === "texto" ? "texto" : formaDaTela === "carrossel" ? "carrossel" : formaDaTela === "reels" ? "video" : "imagem";
   /** O carrossel que vai ao LinkedIn: o JPEG só vai cru se o PDF o leva como está, e as fotos juntas têm o teto dele. */
   const carrosselNoLinkedin = paraOLinkedin && formaNoLinkedin === "carrossel";
   /**
@@ -828,6 +836,7 @@ export default function Enviador({
           <p className={hint}>No LinkedIn, a imagem segue as regras da imagem do Instagram: JPEG, na proporção escolhida.</p>
         )}
         {carrosselNoLinkedin && <p className={hint}>{NOTA_DO_CARROSSEL_NO_LINKEDIN}</p>}
+        {paraOLinkedin && formaNoLinkedin === "video" && <p className={hint}>{NOTA_DO_VIDEO_NO_LINKEDIN}</p>}
       </div>
 
       {enquadra && temArquivo && (

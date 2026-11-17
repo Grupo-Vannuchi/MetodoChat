@@ -10,7 +10,7 @@ process.env.SUPABASE_URL = "https://exemplo.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "chave-de-teste-que-nao-vale-nada";
 process.env.SUPABASE_BUCKET = "MetodoChat";
 
-const { copiarAsImagensParaOLinkedin, copiarImagemParaOLinkedin, TETO_DA_COPIA_BYTES, TETO_DA_COPIA_MS } = await import(
+const { copiarAsImagensParaOLinkedin, copiarImagemParaOLinkedin, copiarOVideoParaOLinkedin, TETO_DA_COPIA_BYTES, TETO_DA_COPIA_MS } = await import(
   "@/lib/linkedin-copia"
 );
 
@@ -252,5 +252,33 @@ describe("copiar as fotos do carrossel para a linha do LinkedIn", () => {
   it("a lista vazia é recusada antes de qualquer chamada", async () => {
     await expect(copiarAsImagensParaOLinkedin([], CONTA)).rejects.toThrow(/nenhuma imagem/);
     expect(chamadas).toEqual([]);
+  });
+});
+
+// A CÓPIA DO VÍDEO (a parte 3b; scratchpad/desenho-li3b.md, §3.6): pelo próprio servidor do Storage, um pedido só, sem
+// baixar nem subir nada aqui. A origem é conferida antes de qualquer chamada: da conta, na forma do /publicar, e MP4.
+describe("copiar o vídeo do post para a linha do LinkedIn", () => {
+  const VIDEO = `${CONTA}/video-do-post.mp4`;
+
+  it("é um pedido só, a cópia no servidor, para um caminho novo .mp4 da mesma pasta, e devolve o caminho", async () => {
+    expect(await copiarOVideoParaOLinkedin(VIDEO, CONTA, uuid(7))).toBe(`${CONTA}/${uuid(7)}.mp4`);
+    expect(chamadas.map((c) => `${c.metodo} ${c.url}`)).toEqual([`POST ${BASE}/object/copy`]);
+    expect(JSON.parse(String(chamadas[0].corpo))).toEqual({ bucketId: "MetodoChat", sourceKey: VIDEO, destinationKey: `${CONTA}/${uuid(7)}.mp4` });
+  });
+
+  it("o vídeo de outra conta, ou com caminho torto, é recusado antes de qualquer chamada", async () => {
+    await expect(copiarOVideoParaOLinkedin(`${OUTRA}/video.mp4`, CONTA)).rejects.toThrow("não é desta conta");
+    await expect(copiarOVideoParaOLinkedin(`${CONTA}/../${OUTRA}/video.mp4`, CONTA)).rejects.toThrow("não é desta conta");
+    expect(chamadas).toEqual([]);
+  });
+
+  it("o MOV é recusado antes de qualquer chamada: o LinkedIn só aceita MP4", async () => {
+    await expect(copiarOVideoParaOLinkedin(`${CONTA}/video-do-post.mov`, CONTA)).rejects.toThrow("MP4");
+    expect(chamadas).toEqual([]);
+  });
+
+  it("a cópia recusada pelo armazenamento faz a cópia lançar, com o status", async () => {
+    responder = () => new Response("The resource already exists", { status: 409 });
+    await expect(copiarOVideoParaOLinkedin(VIDEO, CONTA, uuid(8))).rejects.toThrow(/409/);
   });
 });

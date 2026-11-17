@@ -34,8 +34,14 @@ export function cartaoDoPost(
 ): { rotulo: string; capa: string | null; soVideo: boolean } {
   if (ehPostDoLinkedin(item.kind)) {
     const li = lerPayloadDoLinkedin(item.payload);
-    // A CAPA É A IMAGEM, ou a primeira foto do carrossel (a parte 3a); o só texto não tem.
-    return { rotulo: rotuloDoPostNoLinkedin(li), capa: !saiu && li && li.forma !== "texto" ? li.caminhos[0] : null, soVideo: false };
+    // A CAPA É A IMAGEM, ou a primeira foto do carrossel (a parte 3a); o só texto não tem. O VÍDEO (a parte 3b) fica sem
+    // capa e com o ícone dele, como o reels do Instagram: o `.mp4` como capa seria uma imagem quebrada.
+    const video = li?.forma === "video";
+    return {
+      rotulo: rotuloDoPostNoLinkedin(li),
+      capa: !saiu && li && li.forma !== "texto" && !video ? li.caminhos[0] : null,
+      soVideo: !saiu && video && (li?.caminhos.length ?? 0) > 0,
+    };
   }
   // O INSTAGRAM, como a célula decidia antes (app/publicar/page.tsx): a capa é a primeira imagem, e o post só de
   // vídeo fica sem capa e desenha o ícone dele.
@@ -107,8 +113,11 @@ export function paginaDoPost(
       texto: li?.texto.trim() ? li.texto : null,
       semTexto: "Sem texto.",
       caminhos: li?.caminhos ?? [],
-      ehVideo: () => false,
-      // O SÓ TEXTO NÃO TEM MÍDIA, e a frase sobre a mídia apagada mentiria. A imagem e o carrossel (a parte 3a) têm.
+      // O VÍDEO É VÍDEO NA PRÉVIA (a parte 3b): o post de vídeo leva um arquivo só, o `.mp4`. A imagem e o carrossel
+      // nunca são vídeo.
+      ehVideo: () => li?.forma === "video",
+      // O SÓ TEXTO NÃO TEM MÍDIA, e a frase sobre a mídia apagada mentiria. A imagem, o carrossel (a parte 3a) e o vídeo
+      // (a parte 3b) têm.
       sobreAMidia: li && li.forma !== "texto" ? fraseSobreAMidia(quando, item.error) : null,
       mediaIdNoInstagram: null,
       linkNoLinkedin: quando.saiu ? linkParaVerNoLinkedin(li?.postUrn) : null,

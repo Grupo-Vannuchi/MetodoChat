@@ -280,6 +280,67 @@ export async function apagarObjeto(caminho: string): Promise<void> {
   if (!r.ok) throw await falha("Nao foi possivel apagar o objeto do bucket", r);
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// O VÍDEO DO LINKEDIN (a parte 3b; scratchpad/desenho-li3b.md, v3)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * O TAMANHO DE UM OBJETO, pelo `HEAD` do endereço público, sem cache: é o que a reserva do vídeo pede ao LinkedIn
+ * (o `fileSizeBytes`). O erro leva o status, e não o endereço.
+ */
+export async function tamanhoDoObjeto(caminho: string, tetoMs: number): Promise<number> {
+  const r = await fetch(urlPublicaDoObjeto(caminho), { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(tetoMs) });
+  if (!r.ok) throw new Error(`o vídeo do post não foi encontrado no armazenamento (HTTP ${r.status})`);
+  const tamanho = Number(r.headers.get("content-length"));
+  if (!r.headers.get("content-length") || !Number.isSafeInteger(tamanho) || tamanho < 0) {
+    throw new Error("o armazenamento não disse o tamanho do vídeo do post");
+  }
+  return tamanho;
+}
+
+const CONTENT_RANGE = /^bytes (\d+)-(\d+)\/(?:\d+|\*)$/;
+
+/**
+ * UMA FAIXA DE UM OBJETO (uma parte do vídeo), pelo `GET` com `Range` no endereço público, sem cache. A faixa no
+ * endereço público foi medida em 16/11 (206, o `Content-Range` certo e os bytes pedidos). A resposta é CONFERIDA
+ * (o 236): o 206, o `Content-Range` igual ao pedido e o tamanho exato. Um 200 com o arquivo inteiro é erro, porque o
+ * envio da parte levaria os bytes errados ao LinkedIn.
+ */
+export async function faixaDoObjeto(caminho: string, inicio: number, fim: number, tetoMs: number): Promise<Uint8Array<ArrayBuffer>> {
+  const r = await fetch(urlPublicaDoObjeto(caminho), {
+    headers: { range: `bytes=${inicio}-${fim}` },
+    cache: "no-store",
+    signal: AbortSignal.timeout(tetoMs),
+  });
+  if (r.status !== 206) {
+    if (r.status === 200) await r.body?.cancel();
+    throw new Error(`o armazenamento não devolveu a faixa pedida do vídeo (HTTP ${r.status})`);
+  }
+  const intervalo = CONTENT_RANGE.exec(r.headers.get("content-range") ?? "");
+  if (!intervalo || Number(intervalo[1]) !== inicio || Number(intervalo[2]) !== fim) {
+    await r.body?.cancel();
+    throw new Error("o armazenamento devolveu outra faixa do vídeo, e não a pedida");
+  }
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  if (bytes.length !== fim - inicio + 1) throw new Error("o armazenamento devolveu a faixa do vídeo com outro tamanho");
+  return bytes;
+}
+
+/**
+ * A CÓPIA NO SERVIDOR DO STORAGE (`POST /storage/v1/object/copy`): o vídeo das duas redes ganha uma cópia para a linha
+ * do LinkedIn sem passar pelo painel. Medida em 16/11 pela sonda (`scratchpad/sonda-copia-storage.mjs`): 200 em
+ * 240 ms, com a cópia igual à origem. O erro leva o status e o começo da resposta, como `falha`.
+ */
+export async function copiarObjeto(origem: string, destino: string, tetoMs: number): Promise<void> {
+  const r = await fetch(`${base()}/storage/v1/object/copy`, {
+    method: "POST",
+    headers: { ...cabecalhosDeServico(), "content-type": "application/json" },
+    body: JSON.stringify({ bucketId: bucket(), sourceKey: origem, destinationKey: destino }),
+    signal: AbortSignal.timeout(tetoMs),
+  });
+  if (!r.ok) throw await falha("Nao foi possivel copiar o objeto no bucket", r);
+}
+
 /**
  * O piso de segurança para quando o bucket NÃO tem teto próprio.
  *
