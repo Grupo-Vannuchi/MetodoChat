@@ -7,22 +7,34 @@ export type ResultadoDoLinkedin = { entrou: false } | (Extract<ResultadoDaPublic
 import { scheduleTick, HORIZONTE_DO_TIQUE_EM_SEGUNDOS } from "./qstash";
 import { atrasoDoTiqueDaPublicacao } from "./publicacao";
 import { chaveDaPublicacaoNoLinkedin } from "./dedupe";
-import { urlPublicaDoObjeto } from "./bucket";
+import { faixaDoObjeto, tamanhoDoObjeto, urlPublicaDoObjeto } from "./bucket";
+import { RESERVA_PARA_TERMINAR_MS } from "./fila-tipos";
 import { conexaoDaConta } from "./linkedin-conexoes";
 import {
   criarPost,
   enviarDocumento,
   enviarImagem,
+  enviarParteDoVideo,
+  estadoDoVideo,
+  finalizarVideo,
   LinkedinError,
   reservarDocumento,
   reservarImagem,
+  reservarVideo,
   TETO_DO_ENVIO_DA_IMAGEM_MS,
+  TETO_DO_ENVIO_DA_PARTE_MS,
   TETO_DO_ENVIO_DO_DOCUMENTO_MS,
   TETO_DO_LINKEDIN_MS,
 } from "./linkedin";
 import {
   corpoDoPost,
+  desfechoDoErroDaParte,
   desfechoDoErroDoLinkedin,
+  estadoDoEnvioDoVideo,
+  progressoDoVideo,
+  proximaEtapaDoVideo,
+  tetoDoVideoAtingido,
+  type EtapaDoVideo,
   lerPayloadDoLinkedin,
   motivoDaAutorizacaoRecusada,
   oPostPodeTerSaido,
@@ -217,6 +229,46 @@ const ESPERA_DA_MIDIA_EM_SEGUNDOS = 60;
 export const MOTIVO_MIDIA_PROCESSANDO = "o LinkedIn ainda está processando o documento; o post sai na próxima consulta";
 export const MOTIVO_MIDIA_NAO_FICOU_PRONTA = "o LinkedIn não terminou de processar o documento a tempo; publique de novo";
 
+// ---------------------------------------------------------------------------------------------------------------
+// O VÍDEO EM PARTES (a parte 3b; scratchpad/desenho-li3b.md, v3)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * O VÍDEO PODE PROCESSAR POR MAIS TEMPO QUE O DOCUMENTO (o §3.5): 10 consultas, uma por minuto, contra 5 do documento.
+ * A prova mede o tempo de verdade. Os motivos dizem a mídia certa.
+ */
+export const CONSULTAS_DO_VIDEO_MAX = 10;
+export const MOTIVO_VIDEO_PROCESSANDO = "o LinkedIn ainda está processando o vídeo; o post sai na próxima consulta";
+export const MOTIVO_VIDEO_NAO_FICOU_PRONTO = "o LinkedIn não terminou de processar o vídeo a tempo; publique de novo";
+export const MOTIVO_VIDEO_PROCESSAMENTO_FALHOU = "o LinkedIn não conseguiu processar o vídeo; confira se ele é um MP4 comum";
+export const MOTIVO_VIDEO_SUBINDO = "o vídeo está subindo ao LinkedIn, em partes; o post sai em alguns minutos";
+export const MOTIVO_VIDEO_PASSADAS_DEMAIS = "o vídeo não terminou de subir ao LinkedIn depois de muitas passadas; publique de novo";
+export const MOTIVO_VIDEO_VELHO = "o vídeo não terminou de subir ao LinkedIn em 2 horas; publique de novo";
+export const MOTIVO_PARTE_RECUSADA = "o LinkedIn recusou o envio de uma parte do vídeo; publique de novo";
+export const MOTIVO_VIDEO_PODE_TER_SUBIDO =
+  "o vídeo pode ter terminado de subir ao LinkedIn sem a confirmação chegar; publique de novo";
+
+/**
+ * O PIOR CASO DE CADA ETAPA DO VÍDEO, pelos tetos (o §3.3): a reserva (o tamanho pelo bucket e a reserva), uma parte
+ * (a faixa do bucket e o envio dela), o fim e o post.
+ */
+export const PIOR_CASO_DA_ETAPA_DO_VIDEO_MS: Readonly<Record<EtapaDoVideo, number>> = {
+  reserva: TETO_DO_BUCKET_MS + TETO_DO_LINKEDIN_MS,
+  parte: TETO_DO_BUCKET_MS + TETO_DO_ENVIO_DA_PARTE_MS,
+  fim: TETO_DO_LINKEDIN_MS,
+  post: TETO_DO_LINKEDIN_MS,
+};
+
+/**
+ * UMA ETAPA POR PASSADA, que só começa se o pior caso dela termina ANTES da hora de parar da 3a-0 (o 231): o prazo do
+ * dreno menos a reserva para terminar (lib/fila-tipos.ts). Com o prazo de 55 s, a hora de parar é aos 40 s: a reserva
+ * começa até os 20 s, a parte até os 15 s, e o fim e o post até os 30 s. Assim, nenhuma mensagem do mesmo lote volta à
+ * fila por causa do vídeo.
+ */
+export function aEtapaDoVideoCabe(etapa: EtapaDoVideo, agoraMs: number, prazoMs: number): boolean {
+  return agoraMs + PIOR_CASO_DA_ETAPA_DO_VIDEO_MS[etapa] <= prazoMs - RESERVA_PARA_TERMINAR_MS;
+}
+
 /**
  * A LINHA VOLTA À FILA SEM GASTAR A TENTATIVA: a reivindicação contou uma, e nada foi tentado. Sem o desconto,
  * três passadas sem tempo levariam o primeiro erro passageiro a encerrar a linha. O adiamento fica contado no payload.
@@ -251,14 +303,100 @@ async function adiarOuEncerrar(
  * O DOCUMENTO AINDA NÃO ESTÁ PRONTO: o post não foi criado (o 4xx prova), então a marca do POST sai, e a linha volta
  * em um minuto sem gastar a tentativa, com a consulta contada.
  */
-async function esperarAMidia(id: string, consultas: number): Promise<void> {
+async function esperarAMidia(id: string, consultas: number, motivo: string = MOTIVO_MIDIA_PROCESSANDO): Promise<void> {
   await sql().query(
     `update queue set status = 'pending', attempts = greatest(attempts - 1, 0),
             not_before = now() + make_interval(secs => $2::int), error = $3,
             payload = (payload - 'post_tentado_em') || jsonb_build_object('consultas_da_midia', $4::int)
       where id = $1`,
-    [id, ESPERA_DA_MIDIA_EM_SEGUNDOS, MOTIVO_MIDIA_PROCESSANDO, consultas]
+    [id, ESPERA_DA_MIDIA_EM_SEGUNDOS, motivo, consultas]
   );
+}
+
+/**
+ * O VÍDEO SEM TEMPO PARA A ETAPA DESTA PASSADA volta à fila sem gastar a tentativa e SEM contar adiamento (o 230): o
+ * teto dele é o de idade. O payload não muda.
+ */
+async function devolverOVideoSemContar(id: string): Promise<void> {
+  await sql().query(
+    `update queue set status = 'pending', attempts = greatest(attempts - 1, 0),
+            not_before = now() + make_interval(secs => $2::int), error = $3
+      where id = $1`,
+    [id, VOLTA_SEM_TEMPO_EM_SEGUNDOS, MOTIVO_SEM_TEMPO]
+  );
+}
+
+/**
+ * O VÍDEO QUE AVANÇOU volta à fila valendo já, com as tentativas ZERADAS (a nota da auditoria sobre o 230): só 3
+ * erros passageiros SEGUIDOS, sem avanço entre eles, encerram a linha. O tique seguinte a traz de volta.
+ */
+async function devolverOVideoComAvanco(id: string): Promise<void> {
+  await sql().query(
+    `update queue set status = 'pending', attempts = 0, not_before = now(), error = $2 where id = $1`,
+    [id, MOTIVO_VIDEO_SUBINDO]
+  );
+}
+
+/** Grava a primeira passada, se ainda não houver, e devolve a hora dela (epoch, ms). */
+async function marcarAPrimeiraPassada(id: string): Promise<number> {
+  const [linha] = (await sql().query(
+    `update queue set payload = payload || jsonb_build_object('primeira_passada_em', coalesce(payload->>'primeira_passada_em', $2::text))
+      where id = $1 returning payload->>'primeira_passada_em' as primeira`,
+    [id, new Date().toISOString()]
+  )) as { primeira: string | null }[];
+  const ms = linha?.primeira ? Date.parse(linha.primeira) : NaN;
+  return Number.isNaN(ms) ? Date.now() : ms;
+}
+
+/** Conta a passada que vai começar uma etapa (o teto das passadas, o 230). */
+async function contarAPassada(id: string): Promise<void> {
+  await sql().query(
+    `update queue set payload = payload || jsonb_build_object('passadas_do_video', coalesce((payload->>'passadas_do_video')::int, 0) + 1)
+      where id = $1`,
+    [id]
+  );
+}
+
+/**
+ * A GRAVAÇÃO DE CADA ETAPA DEVOLVE O PAYLOAD GRAVADO (o 230): o progresso é lido dele, e não do que a passada achou
+ * que fez. A reserva vai num `update` só (o URN, o token, as partes e a lista vazia dos ETags, o 236), e só se ainda
+ * não houver URN: com o `video_urn` gravado, nunca se reserva de novo. O ETag vai pelo índice da parte.
+ */
+async function gravarAReserva(
+  id: string,
+  r: { videoUrn: string; uploadToken: string; partes: { inicio: number; fim: number; url: string }[] }
+): Promise<unknown> {
+  const [linha] = (await sql().query(
+    `update queue set payload = payload || jsonb_build_object('video_urn', $2::text, 'upload_token', $3::text, 'partes', $4::jsonb, 'etags', '[]'::jsonb)
+      where id = $1 and not (payload ? 'video_urn') returning payload`,
+    // A LISTA VAI CRUA para o parâmetro jsonb, como o `guardarNoPayload`: serializada à mão, ela viraria um texto.
+    [id, r.videoUrn, r.uploadToken, r.partes]
+  )) as { payload: unknown }[];
+  return linha?.payload ?? null;
+}
+
+async function gravarOETag(id: string, indice: number, etag: string): Promise<unknown> {
+  const [linha] = (await sql().query(
+    `update queue set payload = jsonb_set(payload, array['etags', $2::text], to_jsonb($3::text), true)
+      where id = $1 and jsonb_typeof(payload->'etags') = 'array' and jsonb_array_length(payload->'etags') = $4::int
+      returning payload`,
+    [id, String(indice), etag, indice]
+  )) as { payload: unknown }[];
+  return linha?.payload ?? null;
+}
+
+async function gravarOFim(id: string): Promise<unknown> {
+  const [linha] = (await sql().query(
+    `update queue set payload = payload || '{"video_finalizado": true}'::jsonb where id = $1 returning payload`,
+    [id]
+  )) as { payload: unknown }[];
+  return linha?.payload ?? null;
+}
+
+/** O progresso do payload gravado, ou −1 quando a gravação não pegou a linha (ou o payload não se lê). */
+function progressoGravado(payload: unknown): number {
+  const pub = lerPayloadDoLinkedin(payload);
+  return pub ? progressoDoVideo(estadoDoEnvioDoVideo(pub)) : -1;
 }
 
 /**
@@ -287,6 +425,110 @@ function recusaDoLinkedin(err: unknown, nome: string): string | null {
 /** A marca do POST sai quando o LinkedIn respondeu que não criou o post (um 4xx). */
 async function tirarAMarcaDoPost(id: string): Promise<void> {
   await sql().query(`update queue set payload = payload - 'post_tentado_em' where id = $1`, [id]);
+}
+
+/**
+ * UMA PASSADA DO VÍDEO EM PARTES (a parte 3b; scratchpad/desenho-li3b.md, v3, §3.3 a §3.5). Faz UMA etapa (a reserva,
+ * uma parte ou o fim) e devolve a linha à fila, ou devolve "post" quando só falta o post, que é o de todas as formas.
+ *
+ *   1. a primeira passada fica gravada (o teto de idade conta dela);
+ *   2. os dois tetos (as passadas que começaram uma etapa e a idade) encerram a linha com o motivo;
+ *   3. a etapa só começa se o pior caso dela termina antes da hora de parar (o 231); se não, a linha volta sem gastar a
+ *      tentativa e sem contar adiamento;
+ *   4. a conexão é conferida, a passada é contada, e a etapa roda;
+ *   5. a gravação devolve o payload, e a linha só volta "com avanço" (as tentativas zeradas) se o progresso gravado
+ *      cresceu (o 230). Se não cresceu, é um erro passageiro, que gasta a tentativa.
+ *
+ * OS ERROS (o 238): na reserva e no fim, que levam o token, a classificação de sempre (`recusaDoLinkedin`); na parte,
+ * que vai sem o token, o 401/403 é a parte recusada (`desfechoDoErroDaParte`), e o endereço fora da regra do domínio,
+ * ou o redirecionamento, é permanente (`STATUS_RECUSADO_PELO_PAINEL`). O erro do bucket é passageiro.
+ */
+async function passadaDoVideo(
+  item: QueueItem,
+  pub: LeituraDoPayloadDoLinkedin,
+  deps: DependenciasDoDreno
+): Promise<DesfechoDoPostNoLinkedin | "post"> {
+  const estado = estadoDoEnvioDoVideo(pub);
+  if (pub.videoUrn && !estado.reservado) {
+    await deps.finish(item.id, { status: "failed", error: MOTIVO_DO_PAYLOAD_TORTO });
+    return "falhou";
+  }
+  const primeiraMs = await marcarAPrimeiraPassada(item.id);
+  const teto = tetoDoVideoAtingido({
+    partes: estado.partes,
+    passadas: pub.passadasDoVideo,
+    primeiraPassadaEmMs: primeiraMs,
+    agoraMs: Date.now(),
+  });
+  if (teto) {
+    await deps.finish(item.id, { status: "failed", error: teto === "idade" ? MOTIVO_VIDEO_VELHO : MOTIVO_VIDEO_PASSADAS_DEMAIS });
+    return "falhou";
+  }
+
+  const etapa = proximaEtapaDoVideo(estado);
+  if (!aEtapaDoVideoCabe(etapa, Date.now(), deps.prazoMs)) {
+    await devolverOVideoSemContar(item.id);
+    return "aguardando";
+  }
+  if (etapa === "post") return "post";
+
+  const conta = item.account_id ?? "";
+  const conexao = conta ? await conexaoDaConta(conta) : null;
+  if (!conexao) {
+    await deps.finish(item.id, { status: "failed", error: MOTIVO_SEM_CONEXAO });
+    return "falhou";
+  }
+  if (new Date(conexao.expira_em).getTime() <= Date.now()) {
+    await deps.finish(item.id, { status: "failed", error: motivoDaAutorizacaoRecusada(conexao.nome) });
+    return "falhou";
+  }
+
+  await contarAPassada(item.id);
+  const antes = progressoDoVideo(estado);
+  let gravado: unknown;
+  try {
+    if (etapa === "reserva") {
+      const tamanho = await tamanhoDoObjeto(pub.caminhos[0], TETO_DO_BUCKET_MS);
+      const reserva = await reservarVideo(conexao.access_token, conexao.pessoa_id, tamanho);
+      gravado = await gravarAReserva(item.id, reserva);
+    } else if (etapa === "parte") {
+      const indice = estado.etags;
+      const parte = (pub.partes ?? [])[indice];
+      const bytes = await faixaDoObjeto(pub.caminhos[0], parte.inicio, parte.fim, TETO_DO_BUCKET_MS);
+      const etag = await enviarParteDoVideo(parte.url, bytes);
+      gravado = await gravarOETag(item.id, indice, etag);
+    } else {
+      // O FIM (o 233): a marca vai antes. Com a marca de uma passada anterior e sem o fim gravado, um 4xx no fim não
+      // encerra direto: o estado do vídeo diz se o fim de antes chegou ao LinkedIn.
+      const repetido = !!pub.fimTentadoEm;
+      await deps.guardarNoPayload(item.id, { fim_tentado_em: new Date().toISOString() });
+      try {
+        await finalizarVideo(conexao.access_token, pub.videoUrn as string, pub.uploadToken as string, pub.etags.slice(0, estado.partes));
+      } catch (err) {
+        if (!(repetido && err instanceof LinkedinError && desfechoDoErroDoLinkedin(err.status) === "permanente")) throw err;
+        const situacao = await estadoDoVideo(conexao.access_token, pub.videoUrn as string).catch(() => null);
+        if (situacao !== "AVAILABLE" && situacao !== "PROCESSING") {
+          await deps.finish(item.id, { status: "failed", error: MOTIVO_VIDEO_PODE_TER_SUBIDO });
+          return "falhou";
+        }
+      }
+      gravado = await gravarOFim(item.id);
+    }
+  } catch (err) {
+    if (etapa === "parte" && err instanceof LinkedinError) {
+      const desfecho = desfechoDoErroDaParte(err.status);
+      if (desfecho === "passageiro") throw err;
+      await deps.finish(item.id, { status: "failed", error: desfecho === "recusada" ? MOTIVO_PARTE_RECUSADA : err.message.slice(0, 500) });
+      return "falhou";
+    }
+    const recusa = recusaDoLinkedin(err, conexao.nome);
+    if (recusa === null) throw err;
+    await deps.finish(item.id, { status: "failed", error: recusa });
+    return "falhou";
+  }
+  if (progressoGravado(gravado) <= antes) throw new Error("o avanço do vídeo não ficou gravado; a etapa volta na próxima passada");
+  await devolverOVideoComAvanco(item.id);
+  return "aguardando";
 }
 
 /**
@@ -322,6 +564,12 @@ export async function publicarNoLinkedinDaFila(item: QueueItem, deps: Dependenci
   if (pub.postTentadoEm) {
     await deps.finish(item.id, { status: "failed", error: MOTIVO_PODE_TER_SAIDO });
     return "falhou";
+  }
+
+  // O VÍDEO EM PARTES (a parte 3b): uma etapa por passada, até só faltar o post, que segue o caminho de todas as formas.
+  if (pub.forma === "video") {
+    const desfecho = await passadaDoVideo(item, pub, deps);
+    if (desfecho !== "post") return desfecho;
   }
 
   // O TEMPO, ANTES DE QUALQUER CHAMADA: a imagem que ainda não subiu precisa do bucket, da reserva e do envio; o
@@ -408,6 +656,8 @@ export async function publicarNoLinkedinDaFila(item: QueueItem, deps: Dependenci
         texto: pub.texto,
         imagemUrn,
         documento: documentoUrn ? { urn: documentoUrn, titulo: tituloDoDocumento(pub.texto) } : undefined,
+        // O VÍDEO (a parte 3b) vai com o título pela mesma regra (a decisão do Eduardo pela caixa, em 16/11).
+        video: pub.forma === "video" && pub.videoUrn ? { urn: pub.videoUrn, titulo: tituloDoDocumento(pub.texto) } : undefined,
       })
     );
   } catch (err) {
@@ -415,16 +665,25 @@ export async function publicarNoLinkedinDaFila(item: QueueItem, deps: Dependenci
       await deps.finish(item.id, { status: "failed", error: MOTIVO_PODE_TER_SAIDO });
       return "falhou";
     }
-    // O DOCUMENTO QUE O LINKEDIN AINDA PROCESSA (a parte 3a): o 4xx prova que o post não foi criado. A linha espera
-    // um minuto e consulta de novo, até cinco vezes; na sexta, encerra com o motivo.
-    if (pub.forma === "carrossel" && err.midiaNaoPronta) {
-      if (pub.consultasDaMidia >= CONSULTAS_DA_MIDIA_MAX) {
+    // O DOCUMENTO OU O VÍDEO QUE O LINKEDIN AINDA PROCESSA (a parte 3a e a 3b): o 4xx prova que o post não foi criado.
+    // A linha espera um minuto e consulta de novo, até cinco vezes no documento e dez no vídeo; depois, encerra com o
+    // motivo. A passada do post não conta no teto das passadas do vídeo (o 237): as consultas têm o teto delas.
+    const comMidiaQueProcessa = pub.forma === "carrossel" || pub.forma === "video";
+    if (comMidiaQueProcessa && err.midiaNaoPronta) {
+      const doVideo = pub.forma === "video";
+      if (pub.consultasDaMidia >= (doVideo ? CONSULTAS_DO_VIDEO_MAX : CONSULTAS_DA_MIDIA_MAX)) {
         await tirarAMarcaDoPost(item.id);
-        await deps.finish(item.id, { status: "failed", error: MOTIVO_MIDIA_NAO_FICOU_PRONTA });
+        await deps.finish(item.id, { status: "failed", error: doVideo ? MOTIVO_VIDEO_NAO_FICOU_PRONTO : MOTIVO_MIDIA_NAO_FICOU_PRONTA });
         return "falhou";
       }
-      await esperarAMidia(item.id, pub.consultasDaMidia + 1);
+      await esperarAMidia(item.id, pub.consultasDaMidia + 1, doVideo ? MOTIVO_VIDEO_PROCESSANDO : MOTIVO_MIDIA_PROCESSANDO);
       return "aguardando";
+    }
+    // O VÍDEO QUE O LINKEDIN NÃO CONSEGUIU PROCESSAR (a parte 3b): o post não foi criado, e repetir não ajuda.
+    if (pub.forma === "video" && err.processamentoFalhou) {
+      await tirarAMarcaDoPost(item.id);
+      await deps.finish(item.id, { status: "failed", error: MOTIVO_VIDEO_PROCESSAMENTO_FALHOU });
+      return "falhou";
     }
     // O LinkedIn respondeu 4xx: o post não foi criado, e a marca sai. O 429 e o 409 voltam à fila; o resto encerra.
     await tirarAMarcaDoPost(item.id);

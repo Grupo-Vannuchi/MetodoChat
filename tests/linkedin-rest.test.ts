@@ -13,6 +13,7 @@ import {
   nomeLimpo,
   reservarDocumento,
   reservarVideo,
+  STATUS_RECUSADO_PELO_PAINEL,
   TETO_DO_ENVIO_DA_IMAGEM_MS,
   TETO_DO_ENVIO_DA_PARTE_MS,
   TETO_DO_ENVIO_DO_DOCUMENTO_MS,
@@ -328,7 +329,10 @@ describe("o envio de uma parte do vídeo (o 234)", () => {
 
   it("o endereço que não é do LinkedIn não recebe a parte: o vídeo é do cliente", async () => {
     const pedidos = gravar(() => new Response("", { status: 200, headers: { etag: "e" } }));
-    await expect(enviarParteDoVideo("https://www.exemplo.com/x", new Uint8Array(3))).rejects.toMatchObject({ name: "LinkedinError", status: 0 });
+    await expect(enviarParteDoVideo("https://www.exemplo.com/x", new Uint8Array(3))).rejects.toMatchObject({
+      name: "LinkedinError",
+      status: STATUS_RECUSADO_PELO_PAINEL,
+    });
     expect(pedidos).toHaveLength(0);
   });
 
@@ -403,7 +407,7 @@ describe("o redirecionamento não é seguido", () => {
     try {
       await expect(enviarParteDoVideo(`http://127.0.0.1:${portaOrigem}/envio`, new Uint8Array([1, 2, 3]))).rejects.toMatchObject({
         name: "LinkedinError",
-        status: 0,
+        status: STATUS_RECUSADO_PELO_PAINEL,
       });
       expect(recebidos).toEqual([]);
     } finally {

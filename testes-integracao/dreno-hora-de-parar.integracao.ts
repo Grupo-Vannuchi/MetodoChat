@@ -521,3 +521,43 @@ describe("a devolução só mexe no que este dreno pegou (o 225)", () => {
     expect(resumo.devolvidos).toBe(0);
   });
 });
+
+// O VÍDEO DO LINKEDIN NO LOTE NÃO EMPURRA AS MENSAGENS PARA DEPOIS DA HORA DE PARAR (a parte 3b; o 231). Uma etapa do
+// vídeo só começa se o pior caso dela termina antes dos 40 s; aqui, o vídeo vem primeiro no lote (é o mais antigo), e
+// a parte dele (25 s pelos tetos) não cabe nos 24 s que faltam. Ele volta sem chamar o LinkedIn, sem gastar a tentativa
+// e sem contar adiamento, e as mensagens saem na mesma passada: nenhuma volta à fila.
+describe("o vídeo do LinkedIn no lote (a 3b, o 231)", () => {
+  it("a parte que não termina antes da hora de parar não começa, e as mensagens do mesmo lote saem, sem nada voltar", async () => {
+    const antes = {
+      forma: "video",
+      caminhos: [`${CONTA}/v.mp4`],
+      texto: "O vídeo que vem primeiro no lote",
+      video_urn: "urn:li:video:HoraDeParar",
+      upload_token: "token-do-envio",
+      partes: [{ inicio: 0, fim: 9, url: "https://www.linkedin.com/dms-uploads/V/0" }],
+      etags: [],
+    };
+    const [video] = (await q(
+      `insert into queue (account_id, kind, payload, dedupe_key, not_before)
+       values ($1, 'publicacao_linkedin', $2, 'hora-de-parar:video', now() - interval '2 minutes')
+       returning id`,
+      [CONTA, antes]
+    )) as { id: string }[];
+    await esperar(5);
+    const a = await mensagem("a mensagem depois do vídeo");
+    const b = await mensagem("outra mensagem depois do vídeo");
+
+    const { valor: resumo, linhas } = await comORegistro(() => dreno.drainQueue({ inicioDaFuncaoMs: Date.now() - 16_000 }));
+
+    expect(resumo).toMatchObject({ sent: 2, devolvidos: 0 });
+    expect(meta.textos).toEqual(["a mensagem depois do vídeo", "outra mensagem depois do vídeo"]);
+    for (const id of [a, b]) expect((await linha(id)).status).toBe("sent");
+    expect(await linha(video.id)).toMatchObject({ status: "pending", attempts: 0, vencida: false });
+    const depois = await payloadDe(video.id);
+    expect(depois).toMatchObject(antes);
+    expect(depois.adiamentos).toBeUndefined();
+    expect(depois.passadas_do_video).toBeUndefined();
+    expect(linkedin.pedidos).toEqual([]);
+    expect(linhas).toEqual([]);
+  }, 30_000);
+});

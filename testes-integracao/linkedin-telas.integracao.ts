@@ -386,8 +386,9 @@ describe("o remarcar e o cancelar de um post do LinkedIn de forma nova", () => {
        returning id, not_before`,
       [
         CONTA_A,
-        // A FORMA NOVA DE EXEMPLO É O VÍDEO (a parte 3b), que este código ainda não publica. Até a 3a, era o carrossel.
-        { forma: "video", caminhos: [`${CONTA_A}/novo-${semente}.mp4`], texto: "um vídeo do futuro" },
+        // A FORMA NOVA DE EXEMPLO É UMA QUE NENHUMA PARTE PLANEJOU (a enquete), porque este código já publica o vídeo
+        // (a parte 3b). Até a 3a, era o carrossel; até a 3b, o vídeo.
+        { forma: "enquete", caminhos: [`${CONTA_A}/novo-${semente}.mp4`], texto: "uma enquete do futuro" },
         `telas-forma-nova-${semente}`,
         emSegundos,
       ]

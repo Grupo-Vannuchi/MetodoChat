@@ -56,9 +56,9 @@ export type FormaNoLinkedin = "texto" | "imagem" | "carrossel" | "video";
 /**
  * AS FORMAS QUE ESTE CÓDIGO SABE PUBLICAR NO LINKEDIN, numa lista só: a do formulário, a do payload e a do dreno
  * (`soAFormaConhecidaDoLinkedin`, abaixo). Uma forma acrescentada aqui é uma forma que o dreno passa a pegar: o
- * carrossel entrou junto com o ramo dele (lib/linkedin-fila.ts), e o vídeo também entra só com o ramo dele.
+ * carrossel entrou junto com o ramo dele (lib/linkedin-fila.ts), e o vídeo também entra só com o ramo dele (a 3b).
  */
-export const FORMAS_NO_LINKEDIN: readonly FormaNoLinkedin[] = ["texto", "imagem", "carrossel"];
+export const FORMAS_NO_LINKEDIN: readonly FormaNoLinkedin[] = ["texto", "imagem", "carrossel", "video"];
 
 /**
  * QUANTOS ARQUIVOS CADA FORMA LEVA, numa função só, para o pedido e para o payload: o só texto nenhum, a imagem e o
@@ -311,6 +311,16 @@ export type PayloadDoLinkedin = {
   adiamentos?: number;
   post_tentado_em?: string;
   post_urn?: string;
+  // O VÍDEO EM PARTES (a parte 3b): a reserva (o URN, o token do envio e as partes, num `update` só), os ETags
+  // gravados um a um pelo índice da parte, a marca e o fim, as passadas que começaram uma etapa e a primeira passada.
+  video_urn?: string;
+  upload_token?: string;
+  partes?: { inicio: number; fim: number; url: string }[];
+  etags?: string[];
+  fim_tentado_em?: string;
+  video_finalizado?: boolean;
+  passadas_do_video?: number;
+  primeira_passada_em?: string;
 };
 
 export function payloadDoLinkedin(pedido: { forma: FormaNoLinkedin; caminhos: string[]; texto: string }): PayloadDoLinkedin {
@@ -327,6 +337,18 @@ export type LeituraDoPayloadDoLinkedin = {
   adiamentos: number;
   postTentadoEm: string | null;
   postUrn: string | null;
+  /** O vídeo em partes (a parte 3b); nas outras formas, tudo vazio. */
+  videoUrn: string | null;
+  /** O token do envio pode vir vazio no vídeo de uma parte só: null é "não veio". */
+  uploadToken: string | null;
+  /** As partes da reserva, ou null quando não vieram, ou vieram tortas. */
+  partes: { inicio: number; fim: number; url: string }[] | null;
+  /** Os ETags gravados EM SEQUÊNCIA desde a primeira parte, sem os vazios (o 230). */
+  etags: string[];
+  fimTentadoEm: string | null;
+  videoFinalizado: boolean;
+  passadasDoVideo: number;
+  primeiraPassadaEm: string | null;
 };
 
 /** Lê o payload, ou null: a forma tem de ser da lista, o texto tem de ser texto, e a quantidade de arquivos a da forma. */
@@ -351,6 +373,52 @@ export function lerPayloadDoLinkedin(bruto: unknown): LeituraDoPayloadDoLinkedin
     adiamentos: contagem(p.adiamentos),
     postTentadoEm: texto(p.post_tentado_em),
     postUrn: texto(p.post_urn),
+    videoUrn: texto(p.video_urn),
+    uploadToken: typeof p.upload_token === "string" ? p.upload_token : null,
+    partes: partesDoPayload(p.partes),
+    etags: etagsEmSequencia(p.etags),
+    fimTentadoEm: texto(p.fim_tentado_em),
+    videoFinalizado: p.video_finalizado === true,
+    passadasDoVideo: contagem(p.passadas_do_video),
+    primeiraPassadaEm: texto(p.primeira_passada_em),
+  };
+}
+
+/** As partes gravadas, só se todas tiverem o início e o fim inteiros e o endereço em texto. */
+function partesDoPayload(v: unknown): { inicio: number; fim: number; url: string }[] | null {
+  if (!Array.isArray(v) || v.length === 0) return null;
+  const partes: { inicio: number; fim: number; url: string }[] = [];
+  for (const p of v) {
+    if (!p || typeof p !== "object") return null;
+    const { inicio, fim, url } = p as Record<string, unknown>;
+    if (!Number.isSafeInteger(inicio) || !Number.isSafeInteger(fim) || typeof url !== "string" || !url) return null;
+    partes.push({ inicio: inicio as number, fim: fim as number, url });
+  }
+  return partes;
+}
+
+/**
+ * OS ETAGS QUE CONTAM (o 230): em sequência desde a primeira parte, parando no primeiro que falta ou que está vazio.
+ * As partes vão em ordem, uma por passada; um buraco seria um payload torto, e a parte do buraco é a próxima a ir.
+ */
+function etagsEmSequencia(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const etags: string[] = [];
+  for (const e of v) {
+    if (typeof e !== "string" || !e) break;
+    etags.push(e);
+  }
+  return etags;
+}
+
+/** O que já foi feito no envio do vídeo, lido do payload gravado (o 230). */
+export function estadoDoEnvioDoVideo(pub: LeituraDoPayloadDoLinkedin): EstadoDoEnvioDoVideo {
+  const reservado = !!pub.videoUrn && pub.uploadToken !== null && pub.partes !== null;
+  return {
+    reservado,
+    partes: reservado ? (pub.partes as unknown[]).length : 0,
+    etags: reservado ? pub.etags.length : 0,
+    finalizado: reservado && pub.videoFinalizado,
   };
 }
 
@@ -428,6 +496,15 @@ export function oPostPodeTerSaido(status: number): boolean {
  */
 export function aMidiaAindaNaoEstaPronta(status: number, texto: string): boolean {
   return status === 400 && /WAITING_UPLOAD|PROCESSING(?!_FAILED)/.test(texto);
+}
+
+/**
+ * O VÍDEO QUE O LINKEDIN NÃO CONSEGUIU PROCESSAR (a parte 3b): o 400 "MEDIA_ASSET_PROCESSING_FAILED" da Videos API
+ * ("Processing failed due to client error such as file size too large, unsupported file format"). O post não foi
+ * criado, e repetir não ajuda: a linha encerra com um motivo que diz o que conferir.
+ */
+export function oProcessamentoFalhou(status: number, texto: string): boolean {
+  return status === 400 && /PROCESSING_FAILED/.test(texto);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

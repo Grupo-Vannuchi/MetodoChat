@@ -3,6 +3,7 @@ import {
   aMidiaAindaNaoEstaPronta,
   corpoDoPost,
   desfechoDoErroDoLinkedin,
+  estadoDoEnvioDoVideo,
   formaNoLinkedinDoCampo,
   LIMITE_DO_TEXTO_DO_LINKEDIN,
   lerPayloadDoLinkedin,
@@ -19,17 +20,19 @@ import {
 // AS REGRAS PURAS DO POST NO LINKEDIN (docs/specs/2026-11-06-linkedin-no-perfil.md, §5; a parte 2a: só texto e
 // imagem, uma rede por post). A tela de publicar e o servidor leem as mesmas funções.
 
-describe("as formas do LinkedIn (a 2a e o carrossel da 3a)", () => {
-  it("são só texto, imagem e carrossel; o resto, inclusive o que é só do Instagram, não vale", () => {
+describe("as formas do LinkedIn (a 2a, o carrossel da 3a e o vídeo da 3b)", () => {
+  it("são só texto, imagem, carrossel e vídeo; o resto, inclusive o que é só do Instagram, não vale", () => {
     expect(formaNoLinkedinDoCampo("texto")).toBe("texto");
     expect(formaNoLinkedinDoCampo("imagem")).toBe("imagem");
     expect(formaNoLinkedinDoCampo("carrossel")).toBe("carrossel");
-    for (const outra of ["reels", "video", "story", "", null, undefined, ["texto"]]) {
+    expect(formaNoLinkedinDoCampo("video")).toBe("video");
+    for (const outra of ["reels", "enquete", "story", "", null, undefined, ["texto"]]) {
       expect(formaNoLinkedinDoCampo(outra)).toBeNull();
     }
     expect(rotuloDaFormaNoLinkedin("texto")).toBe("Só texto");
     expect(rotuloDaFormaNoLinkedin("imagem")).toBe("Imagem");
     expect(rotuloDaFormaNoLinkedin("carrossel")).toBe("Carrossel (PDF)");
+    expect(rotuloDaFormaNoLinkedin("video")).toBe("Vídeo");
   });
 });
 
@@ -123,6 +126,14 @@ describe("o payload da linha do LinkedIn na fila", () => {
       adiamentos: 0,
       postTentadoEm: "2026-11-09T19:00:00Z",
       postUrn: "urn:li:share:1",
+      videoUrn: null,
+      uploadToken: null,
+      partes: null,
+      etags: [],
+      fimTentadoEm: null,
+      videoFinalizado: false,
+      passadasDoVideo: 0,
+      primeiraPassadaEm: null,
     });
   });
 
@@ -151,7 +162,7 @@ describe("o payload da linha do LinkedIn na fila", () => {
   });
 
   it("recusa a forma desconhecida, o texto com arquivo e a imagem sem arquivo, ou com dois", () => {
-    expect(lerPayloadDoLinkedin({ forma: "video", caminhos: ["a/b.mp4"], texto: "x" })).toBeNull();
+    expect(lerPayloadDoLinkedin({ forma: "enquete", caminhos: ["a/b.mp4"], texto: "x" })).toBeNull();
     expect(lerPayloadDoLinkedin({ forma: "texto", caminhos: ["a/b.jpg"], texto: "x" })).toBeNull();
     expect(lerPayloadDoLinkedin({ forma: "imagem", caminhos: [], texto: "x" })).toBeNull();
     expect(lerPayloadDoLinkedin({ forma: "imagem", caminhos: ["a/b.jpg", "a/c.jpg"], texto: "x" })).toBeNull();
@@ -242,5 +253,59 @@ describe("o documento que o LinkedIn ainda processa", () => {
     expect(aMidiaAindaNaoEstaPronta(400, '{"code":"INVALID_URN_TYPE"}')).toBe(false);
     expect(aMidiaAindaNaoEstaPronta(422, "WAITING_UPLOAD")).toBe(false);
     expect(aMidiaAindaNaoEstaPronta(500, "PROCESSING")).toBe(false);
+  });
+});
+
+// O PAYLOAD DO VÍDEO EM PARTES (a parte 3b; o 230): a reserva, os ETags em sequência (sem os vazios), o fim, as
+// passadas e a primeira passada, e o estado do envio que sai deles.
+describe("o payload do vídeo na fila", () => {
+  const base = { forma: "video", caminhos: ["conta/v.mp4"], texto: "Um vídeo novo" };
+  const partes = [
+    { inicio: 0, fim: 4194303, url: "https://www.linkedin.com/dms-uploads/V/1" },
+    { inicio: 4194304, fim: 5000000, url: "https://www.linkedin.com/dms-uploads/V/2" },
+  ];
+
+  it("o vídeo leva um arquivo, e sem a reserva o estado é o do começo", () => {
+    const pub = lerPayloadDoLinkedin(base);
+    expect(pub).toMatchObject({ forma: "video", videoUrn: null, partes: null, etags: [], videoFinalizado: false, passadasDoVideo: 0 });
+    expect(estadoDoEnvioDoVideo(pub!)).toEqual({ reservado: false, partes: 0, etags: 0, finalizado: false });
+    expect(lerPayloadDoLinkedin({ ...base, caminhos: [] })).toBeNull();
+  });
+
+  it("lê a reserva, os ETags gravados e o fim; o token do envio vazio vale", () => {
+    const pub = lerPayloadDoLinkedin({
+      ...base,
+      video_urn: "urn:li:video:V",
+      upload_token: "",
+      partes,
+      etags: ['"e1"'],
+      fim_tentado_em: "2026-11-16T15:00:00Z",
+      passadas_do_video: 3,
+      primeira_passada_em: "2026-11-16T14:58:00Z",
+    })!;
+    expect(pub).toMatchObject({ videoUrn: "urn:li:video:V", uploadToken: "", partes, etags: ['"e1"'], passadasDoVideo: 3 });
+    expect(estadoDoEnvioDoVideo(pub)).toEqual({ reservado: true, partes: 2, etags: 1, finalizado: false });
+    expect(estadoDoEnvioDoVideo({ ...pub, etags: ['"e1"', '"e2"'], videoFinalizado: true })).toEqual({
+      reservado: true,
+      partes: 2,
+      etags: 2,
+      finalizado: true,
+    });
+  });
+
+  it("os ETags contam em sequência e param no primeiro vazio ou que não é texto (o 230)", () => {
+    const ler = (etags: unknown) => lerPayloadDoLinkedin({ ...base, video_urn: "urn:li:video:V", upload_token: "t", partes, etags })!.etags;
+    expect(ler(['"e1"', "", '"e3"'])).toEqual(['"e1"']);
+    expect(ler(["", '"e2"'])).toEqual([]);
+    expect(ler([null, '"e2"'])).toEqual([]);
+    expect(ler("nao-e-lista")).toEqual([]);
+  });
+
+  it("as partes tortas, ou o URN sem token, não contam como reserva", () => {
+    const ler = (extra: Record<string, unknown>) => estadoDoEnvioDoVideo(lerPayloadDoLinkedin({ ...base, video_urn: "urn:li:video:V", ...extra })!);
+    expect(ler({ upload_token: "t", partes: [{ inicio: "0", fim: 9, url: "x" }] }).reservado).toBe(false);
+    expect(ler({ upload_token: "t", partes: [] }).reservado).toBe(false);
+    expect(ler({ partes }).reservado).toBe(false);
+    expect(ler({ upload_token: "t", partes }).reservado).toBe(true);
   });
 });

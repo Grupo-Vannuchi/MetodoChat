@@ -7,7 +7,7 @@ import "server-only";
 // AS CHAVES DO APP (`LINKEDIN_CLIENT_ID` e `LINKEDIN_CLIENT_SECRET`) FICAM SÓ NAS VARIÁVEIS DA VERCEL, nunca no
 // código nem no banco, porque o repositório é público (§8). Sem as duas, o LinkedIn fica desligado no painel.
 
-import { aMidiaAindaNaoEstaPronta } from "./linkedin-publicacao";
+import { aMidiaAindaNaoEstaPronta, oProcessamentoFalhou } from "./linkedin-publicacao";
 
 const OAUTH = "https://www.linkedin.com";
 const API = "https://api.linkedin.com";
@@ -103,19 +103,33 @@ export class LinkedinError extends Error {
    * LinkedIn pode vir depois (nota da auditoria sobre a F3).
    */
   midiaNaoPronta: boolean;
-  constructor(status: number, texto: string, midiaNaoPronta = false) {
+  /**
+   * O POST RECUSADO PORQUE O LINKEDIN NÃO CONSEGUIU PROCESSAR O VÍDEO (`MEDIA_ASSET_PROCESSING_FAILED`, a parte 3b),
+   * decidido também na resposta inteira.
+   */
+  processamentoFalhou: boolean;
+  constructor(status: number, texto: string, midiaNaoPronta = false, processamentoFalhou = false) {
     super(`LinkedIn ${status}: ${texto}`);
     this.name = "LinkedinError";
     this.status = status;
     this.texto = texto;
     this.midiaNaoPronta = midiaNaoPronta;
+    this.processamentoFalhou = processamentoFalhou;
   }
 }
 
 /**
+ * O PEDIDO QUE O PAINEL RECUSOU SEM CHEGAR AO LINKEDIN, e que repetir não conserta (a nota da auditoria sobre a F2 da
+ * 3b): o redirecionamento recusado, e o endereço de uma parte do vídeo fora da regra do domínio. Não é um status de
+ * HTTP: `desfechoDoErroDoLinkedin` o trata como permanente, e não como a rede (status 0), que passa.
+ */
+export const STATUS_RECUSADO_PELO_PAINEL = -1;
+
+/**
  * TODA CHAMADA AO LINKEDIN PASSA POR AQUI, com o teto de tempo e SEM SEGUIR REDIRECIONAMENTO (o 234, a parte 3b): a
  * regra do domínio (`enderecoDeEnvioConfiavel`) confere só o primeiro endereço, e um 3xx para fora do LinkedIn
- * levaria junto o token, ou a parte do vídeo do cliente. O redirecionamento vira erro de rede (status 0).
+ * levaria junto o token, ou a parte do vídeo do cliente. O redirecionamento recusado é permanente
+ * (`STATUS_RECUSADO_PELO_PAINEL`).
  */
 async function chamar(
   url: string,
@@ -130,6 +144,11 @@ async function chamar(
     const onde = url.split("?")[0];
     if (err instanceof Error && err.name === "TimeoutError") {
       throw new LinkedinError(0, `${onde} não respondeu em ${tetoMs}ms`);
+    }
+    // O `fetch` do Node recusa o 3xx com um erro de rede cuja causa fala do redirecionamento.
+    const causa = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
+    if (causa instanceof Error && /redirect/i.test(causa.message)) {
+      throw new LinkedinError(STATUS_RECUSADO_PELO_PAINEL, `${onde} redirecionou, e a chamada não seguiu`);
     }
     throw new LinkedinError(0, `${onde} falhou na rede`);
   }
@@ -374,7 +393,7 @@ export async function reservarVideo(
  */
 export async function enviarParteDoVideo(uploadUrl: string, bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   if (!enderecoDeEnvioConfiavel(uploadUrl)) {
-    throw new LinkedinError(0, "o endereço de envio do vídeo não é do LinkedIn");
+    throw new LinkedinError(STATUS_RECUSADO_PELO_PAINEL, "o endereço de envio do vídeo não é do LinkedIn");
   }
   const r = await chamar(uploadUrl, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: bytes }, TETO_DO_ENVIO_DA_PARTE_MS);
   if (r.status !== 200 && r.status !== 201) throw new LinkedinError(r.status, `o LinkedIn recusou a parte do vídeo (${r.status})`);
@@ -419,7 +438,9 @@ export async function criarPost(token: string, corpo: Record<string, unknown>): 
     headers: cabecalhosDoRest(token),
     body: JSON.stringify(corpo),
   });
-  if (r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300), aMidiaAindaNaoEstaPronta(r.status, r.texto));
+  if (r.status !== 201) {
+    throw new LinkedinError(r.status, r.texto.slice(0, 300), aMidiaAindaNaoEstaPronta(r.status, r.texto), oProcessamentoFalhou(r.status, r.texto));
+  }
   if (!r.restliId) throw new LinkedinError(r.status, "o post saiu sem o x-restli-id");
   return r.restliId;
 }
