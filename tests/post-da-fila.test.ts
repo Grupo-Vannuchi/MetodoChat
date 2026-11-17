@@ -23,6 +23,8 @@ const LI_CARROSSEL = {
   kind: "publicacao_linkedin",
   payload: { forma: "carrossel", caminhos: ["conta/c1.jpg", "conta/c2.jpg"], texto: "O carrossel" },
 };
+// O VÍDEO DO LINKEDIN (a parte 3b): um arquivo só, o `.mp4`, que não vira capa.
+const LI_VIDEO = { kind: "publicacao_linkedin", payload: { forma: "video", caminhos: ["conta/v.mp4"], texto: "O vídeo" } };
 
 describe("o nome do post do LinkedIn", () => {
   it("leva a rede na frente, como o convite do LinkedIn", () => {
@@ -56,6 +58,11 @@ describe("o quadrado do calendário", () => {
   it("o carrossel do LinkedIn: a capa é a primeira foto, enquanto não saiu (a parte 3a)", () => {
     expect(cartaoDoPost(LI_CARROSSEL, false)).toEqual({ rotulo: "LinkedIn · Carrossel (PDF)", capa: "conta/c1.jpg", soVideo: false });
     expect(cartaoDoPost(LI_CARROSSEL, true)).toEqual({ rotulo: "LinkedIn · Carrossel (PDF)", capa: null, soVideo: false });
+  });
+
+  it("o vídeo do LinkedIn fica sem capa e com o ícone enquanto não saiu, como o reels do Instagram (a parte 3b)", () => {
+    expect(cartaoDoPost(LI_VIDEO, false)).toEqual({ rotulo: "LinkedIn · Vídeo", capa: null, soVideo: true });
+    expect(cartaoDoPost(LI_VIDEO, true)).toEqual({ rotulo: "LinkedIn · Vídeo", capa: null, soVideo: false });
   });
 
   it("o payload torto do LinkedIn não vira o do Instagram", () => {
@@ -149,6 +156,15 @@ describe("a página de um post", () => {
     expect(agendadoComErro.ehVideo("conta/c1.mp4")).toBe(false);
     // O SÓ TEXTO CONTINUA SEM A FRASE: ele não tem mídia.
     expect(paginaDoPost({ ...LI_TEXTO, error: null }, saiu).sobreAMidia).toBeNull();
+  });
+
+  it("o vídeo do LinkedIn é vídeo na prévia, e tem a frase sobre a mídia (a parte 3b)", () => {
+    const p = paginaDoPost({ ...LI_VIDEO, error: null }, agendado);
+    expect(p.titulo).toBe("LinkedIn · Vídeo");
+    expect(p.caminhos).toEqual(["conta/v.mp4"]);
+    expect(p.ehVideo("conta/v.mp4")).toBe(true);
+    expect(p.sobreAMidia).toBe(fraseSobreAMidia(agendado, null));
+    expect(paginaDoPost({ ...LI_VIDEO, error: null }, saiu).sobreAMidia).toBe(fraseSobreAMidia(saiu, null));
   });
 });
 

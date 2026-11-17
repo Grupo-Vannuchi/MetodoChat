@@ -141,7 +141,7 @@ let semente = 0;
 async function semear(item: {
   conta?: string;
   kind?: "publicacao" | "publicacao_linkedin" | "dm_manual";
-  forma?: "texto" | "imagem";
+  forma?: "texto" | "imagem" | "video";
   texto?: string;
   status?: string;
   emSegundos?: number;
@@ -152,13 +152,14 @@ async function semear(item: {
   semente++;
   const conta = item.conta ?? CONTA_A;
   const kind = item.kind ?? "publicacao_linkedin";
-  const caminho = `${conta}/tela-${semente}.jpg`;
   const forma = item.forma ?? "texto";
+  // O VÍDEO (a parte 3b) é um `.mp4`; o resto, `.jpg`.
+  const caminho = `${conta}/tela-${semente}.${forma === "video" ? "mp4" : "jpg"}`;
   const payload =
     kind === "publicacao_linkedin"
       ? {
           forma,
-          caminhos: forma === "imagem" ? [caminho] : [],
+          caminhos: forma === "texto" ? [] : [caminho],
           texto: item.texto ?? `O post ${semente} do LinkedIn`,
           ...(item.postUrn ? { post_urn: item.postUrn } : {}),
         }
@@ -289,6 +290,14 @@ describe("o calendário e \"Não saíram\" leem o post do LinkedIn", () => {
     await semear({ conta: CONTA_B, forma: "texto", texto: "O post da outra conta" });
     expect(await arvoreDosAgendados()).not.toContain("O post da outra conta");
   });
+
+  it("o vídeo do LinkedIn fica sem capa e com o ícone ▶ enquanto não saiu, e não como imagem quebrada (a parte 3b)", async () => {
+    const video = await semear({ forma: "video", emSegundos: 3600 });
+    const arvore = await arvoreDosAgendados();
+    expect(arvore).toContain("LinkedIn · Vídeo");
+    expect(arvore).toContain("▶");
+    expect(arvore).not.toContain(`/storage/v1/object/public/${BUCKET}/${video.caminho}`);
+  });
 });
 
 describe("a página do post do LinkedIn", () => {
@@ -307,6 +316,20 @@ describe("a página do post do LinkedIn", () => {
   it("com imagem, agendado: a imagem do bucket aparece", async () => {
     const { id, caminho } = await semear({ forma: "imagem" });
     expect(await arvoreDoDetalhe(id)).toContain(`/storage/v1/object/public/${BUCKET}/${caminho}`);
+  });
+
+  it("com vídeo: agendado, o arquivo do bucket aparece como vídeo; publicado, a frase da mídia apagada (a parte 3b)", async () => {
+    const { id, caminho } = await semear({ forma: "video" });
+    const arvore = await arvoreDoDetalhe(id);
+    expect(arvore).toContain("LinkedIn · Vídeo");
+    expect(arvore).toContain(`/storage/v1/object/public/${BUCKET}/${caminho}`);
+    expect(arvore).toContain("▶ vídeo");
+    const publicado = await semear({ forma: "video", status: "sent", emSegundos: -3600, postUrn: "urn:li:share:7000000000000000777" });
+    const frase = publicacao.fraseSobreAMidia({ saiu: true, encerrado: true }, null) ?? "";
+    expect(frase).not.toBe("");
+    expect(await arvoreDoDetalhe(publicado.id)).toContain(frase);
+    expect(pedidos.linkedin).toEqual([]);
+    expect(pedidos.meta).toEqual([]);
   });
 
   it("publicado: o link \"Ver no LinkedIn\" leva ao post, sem falar com ninguém", async () => {
