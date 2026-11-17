@@ -442,3 +442,90 @@ describe("o Início e o gerador conhecem o post do LinkedIn", () => {
     expect(await repositorio.caminhosNaFila([caminho, `${CONTA_A}/nao-esta-na-fila.jpg`])).toEqual([caminho]);
   });
 });
+
+// O REMARCAR DO VÍDEO NO MEIO DO ENVIO (o 245; a parte 3b, scratchpad/desenho-li3b.md, §3.7: "a linha continua de
+// onde parou"). O teto de idade conta da primeira passada; o Remarcar tira a marca, e a contagem recomeça na primeira
+// passada da hora nova. As passadas ficam como estavam (o teto delas é o limite do envio), e o payload das outras
+// linhas não muda, nem quando elas têm uma chave com o mesmo nome.
+describe("o remarcar do vídeo do LinkedIn no meio do envio (o 245)", () => {
+  /** Um vídeo que já subiu inteiro e foi finalizado, com a primeira passada há 3 horas: só falta o post. */
+  async function semearOVideoFinalizado(): Promise<{ id: string; payload: Record<string, unknown> }> {
+    semente++;
+    const [linha] = (await q(
+      `insert into queue (account_id, kind, payload, dedupe_key, not_before)
+       values ($1, 'publicacao_linkedin',
+               $2::jsonb || jsonb_build_object('primeira_passada_em', to_json(now() - interval '3 hours') #>> '{}'),
+               $3, now() + interval '1 hour')
+       returning id, payload`,
+      [
+        CONTA_A,
+        {
+          forma: "video",
+          caminhos: [`${CONTA_A}/video-${semente}.mp4`],
+          texto: "O vídeo que já subiu",
+          video_urn: "urn:li:video:C4E000000000000245",
+          upload_token: "token-do-envio-das-telas",
+          partes: [{ inicio: 0, fim: 999, url: "http://127.0.0.1/parte-das-telas" }],
+          etags: ['"etag-das-telas"'],
+          video_finalizado: true,
+          passadas_do_video: 4,
+        },
+        `telas-video-${semente}`,
+      ]
+    )) as { id: string; payload: Record<string, unknown> }[];
+    return linha;
+  }
+
+  it("remarcar para daqui a três horas tira só a marca da primeira passada; as passadas e o resto do envio ficam", async () => {
+    const { id, payload: antes } = await semearOVideoFinalizado();
+    expect(typeof antes.primeira_passada_em).toBe("string");
+    const alvo = Math.floor((Date.now() + 3 * 3600 * 1000) / 60000) * 60000;
+    const aviso = await avisoDe(acoes.remarcarPublicacao, formulario({ id, data_hora: campoDeDataHora(alvo), fuso: "0" }));
+    expect(aviso.tom).toBe("ok");
+    const depois = await lerItem(id);
+    expect(new Date(depois.not_before as Date).getTime()).toBe(alvo);
+    const esperado: Record<string, unknown> = { ...antes };
+    delete esperado.primeira_passada_em;
+    expect(depois.payload).toEqual(esperado);
+    expect((depois.payload as Record<string, unknown>).passadas_do_video).toBe(4);
+    expect(pedidos.linkedin).toEqual([]);
+  });
+
+  it("remarcar para o minuto corrente: a idade recomeça, e o vídeo sai pelo post, sem contar passada", async () => {
+    await conectar();
+    const { id } = await semearOVideoFinalizado();
+    const minuto = Math.floor(Date.now() / 60000) * 60000;
+    const aviso = await avisoDe(acoes.remarcarPublicacao, formulario({ id, data_hora: campoDeDataHora(minuto), fuso: "0" }));
+    expect(aviso.tom).toBe("ok");
+    const depois = await lerItem(id);
+    expect(depois).toMatchObject({ status: "sent", error: null });
+    expect(pedidos.linkedin).toEqual(["POST /rest/posts"]);
+    const payload = depois.payload as Record<string, unknown>;
+    expect(payload.passadas_do_video).toBe(4);
+    // A MARCA É A DA PASSADA DEPOIS DA HORA NOVA, e não a de 3 horas atrás.
+    expect(Date.now() - new Date(payload.primeira_passada_em as string).getTime()).toBeLessThan(5 * 60 * 1000);
+    expect(pedidos.meta).toEqual([]);
+  });
+
+  it("o post do Instagram e o do LinkedIn que não é vídeo ficam com o payload intacto, mesmo com uma chave do mesmo nome", async () => {
+    const marca = { primeira_passada_em: "2026-11-16T12:00:00.000Z" };
+    const instagram = await semear({ kind: "publicacao", emSegundos: 3600 });
+    const texto = await semear({ forma: "texto", emSegundos: 3600 });
+    const imagem = await semear({ forma: "imagem", emSegundos: 3600 });
+    for (const { id } of [instagram, texto, imagem]) {
+      await q(`update queue set payload = payload || $2::jsonb where id = $1`, [id, marca]);
+    }
+    const alvo = Math.floor((Date.now() + 3 * 3600 * 1000) / 60000) * 60000;
+    for (const { id } of [instagram, texto, imagem]) {
+      const antes = (await lerItem(id)).payload;
+      expect(antes).toMatchObject(marca);
+      const aviso = await avisoDe(acoes.remarcarPublicacao, formulario({ id, data_hora: campoDeDataHora(alvo), fuso: "0" }));
+      expect(aviso.tom).toBe("ok");
+      const depois = await lerItem(id);
+      expect(new Date(depois.not_before as Date).getTime()).toBe(alvo);
+      expect(depois.payload).toEqual(antes);
+    }
+    expect(pedidos.linkedin).toEqual([]);
+    expect(pedidos.meta).toEqual([]);
+  });
+});
