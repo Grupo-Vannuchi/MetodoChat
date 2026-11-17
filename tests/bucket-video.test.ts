@@ -73,9 +73,12 @@ describe("a faixa de uma parte do vídeo (o 236)", () => {
     expect(tetos).toEqual([10_000]);
   });
 
-  it("o 200 com o arquivo inteiro é erro: a faixa não foi respeitada", async () => {
+  it("o 200 é erro, com o arquivo inteiro ou com o Content-Range do pedido: a faixa não foi respeitada", async () => {
     gravar(() => new Response(new Uint8Array(20), { status: 200 }));
-    await expect(faixaDoObjeto(CAMINHO, 4, 7, 10_000)).rejects.toThrow(/faixa/);
+    await expect(faixaDoObjeto(CAMINHO, 4, 7, 10_000)).rejects.toThrow(/HTTP 200/);
+    // O 200 COM O CONTENT-RANGE DO PEDIDO E O CORPO DO TAMANHO CERTO: só a trava do status o recusa.
+    gravar(() => new Response(new Uint8Array(4), { status: 200, headers: { "content-range": "bytes 4-7/20" } }));
+    await expect(faixaDoObjeto(CAMINHO, 4, 7, 10_000)).rejects.toThrow(/HTTP 200/);
   });
 
   it("o Content-Range diferente do pedido, ou ausente, é erro", async () => {
