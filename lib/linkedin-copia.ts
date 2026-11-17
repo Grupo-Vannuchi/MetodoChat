@@ -1,5 +1,5 @@
 import "server-only";
-import { apagarObjeto, caminhoDoObjeto, pastaDaConta, urlAssinadaDeUpload, urlPublicaDoObjeto } from "./bucket";
+import { apagarObjeto, caminhoDoObjeto, copiarObjeto, pastaDaConta, urlAssinadaDeUpload, urlPublicaDoObjeto } from "./bucket";
 import { caminhosDoCampo } from "./publicacao";
 
 // A CÓPIA DA IMAGEM PARA A LINHA DO LINKEDIN, NO POST DAS DUAS REDES (docs/specs/2026-11-06-linkedin-no-perfil.md, §6;
@@ -100,6 +100,25 @@ export async function copiarAsImagensParaOLinkedin(origens: readonly string[], c
   if (!falha) return copias;
   await apagarAsCopiasSemDerrubar(copias);
   throw falha.reason;
+}
+
+/**
+ * A CÓPIA DO VÍDEO PARA A LINHA DO LINKEDIN, NO POST DAS DUAS REDES (a parte 3b; scratchpad/desenho-li3b.md, §3.6):
+ * pelo próprio servidor do Storage (`copiarObjeto`, lib/bucket.ts), sem passar pelo painel. Baixar e subir até 50 MiB
+ * dentro da action não caberia com folga; a cópia no servidor foi medida em 16/11 (200 em 240 ms).
+ *
+ * A ORIGEM É CONFERIDA ANTES DE QUALQUER CHAMADA, como na imagem: da conta que publica, na forma dos caminhos do
+ * /publicar, e MP4 (o LinkedIn só aceita MP4; a tela e a action já recusaram o resto). A cópia que estoura o nosso teto
+ * e termina mesmo assim no Supabase fica no bucket sem dono (o 235).
+ */
+export async function copiarOVideoParaOLinkedin(origem: string, conta: string, uuid: string = crypto.randomUUID()): Promise<string> {
+  const pasta = pastaDaConta(conta);
+  const conferidos = caminhosDoCampo(origem, pasta);
+  if (conferidos.length !== 1 || conferidos[0] !== origem) throw new Error("o vídeo não é desta conta");
+  if (!origem.toLowerCase().endsWith(".mp4")) throw new Error("o vídeo do LinkedIn tem de ser MP4");
+  const destino = caminhoDoObjeto(conta, "copia.mp4", uuid, "video/mp4");
+  await copiarObjeto(origem, destino, TETO_DA_COPIA_MS);
+  return destino;
 }
 
 /** As cópias que não vão ser usadas, apagadas juntas e sem derrubar quem chama (a de cima, para cada uma). */

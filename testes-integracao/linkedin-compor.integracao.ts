@@ -49,7 +49,22 @@ beforeAll(async () => {
     if (req.method === "DELETE" && u.pathname.startsWith(`/storage/v1/object/${BUCKET}/`)) {
       return responder(res, 200, { message: "ok" });
     }
+    // O TAMANHO DO VÍDEO (a parte 3b): o HEAD do endereço público.
+    if (req.method === "HEAD" && u.pathname.startsWith(`/storage/v1/object/public/${BUCKET}/`)) {
+      res.writeHead(200, { "content-length": "10", "content-type": "video/mp4" });
+      return res.end();
+    }
     linkedin.pedidos.push(`${req.method} ${u.pathname}`);
+    // A RESERVA DO VÍDEO (a parte 3b): uma parte só, para os 10 bytes.
+    if (req.method === "POST" && u.pathname === "/rest/videos") {
+      return responder(res, 200, {
+        value: {
+          uploadInstructions: [{ uploadUrl: `http://127.0.0.1:${porta}/parte/0`, firstByte: 0, lastByte: 9 }],
+          video: "urn:li:video:DoCompor",
+          uploadToken: "",
+        },
+      });
+    }
     if (req.method === "POST" && u.pathname === "/rest/images") {
       return responder(res, 200, {
         value: { uploadUrl: `http://127.0.0.1:${porta}/envio/C4E10AQ`, image: "urn:li:image:DoCompor" },
@@ -318,6 +333,45 @@ describe("a regra das contas: a conta vem da sessão, e nunca do formulário", (
   it("o login comum só com outra conta não publica no LinkedIn da conta que ele não vê", async () => {
     const aviso = await publicarComoComum(formulario({ conta: CONTA_A }), [CONTA_B], CONTA_A);
     expect(aviso.tom).toBe("erro");
+    expect(await linhas()).toEqual([]);
+    expect(linkedin.pedidos).toEqual([]);
+  });
+});
+
+// O VÍDEO SÓ NO LINKEDIN (a parte 3b; scratchpad/desenho-li3b.md, §3.6). O reels MP4 da pasta da conta vai à linha com a
+// forma "video"; no "agora", o clique faz só a primeira etapa (a reserva), e o resto sai pelos tiques, uma etapa por
+// passada. O MOV é recusado com a frase do MP4, sem linha.
+describe("o vídeo só no LinkedIn (a parte 3b)", () => {
+  const VIDEO = `${CONTA_A}/video-do-post.mp4`;
+
+  it("agendado: o MP4 da pasta da conta vai à linha, a chave é por ele, e ninguém fala com o LinkedIn", async () => {
+    const alvo = new Date(Date.now() + 2 * 3600 * 1000);
+    alvo.setUTCSeconds(0, 0);
+    const aviso = await publicarComoAdministrador(
+      formulario({ forma_linkedin: "video", caminhos: VIDEO, quando: "depois", data_hora: alvo.toISOString().slice(0, 16), fuso: "0" })
+    );
+    expect(aviso.tom).toBe("ok");
+    expect(aviso.texto).toContain("agendado para");
+    const [linha] = await q(`select status, dedupe_key, payload from queue`);
+    expect(linha.status).toBe("pending");
+    expect(linha.payload).toMatchObject({ forma: "video", caminhos: [VIDEO] });
+    expect(linha.dedupe_key).toBe(`pub-linkedin:${CONTA_A}:video:${VIDEO}`);
+    expect(linkedin.pedidos).toEqual([]);
+  });
+
+  it("agora: o clique faz só a reserva, a linha volta à fila com o vídeo reservado, e o aviso diz que o post vai sair", async () => {
+    const aviso = await publicarComoAdministrador(formulario({ forma_linkedin: "video", caminhos: VIDEO }));
+    expect(aviso.tom).toBe("ok");
+    expect(aviso.texto).toBe("O post do LinkedIn está na fila e vai sair em instantes. Acompanhe em Publicações.");
+    expect(linkedin.pedidos).toEqual(["POST /rest/videos"]);
+    const [linha] = await q(`select status, attempts, error, payload from queue`);
+    expect(linha).toMatchObject({ status: "pending", attempts: 0 });
+    expect(linha.payload).toMatchObject({ forma: "video", video_urn: "urn:li:video:DoCompor", etags: [] });
+  });
+
+  it("o MOV é recusado com a frase do MP4, e nenhuma linha entra", async () => {
+    const aviso = await publicarComoAdministrador(formulario({ forma_linkedin: "video", caminhos: `${CONTA_A}/video-do-post.mov` }));
+    expect(aviso).toEqual({ tom: "erro", texto: regras.TEXTO_DO_VIDEO_QUE_NAO_E_MP4 });
     expect(await linhas()).toEqual([]);
     expect(linkedin.pedidos).toEqual([]);
   });
