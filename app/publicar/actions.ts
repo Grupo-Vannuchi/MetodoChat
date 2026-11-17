@@ -284,7 +284,7 @@ export async function publicarNoLinkedin(formData: FormData): Promise<void> {
   revalidatePath("/publicar/novo");
   revalidatePath("/publicar");
   revalidatePath("/eventos");
-  redirect(urlDePublicarComAviso(avisoDoPostNoLinkedin({ desfecho, motivo, agendadoPara: r.jaVale ? null : campos })));
+  redirect(urlDePublicarComAviso(avisoDoPostNoLinkedin({ desfecho, motivo, agendadoPara: r.jaVale ? null : campos, forma })));
 }
 
 /**
@@ -480,7 +480,7 @@ export async function publicarNasDuasRedes(formData: FormData): Promise<void> {
         tipo: "entrou",
         campos,
         instagram: instagram.entrou ? { entrou: true, jaVale: instagram.jaVale } : { entrou: false },
-        linkedin: linkedin.entrou ? { entrou: true, jaVale: linkedin.jaVale, desfecho, motivo } : { entrou: false },
+        linkedin: linkedin.entrou ? { entrou: true, jaVale: linkedin.jaVale, desfecho, motivo, forma: formaNoLinkedin } : { entrou: false },
       })
     )
   );

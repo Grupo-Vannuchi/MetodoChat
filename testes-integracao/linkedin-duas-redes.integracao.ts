@@ -849,7 +849,7 @@ describe("o vídeo nas duas redes (a parte 3b)", () => {
   it("agora: o clique não drena o LinkedIn (o 232), que fica na fila intocado, e o Instagram sai no dreno do clique", async () => {
     bucket.objetos.set(VIDEO_ORIGINAL, MP4);
     const aviso = await nasDuasComoAdministrador(reels());
-    expect(aviso.texto).toContain("LinkedIn: O post do LinkedIn está na fila e vai sair em instantes.");
+    expect(aviso.texto).toContain(`LinkedIn: ${regrasDoLinkedin.AVISO_DO_VIDEO_NA_FILA}`);
     const [li] = await daRede("publicacao_linkedin");
     expect(li.status).toBe("pending");
     expect(li.payload.video_urn).toBeUndefined();

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  avisoDoPostNoLinkedin,
+  AVISO_DO_VIDEO_NA_FILA,
   desfechoDoErroDaParte,
   oVideoVaiAoLinkedin,
   progressoDoVideo,
@@ -118,5 +120,26 @@ describe("o erro de uma parte, que vai sem o token (o 234 e o 238)", () => {
 
   it("os outros 4xx não passam sozinhos", () => {
     for (const s of [400, 404, 413, 422]) expect(desfechoDoErroDaParte(s)).toBe("permanente");
+  });
+});
+
+// O AVISO DO VÍDEO (a parte 3b): na fila, ele diz que o vídeo sobe em partes e sai em minutos, e não "em instantes". O
+// publicado, o que falhou e o agendado são os de sempre.
+describe("o aviso do vídeo no LinkedIn", () => {
+  it("na fila, o vídeo tem a frase própria; as outras formas, a de sempre", () => {
+    expect(avisoDoPostNoLinkedin({ desfecho: null, agendadoPara: null, forma: "video" })).toEqual({ tom: "ok", texto: AVISO_DO_VIDEO_NA_FILA });
+    expect(avisoDoPostNoLinkedin({ desfecho: "aguardando", agendadoPara: null, forma: "video" })).toEqual({ tom: "ok", texto: AVISO_DO_VIDEO_NA_FILA });
+    expect(AVISO_DO_VIDEO_NA_FILA).toBe("O vídeo do LinkedIn está na fila e sobe em partes; ele sai em alguns minutos. Acompanhe em Publicações.");
+    expect(avisoDoPostNoLinkedin({ desfecho: null, agendadoPara: null, forma: "carrossel" }).texto).toBe(
+      "O post do LinkedIn está na fila e vai sair em instantes. Acompanhe em Publicações."
+    );
+  });
+
+  it("o publicado, o que falhou e o agendado do vídeo são os de sempre", () => {
+    expect(avisoDoPostNoLinkedin({ desfecho: "publicado", agendadoPara: null, forma: "video" }).texto).toBe("Post publicado no LinkedIn.");
+    expect(avisoDoPostNoLinkedin({ desfecho: "falhou", motivo: "x", agendadoPara: null, forma: "video" })).toMatchObject({ tom: "erro" });
+    expect(avisoDoPostNoLinkedin({ desfecho: null, agendadoPara: { dia: 1, mes: 12, hora: 9, minuto: 5 }, forma: "video" }).texto).toBe(
+      "Post do LinkedIn agendado para 01/12 às 09:05. Acompanhe em Publicações."
+    );
   });
 });

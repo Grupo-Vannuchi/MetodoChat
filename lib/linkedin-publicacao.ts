@@ -274,6 +274,8 @@ export function avisoDoPostNoLinkedin(d: {
   desfecho: "publicado" | "aguardando" | "falhou" | null;
   motivo?: string | null;
   agendadoPara: { dia: number; mes: number; hora: number; minuto: number } | null;
+  /** A forma do post: o vídeo na fila tem frase própria (a parte 3b). */
+  forma?: FormaNoLinkedin;
 }): { tom: "ok" | "erro"; texto: string } {
   if (d.agendadoPara) {
     const p = (n: number) => String(n).padStart(2, "0");
@@ -284,8 +286,12 @@ export function avisoDoPostNoLinkedin(d: {
   if (d.desfecho === "falhou") {
     return { tom: "erro", texto: `O post não saiu no LinkedIn: ${d.motivo?.trim() || "o motivo não foi registrado"}.` };
   }
+  // O VÍDEO NA FILA (a parte 3b): ele sobe em partes, uma por passada, e sai em minutos, e não em instantes.
+  if (d.forma === "video") return { tom: "ok", texto: AVISO_DO_VIDEO_NA_FILA };
   return { tom: "ok", texto: "O post do LinkedIn está na fila e vai sair em instantes. Acompanhe em Publicações." };
 }
+
+export const AVISO_DO_VIDEO_NA_FILA = "O vídeo do LinkedIn está na fila e sobe em partes; ele sai em alguns minutos. Acompanhe em Publicações.";
 
 // ---------------------------------------------------------------------------------------------------------------
 // O PAYLOAD DA LINHA `publicacao_linkedin` NA FILA
@@ -587,6 +593,9 @@ export function vaiCruParaOLinkedin(c: { componentes: number; precisao: number; 
  * padrão do iPhone: com ele, a caixinha do LinkedIn desliga, com esta frase, e o post vai só ao Instagram.
  */
 export const TEXTO_DO_VIDEO_QUE_NAO_E_MP4 = "O LinkedIn só aceita vídeo MP4.";
+
+/** A NOTA DA TELA COM O LINKEDIN MARCADO NO REELS (a parte 3b): o que vai, e quando sai. */
+export const NOTA_DO_VIDEO_NO_LINKEDIN = "No LinkedIn, o vídeo vai em partes e sai alguns minutos depois do clique: só MP4.";
 
 export function oVideoVaiAoLinkedin(mime: string): boolean {
   return mime === "video/mp4";

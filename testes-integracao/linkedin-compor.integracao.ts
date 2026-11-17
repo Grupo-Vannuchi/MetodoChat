@@ -362,7 +362,7 @@ describe("o vídeo só no LinkedIn (a parte 3b)", () => {
   it("agora: o clique faz só a reserva, a linha volta à fila com o vídeo reservado, e o aviso diz que o post vai sair", async () => {
     const aviso = await publicarComoAdministrador(formulario({ forma_linkedin: "video", caminhos: VIDEO }));
     expect(aviso.tom).toBe("ok");
-    expect(aviso.texto).toBe("O post do LinkedIn está na fila e vai sair em instantes. Acompanhe em Publicações.");
+    expect(aviso.texto).toBe(regras.AVISO_DO_VIDEO_NA_FILA);
     expect(linkedin.pedidos).toEqual(["POST /rest/videos"]);
     const [linha] = await q(`select status, attempts, error, payload from queue`);
     expect(linha).toMatchObject({ status: "pending", attempts: 0 });

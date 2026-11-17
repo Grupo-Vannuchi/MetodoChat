@@ -11,7 +11,12 @@ import {
   textoQueVaiAoLinkedin,
 } from "@/lib/redes-do-post";
 import { avisoDaPublicacaoEnfileirada } from "@/lib/avisos";
-import { avisoDoPostNoLinkedin, textoDoProblemaDoCarrosselNoLinkedin } from "@/lib/linkedin-publicacao";
+import {
+  AVISO_DO_VIDEO_NA_FILA,
+  avisoDoPostNoLinkedin,
+  TEXTO_DO_VIDEO_QUE_NAO_E_MP4,
+  textoDoProblemaDoCarrosselNoLinkedin,
+} from "@/lib/linkedin-publicacao";
 import { textoDaRecusaDaPublicacao } from "@/lib/publicacao";
 
 // AS DUAS REDES NO MESMO POST (docs/specs/2026-11-06-linkedin-no-perfil.md, §6 e §7; a parte 2b). As regras puras
@@ -32,11 +37,11 @@ describe("o que cada rede aceita", () => {
     expect(redeAceitaAForma("instagram", "texto")).toContain("só de texto");
   });
 
-  it("o LinkedIn aceita o só texto, a imagem e o carrossel (em PDF, a parte 3a); o reels chega na próxima entrega, e o story nunca", () => {
+  it("o LinkedIn aceita o só texto, a imagem, o carrossel (em PDF, a parte 3a) e o reels (como vídeo, a parte 3b); o story nunca", () => {
     expect(redeAceitaAForma("linkedin", "texto")).toBeNull();
     expect(redeAceitaAForma("linkedin", "imagem")).toBeNull();
     expect(redeAceitaAForma("linkedin", "carrossel")).toBeNull();
-    expect(redeAceitaAForma("linkedin", "reels")).toContain("próxima entrega");
+    expect(redeAceitaAForma("linkedin", "reels")).toBeNull();
     expect(redeAceitaAForma("linkedin", "story")).toContain("não tem story");
   });
 });
@@ -79,12 +84,24 @@ describe("as caixinhas", () => {
     expect(e.linkedin).toEqual({ ligada: false, marcada: false, motivo: desligado.motivo });
   });
 
-  it("o story e o reels desligam o LinkedIn, com o motivo da forma", () => {
-    for (const forma of ["story", "reels"] as const) {
-      const e = estadoDasCaixinhas({ forma, marcadas: as2, linkedin: ligado });
-      expect(e.linkedin).toEqual({ ligada: false, marcada: false, motivo: redeAceitaAForma("linkedin", forma) });
-      expect(e.instagram.marcada).toBe(true);
-    }
+  it("o story desliga o LinkedIn, com o motivo da forma; o reels não (a parte 3b)", () => {
+    const story = estadoDasCaixinhas({ forma: "story", marcadas: as2, linkedin: ligado });
+    expect(story.linkedin).toEqual({ ligada: false, marcada: false, motivo: redeAceitaAForma("linkedin", "story") });
+    expect(story.instagram.marcada).toBe(true);
+    const reels = estadoDasCaixinhas({ forma: "reels", marcadas: as2, linkedin: ligado });
+    expect(reels.linkedin).toEqual({ ligada: true, marcada: true, motivo: null });
+  });
+
+  // O VÍDEO DO LINKEDIN SÓ VAI EM MP4 (a parte 3b): o MOV do iPhone desliga a caixinha, com a frase; o Instagram segue.
+  it("o reels com um vídeo que não é MP4 desliga o LinkedIn, com a frase do MP4; sem a conexão, o motivo é o da conexão", () => {
+    const mov = estadoDasCaixinhas({ forma: "reels", marcadas: as2, linkedin: ligado, videoQueNaoEMp4: true });
+    expect(mov.linkedin).toEqual({ ligada: false, marcada: false, motivo: TEXTO_DO_VIDEO_QUE_NAO_E_MP4 });
+    expect(mov.instagram).toEqual({ ligada: true, marcada: true, motivo: null });
+    const semConexao = estadoDasCaixinhas({ forma: "reels", marcadas: as2, linkedin: desligado, videoQueNaoEMp4: true });
+    expect(semConexao.linkedin?.motivo).toBe((desligado as { motivo: string }).motivo);
+    // O MOV SÓ PESA NO REELS: no carrossel, quem decide é o vídeo na lista (o PDF só leva fotos).
+    const carrossel = estadoDasCaixinhas({ forma: "carrossel", marcadas: as2, linkedin: ligado, videoQueNaoEMp4: true });
+    expect(carrossel.linkedin).toEqual({ ligada: true, marcada: true, motivo: null });
   });
 
   // O PDF DO CARROSSEL SÓ LEVA FOTOS (a parte 3a): um vídeo na lista desliga o LinkedIn, e o Instagram não muda.
@@ -249,5 +266,26 @@ describe("o aviso das duas redes", () => {
       avisoDasDuasRedes({ tipo: "linkedin_nao_entrou", motivo: "x" }).texto,
     ];
     expect(new Set(frases).size).toBe(4);
+  });
+});
+
+// O AVISO DAS DUAS REDES COM O VÍDEO (a parte 3b): o lado do LinkedIn diz que o vídeo sobe em partes e sai em minutos.
+describe("o aviso das duas redes com o vídeo", () => {
+  it("no agora, o LinkedIn diz que o vídeo sobe em partes; agendado, a hora, como sempre", () => {
+    const agora = avisoDasDuasRedes({
+      tipo: "entrou",
+      campos: null,
+      instagram: { entrou: true, jaVale: true },
+      linkedin: { entrou: true, jaVale: true, desfecho: null, forma: "video" },
+    });
+    expect(agora).toEqual({ tom: "ok", texto: `Instagram: ${avisoDaPublicacaoEnfileirada(null).texto} LinkedIn: ${AVISO_DO_VIDEO_NA_FILA}` });
+    const campos = { dia: 20, mes: 11, hora: 10, minuto: 30 };
+    const agendado = avisoDasDuasRedes({
+      tipo: "entrou",
+      campos,
+      instagram: { entrou: true, jaVale: false },
+      linkedin: { entrou: true, jaVale: false, desfecho: null, forma: "video" },
+    });
+    expect(agendado.texto).toContain("LinkedIn: Post do LinkedIn agendado para 20/11 às 10:30.");
   });
 });
