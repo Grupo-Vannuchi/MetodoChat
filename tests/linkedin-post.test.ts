@@ -216,6 +216,18 @@ describe("o corpo do POST /rest/posts com o documento do carrossel", () => {
   });
 });
 
+// O POST COM O VÍDEO (a parte 3b): o conteúdo leva o URN do vídeo e o título, que é opcional no vídeo; a decisão do
+// Eduardo pela caixa, em 16/11, foi "O começo do texto", a mesma regra do carrossel.
+describe("o corpo do POST /rest/posts com o vídeo", () => {
+  it("o conteúdo leva o vídeo e o título", () => {
+    expect(corpoDoPost({ pessoaId: "abc", texto: "x", video: { urn: "urn:li:video:V", titulo: "Um vídeo novo" } })).toMatchObject({
+      author: "urn:li:person:abc",
+      commentary: "x",
+      content: { media: { id: "urn:li:video:V", title: "Um vídeo novo" } },
+    });
+  });
+});
+
 // O DOCUMENTO QUE O LINKEDIN AINDA PROCESSA (a parte 3a). A Posts API não tem código próprio para a mídia não
 // pronta; a Videos API lista o 400 "MEDIA_ASSET_WAITING_UPLOAD" e o estado "PROCESSING". O post com o documento que
 // volta assim não foi criado (é um 4xx), e a linha espera e consulta de novo. O "PROCESSING_FAILED" não espera: falhou.

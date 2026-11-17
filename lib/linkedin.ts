@@ -112,14 +112,19 @@ export class LinkedinError extends Error {
   }
 }
 
+/**
+ * TODA CHAMADA AO LINKEDIN PASSA POR AQUI, com o teto de tempo e SEM SEGUIR REDIRECIONAMENTO (o 234, a parte 3b): a
+ * regra do domínio (`enderecoDeEnvioConfiavel`) confere só o primeiro endereço, e um 3xx para fora do LinkedIn
+ * levaria junto o token, ou a parte do vídeo do cliente. O redirecionamento vira erro de rede (status 0).
+ */
 async function chamar(
   url: string,
   init: RequestInit,
   tetoMs: number = TETO_DO_LINKEDIN_MS
-): Promise<{ status: number; texto: string; restliId: string | null }> {
+): Promise<{ status: number; texto: string; restliId: string | null; etag: string | null }> {
   try {
-    const res = await fetch(url, { ...init, signal: AbortSignal.timeout(tetoMs) });
-    return { status: res.status, texto: await res.text(), restliId: res.headers.get("x-restli-id") };
+    const res = await fetch(url, { ...init, redirect: "error", signal: AbortSignal.timeout(tetoMs) });
+    return { status: res.status, texto: await res.text(), restliId: res.headers.get("x-restli-id"), etag: res.headers.get("etag") };
   } catch (err) {
     // O endereço vai sem a query: nenhuma destas chamadas leva segredo nela, e assim continua.
     const onde = url.split("?")[0];
@@ -293,6 +298,115 @@ export async function enviarDocumento(uploadUrl: string, token: string, bytes: U
   }
   const r = await chamar(uploadUrl, { method: "PUT", headers: { authorization: `Bearer ${token}` }, body: bytes }, TETO_DO_ENVIO_DO_DOCUMENTO_MS);
   if (r.status !== 200 && r.status !== 201) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// O VÍDEO EM PARTES (a parte 3b; scratchpad/desenho-li3b.md, v3; a Videos API, lida em 11/11)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * O teto do envio de UMA parte do vídeo: as partes são de 4 MiB nos exemplos da Videos API (~2,2 Mbit/s em 15 s), e
+ * a parte inteira (a faixa do bucket e este envio) só começa se terminar antes da hora de parar (o 231,
+ * lib/linkedin-fila.ts).
+ */
+export const TETO_DO_ENVIO_DA_PARTE_MS = 15_000;
+
+/** Uma parte do vídeo: o primeiro e o último byte, inclusivos, e o endereço de envio dela. */
+export type ParteDoVideo = { inicio: number; fim: number; url: string };
+
+/**
+ * AS PARTES DA RESERVA, conferidas antes de qualquer gravação: cada endereço pela regra do domínio, e os intervalos
+ * cobrindo o arquivo inteiro, de 0 ao tamanho − 1, em ordem, sem buraco nem sobra. Uma reserva torta não vira um
+ * envio pela metade.
+ */
+function partesConferidas(instrucoes: unknown, tamanho: number): ParteDoVideo[] | null {
+  if (!Array.isArray(instrucoes) || instrucoes.length === 0) return null;
+  const partes: ParteDoVideo[] = [];
+  let esperado = 0;
+  for (const i of instrucoes) {
+    if (!i || typeof i !== "object") return null;
+    const { uploadUrl, firstByte, lastByte } = i as Record<string, unknown>;
+    if (typeof uploadUrl !== "string" || !enderecoDeEnvioConfiavel(uploadUrl)) return null;
+    if (!Number.isSafeInteger(firstByte) || !Number.isSafeInteger(lastByte)) return null;
+    const inicio = firstByte as number;
+    const fim = lastByte as number;
+    if (inicio !== esperado || fim < inicio) return null;
+    partes.push({ inicio, fim, url: uploadUrl });
+    esperado = fim + 1;
+  }
+  return esperado === tamanho ? partes : null;
+}
+
+/**
+ * A RESERVA DO VÍDEO (`POST /rest/videos?action=initializeUpload`, Videos API), com a pessoa como dona ("For videos
+ * with member URN owners, the caller needs to match the video owner") e o tamanho, que decide quantas partes
+ * vêm. Sem legenda e sem capa. Devolve o URN, o token do envio (que pode vir vazio no vídeo de uma parte só) e as
+ * partes conferidas.
+ */
+export async function reservarVideo(
+  token: string,
+  pessoaId: string,
+  tamanho: number
+): Promise<{ videoUrn: string; uploadToken: string; partes: ParteDoVideo[] }> {
+  const r = await chamar(`${basesDoLinkedin().api}/rest/videos?action=initializeUpload`, {
+    method: "POST",
+    headers: cabecalhosDoRest(token),
+    body: JSON.stringify({
+      initializeUploadRequest: { owner: `urn:li:person:${pessoaId}`, fileSizeBytes: tamanho, uploadCaptions: false, uploadThumbnail: false },
+    }),
+  });
+  if (r.status !== 200) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+  const valor = json(r.texto)?.value as Record<string, unknown> | undefined;
+  const videoUrn = valor?.video;
+  const uploadToken = valor?.uploadToken;
+  const partes = partesConferidas(valor?.uploadInstructions, tamanho);
+  if (typeof videoUrn !== "string" || !videoUrn.startsWith("urn:li:video:") || typeof uploadToken !== "string" || !partes) {
+    throw new LinkedinError(r.status, "a reserva do vídeo não devolveu o URN, o token do envio e as partes do arquivo inteiro");
+  }
+  return { videoUrn, uploadToken, partes };
+}
+
+/**
+ * O ENVIO DE UMA PARTE (o 234): um `PUT` dos bytes da parte, com o tipo binário e SEM a autorização, como o exemplo
+ * da Videos API, que traz o endereço já assinado. O endereço passa pela regra do domínio mesmo assim: o vídeo é do
+ * cliente e não sai do LinkedIn. Devolve o `ETag` da resposta, que é o id da parte; sem ele, ou vazio, é erro. O
+ * erro leva só o status, e não a resposta (o 236): a tela mostra a coluna `error`.
+ */
+export async function enviarParteDoVideo(uploadUrl: string, bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  if (!enderecoDeEnvioConfiavel(uploadUrl)) {
+    throw new LinkedinError(0, "o endereço de envio do vídeo não é do LinkedIn");
+  }
+  const r = await chamar(uploadUrl, { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: bytes }, TETO_DO_ENVIO_DA_PARTE_MS);
+  if (r.status !== 200 && r.status !== 201) throw new LinkedinError(r.status, `o LinkedIn recusou a parte do vídeo (${r.status})`);
+  if (!r.etag) throw new LinkedinError(r.status, "o LinkedIn aceitou a parte do vídeo sem o ETag");
+  return r.etag;
+}
+
+/**
+ * O FIM DO ENVIO (`POST /rest/videos?action=finalizeUpload`): o vídeo, o token do envio e os ETags "na mesma ordem
+ * das partes nas instruções".
+ */
+export async function finalizarVideo(token: string, videoUrn: string, uploadToken: string, etags: readonly string[]): Promise<void> {
+  const r = await chamar(`${basesDoLinkedin().api}/rest/videos?action=finalizeUpload`, {
+    method: "POST",
+    headers: cabecalhosDoRest(token),
+    body: JSON.stringify({ finalizeUploadRequest: { video: videoUrn, uploadToken, uploadedPartIds: [...etags] } }),
+  });
+  if (r.status !== 200) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+}
+
+/**
+ * O ESTADO DO VÍDEO (`GET /rest/videos/{urn}`): PROCESSING, PROCESSING_FAILED, AVAILABLE ou WAITING_UPLOAD. Ele só é
+ * lido no fim perdido (o 233). Se a consulta funciona só com o `w_member_social` não está medido: a prova mede.
+ */
+export async function estadoDoVideo(token: string, videoUrn: string): Promise<string | null> {
+  const r = await chamar(`${basesDoLinkedin().api}/rest/videos/${encodeURIComponent(videoUrn)}`, {
+    method: "GET",
+    headers: cabecalhosDoRest(token),
+  });
+  if (r.status !== 200) throw new LinkedinError(r.status, r.texto.slice(0, 300));
+  const status = json(r.texto)?.status;
+  return typeof status === "string" && status ? status : null;
 }
 
 /**

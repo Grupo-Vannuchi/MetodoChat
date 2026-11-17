@@ -361,15 +361,18 @@ export function lerPayloadDoLinkedin(bruto: unknown): LeituraDoPayloadDoLinkedin
 /**
  * O corpo do `POST /rest/posts` (Posts API): o autor é a pessoa, o texto já transformado, PÚBLICO (fixo nesta
  * entrega; não há escolha de visibilidade na tela), no feed, publicado, e a imagem quando há. O documento do
- * carrossel (a parte 3a) vai com o título, que é obrigatório nele (`tituloDoDocumento`).
+ * carrossel (a parte 3a) vai com o título, que é obrigatório nele (`tituloDoDocumento`). O vídeo (a parte 3b) vai
+ * com o título pela mesma regra, que nele é opcional (a decisão do Eduardo pela caixa, em 16/11: "O começo do texto").
  */
 export function corpoDoPost(p: {
   pessoaId: string;
   texto: string;
   imagemUrn?: string;
   documento?: { urn: string; titulo: string };
+  video?: { urn: string; titulo: string };
 }): Record<string, unknown> {
-  const media = p.imagemUrn ? { id: p.imagemUrn } : p.documento ? { id: p.documento.urn, title: p.documento.titulo } : null;
+  const comTitulo = p.documento ?? p.video;
+  const media = p.imagemUrn ? { id: p.imagemUrn } : comTitulo ? { id: comTitulo.urn, title: comTitulo.titulo } : null;
   return {
     author: `urn:li:person:${p.pessoaId}`,
     commentary: textoParaOLinkedin(p.texto),
