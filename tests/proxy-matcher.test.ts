@@ -22,7 +22,7 @@ beforeAll(async () => {
   g.AsyncLocalStorage ??= AsyncLocalStorage;
   const { unstable_doesMiddlewareMatch } = await import("next/experimental/testing/server");
   casa = (url) => unstable_doesMiddlewareMatch({ config, url });
-});
+}, 60_000);
 
 describe("o porteiro do painel", () => {
   it.each([

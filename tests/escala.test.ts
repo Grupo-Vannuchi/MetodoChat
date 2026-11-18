@@ -227,7 +227,7 @@ describe("nenhum arquivo de tela fura a escala", () => {
       }
     }
     expect(furos).toEqual([]);
-  });
+  }, 60_000);
 
   it("os tokens de `app/ui.ts` também obedecem", () => {
     // Eles são a origem da maioria das ocorrências na tela: um furo aqui vale

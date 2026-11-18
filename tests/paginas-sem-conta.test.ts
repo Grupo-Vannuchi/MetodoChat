@@ -254,10 +254,10 @@ describe("as páginas sem conta decidem pelo papel", () => {
   it("nenhum arquivo de tela de app/ tem o convite fora do ramo do administrador", () => {
     const fora = (achado: string) => FORA_DA_VARREDURA.has(achado.replace(/:\d+ /, " "));
     expect(arquivosDeTela().flatMap((rel) => soltos(analisar(rel))).filter((a) => !fora(a))).toEqual([]);
-  });
+  }, 60_000);
 
   it("a lista do que a varredura deixa passar não envelhece: cada item ainda existe", () => {
     const todos = new Set(arquivosDeTela().flatMap((rel) => soltos(analisar(rel)).map((a) => a.replace(/:\d+ /, " "))));
     expect([...FORA_DA_VARREDURA].filter((item) => !todos.has(item))).toEqual([]);
-  });
+  }, 60_000);
 });

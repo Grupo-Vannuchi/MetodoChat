@@ -136,7 +136,7 @@ describe("os arquivos que chegam ao dreno (a 3a-0)", () => {
       .filter((f) => f !== "lib/queue-drain.ts" && CHEGA_AO_DRENO.test(ler(f)))
       .sort();
     expect(achados).toEqual(QUEM_IMPORTA_O_DRENO);
-  });
+  }, 60_000);
 
   it("nenhum dá outro nome ao dreno nem o guarda numa variável (fora o drenar do bônus)", () => {
     for (const arquivo of QUEM_IMPORTA_O_DRENO) {

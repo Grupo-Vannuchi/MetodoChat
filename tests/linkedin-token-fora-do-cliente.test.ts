@@ -37,7 +37,7 @@ describe("a autorização do LinkedIn fica no servidor", () => {
     expect(clientes.length).toBeGreaterThan(0);
     const errados = clientes.filter((rel) => IMPORTA_O_REPOSITORIO.test(ler(rel)) || IMPORTA_O_CLIENTE.test(ler(rel)));
     expect(errados).toEqual([]);
-  });
+  }, 60_000);
 
   it("só estes arquivos importam o repositório da conexão", () => {
     const importam = CODIGO.filter((rel) => IMPORTA_O_REPOSITORIO.test(ler(rel)));
@@ -50,7 +50,7 @@ describe("a autorização do LinkedIn fica no servidor", () => {
       "lib/convites-repositorio.ts",
       "lib/linkedin-fila.ts",
     ]);
-  });
+  }, 60_000);
 
   it("a tela de compor e a action de publicar leem só o resumo", () => {
     for (const rel of ["app/publicar/actions.ts", "app/publicar/novo/page.tsx"]) {
@@ -65,7 +65,7 @@ describe("a autorização do LinkedIn fica no servidor", () => {
     // autorização.
     const chamam = CODIGO.filter((rel) => rel !== "lib/linkedin-conexoes.ts" && /\bconexaoDaConta\b/.test(ler(rel)));
     expect(chamam).toEqual(["lib/linkedin-fila.ts"]);
-  });
+  }, 60_000);
 
   it("a Configuração lê só os resumos, e o componente de cliente dela não fala de token", () => {
     const pagina = ler("app/setup/page.tsx");

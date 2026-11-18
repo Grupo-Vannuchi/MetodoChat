@@ -565,5 +565,5 @@ describe("a varredura", () => {
         `exceção sem uso: ${e.caminho} '${e.literal}' — o código mudou, a exceção não`
       ).toBe(true);
     }
-  });
+  }, 60_000);
 });

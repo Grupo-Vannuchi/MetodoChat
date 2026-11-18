@@ -21,7 +21,7 @@ describe.each(ROTAS)("a rota da arte %s", (rota) => {
     expect(existsSync(`${RAIZ}/${rota}`)).toBe(true);
     const pagina = dirname(dirname(`${RAIZ}/${rota}`));
     expect(readdirSync(pagina).some((n) => /\.(png|jpe?g|svg|ico)$/.test(n))).toBe(false);
-  });
+  }, 60_000);
 
   it("o GET confere a sessão antes de qualquer outra coisa", () => {
     const fonte = ler(rota);

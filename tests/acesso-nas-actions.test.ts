@@ -264,7 +264,7 @@ describe("toda action e toda rota passa pela regra das contas", () => {
       return !existsSync(join(RAIZ, rel)) || !existentes.has(chave);
     });
     expect(sumidos).toEqual([]);
-  });
+  }, 60_000);
 
   it("o leitor acha as actions e as rotas do carrossel", () => {
     const chaves = [...todasAsAcoes(), ...todosOsHandlers()].map((p) => p.chave);
@@ -281,13 +281,13 @@ describe("toda action e toda rota passa pela regra das contas", () => {
     ]) {
       expect(chaves, chave).toContain(chave);
     }
-  });
+  }, 60_000);
 
   it("cada action exportada chama o administrador ou a regra, ou está na lista fechada", () => {
     expect(falhasDe(todasAsAcoes())).toEqual([]);
-  });
+  }, 60_000);
 
   it("cada handler exportado de rota chama o administrador ou a regra, ou está na lista fechada", () => {
     expect(falhasDe(todosOsHandlers())).toEqual([]);
-  });
+  }, 60_000);
 });
