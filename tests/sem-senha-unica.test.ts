@@ -77,9 +77,9 @@ describe("a senha única saiu do código", () => {
     for (const rel of ["lib/entrada.ts", "lib/auth.ts", "lib/logins-repositorio.ts", "app/entrar/actions.ts"]) {
       expect(todos, rel).toContain(rel);
     }
-  });
+  }, 60_000);
 
   it("nenhum arquivo de app/ e de lib/ lê a ADMIN_PASSWORD, nem tem as peças da passagem", () => {
     expect([...arquivosDe("app"), ...arquivosDe("lib")].flatMap((rel) => achados(analisar(rel)))).toEqual([]);
-  });
+  }, 60_000);
 });

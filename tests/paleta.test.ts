@@ -373,7 +373,7 @@ describe("a varredura do índigo", () => {
       }
     }
     expect(sobras).toEqual([]);
-  });
+  }, 60_000);
 
   it("a exceção da maquete existe DE VERDADE — senão ela não está isentando nada", () => {
     // Uma isenção que não corresponde a nenhuma linha do arquivo é uma isenção

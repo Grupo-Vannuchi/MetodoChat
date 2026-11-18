@@ -95,7 +95,7 @@ As specs e os planos contam o porquê de quase tudo. Antes de mexer numa área, 
 
 | Comando | O que roda | Hoje, na `main` |
 |---|---|---|
-| `npm test` | os testes puros | 162 arquivos, 3 880 casos |
+| `npm test` | os testes puros | 163 arquivos, 3 884 casos |
 | `npm run test:dom` | os testes de tela | 36 arquivos, 350 casos |
 | `npm run test:integracao` | os testes contra o banco de teste | 80 arquivos, 1 018 casos e 8 pulados |
 | `npm run verify` | lint, tsc, puros, tela, a varredura de segredos e o build | tudo isso |
@@ -117,7 +117,7 @@ As specs e os planos contam o porquê de quase tudo. Antes de mexer numa área, 
    - **Nunca rode sem a variável:** sem ela, a suíte cai na `DATABASE_URL`, que é a produção. A dica que a própria suíte imprime, "Rode sem DATABASE_URL_TESTES antes do merge", NÃO vale aqui.
    - Uma rodada de integração de cada vez, nunca duas juntas.
    - O container para entre um dia e outro: confira com `docker ps` antes de rodar.
-5. **Testes que às vezes caem por tempo** (anotados, ainda sem conserto): na primeira rodada de uma cópia recém-instalada, o `beforeAll` de `tests/proxy-matcher.test.ts` e as varreduras de `tests/vocabulario-da-fila.test.ts` e de `tests/paleta.test.ts`; e, na integração, um caso da migração 012 em `testes-integracao/migracao-dos-dados-legados.integracao.ts`. O procedimento: rode o arquivo sozinho e depois a suíte inteira de novo. Se cair de novo, é defeito de verdade.
+5. **Testes que caíam por tempo na primeira rodada de uma cópia nova** (`docs/specs/2026-11-18-testes-que-caem.md`): os casos e os ganchos de `tests/` que varrem a árvore, e os ganchos com `import()`, têm prazo próprio de 60 s, e `tests/prazo-das-varreduras.test.ts` confere isso. Um estouro de tempo neles agora é divergência, e não acaso. Na integração, um caso da migração 012 em `testes-integracao/migracao-dos-dados-legados.integracao.ts` ainda pode cair, pelo corte no segundo e não por prazo: rode o arquivo sozinho e depois a suíte inteira de novo. Se cair de novo, é defeito de verdade.
 6. **No Windows:** a cópia de trabalho fica em CRLF e o repositório em LF (`* text=auto`). Não rode `git config` dentro de uma worktree, porque ele grava no `.git/config` do repositório inteiro. Para uma cópia em LF, use `git -c core.autocrlf=false worktree add …` só no comando.
 
 ---
@@ -213,7 +213,7 @@ O Vinícius, autor da maior parte do código, deixou cinco pontos sobre o que fa
 
 1. **O teste final do vídeo no LinkedIn, na produção.** O vídeo foi para a produção em 17/11 (PR #38), e a primeira hora passou limpa. Falta publicar um vídeo de 30 s nas duas redes pela produção, que deve sair sozinho pelos tiques, em 5 partes. É o único caminho que o preview não alcança. O Eduardo clica, e o auditor acompanha.
 2. **A limpeza das cópias de trabalho do vídeo,** com o OK do Eduardo.
-3. **Os testes que caem por tempo** (a seção 4, item 5) e as cópias antigas de trabalho que ainda guardam um `.env.local`: um plano pequeno, à parte.
+3. **As cópias antigas de trabalho que ainda guardam um `.env.local`**: um plano pequeno, à parte. Os testes que caíam por tempo ganharam prazo próprio (a seção 4, item 5).
 4. **O LinkedIn no carrossel do gerador:** hoje o carrossel do gerador sai só no Instagram.
 5. **As outras redes.** Uma pesquisa de 06/11, ainda a conferir, aponta que o TikTok veta ferramenta de agência, que o X cobra por post e que o YouTube só aceita vídeo. Cada rede começa por um desenho com o Eduardo.
 

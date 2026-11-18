@@ -42,7 +42,7 @@ describe("os tipos que o dreno conhece", () => {
     // A 025 (a parte 2a do LinkedIn) alargou o check com o `publicacao_linkedin`, e o dreno ganhou o ramo dele.
     expect(arquivo).toBe("025-fila-linkedin.sql");
     expect([...TIPOS_QUE_O_DRENO_CONHECE].sort()).toEqual([...tipos].sort());
-  });
+  }, 60_000);
 
   it("não têm repetição", () => {
     expect(new Set(TIPOS_QUE_O_DRENO_CONHECE).size).toBe(TIPOS_QUE_O_DRENO_CONHECE.length);

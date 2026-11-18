@@ -143,7 +143,7 @@ describe("toda Server Action confere a sessão antes de qualquer coisa", () => {
     ]) {
       expect(achados, rel).toContain(rel);
     }
-  });
+  }, 60_000);
 
   it("cada ação começa por `await exigirSessao();`, e o `exigirSessao` dela confere", () => {
     const falhas: string[] = [];
@@ -156,7 +156,7 @@ describe("toda Server Action confere a sessão antes de qualquer coisa", () => {
       if (!exigirSessaoConfere(sf)) falhas.push(`${rel}: o exigirSessao não vem de @/lib/exigir-sessao nem confere`);
     }
     expect(falhas).toEqual([]);
-  });
+  }, 60_000);
 
   it("o `exigirSessao` compartilhado confere a sessão e não é ele mesmo uma ação", () => {
     const sf = analisar("lib/exigir-sessao.ts");
@@ -293,7 +293,7 @@ describe("toda rota fora das públicas confere a sessão antes de qualquer traba
       "app/api/webhook/route.ts",
     ]);
     expect(rotas().length - publicas.length).toBeGreaterThanOrEqual(8);
-  });
+  }, 60_000);
 
   it("cada handler exportado de rota protegida começa conferindo a sessão", () => {
     const prefixos = prefixosPublicos();
@@ -311,5 +311,5 @@ describe("toda rota fora das públicas confere a sessão antes de qualquer traba
       }
     }
     expect(falhas).toEqual([]);
-  });
+  }, 60_000);
 });
