@@ -31,8 +31,8 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: metodochat_testes
     ports:
-      # 5434, E A ESCOLHA FOI MEDIDA. Nesta máquina a 5432 já escuta (Postgres
-      # instalado) e a 5433 é do container `n8x-marketing-db`, que atende OUTRO
+      # 5434, E A ESCOLHA FOI MEDIDA. A 5432 ou a 5433, conforme a máquina, são do
+      # Postgres instalado e do container `n8x-marketing-db`, que atende OUTRO
       # produto da casa e estava de pé. Escolher porta "que parece livre" foi
       # como este arquivo nasceu errado na primeira tentativa.
       #

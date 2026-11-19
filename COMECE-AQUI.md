@@ -2,7 +2,7 @@
 
 Guia para quem chega ao Método Chat. Ele explica o que o projeto faz, como o código está organizado, como a equipe trabalha (com um DEV e um AUDITOR), as regras de git e de produção, onde o trabalho parou e o que vem a seguir.
 
-Escrito em 18/11/2026. Se um fato daqui mudar, atualize este arquivo no mesmo PR da mudança.
+Escrito em 18/11/2026 e atualizado em 19/11/2026. Se um fato daqui mudar, atualize este arquivo no mesmo PR da mudança.
 
 > **Este repositório é PÚBLICO.** Tudo o que entra nele, inclusive commit e corpo de PR, qualquer pessoa lê. Nunca escreva aqui segredo, nome de cliente, conta de Instagram nem endereço interno.
 
@@ -10,8 +10,8 @@ Escrito em 18/11/2026. Se um fato daqui mudar, atualize este arquivo no mesmo PR
 
 ## 1. As três regras que não podem falhar
 
-1. **Nunca faça commit nem push na `main`.** Ela não tem proteção, e todo push nela dispara um deploy na Vercel de um app que atende contas reais de Instagram. Trabalhe sempre numa branch. A `main` só recebe código por PR, e quem mescla o PR é o Eduardo.
-2. **O banco do `.env.local` é o de PRODUÇÃO.** As credenciais da Meta e do LinkedIn moram no banco, e não em variável de ambiente, então um banco local vazio não fala com nenhuma rede. Isso é proposital. A consequência: todo clique que grava no painel rodando na sua máquina grava de verdade, na conta de um cliente. Antes de qualquer ação que grave, fale com o Eduardo e espere a resposta.
+1. **Nunca faça commit nem push na `main`.** Ela não tem proteção, e todo push nela dispara um deploy na Vercel de um app que atende contas reais de Instagram. Trabalhe sempre numa branch. A `main` só recebe código por PR, e quem mescla o PR é o Victor.
+2. **O banco do `.env.local` é o de PRODUÇÃO.** As credenciais da Meta e do LinkedIn moram no banco, e não em variável de ambiente, então um banco local vazio não fala com nenhuma rede. Isso é proposital. A consequência: todo clique que grava no painel rodando na sua máquina grava de verdade, na conta de um cliente. Antes de qualquer ação que grave, fale com o Victor e espere a resposta.
 3. **Segredo nunca vai para o código, para log, para commit, para PR nem para o chat.** O `.env.local` tem a `SUPABASE_SERVICE_ROLE_KEY`, que passa por cima de todas as regras de acesso do banco. Não imprima, não cole, não passe adiante.
 
 ---
@@ -69,7 +69,7 @@ Duas regras do dreno que você precisa conhecer:
 ### O banco e as migrações
 
 - O esquema vive em `migrations/` (hoje são 26, de `000` a `025`). O `npm run build` aplica as migrações novas com `scripts/migrar.mjs`, **só no deploy de produção**. No preview, o log diz "MIGRAÇÃO PULADA".
-- Uma migração que mexe em DADO não roda no build: ela é aplicada à mão, com a decisão do Eduardo (veja `docs/deploy/2026-09-23-a-012-sai-do-build.md`).
+- Uma migração que mexe em DADO não roda no build: ela é aplicada à mão, com a decisão do Victor (veja `docs/deploy/2026-09-23-a-012-sai-do-build.md`).
 - O deploy confere o esquema e escreve "Nada a aplicar: as 26 migrações já constam no registro." quando não há migração nova. Essa frase é conferida depois de todo merge.
 
 > **O `README.md` está desatualizado em dois pontos:** o banco é o Supabase, e não o Neon; e o esquema NÃO se cria sozinho no `lib/db.ts`: ele vive em `migrations/`. O `COMO-ATUALIZAR.md` descreve um caminho de merge pelo terminal direto na `main`, que esta equipe NÃO usa (veja a regra 1).
@@ -107,7 +107,7 @@ As specs e os planos contam o porquê de quase tudo. Antes de mexer numa área, 
 ## 4. No seu computador
 
 1. Clone e instale com `npm ci` (e não `npm install`), para usar exatamente o `package-lock.json`. Nunca rode `npx` sem `--no-install`: ele baixa pacote sem pedir.
-2. O `.env.local` não vem no clone. Peça ao Eduardo. Lembre da regra 2: ele aponta para a produção.
+2. O `.env.local` não vem no clone. Peça ao Victor. Lembre da regra 2: ele aponta para a produção.
 3. Para os testes de integração, suba o banco de teste (Docker): `npm run banco:teste`. Ele cria o container `metodochat-banco-de-teste`, na porta 5434, só em `127.0.0.1`, com os dados em memória.
 4. Rode a integração **sempre** com a variável apontando para o container:
    ```bash
@@ -117,8 +117,9 @@ As specs e os planos contam o porquê de quase tudo. Antes de mexer numa área, 
    - **Nunca rode sem a variável:** sem ela, a suíte cai na `DATABASE_URL`, que é a produção. A dica que a própria suíte imprime, "Rode sem DATABASE_URL_TESTES antes do merge", NÃO vale aqui.
    - Uma rodada de integração de cada vez, nunca duas juntas.
    - O container para entre um dia e outro: confira com `docker ps` antes de rodar.
+   - O container fica preso ao projeto do compose que o subiu, e o nome do projeto é o da pasta, em minúsculas. Pare-o com `npm run banco:teste:parar` nessa mesma pasta ou, na pasta principal, com `docker compose -p <projeto> -f docker-compose.yml down -v`. O `banco:teste:parar` rodado em outra pasta não o acha: ele continua de pé, e o próximo `npm run banco:teste` de outra pasta cai, porque o nome `metodochat-banco-de-teste` já está em uso.
 5. **Testes que caíam por tempo na primeira rodada de uma cópia nova** (`docs/specs/2026-11-18-testes-que-caem.md`): os casos e os ganchos de `tests/` que varrem a árvore, e os ganchos com `import()`, têm prazo próprio de 60 s, e `tests/prazo-das-varreduras.test.ts` confere isso. Um estouro de tempo neles agora é divergência, e não acaso. Na integração, um caso da migração 012 em `testes-integracao/migracao-dos-dados-legados.integracao.ts` ainda pode cair, pelo corte no segundo e não por prazo: rode o arquivo sozinho e depois a suíte inteira de novo. Se cair de novo, é defeito de verdade.
-6. **No Windows:** a cópia de trabalho fica em CRLF e o repositório em LF (`* text=auto`). Não rode `git config` dentro de uma worktree, porque ele grava no `.git/config` do repositório inteiro. Para uma cópia em LF, use `git -c core.autocrlf=false worktree add …` só no comando.
+6. **No Windows:** a cópia de trabalho fica em CRLF e o repositório em LF (`* text=auto`). Não rode `git config` dentro de uma worktree, porque ele grava no `.git/config` do repositório inteiro. Para uma cópia em LF, use `git -c core.autocrlf=false -c core.eol=lf worktree add …` (medido em 19/11/2026: 741 arquivos em LF e nenhum em CRLF). O `-c` vale só para esse comando: o que o git reescrever na cópia depois (um checkout, um restore, um merge) volta a sair em CRLF.
 
 ---
 
@@ -126,26 +127,26 @@ As specs e os planos contam o porquê de quase tudo. Antes de mexer numa área, 
 
 **Todo trabalho aqui tem duas sessões do Claude Code rodando ao mesmo tempo, na mesma pasta do projeto.**
 
-- **O DEV** desenha com o Eduardo, escreve o plano, ensaia, escreve o código, roda os testes, faz os commits e prepara os PRs.
-- **O AUDITOR** não escreve código. Ele lê, mede e reporta: confere cada fase do DEV, lê a produção só para leitura (antes e depois de cada passo que grava), confere os textos de PR e escreve o relatório do dia ao Eduardo. Nenhum comando que grave roda sem o "pode" dele.
+- **O DEV** desenha com o Victor, escreve o plano, ensaia, escreve o código, roda os testes, faz os commits e prepara os PRs.
+- **O AUDITOR** não escreve código. Ele lê, mede e reporta: confere cada fase do DEV, lê a produção só para leitura (antes e depois de cada passo que grava), confere os textos de PR e escreve o relatório do dia ao Victor. Nenhum comando que grave roda sem o "pode" dele.
+  - **Como o auditor lê a produção, hoje:** pela Vercel, pelo conector, só com as ferramentas de leitura (os deploys, os registros de build e de execução, e os erros), e nunca promovendo, voltando ou mexendo em variável. O banco de produção, ele só lê quando houver um acesso de leitura, que ainda não existe. Até lá, numa entrega que não muda o app, a leitura da Vercel substitui a da base: ela não vê a fila, mas uma entrega assim não mexe nela (decisão do Victor em 19/11/2026). O plano Hobby guarda os registros de execução por uma hora só.
 
 Os dois são parceiros, e não adversários. O objetivo é a entrega sair certa.
 
 ### Abrindo o chat pelo workspace
 
 1. Abra a pasta do projeto no VS Code, com a extensão do Claude Code instalada.
-2. Abra **duas conversas** do Claude Code nessa mesma pasta. Uma recebe o papel de DEV, e a outra o de AUDITOR, pela primeira mensagem de cada uma. O Eduardo tem os textos de partida das duas sessões; este guia traz a versão atual das regras.
+2. Abra **duas conversas** do Claude Code nessa mesma pasta. Uma recebe o papel de DEV, e a outra o de AUDITOR, pela primeira mensagem de cada uma: os textos de partida estão na seção 10.
 3. Cada sessão ganha um nome (algo como `metodochat-xx`). Elas se acham com a ferramenta **ListAgents** e conversam sozinhas com a **SendMessage**, sem você copiar e colar nada entre elas.
 4. No começo do dia, o DEV confirma com você, por uma pergunta, qual sessão é o auditor daquele dia.
-
-> **Victor, você já sabe abrir duas conversas do Claude Code no mesmo workspace e fazer uma falar com a outra?** Se não souber, fale com o Eduardo antes de começar: ele mostra como é.
+5. Duas abas abertas sobre a mesma conversa viram duas sessões com o mesmo papel. Só fica uma, a que você confirmar, e a outra para de escrever.
 
 ### O ciclo de uma entrega
 
 Cada entrega passa pelas etapas abaixo, nesta ordem. Uma entrega pequena pode juntar etapas, mas nenhuma é pulada quando a mudança toca o motor, a fila, o login ou a produção.
 
-1. **Desenho com o Eduardo.** As decisões são dele, feitas por perguntas de múltipla escolha (a ferramenta AskUserQuestion, que chamamos de "a caixa"), uma por vez, com a opção recomendada primeiro.
-2. **Spec** em `docs/specs/AAAA-MM-DD-assunto.md`. O auditor lê antes do Eduardo.
+1. **Desenho com o Victor.** As decisões são dele, feitas por perguntas de múltipla escolha (a ferramenta AskUserQuestion, que chamamos de "a caixa"), uma por vez, com a opção recomendada primeiro.
+2. **Spec** em `docs/specs/AAAA-MM-DD-assunto.md`. O auditor lê antes do Victor.
 3. **Ensaio.** O código é escrito fase por fase numa cópia isolada (uma worktree com `npm ci` próprio e o `.env.local` VAZIO, para nada falar com a produção). Em cada fase:
    - o teste vem antes, e a falha dele é medida com o código ausente;
    - o código entra, e o teste passa;
@@ -153,19 +154,19 @@ Cada entrega passa pelas etapas abaixo, nesta ordem. Uma entrega pequena pode ju
    - a **guarda do diff** confere que só os arquivos previstos mudaram.
 4. **Mutações** (ou sabotagens): um roteiro estraga cada proteção de propósito, uma por vez, e confere que algum teste cai. A mutação que não cai é um teste que não mede nada.
 5. **Plano** em `docs/plans/`, com o código de cada fase escrito por inteiro. O auditor aplica o plano do zero numa cópia limpa e confere que sai igual ao ensaio. Quando a mudança toca o motor, um agente independente lê o plano também.
-6. **"Li, pode executar"** do Eduardo, pela caixa.
+6. **"Li, pode executar"** do Victor, pela caixa.
 7. **Execução** numa branch, fase por fase. O patch-id de cada fase tem de ser igual ao do ensaio, e o auditor confere cada uma.
-8. **Push da branch**, com o OK do Eduardo pela caixa. A Vercel monta um **preview**.
-9. **Prova no preview.** O preview grava no banco de PRODUÇÃO e publica nas redes de verdade, numa conta de provas. Quem clica é o Eduardo. Antes de cada clique, o auditor mede o relógio e a conta, lê a base e dá o "pode". O preview não tem o QStash: o que fica na fila só anda com o "Remarcar" da tela, usando o minuto que o relógio mostra.
-10. **PR**, com o OK do Eduardo. O corpo é lido pelo auditor antes.
-11. **Merge**, feito pelo Eduardo no GitHub, depois de uma leitura da base pelo auditor.
-12. **Deploy e primeira hora.** Confere-se o log do deploy, o site e, por uma hora, os erros e a fila contra a leitura de antes do merge.
+8. **Push da branch**, com o OK do Victor pela caixa. A Vercel monta um **preview**.
+9. **Prova no preview.** O preview grava no banco de PRODUÇÃO e publica nas redes de verdade, numa conta de provas. Quem clica é o Victor. Antes de cada clique, o auditor mede o relógio e a conta, lê a base e dá o "pode". O preview não tem o QStash: o que fica na fila só anda com o "Remarcar" da tela, usando o minuto que o relógio mostra.
+10. **PR**, com o OK do Victor. O corpo é lido pelo auditor antes.
+11. **Merge**, feito pelo Victor no GitHub, depois de uma leitura da base pelo auditor. Na própria caixa do merge, o Victor confirma que a conta dele no GitHub tem "Keep my email addresses private" ligado (e, de preferência, "Block command line pushes that expose my email"). Nem o DEV nem o auditor veem essa configuração, e sem ela o e-mail pessoal de quem mescla vai para o histórico público, no commit do merge.
+12. **Deploy e primeira hora.** Confere-se o log do deploy, o site e, por uma hora, os erros e a fila contra a leitura de antes do merge. As leituras de +15 e +50 minutos têm hora certa, contada do READY do deploy, e vão ao relatório: o Hobby guarda os registros por uma hora, e uma leitura perdida não se recupera. O DEV também anota as duas horas e cobra a leitura do auditor em cada uma. Se a sessão do auditor cair, o DEV avisa o Victor antes de a janela de uma hora fechar.
 13. **Teste na produção**, quando a entrega tem um caminho que o preview não alcança.
-14. **Limpeza** das cópias de trabalho, com o OK do Eduardo.
+14. **Limpeza** das cópias de trabalho, com o OK do Victor. Uma cópia com `node_modules` num caminho longo (como o scratchpad do Claude Code) passa do limite de 260 caracteres do Windows ao ser apagada, e o `git worktree remove` a deixa pela metade. Crie as cópias com um nome curto, ou renomeie a pasta para um nome curto antes de apagar. Nunca use `--force` às cegas.
 
 ### Os achados
 
-Todo problema achado ganha um número, em sequência (hoje vamos no 266), e uma classe:
+Todo problema achado ganha um número, em sequência (quando este guia foi atualizado, em 19/11/2026, íamos no 316; o último número fica no relatório do dia), e uma classe:
 - **BLOQUEIA:** a entrega não segue até resolver;
 - **CORRIGIR:** resolve antes de publicar;
 - **ANOTAR:** fica registrado e segue.
@@ -175,9 +176,9 @@ Todo problema achado ganha um número, em sequência (hoje vamos no 266), e uma 
 - **Todo roteiro vai ao auditor antes de rodar,** com o sha256 e as linhas. Isso vale até para um roteiro que só lê. Um roteiro mudado vai com a versão anterior e o diff.
 - **Toda linha citada é medida antes.** Um `arquivo:linha` mandado a alguém foi conferido no commit certo, e não lembrado.
 - **Medição vence afirmação.** Quando uma sessão contradiz a outra, mede-se de novo e manda-se a medição.
-- **O essencial vai dentro da pergunta.** O texto escrito antes de uma caixa às vezes não chega ao Eduardo. Tudo o que ele precisa para decidir vai na própria pergunta e nas opções. Uma pergunta que só registra o que aconteceu (por exemplo, "Você fez o merge?") não tem opção recomendada e tem sempre "Não fiz / não lembro".
-- **Antes de cada escrita na produção:** o OK do Eduardo pela caixa, a hora mandada ao auditor e o "pode" dele, nesta ordem.
-- **Com o Eduardo, sempre em português,** em linguagem simples.
+- **O essencial vai dentro da pergunta.** O texto escrito antes de uma caixa às vezes não chega ao Victor. Tudo o que ele precisa para decidir vai na própria pergunta e nas opções. Uma pergunta que só registra o que aconteceu (por exemplo, "Você fez o merge?") não tem opção recomendada e tem sempre "Não fiz / não lembro".
+- **Antes de cada escrita na produção:** o OK do Victor pela caixa, a hora mandada ao auditor e o "pode" dele, nesta ordem.
+- **Com o Victor, sempre em português,** em linguagem simples.
 
 ---
 
@@ -188,18 +189,19 @@ Todo problema achado ganha um número, em sequência (hoje vamos no 266), e uma 
 - **Confira a branch antes de cada commit.** Commit na branch errada não sobe: ele vai para a certa por `cherry-pick`.
 - **A mensagem do commit segue o estilo do Vinícius,** o autor original: uma frase em português que diz o EFEITO da mudança, sem prefixo (nada de `feat:` ou `docs:`), e o porquê no corpo, quando precisar. Exemplo: "O reels em MP4 sai também no LinkedIn, como vídeo em partes, só lá ou nas duas redes".
 - **Nenhum rodapé de IA,** nem `Co-Authored-By: Claude`, em commit, PR ou mensagem.
+- **Nenhum e-mail pessoal no histórico,** nem no commit do merge. O git de quem commita usa o e-mail noreply do GitHub, e a conta de quem mescla tem o e-mail privado ligado (o passo 11 da seção 5).
 - **Antes do commit,** varra os arquivos tocados atrás de caractere de controle e de fim de linha misturado: um escape comido (`\b` virando backspace) passa calado pelo lint, pelo tsc e pelos testes.
 - **O commit é um comando à parte,** rodado depois de ler a saída dos testes.
 - **O PR explica o porquê,** e não só o quê. O corpo não tem arroba solta (o GitHub avisa a conta com aquele nome), nem nome de cliente, nem conta de Instagram fora de crase, nem e-mail.
-- **A mensagem do merge** é preparada junto com o PR, no mesmo estilo.
+- **A mensagem do merge é o título do PR.** O GitHub escreve o commit do merge como "Merge pull request #N from …" e põe o título do PR no corpo. Por isso, o título é escrito no mesmo estilo e aprovado como a mensagem do merge: assim ela sai certa sem depender de colar texto na hora.
 
 ---
 
-## 7. Onde paramos (18/11/2026)
+## 7. Onde paramos (19/11/2026)
 
 ### Os 5 pontos que o Vinícius deixou
 
-O Vinícius, autor da maior parte do código, deixou cinco pontos sobre o que faltava. Desde 15/10/2026, o motor dele pode ser mudado com a decisão do Eduardo, seguindo o jeito dele: comentário com o porquê e a medição, função pura com teste, uma mutação por proteção e commit numa frase.
+O Vinícius, autor da maior parte do código, deixou cinco pontos sobre o que faltava. Desde 15/10/2026, o motor dele pode ser mudado com a decisão do Victor, seguindo o jeito do Vinícius: comentário com o porquê e a medição, função pura com teste, uma mutação por proteção e commit numa frase.
 
 | # | O ponto | Situação |
 |---|---|---|
@@ -211,11 +213,10 @@ O Vinícius, autor da maior parte do código, deixou cinco pontos sobre o que fa
 
 ### O que vem a seguir, nesta ordem
 
-1. **O teste final do vídeo no LinkedIn, na produção.** O vídeo foi para a produção em 17/11 (PR #38), e a primeira hora passou limpa. Falta publicar um vídeo de 30 s nas duas redes pela produção, que deve sair sozinho pelos tiques, em 5 partes. É o único caminho que o preview não alcança. O Eduardo clica, e o auditor acompanha.
-2. **A limpeza das cópias de trabalho do vídeo,** com o OK do Eduardo.
-3. **As cópias antigas de trabalho que ainda guardam um `.env.local`**: um plano pequeno, à parte. Os testes que caíam por tempo ganharam prazo próprio (a seção 4, item 5).
-4. **O LinkedIn no carrossel do gerador:** hoje o carrossel do gerador sai só no Instagram.
-5. **As outras redes.** Uma pesquisa de 06/11, ainda a conferir, aponta que o TikTok veta ferramenta de agência, que o X cobra por post e que o YouTube só aceita vídeo. Cada rede começa por um desenho com o Eduardo.
+1. **O teste final do vídeo no LinkedIn, na produção.** O vídeo foi para a produção em 17/11 (PR #38), e a primeira hora passou limpa. Falta publicar um vídeo de 30 s nas duas redes pela produção, que deve sair sozinho pelos tiques, em 5 partes. É o único caminho que o preview não alcança. O Victor clica, e o auditor acompanha. O teste espera um acesso de leitura da produção para o auditor, que ainda não existe.
+2. **O Next 16.4.6, num PR pequeno.** O 16.4.3 tem um alerta moderado, no `'use cache'`, que o projeto não usa. O conserto é o 16.4.6.
+3. **O LinkedIn no carrossel do gerador:** hoje o carrossel do gerador sai só no Instagram.
+4. **As outras redes.** Uma pesquisa de 06/11, ainda a conferir, aponta que o TikTok veta ferramenta de agência, que o X cobra por post e que o YouTube só aceita vídeo. Cada rede começa por um desenho com o Victor.
 
 ### O que está anotado e ainda aberto
 
@@ -225,11 +226,13 @@ O Vinícius, autor da maior parte do código, deixou cinco pontos sobre o que fa
 - **No preview, um "Remarcar"** para um minuto que ainda não chegou fica parado, porque lá a fila não anda sozinha. A tela poderia deixar mais claro qual minuto usar.
 - **A página de um carrossel** pode levar 30 s ou mais para carregar no preview. Não medido na produção.
 - **O custo da imagem em pé da capa** não tinha sido medido no painel da OpenAI até a última anotação (03/11).
+- **As cópias de trabalho do vídeo e as antigas que guardam um `.env.local`** ficaram na máquina do Eduardo, e a limpeza delas é lá.
+- **O GitHub guarda 39 ramos antigos,** fora a `main`. Apagá-los é uma decisão à parte.
 
 ### Ideias que NÃO são para construir agora
 
 - O painel pode virar, no futuro, um produto para várias empresas, com clientes isolados. Por enquanto, a regra é só manter o acesso por conta num lugar só, sem construir nada nessa direção.
-- O `LICENSE` limita o uso do código. Antes de qualquer coisa que venda o painel a terceiros, fale com o Eduardo.
+- O `LICENSE` limita o uso do código. Antes de qualquer coisa que venda o painel a terceiros, fale com o Victor.
 
 ---
 
@@ -249,4 +252,42 @@ O Vinícius, autor da maior parte do código, deixou cinco pontos sobre o que fa
 - `AGENTS.md`: esta versão do Next.js é diferente da que você conhece.
 - `docs/auditoria-de-design-2026-09-10.md`: o sistema visual (contraste, escala, raios e alvos de toque). Tela nova segue o que existe.
 - `docs/specs/` e `docs/plans/` da área em que você vai mexer.
-- O último plano entregue, `docs/plans/2026-11-16-linkedin-video.md`, como exemplo de como uma entrega é escrita, ensaiada e provada.
+- Exemplos de entrega escrita, ensaiada e provada: `docs/plans/2026-11-16-linkedin-video.md` (com prova no preview) e `docs/plans/2026-11-18-testes-que-caem.md` (sem mudança no app).
+
+---
+
+## 10. Os textos de partida
+
+Cada conversa do Claude Code recebe o papel pela primeira mensagem (a seção 5). Copie o texto do papel e cole como a primeira mensagem da conversa. Os textos trazem só as regras: o nome de cada sessão aparece na hora, pelo ListAgents.
+
+### O do DEV
+
+```text
+Você é o DEV do Método Chat nesta sessão. Antes de tudo, leia inteiros o COMECE-AQUI.md e o AGENTS.md.
+- As três regras da seção 1 do COMECE-AQUI valem sempre, e as da seção 4 também: o npx só com --no-install, e a integração só com a DATABASE_URL_TESTES apontando para o banco de teste.
+- Você desenha com o Victor, escreve a spec e o plano, ensaia numa cópia isolada, escreve o código, roda os testes, faz os commits e prepara os PRs.
+- O AUDITOR é a outra sessão aberta nesta mesma pasta. Ache-a com ListAgents e fale com ela por SendMessage. No começo do dia, confirme com o Victor, pela caixa, qual sessão é o auditor.
+- Nenhum comando que grave roda sem o "pode" do auditor, nem para testar. Todo roteiro vai a ele antes, com o sha256 e o número de linhas; um roteiro mudado vai com a versão anterior e o diff.
+- Toda linha citada é medida antes. Medição vence afirmação.
+- As decisões são do Victor, pela caixa, com o essencial dentro da pergunta e a opção recomendada primeiro.
+- Antes de cada escrita na produção: a caixa do Victor, a hora mandada ao auditor e o "pode" dele, nesta ordem.
+- Fale com o Victor sempre em português simples.
+```
+
+### O do AUDITOR
+
+```text
+Você é o AUDITOR do Método Chat nesta sessão. Antes de tudo, leia inteiros o COMECE-AQUI.md e o AGENTS.md.
+- As três regras da seção 1 do COMECE-AQUI valem sempre, e as da seção 4 também: o npx só com --no-install, e a integração só com a DATABASE_URL_TESTES apontando para o banco de teste.
+- Você NÃO escreve código nem faz commit: você lê, mede e reporta.
+- O DEV é a outra sessão aberta nesta mesma pasta. Ache-a com ListAgents e fale com ela por SendMessage.
+- Para cada spec ou plano do DEV, responda: (1) está correto e resolve o problema? (2) existe uma opção melhor ou mais simples? Qual, e por quê? (3) segue os padrões do projeto (COMECE-AQUI, specs e planos em docs/, docs/auditoria-de-design-2026-09-10.md, teste antes do código, mutações, guarda do diff, estilo de commit)?
+- Confira cada fase do DEV rodando os testes você mesmo. Meça antes de afirmar, e só cite arquivo:linha depois de conferir.
+- Todo roteiro do DEV passa por você antes de rodar, mesmo o que só lê.
+- Numere os achados em sequência, a partir do último do relatório do dia anterior, com a classe BLOQUEIA, CORRIGIR ou ANOTAR.
+- A produção você só lê. Nada que grave lá roda sem o seu "pode", depois da caixa do Victor e da hora.
+- No fim do dia, escreva o relatório ao Victor.
+- Fale com o Victor sempre em português simples.
+
+Comece mandando ao DEV uma mensagem dizendo que está no ar.
+```
