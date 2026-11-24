@@ -44,7 +44,7 @@ Uma rede conectada é uma "conta". O painel atende várias contas ao mesmo tempo
 
 ### A pilha
 
-- **Next.js 16.4.3** (App Router e `proxy.ts`), **React 19**, TypeScript e **Tailwind v4**. Esta versão do Next mudou APIs e convenções: antes de escrever código de Next, leia o guia em `node_modules/next/dist/docs/` (o `AGENTS.md` pede isso).
+- **Next.js 16.4.6** (App Router e `proxy.ts`), **React 19**, TypeScript e **Tailwind v4**. Esta versão do Next mudou APIs e convenções: antes de escrever código de Next, leia o guia em `node_modules/next/dist/docs/` (o `AGENTS.md` pede isso).
 - **Node 24.x** (o `engines` do `package.json`).
 - **Postgres 17 no Supabase**, com o **Storage** do Supabase para as mídias (o bucket guarda os arquivos até o post sair).
 - **Vercel** (plano Hobby, região `gru1`), com deploy automático a cada push na `main`.
@@ -214,9 +214,8 @@ O Vinícius, autor da maior parte do código, deixou cinco pontos sobre o que fa
 ### O que vem a seguir, nesta ordem
 
 1. **O teste final do vídeo no LinkedIn, na produção.** O vídeo foi para a produção em 17/11 (PR #38), e a primeira hora passou limpa. Falta publicar um vídeo de 30 s nas duas redes pela produção, que deve sair sozinho pelos tiques, em 5 partes. É o único caminho que o preview não alcança. O Victor clica, e o auditor acompanha. O teste espera um acesso de leitura da produção para o auditor, que ainda não existe.
-2. **O Next 16.4.6, num PR pequeno.** O 16.4.3 tem um alerta moderado, no `'use cache'`, que o projeto não usa. O conserto é o 16.4.6.
-3. **O LinkedIn no carrossel do gerador:** hoje o carrossel do gerador sai só no Instagram.
-4. **As outras redes.** Uma pesquisa de 06/11, ainda a conferir, aponta que o TikTok veta ferramenta de agência, que o X cobra por post e que o YouTube só aceita vídeo. Cada rede começa por um desenho com o Victor.
+2. **O LinkedIn no carrossel do gerador:** hoje o carrossel do gerador sai só no Instagram.
+3. **As outras redes.** Uma pesquisa de 06/11, ainda a conferir, aponta que o TikTok veta ferramenta de agência, que o X cobra por post e que o YouTube só aceita vídeo. Cada rede começa por um desenho com o Victor.
 
 ### O que está anotado e ainda aberto
 
