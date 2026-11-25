@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Archivo, IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import Script from "next/script";
 import { cookies } from "next/headers";
@@ -10,6 +10,7 @@ import { ACCOUNT_COOKIE } from "@/lib/account";
 import { contasDoLogin } from "@/lib/acesso";
 import { escolherConta } from "@/lib/acesso-escolha";
 import { sessaoAtual } from "@/lib/sessao";
+import { COR_DO_PAPEL_ESCURO, DESCRICAO_DO_PAINEL, NOME_DO_PAINEL, TITULO_DO_PAINEL } from "@/lib/marca";
 
 // AS TRÊS FAMÍLIAS. A Sora saiu: não por ser ruim, mas por ser a fonte que
 // aparece em todo modelo de SaaS — ela era metade do "ar de modelo" que a
@@ -65,9 +66,23 @@ const plexMono = IBM_Plex_Mono({
 
 const fontes = `${archivo.variable} ${plexSans.variable} ${plexMono.variable}`;
 
+// O TÍTULO E A DESCRIÇÃO vêm de lib/marca.ts, a mesma fonte do manifesto do celular (o achado 343).
+//
+// O `appleWebApp.title` é o nome que o iPhone dá ao ícone na tela de início. O `capable` fica de fora: no
+// 16.4.6 ele escreve `mobile-web-app-capable` (node_modules/next/dist/lib/metadata/metadata-elements.js:446-452),
+// e quem abre o app sem a barra do navegador é o `display: "standalone"` do manifesto
+// (docs/specs/2026-11-24-celular-onda-1.md, o achado 339).
 export const metadata: Metadata = {
-  title: "MetodoChat — comentário vira DM",
-  description: "Automação do seu Instagram: palavra-chave no comentário vira DM com seu link.",
+  title: TITULO_DO_PAINEL,
+  description: DESCRICAO_DO_PAINEL,
+  appleWebApp: { title: NOME_DO_PAINEL },
+};
+
+// A COR DA BARRA DO CELULAR é o preto do fundo do tema escuro (lib/marca.ts), o mesmo do ícone. O guia do Next a
+// põe no `viewport`, e não no `metadata`
+// (node_modules/next/dist/docs/01-app/03-api-reference/04-functions/generate-viewport.md:21-33 e :71-93).
+export const viewport: Viewport = {
+  themeColor: COR_DO_PAPEL_ESCURO,
 };
 
 // Aplica o tema salvo antes da primeira pintura (evita flash de cor errada)

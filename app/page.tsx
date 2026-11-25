@@ -415,7 +415,7 @@ export default async function Home({
                 <>
                   <span>@{account.username ?? account.ig_user_id}</span>
                   {administrador && (
-                    <a href="/api/oauth/login" className={`text-xs ${link}`}>
+                    <a href="/api/oauth/login" className={`inline-flex min-h-6 items-center text-xs ${link}`}>
                       Reconectar
                     </a>
                   )}
@@ -548,7 +548,7 @@ export default async function Home({
                 Tarefa 3. */}
             <p className={`mt-2 text-sm ${muted}`}>Nada agendado.</p>
             <p className="mt-3 text-sm">
-              <Link href="/publicar/novo" className={link}>
+              <Link href="/publicar/novo" className={`inline-flex min-h-6 items-center ${link}`}>
                 Criar post →
               </Link>
             </p>
@@ -557,7 +557,7 @@ export default async function Home({
             <h2 className="titulo text-sm font-semibold">Nas últimas 24h</h2>
             <p className={`mt-2 text-sm ${muted}`}>{vinte4h}</p>
             <p className="mt-3 text-sm">
-              <Link href="/eventos" className={link}>
+              <Link href="/eventos" className={`inline-flex min-h-6 items-center ${link}`}>
                 Ver a atividade →
               </Link>
             </p>
