@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { COR_DA_ACAO, COR_DO_PAPEL, DESCRICAO_DO_PAINEL, NOME_DO_PAINEL } from "@/lib/marca";
+import { COR_DO_PAPEL, COR_DO_PAPEL_ESCURO, DESCRICAO_DO_PAINEL, NOME_DO_PAINEL } from "@/lib/marca";
 
 // O MANIFESTO DO CELULAR (docs/specs/2026-11-24-celular-onda-1.md). É ele que deixa pôr o painel na tela inicial
 // e abri-lo sem a barra do navegador (o `display: "standalone"`). O Next o serve em /manifest.webmanifest
@@ -16,6 +16,6 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     display: "standalone",
     background_color: COR_DO_PAPEL,
-    theme_color: COR_DA_ACAO,
+    theme_color: COR_DO_PAPEL_ESCURO,
   };
 }

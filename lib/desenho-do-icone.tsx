@@ -1,4 +1,4 @@
-import { COR_DA_ACAO, COR_DO_PAPEL } from "@/lib/marca";
+import { COR_DA_ACAO_ESCURA, COR_DO_PAPEL, COR_DO_PAPEL_ESCURO } from "@/lib/marca";
 
 // O DESENHO DO ÍCONE, num lugar só (docs/specs/2026-11-24-celular-onda-1.md, "O ícone e o manifesto"). O
 // app/icon.tsx (a aba e a tela inicial do Android) e o app/apple-icon.tsx (a tela de início do iPhone) desenham
@@ -26,12 +26,12 @@ export function desenhoDoIcone(lado: number) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: COR_DA_ACAO,
+        background: COR_DO_PAPEL_ESCURO,
       }}
     >
       <svg width={lado} height={lado} viewBox="0 0 100 100">
         <path d={DESENHO_DO_M} fill={COR_DO_PAPEL} />
-        <circle cx={PONTO.cx} cy={PONTO.cy} r={PONTO.r} fill={COR_DO_PAPEL} />
+        <circle cx={PONTO.cx} cy={PONTO.cy} r={PONTO.r} fill={COR_DA_ACAO_ESCURA} />
       </svg>
     </div>
   );

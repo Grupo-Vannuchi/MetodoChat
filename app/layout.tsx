@@ -10,7 +10,7 @@ import { ACCOUNT_COOKIE } from "@/lib/account";
 import { contasDoLogin } from "@/lib/acesso";
 import { escolherConta } from "@/lib/acesso-escolha";
 import { sessaoAtual } from "@/lib/sessao";
-import { COR_DA_ACAO, DESCRICAO_DO_PAINEL, NOME_DO_PAINEL, TITULO_DO_PAINEL } from "@/lib/marca";
+import { COR_DO_PAPEL_ESCURO, DESCRICAO_DO_PAINEL, NOME_DO_PAINEL, TITULO_DO_PAINEL } from "@/lib/marca";
 
 // AS TRÊS FAMÍLIAS. A Sora saiu: não por ser ruim, mas por ser a fonte que
 // aparece em todo modelo de SaaS — ela era metade do "ar de modelo" que a
@@ -78,11 +78,11 @@ export const metadata: Metadata = {
   appleWebApp: { title: NOME_DO_PAINEL },
 };
 
-// A COR DA BARRA DO CELULAR é a cor de ação do sistema (lib/marca.ts). O guia do Next a põe no `viewport`, e
-// não no `metadata` (node_modules/next/dist/docs/01-app/03-api-reference/04-functions/generate-viewport.md:21-33
-// e :71-93).
+// A COR DA BARRA DO CELULAR é o preto do fundo do tema escuro (lib/marca.ts), o mesmo do ícone. O guia do Next a
+// põe no `viewport`, e não no `metadata`
+// (node_modules/next/dist/docs/01-app/03-api-reference/04-functions/generate-viewport.md:21-33 e :71-93).
 export const viewport: Viewport = {
-  themeColor: COR_DA_ACAO,
+  themeColor: COR_DO_PAPEL_ESCURO,
 };
 
 // Aplica o tema salvo antes da primeira pintura (evita flash de cor errada)
