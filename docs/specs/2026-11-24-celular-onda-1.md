@@ -2,7 +2,8 @@
 
 **Nascido em:** 24/11/2026, sobre a `main` em `aadf566`. **A v2 é de 25/11/2026**, com a medição de base (a Fase 0)
 e as decisões que dependiam dela. **A v3, do mesmo dia,** traz a medição da tabela da Atividade antes do plano (o
-achado 349).
+achado 349). **A emenda do ensaio, também de 25/11,** troca o 404 do `/favicon.ico` por um redirect (o achado 352) e
+traz as cores do ícone que o Victor escolheu depois de vê-lo.
 
 **As decisões do Victor, em 24/11/2026 (à tarde, pela caixa):**
 - **O uso é "acompanhar".** As alternativas eram "acompanhar e criar posts" e "tudo igual ao computador".
@@ -25,6 +26,14 @@ achado 349).
 - **A letra do ícone:** "Desenhar o M. (Recomendado)". A alternativa era usar a fonte do painel, com um arquivo de
   fonte no repositório.
 - **O celular da prova:** "iPhone".
+- **As cores do ícone (mudança de decisão, depois de ver o ícone no azul):** "Não gostei da forma que ficou, pode
+  deixar o fundo mais escuro, quase um preto", "ou da cor do background do método chat". Pela caixa:
+  - o fundo: "Fundo do painel, tema escuro (Recomendado)", o `#0b0a0e` (`--color-papel-escuro`,
+    `app/globals.css:58`). A alternativa era o `#17161a` (`--color-tinta`, `:65`);
+  - a barra do celular: "Acompanha o preto (Recomendado)". A alternativa era continuar no azul;
+  - o ponto do "M.": "Ponto azul claro (Recomendado)", o `#78bacd` (`--color-acao-escuro`, `:104`). A alternativa
+    era o ponto claro, igual ao "M".
+  - O "M" continua em papel `#fbfaf8`.
 
 ---
 
@@ -178,8 +187,8 @@ Em 390 px de largura, em cada rota da onda 1:
 ### O ícone e o manifesto
 
 - **O desenho do "M." mora num módulo só,** usado pelo `icon.tsx` e pelo `apple-icon.tsx`. Ele é desenhado como
-  caminho SVG, sem fonte e sem arquivo binário, pela decisão do Victor. O fundo é quadrado e cheio em `#1a5a6c`, e o
-  "M." com o ponto vai em `#fbfaf8`, centralizado e dentro dos 80% do meio, para o Android poder recortar o ícone em
+  caminho SVG, sem fonte e sem arquivo binário, pela decisão do Victor. O fundo é quadrado e cheio em `#0b0a0e`, o
+  "M" vai em `#fbfaf8` e o ponto em `#78bacd`, centralizados e dentro dos 80% do meio, para o Android poder recortar o ícone em
   círculo sem cortar a letra. Ele fica parecido com a letra do painel, mas não idêntico.
 - **`app/icon.tsx` (novo):** o `generateImageMetadata` dá três tamanhos: 32 (a aba), 192 e 512 (a tela inicial).
 - **`app/apple-icon.tsx` (novo):** o mesmo desenho, em 180x180, para o iPhone.
@@ -192,11 +201,11 @@ Em 390 px de largura, em cada rota da onda 1:
   - `start_url`: `/`;
   - `display`: `standalone`;
   - `background_color`: `#fbfaf8`;
-  - `theme_color`: `#1a5a6c`;
+  - `theme_color`: `#0b0a0e`;
   - `icons`: o de 192 e o de 512, com os endereços medidos no build. O de 512 entra também com o
     `purpose: "maskable"`.
 - **`app/layout.tsx`:**
-  - ganha `export const viewport = { themeColor: "#1a5a6c" }`;
+  - ganha `export const viewport = { themeColor: "#0b0a0e" }`;
   - ganha, no `metadata`, o `appleWebApp` com `title: "MetodoChat"`, que dá o nome do ícone na tela de início do
     iPhone;
   - **o `capable: true` fica fora.** No 16.4.6, ele escreve `<meta name="mobile-web-app-capable">`
@@ -208,11 +217,16 @@ Em 390 px de largura, em cada rota da onda 1:
     - É uma fonte só para o desenho, sem binário versionado e sem roteiro de uso único. Quando vier um logo, troca-se
       um arquivo.
     - O navegador usa o `<link rel="icon">` do `<head>`, e só pede o `/favicon.ico` quando não há link.
-    - O ensaio mede: o `/favicon.ico` passa a dar 404 sem ir para `/entrar`; o `<head>` traz o link do `/icon`; e a
-      aba mostra o "M.".
-    - O ensaio mede também se esse 404 é uma página estática ou se roda a função a cada pedido, porque o layout lê
-      cookies (`app/layout.tsx:97-98`) e não há `app/not-found.tsx` (o achado 341). A escolha só muda se aparecer um
-      custo.
+    - O ensaio mediu o custo (os achados 341 e 352): no build, o `/_not-found` é dinâmico (ƒ), como já era antes
+      desta entrega, porque o layout lê cookies (`app/layout.tsx:97-98`). Sem o arquivo, cada pedido ao
+      `/favicon.ico` viraria uma chamada de função e, com o cookie da sessão, duas consultas ao banco (o
+      `sessaoAtual()` e o `contasDoLogin()`).
+    - **Por isso, o `/favicon.ico` leva ao ícone novo por um redirect no `next.config.ts`**, para o `/icon/32`, com
+      `permanent: false` (um 307, que não fica em cache: `redirects.md:30`). O redirect do `next.config` roda antes
+      do porteiro e antes dos arquivos (`proxy.md:242-245` e `redirects.md:39`, no guia da 16.4.6). O
+      `next.config.ts` já tem um redirect, o do `/loja` (`:24`).
+    - O servidor local não sobe sem um banco com o esquema (o `instrumentation.ts`, o achado 353). Por isso, o
+      `<head>`, os códigos sem sessão e o 307 do favicon se medem na prova na prévia.
     - O `/favicon.ico` continua em `PUBLIC_PREFIXES` e no matcher, como está.
   - **(2) Um roteiro que gera o `.ico` novo** a partir do mesmo desenho, rodado uma vez, com o sha registrado.
     - Cria duas cópias do mesmo desenho.
@@ -305,6 +319,8 @@ O layout não se mede no jsdom. Por isso, os testes cobrem o que é lógica, e a
   - os vizinhos parecidos continuam pedindo sessão: o endereço exato com `/x` no fim, `/icon-qualquer-coisa`,
     `/manifest.json` (enquanto não existir um `app/manifest.json`, o achado 342), `/apple-icon.png.x` e
     `/conversas/x.png`. A lista final sai da forma medida no build.
+- **O favicon antigo (puro, novo):** o `redirects()` do `next.config.ts` leva o `/favicon.ico` ao `/icon/32`, com
+  `permanent: false`.
 - **A lista do calendário (puro, novo):** a função monta, a partir da grade, só os dias com posts, em ordem de data,
   com os posts de cada dia em ordem de hora. Uma grade sem posts dá uma lista vazia.
 - **O aviso do editor (tela, novo):** o aviso "A edição das automações é pelo computador" aparece no quadro, com a
@@ -315,6 +331,8 @@ O layout não se mede no jsdom. Por isso, os testes cobrem o que é lógica, e a
   - pôr os exatos depois da sessão;
   - tirar o aviso;
   - trocar o `display` do manifesto;
+  - escrever a descrição à mão no manifesto, sem a constante (o achado 343);
+  - tirar o redirect do favicon;
   - na lista do calendário, deixar entrar um dia sem posts e inverter a ordem.
 - **O verify** limpo e a integração igual à `main`.
 
@@ -324,7 +342,8 @@ O layout não se mede no jsdom. Por isso, os testes cobrem o que é lógica, e a
 - cada rota da onda 1;
 - numa aba em segundo plano, um quadro forçado antes de medir, com a contagem das partes pendentes. Uma rota com
   parte pendente não vale (o achado 345);
-- sem sessão: `/manifest.webmanifest` e os ícones dão 200, com o tipo certo; o `/favicon.ico` dá 404; e
+- sem sessão: `/manifest.webmanifest` e os ícones dão 200, com o tipo certo; o `/favicon.ico` dá 307 para o
+  `/icon/32`; e
   `/icon-qualquer-coisa` vai para `/entrar`;
 - o `<head>` com o `link rel="manifest"`, os ícones e o `theme-color`;
 - o Remarcar e o "Cancelar este post" num post pendente da conta de provas, se houver um. Se não houver, eles ficam
