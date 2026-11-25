@@ -16,6 +16,11 @@ export const DESENHO_DO_M =
   "M18 70 V30 H28 L42 52 L56 30 H66 V70 H56 V46 L45 63 H39 L28 46 V70 Z";
 export const PONTO = { cx: 75, cy: 65, r: 5 };
 
+// OS LADOS DO app/icon.tsx, num lugar só: 32 para a aba do navegador, e 192 e 512 para a tela inicial do
+// Android. O manifesto (app/manifest.ts) aponta para o 192 e o 512, e o porteiro (proxy.ts) libera um /icon por
+// lado. tests/manifesto.test.ts e tests/proxy-icone.test.ts conferem os dois contra esta lista.
+export const LADOS_DO_ICONE = [32, 192, 512] as const;
+
 /** O ícone inteiro, no lado pedido (em px), para o `ImageResponse`. */
 export function desenhoDoIcone(lado: number) {
   return (

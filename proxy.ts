@@ -25,9 +25,24 @@ const PUBLIC_PREFIXES = [
   "/favicon.ico",
 ];
 
+// OS ENDEREÇOS EXATOS DO MANIFESTO E DO ÍCONE (docs/specs/2026-11-24-celular-onda-1.md, "O porteiro"). O
+// navegador os busca sozinho, sem o cookie da sessão, e sem eles públicos o celular não instala o ícone. A
+// conferência é de IGUALDADE, e não de prefixo nem de extensão: um vizinho parecido (`/icon/32/x`,
+// `/icon-qualquer-coisa`, `/apple-icon.png`) continua pedindo sessão. São os caminhos da lista de rotas do build
+// do Next 16.4.6: o app/manifest.ts, o app/icon.tsx (um por lado de lib/desenho-do-icone.tsx) e o
+// app/apple-icon.tsx. O `pathname` vem sem a query que o Next põe no <link>. tests/proxy-icone.test.ts confere a
+// lista e os vizinhos.
+const PUBLIC_EXATOS = new Set([
+  "/manifest.webmanifest",
+  "/icon/32",
+  "/icon/192",
+  "/icon/512",
+  "/apple-icon",
+]);
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+  if (PUBLIC_EXATOS.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return NextResponse.next();
   }
   if (await sessaoDoCookie(req.cookies.get(SESSION_COOKIE)?.value)) {

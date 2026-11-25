@@ -17,5 +17,12 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     background_color: COR_DO_PAPEL,
     theme_color: COR_DO_PAPEL_ESCURO,
+    // OS ÍCONES DA TELA INICIAL são os de 192 e 512 do app/icon.tsx (os lados de lib/desenho-do-icone.tsx). O de
+    // 512 vale também como "maskable": o desenho fica nos 80% do meio, e o Android pode recortá-lo em círculo.
+    icons: [
+      { src: "/icon/192", sizes: "192x192", type: "image/png" },
+      { src: "/icon/512", sizes: "512x512", type: "image/png" },
+      { src: "/icon/512", sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ],
   };
 }

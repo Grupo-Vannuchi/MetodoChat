@@ -223,7 +223,7 @@ Em 390 px de largura, em cada rota da onda 1:
       `sessaoAtual()` e o `contasDoLogin()`).
     - **Por isso, o `/favicon.ico` leva ao ícone novo por um redirect no `next.config.ts`**, para o `/icon/32`, com
       `permanent: false` (um 307, que não fica em cache: `redirects.md:30`). O redirect do `next.config` roda antes
-      do porteiro e antes dos arquivos (`proxy.md:242-245` e `redirects.md:39`, no guia da 16.4.6). O
+      do porteiro e antes dos arquivos (`proxy.md:243-246` e `redirects.md:39`, no guia da 16.4.6). O
       `next.config.ts` já tem um redirect, o do `/loja` (`:24`).
     - O servidor local não sobe sem um banco com o esquema (o `instrumentation.ts`, o achado 353). Por isso, o
       `<head>`, os códigos sem sessão e o 307 do favicon se medem na prova na prévia.

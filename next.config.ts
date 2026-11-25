@@ -26,7 +26,7 @@ const nextConfig: NextConfig = {
       // app/favicon.ico (o logotipo da Vercel) saiu, e o /_not-found deste app é dinâmico: sem este redirect,
       // cada pedido ao /favicon.ico rodaria o layout, que lê a sessão no banco. O redirect do next.config roda
       // antes do porteiro e antes dos arquivos (node_modules/next/dist/docs/01-app/03-api-reference/
-      // 03-file-conventions/proxy.md:242-245 e 05-config/01-next-config-js/redirects.md:39). O 307
+      // 03-file-conventions/proxy.md:243-246 e 05-config/01-next-config-js/redirects.md:39). O 307
       // (permanent: false) não fica em cache (redirects.md:30). tests/favicon.test.ts confere este redirect.
       { source: "/favicon.ico", destination: "/icon/32", permanent: false },
     ];

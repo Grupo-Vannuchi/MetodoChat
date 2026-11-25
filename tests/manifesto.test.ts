@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import manifest from "@/app/manifest";
+import { LADOS_DO_ICONE } from "@/lib/desenho-do-icone";
 import { DESCRICAO_DO_PAINEL } from "@/lib/marca";
 
 // O MANIFESTO DO CELULAR (docs/specs/2026-11-24-celular-onda-1.md, "Os testes").
@@ -47,5 +48,20 @@ describe("o manifesto do celular", () => {
   it("tira a descrição da mesma constante que o layout usa", () => {
     expect(valoresDe("app/manifest.ts", "description")).toEqual(["DESCRICAO_DO_PAINEL"]);
     expect(valoresDe("app/layout.tsx", "description")).toEqual(["DESCRICAO_DO_PAINEL"]);
+  });
+
+  // OS ÍCONES DO MANIFESTO SAEM DOS LADOS QUE O app/icon.tsx GERA (lib/desenho-do-icone.tsx). Um tamanho mudado
+  // num lado e não no outro faria o manifesto apontar para um /icon/… que não existe, e o celular não instalaria.
+  it("aponta os ícones da tela inicial para os tamanhos que o app/icon.tsx gera", () => {
+    const icones = manifest().icons ?? [];
+    expect(icones.map((i) => i.sizes)).toEqual(expect.arrayContaining(["192x192", "512x512"]));
+    for (const i of icones) {
+      const lado = Number(i.src.replace("/icon/", ""));
+      expect(LADOS_DO_ICONE, i.src).toContain(lado);
+      expect(i.src).toBe(`/icon/${lado}`);
+      expect(i.sizes).toBe(`${lado}x${lado}`);
+      expect(i.type).toBe("image/png");
+    }
+    expect(icones.some((i) => i.purpose === "maskable" && i.sizes === "512x512")).toBe(true);
   });
 });
