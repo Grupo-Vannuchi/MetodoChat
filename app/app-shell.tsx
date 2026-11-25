@@ -146,7 +146,7 @@ function NavLinks({ onNavigate, administrador }: { onNavigate?: () => void; admi
                    navega por teclado atravessa esta lista em TODA página, então
                    era justamente o caminho mais percorrido que tinha o sinal
                    mais fraco. Agora é o mesmo anel de `acao` dos botões. */
-                className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:focus-visible:ring-acao-escuro/25 ${
+                className={`group relative flex items-center gap-3 rounded-lg px-3 py-2 min-h-11 lg:min-h-[auto] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:focus-visible:ring-acao-escuro/25 ${
                   active
                     ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800/70 dark:text-white"
                     : "text-zinc-600 hover:bg-zinc-100/70 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/40 dark:hover:text-zinc-100"
@@ -339,7 +339,7 @@ export default function AppShell({
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Abrir menu"
-          className="rounded-lg p-2 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="rounded-lg p-3 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >
           <IconMenu className="h-5 w-5" />
         </button>
@@ -356,7 +356,7 @@ export default function AppShell({
               type="button"
               onClick={() => setOpen(false)}
               aria-label="Fechar menu"
-              className="absolute right-3 top-4 rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="absolute right-3 top-4 rounded-lg p-3 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
               <IconX className="h-5 w-5" />
             </button>

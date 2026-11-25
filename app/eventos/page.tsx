@@ -223,9 +223,9 @@ export default async function EventosPage({
                 <table className="w-full text-left text-sm">
                   <thead className={thead}>
                     <tr>
-                      <th className="px-3 py-2">Para quem</th>
-                      <th className="px-3 py-2">O que foi enviado</th>
-                      <th className="px-3 py-2">Quando</th>
+                      <th className="px-2 py-2 sm:px-3">Para quem</th>
+                      <th className="px-2 py-2 sm:px-3">O que foi enviado</th>
+                      <th className="px-2 py-2 sm:px-3">Quando</th>
                     </tr>
                   </thead>
                   <tbody className={rowDivide}>
@@ -258,7 +258,7 @@ export default async function EventosPage({
                       const quando = dataDaLinhaDeEnvio(q);
                       return (
                         <tr key={q.id}>
-                          <td className="px-3 py-1.5">
+                          <td className="px-2 py-1.5 sm:px-3">
                             <div className="flex items-center gap-2">
                               <Avatar
                                 src={q.person_pic}
@@ -266,17 +266,17 @@ export default async function EventosPage({
                                 className="h-6 w-6"
                                 textClassName="text-[11px]"
                               />
-                              <span className="truncate font-medium">{paraQuem}</span>
+                              <span className="max-w-28 truncate font-medium sm:max-w-none">{paraQuem}</span>
                             </div>
                           </td>
-                          <td className="px-3 py-1.5">
+                          <td className="px-2 py-1.5 sm:px-3">
                             <span className="inline-flex flex-wrap items-center gap-2">
                               {kindLabel(q.kind)}
                               {!normal && <span className={badge.className}>{badge.label}</span>}
                             </span>
                             {erro && <p className={`max-w-md text-xs ${muted}`}>{erro}</p>}
                           </td>
-                          <td className={`whitespace-nowrap px-3 py-1.5 text-xs ${muted}`}>
+                          <td className={`px-2 py-1.5 text-xs sm:whitespace-nowrap sm:px-3 ${muted}`}>
                             {/* A FRASE VEM DE `fraseDaDataDaLinha`, e ate
                                 09/09/2026 ela era decidida AQUI, com palavras
                                 diferentes das da tela de agendados para o mesmo
@@ -377,7 +377,7 @@ export default async function EventosPage({
                       {media && <PostLine kind={media.kind} post={posts.get(media.id) ?? null} />}
 
                       <details className="mt-2">
-                        <summary className={`cursor-pointer text-xs ${muted} hover:text-zinc-900 dark:hover:text-zinc-100`}>
+                        <summary className={`cursor-pointer py-1 text-xs ${muted} hover:text-zinc-900 dark:hover:text-zinc-100`}>
                           Ver detalhes técnicos
                         </summary>
                         <pre className="mt-2 overflow-x-auto rounded-lg bg-zinc-100 p-3 text-xs text-zinc-700 dark:bg-zinc-950 dark:text-zinc-400">
