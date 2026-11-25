@@ -34,6 +34,8 @@ traz as cores do ícone que o Victor escolheu depois de vê-lo.
   - o ponto do "M.": "Ponto azul claro (Recomendado)", o `#78bacd` (`--color-acao-escuro`, `:104`). A alternativa
     era o ponto claro, igual ao "M".
   - O "M" continua em papel `#fbfaf8`.
+- **A tela de abertura do Android:** "Preto, igual ao ícone (Recomendado)", o `#0b0a0e`. A alternativa era o fundo
+  claro. O custo: quem usa o tema claro vê a abertura preta virar o painel claro. No iPhone, essa tela não aparece.
 
 ---
 
@@ -200,7 +202,7 @@ Em 390 px de largura, em cada rota da onda 1:
   - `lang`: `pt-BR`;
   - `start_url`: `/`;
   - `display`: `standalone`;
-  - `background_color`: `#fbfaf8`;
+  - `background_color`: `#0b0a0e`;
   - `theme_color`: `#0b0a0e`;
   - `icons`: o de 192 e o de 512, com os endereços medidos no build. O de 512 entra também com o
     `purpose: "maskable"`.

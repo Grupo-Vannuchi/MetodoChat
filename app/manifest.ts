@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { COR_DO_PAPEL, COR_DO_PAPEL_ESCURO, DESCRICAO_DO_PAINEL, NOME_DO_PAINEL } from "@/lib/marca";
+import { COR_DO_PAPEL_ESCURO, DESCRICAO_DO_PAINEL, NOME_DO_PAINEL } from "@/lib/marca";
 
 // O MANIFESTO DO CELULAR (docs/specs/2026-11-24-celular-onda-1.md). É ele que deixa pôr o painel na tela inicial
 // e abri-lo sem a barra do navegador (o `display: "standalone"`). O Next o serve em /manifest.webmanifest
@@ -15,7 +15,9 @@ export default function manifest(): MetadataRoute.Manifest {
     lang: "pt-BR",
     start_url: "/",
     display: "standalone",
-    background_color: COR_DO_PAPEL,
+    // A TELA DE ABERTURA DO ANDROID (o fundo atrás do ícone) e a barra ficam no preto do ícone, pela decisão do
+    // Victor de 25/11 (docs/specs/2026-11-24-celular-onda-1.md). No iPhone, essa tela não aparece.
+    background_color: COR_DO_PAPEL_ESCURO,
     theme_color: COR_DO_PAPEL_ESCURO,
     // OS ÍCONES DA TELA INICIAL são os de 192 e 512 do app/icon.tsx (os lados de lib/desenho-do-icone.tsx). O de
     // 512 vale também como "maskable": o desenho fica nos 80% do meio, e o Android pode recortá-lo em círculo.

@@ -40,7 +40,7 @@ describe("o manifesto do celular", () => {
     expect(m.lang).toBe("pt-BR");
     expect(m.start_url).toBe("/");
     expect(m.display).toBe("standalone");
-    expect(m.background_color).toBe("#fbfaf8");
+    expect(m.background_color).toBe("#0b0a0e");
     expect(m.theme_color).toBe("#0b0a0e");
     expect(m.description).toBe(DESCRICAO_DO_PAINEL);
   });
