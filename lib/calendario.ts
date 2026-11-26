@@ -275,6 +275,54 @@ export function recorteDoDia<T>(
   };
 }
 
+/** Um dia da lista do celular: a casa da grade, o título dela e os itens do dia. */
+export type DiaDaLista<T> = {
+  casa: Casa;
+  /** "ter, 1 de dezembro" */
+  titulo: string;
+  itens: T[];
+};
+
+/**
+ * A LISTA DO CELULAR: o calendário de Publicações abaixo de 640 px, um dia
+ * embaixo do outro (docs/specs/2026-11-24-celular-onda-1.md, a parte do PR 2).
+ *
+ * ELA MOSTRA EXATAMENTE AS CASAS DA GRADE QUE TÊM ITENS, as do mês vizinho
+ * também (o achado 365). A consulta da tela busca a grade inteira, e a grade
+ * desenha os posts das casas vizinhas. Se a lista as tirasse, um post do dia
+ * 1/12, visto na grade de novembro, sumiria do celular sem contagem nenhuma: o
+ * "fora deste período" da tela só conta o que está fora da janela.
+ *
+ * ELA NÃO ORDENA NADA (o achado 367). Os dias vêm na ordem das casas, e os
+ * itens de cada dia já chegam em ordem de hora: a consulta ordena pela mesma
+ * data que `agruparPorDia` usa, e ele mantém a ordem de chegada. Uma segunda
+ * ordenação aqui seria uma segunda fonte da ordem.
+ *
+ * O POST QUE CAI SÓ NA FOLGA DA JANELA não tem casa, e por isso não entra. A
+ * lista pode sair vazia com itens na consulta, e é ela, e não a consulta, que
+ * decide o vazio do celular.
+ */
+export function listaDoCalendario<T>(casas: Casa[], porDia: Map<string, T[]>): DiaDaLista<T>[] {
+  const lista: DiaDaLista<T>[] = [];
+  for (const casa of casas) {
+    const itens = porDia.get(casa.chave);
+    if (itens && itens.length > 0) lista.push({ casa, titulo: tituloDoDia(casa.chave), itens });
+  }
+  return lista;
+}
+
+/**
+ * O título de um dia da lista: "ter, 1 de dezembro".
+ *
+ * OS NOMES SÃO OS DA GRADE (as colunas e o título do mês), e não uma lista
+ * nova: o celular e o computador dizem o mesmo dia com as mesmas palavras. O
+ * mês vai sempre, porque a lista do mês tem dias do mês vizinho.
+ */
+function tituloDoDia(chave: string): string {
+  const [, mes, dia] = chave.split("-").map(Number);
+  return `${DIAS_DA_SEMANA[diaDaSemana(chave)]}, ${dia} de ${MESES[mes - 1]}`;
+}
+
 /**
  * QUAL BARRA DO GRÁFICO LEVA O NÚMERO — o índice, ou `-1` quando nenhuma.
  *

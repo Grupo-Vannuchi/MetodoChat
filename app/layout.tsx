@@ -68,10 +68,12 @@ const fontes = `${archivo.variable} ${plexSans.variable} ${plexMono.variable}`;
 
 // O TÍTULO E A DESCRIÇÃO vêm de lib/marca.ts, a mesma fonte do manifesto do celular (o achado 343).
 //
-// O `appleWebApp.title` é o nome que o iPhone dá ao ícone na tela de início. O `capable` fica de fora: no
-// 16.4.6 ele escreve `mobile-web-app-capable` (node_modules/next/dist/lib/metadata/metadata-elements.js:446-452),
-// e quem abre o app sem a barra do navegador é o `display: "standalone"` do manifesto
-// (docs/specs/2026-11-24-celular-onda-1.md, o achado 339).
+// O `appleWebApp.title` é o nome que o iPhone dá ao ícone na tela de início. O `capable` não é escrito, e mesmo
+// assim sai como `true`: com o `appleWebApp` sem a chave, o Next o resolve como `true`
+// (node_modules/next/dist/lib/metadata/resolvers/resolve-basics.js:197) e escreve `mobile-web-app-capable`
+// (node_modules/next/dist/lib/metadata/metadata-elements.js:446-452). Quem abre o app sem a barra do navegador é
+// o `display: "standalone"` do manifesto, e a meta não atrapalha (docs/specs/2026-11-24-celular-onda-1.md, os
+// achados 339 e 360).
 export const metadata: Metadata = {
   title: TITULO_DO_PAINEL,
   description: DESCRICAO_DO_PAINEL,
