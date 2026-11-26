@@ -22,6 +22,7 @@ import {
   alertOk,
   alertError,
   emptyWrap,
+  eyebrow,
 } from "../ui";
 import { urlPublicaSeDerParaMontar } from "@/lib/bucket";
 import {
@@ -34,6 +35,7 @@ import {
   agruparPorDia,
   recorteDoDia,
   diaSomado,
+  listaDoCalendario,
 } from "@/lib/calendario";
 
 // A CARA DA SEÇÃO DE PUBLICAÇÕES — componente de SERVIDOR, sem uma linha de
@@ -308,6 +310,10 @@ export default async function Agendados({
   // status novo aparecesse.
   const porDia = agruparPorDia(itens, (i) => dataDaLinhaDeEnvio(i).quando);
   const fora = resumoFora[0] ?? { fora: 0, proximo: null };
+  // A LISTA DO CELULAR SAI DA MESMA GRADE E DO MESMO AGRUPAMENTO (os achados
+  // 365 e 367): ela não consulta nada nem ordena nada, e é ela que decide o
+  // vazio abaixo de 640 px.
+  const diasDaLista = listaDoCalendario(grade.casas, porDia);
 
   return (
     <div className="space-y-6">
@@ -396,11 +402,14 @@ export default async function Agendados({
             </p>
           </div>
 
-          {/* A GRADE. `overflow-x-auto` porque sete colunas não cabem em 390px
-              sem espremer o conteúdo até ele deixar de ser legível — e a regra
-              desta base é que conteúdo largo rola DENTRO do próprio recipiente,
-              nunca fazendo a página inteira rolar de lado. */}
-          <div className="overflow-x-auto">
+          {/* A GRADE, SÓ DE 640 PX PARA CIMA. Abaixo disso, sete colunas não
+              cabem sem espremer o conteúdo até ele deixar de ser legível, e a
+              lista por dia, logo abaixo, toma o lugar dela
+              (docs/specs/2026-11-24-celular-onda-1.md, a parte do PR 2). O
+              `overflow-x-auto` fica pela regra desta base: conteúdo largo rola
+              DENTRO do próprio recipiente, nunca fazendo a página inteira rolar
+              de lado. */}
+          <div className="hidden overflow-x-auto sm:block">
             <div className="min-w-[640px]">
               <div className="grid grid-cols-7 border-b border-traco dark:border-traco-escuro">
                 {grade.colunas.map((c) => (
@@ -441,100 +450,9 @@ export default async function Agendados({
                         </span>
                       </p>
 
-                      {mostrados.map((item) => {
-                        const quando = dataDaLinhaDeEnvio(item);
-                        const saiu = quando.saiu;
-                        // A MINIATURA SÓ EXISTE ENQUANTO O POST NÃO SAIU: o
-                        // dreno apaga a mídia do bucket depois de publicar
-                        // (`limparOBucket`). Num post publicado a prévia seria
-                        // uma imagem quebrada, então nem se tenta.
-                        //
-                        // E A CAPA É A PRIMEIRA IMAGEM, e não o primeiro
-                        // caminho (spec 2026-10-19-enquadrar-imagens): o
-                        // vídeo saía como imagem quebrada. O post só de vídeo
-                        // fica sem capa, e a célula desenha o ícone dele. Quem
-                        // decide, nas duas redes, é `cartaoDoPost`.
-                        const cartao = cartaoDoPost(item, saiu);
-                        const primeira = cartao.capa;
-                        const soVideo = cartao.soVideo;
-                        // `null` QUANDO O AMBIENTE NÃO DEIXA MONTAR A URL, e
-                        // aí a célula desenha o símbolo em vez de uma imagem
-                        // quebrada. Prévia não vale uma tela — ver
-                        // `urlPublicaSeDerParaMontar` (lib/bucket.ts) para o
-                        // defeito que ensinou isso.
-                        const capa = primeira ? urlPublicaSeDerParaMontar(primeira) : null;
-                        // ATRASADO: a hora passou e ele ainda esta na fila. A
-                        // decisao e de `avisoDoAtrasoNaLista`, a mesma da tela
-                        // de detalhe — aqui so se pergunta SE ha aviso, porque
-                        // no quadrado nao cabe a frase.
-                        const atrasado = avisoDoAtrasoNaLista(quando) !== null;
-                        return (
-                          <Link
-                            key={item.id}
-                            /* A VOLTA CARREGA A ÂNCORA, e não só a visão: sem
-                               `em`, quem estava olhando dezembro e clicava em
-                               "← Calendário" caía no mês de hoje. */
-                            href={`/publicar/post/${item.id}?v=${visao}&em=${grade.ancora}`}
-                            /* O CHIP NÃO PINTA ESTADO, e isso é conserto de um
-                               defeito que a revisão achou em 11/09/2026.
-
-                               A primeira versão dava `bg-aberto/8` ao post que
-                               AINDA NÃO SAIU e cinza ao que JÁ SAIU — e em toda
-                               outra tela deste painel verde quer dizer "deu
-                               certo". Quem varria o calendário procurando
-                               problema via os verdes como sucesso, quando eram
-                               justamente os pendentes, um deles atrasado num dia
-                               que já passou.
-
-                               E a spec proíbe isso em uma linha: os três estados
-                               "continuam sendo SINAL — pílula, texto, ponto — e
-                               nunca preenchimento grande". A superfície volta a
-                               ser neutra; quem carrega o estado é o símbolo à
-                               esquerda, que é do tamanho de um sinal. */
-                            className="flex items-center gap-1.5 rounded-lg border border-traco bg-papel p-1 transition-colors hover:border-quieto/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:border-traco-escuro dark:bg-papel-escuro/50 dark:focus-visible:ring-acao-escuro/25"
-                          >
-                            {capa ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={capa}
-                                alt=""
-                                className="h-8 w-8 shrink-0 rounded-lg object-cover"
-                              />
-                            ) : (
-                              <span
-                                aria-hidden
-                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-traco text-[11px] dark:bg-traco-escuro"
-                              >
-                                {saiu ? "✓" : soVideo ? "▶" : "•"}
-                              </span>
-                            )}
-                            {/* O PONTO DE ESTADO — do tamanho de um sinal, que é
-                                o que a spec permite para as três cores. Verde é
-                                o que SAIU (o mesmo sentido de todas as outras
-                                telas), âmbar é o que está ATRASADO e ainda na
-                                fila, e nada aparece no que vai sair na hora —
-                                porque aí não há sinal a dar. */}
-                            {(saiu || atrasado) && (
-                              <span
-                                aria-hidden
-                                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                                  saiu
-                                    ? "bg-aberto dark:bg-aberto-escuro"
-                                    : "bg-fecha dark:bg-fecha-escuro"
-                                }`}
-                              />
-                            )}
-                            <span className="min-w-0 flex-1">
-                              <span className={`block text-[11px] font-semibold ${numero}`}>
-                                {horaDoDia(quando.quando)}
-                              </span>
-                              <span className={`block truncate text-[11px] ${muted}`}>
-                                {cartao.rotulo}
-                              </span>
-                            </span>
-                          </Link>
-                        );
-                      })}
+                      {mostrados.map((item) =>
+                        cartaoDoCalendario({ item, visao, ancora: grade.ancora, inteiro: false })
+                      )}
 
                       {/* QUEM CORTA TEM DE CONTAR — a mesma disciplina da tabela
                           de contatos e do feed de Atividade. O "+N" leva à
@@ -553,6 +471,26 @@ export default async function Agendados({
               </div>
             </div>
           </div>
+
+          {/* A LISTA POR DIA, SÓ ABAIXO DE 640 PX (docs/specs/2026-11-24-celular-onda-1.md,
+              a parte do PR 2, os achados 365 a 367). As casas da grade que têm
+              posts, um dia embaixo do outro, as do mês vizinho também: a lista
+              mostra o mesmo que a grade. O "+N" não existe aqui, porque cada dia
+              mostra todos os posts dele. */}
+          {diasDaLista.length > 0 && (
+            <ol className="space-y-4 px-4 py-3 sm:hidden">
+              {diasDaLista.map(({ casa, titulo, itens: doDia }) => (
+                <li key={casa.chave}>
+                  <h2 className={eyebrow}>{titulo}</h2>
+                  <div className="mt-1.5 space-y-1.5">
+                    {doDia.map((item) =>
+                      cartaoDoCalendario({ item, visao, ancora: grade.ancora, inteiro: true })
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
 
           {/* O CORTE DA GRADE, DECLARADO. Ele não morde hoje (medido: pico de 2
               posts por mês contra um teto de 200), e é justamente por isso que
@@ -595,9 +533,16 @@ export default async function Agendados({
 
           {/* O VAZIO DIZ O QUE FAZER. Um calendário sem nenhum post no período
               não é erro — é um mês em que ninguém marcou nada, e a frase tem de
-              ser um convite e não um silêncio. */}
-          {itens.length === 0 && (
-            <p className={`px-4 py-6 text-center text-sm ${muted}`}>
+              ser um convite e não um silêncio.
+
+              E NO CELULAR ELE OLHA A LISTA, e não a consulta (o achado 365). A
+              janela tem um dia de folga de cada lado, e um post que cai só na
+              folga entra em `itens` sem entrar em nenhuma casa: com a condição
+              de antes, a lista ficaria em branco, sem a frase. De 640 px para
+              cima, a condição continua a de `itens`, e o `sm:hidden` faz a
+              frase aparecer uma vez só em cada largura. */}
+          {diasDaLista.length === 0 && (
+            <p className={`px-4 py-6 text-center text-sm ${muted} ${itens.length === 0 ? "" : "sm:hidden"}`}>
               Nada marcado neste período.{" "}
               <Link href="/publicar/novo" className={link}>
                 Agendar um post
@@ -663,5 +608,127 @@ export default async function Agendados({
       )}
 
     </div>
+  );
+}
+
+/**
+ * O CARTÃO DE UM POST NO CALENDÁRIO, um só, usado pela grade e pela lista do
+ * celular (docs/specs/2026-11-24-celular-onda-1.md, o achado 366).
+ *
+ * ESCREVER OUTRO CARTÃO PARA A LISTA criaria duas fontes para as mesmas
+ * decisões (a capa, o ponto de estado, a hora, o rótulo e a âncora do `href`),
+ * o defeito que o comentário do `agruparPorDia`, no corpo da página, condena.
+ * Na lista, só muda que o rótulo não corta (`inteiro`): o quadrado da grade é
+ * estreito, e a linha da lista tem a largura do celular.
+ *
+ * ELE É UMA FUNÇÃO CHAMADA NO CORPO DA PÁGINA, e não um componente (o achado
+ * 375). A leitura dos testes de integração não desce em componente filho
+ * (testes-integracao/texto-da-arvore.ts:49-53): com um `<CartaoDoCalendario />`,
+ * o `href` e o rótulo sumiam do texto que eles leem, e quatro casos caíram no
+ * ensaio. Por isso o nome começa com minúscula, a função não usa hook, e o `key`
+ * mora no `Link` que ela devolve.
+ */
+function cartaoDoCalendario({
+  item,
+  visao,
+  ancora,
+  inteiro,
+}: {
+  item: QueueItem;
+  visao: "mes" | "semana";
+  ancora: string;
+  inteiro: boolean;
+}) {
+  const quando = dataDaLinhaDeEnvio(item);
+  const saiu = quando.saiu;
+  // A MINIATURA SÓ EXISTE ENQUANTO O POST NÃO SAIU: o
+  // dreno apaga a mídia do bucket depois de publicar
+  // (`limparOBucket`). Num post publicado a prévia seria
+  // uma imagem quebrada, então nem se tenta.
+  //
+  // E A CAPA É A PRIMEIRA IMAGEM, e não o primeiro
+  // caminho (spec 2026-10-19-enquadrar-imagens): o
+  // vídeo saía como imagem quebrada. O post só de vídeo
+  // fica sem capa, e a célula desenha o ícone dele. Quem
+  // decide, nas duas redes, é `cartaoDoPost`.
+  const cartao = cartaoDoPost(item, saiu);
+  const primeira = cartao.capa;
+  const soVideo = cartao.soVideo;
+  // `null` QUANDO O AMBIENTE NÃO DEIXA MONTAR A URL, e
+  // aí a célula desenha o símbolo em vez de uma imagem
+  // quebrada. Prévia não vale uma tela — ver
+  // `urlPublicaSeDerParaMontar` (lib/bucket.ts) para o
+  // defeito que ensinou isso.
+  const capa = primeira ? urlPublicaSeDerParaMontar(primeira) : null;
+  // ATRASADO: a hora passou e ele ainda esta na fila. A
+  // decisao e de `avisoDoAtrasoNaLista`, a mesma da tela
+  // de detalhe — aqui so se pergunta SE ha aviso, porque
+  // no quadrado nao cabe a frase.
+  const atrasado = avisoDoAtrasoNaLista(quando) !== null;
+  return (
+    <Link
+      key={item.id}
+      /* A VOLTA CARREGA A ÂNCORA, e não só a visão: sem
+         `em`, quem estava olhando dezembro e clicava em
+         "← Calendário" caía no mês de hoje. */
+      href={`/publicar/post/${item.id}?v=${visao}&em=${ancora}`}
+      /* O CHIP NÃO PINTA ESTADO, e isso é conserto de um
+         defeito que a revisão achou em 11/09/2026.
+
+         A primeira versão dava `bg-aberto/8` ao post que
+         AINDA NÃO SAIU e cinza ao que JÁ SAIU — e em toda
+         outra tela deste painel verde quer dizer "deu
+         certo". Quem varria o calendário procurando
+         problema via os verdes como sucesso, quando eram
+         justamente os pendentes, um deles atrasado num dia
+         que já passou.
+
+         E a spec proíbe isso em uma linha: os três estados
+         "continuam sendo SINAL — pílula, texto, ponto — e
+         nunca preenchimento grande". A superfície volta a
+         ser neutra; quem carrega o estado é o símbolo à
+         esquerda, que é do tamanho de um sinal. */
+      className="flex items-center gap-1.5 rounded-lg border border-traco bg-papel p-1 transition-colors hover:border-quieto/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-acao/25 dark:border-traco-escuro dark:bg-papel-escuro/50 dark:focus-visible:ring-acao-escuro/25"
+    >
+      {capa ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={capa}
+          alt=""
+          className="h-8 w-8 shrink-0 rounded-lg object-cover"
+        />
+      ) : (
+        <span
+          aria-hidden
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-traco text-[11px] dark:bg-traco-escuro"
+        >
+          {saiu ? "✓" : soVideo ? "▶" : "•"}
+        </span>
+      )}
+      {/* O PONTO DE ESTADO — do tamanho de um sinal, que é
+          o que a spec permite para as três cores. Verde é
+          o que SAIU (o mesmo sentido de todas as outras
+          telas), âmbar é o que está ATRASADO e ainda na
+          fila, e nada aparece no que vai sair na hora —
+          porque aí não há sinal a dar. */}
+      {(saiu || atrasado) && (
+        <span
+          aria-hidden
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+            saiu
+              ? "bg-aberto dark:bg-aberto-escuro"
+              : "bg-fecha dark:bg-fecha-escuro"
+          }`}
+        />
+      )}
+      <span className="min-w-0 flex-1">
+        <span className={`block text-[11px] font-semibold ${numero}`}>
+          {horaDoDia(quando.quando)}
+        </span>
+        <span className={`block ${inteiro ? "" : "truncate "}text-[11px] ${muted}`}>
+          {cartao.rotulo}
+        </span>
+      </span>
+    </Link>
   );
 }
