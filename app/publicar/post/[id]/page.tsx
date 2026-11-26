@@ -273,7 +273,7 @@ export default async function DetalheDaPublicacao({
             href={pagina.linkNoLinkedin}
             target="_blank"
             rel="noopener noreferrer"
-            className={`inline-block text-sm ${link}`}
+            className={`inline-flex min-h-6 items-center text-sm ${link}`}
           >
             Ver no LinkedIn ↗
           </a>
@@ -312,7 +312,7 @@ export default async function DetalheDaPublicacao({
                 className={`${input} w-auto!`}
               />
             </div>
-            <button className={btnGhost}>Remarcar</button>
+            <button className={`${btnGhost} min-h-11 sm:min-h-[auto]`}>Remarcar</button>
           </form>
 
           {/* CANCELAR PEDE CONFIRMAÇÃO, e a confirmação é um campo do
@@ -324,7 +324,7 @@ export default async function DetalheDaPublicacao({
               <input type="checkbox" name="confirmo" value="1" required />
               Confirmo o cancelamento
             </label>
-            <button className={btnDanger}>Cancelar este post</button>
+            <button className={`${btnDanger} min-h-11 sm:min-h-[auto]`}>Cancelar este post</button>
           </form>
 
           <p className={hint}>{pagina.notaDoCancelar}</p>

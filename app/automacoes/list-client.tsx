@@ -333,7 +333,7 @@ export default function AutomationsList({ automations }: { automations: Automati
                       disabled={ocupado}
                       onClick={() => alternar(a.id, a.active)}
                       title={a.active ? "Pausar automação" : "Ativar automação"}
-                      className={btnLinha}
+                      className={`${btnLinha} min-h-11 sm:min-h-[auto]`}
                     >
                       {a.active ? "Pausar" : "Ativar"}
                     </button>
