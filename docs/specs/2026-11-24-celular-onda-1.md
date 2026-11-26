@@ -3,7 +3,11 @@
 **Nascido em:** 24/11/2026, sobre a `main` em `aadf566`. **A v2 é de 25/11/2026**, com a medição de base (a Fase 0)
 e as decisões que dependiam dela. **A v3, do mesmo dia,** traz a medição da tabela da Atividade antes do plano (o
 achado 349). **A emenda do ensaio, também de 25/11,** troca o 404 do `/favicon.ico` por um redirect (o achado 352) e
-traz as cores do ícone que o Victor escolheu depois de vê-lo.
+traz as cores do ícone que o Victor escolheu depois de vê-lo. **A emenda do PR 2, de 26/11/2026, sobre a `main` em
+`96b5cbb`,** vem da releitura da auditoria antes do ensaio do PR 2 (os achados 365 a 369), corrige o texto do
+`capable` (o achado 360) e registra que as provas sem sessão e a do iPhone do PR 1 foram para a produção (o achado
+356). **O ensaio do PR 2, no mesmo dia,** mostrou que o cartão do calendário tem de ser uma função chamada no corpo da
+página, e não um componente filho, porque a integração não lê componente filho (o achado 375).
 
 **As decisões do Victor, em 24/11/2026 (à tarde, pela caixa):**
 - **O uso é "acompanhar".** As alternativas eram "acompanhar e criar posts" e "tudo igual ao computador".
@@ -161,6 +165,38 @@ de CSS só na aba dela, sem nada ir ao servidor, e recarregou a página antes de
   nome inteiro continua no computador.
 - A (e) não acrescenta nada à (d).
 
+### Na releitura para o PR 2 (26/11)
+
+Medido pela auditoria e pelo DEV na `main` em `96b5cbb`, só lendo. Os arquivos que o PR 2 toca não mudaram no PR 1
+(o `git diff --stat aadf566 96b5cbb` não traz nenhum deles), e as linhas citadas na parte do PR 2 batem.
+- **A janela da consulta tem um dia de folga de cada lado** (`app/publicar/page.tsx:136-140`), e a consulta traz os
+  posts da janela inteira (`:258-266`). Na visão "Mês", a grade tem 42 casas, e as do mês vizinho (`doMes: false`,
+  `lib/calendario.ts:133-135`) também mostram os posts delas.
+- **O "fora deste período"** (`app/publicar/page.tsx:290-295`) conta só os pendentes FORA da janela. Um post que cai
+  só na folga entra em `itens`, mas não entra em nenhuma casa, nem na contagem.
+- **O vazio,** "Nada marcado neste período." (`:596-606`), aparece quando `itens.length === 0`.
+- **O cartão do post na grade** (`:444-537`) junta a capa ou o ícone (`cartaoDoPost`), o ponto de estado (saiu ou
+  atrasado, `avisoDoAtrasoNaLista`), a hora, o rótulo (com `truncate`, `:531`) e o `href` que carrega a âncora
+  (`:474-477`).
+- **A leitura dos testes de integração não desce em componente filho** (`testes-integracao/texto-da-arvore.ts:37-53`).
+  O `textoDaArvore` anda pela árvore que a página devolve e lê o texto, a `key` e os `props` simples, sem chamar o
+  `type` de elemento nenhum. A regra prática está escrita lá: o que um caso de integração precisa LER tem de ser
+  escrito no corpo da página, e não num componente filho. O `app/page.tsx:474-475` repete a regra: é por ela que o
+  estado calmo do Início é escrito no corpo. Os casos de `agendados`, `linkedin-telas` e `nao-saiu` leem o cartão do
+  calendário por ele (o achado 375).
+- **A ordem já chega pronta.** A consulta ordena por `coalesce(sent_at, not_before), id` (`:264`). Essa é a mesma
+  data que o `dataDaLinhaDeEnvio` usa (`lib/publicacao.ts:1927-1932`), e o `agruparPorDia` agrupa por ela
+  (`app/publicar/page.tsx:309`), mantendo a ordem de chegada (`lib/calendario.ts:252-256`). Os dias já vêm em ordem
+  nas `grade.casas`.
+- **Nenhum teste de tela monta o quadro do editor:** nenhum arquivo de `testes-dom/` importa `editor/quadro`. O quadro
+  importa o `@xyflow/react` e o CSS dele (`app/automacoes/editor/quadro.tsx:4-15`), e a ação de servidor
+  `salvarAutomacao` (`:43`). O `ReactFlow` está em `:1644`, e o aviso, fora dele, em `:1546-1551`. A suíte de tela
+  roda no jsdom (`vitest.dom.config.ts:48` e `:53`).
+- **O `capable` já sai como `true`.** Quando o `appleWebApp` existe sem a chave, o Next o resolve como `true`
+  (`node_modules/next/dist/lib/metadata/resolvers/resolve-basics.js:197`, lido na 16.4.3 da pasta principal, o
+  achado 335; a linha da 16.4.6 se confere no ensaio). A auditoria mediu na produção, em 26/11 (um GET do `/entrar`,
+  sem cookie), o `<meta name="mobile-web-app-capable" content="yes"/>` no `<head>` (o achado 360).
+
 ---
 
 ## As regras de tela (o que a prova mede)
@@ -210,10 +246,13 @@ Em 390 px de largura, em cada rota da onda 1:
   - ganha `export const viewport = { themeColor: "#0b0a0e" }`;
   - ganha, no `metadata`, o `appleWebApp` com `title: "MetodoChat"`, que dá o nome do ícone na tela de início do
     iPhone;
-  - **o `capable: true` fica fora.** No 16.4.6, ele escreve `<meta name="mobile-web-app-capable">`
-    (`node_modules/next/dist/lib/metadata/metadata-elements.js:446-452`). Quem faz o app abrir sem a barra do
-    navegador é o `display: standalone` do manifesto (o achado 339). A prova no iPhone mede isso. Se ele abrir com a
-    barra, o `capable` volta numa emenda, com uma nova prova.
+  - **o `capable` não é escrito, e mesmo assim sai como `true`** (o achado 360, que corrige a v3: ela dizia que ele
+    "fica fora"). Sem a chave, o Next o resolve como `true` e escreve `<meta name="mobile-web-app-capable"
+    content="yes">` (`node_modules/next/dist/lib/metadata/metadata-elements.js:446-452`; a seção "Na releitura para o
+    PR 2"). Quem faz o app abrir sem a barra de endereço continua sendo o `display: standalone` do manifesto (o achado
+    339), e a meta não atrapalha. A prova no iPhone mede isso. Se ele abrir com a barra de endereço, a causa não é a
+    falta do `capable`, e o caso volta à auditoria. O comentário de `app/layout.tsx:71-74`, que repete o texto da v3,
+    é corrigido no PR 2. O código não muda, porque o `<head>` já é o desejado.
 - **O favicon:** há duas opções. A spec escolhe a (1).
   - **(1) Apagar o `app/favicon.ico`** e deixar o desenho só no `icon.tsx` e no `apple-icon.tsx`.
     - É uma fonte só para o desenho, sem binário versionado e sem roteiro de uso único. Quando vier um logo, troca-se
@@ -275,17 +314,44 @@ Em 390 px de largura, em cada rota da onda 1:
 
 ## O que muda: o PR 2 (Publicações e Automações)
 
+O PR 2 segue os moldes que o PR 1 deixou na `main`: os 44 px com a volta no corte (`min-h-11 lg:min-h-[auto]`, em
+`app/app-shell.tsx:149`), os 24 px de um link (`inline-flex min-h-6 items-center`, em `app/page.tsx:418`, `:551` e
+`:560`) e as classes que só valem abaixo de 640 px com a volta no `sm:` (`app/eventos/page.tsx:226-228` e `:269`).
+
 ### Publicações
 
 - **O calendário vira uma lista por dia abaixo de 640 px** (`app/publicar/page.tsx:404`):
   - a grade de 7 colunas fica só de 640 px para cima;
-  - abaixo disso, aparece uma lista dos dias do período que têm posts, um embaixo do outro, em ordem. Cada dia tem
-    um título com a data e os posts dele, com a hora e o tipo inteiros, cada um levando à página do post;
+  - **abaixo disso, a lista mostra exatamente as casas da grade que têm posts, na ordem da grade, as do mês vizinho
+    também** (o achado 365). A lista mostra o mesmo que a grade. Se ela tirasse os dias do mês vizinho, um post do
+    dia 1/12, visto na grade de novembro, sumiria da lista do celular sem contagem nenhuma, porque o "fora deste
+    período" (`:290-295`) só conta o que está fora da janela. Isso iria contra o "quem corta tem de contar"
+    (`:539-541` e `lib/calendario.ts:264-265`);
+  - cada dia tem um título com o dia da semana, o dia e o nome do mês, com os mesmos nomes da grade
+    (`DIAS_DA_SEMANA` e `MESES`, `lib/calendario.ts:27-32`), por exemplo "ter, 1 de dezembro". Com o mês no título, o
+    dia do mês vizinho não se confunde com um dia do mês da grade;
+  - **os posts de cada dia vêm no mesmo cartão da grade** (o achado 366). O cartão (`:444-537`) vira uma função só,
+    a `cartaoDoCalendario`, no mesmo arquivo, chamada no corpo da página pela grade e pela lista. Escrever outro
+    cartão para a lista criaria duas fontes para as mesmas decisões (a capa, o ponto de estado, a hora, o rótulo e a
+    âncora do `href`), o defeito que o próprio arquivo condena em `:304-308`. Na lista, só muda que o rótulo não
+    corta: a hora e o tipo inteiros, sem o `truncate` de `:531`;
+  - **o cartão é uma FUNÇÃO chamada no corpo, e não um componente filho** (o achado 375). A leitura dos testes de
+    integração não desce em componente filho (`testes-integracao/texto-da-arvore.ts:37-53` e `app/page.tsx:474-475`):
+    com um `<CartaoDoCalendario />`, o `href` e o rótulo do cartão somem do texto que eles leem. No ensaio de 26/11, o
+    cartão como componente derrubou 4 casos da integração (em `agendados`, `linkedin-telas` e `nao-saiu`), e um
+    `not.toContain` sobre o cartão (`testes-integracao/linkedin-telas.integracao.ts:299`) passaria a ficar verde sem
+    ler nada. Por isso o nome começa com minúscula, a função não usa hook, e o `key={item.id}` fica no `Link` que ela
+    devolve, como está hoje;
   - vale para a visão "Mês" e para a "Semana". A navegação ("‹", "›", "Hoje", "Semana" e "Mês") continua igual;
   - o "+N" de um dia cheio não aparece na lista, porque ela mostra todos os posts do dia;
-  - um período sem posts mostra o estado vazio que já existe;
-  - a montagem da lista é uma função pura sobre a mesma grade (`lib/calendario.ts`, `gradeDoMes` na `:137` e
-    `gradeDaSemana` na `:166`), com teste próprio.
+  - **abaixo de 640 px, o vazio aparece quando a LISTA está vazia** (o achado 365). Um post que cai só na folga da
+    janela entra em `itens`, mas em nenhuma casa. Com o vazio de hoje (`itens.length === 0`, `:599`), a lista
+    ficaria em branco, sem a frase. De 640 px para cima, o vazio continua como está;
+  - **a montagem da lista é uma função pura em `lib/calendario.ts`,** com teste próprio. Ela recebe as casas da grade
+    (`gradeDoMes`, `:137`, ou `gradeDaSemana`, `:166`) e o `porDia` (`app/publicar/page.tsx:309`) e devolve as casas
+    com posts, com os posts de cada uma e o título do dia. **Ela não ordena nada** (o achado 367): os dias já vêm em
+    ordem nas casas, e os posts de cada dia já chegam em ordem de hora (a seção "Na releitura para o PR 2"). Uma
+    segunda ordenação seria uma segunda fonte da ordem.
 - **O post (`/publicar/post/[id]`):**
   - o Remarcar (`:315`) e o "Cancelar este post" (`:327`) ganham altura mínima de 44 px abaixo de 640 px;
   - "Ver no LinkedIn ↗" (`:278`) sobe para 24 px, no mínimo.
@@ -297,7 +363,8 @@ Em 390 px de largura, em cada rota da onda 1:
   24. As alturas ficam misturadas na mesma linha (o achado 350). A foto da prova mostra como fica e, se parecer
   defeito, o alinhamento entra neste PR.
 - **O editor (`/automacoes/[id]`):**
-  - o aviso já existe (`quadro.tsx:1546-1551`). Esta entrega só o cobre com um teste de tela;
+  - o aviso já existe (`quadro.tsx:1546-1551`). Esta entrega o cobre com um teste de tela que monta o quadro (a
+    seção "Os testes", o achado 368);
   - "← Automações" (`quadro.tsx:1410`) sobe para 24 px, no mínimo.
 
 ## O que fica de fora
@@ -323,19 +390,42 @@ O layout não se mede no jsdom. Por isso, os testes cobrem o que é lógica, e a
     `/conversas/x.png`. A lista final sai da forma medida no build.
 - **O favicon antigo (puro, novo):** o `redirects()` do `next.config.ts` leva o `/favicon.ico` ao `/icon/32`, com
   `permanent: false`.
-- **A lista do calendário (puro, novo):** a função monta, a partir da grade, só os dias com posts, em ordem de data,
-  com os posts de cada dia em ordem de hora. Uma grade sem posts dá uma lista vazia.
-- **O aviso do editor (tela, novo):** o aviso "A edição das automações é pelo computador" aparece no quadro, com a
-  classe `sm:hidden`.
+- **A lista do calendário (puro, novo):** a função devolve só as casas com posts, na ordem das casas, com os posts de
+  cada uma na ordem em que chegaram e o título de cada dia. Os casos:
+  - na grade do mês, um post num dia do mês vizinho entra na lista, com o mês dele no título (o achado 365);
+  - um post que cai só na folga da janela deixa a lista vazia (o achado 365);
+  - dois posts do mesmo dia, entregues numa ordem qualquer, saem na mesma ordem: a função não ordena (o achado 367);
+  - a semana que atravessa a virada do mês dá os dois meses nos títulos;
+  - uma grade sem posts dá uma lista vazia.
+- **O aviso do editor (tela, novo):** o teste monta o `Quadro` de `app/automacoes/editor/quadro.tsx`, e não um pedaço
+  extraído dele, porque tirar o aviso do quadro tem de derrubar o teste (o achado 368). Os dublês:
+  - a ação `salvarAutomacao`, por `vi.mock("@/app/automacoes/actions")`, no molde de
+    `testes-dom/convites-no-setup.dom.tsx:7`;
+  - o `ReactFlow` de `@xyflow/react`, trocado por um componente vazio, com o resto do módulo verdadeiro
+    (`importOriginal`, no molde de `testes-dom/teto-nas-telas.dom.tsx:36`). O teste não confere o quadro de
+    arrastar: o aviso mora fora do `ReactFlow`;
+  - um `ResizeObserver` que não faz nada, por `vi.stubGlobal`, dentro do próprio teste (no molde de
+    `testes-dom/bonus-capa-card.dom.tsx:35`). Ele é certo, e não um "talvez" (o achado 369): o quadro chama
+    `new ResizeObserver` num efeito de montagem (`quadro.tsx:1187-1193`) sobre a `div` da faixa de edição (`:1831`),
+    que fica FORA do `ReactFlow` (ele fecha em `:1816`), e o jsdom não tem `ResizeObserver`.
+
+  O teste confere que o aviso "A edição das automações é pelo computador" aparece dentro de um elemento com
+  `sm:hidden`, e que o "Salvar automação" fica dentro do elemento com `hidden` e `sm:flex` (`quadro.tsx:1450`).
+  **O ensaio mede se o quadro monta assim, antes do plano.** Se ele pedir mais dublês além desses três, a lista volta
+  à auditoria antes do plano.
+- **A integração que já existe lê o cartão do calendário** (os casos de `agendados`, `linkedin-telas` e `nao-saiu`,
+  pelo `textoDaArvore`). Ela já protege a forma do cartão: virar o cartão em componente filho derruba 4 desses casos,
+  como o ensaio de 26/11 mediu (o achado 375).
 - **As mutações:** cada proteção é estragada, uma por vez, e algum teste tem de cair. As mutações são:
   - trocar a igualdade de `PUBLIC_EXATOS` por prefixo;
   - tirar um endereço da lista;
   - pôr os exatos depois da sessão;
-  - tirar o aviso;
+  - tirar o aviso do quadro;
+  - mostrar o "Salvar automação" abaixo de 640 px (tirar o `hidden` de `quadro.tsx:1450`);
   - trocar o `display` do manifesto;
   - escrever a descrição à mão no manifesto, sem a constante (o achado 343);
   - tirar o redirect do favicon;
-  - na lista do calendário, deixar entrar um dia sem posts e inverter a ordem.
+  - na lista do calendário: deixar entrar um dia sem posts, tirar os dias do mês vizinho e inverter a ordem.
 - **O verify** limpo e a integração igual à `main`.
 
 ## A prova na prévia
@@ -351,11 +441,20 @@ O layout não se mede no jsdom. Por isso, os testes cobrem o que é lógica, e a
 - o Remarcar e o "Cancelar este post" num post pendente da conta de provas, se houver um. Se não houver, eles ficam
   como "medidos pelo código".
 
-**O Victor instala o ícone no iPhone dele,** pelo Safari, em "Adicionar à Tela de Início", a partir da prévia. Ele
-conta como o ícone ficou e se o app abre sem a barra do navegador. **O Android fica sem prova** nesta entrega.
+**No PR 1, as medidas sem sessão foram para a produção,** depois do merge, e não para a prévia. A prévia tem a
+proteção da Vercel (o `ssoProtection` com "all_except_custom_domains"), e um pedido sem o login da Vercel recebe o 401
+dela, e não a resposta do app (o achado 356). **No PR 2, não há endereço novo sem sessão:** a auditoria mede as rotas
+de Publicações e de Automações na prévia, com a sessão do Victor, numa aba aberta no perfil certo do Chrome dele (o
+achado 359).
 
-**Os dados da Fase 0 que têm dado de cliente** (o `fase0.json` e as fotos, no scratchpad da auditoria) são apagados
-quando esta spec for aprovada.
+**O iPhone, no PR 1:** a prova foi para o domínio de produção (`metodochat.vercel.app`), e não para a prévia, pelo
+mesmo motivo (o achado 356): o Safari do iPhone pediria o login da Vercel. Em 26/11, ela está pendente: o Victor a faz
+quando estiver com o iPhone, e a caixa do resultado vem depois do "terminei" dele. **O PR 2 não mexe no ícone nem no
+manifesto, e não tem prova no iPhone.** O Android fica sem prova nesta entrega.
+
+**Os dados da Fase 0 que têm dado de cliente** (o `fase0.json` e as fotos, no scratchpad da auditoria) foram
+apagados. A auditoria conferiu em 26/11 que não há `fase0.json` nem fotos, e os JSON que sobraram só têm números (os
+nomes aparecem só como contagem).
 
 ## A entrega
 
@@ -363,5 +462,6 @@ quando esta spec for aprovada.
   envios.
   - **PR 1:** o ícone, o manifesto, o porteiro, a casca, e Início, Desempenho e Atividade.
   - **PR 2:** Publicações e Automações.
-- **Um plano por PR.** O PR 2 sai da `main` depois do merge do PR 1.
+- **Um plano por PR.** O PR 2 sai da `main` depois do merge do PR 1. O PR 1 foi mesclado em 25/11 (o PR #43, com o
+  merge `96b5cbb`), e a limpeza dele foi feita em 26/11.
 - **Antes do próximo merge,** a caixa confere que o "Keep my email addresses private" continua ligado (o achado 333).
